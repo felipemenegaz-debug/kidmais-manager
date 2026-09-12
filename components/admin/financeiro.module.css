@@ -1,0 +1,14 @@
+.panel {margin:1.5rem 0;padding:1.5rem;border:1px solid #d8dfdc;border-radius:12px;background:#fff;color:#203b31;}
+.panel h2,.panel h3 {margin:1rem 0 .6rem;}
+.panel p {line-height:1.5;}
+.metrics {display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;}
+.metrics div {padding:12px;background:#f1f6f3;border-radius:8px;}
+.metrics dt {font-size:.85rem;}.metrics dd {margin:8px 0 0;font-size:1.2rem;font-weight:700;}
+.panel label {display:flex;flex-direction:column;gap:5px;margin:10px 0;}
+.panel input,.panel select,.panel textarea {padding:9px;border:1px solid #869b90;border-radius:5px;font:inherit;max-width:100%;}
+.panel textarea {min-height:80px;}.panel button {padding:9px 13px;border:1px solid #587765;border-radius:6px;background:#f1f6f3;color:#203b31;cursor:pointer;margin:4px;}
+.panel button:disabled {opacity:.55;cursor:wait;}.actions {display:flex;gap:8px;flex-wrap:wrap;}
+.wizard,.refund {margin:16px 0;padding:16px;background:#f8faf9;border:1px solid #c6d5cc;border-radius:8px;}
+.item {display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #d8dfdc;padding:8px 0;}
+.panel table {border-collapse:collapse;width:100%;}.panel th,.panel td {text-align:left;padding:10px;border-bottom:1px solid #d8dfdc;}.panel fieldset {min-width:0;}.error {color:#8b1b1b;background:#fff1f1;padding:12px;}.panel a {display:inline-block;margin:8px;text-decoration:underline;}
+.panel details {overflow-wrap:anywhere;margin:.4rem 0;font-size:.85rem;}.panel h4 {font-weight:700;margin:1rem 0 .5rem;}.panel ul {padding-left:1.25rem;}.panel li {margin:.5rem 0;}

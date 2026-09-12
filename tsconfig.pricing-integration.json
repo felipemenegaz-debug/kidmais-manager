@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "rootDir": ".",
+    "outDir": ".tmp/pricing-integration",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "scripts/pricing-service.integration.ts",
+    "lib/db/contracts.ts",
+    "lib/db/postgres.ts",
+    "lib/comercial/repositories/**/*.ts",
+    "lib/comercial/services/**/*.ts"
+  ]
+}

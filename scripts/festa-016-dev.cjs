@@ -1,0 +1,6 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+require('./festa-016-next-files.cjs').preservar();
+const {Client}=require('pg'),{spawn}=require('node:child_process'),{randomBytes}=require('node:crypto');
+async function main(){const registry=require('../.local-festa/environments.json');if(new URL(process.env.DATABASE_URL).pathname!=='/'+registry.manual)throw Error('Use o arquivo manual.env do clone manual cadastrado.');const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();try{const r=(await c.query("SELECT current_database() n,to_regclass('public.festas') IS NOT NULL ok")).rows[0];if(!/^kidmais_016_\d+$/.test(r.n)||!r.ok)throw Error('Servidor recusado: configure o clone 016 com migration aplicada.');console.log('Festa no clone '+r.n+' — http://localhost:3017/admin/festas');}finally{await c.end();}
+ const child=spawn(process.execPath,['node_modules/next/dist/bin/next','dev','-p','3017'],{env:{...process.env,NODE_ENV:'development',KIDMAIS_FESTA_ISOLADO:'true',KIDMAIS_FESTA_AMBIENTE:'manual',ADMIN_AUTH_ORIGIN:'http://localhost:3017',ADMIN_AUTH_SECRET:process.env.ADMIN_AUTH_SECRET||randomBytes(32).toString('hex')},stdio:'inherit',windowsHide:true});child.on('exit',code=>{process.exitCode=code??1;});process.on('SIGINT',()=>child.kill());}
+main().catch(e=>{console.error(e.message);process.exitCode=1;});

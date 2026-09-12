@@ -1,0 +1,9 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {estadoDerivado,pertenceVisao,excedentes,capacidades} from './domain.ts';
+const evento={evento:{data:'2026-09-12',horarioInicio:'17:00:00',horarioFim:'21:00:00'}};
+for(const [iso,estado] of [['2026-09-11T23:00:00Z','PROXIMA'],['2026-09-12T03:00:00Z','HOJE'],['2026-09-12T23:59:59Z','HOJE'],['2026-09-13T00:00:00Z','REALIZADA']])test('Estado derivado São Paulo: '+iso,()=>assert.equal(estadoDerivado(evento,false,false,new Date(iso)),estado));
+test('cancelamento e invalidação prevalecem sobre data passada',()=>{assert.equal(estadoDerivado(evento,true,false,new Date('2030-01-01')),'CANCELADA');assert.equal(estadoDerivado(evento,true,true),'REMOVIDA');});
+test('evento cruzando meia-noite permanece futuro até horário final',()=>{const s={evento:{data:'2026-09-12',horarioInicio:'23:00:00',horarioFim:'02:00:00'}};assert.equal(estadoDerivado(s,false,false,new Date('2026-09-13T04:00Z')),'HOJE');assert.equal(estadoDerivado(s,false,false,new Date('2026-09-13T05:00Z')),'REALIZADA');});
+test('visões incluem pendência normal e filtros históricos',()=>{assert(pertenceVisao('PROXIMA','Próximas',false));assert(pertenceVisao('HOJE','Hoje',false));assert(pertenceVisao('REALIZADA','Histórico',false,'Realizadas'));assert(!pertenceVisao('CANCELADA','Pendências',true));assert(pertenceVisao('REALIZADA','Pendências',true));assert(!pertenceVisao('REMOVIDA','Histórico',true));assert(!pertenceVisao('CANCELADA','Histórico',false,'Realizadas'));});
+test('excedentes não negativos e somente cinco capacidades úteis',()=>{assert.equal(excedentes(58,50),8);assert.equal(excedentes(50,70),0);assert.equal(capacidades.length,5);assert.deepEqual([...capacidades],['FESTA_CONSULTAR','FESTA_CRIAR','FESTA_OPERAR','FESTA_CORRIGIR','FESTA_CONFIGURAR_AREAS']);});

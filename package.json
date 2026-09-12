@@ -1,0 +1,40 @@
+{
+  "name": "kidmais-manager",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test:comercial:pagamento": "node --experimental-strip-types --test lib/comercial/condicao-pagamento.test.ts",
+    "test:comercial:pagamento:integration": "node --env-file=.env.local scripts/condicao-pagamento.integration.cjs",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test:disponibilidade": "node --experimental-strip-types --test lib/disponibilidade/services/horario.utils.test.ts",
+    "test:contrato": "node --experimental-strip-types --test lib/contratos/services/snapshot-core.test.ts lib/contratos/documento/documento-core.test.ts lib/contratos/services/acesso-token.test.ts",
+    "test:pagamentos": "node --experimental-strip-types --test lib/pagamentos/services/financeiro-core.test.ts lib/pagamentos/services/idempotencia.test.ts",
+    "test:pagamentos:integration": "node --env-file=.env.local scripts/pagamentos-engenharia.integration.cjs && node --env-file=.env.local scripts/pagamentos-http.integration.cjs && node --env-file=.env.local scripts/pagamentos-concorrencia.integration.cjs",
+    "check:pagamentos:db": "node --env-file=.env.local scripts/pagamentos-inspecao.cjs",
+    "check:v1:static": "node scripts/regressao-v1-estatica.cjs",
+    "check:v1:clone": "node scripts/regressao-v1-clone.cjs",
+    "check:v1:ui": "node scripts/festa-navegacao-ui.test.cjs",
+    "check:v1:producao:readonly": "node --experimental-strip-types scripts/festa-016-preproducao-preservacao.cjs"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "pg": "^8.23.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.4",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,17 @@
+.page { max-width: 1000px; margin: 0 auto; padding: 40px 24px 80px; color: #29243e; }
+.brand { color: #7545a0; font-weight: 700; letter-spacing: .08em; font-size: 12px; }
+.page h1 { font-size: 32px; margin: 14px 0; }
+.page h2 { font-size: 22px; }
+.page p { line-height: 1.6; }
+.card { padding: 24px; border: 1px solid #ded7eb; border-radius: 18px; margin: 24px 0; background: #fff; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.page label { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; font-weight: 600; }
+.page input, .page textarea { border: 1px solid #bfb4d0; border-radius: 8px; padding: 12px; font: inherit; min-width: 0; }
+.page input:focus-visible, .page textarea:focus-visible, .page button:focus-visible { outline: 3px solid #b798e3; outline-offset: 3px; }
+.page fieldset { border: 1px solid #ded7eb; border-radius: 12px; padding: 16px; }
+.page button { padding: 12px 22px; border: 0; border-radius: 10px; background: #7545a0; color: white; font: inherit; cursor: pointer; }
+.page button:disabled { opacity: .5; cursor: wait; }
+.page .check { flex-direction: row; align-items: center; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.error { color: #9c2330; background: #fff0f2; border-radius: 8px; padding: 16px; }
+@media (max-width: 650px) { .grid { grid-template-columns: 1fr; } .page { padding: 24px 16px; } }

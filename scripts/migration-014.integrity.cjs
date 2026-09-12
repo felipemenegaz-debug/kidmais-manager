@@ -1,0 +1,54 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+const fs=require('node:fs'),crypto=require('node:crypto'),assert=require('node:assert/strict');const {Client}=require('pg');
+async function main(){const {dest}=JSON.parse(fs.readFileSync('.tmp/checkpoint-014.json'));const report=JSON.parse(fs.readFileSync(dest+'/014-teste-isolado.json'));assert.match(report.banco,/^kidmais_014_test_\d+$/);const url=new URL(process.env.DATABASE_URL);url.pathname='/'+report.banco;const c=new Client({connectionString:url.toString()});await c.connect();const {rid,vid,baseId,fechamentoId,usuarioId}=report.fixture;const ok=s=>{report.results.push(s);console.log('OK',s);};
+async function fail(label,sql,args=[]){await c.query('BEGIN');try{await c.query(sql,args);await c.query('SET CONSTRAINTS ALL IMMEDIATE');assert.fail('Aceitou '+label);}catch(e){assert(['23514','23503','23505','23502'].includes(e.code),e.message);}finally{await c.query('ROLLBACK');}ok(label);}
+try{
+ const r=(await c.query('SELECT * FROM fechamento_revisoes WHERE id=$1',[rid])).rows[0],v=(await c.query('SELECT * FROM contrato_versoes WHERE id=$1',[vid])).rows[0],u=(await c.query('SELECT * FROM usuarios_administrativos WHERE id=$1',[usuarioId])).rows[0];
+ await fail('FK de aprovação recusa outro fechamento',"INSERT INTO aprovacoes_negociacao(fechamento_id,valor_informado,status,fechamento_revisao_id,fechamento_revisao_numero,fechamento_revisao_hash,chave_decisao,aprovado_por_usuario_id) VALUES(gen_random_uuid(),1,'RECUSADO',$1,1,$2,gen_random_uuid(),$3)",[rid,r.conteudo_hash,usuarioId]);
+ await fail('nova decisão exige hash exato',"INSERT INTO aprovacoes_negociacao(fechamento_id,valor_informado,status,fechamento_revisao_id,fechamento_revisao_numero,fechamento_revisao_hash,chave_decisao,aprovado_por_usuario_id) VALUES($1,1,'RECUSADO',$2,1,repeat('0',64),gen_random_uuid(),$3)",[fechamentoId,rid,usuarioId]);
+ const snap={...v.snapshot,revisaoOperacional:{id:rid,revisao:r.revisao,conteudoHash:r.conteudo_hash,versaoBaseId:baseId}};
+ require('./pagamentos-test-support.cjs');const {hashSnapshotContrato}=require('../lib/contratos/services/snapshot-core.ts');const sh=hashSnapshotContrato(snap);
+ const bytes=Buffer.from('%PDF-1.4\nFixture isolada Migration 014\n%%EOF'),ph=crypto.createHash('sha256').update(bytes).digest('hex');
+ await c.query('BEGIN');
+ await c.query('UPDATE contrato_versoes SET snapshot=$2,snapshot_hash=$3 WHERE id=$1',[vid,snap,sh]);
+ const a=(await c.query("INSERT INTO aprovacoes_negociacao(fechamento_id,valor_informado,valor_aprovado,status,fechamento_revisao_id,fechamento_revisao_numero,fechamento_revisao_hash,chave_decisao,aprovado_por_usuario_id) VALUES($1,$2,$2,'APROVADO',$3,$4,$5,gen_random_uuid(),$6) RETURNING id",[fechamentoId,r.valor_tabela,rid,r.revisao,r.conteudo_hash,usuarioId])).rows[0];
+ await c.query('UPDATE fechamento_revisoes SET revisao_comercial_aprovada=revisao,aprovacao_negociacao_id=$2,aprovado_comercial_por_usuario_id=$3,aprovado_comercial_em=clock_timestamp() WHERE id=$1',[rid,a.id,usuarioId]);
+ const insertDoc="INSERT INTO contrato_documentos(contrato_versao_id,categoria,revisao,snapshot_hash,template_codigo,template_versao,pdf_hash,tamanho_bytes,conteudo_pdf,gerado_por_usuario_id) VALUES($1,$2,1,$3,'SYNTHETIC_014',1,$4,$5,$6,$7) RETURNING id";
+ const d=(await c.query(insertDoc,[vid,'CONTRATO',sh,ph,bytes.length,bytes,usuarioId])).rows[0];const proof=(await c.query(insertDoc,[vid,'COMPROVANTE_ASSINATURA',sh,ph,bytes.length,bytes,usuarioId])).rows[0];
+ await c.query('UPDATE contrato_edicoes SET documento_revisado_id=$2,revisado_por_usuario_id=$3,revisado_em=clock_timestamp(),revisao_comercial_aprovada=revisao,aprovado_comercial_por_usuario_id=$3,aprovado_comercial_em=clock_timestamp() WHERE contrato_versao_id=$1',[vid,d.id,usuarioId]);
+ const session=(await c.query("INSERT INTO sessoes_administrativas(usuario_id,token_hash,csrf_hash,autenticado_em,ultima_atividade_em,expira_em) VALUES($1,$2,$3,clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '1 hour') RETURNING id,autenticado_em::text",[usuarioId,crypto.randomBytes(32).toString('hex'),crypto.randomBytes(32).toString('hex')])).rows[0];
+ await c.query("INSERT INTO contrato_assinaturas(contrato_versao_id,parte,documento_id,usuario_id,sessao_id,autenticacao_metodo,autenticado_em,identidade_snapshot,snapshot_hash,pdf_hash,metodo,provider,assinado_em,request_id,chave_idempotencia,comprovante_documento_id) VALUES($1,'KIDMAIS',$2,$3,$4,'SENHA',$5,$6,$7,$8,'SESSAO_REAUTENTICADA','INTERNAL',clock_timestamp(),$9,$10,$11)",[vid,d.id,usuarioId,session.id,session.autenticado_em,{schemaVersao:1,usuarioId,nome:u.nome,cargo:u.cargo,papel:'REPRESENTANTE_AUTORIZADO'},sh,ph,crypto.randomUUID(),crypto.randomUUID(),proof.id]);
+ await c.query("UPDATE contrato_edicoes SET estado='ASSINADA_KIDMAIS' WHERE contrato_versao_id=$1",[vid]);
+ await c.query("UPDATE fechamento_revisoes SET estado='CONGELADA',congelado_snapshot_hash=$2,congelado_documento_id=$3,congelado_em=clock_timestamp(),congelado_por_usuario_id=$4 WHERE id=$1",[rid,sh,d.id,usuarioId]);await c.query('COMMIT');ok('aprovação/PDF/prova real de sessão e preparação congelada coerentes');
+ await fail('decisão vinculada imutável','UPDATE aprovacoes_negociacao SET valor_aprovado=1 WHERE id=$1',[a.id]);
+ await fail('conteúdo congelado imutável',"UPDATE fechamento_revisoes SET tema_festa='inválido' WHERE id=$1",[rid]);
+ await fail('filhos congelados imutáveis','INSERT INTO fechamento_revisao_adicionais(fechamento_revisao_id,adicional_id,preco_adicional_id,nome_aplicado,unidade_cobranca_aplicada,quantidade,valor_unitario_aplicado,valor_total) SELECT $1,adicional_id,preco_adicional_id,nome_aplicado,unidade_cobranca_aplicada,quantidade,valor_unitario_aplicado,valor_total FROM fechamento_adicionais LIMIT 1',[rid]);
+ await fail('aplicação sem aceite/promover recusada',"UPDATE fechamento_revisoes SET estado='APLICADA',aplicado_em=clock_timestamp() WHERE id=$1",[rid]);
+ // Confirmação física sintética de base no clone: teste do marcador em CONGELADA, sem inventar recebimento local.
+ const baseF=(await c.query('SELECT data_evento::text dia FROM fechamentos WHERE id=$1',[fechamentoId])).rows[0];
+ await c.query('BEGIN');await c.query('SELECT kidmais_lock_datas_revisao(ARRAY[$1::date])',[baseF.dia]);await c.query("UPDATE fechamentos SET status='CONFIRMADO' WHERE id=$1",[fechamentoId]);await c.query('UPDATE fechamento_revisoes SET hold_destino_adquirido_em=clock_timestamp() WHERE id=$1',[rid]);await c.query('COMMIT');ok('hold adquirido após confirmação com conteúdo já congelado');
+ assert.equal((await c.query('SELECT count(*)::int n FROM kidmais_ocupacoes_operacionais($1,$1) WHERE fechamento_id=$2',[baseF.dia,fechamentoId])).rows[0].n,2);ok('ocupação confirmada e hold identificados pelo dono');
+ await fail('bloqueio não ocupa hold',"INSERT INTO bloqueios_agenda(data,dia_inteiro,motivo) VALUES($1,true,'Conflito sintético')",[baseF.dia]);
+ await fail('hold não pode ser removido avulso','UPDATE fechamento_revisoes SET hold_destino_adquirido_em=NULL WHERE id=$1',[rid]);
+ // Exercita o caminho positivo de promoção e seus constraint triggers, depois desfaz a fixture.
+ await c.query('BEGIN');
+ const consumed=(await c.query("INSERT INTO validacoes_identidade_cliente(cliente_id,finalidade,status,confirmado_em,token_prova_hash,prova_expira_em,consumido_em,consumido_por_contrato_versao_id) VALUES($1,'CONTRATO_ACEITE','CONSUMIDA',clock_timestamp(),$2,clock_timestamp()+interval '1 hour',clock_timestamp(),$3) RETURNING id",[r.cliente_id,crypto.randomBytes(32).toString('hex'),vid])).rows[0];
+ const signed=(await c.query("UPDATE contrato_versoes SET status='ASSINADA',assinado_em=clock_timestamp(),documento_template_versao=1,documento_pdf_hash=$2,aceite_metodo='OTP' WHERE id=$1 RETURNING assinado_em::text",[vid,ph])).rows[0];
+ await c.query("INSERT INTO contrato_assinaturas(contrato_versao_id,parte,documento_id,validacao_identidade_id,identidade_snapshot,snapshot_hash,pdf_hash,metodo,provider,assinado_em,request_id,chave_idempotencia,comprovante_documento_id) VALUES($1,'CLIENTE',$2,$3,$4,$5,$6,'OTP','INTERNAL',$7,$8,$9,$10)",[vid,d.id,consumed.id,{schemaVersao:1,clienteId:r.cliente_id},sh,ph,signed.assinado_em,crypto.randomUUID(),consumed.id,proof.id]);
+ await c.query("UPDATE contrato_edicoes SET estado='AGUARDANDO_CLIENTE',liberado_por_usuario_id=$2,liberado_em=clock_timestamp() WHERE contrato_versao_id=$1",[vid,usuarioId]);
+ await c.query("UPDATE contrato_edicoes SET estado='CONCLUIDA' WHERE contrato_versao_id=$1",[vid]);
+ await c.query('UPDATE contrato_fluxos SET versao_vigente_id=$2,versao_em_preparacao_id=NULL WHERE contrato_id=$1',[r.contrato_id,vid]);
+ await c.query('UPDATE contratos SET versao_atual=$2 WHERE id=$1',[r.contrato_id,v.numero_versao]);
+ await c.query("UPDATE fechamento_revisoes SET estado='APLICADA',aplicado_em=clock_timestamp() WHERE id=$1",[rid]);
+ await c.query('SET CONSTRAINTS ALL IMMEDIATE');
+ assert.equal((await c.query('SELECT count(*)::int n FROM kidmais_ocupacoes_operacionais($1,$1) WHERE fechamento_id=$2',[baseF.dia,fechamentoId])).rows[0].n,1);
+ await c.query('ROLLBACK');ok('aceite/promoção/aplicação íntegros; hold encerrado, base operacional confirmada preservada; rollback integral da fixture');
+ const sig=(await c.query('SELECT to_jsonb(a)::text row FROM contrato_assinaturas a WHERE contrato_versao_id=$1',[vid])).rows;
+ await c.query('DELETE FROM sessoes_administrativas WHERE id=$1',[session.id]);
+ await c.query('BEGIN');await c.query("UPDATE contrato_edicoes SET estado='CANCELADA' WHERE contrato_versao_id=$1",[vid]);await c.query("UPDATE contrato_versoes SET status='CANCELADA' WHERE id=$1",[vid]);await c.query('UPDATE contrato_fluxos SET versao_em_preparacao_id=NULL WHERE contrato_id=$1',[r.contrato_id]);await c.query("UPDATE fechamento_revisoes SET estado='CANCELADA',cancelado_em=clock_timestamp(),cancelado_por_usuario_id=$2,motivo_cancelamento='Teste explícito' WHERE id=$1",[rid,usuarioId]);await c.query('COMMIT');
+ assert.deepEqual((await c.query('SELECT to_jsonb(a)::text row FROM contrato_assinaturas a WHERE contrato_versao_id=$1',[vid])).rows,sig);assert.equal((await c.query('SELECT count(*)::int n FROM kidmais_ocupacoes_operacionais($1,$1) WHERE fechamento_id=$2',[baseF.dia,fechamentoId])).rows[0].n,1);ok('cancelamento congelado preserva prova sem sessão e mantém só base confirmada');
+ await fail('terminal imutável',"UPDATE fechamento_revisoes SET motivo='outro' WHERE id=$1",[rid]);
+ await fail('DOWN com revisão cancelada e prova preservada recusado',fs.readFileSync('database/rollback/20260909_014_revisao_operacional_down.sql','utf8').replace(/^BEGIN;\n/m,'').replace(/^COMMIT;\s*$/m,''));
+ report.integrity=true;fs.writeFileSync(dest+'/014-teste-isolado.json',JSON.stringify(report,null,2));
+}finally{await c.query('ROLLBACK');await c.end();}}
+main().catch(e=>{console.error(e.code,e.message,e.where||'');process.exitCode=1;});

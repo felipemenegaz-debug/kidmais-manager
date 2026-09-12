@@ -1,0 +1,19 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { db } from '@/lib/db/postgres';
+import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
+import { detalheAdministrativo } from '@/lib/contratos/services/administrativo.service';
+import { apiErrorResponse } from '@/lib/http/api-response';
+export async function GET(request: NextRequest) {
+    try {
+        await exigirApiAdminCrmDisponivel(request);
+        const id = request.nextUrl.searchParams.get('contratoId');
+        if (id && !z.string().uuid().safeParse(id).success)
+            return NextResponse.json({ ok: false, erro: 'Contrato inválido.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+        const data = id ? await detalheAdministrativo(z.string().uuid().parse(id)) : (await db().query(`SELECT c.id,c.fechamento_id,c.status,v.snapshot->'contratante'->>'nomeCompleto' AS nome,v.snapshot->'evento'->>'data' AS data_evento,v.snapshot->'evento'->'pacote'->>'nome' AS pacote,v.snapshot->'evento'->>'convidados' AS convidados FROM contratos c LEFT JOIN contrato_versoes v ON v.contrato_id=c.id AND v.numero_versao=c.versao_atual ORDER BY c.criado_em DESC`)).rows;
+        return NextResponse.json({ ok: true, data }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    catch (e) {
+        return apiErrorResponse(e);
+    }
+}

@@ -1,0 +1,20 @@
+import type { ContratoSnapshotV1 } from '../../contratos/repositories/models';
+export type VersaoFinanceira = { id: string; numero_versao: number; status: string; snapshot: ContratoSnapshotV1; snapshot_hash: string; estado: string | null };
+export type ParcelaFinanceira = { id: string; plano_id: string; numero: number; valor_previsto: string; vencimento: string; status: string; confirma_reserva: boolean; recebido: string; estornado: string };
+export type AjusteFinanceiro = { id: string; versao_reconhecida_id: string; obrigacao_depois_centavos: string; delta_centavos: string; evento_id: string };
+export type CronogramaFinanceiro = { id: string; plano_id: string | null; versao_referencia_id: string; saldo_inicial_centavos: string; estado: string };
+export type ItemCronograma = { id: string; parcela_id: string; saldo_inicial_centavos: string; recebido_base_centavos: string; estornado_base_centavos: string; vencimento_referencia: string };
+export type MovimentoFinanceiro = { id: string; status: string; valor_bruto: string; recebido_em: string; confirmado_em: string | null };
+export type EstornoFinanceiro = { id: string; recebimento_id: string; parcela_id: string; status: string; valor: string; confirmado_em: string | null };
+export type DevolucaoFinanceira = { id: string; reserva_id: string; estado: string; valor_centavos: string; devolvido_em: string | null; beneficiario_snapshot: Record<string, unknown> };
+export type TratamentoFinanceiro = { id: string; pendencia_id: string; pagamento_id: string; estado: string; tentativa: number; iniciado_por_usuario_id: string };
+export type PendenciaFinanceira = { id: string; versao_anterior_id: string; versao_nova_id: string; motivo: string; criado_em: string };
+export type PedidoResolucao = {
+  posicaoHash: string;
+  modo: 'REPROGRAMAR' | 'MANTER_E_COMPLEMENTAR' | 'PERSONALIZADO' | 'SEM_SALDO';
+  parcelas: Array<{ parcelaId?: string; valorCentavos: string; vencimento: string }>;
+  credito: 'NAO_SE_APLICA' | 'MANTER' | 'APROVEITAR';
+  decisaoContratante: 'NAO_SE_APLICA' | 'MANTER_APROVEITAMENTO' | 'APROVEITAMENTO_AUTORIZADO' | 'DEVOLUCAO_AO_PAGADOR_ANTERIOR';
+  justificativa: string;
+};
+export type ContextoFinanceiro = { token: string; requestId: string; ip: string | null; userAgent: string | null };

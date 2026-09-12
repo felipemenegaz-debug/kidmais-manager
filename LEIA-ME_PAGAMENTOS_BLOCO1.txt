@@ -1,0 +1,55 @@
+KIDMAIS MANAGER — PAGAMENTOS / ENGENHARIA — BLOCO 1
+Data: 2026-09-08
+
+Este patch foi produzido sobre o ZIP validado enviado nesta conversa.
+Não altera schema_mvp_kidmais.sql.
+
+ANTES DE APLICAR
+- A verificação física informada pelo usuário retornou NULL para todas as tabelas de Pagamentos/legado financeiro.
+- A verificação de Fechamentos/Contratos retornou todos os contadores em zero.
+
+COMO APLICAR
+1. Faça backup da pasta Kidmais-manager atual.
+2. Extraia o conteúdo deste ZIP SOBRE a raiz Kidmais-manager, preservando as pastas.
+3. No pgAdmin, abra e execute por inteiro:
+   database/migrations/20260908_011_pagamentos_base.sql
+4. Em seguida execute:
+   database/checks/20260908_011_pagamentos_postcheck.sql
+5. Não execute nem altere schema_mvp_kidmais.sql.
+
+VALIDAÇÃO DE CÓDIGO
+- TypeScript: passou com tsc --noEmit.
+- ESLint direcionado aos arquivos novos/alterados: 0 erros / 0 warnings.
+- Disponibilidade: 5/5 testes passaram.
+- Contrato: 12/12 testes passaram.
+- Pagamentos: 4/4 testes passaram.
+
+Comandos sugeridos no Windows/PowerShell:
+  npm.cmd run test:disponibilidade
+  npm.cmd run test:contrato
+  npm.cmd run test:pagamentos
+  npx.cmd tsc -p tsconfig.json --noEmit
+
+OBSERVAÇÃO SOBRE BUILD
+O build Next.js não pôde ser concluído no ambiente de geração porque o Next tentou baixar o pacote SWC Linux do registry.npmjs.org e este ambiente não possui acesso externo. O TypeScript e o lint direcionado passaram.
+
+ESCOPO IMPLEMENTADO NESTE BLOCO
+- Migration 011 sem backfill.
+- pagamentos, pagamento_planos, pagamento_parcelas.
+- recebimentos e alocações por parcela.
+- estornos sem apagar recebimento original.
+- metadados/hash de comprovantes, sem acoplamento ao storage físico.
+- forma efetiva PIX/CARTAO separada de forma_pagamento_pretendida.
+- provedor futuro desacoplado por provedor_codigo/provedor_preferido.
+- transição CONTRATO_ASSINADO -> AGUARDANDO_PAGAMENTO feita pelo domínio Pagamentos.
+- confirmação da reserva após quitação da parcela marcada confirma_reserva.
+- lock transacional por data e verificação de conflito de agenda.
+- Fechamentos CONFIRMADO passam a bloquear a Disponibilidade pública.
+- conflito após dinheiro efetivamente recebido é registrado como reserva_status=CONFLITO; o recebimento não é apagado.
+- nenhum domínio Festa foi criado.
+
+CANCELAMENTO
+A estrutura prevê status CANCELADO, mas não foi aberta uma API de cancelamento do Pagamento neste bloco. Isso é intencional: o domínio Contrato atual não possui uma transição segura de cancelamento pós-assinatura. Expor cancelamento financeiro isolado agora criaria inconsistência entre Contrato, Fechamento e Pagamentos. Estorno já está implementado.
+
+PRÓXIMO TESTE FUNCIONAL
+Como a base física atual possui 0 contratos assinados, após aplicar a migration será necessário criar/assinar um Contrato de teste. Depois disso, testar criação do Pagamento, plano/parcelas, recebimento parcial, confirmação da reserva, quitação, estorno e conflito concorrente.

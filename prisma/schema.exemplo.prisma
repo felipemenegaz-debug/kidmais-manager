@@ -1,0 +1,121 @@
+enum StatusFechamento {
+  RASCUNHO
+  AGUARDANDO_APROVACAO
+  APROVADO
+  CORRECAO_SOLICITADA
+  CONTRATO_DISPONIVEL
+  CONTRATO_ACEITO
+  AGUARDANDO_PAGAMENTO
+  CONFIRMADO
+  CANCELADO
+}
+
+enum FormaPagamento {
+  PIX_AVISTA
+  PIX_PARCELADO
+  CARTAO_CIELO
+}
+
+model Fechamento {
+  id                    String           @id @default(cuid())
+  origem                String
+  dataFesta             DateTime
+  horarioInicio         String
+  horarioFim            String
+
+  pacoteCodigo          String
+  convidadosPagantes    Int
+
+  buffetDefinicao       String           @default("depois")
+  buffetSalgados         String?
+  buffetBebidas          String?
+  buffetDoces            String?
+  buffetBolo             String?
+  buffetOutros           String?
+
+  adicionaisJson        Json?
+  alteracoesPacote      String?
+  observacoesCliente    String?
+
+  valorTabelaReferencia Decimal?         @db.Decimal(10, 2)
+  descontoDiaUtilAtivo  Boolean          @default(false)
+  percentualDescontoDiaUtil Decimal?      @db.Decimal(5, 4)
+  valorDescontoDiaUtil  Decimal?         @db.Decimal(10, 2)
+  valorPacoteConsiderado Decimal?        @db.Decimal(10, 2)
+  valorInformado        Decimal          @db.Decimal(10, 2)
+  valorAprovado         Decimal?         @db.Decimal(10, 2)
+
+  formaPagamento        FormaPagamento?
+  status                StatusFechamento @default(AGUARDANDO_APROVACAO)
+
+  clienteNome           String
+  clienteCpf            String
+  clienteRg             String?
+  clienteEmail          String
+  clienteWhatsapp       String
+
+  clienteCep            String
+  clienteLogradouro     String
+  clienteNumero         String
+  clienteComplemento    String?
+  clienteBairro         String
+  clienteCidade         String
+  clienteUf             String
+
+  outroResponsavel      String?
+
+  aniversarianteNome    String
+  aniversarianteIdade   Int?
+  temaFesta             String?
+
+  contratoAceitoEm      DateTime?
+  primeiroPagamentoEm   DateTime?
+
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  @@index([dataFesta, status])
+  @@index([clienteCpf])
+}
+
+
+// V4 — modelos sugeridos para substituir o JSON local quando o banco for integrado.
+
+model AgendaSlot {
+  id        String   @id @default(cuid())
+  data      DateTime
+  horario   String
+  status    String   // OCUPADO | BLOQUEADO
+  motivo    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([data, horario])
+}
+
+model PacoteDisponibilidadeOverride {
+  id        String   @id @default(cuid())
+  data      DateTime
+  horario   String
+  pacote    String
+  status    String   // LIBERADO | CONSULTA | BLOQUEADO
+  motivo    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([data, horario, pacote])
+}
+
+
+model DescontoComercialData {
+  id          String   @id @default(cuid())
+  data        DateTime
+  horario     String
+  pacote      String
+  percentual Decimal  @db.Decimal(5, 2)
+  titulo      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([data, horario, pacote])
+}

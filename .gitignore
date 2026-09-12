@@ -1,0 +1,39 @@
+﻿# Dependencies
+node_modules/
+
+# Next.js
+.next/
+.next-*/
+out/
+
+# Build / coverage
+dist/
+build/
+coverage/
+.turbo/
+.cache/
+test-results/
+playwright-report/
+
+# Local/test artifacts
+.local-*/
+.tmp/
+.backups/
+*.log
+*.dump
+*.backup
+*.bak
+*.zip
+tsconfig.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+!ENV_PRODUCAO_EXEMPLO.txt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

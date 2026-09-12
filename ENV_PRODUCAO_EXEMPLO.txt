@@ -1,0 +1,33 @@
+# Modelo de configuração. Não use estes valores como segredos reais.
+NODE_ENV=production
+
+# PostgreSQL — prefira usuário exclusivo da aplicação e rede privada.
+DATABASE_URL=postgresql://usuario_runtime:senha_forte@host:5432/kidmais_manager
+DATABASE_SSL=true
+DATABASE_SSL_REJECT_UNAUTHORIZED=true
+DATABASE_POOL_MAX=10
+DATABASE_IDLE_TIMEOUT_MS=30000
+DATABASE_CONNECTION_TIMEOUT_MS=5000
+
+# Origem pública exata, sem barra final. A área administrativa usa a mesma origem.
+ADMIN_AUTH_ORIGIN=https://manager.seudominio.com.br
+ADMIN_AUTH_SECRET=<SEGREDO_ALEATORIO_COM_NO_MINIMO_32_CARACTERES>
+
+# Identidade e aceite — Cloud API oficial da Meta; nunca WhatsApp Web.
+IDENTIDADE_OTP_PEPPER=<SEGREDO_ALEATORIO_INDEPENDENTE>
+IDENTIDADE_OTP_PROVIDER=whatsapp_cloud
+WHATSAPP_CLOUD_API_VERSION=<VERSAO_GRAPH_ATIVA_EX_VXX.X>
+WHATSAPP_CLOUD_PHONE_NUMBER_ID=<ID_NUMERICO_DO_NUMERO>
+WHATSAPP_CLOUD_ACCESS_TOKEN=<TOKEN_PERMANENTE_EM_SECRET_MANAGER>
+WHATSAPP_OTP_TEMPLATE_NAME=kidmais_codigo_aceite
+WHATSAPP_OTP_TEMPLATE_LANGUAGE=pt_BR
+WHATSAPP_DEFAULT_COUNTRY_CODE=55
+WHATSAPP_CLOUD_TIMEOUT_MS=10000
+CONTRATO_ACEITE_DEV_ENABLED=false
+
+# O health check exige esta flag e confere a assinatura física da Migration 016.
+FESTA_ENABLED=true
+
+# Opções de build/runtime.
+NEXT_TELEMETRY_DISABLED=1
+KIDMAIS_FESTA_ISOLADO=false

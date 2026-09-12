@@ -1,0 +1,101 @@
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  color: #111a3a;
+  text-decoration: none;
+}
+
+.logo {
+  display: block;
+  width: 154px;
+  height: auto;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-left: 12px;
+  border-left: 1px solid rgba(113, 128, 159, 0.24);
+}
+
+.title {
+  font-size: 16px;
+  line-height: 1.15;
+  font-weight: 850;
+  color: #111a3a;
+  white-space: nowrap;
+}
+
+.subtitle {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: #71809f;
+  white-space: nowrap;
+}
+
+.customer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.customer .logo {
+  width: 176px;
+}
+
+.customerSubtitle {
+  padding-left: 7px;
+  color: #71809f;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.compact {
+  gap: 9px;
+}
+
+.compact .logo {
+  width: 118px;
+}
+
+.compact .copy {
+  padding-left: 9px;
+}
+
+.compact .title {
+  font-size: 13px;
+}
+
+.compact .subtitle {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .logo {
+    width: 132px;
+  }
+
+  .customer .logo {
+    width: 148px;
+  }
+
+  .title {
+    font-size: 14px;
+  }
+
+  .subtitle,
+  .customerSubtitle {
+    font-size: 10px;
+  }
+
+  .compact .logo {
+    width: 105px;
+  }
+}
