@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const {
+  CONSULTA_DERIVADOS_SQL,
   CPF_DEMO,
   EMAIL_DEMO,
   MARCADOR_DEMO,
@@ -76,4 +77,21 @@ test('script não carrega .env.local nem chama assinatura, OTP, Pagamentos ou Fe
   const fonte = fs.readFileSync(path.join(__dirname, 'criar-demo-staging.cjs'), 'utf8');
   assert.doesNotMatch(fonte, /dotenv|env-file|\.env\.local/);
   assert.doesNotMatch(fonte, /assinarContrato|iniciarDesafio|criarPagamento|criarFesta/);
+});
+
+test('verificação final segue os vínculos reais de Pagamentos e Festa', () => {
+  const migrationPagamentos = fs.readFileSync(
+    path.join(__dirname, '../database/migrations/20260908_011_pagamentos_base.sql'),
+    'utf8',
+  );
+  const migrationFesta = fs.readFileSync(
+    path.join(__dirname, '../database/migrations/20260911_016_festa.sql'),
+    'utf8',
+  );
+
+  assert.match(migrationPagamentos, /CREATE TABLE pagamentos[\s\S]*?contrato_versao_id uuid NOT NULL/);
+  assert.match(migrationFesta, /CREATE TABLE festas[\s\S]*?contrato_id uuid NOT NULL REFERENCES contratos\(id\)/);
+  assert.doesNotMatch(CONSULTA_DERIVADOS_SQL, /FROM (?:pagamentos|festas) WHERE fechamento_id/);
+  assert.match(CONSULTA_DERIVADOS_SQL, /FROM pagamentos WHERE contrato_versao_id=\$1/);
+  assert.match(CONSULTA_DERIVADOS_SQL, /FROM festas WHERE contrato_id=\$2/);
 });

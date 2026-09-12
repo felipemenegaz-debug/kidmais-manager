@@ -6,6 +6,10 @@ const MARCADOR_DEMO = 'KIDMAIS_DEMO_STAGING_V1';
 const LOCK_DEMO = 'kidmais-criar-demo-staging-v1';
 const CPF_DEMO = '11144477735';
 const EMAIL_DEMO = 'cliente.demonstracao.kidmais@example.invalid';
+const CONSULTA_DERIVADOS_SQL = `SELECT
+  (SELECT count(*)::int FROM contrato_assinaturas WHERE contrato_versao_id=$1) AS assinaturas,
+  (SELECT count(*)::int FROM pagamentos WHERE contrato_versao_id=$1) AS pagamentos,
+  (SELECT count(*)::int FROM festas WHERE contrato_id=$2) AS festas`;
 
 function exigirTexto(env, nome) {
   const valor = env[nome]?.trim();
@@ -326,11 +330,10 @@ async function executar(env = process.env, dependencias) {
     });
     const final = await localizarDemo(client);
     if (!final) throw new Error('A jornada demo criada não pôde ser localizada pelo marcador canônico.');
-    const derivados = await client.query(`SELECT
-      (SELECT count(*)::int FROM contrato_assinaturas WHERE contrato_versao_id=$1) AS assinaturas,
-      (SELECT count(*)::int FROM pagamentos WHERE fechamento_id=$2) AS pagamentos,
-      (SELECT count(*)::int FROM festas WHERE fechamento_id=$2) AS festas`,
-    [contrato.versao.id, fechamentoId]);
+    const derivados = await client.query(
+      CONSULTA_DERIVADOS_SQL,
+      [contrato.versao.id, contrato.contrato.id],
+    );
     if (derivados.rows[0].assinaturas !== 0 || derivados.rows[0].pagamentos !== 0 || derivados.rows[0].festas !== 0) {
       throw new Error('Execução recusada: a jornada demo criou registros posteriores à assinatura.');
     }
@@ -343,6 +346,7 @@ async function executar(env = process.env, dependencias) {
 }
 
 module.exports = {
+  CONSULTA_DERIVADOS_SQL,
   CPF_DEMO,
   EMAIL_DEMO,
   MARCADOR_DEMO,
