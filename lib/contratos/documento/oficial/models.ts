@@ -1,8 +1,8 @@
 import type { ContratoSnapshotV1 } from "../../repositories/index.ts";
 
-export const CONTRATO_OFICIAL_TEMPLATE_ATUAL = 3 as const;
+export const CONTRATO_OFICIAL_TEMPLATE_ATUAL = 4 as const;
 
-export type ContratoOficialTemplateVersao = 1 | 2 | 3;
+export type ContratoOficialTemplateVersao = 1 | 2 | 3 | 4;
 
 export type ContratoOficialClausula = {
   numero: number;
