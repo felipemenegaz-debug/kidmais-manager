@@ -7,7 +7,7 @@ services:
     branch: staging
     autoDeployTrigger: off
     buildCommand: npm ci --include=dev && npm run check:v1:static && npm run build
-    startCommand: npm start
+    startCommand: node scripts/init-staging-data.cjs && npm start
     healthCheckPath: /api/health
     numInstances: 1
     disk:
