@@ -1,0 +1,61 @@
+services:
+  - type: web
+    name: kidmais-manager-staging
+    runtime: node
+    plan: starter
+    region: virginia
+    branch: staging
+    autoDeployTrigger: off
+    buildCommand: npm ci && npm run check:v1:static && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    numInstances: 1
+    disk:
+      name: kidmais-manager-staging-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.2
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: FESTA_ENABLED
+        value: "true"
+      - key: DATABASE_SSL
+        value: "true"
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "true"
+      - key: DATABASE_POOL_MAX
+        value: "10"
+      - key: DATABASE_IDLE_TIMEOUT_MS
+        value: "30000"
+      - key: DATABASE_CONNECTION_TIMEOUT_MS
+        value: "5000"
+      - key: CONTRATO_ACEITE_DEV_ENABLED
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_AUTH_ORIGIN
+        sync: false
+      - key: ADMIN_AUTH_SECRET
+        sync: false
+      - key: IDENTIDADE_OTP_PEPPER
+        sync: false
+      - key: IDENTIDADE_OTP_PROVIDER
+        value: whatsapp_cloud
+      - key: WHATSAPP_CLOUD_API_VERSION
+        sync: false
+      - key: WHATSAPP_CLOUD_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_CLOUD_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_OTP_TEMPLATE_NAME
+        sync: false
+      - key: WHATSAPP_OTP_TEMPLATE_LANGUAGE
+        value: pt_BR
+      - key: WHATSAPP_DEFAULT_COUNTRY_CODE
+        value: "55"
+      - key: WHATSAPP_CLOUD_TIMEOUT_MS
+        value: "10000"
