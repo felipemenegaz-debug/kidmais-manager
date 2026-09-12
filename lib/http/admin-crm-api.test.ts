@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { origemMutacaoValida, origemRequestValida, type AmbientePoliticaAdmin } from './admin-origin.ts';
+import { diagnosticarOrigemRequest, linhaDiagnosticoRecusaOrigemAdmin, origemMutacaoValida, origemRequestValida, type AmbientePoliticaAdmin } from './admin-origin.ts';
 
 const origemPublica = 'https://kidmais-manager-staging.onrender.com';
 const envRender = {
@@ -91,6 +91,62 @@ test('Render staging recusa X-Forwarded-Proto múltiplo', () => {
 test('Render staging recusa headers proxy ausentes', () => {
     assert.equal(origemRenderValida({}), false);
     assert.equal(origemRenderValida({ host: 'kidmais-manager-staging.onrender.com' }), false);
+});
+
+test('diagnóstico identifica precisamente as recusas proxy do staging', () => {
+    const diagnosticar = (headers: Record<string, string>, configurada = origemPublica) =>
+        diagnosticarOrigemRequest(requestRender(headers), new URL(configurada), envRender);
+
+    assert.equal(diagnosticar(headersRender(), 'http://kidmais-manager-staging.onrender.com').codigo, 'ADMIN_ORIGIN_INVALID');
+    assert.equal(diagnosticar(headersRender({ 'x-forwarded-proto': '' })).codigo, 'FORWARDED_PROTO_INVALID');
+    assert.equal(diagnosticar(headersRender({ 'x-forwarded-proto': 'https,http' })).codigo, 'MULTIPLE_FORWARDED_PROTOS');
+    assert.equal(diagnosticar({ host: origemPublica.replace('https://', '') }).codigo, 'FORWARDED_PROTO_MISSING');
+    assert.equal(diagnosticar({ 'x-forwarded-proto': 'https' }).codigo, 'HOST_MISSING');
+    assert.equal(diagnosticar(headersRender({ host: 'evil.example' })).codigo, 'HOST_MISMATCH');
+    assert.equal(diagnosticar(headersRender({ host: 'kidmais-manager-staging.onrender.com, evil.example' })).codigo, 'MULTIPLE_HOSTS');
+    assert.equal(diagnosticar(headersRender({ 'x-forwarded-host': 'evil.example' })).codigo, 'FORWARDED_HOST_MISMATCH');
+    assert.equal(diagnosticar(headersRender({ 'x-forwarded-host': 'kidmais-manager-staging.onrender.com, evil.example' })).codigo, 'MULTIPLE_FORWARDED_HOSTS');
+});
+
+test('log temporário expõe somente diagnóstico sanitizado no Render staging recusado', () => {
+    const diagnostico = diagnosticarOrigemRequest(
+        requestRender(headersRender({ host: 'proxy-interno.render.com' })),
+        new URL(origemPublica),
+        envRender,
+    );
+    const linha = linhaDiagnosticoRecusaOrigemAdmin(diagnostico);
+
+    assert.ok(linha);
+    assert.match(linha, /^\[Kidmais Admin Origin\] /);
+    assert.match(linha, /"renderReconhecido":true/);
+    assert.match(linha, /"stagingReconhecido":true/);
+    assert.match(linha, /"adminOriginValida":true/);
+    assert.match(linha, /"hostPresente":true/);
+    assert.match(linha, /"forwardedHostPresente":true/);
+    assert.match(linha, /"forwardedProtoPresente":true/);
+    assert.match(linha, /"host":"proxy-interno\.render\.com"/);
+    assert.match(linha, /"forwardedHost":"kidmais-manager-staging\.onrender\.com"/);
+    assert.match(linha, /"forwardedProto":"https"/);
+    assert.match(linha, /"codigo":"HOST_MISMATCH"/);
+    assert.doesNotMatch(linha, /cookie|authorization|csrf|database_url|secret|password/i);
+});
+
+test('diagnóstico temporário não gera log fora do Render staging nem em requisição aceita', () => {
+    const aceita = diagnosticarOrigemRequest(requestRender(headersRender()), new URL(origemPublica), envRender);
+    const foraDoRender = diagnosticarOrigemRequest(
+        requestRender(headersRender()),
+        new URL(origemPublica),
+        { ...envRender, RENDER: undefined },
+    );
+    const foraDoStaging = diagnosticarOrigemRequest(
+        requestRender(headersRender()),
+        new URL(origemPublica),
+        { ...envRender, KIDMAIS_DEPLOY_ENV: 'production' },
+    );
+
+    assert.equal(linhaDiagnosticoRecusaOrigemAdmin(aceita), null);
+    assert.equal(linhaDiagnosticoRecusaOrigemAdmin(foraDoRender), null);
+    assert.equal(linhaDiagnosticoRecusaOrigemAdmin(foraDoStaging), null);
 });
 
 test('Render staging recusa ADMIN_AUTH_ORIGIN HTTP ou localhost', () => {

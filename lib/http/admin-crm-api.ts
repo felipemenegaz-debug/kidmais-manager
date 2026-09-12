@@ -4,7 +4,7 @@ import { authError, consultarSessao, type SessaoAdmin } from '../autenticacao/se
 import { hashToken } from '../autenticacao/senha';
 import { db } from '../db/postgres';
 import type { ClienteServiceContext } from '../clientes/services/context';
-import { ambientePoliticaAdminAtual, origemMutacaoValida, origemRequestValida, type AmbientePoliticaAdmin } from './admin-origin.ts';
+import { ambientePoliticaAdminAtual, diagnosticarOrigemRequest, linhaDiagnosticoRecusaOrigemAdmin, origemMutacaoValida, type AmbientePoliticaAdmin } from './admin-origin.ts';
 const sessions = new WeakMap<NextRequest, SessaoAdmin>();
 export function politicaAdmin(request: NextRequest, env: AmbientePoliticaAdmin = ambientePoliticaAdminAtual()) {
     const configured = env.ADMIN_AUTH_ORIGIN || (env.NODE_ENV !== 'production' ? 'http://localhost:3000' : '');
@@ -12,8 +12,13 @@ export function politicaAdmin(request: NextRequest, env: AmbientePoliticaAdmin =
         throw authError('Configure a origem HTTPS administrativa.', 503);
     const origin = new URL(configured);
     const local = env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname) && origin.protocol === 'http:';
-    if ((!local && origin.protocol !== 'https:') || !origemRequestValida(request, origin, env))
+    const diagnosticoOrigem = diagnosticarOrigemRequest(request, origin, env);
+    if ((!local && origin.protocol !== 'https:') || !diagnosticoOrigem.valido) {
+        const linhaDiagnostico = linhaDiagnosticoRecusaOrigemAdmin(diagnosticoOrigem);
+        if (linhaDiagnostico)
+            console.warn(linhaDiagnostico);
         throw authError('Use a origem administrativa segura configurada.', 403);
+    }
     return { origin: origin.origin, secure: !local, cookie: local ? 'kidmais_admin_dev' : '__Host-kidmais_admin', csrfCookie: local ? 'kidmais_admin_csrf_dev' : '__Host-kidmais_admin_csrf' };
 }
 export function verificarOrigem(request: NextRequest, env?: AmbientePoliticaAdmin) {
