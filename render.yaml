@@ -49,3 +49,23 @@ services:
         sync: false
       - key: IDENTIDADE_OTP_PROVIDER
         value: disabled
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_GRAPH_API_VERSION
+        sync: false
+      - key: META_EMBEDDED_SIGNUP_CONFIG_ID
+        sync: false
+      - key: META_OAUTH_REDIRECT_URI
+        sync: false
+      - key: META_EMBEDDED_SIGNUP_OPTIONS_JSON
+        sync: false
+      - key: META_EMBEDDED_SIGNUP_EVENT_NAME
+        sync: false
+      - key: META_EMBEDDED_SIGNUP_MESSAGE_ORIGINS
+        sync: false
+      - key: WHATSAPP_CREDENTIAL_ENCRYPTION_KEY
+        sync: false
+      - key: WHATSAPP_CREDENTIAL_KEY_VERSION
+        value: "1"
