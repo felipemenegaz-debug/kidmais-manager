@@ -6,7 +6,7 @@ services:
     region: virginia
     branch: staging
     autoDeployTrigger: off
-    buildCommand: npm ci && npm run check:v1:static && npm run build
+    buildCommand: npm ci --include=dev && npm run check:v1:static && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     numInstances: 1
