@@ -1,4 +1,5 @@
 import type { IdentityOtpSender, OtpDelivery } from "../services";
+import { modoOtpAmbiente } from "../configuracao-otp.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const META_GRAPH_ORIGIN = "https://graph.facebook.com";
@@ -17,7 +18,13 @@ export type WhatsappCloudConfig = {
 
 type OtpProviderConfig =
   | { provider: "console" }
+  | { provider: "disabled" }
   | { provider: "whatsapp_cloud"; whatsapp: WhatsappCloudConfig };
+
+export type StatusOtpAmbiente = {
+  provider: OtpProviderConfig["provider"];
+  status: "ready" | "unavailable";
+};
 
 function envObrigatoria(nome: string) {
   const value = process.env[nome]?.trim();
@@ -76,30 +83,19 @@ function carregarWhatsappCloudConfig(): WhatsappCloudConfig {
 }
 
 function carregarOtpProviderConfig(): OtpProviderConfig {
-  const provider = (process.env.IDENTIDADE_OTP_PROVIDER ?? "")
-    .trim()
-    .toLowerCase();
+  const provider = modoOtpAmbiente();
 
-  if (provider === "console") {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        "IDENTIDADE_OTP_PROVIDER=console não é permitido em produção.",
-      );
-    }
-    return { provider: "console" };
-  }
+  if (provider === "console" || provider === "disabled") return { provider };
 
-  if (provider === "whatsapp_cloud") {
-    return { provider, whatsapp: carregarWhatsappCloudConfig() };
-  }
-
-  throw new Error(
-    "IDENTIDADE_OTP_PROVIDER deve ser whatsapp_cloud em produção.",
-  );
+  return { provider, whatsapp: carregarWhatsappCloudConfig() };
 }
 
 export function validarConfiguracaoOtpAmbiente() {
-  carregarOtpProviderConfig();
+  const config = carregarOtpProviderConfig();
+  return {
+    provider: config.provider,
+    status: config.provider === "disabled" ? "unavailable" : "ready",
+  } satisfies StatusOtpAmbiente;
 }
 
 export function normalizarDestinoWhatsapp(
@@ -215,6 +211,12 @@ export const enviarOtpComAmbiente: IdentityOtpSender = async (delivery) => {
       ].join(" "),
     );
     return;
+  }
+
+  if (config.provider === "disabled") {
+    throw new Error(
+      "Envio de OTP temporariamente indisponível neste ambiente de staging.",
+    );
   }
 
   return criarWhatsappCloudSender(config.whatsapp)(delivery);

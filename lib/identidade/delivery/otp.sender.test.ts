@@ -5,6 +5,7 @@ import test from "node:test";
 import type { OtpDelivery } from "../services/models.ts";
 import {
   criarWhatsappCloudSender,
+  enviarOtpComAmbiente,
   normalizarDestinoWhatsapp,
   validarConfiguracaoOtpAmbiente,
   type WhatsappCloudConfig,
@@ -149,6 +150,8 @@ test("configuração de produção falha fechada e aceita somente whatsapp_cloud
   const env = process.env as Record<string, string | undefined>;
   const keys = [
     "NODE_ENV",
+    "KIDMAIS_DEPLOY_ENV",
+    "KIDMAIS_STAGING_OTP_DISABLED",
     "IDENTIDADE_OTP_PROVIDER",
     "WHATSAPP_CLOUD_API_VERSION",
     "WHATSAPP_CLOUD_PHONE_NUMBER_ID",
@@ -163,6 +166,21 @@ test("configuração de produção falha fechada e aceita somente whatsapp_cloud
     env.IDENTIDADE_OTP_PROVIDER = "console";
     assert.throws(validarConfiguracaoOtpAmbiente, /não é permitido/);
 
+    env.IDENTIDADE_OTP_PROVIDER = "disabled";
+    env.KIDMAIS_DEPLOY_ENV = "production";
+    env.KIDMAIS_STAGING_OTP_DISABLED = "SIM";
+    assert.throws(validarConfiguracaoOtpAmbiente, /somente no staging/);
+
+    env.KIDMAIS_DEPLOY_ENV = "staging";
+    delete env.KIDMAIS_STAGING_OTP_DISABLED;
+    assert.throws(validarConfiguracaoOtpAmbiente, /somente no staging/);
+
+    env.KIDMAIS_STAGING_OTP_DISABLED = "SIM";
+    assert.deepEqual(validarConfiguracaoOtpAmbiente(), {
+      provider: "disabled",
+      status: "unavailable",
+    });
+
     env.IDENTIDADE_OTP_PROVIDER = "whatsapp_cloud";
     env.WHATSAPP_CLOUD_API_VERSION = config.graphApiVersion;
     env.WHATSAPP_CLOUD_PHONE_NUMBER_ID = config.phoneNumberId;
@@ -174,6 +192,40 @@ test("configuração de produção falha fechada e aceita somente whatsapp_cloud
     delete env.WHATSAPP_CLOUD_ACCESS_TOKEN;
     assert.throws(validarConfiguracaoOtpAmbiente, /ACCESS_TOKEN não configurada/);
   } finally {
+    for (const key of keys) {
+      const value = anteriores[key];
+      if (value === undefined) delete env[key];
+      else env[key] = value;
+    }
+  }
+});
+
+test("emissor desabilitado no staging recusa sem registrar o código", async () => {
+  const env = process.env as Record<string, string | undefined>;
+  const keys = [
+    "NODE_ENV",
+    "KIDMAIS_DEPLOY_ENV",
+    "KIDMAIS_STAGING_OTP_DISABLED",
+    "IDENTIDADE_OTP_PROVIDER",
+  ] as const;
+  const anteriores = Object.fromEntries(keys.map((key) => [key, env[key]]));
+  const consoleInfoOriginal = console.info;
+  let logs = 0;
+
+  try {
+    env.NODE_ENV = "production";
+    env.KIDMAIS_DEPLOY_ENV = "staging";
+    env.KIDMAIS_STAGING_OTP_DISABLED = "SIM";
+    env.IDENTIDADE_OTP_PROVIDER = "disabled";
+    console.info = () => { logs += 1; };
+
+    await assert.rejects(
+      enviarOtpComAmbiente(delivery),
+      /temporariamente indisponível/,
+    );
+    assert.equal(logs, 0);
+  } finally {
+    console.info = consoleInfoOriginal;
     for (const key of keys) {
       const value = anteriores[key];
       if (value === undefined) delete env[key];

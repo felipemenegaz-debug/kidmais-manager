@@ -35,6 +35,10 @@ services:
         value: "5000"
       - key: CONTRATO_ACEITE_DEV_ENABLED
         value: "false"
+      - key: KIDMAIS_DEPLOY_ENV
+        value: staging
+      - key: KIDMAIS_STAGING_OTP_DISABLED
+        value: "SIM"
       - key: DATABASE_URL
         sync: false
       - key: ADMIN_AUTH_ORIGIN
@@ -44,18 +48,4 @@ services:
       - key: IDENTIDADE_OTP_PEPPER
         sync: false
       - key: IDENTIDADE_OTP_PROVIDER
-        value: whatsapp_cloud
-      - key: WHATSAPP_CLOUD_API_VERSION
-        sync: false
-      - key: WHATSAPP_CLOUD_PHONE_NUMBER_ID
-        sync: false
-      - key: WHATSAPP_CLOUD_ACCESS_TOKEN
-        sync: false
-      - key: WHATSAPP_OTP_TEMPLATE_NAME
-        sync: false
-      - key: WHATSAPP_OTP_TEMPLATE_LANGUAGE
-        value: pt_BR
-      - key: WHATSAPP_DEFAULT_COUNTRY_CODE
-        value: "55"
-      - key: WHATSAPP_CLOUD_TIMEOUT_MS
-        value: "10000"
+        value: disabled

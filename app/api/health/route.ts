@@ -1,6 +1,7 @@
 import { db, databaseHealthCheck } from "@/lib/db/postgres";
 import { validarAmbienteFesta } from "@/lib/festas/ambiente";
 import { validarConfiguracaoOtpAmbiente } from "@/lib/identidade/delivery";
+import { respostaSaudeDisponivel } from "@/lib/saude/status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,9 +14,9 @@ export async function GET() {
       throw new Error("Banco indisponível");
     }
 
-    validarConfiguracaoOtpAmbiente();
+    const otp = validarConfiguracaoOtpAmbiente();
     await validarAmbienteFesta(db());
-    return Response.json({ ok: true, status: "ready" }, { headers });
+    return Response.json(respostaSaudeDisponivel(otp), { headers });
   } catch (error) {
     console.error(
       "[Kidmais Health] verificação de prontidão recusada",

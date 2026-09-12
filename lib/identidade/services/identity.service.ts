@@ -28,6 +28,7 @@ import {
   type ValidacaoIdentidadeFinalidade,
   type ValidacaoIdentidadeRecord,
 } from "../repositories";
+import { otpDesabilitadoNoStaging } from "../configuracao-otp.ts";
 import { IdentityServiceError } from "./errors";
 import type {
   CanalIdentidadePublico,
@@ -638,6 +639,23 @@ export function criarIdentityServiceComAmbiente(
   enviarOtp: IdentityServiceOptions["enviarOtp"],
   overrides: Omit<Partial<IdentityServiceOptions>, "enviarOtp" | "otpPepper"> = {},
 ) {
+  try {
+    if (otpDesabilitadoNoStaging()) {
+      throw new IdentityServiceError(
+        "OTP_INDISPONIVEL",
+        "A validação por código está temporariamente indisponível neste ambiente de staging.",
+        503,
+      );
+    }
+  } catch (error) {
+    if (error instanceof IdentityServiceError) throw error;
+    throw new IdentityServiceError(
+      "CONFIGURACAO_IDENTIDADE_INVALIDA",
+      "A configuração do provedor de OTP é inválida.",
+      500,
+    );
+  }
+
   const otpPepper = process.env.IDENTIDADE_OTP_PEPPER;
 
   if (!otpPepper) {
