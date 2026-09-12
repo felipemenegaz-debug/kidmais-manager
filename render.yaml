@@ -24,9 +24,9 @@ services:
       - key: FESTA_ENABLED
         value: "true"
       - key: DATABASE_SSL
-        value: "true"
+        value: "false"
       - key: DATABASE_SSL_REJECT_UNAUTHORIZED
-        value: "true"
+        value: "false"
       - key: DATABASE_POOL_MAX
         value: "10"
       - key: DATABASE_IDLE_TIMEOUT_MS
