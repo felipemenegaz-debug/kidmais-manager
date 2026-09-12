@@ -298,14 +298,36 @@ test("PDF do Contrato Oficial é determinístico e possui logo", () => {
   assert.match(hashPdfContratoOficial(pdfA), /^[0-9a-f]{64}$/);
 });
 
-test("pacote sem modelo oficial não resolve contrato jurídico", () => {
-  const semModelo = structuredClone(snapshot);
-  semModelo.evento.pacote.codigo = "COMPACTA";
-  semModelo.evento.pacote.nome = "Festa Compacta";
-  const documento = renderizarContratoOficial({
-    snapshot: semModelo,
-    numeroVersao: 1,
-    snapshotHash,
+for (const [codigo, nome, modelo, excedente] of [
+  ["POCKET", "Kidmais Pocket", "KIDMAIS_POCKET_V3", "190,00"],
+  ["MINI_FESTA", "Mini Festa Kidmais", "MINI_FESTA_KIDMAIS_V3", "170,00"],
+  ["COMPACTA", "Festa Compacta", "FESTA_COMPACTA_V3", null],
+  ["ESSENCIAL", "Festa Essencial", "FESTA_ESSENCIAL_V3", "110,00"],
+  ["COMPLETA", "Festa Completa", "FESTA_COMPLETA_V3", "130,00"],
+  ["PREMIUM", "Festa Premium", "FESTA_PREMIUM_V3", "150,00"],
+  ["PIZZA_PARTY", "Pizza Party", "PIZZA_PARTY_V3", null],
+] as const) {
+  test(`${codigo}: contrato usa a base jurídica existente e somente dados específicos conhecidos`, () => {
+    const pacote = structuredClone(snapshot);
+    pacote.evento.pacote.codigo = codigo;
+    pacote.evento.pacote.nome = "Nome não confiável do formulário";
+    const documento = renderizarContratoOficial({ snapshot: pacote, numeroVersao: 1, snapshotHash });
+    assert.ok(documento);
+    assert.equal(documento.modeloCodigo, modelo);
+    assert.equal(documento.pacoteNome, nome);
+    assert.match(documento.clausulas[0].texto, new RegExp(nome));
+    if (excedente) {
+      assert.match(documento.clausulas[2].texto.replace(/\u00a0/g, " "), new RegExp(`R\\$ ${excedente} por pessoa excedente`));
+    } else {
+      assert.doesNotMatch(documento.clausulas[2].texto, /R\$ 120,00 por pessoa excedente/);
+      assert.doesNotMatch(documento.clausulas[2].texto, /será cobrado o valor de R\$/);
+    }
   });
+}
+
+test("pacote desconhecido continua sem modelo oficial", () => {
+  const semModelo = structuredClone(snapshot);
+  semModelo.evento.pacote.codigo = "DESCONHECIDO";
+  const documento = renderizarContratoOficial({ snapshot: semModelo, numeroVersao: 1, snapshotHash });
   assert.equal(documento, null);
 });

@@ -43,3 +43,10 @@ export const analiseCadastroSchema = z.object({
   whatsapp: z.string().max(30).nullable().optional(),
   excluirClienteId: z.string().uuid().optional(),
 });
+
+export const aniversarianteSchema = z.object({
+  nome: z.string().trim().min(2).max(200),
+  dataNascimento: z.string().date().nullable().optional(),
+  temaPadrao: z.string().trim().max(2000).nullable().optional(),
+  observacoes: z.string().trim().max(2000).nullable().optional(),
+}).strict();

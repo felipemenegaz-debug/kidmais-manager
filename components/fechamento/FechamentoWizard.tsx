@@ -461,7 +461,7 @@ export default function FechamentoWizard() {
       : null;
 
   const precoInicialComDesconto =
-    pacote && descontoAtual.ativo
+    pacote && pacote.precoInicial != null && descontoAtual.ativo
       ? aplicarDesconto(
           pacote.precoInicial,
           descontoAtual.percentual
@@ -845,6 +845,11 @@ export default function FechamentoWizard() {
       return false;
     }
 
+    if (etapa === 0 && pacote?.sobConsulta) {
+      setErro("O Pizza Party está sob consulta. Fale com a equipe Kidmais para confirmar disponibilidade e valor antes da formalização.");
+      return false;
+    }
+
     if (
       etapa === 0 &&
       preselecaoDisponibilidade &&
@@ -894,6 +899,10 @@ export default function FechamentoWizard() {
         setErro(
           `${pacote.nome} possui mínimo de ${pacote.minPagantes} pagantes.`
         );
+        return false;
+      }
+      if (form.pacote === "compacta" && convidados !== 40) {
+        setErro("A Festa Compacta possui valor automático somente para 40 convidados. Para outra quantidade, consulte a equipe Kidmais.");
         return false;
       }
     }
@@ -1271,7 +1280,7 @@ export default function FechamentoWizard() {
                       {form.pacote === item.id ? "✓" : ""}
                     </span>
                     <strong>{item.nome}</strong>
-                    <b>A partir de {numeroParaMoeda(item.precoInicial)}</b>
+                    <b>{item.precoInicial == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(item.precoInicial)}`}</b>
                     <p>{item.descricao}</p>
                     <small>{item.disponibilidade}</small>
                     <span className={styles.selectText}>
@@ -1283,6 +1292,13 @@ export default function FechamentoWizard() {
 
               {pacote && (
                 <div className={styles.packageDetails}>
+                  {pacote.sobConsulta && (
+                    <div className={`${styles.detailWide} ${styles.consultNotice}`}>
+                      <strong>Sob consulta</strong>
+                      <p>A equipe Kidmais precisa confirmar disponibilidade e valor antes do fechamento e do contrato.</p>
+                      <a href={CONTATO_KIDMAIS.whatsappUrl} target="_blank" rel="noreferrer">Falar com a Kidmais</a>
+                    </div>
+                  )}
                   <div>
                     <span>Mínimo</span>
                     <strong>{pacote.minPagantes} pagantes</strong>
@@ -1335,7 +1351,7 @@ export default function FechamentoWizard() {
                 <div>
                   <span>Valor de tabela</span>
                   <strong>
-                    A partir de {numeroParaMoeda(pacote.precoInicial)}
+                    {pacote.precoInicial == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(pacote.precoInicial)}`}
                   </strong>
                 </div>
 
@@ -1355,7 +1371,7 @@ export default function FechamentoWizard() {
                         A partir de{" "}
                         {numeroParaMoeda(
                           precoInicialComDesconto?.valorPacoteComDesconto ??
-                            pacote.precoInicial
+                            pacote.precoInicial ?? 0
                         )}
                       </strong>
                     </div>
@@ -1365,7 +1381,9 @@ export default function FechamentoWizard() {
                     <span>Valor para a data selecionada</span>
                     <strong>
                       {form.dataFesta
-                        ? `A partir de ${numeroParaMoeda(pacote.precoInicial)}`
+                        ? pacote.precoInicial == null
+                          ? "Sob consulta"
+                          : `A partir de ${numeroParaMoeda(pacote.precoInicial)}`
                         : "Selecione uma data para calcular"}
                     </strong>
                   </div>

@@ -3,6 +3,8 @@ import { isUniqueViolation } from "../../db/errors";
 import { withTransaction } from "../../db/postgres";
 import {
   atualizarCliente,
+  bloquearNomeAniversariante,
+  buscarAniversarianteAtivoPorNome,
   buscarAniversariantePorId,
   buscarClienteCanonicoPorCpf,
   buscarClienteCanonicoPorId,
@@ -413,6 +415,17 @@ async function resolverAniversariante(
       "ANIVERSARIANTE_INVALIDO",
       "Informe o nome do aniversariante.",
       400,
+    );
+  }
+
+  await bloquearNomeAniversariante(cliente.id, dados.nome, tx);
+  const duplicado = await buscarAniversarianteAtivoPorNome(cliente.id, dados.nome, undefined, tx);
+  if (duplicado) {
+    throw new FechamentoServiceError(
+      "ANIVERSARIANTE_INVALIDO",
+      "Já existe um aniversariante com este nome. Selecione o cadastro existente para evitar duplicação.",
+      409,
+      { aniversarianteId: duplicado.id },
     );
   }
 

@@ -310,6 +310,19 @@ export async function precificarPacote(
     );
 
   if (!precoRegra) {
+    if (pacote.codigo === "COMPACTA") {
+      throw new PricingServiceError(
+        "PACOTE_SOB_CONSULTA",
+        "A Festa Compacta possui preço automático somente para a condição comercial configurada. Consulte a Kidmais para outra quantidade de convidados.",
+        409,
+        {
+          pacoteId: pacote.id,
+          tabelaPrecoId: contexto.tabelaPreco.id,
+          categoriaHorario: contexto.categoriaHorario,
+          convidados: convidadosFaturados,
+        },
+      );
+    }
     throw new PricingServiceError(
       "PRECO_PACOTE_NAO_CONFIGURADO",
       "Não existe preço configurado para este pacote, quantidade de convidados e categoria de horário.",

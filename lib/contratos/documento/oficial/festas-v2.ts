@@ -10,12 +10,22 @@ export function renderizarContratoOficialFestasV2(input: GerarContratoOficialInp
   const snapshot = structuredClone(input.snapshot);
   snapshot.evento.pacote.nome = perfil.pacoteNome;
   const documento = renderizarContratoOficialFestaCompletaV1({ ...input, snapshot });
-  const excedente = `${formatarMoeda(perfil.excedenteCentavos / 100)} por pessoa excedente`;
-  // Substituição delimitada da única condição comercial alterada pela aprovação.
   const antiga = /R\$ 120,00 por pessoa excedente/;
   if (!antiga.test(documento.clausulas[2].texto)) throw new Error('Base jurídica de excedentes divergente.');
-  documento.clausulas[2].texto = documento.clausulas[2].texto.replace(antiga, excedente);
-  documento.clausulas[2].destaques = [excedente];
+  if (perfil.excedenteCentavos == null) {
+    // Não transforma a taxa da Festa Completa em regra de outro pacote.
+    // A ampliação prévia continua submetida à tabela vigente; a cobrança no dia
+    // só aparece quando o pacote possui valor específico configurado.
+    documento.clausulas[2].texto = documento.clausulas[2].texto.replace(
+      / Caso o número de convidados pagantes exceda ao contratado no dia do evento, será cobrado o valor de R\$ 120,00 por pessoa excedente\./,
+      '',
+    );
+    documento.clausulas[2].destaques = [];
+  } else {
+    const excedente = `${formatarMoeda(perfil.excedenteCentavos / 100)} por pessoa excedente`;
+    documento.clausulas[2].texto = documento.clausulas[2].texto.replace(antiga, excedente);
+    documento.clausulas[2].destaques = [excedente];
+  }
   documento.clausulas[0].destaques = [perfil.pacoteNome, formatarDataContrato(snapshot.evento.data), `${snapshot.evento.convidadosFaturados} pessoas`];
   return { ...documento, modeloCodigo: perfil.modeloCodigo, templateVersao: perfil.templateVersao, pacoteNome: perfil.pacoteNome, subtitulo: perfil.pacoteNome.toUpperCase() };
 }

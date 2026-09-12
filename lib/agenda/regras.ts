@@ -13,7 +13,7 @@ export const REGRAS_AGENDA_KIDMAIS = {
 
   restricoesComerciais: {
     pocket:
-      "Disponível de segunda a quinta, sujeito à agenda operacional.",
+      "Disponível de segunda a quinta e sexta no primeiro período, sujeito à agenda operacional.",
     mini:
       "Disponível de segunda a quinta e sexta no primeiro período, sujeito à agenda operacional.",
     compacta:

@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { obterClienteApi, type ClienteDetalheApi } from "@/lib/clientes/api-client";
+import { type FormEvent, useEffect, useState } from "react";
+import { atualizarAniversarianteApi, cadastrarAniversarianteApi, obterClienteApi, type AniversarianteApiRecord, type ClienteDetalheApi } from "@/lib/clientes/api-client";
 import {
   calcularIdade,
   formatCpf,
@@ -14,6 +14,7 @@ import KidmaisBrand from "@/components/layout/KidmaisBrand";
 import styles from "./Clientes.module.css";
 
 type Tab = "resumo" | "aniversariantes" | "eventos" | "responsaveis";
+type EditorAniversariante = { id: string | null; nome: string; dataNascimento: string; temaPadrao: string; observacoes: string };
 
 export default function ClienteProfile({ clienteId }: { clienteId: string }) {
   const router = useRouter();
@@ -28,6 +29,9 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
   const [mostrarFaltantes, setMostrarFaltantes] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
+  const [editorAniversariante, setEditorAniversariante] = useState<EditorAniversariante | null>(null);
+  const [salvandoAniversariante, setSalvandoAniversariante] = useState(false);
+  const [erroAniversariante, setErroAniversariante] = useState("");
 
   useEffect(() => {
     let ativo = true;
@@ -57,6 +61,45 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
     else params.set("tab", nextTab);
     const query = params.toString();
     router.replace(`/clientes/${clienteId}${query ? `?${query}` : ""}`, { scroll: false });
+  }
+
+  function abrirEditorAniversariante(item?: AniversarianteApiRecord) {
+    setErroAniversariante("");
+    setEditorAniversariante(item ? {
+      id: item.id,
+      nome: item.nome,
+      dataNascimento: item.dataNascimento ?? "",
+      temaPadrao: item.temaPadrao ?? "",
+      observacoes: item.observacoes ?? "",
+    } : { id: null, nome: "", dataNascimento: "", temaPadrao: "", observacoes: "" });
+  }
+
+  async function salvarAniversariante(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editorAniversariante || !detalhe) return;
+    setSalvandoAniversariante(true);
+    setErroAniversariante("");
+    try {
+      const payload = {
+        nome: editorAniversariante.nome.trim(),
+        dataNascimento: editorAniversariante.dataNascimento || null,
+        temaPadrao: editorAniversariante.temaPadrao.trim() || null,
+        observacoes: editorAniversariante.observacoes.trim() || null,
+      };
+      const salvo = editorAniversariante.id
+        ? await atualizarAniversarianteApi(detalhe.cliente.id, editorAniversariante.id, payload)
+        : await cadastrarAniversarianteApi(detalhe.cliente.id, payload);
+      setDetalhe((atual) => atual ? {
+        ...atual,
+        aniversariantes: [...atual.aniversariantes.filter((item) => item.id !== salvo.id), salvo]
+          .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+      } : atual);
+      setEditorAniversariante(null);
+    } catch (error) {
+      setErroAniversariante(error instanceof Error ? error.message : "Não foi possível salvar o aniversariante.");
+    } finally {
+      setSalvandoAniversariante(false);
+    }
   }
 
   if (carregando) {
@@ -207,7 +250,24 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
           <section>
             <div className={styles.sectionHeader}>
               <div><h2>Aniversariantes</h2><p>Crianças vinculadas a este cliente.</p></div>
+              <button className={styles.primaryButton} type="button" onClick={() => abrirEditorAniversariante()}>+ Cadastrar aniversariante</button>
             </div>
+            {editorAniversariante && (
+              <form className={styles.birthdayForm} onSubmit={salvarAniversariante}>
+                <div className={styles.birthdayFormHeader}>
+                  <div><h3>{editorAniversariante.id ? "Editar aniversariante" : "Cadastrar aniversariante"}</h3><p>Este cadastro fica disponível no CRM e nos próximos fechamentos.</p></div>
+                  <button type="button" className={styles.textButton} onClick={() => setEditorAniversariante(null)}>Cancelar</button>
+                </div>
+                <div className={styles.birthdayFormGrid}>
+                  <label><span>Nome *</span><input required minLength={2} maxLength={200} value={editorAniversariante.nome} onChange={(e) => setEditorAniversariante({ ...editorAniversariante, nome: e.target.value })} /></label>
+                  <label><span>Data de nascimento</span><input type="date" value={editorAniversariante.dataNascimento} onChange={(e) => setEditorAniversariante({ ...editorAniversariante, dataNascimento: e.target.value })} /></label>
+                  <label><span>Tema preferido</span><input maxLength={2000} value={editorAniversariante.temaPadrao} onChange={(e) => setEditorAniversariante({ ...editorAniversariante, temaPadrao: e.target.value })} /></label>
+                  <label className={styles.birthdayFormWide}><span>Observações</span><textarea maxLength={2000} value={editorAniversariante.observacoes} onChange={(e) => setEditorAniversariante({ ...editorAniversariante, observacoes: e.target.value })} /></label>
+                </div>
+                {erroAniversariante && <div className={styles.apiErrorBox} role="alert">{erroAniversariante}</div>}
+                <div className={styles.birthdayFormActions}><button className={styles.primaryButton} type="submit" disabled={salvandoAniversariante}>{salvandoAniversariante ? "Salvando..." : "Salvar aniversariante"}</button></div>
+              </form>
+            )}
             <div className={styles.cardGrid}>
               {aniversariantes.map((item) => (
                 <article className={styles.personCard} key={item.id}>
@@ -216,7 +276,7 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
                   <p>Nascimento: {item.dataNascimento ? formatData(item.dataNascimento) : "Não informado"}</p>
                   <p>Idade atual: {item.dataNascimento ? `${calcularIdade(item.dataNascimento)} anos` : "—"}</p>
                   <p>Tema preferido: {item.temaPadrao ?? "Não informado"}</p>
-                  <div className={styles.personActions}><Link href={`/admin/festas?clienteId=${encodeURIComponent(cliente.id)}`}>Ver festas</Link></div>
+                  <div className={styles.personActions}><button type="button" onClick={() => abrirEditorAniversariante(item)}>Editar</button><Link href={`/admin/festas?clienteId=${encodeURIComponent(cliente.id)}`}>Ver festas</Link></div>
                 </article>
               ))}
               {!aniversariantes.length && <div className={styles.inlineEmpty}>Nenhum aniversariante cadastrado.</div>}

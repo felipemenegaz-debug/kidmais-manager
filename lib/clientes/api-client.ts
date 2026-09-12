@@ -203,6 +203,27 @@ export function obterClienteApi(clienteId: string) {
   return requestJson<ClienteDetalheApi>(`/api/admin/clientes/${encodeURIComponent(clienteId)}`);
 }
 
+export type AniversariantePayload = {
+  nome: string;
+  dataNascimento: string | null;
+  temaPadrao: string | null;
+  observacoes: string | null;
+};
+
+export function cadastrarAniversarianteApi(clienteId: string, input: AniversariantePayload) {
+  return requestJson<AniversarianteApiRecord>(`/api/admin/clientes/${encodeURIComponent(clienteId)}/aniversariantes`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function atualizarAniversarianteApi(clienteId: string, aniversarianteId: string, input: AniversariantePayload) {
+  return requestJson<AniversarianteApiRecord>(`/api/admin/clientes/${encodeURIComponent(clienteId)}/aniversariantes/${encodeURIComponent(aniversarianteId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 export function analisarCadastroApi(
   input: Pick<ClienteFormData, "nomeCompleto" | "cpf" | "telefone" | "whatsapp">,
   excluirClienteId?: string,

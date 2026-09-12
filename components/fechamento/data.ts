@@ -1,10 +1,9 @@
-import { PacoteId } from "./types";
-import { pacoteIdContratavelV1 } from "@/lib/comercial/pacotes-v1";
+import type { PacoteId } from "./types.ts";
 
 export type Pacote = {
   id: PacoteId;
   nome: string;
-  precoInicial: number;
+  precoInicial: number | null;
   minPagantes: number;
   maxPagantes: number;
   descricao: string;
@@ -13,6 +12,7 @@ export type Pacote = {
   buffet: string;
   observacao?: string;
   destaque?: string;
+  sobConsulta?: boolean;
 };
 
 export const CONTATO_KIDMAIS = {
@@ -31,7 +31,7 @@ export const PACOTES: Pacote[] = [
     minPagantes: 20,
     maxPagantes: 150,
     descricao: "Pacote de entrada para festas menores e comemorações mais intimistas.",
-    disponibilidade: "Segunda a quinta.",
+    disponibilidade: "Segunda a quinta e sexta-feira, das 11h às 15h.",
     duracao: "3 horas de festa + 30 minutos de tolerância sem buffet e sem subsolo.",
     buffet:
       "Salgadinhos, pão de queijo, pipoca, batata frita, cachorro-quente, pizza, refrigerante, suco de polpa, água, docinhos tradicionais e bolo.",
@@ -105,7 +105,7 @@ export const PACOTES: Pacote[] = [
   {
     id: "pizza_party_scienza",
     nome: "Pizza Party Scienza",
-    precoInicial: 4290,
+    precoInicial: null,
     minPagantes: 1,
     maxPagantes: 50,
     descricao:
@@ -117,14 +117,13 @@ export const PACOTES: Pacote[] = [
     observacao:
       "Sabores informados na tabela: Muçarela Scienza, Margherita Clássica, Calabresa Ceratti, Frango com Requeijão Scala e Pizza de Chocolate Scienza. Sabores e quantidades são ajustados conforme o número de convidados.",
     destaque: "Pizza artesanal Scienza",
+    sobConsulta: true,
   },
 ];
 
 // O catálogo completo permanece disponível para gestão e consulta interna.
 // O fechamento comercial da V1 exibe somente pacotes com contrato oficial.
-export const PACOTES_FECHAMENTO_V1 = PACOTES.filter((pacote) =>
-  pacoteIdContratavelV1(pacote.id),
-);
+export const PACOTES_FECHAMENTO_V1 = PACOTES;
 
 // Matrizes comerciais oficiais persistidas nas migrations 006/006a.
 // PADRAO = combinações regulares.
@@ -164,13 +163,6 @@ export const PRECOS_TRADICIONAIS_NOBRE: Record<
   140: { essencial: 14790, completa: 16890, premium: 20590 },
   150: { essencial: 15490, completa: 17790, premium: 21690 },
 };
-
-export const PRECOS_PIZZA_PARTY_SCIENZA = [
-  { ate: 20, valor: 4290 },
-  { ate: 30, valor: 5290 },
-  { ate: 40, valor: 6190 },
-  { ate: 50, valor: 7090 },
-] as const;
 
 export type Adicional = {
   id: string;
