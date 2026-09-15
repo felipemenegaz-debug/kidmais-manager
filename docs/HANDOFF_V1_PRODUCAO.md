@@ -170,16 +170,40 @@ Essa pendência **NÃO bloqueia**:
 
 Ela bloqueia apenas os fluxos que dependem efetivamente do WhatsApp/OTP. Não inventar tokens, credenciais ou configuração para forçar health `ready`. O GO comercial desses fluxos continua condicionado à liberação e validação da integração. Meta Business Verification concluída não significa WhatsApp pronto.
 
-### Credencial production exposta
+### Credencial production exposta — rotação concluída
 
-Durante a configuração inicial, o conteúdo completo de `DATABASE_URL` de production apareceu em screenshot. **Essa credencial deve ser tratada como comprometida.**
+Durante a configuração inicial, o conteúdo completo de `DATABASE_URL` de production apareceu em screenshot. A credencial exposta foi tratada como comprometida e sua rotação foi concluída.
 
-Antes do GO:
+Fatos **confirmados operacionalmente fora desta execução**, informados pelo responsável; não foram verificados diretamente pelos scripts locais:
 
-1. criar/rotacionar a credencial do PostgreSQL `kidmais-production`;
-2. atualizar `DATABASE_URL` do Web Service production;
-3. validar a nova conexão;
-4. revogar/remover a credencial antiga somente depois da nova funcionar.
+- `DATABASE_URL` do Web Service production foi atualizada;
+- login validado com `session_user` igual a `kidmais_production_app_v2`;
+- banco validado como `kidmais_production`;
+- banco estava com 0 tabelas antes das migrations;
+- não havia conexões ativas usando a credencial antiga;
+- a credencial antiga foi revogada/removida;
+- a conexão continuou funcionando após a revogação;
+- staging não esteve envolvido.
+
+Registro estruturado do mesmo relato para a automação (`PASS_REPORTED`). Não atesta o estado atual do destino nem substitui as demais evidências exigidas para GO:
+
+```production-operational-report
+{
+  "schemaVersion": 1,
+  "environment": "production",
+  "gate": "credentialRotation",
+  "confirmation": "confirmed-outside-this-execution",
+  "database": "kidmais_production",
+  "sessionUser": "kidmais_production_app_v2",
+  "databaseUrlUpdated": true,
+  "loginValidated": true,
+  "zeroTablesBeforeMigrations": true,
+  "noOldCredentialConnections": true,
+  "oldCredentialRevoked": true,
+  "connectionAfterRevocation": true,
+  "stagingNotInvolved": true
+}
+```
 
 Nunca registrar o valor da URL ou da senha no handoff.
 
@@ -208,7 +232,6 @@ A inicialização/provisionamento seguro de `data/disponibilidade.json` em produ
 
 Razões principais:
 
-- credencial `DATABASE_URL` production ainda precisa de rotação confirmada;
 - env/secrets ainda precisam ser concluídos/revisados;
 - Persistent Disk production ainda precisa ser preparado;
 - migrations production ainda não foram validadas/aplicadas;
@@ -219,16 +242,14 @@ WhatsApp/Coexistence não bloqueia essas etapas acima. O GO técnico e o GO come
 
 ### Próximo passo operacional
 
-1. rotacionar a credencial exposta do PostgreSQL production;
-2. atualizar `DATABASE_URL`;
-3. concluir/revisar Environment Variables e secrets exclusivos de production;
-4. preparar Persistent Disk production;
-5. preparar e validar migrations production até o estado requerido pela aplicação;
-6. configurar domínio e HTTPS;
-7. atualizar/validar `ADMIN_AUTH_ORIGIN`;
-8. executar smoke tests administrativos;
-9. revisar logs;
-10. emitir novo GO/NO-GO.
+1. concluir/revisar Environment Variables e secrets exclusivos de production;
+2. preparar Persistent Disk production;
+3. preparar e validar migrations production até o estado requerido pela aplicação;
+4. configurar domínio e HTTPS;
+5. atualizar/validar `ADMIN_AUTH_ORIGIN`;
+6. executar smoke tests administrativos;
+7. revisar logs;
+8. emitir novo GO/NO-GO.
 
 ### Regra de economia de contexto
 

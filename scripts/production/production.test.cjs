@@ -7,7 +7,8 @@ const database = require('./check-database-target.cjs');
 const envCheck = require('./check-env.cjs');
 const migrations = require('./check-migrations.cjs');
 const smoke = require('./smoke-test.cjs');
-const { aggregate, gates } = require('./go-no-go.cjs');
+const { aggregate, gates, handoffReports } = require('./go-no-go.cjs');
+const fs = require('node:fs');
 function fixture() {
   return { NODE_ENV: 'production', NODE_VERSION: '22.23.2', KIDMAIS_DEPLOY_ENV: 'production', DATABASE_URL: 'postgresql://synthetic:FAKE_PASSWORD@database.example/kidmais_production', DATABASE_POOL_MAX: '10', DATABASE_CONNECTION_TIMEOUT_MS: '5000', DATABASE_IDLE_TIMEOUT_MS: '30000', DATABASE_SSL: 'true', DATABASE_SSL_REJECT_UNAUTHORIZED: 'true', FESTA_ENABLED: 'true', CONTRATO_ACEITE_DEV_ENABLED: 'false', ADMIN_AUTH_ORIGIN: 'https://admin.example', ADMIN_AUTH_SECRET: 'SYNTHETIC_ADMIN_VALUE_'.repeat(3), IDENTIDADE_OTP_PEPPER: 'SYNTHETIC_PEPPER_VALUE', WHATSAPP_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'), WHATSAPP_CREDENTIAL_KEY_VERSION: '1', META_APP_SECRET: 'SYNTHETIC_META_SECRET', WHATSAPP_CLOUD_ACCESS_TOKEN: 'SYNTHETIC_TOKEN' };
 }
@@ -34,7 +35,7 @@ test('malformed URLs and connection overrides fail safely', () => {
 test('required environment and production policies', () => {
   assert.deepEqual(envCheck.check(fixture()).blockers, []);
   for (const key of Object.keys(fixture()).filter(x => !['META_APP_SECRET', 'WHATSAPP_CLOUD_ACCESS_TOKEN'].includes(x))) {
-    const env = fixture(); delete env[key]; assert.ok(envCheck.check(env).blockers.length, key);
+    const env = fixture(); delete env[key]; assert.equal(envCheck.check(env).status, 'UNKNOWN', key);
   }
   for (const change of [{ KIDMAIS_STAGING_OTP_DISABLED: 'SIM' }, { DATABASE_SSL: 'false' }, { FESTA_ENABLED: 'false' }, { CONTRATO_ACEITE_DEV_ENABLED: 'true' }, { WHATSAPP_CREDENTIAL_ENCRYPTION_KEY: 'invalid' }]) assert.ok(envCheck.check({ ...fixture(), ...change }).blockers.length);
 });
@@ -44,7 +45,7 @@ test('all CLI JSON and text outputs exclude synthetic secrets', () => {
     for (const args of [[], ['--json']]) {
       const r = run(file, env, args);
       assert.equal(r.stderr, '');
-      if (args.length) assert.equal(JSON.parse(r.stdout).schemaVersion, 1);
+      if (args.length) assert.equal(JSON.parse(r.stdout).schemaVersion, 2);
       for (const key of ['DATABASE_URL', 'ADMIN_AUTH_SECRET', 'IDENTIDADE_OTP_PEPPER', 'WHATSAPP_CREDENTIAL_ENCRYPTION_KEY', 'META_APP_SECRET', 'WHATSAPP_CLOUD_ACCESS_TOKEN']) assert.ok(!r.stdout.includes(env[key]), file + ':' + key);
       assert.ok(!r.stdout.includes('FAKE_PASSWORD'));
     }
@@ -71,20 +72,75 @@ test('smoke mocked transport: GET, redirect refusal, invalid JSON, oversized bod
   const opts = { 'base-url': 'https://admin.example' };
   const r = await smoke.check(fixture(), opts, async (url, options) => { assert.equal(url.pathname, '/api/health'); assert.equal(options.method, 'GET'); assert.equal(options.redirect, 'error'); return new Response(JSON.stringify(ready)); });
   assert.deepEqual(r.blockers, []);
-  for (const content of ['SYNTHETIC_TOKEN', 'x'.repeat(65537)]) assert.ok((await smoke.check(fixture(), opts, async () => new Response(content))).blockers.length);
-  for (const url of ['http://admin.example', 'https://user:FAKE@admin.example', 'https://admin.example/?token=FAKE']) assert.ok((await smoke.check(fixture(), { 'base-url': url }, () => { throw new Error('must not fetch'); })).blockers.length);
+  for (const content of ['SYNTHETIC_TOKEN', 'x'.repeat(65537)]) assert.equal((await smoke.check(fixture(), opts, async () => new Response(content))).status, 'UNKNOWN');
+  for (const url of ['http://admin.example', 'https://user:FAKE@admin.example', 'https://admin.example/?token=FAKE']) assert.equal((await smoke.check(fixture(), { 'base-url': url }, () => { throw new Error('must not fetch'); })).status, 'FAIL_VERIFIED');
 });
 test('inventory excludes rollback and never claims applied state', async () => {
   const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.ok(r.evidence[0].latest.includes('_018_')); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999')));
 });
-test('aggregator fails closed, distinguishes partial/commercial and stale reports', () => {
+test('aggregator fails closed, distinguishes partial/commercial and stale reports', async () => {
   const binding = { environment: 'production', commit: 'synthetic-commit', origin: 'https://admin.example', database: 'kidmais_production' };
   const record = { ...binding, schemaVersion: 1, verifiedAt: new Date().toISOString(), ...Object.fromEntries(gates.map(x => [x, true])) };
-  const results = [smoke.evaluate(fixture(), 200, ready)];
+  const results = [envCheck.check(fixture()), database.target(fixture()), await migrations.check({}), smoke.evaluate(fixture(), 200, ready)];
   assert.equal(aggregate(results, undefined, binding).decision, 'NO-GO');
   assert.equal(aggregate(results, record, binding).decision, 'GO-PARCIAL');
   assert.equal(aggregate(results, { ...record, whatsappDelivery: true }, binding).decision, 'GO');
   for (const change of [{ environment: 'staging' }, { migrationsThrough018: false }, { credentialRotation: false }, { verifiedAt: '2000-01-01T00:00:00Z' }, { commit: 'wrong' }]) assert.equal(aggregate(results, { ...record, ...change }, binding).decision, 'NO-GO');
+});
+test('missing local values are UNKNOWN and do not claim remote misconfiguration', async () => {
+  for (const name of ['check-env', 'check-database-target']) {
+    const output = run(name, {});
+    const r = JSON.parse(output.stdout);
+    assert.equal(output.status, 1);
+    assert.equal(r.status, 'UNKNOWN');
+    assert.deepEqual(r.blockers, []);
+    assert.ok(r.unknown.includes('LOCAL:DATABASE_URL_NOT_AVAILABLE'));
+    assert.equal(r.evidence[0].remoteState, 'not-verified');
+  }
+  const env = fixture(); delete env.DATABASE_URL;
+  assert.equal((await database.check(env, { connect: true })).status, 'UNKNOWN');
+  assert.equal(envCheck.check(env).status, 'UNKNOWN');
+  const r = JSON.parse(run('go-no-go', {}).stdout);
+  assert.equal(r.decision, 'NO-GO');
+  assert.equal(r.status, 'UNKNOWN');
+  assert.deepEqual(r.blockers, []);
+  assert.ok(r.unknown.includes('smoke:OPERATIONAL:HEALTH_NOT_VERIFIED_NO_URL'));
+});
+test('proven staging target is FAIL_VERIFIED in local scope', () => {
+  const env = { ...fixture(), DATABASE_URL: 'postgres://synthetic:FAKE@db.example/kidmais_staging' };
+  const r = database.target(env);
+  assert.equal(r.status, 'FAIL_VERIFIED');
+  assert.ok(r.blockers.includes('LOCAL:DATABASE_TARGET_FORBIDDEN'));
+  assert.equal(r.evidence[0].remoteState, 'not-verified');
+  const combined = JSON.parse(run('go-no-go', env).stdout);
+  assert.equal(combined.status, 'FAIL_VERIFIED');
+  assert.equal(combined.decision, 'NO-GO');
+});
+test('handoff report is explicit, narrowly validated and never direct evidence', () => {
+  const markdown = fs.readFileSync(path.join(__dirname, '../../docs/HANDOFF_V1_PRODUCAO.md'), 'utf8');
+  const reports = handoffReports(markdown);
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].status, 'PASS_REPORTED');
+  assert.equal(reports[0].scope, 'OPERATIONAL');
+  assert.equal(reports[0].directlyVerified, false);
+  for (const invalid of ['', markdown + markdown, markdown.replace('"oldCredentialRevoked": true', '"oldCredentialRevoked": false'), markdown.replace('"sessionUser": "kidmais_production_app_v2"', '"sessionUser": "SYNTHETIC_SECRET"')]) assert.deepEqual(handoffReports(invalid), []);
+  const output = JSON.parse(run('go-no-go', {}).stdout);
+  assert.equal(output.reported[0].status, 'PASS_REPORTED');
+  assert.equal(output.reported[0].directlyVerified, false);
+  assert.equal(output.decision, 'NO-GO');
+  assert.ok(output.unknown.some(x => x.endsWith('credentialRotation')));
+  const withExtra = markdown.replace('"schemaVersion": 1,', '"secret": "SYNTHETIC_HIDDEN_VALUE", "schemaVersion": 1,');
+  assert.ok(!JSON.stringify(handoffReports(withExtra)).includes('SYNTHETIC_HIDDEN_VALUE'));
+});
+test('reports cannot override unknowns, failures or omitted direct checks', async () => {
+  const binding = { environment: 'production', commit: 'synthetic', origin: 'https://admin.example', database: 'kidmais_production' };
+  const record = { ...binding, schemaVersion: 1, verifiedAt: new Date().toISOString(), ...Object.fromEntries(gates.map(x => [x, true])), whatsappDelivery: true };
+  const results = [envCheck.check({}), database.target({}), await migrations.check({}), smoke.evaluate(fixture(), 200, ready)];
+  const r = aggregate(results, record, binding);
+  assert.equal(r.decision, 'NO-GO');
+  assert.deepEqual(r.blockers, []);
+  assert.ok(r.reported.every(x => x.status === 'PASS_REPORTED' && x.directlyVerified === false));
+  assert.equal(aggregate([smoke.evaluate(fixture(), 200, ready)], record, binding).decision, 'NO-GO');
 });
 test('optional connection uses read-only session and fixed SELECTs through fake pg', async () => {
   const Module = require('node:module');

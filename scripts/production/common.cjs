@@ -1,5 +1,7 @@
 'use strict';
-const result = (check) => ({ schemaVersion: 1, check, blockers: [], pending: [], evidence: [] });
+const result = (check) => ({ schemaVersion: 2, check, blockers: [], unknown: [], pending: [], reported: [], evidence: [],
+  get status() { return this.blockers.length ? 'FAIL_VERIFIED' : this.unknown.length ? 'UNKNOWN' : 'PASS'; }
+});
 function parseArgs(args, allowed) {
   const options = {};
   for (const arg of args) {
@@ -12,8 +14,8 @@ function parseArgs(args, allowed) {
   return options;
 }
 function finish(r, json) {
-  const output = { ...r, ok: r.blockers.length === 0 };
-  console.log(json ? JSON.stringify(output) : [r.check + ': ' + (r.decision ?? (output.ok ? 'PASS' : 'FAIL')), ...r.blockers.map(x => 'BLOCK: ' + x), ...r.pending.map(x => 'PENDING: ' + x), ...r.evidence.map(x => 'EVIDENCE: ' + JSON.stringify(x))].join('\n'));
+  const output = { ...r, ok: r.blockers.length === 0 && r.unknown.length === 0 };
+  console.log(json ? JSON.stringify(output) : [r.check + ': ' + (r.decision ?? r.status), ...r.blockers.map(x => 'FAIL_VERIFIED: ' + x), ...r.unknown.map(x => 'UNKNOWN: ' + x), ...r.pending.map(x => 'PENDING: ' + x), ...r.reported.map(x => 'PASS_REPORTED: ' + JSON.stringify(x)), ...r.evidence.map(x => 'EVIDENCE: ' + JSON.stringify(x))].join('\n'));
   process.exitCode = output.ok ? 0 : 1;
 }
 async function cli(name, allowed, run) {

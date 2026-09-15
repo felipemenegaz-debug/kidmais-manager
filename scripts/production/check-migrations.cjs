@@ -15,11 +15,11 @@ async function check(env, options = {}) {
   for (const file of files.filter(x => Number(x.split('_')[1]) >= 13)) {
     for (const kind of ['precheck', 'postcheck']) if (!fs.existsSync(path.join(root, 'database/checks', file.slice(0, 12) + '_' + kind + '.sql'))) r.blockers.push('CHECK_FILE_MISSING_' + file.slice(9, 12) + '_' + kind);
   }
-  r.evidence.push({ source: 'code', migrations: files, latest: files.at(-1), appliedState: 'unknown' });
-  r.pending.push('014_OLD_POSTCHECK_CAN_FALSE_NEGATIVE_ON_EVOLVED_SCHEMA', 'MIGRATION_STATE_REQUIRES_REVIEWED_EXTERNAL_EVIDENCE');
+  r.evidence.push({ source: 'code', scope: 'REPOSITORY', status: 'PASS', migrations: files, latest: files.at(-1), appliedState: 'unknown' });
+  r.pending.push('014_OLD_POSTCHECK_CAN_FALSE_NEGATIVE_ON_EVOLVED_SCHEMA');
   if (options['inspect-db']) {
     try { const data = await readDatabase(env, "SELECT count(*)::int AS count FROM pg_tables WHERE schemaname='public'"); r.evidence.push({ source: 'script', publicTables: Number(data.rows[0].count), appliedState: 'unknown' }); }
-    catch { r.blockers.push('MIGRATION_INSPECTION_FAILED'); }
+    catch { r.unknown.push('OPERATIONAL:MIGRATION_INSPECTION_NOT_VERIFIED'); }
   }
   return r;
 }

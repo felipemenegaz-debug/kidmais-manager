@@ -8,26 +8,41 @@ const database = require('./check-database-target.cjs');
 const migrations = require('./check-migrations.cjs');
 const smoke = require('./smoke-test.cjs');
 const gates = ['migrationsThrough018', 'credentialRotation', 'secretsExclusive', 'persistentDisk', 'https', 'backupRestore', 'adminSmoke', 'regression', 'monitoring', 'operationalAcceptance'];
-function aggregate(results, operational, binding) {
+// Read only a narrow, explicit report. Never emit arbitrary handoff text or JSON values.
+function handoffReports(markdown) {
+  const blocks = [...markdown.matchAll(/```production-operational-report\r?\n([\s\S]*?)\r?\n```/g)];
+  if (blocks.length !== 1) return [];
+  try {
+    const value = JSON.parse(blocks[0][1]);
+    const facts = ['databaseUrlUpdated', 'loginValidated', 'zeroTablesBeforeMigrations', 'noOldCredentialConnections', 'oldCredentialRevoked', 'connectionAfterRevocation', 'stagingNotInvolved'];
+    if (value.schemaVersion !== 1 || value.environment !== 'production' || value.gate !== 'credentialRotation' || value.confirmation !== 'confirmed-outside-this-execution' || value.database !== 'kidmais_production' || value.sessionUser !== 'kidmais_production_app_v2' || !facts.every(key => value[key] === true)) return [];
+    return [{ source: 'handoff', scope: 'OPERATIONAL', status: 'PASS_REPORTED', gate: 'credentialRotation', directlyVerified: false, currentStateVerified: false }];
+  } catch { return []; }
+}
+function aggregate(results, operational, binding, reports = []) {
   const r = result('go-no-go');
   r.blockers = results.flatMap(x => x.blockers.map(b => x.check + ':' + b));
+  r.unknown = results.flatMap(x => x.unknown.map(b => x.check + ':' + b));
+  r.reported = [...reports];
   r.pending = results.flatMap(x => x.pending.map(p => x.check + ':' + p));
-  r.evidence = results.map(x => ({ source: 'script', check: x.check, evidence: x.evidence }));
+  r.evidence = results.map(x => ({ source: 'script', check: x.check, status: x.status, evidence: x.evidence }));
   const bound = Object.values(binding).every(x => typeof x === 'string' && x.length > 0) && operational?.schemaVersion === 1 && operational.environment === binding.environment && operational.commit === binding.commit && operational.origin === binding.origin && operational.database === binding.database && Number.isFinite(Date.parse(operational.verifiedAt)) && Date.parse(operational.verifiedAt) <= Date.now() && Date.now() - Date.parse(operational.verifiedAt) <= 86400000;
   for (const gate of gates) {
     const confirmed = bound && operational[gate] === true;
-    if (!confirmed) r.blockers.push('OPERATIONAL_EVIDENCE_REQUIRED_' + gate);
-    r.evidence.push({ source: 'external-report', gate, confirmed: !!confirmed });
+    if (!confirmed) r.unknown.push('OPERATIONAL:CURRENT_EVIDENCE_REQUIRED_' + gate);
+    else r.reported.push({ source: 'external-report', scope: 'OPERATIONAL', status: 'PASS_REPORTED', gate, directlyVerified: false });
+    r.evidence.push({ source: 'external-report', scope: 'OPERATIONAL', status: confirmed ? 'PASS_REPORTED' : 'UNKNOWN', gate, confirmed: !!confirmed, directlyVerified: false });
   }
   const commercial = bound && operational.whatsappDelivery === true && results.some(x => x.check === 'smoke' && x.evidence.some(e => e.otpReady === true));
-  if (bound && operational.migrationsThrough018 === true) r.pending = r.pending.filter(x => !x.endsWith('MIGRATION_STATE_REQUIRES_REVIEWED_EXTERNAL_EVIDENCE'));
   if (commercial) r.pending = r.pending.filter(x => !x.endsWith('WHATSAPP_OTP_DELIVERY_REQUIRES_EXTERNAL_VALIDATION') && !x.endsWith('HEALTH_DOES_NOT_PROVE_WHATSAPP_DELIVERY'));
   if (!commercial) r.pending.push('WHATSAPP_COMMERCIAL_NOT_VALIDATED');
-  r.decision = r.blockers.length ? 'NO-GO' : commercial ? 'GO' : 'GO-PARCIAL';
-  r.technical = r.blockers.length ? 'NO-GO' : 'GO';
-  r.commercialWhatsapp = r.blockers.length || !commercial ? 'NO-GO' : 'GO';
-  r.released = r.blockers.length ? ['Planejar e corrigir os bloqueadores com aprovações aplicáveis'] : ['Preparação técnica e avaliação dos fluxos administrativos independentes de WhatsApp'];
-  r.blocked = [...(r.blockers.length ? ['Liberação técnica para operação'] : []), ...(!commercial ? ['Fluxos comerciais dependentes de WhatsApp/OTP'] : []), 'Qualquer mudança de infraestrutura ou liberação de tráfego sem aprovação humana'];
+  for (const check of ['env', 'database-target', 'migrations', 'smoke']) if (!results.some(x => x.check === check)) r.unknown.push('LOCAL:CHECK_NOT_RUN_' + check);
+  const insufficient = r.blockers.length || r.unknown.length;
+  r.decision = insufficient ? 'NO-GO' : commercial ? 'GO' : 'GO-PARCIAL';
+  r.technical = insufficient ? 'NO-GO' : 'GO';
+  r.commercialWhatsapp = insufficient || !commercial ? 'NO-GO' : 'GO';
+  r.released = insufficient ? ['Planejar correções e reunir evidências faltantes'] : ['Preparação técnica e avaliação dos fluxos administrativos independentes de WhatsApp'];
+  r.blocked = [...(insufficient ? ['Liberação técnica para operação'] : []), ...(!commercial ? ['Fluxos comerciais dependentes de WhatsApp/OTP'] : []), 'Qualquer mudança de infraestrutura ou liberação de tráfego sem aprovação humana'];
   return r;
 }
 async function check(env, options = {}) {
@@ -41,8 +56,11 @@ async function check(env, options = {}) {
   try { commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.resolve(__dirname, '../..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); } catch { /* Missing binding fails closed. */ }
   let origin; let db;
   try { origin = new URL(options['base-url']).origin; db = decodeURIComponent(new URL(env.DATABASE_URL).pathname.slice(1)); } catch { /* Checks above report invalid input. */ }
-  if (origin && origin !== env.ADMIN_AUTH_ORIGIN) { const r = result('binding'); r.blockers.push('SMOKE_ADMIN_ORIGIN_MISMATCH'); results.push(r); }
-  return aggregate(results, operational, { environment: env.KIDMAIS_DEPLOY_ENV, commit, origin, database: db });
+  if (origin && env.ADMIN_AUTH_ORIGIN?.trim() && origin !== env.ADMIN_AUTH_ORIGIN) { const r = result('binding'); r.blockers.push('LOCAL:SMOKE_ADMIN_ORIGIN_MISMATCH'); results.push(r); }
+  let reports = [];
+  try { reports = handoffReports(fs.readFileSync(path.resolve(__dirname, '../../docs/HANDOFF_V1_PRODUCAO.md'), 'utf8')); }
+  catch { /* Missing repository report supplies no operational evidence. */ }
+  return aggregate(results, operational, { environment: env.KIDMAIS_DEPLOY_ENV, commit, origin, database: db }, reports);
 }
 if (require.main === module) cli('go-no-go', { 'base-url': 'string', evidence: 'string' }, check);
-module.exports = { check, aggregate, gates };
+module.exports = { check, aggregate, gates, handoffReports };
