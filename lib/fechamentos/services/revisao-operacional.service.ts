@@ -40,7 +40,7 @@ export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacion
         }
         recusar('Destino da revisão indisponível. A reserva vigente e os recebimentos permanecem preservados.');
     }
-    if (f.status === 'CONFIRMADO' && (!r.hold_destino_adquirido_em || options.mudouDestino)) {
+    if ((await tx.query<{ ocupa: boolean }>('SELECT public.kidmais019_ocupa($1::uuid) AS ocupa', [f.id])).rows[0].ocupa && (!r.hold_destino_adquirido_em || options.mudouDestino)) {
         await tx.query('UPDATE fechamento_revisoes SET hold_destino_adquirido_em=clock_timestamp() WHERE id=$1', [r.id]);
         await auditar(tx, r, c, options.mudouDestino ? 'RESERVA_REVISAO_MOVIDA' : 'RESERVA_REVISAO_ADQUIRIDA', { hold: r.hold_destino_adquirido_em }, { data: op.dataEvento, inicio: op.horarioInicio, fim: op.horarioFim });
     }
@@ -54,9 +54,9 @@ export async function iniciarPreparacao(tx: DbExecutor, base: ContratoVersaoReco
         recusar('A preparação exige usuário administrativo real.');
     await criarRevisaoOperacionalRegistro(tx, { id: randomUUID(), fechamentoId: base.snapshot.fechamento.id, contratoId: v.contratoId, versaoId: v.id, baseId: base.id, baseHash: base.snapshotHash, motivo, chave, usuarioId: c.usuarioId });
     const r = (await buscarRevisaoDaVersao(v.id, tx))!;
-    // Sem confirmação financeira a abertura não adquire base/destino. Data vigente pode já estar indisponível.
+    // A formalização contratual também protege base/destino antes do pagamento.
     const f = (await buscarFechamentoPorId(r.fechamento_id, tx))!;
-    if (f.status === 'CONFIRMADO')
+    if ((await tx.query<{ ocupa: boolean }>('SELECT public.kidmais019_ocupa($1::uuid) AS ocupa', [f.id])).rows[0].ocupa)
         await revalidarAgendaRevisao(tx, r, c);
     await auditar(tx, r, c, 'REVISAO_OPERACIONAL_CRIADA', null, { ...r, chaveCriacao: chave });
     return r;

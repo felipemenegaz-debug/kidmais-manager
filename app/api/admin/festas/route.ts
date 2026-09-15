@@ -15,7 +15,7 @@ async function processar(request:NextRequest,write:boolean){try{
  const rawCliente=request.nextUrl.searchParams.get('clienteId');const clienteId=rawCliente?z.string().uuid().parse(rawCliente).toLowerCase():undefined;
  if(!write)return json({ok:true,data:recurso==='perfis'?await consultarPerfis(ctx):recurso==='capacidades'?await consultarCapacidades(ctx):await consultarFestas(ctx,id,clienteId)});
  const body=await request.json();
- const data=recurso==='perfis'?await aplicarPerfil(body,ctx):recurso==='capacidades'?await administrarCapacidade(body,ctx):recurso==='areas'?await administrarArea(body,ctx):id?await comandarFesta(id,body,ctx):await criarFesta(body,ctx);
+ const data=recurso==='perfis'?await aplicarPerfil(body,ctx):recurso==='capacidades'?await administrarCapacidade(body,ctx):recurso==='areas'?await administrarArea(body,ctx):id?await comandarFesta(id,body,ctx):await criarFesta(body);
  return json({ok:true,data});
  }catch(error){
  if(error instanceof ZodError||error instanceof SyntaxError)return json({ok:false,erro:'Dados inválidos. Confira os campos.'},400);

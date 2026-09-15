@@ -6,7 +6,7 @@ import * as envCheck from './check-env.mjs';
 import * as database from './check-database-target.mjs';
 import * as migrations from './check-migrations.mjs';
 import * as smoke from './smoke-test.mjs';
-const gates = ['migrationsThrough018', 'credentialRotation', 'secretsExclusive', 'persistentDisk', 'https', 'backupRestore', 'adminSmoke', 'regression', 'monitoring', 'operationalAcceptance'];
+const gates = ['migrationsThrough019', 'credentialRotation', 'secretsExclusive', 'persistentDisk', 'https', 'backupRestore', 'adminSmoke', 'regression', 'monitoring', 'operationalAcceptance'];
 // Read only a narrow, explicit report. Never emit arbitrary handoff text or JSON values.
 function handoffReports(markdown) {
   const blocks = [...markdown.matchAll(/```production-operational-report\r?\n([\s\S]*?)\r?\n```/g)];

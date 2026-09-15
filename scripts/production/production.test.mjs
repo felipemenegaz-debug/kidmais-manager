@@ -78,7 +78,7 @@ test('smoke mocked transport: GET, redirect refusal, invalid JSON, oversized bod
   for (const url of ['http://admin.example', 'https://user:FAKE@admin.example', 'https://admin.example/?token=FAKE']) assert.equal((await smoke.check(fixture(), { 'base-url': url }, () => { throw new Error('must not fetch'); })).status, 'FAIL_VERIFIED');
 });
 test('inventory excludes rollback and never claims applied state', async () => {
-  const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.ok(r.evidence[0].latest.includes('_018_')); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999')));
+  const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.ok(r.evidence[0].latest.includes('_019_')); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999')));
 });
 test('aggregator fails closed, distinguishes partial/commercial and stale reports', async () => {
   const binding = { environment: 'production', commit: 'synthetic-commit', origin: 'https://admin.example', database: 'kidmais_production' };
@@ -87,7 +87,7 @@ test('aggregator fails closed, distinguishes partial/commercial and stale report
   assert.equal(aggregate(results, undefined, binding).decision, 'NO-GO');
   assert.equal(aggregate(results, record, binding).decision, 'GO-PARCIAL');
   assert.equal(aggregate(results, { ...record, whatsappDelivery: true }, binding).decision, 'GO');
-  for (const change of [{ environment: 'staging' }, { migrationsThrough018: false }, { credentialRotation: false }, { verifiedAt: '2000-01-01T00:00:00Z' }, { commit: 'wrong' }]) assert.equal(aggregate(results, { ...record, ...change }, binding).decision, 'NO-GO');
+  for (const change of [{ environment: 'staging' }, { migrationsThrough019: false }, { credentialRotation: false }, { verifiedAt: '2000-01-01T00:00:00Z' }, { commit: 'wrong' }]) assert.equal(aggregate(results, { ...record, ...change }, binding).decision, 'NO-GO');
 });
 test('missing local values are UNKNOWN and do not claim remote misconfiguration', async () => {
   for (const name of ['check-env', 'check-database-target']) {

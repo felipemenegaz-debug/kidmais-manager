@@ -12,7 +12,7 @@ import {registrarAuditoria} from '../clientes/repositories/auditoria.repository'
 import {consultarPainelFinanceiro} from '../pagamentos/services/financeiro-consulta.service';
 import {exigir,FestaError,estadoDerivado,excedentes,type Capacidade} from './domain';
 import {criarSchema,comandoSchema,capacidadeSchema,areaSchema,type Comando} from './schema';
-import {formalizacaoCompleta,formalizacaoElegivelSql,contrato,filhos,contagens,type Festa,type Registro,type Contrato} from './repository';
+import {formalizacaoElegivelSql,contrato,filhos,contagens,type Festa,type Registro,type Contrato} from './repository';
 export type Contexto={token:string;requestId:string;userAgent:string|null};
 function hash(value:unknown){return createHash('sha256').update(JSON.stringify(value)).digest('hex');}
 export async function ambienteFesta(tx:DbExecutor=db()){await validarAmbienteFesta(tx);}
@@ -30,18 +30,9 @@ async function repeticao(tx:DbExecutor,key:string,input:unknown,s:SessaoAdmin,fe
  const e=(await tx.query<Registro>('SELECT * FROM festa_eventos WHERE chave_idempotencia=$1',[key])).rows[0];
  if(e){exigir(e.payload_hash===hash(input)&&e.usuario_id===s.usuario_id&&(!festaId||e.festa_id===festaId),'Chave já utilizada com outro comando.');return e.dados_depois as Registro;}return null;
 }
-export async function criarFesta(raw:unknown,ctx:Contexto){
- const input=criarSchema.parse(raw);
- return withTransaction(async tx=>{
-  await ambienteFesta(tx);const c=await contrato(tx,input.contratoId,true);exigir(c,'Contratação não encontrada.');
-  const s=await sessao(tx,ctx,true);await autorizar(tx,s,'FESTA_CRIAR');
-  const replay=await repeticao(tx,input.chave,input,s);if(replay){exigir(!(await tx.query('SELECT id FROM festas WHERE id=$1 AND invalidada_em IS NOT NULL',[replay.id])).rows.length,'A Festa desta tentativa foi removida. Inicie uma nova criação.');return replay;}
-  exigir(c.versao_id===input.versaoId,'A versão vigente mudou. Atualize a tela.');
-  exigir(await formalizacaoCompleta(tx,c.versao_id),'Formalização exige versão concluída, assinatura Kidmais e aceite do cliente.');
-  const existing=(await tx.query<Festa>('SELECT * FROM festas WHERE contrato_id=$1 AND invalidada_em IS NULL',[c.id])).rows[0];if(existing)return existing;
-  const f=(await tx.query<Festa>(`INSERT INTO festas(contrato_id,versao_contratual_criacao_id,chave_criacao,payload_hash,criado_por) VALUES($1,$2,$3,$4,$5) RETURNING *`,[c.id,c.versao_id,input.chave,hash(input),s.usuario_id])).rows[0];
-  await evento(tx,s,ctx,f,c,input.chave,input,null,f,'FESTA_CRIADA','Criação explícita');return f;
- });
+export async function criarFesta(raw:unknown){
+ criarSchema.parse(raw);
+ throw new FestaError('A Festa é criada automaticamente na formalização. Contratos anteriores exigem reconciliação explícita.',409);
 }
 export async function consultarFestas(ctx:Contexto,id?:string,clienteId?:string){
  return withTransaction(async tx=>{
@@ -97,6 +88,7 @@ export async function comandarFesta(id:string,raw:unknown,ctx:Contexto){const i=
  if(!['tarefa','pendencia'].includes(i.acao))await validarPolitica(tx,s,i,null);
  let antes:Registro|null=f;let result:Registro=f;let entity=id;
  if(i.acao==='invalidar'){
+  exigir(c.status!=='ASSINADO','Use o cancelamento da contratação; a Festa automática não pode ser removida por engano.');
   const registros=await filhos(tx,id);exigir(Object.entries(registros).every(([k,rows])=>k==='eventos'?rows.every(r=>r.tipo==='FESTA_CRIADA'):rows.length===0),'Esta Festa já possui atividades registradas e não pode ser removida por engano.');
   result=(await tx.query<Festa>('UPDATE festas SET invalidada_em=clock_timestamp(),invalidada_por=$2,motivo_invalidacao=$3,revisao=revisao+1,atualizado_em=clock_timestamp() WHERE id=$1 RETURNING *',[id,s.usuario_id,i.motivo])).rows[0];
  }else if(i.acao==='cancelar_contratacao'){

@@ -9,8 +9,8 @@ async function check(env, options = {}) {
   const ids = files.map(x => x.split('_')[1]);
   if (ids.filter(x => x === '006a').length !== 1) r.blockers.push('MIGRATION_006A_MISSING');
   if (!fs.existsSync(path.join(root, 'database/checks/20260908_011_pagamentos_postcheck.sql'))) r.blockers.push('CHECK_FILE_MISSING_011_postcheck');
-  for (let n = 1; n <= 18; n++) if (ids.filter(x => x === String(n).padStart(3, '0')).length !== 1) r.blockers.push('MIGRATION_SEQUENCE_INVALID_' + n);
-  if (ids.some(x => parseInt(x, 10) > 18)) r.blockers.push('MIGRATION_BASELINE_REVIEW_REQUIRED');
+  for (let n = 1; n <= 19; n++) if (ids.filter(x => x === String(n).padStart(3, '0')).length !== 1) r.blockers.push('MIGRATION_SEQUENCE_INVALID_' + n);
+  if (ids.some(x => parseInt(x, 10) > 19)) r.blockers.push('MIGRATION_BASELINE_REVIEW_REQUIRED');
   for (const file of files.filter(x => Number(x.split('_')[1]) >= 13)) {
     for (const kind of ['precheck', 'postcheck']) if (!fs.existsSync(path.join(root, 'database/checks', file.slice(0, 12) + '_' + kind + '.sql'))) r.blockers.push('CHECK_FILE_MISSING_' + file.slice(9, 12) + '_' + kind);
   }

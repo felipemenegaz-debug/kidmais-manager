@@ -172,6 +172,11 @@ async function run(c) {
   };
   const chamadaPublica = (body) => publicRoute.POST(new NextRequest('http://localhost/api/fechamentos',{method:'POST',body:JSON.stringify(body)}));
   const anteriorPublico = await countFinance();
+  // O contrato assinado anteriormente já ocupa o horário, mesmo sem pagamento.
+  const ocupado = await chamadaPublica(publico);
+  assert.equal(ocupado.status,409);
+  assert.equal((await ocupado.json()).codigo,'HORARIO_NAO_DISPONIVEL');
+  publico.dataFesta='2098-10-12';
   const respostaPublica = await chamadaPublica(publico);
   const retornoPublico = await respostaPublica.json();
   assert.equal(respostaPublica.status,201,JSON.stringify(retornoPublico));

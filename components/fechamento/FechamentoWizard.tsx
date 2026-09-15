@@ -1152,7 +1152,7 @@ export default function FechamentoWizard() {
             <p>
               Conforme a regra comercial da Kidmais, o envio das informações
               não garante reserva. A confirmação depende de disponibilidade,
-              contrato e primeiro pagamento.
+              assinaturas da Kidmais e do cliente no contrato.
             </p>
           </div>
 
@@ -2601,7 +2601,7 @@ export default function FechamentoWizard() {
                 <p>
                   O envio deste fechamento não garante a reserva da data. A
                   confirmação ocorre após conferência da disponibilidade,
-                  contrato e primeiro pagamento.
+                  assinaturas da Kidmais e do cliente no contrato.
                 </p>
               </div>
             </section>

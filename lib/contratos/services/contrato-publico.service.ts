@@ -1,3 +1,5 @@
+import { bloquearAgendaFormalizacao, garantirFestaFormalizada } from '../../festas/formalizacao';
+import { validarAmbienteFesta } from '../../festas/ambiente';
 import { normalizarCpf } from "../../clientes/repositories/normalizers";
 import {
   buscarClienteCanonicoPorId,
@@ -442,7 +444,10 @@ export async function assinarContratoPublico(
         validacaoAnterior.consumidoPorContratoVersaoId === versao.id &&
         versao.documentoPdfHash === documento.pdfHash
       ) {
+        await validarAmbienteFesta(tx);
+        const festa = await garantirFestaFormalizada(tx, contrato.id, versao.id, context, 'RETRY');
         return {
+          ...festa,
           contrato,
           versao,
           fechamentoStatus: "CONTRATO_ASSINADO" as const,
@@ -506,6 +511,10 @@ export async function assinarContratoPublico(
       tx,
     );
 
+    if (!edicao) throw new ContratoServiceError('STATUS_CONTRATO_NAO_PERMITE_ASSINATURA', 'Fluxo legado exige revisão antes da formalização automática.', 409);
+    await validarAmbienteFesta(tx);
+    await bloquearAgendaFormalizacao(tx, contrato.id);
+
     const prova = await identity.consumirProvaParaContrato(
       input.provaToken,
       versao.id,
@@ -553,6 +562,8 @@ export async function assinarContratoPublico(
         409,
       );
     }
+
+    await garantirFestaFormalizada(tx, contrato.id, versaoAssinada.id, context);
 
     await registrarEventoHistorico(
       {
