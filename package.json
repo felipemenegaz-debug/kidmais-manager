@@ -21,7 +21,10 @@
     "check:v1:clone": "node scripts/regressao-v1-clone.cjs",
     "check:v1:staging": "node scripts/regressao-v1-staging.cjs",
     "check:v1:ui": "node scripts/festa-navegacao-ui.test.cjs",
-    "check:v1:producao:readonly": "node --experimental-strip-types scripts/festa-016-preproducao-preservacao.cjs"
+    "check:v1:producao:readonly": "node --experimental-strip-types scripts/festa-016-preproducao-preservacao.cjs",
+    "production:check": "node scripts/production/go-no-go.cjs",
+    "production:check:json": "node scripts/production/go-no-go.cjs --json",
+    "production:test": "node --test scripts/production/production.test.cjs"
   },
   "dependencies": {
     "next": "16.3.4",
