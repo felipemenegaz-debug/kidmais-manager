@@ -1,11 +1,10 @@
-'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
-const { result, cli } = require('./common.cjs');
-const { readDatabase } = require('./check-database-target.cjs');
+import fs from 'node:fs';
+import path from 'node:path';
+import { result, cli, isMain } from './common.mjs';
+import { readDatabase } from './check-database-target.mjs';
 async function check(env, options = {}) {
   const r = result('migrations');
-  const root = path.resolve(__dirname, '../..');
+  const root = path.resolve(import.meta.dirname, '../..');
   const files = fs.readdirSync(path.join(root, 'database/migrations')).filter(x => /^\d{8}_\d{3}[a-z]?_[a-z0-9_]+\.sql$/.test(x) && !x.endsWith('_down.sql')).sort();
   const ids = files.map(x => x.split('_')[1]);
   if (ids.filter(x => x === '006a').length !== 1) r.blockers.push('MIGRATION_006A_MISSING');
@@ -23,5 +22,5 @@ async function check(env, options = {}) {
   }
   return r;
 }
-if (require.main === module) cli('migrations', { 'inspect-db': 'boolean' }, check);
-module.exports = { check };
+if (isMain(import.meta.url)) cli('migrations', { 'inspect-db': 'boolean' }, check);
+export { check };

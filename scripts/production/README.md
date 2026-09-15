@@ -2,14 +2,16 @@
 
 Somente leitura. Não carregam `.env` nem `.env.local`. Recebem variáveis já injetadas no processo; não cole secrets na linha de comando. Não há comandos de deploy, migration ou alteração de infraestrutura. Execute da raiz do clone.
 
+Os scripts usam ES modules (`.mjs`, `import`/`export`) no Node.js 22.23.2 definido pelo projeto, compatíveis com o ESLint padrão, sem exceções de lint. Importar um módulo não executa sua CLI. O driver `pg` é importado dinamicamente somente no caminho de conexão explícita, após validar destino e TLS; os testes injetam um cliente falso sem abrir conexão. Os comandos npm e o contrato JSON permanecem iguais.
+
 | Comando | Escopo |
 | --- | --- |
 | `npm run production:check` | Ambiente, URL do banco e arquivos SQL locais; NO-GO sem evidências e smoke |
 | `npm run production:check:json` | Mesmo agregado em JSON; use `npm run --silent production:check:json` para stdout exclusivamente JSON |
-| `node scripts/production/check-env.cjs --json` | Configuração injetada, sem imprimir valores |
-| `node scripts/production/check-database-target.cjs --json` | Analisa URL, sem conexão |
-| `node scripts/production/check-migrations.cjs --json` | Inventário 001–018, incluindo 006a; exclui rollback 999 |
-| `node scripts/production/smoke-test.cjs --base-url=https://servico.example --json` | GET `/api/health`, sem redirects, limite 64 KiB e timeout 10 s |
+| `node scripts/production/check-env.mjs --json` | Configuração injetada, sem imprimir valores |
+| `node scripts/production/check-database-target.mjs --json` | Analisa URL, sem conexão |
+| `node scripts/production/check-migrations.mjs --json` | Inventário 001–018, incluindo 006a; exclui rollback 999 |
+| `node scripts/production/smoke-test.mjs --base-url=https://servico.example --json` | GET `/api/health`, sem redirects, limite 64 KiB e timeout 10 s |
 | `npm run --silent production:check:json -- --base-url=https://servico.example --evidence=registro.json` | Agrega verificações e atestação operacional |
 | `npm run production:test` | Testes isolados com env sintético e fetch simulado; zero rede/banco |
 

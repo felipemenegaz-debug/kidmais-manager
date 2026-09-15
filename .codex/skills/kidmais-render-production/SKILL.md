@@ -9,10 +9,10 @@ description: Preparar e avaliar staging/production do Kidmais Manager no Render 
 
 1. Confirmar workspace `D:\glass\KidMais Manager\kidmais-manager-github`, `git branch --show-current`, `git log -1 --oneline`, `git status`. A base esperada desta preparação é `staging`; divergências da base solicitada exigem parar e informar. Confirmar `docs/HANDOFF_V1_PRODUCAO.md`, `render.yaml`, migrations 017/018 e `app/api/health/route.ts` presentes.
 2. Ler primeiro [handoff](../../../docs/HANDOFF_V1_PRODUCAO.md), fonte principal operacional. Não reler o projeto inteiro. Abrir somente arquivos necessários para divergências ou bloqueios.
-3. Executar `node scripts/production/check-env.cjs --json` com ambiente injetado de forma segura.
-4. Executar `node scripts/production/check-database-target.cjs --json` (sem conexão).
-5. Executar `node scripts/production/check-migrations.cjs --json` (sem conexão).
-6. Quando houver URL e autorização de leitura remota no escopo, executar `node scripts/production/smoke-test.cjs --base-url=https://servico.example --json`, substituindo apenas a URL pública. Sem URL, registrar smoke não verificado.
+3. Executar `node scripts/production/check-env.mjs --json` com ambiente injetado de forma segura.
+4. Executar `node scripts/production/check-database-target.mjs --json` (sem conexão).
+5. Executar `node scripts/production/check-migrations.mjs --json` (sem conexão).
+6. Quando houver URL e autorização de leitura remota no escopo, executar `node scripts/production/smoke-test.mjs --base-url=https://servico.example --json`, substituindo apenas a URL pública. Sem URL, registrar smoke não verificado.
 7. Executar `npm run --silent production:check:json`, acrescentando URL/evidência apenas quando disponíveis e autorizadas. O agregado repete somente os checks baratos; não relê o repositório. Consultar [contrato dos scripts](../../../scripts/production/README.md) para flags e formato da atestação.
 8. Recomendar a próxima ação concreta a partir dos bloqueadores, distinguindo preparação técnica e operação comercial WhatsApp.
 9. Encerrar sempre com GO, GO-PARCIAL ou NO-GO, escopo avaliado, evidências, bloqueadores e pendências. Parar antes de qualquer mudança de risco.

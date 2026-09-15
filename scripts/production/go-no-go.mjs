@@ -1,12 +1,11 @@
-'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
-const { execFileSync } = require('node:child_process');
-const { result, cli } = require('./common.cjs');
-const envCheck = require('./check-env.cjs');
-const database = require('./check-database-target.cjs');
-const migrations = require('./check-migrations.cjs');
-const smoke = require('./smoke-test.cjs');
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { result, cli, isMain } from './common.mjs';
+import * as envCheck from './check-env.mjs';
+import * as database from './check-database-target.mjs';
+import * as migrations from './check-migrations.mjs';
+import * as smoke from './smoke-test.mjs';
 const gates = ['migrationsThrough018', 'credentialRotation', 'secretsExclusive', 'persistentDisk', 'https', 'backupRestore', 'adminSmoke', 'regression', 'monitoring', 'operationalAcceptance'];
 // Read only a narrow, explicit report. Never emit arbitrary handoff text or JSON values.
 function handoffReports(markdown) {
@@ -53,14 +52,14 @@ async function check(env, options = {}) {
     catch { const r = result('operational'); r.blockers.push('EVIDENCE_INVALID'); results.push(r); }
   }
   let commit;
-  try { commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.resolve(__dirname, '../..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); } catch { /* Missing binding fails closed. */ }
+  try { commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); } catch { /* Missing binding fails closed. */ }
   let origin; let db;
   try { origin = new URL(options['base-url']).origin; db = decodeURIComponent(new URL(env.DATABASE_URL).pathname.slice(1)); } catch { /* Checks above report invalid input. */ }
   if (origin && env.ADMIN_AUTH_ORIGIN?.trim() && origin !== env.ADMIN_AUTH_ORIGIN) { const r = result('binding'); r.blockers.push('LOCAL:SMOKE_ADMIN_ORIGIN_MISMATCH'); results.push(r); }
   let reports = [];
-  try { reports = handoffReports(fs.readFileSync(path.resolve(__dirname, '../../docs/HANDOFF_V1_PRODUCAO.md'), 'utf8')); }
+  try { reports = handoffReports(fs.readFileSync(path.resolve(import.meta.dirname, '../../docs/HANDOFF_V1_PRODUCAO.md'), 'utf8')); }
   catch { /* Missing repository report supplies no operational evidence. */ }
   return aggregate(results, operational, { environment: env.KIDMAIS_DEPLOY_ENV, commit, origin, database: db }, reports);
 }
-if (require.main === module) cli('go-no-go', { 'base-url': 'string', evidence: 'string' }, check);
-module.exports = { check, aggregate, gates, handoffReports };
+if (isMain(import.meta.url)) cli('go-no-go', { 'base-url': 'string', evidence: 'string' }, check);
+export { check, aggregate, gates, handoffReports };

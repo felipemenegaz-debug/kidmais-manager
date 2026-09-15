@@ -1,6 +1,5 @@
-'use strict';
-const { result, cli } = require('./common.cjs');
-const { target } = require('./check-database-target.cjs');
+import { result, cli, isMain } from './common.mjs';
+import { target } from './check-database-target.mjs';
 function check(env) {
   const r = result('env');
   const requireValue = (key, valid) => { if (!env[key]?.trim()) r.unknown.push('LOCAL:' + key + '_NOT_AVAILABLE'); else if (!valid(env[key])) r.blockers.push('LOCAL:' + key + '_INVALID'); };
@@ -27,5 +26,5 @@ function check(env) {
   r.evidence.push({ source: 'script', scope: 'LOCAL', validation: 'environment-only', remoteState: 'not-verified', secretValuesPrinted: false });
   return r;
 }
-if (require.main === module) cli('env', {}, check);
-module.exports = { check };
+if (isMain(import.meta.url)) cli('env', {}, check);
+export { check };

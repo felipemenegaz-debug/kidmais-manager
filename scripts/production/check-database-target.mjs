@@ -1,5 +1,4 @@
-'use strict';
-const { result, cli } = require('./common.cjs');
+import { result, cli, isMain } from './common.mjs';
 function target(env) {
   const r = result('database-target');
   r.evidence.push({ source: 'script', scope: 'LOCAL', connected: false, remoteState: 'not-verified' });
@@ -23,11 +22,11 @@ function target(env) {
   } catch { r.blockers.push('LOCAL:DATABASE_URL_INVALID'); }
   return r;
 }
-async function readDatabase(env, query) {
+async function readDatabase(env, query, loadPg = () => import('pg')) {
   const validation = target(env);
   if (validation.blockers.length || validation.unknown.length) throw new Error('TARGET_REFUSED');
   if (env.DATABASE_SSL !== 'true' || env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'true') throw new Error('TLS_REQUIRED');
-  const { Client } = require('pg');
+  const { Client } = await loadPg();
   const client = new Client({ connectionString: env.DATABASE_URL, ssl: { rejectUnauthorized: true }, connectionTimeoutMillis: 5000, query_timeout: 5000, options: '-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=2000' });
   client.on('error', () => {});
   try {
@@ -37,13 +36,13 @@ async function readDatabase(env, query) {
     return await client.query(query);
   } finally { await client.end(); }
 }
-async function check(env, options = {}) {
+async function check(env, options = {}, loadPg = () => import('pg')) {
   const r = target(env);
   if (options.connect && !r.blockers.length && !r.unknown.length) {
-    try { const data = await readDatabase(env, "SELECT count(*)::int AS count FROM pg_tables WHERE schemaname='public'"); r.evidence.push({ source: 'script', connected: true, publicTables: Number(data.rows[0].count) }); }
+    try { const data = await readDatabase(env, "SELECT count(*)::int AS count FROM pg_tables WHERE schemaname='public'", loadPg); r.evidence.push({ source: 'script', connected: true, publicTables: Number(data.rows[0].count) }); }
     catch { r.unknown.push('OPERATIONAL:DATABASE_READ_NOT_VERIFIED'); }
   }
   return r;
 }
-if (require.main === module) cli('database-target', { connect: 'boolean' }, check);
-module.exports = { check, target, readDatabase };
+if (isMain(import.meta.url)) cli('database-target', { connect: 'boolean' }, check);
+export { check, target, readDatabase };

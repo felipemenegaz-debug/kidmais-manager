@@ -1,4 +1,9 @@
-'use strict';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+function isMain(url) {
+  return !!process.argv[1] && url === pathToFileURL(resolve(process.argv[1])).href;
+}
 const result = (check) => ({ schemaVersion: 2, check, blockers: [], unknown: [], pending: [], reported: [], evidence: [],
   get status() { return this.blockers.length ? 'FAIL_VERIFIED' : this.unknown.length ? 'UNKNOWN' : 'PASS'; }
 });
@@ -22,4 +27,4 @@ async function cli(name, allowed, run) {
   try { const options = parseArgs(process.argv.slice(2), { json: 'boolean', ...allowed }); finish(await run(process.env, options), options.json); }
   catch { const r = result(name); r.blockers.push('CHECK_FAILED_OR_ARGUMENT_INVALID'); finish(r, process.argv.includes('--json')); }
 }
-module.exports = { result, cli };
+export { result, cli, isMain };

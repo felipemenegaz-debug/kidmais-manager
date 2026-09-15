@@ -1,19 +1,18 @@
-'use strict';
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
-const path = require('node:path');
-const database = require('./check-database-target.cjs');
-const envCheck = require('./check-env.cjs');
-const migrations = require('./check-migrations.cjs');
-const smoke = require('./smoke-test.cjs');
-const { aggregate, gates, handoffReports } = require('./go-no-go.cjs');
-const fs = require('node:fs');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import * as database from './check-database-target.mjs';
+import * as envCheck from './check-env.mjs';
+import * as migrations from './check-migrations.mjs';
+import * as smoke from './smoke-test.mjs';
+import { aggregate, gates, handoffReports } from './go-no-go.mjs';
+import fs from 'node:fs';
 function fixture() {
   return { NODE_ENV: 'production', NODE_VERSION: '22.23.2', KIDMAIS_DEPLOY_ENV: 'production', DATABASE_URL: 'postgresql://synthetic:FAKE_PASSWORD@database.example/kidmais_production', DATABASE_POOL_MAX: '10', DATABASE_CONNECTION_TIMEOUT_MS: '5000', DATABASE_IDLE_TIMEOUT_MS: '30000', DATABASE_SSL: 'true', DATABASE_SSL_REJECT_UNAUTHORIZED: 'true', FESTA_ENABLED: 'true', CONTRATO_ACEITE_DEV_ENABLED: 'false', ADMIN_AUTH_ORIGIN: 'https://admin.example', ADMIN_AUTH_SECRET: 'SYNTHETIC_ADMIN_VALUE_'.repeat(3), IDENTIDADE_OTP_PEPPER: 'SYNTHETIC_PEPPER_VALUE', WHATSAPP_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'), WHATSAPP_CREDENTIAL_KEY_VERSION: '1', META_APP_SECRET: 'SYNTHETIC_META_SECRET', WHATSAPP_CLOUD_ACCESS_TOKEN: 'SYNTHETIC_TOKEN' };
 }
 function run(file, env, args = ['--json']) {
-  return spawnSync(process.execPath, [path.join(__dirname, file + '.cjs'), ...args], { encoding: 'utf8', env: { ...env, SystemRoot: process.env.SystemRoot, PATH: process.env.PATH } });
+  return spawnSync(process.execPath, [path.join(import.meta.dirname, file + '.mjs'), ...args], { encoding: 'utf8', env: { ...env, SystemRoot: process.env.SystemRoot, PATH: process.env.PATH } });
 }
 const ready = { ok: true, status: 'ready', components: { database: 'ready', festa: 'ready', otp: 'ready' } };
 for (const suffix of ['db.example/kidmais_staging', 'db.example/kidmais-staging', 'db.example/kidmais_manager', 'localhost/kidmais_production', '127.0.0.1/kidmais_production', '127.2.3.4/kidmais_production', '[::1]/kidmais_production', 'localhost./kidmais_production']) {
@@ -117,7 +116,7 @@ test('proven staging target is FAIL_VERIFIED in local scope', () => {
   assert.equal(combined.decision, 'NO-GO');
 });
 test('handoff report is explicit, narrowly validated and never direct evidence', () => {
-  const markdown = fs.readFileSync(path.join(__dirname, '../../docs/HANDOFF_V1_PRODUCAO.md'), 'utf8');
+  const markdown = fs.readFileSync(path.join(import.meta.dirname, '../../docs/HANDOFF_V1_PRODUCAO.md'), 'utf8');
   const reports = handoffReports(markdown);
   assert.equal(reports.length, 1);
   assert.equal(reports[0].status, 'PASS_REPORTED');
@@ -143,8 +142,6 @@ test('reports cannot override unknowns, failures or omitted direct checks', asyn
   assert.equal(aggregate([smoke.evaluate(fixture(), 200, ready)], record, binding).decision, 'NO-GO');
 });
 test('optional connection uses read-only session and fixed SELECTs through fake pg', async () => {
-  const Module = require('node:module');
-  const original = Module._load;
   const queries = []; let ended = false;
   class FakeClient {
     constructor(config) { assert.ok(config.options.includes('default_transaction_read_only=on')); assert.equal(config.ssl.rejectUnauthorized, true); }
@@ -153,9 +150,28 @@ test('optional connection uses read-only session and fixed SELECTs through fake 
     async query(sql) { queries.push(sql); return { rows: sql.includes('current_database()') ? [{ database: 'kidmais_production' }] : [{ count: 63 }] }; }
     async end() { ended = true; }
   }
-  Module._load = function(name, ...args) { return name === 'pg' ? { Client: FakeClient } : original.call(this, name, ...args); };
-  try {
-    assert.deepEqual((await database.check(fixture(), { connect: true })).blockers, []);
-    assert.equal(queries.length, 2); assert.ok(queries.every(x => x.startsWith('SELECT '))); assert.equal(ended, true);
-  } finally { Module._load = original; }
+  assert.deepEqual((await database.check(fixture(), { connect: true }, async () => ({ Client: FakeClient }))).blockers, []);
+  assert.equal(queries.length, 2); assert.ok(queries.every(x => x.startsWith('SELECT '))); assert.equal(ended, true);
+});
+
+test('ES module imports do not execute the CLI', () => {
+  const urls = ['check-env', 'check-database-target', 'check-migrations', 'smoke-test', 'go-no-go'].map(name => new URL('./' + name + '.mjs', import.meta.url).href);
+  const output = spawnSync(process.execPath, ['--input-type=module', '--eval', `await Promise.all(${JSON.stringify(urls)}.map(url => import(url)));`], { encoding: 'utf8', env: { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH } });
+  assert.equal(output.status, 0);
+  assert.equal(output.stdout, '');
+  assert.equal(output.stderr, '');
+});
+
+test('default checks and refused targets never load pg or fetch', async () => {
+  let pgLoads = 0; let requests = 0;
+  const loadPg = async () => { pgLoads++; throw new Error('Unexpected pg load'); };
+  const fetcher = async () => { requests++; throw new Error('Unexpected request'); };
+  assert.equal((await database.check(fixture(), {}, loadPg)).status, 'PASS');
+  assert.equal((await database.check({}, { connect: true }, loadPg)).status, 'UNKNOWN');
+  const forbidden = { ...fixture(), DATABASE_URL: 'postgres://synthetic:FAKE@db.example/kidmais_staging' };
+  assert.equal((await database.check(forbidden, { connect: true }, loadPg)).status, 'FAIL_VERIFIED');
+  await assert.rejects(database.readDatabase({ ...fixture(), DATABASE_SSL: 'false' }, 'SELECT 1', loadPg), /TLS_REQUIRED/);
+  assert.equal((await smoke.check(fixture(), {}, fetcher)).status, 'UNKNOWN');
+  assert.equal(pgLoads, 0);
+  assert.equal(requests, 0);
 });

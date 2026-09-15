@@ -1,5 +1,4 @@
-'use strict';
-const { result, cli } = require('./common.cjs');
+import { result, cli, isMain } from './common.mjs';
 function evaluate(env, statusCode, body) {
   const r = result('smoke');
   if (!env.KIDMAIS_DEPLOY_ENV?.trim()) r.unknown.push('LOCAL:KIDMAIS_DEPLOY_ENV_NOT_AVAILABLE');
@@ -36,5 +35,5 @@ async function check(env, options = {}, fetcher = fetch) {
     return evaluate(env, response.status, JSON.parse(Buffer.concat(chunks).toString('utf8')));
   } catch { r.unknown.push('OPERATIONAL:HEALTH_REQUEST_OR_JSON_NOT_VERIFIED'); return r; }
 }
-if (require.main === module) cli('smoke', { 'base-url': 'string' }, check);
-module.exports = { check, evaluate };
+if (isMain(import.meta.url)) cli('smoke', { 'base-url': 'string' }, check);
+export { check, evaluate };
