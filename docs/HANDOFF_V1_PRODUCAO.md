@@ -269,3 +269,276 @@ WhatsApp/Coexistence não bloqueia essas etapas acima. O GO técnico e o GO come
 - [Configuração de modo OTP](../lib/identidade/configuracao-otp.ts).
 
 Os documentos anteriores contêm contexto histórico. Para o comportamento atual de saúde com OTP desabilitado em staging, este handoff se baseia no código do commit confirmado acima.
+
+---
+
+## Atualização operacional — 2026-09-15
+
+> Esta seção registra o estado mais recente validado de production.
+> Em caso de conflito com seções anteriores deste handoff, esta atualização prevalece.
+> As seções anteriores devem ser mantidas como histórico operacional.
+
+### Estado atual de production
+
+- Web Service Render: `kidmais-manager-production`.
+- PostgreSQL Render: `kidmais-production`.
+- Banco: `kidmais_production`.
+- Branch de origem: `staging`.
+- Commit atualmente validado em production: `115d18a`.
+- Auto-Deploy: **Off**.
+- URL temporária oficial enquanto o domínio próprio não estiver pronto:
+  `https://kidmais-manager-production.onrender.com`.
+- `ADMIN_AUTH_ORIGIN` permanece apontando para a URL `onrender.com`.
+- Não alterar `ADMIN_AUTH_ORIGIN` para o domínio customizado antes de DNS e HTTPS estarem concluídos.
+- O banco local real `kidmais_manager` não deve ser acessado nem alterado.
+
+### Persistent Disk
+
+Persistent Disk de production criado e validado em:
+
+`/opt/render/project/src/data`
+
+O arquivo `disponibilidade.json` foi criado e validado nesse volume.
+
+### Banco e migrations
+
+A cadeia de migrations `001 -> 018` foi aplicada manualmente em production e validada.
+
+Estado final confirmado:
+
+- PostgreSQL 18.
+- 63 tabelas públicas.
+- 0 índices inválidos.
+- 0 constraints não validadas.
+- Migration 014 teve o postcheck executado no ponto correto, antes da 015.
+- Migration 016 foi aplicada com UTF-8.
+- Migration 018 aprovada.
+- Postchecks 016, 017 e 018 aprovados.
+
+A divergência estrutural detectada na Migration 016 foi corrigida em production de forma controlada.
+
+Assinatura final validada da estrutura 016:
+
+`d723f81def59be627132230aa6de2e00b0b509d48f20b0e0701afd7eb99650d7`
+
+### Backup lógico e recuperação
+
+Backup lógico de production criado no Persistent Disk:
+
+`/opt/render/project/src/data/kidmais_production_20260915T062511Z.dump`
+
+SHA-256 validado:
+
+`d39ac926a891fae966b5fbec7a322f4e050fdc20c3298e359784e8a3623c8019b`
+
+Validações realizadas:
+
+- `pg_restore --list`: aprovado.
+- Restore do dump em banco isolado: aprovado.
+- Banco restaurado apresentou 63 tabelas.
+- Postchecks 016, 017 e 018 passaram após restore.
+- Patch estrutural da 016 foi testado primeiro exclusivamente no restore.
+
+Também foi realizado teste real de Point-in-Time Recovery do Render:
+
+- banco PITR isolado criado a partir de ponto anterior ao patch;
+- 63 tabelas recuperadas;
+- postchecks 016, 017 e 018 aprovados;
+- assinatura antiga da 016 reproduzida:
+  `cebbc03827126c2c703ddc024a080a4c392d4a0f1f142ba1cb664061cc3d74608`.
+
+Os bancos temporários utilizados nos testes de restore/PITR foram removidos após a validação.
+
+### Credenciais PostgreSQL
+
+O provisionamento inicial utilizou credenciais temporárias separadas.
+
+Credenciais temporárias de provisionamento foram posteriormente revogadas.
+
+Credencial atual de production:
+
+`kidmais_production_app_v3`
+
+A `DATABASE_URL` do Web Service foi rotacionada para a credencial atual e validada após restart/deploy.
+
+`KIDMAIS_PROVISION_DATABASE_URL` não permanece configurada no Web Service.
+
+### Primeiro administrador de production
+
+O primeiro usuário administrativo foi criado pelo fluxo controlado:
+
+`scripts/admin-provision.cjs bootstrap`
+
+Estado validado:
+
+- exatamente 1 usuário administrativo;
+- ativo;
+- papel `REPRESENTANTE_AUTORIZADO`;
+- criação auditada.
+
+Auditoria do bootstrap confirmada com:
+
+- `ator_tipo = SISTEMA`;
+- `acao = ADMIN_BOOTSTRAP`;
+- `entidade_tipo = USUARIO_ADMINISTRATIVO`;
+- `origem = CLI_PROVISIONAMENTO`.
+
+O login administrativo real em production foi testado com sucesso.
+
+### Política de origem administrativa no Render
+
+Durante o smoke test foi identificado que a política proxy-aware originalmente reconhecia apenas Render staging.
+
+Correção aplicada na branch `staging` e publicada no commit:
+
+`115d18a fix: habilitar origem admin segura no Render production`
+
+A correção:
+
+- mantém confiança em headers encaminhados somente quando `RENDER=true`;
+- aceita somente `KIDMAIS_DEPLOY_ENV=staging` ou `production`;
+- mantém validação fail-closed;
+- mantém HTTPS obrigatório;
+- mantém comparação exata de host;
+- mantém proteção contra múltiplos valores;
+- mantém `Origin` exata nas mutações;
+- mantém CSRF e cookies administrativos.
+
+Validações locais do patch:
+
+- testes direcionados: 32/32 PASS;
+- `npm run check:v1:static`: 229/229 PASS;
+- TypeScript: PASS;
+- ESLint: PASS;
+- build: PASS;
+- `git diff --check`: PASS.
+
+Login real no Render production aprovado após o deploy.
+
+### Smoke tests administrativos
+
+Testes realizados pela URL `onrender.com`.
+
+Aprovados:
+
+- home pública;
+- login administrativo;
+- sessão administrativa;
+- Clientes;
+- Contratos;
+- Festas;
+- Agenda / Disponibilidade;
+- Configurações.
+
+Não foram identificados erros 403/500 nas telas administrativas após a correção da política de origem.
+
+### Smoke test de escrita do CRM
+
+Foi criado um cliente sintético exclusivamente para validar escrita em production:
+
+- nome: `CLIENTE TESTE PRODUCAO`;
+- observação: `SMOKE TEST PRODUCAO - REMOVER APOS VALIDACAO`;
+- ID:
+  `a6b4e918-1149-4ab1-8943-89c8b6b8e512`.
+
+Validações aprovadas:
+
+- criação pela interface;
+- persistência no PostgreSQL;
+- abertura do perfil;
+- histórico `CADASTRO_CRIADO`;
+- auditoria `CLIENTE_CRIADO`;
+- associação ao usuário administrativo.
+
+O registro não possui festa, fechamento ou pagamento vinculado.
+
+O modelo possui FKs `RESTRICT` para preservar histórico e auditoria.
+Existe `marcarClienteInativo()` no repository, porém não existe atualmente fluxo oficial de service/API/UI para inativação auditada.
+
+Por esse motivo, **não executar DELETE nem UPDATE manual nesse cliente em production**.
+O registro sintético deve permanecer claramente identificado até existir fluxo oficial de arquivamento/inativação.
+
+### Logs e segurança
+
+Após o deploy do commit `115d18a`:
+
+- nenhuma ocorrência recente de `Kidmais Admin Origin`;
+- nenhuma ocorrência recente de `ERROR`;
+- nenhuma ocorrência recente de `WARN`;
+- serviço iniciou normalmente;
+- porta Render 10000 detectada;
+- nenhum segredo foi identificado nos logs revisados.
+
+Estado de runtime confirmado:
+
+- `NODE_ENV=production`;
+- `KIDMAIS_DEPLOY_ENV=production`;
+- `RENDER=true`;
+- `RENDER_GIT_COMMIT=115d18abc3655c5a6fea9a6724ca3e3013a802b0`.
+
+### Health / WhatsApp
+
+`/api/health` continua retornando:
+
+`{"ok":false,"status":"unavailable"}`
+
+HTTP 503.
+
+Motivo conhecido: integração OTP/WhatsApp ainda não concluída.
+
+Meta Business Verification foi concluída.
+
+WhatsApp / Coexistence permanece pendente da Gupshup.
+
+Essa pendência não bloqueia a operação administrativa já validada, mas bloqueia a liberação completa dos fluxos externos que dependem de OTP/WhatsApp.
+
+### Domínio customizado
+
+Domínio pretendido:
+
+`manager.kidmaisfestas.com`
+
+DNS de `kidmaisfestas.com` utiliza Terra:
+
+- `NS2.TERRAEMPRESAS.COM.BR`
+- `NS3.TERRAEMPRESAS.COM.BR`
+
+Registrador: Tucows.
+
+Aguardando acesso administrativo ao Terra para configuração do DNS.
+
+Até DNS e HTTPS estarem confirmados, continuar utilizando a URL `onrender.com`.
+
+### GO / NO-GO atualizado
+
+**GO técnico para a V1 administrativa em production.**
+
+Estão aprovados:
+
+- banco;
+- migrations;
+- backup lógico;
+- restore;
+- PITR;
+- autenticação administrativa;
+- navegação administrativa;
+- leitura e escrita básica do CRM;
+- auditoria;
+- política de origem segura no Render;
+- logs principais;
+- rotação de credenciais.
+
+**NO-GO para liberação comercial completa dos fluxos externos dependentes de WhatsApp/OTP** enquanto a integração Gupshup não estiver operacional.
+
+O domínio próprio é pendência de lançamento, mas não bloqueia homologação/operação interna pela URL `onrender.com`.
+
+### Próximos passos
+
+1. concluir WhatsApp/OTP com a Gupshup;
+2. repetir `/api/health` até obter estado saudável;
+3. configurar `manager.kidmaisfestas.com` no DNS Terra;
+4. aguardar e validar HTTPS do domínio customizado;
+5. somente depois trocar `ADMIN_AUTH_ORIGIN` para o domínio definitivo;
+6. repetir smoke tests administrativos no domínio definitivo;
+7. validar os fluxos externos que dependem de OTP;
+8. emitir GO/NO-GO comercial final.
