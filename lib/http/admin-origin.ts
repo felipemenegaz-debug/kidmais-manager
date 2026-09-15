@@ -26,7 +26,7 @@ export type DiagnosticoOrigemAdmin = {
     valido: boolean;
     codigo: CodigoRecusaOrigemAdmin | null;
     renderReconhecido: boolean;
-    stagingReconhecido: boolean;
+    ambienteDeployReconhecido: boolean;
     adminOriginValida: boolean;
     hostPresente: boolean;
     forwardedHostPresente: boolean;
@@ -42,13 +42,13 @@ function valorHeaderSanitizado(value: string | null) {
     return value.slice(0, 256).replace(/[^\x20-\x7e]/g, '?');
 }
 
-function diagnosticoRenderStaging(request: RequestOrigem, origin: URL, env: AmbientePoliticaAdmin): DiagnosticoOrigemAdmin {
+function diagnosticoHeadersRender(request: RequestOrigem, origin: URL, env: AmbientePoliticaAdmin): DiagnosticoOrigemAdmin {
     const host = request.headers.get('host');
     const forwardedHost = request.headers.get('x-forwarded-host');
     const forwardedProto = request.headers.get('x-forwarded-proto');
     const base = {
         renderReconhecido: env.RENDER === 'true',
-        stagingReconhecido: env.KIDMAIS_DEPLOY_ENV === 'staging',
+        ambienteDeployReconhecido: (env.KIDMAIS_DEPLOY_ENV === 'staging' || env.KIDMAIS_DEPLOY_ENV === 'production'),
         adminOriginValida: origin.protocol === 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname),
         hostPresente: host !== null,
         forwardedHostPresente: forwardedHost !== null,
@@ -67,7 +67,7 @@ function diagnosticoRenderStaging(request: RequestOrigem, origin: URL, env: Ambi
         return recusa('MULTIPLE_FORWARDED_PROTOS');
     if (forwardedProto !== 'https')
         return recusa('FORWARDED_PROTO_INVALID');
-    if (host === null && forwardedHost === null)
+    if (host === null)
         return recusa('HOST_MISSING');
     if (host !== null && host.includes(','))
         return recusa('MULTIPLE_HOSTS');
@@ -95,16 +95,16 @@ export function diagnosticarOrigemRequest(
     env: AmbientePoliticaAdmin,
 ): DiagnosticoOrigemAdmin {
     const renderReconhecido = env.RENDER === 'true';
-    const stagingReconhecido = env.KIDMAIS_DEPLOY_ENV === 'staging';
-    if (renderReconhecido && stagingReconhecido)
-        return diagnosticoRenderStaging(request, origin, env);
+    const ambienteDeployReconhecido = (env.KIDMAIS_DEPLOY_ENV === 'staging' || env.KIDMAIS_DEPLOY_ENV === 'production');
+    if (renderReconhecido && ambienteDeployReconhecido)
+        return diagnosticoHeadersRender(request, origin, env);
 
     const valido = request.nextUrl.origin === origin.origin;
     return {
         valido,
         codigo: valido ? null : 'DIRECT_ORIGIN_MISMATCH',
         renderReconhecido,
-        stagingReconhecido,
+        ambienteDeployReconhecido,
         adminOriginValida: true,
         hostPresente: request.headers.get('host') !== null,
         forwardedHostPresente: request.headers.get('x-forwarded-host') !== null,
@@ -120,7 +120,7 @@ export function origemRequestValida(request: RequestOrigem, origin: URL, env: Am
 }
 
 export function linhaDiagnosticoRecusaOrigemAdmin(diagnostico: DiagnosticoOrigemAdmin) {
-    if (!diagnostico.renderReconhecido || !diagnostico.stagingReconhecido || diagnostico.valido)
+    if (!diagnostico.renderReconhecido || !diagnostico.ambienteDeployReconhecido || diagnostico.valido)
         return null;
     return `[Kidmais Admin Origin] ${JSON.stringify(diagnostico)}`;
 }
