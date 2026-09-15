@@ -11,6 +11,9 @@ import fs from 'node:fs';
 function fixture() {
   return { NODE_ENV: 'production', NODE_VERSION: '22.23.2', KIDMAIS_DEPLOY_ENV: 'production', DATABASE_URL: 'postgresql://synthetic:FAKE_PASSWORD@database.example/kidmais_production', DATABASE_POOL_MAX: '10', DATABASE_CONNECTION_TIMEOUT_MS: '5000', DATABASE_IDLE_TIMEOUT_MS: '30000', DATABASE_SSL: 'true', DATABASE_SSL_REJECT_UNAUTHORIZED: 'true', FESTA_ENABLED: 'true', CONTRATO_ACEITE_DEV_ENABLED: 'false', ADMIN_AUTH_ORIGIN: 'https://admin.example', ADMIN_AUTH_SECRET: 'SYNTHETIC_ADMIN_VALUE_'.repeat(3), IDENTIDADE_OTP_PEPPER: 'SYNTHETIC_PEPPER_VALUE', WHATSAPP_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'), WHATSAPP_CREDENTIAL_KEY_VERSION: '1', META_APP_SECRET: 'SYNTHETIC_META_SECRET', WHATSAPP_CLOUD_ACCESS_TOKEN: 'SYNTHETIC_TOKEN' };
 }
+function internalFixture() {
+  return { ...fixture(), DATABASE_URL: 'postgresql://synthetic:FAKE_PASSWORD@dpg-' + 'a'.repeat(20) + '-a/kidmais_production', DATABASE_SSL_REJECT_UNAUTHORIZED: 'false' };
+}
 function run(file, env, args = ['--json']) {
   return spawnSync(process.execPath, [path.join(import.meta.dirname, file + '.mjs'), ...args], { encoding: 'utf8', env: { ...env, SystemRoot: process.env.SystemRoot, PATH: process.env.PATH } });
 }
@@ -174,4 +177,92 @@ test('default checks and refused targets never load pg or fetch', async () => {
   assert.equal((await smoke.check(fixture(), {}, fetcher)).status, 'UNKNOWN');
   assert.equal(pgLoads, 0);
   assert.equal(requests, 0);
+});
+
+test('production internal Render TLS accepts self-signed certificate without claiming remote verification', () => {
+  const env = internalFixture();
+  const target = database.target(env);
+  assert.equal(target.connectionType, 'RENDER_INTERNAL');
+  assert.equal(target.status, 'PASS');
+  const checked = envCheck.check(env);
+  assert.equal(checked.status, 'PASS');
+  assert.ok(!checked.blockers.some(x => x.includes('PRODUCTION_TLS_REQUIRED')));
+  assert.ok(checked.evidence.some(x => x.validation === 'tls-policy' && x.remoteState === 'not-verified'));
+  const output = run('check-env', env);
+  assert.equal(output.status, 0);
+  assert.equal(JSON.parse(output.stdout).status, 'PASS');
+  const aggregate = JSON.parse(run('go-no-go', env).stdout);
+  assert.equal(aggregate.blockers.length, 0);
+  assert.equal(aggregate.decision, 'NO-GO'); // The TLS exception supplies no missing operational evidence.
+});
+
+test('production TLS cannot be disabled, including on an internal endpoint', async () => {
+  let loaded = false;
+  for (const env of [fixture(), internalFixture()]) {
+    env.DATABASE_SSL = 'false';
+    const checked = envCheck.check(env);
+    assert.equal(checked.status, 'FAIL_VERIFIED');
+    assert.ok(checked.blockers.includes('LOCAL:PRODUCTION_TLS_REQUIRED'));
+    await assert.rejects(database.readDatabase(env, 'SELECT 1', async () => { loaded = true; }), /TLS_REQUIRED/);
+  }
+  assert.equal(loaded, false);
+});
+
+test('external and unrecognized endpoints never get the internal TLS exception', async () => {
+  const internal = 'dpg-' + 'a'.repeat(20) + '-a';
+  for (const host of ['database.example', internal + '.oregon-postgres.render.com', internal + '.attacker.example', internal + '.', 'prefix-' + internal, 'dpg-short-a', 'unknownhost']) {
+    const env = { ...internalFixture(), DATABASE_URL: 'postgres://synthetic:FAKE_PASSWORD@' + host + '/kidmais_production' };
+    const checked = envCheck.check(env);
+    assert.ok(['FAIL_VERIFIED', 'UNKNOWN'].includes(checked.status));
+    let loaded = false;
+    await assert.rejects(database.readDatabase(env, 'SELECT 1', async () => { loaded = true; }), /TLS_REQUIRED/);
+    assert.equal(loaded, false);
+  }
+  const missing = internalFixture(); delete missing.DATABASE_URL;
+  assert.equal(database.target(missing).connectionType, 'UNKNOWN');
+  const checked = envCheck.check(missing);
+  assert.equal(checked.status, 'UNKNOWN');
+  assert.ok(checked.unknown.includes('LOCAL:TLS_INTERNAL_DESTINATION_NOT_VERIFIED'));
+  for (const name of ['kidmais_manager', 'kidmais_staging']) {
+    const forbidden = { ...internalFixture(), DATABASE_URL: internalFixture().DATABASE_URL.replace('kidmais_production', name) };
+    assert.equal(envCheck.check(forbidden).status, 'FAIL_VERIFIED');
+    assert.equal(database.allowsInternalTls(forbidden, database.target(forbidden)), false);
+  }
+});
+
+test('optional internal connection keeps TLS and read-only protections through fake pg', async () => {
+  let loaded = 0; let ended = false;
+  const queries = [];
+  class FakeClient {
+    constructor(config) {
+      assert.deepEqual(config.ssl, { rejectUnauthorized: false });
+      assert.ok(config.options.includes('default_transaction_read_only=on'));
+      assert.ok(config.options.includes('statement_timeout=5000'));
+    }
+    on() {}
+    async connect() {}
+    async query(sql) { queries.push(sql); return { rows: sql.includes('current_database()') ? [{ database: 'kidmais_production' }] : [{ count: 0 }] }; }
+    async end() { ended = true; }
+  }
+  const loadPg = async () => { loaded++; return { Client: FakeClient }; };
+  assert.equal((await database.check(internalFixture(), {}, loadPg)).status, 'PASS');
+  assert.equal(loaded, 0);
+  assert.equal((await database.check(internalFixture(), { connect: true }, loadPg)).status, 'PASS');
+  assert.equal(loaded, 1);
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every(sql => sql.startsWith('SELECT ')));
+  assert.equal(ended, true);
+});
+
+test('TLS classification never exposes URL, hostname or secrets in text or JSON', () => {
+  for (const env of [internalFixture(), { ...fixture(), DATABASE_SSL_REJECT_UNAUTHORIZED: 'false' }]) {
+    for (const script of ['check-env', 'check-database-target', 'go-no-go']) {
+      for (const args of [[], ['--json']]) {
+        const output = run(script, env, args);
+        assert.equal(output.stderr, '');
+        if (args.length) assert.equal(JSON.parse(output.stdout).schemaVersion, 2);
+        for (const secret of [env.DATABASE_URL, new URL(env.DATABASE_URL).hostname, 'FAKE_PASSWORD', env.ADMIN_AUTH_SECRET, env.IDENTIDADE_OTP_PEPPER, env.WHATSAPP_CREDENTIAL_ENCRYPTION_KEY, env.META_APP_SECRET, env.WHATSAPP_CLOUD_ACCESS_TOKEN]) assert.ok(!output.stdout.includes(secret));
+      }
+    }
+  }
 });
