@@ -151,6 +151,8 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         }
         const e = await edicaoDaVersao(v.id, tx);
         const preparacao=await buscarRevisaoDaVersao(v.id,tx,true);
+        if (['editar_festa','salvar'].includes(input.acao) && (v.status === 'ASSINADA' || e?.estado !== 'EM_ELABORACAO' || f?.versao_em_preparacao_id !== v.id))
+            conflito('Versão assinada ou congelada não pode ser editada. Crie uma revisão / retificação da versão vigente.');
         if(input.acao==='cancelar_revisao' && preparacao?.estado==='CANCELADA')return cancelarPreparacao(tx,preparacao,rc,input.motivo);
         if (!e || e.revisao !== input.revisao)
             conflito('Revisão mudou ou versão legada sem edição. Atualize a tela.');
@@ -268,7 +270,7 @@ export async function detalheAdministrativo(contratoId: string) {
     const fluxo = (await db().query('SELECT * FROM contrato_fluxos WHERE contrato_id=$1', [contratoId])).rows[0] ?? null;
     const documentos = (await db().query('SELECT id,contrato_versao_id,categoria,revisao,pdf_hash,tamanho_bytes,criado_em FROM contrato_documentos WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) ORDER BY criado_em DESC', [contratoId])).rows;
     const assinaturas = (await db().query('SELECT * FROM contrato_assinaturas WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) ORDER BY assinado_em', [contratoId])).rows;
-    const revisoesOperacionais=(await db().query(`SELECT r.id,r.contrato_versao_id,r.estado,r.revisao,r.data_evento::text,r.horario_inicio,r.horario_fim,r.hold_destino_adquirido_em,f.status AS status_fechamento,f.data_evento::text AS data_vigente,ROW(r.data_evento,r.horario_inicio,r.horario_fim,r.configuracao_agenda_id) IS DISTINCT FROM ROW(f.data_evento,f.horario_inicio,f.horario_fim,f.configuracao_agenda_id) AS slot_alterado FROM fechamento_revisoes r JOIN fechamentos f ON f.id=r.fechamento_id WHERE r.contrato_id=$1 ORDER BY r.criado_em`,[contratoId])).rows;
+    const revisoesOperacionais=(await db().query(`SELECT r.id,r.contrato_versao_id,r.estado,r.revisao,r.data_evento::text,r.horario_inicio,r.horario_fim,r.hold_destino_adquirido_em,f.status AS status_fechamento,public.kidmais019_ocupa(f.id) AS ocupa_vigente,f.data_evento::text AS data_vigente,ROW(r.data_evento,r.horario_inicio,r.horario_fim,r.configuracao_agenda_id) IS DISTINCT FROM ROW(f.data_evento,f.horario_inicio,f.horario_fim,f.configuracao_agenda_id) AS slot_alterado FROM fechamento_revisoes r JOIN fechamentos f ON f.id=r.fechamento_id WHERE r.contrato_id=$1 ORDER BY r.criado_em`,[contratoId])).rows;
     const financeiro=(await db().query('SELECT p.id,p.contrato_versao_id,p.valor_total_contratado,p.status FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE v.contrato_id=$1',[contratoId])).rows;
     const pendencias=(await db().query('SELECT id,motivo,versao_nova_id FROM contrato_pendencias_financeiras WHERE contrato_id=$1',[contratoId])).rows;
     return { contrato, fluxo, versoes, documentos, assinaturas, financeiro, pendencias, revisoesOperacionais };
