@@ -10,6 +10,7 @@ import {
   formatData,
   formatTelefone,
 } from "@/lib/clientes/utils";
+import Contratacoes from "@/components/festas/Contratacoes";
 import KidmaisBrand from "@/components/layout/KidmaisBrand";
 import styles from "./Clientes.module.css";
 
@@ -290,6 +291,8 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
               <div><h2>Festas e fechamentos</h2><p>Acompanhe processos em andamento e histórico da família.</p></div>
               <Link className={styles.primaryButton} href="/fechamento?origem=ATENDIMENTO_KIDMAIS&contexto=ADMIN">+ Iniciar fechamento</Link>
             </div>
+            <h3>Em contratação</h3>
+            <Contratacoes key={cliente.id} clienteId={cliente.id}/>
             <div className={styles.integrationNotice}>
               <strong>Festas vinculadas</strong>
               <Link href={`/admin/festas?clienteId=${encodeURIComponent(cliente.id)}`}>Ver festas reais deste cliente</Link>
