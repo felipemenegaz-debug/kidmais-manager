@@ -95,6 +95,7 @@ async function carregarContratoComVersao(
 
   if (versao.contratoId !== contrato.id) acessoNegado();
   const edicao=await edicaoDaVersao(versao.id,customDb);
+  if(edicao?.estado==='CANCELADA')throw new ContratoServiceError('VERSAO_CONTRATO_DIVERGENTE','Esta versão foi encerrada. Existe uma revisão mais recente; aguarde a liberação do novo acesso pela Kidmais.',409);
   if(edicao && !['AGUARDANDO_CLIENTE','CONCLUIDA'].includes(edicao.estado))acessoNegado();
   if (!edicao && versao.numeroVersao !== contrato.versaoAtual) {
     throw new ContratoServiceError(
