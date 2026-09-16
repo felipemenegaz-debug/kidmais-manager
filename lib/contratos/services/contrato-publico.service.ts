@@ -514,7 +514,11 @@ export async function assinarContratoPublico(
 
     if (!edicao) throw new ContratoServiceError('STATUS_CONTRATO_NAO_PERMITE_ASSINATURA', 'Fluxo legado exige revisão antes da formalização automática.', 409);
     await validarAmbienteFesta(tx);
-    await bloquearAgendaFormalizacao(tx, contrato.id);
+    if (edicao.dados_fonte.revisaoInicial) {
+      // A proposta inicial ainda não ocupa o fechamento. Seu destino é revalidado
+      // ao aplicar os dados assinados, sob o mesmo lock da formalização 019.
+      await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)', [contrato.id]);
+    } else await bloquearAgendaFormalizacao(tx, contrato.id);
 
     const prova = await identity.consumirProvaParaContrato(
       input.provaToken,

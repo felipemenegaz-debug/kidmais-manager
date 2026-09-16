@@ -28,7 +28,8 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
         if(sql.startsWith('SELECT id,fechamento_id,status'))rows=[{id:'c',fechamento_id:'f',status:contratoStatus}];
         else if(sql.startsWith('SELECT status FROM contratos'))rows=[{status:contratoStatus}];
         else if(sql.startsWith('SELECT * FROM contrato_fluxos'))rows=[{...fluxo}];
-        else if(sql.startsWith('SELECT * FROM contrato_edicoes'))rows=[{estado:edicoes[String(p[0])],revisao:1}];
+        else if(sql.startsWith('SELECT * FROM contrato_edicoes'))rows=[{contrato_id:'c',contrato_versao_id:p[0],origem_versao_id:p[0]==='v1'?null:'v1',estado:edicoes[String(p[0])],revisao:1,dados_fonte:{schemaVersao:1}}];
+        else if(sql.startsWith('SELECT 1 FROM contrato_assinaturas'))rows=p[0]==='v1'?[{existe:1}]:[];
         else if(sql.startsWith('SELECT usuario_id,dados_depois'))rows=auditorias.filter(a=>(a.dadosDepois as Record<string,unknown>).chaveCriacao===p[1]).map(a=>({usuario_id:a.usuarioId,dados_depois:a.dadosDepois}));
         else if(sql.startsWith('SELECT * FROM contrato_assinaturas'))rows=[];
         else if(sql.startsWith('UPDATE contrato_edicoes')){if(sql.includes("estado='AGUARDANDO_CLIENTE'"))edicoes[String(p[0])]='AGUARDANDO_CLIENTE';else if(sql.includes("estado='CANCELADA'"))edicoes[String(p[0])]='CANCELADA';}
@@ -48,6 +49,7 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
         '../../fechamentos/services/edicao-administrativa-schema':carregar('lib/fechamentos/services/edicao-administrativa-schema.ts',{}),
         './snapshot-core':{hashSnapshotContrato},'./errors':{ContratoServiceError:Falha},
         './alteracoes':{diferencasContratuais},
+        './revisao-inicial':carregar('lib/contratos/services/revisao-inicial.ts',{'./errors':{ContratoServiceError:Falha}}),
         './contrato.service':{carregarSnapshot:async()=>({snapshot})},
         '../../fechamentos/repositories':{buscarFechamentoPorIdParaAtualizacao:async()=>({id:'f'})},
         '../repositories':{buscarVersaoPorId:async(id:string)=>versoes.find(v=>v.id===id),criarContratoVersao:async(v:typeof original)=>{const next={...v,id:'v'+(versoes.length+1),status:'ATIVA'};versoes.push(next);return next;}},

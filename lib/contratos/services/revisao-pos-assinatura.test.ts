@@ -56,6 +56,7 @@ function ambiente() {
         else if (sql.startsWith('SELECT status FROM contratos')) rows = [{ status: contratoStatus }];
         else if (sql.startsWith('SELECT * FROM contrato_fluxos')) rows = [fluxo];
         else if (sql.startsWith('SELECT * FROM contrato_edicoes')) rows = [edicoes[String(values[0])]];
+        else if (sql.startsWith('SELECT 1 FROM contrato_assinaturas')) rows = values[0] === 'v1' ? [{ existe: 1 }] : [];
         else if (sql.includes('WHERE r.chave_criacao=')) rows = pedido && values[0] === chave ? [pedido] : [];
         else if (sql.startsWith('SELECT max(numero_versao)')) rows = [{ n: versoes.length + 1 }];
         else if (sql.startsWith('SELECT id FROM usuarios_administrativos')) rows = [{ id: 'u' }];
@@ -71,6 +72,7 @@ function ambiente() {
         '../../db/postgres': { withTransaction: async (fn: (t: typeof tx) => unknown) => fn(tx) },
         '../../autenticacao/service': { consultarSessao: async () => ({ usuario_id: 'u' }) },
         '../../fechamentos/services/edicao-administrativa-schema': schema,
+        './revisao-inicial': carregar('lib/contratos/services/revisao-inicial.ts', { './errors': { ContratoServiceError: class extends Error { constructor(_code: string, message: string) { super(message); } } } }),
         './snapshot-core': { hashSnapshotContrato }, './errors': { ContratoServiceError: class extends Error { constructor(_code: string, message: string) { super(message); } } },
         '../repositories': {
             buscarVersaoPorId: async (id: string) => versoes.find(v => v.id === id),
