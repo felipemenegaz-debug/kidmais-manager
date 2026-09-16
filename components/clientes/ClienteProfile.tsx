@@ -10,6 +10,7 @@ import {
   formatData,
   formatTelefone,
 } from "@/lib/clientes/utils";
+import ClienteLixeira from "./ClienteLixeira";
 import Contratacoes from "@/components/festas/Contratacoes";
 import KidmaisBrand from "@/components/layout/KidmaisBrand";
 import styles from "./Clientes.module.css";
@@ -177,6 +178,7 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
           </div>
         </section>
 
+        <ClienteLixeira key={cliente.id} clienteId={cliente.id} onAlterado={()=>{obterClienteApi(cliente.id).then(setDetalhe).catch(()=>{});}}/>
         {detalhe.redirecionadoDeClienteMesclado && (
           <div className={styles.integrationNotice}>
             <strong>Cadastro mesclado.</strong>

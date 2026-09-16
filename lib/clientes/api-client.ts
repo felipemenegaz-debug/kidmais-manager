@@ -53,12 +53,13 @@ export type CandidatoDuplicidadeApi = {
   clienteId: string;
   nomeCompleto: string;
   motivos: string[];
+  status?: ClienteApiStatus;
   similaridadeNome?: number;
 };
 
 export type AnaliseCadastroClienteApi = {
   podeCadastrar: boolean;
-  cpfExistente: { clienteId: string; nomeCompleto: string } | null;
+  cpfExistente: { clienteId: string; nomeCompleto: string; status?: ClienteApiStatus } | null;
   possiveisDuplicidades: CandidatoDuplicidadeApi[];
 };
 
@@ -190,11 +191,12 @@ export function clienteParaForm(cliente: ClienteApiRecord): ClienteFormData {
   };
 }
 
-export function listarClientesApi(params: { q?: string; limit?: number; offset?: number } = {}) {
+export function listarClientesApi(params: { q?: string; limit?: number; offset?: number; incluirInativos?: boolean } = {}) {
   const search = new URLSearchParams();
   if (params.q?.trim()) search.set("q", params.q.trim());
   if (params.limit != null) search.set("limit", String(params.limit));
   if (params.offset != null) search.set("offset", String(params.offset));
+  if (params.incluirInativos) search.set("incluirInativos", "true");
   const query = search.toString();
   return requestJson<ClienteListaApiItem[]>(`/api/admin/clientes${query ? `?${query}` : ""}`);
 }
@@ -225,7 +227,7 @@ export function atualizarAniversarianteApi(clienteId: string, aniversarianteId: 
 }
 
 export function analisarCadastroApi(
-  input: Pick<ClienteFormData, "nomeCompleto" | "cpf" | "telefone" | "whatsapp">,
+  input: Pick<ClienteFormData, "nomeCompleto" | "cpf" | "telefone" | "whatsapp" | "email">,
   excluirClienteId?: string,
 ) {
   return requestJson<AnaliseCadastroClienteApi>("/api/admin/clientes/analisar-cadastro", {
@@ -233,6 +235,7 @@ export function analisarCadastroApi(
     body: JSON.stringify({
       nomeCompleto: input.nomeCompleto,
       cpf: textoOuNull(input.cpf),
+      email: textoOuNull(input.email),
       telefone: textoOuNull(input.telefone),
       whatsapp: textoOuNull(input.whatsapp),
       ...(excluirClienteId ? { excluirClienteId } : {}),

@@ -37,6 +37,7 @@ export const clientePatchSchema = clienteCamposSchema.partial().refine(
 );
 
 export const analiseCadastroSchema = z.object({
+  email: z.string().max(254).nullable().optional(),
   nomeCompleto: z.string().trim().min(3).max(180),
   cpf: z.string().max(20).nullable().optional(),
   telefone: z.string().max(30).nullable().optional(),

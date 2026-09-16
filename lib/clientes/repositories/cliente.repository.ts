@@ -140,7 +140,7 @@ export async function buscarClientesPorContatoExato(
 
 export async function buscarClientesPorNomeSemelhante(
   nome: string,
-  options: { limit?: number; excluirClienteId?: string } = {},
+  options: { limit?: number; excluirClienteId?: string; incluirInativos?: boolean } = {},
   customDb?: DbExecutor,
 ): Promise<Array<ClienteRecord & { similaridade: number }>> {
   const normalized = nome.trim();
@@ -152,6 +152,7 @@ export async function buscarClientesPorNomeSemelhante(
             similarity(lower(nome_completo), lower($1)) AS similaridade
        FROM clientes
       WHERE status <> 'MESCLADO'
+        AND ($4::boolean OR status = 'ATIVO')
         AND ($2::uuid IS NULL OR id <> $2::uuid)
         AND (
           lower(nome_completo) % lower($1)
@@ -159,7 +160,7 @@ export async function buscarClientesPorNomeSemelhante(
         )
       ORDER BY similaridade DESC, nome_completo ASC
       LIMIT $3`,
-    [normalized, options.excluirClienteId ?? null, limit],
+    [normalized, options.excluirClienteId ?? null, limit, options.incluirInativos ?? true],
   );
 
   return result.rows.map((row) => ({
@@ -171,7 +172,7 @@ export async function buscarClientesPorNomeSemelhante(
 
 export async function buscarClientesPorEmail(
   termo: string,
-  options: { limit?: number } = {},
+  options: { limit?: number; incluirInativos?: boolean } = {},
   customDb?: DbExecutor,
 ): Promise<ClienteRecord[]> {
   const q = termo.trim().toLowerCase();
@@ -182,11 +183,22 @@ export async function buscarClientesPorEmail(
     `SELECT ${clienteColumns}
        FROM clientes
       WHERE status <> 'MESCLADO'
+        AND ($3::boolean OR status = 'ATIVO')
         AND email IS NOT NULL
         AND lower(email) LIKE '%' || $1 || '%'
       ORDER BY nome_completo ASC
       LIMIT $2`,
-    [q, limit],
+    [q, limit, options.incluirInativos ?? true],
+  );
+  return result.rows.map(mapCliente);
+}
+
+export async function buscarClientesPorEmailExato(email: string, customDb?: DbExecutor): Promise<ClienteRecord[]> {
+  const normalized = normalizarEmail(email);
+  if (!normalized) return [];
+  const result = await executor(customDb).query<ClienteRow>(
+    `SELECT ${clienteColumns} FROM clientes WHERE status <> 'MESCLADO' AND lower(email)=$1 ORDER BY nome_completo,id`,
+    [normalized],
   );
   return result.rows.map(mapCliente);
 }

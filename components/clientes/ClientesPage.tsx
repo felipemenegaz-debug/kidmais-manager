@@ -8,6 +8,7 @@ import KidmaisBrand from "@/components/layout/KidmaisBrand";
 import styles from "./Clientes.module.css";
 
 export default function ClientesPage() {
+  const [incluirInativos,setIncluirInativos]=useState(false);
   const [busca, setBusca] = useState("");
   const [clientes, setClientes] = useState<ClienteListaApiItem[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -19,7 +20,7 @@ export default function ClientesPage() {
       setCarregando(true);
       setErro("");
       try {
-        const data = await listarClientesApi({ q: busca, limit: 100 });
+        const data = await listarClientesApi({ q: busca, limit: 100, incluirInativos });
         if (ativo) setClientes(data);
       } catch (error) {
         if (ativo) {
@@ -35,7 +36,7 @@ export default function ClientesPage() {
       ativo = false;
       window.clearTimeout(timer);
     };
-  }, [busca]);
+  }, [busca,incluirInativos]);
 
   const resultados = useMemo(() => clientes, [clientes]);
 
@@ -56,11 +57,13 @@ export default function ClientesPage() {
             <p>Encontre famílias, acompanhe festas e inicie novos fechamentos.</p>
           </div>
           <div className={styles.headerActions}>
+            <Link className={styles.secondaryButton} href="/clientes/lixeira">Lixeira / Arquivados</Link>
             <Link className={styles.primaryButton} href="/clientes/novo">+ Novo cliente</Link>
           </div>
         </section>
 
         <section className={styles.toolbarCard}>
+          <label><input type="checkbox" checked={incluirInativos} onChange={e=>setIncluirInativos(e.target.checked)}/> Incluir arquivados/excluídos</label>
           <label className={styles.searchBox}>
             <span>⌕</span>
             <input
