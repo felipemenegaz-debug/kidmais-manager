@@ -5,12 +5,32 @@ import { classificarContratacao, listarContratacoes, contratacoesSql, estadosEmC
 import type { DbExecutor } from '../db/contracts';
 
 export const fechamento: ContratacaoRow = {
-    id: '11111111-1111-4111-8111-111111111111', clienteId: '22222222-2222-4222-8222-222222222222', cliente: 'Cliente sintético',
+    id: '11111111-1111-4111-8111-111111111111', clienteId: '22222222-2222-4222-8222-222222222222', cliente: 'Cliente sintético', clienteStatus: 'ATIVO',
     data: '2026-09-19', inicio: '11:00:00', fim: '15:00:00', pacote: 'Pacote sintético', convidados: 40,
     criadoEm: '2026-09-16T10:00:00Z', status: 'AGUARDANDO_CONTRATO', formaPagamento: 'PIX_AVISTA',
     contratoId: null, contratoStatus: null, versaoId: null, edicaoEstado: null, documentoRevisado: false, valorContratual: null, temFesta: false,
 };
 const comContrato = { ...fechamento, contratoId: 'contrato-sintetico', contratoStatus: 'AGUARDANDO_ASSINATURA', versaoId: 'versao-sintetica', valorContratual: '5000.00' };
+
+for (const [edicaoEstado, documentoRevisado, situacao, acao] of [
+    ['EM_ELABORACAO', false, 'Revisão em elaboração', 'Abrir contrato'],
+    ['EM_ELABORACAO', true, 'Aguardando assinatura da Kidmais', 'Assinar pela Kidmais'],
+    ['ASSINADA_KIDMAIS', true, 'Assinado pela Kidmais', 'Abrir contrato'],
+    ['AGUARDANDO_CLIENTE', true, 'Aguardando assinatura do cliente', 'Abrir contrato'],
+] as const) test(`V2 ${edicaoEstado}/${documentoRevisado} prevalece sobre contrato ASSINADO`, () => {
+    const row = { ...comContrato, contratoStatus: 'ASSINADO', versaoId: 'v2', edicaoEstado, documentoRevisado };
+    const item = classificarContratacao(row)!;
+    assert.equal(item.situacao, situacao);
+    assert.equal(item.acao.titulo, acao);
+    assert.match(item.acao.href, /versaoId=v2$/);
+    assert.equal(item.acessoPublico, edicaoEstado === 'AGUARDANDO_CLIENTE' ? '/contrato/contrato-sintetico' : null);
+    assert.doesNotMatch(item.proximoPasso, /verificação operacional da Festa/);
+    assert.equal(classificarContratacao({ ...row, temFesta: true }), null);
+});
+
+for (const edicaoEstado of ['CONCLUIDA', 'CANCELADA', null]) test(`sem revisão ativa (${edicaoEstado}) mantém alerta de Festa pendente`, () => {
+    assert.equal(classificarContratacao({ ...comContrato, contratoStatus: 'ASSINADO', edicaoEstado })?.situacao, 'Formalizado — Festa pendente');
+});
 
 for (const status of estadosEmContratacao) test(`${status} sem Festa permanece visível`, () => {
     assert(classificarContratacao({ ...fechamento, status }));

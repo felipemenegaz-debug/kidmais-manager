@@ -46,7 +46,7 @@ export async function consultarFestas(ctx:Contexto,id?:string,clienteId?:string)
  const temPagamento=(await tx.query('SELECT p.id FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE v.contrato_id=$1',[c.id])).rows.length>0;
  const financeiro=temPagamento?await consultarPainelFinanceiro(c.id) as {posicao:Record<string,string>;pendencias:Registro[]}:null;
  const externas=financeiro?.pendencias??[];
- const versoes=(await tx.query<Registro>('SELECT v.id,v.numero_versao,v.status,e.estado FROM contrato_versoes v LEFT JOIN contrato_edicoes e ON e.contrato_versao_id=v.id WHERE v.contrato_id=$1 ORDER BY numero_versao',[c.id])).rows;
+ const versoes=(await tx.query<Registro>('SELECT v.id,v.numero_versao,v.status,e.estado,(cf.versao_em_preparacao_id=v.id) AS em_preparacao FROM contrato_versoes v LEFT JOIN contrato_fluxos cf ON cf.contrato_id=v.contrato_id LEFT JOIN contrato_edicoes e ON e.contrato_versao_id=v.id WHERE v.contrato_id=$1 ORDER BY numero_versao',[c.id])).rows;
  const solicitacoes=itens.solicitacoes.map(r=>({...r,formalizacao:r.contrato_versao_destino_id?versoes.find(v=>v.id===r.contrato_versao_destino_id)??null:null,tratamento_externo:r.pendencia_financeira_id?externas.find(p=>p.id===r.pendencia_financeira_id)??null:null}));
  const cancelamento=(await tx.query<Registro>("SELECT usuario_id,detalhe motivo,metadata->>'canceladoEm' cancelado_em FROM eventos_historico_cliente WHERE entidade_tipo='CONTRATO' AND entidade_id=$1 AND tipo_evento='CONTRATO_CANCELADO' ORDER BY criado_em DESC LIMIT 1",[c.id])).rows[0]??null;
  const contratacaoAnterior=f.versao_contratual_criacao_id!==c.versao_id?(await tx.query<Registro>('SELECT snapshot FROM contrato_versoes WHERE id=$1',[f.versao_contratual_criacao_id])).rows[0]?.snapshot:null;

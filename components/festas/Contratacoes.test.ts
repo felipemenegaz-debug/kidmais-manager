@@ -6,6 +6,7 @@ import ts from 'typescript';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { classificarContratacao } from '../../lib/fechamentos/contratacoes.ts';
+import { linksContratoDaFesta } from '../../lib/festas/apresentacao.ts';
 
 const nativeRequire = createRequire(import.meta.url);
 function carregar(caminho: string, mocks: Record<string, unknown>) {
@@ -24,12 +25,35 @@ test('cards renderizam identificação, pagamento e links reais de revisão/cont
         '@/lib/http/admin-fetch': {}, './festa.module.css': {},
         '@/lib/contratos/documento/formatters': { formatarMoeda: (v: number) => `R$ ${v}`, formatarFormaPagamento: () => 'PIX à vista' },
     });
-    const base = { id: 'f-sintetico', clienteId: 'cl-sintetico', cliente: 'Cliente sintético', data: '2026-09-19', inicio: '11:00', fim: '15:00', pacote: 'Pacote sintético', convidados: 40, criadoEm: '2026-09-16T10:00:00Z', status: 'AGUARDANDO_CONTRATO', formaPagamento: 'PIX_AVISTA', contratoId: null, contratoStatus: null, versaoId: null, edicaoEstado: null, documentoRevisado: false, valorContratual: null, temFesta: false };
-    const itens = [classificarContratacao(base)!, classificarContratacao({ ...base, id: 'f2', contratoId: 'c-sintetico', edicaoEstado: 'AGUARDANDO_CLIENTE', valorContratual: '5000' })!];
+    const base = { id: 'f-sintetico', clienteId: 'cl-sintetico', cliente: 'Cliente sintético', clienteStatus: 'ATIVO', data: '2026-09-19', inicio: '11:00', fim: '15:00', pacote: 'Pacote sintético', convidados: 40, criadoEm: '2026-09-16T10:00:00Z', status: 'AGUARDANDO_CONTRATO', formaPagamento: 'PIX_AVISTA', contratoId: null, contratoStatus: null, versaoId: null, edicaoEstado: null, documentoRevisado: false, valorContratual: null, temFesta: false };
+    const itens = [classificarContratacao({ ...base, clienteStatus: 'INATIVO' })!, classificarContratacao({ ...base, id: 'f2', contratoId: 'c-sintetico', edicaoEstado: 'AGUARDANDO_CLIENTE', valorContratual: '5000' })!];
     const html = renderToStaticMarkup(React.createElement(ContratacoesLista as React.ComponentType<{ itens: typeof itens }>, { itens }));
     for (const texto of ['Cliente sintético', '19/09/2026', '11:00–15:00', 'Pacote sintético', '40', 'PIX à vista', 'Criado em', 'Próximo passo', 'R$ 5000']) assert(html.includes(texto), texto);
     for (const href of ['/admin/fechamentos/f-sintetico/revisao', '/admin/contratos?contratoId=c-sintetico', '/contrato/c-sintetico']) assert(html.includes(`href="${href}"`), href);
     assert.equal((html.match(/Gerar contrato/g) ?? []).length, 1);
+    assert.equal((html.match(/Cliente arquivado\/inativo/g) ?? []).length, 1);
+});
+
+test('Festa sinaliza apenas preparação ativa e abre V2 preservando retorno à Festa', () => {
+    const { default: Aviso } = carregar('components/festas/RevisaoPendente.tsx', {
+        'next/link': { default: ({ children, ...props }: React.ComponentProps<'a'>) => React.createElement('a', props, children), __esModule: true },
+        '@/lib/festas/apresentacao': { linksContratoDaFesta }, './festa.module.css': {},
+    });
+    const festaId = '11111111-1111-4111-8111-111111111111';
+    const render = (estado: string, cancelado = false, em_preparacao = true) => renderToStaticMarkup(React.createElement(Aviso as React.ComponentType<Record<string, unknown>>, {
+        contratoId: 'c', festaId, cancelado, versoes: [{ id: 'v2', numero_versao: 2, estado, em_preparacao }],
+    }));
+    for (const estado of ['EM_ELABORACAO', 'ASSINADA_KIDMAIS', 'AGUARDANDO_CLIENTE']) {
+        const html = render(estado);
+        assert.match(html, /Revisão contratual em andamento/);
+        assert.match(html, /contratoId=c&amp;versaoId=v2&amp;returnTo=/);
+        assert(html.includes(encodeURIComponent('/admin/festas/' + festaId)));
+    }
+    for (const estado of ['CANCELADA', 'CONCLUIDA']) assert.equal(render(estado), '');
+    assert.equal(render('EM_ELABORACAO', true), '');
+    assert.equal(render('EM_ELABORACAO', false, false), '');
+    assert.match(readFileSync('components/festas/FestaConsole.tsx', 'utf8'), /<RevisaoPendente/);
+    assert.match(readFileSync('lib/festas/service.ts', 'utf8'), /cf.versao_em_preparacao_id=v.id/);
 });
 
 test('API exige autorização antes da consulta, valida clienteId e usa no-store', async () => {

@@ -2,7 +2,7 @@ import type { DbExecutor } from '../db/contracts';
 
 export const estadosEmContratacao = ['RASCUNHO', 'AGUARDANDO_APROVACAO', 'APROVADO', 'AGUARDANDO_CONTRATO', 'CONTRATO_ASSINADO', 'AGUARDANDO_PAGAMENTO', 'CONFIRMADO'];
 export type ContratacaoRow = {
-    id: string; clienteId: string | null; cliente: string; data: string; inicio: string; fim: string;
+    id: string; clienteId: string | null; cliente: string; clienteStatus: string | null; data: string; inicio: string; fim: string;
     pacote: string; convidados: number; criadoEm: string; status: string; formaPagamento: string | null;
     contratoId: string | null; contratoStatus: string | null; versaoId: string | null;
     edicaoEstado: string | null; documentoRevisado: boolean; valorContratual: string | null; temFesta: boolean;
@@ -23,10 +23,7 @@ export function classificarContratacao(row: ContratacaoRow): Contratacao | null 
         titulo = 'Abrir contrato';
         situacao = 'Contrato em elaboração';
         proximoPasso = 'Conferir o contrato e preparar o documento para assinatura.';
-        if (row.contratoStatus === 'ASSINADO') {
-            situacao = 'Formalizado — Festa pendente';
-            proximoPasso = 'Solicitar verificação operacional da Festa. Não gerar outro contrato.';
-        } else if (row.edicaoEstado === 'AGUARDANDO_CLIENTE') {
+        if (row.edicaoEstado === 'AGUARDANDO_CLIENTE') {
             situacao = 'Aguardando assinatura do cliente';
             proximoPasso = 'Acompanhar a assinatura do cliente pelo acesso público.';
             acessoPublico = `/contrato/${encodeURIComponent(row.contratoId)}`;
@@ -37,6 +34,11 @@ export function classificarContratacao(row: ContratacaoRow): Contratacao | null 
             situacao = 'Aguardando assinatura da Kidmais';
             titulo = 'Assinar pela Kidmais';
             proximoPasso = 'Abrir o contrato e concluir a assinatura administrativa.';
+        } else if (row.edicaoEstado === 'EM_ELABORACAO') {
+            situacao = row.contratoStatus === 'ASSINADO' ? 'Revisão em elaboração' : 'Contrato em elaboração';
+        } else if (row.contratoStatus === 'ASSINADO') {
+            situacao = 'Formalizado — Festa pendente';
+            proximoPasso = 'Solicitar verificação operacional da Festa. Não gerar outro contrato.';
         } else if (row.edicaoEstado === 'CANCELADA') {
             situacao = 'Preparação contratual cancelada';
             proximoPasso = 'Conferir o contrato antes de retomar a contratação.';
@@ -57,7 +59,7 @@ export function classificarContratacao(row: ContratacaoRow): Contratacao | null 
         proximoPasso = 'Conferir o fechamento; não criar uma contratação duplicada.';
     }
     // Explicit DTO: no CPF, tokens, signatures, full snapshot or document payload.
-    return { id: row.id, clienteId: row.clienteId, cliente: row.cliente, data: row.data, inicio: row.inicio, fim: row.fim,
+    return { id: row.id, clienteId: row.clienteId, cliente: row.cliente, clienteStatus: row.clienteStatus, data: row.data, inicio: row.inicio, fim: row.fim,
         pacote: row.pacote, convidados: row.convidados, criadoEm: row.criadoEm, status: row.status,
         formaPagamento: row.formaPagamento, contratoId: row.contratoId, contratoStatus: row.contratoStatus,
         versaoId: row.versaoId, edicaoEstado: row.edicaoEstado, valorContratual: row.valorContratual,
@@ -65,7 +67,7 @@ export function classificarContratacao(row: ContratacaoRow): Contratacao | null 
 }
 
 export const contratacoesSql = `WITH fila AS (
- SELECT f.id, f.cliente_id AS "clienteId", COALESCE(cl.nome_completo,'Cliente não vinculado') AS cliente,
+ SELECT f.id, f.cliente_id AS "clienteId", COALESCE(cl.nome_completo,'Cliente não vinculado') AS cliente, cl.status AS "clienteStatus",
  f.data_evento::text AS data, f.horario_inicio::text AS inicio, f.horario_fim::text AS fim,
  COALESCE(p.nome,'Pacote não informado') AS pacote, f.convidados,
  f.criado_em::text AS "criadoEm", f.status, f.forma_pagamento_pretendida AS "formaPagamento",

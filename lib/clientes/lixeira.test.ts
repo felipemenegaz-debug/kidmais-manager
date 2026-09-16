@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
+import { listarContratacoes } from '../fechamentos/contratacoes.ts';
+import type { DbExecutor } from '../db/contracts';
 const req=createRequire(import.meta.url);
 function carregar(path:string,mocks:Record<string,unknown>){
     const exports:Record<string,unknown>={};
@@ -43,6 +45,29 @@ test('restaurar devolve ATIVO com mesmo ID, sem duplicar e com auditoria própri
     assert.equal(a.cliente.status,'ATIVO');assert.equal(a.cliente.id,'cliente-sintetico');assert.equal(a.auditoria[1].acao,'CLIENTE_RESTAURAR');
     assert.deepEqual(a.auditoria[1].dadosAntes,{status:'INATIVO'});assert.equal(a.historico.length,2);
     assert((await a.executar()).reutilizado);assert.equal(a.cliente.status,'ATIVO');assert.equal(a.auditoria.length,2);
+});
+
+test('arquivar e restaurar preserva uma contratação no CRM e altera apenas indicação de inativo', async () => {
+    const a = ambiente();
+    const fila = async () => listarContratacoes({ query: async (sql: string, params: unknown[]) => {
+        assert.match(sql, /cl.status AS "clienteStatus"/);
+        assert.doesNotMatch(sql, /cl.status\s*=/);
+        assert.equal(params[1], a.cliente.id);
+        return { rows: [{ id: 'fechamento-sintetico', clienteId: a.cliente.id, cliente: 'Cliente sintético', clienteStatus: a.cliente.status,
+            data: '2026-09-19', inicio: '11:00', fim: '15:00', pacote: 'Pacote', convidados: 40,
+            criadoEm: quando, status: 'AGUARDANDO_CONTRATO', formaPagamento: null, contratoId: null, contratoStatus: null,
+            versaoId: null, edicaoEstado: null, documentoRevisado: false, valorContratual: null, temFesta: false }] };
+    } } as unknown as DbExecutor, a.cliente.id);
+    const antes = await fila();
+    await a.executar({ acao: 'ARQUIVAR' });
+    const arquivado = await fila();
+    assert.equal(arquivado.length, 1); assert.equal(arquivado[0].clienteStatus, 'INATIVO');
+    await a.executar({ acao: 'RESTAURAR', motivo: 'Retorno', chave: '22222222-2222-4222-8222-222222222222', atualizadoEm: a.cliente.atualizadoEm });
+    const restaurado = await fila();
+    assert.deepEqual(restaurado, antes);
+    assert.equal(restaurado[0].id, arquivado[0].id);
+    assert.equal(restaurado[0].acao.href, arquivado[0].acao.href);
+    assert(!a.sqls.some(sql => /(?:INSERT INTO|UPDATE|DELETE FROM) (?:fechamentos|festas|contratos)\b/.test(sql)));
 });
 test('retry não duplica auditoria; chave de outra intenção é recusada',async()=>{
     const a=ambiente();await a.executar();assert((await a.executar()).reutilizado);assert.equal(a.auditoria.length,1);

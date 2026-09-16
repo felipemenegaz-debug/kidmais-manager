@@ -40,6 +40,7 @@ export default function Contratacoes({ clienteId, onTotal }: { clienteId?: strin
 export function ContratacoesLista({ itens }: { itens: Contratacao[] }) {
     return <div className={styles.grid}>{itens.map(item => <article className={styles.card} key={item.id}>
             <p className={styles.customer}>Cliente</p><h3>{item.cliente}</h3>
+            {item.clienteStatus === 'INATIVO' && <small>Cliente arquivado/inativo</small>}
             <p>{new Date(item.data + 'T12:00:00Z').toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })} • {item.inicio.slice(0, 5)}–{item.fim.slice(0, 5)}</p>
             <p>{item.pacote} • {item.convidados} convidados</p>
             <p><strong>{item.situacao}</strong></p>
