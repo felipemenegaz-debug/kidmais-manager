@@ -18,7 +18,10 @@ Não exige migration. Nenhuma configuração do Render foi feita nesta tarefa.
 - `KIDMAIS_DEPLOY_ENV=staging`: obrigatório; em production ou ambiente desconhecido retorna 503.
 - No Render, `RENDER=true`: exige `x-forwarded-proto` exatamente `https`.
   Fora do Render, só aceita URL HTTPS direta, ignorando forwarded headers.
-- O remetente deverá enviar `X-Kidmais-Webhook-Secret` com o mesmo segredo.
+- O remetente deverá enviar `X-Kidmais-Webhook-Secret` com o mesmo segredo para eventos
+  normais. A única exceção é o handshake válido `user-event` / `sandbox-start`,
+  que pode omitir completamente o header. Header presente e incorreto, vazio ou
+  duplicado continua recusado, inclusive no handshake.
   Confirmar o suporte a esse header no callback Gupshup antes de configurá-lo.
   Nunca enviar o segredo na URL/query string ou registrá-lo em logs.
 
@@ -30,11 +33,14 @@ administrativo: a autenticação deste callback servidor-a-servidor é o segredo
 
 Formato oficial v2: envelope `app`, `timestamp`, `version`, `type`, `payload`.
 `app` deve ser exatamente `KidmaisManager`, `version` o número 2 e timestamp um inteiro
-não negativo. Eventos conhecidos exigem `payload.id` e `payload.type` não vazios.
+não negativo. Mensagens e status conhecidos exigem `payload.id` e `payload.type` não vazios.
 
 - `type=message-event`: `payload.type=enqueued|failed|sent|delivered|read`.
 - `type=message`: inbound, qualquer subtipo de conteúdo; o conteúdo é descartado.
-- Tipos/status desconhecidos em envelope válido: 204, metadado `ignored`, sem eco do tipo arbitrário.
+- `type=user-event` com `payload.type=sandbox-start`: 204 mesmo sem header, somente
+  após validar o envelope inteiro. Não exige ID de mensagem nem guarda telefone/payload.
+- `opted-in`, `opted-out` e demais tipos/status desconhecidos em envelope válido:
+  exigem segredo correto; 204 com metadado `ignored`, sem eco do tipo arbitrário.
 - JSON: `application/json`.
 - Form: `application/x-www-form-urlencoded`, com campos do envelope e `payload` como JSON,
   ou um único campo `message` contendo o envelope JSON completo. Não aceita campos duplicados.
@@ -43,9 +49,9 @@ não negativo. Eventos conhecidos exigem `payload.id` e `payload.type` não vazi
 
 | HTTP | Significado |
 | --- | --- |
-| 204 vazio | Autenticado, envelope válido; recebido ou ignorado |
+| 204 vazio | Envelope válido autenticado, ou handshake sandbox-start válido sem header |
 | 400 | JSON/form/envelope inválido, app ou versão incorreta |
-| 401 | Segredo ausente/incorreto/múltiplo |
+| 401 | Header presente inválido/vazio/múltiplo, ou evento normal válido sem header |
 | 403 | Transporte HTTPS não comprovado |
 | 405 | Método diferente de POST (Next.js pode responder OPTIONS automaticamente) |
 | 408 | Leitura do corpo excedeu 3 segundos |
@@ -54,7 +60,9 @@ não negativo. Eventos conhecidos exigem `payload.id` e `payload.type` não vazi
 | 503 | Ambiente desabilitado ou segredo ausente/fraco |
 
 O limite conta os bytes efetivamente lidos, inclusive sem Content-Length ou com tamanho
-declarado incorreto. A autenticação precede a leitura. Não há processamento de negócio.
+declarado incorreto. Header presente inválido é recusado antes da leitura. Sem header,
+o corpo é lido sob os mesmos limites para identificar exclusivamente o handshake;
+eventos normais continuam recusados. Não há processamento de negócio.
 O log é agendado com `after()` do Next.js, após a resposta, recebendo apenas uma projeção
 sanitizada. Não há fila durável: 204 significa recepção/validação, não persistência.
 
@@ -64,10 +72,11 @@ Campos permitidos: `eventType`, `status`, `timestamp`, hash SHA-256 do ID trunca
 hexadecimais e, quando presente e válido, `destinationMasked` contendo apenas os dois
 últimos dígitos. Inbound não registra source/sender. Não registra corpo, nomes, texto,
 mídia, URL, telefone completo, motivo de falha ou headers. Erros não imprimem payloads.
+O handshake registra somente `eventType=user-event`, `status=sandbox-start` e timestamp.
 
 Retries podem repetir logs, sem efeitos de negócio. Não há ordenação/reconciliação de status.
 O rate limit existente usa banco; não foi reutilizado nem criado limitador distribuído.
-Proteções locais: autenticação antes da leitura, 64 KiB e timeout de 3 segundos. Proteção
+Proteções locais: validação do header quando presente, 64 KiB e timeout de 3 segundos. Proteção
 volumétrica de infraestrutura e entrega real pelo fornecedor ainda não foram homologadas.
 
 ## Exemplos sanitizados — não executados
@@ -94,6 +103,24 @@ printf 'X-Kidmais-Webhook-Secret: %s\n' "$GUPSHUP_WEBHOOK_SECRET" | curl --silen
 Esperado: 204 sem corpo. Não executar estes exemplos antes da autorização para implantação
 e configuração do segredo. Sem segredo configurado, esperado 503.
 
+### Handshake sem header
+
+Após implantação do patch de handshake, o seguinte envelope válido pode omitir o header:
+
+```bash
+curl --silent --show-error --include --max-time 15 \
+  --request POST 'https://kidmais-manager-staging.onrender.com/api/integracoes/gupshup/webhook' \
+  --header 'Content-Type: application/json' \
+  --data '{"app":"KidmaisManager","timestamp":1789603200000,"version":2,"type":"user-event","payload":{"type":"sandbox-start","phone":"5511999990000"}}'
+```
+
+Esperado: 204. Antes do patch, o curl autorizado no staging retornou 401 em 17/09/2026.
+Não basta conter a string sandbox-start em outro campo ou header. App, versão,
+timestamp, tipo externo e subtipo devem passar pelo parser. HTTPS, ambiente staging
+e configuração válida de GUPSHUP_WEBHOOK_SECRET continuam obrigatórios.
+JSON/envelope malformado retorna 400; os limites de corpo/tempo mantêm 413/408.
+Este ACK público não comprova a identidade do remetente e não altera estado de negócio.
+
 ## Testes locais
 
 `node --experimental-strip-types --test lib/integracoes/gupshup/webhook.test.ts`
@@ -101,6 +128,15 @@ e configuração do segredo. Sem segredo configurado, esperado 503.
 Cobertura: segredo, fail-closed, cinco status, inbound, desconhecidos, validação, sanitização,
 form, limites, timeout, HTTPS/proxy, retries e ACK rápido. A suíte está incluída automaticamente
 em `npm run check:v1:static`. Teste de tempo local não garante latência da rede/Render.
+
+### Validação do patch de handshake (17/09/2026)
+
+- Webhook: 30/30 PASS, incluindo exceção sem header, envelope malformado, recusa de
+  headers inválidos e demais eventos sem autenticação, form, sanitização e proteções existentes.
+- Production readiness: 30/30 PASS. Suíte estática: 355/355 PASS; lint e TypeScript PASS.
+- Build inicialmente bloqueado pelo download de fontes Google no sandbox; repetição
+  de `npm run build` com rede autorizada: PASS. Nenhum ajuste de código para contornar o build.
+- Sem acesso a banco, alteração de migrations ou provider OTP. Patch ainda não implantado.
 
 ### Resultado desta implementação (16/09/2026)
 

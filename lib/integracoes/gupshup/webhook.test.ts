@@ -26,11 +26,10 @@ test('secret correto: 204 vazio, no-store, sem sessão/cookie/Origin', async () 
     assert.equal(response.headers.get('cache-control'), 'no-store');
 });
 
-for (const value of [undefined, 'wrong', `${secret}, ${secret}`]) {
-    test(`secret ${value === undefined ? 'ausente' : value === 'wrong' ? 'incorreto' : 'duplicado'}: 401 sem ler corpo`, async () => {
+for (const value of ['', 'wrong', `${secret}, ${secret}`]) {
+    test(`secret ${value === '' ? 'vazio' : value === 'wrong' ? 'incorreto' : 'duplicado'}: 401 sem ler corpo`, async () => {
         const req = request();
-        if (value === undefined) req.headers.delete(SECRET_HEADER);
-        else req.headers.set(SECRET_HEADER, value);
+        req.headers.set(SECRET_HEADER, value);
         const result = await receive(req);
         assert.equal(result.status, 401);
         assert.equal(req.bodyUsed, false);
@@ -44,6 +43,102 @@ test('configuração ausente/fraca e ambiente fora de staging: fail closed', asy
     for (const KIDMAIS_DEPLOY_ENV of ['', 'production', 'unknown']) {
         assert.equal((await receive(request(), { ...env, KIDMAIS_DEPLOY_ENV })).status, 503);
     }
+});
+
+const handshake = () => ({
+    app: 'KidmaisManager', timestamp: 1789603200000, version: 2, type: 'user-event',
+    payload: { type: 'sandbox-start', phone: '5511999990000' },
+});
+function withoutSecret(body: unknown) {
+    const req = request(body);
+    req.headers.delete(SECRET_HEADER);
+    return req;
+}
+
+for (const authenticated of [false, true]) {
+    test(`sandbox-start ${authenticated ? 'com secret correto' : 'sem secret'}: ACK 204 rápido e apenas log sanitizado`, async () => {
+        const input = { ...handshake(), privateField: 'PRIVATE HANDSHAKE CONTENT' };
+        const req = authenticated ? request(input) : withoutSecret(input);
+        const logs: EventoSanitizado[] = [];
+        const start = performance.now();
+        const response = await receiveGupshupWebhook(req, env, (log) => { logs.push(log); });
+        assert.equal(response.status, 204);
+        assert.equal(await response.text(), '');
+        assert.ok(performance.now() - start < 1000);
+        assert.deepEqual(logs, [{ timestamp: input.timestamp, eventType: 'user-event', status: 'sandbox-start' }]);
+    });
+}
+
+test('sandbox-start com header incorreto/vazio/duplicado não usa exceção pública', async () => {
+    for (const value of ['wrong', '', `${secret}, ${secret}`]) {
+        const req = request(handshake(), { [SECRET_HEADER]: value });
+        assert.equal((await receiveGupshupWebhook(req, env, () => assert.fail('Must not log'))).status, 401);
+        assert.equal(req.bodyUsed, false);
+    }
+});
+
+test('sandbox-start malformado ou envelope inválido: 400 com e sem secret', async () => {
+    for (const body of [null, [], {}, { ...handshake(), app: 'Other' },
+        { ...handshake(), version: 1 }, { ...handshake(), version: '2' },
+        { ...handshake(), timestamp: undefined }, { ...handshake(), timestamp: '123' },
+        { ...handshake(), timestamp: -1 }, { ...handshake(), payload: null },
+        { ...handshake(), payload: [] }, { ...handshake(), payload: {} },
+        { ...handshake(), payload: { type: ['sandbox-start'] } }]) {
+        for (const req of [request(body), withoutSecret(body)]) {
+            assert.equal((await receiveGupshupWebhook(req, env, () => assert.fail('Must not log'))).status, 400);
+        }
+    }
+    assert.equal((await receive(new Request(withoutSecret(handshake()), { body: '{invalid sandbox-start' }))).status, 400);
+});
+
+test('todos os demais eventos válidos sem secret continuam recusados, sem log', async () => {
+    const events = [
+        ...['enqueued', 'failed', 'sent', 'delivered', 'read'].map(event),
+        { ...event(), type: 'message', payload: { ...event().payload, type: 'text' } },
+        { ...event(), type: 'unknown' },
+        ...['opted-in', 'opted-out', 'sandbox-start-extra', 'SANDBOX-START', ' sandbox-start', 'other']
+            .map(type => ({ ...handshake(), payload: { type } })),
+        { ...handshake(), type: 'message-event' },
+        { ...handshake(), type: 'unknown', text: 'sandbox-start' },
+        { ...handshake(), payload: { type: 'opted-in', payload: { type: 'sandbox-start' } } },
+    ];
+    for (const body of events) {
+        assert.equal((await receiveGupshupWebhook(withoutSecret(body), env, () => assert.fail('Must not log'))).status, 401);
+    }
+    const headersOnly = withoutSecret(event());
+    headersOnly.headers.set('X-Gupshup-Event', 'sandbox-start');
+    assert.equal((await receive(headersOnly)).status, 401);
+});
+
+test('opted-in e opted-out autenticados mantêm ACK como eventos ignorados', async () => {
+    for (const type of ['opted-in', 'opted-out']) {
+        assert.equal((await receive(request({ ...handshake(), payload: { type } }))).status, 204);
+    }
+});
+
+test('sandbox-start sem secret também aceita form validado e recusa campos duplicados', async () => {
+    const input = handshake();
+    const forms = [
+        new URLSearchParams({ message: JSON.stringify(input) }),
+        new URLSearchParams({ app: input.app, timestamp: String(input.timestamp), version: '2', type: input.type, payload: JSON.stringify(input.payload) }),
+    ];
+    for (const form of forms) {
+        const req = new Request(withoutSecret(input), { body: form.toString() });
+        req.headers.set('content-type', 'application/x-www-form-urlencoded');
+        assert.equal((await receive(req)).status, 204);
+    }
+    const ambiguous = new Request(withoutSecret(input), {
+        body: new URLSearchParams([['message', JSON.stringify(input)], ['message', JSON.stringify(event())]]).toString(),
+    });
+    ambiguous.headers.set('content-type', 'application/x-www-form-urlencoded');
+    assert.equal((await receive(ambiguous)).status, 400);
+});
+
+test('handshake não contorna ambiente, configuração do segredo, HTTPS ou limite de corpo', async () => {
+    assert.equal((await receive(withoutSecret(handshake()), { ...env, KIDMAIS_DEPLOY_ENV: 'production' })).status, 503);
+    assert.equal((await receive(withoutSecret(handshake()), { ...env, GUPSHUP_WEBHOOK_SECRET: '' })).status, 503);
+    assert.equal((await receive(new Request('http://staging.example/webhook', withoutSecret(handshake())))).status, 403);
+    assert.equal((await receive(withoutSecret({ ...handshake(), extra: 'x'.repeat(MAX_BODY_BYTES) }))).status, 413);
 });
 
 for (const status of ['enqueued', 'failed', 'sent', 'delivered', 'read']) {

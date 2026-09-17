@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 const statuses = ['enqueued', 'failed', 'sent', 'delivered', 'read'] as const;
 type Status = typeof statuses[number];
 export type EventoSanitizado = {
-    eventType: 'message-event' | 'message' | 'unknown';
-    status: Status | 'received' | 'ignored';
+    eventType: 'message-event' | 'message' | 'user-event' | 'unknown';
+    status: Status | 'received' | 'ignored' | 'sandbox-start';
     timestamp: number;
     messageIdHash?: string;
     destinationMasked?: string;
@@ -25,6 +25,12 @@ export function parseGupshupV2(value: unknown): EventoSanitizado | null {
         || !shortString(value.type) || !object(value.payload)) return null;
 
     const base = { timestamp: value.timestamp as number };
+    if (value.type === 'user-event') {
+        if (!shortString(value.payload.type)) return null;
+        if (value.payload.type === 'sandbox-start') {
+            return { ...base, eventType: 'user-event', status: 'sandbox-start' };
+        }
+    }
     if (value.type !== 'message-event' && value.type !== 'message') {
         return { ...base, eventType: 'unknown', status: 'ignored' };
     }

@@ -64,7 +64,9 @@ export async function receiveGupshupWebhook(
         ? request.headers.get('x-forwarded-proto') === 'https'
         : new URL(request.url).protocol === 'https:';
     if (!https) return response(403);
-    if (!secretMatches(request.headers.get(SECRET_HEADER), secret)) return response(401);
+    const receivedSecret = request.headers.get(SECRET_HEADER);
+    // A supplied but invalid header must never fall back to the public handshake.
+    if (receivedSecret !== null && !secretMatches(receivedSecret, secret)) return response(401);
 
     const contentType = request.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase();
     if (contentType !== 'application/json' && contentType !== 'application/x-www-form-urlencoded') return response(415);
@@ -76,6 +78,10 @@ export async function receiveGupshupWebhook(
         return response(error instanceof BodyError ? error.status : 400);
     }
     if (!event) return response(400);
+    // Only the exact handshake, after full envelope validation, may omit the header.
+    if (receivedSecret === null && !(event.eventType === 'user-event' && event.status === 'sandbox-start')) {
+        return response(401);
+    }
     // Only a small sanitized projection crosses into after-response logging.
     scheduleLog(event);
     return response(204);
