@@ -172,13 +172,146 @@ test('inbound message: aceita conteúdo, mas não retorna nem registra conteúdo
     }
 });
 
-test('failed: motivo, destino integral e campos arbitrários nunca saem nos logs', async () => {
+for (const asynchronous of [false, true]) {
+    test(`failed ${asynchronous ? 'assíncrono com gsId' : 'síncrono'}: code/reason sanitizados, hash e destino mascarado, ACK 204`, async () => {
+        const input = { ...event('failed'), payload: {
+            ...event('failed').payload,
+            ...(asynchronous ? { gsId: 'synthetic-gupshup-id' } : {}),
+            payload: { code: asynchronous ? '470' : 1008, reason: 'Recipient unavailable' },
+        } };
+        const original = JSON.stringify(input);
+        const expectedHash = parseGupshupV2(event('failed'))?.messageIdHash;
+        let logged: EventoSanitizado | undefined;
+        const start = performance.now();
+        const response = await receiveGupshupWebhook(request(input), env, (log) => { logged = log; });
+        assert.equal(response.status, 204);
+        assert.equal(await response.text(), '');
+        assert.ok(performance.now() - start < 1000);
+        assert.deepEqual(logged, {
+            eventType: 'message-event', status: 'failed', timestamp: input.timestamp,
+            messageIdHash: expectedHash, destinationMasked: '***00',
+            failureCode: input.payload.payload.code, failureReason: 'Recipient unavailable',
+        });
+        assert.equal(JSON.stringify(input), original);
+        for (const value of [input.payload.id, input.payload.destination, 'synthetic-gupshup-id', secret]) {
+            assert.ok(!JSON.stringify(logged).includes(value));
+        }
+    });
+}
+
+test('failed: code/reason ausentes ou com tipos inesperados não impedem ACK 204', async () => {
+    for (const details of [undefined, null, [], 'invalid', {}, { code: 0 }, { reason: 'Delivery failed' },
+        { code: 'RATE_LIMIT', reason: '' }, { code: false, reason: false },
+        { code: { password: secret }, reason: { password: secret } }, { code: ['1008'], reason: [secret] }]) {
+        const input = { ...event('failed'), payload: { ...event('failed').payload, payload: details } };
+        let logged: EventoSanitizado | undefined;
+        assert.equal((await receiveGupshupWebhook(request(input), env, log => { logged = log; })).status, 204);
+        assert.equal(logged?.status, 'failed');
+        assert.equal(logged?.failureCode, details && typeof details === 'object' && 'code' in details
+            && (details.code === 0 || details.code === 'RATE_LIMIT') ? details.code : undefined);
+        assert.equal(logged?.failureReason, details && typeof details === 'object' && 'reason' in details
+            && details.reason === 'Delivery failed' ? details.reason : undefined);
+        assert.ok(!JSON.stringify(logged).includes(secret));
+    }
+});
+
+test('failed: reason controla CRLF, controles Unicode e tamanho de 300 caracteres', () => {
     const input = event('failed');
-    input.payload.payload = { reason: 'PRIVATE FAILURE', password: secret };
+    input.payload.payload = { code: 1008, reason: ' Delivery\r\nfailed\t\u0000\u001b\u0085\u2028\u2029\u202e injected entry ' };
+    assert.equal(parseGupshupV2(input)?.failureReason, 'Delivery failed injected entry');
+    input.payload.payload = { reason: 'Delivery unavailable. '.repeat(100) };
+    const reason = parseGupshupV2(input)?.failureReason;
+    assert.ok(reason && reason.length <= 300);
+    assert.doesNotMatch(reason, /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
+});
+
+test('failed: reason não reflete telefone, OTP, API key, headers, cookies ou payload serializado', async () => {
+    const sensitive = [
+        '5511999990000', '+55 (11) 99999-0000', '123456', 'sk_synthetic_private_key_not_real',
+        `webhook secret: ${secret}`, 'Authorization: Bearer synthetic-bearer',
+        'Cookie: session=synthetic-cookie', 'password=synthetic-password',
+        '{"text":"PRIVATE BODY","otp":"654321"}',
+        'https://private.example/?key=synthetic-key', 'private@example.test',
+        'synthetic-message-id', 'synthetic-gupshup-id',
+        'opaquecredentialwithmorethantwentyfourletters',
+    ];
+    for (const value of sensitive) {
+        const input = { ...event('failed'), payload: {
+            ...event('failed').payload, gsId: 'synthetic-gupshup-id',
+            payload: { code: 1008, reason: `Delivery failed: ${value}` },
+        } };
+        let logged: EventoSanitizado | undefined;
+        assert.equal((await receiveGupshupWebhook(request(input), env, log => { logged = log; })).status, 204);
+        assert.equal(logged?.failureCode, 1008);
+        assert.equal(logged?.destinationMasked, '***00');
+        assert.ok(!JSON.stringify(logged).includes(value), 'Sensitive reason must be redacted');
+        assert.ok(logged?.failureReason?.includes('[REDACTED]'));
+    }
+});
+
+test('failed: segredo configurado arbitrário é removido inclusive atravessando o limite de corte', async () => {
+    const arbitrarySecret = 'aa!bb@cc#dd$ee^ff&gg*hh(ii)jj-kk_ll';
+    const input = event('failed');
+    input.payload.payload = { reason: `${'Delivery failed. '.repeat(17)}${arbitrarySecret}` };
+    let logged: EventoSanitizado | undefined;
+    assert.equal((await receiveGupshupWebhook(request(input), { ...env, GUPSHUP_WEBHOOK_SECRET: arbitrarySecret },
+        () => assert.fail('Must not log'))).status, 401);
+    assert.equal((await receiveGupshupWebhook(request(input, { [SECRET_HEADER]: arbitrarySecret }),
+        { ...env, GUPSHUP_WEBHOOK_SECRET: arbitrarySecret }, log => { logged = log; })).status, 204);
+    assert.ok(logged?.failureReason?.endsWith('[REDACTED]'));
+    assert.ok(!JSON.stringify(logged).includes('aa!bb'));
+});
+
+test('failed: code não é canal para credenciais ou texto arbitrário', async () => {
+    for (const code of [secret, 'sk_test_key', '5511999990000', 5511999990000, NaN, Infinity,
+        '1008\r\nINJECTED', 'x'.repeat(1000), 'token=private', 'SECRET_PRIVATE']) {
+        const input = event('failed');
+        input.payload.payload = { code, reason: 'Delivery failed' };
+        let logged: EventoSanitizado | undefined;
+        assert.equal((await receiveGupshupWebhook(request(input), env, log => { logged = log; })).status, 204);
+        assert.equal(logged?.failureCode, undefined);
+        assert.equal(logged?.failureReason, 'Delivery failed');
+    }
+});
+
+test('failed: reason longa sem espaços mantém ACK rápido dentro do limite de payload', async () => {
+    const input = event('failed');
+    input.payload.payload = { code: 1008, reason: 'x'.repeat(60000) };
+    let logged: EventoSanitizado | undefined;
+    const start = performance.now();
+    assert.equal((await receiveGupshupWebhook(request(input), env, log => { logged = log; })).status, 204);
+    assert.ok(performance.now() - start < 1000);
+    assert.equal(logged?.failureReason, '[REDACTED]');
+});
+
+test('diagnósticos vêm apenas de payload.payload de message-event/failed', () => {
+    const details = { code: 1008, reason: 'Recipient unavailable' };
+    for (const input of [
+        { ...event('failed'), ...details },
+        { ...event('failed'), payload: { ...event('failed').payload, ...details } },
+        ...['enqueued', 'sent', 'delivered', 'read'].map(status => ({
+            ...event(status), payload: { ...event(status).payload, payload: details },
+        })),
+        { ...event('failed'), type: 'message', payload: { ...event('failed').payload, payload: details } },
+        { ...handshake(), payload: { ...handshake().payload, payload: details } },
+    ]) {
+        const parsed = parseGupshupV2(input);
+        assert.ok(parsed);
+        assert.equal(parsed.failureCode, undefined);
+        assert.equal(parsed.failureReason, undefined);
+    }
+});
+
+test('failed: campos arbitrários e corpo bruto nunca saem nos logs', async () => {
+    const input = event('failed');
+    input.payload.payload = { code: 1008, reason: 'Delivery failed', password: secret,
+        text: 'PRIVATE BODY', otp: '654321', headers: { apikey: 'sk_private', cookie: 'private-cookie' } };
     let logged: EventoSanitizado | undefined;
     await receiveGupshupWebhook(request(input), env, (log) => { logged = log; });
     const output = JSON.stringify(logged);
-    for (const value of ['PRIVATE FAILURE', secret, input.payload.id, input.payload.destination]) assert.ok(!output.includes(value));
+    for (const value of ['PRIVATE BODY', '654321', 'sk_private', 'private-cookie', secret,
+        input.payload.id, input.payload.destination, 'password', 'headers']) assert.ok(!output.includes(value));
+    assert.ok(!output.includes(JSON.stringify(input.payload.payload)));
 });
 
 test('eventos desconhecidos são ignorados com 204 e sem refletir strings arbitrárias', async () => {

@@ -8,6 +8,8 @@ export type EventoSanitizado = {
     timestamp: number;
     messageIdHash?: string;
     destinationMasked?: string;
+    failureCode?: number | string;
+    failureReason?: string;
 };
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -18,8 +20,44 @@ function shortString(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0 && value.length <= 512;
 }
 
-/** Pure projection: never returns message bodies, names, URLs or error reasons. */
-export function parseGupshupV2(value: unknown): EventoSanitizado | null {
+function sanitizeFailureReason(value: unknown, sensitiveValues: readonly string[]): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const normalize = (text: string) => text.normalize('NFKC')
+        .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ').replace(/\s+/gu, ' ').trim();
+    let reason = normalize(value);
+    // Redact before truncation, including known credentials/IDs echoed by the sender.
+    for (const sensitive of sensitiveValues) {
+        const normalized = normalize(sensitive);
+        if (normalized) reason = reason.split(normalized).join('[REDACTED]');
+    }
+    // Do not echo serialized payloads, encoded data, headers or credential-like text.
+    if (/[{}\\%]/u.test(reason)
+        || /(?:^|[^\p{L}\p{N}])(?:api[-_ ]?key|webhook[-_ ]?secret|secret|password|senha|token|otp|authorization|bearer|cookies?|headers?|credentials?)(?:$|[^\p{L}\p{N}])/iu.test(reason)
+        || /\bsk[_-]/iu.test(reason)) return '[REDACTED]';
+    reason = reason
+        .replace(/(?:https?:\/\/|www\.)\S+|(?<!\S)\S+@\S+/giu, '[REDACTED]')
+        .replace(/\+?\d(?:[\s().+-]*\d){3,}/gu, '[REDACTED]')
+        .replace(/[\p{L}\p{N}_+/=-]{24,}/gu, '[REDACTED]');
+    return reason.slice(0, 300).trim() || undefined;
+}
+
+function failureDetails(value: unknown, sensitiveValues: readonly string[]): Pick<EventoSanitizado, 'failureCode' | 'failureReason'> {
+    if (!object(value)) return {};
+    const { code } = value;
+    // Error codes are short numbers/identifiers, never arbitrary diagnostic text.
+    const numericCode = typeof code === 'number' && Number.isSafeInteger(code) && code >= 0 && code <= 999999;
+    const stringCode = typeof code === 'string' && !sensitiveValues.includes(code)
+        && (/^\d{1,6}$/.test(code) || (/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(code)
+            && sanitizeFailureReason(code, sensitiveValues) === code));
+    const failureReason = sanitizeFailureReason(value.reason, sensitiveValues);
+    return {
+        ...(numericCode || stringCode ? { failureCode: code as number | string } : {}),
+        ...(failureReason ? { failureReason } : {}),
+    };
+}
+
+/** Pure projection: only bounded, sanitized failure diagnostics may accompany metadata. */
+export function parseGupshupV2(value: unknown, sensitiveValues: readonly string[] = []): EventoSanitizado | null {
     if (!object(value) || value.version !== 2 || value.app !== 'KidmaisManager'
         || !Number.isSafeInteger(value.timestamp) || (value.timestamp as number) < 0
         || !shortString(value.type) || !object(value.payload)) return null;
@@ -49,6 +87,10 @@ export function parseGupshupV2(value: unknown): EventoSanitizado | null {
         // Inbound source/sender are deliberately omitted. Only a masked destination is logged.
         ...(typeof destination === 'string' && /^\+?\d{8,15}$/.test(destination)
             ? { destinationMasked: `***${destination.slice(-2)}` } : {}),
+        ...(value.type === 'message-event' && payload.type === 'failed'
+            ? failureDetails(payload.payload, [...sensitiveValues, payload.id,
+                ...(typeof payload.gsId === 'string' ? [payload.gsId] : []),
+                ...(typeof destination === 'string' ? [destination] : [])]) : {}),
     };
 }
 

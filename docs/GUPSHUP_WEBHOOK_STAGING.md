@@ -71,8 +71,18 @@ sanitizada. Não há fila durável: 204 significa recepção/validação, não p
 Campos permitidos: `eventType`, `status`, `timestamp`, hash SHA-256 do ID truncado em 16
 hexadecimais e, quando presente e válido, `destinationMasked` contendo apenas os dois
 últimos dígitos. Inbound não registra source/sender. Não registra corpo, nomes, texto,
-mídia, URL, telefone completo, motivo de falha ou headers. Erros não imprimem payloads.
+mídia, URL, telefone completo ou headers. Erros não imprimem payloads.
 O handshake registra somente `eventType=user-event`, `status=sandbox-start` e timestamp.
+
+Somente `message-event/failed` acrescenta `failureCode` e `failureReason`, extraídos de
+`payload.payload.code/reason` quando válidos. Código aceita inteiro de 0 a 999999 ou
+string numérica curta/identificador seguro, preservando o tipo. Tipos inesperados são omitidos.
+O motivo é normalizado em uma linha, sem controles Unicode, e limitado a 300 caracteres
+após sanitização. Segredo configurado, IDs, telefones, números de quatro ou mais dígitos,
+URLs, e-mails e padrões de credenciais são redigidos; texto que sugira headers, credenciais,
+payload serializado ou codificado é suprimido com `[REDACTED]`. Essa proteção conservadora
+pode ocultar parte de uma explicação legítima. `gsId` nunca é registrado em claro.
+O hash do ID, a máscara do destino, a autenticação e o ACK 204 permanecem iguais.
 
 Retries podem repetir logs, sem efeitos de negócio. Não há ordenação/reconciliação de status.
 O rate limit existente usa banco; não foi reutilizado nem criado limitador distribuído.

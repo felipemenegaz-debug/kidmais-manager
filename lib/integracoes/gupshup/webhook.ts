@@ -73,7 +73,7 @@ export async function receiveGupshupWebhook(
     if (request.headers.has('content-encoding') && request.headers.get('content-encoding') !== 'identity') return response(415);
     let event: EventoSanitizado | null;
     try {
-        event = parseGupshupV2(decodeGupshupBody(await readLimitedBody(request), contentType));
+        event = parseGupshupV2(decodeGupshupBody(await readLimitedBody(request), contentType), [secret]);
     } catch (error) {
         return response(error instanceof BodyError ? error.status : 400);
     }
