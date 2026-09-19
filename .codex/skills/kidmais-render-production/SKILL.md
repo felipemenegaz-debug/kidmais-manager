@@ -8,7 +8,7 @@ description: Preparar e avaliar staging/production do Kidmais Manager no Render 
 ## Contexto e ordem padrão
 
 1. Confirmar workspace `D:\glass\KidMais Manager\kidmais-manager-github`, `git branch --show-current`, `git log -1 --oneline`, `git status`. A base esperada desta preparação é `staging`; divergências da base solicitada exigem parar e informar. Confirmar `docs/HANDOFF_V1_PRODUCAO.md`, `render.yaml`, migrations 017/018 e `app/api/health/route.ts` presentes.
-2. Ler primeiro [handoff](../../../docs/HANDOFF_V1_PRODUCAO.md), fonte principal operacional. Não reler o projeto inteiro. Abrir somente arquivos necessários para divergências ou bloqueios.
+2. Ler primeiro a [política operacional dos agentes](../../../docs/OPERACAO_AGENTES.md), que define autorizações e prevalece sobre procedimentos históricos; depois o [handoff](../../../docs/HANDOFF_V1_PRODUCAO.md), fonte de contexto e evidências datadas. Não reler o projeto inteiro. Abrir somente arquivos necessários para divergências ou bloqueios.
 3. Executar `node scripts/production/check-env.mjs --json` com ambiente injetado de forma segura.
 4. Executar `node scripts/production/check-database-target.mjs --json` (sem conexão).
 5. Executar `node scripts/production/check-migrations.mjs --json` (sem conexão).
@@ -22,7 +22,7 @@ description: Preparar e avaliar staging/production do Kidmais Manager no Render 
 - Nunca acessar, consultar ou alterar `kidmais_manager`, inclusive como origem de teste/restore. Nunca usar `kidmais_staging`, `kidmais-staging` ou o banco local como production; production exige `kidmais_production` remoto.
 - Não carregar `.env.local`, ler secrets para contexto nem imprimir valores. Os scripts recebem env já injetado; não colocar secrets em comandos, screenshots, relatórios ou commits. Nunca reutilizar secrets entre staging e production. Presença de variável não comprova exclusividade ou rotação.
 - Nenhum script altera Render, secrets ou banco. `--connect`/`--inspect-db` são leituras opcionais: somente quando o escopo permitir acesso ao destino, após validação de alvo. Nunca usá-las quando a tarefa proibir acesso a qualquer banco. Não executam migrations nem postchecks arbitrários.
-- Exigir aprovação humana explícita antes de migrations/escrita em production, revogação de credenciais, alteração de DATABASE_URL/secrets, DNS/domínio, exclusão/restore de banco, Persistent Disk, liberação de tráfego, mudança de branch/commit de production ou qualquer alteração de infraestrutura. Preparar antes um plano revisável com alvo, efeito, pré-condições e recuperação. Um resultado GO não é autorização de mudança.
+- Exigir autorização explícita de Felipe antes de qualquer deploy/redeploy/rollback, restart, liberação de tráfego, alteração de env, branch/commit, segredo, revogação de credenciais, DNS/domínio ou infraestrutura de production. Migrations, SQL de escrita, restore, delete e alteração de DATABASE_URL exigem autorização explícita em qualquer ambiente. Em staging, env/secrets, restart e infraestrutura também exigem aprovação explícita. Preparar antes um plano revisável com alvo, efeito, pré-condições e recuperação; respeitar autorização já dada para a mesma ação e alvo. Nunca usar banco de production para testes. Um resultado GO não é autorização de mudança.
 - A credencial production exposta relatada no handoff exige rotação confirmada antes do GO. Não presumir que foi rotacionada; não procurar seu valor. Production usa `npm start`; o inicializador de staging não deve ser usado em production.
 
 ## Interpretação
