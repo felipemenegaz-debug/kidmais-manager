@@ -20,7 +20,18 @@ const schema = z.object({
 export async function POST(request: NextRequest, context: ContratoRouteContext) {
   try {
     const contratoId = z.string().uuid().parse(await contratoIdDaRota(context));
-    const body = schema.parse(await request.json());
+    let json: unknown;
+    try {
+      json = await request.json();
+    } catch {
+      return noStoreContrato(
+        NextResponse.json(
+          { ok: false, erro: "Corpo JSON inválido.", codigo: "JSON_INVALIDO" },
+          { status: 400 },
+        ),
+      );
+    }
+    const body = schema.parse(json);
     const data = await iniciarDesafioContrato(
       { contratoId, cpf: body.cpf, canal: body.canal },
       enviarOtpComAmbiente,

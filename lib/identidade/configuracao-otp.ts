@@ -1,4 +1,4 @@
-export type ModoOtpAmbiente = "console" | "whatsapp_cloud" | "disabled";
+export type ModoOtpAmbiente = "console" | "whatsapp_cloud" | "gupshup" | "disabled";
 
 const FLAG_OTP_DESABILITADO_STAGING = "SIM";
 
@@ -19,6 +19,18 @@ export function modoOtpAmbiente(
   }
 
   if (provider === "whatsapp_cloud") return provider;
+
+  if (provider === "gupshup") {
+    // Liberação deste provider limitada ao staging nesta etapa da integração.
+    if (env.KIDMAIS_DEPLOY_ENV !== "staging") {
+      throw new Error("IDENTIDADE_OTP_PROVIDER=gupshup é permitido somente no staging.");
+    }
+    const enabled = env.GUPSHUP_OTP_ENABLED;
+    if (enabled !== undefined && enabled !== "true" && enabled !== "false") {
+      throw new Error("GUPSHUP_OTP_ENABLED deve ser true ou false.");
+    }
+    return provider;
+  }
 
   if (provider === "disabled") {
     if (
@@ -41,7 +53,14 @@ export function modoOtpAmbiente(
 export function otpDesabilitadoNoStaging(
   env: NodeJS.ProcessEnv = process.env,
 ) {
-  if ((env.IDENTIDADE_OTP_PROVIDER ?? "").trim().toLowerCase() !== "disabled") {
+  const provider = (env.IDENTIDADE_OTP_PROVIDER ?? "").trim().toLowerCase();
+  if (provider === "gupshup") {
+    modoOtpAmbiente(env);
+    // Ausência da liberação é bloqueio. A trava legada tem precedência.
+    return env.GUPSHUP_OTP_ENABLED !== "true" ||
+      env.KIDMAIS_STAGING_OTP_DISABLED === FLAG_OTP_DESABILITADO_STAGING;
+  }
+  if (provider !== "disabled") {
     return false;
   }
   return modoOtpAmbiente(env) === "disabled";

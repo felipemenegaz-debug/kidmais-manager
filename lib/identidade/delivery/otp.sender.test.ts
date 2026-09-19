@@ -146,7 +146,7 @@ test("rotas públicas da V1 aceitam somente WHATSAPP", () => {
   assert.doesNotMatch(identityService, /canal: "EMAIL",/);
 });
 
-test("configuração de produção falha fechada e aceita somente whatsapp_cloud", () => {
+test("configuração fora do staging falha fechada e aceita somente whatsapp_cloud", () => {
   const env = process.env as Record<string, string | undefined>;
   const keys = [
     "NODE_ENV",
@@ -198,6 +198,80 @@ test("configuração de produção falha fechada e aceita somente whatsapp_cloud
       else env[key] = value;
     }
   }
+});
+
+const gupshupEnv: Record<string, string | undefined> = {
+  NODE_ENV: "production",
+  KIDMAIS_DEPLOY_ENV: "staging",
+  IDENTIDADE_OTP_PROVIDER: "gupshup",
+  KIDMAIS_STAGING_OTP_DISABLED: undefined,
+  GUPSHUP_OTP_ENABLED: undefined,
+  GUPSHUP_API_KEY: "sk_synthetic_test_key_abcdefghijklmnopqrstuvwxyz",
+  GUPSHUP_SOURCE: "551140028922",
+  GUPSHUP_APP_NAME: "KidmaisManager",
+  GUPSHUP_OTP_TEMPLATE_ID: "f250d578-370b-423c-b60d-6814cd72d00e",
+  GUPSHUP_DEFAULT_COUNTRY_CODE: "55",
+  GUPSHUP_TIMEOUT_MS: "1000",
+};
+
+async function comAmbiente(env: Record<string, string | undefined>, work: () => Promise<void>) {
+  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  try {
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await work();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("Gupshup configurado mas bloqueado valida configuração sem rede ou logs", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new Error("Rede proibida"); });
+  const logs = ["info", "warn", "error", "log", "debug"].map(method =>
+    t.mock.method(console, method as "info", () => {}));
+  await comAmbiente(gupshupEnv, async () => {
+    assert.deepEqual(validarConfiguracaoOtpAmbiente(), {
+      provider: "gupshup", status: "unavailable", configured: true, enabled: false,
+      reason: "staging_disabled",
+    });
+    await assert.rejects(enviarOtpComAmbiente(delivery), /temporariamente indisponível/);
+    delete process.env.GUPSHUP_API_KEY;
+    assert.throws(validarConfiguracaoOtpAmbiente, /GUPSHUP_API_KEY/);
+    await assert.rejects(enviarOtpComAmbiente(delivery), /GUPSHUP_API_KEY/);
+  });
+  assert.equal(fetchMock.mock.callCount(), 0);
+  for (const log of logs) assert.equal(log.mock.callCount(), 0);
+});
+
+test("seleção por ambiente retorna recibo interno apenas com liberação explícita", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({
+    status: "submitted", messageId: "f27081b2-329f-4e8e-b933-8f3bad50ab76",
+  }), { status: 202 }));
+  await comAmbiente({ ...gupshupEnv, GUPSHUP_OTP_ENABLED: "true" }, async () => {
+    assert.deepEqual(validarConfiguracaoOtpAmbiente(), {
+      provider: "gupshup", status: "ready", configured: true, enabled: true,
+    });
+    assert.deepEqual(await enviarOtpComAmbiente(delivery), {
+      provider: "gupshup", status: "submitted", messageId: "f27081b2-329f-4e8e-b933-8f3bad50ab76",
+    });
+    process.env.KIDMAIS_STAGING_OTP_DISABLED = "SIM";
+    await assert.rejects(enviarOtpComAmbiente(delivery), /temporariamente indisponível/);
+  });
+  assert.equal(fetchMock.mock.callCount(), 1);
+});
+
+test("simulação console de desenvolvimento nunca registra OTP ou destino", async (t) => {
+  const logs = ["info", "warn", "error", "log", "debug"].map(method =>
+    t.mock.method(console, method as "info", () => {}));
+  await comAmbiente({ NODE_ENV: "development", IDENTIDADE_OTP_PROVIDER: "console" }, async () => {
+    assert.equal(await enviarOtpComAmbiente(delivery), undefined);
+  });
+  for (const log of logs) assert.equal(log.mock.callCount(), 0);
 });
 
 test("emissor desabilitado no staging recusa sem registrar o código", async () => {

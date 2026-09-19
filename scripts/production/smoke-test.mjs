@@ -8,7 +8,13 @@ function evaluate(env, statusCode, body) {
   for (const key of ['database', 'festa']) if (body?.components?.[key] !== 'ready') r.blockers.push(key.toUpperCase() + '_NOT_READY');
   const otp = body?.components?.otp;
   if (!['ready', 'unavailable'].includes(otp)) r.blockers.push('OTP_STATUS_INVALID');
-  const expected = env.KIDMAIS_DEPLOY_ENV === 'staging' && env.IDENTIDADE_OTP_PROVIDER === 'disabled' && env.KIDMAIS_STAGING_OTP_DISABLED === 'SIM';
+  const legacyDisabled = env.IDENTIDADE_OTP_PROVIDER === 'disabled' && env.KIDMAIS_STAGING_OTP_DISABLED === 'SIM';
+  const gupshupDisabled = env.IDENTIDADE_OTP_PROVIDER?.trim().toLowerCase() === 'gupshup'
+    && [undefined, 'false', 'true'].includes(env.GUPSHUP_OTP_ENABLED)
+    && (env.GUPSHUP_OTP_ENABLED !== 'true' || env.KIDMAIS_STAGING_OTP_DISABLED === 'SIM')
+    && body?.otp?.provider === 'gupshup' && body.otp.configured === true
+    && body.otp.enabled === false && body.otp.reason === 'staging_disabled';
+  const expected = env.KIDMAIS_DEPLOY_ENV === 'staging' && (legacyDisabled || gupshupDisabled);
   if (body?.status !== (otp === 'unavailable' ? 'degraded' : 'ready')) r.blockers.push('HEALTH_STATUS_INCONSISTENT');
   if (otp === 'unavailable') {
     r.pending.push(expected ? 'STAGING_OTP_DISABLED_EXPECTED' : 'OTP_UNAVAILABLE');

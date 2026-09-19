@@ -66,6 +66,35 @@ test('staging degraded requires explicit disabled OTP', () => {
   delete env.KIDMAIS_STAGING_OTP_DISABLED;
   assert.ok(smoke.evaluate(env, 200, body).blockers.length);
 });
+
+test('staging Gupshup disabled by default or explicit gates accepts coherent degraded health', () => {
+  const env = { ...fixture(), KIDMAIS_DEPLOY_ENV: 'staging', IDENTIDADE_OTP_PROVIDER: 'gupshup' };
+  const body = { ...ready, status: 'degraded', components: { ...ready.components, otp: 'unavailable' }, otp: { provider: 'gupshup', configured: true, enabled: false, reason: 'staging_disabled' } };
+  for (const gates of [{}, { GUPSHUP_OTP_ENABLED: 'false' }, { GUPSHUP_OTP_ENABLED: 'true', KIDMAIS_STAGING_OTP_DISABLED: 'SIM' }]) {
+    const result = smoke.evaluate({ ...env, ...gates }, 200, body);
+    assert.deepEqual(result.blockers, []);
+    assert.ok(result.pending.includes('STAGING_OTP_DISABLED_EXPECTED'));
+    assert.ok(result.pending.includes('HEALTH_DOES_NOT_PROVE_WHATSAPP_DELIVERY'));
+    assert.equal(result.evidence[0].otpReady, false);
+  }
+});
+
+test('staging Gupshup degraded requires blocked configuration and matching health metadata', () => {
+  const env = { ...fixture(), KIDMAIS_DEPLOY_ENV: 'staging', IDENTIDADE_OTP_PROVIDER: 'gupshup', GUPSHUP_OTP_ENABLED: 'false' };
+  const body = { ...ready, status: 'degraded', components: { ...ready.components, otp: 'unavailable' }, otp: { provider: 'gupshup', configured: true, enabled: false, reason: 'staging_disabled' } };
+  for (const otp of [undefined, {}, { ...body.otp, provider: 'disabled' }, { ...body.otp, configured: false }, { ...body.otp, enabled: true }, { ...body.otp, reason: 'provider_failed' }]) {
+    const result = smoke.evaluate(env, 200, { ...body, otp });
+    assert.ok(result.blockers.includes('STAGING_DEGRADED_NOT_AUTHORIZED'));
+    assert.ok(!result.pending.includes('STAGING_OTP_DISABLED_EXPECTED'));
+  }
+  for (const gates of [{ GUPSHUP_OTP_ENABLED: 'true' }, { GUPSHUP_OTP_ENABLED: '' }, { GUPSHUP_OTP_ENABLED: 'FALSE', KIDMAIS_STAGING_OTP_DISABLED: 'SIM' }]) {
+    assert.ok(smoke.evaluate({ ...env, ...gates }, 200, body).blockers.includes('STAGING_DEGRADED_NOT_AUTHORIZED'));
+  }
+  const production = smoke.evaluate({ ...env, KIDMAIS_DEPLOY_ENV: 'production' }, 200, body);
+  assert.ok(!production.pending.includes('STAGING_OTP_DISABLED_EXPECTED'));
+  assert.ok(production.pending.includes('OTP_UNAVAILABLE'));
+  assert.ok(smoke.evaluate(env, 503, body).blockers.includes('HEALTH_HTTP_NOT_200'));
+});
 test('database/festa failures and actual 503 block', () => {
   for (const name of ['database', 'festa']) assert.ok(smoke.evaluate(fixture(), 200, { ...ready, components: { ...ready.components, [name]: 'unavailable' } }).blockers.length);
   assert.ok(smoke.evaluate(fixture(), 503, { ok: false, status: 'unavailable' }).blockers.includes('HEALTH_HTTP_NOT_200'));

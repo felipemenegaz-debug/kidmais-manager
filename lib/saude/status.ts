@@ -111,6 +111,20 @@ export function linhasDiagnosticoStaging(
 }
 
 export function respostaSaudeDisponivel(otp: StatusOtpAmbiente) {
+  const detalhesOtp =
+    otp.provider === "gupshup"
+      ? {
+          otp: {
+            provider: "gupshup" as const,
+            configured: otp.configured === true,
+            enabled: otp.enabled === true,
+            ...(otp.reason === "staging_disabled"
+              ? { reason: "staging_disabled" as const }
+              : {}),
+          },
+        }
+      : {};
+
   if (otp.status === "unavailable") {
     return {
       ok: true as const,
@@ -120,6 +134,7 @@ export function respostaSaudeDisponivel(otp: StatusOtpAmbiente) {
         festa: "ready" as const,
         otp: "unavailable" as const,
       },
+      ...detalhesOtp,
     };
   }
 
@@ -131,5 +146,6 @@ export function respostaSaudeDisponivel(otp: StatusOtpAmbiente) {
       festa: "ready" as const,
       otp: "ready" as const,
     },
+    ...detalhesOtp,
   };
 }

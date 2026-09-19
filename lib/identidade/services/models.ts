@@ -62,7 +62,14 @@ export type OtpDelivery = {
   expiraEm: string;
 };
 
-export type IdentityOtpSender = (delivery: OtpDelivery) => Promise<void>;
+/** Recibo de transporte interno e transitório; não comprova entrega ao destinatário. */
+export type OtpSubmission = {
+  provider: "gupshup";
+  status: "submitted";
+  messageId: string;
+};
+
+export type IdentityOtpSender = (delivery: OtpDelivery) => Promise<void | OtpSubmission>;
 
 export type IdentityServiceOptions = {
   /** Segredo de servidor usado como pepper do HMAC do OTP. */

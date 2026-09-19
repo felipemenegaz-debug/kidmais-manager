@@ -29,6 +29,73 @@ test("health permanece pronto quando WhatsApp está configurado", () => {
   );
 });
 
+test("Gupshup configurado e desabilitado em staging mantém saúde degradada disponível", async () => {
+  const resultado = await avaliarProntidao({
+    verificarDatabase: async () => true,
+    validarFesta: async () => undefined,
+    validarOtp: () => ({
+      provider: "gupshup",
+      status: "unavailable",
+      configured: true,
+      enabled: false,
+      reason: "staging_disabled",
+    }),
+    festaHabilitada: true,
+  });
+
+  assert.equal(resultado.disponivel, true);
+  assert.deepEqual(resultado.componentes.otp, {
+    status: "unavailable",
+    codigo: "OTP_STAGING_DISABLED_EXPECTED",
+  });
+  assert.ok(resultado.otp);
+  assert.deepEqual(respostaSaudeDisponivel(resultado.otp), {
+    ok: true,
+    status: "degraded",
+    components: { database: "ready", festa: "ready", otp: "unavailable" },
+    otp: {
+      provider: "gupshup",
+      configured: true,
+      enabled: false,
+      reason: "staging_disabled",
+    },
+  });
+  assert.deepEqual(
+    linhasDiagnosticoStaging(resultado, { KIDMAIS_DEPLOY_ENV: "staging" }),
+    [],
+  );
+});
+
+test("Gupshup habilitado aparece pronto sem revelar configuração privada", async () => {
+  const configuracao = {
+    provider: "gupshup" as const,
+    status: "ready" as const,
+    configured: true,
+    enabled: true,
+    apiKey: "sk-chave-privada",
+    source: "5511999999999",
+    templateId: "template-interno",
+    webhookSecret: "segredo-webhook",
+    codigo: "123456",
+  };
+  const resultado = await avaliarProntidao({
+    verificarDatabase: async () => true,
+    validarFesta: async () => undefined,
+    validarOtp: () => configuracao,
+    festaHabilitada: true,
+  });
+
+  assert.equal(resultado.disponivel, true);
+  assert.deepEqual(resultado.componentes.otp, { status: "ready" });
+  assert.ok(resultado.otp);
+  assert.deepEqual(respostaSaudeDisponivel(resultado.otp), {
+    ok: true,
+    status: "ready",
+    components: { database: "ready", festa: "ready", otp: "ready" },
+    otp: { provider: "gupshup", configured: true, enabled: true },
+  });
+});
+
 test("OTP disabled autorizado mantém prontidão em estado degradado", async () => {
   const resultado = await avaliarProntidao({
     verificarDatabase: async () => true,
@@ -130,4 +197,40 @@ test("configuração OTP inválida recusa prontidão sem expor a exceção", asy
   );
   assert.equal(linhas.join(" ").includes("token-super-secreto"), false);
   assert.deepEqual(linhasDiagnosticoStaging(resultado, {}), []);
+});
+
+test("Gupshup com configuração inválida continua indisponível com diagnóstico seguro", async () => {
+  const segredos = [
+    "sk-chave-privada",
+    "5511999999999",
+    "segredo-webhook",
+    "123456",
+    '{"payload":"bruto"}',
+  ];
+  const resultado = await avaliarProntidao({
+    verificarDatabase: async () => true,
+    validarFesta: async () => undefined,
+    validarOtp: () => {
+      throw new Error(`Gupshup: ${segredos.join(" ")}`);
+    },
+    festaHabilitada: true,
+  });
+
+  assert.equal(resultado.disponivel, false);
+  assert.equal(resultado.otp, undefined);
+  assert.deepEqual(resultado.componentes.otp, {
+    status: "failed",
+    codigo: "OTP_CONFIG_INVALID",
+  });
+  const diagnostico = linhasDiagnosticoStaging(resultado, {
+    KIDMAIS_DEPLOY_ENV: "staging",
+  });
+  assert.deepEqual(diagnostico, [
+    "[Kidmais Health] database=ready",
+    "[Kidmais Health] festa=ready",
+    "[Kidmais Health] otp=failed code=OTP_CONFIG_INVALID",
+  ]);
+  for (const segredo of segredos) {
+    assert.equal(JSON.stringify({ resultado, diagnostico }).includes(segredo), false);
+  }
 });
