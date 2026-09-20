@@ -5,6 +5,7 @@ import type {SessaoAdmin} from '../../autenticacao/service';
 import {registrarEventoHistorico} from '../../clientes/repositories/historico.repository';
 import {registrarAuditoria} from '../../clientes/repositories/auditoria.repository';
 import {exigir} from '../../festas/domain';
+import {cancelarFinanceiroDaContratacao} from '../../pagamentos/services/cancelamento.service';
 /** Comando contratual interno: chamado com contrato, sessão e Festa bloqueados na mesma transação. */
 export async function cancelarContratacaoDaFesta(tx:DbExecutor,id:string,s:SessaoAdmin,motivo:string,chave:string,ctx:{requestId:string;userAgent:string|null}){
  exigir(motivo.trim().length>=3,'Informe por que a festa está sendo cancelada.',400);
@@ -18,6 +19,7 @@ export async function cancelarContratacaoDaFesta(tx:DbExecutor,id:string,s:Sessa
  await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)',[id]);
  const abertas=(await tx.query<{contrato_versao_id:string}>("SELECT contrato_versao_id FROM fechamento_revisoes WHERE contrato_id=$1 AND estado IN ('EM_ELABORACAO','CONGELADA') ORDER BY data_evento FOR UPDATE",[id])).rows;
  for(const aberta of abertas){const r=await buscarRevisaoDaVersao(aberta.contrato_versao_id,tx,true);if(r)await cancelarPreparacao(tx,r,{usuarioId:s.usuario_id,...ctx},motivo);}
+ await cancelarFinanceiroDaContratacao(tx,id,c.cliente_id,s,motivo,chave,ctx);
  const cancelado=(await tx.query<{cancelado_em:string}>("UPDATE contratos SET status='CANCELADO',cancelado_em=clock_timestamp() WHERE id=$1 RETURNING cancelado_em::text",[id])).rows[0];
  const detail={contratoId:id,motivo,usuarioId:s.usuario_id,nome:s.nome,papel:s.papel,canceladoEm:cancelado.cancelado_em,chave};
  await registrarEventoHistorico({clienteId:c.cliente_id,tipoEvento:'CONTRATO_CANCELADO',origem:'CONTRATO_ADMIN',entidadeTipo:'CONTRATO',entidadeId:id,usuarioId:s.usuario_id,detalhe:motivo,metadata:detail,critico:true},tx);

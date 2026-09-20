@@ -481,6 +481,14 @@ export async function buscarPlanoAtivo(
   return result.rows[0] ? mapPlano(result.rows[0]) : null;
 }
 
+export async function buscarUltimoPlanoCancelado(pagamentoId: string, customDb?: DbExecutor): Promise<PlanoPagamentoRecord | null> {
+  const result = await executor(customDb).query<PlanoRow>(
+    `SELECT ${planoColumns} FROM pagamento_planos WHERE pagamento_id=$1 AND status='CANCELADO'
+     ORDER BY numero_versao DESC LIMIT 1`, [pagamentoId],
+  );
+  return result.rows[0] ? mapPlano(result.rows[0]) : null;
+}
+
 export async function substituirPlanoAtivo(
   planoId: string,
   motivo: string,

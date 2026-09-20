@@ -52,7 +52,8 @@ function servico(existente = false, forma = 'PIX_PARCELADO') {
       criarParcelaPagamento: async (input: Record<string, unknown>) => {
         escritas.push('parcela'); const p = { id: String(parcelas.length), status: 'PENDENTE', ...input }; parcelas.push(p); return p;
       },
-      buscarPlanoAtivo: async () => plano, listarParcelasPlano: async () => parcelas,
+      buscarPlanoAtivo: async () => pagamento.status === 'CANCELADO' ? null : plano,
+      buscarUltimoPlanoCancelado: async () => plano, listarParcelasPlano: async () => parcelas,
       resumoMovimentosParcelas: async () => [], resumoMovimentosPagamento: async () => movimento,
       existeRecebimentoPagamento: async () => false,
       substituirPlanoAtivo: async () => escritas.push('substituir'), cancelarParcelasPendentesDoPlano: async () => escritas.push('cancelar'),
@@ -66,7 +67,9 @@ function servico(existente = false, forma = 'PIX_PARCELADO') {
   const criar = exports.criarPagamentoDoFechamento as (input: CriarPagamentoInput, ctx: object) => Promise<{ detalhe: PagamentoDetalhe; reutilizado: boolean }>;
   const substituir = exports.substituirPlanoPagamento as (id: string, input: PlanoPagamentoInput, motivo: string, ctx: object) => Promise<PagamentoDetalhe>;
   const automatico = exports.criarPagamentoDoFechamento as (input: SugerirPagamentoInput, ctx: object) => Promise<{ detalhe: PagamentoDetalhe; reutilizado: boolean } | SugestaoPagamentoResult>;
-  return { criar, automatico, substituir, escritas, snapshot, versao };
+  const obter = exports.obterPagamentoPorFechamento as (id: string) => Promise<PagamentoDetalhe>;
+  const receber = exports.registrarRecebimentoPagamento as (input: object, ctx: object) => Promise<unknown>;
+  return { criar, automatico, substituir, obter, receber, pagamento, contrato, escritas, snapshot, versao };
 }
 
 function plano(vencimento: string, gerado = false): PlanoPagamentoInput {
@@ -113,6 +116,20 @@ for (const vencimento of ['2027-06-15', '2027-06-16']) test(`substituição de p
 });
 
 const contextoAdmin = { origem: 'TESTE', usuarioId: 'admin' };
+test('consulta de pagamento cancelado preserva plano histórico e não apresenta saldo cobrável', async () => {
+  const s = servico();
+  const criado = await s.criar({ fechamentoId: 'f', plano: plano('2027-06-15') }, contextoAdmin);
+  s.pagamento.status = 'CANCELADO'; s.contrato.status = 'CANCELADO';
+  const detalhe = await s.obter('f');
+  assert.equal(detalhe.plano.id, criado.detalhe.plano.id);
+  assert.equal(detalhe.totais.valorContratado, 9700); assert.equal(detalhe.totais.saldo, 0);
+  assert.equal(detalhe.totais.recebidoConfirmado, 0);
+  assert(detalhe.parcelas.every(p => p.saldo === 0 && !p.vencida));
+  const antes = [...s.escritas];
+  await assert.rejects(s.substituir('p', plano('2027-06-15'), 'Tentativa indevida', contextoAdmin), { code: 'PLANO_NAO_PODE_SER_SUBSTITUIDO' });
+  await assert.rejects(s.receber({ pagamentoId: 'p' }, contextoAdmin), { code: 'PAGAMENTO_CANCELADO' });
+  assert.deepEqual(s.escritas, antes);
+});
 const automatico = (pedido = {}): SugerirPagamentoInput => ({ fechamentoId: 'f', plano: { meioPagamento: 'PIX', modalidade: 'PARCELADO', ...pedido } });
 for (const pedido of [{ entrada: 2000, valorParcela: 3000 }, { valorParcela: 100 }, { quantidadeParcelas: 99 }, { valorParcela: 1000, quantidadeParcelas: 2 }, {}]) {
   test(`sugestão/contraproposta só grava após confirmação e retry não duplica: ${JSON.stringify(pedido)}`, async t => {

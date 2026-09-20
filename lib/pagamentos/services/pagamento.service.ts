@@ -30,6 +30,7 @@ import {
   buscarPagamentoPorId,
   buscarParcelaPorId,
   buscarPlanoAtivo,
+  buscarUltimoPlanoCancelado,
   buscarRecebimentoPorId,
   buscarRecebimentoPorIdempotencia,
   buscarEstornoPorIdempotencia,
@@ -153,7 +154,7 @@ async function detalhePagamento(
   pagamento: PagamentoRecord,
   tx?: DbExecutor,
 ): Promise<PagamentoDetalhe> {
-  const plano = await buscarPlanoAtivo(pagamento.id, tx);
+  const plano = await buscarPlanoAtivo(pagamento.id, tx) ?? (pagamento.status === 'CANCELADO' ? await buscarUltimoPlanoCancelado(pagamento.id, tx) : null);
   if (!plano) {
     throw new PagamentoServiceError(
       "PLANO_NAO_ENCONTRADO",
@@ -172,7 +173,7 @@ async function detalhePagamento(
   const hoje = hojeBrasilia();
   const recebidoLiquido = saldoMonetario(movimentosPagamento.recebidoConfirmado, movimentosPagamento.estornadoConfirmado);
 
-  if (await possuiCronograma(tx ?? db(), pagamento.id)) {
+  if (pagamento.status !== 'CANCELADO' && await possuiCronograma(tx ?? db(), pagamento.id)) {
     const p = await posicaoDoPagamento(tx ?? db(), pagamento.id);
     const consolidado: PagamentoDetalhe['parcelas'] = [];
     for (const item of p.futuro) {
@@ -199,9 +200,9 @@ async function detalhePagamento(
         recebidoConfirmado: movimento.recebidoConfirmado,
         estornadoConfirmado: movimento.estornadoConfirmado,
         valorLiquidoRecebido: liquido,
-        saldo: saldoMonetario(parcela.valorPrevisto, liquido),
+        saldo: pagamento.status === 'CANCELADO' ? 0 : saldoMonetario(parcela.valorPrevisto, liquido),
         vencida:
-          parcela.status !== "PAGA" &&
+          pagamento.status !== 'CANCELADO' && parcela.status !== "PAGA" &&
           parcela.status !== "CANCELADA" &&
           parcela.vencimento < hoje,
       };
@@ -211,7 +212,7 @@ async function detalhePagamento(
       recebidoConfirmado: movimentosPagamento.recebidoConfirmado,
       estornadoConfirmado: movimentosPagamento.estornadoConfirmado,
       recebidoLiquido,
-      saldo: saldoMonetario(pagamento.valorTotalContratado, recebidoLiquido),
+      saldo: pagamento.status === 'CANCELADO' ? 0 : saldoMonetario(pagamento.valorTotalContratado, recebidoLiquido),
     },
   };
 }
