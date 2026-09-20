@@ -35,6 +35,16 @@ export function distribuirCentavos(total: bigint, quantidade: number): bigint[] 
   return Array.from({ length: quantidade }, (_, i) => base + (BigInt(i) < resto ? 1n : 0n));
 }
 export type ParcelaProposta = { parcelaId?: string; valorCentavos: string; vencimento: string };
+export function validarVencimentoAteFesta(vencimento: string, dataFesta: string, meio: 'PIX' | 'CARTAO' = 'PIX') {
+  const data = new Date(dataFesta + 'T00:00:00Z');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dataFesta) || dataFesta.startsWith('0000') ||
+    Number.isNaN(data.getTime()) || data.toISOString().slice(0, 10) !== dataFesta) {
+    recusarFinanceiro('DADOS_INVALIDOS', 'Data da festa inválida no contrato.', 400);
+  }
+  if (vencimento > dataFesta) recusarFinanceiro(
+    meio === 'PIX' ? 'PIX_APOS_DATA_FESTA' : 'PARCELA_APOS_DATA_FESTA',
+    meio === 'PIX' ? 'Todas as parcelas PIX devem vencer até a data da festa.' : 'Todas as parcelas devem vencer até a data da festa.', 422);
+}
 export function validarCronogramaConsolidado(parcelas: ParcelaProposta[], saldo: bigint, dataFesta: string, pixParcelado: boolean) {
   if (parcelas.length > 60 || (saldo > 0n && parcelas.length === 0)) recusarFinanceiro('CRONOGRAMA_INCONSISTENTE', 'Programe todo o saldo em até 60 parcelas.', 422);
   const ids = new Set<string>();
@@ -44,7 +54,7 @@ export function validarCronogramaConsolidado(parcelas: ParcelaProposta[], saldo:
     if (!/^\d{4}-\d{2}-\d{2}$/.test(p.vencimento) || p.vencimento.startsWith('0000')) recusarFinanceiro('DADOS_INVALIDOS', 'Vencimento inválido.', 400);
     const data = new Date(p.vencimento + 'T00:00:00Z');
     if (Number.isNaN(data.getTime()) || data.toISOString().slice(0, 10) !== p.vencimento) recusarFinanceiro('DADOS_INVALIDOS', 'Vencimento inválido.', 400);
-    if (pixParcelado && p.vencimento > dataFesta) recusarFinanceiro('PIX_APOS_DATA_FESTA', 'Todas as parcelas PIX devem vencer até a data da festa.', 422);
+    if (pixParcelado) validarVencimentoAteFesta(p.vencimento, dataFesta);
     if (p.parcelaId) {
       const id = p.parcelaId.toLowerCase();
       if (ids.has(id)) recusarFinanceiro('CRONOGRAMA_INCONSISTENTE', 'Parcela repetida.', 422);

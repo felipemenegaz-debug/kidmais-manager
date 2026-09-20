@@ -19,4 +19,13 @@ test('cancelar tentativa deixa a alteração pendente',()=>assert.equal(situacao
 test('distribuição inteira sem perda',()=>assert.deepEqual(distribuirCentavos(813100n,3),[271034n,271033n,271033n]));
 test('valores subcentavo, inválidos e fora de limite rejeitados',()=>{for(const s of ['1.01','1e3','NaN','-1','1000000000000'])assert.throws(()=>centavosInteiros(s));assert.throws(()=>reaisCentavos('1.001'));assert.equal(reaisCentavos('9011.30'),901130n);});
 test('PIX após festa rejeitado; cartão não herda restrição PIX',()=>{const parcelas=[{valorCentavos:'100',vencimento:'2026-12-02'}];assert.throws(()=>validarCronogramaConsolidado(parcelas,100n,'2026-12-01',true));validarCronogramaConsolidado(parcelas,100n,'2026-12-01',false);});
+
+for (const vencimento of ['2027-06-14', '2027-06-15', '2027-06-16']) test(`alteração consolidada PIX mantém limite inclusivo: ${vencimento}`, () => {
+  const validar = () => validarCronogramaConsolidado([
+    { valorCentavos: '200000', vencimento: '2027-01-05' },
+    { valorCentavos: '770000', vencimento },
+  ], 970000n, '2027-06-15', true);
+  if (vencimento <= '2027-06-15') assert.doesNotThrow(validar);
+  else assert.throws(validar, { code: 'PIX_APOS_DATA_FESTA', status: 422 });
+});
 test('saldo zero aceita cronograma vazio; parcela parcial programa só saldo',()=>{validarCronogramaConsolidado([],0n,'2026-12-01',true);validarCronogramaConsolidado([{valorCentavos:'130000',vencimento:'2026-12-01'}],130000n,'2026-12-01',true);});

@@ -110,11 +110,10 @@ function valorContratoDaVersao(snapshot: { comercial?: { valorFinalContrato?: un
 async function criarPlanoEParcelas(
   pagamento: PagamentoRecord,
   numeroVersao: number,
-  input: PlanoPagamentoInput,
+  validado: ReturnType<typeof validarPlanoPagamento>,
   context: PagamentoServiceContext,
   tx: DbExecutor,
 ) {
-  const validado = validarPlanoPagamento(pagamento.valorTotalContratado, input);
   const plano = await criarPlanoPagamento(
     {
       pagamentoId: pagamento.id,
@@ -217,8 +216,9 @@ async function detalhePagamento(
 function planoEquivale(
   detalhe: PagamentoDetalhe,
   input: PlanoPagamentoInput,
+  dataFesta: string,
 ) {
-  const validado = validarPlanoPagamento(detalhe.pagamento.valorTotalContratado, input);
+  const validado = validarPlanoPagamento(detalhe.pagamento.valorTotalContratado, input, dataFesta);
   if (
     detalhe.plano.meioPagamento !== validado.meioPagamento ||
     detalhe.plano.modalidade !== validado.modalidade ||
@@ -292,7 +292,7 @@ export async function criarPagamentoDoFechamento(
     }
     if (existente) {
       const detalhe = await detalhePagamento(existente, tx);
-      if (!planoEquivale(detalhe, input.plano)) {
+      if (!planoEquivale(detalhe, input.plano, versao.snapshot.evento.data)) {
         throw new PagamentoServiceError(
           "PAGAMENTO_JA_EXISTE",
           "Já existe Pagamento para esta versão contratual. Use a substituição de plano para alterar a condição financeira.",
@@ -313,6 +313,7 @@ export async function criarPagamentoDoFechamento(
     }
 
     const valorTotal = valorContratoDaVersao(versao.snapshot);
+    const planoValidado = validarPlanoPagamento(valorTotal, input.plano, versao.snapshot.evento.data);
     const pagamento = await criarPagamento(
       {
         contratoVersaoId: versao.id,
@@ -321,7 +322,7 @@ export async function criarPagamentoDoFechamento(
       },
       tx,
     );
-    await criarPlanoEParcelas(pagamento, 1, input.plano, context, tx);
+    await criarPlanoEParcelas(pagamento, 1, planoValidado, context, tx);
 
     const fechamentoAtualizado = await marcarFechamentoAguardandoPagamento(fechamento.id, tx);
     if (!fechamentoAtualizado) {
@@ -809,11 +810,12 @@ export async function substituirPlanoPagamento(
     const motivoLimpo = motivo.trim();
     if (!motivoLimpo) throw new PagamentoServiceError("PLANO_PAGAMENTO_INVALIDO", "Informe o motivo da alteração do plano.", 400);
 
+    const { fechamento, versao } = await contextoDoPagamento(pagamento, tx);
+    const planoValidado = validarPlanoPagamento(pagamento.valorTotalContratado, input, versao.snapshot.evento.data);
     await substituirPlanoAtivo(atual.id, motivoLimpo, tx);
     await cancelarParcelasPendentesDoPlano(atual.id, tx);
-    const novo = await criarPlanoEParcelas(pagamento, atual.numeroVersao + 1, input, context, tx);
+    const novo = await criarPlanoEParcelas(pagamento, atual.numeroVersao + 1, planoValidado, context, tx);
 
-    const { fechamento } = await contextoDoPagamento(pagamento, tx);
     if (fechamento.clienteId) {
       await registrarEventoHistorico({
         clienteId: fechamento.clienteId, tipoEvento: "PLANO_PAGAMENTO_SUBSTITUIDO",
