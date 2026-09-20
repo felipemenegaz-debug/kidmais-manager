@@ -36,6 +36,19 @@ export type CriarPagamentoInput = {
   plano: PlanoPagamentoInput;
 };
 
+export type SugerirPagamentoInput = {
+  fechamentoId: string;
+  plano: import('../../comercial/condicao-pagamento').PretensaoPixInput & {
+    meioPagamento: 'PIX';
+    modalidade: 'PARCELADO';
+    confirmacao?: { dataReferencia: string; hash: string };
+  };
+};
+export type SugestaoPagamentoResult = {
+  sugestao: import('./sugestao-pix').SugestaoPix & { hash: string };
+  exigeConfirmacao: true;
+};
+
 export type PagamentoDetalhe = {
   cronogramaId?: string;
   fonteProgramacao?: 'CRONOGRAMA_CONSOLIDADO';

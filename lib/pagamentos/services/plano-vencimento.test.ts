@@ -4,14 +4,15 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as core from './financeiro-core.ts';
 import { distribuirCentavos } from './alteracao-financeira-core.ts';
+import { sugerirParcelamentoPix } from './sugestao-pix.ts';
 import { PagamentoServiceError } from './errors.ts';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core.ts';
-import type { CriarPagamentoInput, PlanoPagamentoInput, PagamentoDetalhe } from './models';
+import type { CriarPagamentoInput, SugerirPagamentoInput, SugestaoPagamentoResult, PlanoPagamentoInput, PagamentoDetalhe } from './models';
 
 // Exercita o serviço real com repositórios em memória; nenhum pool/credencial é carregado.
-function servico(existente = false) {
+function servico(existente = false, forma = 'PIX_PARCELADO') {
   const escritas: string[] = [];
-  const snapshot = { evento: { data: '2027-06-15' }, comercial: { valorFinalContrato: 9700 } };
+  const snapshot = { evento: { data: '2027-06-15' }, comercial: { valorFinalContrato: 9700, formaPagamentoPretendida: forma } };
   const versao = { id: 'v', contratoId: 'c', status: 'ASSINADA', assinadoEm: '2026-09-20', numeroVersao: 1,
     snapshot, snapshotHash: hashSnapshotContrato(snapshot) };
   const contrato = { id: 'c', fechamentoId: 'f', status: 'ASSINADO', versaoAtual: 1 };
@@ -25,6 +26,7 @@ function servico(existente = false) {
   const tx = { query: () => { throw Error('SQL inesperado em teste sem banco'); } };
   const deps: Record<string, unknown> = {
     './financeiro-core': core,
+    './sugestao-pix': { sugerirParcelamentoPix },
     './errors': { PagamentoServiceError },
     '../../contratos/services/snapshot-core': { hashSnapshotContrato },
     '../../db/postgres': { withTransaction: async (fn: (tx: unknown) => unknown) => fn(tx) },
@@ -63,7 +65,8 @@ function servico(existente = false) {
   new Function('require', 'exports', js)((id: string) => deps[id] ?? {}, exports);
   const criar = exports.criarPagamentoDoFechamento as (input: CriarPagamentoInput, ctx: object) => Promise<{ detalhe: PagamentoDetalhe; reutilizado: boolean }>;
   const substituir = exports.substituirPlanoPagamento as (id: string, input: PlanoPagamentoInput, motivo: string, ctx: object) => Promise<PagamentoDetalhe>;
-  return { criar, substituir, escritas };
+  const automatico = exports.criarPagamentoDoFechamento as (input: SugerirPagamentoInput, ctx: object) => Promise<{ detalhe: PagamentoDetalhe; reutilizado: boolean } | SugestaoPagamentoResult>;
+  return { criar, automatico, substituir, escritas, snapshot, versao };
 }
 
 function plano(vencimento: string, gerado = false): PlanoPagamentoInput {
@@ -107,4 +110,50 @@ for (const vencimento of ['2027-06-15', '2027-06-16']) test(`substituição de p
     assert.equal(r.parcelas.length, 2);
     assert(s.escritas.includes('substituir'));
   }
+});
+
+const contextoAdmin = { origem: 'TESTE', usuarioId: 'admin' };
+const automatico = (pedido = {}): SugerirPagamentoInput => ({ fechamentoId: 'f', plano: { meioPagamento: 'PIX', modalidade: 'PARCELADO', ...pedido } });
+for (const pedido of [{ entrada: 2000, valorParcela: 3000 }, { valorParcela: 100 }, { quantidadeParcelas: 99 }, { valorParcela: 1000, quantidadeParcelas: 2 }, {}]) {
+  test(`sugestão/contraproposta só grava após confirmação e retry não duplica: ${JSON.stringify(pedido)}`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 8, 20, 15) });
+    const s = servico(), input = automatico(pedido);
+    const preview = await s.automatico(input, contextoAdmin);
+    assert('sugestao' in preview); assert.equal(preview.exigeConfirmacao, true);
+    assert.deepEqual(s.escritas, [], 'nenhuma escrita durante a sugestão, inclusive inviável');
+    const confirmado: SugerirPagamentoInput = { ...input, plano: { ...input.plano, confirmacao: { hash: preview.sugestao.hash, dataReferencia: preview.sugestao.dataReferencia } } };
+    const salvo = await s.automatico(confirmado, contextoAdmin);
+    assert('detalhe' in salvo); assert.equal(salvo.detalhe.totais.saldo, 9700);
+    assert.equal(salvo.detalhe.totais.recebidoConfirmado, 0);
+    assert.deepEqual(salvo.detalhe.parcelas.map(p => [p.valorPrevisto, p.vencimento]), preview.sugestao.plano.parcelas.map(p => [p.valor, p.vencimento]));
+    const escritas = [...s.escritas];
+    t.mock.timers.setTime(Date.UTC(2026, 8, 21, 15));
+    const retry = await s.automatico(confirmado, contextoAdmin);
+    assert('detalhe' in retry); assert.equal(retry.reutilizado, true);
+    assert.deepEqual(s.escritas, escritas, 'retry no dia seguinte mantém o plano já confirmado');
+  });
+}
+test('confirmação adulterada, pedido alterado ou dia diferente recusam sem persistência', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 8, 20, 15) });
+  const s = servico(), input = automatico({ entrada: 2000 });
+  const preview = await s.automatico(input, contextoAdmin); assert('sugestao' in preview);
+  const confirmacao = { hash: preview.sugestao.hash, dataReferencia: preview.sugestao.dataReferencia };
+  for (const plano of [
+    { ...input.plano, confirmacao: { ...confirmacao, hash: '0'.repeat(64) } },
+    { ...input.plano, entrada: 1000, confirmacao },
+    { ...input.plano, confirmacao: { ...confirmacao, dataReferencia: '2026-09-19' } },
+  ]) await assert.rejects(s.automatico({ ...input, plano }, contextoAdmin), { code: 'SUGESTAO_PIX_DESATUALIZADA' });
+  s.snapshot.evento.data = '2027-06-10'; s.versao.snapshotHash = hashSnapshotContrato(s.snapshot);
+  await assert.rejects(s.automatico({ ...input, plano: { ...input.plano, confirmacao } }, contextoAdmin), { code: 'SUGESTAO_PIX_DESATUALIZADA' });
+  assert.deepEqual(s.escritas, []);
+});
+test('sugestão exige ator administrativo e não muda cartão ou PIX à vista', async () => {
+  for (const forma of ['CARTAO_CIELO', 'PIX_AVISTA']) {
+    const s = servico(false, forma);
+    await assert.rejects(s.automatico(automatico(), contextoAdmin), { code: 'SUGESTAO_PIX_NAO_PERMITIDA' });
+    assert.deepEqual(s.escritas, []);
+  }
+  const s = servico();
+  await assert.rejects(s.automatico(automatico(), { origem: 'TESTE' }), { code: 'SUGESTAO_PIX_NAO_PERMITIDA' });
+  assert.deepEqual(s.escritas, []);
 });

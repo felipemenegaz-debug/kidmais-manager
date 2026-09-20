@@ -69,9 +69,12 @@ import {
   validarPlanoPagamento,
 } from "./financeiro-core";
 import { PagamentoServiceError } from "./errors";
+import { sugerirParcelamentoPix } from './sugestao-pix';
 import { validarRepeticaoEstorno, validarRepeticaoRecebimento } from "./idempotencia";
 import type {
   CriarPagamentoInput,
+  SugerirPagamentoInput,
+  SugestaoPagamentoResult,
   PagamentoDetalhe,
   PagamentoServiceContext,
   PlanoPagamentoInput,
@@ -238,10 +241,15 @@ function planoEquivale(
   });
 }
 
+type PagamentoCriado = { detalhe: PagamentoDetalhe; reutilizado: boolean };
+type PedidoPagamentoInicial = { fechamentoId: string; plano: CriarPagamentoInput['plano'] | SugerirPagamentoInput['plano'] };
+export function criarPagamentoDoFechamento(input: CriarPagamentoInput, context: PagamentoServiceContext): Promise<PagamentoCriado>;
+export function criarPagamentoDoFechamento(input: SugerirPagamentoInput, context: PagamentoServiceContext): Promise<PagamentoCriado | SugestaoPagamentoResult>;
+export function criarPagamentoDoFechamento(input: PedidoPagamentoInicial, context: PagamentoServiceContext): Promise<PagamentoCriado | SugestaoPagamentoResult>;
 export async function criarPagamentoDoFechamento(
-  input: CriarPagamentoInput,
+  input: PedidoPagamentoInicial,
   context: PagamentoServiceContext,
-): Promise<{ detalhe: PagamentoDetalhe; reutilizado: boolean }> {
+): Promise<PagamentoCriado | SugestaoPagamentoResult> {
   return withTransaction(async (tx) => {
     // Assinatura trava Contrato antes de Fechamento. Rejeita o contrato ainda
     // não assinado antes de segurar Fechamento, evitando disputar esses locks
@@ -290,9 +298,34 @@ export async function criarPagamentoDoFechamento(
     if (obrigacaoAnterior && obrigacaoAnterior.contratoVersaoId !== versao.id) {
       throw new PagamentoServiceError('PAGAMENTO_JA_EXISTE','Este contrato já possui obrigação financeira em outra versão. Trate a pendência explicitamente.',409,{pagamentoId:obrigacaoAnterior.id});
     }
+    let plano: PlanoPagamentoInput;
+    let aprovacaoSugestao: Record<string, unknown> | null = null;
+    if ('parcelas' in input.plano) plano = input.plano;
+    else {
+      const pedido = input.plano;
+      const forma = versao.snapshot.comercial.condicaoPagamento?.forma ?? versao.snapshot.comercial.formaPagamentoPretendida;
+      if (!context.usuarioId || forma !== 'PIX_PARCELADO' || pedido.meioPagamento !== 'PIX' || pedido.modalidade !== 'PARCELADO') {
+        throw new PagamentoServiceError('SUGESTAO_PIX_NAO_PERMITIDA', 'Sugestão exige administração autenticada e contrato PIX parcelado.', 403);
+      }
+      const hoje = hojeBrasilia();
+      if (!existente && pedido.confirmacao && pedido.confirmacao.dataReferencia !== hoje) {
+        throw new PagamentoServiceError('SUGESTAO_PIX_DESATUALIZADA', 'A data de criação mudou. Solicite e confira uma nova sugestão.', 409);
+      }
+      const sugestao = sugerirParcelamentoPix(valorContratoDaVersao(versao.snapshot), versao.snapshot.evento.data,
+        pedido.confirmacao?.dataReferencia ?? hoje, {
+          entrada: pedido.entrada, valorParcela: pedido.valorParcela, quantidadeParcelas: pedido.quantidadeParcelas,
+        });
+      const hash = hashSnapshotContrato({ versaoId: versao.id, snapshotHash: versao.snapshotHash, sugestao });
+      if (!pedido.confirmacao) return { sugestao: { ...sugestao, hash }, exigeConfirmacao: true };
+      if (pedido.confirmacao.hash !== hash) {
+        throw new PagamentoServiceError('SUGESTAO_PIX_DESATUALIZADA', 'Condição ou contrato mudou. Confira e confirme uma nova sugestão.', 409);
+      }
+      plano = sugestao.plano;
+      aprovacaoSugestao = { hash, dataReferencia: sugestao.dataReferencia, pedido: sugestao.pedido, contraproposta: sugestao.contraproposta };
+    }
     if (existente) {
       const detalhe = await detalhePagamento(existente, tx);
-      if (!planoEquivale(detalhe, input.plano, versao.snapshot.evento.data)) {
+      if (!planoEquivale(detalhe, plano, versao.snapshot.evento.data)) {
         throw new PagamentoServiceError(
           "PAGAMENTO_JA_EXISTE",
           "Já existe Pagamento para esta versão contratual. Use a substituição de plano para alterar a condição financeira.",
@@ -313,7 +346,7 @@ export async function criarPagamentoDoFechamento(
     }
 
     const valorTotal = valorContratoDaVersao(versao.snapshot);
-    const planoValidado = validarPlanoPagamento(valorTotal, input.plano, versao.snapshot.evento.data);
+    const planoValidado = validarPlanoPagamento(valorTotal, plano, versao.snapshot.evento.data);
     const pagamento = await criarPagamento(
       {
         contratoVersaoId: versao.id,
@@ -348,6 +381,7 @@ export async function criarPagamentoDoFechamento(
             contratoId: contrato.id,
             contratoVersaoId: versao.id,
             valorTotalContratado: valorTotal,
+            ...(aprovacaoSugestao ? { aprovacaoSugestao } : {}),
           },
           critico: true,
         },
@@ -368,6 +402,7 @@ export async function criarPagamentoDoFechamento(
           fechamentoStatus: fechamentoAtualizado.status,
           contratoVersaoId: versao.id,
           valorTotalContratado: valorTotal,
+          ...(aprovacaoSugestao ? { aprovacaoSugestao } : {}),
         },
         origem: context.origem,
         requestId: context.requestId ?? null,
