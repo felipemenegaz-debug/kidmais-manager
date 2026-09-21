@@ -306,10 +306,20 @@ test("seleção por ambiente retorna recibo interno apenas com liberação expl�
 
 test("simulação console de desenvolvimento nunca registra OTP ou destino", async (t) => {
   const logs = ["info", "warn", "error", "log", "debug"].map(method =>
-    t.mock.method(console, method as "info", () => {}));
-  await comAmbiente({ NODE_ENV: "development", IDENTIDADE_OTP_PROVIDER: "console" }, async () => {
-    assert.equal(await enviarOtpComAmbiente(delivery), undefined);
-  });
+    t.mock.method(console, method as "info", () => {})
+  );
+
+  await comAmbiente(
+    {
+      NODE_ENV: "development",
+      KIDMAIS_DEPLOY_ENV: undefined,
+      IDENTIDADE_OTP_PROVIDER: "console",
+    },
+    async () => {
+      assert.equal(await enviarOtpComAmbiente(delivery), undefined);
+    }
+  );
+
   for (const log of logs) assert.equal(log.mock.callCount(), 0);
 });
 
