@@ -14,7 +14,7 @@ e host **exatamente** `dpg-daidko3m8hqs73ce4jt0-a`. A instância PostgreSQL é
 não deve ser confundido com o nome da aplicação web `kidmais-manager-staging`.
 Não deduzir outros hosts a partir desse identificador. Nenhuma credencial neste arquivo.
 
-Requer Node 22.23.2, checkout completo limpo, Git e dependências de desenvolvimento
+Requer Node 22.23.2 e dependências de desenvolvimento
 (TypeScript faz a composição privada dos serviços). Não executar pelo start/build,
 CI de deploy, cron ou processo web. O CI executa somente mocks, nunca este comando.
 
@@ -24,9 +24,22 @@ Exemplo **para futura execução autorizada**, sem segredos em argumentos:
 node scripts/staging-smoke/run.mjs --execute-staging-smoke --expected-commit <SHA_COMPLETO_APROVADO> --smoke-id <UUID_V4> --contract-id <UUID_DO_CONTRATO>
 ```
 
-O SHA aprovado deve coincidir com HEAD, origin/staging e RENDER_GIT_COMMIT;
-branch, serviço e metadados Render devem coincidir exatamente. Checkout detached,
-sujo, desatualizado ou sem metadados também aborta. Não efetua fetch nem deploy.
+Há dois modos de atestação da revisão:
+
+- **Checkout Git:** o SHA aprovado deve coincidir com HEAD, origin/staging e
+  RENDER_GIT_COMMIT; exige branch staging, árvore limpa e remote origin exato.
+  Checkout detached, sujo, divergente, incompleto ou metadados corrompidos aborta.
+  A falta de remote em um checkout existente não autoriza fallback.
+- **Artifact/runtime Render sem Git:** o artifact pode não conter `.git`.
+  Somente quando não há metadados Git no diretório nem nos ancestrais, a revisão
+  é atestada pelas variáveis imutáveis fornecidas pelo deploy Render: RENDER=true,
+  KIDMAIS_DEPLOY_ENV=staging, ID/nome exatos do serviço, RENDER_GIT_BRANCH=staging e
+  RENDER_GIT_COMMIT completo (40 caracteres), igual ao --expected-commit.
+  Serviço, origin e target continuam pinados. Fora dessas condições, aborta.
+
+Erros de leitura/Git e overrides GIT_* não viram fallback. Não criar `.git`,
+remote, refs ou outros metadados artificiais no Shell para satisfazer guardas.
+As demais guardas são idênticas nos dois modos. Não efetua fetch nem deploy.
 Esses requisitos são pré-condições, não instruções para alterar ambiente ou Render.
 
 Credenciais próprias de staging devem ser fornecidas por injeção segura ao processo

@@ -2,14 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import http2 from 'node:http2';
 import net from 'node:net';
-import { validate, validateHealth, validateIdentity, identitySql } from './guards.mjs';
+import { gitState, validate, validateHealth, validateIdentity, identitySql } from './guards.mjs';
 import { sealNetwork } from './network.mjs';
 import { domainLoader, memoryTransport, composeIdentity } from './loader.mjs';
 import { execute } from './run.mjs';
@@ -46,6 +47,46 @@ test('exact staging configuration permits TLS connection parameters; no permissi
   const c = config(), p = validate(c.env, c.args, c.git, c.target);
   assert.equal(p.host, c.target.hosts[0]); assert.equal(p.database, c.target.database); assert.equal(p.ssl.rejectUnauthorized, true);
 });
+test('Render artifact without Git metadata uses exact deploy attestation', () => {
+  const c = config();
+  assert.equal(validate(c.env, c.args, { unavailable: true }, c.target).ssl.rejectUnauthorized, true);
+});
+test('Git discovery accepts absence only; broken metadata and parent checkout cannot fall back', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'kidmais-git-discovery-'));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+  try {
+    assert.deepEqual(gitState(dir, env), { unavailable: true });
+    assert.throws(() => gitState(dir, { ...env, GIT_DIR: 'other' }), /GIT_OVERRIDE_FORBIDDEN/);
+    const child = resolve(dir, 'artifact'); mkdirSync(child);
+    writeFileSync(resolve(dir, '.git'), 'gitdir: missing-checkout\n');
+    assert.throws(() => gitState(dir, env));
+    assert.throws(() => gitState(child, env));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+for (const [name, patch] of [
+  ['outside Render', { RENDER: 'false' }],
+  ['production', { KIDMAIS_DEPLOY_ENV: 'production' }],
+  ['wrong service', { RENDER_SERVICE_ID: 'other' }],
+  ['wrong name', { RENDER_SERVICE_NAME: 'other' }],
+  ['wrong branch', { RENDER_GIT_BRANCH: 'main' }],
+  ['different commit', { RENDER_GIT_COMMIT: 'b'.repeat(40) }],
+  ['short commit', { RENDER_GIT_COMMIT: 'aaaaaaa' }],
+]) test('Git-less artifact rejects ' + name + ' before health or connection', async () => {
+  const c = config(); Object.assign(c.env, patch); c.git = { unavailable: true }; let calls = 0;
+  await assert.rejects(execute({ ...c, health: async () => { calls++; }, connect: async () => { calls++; } }));
+  assert.equal(calls, 0);
+});
+for (const [name, patch] of [
+  ['wrong remote', { origin: 'https://example.invalid/other.git' }],
+  ['different HEAD', { head: 'b'.repeat(40) }],
+  ['different staging ref', { staging: 'b'.repeat(40) }],
+  ['detached checkout', { branch: '' }],
+  ['dirty checkout', { dirty: ' M file' }],
+  ['mixed fallback and Git evidence', { unavailable: true }],
+]) test('existing Git rejects ' + name + ' without fallback', () => {
+  const c = config(); Object.assign(c.git, patch);
+  assert.throws(() => validate(c.env, c.args, c.git, c.target), /REVISION_MISMATCH/);
+});
 for (const [name, change] of [
   ['production environment', c => { c.env.KIDMAIS_DEPLOY_ENV = 'production'; }],
   ['production service even on staging branch', c => { c.env.RENDER_SERVICE_NAME = 'kidmais-manager-production'; }],
@@ -69,6 +110,12 @@ for (const [name, change] of [
   const c = config(); change(c); let calls = 0;
   await assert.rejects(execute({ ...c, health: async () => { calls++; }, connect: async () => { calls++; }, domain: () => { calls++; } }));
   assert.equal(calls, 0);
+  // All non-Git safety gates must also apply to the artifact mode.
+  if (!['main branch', 'dirty checkout'].includes(name)) {
+    c.git = { unavailable: true };
+    await assert.rejects(execute({ ...c, health: async () => { calls++; }, connect: async () => { calls++; }, domain: () => { calls++; } }));
+    assert.equal(calls, 0);
+  }
 });
 
 test('remote health must attest disabled OTP; physical TLS/database/role checked', () => {

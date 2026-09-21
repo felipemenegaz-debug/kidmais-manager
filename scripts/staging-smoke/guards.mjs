@@ -1,5 +1,7 @@
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
+import { lstatSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 const require = createRequire(import.meta.url);
 const { validarConfiguracao } = require('../regressao-v1-staging.cjs');
 
@@ -7,8 +9,26 @@ export function demand(condition, code) {
   if (!condition) throw new Error(code);
 }
 
-export function gitState(root) {
-  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+export function gitState(root, env = process.env) {
+  // Only absence of metadata permits Render attestation. Broken/partial metadata
+  // and failures from any Git command must never become a fallback.
+  demand(!Object.keys(env).some(k => k.startsWith('GIT_')), 'GIT_OVERRIDE_FORBIDDEN');
+  const exists = path => {
+    try { lstatSync(path); return true; }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  };
+  let directory = resolve(root), metadata = false;
+  for (;;) {
+    if (exists(resolve(directory, '.git'))
+      || (exists(resolve(directory, 'HEAD')) && exists(resolve(directory, 'objects')))) {
+      metadata = true; break;
+    }
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  if (!metadata) return { unavailable: true };
+  const git = (...args) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   return { branch: git('branch', '--show-current'), head: git('rev-parse', 'HEAD'),
     staging: git('rev-parse', 'refs/remotes/origin/staging'), dirty: git('status', '--porcelain'),
     origin: git('remote', 'get-url', 'origin') };
@@ -29,9 +49,14 @@ export function validate(env, args, git, target) {
   demand(env.IDENTIDADE_OTP_PROVIDER === 'gupshup' && env.GUPSHUP_OTP_ENABLED === 'false'
     && env.KIDMAIS_STAGING_OTP_DISABLED === 'SIM', 'EXTERNAL_OTP_MUST_STAY_DISABLED');
   demand(env.FESTA_ENABLED === 'true' && env.NODE_ENV === 'production', 'RUNTIME_MISMATCH');
-  demand(/^[a-f0-9]{40}$/.test(args.commit) && args.commit === git.head && git.head === git.staging
-    && git.head === env.RENDER_GIT_COMMIT && git.branch === target.branch && !git.dirty
-    && git.origin === 'https://github.com/felipemenegaz-debug/kidmais-manager.git', 'REVISION_MISMATCH');
+  demand(/^[a-f0-9]{40}$/.test(args.commit) && args.commit === env.RENDER_GIT_COMMIT, 'REVISION_MISMATCH');
+  if (git?.unavailable === true) {
+    demand(Object.keys(git).length === 1, 'REVISION_MISMATCH');
+  } else {
+    demand(git && args.commit === git.head && git.head === git.staging
+      && git.branch === target.branch && !git.dirty
+      && git.origin === 'https://github.com/felipemenegaz-debug/kidmais-manager.git', 'REVISION_MISMATCH');
+  }
   demand(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(args.smokeId)
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(args.contractId), 'INVALID_SMOKE_IDENTIFIERS');
   let url;
