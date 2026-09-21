@@ -59,11 +59,16 @@ em `KIDMAIS_STAGING_DATABASE_URL`. Não lê dotenv, arquivos de credenciais nem 
 URL na linha de comando. Se DATABASE_URL existir, deve ser idêntica à variável dedicada;
 ela nunca é usada como fallback. Não reutilizar credenciais de produção.
 
-TLS é obrigatório: `sslmode=verify-full`, porta 5432, certificado/hostname verificados.
-O hostname fornecido é interno: resolução e validade de seu certificado **não foram
-comprovadas pelos mocks**. Se o ambiente não resolver esse host ou TLS não o validar,
-o CLI aborta. Nunca reduzir verificação TLS, inferir hostname externo ou ampliar a
-allowlist automaticamente. Isso precisa de análise e autorização separadas.
+O target usa a rede privada interna do Render, exclusivamente no hostname pinado
+`dpg-daidko3m8hqs73ce4jt0-a`, banco `kidmais_staging_1z91`, porta 5432.
+TLS é obrigatório com `sslmode=require`; ausência ou qualquer outro modo é rejeitado.
+O PostgreSQL interno do Render usa certificado autoassinado: `verify-ca` e
+`verify-full` não são suportados nessa conexão. O Node/pg recebe explicitamente
+`ssl: { rejectUnauthorized: false }`, sem URL de conexão que possa sobrescrever
+essa configuração e sem fallback para plaintext ou outro destino.
+A mesma sessão deve comprovar `pg_stat_ssl.ssl = true`, banco e papel esperados
+antes de qualquer escrita; caso contrário o CLI aborta. Mocks não comprovam DNS,
+TLS ou permissões reais. Não inferir hostname externo nem ampliar a allowlist.
 
 ## Guardas antes de escrever
 

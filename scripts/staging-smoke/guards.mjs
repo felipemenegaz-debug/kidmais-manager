@@ -86,7 +86,8 @@ export function validate(env, args, git, target) {
   let url;
   try { url = new URL(env.KIDMAIS_STAGING_DATABASE_URL); } catch { throw new Error('TARGET_INVALID'); }
   demand(url.pathname === '/' + target.database && target.hosts.includes(url.hostname)
-    && (!url.port || url.port === '5432') && !url.hash && url.search === '?sslmode=verify-full'
+    && target.database === 'kidmais_staging_1z91' && url.hostname === 'dpg-daidko3m8hqs73ce4jt0-a'
+    && (!url.port || url.port === '5432') && !url.hash && url.search === '?sslmode=require'
     && !/prod|producao|kidmais_manager/i.test(url.hostname + url.pathname + decodeURIComponent(url.username)), 'TARGET_MISMATCH');
   demand(!env.DATABASE_URL || env.DATABASE_URL === env.KIDMAIS_STAGING_DATABASE_URL, 'SECOND_DATABASE_FORBIDDEN');
   // Reuse the existing staging runner's exact-name/host, remote-only and TLS checks.
@@ -96,7 +97,9 @@ export function validate(env, args, git, target) {
   demand(env.IDENTIDADE_OTP_PEPPER?.trim().length >= 16, 'IDENTITY_CONFIGURATION_REQUIRED');
   return { host: url.hostname, port: 5432, database: target.database,
     user: decodeURIComponent(url.username), password: decodeURIComponent(url.password),
-    ssl: { rejectUnauthorized: true, servername: url.hostname },
+    // Render private PostgreSQL uses a self-signed certificate. TLS is mandatory;
+    // the exact internal target above and pg_stat_ssl below remain mandatory too.
+    ssl: { rejectUnauthorized: false, servername: url.hostname },
     connectionTimeoutMillis: 5000, query_timeout: 20000,
     options: '-c statement_timeout=20000 -c lock_timeout=5000', application_name: 'kidmais-staging-signature-smoke' };
 }

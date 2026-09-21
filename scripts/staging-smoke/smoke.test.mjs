@@ -25,31 +25,43 @@ function testDatabaseUrl(host, database) {
   url.pathname = '/' + database;
   url.username = randomBytes(8).toString('hex');
   url.password = randomBytes(16).toString('hex');
-  url.searchParams.set('sslmode', 'verify-full');
+  url.searchParams.set('sslmode', 'require');
   return url.toString();
 }
 function config() {
-  const host = 'dpg-' + 'a'.repeat(20) + '-a.virginia-postgres.render.com';
+  const host = 'dpg-daidko3m8hqs73ce4jt0-a';
   const target = { serviceId: 'srv-daif418ae00c73e8k2gg', serviceName: 'kidmais-manager-staging',
-    origin: 'https://kidmais-manager-staging.onrender.com', branch: 'staging', database: 'kidmais_staging_fixture', hosts: [host] };
+    origin: 'https://kidmais-manager-staging.onrender.com', branch: 'staging', database: 'kidmais_staging_1z91', hosts: [host] };
   const env = { NODE_ENV: 'production', RENDER: 'true', KIDMAIS_DEPLOY_ENV: 'staging',
     RENDER_SERVICE_ID: target.serviceId, RENDER_SERVICE_NAME: target.serviceName, RENDER_GIT_BRANCH: 'staging', RENDER_GIT_COMMIT: commit,
     IDENTIDADE_OTP_PROVIDER: 'gupshup', GUPSHUP_OTP_ENABLED: 'false', KIDMAIS_STAGING_OTP_DISABLED: 'SIM', FESTA_ENABLED: 'true',
     IDENTIDADE_OTP_PEPPER: randomBytes(32).toString('hex'),
-    KIDMAIS_STAGING_DATABASE_URL: testDatabaseUrl(host, 'kidmais_staging_fixture') };
+    KIDMAIS_STAGING_DATABASE_URL: testDatabaseUrl(host, 'kidmais_staging_1z91') };
   return { env, target, args: { execute: true, commit, smokeId, contractId: '00000000-0000-4000-8000-000000000001' },
     git: { branch: 'staging', head: commit, staging: commit, dirty: '', origin: 'https://github.com/felipemenegaz-debug/kidmais-manager.git' } };
 }
 const goodHealth = { ok: true, status: 'degraded', components: { database: 'ready', festa: 'ready', otp: 'unavailable' }, otp: { provider: 'gupshup', configured: true, enabled: false, reason: 'staging_disabled' } };
-const goodIdentity = { database: 'kidmais_staging_fixture', port: 5432, tls: true, superuser: false, create_db: false, create_role: false, replication: false, bypass_rls: false };
+const goodIdentity = { database: 'kidmais_staging_1z91', port: 5432, tls: true, superuser: false, create_db: false, create_role: false, replication: false, bypass_rls: false };
 
-test('exact staging configuration permits TLS connection parameters; no permissive SSL', () => {
+test('exact internal staging requires TLS with a self-signed certificate', () => {
   const c = config(), p = validate(c.env, c.args, c.git, c.target);
-  assert.equal(p.host, c.target.hosts[0]); assert.equal(p.database, c.target.database); assert.equal(p.ssl.rejectUnauthorized, true);
+  assert.equal(p.host, c.target.hosts[0]); assert.equal(p.database, c.target.database); assert.equal(p.ssl.rejectUnauthorized, false);
+  assert.deepEqual(p.ssl, { rejectUnauthorized: false, servername: c.target.hosts[0] });
+  assert.equal(p.port, 5432); assert.equal(p.connectionString, undefined);
 });
+for (const mode of ['', 'disable', 'allow', 'prefer', 'verify-ca', 'verify-full', 'REQUIRE']) {
+  test('internal target rejects unsupported or absent sslmode: ' + mode, async () => {
+    const c = config(), url = new URL(c.env.KIDMAIS_STAGING_DATABASE_URL);
+    url.search = mode ? '?sslmode=' + mode : '';
+    c.env.KIDMAIS_STAGING_DATABASE_URL = url.toString();
+    let calls = 0;
+    await assert.rejects(execute({ ...c, health: async () => { calls++; }, connect: async () => { calls++; } }), /TARGET_MISMATCH/);
+    assert.equal(calls, 0);
+  });
+}
 test('Render artifact without Git metadata uses exact deploy attestation', () => {
   const c = config();
-  assert.equal(validate(c.env, c.args, { unavailable: true }, c.target).ssl.rejectUnauthorized, true);
+  assert.equal(validate(c.env, c.args, { unavailable: true }, c.target).ssl.rejectUnauthorized, false);
 });
 test('Git metadata reader distinguishes absent origin from failed commands', () => {
   const values = { 'branch --show-current': 'staging', 'rev-parse HEAD': commit,
@@ -169,9 +181,9 @@ for (const [name, change] of [
   ['main branch', c => { c.git.branch = 'main'; }],
   ['commit mismatch', c => { c.env.RENDER_GIT_COMMIT = 'b'.repeat(40); }],
   ['dirty checkout', c => { c.git.dirty = ' M file'; }],
-  ['wrong database', c => { c.env.KIDMAIS_STAGING_DATABASE_URL = c.env.KIDMAIS_STAGING_DATABASE_URL.replace('kidmais_staging_fixture', 'kidmais_manager'); }],
+  ['wrong database', c => { c.env.KIDMAIS_STAGING_DATABASE_URL = c.env.KIDMAIS_STAGING_DATABASE_URL.replace('kidmais_staging_1z91', 'kidmais_manager'); }],
   ['wrong host', c => { c.env.KIDMAIS_STAGING_DATABASE_URL = c.env.KIDMAIS_STAGING_DATABASE_URL.replace(c.target.hosts[0], 'other.example'); }],
-  ['TLS downgrade', c => { c.env.KIDMAIS_STAGING_DATABASE_URL = c.env.KIDMAIS_STAGING_DATABASE_URL.replace('verify-full', 'require'); }],
+  ['TLS downgrade', c => { c.env.KIDMAIS_STAGING_DATABASE_URL = c.env.KIDMAIS_STAGING_DATABASE_URL.replace('require', 'disable'); }],
   ['query override', c => { c.env.KIDMAIS_STAGING_DATABASE_URL += '&host=other'; }],
   ['another DATABASE_URL', c => { c.env.DATABASE_URL = testDatabaseUrl(c.target.hosts[0], 'other'); }],
   ['external OTP enabled', c => { c.env.GUPSHUP_OTP_ENABLED = 'true'; }],
@@ -317,7 +329,7 @@ test('audit failure rolls back OTP, signatures, Festa, occupancy, events and all
   assert.equal(h.commands.at(-1), 'ROLLBACK'); assert(h.closed());
 });
 
-for (const [name, options] of [['physical database mismatch', { identity: { database: 'kidmais_manager' } }], ['schema mismatch', { schemaFailure: true }]]) {
+for (const [name, options] of [['physical database mismatch', { identity: { database: 'kidmais_manager' } }], ['physical TLS absent', { identity: { tls: false } }], ['schema mismatch', { schemaFailure: true }]]) {
   test(name + ' aborts in read-only transaction before domain writes', async () => {
     const h = coordinator(options), before = structuredClone(h.f.state);
     await assert.rejects(h.run()); assert(!h.commands.includes('BEGIN')); assert(h.closed());
@@ -332,7 +344,7 @@ test('pinned target contains identifiers only and accepts only the supplied inte
   assert.deepEqual(target.hosts, ['dpg-daidko3m8hqs73ce4jt0-a']);
   const c = config(); c.target = target;
   c.env.KIDMAIS_STAGING_DATABASE_URL = testDatabaseUrl(target.hosts[0], target.database);
-  assert.equal(validate(c.env, c.args, c.git, c.target).ssl.rejectUnauthorized, true);
+  assert.equal(validate(c.env, c.args, c.git, c.target).ssl.rejectUnauthorized, false);
   c.env.KIDMAIS_STAGING_DATABASE_URL = c.env.KIDMAIS_STAGING_DATABASE_URL.replace(target.hosts[0], target.hosts[0] + '.virginia-postgres.render.com');
   assert.throws(() => validate(c.env, c.args, c.git, c.target));
 });
