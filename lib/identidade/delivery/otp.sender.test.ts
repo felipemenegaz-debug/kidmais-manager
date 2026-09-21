@@ -146,7 +146,7 @@ test("rotas públicas da V1 aceitam somente WHATSAPP", () => {
   assert.doesNotMatch(identityService, /canal: "EMAIL",/);
 });
 
-test("configuração fora do staging falha fechada e aceita somente whatsapp_cloud", () => {
+test("console e disabled são protegidos e WhatsApp Cloud continua válido em produção", () => {
   const env = process.env as Record<string, string | undefined>;
   const keys = [
     "NODE_ENV",
@@ -182,6 +182,7 @@ test("configuração fora do staging falha fechada e aceita somente whatsapp_clo
     });
 
     env.IDENTIDADE_OTP_PROVIDER = "whatsapp_cloud";
+    env.KIDMAIS_DEPLOY_ENV = "production";
     env.WHATSAPP_CLOUD_API_VERSION = config.graphApiVersion;
     env.WHATSAPP_CLOUD_PHONE_NUMBER_ID = config.phoneNumberId;
     env.WHATSAPP_CLOUD_ACCESS_TOKEN = config.accessToken;
@@ -198,6 +199,44 @@ test("configuração fora do staging falha fechada e aceita somente whatsapp_clo
       else env[key] = value;
     }
   }
+});
+
+test("health Gupshup de produção exige configuração completa sem rede ou logs", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new Error("Rede proibida"); });
+  const logs = ["info", "warn", "error", "log", "debug"].map(method =>
+    t.mock.method(console, method as "info", () => {}));
+  await comAmbiente({ ...gupshupEnv, KIDMAIS_DEPLOY_ENV: "production", GUPSHUP_OTP_ENABLED: "true" }, async () => {
+    for (const flag of [undefined, "SIM", "NAO"]) {
+      if (flag === undefined) delete process.env.KIDMAIS_STAGING_OTP_DISABLED;
+      else process.env.KIDMAIS_STAGING_OTP_DISABLED = flag;
+      assert.deepEqual(validarConfiguracaoOtpAmbiente(), {
+        provider: "gupshup", status: "ready", configured: true, enabled: true,
+      });
+    }
+    for (const key of ["GUPSHUP_API_KEY", "GUPSHUP_SOURCE", "GUPSHUP_APP_NAME", "GUPSHUP_OTP_TEMPLATE_ID", "GUPSHUP_TIMEOUT_MS", "GUPSHUP_DEFAULT_COUNTRY_CODE", "GUPSHUP_OTP_ENABLED"]) {
+      const previous = process.env[key];
+      const values = key === "GUPSHUP_OTP_ENABLED" ? [undefined, "false", "TRUE"]
+        : ["synthetic!invalid!value", ...(key === "GUPSHUP_TIMEOUT_MS" || key === "GUPSHUP_DEFAULT_COUNTRY_CODE" ? [] : [undefined, ""])];
+      for (const value of values) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+        assert.throws(validarConfiguracaoOtpAmbiente, (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.ok(error.message.includes(key));
+          assert.ok(!error.message.includes("synthetic!invalid!value"));
+          assert.ok(!error.message.includes(gupshupEnv.GUPSHUP_API_KEY!));
+          return true;
+        });
+        await assert.rejects(enviarOtpComAmbiente(delivery));
+      }
+      process.env[key] = previous;
+    }
+    delete process.env.GUPSHUP_DEFAULT_COUNTRY_CODE;
+    delete process.env.GUPSHUP_TIMEOUT_MS;
+    assert.equal(validarConfiguracaoOtpAmbiente().status, "ready");
+  });
+  assert.equal(fetchMock.mock.callCount(), 0);
+  for (const log of logs) assert.equal(log.mock.callCount(), 0);
 });
 
 const gupshupEnv: Record<string, string | undefined> = {

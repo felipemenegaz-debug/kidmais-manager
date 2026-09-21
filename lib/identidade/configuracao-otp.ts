@@ -10,7 +10,7 @@ export function modoOtpAmbiente(
     .toLowerCase();
 
   if (provider === "console") {
-    if (env.NODE_ENV === "production") {
+    if (env.NODE_ENV === "production" || env.KIDMAIS_DEPLOY_ENV === "production") {
       throw new Error(
         "IDENTIDADE_OTP_PROVIDER=console não é permitido em produção.",
       );
@@ -21,13 +21,15 @@ export function modoOtpAmbiente(
   if (provider === "whatsapp_cloud") return provider;
 
   if (provider === "gupshup") {
-    // Liberação deste provider limitada ao staging nesta etapa da integração.
-    if (env.KIDMAIS_DEPLOY_ENV !== "staging") {
-      throw new Error("IDENTIDADE_OTP_PROVIDER=gupshup é permitido somente no staging.");
+    if (env.KIDMAIS_DEPLOY_ENV !== "staging" && env.KIDMAIS_DEPLOY_ENV !== "production") {
+      throw new Error("IDENTIDADE_OTP_PROVIDER=gupshup exige ambiente staging ou production explícito.");
     }
     const enabled = env.GUPSHUP_OTP_ENABLED;
     if (enabled !== undefined && enabled !== "true" && enabled !== "false") {
       throw new Error("GUPSHUP_OTP_ENABLED deve ser true ou false.");
+    }
+    if (env.KIDMAIS_DEPLOY_ENV === "production" && enabled !== "true") {
+      throw new Error("GUPSHUP_OTP_ENABLED deve ser true em produção.");
     }
     return provider;
   }
@@ -46,7 +48,7 @@ export function modoOtpAmbiente(
   }
 
   throw new Error(
-    "IDENTIDADE_OTP_PROVIDER deve ser whatsapp_cloud em produção.",
+    "IDENTIDADE_OTP_PROVIDER deve ser whatsapp_cloud ou gupshup em produção.",
   );
 }
 
@@ -56,9 +58,10 @@ export function otpDesabilitadoNoStaging(
   const provider = (env.IDENTIDADE_OTP_PROVIDER ?? "").trim().toLowerCase();
   if (provider === "gupshup") {
     modoOtpAmbiente(env);
-    // Ausência da liberação é bloqueio. A trava legada tem precedência.
+    // A trava legada se aplica exclusivamente ao staging.
     return env.GUPSHUP_OTP_ENABLED !== "true" ||
-      env.KIDMAIS_STAGING_OTP_DISABLED === FLAG_OTP_DESABILITADO_STAGING;
+      (env.KIDMAIS_DEPLOY_ENV === "staging" &&
+        env.KIDMAIS_STAGING_OTP_DISABLED === FLAG_OTP_DESABILITADO_STAGING);
   }
   if (provider !== "disabled") {
     return false;
