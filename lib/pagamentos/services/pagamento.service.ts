@@ -71,6 +71,7 @@ import {
 } from "./financeiro-core";
 import { PagamentoServiceError } from "./errors";
 import { sugerirParcelamentoPix } from './sugestao-pix';
+import { validarCondicaoContratual } from './condicao-contratual';
 import { validarRepeticaoEstorno, validarRepeticaoRecebimento } from "./idempotencia";
 import type {
   CriarPagamentoInput,
@@ -324,6 +325,10 @@ export async function criarPagamentoDoFechamento(
       plano = sugestao.plano;
       aprovacaoSugestao = { hash, dataReferencia: sugestao.dataReferencia, pedido: sugestao.pedido, contraproposta: sugestao.contraproposta };
     }
+    validarCondicaoContratual(
+      versao.snapshot.comercial.condicaoPagamento?.forma ?? versao.snapshot.comercial.formaPagamentoPretendida,
+      plano.meioPagamento, plano.modalidade,
+    );
     if (existente) {
       const detalhe = await detalhePagamento(existente, tx);
       if (!planoEquivale(detalhe, plano, versao.snapshot.evento.data)) {

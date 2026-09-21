@@ -2,23 +2,15 @@ import { validarPlanoPagamento } from '../../lib/pagamentos/services/financeiro-
 import type { PlanoPagamentoInput } from '../../lib/pagamentos/services/models';
 import type { ContratoSnapshotV1 } from '../../lib/contratos/repositories/models';
 import type { SugestaoPix } from '../../lib/pagamentos/services/sugestao-pix';
+import { validarCondicaoContratual } from '../../lib/pagamentos/services/condicao-contratual.ts';
+export { condicaoDoPlano, erroCondicaoComercial } from '../../lib/pagamentos/services/condicao-contratual.ts';
 
 export type ContextoCriacao = {
   fechamentoId: string; versaoId: string; numeroVersao: number;
   valor: number; dataFesta: string; forma: string;
 };
-export const erroCondicaoComercial = 'A forma de pagamento do plano deve respeitar a condição comercial da versão contratual vigente. Para alterá-la, crie uma revisão contratual.';
-export function condicaoDoPlano(forma: string) {
-  switch (forma) {
-    case 'PIX_AVISTA': return { meio: 'PIX' as const, modalidades: ['AVISTA'] as const };
-    case 'PIX_PARCELADO': return { meio: 'PIX' as const, modalidades: ['PARCELADO'] as const };
-    case 'CARTAO_CIELO': return { meio: 'CARTAO' as const, modalidades: ['AVISTA', 'PARCELADO'] as const };
-    default: return null;
-  }
-}
 export function validarCondicaoComercial(contexto: ContextoCriacao, meio: string, modalidade: string) {
-  const condicao = condicaoDoPlano(contexto.forma);
-  if (!condicao || meio !== condicao.meio || !condicao.modalidades.some(item => item === modalidade)) throw Error(erroCondicaoComercial);
+  validarCondicaoContratual(contexto.forma, meio, modalidade);
 }
 export function contextoCriacao(painel: {
   contrato: { status: string; fechamento_id: string; versao_atual: number };

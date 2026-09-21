@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as core from './financeiro-core.ts';
+import * as condicao from './condicao-contratual.ts';
 import { distribuirCentavos } from './alteracao-financeira-core.ts';
 import { sugerirParcelamentoPix } from './sugestao-pix.ts';
 import { PagamentoServiceError } from './errors.ts';
@@ -26,6 +27,7 @@ function servico(existente = false, forma = 'PIX_PARCELADO') {
   const tx = { query: () => { throw Error('SQL inesperado em teste sem banco'); } };
   const deps: Record<string, unknown> = {
     './financeiro-core': core,
+    './condicao-contratual': condicao,
     './sugestao-pix': { sugerirParcelamentoPix },
     './errors': { PagamentoServiceError },
     '../../contratos/services/snapshot-core': { hashSnapshotContrato },
@@ -116,6 +118,56 @@ for (const vencimento of ['2027-06-15', '2027-06-16']) test(`substituição de p
 });
 
 const contextoAdmin = { origem: 'TESTE', usuarioId: 'admin' };
+for (const [forma, meioPagamento, modalidade, permitido] of [
+  ['PIX_AVISTA', 'PIX', 'AVISTA', true], ['PIX_AVISTA', 'CARTAO', 'AVISTA', false],
+  ['PIX_AVISTA', 'PIX', 'PARCELADO', false], ['PIX_PARCELADO', 'PIX', 'PARCELADO', true],
+  ['PIX_PARCELADO', 'PIX', 'AVISTA', false], ['PIX_PARCELADO', 'CARTAO', 'AVISTA', false],
+  ['PIX_PARCELADO', 'CARTAO', 'PARCELADO', false], ['CARTAO_CIELO', 'CARTAO', 'AVISTA', true],
+  ['CARTAO_CIELO', 'CARTAO', 'PARCELADO', true], ['CARTAO_CIELO', 'PIX', 'AVISTA', false],
+  ['CARTAO_CIELO', 'PIX', 'PARCELADO', false], ['', 'PIX', 'AVISTA', false],
+  ['DESCONHECIDA', 'PIX', 'AVISTA', false],
+] as const) test(`serviço valida snapshot ${forma || 'ausente'} com ${meioPagamento}/${modalidade}`, async () => {
+  const s = servico(false, forma);
+  const parcelas = modalidade === 'AVISTA'
+    ? [{ valor: 9700, vencimento: '2027-06-15', confirmaReserva: true }]
+    : plano('2027-06-15').parcelas;
+  const input = { fechamentoId: 'f', plano: { meioPagamento, modalidade, parcelas } };
+  if (!permitido) {
+    await assert.rejects(s.criar(input, contextoAdmin), {
+      code: 'PLANO_INCOMPATIVEL_COM_CONTRATO', httpStatus: 409, message: condicao.erroCondicaoComercial,
+    });
+    assert.deepEqual(s.escritas, [], 'zero criação de pagamento/plano/parcela, atualização ou auditoria');
+  } else {
+    const criado = await s.criar(input, contextoAdmin);
+    assert.equal(criado.reutilizado, false);
+    assert.equal(criado.detalhe.totais.recebidoConfirmado, 0);
+    assert.equal(s.escritas.filter(x => x === 'pagamento').length, 1);
+    assert.equal(s.escritas.filter(x => x === 'plano').length, 1);
+    assert.equal(s.escritas.filter(x => x === 'parcela').length, parcelas.length);
+    const antes = [...s.escritas];
+    assert.equal((await s.criar(input, contextoAdmin)).reutilizado, true);
+    assert.deepEqual(s.escritas, antes);
+  }
+});
+
+test('serviço usa condição estruturada do snapshot antes da forma legada', async () => {
+  const s = servico(false, 'CARTAO_CIELO');
+  Object.assign(s.snapshot.comercial, { condicaoPagamento: { forma: 'PIX_AVISTA' } });
+  s.versao.snapshotHash = hashSnapshotContrato(s.snapshot);
+  await assert.rejects(s.criar({ fechamentoId: 'f', plano: { meioPagamento: 'CARTAO', modalidade: 'AVISTA',
+    parcelas: [{ valor: 9700, vencimento: '2027-06-15', confirmaReserva: true }] } }, contextoAdmin),
+  { code: 'PLANO_INCOMPATIVEL_COM_CONTRATO', httpStatus: 409 });
+  assert.deepEqual(s.escritas, []);
+});
+
+test('forma realmente ausente no snapshot não permite persistência', async () => {
+  const s = servico(); Reflect.deleteProperty(s.snapshot.comercial, 'formaPagamentoPretendida');
+  s.versao.snapshotHash = hashSnapshotContrato(s.snapshot);
+  await assert.rejects(s.criar({ fechamentoId: 'f', plano: plano('2027-06-15') }, contextoAdmin),
+    { code: 'PLANO_INCOMPATIVEL_COM_CONTRATO', httpStatus: 409 });
+  assert.deepEqual(s.escritas, []);
+});
+
 test('consulta de pagamento cancelado preserva plano histórico e não apresenta saldo cobrável', async () => {
   const s = servico();
   const criado = await s.criar({ fechamentoId: 'f', plano: plano('2027-06-15') }, contextoAdmin);
