@@ -10,7 +10,7 @@ import http from 'node:http';
 import https from 'node:https';
 import http2 from 'node:http2';
 import net from 'node:net';
-import { gitState, validate, validateHealth, validateIdentity, identitySql } from './guards.mjs';
+import { gitState, readGitMetadata, validate, validateHealth, validateIdentity, identitySql } from './guards.mjs';
 import { sealNetwork } from './network.mjs';
 import { domainLoader, memoryTransport, composeIdentity } from './loader.mjs';
 import { execute } from './run.mjs';
@@ -50,6 +50,38 @@ test('exact staging configuration permits TLS connection parameters; no permissi
 test('Render artifact without Git metadata uses exact deploy attestation', () => {
   const c = config();
   assert.equal(validate(c.env, c.args, { unavailable: true }, c.target).ssl.rejectUnauthorized, true);
+});
+test('Git metadata reader distinguishes absent origin from failed commands', () => {
+  const values = { 'branch --show-current': 'staging', 'rev-parse HEAD': commit,
+    'rev-parse refs/remotes/origin/staging': commit, 'status --porcelain': '',
+    remote: '', 'remote get-url origin': config().git.origin };
+  const read = (...args) => { const key = args.join(' '); assert(key in values); return values[key]; };
+  const c = config();
+  const absent = readGitMetadata((...args) => { assert.notEqual(args.join(' '), 'remote get-url origin'); return read(...args); });
+  assert.equal(absent.origin, null);
+  assert.doesNotThrow(() => validate(c.env, c.args, absent, c.target));
+  values.remote = 'origin';
+  assert.deepEqual(readGitMetadata(read), c.git);
+  for (const failed of Object.keys(values)) {
+    assert.throws(() => readGitMetadata((...args) => {
+      if (args.join(' ') === failed) throw new Error('synthetic Git failure');
+      return read(...args);
+    }), /synthetic Git failure/);
+  }
+});
+for (const [name, change] of [
+  ['outside Render', c => { c.env.RENDER = 'false'; }],
+  ['wrong service', c => { c.env.RENDER_SERVICE_ID = 'other'; }],
+  ['wrong branch', c => { c.git.branch = 'main'; }],
+  ['different HEAD', c => { c.git.head = 'b'.repeat(40); }],
+  ['different staging ref', c => { c.git.staging = 'b'.repeat(40); }],
+  ['different Render commit', c => { c.env.RENDER_GIT_COMMIT = 'b'.repeat(40); }],
+  ['dirty checkout', c => { c.git.dirty = ' M file'; }],
+  ['missing working tree result', c => { delete c.git.dirty; }],
+]) test('Git with absent origin rejects ' + name + ' before any connection', async () => {
+  const c = config(); c.git.origin = null; change(c); let calls = 0;
+  await assert.rejects(execute({ ...c, health: async () => { calls++; }, connect: async () => { calls++; } }));
+  assert.equal(calls, 0);
 });
 test('Git discovery accepts absence only; broken metadata and parent checkout cannot fall back', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'kidmais-git-discovery-'));

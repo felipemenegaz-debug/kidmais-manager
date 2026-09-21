@@ -10,8 +10,8 @@ export function demand(condition, code) {
 }
 
 export function gitState(root, env = process.env) {
-  // Only absence of metadata permits Render attestation. Broken/partial metadata
-  // and failures from any Git command must never become a fallback.
+  // Missing metadata permits Render attestation; existing metadata stays mandatory.
+  // Git command failures never become a fallback, including remote discovery.
   demand(!Object.keys(env).some(k => k.startsWith('GIT_')), 'GIT_OVERRIDE_FORBIDDEN');
   const exists = path => {
     try { lstatSync(path); return true; }
@@ -29,9 +29,15 @@ export function gitState(root, env = process.env) {
   }
   if (!metadata) return { unavailable: true };
   const git = (...args) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  return { branch: git('branch', '--show-current'), head: git('rev-parse', 'HEAD'),
-    staging: git('rev-parse', 'refs/remotes/origin/staging'), dirty: git('status', '--porcelain'),
-    origin: git('remote', 'get-url', 'origin') };
+  return readGitMetadata(git);
+}
+
+export function readGitMetadata(git) {
+  const state = { branch: git('branch', '--show-current'), head: git('rev-parse', 'HEAD'),
+    staging: git('rev-parse', 'refs/remotes/origin/staging'), dirty: git('status', '--porcelain') };
+  // Confirm absence via a successful listing; never catch a failed get-url.
+  const hasOrigin = git('remote').split(/\r?\n/).includes('origin');
+  return { ...state, origin: hasOrigin ? git('remote', 'get-url', 'origin') : null };
 }
 
 export function validate(env, args, git, target) {
@@ -54,8 +60,8 @@ export function validate(env, args, git, target) {
     demand(Object.keys(git).length === 1, 'REVISION_MISMATCH');
   } else {
     demand(git && args.commit === git.head && git.head === git.staging
-      && git.branch === target.branch && !git.dirty
-      && git.origin === 'https://github.com/felipemenegaz-debug/kidmais-manager.git', 'REVISION_MISMATCH');
+      && git.branch === target.branch && git.dirty === ''
+      && (git.origin === null || git.origin === 'https://github.com/felipemenegaz-debug/kidmais-manager.git'), 'REVISION_MISMATCH');
   }
   demand(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(args.smokeId)
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(args.contractId), 'INVALID_SMOKE_IDENTIFIERS');

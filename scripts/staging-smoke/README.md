@@ -29,7 +29,12 @@ Há dois modos de atestação da revisão:
 - **Checkout Git:** o SHA aprovado deve coincidir com HEAD, origin/staging e
   RENDER_GIT_COMMIT; exige branch staging, árvore limpa e remote origin exato.
   Checkout detached, sujo, divergente, incompleto ou metadados corrompidos aborta.
-  A falta de remote em um checkout existente não autoriza fallback.
+  Exceção exclusiva do runtime Render atestado: se uma listagem Git bem-sucedida
+  confirmar a ausência de `origin`, somente sua URL é dispensada. Branch, HEAD,
+  origin/staging e working tree devem ter sido lidos com sucesso e continuar
+  coerentes com staging, SHA aprovado e RENDER_GIT_COMMIT. A árvore deve estar limpa.
+  Um remote existente com URL diferente, ou qualquer erro de comando Git, aborta;
+  a ausência do remote nunca dispensa os demais metadados nem as atestações Render.
 - **Artifact/runtime Render sem Git:** o artifact pode não conter `.git`.
   Somente quando não há metadados Git no diretório nem nos ancestrais, a revisão
   é atestada pelas variáveis imutáveis fornecidas pelo deploy Render: RENDER=true,
