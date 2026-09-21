@@ -1,0 +1,71 @@
+services:
+  - type: web
+    name: kidmais-manager-staging
+    runtime: node
+    plan: starter
+    region: virginia
+    branch: staging
+    autoDeployTrigger: off
+    buildCommand: npm ci --include=dev && npm run check:v1:static && npm run build
+    startCommand: node scripts/init-staging-data.cjs && npm start
+    healthCheckPath: /api/health
+    numInstances: 1
+    disk:
+      name: kidmais-manager-staging-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.2
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: FESTA_ENABLED
+        value: "true"
+      - key: DATABASE_SSL
+        value: "false"
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "false"
+      - key: DATABASE_POOL_MAX
+        value: "10"
+      - key: DATABASE_IDLE_TIMEOUT_MS
+        value: "30000"
+      - key: DATABASE_CONNECTION_TIMEOUT_MS
+        value: "5000"
+      - key: CONTRATO_ACEITE_DEV_ENABLED
+        value: "false"
+      - key: KIDMAIS_DEPLOY_ENV
+        value: staging
+      - key: KIDMAIS_STAGING_OTP_DISABLED
+        value: "SIM"
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_AUTH_ORIGIN
+        sync: false
+      - key: ADMIN_AUTH_SECRET
+        sync: false
+      - key: IDENTIDADE_OTP_PEPPER
+        sync: false
+      - key: IDENTIDADE_OTP_PROVIDER
+        value: disabled
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_GRAPH_API_VERSION
+        sync: false
+      - key: META_EMBEDDED_SIGNUP_CONFIG_ID
+        sync: false
+      - key: META_OAUTH_REDIRECT_URI
+        sync: false
+      - key: META_EMBEDDED_SIGNUP_OPTIONS_JSON
+        sync: false
+      - key: META_EMBEDDED_SIGNUP_EVENT_NAME
+        sync: false
+      - key: META_EMBEDDED_SIGNUP_MESSAGE_ORIGINS
+        sync: false
+      - key: WHATSAPP_CREDENTIAL_ENCRYPTION_KEY
+        sync: false
+      - key: WHATSAPP_CREDENTIAL_KEY_VERSION
+        value: "1"

@@ -26,7 +26,8 @@ async function main() {
       installPool(a);const adminA=await require('./admin-test-support.cjs').autenticarTeste(a);
       installPool(b);const adminB=await require('./admin-test-support.cjs').autenticarTeste(b);
       const ctxA={...ctx,token:adminA.token,usuarioId:adminA.usuarioId},ctxB={...ctx,token:adminB.token,usuarioId:adminB.usuarioId};
-      const fa=await fixture(a,{data:'2098-11-11'}),fb=await fixture(b,{data:'2098-11-11'});
+      // Preparar datas distintas: a 019 já serializa escritas na agenda antes do pagamento.
+      const fa=await fixture(a,{data:'2098-11-11'}),fb=await fixture(b,{data:'2098-11-12'});
       installPool(a);const da=(await s.criarPagamentoDoFechamento({fechamentoId:fa.fechamentoId,plano},ctx)).detalhe;
       installPool(b);const db=(await s.criarPagamentoDoFechamento({fechamentoId:fb.fechamentoId,plano},ctx)).detalhe;
       const key=randomUUID();
@@ -35,7 +36,10 @@ async function main() {
         ...(kind==='chave'?{chaveIdempotencia:key}:kind==='referencia'?{provedorCodigo:'TESTE',referenciaExterna:key}:{}),
       });
       installPool(a);await s.registrarRecebimentoPagamento(make(da),ctxA);
-      installPool(b);pending=s.registrarRecebimentoPagamento(make(db),ctxB).then(value=>({value}),error=>({error}));
+      installPool(b);pending=(async()=>{
+        if(kind==='agenda') await b.query('UPDATE fechamentos SET data_evento=$2 WHERE id=$1',[fb.fechamentoId,fa.data]);
+        return s.registrarRecebimentoPagamento(make(db),ctxB);
+      })().then(value=>({value}),error=>({error}));
       await esperarBloqueio(m,b.processID,a.processID);
       await a.query('ROLLBACK');
       const result=await pending;pending=null;if(result.error)throw result.error;

@@ -2,6 +2,9 @@
   "name": "kidmais-manager",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "22.23.2"
+  },
   "scripts": {
     "test:comercial:pagamento": "node --experimental-strip-types --test lib/comercial/condicao-pagamento.test.ts",
     "test:comercial:pagamento:integration": "node --env-file=.env.local scripts/condicao-pagamento.integration.cjs",
@@ -16,8 +19,12 @@
     "check:pagamentos:db": "node --env-file=.env.local scripts/pagamentos-inspecao.cjs",
     "check:v1:static": "node scripts/regressao-v1-estatica.cjs",
     "check:v1:clone": "node scripts/regressao-v1-clone.cjs",
+    "check:v1:staging": "node scripts/regressao-v1-staging.cjs",
     "check:v1:ui": "node scripts/festa-navegacao-ui.test.cjs",
-    "check:v1:producao:readonly": "node --experimental-strip-types scripts/festa-016-preproducao-preservacao.cjs"
+    "check:v1:producao:readonly": "node --experimental-strip-types scripts/festa-016-preproducao-preservacao.cjs",
+    "production:check": "node scripts/production/go-no-go.mjs",
+    "production:check:json": "node scripts/production/go-no-go.mjs --json",
+    "production:test": "node --test scripts/production/production.test.mjs"
   },
   "dependencies": {
     "next": "16.3.4",

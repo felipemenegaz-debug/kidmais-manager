@@ -7,3 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Política operacional dos agentes
+
+Antes de qualquer tarefa envolvendo GitHub, Render, banco, deploy, staging ou produção, ler e seguir [docs/OPERACAO_AGENTES.md](docs/OPERACAO_AGENTES.md). Essa política define os limites de leitura, escrita e autorização; handoffs e skills devem ser interpretados conforme ela. Se o alvo ou ambiente estiver ambíguo, parar antes de escrever.

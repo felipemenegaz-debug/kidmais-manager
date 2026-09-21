@@ -30,6 +30,7 @@ import {
   buscarPagamentoPorId,
   buscarParcelaPorId,
   buscarPlanoAtivo,
+  buscarUltimoPlanoCancelado,
   buscarRecebimentoPorId,
   buscarRecebimentoPorIdempotencia,
   buscarEstornoPorIdempotencia,
@@ -69,9 +70,13 @@ import {
   validarPlanoPagamento,
 } from "./financeiro-core";
 import { PagamentoServiceError } from "./errors";
+import { sugerirParcelamentoPix } from './sugestao-pix';
+import { validarCondicaoContratual } from './condicao-contratual';
 import { validarRepeticaoEstorno, validarRepeticaoRecebimento } from "./idempotencia";
 import type {
   CriarPagamentoInput,
+  SugerirPagamentoInput,
+  SugestaoPagamentoResult,
   PagamentoDetalhe,
   PagamentoServiceContext,
   PlanoPagamentoInput,
@@ -110,11 +115,10 @@ function valorContratoDaVersao(snapshot: { comercial?: { valorFinalContrato?: un
 async function criarPlanoEParcelas(
   pagamento: PagamentoRecord,
   numeroVersao: number,
-  input: PlanoPagamentoInput,
+  validado: ReturnType<typeof validarPlanoPagamento>,
   context: PagamentoServiceContext,
   tx: DbExecutor,
 ) {
-  const validado = validarPlanoPagamento(pagamento.valorTotalContratado, input);
   const plano = await criarPlanoPagamento(
     {
       pagamentoId: pagamento.id,
@@ -151,7 +155,7 @@ async function detalhePagamento(
   pagamento: PagamentoRecord,
   tx?: DbExecutor,
 ): Promise<PagamentoDetalhe> {
-  const plano = await buscarPlanoAtivo(pagamento.id, tx);
+  const plano = await buscarPlanoAtivo(pagamento.id, tx) ?? (pagamento.status === 'CANCELADO' ? await buscarUltimoPlanoCancelado(pagamento.id, tx) : null);
   if (!plano) {
     throw new PagamentoServiceError(
       "PLANO_NAO_ENCONTRADO",
@@ -170,7 +174,7 @@ async function detalhePagamento(
   const hoje = hojeBrasilia();
   const recebidoLiquido = saldoMonetario(movimentosPagamento.recebidoConfirmado, movimentosPagamento.estornadoConfirmado);
 
-  if (await possuiCronograma(tx ?? db(), pagamento.id)) {
+  if (pagamento.status !== 'CANCELADO' && await possuiCronograma(tx ?? db(), pagamento.id)) {
     const p = await posicaoDoPagamento(tx ?? db(), pagamento.id);
     const consolidado: PagamentoDetalhe['parcelas'] = [];
     for (const item of p.futuro) {
@@ -197,9 +201,9 @@ async function detalhePagamento(
         recebidoConfirmado: movimento.recebidoConfirmado,
         estornadoConfirmado: movimento.estornadoConfirmado,
         valorLiquidoRecebido: liquido,
-        saldo: saldoMonetario(parcela.valorPrevisto, liquido),
+        saldo: pagamento.status === 'CANCELADO' ? 0 : saldoMonetario(parcela.valorPrevisto, liquido),
         vencida:
-          parcela.status !== "PAGA" &&
+          pagamento.status !== 'CANCELADO' && parcela.status !== "PAGA" &&
           parcela.status !== "CANCELADA" &&
           parcela.vencimento < hoje,
       };
@@ -209,7 +213,7 @@ async function detalhePagamento(
       recebidoConfirmado: movimentosPagamento.recebidoConfirmado,
       estornadoConfirmado: movimentosPagamento.estornadoConfirmado,
       recebidoLiquido,
-      saldo: saldoMonetario(pagamento.valorTotalContratado, recebidoLiquido),
+      saldo: pagamento.status === 'CANCELADO' ? 0 : saldoMonetario(pagamento.valorTotalContratado, recebidoLiquido),
     },
   };
 }
@@ -217,8 +221,9 @@ async function detalhePagamento(
 function planoEquivale(
   detalhe: PagamentoDetalhe,
   input: PlanoPagamentoInput,
+  dataFesta: string,
 ) {
-  const validado = validarPlanoPagamento(detalhe.pagamento.valorTotalContratado, input);
+  const validado = validarPlanoPagamento(detalhe.pagamento.valorTotalContratado, input, dataFesta);
   if (
     detalhe.plano.meioPagamento !== validado.meioPagamento ||
     detalhe.plano.modalidade !== validado.modalidade ||
@@ -238,10 +243,15 @@ function planoEquivale(
   });
 }
 
+type PagamentoCriado = { detalhe: PagamentoDetalhe; reutilizado: boolean };
+type PedidoPagamentoInicial = { fechamentoId: string; plano: CriarPagamentoInput['plano'] | SugerirPagamentoInput['plano'] };
+export function criarPagamentoDoFechamento(input: CriarPagamentoInput, context: PagamentoServiceContext): Promise<PagamentoCriado>;
+export function criarPagamentoDoFechamento(input: SugerirPagamentoInput, context: PagamentoServiceContext): Promise<PagamentoCriado | SugestaoPagamentoResult>;
+export function criarPagamentoDoFechamento(input: PedidoPagamentoInicial, context: PagamentoServiceContext): Promise<PagamentoCriado | SugestaoPagamentoResult>;
 export async function criarPagamentoDoFechamento(
-  input: CriarPagamentoInput,
+  input: PedidoPagamentoInicial,
   context: PagamentoServiceContext,
-): Promise<{ detalhe: PagamentoDetalhe; reutilizado: boolean }> {
+): Promise<PagamentoCriado | SugestaoPagamentoResult> {
   return withTransaction(async (tx) => {
     // Assinatura trava Contrato antes de Fechamento. Rejeita o contrato ainda
     // não assinado antes de segurar Fechamento, evitando disputar esses locks
@@ -290,9 +300,38 @@ export async function criarPagamentoDoFechamento(
     if (obrigacaoAnterior && obrigacaoAnterior.contratoVersaoId !== versao.id) {
       throw new PagamentoServiceError('PAGAMENTO_JA_EXISTE','Este contrato já possui obrigação financeira em outra versão. Trate a pendência explicitamente.',409,{pagamentoId:obrigacaoAnterior.id});
     }
+    let plano: PlanoPagamentoInput;
+    let aprovacaoSugestao: Record<string, unknown> | null = null;
+    if ('parcelas' in input.plano) plano = input.plano;
+    else {
+      const pedido = input.plano;
+      const forma = versao.snapshot.comercial.condicaoPagamento?.forma ?? versao.snapshot.comercial.formaPagamentoPretendida;
+      if (!context.usuarioId || forma !== 'PIX_PARCELADO' || pedido.meioPagamento !== 'PIX' || pedido.modalidade !== 'PARCELADO') {
+        throw new PagamentoServiceError('SUGESTAO_PIX_NAO_PERMITIDA', 'Sugestão exige administração autenticada e contrato PIX parcelado.', 403);
+      }
+      const hoje = hojeBrasilia();
+      if (!existente && pedido.confirmacao && pedido.confirmacao.dataReferencia !== hoje) {
+        throw new PagamentoServiceError('SUGESTAO_PIX_DESATUALIZADA', 'A data de criação mudou. Solicite e confira uma nova sugestão.', 409);
+      }
+      const sugestao = sugerirParcelamentoPix(valorContratoDaVersao(versao.snapshot), versao.snapshot.evento.data,
+        pedido.confirmacao?.dataReferencia ?? hoje, {
+          entrada: pedido.entrada, valorParcela: pedido.valorParcela, quantidadeParcelas: pedido.quantidadeParcelas,
+        });
+      const hash = hashSnapshotContrato({ versaoId: versao.id, snapshotHash: versao.snapshotHash, sugestao });
+      if (!pedido.confirmacao) return { sugestao: { ...sugestao, hash }, exigeConfirmacao: true };
+      if (pedido.confirmacao.hash !== hash) {
+        throw new PagamentoServiceError('SUGESTAO_PIX_DESATUALIZADA', 'Condição ou contrato mudou. Confira e confirme uma nova sugestão.', 409);
+      }
+      plano = sugestao.plano;
+      aprovacaoSugestao = { hash, dataReferencia: sugestao.dataReferencia, pedido: sugestao.pedido, contraproposta: sugestao.contraproposta };
+    }
+    validarCondicaoContratual(
+      versao.snapshot.comercial.condicaoPagamento?.forma ?? versao.snapshot.comercial.formaPagamentoPretendida,
+      plano.meioPagamento, plano.modalidade,
+    );
     if (existente) {
       const detalhe = await detalhePagamento(existente, tx);
-      if (!planoEquivale(detalhe, input.plano)) {
+      if (!planoEquivale(detalhe, plano, versao.snapshot.evento.data)) {
         throw new PagamentoServiceError(
           "PAGAMENTO_JA_EXISTE",
           "Já existe Pagamento para esta versão contratual. Use a substituição de plano para alterar a condição financeira.",
@@ -313,6 +352,7 @@ export async function criarPagamentoDoFechamento(
     }
 
     const valorTotal = valorContratoDaVersao(versao.snapshot);
+    const planoValidado = validarPlanoPagamento(valorTotal, plano, versao.snapshot.evento.data);
     const pagamento = await criarPagamento(
       {
         contratoVersaoId: versao.id,
@@ -321,7 +361,7 @@ export async function criarPagamentoDoFechamento(
       },
       tx,
     );
-    await criarPlanoEParcelas(pagamento, 1, input.plano, context, tx);
+    await criarPlanoEParcelas(pagamento, 1, planoValidado, context, tx);
 
     const fechamentoAtualizado = await marcarFechamentoAguardandoPagamento(fechamento.id, tx);
     if (!fechamentoAtualizado) {
@@ -347,6 +387,7 @@ export async function criarPagamentoDoFechamento(
             contratoId: contrato.id,
             contratoVersaoId: versao.id,
             valorTotalContratado: valorTotal,
+            ...(aprovacaoSugestao ? { aprovacaoSugestao } : {}),
           },
           critico: true,
         },
@@ -367,6 +408,7 @@ export async function criarPagamentoDoFechamento(
           fechamentoStatus: fechamentoAtualizado.status,
           contratoVersaoId: versao.id,
           valorTotalContratado: valorTotal,
+          ...(aprovacaoSugestao ? { aprovacaoSugestao } : {}),
         },
         origem: context.origem,
         requestId: context.requestId ?? null,
@@ -809,11 +851,12 @@ export async function substituirPlanoPagamento(
     const motivoLimpo = motivo.trim();
     if (!motivoLimpo) throw new PagamentoServiceError("PLANO_PAGAMENTO_INVALIDO", "Informe o motivo da alteração do plano.", 400);
 
+    const { fechamento, versao } = await contextoDoPagamento(pagamento, tx);
+    const planoValidado = validarPlanoPagamento(pagamento.valorTotalContratado, input, versao.snapshot.evento.data);
     await substituirPlanoAtivo(atual.id, motivoLimpo, tx);
     await cancelarParcelasPendentesDoPlano(atual.id, tx);
-    const novo = await criarPlanoEParcelas(pagamento, atual.numeroVersao + 1, input, context, tx);
+    const novo = await criarPlanoEParcelas(pagamento, atual.numeroVersao + 1, planoValidado, context, tx);
 
-    const { fechamento } = await contextoDoPagamento(pagamento, tx);
     if (fechamento.clienteId) {
       await registrarEventoHistorico({
         clienteId: fechamento.clienteId, tipoEvento: "PLANO_PAGAMENTO_SUBSTITUIDO",

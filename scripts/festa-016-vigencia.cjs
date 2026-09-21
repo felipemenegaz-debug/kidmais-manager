@@ -6,7 +6,7 @@ require('./pagamentos-test-support.cjs');
 async function main(){
  process.env.IDENTIDADE_OTP_PEPPER=randomBytes(32).toString('hex');process.env.CONTRATO_ACEITE_DEV_ENABLED='true';
  const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();const database=(await c.query('select current_database() n')).rows[0].n;
- if(process.env.KIDMAIS_REGRESSAO_HOMOLOGACAO==='SIM')assert.equal(database,'kidmais_v1_homologacao');else assert.match(database,/^kidmais_016_\d+$/);
+ if(process.env.KIDMAIS_REGRESSAO_STAGING==='SIM')assert.equal(database,process.env.KIDMAIS_STAGING_DATABASE_NAME);else if(process.env.KIDMAIS_REGRESSAO_HOMOLOGACAO==='SIM')assert.equal(database,'kidmais_v1_homologacao');else assert.match(database,/^kidmais_016_\d+$/);
  await c.query('BEGIN');require('./pagamentos-test-support.cjs').installPool(c);
  try{
  const admin=await require('./admin-test-support.cjs').autenticarTeste(c),festaService=require('../lib/festas/service.ts'),cs=require('../lib/contratos/services/administrativo.service.ts'),publico=require('../lib/contratos/services/contrato-publico.service.ts'),identity=require('../lib/identidade/services'),rs=require('../lib/fechamentos/services/revisao-operacional.service.ts');

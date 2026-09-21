@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [staging, main]
+  push:
+    branches: [staging]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Node do projeto e cache npm
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Instalar dependências
+        run: npm ci
+
+      # Inclui testes *.test.ts de app/components/lib, ESLint, tsc --noEmit e next build.
+      # Não iniciar aplicação, conectar a banco ou carregar arquivos .env neste job.
+      - name: Regressão estática, lint, TypeScript e build
+        run: npm run check:v1:static
+
+      # Testes locais com ambiente sintético e mocks; não executam operação em produção.
+      - name: Testes unitários dos verificadores operacionais
+        run: npm run production:test
+
+      - name: Testes unitários do bloqueio de OTP
+        run: node --test scripts/otp-staging.test.cjs

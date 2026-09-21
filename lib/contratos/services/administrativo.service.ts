@@ -1,4 +1,4 @@
-import { buscarRevisaoDaVersao } from '../../fechamentos/repositories/revisao.repository';
+import { buscarRevisaoDaVersao, listarItensRevisao, salvarOperacaoPreparada } from '../../fechamentos/repositories/revisao.repository';
 import { recusarComercialPreparacao, iniciarPreparacao, snapshotPreparacao, editarPreparacao, aprovarPreparacao, revalidarAgendaRevisao, congelarPreparacao, cancelarPreparacao } from '../../fechamentos/services/revisao-operacional.service';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -19,6 +19,7 @@ import { atualizarClienteInterno } from '../../clientes/services';
 import { buscarClientePorId, buscarAniversariantePorId } from '../../clientes/repositories';
 import { atualizarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
 import { diferencasContratuais } from './alteracoes';
+import { exigirVersaoEditavel, fonteDaRevisaoInicial, prepararEdicaoInicial, type RevisaoInicial } from './revisao-inicial';
 const uuid=z.string().uuid().transform(value=>value.toLowerCase());
 export const acaoContratoSchema = z.discriminatedUnion('acao', [
     edicaoFestaSchema,
@@ -31,6 +32,7 @@ export const acaoContratoSchema = z.discriminatedUnion('acao', [
     z.object({ acao: z.literal('assinar'), revisao: z.number().int().positive(), documentoId: uuid, chaveIdempotencia: uuid }).strict(),
     z.object({ acao: z.literal('liberar'), revisao: z.number().int().positive() }).strict(),
     z.object({ acao: z.literal('nova_versao'), tipo: z.enum(['NOVA_VERSAO', 'RETIFICACAO', 'ADITIVO']), motivo: z.string().trim().min(3).max(500), chaveCriacao: uuid.optional() }).strict(),
+    z.object({ acao: z.literal('substituir_preparacao'), motivo: z.string().trim().min(3).max(500), chaveCriacao: uuid }).strict(),
 ]);
 export type Edicao = {
     contrato_versao_id: string;
@@ -44,6 +46,7 @@ export type Edicao = {
     dados_fonte: {
         schemaVersao: 1;
         observacoesDocumentais?: string;
+        revisaoInicial?: RevisaoInicial;
     };
 };
 export function conflito(message: string): never { throw new ContratoServiceError('DADOS_CONTRATUAIS_INCONSISTENTES', message, 409); }
@@ -71,14 +74,14 @@ export async function fontesEdicao(fechamentoId:string,tx:DbExecutor=db()) {
     const adicionais=(await tx.query<{codigo:string;quantidade:number}>(`SELECT a.codigo,fa.quantidade::float AS quantidade FROM fechamento_adicionais fa JOIN adicionais a ON a.id=fa.adicional_id WHERE fa.fechamento_id=$1 ORDER BY a.codigo`,[fechamentoId])).rows;
     return {fechamento,cliente,aniversariante,adicionais,fonteHash:hashSnapshotContrato({fechamento,cliente,aniversariante,adicionais})};
 }
-async function salvarElaboracao(tx:DbExecutor,v:ContratoVersaoRecord,e:Edicao,s:SessaoAdmin,snapshot:ContratoVersaoRecord['snapshot']) {
+async function salvarElaboracao(tx:DbExecutor,v:ContratoVersaoRecord,e:Edicao,s:SessaoAdmin,snapshot:ContratoVersaoRecord['snapshot'],revisaoInicial?:RevisaoInicial) {
     if(hashSnapshotContrato(snapshot)===v.snapshotHash)return {revisao:e.revisao,reutilizado:true};
     const origem=e.origem_versao_id ? await buscarVersaoPorId(e.origem_versao_id,tx):null;
     const alteracoes=diferencasContratuais(origem?.snapshot ?? v.snapshot,snapshot);
     await tx.query('UPDATE contrato_versoes SET snapshot=$2,snapshot_hash=$3 WHERE id=$1',[v.id,snapshot,hashSnapshotContrato(snapshot)]);
     const documental=snapshot as typeof snapshot & {documental?:{observacoes:string}};
-    await tx.query(`UPDATE contrato_edicoes SET revisao=revisao+1,dados_fonte=$2,alteracoes=$3,documento_revisado_id=NULL,revisado_por_usuario_id=NULL,revisado_em=NULL,revisao_comercial_aprovada=NULL,aprovado_comercial_por_usuario_id=NULL,aprovado_comercial_em=NULL,atualizado_por_usuario_id=$4 WHERE contrato_versao_id=$1`,[v.id,{...e.dados_fonte,observacoesDocumentais:documental.documental?.observacoes ?? ''},{campos:alteracoes},s.usuario_id]);
-    await registrarAuditoria({atorTipo:'USUARIO',usuarioId:s.usuario_id,acao:'CONTRATO_EDICAO_SALVA',entidadeTipo:'CONTRATO_VERSAO',entidadeId:v.id,clienteId:v.snapshot.contratante.clienteId,origem:'CONTRATO_ADMIN',dadosAntes:{snapshot:v.snapshot,revisao:e.revisao},dadosDepois:{snapshot,revisao:e.revisao+1}},tx);
+    await tx.query(`UPDATE contrato_edicoes SET revisao=revisao+1,dados_fonte=$2,alteracoes=$3,documento_revisado_id=NULL,revisado_por_usuario_id=NULL,revisado_em=NULL,revisao_comercial_aprovada=NULL,aprovado_comercial_por_usuario_id=NULL,aprovado_comercial_em=NULL,atualizado_por_usuario_id=$4 WHERE contrato_versao_id=$1`,[v.id,{...e.dados_fonte,...(revisaoInicial?{revisaoInicial}:{}),observacoesDocumentais:documental.documental?.observacoes ?? ''},{campos:alteracoes},s.usuario_id]);
+    await registrarAuditoria({atorTipo:'USUARIO',usuarioId:s.usuario_id,acao:'CONTRATO_EDICAO_SALVA',entidadeTipo:'CONTRATO_VERSAO',entidadeId:v.id,clienteId:v.snapshot.contratante.clienteId,origem:'CONTRATO_ADMIN',dadosAntes:{snapshot:v.snapshot,revisao:e.revisao},dadosDepois:{snapshot,revisao:e.revisao+1},justificativa:revisaoInicial?.motivo},tx);
     return {revisao:e.revisao+1};
 }
 export function comprovantePdf(input: {
@@ -123,6 +126,40 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         const rc = {...context,usuarioId:s.usuario_id};
         if (hashSnapshotContrato(v.snapshot) !== v.snapshotHash)
             conflito('O snapshot da versão não corresponde ao hash preservado.');
+        if(input.acao==='substituir_preparacao') {
+            const anterior=(await tx.query<{usuario_id:string;dados_depois:{origem:string;motivo:string;versaoId:string}}>(
+                "SELECT usuario_id,dados_depois FROM auditoria WHERE acao='CONTRATO_PREPARACAO_SUBSTITUIDA' AND entidade_id=$1 AND dados_depois->>'chaveCriacao'=$2",[v.id,input.chaveCriacao])).rows[0];
+            if(anterior){if(anterior.usuario_id!==s.usuario_id||anterior.dados_depois.motivo!==input.motivo)conflito('Chave usada por outro pedido.');return {versaoId:anterior.dados_depois.versaoId,reutilizado:true};}
+            const congelada=await edicaoDaVersao(v.id,tx);
+            if(v.status!=='ATIVA'||f?.versao_em_preparacao_id!==v.id||!congelada||!['ASSINADA_KIDMAIS','AGUARDANDO_CLIENTE'].includes(congelada.estado))
+                conflito('A preparação mudou. Atualize a tela; a versão anterior não pode ser substituída por este pedido.');
+            const antiga=await buscarRevisaoDaVersao(v.id,tx,true);
+            if(f.versao_vigente_id&&!antiga)conflito('Preparação legada: revisão operacional necessária antes de substituir.');
+            const itens=antiga?await listarItensRevisao(antiga.id,tx):[];
+            if(antiga)await cancelarPreparacao(tx,antiga,rc,input.motivo);
+            else {
+                await tx.query("UPDATE contrato_edicoes SET estado='CANCELADA',atualizado_por_usuario_id=$2 WHERE contrato_versao_id=$1",[v.id,s.usuario_id]);
+                await tx.query("UPDATE contrato_versoes SET status='CANCELADA' WHERE id=$1",[v.id]);
+                await tx.query('UPDATE contrato_fluxos SET versao_em_preparacao_id=NULL WHERE contrato_id=$1',[c.id]);
+            }
+            const numero=(await tx.query<{n:number}>('SELECT max(numero_versao)+1 AS n FROM contrato_versoes WHERE contrato_id=$1',[c.id])).rows[0].n;
+            const base=f.versao_vigente_id?(await buscarVersaoPorId(f.versao_vigente_id,tx))!:v;
+            const snapshot=structuredClone(v.snapshot);
+            const next=await criarContratoVersao({contratoId:c.id,numeroVersao:numero,snapshot,snapshotHash:hashSnapshotContrato(snapshot),motivoNovaVersao:input.motivo,geradoPorUsuarioId:s.usuario_id},tx);
+            await iniciarEdicao(tx,next,s.usuario_id,base.id,'NOVA_VERSAO');
+            // Antes da primeira formalização, a proposta fica na edição, sem mudar o fechamento.
+            if(congelada.dados_fonte?.revisaoInicial) await tx.query('UPDATE contrato_edicoes SET dados_fonte=$2 WHERE contrato_versao_id=$1',
+                [next.id,{schemaVersao:1,observacoesDocumentais:congelada.dados_fonte.observacoesDocumentais ?? '',revisaoInicial:congelada.dados_fonte.revisaoInicial}]);
+            if(antiga) {
+                const nova=await iniciarPreparacao(tx,base,next,input.motivo,input.chaveCriacao,rc);
+                const copiada=(await salvarOperacaoPreparada(tx,nova,antiga.operacao,itens,s.usuario_id,input.motivo))!;
+                await revalidarAgendaRevisao(tx,copiada,rc,{mudouDestino:true});
+                const preparado=await snapshotPreparacao(tx,copiada,next);
+                await tx.query('UPDATE contrato_versoes SET snapshot=$2,snapshot_hash=$3 WHERE id=$1',[next.id,preparado,hashSnapshotContrato(preparado)]);
+            }
+            await evento(tx,v,s,'CONTRATO_PREPARACAO_SUBSTITUIDA',{origem:v.id,versaoId:next.id,motivo:input.motivo,chaveCriacao:input.chaveCriacao});
+            return {versaoId:next.id};
+        }
         if (input.acao === 'nova_versao') {
             if (input.tipo === 'ADITIVO')
                 conflito('O template específico de aditivo exige revisão de domínio antes de habilitar esta ação. Nova versão documental e retificação estão disponíveis.');
@@ -151,6 +188,10 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         }
         const e = await edicaoDaVersao(v.id, tx);
         const preparacao=await buscarRevisaoDaVersao(v.id,tx,true);
+        if (['editar_festa','salvar'].includes(input.acao)) {
+            const assinatura = (await tx.query('SELECT 1 FROM contrato_assinaturas WHERE contrato_versao_id=$1 LIMIT 1',[v.id])).rows.length>0;
+            exigirVersaoEditavel(v,e,c.id,f?.versao_em_preparacao_id,assinatura);
+        }
         if(input.acao==='cancelar_revisao' && preparacao?.estado==='CANCELADA')return cancelarPreparacao(tx,preparacao,rc,input.motivo);
         if (!e || e.revisao !== input.revisao)
             conflito('Revisão mudou ou versão legada sem edição. Atualize a tela.');
@@ -166,7 +207,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             }
             await revalidarAgendaRevisao(tx,preparacao,rc);
         }
-        if(!e.origem_versao_id && e.estado==='EM_ELABORACAO' && ['gerar_pdf','revisar','assinar'].includes(input.acao)) {
+        if(!f?.versao_vigente_id && !preparacao && !e.dados_fonte?.revisaoInicial && e.estado==='EM_ELABORACAO' && ['gerar_pdf','revisar','assinar'].includes(input.acao)) {
             await tx.query('SELECT id FROM clientes WHERE id=$1 FOR UPDATE',[v.snapshot.contratante.clienteId]);
             await tx.query('SELECT id FROM aniversariantes WHERE id=$1 FOR UPDATE',[v.snapshot.aniversariante.id]);
             const atual=(await carregarSnapshot((await buscarFechamentoPorIdParaAtualizacao(c.fechamento_id,tx))!,tx)).snapshot;
@@ -176,7 +217,12 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         }
         if(input.acao==='editar_festa') {
             if(preparacao){const nova=await editarPreparacao(tx,preparacao,input,rc);return salvarElaboracao(tx,v,e,s,await snapshotPreparacao(tx,nova,v));}
-            if(e.origem_versao_id || e.estado!=='EM_ELABORACAO' || f?.versao_em_preparacao_id!==v.id) conflito('Preparação documental anterior à revisão operacional. Cancele esta proposta e crie uma nova versão para editar a festa.');
+            if(f?.versao_vigente_id || e.estado!=='EM_ELABORACAO' || f?.versao_em_preparacao_id!==v.id) conflito('Preparação documental anterior à revisão operacional. Cancele esta proposta e crie uma nova versão para editar a festa.');
+            if(e.origem_versao_id) {
+                const fonte=await fonteDaRevisaoInicial(v,await fontesEdicao(c.fechamento_id,tx),tx);
+                const {proposta,snapshot}=await prepararEdicaoInicial(tx,v,e,fonte,input);
+                return salvarElaboracao(tx,v,e,s,snapshot,proposta);
+            }
             // Mesma ordem de lock usada pela edição CRM e pela leitura da fonte.
             await tx.query('SELECT id FROM clientes WHERE id=$1 FOR UPDATE',[v.snapshot.contratante.clienteId]);
             await tx.query('SELECT id FROM aniversariantes WHERE id=$1 FOR UPDATE',[v.snapshot.aniversariante.id]);
@@ -236,7 +282,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         if (e.estado !== 'EM_ELABORACAO' || f?.versao_em_preparacao_id !== v.id)
             conflito('Versão congelada. Crie outra versão para alterar conteúdo.');
         if (input.acao === 'salvar') {
-            const fonte=preparacao ? await snapshotPreparacao(tx,preparacao,v) : e.origem_versao_id ? v.snapshot : (await carregarSnapshot((await buscarFechamentoPorIdParaAtualizacao(c.fechamento_id,tx))!,tx)).snapshot;
+            const fonte=preparacao ? await snapshotPreparacao(tx,preparacao,v) : f?.versao_vigente_id || e.origem_versao_id ? v.snapshot : (await carregarSnapshot((await buscarFechamentoPorIdParaAtualizacao(c.fechamento_id,tx))!,tx)).snapshot;
             const snapshot = { ...fonte, documental: { observacoes: input.observacoesDocumentais } };
             return salvarElaboracao(tx,v,e,s,snapshot);
         }
@@ -268,7 +314,7 @@ export async function detalheAdministrativo(contratoId: string) {
     const fluxo = (await db().query('SELECT * FROM contrato_fluxos WHERE contrato_id=$1', [contratoId])).rows[0] ?? null;
     const documentos = (await db().query('SELECT id,contrato_versao_id,categoria,revisao,pdf_hash,tamanho_bytes,criado_em FROM contrato_documentos WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) ORDER BY criado_em DESC', [contratoId])).rows;
     const assinaturas = (await db().query('SELECT * FROM contrato_assinaturas WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) ORDER BY assinado_em', [contratoId])).rows;
-    const revisoesOperacionais=(await db().query(`SELECT r.id,r.contrato_versao_id,r.estado,r.revisao,r.data_evento::text,r.horario_inicio,r.horario_fim,r.hold_destino_adquirido_em,f.status AS status_fechamento,f.data_evento::text AS data_vigente,ROW(r.data_evento,r.horario_inicio,r.horario_fim,r.configuracao_agenda_id) IS DISTINCT FROM ROW(f.data_evento,f.horario_inicio,f.horario_fim,f.configuracao_agenda_id) AS slot_alterado FROM fechamento_revisoes r JOIN fechamentos f ON f.id=r.fechamento_id WHERE r.contrato_id=$1 ORDER BY r.criado_em`,[contratoId])).rows;
+    const revisoesOperacionais=(await db().query(`SELECT r.id,r.contrato_versao_id,r.estado,r.revisao,r.data_evento::text,r.horario_inicio,r.horario_fim,r.hold_destino_adquirido_em,f.status AS status_fechamento,public.kidmais019_ocupa(f.id) AS ocupa_vigente,f.data_evento::text AS data_vigente,ROW(r.data_evento,r.horario_inicio,r.horario_fim,r.configuracao_agenda_id) IS DISTINCT FROM ROW(f.data_evento,f.horario_inicio,f.horario_fim,f.configuracao_agenda_id) AS slot_alterado FROM fechamento_revisoes r JOIN fechamentos f ON f.id=r.fechamento_id WHERE r.contrato_id=$1 ORDER BY r.criado_em`,[contratoId])).rows;
     const financeiro=(await db().query('SELECT p.id,p.contrato_versao_id,p.valor_total_contratado,p.status FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE v.contrato_id=$1',[contratoId])).rows;
     const pendencias=(await db().query('SELECT id,motivo,versao_nova_id FROM contrato_pendencias_financeiras WHERE contrato_id=$1',[contratoId])).rows;
     return { contrato, fluxo, versoes, documentos, assinaturas, financeiro, pendencias, revisoesOperacionais };

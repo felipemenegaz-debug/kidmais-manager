@@ -1,0 +1,8 @@
+.status { padding: 16px; border: 1px solid #cad8e8; border-radius: 12px; background: #f7faff; }
+.status strong { display: block; margin-bottom: 6px; font-size: 18px; }
+.pending { border-left: 4px solid #d58a20; padding: 14px; background: #fff8ed; }
+.success { border-left: 4px solid #2d7a4d; padding: 14px; background: #edf9f2; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 18px; }
+.actions label { flex: 1 1 280px; }
+.actions input { display: block; width: 100%; margin-top: 6px; }
+.technical { color: #526579; font-size: 15px; overflow-wrap: anywhere; }

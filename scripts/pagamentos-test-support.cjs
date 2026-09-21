@@ -41,7 +41,7 @@ async function fixture(c, { data = '2098-10-10', inicio = '11:00', fim = '15:00'
   assert.ok(f, 'Requer o catálogo comercial e a configuração de agenda preservados no clone sanitizado.');
   const contrato = (await c.query(`INSERT INTO contratos(fechamento_id,status,versao_atual,assinado_em)
     VALUES ($1,'ASSINADO',1,now()) RETURNING id`, [f.id])).rows[0];
-  const snapshot = JSON.stringify({ comercial: { valorFinalContrato: 100 }, testeSintetico: true });
+  const snapshot = JSON.stringify({ comercial: { valorFinalContrato: 100 }, evento: { data }, testeSintetico: true });
   const hash = createHash('sha256').update(snapshot).digest('hex');
   const versao = (await c.query(`INSERT INTO contrato_versoes(contrato_id,numero_versao,status,snapshot,snapshot_hash,
     assinado_em,documento_template_versao,documento_pdf_hash,aceite_metodo)

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pretensaoPixSchema } from '@/lib/http/condicao-pagamento-schema';
 
 // Aceita números JSON e strings numéricas, sem converter booleanos/arrays em dinheiro.
 export const valorMonetarioSchema = z.union([
@@ -9,6 +10,13 @@ const parcelaSchema = z.object({
   valor: valorMonetarioSchema,
   vencimento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   confirmaReserva: z.boolean().optional(),
+}).strict();
+
+// Somente a criação inicial aceita sugestão; substituição continua exigindo plano explícito.
+export const sugestaoPixSchema = pretensaoPixSchema.extend({
+  meioPagamento: z.literal('PIX'),
+  modalidade: z.literal('PARCELADO'),
+  confirmacao: z.object({ dataReferencia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().optional(),
 }).strict();
 
 export const planoPagamentoSchema = z.object({

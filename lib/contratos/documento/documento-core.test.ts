@@ -133,7 +133,7 @@ for (const codigo of ['ESSENCIAL', 'COMPLETA', 'PREMIUM'] as const) {
       s.aniversariante.idadeNoEvento = idade;
       const input = { snapshot: s, numeroVersao: 2, snapshotHash };
       const anterior = renderizarContratoOficial({ ...input, templateVersao: 2 });
-      const atual = renderizarContratoOficial(input);
+      const atual = renderizarContratoOficial({ ...input, templateVersao: 3 });
       assert.ok(anterior && atual);
       assert.equal(atual.modeloCodigo, `FESTA_${codigo}_V3`);
       assert.equal(atual.templateVersao, 3);
@@ -243,7 +243,7 @@ test("Contrato Oficial Festa Completa aplica regras revisadas e não expõe obse
     geradoEm: "2026-09-08T12:00:00.000Z",
   });
   assert.ok(documento);
-  assert.equal(documento.modeloCodigo, "FESTA_COMPLETA_V3");
+  assert.equal(documento.modeloCodigo, "FESTA_COMPLETA_V4");
   assert.equal(documento.homologadoParaProducao, true);
   assert.equal(documento.avisoHomologacao, null);
   assert.equal(documento.clausulas.length, 18);
@@ -298,14 +298,56 @@ test("PDF do Contrato Oficial é determinístico e possui logo", () => {
   assert.match(hashPdfContratoOficial(pdfA), /^[0-9a-f]{64}$/);
 });
 
-test("pacote sem modelo oficial não resolve contrato jurídico", () => {
-  const semModelo = structuredClone(snapshot);
-  semModelo.evento.pacote.codigo = "COMPACTA";
-  semModelo.evento.pacote.nome = "Festa Compacta";
-  const documento = renderizarContratoOficial({
-    snapshot: semModelo,
-    numeroVersao: 1,
-    snapshotHash,
+for (const [codigo, nome, modelo, excedente] of [
+  ["POCKET", "Kidmais Pocket", "KIDMAIS_POCKET_V4", "190,00"],
+  ["MINI_FESTA", "Mini Festa Kidmais", "MINI_FESTA_KIDMAIS_V4", "170,00"],
+  ["COMPACTA", "Festa Compacta", "FESTA_COMPACTA_V4", null],
+  ["ESSENCIAL", "Festa Essencial", "FESTA_ESSENCIAL_V4", "110,00"],
+  ["COMPLETA", "Festa Completa", "FESTA_COMPLETA_V4", "130,00"],
+  ["PREMIUM", "Festa Premium", "FESTA_PREMIUM_V4", "150,00"],
+  ["PIZZA_PARTY", "Pizza Party", "PIZZA_PARTY_V4", null],
+] as const) {
+  test(`${codigo}: contrato usa a base jurídica existente e somente dados específicos conhecidos`, () => {
+    const pacote = structuredClone(snapshot);
+    pacote.evento.pacote.codigo = codigo;
+    pacote.evento.pacote.nome = "Nome não confiável do formulário";
+    const documento = renderizarContratoOficial({ snapshot: pacote, numeroVersao: 1, snapshotHash });
+    assert.ok(documento);
+    assert.equal(documento.modeloCodigo, modelo);
+    assert.equal(documento.pacoteNome, nome);
+    assert.match(documento.clausulas[0].texto, new RegExp(nome));
+    assert.equal(
+      documento.clausulas[3].texto,
+      "Crianças de 0 a 5 anos e 11 meses não contarão como convidados. Essa cortesia é limitada a um terço do total de pagantes. Se o aniversariante for menor de 16 anos, o pai, a mãe e os irmãos participarão como cortesia.",
+    );
+    assert.doesNotMatch(documento.clausulas[3].texto, /0 a 6 anos|até 6 anos/i);
+    if (excedente) {
+      assert.match(documento.clausulas[2].texto.replace(/\u00a0/g, " "), new RegExp(`R\\$ ${excedente} por pessoa excedente`));
+    } else {
+      assert.doesNotMatch(documento.clausulas[2].texto, /R\$ 120,00 por pessoa excedente/);
+      assert.doesNotMatch(documento.clausulas[2].texto, /será cobrado o valor de R\$/);
+    }
   });
+}
+
+test("templates históricos mantêm a antiga Cláusula 4 e o template atual usa somente a redação V4", () => {
+  for (const templateVersao of [1, 2, 3] as const) {
+    const historico = renderizarContratoOficial({ snapshot, numeroVersao: 1, snapshotHash, templateVersao });
+    assert.ok(historico);
+    assert.match(historico.clausulas[3].texto, /0 a 6 anos e 11 meses/);
+  }
+  const atual = renderizarContratoOficial({ snapshot, numeroVersao: 1, snapshotHash });
+  assert.ok(atual);
+  assert.equal(atual.templateVersao, 4);
+  assert.match(atual.clausulas[3].texto, /0 a 5 anos e 11 meses/);
+  assert.match(atual.clausulas[3].texto, /um terço do total de pagantes/);
+  assert.match(atual.clausulas[3].texto, /menor de 16 anos, o pai, a mãe e os irmãos participarão como cortesia/);
+  assert.doesNotMatch(atual.clausulas[3].texto, /0 a 6 anos|até 6 anos/i);
+});
+
+test("pacote desconhecido continua sem modelo oficial", () => {
+  const semModelo = structuredClone(snapshot);
+  semModelo.evento.pacote.codigo = "DESCONHECIDO";
+  const documento = renderizarContratoOficial({ snapshot: semModelo, numeroVersao: 1, snapshotHash });
   assert.equal(documento, null);
 });

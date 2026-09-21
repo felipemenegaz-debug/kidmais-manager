@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ATALHOS_CONVIDADOS } from '@/lib/fechamentos/convidados';
+import { ATALHOS_CONVIDADOS, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import { centavosComerciais, validarPretensaoPix } from "@/lib/comercial/condicao-pagamento";
 import CalendarioDisponibilidade from "./CalendarioDisponibilidade";
 import KidmaisBrand from "@/components/layout/KidmaisBrand";
@@ -461,7 +461,7 @@ export default function FechamentoWizard() {
       : null;
 
   const precoInicialComDesconto =
-    pacote && descontoAtual.ativo
+    pacote && pacote.precoInicial != null && descontoAtual.ativo
       ? aplicarDesconto(
           pacote.precoInicial,
           descontoAtual.percentual
@@ -845,6 +845,11 @@ export default function FechamentoWizard() {
       return false;
     }
 
+    if (etapa === 0 && pacote?.sobConsulta) {
+      setErro("O Pizza Party está sob consulta. Fale com a equipe Kidmais para confirmar disponibilidade e valor antes da formalização.");
+      return false;
+    }
+
     if (
       etapa === 0 &&
       preselecaoDisponibilidade &&
@@ -876,26 +881,8 @@ export default function FechamentoWizard() {
     }
 
     if (etapa === 2) {
-      if (!form.convidadosPagantes) {
-        setErro("Informe a quantidade de convidados pagantes.");
-        return false;
-      }
-      if (convidados > 150) {
-        setErro("A Kidmais atende no máximo 150 convidados neste fechamento.");
-        return false;
-      }
-      if (pacote && convidados > pacote.maxPagantes) {
-        setErro(
-          `${pacote.nome} atende até ${pacote.maxPagantes} convidados neste pacote.`
-        );
-        return false;
-      }
-      if (pacote && convidados < pacote.minPagantes) {
-        setErro(
-          `${pacote.nome} possui mínimo de ${pacote.minPagantes} pagantes.`
-        );
-        return false;
-      }
+      const mensagem = erroConvidadosFechamento(convidados, pacote);
+      if (mensagem) { setErro(mensagem); return false; }
     }
 
     if (etapa === 5) {
@@ -1143,7 +1130,7 @@ export default function FechamentoWizard() {
             <p>
               Conforme a regra comercial da Kidmais, o envio das informações
               não garante reserva. A confirmação depende de disponibilidade,
-              contrato e primeiro pagamento.
+              assinaturas da Kidmais e do cliente no contrato.
             </p>
           </div>
 
@@ -1271,7 +1258,7 @@ export default function FechamentoWizard() {
                       {form.pacote === item.id ? "✓" : ""}
                     </span>
                     <strong>{item.nome}</strong>
-                    <b>A partir de {numeroParaMoeda(item.precoInicial)}</b>
+                    <b>{item.precoInicial == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(item.precoInicial)}`}</b>
                     <p>{item.descricao}</p>
                     <small>{item.disponibilidade}</small>
                     <span className={styles.selectText}>
@@ -1283,6 +1270,13 @@ export default function FechamentoWizard() {
 
               {pacote && (
                 <div className={styles.packageDetails}>
+                  {pacote.sobConsulta && (
+                    <div className={`${styles.detailWide} ${styles.consultNotice}`}>
+                      <strong>Sob consulta</strong>
+                      <p>A equipe Kidmais precisa confirmar disponibilidade e valor antes do fechamento e do contrato.</p>
+                      <a href={CONTATO_KIDMAIS.whatsappUrl} target="_blank" rel="noreferrer">Falar com a Kidmais</a>
+                    </div>
+                  )}
                   <div>
                     <span>Mínimo</span>
                     <strong>{pacote.minPagantes} pagantes</strong>
@@ -1335,7 +1329,7 @@ export default function FechamentoWizard() {
                 <div>
                   <span>Valor de tabela</span>
                   <strong>
-                    A partir de {numeroParaMoeda(pacote.precoInicial)}
+                    {pacote.precoInicial == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(pacote.precoInicial)}`}
                   </strong>
                 </div>
 
@@ -1355,7 +1349,7 @@ export default function FechamentoWizard() {
                         A partir de{" "}
                         {numeroParaMoeda(
                           precoInicialComDesconto?.valorPacoteComDesconto ??
-                            pacote.precoInicial
+                            pacote.precoInicial ?? 0
                         )}
                       </strong>
                     </div>
@@ -1365,7 +1359,9 @@ export default function FechamentoWizard() {
                     <span>Valor para a data selecionada</span>
                     <strong>
                       {form.dataFesta
-                        ? `A partir de ${numeroParaMoeda(pacote.precoInicial)}`
+                        ? pacote.precoInicial == null
+                          ? "Sob consulta"
+                          : `A partir de ${numeroParaMoeda(pacote.precoInicial)}`
                         : "Selecione uma data para calcular"}
                     </strong>
                   </div>
@@ -2583,7 +2579,7 @@ export default function FechamentoWizard() {
                 <p>
                   O envio deste fechamento não garante a reserva da data. A
                   confirmação ocorre após conferência da disponibilidade,
-                  contrato e primeiro pagamento.
+                  assinaturas da Kidmais e do cliente no contrato.
                 </p>
               </div>
             </section>

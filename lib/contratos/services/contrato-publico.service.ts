@@ -1,3 +1,5 @@
+import { bloquearAgendaFormalizacao, garantirFestaFormalizada } from '../../festas/formalizacao';
+import { validarAmbienteFesta } from '../../festas/ambiente';
 import { normalizarCpf } from "../../clientes/repositories/normalizers";
 import {
   buscarClienteCanonicoPorId,
@@ -93,6 +95,7 @@ async function carregarContratoComVersao(
 
   if (versao.contratoId !== contrato.id) acessoNegado();
   const edicao=await edicaoDaVersao(versao.id,customDb);
+  if(edicao?.estado==='CANCELADA')throw new ContratoServiceError('VERSAO_CONTRATO_DIVERGENTE','Esta versão foi encerrada. Existe uma revisão mais recente; aguarde a liberação do novo acesso pela Kidmais.',409);
   if(edicao && !['AGUARDANDO_CLIENTE','CONCLUIDA'].includes(edicao.estado))acessoNegado();
   if (!edicao && versao.numeroVersao !== contrato.versaoAtual) {
     throw new ContratoServiceError(
@@ -442,7 +445,10 @@ export async function assinarContratoPublico(
         validacaoAnterior.consumidoPorContratoVersaoId === versao.id &&
         versao.documentoPdfHash === documento.pdfHash
       ) {
+        await validarAmbienteFesta(tx);
+        const festa = await garantirFestaFormalizada(tx, contrato.id, versao.id, context, 'RETRY');
         return {
+          ...festa,
           contrato,
           versao,
           fechamentoStatus: "CONTRATO_ASSINADO" as const,
@@ -506,6 +512,14 @@ export async function assinarContratoPublico(
       tx,
     );
 
+    if (!edicao) throw new ContratoServiceError('STATUS_CONTRATO_NAO_PERMITE_ASSINATURA', 'Fluxo legado exige revisão antes da formalização automática.', 409);
+    await validarAmbienteFesta(tx);
+    if (edicao.dados_fonte.revisaoInicial) {
+      // A proposta inicial ainda não ocupa o fechamento. Seu destino é revalidado
+      // ao aplicar os dados assinados, sob o mesmo lock da formalização 019.
+      await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)', [contrato.id]);
+    } else await bloquearAgendaFormalizacao(tx, contrato.id);
+
     const prova = await identity.consumirProvaParaContrato(
       input.provaToken,
       versao.id,
@@ -553,6 +567,8 @@ export async function assinarContratoPublico(
         409,
       );
     }
+
+    await garantirFestaFormalizada(tx, contrato.id, versaoAssinada.id, context);
 
     await registrarEventoHistorico(
       {

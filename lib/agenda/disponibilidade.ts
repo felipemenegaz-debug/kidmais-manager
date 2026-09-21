@@ -1,4 +1,4 @@
-import { HorarioBase, PacoteId } from "@/components/fechamento/types";
+import type { HorarioBase, PacoteId } from "../../components/fechamento/types.ts";
 
 export type StatusCalendario =
   | "disponivel"
@@ -76,9 +76,11 @@ export function regraPadraoPacote(
     return "consulta";
   }
 
-  // Pocket: somente segunda a quinta.
+  // Pocket: segunda a quinta nos dois períodos e sexta no primeiro período.
   if (pacote === "pocket") {
-    return dia >= 1 && dia <= 4 ? "disponivel" : "indisponivel";
+    if (dia >= 1 && dia <= 4) return "disponivel";
+    if (dia === 5 && horario === "almoco") return "disponivel";
+    return "indisponivel";
   }
 
   // Mini: segunda a quinta nos dois períodos e sexta no primeiro período.

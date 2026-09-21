@@ -8,6 +8,7 @@ import {
   buscarClientePorId,
   buscarClientesPorContatoExato,
   buscarClientesPorEmail,
+  buscarClientesPorEmailExato,
   buscarClientesPorNomeSemelhante,
   criarCliente,
   listarAniversariantesDoCliente,
@@ -36,12 +37,13 @@ export type CandidatoDuplicidade = {
   clienteId: string;
   nomeCompleto: string;
   motivos: string[];
+  status?: ClienteStatus;
   similaridadeNome?: number;
 };
 
 export type AnaliseCadastroCliente = {
   podeCadastrar: boolean;
-  cpfExistente: { clienteId: string; nomeCompleto: string } | null;
+  cpfExistente: { clienteId: string; nomeCompleto: string; status?: ClienteStatus } | null;
   possiveisDuplicidades: CandidatoDuplicidade[];
 };
 
@@ -89,6 +91,7 @@ function mergeCandidato(
     clienteId: cliente.id,
     nomeCompleto: cliente.nomeCompleto,
     motivos: [],
+    status: cliente.status,
   };
   if (!atual.motivos.includes(motivo)) atual.motivos.push(motivo);
   if (similaridadeNome != null) atual.similaridadeNome = similaridadeNome;
@@ -96,7 +99,7 @@ function mergeCandidato(
 }
 
 export async function analisarCadastroCliente(
-  input: Pick<CreateClienteInput, "nomeCompleto" | "cpf" | "telefone" | "whatsapp">,
+  input: Pick<CreateClienteInput, "nomeCompleto" | "cpf" | "telefone" | "whatsapp" | "email">,
   options: { excluirClienteId?: string } = {},
   customDb?: DbExecutor,
 ): Promise<AnaliseCadastroCliente> {
@@ -132,12 +135,16 @@ export async function analisarCadastroCliente(
     }
   }
 
+  if (input.email?.trim()) {
+    const porEmail = await buscarClientesPorEmailExato(input.email, customDb);
+    for (const cliente of porEmail) if(cliente.id!==options.excluirClienteId && cliente.email?.toLowerCase()===input.email.trim().toLowerCase()) mergeCandidato(candidatos,cliente,"EMAIL_IGUAL");
+  }
   if (cpfConflitante) candidatos.delete(cpfConflitante.id);
 
   return {
     podeCadastrar: !cpfConflitante,
     cpfExistente: cpfConflitante
-      ? { clienteId: cpfConflitante.id, nomeCompleto: cpfConflitante.nomeCompleto }
+      ? { clienteId: cpfConflitante.id, nomeCompleto: cpfConflitante.nomeCompleto, status: cpfConflitante.status }
       : null,
     possiveisDuplicidades: [...candidatos.values()].sort((a, b) => {
       const contatoA = a.motivos.some((m) => m.endsWith("_IGUAL")) ? 1 : 0;
@@ -176,12 +183,14 @@ export async function cadastrarClienteInterno(
     if (!analise.podeCadastrar && analise.cpfExistente) {
       throw new ClienteServiceError(
         "CPF_EXISTENTE",
-        "Já existe um Cliente cadastrado com este CPF. Use o cadastro existente.",
+        analise.cpfExistente.status === "INATIVO" ? "Este CPF pertence a um cliente arquivado/excluído. Abra o perfil para restaurar." : "Já existe um Cliente cadastrado com este CPF. Use o cadastro existente.",
         409,
         analise.cpfExistente,
       );
     }
 
+    const inativoComContato = analise.possiveisDuplicidades.find(c => c.status === 'INATIVO' && c.motivos.some(m => m.endsWith('_IGUAL')));
+    if (inativoComContato) throw new ClienteServiceError('DADOS_INVALIDOS','Existe cliente arquivado/excluído com este contato. Abra o perfil para restaurar antes de cadastrar novamente.',409,{clienteId:inativoComContato.clienteId});
     let cliente: ClienteRecord;
     try {
       cliente = await criarCliente({ ...input, usuarioId: context.usuarioId ?? null }, tx);
@@ -287,7 +296,7 @@ export async function listarClientesCrm(options: {
   limit?: number;
   offset?: number;
 } = {}) {
-  const clientes = await listarClientes(options);
+  const clientes = await listarClientes({ ...options, status: options.status ?? "ATIVO" });
   return clientes.map((cliente) => {
     const camposFaltantes = camposFaltantesParaContrato(cliente);
     return {
@@ -298,9 +307,9 @@ export async function listarClientesCrm(options: {
   });
 }
 
-export async function buscarClientesCrm(termo: string, limit = 20) {
+export async function buscarClientesCrm(termo: string, limit = 20, incluirInativos = false) {
   const q = termo.trim();
-  if (!q) return listarClientesCrm({ limit });
+  if (!q) return listarClientesCrm({ limit, status: incluirInativos ? "CANONICOS" : "ATIVO" });
 
   const digits = q.replace(/\D/g, "");
   const encontrados = new Map<string, ClienteRecord>();
@@ -317,14 +326,14 @@ export async function buscarClientesCrm(termo: string, limit = 20) {
 
   if (q.length >= 3) {
     const [porNome, porEmail] = await Promise.all([
-      buscarClientesPorNomeSemelhante(q, { limit }),
-      buscarClientesPorEmail(q, { limit }),
+      buscarClientesPorNomeSemelhante(q, { limit, incluirInativos }),
+      buscarClientesPorEmail(q, { limit, incluirInativos }),
     ]);
     porNome.forEach((cliente) => encontrados.set(cliente.id, cliente));
     porEmail.forEach((cliente) => encontrados.set(cliente.id, cliente));
   }
 
-  return [...encontrados.values()].slice(0, limit).map((cliente) => {
+  return [...encontrados.values()].filter(c => incluirInativos || c.status === "ATIVO").slice(0, limit).map((cliente) => {
     const camposFaltantes = camposFaltantesParaContrato(cliente);
     return {
       cliente,

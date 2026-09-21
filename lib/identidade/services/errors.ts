@@ -10,6 +10,7 @@ export type IdentityServiceErrorCode =
   | "PROVA_INVALIDA_OU_EXPIRADA"
   | "PROVA_FINALIDADE_INVALIDA"
   | "CONFIGURACAO_IDENTIDADE_INVALIDA"
+  | "OTP_INDISPONIVEL"
   | "FALHA_ENVIO_OTP";
 
 export class IdentityServiceError extends Error {

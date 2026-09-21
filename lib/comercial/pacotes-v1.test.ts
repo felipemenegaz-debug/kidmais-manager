@@ -1,16 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { erroConvidadosFechamento } from '../fechamentos/convidados.ts';
 import {
   pacoteCodigoContratavelV1,
   pacoteIdContratavelV1,
   PACOTES_CONTRATAVEIS_V1,
 } from "./pacotes-v1.ts";
 
-test("V1 permite fechamento somente de Essencial, Completa e Premium", () => {
+test("fechamento apresenta os sete pacotes comerciais", () => {
   assert.deepEqual(
     PACOTES_CONTRATAVEIS_V1.map((pacote) => pacote.id),
-    ["essencial", "completa", "premium"],
+    ["pocket", "mini", "compacta", "essencial", "completa", "premium", "pizza_party_scienza"],
   );
   for (const pacote of PACOTES_CONTRATAVEIS_V1) {
     assert.equal(pacoteIdContratavelV1(pacote.id), true);
@@ -18,16 +19,16 @@ test("V1 permite fechamento somente de Essencial, Completa e Premium", () => {
   }
 });
 
-test("V1 recusa pacotes sem contrato oficial e valores desconhecidos", () => {
-  for (const id of ["pocket", "mini", "compacta", "pizza_party_scienza", "outro", ""]) {
+test("catálogo recusa somente pacotes desconhecidos", () => {
+  for (const id of ["outro", ""]) {
     assert.equal(pacoteIdContratavelV1(id), false);
   }
-  for (const codigo of ["POCKET", "MINI_FESTA", "COMPACTA", "PIZZA_PARTY", "OUTRO", ""]) {
+  for (const codigo of ["OUTRO", ""]) {
     assert.equal(pacoteCodigoContratavelV1(codigo), false);
   }
 });
 
-test("catálogo público filtra a interface e a API recusa antes de qualquer operação", () => {
+test("catálogo público lista os sete e a API valida o código antes de qualquer operação", () => {
   const wizard = readFileSync("components/fechamento/FechamentoWizard.tsx", "utf8");
   const admin = readFileSync("components/admin/AdminDisponibilidade.tsx", "utf8");
   const route = readFileSync("app/api/fechamentos/route.ts", "utf8");
@@ -37,6 +38,10 @@ test("catálogo público filtra a interface e a API recusa antes de qualquer ope
   );
 
   assert.match(wizard, /PACOTES_FECHAMENTO_V1\.map/);
+  assert.match(wizard, /O Pizza Party está sob consulta/);
+  assert.match(wizard, /erroConvidadosFechamento\(convidados, pacote\)/);
+  assert.match(erroConvidadosFechamento(41, { id: 'compacta', nome: 'Compacta', minPagantes: 40, maxPagantes: 150 })!, /Festa Compacta possui valor automático somente para 40 convidados/);
+  assert.equal(erroConvidadosFechamento(40, { id: 'compacta', nome: 'Compacta', minPagantes: 40, maxPagantes: 150 }), null);
   assert.match(admin, /PACOTES\.map/);
   assert(
     route.indexOf("if (!pacoteIdContratavelV1") <

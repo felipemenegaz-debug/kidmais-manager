@@ -18,6 +18,18 @@ function executor(custom?: DbExecutor) {
   return custom ?? db();
 }
 
+export async function bloquearNomeAniversariante(
+  clienteId: string,
+  nome: string,
+  customDb?: DbExecutor,
+): Promise<void> {
+  const chave = `${clienteId}:${nome.trim().toLocaleLowerCase("pt-BR")}`;
+  await executor(customDb).query(
+    "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+    [chave],
+  );
+}
+
 export async function criarAniversariante(
   input: CreateAniversarianteInput,
   customDb?: DbExecutor,
@@ -47,6 +59,26 @@ export async function buscarAniversariantePorId(
   const result = await executor(customDb).query<AniversarianteRow>(
     `SELECT ${columns} FROM aniversariantes WHERE id = $1 LIMIT 1`,
     [id],
+  );
+  return result.rows[0] ? mapAniversariante(result.rows[0]) : null;
+}
+
+export async function buscarAniversarianteAtivoPorNome(
+  clienteId: string,
+  nome: string,
+  excluirId?: string,
+  customDb?: DbExecutor,
+): Promise<AniversarianteRecord | null> {
+  const result = await executor(customDb).query<AniversarianteRow>(
+    `SELECT ${columns}
+       FROM aniversariantes
+      WHERE cliente_id = $1
+        AND ativo = true
+        AND lower(btrim(nome)) = lower(btrim($2))
+        AND ($3::uuid IS NULL OR id <> $3)
+      ORDER BY criado_em
+      LIMIT 1`,
+    [clienteId, nome, excluirId ?? null],
   );
   return result.rows[0] ? mapAniversariante(result.rows[0]) : null;
 }

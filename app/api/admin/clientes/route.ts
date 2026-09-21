@@ -16,9 +16,10 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(Math.max(Number(searchParams.get("limit") ?? 50) || 50, 1), 200);
     const offset = Math.max(Number(searchParams.get("offset") ?? 0) || 0, 0);
 
+    const incluirInativos = searchParams.get("incluirInativos") === "true";
     const data = q
-      ? await buscarClientesCrm(q, limit)
-      : await listarClientesCrm({ limit, offset });
+      ? await buscarClientesCrm(q, limit, incluirInativos)
+      : await listarClientesCrm({ limit, offset, status: incluirInativos ? "CANONICOS" : "ATIVO" });
 
     return jsonNoStore({ ok: true, data });
   } catch (error) {

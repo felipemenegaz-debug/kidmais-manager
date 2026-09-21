@@ -37,9 +37,17 @@ export const clientePatchSchema = clienteCamposSchema.partial().refine(
 );
 
 export const analiseCadastroSchema = z.object({
+  email: z.string().max(254).nullable().optional(),
   nomeCompleto: z.string().trim().min(3).max(180),
   cpf: z.string().max(20).nullable().optional(),
   telefone: z.string().max(30).nullable().optional(),
   whatsapp: z.string().max(30).nullable().optional(),
   excluirClienteId: z.string().uuid().optional(),
 });
+
+export const aniversarianteSchema = z.object({
+  nome: z.string().trim().min(2).max(200),
+  dataNascimento: z.string().date().nullable().optional(),
+  temaPadrao: z.string().trim().max(2000).nullable().optional(),
+  observacoes: z.string().trim().max(2000).nullable().optional(),
+}).strict();

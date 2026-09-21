@@ -1,4 +1,6 @@
 import type { IdentityOtpSender, OtpDelivery } from "../services";
+import { modoOtpAmbiente, otpDesabilitadoNoStaging } from "../configuracao-otp.ts";
+import { carregarGupshupConfig, criarGupshupSender, type GupshupConfig } from "./gupshup.sender.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const META_GRAPH_ORIGIN = "https://graph.facebook.com";
@@ -17,7 +19,17 @@ export type WhatsappCloudConfig = {
 
 type OtpProviderConfig =
   | { provider: "console" }
+  | { provider: "disabled" }
+  | { provider: "gupshup"; gupshup: GupshupConfig }
   | { provider: "whatsapp_cloud"; whatsapp: WhatsappCloudConfig };
+
+export type StatusOtpAmbiente = {
+  provider: OtpProviderConfig["provider"];
+  status: "ready" | "unavailable";
+  configured?: boolean;
+  enabled?: boolean;
+  reason?: "staging_disabled";
+};
 
 function envObrigatoria(nome: string) {
   const value = process.env[nome]?.trim();
@@ -76,30 +88,30 @@ function carregarWhatsappCloudConfig(): WhatsappCloudConfig {
 }
 
 function carregarOtpProviderConfig(): OtpProviderConfig {
-  const provider = (process.env.IDENTIDADE_OTP_PROVIDER ?? "")
-    .trim()
-    .toLowerCase();
+  const provider = modoOtpAmbiente();
 
-  if (provider === "console") {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        "IDENTIDADE_OTP_PROVIDER=console não é permitido em produção.",
-      );
-    }
-    return { provider: "console" };
-  }
+  if (provider === "console" || provider === "disabled") return { provider };
+  if (provider === "gupshup") return { provider, gupshup: carregarGupshupConfig() };
 
-  if (provider === "whatsapp_cloud") {
-    return { provider, whatsapp: carregarWhatsappCloudConfig() };
-  }
-
-  throw new Error(
-    "IDENTIDADE_OTP_PROVIDER deve ser whatsapp_cloud em produção.",
-  );
+  return { provider, whatsapp: carregarWhatsappCloudConfig() };
 }
 
 export function validarConfiguracaoOtpAmbiente() {
-  carregarOtpProviderConfig();
+  const config = carregarOtpProviderConfig();
+  if (config.provider === "gupshup") {
+    const enabled = !otpDesabilitadoNoStaging();
+    return {
+      provider: config.provider,
+      status: enabled ? "ready" : "unavailable",
+      configured: true,
+      enabled,
+      ...(!enabled ? { reason: "staging_disabled" as const } : {}),
+    } satisfies StatusOtpAmbiente;
+  }
+  return {
+    provider: config.provider,
+    status: config.provider === "disabled" ? "unavailable" : "ready",
+  } satisfies StatusOtpAmbiente;
 }
 
 export function normalizarDestinoWhatsapp(
@@ -198,23 +210,25 @@ export function criarWhatsappCloudSender(
 
 /**
  * Emissor selecionado apenas por configuração do servidor.
- * `console` existe exclusivamente para desenvolvimento; produção aceita somente
- * a integração oficial WhatsApp Cloud API.
+ * `console` é uma simulação silenciosa exclusivamente para desenvolvimento.
+ * Gupshup exige staging e liberação explícita do envio; configuração é validada
+ * mesmo quando o transporte estiver bloqueado.
  */
 export const enviarOtpComAmbiente: IdentityOtpSender = async (delivery) => {
   const config = carregarOtpProviderConfig();
 
   if (config.provider === "console") {
-    console.info(
-      [
-        "[Kidmais Identidade][OTP DEV]",
-        `validacaoId=${delivery.validacaoId}`,
-        `canal=${delivery.canal}`,
-        `codigo=${delivery.codigo}`,
-        `expiraEm=${delivery.expiraEm}`,
-      ].join(" "),
-    );
     return;
+  }
+
+  if (config.provider === "disabled" || otpDesabilitadoNoStaging()) {
+    throw new Error(
+      "Envio de OTP temporariamente indisponível neste ambiente de staging.",
+    );
+  }
+
+  if (config.provider === "gupshup") {
+    return criarGupshupSender(config.gupshup)(delivery);
   }
 
   return criarWhatsappCloudSender(config.whatsapp)(delivery);

@@ -120,6 +120,7 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
           {
             nomeCompleto: form.nomeCompleto,
             cpf: form.cpf,
+            email: form.email,
             telefone: form.telefone,
             whatsapp: form.whatsapp,
           },
@@ -138,10 +139,10 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
       ativo = false;
       window.clearTimeout(timer);
     };
-  }, [clienteId, form.cpf, form.nomeCompleto, form.telefone, form.whatsapp, mode]);
+  }, [clienteId, form.email, form.cpf, form.nomeCompleto, form.telefone, form.whatsapp, mode]);
 
   const contatoDuplicado = useMemo(
-    () => analise?.possiveisDuplicidades.find((item) => item.motivos.some((motivo) => motivo.endsWith("_IGUAL"))) ?? null,
+    () => analise?.possiveisDuplicidades.find(item => item.status === "INATIVO" && item.motivos.some(m => m.endsWith("_IGUAL"))) ?? analise?.possiveisDuplicidades.find((item) => item.motivos.some((motivo) => motivo.endsWith("_IGUAL"))) ?? null,
     [analise],
   );
   const sugestoesNome = useMemo(
@@ -341,14 +342,14 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
             {cpfExistente && (
               <div className={styles.duplicateAlert}>
                 <div><strong>CPF já cadastrado</strong><span>Este CPF pertence a {cpfExistente.nomeCompleto}. O novo cadastro será bloqueado.</span></div>
-                <Link href={`/clientes/${cpfExistente.clienteId}`}>Ver cliente</Link>
+                <Link href={`/clientes/${cpfExistente.clienteId}`}>{cpfExistente.status === "INATIVO" ? "Cliente arquivado/excluído — abrir para restaurar" : "Ver cliente"}</Link>
               </div>
             )}
 
             {!cpfExistente && contatoDuplicado && (
               <div className={styles.duplicateWarning}>
-                <div><strong>Possível cadastro existente</strong><span>O telefone/WhatsApp também aparece em {contatoDuplicado.nomeCompleto}. Isso não bloqueia o cadastro.</span></div>
-                <Link href={`/clientes/${contatoDuplicado.clienteId}`}>Conferir cliente</Link>
+                <div><strong>Possível cadastro existente</strong><span>O contato também aparece em {contatoDuplicado.nomeCompleto}. {contatoDuplicado.status === "INATIVO" ? "Abra o cadastro para restaurar antes de cadastrar novamente." : "Isso não bloqueia o cadastro."}</span></div>
+                <Link href={`/clientes/${contatoDuplicado.clienteId}`}>{contatoDuplicado.status === "INATIVO" ? "Cliente arquivado/excluído — abrir para restaurar" : "Conferir cliente"}</Link>
               </div>
             )}
 
@@ -398,7 +399,7 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
 
           <div className={styles.formActions}>
             <Link className={styles.secondaryButton} href={voltar}>Cancelar</Link>
-            <button className={styles.primaryButton} type="submit" disabled={salvando || consultandoCep || Boolean(cpfExistente)}>{salvando ? "Salvando..." : consultandoCep ? "Buscando CEP..." : "Salvar cliente"}</button>
+            <button className={styles.primaryButton} type="submit" disabled={salvando || consultandoCep || Boolean(cpfExistente) || (mode === "create" && contatoDuplicado?.status === "INATIVO")}>{salvando ? "Salvando..." : consultandoCep ? "Buscando CEP..." : "Salvar cliente"}</button>
           </div>
         </form>
       </div>

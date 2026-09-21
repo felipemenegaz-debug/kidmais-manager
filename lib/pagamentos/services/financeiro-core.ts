@@ -4,6 +4,7 @@ import type {
 } from "../repositories";
 import type { PlanoPagamentoInput } from "./models";
 import { PagamentoServiceError } from "./errors.ts";
+import { validarVencimentoAteFesta } from "./alteracao-financeira-core.ts";
 
 const DATA_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -38,6 +39,7 @@ export function saldoMonetario(valor: number, abatimento: number) {
 export function validarPlanoPagamento(
   valorTotalContratado: number,
   plano: PlanoPagamentoInput,
+  dataFesta: string,
 ) {
   const total = dinheiroParaCentavos(valorTotalContratado, "valorTotalContratado");
   const quantidade = plano.parcelas.length;
@@ -101,6 +103,7 @@ export function validarPlanoPagamento(
       );
     }
 
+    validarVencimentoAteFesta(item.vencimento, dataFesta, plano.meioPagamento);
     return {
       numero: index + 1,
       valor: centavosParaDinheiro(dinheiroParaCentavos(item.valor, `parcela ${index + 1}`)),

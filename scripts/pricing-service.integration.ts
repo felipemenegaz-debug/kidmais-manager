@@ -167,6 +167,28 @@ async function main() {
     assert.equal(resultado.valorTabelaAplicado, 3800);
   });
 
+  await testar("Pocket: sexta TURNO_1 disponível das 11h às 15h após a 017", async () => {
+    const resultado = await precificarPacote({
+      data: "2026-09-18",
+      configuracaoAgendaId: ref.turno1,
+      pacoteId: ref.pocket,
+      convidados: 20,
+    });
+    assert.equal(resultado.elegibilidade, "DISPONIVEL");
+    assert.equal(resultado.valorTabelaBase, 3800);
+  });
+
+  await esperarErro(
+    "Pocket: sexta TURNO_2 permanece indisponível",
+    "PACOTE_INDISPONIVEL",
+    () => precificarPacote({
+      data: "2026-09-18",
+      configuracaoAgendaId: ref.turno2,
+      pacoteId: ref.pocket,
+      convidados: 20,
+    }),
+  );
+
   await testar("Mini Festa: sexta TURNO_1 disponível por R$ 170/convidado", async () => {
     const resultado = await precificarPacote({
       data: "2026-09-11", // sexta-feira
@@ -258,6 +280,27 @@ async function main() {
         pacoteId: ref.compacta,
         convidados: 40,
       }),
+  );
+
+  await testar("Festa Compacta: preço automático somente para 40 convidados", async () => {
+    const resultado = await precificarPacote({
+      data: "2026-09-18",
+      configuracaoAgendaId: ref.turno1,
+      pacoteId: ref.compacta,
+      convidados: 40,
+    });
+    assert.equal(resultado.valorTabelaBase, 6490);
+  });
+
+  await esperarErro(
+    "Festa Compacta: acima de 40 exige consulta em vez de preço fictício",
+    "PACOTE_SOB_CONSULTA",
+    () => precificarPacote({
+      data: "2026-09-18",
+      configuracaoAgendaId: ref.turno1,
+      pacoteId: ref.compacta,
+      convidados: 41,
+    }),
   );
 
   await esperarErro(

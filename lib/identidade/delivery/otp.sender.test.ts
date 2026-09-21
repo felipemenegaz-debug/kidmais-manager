@@ -5,6 +5,7 @@ import test from "node:test";
 import type { OtpDelivery } from "../services/models.ts";
 import {
   criarWhatsappCloudSender,
+  enviarOtpComAmbiente,
   normalizarDestinoWhatsapp,
   validarConfiguracaoOtpAmbiente,
   type WhatsappCloudConfig,
@@ -145,10 +146,12 @@ test("rotas públicas da V1 aceitam somente WHATSAPP", () => {
   assert.doesNotMatch(identityService, /canal: "EMAIL",/);
 });
 
-test("configuração de produção falha fechada e aceita somente whatsapp_cloud", () => {
+test("console e disabled são protegidos e WhatsApp Cloud continua válido em produção", () => {
   const env = process.env as Record<string, string | undefined>;
   const keys = [
     "NODE_ENV",
+    "KIDMAIS_DEPLOY_ENV",
+    "KIDMAIS_STAGING_OTP_DISABLED",
     "IDENTIDADE_OTP_PROVIDER",
     "WHATSAPP_CLOUD_API_VERSION",
     "WHATSAPP_CLOUD_PHONE_NUMBER_ID",
@@ -163,7 +166,23 @@ test("configuração de produção falha fechada e aceita somente whatsapp_cloud
     env.IDENTIDADE_OTP_PROVIDER = "console";
     assert.throws(validarConfiguracaoOtpAmbiente, /não é permitido/);
 
+    env.IDENTIDADE_OTP_PROVIDER = "disabled";
+    env.KIDMAIS_DEPLOY_ENV = "production";
+    env.KIDMAIS_STAGING_OTP_DISABLED = "SIM";
+    assert.throws(validarConfiguracaoOtpAmbiente, /somente no staging/);
+
+    env.KIDMAIS_DEPLOY_ENV = "staging";
+    delete env.KIDMAIS_STAGING_OTP_DISABLED;
+    assert.throws(validarConfiguracaoOtpAmbiente, /somente no staging/);
+
+    env.KIDMAIS_STAGING_OTP_DISABLED = "SIM";
+    assert.deepEqual(validarConfiguracaoOtpAmbiente(), {
+      provider: "disabled",
+      status: "unavailable",
+    });
+
     env.IDENTIDADE_OTP_PROVIDER = "whatsapp_cloud";
+    env.KIDMAIS_DEPLOY_ENV = "production";
     env.WHATSAPP_CLOUD_API_VERSION = config.graphApiVersion;
     env.WHATSAPP_CLOUD_PHONE_NUMBER_ID = config.phoneNumberId;
     env.WHATSAPP_CLOUD_ACCESS_TOKEN = config.accessToken;
@@ -174,6 +193,162 @@ test("configuração de produção falha fechada e aceita somente whatsapp_cloud
     delete env.WHATSAPP_CLOUD_ACCESS_TOKEN;
     assert.throws(validarConfiguracaoOtpAmbiente, /ACCESS_TOKEN não configurada/);
   } finally {
+    for (const key of keys) {
+      const value = anteriores[key];
+      if (value === undefined) delete env[key];
+      else env[key] = value;
+    }
+  }
+});
+
+test("health Gupshup de produção exige configuração completa sem rede ou logs", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new Error("Rede proibida"); });
+  const logs = ["info", "warn", "error", "log", "debug"].map(method =>
+    t.mock.method(console, method as "info", () => {}));
+  await comAmbiente({ ...gupshupEnv, KIDMAIS_DEPLOY_ENV: "production", GUPSHUP_OTP_ENABLED: "true" }, async () => {
+    for (const flag of [undefined, "SIM", "NAO"]) {
+      if (flag === undefined) delete process.env.KIDMAIS_STAGING_OTP_DISABLED;
+      else process.env.KIDMAIS_STAGING_OTP_DISABLED = flag;
+      assert.deepEqual(validarConfiguracaoOtpAmbiente(), {
+        provider: "gupshup", status: "ready", configured: true, enabled: true,
+      });
+    }
+    for (const key of ["GUPSHUP_API_KEY", "GUPSHUP_SOURCE", "GUPSHUP_APP_NAME", "GUPSHUP_OTP_TEMPLATE_ID", "GUPSHUP_TIMEOUT_MS", "GUPSHUP_DEFAULT_COUNTRY_CODE", "GUPSHUP_OTP_ENABLED"]) {
+      const previous = process.env[key];
+      const values = key === "GUPSHUP_OTP_ENABLED" ? [undefined, "false", "TRUE"]
+        : ["synthetic!invalid!value", ...(key === "GUPSHUP_TIMEOUT_MS" || key === "GUPSHUP_DEFAULT_COUNTRY_CODE" ? [] : [undefined, ""])];
+      for (const value of values) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+        assert.throws(validarConfiguracaoOtpAmbiente, (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.ok(error.message.includes(key));
+          assert.ok(!error.message.includes("synthetic!invalid!value"));
+          assert.ok(!error.message.includes(gupshupEnv.GUPSHUP_API_KEY!));
+          return true;
+        });
+        await assert.rejects(enviarOtpComAmbiente(delivery));
+      }
+      process.env[key] = previous;
+    }
+    delete process.env.GUPSHUP_DEFAULT_COUNTRY_CODE;
+    delete process.env.GUPSHUP_TIMEOUT_MS;
+    assert.equal(validarConfiguracaoOtpAmbiente().status, "ready");
+  });
+  assert.equal(fetchMock.mock.callCount(), 0);
+  for (const log of logs) assert.equal(log.mock.callCount(), 0);
+});
+
+const gupshupEnv: Record<string, string | undefined> = {
+  NODE_ENV: "production",
+  KIDMAIS_DEPLOY_ENV: "staging",
+  IDENTIDADE_OTP_PROVIDER: "gupshup",
+  KIDMAIS_STAGING_OTP_DISABLED: undefined,
+  GUPSHUP_OTP_ENABLED: undefined,
+  GUPSHUP_API_KEY: "sk_synthetic_test_key_abcdefghijklmnopqrstuvwxyz",
+  GUPSHUP_SOURCE: "551140028922",
+  GUPSHUP_APP_NAME: "KidmaisManager",
+  GUPSHUP_OTP_TEMPLATE_ID: "f250d578-370b-423c-b60d-6814cd72d00e",
+  GUPSHUP_DEFAULT_COUNTRY_CODE: "55",
+  GUPSHUP_TIMEOUT_MS: "1000",
+};
+
+async function comAmbiente(env: Record<string, string | undefined>, work: () => Promise<void>) {
+  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  try {
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await work();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("Gupshup configurado mas bloqueado valida configuração sem rede ou logs", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => { throw new Error("Rede proibida"); });
+  const logs = ["info", "warn", "error", "log", "debug"].map(method =>
+    t.mock.method(console, method as "info", () => {}));
+  await comAmbiente(gupshupEnv, async () => {
+    assert.deepEqual(validarConfiguracaoOtpAmbiente(), {
+      provider: "gupshup", status: "unavailable", configured: true, enabled: false,
+      reason: "staging_disabled",
+    });
+    await assert.rejects(enviarOtpComAmbiente(delivery), /temporariamente indisponível/);
+    delete process.env.GUPSHUP_API_KEY;
+    assert.throws(validarConfiguracaoOtpAmbiente, /GUPSHUP_API_KEY/);
+    await assert.rejects(enviarOtpComAmbiente(delivery), /GUPSHUP_API_KEY/);
+  });
+  assert.equal(fetchMock.mock.callCount(), 0);
+  for (const log of logs) assert.equal(log.mock.callCount(), 0);
+});
+
+test("seleção por ambiente retorna recibo interno apenas com liberação explícita", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({
+    status: "submitted", messageId: "f27081b2-329f-4e8e-b933-8f3bad50ab76",
+  }), { status: 202 }));
+  await comAmbiente({ ...gupshupEnv, GUPSHUP_OTP_ENABLED: "true" }, async () => {
+    assert.deepEqual(validarConfiguracaoOtpAmbiente(), {
+      provider: "gupshup", status: "ready", configured: true, enabled: true,
+    });
+    assert.deepEqual(await enviarOtpComAmbiente(delivery), {
+      provider: "gupshup", status: "submitted", messageId: "f27081b2-329f-4e8e-b933-8f3bad50ab76",
+    });
+    process.env.KIDMAIS_STAGING_OTP_DISABLED = "SIM";
+    await assert.rejects(enviarOtpComAmbiente(delivery), /temporariamente indisponível/);
+  });
+  assert.equal(fetchMock.mock.callCount(), 1);
+});
+
+test("simulação console de desenvolvimento nunca registra OTP ou destino", async (t) => {
+  const logs = ["info", "warn", "error", "log", "debug"].map(method =>
+    t.mock.method(console, method as "info", () => {})
+  );
+
+  await comAmbiente(
+    {
+      NODE_ENV: "development",
+      KIDMAIS_DEPLOY_ENV: undefined,
+      IDENTIDADE_OTP_PROVIDER: "console",
+    },
+    async () => {
+      assert.equal(await enviarOtpComAmbiente(delivery), undefined);
+    }
+  );
+
+  for (const log of logs) assert.equal(log.mock.callCount(), 0);
+});
+
+test("emissor desabilitado no staging recusa sem registrar o código", async () => {
+  const env = process.env as Record<string, string | undefined>;
+  const keys = [
+    "NODE_ENV",
+    "KIDMAIS_DEPLOY_ENV",
+    "KIDMAIS_STAGING_OTP_DISABLED",
+    "IDENTIDADE_OTP_PROVIDER",
+  ] as const;
+  const anteriores = Object.fromEntries(keys.map((key) => [key, env[key]]));
+  const consoleInfoOriginal = console.info;
+  let logs = 0;
+
+  try {
+    env.NODE_ENV = "production";
+    env.KIDMAIS_DEPLOY_ENV = "staging";
+    env.KIDMAIS_STAGING_OTP_DISABLED = "SIM";
+    env.IDENTIDADE_OTP_PROVIDER = "disabled";
+    console.info = () => { logs += 1; };
+
+    await assert.rejects(
+      enviarOtpComAmbiente(delivery),
+      /temporariamente indisponível/,
+    );
+    assert.equal(logs, 0);
+  } finally {
+    console.info = consoleInfoOriginal;
     for (const key of keys) {
       const value = anteriores[key];
       if (value === undefined) delete env[key];

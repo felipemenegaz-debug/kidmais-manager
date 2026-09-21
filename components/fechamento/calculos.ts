@@ -1,11 +1,10 @@
 import {
   PACOTES,
-  PRECOS_PIZZA_PARTY_SCIENZA,
   PRECOS_TRADICIONAIS_NOBRE,
   PRECOS_TRADICIONAIS_PADRAO,
-} from "./data";
-import { FormaPagamento, PacoteId } from "./types";
-import { calcularCondicaoComercial } from "../../lib/comercial/condicao-pagamento";
+} from "./data.ts";
+import type { FormaPagamento, PacoteId } from "./types.ts";
+import { calcularCondicaoComercial } from "../../lib/comercial/condicao-pagamento.ts";
 
 export function moedaParaNumero(valor: string): number {
   const limpo = valor.replace(/\D/g, "");
@@ -120,14 +119,11 @@ export function precoReferenciaPacote(
   }
 
   if (pacoteId === "compacta") {
-    return 6490;
+    return convidados === 40 ? 6490 : null;
   }
 
   if (pacoteId === "pizza_party_scienza") {
-    const faixa = PRECOS_PIZZA_PARTY_SCIENZA.find(
-      (item) => convidados <= item.ate
-    );
-    return faixa?.valor ?? null;
+    return null;
   }
 
   if (

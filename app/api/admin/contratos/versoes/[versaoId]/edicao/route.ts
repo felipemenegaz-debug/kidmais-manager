@@ -5,7 +5,8 @@ import { z } from 'zod';
 import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
 import { jsonNoStore, apiErrorResponse } from '@/lib/http/api-response';
 import { buscarVersaoPorId } from '@/lib/contratos/repositories';
-import { fontesEdicao, conflito } from '@/lib/contratos/services/administrativo.service';
+import { fontesEdicao, conflito, edicaoDaVersao } from '@/lib/contratos/services/administrativo.service';
+import { fonteDaRevisaoInicial } from '@/lib/contratos/services/revisao-inicial';
 import { calcularResumoComercial, listarPacotesComerciais, listarCatalogoAdicionais } from '@/lib/comercial/services';
 import { consultarDisponibilidadeData } from '@/lib/disponibilidade/services';
 import { adicionaisIncluidos } from '@/lib/fechamentos/services/edicao-administrativa.service';
@@ -20,7 +21,8 @@ export async function GET(request: NextRequest, context: {
         if (!v)
             conflito('Versão não encontrada.');
         const preparada=await fontesPreparacao(v.id);
-        const fonte = preparada ?? await fontesEdicao(v.snapshot.fechamento.id);
+        const somenteRevisao = !preparada && !!(await edicaoDaVersao(v.id))?.origem_versao_id;
+        const fonte = preparada ?? await fonteDaRevisaoInicial(v,await fontesEdicao(v.snapshot.fechamento.id));
         const q = request.nextUrl.searchParams, data = z.string().date().parse(q.get('data') || fonte.fechamento.dataEvento);
         const convidados = z.coerce.number().int().positive().parse(q.get('convidados') || fonte.fechamento.convidados);
         const configuracaoAgendaId = z.string().uuid().parse(q.get('periodo') || fonte.fechamento.configuracaoAgendaId);
@@ -40,7 +42,7 @@ export async function GET(request: NextRequest, context: {
             else
                 throw e;
         }
-        return jsonNoStore({ ok: true, data: { fonte, vinculos, disponibilidade, pacotes, catalogo, resumo, erroPreco, incluidos: adicionaisIncluidos(pacotes.find(p => p.pacote.id === pacoteId)?.pacote.codigo ?? '') } });
+        return jsonNoStore({ ok: true, data: { fonte, somenteRevisao, vinculos, disponibilidade, pacotes, catalogo, resumo, erroPreco, incluidos: adicionaisIncluidos(pacotes.find(p => p.pacote.id === pacoteId)?.pacote.codigo ?? '') } });
     }
     catch (e) {
         return apiErrorResponse(e);

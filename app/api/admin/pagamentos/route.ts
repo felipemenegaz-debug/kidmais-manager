@@ -5,7 +5,7 @@ import {
   obterPagamentoPorFechamento,
 } from "@/lib/pagamentos/services";
 import { erroPagamentoApi } from "@/lib/http/pagamentos-api";
-import { planoPagamentoSchema } from "./schemas";
+import { planoPagamentoSchema, sugestaoPixSchema } from "./schemas";
 import {
   contextoCrmDaRequest,
   exigirApiAdminCrmDisponivel,
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 const criarSchema = z.object({
   fechamentoId: z.string().uuid(),
-  plano: planoPagamentoSchema,
+  plano: z.union([planoPagamentoSchema, sugestaoPixSchema]),
 }).strict();
 
 function noStore(response: NextResponse) {
@@ -63,6 +63,10 @@ export async function POST(request: NextRequest) {
       ...crm,
       origem: "PAGAMENTO_INTERNO_DEV",
     });
+    if ('sugestao' in data) return noStore(NextResponse.json({
+      ok: !data.sugestao.contraproposta, data,
+      ...(data.sugestao.contraproposta ? { codigo: 'CONDICAO_PIX_INVIAVEL', erro: data.sugestao.motivo } : {}),
+    }, { status: data.sugestao.contraproposta ? 422 : 200 }));
     return noStore(NextResponse.json({ ok: true, data }, {
       status: data.reutilizado ? 200 : 201,
     }));

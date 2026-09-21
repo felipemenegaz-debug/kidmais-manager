@@ -13,8 +13,8 @@ module.exports = async function validarModelos({ c, festa, nova, fresh, op, free
   async function documento(vid, codigo, tarifa) {
     const d = (await c.query("SELECT * FROM contrato_documentos WHERE contrato_versao_id=$1 AND categoria='CONTRATO' ORDER BY revisao DESC", [vid])).rows[0];
     assert(d);
-    assert.equal(d.template_codigo, `FESTA_${codigo}_V3`);
-    assert.equal(d.template_versao, 3);
+    assert.equal(d.template_codigo, `FESTA_${codigo}_V4`);
+    assert.equal(d.template_versao, 4);
     assert.equal(crypto.createHash('sha256').update(d.conteudo_pdf).digest('hex'), d.pdf_hash);
     assert((await lerDocumento(d.id)).conteudo_pdf.equals(d.conteudo_pdf));
     const v = await repos.buscarVersaoPorId(vid);

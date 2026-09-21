@@ -19,11 +19,11 @@ async function derive(password: string, salt: Buffer) {
     }
 }
 export function senhaValida(password: string) {
-    return [...password].length >= 15 && [...password].length <= 128 && Buffer.byteLength(password) <= 512;
+    return [...password].length >= 8 && [...password].length <= 128 && Buffer.byteLength(password) <= 512;
 }
 export async function criarHashSenha(password: string) {
     if (!senhaValida(password))
-        throw new Error('A senha deve ter entre 15 e 128 caracteres.');
+        throw new Error('A senha deve ter entre 8 e 128 caracteres.');
     const salt = randomBytes(16);
     const key = await derive(password, salt);
     return `scrypt$v=1$N=131072$r=8$p=1$${salt.toString('base64')}$${key.toString('base64')}`;

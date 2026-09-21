@@ -1,5 +1,6 @@
 import { buscarRevisaoDaVersao } from '../../fechamentos/repositories/revisao.repository';
 import { concluirPreparacao } from '../../fechamentos/services/revisao-operacional.service';
+import { aplicarRevisaoInicial } from './revisao-inicial';
 import { db } from '../../db/postgres';
 import type { DbExecutor } from '../../db/contracts';
 import type { ContratoVersaoRecord } from '../repositories';
@@ -62,6 +63,7 @@ export async function concluirFluxoCliente(tx: DbExecutor, v: ContratoVersaoReco
     }>('SELECT versao_vigente_id FROM contrato_fluxos WHERE contrato_id=$1 FOR UPDATE', [v.contratoId])).rows[0];
     const preparacao=await buscarRevisaoDaVersao(v.id,tx,true);
     if(preparacao)await concluirPreparacao(tx,preparacao,{...context,usuarioId:null,validacaoIdentidadeId:validacaoId});
+    else if(e.dados_fonte.revisaoInicial)await aplicarRevisaoInicial(tx,v,e.dados_fonte.revisaoInicial);
     await registrarPendenciasDaVigencia(tx, v, f.versao_vigente_id);
     await tx.query("UPDATE contrato_edicoes SET estado='CONCLUIDA' WHERE contrato_versao_id=$1", [v.id]);
     await tx.query('UPDATE contrato_fluxos SET versao_vigente_id=$2,versao_em_preparacao_id=NULL WHERE contrato_id=$1', [v.contratoId, v.id]);

@@ -1,0 +1,254 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+import { diagnosticarOrigemRequest, linhaDiagnosticoRecusaOrigemAdmin, origemMutacaoValida, origemRequestValida, type AmbientePoliticaAdmin } from './admin-origin.ts';
+
+const origemPublica = 'https://kidmais-manager-staging.onrender.com';
+const envRender = {
+    ADMIN_AUTH_ORIGIN: origemPublica,
+    KIDMAIS_DEPLOY_ENV: 'staging',
+    NODE_ENV: 'production',
+    RENDER: 'true',
+};
+
+function requestDireta(url: string, headers: Record<string, string> = {}) {
+    const request = new Request(url, { headers });
+    return Object.assign(request, { nextUrl: new URL(request.url) });
+}
+
+function requestRender(headers: Record<string, string> = {}) {
+    return requestDireta('https://localhost:10000/api/admin/autenticacao', headers);
+}
+
+function headersRender(overrides: Record<string, string> = {}): Record<string, string> {
+    return {
+        host: 'kidmais-manager-staging.onrender.com',
+        'x-forwarded-host': 'kidmais-manager-staging.onrender.com',
+        'x-forwarded-proto': 'https',
+        ...overrides,
+    };
+}
+
+function origemRenderValida(headers: Record<string, string>, env: AmbientePoliticaAdmin = envRender, configurada = origemPublica) {
+    return origemRequestValida(requestRender(headers), new URL(configurada), env);
+}
+
+test('local sem proxy preserva comparação direta de nextUrl.origin', () => {
+    assert.equal(
+        origemRequestValida(
+            requestDireta('http://localhost:3000/api/admin/autenticacao'),
+            new URL('http://localhost:3000'),
+            { ADMIN_AUTH_ORIGIN: 'http://localhost:3000', NODE_ENV: 'development' },
+        ),
+        true,
+    );
+    assert.equal(
+        origemRequestValida(
+            requestDireta('http://localhost:3001/api/admin/autenticacao'),
+            new URL('http://localhost:3000'),
+            { ADMIN_AUTH_ORIGIN: 'http://localhost:3000', NODE_ENV: 'development' },
+        ),
+        false,
+    );
+});
+
+test('Render staging aceita proxy válido com Host e X-Forwarded-Host corretos', () => {
+    assert.equal(origemRenderValida(headersRender()), true);
+});
+
+test('Render staging aceita Host correto quando X-Forwarded-Host não existe', () => {
+    const headers = headersRender();
+    delete headers['x-forwarded-host'];
+    assert.equal(origemRenderValida(headers), true);
+});
+
+test('Render staging recusa Host ausente mesmo com X-Forwarded-Host correto', () => {
+    const headers = headersRender();
+    delete headers.host;
+    assert.equal(origemRenderValida(headers), false);
+});
+
+test('Render staging recusa Host forjado mesmo com forwarded-host correto', () => {
+    assert.equal(origemRenderValida(headersRender({ host: 'evil.example' })), false);
+});
+
+test('Render staging recusa X-Forwarded-Host diferente', () => {
+    assert.equal(origemRenderValida(headersRender({ 'x-forwarded-host': 'evil.example' })), false);
+});
+
+test('Render staging recusa X-Forwarded-Host múltiplo', () => {
+    assert.equal(origemRenderValida(headersRender({ 'x-forwarded-host': 'kidmais-manager-staging.onrender.com, evil.example' })), false);
+});
+
+test('Render staging recusa protocolo HTTP', () => {
+    assert.equal(origemRenderValida(headersRender({ 'x-forwarded-proto': 'http' })), false);
+});
+
+test('Render staging recusa X-Forwarded-Proto múltiplo', () => {
+    assert.equal(origemRenderValida(headersRender({ 'x-forwarded-proto': 'https,http' })), false);
+});
+
+test('Render staging recusa headers proxy ausentes', () => {
+    assert.equal(origemRenderValida({}), false);
+    assert.equal(origemRenderValida({ host: 'kidmais-manager-staging.onrender.com' }), false);
+});
+
+test('diagnóstico identifica precisamente as recusas proxy do staging', () => {
+    const diagnosticar = (headers: Record<string, string>, configurada = origemPublica) =>
+        diagnosticarOrigemRequest(requestRender(headers), new URL(configurada), envRender);
+
+    assert.equal(diagnosticar(headersRender(), 'http://kidmais-manager-staging.onrender.com').codigo, 'ADMIN_ORIGIN_INVALID');
+    assert.equal(diagnosticar(headersRender({ 'x-forwarded-proto': '' })).codigo, 'FORWARDED_PROTO_INVALID');
+    assert.equal(diagnosticar(headersRender({ 'x-forwarded-proto': 'https,http' })).codigo, 'MULTIPLE_FORWARDED_PROTOS');
+    assert.equal(diagnosticar({ host: origemPublica.replace('https://', '') }).codigo, 'FORWARDED_PROTO_MISSING');
+    assert.equal(diagnosticar({ 'x-forwarded-proto': 'https' }).codigo, 'HOST_MISSING');
+    assert.equal(diagnosticar(headersRender({ host: 'evil.example' })).codigo, 'HOST_MISMATCH');
+    assert.equal(diagnosticar(headersRender({ host: 'kidmais-manager-staging.onrender.com, evil.example' })).codigo, 'MULTIPLE_HOSTS');
+    assert.equal(diagnosticar(headersRender({ 'x-forwarded-host': 'evil.example' })).codigo, 'FORWARDED_HOST_MISMATCH');
+    assert.equal(diagnosticar(headersRender({ 'x-forwarded-host': 'kidmais-manager-staging.onrender.com, evil.example' })).codigo, 'MULTIPLE_FORWARDED_HOSTS');
+});
+
+test('log temporário expõe somente diagnóstico sanitizado no Render staging recusado', () => {
+    const diagnostico = diagnosticarOrigemRequest(
+        requestRender(headersRender({ host: 'proxy-interno.render.com' })),
+        new URL(origemPublica),
+        envRender,
+    );
+    const linha = linhaDiagnosticoRecusaOrigemAdmin(diagnostico);
+
+    assert.ok(linha);
+    assert.match(linha, /^\[Kidmais Admin Origin\] /);
+    assert.match(linha, /"renderReconhecido":true/);
+    assert.match(linha, /"ambienteDeployReconhecido":true/);
+    assert.match(linha, /"adminOriginValida":true/);
+    assert.match(linha, /"hostPresente":true/);
+    assert.match(linha, /"forwardedHostPresente":true/);
+    assert.match(linha, /"forwardedProtoPresente":true/);
+    assert.match(linha, /"host":"proxy-interno\.render\.com"/);
+    assert.match(linha, /"forwardedHost":"kidmais-manager-staging\.onrender\.com"/);
+    assert.match(linha, /"forwardedProto":"https"/);
+    assert.match(linha, /"codigo":"HOST_MISMATCH"/);
+    assert.doesNotMatch(linha, /cookie|authorization|csrf|database_url|secret|password/i);
+});
+
+test('diagnóstico temporário não gera log fora dos ambientes Render reconhecidos nem em requisição aceita', () => {
+    const aceita = diagnosticarOrigemRequest(requestRender(headersRender()), new URL(origemPublica), envRender);
+    const foraDoRender = diagnosticarOrigemRequest(
+        requestRender(headersRender()),
+        new URL(origemPublica),
+        { ...envRender, RENDER: undefined },
+    );
+    const ambienteDesconhecido = diagnosticarOrigemRequest(
+        requestRender(headersRender()),
+        new URL(origemPublica),
+        { ...envRender, KIDMAIS_DEPLOY_ENV: 'desconhecido' },
+    );
+
+    assert.equal(linhaDiagnosticoRecusaOrigemAdmin(aceita), null);
+    assert.equal(linhaDiagnosticoRecusaOrigemAdmin(foraDoRender), null);
+    assert.equal(linhaDiagnosticoRecusaOrigemAdmin(ambienteDesconhecido), null);
+});
+
+test('Render staging recusa ADMIN_AUTH_ORIGIN HTTP ou localhost', () => {
+    assert.equal(origemRenderValida(headersRender(), envRender, 'http://kidmais-manager-staging.onrender.com'), false);
+    assert.equal(origemRenderValida(headersRender({ host: 'localhost', 'x-forwarded-host': 'localhost' }), envRender, 'https://localhost'), false);
+});
+
+test('sem RENDER a política proxy não é ativada', () => {
+    assert.equal(origemRenderValida(headersRender(), { ...envRender, RENDER: undefined }), false);
+});
+
+test('ambiente Render desconhecido não ativa a política proxy', () => {
+    assert.equal(origemRenderValida(headersRender(), { ...envRender, KIDMAIS_DEPLOY_ENV: 'desconhecido' }), false);
+});
+
+test('POST exige Origin exatamente igual ao configurado', () => {
+    assert.equal(origemMutacaoValida(requestRender(headersRender({ origin: 'https://evil.example' })), origemPublica), false);
+    assert.equal(origemMutacaoValida(requestRender(headersRender({ origin: origemPublica })), origemPublica), true);
+});
+
+const origemProduction = 'https://kidmais-manager-production.onrender.com';
+const envProduction = { ...envRender, KIDMAIS_DEPLOY_ENV: 'production', ADMIN_AUTH_ORIGIN: origemProduction };
+const headersProduction = {
+    host: new URL(origemProduction).host,
+    'x-forwarded-host': new URL(origemProduction).host,
+    'x-forwarded-proto': 'https',
+};
+
+test('Render production aceita origem interna com headers HTTPS públicos válidos', () => {
+    assert.equal(origemRenderValida(headersProduction, envProduction, origemProduction), true);
+    const headers = { ...headersProduction };
+    delete (headers as Record<string, string>)['x-forwarded-host'];
+    assert.equal(origemRenderValida(headers, envProduction, origemProduction), true);
+});
+
+for (const [nome, alteracoes, codigo] of [
+    ['host incorreto', { host: 'evil.example' }, 'HOST_MISMATCH'],
+    ['host ausente', { host: undefined }, 'HOST_MISSING'],
+    ['host vazio', { host: '' }, 'HOST_MISMATCH'],
+    ['host múltiplo', { host: `${headersProduction.host},evil.example` }, 'MULTIPLE_HOSTS'],
+    ['forwarded-host incorreto', { 'x-forwarded-host': 'evil.example' }, 'FORWARDED_HOST_MISMATCH'],
+    ['forwarded-host múltiplo', { 'x-forwarded-host': `${headersProduction.host},evil.example` }, 'MULTIPLE_FORWARDED_HOSTS'],
+    ['proto HTTP', { 'x-forwarded-proto': 'http' }, 'FORWARDED_PROTO_INVALID'],
+    ['proto ausente', { 'x-forwarded-proto': undefined }, 'FORWARDED_PROTO_MISSING'],
+    ['proto vazio', { 'x-forwarded-proto': '' }, 'FORWARDED_PROTO_INVALID'],
+    ['proto múltiplo', { 'x-forwarded-proto': 'https,http' }, 'MULTIPLE_FORWARDED_PROTOS'],
+] as const) {
+    test(`Render production recusa ${nome}`, () => {
+        const headers = Object.fromEntries(
+            Object.entries({ ...headersProduction, ...alteracoes })
+                .filter((entry): entry is [string, string] => entry[1] !== undefined),
+        );
+        const diagnostico = diagnosticarOrigemRequest(requestRender(headers), new URL(origemProduction), envProduction);
+        assert.equal(diagnostico.valido, false);
+        assert.equal(diagnostico.codigo, codigo);
+        assert.ok(linhaDiagnosticoRecusaOrigemAdmin(diagnostico));
+    });
+}
+
+test('Render production recusa origem configurada HTTP ou loopback', () => {
+    for (const origem of ['http://kidmais-manager-production.onrender.com', 'https://localhost', 'https://127.0.0.1', 'https://[::1]']) {
+        const host = new URL(origem).host;
+        const diagnostico = diagnosticarOrigemRequest(
+            requestRender({ ...headersProduction, host, 'x-forwarded-host': host }),
+            new URL(origem),
+            { ...envProduction, ADMIN_AUTH_ORIGIN: origem },
+        );
+        assert.equal(diagnostico.codigo, 'ADMIN_ORIGIN_INVALID');
+        assert.equal(diagnostico.valido, false);
+    }
+});
+
+test('fora da combinação Render e ambiente exatos usa somente origem direta', () => {
+    for (const env of [
+        { ...envProduction, RENDER: undefined },
+        { ...envProduction, RENDER: 'false' },
+        { ...envProduction, RENDER: 'TRUE' },
+        ...[undefined, 'desconhecido', 'Production', 'production '].map(KIDMAIS_DEPLOY_ENV => ({ ...envProduction, KIDMAIS_DEPLOY_ENV })),
+    ]) {
+        assert.equal(origemRenderValida(headersProduction, env, origemProduction), false);
+        assert.equal(origemRequestValida(
+            requestDireta(`${origemProduction}/api/admin/autenticacao`, { 'x-forwarded-proto': 'http', 'x-forwarded-host': 'evil.example' }),
+            new URL(origemProduction), env,
+        ), true);
+    }
+});
+
+test('mutações production exigem Origin exata mesmo com proxy válido', () => {
+    for (const origin of [undefined, 'https://evil.example', `${origemProduction}/`, `${origemProduction},https://evil.example`, 'http://kidmais-manager-production.onrender.com', origemProduction]) {
+        const headers = { ...headersProduction, ...(origin === undefined ? {} : { origin }) };
+        assert.equal(origemRenderValida(headers, envProduction, origemProduction), true);
+        assert.equal(origemMutacaoValida(requestRender(headers), origemProduction), origin === origemProduction);
+    }
+});
+
+test('verificações CSRF permanecem obrigatórias nas rotas administrativas', () => {
+    const route = readFileSync('app/api/admin/autenticacao/route.ts', 'utf8');
+    const guard = readFileSync('lib/http/admin-crm-api.ts', 'utf8');
+    assert.match(guard, /throw authError\('Use a origem administrativa segura configurada\.', 403\)/);
+    assert.match(guard, /throw authError\('Origem da requisição recusada\.', 403\)/);
+    assert.match(route, /request\.cookies\.get\(policy\.csrfCookie\)/);
+    assert.match(route, /request\.headers\.get\('x-csrf-token'\)/);
+    assert.match(guard, /request\.headers\.get\('x-csrf-token'\)/);
+    assert.match(guard, /session\.csrf_hash/);
+});

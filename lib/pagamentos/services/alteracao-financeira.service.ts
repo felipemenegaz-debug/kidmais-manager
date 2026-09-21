@@ -38,6 +38,7 @@ export async function repetirEvento(tx:DbExecutor,pagamentoId:string,chave:strin
 }
 export function conferirPosicao(p:PosicaoFinanceira,hash:string){if(p.posicaoHash!==hash)recusarFinanceiro('POSICAO_FINANCEIRA_ALTERADA','A posição mudou. Atualize e confira novamente.');}
 function pendenciaAtual(p:PosicaoFinanceira,id:string){
+ if(p.contrato.status==='CANCELADO'||p.pagamento.status==='CANCELADO')recusarFinanceiro('PAGAMENTO_CANCELADO','Cobrança encerrada. O acerto do cancelamento exige decisão administrativa.');
  const pend=p.pendencias.find(x=>x.id===id);
  if(!pend)recusarFinanceiro('RECURSO_NAO_ENCONTRADO','Pendência não encontrada.',404);
  if(pend.versao_nova_id!==p.vigente.id)recusarFinanceiro('PENDENCIA_SUPERADA','A versão desta pendência não é mais a vigente.');
@@ -67,6 +68,7 @@ export async function cancelarTratamento(contratoId:string,id:string,motivo:stri
  await registrarEventoFinanceiro(tx,p,s,context,{tipo:'TRATAMENTO_CANCELADO',chave,pedido,tratamentoId:id,pendenciaId:t.pendencia_id,justificativa:motivo,resultado});return{resultado,reutilizado:false};
 });}
 export function simularPosicao(p:PosicaoFinanceira,input:PedidoResolucao,reprogramacao=false){
+ if(p.contrato.status==='CANCELADO'||p.pagamento.status==='CANCELADO')recusarFinanceiro('PAGAMENTO_CANCELADO','Cobrança encerrada não pode ser reprogramada.');
  conferirPosicao(p,input.posicaoHash);
  const alvo=reprogramacao?p.posicao.obrigacao:p.valorVigente;
  const delta=alvo-p.posicao.obrigacao;

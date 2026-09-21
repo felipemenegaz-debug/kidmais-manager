@@ -1,4 +1,5 @@
 import type { DbExecutor } from '../../db/contracts';
+import type { FechamentoRecord } from '../repositories';
 import { calcularResumoComercial } from '../../comercial/services';
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix } from '../../comercial/condicao-pagamento';
 import { consultarDisponibilidadeData } from '../../disponibilidade/services';
@@ -27,6 +28,17 @@ export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFest
     if ((await tx.query(`SELECT 1 FROM contratos c JOIN contrato_versoes v ON v.contrato_id=c.id WHERE c.fechamento_id=$1 AND (v.status='ASSINADA' OR EXISTS(SELECT 1 FROM contrato_assinaturas a WHERE a.contrato_versao_id=v.id)) UNION ALL SELECT 1 FROM pagamentos p JOIN contrato_versoes pv ON pv.id=p.contrato_versao_id JOIN contratos pc ON pc.id=pv.contrato_id WHERE pc.fechamento_id=$1`, [id])).rows.length)
         recusar('Após assinatura, prepare a alteração em uma nova versão pelo painel de Contratos.');
     const anteriorAdicionais = await listarAdicionaisDoFechamento(id, tx);
+    const { fechamento: novo, resumo } = await calcularEdicaoFechamento(f, input, tx);
+    if (input.comercial) await criarAprovacaoNegociacao({ fechamentoId: id, status: 'APROVADO', valorInformado: resumo.valorTotalTabela, valorAprovado: novo.valorAprovado ?? resumo.valorTotalTabela, motivo: input.motivo, aprovadoPorUsuarioId: usuarioId, condicaoPagamento: { ...novo.condicaoPagamento!, valores: calcularCondicaoComercial(novo.valorAprovado ?? resumo.valorTotalTabela, input.comercial.forma) } }, tx);
+    await persistirEdicaoFechamento(tx, novo, resumo);
+    await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, clienteId: f.clienteId, acao: 'ALTERACAO_ADMINISTRATIVA', entidadeTipo: 'FECHAMENTO', entidadeId: id, origem: 'CONTRATO_ADMIN', requestId, dadosAntes: { fechamento: f, adicionais: anteriorAdicionais }, dadosDepois: { fechamento: novo, adicionais: resumo.adicionais.itens, motivo: input.motivo } }, tx);
+    return (await buscarFechamentoPorIdParaAtualizacao(id, tx))!;
+}
+
+/** Calcula uma proposta sem persistir fechamento, itens ou aprovação comercial. */
+export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoFestaInput, tx: DbExecutor) {
+    const input = edicaoFestaSchema.parse(raw);
+    if (input.vinculos) recusar('Troca de vínculos exige preparação operacional pós-assinatura.');
     const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais }, tx);
     if (input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
         recusar('Quantidade abaixo do mínimo do pacote.');
@@ -59,7 +71,6 @@ export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFest
         novo.valorAprovado = novo.valorNegociado;
         novo.status = 'AGUARDANDO_CONTRATO';
         novo.condicaoPagamento = { schemaVersao: 1, forma: com.forma, pretendida: f.condicaoPagamento?.forma === com.forma ? f.condicaoPagamento.pretendida : null, aprovada: condicao, revisaoStatus: 'APROVADA' };
-        await criarAprovacaoNegociacao({ fechamentoId: id, status: 'APROVADO', valorInformado: resumo.valorTotalTabela, valorAprovado: base, motivo: input.motivo, aprovadoPorUsuarioId: usuarioId, condicaoPagamento: { ...novo.condicaoPagamento, valores: calcularCondicaoComercial(base, com.forma) } }, tx);
     }
     else if (resumo.valorTotalTabela !== f.valorTabela && (f.valorNegociado !== null || f.formaPagamentoPretendida === 'PIX_PARCELADO'))
         recusar('O novo preço exige confirmação explícita da negociação/condição comercial nesta edição.');
@@ -73,7 +84,5 @@ novo.buffetLembrancinha = null;
 novo.buffetEmpratado = null;
 novo.buffetBombom = null;
     }
-    await persistirEdicaoFechamento(tx, novo, resumo);
-    await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, clienteId: f.clienteId, acao: 'ALTERACAO_ADMINISTRATIVA', entidadeTipo: 'FECHAMENTO', entidadeId: id, origem: 'CONTRATO_ADMIN', requestId, dadosAntes: { fechamento: f, adicionais: anteriorAdicionais }, dadosDepois: { fechamento: novo, adicionais: resumo.adicionais.itens, motivo: input.motivo } }, tx);
-    return (await buscarFechamentoPorIdParaAtualizacao(id, tx))!;
+    return { fechamento: novo, resumo };
 }
