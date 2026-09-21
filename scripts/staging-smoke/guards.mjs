@@ -28,16 +28,36 @@ export function gitState(root, env = process.env) {
     directory = parent;
   }
   if (!metadata) return { unavailable: true };
-  const git = (...args) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  const git = (...args) => {
+    const output = execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    // Keep porcelain XY columns and path bytes intact; remove only the final EOL.
+    return args[0] === 'status' ? output.replace(/\r?\n$/, '') : output.trim();
+  };
   return readGitMetadata(git);
 }
 
 export function readGitMetadata(git) {
   const state = { branch: git('branch', '--show-current'), head: git('rev-parse', 'HEAD'),
-    staging: git('rev-parse', 'refs/remotes/origin/staging'), dirty: git('status', '--porcelain') };
+    staging: git('rev-parse', 'refs/remotes/origin/staging'), dirty: git('status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none') };
   // Confirm absence via a successful listing; never catch a failed get-url.
   const hasOrigin = git('remote').split(/\r?\n/).includes('origin');
   return { ...state, origin: hasOrigin ? git('remote', 'get-url', 'origin') : null };
+}
+
+export function validateGitRevision(git, commit, env = {}, target = {}) {
+  const render = env.RENDER === 'true' && env.KIDMAIS_DEPLOY_ENV === 'staging'
+    && env.RENDER_SERVICE_ID === 'srv-daif418ae00c73e8k2gg'
+    && env.RENDER_SERVICE_NAME === 'kidmais-manager-staging' && env.RENDER_GIT_BRANCH === 'staging'
+    && /^[a-f0-9]{40}$/.test(commit) && env.RENDER_GIT_COMMIT === commit
+    && target.serviceId === env.RENDER_SERVICE_ID && target.serviceName === env.RENDER_SERVICE_NAME
+    && target.branch === 'staging' && target.origin === 'https://kidmais-manager-staging.onrender.com';
+  const allowedDirty = render && [' M data/disponibilidade.json', 'M  data/disponibilidade.json',
+    'MM data/disponibilidade.json'].includes(git?.dirty);
+  demand(git && /^[a-f0-9]{40}$/.test(commit) && git.head === commit && git.staging === commit
+    && (git.branch === 'staging' || (render && git.branch === ''))
+    && (git.dirty === '' || allowedDirty)
+    && (git.origin === 'https://github.com/felipemenegaz-debug/kidmais-manager.git'
+      || (render && git.origin === null)), 'REVISION_MISMATCH');
 }
 
 export function validate(env, args, git, target) {
@@ -59,9 +79,7 @@ export function validate(env, args, git, target) {
   if (git?.unavailable === true) {
     demand(Object.keys(git).length === 1, 'REVISION_MISMATCH');
   } else {
-    demand(git && args.commit === git.head && git.head === git.staging
-      && git.branch === target.branch && git.dirty === ''
-      && (git.origin === null || git.origin === 'https://github.com/felipemenegaz-debug/kidmais-manager.git'), 'REVISION_MISMATCH');
+    validateGitRevision(git, args.commit, env, target);
   }
   demand(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(args.smokeId)
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(args.contractId), 'INVALID_SMOKE_IDENTIFIERS');

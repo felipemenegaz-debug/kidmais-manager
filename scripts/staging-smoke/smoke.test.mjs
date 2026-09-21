@@ -10,7 +10,7 @@ import http from 'node:http';
 import https from 'node:https';
 import http2 from 'node:http2';
 import net from 'node:net';
-import { gitState, readGitMetadata, validate, validateHealth, validateIdentity, identitySql } from './guards.mjs';
+import { gitState, readGitMetadata, validateGitRevision, validate, validateHealth, validateIdentity, identitySql } from './guards.mjs';
 import { sealNetwork } from './network.mjs';
 import { domainLoader, memoryTransport, composeIdentity } from './loader.mjs';
 import { execute } from './run.mjs';
@@ -53,7 +53,7 @@ test('Render artifact without Git metadata uses exact deploy attestation', () =>
 });
 test('Git metadata reader distinguishes absent origin from failed commands', () => {
   const values = { 'branch --show-current': 'staging', 'rev-parse HEAD': commit,
-    'rev-parse refs/remotes/origin/staging': commit, 'status --porcelain': '',
+    'rev-parse refs/remotes/origin/staging': commit, 'status --porcelain=v1 --untracked-files=all --ignore-submodules=none': '',
     remote: '', 'remote get-url origin': config().git.origin };
   const read = (...args) => { const key = args.join(' '); assert(key in values); return values[key]; };
   const c = config();
@@ -112,12 +112,55 @@ for (const [name, patch] of [
   ['wrong remote', { origin: 'https://example.invalid/other.git' }],
   ['different HEAD', { head: 'b'.repeat(40) }],
   ['different staging ref', { staging: 'b'.repeat(40) }],
-  ['detached checkout', { branch: '' }],
   ['dirty checkout', { dirty: ' M file' }],
   ['mixed fallback and Git evidence', { unavailable: true }],
 ]) test('existing Git rejects ' + name + ' without fallback', () => {
   const c = config(); Object.assign(c.git, patch);
   assert.throws(() => validate(c.env, c.args, c.git, c.target), /REVISION_MISMATCH/);
+});
+test('local Git revision requires staging, clean tree and exact remote; no Render exceptions', () => {
+  const c = config();
+  assert.doesNotThrow(() => validateGitRevision(c.git, commit));
+  for (const patch of [{ dirty: ' M data/disponibilidade.json' }, { branch: '' }, { origin: null }]) {
+    assert.throws(() => validateGitRevision({ ...c.git, ...patch }, commit), /REVISION_MISMATCH/);
+  }
+});
+for (const dirty of ['', ' M data/disponibilidade.json', 'M  data/disponibilidade.json', 'MM data/disponibilidade.json']) {
+  test('attested Render detached checkout permits only exact tracked availability modification: ' + JSON.stringify(dirty), () => {
+    const c = config(); Object.assign(c.git, { branch: '', origin: null, dirty });
+    assert.doesNotThrow(() => validate(c.env, c.args, c.git, c.target));
+  });
+}
+for (const dirty of [
+  ' M data/disponibilidade.json\n M lib/code.ts', '?? data/disponibilidade.json', '?? unexpected.txt',
+  ' M data/disponibilidade.json\n?? unexpected.txt', 'A  data/disponibilidade.json', ' D data/disponibilidade.json',
+  'R  data/old.json -> data/disponibilidade.json', 'T  data/disponibilidade.json', 'UU data/disponibilidade.json',
+  ' M data/disponibilidade.json.backup', ' M data/disponibilidade.json ',
+  ' M app/page.tsx', ' M components/Form.tsx', ' M lib/service.ts', ' M scripts/staging-smoke/run.mjs',
+  ' M .github/workflows/ci.yml', ' M package.json', ' M next.config.ts',
+]) test('Render refuses non-allowlisted status: ' + JSON.stringify(dirty), async () => {
+  const c = config(); Object.assign(c.git, { branch: '', origin: null, dirty }); let calls = 0;
+  await assert.rejects(execute({ ...c, health: async () => { calls++; }, connect: async () => { calls++; } }), /REVISION_MISMATCH/);
+  assert.equal(calls, 0);
+});
+for (const [name, change] of [
+  ['outside Render', c => { c.env.RENDER = 'false'; }],
+  ['wrong environment', c => { c.env.KIDMAIS_DEPLOY_ENV = 'production'; }],
+  ['wrong service ID', c => { c.env.RENDER_SERVICE_ID = 'other'; }],
+  ['wrong service name', c => { c.env.RENDER_SERVICE_NAME = 'other'; }],
+  ['wrong Render branch', c => { c.env.RENDER_GIT_BRANCH = 'main'; }],
+  ['different HEAD', c => { c.git.head = 'b'.repeat(40); }],
+  ['different staging ref', c => { c.git.staging = 'b'.repeat(40); }],
+  ['different expected commit', c => { c.args.commit = 'b'.repeat(40); }],
+  ['different Render commit', c => { c.env.RENDER_GIT_COMMIT = 'b'.repeat(40); }],
+  ['wrong remote', c => { c.git.origin = 'https://example.invalid/other.git'; }],
+  ['wrong target origin', c => { c.target.origin = 'https://example.invalid'; }],
+]) test('Render detached exception rejects ' + name, async () => {
+  const c = config(); Object.assign(c.git, { branch: '', origin: null, dirty: ' M data/disponibilidade.json' });
+  change(c); let calls = 0;
+  assert.throws(() => validateGitRevision(c.git, c.args.commit, c.env, c.target));
+  await assert.rejects(execute({ ...c, health: async () => { calls++; }, connect: async () => { calls++; } }));
+  assert.equal(calls, 0);
 });
 for (const [name, change] of [
   ['production environment', c => { c.env.KIDMAIS_DEPLOY_ENV = 'production'; }],
@@ -144,6 +187,9 @@ for (const [name, change] of [
   assert.equal(calls, 0);
   // All non-Git safety gates must also apply to the artifact mode.
   if (!['main branch', 'dirty checkout'].includes(name)) {
+    Object.assign(c.git, { branch: '', origin: null, dirty: ' M data/disponibilidade.json' });
+    await assert.rejects(execute({ ...c, health: async () => { calls++; }, connect: async () => { calls++; }, domain: () => { calls++; } }));
+    assert.equal(calls, 0);
     c.git = { unavailable: true };
     await assert.rejects(execute({ ...c, health: async () => { calls++; }, connect: async () => { calls++; }, domain: () => { calls++; } }));
     assert.equal(calls, 0);

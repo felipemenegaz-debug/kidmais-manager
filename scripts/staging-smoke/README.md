@@ -32,7 +32,14 @@ Há dois modos de atestação da revisão:
   Exceção exclusiva do runtime Render atestado: se uma listagem Git bem-sucedida
   confirmar a ausência de `origin`, somente sua URL é dispensada. Branch, HEAD,
   origin/staging e working tree devem ter sido lidos com sucesso e continuar
-  coerentes com staging, SHA aprovado e RENDER_GIT_COMMIT. A árvore deve estar limpa.
+  coerentes com staging, SHA aprovado e RENDER_GIT_COMMIT.
+  Nesse mesmo runtime atestado, branch vazia (detached HEAD) é permitida; qualquer
+  branch não vazia deve ser staging. A árvore pode estar limpa ou conter somente
+  modificação do arquivo tracked literal `data/disponibilidade.json` (no índice,
+  working tree ou ambos). Nenhum padrão genérico de caminho é aceito. Untracked,
+  adições, remoções, renomeações, conflitos, mudanças de tipo ou outro arquivo
+  modificado abortam. O status inclui todos os untracked e mudanças de submódulos.
+  Fora desse runtime não há exceção para detached HEAD, dirty ou remote ausente.
   Um remote existente com URL diferente, ou qualquer erro de comando Git, aborta;
   a ausência do remote nunca dispensa os demais metadados nem as atestações Render.
 - **Artifact/runtime Render sem Git:** o artifact pode não conter `.git`.
