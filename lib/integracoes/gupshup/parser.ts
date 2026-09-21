@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { messageIdHash } from './correlacao.ts';
 
 const statuses = ['enqueued', 'failed', 'sent', 'delivered', 'read'] as const;
 type Status = typeof statuses[number];
@@ -83,7 +83,7 @@ export function parseGupshupV2(value: unknown, sensitiveValues: readonly string[
         ...base,
         eventType: value.type,
         status: value.type === 'message' ? 'received' : payload.type as Status,
-        messageIdHash: createHash('sha256').update(payload.id).digest('hex').slice(0, 16),
+        messageIdHash: messageIdHash(payload.id),
         // Inbound source/sender are deliberately omitted. Only a masked destination is logged.
         ...(typeof destination === 'string' && /^\+?\d{8,15}$/.test(destination)
             ? { destinationMasked: `***${destination.slice(-2)}` } : {}),

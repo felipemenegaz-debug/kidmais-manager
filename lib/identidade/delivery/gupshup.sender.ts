@@ -1,4 +1,5 @@
 import type { OtpDelivery, OtpSubmission } from "../services/models.ts";
+import { messageIdHash } from "../../integracoes/gupshup/correlacao.ts";
 
 const GUPSHUP_TEMPLATE_ENDPOINT = "https://api.gupshup.io/wa/api/v1/template/msg";
 const MAX_RESPONSE_BYTES = 16_384;
@@ -219,7 +220,10 @@ export function criarGupshupSender(config: GupshupConfig, fetchImpl: typeof fetc
 
     try {
       // O prazo cobre conexão e leitura do corpo. Uma única submissão, sem retry.
-      return await Promise.race([submit(), deadline]);
+      const submission = await Promise.race([submit(), deadline]);
+      // Só após sucesso dentro do prazo: não registrar resposta bruta, destino ou OTP.
+      console.info(JSON.stringify({ provider: "gupshup", status: "submitted", messageIdHash: messageIdHash(submission.messageId) }));
+      return submission;
     } finally {
       clearTimeout(timeout);
     }

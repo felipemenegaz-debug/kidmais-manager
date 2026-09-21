@@ -19,6 +19,38 @@ function request(body: unknown = event(), headers: Record<string, string> = {}) 
 }
 const receive = (req = request(), config = env) => receiveGupshupWebhook(req, config, () => {});
 
+for (const KIDMAIS_DEPLOY_ENV of ['staging', 'production']) test(`${KIDMAIS_DEPLOY_ENV}: mesmas guardas de secret, HTTPS e envelope`, async () => {
+    const config = { ...env, KIDMAIS_DEPLOY_ENV };
+    assert.equal((await receive(request(), config)).status, 204);
+    for (const GUPSHUP_WEBHOOK_SECRET of ['', 'weak']) assert.equal((await receive(request(), { ...config, GUPSHUP_WEBHOOK_SECRET })).status, 503);
+    assert.equal((await receiveGupshupWebhook(request(), { KIDMAIS_DEPLOY_ENV }, () => assert.fail('Must not log'))).status, 503);
+    assert.equal((await receive(withoutSecret(event()), config)).status, 401);
+    assert.equal((await receive(request(event(), { [SECRET_HEADER]: 'wrong' }), config)).status, 401);
+    assert.equal((await receive(new Request('http://example.invalid/webhook', request()), config)).status, 403);
+    assert.equal((await receive(request(event(), { 'content-type': 'text/plain' }), config)).status, 415);
+    assert.equal((await receive(request(event(), { 'content-encoding': 'gzip' }), config)).status, 415);
+    assert.equal((await receive(request({ ...event(), extra: 'x'.repeat(MAX_BODY_BYTES) }), config)).status, 413);
+});
+
+test('produção aceita somente handshake exato sem header, preservando todas as guardas', async () => {
+    const config = { ...env, KIDMAIS_DEPLOY_ENV: 'production' };
+    const logs: unknown[] = [];
+    assert.equal((await receiveGupshupWebhook(withoutSecret(handshake()), config, entry => logs.push(entry))).status, 204);
+    assert.deepEqual(logs, [{ timestamp: handshake().timestamp, eventType: 'user-event', status: 'sandbox-start' }]);
+    assert.equal((await receive(request(handshake()), config)).status, 204);
+    const reject = async (req: Request, status: number, overrides = config) => {
+        assert.equal((await receiveGupshupWebhook(req, overrides, () => assert.fail('Must not log'))).status, status);
+    };
+    for (const header of ['', 'wrong', `${secret}, ${secret}`]) await reject(request(handshake(), { [SECRET_HEADER]: header }), 401);
+    await reject(withoutSecret(event()), 401);
+    await reject(withoutSecret({ ...handshake(), payload: { type: 'sandbox-start-extra' } }), 401);
+    for (const body of [{ ...handshake(), version: 1 }, { ...handshake(), app: 'Other' }, { ...handshake(), timestamp: -1 }, { ...handshake(), payload: null }]) await reject(withoutSecret(body), 400);
+    await reject(withoutSecret(handshake()), 503, { ...config, GUPSHUP_WEBHOOK_SECRET: '' });
+    await reject(withoutSecret(handshake()), 503, { ...config, KIDMAIS_DEPLOY_ENV: 'local' });
+    await reject(new Request('http://example.invalid/webhook', withoutSecret(handshake())), 403);
+    await reject(withoutSecret({ ...handshake(), extra: 'x'.repeat(MAX_BODY_BYTES) }), 413);
+});
+
 test('secret correto: 204 vazio, no-store, sem sessão/cookie/Origin', async () => {
     const response = await receive();
     assert.equal(response.status, 204);
@@ -36,11 +68,11 @@ for (const value of ['', 'wrong', `${secret}, ${secret}`]) {
     });
 }
 
-test('configuração ausente/fraca e ambiente fora de staging: fail closed', async () => {
+test('configuração ausente/fraca e ambiente não autorizado: fail closed', async () => {
     for (const GUPSHUP_WEBHOOK_SECRET of ['', 'weak', ' '.repeat(32)]) {
         assert.equal((await receive(request(), { ...env, GUPSHUP_WEBHOOK_SECRET })).status, 503);
     }
-    for (const KIDMAIS_DEPLOY_ENV of ['', 'production', 'unknown']) {
+    for (const KIDMAIS_DEPLOY_ENV of ['', 'local', 'unknown', 'Production', 'production ']) {
         assert.equal((await receive(request(), { ...env, KIDMAIS_DEPLOY_ENV })).status, 503);
     }
 });
@@ -135,7 +167,7 @@ test('sandbox-start sem secret também aceita form validado e recusa campos dupl
 });
 
 test('handshake não contorna ambiente, configuração do segredo, HTTPS ou limite de corpo', async () => {
-    assert.equal((await receive(withoutSecret(handshake()), { ...env, KIDMAIS_DEPLOY_ENV: 'production' })).status, 503);
+    assert.equal((await receive(withoutSecret(handshake()), { ...env, KIDMAIS_DEPLOY_ENV: 'local' })).status, 503);
     assert.equal((await receive(withoutSecret(handshake()), { ...env, GUPSHUP_WEBHOOK_SECRET: '' })).status, 503);
     assert.equal((await receive(new Request('http://staging.example/webhook', withoutSecret(handshake())))).status, 403);
     assert.equal((await receive(withoutSecret({ ...handshake(), extra: 'x'.repeat(MAX_BODY_BYTES) }))).status, 413);

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inspect } from "node:util";
+import { createHash } from "node:crypto";
+import { parseGupshupV2 } from "../../integracoes/gupshup/parser.ts";
 
 import type { OtpDelivery } from "../services/models.ts";
 import {
@@ -282,5 +284,11 @@ test("sucesso e falhas nunca registram OTP, telefone, chave, secret ou payload",
   await assert.rejects(criarGupshupSender(config, async () => new Response(sensitive, { status: 401 }))(delivery), safeError("AUTHENTICATION"));
   await assert.rejects(criarGupshupSender(config, async () => { throw new Error(sensitive); })(delivery), safeError("UNAVAILABLE"));
   await assert.rejects(criarGupshupSender(config, async () => new Response(sensitive, { status: 202 }))(delivery), safeError("INVALID_RESPONSE"));
-  assert.equal(spies.reduce((total, spy) => total + spy.mock.callCount(), 0), 0);
+  assert.equal(spies.reduce((total, spy) => total + spy.mock.callCount(), 0), 1);
+  const output = spies.flatMap(spy => spy.mock.calls.map(call => call.arguments));
+  const log = JSON.parse(String(output[0][0]));
+  assert.deepEqual(log, { provider: "gupshup", status: "submitted", messageIdHash: createHash('sha256').update('gupshup-message-id').digest('hex').slice(0, 16) });
+  const event = parseGupshupV2({ app: 'KidmaisManager', version: 2, timestamp: 1789550000000, type: 'message-event', payload: { id: 'gupshup-message-id', type: 'delivered', destination: '5511999998888' } });
+  assert.equal(log.messageIdHash, event?.messageIdHash);
+  for (const value of ['gupshup-message-id', 'raw-payload-synthetic', config.apiKey, config.source, delivery.codigo, delivery.destino, '5511999998888', 'webhook-secret-synthetic', 'access-token-synthetic']) assert.ok(!JSON.stringify(output).includes(value));
 });

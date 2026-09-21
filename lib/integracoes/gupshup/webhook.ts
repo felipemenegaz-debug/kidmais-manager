@@ -57,9 +57,9 @@ export async function receiveGupshupWebhook(
 ): Promise<Response> {
     if (request.method !== 'POST') return response(405);
     const secret = env.GUPSHUP_WEBHOOK_SECRET;
-    if (env.KIDMAIS_DEPLOY_ENV !== 'staging' || !secret || !/^[\x21-\x7e]{32,1024}$/.test(secret)
+    if (!['staging', 'production'].includes(env.KIDMAIS_DEPLOY_ENV ?? '') || !secret || !/^[\x21-\x7e]{32,1024}$/.test(secret)
         || secret.includes(',')) return response(503);
-    // Forwarded proto is trusted only behind Render, with staging already checked above.
+    // Forwarded proto is trusted only behind Render, with the deployment environment checked above.
     const https = env.RENDER === 'true'
         ? request.headers.get('x-forwarded-proto') === 'https'
         : new URL(request.url).protocol === 'https:';
@@ -78,7 +78,8 @@ export async function receiveGupshupWebhook(
         return response(error instanceof BodyError ? error.status : 400);
     }
     if (!event) return response(400);
-    // Only the exact handshake, after full envelope validation, may omit the header.
+    // Callback setup may send sandbox-start without custom headers. Only this fully
+    // validated handshake may omit the header in either explicitly allowed environment.
     if (receivedSecret === null && !(event.eventType === 'user-event' && event.status === 'sandbox-start')) {
         return response(401);
     }
