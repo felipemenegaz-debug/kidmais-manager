@@ -93,7 +93,10 @@ do processo; isolamento de credenciais, permissões e revisão continuam necess�
 
 Preparar pela aplicação, em tarefa autorizada, um novo fluxo com UUID v4 exclusivo:
 
-- Nome do cliente e observações da equipe: `SMOKE-STAGING-<UUID>`.
+- Nome do cliente: `SMOKE-STAGING-<UUID>`.
+- Observações da equipe não identificam o fixture: devem ser iguais no Fechamento
+  e no snapshot. Campo opcional: `null` e string vazia são equivalentes; texto
+  não vazio deve coincidir exatamente, sem normalização de espaços.
 - E-mail: prefixo em minúsculas seguido de `@example.invalid`.
 - Telefone e WhatsApp sintéticos: `11900000000`; CPF fictício válido, nunca de pessoa real.
 - Aniversariante: `SMOKE-STAGING-<UUID>-ANIVERSARIANTE`.

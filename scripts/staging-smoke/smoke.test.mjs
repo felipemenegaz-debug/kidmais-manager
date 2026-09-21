@@ -274,6 +274,39 @@ test('wrong identity/code and document hash are rejected by real domain', async 
   assert.equal(f.state.signatures.length, 1); assert.equal(f.state.parties.length, 0);
 });
 
+test('fixture notes accept matching non-marker text and equivalent optional empty values', async () => {
+  const r = await fixture(root, config().env, smokeId).read();
+  for (const [persisted, frozen] of [['Atendimento ficticio administrativo', 'Atendimento ficticio administrativo'],
+    ['', ''], [null, null], [null, ''], ['', null]]) {
+    const row = structuredClone(r);
+    row.observacoes_equipe = persisted; row.snapshot.contratacao.observacoesEquipe = frozen;
+    assert.equal(validateFixture(row, smokeId), false);
+  }
+});
+
+test('fixture notes reject divergence, invalid types and missing snapshot field', async () => {
+  const r = await fixture(root, config().env, smokeId).read();
+  for (const [persisted, frozen] of [['A', 'B'], ['A', 'A '], [null, 'A'], ['A', ''],
+    [0, 0], [false, false], [undefined, undefined]]) {
+    const row = structuredClone(r);
+    row.observacoes_equipe = persisted; row.snapshot.contratacao.observacoesEquipe = frozen;
+    assert.throws(() => validateFixture(row, smokeId), /FIXTURE_NOTES_MISMATCH/);
+  }
+});
+
+test('all other synthetic markers, links and premature formalization remain guarded', async () => {
+  const r = await fixture(root, config().env, smokeId).read();
+  r.observacoes_equipe = ''; r.snapshot.contratacao.observacoesEquipe = null;
+  for (const field of ['nome_completo', 'email', 'telefone', 'whatsapp', 'aniversariante',
+    'logradouro', 'numero', 'bairro', 'cidade', 'uf', 'cep', 'cliente_id', 'fechamento_id']) {
+    assert.throws(() => validateFixture({ ...r, [field]: 'divergent' }, smokeId));
+  }
+  for (const patch of [{ versoes: 2 }, { assinaturas: [] }, { festas: [{ id: 'premature' }] },
+    { ocupacoes: 1 }, { eventos: 1 }]) {
+    assert.throws(() => validateFixture({ ...r, ...patch }, smokeId));
+  }
+});
+
 test('unmarked customer, foreign signed flow and missing Kidmais signature refused', async () => {
   const f = fixture(root, config().env, smokeId), r = await f.read();
   for (const patch of [{ email: 'real@example.com' }, { nome_completo: 'Other' }, { assinaturas: [] }, { observacoes_equipe: '' }]) assert.throws(() => validateFixture({ ...r, ...patch }, smokeId));

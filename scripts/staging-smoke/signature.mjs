@@ -32,7 +32,7 @@ export function validateFixture(row, smokeId) {
   const prefix = marker(smokeId), expectedEmail = `${prefix.toLowerCase()}@example.invalid`;
   demand(row.versoes === 1 && row.nome_completo === prefix && row.email === expectedEmail
     && row.whatsapp === '11900000000' && row.telefone === '11900000000'
-    && row.aniversariante === `${prefix}-ANIVERSARIANTE` && row.observacoes_equipe === prefix
+    && row.aniversariante === `${prefix}-ANIVERSARIANTE`
     && row.logradouro === 'Rua Ficticia Smoke' && row.numero === '1' && row.bairro === 'Bairro Ficticio'
     && row.cidade === 'Cidade Ficticia' && row.uf === 'SP' && row.cep === '00000000', 'SYNTHETIC_FIXTURE_REQUIRED');
   const s = row.snapshot;
@@ -40,7 +40,11 @@ export function validateFixture(row, smokeId) {
     && s.contratante.nomeCompleto === prefix && s.contratante.cpf === row.cpf
     && s.contratante.email === expectedEmail && s.contratante.whatsapp === row.whatsapp
     && s.contratante.telefone === row.telefone && s.aniversariante?.nome === row.aniversariante
-    && s.contratacao?.observacoesEquipe === prefix && !s.responsavelAdicional, 'SYNTHETIC_SNAPSHOT_REQUIRED');
+    && s.contratacao && !s.responsavelAdicional, 'SYNTHETIC_SNAPSHOT_REQUIRED');
+  // Optional notes are not an identity marker; only null and empty are equivalent.
+  const notes = [row.observacoes_equipe, s.contratacao.observacoesEquipe];
+  demand(notes.every(value => value === null || typeof value === 'string')
+    && (notes[0] ?? '') === (notes[1] ?? ''), 'FIXTURE_NOTES_MISMATCH');
   demand(['logradouro', 'numero', 'bairro', 'cidade', 'uf', 'cep'].every(k => s.contratante.endereco?.[k] === row[k])
     && !s.contratante.endereco?.complemento && !s.contratante.rg, 'SYNTHETIC_ADDRESS_REQUIRED');
   demand(row.assinaturas?.filter(a => a.parte === 'KIDMAIS').length === 1
