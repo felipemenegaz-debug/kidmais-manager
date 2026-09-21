@@ -1,15 +1,18 @@
 'use client';
 import { useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { planoExplicito, pretensaoInicial, enviarPlanoInicial, type ContextoCriacao, type PedidoInicial, type SugestaoInicial } from './criacao-financeira';
+import { condicaoDoPlano, erroCondicaoComercial, planoExplicito, pretensaoInicial, enviarPlanoInicial, type ContextoCriacao, type PedidoInicial, type SugestaoInicial } from './criacao-financeira';
 import type { PlanoPagamentoInput } from '@/lib/pagamentos/services/models';
 import styles from './financeiro.module.css';
 
 const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
 type Revisao = { plano: PlanoPagamentoInput; pedido: PedidoInicial; sugestao?: SugestaoInicial };
 export default function CriarPlanoFinanceiro({ contexto, onCreated }: { contexto: ContextoCriacao | null; onCreated: () => Promise<void> }) {
-  const [aberto, setAberto] = useState(false), [meio, setMeio] = useState<'PIX' | 'CARTAO'>('PIX');
-  const [modalidade, setModalidade] = useState<'AVISTA' | 'PARCELADO'>('AVISTA');
+  const condicao = condicaoDoPlano(contexto?.forma ?? '');
+  const meio = condicao?.meio ?? 'PIX';
+  const [aberto, setAberto] = useState(false);
+  const [modalidadeCartao, setModalidade] = useState<'AVISTA' | 'PARCELADO'>('AVISTA');
+  const modalidade = condicao?.meio === 'CARTAO' ? modalidadeCartao : condicao?.modalidades[0] ?? 'AVISTA';
   const [linhas, setLinhas] = useState([{ valor: '', vencimento: '' }]);
   const [entrada, setEntrada] = useState(''), [quantidade, setQuantidade] = useState(''), [pretendido, setPretendido] = useState('');
   const [revisao, setRevisao] = useState<Revisao | null>(null), [erro, setErro] = useState('');
@@ -27,7 +30,7 @@ export default function CriarPlanoFinanceiro({ contexto, onCreated }: { contexto
     const identidade = JSON.stringify([contexto, pedido]);
     let chave = chaves.current.get(identidade);
     if (!chave) { chave = crypto.randomUUID(); chaves.current.set(identidade, chave); }
-    return enviarPlanoInicial(adminFetch, contexto!.fechamentoId, pedido, chave);
+    return enviarPlanoInicial(adminFetch, contexto!, pedido, chave);
   }
   async function conferir() {
     if (!contexto) return;
@@ -55,12 +58,13 @@ export default function CriarPlanoFinanceiro({ contexto, onCreated }: { contexto
     {erro && <p role="alert" className={styles.error}>{erro}</p>}
     {criado ? <><p role="status">Plano criado. Nenhum recebimento foi registrado.</p><button disabled={busy} onClick={() => executar(onCreated)}>Carregar posição financeira</button></> : <>
       <p>Nenhum plano financeiro foi criado para esta contratação.</p>
-      {!contexto ? <p>É necessário concluir as assinaturas da versão vigente para criar o plano financeiro.</p> : <>
+      {!contexto ? <p>É necessário concluir as assinaturas da versão vigente para criar o plano financeiro.</p> : !condicao ? <p role="alert">{erroCondicaoComercial}</p> : <>
         <p>Versão vigente: <strong>V{contexto.numeroVersao}</strong> · Valor contratual vigente: <strong>{moeda(contexto.valor)}</strong> · Data da Festa: {contexto.dataFesta.split('-').reverse().join('/')}</p>
         {!aberto ? <button onClick={() => setAberto(true)}>Criar plano financeiro</button> : <form onSubmit={e => { e.preventDefault(); void executar(conferir); }}>
           <fieldset disabled={busy} className={styles.wizard}><legend>Condição financeira</legend>
-            <label>Meio de pagamento<select value={meio} onChange={e => mudar(() => setMeio(e.target.value as typeof meio))}><option value="PIX">PIX</option><option value="CARTAO">Cartão</option></select></label>
-            <label>Modalidade<select value={modalidade} onChange={e => mudar(() => { setModalidade(e.target.value as typeof modalidade); setLinhas([{ valor: '', vencimento: '' }]); })}><option value="AVISTA">À vista</option><option value="PARCELADO">Parcelado</option></select></label>
+            <label>Meio de pagamento<input readOnly value={meio === 'PIX' ? 'PIX' : 'Cartão'}/></label>
+            <label>Modalidade{meio === 'CARTAO' ? <select value={modalidade} onChange={e => mudar(() => { setModalidade(e.target.value as typeof modalidade); setLinhas([{ valor: '', vencimento: '' }]); })}><option value="AVISTA">À vista</option><option value="PARCELADO">Parcelado</option></select> : <input readOnly value={modalidade === 'AVISTA' ? 'À vista' : 'Parcelado'}/>}</label>
+            <p>A forma de pagamento foi definida no contrato assinado. Para alterá-la, é necessário criar uma nova revisão contratual.</p>
             <p>O valor vigente já incorpora a condição comercial. Nenhum desconto será reaplicado e criar o plano não significa receber o pagamento.</p>
             {meio === 'CARTAO' && <p>Parcelamento na operadora não cria parcelas contratuais automaticamente. Use À vista para uma cobrança integral e depois Registrar recebimento → CARTAO. Parcelado controla obrigações próprias da Kidmais, de 2 a 60 parcelas.</p>}
             {automatico ? <>

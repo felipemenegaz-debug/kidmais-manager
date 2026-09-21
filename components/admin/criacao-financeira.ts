@@ -7,6 +7,19 @@ export type ContextoCriacao = {
   fechamentoId: string; versaoId: string; numeroVersao: number;
   valor: number; dataFesta: string; forma: string;
 };
+export const erroCondicaoComercial = 'A forma de pagamento do plano deve respeitar a condição comercial da versão contratual vigente. Para alterá-la, crie uma revisão contratual.';
+export function condicaoDoPlano(forma: string) {
+  switch (forma) {
+    case 'PIX_AVISTA': return { meio: 'PIX' as const, modalidades: ['AVISTA'] as const };
+    case 'PIX_PARCELADO': return { meio: 'PIX' as const, modalidades: ['PARCELADO'] as const };
+    case 'CARTAO_CIELO': return { meio: 'CARTAO' as const, modalidades: ['AVISTA', 'PARCELADO'] as const };
+    default: return null;
+  }
+}
+export function validarCondicaoComercial(contexto: ContextoCriacao, meio: string, modalidade: string) {
+  const condicao = condicaoDoPlano(contexto.forma);
+  if (!condicao || meio !== condicao.meio || !condicao.modalidades.some(item => item === modalidade)) throw Error(erroCondicaoComercial);
+}
 export function contextoCriacao(painel: {
   contrato: { status: string; fechamento_id: string; versao_atual: number };
   fluxo: { versao_vigente_id: string | null } | null;
@@ -26,6 +39,7 @@ export function valorDigitado(texto: string) {
   return Number(texto.trim().replace(',', '.'));
 }
 export function planoExplicito(contexto: ContextoCriacao, meioPagamento: 'PIX' | 'CARTAO', modalidade: 'AVISTA' | 'PARCELADO', linhas: Array<{ valor: string; vencimento: string }>): PlanoPagamentoInput {
+  validarCondicaoComercial(contexto, meioPagamento, modalidade);
   const parcelas = linhas.map((linha, i) => ({ valor: modalidade === 'AVISTA' ? contexto.valor : valorDigitado(linha.valor), vencimento: linha.vencimento, confirmaReserva: i === 0 }));
   const plano = { meioPagamento, modalidade, parcelas };
   validarPlanoPagamento(contexto.valor, plano, contexto.dataFesta);
@@ -42,10 +56,11 @@ export type SugestaoInicial = SugestaoPix & { hash: string };
 export type PedidoInicial = PlanoPagamentoInput | ReturnType<typeof pretensaoInicial> & {
   confirmacao?: { dataReferencia: string; hash: string };
 };
-export async function enviarPlanoInicial(fetcher: typeof fetch, fechamentoId: string, plano: PedidoInicial, chave: string) {
+export async function enviarPlanoInicial(fetcher: typeof fetch, contexto: ContextoCriacao, plano: PedidoInicial, chave: string) {
+  validarCondicaoComercial(contexto, plano.meioPagamento, plano.modalidade);
   const response = await fetcher('/api/admin/pagamentos', { method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': chave },
-    body: JSON.stringify({ fechamentoId, plano }) });
+    body: JSON.stringify({ fechamentoId: contexto.fechamentoId, plano }) });
   const body = await response.json();
   // A contraproposta 422 também é uma prévia, nunca uma criação bem-sucedida.
   if (body.data?.exigeConfirmacao && body.data?.sugestao && (response.ok || body.codigo === 'CONDICAO_PIX_INVIAVEL')) {
