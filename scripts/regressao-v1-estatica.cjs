@@ -31,6 +31,7 @@ const testes = ["app", "components", "lib"]
   .sort();
 
 executar("Testes unitários V1", ["--experimental-strip-types", "--test", ...testes]);
+executar("Harness staging — somente mocks, sem rede/banco", ["--test", "scripts/staging-smoke/smoke.test.mjs"]);
 executar("Lint", [
   path.join(path.dirname(require.resolve("eslint/package.json")), "bin", "eslint.js"),
   ".",

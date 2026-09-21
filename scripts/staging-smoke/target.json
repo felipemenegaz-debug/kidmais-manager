@@ -1,0 +1,9 @@
+{
+  "serviceId": "srv-daif418ae00c73e8k2gg",
+  "serviceName": "kidmais-manager-staging",
+  "origin": "https://kidmais-manager-staging.onrender.com",
+  "branch": "staging",
+  "databaseServiceName": "kidmais-staging",
+  "database": "kidmais_staging_1z91",
+  "hosts": ["dpg-daidko3m8hqs73ce4jt0-a"]
+}
