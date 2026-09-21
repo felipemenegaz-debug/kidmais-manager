@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { erroConvidadosFechamento } from '../fechamentos/convidados.ts';
 import {
   pacoteCodigoContratavelV1,
   pacoteIdContratavelV1,
@@ -38,7 +39,9 @@ test("catálogo público lista os sete e a API valida o código antes de qualque
 
   assert.match(wizard, /PACOTES_FECHAMENTO_V1\.map/);
   assert.match(wizard, /O Pizza Party está sob consulta/);
-  assert.match(wizard, /Festa Compacta possui valor automático somente para 40 convidados/);
+  assert.match(wizard, /erroConvidadosFechamento\(convidados, pacote\)/);
+  assert.match(erroConvidadosFechamento(41, { id: 'compacta', nome: 'Compacta', minPagantes: 40, maxPagantes: 150 })!, /Festa Compacta possui valor automático somente para 40 convidados/);
+  assert.equal(erroConvidadosFechamento(40, { id: 'compacta', nome: 'Compacta', minPagantes: 40, maxPagantes: 150 }), null);
   assert.match(admin, /PACOTES\.map/);
   assert(
     route.indexOf("if (!pacoteIdContratavelV1") <

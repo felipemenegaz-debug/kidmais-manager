@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ATALHOS_CONVIDADOS } from '@/lib/fechamentos/convidados';
+import { ATALHOS_CONVIDADOS, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import { centavosComerciais, validarPretensaoPix } from "@/lib/comercial/condicao-pagamento";
 import CalendarioDisponibilidade from "./CalendarioDisponibilidade";
 import KidmaisBrand from "@/components/layout/KidmaisBrand";
@@ -881,30 +881,8 @@ export default function FechamentoWizard() {
     }
 
     if (etapa === 2) {
-      if (!form.convidadosPagantes) {
-        setErro("Informe a quantidade de convidados pagantes.");
-        return false;
-      }
-      if (convidados > 150) {
-        setErro("A Kidmais atende no máximo 150 convidados neste fechamento.");
-        return false;
-      }
-      if (pacote && convidados > pacote.maxPagantes) {
-        setErro(
-          `${pacote.nome} atende até ${pacote.maxPagantes} convidados neste pacote.`
-        );
-        return false;
-      }
-      if (pacote && convidados < pacote.minPagantes) {
-        setErro(
-          `${pacote.nome} possui mínimo de ${pacote.minPagantes} pagantes.`
-        );
-        return false;
-      }
-      if (form.pacote === "compacta" && convidados !== 40) {
-        setErro("A Festa Compacta possui valor automático somente para 40 convidados. Para outra quantidade, consulte a equipe Kidmais.");
-        return false;
-      }
+      const mensagem = erroConvidadosFechamento(convidados, pacote);
+      if (mensagem) { setErro(mensagem); return false; }
     }
 
     if (etapa === 5) {

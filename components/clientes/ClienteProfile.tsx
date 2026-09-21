@@ -174,7 +174,7 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
           </div>
           <div className={styles.headerActions}>
             <Link className={styles.secondaryButton} href={`/clientes/${cliente.id}/editar`}>Editar cliente</Link>
-            <Link className={styles.primaryButton} href="/fechamento?origem=ATENDIMENTO_KIDMAIS&contexto=ADMIN">+ Iniciar fechamento</Link>
+            <Link className={styles.primaryButton} href={`/admin/clientes/${clienteId}/fechamento`}>+ Iniciar fechamento</Link>
           </div>
         </section>
 
@@ -291,7 +291,7 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
           <section className={styles.eventsSection}>
             <div className={styles.sectionHeader}>
               <div><h2>Festas e fechamentos</h2><p>Acompanhe processos em andamento e histórico da família.</p></div>
-              <Link className={styles.primaryButton} href="/fechamento?origem=ATENDIMENTO_KIDMAIS&contexto=ADMIN">+ Iniciar fechamento</Link>
+              <Link className={styles.primaryButton} href={`/admin/clientes/${clienteId}/fechamento`}>+ Iniciar fechamento</Link>
             </div>
             <h3>Em contratação</h3>
             <Contratacoes key={cliente.id} clienteId={cliente.id}/>
