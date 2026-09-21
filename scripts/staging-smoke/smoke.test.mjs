@@ -10,6 +10,8 @@ import http from 'node:http';
 import https from 'node:https';
 import http2 from 'node:http2';
 import net from 'node:net';
+import tls from 'node:tls';
+import dgram from 'node:dgram';
 import { gitState, readGitMetadata, validateGitRevision, validate, validateHealth, validateIdentity, identitySql } from './guards.mjs';
 import { sealNetwork } from './network.mjs';
 import { domainLoader, memoryTransport, composeIdentity } from './loader.mjs';
@@ -217,11 +219,38 @@ test('remote health must attest disabled OTP; physical TLS/database/role checked
   }
 });
 
+test('pinned TCP and internal TLS require a socket authorized by this seal, without network calls', () => {
+  const host = config().target.hosts[0], originalConnect = net.Socket.prototype.connect, originalTls = tls.connect;
+  let tcpCalls = 0, tlsCalls = 0;
+  net.Socket.prototype.connect = function () { tcpCalls++; return this; };
+  tls.connect = options => { tlsCalls++; return options.socket; };
+  const restore = sealNetwork(host);
+  try {
+    const socket = new net.Socket();
+    assert.equal(socket.connect(5432, host), socket);
+    const options = { socket, servername: host, rejectUnauthorized: false };
+    assert.equal(tls.connect(options), socket);
+    for (const input of [{ host: 'other.invalid', port: 5432 }, { host, port: 443 },
+      { host, port: 5432, path: '/tmp/postgres' }, { host, port: 5432, path: '' }]) {
+      assert.throws(() => new net.Socket().connect(input), /FORBIDDEN/);
+    }
+    assert.throws(() => new net.Socket().connect('/tmp/postgres'), /FORBIDDEN/);
+    for (const patch of [{ servername: 'other.invalid' }, { socket: new net.Socket() },
+      { socket: undefined }, { rejectUnauthorized: true }, { rejectUnauthorized: undefined }]) {
+      assert.throws(() => tls.connect({ ...options, ...patch }), /FORBIDDEN/);
+    }
+    assert.throws(() => tls.connect(), /FORBIDDEN/);
+    assert.equal(tcpCalls, 1); assert.equal(tlsCalls, 1);
+  } finally { restore(); net.Socket.prototype.connect = originalConnect; tls.connect = originalTls; }
+});
+
 test('all provider egress and arbitrary TCP blocked without performing network calls', () => {
   const restore = sealNetwork(config().target.hosts[0]);
   try {
     for (const invoke of [() => fetch('https://example.invalid'), () => http.get('http://example.invalid'),
       () => https.request('https://example.invalid'), () => http2.connect('https://example.invalid'),
+      () => http.request('http://example.invalid'), () => https.get('https://example.invalid'),
+      () => dgram.createSocket('udp4'), () => dgram.createSocket('udp6'),
       () => new net.Socket().connect(443, 'example.invalid')]) assert.throws(invoke, /FORBIDDEN/);
   } finally { restore(); }
 });
