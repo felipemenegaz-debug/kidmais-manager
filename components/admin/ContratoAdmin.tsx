@@ -10,6 +10,8 @@ import Link from 'next/link';
 import { retornoFestaSeguro } from '@/lib/festas/apresentacao';
 import EdicaoFesta from './EdicaoFesta';
 import FinanceiroContrato from './FinanceiroContrato';
+import CriarPlanoFinanceiro from './CriarPlanoFinanceiro';
+import { contextoCriacao } from './criacao-financeira';
 import { contratoApresentacao, type ContextoContrato } from './financeiro-apresentacao';
 type Versao = {
     id: string;
@@ -39,6 +41,8 @@ type Painel = {
     financeiro:Array<{id:string;contrato_versao_id:string;valor_total_contratado:string;status:string}>;
     pendencias:Array<{id:string;motivo:string;versao_nova_id:string}>;
     contrato: {
+        fechamento_id: string;
+        versao_atual: number;
         id: string;
         status: string;
     };
@@ -193,7 +197,7 @@ export default function ContratoAdmin() {
  {v.estado_edicao === 'AGUARDANDO_CLIENTE' && <p><a href={`/contrato/${cid}`} target="_blank" rel="noreferrer">Abrir acesso público do cliente</a></p>}
  <h2>Assinaturas e comprovantes</h2>{signatures.map(s => <p key={s.id}>{s.parte}: {s.identidade_snapshot.nome} · {new Date(s.assinado_em).toLocaleString('pt-BR')} · <a target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Comprovante</a></p>)}
  {v.documento_revisado_id && <a target="_blank" rel="noreferrer" href={`/admin/contratos/imprimir?contratoId=${cid}&versaoId=${vid}`}>Imprimir contrato completo — V{v.numero_versao}</a>}
- <section id="financeiro" tabIndex={-1} aria-label="Financeiro" className={`${styles.anchor} ${destino==='#financeiro'?styles.financialAnchor:''}`}>{data.financeiro.length?<FinanceiroContrato key={`${cid}:${data.fluxo?.versao_vigente_id}`} contratoId={cid} onReady={financeiroCarregado}/>:<><h2>Financeiro</h2><p>Nenhum Pagamento criado para este Fechamento.</p></>}</section>
+ <section id="financeiro" tabIndex={-1} aria-label="Financeiro" className={`${styles.anchor} ${destino==='#financeiro'?styles.financialAnchor:''}`}>{data.financeiro.length?<FinanceiroContrato key={`${cid}:${data.fluxo?.versao_vigente_id}`} contratoId={cid} onReady={financeiroCarregado}/>:<CriarPlanoFinanceiro key={financeiroKey} contexto={contextoCriacao(data)} onCreated={async()=>{await load(cid,vid);window.location.hash='financeiro';}}/>}</section>
  
  </>}
  </main>;
