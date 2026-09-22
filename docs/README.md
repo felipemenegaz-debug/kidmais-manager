@@ -10,6 +10,8 @@ Esta pasta é a fonte oficial de documentação funcional, arquitetural e de pro
 5. [04 — Segurança e Auditoria](./04-SEGURANCA-E-AUDITORIA.md)
 6. [05 — Operação e Produção](./05-OPERACAO-E-PRODUCAO.md)
 7. [06 — Changelog Funcional](./06-CHANGELOG-FUNCIONAL.md)
+8. [07 — Fluxo de Trabalho](./07-FLUXO-DE-TRABALHO.md)
+9. [08 — IA, Agentes, Skills e Harness](./08-IA-AGENTES-SKILLS-HARNESS.md)
 
 ## Documentação por módulo
 - [Clientes / CRM](./modulos/CLIENTES-CRM.md)
