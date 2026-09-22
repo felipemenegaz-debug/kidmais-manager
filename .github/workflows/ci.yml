@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - main
+      - "docs/**"
+      - "saas/**"
+      - "feature/**"
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Regressao V1 estatica
+        run: npm run check:v1:static
