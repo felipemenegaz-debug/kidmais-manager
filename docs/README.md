@@ -29,6 +29,11 @@ Esta pasta é a fonte oficial de documentação funcional, arquitetural e de pro
 - [Permissões](./arquitetura/PERMISSOES.md)
 - [ADRs](./arquitetura/ADR/)
 
+## Baseline e sanitização
+
+- [Baseline histórico V1 pós-019 — linhagem, manifesto e limites](./baseline/V1-POST-019.md)
+- [Sanitizador V1 pós-019 — perfil, políticas e limites B5B](./baseline/V1-POST-019-SANITIZATION.md)
+
 ## Regra de governança
 A documentação em `docs/` é a fonte oficial para regras vigentes. Conversas, PDFs e documentos antigos servem como histórico ou material de apoio.
 

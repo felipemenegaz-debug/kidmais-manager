@@ -1,5 +1,11 @@
 # Regressão V1 no clone sanitizado
 
+> Aviso B5B-1: roteiro histórico, não certificado de sanitização. A auditoria B4
+> encontrou o clone-evidência pós-019 com dados operacionais remanescentes.
+> O novo sanitizador recusa absolutamente `kidmais_v1_homologacao` e
+> `kidmais_manager`. Não executar os comandos legados abaixo como parte da B5B.
+> Ver [perfil e processo pós-019](docs/baseline/V1-POST-019-SANITIZATION.md).
+
 Este roteiro aceita exclusivamente um PostgreSQL local chamado
 `kidmais_v1_homologacao`. Ele não lê `.env.local` e não usa `DATABASE_URL` como
 origem da conexão.
@@ -12,9 +18,11 @@ origem da conexão.
 - host `localhost`, loopback IPv4 ou IPv6;
 - nome físico exatamente `kidmais_v1_homologacao`.
 
-Depois de conectar, o executor confere novamente o nome e o endereço informados
-pelo servidor, as 61 tabelas públicas pós-016, a estrutura mínima de Festa e o
-estado vazio das 52 tabelas operacionais. Qualquer divergência encerra a execução.
+O texto anterior atribuía ao executor uma checagem global de 61 tabelas pós-016
+e de 52 operacionais vazias. A auditoria estática B4 não encontrou essa checagem
+global implementada no runner. Portanto, ele não prova sanitização. O perfil
+pós-019 aprovado exige 63 tabelas, nove canônicas e 54 operacionais vazias,
+com validação própria e somente em destino descartável autorizado.
 
 ## Execução
 
@@ -49,7 +57,8 @@ log por suite e somente metadados não secretos do alvo.
 - aceite por OTP com transporte simulado, sem enviar WhatsApp real;
 - pagamentos, idempotência, HTTP, CSRF e comprovantes sintéticos;
 - edição pós-assinatura, remarcação, vigência de Festa e cancelamento;
-- preflight e postflight confirmando que nenhuma linha operacional permaneceu.
+- verificações das suítes não equivalem a preflight/postflight global comprovando
+  ausência de linhas nas 54 tabelas operacionais pós-019.
 
 O smoke test do WhatsApp transacional real deve ser executado separadamente, em
 homologação do provedor, com número autorizado. Navegação desktop/mobile usa APIs

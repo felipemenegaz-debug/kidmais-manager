@@ -1,0 +1,657 @@
+{
+  "schema_version": 1,
+  "baseline_id": "v1-post-019",
+  "status": "DOCUMENTAL_CANONICAL_BY_PHYSICAL_EQUIVALENCE",
+  "normalization": "UTF8_LF_NO_BOM",
+  "source_commits": [
+    {
+      "scope": "001-016 including 006a",
+      "commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "scope": "017",
+      "commit": "0ee482b66eb72e217cc6514d75c9769d7d5a0601"
+    },
+    {
+      "scope": "018",
+      "commit": "b58acc96c9d6600ffed132e751f83f497c2e8877"
+    },
+    {
+      "scope": "019",
+      "commit": "0460d0a10ed0ba1afbd2061055762cf3913bda0b"
+    }
+  ],
+  "ordered_chain": [
+    {
+      "order": 1,
+      "logical_id": "001",
+      "path": "database/migrations/20260907_001_crm_extensions.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "6628d5e69bbe2eeabd88fc6e4757f2fd543622b8e8417135f28c2acb821b7d43",
+      "git_blob": "7e7739758f75f822cf5112d243f11cabf6ae006a",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": null,
+      "requires_objects_from": [],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": "database/migrations/20260907_999_crm_core_down.sql"
+    },
+    {
+      "order": 2,
+      "logical_id": "002",
+      "path": "database/migrations/20260907_002_crm_people.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "5330486656b14c4a9fdcddcbcbf46e2b83308e0ed651fbba121afa20118a5bd6",
+      "git_blob": "50c6150d709c37ff63552416e49b9cbdf4ea0d9c",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "001",
+      "requires_objects_from": [
+        "001"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": "database/migrations/20260907_999_crm_core_down.sql"
+    },
+    {
+      "order": 3,
+      "logical_id": "003",
+      "path": "database/migrations/20260907_003_crm_history_audit.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "9d132f6eb7bee251c2152000dfd884a53597700f33b0ab9a58cb3291016f2062",
+      "git_blob": "905ba81c86f64ec2fbd807d2c5585128ad952950",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "002",
+      "requires_objects_from": [
+        "001",
+        "002"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": "database/migrations/20260907_999_crm_core_down.sql"
+    },
+    {
+      "order": 4,
+      "logical_id": "004",
+      "path": "database/migrations/20260907_004_crm_duplicates_merge.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "200f5fc1cc6bbe03e019e144c2672a63de046e17eaa480a550f5f91b269a8204",
+      "git_blob": "2c30c369b79a3363a3ccec5335071a8964ead1c7",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "003",
+      "requires_objects_from": [
+        "001",
+        "002"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": "database/migrations/20260907_999_crm_core_down.sql"
+    },
+    {
+      "order": 5,
+      "logical_id": "005",
+      "path": "database/migrations/20260907_005_disponibilidade_base.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "d157a077ac4e73a2e2100f5dccfecb05297336bb2f75e5fcb8f30b01889596e4",
+      "git_blob": "0a5097318b4e74c6fc5a28e7aefd916e80f5cafd",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "004",
+      "requires_objects_from": [
+        "001"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": null
+    },
+    {
+      "order": 6,
+      "logical_id": "006",
+      "path": "database/migrations/20260907_006_comercial_base.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "7354f57c42246a38329d0ad0ae0b6be4161c5e69a8e9bfafa9f3472595d0e2d9",
+      "git_blob": "42a845e4c9535cfc0845289605cdf2aa9e6dec53",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "005",
+      "requires_objects_from": [
+        "001",
+        "005"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": null
+    },
+    {
+      "order": 7,
+      "logical_id": "006a",
+      "path": "database/migrations/20260907_006a_comercial_precos_patch.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "8520360897c2535cfdb0bc06b5da61ac5122ad35fdc9f9c82fa9fec57e27ebdc",
+      "git_blob": "a513aa88ec0f4b6174e1f34dd714cd894b19fe9f",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "006",
+      "requires_objects_from": [
+        "006"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": null
+    },
+    {
+      "order": 8,
+      "logical_id": "007",
+      "path": "database/migrations/20260908_007_fechamento_base.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "85e732057d8ad51838bb02fa79a92c60f41e104a3f571a0817fe2baaae160911",
+      "git_blob": "65b34c69975c5d071b1cba19e10baea6b2b344b3",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "006a",
+      "requires_objects_from": [
+        "001",
+        "002",
+        "005",
+        "006",
+        "006a"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": null
+    },
+    {
+      "order": 9,
+      "logical_id": "008",
+      "path": "database/migrations/20260908_008_identidade_cliente.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "c2b4820324f5f2ca0cf9544e87de4ead24c955a7a37d68e40cf0eae69f438a36",
+      "git_blob": "880661171b73e2608bc7c1ae174c96723c86ad0b",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "007",
+      "requires_objects_from": [
+        "001",
+        "002",
+        "007"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": null
+    },
+    {
+      "order": 10,
+      "logical_id": "009",
+      "path": "database/migrations/20260908_009_contrato_base.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "78bc6ece9c78283985bd1a2438f9839016ec5720784822d4288eb2516689917b",
+      "git_blob": "d240051d4147ef1f09b9b3798acfb41eec1985d7",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "008",
+      "requires_objects_from": [
+        "001",
+        "002",
+        "003",
+        "006",
+        "006a",
+        "007"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": null
+    },
+    {
+      "order": 11,
+      "logical_id": "010",
+      "path": "database/migrations/20260908_010_contrato_documento_aceite.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "fdc5d6ad0801c14994d5f29624748faee457e1b99d83fa2764e4c7e130446821",
+      "git_blob": "0c729363f1afcf87ec4c9e967e0dc097ab68582c",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "009",
+      "requires_objects_from": [
+        "008",
+        "009"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": null
+    },
+    {
+      "order": 12,
+      "logical_id": "011",
+      "path": "database/migrations/20260908_011_pagamentos_base.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "89267fb4ac1aa1eb58e214c1426a5c2f16a16e04d488e2387421f066e774212f",
+      "git_blob": "23853c66c9e7a18b2b1805559add0336d625f81f",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "010",
+      "requires_objects_from": [
+        "001",
+        "003",
+        "005",
+        "009"
+      ],
+      "precheck": null,
+      "postcheck": "database/checks/20260908_011_pagamentos_postcheck.sql",
+      "rollback": null
+    },
+    {
+      "order": 13,
+      "logical_id": "012",
+      "path": "database/migrations/20260909_012_condicao_pagamento.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "6a920afc0b0275a568c9176e050f31f2cdc588e36f99fa2252a5fadec33fd66d",
+      "git_blob": "82cfd6a15f9476337f55fe7444effd9e8d939b0f",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "011",
+      "requires_objects_from": [
+        "007"
+      ],
+      "precheck": null,
+      "postcheck": null,
+      "rollback": null
+    },
+    {
+      "order": 14,
+      "logical_id": "013",
+      "path": "database/migrations/20260909_013_autenticacao_contrato.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "2d4571e88c7ebb0193bf0d9364b787f46288fe370b0a8cceb8ae13abeae934d1",
+      "git_blob": "1724b08a4fd634d0f9f5d5ce839620035ea39938",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "012",
+      "requires_objects_from": [
+        "001",
+        "002",
+        "003",
+        "007",
+        "008",
+        "009",
+        "010",
+        "011",
+        "012"
+      ],
+      "precheck": "database/checks/20260909_013_precheck.sql",
+      "postcheck": "database/checks/20260909_013_postcheck.sql",
+      "rollback": "database/checks/20260909_013_rollback.sql"
+    },
+    {
+      "order": 15,
+      "logical_id": "014",
+      "path": "database/migrations/20260909_014_revisao_operacional.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "92996b2ef2a696ec17ecb75e1b54fec2745303b2e24ad1f2d5b3a047c9f738d0",
+      "git_blob": "2a2ccc3ff2754a02764532cb703c1fd87ead374b",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "013",
+      "requires_objects_from": [
+        "006",
+        "006a",
+        "007",
+        "009",
+        "010",
+        "012",
+        "013"
+      ],
+      "precheck": "database/checks/20260909_014_precheck.sql",
+      "postcheck": "database/checks/20260909_014_postcheck.sql",
+      "rollback": "database/rollback/20260909_014_revisao_operacional_down.sql"
+    },
+    {
+      "order": 16,
+      "logical_id": "015",
+      "path": "database/migrations/20260910_015_tratamento_financeiro.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "1fde8d4d8cbc08118c22c697a780c7f5c419372e28a498a7277c877ced72efae",
+      "git_blob": "11ccf1666c0dbe8ac2053674ba6b4ee06232b1f9",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "014",
+      "requires_objects_from": [
+        "002",
+        "011",
+        "013",
+        "014"
+      ],
+      "precheck": "database/checks/20260910_015_precheck.sql",
+      "postcheck": "database/checks/20260910_015_postcheck.sql",
+      "rollback": "database/rollback/20260910_015_tratamento_financeiro_down.sql"
+    },
+    {
+      "order": 17,
+      "logical_id": "016",
+      "path": "database/migrations/20260911_016_festa.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "3843802812f7a970f8824f3836eef592bf3b565d1721a4ed33c75e5b620774a2",
+      "git_blob": "f7c82523c709a8e7fdd370458e62fec4267966e7",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "order_after": "015",
+      "requires_objects_from": [
+        "003",
+        "013",
+        "014",
+        "015"
+      ],
+      "precheck": "database/checks/20260911_016_precheck.sql",
+      "postcheck": "database/checks/20260911_016_postcheck.sql",
+      "rollback": "database/rollback/20260911_016_festa_down.sql"
+    },
+    {
+      "order": 18,
+      "logical_id": "017",
+      "path": "database/migrations/20260912_017_pocket_sexta.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "a05df40c33708df4387d79012960fc90dbc9613cfa1c6a27d6478e0e4fbf07f5",
+      "git_blob": "a204b0d644c407ca2c1c071fdebfcaa48ca464cd",
+      "source_commit": "0ee482b66eb72e217cc6514d75c9769d7d5a0601",
+      "order_after": "016",
+      "requires_objects_from": [
+        "006",
+        "006a",
+        "007"
+      ],
+      "precheck": "database/checks/20260912_017_precheck.sql",
+      "postcheck": "database/checks/20260912_017_postcheck.sql",
+      "rollback": "database/rollback/20260912_017_pocket_sexta_down.sql"
+    },
+    {
+      "order": 19,
+      "logical_id": "018",
+      "path": "database/migrations/20260912_018_whatsapp_onboarding.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "3911461b9834bc37ffa19dca2917435606232532569015d3afc4697a8c21d188",
+      "git_blob": "0bfc6949d7852ffb9ca3e1a92dc8f624f0ab7510",
+      "source_commit": "b58acc96c9d6600ffed132e751f83f497c2e8877",
+      "order_after": "017",
+      "requires_objects_from": [
+        "001",
+        "003",
+        "013"
+      ],
+      "precheck": "database/checks/20260912_018_precheck.sql",
+      "postcheck": "database/checks/20260912_018_postcheck.sql",
+      "rollback": "database/rollback/20260912_018_whatsapp_onboarding_down.sql"
+    },
+    {
+      "order": 20,
+      "logical_id": "019",
+      "path": "database/migrations/20260915_019_festa_formalizacao.sql",
+      "artifact_type": "migration",
+      "sha256_utf8_lf": "121265ed0e5c89882abf27a7178f206d26f0e1dea15a773bc413fdaf68ed4d90",
+      "git_blob": "4401bacd9dec167291c61258fe1dac86a0ba6974",
+      "source_commit": "0460d0a10ed0ba1afbd2061055762cf3913bda0b",
+      "order_after": "018",
+      "requires_objects_from": [
+        "010",
+        "013",
+        "014",
+        "016"
+      ],
+      "precheck": "database/checks/20260915_019_precheck.sql",
+      "postcheck": "database/checks/20260915_019_postcheck.sql",
+      "rollback": "database/rollback/20260915_019_festa_formalizacao_down.sql"
+    }
+  ],
+  "supporting_artifacts": [
+    {
+      "path": "database/checks/20260908_011_pagamentos_postcheck.sql",
+      "artifact_type": "postcheck",
+      "sha256_utf8_lf": "9f41b2b60246440538e5a3cef5588c0468978b6af1acb6242b22dad5576f1bff",
+      "git_blob": "7ffd30e44264cb016e7d9cd2c3c8e2251ead9c8f",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/checks/20260909_013_postcheck.sql",
+      "artifact_type": "postcheck",
+      "sha256_utf8_lf": "47a4a74af5e378255f89838f2a7d0e559f7b6aeb17f4bb84899fd9d4115effc5",
+      "git_blob": "6681ec8cd261fd4ac73ca5f8e756a700bf84d1ba",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/checks/20260909_013_precheck.sql",
+      "artifact_type": "precheck",
+      "sha256_utf8_lf": "86531da7e63899720292be66950e18c1f1b4c2af30dc2411c8b0efd075e40a03",
+      "git_blob": "29ec5cbff108c3b4cafafb332d8d7af0813b489a",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/checks/20260909_013_rollback.sql",
+      "artifact_type": "rollback",
+      "sha256_utf8_lf": "1766303b4597075760bcc16079db62721410d0e432686743585c23a4a7a385a5",
+      "git_blob": "94e158ca113ede35ef0764903c4840fc593df248",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/checks/20260909_014_postcheck.sql",
+      "artifact_type": "postcheck",
+      "sha256_utf8_lf": "bf752b9a1ea3ba45f650191ea2f636b074ecabcb742c3c47da3b76cbdd789b3b",
+      "git_blob": "c560555336dbe1c18e40cf62c3f1d4e8d5e2b88d",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/checks/20260909_014_precheck.sql",
+      "artifact_type": "precheck",
+      "sha256_utf8_lf": "71b04162625d9589649d1c8f1eac1ab9317161b40ebfe55f142c4d96db9021e3",
+      "git_blob": "84de0f7f68866022a23372a1d1fd69b8368d704c",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/checks/20260910_015_postcheck.sql",
+      "artifact_type": "postcheck",
+      "sha256_utf8_lf": "7ffa3318badbcbd019b144f063f48c76b5d87baaa5abdc52ab86125a0127a5d7",
+      "git_blob": "1591985d2aa6c8a300e3715476f0ecccf349ead2",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/checks/20260910_015_precheck.sql",
+      "artifact_type": "precheck",
+      "sha256_utf8_lf": "9ebe574e847c6af886da9a828b64ef5190ce8c732e878943eb1a1c2c9592c862",
+      "git_blob": "4951e30f0411d17c683b7063d9ba02f0fab0e5ed",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/checks/20260911_016_postcheck.sql",
+      "artifact_type": "postcheck",
+      "sha256_utf8_lf": "8dcc7ade582e46f26025ebb0dd8b0247865a0454ce5af1705975aa6d6a8d86c2",
+      "git_blob": "00c1c814b2b15322fdb626063222de912dc22008",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/checks/20260911_016_precheck.sql",
+      "artifact_type": "precheck",
+      "sha256_utf8_lf": "1f65bfed6eebed4b50d2d7a7560d7ab439ac079131720940e0c4398f45e37d6a",
+      "git_blob": "b65348a99d59800998dab19a6e26d9324125d277",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/checks/20260912_017_postcheck.sql",
+      "artifact_type": "postcheck",
+      "sha256_utf8_lf": "90d9dd1a8249dd3c4c35702d6cc75283e031352cf98bbde370fbbecc44a18804",
+      "git_blob": "595b701c28970bcfc0358903ad1b156fc3eaf588",
+      "source_commit": "0ee482b66eb72e217cc6514d75c9769d7d5a0601"
+    },
+    {
+      "path": "database/checks/20260912_017_precheck.sql",
+      "artifact_type": "precheck",
+      "sha256_utf8_lf": "244659986f5874f0b8bf1bfb4737c2dc7c1bec61463c163f4578a71a8a3626a6",
+      "git_blob": "41ee9a025c3a0755fe4d2da5d9fc27f17204adfa",
+      "source_commit": "0ee482b66eb72e217cc6514d75c9769d7d5a0601"
+    },
+    {
+      "path": "database/checks/20260912_018_postcheck.sql",
+      "artifact_type": "postcheck",
+      "sha256_utf8_lf": "69a529a6631987b1180928d13a38835f8a27cf51626f4832f5045c8e22aa5363",
+      "git_blob": "030642cccf56f97f128c0a48435baa16095b8899",
+      "source_commit": "b58acc96c9d6600ffed132e751f83f497c2e8877"
+    },
+    {
+      "path": "database/checks/20260912_018_precheck.sql",
+      "artifact_type": "precheck",
+      "sha256_utf8_lf": "fcfc0ea8b85022d14adc21cb397ee6ec80fd501a16863d19492b70b5b6b2b957",
+      "git_blob": "6e60dff8deafa4ceb7057d250f82e4c50d095d0b",
+      "source_commit": "b58acc96c9d6600ffed132e751f83f497c2e8877"
+    },
+    {
+      "path": "database/checks/20260915_019_postcheck.sql",
+      "artifact_type": "postcheck",
+      "sha256_utf8_lf": "18603ad93783ce91eacd36183d4bddd872b251b14af7f0636a410b0e2ebde803",
+      "git_blob": "205f5bac4270364e8c4350549b640b23a9b124cd",
+      "source_commit": "0460d0a10ed0ba1afbd2061055762cf3913bda0b"
+    },
+    {
+      "path": "database/checks/20260915_019_precheck.sql",
+      "artifact_type": "precheck",
+      "sha256_utf8_lf": "f2fb3446e41ed95a9651fd1a8cee1adad887e7feb8fd45ed656f6d597c038053",
+      "git_blob": "5c0a0785f1ded94e509c11d1e70c001e948ce603",
+      "source_commit": "0460d0a10ed0ba1afbd2061055762cf3913bda0b"
+    },
+    {
+      "path": "database/rollback/20260909_014_revisao_operacional_down.sql",
+      "artifact_type": "rollback",
+      "sha256_utf8_lf": "a7b80b6f6db597f39df04dd9b30d09657b7e35d39ff58594b4f0bf4c3d9eb722",
+      "git_blob": "bf5662aafd778942ac8050e7f12662aee2ce30e6",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/rollback/20260910_015_tratamento_financeiro_down.sql",
+      "artifact_type": "rollback",
+      "sha256_utf8_lf": "fc5ad65222adf7cc07eccc4298ded1da39f00ef29d1a5ae4eed5456a1a071c2e",
+      "git_blob": "9d111d20ea70277d3dd088e5d0f47d9af8fc830b",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/rollback/20260911_016_festa_down.sql",
+      "artifact_type": "rollback",
+      "sha256_utf8_lf": "75b095b9c341518df21373ee389f3f0aebce74a2f6fd1ee06b7239b2e1b01814",
+      "git_blob": "24697ff51e474ce8c1021f9a3f6905fed83e0e84",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce"
+    },
+    {
+      "path": "database/rollback/20260912_017_pocket_sexta_down.sql",
+      "artifact_type": "rollback",
+      "sha256_utf8_lf": "355bcf69d5b5aeac2794be64f79c7fc8a89f24f9e6413977e8462a470b8c2496",
+      "git_blob": "ea0231b373cac0a9fb758495a6b67519e519e457",
+      "source_commit": "0ee482b66eb72e217cc6514d75c9769d7d5a0601"
+    },
+    {
+      "path": "database/rollback/20260912_018_whatsapp_onboarding_down.sql",
+      "artifact_type": "rollback",
+      "sha256_utf8_lf": "c138801f0f500fa67f349e55f7238918dbd2061d4fcca5c1e3bc5e4818188d57",
+      "git_blob": "18d99df3cda772fcbc10cf5efd35e2ffc4f3ae11",
+      "source_commit": "b58acc96c9d6600ffed132e751f83f497c2e8877"
+    },
+    {
+      "path": "database/rollback/20260915_019_festa_formalizacao_down.sql",
+      "artifact_type": "rollback",
+      "sha256_utf8_lf": "ec29e93d4893e4f6b8ba4c19acc73db6fe26789c88ec80a9a549f4beead8b8c6",
+      "git_blob": "89142d11724bedf9e8324a425937bb323eff2482",
+      "source_commit": "0460d0a10ed0ba1afbd2061055762cf3913bda0b"
+    }
+  ],
+  "auxiliary_artifacts_outside_up_chain": [
+    {
+      "path": "database/migrations/20260907_999_crm_core_down.sql",
+      "artifact_type": "shared_dev_test_rollback_001_004",
+      "sha256_utf8_lf": "3371038c0a17835d8f16d10d84ef804c8501169b3116c30ae2fd45317775d77d",
+      "git_blob": "8da0fab726751b9fc1ac4d822973d933115e1311",
+      "source_commit": "fdb9bdaa54a8d78366f03f746a174b249cb7c3ce",
+      "not_a_migration_up": true
+    }
+  ],
+  "legacy_composites": [
+    {
+      "logical_id": "006+006a",
+      "classification": "legacy-composite",
+      "migration_006": {
+        "document_status": "DRAFT_NAO_APLICAR",
+        "observed_applied_historical": true,
+        "sha256_utf8_lf": "7354f57c42246a38329d0ad0ae0b6be4161c5e69a8e9bfafa9f3472595d0e2d9"
+      },
+      "migration_006a": {
+        "required_for_canonical_state": true,
+        "requires_applied_006": true,
+        "sha256_utf8_lf": "8520360897c2535cfdb0bc06b5da61ac5122ad35fdc9f9c82fa9fec57e27ebdc"
+      },
+      "note": "Historical files remain separate and unmodified; 006 alone is not the canonical commercial state."
+    }
+  ],
+  "supersessions": [
+    {
+      "from": "014",
+      "to": "019",
+      "scope": [
+        "kidmais_ocupacoes_operacionais(date,date)",
+        "kidmais_validar_agenda_revisao()",
+        "kidmais_proteger_bloqueio_revisao()"
+      ],
+      "kind": "function-replacement",
+      "not_entire_migration": true
+    },
+    {
+      "from": "016",
+      "to": "019",
+      "scope": [
+        "festas.origem_criacao",
+        "festa_eventos.ator_tipo",
+        "formalization constraints and triggers"
+      ],
+      "kind": "schema-extension",
+      "not_entire_migration": true
+    }
+  ],
+  "migration_019": {
+    "canonical_commit": "0460d0a10ed0ba1afbd2061055762cf3913bda0b",
+    "canonical_git_blob": "4401bacd9dec167291c61258fe1dac86a0ba6974",
+    "canonical_sha256_utf8_lf": "121265ed0e5c89882abf27a7178f206d26f0e1dea15a773bc413fdaf68ed4d90",
+    "classification": "CANONICO_POR_EQUIVALENCIA_FISICA",
+    "historical_document_checksum_unresolved": "ce6c3eab69541105f27c2ec79b1b0f4a9e406e8f5d05ba25c7ea83c3bd3f9456",
+    "historical_document_path": "docs/PATCH_019_FESTA_FORMALIZACAO.md",
+    "historical_document_present_in_current_tree": false,
+    "historical_document_commit": "0460d0a10ed0ba1afbd2061055762cf3913bda0b",
+    "applied_artifact_byte_identity_proven": false
+  },
+  "physical_evidence": {
+    "canonicalization": "V1_POST019_PG18_SEMANTIC_V1",
+    "postgresql_version_num": 180006,
+    "public_tables": 63,
+    "columns": 862,
+    "constraints": 1261,
+    "indexes": 288,
+    "triggers": 828,
+    "functions": 107,
+    "sequences": 2,
+    "extensions": 3,
+    "physical_fingerprint_sha256": "3b1066bc2bd546d589347561356490aaa19158026f31ea8893fd6c0db32d596e",
+    "component_count": 22,
+    "physical_components_digest_sha256": "3b602275f000caeed8f12dcefc2bbfff59ca2dc806b168806776068322cba757",
+    "baseline_catalog_sha256": "f39fa1abc108a29470755a045d6d5cc60ce14c26da21a49861bbcf4bd2e99563",
+    "canonical_catalog_manifest_sha256": "7c7cb966b0f5643cea463b6eef9266afbf0e8ef2ab26836a5c13afa08cf9fd24",
+    "canonical_catalog_artifact": "scripts/sanitize-v1-post-019/canonical-catalog.json",
+    "canonical_catalog_artifact_sha256_utf8_lf": "b6727d56fa004a732095d9bddf50f38535b9b99fefdc4ebd7582f5f0cb40f974",
+    "reference_recipe_sha256": "443ea6b6950d59a7546ea11b264847338c4369abd7a87a341c97696f12a6064b",
+    "reference_executor_sha256": "31646a289dc1ebf3db13d4a620e3dabfb8e470ea79447f162e65dbe45f9baaf3"
+  },
+  "sanitization": {
+    "profile": "V1_POST019_EMPTY_OPERATION",
+    "policy_path": "scripts/sanitize-v1-post-019/policy.json",
+    "policy_artifact_sha256_utf8_lf": "b2a2f2f5234fb6ea3f2910f9ca0a35a962be53aab899f24bf7dfa9ce99a9a942",
+    "policy_semantic_sha256": "966a43921dd22fbeb043a00230ec164395fbda4b012b1f6d4b75386b906f608c",
+    "tables_total": 63,
+    "preserve_canonical": 9,
+    "empty": 54,
+    "sequences_preserved": true,
+    "identities_restarted": false,
+    "result": "PASS_ON_DISPOSABLE_REFERENCE",
+    "logical_state_only": true
+  },
+  "security_posture": {
+    "historical_migration_ledger_present": false,
+    "rls_enabled_tables": 0,
+    "rls_policies": 0,
+    "multi_tenant_certified": false,
+    "production_owners_and_grants_not_inferred_from_disposable_reference": true
+  },
+  "limitations": [
+    "Historical execution bytes of 019 are not provable without a ledger.",
+    "006 draft status conflicts with observed historical application; the composite 006+006a is canonical.",
+    "Physical semantic equivalence is not byte-identity proof.",
+    "The disposable reference uses dedicated roles/ACLs and does not establish production ownership.",
+    "EMPTY_OPERATION is logical state sanitization, not secure erasure or multi-tenant certification.",
+    "Sequences are preserved and can retain aggregate activity indicators.",
+    "No runtime attestation is committed to this repository."
+  ]
+}
