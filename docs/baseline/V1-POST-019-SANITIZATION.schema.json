@@ -1,0 +1,641 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "V1 post-019 logical sanitization attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "profile": {
+      "type": "string",
+      "const": "V1_POST019_EMPTY_OPERATION"
+    },
+    "result": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "PLAN",
+        "FAIL",
+        "COMMIT_UNKNOWN",
+        "COMMIT_CONFIRMED_ATTESTATION_FAILED"
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "dry-run",
+        "apply",
+        "verify"
+      ]
+    },
+    "source_commit": {
+      "type": "string",
+      "const": "0460d0a10ed0ba1afbd2061055762cf3913bda0b"
+    },
+    "migration_019_sha256": {
+      "type": "string",
+      "const": "121265ed0e5c89882abf27a7178f206d26f0e1dea15a773bc413fdaf68ed4d90"
+    },
+    "policy_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "expected_schema_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "canonical_catalog_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "physical_fingerprint_sha256": { "type": "string", "const": "3b1066bc2bd546d589347561356490aaa19158026f31ea8893fd6c0db32d596e" },
+    "physical_components_digest_sha256": { "type": "string", "const": "3b602275f000caeed8f12dcefc2bbfff59ca2dc806b168806776068322cba757" },
+    "reference_recipe_sha256": { "type": "string", "const": "443ea6b6950d59a7546ea11b264847338c4369abd7a87a341c97696f12a6064b" },
+    "reference_executor_sha256": { "type": "string", "const": "31646a289dc1ebf3db13d4a620e3dabfb8e470ea79447f162e65dbe45f9baaf3" },
+    "table_count": { "type": "integer", "const": 63, "minimum": 63 },
+    "empty_table_count": { "type": "integer", "const": 54, "minimum": 54 },
+    "canonical_table_count": { "type": "integer", "const": 9, "minimum": 9 },
+    "sequences_preserved": { "type": "boolean" },
+    "identities_restarted": { "type": "boolean", "const": false },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "const": "127.0.0.1"
+        },
+        "port": {
+          "type": "integer",
+          "const": 55429
+        },
+        "database": {
+          "type": "string",
+          "const": "kidmais_sanitize_v1_post019_b5b"
+        },
+        "user": {
+          "type": "string",
+          "const": "kidmais_b5b_sanitizer"
+        }
+      },
+      "required": [
+        "host",
+        "port",
+        "database",
+        "user"
+      ]
+    },
+    "started_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "completed_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "commit_confirmed": {
+      "type": "boolean"
+    },
+    "rollback_confirmed": {
+      "type": "boolean"
+    },
+    "transaction_outcome": {
+      "type": "string",
+      "enum": ["NOT_STARTED", "ROLLED_BACK", "COMMITTED", "TRANSACTION_OUTCOME_UNKNOWN", "COMMIT_OUTCOME_UNKNOWN"]
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "LOGICAL_STATE_ONLY",
+          "NOT_SECURE_ERASURE",
+          "NOT_MULTI_TENANT_CERTIFICATION",
+          "POINT_IN_TIME",
+          "IDENTITIES_NOT_RESTARTED"
+        ]
+      },
+      "minItems": 5,
+      "maxItems": 5,
+      "const": [
+        "LOGICAL_STATE_ONLY",
+        "NOT_SECURE_ERASURE",
+        "NOT_MULTI_TENANT_CERTIFICATION",
+        "POINT_IN_TIME",
+        "IDENTITIES_NOT_RESTARTED"
+      ]
+    },
+    "plan_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "code": {
+      "type": "string",
+      "enum": [
+        "INVALID_ARGUMENT",
+        "TARGET_REFUSED",
+        "AUTHORIZATION_REQUIRED",
+        "DIGEST_MISMATCH",
+        "POLICY_INVALID",
+        "SCHEMA_MISMATCH",
+        "INVENTORY_MISMATCH",
+        "STRUCTURE_MISMATCH",
+        "CATALOG_MISMATCH",
+        "BASELINE_UNSEALED",
+        "PREFLIGHT_FAILED",
+        "POSTCHECK_FAILED",
+        "PROCESS_FAILED",
+        "SQL_FAILED",
+        "PROTOCOL_FAILED",
+        "MANIFEST_INVALID",
+        "SOURCE_MISMATCH",
+        "FIXTURE_REFUSED",
+        "INTEGRATION_NOT_AUTHORIZED",
+        "ATTESTATION_INVALID"
+      ]
+    },
+    "operational_rows_after": {
+      "type": "integer",
+      "const": 0,
+      "minimum": 0
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adicionais",
+        "aniversariantes",
+        "aprovacoes_negociacao",
+        "auditoria",
+        "bloqueios_agenda",
+        "clientes",
+        "configuracao_agenda",
+        "contrato_assinaturas",
+        "contrato_documentos",
+        "contrato_edicoes",
+        "contrato_fluxos",
+        "contrato_pendencias_financeiras",
+        "contrato_versoes",
+        "contratos",
+        "eventos_historico_cliente",
+        "fechamento_adicionais",
+        "fechamento_revisao_adicionais",
+        "fechamento_revisoes",
+        "fechamentos",
+        "festa_areas",
+        "festa_buffet",
+        "festa_contagens_convidados",
+        "festa_eventos",
+        "festa_pendencias",
+        "festa_solicitacoes",
+        "festa_tarefas",
+        "festa_usuario_capacidades",
+        "festas",
+        "limites_autenticacao",
+        "mesclagens_clientes",
+        "pacotes",
+        "pagamento_ajuste_bases",
+        "pagamento_ajustes_contratuais",
+        "pagamento_comprovantes",
+        "pagamento_credito_reservas",
+        "pagamento_cronograma_itens",
+        "pagamento_cronogramas",
+        "pagamento_devolucao_alocacoes",
+        "pagamento_devolucao_comprovantes",
+        "pagamento_devolucoes",
+        "pagamento_estornos",
+        "pagamento_eventos",
+        "pagamento_gestoes",
+        "pagamento_movimentos_contextos",
+        "pagamento_parcelas",
+        "pagamento_planos",
+        "pagamento_recebimento_alocacoes",
+        "pagamento_recebimentos",
+        "pagamento_tratamentos",
+        "pagamentos",
+        "possiveis_duplicidades_cliente",
+        "precos_adicional",
+        "precos_pacote",
+        "regras_categoria_horario",
+        "regras_desconto_pacote",
+        "regras_disponibilidade_pacote",
+        "responsaveis_adicionais",
+        "sessoes_administrativas",
+        "tabelas_preco",
+        "usuarios_administrativos",
+        "validacoes_identidade_cliente",
+        "whatsapp_conexoes",
+        "whatsapp_onboarding_tentativas"
+      ],
+      "properties": {
+        "adicionais": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 31
+        },
+        "aniversariantes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "aprovacoes_negociacao": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "auditoria": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "bloqueios_agenda": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "clientes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "configuracao_agenda": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 2
+        },
+        "contrato_assinaturas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "contrato_documentos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "contrato_edicoes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "contrato_fluxos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "contrato_pendencias_financeiras": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "contrato_versoes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "contratos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "eventos_historico_cliente": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "fechamento_adicionais": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "fechamento_revisao_adicionais": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "fechamento_revisoes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "fechamentos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "festa_areas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "festa_buffet": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "festa_contagens_convidados": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "festa_eventos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "festa_pendencias": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "festa_solicitacoes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "festa_tarefas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "festa_usuario_capacidades": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "festas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "limites_autenticacao": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "mesclagens_clientes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pacotes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 7
+        },
+        "pagamento_ajuste_bases": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_ajustes_contratuais": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_comprovantes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_credito_reservas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_cronograma_itens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_cronogramas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_devolucao_alocacoes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_devolucao_comprovantes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_devolucoes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_estornos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_eventos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_gestoes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_movimentos_contextos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_parcelas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_planos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_recebimento_alocacoes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_recebimentos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamento_tratamentos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "pagamentos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "possiveis_duplicidades_cliente": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "precos_adicional": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 66
+        },
+        "precos_pacote": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 69
+        },
+        "regras_categoria_horario": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 14
+        },
+        "regras_desconto_pacote": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 16
+        },
+        "regras_disponibilidade_pacote": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 99
+        },
+        "responsaveis_adicionais": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "sessoes_administrativas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "tabelas_preco": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 1
+        },
+        "usuarios_administrativos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "validacoes_identidade_cliente": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "whatsapp_conexoes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        },
+        "whatsapp_onboarding_tentativas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "const": 0
+        }
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "profile",
+    "result",
+    "mode",
+    "source_commit",
+    "migration_019_sha256",
+    "policy_sha256",
+    "expected_schema_sha256",
+    "canonical_catalog_sha256",
+    "physical_fingerprint_sha256",
+    "physical_components_digest_sha256",
+    "reference_recipe_sha256",
+    "reference_executor_sha256",
+    "table_count",
+    "empty_table_count",
+    "canonical_table_count",
+    "sequences_preserved",
+    "identities_restarted",
+    "target",
+    "started_at",
+    "completed_at",
+    "commit_confirmed",
+    "rollback_confirmed",
+    "transaction_outcome",
+    "limitations"
+  ]
+}

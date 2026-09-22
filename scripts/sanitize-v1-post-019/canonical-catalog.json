@@ -1,0 +1,3164 @@
+{
+  "format_version": 1,
+  "source_commit": "0460d0a10ed0ba1afbd2061055762cf3913bda0b",
+  "source_sha256": {
+    "database/migrations/20260907_005_disponibilidade_base.sql": "d157a077ac4e73a2e2100f5dccfecb05297336bb2f75e5fcb8f30b01889596e4",
+    "database/migrations/20260907_006_comercial_base.sql": "7354f57c42246a38329d0ad0ae0b6be4161c5e69a8e9bfafa9f3472595d0e2d9",
+    "database/migrations/20260907_006a_comercial_precos_patch.sql": "8520360897c2535cfdb0bc06b5da61ac5122ad35fdc9f9c82fa9fec57e27ebdc",
+    "database/migrations/20260912_017_pocket_sexta.sql": "a05df40c33708df4387d79012960fc90dbc9613cfa1c6a27d6478e0e4fbf07f5"
+  },
+  "derivation": "PINNED_SQL_LITERAL_PROJECTION_AND_EXPLICIT_RELATIONAL_RULES_V1",
+  "seed_statements_sha256": [
+    "3b36b4f9cdcc749522368574a0486fe277a2da915610c280100bf9226792d790",
+    "b388365b3a3909001079a559d28cc29dac113ac91479bedc565ea4483245231b",
+    "032249f13fca69d6442e87fe00a321dc5f5e08328dd47364a44186dcd28ae555",
+    "cd93048f6fa7e03d8ceb940cdc25f3d5f96954222990b7fe3ec3783d0edfc383",
+    "489095b16c87a5a646dd18cb666ba28dd305ab3632dbe4ed36abd00dcd4cf42f",
+    "ed2fdb8a4a32c2454c97d95f78819aaa3dd1d557fce6332ad6a8217b8e765a81",
+    "ae27c1f9dae571aa3dece8c410098c83811ca6c0b37b6ab9b3af553f5b1ac327",
+    "68ee9a010bb15920003a029fb4062967fb72bfb67e5f13d3456b8eb639f63569",
+    "63d0135abf97efe9c06e6488d86081e6cad2fcf4d311aeee3ff399d541afb7e5",
+    "f3b8b0f48cb2fe24c522ae68dea2a0b1d3a656d4059f3ca1cf8305f8524d7cd1",
+    "42c0fadde3c027f3525f51978438a69f7eddd1dfbcbbe3afd3afd3cfe3471177",
+    "5edfd36ecb1b7b234460cd7302c7cf160448f548df75c35b7ab0e9b0d47c3772",
+    "2a1ce071799eb5a84bdc07ba80946b1056f13df9bd660270dad86c80fd8550d7",
+    "dde5889515a6fb91e41184b5f5c0e414705f9c86d4eff1368ca4537fe5bbb481",
+    "50bff1340c29f05634df247f6f0e86cbdbee2fb5b724f1bb95abeab89e48a042",
+    "858e11fe9c3b43c65a1bc805f66f21e6758fb5b3de24f123b4a21d8466b4e72a",
+    "e09d5163b51f7f60a0f6dbb9ab80f087a54fad1d89b7d665a46ddda58bd10911",
+    "1ddad57d8e0f89ef0e45d78778038b6ddd06e9287337a7f32f8ce1364017bc4a",
+    "a05df40c33708df4387d79012960fc90dbc9613cfa1c6a27d6478e0e4fbf07f5"
+  ],
+  "excluded_technical_columns": [
+    "id",
+    "criado_em",
+    "atualizado_em"
+  ],
+  "reference_keys": {
+    "pacote_id": "pacotes",
+    "tabela_preco_id": "tabelas_preco",
+    "configuracao_agenda_id": "configuracao_agenda",
+    "adicional_id": "adicionais"
+  },
+  "tables": {
+    "configuracao_agenda": [
+      {
+        "codigo": "TURNO_1",
+        "nome": "Primeiro horário",
+        "horario_inicio_padrao": "11:00:00",
+        "horario_fim_padrao": "15:00:00",
+        "tolerancia_inicio_minutos": 30,
+        "passo_inicio_minutos": 30,
+        "ordem_exibicao": 1,
+        "ativo": true
+      },
+      {
+        "codigo": "TURNO_2",
+        "nome": "Segundo horário",
+        "horario_inicio_padrao": "17:00:00",
+        "horario_fim_padrao": "21:00:00",
+        "tolerancia_inicio_minutos": 30,
+        "passo_inicio_minutos": 30,
+        "ordem_exibicao": 2,
+        "ativo": true
+      }
+    ],
+    "pacotes": [
+      {
+        "codigo": "COMPACTA",
+        "nome": "Festa Compacta",
+        "descricao": null,
+        "convidados_minimos": 40,
+        "convidados_maximos": null,
+        "duracao_minutos": null,
+        "ordem_exibicao": 3,
+        "ativo": true
+      },
+      {
+        "codigo": "COMPLETA",
+        "nome": "Festa Completa",
+        "descricao": null,
+        "convidados_minimos": 50,
+        "convidados_maximos": null,
+        "duracao_minutos": null,
+        "ordem_exibicao": 5,
+        "ativo": true
+      },
+      {
+        "codigo": "ESSENCIAL",
+        "nome": "Festa Essencial",
+        "descricao": null,
+        "convidados_minimos": 50,
+        "convidados_maximos": null,
+        "duracao_minutos": null,
+        "ordem_exibicao": 4,
+        "ativo": true
+      },
+      {
+        "codigo": "MINI_FESTA",
+        "nome": "Mini Festa Kidmais",
+        "descricao": null,
+        "convidados_minimos": 30,
+        "convidados_maximos": null,
+        "duracao_minutos": null,
+        "ordem_exibicao": 2,
+        "ativo": true
+      },
+      {
+        "codigo": "PIZZA_PARTY",
+        "nome": "Pizza Party",
+        "descricao": null,
+        "convidados_minimos": null,
+        "convidados_maximos": null,
+        "duracao_minutos": null,
+        "ordem_exibicao": 7,
+        "ativo": true
+      },
+      {
+        "codigo": "POCKET",
+        "nome": "Kidmais Pocket",
+        "descricao": null,
+        "convidados_minimos": 20,
+        "convidados_maximos": null,
+        "duracao_minutos": null,
+        "ordem_exibicao": 1,
+        "ativo": true
+      },
+      {
+        "codigo": "PREMIUM",
+        "nome": "Festa Premium",
+        "descricao": null,
+        "convidados_minimos": 50,
+        "convidados_maximos": null,
+        "duracao_minutos": null,
+        "ordem_exibicao": 6,
+        "ativo": true
+      }
+    ],
+    "adicionais": [
+      {
+        "codigo": "BEBIDA_ALCOOLICA",
+        "nome": "Taxa para bebida alcoólica",
+        "descricao": "Taxa de estrutura e serviço.",
+        "categoria": "BEBIDA",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 31,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "CREPE_1_SABOR",
+        "nome": "Crepe — 1 sabor",
+        "descricao": null,
+        "categoria": "BUFFET",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 3,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "CREPE_2_SABORES",
+        "nome": "Crepe — 2 sabores",
+        "descricao": null,
+        "categoria": "BUFFET",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 4,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "EMPRATADO_PREMIUM",
+        "nome": "Empratado premium",
+        "descricao": null,
+        "categoria": "BUFFET",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 7,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "PASTELZINHO",
+        "nome": "Pastelzinho de carne e queijo",
+        "descricao": null,
+        "categoria": "BUFFET",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 5,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "PENNE",
+        "nome": "Penne à bolonhesa e molho branco",
+        "descricao": null,
+        "categoria": "BUFFET",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 1,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "SALADA_PREMIUM",
+        "nome": "Salada premium",
+        "descricao": null,
+        "categoria": "BUFFET",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 2,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "SORVETE",
+        "nome": "Sorvete",
+        "descricao": null,
+        "categoria": "BUFFET",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 6,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "COMBO_ADULTOS",
+        "nome": "Combo Adultos",
+        "descricao": "Penne + salada premium.",
+        "categoria": "COMBO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 8,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "COMBO_LANCHINHOS",
+        "nome": "Combo Lanchinhos",
+        "descricao": "Crepe + pastelzinho + sorvete.",
+        "categoria": "COMBO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 9,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "COMBO_MESA_BONITA_MEDIO",
+        "nome": "Combo Mesa Bonita — Médio",
+        "descricao": "Arco médio + montagem de personalizados + complemento de mesa.",
+        "categoria": "COMBO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 22,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "COMBO_MESA_BONITA_PREMIUM",
+        "nome": "Combo Mesa Bonita — Premium",
+        "descricao": "Arco grande + montagem de personalizados + complemento de mesa.",
+        "categoria": "COMBO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 23,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "COMBO_MESA_BONITA_SIMPLES",
+        "nome": "Combo Mesa Bonita — Simples",
+        "descricao": "Arco simples + montagem de personalizados + complemento de mesa.",
+        "categoria": "COMBO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 21,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "VISUAL_PREMIUM_COMPLETO",
+        "nome": "Visual Premium completo",
+        "descricao": "Visual Premium + personalizados + complemento extra de mesa.",
+        "categoria": "COMBO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 26,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "VISUAL_PREMIUM_PERSONALIZADOS",
+        "nome": "Visual Premium + personalizados",
+        "descricao": "Visual Premium + montagem de personalizados.",
+        "categoria": "COMBO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 25,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "VISUAL_PREMIUM",
+        "nome": "Visual Premium",
+        "descricao": "Painel premium + arco grande + chão de vidro.",
+        "categoria": "COMBO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 24,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "ARCO_BALAO_GRANDE",
+        "nome": "Arco de balão grande",
+        "descricao": null,
+        "categoria": "DECORACAO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 15,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "ARCO_BALAO_MEDIO",
+        "nome": "Arco de balão médio",
+        "descricao": null,
+        "categoria": "DECORACAO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 14,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "ARCO_BALAO_SIMPLES",
+        "nome": "Arco de balão simples",
+        "descricao": null,
+        "categoria": "DECORACAO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 13,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "CHAO_VIDRO",
+        "nome": "Chão de vidro",
+        "descricao": null,
+        "categoria": "DECORACAO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 19,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "MONTAGEM_PERSONALIZADOS",
+        "nome": "Montagem de personalizados",
+        "descricao": null,
+        "categoria": "DECORACAO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 20,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "PAINEL_REDONDO",
+        "nome": "Painel redondo",
+        "descricao": null,
+        "categoria": "DECORACAO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 17,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "PAINEL_RETANGULAR_GRANDE",
+        "nome": "Painel retangular grande",
+        "descricao": null,
+        "categoria": "DECORACAO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 18,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "SEGUNDO_TEMA",
+        "nome": "2º tema",
+        "descricao": null,
+        "categoria": "DECORACAO",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 16,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "BOMBOM",
+        "nome": "Bombom",
+        "descricao": null,
+        "categoria": "EXTRA",
+        "unidade_cobranca": "UNIDADE",
+        "ordem_exibicao": 28,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "DOCES_TRADICIONAIS_EXTRAS",
+        "nome": "Doces tradicionais extras",
+        "descricao": "Além dos doces já contemplados no pacote.",
+        "categoria": "EXTRA",
+        "unidade_cobranca": "CENTO",
+        "ordem_exibicao": 27,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "LEMBRANCINHA_PERSONALIZADA",
+        "nome": "Lembrancinha personalizada",
+        "descricao": null,
+        "categoria": "EXTRA",
+        "unidade_cobranca": "UNIDADE",
+        "ordem_exibicao": 29,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "LEMBRANCINHA_PREMIUM",
+        "nome": "Lembrancinha premium",
+        "descricao": null,
+        "categoria": "EXTRA",
+        "unidade_cobranca": "UNIDADE",
+        "ordem_exibicao": 30,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "MESA_CAFE",
+        "nome": "Mesa de café",
+        "descricao": null,
+        "categoria": "MESA",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 10,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "MESA_FRIOS",
+        "nome": "Mesa de frios",
+        "descricao": null,
+        "categoria": "MESA",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 11,
+        "ativo": true,
+        "observacoes": null
+      },
+      {
+        "codigo": "MESA_FRUTAS",
+        "nome": "Mesa de frutas",
+        "descricao": null,
+        "categoria": "MESA",
+        "unidade_cobranca": "PACOTE",
+        "ordem_exibicao": 12,
+        "ativo": true,
+        "observacoes": null
+      }
+    ],
+    "tabelas_preco": [
+      {
+        "codigo": "COMERCIAL_2026_09",
+        "nome": "Tabela comercial vigente — setembro/2026",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativa": true,
+        "observacoes": "Primeira versão persistida pelo núcleo comercial. Não retroage fechamentos anteriores."
+      }
+    ],
+    "precos_pacote": [
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "POCKET",
+        "convidados_min": 20,
+        "convidados_max": 150,
+        "tipo_calculo": "POR_CONVIDADO",
+        "valor": 190,
+        "categoria_horario": "GERAL",
+        "observacoes": "R$ 190 por convidado, mínimo faturável de 20 convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "MINI_FESTA",
+        "convidados_min": 30,
+        "convidados_max": 150,
+        "tipo_calculo": "POR_CONVIDADO",
+        "valor": 170,
+        "categoria_horario": "GERAL",
+        "observacoes": "R$ 170 por convidado, mínimo faturável de 30 convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPACTA",
+        "convidados_min": 40,
+        "convidados_max": 40,
+        "tipo_calculo": "FIXO",
+        "valor": 6490,
+        "categoria_horario": "GERAL",
+        "observacoes": "Base comercial confirmada para 40 convidados. Acima de 40 exige regra específica ainda não persistida.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 91,
+        "convidados_max": 100,
+        "tipo_calculo": "FIXO",
+        "valor": 13290,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 91,
+        "convidados_max": 100,
+        "tipo_calculo": "FIXO",
+        "valor": 11990,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 91,
+        "convidados_max": 100,
+        "tipo_calculo": "FIXO",
+        "valor": 16190,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 101,
+        "convidados_max": 110,
+        "tipo_calculo": "FIXO",
+        "valor": 14190,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 101,
+        "convidados_max": 110,
+        "tipo_calculo": "FIXO",
+        "valor": 12690,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 101,
+        "convidados_max": 110,
+        "tipo_calculo": "FIXO",
+        "valor": 17290,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 111,
+        "convidados_max": 120,
+        "tipo_calculo": "FIXO",
+        "valor": 15090,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 111,
+        "convidados_max": 120,
+        "tipo_calculo": "FIXO",
+        "valor": 13390,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 111,
+        "convidados_max": 120,
+        "tipo_calculo": "FIXO",
+        "valor": 18390,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 121,
+        "convidados_max": 130,
+        "tipo_calculo": "FIXO",
+        "valor": 15990,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 121,
+        "convidados_max": 130,
+        "tipo_calculo": "FIXO",
+        "valor": 14090,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 121,
+        "convidados_max": 130,
+        "tipo_calculo": "FIXO",
+        "valor": 19490,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 131,
+        "convidados_max": 140,
+        "tipo_calculo": "FIXO",
+        "valor": 16890,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 131,
+        "convidados_max": 140,
+        "tipo_calculo": "FIXO",
+        "valor": 14790,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 131,
+        "convidados_max": 140,
+        "tipo_calculo": "FIXO",
+        "valor": 20590,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 141,
+        "convidados_max": 150,
+        "tipo_calculo": "FIXO",
+        "valor": 17790,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 141,
+        "convidados_max": 150,
+        "tipo_calculo": "FIXO",
+        "valor": 15490,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 141,
+        "convidados_max": 150,
+        "tipo_calculo": "FIXO",
+        "valor": 21690,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 50,
+        "convidados_max": 50,
+        "tipo_calculo": "FIXO",
+        "valor": 9290,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 50,
+        "convidados_max": 50,
+        "tipo_calculo": "FIXO",
+        "valor": 8490,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 50,
+        "convidados_max": 50,
+        "tipo_calculo": "FIXO",
+        "valor": 10690,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 51,
+        "convidados_max": 60,
+        "tipo_calculo": "FIXO",
+        "valor": 9990,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 51,
+        "convidados_max": 60,
+        "tipo_calculo": "FIXO",
+        "valor": 9190,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 51,
+        "convidados_max": 60,
+        "tipo_calculo": "FIXO",
+        "valor": 11790,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 61,
+        "convidados_max": 70,
+        "tipo_calculo": "FIXO",
+        "valor": 10790,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 61,
+        "convidados_max": 70,
+        "tipo_calculo": "FIXO",
+        "valor": 9890,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 61,
+        "convidados_max": 70,
+        "tipo_calculo": "FIXO",
+        "valor": 12890,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 71,
+        "convidados_max": 80,
+        "tipo_calculo": "FIXO",
+        "valor": 11590,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 71,
+        "convidados_max": 80,
+        "tipo_calculo": "FIXO",
+        "valor": 10590,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 71,
+        "convidados_max": 80,
+        "tipo_calculo": "FIXO",
+        "valor": 13990,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 81,
+        "convidados_max": 90,
+        "tipo_calculo": "FIXO",
+        "valor": 12390,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 81,
+        "convidados_max": 90,
+        "tipo_calculo": "FIXO",
+        "valor": 11290,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 81,
+        "convidados_max": 90,
+        "tipo_calculo": "FIXO",
+        "valor": 15090,
+        "categoria_horario": "NOBRE",
+        "observacoes": "Preço de tabela para sábado TURNO_2 e domingo TURNO_1. Descontos não alteram este valor histórico.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 91,
+        "convidados_max": 100,
+        "tipo_calculo": "FIXO",
+        "valor": 12990,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 91,
+        "convidados_max": 100,
+        "tipo_calculo": "FIXO",
+        "valor": 11990,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 91,
+        "convidados_max": 100,
+        "tipo_calculo": "FIXO",
+        "valor": 14290,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 101,
+        "convidados_max": 110,
+        "tipo_calculo": "FIXO",
+        "valor": 13790,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 101,
+        "convidados_max": 110,
+        "tipo_calculo": "FIXO",
+        "valor": 12690,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 101,
+        "convidados_max": 110,
+        "tipo_calculo": "FIXO",
+        "valor": 15190,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 111,
+        "convidados_max": 120,
+        "tipo_calculo": "FIXO",
+        "valor": 14590,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 111,
+        "convidados_max": 120,
+        "tipo_calculo": "FIXO",
+        "valor": 13390,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 111,
+        "convidados_max": 120,
+        "tipo_calculo": "FIXO",
+        "valor": 16090,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 121,
+        "convidados_max": 130,
+        "tipo_calculo": "FIXO",
+        "valor": 15390,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 121,
+        "convidados_max": 130,
+        "tipo_calculo": "FIXO",
+        "valor": 14090,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 121,
+        "convidados_max": 130,
+        "tipo_calculo": "FIXO",
+        "valor": 16990,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 131,
+        "convidados_max": 140,
+        "tipo_calculo": "FIXO",
+        "valor": 16190,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 131,
+        "convidados_max": 140,
+        "tipo_calculo": "FIXO",
+        "valor": 14790,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 131,
+        "convidados_max": 140,
+        "tipo_calculo": "FIXO",
+        "valor": 17890,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 141,
+        "convidados_max": 150,
+        "tipo_calculo": "FIXO",
+        "valor": 16990,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 141,
+        "convidados_max": 150,
+        "tipo_calculo": "FIXO",
+        "valor": 15490,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 141,
+        "convidados_max": 150,
+        "tipo_calculo": "FIXO",
+        "valor": 18790,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 50,
+        "convidados_max": 50,
+        "tipo_calculo": "FIXO",
+        "valor": 8990,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 50,
+        "convidados_max": 50,
+        "tipo_calculo": "FIXO",
+        "valor": 8490,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 50,
+        "convidados_max": 50,
+        "tipo_calculo": "FIXO",
+        "valor": 9790,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 51,
+        "convidados_max": 60,
+        "tipo_calculo": "FIXO",
+        "valor": 9790,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 51,
+        "convidados_max": 60,
+        "tipo_calculo": "FIXO",
+        "valor": 9190,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 51,
+        "convidados_max": 60,
+        "tipo_calculo": "FIXO",
+        "valor": 10690,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 61,
+        "convidados_max": 70,
+        "tipo_calculo": "FIXO",
+        "valor": 10590,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 61,
+        "convidados_max": 70,
+        "tipo_calculo": "FIXO",
+        "valor": 9890,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 61,
+        "convidados_max": 70,
+        "tipo_calculo": "FIXO",
+        "valor": 11590,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 71,
+        "convidados_max": 80,
+        "tipo_calculo": "FIXO",
+        "valor": 11390,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 71,
+        "convidados_max": 80,
+        "tipo_calculo": "FIXO",
+        "valor": 10590,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 71,
+        "convidados_max": 80,
+        "tipo_calculo": "FIXO",
+        "valor": 12490,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "COMPLETA",
+        "convidados_min": 81,
+        "convidados_max": 90,
+        "tipo_calculo": "FIXO",
+        "valor": 12190,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "ESSENCIAL",
+        "convidados_min": 81,
+        "convidados_max": 90,
+        "tipo_calculo": "FIXO",
+        "valor": 11290,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "pacote_id": "PREMIUM",
+        "convidados_min": 81,
+        "convidados_max": 90,
+        "tipo_calculo": "FIXO",
+        "valor": 13390,
+        "categoria_horario": "PADRAO",
+        "observacoes": "Preço-base regular. Desconto de segunda a quinta, quando aplicável, é calculado separadamente.",
+        "ativo": true
+      }
+    ],
+    "precos_adicional": [
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "ARCO_BALAO_GRANDE",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 890,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "ARCO_BALAO_MEDIO",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 690,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "ARCO_BALAO_SIMPLES",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 490,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "BEBIDA_ALCOOLICA",
+        "convidados_min": 81,
+        "convidados_max": 120,
+        "valor": 300,
+        "observacoes": "Taxa de estrutura e serviço para bebida alcoólica.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "BEBIDA_ALCOOLICA",
+        "convidados_min": 121,
+        "convidados_max": 150,
+        "valor": 400,
+        "observacoes": "Taxa de estrutura e serviço para bebida alcoólica.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "BEBIDA_ALCOOLICA",
+        "convidados_min": 1,
+        "convidados_max": 80,
+        "valor": 200,
+        "observacoes": "Taxa de estrutura e serviço para bebida alcoólica.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "BOMBOM",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 7,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "CHAO_VIDRO",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 790,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_ADULTOS",
+        "convidados_min": 81,
+        "convidados_max": 110,
+        "valor": 1190,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_ADULTOS",
+        "convidados_min": 111,
+        "convidados_max": 150,
+        "valor": 1390,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_ADULTOS",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 790,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_ADULTOS",
+        "convidados_min": 51,
+        "convidados_max": 80,
+        "valor": 990,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_LANCHINHOS",
+        "convidados_min": 81,
+        "convidados_max": 110,
+        "valor": 1290,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_LANCHINHOS",
+        "convidados_min": 111,
+        "convidados_max": 150,
+        "valor": 1490,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_LANCHINHOS",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 890,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_LANCHINHOS",
+        "convidados_min": 51,
+        "convidados_max": 80,
+        "valor": 1090,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_MESA_BONITA_MEDIO",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 1190,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_MESA_BONITA_PREMIUM",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 1690,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "COMBO_MESA_BONITA_SIMPLES",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 790,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "CREPE_1_SABOR",
+        "convidados_min": 81,
+        "convidados_max": 110,
+        "valor": 550,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "CREPE_1_SABOR",
+        "convidados_min": 111,
+        "convidados_max": 150,
+        "valor": 650,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "CREPE_1_SABOR",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 350,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "CREPE_1_SABOR",
+        "convidados_min": 51,
+        "convidados_max": 80,
+        "valor": 450,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "CREPE_2_SABORES",
+        "convidados_min": 81,
+        "convidados_max": 110,
+        "valor": 890,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "CREPE_2_SABORES",
+        "convidados_min": 111,
+        "convidados_max": 150,
+        "valor": 1050,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "CREPE_2_SABORES",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 590,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "CREPE_2_SABORES",
+        "convidados_min": 51,
+        "convidados_max": 80,
+        "valor": 750,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "DOCES_TRADICIONAIS_EXTRAS",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 180,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "EMPRATADO_PREMIUM",
+        "convidados_min": 81,
+        "convidados_max": 110,
+        "valor": 1150,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "EMPRATADO_PREMIUM",
+        "convidados_min": 111,
+        "convidados_max": 150,
+        "valor": 1390,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "EMPRATADO_PREMIUM",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 750,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "EMPRATADO_PREMIUM",
+        "convidados_min": 51,
+        "convidados_max": 80,
+        "valor": 950,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "LEMBRANCINHA_PERSONALIZADA",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 18,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "LEMBRANCINHA_PREMIUM",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 25,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "MESA_CAFE",
+        "convidados_min": 51,
+        "convidados_max": 100,
+        "valor": 790,
+        "observacoes": "Tamanho derivado pela faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "MESA_CAFE",
+        "convidados_min": 101,
+        "convidados_max": 150,
+        "valor": 990,
+        "observacoes": "Tamanho derivado pela faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "MESA_CAFE",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 590,
+        "observacoes": "Tamanho derivado pela faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "MESA_FRIOS",
+        "convidados_min": 51,
+        "convidados_max": 100,
+        "valor": 890,
+        "observacoes": "Tamanho derivado pela faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "MESA_FRIOS",
+        "convidados_min": 101,
+        "convidados_max": 150,
+        "valor": 1190,
+        "observacoes": "Tamanho derivado pela faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "MESA_FRIOS",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 690,
+        "observacoes": "Tamanho derivado pela faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "MESA_FRUTAS",
+        "convidados_min": 51,
+        "convidados_max": 100,
+        "valor": 590,
+        "observacoes": "Tamanho derivado pela faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "MESA_FRUTAS",
+        "convidados_min": 101,
+        "convidados_max": 150,
+        "valor": 790,
+        "observacoes": "Tamanho derivado pela faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "MESA_FRUTAS",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 390,
+        "observacoes": "Tamanho derivado pela faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "MONTAGEM_PERSONALIZADOS",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 180,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "PAINEL_REDONDO",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 650,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "PAINEL_RETANGULAR_GRANDE",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 850,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "PASTELZINHO",
+        "convidados_min": 81,
+        "convidados_max": 110,
+        "valor": 550,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "PASTELZINHO",
+        "convidados_min": 111,
+        "convidados_max": 150,
+        "valor": 650,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "PASTELZINHO",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 350,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "PASTELZINHO",
+        "convidados_min": 51,
+        "convidados_max": 80,
+        "valor": 450,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "PENNE",
+        "convidados_min": 81,
+        "convidados_max": 110,
+        "valor": 800,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "PENNE",
+        "convidados_min": 111,
+        "convidados_max": 150,
+        "valor": 950,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "PENNE",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 500,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "PENNE",
+        "convidados_min": 51,
+        "convidados_max": 80,
+        "valor": 650,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "SALADA_PREMIUM",
+        "convidados_min": 81,
+        "convidados_max": 110,
+        "valor": 690,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "SALADA_PREMIUM",
+        "convidados_min": 111,
+        "convidados_max": 150,
+        "valor": 790,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "SALADA_PREMIUM",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 450,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "SALADA_PREMIUM",
+        "convidados_min": 51,
+        "convidados_max": 80,
+        "valor": 590,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "SEGUNDO_TEMA",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 600,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "SORVETE",
+        "convidados_min": 81,
+        "convidados_max": 110,
+        "valor": 550,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "SORVETE",
+        "convidados_min": 111,
+        "convidados_max": 150,
+        "valor": 650,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "SORVETE",
+        "convidados_min": 1,
+        "convidados_max": 50,
+        "valor": 350,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "SORVETE",
+        "convidados_min": 51,
+        "convidados_max": 80,
+        "valor": 450,
+        "observacoes": "Preço total do adicional para a faixa de convidados.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "VISUAL_PREMIUM_COMPLETO",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 2490,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "VISUAL_PREMIUM_PERSONALIZADOS",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 2190,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      },
+      {
+        "tabela_preco_id": "COMERCIAL_2026_09",
+        "adicional_id": "VISUAL_PREMIUM",
+        "convidados_min": 1,
+        "convidados_max": 150,
+        "valor": 1890,
+        "observacoes": "Valor vigente conforme unidade de cobrança cadastrada no adicional.",
+        "ativo": true
+      }
+    ],
+    "regras_categoria_horario": [
+      {
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_1",
+        "categoria_horario": "NOBRE",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_2",
+        "categoria_horario": "NOBRE",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_1",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_1",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_1",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_1",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_1",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_1",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_2",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_2",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_2",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_2",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_2",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      },
+      {
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_2",
+        "categoria_horario": "PADRAO",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Regra regular de categoria de preço. Feriados/vésperas não automatizados."
+      }
+    ],
+    "regras_disponibilidade_pacote": [
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-12",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Kidmais Pocket disponível às sextas-feiras no primeiro horário, das 11h às 15h."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": "2026-09-11",
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_1",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 1,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 2,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 3,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 4,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 5,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 6,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPACTA",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "DISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "MINI_FESTA",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "POCKET",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "INDISPONIVEL",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 7,
+        "configuracao_agenda_id": "TURNO_2",
+        "estado": "SOB_CONSULTA",
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Matriz regular oficial inicial do módulo Disponibilidade/Fechamento."
+      }
+    ],
+    "regras_desconto_pacote": [
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 1,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 1,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 1,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 1,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 2,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 2,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 2,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 2,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 3,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 3,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 3,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 3,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "COMPLETA",
+        "dia_semana": 4,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "ESSENCIAL",
+        "dia_semana": 4,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "PIZZA_PARTY",
+        "dia_semana": 4,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      },
+      {
+        "pacote_id": "PREMIUM",
+        "dia_semana": 4,
+        "configuracao_agenda_id": null,
+        "percentual": 15,
+        "base_calculo": "PACOTE",
+        "codigo": "DIA_UTIL_15",
+        "titulo": "15% de desconto de segunda a quinta",
+        "prioridade": 100,
+        "vigencia_inicio": "2026-09-07",
+        "vigencia_fim": null,
+        "ativo": true,
+        "observacoes": "Aplicado sobre o preço PADRAO do pacote. Adicionais não recebem este desconto."
+      }
+    ]
+  }
+}

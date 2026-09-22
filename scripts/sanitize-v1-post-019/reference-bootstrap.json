@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "purpose": "B5B2A_DISPOSABLE_REFERENCE_ONLY",
+  "target": {
+    "host": "127.0.0.1",
+    "port": 55429,
+    "database": "kidmais_sanitize_v1_post019_b5b"
+  },
+  "postgresql": {
+    "major": 18,
+    "psql": "C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe",
+    "migration_flags": ["-X", "-w", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=sqlstate"],
+    "normal_search_path": "\"$user\", public",
+    "one_process_per_file": true,
+    "external_transaction": false,
+    "exact_version_num": 180006
+  },
+  "roles": {
+    "owner": "kidmais_b5b_owner",
+    "sanitizer": "kidmais_b5b_sanitizer",
+    "sanitizer_connection_limit": 1,
+    "sanitizer_attributes": ["LOGIN", "NOSUPERUSER", "NOINHERIT", "NOCREATEDB", "NOCREATEROLE", "NOREPLICATION", "NOBYPASSRLS"],
+    "connect_only_target": true,
+    "temporary": false,
+    "sequence_privileges": ["SELECT"]
+  },
+  "bootstrap_authentication": "LOCAL_HBA_TRUST_EXACT_DATABASE_AND_ROLES_ONLY",
+  "locking": {
+    "empty_tables": "ACCESS EXCLUSIVE",
+    "preserve_canonical_tables": "ACCESS SHARE",
+    "exclusive_instance_required": true
+  },
+  "canonicalization": "V1_POST019_PG18_SEMANTIC_V1",
+  "verification_mode_required_after_seal": true,
+  "reference_executor_sha256": "31646a289dc1ebf3db13d4a620e3dabfb8e470ea79447f162e65dbe45f9baaf3",
+  "source_commit": "0460d0a10ed0ba1afbd2061055762cf3913bda0b",
+  "migration_019_sha256": "121265ed0e5c89882abf27a7178f206d26f0e1dea15a773bc413fdaf68ed4d90"
+}
