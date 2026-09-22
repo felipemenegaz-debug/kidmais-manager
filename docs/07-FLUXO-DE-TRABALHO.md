@@ -41,6 +41,22 @@ Planejar e decidir no ChatGPT.
 Consolidar documentos e artefatos grandes no Work.
 Implementar engenharia no Codex.
 
+## Separação física dos projetos
+
+### Produção / V1
+```
+D:\glass\KidMais Manager\kidmais-manager-github
+```
+
+### SaaS / Productização
+```
+D:\glass\KidMais Manager\kidmais-manager-saas
+```
+
+O desenvolvimento SaaS deve ocorrer no clone dedicado. A pasta da V1/produção deve permanecer voltada a correções, estabilização e GO.
+
+O clone SaaS pode usar o mesmo remoto GitHub, mas deve trabalhar em branches próprias, começando por `saas/foundation`.
+
 ## Git — fluxo seguro
 
 ### Sincronizar branches remotas
@@ -89,8 +105,13 @@ Se um PR ainda não foi mesclado, `git pull origin main` não trará os arquivos
 9. Validar staging.
 10. Promover para produção conforme procedimento oficial.
 
+## Uso de modelos e agentes
+A política oficial de modelos, esforço de raciocínio, skills, agentes e subagentes está em [08 — IA, Agentes, Skills e Harness](./08-IA-AGENTES-SKILLS-HARNESS.md).
+
 ## Regra de segurança
 Evitar alterações diretas na `main` para mudanças relevantes. Preferir branch + Pull Request + revisão.
+
+Para productização SaaS, nunca desenvolver diretamente na pasta física usada como referência da V1/produção.
 
 ## Documentação
 A pasta `docs/` é a fonte oficial das regras funcionais, arquitetura, roadmap e decisões registradas do Kidmais Manager.
