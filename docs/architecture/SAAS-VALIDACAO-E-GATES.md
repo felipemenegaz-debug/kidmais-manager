@@ -105,6 +105,20 @@ D12c trata provisionamento/rotação/operação e pode evoluir até antes do pri
 
 D11c CLOSED conforme [política aprovada](adr/ADR-005-OWNERSHIP-DOS-DOMINIOS.md): CRM único empresarial, visibilidade mínima por vínculo/fluxo autorizado, resolução sem diretório e sem acesso retroativo a operações de outra unidade. D11b é CAN_DEFER: identidade global opcional do cliente, sem obrigatoriedade, sem mudança de PK/ownership CRM e sem lookup cross-company; só haverá reutilização futura pelo titular em fluxo próprio autorizado e auditado. D03/D10 continuam MUST_DECIDE_BEFORE_FIRST_TENANT.
 
+## Complemento 1C-B1 — gates de migratabilidade e legado
+
+O [pacote1C](schema/README.md) especifica OPEN_1C-02 como DESIGN_CLOSED_EXECUTION_GATE e OPEN_1C-03 como DESIGN_CLOSED, proposto para aprovação. Não substitui G0–G4, não fecha D03/D10/D12b e não aprova nova tabela ou descarte. [B1](schema/SAAS-LEGACY-SECURITY-DISPOSITION.md) delimita autoridade, retenção e exceção X, separada de M.
+
+| Gate adicional | Momento obrigatório | Evidência futura |
+| --- | --- | --- |
+| G-P | Antes do primeiro ADD COLUMN S2 que afete H16 | Bytes da projeção histórica/hashes preservados em fixture ocupada |
+| G-M | Antes do primeiro backfill protegido S5 ou escrita equivalente anterior | Autorização estreita, igualdade V1, falhas/rollback, guards/ACL restaurados |
+| G-X | Antes de qualquer extração/purge/cutover da família em S5-X | Aprovação de exceção/retention/campos/irreversibilidade; produtor e dependências provados; um destino por PK; atomicidade/minimização/revogação/restore ensaiados |
+| G-COVERAGE | Antes de S6/NOT NULL final e novamente G3/G4 | Pendentes=0, nenhuma linha obrigatória sem E/U, nenhuma credencial incompatível utilizável, nenhuma cópia indevida em Core ou origem operacional residual |
+| G-ACCESS | Antes de publicar Core ou retomar tráfego | Roles/ACL/RLS/rotinas reais, Core sem diretório cross-tenant, D12c e build compatível/D12b |
+
+Casos negativos obrigatórios: auditoria FESTA sem cliente; origem global forjada; OTP consumido/com E sem U/código expirado mas prova válida; callback tardio; consumo concorrente ao corte; retenção ausente/hold; erro entre destino e remoção; retry/commit incerto; restauração de backup anterior; tentativa de buscar pessoa/localizador em Core. Bloqueio/manual review é execução recusada, não atribuição a tenant fictício. X não muda prova contratual nem auditoria tenant por conveniência; campos descartados não têm rollback recuperável por down comum.
+
 ## Verificação desta entrega
 
 A revisão presente é estática/documental: cobertura das 63 tabelas, estrutura dos dez ADRs, links, coerência com baseline e diff. Não equivale à execução de T01–T16. Nenhum acesso a banco, execução de migration, implementação de RLS/contexto ou alteração de runtime foi realizado. Reversão deste pacote é apenas documental; não há rollback de banco associado.

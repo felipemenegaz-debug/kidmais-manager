@@ -32,6 +32,7 @@ Esta pasta é a fonte oficial de documentação funcional, arquitetural e de pro
 - [Ownership preliminar das 63 tabelas V1](./architecture/OWNERSHIP-V1-63.md)
 - [Invariantes, testes e gates SaaS](./architecture/SAAS-VALIDACAO-E-GATES.md)
 - [Inventário estrutural D12a — fontes, consumidores e autoridade](./architecture/SAAS-CONFIG-AUTHORITY-MAP.md)
+- [Fases 1C-A/1C-B0/1C-B1 — blueprint, migratabilidade e disposição do legado SaaS](./architecture/schema/README.md)
 
 ## Baseline e sanitização
 
