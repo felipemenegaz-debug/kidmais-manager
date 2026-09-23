@@ -30,7 +30,7 @@ function ambiente() {
         sessao: { id: 'sessao', usuario_id: 'usuario-unitario', papel: 'ADMINISTRATIVO', csrf_hash: hash(csrf),
             revogada: false, ativo: true, expirada: false, ociosa: false, senhaAlterada: false },
         pacote: { id: 'pacote', codigo: 'POCKET', nome: 'Pocket', convidadosMinimos: 20, convidadosMaximos: 150, ativo: true },
-        indisponivel: false, pricingError: false, auditError: false,
+        indisponivel: false, pricingError: false, auditError: false, pricingInput: null as any,
         fechamentos: [] as any[], adicionais: [] as any[], aprovacoes: [] as any[], historico: [] as any[], auditoria: [] as any[], sql: [] as string[],
     };
     const tx = { query: async (sql: string, params: unknown[] = []) => {
@@ -83,7 +83,8 @@ function ambiente() {
         if (state.indisponivel) throw Error('HORARIO_NAO_DISPONIVEL');
         return { candidato: { inicio: i.inicio, fim: i.fim }, periodo: { configuracaoId: 'agenda-confiavel' } };
     } });
-    mock('lib/comercial/services', { calcularResumoComercial: async () => {
+    mock('lib/comercial/services', { calcularResumoComercial: async (input: any) => {
+        state.pricingInput = input;
         if (state.pricingError) throw Error('PACOTE_INDISPONIVEL');
         return { valorTotalTabela: 10000, valorTabelaPacoteBase: 10000, valorDescontoPacote: 0, valorTabelaPacoteAplicado: 10000, valorAdicionais: 0,
             pacote: { pacote: state.pacote, tabelaPreco: { id: 'tabela' }, precoRegra: { id: 'preco' }, desconto: { regraId: null, percentual: 0 }, convidadosInformados: 20, convidadosFaturados: 20 }, adicionais: { itens: [] } };
@@ -119,6 +120,30 @@ test('GET e POST reais: cliente existente, núcleo comercial, origem/ator do ser
     assert.equal(a.state.historico[0].tipoEvento, 'FECHAMENTO_CRIADO');
     assert.equal(a.state.auditoria[0].atorTipo, 'USUARIO'); assert(a.state.auditoria[0].requestId);
     assert(!a.state.sql.some(s => /^(INSERT|DELETE|UPDATE (?!sessoes_administrativas))/.test(s)));
+});
+
+test('extras unitários: SKUs próprios e quantidades chegam intactos ao cálculo administrativo', async () => {
+    const a = ambiente();
+    assert.equal((await a.chamar({ ...payload, adicionaisSelecionados: ['bombom', 'lembrancinha-copo', 'lembrancinha-bola'],
+        adicionaisQuantidades: { bombom: 3, 'lembrancinha-copo': 2, 'lembrancinha-bola': 1 } })).status, 201);
+    assert.deepEqual(a.state.pricingInput.adicionais, [
+        { codigo: 'BOMBOM', quantidade: 3 }, { codigo: 'LEMBRANCINHA_COPO', quantidade: 2 }, { codigo: 'LEMBRANCINHA_BOLA', quantidade: 1 },
+    ]);
+});
+for (const quantidade of [0, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    test(`quantidade extra inválida ${quantidade}: rejeita antes de criar fechamento`, async () => {
+        const a = ambiente();
+        assert.equal((await a.chamar({ ...payload, adicionaisSelecionados: ['bombom'], adicionaisQuantidades: { bombom: quantidade } })).status, 400);
+        assert.equal(a.state.fechamentos.length, 0); assert.equal(a.state.pricingInput, null);
+        assert.equal(a.load('lib/fechamentos/comercial-input').traduzirAdicionais(['bombom'], { bombom: quantidade }).ok, false);
+    });
+}
+test('extra opcional: não selecionado não cobra; uma unidade não exige lote mínimo', () => {
+    const traduzir = ambiente().load('lib/fechamentos/comercial-input').traduzirAdicionais;
+    assert.deepEqual(traduzir([], { bombom: 4 }).itens, []);
+    assert.deepEqual(traduzir(['bombom']).itens, [{ codigo: 'BOMBOM', quantidade: 1 }]);
+    assert.equal(traduzir(['lembrancinha-personalizada']).ok, false);
+    assert.equal(traduzir(['lembrancinha-premium']).ok, false);
 });
 for (const [caso, options] of [['ausente', { token: '' }], ['malformada', { token: 'invalida' }], ['desconhecida', { token: 'y'.repeat(43) }]] as const) {
     test(`sessão ${caso}: HTTP 401 sem gravação`, async () => { const a = ambiente(); assert.equal((await a.chamar(payload, options)).status, 401); assert.equal(a.state.fechamentos.length, 0); });

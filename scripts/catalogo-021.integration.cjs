@@ -12,7 +12,7 @@ const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
 const only = process.argv.find(a => a.startsWith('--only='))?.slice(7);
 const selected = only ? new Set(only.split(',')) : null;
-const testNames = new Set(['catalogo', 'rolha', 'fechamento', 'negativos_buffet', 'administracao', 'edicao_regras', 'pdf', 'contrato_buffet']);
+const testNames = new Set(['catalogo', 'rolha', 'fechamento', 'negativos_buffet', 'administracao', 'edicao_regras', 'pdf', 'contrato_buffet', 'extras025']);
 const results = [];
 let client, before, allBefore, ids, temp, transaction = false, savepoint = 0;
 let queryQueue = Promise.resolve();
@@ -142,8 +142,7 @@ async function main() {
       const front = Object.keys(mappings).find(k => mappings[k] === p.codigo);
       const e = await extras.GET(req(`/api/fechamentos/adicionais?pacote=${front}&data=${date}&convidados=79`)); assert.equal(e.status, 200);
       const available = (await e.json()).adicionais;
-      if (p.codigo === 'PIZZA_PARTY') assert.equal(available.length, 0);
-      else { assert(available.some(a => a.codigo === 'BEBIDA_ALCOOLICA' && a.preco === 190)); }
+      assert(available.some(a => a.codigo === 'BEBIDA_ALCOOLICA' && a.preco === 190));
       if (['COMPLETA','PREMIUM'].includes(p.codigo)) for (const code of ['PENNE','CREPE_1_SABOR','SORVETE']) assert(!available.some(a => a.codigo === code));
       if (p.codigo === 'PREMIUM') assert(!available.some(a => a.codigo === 'EMPRATADO_PREMIUM'));
       console.log('PACOTE ' + JSON.stringify({ codigo:p.codigo,buffet:categories.map(c=>({codigo:c.codigo,max:c.max,itens:c.itens.length})),extras:available.map(a=>a.codigo) }));
@@ -158,6 +157,104 @@ async function main() {
       console.log('ROLHA '+JSON.stringify({ convidados,taxa:valor,pacote:resumo.valorTabelaPacoteAplicado,total:resumo.valorTotalTabela }));
     }
     await assert.rejects(pricing.calcularResumoComercial({...context(80),adicionais:[{codigo:'PENNE'}]},executor), e=>e.code==='ADICIONAL_NAO_ENCONTRADO');
+  });
+  await test('extras025', async () => {
+    const comercial = requireTs('lib/fechamentos/comercial-input.ts');
+    const priceBefore = await pricing.calcularResumoComercial(context(80), executor);
+    const legacy = ['LEMBRANCINHA_PERSONALIZADA', 'LEMBRANCINHA_PREMIUM'];
+    const visible = [];
+    for (const p of packages) {
+      const front = Object.keys(mappings).find(k => mappings[k] === p.codigo);
+      for (const convidados of [79, 80]) {
+        const response = await extras.GET(req(`/api/fechamentos/adicionais?pacote=${front}&data=${date}&convidados=${convidados}`));
+        assert.equal(response.status, 200);
+        const itens = (await response.json()).adicionais;
+        for (const [codigo, preco] of [['BOMBOM', 4], ['LEMBRANCINHA_COPO', 9], ['LEMBRANCINHA_BOLA', 12]]) {
+          const item = itens.find(a => a.codigo === codigo);
+          assert(item); assert.equal(item.preco, preco); assert.equal(item.unidadeCobranca, 'UNIDADE');
+        }
+        assert(!itens.some(a => legacy.includes(a.codigo)));
+        assert.equal(itens.find(a => a.codigo === 'BEBIDA_ALCOOLICA').preco, convidados < 80 ? 190 : 290);
+        if (convidados === 79) visible.push({ pacote: p.codigo, adicionais: itens.map(a => ({ codigo: a.codigo, nome: a.nome })) });
+        if (p.codigo === 'PIZZA_PARTY') {
+          const priced = (await pricing.listarCatalogoAdicionais({ data: date, convidados }, executor)).itens.filter(a => a.preco);
+          assert.deepEqual(itens.map(a => a.codigo).sort(), priced.map(a => a.codigo).sort());
+          for (const a of itens) assert.equal(a.preco, priced.find(b => b.codigo === a.codigo).preco.valor);
+          await assert.rejects(pricing.precificarPacote({ ...context(convidados), pacoteId: p.id }, executor), e => e.code === 'PACOTE_SOB_CONSULTA');
+        } else {
+          for (const quantidade of [1, 2, 80]) {
+            const itens = [{ codigo: 'BOMBOM', quantidade }, { codigo: 'LEMBRANCINHA_COPO', quantidade }, { codigo: 'LEMBRANCINHA_BOLA', quantidade }];
+            const r = await pricing.precificarAdicionais({ data: date, convidados, itens }, executor);
+            assert.equal(r.valorTotal, quantidade * 25);
+            // Pocket/Mini/Compacta possuem regras próprias de dia/horário; não as relaxar no teste de extras.
+            if (['ESSENCIAL','COMPLETA','PREMIUM'].includes(p.codigo)) {
+              const resumo = await pricing.calcularResumoComercial({ ...context(convidados), pacoteId: p.id, adicionais: itens }, executor);
+              assert.equal(resumo.valorAdicionais, quantidade * 25);
+              assert.equal(resumo.valorTotalTabela, resumo.valorTabelaPacoteAplicado + quantidade * 25);
+            }
+          }
+        }
+      }
+    }
+    console.log('VISIBILIDADE_025 ' + JSON.stringify(visible));
+    fs.writeFileSync(path.join(temp, 'adicionais-025.json'), JSON.stringify(visible, null, 2));
+    for (const quantidade of [0, -1, 0.5, NaN]) {
+      await assert.rejects(pricing.precificarAdicionais({ data: date, convidados: 80, itens: [{ codigo: 'BOMBOM', quantidade }] }, executor), e => e.code === 'DADOS_INVALIDOS');
+    }
+    for (const codigo of legacy) await assert.rejects(pricing.calcularResumoComercial({ ...context(80), adicionais: [{ codigo }] }, executor), e => e.code === 'ADICIONAL_NAO_ENCONTRADO');
+    const premium = packages.find(p => p.codigo === 'PREMIUM');
+    const included = await pricing.calcularResumoComercial({ ...context(80), pacoteId: premium.id }, executor);
+    const extra = await pricing.calcularResumoComercial({ ...context(80), pacoteId: premium.id, adicionais: [{ codigo: 'BOMBOM', quantidade: 1 }] }, executor);
+    assert.equal(included.valorAdicionais, 0); assert.equal(extra.valorAdicionais, 4);
+    assert.equal(extra.valorTotalTabela - included.valorTotalTabela, 4); // 4 incluídos não são cobrados nem descontados da quantidade extra.
+    assert(!requireTs('lib/fechamentos/services/edicao-administrativa.service.ts').adicionaisIncluidos('PREMIUM').includes('BOMBOM'));
+    const translated = comercial.traduzirAdicionais(['bombom','lembrancinha-copo','lembrancinha-bola'], { bombom: 3, 'lembrancinha-copo': 2, 'lembrancinha-bola': 1 });
+    assert(translated.ok);
+    const key = randomUUID();
+    const created = await publicService.criarFechamentoPublicoComIdentidade({ dataEvento: date, horarioInicio: '11:00', horarioFim: '15:00',
+      configuracaoAgendaId: turno, pacoteId: context(80).pacoteId, convidados: 80, adicionais: translated.itens,
+      valorProposto: priceBefore.valorTotalTabela + 42, formaPagamentoPretendida: 'PIX_AVISTA', buffetStatus: 'PENDENTE',
+      identidade: { tipo: 'NOVO_CLIENTE' }, cliente: { nomeCompleto: `REGRESSAO-CATALOGO-${key}`, cpf: cpfFicticio(), email: `${key}@example.invalid`,
+        whatsapp: '11900000000', cep: '00000000', logradouro: 'Rua Ficticia', numero: '1', bairro: 'Teste', cidade: 'Teste', uf: 'SP' },
+      aniversariante: { nome: `Ficticio ${key}` }, requestId: key });
+    assert.equal(created.fechamento.valorAdicionais, 42);
+    const persisted = (await client.query(`SELECT a.codigo,fa.quantidade::float quantidade,fa.valor_unitario_aplicado::float unitario,fa.valor_total::float total
+      FROM fechamento_adicionais fa JOIN adicionais a ON a.id=fa.adicional_id WHERE fa.fechamento_id=$1 ORDER BY a.codigo`, [created.fechamento.id])).rows;
+    assert.deepEqual(persisted, [
+      { codigo: 'BOMBOM', quantidade: 3, unitario: 4, total: 12 },
+      { codigo: 'LEMBRANCINHA_BOLA', quantidade: 1, unitario: 12, total: 12 },
+      { codigo: 'LEMBRANCINHA_COPO', quantidade: 2, unitario: 9, total: 18 },
+    ]);
+    const edit = requireTs('lib/fechamentos/services/edicao-administrativa.service.ts');
+    const edited = await edit.calcularEdicaoFechamento(created.fechamento, {
+      acao: 'editar_festa', revisao: 1, fonteHash: '0'.repeat(64), motivo: 'Teste extras no Premium',
+      pacoteId: premium.id, convidados: 80, dataEvento: date, configuracaoAgendaId: turno,
+      horarioInicio: '11:00', horarioFim: '15:00', adicionais: [{ codigo: 'BOMBOM', quantidade: 1 }],
+      idadeAniversarianteEvento: null, temaFesta: '', buffetStatus: 'PENDENTE', buffetSalgados: '', buffetBebidas: '',
+      buffetDoces: '', buffetBolo: '', buffetOutros: '', observacoesEquipe: '',
+    }, executor);
+    assert.equal(edited.resumo.valorAdicionais, 4);
+    const publicRoute = requireTs('app/api/fechamentos/route.ts');
+    const routeKey = randomUUID();
+    const payload = { dataFesta: date, horarioBase: 'almoco', ajusteHorario: '0', horarioInicio: '11:00', horarioFim: '15:00',
+      statusDisponibilidade: 'disponivel', pacote: 'completa', convidadosPagantes: 80, buffetDefinicao: 'depois',
+      adicionaisSelecionados: ['bombom','lembrancinha-copo','lembrancinha-bola'],
+      adicionaisQuantidades: { bombom: 3, 'lembrancinha-copo': 2, 'lembrancinha-bola': 1 },
+      valorCombinado: String(priceBefore.valorTotalTabela + 42), formaPagamento: 'pix_avista', identidadeTipo: 'NOVO_CLIENTE',
+      nomeCliente: `REGRESSAO-CATALOGO-${routeKey}`, cpf: cpfFicticio(), email: `${routeKey}@example.invalid`, whatsapp: '11900000000',
+      cep: '00000000', logradouro: 'Rua Ficticia', numero: '1', bairro: 'Teste', cidade: 'Teste', uf: 'SP', nomeAniversariante: 'Ficticio', idadeAniversariante: '' };
+    const count = async () => (await client.query('SELECT count(*)::int n FROM fechamentos')).rows[0].n;
+    const countBefore = await count();
+    for (const quantidade of [0, -1, 0.5]) {
+      assert.equal((await publicRoute.POST(req('/api/fechamentos', 'POST', { ...payload, adicionaisQuantidades: { bombom: quantidade } }))).status, 400);
+      assert.equal(await count(), countBefore);
+    }
+    const response = await publicRoute.POST(req('/api/fechamentos', 'POST', payload));
+    assert.equal(response.status, 201);
+    const saved = await response.json();
+    assert.equal(saved.comercial.valorAdicionais, 42);
+    assert.equal((await client.query('SELECT valor_adicionais::float valor FROM fechamentos WHERE id=$1', [saved.fechamentoId])).rows[0].valor, 42);
+    assert.deepEqual(await protectedState(), before);
   });
   await test('fechamento', async () => {
     const categories=(await (await buffet.GET(req('/api/fechamentos/catalogo?pacote=COMPLETA'))).json()).categorias;

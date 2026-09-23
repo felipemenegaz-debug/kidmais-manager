@@ -32,6 +32,7 @@ export const camposComerciaisFechamento = {
   buffetBombom: z.string().trim().max(2000).optional(),
 
   adicionaisSelecionados: z.array(z.string()).default([]),
+  adicionaisQuantidades: z.record(z.string(), z.number().int().positive().safe()).optional(),
   alteracoesPacote: z.string().optional(),
   observacoesCliente: z.string().optional(),
 

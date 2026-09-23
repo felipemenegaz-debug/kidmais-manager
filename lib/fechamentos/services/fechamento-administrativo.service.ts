@@ -79,7 +79,7 @@ export async function criarFechamentoAdministrativo(id: string, raw: unknown, co
             inicio: input.horarioInicio, fim: input.horarioFim, ajusteMinutos: Number(input.ajusteHorario) }, tx);
         const valorProposto = moedaParaNumeroServidor(input.valorCombinado);
         if (valorProposto === null) throw new FechamentoServiceError('VALOR_PROPOSTO_INVALIDO', 'Informe um valor combinado válido.');
-        const adicionais = traduzirAdicionais(input.adicionaisSelecionados);
+        const adicionais = traduzirAdicionais(input.adicionaisSelecionados, input.adicionaisQuantidades);
         if (!adicionais.ok) throw new FechamentoServiceError('DADOS_INVALIDOS', adicionais.erro, 409);
         const resultado = await criarFechamentoComercial({
             clienteId: cliente.id, aniversarianteId: aniversariante.id,
@@ -88,7 +88,7 @@ export async function criarFechamentoAdministrativo(id: string, raw: unknown, co
             dataEvento: input.dataFesta, horarioInicio: horario.candidato.inicio, horarioFim: horario.candidato.fim,
             configuracaoAgendaId: horario.periodo.configuracaoId, pacoteId: pacote.id,
             convidados: input.convidadosPagantes, valorProposto,
-            adicionais: adicionais.codigos.map(codigo => ({ codigo, quantidade: 1 })),
+            adicionais: adicionais.itens,
             idadeAniversarianteEvento: input.idadeAniversariante === '' ? null : input.idadeAniversariante,
             temaFesta: input.temaFesta, alteracoesPacote: input.alteracoesPacote,
             observacoesCliente: input.observacoesCliente, observacoesEquipe: input.observacoesEquipe,

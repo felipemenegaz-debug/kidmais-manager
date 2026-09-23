@@ -453,6 +453,9 @@ function calcularValorAdicional(
   quantidade: number,
   convidados: number,
 ): AdicionalPrecificado {
+  if (adicional.unidadeCobranca === "UNIDADE" && !Number.isSafeInteger(quantidade)) {
+    throw new PricingServiceError("DADOS_INVALIDOS", "Adicionais por unidade exigem quantidade inteira.", 400);
+  }
   if (!adicional.preco) {
     throw new PricingServiceError(
       "PRECO_ADICIONAL_NAO_CONFIGURADO",

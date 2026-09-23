@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const adicionais = traduzirAdicionais(dados.data.adicionaisSelecionados);
+  const adicionais = traduzirAdicionais(dados.data.adicionaisSelecionados, dados.data.adicionaisQuantidades);
   if (!adicionais.ok) {
     return NextResponse.json(
       { ok: false, erro: adicionais.erro, codigo: adicionais.codigo },
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
       configuracaoAgendaId: horarioRevalidado.periodo.configuracaoId,
       pacoteId: pacote.id,
       convidados: dados.data.convidadosPagantes,
-      adicionais: adicionais.codigos.map((codigo) => ({ codigo, quantidade: 1 })),
+      adicionais: adicionais.itens,
       valorProposto,
       buffetStatus: dados.data.buffetDefinicao === "agora" ? "DEFINIDO" : "PENDENTE",
       escolhasBuffet: dados.data.escolhasBuffet,

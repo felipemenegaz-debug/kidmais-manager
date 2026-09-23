@@ -1,5 +1,10 @@
 # Catálogo V1 — Migration 021A (estrutura)
 
+> Atualização 025: bombom extra R$ 4/unidade, Copo R$ 9/unidade e Bola R$ 12/unidade,
+> com SKUs próprios; Pizza Party recebe extras precificados mantendo base sob consulta.
+> Aplicação somente no clone. As pendências abaixo sobre esses preços foram resolvidas
+> por autorização explícita; veja [regras, lista por pacote e evidências da 025](CATALOGO_V1_025.md).
+
 Estado local em 23/09/2026: migrations 021–024 aplicadas **exclusivamente no clone
 sanitizado `kidmais_v1_homologacao`**, PostgreSQL local loopback, porta 5432,
 na branch `v1/catalogo-021a`. O postcheck 019 passou com `search_path=public`;

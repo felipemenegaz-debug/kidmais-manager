@@ -37,6 +37,7 @@ export type FechamentoForm = {
   buffetBombom: string;
 
   adicionaisSelecionados: string[];
+  adicionaisQuantidades: Record<string, number>;
   alteracoesPacote: string;
   observacoesCliente: string;
 

@@ -48,6 +48,16 @@ export const ADICIONAL_CODIGO_BANCO: Record<string, string> = {
 
   "doces-extra": "DOCES_TRADICIONAIS_EXTRAS",
   bombom: "BOMBOM",
+  "lembrancinha-copo": "LEMBRANCINHA_COPO",
+  "lembrancinha-bola": "LEMBRANCINHA_BOLA",
+  "combo-adultos": "COMBO_ADULTOS",
+  "combo-lanchinhos": "COMBO_LANCHINHOS",
+  "combo-mesa-bonita-simples": "COMBO_MESA_BONITA_SIMPLES",
+  "combo-mesa-bonita-medio": "COMBO_MESA_BONITA_MEDIO",
+  "combo-mesa-bonita-premium": "COMBO_MESA_BONITA_PREMIUM",
+  "visual-premium": "VISUAL_PREMIUM",
+  "visual-premium-personalizados": "VISUAL_PREMIUM_PERSONALIZADOS",
+  "visual-premium-completo": "VISUAL_PREMIUM_COMPLETO",
   rolha: "BEBIDA_ALCOOLICA",
 };
 
@@ -60,8 +70,9 @@ export function moedaParaNumeroServidor(valor: string): number | null {
   try { return centavosComerciais(decimal) / 100; } catch { return null; }
 }
 
-export function traduzirAdicionais(ids: string[]) {
+export function traduzirAdicionais(ids: string[], quantidades: Record<string, number> = {}) {
   const codigos: string[] = [];
+  const itens: { codigo: string; quantidade: number }[] = [];
   const vistos = new Set<string>();
 
   for (const id of ids) {
@@ -92,7 +103,12 @@ export function traduzirAdicionais(ids: string[]) {
 
     vistos.add(codigo);
     codigos.push(codigo);
+    const quantidade = quantidades[id] ?? 1;
+    if (!Number.isSafeInteger(quantidade) || quantidade < 1) {
+      return { ok: false as const, erro: "Informe uma quantidade inteira maior que zero para cada adicional selecionado.", codigo: "QUANTIDADE_ADICIONAL_INVALIDA" };
+    }
+    itens.push({ codigo, quantidade });
   }
 
-  return { ok: true as const, codigos };
+  return { ok: true as const, codigos, itens };
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import AdicionaisPizzaConsulta from './AdicionaisPizzaConsulta';
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ATALHOS_CONVIDADOS, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
@@ -91,7 +92,7 @@ type ClienteContextoValidado = {
 };
 
 type CategoriaBuffet = { codigo:string; nome:string; max:number; itens:{id:string;nome:string}[] };
-type AdicionalDisponivel = { id:string;nome:string;categoria:string;preco:number };
+type AdicionalDisponivel = { id:string;nome:string;categoria:string;preco:number;unidadeCobranca:string };
 const CODIGO_PACOTE:Record<string,string> = {pocket:'POCKET',mini:'MINI_FESTA',compacta:'COMPACTA',essencial:'ESSENCIAL',completa:'COMPLETA',premium:'PREMIUM',pizza_party_scienza:'PIZZA_PARTY'};
 const CAMPO_CATEGORIA:Record<string,'buffetSalgados'|'buffetDoces'|'buffetBolo'|'buffetLembrancinha'|'buffetEmpratado'|'buffetBombom'> = {
   SALGADOS:'buffetSalgados',DOCES:'buffetDoces',MASSA_BOLO:'buffetBolo',RECHEIO_BOLO:'buffetBolo',
@@ -118,6 +119,7 @@ const FORM_INICIAL: FechamentoForm = {
   buffetBombom: "",
 
   adicionaisSelecionados: [],
+  adicionaisQuantidades: {},
   alteracoesPacote: "",
   observacoesCliente: "",
 
@@ -466,9 +468,9 @@ export default function FechamentoWizard() {
     () =>
       form.adicionaisSelecionados.reduce((total, id) => {
         const adicional = adicionaisDisponiveis?.find((item) => item.id === id);
-        return total + (adicional?.preco ?? 0);
+        return total + (adicional?.preco ?? 0) * (form.adicionaisQuantidades[id] ?? 1);
       }, 0),
-    [form.adicionaisSelecionados, adicionaisDisponiveis]
+    [form.adicionaisSelecionados, form.adicionaisQuantidades, adicionaisDisponiveis]
   );
 
   const descontoAtual = descontoEfetivo(
@@ -930,6 +932,11 @@ export default function FechamentoWizard() {
       return false;
     }
 
+    if (etapa === 4 && form.adicionaisSelecionados.some(id => !Number.isSafeInteger(form.adicionaisQuantidades[id] ?? 1) || (form.adicionaisQuantidades[id] ?? 1) < 1)) {
+      setErro('Informe quantidades inteiras maiores que zero para os extras selecionados.');
+      return false;
+    }
+
     if (etapa === 5) {
       try { centavosComerciais(valorInformado); }
       catch {
@@ -1328,6 +1335,7 @@ export default function FechamentoWizard() {
                     <div className={`${styles.detailWide} ${styles.consultNotice}`}>
                       <strong>Sob consulta</strong>
                       <p>A equipe Kidmais precisa confirmar disponibilidade e valor antes do fechamento e do contrato.</p>
+                      <AdicionaisPizzaConsulta />
                       <a href={CONTATO_KIDMAIS.whatsappUrl} target="_blank" rel="noreferrer">Falar com a Kidmais</a>
                     </div>
                   )}
@@ -1815,6 +1823,7 @@ export default function FechamentoWizard() {
                 pela equipe antes do contrato.
               </StepTitle>
 
+              {form.pacote === "premium" && <p>A Festa Premium inclui 4 bombons. Informe abaixo somente a quantidade extra desejada; nenhuma compra extra é obrigatória.</p>}
               {adicionaisDisponiveis===null&&<p role="alert">Não foi possível consultar os adicionais deste pacote. Recarregue a página para tentar novamente.</p>}
               {(["buffet", "mesa", "decoracao", "extra"] as const).map(
                 (categoria) => (
@@ -1834,6 +1843,7 @@ export default function FechamentoWizard() {
                           form.adicionaisSelecionados.includes(item.id);
 
                         return (
+                          <div key={item.id}>
                           <button
                             type="button"
                             key={item.id}
@@ -1846,8 +1856,13 @@ export default function FechamentoWizard() {
                               {selected ? "✓" : ""}
                             </span>
                             <strong>{item.nome}</strong>
-                            <b>{numeroParaMoeda(preco)}</b>
+                            <b>{numeroParaMoeda(preco)}{item.unidadeCobranca === "UNIDADE" ? " / unidade extra" : ""}</b>
                           </button>
+                          {selected && item.unidadeCobranca === "UNIDADE" && <label className={styles.field}>Quantidade extra de {item.nome}
+                            <input type="number" min={1} step={1} value={form.adicionaisQuantidades[item.id] ?? 1} onChange={e => atualizar("adicionaisQuantidades", { ...form.adicionaisQuantidades, [item.id]: Number(e.target.value) })} />
+                            <span>Total: {numeroParaMoeda(preco * (form.adicionaisQuantidades[item.id] ?? 1))}</span>
+                          </label>}
+                          </div>
                         );
                       })}
                     </div>

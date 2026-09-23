@@ -15,7 +15,8 @@ export function adicionaisIncluidos(codigo: string): string[] {
     // Combos oficiais 006 contêm penne / crepe + sorvete. Para não repetir
     // cobrança, selecione os itens avulsos que ainda não pertencem ao pacote.
     const completa = ['PENNE', 'CREPE_1_SABOR', 'SORVETE', 'COMBO_ADULTOS', 'COMBO_LANCHINHOS'];
-    return codigo === 'PREMIUM' ? [...completa, 'CREPE_2_SABORES', 'BOMBOM', 'PASTELZINHO', 'EMPRATADO_PREMIUM', 'SALADA_PREMIUM'] : codigo === 'COMPLETA' ? completa : [];
+    // BOMBOM identifica somente unidades extras; os 4 incluídos não entram nesta seleção.
+    return codigo === 'PREMIUM' ? [...completa, 'CREPE_2_SABORES', 'PASTELZINHO', 'EMPRATADO_PREMIUM', 'SALADA_PREMIUM'] : codigo === 'COMPLETA' ? completa : [];
 }
 export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFestaInput, usuarioId: string, requestId: string, tx: DbExecutor) {
     const input = edicaoFestaSchema.parse(raw);
