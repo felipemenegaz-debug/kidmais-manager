@@ -1,0 +1,43 @@
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e0d4eb;
+  border-radius: 12px;
+  box-shadow: 0 3px 10px #2511350d;
+}
+
+.sections {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sections button {
+  flex: 1;
+  background: #f1ebf6;
+  color: #472360;
+  border: 2px solid transparent;
+}
+
+.sections button[aria-pressed='true'] {
+  background: #472360;
+  color: #fff;
+  border-color: #472360;
+}
+
+.toolbar p {
+  margin: 8px 0 0;
+}
+
+.content {
+  padding: 16px;
+}
+
+@media (max-width: 680px) {
+  .content {
+    padding: 10px;
+  }
+}

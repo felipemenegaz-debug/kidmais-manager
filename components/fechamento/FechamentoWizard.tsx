@@ -1243,7 +1243,11 @@ export default function FechamentoWizard() {
               </StepTitle>
 
               {tabelaPdfDisponivel && (
-                <p><a href="/api/fechamentos/tabela-pacotes" target="_blank" rel="noopener noreferrer">Ver tabela de pacotes e preços (PDF)</a></p>
+                <div>
+                  <p><a href="/api/fechamentos/tabela-pacotes" target="_blank" rel="noopener noreferrer">Abrir tabela de pacotes e preços (PDF) em nova aba</a></p>
+                  <p><a href="/api/fechamentos/tabela-pacotes?download=1" download="pacotes-e-precos.pdf">Baixar PDF para abrir no seu leitor</a></p>
+                  <p>Se o visualizador ficar em branco, baixe o arquivo e abra no leitor de PDF do seu dispositivo.</p>
+                </div>
               )}
 
               {preselecaoDisponibilidade && form.dataFesta && intervaloSelecionado ? (
@@ -2566,14 +2570,6 @@ export default function FechamentoWizard() {
                   label="Adicionais"
                   value={numeroParaMoeda(adicionaisValor)}
                 />
-                <Summary
-                  label="Total calculado"
-                  value={
-                    totalCalculado != null
-                      ? numeroParaMoeda(totalCalculado)
-                      : "A confirmar"
-                  }
-                />
                 {descontoAtual.ativo && (
                   <Summary
                     label="Desconto dia útil"
@@ -2746,8 +2742,8 @@ export default function FechamentoWizard() {
                 </span>
                 <div>3</div>
                 <span>
-                  <strong>Primeiro pagamento</strong>
-                  <small>A reserva depende da parcela inicial confirmada e da disponibilidade.</small>
+                  <strong>Confirmação da contratação</strong>
+                  <small>O envio não reserva a data. A confirmação depende da disponibilidade e das assinaturas da KIDMAIS e do CLIENTE.</small>
                 </span>
               </div>
             </section>

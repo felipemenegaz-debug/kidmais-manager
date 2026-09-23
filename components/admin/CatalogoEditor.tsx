@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import styles from './admin.module.css';
+import editor from './catalogo-editor.module.css';
 
 type Registro = { id:string; nome:string; ativo:boolean; categoria_id?:string; codigo?:string; categoria?:string };
 type Vinculo = { pacote_id:string;adicional_id:string;modalidade:'INCLUSO'|'EXTRA'|'INDISPONIVEL' };
@@ -11,6 +12,9 @@ export default function CatalogoEditor() {
   const [dados,setDados]=useState<Catalogo|null>(null);
   const [erro,setErro]=useState('');
   const [mensagem,setMensagem]=useState('');
+  const [secao,setSecao]=useState<'buffet'|'adicionais'>('buffet');
+  const [busca,setBusca]=useState('');
+  const corresponde=(nome:string)=>nome.toLocaleLowerCase('pt-BR').includes(busca.trim().toLocaleLowerCase('pt-BR'));
   async function carregar() {
     const resposta=await adminFetch('/api/admin/configuracoes/catalogo');
     const body=await resposta.json();
@@ -55,12 +59,21 @@ export default function CatalogoEditor() {
   </div>;}
   return <main className={styles.page}><h1>Buffet e adicionais</h1>
     <p>Edite nomes e disponibilidade. Itens desativados preservam os registros de contratos anteriores.</p>
-    {erro&&<p role="alert">{erro}</p>}{mensagem&&<p role="status">{mensagem}</p>}
-    <form onSubmit={e=>{e.preventDefault();const input=e.currentTarget.elements.namedItem('nome') as HTMLInputElement;void configurar('nova_categoria',{nome:input.value}).then(()=>{input.value='';});}}>
+    <div className={editor.toolbar}>
+      <div className={editor.sections} aria-label="Seções do catálogo">
+        <button type="button" aria-pressed={secao==='buffet'} onClick={()=>{setSecao('buffet');setBusca('');}}>Buffet</button>
+        <button type="button" aria-pressed={secao==='adicionais'} onClick={()=>{setSecao('adicionais');setBusca('');}}>Adicionais</button>
+      </div>
+      <label>Buscar {secao==='buffet'?'categoria ou item':'adicional'}<input type="search" value={busca} onChange={e=>setBusca(e.target.value)}/></label>
+      {erro&&<p role="alert">{erro}</p>}{mensagem&&<p role="status">{mensagem}</p>}
+    </div>
+    <div hidden={secao!=='buffet'}>
+    <details><summary>Adicionar categoria de buffet</summary><form className={editor.content} onSubmit={e=>{e.preventDefault();const input=e.currentTarget.elements.namedItem('nome') as HTMLInputElement;void configurar('nova_categoria',{nome:input.value}).then(()=>{input.value='';});}}>
       <label>Nova categoria de buffet<input name="nome" required maxLength={160}/></label><button>Adicionar categoria</button>
-    </form>
-    {dados?.categorias.map(categoria=><section key={categoria.id} className={styles.card}>
-      <h2>{categoria.nome}</h2>{linha(categoria,'categoria','categorias')}
+    </form></details>
+    {dados?.categorias.map(categoria=><details key={categoria.id} hidden={!corresponde(categoria.nome)&&!dados.itens.some(item=>item.categoria_id===categoria.id&&corresponde(item.nome))}>
+      <summary>{categoria.nome} · {dados.itens.filter(item=>item.categoria_id===categoria.id).length} itens</summary><div className={editor.content}>
+      {linha(categoria,'categoria','categorias')}
       {dados.itens.filter(item=>item.categoria_id===categoria.id).map(item=>linha(item,'item','itens'))}
       <form onSubmit={e=>{e.preventDefault();const form=e.currentTarget;const input=form.elements.namedItem('nome') as HTMLInputElement;void adicionar(categoria.id,input.value).then(()=>{input.value='';});}}>
         <label>Novo item<input name="nome" required maxLength={160}/></label><button>Adicionar item</button>
@@ -77,9 +90,11 @@ export default function CatalogoEditor() {
             <label>Até quantas escolhas<input name="max" type="number" required min={1} max={30} defaultValue={regra?.escolhas_max??1} key={regra?.escolhas_max??1}/></label>
             <button>Salvar regra</button></form>;
         })}</div></details>
-    </section>)}
-    <section className={styles.card}><h2>Adicionais</h2><p>Para cada pacote, marque incluso, extra ou indisponível. Apenas extras ativos com preço vigente aparecem para o cliente.</p>
-      {dados?.adicionais.map(adicional=><details key={adicional.id}><summary>{adicional.nome}</summary>
+    </div></details>)}
+    {dados&&!dados.categorias.some(categoria=>corresponde(categoria.nome)||dados.itens.some(item=>item.categoria_id===categoria.id&&corresponde(item.nome)))&&<p>Nenhuma categoria ou item encontrado.</p>}
+    </div>
+    <section hidden={secao!=='adicionais'}><h2>Adicionais</h2><p>Para cada pacote, marque incluso, extra ou indisponível. Apenas extras ativos com preço vigente aparecem para o cliente.</p>
+      {dados?.adicionais.map(adicional=><details key={adicional.id} hidden={!corresponde(adicional.nome)}><summary>{adicional.nome}</summary><div className={editor.content}>
         {linha(adicional,'adicional','adicionais')}
         <div className={styles.grid}>{dados.pacotes.map(pacote=><label key={pacote.id}>{pacote.nome}
           <select value={dados.vinculos.find(v=>v.pacote_id===pacote.id&&v.adicional_id===adicional.id)?.modalidade??'INDISPONIVEL'}
@@ -87,6 +102,8 @@ export default function CatalogoEditor() {
             <option value="INDISPONIVEL">Indisponível</option><option value="INCLUSO">Incluso</option><option value="EXTRA">Extra pago</option>
           </select>
         </label>)}</div>
-      </details>)}</section>
+      </div></details>)}
+      {dados&&!dados.adicionais.some(adicional=>corresponde(adicional.nome))&&<p>Nenhum adicional encontrado.</p>}
+      </section>
   </main>;
 }
