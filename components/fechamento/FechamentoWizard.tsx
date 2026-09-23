@@ -92,6 +92,13 @@ type ClienteContextoValidado = {
   };
 };
 
+type CategoriaBuffet = { codigo:string; nome:string; max:number; itens:{id:string;nome:string}[] };
+const CODIGO_PACOTE:Record<string,string> = {pocket:'POCKET',mini:'MINI_FESTA',compacta:'COMPACTA',essencial:'ESSENCIAL',completa:'COMPLETA',premium:'PREMIUM',pizza_party_scienza:'PIZZA_PARTY'};
+const CAMPO_CATEGORIA:Record<string,'buffetSalgados'|'buffetDoces'|'buffetBolo'|'buffetLembrancinha'|'buffetEmpratado'|'buffetBombom'> = {
+  SALGADOS:'buffetSalgados',DOCES:'buffetDoces',MASSA_BOLO:'buffetBolo',RECHEIO_BOLO:'buffetBolo',
+  LEMBRANCINHAS:'buffetLembrancinha',EMPRATADOS:'buffetEmpratado',BOMBONS:'buffetBombom',
+};
+
 const FORM_INICIAL: FechamentoForm = {
   dataFesta: "",
   horarioBase: "",
@@ -207,6 +214,9 @@ export default function FechamentoWizard() {
   const [erro, setErro] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [concluido, setConcluido] = useState(false);
+  const [tabelaPdfDisponivel, setTabelaPdfDisponivel] = useState(false);
+  const [categoriasBuffet,setCategoriasBuffet]=useState<CategoriaBuffet[]>([]);
+  const [escolhasBuffet,setEscolhasBuffet]=useState<Record<string,string[]>>({});
   const [configDisponibilidade, setConfigDisponibilidade] =
     useState<DisponibilidadeConfig>(CONFIG_VAZIA);
   const [ajustesDisponiveis, setAjustesDisponiveis] =
@@ -239,6 +249,23 @@ export default function FechamentoWizard() {
   const cepConsultaSeq = useRef(0);
 
   const pacote = PACOTES_FECHAMENTO_V1.find((item) => item.id === form.pacote);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch('/api/fechamentos/tabela-pacotes', { method: 'HEAD', signal: controller.signal })
+      .then((resposta) => setTabelaPdfDisponivel(resposta.ok))
+      .catch(() => setTabelaPdfDisponivel(false));
+    return () => controller.abort();
+  }, []);
+  useEffect(()=>{
+    const codigo=CODIGO_PACOTE[form.pacote];
+    if(!codigo)return;
+    const controller=new AbortController();
+    void fetch(`/api/fechamentos/catalogo?pacote=${codigo}`,{signal:controller.signal})
+      .then(r=>r.ok?r.json():{categorias:[]})
+      .then(body=>setCategoriasBuffet(body.categorias??[]))
+      .catch(()=>setCategoriasBuffet([]));
+    return ()=>controller.abort();
+  },[form.pacote]);
   const convidados = Number(form.convidadosPagantes || 0);
 
   const dadosCadastraisAlterados = useMemo(() => {
@@ -1196,6 +1223,10 @@ export default function FechamentoWizard() {
                   : "Primeiro selecione o tipo de festa. Na próxima etapa o calendário será ajustado às regras e às datas previamente liberadas para esse pacote."}
               </StepTitle>
 
+              {tabelaPdfDisponivel && (
+                <p><a href="/api/fechamentos/tabela-pacotes" target="_blank" rel="noopener noreferrer">Ver tabela de pacotes e preços (PDF)</a></p>
+              )}
+
               {preselecaoDisponibilidade && form.dataFesta && intervaloSelecionado ? (
                 <div className={styles.infoBox}>
                   <strong>Data e horário já escolhidos</strong>
@@ -1647,14 +1678,38 @@ export default function FechamentoWizard() {
                     <strong>Preferências preliminares</strong>
                     <p>
                       Informe o que já deseja definir. A equipe confirmará as
-                      opções disponíveis dentro do pacote escolhido. Quando a
-                      lista completa de itens estiver cadastrada no sistema,
-                      estes campos serão substituídos por escolhas clicáveis.
+                      opções disponíveis dentro do pacote escolhido.
                     </p>
                   </div>
 
+                  {categoriasBuffet.map(categoria=><fieldset key={categoria.codigo} className={styles.buffetInfoBox}>
+                    <legend>{categoria.nome} · até {categoria.max}</legend>
+                    <div className={styles.buffetFormGrid}>{categoria.itens.map(item=>{
+                      const selecionado=(escolhasBuffet[categoria.codigo]??[]).includes(item.id);
+                      return <label key={item.id} className={styles.field}>
+                        <input type="checkbox" checked={selecionado} onChange={()=>{
+                          const atuais=escolhasBuffet[categoria.codigo]??[];
+                          if(!selecionado&&atuais.length>=categoria.max){setErro(`Escolha até ${categoria.max} em ${categoria.nome}.`);return;}
+                          setErro('');
+                          const proximos=selecionado?atuais.filter(id=>id!==item.id):[...atuais,item.id];
+                          setEscolhasBuffet({...escolhasBuffet,[categoria.codigo]:proximos});
+                          const nomeEscolhas=categoria.itens.filter(i=>proximos.includes(i.id)).map(i=>i.nome).join(', ');
+                          const campo=CAMPO_CATEGORIA[categoria.codigo];
+                          if(campo){
+                            if(campo==='buffetBolo'){
+                              const outra=categoria.codigo==='MASSA_BOLO'?'RECHEIO_BOLO':'MASSA_BOLO';
+                              const cOutra=categoriasBuffet.find(c=>c.codigo===outra);
+                              const textoOutra=cOutra?.itens.filter(i=>(escolhasBuffet[outra]??[]).includes(i.id)).map(i=>i.nome).join(', ')??'';
+                              setForm(f=>({...f,buffetBolo:categoria.codigo==='MASSA_BOLO'?`Massa: ${nomeEscolhas}; Recheio: ${textoOutra}`:`Massa: ${textoOutra}; Recheio: ${nomeEscolhas}`}));
+                            }else setForm(f=>({...f,[campo]:nomeEscolhas}));
+                          }
+                        }}/>{item.nome}
+                      </label>;
+                    })}</div>
+                  </fieldset>)}
+
                   <div className={styles.buffetFormGrid}>
-                    <label className={styles.field}>
+                    {!categoriasBuffet.some(c=>c.codigo==='SALGADOS')&&<label className={styles.field}>
                       <span>Salgados</span>
                       <textarea
                         rows={3}
@@ -1664,7 +1719,7 @@ export default function FechamentoWizard() {
                           atualizar("buffetSalgados", e.target.value)
                         }
                       />
-                    </label>
+                    </label>}
 
                     <label className={styles.field}>
                       <span>Bebidas e sucos</span>
@@ -1678,7 +1733,7 @@ export default function FechamentoWizard() {
                       />
                     </label>
 
-                    <label className={styles.field}>
+                    {!categoriasBuffet.some(c=>c.codigo==='DOCES')&&<label className={styles.field}>
                       <span>Doces</span>
                       <textarea
                         rows={3}
@@ -1688,9 +1743,9 @@ export default function FechamentoWizard() {
                           atualizar("buffetDoces", e.target.value)
                         }
                       />
-                    </label>
+                    </label>}
 
-                    <label className={styles.field}>
+                    {!categoriasBuffet.some(c=>c.codigo==='MASSA_BOLO')&&<label className={styles.field}>
                       <span>Bolo</span>
                       <textarea
                         rows={3}
@@ -1700,9 +1755,9 @@ export default function FechamentoWizard() {
                           atualizar("buffetBolo", e.target.value)
                         }
                       />
-                    </label>
+                    </label>}
 
-                    {(['buffetLembrancinha','buffetEmpratado','buffetBombom'] as const).map((key,i)=>(i===0 ? ['mini','completa','premium'].includes(form.pacote)||form.adicionaisSelecionados.some(a=>a.startsWith('lembrancinha')) : form.pacote==='premium'||form.adicionaisSelecionados.includes(i===1?'empratado':'bombom'))&&<label className={styles.field} key={key}><span>{['Lembrancinha','Empratado','Bombom'][i]}</span><textarea rows={2} maxLength={2000} value={form[key]} onChange={e=>atualizar(key,e.target.value)} placeholder="Não definido"/></label>)}
+                    {(['buffetLembrancinha','buffetEmpratado','buffetBombom'] as const).map((key,i)=>(i===0 ? ['mini','completa','premium'].includes(form.pacote)||form.adicionaisSelecionados.some(a=>a.startsWith('lembrancinha')) : form.pacote==='premium'||form.adicionaisSelecionados.includes(i===1?'empratado':'bombom'))&&!categoriasBuffet.some(c=>c.codigo===['LEMBRANCINHAS','EMPRATADOS','BOMBONS'][i])&&<label className={styles.field} key={key}><span>{['Lembrancinha','Empratado','Bombom'][i]}</span><textarea rows={2} maxLength={2000} value={form[key]} onChange={e=>atualizar(key,e.target.value)} placeholder="Não definido"/></label>)}
                     <label className={`${styles.field} ${styles.spanTwo}`}>
                       <span>Outras preferências do buffet</span>
                       <textarea
