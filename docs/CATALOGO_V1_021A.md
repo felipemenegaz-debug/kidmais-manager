@@ -1,6 +1,7 @@
 # Catálogo V1 — Migration 021A (estrutura)
 
-Estado: preparada para revisão. Não aplicada a qualquer banco. Não habilita telas ou leitura dinâmica.
+Estado: migrações 021–024 e fluxos de catálogo preparados no PR de rascunho. Nenhuma
+migration foi aplicada a um banco e nenhum serviço foi implantado.
 
 ## Numeração
 
@@ -14,13 +15,34 @@ A 017 da V1 já é `pocket_sexta`; a sequência local vai até 019. O número 02
 - PDF informativo: metadados e unicidade de um documento vigente; nenhum arquivo é armazenado ou publicado nesta migration.
 - Nenhuma coluna `buffet_*` é removida, nenhum preço da taxa de bebida alcoólica é alterado e nenhum fechamento histórico é reescrito.
 
-## Etapas seguintes antes da ativação
+## Implementação preparada
 
-1. Conferir as listas oficiais de buffet e composições de **todos** os pacotes, inclusive Pocket, Mini Festa, Compacta e Pizza Party. Fazer seed idempotente em mudança separada; validar que categorias obrigatórias tenham opções ativas suficientes.
-2. Decidir a representação comercial da Taxa de Rolha diante do adicional legado `BEBIDA_ALCOOLICA` e de suas faixas 1–80/R$200, 81–120/R$300 e 121–150/R$400. Desativar faixas antigas e criar 1–79/R$190 e 80+/R$290 somente depois de validar precificação, disponibilidade e snapshots históricos.
-3. Criar APIs autorizadas de edição, arquivamento e ordenação. Fazer validação transacional de limites de escolha, vínculos com pacote e ausência de itens ativos; o schema sozinho não garante esses invariantes dinâmicos.
-4. Implementar leitura pública e snapshot no marco comercial existente, mantendo compatibilidade com Fechamento, Contrato e Festa.
-5. Escolher armazenamento persistente para o PDF, implementar upload seguro e troca atômica da referência ativa, então mostrar o botão no Fechamento.
-6. Atualizar o inventário de migrations e seu gate de produção após a revisão da Foundation 020. Preparar rollback, regressão em clone sanitizado e aprovação específica antes de executar SQL em qualquer banco.
+- 022 cadastra as opções de buffet e vínculos iniciais por pacote.
+- 023 define inclusão, indisponibilidade e extras pagos por pacote.
+- 024 cria uma nova versão da tabela comercial, copiando os preços existentes
+  e aplicando taxa de rolha de R$ 190 (1–79) e R$ 290 (80–150). A vigência
+  começa em `CURRENT_DATE` do banco no momento da aplicação; revisar o fuso e
+  as tabelas ativas no precheck. Fechamentos antigos retêm seus snapshots.
+- Fechamento público e interno consultam preço e disponibilidade dos extras
+  no servidor. O cálculo final recusa adicionais que não estejam marcados
+  como `EXTRA` no pacote.
+- O proprietário edita categorias, itens, limites por pacote e modalidades
+  dos adicionais; escolhas do buffet são validadas e registradas com IDs e nomes.
+- O PDF de pacotes pode ser publicado na área administrativa e aberto pelo cliente.
+
+## Conferência necessária antes da ativação
+
+1. Conferir as composições de todos os pacotes com a tabela oficial, em especial
+   Pocket, Mini Festa, Compacta e Pizza Party; para Pizza Party o catálogo de
+   adicionais permanece vazio até as regras comerciais serem definidas.
+2. Conferir o tratamento dos extras por unidade, como bombom e lembrancinha,
+   para não cobrar como pacote inteiro nem cobrar o item incluso duas vezes.
+3. Executar prechecks, migrations e postchecks em clone sanitizado autorizado,
+   comparar contagens, limites e cálculo de fronteira (79/80 convidados).
+4. Associar snapshots de buffet às versões de contrato quando o contrato for
+   gerado ou revisado; preservar a versão anterior integralmente.
+5. Integrar a Foundation 020 ou confirmar sua ausência deliberada, ajustar o
+   inventário e o gate de migrations após revisão. Testar staging correto antes
+   de qualquer implantação em produção.
 
 `database/checks/20260923_021_precheck.sql` e `postcheck.sql` são somente leitura. Comparar as quatro contagens retornadas; testes offline não substituem a aplicação em clone autorizado.

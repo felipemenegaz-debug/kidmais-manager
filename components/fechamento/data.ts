@@ -174,6 +174,7 @@ export type Adicional = {
 };
 
 export const ADICIONAIS: Adicional[] = [
+  { id: "rolha", nome: "Taxa de rolha", categoria: "extra" },
   { id: "penne", nome: "Penne à bolonhesa e molho branco", categoria: "buffet", precoPorFaixa: [500, 490, 590, 690] },
   { id: "salada-premium", nome: "Salada premium", categoria: "buffet", precoPorFaixa: [320, 420, 520, 620] },
   { id: "crepe-1", nome: "Crepe — 1 sabor", categoria: "buffet", precoPorFaixa: [290, 390, 490, 590] },

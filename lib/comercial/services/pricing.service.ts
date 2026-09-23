@@ -1,4 +1,5 @@
 import type { DbExecutor } from "../../db/contracts";
+import { db } from "../../db/postgres";
 import {
   buscarCategoriaHorarioAplicavel,
   buscarElegibilidadePacoteAplicavel,
@@ -570,6 +571,20 @@ export async function calcularResumoComercial(
     },
     customDb,
   );
+
+  if (adicionais.itens.length) {
+    const vinculos = await (customDb ?? db()).query<{codigo:string}>(`
+      SELECT a.codigo FROM pacote_adicionais pa
+      JOIN adicionais a ON a.id=pa.adicional_id
+      WHERE pa.pacote_id=$1 AND pa.ativo AND pa.modalidade='EXTRA'
+        AND a.ativo AND a.codigo=ANY($2::text[])`,
+      [pacote.pacote.id, adicionais.itens.map(item=>item.codigo)]);
+    const permitidos = new Set(vinculos.rows.map(item=>item.codigo));
+    if (adicionais.itens.some(item=>!permitidos.has(item.codigo))) {
+      throw new PricingServiceError('ADICIONAL_NAO_ENCONTRADO',
+        'Um ou mais adicionais não estão disponíveis para este pacote.',409);
+    }
+  }
 
   if (adicionais.tabelaPreco.id !== pacote.tabelaPreco.id) {
     throw new PricingServiceError(

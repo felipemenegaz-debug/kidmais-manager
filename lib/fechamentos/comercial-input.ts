@@ -16,7 +16,7 @@ export const FORMA_PAGAMENTO_BANCO = {
   cartao_cielo: "CARTAO_CIELO",
 } as const;
 
-const ADICIONAL_CODIGO_BANCO: Record<string, string> = {
+export const ADICIONAL_CODIGO_BANCO: Record<string, string> = {
   penne: "PENNE",
   "salada-premium": "SALADA_PREMIUM",
   "crepe-1": "CREPE_1_SABOR",
@@ -48,6 +48,7 @@ const ADICIONAL_CODIGO_BANCO: Record<string, string> = {
 
   "doces-extra": "DOCES_TRADICIONAIS_EXTRAS",
   bombom: "BOMBOM",
+  rolha: "BEBIDA_ALCOOLICA",
 };
 
 export function moedaParaNumeroServidor(valor: string): number | null {

@@ -10,11 +10,12 @@ import { fechamentoAdministrativoSchema } from '@/lib/fechamentos/administrativo
 import { erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import type { DisponibilidadeDataPublica } from '@/lib/disponibilidade/services/models';
 import CalendarioDisponibilidade from '@/components/fechamento/CalendarioDisponibilidade';
-import { ADICIONAIS, PACOTES_FECHAMENTO_V1 } from '@/components/fechamento/data';
+import { PACOTES_FECHAMENTO_V1 } from '@/components/fechamento/data';
 import styles from '@/components/fechamento/FechamentoWizard.module.css';
 
 type Contexto = Awaited<ReturnType<typeof obterContextoFechamentoAdministrativo>>;
 type Horario = DisponibilidadeDataPublica['periodos'][number]['horarios'][number];
+type AdicionalDisponivel = {id:string;nome:string;preco:number};
 const inicial: FechamentoAdministrativoInput = {
     pacote: 'pocket', dataFesta: '', horarioBase: 'almoco', ajusteHorario: '0', horarioInicio: '', horarioFim: '',
     statusDisponibilidade: 'disponivel', convidadosPagantes: 20, buffetDefinicao: 'depois',
@@ -30,6 +31,7 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
     const router = useRouter();
     const [contexto, setContexto] = useState<Contexto | null>(null);
     const [form, setForm] = useState(inicial);
+    const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
     const [horarios, setHorarios] = useState<Horario[]>([]);
     const [erro, setErro] = useState('');
     const [enviando, setEnviando] = useState(false);
@@ -47,6 +49,20 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
         }).catch(error => { if (ativo) setErro(error instanceof Error ? error.message : 'Falha ao carregar cliente.'); });
         return () => { ativo = false; };
     }, [endpoint]);
+
+    useEffect(()=>{
+        if(!form.dataFesta || !form.pacote || !form.convidadosPagantes)return;
+        const controller=new AbortController();
+        const url=`/api/fechamentos/adicionais?pacote=${encodeURIComponent(form.pacote)}&data=${encodeURIComponent(form.dataFesta)}&convidados=${form.convidadosPagantes}`;
+        void fetch(url,{signal:controller.signal,cache:'no-store'})
+          .then(async r=>{if(!r.ok)throw Error();return r.json();})
+          .then(body=>{
+            const disponiveis=body.adicionais as AdicionalDisponivel[];
+            setAdicionaisDisponiveis(disponiveis);
+            setForm(atual=>({...atual,adicionaisSelecionados:atual.adicionaisSelecionados.filter(id=>disponiveis.some(a=>a.id===id))}));
+          }).catch(()=>setAdicionaisDisponiveis(null));
+        return ()=>controller.abort();
+    },[form.pacote,form.dataFesta,form.convidadosPagantes]);
 
     function campo<K extends keyof FechamentoAdministrativoInput>(key: K, value: FechamentoAdministrativoInput[K]) {
         setForm(atual => ({ ...atual, [key]: value }));
@@ -79,6 +95,7 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
         setEnviando(true);
         setErro('');
         try {
+            if(adicionaisDisponiveis===null)throw Error('Não foi possível consultar os adicionais deste pacote.');
             const pacote = PACOTES_FECHAMENTO_V1.find(p => p.id === form.pacote);
             const mensagem = erroConvidadosFechamento(form.convidadosPagantes, pacote);
             if (mensagem) throw Error(mensagem);
@@ -125,7 +142,7 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
                 <label className={styles.field}>Tema<input maxLength={200} value={form.temaFesta ?? ''} onChange={e => campo('temaFesta', e.target.value)} /></label>
                 <label className={styles.field}>Buffet<select value={form.buffetDefinicao} onChange={e => campo('buffetDefinicao', e.target.value as 'agora' | 'depois')}><option value="depois">Definir depois</option><option value="agora">Definir agora</option></select></label>
                 {form.buffetDefinicao === 'agora' && buffet.map(([key, label]) => <label className={styles.field} key={key}>{label}<textarea maxLength={2000} value={form[key] ?? ''} onChange={e => campo(key, e.target.value)} /></label>)}
-                <fieldset><legend>Adicionais</legend>{ADICIONAIS.map(a => <label key={a.id} style={{ display: 'block' }}><input type="checkbox" checked={form.adicionaisSelecionados.includes(a.id)} onChange={e => campo('adicionaisSelecionados', e.target.checked ? [...form.adicionaisSelecionados, a.id] : form.adicionaisSelecionados.filter(id => id !== a.id))} />{a.nome}</label>)}</fieldset>
+                <fieldset><legend>Adicionais</legend>{adicionaisDisponiveis===null?<p>Selecione data, pacote e convidados para consultar os adicionais.</p>:adicionaisDisponiveis.map(a => <label key={a.id} style={{ display: 'block' }}><input type="checkbox" checked={form.adicionaisSelecionados.includes(a.id)} onChange={e => campo('adicionaisSelecionados', e.target.checked ? [...form.adicionaisSelecionados, a.id] : form.adicionaisSelecionados.filter(id => id !== a.id))} />{a.nome} · {a.preco.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</label>)}</fieldset>
                 <label className={styles.field}>Alterações pretendidas do pacote<textarea value={form.alteracoesPacote ?? ''} onChange={e => campo('alteracoesPacote', e.target.value)} /></label>
                 <label className={styles.field}>Observações do cliente<textarea value={form.observacoesCliente ?? ''} onChange={e => campo('observacoesCliente', e.target.value)} /></label>
                 <label className={styles.field}>Observações da equipe<textarea maxLength={2000} value={form.observacoesEquipe ?? ''} onChange={e => campo('observacoesEquipe', e.target.value)} /></label>

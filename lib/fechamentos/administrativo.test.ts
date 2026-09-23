@@ -213,6 +213,7 @@ async function formulario() {
     a.external('__fetch', async (url: string, init: any = {}) => {
         if (url === '/api/admin/autenticacao') return Response.json({ ok: true, data: { usuarioId: a.state.sessao.expirada ? null : 'usuario-unitario', csrf } });
         if (url.startsWith('/api/disponibilidade?')) return Response.json({ ok: true, data: { periodos: [{ codigo: 'TURNO_1', horarios: [{ inicio: '11:00', fim: '15:00', ajusteMinutos: 0, status: 'DISPONIVEL' }] }] } });
+        if (url.startsWith('/api/fechamentos/adicionais?')) return Response.json({ adicionais: [] });
         assert.equal(url, `/api/admin/clientes/${clienteId}/fechamentos`);
         return a.chamar(init.body ? JSON.parse(init.body) : null, { method: init.method ?? 'GET', headers: Object.fromEntries(new Headers(init.headers)) });
     });
@@ -230,7 +231,10 @@ async function formulario() {
         const calendar = nodes(render()).find(n => n.type?.name === 'CalendarioDisponibilidade'); assert(calendar);
         calendar.props.onSelecionar(payload.dataFesta);
         await new Promise(resolve => setImmediate(resolve));
+        render(); await new Promise(resolve => setImmediate(resolve));
+        assert(nodes(render()).some(n => n.type === 'option' && n.props.value === '11:00'), 'Horário 11:00 não carregou');
         field('Horário disponível', '11:00'); field('Aniversariante', aniversarianteId); field('Valor comercial proposto', '10000,00');
+        await new Promise(resolve => setImmediate(resolve));
     }
     async function submit() { await nodes(render()).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); }
     return { ...a, render, text, preencher, submit, redirects };

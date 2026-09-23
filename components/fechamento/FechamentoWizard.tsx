@@ -8,10 +8,8 @@ import CalendarioDisponibilidade from "./CalendarioDisponibilidade";
 import KidmaisBrand from "@/components/layout/KidmaisBrand";
 import styles from "./FechamentoWizard.module.css";
 import {
-  ADICIONAIS,
   CONTATO_KIDMAIS,
   PACOTES_FECHAMENTO_V1,
-  precoAdicional,
 } from "./data";
 import {
   calcularTotalPagamento,
@@ -93,6 +91,7 @@ type ClienteContextoValidado = {
 };
 
 type CategoriaBuffet = { codigo:string; nome:string; max:number; itens:{id:string;nome:string}[] };
+type AdicionalDisponivel = { id:string;nome:string;categoria:string;preco:number };
 const CODIGO_PACOTE:Record<string,string> = {pocket:'POCKET',mini:'MINI_FESTA',compacta:'COMPACTA',essencial:'ESSENCIAL',completa:'COMPLETA',premium:'PREMIUM',pizza_party_scienza:'PIZZA_PARTY'};
 const CAMPO_CATEGORIA:Record<string,'buffetSalgados'|'buffetDoces'|'buffetBolo'|'buffetLembrancinha'|'buffetEmpratado'|'buffetBombom'> = {
   SALGADOS:'buffetSalgados',DOCES:'buffetDoces',MASSA_BOLO:'buffetBolo',RECHEIO_BOLO:'buffetBolo',
@@ -217,6 +216,7 @@ export default function FechamentoWizard() {
   const [tabelaPdfDisponivel, setTabelaPdfDisponivel] = useState(false);
   const [categoriasBuffet,setCategoriasBuffet]=useState<CategoriaBuffet[]>([]);
   const [escolhasBuffet,setEscolhasBuffet]=useState<Record<string,string[]>>({});
+  const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
   const [configDisponibilidade, setConfigDisponibilidade] =
     useState<DisponibilidadeConfig>(CONFIG_VAZIA);
   const [ajustesDisponiveis, setAjustesDisponiveis] =
@@ -266,6 +266,19 @@ export default function FechamentoWizard() {
       .catch(()=>setCategoriasBuffet([]));
     return ()=>controller.abort();
   },[form.pacote]);
+  useEffect(()=>{
+    if(!form.pacote || !form.dataFesta || !Number.isInteger(Number(form.convidadosPagantes)) || Number(form.convidadosPagantes)<1)return;
+    const controller=new AbortController();
+    const url=`/api/fechamentos/adicionais?pacote=${encodeURIComponent(form.pacote)}&data=${encodeURIComponent(form.dataFesta)}&convidados=${encodeURIComponent(form.convidadosPagantes)}`;
+    void fetch(url,{signal:controller.signal,cache:'no-store'})
+      .then(async r=>{if(!r.ok)throw Error('Não foi possível consultar adicionais.');return r.json();})
+      .then(body=>{
+        const disponiveis=body.adicionais as AdicionalDisponivel[];
+        setAdicionaisDisponiveis(disponiveis);
+        setForm(atual=>({...atual,adicionaisSelecionados:atual.adicionaisSelecionados.filter(id=>disponiveis.some(item=>item.id===id))}));
+      }).catch(()=>setAdicionaisDisponiveis(null));
+    return ()=>controller.abort();
+  },[form.pacote,form.dataFesta,form.convidadosPagantes]);
   const convidados = Number(form.convidadosPagantes || 0);
 
   const dadosCadastraisAlterados = useMemo(() => {
@@ -452,10 +465,10 @@ export default function FechamentoWizard() {
   const adicionaisValor = useMemo(
     () =>
       form.adicionaisSelecionados.reduce((total, id) => {
-        const adicional = ADICIONAIS.find((item) => item.id === id);
-        return total + (adicional ? precoAdicional(adicional, convidados || 1) : 0);
+        const adicional = adicionaisDisponiveis?.find((item) => item.id === id);
+        return total + (adicional?.preco ?? 0);
       }, 0),
-    [form.adicionaisSelecionados, convidados]
+    [form.adicionaisSelecionados, adicionaisDisponiveis]
   );
 
   const descontoAtual = descontoEfetivo(
@@ -910,6 +923,11 @@ export default function FechamentoWizard() {
     if (etapa === 2) {
       const mensagem = erroConvidadosFechamento(convidados, pacote);
       if (mensagem) { setErro(mensagem); return false; }
+    }
+
+    if (etapa === 4 && adicionaisDisponiveis === null) {
+      setErro('A consulta de adicionais está indisponível. Tente novamente antes de continuar.');
+      return false;
     }
 
     if (etapa === 5) {
@@ -1793,6 +1811,7 @@ export default function FechamentoWizard() {
                 pela equipe antes do contrato.
               </StepTitle>
 
+              {adicionaisDisponiveis===null&&<p role="alert">Não foi possível consultar os adicionais deste pacote. Recarregue a página para tentar novamente.</p>}
               {(["buffet", "mesa", "decoracao", "extra"] as const).map(
                 (categoria) => (
                   <div className={styles.additionalSection} key={categoria}>
@@ -1803,10 +1822,10 @@ export default function FechamentoWizard() {
                       {categoria === "extra" && "Outros adicionais"}
                     </h3>
                     <div className={styles.additionalGrid}>
-                      {ADICIONAIS.filter(
-                        (item) => item.categoria === categoria
+                      {(adicionaisDisponiveis??[]).filter(
+                        (item) => ({BUFFET:'buffet',MESA:'mesa',DECORACAO:'decoracao',EXTRA:'extra',BEBIDA:'extra',COMBO:'extra'}[item.categoria]??'extra') === categoria
                       ).map((item) => {
-                        const preco = precoAdicional(item, convidados || 1);
+                        const preco = item.preco;
                         const selected =
                           form.adicionaisSelecionados.includes(item.id);
 
