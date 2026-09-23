@@ -57,6 +57,8 @@ for (const [edicaoEstado, documentoRevisado, situacao] of [
 test('Festa criada, inclusive invalidada, sai da fila e contrato cancelado nunca é ativo', () => {
     assert.equal(classificarContratacao({ ...comContrato, temFesta: true }), null);
     assert.equal(classificarContratacao({ ...comContrato, contratoStatus: 'CANCELADO' }), null);
+    assert.equal(classificarContratacao({ ...comContrato, edicaoEstado: 'CANCELADA' }), null);
+    assert.equal(classificarContratacao({ ...comContrato, contratoStatus: 'ASSINADO', edicaoEstado: 'CANCELADA' })?.situacao, 'Formalizado — Festa pendente');
     for (const status of ['CANCELADO', 'RECUSADO', 'EXPIRADO', 'DESCONHECIDO']) assert.equal(classificarContratacao({ ...fechamento, status }), null);
     assert.doesNotMatch(contratacoesSql, /invalidada_em IS NULL/);
 });

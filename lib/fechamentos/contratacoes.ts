@@ -13,7 +13,7 @@ export type Contratacao = Omit<ContratacaoRow, 'temFesta' | 'documentoRevisado'>
 
 /** Presentation only. Never advances a contract, creates Festa or reserves an interval. */
 export function classificarContratacao(row: ContratacaoRow): Contratacao | null {
-    if (row.temFesta || row.contratoStatus === 'CANCELADO' || !estadosEmContratacao.includes(row.status)) return null;
+    if (row.temFesta || row.contratoStatus === 'CANCELADO' || (row.edicaoEstado === 'CANCELADA' && row.contratoStatus !== 'ASSINADO') || !estadosEmContratacao.includes(row.status)) return null;
     let situacao = 'Fechamento em preparação', titulo = 'Abrir revisão', proximoPasso = 'Conferir os dados do fechamento.';
     const href = row.contratoId
         ? `/admin/contratos?contratoId=${encodeURIComponent(row.contratoId)}${row.versaoId ? `&versaoId=${encodeURIComponent(row.versaoId)}` : ''}`

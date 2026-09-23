@@ -25,6 +25,7 @@ export const acaoContratoSchema = z.discriminatedUnion('acao', [
     edicaoFestaSchema,
     z.object({acao:z.literal('recusar_comercial'),revisao:z.number().int().positive(),motivo:z.string().trim().min(3).max(500),chaveDecisao:uuid}).strict(),
     z.object({ acao: z.literal('cancelar_revisao'), revisao: z.number().int().positive(), motivo: z.string().trim().min(3).max(500) }).strict(),
+    z.object({ acao: z.literal('cancelar_contratacao'), motivo: z.string().trim().min(3).max(500) }).strict(),
     z.object({ acao: z.literal('revalidar_destino'), revisao: z.number().int().positive() }).strict(),
     z.object({ acao: z.literal('salvar'), revisao: z.number().int().positive(), observacoesDocumentais: z.string().trim().max(2000) }).strict(),
     z.object({ acao: z.literal('gerar_pdf'), revisao: z.number().int().positive() }).strict(),
@@ -122,10 +123,28 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         }>('SELECT * FROM contrato_fluxos WHERE contrato_id=$1 FOR UPDATE', [c.id])).rows[0];
         const v = (await buscarVersaoPorId(versaoId, tx, { forUpdate: true }))!;
         const s = await consultarSessao(token, tx, true);
-        if((await tx.query<{status:string}>('SELECT status FROM contratos WHERE id=$1',[c.id])).rows[0].status==='CANCELADO')conflito('Contratação cancelada: histórico disponível somente para consulta.');
+        const statusAtual=(await tx.query<{status:string}>('SELECT status FROM contratos WHERE id=$1',[c.id])).rows[0].status;
+        if(statusAtual==='CANCELADO')conflito('Contratação cancelada: histórico disponível somente para consulta.');
         const rc = {...context,usuarioId:s.usuario_id};
         if (hashSnapshotContrato(v.snapshot) !== v.snapshotHash)
             conflito('O snapshot da versão não corresponde ao hash preservado.');
+        if(input.acao==='cancelar_contratacao') {
+            if(statusAtual!=='AGUARDANDO_ASSINATURA'||f?.versao_vigente_id)
+                conflito('Esta contratação já foi assinada pelas duas partes. Use o fluxo de cancelamento da Festa.');
+            if(!(await tx.query("SELECT 1 FROM festa_usuario_capacidades WHERE usuario_id=$1 AND capacidade='FESTA_CORRIGIR' AND revogado_em IS NULL",[s.usuario_id])).rows.length)
+                throw authError('Somente a Gestão pode cancelar a contratação.',403);
+            if((await tx.query("SELECT 1 FROM contrato_assinaturas WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) AND parte='CLIENTE' LIMIT 1",[c.id])).rows.length)
+                conflito('Já existe assinatura do cliente. Confira a contratação antes de cancelar.');
+            if((await tx.query('SELECT 1 FROM festas WHERE contrato_id=$1 LIMIT 1',[c.id])).rows.length ||
+                (await tx.query('SELECT 1 FROM pagamentos p JOIN contrato_versoes cv ON cv.id=p.contrato_versao_id WHERE cv.contrato_id=$1 LIMIT 1',[c.id])).rows.length)
+                conflito('Há Festa ou plano financeiro associado. Use o fluxo de cancelamento da Festa.');
+            const aberta=f?.versao_em_preparacao_id ? await buscarRevisaoDaVersao(f.versao_em_preparacao_id,tx,true):null;
+            if(aberta && ['EM_ELABORACAO','CONGELADA'].includes(aberta.estado))await cancelarPreparacao(tx,aberta,rc,input.motivo);
+            await tx.query("UPDATE contratos SET status='CANCELADO',cancelado_em=clock_timestamp() WHERE id=$1",[c.id]);
+            await tx.query("UPDATE fechamentos SET status='CANCELADO' WHERE id=$1",[c.fechamento_id]);
+            await evento(tx,v,s,'CONTRATO_CANCELADO_ANTES_DA_FORMALIZACAO',{contratoId:c.id,motivo:input.motivo,...context});
+            return {cancelada:true};
+        }
         if(input.acao==='substituir_preparacao') {
             const anterior=(await tx.query<{usuario_id:string;dados_depois:{origem:string;motivo:string;versaoId:string}}>(
                 "SELECT usuario_id,dados_depois FROM auditoria WHERE acao='CONTRATO_PREPARACAO_SUBSTITUIDA' AND entidade_id=$1 AND dados_depois->>'chaveCriacao'=$2",[v.id,input.chaveCriacao])).rows[0];
