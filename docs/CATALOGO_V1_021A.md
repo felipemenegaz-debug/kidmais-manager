@@ -45,4 +45,6 @@ A 017 da V1 já é `pocket_sexta`; a sequência local vai até 019. O número 02
    inventário e o gate de migrations após revisão. Testar staging correto antes
    de qualquer implantação em produção.
 
-`database/checks/20260923_021_precheck.sql` e `postcheck.sql` são somente leitura. Comparar as quatro contagens retornadas; testes offline não substituem a aplicação em clone autorizado.
+Os prechecks e postchecks de 021–024 em `database/checks/` são somente leitura.
+Comparar as contagens e a vigência antiga/nova; testes offline não substituem
+o ensaio em clone autorizado.
