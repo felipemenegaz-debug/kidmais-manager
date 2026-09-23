@@ -28,6 +28,10 @@ Esta pasta é a fonte oficial de documentação funcional, arquitetural e de pro
 - [Multiestabelecimento](./arquitetura/MULTI-ESTABELECIMENTO.md)
 - [Permissões](./arquitetura/PERMISSOES.md)
 - [ADRs](./arquitetura/ADR/)
+- [ADRs da Fundação SaaS — decisões e pendências 1B-C2](./architecture/adr/README.md)
+- [Ownership preliminar das 63 tabelas V1](./architecture/OWNERSHIP-V1-63.md)
+- [Invariantes, testes e gates SaaS](./architecture/SAAS-VALIDACAO-E-GATES.md)
+- [Inventário estrutural D12a — fontes, consumidores e autoridade](./architecture/SAAS-CONFIG-AUTHORITY-MAP.md)
 
 ## Baseline e sanitização
 
