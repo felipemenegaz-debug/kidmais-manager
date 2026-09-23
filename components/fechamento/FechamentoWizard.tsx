@@ -1045,6 +1045,7 @@ export default function FechamentoWizard() {
               ? aniversarianteSelecionadoId
               : null,
           ...form,
+          escolhasBuffet: form.buffetDefinicao === 'agora' ? escolhasBuffet : {},
           condicaoPixPretendida: form.formaPagamento === "pix_parcelado" ? {
             entrada: form.pixEntrada ? form.pixEntrada.replace(",", ".") : null,
             valorParcela: form.pixParcela ? form.pixParcela.replace(",", ".") : null,

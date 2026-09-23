@@ -78,6 +78,7 @@ export type CriarFechamentoPublicoInput = Omit<
   | "iniciadoPorUsuarioId"
   | "usuarioResponsavelId"
 > & {
+  escolhasBuffet?: Record<string,string[]>;
   identidade: IdentidadeFechamentoPublico;
   cliente: DadosClienteFechamentoPublico;
   aniversariante: AniversarianteFechamentoPublico;
@@ -620,6 +621,31 @@ export async function criarFechamentoPublicoComIdentidade(
       },
       tx,
     );
+
+    const escolhas = Object.entries(input.escolhasBuffet ?? {}).flatMap(([categoria,ids])=>ids.map(id=>({categoria,id})));
+    if (escolhas.length) {
+      if (escolhas.length > 60 || new Set(escolhas.map(e=>e.id)).size !== escolhas.length)
+        throw new FechamentoServiceError('BUFFET_INVALIDO','Escolhas do buffet inválidas.',400);
+      const snapshot = await tx.query<{id:string}>(
+        'INSERT INTO fechamento_buffet_snapshots (fechamento_id) VALUES ($1) RETURNING id', [fechamento.fechamento.id]);
+      for (const [indice,escolha] of escolhas.entries()) {
+        const valido = await tx.query<{categoria_id:string;categoria_nome:string;item_nome:string;escolhas_max:number}>(`
+          SELECT c.id categoria_id,c.nome categoria_nome,i.nome item_nome,r.escolhas_max
+          FROM pacote_buffet_categorias r JOIN buffet_categorias c ON c.id=r.categoria_id AND c.ativo
+          JOIN buffet_itens i ON i.categoria_id=c.id AND i.ativo
+          WHERE r.pacote_id=$1 AND r.ativo AND c.codigo=$2 AND i.id=$3
+            AND (r.modo_itens='TODOS_ATIVOS' OR EXISTS
+              (SELECT 1 FROM pacote_buffet_itens x WHERE x.pacote_id=r.pacote_id AND x.categoria_id=c.id AND x.item_id=i.id))`,
+          [input.pacoteId, escolha.categoria, escolha.id]);
+        const item=valido.rows[0];
+        if (!item || (input.escolhasBuffet?.[escolha.categoria]?.length??0)>item.escolhas_max)
+          throw new FechamentoServiceError('BUFFET_INVALIDO','Opção de buffet indisponível para este pacote.',409);
+        await tx.query(`INSERT INTO fechamento_buffet_escolhas
+          (snapshot_id,categoria_id,item_id,categoria_nome_aplicado,item_nome_aplicado,ordem_aplicada)
+          VALUES ($1,$2,$3,$4,$5,$6)`,
+          [snapshot.rows[0].id,item.categoria_id,escolha.id,item.categoria_nome,item.item_nome,indice+1]);
+      }
+    }
 
     if (provaToken && identityService) {
       await identityService.consumirProvaParaFechamento(

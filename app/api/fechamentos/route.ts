@@ -27,6 +27,7 @@ const fechamentoSchema = z.object({
   aniversarianteIdExistente: z.string().uuid().nullable().optional(),
 
   ...camposComerciaisFechamento,
+  escolhasBuffet: z.record(z.string().max(80), z.array(z.uuid()).max(30)).optional(),
 
   nomeCliente: z.string().trim().min(3),
   cpf: z.string().min(11),
@@ -173,6 +174,7 @@ export async function POST(request: NextRequest) {
       adicionais: adicionais.codigos.map((codigo) => ({ codigo, quantidade: 1 })),
       valorProposto,
       buffetStatus: dados.data.buffetDefinicao === "agora" ? "DEFINIDO" : "PENDENTE",
+      escolhasBuffet: dados.data.escolhasBuffet,
       buffetSalgados: dados.data.buffetSalgados,
       buffetBebidas: dados.data.buffetBebidas,
       buffetDoces: dados.data.buffetDoces,
