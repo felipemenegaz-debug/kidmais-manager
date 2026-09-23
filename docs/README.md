@@ -33,6 +33,7 @@ Esta pasta é a fonte oficial de documentação funcional, arquitetural e de pro
 - [Invariantes, testes e gates SaaS](./architecture/SAAS-VALIDACAO-E-GATES.md)
 - [Inventário estrutural D12a — fontes, consumidores e autoridade](./architecture/SAAS-CONFIG-AUTHORITY-MAP.md)
 - [Fases 1C-A/1C-B0/1C-B1 — blueprint, migratabilidade e disposição do legado SaaS](./architecture/schema/README.md)
+- [Fase 1D-A — desenho da migration SaaS Foundation 020](./architecture/SAAS-020-FOUNDATION-DESIGN.md)
 
 ## Baseline e sanitização
 
