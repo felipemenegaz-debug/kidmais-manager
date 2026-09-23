@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/postgres';
 import { ADICIONAL_CODIGO_BANCO, PACOTE_CODIGO_BANCO } from '@/lib/fechamentos/comercial-input';
+import { erroConvidadosPizzaParty } from '@/lib/comercial/pacotes-v1';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,8 @@ export async function GET(request: NextRequest) {
   const convidados = Number(request.nextUrl.searchParams.get('convidados'));
   if (!codigo || !/^\d{4}-\d{2}-\d{2}$/.test(data) || !Number.isInteger(convidados) || convidados < 1 || convidados > 150)
     return NextResponse.json({ erro: 'Informe pacote, data e convidados válidos.' }, { status: 400, headers: noStore });
+  const erroPizza = erroConvidadosPizzaParty(codigo, convidados);
+  if (erroPizza) return NextResponse.json({ erro: erroPizza }, { status: 400, headers: noStore });
   try {
     const resultado = await db().query<{codigo:string;nome:string;categoria:string;unidade_cobranca:string;valor:string}>(`
       SELECT a.codigo,a.nome,a.categoria,a.unidade_cobranca,preco.valor::text AS valor

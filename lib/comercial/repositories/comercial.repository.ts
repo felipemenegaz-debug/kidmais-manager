@@ -1,5 +1,6 @@
 import type { DbExecutor } from "../../db/contracts";
 import { db } from "../../db/postgres";
+import { LIMITES_PIZZA_PARTY } from '../pacotes-v1';
 import type {
   AdicionalComPrecoRecord,
   BuscarPrecoPacoteAplicavelInput,
@@ -130,9 +131,9 @@ function mapPacote(row: PacoteRow): PacoteRecord {
     nome: row.nome,
     descricao: row.descricao,
     convidadosMinimos:
-      row.convidados_minimos === null ? null : Number(row.convidados_minimos),
+      row.codigo === 'PIZZA_PARTY' ? LIMITES_PIZZA_PARTY.minimo : row.convidados_minimos === null ? null : Number(row.convidados_minimos),
     convidadosMaximos:
-      row.convidados_maximos === null ? null : Number(row.convidados_maximos),
+      row.codigo === 'PIZZA_PARTY' ? LIMITES_PIZZA_PARTY.maximo : row.convidados_maximos === null ? null : Number(row.convidados_maximos),
     duracaoMinutos:
       row.duracao_minutos === null ? null : Number(row.duracao_minutos),
     ordemExibicao: Number(row.ordem_exibicao),

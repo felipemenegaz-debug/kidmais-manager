@@ -1,4 +1,5 @@
 import type { PacoteId } from "./types.ts";
+import { LIMITES_PIZZA_PARTY } from '../../lib/comercial/pacotes-v1.ts';
 
 export type Pacote = {
   id: PacoteId;
@@ -106,8 +107,8 @@ export const PACOTES: Pacote[] = [
     id: "pizza_party_scienza",
     nome: "Pizza Party Scienza",
     precoInicial: null,
-    minPagantes: 1,
-    maxPagantes: 50,
+    minPagantes: LIMITES_PIZZA_PARTY.minimo,
+    maxPagantes: LIMITES_PIZZA_PARTY.maximo,
     descricao:
       "Festa Kidmais com rodízio de pizzas artesanais Scienza, unindo diversão e uma experiência gastronômica diferenciada.",
     disponibilidade: "Disponibilidade sujeita à confirmação da data e da operação Scienza.",

@@ -107,7 +107,51 @@ test('smoke mocked transport: GET, redirect refusal, invalid JSON, oversized bod
   for (const url of ['http://admin.example', 'https://user:FAKE@admin.example', 'https://admin.example/?token=FAKE']) assert.equal((await smoke.check(fixture(), { 'base-url': url }, () => { throw new Error('must not fetch'); })).status, 'FAIL_VERIFIED');
 });
 test('inventory excludes rollback and never claims applied state', async () => {
-  const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.ok(r.evidence[0].latest.includes('_019_')); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999')));
+  const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.equal(r.evidence[0].latest, '20260923_025_extras_unitarios_pizza.sql'); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999')));
+  assert.deepEqual(r.evidence[0].migrations.filter(x => Number(x.split('_')[1]) > 19), [
+    '20260923_021_catalogo_configuravel_estrutura.sql', '20260923_022_catalogo_itens_iniciais.sql',
+    '20260923_023_adicionais_por_pacote.sql', '20260923_024_taxa_rolha_versionada.sql', '20260923_025_extras_unitarios_pizza.sql',
+  ]);
+  assert.deepEqual(r.evidence[0].deliberatelyAbsent, [{ id: '020', reason: 'FOUNDATION_SAAS_SEPARATE_BRANCH_NOT_REQUIRED_BY_CATALOG' }]);
+});
+
+test('V1 inventory rejects missing or duplicate approved migrations, including the legacy baseline', async () => {
+  const files = (await migrations.check({})).evidence[0].migrations;
+  assert.deepEqual(migrations.inspectInventory([...files, '20260907_999_crm_core_down.sql'], () => true).blockers, []);
+  for (const file of files) {
+    for (const entries of [files.filter(x => x !== file), [...files, file]]) {
+      const r = migrations.inspectInventory(entries, () => true);
+      assert.equal(r.status, 'FAIL_VERIFIED', file);
+      assert.equal(r.evidence[0].appliedState, 'unknown');
+    }
+  }
+});
+
+test('V1 inventory refuses Foundation 020, later versions, variants and unrecognized files', async () => {
+  const files = (await migrations.check({})).evidence[0].migrations;
+  for (const unexpected of [
+    '20260923_020_foundation.sql', '20260923_026_future.sql', '20260923_999_unexpected.sql',
+    '20260923_021a_patch.sql', '20260923_019a_patch.sql', '20260924_025_extras_unitarios_pizza.sql',
+    '20260923_025_renamed.sql', '20260923_026_future_down.sql', 'unexpected.sql', 'manual.SQL', 'nested-directory',
+  ]) {
+    const r = migrations.inspectInventory([...files, unexpected], () => true);
+    assert.ok(r.blockers.includes('MIGRATION_BASELINE_REVIEW_REQUIRED'), unexpected);
+    assert.equal(r.evidence[0].status, 'FAIL_VERIFIED');
+  }
+  const renamed = files.map(x => x.includes('_025_') ? '20260923_025_renamed.sql' : x);
+  assert.ok(migrations.inspectInventory(renamed, () => true).blockers.includes('MIGRATION_SEQUENCE_INVALID_25'));
+});
+
+test('V1 catalog requires each precheck and postcheck without accessing a database', async () => {
+  const files = (await migrations.check({})).evidence[0].migrations;
+  for (let id = 21; id <= 25; id++) {
+    for (const kind of ['precheck', 'postcheck']) {
+      const missing = `20260923_0${id}_${kind}.sql`;
+      const r = migrations.inspectInventory(files, name => name !== missing);
+      assert.deepEqual(r.blockers, [`CHECK_FILE_MISSING_0${id}_${kind}`]);
+      assert.equal(r.evidence[0].appliedState, 'unknown');
+    }
+  }
 });
 test('aggregator fails closed, distinguishes partial/commercial and stale reports', async () => {
   const binding = { environment: 'production', commit: 'synthetic-commit', origin: 'https://admin.example', database: 'kidmais_production' };

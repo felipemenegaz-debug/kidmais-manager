@@ -1,5 +1,6 @@
 import type { DbExecutor } from "../../db/contracts";
 import { db } from "../../db/postgres";
+import { erroConvidadosPizzaParty } from '../pacotes-v1';
 import {
   buscarCategoriaHorarioAplicavel,
   buscarElegibilidadePacoteAplicavel,
@@ -214,6 +215,8 @@ export async function precificarPacote(
     );
   }
 
+  const erroPizza = erroConvidadosPizzaParty(pacote.codigo, input.convidados);
+  if (erroPizza) throw new PricingServiceError('DADOS_INVALIDOS', erroPizza, 400);
   if (
     pacote.convidadosMaximos !== null &&
     input.convidados > pacote.convidadosMaximos
