@@ -15,8 +15,16 @@ Entregas:
 - código único de empresa;
 - isolamento entre tenants;
 - escopo de dados;
-- base de autorização multiempresa.
-Marco: Empresa A e Empresa B operam sem acesso cruzado.
+- base de autorização multiempresa;
+- gestão self-service de equipe e acessos;
+- identidade global com memberships por empresa;
+- acesso a uma, várias ou todas as unidades autorizadas;
+- perfis prontos: Proprietário, Administrador, Gerente, Comercial, Financeiro e Operacional;
+- permissões personalizadas quando necessário;
+- convite, reenvio/cancelamento, ativação, desativação e revogação imediata de usuários;
+- transferência protegida de propriedade;
+- auditoria de convites, acessos e alterações de permissões.
+Marco: Empresa A e Empresa B operam sem acesso cruzado, e o proprietário consegue adicionar e administrar sua equipe sem intervenção do suporte.
 
 ## Fase 2 — Multiestabelecimento + Configurações
 Prazo: 4–6 semanas.
