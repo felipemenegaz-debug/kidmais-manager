@@ -8,6 +8,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {db,withTransaction} from '../db/postgres';
 import type {DbExecutor} from '../db/contracts';
 import {consultarSessao,type SessaoAdmin} from '../autenticacao/service';
+import {nomePapelSistema} from '../autenticacao/papeis';
 import {registrarAuditoria} from '../clientes/repositories/auditoria.repository';
 import {consultarPainelFinanceiro} from '../pagamentos/services/financeiro-consulta.service';
 import {exigir,FestaError,estadoDerivado,excedentes,type Capacidade} from './domain';
@@ -71,7 +72,7 @@ export async function aplicarPerfil(raw:unknown,ctx:Contexto){const i=z.object({
  for(const capacidade of perfis.GESTAO)await alterarCapacidade(tx,s,{usuarioId:i.usuarioId,capacidade,conceder:perfis[i.perfil].includes(capacidade),confirmarAutoconcessao:i.confirmarProprioAcesso,motivo:'Perfil de Festa: '+(i.perfil==='GESTAO'?'Gestão':'Equipe')},ctx);
  await auditoria(tx,s,ctx,i.usuarioId,'FESTA_PERFIL_APLICADO',null,{perfil:i.perfil,proprioAcesso:i.usuarioId===s.usuario_id},'Alteração de perfil confirmada');return {perfil:i.perfil};
  });}
-export async function consultarPerfis(ctx:Contexto){const r=await consultarCapacidades(ctx);return {usuarioId:r.usuarioId,usuarios:r.usuarios.filter(u=>u.ativo).map(u=>({id:u.id,nome:u.nome,perfil:nomePerfil(r.concessoes.filter(c=>c.usuario_id===u.id&&!c.revogado_em).map(c=>String(c.capacidade)))}))};}
+export async function consultarPerfis(ctx:Contexto){const r=await consultarCapacidades(ctx);return {usuarioId:r.usuarioId,usuarios:r.usuarios.filter(u=>u.ativo).map(u=>({id:u.id,nome:u.nome,papel:String(u.papel),nivelSistema:nomePapelSistema(String(u.papel)),perfil:nomePerfil(r.concessoes.filter(c=>c.usuario_id===u.id&&!c.revogado_em).map(c=>String(c.capacidade)))}))};}
 export async function administrarArea(raw:unknown,ctx:Contexto){const i=areaSchema.parse(raw);return withTransaction(async tx=>{const s=await sessao(tx,ctx,true);await autorizar(tx,s,'FESTA_CONFIGURAR_AREAS');const antes=i.id?(await tx.query<Registro>('SELECT * FROM festa_areas WHERE id=$1 FOR UPDATE',[i.id])).rows[0]:null;if(i.id)exigir(antes,'Área não encontrada.');const r=i.id?(await tx.query<Registro>('UPDATE festa_areas SET nome=$2,ativo=$3,revisao=revisao+1 WHERE id=$1 RETURNING *',[i.id,i.nome,i.ativo])).rows[0]:(await tx.query<Registro>('INSERT INTO festa_areas(nome,ativo,criado_por) VALUES($1,$2,$3) RETURNING *',[i.nome,i.ativo,s.usuario_id])).rows[0];await auditoria(tx,s,ctx,r.id,'FESTA_AREA_ATUALIZADA',antes??null,r,i.motivo);return r;});}
 async function validarPolitica(tx:DbExecutor,s:SessaoAdmin,i:Comando,antes:Registro|null){const p=politicaOperacao(i,antes);if(p.corrigir)await autorizar(tx,s,'FESTA_CORRIGIR');if(p.motivoObrigatorio)exigir(i.motivo.trim().length>=3,'Informe motivo explícito com pelo menos 3 caracteres.',400);}
 async function capacidadeComando(tx:DbExecutor,s:SessaoAdmin,i:Comando){
