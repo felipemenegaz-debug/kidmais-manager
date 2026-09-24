@@ -5,6 +5,7 @@ import { registrarAuditoria as registrarAuditoriaPadrao } from '../clientes/repo
 import { authError, type SessaoAdmin } from './service.ts';
 import { criarHashSenha as criarHashSenhaPadrao, senhaValida } from './senha.ts';
 import { nomePapelSistema, papelDeNivel, type NivelSistema } from './papeis.ts';
+import { perfis } from '../festas/perfis.ts';
 
 export type UsuariosDeps = {
     withTransaction: typeof withTransactionPadrao;
@@ -89,11 +90,25 @@ export async function criarUsuarioAdministrativo(sessao: SessaoAdmin, raw: unkno
                 ativo: boolean;
             }>('INSERT INTO usuarios_administrativos(email,nome,senha_hash,papel) VALUES($1,$2,$3,$4) RETURNING id,nome,email,papel,ativo',
                 [email, input.nome, senhaHash, papel])).rows[0];
+            const capacidadesFesta = [...perfis[input.nivel]];
+            const motivo = 'Perfil de Festa: ' + (input.nivel === 'GESTAO' ? 'Gestão' : 'Equipe');
+            for (const capacidade of capacidadesFesta) {
+                await tx.query(
+                    'INSERT INTO festa_usuario_capacidades(usuario_id,capacidade,concedido_por,motivo) VALUES($1,$2,$3,$4)',
+                    [criado.id, capacidade, sessao.usuario_id, motivo],
+                );
+            }
             const depois = conta(criado);
             await deps.registrarAuditoria({
                 atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'ADMIN_CRIAR',
-                entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: criado.id, dadosDepois: depois,
-                origem: 'ADMIN_USUARIOS', requestId,
+                entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: criado.id,
+                dadosDepois: depois, origem: 'ADMIN_USUARIOS', requestId,
+            }, tx);
+            await deps.registrarAuditoria({
+                atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'FESTA_PERFIL_APLICADO',
+                entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: criado.id,
+                dadosDepois: { perfil: input.nivel, capacidades: capacidadesFesta },
+                justificativa: motivo, origem: 'ADMIN_USUARIOS', requestId,
             }, tx);
             return depois;
         });

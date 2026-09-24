@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import ts from 'typescript';
 import { nomePapelSistema, papelDeNivel } from './papeis.ts';
+import { perfis } from '../festas/perfis.ts';
 
 class Falha extends Error {
     httpStatus: number;
@@ -39,6 +40,8 @@ function carregar() {
             };
         if (name.includes('papeis'))
             return { nomePapelSistema: (papel: string) => papel === 'REPRESENTANTE_AUTORIZADO' ? 'Gestão' : 'Equipe', papelDeNivel: (nivel: string) => nivel === 'GESTAO' ? 'REPRESENTANTE_AUTORIZADO' : 'ADMINISTRATIVO' };
+        if (name.includes('festas/perfis'))
+            return { perfis: { GESTAO: ['FESTA_CONSULTAR', 'FESTA_CRIAR', 'FESTA_OPERAR', 'FESTA_CORRIGIR', 'FESTA_CONFIGURAR_AREAS'], EQUIPE: ['FESTA_CONSULTAR', 'FESTA_OPERAR'] } };
         throw new Error('módulo não simulado: ' + name);
     }, exports);
     return exports as {
@@ -99,7 +102,7 @@ test('lista inclui contas ativas e desativadas', async () => {
     assert.equal(data.usuarios[1].ativo, false);
 });
 
-test('criação valida senha, e-mail duplicado e grava papel de sistema sem tocar Festas', async () => {
+test('criação valida senha e e-mail duplicado e grava papel administrativo separado das Festas', async () => {
     const atual = sessao();
     await assert.rejects(
         () => criarUsuarioAdministrativo(atual, { acao: 'criar', nome: 'Ana', email: 'ana@example.invalid', nivel: 'EQUIPE', senha: 'aaaaaaaa', confirmacao: 'bbbbbbbb' }, 'req'),
@@ -129,14 +132,86 @@ test('criação valida senha, e-mail duplicado e grava papel de sistema sem toca
                     assert.equal(params?.[3], 'ADMINISTRATIVO');
                     return { rows: [{ id: criadoId, nome: 'Ana', email: 'ana@example.invalid', papel: 'ADMINISTRATIVO', ativo: true }] };
                 }
+                if (sql.includes('INSERT INTO festa_usuario_capacidades'))
+                    return { rows: [] };
                 throw new Error(sql);
             },
         }),
     });
     assert.equal(resultado.nivelSistema, 'Equipe');
+    assert.equal(resultado.papel, 'ADMINISTRATIVO');
     assert.equal(auditorias[0]?.acao, 'ADMIN_CRIAR');
     assert.equal(auditorias[0]?.dadosDepois?.papel, 'ADMINISTRATIVO');
-    assert.equal(sqls.some((sql) => sql.includes('festa_usuario')), false);
+    assert.equal(auditorias[1]?.acao, 'FESTA_PERFIL_APLICADO');
+    assert.equal(sqls.filter((sql) => sql.includes('INSERT INTO festa_usuario_capacidades')).length, perfis.EQUIPE.length);
+    assert.equal(sqls.some((sql) => sql.includes('UPDATE usuarios_administrativos SET papel')), false);
+});
+
+test('criação aplica capacidades EQUIPE ou GESTAO e uma falha reverte a transação inteira', async () => {
+    const atual = sessao();
+
+    async function criar(nivel: 'EQUIPE' | 'GESTAO', falharNaCapacidade?: string) {
+        const criadoId = randomUUID();
+        const estado = {
+            usuarios: [] as string[],
+            capacidades: [] as string[],
+            auditorias: [] as string[],
+        };
+        const deps = {
+            criarHashSenha: async () => 'hash-sintetico',
+            registrarAuditoria: async (input: { acao: string }) => { estado.auditorias.push(input.acao); return {}; },
+            withTransaction: async (fn: (tx: unknown) => unknown) => {
+                try {
+                    return await fn({
+                        query: async (sql: string, params?: unknown[]) => {
+                            if (sql.includes('SELECT id FROM usuarios_administrativos WHERE email'))
+                                return { rows: [] };
+                            if (sql.includes('INSERT INTO usuarios_administrativos')) {
+                                estado.usuarios.push(String(params?.[3]));
+                                return { rows: [{ id: criadoId, nome: 'Nova', email: 'nova@example.invalid', papel: params?.[3], ativo: true }] };
+                            }
+                            if (sql.includes('INSERT INTO festa_usuario_capacidades')) {
+                                const capacidade = String(params?.[1]);
+                                if (falharNaCapacidade && capacidade === falharNaCapacidade)
+                                    throw new Error('falha sintética na concessão');
+                                estado.capacidades.push(capacidade);
+                                return { rows: [] };
+                            }
+                            throw new Error(sql);
+                        },
+                    });
+                } catch (error) {
+                    estado.usuarios.length = 0;
+                    estado.capacidades.length = 0;
+                    estado.auditorias.length = 0;
+                    throw error;
+                }
+            },
+        };
+        const resultado = await criarUsuarioAdministrativo(atual, {
+            acao: 'criar', nome: 'Nova', email: `nova-${nivel.toLowerCase()}@example.invalid`, nivel, senha: 'aaaaaaaa', confirmacao: 'aaaaaaaa',
+        }, 'req-' + nivel, deps).then(
+            (ok: { papel: string }) => ({ estado, ok, error: null as Error | null }),
+            (error: unknown) => ({ estado, ok: null as { papel: string } | null, error: error instanceof Error ? error : new Error(String(error)) }),
+        );
+        return resultado;
+    }
+
+    const equipe = await criar('EQUIPE');
+    assert.equal(equipe.ok?.papel, 'ADMINISTRATIVO');
+    assert.deepEqual(equipe.estado.capacidades, [...perfis.EQUIPE]);
+    assert.deepEqual(equipe.estado.auditorias, ['ADMIN_CRIAR', 'FESTA_PERFIL_APLICADO']);
+
+    const gestao = await criar('GESTAO');
+    assert.equal(gestao.ok?.papel, 'REPRESENTANTE_AUTORIZADO');
+    assert.deepEqual(gestao.estado.capacidades, [...perfis.GESTAO]);
+    assert.notDeepEqual(gestao.estado.capacidades, [...perfis.EQUIPE]);
+
+    const falha = await criar('GESTAO', 'FESTA_CORRIGIR');
+    assert.match(String(falha.error), /falha sintética na concessão/);
+    assert.deepEqual(falha.estado.usuarios, []);
+    assert.deepEqual(falha.estado.capacidades, []);
+    assert.deepEqual(falha.estado.auditorias, []);
 });
 
 test('desativar recusa a própria conta, exige confirmação, revoga sessões e preserva o registro', async () => {

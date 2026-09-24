@@ -9,6 +9,7 @@ test('a tela de acessos cria contas pela API administrativa e não pede SQL no t
     assert.match(ui, /Acesso às Festas/);
     assert.match(ui, /Contas desativadas/);
     assert.match(ui, /Sua conta/);
+    assert.match(ui, /acesso inicial às Festas/);
     assert.doesNotMatch(ui, /provisionamento administrativo no terminal/);
     assert.match(ui, /recurso=perfis/);
 });

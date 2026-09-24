@@ -91,7 +91,7 @@ export default function FestaAcessos(){
    })});
    const j=await r.json();
    if(!j.ok){setErro(erroHumano(j.erro));return;}
-   setNotice('Conta criada. Defina o acesso às Festas na lista abaixo, se necessário.');
+   setNotice('Conta criada com o acesso às Festas do nível escolhido.');
    form.reset();
    setNivel('EQUIPE');
    await carregar();
@@ -122,7 +122,7 @@ export default function FestaAcessos(){
   {erro&&<p role="alert" className={styles.warning}>{erro}</p>}
   {notice&&<p role="status" className={styles.success}>{notice}</p>}
   {contas&&perfis&&<>
-   <p>O papel no sistema define quem administra o Kidmais. O acesso às Festas é independente: alterá-lo não muda o papel.</p>
+   <p>O nível escolhido na criação define o papel administrativo e o acesso inicial às Festas. Depois, alterar o acesso às Festas não muda o papel.</p>
    <section className={styles.card} aria-labelledby="criar-titulo">
     <h2 id="criar-titulo">Criar usuário</h2>
     <form onSubmit={criar}>
