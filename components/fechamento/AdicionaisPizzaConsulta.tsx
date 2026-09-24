@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { LIMITES_PIZZA_PARTY, erroConvidadosPizzaParty } from '../../lib/comercial/pacotes-v1';
+import styles from './FechamentoWizard.module.css';
 
 type Extra = { id: string; nome: string; preco: number; unidadeCobranca: string };
 
@@ -21,12 +22,12 @@ export default function AdicionaisPizzaConsulta() {
       .catch(() => { if (!controller.signal.aborted) { setItens(null); setErro('Não foi possível consultar os adicionais.'); } });
     return () => controller.abort();
   }, [data, convidados, erroQuantidade]);
-  return <section aria-label="Adicionais da Pizza Party">
+  return <section className={styles.consultPanel} aria-label="Adicionais da Pizza Party">
     <h3>Adicionais da Pizza Party</h3>
     <p>Consulte os mesmos preços e faixas dos demais pacotes. O preço base da Pizza Party permanece sob consulta; esta consulta não reserva a data.</p>
     <p>Pizza Party: mínimo de 20 e máximo de 100 convidados.</p>
-    <label>Data pretendida<input type="date" value={data} onChange={e => { setItens(null); setData(e.target.value); }} /></label>
-    <label>Convidados para consultar a faixa<input type="number" min={LIMITES_PIZZA_PARTY.minimo} max={LIMITES_PIZZA_PARTY.maximo} step={1} value={convidados} onChange={e => { setItens(null); setErro(''); setConvidados(Number(e.target.value)); }} /></label>
+    <label className={styles.field}>Data pretendida<input type="date" value={data} onChange={e => { setItens(null); setData(e.target.value); }} /></label>
+    <label className={styles.field}>Convidados para consultar a faixa<input type="number" min={LIMITES_PIZZA_PARTY.minimo} max={LIMITES_PIZZA_PARTY.maximo} step={1} value={convidados} onChange={e => { setItens(null); setErro(''); setConvidados(Number(e.target.value)); }} /></label>
     {(erroQuantidade || erro) && <p role="alert">{erroQuantidade || erro}</p>}
     {!data && <p>Informe a data para consultar a tabela vigente.</p>}
     {!erroQuantidade && itens?.length === 0 && <p>Nenhum adicional com preço vigente para essa data e quantidade.</p>}

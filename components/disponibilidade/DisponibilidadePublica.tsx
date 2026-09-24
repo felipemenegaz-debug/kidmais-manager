@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import KidmaisBrand from "@/components/layout/KidmaisBrand";
+import PacotesPdf from "@/components/fechamento/PacotesPdf";
+import FestaDecoracao from "@/components/fechamento/FestaDecoracao";
 import type {
   DisponibilidadeDataPublica,
   HorarioCandidatoPublico,
@@ -151,8 +153,7 @@ export default function DisponibilidadePublica() {
 
   return (
     <main className={styles.page}>
-      <div className={styles.decoracaoUm} />
-      <div className={styles.decoracaoDois} />
+      <FestaDecoracao />
 
       <div className={styles.shell}>
         <header className={styles.header}>
@@ -240,6 +241,7 @@ export default function DisponibilidadePublica() {
             </div>
           </div>
 
+          <div className={styles.sideColumn}>
           <aside className={styles.selectionPanel}>
             {!dataSelecionada ? (
               <div className={styles.emptySelection}>
@@ -341,6 +343,8 @@ export default function DisponibilidadePublica() {
               </>
             )}
           </aside>
+          <PacotesPdf />
+          </div>
         </section>
       </div>
     </main>

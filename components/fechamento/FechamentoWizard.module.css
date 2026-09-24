@@ -1,36 +1,21 @@
 .page {
-  --blue: #2e67d8;
+  --blue: #3767cb;
   --blue-dark: #163e9f;
-  --purple: #6c35b8;
+  --purple: #7644b9;
   --lilac: #955be1;
   --orange: #ff7b22;
-  --ink: #17213f;
-  --muted: #68738d;
+  --ink: #111a3a;
+  --muted: #657290;
   --border: #e3e7f0;
   --bg: #f7f8fd;
   min-height: 100vh;
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(circle at 7% 8%, rgba(149,91,225,.14), transparent 30%),
-    radial-gradient(circle at 95% 14%, rgba(255,123,34,.10), transparent 26%),
-    linear-gradient(180deg, #fcfbff 0%, var(--bg) 100%);
+    radial-gradient(ellipse at 5% 20%, #ede8fb, transparent 42%),
+    radial-gradient(ellipse at 100% 65%, #fff0e1, transparent 40%), #f7f8fc;
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-.decoracaoUm, .decoracaoDois {
-  position: absolute;
-  border-radius: 999px;
-  pointer-events: none;
-}
-.decoracaoUm {
-  width: 250px; height: 250px; left: -120px; top: 180px;
-  background: rgba(46,103,216,.07);
-}
-.decoracaoDois {
-  width: 280px; height: 280px; right: -130px; top: 600px;
-  background: rgba(149,91,225,.08);
 }
 
 .shell { width: min(1060px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 50px; position: relative; z-index: 1; }
@@ -59,7 +44,11 @@
 .progressTrack { height: 7px; background: #e7eaf3; border-radius: 999px; overflow: hidden; }
 .progressFill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--lilac), var(--orange)); transition: width .25s ease; }
 
-.card { max-width: 860px; margin: 0 auto; border: 1px solid rgba(227,231,240,.95); border-radius: 28px; background: rgba(255,255,255,.96); overflow: hidden; box-shadow: 0 30px 80px rgba(34,44,85,.09); }
+.card { max-width: 860px; margin: 0 auto; border: 1px solid rgba(255,255,255,.95); border-radius: 28px; background: rgba(255,255,255,.88); backdrop-filter: blur(12px); overflow: hidden; box-shadow: 0 20px 60px rgba(34,44,85,.08), inset 0 1px 0 #fff; }
+.packageIntro { display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch; margin-bottom: 22px; }
+.packageIntro > .infoBox { flex: 1 1 260px; margin-top: 0; }
+.packageIntro > aside { flex: 1 1 270px; }
+.packageCard:focus-visible { outline: 3px solid var(--purple); outline-offset: 3px; }
 .step { padding: 38px 42px 22px; }
 .stepTitle { display: flex; gap: 15px; align-items: flex-start; margin-bottom: 30px; }
 .stepNumber { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 12px; color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 900; background: linear-gradient(145deg, var(--blue), var(--lilac)); }
@@ -196,6 +185,11 @@
   .errorBox { margin: 0 20px 14px; }
   .pageFooter { flex-direction: column; padding: 0 8px; }
   .successCard { margin: 35px auto; padding: 34px 20px; }
+}
+
+@media (prefers-reduced-motion: reduce), (hover: none) {
+  .progressFill, .choiceCard, .packageCard, .paymentCard, .additionalCard { transition: none; }
+  .choiceCard:hover, .packageCard:hover, .paymentCard:hover, .additionalCard:hover { transform: none; }
 }
 
 .liveTotals {
@@ -1083,5 +1077,87 @@
   .identificationActions .primaryButton,
   .identificationActions .secondaryButton { width: 100%; }
   .birthdayGrid { grid-template-columns: 1fr; }
-  .existingClientHeader { align-items: flex-start; }
+.existingClientHeader { align-items: flex-start; }
+}
+
+/* Padrão público V1. Escopo .page evita mudar os formulários administrativos
+   que reutilizam as classes de campo deste módulo. */
+.page .step { padding: clamp(22px, 4vw, 38px) clamp(18px, 4vw, 42px) 24px; }
+.page .stepTitle { margin-bottom: 26px; }
+.page .stepTitle > div, .page .field, .page .fieldGroup { min-width: 0; }
+.page .stepNumber, .page .successIcon { background: linear-gradient(135deg, var(--blue), var(--purple)); }
+.page :is(.choiceCard, .packageCard, .paymentCard, .additionalCard, .buffetDecisionCard, .birthdayCard, .summaryCard, .maskedContact, .calendarWrap, .buffetSummaryBox) {
+  border-radius: 18px;
+  border-color: #e1e5f0;
+  background: rgba(255, 255, 255, .88);
+  box-shadow: 0 5px 16px rgba(49, 54, 108, .035);
+}
+.page :is(.choiceSelected, .packageSelected, .paymentSelected, .additionalSelected, .buffetDecisionSelected, .birthdaySelected) {
+  border-color: var(--purple);
+  background: linear-gradient(135deg, #f1f4ff, #f6f0fc);
+  box-shadow: 0 0 0 3px rgba(118, 68, 185, .12);
+}
+.page :is(.packageDetails, .priceReference, .identificationPanel, .contractNotice, .consultPanel) {
+  border: 1px solid #e1e5f0;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(241, 244, 255, .85), rgba(250, 245, 255, .85));
+}
+.page .field { gap: 9px; margin-bottom: 22px; }
+.page .field :is(input, select, textarea) {
+  border-radius: 14px;
+  border-color: #dfe5f0;
+  background: rgba(255, 255, 255, .96);
+  min-width: 0;
+  max-width: 100%;
+}
+.page .field :is(input, select, textarea):focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(118, 68, 185, .12);
+}
+.page :is(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid var(--purple);
+  outline-offset: 3px;
+}
+.page .primaryButton {
+  min-height: 50px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--blue), var(--purple));
+  box-shadow: 0 8px 20px rgba(64, 81, 180, .16);
+}
+.page .secondaryButton { min-height: 50px; border-radius: 14px; background: rgba(255, 255, 255, .96); }
+.page .quickChoices button, .page .useCalculatedButton { min-height: 44px; }
+.page .actions { padding-top: 24px; gap: 14px; background: rgba(245, 247, 253, .7); }
+.page .actions > button { white-space: normal; }
+.page .liveTotals { background: rgba(244, 243, 253, .95); box-shadow: 0 10px 28px rgba(49, 54, 108, .08); }
+.page :is(.summaryCard, .successSummary, .existingClientHeader, .maskedContact) { overflow-wrap: anywhere; }
+.page .successCard {
+  position: relative;
+  z-index: 1;
+  border: 1px solid rgba(255, 255, 255, .95);
+  background: rgba(255, 255, 255, .88);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 42px rgba(49, 54, 108, .08), inset 0 1px 0 #fff;
+}
+.confirmationBrand { display: flex; justify-content: center; margin-bottom: 26px; }
+.consultPanel { margin: 20px 0; padding: 22px; }
+.consultPanel h3 { margin: 0 0 10px; font-size: 18px; }
+.consultPanel p { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.consultPanel ul { list-style: none; padding: 0; margin: 18px 0 0; }
+.consultPanel li { padding: 12px 0; border-top: 1px solid #e1e5f0; font-size: 13px; line-height: 1.6; }
+.consultPanel [role="alert"] { color: #9b2531; }
+
+@media (max-width: 760px) {
+  .page .field :is(input, select, textarea) { font-size: 16px; }
+  .page .actions { flex-wrap: wrap; padding: 18px; }
+  .page .actions > button { flex: 1 1 140px; }
+  .page .existingClientHeader { flex-wrap: wrap; }
+  .page .additionalCard { grid-template-columns: 28px minmax(0, 1fr); }
+  .page .additionalCard > b { grid-column: 2; white-space: normal; }
+  .page .consultPanel { padding: 18px; }
+  .page .successCard { padding: 28px 20px; }
+}
+
+@media (prefers-reduced-motion: reduce), (hover: none) {
+  .page *, .page *::before, .page *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  .page :is(.calendarDay, .choiceCard, .packageCard, .paymentCard, .additionalCard, .buffetDecisionCard, .birthdayCard):hover { transform: none; }
 }

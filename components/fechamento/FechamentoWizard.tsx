@@ -1,6 +1,8 @@
 "use client";
 
 import AdicionaisPizzaConsulta from './AdicionaisPizzaConsulta';
+import PacotesPdf from './PacotesPdf';
+import FestaDecoracao from './FestaDecoracao';
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ATALHOS_CONVIDADOS, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
@@ -215,7 +217,6 @@ export default function FechamentoWizard() {
   const [erro, setErro] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [concluido, setConcluido] = useState(false);
-  const [tabelaPdfDisponivel, setTabelaPdfDisponivel] = useState(false);
   const [categoriasBuffet,setCategoriasBuffet]=useState<CategoriaBuffet[]>([]);
   const [escolhasBuffet,setEscolhasBuffet]=useState<Record<string,string[]>>({});
   const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
@@ -251,13 +252,6 @@ export default function FechamentoWizard() {
   const cepConsultaSeq = useRef(0);
 
   const pacote = PACOTES_FECHAMENTO_V1.find((item) => item.id === form.pacote);
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch('/api/fechamentos/tabela-pacotes', { method: 'HEAD', signal: controller.signal })
-      .then((resposta) => setTabelaPdfDisponivel(resposta.ok))
-      .catch(() => setTabelaPdfDisponivel(false));
-    return () => controller.abort();
-  }, []);
   useEffect(()=>{
     const codigo=CODIGO_PACOTE[form.pacote];
     if(!codigo)return;
@@ -1120,6 +1114,7 @@ export default function FechamentoWizard() {
   if (!entradaResolvida) {
     return (
       <main className={styles.page}>
+        <FestaDecoracao />
         <section className={styles.successCard}>
           <p className={styles.eyebrow}>Validando disponibilidade</p>
           <h1>Confirmando sua data e horário.</h1>
@@ -1134,6 +1129,7 @@ export default function FechamentoWizard() {
   if (entradaPublicaInvalida && !origemInterna) {
     return (
       <main className={styles.page}>
+        <FestaDecoracao />
         <section className={styles.successCard}>
           <p className={styles.eyebrow}>Disponibilidade alterada</p>
           <h1>Precisamos escolher outro horário.</h1>
@@ -1151,7 +1147,9 @@ export default function FechamentoWizard() {
   if (concluido) {
     return (
       <main className={styles.page}>
+        <FestaDecoracao />
         <section className={styles.successCard}>
+          <div className={styles.confirmationBrand}><KidmaisBrand context="customer" /></div>
           <div className={styles.successIcon}>✓</div>
           <p className={styles.eyebrow}>Solicitação recebida</p>
           <h1>Agora a Kidmais confere os últimos detalhes.</h1>
@@ -1206,8 +1204,7 @@ export default function FechamentoWizard() {
 
   return (
     <main className={styles.page}>
-      <div className={styles.decoracaoUm} />
-      <div className={styles.decoracaoDois} />
+      <FestaDecoracao />
 
       <div className={styles.shell}>
         <header className={styles.header}>
@@ -1249,14 +1246,7 @@ export default function FechamentoWizard() {
                   : "Primeiro selecione o tipo de festa. Na próxima etapa o calendário será ajustado às regras e às datas previamente liberadas para esse pacote."}
               </StepTitle>
 
-              {tabelaPdfDisponivel && (
-                <div>
-                  <p><a href="/api/fechamentos/tabela-pacotes" target="_blank" rel="noopener noreferrer">Abrir tabela de pacotes e preços (PDF) em nova aba</a></p>
-                  <p><a href="/api/fechamentos/tabela-pacotes?download=1" download="pacotes-e-precos.pdf">Baixar PDF para abrir no seu leitor</a></p>
-                  <p>Se o visualizador ficar em branco, baixe o arquivo e abra no leitor de PDF do seu dispositivo.</p>
-                </div>
-              )}
-
+              <div className={styles.packageIntro}>
               {preselecaoDisponibilidade && form.dataFesta && intervaloSelecionado ? (
                 <div className={styles.infoBox}>
                   <strong>Data e horário já escolhidos</strong>
@@ -1269,6 +1259,8 @@ export default function FechamentoWizard() {
                   </a>
                 </div>
               ) : null}
+                <PacotesPdf />
+              </div>
 
               <div className={styles.packageGrid}>
                 {PACOTES_FECHAMENTO_V1.map((item) => (

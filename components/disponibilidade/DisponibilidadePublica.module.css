@@ -1,34 +1,10 @@
 .page {
   min-height: 100vh;
-  background: #f5f7fc;
+  background: radial-gradient(ellipse at 5% 20%, #ede8fb, transparent 42%),
+    radial-gradient(ellipse at 100% 65%, #fff0e1, transparent 40%), #f7f8fc;
   color: #111a3a;
   position: relative;
   overflow: hidden;
-}
-
-.decoracaoUm,
-.decoracaoDois {
-  position: fixed;
-  border-radius: 999px;
-  filter: blur(4px);
-  opacity: .18;
-  pointer-events: none;
-}
-
-.decoracaoUm {
-  width: 430px;
-  height: 430px;
-  background: #4d6ee8;
-  top: -230px;
-  right: -110px;
-}
-
-.decoracaoDois {
-  width: 360px;
-  height: 360px;
-  background: #7b43d1;
-  bottom: -230px;
-  left: -130px;
 }
 
 .shell {
@@ -98,14 +74,17 @@
 
 .calendarColumn,
 .selectionPanel {
-  border: 1px solid #dfe5f0;
+  border: 1px solid rgba(255, 255, 255, .95);
   border-radius: 24px;
-  background: rgba(255, 255, 255, .94);
-  box-shadow: 0 18px 45px rgba(32, 47, 91, .06);
+  background: rgba(255, 255, 255, .84);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 42px rgba(49, 54, 108, .08), inset 0 1px 0 #fff;
 }
 
 .calendarColumn { padding: 22px; }
-.selectionPanel { padding: 22px; position: sticky; top: 18px; }
+.selectionPanel { padding: 22px; }
+.sideColumn { display: grid; gap: 18px; min-width: 0; }
+.page button:focus-visible { outline: 3px solid #7644b9; outline-offset: 3px; }
 
 .calendarToolbar {
   display: flex;
@@ -331,4 +310,9 @@
   .day strong { font-size: 12px; }
   .legend { gap: 8px; }
   .periodGrid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce), (hover: none) {
+  .day { transition: none; }
+  .day:not(:disabled):hover { transform: none; }
 }
