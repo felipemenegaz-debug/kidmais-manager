@@ -244,6 +244,7 @@ test('mutações production exigem Origin exata mesmo com proxy válido', () => 
 
 test('verificações CSRF permanecem obrigatórias nas rotas administrativas', () => {
     const route = readFileSync('app/api/admin/autenticacao/route.ts', 'utf8');
+    const usuarios = readFileSync('app/api/admin/configuracoes/usuarios/route.ts', 'utf8');
     const guard = readFileSync('lib/http/admin-crm-api.ts', 'utf8');
     assert.match(guard, /throw authError\('Use a origem administrativa segura configurada\.', 403\)/);
     assert.match(guard, /throw authError\('Origem da requisição recusada\.', 403\)/);
@@ -251,4 +252,5 @@ test('verificações CSRF permanecem obrigatórias nas rotas administrativas', (
     assert.match(route, /request\.headers\.get\('x-csrf-token'\)/);
     assert.match(guard, /request\.headers\.get\('x-csrf-token'\)/);
     assert.match(guard, /session\.csrf_hash/);
+    assert.match(usuarios, /exigirApiAdminCrmDisponivel\(request\)/);
 });
