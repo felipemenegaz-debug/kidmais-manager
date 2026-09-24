@@ -8,6 +8,7 @@ import { situacaoCobranca } from './cancelamento-core.ts';
 import { PagamentoServiceError } from './errors.ts';
 import * as financeiroCore from './alteracao-financeira-core.ts';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core.ts';
+import { nomePapelSistema } from '../../autenticacao/papeis.ts';
 
 function carregar(file: string, deps: Record<string, unknown>) {
   const exports: Record<string, (...args: unknown[]) => unknown> = {};
@@ -94,6 +95,7 @@ function ambiente(recebimentos: Row[] = [], consolidado = false, falha = '') {
     '../clientes/repositories/auditoria.repository': audit,
     '../pagamentos/services/financeiro-consulta.service': {},
     '../autenticacao/service': { consultarSessao: async () => sessao },
+    '../autenticacao/papeis': { nomePapelSistema },
     '../db/postgres': { withTransaction: async (fn: (executor: unknown) => Promise<unknown>) => {
       const before = structuredClone(state); try { return await fn(tx); } catch (e) { state = before; throw e; }
     } },
