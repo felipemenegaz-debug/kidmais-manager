@@ -36,6 +36,8 @@ test('layout unifica lista, busca, abas e painel Adicionar pessoa', () => {
     assert.doesNotMatch(ui, /convite por e-mail|redefinir senha|password reset/i);
     assert.match(css, /max-width:800px/);
     assert.match(css, /\.drawer\{width:100%\}/);
+    assert.doesNotMatch(ui, /festa\.module\.css/);
+    assert.doesNotMatch(ui, /menuHint/);
 });
 
 test('menu de ações permanece acionável no teste de navegação das Festas', () => {
