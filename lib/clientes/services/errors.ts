@@ -17,14 +17,21 @@ export type ClienteServiceErrorCode =
   | "PERFIL_LIMITE_V1";
 
 export class ClienteServiceError extends Error {
+  readonly code: ClienteServiceErrorCode;
+  readonly httpStatus: number;
+  readonly details?: Record<string, unknown>;
+
   constructor(
-    public readonly code: ClienteServiceErrorCode,
+    code: ClienteServiceErrorCode,
     message: string,
-    public readonly httpStatus = 400,
-    public readonly details?: Record<string, unknown>,
+    httpStatus = 400,
+    details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ClienteServiceError";
+    this.code = code;
+    this.httpStatus = httpStatus;
+    this.details = details;
   }
 }
 
