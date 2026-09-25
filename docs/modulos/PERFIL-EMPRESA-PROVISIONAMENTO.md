@@ -1,6 +1,6 @@
 # Provisionamento inicial do Perfil da Empresa
 
-Data: 25/09/2026. Status: procedimento redigido, sem execução. Não cria empresa, unidade nem concessão enquanto Felipe não autorizar o ambiente e a conexão. A tela em `/admin/configuracoes/perfil-empresa` consulta e edita somente depois das migrations 026, 027 e 028 e desse provisionamento. Antes disso ela informa estrutura ausente ou empresa não provisionada e não concede acesso. Doubles não comprovam execução de SQL nem concorrência no PostgreSQL.
+Data: 25/09/2026. Status: procedimento aplicado só na revisão local descartável; staging e produção seguem sem execução. Não cria empresa, unidade nem concessão em staging ou produção enquanto Felipe não autorizar aquele ambiente e a conexão. A tela em `/admin/configuracoes/perfil-empresa` consulta e edita somente depois das migrations 026, 027 e 028 e desse provisionamento. Antes disso ela informa estrutura ausente ou empresa não provisionada e não concede acesso. Doubles não comprovam execução de SQL nem concorrência no PostgreSQL.
 
 Ordem, cada uma com autorização própria:
 
@@ -15,4 +15,4 @@ Na tela, máscara de CNPJ, telefone formatado, espaços e “mesmo endereço” 
 
 O ambiente `revisao-local` só vale para `127.0.0.1` ou `localhost` e para o banco `kidmais_perfil_v1_revisao`. Esse banco não pode ser declarado como staging ou produção. Produção continua exigindo `AUTORIZAR-PRODUCAO`. `kidmais_manager` continua recusado. Um banco local descartável não é staging nem produção e não substitui a aplicação das migrations nesses ambientes.
 
-Staging e produção são autorizações separadas. Análise estática não comprova execução ou concorrência. Nesta revisão, o runtime de contêiner local não estava disponível, então o banco descartável não foi criado e as migrations não foram aplicadas.
+Staging e produção são autorizações separadas. Análise estática não comprova execução ou concorrência nesses ambientes. Em 25/09/2026, um PostgreSQL 17.11 nativo, em processo local e não como serviço do Windows, criou o agrupamento novo `D:\glass\KidMais Manager\ambientes-locais\perfil-v1-revisao`, escutando só em `127.0.0.1:55432`. O banco `kidmais_perfil_v1_revisao` recebeu a estrutura oficial 001–025 e, em ordem, os prechecks, as migrations e os postchecks 026, 027 e 028. A instalação estava vazia antes do provisionamento. O provisionamento usou o ambiente `revisao-local`, nunca `staging` nem `producao`. Na mesma instância, conexões distintas cobriram a concessão inicial contra a desativação, a recusa de uma segunda titular, a última administradora, rascunho, conflito, rollback, aplicação, histórico e a rejeição de motivo nulo. Documentos e snapshots sintéticos permaneceram iguais. Isso não aplica staging nem produção e não usa `kidmais_manager`.
