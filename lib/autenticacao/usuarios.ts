@@ -6,6 +6,8 @@ import { authError, type SessaoAdmin } from './service.ts';
 import { criarHashSenha as criarHashSenhaPadrao, senhaValida } from './senha.ts';
 import { nomePapelSistema, papelDeNivel, type NivelSistema } from './papeis.ts';
 import { perfis } from '../festas/perfis.ts';
+import { ClienteServiceError } from '../clientes/services/errors.ts';
+import { avaliarPerdaDeElegibilidade, MENSAGEM_ULTIMA_ADMINISTRADORA, revogarConcessoesAtivasDoUsuario } from '../perfil/protecao-usuarios.ts';
 
 export type UsuariosDeps = {
     withTransaction: typeof withTransactionPadrao;
@@ -124,8 +126,20 @@ export async function desativarUsuarioAdministrativo(sessao: SessaoAdmin, raw: u
     const input = desativarSchema.parse(raw);
     if (input.usuarioId === sessao.usuario_id)
         throw authError('Você não pode desativar a própria conta.', 403);
-    return deps.withTransaction(async (tx) => {
-        const atual = (await tx.query<{
+    const resultado = await deps.withTransaction(async (tx) => {
+        const avaliacao = await avaliarPerdaDeElegibilidade(tx, { usuarioId: input.usuarioId, modo: 'desativar' });
+        if (avaliacao.recusado) {
+            await deps.registrarAuditoria({
+                atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'PERFIL_REVOGACAO_RECUSADA',
+                entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: input.usuarioId,
+                dadosDepois: { empresas: avaliacao.empresasBloqueadas, operacao: 'desativar' },
+                justificativa: MENSAGEM_ULTIMA_ADMINISTRADORA, origem: 'ADMIN_USUARIOS', requestId,
+            }, tx);
+            return { tipo: 'recusado' as const };
+        }
+        const atual = (avaliacao.usuario
+            ? { ...avaliacao.usuario, papel: avaliacao.usuario.papel as SessaoAdmin['papel'] }
+            : null) ?? (await tx.query<{
             id: string;
             nome: string;
             email: string;
@@ -144,12 +158,29 @@ export async function desativarUsuarioAdministrativo(sessao: SessaoAdmin, raw: u
             ativo: boolean;
         }>('UPDATE usuarios_administrativos SET ativo=false WHERE id=$1 RETURNING id,nome,email,papel,ativo', [atual.id])).rows[0];
         await tx.query('UPDATE sessoes_administrativas SET revogado_em=clock_timestamp() WHERE usuario_id=$1 AND revogado_em IS NULL', [atual.id]);
+        const revogadas = avaliacao.instalada
+            ? await revogarConcessoesAtivasDoUsuario(tx, {
+                usuarioId: atual.id,
+                operadorId: sessao.usuario_id,
+                motivo: 'Desativação da conta administrativa',
+            })
+            : [];
         const depois = conta(atualizado);
         await deps.registrarAuditoria({
             atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'ADMIN_DESATIVAR',
             entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: atual.id,
             dadosAntes: conta(atual), dadosDepois: depois, origem: 'ADMIN_USUARIOS', requestId,
         }, tx);
-        return depois;
+        if (revogadas.length) {
+            await deps.registrarAuditoria({
+                atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'PERFIL_REVOGADO_NA_DESATIVACAO',
+                entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: atual.id,
+                dadosDepois: { concessoes: revogadas }, origem: 'ADMIN_USUARIOS', requestId,
+            }, tx);
+        }
+        return { tipo: 'ok' as const, conta: depois };
     });
+    if (resultado.tipo === 'recusado')
+        throw new ClienteServiceError('PERFIL_ULTIMA_ADMINISTRADORA', MENSAGEM_ULTIMA_ADMINISTRADORA, 409);
+    return resultado.conta;
 }
