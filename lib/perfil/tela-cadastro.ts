@@ -284,3 +284,25 @@ export function linhasAntesDepois(antes: CadastroPerfil, depois: CadastroPerfil)
         .filter(([, valorAntes, valorDepois]) => valorAntes !== valorDepois)
         .map(([rotulo, valorAntes, valorDepois]) => ({ rotulo, antes: valorAntes, depois: valorDepois }));
 }
+
+export function agruparComparacao(linhas: Array<{ rotulo: string; antes: string; depois: string }>) {
+    const grupoDe = (rotulo: string) => {
+        if (rotulo.includes('sede') || rotulo === 'Mesmo endereço da sede')
+            return 'Endereço';
+        if (rotulo.includes('unidade') || rotulo === 'Nome da unidade' || rotulo === 'Referência de chegada')
+            return 'Unidade';
+        if (['Telefone', 'WhatsApp', 'E-mail comercial', 'Site', 'Instagram'].includes(rotulo))
+            return 'Contatos';
+        return 'Identificação';
+    };
+    const grupos: Array<{ titulo: string; linhas: typeof linhas }> = [];
+    for (const linha of linhas) {
+        const titulo = grupoDe(linha.rotulo);
+        const atual = grupos.find((grupo) => grupo.titulo === titulo);
+        if (atual)
+            atual.linhas.push(linha);
+        else
+            grupos.push({ titulo, linhas: [linha] });
+    }
+    return grupos;
+}

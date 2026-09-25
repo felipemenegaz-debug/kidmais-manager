@@ -1,21 +1,46 @@
 .page {
   min-height: 100%;
+  max-width: 46rem;
   padding: 1.5rem;
   background: #161022;
-  color: #f4f0fa;
+  color: #f7f4fb;
+  font-size: 1rem;
+  line-height: 1.5;
 }
 .page a { color: #d7c4f5; }
-.titulo { color: #d7c4f5; margin: 0.5rem 0 0.25rem; }
+.titulo { color: #d7c4f5; margin: 1.25rem 0 0.5rem; font-size: 1.35rem; line-height: 1.3; }
+.page h1.titulo { font-size: 1.75rem; }
+.leitura { max-width: 40rem; }
 .estado { margin: 1rem 0; }
 .sucesso { color: #3dd68c; }
-.erro { color: #ffb4b4; }
+.erro { color: #ff8f8f; background: #3a1520; padding: 0.75rem 1rem; border-radius: 0.4rem; }
 .grade {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem 1rem;
 }
-.campo { display: flex; flex-direction: column; gap: 0.25rem; }
-.campo span { color: #d7c4f5; }
+.campo { display: flex; flex-direction: column; gap: 0.35rem; }
+.rotulo { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; color: #f7f4fb; }
+.asterisco { color: #ffb4b4; text-decoration: none; }
+.ajuda { display: inline-flex; }
+.ajuda button {
+  min-height: 2.75rem;
+  background: transparent;
+  color: #d7c4f5;
+  border: 1px solid #6d5a8a;
+  border-radius: 0.4rem;
+  padding: 0.35rem 0.7rem;
+}
+.nota { display: block; max-width: 22rem; color: #f7f4fb; }
+.marca {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+  margin: 0.35rem 0;
+}
+.marca input { width: 1.25rem; height: 1.25rem; accent-color: #6d28d9; }
+.marca:focus-within { outline: 2px solid #d7c4f5; outline-offset: 2px; }
 .campo input, .campo textarea {
   background: #241833;
   color: #f4f0fa;
@@ -29,7 +54,9 @@
 }
 .acoes { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem; }
 .acoes button:disabled { opacity: 0.55; cursor: not-allowed; }
-.comparacao { margin: 0.75rem 0; }
+.revisao { display: grid; gap: 1rem; margin-top: 1.5rem; }
+.revisao h3, .revisao h4 { margin: 0 0 0.35rem; font-size: 1.05rem; color: #d7c4f5; }
+.comparacao { margin: 0.75rem 0; padding: 0.75rem 0; border-top: 1px solid #3a2c4e; }
 .acoes button {
   background: #6d28d9;
   color: #f4f0fa;

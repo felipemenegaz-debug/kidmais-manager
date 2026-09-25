@@ -12,6 +12,7 @@ import {
     confirmarRevisao,
     devePreencherNaRetentativa,
     estadoFluxoInicial,
+    agruparComparacao,
     linhasAntesDepois,
     pedidoRascunho,
     podeAplicar,
@@ -107,6 +108,10 @@ test('a comparação usa o conteúdo normalizado e cobre endereço, contato e re
     assert.equal(linhas.some((linha) => linha.depois.includes('(')), false);
     assert.equal(linhas.some((linha) => linha.rotulo === 'Nome que os clientes veem' && linha.depois === digitadoDurante.nomeComercial), false);
     assert.equal(porRotulo['Nome que os clientes veem']?.depois, 'Depois');
+    const grupos = agruparComparacao(linhas);
+    assert.equal(grupos.find((grupo) => grupo.titulo === 'Endereço')?.linhas.some((linha) => linha.rotulo === 'Mesmo endereço da sede'), true);
+    assert.equal(grupos.find((grupo) => grupo.titulo === 'Contatos')?.linhas.some((linha) => linha.rotulo === 'Telefone'), true);
+    assert.equal(grupos.reduce((total, grupo) => total + grupo.linhas.length, 0), linhas.length);
 });
 
 test('conflito, retentativa e resposta tardia não grudam o texto local numa revisão nova', () => {

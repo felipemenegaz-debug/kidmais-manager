@@ -152,6 +152,21 @@ export function validarRascunho(valor: Partial<CadastroPerfil>) {
     return { cadastro, falhas };
 }
 
+const CAMPOS_SEDE = ['sede.cep', 'sede.logradouro', 'sede.numero', 'sede.bairro', 'sede.cidade', 'sede.uf'];
+const CAMPOS_UNIDADE = ['unidade.cep', 'unidade.logradouro', 'unidade.numero', 'unidade.bairro', 'unidade.cidade', 'unidade.uf'];
+
+export function campoExigidoNaAplicacao(campo: string, mesmoEnderecoSede: boolean) {
+    if (campo === 'telefone' || campo === 'whatsapp' || campo === 'emailComercial' || campo === 'site' || campo === 'instagram' || campo === 'referenciaChegada' || campo.endsWith('.complemento'))
+        return false;
+    if (['nomeComercial', 'razaoSocial', 'cnpj', 'unidadeNome', ...CAMPOS_SEDE].includes(campo))
+        return true;
+    return !mesmoEnderecoSede && CAMPOS_UNIDADE.includes(campo);
+}
+
+export function contatoExigidoNaAplicacao() {
+    return true;
+}
+
 export function validarAplicacao(valor: Partial<CadastroPerfil>) {
     const cadastro = normalizarCadastro(valor);
     const falhas: FalhaCadastro[] = [];

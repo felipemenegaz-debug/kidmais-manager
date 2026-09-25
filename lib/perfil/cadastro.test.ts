@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { alteracaoSensivel, cadastroVazio, validarAplicacao, validarRascunho } from './cadastro.ts';
+import { alteracaoSensivel, cadastroVazio, campoExigidoNaAplicacao, contatoExigidoNaAplicacao, validarAplicacao, validarRascunho } from './cadastro.ts';
 
 const endereco = {
     cep: '01001000',
@@ -62,6 +62,18 @@ test('aplicar distingue sede e unidade e marca alteração sensível', () => {
     const base = cadastroVazio();
     assert.equal(alteracaoSensivel(base, aplicado.cadastro), true);
     assert.equal(alteracaoSensivel(aplicado.cadastro, aplicado.cadastro), false);
+});
+
+test('o asterisco da aplicação não exige cada contato nem o complemento', () => {
+    assert.equal(validarRascunho({}).falhas.length, 0);
+    assert.equal(campoExigidoNaAplicacao('nomeComercial', false), true);
+    assert.equal(campoExigidoNaAplicacao('sede.complemento', false), false);
+    assert.equal(campoExigidoNaAplicacao('telefone', false), false);
+    assert.equal(campoExigidoNaAplicacao('whatsapp', false), false);
+    assert.equal(contatoExigidoNaAplicacao(), true);
+    assert.equal(campoExigidoNaAplicacao('unidade.cep', true), false);
+    assert.equal(campoExigidoNaAplicacao('unidade.logradouro', false), true);
+    assert.equal(validarAplicacao(completo({ telefone: '', whatsapp: '11988887777' })).falhas.some((falha) => falha.campo === 'telefone'), false);
 });
 
 test('contato e links não aceitam script nem e-mail inválido', () => {

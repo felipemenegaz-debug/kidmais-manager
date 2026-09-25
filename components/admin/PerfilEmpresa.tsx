@@ -1,9 +1,10 @@
 'use client';
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import type { CadastroPerfil } from '@/lib/perfil/cadastro';
-import { aposAplicar, aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, pedidoRascunho, podeAplicar, resolverCarregamento, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
+import { campoExigidoNaAplicacao, contatoExigidoNaAplicacao, type CadastroPerfil } from '@/lib/perfil/cadastro';
+import { aplicarConsultaCep, cepCompleto, type PedidoCep } from '@/lib/perfil/consulta-cep';
+import { agruparComparacao, aposAplicar, aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, pedidoRascunho, podeAplicar, resolverCarregamento, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
 import styles from './perfil-empresa.module.css';
 
 type Historico = {
@@ -31,6 +32,20 @@ type Resposta = {
     capacidades: CapacidadesTela | null;
 };
 
+function Ajuda({ texto }: { texto: string }) {
+    const id = useId();
+    const [aberto, setAberto] = useState(false);
+    return <span className={styles.ajuda}>
+        <button type="button" aria-expanded={aberto} aria-controls={id} onClick={() => setAberto((valor) => !valor)}>Ajuda</button>
+        {aberto && <span id={id} role="note" className={styles.nota}>{texto}</span>}
+    </span>;
+}
+
+function Rotulo({ texto, campo, mesmoEndereco, ajuda }: { texto: string; campo?: string; mesmoEndereco: boolean; ajuda?: string }) {
+    const exigido = campo ? campoExigidoNaAplicacao(campo, mesmoEndereco) : false;
+    return <span className={styles.rotulo}>{texto}{exigido && <abbr className={styles.asterisco}>*</abbr>}{ajuda && <Ajuda texto={ajuda} />}</span>;
+}
+
 function dataLegivel(valor: string) {
     const data = new Date(valor);
     if (Number.isNaN(data.getTime()))
@@ -49,6 +64,8 @@ export default function PerfilEmpresa() {
     const [sucesso, setSucesso] = useState('');
     const [motivo, setMotivo] = useState('');
     const [senha, setSenha] = useState('');
+    const [cepStatus, setCepStatus] = useState<{ sede: string; unidade: string }>({ sede: '', unidade: '' });
+    const cepTicket = useRef({ sede: 0, unidade: 0 });
     const cargaTicket = useRef(0);
     const operacaoTicket = useRef(0);
     const bloqueio = useRef(false);
@@ -121,6 +138,58 @@ export default function PerfilEmpresa() {
         const proximoForm = { ...formRef.current, ...parcial };
         publicar(aposDigitacao(fluxoRef.current, proximoForm));
         setSucesso('');
+    }
+
+    async function consultarCep(alvo: 'sede' | 'unidade', valor: string) {
+        const atual = formRef.current[alvo];
+        atualizar({ [alvo]: { ...atual, cep: valor } });
+        const cep = cepCompleto(valor);
+        const ticket = ++cepTicket.current[alvo];
+        if (!cep) {
+            setCepStatus((estado) => ({ ...estado, [alvo]: '' }));
+            return;
+        }
+        const pedido: PedidoCep = {
+            cep,
+            logradouro: atual.logradouro,
+            bairro: atual.bairro,
+            cidade: atual.cidade,
+            uf: atual.uf,
+        };
+        setCepStatus((estado) => ({ ...estado, [alvo]: 'Consultando CEP.' }));
+        try {
+            const resposta = await adminFetch('/api/endereco/consultar-cep', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cep }),
+            });
+            const corpo = await resposta.json() as { ok?: boolean; codigo?: string; logradouro?: string; bairro?: string; cidade?: string; uf?: string; cep?: string };
+            if (ticket !== cepTicket.current[alvo])
+                return;
+            const vigente = formRef.current[alvo];
+            if (!corpo.ok) {
+                const mensagem = corpo.codigo === 'CEP_NAO_ENCONTRADO'
+                    ? 'CEP não encontrado. Preencha o endereço manualmente.'
+                    : 'Consulta de CEP indisponível. Preencha o endereço manualmente.';
+                setCepStatus((estado) => ({ ...estado, [alvo]: mensagem }));
+                return;
+            }
+            const preenchido = aplicarConsultaCep(vigente, pedido, {
+                cep: corpo.cep || cep,
+                logradouro: corpo.logradouro ?? '',
+                bairro: corpo.bairro ?? '',
+                cidade: corpo.cidade ?? '',
+                uf: corpo.uf ?? '',
+            });
+            if (preenchido !== vigente)
+                atualizar({ [alvo]: preenchido });
+            if (vigente.cep.replace(/\D/g, '') === cep)
+                setCepStatus((estado) => ({ ...estado, [alvo]: 'Logradouro, bairro, cidade e UF foram consultados. Número e complemento continuam manuais.' }));
+        } catch {
+            if (ticket !== cepTicket.current[alvo])
+                return;
+            setCepStatus((estado) => ({ ...estado, [alvo]: 'Consulta de CEP indisponível. Preencha o endereço manualmente.' }));
+        }
     }
 
     async function salvar() {
@@ -247,6 +316,8 @@ export default function PerfilEmpresa() {
     const sede = form.sede;
     const unidade = form.unidade;
     const comparacao = dados?.contexto ? linhasAntesDepois(dados.contexto.cadastro, salvo) : [];
+    const grupos = agruparComparacao(comparacao);
+    const mesmo = form.mesmoEnderecoSede;
     async function resolver() {
         if (!identidadeConflito || bloqueio.current)
             return;
@@ -299,67 +370,85 @@ export default function PerfilEmpresa() {
             {sucesso && <p className={styles.sucesso} role="status">{sucesso}</p>}
             {conflito && <p>Os dados digitados foram mantidos. Aplicar fica bloqueado até você assumir a revisão atual e confirmar de novo o conteúdo.</p>}
             {conflito && <button type="button" onClick={() => void resolver()} disabled={!identidadeConflito || ocupado}>Carregar a versão publicada e manter o texto digitado</button>}
+            <p className={styles.leitura}>O rascunho pode ficar incompleto. O asterisco marca só o que a aplicação exige. {contatoExigidoNaAplicacao() ? 'Telefone ou WhatsApp basta como contato.' : ''}</p>
             <fieldset disabled={!podeEditar}>
                 <h2 className={styles.titulo}>Identificação</h2>
                 <div className={styles.grade}>
-                    <label className={styles.campo}>Nome que os clientes veem<input value={form.nomeComercial} onChange={(evento) => atualizar({ nomeComercial: evento.target.value })} /></label>
-                    <label className={styles.campo}>Razão social<input value={form.razaoSocial} onChange={(evento) => atualizar({ razaoSocial: evento.target.value })} /></label>
-                    <label className={styles.campo}>CNPJ<input value={form.cnpj} inputMode="text" autoComplete="off" onChange={(evento) => atualizar({ cnpj: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Nome que os clientes veem" campo="nomeComercial" mesmoEndereco={mesmo} ajuda="Nome usado na operação. A razão social fica no documento." /><input value={form.nomeComercial} onChange={(evento) => atualizar({ nomeComercial: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Razão social" campo="razaoSocial" mesmoEndereco={mesmo} ajuda="Nome jurídico exigido para aplicar o cadastro." /><input value={form.razaoSocial} onChange={(evento) => atualizar({ razaoSocial: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="CNPJ" campo="cnpj" mesmoEndereco={mesmo} ajuda="Pode ficar vazio no rascunho. Na aplicação precisa ser um CNPJ válido." /><input value={form.cnpj} inputMode="text" autoComplete="off" onChange={(evento) => atualizar({ cnpj: evento.target.value })} /></label>
                 </div>
                 <h2 className={styles.titulo}>Endereço da sede</h2>
                 <div className={styles.grade}>
-                    <label className={styles.campo}>CEP<input value={sede.cep} onChange={(evento) => atualizar({ sede: { ...sede, cep: evento.target.value } })} /></label>
-                    <label className={styles.campo}>Logradouro<input value={sede.logradouro} onChange={(evento) => atualizar({ sede: { ...sede, logradouro: evento.target.value } })} /></label>
-                    <label className={styles.campo}>Número<input value={sede.numero} disabled={sede.semNumero || !podeEditar} onChange={(evento) => atualizar({ sede: { ...sede, numero: evento.target.value } })} /></label>
-                    <label className={styles.campo}><span>Sem número</span><input type="checkbox" checked={sede.semNumero} onChange={(evento) => atualizar({ sede: { ...sede, semNumero: evento.target.checked, numero: evento.target.checked ? '' : sede.numero } })} /></label>
-                    <label className={styles.campo}>Complemento<input value={sede.complemento} onChange={(evento) => atualizar({ sede: { ...sede, complemento: evento.target.value } })} /></label>
-                    <label className={styles.campo}>Bairro<input value={sede.bairro} onChange={(evento) => atualizar({ sede: { ...sede, bairro: evento.target.value } })} /></label>
-                    <label className={styles.campo}>Cidade<input value={sede.cidade} onChange={(evento) => atualizar({ sede: { ...sede, cidade: evento.target.value } })} /></label>
-                    <label className={styles.campo}>UF<input value={sede.uf} maxLength={2} onChange={(evento) => atualizar({ sede: { ...sede, uf: evento.target.value } })} /></label>
+                    <label className={styles.campo}><Rotulo texto="CEP" campo="sede.cep" mesmoEndereco={mesmo} ajuda="Com 8 dígitos, a consulta preenche logradouro, bairro, cidade e UF. Número e complemento não são preenchidos." /><input value={sede.cep} inputMode="numeric" autoComplete="postal-code" onChange={(evento) => void consultarCep('sede', evento.target.value)} /></label>
+                    {cepStatus.sede && <p className={styles.estado} role="status">{cepStatus.sede}</p>}
+                    <label className={styles.campo}><Rotulo texto="Logradouro" campo="sede.logradouro" mesmoEndereco={mesmo} /><input value={sede.logradouro} onChange={(evento) => atualizar({ sede: { ...sede, logradouro: evento.target.value } })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Número" campo="sede.numero" mesmoEndereco={mesmo} ajuda="Obrigatório para aplicar, salvo se marcar Sem número." /><input value={sede.numero} disabled={sede.semNumero || !podeEditar} onChange={(evento) => atualizar({ sede: { ...sede, numero: evento.target.value } })} /></label>
+                    <label className={styles.marca}><input type="checkbox" checked={sede.semNumero} onChange={(evento) => atualizar({ sede: { ...sede, semNumero: evento.target.checked, numero: evento.target.checked ? '' : sede.numero } })} /><span>Sem número</span></label>
+                    <label className={styles.campo}><Rotulo texto="Complemento" mesmoEndereco={mesmo} ajuda="Opcional. A consulta de CEP nunca preenche este campo." /><input value={sede.complemento} onChange={(evento) => atualizar({ sede: { ...sede, complemento: evento.target.value } })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Bairro" campo="sede.bairro" mesmoEndereco={mesmo} /><input value={sede.bairro} onChange={(evento) => atualizar({ sede: { ...sede, bairro: evento.target.value } })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Cidade" campo="sede.cidade" mesmoEndereco={mesmo} /><input value={sede.cidade} onChange={(evento) => atualizar({ sede: { ...sede, cidade: evento.target.value } })} /></label>
+                    <label className={styles.campo}><Rotulo texto="UF" campo="sede.uf" mesmoEndereco={mesmo} /><input value={sede.uf} maxLength={2} onChange={(evento) => atualizar({ sede: { ...sede, uf: evento.target.value } })} /></label>
                 </div>
                 <h2 className={styles.titulo}>Unidade e local da festa</h2>
-                <label className={styles.campo}><span>Mesmo endereço da sede</span><input type="checkbox" checked={form.mesmoEnderecoSede} onChange={(evento) => atualizar({ mesmoEnderecoSede: evento.target.checked })} /></label>
+                <label className={styles.marca}><input type="checkbox" checked={form.mesmoEnderecoSede} onChange={(evento) => atualizar({ mesmoEnderecoSede: evento.target.checked })} /><span>Mesmo endereço da sede</span></label>
                 <div className={styles.grade}>
-                    <label className={styles.campo}>Nome da unidade<input value={form.unidadeNome} onChange={(evento) => atualizar({ unidadeNome: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Nome da unidade" campo="unidadeNome" mesmoEndereco={mesmo} /><input value={form.unidadeNome} onChange={(evento) => atualizar({ unidadeNome: evento.target.value })} /></label>
                     {!form.mesmoEnderecoSede && <>
-                        <label className={styles.campo}>CEP do evento<input value={unidade.cep} onChange={(evento) => atualizar({ unidade: { ...unidade, cep: evento.target.value } })} /></label>
-                        <label className={styles.campo}>Logradouro do evento<input value={unidade.logradouro} onChange={(evento) => atualizar({ unidade: { ...unidade, logradouro: evento.target.value } })} /></label>
-                        <label className={styles.campo}>Número do evento<input value={unidade.numero} disabled={unidade.semNumero || !podeEditar} onChange={(evento) => atualizar({ unidade: { ...unidade, numero: evento.target.value } })} /></label>
-                        <label className={styles.campo}><span>Sem número no evento</span><input type="checkbox" checked={unidade.semNumero} onChange={(evento) => atualizar({ unidade: { ...unidade, semNumero: evento.target.checked, numero: evento.target.checked ? '' : unidade.numero } })} /></label>
-                        <label className={styles.campo}>Complemento da unidade<input value={unidade.complemento} onChange={(evento) => atualizar({ unidade: { ...unidade, complemento: evento.target.value } })} /></label>
-                        <label className={styles.campo}>Bairro<input value={unidade.bairro} onChange={(evento) => atualizar({ unidade: { ...unidade, bairro: evento.target.value } })} /></label>
-                        <label className={styles.campo}>Cidade<input value={unidade.cidade} onChange={(evento) => atualizar({ unidade: { ...unidade, cidade: evento.target.value } })} /></label>
-                        <label className={styles.campo}>UF<input value={unidade.uf} maxLength={2} onChange={(evento) => atualizar({ unidade: { ...unidade, uf: evento.target.value } })} /></label>
+                        <label className={styles.campo}><Rotulo texto="CEP do evento" campo="unidade.cep" mesmoEndereco={mesmo} ajuda="A consulta segue a mesma regra da sede e não altera número nem complemento." /><input value={unidade.cep} inputMode="numeric" autoComplete="postal-code" onChange={(evento) => void consultarCep('unidade', evento.target.value)} /></label>
+                        {cepStatus.unidade && <p className={styles.estado} role="status">{cepStatus.unidade}</p>}
+                        <label className={styles.campo}><Rotulo texto="Logradouro do evento" campo="unidade.logradouro" mesmoEndereco={mesmo} /><input value={unidade.logradouro} onChange={(evento) => atualizar({ unidade: { ...unidade, logradouro: evento.target.value } })} /></label>
+                        <label className={styles.campo}><Rotulo texto="Número do evento" campo="unidade.numero" mesmoEndereco={mesmo} /><input value={unidade.numero} disabled={unidade.semNumero || !podeEditar} onChange={(evento) => atualizar({ unidade: { ...unidade, numero: evento.target.value } })} /></label>
+                        <label className={styles.marca}><input type="checkbox" checked={unidade.semNumero} onChange={(evento) => atualizar({ unidade: { ...unidade, semNumero: evento.target.checked, numero: evento.target.checked ? '' : unidade.numero } })} /><span>Sem número no evento</span></label>
+                        <label className={styles.campo}><Rotulo texto="Complemento da unidade" mesmoEndereco={mesmo} /><input value={unidade.complemento} onChange={(evento) => atualizar({ unidade: { ...unidade, complemento: evento.target.value } })} /></label>
+                        <label className={styles.campo}><Rotulo texto="Bairro" campo="unidade.bairro" mesmoEndereco={mesmo} /><input value={unidade.bairro} onChange={(evento) => atualizar({ unidade: { ...unidade, bairro: evento.target.value } })} /></label>
+                        <label className={styles.campo}><Rotulo texto="Cidade" campo="unidade.cidade" mesmoEndereco={mesmo} /><input value={unidade.cidade} onChange={(evento) => atualizar({ unidade: { ...unidade, cidade: evento.target.value } })} /></label>
+                        <label className={styles.campo}><Rotulo texto="UF" campo="unidade.uf" mesmoEndereco={mesmo} /><input value={unidade.uf} maxLength={2} onChange={(evento) => atualizar({ unidade: { ...unidade, uf: evento.target.value } })} /></label>
                     </>}
-                    <label className={styles.campo}>Referência de chegada<input value={form.referenciaChegada} onChange={(evento) => atualizar({ referenciaChegada: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Referência de chegada" mesmoEndereco={mesmo} ajuda="Opcional. Ajuda quem chega ao local da festa." /><input value={form.referenciaChegada} onChange={(evento) => atualizar({ referenciaChegada: evento.target.value })} /></label>
                 </div>
                 <h2 className={styles.titulo}>Contatos</h2>
+                <p className={styles.leitura}>{contatoExigidoNaAplicacao() ? 'Para aplicar, informe telefone ou WhatsApp. Os dois não são obrigatórios ao mesmo tempo.' : ''}</p>
                 <div className={styles.grade}>
-                    <label className={styles.campo}>Telefone<input value={form.telefone} onChange={(evento) => atualizar({ telefone: evento.target.value })} /></label>
-                    <label className={styles.campo}>WhatsApp<input value={form.whatsapp} onChange={(evento) => atualizar({ whatsapp: evento.target.value })} /></label>
-                    <label className={styles.campo}>E-mail comercial<input value={form.emailComercial} onChange={(evento) => atualizar({ emailComercial: evento.target.value })} /></label>
-                    <label className={styles.campo}>Site<input value={form.site} onChange={(evento) => atualizar({ site: evento.target.value })} /></label>
-                    <label className={styles.campo}>Instagram<input value={form.instagram} onChange={(evento) => atualizar({ instagram: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Telefone" mesmoEndereco={mesmo} ajuda="Válido para o contato se tiver pelo menos 10 dígitos." /><input value={form.telefone} onChange={(evento) => atualizar({ telefone: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="WhatsApp" mesmoEndereco={mesmo} ajuda="Substitui o telefone na aplicação quando estiver preenchido." /><input value={form.whatsapp} onChange={(evento) => atualizar({ whatsapp: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="E-mail comercial" mesmoEndereco={mesmo} /><input value={form.emailComercial} onChange={(evento) => atualizar({ emailComercial: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Site" mesmoEndereco={mesmo} /><input value={form.site} onChange={(evento) => atualizar({ site: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Instagram" mesmoEndereco={mesmo} /><input value={form.instagram} onChange={(evento) => atualizar({ instagram: evento.target.value })} /></label>
                 </div>
             </fieldset>
             <p>Marca, logo e PDF público não fazem parte desta tela.</p>
             {podeEditar && <div className={styles.acoes}>
                 <button type="button" onClick={() => void salvar()} disabled={ocupado}>Salvar rascunho</button>
             </div>}
-            {podeAplicarCapacidade && <>
-                <h2 className={styles.titulo}>Revisar e aplicar</h2>
-                <p>Aplicar grava o cadastro desta empresa. Esta etapa não altera contratos, PDFs nem documentos já emitidos.</p>
+            {podeAplicarCapacidade && <section className={styles.revisao} aria-labelledby="revisar-aplicar">
+                <h2 id="revisar-aplicar" className={styles.titulo}>Revisar e aplicar</h2>
+                <p className={styles.leitura}>Aplicar grava o cadastro desta empresa. Esta etapa não altera contratos, PDFs nem documentos já emitidos.</p>
                 {sujo && <p role="status">Salve o rascunho antes de aplicar. O que está só no formulário não entra na aplicação.</p>}
-                <div className={styles.comparacao}>
-                    {comparacao.map((linha) => <p key={linha.rotulo}><strong>{linha.rotulo}</strong>: {linha.antes || '—'} → {linha.depois || '—'}</p>)}
-                </div>
-                <label className={styles.campo}>Motivo<textarea value={motivo} onChange={(evento) => { setMotivo(evento.target.value); publicar(confirmarRevisao(fluxoRef.current, false)); }} /></label>
-                <label className={styles.campo}>Senha, se a sessão tiver mais de 5 minutos<input type="password" value={senha} autoComplete="current-password" onChange={(evento) => setSenha(evento.target.value)} /></label>
-                <label className={styles.campo}><span>Confirmo o antes e o depois do rascunho salvo</span><input type="checkbox" checked={confirmado && revisaoAindaConfere(fluxo)} onChange={(evento) => publicar(confirmarRevisao(fluxoRef.current, evento.target.checked))} /></label>
+                <section>
+                    <h3>Comparação</h3>
+                    {grupos.length === 0 && <p>Nenhuma diferença entre o publicado e o rascunho salvo.</p>}
+                    {grupos.map((grupo) => <div key={grupo.titulo} className={styles.comparacao}>
+                        <h4>{grupo.titulo}</h4>
+                        {grupo.linhas.map((linha) => <p key={linha.rotulo}><strong>{linha.rotulo}</strong>: {linha.antes || '—'} → {linha.depois || '—'}</p>)}
+                    </div>)}
+                </section>
+                <section>
+                    <h3>Motivo</h3>
+                    <label className={styles.campo}>Motivo da aplicação<textarea value={motivo} onChange={(evento) => { setMotivo(evento.target.value); publicar(confirmarRevisao(fluxoRef.current, false)); }} /></label>
+                </section>
+                <section>
+                    <h3>Reautenticação</h3>
+                    <label className={styles.campo}>Senha, se a sessão tiver mais de 5 minutos<input type="password" value={senha} autoComplete="current-password" onChange={(evento) => setSenha(evento.target.value)} /></label>
+                </section>
+                <section>
+                    <h3>Confirmação</h3>
+                    <label className={styles.marca}><input type="checkbox" checked={confirmado && revisaoAindaConfere(fluxo)} onChange={(evento) => publicar(confirmarRevisao(fluxoRef.current, evento.target.checked))} /><span>Confirmo o antes e o depois do rascunho salvo</span></label>
+                </section>
                 <div className={styles.acoes}>
                     <button type="button" onClick={() => void aplicar()} disabled={!aplicarLiberado}>Revisar e aplicar</button>
                 </div>
-            </>}
+            </section>}
             <section className={styles.historico}>
                 <h2 className={styles.titulo}>Histórico</h2>
                 {(dados.historico ?? []).length === 0 && <p>Nenhuma revisão registrada.</p>}
