@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { PassThrough } from 'node:stream';
 import {
+    coletarEntradaProvisionamento,
     confirmarSinal,
     exigirTerminalInterativo,
     lerOculto,
@@ -18,19 +20,27 @@ const entrada = {
     operadorId, contaId, motivo: 'Concessão inicial autorizada', referencia: 'AUT-001', ambiente: 'staging',
 };
 
+const adminAlheio = '00000000-0000-4000-8000-000000000099';
+
 function cliente(opcoes: {
     empresas?: number;
     unidades?: number;
     ativoNaReleitura?: boolean;
     duplicada?: boolean;
+    adminAlheio?: boolean;
 } = {}) {
     const sqls: string[] = [];
+    const locks: string[] = [];
     let leiturasConta = 0;
     const consultas = {
         async query(sql: string, params: readonly unknown[] = []) {
             sqls.push(sql);
-            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK' || sql.includes('pg_advisory_xact_lock'))
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK')
                 return { rows: [], rowCount: 0 };
+            if (sql.includes('pg_advisory_xact_lock')) {
+                locks.push(String(params[0] ?? ''));
+                return { rows: [], rowCount: 0 };
+            }
             if (sql.includes('FROM public.perfil_empresas ORDER BY id')) {
                 const linhas = Array.from({ length: opcoes.empresas ?? 1 }, (_, indice) => ({ id: indice === 0 ? empresaId : `00000000-0000-4000-8000-0000000000a${indice}` }));
                 return { rows: linhas, rowCount: linhas.length };
@@ -54,8 +64,14 @@ function cliente(opcoes: {
             }
             if (sql.includes('SELECT capacidade FROM'))
                 return { rows: opcoes.duplicada ? [{ capacidade: 'PERFIL_CONSULTAR' }] : [], rowCount: opcoes.duplicada ? 1 : 0 };
-            if (sql.includes('FOR UPDATE OF c'))
-                return { rows: [], rowCount: 0 };
+            if (sql.includes('FOR UPDATE OF c')) {
+                if (!opcoes.adminAlheio)
+                    return { rows: [], rowCount: 0 };
+                return {
+                    rows: [{ usuario_id: adminAlheio, papel: 'REPRESENTANTE_AUTORIZADO', ativo: true }],
+                    rowCount: 1,
+                };
+            }
             if (sql.includes('INSERT INTO public.perfil_empresa_concessoes'))
                 return { rows: [], rowCount: 1 };
             if (sql.includes('INSERT INTO auditoria')) {
@@ -65,7 +81,7 @@ function cliente(opcoes: {
             throw new Error(sql);
         },
     };
-    return { sqls, consultas };
+    return { sqls, locks, consultas };
 }
 
 test('a conexão fica oculta e o destino não se prova pelo nome do banco', async () => {
@@ -97,12 +113,14 @@ test('empresa e unidade existentes são reutilizadas e a concessão entra na aud
     assert.equal(resultado.empresaId, empresaId);
     assert.equal(resultado.unidadeId, unidadeId);
     assert.equal(banco.sqls.some((sql) => sql.includes('INSERT INTO public.perfil_empresas')), false);
-    const travaInicial = banco.sqls.findIndex((sql) => sql.includes('provisionamento-inicial'));
-    const travaEmpresa = banco.sqls.findIndex((sql) => sql.includes('hashtextextended($1'));
+    const travas = banco.sqls.flatMap((sql, indice) => sql.includes('pg_advisory_xact_lock') ? [indice] : []);
+    const lista = banco.sqls.findIndex((sql) => sql.includes('FROM public.perfil_empresas ORDER BY id'));
     const usuario = banco.sqls.findIndex((sql) => sql.includes('WHERE id=$1 FOR UPDATE'));
     const concessao = banco.sqls.findIndex((sql) => sql.includes('INSERT INTO public.perfil_empresa_concessoes'));
     const auditoria = banco.sqls.findIndex((sql) => sql.includes('PERFIL_CONCESSAO_INICIAL'));
-    assert.ok(travaInicial >= 0 && travaInicial < travaEmpresa && travaEmpresa < usuario && usuario < concessao && concessao < auditoria);
+    assert.equal(banco.locks[0], 'kidmais:perfil-empresa:provisionamento-inicial');
+    assert.equal(banco.locks[1], `kidmais:perfil-empresa:${empresaId}`);
+    assert.ok(travas[0] < lista && lista < travas[1] && travas[1] < usuario && usuario < concessao && concessao < auditoria);
     assert.equal(banco.sqls.filter((sql) => sql.includes('INSERT INTO public.perfil_empresa_concessoes')).length, 4);
 });
 
@@ -120,7 +138,64 @@ test('empresa já existente sem unidade única, duplicata ou desativação não 
     await assert.rejects(() => provisionar(varias.consultas, entrada), /mais de uma empresa/);
     assert.equal(varias.sqls.some((sql) => sql.includes('INSERT INTO public.perfil_empresa_concessoes')), false);
 
+    const segundaConta = cliente({ adminAlheio: true });
+    await assert.rejects(() => provisionar(segundaConta.consultas, entrada), /administrador elegível/);
+    assert.equal(segundaConta.sqls.some((sql) => sql.includes('INSERT INTO public.perfil_empresa_concessoes')), false);
+    assert.equal(segundaConta.sqls.some((sql) => sql.includes('PERFIL_CONCESSAO_INICIAL')), false);
+    assert.equal(segundaConta.sqls.at(-1), 'ROLLBACK');
+
     const desativada = cliente({ ativoNaReleitura: false });
     await assert.rejects(() => provisionar(desativada.consultas, entrada), /Gestão ativa/);
     assert.equal(desativada.sqls.some((sql) => sql.includes('INSERT INTO public.perfil_empresa_concessoes')), false);
+});
+
+test('a composição do terminal não ecoa a conexão', { timeout: 5000 }, async () => {
+    const marcador = 'postgres://marcador-sintetico:segredo@db.exemplo.invalid:5432/kidmais_homologacao';
+    const respostas = [
+        marcador,
+        'db.exemplo.invalid',
+        'kidmais_homologacao',
+        'staging',
+        'ana@example.invalid',
+        'bia@example.invalid',
+        'Motivo inicial autorizado',
+        'AUT-001',
+        'a***@e***',
+        'b***@e***',
+        'CONFIRMAR',
+    ];
+    const entradaTerminal = new PassThrough();
+    Object.assign(entradaTerminal, { isTTY: true, setRawMode() { } });
+    const escritos: string[] = [];
+    let indice = 0;
+    const saida = new PassThrough();
+    Object.assign(saida, { isTTY: true });
+    const prompts = [
+        'Conexão PostgreSQL de provisionamento (oculta): ',
+        'Host declarado: ',
+        'Nome do banco declarado: ',
+        'Ambiente explícito (staging ou producao): ',
+        'Email do operador identificado: ',
+        'Email da conta confirmada em canal privado: ',
+        'Motivo da concessão inicial: ',
+        'Referência da autorização: ',
+        'Repita o sinal do operador: ',
+        'Repita o sinal da conta: ',
+        'Digite CONFIRMAR para concluir o provisionamento desta conta: ',
+    ];
+    saida.write = ((chunk: unknown) => {
+        const texto = String(chunk);
+        escritos.push(texto);
+        if (prompts.some((prompt) => texto.includes(prompt)) && indice < respostas.length) {
+            const linha = respostas[indice];
+            indice += 1;
+            queueMicrotask(() => entradaTerminal.write(`${linha}\n`));
+        }
+        return true;
+    }) as typeof saida.write;
+    const coletado = await coletarEntradaProvisionamento(entradaTerminal, saida);
+    assert.equal(coletado.connection, marcador);
+    assert.equal(coletado.confirmacao, 'CONFIRMAR');
+    assert.equal(escritos.join('').includes(marcador), false);
+    assert.equal(escritos.join('').includes('segredo'), false);
 });

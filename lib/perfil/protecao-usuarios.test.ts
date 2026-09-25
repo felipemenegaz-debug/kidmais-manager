@@ -36,6 +36,7 @@ type Estado = {
     locks: string[];
     sqls: string[];
     falha: { quando: string; code: string } | null;
+    surgirAposTravaInicial?: { empresas: string[]; concessoes: Concessao[] };
 };
 
 function estadoInicial(parcial: Partial<Estado> = {}): Estado {
@@ -67,7 +68,12 @@ function executor(estado: Estado): DbExecutor {
                 };
             }
             if (sql.includes('pg_advisory_xact_lock')) {
-                estado.locks.push(String(params[0]));
+                const chave = String(params[0]);
+                estado.locks.push(chave);
+                if (chave === 'kidmais:perfil-empresa:provisionamento-inicial' && estado.surgirAposTravaInicial) {
+                    estado.empresas = estado.surgirAposTravaInicial.empresas;
+                    estado.concessoes = estado.surgirAposTravaInicial.concessoes;
+                }
                 return { rows: [], rowCount: 1 };
             }
             if (sql.includes('FROM public.perfil_empresas ORDER BY id'))
@@ -274,9 +280,38 @@ test('desativar outra conta pode revogar concessões nas empresas, com trava ord
     assert.equal(estado.concessoes.filter((item) => item.usuarioId === outra.id).every((item) => item.revogadoEm === 'agora'), true);
     assert.equal(estado.concessoes.find((item) => item.usuarioId === titular.id)?.revogadoEm, null);
     assert.deepEqual(estado.locks, [
+        'kidmais:perfil-empresa:provisionamento-inicial',
         'kidmais:perfil-empresa:00000000-0000-4000-8000-0000000000a1',
         'kidmais:perfil-empresa:00000000-0000-4000-8000-0000000000b2',
     ]);
+});
+
+test('lista vazia anterior à trava comum não libera desativar nem retirar a Gestão do novo titular', async () => {
+    const empresaNova = '00000000-0000-4000-8000-0000000000c3';
+    for (const modo of ['desativar', 'retirar-gestao'] as const) {
+        const titular = usuario();
+        const estado = estadoInicial({
+            empresas: [],
+            usuarios: [titular],
+            concessoes: [],
+            surgirAposTravaInicial: {
+                empresas: [empresaNova],
+                concessoes: [concessao({ empresaId: empresaNova, usuarioId: titular.id, capacidade: 'PERFIL_ADMINISTRAR_CONCESSOES' })],
+            },
+        });
+        const avaliacao = await avaliarPerdaDeElegibilidade(executor(estado), { usuarioId: titular.id, modo });
+        assert.equal(avaliacao.recusado, true);
+        assert.equal(titular.ativo, true);
+        assert.equal(titular.papel, 'REPRESENTANTE_AUTORIZADO');
+        assert.equal(estado.concessoes[0]?.revogadoEm, null);
+        const travas = estado.sqls.flatMap((sql, indice) => sql.includes('pg_advisory_xact_lock') ? [indice] : []);
+        const lista = estado.sqls.findIndex((sql) => sql.includes('FROM public.perfil_empresas ORDER BY id'));
+        const usuarioTravado = estado.sqls.findIndex((sql) => sql.includes('WHERE id=$1 FOR UPDATE'));
+        const grants = estado.sqls.findIndex((sql) => sql.includes('FOR UPDATE OF c'));
+        assert.equal(estado.locks[0], 'kidmais:perfil-empresa:provisionamento-inicial');
+        assert.equal(estado.locks[1], `kidmais:perfil-empresa:${empresaNova}`);
+        assert.ok(travas[0] < lista && lista < travas[1] && travas[1] < usuarioTravado && usuarioTravado < grants);
+    }
 });
 
 test('última administradora em uma empresa bloqueia a desativação inteira', async () => {

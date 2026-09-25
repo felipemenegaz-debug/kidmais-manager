@@ -28,8 +28,14 @@ export type AvaliacaoPerda = {
 
 type LinhaElegivel = { empresa_id: string; usuario_id: string; papel: string; ativo: boolean };
 
+export const CHAVE_PROVISIONAMENTO_INICIAL = 'kidmais:perfil-empresa:provisionamento-inicial';
+
 function chaveEmpresa(empresaId: string) {
     return `kidmais:perfil-empresa:${empresaId}`;
+}
+
+export async function travarProvisionamentoInicial(tx: DbExecutor) {
+    await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [CHAVE_PROVISIONAMENTO_INICIAL]);
 }
 
 export async function travarEmpresasPerfil(tx: DbExecutor, empresaIds: readonly string[]) {
@@ -69,6 +75,7 @@ export async function avaliarPerdaDeElegibilidade(tx: DbExecutor, input: {
     const instalada = await estruturaPerfilInstalada(tx);
     if (!instalada)
         return { instalada: false, recusado: false, empresasBloqueadas: [], usuario: null, mensagem: null };
+    await travarProvisionamentoInicial(tx);
     const empresas = input.empresaId
         ? [input.empresaId]
         : (await tx.query<{ id: string }>('SELECT id FROM public.perfil_empresas ORDER BY id')).rows.map((linha) => linha.id);

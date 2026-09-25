@@ -142,7 +142,7 @@ async function provisionar(client, input) {
     const { randomUUID } = require('node:crypto');
     await client.query('BEGIN');
     try {
-        await client.query(`SELECT pg_advisory_xact_lock(hashtextextended('kidmais:perfil-empresa:provisionamento-inicial', 0))`);
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', ['kidmais:perfil-empresa:provisionamento-inicial']);
         const empresas = (await client.query('SELECT id FROM public.perfil_empresas ORDER BY id')).rows;
         if (empresas.length > 1)
             throw Error('Há mais de uma empresa. Nenhuma concessão foi criada.');
@@ -180,13 +180,16 @@ async function provisionar(client, input) {
         const conta = await lerGestaoTravada(client, input.contaId);
         if (!gestaoAtiva(operador) || !gestaoAtiva(conta))
             throw Error('Operador ou conta confirmada não estão como Gestão ativa. Nenhuma concessão foi criada.');
-        await client.query(
-            `SELECT c.id
+        const administradores = (await client.query(
+            `SELECT c.usuario_id, u.papel, u.ativo
              FROM public.perfil_empresa_concessoes c
+             JOIN usuarios_administrativos u ON u.id = c.usuario_id
              WHERE c.empresa_id=$1 AND c.revogado_em IS NULL AND c.capacidade='PERFIL_ADMINISTRAR_CONCESSOES'
              FOR UPDATE OF c`,
             [empresaId],
-        );
+        )).rows;
+        if (administradores.some((linha) => linha.ativo && linha.papel === 'REPRESENTANTE_AUTORIZADO'))
+            throw Error('Já existe um administrador elegível nesta empresa. O provisionamento não cria outra concessão.');
         const contaRelida = await lerGestaoTravada(client, input.contaId);
         const operadorRelido = await lerGestaoTravada(client, input.operadorId);
         if (!gestaoAtiva(contaRelida) || !gestaoAtiva(operadorRelido))
@@ -226,6 +229,34 @@ async function provisionar(client, input) {
     }
 }
 
+async function coletarEntradaProvisionamento(entrada, saida) {
+    const connection = await lerOculto(entrada, saida, 'Conexão PostgreSQL de provisionamento (oculta): ');
+    const rl = readline.createInterface({ input: entrada, output: saida, terminal: Boolean(saida.isTTY) });
+    try {
+        const host = (await rl.question('Host declarado: ')).trim();
+        const banco = (await rl.question('Nome do banco declarado: ')).trim();
+        const ambiente = (await rl.question('Ambiente explícito (staging ou producao): ')).trim();
+        const confirmacaoProducao = ambiente === 'producao' ? (await rl.question('Confirmação de produção: ')).trim() : '';
+        const operadorEmail = (await rl.question('Email do operador identificado: ')).trim().toLowerCase();
+        const contaEmail = (await rl.question('Email da conta confirmada em canal privado: ')).trim().toLowerCase();
+        const motivo = (await rl.question('Motivo da concessão inicial: ')).trim();
+        const referencia = (await rl.question('Referência da autorização: ')).trim();
+        const sinalOperador = mascaraConta(operadorEmail);
+        const sinalConta = mascaraConta(contaEmail);
+        saida.write(`Sinal do operador: ${sinalOperador}\n`);
+        saida.write(`Sinal da conta: ${sinalConta}\n`);
+        confirmarSinal(sinalOperador, (await rl.question('Repita o sinal do operador: ')).trim());
+        confirmarSinal(sinalConta, (await rl.question('Repita o sinal da conta: ')).trim());
+        const confirmacao = (await rl.question('Digite CONFIRMAR para concluir o provisionamento desta conta: ')).trim();
+        return {
+            connection, host, banco, ambiente, confirmacaoProducao,
+            operadorEmail, contaEmail, motivo, referencia, confirmacao,
+        };
+    } finally {
+        rl.close();
+    }
+}
+
 async function main() {
     if (!autorizado()) {
         console.error('Procedimento não executado. Falta autorização explícita de Felipe para este ambiente. Nenhuma conexão foi aberta.');
@@ -234,27 +265,16 @@ async function main() {
     }
     exigirTerminalInterativo();
     const { Client } = require('pg');
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const connection = await lerOculto(process.stdin, process.stdout, 'Conexão PostgreSQL de provisionamento (oculta): ');
-    const host = (await rl.question('Host declarado: ')).trim();
-    const banco = (await rl.question('Nome do banco declarado: ')).trim();
-    const ambiente = (await rl.question('Ambiente explícito (staging ou producao): ')).trim();
-    const confirmacaoProducao = ambiente === 'producao' ? (await rl.question('Confirmação de produção: ')).trim() : '';
-    validarDestino(connection, { host, banco, ambiente, confirmacaoProducao });
-    const operadorEmail = (await rl.question('Email do operador identificado: ')).trim().toLowerCase();
-    const contaEmail = (await rl.question('Email da conta confirmada em canal privado: ')).trim().toLowerCase();
-    const motivo = (await rl.question('Motivo da concessão inicial: ')).trim();
-    const referencia = (await rl.question('Referência da autorização: ')).trim();
-    const sinalOperador = mascaraConta(operadorEmail);
-    const sinalConta = mascaraConta(contaEmail);
-    console.log(`Sinal do operador: ${sinalOperador}`);
-    console.log(`Sinal da conta: ${sinalConta}`);
-    confirmarSinal(sinalOperador, (await rl.question('Repita o sinal do operador: ')).trim());
-    confirmarSinal(sinalConta, (await rl.question('Repita o sinal da conta: ')).trim());
-    const confirmacao = await rl.question('Digite CONFIRMAR para concluir o provisionamento desta conta: ');
-    rl.close();
-    if (confirmacao !== 'CONFIRMAR')
+    const entrada = await coletarEntradaProvisionamento(process.stdin, process.stdout);
+    validarDestino(entrada.connection, {
+        host: entrada.host,
+        banco: entrada.banco,
+        ambiente: entrada.ambiente,
+        confirmacaoProducao: entrada.confirmacaoProducao,
+    });
+    if (entrada.confirmacao !== 'CONFIRMAR')
         throw Error('Operação cancelada.');
+    const { operadorEmail, contaEmail, motivo, referencia, ambiente, connection } = entrada;
     const client = new Client({ connectionString: connection });
     await client.connect();
     try {
@@ -273,7 +293,7 @@ async function main() {
 
 module.exports = {
     autorizado, provisionar, recusarBancoReal, validarDestino, mascaraConta, confirmarSinal,
-    exigirTerminalInterativo, lerOculto, CAPACIDADES,
+    exigirTerminalInterativo, lerOculto, coletarEntradaProvisionamento, CAPACIDADES,
 };
 if (require.main === module)
     main().catch(() => { console.error('Provisionamento do perfil não concluído. Nenhuma credencial foi registrada.'); process.exitCode = 1; });

@@ -3,8 +3,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { CadastroPerfil } from '@/lib/perfil/cadastro';
-import { cadastroVazio } from '@/lib/perfil/cadastro';
-import { aposOperacao, cadastrosIguais, linhasAntesDepois, podeAplicar, recarregarDepoisDeAplicar, type CapacidadesTela } from '@/lib/perfil/tela-cadastro';
+import { aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, podeAplicar, recarregarDepoisDeAplicar, resolverConflito, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
 import styles from './perfil-empresa.module.css';
 
 type Historico = {
@@ -44,40 +43,42 @@ export default function PerfilEmpresa() {
     const [ocupado, setOcupado] = useState(false);
     const [semPermissao, setSemPermissao] = useState(false);
     const [dados, setDados] = useState<Resposta | null>(null);
-    const [form, setForm] = useState<CadastroPerfil>(cadastroVazio());
-    const [salvo, setSalvo] = useState<CadastroPerfil>(cadastroVazio());
-    const [numero, setNumero] = useState<number | null>(null);
-    const [edicao, setEdicao] = useState<number | null>(null);
-    const [versaoBase, setVersaoBase] = useState(0);
+    const [fluxo, setFluxo] = useState<EstadoFluxo>(estadoFluxoInicial);
+    const [identidadeConflito, setIdentidadeConflito] = useState<{ numero: number; edicao: number; versaoBase: number } | null>(null);
     const [erro, setErro] = useState('');
-    const [conflito, setConflito] = useState(false);
     const [sucesso, setSucesso] = useState('');
     const [motivo, setMotivo] = useState('');
     const [senha, setSenha] = useState('');
-    const [confirmado, setConfirmado] = useState(false);
     const cargaTicket = useRef(0);
     const operacaoTicket = useRef(0);
     const bloqueio = useRef(false);
-    const formRef = useRef(form);
-    const digitou = useRef(false);
+    const fluxoRef = useRef(fluxo);
+    const formRef = useRef(fluxo.form);
+    const { form, salvo, numero, edicao, versaoBase, confirmado, conflito } = fluxo;
     const sujo = !cadastrosIguais(form, salvo);
     const capacidades = dados?.capacidades;
     const podeEditar = Boolean(capacidades?.PERFIL_EDITAR_RASCUNHO);
     const podeAplicarCapacidade = Boolean(capacidades?.PERFIL_APLICAR);
 
+    const publicar = useCallback((proximo: EstadoFluxo) => {
+        fluxoRef.current = proximo;
+        formRef.current = proximo.form;
+        setFluxo(proximo);
+    }, []);
+
     const aplicarCorpo = useCallback((corpo: Resposta, substituirForm: boolean) => {
         setDados(corpo);
-        const rascunho = corpo.contexto?.rascunho ?? null;
-        setNumero(rascunho?.numero ?? null);
-        setEdicao(rascunho?.edicao ?? null);
-        setVersaoBase(rascunho?.versaoBase ?? corpo.contexto?.versao ?? 0);
-        if (substituirForm && corpo.contexto && !digitou.current) {
-            const proximo = rascunho?.conteudo ?? corpo.contexto.cadastro;
-            formRef.current = proximo;
-            setForm(proximo);
-            setSalvo(proximo);
-        }
-    }, []);
+        const proximo = aposCarga(fluxoRef.current, {
+            contexto: corpo.contexto
+                ? {
+                    versao: corpo.contexto.versao,
+                    cadastro: corpo.contexto.cadastro,
+                    rascunho: corpo.contexto.rascunho,
+                }
+                : null,
+        }, substituirForm || devePreencherNaRetentativa(fluxoRef.current));
+        publicar(proximo);
+    }, [publicar]);
 
     const carregar = useCallback(async (substituirForm: boolean) => {
         const meu = ++cargaTicket.current;
@@ -117,14 +118,9 @@ export default function PerfilEmpresa() {
     }, [carregar]);
 
     function atualizar(parcial: Partial<CadastroPerfil>) {
-        digitou.current = true;
-        setForm((atual) => {
-            const proximo = { ...atual, ...parcial };
-            formRef.current = proximo;
-            return proximo;
-        });
+        const proximoForm = { ...formRef.current, ...parcial };
+        publicar(aposDigitacao(fluxoRef.current, proximoForm));
         setSucesso('');
-        setConfirmado(false);
     }
 
     async function salvar() {
@@ -135,7 +131,6 @@ export default function PerfilEmpresa() {
         const enviado = formRef.current;
         setOcupado(true);
         setErro('');
-        setConflito(false);
         setSucesso('');
         try {
             const resposta = await adminFetch('/api/admin/configuracoes/perfil-empresa', {
@@ -144,23 +139,36 @@ export default function PerfilEmpresa() {
                 body: JSON.stringify({ acao: 'salvar-rascunho', numero, edicao, versaoBase, cadastro: enviado }),
             });
             const corpo = await resposta.json();
+            const tardio = meu !== operacaoTicket.current;
+            const conflitoResposta = corpo.codigo === 'PERFIL_CONFLITO' || resposta.status === 409;
             const efeito = aposOperacao({
                 formAtual: formRef.current,
                 enviado,
-                ok: Boolean(corpo.ok) && corpo.codigo !== 'PERFIL_CONFLITO',
-                tardio: meu !== operacaoTicket.current,
+                ok: Boolean(corpo.ok) && !conflitoResposta,
+                tardio,
             });
             if (!efeito.atualizarSalvo || !efeito.salvo) {
-                if (meu !== operacaoTicket.current)
+                if (tardio)
                     return;
-                setConflito(corpo.codigo === 'PERFIL_CONFLITO' || resposta.status === 409);
+                if (conflitoResposta) {
+                    publicar(aposConflito(fluxoRef.current, formRef.current));
+                    setIdentidadeConflito(identidadeDoConflito(corpo.detalhes));
+                }
                 setErro(corpo.erro ?? 'Não foi possível salvar o rascunho. Tente novamente.');
                 return;
             }
-            setNumero(corpo.data.numero);
-            setEdicao(corpo.data.edicao);
-            setVersaoBase(corpo.data.versaoBase);
-            setSalvo(efeito.salvo);
+            publicar({
+                ...fluxoRef.current,
+                form: efeito.form,
+                salvo: efeito.salvo,
+                numero: corpo.data.numero,
+                edicao: corpo.data.edicao,
+                versaoBase: corpo.data.versaoBase,
+                conflito: false,
+                confirmado: false,
+                conteudoConfirmado: null,
+            });
+            setIdentidadeConflito(null);
             setSucesso('Rascunho salvo.');
         } catch (error) {
             if (meu !== operacaoTicket.current)
@@ -177,6 +185,7 @@ export default function PerfilEmpresa() {
     async function aplicar() {
         if (bloqueio.current || !podeAplicar({
             sujo, ocupado, numero, edicao, motivo, permitir: podeAplicarCapacidade, confirmado,
+            conflito, confirmacaoConfere: revisaoAindaConfere(fluxoRef.current),
         }))
             return;
         if (numero == null || edicao == null)
@@ -186,7 +195,6 @@ export default function PerfilEmpresa() {
         const enviado = salvo;
         setOcupado(true);
         setErro('');
-        setConflito(false);
         try {
             if (senha) {
                 const auth = await adminFetch('/api/admin/autenticacao', {
@@ -206,17 +214,19 @@ export default function PerfilEmpresa() {
             if (meu !== operacaoTicket.current)
                 return;
             if (!corpo.ok) {
-                setConflito(corpo.codigo === 'PERFIL_CONFLITO' || resposta.status === 409);
+                if (corpo.codigo === 'PERFIL_CONFLITO' || resposta.status === 409) {
+                    publicar(aposConflito(fluxoRef.current, formRef.current));
+                    setIdentidadeConflito(identidadeDoConflito(corpo.detalhes));
+                }
                 setErro(corpo.erro ?? 'Não foi possível aplicar o cadastro. Tente novamente.');
                 return;
             }
             setSucesso('Cadastro aplicado. Contratos e PDFs existentes não foram alterados.');
             setMotivo('');
             setSenha('');
-            setConfirmado(false);
             const modo = recarregarDepoisDeAplicar(formRef.current, enviado);
             if (modo === 'substituir')
-                digitou.current = false;
+                publicar({ ...fluxoRef.current, digitou: false, confirmado: false, conteudoConfirmado: null });
             await carregar(modo === 'substituir');
         } catch (error) {
             if (meu !== operacaoTicket.current)
@@ -233,8 +243,16 @@ export default function PerfilEmpresa() {
     const sede = form.sede;
     const unidade = form.unidade;
     const comparacao = dados?.contexto ? linhasAntesDepois(dados.contexto.cadastro, salvo) : [];
+    function resolver() {
+        if (!identidadeConflito)
+            return;
+        publicar(resolverConflito(fluxoRef.current, identidadeConflito));
+        setIdentidadeConflito(null);
+    }
+
     const aplicarLiberado = podeAplicar({
         sujo, ocupado, numero, edicao, motivo, permitir: podeAplicarCapacidade, confirmado,
+        conflito, confirmacaoConfere: revisaoAindaConfere(fluxo),
     });
 
     return <main className={styles.page} aria-busy={ocupado || carregando}>
@@ -247,13 +265,14 @@ export default function PerfilEmpresa() {
         {!carregando && !semPermissao && dados && !dados.estruturaInstalada && <p className={styles.estado}>A estrutura do perfil ainda não está instalada. Nenhum acesso foi concedido.</p>}
         {!carregando && !semPermissao && dados?.estruturaInstalada && dados.vazio && <p className={styles.estado}>Ainda não há empresa provisionada. O formulário não cria a primeira empresa.</p>}
         {erro && <p className={styles.erro} role="alert">{erro}</p>}
-        {erro && <button type="button" onClick={() => void carregar(false)}>Tentar novamente</button>}
+        {erro && <button type="button" onClick={() => void carregar(devePreencherNaRetentativa(fluxoRef.current))}>Tentar novamente</button>}
         {!carregando && !semPermissao && dados?.contexto && <form onSubmit={(evento) => { evento.preventDefault(); }}>
             <p>Empresa {dados.contexto.codigoEmpresa} · Unidade {dados.contexto.codigoUnidade} · versão {dados.contexto.versao}</p>
             {dados.contexto.rascunho && <p>Há alterações em rascunho.</p>}
             {sujo && <p>Há alterações ainda não salvas. Salve o rascunho antes de aplicar.</p>}
             {sucesso && <p className={styles.sucesso} role="status">{sucesso}</p>}
-            {conflito && <p>Os dados digitados foram mantidos. Atualize a página só se quiser descartá-los.</p>}
+            {conflito && <p>Os dados digitados foram mantidos. Aplicar fica bloqueado até você assumir a revisão atual e confirmar de novo o conteúdo.</p>}
+            {conflito && <button type="button" onClick={resolver} disabled={!identidadeConflito}>Manter o texto digitado e assumir a revisão atual</button>}
             <fieldset disabled={!podeEditar}>
                 <h2 className={styles.titulo}>Identificação</h2>
                 <div className={styles.grade}>
@@ -308,9 +327,9 @@ export default function PerfilEmpresa() {
                 <div className={styles.comparacao}>
                     {comparacao.map((linha) => <p key={linha.rotulo}><strong>{linha.rotulo}</strong>: {linha.antes || '—'} → {linha.depois || '—'}</p>)}
                 </div>
-                <label className={styles.campo}>Motivo<textarea value={motivo} onChange={(evento) => { setMotivo(evento.target.value); setConfirmado(false); }} /></label>
+                <label className={styles.campo}>Motivo<textarea value={motivo} onChange={(evento) => { setMotivo(evento.target.value); publicar(confirmarRevisao(fluxoRef.current, false)); }} /></label>
                 <label className={styles.campo}>Senha, se a sessão tiver mais de 5 minutos<input type="password" value={senha} autoComplete="current-password" onChange={(evento) => setSenha(evento.target.value)} /></label>
-                <label className={styles.campo}><span>Confirmo o antes e o depois do rascunho salvo</span><input type="checkbox" checked={confirmado} onChange={(evento) => setConfirmado(evento.target.checked)} /></label>
+                <label className={styles.campo}><span>Confirmo o antes e o depois do rascunho salvo</span><input type="checkbox" checked={confirmado && revisaoAindaConfere(fluxo)} onChange={(evento) => publicar(confirmarRevisao(fluxoRef.current, evento.target.checked))} /></label>
                 <div className={styles.acoes}>
                     <button type="button" onClick={() => void aplicar()} disabled={!aplicarLiberado}>Revisar e aplicar</button>
                 </div>
