@@ -8,7 +8,9 @@ import {
     exigirTerminalInterativo,
     lerOculto,
     mascaraConta,
+    opcoesCliente,
     provisionar,
+    tlsDestinoValidado,
     validarDestino,
 } from '../../scripts/perfil-empresa-provisionar.cjs';
 
@@ -108,6 +110,17 @@ test('a conexão fica oculta e o destino não se prova pelo nome do banco', asyn
     assert.throws(() => validarDestino('postgres://usuario:sintetica@db.exemplo.invalid:5432/kidmais_manager', {
         host: 'db.exemplo.invalid', banco: 'kidmais_manager', ambiente: 'staging',
     }));
+    const opcoesStaging = opcoesCliente(url, validarDestino(url, { host: 'db.exemplo.invalid', banco: 'kidmais_homologacao', ambiente: 'staging' }));
+    assert.deepEqual(opcoesStaging.ssl, { rejectUnauthorized: false, servername: 'db.exemplo.invalid' });
+    const semTls = 'postgres://usuario:sintetica@db.exemplo.invalid:5432/kidmais_homologacao?sslmode=disable';
+    const opcoesSemTls = opcoesCliente(semTls, validarDestino(semTls, { host: 'db.exemplo.invalid', banco: 'kidmais_homologacao', ambiente: 'staging' }));
+    assert.ok(opcoesSemTls.ssl);
+    assert.equal(opcoesSemTls.ssl.rejectUnauthorized, false);
+    assert.equal(new URL(opcoesSemTls.connectionString).searchParams.has('sslmode'), false);
+    assert.equal(tlsDestinoValidado(validarDestino(revisao, { host: '127.0.0.1', banco: 'kidmais_perfil_v1_revisao', ambiente: 'revisao-local' })), undefined);
+    assert.equal(opcoesCliente(revisao, validarDestino(revisao, { host: '127.0.0.1', banco: 'kidmais_perfil_v1_revisao', ambiente: 'revisao-local' })).ssl, undefined);
+    const producao = validarDestino(url, { host: 'db.exemplo.invalid', banco: 'kidmais_homologacao', ambiente: 'producao', confirmacaoProducao: 'AUTORIZAR-PRODUCAO' });
+    assert.equal(tlsDestinoValidado(producao), undefined);
     assert.equal(mascaraConta('ana@example.invalid'), 'a***@e***');
     assert.throws(() => confirmarSinal('a***@e***', 'ana@example.invalid'));
     confirmarSinal('a***@e***', 'a***@e***');

@@ -52,6 +52,28 @@ function validarDestino(connection, declarado) {
     return { host: url.hostname, banco, ambiente: declarado.ambiente };
 }
 
+function hostExterno(host) {
+    const nome = String(host || '').toLowerCase().replace(/\.$/, '');
+    return Boolean(nome) && nome !== 'localhost' && nome !== '127.0.0.1' && nome !== '::1' && nome.includes('.');
+}
+
+/** TLS obrigatório só no staging externo já validado. O certificado dessa instância é autoassinado. */
+function tlsDestinoValidado(destino) {
+    if (!destino || destino.ambiente !== 'staging' || !hostExterno(destino.host))
+        return undefined;
+    return { rejectUnauthorized: false, servername: destino.host };
+}
+
+function opcoesCliente(connection, destino) {
+    const ssl = tlsDestinoValidado(destino);
+    if (!ssl)
+        return { connectionString: connection };
+    const url = new URL(connection);
+    url.searchParams.delete('sslmode');
+    url.searchParams.delete('ssl');
+    return { connectionString: url.toString(), ssl };
+}
+
 function mascaraConta(email) {
     const [local, dominio] = String(email).trim().toLowerCase().split('@');
     if (!local || !dominio)
@@ -272,7 +294,7 @@ async function main() {
     exigirTerminalInterativo();
     const { Client } = require('pg');
     const entrada = await coletarEntradaProvisionamento(process.stdin, process.stdout);
-    validarDestino(entrada.connection, {
+    const destino = validarDestino(entrada.connection, {
         host: entrada.host,
         banco: entrada.banco,
         ambiente: entrada.ambiente,
@@ -281,7 +303,7 @@ async function main() {
     if (entrada.confirmacao !== 'CONFIRMAR')
         throw Error('Operação cancelada.');
     const { operadorEmail, contaEmail, motivo, referencia, ambiente, connection } = entrada;
-    const client = new Client({ connectionString: connection });
+    const client = new Client(opcoesCliente(connection, destino));
     await client.connect();
     try {
         const operador = (await client.query('SELECT id FROM usuarios_administrativos WHERE email=$1', [operadorEmail])).rows[0];
@@ -298,7 +320,7 @@ async function main() {
 }
 
 module.exports = {
-    autorizado, provisionar, recusarBancoReal, validarDestino, mascaraConta, confirmarSinal,
+    autorizado, provisionar, recusarBancoReal, validarDestino, tlsDestinoValidado, opcoesCliente, mascaraConta, confirmarSinal,
     exigirTerminalInterativo, lerOculto, coletarEntradaProvisionamento, CAPACIDADES,
 };
 if (require.main === module)
