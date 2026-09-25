@@ -8,7 +8,7 @@ export type CapacidadesTela = {
 };
 
 export function cadastrosIguais(atual: CadastroPerfil, salvo: CadastroPerfil) {
-    return JSON.stringify(atual) === JSON.stringify(salvo);
+    return JSON.stringify(normalizarCadastro(atual)) === JSON.stringify(normalizarCadastro(salvo));
 }
 
 export function podeAplicar(input: {
@@ -128,15 +128,51 @@ export function identidadeDoConflito(detalhes: unknown) {
     return { numero: dados.numero, edicao: dados.edicao, versaoBase: dados.versao };
 }
 
-export function resolverConflito(estado: EstadoFluxo, identidade: { numero: number; edicao: number; versaoBase: number }): EstadoFluxo {
+export function resolverConflito(
+    estado: EstadoFluxo,
+    identidade: { numero: number; edicao: number; versaoBase: number },
+    conteudoAtual: CadastroPerfil,
+): EstadoFluxo {
+    const salvo = normalizarCadastro(conteudoAtual);
     return {
         ...estado,
+        salvo,
         numero: identidade.numero,
         edicao: identidade.edicao,
         versaoBase: identidade.versaoBase,
         conflito: false,
         confirmado: false,
         conteudoConfirmado: null,
+        digitou: !cadastrosIguais(estado.form, salvo),
+    };
+}
+
+export function aposAplicar(estado: EstadoFluxo, input: {
+    formAtual: CadastroPerfil;
+    enviado: CadastroPerfil;
+    versaoAplicada: number;
+}): EstadoFluxo {
+    const digitou = recarregarDepoisDeAplicar(input.formAtual, input.enviado) === 'preservar';
+    return {
+        ...estado,
+        form: input.formAtual,
+        numero: null,
+        edicao: null,
+        versaoBase: input.versaoAplicada,
+        digitou,
+        confirmado: false,
+        conteudoConfirmado: null,
+        conflito: false,
+    };
+}
+
+export function pedidoRascunho(estado: Pick<EstadoFluxo, 'numero' | 'edicao' | 'versaoBase' | 'form'>) {
+    return {
+        acao: 'salvar-rascunho' as const,
+        numero: estado.numero,
+        edicao: estado.edicao,
+        versaoBase: estado.versaoBase,
+        cadastro: estado.form,
     };
 }
 

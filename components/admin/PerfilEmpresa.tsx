@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { CadastroPerfil } from '@/lib/perfil/cadastro';
-import { aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, podeAplicar, recarregarDepoisDeAplicar, resolverConflito, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
+import { aposAplicar, aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, pedidoRascunho, podeAplicar, resolverConflito, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
 import styles from './perfil-empresa.module.css';
 
 type Historico = {
@@ -129,6 +129,7 @@ export default function PerfilEmpresa() {
         bloqueio.current = true;
         const meu = ++operacaoTicket.current;
         const enviado = formRef.current;
+        const pedido = pedidoRascunho({ ...fluxoRef.current, form: enviado });
         setOcupado(true);
         setErro('');
         setSucesso('');
@@ -136,7 +137,7 @@ export default function PerfilEmpresa() {
             const resposta = await adminFetch('/api/admin/configuracoes/perfil-empresa', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ acao: 'salvar-rascunho', numero, edicao, versaoBase, cadastro: enviado }),
+                body: JSON.stringify(pedido),
             });
             const corpo = await resposta.json();
             const tardio = meu !== operacaoTicket.current;
@@ -192,7 +193,7 @@ export default function PerfilEmpresa() {
             return;
         bloqueio.current = true;
         const meu = ++operacaoTicket.current;
-        const enviado = salvo;
+        const enviado = fluxoRef.current.salvo;
         setOcupado(true);
         setErro('');
         try {
@@ -224,10 +225,13 @@ export default function PerfilEmpresa() {
             setSucesso('Cadastro aplicado. Contratos e PDFs existentes não foram alterados.');
             setMotivo('');
             setSenha('');
-            const modo = recarregarDepoisDeAplicar(formRef.current, enviado);
-            if (modo === 'substituir')
-                publicar({ ...fluxoRef.current, digitou: false, confirmado: false, conteudoConfirmado: null });
-            await carregar(modo === 'substituir');
+            const proximo = aposAplicar(fluxoRef.current, {
+                formAtual: formRef.current,
+                enviado,
+                versaoAplicada: Number(corpo.data.versao),
+            });
+            publicar(proximo);
+            await carregar(!proximo.digitou);
         } catch (error) {
             if (meu !== operacaoTicket.current)
                 return;
@@ -243,11 +247,31 @@ export default function PerfilEmpresa() {
     const sede = form.sede;
     const unidade = form.unidade;
     const comparacao = dados?.contexto ? linhasAntesDepois(dados.contexto.cadastro, salvo) : [];
-    function resolver() {
-        if (!identidadeConflito)
+    async function resolver() {
+        if (!identidadeConflito || bloqueio.current)
             return;
-        publicar(resolverConflito(fluxoRef.current, identidadeConflito));
-        setIdentidadeConflito(null);
+        bloqueio.current = true;
+        setOcupado(true);
+        setErro('');
+        try {
+            const resposta = await adminFetch('/api/admin/configuracoes/perfil-empresa');
+            const corpo = await resposta.json();
+            const rascunho = corpo.data?.contexto?.rascunho;
+            if (!corpo.ok || !rascunho)
+                throw new Error(corpo.erro ?? 'Não foi possível carregar a revisão atual.');
+            setDados(corpo.data);
+            publicar(resolverConflito(fluxoRef.current, {
+                numero: rascunho.numero,
+                edicao: rascunho.edicao,
+                versaoBase: rascunho.versaoBase,
+            }, rascunho.conteudo));
+            setIdentidadeConflito(null);
+        } catch (error) {
+            setErro(error instanceof Error ? error.message : 'Não foi possível carregar a revisão atual.');
+        } finally {
+            bloqueio.current = false;
+            setOcupado(false);
+        }
     }
 
     const aplicarLiberado = podeAplicar({
@@ -272,7 +296,7 @@ export default function PerfilEmpresa() {
             {sujo && <p>Há alterações ainda não salvas. Salve o rascunho antes de aplicar.</p>}
             {sucesso && <p className={styles.sucesso} role="status">{sucesso}</p>}
             {conflito && <p>Os dados digitados foram mantidos. Aplicar fica bloqueado até você assumir a revisão atual e confirmar de novo o conteúdo.</p>}
-            {conflito && <button type="button" onClick={resolver} disabled={!identidadeConflito}>Manter o texto digitado e assumir a revisão atual</button>}
+            {conflito && <button type="button" onClick={() => void resolver()} disabled={!identidadeConflito || ocupado}>Manter o texto digitado e assumir a revisão atual</button>}
             <fieldset disabled={!podeEditar}>
                 <h2 className={styles.titulo}>Identificação</h2>
                 <div className={styles.grade}>
