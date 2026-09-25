@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { CadastroPerfil } from '@/lib/perfil/cadastro';
-import { aposAplicar, aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, pedidoRascunho, podeAplicar, resolverConflito, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
+import { aposAplicar, aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, pedidoRascunho, podeAplicar, resolverCarregamento, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
 import styles from './perfil-empresa.module.css';
 
 type Historico = {
@@ -44,7 +44,7 @@ export default function PerfilEmpresa() {
     const [semPermissao, setSemPermissao] = useState(false);
     const [dados, setDados] = useState<Resposta | null>(null);
     const [fluxo, setFluxo] = useState<EstadoFluxo>(estadoFluxoInicial);
-    const [identidadeConflito, setIdentidadeConflito] = useState<{ numero: number; edicao: number; versaoBase: number } | null>(null);
+    const [identidadeConflito, setIdentidadeConflito] = useState<{ numero: number | null; edicao: number | null; versaoBase: number } | null>(null);
     const [erro, setErro] = useState('');
     const [sucesso, setSucesso] = useState('');
     const [motivo, setMotivo] = useState('');
@@ -256,15 +256,17 @@ export default function PerfilEmpresa() {
         try {
             const resposta = await adminFetch('/api/admin/configuracoes/perfil-empresa');
             const corpo = await resposta.json();
-            const rascunho = corpo.data?.contexto?.rascunho;
-            if (!corpo.ok || !rascunho)
+            const contexto = corpo.data?.contexto;
+            if (!corpo.ok || !contexto)
                 throw new Error(corpo.erro ?? 'Não foi possível carregar a revisão atual.');
             setDados(corpo.data);
-            publicar(resolverConflito(fluxoRef.current, {
-                numero: rascunho.numero,
-                edicao: rascunho.edicao,
-                versaoBase: rascunho.versaoBase,
-            }, rascunho.conteudo));
+            publicar(resolverCarregamento(fluxoRef.current, {
+                contexto: {
+                    versao: contexto.versao,
+                    cadastro: contexto.cadastro,
+                    rascunho: contexto.rascunho,
+                },
+            }));
             setIdentidadeConflito(null);
         } catch (error) {
             setErro(error instanceof Error ? error.message : 'Não foi possível carregar a revisão atual.');
@@ -296,7 +298,7 @@ export default function PerfilEmpresa() {
             {sujo && <p>Há alterações ainda não salvas. Salve o rascunho antes de aplicar.</p>}
             {sucesso && <p className={styles.sucesso} role="status">{sucesso}</p>}
             {conflito && <p>Os dados digitados foram mantidos. Aplicar fica bloqueado até você assumir a revisão atual e confirmar de novo o conteúdo.</p>}
-            {conflito && <button type="button" onClick={() => void resolver()} disabled={!identidadeConflito || ocupado}>Manter o texto digitado e assumir a revisão atual</button>}
+            {conflito && <button type="button" onClick={() => void resolver()} disabled={!identidadeConflito || ocupado}>Carregar a versão publicada e manter o texto digitado</button>}
             <fieldset disabled={!podeEditar}>
                 <h2 className={styles.titulo}>Identificação</h2>
                 <div className={styles.grade}>

@@ -16,6 +16,8 @@ import {
     pedidoRascunho,
     podeAplicar,
     recarregarDepoisDeAplicar,
+    identidadeDoConflito,
+    resolverCarregamento,
     resolverConflito,
     revisaoAindaConfere,
 } from './tela-cadastro.ts';
@@ -230,6 +232,62 @@ test('depois de salvar, máscara, telefone, espaços e mesmo endereço não bloq
     }), false);
 });
 
+test('publicação sem rascunho libera carregar a versão e abrir outro rascunho', () => {
+    const detalhes = { versao: 1, numero: null, edicao: null };
+    const identidade = identidadeDoConflito(detalhes);
+    assert.ok(identidade);
+    assert.equal(identidade?.numero, null);
+    assert.equal(identidade?.edicao, null);
+    assert.equal(identidade?.versaoBase, 1);
+
+    const local = base({ nomeComercial: 'Texto local' });
+    const publicado = base({ nomeComercial: 'Versão publicada' });
+    let estado = aposConflito({
+        ...estadoFluxoInicial(),
+        form: local,
+        salvo: local,
+        numero: 3,
+        edicao: 1,
+        versaoBase: 0,
+        carregou: true,
+        digitou: true,
+    }, local);
+    estado = resolverCarregamento(estado, {
+        contexto: { versao: 1, cadastro: publicado, rascunho: null },
+    });
+    assert.equal(estado.form.nomeComercial, 'Texto local');
+    assert.equal(estado.salvo.nomeComercial, 'Versão publicada');
+    assert.equal(estado.numero, null);
+    assert.equal(estado.edicao, null);
+    assert.equal(estado.versaoBase, 1);
+    assert.equal(estado.conflito, false);
+    const pedido = pedidoRascunho(estado);
+    assert.equal(pedido.numero, null);
+    assert.equal(pedido.edicao, null);
+    assert.equal(pedido.versaoBase, 1);
+    assert.equal(pedido.cadastro.nomeComercial, 'Texto local');
+    estado = confirmarRevisao(estado, true);
+    assert.equal(podeAplicar({
+        ...pronto,
+        numero: estado.numero,
+        edicao: estado.edicao,
+        confirmado: estado.confirmado,
+        conflito: estado.conflito,
+        sujo: !cadastrosIguais(estado.form, estado.salvo),
+        confirmacaoConfere: revisaoAindaConfere(estado),
+    }), false);
+    const maisNovo = aposCarga(estado, {
+        contexto: {
+            versao: 2,
+            cadastro: base({ nomeComercial: 'Outra publicação' }),
+            rascunho: null,
+        },
+    }, false);
+    assert.equal(maisNovo.versaoBase, 1);
+    assert.equal(pedidoRascunho(maisNovo).versaoBase, 1);
+    assert.equal(maisNovo.form.nomeComercial, 'Texto local');
+});
+
 test('resolver o conflito carrega a edição remota e não publica o texto antigo', () => {
     const edicao1 = base({ nomeComercial: 'Edição 1' });
     let estado = aposCarga(estadoFluxoInicial(), {
@@ -241,7 +299,13 @@ test('resolver o conflito carrega a edição remota e não publica o texto antig
     }, true);
     const edicao2 = base({ nomeComercial: 'Edição 2' });
     estado = aposConflito(estado, estado.form);
-    estado = resolverConflito(estado, { numero: 1, edicao: 2, versaoBase: 0 }, edicao2);
+    estado = resolverCarregamento(estado, {
+        contexto: {
+            versao: 0,
+            cadastro: edicao1,
+            rascunho: { numero: 1, edicao: 2, versaoBase: 0, conteudo: edicao2 },
+        },
+    });
     assert.equal(estado.form.nomeComercial, 'Edição 1');
     assert.equal(estado.salvo.nomeComercial, 'Edição 2');
     assert.equal(estado.numero, 1);

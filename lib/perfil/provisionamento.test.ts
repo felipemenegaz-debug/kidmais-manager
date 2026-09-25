@@ -99,6 +99,12 @@ test('a conexão fica oculta e o destino não se prova pelo nome do banco', asyn
     });
     assert.throws(() => validarDestino(url, { host: 'outro.invalid', banco: 'kidmais_homologacao', ambiente: 'staging' }));
     assert.throws(() => validarDestino(url, { host: 'db.exemplo.invalid', banco: 'kidmais_homologacao', ambiente: 'homologacao' }));
+    const revisao = 'postgres://usuario:sintetica@127.0.0.1:55432/kidmais_perfil_v1_revisao';
+    assert.equal(validarDestino(revisao, { host: '127.0.0.1', banco: 'kidmais_perfil_v1_revisao', ambiente: 'revisao-local' }).ambiente, 'revisao-local');
+    assert.throws(() => validarDestino(revisao, { host: '127.0.0.1', banco: 'kidmais_perfil_v1_revisao', ambiente: 'staging' }));
+    assert.throws(() => validarDestino('postgres://usuario:sintetica@db.exemplo.invalid:5432/kidmais_perfil_v1_revisao', {
+        host: 'db.exemplo.invalid', banco: 'kidmais_perfil_v1_revisao', ambiente: 'revisao-local',
+    }));
     assert.throws(() => validarDestino('postgres://usuario:sintetica@db.exemplo.invalid:5432/kidmais_manager', {
         host: 'db.exemplo.invalid', banco: 'kidmais_manager', ambiente: 'staging',
     }));

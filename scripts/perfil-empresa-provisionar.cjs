@@ -39,8 +39,14 @@ function validarDestino(connection, declarado) {
     const banco = decodeURIComponent(url.pathname.replace(/^\//, ''));
     if (!declarado || declarado.host !== url.hostname || declarado.banco !== banco)
         throw Error('O host e o banco declarados não conferem com a conexão. O nome do banco não prova o ambiente.');
-    if (declarado.ambiente !== 'staging' && declarado.ambiente !== 'producao')
-        throw Error('Informe o ambiente explicitamente: staging ou producao.');
+    if (declarado.ambiente !== 'staging' && declarado.ambiente !== 'producao' && declarado.ambiente !== 'revisao-local')
+        throw Error('Informe o ambiente explicitamente: staging, producao ou revisao-local.');
+    if (declarado.ambiente === 'revisao-local' && url.hostname !== '127.0.0.1' && url.hostname !== 'localhost')
+        throw Error('A revisão local só aceita localhost.');
+    if (declarado.ambiente === 'revisao-local' && banco !== 'kidmais_perfil_v1_revisao')
+        throw Error('A revisão local só aceita o banco kidmais_perfil_v1_revisao.');
+    if (banco === 'kidmais_perfil_v1_revisao' && declarado.ambiente !== 'revisao-local')
+        throw Error('O banco da revisão local não pode ser declarado como staging ou produção.');
     if (declarado.ambiente === 'producao' && declarado.confirmacaoProducao !== 'AUTORIZAR-PRODUCAO')
         throw Error('Produção exige confirmação explícita separada.');
     return { host: url.hostname, banco, ambiente: declarado.ambiente };
@@ -137,8 +143,8 @@ function gestaoAtiva(conta) {
 async function provisionar(client, input) {
     if (!input.operadorId || !input.contaId || String(input.referencia).trim().length < 3 || String(input.motivo).trim().length < 3)
         throw Error('Operador, conta confirmada, motivo e referência da autorização são obrigatórios.');
-    if (input.ambiente !== 'staging' && input.ambiente !== 'producao')
-        throw Error('Informe o ambiente explicitamente: staging ou producao.');
+    if (input.ambiente !== 'staging' && input.ambiente !== 'producao' && input.ambiente !== 'revisao-local')
+        throw Error('Informe o ambiente explicitamente: staging, producao ou revisao-local.');
     const { randomUUID } = require('node:crypto');
     await client.query('BEGIN');
     try {

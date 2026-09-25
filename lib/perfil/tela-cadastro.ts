@@ -123,9 +123,39 @@ export function identidadeDoConflito(detalhes: unknown) {
     if (!detalhes || typeof detalhes !== 'object')
         return null;
     const dados = detalhes as { versao?: unknown; edicao?: unknown; numero?: unknown };
-    if (typeof dados.numero !== 'number' || typeof dados.edicao !== 'number' || typeof dados.versao !== 'number')
+    if (typeof dados.versao !== 'number')
         return null;
-    return { numero: dados.numero, edicao: dados.edicao, versaoBase: dados.versao };
+    return {
+        numero: typeof dados.numero === 'number' ? dados.numero : null,
+        edicao: typeof dados.edicao === 'number' ? dados.edicao : null,
+        versaoBase: dados.versao,
+    };
+}
+
+export function resolverCarregamento(estado: EstadoFluxo, carga: CargaPerfil): EstadoFluxo {
+    const contexto = carga.contexto;
+    if (!contexto)
+        return estado;
+    if (contexto.rascunho) {
+        return resolverConflito(estado, {
+            numero: contexto.rascunho.numero,
+            edicao: contexto.rascunho.edicao,
+            versaoBase: contexto.rascunho.versaoBase,
+        }, contexto.rascunho.conteudo);
+    }
+    const salvo = normalizarCadastro(contexto.cadastro);
+    return {
+        ...estado,
+        form: estado.form,
+        salvo,
+        numero: null,
+        edicao: null,
+        versaoBase: contexto.versao,
+        conflito: false,
+        confirmado: false,
+        conteudoConfirmado: null,
+        digitou: !cadastrosIguais(estado.form, salvo),
+    };
 }
 
 export function resolverConflito(
