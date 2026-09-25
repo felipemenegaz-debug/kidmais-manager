@@ -16,7 +16,8 @@ export default function AdminShell({ children }: {
     const [aberto, setAberto] = useState(false);
     const [recolhido, setRecolhido] = useState(false);
     const menuRef = useRef<HTMLButtonElement>(null);
-    const painelRef = useRef<HTMLElement>(null);
+    const fecharRef = useRef<HTMLButtonElement>(null);
+    const devolverFoco = useRef(false);
     const router = useRouter();
     useEffect(() => {
         if (path === '/admin/login')
@@ -33,18 +34,34 @@ export default function AdminShell({ children }: {
         return () => { alive = false; };
     }, [path, router]);
     useEffect(() => {
-        if (!aberto)
+        if (!aberto) {
+            if (devolverFoco.current) {
+                devolverFoco.current = false;
+                menuRef.current?.focus();
+            }
             return;
-        const foco = painelRef.current?.querySelector<HTMLElement>('a, button');
-        foco?.focus();
+        }
+        fecharRef.current?.focus();
+        const rolagem = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        const largo = window.matchMedia('(min-width: 801px)');
         function tecla(evento: KeyboardEvent) {
             if (evento.key !== 'Escape')
                 return;
+            devolverFoco.current = true;
             setAberto(false);
-            menuRef.current?.focus();
+        }
+        function redimensionar() {
+            if (largo.matches)
+                setAberto(false);
         }
         document.addEventListener('keydown', tecla);
-        return () => document.removeEventListener('keydown', tecla);
+        largo.addEventListener('change', redimensionar);
+        return () => {
+            document.body.style.overflow = rolagem;
+            document.removeEventListener('keydown', tecla);
+            largo.removeEventListener('change', redimensionar);
+        };
     }, [aberto]);
     if (path === '/admin/login')
         return <div className={styles.shell}>{children}</div>;
@@ -53,19 +70,22 @@ export default function AdminShell({ children }: {
     const itens = itensNavegacao(configurar);
     const grupos = ['Operação', 'Configurações'] as const;
     function fechar() {
+        devolverFoco.current = true;
         setAberto(false);
-        menuRef.current?.focus();
     }
     return <div className={styles.shell}>
-        <button ref={menuRef} className={styles.menu} type="button" aria-expanded={aberto} aria-controls="menu-admin" onClick={() => setAberto((valor) => !valor)}>{aberto ? 'Fechar menu' : 'Abrir menu'}</button>
-        {aberto && <button className={styles.cortina} type="button" aria-label="Fechar menu" onClick={fechar} />}
-        <aside id="menu-admin" ref={painelRef} className={styles.sidebar} data-aberto={aberto} data-recolhido={recolhido}>
+        <div className={styles.barra} inert={aberto}>
+            <button ref={menuRef} className={styles.menu} type="button" aria-expanded={aberto} aria-controls="menu-admin" onClick={() => setAberto(true)}>Abrir menu</button>
+        </div>
+        <aside id="menu-admin" className={styles.sidebar} data-aberto={aberto} data-recolhido={recolhido && !aberto}>
+            <button ref={fecharRef} className={styles.fechar} type="button" aria-controls="menu-admin" onClick={fechar}>Fechar menu</button>
             <KidmaisBrand subtitle="Gestão de festas" href="/admin/contratos" />
             <header className={styles.conta}>
                 <p>{name}</p>
                 <button type="button" onClick={async () => {
                     const res = await adminFetch('/api/admin/autenticacao', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'logout' }) });
                     if (res.ok) {
+                        setAberto(false);
                         setName(null);
                         router.replace('/admin/login');
                         router.refresh();
@@ -85,6 +105,6 @@ export default function AdminShell({ children }: {
                 })}
             </nav>
         </aside>
-        <div className={styles.conteudo}>{children}</div>
+        <div className={styles.conteudo} inert={aberto}>{children}</div>
     </div>;
 }
