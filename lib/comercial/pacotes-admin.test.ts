@@ -11,7 +11,6 @@ import {
 } from "./pacotes-admin.ts";
 
 const ctx = { empresaId: "11111111-1111-4111-8111-111111111111", usuarioId: "usuario-1", requestId: "req-1", motivo: "Ajuste comercial" };
-const auditar = async () => undefined;
 
 function linha(utilizado: boolean) {
   return {
@@ -53,7 +52,7 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
     },
   };
   await assert.rejects(
-    () => editarPacoteNaoUtilizado(tx, linha(true).id, { nome: "Outro", descricao: null, duracaoMinutos: null }, ctx, auditar),
+    () => editarPacoteNaoUtilizado(tx, linha(true).id, { nome: "Outro", descricao: null, duracaoMinutos: null }, ctx),
     (error: unknown) => error instanceof PacoteAdminError && error.httpStatus === 409,
   );
   assert.equal(chamadas.some((sql) => sql.startsWith("UPDATE pacotes")), false);
@@ -83,7 +82,7 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
         assert.equal(values?.[7], ctx.motivo);
         return { rows: [], rowCount: 1 };
       }
-      if (text.startsWith("INSERT INTO pacote_") || text.startsWith("INSERT INTO regras_desconto_pacote")) {
+      if (text.startsWith("INSERT INTO pacote_") || text.startsWith("INSERT INTO regras_desconto_pacote") || text.startsWith("INSERT INTO regras_disponibilidade_pacote")) {
         assert.equal(values?.[0], "33333333-3333-4333-8333-333333333333");
         assert.equal(values?.[1], linha(true).id);
         assert.equal(text.includes("precos_pacote"), false);
@@ -92,10 +91,11 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
       throw new Error(text);
     },
   };
-  const criada = await criarRevisaoPacoteAdmin(revisao, linha(true).id, { nome: "Revisão", descricao: null, duracaoMinutos: null }, ctx, auditar);
+  const criada = await criarRevisaoPacoteAdmin(revisao, linha(true).id, { nome: "Revisão", descricao: null, duracaoMinutos: null }, ctx);
   assert.equal(criada.revisaoAnteriorId, linha(true).id);
   assert.equal(chamadas.some((sql) => sql.includes("DELETE") || sql.includes("precos_pacote")), false);
-  for (const tabela of ["pacote_adicionais", "pacote_buffet_categorias", "pacote_buffet_itens", "regras_desconto_pacote"]) {
+  assert.equal(chamadas.filter((sql) => sql.includes("INSERT INTO auditoria")).length, 1);
+  for (const tabela of ["pacote_adicionais", "pacote_buffet_categorias", "pacote_buffet_itens", "regras_desconto_pacote", "regras_disponibilidade_pacote"]) {
     assert.equal(chamadas.filter((sql) => sql.startsWith(`INSERT INTO ${tabela}`)).length, 1);
   }
 });
@@ -125,16 +125,24 @@ test("composição de pacote utilizado cria revisão e não reescreve a anterior
     linha(true).id,
     { tipo: "vinculo", adicionalId: "44444444-4444-4444-8444-444444444444", modalidade: "INCLUSO" },
     ctx,
-    auditar,
   );
   assert.equal(resultado.id, novaId);
-  const auditoria = escritas.find((item) => item.text.includes("INSERT INTO auditoria") && item.values?.[2] === "PACOTE_COMPOSICAO");
+  const auditorias = escritas.filter((item) => item.text.includes("INSERT INTO auditoria"));
+  assert.equal(auditorias.length, 1);
+  const auditoria = auditorias[0];
+  assert.equal(auditoria?.values?.[2], "PACOTE_COMPOSICAO");
   assert.equal(auditoria?.values?.[4], novaId);
-  assert.match(String(auditoria?.values?.[6]), new RegExp(ctx.empresaId));
+  const depois = JSON.parse(String(auditoria?.values?.[6])) as { adicionais?: unknown; tipo?: unknown; empresaId?: string };
+  const antes = JSON.parse(String(auditoria?.values?.[5])) as { adicionais?: unknown; tipo?: unknown };
+  assert.ok(Array.isArray(antes.adicionais));
+  assert.ok(Array.isArray(depois.adicionais));
+  assert.equal(antes.tipo, undefined);
+  assert.equal(depois.tipo, undefined);
+  assert.equal(depois.empresaId, ctx.empresaId);
   assert.equal(auditoria?.values?.[7], ctx.motivo);
   const upsert = escritas.find((item) => item.text.includes("ON CONFLICT (pacote_id, adicional_id)"));
   assert.equal(upsert?.values?.[0], novaId);
-  assert.equal(escritas.some((item) => item.values?.[0] === linha(true).id), false);
+  assert.equal(escritas.some((item) => !item.text.trimStart().startsWith("SELECT") && item.values?.[0] === linha(true).id), false);
   assert.equal(escritas.some((item) => item.text.includes("precos_pacote")), false);
 });
 
@@ -149,7 +157,7 @@ test("composição cruzando empresas é recusada antes de gravar", async () => {
     },
   };
   await assert.rejects(
-    () => alterarComposicaoPacoteAdmin(tx, linha(true).id, { tipo: "vinculo", adicionalId: "44444444-4444-4444-8444-444444444444", modalidade: "EXTRA" }, ctx, auditar),
+    () => alterarComposicaoPacoteAdmin(tx, linha(true).id, { tipo: "vinculo", adicionalId: "44444444-4444-4444-8444-444444444444", modalidade: "EXTRA" }, ctx),
     (error: unknown) => error instanceof PacoteAdminError && error.code === "EMPRESA_DIVERGENTE",
   );
   assert.equal(chamadas.some((sql) => sql.startsWith("INSERT")), false);
