@@ -36,7 +36,7 @@ Marco 6: `7c6ee02c637cba57e30bb158061917940b83b0fb`.
 
 Marco 7: `88f0d88fa93be3cf76c2183396c1c5c630ec9527`.
 
-Marco 8: `78e03c0` — conferir o SHA completo com `git log -1`. O commit da tela é `78e03c0`.
+Marco 8: `78e03c0b799c166d13f3874f7e28f26cd393cff7`.
 
 ## Marco atual
 
