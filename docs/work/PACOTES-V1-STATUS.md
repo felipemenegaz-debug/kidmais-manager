@@ -1,24 +1,91 @@
 # Pacotes V1 — status de engenharia
 
-Documento temporário de continuidade. Não é fonte funcional. A decisão de produto permanece no Second Brain e no Goal Mestre.
+Documento temporário de continuidade. Não é fonte funcional. A decisão de produto permanece no Second Brain e no Goal Mestre. O Goal permanece aberto.
 
-## Objetivo
+## Estado atual — segunda remediação NO-GO
+
+- Branch: `fix/v1-snapshot-comercial`
+- Upstream: `origin/fix/v1-snapshot-comercial`
+- Base: `origin/staging` = `c54a809169b825e5dde25cac1385602bafa3faf3` (`git merge-base` igual). 0 atrás. 39 commits à frente de `origin/staging` antes deste arquivo; este status é o quadragésimo. Não fazer push para `staging` nem `main`. Não fazer merge nem deploy.
+- Código desta passagem, antes deste status: `645cb1f91bad2550838f87e4991e939b9c3e8e16`
+- Este arquivo entra no commit seguinte. O HEAD remoto, depois do push sem force, é esse commit de status.
+
+Commits desta passagem, autor e committer Felipe Menegaz `<324788905+felipemenegaz-debug@users.noreply.github.com>`:
+
+| SHA | Assunto |
+| --- | --- |
+| `cf5d0a40932657d75121238d4febd48e8d531d6f` | recusa mudar a empresa de pacote, tabela ou adicional |
+| `805343460d7e59114cb21f39869cf757dc2fad3a` | serializa a publicação e protege o preço publicado |
+| `d0e79eff8d09d8b59e1d85fbfa190fb1893f8ab9` | clona a disponibilidade e audita a composição real uma vez |
+| `b924c7f541577006e159944ff60296182533a567` | grava o carimbo de publicação persistido |
+| `5c954b865dcbabe5f002139d67f4055d62d6e49e` | devolve a empresa comprovada em vez de recusar sempre |
+| `645cb1f91bad2550838f87e4991e939b9c3e8e16` | prova no PostgreSQL descartável |
+
+### Classificação
+
+- P0-02 residual: CONFIRMADO. A 034 só guardava INSERT/UPDATE das chaves do vínculo. `UPDATE` de `empresa_id` no pai atravessava o tenant. Fechado na 036, no banco.
+- P1-01: CONFIRMADO. A revisão clonava adicional, buffet e desconto, e não clonava `regras_disponibilidade_pacote`. Não havia outra relação do significado operacional do pacote sem clone. `precos_pacote` continua fora. Fechado no serviço.
+- P1-03: CONFIRMADO. Publicação concorrente, DELETE do preço publicado, saída da tabela publicada, entrada imprópria e `ativo` que esvazia a publicação. Fechado na 037, no banco. HG-4 continua aberto só para completude comercial ainda não definida.
+- Auditoria duplicada: CONFIRMADO. O serviço gravava `auditarMutacaoComercial` e ainda chamava o callback. A composição guardava o comando, não a relação. `publicadaEm` guardava o texto `clock_timestamp()`. Fechado: uma trilha na mesma transação.
+- `recusarTenantNaoComprovado`: CONFIRMADO. O segundo `throw` disparava mesmo se a sessão depois comprovasse empresa. Hoje, sem prova, continua 403. Com prova injetada no teste, devolve essa empresa e recusa outra. Membership não foi implementada. O catálogo público permanece fechado até HG-8.
+- P2-01 e P2-03: não tratados. A UX admin e o preço/data públicos não foram piorados.
+
+### Gates que continuam abertos
+
+- HG-6 aberto. Os sete pacotes legados seguem com `empresa_id` NULL. Não foram associados.
+- HG-8 aberto. A Foundation 020 não foi copiada, alterada nem executada.
+- HG-4 aberto. Publicar não exige todos os pacotes nem as duas categorias. Tabela vazia continua recusada.
+- Fail-closed: sem empresa comprovada na sessão real, as rotas administrativas de pacote, composição, catálogo e tabela respondem 403 e não consultam o banco. O catálogo público permanece indeterminado.
+
+### Migrations
+
+Aplicadas nesta passagem só em `kidmais_pacotes_v1_descartavel` na porta `55498`, depois de `current_database()` e `inet_server_port()`. O banco `kidmais_pacotes_v1_rollback` não foi alterado.
+
+- `20260926_036_empresa_pai_imutavel.sql` — gatilho em `pacotes`, `tabelas_preco` e `adicionais`. Recusa qualquer mudança de `empresa_id`. O precheck está dentro da migration e aborta se as duas empresas do vínculo estão preenchidas e são diferentes. Não reescreve linha. FK composta não foi usada: `empresa_id` nulo no legado, NULL/NULL continua válido, e o `pacote_adicional` histórico de `FESTA_LOCAL` para `SALADA_PREMIUM` sem empresa não pode ser reescrito sem inventar tenant. A 034 continua recusando vínculo novo com um lado nulo.
+- `20260926_037_publicacao_concorrencia.sql` — `pg_advisory_xact_lock` por empresa antes de comparar vigências; DELETE de preço publicado recusado; mudança de tabela recusada; `ativo` true→false recusado quando esvazia a publicação; `observacoes` continua editável. O precheck aborta a migration se duas publicações da mesma empresa já se sobrepõem. Não despublica a tabela vazia que já existia (`TABELA_NOVA`).
+- 020 e 026–028 continuam reservadas. A 023 não foi reescrita. O próximo número livre passa a ser 038.
+
+Rollback: os DOWN da 036 e da 037 foram executados dentro de transação desfeita no banco principal. A guarda voltou. Nenhum DOWN foi deixado aplicado.
+
+### Testes no PostgreSQL descartável
+
+Banco `kidmais_pacotes_v1_descartavel`, `127.0.0.1:55498`, usuário `kidmais_descartavel`. Migrations 034 e 035 já estavam aplicadas. 036 e 037 foram aplicadas por `lib/comercial/pacotes-v1-remediacao.postgres.test.ts`. Resultado: 11 subtestes, 0 falhas.
+
+- A migration 036, com um preço plantado entre duas empresas, abortou e não gravou a guarda. A aplicação limpa em seguida passou.
+- Relação da mesma empresa passou. Pacote, tabela e adicional recusaram mudar de empresa. Insert A/B recusou na 034. NULL/NULL passou e foi desfeito.
+- A migration 037 abortou com duas vigências publicadas sobrepostas. A aplicação limpa passou.
+- DELETE, mover preço publicado para rascunho, mover rascunho para publicada, `ativo` true→false no único preço, segundo carimbo e tabela vazia foram recusados. `observacoes` passou. O rollback da transação desfez a publicação.
+- Duas transações publicando tabelas sobrepostas da mesma empresa: uma confirmou, a outra falhou.
+- Revisão de pacote utilizado clonou a disponibilidade exata e não clonou `precos_pacote`. A revisão anterior permaneceu.
+- Composição: um evento, antes INCLUSO e depois EXTRA. Rollback sem evento.
+- Publicação: `dados_depois.publicadaEm` igual ao `publicada_em` persistido, sem o texto `clock_timestamp()`. Rollback sem evento.
+- Depois dos testes: 7 pacotes com `empresa_id` NULL. O vínculo `FESTA_LOCAL` → `SALADA_PREMIUM` sem empresa continua 1. `empresas` passou de 1 para 2 por causa do teste de concorrência, que precisa confirmar uma publicação: empresa `t037d9ecfac41` em `PROVISIONAMENTO`, tabela `u037ddd6ae271` publicada e `u037e1b8b609d` em rascunho. A exclusão física de empresa continua recusada, e o preço publicado não é apagado. Isso não associa os sete pacotes.
+
+### Validação desta passagem
+
+- `npx tsc --noEmit`: passou
+- `npm run lint`: passou, exit 0
+- `npm run build`: passou
+- `git diff --check`: passou
+- `node --test scripts/production/production.test.mjs`: 35 passaram
+- Testes de serviço e rota da remediação anterior, mais `autorizacao-tenant.test.ts`: 36 passaram
+- PostgreSQL descartável: 11 subtestes passaram, como acima
+
+P0-02 residual, P1-01, P1-03 e a auditoria canônica transacional estão fechados nesta branch. HG-6 e HG-8 permanecem abertos. Parado para uma terceira revisão independente. Não é merge nem deploy.
+
+## HISTÓRICO
+
+O texto abaixo registra os marcos e a primeira remediação. Não é o estado atual. O estado atual é a seção anterior.
+
+## Objetivo histórico
 
 Entregar o Módulo Administrativo de Pacotes V1 com proteção histórica append-only, isolamento por empresa e administração de preços, sem comprometer fechamentos, contratos, preços ou documentos históricos.
 
-## Branch
+## Branch histórica
 
 `fix/v1-snapshot-comercial`
 
-Rastreia `origin/fix/v1-snapshot-comercial`. Não fazer push para `staging` nem `main`. Não fazer merge nem deploy.
-
-## Base SHA
-
-`c54a809169b825e5dde25cac1385602bafa3faf3`
-
-Confirmado após `git fetch origin` em 2026-09-26. `origin/staging` não avançou.
-
-## HEAD atual
+## HEAD da primeira remediação
 
 Marco 0: `6801304b01a772a4e2c83a67c7256f74163d1c7d`.
 
@@ -54,9 +121,9 @@ Revisão NO-GO, a partir de `6411a2d32758f5537ce52b3a30214e75e56ec85a`:
 - `2e8c300` ajusta o tipo do mock da fotografia.
 - `feae45b` remove argumento não usado nas rotas que falham fechadas.
 
-O commit deste status é o HEAD desta remediação. HG-6 e HG-8 continuam abertos.
+HISTÓRICO: o commit de status da primeira remediação era o HEAD daquela passagem. HG-6 e HG-8 já estavam abertos.
 
-## Marco atual
+## Marco da primeira aplicação no banco descartável
 
 Os Marcos 0–10 estão no código. Em 2026-09-26 as migrations 001–025 e 029–033 foram aplicadas num cluster PostgreSQL 17 criado só para esta tarefa, em `127.0.0.1:55498`, bancos `kidmais_pacotes_v1_descartavel` e `kidmais_pacotes_v1_rollback`. Não é `kidmais_manager`, nem staging, nem produção, nem o banco do Perfil na porta 55432. Pré e pós-checks de 029–033 passaram. O rollback da 030 rodou no segundo banco e removeu a função e os gatilhos.
 
@@ -240,7 +307,7 @@ Checks de pré e pós existem para 029, 030, 031, 032 e 033. Não são rollback.
 
 Não executadas em lugar nenhum desta tarefa: 020, 026, 027, 028, 999, e qualquer banco que não seja esses dois nomes na porta 55498.
 
-Próximo número livre, respeitando a reserva da 020 e da 026–028: **036**.
+HISTÓRICO, primeira passagem: o próximo número livre era **036**. Depois da 036 e da 037, o livre é 038.
 
 A 034 foi aplicada em `kidmais_pacotes_v1_descartavel` na porta 55498 depois de confirmar `current_database` e `inet_server_port()`. O precheck recusou porque já existe um `pacote_adicional` cujo pacote tem empresa e cujo adicional tem `empresa_id` nulo. Essa linha não foi reescrita nem atribuída a uma empresa. A migration instalou só a guarda futura. Depois da aplicação, `empresas` continuou 1 e os pacotes sem empresa continuaram 7. O precheck da 034 continua recusando esse cluster até uma pessoa limpar o vínculo; este documento não autoriza essa limpeza.
 
@@ -329,7 +396,7 @@ Antes disso, `npm run lint` falhou só em artefato local desta máquina:
 - Build nesta remediação: PASS (`npm run build`)
 - Smoke anterior no banco descartável: evidência do turno anterior, não desta remediação. Nesta remediação, a 034 e a 035 foram aplicadas só em `kidmais_pacotes_v1_descartavel` na porta 55498, com a prova da 035 desfeita
 - Nenhuma migration em banco real e nenhum merge: PASS
-- Push da branch: ainda não afirmado por este arquivo. O passo seguinte é `git push origin fix/v1-snapshot-comercial`, sem force
+- HISTÓRICO, primeira passagem: o push ainda não tinha sido afirmado. O push desta segunda passagem é o passo depois deste arquivo, sem force
 - Admin Shell V1: BLOQUEADO por dependência de integração. Não é HG-6 nem HG-8, e não foi copiado
 - Foundation 020 compatível com esta `empresas`: BLOQUEADO, HG-8
 
@@ -342,25 +409,19 @@ Nenhuma alternativa abaixo foi escolhida.
 3. Integrar primeiro a linha SaaS e só então pendurar `empresa_id` na tabela da 020. Pró: memberships e gatilhos ficam na Foundation. Risco: o módulo que ativa empresa em `ATIVA` contraria o gatilho da 020, e as migrations 029–033 já mudam o schema que a 020 congela.
 4. Deixar as duas linhas sem merge até uma migration de compatibilidade que não copie a 020 e não crie uma segunda `empresas`. Pró: nenhum conflito é resolvido por acidente. Risco: esta branch não pode ir para uma base que também receberá a 020 enquanto essa decisão não existir. Este é o estado congelado agora.
 
-## Remediação NO-GO
+## HISTÓRICO — primeira remediação NO-GO
 
-Classificação desta passagem, sem reabrir HG-6 nem HG-8:
+Classificação da primeira passagem. A segunda remediação, no topo deste arquivo, fecha o residual de P0-02, o clone da disponibilidade, a publicação concorrente e a auditoria duplicada. Esta lista não é o estado atual.
 
 - P0-01 confirmado e fechado em 403. Teste de rota, não só helper.
-- P0-02 confirmado. Serviço e gatilhos da 034. O vínculo histórico pacote-com-empresa para adicional sem empresa permanece no banco descartável e não foi corrigido.
+- P0-02 confirmado na primeira passagem só para o vínculo. A mudança de `empresa_id` no pai ficou para a 036.
 - P0-03 confirmado. Edição administrativa, revisão operacional, revisão inicial e o fluxo público que as chama fotografam o estado persistido. Depois da assinatura a fotografia antiga não é reescrita.
-- P1-01 confirmado. Revisão de pacote utilizado clona adicional, buffet e regra de desconto. Não clona `precos_pacote`.
+- P1-01 confirmado na primeira passagem só para adicional, buffet e desconto. A disponibilidade ficou para a segunda passagem.
 - P1-02 confirmado. Catálogo público e busca por código falham fechados.
-- P1-03 confirmado no serviço e na 035. HG-4 aberto para qualquer completude além de tabela não vazia.
-- P2-02 feito no serviço de tabela, preço, pacote e composição. A auditoria de fechamento já existente carrega o id da fotografia e a empresa quando a fotografia a devolve.
+- P1-03 confirmado na primeira passagem no serviço e na 035. Concorrência, DELETE e mudança de tabela ficaram para a 037.
+- P2-02 feito no serviço de tabela, preço, pacote e composição. A auditoria de fechamento já existente carrega o id da fotografia e a empresa quando a fotografia a devolve. A duplicidade do callback foi removida na segunda passagem.
 - P2-01 e P2-03 não foram feitos.
 - P3-01: 034 e 035 documentam quando o rollback só remove a guarda, quando ele é recusado como conserto de dado, e que a aplicação anterior convive com o schema aditivo. A 023 não foi reescrita. A 020 e a 026–028 continuam reservadas.
-
-O próximo passo é uma re-revisão independente. Não é merge, deploy, nem nova regra de produto.
-
-## Próximos passos
-
-Parado para re-revisão. Não resolver HG-6 nem HG-8. Não fazer merge nem deploy. O admin de tenant e o catálogo público permanecem fechados.
 
 ## Human Gates pendentes
 
