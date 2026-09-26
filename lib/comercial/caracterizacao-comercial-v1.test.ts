@@ -24,15 +24,14 @@ test("characterização: sete pacotes no seed, sem duração persistida e sem em
   );
 });
 
-test("characterização: ainda não existe fotografia de pacote nem migration 020/026-028", () => {
-  const nomes = migrations.join("\n");
+test("characterização: 020 e 026–028 continuam ausentes; a 029 não faz backfill", () => {
   assert.equal(migrations.some((nome) => nome.includes("_020_")), false);
   assert.equal(migrations.some((nome) => /_02[6-8]_/.test(nome)), false);
-  for (const nome of migrations) {
-    const sql = readFileSync(`database/migrations/${nome}`, "utf8");
-    assert.equal(sql.includes("fechamento_pacote_snapshots"), false, nome);
-    assert.equal(sql.includes("fechamento_pacote_composicao"), false, nome);
-  }
+  const fotografia = readFileSync("database/migrations/20260926_029_fechamento_pacote_snapshot.sql", "utf8");
+  assert.match(fotografia, /CREATE TRIGGER fechamento_pacote_snapshots_imutavel/);
+  assert.match(fotografia, /CREATE TRIGGER fechamento_pacote_composicao_imutavel/);
+  assert.equal(fotografia.includes("UPDATE fechamentos"), false);
+  assert.equal(fotografia.includes("240"), false);
 });
 
 test("characterização: contrato novo lê o cadastro vivo e o PDF v2 troca o nome", () => {
@@ -51,8 +50,8 @@ test("characterização: troca administrativa de pacote ainda não cria fotograf
   const edicao = readFileSync("lib/fechamentos/services/edicao-administrativa.service.ts", "utf8");
   const fechamento = readFileSync("lib/fechamentos/services/fechamento.service.ts", "utf8");
   assert.match(edicao, /const pacoteMudou = f\.pacoteId !== input\.pacoteId/);
-  assert.equal(edicao.includes("fechamento_pacote_snapshots"), false);
-  assert.equal(fechamento.includes("fechamento_pacote_snapshots"), false);
+  assert.equal(edicao.includes("gravarFotografiaPacoteFechamento"), false);
+  assert.match(fechamento, /await gravarFotografiaPacoteFechamento\(tx, fechamento, resumoComercial\)/);
   assert.match(edicao, /Após assinatura, prepare a alteração em uma nova versão pelo painel de Contratos/);
 });
 

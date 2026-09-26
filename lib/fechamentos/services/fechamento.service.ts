@@ -9,6 +9,7 @@ import {
   type FechamentoAdicionalRecord,
 } from "../repositories";
 import { FechamentoServiceError } from "./errors";
+import { gravarFotografiaPacoteFechamento } from "./pacote-snapshot";
 import type {
   CriarFechamentoComercialInput,
   CriarFechamentoComercialResult,
@@ -170,6 +171,8 @@ async function criarFechamentoComercialNaTransacao(
       ),
     );
   }
+
+  await gravarFotografiaPacoteFechamento(tx, fechamento, resumoComercial);
 
   const aprovacaoNegociacao = revisaoNecessaria
     ? await criarAprovacaoNegociacao(

@@ -10,76 +10,84 @@ Entregar o Módulo Administrativo de Pacotes V1 com proteção histórica append
 
 `fix/v1-snapshot-comercial`
 
-Upstream removido de propósito. A branch nasceu de `origin/staging` e não deve receber push para `staging` nem `main`.
+Sem upstream. Não fazer push para `staging` nem `main`.
 
 ## Base SHA
 
 `c54a809169b825e5dde25cac1385602bafa3faf3`
 
-Confirmado após `git fetch origin` em 2026-09-26. `origin/staging` não avançou em relação ao Goal (`c54a809`, 2026-09-24, merge do PR #8).
+Confirmado após `git fetch origin` em 2026-09-26. `origin/staging` não avançou.
 
 ## HEAD atual
 
-`c54a809169b825e5dde25cac1385602bafa3faf3` no início do Marco 0, antes do commit de caracterização.
+Marco 0: `6801304b01a772a4e2c83a67c7256f74163d1c7d`.
+
+Marco 1: o commit que inclui este arquivo. Conferir `git log -1` depois do commit.
 
 ## Marco atual
 
-Marco 0 — caracterização. Prechecks concluídos. Testes de caracterização em execução. Nenhuma migration nova.
+Marco 1 concluído no código. Marco 2 ainda não começou.
 
 ## Marcos concluídos
 
-Nenhum.
+- Marco 0 — caracterização, sem corrigir comportamento.
+- Marco 1 — fotografia append-only na criação do fechamento.
 
 ## Decisões aplicadas
 
-- Base: `origin/staging` em `c54a809`. Não partir de `origin/main` nem de `review/v1-perfil-empresa`.
-- Não reutilizar migration 020 nem 026–028.
-- Migrations novas, quando existirem, começam em `20260926_029`.
-- Empresas: tabela vazia no shape da 020, sem copiar o arquivo e sem inserir a Kidmais. Associação dos sete pacotes atuais permanece HG-6.
-- Working tree estava limpa em `v1/usuarios-acessos-layout` (`8e28b81`) antes do checkout.
+- Base `origin/staging` `c54a809`. Sem `origin/main` e sem `review/v1-perfil-empresa`.
+- Migrations novas começam em `20260926_029`. 020 e 026–028 não foram copiadas.
+- Fotografia em `fechamento_pacote_snapshots` + `fechamento_pacote_composicao`. Ponteiro `fechamentos.pacote_snapshot_vigente_id`. Sem backfill.
+- Duração e descrição gravadas como o fato do cadastro, inclusive `NULL`. Sem 240 inventado.
+- Composição congela só INCLUSO e categorias de buffet ativas. Não copia extras pagos nem escolhas do cliente.
+- Empresas vazia no shape da 020 continua decisão do Marco 5. Os sete pacotes atuais seguem sem empresa (HG-6).
 
 ## Migrations criadas
 
-Nenhuma.
+- `database/migrations/20260926_029_fechamento_pacote_snapshot.sql`
+- `database/checks/20260926_029_precheck.sql`
+- `database/checks/20260926_029_postcheck.sql`
 
-Sequência real em `origin/staging`: `001`–`006`, `006a`, `999`, `007`–`019`, `021`–`025`. Sem `020`, `026`, `027` ou `028`.
+Não executadas. Não há `psql`/`createdb` no PATH e nenhum banco descartável foi criado. Nenhum banco real foi acessado.
 
 ## Testes executados
 
-Sem banco e sem `.env.local`, em 2026-09-26:
+Sem banco:
 
 - `lib/comercial/caracterizacao-comercial-v1.test.ts` — 6 passaram
-- `lib/comercial/pacotes-v1.test.ts` — 3 passaram
-- `lib/comercial/pizza-party.test.ts` — 4 passaram
-- `lib/fechamentos/convidados.test.ts` — 5 passaram
-- `lib/festas/buffet.test.ts` — 3 passaram
-- `lib/contratos/services/snapshot-core.test.ts` — 4 passaram
-- `lib/contratos/documento/documento-core.test.ts` — 36 passaram
-- `lib/comercial/condicao-pagamento.test.ts` — 22 passaram
-
-Total da suíte combinada antes do ajuste final: 77 passaram e o arquivo novo falhou ao importar o serviço de edição. Depois de caracterizar a lista pelo fonte, o arquivo novo passou com 6 testes. Nenhum comportamento de produção foi alterado.
+- `lib/fechamentos/services/pacote-snapshot.test.ts` — 1 passou
+- `scripts/production/production.test.mjs` — 35 passaram
+- `npx tsc --noEmit` — passou
 
 ## Resultados
 
-Precheck: fetch ok; staging inalterado em `c54a809`; árvore limpa; sequência `001`–`025` sem `020`/`026`–`028`; branch criada sem upstream. Caracterização congelou o comportamento atual, incluindo a divergência da salada na migration 023.
+Fechamento novo chama `gravarFotografiaPacoteFechamento` na mesma transação, depois dos adicionais. UPDATE/DELETE da fotografia são recusados pelo trigger. Fechamentos antigos permanecem sem ponteiro. A edição administrativa pré-assinatura ainda não cria nova fotografia (Marco 3).
 
 ## Riscos
 
-- A branch chegou a rastrear `origin/staging` no `checkout -b`. O upstream foi removido antes de qualquer push.
-- Migration 023 marca `SALADA_PREMIUM` como INCLUSO só no Premium. A lista hardcoded de `adicionaisIncluidos` trata combos da Completa como inclusos, enquanto a 023 os marca `INDISPONIVEL`. Caracterizado, não corrigido.
-- `duracao_minutos` do seed está vazio. A prosa da UI não é histórico persistido.
+- A migration 029 não foi aplicada em PostgreSQL. A primeira aplicação precisa ser num banco local descartável, com precheck e postcheck.
+- O inventário de produção passou a aceitar a 029. Continua recusando 020 e arquivos fora da lista.
+- Contrato ainda lê o cadastro vivo. PDF v2 ainda sobrescreve o nome.
 
 ## Próximos passos
 
-Concluir e registrar os testes do Marco 0. Commit. Em seguida Marco 1: `fechamento_pacote_snapshots` e `fechamento_pacote_composicao`, somente em banco local descartável.
+Marco 2: contrato com fotografia usa schema novo; schema 1 e PDF histórico permanecem. Remover só a substituição de nome em `festas-v2.ts` quando o schema novo já tem nome congelado.
 
 ## Human Gates pendentes
 
-- HG-6: não associar os sete pacotes atuais a uma empresa sem identidade comprovável.
-- HG-8 registrado e decidido: `empresas` vazia será criada no Marco 5; a 020 precisará ser reajustada depois. Não executar a 020.
+- HG-6: não associar os sete pacotes atuais sem identidade comprovável.
+- HG-8 decidido: `empresas` vazia no Marco 5; a 020 será reajustada depois. Não executar a 020.
 - HG-1, HG-2, HG-3, HG-4, HG-5 e HG-7: não acionados.
 
 ## Arquivos principais alterados
 
+- `database/migrations/20260926_029_fechamento_pacote_snapshot.sql`
+- `database/checks/20260926_029_precheck.sql`
+- `database/checks/20260926_029_postcheck.sql`
+- `lib/fechamentos/services/pacote-snapshot.ts`
+- `lib/fechamentos/services/pacote-snapshot.test.ts`
+- `lib/fechamentos/services/fechamento.service.ts`
 - `lib/comercial/caracterizacao-comercial-v1.test.ts`
+- `scripts/production/check-migrations.mjs`
+- `scripts/production/production.test.mjs`
 - `docs/work/PACOTES-V1-STATUS.md`
