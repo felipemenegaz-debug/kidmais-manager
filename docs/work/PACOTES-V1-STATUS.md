@@ -10,7 +10,7 @@ Entregar o Módulo Administrativo de Pacotes V1 com proteção histórica append
 
 `fix/v1-snapshot-comercial`
 
-Sem upstream. Não fazer push para `staging` nem `main`.
+Rastreia `origin/fix/v1-snapshot-comercial`. Não fazer push para `staging` nem `main`. Não fazer merge nem deploy.
 
 ## Base SHA
 
@@ -41,6 +41,20 @@ Marco 8: `78e03c0b799c166d13f3874f7e28f26cd393cff7`.
 Marco 9: `0659565ee19c393f9fd879882daeb7902e90cca6`.
 
 Marco 10: `9e5d21b7299fcef82eaef1dadd2823914756a624`.
+
+Revisão NO-GO, a partir de `6411a2d32758f5537ce52b3a30214e75e56ec85a`:
+
+- `74891a6` recusa operação administrativa de tenant sem empresa comprovada.
+- `49ca25f` recusa vínculo comercial entre empresas.
+- `8f7b2ce` fotografa toda mudança comercial persistida do fechamento.
+- `7a3da45` clona a composição na revisão de pacote utilizado.
+- `8f0d0de` fecha o catálogo público sem empresa comprovada.
+- `84ffd1f` valida a tabela antes de publicar.
+- `990451e` audita mutação comercial na mesma transação.
+- `2e8c300` ajusta o tipo do mock da fotografia.
+- `feae45b` remove argumento não usado nas rotas que falham fechadas.
+
+O commit deste status é o HEAD desta remediação. HG-6 e HG-8 continuam abertos.
 
 ## Marco atual
 
@@ -215,6 +229,8 @@ Não existe tabela de ledger. A execução abaixo é a sonda somente leitura de 
 | `20260926_031_empresas_comercial.sql` | `empresas` vazia e `empresa_id` nulo em pacotes, tabelas e adicionais. Recusa se `empresas` já existir. | catálogo comercial; ausência de `empresas`, `estabelecimentos`, `memberships`, `membership_estabelecimentos` | não |
 | `20260926_032_pacote_revisao.sql` | Revisão, vigência e arquivamento do pacote. | 031 e 029, mais `fechamentos` e `fechamento_revisoes` | não |
 | `20260926_033_tabela_preco_publicacao.sql` | Coluna `publicada_em`. Não liga `ativa` nem recalcula fechamento. | `tabelas_preco.empresa_id` da 031 | não |
+| `20260926_034_integridade_tenant_comercial.sql` | Guarda futura de vínculo cruzado em preço de pacote, composição e preço de adicional. Não reescreve linha. | catálogo com `empresa_id` | `database/rollback/20260926_034_integridade_tenant_comercial_down.sql` só remove função e gatilhos |
+| `20260926_035_publicacao_tabela_invariantes.sql` | Guarda de publicação: tabela vazia, empresa, faixa e vigência. Não publica linha. HG-4 não define cobertura além de não vazia. | `publicada_em` e `empresa_id` | `database/rollback/20260926_035_publicacao_tabela_invariantes_down.sql` só remove função e gatilhos |
 
 Checks de pré e pós existem para 029, 030, 031, 032 e 033. Não são rollback.
 
@@ -224,7 +240,11 @@ Checks de pré e pós existem para 029, 030, 031, 032 e 033. Não são rollback.
 
 Não executadas em lugar nenhum desta tarefa: 020, 026, 027, 028, 999, e qualquer banco que não seja esses dois nomes na porta 55498.
 
-Próximo número livre, respeitando a reserva da 020 e da 026–028: **034**.
+Próximo número livre, respeitando a reserva da 020 e da 026–028: **036**.
+
+A 034 foi aplicada em `kidmais_pacotes_v1_descartavel` na porta 55498 depois de confirmar `current_database` e `inet_server_port()`. O precheck recusou porque já existe um `pacote_adicional` cujo pacote tem empresa e cujo adicional tem `empresa_id` nulo. Essa linha não foi reescrita nem atribuída a uma empresa. A migration instalou só a guarda futura. Depois da aplicação, `empresas` continuou 1 e os pacotes sem empresa continuaram 7. O precheck da 034 continua recusando esse cluster até uma pessoa limpar o vínculo; este documento não autoriza essa limpeza.
+
+A 035 passou no precheck e no postcheck do mesmo banco. Numa transação desfeita, a guarda recusou tabela vazia, preço de outra empresa, faixa sobreposta, novo preço em tabela publicada, segundo carimbo e vigência publicada sobreposta. Uma publicação estruturalmente válida passou e foi desfeita. Contagens depois do rollback: `empresas` 1, pacotes sem empresa 7, tabelas com `publicada_em` 1. A 035 não rodou no banco de rollback.
 
 ### 3. HG-6
 
@@ -292,24 +312,24 @@ Antes disso, `npm run lint` falhou só em artefato local desta máquina:
 - Branch a partir de `origin/staging`, commits por marco e status: PASS
 - Caracterização do Marco 0 sem correção silenciosa: PASS
 - Fechamento novo com fotografia e composição na mesma transação; legado sem backfill: PASS no banco descartável
-- Contrato e texto schema 2 usam a fotografia; schema 1 e documentos históricos intactos: PASS
+- Contrato e texto schema 2 usam a fotografia: nesta remediação, `fotografia-caminhos.test.ts` renderizou o texto oficial e o PDF com o nome congelado. Os 37 testes de documento não foram reexecutados neste turno
 - PDF HTTP do contrato novo: PARCIAL. O texto oficial foi renderizado; o endpoint não emitiu o arquivo
 - Troca pré-assinatura com nova fotografia, auditoria e motivo: PASS
 - Pós-assinatura não substitui: PASS, com a marcação de assinatura desfeita na mesma transação
 - Preço utilizado protegido e rollback da 030 no banco descartável: PASS
-- Isolamento por `empresa_id` e teste negativo: PASS
+- Isolamento por `empresa_id` e teste negativo: FAIL-CLOSED. A sessão não comprova empresa. As rotas administrativas de pacote, composição, catálogo e tabela respondem 403 e não consultam o banco. O teste de rota cobre usuário A operando a empresa B. Não há membership e isso não foi inventado
 - Sete pacotes na empresa Kidmais: BLOQUEADO, HG-6
-- API administrativa sem exclusão física: PASS
-- UX de todas as operações no browser: PARCIAL
-- Hardcodes removidos só onde o domínio sustenta: PASS
-- Admin de tabelas separado, sem recalcular histórico e sem exigir PDF: PASS
-- Fechamento público consumindo a tabela publicada da empresa: NÃO EXECUTADO. Continua na tabela legada sem empresa, de propósito, até decisão
-- Typecheck: PASS
-- Lint do código da branch: PASS
-- `npm run lint` no repositório inteiro: PARCIAL. Passou só depois de excluir artefato local; ver seção 7
-- Smoke no banco descartável: PASS
+- API administrativa sem exclusão física: PASS quanto à ausência de DELETE. O CRUD de tenant está bloqueado em 403 até existir empresa comprovada no servidor. A tela ainda envia `empresaId` e recebe essa recusa. Isso não foi reaberto para manter o botão funcionando
+- UX de todas as operações no browser: NÃO REEXECUTADA nesta remediação. O admin de pacotes fica atrás do 403. P2-01 permanece aberto
+- Hardcodes removidos só onde o domínio sustenta: não reavaliado neste turno
+- Admin de tabelas separado, sem recalcular histórico e sem exigir PDF: a rota está em 403. O serviço recusa tabela vazia, pacote de outra empresa, faixa inválida ou sobreposta, vigência publicada sobreposta e publicação concorrente. HG-4 continua aberto: não se exige precificar todos os pacotes nem as duas categorias
+- Fechamento público e catálogo por código: FAIL-CLOSED. O mesmo código em duas empresas não é escolhido. `ativo` não publica. Preço e data do fluxo público (P2-03) não foram refeitos
+- Typecheck nesta remediação: PASS (`npx tsc --noEmit` e o TypeScript do `next build`)
+- Lint nesta remediação: PASS (`npm run lint`, exit 0, sem aviso). Os ignores locais já existentes não foram ampliados
+- Build nesta remediação: PASS (`npm run build`)
+- Smoke anterior no banco descartável: evidência do turno anterior, não desta remediação. Nesta remediação, a 034 e a 035 foram aplicadas só em `kidmais_pacotes_v1_descartavel` na porta 55498, com a prova da 035 desfeita
 - Nenhuma migration em banco real e nenhum merge: PASS
-- Push da branch: NÃO EXECUTADO. Sem upstream; o push anterior foi recusado por GH007 e não foi repetido
+- Push da branch: ainda não afirmado por este arquivo. O passo seguinte é `git push origin fix/v1-snapshot-comercial`, sem force
 - Admin Shell V1: BLOQUEADO por dependência de integração. Não é HG-6 nem HG-8, e não foi copiado
 - Foundation 020 compatível com esta `empresas`: BLOQUEADO, HG-8
 
@@ -322,15 +342,32 @@ Nenhuma alternativa abaixo foi escolhida.
 3. Integrar primeiro a linha SaaS e só então pendurar `empresa_id` na tabela da 020. Pró: memberships e gatilhos ficam na Foundation. Risco: o módulo que ativa empresa em `ATIVA` contraria o gatilho da 020, e as migrations 029–033 já mudam o schema que a 020 congela.
 4. Deixar as duas linhas sem merge até uma migration de compatibilidade que não copie a 020 e não crie uma segunda `empresas`. Pró: nenhum conflito é resolvido por acidente. Risco: esta branch não pode ir para uma base que também receberá a 020 enquanto essa decisão não existir. Este é o estado congelado agora.
 
+## Remediação NO-GO
+
+Classificação desta passagem, sem reabrir HG-6 nem HG-8:
+
+- P0-01 confirmado e fechado em 403. Teste de rota, não só helper.
+- P0-02 confirmado. Serviço e gatilhos da 034. O vínculo histórico pacote-com-empresa para adicional sem empresa permanece no banco descartável e não foi corrigido.
+- P0-03 confirmado. Edição administrativa, revisão operacional, revisão inicial e o fluxo público que as chama fotografam o estado persistido. Depois da assinatura a fotografia antiga não é reescrita.
+- P1-01 confirmado. Revisão de pacote utilizado clona adicional, buffet e regra de desconto. Não clona `precos_pacote`.
+- P1-02 confirmado. Catálogo público e busca por código falham fechados.
+- P1-03 confirmado no serviço e na 035. HG-4 aberto para qualquer completude além de tabela não vazia.
+- P2-02 feito no serviço de tabela, preço, pacote e composição. A auditoria de fechamento já existente carrega o id da fotografia e a empresa quando a fotografia a devolve.
+- P2-01 e P2-03 não foram feitos.
+- P3-01: 034 e 035 documentam quando o rollback só remove a guarda, quando ele é recusado como conserto de dado, e que a aplicação anterior convive com o schema aditivo. A 023 não foi reescrita. A 020 e a 026–028 continuam reservadas.
+
+O próximo passo é uma re-revisão independente. Não é merge, deploy, nem nova regra de produto.
+
 ## Próximos passos
 
-Parado no Human Gate. Não resolver HG-6 nem HG-8. Não fazer merge, deploy, push, nem migration adicional. O fechamento público continua na tabela legada sem empresa.
+Parado para re-revisão. Não resolver HG-6 nem HG-8. Não fazer merge nem deploy. O admin de tenant e o catálogo público permanecem fechados.
 
 ## Human Gates pendentes
 
 - HG-6: aberto. Não associar os sete pacotes.
 - HG-8: aberto. A 020 não foi copiada, alterada nem executada. O conflito de `empresas` não foi resolvido.
-- HG-1, HG-2, HG-3, HG-4, HG-5 e HG-7: não acionados. Restaurar arquivado continua recusado, sem virar decisão nova.
+- HG-4: aberto. Publicar não inventa cobertura de todos os pacotes nem das duas categorias. Tabela vazia continua recusada.
+- HG-1, HG-2, HG-3, HG-5 e HG-7: não acionados. Restaurar arquivado continua recusado, sem virar decisão nova.
 
 ## Arquivos principais alterados
 
