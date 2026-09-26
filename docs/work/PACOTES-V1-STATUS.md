@@ -2,14 +2,87 @@
 
 Documento temporário de continuidade. Não é fonte funcional. A decisão de produto permanece no Second Brain e no Goal Mestre. O Goal permanece aberto.
 
-## Estado atual — terceira remediação NO-GO
+## Estado atual — quarta remediação NO-GO
+
+- Branch: `fix/v1-snapshot-comercial`
+- Upstream: `origin/fix/v1-snapshot-comercial`
+- Base: `origin/staging` = `c54a809169b825e5dde25cac1385602bafa3faf3` (`git merge-base` igual). 0 atrás. 47 commits à frente de `origin/staging` antes deste arquivo; este status é o quadragésimo oitavo. Não fazer push para `staging` nem `main`. Não fazer merge nem deploy.
+- Código desta passagem, antes deste status: `5e2a670474f3552adfbc45b9ac0d0dcfd65bb4a3`
+- Revisado e recusado na quarta revisão: `d9847a2cb68d5d78bd709396bf79805e291d4f6a`
+- Este arquivo entra no commit seguinte. O HEAD remoto, depois do push sem force, é esse commit de status.
+
+Commits desta passagem, autor e committer Felipe Menegaz `<324788905+felipemenegaz-debug@users.noreply.github.com>`:
+
+| SHA | Assunto |
+| --- | --- |
+| `9c9e8ca387b34b34af3e4ec57c501bc6bc9a9a1f` | recusa vínculo misto sem a exceção histórica |
+| `f39a8e025e974b3ba6332c67924a7c35ba762ef5` | mantém a revisão do pacote na mesma empresa |
+| `bc6cee86099004fc40e47e9abe6735895c660fcd` | relê a faixa publicada depois da trava da empresa |
+| `5e2a670474f3552adfbc45b9ac0d0dcfd65bb4a3` | prova os três buracos no PostgreSQL descartável |
+
+### Classificação
+
+- Bloqueador 1, P0, exceção A/NULL: a 038 ainda contém, no arquivo publicado, a lista branca de `FESTA_LOCAL` → `SALADA_PREMIUM`. A 040 não repete essa lista. NULL/NULL e a mesma empresa passam; empresa diferente, empresa/NULL e NULL/empresa recusam. A migration trava as tabelas antes de validar e aborta a transação inteira se qualquer desencontro existir, inclusive a linha histórica. Não reescreve nem apaga essa linha. No banco descartável a 040 não foi aplicada: o precheck e a migration falharam, a transação voltou atrás e a guarda nova não ficou instalada. Essa falha é a prova. P0-02 não está fechado nesse banco: a função `kidmais_038_falhar_se_incompativel` instalada ainda tolera o par histórico até a 040 poder rodar.
+- Bloqueador 2, P0, `revisao_anterior_id` entre empresas: fechado na 041, aplicada em `kidmais_pacotes_v1_descartavel`. SQL direto que cria ou atualiza linhagem entre empresas, empresa/NULL ou NULL/empresa é recusado. A mesma empresa e NULL/NULL passam. Os sete pacotes legados não receberam empresa.
+- Bloqueador 3, P1, reativação concorrente: fechado na 042, aplicada no mesmo banco. Depois da trava por empresa, `ativo` false→true em tabela publicada relê a sobreposição. Duas reativações sobrepostas não permanecem as duas ativas. Duas sem sobreposição confirmam. `observacoes` continua editável. Outra empresa não espera a trava. P1-03 fica fechado só quanto a essa corrida. HG-4 continua aberto.
+- P2-01 e P2-03: não tratados. A UX admin e o preço/data públicos não foram piorados.
+
+### Gates que continuam abertos
+
+- HG-4 aberto. Publicar não exige todos os pacotes nem as duas categorias. Tabela vazia continua recusada. Não houve completude comercial inventada.
+- HG-6 aberto. Os sete pacotes legados seguem com `empresa_id` NULL. Não foram associados. Atribuir empresa a esse legado exige uma migration posterior, específica e auditável, que substitua a guarda. Não é bypass de gatilho e não há parâmetro de sessão. NULL para empresa continua recusado. Esta passagem não cria a empresa Kidmais.
+- HG-8 aberto. A Foundation 020 não foi copiada, alterada nem executada. Membership não foi adicionada.
+- O catálogo público permanece fechado.
+- Fail-closed: sem empresa comprovada na sessão real, as rotas administrativas de pacote, composição, catálogo e tabela respondem 403 e não consultam o banco.
+
+### Migrations
+
+036 a 039 não foram reescritas. 020 e 026–028 continuam reservadas. A 023 não foi reescrita. O próximo número livre passa a ser 043.
+
+- `20260926_040_integridade_sem_excecao_nominal.sql` — sem lista branca. Trava o catálogo, valida e só então troca a função. Qualquer desencontro, inclusive `FESTA_LOCAL` → `SALADA_PREMIUM` com empresa só no pacote, aborta a migration. Não corrige a linha. Não foi aplicada em `kidmais_pacotes_v1_descartavel` nem em `kidmais_pacotes_v1_rollback`. O DOWN, executado só dentro de transação desfeita no teste da guarda, devolve o corpo da 038. Nenhum DOWN ficou aplicado.
+- `20260926_041_revisao_mesmo_tenant.sql` — gatilho em `pacotes`. Trava a tabela antes de validar. Não havia revisão cruzada, então a migration passou. FK composta não foi usada: MATCH SIMPLE aceitaria NULL → empresa.
+- `20260926_042_reativacao_faixa_publicada.sql` — a mesma trava por empresa da 039. Depois dela, a reativação de preço em tabela publicada relê a faixa. Não havia faixa ativa já sobreposta, então a migration passou. Não despublica tabela e não inventa HG-4.
+
+### Linha histórica A/NULL
+
+O vínculo `FESTA_LOCAL` → `SALADA_PREMIUM` com empresa só no pacote continua 1. Não foi reescrito, apagado nem associado a tenant. A 040 não o coloca em lista branca. A função da 038 que ainda está instalada no banco descartável continua contendo essa tolerância, porque a 040 abortou antes de substituí-la. Sete pacotes com `empresa_id` NULL.
+
+### Testes no PostgreSQL descartável
+
+Banco `kidmais_pacotes_v1_descartavel`, `127.0.0.1:55498`, usuário `kidmais_descartavel`, sem senha. `current_database()` e `inet_server_port()` conferidos. Duas execuções de `lib/comercial/pacotes-v1-remediacao.postgres.test.ts`: 30 subtestes, 0 falhas, nas duas. A 041 e a 042 foram aplicadas nessa suíte. A 040 não.
+
+- A 040, no arquivo e no precheck, abortou por causa do vínculo histórico. Depois do rollback a guarda nova não existia e a linha continuava 1.
+- `psql -f` da 040 no mesmo banco abortou com `040: vínculo incompatível. A migration não corrige dado.` A sessão encerrou a transação. A linha continuou 1 e a função da 040 continuou ausente.
+- Numa transação desfeita, a linha histórica foi escondida e um vínculo empresa/NULL diferente foi introduzido. A 040 abortou de novo. O rollback devolveu a linha histórica e não deixou empresa `t040`.
+- Na mesma forma de transação desfeita, sem a linha histórica, a 040 instalou a guarda. NULL/NULL e a mesma empresa passaram. Empresa/NULL, NULL/empresa e empresas diferentes fizeram a função nova falhar. Mudar `COMPACTA` de nulo para empresa continuou recusado pela 036. O DOWN da 040, ainda dentro da transação, removeu a guarda nova. O rollback externo devolveu a linha e a função antiga.
+- SQL direto de `revisao_anterior_id`: a mesma empresa e NULL/NULL passaram; A/B, empresa/NULL e NULL/empresa foram recusados no UPDATE e no INSERT. Durante a trava de `pacotes`, a outra sessão não gravou o cruzamento; depois do commit, foi recusado. Nenhuma revisão cruzada permaneceu.
+- Com duas conexões, duas reativações de faixas sobrepostas numa tabela publicada: a segunda esperou a trava consultiva e, depois do commit da primeira, foi recusada. Sobrou uma faixa ativa nesse par. Não ficou sobreposição ativa. Duas reativações sem sobreposição confirmaram. `observacoes` foi editada enquanto a mesma empresa segurava a trava. A outra empresa reativou a própria faixa sem esperar.
+- Depois dos testes: 7 pacotes com `empresa_id` NULL. O vínculo misto continua 1. Nenhuma empresa sintética `t036`–`t042` permaneceu. A 040 não está instalada. A 041 e a 042 estão.
+
+### Validação desta passagem
+
+- PostgreSQL descartável: 30 subtestes, duas vezes, 0 falhas
+- `npx tsc --noEmit`: passou
+- `npm run lint`: passou, exit 0
+- `npm run build`: passou
+- `git diff --check`: passou
+- `node --test scripts/production/production.test.mjs`: 35 passaram
+- Testes de serviço e rota sem banco, mais `autorizacao-tenant.test.ts`: 44 passaram
+
+P0-02 não está fechado no banco descartável: a lista branca da 038 continua instalada enquanto a linha histórica impedir a 040. O buraco da revisão entre empresas está fechado na 041. P1-03 está fechado na 042 quanto à reativação concorrente. HG-4, HG-6 e HG-8 permanecem abertos. O catálogo público permanece fechado. Os sete pacotes continuam sem empresa. A linha histórica A/NULL continua presente, não foi reescrita e não está na lista branca da 040; a função da 038 no banco ainda a tolera. Parado para uma quinta revisão independente. Não é merge nem deploy.
+
+## HISTÓRICO — terceira remediação NO-GO
+
+A quarta revisão recusou o fechamento abaixo. A 038 abre exceção nominal para o vínculo histórico empresa/NULL. P0-02 e P1-03 não estavam fechados. O texto abaixo não é o estado atual.
+
+## Estado declarado na terceira passagem
 
 - Branch: `fix/v1-snapshot-comercial`
 - Upstream: `origin/fix/v1-snapshot-comercial`
 - Base: `origin/staging` = `c54a809169b825e5dde25cac1385602bafa3faf3` (`git merge-base` igual). 0 atrás. 42 commits à frente de `origin/staging` antes deste arquivo; este status é o quadragésimo terceiro. Não fazer push para `staging` nem `main`. Não fazer merge nem deploy.
 - Código desta passagem, antes deste status: `bc6b7c3b08e774458380356013780a587ae2e423`
 - Revisado e recusado na terceira revisão: `8d0bd00dec3320c412baa2110d4a06ec65c60ca3`
-- Este arquivo entra no commit seguinte. O HEAD remoto, depois do push sem force, é esse commit de status.
+- Este arquivo era o commit de status daquela passagem: `d9847a2cb68d5d78bd709396bf79805e291d4f6a`.
 
 Commits desta passagem, autor e committer Felipe Menegaz `<324788905+felipemenegaz-debug@users.noreply.github.com>`:
 
@@ -18,10 +91,10 @@ Commits desta passagem, autor e committer Felipe Menegaz `<324788905+felipemeneg
 | `77c0cf16d32dfd72710c59fc499c4ac212594a5b` | fecha a corrida de tenant e de publicação sob trava por empresa |
 | `bc6b7c3b08e774458380356013780a587ae2e423` | prova concorrência de tenant e de publicação no PostgreSQL |
 
-### Classificação
+### Classificação declarada na terceira passagem
 
-- P0-02: fechado na 038, no banco descartável. A 036 continua aplicada. A 038 trava o catálogo antes de validar, recusa empresas diferentes e qualquer outro desencontro, e não abre exceção no gatilho. `empresa_id` do pai segue imutável, inclusive de nulo para empresa.
-- P1-03: fechado na 039, no banco descartável. Publicação, INSERT, UPDATE, DELETE, mudança de tabela e desativação do último preço usam a mesma trava por empresa. Empresas diferentes não esperam uma à outra. HG-4 continua aberto.
+- P0-02 foi declarado fechado na 038. A quarta revisão recusou. A 038 trava o catálogo antes de validar e recusa empresas diferentes, mas o critério instalado lista como tolerado o `pacote_adicional` de `FESTA_LOCAL` para `SALADA_PREMIUM` com empresa só no pacote. Isso é exceção nominal. `empresa_id` do pai segue imutável, inclusive de nulo para empresa.
+- P1-03 foi declarado fechado na 039. A quarta revisão recusou a reativação concorrente: a trava vinha sem reler a faixa. HG-4 continuava aberto.
 - P1-01 e a auditoria canônica transacional: fechados na passagem anterior. Não foram reabertos.
 - P2-01 e P2-03: não tratados. A UX admin e o preço/data públicos não foram piorados.
 
@@ -35,16 +108,16 @@ Commits desta passagem, autor e committer Felipe Menegaz `<324788905+felipemeneg
 
 ### Migrations
 
-036 e 037 não foram reescritas. Já estavam aplicadas em `kidmais_pacotes_v1_descartavel` na porta `55498`. O banco `kidmais_pacotes_v1_rollback` não foi alterado. 020 e 026–028 continuam reservadas. A 023 não foi reescrita. O próximo número livre passa a ser 040.
+036 e 037 não foram reescritas. Já estavam aplicadas em `kidmais_pacotes_v1_descartavel` na porta `55498`. O banco `kidmais_pacotes_v1_rollback` não foi alterado. 020 e 026–028 continuam reservadas. A 023 não foi reescrita. O próximo número livre, naquela passagem, passou a ser 040.
 
-- `20260926_038_integridade_tenant_atomica.sql` — `LOCK TABLE` em `adicionais`, `pacote_adicionais`, `pacotes`, `precos_adicional`, `precos_pacote` e `tabelas_preco` antes da validação. Empresas diferentes, empresa/NULL e NULL/empresa abortam a migration inteira, exceto o `pacote_adicional` já existente de `FESTA_LOCAL` para `SALADA_PREMIUM` com empresa só no pacote. Essa linha não foi reescrita e não recebeu tenant. Não é exceção do gatilho: vínculo novo nesse formato continua recusado. NULL/NULL permanece válido. A mesma empresa nos dois lados permanece válida. O gatilho do pai continua recusando qualquer mudança de `empresa_id`.
-- `20260926_039_publicacao_serial_completa.sql` — a mesma `kidmais_037_trava_publicacao` por empresa. O preço recusa no BEFORE o que já está publicado e, no AFTER, espera a trava depois da chave estrangeira, para não ciclar com a publicação. INSERT, UPDATE de cálculo, DELETE, mudança de tabela e desativação que esvaziaria a publicação esperam essa trava e relêem o estado que vai confirmar. `observacoes` não entra na trava. Vigência já sobreposta aborta a migration. Não despublica tabela vazia já existente.
+- `20260926_038_integridade_tenant_atomica.sql` — `LOCK TABLE` em `adicionais`, `pacote_adicionais`, `pacotes`, `precos_adicional`, `precos_pacote` e `tabelas_preco` antes da validação. Empresas diferentes, empresa/NULL e NULL/empresa abortam a migration inteira, exceto o `pacote_adicional` já existente de `FESTA_LOCAL` para `SALADA_PREMIUM` com empresa só no pacote. Essa linha não foi reescrita e não recebeu tenant. AFIRMAÇÃO RECUSADA pela quarta revisão: tratar esse par como se não fosse exceção. O arquivo da 038 continua com a lista branca. NULL/NULL permanece válido. A mesma empresa nos dois lados permanece válida. O gatilho do pai continua recusando qualquer mudança de `empresa_id`.
+- `20260926_039_publicacao_serial_completa.sql` — a mesma `kidmais_037_trava_publicacao` por empresa. O preço recusa no BEFORE o que já está publicado e, no AFTER, espera a trava depois da chave estrangeira, para não ciclar com a publicação. INSERT, UPDATE de cálculo, DELETE, mudança de tabela e desativação que esvaziaria a publicação esperam essa trava e relêem o estado que vai confirmar. A reativação de faixas sobrepostas não era relida depois da trava. `observacoes` não entra na trava. Vigência já sobreposta aborta a migration. Não despublica tabela vazia já existente.
 
 Rollback: os DOWN da 038 e da 039 foram executados dentro de transação desfeita no banco principal. A guarda voltou. Nenhum DOWN foi deixado aplicado.
 
 ### Testes no PostgreSQL descartável
 
-Banco `kidmais_pacotes_v1_descartavel`, `127.0.0.1:55498`, usuário `kidmais_descartavel`, sem senha. `current_database()` e `inet_server_port()` conferidos. Duas execuções de `lib/comercial/pacotes-v1-remediacao.postgres.test.ts`: 22 subtestes, 0 falhas, nas duas.
+Banco `kidmais_pacotes_v1_descartavel`, `127.0.0.1:55498`, usuário `kidmais_descartavel`, sem senha. `current_database()` e `inet_server_port()` conferidos. Duas execuções de `lib/comercial/pacotes-v1-remediacao.postgres.test.ts`: 22 subtestes, 0 falhas, nas duas. Esses 22 não cobriam a exceção nominal nem a reativação concorrente de faixas.
 
 - 038 com preço entre duas empresas, com pacote de empresa ligado a adicional NULL que não é o par histórico, e com pacote NULL ligado a adicional de empresa: a migration abortou e a transação não gravou a guarda.
 - Durante a trava da 038, outra sessão não conseguiu mudar `empresa_id` de `COMPACTA`. Depois do commit, a mudança foi recusada. `COMPACTA` segue sem empresa.
@@ -63,7 +136,7 @@ Banco `kidmais_pacotes_v1_descartavel`, `127.0.0.1:55498`, usuário `kidmais_des
 - `node --test scripts/production/production.test.mjs`: 35 passaram
 - Testes de serviço e rota anteriores, mais `autorizacao-tenant.test.ts`: 47 passaram
 
-P0-02 e P1-03 estão fechados nesta branch. HG-4, HG-6 e HG-8 permanecem abertos. O catálogo público permanece fechado. Os sete pacotes continuam sem empresa. Parado para uma quarta revisão independente. Não é merge nem deploy.
+AFIRMAÇÃO RECUSADA: P0-02 e P1-03 estavam fechados nesta branch. HG-4, HG-6 e HG-8 permaneciam abertos. O catálogo público permanecia fechado. Os sete pacotes continuavam sem empresa. A passagem parou para a quarta revisão independente. Não foi merge nem deploy.
 
 ## HISTÓRICO — segunda remediação NO-GO
 
