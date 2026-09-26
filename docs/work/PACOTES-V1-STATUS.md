@@ -2,7 +2,72 @@
 
 Documento temporário de continuidade. Não é fonte funcional. A decisão de produto permanece no Second Brain e no Goal Mestre. O Goal permanece aberto.
 
-## Estado atual — quarta remediação NO-GO
+## Estado atual — HG-8 implementado, Goal aberto
+
+- Branch: `integration/saas-commercial-foundation`
+- Upstream pretendido: `origin/integration/saas-commercial-foundation`. Não rastrear este trabalho em `origin/staging`.
+- Base: `origin/staging` = `c54a809169b825e5dde25cac1385602bafa3faf3`. `git merge-base` igual. `origin/staging` não foi movido. O ref local `staging` continua em `9494588bebb2b352e04678f81de1b3b4e976924f`. Não fazer push para `staging` nem `main`. Não fazer merge nem deploy.
+- Ancestral comercial: `origin/fix/v1-snapshot-comercial` = `d148c163feb97d656f48b52bc991cbf3cabea483`. A branch de integração foi criada a partir de `origin/staging` e avançada só até esse commit, porque a linha comercial já descia dele.
+- Código desta passagem, antes deste status: `9b260b4b66f75014a022bc5f0655a4ca95f42c55`
+- Este arquivo entra no commit seguinte. O HEAD da branch, depois desse commit, é o commit de status.
+
+Commits desta passagem, autor e committer Felipe Menegaz `<324788905+felipemenegaz-debug@users.noreply.github.com>`:
+
+| SHA | Assunto |
+| --- | --- |
+| `0e00d8909dd0960ad7f7fbecb62f6931cb438dcd` | tabelas de tenant sem abrir ativação de membership |
+| `86cc8ec16c348573fe54fdb02bfce3e3a464a1f0` | restringe as transições da empresa e audita cada uma |
+| `7dfe018387c68baf0a481e93eae9a59f78607038` | abre só as transições de membership aprovadas |
+| `ca89dba67ebce52d0fe33786c32051c11f9af02a` | prova a membership dentro da transação da operação |
+| `0843d66a65839e4c79d6dbffe30b17b9440cdac0` | provisiona tenant sintético sem semear Kidmais |
+| `1ac95a9f14050a3d62837d3327db414812d5413f` | reabre as APIs administrativas de pacote atrás da prova de tenant |
+| `9b260b4b66f75014a022bc5f0655a4ca95f42c55` | mantém a prova de INSERT da 043 depois do ciclo de membership |
+
+### Decisões fechadas
+
+ADR-003, estratégia C, permanece. Não foi reescrita.
+
+- HG8-D1 aprovado. Transições da empresa: `PROVISIONAMENTO` → `ATIVA`, `PROVISIONAMENTO` → `DESATIVADA`, `ATIVA` → `SUSPENSA`, `ATIVA` → `DESATIVADA`, `SUSPENSA` → `DESATIVADA`. Sem reativação. `DESATIVADA` é terminal. A guarda nova é `kidmais_044_guard_empresas`. A função `kidmais_031_guard_empresas` permanece para o rollback reapontar o gatilho. O arquivo da 031 não foi editado. Ao entrar em `DESATIVADA`, a guarda grava `desativado_em`. INSERT continua só `PROVISIONAMENTO`. DELETE e reativação física continuam recusados. Cada transição é explícita e auditada em `auditoria`, na mesma transação, só com o status.
+- HG8-D2 aprovado com simplificação. Membership: `PENDENTE`, `ATIVA`, `REVOGADA`. Sem `SUSPENSA` e sem coluna `papel`. Criação só `PENDENTE`. Transições: `PENDENTE` → `ATIVA`, `PENDENTE` → `REVOGADA`, `ATIVA` → `REVOGADA`. `REVOGADA` é terminal. `UNIQUE(empresa_id, usuario_id)` continua ocupado. A 043 deixa `ATIVA` inalcançável no INSERT; a 045 abre só as transições aprovadas e conserva `kidmais_043_guard_memberships`.
+- HG8-D3 aprovado. `provarTenant` e `executarNoTenant` relêem a membership com `SELECT ... FOR UPDATE` dentro da transação. `withTransaction` em `lib/db/postgres.ts` não foi alterado. O invólucro é só de tenant.
+- HG8-D4 aprovado. `usuarios_administrativos.papel` continua o papel administrativo global. Membership prova só usuário → empresa. Não há segundo RBAC. `REPRESENTANTE_AUTORIZADO` permanece como hoje.
+- HG8-D5: D03 adiado. `estabelecimentos` existem no schema e nascem `SUSPENSO`. `ATIVO` permanece inalcançável. `membership_estabelecimentos` existe para a FK composta que recusa unidade de outra empresa, e o caminho operacional `ATIVA` permanece fechado. Sem estabelecimento padrão, sem herança, sem troca de unidade e sem concessão implícita a todas as unidades. O contexto operacional é a empresa. Pacotes continuam sem `unidade_id`.
+
+### Gates que continuam abertos
+
+- HG-4 aberto. Completude comercial não foi definida.
+- HG-6 aberto. Os sete pacotes legados seguem com `empresa_id` NULL. Não foram associados. Nenhuma empresa Kidmais foi criada. `FESTA_LOCAL` → `SALADA_PREMIUM` não foi reescrito.
+- Perfil da Empresa aberto. `perfil_empresas` não foi fundido em `empresas`. 026–028 continuam ausentes nesta linha.
+- D03 adiado, como em HG8-D5.
+- O catálogo público permanece fechado (`403` `CATALOGO_PUBLICO_INDETERMINADO`).
+- O `empresaId` do cliente não autoriza. Só escolhe entre memberships já provadas no servidor. Sem tenant provado, tenant diferente ou ambiguidade sem seleção: 403. Linha comercial com `empresa_id` NULL continua inacessível ao tenant. A sessão não guarda autoridade de empresa. `consultarSessao` não preenche `empresaComprovada`.
+
+### Migrations
+
+020 não foi copiada nem executada. 026–028 continuam reservadas ao Perfil. 031 não foi editada. 040 não foi reescrita e não foi aplicada: continua abortando enquanto o vínculo histórico existir. O próximo número livre passa a ser 046. Nenhum DOWN ficou aplicado.
+
+- `20260926_043_estrutura_tenant.sql` — `estabelecimentos`, `memberships`, `membership_estabelecimentos`, com FK em `empresas`. Sem segunda tabela de empresas, sem semente e sem Kidmais.
+- `20260926_044_ciclo_empresa.sql` — ciclo HG8-D1 e auditoria na mesma transação.
+- `20260926_045_ciclo_membership.sql` — ciclo HG8-D2.
+
+### Banco descartável
+
+`kidmais_pacotes_v1_descartavel` em `127.0.0.1:55498`. `current_database()` e `inet_server_port()` conferidos. 043, 044 e 045 estão aplicadas. A função da 040 continua ausente. Sete pacotes com `empresa_id` NULL. O vínculo misto `FESTA_LOCAL` → `SALADA_PREMIUM` continua 1. Nenhuma empresa sintética `hg8` ou `t0` permaneceu. `kidmais_pacotes_v1_rollback` não foi usado.
+
+### Validação desta passagem
+
+- PostgreSQL descartável, suíte HG-8 mais `pacotes-v1-remediacao.postgres.test.ts`: 51 testes, 0 falhas. A 040 abortou no vínculo histórico.
+- Suítes sem banco, incluindo snapshot, contratos, autenticação de produção e `production.test.mjs`: 125 passaram.
+- `npx tsc --noEmit`: passou.
+- `npm run lint`: passou, exit 0.
+- `npm run build`: passou.
+- `git diff --check`: conferido neste arquivo depois do commit de status.
+
+O Goal não está completo. Parado para revisão independente do Codex. Não é merge nem deploy.
+
+## HISTÓRICO — quarta remediação NO-GO
+
+A implementação de HG-8 acima substitui este bloco como estado atual. O texto abaixo descreve a linha comercial em `d148c16`. O Goal já estava aberto.
 
 - Branch: `fix/v1-snapshot-comercial`
 - Upstream: `origin/fix/v1-snapshot-comercial`
