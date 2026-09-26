@@ -54,7 +54,9 @@ Depois disso, `POST /api/fechamentos` no mesmo servidor criou um fechamento Esse
 
 A troca administrativa antes da assinatura, no fechamento `6233a052-9b2a-4c86-8d79-651911ca5023`, trocou Essencial por Completa. A fotografia 1 permanece Essencial. A fotografia 2 é Completa, vigente, com motivo e ponteiro para a anterior. A auditoria `ALTERACAO_ADMINISTRATIVA` foi gravada. O contrato já emitido continua com Essencial no schema 2. Uma leitura nova, `carregarSnapshot`, devolve schema 2 com Completa. O texto oficial renderizado do contrato gravado contém “Festa Essencial”; o texto da fotografia vigente contém “Festa Completa”. Os 37 testes de documento passaram, inclusive o schema 2 e os templates históricos. Numa transação depois desfeita, a versão foi marcada como assinada só com os campos que o banco exige para esse estado. A troca de pacote foi recusada com “Após assinatura, prepare a alteração em uma nova versão pelo painel de Contratos.” Depois do rollback, a versão voltou a `ATIVA`, o contrato gravado continuou Essencial e as duas fotografias permaneceram. Nenhuma assinatura foi persistida.
 
-O typecheck passou. O lint de `lib`, `app`, `components` e `scripts` passou sem avisos. `npm run lint` no repositório inteiro falhou porque o ESLint entrou em `.local-catalogo-browser/.next`, pasta local que não faz parte da branch.
+No mesmo banco, a cópia administrativa `FESTA_COPIA` foi duplicada, editada enquanto não utilizada, desativada, reativada e arquivada. A restauração do arquivado foi recusada. Uma segunda empresa, criada e desfeita na mesma transação, não conseguiu editar o pacote da primeira. Os sete pacotes legados continuam sem `empresa_id`. A função e os dois gatilhos da 030 estão no banco principal e ausentes no banco de rollback.
+
+O typecheck passou. `npm run lint` passou depois de o ESLint ignorar pastas locais já cobertas pelo `.gitignore` e builds `.next` aninhados.
 
 ## Marcos concluídos
 
@@ -164,7 +166,7 @@ Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia,
 
 ## Próximos passos
 
-O fechamento público continua na tabela legada `ativa` e sem empresa. A simulação administrativa é que lê a tabela publicada da empresa. HG-6 segue aberto: os sete pacotes não foram associados. Não houve merge nem migration em staging ou produção.
+O que depende de decisão humana permanece parado. O fechamento público continua na tabela legada `ativa` e sem empresa. A simulação administrativa é que lê a tabela publicada da empresa. HG-6 segue aberto: os sete pacotes não foram associados. Não houve merge nem migration em staging ou produção.
 
 ## Human Gates pendentes
 
