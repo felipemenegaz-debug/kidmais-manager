@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { DbExecutor, DbQueryResult } from "../db/contracts.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
-import { publicarTabelaPrecoAdmin, simularPrecoPacote } from "./tabelas-preco-admin.ts";
+import { publicarTabelaPrecoAdmin, simularPrecoPacote, simularTabelaPublicada } from "./tabelas-preco-admin.ts";
 
 test("simulação distingue preço, vazio e sob consulta", () => {
   assert.deepEqual(simularPrecoPacote({ valor: "10.50", sobConsulta: false }), { tipo: "PRECO", centavos: 1050 });
@@ -11,6 +11,32 @@ test("simulação distingue preço, vazio e sob consulta", () => {
   assert.deepEqual(simularPrecoPacote({ valor: null, sobConsulta: false }), { tipo: "AUSENTE" });
   assert.deepEqual(simularPrecoPacote({ valor: "10.00", sobConsulta: true }), { tipo: "SOB_CONSULTA" });
   assert.throws(() => simularPrecoPacote({ valor: "0", sobConsulta: false }));
+});
+
+test("a simulação da empresa usa a tabela publicada na data da festa", async () => {
+  const empresa = "11111111-1111-4111-8111-111111111111";
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
+      assert.match(text, /t\.empresa_id = \$1::uuid/);
+      assert.match(text, /t\.publicada_em IS NOT NULL/);
+      assert.match(text, /t\.vigencia_inicio <= \$2::date/);
+      assert.equal(text.includes("fechamentos"), false);
+      assert.equal(values?.[0], empresa);
+      return { rows: [{ valor: "64.90" } as Row], rowCount: 1 };
+    },
+  };
+  assert.deepEqual(await simularTabelaPublicada(tx, {
+    empresaId: empresa,
+    data: "2026-10-10",
+    pacoteId: "22222222-2222-4222-8222-222222222222",
+    convidados: 40,
+    categoriaHorario: "PADRAO",
+    sobConsulta: false,
+  }), { tipo: "PRECO", centavos: 6490 });
+  const vazio: DbExecutor = { async query() { return { rows: [], rowCount: 0 }; } };
+  assert.deepEqual(await simularTabelaPublicada(vazio, {
+    empresaId: empresa, data: "2026-10-10", pacoteId: "22222222-2222-4222-8222-222222222222", convidados: 40, categoriaHorario: "PADRAO", sobConsulta: false,
+  }), { tipo: "AUSENTE" });
 });
 
 test("publicar não recalcula fechamento nem ativa a tabela no fechamento público", async () => {

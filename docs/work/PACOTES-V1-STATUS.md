@@ -58,7 +58,7 @@ Os Marcos 0–10 estão no código. O Goal não está completo: as migrations 02
 - Marco 7 — vínculo INCLUSO não vira EXTRA. Completa não recebe salada premium inclusa. Premium mantém salada premium inclusa. A 023 não foi reescrita. Pizza usa mínimo e máximo persistidos quando os dois existem; senão permanece 20–100. Compacta sem preço continua sob consulta.
 - Marco 8 — página `/admin/configuracoes/pacotes` no admin atual. O PDF permanece “Tabela de pacotes e preços”. Não há ação Excluir. `docs/ux/admin-v1` não foi copiado porque só existe em `review/v1-perfil-empresa`.
 - Marco 9 — a prévia pública lê nome, descrição, duração, limites e menor preço vigente em `/api/fechamentos/pacotes`. A lista continua restrita aos sete códigos contratáveis, então criar um pacote não o publica. Inclusos cobrados saem de `pacote_adicionais` com modalidade INCLUSO.
-- Marco 10 — rascunho de tabela por empresa, simulação e publicação em `publicada_em`. A publicação não dá `UPDATE` em fechamentos, não exige PDF e não liga `ativa`, para não substituir a tabela legada do fechamento público.
+- Marco 10 — rascunho de tabela por empresa, simulação e publicação em `publicada_em`. A simulação da empresa lê a tabela publicada cuja vigência cobre a data da festa. A publicação não dá `UPDATE` em fechamentos, não exige PDF e não liga `ativa`. Quando a coluna `empresa_id` existe, o fechamento público continua só na tabela legada sem empresa.
 
 ## Decisões aplicadas
 
@@ -154,7 +154,7 @@ Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia,
 
 ## Próximos passos
 
-Aplicar 029–033 só num banco local descartável e, nele, percorrer no browser Pacotes e Tabelas de preços. O fechamento público ainda escolhe a tabela legada `ativa`; ligar a tabela publicada da empresa a esse cálculo continua pendente e não deve recalcular fechamentos antigos.
+Aplicar 029–033 só num banco local descartável e, nele, percorrer no browser Pacotes e Tabelas de preços. Não há `psql`, `createdb` nem Docker nesta máquina. O Goal permanece aberto até esse smoke e até a verificação visual.
 
 ## Human Gates pendentes
 

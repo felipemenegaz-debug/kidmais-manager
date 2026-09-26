@@ -51,6 +51,30 @@ export async function incluirPrecoPacoteAdmin(
   );
 }
 
+export async function simularTabelaPublicada(
+  tx: DbExecutor,
+  input: { empresaId: string; data: string; pacoteId: string; convidados: number; categoriaHorario: string; sobConsulta: boolean },
+): Promise<ResultadoSimulacao> {
+  if (input.sobConsulta) return { tipo: "SOB_CONSULTA" };
+  const resultado = await tx.query<{ valor: string | null }>(
+    `SELECT pp.valor::text AS valor
+       FROM tabelas_preco t
+       JOIN precos_pacote pp ON pp.tabela_preco_id = t.id AND pp.ativo
+      WHERE t.empresa_id = $1::uuid
+        AND t.publicada_em IS NOT NULL
+        AND t.vigencia_inicio <= $2::date
+        AND (t.vigencia_fim IS NULL OR t.vigencia_fim >= $2::date)
+        AND pp.pacote_id = $3::uuid
+        AND pp.categoria_horario = $4
+        AND pp.convidados_min <= $5::smallint
+        AND (pp.convidados_max IS NULL OR pp.convidados_max >= $5::smallint)
+      ORDER BY t.vigencia_inicio DESC, t.publicada_em DESC, pp.convidados_min DESC
+      LIMIT 1`,
+    [input.empresaId, input.data, input.pacoteId, input.categoriaHorario, input.convidados],
+  );
+  return simularPrecoPacote({ valor: resultado.rows[0]?.valor ?? null, sobConsulta: false });
+}
+
 export async function publicarTabelaPrecoAdmin(
   tx: DbExecutor,
   input: { empresaId: string; tabelaId: string },

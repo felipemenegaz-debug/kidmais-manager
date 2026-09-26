@@ -307,11 +307,24 @@ export async function buscarPacoteAtivoPorCodigo(
  * Caso futuramente exista mais de uma tabela ativa por erro/configuração,
  * a de vigência mais recente prevalece de forma determinística.
  */
+async function tabelaPrecoTemEmpresa(db: DbExecutor) {
+  const coluna = await db.query(
+    `SELECT 1 AS ok
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'tabelas_preco'
+        AND column_name = 'empresa_id'`,
+  );
+  return Boolean(coluna.rows[0]);
+}
+
 export async function buscarTabelaPrecoVigente(
   data: string,
   customDb?: DbExecutor,
 ): Promise<TabelaPrecoRecord | null> {
-  const result = await executor(customDb).query<TabelaPrecoRow>(
+  const db = executor(customDb);
+  const legado = await tabelaPrecoTemEmpresa(db);
+  const result = await db.query<TabelaPrecoRow>(
     `SELECT
        id,
        codigo,
@@ -323,6 +336,7 @@ export async function buscarTabelaPrecoVigente(
      WHERE ativa = true
        AND vigencia_inicio <= $1::date
        AND (vigencia_fim IS NULL OR vigencia_fim >= $1::date)
+       ${legado ? "AND empresa_id IS NULL" : ""}
      ORDER BY vigencia_inicio DESC, criado_em DESC
      LIMIT 1`,
     [data],
