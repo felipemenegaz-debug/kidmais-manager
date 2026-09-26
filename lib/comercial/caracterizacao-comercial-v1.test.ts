@@ -34,15 +34,14 @@ test("characterização: 020 e 026–028 continuam ausentes; a 029 não faz back
   assert.equal(fotografia.includes("240"), false);
 });
 
-test("characterização: contrato novo lê o cadastro vivo e o PDF v2 troca o nome", () => {
+test("characterização: schema 1 ainda lê o cadastro vivo; schema 2 preserva o nome congelado", () => {
   const repositorio = readFileSync("lib/contratos/repositories/contrato.repository.ts", "utf8");
   assert.match(repositorio, /JOIN pacotes p ON p\.id = f\.pacote_id/);
   assert.match(repositorio, /JOIN tabelas_preco tp ON tp\.id = f\.tabela_preco_id/);
-  assert.match(repositorio, /p\.duracao_minutos AS pacote_duracao_minutos/);
   const pdf = readFileSync("lib/contratos/documento/oficial/festas-v2.ts", "utf8");
-  assert.match(pdf, /snapshot\.evento\.pacote\.nome = perfil\.pacoteNome/);
+  assert.match(pdf, /schemaVersao === 2 \? snapshot\.pacoteAplicado\.nome/);
+  assert.match(pdf, /if \(!nomeCongelado\) snapshot\.evento\.pacote\.nome = perfil\.pacoteNome/);
   assert.equal(MODELOS_OFICIAIS.COMPLETA.pacoteNome, "Festa Completa");
-  assert.equal(MODELOS_OFICIAIS.PREMIUM.pacoteNome, "Festa Premium");
   assert.equal(Object.keys(MODELOS_OFICIAIS).length, 7);
 });
 

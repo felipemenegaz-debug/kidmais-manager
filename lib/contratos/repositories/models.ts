@@ -23,6 +23,30 @@ export type ContratoRecord = {
   atualizadoEm: string;
 };
 
+export type ComposicaoPacoteAplicada = {
+  tipo: "INCLUSO" | "BUFFET";
+  codigo: string;
+  nome: string;
+  modoItens: "TODOS_ATIVOS" | "SELECIONADOS" | null;
+  escolhasMin: number | null;
+  escolhasMax: number | null;
+};
+
+export type PacoteAplicadoContrato = {
+  snapshotId: string;
+  pacoteId: string;
+  codigo: string;
+  nome: string;
+  descricao: string | null;
+  duracaoMinutos: number | null;
+  tabelaPreco: {
+    id: string;
+    codigo: string;
+    nome: string;
+  };
+  composicao: ComposicaoPacoteAplicada[];
+};
+
 export type ContratoSnapshotV1 = {
   schemaVersao: 1;
   fechamento: {
@@ -127,13 +151,20 @@ bombom?: string | null;
   };
 };
 
+export type ContratoSnapshotV2 = Omit<ContratoSnapshotV1, "schemaVersao"> & {
+  schemaVersao: 2;
+  pacoteAplicado: PacoteAplicadoContrato;
+};
+
+export type ContratoSnapshot = ContratoSnapshotV1 | ContratoSnapshotV2;
+
 export type ContratoVersaoRecord = {
   id: string;
   contratoId: string;
   numeroVersao: number;
   status: ContratoVersaoStatus;
   snapshotSchemaVersao: number;
-  snapshot: ContratoSnapshotV1;
+  snapshot: ContratoSnapshot;
   snapshotHash: string;
   motivoNovaVersao: string | null;
   geradoPorUsuarioId: string | null;

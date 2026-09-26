@@ -26,12 +26,13 @@ Marco 1: `f076ce8e3aa795c582fc7448f40714c24236ae7f`.
 
 ## Marco atual
 
-Marco 1 concluído no código. Marco 2 ainda não começou.
+Marco 2 concluído no código. Marco 3 ainda não começou.
 
 ## Marcos concluídos
 
 - Marco 0 — caracterização, sem corrigir comportamento.
 - Marco 1 — fotografia append-only na criação do fechamento.
+- Marco 2 — contrato com fotografia usa schema 2; schema 1 permanece.
 
 ## Decisões aplicadas
 
@@ -52,26 +53,28 @@ Não executadas. Não há `psql`/`createdb` no PATH e nenhum banco descartável 
 
 ## Testes executados
 
-Sem banco:
+Sem banco, no Marco 2:
 
+- `lib/contratos/services/fotografia-pacote.test.ts` — 3 passaram
+- `lib/contratos/documento/documento-core.test.ts` — 37 passaram, inclusive o schema 2 e os PDFs históricos
+- `lib/contratos/services/snapshot-core.test.ts` — 4 passaram
 - `lib/comercial/caracterizacao-comercial-v1.test.ts` — 6 passaram
-- `lib/fechamentos/services/pacote-snapshot.test.ts` — 1 passou
-- `scripts/production/production.test.mjs` — 35 passaram
 - `npx tsc --noEmit` — passou
 
 ## Resultados
 
-Fechamento novo chama `gravarFotografiaPacoteFechamento` na mesma transação, depois dos adicionais. UPDATE/DELETE da fotografia são recusados pelo trigger. Fechamentos antigos permanecem sem ponteiro. A edição administrativa pré-assinatura ainda não cria nova fotografia (Marco 3).
+Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia, sem JOIN em `pacotes`/`tabelas_preco`. Sem fotografia, ou sem a migration 029, o schema 1 continua. PDF schema 2 usa o nome congelado. Schema 1 ainda substitui o nome pelo modelo oficial. Contratos já gravados não são convertidos.
 
 ## Riscos
 
 - A migration 029 não foi aplicada em PostgreSQL. A primeira aplicação precisa ser num banco local descartável, com precheck e postcheck.
 - O inventário de produção passou a aceitar a 029. Continua recusando 020 e arquivos fora da lista.
-- Contrato ainda lê o cadastro vivo. PDF v2 ainda sobrescreve o nome.
+- Sem a migration 029 aplicada, `lerFotografiaPacoteVigente` volta ao schema 1. Staging não quebra antes do HG-1.
+- Edição administrativa ainda não cria nova fotografia.
 
 ## Próximos passos
 
-Marco 2: contrato com fotografia usa schema novo; schema 1 e PDF histórico permanecem. Remover só a substituição de nome em `festas-v2.ts` quando o schema novo já tem nome congelado.
+Marco 3: troca explícita de pacote antes da assinatura cria nova fotografia, preserva a anterior, exige motivo e atualiza o ponteiro vigente.
 
 ## Human Gates pendentes
 
@@ -90,4 +93,7 @@ Marco 2: contrato com fotografia usa schema novo; schema 1 e PDF histórico perm
 - `lib/comercial/caracterizacao-comercial-v1.test.ts`
 - `scripts/production/check-migrations.mjs`
 - `scripts/production/production.test.mjs`
+- `lib/contratos/services/fotografia-pacote.ts`
+- `lib/contratos/services/contrato.service.ts`
+- `lib/contratos/documento/oficial/festas-v2.ts`
 - `docs/work/PACOTES-V1-STATUS.md`

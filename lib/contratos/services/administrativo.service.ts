@@ -253,7 +253,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
                 await atualizarAniversarianteInterno(v.snapshot.aniversariante.id,v.snapshot.contratante.clienteId,input.aniversariante,{usuarioId:s.usuario_id,origem:'CRM_INTERNO',...context},tx);
             }
             const {snapshot}=await carregarSnapshot(fechamento,tx);
-            return salvarElaboracao(tx,v,e,s,{...snapshot,documental:{observacoes:e.dados_fonte.observacoesDocumentais ?? ''}} as typeof snapshot);
+            return salvarElaboracao(tx,v,e,s,{...snapshot,documental:{observacoes:e.dados_fonte.observacoesDocumentais ?? ''}} as unknown as typeof snapshot);
         }
         if (input.acao === 'assinar') {
             if (s.papel !== 'REPRESENTANTE_AUTORIZADO')

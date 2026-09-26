@@ -8,7 +8,9 @@ export function renderizarContratoOficialFestasV2(input: GerarContratoOficialInp
   const perfil = configuracaoModeloOficial(input.snapshot.evento.pacote.codigo);
   if (!perfil) throw new Error('Pacote sem configuração oficial.');
   const snapshot = structuredClone(input.snapshot);
-  snapshot.evento.pacote.nome = perfil.pacoteNome;
+  const nomeCongelado = snapshot.schemaVersao === 2 ? snapshot.pacoteAplicado.nome : null;
+  if (!nomeCongelado) snapshot.evento.pacote.nome = perfil.pacoteNome;
+  const nomeDocumento = nomeCongelado ?? perfil.pacoteNome;
   const documento = renderizarContratoOficialFestaCompletaV1({ ...input, snapshot });
   const antiga = /R\$ 120,00 por pessoa excedente/;
   if (!antiga.test(documento.clausulas[2].texto)) throw new Error('Base jurídica de excedentes divergente.');
@@ -26,6 +28,6 @@ export function renderizarContratoOficialFestasV2(input: GerarContratoOficialInp
     documento.clausulas[2].texto = documento.clausulas[2].texto.replace(antiga, excedente);
     documento.clausulas[2].destaques = [excedente];
   }
-  documento.clausulas[0].destaques = [perfil.pacoteNome, formatarDataContrato(snapshot.evento.data), `${snapshot.evento.convidadosFaturados} pessoas`];
-  return { ...documento, modeloCodigo: perfil.modeloCodigo, templateVersao: perfil.templateVersao, pacoteNome: perfil.pacoteNome, subtitulo: perfil.pacoteNome.toUpperCase() };
+  documento.clausulas[0].destaques = [nomeDocumento, formatarDataContrato(snapshot.evento.data), `${snapshot.evento.convidadosFaturados} pessoas`];
+  return { ...documento, modeloCodigo: perfil.modeloCodigo, templateVersao: perfil.templateVersao, pacoteNome: nomeDocumento, subtitulo: nomeDocumento.toUpperCase() };
 }

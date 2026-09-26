@@ -1,5 +1,5 @@
 import type { ContratoDocumentoLinha, GerarDocumentoContratoInput } from "./models.ts";
-import type { ContratoSnapshotV1 } from "../repositories";
+import type { ContratoSnapshot } from "../repositories";
 import {
   formatarCep,
   formatarCpf,
@@ -19,13 +19,13 @@ function linha(
   return { texto, estilo, espacoDepois };
 }
 
-function endereco(snapshot: ContratoSnapshotV1) {
+function endereco(snapshot: ContratoSnapshot) {
   const e = snapshot.contratante.endereco;
   const complemento = e.complemento?.trim() ? `, ${e.complemento.trim()}` : "";
   return `${e.logradouro}, ${e.numero}${complemento} - ${e.bairro}, ${e.cidade}/${e.uf} - CEP ${formatarCep(e.cep)}`;
 }
 
-function adicionais(snapshot: ContratoSnapshotV1) {
+function adicionais(snapshot: ContratoSnapshot) {
   if (snapshot.contratacao.adicionais.length === 0) {
     return [linha("Nenhum adicional registrado nesta versão.")];
   }
@@ -37,7 +37,7 @@ function adicionais(snapshot: ContratoSnapshotV1) {
   );
 }
 
-function buffet(snapshot: ContratoSnapshotV1) {
+function buffet(snapshot: ContratoSnapshot) {
   const b = snapshot.contratacao.buffet;
   if (b.status === "PENDENTE") {
     return [

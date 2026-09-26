@@ -25,9 +25,12 @@ import {
   criarContrato,
   criarContratoVersao,
   substituirVersaoAtiva,
+  type ContratoSnapshot,
   type ContratoSnapshotV1,
+  type PacoteAplicadoContrato,
   type ReferenciasComerciaisContrato,
 } from "../repositories";
+import { lerFotografiaPacoteVigente } from "./fotografia-pacote";
 import { ContratoServiceError } from "./errors";
 import type {
   ContratoServiceContext,
@@ -170,6 +173,26 @@ bombom: fechamento.buffetBombom ?? null,
   };
 }
 
+function referenciasDaFotografia(aplicada: PacoteAplicadoContrato): ReferenciasComerciaisContrato {
+  return {
+    pacoteId: aplicada.pacoteId,
+    pacoteCodigo: aplicada.codigo,
+    pacoteNome: aplicada.nome,
+    pacoteDuracaoMinutos: aplicada.duracaoMinutos,
+    tabelaPrecoId: aplicada.tabelaPreco.id,
+    tabelaPrecoCodigo: aplicada.tabelaPreco.codigo,
+    tabelaPrecoNome: aplicada.tabelaPreco.nome,
+  };
+}
+
+function comFotografia(base: ContratoSnapshotV1, aplicada: PacoteAplicadoContrato): ContratoSnapshot {
+  return {
+    ...base,
+    schemaVersao: 2,
+    pacoteAplicado: aplicada,
+  };
+}
+
 function pendenciasParaAssinatura(fechamento: FechamentoRecord) {
   const pendencias: Array<{ campo: string; label: string }> = [];
   if (!fechamento.formaPagamentoPretendida) {
@@ -186,7 +209,7 @@ export async function carregarSnapshot(
   tx: DbExecutor,
   preparacao?: { id: string; adicionais: FechamentoAdicionalRecord[] },
 ): Promise<{
-  snapshot: ContratoSnapshotV1;
+  snapshot: ContratoSnapshot;
   cliente: ClienteRecord;
 }> {
   if (!fechamento.clienteId) {
@@ -225,7 +248,10 @@ export async function carregarSnapshot(
 
   const aniversariante=await buscarAniversariantePorId(fechamento.aniversarianteId, tx);
   const adicionais=preparacao ? preparacao.adicionais : await listarAdicionaisDoFechamento(fechamento.id, tx);
-  const referencias=await buscarReferenciasComerciaisContrato(fechamento.id, tx, preparacao?.id);
+  const aplicada = preparacao ? null : await lerFotografiaPacoteVigente(tx, fechamento.id);
+  const referencias = aplicada
+    ? referenciasDaFotografia(aplicada)
+    : await buscarReferenciasComerciaisContrato(fechamento.id, tx, preparacao?.id);
 
   if (!aniversariante) {
     throw new ContratoServiceError(
@@ -257,16 +283,17 @@ export async function carregarSnapshot(
     }
   }
 
+  const base = montarSnapshotContratoV1({
+    fechamento,
+    cliente,
+    aniversariante,
+    responsavelAdicional,
+    adicionais,
+    referencias,
+  });
   return {
     cliente,
-    snapshot: montarSnapshotContratoV1({
-      fechamento,
-      cliente,
-      aniversariante,
-      responsavelAdicional,
-      adicionais,
-      referencias,
-    }),
+    snapshot: aplicada ? comFotografia(base, aplicada) : base,
   };
 }
 

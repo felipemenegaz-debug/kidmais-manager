@@ -3,7 +3,7 @@ import { db } from "../../db/postgres";
 import type {
   ContratoAceiteMetodo,
   ContratoRecord,
-  ContratoSnapshotV1,
+  ContratoSnapshot,
   ContratoVersaoRecord,
   ReferenciasComerciaisContrato,
 } from "./models";
@@ -30,7 +30,7 @@ type ContratoVersaoRow = {
   numero_versao: number;
   status: ContratoVersaoRecord["status"];
   snapshot_schema_versao: number;
-  snapshot: ContratoSnapshotV1;
+  snapshot: ContratoSnapshot;
   snapshot_hash: string;
   motivo_nova_versao: string | null;
   gerado_por_usuario_id: string | null;
@@ -207,7 +207,7 @@ export async function criarContratoVersao(
   input: {
     contratoId: string;
     numeroVersao: number;
-    snapshot: ContratoSnapshotV1;
+    snapshot: ContratoSnapshot;
     snapshotHash: string;
     motivoNovaVersao?: string | null;
     geradoPorUsuarioId?: string | null;
@@ -228,7 +228,7 @@ export async function criarContratoVersao(
        $1::uuid,
        $2,
        'ATIVA',
-       1,
+       $7,
        $3::jsonb,
        $4,
        $5,
@@ -242,6 +242,7 @@ export async function criarContratoVersao(
       input.snapshotHash,
       input.motivoNovaVersao ?? null,
       input.geradoPorUsuarioId ?? null,
+      input.snapshot.schemaVersao,
     ],
   );
   return mapVersao(result.rows[0]);
