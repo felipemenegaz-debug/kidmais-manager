@@ -1,4 +1,5 @@
 import type { DbExecutor } from "../db/contracts.ts";
+import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
 import { exigirVinculoNaEmpresa, sqlPacoteAdicionalMesmaEmpresa } from "./integridade-tenant.ts";
 import { filtroEmpresa } from "./tenant.ts";
 
@@ -44,6 +45,28 @@ type Contexto = { empresaId: string; usuarioId: string; requestId: string; motiv
 const usado = `EXISTS (SELECT 1 FROM fechamentos f WHERE f.pacote_id = p.id)
   OR EXISTS (SELECT 1 FROM fechamento_pacote_snapshots s WHERE s.pacote_id = p.id)
   OR EXISTS (SELECT 1 FROM fechamento_revisoes r WHERE r.pacote_id = p.id)`;
+
+function registrarMutacao(
+  tx: DbExecutor,
+  ctx: Contexto,
+  acao: string,
+  entidadeId: string,
+  antes: unknown,
+  depois: unknown,
+  motivo: string,
+) {
+  return auditarMutacaoComercial(tx, {
+    usuarioId: ctx.usuarioId,
+    requestId: ctx.requestId,
+    acao,
+    entidadeTipo: "PACOTE",
+    entidadeId,
+    empresaId: ctx.empresaId,
+    antes: antes && typeof antes === "object" ? antes as Record<string, unknown> : null,
+    depois: depois && typeof depois === "object" ? depois as Record<string, unknown> : null,
+    motivo,
+  });
+}
 
 function recusar(code: string, message: string, status: number): never {
   throw new PacoteAdminError(code, message, status);
@@ -130,6 +153,7 @@ export async function criarPacoteAdmin(
     [ctx.empresaId, input.codigo, input.nome, input.descricao, input.duracaoMinutos],
   );
   const id = String((result.rows[0] as { id: string }).id);
+  await registrarMutacao(tx, ctx, "PACOTE_CRIADO", id, null, input, ctx.motivo ?? "Criação administrativa");
   await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_CRIADO", pacoteId: id, empresaId: ctx.empresaId, antes: null, depois: input, motivo: ctx.motivo ?? "Criação administrativa" });
   return (await buscar(tx, ctx.empresaId, id))!;
 }
@@ -165,6 +189,7 @@ export async function editarPacoteNaoUtilizado(
     [id, ctx.empresaId, input.nome, input.descricao, input.duracaoMinutos],
   );
   if (result.rowCount !== 1) recusar("CONFLITO", "A revisão vigente mudou durante a edição.", 409);
+  await registrarMutacao(tx, ctx, "PACOTE_EDITADO", id, atual, input, ctx.motivo ?? "Edição administrativa");
   await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_EDITADO", pacoteId: id, empresaId: ctx.empresaId, antes: atual, depois: input, motivo: ctx.motivo ?? "Edição administrativa" });
   return (await buscar(tx, ctx.empresaId, id))!;
 }
@@ -200,6 +225,7 @@ export async function criarRevisaoPacoteAdmin(
   );
   const novaId = String((criada.rows[0] as { id: string }).id);
   await clonarAgregadoPacote(tx, id, novaId);
+  await registrarMutacao(tx, ctx, "PACOTE_REVISADO", novaId, atual, { ...input, revisaoAnteriorId: id }, ctx.motivo);
   await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_REVISADO", pacoteId: novaId, empresaId: ctx.empresaId, antes: atual, depois: { ...input, revisaoAnteriorId: id }, motivo: ctx.motivo });
   return (await buscar(tx, ctx.empresaId, novaId))!;
 }
@@ -278,6 +304,7 @@ export async function alterarComposicaoPacoteAdmin(
       [destino.id, mudanca.categoriaId, mudanca.escolhasMin, mudanca.escolhasMax, mudanca.ativo],
     );
   }
+  await registrarMutacao(tx, ctx, "PACOTE_COMPOSICAO", destino.id, atual, mudanca, ctx.motivo);
   await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_COMPOSICAO", pacoteId: destino.id, empresaId: ctx.empresaId, antes: atual, depois: mudanca, motivo: ctx.motivo });
   return (await buscar(tx, ctx.empresaId, destino.id))!;
 }
@@ -304,6 +331,7 @@ export async function alterarSituacaoPacoteAdmin(
     [id, ctx.empresaId, situacao === "ativar", situacao === "arquivar"],
   );
   if (result.rowCount !== 1) recusar("CONFLITO", "A situação do pacote não foi alterada.", 409);
+  await registrarMutacao(tx, ctx, "PACOTE_SITUACAO", id, atual, { situacao }, ctx.motivo ?? situacao);
   await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_SITUACAO", pacoteId: id, empresaId: ctx.empresaId, antes: atual, depois: { situacao }, motivo: ctx.motivo ?? situacao });
   return (await buscar(tx, ctx.empresaId, id))!;
 }

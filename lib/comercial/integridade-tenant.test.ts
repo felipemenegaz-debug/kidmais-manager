@@ -44,7 +44,7 @@ test("tabela da empresa A não recebe pacote da empresa B", async () => {
     }),
     (error: unknown) => error instanceof PacoteAdminError && error.code === "EMPRESA_DIVERGENTE" && error.httpStatus === 403,
   );
-  assert.equal(chamadas.some((sql) => sql.includes("INSERT INTO precos_pacote")), false);
+  assert.equal(chamadas.some((sql) => sql.includes("INSERT INTO precos_pacote") || sql.includes("INSERT INTO auditoria")), false);
 });
 
 test("pacote da empresa A não recebe adicional da empresa B nem adicional sem empresa", async () => {

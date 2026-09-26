@@ -1,4 +1,5 @@
 import type { DbExecutor } from "../db/contracts.ts";
+import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
 import { centavosComerciais } from "./condicao-pagamento.ts";
 import { exigirVinculoNaEmpresa, sqlPrecoPacoteMesmaEmpresa } from "./integridade-tenant.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
@@ -22,6 +23,7 @@ function recusar(code: string, message: string, status: number): never {
 export async function criarTabelaPrecoAdmin(
   tx: DbExecutor,
   input: { empresaId: string; codigo: string; nome: string; vigenciaInicio: string; vigenciaFim: string | null },
+  ator: { usuarioId: string | null; requestId: string | null; motivo: string | null } = { usuarioId: null, requestId: null, motivo: null },
 ) {
   const criada = await tx.query<{ id: string }>(
     `INSERT INTO tabelas_preco (empresa_id, codigo, nome, vigencia_inicio, vigencia_fim, ativa)
@@ -29,12 +31,22 @@ export async function criarTabelaPrecoAdmin(
      RETURNING id`,
     [input.empresaId, input.codigo, input.nome, input.vigenciaInicio, input.vigenciaFim],
   );
-  return criada.rows[0]?.id ?? recusar("DADOS_INVALIDOS", "A tabela não foi criada.", 500);
+  const id = criada.rows[0]?.id ?? recusar("DADOS_INVALIDOS", "A tabela não foi criada.", 500);
+  await auditarMutacaoComercial(tx, {
+    ...ator,
+    acao: "TABELA_PRECO_CRIADA",
+    entidadeTipo: "TABELA_PRECO",
+    entidadeId: id,
+    empresaId: input.empresaId,
+    antes: null,
+    depois: input,
+  });
+  return id;
 }
 
 export async function incluirPrecoPacoteAdmin(
   tx: DbExecutor,
-  input: { empresaId: string; tabelaId: string; pacoteId: string; convidadosMin: number; convidadosMax: number | null; tipoCalculo: "FIXO" | "POR_CONVIDADO"; valor: string; categoriaHorario: string },
+  input: { empresaId: string; tabelaId: string; pacoteId: string; convidadosMin: number; convidadosMax: number | null; tipoCalculo: "FIXO" | "POR_CONVIDADO"; valor: string; categoriaHorario: string; usuarioId?: string | null; requestId?: string | null; motivo?: string | null },
 ) {
   const simulacao = simularPrecoPacote({ valor: input.valor, sobConsulta: false });
   if (simulacao.tipo !== "PRECO") recusar("PRECO_AUSENTE", "Informe o preço. Vazio não é zero.", 409);
@@ -54,6 +66,17 @@ export async function incluirPrecoPacoteAdmin(
      ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)`,
     [input.tabelaId, input.pacoteId, input.convidadosMin, input.convidadosMax, input.tipoCalculo, input.valor, input.categoriaHorario],
   );
+  await auditarMutacaoComercial(tx, {
+    usuarioId: input.usuarioId ?? null,
+    requestId: input.requestId ?? null,
+    motivo: input.motivo ?? null,
+    acao: "PRECO_PACOTE_INCLUIDO",
+    entidadeTipo: "TABELA_PRECO",
+    entidadeId: input.tabelaId,
+    empresaId: input.empresaId,
+    antes: null,
+    depois: input,
+  });
 }
 
 export async function simularTabelaPublicada(
@@ -82,7 +105,7 @@ export async function simularTabelaPublicada(
 
 export async function publicarTabelaPrecoAdmin(
   tx: DbExecutor,
-  input: { empresaId: string; tabelaId: string },
+  input: { empresaId: string; tabelaId: string; usuarioId?: string | null; requestId?: string | null; motivo?: string | null },
 ) {
   const atual = await tx.query<{
     id: string;
@@ -179,4 +202,15 @@ export async function publicarTabelaPrecoAdmin(
     [input.tabelaId, input.empresaId, linha.vigencia_inicio, linha.vigencia_fim],
   );
   if (publicada.rowCount !== 1) recusar("CONFLITO", "A publicação encontrou outra versão da tabela.", 409);
+  await auditarMutacaoComercial(tx, {
+    usuarioId: input.usuarioId ?? null,
+    requestId: input.requestId ?? null,
+    motivo: input.motivo ?? null,
+    acao: "TABELA_PRECO_PUBLICADA",
+    entidadeTipo: "TABELA_PRECO",
+    entidadeId: input.tabelaId,
+    empresaId: input.empresaId,
+    antes: { publicadaEm: null, ativa: false, vigenciaInicio: linha.vigencia_inicio, vigenciaFim: linha.vigencia_fim },
+    depois: { publicadaEm: "clock_timestamp()", ativa: false },
+  });
 }

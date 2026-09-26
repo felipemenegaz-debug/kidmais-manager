@@ -75,6 +75,14 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
         assert.equal(values?.[5], linha(true).id);
         return { rows: [{ id: "33333333-3333-4333-8333-333333333333" } as Row], rowCount: 1 };
       }
+      if (text.startsWith("INSERT INTO auditoria")) {
+        assert.equal(values?.[2], "PACOTE_REVISADO");
+        assert.equal(values?.[4], "33333333-3333-4333-8333-333333333333");
+        assert.match(String(values?.[5]), new RegExp(ctx.empresaId));
+        assert.match(String(values?.[6]), new RegExp(ctx.empresaId));
+        assert.equal(values?.[7], ctx.motivo);
+        return { rows: [], rowCount: 1 };
+      }
       if (text.startsWith("INSERT INTO pacote_") || text.startsWith("INSERT INTO regras_desconto_pacote")) {
         assert.equal(values?.[0], "33333333-3333-4333-8333-333333333333");
         assert.equal(values?.[1], linha(true).id);
@@ -120,6 +128,10 @@ test("composição de pacote utilizado cria revisão e não reescreve a anterior
     auditar,
   );
   assert.equal(resultado.id, novaId);
+  const auditoria = escritas.find((item) => item.text.includes("INSERT INTO auditoria") && item.values?.[2] === "PACOTE_COMPOSICAO");
+  assert.equal(auditoria?.values?.[4], novaId);
+  assert.match(String(auditoria?.values?.[6]), new RegExp(ctx.empresaId));
+  assert.equal(auditoria?.values?.[7], ctx.motivo);
   const upsert = escritas.find((item) => item.text.includes("ON CONFLICT (pacote_id, adicional_id)"));
   assert.equal(upsert?.values?.[0], novaId);
   assert.equal(escritas.some((item) => item.values?.[0] === linha(true).id), false);

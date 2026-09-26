@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { DbExecutor, DbQueryResult } from "../db/contracts.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
-import { publicarTabelaPrecoAdmin, simularPrecoPacote, simularTabelaPublicada } from "./tabelas-preco-admin.ts";
+import { criarTabelaPrecoAdmin, incluirPrecoPacoteAdmin, publicarTabelaPrecoAdmin, simularPrecoPacote, simularTabelaPublicada } from "./tabelas-preco-admin.ts";
 
 test("simulação distingue preço, vazio e sob consulta", () => {
   assert.deepEqual(simularPrecoPacote({ valor: "10.50", sobConsulta: false }), { tipo: "PRECO", centavos: 1050 });
@@ -11,6 +11,40 @@ test("simulação distingue preço, vazio e sob consulta", () => {
   assert.deepEqual(simularPrecoPacote({ valor: null, sobConsulta: false }), { tipo: "AUSENTE" });
   assert.deepEqual(simularPrecoPacote({ valor: "10.00", sobConsulta: true }), { tipo: "SOB_CONSULTA" });
   assert.throws(() => simularPrecoPacote({ valor: "0", sobConsulta: false }));
+});
+
+test("criar tabela e incluir preço gravam auditoria da mesma empresa", async () => {
+  const empresaId = "11111111-1111-4111-8111-111111111111";
+  const tabelaId = "22222222-2222-4222-8222-222222222222";
+  const pacoteId = "33333333-3333-4333-8333-333333333333";
+  const auditorias: unknown[][] = [];
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
+      if (text.includes("INSERT INTO auditoria")) {
+        auditorias.push([...(values ?? [])]);
+        return { rows: [], rowCount: 1 };
+      }
+      if (text.includes("AS esquerda")) return { rows: [{ esquerda: empresaId, direita: empresaId } as Row], rowCount: 1 };
+      if (text.includes("FOR UPDATE")) return { rows: [{ publicada_em: null } as Row], rowCount: 1 };
+      if (text.startsWith("INSERT INTO tabelas_preco")) return { rows: [{ id: tabelaId } as Row], rowCount: 1 };
+      if (text.startsWith("INSERT INTO precos_pacote")) return { rows: [], rowCount: 1 };
+      throw new Error(text);
+    },
+  };
+  assert.equal(await criarTabelaPrecoAdmin(tx, {
+    empresaId, codigo: "TABELA_A", nome: "Tabela A", vigenciaInicio: "2026-10-01", vigenciaFim: null,
+  }, { usuarioId: "usuario-1", requestId: "req-1", motivo: "Abrir a tabela" }), tabelaId);
+  await incluirPrecoPacoteAdmin(tx, {
+    empresaId, tabelaId, pacoteId, convidadosMin: 40, convidadosMax: 80, tipoCalculo: "FIXO", valor: "10.00", categoriaHorario: "PADRAO",
+    usuarioId: "usuario-1", requestId: "req-1", motivo: "Incluir a faixa",
+  });
+  assert.equal(auditorias[0]?.[2], "TABELA_PRECO_CRIADA");
+  assert.equal(auditorias[0]?.[4], tabelaId);
+  assert.match(String(auditorias[0]?.[6]), new RegExp(empresaId));
+  assert.equal(auditorias[0]?.[7], "Abrir a tabela");
+  assert.equal(auditorias[1]?.[2], "PRECO_PACOTE_INCLUIDO");
+  assert.match(String(auditorias[1]?.[6]), new RegExp(pacoteId));
+  assert.equal(auditorias[1]?.[7], "Incluir a faixa");
 });
 
 test("a simulação da empresa usa a tabela publicada na data da festa", async () => {
@@ -44,13 +78,15 @@ const tabela = "22222222-2222-4222-8222-222222222222";
 
 function publicar(responder: (text: string) => { rows: object[]; rowCount: number }) {
   const chamadas: string[] = [];
+  const valores: unknown[][] = [];
   const tx: DbExecutor = {
-    async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+    async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
       chamadas.push(text);
+      valores.push([...(values ?? [])]);
       return responder(text) as DbQueryResult<Row>;
     },
   };
-  return { tx, chamadas };
+  return { tx, chamadas, valores };
 }
 
 function respostaValida(text: string, updateRowCount = 1) {
@@ -63,9 +99,15 @@ function respostaValida(text: string, updateRowCount = 1) {
 }
 
 test("publicar não recalcula fechamento nem ativa a tabela no fechamento público", async () => {
-  const { tx, chamadas } = publicar(respostaValida);
-  await publicarTabelaPrecoAdmin(tx, { empresaId: empresa, tabelaId: tabela });
+  const { tx, chamadas, valores } = publicar(respostaValida);
+  await publicarTabelaPrecoAdmin(tx, { empresaId: empresa, tabelaId: tabela, usuarioId: "usuario-1", requestId: "req-1", motivo: "Publicar a faixa conferida" });
   const update = chamadas.find((sql) => sql.startsWith("UPDATE tabelas_preco")) ?? "";
+  const auditoria = chamadas.findIndex((sql) => sql.includes("INSERT INTO auditoria"));
+  assert.equal(valores[auditoria]?.[0], "USUARIO");
+  assert.equal(valores[auditoria]?.[1], "usuario-1");
+  assert.equal(valores[auditoria]?.[4], tabela);
+  assert.match(String(valores[auditoria]?.[6]), new RegExp(empresa));
+  assert.equal(valores[auditoria]?.[7], "Publicar a faixa conferida");
   assert.match(update, /ativa = false/);
   assert.match(update, /publicada_em IS NULL/);
   assert.equal(chamadas.some((sql) => sql.includes("fechamentos")), false);
@@ -84,7 +126,7 @@ test("publicação recusa tabela vazia, faixa inválida, sobreposição e vigên
       () => publicarTabelaPrecoAdmin(tx, { empresaId: empresa, tabelaId: tabela }),
       (error: unknown) => error instanceof PacoteAdminError && error.code === caso.codigo,
     );
-    assert.equal(chamadas.some((sql) => sql.startsWith("UPDATE")), false, caso.codigo);
+    assert.equal(chamadas.some((sql) => sql.startsWith("UPDATE") || sql.includes("INSERT INTO auditoria")), false, caso.codigo);
   }
 });
 
