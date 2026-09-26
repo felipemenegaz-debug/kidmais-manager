@@ -2,7 +2,74 @@
 
 Documento temporário de continuidade. Não é fonte funcional. A decisão de produto permanece no Second Brain e no Goal Mestre. O Goal permanece aberto.
 
-## Estado atual — segunda remediação NO-GO
+## Estado atual — terceira remediação NO-GO
+
+- Branch: `fix/v1-snapshot-comercial`
+- Upstream: `origin/fix/v1-snapshot-comercial`
+- Base: `origin/staging` = `c54a809169b825e5dde25cac1385602bafa3faf3` (`git merge-base` igual). 0 atrás. 42 commits à frente de `origin/staging` antes deste arquivo; este status é o quadragésimo terceiro. Não fazer push para `staging` nem `main`. Não fazer merge nem deploy.
+- Código desta passagem, antes deste status: `bc6b7c3b08e774458380356013780a587ae2e423`
+- Revisado e recusado na terceira revisão: `8d0bd00dec3320c412baa2110d4a06ec65c60ca3`
+- Este arquivo entra no commit seguinte. O HEAD remoto, depois do push sem force, é esse commit de status.
+
+Commits desta passagem, autor e committer Felipe Menegaz `<324788905+felipemenegaz-debug@users.noreply.github.com>`:
+
+| SHA | Assunto |
+| --- | --- |
+| `77c0cf16d32dfd72710c59fc499c4ac212594a5b` | fecha a corrida de tenant e de publicação sob trava por empresa |
+| `bc6b7c3b08e774458380356013780a587ae2e423` | prova concorrência de tenant e de publicação no PostgreSQL |
+
+### Classificação
+
+- P0-02: fechado na 038, no banco descartável. A 036 continua aplicada. A 038 trava o catálogo antes de validar, recusa empresas diferentes e qualquer outro desencontro, e não abre exceção no gatilho. `empresa_id` do pai segue imutável, inclusive de nulo para empresa.
+- P1-03: fechado na 039, no banco descartável. Publicação, INSERT, UPDATE, DELETE, mudança de tabela e desativação do último preço usam a mesma trava por empresa. Empresas diferentes não esperam uma à outra. HG-4 continua aberto.
+- P1-01 e a auditoria canônica transacional: fechados na passagem anterior. Não foram reabertos.
+- P2-01 e P2-03: não tratados. A UX admin e o preço/data públicos não foram piorados.
+
+### Gates que continuam abertos
+
+- HG-4 aberto. Publicar não exige todos os pacotes nem as duas categorias. Tabela vazia continua recusada. Não houve completude comercial inventada.
+- HG-6 aberto. Os sete pacotes legados seguem com `empresa_id` NULL. Não foram associados. Atribuir empresa a esse legado exige uma migration posterior, específica e auditável, que substitua a guarda. Esta passagem não faz isso e não cria parâmetro de sessão.
+- HG-8 aberto. A Foundation 020 não foi copiada, alterada nem executada. Membership não foi adicionada.
+- O catálogo público permanece fechado.
+- Fail-closed: sem empresa comprovada na sessão real, as rotas administrativas de pacote, composição, catálogo e tabela respondem 403 e não consultam o banco.
+
+### Migrations
+
+036 e 037 não foram reescritas. Já estavam aplicadas em `kidmais_pacotes_v1_descartavel` na porta `55498`. O banco `kidmais_pacotes_v1_rollback` não foi alterado. 020 e 026–028 continuam reservadas. A 023 não foi reescrita. O próximo número livre passa a ser 040.
+
+- `20260926_038_integridade_tenant_atomica.sql` — `LOCK TABLE` em `adicionais`, `pacote_adicionais`, `pacotes`, `precos_adicional`, `precos_pacote` e `tabelas_preco` antes da validação. Empresas diferentes, empresa/NULL e NULL/empresa abortam a migration inteira, exceto o `pacote_adicional` já existente de `FESTA_LOCAL` para `SALADA_PREMIUM` com empresa só no pacote. Essa linha não foi reescrita e não recebeu tenant. Não é exceção do gatilho: vínculo novo nesse formato continua recusado. NULL/NULL permanece válido. A mesma empresa nos dois lados permanece válida. O gatilho do pai continua recusando qualquer mudança de `empresa_id`.
+- `20260926_039_publicacao_serial_completa.sql` — a mesma `kidmais_037_trava_publicacao` por empresa. O preço recusa no BEFORE o que já está publicado e, no AFTER, espera a trava depois da chave estrangeira, para não ciclar com a publicação. INSERT, UPDATE de cálculo, DELETE, mudança de tabela e desativação que esvaziaria a publicação esperam essa trava e relêem o estado que vai confirmar. `observacoes` não entra na trava. Vigência já sobreposta aborta a migration. Não despublica tabela vazia já existente.
+
+Rollback: os DOWN da 038 e da 039 foram executados dentro de transação desfeita no banco principal. A guarda voltou. Nenhum DOWN foi deixado aplicado.
+
+### Testes no PostgreSQL descartável
+
+Banco `kidmais_pacotes_v1_descartavel`, `127.0.0.1:55498`, usuário `kidmais_descartavel`, sem senha. `current_database()` e `inet_server_port()` conferidos. Duas execuções de `lib/comercial/pacotes-v1-remediacao.postgres.test.ts`: 22 subtestes, 0 falhas, nas duas.
+
+- 038 com preço entre duas empresas, com pacote de empresa ligado a adicional NULL que não é o par histórico, e com pacote NULL ligado a adicional de empresa: a migration abortou e a transação não gravou a guarda.
+- Durante a trava da 038, outra sessão não conseguiu mudar `empresa_id` de `COMPACTA`. Depois do commit, a mudança foi recusada. `COMPACTA` segue sem empresa.
+- NULL/NULL passou. A mesma empresa passou. A/B, A/NULL e NULL/A foram recusados no vínculo novo. Mudar a empresa do pai, inclusive de nulo para empresa, foi recusado.
+- 039 com duas vigências publicadas sobrepostas abortou. Durante a trava da instalação, outra sessão não escreveu preço.
+- Com duas conexões: publicação contra INSERT, contra UPDATE de valor, contra DELETE e contra mudança de tabela. A segunda sessão ficou bloqueada e, depois do commit, foi recusada. Duas desativações simultâneas dos últimos preços deixaram um ativo. `observacoes` foi editada enquanto a publicação da mesma empresa segurava a trava. Outra empresa publicou vigência sobreposta sem esperar essa trava.
+- O vínculo `FESTA_LOCAL` → `SALADA_PREMIUM` sem empresa no adicional continua 1. Sete pacotes com `empresa_id` NULL. Nenhuma empresa sintética `t036`–`t039` permaneceu. Os gatilhos de preço e de empresa ficaram habilitados.
+
+### Validação desta passagem
+
+- PostgreSQL descartável: 22 subtestes, duas vezes, 0 falhas
+- `npx tsc --noEmit`: passou
+- `npm run lint`: passou, exit 0
+- `npm run build`: passou
+- `git diff --check`: passou
+- `node --test scripts/production/production.test.mjs`: 35 passaram
+- Testes de serviço e rota anteriores, mais `autorizacao-tenant.test.ts`: 47 passaram
+
+P0-02 e P1-03 estão fechados nesta branch. HG-4, HG-6 e HG-8 permanecem abertos. O catálogo público permanece fechado. Os sete pacotes continuam sem empresa. Parado para uma quarta revisão independente. Não é merge nem deploy.
+
+## HISTÓRICO — segunda remediação NO-GO
+
+O texto abaixo é o estado declarado na segunda passagem. A terceira revisão recusou esse fechamento. Não é o estado atual.
+
+## Estado declarado na segunda passagem
 
 - Branch: `fix/v1-snapshot-comercial`
 - Upstream: `origin/fix/v1-snapshot-comercial`
