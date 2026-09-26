@@ -38,9 +38,13 @@ Marco 7: `88f0d88fa93be3cf76c2183396c1c5c630ec9527`.
 
 Marco 8: `78e03c0b799c166d13f3874f7e28f26cd393cff7`.
 
+Marco 9: `0659565ee19c393f9fd879882daeb7902e90cca6`.
+
+Marco 10: `9e5d21b7299fcef82eaef1dadd2823914756a624`.
+
 ## Marco atual
 
-Marco 8 está na UI do admin atual. A verificação no browser ainda não foi feita. Marcos 9 e 10 não começaram.
+Os Marcos 0–10 estão no código. O Goal não está completo: as migrations 029–033 não foram aplicadas, a tela não foi exercida no browser e a tabela publicada de uma empresa ainda não alimenta o fechamento público.
 
 ## Marcos concluídos
 
@@ -53,6 +57,8 @@ Marco 8 está na UI do admin atual. A verificação no browser ainda não foi fe
 - Marco 6 — API admin lista, consulta, cria, duplica, edita revisão livre, cria revisão quando utilizada, ativa, desativa, arquiva e mostra histórico. Sem exclusão física. Restaurar arquivado permanece recusado.
 - Marco 7 — vínculo INCLUSO não vira EXTRA. Completa não recebe salada premium inclusa. Premium mantém salada premium inclusa. A 023 não foi reescrita. Pizza usa mínimo e máximo persistidos quando os dois existem; senão permanece 20–100. Compacta sem preço continua sob consulta.
 - Marco 8 — página `/admin/configuracoes/pacotes` no admin atual. O PDF permanece “Tabela de pacotes e preços”. Não há ação Excluir. `docs/ux/admin-v1` não foi copiado porque só existe em `review/v1-perfil-empresa`.
+- Marco 9 — a prévia pública lê nome, descrição, duração, limites e menor preço vigente em `/api/fechamentos/pacotes`. A lista continua restrita aos sete códigos contratáveis, então criar um pacote não o publica. Inclusos cobrados saem de `pacote_adicionais` com modalidade INCLUSO.
+- Marco 10 — rascunho de tabela por empresa, simulação e publicação em `publicada_em`. A publicação não dá `UPDATE` em fechamentos, não exige PDF e não liga `ativa`, para não substituir a tabela legada do fechamento público.
 
 ## Decisões aplicadas
 
@@ -124,14 +130,23 @@ No Marco 8, sem banco e sem browser:
 - `components/admin/PacotesAdmin.test.ts` — 1 passou
 - `npx tsc --noEmit` — passou
 
+No Marco 9 e no Marco 10, sem banco e sem browser:
+
+- `lib/comercial/composicao.test.ts` — 4 passaram
+- `lib/comercial/tabelas-preco-admin.test.ts` — 3 passaram
+- `lib/comercial/pizza-party.test.ts` — 4 passaram
+- `lib/comercial/caracterizacao-comercial-v1.test.ts` — 6 passaram
+- `scripts/production/production.test.mjs` — 35 passaram
+- `npx tsc --noEmit` — passou
+
 ## Resultados
 
 Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia, sem JOIN em `pacotes`/`tabelas_preco`. Sem fotografia, ou sem a migration 029, o schema 1 continua. PDF schema 2 usa o nome congelado. Schema 1 ainda substitui o nome pelo modelo oficial. Contratos já gravados não são convertidos.
 
 ## Riscos
 
-- As migrations 029 a 032 não foram aplicadas em PostgreSQL. Não há `psql`, `createdb` nem Docker. O rollback da 030 foi conferido pelo arquivo, sem execução. A primeira aplicação precisa ser num banco local descartável.
-- O inventário de produção passou a aceitar 029–032. Continua recusando 020 e arquivos fora da lista. A sessão administrativa ainda não tem membership; o escopo é o `empresaId` informado e a linha precisa ter a mesma empresa.
+- As migrations 029 a 033 não foram aplicadas em PostgreSQL. Não há `psql`, `createdb` nem Docker. O rollback da 030 foi conferido pelo arquivo, sem execução. A primeira aplicação precisa ser num banco local descartável.
+- O inventário de produção passou a aceitar 029–033. Continua recusando 020 e arquivos fora da lista. A sessão administrativa ainda não tem membership; o escopo é o `empresaId` informado e a linha precisa ter a mesma empresa.
 - Sem a migration 029 aplicada, `lerFotografiaPacoteVigente` volta ao schema 1. Staging não quebra antes do HG-1.
 - Depois da assinatura a edição continua recusada. A troca pré-assinatura só grava nova fotografia quando a tabela 029 existe.
 - Não existe adicional `SALADA_TRADICIONAL` no catálogo. A regra da Completa recusa salada premium inclusa e não inventa esse item.
@@ -139,7 +154,7 @@ Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia,
 
 ## Próximos passos
 
-Verificar no browser a tela de Pacotes num banco descartável. Depois, Marco 9: tirar só os hardcodes que o domínio novo já sustenta. Marco 10: admin de tabelas de preços, sem exigir PDF e sem recalcular fechamentos antigos.
+Aplicar 029–033 só num banco local descartável e, nele, percorrer no browser Pacotes e Tabelas de preços. O fechamento público ainda escolhe a tabela legada `ativa`; ligar a tabela publicada da empresa a esse cálculo continua pendente e não deve recalcular fechamentos antigos.
 
 ## Human Gates pendentes
 
