@@ -26,12 +26,37 @@ function carregarServico() {
     );
     return exports;
   }
-  return load(resolve("lib/fechamentos/services/pacote-snapshot")).gravarFotografiaPacoteFechamento as (
+  const modulo = load(resolve("lib/fechamentos/services/pacote-snapshot"));
+  return modulo.gravarFotografiaPacoteFechamento as (
     tx: DbExecutor,
     fechamento: FechamentoRecord,
     resumo: ResumoComercial,
   ) => Promise<string>;
 }
+
+carregarServico.corrigir = (() => {
+  const cache: Record<string, Record<string, unknown>> = {};
+  function load(name: string): Record<string, unknown> {
+    const base = resolve(name);
+    const file = existsSync(`${base}.ts`) ? `${base}.ts` : base;
+    if (cache[file]) return cache[file];
+    const exports = (cache[file] = {});
+    const code = ts.transpileModule(readFileSync(file, "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+    }).outputText;
+    new Function("require", "exports", code)(
+      (id: string) => (id.startsWith(".") ? load(resolve(dirname(file), id.replace(/\.ts$/, ""))) : req(id)),
+      exports,
+    );
+    return exports;
+  }
+  return load(resolve("lib/fechamentos/services/pacote-snapshot")).gravarCorrecaoFotografiaPacote as (
+    tx: DbExecutor,
+    fechamento: FechamentoRecord,
+    resumo: ResumoComercial,
+    correcao: { motivo: string; atorUsuarioId: string },
+  ) => Promise<string | null>;
+})();
 
 function fechamento(): FechamentoRecord {
   return {
@@ -186,4 +211,38 @@ test("fotografia nasce com duração nula, incluso e buffet, sem extra pago", as
   assert.equal(chamadas[0].includes("INSERT INTO fechamento_pacote_snapshots"), true);
   assert.equal(chamadas.at(-1)?.startsWith("UPDATE fechamentos"), true);
   assert.equal(chamadas.some((sql) => sql.includes("fechamento_adicionais")), false);
+});
+
+test("troca explícita cria outra fotografia e preserva a anterior", async () => {
+  const corrigir = carregarServico.corrigir;
+  const chamadas: string[] = [];
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
+      chamadas.push(text);
+      if (text.includes("to_regclass")) return { rows: [{ rel: "fechamento_pacote_snapshots" } as Row], rowCount: 1 };
+      if (text.includes("SELECT pacote_snapshot_vigente_id")) {
+        return { rows: [{ pacote_snapshot_vigente_id: "snap-anterior" } as Row], rowCount: 1 };
+      }
+      if (text.startsWith("INSERT INTO fechamento_pacote_snapshots")) {
+        assert.equal(values?.[28], "Troca autorizada");
+        assert.equal(values?.[29], "usuario-1");
+        assert.equal(values?.[30], "snap-anterior");
+        return { rows: [{ id: "snap-nova" } as Row], rowCount: 1 };
+      }
+      if (text.includes("pa.modalidade = 'INCLUSO'") || text.includes("FROM pacote_buffet_categorias")) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (text.startsWith("UPDATE fechamentos")) {
+        assert.match(text, /IS NOT DISTINCT FROM/);
+        assert.deepEqual(values, ["snap-nova", "fechamento-1", "snap-anterior"]);
+        return { rows: [], rowCount: 1 };
+      }
+      throw new Error(text);
+    },
+  };
+  assert.equal(
+    await corrigir(tx, fechamento(), resumo(), { motivo: "Troca autorizada", atorUsuarioId: "usuario-1" }),
+    "snap-nova",
+  );
+  assert.equal(chamadas.some((sql) => /UPDATE fechamento_pacote_snapshots|DELETE FROM fechamento_pacote_snapshots/.test(sql)), false);
 });

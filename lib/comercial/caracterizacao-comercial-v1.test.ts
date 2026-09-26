@@ -45,11 +45,12 @@ test("characterização: schema 1 ainda lê o cadastro vivo; schema 2 preserva o
   assert.equal(Object.keys(MODELOS_OFICIAIS).length, 7);
 });
 
-test("characterização: troca administrativa de pacote ainda não cria fotografia", () => {
+test("characterização: troca administrativa pré-assinatura cria nova fotografia", () => {
   const edicao = readFileSync("lib/fechamentos/services/edicao-administrativa.service.ts", "utf8");
   const fechamento = readFileSync("lib/fechamentos/services/fechamento.service.ts", "utf8");
   assert.match(edicao, /const pacoteMudou = f\.pacoteId !== input\.pacoteId/);
-  assert.equal(edicao.includes("gravarFotografiaPacoteFechamento"), false);
+  assert.match(edicao, /gravarCorrecaoFotografiaPacote/);
+  assert.match(edicao, /Após assinatura, prepare a alteração em uma nova versão pelo painel de Contratos/);
   assert.match(fechamento, /await gravarFotografiaPacoteFechamento\(tx, fechamento, resumoComercial\)/);
   assert.match(edicao, /Após assinatura, prepare a alteração em uma nova versão pelo painel de Contratos/);
 });

@@ -26,13 +26,14 @@ Marco 1: `f076ce8e3aa795c582fc7448f40714c24236ae7f`.
 
 ## Marco atual
 
-Marco 2 concluído no código. Marco 3 ainda não começou.
+Marco 3 concluído no código. Marco 4 ainda não começou.
 
 ## Marcos concluídos
 
 - Marco 0 — caracterização, sem corrigir comportamento.
 - Marco 1 — fotografia append-only na criação do fechamento.
 - Marco 2 — contrato com fotografia usa schema 2; schema 1 permanece.
+- Marco 3 — troca explícita pré-assinatura cria nova fotografia, preserva a anterior e exige motivo.
 
 ## Decisões aplicadas
 
@@ -61,6 +62,12 @@ Sem banco, no Marco 2:
 - `lib/comercial/caracterizacao-comercial-v1.test.ts` — 6 passaram
 - `npx tsc --noEmit` — passou
 
+No Marco 3, sem banco:
+
+- `lib/fechamentos/services/pacote-snapshot.test.ts` — criação e correção passaram
+- `lib/comercial/caracterizacao-comercial-v1.test.ts` — 6 passaram
+- `npx tsc --noEmit` — passou
+
 ## Resultados
 
 Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia, sem JOIN em `pacotes`/`tabelas_preco`. Sem fotografia, ou sem a migration 029, o schema 1 continua. PDF schema 2 usa o nome congelado. Schema 1 ainda substitui o nome pelo modelo oficial. Contratos já gravados não são convertidos.
@@ -70,11 +77,11 @@ Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia,
 - A migration 029 não foi aplicada em PostgreSQL. A primeira aplicação precisa ser num banco local descartável, com precheck e postcheck.
 - O inventário de produção passou a aceitar a 029. Continua recusando 020 e arquivos fora da lista.
 - Sem a migration 029 aplicada, `lerFotografiaPacoteVigente` volta ao schema 1. Staging não quebra antes do HG-1.
-- Edição administrativa ainda não cria nova fotografia.
+- Depois da assinatura a edição continua recusada. A troca pré-assinatura só grava nova fotografia quando a tabela 029 existe.
 
 ## Próximos passos
 
-Marco 3: troca explícita de pacote antes da assinatura cria nova fotografia, preserva a anterior, exige motivo e atualiza o ponteiro vigente.
+Marco 4: migration separada protegendo atributos de cálculo de preço já utilizado. Linha nunca usada permanece editável. Rollback só em banco descartável.
 
 ## Human Gates pendentes
 

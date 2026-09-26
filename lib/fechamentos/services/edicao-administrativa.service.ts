@@ -9,6 +9,7 @@ import { persistirEdicaoFechamento } from '../repositories/edicao.repository';
 import { registrarAuditoria } from '../../clientes/repositories';
 import { FechamentoServiceError } from './errors';
 import { edicaoFestaSchema, type EdicaoFestaInput } from './edicao-administrativa-schema';
+import { gravarCorrecaoFotografiaPacote } from './pacote-snapshot';
 function recusar(mensagem: string): never { throw new FechamentoServiceError('DADOS_INVALIDOS', mensagem, 409); }
 // Itens já incluídos conforme a composição publicada dos pacotes; preferências não são cobrança.
 export function adicionaisIncluidos(codigo: string): string[] {
@@ -32,6 +33,9 @@ export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFest
     const { fechamento: novo, resumo } = await calcularEdicaoFechamento(f, input, tx);
     if (input.comercial) await criarAprovacaoNegociacao({ fechamentoId: id, status: 'APROVADO', valorInformado: resumo.valorTotalTabela, valorAprovado: novo.valorAprovado ?? resumo.valorTotalTabela, motivo: input.motivo, aprovadoPorUsuarioId: usuarioId, condicaoPagamento: { ...novo.condicaoPagamento!, valores: calcularCondicaoComercial(novo.valorAprovado ?? resumo.valorTotalTabela, input.comercial.forma) } }, tx);
     await persistirEdicaoFechamento(tx, novo, resumo);
+    if (f.pacoteId !== input.pacoteId) {
+        await gravarCorrecaoFotografiaPacote(tx, novo, resumo, { motivo: input.motivo, atorUsuarioId: usuarioId });
+    }
     await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, clienteId: f.clienteId, acao: 'ALTERACAO_ADMINISTRATIVA', entidadeTipo: 'FECHAMENTO', entidadeId: id, origem: 'CONTRATO_ADMIN', requestId, dadosAntes: { fechamento: f, adicionais: anteriorAdicionais }, dadosDepois: { fechamento: novo, adicionais: resumo.adicionais.itens, motivo: input.motivo } }, tx);
     return (await buscarFechamentoPorIdParaAtualizacao(id, tx))!;
 }
