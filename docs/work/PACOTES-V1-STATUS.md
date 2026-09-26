@@ -50,7 +50,9 @@ O smoke no banco descartável confirmou: sete pacotes sem `empresa_id` e com dur
 
 No browser, em `http://localhost:3000` apontando só para esse banco: lista vazia da empresa nova, criação de pacote, composição de incluso e de buffet, recusa ao transformar incluso em extra pago, histórico, simulação `AUSENTE` e `SOB_CONSULTA`, criação de vigência e publicação. A tabela publicada ficou com `ativa = false`. Os sete pacotes legados seguem sem empresa.
 
-Depois disso, `POST /api/fechamentos` no mesmo servidor criou um fechamento Essencial. A fotografia nasceu na mesma transação, com duração nula, quatro categorias de buffet e nenhum extra. O contrato gerado ficou no schema 2, com `pacoteAplicado.nome` igual a “Festa Essencial”. Alterar o nome vivo do pacote não mudou o snapshot gravado, e o `UPDATE` da fotografia foi recusado. O PDF oficial ainda exige revisão documental; essa etapa não foi forçada. A troca administrativa de pacote antes da assinatura continua coberta pelos testes de serviço, sem uma passagem ponta a ponta neste banco.
+Depois disso, `POST /api/fechamentos` no mesmo servidor criou um fechamento Essencial. A fotografia nasceu na mesma transação, com duração nula, quatro categorias de buffet e nenhum extra. O contrato gerado ficou no schema 2, com `pacoteAplicado.nome` igual a “Festa Essencial”. Alterar o nome vivo do pacote não mudou o snapshot gravado, e o `UPDATE` da fotografia foi recusado. O PDF oficial ainda exige revisão documental; essa etapa não foi forçada. O teste de documento schema 2 confere que o texto usa o nome congelado.
+
+A troca administrativa antes da assinatura, no fechamento `6233a052-9b2a-4c86-8d79-651911ca5023`, trocou Essencial por Completa. A fotografia 1 permanece Essencial. A fotografia 2 é Completa, vigente, com motivo e ponteiro para a anterior. A auditoria `ALTERACAO_ADMINISTRATIVA` foi gravada. O contrato já emitido continua com Essencial no schema 2. Não foi criada uma assinatura sintética: o banco recusa marcar a versão como assinada sem documento, e a recusa pós-assinatura do serviço permanece no código.
 
 ## Marcos concluídos
 
