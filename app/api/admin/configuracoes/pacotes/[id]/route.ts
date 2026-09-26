@@ -7,9 +7,7 @@ import { apiErrorResponse } from "@/lib/http/api-response";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type RouteContext = { params: Promise<{ id: string }> };
-
-export async function GET(request: NextRequest, _context: RouteContext) {
+export async function GET(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
     recusarTenantNaoComprovado(sessao);
@@ -18,7 +16,7 @@ export async function GET(request: NextRequest, _context: RouteContext) {
   }
 }
 
-export async function PATCH(request: NextRequest, _context: RouteContext) {
+export async function PATCH(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
     if (sessao.papel !== "REPRESENTANTE_AUTORIZADO") throw authError("Apenas o proprietário pode editar pacotes.", 403);

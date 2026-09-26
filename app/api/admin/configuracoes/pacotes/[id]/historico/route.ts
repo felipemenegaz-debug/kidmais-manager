@@ -6,9 +6,7 @@ import { apiErrorResponse } from "@/lib/http/api-response";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type RouteContext = { params: Promise<{ id: string }> };
-
-export async function GET(request: NextRequest, _context: RouteContext) {
+export async function GET(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
     recusarTenantNaoComprovado(sessao);

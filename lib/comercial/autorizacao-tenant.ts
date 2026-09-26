@@ -5,7 +5,8 @@ import { PacoteAdminError } from "./pacotes-admin.ts";
  * Membership da Foundation não está nesta branch e não é inventada aqui.
  * Sem empresa comprovada no servidor, operação de tenant falha fechada.
  */
-export function empresaComprovadaDaSessao(_sessao: { usuario_id: string; papel: string }): null {
+export function empresaComprovadaDaSessao(sessao: { usuario_id: string; papel: string }): null {
+  void sessao;
   return null;
 }
 
