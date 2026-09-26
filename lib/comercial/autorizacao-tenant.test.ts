@@ -18,12 +18,14 @@ test("sem empresa comprovada a operação responde 403 e ignora o id do cliente"
   );
 });
 
-test("empresa comprovada na sessão é devolvida e um pedido de outra empresa continua 403", () => {
-  const provada = { ...sessao, empresaComprovada: empresaA };
-  assert.equal(recusarTenantNaoComprovado(provada), empresaA);
-  assert.equal(recusarTenantNaoComprovado(provada, empresaA), empresaA);
+test("um campo de empresa na sessão não prova o tenant", () => {
+  const injetada = { ...sessao, empresaComprovada: empresaA };
   assert.throws(
-    () => recusarTenantNaoComprovado(provada, empresaB),
+    () => recusarTenantNaoComprovado(injetada),
     (error: unknown) => error instanceof PacoteAdminError && error.code === "TENANT_NAO_COMPROVADO" && error.httpStatus === 403,
+  );
+  assert.throws(
+    () => recusarTenantNaoComprovado(injetada, empresaA),
+    (error: unknown) => error instanceof PacoteAdminError && error.httpStatus === 403,
   );
 });

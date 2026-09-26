@@ -2,17 +2,15 @@ import { PacoteAdminError } from "./pacotes-admin.ts";
 
 /**
  * A sessão administrativa não carrega empresa.
- * Membership da Foundation não está nesta branch e não é inventada aqui.
- * O campo opcional só existe para um teste do ramo futuro: a consulta da
- * sessão não o preenche e a rota não copia o empresaId do cliente para cá.
+ * consultarSessao não preenche empresaComprovada e um campo injetado
+ * também não prova autorização. A prova é provarTenant, dentro da transação.
  */
-export function empresaComprovadaDaSessao(sessao: {
+export function empresaComprovadaDaSessao(_sessao: {
   usuario_id: string;
   papel: string;
   empresaComprovada?: string | null;
-}): string | null {
-  if (typeof sessao.empresaComprovada !== "string" || sessao.empresaComprovada.trim() === "") return null;
-  return sessao.empresaComprovada;
+}): null {
+  return null;
 }
 
 export const catalogoPublicoIndeterminado = {
@@ -32,22 +30,12 @@ export function recusarCatalogoPublicoSemTenant(): never {
 
 export function recusarTenantNaoComprovado(
   sessao: { usuario_id: string; papel: string; empresaComprovada?: string | null },
-  empresaSolicitada?: string | null,
-): string {
-  const comprovada = empresaComprovadaDaSessao(sessao);
-  if (comprovada == null) {
-    throw new PacoteAdminError(
-      "TENANT_NAO_COMPROVADO",
-      "A sessão administrativa não comprova a empresa autorizada.",
-      403,
-    );
-  }
-  if (empresaSolicitada != null && empresaSolicitada !== "" && empresaSolicitada !== comprovada) {
-    throw new PacoteAdminError(
-      "TENANT_NAO_COMPROVADO",
-      "A sessão administrativa não comprova a empresa autorizada.",
-      403,
-    );
-  }
-  return comprovada;
+  _empresaSolicitada?: string | null,
+): never {
+  empresaComprovadaDaSessao(sessao);
+  throw new PacoteAdminError(
+    "TENANT_NAO_COMPROVADO",
+    "A sessão administrativa não comprova a empresa autorizada.",
+    403,
+  );
 }
