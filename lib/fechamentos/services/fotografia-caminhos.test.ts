@@ -97,9 +97,9 @@ test("aplicar a revisão operacional e a revisão inicial fotografam o estado pe
   const aplicar = repositorio.aplicarOperacaoPreparada as (tx: DbExecutor, r: { id: string; fechamento_id: string; motivo: string }) => Promise<string | null>;
   const sqls: string[] = [];
   const tx: DbExecutor = {
-    async query(text: string) {
+    async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
       sqls.push(text);
-      if (text.includes("information_schema.columns")) return { rows: [{ ok: false }], rowCount: 1 };
+      if (text.includes("information_schema.columns")) return { rows: [{ ok: false } as Row], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
   };
@@ -123,9 +123,9 @@ test("aplicar a revisão operacional e a revisão inicial fotografam o estado pe
   });
   const aplicarInicial = inicial.aplicarRevisaoInicial as (tx: DbExecutor, v: object, proposta: object) => Promise<void>;
   const txInicial: DbExecutor = {
-    async query(text: string) {
-      if (text.includes("versao_vigente_id")) return { rows: [{ versao_vigente_id: null, versao_em_preparacao_id: "versao-1" }], rowCount: 1 };
-      if (text.includes("contrato_assinaturas")) return { rows: [{ parte: "KIDMAIS" }, { parte: "CLIENTE" }], rowCount: 2 };
+    async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+      if (text.includes("versao_vigente_id")) return { rows: [{ versao_vigente_id: null, versao_em_preparacao_id: "versao-1" } as Row], rowCount: 1 };
+      if (text.includes("contrato_assinaturas")) return { rows: [{ parte: "KIDMAIS" } as Row, { parte: "CLIENTE" } as Row], rowCount: 2 };
       return { rows: [], rowCount: 0 };
     },
   };
