@@ -94,7 +94,9 @@ function respostaValida(text: string, updateRowCount = 1) {
     return { rows: [{ id: tabela, publicada_em: null, ativa: false, vigencia_inicio: "2026-10-01", vigencia_fim: "2026-12-31" }], rowCount: 1 };
   }
   if (text.includes("AS n")) return { rows: [{ n: 1 }], rowCount: 1 };
-  if (text.startsWith("UPDATE tabelas_preco")) return { rows: [], rowCount: updateRowCount };
+  if (text.startsWith("UPDATE tabelas_preco")) {
+    return { rows: updateRowCount === 1 ? [{ publicada_em: "2026-09-26T18:00:00.000Z" }] : [], rowCount: updateRowCount };
+  }
   return { rows: [], rowCount: 0 };
 }
 
@@ -106,7 +108,10 @@ test("publicar não recalcula fechamento nem ativa a tabela no fechamento públi
   assert.equal(valores[auditoria]?.[0], "USUARIO");
   assert.equal(valores[auditoria]?.[1], "usuario-1");
   assert.equal(valores[auditoria]?.[4], tabela);
+  assert.equal(chamadas.filter((sql) => sql.includes("INSERT INTO auditoria")).length, 1);
   assert.match(String(valores[auditoria]?.[6]), new RegExp(empresa));
+  assert.match(String(valores[auditoria]?.[6]), /2026-09-26T18:00:00.000Z/);
+  assert.equal(String(valores[auditoria]?.[6]).includes("clock_timestamp()"), false);
   assert.equal(valores[auditoria]?.[7], "Publicar a faixa conferida");
   assert.match(update, /ativa = false/);
   assert.match(update, /publicada_em IS NULL/);

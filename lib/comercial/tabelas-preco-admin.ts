@@ -190,7 +190,7 @@ export async function publicarTabelaPrecoAdmin(
   );
   if (vigencia.rows[0]) recusar("VIGENCIA_SOBREPOSTA", "Já existe tabela publicada desta empresa na mesma vigência.", 409);
   // HG-4 permanece aberto: cobertura além de "não vazia" não está documentada e não é inventada aqui.
-  const publicada = await tx.query(
+  const publicada = await tx.query<{ publicada_em: string }>(
     `UPDATE tabelas_preco
         SET publicada_em = clock_timestamp()
       WHERE id = $1::uuid
@@ -198,10 +198,14 @@ export async function publicarTabelaPrecoAdmin(
         AND publicada_em IS NULL
         AND ativa = false
         AND vigencia_inicio = $3::date
-        AND vigencia_fim IS NOT DISTINCT FROM $4::date`,
+        AND vigencia_fim IS NOT DISTINCT FROM $4::date
+      RETURNING publicada_em::text AS publicada_em`,
     [input.tabelaId, input.empresaId, linha.vigencia_inicio, linha.vigencia_fim],
   );
-  if (publicada.rowCount !== 1) recusar("CONFLITO", "A publicação encontrou outra versão da tabela.", 409);
+  const publicadaEm = publicada.rows[0]?.publicada_em;
+  if (publicada.rowCount !== 1 || publicadaEm == null || publicadaEm === "") {
+    recusar("CONFLITO", "A publicação encontrou outra versão da tabela.", 409);
+  }
   await auditarMutacaoComercial(tx, {
     usuarioId: input.usuarioId ?? null,
     requestId: input.requestId ?? null,
@@ -211,6 +215,6 @@ export async function publicarTabelaPrecoAdmin(
     entidadeId: input.tabelaId,
     empresaId: input.empresaId,
     antes: { publicadaEm: null, ativa: false, vigenciaInicio: linha.vigencia_inicio, vigenciaFim: linha.vigencia_fim },
-    depois: { publicadaEm: "clock_timestamp()", ativa: false },
+    depois: { publicadaEm, ativa: false },
   });
 }
