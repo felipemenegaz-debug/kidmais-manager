@@ -32,9 +32,11 @@ Marco 4: `7748666e4cf68b4a1e9a5c397ce82267c9a85ec8`.
 
 Marco 5: `1581c31408b0fd8d41a1ba276fa97e7ccf71857f`.
 
+Marco 6: `7c6ee02c637cba57e30bb158061917940b83b0fb`.
+
 ## Marco atual
 
-Marco 6 concluído no código. Marco 7 ainda não começou.
+Marco 7 concluído no código. Marco 8 ainda não começou.
 
 ## Marcos concluídos
 
@@ -45,6 +47,7 @@ Marco 6 concluído no código. Marco 7 ainda não começou.
 - Marco 4 — preço utilizado não tem atributos de cálculo reescritos. `ativo`, `observacoes` e `atualizado_em` continuam editáveis.
 - Marco 5 — `empresas` vazia no shape da 020, sem o arquivo 020 e sem a Kidmais. `empresa_id` nulo nos pacotes atuais.
 - Marco 6 — API admin lista, consulta, cria, duplica, edita revisão livre, cria revisão quando utilizada, ativa, desativa, arquiva e mostra histórico. Sem exclusão física. Restaurar arquivado permanece recusado.
+- Marco 7 — vínculo INCLUSO não vira EXTRA. Completa não recebe salada premium inclusa. Premium mantém salada premium inclusa. A 023 não foi reescrita. Pizza usa mínimo e máximo persistidos quando os dois existem; senão permanece 20–100. Compacta sem preço continua sob consulta.
 
 ## Decisões aplicadas
 
@@ -105,6 +108,12 @@ No Marco 6, sem banco:
 - `npx tsc --noEmit` — passou
 - `scripts/production/production.test.mjs` — 35 passaram
 
+No Marco 7, sem banco:
+
+- `lib/comercial/composicao.test.ts` — 3 passaram
+- `lib/comercial/pizza-party.test.ts` — 4 passaram
+- `npx tsc --noEmit` — passou
+
 ## Resultados
 
 Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia, sem JOIN em `pacotes`/`tabelas_preco`. Sem fotografia, ou sem a migration 029, o schema 1 continua. PDF schema 2 usa o nome congelado. Schema 1 ainda substitui o nome pelo modelo oficial. Contratos já gravados não são convertidos.
@@ -115,10 +124,11 @@ Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia,
 - O inventário de produção passou a aceitar 029–032. Continua recusando 020 e arquivos fora da lista. A sessão administrativa ainda não tem membership; o escopo é o `empresaId` informado e a linha precisa ter a mesma empresa.
 - Sem a migration 029 aplicada, `lerFotografiaPacoteVigente` volta ao schema 1. Staging não quebra antes do HG-1.
 - Depois da assinatura a edição continua recusada. A troca pré-assinatura só grava nova fotografia quando a tabela 029 existe.
+- Não existe adicional `SALADA_TRADICIONAL` no catálogo. A regra da Completa recusa salada premium inclusa e não inventa esse item.
 
 ## Próximos passos
 
-Marco 7: composição futura do pacote. Item INCLUSO não pode aparecer como adicional pago. A migration 023 não é reescrita. Compacta acima de 40 continua sob consulta.
+Marco 8: área Configuração → Pacotes, sem renomear o PDF Tabela de pacotes. O Admin Shell V1 não está nesta base.
 
 ## Human Gates pendentes
 

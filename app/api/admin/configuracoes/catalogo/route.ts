@@ -4,6 +4,7 @@ import { db } from '@/lib/db/postgres';
 import { authError } from '@/lib/autenticacao/service';
 import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
 import { apiErrorResponse } from '@/lib/http/api-response';
+import { validarVinculoComposicao } from '@/lib/comercial/composicao';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,10 +47,20 @@ export async function PATCH(request: NextRequest) {
     if (data.acao === 'categoria') resultado = await db().query('UPDATE buffet_categorias SET nome=$2,ativo=$3,arquivado_em=CASE WHEN $3 THEN NULL ELSE clock_timestamp() END WHERE id=$1 RETURNING id', [data.id, data.nome, data.ativo]);
     else if (data.acao === 'item') resultado = await db().query('UPDATE buffet_itens SET nome=$2,ativo=$3,arquivado_em=CASE WHEN $3 THEN NULL ELSE clock_timestamp() END WHERE id=$1 RETURNING id', [data.id, data.nome, data.ativo]);
     else if (data.acao === 'adicional') resultado = await db().query('UPDATE adicionais SET nome=$2,ativo=$3 WHERE id=$1 RETURNING id', [data.id, data.nome, data.ativo]);
-    else if (data.acao === 'vinculo_adicional') resultado = await db().query(`
+    else if (data.acao === 'vinculo_adicional') {
+      const atual = await db().query<{ pacote: string; adicional: string; modalidade: 'INCLUSO' | 'EXTRA' | 'INDISPONIVEL' | null }>(
+        `SELECT p.codigo AS pacote, a.codigo AS adicional, pa.modalidade
+           FROM pacotes p JOIN adicionais a ON a.id = $2::uuid
+           LEFT JOIN pacote_adicionais pa ON pa.pacote_id = p.id AND pa.adicional_id = a.id AND pa.ativo
+          WHERE p.id = $1::uuid`, [data.pacoteId, data.adicionalId]);
+      const vinculo = atual.rows[0];
+      if (!vinculo) return NextResponse.json({ ok: false, erro: 'Registro indisponível.' }, { status: 404, headers });
+      validarVinculoComposicao({ pacoteCodigo: vinculo.pacote, adicionalCodigo: vinculo.adicional, modalidade: data.modalidade, modalidadeAtual: vinculo.modalidade });
+      resultado = await db().query(`
       INSERT INTO pacote_adicionais(pacote_id,adicional_id,modalidade) VALUES ($1,$2,$3)
       ON CONFLICT (pacote_id,adicional_id) DO UPDATE SET modalidade=EXCLUDED.modalidade,ativo=true
       RETURNING pacote_id`, [data.pacoteId,data.adicionalId,data.modalidade]);
+    }
     else if (data.acao === 'regra_buffet') resultado = await db().query(`
       INSERT INTO pacote_buffet_categorias(pacote_id,categoria_id,modo_itens,escolhas_min,escolhas_max,ativo)
       VALUES ($1,$2,'TODOS_ATIVOS',0,$3,$4)

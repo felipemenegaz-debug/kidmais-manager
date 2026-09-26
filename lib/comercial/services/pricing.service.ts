@@ -215,7 +215,10 @@ export async function precificarPacote(
     );
   }
 
-  const erroPizza = erroConvidadosPizzaParty(pacote.codigo, input.convidados);
+  const erroPizza = erroConvidadosPizzaParty(pacote.codigo, input.convidados, {
+    minimo: pacote.convidadosMinimos,
+    maximo: pacote.convidadosMaximos,
+  });
   if (erroPizza) throw new PricingServiceError('DADOS_INVALIDOS', erroPizza, 400);
   if (
     pacote.convidadosMaximos !== null &&

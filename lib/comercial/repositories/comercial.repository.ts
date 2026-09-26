@@ -1,6 +1,6 @@
 import type { DbExecutor } from "../../db/contracts";
 import { db } from "../../db/postgres";
-import { LIMITES_PIZZA_PARTY } from '../pacotes-v1';
+import { limitesPizzaParty } from '../pacotes-v1';
 import type {
   AdicionalComPrecoRecord,
   BuscarPrecoPacoteAplicavelInput,
@@ -124,16 +124,25 @@ const pacoteColumns = `
   ativo
 `;
 
+function limitesConvidados(row: PacoteRow) {
+  const minimo = row.convidados_minimos === null ? null : Number(row.convidados_minimos);
+  const maximo = row.convidados_maximos === null ? null : Number(row.convidados_maximos);
+  if (row.codigo !== "PIZZA_PARTY") return { minimo, maximo };
+  const efetivo = limitesPizzaParty({ minimo, maximo });
+  return row.convidados_minimos === null || row.convidados_maximos === null
+    ? { minimo: efetivo.minimo, maximo: efetivo.maximo }
+    : { minimo, maximo };
+}
+
 function mapPacote(row: PacoteRow): PacoteRecord {
+  const convidados = limitesConvidados(row);
   return {
     id: row.id,
     codigo: row.codigo,
     nome: row.nome,
     descricao: row.descricao,
-    convidadosMinimos:
-      row.codigo === 'PIZZA_PARTY' ? LIMITES_PIZZA_PARTY.minimo : row.convidados_minimos === null ? null : Number(row.convidados_minimos),
-    convidadosMaximos:
-      row.codigo === 'PIZZA_PARTY' ? LIMITES_PIZZA_PARTY.maximo : row.convidados_maximos === null ? null : Number(row.convidados_maximos),
+    convidadosMinimos: convidados.minimo,
+    convidadosMaximos: convidados.maximo,
     duracaoMinutos:
       row.duracao_minutos === null ? null : Number(row.duracao_minutos),
     ordemExibicao: Number(row.ordem_exibicao),
