@@ -31,6 +31,7 @@ const approvedFiles = [
   '20260923_024_taxa_rolha_versionada.sql',
   '20260923_025_extras_unitarios_pizza.sql',
   '20260926_029_fechamento_pacote_snapshot.sql',
+  '20260926_030_preco_utilizado.sql',
 ];
 function inspectInventory(entries, hasCheck) {
   const r = result('migrations');

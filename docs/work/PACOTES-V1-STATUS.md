@@ -24,9 +24,13 @@ Marco 0: `6801304b01a772a4e2c83a67c7256f74163d1c7d`.
 
 Marco 1: `f076ce8e3aa795c582fc7448f40714c24236ae7f`.
 
+Marco 2: `2b32828c9a99e09b11f731529d40c027e71961fb`.
+
+Marco 3: `8b14e2fd4ec52b6e7dbf584205f0e2b538db443a`.
+
 ## Marco atual
 
-Marco 3 concluído no código. Marco 4 ainda não começou.
+Marco 4 concluído no código. Marco 5 ainda não começou.
 
 ## Marcos concluídos
 
@@ -34,6 +38,7 @@ Marco 3 concluído no código. Marco 4 ainda não começou.
 - Marco 1 — fotografia append-only na criação do fechamento.
 - Marco 2 — contrato com fotografia usa schema 2; schema 1 permanece.
 - Marco 3 — troca explícita pré-assinatura cria nova fotografia, preserva a anterior e exige motivo.
+- Marco 4 — preço utilizado não tem atributos de cálculo reescritos. `ativo`, `observacoes` e `atualizado_em` continuam editáveis.
 
 ## Decisões aplicadas
 
@@ -49,6 +54,10 @@ Marco 3 concluído no código. Marco 4 ainda não começou.
 - `database/migrations/20260926_029_fechamento_pacote_snapshot.sql`
 - `database/checks/20260926_029_precheck.sql`
 - `database/checks/20260926_029_postcheck.sql`
+- `database/migrations/20260926_030_preco_utilizado.sql`
+- `database/rollback/20260926_030_preco_utilizado_down.sql`
+- `database/checks/20260926_030_precheck.sql`
+- `database/checks/20260926_030_postcheck.sql`
 
 Não executadas. Não há `psql`/`createdb` no PATH e nenhum banco descartável foi criado. Nenhum banco real foi acessado.
 
@@ -68,20 +77,25 @@ No Marco 3, sem banco:
 - `lib/comercial/caracterizacao-comercial-v1.test.ts` — 6 passaram
 - `npx tsc --noEmit` — passou
 
+No Marco 4, sem banco:
+
+- `lib/fechamentos/services/preco-utilizado.test.ts` — 2 passaram
+- `scripts/production/production.test.mjs` — 35 passaram
+
 ## Resultados
 
 Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia, sem JOIN em `pacotes`/`tabelas_preco`. Sem fotografia, ou sem a migration 029, o schema 1 continua. PDF schema 2 usa o nome congelado. Schema 1 ainda substitui o nome pelo modelo oficial. Contratos já gravados não são convertidos.
 
 ## Riscos
 
-- A migration 029 não foi aplicada em PostgreSQL. A primeira aplicação precisa ser num banco local descartável, com precheck e postcheck.
-- O inventário de produção passou a aceitar a 029. Continua recusando 020 e arquivos fora da lista.
+- As migrations 029 e 030 não foram aplicadas em PostgreSQL. Não há `psql`, `createdb` nem Docker. O rollback da 030 foi conferido pelo arquivo, sem execução. A primeira aplicação precisa ser num banco local descartável.
+- O inventário de produção passou a aceitar a 029 e a 030. Continua recusando 020 e arquivos fora da lista.
 - Sem a migration 029 aplicada, `lerFotografiaPacoteVigente` volta ao schema 1. Staging não quebra antes do HG-1.
 - Depois da assinatura a edição continua recusada. A troca pré-assinatura só grava nova fotografia quando a tabela 029 existe.
 
 ## Próximos passos
 
-Marco 4: migration separada protegendo atributos de cálculo de preço já utilizado. Linha nunca usada permanece editável. Rollback só em banco descartável.
+Marco 5: `empresas` vazia no shape da 020, sem copiar o arquivo e sem inserir a Kidmais. `empresa_id` fica nulo nos sete pacotes atuais (HG-6).
 
 ## Human Gates pendentes
 
