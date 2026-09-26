@@ -48,7 +48,9 @@ Os Marcos 0–10 estão no código. Em 2026-09-26 as migrations 001–025 e 029�
 
 O smoke no banco descartável confirmou: sete pacotes sem `empresa_id` e com duração nula; `empresas` vazia antes do uso administrativo; fotografia recusa UPDATE e DELETE; preço referenciado recusa mudança de valor e aceita `observacoes`; preço livre continua editável; exclusão física de empresa é recusada. O fechamento sintético do smoke foi desfeito na mesma transação.
 
-No browser, em `http://localhost:3000` apontando só para esse banco: lista vazia da empresa nova, criação de pacote, composição de incluso e de buffet, recusa ao transformar incluso em extra pago, histórico, simulação `AUSENTE` e `SOB_CONSULTA`, criação de vigência e publicação. A tabela publicada ficou com `ativa = false`. Fechamentos continuam em zero. Os sete pacotes legados seguem sem empresa.
+No browser, em `http://localhost:3000` apontando só para esse banco: lista vazia da empresa nova, criação de pacote, composição de incluso e de buffet, recusa ao transformar incluso em extra pago, histórico, simulação `AUSENTE` e `SOB_CONSULTA`, criação de vigência e publicação. A tabela publicada ficou com `ativa = false`. Os sete pacotes legados seguem sem empresa.
+
+Depois disso, `POST /api/fechamentos` no mesmo servidor criou um fechamento Essencial. A fotografia nasceu na mesma transação, com duração nula, quatro categorias de buffet e nenhum extra. O contrato gerado ficou no schema 2, com `pacoteAplicado.nome` igual a “Festa Essencial”. Alterar o nome vivo do pacote não mudou o snapshot gravado, e o `UPDATE` da fotografia foi recusado. O PDF oficial ainda exige revisão documental; essa etapa não foi forçada. A troca administrativa de pacote antes da assinatura continua coberta pelos testes de serviço, sem uma passagem ponta a ponta neste banco.
 
 ## Marcos concluídos
 
