@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
     if (sessao.papel !== "REPRESENTANTE_AUTORIZADO") throw authError("Apenas o proprietário pode editar a composição.", 403);
-    recusarTenantNaoComprovado(sessao);
+    recusarTenantNaoComprovado(sessao, request.nextUrl.searchParams.get("empresaId"));
   } catch (error) {
     return apiErrorResponse(error);
   }

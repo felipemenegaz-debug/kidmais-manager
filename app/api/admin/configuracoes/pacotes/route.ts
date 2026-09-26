@@ -18,7 +18,7 @@ async function exigirEscrita(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
-    recusarTenantNaoComprovado(sessao);
+    recusarTenantNaoComprovado(sessao, request.nextUrl.searchParams.get("empresaId"));
   } catch (error) {
     return apiErrorResponse(error);
   }
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const sessao = await exigirEscrita(request);
-    recusarTenantNaoComprovado(sessao);
+    recusarTenantNaoComprovado(sessao, request.nextUrl.searchParams.get("empresaId"));
   } catch (error) {
     return apiErrorResponse(error);
   }

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
       const input = simular.parse(bruto);
       return jsonNoStore({ ok: true, data: simularPrecoPacote(input) });
     }
-    recusarTenantNaoComprovado(sessao);
+    recusarTenantNaoComprovado(sessao, request.nextUrl.searchParams.get("empresaId"));
   } catch (error) {
     return apiErrorResponse(error);
   }
