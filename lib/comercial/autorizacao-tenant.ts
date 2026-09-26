@@ -5,11 +5,12 @@ import { PacoteAdminError } from "./pacotes-admin.ts";
  * consultarSessao não preenche empresaComprovada e um campo injetado
  * também não prova autorização. A prova é provarTenant, dentro da transação.
  */
-export function empresaComprovadaDaSessao(_sessao: {
+export function empresaComprovadaDaSessao(sessao: {
   usuario_id: string;
   papel: string;
   empresaComprovada?: string | null;
 }): null {
+  void sessao.empresaComprovada;
   return null;
 }
 
@@ -30,8 +31,9 @@ export function recusarCatalogoPublicoSemTenant(): never {
 
 export function recusarTenantNaoComprovado(
   sessao: { usuario_id: string; papel: string; empresaComprovada?: string | null },
-  _empresaSolicitada?: string | null,
+  empresaSolicitada?: string | null,
 ): never {
+  void empresaSolicitada;
   empresaComprovadaDaSessao(sessao);
   throw new PacoteAdminError(
     "TENANT_NAO_COMPROVADO",

@@ -26,7 +26,22 @@ function caminhoTs(base: string) {
   return base;
 }
 
-function carregarRota(arquivo: string) {
+const empresaA = "11111111-1111-4111-8111-111111111111";
+
+function responderProva(sql: string, memberships: Array<{ id: string; empresa_id: string }>) {
+  if (sql.includes("FROM usuarios_administrativos") && !sql.includes("memberships")) {
+    return { rows: [{ ativo: true }], rowCount: 1 };
+  }
+  if (sql.includes("m.status AS membership")) {
+    return memberships.length === 1
+      ? { rows: [{ membership: "ATIVA", empresa: "ATIVA", ativo: true }], rowCount: 1 }
+      : { rows: [], rowCount: 0 };
+  }
+  if (sql.includes("FROM memberships")) return { rows: memberships, rowCount: memberships.length };
+  return null;
+}
+
+function carregarRota(arquivo: string, memberships: Array<{ id: string; empresa_id: string }> = []) {
   const cache = new Map<string, Record<string, unknown>>();
   const consultas: string[] = [];
   const postgres = {
@@ -40,8 +55,13 @@ function carregarRota(arquivo: string) {
     },
     async withTransaction(fn: (tx: { query: (sql: string) => Promise<unknown> }) => Promise<unknown>) {
       return fn({
-        query: async (sql: string) => {
-          consultas.push(sql);
+        query: async (sql: string, values?: readonly unknown[]) => {
+          consultas.push(`${sql}\n${JSON.stringify(values ?? [])}`);
+          const prova = responderProva(sql, memberships);
+          if (prova) return prova;
+          if (/^\s*SELECT\b/i.test(sql) && sql.includes("pacotes")) {
+            return { rows: [], rowCount: 0 };
+          }
           throw new Error("DB_NAO_DEVE_RODAR");
         },
       });
@@ -104,7 +124,7 @@ test("usuário A recebe 403 ao operar a empresa B nas rotas de pacote", async ()
     const resposta = await corpo(await handler(pedido(caso.url, caso.body), caso.params ? contexto : undefined));
     assert.equal(resposta.status, 403, caso.arquivo);
     assert.equal(resposta.json.codigo, "TENANT_NAO_COMPROVADO", caso.arquivo);
-    assert.equal(consultas.length, 0, caso.arquivo);
+    assert.equal(consultas.some((sql) => /^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql)), false, caso.arquivo);
     assert.equal(JSON.stringify(resposta.json).includes(empresaB), false, caso.arquivo);
   }
 });
@@ -121,8 +141,9 @@ test("usuário A recebe 403 ao criar, precificar ou publicar a tabela da empresa
     const resposta = await corpo(await post(pedido("http://localhost/api/admin/configuracoes/tabelas-preco", body)));
     assert.equal(resposta.status, 403, body.acao);
     assert.equal(resposta.json.codigo, "TENANT_NAO_COMPROVADO");
+    assert.equal(consultas.some((sql) => /^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql)), false, body.acao);
   }
-  assert.equal(consultas.length, 0);
+  consultas.length = 0;
   const local = await corpo(await post(pedido("http://localhost/api/admin/configuracoes/tabelas-preco", { acao: "simular", valor: "10.00", sobConsulta: false })));
   assert.equal(local.status, 200);
   assert.equal(consultas.length, 0);
@@ -140,5 +161,21 @@ test("o catálogo administrativo não lista nem altera pacote de outra empresa",
   assert.equal(escrita.status, 403);
   assert.equal(leitura.json.codigo, "TENANT_NAO_COMPROVADO");
   assert.equal(escrita.json.codigo, "TENANT_NAO_COMPROVADO");
-  assert.equal(consultas.length, 0);
+  assert.equal(consultas.some((sql) => sql.includes("buffet_categorias") || sql.includes("FROM pacotes") || sql.includes("FROM adicionais")), false);
+});
+
+test("o id do cliente não escolhe empresa fora das memberships provadas", async () => {
+  const memberships = [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", empresa_id: empresaA }];
+  const { modulo, consultas } = carregarRota("app/api/admin/configuracoes/pacotes/route.ts", memberships);
+  const get = modulo.GET as (request: object) => Promise<{ status: number; json: () => Promise<unknown> }>;
+  const cruzada = await corpo(await get(pedido(`http://localhost/api/admin/configuracoes/pacotes?empresaId=${empresaB}`)));
+  assert.equal(cruzada.status, 403);
+  assert.equal(cruzada.json.codigo, "TENANT_NAO_COMPROVADO");
+  assert.equal(consultas.some((sql) => sql.includes("FROM pacotes p")), false);
+  consultas.length = 0;
+  const propria = await corpo(await get(pedido(`http://localhost/api/admin/configuracoes/pacotes?empresaId=${empresaA}`)));
+  assert.equal(propria.status, 200);
+  assert.equal(propria.json.ok, true);
+  assert.equal(consultas.some((sql) => sql.includes(empresaA) && sql.includes("pacotes")), true);
+  assert.equal(consultas.some((sql) => sql.includes(empresaB)), false);
 });
