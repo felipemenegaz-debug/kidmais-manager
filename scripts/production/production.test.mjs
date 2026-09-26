@@ -107,13 +107,14 @@ test('smoke mocked transport: GET, redirect refusal, invalid JSON, oversized bod
   for (const url of ['http://admin.example', 'https://user:FAKE@admin.example', 'https://admin.example/?token=FAKE']) assert.equal((await smoke.check(fixture(), { 'base-url': url }, () => { throw new Error('must not fetch'); })).status, 'FAIL_VERIFIED');
 });
 test('inventory excludes rollback and never claims applied state', async () => {
-  const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.equal(r.evidence[0].latest, '20260926_031_empresas_comercial.sql'); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999')));
+  const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.equal(r.evidence[0].latest, '20260926_032_pacote_revisao.sql'); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999')));
   assert.deepEqual(r.evidence[0].migrations.filter(x => Number(x.split('_')[1]) > 19), [
     '20260923_021_catalogo_configuravel_estrutura.sql', '20260923_022_catalogo_itens_iniciais.sql',
     '20260923_023_adicionais_por_pacote.sql', '20260923_024_taxa_rolha_versionada.sql', '20260923_025_extras_unitarios_pizza.sql',
     '20260926_029_fechamento_pacote_snapshot.sql',
     '20260926_030_preco_utilizado.sql',
     '20260926_031_empresas_comercial.sql',
+    '20260926_032_pacote_revisao.sql',
   ]);
   assert.deepEqual(r.evidence[0].deliberatelyAbsent, [{ id: '020', reason: 'FOUNDATION_SAAS_SEPARATE_BRANCH_NOT_REQUIRED_BY_CATALOG' }]);
 });

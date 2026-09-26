@@ -6,6 +6,7 @@ import { FechamentoServiceError } from '../fechamentos/services/errors';
 import { PricingServiceError } from '../comercial/services/errors';
 import { AvailabilityServiceError } from '../disponibilidade/services/errors';
 import { CondicaoPagamentoError } from '../comercial/condicao-pagamento';
+import { PacoteAdminError } from '../comercial/pacotes-admin';
 
 export function jsonNoStore(data: unknown, init?: ResponseInit) {
   const response = NextResponse.json(data, init);
@@ -18,7 +19,7 @@ export function apiErrorResponse(error: unknown) {
   if (error instanceof SyntaxError || error instanceof ZodError) {
     return NextResponse.json({ok:false,erro:'Dados inválidos.',codigo:'DADOS_INVALIDOS'}, {status:400,headers:{'Cache-Control':'no-store'}});
   }
-  if (isClienteServiceError(error) || isContratoServiceError(error) || error instanceof FechamentoServiceError || error instanceof PricingServiceError || error instanceof AvailabilityServiceError) {
+  if (isClienteServiceError(error) || isContratoServiceError(error) || error instanceof FechamentoServiceError || error instanceof PricingServiceError || error instanceof AvailabilityServiceError || error instanceof PacoteAdminError) {
     return NextResponse.json(
       {
         ok: false,
