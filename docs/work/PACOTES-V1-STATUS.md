@@ -22,7 +22,7 @@ Confirmado após `git fetch origin` em 2026-09-26. `origin/staging` não avanço
 
 Marco 0: `6801304b01a772a4e2c83a67c7256f74163d1c7d`.
 
-Marco 1: o commit que inclui este arquivo. Conferir `git log -1` depois do commit.
+Marco 1: `f076ce8e3aa795c582fc7448f40714c24236ae7f`.
 
 ## Marco atual
 
