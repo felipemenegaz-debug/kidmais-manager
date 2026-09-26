@@ -39,27 +39,17 @@ test('Pizza: fronteiras 19/20, 79/80, 100/101 na UI e validação compartilhada'
   assert.equal(erroConvidadosPizzaParty('COMPLETA', 150), null);
 });
 
-test('API de extras: rejeita limites antes de consultar e filtra por faixa vigente', async () => {
-  const consultas: number[] = [];
-  const tx = { query: async (sql: string, args: any[]) => {
-    if (sql.includes('convidados_minimos')) return { rows: [{ convidados_minimos: null, convidados_maximos: null }] };
-    assert.match(sql, /pa\.modalidade='EXTRA'/); assert.match(sql, /a\.ativo/);
-    assert.match(sql, /x\.ativo/); assert.match(sql, /x\.convidados_min<=\$3/);
-    assert.match(sql, /x\.convidados_max >= \$3/); assert.match(sql, /vigencia_fim >= \$2/);
-    consultas.push(args[2]);
-    // Resultado da faixa selecionada pelo SQL; um adicional sem faixa não é retornado.
-    return { rows: [{ codigo: 'BEBIDA_ALCOOLICA', nome: 'Taxa de rolha', categoria: 'EXTRA', unidade_cobranca: 'PACOTE', valor: args[2] < 80 ? '190.00' : '290.00' }] };
-  } };
+test('API de extras não escolhe pacote por código ativo', async () => {
+  let consultas = 0;
+  const tx = { query: async () => { consultas += 1; throw new Error('DB_NAO_DEVE_RODAR'); } };
   const load = loader({ [resolve('lib/db/postgres')]: { db: () => tx } });
   const { GET } = load('app/api/fechamentos/adicionais/route');
   const { NextRequest } = req('next/server');
-  for (const n of [19, 20, 79, 80, 100, 101]) {
-    const antes = consultas.length;
-    const response = await GET(new NextRequest(`http://localhost/api/fechamentos/adicionais?pacote=pizza_party_scienza&data=2027-06-26&convidados=${n}`));
-    const body = await response.json();
-    if (n === 19 || n === 101) { assert.equal(response.status, 400); assert.equal(consultas.length, antes); assert.match(body.erro, /20 a 100/); }
-    else { assert.equal(response.status, 200); assert.equal(body.adicionais.length, 1); assert.equal(body.adicionais[0].preco, n < 80 ? 190 : 290); }
-  }
+  const response = await GET(new NextRequest('http://localhost/api/fechamentos/adicionais?pacote=pizza_party_scienza&data=2027-06-26&convidados=40'));
+  const body = await response.json();
+  assert.equal(response.status, 403);
+  assert.equal(body.codigo, 'CATALOGO_PUBLICO_INDETERMINADO');
+  assert.equal(consultas, 0);
 });
 
 test('repositório fornece 20–100 ao editor administrativo sem regravar cadastro legado', async () => {

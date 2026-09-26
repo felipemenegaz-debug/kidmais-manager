@@ -1,5 +1,6 @@
 import type { DbExecutor } from "../../db/contracts";
 import { db } from "../../db/postgres";
+import { recusarCatalogoPublicoSemTenant } from "../autorizacao-tenant";
 import { limitesPizzaParty } from '../pacotes-v1';
 import type {
   AdicionalComPrecoRecord,
@@ -290,16 +291,9 @@ export async function buscarPacoteAtivoPorCodigo(
   codigo: string,
   customDb?: DbExecutor,
 ): Promise<PacoteRecord | null> {
-  const result = await executor(customDb).query<PacoteRow>(
-    `SELECT ${pacoteColumns}
-       FROM pacotes
-      WHERE codigo = $1
-        AND ativo = true
-      LIMIT 1`,
-    [codigo.trim().toUpperCase()],
-  );
-
-  return result.rows[0] ? mapPacote(result.rows[0]) : null;
+  void codigo;
+  void customDb;
+  recusarCatalogoPublicoSemTenant();
 }
 
 /**
