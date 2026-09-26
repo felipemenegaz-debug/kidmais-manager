@@ -38,6 +38,7 @@ const approvedFiles = [
   '20260926_034_integridade_tenant_comercial.sql',
   '20260926_035_publicacao_tabela_invariantes.sql',
   '20260926_036_empresa_pai_imutavel.sql',
+  '20260926_037_publicacao_concorrencia.sql',
 ];
 function inspectInventory(entries, hasCheck) {
   const r = result('migrations');
