@@ -49,7 +49,8 @@ test("characterização: troca administrativa pré-assinatura cria nova fotograf
   const edicao = readFileSync("lib/fechamentos/services/edicao-administrativa.service.ts", "utf8");
   const fechamento = readFileSync("lib/fechamentos/services/fechamento.service.ts", "utf8");
   assert.match(edicao, /const pacoteMudou = f\.pacoteId !== input\.pacoteId/);
-  assert.match(edicao, /gravarCorrecaoFotografiaPacote/);
+  assert.match(edicao, /fotografarEstadoFechamento\(tx, id,/);
+  assert.equal(/if \(f\.pacoteId !== input\.pacoteId\) \{\s*await fotografarEstadoFechamento/.test(edicao), false);
   assert.match(edicao, /Após assinatura, prepare a alteração em uma nova versão pelo painel de Contratos/);
   assert.match(fechamento, /await gravarFotografiaPacoteFechamento\(tx, fechamento, resumoComercial\)/);
   assert.match(edicao, /Após assinatura, prepare a alteração em uma nova versão pelo painel de Contratos/);

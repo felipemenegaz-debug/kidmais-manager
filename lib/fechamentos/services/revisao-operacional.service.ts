@@ -181,7 +181,7 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
     return (await buscarRevisaoDaVersao(r.contrato_versao_id, tx))!;
 }
 export async function congelarPreparacao(tx: DbExecutor, r: RevisaoOperacional, v: ContratoVersaoRecord, documentoId: string, c: Contexto) { await tx.query("UPDATE fechamento_revisoes SET estado='CONGELADA',congelado_snapshot_hash=$2,congelado_documento_id=$3,congelado_em=clock_timestamp(),congelado_por_usuario_id=$4 WHERE id=$1", [r.id, v.snapshotHash, documentoId, c.usuarioId]); await auditar(tx, r, c, 'REVISAO_OPERACIONAL_CONGELADA', r.estado, { documentoId, snapshotHash: v.snapshotHash }); }
-export async function concluirPreparacao(tx: DbExecutor, r: RevisaoOperacional, c: Contexto) { await revalidarAgendaRevisao(tx, r, c); const antes = await buscarFechamentoPorId(r.fechamento_id, tx); await aplicarOperacaoPreparada(tx, r); await auditar(tx, r, c, 'REVISAO_OPERACIONAL_APLICADA', antes, { operacao: r.operacao, versao: r.contrato_versao_id }); }
+export async function concluirPreparacao(tx: DbExecutor, r: RevisaoOperacional, c: Contexto) { await revalidarAgendaRevisao(tx, r, c); const antes = await buscarFechamentoPorId(r.fechamento_id, tx); const pacoteSnapshotId = await aplicarOperacaoPreparada(tx, r, c.usuarioId); await auditar(tx, r, c, 'REVISAO_OPERACIONAL_APLICADA', antes, { operacao: r.operacao, versao: r.contrato_versao_id, pacoteSnapshotId }); }
 export async function cancelarPreparacao(tx: DbExecutor, r: RevisaoOperacional, c: Contexto, motivo: string) {
     if (r.estado === 'CANCELADA') {
         const terminal = (await tx.query<{

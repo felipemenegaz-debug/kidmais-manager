@@ -9,7 +9,7 @@ import { persistirEdicaoFechamento } from '../repositories/edicao.repository';
 import { registrarAuditoria } from '../../clientes/repositories';
 import { FechamentoServiceError } from './errors';
 import { edicaoFestaSchema, type EdicaoFestaInput } from './edicao-administrativa-schema';
-import { gravarCorrecaoFotografiaPacote } from './pacote-snapshot';
+import { fotografarEstadoFechamento } from './pacote-snapshot';
 import { listarCodigosInclusos } from '../../comercial/composicao';
 function recusar(mensagem: string): never { throw new FechamentoServiceError('DADOS_INVALIDOS', mensagem, 409); }
 export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFestaInput, usuarioId: string, requestId: string, tx: DbExecutor) {
@@ -26,10 +26,8 @@ export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFest
     const { fechamento: novo, resumo } = await calcularEdicaoFechamento(f, input, tx);
     if (input.comercial) await criarAprovacaoNegociacao({ fechamentoId: id, status: 'APROVADO', valorInformado: resumo.valorTotalTabela, valorAprovado: novo.valorAprovado ?? resumo.valorTotalTabela, motivo: input.motivo, aprovadoPorUsuarioId: usuarioId, condicaoPagamento: { ...novo.condicaoPagamento!, valores: calcularCondicaoComercial(novo.valorAprovado ?? resumo.valorTotalTabela, input.comercial.forma) } }, tx);
     await persistirEdicaoFechamento(tx, novo, resumo);
-    if (f.pacoteId !== input.pacoteId) {
-        await gravarCorrecaoFotografiaPacote(tx, novo, resumo, { motivo: input.motivo, atorUsuarioId: usuarioId });
-    }
-    await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, clienteId: f.clienteId, acao: 'ALTERACAO_ADMINISTRATIVA', entidadeTipo: 'FECHAMENTO', entidadeId: id, origem: 'CONTRATO_ADMIN', requestId, dadosAntes: { fechamento: f, adicionais: anteriorAdicionais }, dadosDepois: { fechamento: novo, adicionais: resumo.adicionais.itens, motivo: input.motivo } }, tx);
+    const fotografia = await fotografarEstadoFechamento(tx, id, { motivo: input.motivo, atorUsuarioId: usuarioId });
+    await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, clienteId: f.clienteId, acao: 'ALTERACAO_ADMINISTRATIVA', entidadeTipo: 'FECHAMENTO', entidadeId: id, origem: 'CONTRATO_ADMIN', requestId, dadosAntes: { fechamento: f, adicionais: anteriorAdicionais }, dadosDepois: { fechamento: novo, adicionais: resumo.adicionais.itens, motivo: input.motivo, pacoteSnapshotId: fotografia?.id ?? null, empresaId: fotografia?.empresaId ?? null } }, tx);
     return (await buscarFechamentoPorIdParaAtualizacao(id, tx))!;
 }
 
