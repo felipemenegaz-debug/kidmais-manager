@@ -42,6 +42,7 @@ const approvedFiles = [
   '20260926_038_integridade_tenant_atomica.sql',
   '20260926_039_publicacao_serial_completa.sql',
   '20260926_040_integridade_sem_excecao_nominal.sql',
+  '20260926_041_revisao_mesmo_tenant.sql',
 ];
 function inspectInventory(entries, hasCheck) {
   const r = result('migrations');
