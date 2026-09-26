@@ -1,4 +1,5 @@
 import type { DbExecutor } from "../db/contracts.ts";
+import { exigirVinculoNaEmpresa, sqlPacoteAdicionalMesmaEmpresa } from "./integridade-tenant.ts";
 import { filtroEmpresa } from "./tenant.ts";
 
 export class PacoteAdminError extends Error {
@@ -32,6 +33,7 @@ type AuditoriaPacote = (tx: DbExecutor, evento: {
   requestId: string;
   acao: string;
   pacoteId: string;
+  empresaId: string;
   antes: unknown;
   depois: unknown;
   motivo: string;
@@ -128,7 +130,7 @@ export async function criarPacoteAdmin(
     [ctx.empresaId, input.codigo, input.nome, input.descricao, input.duracaoMinutos],
   );
   const id = String((result.rows[0] as { id: string }).id);
-  await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_CRIADO", pacoteId: id, antes: null, depois: input, motivo: ctx.motivo ?? "Criação administrativa" });
+  await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_CRIADO", pacoteId: id, empresaId: ctx.empresaId, antes: null, depois: input, motivo: ctx.motivo ?? "Criação administrativa" });
   return (await buscar(tx, ctx.empresaId, id))!;
 }
 
@@ -163,7 +165,7 @@ export async function editarPacoteNaoUtilizado(
     [id, ctx.empresaId, input.nome, input.descricao, input.duracaoMinutos],
   );
   if (result.rowCount !== 1) recusar("CONFLITO", "A revisão vigente mudou durante a edição.", 409);
-  await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_EDITADO", pacoteId: id, antes: atual, depois: input, motivo: ctx.motivo ?? "Edição administrativa" });
+  await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_EDITADO", pacoteId: id, empresaId: ctx.empresaId, antes: atual, depois: input, motivo: ctx.motivo ?? "Edição administrativa" });
   return (await buscar(tx, ctx.empresaId, id))!;
 }
 
@@ -197,8 +199,87 @@ export async function criarRevisaoPacoteAdmin(
     [ctx.empresaId, atual.codigo, input.nome, input.descricao, input.duracaoMinutos, id],
   );
   const novaId = String((criada.rows[0] as { id: string }).id);
-  await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_REVISADO", pacoteId: novaId, antes: atual, depois: { ...input, revisaoAnteriorId: id }, motivo: ctx.motivo });
+  await clonarAgregadoPacote(tx, id, novaId);
+  await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_REVISADO", pacoteId: novaId, empresaId: ctx.empresaId, antes: atual, depois: { ...input, revisaoAnteriorId: id }, motivo: ctx.motivo });
   return (await buscar(tx, ctx.empresaId, novaId))!;
+}
+
+/** Preço permanece na tabela de preços. A revisão clona composição, buffet e regras, não a linha de preço. */
+async function clonarAgregadoPacote(tx: DbExecutor, origemId: string, novaId: string) {
+  await tx.query(
+    `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade, ativo)
+     SELECT $1::uuid, adicional_id, modalidade, ativo
+       FROM pacote_adicionais
+      WHERE pacote_id = $2::uuid`,
+    [novaId, origemId],
+  );
+  await tx.query(
+    `INSERT INTO pacote_buffet_categorias (pacote_id, categoria_id, modo_itens, escolhas_min, escolhas_max, ativo)
+     SELECT $1::uuid, categoria_id, modo_itens, escolhas_min, escolhas_max, ativo
+       FROM pacote_buffet_categorias
+      WHERE pacote_id = $2::uuid`,
+    [novaId, origemId],
+  );
+  await tx.query(
+    `INSERT INTO pacote_buffet_itens (pacote_id, categoria_id, item_id)
+     SELECT $1::uuid, categoria_id, item_id
+       FROM pacote_buffet_itens
+      WHERE pacote_id = $2::uuid`,
+    [novaId, origemId],
+  );
+  await tx.query(
+    `INSERT INTO regras_desconto_pacote (
+       pacote_id, dia_semana, configuracao_agenda_id, percentual, base_calculo, codigo, titulo,
+       prioridade, vigencia_inicio, vigencia_fim, ativo, observacoes
+     )
+     SELECT $1::uuid, dia_semana, configuracao_agenda_id, percentual, base_calculo, codigo, titulo,
+            prioridade, vigencia_inicio, vigencia_fim, ativo, observacoes
+       FROM regras_desconto_pacote
+      WHERE pacote_id = $2::uuid`,
+    [novaId, origemId],
+  );
+}
+
+export async function alterarComposicaoPacoteAdmin(
+  tx: DbExecutor,
+  id: string,
+  mudanca:
+    | { tipo: "vinculo"; adicionalId: string; modalidade: "INCLUSO" | "EXTRA" | "INDISPONIVEL" }
+    | { tipo: "buffet"; categoriaId: string; ativo: boolean; escolhasMin: number; escolhasMax: number },
+  ctx: Contexto,
+  auditar: AuditoriaPacote,
+) {
+  if (!ctx.motivo || ctx.motivo.trim().length < 3) recusar("DADOS_INVALIDOS", "A mudança de composição exige um motivo.", 409);
+  const atual = await buscar(tx, ctx.empresaId, id, true);
+  if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
+  if (atual.arquivadoEm) recusar("ARQUIVADO", "Pacote arquivado não recebe composição por esta ação.", 409);
+  if (mudanca.tipo === "vinculo") {
+    await exigirVinculoNaEmpresa(tx, ctx.empresaId, {
+      sql: sqlPacoteAdicionalMesmaEmpresa(),
+      params: [id, mudanca.adicionalId],
+    });
+  }
+  const destino = atual.utilizado
+    ? await criarRevisaoPacoteAdmin(tx, id, { nome: atual.nome, descricao: atual.descricao, duracaoMinutos: atual.duracaoMinutos }, ctx, auditar)
+    : atual;
+  if (mudanca.tipo === "vinculo") {
+    await tx.query(
+      `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade)
+       VALUES ($1::uuid, $2::uuid, $3)
+       ON CONFLICT (pacote_id, adicional_id) DO UPDATE SET modalidade = EXCLUDED.modalidade, ativo = true`,
+      [destino.id, mudanca.adicionalId, mudanca.modalidade],
+    );
+  } else {
+    await tx.query(
+      `INSERT INTO pacote_buffet_categorias (pacote_id, categoria_id, modo_itens, escolhas_min, escolhas_max, ativo)
+       VALUES ($1::uuid, $2::uuid, 'SELECIONADOS', $3, $4, $5)
+       ON CONFLICT (pacote_id, categoria_id)
+       DO UPDATE SET escolhas_min = EXCLUDED.escolhas_min, escolhas_max = EXCLUDED.escolhas_max, ativo = EXCLUDED.ativo`,
+      [destino.id, mudanca.categoriaId, mudanca.escolhasMin, mudanca.escolhasMax, mudanca.ativo],
+    );
+  }
+  await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_COMPOSICAO", pacoteId: destino.id, empresaId: ctx.empresaId, antes: atual, depois: mudanca, motivo: ctx.motivo });
+  return (await buscar(tx, ctx.empresaId, destino.id))!;
 }
 
 export async function alterarSituacaoPacoteAdmin(
@@ -223,6 +304,6 @@ export async function alterarSituacaoPacoteAdmin(
     [id, ctx.empresaId, situacao === "ativar", situacao === "arquivar"],
   );
   if (result.rowCount !== 1) recusar("CONFLITO", "A situação do pacote não foi alterada.", 409);
-  await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_SITUACAO", pacoteId: id, antes: atual, depois: { situacao }, motivo: ctx.motivo ?? situacao });
+  await auditar(tx, { usuarioId: ctx.usuarioId, requestId: ctx.requestId, acao: "PACOTE_SITUACAO", pacoteId: id, empresaId: ctx.empresaId, antes: atual, depois: { situacao }, motivo: ctx.motivo ?? situacao });
   return (await buscar(tx, ctx.empresaId, id))!;
 }

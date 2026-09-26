@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { DbExecutor, DbQueryResult } from "../db/contracts.ts";
 import {
+  alterarComposicaoPacoteAdmin,
   criarRevisaoPacoteAdmin,
   editarPacoteNaoUtilizado,
   listarPacotesAdmin,
@@ -74,12 +75,72 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
         assert.equal(values?.[5], linha(true).id);
         return { rows: [{ id: "33333333-3333-4333-8333-333333333333" } as Row], rowCount: 1 };
       }
+      if (text.startsWith("INSERT INTO pacote_") || text.startsWith("INSERT INTO regras_desconto_pacote")) {
+        assert.equal(values?.[0], "33333333-3333-4333-8333-333333333333");
+        assert.equal(values?.[1], linha(true).id);
+        assert.equal(text.includes("precos_pacote"), false);
+        return { rows: [], rowCount: 1 };
+      }
       throw new Error(text);
     },
   };
   const criada = await criarRevisaoPacoteAdmin(revisao, linha(true).id, { nome: "Revisão", descricao: null, duracaoMinutos: null }, ctx, auditar);
   assert.equal(criada.revisaoAnteriorId, linha(true).id);
-  assert.equal(chamadas.some((sql) => sql.includes("DELETE")), false);
+  assert.equal(chamadas.some((sql) => sql.includes("DELETE") || sql.includes("precos_pacote")), false);
+  for (const tabela of ["pacote_adicionais", "pacote_buffet_categorias", "pacote_buffet_itens", "regras_desconto_pacote"]) {
+    assert.equal(chamadas.filter((sql) => sql.startsWith(`INSERT INTO ${tabela}`)).length, 1);
+  }
+});
+
+test("composição de pacote utilizado cria revisão e não reescreve a anterior", async () => {
+  const novaId = "33333333-3333-4333-8333-333333333333";
+  const escritas: Array<{ text: string; values?: readonly unknown[] }> = [];
+  let leituras = 0;
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
+      if (text.includes("AS esquerda")) {
+        return { rows: [{ esquerda: ctx.empresaId, direita: ctx.empresaId } as Row], rowCount: 1 };
+      }
+      if (text.includes("AS utilizado")) {
+        leituras += 1;
+        const nova = leituras > 2;
+        return { rows: [{ ...linha(!nova), id: nova ? novaId : linha(true).id, revisao_anterior_id: nova ? linha(true).id : null, utilizado: !nova } as Row], rowCount: 1 };
+      }
+      if (text.startsWith("UPDATE pacotes SET vigente = false")) return { rows: [{ id: linha(true).id } as Row], rowCount: 1 };
+      if (text.startsWith("INSERT INTO pacotes")) return { rows: [{ id: novaId } as Row], rowCount: 1 };
+      escritas.push({ text, values });
+      return { rows: [], rowCount: 1 };
+    },
+  };
+  const resultado = await alterarComposicaoPacoteAdmin(
+    tx,
+    linha(true).id,
+    { tipo: "vinculo", adicionalId: "44444444-4444-4444-8444-444444444444", modalidade: "INCLUSO" },
+    ctx,
+    auditar,
+  );
+  assert.equal(resultado.id, novaId);
+  const upsert = escritas.find((item) => item.text.includes("ON CONFLICT (pacote_id, adicional_id)"));
+  assert.equal(upsert?.values?.[0], novaId);
+  assert.equal(escritas.some((item) => item.values?.[0] === linha(true).id), false);
+  assert.equal(escritas.some((item) => item.text.includes("precos_pacote")), false);
+});
+
+test("composição cruzando empresas é recusada antes de gravar", async () => {
+  const chamadas: string[] = [];
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+      chamadas.push(text);
+      if (text.includes("AS utilizado")) return { rows: [linha(true) as Row], rowCount: 1 };
+      if (text.includes("AS esquerda")) return { rows: [{ esquerda: ctx.empresaId, direita: "99999999-9999-4999-8999-999999999999" } as Row], rowCount: 1 };
+      throw new Error(text);
+    },
+  };
+  await assert.rejects(
+    () => alterarComposicaoPacoteAdmin(tx, linha(true).id, { tipo: "vinculo", adicionalId: "44444444-4444-4444-8444-444444444444", modalidade: "EXTRA" }, ctx, auditar),
+    (error: unknown) => error instanceof PacoteAdminError && error.code === "EMPRESA_DIVERGENTE",
+  );
+  assert.equal(chamadas.some((sql) => sql.startsWith("INSERT")), false);
 });
 
 test("a API administrativa não oferece exclusão física e reutiliza o papel existente", () => {
