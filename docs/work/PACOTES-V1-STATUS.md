@@ -44,7 +44,11 @@ Marco 10: `9e5d21b7299fcef82eaef1dadd2823914756a624`.
 
 ## Marco atual
 
-Os Marcos 0–10 estão no código. O Goal não está completo: as migrations 029–033 não foram aplicadas, a tela não foi exercida no browser e a tabela publicada de uma empresa ainda não alimenta o fechamento público.
+Os Marcos 0–10 estão no código. Em 2026-09-26 as migrations 001–025 e 029–033 foram aplicadas num cluster PostgreSQL 17 criado só para esta tarefa, em `127.0.0.1:55498`, bancos `kidmais_pacotes_v1_descartavel` e `kidmais_pacotes_v1_rollback`. Não é `kidmais_manager`, nem staging, nem produção, nem o banco do Perfil na porta 55432. Pré e pós-checks de 029–033 passaram. O rollback da 030 rodou no segundo banco e removeu a função e os gatilhos.
+
+O smoke no banco descartável confirmou: sete pacotes sem `empresa_id` e com duração nula; `empresas` vazia antes do uso administrativo; fotografia recusa UPDATE e DELETE; preço referenciado recusa mudança de valor e aceita `observacoes`; preço livre continua editável; exclusão física de empresa é recusada. O fechamento sintético do smoke foi desfeito na mesma transação.
+
+No browser, em `http://localhost:3000` apontando só para esse banco: lista vazia da empresa nova, criação de pacote, composição de incluso e de buffet, recusa ao transformar incluso em extra pago, histórico, simulação `AUSENTE` e `SOB_CONSULTA`, criação de vigência e publicação. A tabela publicada ficou com `ativa = false`. Fechamentos continuam em zero. Os sete pacotes legados seguem sem empresa.
 
 ## Marcos concluídos
 
@@ -85,7 +89,7 @@ Os Marcos 0–10 estão no código. O Goal não está completo: as migrations 02
 - `database/checks/20260926_032_precheck.sql`
 - `database/checks/20260926_032_postcheck.sql`
 
-Não executadas. Não há `psql`/`createdb` no PATH e nenhum banco descartável foi criado. Nenhum banco real foi acessado.
+Aplicadas em 2026-09-26 somente no cluster descartável `127.0.0.1:55498`. O rollback da 030 foi executado no banco `kidmais_pacotes_v1_rollback`. Nenhum banco real foi acessado.
 
 ## Testes executados
 
@@ -145,16 +149,16 @@ Fechamento com fotografia vigente gera contrato schema 2 a partir da fotografia,
 
 ## Riscos
 
-- As migrations 029 a 033 não foram aplicadas em PostgreSQL. Não há `psql`, `createdb` nem Docker. O rollback da 030 foi conferido pelo arquivo, sem execução. A primeira aplicação precisa ser num banco local descartável.
+- As migrations 029 a 033 foram aplicadas só no cluster descartável da porta 55498. O rollback da 030 foi executado no segundo banco desse cluster.
 - O inventário de produção passou a aceitar 029–033. Continua recusando 020 e arquivos fora da lista. A sessão administrativa ainda não tem membership; o escopo é o `empresaId` informado e a linha precisa ter a mesma empresa.
 - Sem a migration 029 aplicada, `lerFotografiaPacoteVigente` volta ao schema 1. Staging não quebra antes do HG-1.
 - Depois da assinatura a edição continua recusada. A troca pré-assinatura só grava nova fotografia quando a tabela 029 existe.
 - Não existe adicional `SALADA_TRADICIONAL` no catálogo. A regra da Completa recusa salada premium inclusa e não inventa esse item.
-- O fluxo da tela de Pacotes não foi exercido no browser. O único servidor local visto aponta para o banco de revisão do Perfil e não foi usado.
+- A tela foi exercida em `localhost:3000` contra o banco descartável. O servidor anterior na porta 3311 recusou o login porque a origem administrativa não batia com o host. O banco de revisão do Perfil não foi usado.
 
 ## Próximos passos
 
-Aplicar 029–033 só num banco local descartável e, nele, percorrer no browser Pacotes e Tabelas de preços. Não há `psql`, `createdb` nem Docker nesta máquina. O Goal permanece aberto até esse smoke e até a verificação visual.
+O fechamento público continua na tabela legada `ativa` e sem empresa. A simulação administrativa é que lê a tabela publicada da empresa. HG-6 segue aberto: os sete pacotes não foram associados. Não houve merge nem migration em staging ou produção.
 
 ## Human Gates pendentes
 
