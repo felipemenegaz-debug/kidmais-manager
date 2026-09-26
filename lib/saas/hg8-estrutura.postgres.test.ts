@@ -47,6 +47,8 @@ test("estrutura de tenant da 043 no postgres descartável", { timeout: 120_000 }
   assert.equal(fonte.includes("runtime_roles"), false);
   assert.equal(fonte.includes("v1_pre_hash"), false);
   assert.equal(fonte.includes("unidade_id"), true);
+  assert.equal(fonte.includes("043: membership nova começa pendente."), true);
+  assert.equal(fonte.includes("043: ativação de membership ainda fechada."), true);
 
   const client = await conectarDescartavel();
   const db = client as unknown as Client;
@@ -105,7 +107,7 @@ test("estrutura de tenant da 043 no postgres descartável", { timeout: 120_000 }
       assert.equal(funcoes.rows[0].saas, 0);
     });
 
-    await t.test("membership nasce pendente e ATIVA permanece inalcançável", async () => {
+    await t.test("membership nasce pendente e o INSERT ATIVA continua fechado", async () => {
       await db.query("BEGIN");
       try {
         const empresa = await db.query<{ id: string }>(
@@ -132,20 +134,36 @@ test("estrutura de tenant da 043 no postgres descartável", { timeout: 120_000 }
           `INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde)
            VALUES ($1::uuid, $2::uuid, 'ATIVA', clock_timestamp())`,
           [empresa.rows[0].id, usuario.rows[0].id],
-          "043: membership nova começa pendente.",
+          "membership nova começa pendente.",
         );
-        await recusa(
-          db,
-          `UPDATE memberships SET status = 'ATIVA' WHERE empresa_id = $1::uuid`,
-          [empresa.rows[0].id],
-          "043: ativação de membership ainda fechada.",
+        const cicloAberto = await db.query<{ ok: boolean }>(
+          "SELECT to_regprocedure('kidmais_045_guard_memberships()') IS NOT NULL AS ok",
         );
-        await recusa(
-          db,
-          `UPDATE memberships SET status = 'REVOGADA', revogado_em = clock_timestamp() WHERE empresa_id = $1::uuid`,
-          [empresa.rows[0].id],
-          "043: ativação de membership ainda fechada.",
-        );
+        if (!cicloAberto.rows[0].ok) {
+          await recusa(
+            db,
+            `UPDATE memberships SET status = 'ATIVA' WHERE empresa_id = $1::uuid`,
+            [empresa.rows[0].id],
+            "043: ativação de membership ainda fechada.",
+          );
+          await recusa(
+            db,
+            `UPDATE memberships SET status = 'REVOGADA', revogado_em = clock_timestamp() WHERE empresa_id = $1::uuid`,
+            [empresa.rows[0].id],
+            "043: ativação de membership ainda fechada.",
+          );
+        } else {
+          const guarda043 = await db.query<{ ok: boolean }>(
+            "SELECT to_regprocedure('kidmais_043_guard_memberships()') IS NOT NULL AS ok",
+          );
+          assert.equal(guarda043.rows[0].ok, true);
+          await recusa(
+            db,
+            `UPDATE memberships SET status = 'REVOGADA', revogado_em = clock_timestamp() WHERE empresa_id = $1::uuid`,
+            [empresa.rows[0].id],
+            "revogado_em não é carimbado pelo chamador.",
+          );
+        }
         const outro = await db.query<{ id: string }>(
           `INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel)
            VALUES ($1, 'Outro usuario', $2, 'ADMINISTRATIVO')
