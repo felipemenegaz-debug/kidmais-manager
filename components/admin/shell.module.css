@@ -1,0 +1,48 @@
+/*
+ * Casca do administrativo. Cores e medidas vêm de tokens.module.css.
+ * A área .conteudo mantém fundo e texto claros porque as páginas legadas
+ * dependem deles; só a barra e a sidebar usam o tema escuro.
+ * 800px é o breakpoint funcional da gaveta (AdminShell usa min-width: 801px).
+ */
+.shell { min-height: 100vh; min-height: 100svh; display: flex; align-items: stretch; background: var(--shell-conteudo-fundo); color: var(--shell-conteudo-texto); color-scheme: light; }
+.conteudo { flex: 1; min-width: 0; background: var(--shell-conteudo-fundo); color: var(--shell-conteudo-texto); color-scheme: light; padding-bottom: 36px; padding-bottom: calc(36px + env(safe-area-inset-bottom)); padding-right: env(safe-area-inset-right); }
+
+.barra, .sidebar { font-family: var(--fonte-ui); color: var(--main-text); color-scheme: dark; }
+.barra, .fechar { display: none; }
+
+.menu, .fechar, .conta button { font: inherit; font-weight: 600; min-height: var(--shell-alvo-toque); padding: 0.4rem 0.9rem; border: 1px solid var(--input-borda); border-radius: var(--shell-raio); background: var(--input-fundo); color: var(--main-text); cursor: pointer; }
+.menu:hover, .fechar:hover, .conta button:hover { background: var(--input-fundo-foco); border-color: var(--lilac-accent); }
+.sidebar a:focus-visible, .sidebar button:focus-visible, .menu:focus-visible { outline: var(--shell-foco); outline-offset: 2px; }
+
+.sidebar { width: var(--shell-sidebar-largura); flex: none; background: var(--main-bg); border-right: 1px solid var(--border-navy); padding: var(--shell-espaco); padding-left: max(var(--shell-espaco), env(safe-area-inset-left)); display: flex; flex-direction: column; gap: var(--shell-espaco); }
+
+.marca { padding-bottom: var(--shell-espaco); border-bottom: 1px solid var(--border-navy); }
+.marca > a { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; color: var(--main-text); border-radius: var(--shell-raio); }
+.marca img + span { padding-left: 0; border-left: 0; }
+.marca strong { color: var(--main-text); }
+.marca strong + span { color: var(--secondary-text); }
+
+.conta { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.75rem; background: var(--card-bg); border: 1px solid var(--border-navy); border-radius: var(--input-raio); }
+.conta p { margin: 0; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+
+.sidebar nav { display: flex; flex-direction: column; gap: var(--shell-espaco); }
+.secao { display: flex; flex-direction: column; gap: 0.25rem; }
+.secao + .secao { padding-top: var(--shell-espaco); border-top: 1px solid var(--border-navy); }
+.grupo { margin: 0 0 0.25rem; padding: 0 0.75rem; color: var(--secondary-text); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.sidebar nav a { display: flex; align-items: center; min-height: var(--shell-alvo-toque); padding: var(--shell-espaco-item); border-right: 3px solid transparent; border-radius: var(--shell-raio) 0 0 var(--shell-raio); color: var(--secondary-text); text-decoration: none; }
+.sidebar nav a:hover { background: var(--sidebar-hover-fundo); color: var(--main-text); }
+.sidebar nav a[aria-current=page] { background: var(--sidebar-ativo-fundo); border-right: var(--sidebar-ativo-borda); color: var(--main-text); font-weight: 600; }
+
+@media (max-width: 800px) {
+  .shell { display: block; overflow-x: clip; }
+  .barra { display: flex; align-items: center; position: sticky; top: 0; z-index: 30; background: var(--glass-header-fundo); -webkit-backdrop-filter: blur(var(--glass-header-blur)); backdrop-filter: blur(var(--glass-header-blur)); border-bottom: var(--glass-header-borda); padding: 0.5rem 0.75rem; padding: max(0.5rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) 0.5rem max(0.75rem, env(safe-area-inset-left)); }
+  .menu { display: inline-flex; align-items: center; }
+  .conteudo { padding-left: env(safe-area-inset-left); }
+  .sidebar { display: none; }
+  .sidebar[data-aberto=true] { display: flex; position: fixed; inset: 0; z-index: 40; width: 100%; height: 100vh; height: 100dvh; overflow-y: auto; overscroll-behavior: contain; border-right: 0; padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); }
+  .fechar { display: inline-flex; align-items: center; align-self: flex-end; flex: none; }
+}
+
+@media print {
+  .barra, .sidebar { display: none !important; }
+}

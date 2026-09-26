@@ -1,0 +1,77 @@
+/*
+ * Tokens do administrativo. Os valores do primeiro bloco são os literais de
+ * docs/ux/admin-v1/tokens.md; não os ajuste sem atualizar essa documentação.
+ * O bloco "shell" traz medidas e cores próprias da aplicação, que não são
+ * pixels do UX Pilot. Novas páginas devem usar estas variáveis em vez de hex.
+ */
+.tema {
+  --main-bg: #090D1B;
+  --card-bg: #151B2E;
+  --primary-violet: #7C3AED;
+  --emerald-accent: #5DE3B0;
+  --lilac-accent: #C9B6FF;
+  --main-text: #F5F7FC;
+  --secondary-text: #B8C2D8;
+  --brand-blue: #2563EB;
+  --border-navy: rgba(255, 255, 255, 0.05);
+
+  --fonte-ui: var(--fonte-inter), Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --input-fonte: 14px;
+  --input-fonte-mobile: 16px;
+  --input-padding: 12px 16px;
+  --input-raio: 12px;
+  --input-borda: rgba(255, 255, 255, 0.08);
+  --input-fundo: rgba(255, 255, 255, 0.03);
+  --input-fundo-foco: rgba(255, 255, 255, 0.06);
+  --input-opacidade-desabilitado: 0.5;
+
+  --sidebar-ativo-fundo: rgba(124, 58, 237, 0.1);
+  --sidebar-ativo-borda: 3px solid var(--primary-violet);
+  --sidebar-hover-fundo: rgba(255, 255, 255, 0.03);
+  --glass-header-fundo: rgba(9, 13, 27, 0.8);
+  --glass-header-blur: 12px;
+  --glass-header-borda: 1px solid var(--border-navy);
+  --btn-primary-fundo: linear-gradient(135deg, var(--brand-blue), var(--primary-violet));
+
+  /* shell */
+  --shell-sidebar-largura: 16rem;
+  --shell-espaco: 1rem;
+  --shell-espaco-item: 0.65rem 0.75rem;
+  --shell-raio: 0.5rem;
+  --shell-alvo-toque: 2.75rem;
+  --shell-foco: 2px solid var(--lilac-accent);
+  --shell-conteudo-fundo: #f3f6fc;
+  --shell-conteudo-texto: #233347;
+}
+
+.campo {
+  width: 100%;
+  font-family: var(--fonte-ui);
+  font-size: var(--input-fonte);
+  padding: var(--input-padding);
+  border: 1px solid var(--input-borda);
+  border-radius: var(--input-raio);
+  background: var(--input-fundo);
+  color: white;
+}
+.campo:focus { outline: none; border-color: var(--primary-violet); background: var(--input-fundo-foco); }
+.campo:disabled { opacity: var(--input-opacidade-desabilitado); }
+
+.botaoPrimario {
+  min-height: var(--shell-alvo-toque);
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-radius: var(--input-raio);
+  background: var(--btn-primary-fundo);
+  color: var(--main-text);
+  font-family: var(--fonte-ui);
+  font-weight: 600;
+  cursor: pointer;
+}
+.botaoPrimario:focus-visible { outline: var(--shell-foco); outline-offset: 2px; }
+.botaoPrimario:disabled { opacity: var(--input-opacidade-desabilitado); cursor: not-allowed; }
+
+@media (max-width: 800px) {
+  .campo { font-size: var(--input-fonte-mobile); }
+}

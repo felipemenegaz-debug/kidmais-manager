@@ -1,6 +1,6 @@
 # Tokens visuais
 
-UX Pilot é referência visual. A documentação funcional do Kidmais é a regra de produto. Código, APIs e migrations existentes são a implementação técnica. Estes tokens descrevem o protótipo. O CSS atual da aplicação não os implementa. Alinhar o visual no futuro não altera API, RBAC nem persistência.
+UX Pilot é referência visual. A documentação funcional do Kidmais é a regra de produto. Código, APIs e migrations existentes são a implementação técnica. Estes tokens descrevem o protótipo. O shell administrativo já os implementa em `components/admin/tokens.module.css`. As páginas legadas ainda não foram migradas; páginas migradas para o Admin V1 deverão consumir esse sistema visual compartilhado. Alinhar o visual no futuro não altera API, RBAC nem persistência.
 
 Origem dos literais abaixo: CSS autoral do protótipo, extraído do HTML. Os valores do bloco “iguais nas cinco versões” coincidem nas cinco pranchetas, salvo as duas exceções anotadas (tamanho da fonte do input e `padding-bottom` do body mobile). A referência a implementar é o desktop aprovado 3/3 (`NyzMuM4gcmrvcqH7WxGB`) e a base visual mobile 2/2 (`pJtifCp4ezXtllds7P9o`). As outras três versões não são referência de layout; servem aqui só para registrar que o CSS autoral se repete.
 
@@ -22,7 +22,14 @@ Variáveis literais do protótipo:
 | `--brand-blue` | `#2563EB` |
 | `--border-navy` | `rgba(255,255,255,0.05)` |
 
-Tipografia: Inter.
+Tipografia: Inter. É a tipografia oficial do UX administrativo V1.
+
+Aplicação desde a etapa 2A:
+
+- Inter é carregada por `next/font` em `components/admin/fonte.ts`, como a variável `--fonte-inter`, pelos layouts `app/admin/layout.tsx` e `app/clientes/layout.tsx`. O layout raiz e o fluxo público continuam com a fonte que já usavam.
+- `components/admin/tokens.module.css` expõe a família em `--fonte-ui`.
+- Nesta etapa, Inter é aplicada à casca: barra e sidebar. As páginas legadas ficam isoladas na área de conteúdo do shell e mantêm a fonte que já tinham.
+- Uma página migrada para o Admin V1 deve adotar a tipografia do sistema visual, com `var(--fonte-ui)`. Não troque a fonte de uma página legada fora dessa migração.
 
 Input, regra do `<style>`:
 

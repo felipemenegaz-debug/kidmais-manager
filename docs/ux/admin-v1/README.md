@@ -2,7 +2,7 @@
 
 Esta pasta é a fonte de verdade versionada do UX administrativo do Kidmais Manager. A documentação foi criada inicialmente sobre o commit `45f639a641071039e9a15efeff613b3ffdec13d3`, branch `review/v1-perfil-empresa`, e esse commit contém a implementação funcional do shell mobile tomada como referência. Ela existe para outro agente implementar o shell administrativo e o alinhamento visual do Perfil da Empresa sem a conversa que originou estes arquivos e sem reabrir o UX Pilot.
 
-A implementação visual ainda não foi feita. Esta pasta não altera componentes, CSS, APIs, banco nem migrations.
+A Etapa 2A implementa a fundação visual (tokens e tipografia) e o AdminShell. O conteúdo das páginas administrativas ainda não foi migrado, e o Perfil da Empresa será tratado em etapa posterior. Esta pasta documenta a direção visual; ela, por si, não altera componentes, CSS, APIs, banco nem migrations.
 
 ## As três camadas
 

@@ -2,19 +2,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import styles from './admin.module.css';
+import styles from './shell.module.css';
+import tokens from './tokens.module.css';
 import Link from 'next/link';
 import KidmaisBrand from '@/components/layout/KidmaisBrand';
-import { itemAtivo, itensNavegacao } from '@/lib/admin/navegacao';
+import { gruposNavegacao, itemAtivo, itensNavegacao } from '@/lib/admin/navegacao';
 
-export default function AdminShell({ children }: {
+export default function AdminShell({ children, classeFonte = '' }: {
     children: React.ReactNode;
+    classeFonte?: string;
 }) {
+    const raiz = `${tokens.tema} ${classeFonte} ${styles.shell}`;
     const path = usePathname();
     const [name, setName] = useState<string | null>(null);
     const [configurar, setConfigurar] = useState(false);
     const [aberto, setAberto] = useState(false);
-    const [recolhido, setRecolhido] = useState(false);
     const menuRef = useRef<HTMLButtonElement>(null);
     const fecharRef = useRef<HTMLButtonElement>(null);
     const devolverFoco = useRef(false);
@@ -64,22 +66,21 @@ export default function AdminShell({ children }: {
         };
     }, [aberto]);
     if (path === '/admin/login')
-        return <div className={styles.shell}>{children}</div>;
+        return <div className={raiz}>{children}</div>;
     if (!name)
         return <p>Verificando sessão…</p>;
     const itens = itensNavegacao(configurar);
-    const grupos = ['Operação', 'Configurações'] as const;
     function fechar() {
         devolverFoco.current = true;
         setAberto(false);
     }
-    return <div className={styles.shell}>
+    return <div className={raiz}>
         <div className={styles.barra} inert={aberto}>
             <button ref={menuRef} className={styles.menu} type="button" aria-expanded={aberto} aria-controls="menu-admin" onClick={() => setAberto(true)}>Abrir menu</button>
         </div>
-        <aside id="menu-admin" className={styles.sidebar} data-aberto={aberto} data-recolhido={recolhido && !aberto}>
+        <aside id="menu-admin" className={styles.sidebar} data-aberto={aberto}>
             <button ref={fecharRef} className={styles.fechar} type="button" aria-controls="menu-admin" onClick={fechar}>Fechar menu</button>
-            <KidmaisBrand subtitle="Gestão de festas" href="/admin/contratos" />
+            <div className={styles.marca}><KidmaisBrand subtitle="Gestão de festas" href="/admin/contratos" /></div>
             <header className={styles.conta}>
                 <p>{name}</p>
                 <button type="button" onClick={async () => {
@@ -92,15 +93,12 @@ export default function AdminShell({ children }: {
                     }
                 }}>Sair</button>
             </header>
-            <button className={styles.recolher} type="button" aria-pressed={recolhido} onClick={() => setRecolhido((valor) => !valor)}>{recolhido ? 'Expandir menu' : 'Recolher menu'}</button>
             <nav aria-label="Menu administrativo">
-                {grupos.map((grupo) => {
-                    const links = itens.filter((item) => item.grupo === grupo);
-                    if (links.length === 0)
-                        return null;
-                    return <div key={grupo}>
-                        <p className={styles.grupo}>{grupo}</p>
-                        {links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}>{item.rotulo}</Link>)}
+                {gruposNavegacao(itens).map((secao, indice) => {
+                    const rotulo = `menu-admin-grupo-${indice}`;
+                    return <div key={secao.grupo} className={styles.secao} role="group" aria-labelledby={rotulo}>
+                        <p id={rotulo} className={styles.grupo}>{secao.grupo}</p>
+                        {secao.itens.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}>{item.rotulo}</Link>)}
                     </div>;
                 })}
             </nav>

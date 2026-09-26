@@ -4,6 +4,13 @@ UX Pilot é referência visual. A documentação funcional do Kidmais é a regra
 
 Fonte do menu atual: `lib/admin/navegacao.ts`, consumido por `components/admin/AdminShell.tsx`.
 
+Arquivos do shell desde a etapa 2A:
+
+- `components/admin/shell.module.css`: estilos da casca (barra, sidebar, gaveta, conteúdo).
+- `components/admin/tokens.module.css`: tokens visuais do administrativo, aplicados na raiz do shell pela classe `.tema`.
+- `components/admin/fonte.ts`: Inter via `next/font`, aplicada pelos layouts `app/admin/layout.tsx` e `app/clientes/layout.tsx`. A tipografia está em [tokens.md](tokens.md).
+- `components/admin/admin.module.css`: estilo legado das páginas (`.page` e afins). Não contém mais a casca.
+
 ## Menu pretendido
 
 Três grupos, nesta ordem e com estes rótulos de arquitetura:
@@ -40,7 +47,9 @@ Não renomeie, nesta etapa, o item “Buffet e adicionais”. O rótulo de menu 
 
 ## O que o código liga hoje
 
-`itensNavegacao` devolve Operação para qualquer sessão administrativa e acrescenta Configurações quando o papel é `REPRESENTANTE_AUTORIZADO`. Os grupos no código chamam-se `Operação` e `Configurações`. Não existe grupo Principal.
+`itensNavegacao` devolve Operação para qualquer sessão administrativa e acrescenta Configuração quando o papel é `REPRESENTANTE_AUTORIZADO`.
+
+`GRUPOS_NAVEGACAO` fixa a ordem Principal, Operação, Configuração. `gruposNavegacao` não devolve grupo vazio, então o shell não renderiza cabeçalho sem item. Principal não tem nenhuma rota e por isso não aparece. O cabeçalho do grupo implementado é “Configuração”. O item do hub continua com o rótulo “Configurações”, em `/admin/configuracoes`.
 
 Operação, com rota:
 
@@ -86,10 +95,10 @@ O item ativo é o href mais longo que coincide com o caminho ou com um prefixo d
 
 A base visual mobile é o artboard 2/2, ID `pJtifCp4ezXtllds7P9o`. Ela mostra um botão de menu que é apenas um ícone, sem `onclick` e sem script. Esse ícone não especifica abertura, fechamento, foco nem scroll.
 
-O comportamento funcional de navegação mobile é o do commit `45f639a641071039e9a15efeff613b3ffdec13d3`:
+O comportamento funcional de navegação mobile é o do commit `45f639a641071039e9a15efeff613b3ffdec13d3`. Nesse commit a lógica estava em `components/admin/AdminShell.tsx` e o CSS em `components/admin/admin.module.css`. Na etapa 2A as regras de CSS do shell passaram para `components/admin/shell.module.css`, com o mesmo breakpoint e os mesmos seletores de estado. Arquivos vigentes:
 
 - `components/admin/AdminShell.tsx`
-- `components/admin/admin.module.css`
+- `components/admin/shell.module.css`
 
 No viewport até 800px (`@media (max-width: 800px)`):
 
@@ -100,8 +109,8 @@ No viewport até 800px (`@media (max-width: 800px)`):
 - Com a gaveta aberta, o scroll da página trava (`document.body.style.overflow = 'hidden'`).
 - A barra e o conteúdo recebem `inert` enquanto a gaveta está aberta. A própria gaveta não fica inert.
 - Ao abrir, o foco vai para o botão de fechar. Ao fechar, o foco volta ao botão “Abrir menu”.
-- Se a largura passa a `min-width: 801px`, a gaveta fecha. O botão “Recolher menu” existe no desktop e fica oculto nesse breakpoint.
+- Se a largura passa a `min-width: 801px`, a gaveta fecha.
 
-No desktop a sidebar permanece na coluna, com largura 16rem, ou 4.5rem quando recolhida. Esse comportamento é o da aplicação, não uma conversão de `w-64` do protótipo. As classes `hidden lg:flex` e prefixos `md:` / `lg:` / `xl:` do artboard são referência estrutural, não o breakpoint funcional. Ver [tokens.md](tokens.md).
+No desktop a sidebar permanece sempre na coluna, expandida, com largura 16rem. Não há botão “Recolher menu”, largura de 4.5rem nem estado recolhido: a sidebar recolhida deixou de fazer parte do UX Admin V1. Os rótulos dos links, os cabeçalhos de grupo e o nome da conta permanecem visíveis. Esse comportamento é o da aplicação, não uma conversão de `w-64` do protótipo. As classes `hidden lg:flex` e prefixos `md:` / `lg:` / `xl:` do artboard são referência estrutural, não o breakpoint funcional. Ver [tokens.md](tokens.md).
 
-Um shell visual futuro pode aproximar cores, tipo e composição da referência. Ele deve preservar este comportamento de gaveta, a menos que uma tarefa posterior mude a navegação de propósito. Não ligue o ícone do protótipo a uma navegação nova inventada a partir do HTML.
+A etapa 2A aproximou cores, tipo e composição da referência na casca e preservou este comportamento de gaveta. Mudanças futuras devem preservá-lo, a menos que uma tarefa posterior mude a navegação de propósito. Não ligue o ícone do protótipo a uma navegação nova inventada a partir do HTML.
