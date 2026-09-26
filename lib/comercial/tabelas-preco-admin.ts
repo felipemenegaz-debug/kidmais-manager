@@ -1,5 +1,6 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import { centavosComerciais } from "./condicao-pagamento.ts";
+import { exigirVinculoNaEmpresa, sqlPrecoPacoteMesmaEmpresa } from "./integridade-tenant.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
 
 export type ResultadoSimulacao =
@@ -37,6 +38,10 @@ export async function incluirPrecoPacoteAdmin(
 ) {
   const simulacao = simularPrecoPacote({ valor: input.valor, sobConsulta: false });
   if (simulacao.tipo !== "PRECO") recusar("PRECO_AUSENTE", "Informe o preço. Vazio não é zero.", 409);
+  await exigirVinculoNaEmpresa(tx, input.empresaId, {
+    sql: sqlPrecoPacoteMesmaEmpresa(),
+    params: [input.tabelaId, input.pacoteId],
+  });
   const tabela = await tx.query<{ publicada_em: string | null }>(
     `SELECT publicada_em FROM tabelas_preco WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
     [input.tabelaId, input.empresaId],
