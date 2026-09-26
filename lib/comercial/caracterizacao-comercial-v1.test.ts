@@ -55,13 +55,10 @@ test("characterização: troca administrativa pré-assinatura cria nova fotograf
   assert.match(edicao, /Após assinatura, prepare a alteração em uma nova versão pelo painel de Contratos/);
 });
 
-test("characterização: inclusão hardcoded e migration 023 divergem na salada da Completa", () => {
+test("characterização: inclusos vêm da composição e a 023 não inclui salada premium na Completa", () => {
   const edicao = readFileSync("lib/fechamentos/services/edicao-administrativa.service.ts", "utf8");
-  const completa = edicao.slice(edicao.indexOf("const completa = ["), edicao.indexOf("];", edicao.indexOf("const completa = [")) + 2);
-  assert.match(completa, /'PENNE', 'CREPE_1_SABOR', 'SORVETE', 'COMBO_ADULTOS', 'COMBO_LANCHINHOS'/);
-  assert.equal(completa.includes("SALADA_PREMIUM"), false);
-  assert.match(edicao, /'CREPE_2_SABORES', 'PASTELZINHO', 'EMPRATADO_PREMIUM', 'SALADA_PREMIUM'/);
-  assert.match(edicao, /codigo === 'COMPLETA' \? completa : \[\]/);
+  assert.match(edicao, /listarCodigosInclusos/);
+  assert.equal(edicao.includes("const completa = ["), false);
   const matriz = readFileSync("database/migrations/20260923_023_adicionais_por_pacote.sql", "utf8");
   assert.match(matriz, /WHEN a\.codigo = 'SALADA_PREMIUM' AND p\.codigo = 'PREMIUM' THEN 'INCLUSO'/);
   assert.equal(/SALADA_PREMIUM' AND p\.codigo = 'COMPLETA' THEN 'INCLUSO'/.test(matriz), false);

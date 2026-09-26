@@ -10,15 +10,8 @@ import { registrarAuditoria } from '../../clientes/repositories';
 import { FechamentoServiceError } from './errors';
 import { edicaoFestaSchema, type EdicaoFestaInput } from './edicao-administrativa-schema';
 import { gravarCorrecaoFotografiaPacote } from './pacote-snapshot';
+import { listarCodigosInclusos } from '../../comercial/composicao';
 function recusar(mensagem: string): never { throw new FechamentoServiceError('DADOS_INVALIDOS', mensagem, 409); }
-// Itens já incluídos conforme a composição publicada dos pacotes; preferências não são cobrança.
-export function adicionaisIncluidos(codigo: string): string[] {
-    // Combos oficiais 006 contêm penne / crepe + sorvete. Para não repetir
-    // cobrança, selecione os itens avulsos que ainda não pertencem ao pacote.
-    const completa = ['PENNE', 'CREPE_1_SABOR', 'SORVETE', 'COMBO_ADULTOS', 'COMBO_LANCHINHOS'];
-    // BOMBOM identifica somente unidades extras; os 4 incluídos não entram nesta seleção.
-    return codigo === 'PREMIUM' ? [...completa, 'CREPE_2_SABORES', 'PASTELZINHO', 'EMPRATADO_PREMIUM', 'SALADA_PREMIUM'] : codigo === 'COMPLETA' ? completa : [];
-}
 export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFestaInput, usuarioId: string, requestId: string, tx: DbExecutor) {
     const input = edicaoFestaSchema.parse(raw);
     if(input.vinculos) recusar('Troca de vínculos exige preparação operacional pós-assinatura.');
@@ -47,7 +40,8 @@ export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoF
     const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais }, tx);
     if (input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
         recusar('Quantidade abaixo do mínimo do pacote.');
-    if (resumo.adicionais.itens.some(a => adicionaisIncluidos(resumo.pacote.pacote.codigo).includes(a.codigo)))
+    const inclusos = await listarCodigosInclusos(tx, resumo.pacote.pacote.id);
+    if (resumo.adicionais.itens.some(a => inclusos.includes(a.codigo)))
         recusar('Há adicional ou combo com item já incluído no pacote. Remova a cobrança duplicada e selecione os itens avulsos necessários.');
     const mudouAgenda = f.dataEvento !== input.dataEvento || f.horarioInicio.slice(0, 5) !== input.horarioInicio.slice(0, 5) || f.horarioFim.slice(0, 5) !== input.horarioFim.slice(0, 5) || f.configuracaoAgendaId !== input.configuracaoAgendaId;
     if (mudouAgenda) {

@@ -1,9 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { validarVinculoComposicao } from "./composicao.ts";
+import type { DbExecutor, DbQueryResult } from "../db/contracts.ts";
+import { listarCodigosInclusos, validarVinculoComposicao } from "./composicao.ts";
 import { erroConvidadosPizzaParty, limitesPizzaParty } from "./pacotes-v1.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
+
+test("os inclusos cobrados vêm da composição do pacote", async () => {
+  let sql = "";
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+      sql = text;
+      return { rows: [{ codigo: "PENNE" } as Row], rowCount: 1 };
+    },
+  };
+  assert.deepEqual(await listarCodigosInclusos(tx, "11111111-1111-4111-8111-111111111111"), ["PENNE"]);
+  assert.match(sql, /modalidade = 'INCLUSO'/);
+  assert.equal(sql.includes("SALADA_PREMIUM"), false);
+});
 
 test("item incluso não vira adicional pago", () => {
   assert.throws(

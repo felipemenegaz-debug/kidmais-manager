@@ -1,4 +1,20 @@
+import type { DbExecutor } from "../db/contracts.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
+
+export async function listarCodigosInclusos(tx: DbExecutor, pacoteId: string): Promise<string[]> {
+  const result = await tx.query<{ codigo: string }>(
+    `SELECT a.codigo
+       FROM pacote_adicionais pa
+       JOIN adicionais a ON a.id = pa.adicional_id
+      WHERE pa.pacote_id = $1::uuid
+        AND pa.ativo
+        AND pa.modalidade = 'INCLUSO'
+        AND a.ativo
+      ORDER BY a.codigo`,
+    [pacoteId],
+  );
+  return result.rows.map((row) => row.codigo);
+}
 
 export function validarVinculoComposicao(input: {
   pacoteCodigo: string;

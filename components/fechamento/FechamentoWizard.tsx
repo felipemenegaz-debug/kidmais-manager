@@ -251,7 +251,28 @@ export default function FechamentoWizard() {
   const [erroCep, setErroCep] = useState("");
   const cepConsultaSeq = useRef(0);
 
-  const pacote = PACOTES_FECHAMENTO_V1.find((item) => item.id === form.pacote);
+  const [fatosPacote, setFatosPacote] = useState<Record<string, { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null }> | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/fechamentos/pacotes", { signal: controller.signal, cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((body) => {
+        if (!body?.pacotes) return;
+        setFatosPacote(Object.fromEntries(body.pacotes.map((item: { codigo: string }) => [item.codigo, item])));
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  const pacoteBase = PACOTES_FECHAMENTO_V1.find((item) => item.id === form.pacote);
+  const fato = pacoteBase ? fatosPacote?.[CODIGO_PACOTE[pacoteBase.id]] : undefined;
+  const pacote = pacoteBase && fato ? {
+    ...pacoteBase,
+    nome: fato.nome,
+    minPagantes: fato.convidadosMinimos ?? pacoteBase.minPagantes,
+    maxPagantes: fato.convidadosMaximos ?? pacoteBase.maxPagantes,
+    precoInicial: fato.precoMinimo == null ? null : Number(fato.precoMinimo),
+    duracao: fato.duracaoMinutos == null ? "" : `${fato.duracaoMinutos} minutos`,
+  } : pacoteBase;
   useEffect(()=>{
     const codigo=CODIGO_PACOTE[form.pacote];
     if(!codigo)return;
@@ -1263,7 +1284,10 @@ export default function FechamentoWizard() {
               </div>
 
               <div className={styles.packageGrid}>
-                {PACOTES_FECHAMENTO_V1.map((item) => (
+                {PACOTES_FECHAMENTO_V1.map((item) => {
+                  const publicado = fatosPacote?.[CODIGO_PACOTE[item.id]];
+                  const preco = publicado ? (publicado.precoMinimo == null ? null : Number(publicado.precoMinimo)) : item.precoInicial;
+                  return (
                   <button
                     key={item.id}
                     type="button"
@@ -1310,15 +1334,16 @@ export default function FechamentoWizard() {
                     <span className={styles.radioVisual}>
                       {form.pacote === item.id ? "✓" : ""}
                     </span>
-                    <strong>{item.nome}</strong>
-                    <b>{item.precoInicial == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(item.precoInicial)}`}</b>
-                    <p>{item.descricao}</p>
+                    <strong>{publicado?.nome ?? item.nome}</strong>
+                    <b>{preco == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(preco)}`}</b>
+                    <p>{publicado ? (publicado.descricao || "Descrição não cadastrada.") : item.descricao}</p>
                     <small>{item.disponibilidade}</small>
                     <span className={styles.selectText}>
                       {form.pacote === item.id ? "Selecionado" : "Selecionar"}
                     </span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
 
               {pacote && (
@@ -1341,11 +1366,11 @@ export default function FechamentoWizard() {
                   </div>
                   <div className={styles.detailWide}>
                     <span>Buffet</span>
-                    <p>{pacote.buffet}</p>
+                    <p>{categoriasBuffet.length ? categoriasBuffet.map((categoria) => categoria.nome).join(", ") : fato ? "Composição não cadastrada." : pacote.buffet}</p>
                   </div>
                   <div className={styles.detailWide}>
                     <span>Duração</span>
-                    <p>{pacote.duracao}</p>
+                    <p>{fato ? (fato.duracaoMinutos == null ? "Duração não cadastrada." : `${fato.duracaoMinutos} minutos`) : pacote.duracao}</p>
                   </div>
                   {pacote.observacao && (
                     <div className={styles.detailWide}>

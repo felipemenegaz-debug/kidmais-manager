@@ -9,7 +9,7 @@ import { atualizarClienteInterno } from '../../clientes/services';
 import { atualizarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
 import { calcularResumoComercial } from '../../comercial/services';
 import { validarPretensaoPix, centavosComerciais } from '../../comercial/condicao-pagamento';
-import { adicionaisIncluidos } from './edicao-administrativa.service';
+import { listarCodigosInclusos } from '../../comercial/composicao';
 import type { EdicaoFestaInput } from './edicao-administrativa-schema';
 import { consultarDisponibilidadeData } from '../../disponibilidade/services';
 import { FechamentoServiceError } from './errors';
@@ -142,7 +142,8 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
     const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais }, tx);
     if (input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
         recusar('Quantidade abaixo do mínimo do pacote.');
-    if (resumo.adicionais.itens.some(a => adicionaisIncluidos(resumo.pacote.pacote.codigo).includes(a.codigo)))
+    const inclusos = await listarCodigosInclusos(tx, resumo.pacote.pacote.id);
+    if (resumo.adicionais.itens.some(a => inclusos.includes(a.codigo)))
         recusar('Remova adicionais/combos que já estão incluídos no pacote.');
     const pacoteMudou = f.pacoteId !== input.pacoteId;
     if (pacoteMudou && input.buffetStatus !== 'PENDENTE')

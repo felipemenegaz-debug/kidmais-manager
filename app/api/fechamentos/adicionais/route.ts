@@ -18,9 +18,17 @@ export async function GET(request: NextRequest) {
   const convidados = Number(request.nextUrl.searchParams.get('convidados'));
   if (!codigo || !/^\d{4}-\d{2}-\d{2}$/.test(data) || !Number.isInteger(convidados) || convidados < 1 || convidados > 150)
     return NextResponse.json({ erro: 'Informe pacote, data e convidados válidos.' }, { status: 400, headers: noStore });
-  const erroPizza = erroConvidadosPizzaParty(codigo, convidados);
-  if (erroPizza) return NextResponse.json({ erro: erroPizza }, { status: 400, headers: noStore });
   try {
+    const limites = await db().query<{ convidados_minimos: number | null; convidados_maximos: number | null }>(
+      `SELECT convidados_minimos, convidados_maximos FROM pacotes WHERE codigo = $1 AND ativo`,
+      [codigo],
+    );
+    const faixa = limites.rows[0];
+    const erroPizza = erroConvidadosPizzaParty(codigo, convidados, faixa ? {
+      minimo: faixa.convidados_minimos === null ? null : Number(faixa.convidados_minimos),
+      maximo: faixa.convidados_maximos === null ? null : Number(faixa.convidados_maximos),
+    } : null);
+    if (erroPizza) return NextResponse.json({ erro: erroPizza }, { status: 400, headers: noStore });
     const resultado = await db().query<{codigo:string;nome:string;categoria:string;unidade_cobranca:string;valor:string}>(`
       SELECT a.codigo,a.nome,a.categoria,a.unidade_cobranca,preco.valor::text AS valor
       FROM pacotes p JOIN pacote_adicionais pa ON pa.pacote_id=p.id AND pa.ativo AND pa.modalidade='EXTRA'

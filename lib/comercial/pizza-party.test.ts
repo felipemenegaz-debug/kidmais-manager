@@ -42,6 +42,7 @@ test('Pizza: fronteiras 19/20, 79/80, 100/101 na UI e validação compartilhada'
 test('API de extras: rejeita limites antes de consultar e filtra por faixa vigente', async () => {
   const consultas: number[] = [];
   const tx = { query: async (sql: string, args: any[]) => {
+    if (sql.includes('convidados_minimos')) return { rows: [{ convidados_minimos: null, convidados_maximos: null }] };
     assert.match(sql, /pa\.modalidade='EXTRA'/); assert.match(sql, /a\.ativo/);
     assert.match(sql, /x\.ativo/); assert.match(sql, /x\.convidados_min<=\$3/);
     assert.match(sql, /x\.convidados_max >= \$3/); assert.match(sql, /vigencia_fim >= \$2/);

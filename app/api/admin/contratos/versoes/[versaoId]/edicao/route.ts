@@ -9,7 +9,7 @@ import { fontesEdicao, conflito, edicaoDaVersao } from '@/lib/contratos/services
 import { fonteDaRevisaoInicial } from '@/lib/contratos/services/revisao-inicial';
 import { calcularResumoComercial, listarPacotesComerciais, listarCatalogoAdicionais } from '@/lib/comercial/services';
 import { consultarDisponibilidadeData } from '@/lib/disponibilidade/services';
-import { adicionaisIncluidos } from '@/lib/fechamentos/services/edicao-administrativa.service';
+import { listarCodigosInclusos } from '@/lib/comercial/composicao';
 export async function GET(request: NextRequest, context: {
     params: Promise<{
         versaoId: string;
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest, context: {
             else
                 throw e;
         }
-        return jsonNoStore({ ok: true, data: { fonte, somenteRevisao, vinculos, disponibilidade, pacotes, catalogo, resumo, erroPreco, incluidos: adicionaisIncluidos(pacotes.find(p => p.pacote.id === pacoteId)?.pacote.codigo ?? '') } });
+        return jsonNoStore({ ok: true, data: { fonte, somenteRevisao, vinculos, disponibilidade, pacotes, catalogo, resumo, erroPreco, incluidos: await listarCodigosInclusos(db(), pacoteId) } });
     }
     catch (e) {
         return apiErrorResponse(e);
