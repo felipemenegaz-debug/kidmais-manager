@@ -18,6 +18,7 @@
     "test:pagamentos:integration": "node --env-file=.env.local scripts/pagamentos-engenharia.integration.cjs && node --env-file=.env.local scripts/pagamentos-http.integration.cjs && node --env-file=.env.local scripts/pagamentos-concorrencia.integration.cjs",
     "check:pagamentos:db": "node --env-file=.env.local scripts/pagamentos-inspecao.cjs",
     "check:v1:static": "node scripts/regressao-v1-estatica.cjs",
+    "check:v1:postgres": "node scripts/regressao-v1-postgres.cjs",
     "check:v1:clone": "node scripts/regressao-v1-clone.cjs",
     "check:v1:staging": "node scripts/regressao-v1-staging.cjs",
     "check:v1:ui": "node scripts/festa-navegacao-ui.test.cjs",
