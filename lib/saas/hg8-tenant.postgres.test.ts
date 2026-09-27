@@ -83,6 +83,10 @@ async function recusaProva(client: Client, usuarioId: string, empresaId?: string
   assert.equal(code, "TENANT_NAO_COMPROVADO");
 }
 
+function esperar(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function rastrear(trabalho: Promise<string>) {
   let terminou = false;
   const promessa = trabalho.finally(() => {
@@ -117,7 +121,7 @@ async function limpar(client: Client) {
   }
 }
 
-test("prova de tenant no postgres descartável", { timeout: 120_000 }, async (t) => {
+test("prova de tenant no postgres descartável", { timeout: 180_000 }, async (t) => {
   assert.equal(readFileSync(resolve(root, "lib/autenticacao/service.ts"), "utf8").includes("empresaComprovada"), false);
   const client = await conectarDescartavel();
   const db = client as unknown as Client;
@@ -244,6 +248,287 @@ test("prova de tenant no postgres descartável", { timeout: 120_000 }, async (t)
         await outro.query("ROLLBACK").catch(() => undefined);
         await titular.end();
         await outro.end();
+      }
+    });
+
+    await t.test("a suspensão não confirma enquanto a operação segura a empresa", async () => {
+      await db.query("BEGIN");
+      const empresaId = await empresa(db, "Empresa da suspensão");
+      const usuarioId = await usuario(db);
+      await membership(db, empresaId, usuarioId, "ATIVA");
+      await db.query("COMMIT");
+      const titular = await conectarDescartavel({ travar: false });
+      const outro = await conectarDescartavel({ travar: false });
+      let fase = "inicio";
+      let suspensaoTerminou = false;
+      try {
+        const operacao = (async () => {
+          await titular.query("BEGIN");
+          await executarNoTenant(executor(titular), sessao(usuarioId), null, async (transacao) => {
+            await transacao.query(`UPDATE empresas SET nome = 'mutacao-suspensa' WHERE id = $1::uuid`, [empresaId]);
+            fase = "segura";
+            await esperar(800);
+          });
+          await titular.query("COMMIT");
+        })();
+        while (fase !== "segura") await esperar(20);
+        const suspensao = (async () => {
+          await outro.query("BEGIN");
+          await outro.query(`UPDATE empresas SET status = 'SUSPENSA' WHERE id = $1::uuid`, [empresaId]);
+          suspensaoTerminou = true;
+          await outro.query("COMMIT");
+        })();
+        await esperar(350);
+        assert.equal(fase, "segura");
+        assert.equal(suspensaoTerminou, false);
+        await operacao;
+        await suspensao;
+        const estado = await db.query<{ nome: string; status: string }>(
+          "SELECT nome, status FROM empresas WHERE id = $1::uuid",
+          [empresaId],
+        );
+        assert.equal(estado.rows[0].nome, "mutacao-suspensa");
+        assert.equal(estado.rows[0].status, "SUSPENSA");
+      } finally {
+        await titular.query("ROLLBACK").catch(() => undefined);
+        await outro.query("ROLLBACK").catch(() => undefined);
+        await titular.end();
+        await outro.end();
+      }
+    });
+
+    await t.test("suspensão já confirmada impede a operação seguinte", async () => {
+      await db.query("BEGIN");
+      const empresaId = await empresa(db, "Empresa já suspensa");
+      const usuarioId = await usuario(db);
+      await membership(db, empresaId, usuarioId, "ATIVA");
+      await db.query("COMMIT");
+      const titular = await conectarDescartavel({ travar: false });
+      try {
+        await db.query(`UPDATE empresas SET status = 'SUSPENSA' WHERE id = $1::uuid`, [empresaId]);
+        await titular.query("BEGIN");
+        let code = "";
+        try {
+          await executarNoTenant(executor(titular), sessao(usuarioId), empresaId, async (transacao) => {
+            await transacao.query(`UPDATE empresas SET nome = 'nao-deve-suspensa' WHERE id = $1::uuid`, [empresaId]);
+          });
+          await titular.query("COMMIT");
+          code = "passou";
+        } catch (error) {
+          code = error instanceof PacoteAdminError ? error.code : texto(error);
+          await titular.query("ROLLBACK");
+        }
+        assert.equal(code, "TENANT_NAO_COMPROVADO");
+        const estado = await db.query<{ nome: string; status: string }>(
+          "SELECT nome, status FROM empresas WHERE id = $1::uuid",
+          [empresaId],
+        );
+        assert.equal(estado.rows[0].nome, "Empresa já suspensa");
+        assert.equal(estado.rows[0].status, "SUSPENSA");
+      } finally {
+        await titular.query("ROLLBACK").catch(() => undefined);
+        await titular.end();
+      }
+    });
+
+    await t.test("a desativação não confirma enquanto a operação segura a empresa", async () => {
+      await db.query("BEGIN");
+      const empresaId = await empresa(db, "Empresa da desativação");
+      const usuarioId = await usuario(db);
+      await membership(db, empresaId, usuarioId, "ATIVA");
+      await db.query("COMMIT");
+      const titular = await conectarDescartavel({ travar: false });
+      const outro = await conectarDescartavel({ travar: false });
+      let fase = "inicio";
+      let desativacaoTerminou = false;
+      try {
+        const operacao = (async () => {
+          await titular.query("BEGIN");
+          await executarNoTenant(executor(titular), sessao(usuarioId), null, async (transacao) => {
+            await transacao.query(`UPDATE empresas SET nome = 'mutacao-desativada' WHERE id = $1::uuid`, [empresaId]);
+            fase = "segura";
+            await esperar(800);
+          });
+          await titular.query("COMMIT");
+        })();
+        while (fase !== "segura") await esperar(20);
+        const desativacao = (async () => {
+          await outro.query("BEGIN");
+          await outro.query(`UPDATE empresas SET status = 'DESATIVADA' WHERE id = $1::uuid`, [empresaId]);
+          desativacaoTerminou = true;
+          await outro.query("COMMIT");
+        })();
+        await esperar(350);
+        assert.equal(fase, "segura");
+        assert.equal(desativacaoTerminou, false);
+        await operacao;
+        await desativacao;
+        const estado = await db.query<{ nome: string; status: string }>(
+          "SELECT nome, status FROM empresas WHERE id = $1::uuid",
+          [empresaId],
+        );
+        assert.equal(estado.rows[0].nome, "mutacao-desativada");
+        assert.equal(estado.rows[0].status, "DESATIVADA");
+      } finally {
+        await titular.query("ROLLBACK").catch(() => undefined);
+        await outro.query("ROLLBACK").catch(() => undefined);
+        await titular.end();
+        await outro.end();
+      }
+    });
+
+    await t.test("desativação já confirmada impede a operação seguinte", async () => {
+      await db.query("BEGIN");
+      const empresaId = await empresa(db, "Empresa já desativada");
+      const usuarioId = await usuario(db);
+      await membership(db, empresaId, usuarioId, "ATIVA");
+      await db.query("COMMIT");
+      const titular = await conectarDescartavel({ travar: false });
+      try {
+        await db.query(`UPDATE empresas SET status = 'DESATIVADA' WHERE id = $1::uuid`, [empresaId]);
+        await titular.query("BEGIN");
+        let code = "";
+        try {
+          await executarNoTenant(executor(titular), sessao(usuarioId), empresaId, async (transacao) => {
+            await transacao.query(`UPDATE empresas SET nome = 'nao-deve-desativada' WHERE id = $1::uuid`, [empresaId]);
+          });
+          await titular.query("COMMIT");
+          code = "passou";
+        } catch (error) {
+          code = error instanceof PacoteAdminError ? error.code : texto(error);
+          await titular.query("ROLLBACK");
+        }
+        assert.equal(code, "TENANT_NAO_COMPROVADO");
+        const estado = await db.query<{ nome: string; status: string }>(
+          "SELECT nome, status FROM empresas WHERE id = $1::uuid",
+          [empresaId],
+        );
+        assert.equal(estado.rows[0].nome, "Empresa já desativada");
+        assert.equal(estado.rows[0].status, "DESATIVADA");
+      } finally {
+        await titular.query("ROLLBACK").catch(() => undefined);
+        await titular.end();
+      }
+    });
+
+    await t.test("suspensão e revogação não deadlockam com a operação", async () => {
+      await db.query("BEGIN");
+      const empresaId = await empresa(db, "Empresa da ordem");
+      const usuarioId = await usuario(db);
+      const membershipId = await membership(db, empresaId, usuarioId, "ATIVA");
+      await db.query("COMMIT");
+      const titular = await conectarDescartavel({ travar: false });
+      const suspensao = await conectarDescartavel({ travar: false });
+      const revogacao = await conectarDescartavel({ travar: false });
+      let fase = "inicio";
+      let erroSuspensao = "";
+      let erroRevogacao = "";
+      try {
+        const operacao = (async () => {
+          await titular.query("BEGIN");
+          await executarNoTenant(executor(titular), sessao(usuarioId), null, async (transacao) => {
+            await transacao.query(`UPDATE empresas SET nome = 'trava-ordem' WHERE id = $1::uuid`, [empresaId]);
+            fase = "segura";
+            await esperar(800);
+          });
+          await titular.query("COMMIT");
+        })();
+        while (fase !== "segura") await esperar(20);
+        const pendurarSuspensao = (async () => {
+          try {
+            await suspensao.query("BEGIN");
+            await suspensao.query(`UPDATE empresas SET status = 'SUSPENSA' WHERE id = $1::uuid`, [empresaId]);
+            await suspensao.query("COMMIT");
+          } catch (error) {
+            erroSuspensao = texto(error);
+            await suspensao.query("ROLLBACK").catch(() => undefined);
+          }
+        })();
+        const pendurarRevogacao = (async () => {
+          try {
+            await revogacao.query("BEGIN");
+            await revogacao.query(`UPDATE memberships SET status = 'REVOGADA' WHERE id = $1::uuid`, [membershipId]);
+            await revogacao.query("COMMIT");
+          } catch (error) {
+            erroRevogacao = texto(error);
+            await revogacao.query("ROLLBACK").catch(() => undefined);
+          }
+        })();
+        await esperar(350);
+        assert.equal(fase, "segura");
+        await operacao;
+        await pendurarSuspensao;
+        await pendurarRevogacao;
+        assert.equal(erroSuspensao.toLowerCase().includes("deadlock"), false, erroSuspensao);
+        assert.equal(erroRevogacao.toLowerCase().includes("deadlock"), false, erroRevogacao);
+        assert.equal(erroSuspensao, "");
+        assert.equal(erroRevogacao, "");
+        const estado = await db.query<{ nome: string; status: string; membership: string }>(
+          `SELECT e.nome, e.status, m.status AS membership
+             FROM empresas e
+             JOIN memberships m ON m.empresa_id = e.id
+            WHERE e.id = $1::uuid AND m.id = $2::uuid`,
+          [empresaId, membershipId],
+        );
+        assert.equal(estado.rows[0].nome, "trava-ordem");
+        assert.equal(estado.rows[0].status, "SUSPENSA");
+        assert.equal(estado.rows[0].membership, "REVOGADA");
+      } finally {
+        await titular.query("ROLLBACK").catch(() => undefined);
+        await suspensao.query("ROLLBACK").catch(() => undefined);
+        await revogacao.query("ROLLBACK").catch(() => undefined);
+        await titular.end();
+        await suspensao.end();
+        await revogacao.end();
+      }
+    });
+
+    await t.test("duas operações na mesma empresa seguem a ordem e não deadlockam", async () => {
+      await db.query("BEGIN");
+      const empresaId = await empresa(db, "Empresa compartilhada");
+      const usuarioA = await usuario(db);
+      const usuarioB = await usuario(db);
+      await membership(db, empresaId, usuarioA, "ATIVA");
+      await membership(db, empresaId, usuarioB, "ATIVA");
+      await db.query("COMMIT");
+      const primeira = await conectarDescartavel({ travar: false });
+      const segunda = await conectarDescartavel({ travar: false });
+      let fase = "inicio";
+      let erroSegunda = "";
+      try {
+        const operacaoA = (async () => {
+          await primeira.query("BEGIN");
+          await executarNoTenant(executor(primeira), sessao(usuarioA), empresaId, async (transacao) => {
+            await transacao.query(`UPDATE empresas SET nome = 'ordem-a' WHERE id = $1::uuid`, [empresaId]);
+            fase = "segura";
+            await esperar(700);
+          });
+          await primeira.query("COMMIT");
+        })();
+        while (fase !== "segura") await esperar(20);
+        const inicio = Date.now();
+        try {
+          await segunda.query("BEGIN");
+          await executarNoTenant(executor(segunda), sessao(usuarioB), empresaId, async (transacao) => {
+            await transacao.query(`UPDATE empresas SET nome = 'ordem-b' WHERE id = $1::uuid`, [empresaId]);
+          });
+          await segunda.query("COMMIT");
+        } catch (error) {
+          erroSegunda = texto(error);
+          await segunda.query("ROLLBACK").catch(() => undefined);
+        }
+        const espera = Date.now() - inicio;
+        await operacaoA;
+        assert.equal(erroSegunda.toLowerCase().includes("deadlock"), false, erroSegunda);
+        assert.equal(erroSegunda, "");
+        assert.equal(espera >= 300, true);
+        const nome = await db.query<{ nome: string }>("SELECT nome FROM empresas WHERE id = $1::uuid", [empresaId]);
+        assert.equal(nome.rows[0].nome, "ordem-b");
+      } finally {
+        await primeira.query("ROLLBACK").catch(() => undefined);
+        await segunda.query("ROLLBACK").catch(() => undefined);
+        await primeira.end();
+        await segunda.end();
       }
     });
   } finally {

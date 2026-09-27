@@ -32,6 +32,9 @@ function responderProva(sql: string, memberships: Array<{ id: string; empresa_id
   if (sql.includes("FROM usuarios_administrativos") && !sql.includes("memberships")) {
     return { rows: [{ ativo: true }], rowCount: 1 };
   }
+  if (sql.includes("FROM empresas") && sql.includes("FOR UPDATE") && !sql.includes("memberships")) {
+    return { rows: [{ id: "empresa", status: "ATIVA" }], rowCount: 1 };
+  }
   if (sql.includes("m.status AS membership")) {
     return memberships.length === 1
       ? { rows: [{ membership: "ATIVA", empresa: "ATIVA", ativo: true }], rowCount: 1 }

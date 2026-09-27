@@ -15,12 +15,46 @@ export type TenantComprovado = {
 
 type LinhaMembership = { id: string; empresa_id: string };
 
+/**
+ * Ordem única dos fluxos de tenant, para não cruzar com suspensão nem revogação:
+ * usuário → empresa → membership.
+ * A empresa comprovada permanece travada até o commit da transação chamadora.
+ */
 function recusar(): never {
   throw new PacoteAdminError(
     "TENANT_NAO_COMPROVADO",
     "A sessão administrativa não comprova a empresa autorizada.",
     403,
   );
+}
+
+export async function travarUsuariosNaOrdem(tx: DbExecutor, ids: readonly string[]): Promise<void> {
+  for (const id of [...new Set(ids)].sort()) {
+    await tx.query(
+      `SELECT id
+         FROM usuarios_administrativos
+        WHERE id = $1::uuid
+        FOR UPDATE`,
+      [id],
+    );
+  }
+}
+
+async function travarEmpresasDoUsuario(tx: DbExecutor, usuarioId: string): Promise<string[]> {
+  const empresas = await tx.query<{ id: string }>(
+    `SELECT DISTINCT m.empresa_id::text AS id
+       FROM memberships m
+      WHERE m.usuario_id = $1::uuid
+      ORDER BY id`,
+    [usuarioId],
+  );
+  for (const empresa of empresas.rows) {
+    await tx.query(
+      `SELECT id FROM empresas WHERE id = $1::uuid FOR UPDATE`,
+      [empresa.id],
+    );
+  }
+  return empresas.rows.map((empresa) => empresa.id);
 }
 
 function selecao(empresaSolicitada?: string | null) {
@@ -39,24 +73,28 @@ export async function provarTenant(
   sessao: SessaoParaTenant,
   empresaSolicitada?: string | null,
 ): Promise<TenantComprovado> {
+  await travarUsuariosNaOrdem(tx, [sessao.usuario_id]);
   const usuario = await tx.query<{ ativo: boolean }>(
     `SELECT ativo
        FROM usuarios_administrativos
-      WHERE id = $1::uuid
-      FOR UPDATE`,
+      WHERE id = $1::uuid`,
     [sessao.usuario_id],
   );
   if (!usuario.rows[0]?.ativo) recusar();
 
+  const empresasTravadas = await travarEmpresasDoUsuario(tx, sessao.usuario_id);
+  if (empresasTravadas.length === 0) recusar();
   const memberships = await tx.query<LinhaMembership>(
     `SELECT m.id::text AS id, m.empresa_id::text AS empresa_id
        FROM memberships m
        JOIN empresas e ON e.id = m.empresa_id
       WHERE m.usuario_id = $1::uuid
+        AND m.empresa_id = ANY($2::uuid[])
         AND m.status = 'ATIVA'
         AND e.status = 'ATIVA'
+      ORDER BY m.id
       FOR UPDATE OF m`,
-    [sessao.usuario_id],
+    [sessao.usuario_id, empresasTravadas],
   );
   const pedida = selecao(empresaSolicitada);
   const linhas = memberships.rows;
@@ -73,19 +111,29 @@ export async function provarTenant(
 
 /** Relê a membership travada antes do commit. Revogação já confirmada impede a operação. */
 export async function revalidarTenant(tx: DbExecutor, tenant: TenantComprovado): Promise<void> {
-  const atual = await tx.query<{ membership: string; empresa: string; ativo: boolean }>(
-    `SELECT m.status AS membership, e.status AS empresa, u.ativo
+  await travarUsuariosNaOrdem(tx, [tenant.usuarioId]);
+  const usuario = await tx.query<{ ativo: boolean }>(
+    `SELECT ativo FROM usuarios_administrativos WHERE id = $1::uuid`,
+    [tenant.usuarioId],
+  );
+  if (usuario.rows[0]?.ativo !== true) recusar();
+
+  const empresa = await tx.query<{ status: string }>(
+    `SELECT status FROM empresas WHERE id = $1::uuid FOR UPDATE`,
+    [tenant.empresaComprovada],
+  );
+  if (empresa.rows[0]?.status !== "ATIVA") recusar();
+
+  const atual = await tx.query<{ membership: string }>(
+    `SELECT m.status AS membership
        FROM memberships m
-       JOIN empresas e ON e.id = m.empresa_id
-       JOIN usuarios_administrativos u ON u.id = m.usuario_id
       WHERE m.id = $1::uuid
         AND m.usuario_id = $2::uuid
         AND m.empresa_id = $3::uuid
-      FOR UPDATE OF m`,
+      FOR UPDATE`,
     [tenant.membershipId, tenant.usuarioId, tenant.empresaComprovada],
   );
-  const linha = atual.rows[0];
-  if (!linha || linha.membership !== "ATIVA" || linha.empresa !== "ATIVA" || linha.ativo !== true) recusar();
+  if (atual.rows[0]?.membership !== "ATIVA") recusar();
 }
 
 export async function executarNoTenant<T>(
