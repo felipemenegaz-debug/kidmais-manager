@@ -3,8 +3,8 @@
   top: 0;
   z-index: 2;
   padding: 12px;
-  background: #fff;
-  border: 1px solid #e0d4eb;
+  background: var(--card-bg);
+  border: 1px solid var(--input-border);
   border-radius: 12px;
   box-shadow: 0 3px 10px #2511350d;
 }
@@ -17,15 +17,15 @@
 
 .sections button {
   flex: 1;
-  background: #f1ebf6;
-  color: #472360;
+  background: var(--input-bg);
+  color: var(--secondary-text);
   border: 2px solid transparent;
 }
 
 .sections button[aria-pressed='true'] {
-  background: #472360;
+  background: var(--primary-violet);
   color: #fff;
-  border-color: #472360;
+  border-color: var(--primary-violet);
 }
 
 .toolbar p {

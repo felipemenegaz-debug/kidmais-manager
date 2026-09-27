@@ -1,0 +1,8 @@
+.grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; }
+.card { display:flex; flex-direction:column; align-items:flex-start; gap:16px; padding:32px; border-radius:32px; border:1px solid var(--border-navy); background:var(--card-bg); }
+.icon { display:grid; place-items:center; width:44px; height:44px; border-radius:12px; background:rgba(124,58,237,.1); color:var(--lilac-accent); }
+.card h2 { margin:0; font-size:16px; }
+.card p { margin:0; color:var(--secondary-text); font-size:13px; }
+.card a { margin-top:auto; padding-top:12px; font-size:12px; font-weight:800; }
+@media(max-width:1200px) { .grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:700px) { .grid { grid-template-columns:1fr; gap:16px; } .card { padding:24px; border-radius:24px; } }

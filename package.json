@@ -28,6 +28,7 @@
     "production:test": "node --test scripts/production/production.test.mjs"
   },
   "dependencies": {
+    "@fortawesome/free-solid-svg-icons": "^6.5.1",
     "next": "16.3.4",
     "pg": "^8.23.0",
     "react": "19.2.8",
