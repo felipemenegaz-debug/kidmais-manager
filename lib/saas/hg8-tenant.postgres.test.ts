@@ -87,6 +87,24 @@ function esperar(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function pidsDe(valor: unknown) {
+  if (Array.isArray(valor)) return valor.map((item) => Number(item));
+  return String(valor ?? "").replace(/[{}]/g, "").split(",").filter(Boolean).map((item) => Number(item));
+}
+
+async function esperarBloqueadoPor(observador: Client, pid: number, bloqueador: number) {
+  const inicio = Date.now();
+  while (Date.now() - inicio < 8_000) {
+    const linha = await observador.query<{ pids: unknown }>(
+      "SELECT pg_blocking_pids($1::integer) AS pids",
+      [pid],
+    );
+    if (pidsDe(linha.rows[0]?.pids).includes(bloqueador)) return;
+    await esperar(20);
+  }
+  assert.fail("a sessão concorrente não ficou bloqueada pela trava da outra");
+}
+
 function rastrear(trabalho: Promise<string>) {
   let terminou = false;
   const promessa = trabalho.finally(() => {
@@ -259,35 +277,104 @@ test("prova de tenant no postgres descartável", { timeout: 180_000 }, async (t)
       await db.query("COMMIT");
       const titular = await conectarDescartavel({ travar: false });
       const outro = await conectarDescartavel({ travar: false });
+      const titularPid = Number((await titular.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      const suspensaoPid = Number((await outro.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid);
       let fase = "inicio";
-      let suspensaoTerminou = false;
+      let liberar = () => undefined as void;
+      const segurar = new Promise<void>((resolve) => {
+        liberar = resolve;
+      });
       try {
         const operacao = (async () => {
           await titular.query("BEGIN");
-          await executarNoTenant(executor(titular), sessao(usuarioId), null, async (transacao) => {
-            await transacao.query(`UPDATE empresas SET nome = 'mutacao-suspensa' WHERE id = $1::uuid`, [empresaId]);
+          await executarNoTenant(executor(titular), sessao(usuarioId), null, async () => {
             fase = "segura";
-            await esperar(800);
+            await segurar;
           });
           await titular.query("COMMIT");
         })();
-        while (fase !== "segura") await esperar(20);
+        const inicio = Date.now();
+        while (fase !== "segura") {
+          if (Date.now() - inicio > 8_000) assert.fail("a operação não segurou a empresa");
+          await esperar(20);
+        }
         const suspensao = (async () => {
           await outro.query("BEGIN");
           await outro.query(`UPDATE empresas SET status = 'SUSPENSA' WHERE id = $1::uuid`, [empresaId]);
-          suspensaoTerminou = true;
           await outro.query("COMMIT");
         })();
-        await esperar(350);
+        await esperarBloqueadoPor(db, suspensaoPid, titularPid);
+        const durante = await db.query<{ nome: string; status: string }>(
+          "SELECT nome, status FROM empresas WHERE id = $1::uuid",
+          [empresaId],
+        );
         assert.equal(fase, "segura");
-        assert.equal(suspensaoTerminou, false);
+        assert.equal(durante.rows[0].nome, "Empresa da suspensão");
+        assert.equal(durante.rows[0].status, "ATIVA");
+        liberar();
         await operacao;
         await suspensao;
         const estado = await db.query<{ nome: string; status: string }>(
           "SELECT nome, status FROM empresas WHERE id = $1::uuid",
           [empresaId],
         );
-        assert.equal(estado.rows[0].nome, "mutacao-suspensa");
+        assert.equal(estado.rows[0].nome, "Empresa da suspensão");
+        assert.equal(estado.rows[0].status, "SUSPENSA");
+      } finally {
+        liberar();
+        await titular.query("ROLLBACK").catch(() => undefined);
+        await outro.query("ROLLBACK").catch(() => undefined);
+        await titular.end();
+        await outro.end();
+      }
+    });
+
+    await t.test("a suspensão que chega primeiro faz a operação esperar e recusar", async () => {
+      await db.query("BEGIN");
+      const empresaId = await empresa(db, "Empresa suspensa primeiro");
+      const usuarioId = await usuario(db);
+      await membership(db, empresaId, usuarioId, "ATIVA");
+      await db.query("COMMIT");
+      const titular = await conectarDescartavel({ travar: false });
+      const outro = await conectarDescartavel({ travar: false });
+      const titularPid = Number((await titular.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      const suspensaoPid = Number((await outro.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      let entrou = false;
+      let code = "";
+      try {
+        await outro.query("BEGIN");
+        await outro.query(`UPDATE empresas SET status = 'SUSPENSA' WHERE id = $1::uuid`, [empresaId]);
+        const operacao = (async () => {
+          await titular.query("BEGIN");
+          try {
+            await executarNoTenant(executor(titular), sessao(usuarioId), null, async () => {
+              entrou = true;
+            });
+            await titular.query("COMMIT");
+            code = "passou";
+          } catch (error) {
+            code = error instanceof PacoteAdminError ? error.code : texto(error);
+            await titular.query("ROLLBACK").catch(() => undefined);
+          }
+        })();
+        await esperarBloqueadoPor(db, titularPid, suspensaoPid);
+        const durante = await db.query<{ nome: string; status: string }>(
+          "SELECT nome, status FROM empresas WHERE id = $1::uuid",
+          [empresaId],
+        );
+        assert.equal(entrou, false);
+        assert.equal(durante.rows[0].nome, "Empresa suspensa primeiro");
+        assert.equal(durante.rows[0].status, "ATIVA");
+        await outro.query("COMMIT");
+        await operacao;
+        assert.equal(code.toLowerCase().includes("deadlock"), false, code);
+        assert.equal(code, "TENANT_NAO_COMPROVADO");
+        assert.equal(entrou, false);
+        const estado = await db.query<{ nome: string; status: string }>(
+          "SELECT nome, status FROM empresas WHERE id = $1::uuid",
+          [empresaId],
+        );
+        assert.equal(estado.rows[0].nome, "Empresa suspensa primeiro");
         assert.equal(estado.rows[0].status, "SUSPENSA");
       } finally {
         await titular.query("ROLLBACK").catch(() => undefined);

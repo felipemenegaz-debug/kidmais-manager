@@ -27,6 +27,76 @@ function senhaFalsa() {
   return `scrypt$v=1$N=131072$r=8$p=1$${ "A".repeat(22) }==$${ "B".repeat(86) }==`;
 }
 
+function semComentario(comando: string) {
+  return comando.split(/\r?\n/).filter((linha) => !linha.trim().startsWith("--")).join("\n");
+}
+
+function comandosSql(sql: string) {
+  const comandos: string[] = [];
+  let atual = "";
+  let i = 0;
+  let dollar: string | null = null;
+  while (i < sql.length) {
+    if (dollar) {
+      if (sql.startsWith(dollar, i)) {
+        atual += dollar;
+        i += dollar.length;
+        dollar = null;
+        continue;
+      }
+      atual += sql[i];
+      i += 1;
+      continue;
+    }
+    if (sql[i] === "-" && sql[i + 1] === "-") {
+      const fim = sql.indexOf("\n", i);
+      const ate = fim === -1 ? sql.length : fim + 1;
+      atual += sql.slice(i, ate);
+      i = ate;
+      continue;
+    }
+    if (sql[i] === "$") {
+      const marca = /^\$[A-Za-z0-9_]*\$/.exec(sql.slice(i));
+      if (marca) {
+        dollar = marca[0];
+        atual += dollar;
+        i += dollar.length;
+        continue;
+      }
+    }
+    if (sql[i] === ";") {
+      const texto = atual.trim();
+      if (texto) comandos.push(texto);
+      atual = "";
+      i += 1;
+      continue;
+    }
+    atual += sql[i];
+    i += 1;
+  }
+  const resto = atual.trim();
+  if (resto) comandos.push(resto);
+  return comandos;
+}
+
+async function esperarInsertBloqueado(observador: Client, pid: number, terminou: () => boolean) {
+  const inicio = Date.now();
+  while (Date.now() - inicio < 8_000) {
+    assert.equal(terminou(), false, "o insert concorrente confirmou enquanto o DOWN ainda segurava a trava");
+    const espera = await observador.query<{ n: number }>(
+      `SELECT count(*)::int AS n
+         FROM pg_locks
+        WHERE pid = $1
+          AND NOT granted
+          AND relation = 'public.memberships'::regclass`,
+      [pid],
+    );
+    if (espera.rows[0].n > 0) return;
+    await new Promise((resolver) => setTimeout(resolver, 20));
+  }
+  assert.fail("o insert concorrente não ficou bloqueado em memberships");
+}
+
 async function recusa(client: Client, sql: string, params: unknown[], trecho: string) {
   await client.query("SAVEPOINT prova");
   let message = "";
@@ -40,7 +110,7 @@ async function recusa(client: Client, sql: string, params: unknown[], trecho: st
   assert.equal(message.includes(trecho), true, message);
 }
 
-test("estrutura de tenant da 043 no postgres descartável", { timeout: 120_000 }, async (t) => {
+test("estrutura de tenant da 043 no postgres descartável", { timeout: 180_000 }, async (t) => {
   assert.equal(existsSync(resolve(root, "database/migrations/20260923_020_saas_foundation.sql")), false);
   const fonte = readFileSync(migration043, "utf8");
   assert.equal(fonte.includes("saas020_"), false);
@@ -359,6 +429,139 @@ test("estrutura de tenant da 043 no postgres descartável", { timeout: 120_000 }
             AND to_regprocedure('public.kidmais_031_guard_empresas()') IS NOT NULL AS ok`,
       );
       assert.equal(presente.rows[0].ok, true);
+    });
+
+    await t.test("o insert concorrente não entra entre o vazio e o drop", async () => {
+      const fonte = readFileSync(down043, "utf8");
+      assert.equal(
+        /DELETE\s+FROM\s+(public\.)?(estabelecimentos|memberships|membership_estabelecimentos)\b/i.test(fonte),
+        false,
+      );
+      const comandos = comandosSql(semTransacaoExplicita(fonte));
+      const trava = comandos.findIndex((comando) => /LOCK TABLE/i.test(semComentario(comando)));
+      const vazio = comandos.findIndex((comando) => /SELECT count\(\*\)/i.test(semComentario(comando)));
+      const drop = comandos.findIndex((comando) => /^\s*DROP TABLE\b/im.test(semComentario(comando)));
+      assert.equal(trava >= 0 && vazio > trava && drop > vazio, true);
+      const ordem = comandos[trava];
+      const posEstabelecimentos = ordem.indexOf("'estabelecimentos'");
+      const posMemberships = ordem.indexOf("'memberships'");
+      const posUnidades = ordem.indexOf("'membership_estabelecimentos'");
+      assert.equal(
+        posEstabelecimentos >= 0 && posEstabelecimentos < posMemberships && posMemberships < posUnidades,
+        true,
+      );
+      const ocupacao = await db.query<{ n: number }>(
+        `SELECT
+           (SELECT count(*)::int FROM estabelecimentos)
+           + (SELECT count(*)::int FROM memberships)
+           + (SELECT count(*)::int FROM membership_estabelecimentos) AS n`,
+      );
+      assert.equal(ocupacao.rows[0].n, 0);
+      const codigoEmpresa = codigo("hg8r");
+      const email = `${codigo("hg8r")}@example.test`;
+      await db.query(
+        `INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Empresa da corrida', 'PROVISIONAMENTO')`,
+        [codigoEmpresa],
+      );
+      const empresaId = (await db.query<{ id: string }>(
+        "SELECT id FROM empresas WHERE codigo = $1",
+        [codigoEmpresa],
+      )).rows[0].id;
+      const usuarioId = (await db.query<{ id: string }>(
+        `INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel)
+         VALUES ($1, 'Usuario da corrida', $2, 'REPRESENTANTE_AUTORIZADO') RETURNING id`,
+        [email, senhaFalsa()],
+      )).rows[0].id;
+      const t1 = await conectarDescartavel({ travar: false });
+      const t2 = await conectarDescartavel({ travar: false });
+      const t2pid = Number((await t2.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      let terminou = false;
+      let resultadoInsert = "";
+      let insercao = Promise.resolve();
+      let membershipId = "";
+      try {
+        await t1.query("BEGIN");
+        for (let i = 0; i <= trava; i += 1) await t1.query(comandos[i]);
+        const modos = await t1.query<{ relname: string; mode: string }>(
+          `SELECT c.relname, l.mode
+             FROM pg_locks l
+             JOIN pg_class c ON c.oid = l.relation
+            WHERE l.pid = pg_backend_pid()
+              AND l.granted
+              AND c.relkind = 'r'
+              AND c.relname = ANY($1::text[])`,
+          [["estabelecimentos", "memberships", "membership_estabelecimentos"]],
+        );
+        assert.deepEqual(
+          [...new Set(modos.rows.map((linha) => linha.relname))].sort(),
+          ["estabelecimentos", "membership_estabelecimentos", "memberships"],
+        );
+        assert.equal(modos.rows.every((linha) => linha.mode === "AccessExclusiveLock"), true);
+        insercao = (async () => {
+          try {
+            await t2.query("BEGIN");
+            await t2.query(
+              `INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde)
+               VALUES ($1::uuid, $2::uuid, 'PENDENTE', clock_timestamp())`,
+              [empresaId, usuarioId],
+            );
+            await t2.query("COMMIT");
+            resultadoInsert = "ok";
+          } catch (error) {
+            resultadoInsert = texto(error);
+            await t2.query("ROLLBACK").catch(() => undefined);
+          } finally {
+            terminou = true;
+          }
+        })();
+        await esperarInsertBloqueado(db, t2pid, () => terminou);
+        for (let i = trava + 1; i <= vazio; i += 1) await t1.query(comandos[i]);
+        const vista = await t1.query<{ n: number }>("SELECT count(*)::int AS n FROM memberships");
+        assert.equal(vista.rows[0].n, 0);
+        assert.equal(terminou, false);
+        for (let i = vazio + 1; i < comandos.length; i += 1) await t1.query(comandos[i]);
+        const derrubada = await t1.query<{ ok: boolean }>(
+          `SELECT to_regclass('public.estabelecimentos') IS NULL
+              AND to_regclass('public.memberships') IS NULL
+              AND to_regclass('public.membership_estabelecimentos') IS NULL AS ok`,
+        );
+        assert.equal(derrubada.rows[0].ok, true);
+        assert.equal(terminou, false);
+        await t1.query("ROLLBACK");
+        await insercao;
+        assert.equal(resultadoInsert, "ok");
+        const preservada = await db.query<{ id: string }>(
+          "SELECT id FROM memberships WHERE empresa_id = $1::uuid AND usuario_id = $2::uuid",
+          [empresaId, usuarioId],
+        );
+        assert.equal(preservada.rows.length, 1);
+        membershipId = preservada.rows[0].id;
+        const estrutura = await db.query<{ ok: boolean }>(
+          `SELECT to_regclass('public.memberships') IS NOT NULL
+              AND to_regclass('public.estabelecimentos') IS NOT NULL
+              AND to_regclass('public.membership_estabelecimentos') IS NOT NULL
+              AND to_regprocedure('public.kidmais_043_guard_memberships()') IS NOT NULL AS ok`,
+        );
+        assert.equal(estrutura.rows[0].ok, true);
+      } finally {
+        await insercao.catch(() => undefined);
+        await t1.query("ROLLBACK").catch(() => undefined);
+        await t2.query("ROLLBACK").catch(() => undefined);
+        await t1.end();
+        await t2.end();
+        await db.query("ROLLBACK").catch(() => undefined);
+        await db.query("ALTER TABLE memberships DISABLE TRIGGER USER");
+        await db.query("ALTER TABLE empresas DISABLE TRIGGER USER");
+        try {
+          if (membershipId) await db.query("DELETE FROM memberships WHERE id = $1::uuid", [membershipId]);
+          await db.query("DELETE FROM memberships WHERE empresa_id = $1::uuid", [empresaId]);
+          await db.query("DELETE FROM empresas WHERE id = $1::uuid", [empresaId]);
+          await db.query("DELETE FROM usuarios_administrativos WHERE id = $1::uuid", [usuarioId]);
+        } finally {
+          await db.query("ALTER TABLE empresas ENABLE TRIGGER USER");
+          await db.query("ALTER TABLE memberships ENABLE TRIGGER USER");
+        }
+      }
     });
 
     await t.test("a 040 continua abortando no vínculo histórico", async () => {

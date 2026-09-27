@@ -222,6 +222,65 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
       assert.equal(empresaB.length > 0, true);
     });
 
+    await t.test("item e novo item não alteram a referência global compartilhada", async () => {
+      const empresaA = await empresa(db, "Empresa A item");
+      const empresaB = await empresa(db, "Empresa B item");
+      const usuarioA = await usuario(db);
+      await membership(db, empresaA, usuarioA);
+      const item = (await db.query<{ id: string; nome: string; categoria_id: string }>(
+        "SELECT id, nome, categoria_id FROM buffet_itens ORDER BY nome LIMIT 1",
+      )).rows[0];
+      const pacoteB = (await db.query<{ id: string }>(
+        `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente)
+         VALUES ($1::uuid, $2, 'Pacote da referencia', 430, true, true) RETURNING id`,
+        [empresaB, codigo("HG8I").toUpperCase()],
+      )).rows[0].id;
+      await db.query(
+        `INSERT INTO pacote_buffet_categorias (pacote_id, categoria_id, modo_itens, escolhas_min, escolhas_max, ativo)
+         VALUES ($1::uuid, $2::uuid, 'SELECIONADOS', 0, 1, true)`,
+        [pacoteB, item.categoria_id],
+      );
+      await db.query(
+        `INSERT INTO pacote_buffet_itens (pacote_id, categoria_id, item_id)
+         VALUES ($1::uuid, $2::uuid, $3::uuid)`,
+        [pacoteB, item.categoria_id, item.id],
+      );
+      const antes = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM buffet_itens")).rows[0].n;
+      const modulo = carregarCatalogo({ usuario_id: usuarioA, papel: "REPRESENTANTE_AUTORIZADO" });
+      const patch = modulo.PATCH as (request: object) => Promise<{ status: number; json: () => Promise<unknown> }>;
+      const alterado = await corpo(await patch(pedido({
+        empresaId: empresaA,
+        acao: "item",
+        id: item.id,
+        nome: "Item invasor HG8",
+        ativo: true,
+      })));
+      assert.equal(alterado.status, 403);
+      assert.equal(alterado.json.codigo, "CATALOGO_GLOBAL_SEM_AUTORIDADE");
+      const criado = await corpo(await patch(pedido({
+        empresaId: empresaA,
+        acao: "novo_item",
+        categoriaId: item.categoria_id,
+        nome: "Item novo invasor",
+      })));
+      assert.equal(criado.status, 403);
+      assert.equal(criado.json.codigo, "CATALOGO_GLOBAL_SEM_AUTORIDADE");
+      const depois = await db.query<{ nome: string }>("SELECT nome FROM buffet_itens WHERE id = $1::uuid", [item.id]);
+      assert.equal(depois.rows[0].nome, item.nome);
+      assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM buffet_itens")).rows[0].n, antes);
+      const referencia = await db.query<{ nome: string; n: number }>(
+        `SELECT i.nome, count(*)::int AS n
+           FROM pacote_buffet_itens v
+           JOIN buffet_itens i ON i.id = v.item_id
+          WHERE v.pacote_id = $1::uuid AND v.item_id = $2::uuid
+          GROUP BY i.nome`,
+        [pacoteB, item.id],
+      );
+      assert.equal(referencia.rows.length, 1);
+      assert.equal(referencia.rows[0].n, 1);
+      assert.equal(referencia.rows[0].nome, item.nome);
+    });
+
     await t.test("composição pela rota revisa pacote usado e grava uma auditoria", async () => {
       const empresaId = await empresa(db, "Empresa da composicao");
       const usuarioId = await usuario(db);
@@ -295,6 +354,91 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
       );
       assert.equal(nova.rows.length, 1);
       assert.equal(nova.rows[0].modalidade, "EXTRA");
+      const auditoria = await db.query<{ acao: string; n: number }>(
+        `SELECT acao, count(*)::int AS n
+           FROM auditoria
+          WHERE entidade_id IN ($1::uuid, $2::uuid) AND acao = 'PACOTE_COMPOSICAO'
+          GROUP BY acao`,
+        [pacoteId, nova.rows[0].id],
+      );
+      assert.equal(auditoria.rows.length, 1);
+      assert.equal(auditoria.rows[0].n, 1);
+    });
+
+    await t.test("regra de buffet pela rota revisa pacote usado e grava uma auditoria", async () => {
+      const empresaId = await empresa(db, "Empresa da regra");
+      const usuarioId = await usuario(db);
+      await membership(db, empresaId, usuarioId);
+      const pacoteId = (await db.query<{ id: string }>(
+        `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente)
+         VALUES ($1::uuid, $2, 'Pacote da regra', 440, true, true) RETURNING id`,
+        [empresaId, codigo("HG8R").toUpperCase()],
+      )).rows[0].id;
+      const categoriaId = (await db.query<{ id: string }>(
+        "SELECT id FROM buffet_categorias ORDER BY codigo LIMIT 1",
+      )).rows[0].id;
+      const tabelaId = (await db.query<{ id: string }>(
+        `INSERT INTO tabelas_preco (empresa_id, codigo, nome, vigencia_inicio, vigencia_fim, ativa)
+         VALUES ($1::uuid, $2, 'Tabela regra', DATE '2098-07-01', DATE '2098-12-31', false) RETURNING id`,
+        [empresaId, codigo("hg8u")],
+      )).rows[0].id;
+      const precoId = (await db.query<{ id: string }>(
+        `INSERT INTO precos_pacote (
+           tabela_preco_id, pacote_id, convidados_min, convidados_max, tipo_calculo, valor, categoria_horario
+         ) VALUES ($1::uuid, $2::uuid, 20, 40, 'FIXO', 10.00, 'PADRAO') RETURNING id`,
+        [tabelaId, pacoteId],
+      )).rows[0].id;
+      const agenda = (await db.query<{ id: string }>(
+        "SELECT id FROM configuracao_agenda WHERE codigo = 'TURNO_1' AND ativo LIMIT 1",
+      )).rows[0].id;
+      await db.query(
+        `INSERT INTO fechamentos (
+           data_evento, horario_inicio, horario_fim, configuracao_agenda_id,
+           pacote_id, tabela_preco_id, preco_pacote_id,
+           categoria_horario, categoria_preco_aplicada,
+           convidados, convidados_faturados,
+           valor_pacote_base, desconto_percentual, valor_desconto_pacote, valor_pacote_aplicado,
+           valor_adicionais, valor_tabela, status, origem_fechamento
+         ) VALUES (
+           DATE '2026-11-12', TIME '10:00', TIME '14:00', $1::uuid,
+           $2::uuid, $3::uuid, $4::uuid,
+           'PADRAO', 'PADRAO', 30, 30,
+           10, 0, 0, 10, 0, 10, 'RASCUNHO', 'ATENDIMENTO_KIDMAIS'
+         )`,
+        [agenda, pacoteId, tabelaId, precoId],
+      );
+      const modulo = carregarCatalogo({ usuario_id: usuarioId, papel: "REPRESENTANTE_AUTORIZADO" });
+      const patch = modulo.PATCH as (request: object) => Promise<{ status: number; json: () => Promise<unknown> }>;
+      const resposta = await corpo(await patch(pedido({
+        empresaId,
+        acao: "regra_buffet",
+        pacoteId,
+        categoriaId,
+        ativo: true,
+        max: 2,
+        motivo: "Regra de buffet pela rota do catalogo",
+      })));
+      assert.equal(resposta.status, 200, JSON.stringify(resposta.json));
+      assert.equal(resposta.json.ok, true);
+      const anterior = await db.query<{ vigente: boolean; regras: number }>(
+        `SELECT p.vigente,
+                (SELECT count(*)::int FROM pacote_buffet_categorias r WHERE r.pacote_id = p.id) AS regras
+           FROM pacotes p WHERE p.id = $1::uuid`,
+        [pacoteId],
+      );
+      assert.equal(anterior.rows[0].vigente, false);
+      assert.equal(anterior.rows[0].regras, 0);
+      const nova = await db.query<{ id: string; modo: string; minimo: number; maximo: number }>(
+        `SELECT p.id, r.modo_itens AS modo, r.escolhas_min AS minimo, r.escolhas_max AS maximo
+           FROM pacotes p
+           JOIN pacote_buffet_categorias r ON r.pacote_id = p.id
+          WHERE p.revisao_anterior_id = $1::uuid AND p.empresa_id = $2::uuid AND r.categoria_id = $3::uuid`,
+        [pacoteId, empresaId, categoriaId],
+      );
+      assert.equal(nova.rows.length, 1);
+      assert.equal(nova.rows[0].modo, "SELECIONADOS");
+      assert.equal(Number(nova.rows[0].minimo), 0);
+      assert.equal(Number(nova.rows[0].maximo), 2);
       const auditoria = await db.query<{ acao: string; n: number }>(
         `SELECT acao, count(*)::int AS n
            FROM auditoria
