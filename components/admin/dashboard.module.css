@@ -11,7 +11,7 @@
 .empresa { text-align: right; }
 .empresa strong { display: block; color: var(--primary-violet); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; }
 .grade { display: grid; grid-template-columns: repeat(12, 1fr); gap: 24px; }
-.cartao { composes: glass from "./visual.module.css"; padding: 28px; min-width: 0; }
+.cartao { composes: glass secao from "./visual.module.css"; padding: 28px; min-width: 0; }
 .kpis { grid-column: span 12; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 0; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; }
 .kpi { composes: glass acento from "./visual.module.css"; padding: 24px; }
 .kpi strong { display: block; font-size: 30px; font-weight: 900; color: var(--km-text); }
@@ -57,13 +57,14 @@
 .resumoLinha span, .mesGrade span { color: var(--secondary-text); font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .saldo { border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 16px; }
 .saldo strong, .verde { color: var(--km-teal); }
-.resumo { composes: acento from "./visual.module.css"; }
-.botao { composes: secundario from "./visual.module.css"; display: block; margin-top: 24px; text-align: center; text-decoration: none; letter-spacing: 0.08em; text-transform: uppercase; }
+.botao { composes: secundario from "./visual.module.css"; display: flex; margin-top: 24px; text-align: center; letter-spacing: 0.08em; text-transform: uppercase; }
+.cta { composes: primario from "./visual.module.css"; width: 100%; }
 .mesGrade { display: grid; grid-template-columns: 1fr 1fr; }
 .mesGrade strong { display: block; font-size: 24px; }
 .mesGrade p { margin: 4px 0 0; color: var(--secondary-text); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-.acoes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.acoes a { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px 8px; border-radius: 16px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); color: var(--secondary-text); text-decoration: none; text-align: center; font-size: 10px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; min-height: 44px; }
+.acoes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.acoes .cta, .acoes .atalho { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: center; }
+.atalho { display: flex; align-items: center; justify-content: center; padding: 20px 8px; border-radius: 16px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); color: var(--secondary-text); text-decoration: none; text-align: center; font-size: 10px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; min-height: 44px; }
 .vazio { color: var(--secondary-text); margin: 0; }
 .base { display: none; }
 .erro { color: #f87171; }

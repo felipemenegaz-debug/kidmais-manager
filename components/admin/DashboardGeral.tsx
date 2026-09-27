@@ -156,9 +156,9 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
       <section className={`${styles.cartao} ${styles.meio} ${styles.acoesCard}`}>
         <h2>Ações rápidas</h2>
         <div className={styles.acoes}>
-          <Link href="/clientes">Novo cliente</Link>
-          <Link href="/admin/disponibilidade">Consultar disponibilidade</Link>
-          <Link href="/admin/financeiro/contas-receber">Registrar pagamento</Link>
+          <Link className={styles.cta} href="/clientes">Novo cliente</Link>
+          <Link className={styles.atalho} href="/admin/disponibilidade">Consultar disponibilidade</Link>
+          <Link className={styles.cta} href="/admin/financeiro/contas-receber">Registrar pagamento</Link>
         </div>
       </section>
     </div>

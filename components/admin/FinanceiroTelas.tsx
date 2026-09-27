@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { FORMAS, hojeBrasilia, periodoSelecionado, reaisDe, type FormaFinanceira } from '@/lib/financeiro/calculos';
 import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, type AcaoFinanceira } from '@/lib/financeiro/submissao';
+import { AdminPrimaryButton } from './AdminPrimaryButton';
 import styles from './financeiro.module.css';
 
 type Resumo = { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; emAtrasoCentavos: number; saldoPrevistoCentavos: number; pagoMesCentavos: number };
@@ -187,7 +188,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       </div>
     </>}
     {tela === 'receber' && <>
-      <header className={styles.topo}><div><h1>Contas a receber</h1><p>Parcelas de contrato e entradas avulsas desta empresa.</p></div><button className={styles.principal} type="button" disabled={acao.fase === 'submitting'} onClick={() => abrirDialogo('entrada')}>+ Nova entrada</button></header>
+      <header className={styles.topo}><div><h1>Contas a receber</h1><p>Parcelas de contrato e entradas avulsas desta empresa.</p></div><AdminPrimaryButton type="button" disabled={acao.fase === 'submitting'} onClick={() => abrirDialogo('entrada')}>+ Nova entrada</AdminPrimaryButton></header>
       <Kpis itens={[['Total a receber', resumo?.aReceberCentavos], ['Vencido', resumo?.emAtrasoCentavos], ['Recebido no mês', resumo?.recebidoMesCentavos]]} />
       <Filtros opcoes={['Todos', 'A receber', 'Vencidos', 'Pagos']} valor={filtro} aoMudar={setFiltro} />
       <input className={styles.busca} aria-label="Buscar cliente ou festa" placeholder="Buscar cliente ou festa" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
@@ -200,7 +201,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       }))} />
     </>}
     {tela === 'pagar' && <>
-      <header className={styles.topo}><div><h1>Contas a pagar</h1><p>Saídas previstas e pagas desta empresa.</p></div><button className={styles.principal} type="button" disabled={acao.fase === 'submitting'} onClick={() => abrirDialogo('nova')}>+ Nova conta</button></header>
+      <header className={styles.topo}><div><h1>Contas a pagar</h1><p>Saídas previstas e pagas desta empresa.</p></div><AdminPrimaryButton type="button" disabled={acao.fase === 'submitting'} onClick={() => abrirDialogo('nova')}>+ Nova conta</AdminPrimaryButton></header>
       <Kpis itens={[['A pagar', contas.filter((item) => item.status === 'A pagar' || item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Vencido', contas.filter((item) => item.status === 'Vencido').reduce((t, item) => t + item.saldoCentavos, 0)], ['Pago no mês', pagoMes]]} />
       {contas.length === 0 && <p className={styles.vazio}>Você ainda não tem contas a pagar.</p>}
       <Tabela colunas={['Descrição', 'Favorecido', 'Categoria', 'Vencimento', 'Valor', 'Status', '']} linhas={contas.map((item) => ({
@@ -222,7 +223,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       <header className={styles.topo}><div><h1>Relatórios</h1><p>Leitura do período para decidir o que fazer.</p></div></header>
       <Periodo valor={periodo} aoMudar={setPeriodo} />
       <div className={styles.kpis}>
-        {[['Faturamento do período', relatorio.faturamentoCentavos], ['Recebido no período', relatorio.recebidoCentavos], ['A receber no período', relatorio.aReceberCentavos], ['A pagar no período', relatorio.aPagarCentavos], ['Inadimplência no período', relatorio.inadimplenciaCentavos], ['Ticket médio', relatorio.ticketCentavos ?? 0], ['Taxas no período', relatorio.taxasCentavos ?? 0]].map(([rotulo, valor]) => <article className={`${styles.kpi} ${tomKpi(String(rotulo), Number(valor))}`} key={String(rotulo)}><strong>{reaisDe(Number(valor))}</strong><span>{rotulo}</span></article>)}
+        {[['Faturamento do período', relatorio.faturamentoCentavos], ['Recebido no período', relatorio.recebidoCentavos], ['A receber no período', relatorio.aReceberCentavos], ['A pagar no período', relatorio.aPagarCentavos], ['Inadimplência no período', relatorio.inadimplenciaCentavos], ['Ticket médio', relatorio.ticketCentavos ?? 0], ['Taxas no período', relatorio.taxasCentavos ?? 0]].map(([rotulo, valor]) => <article className={`${styles.kpi} ${styles.acento} ${tomKpi(String(rotulo), Number(valor))}`} key={String(rotulo)}><strong>{reaisDe(Number(valor))}</strong><span>{rotulo}</span></article>)}
       </div>
       <p className={styles.vazio}>Pacote mais vendido: {relatorio.pacoteMaisVendido || '—'}</p>
       <div className={styles.meio}>
@@ -329,7 +330,7 @@ function Forma() {
   return <label>Forma<select name="forma" aria-label="Forma de pagamento" required>{FORMAS.map((forma) => <option key={forma} value={forma}>{ROTULOS[forma]}</option>)}</select></label>;
 }
 function Dialogo({ titulo, aviso, ocupado = false, confirmar = 'Confirmar', aoFechar, aoEnviar, children }: { titulo: string; aviso: string; ocupado?: boolean; confirmar?: string; aoFechar: () => void; aoEnviar: (form: FormData) => void; children: ReactNode }) {
-  return <div className={styles.dialogo}><form aria-label={titulo} aria-busy={ocupado} onSubmit={(evento) => { evento.preventDefault(); if (!ocupado) aoEnviar(new FormData(evento.currentTarget)); }}><h2>{titulo}</h2>{children}{aviso && <p className={styles.erro} role="alert">{aviso}</p>}<div className={styles.acoes}><button type="button" onClick={aoFechar} disabled={ocupado}>Voltar</button><button type="submit" disabled={ocupado}>{ocupado ? 'Processando…' : confirmar}</button></div></form></div>;
+  return <div className={styles.dialogo}><form aria-label={titulo} aria-busy={ocupado} onSubmit={(evento) => { evento.preventDefault(); if (!ocupado) aoEnviar(new FormData(evento.currentTarget)); }}><h2>{titulo}</h2>{children}{aviso && <p className={styles.erro} role="alert">{aviso}</p>}<div className={styles.acoes}><button className={styles.voltar} type="button" onClick={aoFechar} disabled={ocupado}>Voltar</button><AdminPrimaryButton type="submit" disabled={ocupado}>{ocupado ? 'Processando…' : confirmar}</AdminPrimaryButton></div></form></div>;
 }
 function NovaEntrada({ aviso, ocupado, festas, aoFechar, aoEnviar }: { aviso: string; ocupado: boolean; festas: Array<{ id: string; nome: string }>; aoFechar: () => void; aoEnviar: (form: FormData) => void }) {
   const [pago, setPago] = useState(false);

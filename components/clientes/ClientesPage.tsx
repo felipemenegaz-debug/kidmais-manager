@@ -58,7 +58,7 @@ export default function ClientesPage() {
           </div>
           <div className={styles.headerActions}>
             <Link className={styles.secondaryButton} href="/clientes/lixeira">Lixeira / Arquivados</Link>
-            <Link className={styles.primaryButton} href="/clientes/novo">+ Novo cliente</Link>
+            <Link className={styles.cta} href="/clientes/novo">+ Novo cliente</Link>
           </div>
         </section>
 
@@ -91,7 +91,7 @@ export default function ClientesPage() {
             <div className={styles.emptyIcon}>👥</div>
             <h2>Nenhum cliente encontrado</h2>
             <p>Revise a busca ou cadastre uma nova família.</p>
-            <Link className={styles.primaryButton} href="/clientes/novo">+ Cadastrar novo cliente</Link>
+            <Link className={styles.cta} href="/clientes/novo">+ Cadastrar novo cliente</Link>
           </section>
         ) : !erro && (
           <>

@@ -1,3 +1,8 @@
+@keyframes kmGradientMove {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
 .page { min-height:100svh; background:var(--main-bg); color:var(--main-text); font:14px/1.5 var(--admin-font); }
 .page * { box-sizing:border-box; }
 .page h1 { font-size:20px; font-weight:900; margin:0; }
@@ -13,9 +18,14 @@
 .page button { border:1px solid var(--input-border); border-radius:10px; padding:10px 16px; min-height:40px; background:rgba(255,255,255,.04); color:var(--main-text); cursor:pointer; font:800 11px/1.5 var(--admin-font); }
 .page button:hover:not(:disabled) { background-color:rgba(124,58,237,.2); border-color:rgba(124,58,237,.6); }
 .page button:disabled { opacity:.45; cursor:not-allowed; }
-.page button.primary { background:var(--admin-primary); border-color:transparent; color:#fff; text-transform:uppercase; letter-spacing:.08em; }
+.page button.primary { border:0; color:#fff; background:linear-gradient(120deg, var(--km-violet), var(--km-teal), var(--km-violet)); background-size:300% 100%; animation:kmGradientMove 7s ease infinite; box-shadow:0 6px 20px -8px rgba(124,58,237,.40); min-height:44px; border-radius:10px; padding:10px 18px; font:600 14px/1 var(--admin-font); text-transform:none; letter-spacing:0; }
+.page button.primary:hover:not(:disabled) { filter:brightness(1.08); background-color:transparent; border-color:transparent; }
+.page button.primary:disabled { opacity:.55; cursor:not-allowed; animation:none; filter:none; }
 .page button.danger { color:#fda4af; }
 .page :focus-visible { outline:2px solid var(--lilac-accent); outline-offset:3px; }
+@media (prefers-reduced-motion: reduce) {
+  .page button.primary { animation:none; transition:none; }
+}
 .page [role=alert]:not(:empty),.error { border:1px solid rgba(251,113,133,.2); border-radius:12px; padding:16px; background:rgba(251,113,133,.08); color:#fda4af; }
 .header { min-height:80px; padding:16px 32px; display:flex; align-items:center; justify-content:space-between; gap:24px; border-bottom:1px solid var(--border-navy); background:rgba(9,13,27,.9); }
 .header label { margin:0; }

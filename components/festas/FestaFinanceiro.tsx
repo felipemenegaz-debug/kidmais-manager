@@ -119,7 +119,7 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
     {dados.despesas.length === 0 && <p>Nenhuma despesa vinculada.</p>}
     {dados.despesas.map((item) => <p key={item.id}>{item.categoria} · {item.favorecido || 'Sem favorecido'} · {reaisDe(item.valorCentavos)} · {item.status}</p>)}
     <div className={styles.actions}>
-      <button type="button" disabled={acao.fase === 'submitting'} onClick={abrirReceber}>Registrar recebimento</button>
+      <button className={styles.cta} type="button" disabled={acao.fase === 'submitting'} onClick={abrirReceber}>Registrar recebimento</button>
       <button type="button" disabled={acao.fase === 'submitting'} onClick={() => { if (acaoRef.current.fase === 'submitting') return; void adminFetch('/api/admin/financeiro/contas-pagar').then((resposta) => resposta.json()).then((corpo) => { if (acaoRef.current.fase === 'submitting') return; if (corpo.ok) setCategorias(corpo.data.categorias); abrirDespesa(); }); }}>Adicionar despesa</button>
     </div>
     {aberto === 'receber' && <form aria-busy={enviando} onSubmit={(evento) => { evento.preventDefault(); void receber(new FormData(evento.currentTarget)); }}>
@@ -128,7 +128,7 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
       <label>Data<input name="data" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} aria-label="Data" /></label>
       <label>Forma<select name="forma" aria-label="Forma de pagamento"><option value="PIX">PIX</option><option value="DINHEIRO">Dinheiro</option><option value="TRANSFERENCIA">Transferência</option></select></label>
       {aviso && <p role="alert">{aviso}</p>}
-      <button type="submit" disabled={enviando}>{enviando ? 'Processando…' : 'Confirmar'}</button>
+      <button className={styles.cta} type="submit" disabled={enviando}>{enviando ? 'Processando…' : 'Confirmar'}</button>
     </form>}
     {aberto === 'despesa' && <form onSubmit={(evento) => { evento.preventDefault(); void despesa(new FormData(evento.currentTarget)); }}>
       <label>Descrição<input name="descricao" required aria-label="Descrição" /></label>
@@ -137,7 +137,7 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
       <label>Vencimento<input name="vencimento" type="date" required aria-label="Vencimento" /></label>
       <label>Favorecido<input name="favorecido" aria-label="Favorecido" /></label>
       {aviso && <p role="alert">{aviso}</p>}
-      <button type="submit" disabled={acao.fase === 'submitting'}>{enviando ? 'Processando…' : 'Confirmar'}</button>
+      <button className={styles.cta} type="submit" disabled={acao.fase === 'submitting'}>{enviando ? 'Processando…' : 'Confirmar'}</button>
     </form>}
   </section>;
 }
