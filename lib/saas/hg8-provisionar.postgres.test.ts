@@ -68,18 +68,22 @@ test("provisionamento sintético no postgres descartável", { timeout: 60_000 },
       );
       assert.equal(eventos.rows[0].n, 2);
       assert.deepEqual(eventos.rows[0].acoes, ["EMPRESA_TRANSICAO", "MEMBERSHIP_TRANSICAO"]);
-      const segundo = await provisionarTenant(tx, pedido);
-      assert.equal(segundo.membershipId, primeiro.membershipId);
-      assert.equal(segundo.empresaComprovada, primeiro.empresaComprovada);
-      const deNovo = await db.query<{ n: number }>(
-        `SELECT count(*)::int AS n FROM auditoria WHERE entidade_id IN ($1::uuid, $2::uuid)`,
-        [primeiro.empresaComprovada, primeiro.membershipId],
+      await assert.rejects(
+        () => provisionarTenant(tx, pedido),
+        (error: unknown) => error instanceof PacoteAdminError && error.code === "FORA_DO_ESCOPO_SINTETICO",
+      );
+      const deNovo = await db.query<{ n: number; empresas: number }>(
+        `SELECT
+           (SELECT count(*)::int FROM auditoria WHERE entidade_id IN ($1::uuid, $2::uuid)) AS n,
+           (SELECT count(*)::int FROM empresas WHERE codigo = $3) AS empresas`,
+        [primeiro.empresaComprovada, primeiro.membershipId, pedido.codigo],
       );
       assert.equal(deNovo.rows[0].n, 2);
+      assert.equal(deNovo.rows[0].empresas, 1);
       await db.query(`UPDATE memberships SET status = 'REVOGADA' WHERE id = $1::uuid`, [primeiro.membershipId]);
       await assert.rejects(
         () => provisionarTenant(tx, pedido),
-        (error: unknown) => error instanceof PacoteAdminError && error.code === "MEMBERSHIP_REVOGADA",
+        (error: unknown) => error instanceof PacoteAdminError && error.code === "FORA_DO_ESCOPO_SINTETICO",
       );
       const ocupada = await db.query<{ n: number; status: string }>(
         `SELECT count(*)::int AS n, max(status) AS status
@@ -92,6 +96,49 @@ test("provisionamento sintético no postgres descartável", { timeout: 60_000 },
         () => provisionarTenant(tx, { ...pedido, codigo: "kidmais", nome: "Empresa sintetica" }),
         (error: unknown) => error instanceof PacoteAdminError && error.code === "MARCA_RECUSADA",
       );
+      const codigoReservado = codigo();
+      await db.query(
+        `INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Kidmais', 'PROVISIONAMENTO')`,
+        [codigoReservado],
+      );
+      await assert.rejects(
+        () => provisionarTenant(tx, {
+          codigo: codigoReservado,
+          nome: "Empresa sintetica",
+          usuarioId,
+          atorUsuarioId: usuarioId,
+        }),
+        (error: unknown) => error instanceof PacoteAdminError && error.code === "MARCA_RECUSADA",
+      );
+      const reservada = await db.query<{ status: string; vinculos: number }>(
+        `SELECT e.status, (SELECT count(*)::int FROM memberships m WHERE m.empresa_id = e.id) AS vinculos
+           FROM empresas e WHERE e.codigo = $1`,
+        [codigoReservado],
+      );
+      assert.equal(reservada.rows[0].status, "PROVISIONAMENTO");
+      assert.equal(reservada.rows[0].vinculos, 0);
+      const codigoPersistido = codigo();
+      await db.query(
+        `INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Buffet persistido', 'PROVISIONAMENTO')`,
+        [codigoPersistido],
+      );
+      await assert.rejects(
+        () => provisionarTenant(tx, {
+          codigo: codigoPersistido,
+          nome: "Empresa sintetica",
+          usuarioId,
+          atorUsuarioId: usuarioId,
+        }),
+        (error: unknown) => error instanceof PacoteAdminError && error.code === "FORA_DO_ESCOPO_SINTETICO",
+      );
+      const persistida = await db.query<{ status: string; nome: string; vinculos: number }>(
+        `SELECT e.status, e.nome, (SELECT count(*)::int FROM memberships m WHERE m.empresa_id = e.id) AS vinculos
+           FROM empresas e WHERE e.codigo = $1`,
+        [codigoPersistido],
+      );
+      assert.equal(persistida.rows[0].status, "PROVISIONAMENTO");
+      assert.equal(persistida.rows[0].nome, "Buffet persistido");
+      assert.equal(persistida.rows[0].vinculos, 0);
     } finally {
       await db.query("ROLLBACK");
     }
