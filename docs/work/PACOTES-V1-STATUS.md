@@ -2,11 +2,13 @@
 
 Documento temporário de continuidade. Não é fonte funcional. A decisão de produto permanece no Second Brain e no Goal Mestre. O Goal permanece aberto.
 
-## Estado atual — HG-4 no código, RC1 ainda não
+## Estado atual — RC1 pronto para o gate humano de staging
+
+O Goal permanece aberto. O próximo passo é decisão humana de deploy em staging. Esta passagem não alterou produto, schema nem a 047. Não aplicou a 046 no banco descartável e não escreveu em staging.
 
 - Branch: `integration/saas-commercial-foundation`
 - Upstream: `origin/integration/saas-commercial-foundation`. `origin/staging` não foi movido. Não houve merge nem deploy.
-- Base desta passagem: `dac21d74a60d4f12cdbef0c58189848789a7afea`. Não houve rebase. Os arquivos 020, 031 e 036–046 não foram reescritos.
+- Código confirmado nesta passagem, antes deste status: `52fb1964ea50d1af0375f142e164e33fc40df58c`. Não houve rebase. Os arquivos 020, 031 e 036–047 não foram reescritos.
 - Produção não foi lida nem escrita. O banco de staging não foi escrito. O Next não foi apontado para banco real.
 
 ### Caracterização, antes de qualquer backfill
@@ -33,35 +35,33 @@ A guarda da 037/039/042 não foi reescrita nos arquivos publicados. A 047 troca 
 
 A 047 foi aplicada no banco descartável. Não gravou escopo, não publicou linha e não mudou preço, fechamento ou contrato. O rollback, dentro de transação desfeita, recusa apagar escopo já gravado e, com as tabelas vazias, devolve a guarda anterior até o `ROLLBACK`.
 
-### Admin
+### Admin e CRUD já especificados
 
-A tela `/admin/configuracoes/tabelas-preco` mostra pacotes incluídos, categorias, faixas, preços, completude e as lacunas que bloqueiam a publicação. O shell de `docs/ux/admin-v1` não foi copiado de `review/v1-perfil-empresa`. Não há link para rota inexistente e não há upload de logo. O browser não foi exercitado: o Next não pode apontar para banco real, de staging ou de produção.
+A tela `/admin/configuracoes/tabelas-preco` mostra pacotes incluídos, categorias, faixas, preços, completude e as lacunas que bloqueiam a publicação. `docs/ux/admin-v1` continua só em `review/v1-perfil-empresa`. Nesta branch o menu liga rotas que existem. Não há página “em breve”, não há Dashboard, Solicitações ou Segurança inventados, e não há upload de logo. O Perfil não foi trazido nem fundido. O browser não foi exercitado: o Next não pode apontar para banco real.
 
-CRUD já especificado e deixado como está: restaurar arquivado continua recusado, não há exclusão física, e vínculo com PDF, papéis novos, herança por unidade e excedente configurável continuam sem decisão. Não foram inventados.
+CRUD já exigido pelos documentos desta linha permanece: restaurar arquivado continua recusado e não há exclusão física. Vínculo publicação↔PDF, papéis novos e excedente configurável seguem sem decisão e não foram inventados. Herança por unidade é D03, adiado de propósito.
 
-### O que permanece
+### Limites aceitos, não completude silenciosa
 
-- P0-02 não está fechado neste banco. A função da 040 continua ausente. Os sete pacotes e `SALADA_PREMIUM` seguem sem empresa. A 046 não foi aplicada aqui.
-- Perfil da Empresa aberto. `perfil_empresas` não foi fundido em `empresas`.
-- D03 adiado. Estabelecimento operacional continua fechado.
+- A 046 e a 040 foram provadas em transação desfeita. Não estão aplicadas em `kidmais_pacotes_v1_descartavel`. A identidade aprovada não está gravada nesse banco. Os sete pacotes seguem sem empresa. Isso não é fechamento de P0-02 no descartável.
+- D03 permanece adiado. Não há contexto operacional por unidade.
 - O catálogo público permanece fechado (`403` `CATALOGO_PUBLICO_INDETERMINADO`).
-- Sem merge, sem deploy e sem escrita em staging ou produção. O Goal não está completo.
+- O Perfil da Empresa permanece domínio separado. `perfil_empresas` não foi fundido em `empresas`.
+- Staging não recebeu migration. Produção não foi lida nem escrita. Não houve deploy.
 
 ### Revisão da superfície de tenant, preço e pacote
 
-Nenhum P0 ou P1 novo. A leitura e a gravação do escopo passam por `withTenantTransaction`. Empresa alheia responde 403 e não escreve. O escopo de outra empresa é recusado no gatilho e no serviço. A publicação relê as lacunas dentro da trava já existente, antes de carimbar `publicada_em`. Escopo de tabela publicada não muda. Não houve achado cuja correção dependa de decisão nova de produto.
+Já feita na passagem do HG-4. Nenhum P0 ou P1 novo. Esta passagem não reabriu a revisão: não houve mudança de código nessa superfície.
 
-### Validação desta passagem
+### Validação
 
-- PostgreSQL descartável, `hg4-escopo.postgres.test.ts`: passou, inclusive omissão de pacote, buraco contínuo, limite, preço fora do escopo e rollback.
-- `pacotes-v1-remediacao.postgres.test.ts`: 30 passaram. `isolamento-tenant.route.test.ts`: passou. `tabelas-preco-admin.test.ts`: passou.
-- `node --test scripts/production/production.test.mjs`: passou. O inventário aceita a 047 e continua recusando arquivo fora da lista.
-- `npx tsc --noEmit`: passou.
+- Nesta confirmação, no banco descartável: `hg4-escopo.postgres.test.ts` e `pacotes-v1-remediacao.postgres.test.ts`, 36 testes, 0 falhas. Depois deles, empresa `kidmais` continua 0, pacotes sem empresa continuam 7, tabelas comerciais publicadas continuam 0, escopo legado continua 0, identidade aprovada continua ausente.
+- Na passagem anterior, no mesmo HEAD de código antes deste status: isolamento de tenant, testes de serviço da tabela, inventário de migrations e `npx tsc --noEmit` passaram.
 - Browser da tela de tabelas: não executado.
 
 ### RC1
 
-Não está pronto para staging. Além do HG-4, continuam abertos P0-02 neste banco, a 046 sem aplicação aqui, o perfil da empresa, D03 e o catálogo público. Não é gate de deploy.
+Pronto para o gate humano de deploy em staging, com os limites aceitos acima explícitos. A publicação por escopo declarado está na branch e foi testada. O escopo histórico não foi adivinhado. O Goal não está completo: falta a decisão de deploy.
 
 ## HISTÓRICO — HG-6 provado em transação desfeita, Goal aberto
 
