@@ -9,6 +9,18 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
     const gestao = itensNavegacao(true);
     assert.equal(gestao.some((item) => item.href === '/admin/configuracoes/perfil-empresa'), true);
     assert.equal(gestao.some((item) => item.href.includes('inexistente')), false);
+    assert.equal(gestao.some((item) => item.rotulo === 'Tabelas de Preços' || item.href.includes('tabelas-preco')), false);
+    const configuracao = gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo);
+    assert.deepEqual(configuracao, [
+        'Pacotes',
+        'Itens do Buffet',
+        'Configurações',
+        'Perfil da empresa',
+        'Usuários e acessos',
+        'WhatsApp',
+        'PDF de Pacotes',
+    ]);
+    assert.equal(configuracao.indexOf('Itens do Buffet'), configuracao.indexOf('Pacotes') + 1);
 });
 
 test('o item ativo é o link mais específico', () => {

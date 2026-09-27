@@ -13,13 +13,12 @@ const OPERACAO: ItemNavegacao[] = [
 
 const CONFIGURACAO: ItemNavegacao[] = [
     { href: '/admin/configuracoes/pacotes', rotulo: 'Pacotes', grupo: 'Configurações' },
-    { href: '/admin/configuracoes/tabelas-preco', rotulo: 'Tabelas de Preços', grupo: 'Configurações' },
+    { href: '/admin/configuracoes/catalogo', rotulo: 'Itens do Buffet', grupo: 'Configurações' },
     { href: '/admin/configuracoes', rotulo: 'Configurações', grupo: 'Configurações' },
     { href: '/admin/configuracoes/perfil-empresa', rotulo: 'Perfil da empresa', grupo: 'Configurações' },
     { href: '/admin/configuracoes/acessos', rotulo: 'Usuários e acessos', grupo: 'Configurações' },
     { href: '/admin/configuracoes/whatsapp', rotulo: 'WhatsApp', grupo: 'Configurações' },
     { href: '/admin/configuracoes/tabela-pacotes', rotulo: 'PDF de Pacotes', grupo: 'Configurações' },
-    { href: '/admin/configuracoes/catalogo', rotulo: 'Itens de Buffet', grupo: 'Configurações' },
 ];
 
 export function itensNavegacao(gestao: boolean) {

@@ -1,5 +1,5 @@
-import TabelasPrecoAdmin from '@/components/admin/TabelasPrecoAdmin';
+import { redirect } from 'next/navigation';
 
 export default function Page() {
-  return <TabelasPrecoAdmin />;
+  redirect('/admin/configuracoes/pacotes');
 }
