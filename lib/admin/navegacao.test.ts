@@ -4,7 +4,18 @@ import { itemAtivo, itensNavegacao } from './navegacao.ts';
 
 test('a navegação só lista páginas existentes e esconde configuração sem Gestão', () => {
     const operacao = itensNavegacao(false);
-    assert.deepEqual(operacao.map((item) => item.href), ['/clientes', '/admin/contratos', '/admin/festas', '/admin/disponibilidade']);
+    assert.deepEqual(operacao.map((item) => item.href), [
+        '/admin/dashboard',
+        '/clientes',
+        '/admin/contratos',
+        '/admin/festas',
+        '/admin/disponibilidade',
+        '/admin/financeiro',
+        '/admin/financeiro/contas-receber',
+        '/admin/financeiro/contas-pagar',
+        '/admin/financeiro/fluxo-caixa',
+        '/admin/financeiro/relatorios',
+    ]);
     assert.equal(operacao.some((item) => item.href.startsWith('/admin/configuracoes')), false);
     const gestao = itensNavegacao(true);
     assert.equal(gestao.some((item) => item.href === '/admin/configuracoes/perfil-empresa'), true);

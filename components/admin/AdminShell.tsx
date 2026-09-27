@@ -70,7 +70,7 @@ export default function AdminShell({ children, vitrine }: {
     if (!name)
         return <div className={tokens.tema}><p className={styles.carregando}>Verificando sessão…</p></div>;
     const itens = itensNavegacao(configurar);
-    const grupos = ['Operação', 'Configurações'] as const;
+    const grupos = ['Principal', 'Operação', 'Financeiro', 'Configurações'] as const;
     function fechar() {
         setAberto(false);
         menuRef.current?.focus();
@@ -79,7 +79,7 @@ export default function AdminShell({ children, vitrine }: {
         <button ref={menuRef} className={styles.menu} type="button" aria-expanded={aberto} aria-controls="menu-admin" onClick={() => setAberto((valor) => !valor)}><span>{aberto ? 'Fechar menu' : 'Abrir menu'}</span><b aria-hidden="true">{aberto ? '×' : '☰'}</b></button>
         {aberto && <button className={styles.cortina} type="button" aria-label="Fechar menu" onClick={fechar} />}
         <aside id="menu-admin" ref={painelRef} className={styles.sidebar} data-aberto={aberto}>
-            <Link className={styles.brand} href="/admin/contratos" onClick={() => setAberto(false)}><span className={styles.brandMark}><AdminIcon name="cake" size={18} /></span><span className={styles.brandText}>Kidmais<span>Admin</span></span></Link>
+            <Link className={styles.brand} href="/admin/dashboard" onClick={() => setAberto(false)}><span className={styles.brandMark}><AdminIcon name="cake" size={18} /></span><span className={styles.brandText}>Kidmais<span>Admin</span></span></Link>
             <nav aria-label="Menu administrativo">
                 {grupos.map((grupo) => {
                     const links = itens.filter((item) => item.grupo === grupo);
@@ -114,5 +114,11 @@ function iconeDaRota(href: string): AdminIconName {
     if (href.includes('festas')) return 'cake';
     if (href.includes('disponibilidade')) return 'calendar';
     if (href.includes('whatsapp')) return 'contact';
+    if (href.includes('dashboard')) return 'dashboard';
+    if (href.includes('contas-receber')) return 'receive';
+    if (href.includes('contas-pagar')) return 'pay';
+    if (href.includes('fluxo-caixa')) return 'wallet';
+    if (href.includes('relatorios')) return 'reports';
+    if (href.endsWith('/financeiro')) return 'chart';
     return 'settings';
 }

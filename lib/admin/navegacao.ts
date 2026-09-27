@@ -1,14 +1,26 @@
 export type ItemNavegacao = {
     href: string;
     rotulo: string;
-    grupo: 'Operação' | 'Configurações';
+    grupo: 'Principal' | 'Operação' | 'Financeiro' | 'Configurações';
 };
+
+const PRINCIPAL: ItemNavegacao[] = [
+    { href: '/admin/dashboard', rotulo: 'Dashboard', grupo: 'Principal' },
+];
 
 const OPERACAO: ItemNavegacao[] = [
     { href: '/clientes', rotulo: 'Clientes', grupo: 'Operação' },
     { href: '/admin/contratos', rotulo: 'Contratos', grupo: 'Operação' },
     { href: '/admin/festas', rotulo: 'Festas', grupo: 'Operação' },
     { href: '/admin/disponibilidade', rotulo: 'Agenda', grupo: 'Operação' },
+];
+
+const FINANCEIRO: ItemNavegacao[] = [
+    { href: '/admin/financeiro', rotulo: 'Visão geral', grupo: 'Financeiro' },
+    { href: '/admin/financeiro/contas-receber', rotulo: 'Contas a receber', grupo: 'Financeiro' },
+    { href: '/admin/financeiro/contas-pagar', rotulo: 'Contas a pagar', grupo: 'Financeiro' },
+    { href: '/admin/financeiro/fluxo-caixa', rotulo: 'Fluxo de caixa', grupo: 'Financeiro' },
+    { href: '/admin/financeiro/relatorios', rotulo: 'Relatórios', grupo: 'Financeiro' },
 ];
 
 const CONFIGURACAO: ItemNavegacao[] = [
@@ -22,7 +34,8 @@ const CONFIGURACAO: ItemNavegacao[] = [
 ];
 
 export function itensNavegacao(gestao: boolean) {
-    return gestao ? [...OPERACAO, ...CONFIGURACAO] : [...OPERACAO];
+    const base = [...PRINCIPAL, ...OPERACAO, ...FINANCEIRO];
+    return gestao ? [...base, ...CONFIGURACAO] : base;
 }
 
 export function itemAtivo(caminho: string, href: string, itens: Array<{ href: string }>) {
