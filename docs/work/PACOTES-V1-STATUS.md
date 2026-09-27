@@ -2,7 +2,80 @@
 
 Documento temporário de continuidade. Não é fonte funcional. A decisão de produto permanece no Second Brain e no Goal Mestre. O Goal permanece aberto.
 
-## Estado atual — HG-8 implementado, Goal aberto
+## Estado atual — revisão HG-8 remediada, Goal aberto
+
+- Branch: `integration/saas-commercial-foundation`
+- Upstream: `origin/integration/saas-commercial-foundation`. Não rastrear este trabalho em `origin/staging`.
+- Base desta remediação: o HEAD revisado `743227f004ec1430683a71d381a8f2641310afc4`. A branch já estava nesse SHA, igual ao remoto, antes das correções. Não houve rebase. O UP da 043 não foi reescrito.
+- Código desta passagem, antes deste status: `bc4d548cf8c4fe128de294309495dfecc92fe39d`
+- Este arquivo entra no commit seguinte. O HEAD da branch, depois desse commit, é o commit de status.
+
+Commits desta passagem, autor e committer Felipe Menegaz `<324788905+felipemenegaz-debug@users.noreply.github.com>`:
+
+| SHA | Assunto |
+| --- | --- |
+| `c477df2754ae1f8d4fcaac0b80b6a381eb446fbf` | segura a empresa até o commit da operação de tenant |
+| `34d8f7066aa993d5967266ea8216a247822534aa` | fecha a escrita global e a composição fora da revisão |
+| `b02e3fe47ebb6f022df27b022063db5339024833` | recusa o DOWN da 043 quando a Foundation já tem dado |
+| `bc4d548cf8c4fe128de294309495dfecc92fe39d` | recusa reutilizar empresa persistida no provisionamento sintético |
+
+### HG8-01 P0 — catálogo global
+
+Confirmado na rota `app/api/admin/configuracoes/catalogo/route.ts` antes da correção: `categoria`, `item`, `novo_item` e `nova_categoria` gravavam `buffet_categorias` e `buffet_itens` só com `provarTenant`.
+
+Classificação:
+
+- Tenant: `adicionais`, `pacotes`, `pacote_adicionais`, `pacote_buffet_categorias`, `pacote_buffet_itens`, `tabelas_preco` e preços ligados à empresa do pai.
+- Global, sem `empresa_id` e sem autoridade global no modelo: `buffet_categorias`, `buffet_itens`, `adicional_categorias`. A leitura administrativa permanece. A escrita por membership falha fechada com `CATALOGO_GLOBAL_SEM_AUTORIDADE`. Não houve invenção de tenant, duplicação por empresa nem papel novo.
+- Legado ainda sem tenant: linhas de `pacotes`, `adicionais` e `tabelas_preco` com `empresa_id` NULL. Os sete pacotes continuam assim.
+
+### HG8-02 P1 — empresa suspensa ou desativada durante a operação
+
+A prova trava, nesta ordem e em todos os fluxos deste corte: usuário → empresa → membership. A empresa comprovada permanece travada até o commit. Reler `empresas.status` sem essa trava não basta. Suspensão ou desativação que chega primeiro recusa a operação. A que espera a operação só confirma depois do commit. As duas não deadlockam entre si nem com a revogação da membership.
+
+### HG8-03 P1 — composição
+
+`vinculo_adicional` e `regra_buffet` não fazem mais UPSERT na rota. Os dois chamam `alterarComposicaoPacoteAdmin`. Pacote usado gera revisão nova; a anterior permanece; a auditoria canônica é uma. A regra de buffet segue o modo canônico `SELECIONADOS` do serviço. O UPSERT antigo em `TODOS_ATIVOS` saiu.
+
+### HG8-04, HG8-05 e HG8-06
+
+- HG8-04: `empresaId` é contexto de seleção, extraído antes do payload `.strict()`. Sem `empresaId` e com duas memberships: 403. `empresaId` autorizado: a operação de adicional segue. `empresaId` alheio: 403. Payload inválido: 400.
+- HG8-05: o DOWN operacional em `database/rollback/20260926_043_estrutura_tenant_down.sql` aborta se `estabelecimentos`, `memberships` ou `membership_estabelecimentos` tiver linha. Vazio ainda pode reverter, dentro de transação desfeita no teste. Com dado, a linha permanece. Depois de uso real, o reparo é o código anterior ou uma correção para frente. O UP publicado da 043 não mudou. Não há migration 046: o precheck coube no script de rollback desta branch.
+- HG8-06: ao achar empresa pelo código, a função carrega código e nome persistidos. Nome ou código Kidmais persistido é recusado mesmo com argumentos limpos. Qualquer outra empresa já gravada também é recusada: `empresas` não tem marcador sintético, e a regra não foi um substring de escopo. Kidmais não foi provisionada.
+
+### Sessão, papel e usuário desativado
+
+Não é bloqueio desta fatia e não virou protocolo novo.
+
+- Usuário desativado: a linha de `usuarios_administrativos` fica `FOR UPDATE` a transação inteira e `ativo` é relido antes do commit. A desativação não confirma antes da operação.
+- Papel: a rota confere `sessao.papel` antes da transação. Com a trava do usuário, a troca de papel não confirma durante a operação, mas o papel travado não é relido. Uma troca já confirmada antes da trava não é vista. Isso não inverte o commit enquanto a trava está segurada.
+- Sessão revogada: `consultarSessao` ocorre fora de `executarNoTenant` e a linha da sessão não é travada nessa transação. A revogação pode confirmar enquanto a operação ainda confirma, porque a prova relê `ativo`, o status da empresa e a membership, não a sessão. Corrigir isso seria um protocolo novo de sessão. Ficou só registrado.
+
+### Gates que continuam abertos
+
+- HG-4 aberto. Completude comercial não foi definida.
+- HG-6 aberto. Os sete pacotes legados seguem com `empresa_id` NULL. Nenhuma empresa Kidmais foi criada. `FESTA_LOCAL` → `SALADA_PREMIUM` não foi reescrito.
+- Perfil da Empresa aberto. `perfil_empresas` não foi fundido em `empresas`.
+- D03 adiado. Estabelecimento operacional continua fechado.
+- O catálogo público permanece fechado (`403` `CATALOGO_PUBLICO_INDETERMINADO`).
+- Sem merge e sem deploy. O Goal não está completo.
+
+### Banco descartável
+
+`kidmais_pacotes_v1_descartavel` em `127.0.0.1:55498`. `current_database()` e `inet_server_port()` conferidos. Sete pacotes com `empresa_id` NULL. O vínculo misto continua 1. Nenhuma empresa `hg8` ou Kidmais permaneceu. `kidmais_manager`, staging e produção não foram usados.
+
+### Validação desta passagem
+
+- PostgreSQL descartável, suíte HG-8 mais `pacotes-v1-remediacao.postgres.test.ts`: 62 testes, 0 falhas.
+- Suíte sem banco de comercial, autenticação, snapshot e contratos, incluindo o isolamento de tenant: passou. `node --test scripts/production/production.test.mjs`: 35 passaram.
+- `npx tsc --noEmit`: passou.
+- `npm run lint`: passou, exit 0.
+- `npm run build`: passou.
+- `git diff --check`: passou.
+
+O Goal não está completo. Parado para uma segunda revisão independente do Codex sobre HG-8. Não é merge nem deploy.
+
+## HISTÓRICO — HG-8 implementado, antes da revisão NO-GO
 
 - Branch: `integration/saas-commercial-foundation`
 - Upstream pretendido: `origin/integration/saas-commercial-foundation`. Não rastrear este trabalho em `origin/staging`.
