@@ -19,6 +19,22 @@ const payload = { pacote: 'pocket', dataFesta: '2027-06-15', horarioBase: 'almoc
     buffetDefinicao: 'depois', valorCombinado: '10000,00', formaPagamento: 'pix_avista',
     aniversarianteId, idadeAniversariante: '', adicionaisSelecionados: [] };
 
+/** Harness da fotografia append-only (Pacotes V1, Marco 1). Não altera a regra do produto. */
+function responderFotografia(sql: string) {
+    const compact = sql.replace(/\s+/g, ' ').trim();
+    if (compact.startsWith('INSERT INTO fechamento_pacote_snapshots'))
+        return { rows: [{ id: 'snapshot-unitario' }], rowCount: 1 };
+    if (compact.startsWith('SELECT a.id, a.codigo, a.nome') && compact.includes('FROM pacote_adicionais'))
+        return { rows: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', codigo: 'PENNE', nome: 'Penne' }], rowCount: 1 };
+    if (compact.startsWith('SELECT c.id, c.codigo, c.nome') && compact.includes('FROM pacote_buffet_categorias'))
+        return { rows: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', codigo: 'SALGADOS', nome: 'Salgados', modo_itens: 'TODOS_ATIVOS', escolhas_min: 1, escolhas_max: 4 }], rowCount: 1 };
+    if (compact.startsWith('INSERT INTO fechamento_pacote_composicao'))
+        return { rows: [], rowCount: 1 };
+    if (compact.startsWith('UPDATE fechamentos') && compact.includes('pacote_snapshot_vigente_id'))
+        return { rows: [], rowCount: 1 };
+    return null;
+}
+
 /** Loader fechado: postgres e repositórios são fixtures em memória; nenhuma conexão real. */
 function ambiente() {
     const state = {
@@ -42,6 +58,8 @@ function ambiente() {
             return { rows: params[0] === hash(token) && !s.revogada && s.ativo && !s.expirada && !s.ociosa && !s.senhaAlterada ? [s] : [] };
         }
         if (sql.startsWith('UPDATE sessoes_administrativas') || /^SELECT id FROM (clientes|aniversariantes|responsaveis_adicionais) WHERE/.test(sql)) return { rows: [] };
+        const fotografia = responderFotografia(sql);
+        if (fotografia) return fotografia;
         throw Error('SQL não permitido no mock: ' + sql);
     } };
     const transacao = async (fn: any) => {
@@ -119,7 +137,13 @@ test('GET e POST reais: cliente existente, núcleo comercial, origem/ator do ser
     assert.equal(f.status, 'AGUARDANDO_CONTRATO');
     assert.equal(a.state.historico[0].tipoEvento, 'FECHAMENTO_CRIADO');
     assert.equal(a.state.auditoria[0].atorTipo, 'USUARIO'); assert(a.state.auditoria[0].requestId);
-    assert(!a.state.sql.some(s => /^(INSERT|DELETE|UPDATE (?!sessoes_administrativas))/.test(s)));
+    const sql = a.state.sql.map(s => s.replace(/\s+/g, ' ').trim());
+    const fotografia = /^(INSERT INTO fechamento_pacote_snapshots|INSERT INTO fechamento_pacote_composicao|UPDATE fechamentos SET pacote_snapshot_vigente_id )/;
+    assert(sql.filter(s => /^(INSERT|DELETE|UPDATE)/.test(s)).every(s => s.startsWith('UPDATE sessoes_administrativas') || fotografia.test(s)));
+    assert(sql.some(s => s.startsWith('INSERT INTO fechamento_pacote_snapshots')));
+    assert(sql.some(s => s.startsWith('INSERT INTO fechamento_pacote_composicao') && s.includes("'INCLUSO'")));
+    assert(sql.some(s => s.startsWith('INSERT INTO fechamento_pacote_composicao') && s.includes("'BUFFET'")));
+    assert(sql.some(s => s.startsWith('UPDATE fechamentos') && s.includes('pacote_snapshot_vigente_id IS NULL')));
 });
 
 test('extras unitários: SKUs próprios e quantidades chegam intactos ao cálculo administrativo', async () => {
