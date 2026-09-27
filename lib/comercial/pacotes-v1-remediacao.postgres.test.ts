@@ -24,6 +24,7 @@ const precheck040 = resolve(root, "database/checks/20260926_040_precheck.sql");
 const migration041 = resolve(root, "database/migrations/20260926_041_revisao_mesmo_tenant.sql");
 const down041 = resolve(root, "database/rollback/20260926_041_revisao_mesmo_tenant_down.sql");
 const migration042 = resolve(root, "database/migrations/20260926_042_reativacao_faixa_publicada.sql");
+const migration047 = resolve(root, "database/migrations/20260926_047_escopo_comercial_tabela.sql");
 const down042 = resolve(root, "database/rollback/20260926_042_reativacao_faixa_publicada_down.sql");
 const empresasDeTeste = "^t0(3[6-9]|4[0-2])";
 const trava038 = `
@@ -144,6 +145,29 @@ async function precoInativo(client: Client, tabelaId: string, pacoteId: string, 
   return criado.rows[0].id;
 }
 
+async function declararEscopoDosAtivos(client: Client, tabelaId: string) {
+  await client.query(
+    `INSERT INTO tabela_preco_escopos (tabela_preco_id, pacote_id, categoria_horario, cobertura_continua)
+     SELECT DISTINCT pp.tabela_preco_id, pp.pacote_id, pp.categoria_horario, false
+       FROM precos_pacote pp
+      WHERE pp.tabela_preco_id = $1::uuid AND pp.ativo
+     ON CONFLICT (tabela_preco_id, pacote_id, categoria_horario) DO NOTHING`,
+    [tabelaId],
+  );
+  await client.query(
+    `INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max)
+     SELECT e.id, pp.convidados_min, pp.convidados_max
+       FROM precos_pacote pp
+       JOIN tabela_preco_escopos e
+         ON e.tabela_preco_id = pp.tabela_preco_id
+        AND e.pacote_id = pp.pacote_id
+        AND e.categoria_horario = pp.categoria_horario
+      WHERE pp.tabela_preco_id = $1::uuid AND pp.ativo
+     ON CONFLICT ON CONSTRAINT tabela_preco_escopo_faixas_uk DO NOTHING`,
+    [tabelaId],
+  );
+}
+
 async function precoNaFaixa(client: Client, tabelaId: string, pacoteId: string, minimo: number, maximo: number) {
   const criado = await client.query<{ id: string }>(
     `INSERT INTO precos_pacote (
@@ -213,6 +237,13 @@ async function apagarEmpresasDeTeste(client: Client) {
   if (encontradas.rows.length === 0) return;
   await client.query("ALTER TABLE precos_pacote DISABLE TRIGGER USER");
   await client.query("ALTER TABLE empresas DISABLE TRIGGER empresas_guard_trg");
+  const escopo = await client.query<{ ok: boolean }>(
+    "SELECT to_regclass('public.tabela_preco_escopos') IS NOT NULL AS ok",
+  );
+  if (escopo.rows[0].ok) {
+    await client.query("ALTER TABLE tabela_preco_escopos DISABLE TRIGGER USER");
+    await client.query("ALTER TABLE tabela_preco_escopo_faixas DISABLE TRIGGER USER");
+  }
   try {
     for (const empresaId of encontradas.rows.map((row) => row.id)) {
       await client.query(
@@ -245,12 +276,33 @@ async function apagarEmpresasDeTeste(client: Client) {
         "DELETE FROM pacote_buffet_categorias WHERE pacote_id IN (SELECT id FROM pacotes WHERE empresa_id = $1::uuid)",
         [empresaId],
       );
+      if (escopo.rows[0].ok) {
+        await client.query(
+          `DELETE FROM tabela_preco_escopo_faixas
+            WHERE escopo_id IN (
+              SELECT e.id FROM tabela_preco_escopos e
+               WHERE e.tabela_preco_id IN (SELECT id FROM tabelas_preco WHERE empresa_id = $1::uuid)
+                  OR e.pacote_id IN (SELECT id FROM pacotes WHERE empresa_id = $1::uuid)
+            )`,
+          [empresaId],
+        );
+        await client.query(
+          `DELETE FROM tabela_preco_escopos
+            WHERE tabela_preco_id IN (SELECT id FROM tabelas_preco WHERE empresa_id = $1::uuid)
+               OR pacote_id IN (SELECT id FROM pacotes WHERE empresa_id = $1::uuid)`,
+          [empresaId],
+        );
+      }
       await client.query("DELETE FROM pacotes WHERE empresa_id = $1::uuid", [empresaId]);
       await client.query("DELETE FROM tabelas_preco WHERE empresa_id = $1::uuid", [empresaId]);
       await client.query("DELETE FROM adicionais WHERE empresa_id = $1::uuid", [empresaId]);
       await client.query("DELETE FROM empresas WHERE id = $1::uuid", [empresaId]);
     }
   } finally {
+    if (escopo.rows[0].ok) {
+      await client.query("ALTER TABLE tabela_preco_escopo_faixas ENABLE TRIGGER USER");
+      await client.query("ALTER TABLE tabela_preco_escopos ENABLE TRIGGER USER");
+    }
     await client.query("ALTER TABLE empresas ENABLE TRIGGER empresas_guard_trg");
     await client.query("ALTER TABLE precos_pacote ENABLE TRIGGER USER");
   }
@@ -278,6 +330,10 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
     "SELECT to_regprocedure('public.kidmais_042_revalidar_faixa_publicada(uuid,uuid,uuid,text,integer,integer)') IS NOT NULL AS ok",
   );
   if (!faixa042.rows[0].ok) await db.query(readFileSync(migration042, "utf8"));
+  const escopo047 = await db.query<{ ok: boolean }>(
+    "SELECT to_regclass('public.tabela_preco_escopos') IS NOT NULL AS ok",
+  );
+  if (!escopo047.rows[0].ok) await db.query(readFileSync(migration047, "utf8"));
   try {
     await t.test("a migration 036 falha fechada quando já há duas empresas no vínculo", async () => {
       await db.query("BEGIN");
@@ -403,6 +459,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         const rascunhoId = await tabela(db, empresaId, "u037c", "2093-07-01", "2093-12-31");
         const precoPublicado = await preco(db, publicadaId, pacoteId);
         const precoRascunho = await preco(db, rascunhoId, pacoteId);
+        await declararEscopoDosAtivos(db, publicadaId);
         await db.query(
           `UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid AND publicada_em IS NULL`,
           [publicadaId],
@@ -438,7 +495,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
           db,
           "UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid",
           [vaziaId],
-          "tabela vazia",
+          "escopo declarado incompleto",
         );
         const publicada = await db.query<{ ok: boolean }>(
           "SELECT publicada_em IS NOT NULL AS ok FROM tabelas_preco WHERE id = $1::uuid",
@@ -462,6 +519,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         const outro = await conectarDescartavel({ travar: false });
         try {
           await outro.query("BEGIN");
+          await declararEscopoDosAtivos(outro, id);
           await outro.query(
             `UPDATE tabelas_preco SET publicada_em = clock_timestamp()
               WHERE id = $1::uuid AND publicada_em IS NULL AND ativa = false`,
@@ -646,6 +704,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
       const pacoteId = await pacote(db, empresaId, "p037f");
       const tabelaId = await tabela(db, empresaId, "u037f", "2097-01-01", "2097-06-30");
       await preco(db, tabelaId, pacoteId);
+      await declararEscopoDosAtivos(db, tabelaId);
       const tx = {
         async query<Row extends object>(text: string, values?: readonly unknown[]) {
           const result = await db.query(text, values as unknown[]);
@@ -895,6 +954,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         let corrida: ReturnType<typeof rastrear> | undefined;
         try {
           await titular.query("BEGIN");
+          await declararEscopoDosAtivos(titular, tabelaId);
           await titular.query(
             `UPDATE tabelas_preco SET publicada_em = clock_timestamp()
               WHERE id = $1::uuid AND publicada_em IS NULL AND ativa = false`,
@@ -976,6 +1036,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
       const tabelaId = await tabela(db, empresaId, "u039d", "2086-01-01", "2086-12-31");
       const primeira = await precoNaFaixa(db, tabelaId, pacoteId, 20, 40);
       const segunda = await precoNaFaixa(db, tabelaId, pacoteId, 41, 80);
+      await declararEscopoDosAtivos(db, tabelaId);
       await db.query(
         `UPDATE tabelas_preco SET publicada_em = clock_timestamp()
           WHERE id = $1::uuid AND publicada_em IS NULL AND ativa = false`,
@@ -1037,6 +1098,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
       const outra = await abrir();
       try {
         await titular.query("BEGIN");
+        await declararEscopoDosAtivos(titular, tabelaA);
         await titular.query(
           `UPDATE tabelas_preco SET publicada_em = clock_timestamp()
             WHERE id = $1::uuid AND publicada_em IS NULL AND ativa = false`,
@@ -1048,6 +1110,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         await notas.query("ROLLBACK");
         await outra.query("BEGIN");
         await outra.query("SET lock_timeout = '800ms'");
+        await declararEscopoDosAtivos(outra, tabelaB);
         await outra.query(
           `UPDATE tabelas_preco SET publicada_em = clock_timestamp()
             WHERE id = $1::uuid AND publicada_em IS NULL AND ativa = false`,
@@ -1422,6 +1485,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
       await precoNaFaixa(db, tabelaId, pacoteId, 20, 30);
       const esquerda = await precoInativo(db, tabelaId, pacoteId, 40, 60);
       const direita = await precoInativo(db, tabelaId, pacoteId, 50, 70);
+      await declararEscopoDosAtivos(db, tabelaId);
       await db.query(
         `UPDATE tabelas_preco SET publicada_em = clock_timestamp()
           WHERE id = $1::uuid AND publicada_em IS NULL AND ativa = false`,
@@ -1510,6 +1574,8 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
       const alta = await precoInativo(db, tabelaA, pacoteA, 100, 110);
       await precoNaFaixa(db, tabelaB, pacoteB, 20, 30);
       const outraFaixa = await precoInativo(db, tabelaB, pacoteB, 40, 50);
+      await declararEscopoDosAtivos(db, tabelaA);
+      await declararEscopoDosAtivos(db, tabelaB);
       await db.query(
         `UPDATE tabelas_preco SET publicada_em = clock_timestamp()
           WHERE id = ANY($1::uuid[]) AND publicada_em IS NULL AND ativa = false`,

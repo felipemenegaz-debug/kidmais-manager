@@ -139,6 +139,7 @@ test("usuário A recebe 403 ao criar, precificar ou publicar a tabela da empresa
     { acao: "criar", empresaId: empresaB, codigo: "TABELA_B", nome: "Tabela B", vigenciaInicio: "2026-10-01", vigenciaFim: null },
     { acao: "preco", empresaId: empresaB, tabelaId: "55555555-5555-4555-8555-555555555555", pacoteId: pacoteB, convidadosMin: 40, convidadosMax: 80, tipoCalculo: "FIXO", valor: "10.00", categoriaHorario: "PADRAO" },
     { acao: "publicar", empresaId: empresaB, tabelaId: "55555555-5555-4555-8555-555555555555" },
+    { acao: "escopo", empresaId: empresaB, tabelaId: "55555555-5555-4555-8555-555555555555", combinacoes: [] },
     { acao: "simular_festa", empresaId: empresaB, data: "2026-10-10", pacoteId: pacoteB, convidados: 40, categoriaHorario: "PADRAO", sobConsulta: false },
   ]) {
     const resposta = await corpo(await post(pedido("http://localhost/api/admin/configuracoes/tabelas-preco", body)));
@@ -146,6 +147,11 @@ test("usuário A recebe 403 ao criar, precificar ou publicar a tabela da empresa
     assert.equal(resposta.json.codigo, "TENANT_NAO_COMPROVADO");
     assert.equal(consultas.some((sql) => /^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql)), false, body.acao);
   }
+  const get = modulo.GET as (request: object) => Promise<{ status: number; json: () => Promise<unknown> }>;
+  const leitura = await corpo(await get(pedido(`http://localhost/api/admin/configuracoes/tabelas-preco?empresaId=${empresaB}`)));
+  assert.equal(leitura.status, 403);
+  assert.equal(leitura.json.codigo, "TENANT_NAO_COMPROVADO");
+  assert.equal(consultas.some((sql) => /^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql)), false);
   consultas.length = 0;
   const local = await corpo(await post(pedido("http://localhost/api/admin/configuracoes/tabelas-preco", { acao: "simular", valor: "10.00", sobConsulta: false })));
   assert.equal(local.status, 200);

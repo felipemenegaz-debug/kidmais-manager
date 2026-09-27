@@ -2,7 +2,7 @@ import type { DbExecutor } from "../db/contracts.ts";
 import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
 import { centavosComerciais } from "./condicao-pagamento.ts";
 import { exigirVinculoNaEmpresa, sqlPrecoPacoteMesmaEmpresa } from "./integridade-tenant.ts";
-import { PacoteAdminError } from "./pacotes-admin.ts";
+import { listarPacotesAdmin, PacoteAdminError } from "./pacotes-admin.ts";
 
 export type ResultadoSimulacao =
   | { tipo: "PRECO"; centavos: number }
@@ -16,8 +16,8 @@ export function simularPrecoPacote(input: { valor: string | null; sobConsulta: b
   return { tipo: "PRECO", centavos: centavosComerciais(input.valor) };
 }
 
-function recusar(code: string, message: string, status: number): never {
-  throw new PacoteAdminError(code, message, status);
+function recusar(code: string, message: string, status: number, details: unknown = null): never {
+  throw new PacoteAdminError(code, message, status, details);
 }
 
 export async function criarTabelaPrecoAdmin(
@@ -127,14 +127,18 @@ export async function publicarTabelaPrecoAdmin(
   if (linha.vigencia_fim && linha.vigencia_fim < linha.vigencia_inicio) {
     recusar("VIGENCIA_INVALIDA", "A vigência termina antes de começar.", 409);
   }
-  const ocupacao = await tx.query<{ n: number }>(
-    `SELECT COUNT(*)::int AS n
-       FROM precos_pacote
-      WHERE tabela_preco_id = $1::uuid
-        AND ativo`,
+  const lacunas = await tx.query<{ codigo: string; detalhe: string }>(
+    `SELECT codigo, detalhe FROM kidmais_047_lacunas_escopo($1::uuid)`,
     [input.tabelaId],
   );
-  if (Number(ocupacao.rows[0]?.n ?? 0) < 1) recusar("TABELA_VAZIA", "Tabela vazia não é publicada.", 409);
+  if (lacunas.rows.length > 0) {
+    recusar(
+      lacunas.rows[0].codigo,
+      lacunas.rows.map((lacuna) => `${lacuna.codigo}: ${lacuna.detalhe}`).join(" "),
+      409,
+      lacunas.rows,
+    );
+  }
   const cruzado = await tx.query(
     `SELECT 1
        FROM precos_pacote pp
@@ -154,7 +158,7 @@ export async function publicarTabelaPrecoAdmin(
           OR (convidados_max IS NOT NULL AND convidados_max < convidados_min)
           OR valor <= 0
           OR tipo_calculo NOT IN ('FIXO', 'POR_CONVIDADO')
-          OR categoria_horario NOT IN ('PADRAO', 'NOBRE')
+          OR categoria_horario NOT IN ('GERAL', 'PADRAO', 'NOBRE')
         )
       LIMIT 1`,
     [input.tabelaId],
@@ -189,7 +193,6 @@ export async function publicarTabelaPrecoAdmin(
     [input.tabelaId, input.empresaId, linha.vigencia_inicio, linha.vigencia_fim],
   );
   if (vigencia.rows[0]) recusar("VIGENCIA_SOBREPOSTA", "Já existe tabela publicada desta empresa na mesma vigência.", 409);
-  // HG-4 permanece aberto: cobertura além de "não vazia" não está documentada e não é inventada aqui.
   const publicada = await tx.query<{ publicada_em: string }>(
     `UPDATE tabelas_preco
         SET publicada_em = clock_timestamp()
@@ -217,4 +220,172 @@ export async function publicarTabelaPrecoAdmin(
     antes: { publicadaEm: null, ativa: false, vigenciaInicio: linha.vigencia_inicio, vigenciaFim: linha.vigencia_fim },
     depois: { publicadaEm, ativa: false },
   });
+}
+
+export type FaixaEscopo = { convidadosMin: number; convidadosMax: number | null };
+export type CombinacaoEscopo = {
+  pacoteId: string;
+  categoriaHorario: "GERAL" | "PADRAO" | "NOBRE";
+  coberturaContinua: boolean;
+  limiteConvidadosMin: number | null;
+  limiteConvidadosMax: number | null;
+  faixas: FaixaEscopo[];
+};
+
+async function travarTabelaRascunho(tx: DbExecutor, empresaId: string, tabelaId: string) {
+  const tabela = await tx.query<{ publicada_em: string | null }>(
+    `SELECT publicada_em::text AS publicada_em
+       FROM tabelas_preco
+      WHERE id = $1::uuid AND empresa_id = $2::uuid
+      FOR UPDATE`,
+    [tabelaId, empresaId],
+  );
+  const linha = tabela.rows[0];
+  if (!linha) recusar("NAO_ENCONTRADO", "Tabela não encontrada nesta empresa.", 404);
+  if (linha.publicada_em) recusar("TABELA_PUBLICADA", "Tabela publicada. O escopo futuro nasce em outra tabela.", 409);
+}
+
+/** Substitui o escopo declarado de um rascunho. Não infere faixa a partir do preço. */
+export async function substituirEscopoTabelaAdmin(
+  tx: DbExecutor,
+  input: { empresaId: string; tabelaId: string; combinacoes: CombinacaoEscopo[]; usuarioId?: string | null; requestId?: string | null; motivo?: string | null },
+) {
+  await travarTabelaRascunho(tx, input.empresaId, input.tabelaId);
+  for (const combinacao of input.combinacoes) {
+    await exigirVinculoNaEmpresa(tx, input.empresaId, {
+      sql: sqlPrecoPacoteMesmaEmpresa(),
+      params: [input.tabelaId, combinacao.pacoteId],
+    });
+  }
+  await tx.query(
+    `DELETE FROM tabela_preco_escopo_faixas f
+      USING tabela_preco_escopos e
+      WHERE f.escopo_id = e.id
+        AND e.tabela_preco_id = $1::uuid`,
+    [input.tabelaId],
+  );
+  await tx.query(`DELETE FROM tabela_preco_escopos WHERE tabela_preco_id = $1::uuid`, [input.tabelaId]);
+  for (const combinacao of input.combinacoes) {
+    const criada = await tx.query<{ id: string }>(
+      `INSERT INTO tabela_preco_escopos (
+         tabela_preco_id, pacote_id, categoria_horario, cobertura_continua,
+         limite_convidados_min, limite_convidados_max
+       ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
+       RETURNING id`,
+      [
+        input.tabelaId,
+        combinacao.pacoteId,
+        combinacao.categoriaHorario,
+        combinacao.coberturaContinua,
+        combinacao.limiteConvidadosMin,
+        combinacao.limiteConvidadosMax,
+      ],
+    );
+    const escopoId = criada.rows[0]?.id ?? recusar("DADOS_INVALIDOS", "O escopo não foi gravado.", 500);
+    for (const faixa of combinacao.faixas) {
+      await tx.query(
+        `INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max)
+         VALUES ($1::uuid, $2, $3)`,
+        [escopoId, faixa.convidadosMin, faixa.convidadosMax],
+      );
+    }
+  }
+  await auditarMutacaoComercial(tx, {
+    usuarioId: input.usuarioId ?? null,
+    requestId: input.requestId ?? null,
+    motivo: input.motivo ?? null,
+    acao: "TABELA_PRECO_ESCOPO",
+    entidadeTipo: "TABELA_PRECO",
+    entidadeId: input.tabelaId,
+    empresaId: input.empresaId,
+    antes: null,
+    depois: { combinacoes: input.combinacoes },
+  });
+}
+
+export async function consultarQuadroTabelaAdmin(tx: DbExecutor, empresaId: string, tabelaId: string | null) {
+  const tabelas = await tx.query<{
+    id: string;
+    codigo: string;
+    nome: string;
+    vigencia_inicio: string;
+    vigencia_fim: string | null;
+    publicada: boolean;
+  }>(
+    `SELECT id, codigo, nome, vigencia_inicio::text AS vigencia_inicio, vigencia_fim::text AS vigencia_fim,
+            publicada_em IS NOT NULL AS publicada
+       FROM tabelas_preco
+      WHERE empresa_id = $1::uuid
+      ORDER BY vigencia_inicio, codigo`,
+    [empresaId],
+  );
+  const pacotes = await listarPacotesAdmin(tx, empresaId);
+  if (!tabelaId) return { tabelas: tabelas.rows, pacotes, quadro: null };
+  if (!tabelas.rows.some((tabela) => tabela.id === tabelaId)) {
+    recusar("NAO_ENCONTRADO", "Tabela não encontrada nesta empresa.", 404);
+  }
+  const combinacoes = await tx.query<{
+    id: string;
+    pacote_id: string;
+    pacote_codigo: string;
+    pacote_nome: string;
+    categoria_horario: string;
+    cobertura_continua: boolean;
+    limite_convidados_min: number | null;
+    limite_convidados_max: number | null;
+  }>(
+    `SELECT e.id, e.pacote_id, p.codigo AS pacote_codigo, p.nome AS pacote_nome,
+            e.categoria_horario, e.cobertura_continua,
+            e.limite_convidados_min, e.limite_convidados_max
+       FROM tabela_preco_escopos e
+       JOIN pacotes p ON p.id = e.pacote_id
+      WHERE e.tabela_preco_id = $1::uuid
+        AND p.empresa_id = $2::uuid
+      ORDER BY p.codigo, e.categoria_horario`,
+    [tabelaId, empresaId],
+  );
+  const faixas = await tx.query<{ escopo_id: string; convidados_min: number; convidados_max: number | null }>(
+    `SELECT f.escopo_id, f.convidados_min, f.convidados_max
+       FROM tabela_preco_escopo_faixas f
+       JOIN tabela_preco_escopos e ON e.id = f.escopo_id
+      WHERE e.tabela_preco_id = $1::uuid
+      ORDER BY f.convidados_min`,
+    [tabelaId],
+  );
+  const precos = await tx.query<{
+    pacote_codigo: string;
+    categoria_horario: string;
+    convidados_min: number;
+    convidados_max: number | null;
+    tipo_calculo: string;
+    valor: string;
+    ativo: boolean;
+  }>(
+    `SELECT p.codigo AS pacote_codigo, pp.categoria_horario, pp.convidados_min, pp.convidados_max,
+            pp.tipo_calculo, pp.valor::text AS valor, pp.ativo
+       FROM precos_pacote pp
+       JOIN pacotes p ON p.id = pp.pacote_id
+      WHERE pp.tabela_preco_id = $1::uuid
+        AND p.empresa_id = $2::uuid
+      ORDER BY p.codigo, pp.categoria_horario, pp.convidados_min`,
+    [tabelaId, empresaId],
+  );
+  const lacunas = await tx.query<{ codigo: string; detalhe: string }>(
+    `SELECT codigo, detalhe FROM kidmais_047_lacunas_escopo($1::uuid)`,
+    [tabelaId],
+  );
+  return {
+    tabelas: tabelas.rows,
+    pacotes,
+    quadro: {
+      tabela: tabelas.rows.find((tabela) => tabela.id === tabelaId) ?? null,
+      combinacoes: combinacoes.rows.map((combinacao) => ({
+        ...combinacao,
+        faixas: faixas.rows.filter((faixa) => faixa.escopo_id === combinacao.id),
+      })),
+      precos: precos.rows,
+      lacunas: lacunas.rows,
+      completo: lacunas.rows.length === 0,
+    },
+  };
 }

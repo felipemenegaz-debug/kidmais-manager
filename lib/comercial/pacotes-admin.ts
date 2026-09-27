@@ -6,12 +6,13 @@ import { filtroEmpresa } from "./tenant.ts";
 export class PacoteAdminError extends Error {
   readonly code: string;
   readonly httpStatus: number;
-  readonly details: null = null;
-  constructor(code: string, message: string, httpStatus: number) {
+  readonly details: unknown;
+  constructor(code: string, message: string, httpStatus: number, details: unknown = null) {
     super(message);
     this.name = "PacoteAdminError";
     this.code = code;
     this.httpStatus = httpStatus;
+    this.details = details;
   }
 }
 

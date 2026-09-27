@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { authError } from "@/lib/autenticacao/service";
-import { simularPrecoPacote, simularTabelaPublicada, criarTabelaPrecoAdmin, incluirPrecoPacoteAdmin, publicarTabelaPrecoAdmin } from "@/lib/comercial/tabelas-preco-admin";
+import { simularPrecoPacote, simularTabelaPublicada, criarTabelaPrecoAdmin, incluirPrecoPacoteAdmin, publicarTabelaPrecoAdmin, substituirEscopoTabelaAdmin, consultarQuadroTabelaAdmin } from "@/lib/comercial/tabelas-preco-admin";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
@@ -40,7 +40,43 @@ const preco = z.object({
   categoriaHorario: z.enum(["PADRAO", "NOBRE", "GERAL"]),
 }).strict();
 const publicar = z.object({ acao: z.literal("publicar"), empresaId: uuid, tabelaId: uuid }).strict();
-const corpo = z.discriminatedUnion("acao", [simular, simularFesta, criar, preco, publicar]);
+const faixa = z.object({
+  convidadosMin: z.number().int().positive(),
+  convidadosMax: z.number().int().positive().nullable(),
+}).strict();
+const combinacao = z.object({
+  pacoteId: uuid,
+  categoriaHorario: z.enum(["GERAL", "PADRAO", "NOBRE"]),
+  coberturaContinua: z.boolean(),
+  limiteConvidadosMin: z.number().int().positive().nullable(),
+  limiteConvidadosMax: z.number().int().positive().nullable(),
+  faixas: z.array(faixa).max(40),
+}).strict();
+const escopo = z.object({
+  acao: z.literal("escopo"),
+  empresaId: uuid,
+  tabelaId: uuid,
+  combinacoes: z.array(combinacao).max(80),
+}).strict();
+const corpo = z.discriminatedUnion("acao", [simular, simularFesta, criar, preco, publicar, escopo]);
+
+export async function GET(request: NextRequest) {
+  try {
+    const sessao = await exigirApiAdminCrmDisponivel(request);
+    const tabelaId = request.nextUrl.searchParams.get("tabelaId");
+    if (tabelaId !== null && !uuid.safeParse(tabelaId).success) {
+      return jsonNoStore({ ok: false, erro: "Dados inválidos.", codigo: "DADOS_INVALIDOS" }, { status: 400 });
+    }
+    const data = await withTenantTransaction(
+      sessao,
+      request.nextUrl.searchParams.get("empresaId"),
+      (tx, tenant) => consultarQuadroTabelaAdmin(tx, tenant.empresaComprovada, tabelaId),
+    );
+    return jsonNoStore({ ok: true, data });
+  } catch (error) {
+    return apiErrorResponse(error);
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -63,6 +99,10 @@ export async function POST(request: NextRequest) {
       }
       if (input.acao === "publicar") {
         await publicarTabelaPrecoAdmin(tx, { empresaId, tabelaId: input.tabelaId, usuarioId: ator.usuarioId, requestId: ator.requestId });
+        return input.tabelaId;
+      }
+      if (input.acao === "escopo") {
+        await substituirEscopoTabelaAdmin(tx, { ...input, empresaId, usuarioId: ator.usuarioId, requestId: ator.requestId });
         return input.tabelaId;
       }
       return simularPrecoPacote(input);

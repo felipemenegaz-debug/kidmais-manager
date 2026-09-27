@@ -48,6 +48,7 @@ const approvedFiles = [
   '20260926_044_ciclo_empresa.sql',
   '20260926_045_ciclo_membership.sql',
   '20260926_046_kidmais_legado_controlado.sql',
+  '20260926_047_escopo_comercial_tabela.sql',
 ];
 function inspectInventory(entries, hasCheck) {
   const r = result('migrations');

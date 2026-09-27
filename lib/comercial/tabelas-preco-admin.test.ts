@@ -118,9 +118,9 @@ test("publicar não recalcula fechamento nem ativa a tabela no fechamento públi
   assert.equal(chamadas.some((sql) => sql.includes("fechamentos")), false);
 });
 
-test("publicação recusa tabela vazia, faixa inválida, sobreposição e vigência cruzada", async () => {
+test("publicação recusa escopo ausente, faixa inválida, sobreposição e vigência cruzada", async () => {
   const casos: Array<{ trecho: string; corpo: { rows: object[]; rowCount: number }; codigo: string }> = [
-    { trecho: "AS n", corpo: { rows: [{ n: 0 }], rowCount: 1 }, codigo: "TABELA_VAZIA" },
+    { trecho: "kidmais_047_lacunas_escopo", corpo: { rows: [{ codigo: "ESCOPO_AUSENTE", detalhe: "sem escopo" }], rowCount: 1 }, codigo: "ESCOPO_AUSENTE" },
     { trecho: "convidados_min < 1", corpo: { rows: [{ "?column?": 1 }], rowCount: 1 }, codigo: "FAIXA_INVALIDA" },
     { trecho: "int4range", corpo: { rows: [{ "?column?": 1 }], rowCount: 1 }, codigo: "FAIXA_SOBREPOSTA" },
     { trecho: "daterange", corpo: { rows: [{ "?column?": 1 }], rowCount: 1 }, codigo: "VIGENCIA_SOBREPOSTA" },
@@ -166,6 +166,10 @@ test("tabela já publicada entra em conflito e o PDF não é exigido", async () 
   assert.equal(/UPDATE fechamentos|documentos_publicos|TABELA_PACOTES/.test(migration), false);
   const guarda = readFileSync("database/migrations/20260926_035_publicacao_tabela_invariantes.sql", "utf8");
   assert.match(guarda, /HG-4/);
+  const escopo = readFileSync("database/migrations/20260926_047_escopo_comercial_tabela.sql", "utf8");
+  assert.equal(/INSERT INTO tabela_preco_escopos|UPDATE precos_pacote|UPDATE tabelas_preco SET|ESSENCIAL|COMPLETA|PREMIUM|PIZZA_PARTY/.test(escopo), false);
+  assert.match(escopo, /ESCOPO_AUSENTE/);
+  assert.match(escopo, /kidmais_047_lacunas_escopo/);
   assert.match(guarda, /daterange/);
   assert.match(guarda, /Rollback possível/);
   assert.equal(/DELETE FROM|UPDATE precos_pacote SET|UPDATE tabelas_preco SET/.test(guarda), false);
