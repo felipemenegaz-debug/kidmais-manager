@@ -46,7 +46,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const bruto = await request.json();
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
     const data = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
-      const input = corpo.parse(bruto);
+      const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
       const ctx = {
         empresaId: tenant.empresaComprovada,
         usuarioId: sessao.usuario_id,

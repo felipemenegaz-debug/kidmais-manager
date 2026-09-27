@@ -17,17 +17,17 @@ const duracao = z.number().int().positive().max(1440).nullable();
 const criar = z.object({
   acao: z.literal("criar"),
   empresaId: uuid,
-  codigo,
+  codigo: codigo.optional(),
   nome,
   descricao: texto,
   duracaoMinutos: duracao,
-  motivo: z.string().trim().min(3).max(500),
+  motivo: z.string().trim().min(3).max(500).optional(),
 }).strict();
 const duplicar = z.object({
   acao: z.literal("duplicar"),
   empresaId: uuid,
   origemId: uuid,
-  codigo,
+  codigo: codigo.optional(),
   motivo: z.string().trim().min(3).max(500),
 }).strict();
 const corpo = z.discriminatedUnion("acao", [criar, duplicar]);
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     const bruto = await request.json();
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
     const data = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
-      const input = corpo.parse(bruto);
+      const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
       const ctx = {
         empresaId: tenant.empresaComprovada,
         usuarioId: sessao.usuario_id,

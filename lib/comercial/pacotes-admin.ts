@@ -1,4 +1,5 @@
 import type { DbExecutor } from "../db/contracts.ts";
+import { randomUUID } from "node:crypto";
 import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
 import { exigirVinculoNaEmpresa, sqlPacoteAdicionalMesmaEmpresa } from "./integridade-tenant.ts";
 import { filtroEmpresa } from "./tenant.ts";
@@ -132,11 +133,14 @@ async function empresaExiste(tx: DbExecutor, empresaId: string) {
 
 export async function criarPacoteAdmin(
   tx: DbExecutor,
-  input: { empresaId: string; codigo: string; nome: string; descricao: string | null; duracaoMinutos: number | null },
+  input: { empresaId: string; codigo?: string; nome: string; descricao: string | null; duracaoMinutos: number | null },
   ctx: Contexto,
 ) {
   if (input.empresaId !== ctx.empresaId) recusar("EMPRESA_DIVERGENTE", "O pacote não pode ser criado em outra empresa.", 403);
   await empresaExiste(tx, ctx.empresaId);
+  // Código técnico só nasce aqui. Revisões continuam usando o código original.
+  // O índice (empresa_id, codigo) WHERE vigente garante a unicidade no banco.
+  const cadastro = { ...input, codigo: input.codigo ?? `P_${randomUUID().replaceAll('-', '').toUpperCase()}` };
   const result = await tx.query(
     `INSERT INTO pacotes (
        empresa_id, codigo, nome, descricao, duracao_minutos, ordem_exibicao, ativo, vigente
@@ -145,14 +149,14 @@ export async function criarPacoteAdmin(
        (SELECT COALESCE(MAX(ordem_exibicao), 0) + 1 FROM pacotes),
        true, true
      ) RETURNING id`,
-    [ctx.empresaId, input.codigo, input.nome, input.descricao, input.duracaoMinutos],
+    [ctx.empresaId, cadastro.codigo, input.nome, input.descricao, input.duracaoMinutos],
   );
   const id = String((result.rows[0] as { id: string }).id);
-  await registrarMutacao(tx, ctx, "PACOTE_CRIADO", id, null, input, ctx.motivo ?? "Criação administrativa");
+  await registrarMutacao(tx, ctx, "PACOTE_CRIADO", id, null, cadastro, ctx.motivo ?? "Criação administrativa");
   return (await buscar(tx, ctx.empresaId, id))!;
 }
 
-export async function duplicarPacoteAdmin(tx: DbExecutor, origemId: string, codigo: string, ctx: Contexto) {
+export async function duplicarPacoteAdmin(tx: DbExecutor, origemId: string, codigo: string | undefined, ctx: Contexto) {
   const origem = await buscar(tx, ctx.empresaId, origemId, true);
   if (!origem) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   return criarPacoteAdmin(tx, {

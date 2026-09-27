@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import type { DbExecutor, DbQueryResult } from "../db/contracts.ts";
 import {
   alterarComposicaoPacoteAdmin,
+  criarPacoteAdmin,
   criarRevisaoPacoteAdmin,
   editarPacoteNaoUtilizado,
   listarPacotesAdmin,
@@ -11,6 +12,20 @@ import {
 } from "./pacotes-admin.ts";
 
 const ctx = { empresaId: "11111111-1111-4111-8111-111111111111", usuarioId: "usuario-1", requestId: "req-1", motivo: "Ajuste comercial" };
+
+test('criação gera código normalizado e audita no tenant comprovado sem motivo humano', async () => {
+  let codigo = '', auditado = false;
+  const tx: DbExecutor = { async query<Row extends object>(sql: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
+    if (sql.startsWith('SELECT id FROM empresas')) { assert.equal(values?.[0],ctx.empresaId); return {rows:[{id:ctx.empresaId} as Row],rowCount:1}; }
+    if (sql.startsWith('INSERT INTO pacotes')) { codigo=String(values?.[1]); assert.match(codigo,/^P_[A-F0-9]{32}$/); assert.equal(values?.[0],ctx.empresaId); assert.equal(values?.[4],167); return {rows:[{id:linha(false).id} as Row],rowCount:1}; }
+    if (sql.startsWith('INSERT INTO auditoria')) { auditado=true; assert.equal(values?.[2],'PACOTE_CRIADO'); assert.equal(values?.[7],'Criação administrativa'); const depois=JSON.parse(String(values?.[6])); assert.equal(depois.codigo,codigo); assert.equal(depois.empresaId,ctx.empresaId); return {rows:[],rowCount:1}; }
+    if (sql.includes('AS utilizado')) return {rows:[{...linha(false),codigo,duracao_minutos:167} as Row],rowCount:1};
+    throw new Error(sql);
+  }};
+  const resultado=await criarPacoteAdmin(tx,{empresaId:ctx.empresaId,nome:'Festa',descricao:null,duracaoMinutos:167},{empresaId:ctx.empresaId,usuarioId:ctx.usuarioId,requestId:ctx.requestId});
+  assert.equal(resultado.codigo,codigo); assert.equal(resultado.duracaoMinutos,167); assert.equal(auditado,true);
+  await assert.rejects(()=>criarPacoteAdmin(tx,{empresaId:'outra',nome:'Festa',descricao:null,duracaoMinutos:null},ctx),/outra empresa/);
+});
 
 function linha(utilizado: boolean) {
   return {

@@ -39,7 +39,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const bruto = await request.json();
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
     await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
-      const input = corpo.parse(bruto);
+      const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
       if (input.acao === "buffet" && input.escolhasMin > input.escolhasMax) {
         throw new PacoteAdminError("LIMITE_BUFFET", "O mínimo de escolhas não pode passar do máximo.", 409);
       }

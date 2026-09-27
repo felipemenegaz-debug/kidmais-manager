@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
     }
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
     const data = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
-      const input = corpo.parse(bruto);
+      const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
       const empresaId = tenant.empresaComprovada;
       const ator = { usuarioId: sessao.usuario_id, requestId: crypto.randomUUID(), motivo: null };
       if (input.acao === "simular_festa") return simularTabelaPublicada(tx, { ...input, empresaId });
