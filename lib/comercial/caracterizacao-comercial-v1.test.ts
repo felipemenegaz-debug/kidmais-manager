@@ -24,9 +24,19 @@ test("characterização: sete pacotes no seed, sem duração persistida e sem em
   );
 });
 
-test("characterização: 020 e 026–028 continuam ausentes; a 029 não faz backfill", () => {
+test("characterização: 020 continua ausente; 026–028 são só o perfil ao vivo; a 029 não faz backfill", () => {
   assert.equal(migrations.some((nome) => nome.includes("_020_")), false);
-  assert.equal(migrations.some((nome) => /_02[6-8]_/.test(nome)), false);
+  assert.deepEqual(
+    migrations.filter((nome) => /_02[6-8]_/.test(nome)).sort(),
+    [
+      "20260925_026_perfil_empresa_estrutura.sql",
+      "20260925_027_perfil_empresa_cadastro.sql",
+      "20260925_028_perfil_empresa_revisao_aplicacao.sql",
+    ],
+  );
+  const perfil = readFileSync("database/migrations/20260925_026_perfil_empresa_estrutura.sql", "utf8");
+  assert.match(perfil, /CREATE TABLE perfil_empresas/);
+  assert.equal(perfil.includes("CREATE TABLE empresas ("), false);
   const fotografia = readFileSync("database/migrations/20260926_029_fechamento_pacote_snapshot.sql", "utf8");
   assert.match(fotografia, /CREATE TRIGGER fechamento_pacote_snapshots_imutavel/);
   assert.match(fotografia, /CREATE TRIGGER fechamento_pacote_composicao_imutavel/);
