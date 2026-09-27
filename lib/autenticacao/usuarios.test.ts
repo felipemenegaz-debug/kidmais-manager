@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import ts from 'typescript';
@@ -18,12 +19,34 @@ class Falha extends Error {
 
 const req = createRequire(import.meta.url);
 
-function carregar() {
+const modulos = new Map<string, Record<string, unknown>>();
+
+function carregarArquivo(arquivo: string, exigir: (name: string) => unknown): Record<string, unknown> {
+    const existente = modulos.get(arquivo);
+    if (existente)
+        return existente;
     const exports: Record<string, unknown> = {};
-    const code = ts.transpileModule(readFileSync('lib/autenticacao/usuarios.ts', 'utf8'), {
+    modulos.set(arquivo, exports);
+    const code = ts.transpileModule(readFileSync(arquivo, 'utf8'), {
         compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText;
+    const diretorio = path.dirname(arquivo);
     new Function('require', 'exports', code)((name: string) => {
+        if (name.startsWith('node:'))
+            return req(name);
+        if (name.startsWith('.')) {
+            const resolvido = path.normalize(path.join(diretorio, name.endsWith('.ts') ? name : `${name}.ts`)).replace(/\\/g, '/');
+            if (resolvido.endsWith('/db/postgres.ts') || resolvido.endsWith('/auditoria.repository.ts') || resolvido.endsWith('/autenticacao/service.ts') || resolvido.endsWith('/autenticacao/senha.ts') || resolvido.endsWith('/autenticacao/papeis.ts') || resolvido.endsWith('/festas/perfis.ts'))
+                return exigir(resolvido);
+            return carregarArquivo(resolvido, exigir);
+        }
+        return exigir(name);
+    }, exports);
+    return exports;
+}
+
+function carregar() {
+    const exports = carregarArquivo('lib/autenticacao/usuarios.ts', (name: string) => {
         if (name === 'zod') return req('zod');
         if (name.endsWith('/db/postgres') || name.endsWith('/db/postgres.ts'))
             return { withTransaction: async (fn: (tx: unknown) => unknown) => fn({}) };
@@ -43,7 +66,7 @@ function carregar() {
         if (name.includes('festas/perfis'))
             return { perfis: { GESTAO: ['FESTA_CONSULTAR', 'FESTA_CRIAR', 'FESTA_OPERAR', 'FESTA_CORRIGIR', 'FESTA_CONFIGURAR_AREAS'], EQUIPE: ['FESTA_CONSULTAR', 'FESTA_OPERAR'] } };
         throw new Error('módulo não simulado: ' + name);
-    }, exports);
+    });
     return exports as {
         listarUsuariosAdministrativos: (sessao: unknown, tx: unknown) => Promise<{ usuarioId: string; usuarios: Array<{ nivelSistema: string; ativo: boolean }> }>;
         criarUsuarioAdministrativo: (sessao: unknown, raw: unknown, requestId: string, deps?: unknown) => Promise<{ nivelSistema: string; papel: string }>;
@@ -144,6 +167,7 @@ test('criação valida senha e e-mail duplicado e grava papel administrativo sep
     assert.equal(auditorias[0]?.dadosDepois?.papel, 'ADMINISTRATIVO');
     assert.equal(auditorias[1]?.acao, 'FESTA_PERFIL_APLICADO');
     assert.equal(sqls.filter((sql) => sql.includes('INSERT INTO festa_usuario_capacidades')).length, perfis.EQUIPE.length);
+    assert.equal(sqls.some((sql) => sql.includes('perfil_empresa')), false);
     assert.equal(sqls.some((sql) => sql.includes('UPDATE usuarios_administrativos SET papel')), false);
 });
 
@@ -231,6 +255,8 @@ test('desativar recusa a própria conta, exige confirmação, revoga sessões e 
         withTransaction: async (fn: (tx: unknown) => unknown) => fn({
             query: async (sql: string) => {
                 sqls.push(sql);
+                if (sql.includes('to_regclass'))
+                    return { rows: [{ empresas: null, concessoes: null }] };
                 if (sql.includes('SELECT id,nome,email,papel,ativo FROM usuarios_administrativos WHERE id=$1 FOR UPDATE'))
                     return { rows: [alvo] };
                 if (sql.includes('UPDATE usuarios_administrativos SET ativo=false'))
@@ -246,4 +272,36 @@ test('desativar recusa a própria conta, exige confirmação, revoga sessões e 
     assert.equal(auditorias[0]?.acao, 'ADMIN_DESATIVAR');
     assert.equal(sqls.some((sql) => sql.includes('DELETE FROM usuarios_administrativos')), false);
     assert.equal(sqls.some((sql) => sql.includes('revogado_em')), true);
+});
+
+test('desativar a última administradora do perfil recusa sem alterar a conta', async () => {
+    const atual = sessao();
+    const empresaId = randomUUID();
+    const alvo = { id: randomUUID(), nome: 'Titular', email: 'titular@example.invalid', papel: 'REPRESENTANTE_AUTORIZADO', ativo: true };
+    const sqls: string[] = [];
+    const auditorias: string[] = [];
+    await assert.rejects(() => desativarUsuarioAdministrativo(atual, { acao: 'desativar', usuarioId: alvo.id, confirmar: true }, 'req-ultima', {
+        criarHashSenha: async () => 'hash',
+        registrarAuditoria: async (input: { acao: string }) => { auditorias.push(input.acao); return {}; },
+        withTransaction: async (fn: (tx: unknown) => unknown) => fn({
+            query: async (sql: string, params?: unknown[]) => {
+                sqls.push(sql);
+                if (sql.includes('to_regclass'))
+                    return { rows: [{ empresas: 'perfil_empresas', concessoes: 'perfil_empresa_concessoes' }] };
+                if (sql.includes('FROM public.perfil_empresas'))
+                    return { rows: [{ id: empresaId }] };
+                if (sql.includes('pg_advisory_xact_lock'))
+                    return { rows: [] };
+                if (sql.includes('FOR UPDATE OF c'))
+                    return { rows: [{ empresa_id: empresaId, usuario_id: alvo.id, papel: 'REPRESENTANTE_AUTORIZADO', ativo: true }] };
+                if (sql.includes('FOR UPDATE') && sql.includes('usuarios_administrativos'))
+                    return { rows: [alvo] };
+                throw new Error(sql + String(params));
+            },
+        }),
+    }), (error: unknown) => typeof error === 'object' && error !== null && 'httpStatus' in error && error.httpStatus === 409);
+    assert.deepEqual(auditorias, ['PERFIL_REVOGACAO_RECUSADA']);
+    assert.equal(sqls.some((sql) => sql.includes('SET ativo=false')), false);
+    assert.equal(sqls.some((sql) => sql.includes('sessoes_administrativas')), false);
+    assert.equal(alvo.ativo, true);
 });
