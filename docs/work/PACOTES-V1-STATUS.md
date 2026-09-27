@@ -2,7 +2,75 @@
 
 Documento temporário de continuidade. Não é fonte funcional. A decisão de produto permanece no Second Brain e no Goal Mestre. O Goal permanece aberto.
 
-## Estado atual — corrida do DOWN da 043 fechada, Goal aberto
+## Estado atual — HG-6 provado em transação desfeita, Goal aberto
+
+- Branch: `integration/saas-commercial-foundation`
+- Upstream: `origin/integration/saas-commercial-foundation`. Não rastrear este trabalho em `origin/staging`. `origin/staging` não foi movido.
+- Base desta passagem: `d9ee9a8200780875fba34751d0c6de6d707d31dc`. Não houve rebase. Os arquivos 020, 031 e 036–045 não foram reescritos.
+- Código desta passagem, antes deste status: `bbd1b1c81572550b2bdb13f618413470c9a7975a`
+- Este arquivo entra no commit seguinte. O HEAD da branch, depois desse commit, é o commit de status.
+
+Commits desta passagem, autor e committer Felipe Menegaz `<324788905+felipemenegaz-debug@users.noreply.github.com>`:
+
+| SHA | Assunto |
+| --- | --- |
+| `f46191edf0efd3c408719231caa2844a86f1190b` | atribui o legado comercial à Kidmais numa migration controlada |
+| `9e9277a3daf1c79645350418a459384b1e71d22a` | tira o espaço sobrando do precheck da 046 |
+| `bbd1b1c81572550b2bdb13f618413470c9a7975a` | prova a atribuição da Kidmais sem gravar a identidade |
+
+### Gate de identidade
+
+Aprovado pelo humano para o representante autorizado ativo. A migration 046 resolve `usuario_id` na hora da aplicação, com `lower(btrim(email))`, e exige exatamente uma linha, `ativo` e `REPRESENTANTE_AUTORIZADO`. O UUID não entra no SQL de produto. Senha, papel e `ativo` não são alterados para a prova passar. Membership nasce `PENDENTE` e só então vai a `ATIVA`, com auditoria. Não há `SUSPENSA` nem reuso de linha revogada. O papel global continua em `usuarios_administrativos.papel`.
+
+### Inventário e limpeza no banco descartável
+
+`kidmais_pacotes_v1_descartavel` em `127.0.0.1:55498`. `current_database()` e `inet_server_port()` conferidos antes da escrita.
+
+`FESTA_LOCAL`, `FESTA_COPIA`, `TABELA_NOVA` e `empresa-local` não tinham contrato, fechamento, fotografia, assinatura, pagamento nem festa. O histórico de cliente também não apontava para eles. As únicas referências eram o vínculo sintético `FESTA_LOCAL` → `SALADA_PREMIUM`, uma categoria de buffet, a tabela vazia publicada de teste e seis linhas imutáveis de auditoria `CRM_INTERNO` da própria criação desses pacotes. A limpeza apagou só essas linhas de catálogo, no banco descartável, fora de migration. A auditoria permaneceu. `SALADA_PREMIUM` não foi apagada. Os sete pacotes, os fechamentos e o contrato oficiais permaneceram.
+
+Não houve migration de `DELETE`. `FESTA_LOCAL` não entrou nos sete, não foi associada à Kidmais e não foi colocada em lista branca.
+
+### Migration 046
+
+`database/migrations/20260926_046_kidmais_legado_controlado.sql`. 046 estava livre. Empresa `kidmais` / `Kidmais` nasce em `PROVISIONAMENTO` e só então passa a `ATIVA`. Não copia a 020 e não cria outra `empresas`.
+
+O conjunto sem empresa tem de ser exatamente `POCKET`, `MINI_FESTA`, `COMPACTA`, `ESSENCIAL`, `COMPLETA`, `PREMIUM` e `PIZZA_PARTY`. `SALADA_PREMIUM` só acompanha se estiver `INCLUSO` em `PREMIUM`. Adicionais e tabelas não publicadas ligados a esse conjunto acompanham na mesma transação, para a 040 não ver empresa/NULL nem NULL/empresa. Vínculo de pacote fora dos sete aborta a migration; ela não apaga essa linha. Preço, fotografia e contratação não mudam. A guarda de nulo para empresa é desligada só nos três gatilhos de imutabilidade, durante o `UPDATE`, e religada antes do fim. Não há parâmetro de sessão. A CLI sintética continua recusando a substring `kidmais`.
+
+### O que o banco descartável confirmou, e o que não confirmou
+
+A prova inseriu a identidade só dentro de uma transação que sempre voltou atrás. Nessa transação, a 046 aplicou, a guarda 036 continuou recusando nulo para empresa, e a 040 instalou sem lista branca. O `ROLLBACK` removeu empresa, membership, atribuição, a função da 040 e a identidade. Nada disso ficou commitado.
+
+Por isso P0-02 não está fechado em `kidmais_pacotes_v1_descartavel`: a função da 040 continua ausente. Os sete pacotes seguem com `empresa_id` NULL. `SALADA_PREMIUM` segue sem empresa. Não há linha `kidmais`. A identidade aprovada não foi gravada nesse banco.
+
+### HG-4
+
+Parado. Os documentos comerciais do repositório não definem a cobertura mínima para publicar uma tabela de preço. A guarda atual só recusa tabela vazia. Não inventei regra.
+
+Perguntas, numa lista só:
+
+1. Publicar exige ao menos um preço ativo, todos os pacotes oficiais da empresa, ou um subconjunto já documentado?
+2. Cada pacote coberto precisa das duas categorias de horário, ou uma basta?
+3. A tabela publicada precisa cobrir todas as faixas de convidados vendidas pelo pacote, ou só as faixas que o rascunho já tem?
+4. `PIZZA_PARTY`, hoje sem preço, pode ficar de fora de uma tabela publicada?
+
+### O que permanece
+
+- HG-8 fechado nas fatias já revisadas. `withTransaction` global não mudou. A ordem da prova continua usuário → empresa → membership.
+- Perfil da Empresa aberto. `perfil_empresas` não foi fundido em `empresas`.
+- D03 adiado. Estabelecimento operacional continua fechado.
+- O catálogo público permanece fechado (`403` `CATALOGO_PUBLICO_INDETERMINADO`).
+- Sem merge, sem deploy e sem escrita em staging ou produção. O Goal não está completo.
+
+### Validação desta passagem
+
+- PostgreSQL descartável: HG-6 e HG-8 passaram. A remediação, reexecutada depois de replantar o vínculo incompatível na prova da 040, ficou em 30 testes e 0 falhas.
+- `node --test scripts/production/production.test.mjs`: 35 passaram.
+- `npx tsc --noEmit`: passou.
+- `git diff --check`: o precheck da 046 perdeu o espaço sobrando no commit seguinte; o restante passou.
+
+O Goal não está completo. Parado em HG-4, na lista acima. Não é merge nem deploy.
+
+## HISTÓRICO — corrida do DOWN da 043 fechada, Goal aberto
 
 - Branch: `integration/saas-commercial-foundation`
 - Upstream: `origin/integration/saas-commercial-foundation`. Não rastrear este trabalho em `origin/staging`.
