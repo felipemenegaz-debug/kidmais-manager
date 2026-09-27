@@ -1,7 +1,7 @@
-import type { DbExecutor } from "../../db/contracts";
-import { db } from "../../db/postgres";
-import { recusarCatalogoPublicoSemTenant } from "../autorizacao-tenant";
-import { limitesPizzaParty } from '../pacotes-v1';
+import type { DbExecutor } from "../../db/contracts.ts";
+import { db } from "../../db/postgres.ts";
+import { recusarCatalogoPublicoSemTenant } from "../autorizacao-tenant.ts";
+import { limitesPizzaParty } from "../pacotes-v1.ts";
 import type {
   AdicionalComPrecoRecord,
   BuscarPrecoPacoteAplicavelInput,

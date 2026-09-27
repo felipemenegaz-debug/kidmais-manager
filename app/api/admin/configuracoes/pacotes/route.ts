@@ -46,8 +46,10 @@ const salvar = z.object({
   duracaoMinutos: z.number().int().positive().max(1440),
   convidadosMinimos: z.number().int().positive().max(10000),
   convidadosMaximos: z.number().int().positive().max(10000),
-  dias: z.array(z.number().int().min(1).max(7)).max(7),
-  horariosIds: z.array(uuid).max(24),
+  disponibilidade: z.array(z.object({
+    dia: z.number().int().min(1).max(7),
+    horarioId: uuid,
+  }).strict()).max(168),
   faixas: z.array(faixa).max(40).nullable(),
   categorias: z.array(z.object({
     categoriaId: uuid,

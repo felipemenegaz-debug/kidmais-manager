@@ -1,6 +1,6 @@
-import type { DbExecutor } from "../../db/contracts";
-import { db } from "../../db/postgres";
-import { erroConvidadosPizzaParty } from '../pacotes-v1';
+import type { DbExecutor } from "../../db/contracts.ts";
+import { db } from "../../db/postgres.ts";
+import { erroConvidadosPizzaParty } from "../pacotes-v1.ts";
 import {
   buscarCategoriaHorarioAplicavel,
   buscarElegibilidadePacoteAplicavel,
@@ -13,8 +13,8 @@ import {
   listarPacotesAtivosComElegibilidade,
   type AdicionalComPrecoRecord,
   type RegraDescontoPacoteRecord,
-} from "../repositories";
-import { PricingServiceError } from "./errors";
+} from "../repositories/index.ts";
+import { PricingServiceError } from "./errors.ts";
 import type {
   AdicionalPrecificado,
   AdicionalSelecionadoInput,
@@ -103,16 +103,46 @@ async function executarConsultasCompatíveisComTransacao<A, B>(
 async function tabelaParaContratacao(data: string, empresaId: string | null | undefined, customDb?: DbExecutor) {
   if (!empresaId) return buscarTabelaPrecoVigente(data, customDb);
   const tabelas = await listarTabelasPrecoDaEmpresa(empresaId, data, customDb);
-  if (tabelas.length > 1) {
+  if (tabelas.length !== 1) {
     throw new PricingServiceError(
-      "PRECO_AMBIGUO",
-      "Há mais de um preço valendo ao mesmo tempo. Nada foi calculado.",
-      409,
+      tabelas.length > 1 ? "PRECO_AMBIGUO" : "TABELA_PRECO_NAO_CONFIGURADA",
+      tabelas.length > 1
+        ? "Há mais de um preço valendo ao mesmo tempo. Nada foi calculado."
+        : "Não existe tabela de preço vigente para a data selecionada.",
+      tabelas.length > 1 ? 409 : 503,
       { data },
     );
   }
-  if (tabelas.length === 1) return tabelas[0];
-  return buscarTabelaPrecoVigente(data, customDb);
+  return tabelas[0];
+}
+
+async function tabelaDoCalculo(
+  data: string,
+  empresaId: string | null | undefined,
+  tabelaPrecoId: string | null | undefined,
+  customDb?: DbExecutor,
+) {
+  if (!empresaId) {
+    if (tabelaPrecoId) {
+      throw new PricingServiceError(
+        "TABELA_PRECO_NAO_CONFIGURADA",
+        "Não existe tabela de preço vigente para a data selecionada.",
+        503,
+        { data },
+      );
+    }
+    return tabelaParaContratacao(data, empresaId, customDb);
+  }
+  const corrente = await tabelaParaContratacao(data, empresaId, customDb);
+  if (tabelaPrecoId && corrente?.id !== tabelaPrecoId) {
+    throw new PricingServiceError(
+      "TABELA_PRECO_NAO_CONFIGURADA",
+      "Não existe tabela de preço vigente para a data selecionada.",
+      503,
+      { data },
+    );
+  }
+  return corrente;
 }
 
 function validarBase(input: ObterContextoComercialInput) {
@@ -129,7 +159,7 @@ export async function obterContextoComercial(
   const [tabelaPreco, regraCategoria] =
     await executarConsultasCompatíveisComTransacao(
       customDb,
-      () => tabelaParaContratacao(input.data, input.empresaId, customDb),
+      () => tabelaDoCalculo(input.data, input.empresaId, input.tabelaPrecoId, customDb),
       () =>
         buscarCategoriaHorarioAplicavel(
           input.data,
@@ -403,7 +433,7 @@ export async function listarCatalogoAdicionais(
   validarDataIso(input.data);
   validarConvidados(input.convidados);
 
-  const tabelaPreco = await buscarTabelaPrecoVigente(input.data, customDb);
+  const tabelaPreco = await tabelaParaContratacao(input.data, input.empresaId, customDb);
 
   if (!tabelaPreco) {
     throw new PricingServiceError(
@@ -521,7 +551,7 @@ export async function precificarAdicionais(
   validarConvidados(input.convidados);
 
   const selecoes = normalizarSelecoesAdicionais(input.itens ?? []);
-  const tabelaPreco = await buscarTabelaPrecoVigente(input.data, customDb);
+  const tabelaPreco = await tabelaDoCalculo(input.data, input.empresaId, input.tabelaPrecoId, customDb);
 
   if (!tabelaPreco) {
     throw new PricingServiceError(
@@ -587,12 +617,32 @@ export async function calcularResumoComercial(
   input: CalcularResumoComercialInput,
   customDb?: DbExecutor,
 ): Promise<ResumoComercial> {
-  const pacote = await precificarPacote(input, customDb);
+  const pacoteBase = await buscarPacoteAtivoPorId(input.pacoteId, customDb);
+  if (!pacoteBase) {
+    throw new PricingServiceError(
+      "PACOTE_NAO_ENCONTRADO",
+      "O pacote informado não existe ou está inativo.",
+      404,
+      { pacoteId: input.pacoteId },
+    );
+  }
+  const tabela = await tabelaDoCalculo(input.data, pacoteBase.empresaId, input.tabelaPrecoId, customDb);
+  if (!tabela) {
+    throw new PricingServiceError(
+      "TABELA_PRECO_NAO_CONFIGURADA",
+      "Não existe tabela de preço vigente para a data selecionada.",
+      503,
+      { data: input.data },
+    );
+  }
+  const pacote = await precificarPacote({ ...input, tabelaPrecoId: tabela.id, empresaId: pacoteBase.empresaId }, customDb);
   const adicionais = await precificarAdicionais(
     {
       data: input.data,
       convidados: input.convidados,
       itens: input.adicionais ?? [],
+      empresaId: pacoteBase.empresaId,
+      tabelaPrecoId: tabela.id,
     },
     customDb,
   );

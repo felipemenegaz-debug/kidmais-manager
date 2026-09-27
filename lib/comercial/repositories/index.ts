@@ -1,2 +1,2 @@
-export * from "./models";
-export * from "./comercial.repository";
+export * from "./models.ts";
+export * from "./comercial.repository.ts";

@@ -2,16 +2,17 @@ import type { DbExecutor } from "../db/contracts.ts";
 import type { FaixaFixa } from "./modelo-preco.ts";
 import { ModeloPrecoError } from "./modelo-preco.ts";
 import { MOTIVOS_PACOTE, motivoOu } from "./motivos-pacote.ts";
-import { copiarPrecosPacote, gravarFaixasPacote, lerFaixasPacote } from "./pacote-precos.ts";
+import { aplicarPrecoDaRevisao, copiarPrecosPacote, gravarFaixasPacote, lerFaixasPacote } from "./pacote-precos.ts";
 import {
   PacoteAdminError,
   consultarPacoteAdmin,
   criarPacoteAdmin,
-  criarRevisaoPacoteAdmin,
   definirCategoriasPacoteAdmin,
   definirDisponibilidadePacoteAdmin,
   duplicarPacoteAdmin,
   editarPacoteNaoUtilizado,
+  inserirRevisaoPacoteAdmin,
+  promoverRevisaoPacoteAdmin,
   type PacoteAdmin,
 } from "./pacotes-admin.ts";
 
@@ -24,8 +25,7 @@ export type SalvarPacoteComercial = {
   duracaoMinutos: number;
   convidadosMinimos: number;
   convidadosMaximos: number;
-  dias: number[];
-  horariosIds: string[];
+  disponibilidade: Array<{ dia: number; horarioId: string }>;
   faixas: FaixaFixa[] | null;
   categorias: Array<{ categoriaId: string; escolhas: number }>;
 };
@@ -70,8 +70,10 @@ export async function painelPacoteAdmin(tx: DbExecutor, empresaId: string, id: s
   const faixas = await lerFaixasPacote(tx, empresaId, id);
   return {
     pacote: atual,
-    dias: [...new Set(disponibilidade.rows.map((linha) => Number(linha.dia_semana)))],
-    horariosIds: [...new Set(disponibilidade.rows.map((linha) => linha.configuracao_agenda_id))],
+    disponibilidade: disponibilidade.rows.map((linha) => ({
+      dia: Number(linha.dia_semana),
+      horarioId: linha.configuracao_agenda_id,
+    })),
     categorias: categorias.rows.map((linha) => ({
       categoriaId: linha.categoria_id,
       escolhas: Number(linha.escolhas_max),
@@ -90,41 +92,33 @@ export async function salvarPacoteComercial(
   const motivo = motivoOu(ctx.motivo, input.id ? MOTIVOS_PACOTE.editado : "Criação administrativa");
   const contexto = { ...ctx, motivo };
   let pacote: PacoteAdmin;
+  let revisao: { origem: PacoteAdmin; novaId: string } | null = null;
+  const dados = {
+    nome: input.nome,
+    descricao: input.descricao,
+    duracaoMinutos: input.duracaoMinutos,
+    convidadosMinimos: input.convidadosMinimos,
+    convidadosMaximos: input.convidadosMaximos,
+  };
   try {
     if (!input.id) {
-      pacote = await criarPacoteAdmin(tx, {
-        empresaId: ctx.empresaId,
-        nome: input.nome,
-        descricao: input.descricao,
-        duracaoMinutos: input.duracaoMinutos,
-        convidadosMinimos: input.convidadosMinimos,
-        convidadosMaximos: input.convidadosMaximos,
-      }, contexto);
+      pacote = await criarPacoteAdmin(tx, { empresaId: ctx.empresaId, ...dados }, contexto);
     } else {
       const atual = await consultarPacoteAdmin(tx, ctx.empresaId, input.id);
       if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
       if (atual.arquivadoEm) recusar("ARQUIVADO", "Pacote arquivado não é editado por esta ação.", 409);
-      pacote = atual.utilizado
-        ? await criarRevisaoPacoteAdmin(tx, input.id, {
-          nome: input.nome,
-          descricao: input.descricao,
-          duracaoMinutos: input.duracaoMinutos,
-          convidadosMinimos: input.convidadosMinimos,
-          convidadosMaximos: input.convidadosMaximos,
-        }, contexto)
-        : await editarPacoteNaoUtilizado(tx, input.id, {
-          nome: input.nome,
-          descricao: input.descricao,
-          duracaoMinutos: input.duracaoMinutos,
-          convidadosMinimos: input.convidadosMinimos,
-          convidadosMaximos: input.convidadosMaximos,
-        }, contexto);
+      if (atual.utilizado) {
+        revisao = await inserirRevisaoPacoteAdmin(tx, input.id, dados, contexto);
+        pacote = { ...revisao.origem, id: revisao.novaId, nome: input.nome, vigente: false, revisaoAnteriorId: input.id, utilizado: false };
+      } else {
+        pacote = await editarPacoteNaoUtilizado(tx, input.id, dados, contexto);
+      }
     }
   } catch (error) {
     if (error instanceof ModeloPrecoError) recusar("DADOS_INVALIDOS", error.message, 409);
     throw error;
   }
-  await definirDisponibilidadePacoteAdmin(tx, pacote.id, { dias: input.dias, horariosIds: input.horariosIds }, contexto);
+  await definirDisponibilidadePacoteAdmin(tx, pacote.id, { disponibilidade: input.disponibilidade }, contexto);
   const comCategorias = await definirCategoriasPacoteAdmin(
     tx,
     pacote.id,
@@ -133,20 +127,35 @@ export async function salvarPacoteComercial(
   );
   let avisoPrecos: string | null = null;
   try {
-    const precos = await gravarFaixasPacote(
-      tx,
-      ctx.empresaId,
-      comCategorias.id,
-      input.faixas,
-      { minimo: input.convidadosMinimos, maximo: input.convidadosMaximos },
-      contexto,
-    );
-    avisoPrecos = precos.aviso;
+    if (revisao && input.id) {
+      const precos = await aplicarPrecoDaRevisao(
+        tx,
+        ctx.empresaId,
+        input.id,
+        revisao.novaId,
+        input.faixas,
+        { minimo: input.convidadosMinimos, maximo: input.convidadosMaximos },
+        contexto,
+      );
+      avisoPrecos = precos.aviso;
+      pacote = await promoverRevisaoPacoteAdmin(tx, input.id, revisao.novaId, dados, contexto, { origem: revisao.origem });
+    } else {
+      const precos = await gravarFaixasPacote(
+        tx,
+        ctx.empresaId,
+        comCategorias.id,
+        input.faixas,
+        { minimo: input.convidadosMinimos, maximo: input.convidadosMaximos },
+        contexto,
+      );
+      avisoPrecos = precos.aviso;
+      pacote = comCategorias;
+    }
   } catch (error) {
     if (error instanceof ModeloPrecoError) recusar("DADOS_INVALIDOS", error.message, 409);
     throw error;
   }
-  return { pacote: comCategorias, avisoPrecos };
+  return { pacote, avisoPrecos };
 }
 
 export async function duplicarPacoteComercial(tx: DbExecutor, origemId: string, ctx: Contexto) {

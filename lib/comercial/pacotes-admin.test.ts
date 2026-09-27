@@ -87,9 +87,17 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
         assert.equal(text.includes("nome"), false);
         return { rows: [{ id: linha(true).id } as Row], rowCount: 1 };
       }
+      if (text.startsWith("UPDATE pacotes SET vigente = true")) {
+        return { rows: [{ id: "33333333-3333-4333-8333-333333333333" } as Row], rowCount: 1 };
+      }
       if (text.startsWith("INSERT INTO pacotes")) {
+        assert.match(text, /true, false, \$8::uuid/);
         assert.equal(values?.[7], linha(true).id);
         return { rows: [{ id: "33333333-3333-4333-8333-333333333333" } as Row], rowCount: 1 };
+      }
+      if (text.includes("count(*)::int AS n")) return { rows: [{ n: 1 } as Row], rowCount: 1 };
+      if (text.includes("FROM tabelas_preco") || text.includes("kidmais_037") || text.includes("pg_advisory_xact_lock") || text.includes("kidmais_047")) {
+        return { rows: [], rowCount: 0 };
       }
       if (text.startsWith("INSERT INTO auditoria")) {
         assert.equal(values?.[2], "PACOTE_REVISADO");
@@ -110,7 +118,10 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
   };
   const criada = await criarRevisaoPacoteAdmin(revisao, linha(true).id, { nome: "Revisão", descricao: null, duracaoMinutos: null }, ctx);
   assert.equal(criada.revisaoAnteriorId, linha(true).id);
-  assert.equal(chamadas.some((sql) => sql.includes("DELETE") || sql.includes("precos_pacote")), false);
+  assert.equal(chamadas.some((sql) => sql.startsWith("DELETE")), false);
+  const promocao = chamadas.findIndex((sql) => sql.startsWith("UPDATE pacotes SET vigente = true"));
+  const copia = chamadas.findIndex((sql) => sql.includes("count(*)::int AS n"));
+  assert.equal(copia >= 0 && copia < promocao, true);
   assert.equal(chamadas.filter((sql) => sql.includes("INSERT INTO auditoria")).length, 1);
   for (const tabela of ["pacote_adicionais", "pacote_buffet_categorias", "pacote_buffet_itens", "regras_desconto_pacote", "regras_disponibilidade_pacote"]) {
     assert.equal(chamadas.filter((sql) => sql.startsWith(`INSERT INTO ${tabela}`)).length, 1);
@@ -133,6 +144,7 @@ test("composição de pacote utilizado cria revisão e não reescreve a anterior
       }
       if (text.startsWith("UPDATE pacotes SET vigente = false")) return { rows: [{ id: linha(true).id } as Row], rowCount: 1 };
       if (text.startsWith("INSERT INTO pacotes")) return { rows: [{ id: novaId } as Row], rowCount: 1 };
+      if (text.includes("count(*)::int AS n")) return { rows: [{ n: 1 } as Row], rowCount: 1 };
       escritas.push({ text, values });
       return { rows: [], rowCount: 1 };
     },
@@ -160,7 +172,7 @@ test("composição de pacote utilizado cria revisão e não reescreve a anterior
   const upsert = escritas.find((item) => item.text.includes("ON CONFLICT (pacote_id, adicional_id)"));
   assert.equal(upsert?.values?.[0], novaId);
   assert.equal(escritas.some((item) => !item.text.trimStart().startsWith("SELECT") && item.values?.[0] === linha(true).id), false);
-  assert.equal(escritas.some((item) => item.text.includes("precos_pacote")), false);
+  assert.equal(escritas.some((item) => !item.text.trimStart().startsWith("SELECT") && item.text.includes("precos_pacote")), false);
 });
 
 test("composição cruzando empresas é recusada antes de gravar", async () => {

@@ -13,14 +13,21 @@ export type PricingServiceErrorCode =
   | "PRECO_ADICIONAL_NAO_CONFIGURADO";
 
 export class PricingServiceError extends Error {
+  readonly code: PricingServiceErrorCode;
+  readonly httpStatus: number;
+  readonly details?: Record<string, unknown>;
+
   constructor(
-    public readonly code: PricingServiceErrorCode,
+    code: PricingServiceErrorCode,
     message: string,
-    public readonly httpStatus = 400,
-    public readonly details?: Record<string, unknown>,
+    httpStatus = 400,
+    details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "PricingServiceError";
+    this.code = code;
+    this.httpStatus = httpStatus;
+    this.details = details;
   }
 }
 

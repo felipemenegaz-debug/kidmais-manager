@@ -73,6 +73,13 @@ test('precificação recusa 19/101 e mantém SOB_CONSULTA dentro de 20–100', a
       buscarElegibilidadePacoteAplicavel: async () => ({ estado: 'SOB_CONSULTA' }),
       buscarPrecoPacoteAplicavel: async () => { throw Error('Não deve precificar base Pizza'); },
     },
+    [resolve('lib/comercial/repositories/index')]: {
+      buscarPacoteAtivoPorId: async () => ({ id: 'pizza', codigo: 'PIZZA_PARTY', convidadosMinimos: 20, convidadosMaximos: 100 }),
+      buscarTabelaPrecoVigente: async () => ({ id: 'tabela' }),
+      buscarCategoriaHorarioAplicavel: async () => ({ categoriaHorario: 'PADRAO' }),
+      buscarElegibilidadePacoteAplicavel: async () => ({ estado: 'SOB_CONSULTA' }),
+      buscarPrecoPacoteAplicavel: async () => { throw Error('Não deve precificar base Pizza'); },
+    },
   });
   const { precificarPacote } = load('lib/comercial/services/pricing.service');
   for (const convidados of [19, 20, 79, 80, 100, 101]) {

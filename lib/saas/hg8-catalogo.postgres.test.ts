@@ -129,6 +129,9 @@ async function limpar(client: Client) {
   await client.query("ALTER TABLE memberships DISABLE TRIGGER USER");
   await client.query("ALTER TABLE empresas DISABLE TRIGGER USER");
   await client.query("ALTER TABLE precos_pacote DISABLE TRIGGER USER");
+  await client.query("ALTER TABLE tabelas_preco DISABLE TRIGGER USER");
+  await client.query("ALTER TABLE tabela_preco_escopos DISABLE TRIGGER USER");
+  await client.query("ALTER TABLE tabela_preco_escopo_faixas DISABLE TRIGGER USER");
   try {
     for (const empresaId of empresas.rows.map((row) => row.id)) {
       await client.query(
@@ -153,7 +156,26 @@ async function limpar(client: Client) {
              OR pacote_id IN (SELECT id FROM pacotes WHERE empresa_id = $1::uuid)`,
         [empresaId],
       );
+      await client.query(
+        `DELETE FROM tabela_preco_escopo_faixas
+          WHERE escopo_id IN (
+            SELECT e.id FROM tabela_preco_escopos e
+             WHERE e.tabela_preco_id IN (SELECT id FROM tabelas_preco WHERE empresa_id = $1::uuid)
+                OR e.pacote_id IN (SELECT id FROM pacotes WHERE empresa_id = $1::uuid)
+          )`,
+        [empresaId],
+      );
+      await client.query(
+        `DELETE FROM tabela_preco_escopos
+          WHERE tabela_preco_id IN (SELECT id FROM tabelas_preco WHERE empresa_id = $1::uuid)
+             OR pacote_id IN (SELECT id FROM pacotes WHERE empresa_id = $1::uuid)`,
+        [empresaId],
+      );
       await client.query("DELETE FROM pacotes WHERE empresa_id = $1::uuid", [empresaId]);
+      await client.query(
+        `UPDATE tabelas_preco SET substituida_por_id = NULL, substituida_em = NULL WHERE empresa_id = $1::uuid`,
+        [empresaId],
+      );
       await client.query("DELETE FROM tabelas_preco WHERE empresa_id = $1::uuid", [empresaId]);
       await client.query("DELETE FROM adicionais WHERE empresa_id = $1::uuid", [empresaId]);
       await client.query("DELETE FROM memberships WHERE empresa_id = $1::uuid", [empresaId]);
@@ -161,6 +183,9 @@ async function limpar(client: Client) {
     }
     await client.query("DELETE FROM usuarios_administrativos WHERE email LIKE 'hg8c%@example.test'");
   } finally {
+    await client.query("ALTER TABLE tabela_preco_escopo_faixas ENABLE TRIGGER USER");
+    await client.query("ALTER TABLE tabela_preco_escopos ENABLE TRIGGER USER");
+    await client.query("ALTER TABLE tabelas_preco ENABLE TRIGGER USER");
     await client.query("ALTER TABLE precos_pacote ENABLE TRIGGER USER");
     await client.query("ALTER TABLE empresas ENABLE TRIGGER USER");
     await client.query("ALTER TABLE memberships ENABLE TRIGGER USER");
@@ -298,7 +323,7 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
       )).rows[0].id;
       const tabelaId = (await db.query<{ id: string }>(
         `INSERT INTO tabelas_preco (empresa_id, codigo, nome, vigencia_inicio, vigencia_fim, ativa)
-         VALUES ($1::uuid, $2, 'Tabela HG8', DATE '2098-01-01', DATE '2098-06-30', false) RETURNING id`,
+         VALUES ($1::uuid, $2, 'Tabela HG8', CURRENT_DATE, NULL, false) RETURNING id`,
         [empresaId, codigo("hg8t")],
       )).rows[0].id;
       const precoId = (await db.query<{ id: string }>(
@@ -326,6 +351,17 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
          )`,
         [agenda, pacoteId, tabelaId, precoId],
       );
+      const escopoComposicao = await db.query<{ id: string }>(
+        `INSERT INTO tabela_preco_escopos (
+           tabela_preco_id, pacote_id, categoria_horario, cobertura_continua
+         ) VALUES ($1::uuid, $2::uuid, 'PADRAO', true) RETURNING id`,
+        [tabelaId, pacoteId],
+      );
+      await db.query(
+        `INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max) VALUES ($1::uuid, 20, 40)`,
+        [escopoComposicao.rows[0].id],
+      );
+      await db.query(`UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid`, [tabelaId]);
       const modulo = carregarCatalogo({ usuario_id: usuarioId, papel: "REPRESENTANTE_AUTORIZADO" });
       const patch = modulo.PATCH as (request: object) => Promise<{ status: number; json: () => Promise<unknown> }>;
       const resposta = await corpo(await patch(pedido({
@@ -379,7 +415,7 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
       )).rows[0].id;
       const tabelaId = (await db.query<{ id: string }>(
         `INSERT INTO tabelas_preco (empresa_id, codigo, nome, vigencia_inicio, vigencia_fim, ativa)
-         VALUES ($1::uuid, $2, 'Tabela regra', DATE '2098-07-01', DATE '2098-12-31', false) RETURNING id`,
+         VALUES ($1::uuid, $2, 'Tabela regra', CURRENT_DATE, NULL, false) RETURNING id`,
         [empresaId, codigo("hg8u")],
       )).rows[0].id;
       const precoId = (await db.query<{ id: string }>(
@@ -407,6 +443,17 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
          )`,
         [agenda, pacoteId, tabelaId, precoId],
       );
+      const escopoRegra = await db.query<{ id: string }>(
+        `INSERT INTO tabela_preco_escopos (
+           tabela_preco_id, pacote_id, categoria_horario, cobertura_continua
+         ) VALUES ($1::uuid, $2::uuid, 'PADRAO', true) RETURNING id`,
+        [tabelaId, pacoteId],
+      );
+      await db.query(
+        `INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max) VALUES ($1::uuid, 20, 40)`,
+        [escopoRegra.rows[0].id],
+      );
+      await db.query(`UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid`, [tabelaId]);
       const modulo = carregarCatalogo({ usuario_id: usuarioId, papel: "REPRESENTANTE_AUTORIZADO" });
       const patch = modulo.PATCH as (request: object) => Promise<{ status: number; json: () => Promise<unknown> }>;
       const resposta = await corpo(await patch(pedido({
@@ -436,7 +483,7 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
         [pacoteId, empresaId, categoriaId],
       );
       assert.equal(nova.rows.length, 1);
-      assert.equal(nova.rows[0].modo, "SELECIONADOS");
+      assert.equal(nova.rows[0].modo, "TODOS_ATIVOS");
       assert.equal(Number(nova.rows[0].minimo), 0);
       assert.equal(Number(nova.rows[0].maximo), 2);
       const auditoria = await db.query<{ acao: string; n: number }>(

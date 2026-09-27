@@ -16,6 +16,7 @@ const AVISO_HORARIO = "Este pacote tem preços diferentes conforme o horário. A
 const AVISO_POR_CONVIDADO = "Este pacote cobra por convidado. A tela de faixas não altera esse cálculo.";
 const PRECO_BLOQUEADO = "Não consegui aplicar o preço novo sem mudar o que já foi contratado. Nada foi salvo.";
 const PRECO_NAO_SALVO = "Não foi possível guardar os preços. Nada foi salvo.";
+const PRECO_NAO_PRESERVADO = "Não foi possível preservar o preço atual deste pacote. Nenhuma alteração foi salva.";
 
 function faixasIguais(atuais: FaixaFixa[], anteriores: FaixaFixa[]) {
   if (atuais.length !== anteriores.length) return false;
@@ -115,6 +116,7 @@ function codigoTabela() {
 }
 
 async function travarEmpresa(tx: DbExecutor, empresaId: string) {
+  await tx.query(`SELECT pg_advisory_xact_lock(hashtext('kidmais-048-supersessao'))`);
   await tx.query(`SELECT kidmais_037_trava_publicacao($1::uuid)`, [empresaId]);
 }
 
@@ -382,6 +384,58 @@ async function copiarPacoteNaTabela(tx: DbExecutor, origemTabelaId: string, orig
        JOIN tabela_preco_escopo_faixas f ON f.escopo_id = e.id`,
     [destinoTabelaId, destinoPacoteId, origemTabelaId, origemPacoteId],
   );
+}
+
+/**
+ * Uma revisão de pacote utilizado e a troca de faixas compartilham a mesma sucessora.
+ * O save não pode publicar B e em seguida substituir B por C.
+ */
+export async function aplicarPrecoDaRevisao(
+  tx: DbExecutor,
+  empresaId: string,
+  origemPacoteId: string,
+  destinoPacoteId: string,
+  faixas: FaixaFixa[] | null,
+  limites: { minimo: number; maximo: number },
+  ctx: Contexto,
+) {
+  await travarEmpresa(tx, empresaId);
+  const origemTabelaId = await travarCorrente(tx, empresaId);
+  const linhas = origemTabelaId ? await linhasDaTabela(tx, empresaId, origemPacoteId, origemTabelaId) : [];
+  if (faixas == null) {
+    if (!origemTabelaId || linhas.length === 0) recusar("PRECO_INCOMPLETO", PRECO_NAO_PRESERVADO, 409);
+    const tabelaId = await criarNaoPublicada(tx, empresaId, origemTabelaId);
+    await copiarAgregado(tx, empresaId, origemTabelaId, tabelaId);
+    await copiarPacoteNaTabela(tx, origemTabelaId, origemPacoteId, tabelaId, destinoPacoteId);
+    await concluirTabela(tx, empresaId, origemTabelaId, tabelaId, ctx, {
+      antes: { pacoteOrigemId: origemPacoteId, tabelaCorrenteId: origemTabelaId },
+      depois: { pacoteId: destinoPacoteId, precoPreservado: true, sucessoraDe: origemTabelaId },
+    });
+    return { aplicado: true, aviso: null as string | null };
+  }
+  const prontas = validarFaixas(faixas, limites);
+  if (prontas.length === 0) recusar("PRECO_INCOMPLETO", PRECO_NAO_PRESERVADO, 409);
+  if (!origemTabelaId) {
+    const tabelaId = await criarNaoPublicada(tx, empresaId, null);
+    await substituirFaixas(tx, tabelaId, destinoPacoteId, prontas, limites);
+    await concluirTabela(tx, empresaId, null, tabelaId, ctx, {
+      antes: null,
+      depois: { pacoteId: destinoPacoteId, faixas: prontas },
+    });
+    return { aplicado: true, aviso: null as string | null };
+  }
+  const leitura = classificar(linhas);
+  const manter = leitura.editavel && faixasIguais(prontas, leitura.faixas);
+  if (!manter && !leitura.editavel) recusar("PRECO_NAO_EDITAVEL", leitura.aviso ?? PRECO_BLOQUEADO, 409);
+  const tabelaId = await criarNaoPublicada(tx, empresaId, origemTabelaId);
+  await copiarAgregado(tx, empresaId, origemTabelaId, tabelaId);
+  await copiarPacoteNaTabela(tx, origemTabelaId, origemPacoteId, tabelaId, destinoPacoteId);
+  if (!manter) await substituirFaixas(tx, tabelaId, destinoPacoteId, prontas, limites);
+  await concluirTabela(tx, empresaId, origemTabelaId, tabelaId, ctx, {
+    antes: { pacoteOrigemId: origemPacoteId, tabelaCorrenteId: origemTabelaId, faixas: leitura.faixas },
+    depois: { pacoteId: destinoPacoteId, faixas: manter ? leitura.faixas : prontas, sucessoraDe: origemTabelaId },
+  });
+  return { aplicado: true, aviso: null as string | null };
 }
 
 export async function copiarPrecosPacote(

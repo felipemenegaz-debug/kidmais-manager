@@ -29,10 +29,10 @@ type Pacote = {
 type Horario = { id: string; nome: string; inicio: string; fim: string };
 type Categoria = { id: string; nome: string };
 type FaixaForm = { convidadosMin: string; convidadosMax: string; valor: string };
+type ParDisponibilidade = { dia: number; horarioId: string };
 type Painel = {
   pacote: Pacote;
-  dias: number[];
-  horariosIds: string[];
+  disponibilidade: ParDisponibilidade[];
   categorias: { categoriaId: string; escolhas: number; ativo: boolean }[];
   faixas: { editavel: boolean; faixas: { convidadosMin: number; convidadosMax: number | null; valor: string }[]; aviso: string | null };
 };
@@ -81,8 +81,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     minimo: edicao.pacote.convidadosMinimos == null ? '' : String(edicao.pacote.convidadosMinimos),
     maximo: edicao.pacote.convidadosMaximos == null ? '' : String(edicao.pacote.convidadosMaximos),
   } : vazio);
-  const [dias, setDias] = useState<number[]>(edicao?.dias ?? []);
-  const [horariosIds, setHorariosIds] = useState<string[]>(edicao?.horariosIds ?? []);
+  const [pares, setPares] = useState<ParDisponibilidade[]>(edicao?.disponibilidade ?? []);
   const [faixas, setFaixas] = useState<FaixaForm[]>(edicao?.faixas.faixas.length ? edicao.faixas.faixas.map((faixa) => ({
     convidadosMin: String(faixa.convidadosMin),
     convidadosMax: faixa.convidadosMax == null ? '' : String(faixa.convidadosMax),
@@ -150,8 +149,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
   function limpar() {
     setSelecionado(null);
     setForm(vazio);
-    setDias([]);
-    setHorariosIds([]);
+    setPares([]);
     setFaixas([{ convidadosMin: '', convidadosMax: '', valor: '' }]);
     setFaixasEditaveis(true);
     setAvisoFaixas('');
@@ -175,8 +173,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
         minimo: painel.pacote.convidadosMinimos == null ? '' : String(painel.pacote.convidadosMinimos),
         maximo: painel.pacote.convidadosMaximos == null ? '' : String(painel.pacote.convidadosMaximos),
       });
-      setDias(painel.dias);
-      setHorariosIds(painel.horariosIds);
+      setPares(painel.disponibilidade);
       setFaixasEditaveis(painel.faixas.editavel);
       setAvisoFaixas(painel.faixas.aviso ?? '');
       setFaixas(painel.faixas.faixas.length
@@ -203,8 +200,8 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
 
   async function salvar(event: FormEvent) {
     event.preventDefault();
-    if ((dias.length > 0) !== (horariosIds.length > 0)) {
-      setErro('Escolha os dias e os horários em que o pacote pode ser contratado.');
+    if (pares.some((par) => !par.horarioId)) {
+      setErro('Escolha o horário de cada dia marcado.');
       return;
     }
     setErro('');
@@ -223,8 +220,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
           duracaoMinutos: juntarDuracao(form.horas, form.minutos),
           convidadosMinimos: Number(form.minimo),
           convidadosMaximos: Number(form.maximo),
-          dias,
-          horariosIds,
+          disponibilidade: pares.filter((par) => par.horarioId),
           faixas: faixasEditaveis ? faixasPreenchidas.map((faixa) => ({
             convidadosMin: Number(faixa.convidadosMin),
             convidadosMax: faixa.convidadosMax.trim() ? Number(faixa.convidadosMax) : null,
@@ -306,11 +302,19 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
   }
 
   function alternarDia(dia: number) {
-    setDias((atual) => atual.includes(dia) ? atual.filter((item) => item !== dia) : [...atual, dia].sort());
+    setPares((atual) => atual.some((par) => par.dia === dia)
+      ? atual.filter((par) => par.dia !== dia)
+      : [...atual, { dia, horarioId: '' }]);
   }
 
-  function alternarHorario(id: string) {
-    setHorariosIds((atual) => atual.includes(id) ? atual.filter((item) => item !== id) : [...atual, id]);
+  function alternarHorario(dia: number, horarioId: string) {
+    setPares((atual) => {
+      const semVazio = atual.filter((par) => !(par.dia === dia && par.horarioId === ''));
+      const existe = semVazio.some((par) => par.dia === dia && par.horarioId === horarioId);
+      return existe
+        ? semVazio.filter((par) => !(par.dia === dia && par.horarioId === horarioId))
+        : [...semVazio, { dia, horarioId }];
+    });
   }
 
   const visiveis = (pacotes ?? []).filter((pacote) => {
@@ -347,12 +351,14 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
             <h2>2. Disponibilidade</h2>
             <p className={styles.intro}>Dias permitidos</p>
             <div className={styles.dias} role="group" aria-label="Dias permitidos">
-              {DIAS.map(([valor, rotulo]) => <button key={valor} type="button" aria-pressed={dias.includes(valor)} onClick={() => alternarDia(valor)}>{rotulo}</button>)}
+              {DIAS.map(([valor, rotulo]) => <button key={valor} type="button" aria-pressed={pares.some((par) => par.dia === valor)} onClick={() => alternarDia(valor)}>{rotulo}</button>)}
             </div>
-            <p className={styles.intro}>Horários permitidos</p>
-            <div className={styles.dias} role="group" aria-label="Horários permitidos">
-              {horarios.map((horario) => <button key={horario.id} type="button" aria-pressed={horariosIds.includes(horario.id)} onClick={() => alternarHorario(horario.id)}>{horario.nome} · {horaCurta(horario.inicio)}–{horaCurta(horario.fim)}</button>)}
-            </div>
+            {DIAS.filter(([valor]) => pares.some((par) => par.dia === valor)).map(([valor, rotulo]) => <div key={valor}>
+              <p className={styles.intro}>Horários de {rotulo}</p>
+              <div className={styles.dias} role="group" aria-label={`Horários de ${rotulo}`}>
+                {horarios.map((horario) => <button key={horario.id} type="button" aria-pressed={pares.some((par) => par.dia === valor && par.horarioId === horario.id)} onClick={() => alternarHorario(valor, horario.id)}>{horario.nome} · {horaCurta(horario.inicio)}–{horaCurta(horario.fim)}</button>)}
+              </div>
+            </div>)}
           </section>
           <section className={styles.card}>
             <h2>3. Preços</h2>

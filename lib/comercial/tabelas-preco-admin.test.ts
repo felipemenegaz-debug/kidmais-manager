@@ -53,6 +53,7 @@ test("a simulação da empresa usa a tabela publicada na data da festa", async (
     async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
       assert.match(text, /t\.empresa_id = \$1::uuid/);
       assert.match(text, /t\.publicada_em IS NOT NULL/);
+      assert.match(text, /t\.substituida_em IS NULL/);
       assert.match(text, /t\.vigencia_inicio <= \$2::date/);
       assert.equal(text.includes("fechamentos"), false);
       assert.equal(values?.[0], empresa);

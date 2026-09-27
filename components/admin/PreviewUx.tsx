@@ -42,8 +42,10 @@ const pacotes = [
 
 const edicao = {
   pacote: pacotes[0],
-  dias: [5, 6, 7],
-  horariosIds: [horarios[0].id],
+  disponibilidade: [
+    { dia: 1, horarioId: horarios[0].id },
+    { dia: 6, horarioId: horarios[1].id },
+  ],
   categorias: [
     { categoriaId: categorias[0].id, escolhas: 8, ativo: true },
     { categoriaId: categorias[1].id, escolhas: 4, ativo: true },

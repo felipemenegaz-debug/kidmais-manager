@@ -237,7 +237,7 @@ export async function editarPacoteNaoUtilizado(
   return (await buscar(tx, ctx.empresaId, id))!;
 }
 
-export async function criarRevisaoPacoteAdmin(
+export async function inserirRevisaoPacoteAdmin(
   tx: DbExecutor,
   id: string,
   input: {
@@ -248,20 +248,12 @@ export async function criarRevisaoPacoteAdmin(
     convidadosMaximos?: number | null;
   },
   ctx: Contexto,
-  opcoes?: { silenciarAuditoria?: boolean },
 ) {
   if (!ctx.motivo || ctx.motivo.trim().length < 3) recusar("DADOS_INVALIDOS", "A nova revisão exige um motivo.", 409);
   const atual = await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   if (!atual.vigente) recusar("CONFLITO", "A revisão informada não é a vigente.", 409);
   if (!atual.utilizado) recusar("REVISAO_LIVRE", "A revisão ainda não utilizada pode ser editada.", 409);
-  const retirada = await tx.query(
-    `UPDATE pacotes SET vigente = false
-      WHERE id = $1::uuid AND empresa_id = $2::uuid AND vigente
-      RETURNING id`,
-    [id, ctx.empresaId],
-  );
-  if (retirada.rowCount !== 1) recusar("CONFLITO", "A revisão vigente mudou durante a correção.", 409);
   const criada = await tx.query(
     `INSERT INTO pacotes (
        empresa_id, codigo, nome, descricao, duracao_minutos, convidados_minimos, convidados_maximos,
@@ -269,7 +261,7 @@ export async function criarRevisaoPacoteAdmin(
      ) VALUES (
        $1::uuid, $2, $3, $4, $5, $6, $7,
        (SELECT ordem_exibicao FROM pacotes WHERE id = $8::uuid),
-       true, true, $8::uuid
+       true, false, $8::uuid
      ) RETURNING id`,
     [
       ctx.empresaId,
@@ -284,13 +276,96 @@ export async function criarRevisaoPacoteAdmin(
   );
   const novaId = String((criada.rows[0] as { id: string }).id);
   await clonarAgregadoPacote(tx, id, novaId);
+  return { origem: atual, novaId };
+}
+
+export async function promoverRevisaoPacoteAdmin(
+  tx: DbExecutor,
+  id: string,
+  novaId: string,
+  input: {
+    nome: string;
+    descricao: string | null;
+    duracaoMinutos: number | null;
+    convidadosMinimos?: number | null;
+    convidadosMaximos?: number | null;
+  },
+  ctx: Contexto,
+  opcoes?: { silenciarAuditoria?: boolean; origem?: PacoteAdmin },
+) {
+  const atual = opcoes?.origem ?? await buscar(tx, ctx.empresaId, id, true);
+  if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
+  const retirada = await tx.query(
+    `UPDATE pacotes SET vigente = false
+      WHERE id = $1::uuid AND empresa_id = $2::uuid AND vigente
+      RETURNING id`,
+    [id, ctx.empresaId],
+  );
+  if (retirada.rowCount !== 1) recusar("CONFLITO", "A revisão vigente mudou durante a correção.", 409);
+  const promovida = await tx.query(
+    `UPDATE pacotes SET vigente = true
+      WHERE id = $1::uuid AND empresa_id = $2::uuid AND NOT vigente
+      RETURNING id`,
+    [novaId, ctx.empresaId],
+  );
+  if (promovida.rowCount !== 1) recusar("CONFLITO", "A revisão vigente mudou durante a correção.", 409);
   if (!opcoes?.silenciarAuditoria) {
-    await registrarMutacao(tx, ctx, "PACOTE_REVISADO", novaId, atual, { ...input, revisaoAnteriorId: id }, ctx.motivo);
+    const motivo = ctx.motivo?.trim() ?? "";
+    if (motivo.length < 3) recusar("DADOS_INVALIDOS", "A nova revisão exige um motivo.", 409);
+    await registrarMutacao(tx, ctx, "PACOTE_REVISADO", novaId, atual, { ...input, revisaoAnteriorId: id }, motivo);
   }
   return (await buscar(tx, ctx.empresaId, novaId))!;
 }
 
-/** Preço permanece na tabela de preços. A revisão clona composição, buffet, desconto e disponibilidade. */
+export async function criarRevisaoPacoteAdmin(
+  tx: DbExecutor,
+  id: string,
+  input: {
+    nome: string;
+    descricao: string | null;
+    duracaoMinutos: number | null;
+    convidadosMinimos?: number | null;
+    convidadosMaximos?: number | null;
+  },
+  ctx: Contexto,
+  opcoes?: { silenciarAuditoria?: boolean },
+) {
+  const criada = await inserirRevisaoPacoteAdmin(tx, id, input, ctx);
+  await preservarPrecosDaRevisao(tx, ctx, id, criada.novaId);
+  return promoverRevisaoPacoteAdmin(tx, id, criada.novaId, input, ctx, { ...opcoes, origem: criada.origem });
+}
+
+async function precosCorrentes(tx: DbExecutor, empresaId: string, pacoteId: string) {
+  const result = await tx.query<{ n: number }>(
+    `SELECT count(*)::int AS n
+       FROM precos_pacote pp
+       JOIN tabelas_preco t ON t.id = pp.tabela_preco_id
+      WHERE pp.pacote_id = $2::uuid
+        AND pp.ativo
+        AND t.empresa_id = $1::uuid
+        AND t.publicada_em IS NOT NULL
+        AND t.substituida_em IS NULL
+        AND t.vigencia_inicio <= CURRENT_DATE
+        AND (t.vigencia_fim IS NULL OR t.vigencia_fim >= CURRENT_DATE)`,
+    [empresaId, pacoteId],
+  );
+  return Number(result.rows[0]?.n ?? 0);
+}
+
+const PRECO_NAO_PRESERVADO = "Não foi possível preservar o preço atual deste pacote. Nenhuma alteração foi salva.";
+
+/** A revisão nova só fica vigente depois de receber um preço comercial válido. */
+async function preservarPrecosDaRevisao(tx: DbExecutor, ctx: Contexto, origemId: string, novaId: string) {
+  const antes = await precosCorrentes(tx, ctx.empresaId, origemId);
+  const { copiarPrecosPacote } = await import("./pacote-precos.ts");
+  await copiarPrecosPacote(tx, ctx.empresaId, origemId, novaId, ctx);
+  const depois = await precosCorrentes(tx, ctx.empresaId, novaId);
+  if (depois < 1 || (antes > 0 && depois !== antes)) {
+    recusar("PRECO_INCOMPLETO", PRECO_NAO_PRESERVADO, 409);
+  }
+}
+
+/** A revisão clona composição, buffet, desconto e disponibilidade. O preço corrente é copiado à parte. */
 async function clonarAgregadoPacote(tx: DbExecutor, origemId: string, novaId: string) {
   await tx.query(
     `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade, ativo)
@@ -410,9 +485,29 @@ export async function alterarComposicaoPacoteAdmin(
   } else {
     await tx.query(
       `INSERT INTO pacote_buffet_categorias (pacote_id, categoria_id, modo_itens, escolhas_min, escolhas_max, ativo)
-       VALUES ($1::uuid, $2::uuid, 'SELECIONADOS', $3, $4, $5)
+       VALUES (
+         $1::uuid, $2::uuid,
+         CASE WHEN EXISTS (
+           SELECT 1 FROM pacote_buffet_itens
+            WHERE pacote_id = $1::uuid AND categoria_id = $2::uuid
+         ) THEN 'SELECIONADOS' ELSE 'TODOS_ATIVOS' END,
+         $3, $4, $5
+       )
        ON CONFLICT (pacote_id, categoria_id)
-       DO UPDATE SET escolhas_min = EXCLUDED.escolhas_min, escolhas_max = EXCLUDED.escolhas_max, ativo = EXCLUDED.ativo`,
+       DO UPDATE SET
+         escolhas_min = EXCLUDED.escolhas_min,
+         escolhas_max = EXCLUDED.escolhas_max,
+         ativo = EXCLUDED.ativo,
+         modo_itens = CASE
+           WHEN pacote_buffet_categorias.modo_itens = 'SELECIONADOS'
+            AND EXISTS (
+              SELECT 1 FROM pacote_buffet_itens
+               WHERE pacote_id = pacote_buffet_categorias.pacote_id
+                 AND categoria_id = pacote_buffet_categorias.categoria_id
+            )
+           THEN 'SELECIONADOS'
+           ELSE 'TODOS_ATIVOS'
+         END`,
       [destino.id, mudanca.categoriaId, mudanca.escolhasMin, mudanca.escolhasMax, mudanca.ativo],
     );
   }
@@ -475,14 +570,25 @@ function mensagemDeUso(tabela: string) {
 export async function definirDisponibilidadePacoteAdmin(
   tx: DbExecutor,
   id: string,
-  escolha: { dias: number[]; horariosIds: string[] },
+  escolha: { disponibilidade: Array<{ dia: number; horarioId: string }> },
   ctx: Contexto,
 ) {
   const atual = await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   if (atual.arquivadoEm) recusar("ARQUIVADO", "Pacote arquivado não recebe disponibilidade por esta ação.", 409);
-  const dias = [...new Set(escolha.dias)];
-  const horarios = [...new Set(escolha.horariosIds)];
+  const vistos = new Set<string>();
+  const pares = escolha.disponibilidade.filter((par) => {
+    if (!Number.isInteger(par.dia) || par.dia < 1 || par.dia > 7) {
+      recusar("DADOS_INVALIDOS", "Escolha um dia da semana válido.", 409);
+    }
+    const chave = `${par.dia}:${par.horarioId}`;
+    if (vistos.has(chave)) return false;
+    vistos.add(chave);
+    return true;
+  });
+  const paresDias = pares.map((par) => par.dia);
+  const paresHorarios = pares.map((par) => par.horarioId);
+  const horarios = [...new Set(paresHorarios)];
   if (horarios.length > 0) {
     const existentes = await tx.query<{ id: string }>(
       `SELECT id FROM configuracao_agenda WHERE ativo AND id = ANY($1::uuid[])`,
@@ -492,8 +598,6 @@ export async function definirDisponibilidadePacoteAdmin(
       recusar("DADOS_INVALIDOS", "Escolha apenas horários que o calendário já usa.", 409);
     }
   }
-  const paresDias = dias.flatMap((dia) => horarios.map(() => dia));
-  const paresHorarios = dias.flatMap(() => horarios);
   await tx.query(
     `UPDATE regras_disponibilidade_pacote r
         SET vigencia_fim = CURRENT_DATE - 1
@@ -531,7 +635,7 @@ export async function definirDisponibilidadePacoteAdmin(
       [id, paresDias, paresHorarios],
     );
   }
-  await registrarMutacao(tx, ctx, "PACOTE_DISPONIBILIDADE", id, atual, { dias, horarios }, ctx.motivo ?? "PACOTE_EDITADO");
+  await registrarMutacao(tx, ctx, "PACOTE_DISPONIBILIDADE", id, atual, { disponibilidade: pares }, ctx.motivo ?? "PACOTE_EDITADO");
   return (await buscar(tx, ctx.empresaId, id))!;
 }
 
@@ -576,9 +680,28 @@ export async function definirCategoriasPacoteAdmin(
     }
     await tx.query(
       `INSERT INTO pacote_buffet_categorias (pacote_id, categoria_id, modo_itens, escolhas_min, escolhas_max, ativo)
-       VALUES ($1::uuid, $2::uuid, 'SELECIONADOS', 0, $3, true)
+       VALUES (
+         $1::uuid, $2::uuid,
+         CASE WHEN EXISTS (
+           SELECT 1 FROM pacote_buffet_itens
+            WHERE pacote_id = $1::uuid AND categoria_id = $2::uuid
+         ) THEN 'SELECIONADOS' ELSE 'TODOS_ATIVOS' END,
+         0, $3, true
+       )
        ON CONFLICT (pacote_id, categoria_id)
-       DO UPDATE SET escolhas_max = EXCLUDED.escolhas_max, ativo = true`,
+       DO UPDATE SET
+         escolhas_max = EXCLUDED.escolhas_max,
+         ativo = true,
+         modo_itens = CASE
+           WHEN pacote_buffet_categorias.modo_itens = 'SELECIONADOS'
+            AND EXISTS (
+              SELECT 1 FROM pacote_buffet_itens
+               WHERE pacote_id = pacote_buffet_categorias.pacote_id
+                 AND categoria_id = pacote_buffet_categorias.categoria_id
+            )
+           THEN 'SELECIONADOS'
+           ELSE 'TODOS_ATIVOS'
+         END`,
       [destino.id, categoria.categoriaId, categoria.escolhas],
     );
   }

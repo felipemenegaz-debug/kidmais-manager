@@ -13,6 +13,7 @@ export type ObterContextoComercialInput = {
   data: string;
   configuracaoAgendaId: string;
   empresaId?: string | null;
+  tabelaPrecoId?: string | null;
 };
 
 export type ContextoComercial = {
@@ -57,6 +58,8 @@ export type PrecificarAdicionaisInput = {
   data: string;
   convidados: number;
   itens: AdicionalSelecionadoInput[];
+  empresaId?: string | null;
+  tabelaPrecoId?: string | null;
 };
 
 export type AdicionalPrecificado = {
@@ -96,6 +99,7 @@ export type CatalogoAdicionaisInput = {
   data: string;
   convidados: number;
   codigos?: string[];
+  empresaId?: string | null;
 };
 
 export type CatalogoAdicionais = {

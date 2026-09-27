@@ -60,7 +60,7 @@ test("preço novo nasce numa sucessora e o preço usado não é reescrito", asyn
     if (text.includes("UPDATE precos_pacote") || text.includes("UPDATE fechamento") || text.includes("SET vigencia_fim")) {
       throw new Error(`escrita proibida: ${text}`);
     }
-    if (text.includes("kidmais_037_trava_publicacao") || text.includes("kidmais_047_lacunas_escopo")) return vazio();
+    if (text.includes("kidmais_037_trava_publicacao") || text.includes("kidmais_047_lacunas_escopo") || text.includes("pg_advisory_xact_lock")) return vazio();
     if (text.includes("FROM precos_pacote pp")) return um(linhaPreco() as Row);
     if (text.includes("FOR UPDATE")) return um({ id: "tabela-corrente" } as Row);
     if (text.includes("AS publicada")) return um({ id: "tabela-corrente", publicada: true } as Row);
@@ -91,7 +91,7 @@ test("a primeira tabela da empresa nasce sem publicação e só então é public
     if (text.includes("UPDATE precos_pacote") || text.includes("substituida_em =") || text.includes("SET vigencia_fim")) {
       throw new Error(`escrita proibida: ${text}`);
     }
-    if (text.includes("kidmais_037_trava_publicacao") || text.includes("kidmais_047_lacunas_escopo")) return vazio();
+    if (text.includes("kidmais_037_trava_publicacao") || text.includes("kidmais_047_lacunas_escopo") || text.includes("pg_advisory_xact_lock")) return vazio();
     if (text.includes("FOR UPDATE") || text.includes("AS publicada")) return vazio();
     if (text.startsWith("INSERT INTO tabelas_preco")) {
       assert.match(text, /CURRENT_DATE, NULL, false/);
@@ -118,7 +118,7 @@ test("duplicação copia o preço pela sucessora e a falha da cópia não deixa 
       if (text.includes("AS utilizado")) return um(linhaPacote(String(values?.[0] ?? pacote)) as Row);
       if (text.startsWith("SELECT id FROM empresas")) return um({ id: empresa } as Row);
       if (text.startsWith("INSERT INTO pacotes")) return um({ id: "33333333-3333-4333-8333-333333333333" } as Row);
-      if (text.includes("kidmais_037_trava_publicacao") || text.includes("kidmais_047_lacunas_escopo")) return vazio();
+      if (text.includes("kidmais_037_trava_publicacao") || text.includes("kidmais_047_lacunas_escopo") || text.includes("pg_advisory_xact_lock")) return vazio();
       if (text.includes("FROM precos_pacote pp")) return um(linhaPreco() as Row);
       if (text.includes("FOR UPDATE")) return um({ id: "tabela-corrente" } as Row);
       if (text.includes("AS publicada")) return um({ id: "tabela-corrente", publicada: true } as Row);

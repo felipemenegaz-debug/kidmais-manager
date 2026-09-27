@@ -426,6 +426,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         await db.query(semTransacaoExplicita(readFileSync(down039, "utf8")));
         await db.query(semTransacaoExplicita(readFileSync(down037, "utf8")));
         const empresaId = await empresa(db, "t037a");
+        await db.query("ALTER TABLE tabelas_preco DISABLE TRIGGER tabelas_preco_publicacao_trg");
         await db.query(
           `INSERT INTO tabelas_preco (empresa_id, codigo, nome, vigencia_inicio, vigencia_fim, ativa, publicada_em)
            VALUES
@@ -572,8 +573,19 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
       try {
         const empresaId = await empresa(db, "t036e");
         const pacoteId = await pacote(db, empresaId, "p036e");
-        const tabelaId = await tabela(db, empresaId, "u036e", "2095-01-01", "2095-06-30");
+        const tabelaId = await tabela(db, empresaId, "u036e", "2020-01-01", null);
         const precoId = await preco(db, tabelaId, pacoteId);
+        const escopoId = await db.query<{ id: string }>(
+          `INSERT INTO tabela_preco_escopos (
+             tabela_preco_id, pacote_id, categoria_horario, cobertura_continua
+           ) VALUES ($1::uuid, $2::uuid, 'PADRAO', true) RETURNING id`,
+          [tabelaId, pacoteId],
+        );
+        await db.query(
+          `INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max) VALUES ($1::uuid, 20, 40)`,
+          [escopoId.rows[0].id],
+        );
+        await db.query(`UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid`, [tabelaId]);
         const agenda = await db.query<{ id: string }>(
           "SELECT id FROM configuracao_agenda WHERE codigo = 'TURNO_2' AND ativo LIMIT 1",
         );
@@ -629,8 +641,13 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
           "SELECT count(*)::int AS n FROM precos_pacote WHERE pacote_id = $1::uuid",
           [pacoteId],
         );
-        assert.equal(precosNovos.rows[0].n, 0);
-        assert.equal(precosAntigos.rows[0].n, 1);
+        assert.equal(precosNovos.rows[0].n >= 1, true);
+        const precoOriginal = await db.query<{ valor: string }>(
+          "SELECT valor::text AS valor FROM precos_pacote WHERE id = $1::uuid",
+          [precoId],
+        );
+        assert.equal(precoOriginal.rows[0].valor, "10.00");
+        assert.equal(precosAntigos.rows[0].n >= 1, true);
         const anterior = await db.query<{ vigente: boolean }>("SELECT vigente FROM pacotes WHERE id = $1::uuid", [pacoteId]);
         assert.equal(anterior.rows[0].vigente, false);
       } finally {
@@ -648,8 +665,19 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade) VALUES ($1::uuid, $2::uuid, 'INCLUSO')`,
         [pacoteId, adicionalId],
       );
-      const tabelaId = await tabela(db, empresaId, "u036f", "2096-01-01", "2096-06-30");
+      const tabelaId = await tabela(db, empresaId, "u036f", "2020-01-01", null);
       const precoId = await preco(db, tabelaId, pacoteId);
+      const escopoId = await db.query<{ id: string }>(
+        `INSERT INTO tabela_preco_escopos (
+           tabela_preco_id, pacote_id, categoria_horario, cobertura_continua
+         ) VALUES ($1::uuid, $2::uuid, 'PADRAO', true) RETURNING id`,
+        [tabelaId, pacoteId],
+      );
+      await db.query(
+        `INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max) VALUES ($1::uuid, 20, 40)`,
+        [escopoId.rows[0].id],
+      );
+      await db.query(`UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid`, [tabelaId]);
       const agenda = await db.query<{ id: string }>(
         "SELECT id FROM configuracao_agenda WHERE codigo = 'TURNO_1' AND ativo LIMIT 1",
       );
@@ -682,7 +710,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         { empresaId, usuarioId: randomUUID(), requestId, motivo: "Troca a modalidade do incluso" },
       );
       const eventos = await db.query<{ acao: string; dados_antes: { adicionais: Array<{ modalidade: string }> }; dados_depois: { adicionais: Array<{ modalidade: string }> } }>(
-        `SELECT acao, dados_antes, dados_depois FROM auditoria WHERE request_id = $1::uuid`,
+        `SELECT acao, dados_antes, dados_depois FROM auditoria WHERE request_id = $1::uuid AND acao = 'PACOTE_COMPOSICAO'`,
         [requestId],
       );
       assert.equal(eventos.rows.length, 1);
@@ -892,6 +920,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
       await db.query("BEGIN");
       try {
         const empresaId = await empresa(db, "t039a");
+        await db.query("ALTER TABLE tabelas_preco DISABLE TRIGGER tabelas_preco_publicacao_trg");
         await db.query(
           `INSERT INTO tabelas_preco (empresa_id, codigo, nome, vigencia_inicio, vigencia_fim, ativa, publicada_em)
            VALUES

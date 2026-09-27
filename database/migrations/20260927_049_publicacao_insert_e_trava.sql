@@ -1,39 +1,63 @@
--- Devolve a guarda de publicação ao texto da 047.
--- Não apaga preço, não limpa publicada_em e não reescreve vigência.
--- Se já existe supersessão, parar: remover a coluna reabriria sobreposição publicada.
 BEGIN;
 
+-- Publicação direta no INSERT passa pela mesma guarda do UPDATE.
+-- A supersessão e o down da 048 disputam a mesma trava antes de mudar a cadeia.
+
 DO $$ BEGIN
-  IF to_regclass('public.tabelas_preco') IS NULL THEN
-    RAISE EXCEPTION '048 down: tabela de preço ausente.';
+  IF to_regprocedure('public.kidmais_035_preservar_tabela_publicada()') IS NULL
+     OR to_regprocedure('public.kidmais_048_preparar_supersessao()') IS NULL THEN
+    RAISE EXCEPTION '049: guarda de publicação ou supersessão ausente.';
   END IF;
-  PERFORM pg_advisory_xact_lock(hashtext('kidmais-048-down'));
-  LOCK TABLE public.tabelas_preco IN SHARE ROW EXCLUSIVE MODE;
-  PERFORM kidmais_037_trava_publicacao(empresa_id)
-     FROM (SELECT DISTINCT empresa_id FROM tabelas_preco) AS empresas;
   IF EXISTS (
     SELECT 1
-      FROM information_schema.columns
-     WHERE table_schema = 'public'
-       AND table_name = 'tabelas_preco'
-       AND column_name = 'substituida_em'
-  ) AND EXISTS (SELECT 1 FROM tabelas_preco WHERE substituida_em IS NOT NULL) THEN
-    RAISE EXCEPTION '048 down: já existe supersessão. Não reescrever vigência daqui.';
+      FROM pg_trigger
+     WHERE tgname = 'tabelas_preco_publicacao_trg'
+       AND pg_get_triggerdef(oid) ILIKE '%INSERT%'
+  ) THEN
+    RAISE EXCEPTION '049: a publicação no INSERT já está ativa.';
   END IF;
 END $$;
 
-DROP TRIGGER IF EXISTS tabelas_preco_supersessao_fim_trg ON tabelas_preco;
-DROP TRIGGER IF EXISTS tabelas_preco_supersessao_imediata_trg ON tabelas_preco;
-DROP FUNCTION IF EXISTS kidmais_048_validar_supersessao_fim();
-DROP FUNCTION IF EXISTS kidmais_048_preparar_supersessao();
-DROP FUNCTION IF EXISTS kidmais_048_recusar_ciclo(uuid, uuid);
-
-ALTER TABLE tabelas_preco DROP CONSTRAINT IF EXISTS tabelas_preco_substituida_por_fk;
-ALTER TABLE tabelas_preco DROP CONSTRAINT IF EXISTS tabelas_preco_substituida_por_self_check;
-ALTER TABLE tabelas_preco DROP CONSTRAINT IF EXISTS tabelas_preco_substituida_par_check;
-DROP INDEX IF EXISTS tabelas_preco_corrente_publicada_idx;
-ALTER TABLE tabelas_preco DROP COLUMN IF EXISTS substituida_por_id;
-ALTER TABLE tabelas_preco DROP COLUMN IF EXISTS substituida_em;
+CREATE OR REPLACE FUNCTION kidmais_048_preparar_supersessao()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.substituida_em IS NULL AND NEW.substituida_por_id IS NULL THEN
+    IF TG_OP = 'UPDATE' AND (OLD.substituida_em IS NOT NULL OR OLD.substituida_por_id IS NOT NULL) THEN
+      RAISE EXCEPTION '048: supersessão não pode ser desfeita.'
+        USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.substituida_em IS NULL OR NEW.substituida_por_id IS NULL THEN
+    RAISE EXCEPTION '048: supersessão exige data e sucessora juntas.'
+      USING ERRCODE = '23514';
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.substituida_em IS NOT NULL THEN
+    RAISE EXCEPTION '048: supersessão não pode ser refeita.'
+      USING ERRCODE = '23514';
+  END IF;
+  IF NEW.publicada_em IS NULL THEN
+    RAISE EXCEPTION '048: só uma tabela publicada pode ser substituída.'
+      USING ERRCODE = '23514';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('kidmais-048-supersessao'));
+  PERFORM kidmais_037_trava_publicacao(NEW.empresa_id);
+  PERFORM kidmais_048_recusar_ciclo(NEW.id, NEW.substituida_por_id);
+  IF NOT EXISTS (
+    SELECT 1
+      FROM tabelas_preco sucessora
+     WHERE sucessora.id = NEW.substituida_por_id
+       AND sucessora.empresa_id IS NOT DISTINCT FROM NEW.empresa_id
+  ) THEN
+    RAISE EXCEPTION '048: sucessora precisa existir na mesma empresa.'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION kidmais_035_preservar_tabela_publicada()
 RETURNS trigger
@@ -43,7 +67,7 @@ AS $$
 DECLARE
   lacuna text;
 BEGIN
-  IF OLD.publicada_em IS NOT NULL THEN
+  IF TG_OP = 'UPDATE' AND OLD.publicada_em IS NOT NULL THEN
     IF NEW.publicada_em IS DISTINCT FROM OLD.publicada_em
        OR NEW.empresa_id IS DISTINCT FROM OLD.empresa_id
        OR NEW.codigo IS DISTINCT FROM OLD.codigo
@@ -112,6 +136,7 @@ BEGIN
      WHERE outra.id <> NEW.id
        AND outra.empresa_id IS NOT DISTINCT FROM NEW.empresa_id
        AND outra.publicada_em IS NOT NULL
+       AND outra.substituida_em IS NULL
        AND daterange(outra.vigencia_inicio, COALESCE(outra.vigencia_fim, 'infinity'::date), '[]')
            && daterange(NEW.vigencia_inicio, COALESCE(NEW.vigencia_fim, 'infinity'::date), '[]')
   ) THEN
@@ -120,5 +145,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+DROP TRIGGER tabelas_preco_publicacao_trg ON tabelas_preco;
+CREATE TRIGGER tabelas_preco_publicacao_trg
+BEFORE INSERT OR UPDATE ON tabelas_preco
+FOR EACH ROW
+EXECUTE FUNCTION kidmais_035_preservar_tabela_publicada();
 
 COMMIT;
