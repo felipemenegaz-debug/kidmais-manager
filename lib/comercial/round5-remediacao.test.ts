@@ -36,6 +36,7 @@ test("revisão sem preço corrente não é promovida", async () => {
     sqls.push(text);
     if (text.includes("AS utilizado")) return { rows: [pacoteLinha() as Row], rowCount: 1 };
     if (text.startsWith("INSERT INTO pacotes")) return { rows: [{ id: "55555555-5555-4555-8555-555555555555" } as Row], rowCount: 1 };
+    if (text.includes("to_regclass")) return { rows: [{ ok: false } as Row], rowCount: 1 };
     if (text.startsWith("INSERT INTO pacote_") || text.startsWith("INSERT INTO regras_")) return { rows: [], rowCount: 1 };
     if (text.includes("count(*)::int AS n")) return { rows: [{ n: 0 } as Row], rowCount: 1 };
     if (text.includes("FROM tabelas_preco") || text.includes("pg_advisory") || text.includes("kidmais_")) return { rows: [], rowCount: 0 };

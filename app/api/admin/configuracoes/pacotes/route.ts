@@ -55,6 +55,7 @@ const salvar = z.object({
     categoriaId: uuid,
     escolhas: z.number().int().min(0).max(30),
   }).strict()).max(40),
+  itens: z.array(uuid).max(200).optional(),
   motivo: z.string().trim().min(3).max(500).optional(),
 }).strict();
 const corpo = z.discriminatedUnion("acao", [criar, duplicar, salvar]);
@@ -85,10 +86,14 @@ export async function GET(request: NextRequest) {
         const categorias = await tx.query(
           `SELECT id, nome FROM buffet_categorias WHERE ativo ORDER BY ordem_exibicao, nome`,
         );
+        const itens = await tx.query(
+          `SELECT id, nome, categoria_id FROM buffet_itens WHERE ativo ORDER BY ordem_exibicao, nome`,
+        );
         return {
           pacotes,
           horarios: horarios.rows,
           categorias: categorias.rows,
+          itens: itens.rows,
         };
       },
     );

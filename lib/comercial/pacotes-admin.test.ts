@@ -95,6 +95,7 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
         assert.equal(values?.[7], linha(true).id);
         return { rows: [{ id: "33333333-3333-4333-8333-333333333333" } as Row], rowCount: 1 };
       }
+      if (text.includes("to_regclass")) return { rows: [{ ok: false } as Row], rowCount: 1 };
       if (text.includes("count(*)::int AS n")) return { rows: [{ n: 1 } as Row], rowCount: 1 };
       if (text.includes("FROM tabelas_preco") || text.includes("kidmais_037") || text.includes("pg_advisory_xact_lock") || text.includes("kidmais_047")) {
         return { rows: [], rowCount: 0 };

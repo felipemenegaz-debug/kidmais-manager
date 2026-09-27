@@ -195,6 +195,7 @@ test("fotografia nasce com duração nula, incluso e buffet, sem extra pago", as
       if (text.startsWith("INSERT INTO fechamento_pacote_composicao")) {
         return { rows: [], rowCount: 1 };
       }
+      if (text.includes("to_regclass")) return { rows: [{ especificos: false, fotografia: false } as Row], rowCount: 1 };
       if (text.startsWith("UPDATE fechamentos")) {
         assert.deepEqual(values, ["snap-1", "fechamento-1"]);
         return { rows: [], rowCount: 1 };
@@ -245,4 +246,45 @@ test("troca explícita cria outra fotografia e preserva a anterior", async () =>
     "snap-nova",
   );
   assert.equal(chamadas.some((sql) => /UPDATE fechamento_pacote_snapshots|DELETE FROM fechamento_pacote_snapshots/.test(sql)), false);
+});
+
+test("item específico sem categoria entra na fotografia e some se a tabela de foto falta", async () => {
+  const gravar = carregarServico();
+  const copiados: unknown[][] = [];
+  const tx: DbExecutor = {
+    async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
+      if (text.startsWith("INSERT INTO fechamento_pacote_snapshots")) return { rows: [{ id: "snap-1" } as Row], rowCount: 1 };
+      if (text.includes("pa.modalidade = 'INCLUSO'") || text.includes("FROM pacote_buffet_categorias")) return { rows: [], rowCount: 0 };
+      if (text.includes("AS especificos")) return { rows: [{ especificos: true, fotografia: true } as Row], rowCount: 1 };
+      if (text.includes("FROM pacote_itens_especificos")) {
+        return { rows: [{ id: "item-1", codigo: "ROLHA", nome: "Taxa de rolha", categoria_id: null } as Row], rowCount: 1 };
+      }
+      if (text.startsWith("INSERT INTO fechamento_pacote_itens_especificos")) {
+        copiados.push([...(values ?? [])]);
+        assert.equal(values?.[2], null);
+        return { rows: [], rowCount: 1 };
+      }
+      if (text.startsWith("UPDATE fechamentos")) return { rows: [], rowCount: 1 };
+      throw new Error(text);
+    },
+  };
+  assert.equal(await gravar(tx, fechamento(), resumo()), "snap-1");
+  assert.equal(copiados.length, 1);
+  assert.equal(copiados[0]?.[3], "ROLHA");
+
+  const semFoto: DbExecutor = {
+    async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+      if (text.startsWith("INSERT INTO fechamento_pacote_snapshots")) return { rows: [{ id: "snap-2" } as Row], rowCount: 1 };
+      if (text.includes("pa.modalidade = 'INCLUSO'") || text.includes("FROM pacote_buffet_categorias")) return { rows: [], rowCount: 0 };
+      if (text.includes("AS especificos")) return { rows: [{ especificos: true, fotografia: false } as Row], rowCount: 1 };
+      if (text.includes("FROM pacote_itens_especificos")) {
+        return { rows: [{ id: "item-1", codigo: "ROLHA", nome: "Taxa de rolha", categoria_id: null } as Row], rowCount: 1 };
+      }
+      throw new Error(text);
+    },
+  };
+  await assert.rejects(
+    () => gravar(semFoto, fechamento(), resumo()),
+    (error: unknown) => error instanceof Error && error.message === "Não foi possível registrar os itens incluídos neste pacote.",
+  );
 });

@@ -14,7 +14,7 @@ type FotografiaRow = {
 };
 
 type ComposicaoRow = {
-  tipo: "INCLUSO" | "BUFFET";
+  tipo: "INCLUSO" | "BUFFET" | "ITEM";
   codigo_aplicado: string;
   nome_aplicado: string;
   modo_itens: "TODOS_ATIVOS" | "SELECIONADOS" | null;
@@ -52,6 +52,20 @@ export async function lerFotografiaPacoteVigente(
       ORDER BY tipo, codigo_aplicado`,
     [row.id],
   );
+  const especificos = await tx.query<{ especificos: boolean }>(
+    `SELECT to_regclass('public.fechamento_pacote_itens_especificos') IS NOT NULL AS especificos`,
+  );
+  const itens = especificos.rows[0]?.especificos
+    ? await tx.query<ComposicaoRow>(
+      `SELECT 'ITEM' AS tipo, codigo_aplicado, nome_aplicado,
+              NULL::varchar AS modo_itens, NULL::smallint AS escolhas_min, NULL::smallint AS escolhas_max
+         FROM fechamento_pacote_itens_especificos
+        WHERE snapshot_id = $1::uuid
+        ORDER BY nome_aplicado, codigo_aplicado`,
+      [row.id],
+    )
+    : { rows: [] as ComposicaoRow[] };
+  composicao.rows.push(...itens.rows);
 
   return {
     snapshotId: row.id,

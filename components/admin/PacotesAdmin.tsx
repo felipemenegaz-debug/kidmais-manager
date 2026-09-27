@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import styles from './workspace.module.css';
+import overlay from './catalogo-editor.module.css';
 import { DurationField } from './DurationField';
 import { formatarDuracao, juntarDuracao, separarDuracao } from '@/lib/comercial/duracao';
 import { AjudaCampo } from './AjudaCampo';
@@ -28,12 +29,14 @@ type Pacote = {
 
 type Horario = { id: string; nome: string; inicio: string; fim: string };
 type Categoria = { id: string; nome: string };
+type ItemBuffet = { id: string; nome: string; categoria_id: string | null };
 type FaixaForm = { convidadosMin: string; convidadosMax: string; valor: string };
 type ParDisponibilidade = { dia: number; horarioId: string };
 type Painel = {
   pacote: Pacote;
   disponibilidade: ParDisponibilidade[];
   categorias: { categoriaId: string; escolhas: number; ativo: boolean }[];
+  itens?: string[];
   faixas: { editavel: boolean; faixas: { convidadosMin: number; convidadosMax: number | null; valor: string }[]; aviso: string | null };
 };
 
@@ -63,6 +66,7 @@ export type VitrinePacotes = {
   pacotes: Pacote[];
   horarios: Horario[];
   categorias: Categoria[];
+  itens?: ItemBuffet[];
   filtro?: 'todos' | 'ativos' | 'arquivados';
   edicao?: Painel | null;
 };
@@ -73,7 +77,12 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
   const [pacotes, setPacotes] = useState<Pacote[] | null>(vitrine?.pacotes ?? null);
   const [horarios, setHorarios] = useState<Horario[]>(vitrine?.horarios ?? []);
   const [categorias, setCategorias] = useState<Categoria[]>(vitrine?.categorias ?? []);
+  const [itensBuffet, setItensBuffet] = useState<ItemBuffet[]>(vitrine?.itens ?? []);
   const edicao = vitrine?.edicao;
+  const [itensEscolhidos, setItensEscolhidos] = useState<string[]>(edicao?.itens ?? []);
+  const [incluirAberto, setIncluirAberto] = useState(false);
+  const [abaIncluir, setAbaIncluir] = useState<'categorias' | 'itens'>('categorias');
+  const [buscaIncluir, setBuscaIncluir] = useState('');
   const [form, setForm] = useState(edicao ? {
     nome: edicao.pacote.nome,
     descricao: edicao.pacote.descricao ?? '',
@@ -114,6 +123,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     setPacotes(json.data.pacotes);
     setHorarios(json.data.horarios);
     setCategorias(json.data.categorias);
+    setItensBuffet(json.data.itens ?? []);
     setInclusos((atual) => {
       const proximo = { ...atual };
       for (const categoria of json.data.categorias as Categoria[]) {
@@ -133,6 +143,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
         setPacotes(json.data.pacotes);
         setHorarios(json.data.horarios);
         setCategorias(json.data.categorias);
+        setItensBuffet(json.data.itens ?? []);
         setInclusos((atual) => {
           const proximo = { ...atual };
           for (const categoria of json.data.categorias as Categoria[]) {
@@ -154,6 +165,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     setFaixasEditaveis(true);
     setAvisoFaixas('');
     setInclusos((atual) => Object.fromEntries(Object.entries(atual).map(([id, valor]) => [id, { ...valor, incluso: false, escolhas: '1' }])));
+    setItensEscolhidos([]);
     setErro('');
   }
 
@@ -191,6 +203,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
         }
         return proximo;
       });
+      setItensEscolhidos(painel.itens ?? []);
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Falha ao abrir o pacote.');
     } finally {
@@ -228,8 +241,9 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
           })) : null,
           categorias: categorias.filter((categoria) => inclusos[categoria.id]?.incluso).map((categoria) => ({
             categoriaId: categoria.id,
-            escolhas: Number(inclusos[categoria.id]?.escolhas || 0),
+            escolhas: Number(inclusos[categoria.id]?.escolhas || 1),
           })),
+          itens: itensEscolhidos,
         }),
       });
       const json = await ler(resposta);
@@ -373,15 +387,33 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
             {faixasEditaveis && <button type="button" onClick={() => setFaixas([...faixas, { convidadosMin: '', convidadosMax: '', valor: '' }])}>+ Adicionar faixa</button>}
           </section>
           <section className={styles.card}>
-            <h2>4. O que está incluído</h2>
-            {categorias.map((categoria) => {
-              const regra = inclusos[categoria.id] ?? { incluso: false, escolhas: '1' };
-              return <div key={categoria.id}>
-                <label><input type="checkbox" checked={regra.incluso} onChange={(e) => setInclusos({ ...inclusos, [categoria.id]: { ...regra, incluso: e.target.checked } })} /> {categoria.nome}</label>
-                {regra.incluso && <label>Cliente escolhe<input type="number" min={0} max={30} value={regra.escolhas} onChange={(e) => setInclusos({ ...inclusos, [categoria.id]: { ...regra, escolhas: e.target.value } })} /> opções</label>}
-              </div>;
-            })}
-            {!categorias.length && <p className={styles.muted}>Nenhuma categoria de buffet cadastrada.</p>}
+            <div className={styles.actions}>
+              <h2>4. O que está incluído</h2>
+              <button type="button" onClick={() => { setBuscaIncluir(''); setAbaIncluir('categorias'); setIncluirAberto(true); }}>+ Adicionar</button>
+            </div>
+            <p className={styles.intro}>Categorias</p>
+            <div className={styles.filters}>
+              {categorias.filter((categoria) => inclusos[categoria.id]?.incluso).map((categoria) => <button key={categoria.id} type="button" onClick={() => setInclusos({ ...inclusos, [categoria.id]: { ...inclusos[categoria.id], incluso: false } })}>{categoria.nome} ×</button>)}
+            </div>
+            <p className={styles.intro}>Itens específicos</p>
+            <div className={styles.filters}>
+              {itensBuffet.filter((item) => itensEscolhidos.includes(item.id)).map((item) => <button key={item.id} type="button" onClick={() => setItensEscolhidos(itensEscolhidos.filter((id) => id !== item.id))}>{item.nome} ×</button>)}
+            </div>
+            {incluirAberto && <div className={overlay.overlay} role="dialog" aria-label="Adicionar ao pacote">
+              <div className={overlay.painel}>
+              <div className={styles.filters} role="tablist">
+                <button type="button" aria-pressed={abaIncluir === 'categorias'} onClick={() => setAbaIncluir('categorias')}>Categorias</button>
+                <button type="button" aria-pressed={abaIncluir === 'itens'} onClick={() => setAbaIncluir('itens')}>Itens</button>
+              </div>
+              <label>Busca<input type="search" value={buscaIncluir} onChange={(evento) => setBuscaIncluir(evento.target.value)} /></label>
+              {abaIncluir === 'categorias' && categorias.filter((categoria) => categoria.nome.toLocaleLowerCase('pt-BR').includes(buscaIncluir.trim().toLocaleLowerCase('pt-BR'))).map((categoria) => {
+                const marcado = Boolean(inclusos[categoria.id]?.incluso);
+                return <label key={categoria.id}><input type="checkbox" checked={marcado} onChange={() => setInclusos({ ...inclusos, [categoria.id]: { incluso: !marcado, escolhas: inclusos[categoria.id]?.escolhas || '1' } })} /> {categoria.nome}</label>;
+              })}
+              {abaIncluir === 'itens' && itensBuffet.filter((item) => item.nome.toLocaleLowerCase('pt-BR').includes(buscaIncluir.trim().toLocaleLowerCase('pt-BR'))).map((item) => <label key={item.id}><input type="checkbox" checked={itensEscolhidos.includes(item.id)} onChange={() => setItensEscolhidos(itensEscolhidos.includes(item.id) ? itensEscolhidos.filter((id) => id !== item.id) : [...itensEscolhidos, item.id])} /> {item.nome}</label>)}
+              <button type="button" onClick={() => setIncluirAberto(false)}>Concluir</button>
+              </div>
+            </div>}
           </section>
           <div className={styles.actions}>
             <button className={styles.primary} type="submit" disabled={carregando}>{atual ? 'Salvar alterações' : 'Salvar pacote'}</button>

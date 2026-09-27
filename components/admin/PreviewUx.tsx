@@ -86,6 +86,7 @@ export default function PreviewUx({ tela, estado }: { tela: 'pacotes' | 'buffet'
           pacotes,
           horarios,
           categorias,
+          itens: buffet.itens,
           filtro,
           edicao: estado === 'editar' ? edicao : null,
         }} />}

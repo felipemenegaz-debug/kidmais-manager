@@ -388,6 +388,16 @@ async function clonarAgregadoPacote(tx: DbExecutor, origemId: string, novaId: st
       WHERE pacote_id = $2::uuid`,
     [novaId, origemId],
   );
+  const especificos = await tx.query<{ ok: boolean }>(
+    `SELECT to_regclass('public.pacote_itens_especificos') IS NOT NULL AS ok`,
+  );
+  if (especificos.rows[0]?.ok) {
+    await tx.query(
+      `INSERT INTO pacote_itens_especificos (pacote_id, item_id)
+       SELECT $1::uuid, item_id FROM pacote_itens_especificos WHERE pacote_id = $2::uuid`,
+      [novaId, origemId],
+    );
+  }
   await tx.query(
     `INSERT INTO regras_desconto_pacote (
        pacote_id, dia_semana, configuracao_agenda_id, percentual, base_calculo, codigo, titulo,
@@ -708,6 +718,35 @@ export async function definirCategoriasPacoteAdmin(
   const depois = await lerComposicao(tx, destino.id);
   await registrarMutacao(tx, ctx, "PACOTE_COMPOSICAO", destino.id, antes, depois, ctx.motivo);
   return (await buscar(tx, ctx.empresaId, destino.id))!;
+}
+
+export async function definirItensEspecificosPacoteAdmin(tx: DbExecutor, id: string, itemIds: string[]) {
+  const tabela = await tx.query<{ ok: boolean }>(
+    `SELECT to_regclass('public.pacote_itens_especificos') IS NOT NULL AS ok`,
+  );
+  const ids = [...new Set(itemIds)];
+  if (!tabela.rows[0]?.ok) {
+    if (ids.length === 0) return;
+    recusar("DADOS_INVALIDOS", "Não foi possível guardar os itens deste pacote. Nenhuma alteração foi salva.", 409);
+  }
+  if (ids.length > 0) {
+    const existentes = await tx.query<{ id: string }>(
+      `SELECT id FROM buffet_itens WHERE id = ANY($1::uuid[])`,
+      [ids],
+    );
+    if (existentes.rows.length !== ids.length) recusar("DADOS_INVALIDOS", "Escolha apenas itens do buffet já cadastrados.", 409);
+  }
+  await tx.query(
+    `DELETE FROM pacote_itens_especificos WHERE pacote_id = $1::uuid AND NOT (item_id = ANY($2::uuid[]))`,
+    [id, ids],
+  );
+  if (ids.length === 0) return;
+  await tx.query(
+    `INSERT INTO pacote_itens_especificos (pacote_id, item_id)
+     SELECT $1::uuid, item_id FROM unnest($2::uuid[]) AS item_id
+     ON CONFLICT (pacote_id, item_id) DO NOTHING`,
+    [id, ids],
+  );
 }
 
 /**

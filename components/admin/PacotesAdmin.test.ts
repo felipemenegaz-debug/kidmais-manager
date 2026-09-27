@@ -15,6 +15,9 @@ test("Pacotes concentra o cadastro e o PDF continua separado", () => {
   assert.match(pacotes, /DurationField/);
   assert.match(pacotes, /Convidados mínimos/);
   assert.match(pacotes, /O que está incluído/);
+  assert.match(pacotes, /\+ Adicionar/);
+  assert.match(pacotes, /Itens específicos/);
+  assert.doesNotMatch(pacotes, /Cliente escolhe/);
   assert.doesNotMatch(pacotes, /Salvar rascunho|Revisar e aplicar|Motivo da alteração|empresaId|htmlFor="codigo"/);
   assert.doesNotMatch(navegacao, /Tabelas de Preços|tabelas-preco|Recolher menu/);
   assert.match(navegacao, /Itens do Buffet/);
@@ -22,6 +25,14 @@ test("Pacotes concentra o cadastro e o PDF continua separado", () => {
   assert.match(configuracoes, /Itens do Buffet/);
   assert.match(catalogo, /Categorias/);
   assert.match(catalogo, />Itens</);
+  assert.match(catalogo, /\+ Nova categoria/);
+  assert.match(catalogo, /\+ Novo item/);
+  assert.match(catalogo, /Sem categoria/);
+  const css = readFileSync("components/admin/catalogo-editor.module.css", "utf8");
+  assert.match(css, /max-height: min\(70vh, 520px\)/);
+  assert.match(css, /overflow-y: auto/);
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.tabela \{[\s\S]*display: none/);
+  assert.match(css, /\.cards \{[\s\S]*display: grid/);
   assert.doesNotMatch(catalogo, /Motivo da composição|>Buffet<|>Adicionais</);
   assert.match(precos, /redirect\('\/admin\/configuracoes\/pacotes'\)/);
   assert.doesNotMatch(precos, /TabelasPrecoAdmin/);
@@ -56,6 +67,7 @@ test("exclusão de pacote usado falha fechada e a cópia leva o sufixo Cópia", 
         copias.push(String(values?.[2]));
         return { rows: [{ id: "33333333-3333-4333-8333-333333333333" }], rowCount: 1 };
       }
+      if (text.includes("to_regclass")) return { rows: [{ ok: false }], rowCount: 1 };
       if (text.startsWith("INSERT INTO auditoria") || text.startsWith("INSERT INTO pacote_") || text.startsWith("INSERT INTO regras_")) {
         return { rows: [], rowCount: 1 };
       }

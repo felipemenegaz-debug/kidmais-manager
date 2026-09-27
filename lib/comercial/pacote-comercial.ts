@@ -8,6 +8,7 @@ import {
   consultarPacoteAdmin,
   criarPacoteAdmin,
   definirCategoriasPacoteAdmin,
+  definirItensEspecificosPacoteAdmin,
   definirDisponibilidadePacoteAdmin,
   duplicarPacoteAdmin,
   editarPacoteNaoUtilizado,
@@ -28,6 +29,7 @@ export type SalvarPacoteComercial = {
   disponibilidade: Array<{ dia: number; horarioId: string }>;
   faixas: FaixaFixa[] | null;
   categorias: Array<{ categoriaId: string; escolhas: number }>;
+  itens?: string[];
 };
 
 function recusar(code: string, message: string, status: number): never {
@@ -68,6 +70,15 @@ export async function painelPacoteAdmin(tx: DbExecutor, empresaId: string, id: s
     [id],
   );
   const faixas = await lerFaixasPacote(tx, empresaId, id);
+  const especificos = await tx.query<{ ok: boolean }>(
+    `SELECT to_regclass('public.pacote_itens_especificos') IS NOT NULL AS ok`,
+  );
+  const itens = especificos.rows[0]?.ok
+    ? await tx.query<{ item_id: string }>(
+      `SELECT item_id FROM pacote_itens_especificos WHERE pacote_id = $1::uuid ORDER BY item_id`,
+      [id],
+    )
+    : { rows: [] as Array<{ item_id: string }> };
   return {
     pacote: atual,
     disponibilidade: disponibilidade.rows.map((linha) => ({
@@ -80,6 +91,7 @@ export async function painelPacoteAdmin(tx: DbExecutor, empresaId: string, id: s
       ativo: linha.ativo,
     })),
     faixas,
+    itens: itens.rows.map((linha) => linha.item_id),
   };
 }
 
@@ -125,6 +137,7 @@ export async function salvarPacoteComercial(
     input.categorias,
     { ...contexto, motivo: MOTIVOS_PACOTE.composicao },
   );
+  await definirItensEspecificosPacoteAdmin(tx, comCategorias.id, input.itens ?? []);
   let avisoPrecos: string | null = null;
   try {
     if (revisao && input.id) {

@@ -30,6 +30,8 @@ function responderFotografia(sql: string) {
         return { rows: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', codigo: 'SALGADOS', nome: 'Salgados', modo_itens: 'TODOS_ATIVOS', escolhas_min: 1, escolhas_max: 4 }], rowCount: 1 };
     if (compact.startsWith('INSERT INTO fechamento_pacote_composicao'))
         return { rows: [], rowCount: 1 };
+    if (compact.includes('to_regclass'))
+        return { rows: [{ especificos: false, fotografia: false }], rowCount: 1 };
     if (compact.startsWith('UPDATE fechamentos') && compact.includes('pacote_snapshot_vigente_id'))
         return { rows: [], rowCount: 1 };
     return null;

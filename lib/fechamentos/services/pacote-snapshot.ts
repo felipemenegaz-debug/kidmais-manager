@@ -52,6 +52,35 @@ async function gravarComposicao(tx: DbExecutor, snapshotId: string, pacoteId: st
       [snapshotId, categoria.id, categoria.codigo, categoria.nome, categoria.modo_itens, categoria.escolhas_min, categoria.escolhas_max],
     );
   }
+  const tabelas = await tx.query<{ especificos: boolean; fotografia: boolean }>(
+    `SELECT to_regclass('public.pacote_itens_especificos') IS NOT NULL AS especificos,
+            to_regclass('public.fechamento_pacote_itens_especificos') IS NOT NULL AS fotografia`,
+  );
+  if (!tabelas.rows[0]?.especificos) return;
+  const itens = await tx.query<{ id: string; codigo: string; nome: string; categoria_id: string | null }>(
+    `SELECT i.id, i.codigo, i.nome, i.categoria_id
+       FROM pacote_itens_especificos e
+       JOIN buffet_itens i ON i.id = e.item_id
+      WHERE e.pacote_id = $1::uuid
+      ORDER BY i.nome, i.codigo`,
+    [pacoteId],
+  );
+  if (itens.rows.length === 0) return;
+  if (!tabelas.rows[0]?.fotografia) {
+    throw new FechamentoServiceError(
+      "DADOS_INVALIDOS",
+      "Não foi possível registrar os itens incluídos neste pacote.",
+      409,
+    );
+  }
+  for (const item of itens.rows) {
+    await tx.query(
+      `INSERT INTO fechamento_pacote_itens_especificos (
+         snapshot_id, item_id, categoria_id, codigo_aplicado, nome_aplicado
+       ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
+      [snapshotId, item.id, item.categoria_id, item.codigo, item.nome],
+    );
+  }
 }
 
 /**

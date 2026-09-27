@@ -4,10 +4,10 @@ import styles from '@/components/admin/workspace.module.css';
 import hub from '@/components/admin/configuracoes.module.css';
 
 const cards: { route: string; title: string; text: string; icon: AdminIconName }[] = [
+  { route:'perfil-empresa', title:'Perfil da empresa', text:'Cadastro da empresa, endereço da unidade e contatos.', icon:'profile' },
   { route:'pacotes', title:'Pacotes', text:'Nome, duração, dias, preços e o que está incluído. O histórico das festas já contratadas permanece.', icon:'packages' },
   { route:'catalogo', title:'Itens do Buffet', text:'Categorias e itens do buffet usados na composição dos pacotes.', icon:'buffet' },
-  { route:'perfil-empresa', title:'Perfil da Empresa', text:'Cadastro da empresa, endereço da unidade e contatos. Revise as alterações antes de aplicar.', icon:'profile' },
-  { route:'acessos', title:'Usuários e Acessos', text:'Gerencie contas e os acessos disponíveis no sistema e na operação das festas.', icon:'users' },
+  { route:'acessos', title:'Usuários e acessos', text:'Gerencie contas e os acessos disponíveis no sistema e na operação das festas.', icon:'users' },
   { route:'whatsapp', title:'WhatsApp', text:'Consulte o estado da configuração e as opções de conexão disponíveis.', icon:'contact' },
   { route:'tabela-pacotes', title:'PDF de Pacotes', text:'Revise e publique o documento consultado pelos clientes. Sua publicação é independente dos preços.', icon:'pdf' },
 ];

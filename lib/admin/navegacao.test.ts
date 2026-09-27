@@ -12,10 +12,10 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
     assert.equal(gestao.some((item) => item.rotulo === 'Tabelas de Preços' || item.href.includes('tabelas-preco')), false);
     const configuracao = gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo);
     assert.deepEqual(configuracao, [
-        'Pacotes',
-        'Itens do Buffet',
         'Configurações',
         'Perfil da empresa',
+        'Pacotes',
+        'Itens do Buffet',
         'Usuários e acessos',
         'WhatsApp',
         'PDF de Pacotes',

@@ -208,16 +208,15 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
     assert.equal(Number(ident.rows[0].port), 55498);
 
-    await t.test("tenant A não altera referência global usada por B", async () => {
+    await t.test("tenant não altera categoria global", async () => {
       const empresaA = await empresa(db, "Empresa A catalogo");
       const empresaB = await empresa(db, "Empresa B catalogo");
       const usuarioA = await usuario(db);
       await membership(db, empresaA, usuarioA);
-      const categoria = (await db.query<{ id: string; nome: string }>(
+      const semente = (await db.query<{ id: string; nome: string }>(
         "SELECT id, nome FROM buffet_categorias ORDER BY codigo LIMIT 1",
       )).rows[0];
       const antes = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM buffet_categorias")).rows[0].n;
-      const itens = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM buffet_itens")).rows[0].n;
       const modulo = carregarCatalogo({
         usuario_id: usuarioA,
         papel: "REPRESENTANTE_AUTORIZADO",
@@ -226,84 +225,61 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
       const resposta = await corpo(await patch(pedido({
         empresaId: empresaA,
         acao: "categoria",
-        id: categoria.id,
+        id: semente.id,
         nome: "Nome invasor HG8",
         ativo: true,
       })));
       assert.equal(resposta.status, 403);
       assert.equal(resposta.json.codigo, "CATALOGO_GLOBAL_SEM_AUTORIDADE");
-      const depois = await db.query<{ nome: string }>("SELECT nome FROM buffet_categorias WHERE id = $1::uuid", [categoria.id]);
-      assert.equal(depois.rows[0].nome, categoria.nome);
-      assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM buffet_categorias")).rows[0].n, antes);
-      assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM buffet_itens")).rows[0].n, itens);
       const nova = await corpo(await patch(pedido({
         empresaId: empresaA,
         acao: "nova_categoria",
         nome: "Categoria invasora",
+        ativo: true,
       })));
       assert.equal(nova.status, 403);
       assert.equal(nova.json.codigo, "CATALOGO_GLOBAL_SEM_AUTORIDADE");
+      const depois = await db.query<{ nome: string }>("SELECT nome FROM buffet_categorias WHERE id = $1::uuid", [semente.id]);
+      assert.equal(depois.rows[0].nome, semente.nome);
       assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM buffet_categorias")).rows[0].n, antes);
       assert.equal(empresaB.length > 0, true);
     });
 
-    await t.test("item e novo item não alteram a referência global compartilhada", async () => {
+    await t.test("tenant não renomeia nem desativa item global", async () => {
       const empresaA = await empresa(db, "Empresa A item");
-      const empresaB = await empresa(db, "Empresa B item");
       const usuarioA = await usuario(db);
       await membership(db, empresaA, usuarioA);
-      const item = (await db.query<{ id: string; nome: string; categoria_id: string }>(
-        "SELECT id, nome, categoria_id FROM buffet_itens ORDER BY nome LIMIT 1",
+      const item = (await db.query<{ id: string; nome: string; ativo: boolean }>(
+        "SELECT id, nome, ativo FROM buffet_itens ORDER BY nome LIMIT 1",
       )).rows[0];
-      const pacoteB = (await db.query<{ id: string }>(
-        `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente)
-         VALUES ($1::uuid, $2, 'Pacote da referencia', 430, true, true) RETURNING id`,
-        [empresaB, codigo("HG8I").toUpperCase()],
-      )).rows[0].id;
-      await db.query(
-        `INSERT INTO pacote_buffet_categorias (pacote_id, categoria_id, modo_itens, escolhas_min, escolhas_max, ativo)
-         VALUES ($1::uuid, $2::uuid, 'SELECIONADOS', 0, 1, true)`,
-        [pacoteB, item.categoria_id],
-      );
-      await db.query(
-        `INSERT INTO pacote_buffet_itens (pacote_id, categoria_id, item_id)
-         VALUES ($1::uuid, $2::uuid, $3::uuid)`,
-        [pacoteB, item.categoria_id, item.id],
-      );
       const antes = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM buffet_itens")).rows[0].n;
       const modulo = carregarCatalogo({ usuario_id: usuarioA, papel: "REPRESENTANTE_AUTORIZADO" });
       const patch = modulo.PATCH as (request: object) => Promise<{ status: number; json: () => Promise<unknown> }>;
-      const alterado = await corpo(await patch(pedido({
+      const renomeado = await corpo(await patch(pedido({
         empresaId: empresaA,
         acao: "item",
         id: item.id,
         nome: "Item invasor HG8",
         ativo: true,
       })));
-      assert.equal(alterado.status, 403);
-      assert.equal(alterado.json.codigo, "CATALOGO_GLOBAL_SEM_AUTORIDADE");
-      const criado = await corpo(await patch(pedido({
+      assert.equal(renomeado.status, 403);
+      assert.equal(renomeado.json.codigo, "CATALOGO_GLOBAL_SEM_AUTORIDADE");
+      const desativado = await corpo(await patch(pedido({
         empresaId: empresaA,
-        acao: "novo_item",
-        categoriaId: item.categoria_id,
-        nome: "Item novo invasor",
+        acao: "item",
+        id: item.id,
+        nome: item.nome,
+        ativo: false,
       })));
-      assert.equal(criado.status, 403);
-      assert.equal(criado.json.codigo, "CATALOGO_GLOBAL_SEM_AUTORIDADE");
-      const depois = await db.query<{ nome: string }>("SELECT nome FROM buffet_itens WHERE id = $1::uuid", [item.id]);
-      assert.equal(depois.rows[0].nome, item.nome);
-      assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM buffet_itens")).rows[0].n, antes);
-      const referencia = await db.query<{ nome: string; n: number }>(
-        `SELECT i.nome, count(*)::int AS n
-           FROM pacote_buffet_itens v
-           JOIN buffet_itens i ON i.id = v.item_id
-          WHERE v.pacote_id = $1::uuid AND v.item_id = $2::uuid
-          GROUP BY i.nome`,
-        [pacoteB, item.id],
+      assert.equal(desativado.status, 403);
+      assert.equal(desativado.json.codigo, "CATALOGO_GLOBAL_SEM_AUTORIDADE");
+      const depois = await db.query<{ nome: string; ativo: boolean }>(
+        "SELECT nome, ativo FROM buffet_itens WHERE id = $1::uuid",
+        [item.id],
       );
-      assert.equal(referencia.rows.length, 1);
-      assert.equal(referencia.rows[0].n, 1);
-      assert.equal(referencia.rows[0].nome, item.nome);
+      assert.equal(depois.rows[0].nome, item.nome);
+      assert.equal(depois.rows[0].ativo, item.ativo);
+      assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM buffet_itens")).rows[0].n, antes);
     });
 
     await t.test("composição pela rota revisa pacote usado e grava uma auditoria", async () => {

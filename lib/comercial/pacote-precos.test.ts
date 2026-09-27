@@ -126,6 +126,7 @@ test("duplicação copia o preço pela sucessora e a falha da cópia não deixa 
       if (text.includes("substituida_em = clock_timestamp()") || text.includes("SET publicada_em = clock_timestamp()")) {
         return um({ id: "tabela-nova" } as Row);
       }
+      if (text.includes("to_regclass")) return um({ ok: false } as Row);
       if (text.includes("count(*)::int AS n")) return um({ n: 1 } as Row);
       if (text.startsWith("INSERT INTO precos_pacote")) {
         copiados.push([...(values ?? [])]);

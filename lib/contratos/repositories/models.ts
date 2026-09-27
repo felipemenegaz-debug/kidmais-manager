@@ -24,7 +24,7 @@ export type ContratoRecord = {
 };
 
 export type ComposicaoPacoteAplicada = {
-  tipo: "INCLUSO" | "BUFFET";
+  tipo: "INCLUSO" | "BUFFET" | "ITEM";
   codigo: string;
   nome: string;
   modoItens: "TODOS_ATIVOS" | "SELECIONADOS" | null;

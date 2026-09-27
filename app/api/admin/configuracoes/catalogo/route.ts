@@ -14,8 +14,9 @@ export const dynamic = "force-dynamic";
 /**
  * Catálogo administrativo.
  * (1) Tenant: adicionais, pacotes e a composição que passa pelo pacote da empresa.
- * (2) Global, sem empresa_id e sem autoridade global no modelo: buffet_categorias,
- *     buffet_itens e adicional_categorias. A leitura permanece. A escrita falha fechada.
+ * (2) Buffet é catálogo global. A membership consulta e seleciona no pacote da empresa.
+ *     Criar, editar, desativar e excluir exigem autoridade global explícita, que este modelo não tem.
+ *     A migration 050 não autoriza essa escrita. Adicional de outra empresa continua fora.
  * (3) Legado ainda sem tenant: linhas de pacotes, adicionais e tabelas com empresa_id nulo.
  *     Não são alcançadas por esta escrita.
  */
@@ -24,8 +25,11 @@ const nome = z.string().trim().min(1).max(160);
 const motivo = z.string().trim().min(3).max(500).optional();
 const operacao = z.discriminatedUnion("acao", [
   z.object({ acao: z.literal("categoria"), id: uuid, nome, ativo: z.boolean() }).strict(),
-  z.object({ acao: z.literal("item"), id: uuid, nome, ativo: z.boolean() }).strict(),
-  z.object({ acao: z.literal("novo_item"), categoriaId: uuid, nome }).strict(),
+  z.object({ acao: z.literal("nova_categoria"), nome, ativo: z.boolean() }).strict(),
+  z.object({ acao: z.literal("excluir_categoria"), id: uuid }).strict(),
+  z.object({ acao: z.literal("item"), id: uuid, nome, ativo: z.boolean(), categoriaId: uuid.nullable().optional() }).strict(),
+  z.object({ acao: z.literal("novo_item"), nome, categoriaId: uuid.nullable().optional(), ativo: z.boolean() }).strict(),
+  z.object({ acao: z.literal("excluir_item"), id: uuid }).strict(),
   z.object({ acao: z.literal("adicional"), id: uuid, nome, ativo: z.boolean() }).strict(),
   z.object({
     acao: z.literal("vinculo_adicional"),
@@ -34,7 +38,6 @@ const operacao = z.discriminatedUnion("acao", [
     modalidade: z.enum(["INCLUSO", "EXTRA", "INDISPONIVEL"]),
     motivo,
   }).strict(),
-  z.object({ acao: z.literal("nova_categoria"), nome }).strict(),
   z.object({
     acao: z.literal("regra_buffet"),
     pacoteId: uuid,
@@ -45,7 +48,7 @@ const operacao = z.discriminatedUnion("acao", [
   }).strict(),
 ]);
 
-const acoesGlobais = new Set(["categoria", "item", "novo_item", "nova_categoria"]);
+const acoesGlobais = new Set(["categoria", "item", "novo_item", "nova_categoria", "excluir_categoria", "excluir_item"]);
 
 function recusarCatalogoGlobal(): never {
   throw new PacoteAdminError(
