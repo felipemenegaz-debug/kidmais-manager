@@ -22,12 +22,18 @@ test('a tela cobre os estados e não envia concessão nem arquivo', () => {
     assert.match(tela, /Mesmo endereço da sede/);
     assert.match(tela, /reautenticar/);
     assert.doesNotMatch(tela, /type="file"|perfil_empresa_concessoes|INSERT INTO/);
-    assert.match(estilo, /#161022/);
-    assert.match(estilo, /#d7c4f5/);
-    assert.match(estilo, /#6d28d9/);
-    assert.match(estilo, /#3dd68c/);
-    assert.match(estilo, /max-width: 720px/);
-    assert.match(estilo, /prefers-reduced-motion/);
+    assert.match(estilo, /background:var\(--main-bg\)/);
+    assert.match(tela, /data-profile-page/);
+    assert.match(tela, /<dialog/);
+    assert.doesNotMatch(estilo, /max-width:\s*46rem|#161022/);
+});
+
+test('shell mantém drawer mobile e não oferece collapse desktop', () => {
+    const shell=readFileSync('components/admin/AdminShell.tsx','utf8');
+    assert.doesNotMatch(shell,/Recolher menu|setRecolhido|data-recolhido/);
+    assert.match(shell,/aria-expanded=\{aberto\}/);
+    assert.match(shell,/Escape/);
+    assert.match(shell,/menuRef.current\?\.focus\(\)/);
 });
 
 test('a API usa sessão, origem e CSRF e não concede acesso', () => {
