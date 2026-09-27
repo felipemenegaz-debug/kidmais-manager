@@ -2,7 +2,53 @@
 
 Documento temporário de continuidade. Não é fonte funcional. A decisão de produto permanece no Second Brain e no Goal Mestre. O Goal permanece aberto.
 
-## Estado atual — revisão HG-8 remediada, Goal aberto
+## Estado atual — corrida do DOWN da 043 fechada, Goal aberto
+
+- Branch: `integration/saas-commercial-foundation`
+- Upstream: `origin/integration/saas-commercial-foundation`. Não rastrear este trabalho em `origin/staging`.
+- Base desta passagem: o HEAD revisado `d9ecf44a59e37b268154794182ce9c660c976cf1`. A branch já estava nesse SHA antes da correção. Não houve rebase. O UP da 043 não foi reescrito.
+- Código desta passagem, antes deste status: `2a2642d1bba75d142ac81d5f893feea948fd7829`
+- Este arquivo entra no commit seguinte. O HEAD da branch, depois desse commit, é o commit de status.
+
+Commit desta passagem, autor e committer Felipe Menegaz `<324788905+felipemenegaz-debug@users.noreply.github.com>`:
+
+| SHA | Assunto |
+| --- | --- |
+| `2a2642d1bba75d142ac81d5f893feea948fd7829` | trava as tabelas da Foundation antes de conferir o vazio no DOWN da 043 |
+
+### HG8-05 — corrida do DOWN
+
+Fechada quanto à corrida. O DOWN em `database/rollback/20260926_043_estrutura_tenant_down.sql` trava, nesta ordem fixa, `estabelecimentos` → `memberships` → `membership_estabelecimentos`, em `ACCESS EXCLUSIVE`, antes de contar as linhas. A trava conflita com INSERT, UPDATE e DELETE e permanece até COMMIT ou ROLLBACK. Depois dela, qualquer linha aborta o rollback. O DROP só ocorre com a trava ainda segurada. O script não apaga linhas para ficar vazio.
+
+Essa ordem não trava `usuarios_administrativos` nem `empresas`, então não inverte a ordem da operação de tenant: usuário → empresa → membership. O modo é mais forte que o `SHARE ROW EXCLUSIVE` da 038 porque o script termina em DROP; a espera acontece na aquisição, não entre a conferência e o DROP.
+
+Depois de uso real, o rollback não deve destruir a Foundation. Prefira o código anterior ou uma correção para frente. O verificador de migrations não guarda hash deste arquivo de rollback; não houve hash para atualizar. O UP publicado da 043 não mudou.
+
+### O que permanece
+
+- HG8-01 P0 e HG8-02/HG8-03 P1 continuam fechados. Os testes cobrem item e novo item na referência compartilhada, a regra de buffet além do vínculo de adicional, e a suspensão concorrente nas duas ordens, sem uma escrita incidental mascarando a trava. O comportamento aprovado desses três não foi redesenhado.
+- HG-4 aberto. Completude comercial não foi definida.
+- HG-6 aberto. Os sete pacotes legados seguem com `empresa_id` NULL. Nenhuma empresa Kidmais foi criada. `FESTA_LOCAL` → `SALADA_PREMIUM` não foi reescrito.
+- Perfil da Empresa aberto. `perfil_empresas` não foi fundido em `empresas`.
+- D03 adiado. Estabelecimento operacional continua fechado.
+- O catálogo público permanece fechado (`403` `CATALOGO_PUBLICO_INDETERMINADO`).
+- Sem merge e sem deploy. O Goal não está completo.
+
+### Banco descartável
+
+`kidmais_pacotes_v1_descartavel` em `127.0.0.1:55498`. `current_database()` e `inet_server_port()` conferidos. Sete pacotes com `empresa_id` NULL. O vínculo misto continua 1. Nenhuma empresa Kidmais foi provisionada. `kidmais_manager`, staging e produção não foram usados.
+
+### Validação desta passagem
+
+- PostgreSQL descartável, suíte HG-8, `pacotes-v1-remediacao.postgres.test.ts` e regressões de tenant, catálogo, composição e `production.test.mjs`: 119 testes, 0 falhas.
+- `npx tsc --noEmit`: passou.
+- `npm run lint`: passou, exit 0.
+- `npm run build`: passou.
+- `git diff --check`: passou.
+
+O Goal não está completo. Parado para o humano. HG-6 não foi iniciado. Não é merge nem deploy.
+
+## HISTÓRICO — revisão HG-8 remediada, antes da corrida do DOWN
 
 - Branch: `integration/saas-commercial-foundation`
 - Upstream: `origin/integration/saas-commercial-foundation`. Não rastrear este trabalho em `origin/staging`.
