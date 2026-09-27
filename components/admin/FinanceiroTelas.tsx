@@ -6,7 +6,7 @@ import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, type AcaoFinancei
 import styles from './financeiro.module.css';
 
 type Resumo = { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; emAtrasoCentavos: number; saldoPrevistoCentavos: number; pagoMesCentavos: number };
-type Recebivel = { id: string; cliente: string; pacote: string; festaId: string | null; parcela: number; vencimento: string; valorCentavos: number; recebidoCentavos: number; saldoCentavos: number; forma: string; status: string; diasAtraso: number };
+type Recebivel = { id: string; origem?: "CONTRATO" | "ENTRADA_MANUAL"; cliente: string; pacote: string; festaId: string | null; parcela: number; vencimento: string; valorCentavos: number; recebidoCentavos: number; saldoCentavos: number; forma: string; status: string; diasAtraso: number };
 type Conta = { id: string; descricao: string; favorecido: string | null; categoria: string; categoriaId: string; vencimento: string; valorCentavos: number; saldoCentavos: number; pagoCentavos: number; status: string; forma: string | null };
 type Categoria = { id: string; nome: string };
 type Fluxo = { saldoInicialCentavos: number; entradasCentavos: number; saidasCentavos: number; saldoFinalCentavos: number; linhas: Array<{ data: string; descricao: string; entrada: number; saida: number; saldo: number | null; tipo: string }> };
@@ -65,7 +65,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
   const [pagoMes, setPagoMes] = useState(0);
   const acaoRef = useRef<AcaoFinanceira>(acaoInicial());
   const [acao, setAcao] = useState<AcaoFinanceira>(acaoInicial);
-  const [dialogo, setDialogo] = useState<'receber' | 'pagar' | 'nova' | null>(null);
+  const [dialogo, setDialogo] = useState<'receber' | 'pagar' | 'nova' | 'entrada' | null>(null);
   const [alvo, setAlvo] = useState<Recebivel | Conta | null>(null);
   const [aviso, setAviso] = useState('');
 
@@ -138,7 +138,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
     setAcao(proxima);
   }
 
-  function abrirDialogo(tipo: 'receber' | 'pagar' | 'nova', item?: Recebivel | Conta) {
+  function abrirDialogo(tipo: 'receber' | 'pagar' | 'nova' | 'entrada', item?: Recebivel | Conta) {
     if (acaoRef.current.fase === 'submitting') return;
     aplicar(abrirAcao(acaoRef.current, () => crypto.randomUUID()));
     if (item) setAlvo(item);
@@ -185,16 +185,16 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       </div>
     </>}
     {tela === 'receber' && <>
-      <header className={styles.topo}><div><h1>Contas a receber</h1><p>Parcelas dos contratos desta empresa.</p></div></header>
+      <header className={styles.topo}><div><h1>Contas a receber</h1><p>Parcelas de contrato e entradas avulsas desta empresa.</p></div><button className={styles.principal} type="button" disabled={acao.fase === 'submitting'} onClick={() => abrirDialogo('entrada')}>+ Nova entrada</button></header>
       <Kpis itens={[['Total a receber', resumo?.aReceberCentavos], ['Vencido', resumo?.emAtrasoCentavos], ['Recebido no mês', resumo?.recebidoMesCentavos]]} />
       <Filtros opcoes={['Todos', 'A receber', 'Vencidos', 'Pagos']} valor={filtro} aoMudar={setFiltro} />
       <input className={styles.busca} aria-label="Buscar cliente ou festa" placeholder="Buscar cliente ou festa" value={busca} onChange={(evento) => setBusca(evento.target.value)} />
-      {listaReceber.length === 0 && <p className={styles.vazio}>{filtro === 'Vencidos' ? 'Tudo em dia. Nenhum recebimento vencido.' : 'Nenhuma parcela neste filtro.'}</p>}
+      {listaReceber.length === 0 && <p className={styles.vazio}>{filtro === 'Vencidos' ? 'Tudo em dia. Nenhum recebimento vencido.' : 'Nenhum recebimento neste filtro.'}</p>}
       <Tabela colunas={['Cliente', 'Festa', 'Vencimento', 'Valor', 'Saldo', 'Status', '']} linhas={listaReceber.map((item) => ({
         id: item.id,
         celulas: [item.cliente, item.pacote, item.vencimento, reaisDe(item.valorCentavos), reaisDe(item.saldoCentavos), item.status],
         status: item.status,
-        acao: item.saldoCentavos > 0 && item.status !== 'Cancelado' ? () => abrirDialogo('receber', item) : undefined,
+        acao: item.origem !== 'ENTRADA_MANUAL' && item.saldoCentavos > 0 && item.status !== 'Cancelado' ? () => abrirDialogo('receber', item) : undefined,
       }))} />
     </>}
     {tela === 'pagar' && <>
@@ -230,6 +230,25 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
         <section className={styles.cartao}><h2>Margem por festa</h2>{(relatorio.margens ?? []).length === 0 && <p className={styles.vazio}>Nenhuma festa no período.</p>}{(relatorio.margens ?? []).map((item) => <div className={styles.linha} key={item.festaId}><div><p>{item.cliente}</p><small>Resultado de caixa {reaisDe(item.resultadoCaixaCentavos)}</small></div><strong>{reaisDe(item.margemEstimadaCentavos)}</strong></div>)}</section>
       </div>
     </>}
+    {dialogo === 'entrada' && acao.chave && <NovaEntrada aviso={aviso} ocupado={acao.fase === 'submitting'} festas={[...new Map(recebiveis.filter((item) => item.festaId).map((item) => [item.festaId, item.pacote])).entries()].map(([id, nome]) => ({ id: id ?? '', nome }))} aoFechar={fecharDialogo} aoEnviar={(form) => {
+      const status = String(form.get('status')) === 'Pago' ? 'Pago' : 'A receber';
+      const festaId = String(form.get('festaId') || '') || undefined;
+      const forma = String(form.get('forma') || '') || undefined;
+      enviar('/api/admin/financeiro/contas-receber', {
+        acao: 'criar',
+        descricao: String(form.get('descricao')),
+        contraparte: String(form.get('contraparte') || '') || undefined,
+        festaId,
+        valor: Number(form.get('valor')),
+        vencimento: String(form.get('vencimento')),
+        forma,
+        status,
+        recebidoEm: status === 'Pago' ? String(form.get('recebidoEm') || '') : undefined,
+        taxa: status === 'Pago' ? Number(form.get('taxa') || 0) : undefined,
+        observacao: String(form.get('observacao') || '') || undefined,
+        chave: acao.chave,
+      });
+    }} />}
     {dialogo === 'receber' && alvo && 'cliente' in alvo && acao.chave && <Dialogo titulo="Registrar recebimento" aviso={aviso} ocupado={acao.fase === 'submitting'} aoFechar={fecharDialogo} aoEnviar={(form) => enviar('/api/admin/financeiro/contas-receber', { parcelaId: alvo.id, valor: Number(form.get('valor')), data: String(form.get('data')), forma: String(form.get('forma')), taxa: Number(form.get('taxa') || 0), observacao: String(form.get('observacao') || ''), chave: acao.chave })}>
       <Campo nome="valor" rotulo="Valor recebido" tipo="number" padrao={(alvo.saldoCentavos / 100).toFixed(2)} />
       <Campo nome="data" rotulo="Data" tipo="date" padrao={new Date().toISOString().slice(0, 10)} />
@@ -297,6 +316,23 @@ function Campo({ nome, rotulo, tipo = 'text', padrao, obrigatorio }: { nome: str
 function Forma() {
   return <label>Forma<select name="forma" aria-label="Forma de pagamento" required>{FORMAS.map((forma) => <option key={forma} value={forma}>{ROTULOS[forma]}</option>)}</select></label>;
 }
-function Dialogo({ titulo, aviso, ocupado = false, aoFechar, aoEnviar, children }: { titulo: string; aviso: string; ocupado?: boolean; aoFechar: () => void; aoEnviar: (form: FormData) => void; children: ReactNode }) {
-  return <div className={styles.dialogo}><form aria-label={titulo} aria-busy={ocupado} onSubmit={(evento) => { evento.preventDefault(); if (!ocupado) aoEnviar(new FormData(evento.currentTarget)); }}><h2>{titulo}</h2>{children}{aviso && <p className={styles.erro} role="alert">{aviso}</p>}<div className={styles.acoes}><button type="button" onClick={aoFechar} disabled={ocupado}>Voltar</button><button type="submit" disabled={ocupado}>{ocupado ? 'Processando…' : 'Confirmar'}</button></div></form></div>;
+function Dialogo({ titulo, aviso, ocupado = false, confirmar = 'Confirmar', aoFechar, aoEnviar, children }: { titulo: string; aviso: string; ocupado?: boolean; confirmar?: string; aoFechar: () => void; aoEnviar: (form: FormData) => void; children: ReactNode }) {
+  return <div className={styles.dialogo}><form aria-label={titulo} aria-busy={ocupado} onSubmit={(evento) => { evento.preventDefault(); if (!ocupado) aoEnviar(new FormData(evento.currentTarget)); }}><h2>{titulo}</h2>{children}{aviso && <p className={styles.erro} role="alert">{aviso}</p>}<div className={styles.acoes}><button type="button" onClick={aoFechar} disabled={ocupado}>Voltar</button><button type="submit" disabled={ocupado}>{ocupado ? 'Processando…' : confirmar}</button></div></form></div>;
+}
+function NovaEntrada({ aviso, ocupado, festas, aoFechar, aoEnviar }: { aviso: string; ocupado: boolean; festas: Array<{ id: string; nome: string }>; aoFechar: () => void; aoEnviar: (form: FormData) => void }) {
+  const [pago, setPago] = useState(false);
+  return <Dialogo titulo="Nova entrada" aviso={aviso} ocupado={ocupado} confirmar="Salvar entrada" aoFechar={aoFechar} aoEnviar={aoEnviar}>
+    <Campo nome="descricao" rotulo="Descrição" obrigatorio />
+    <Campo nome="contraparte" rotulo="Cliente / contraparte" />
+    <label>Festa vinculada<select name="festaId" aria-label="Festa vinculada"><option value="">Nenhuma</option>{festas.filter((item) => item.id).map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label>
+    <Campo nome="valor" rotulo="Valor" tipo="number" obrigatorio />
+    <Campo nome="vencimento" rotulo="Data de vencimento" tipo="date" obrigatorio />
+    <label>Forma prevista<select name="forma" aria-label="Forma de pagamento prevista"><option value="">Não informada</option>{FORMAS.map((forma) => <option key={forma} value={forma}>{ROTULOS[forma]}</option>)}</select></label>
+    <label>Status inicial<select name="status" aria-label="Status inicial" value={pago ? 'Pago' : 'A receber'} onChange={(evento) => setPago(evento.target.value === 'Pago')}><option value="A receber">A receber</option><option value="Pago">Pago</option></select></label>
+    {pago && <>
+      <Campo nome="recebidoEm" rotulo="Data do recebimento" tipo="date" obrigatorio />
+      <Campo nome="taxa" rotulo="Taxa (opcional)" tipo="number" />
+    </>}
+    <Campo nome="observacao" rotulo="Observação" />
+  </Dialogo>;
 }

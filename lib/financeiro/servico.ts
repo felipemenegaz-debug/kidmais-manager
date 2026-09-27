@@ -4,6 +4,7 @@ import {
   CATEGORIAS_DESPESA,
   FORMAS,
   HORIZONTE_RECORRENCIA_MESES,
+  IMPLANTACAO_FINANCEIRO,
   aceitaBaixa,
   centavosDe,
   formaParaRecebimento,
@@ -88,6 +89,7 @@ type LinhaReceber = {
 
 export type Recebivel = {
   id: string;
+  origem?: "CONTRATO" | "ENTRADA_MANUAL";
   pagamentoId: string;
   cliente: string;
   festaId: string | null;
@@ -119,6 +121,7 @@ function mapearRecebivel(linha: LinhaReceber, hoje: string): Recebivel {
     : 0;
   return {
     id: linha.id,
+    origem: "CONTRATO",
     pagamentoId: linha.pagamento_id,
     cliente: linha.cliente,
     festaId: linha.festa_id,
@@ -135,9 +138,79 @@ function mapearRecebivel(linha: LinhaReceber, hoje: string): Recebivel {
   };
 }
 
+const MANUAL_SQL = `
+  SELECT entrada.id::text AS id, entrada.descricao, entrada.contraparte, entrada.festa_id::text AS festa_id,
+         pac.nome AS festa, entrada.valor::text AS valor, entrada.vencimento::text AS vencimento,
+         entrada.forma, entrada.recebido_em::text AS recebido_em, entrada.taxa::text AS taxa
+    FROM financeiro_entradas_manuais entrada
+    LEFT JOIN festas festa ON festa.id = entrada.festa_id AND festa.invalidada_em IS NULL
+    LEFT JOIN contratos contrato ON contrato.id = festa.contrato_id
+    LEFT JOIN fechamentos fech ON fech.id = contrato.fechamento_id
+    LEFT JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = entrada.empresa_id
+   WHERE entrada.empresa_id = $1::uuid
+`;
+
+function mapearManual(linha: {
+  id: string;
+  descricao: string;
+  contraparte: string | null;
+  festa_id: string | null;
+  festa: string | null;
+  valor: string;
+  vencimento: string;
+  forma: string | null;
+  recebido_em: string | null;
+  taxa: string;
+}, hoje: string): Recebivel {
+  const valor = centavosDe(linha.valor);
+  const recebido = linha.recebido_em ? valor : 0;
+  const status = statusReceber({
+    cancelado: false,
+    reembolsado: false,
+    valorCentavos: valor,
+    recebidoCentavos: recebido,
+    vencimento: linha.vencimento,
+    hoje,
+  });
+  const atraso = status === "Vencido"
+    ? Math.max(0, Math.round((Date.parse(`${hoje}T00:00:00Z`) - Date.parse(`${linha.vencimento}T00:00:00Z`)) / 86400000))
+    : 0;
+  const cliente = [linha.contraparte, linha.descricao].filter(Boolean).join(" · ");
+  return {
+    id: linha.id,
+    origem: "ENTRADA_MANUAL",
+    pagamentoId: linha.id,
+    cliente,
+    festaId: linha.festa_id,
+    pacote: linha.festa ?? "Entrada manual",
+    data: linha.vencimento,
+    parcela: 0,
+    vencimento: linha.vencimento,
+    valorCentavos: valor,
+    recebidoCentavos: recebido,
+    saldoCentavos: saldoCentavos(valor, recebido),
+    forma: linha.forma ?? "",
+    status,
+    diasAtraso: atraso,
+  };
+}
+
 export async function listarRecebiveis(tx: DbExecutor, empresaId: string, hoje: string) {
   const resultado = await tx.query<LinhaReceber>(RECEBER_SQL, [empresaId]);
-  return resultado.rows.map((linha) => mapearRecebivel(linha, hoje));
+  const manuais = await tx.query<{
+    id: string;
+    descricao: string;
+    contraparte: string | null;
+    festa_id: string | null;
+    festa: string | null;
+    valor: string;
+    vencimento: string;
+    forma: string | null;
+    recebido_em: string | null;
+    taxa: string;
+  }>(MANUAL_SQL, [empresaId]);
+  return [...resultado.rows.map((linha) => mapearRecebivel(linha, hoje)), ...manuais.rows.map((linha) => mapearManual(linha, hoje))]
+    .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.cliente.localeCompare(b.cliente));
 }
 
 type LinhaPagar = {
@@ -246,6 +319,20 @@ const RECEBIDO_EMPRESA_SQL = `
  WHERE rec.status = 'CONFIRMADO'
 `;
 
+const LIQUIDO_MANUAL_SQL = `(valor - LEAST(valor, taxa))`;
+
+async function liquidoManualNoPeriodo(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
+  const resultado = await tx.query<{ liquido: string }>(
+    `SELECT COALESCE(SUM(${LIQUIDO_MANUAL_SQL}), 0)::text AS liquido
+       FROM financeiro_entradas_manuais entrada
+      WHERE entrada.empresa_id = $1::uuid
+        AND entrada.recebido_em IS NOT NULL
+        AND entrada.recebido_em BETWEEN $2::date AND $3::date`,
+    [empresaId, inicio, fim],
+  );
+  return centavosDe(resultado.rows[0]?.liquido ?? "0");
+}
+
 export async function recebidoNoPeriodo(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
   const resultado = await tx.query<{ liquido: string }>(
     `SELECT COALESCE(SUM(${LIQUIDO_RECEBIDO_SQL}), 0)::text AS liquido
@@ -253,10 +340,15 @@ export async function recebidoNoPeriodo(tx: DbExecutor, empresaId: string, inici
        AND rec.recebido_em::date BETWEEN $2::date AND $3::date`,
     [empresaId, inicio, fim],
   );
-  return centavosDe(resultado.rows[0]?.liquido ?? "0");
+  return centavosDe(resultado.rows[0]?.liquido ?? "0") + await liquidoManualNoPeriodo(tx, empresaId, inicio, fim);
 }
 
-export async function liquidoRecebidoPorFesta(tx: DbExecutor, empresaId: string, festaId?: string) {
+export async function liquidoRecebidoPorFesta(
+  tx: DbExecutor,
+  empresaId: string,
+  festaId?: string,
+  periodo?: { inicio: string; fim: string },
+) {
   const resultado = await tx.query<{ festa_id: string; liquido: string }>(
     `SELECT festa.id::text AS festa_id, COALESCE(SUM(${LIQUIDO_RECEBIDO_SQL}), 0)::text AS liquido
        FROM pagamento_recebimentos rec
@@ -268,10 +360,38 @@ export async function liquidoRecebidoPorFesta(tx: DbExecutor, empresaId: string,
        JOIN festas festa ON festa.contrato_id = contrato.id AND festa.invalidada_em IS NULL
       WHERE rec.status = 'CONFIRMADO'
         AND ($2::uuid IS NULL OR festa.id = $2::uuid)
+        AND ($3::date IS NULL OR rec.recebido_em::date BETWEEN $3::date AND $4::date)
       GROUP BY festa.id`,
-    [empresaId, festaId ?? null],
+    [empresaId, festaId ?? null, periodo?.inicio ?? null, periodo?.fim ?? null],
   );
-  return new Map(resultado.rows.map((linha) => [linha.festa_id, centavosDe(linha.liquido)]));
+  const mapa = new Map(resultado.rows.map((linha) => [linha.festa_id, centavosDe(linha.liquido)]));
+  const manuais = await tx.query<{ festa_id: string; liquido: string }>(
+    `SELECT entrada.festa_id::text AS festa_id, COALESCE(SUM(${LIQUIDO_MANUAL_SQL}), 0)::text AS liquido
+       FROM financeiro_entradas_manuais entrada
+      WHERE entrada.empresa_id = $1::uuid
+        AND entrada.festa_id IS NOT NULL
+        AND entrada.recebido_em IS NOT NULL
+        AND ($2::uuid IS NULL OR entrada.festa_id = $2::uuid)
+        AND ($3::date IS NULL OR entrada.recebido_em BETWEEN $3::date AND $4::date)
+      GROUP BY entrada.festa_id`,
+    [empresaId, festaId ?? null, periodo?.inicio ?? null, periodo?.fim ?? null],
+  );
+  for (const linha of manuais.rows) mapa.set(linha.festa_id, (mapa.get(linha.festa_id) ?? 0) + centavosDe(linha.liquido));
+  return mapa;
+}
+
+async function despesasPagasPorFesta(tx: DbExecutor, empresaId: string, inicio: string, fim: string) {
+  const resultado = await tx.query<{ festa_id: string; pago: string }>(
+    `SELECT conta.festa_id::text AS festa_id, COALESCE(SUM(saida.valor), 0)::text AS pago
+       FROM financeiro_saidas saida
+       JOIN financeiro_contas_pagar conta ON conta.id = saida.conta_id AND conta.empresa_id = saida.empresa_id
+      WHERE saida.empresa_id = $1::uuid
+        AND conta.festa_id IS NOT NULL
+        AND saida.pago_em BETWEEN $2::date AND $3::date
+      GROUP BY conta.festa_id`,
+    [empresaId, inicio, fim],
+  );
+  return new Map(resultado.rows.map((linha) => [linha.festa_id, centavosDe(linha.pago)]));
 }
 
 export async function recebidoNoMes(tx: DbExecutor, empresaId: string, hoje: string) {
@@ -313,8 +433,9 @@ export function leituraPeriodo(
   inicio: string,
   fim: string,
   liquidoPorFesta: ReadonlyMap<string, number> = new Map(),
+  pagoPorFestaNoPeriodo?: ReadonlyMap<string, number>,
 ): LeituraPeriodo {
-  const ativos = recebiveis.filter((item) => item.status !== "Cancelado" && item.festaId && noIntervalo(item.data, inicio, fim));
+  const ativos = recebiveis.filter((item) => item.origem !== "ENTRADA_MANUAL" && item.status !== "Cancelado" && item.festaId && noIntervalo(item.data, inicio, fim));
   const porFesta = new Map<string, { cliente: string; pacote: string; valor: number; recebido: number }>();
   for (const item of ativos) {
     const atual = porFesta.get(item.festaId!) ?? { cliente: item.cliente, pacote: item.pacote, valor: 0, recebido: 0 };
@@ -335,7 +456,9 @@ export function leituraPeriodo(
   const margens = [...porFesta.entries()].map(([festaId, festa]) => {
     const vinculadas = contas.filter((item) => item.festaId === festaId && item.status !== "Cancelado");
     const custos = vinculadas.reduce((total, item) => total + item.valorCentavos, 0);
-    const pagas = vinculadas.reduce((total, item) => total + item.pagoCentavos, 0);
+    const pagas = pagoPorFestaNoPeriodo
+      ? (pagoPorFestaNoPeriodo.get(festaId) ?? 0)
+      : vinculadas.reduce((total, item) => total + item.pagoCentavos, 0);
     return {
       festaId,
       cliente: festa.cliente,
@@ -343,6 +466,16 @@ export function leituraPeriodo(
       resultadoCaixaCentavos: resultadoCaixa(liquidoPorFesta.get(festaId) ?? 0, pagas),
     };
   });
+  for (const [festaId, liquido] of liquidoPorFesta) {
+    if (liquido <= 0 || porFesta.has(festaId)) continue;
+    const cliente = recebiveis.find((item) => item.festaId === festaId)?.cliente ?? "Cliente";
+    margens.push({
+      festaId,
+      cliente,
+      margemEstimadaCentavos: 0,
+      resultadoCaixaCentavos: resultadoCaixa(liquido, pagoPorFestaNoPeriodo?.get(festaId) ?? 0),
+    });
+  }
   return {
     inicio,
     fim,
@@ -368,7 +501,7 @@ export async function prepararBaixa(
 ) {
   if (!FORMAS.includes(input.forma)) recusar("DADOS_INVALIDOS", "Escolha uma forma de pagamento.", 409);
   const alvo = (await listarRecebiveis(tx, empresaId, input.data)).find((item) => item.id === input.parcelaId);
-  if (!alvo || alvo.status === "Cancelado" || alvo.status === "Pago" || alvo.status === "Reembolsado") {
+  if (!alvo || alvo.origem === "ENTRADA_MANUAL" || alvo.status === "Cancelado" || alvo.status === "Pago" || alvo.status === "Reembolsado") {
     recusar("NAO_ENCONTRADO", "Esta parcela não está aberta nesta empresa.", 404);
   }
   const valor = centavosDe(input.valor);
@@ -386,6 +519,91 @@ export async function prepararBaixa(
 
 export async function auditarRecebimento(tx: DbExecutor, empresaId: string, atorId: string, parcelaId: string, valorReais: number) {
   await auditar(tx, empresaId, "RECEBIMENTO_REGISTRADO", "pagamento_parcelas", parcelaId, atorId, `Baixa de ${valorReais}.`);
+}
+
+export async function criarEntradaManual(
+  tx: DbExecutor,
+  empresaId: string,
+  atorId: string,
+  hoje: string,
+  input: {
+    descricao: string;
+    contraparte?: string | null;
+    festaId?: string | null;
+    valor: number;
+    vencimento: string;
+    forma?: FormaFinanceira | null;
+    status: "A receber" | "Pago";
+    recebidoEm?: string | null;
+    taxa?: number;
+    observacao?: string | null;
+    chave: string;
+  },
+) {
+  const descricao = input.descricao.trim();
+  const contraparte = input.contraparte?.trim() || null;
+  const observacao = input.observacao?.trim() || null;
+  const festaId = input.festaId?.trim() || null;
+  const pago = input.status === "Pago";
+  const recebidoEm = pago ? input.recebidoEm ?? null : null;
+  const valor = centavosDe(input.valor);
+  const taxa = pago ? centavosDe(input.taxa ?? 0) : 0;
+  const repetida = await tx.query<{
+    id: string; descricao: string; contraparte: string | null; festa_id: string | null; valor: string;
+    vencimento: string; forma: string | null; observacao: string | null; recebido_em: string | null; taxa: string;
+  }>(
+    `SELECT id::text AS id, descricao, contraparte, festa_id::text AS festa_id, valor::text AS valor,
+            vencimento::text AS vencimento, forma, observacao, recebido_em::text AS recebido_em, taxa::text AS taxa
+       FROM financeiro_entradas_manuais
+      WHERE empresa_id = $1::uuid AND chave_criacao = $2`,
+    [empresaId, input.chave],
+  );
+  if (repetida.rowCount) {
+    const linha = repetida.rows[0];
+    const mesma = linha.descricao === descricao
+      && (linha.contraparte ?? "") === (contraparte ?? "")
+      && (linha.festa_id ?? "") === (festaId ?? "")
+      && centavosDe(linha.valor) === valor
+      && linha.vencimento === input.vencimento
+      && (linha.forma ?? "") === (input.forma ?? "")
+      && (linha.observacao ?? "") === (observacao ?? "")
+      && (linha.recebido_em ?? "") === (recebidoEm ?? "")
+      && centavosDe(linha.taxa) === taxa;
+    if (!mesma) recusar("IDEMPOTENCIA_CONFLITANTE", "Esta chave já registrou outra entrada nesta empresa.", 409);
+    return { reutilizado: true, id: linha.id };
+  }
+  if (!descricao) recusar("DADOS_INVALIDOS", "Informe a descrição.", 409);
+  if (pago && !recebidoEm) recusar("DADOS_INVALIDOS", "Informe a data do recebimento.", 409);
+  if (recebidoEm && recebidoEm > hoje) recusar("DADOS_INVALIDOS", "A data do recebimento não pode ser futura.", 409);
+  if (taxa > valor) recusar("DADOS_INVALIDOS", "A taxa não pode passar do valor.", 409);
+  if (festaId) {
+    const festa = await tx.query(
+      `SELECT festa.id
+         FROM festas festa
+         JOIN contratos contrato ON contrato.id = festa.contrato_id
+         JOIN fechamentos fech ON fech.id = contrato.fechamento_id
+         JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $2::uuid
+        WHERE festa.id = $1::uuid AND festa.invalidada_em IS NULL`,
+      [festaId, empresaId],
+    );
+    if (!festa.rowCount) recusar("DADOS_INVALIDOS", "A festa vinculada não é desta empresa.", 409);
+  }
+  const historico = input.vencimento < IMPLANTACAO_FINANCEIRO || (recebidoEm != null && recebidoEm < IMPLANTACAO_FINANCEIRO);
+  const criada = await tx.query<{ id: string }>(
+    `INSERT INTO financeiro_entradas_manuais (
+       empresa_id, descricao, contraparte, festa_id, valor, vencimento, forma, observacao,
+       recebido_em, taxa, historico, chave_criacao, criado_por
+     ) VALUES (
+       $1::uuid, $2, $3, $4::uuid, $5, $6::date, $7, $8, $9::date, $10, $11, $12, $13::uuid
+     ) RETURNING id::text AS id`,
+    [
+      empresaId, descricao, contraparte, festaId, (valor / 100).toFixed(2), input.vencimento,
+      input.forma ?? null, observacao, recebidoEm, (taxa / 100).toFixed(2), historico, input.chave, atorId,
+    ],
+  );
+  const id = criada.rows[0].id;
+  await auditar(tx, empresaId, "ENTRADA_MANUAL_CRIADA", "financeiro_entradas_manuais", id, atorId, historico ? `${descricao} (registro histórico).` : descricao);
+  return { reutilizado: false, id };
 }
 
 export async function criarContaPagar(
@@ -593,7 +811,7 @@ export async function cancelarConta(tx: DbExecutor, empresaId: string, atorId: s
 }
 
 export async function financeiroDaFesta(tx: DbExecutor, empresaId: string, festaId: string, hoje: string) {
-  const recebiveis = (await listarRecebiveis(tx, empresaId, hoje)).filter((item) => item.festaId === festaId);
+  const recebiveis = (await listarRecebiveis(tx, empresaId, hoje)).filter((item) => item.origem !== "ENTRADA_MANUAL" && item.festaId === festaId);
   const contas = (await listarContasPagar(tx, empresaId, hoje)).filter((item) => item.festaId === festaId);
   const ativos = recebiveis.filter((item) => item.status !== "Cancelado");
   const vinculadas = contas.filter((item) => item.status !== "Cancelado");
@@ -698,7 +916,12 @@ export async function fluxoCaixa(tx: DbExecutor, empresaId: string, inicio: stri
   const entradas = await tx.query<{ data: string; descricao: string; valor: string }>(
     `SELECT rec.recebido_em::date::text AS data, 'Recebimento' AS descricao, ${LIQUIDO_RECEBIDO_SQL}::text AS valor
        ${RECEBIDO_EMPRESA_SQL}
-       AND rec.recebido_em::date BETWEEN $2::date AND $3::date`,
+       AND rec.recebido_em::date BETWEEN $2::date AND $3::date
+     UNION ALL
+     SELECT entrada.recebido_em::text AS data, entrada.descricao, ${LIQUIDO_MANUAL_SQL}::text AS valor
+       FROM financeiro_entradas_manuais entrada
+      WHERE entrada.empresa_id = $1::uuid
+        AND entrada.recebido_em BETWEEN $2::date AND $3::date`,
     [empresaId, inicio, fim],
   );
   const saidas = await tx.query<{ data: string; descricao: string; valor: string }>(
@@ -747,20 +970,34 @@ async function saldoCaixaAte(tx: DbExecutor, empresaId: string, inicio: string) 
        AND rec.recebido_em::date < $2::date`,
     [empresaId, inicio],
   );
+  const manuais = await tx.query<{ liquido: string }>(
+    `SELECT COALESCE(SUM(${LIQUIDO_MANUAL_SQL}), 0)::text AS liquido
+       FROM financeiro_entradas_manuais
+      WHERE empresa_id = $1::uuid AND recebido_em IS NOT NULL AND recebido_em < $2::date`,
+    [empresaId, inicio],
+  );
   const saidas = await tx.query<{ pago: string }>(
     `SELECT COALESCE(SUM(valor), 0)::text AS pago
        FROM financeiro_saidas
       WHERE empresa_id = $1::uuid AND pago_em < $2::date`,
     [empresaId, inicio],
   );
-  return centavosDe(entradas.rows[0]?.liquido ?? "0") - centavosDe(saidas.rows[0]?.pago ?? "0");
+  return centavosDe(entradas.rows[0]?.liquido ?? "0") + centavosDe(manuais.rows[0]?.liquido ?? "0") - centavosDe(saidas.rows[0]?.pago ?? "0");
 }
 
 export async function relatorio(tx: DbExecutor, empresaId: string, inicio: string, fim: string, hoje: string) {
   const recebiveis = await listarRecebiveis(tx, empresaId, hoje);
   const contas = await listarContasPagar(tx, empresaId, hoje);
   const recebido = await recebidoNoPeriodo(tx, empresaId, inicio, fim);
-  const leitura = leituraPeriodo(recebiveis, contas, inicio, fim, await liquidoRecebidoPorFesta(tx, empresaId));
+  const periodo = { inicio, fim };
+  const leitura = leituraPeriodo(
+    recebiveis,
+    contas,
+    inicio,
+    fim,
+    await liquidoRecebidoPorFesta(tx, empresaId, undefined, periodo),
+    await despesasPagasPorFesta(tx, empresaId, inicio, fim),
+  );
   const despesas = await tx.query<{ categoria: string; valor: string }>(
     `SELECT categoria.nome AS categoria, COALESCE(SUM(saida.valor), 0)::text AS valor
        FROM financeiro_saidas saida
@@ -782,7 +1019,25 @@ export async function relatorio(tx: DbExecutor, empresaId: string, inicio: strin
       ORDER BY 1`,
     [empresaId, inicio, fim],
   );
-  const taxasCentavos = formas.rows.reduce((total, linha) => total + centavosDe(linha.taxa), 0);
+  const taxasManuais = await tx.query<{ forma: string; liquido: string; taxa: string }>(
+    `SELECT COALESCE(forma, 'OUTRO') AS forma,
+            COALESCE(SUM(${LIQUIDO_MANUAL_SQL}), 0)::text AS liquido,
+            COALESCE(SUM(LEAST(valor, taxa)), 0)::text AS taxa
+       FROM financeiro_entradas_manuais
+      WHERE empresa_id = $1::uuid
+        AND recebido_em IS NOT NULL
+        AND recebido_em BETWEEN $2::date AND $3::date
+      GROUP BY 1`,
+    [empresaId, inicio, fim],
+  );
+  const formasPorNome = new Map<string, { liquido: number; taxa: number }>();
+  for (const linha of [...formas.rows, ...taxasManuais.rows]) {
+    const atual = formasPorNome.get(linha.forma) ?? { liquido: 0, taxa: 0 };
+    atual.liquido += centavosDe(linha.liquido);
+    atual.taxa += centavosDe(linha.taxa);
+    formasPorNome.set(linha.forma, atual);
+  }
+  const taxasCentavos = [...formasPorNome.values()].reduce((total, linha) => total + linha.taxa, 0);
   return {
     inicio,
     fim,
@@ -795,7 +1050,7 @@ export async function relatorio(tx: DbExecutor, empresaId: string, inicio: strin
     pacoteMaisVendido: leitura.pacoteMaisVendido,
     despesas: despesas.rows.map((linha) => ({ categoria: linha.categoria, centavos: centavosDe(linha.valor) })),
     pacotes: leitura.pacotes,
-    formas: formas.rows.map((linha) => ({ forma: linha.forma, centavos: centavosDe(linha.liquido) })),
+    formas: [...formasPorNome.entries()].map(([forma, linha]) => ({ forma, centavos: linha.liquido })),
     taxasCentavos,
     margens: leitura.margens,
   };

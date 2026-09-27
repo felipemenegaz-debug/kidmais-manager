@@ -1,6 +1,8 @@
 export const FORMAS = ["PIX", "CARTAO_CREDITO", "CARTAO_DEBITO", "BOLETO", "DINHEIRO", "TRANSFERENCIA", "OUTRO"] as const;
 export type FormaFinanceira = (typeof FORMAS)[number];
 export const HORIZONTE_RECORRENCIA_MESES = 12;
+/** Entrada com vencimento ou recebimento anterior a esta data é registro histórico. O valor não muda. */
+export const IMPLANTACAO_FINANCEIRO = "2026-09-27";
 
 export const CATEGORIAS_DESPESA = [
   "Buffet / insumos",

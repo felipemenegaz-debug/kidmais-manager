@@ -2,8 +2,16 @@ DO $$ BEGIN
   IF to_regclass('public.financeiro_contas_pagar') IS NULL
      OR to_regclass('public.financeiro_saidas') IS NULL
      OR to_regclass('public.financeiro_categorias') IS NULL
-     OR to_regclass('public.financeiro_auditoria') IS NULL THEN
+     OR to_regclass('public.financeiro_auditoria') IS NULL
+     OR to_regclass('public.financeiro_entradas_manuais') IS NULL THEN
     RAISE EXCEPTION '052 postcheck: tabelas do financeiro ausentes.';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'financeiro_entradas_manuais_criacao_uk'
+       AND pg_get_constraintdef(oid) ILIKE '%empresa_id%'
+  ) THEN
+    RAISE EXCEPTION '052 postcheck: entrada manual não está presa à empresa.';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
@@ -24,5 +32,12 @@ DO $$ BEGIN
        AND confdeltype = 'c'
   ) THEN
     RAISE EXCEPTION '052 postcheck: cascade em conta a pagar.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.financeiro_entradas_manuais'::regclass
+       AND confdeltype = 'c'
+  ) THEN
+    RAISE EXCEPTION '052 postcheck: cascade em entrada manual.';
   END IF;
 END $$;

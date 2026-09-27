@@ -6,7 +6,7 @@ Módulo gerencial. Não é contabilidade fiscal, DRE, NFS-e nem cobrança extern
 
 Contas a receber continuam em `pagamento_parcelas`, `pagamento_recebimentos` e `pagamento_recebimento_alocacoes`. O financeiro só lê esse caminho e registra a baixa pelo serviço de pagamentos já existente. A rota repassa o token da sessão administrativa (`tokenAdmin`). A prova do tenant, a baixa, a alocação e a auditoria acontecem no mesmo `withTenantTransaction`: membership ativa, empresa ativa e o vínculo da parcela são revalidados nessa transação e os locks seguem até o `COMMIT`. O serviço de pagamento aceita o executor dessa transação; a rota antiga de recebimento, sem executor, continua abrindo a própria. Se a auditoria falhar, ou se a membership for revogada ou a empresa suspensa antes do commit, a baixa inteira desfaz. Uma baixa já confirmada, reenviada com a mesma chave e o mesmo payload, devolve o resultado anterior e não grava segunda auditoria. A chave é consultada antes do saldo. O payload comparado é valor, parcela, forma, taxa, data e observação. A mesma chave com outro payload, na mesma empresa, é recusada. Empresas diferentes podem usar a mesma string: o escopo é empresa, tipo de operação e chave. Uma empresa não lê nem altera a operação da outra.
 
-Contas a pagar, categorias, recorrência e saídas ficam nas tabelas da migration `20260927_052_financeiro_gerencial`. Não há segunda tabela de recebíveis.
+Contas a pagar, categorias, recorrência e saídas ficam nas tabelas da migration `20260927_052_financeiro_gerencial`. Recebíveis de contrato continuam em `pagamento_parcelas`. Entrada avulsa é outra origem, `ENTRADA_MANUAL`, na tabela `financeiro_entradas_manuais`: não cria contrato nem festa.
 
 ## Status
 
@@ -22,7 +22,7 @@ recebido no mês + a receber em aberto − a pagar em aberto.
 
 A visão financeira e o Dashboard Geral são posição atual: A receber total e A pagar total, sem filtro de período. Relatórios recebem `{ inicio, fim }`. Faturamento, ticket médio, pacote mais vendido, receita por pacote e margem por festa usam a data do evento. Recebido, formas e taxas usam a data do recebimento. A receber no período, a pagar no período e inadimplência no período usam o vencimento dentro do intervalo. Parcelas canceladas não entram no contratado nem no faturamento. O total em aberto e o saldo do período não compartilham o mesmo rótulo.
 
-Margem estimada da festa = valor contratado das parcelas não canceladas − valor das despesas vinculadas não canceladas, inclusive as que ainda estão em aberto. Resultado de caixa = recebimentos líquidos realizados − despesas já pagas. O líquido é o mesmo do fluxo: bruto menos a taxa. Não é lucro contábil.
+Margem estimada da festa = valor contratado das parcelas não canceladas − valor das despesas vinculadas não canceladas, inclusive as que ainda estão em aberto. No relatório, o resultado de caixa da festa usa só recebimentos líquidos e despesas pagas com data dentro de `{ inicio, fim }`. Entrada manual vinculada entra nesse resultado só quando `recebido_em` está no período. A tela da festa mantém o resultado de caixa da festa inteira, com outro contexto. O líquido é o mesmo do fluxo: bruto menos a taxa. Não é lucro contábil.
 
 ## Recorrência
 

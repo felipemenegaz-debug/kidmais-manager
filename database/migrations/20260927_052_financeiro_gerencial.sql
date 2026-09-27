@@ -1,4 +1,4 @@
--- Contas a pagar e auditoria do financeiro gerencial.
+-- Contas a pagar, auditoria e entradas manuais do financeiro gerencial.
 -- Recebíveis de contrato continuam em pagamento_parcelas e pagamento_recebimentos.
 BEGIN;
 
@@ -136,5 +136,36 @@ CREATE TABLE IF NOT EXISTS financeiro_auditoria (
 
 COMMENT ON TABLE financeiro_contas_pagar IS
   'Obrigação de saída da empresa. Vencido não é gravado: deriva do vencimento e do saldo.';
+
+CREATE TABLE IF NOT EXISTS financeiro_entradas_manuais (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  empresa_id uuid NOT NULL REFERENCES empresas(id) ON DELETE RESTRICT,
+  descricao varchar(160) NOT NULL,
+  contraparte varchar(160),
+  festa_id uuid REFERENCES festas(id) ON DELETE RESTRICT,
+  valor numeric(12,2) NOT NULL,
+  vencimento date NOT NULL,
+  forma varchar(20),
+  observacao text,
+  recebido_em date,
+  taxa numeric(12,2) NOT NULL DEFAULT 0,
+  historico boolean NOT NULL DEFAULT false,
+  chave_criacao varchar(160) NOT NULL,
+  criado_por uuid,
+  criado_em timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT financeiro_entradas_manuais_valor_check CHECK (valor > 0),
+  CONSTRAINT financeiro_entradas_manuais_taxa_check CHECK (taxa >= 0 AND taxa <= valor),
+  CONSTRAINT financeiro_entradas_manuais_recebimento_check CHECK (recebido_em IS NOT NULL OR taxa = 0),
+  CONSTRAINT financeiro_entradas_manuais_forma_check CHECK (
+    forma IS NULL OR forma IN ('PIX', 'CARTAO_CREDITO', 'CARTAO_DEBITO', 'BOLETO', 'DINHEIRO', 'TRANSFERENCIA', 'OUTRO')
+  ),
+  CONSTRAINT financeiro_entradas_manuais_criacao_uk UNIQUE (empresa_id, chave_criacao)
+);
+
+CREATE INDEX IF NOT EXISTS financeiro_entradas_manuais_empresa_idx
+  ON financeiro_entradas_manuais (empresa_id, vencimento);
+
+COMMENT ON TABLE financeiro_entradas_manuais IS
+  'Entrada manual, origem ENTRADA_MANUAL. Não nasce de contrato nem de festa fictícia. Vencido deriva do saldo e do vencimento.';
 
 COMMIT;

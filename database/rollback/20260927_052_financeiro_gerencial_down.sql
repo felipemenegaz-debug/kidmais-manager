@@ -10,6 +10,9 @@ DO $$ BEGIN
   IF to_regclass('public.financeiro_auditoria') IS NOT NULL THEN
     LOCK TABLE public.financeiro_auditoria IN SHARE ROW EXCLUSIVE MODE;
   END IF;
+  IF to_regclass('public.financeiro_entradas_manuais') IS NOT NULL THEN
+    LOCK TABLE public.financeiro_entradas_manuais IN SHARE ROW EXCLUSIVE MODE;
+  END IF;
   IF to_regclass('public.financeiro_saidas') IS NOT NULL
      AND EXISTS (SELECT 1 FROM financeiro_saidas) THEN
     RAISE EXCEPTION '052 down: ainda há pagamento de conta a pagar.';
@@ -22,7 +25,12 @@ DO $$ BEGIN
      AND EXISTS (SELECT 1 FROM financeiro_auditoria) THEN
     RAISE EXCEPTION '052 down: ainda há auditoria financeira.';
   END IF;
+  IF to_regclass('public.financeiro_entradas_manuais') IS NOT NULL
+     AND EXISTS (SELECT 1 FROM financeiro_entradas_manuais) THEN
+    RAISE EXCEPTION '052 down: ainda há entrada manual.';
+  END IF;
 END $$;
+DROP TABLE IF EXISTS financeiro_entradas_manuais;
 DROP TABLE IF EXISTS financeiro_auditoria;
 DROP TABLE IF EXISTS financeiro_saidas;
 DROP TABLE IF EXISTS financeiro_contas_pagar;

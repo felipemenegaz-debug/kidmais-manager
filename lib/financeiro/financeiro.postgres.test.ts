@@ -11,6 +11,7 @@ import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
 import {
   cancelarConta,
   criarContaPagar,
+  criarEntradaManual,
   editarContaPagar,
   estenderRecorrencia,
   financeiroDaFesta,
@@ -18,6 +19,7 @@ import {
   listarContasPagar,
   listarRecebiveis,
   pagarConta,
+  painelGeral,
   resumo,
   prepararBaixa,
   relatorio,
@@ -240,6 +242,7 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
     await db.query("DELETE FROM financeiro_contas_pagar WHERE empresa_id = $1::uuid", [comDado]);
     await db.query("DELETE FROM financeiro_categorias WHERE empresa_id = $1::uuid", [comDado]);
 
+    await db.query("DELETE FROM financeiro_entradas_manuais");
     await db.query("DELETE FROM financeiro_saidas");
     await db.query("DELETE FROM financeiro_auditoria");
     await db.query("DELETE FROM financeiro_contas_pagar");
@@ -433,6 +436,147 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
     assert.equal(caixa.entradasCentavos, 0);
     assert.equal(caixa.saidasCentavos, 1000);
     assert.equal(caixa.saldoFinalCentavos, 2900);
+
+    const chavePaga = randomUUID();
+    const entradaAberta = await criarEntradaManual(tx, empresaA, ator, "2026-09-27", {
+      descricao: "Cobrança extraordinária", contraparte: "Cliente avulso", valor: 80, vencimento: "2026-10-15", status: "A receber", chave: randomUUID(),
+    });
+    const entradaAntiga = await criarEntradaManual(tx, empresaA, ator, "2026-09-27", {
+      descricao: "Recebível anterior", valor: 30, vencimento: "2026-03-01", status: "A receber", chave: randomUUID(),
+    });
+    const paga = await criarEntradaManual(tx, empresaA, ator, "2026-09-27", {
+      descricao: "Venda anterior ao Kidmais Manager",
+      contraparte: "Cliente antigo",
+      festaId: festa,
+      valor: 2500,
+      vencimento: "2026-08-15",
+      forma: "PIX",
+      status: "Pago",
+      recebidoEm: "2026-08-15",
+      taxa: 10,
+      observacao: "ajuste histórico",
+      chave: chavePaga,
+    });
+    const repetida = await criarEntradaManual(tx, empresaA, ator, "2026-09-27", {
+      descricao: "Venda anterior ao Kidmais Manager",
+      contraparte: "Cliente antigo",
+      festaId: festa,
+      valor: 2500,
+      vencimento: "2026-08-15",
+      forma: "PIX",
+      status: "Pago",
+      recebidoEm: "2026-08-15",
+      taxa: 10,
+      observacao: "ajuste histórico",
+      chave: chavePaga,
+    });
+    assert.equal(repetida.reutilizado, true);
+    assert.equal(repetida.id, paga.id);
+    assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM financeiro_entradas_manuais WHERE chave_criacao = $1", [chavePaga])).rows[0].n, 1);
+    await assert.rejects(
+      () => criarEntradaManual(tx, empresaA, ator, "2026-09-27", {
+        descricao: "Outra venda", festaId: festa, valor: 2500, vencimento: "2026-08-15", forma: "PIX", status: "Pago", recebidoEm: "2026-08-15", taxa: 10, chave: chavePaga,
+      }),
+      (error: unknown) => error instanceof PacoteAdminError && error.code === "IDEMPOTENCIA_CONFLITANTE",
+    );
+    const naOutra = await criarEntradaManual(tx, empresaB, ator, "2026-09-27", {
+      descricao: "Venda anterior ao Kidmais Manager", contraparte: "Cliente antigo", valor: 2500, vencimento: "2026-08-15", forma: "PIX", status: "Pago", recebidoEm: "2026-08-15", taxa: 10, chave: chavePaga,
+    });
+    assert.equal(naOutra.reutilizado, false);
+    await assert.rejects(
+      () => criarEntradaManual(tx, empresaA, ator, "2026-09-27", {
+        descricao: "Festa alheia", valor: 10, vencimento: "2026-10-01", status: "A receber", festaId: randomUUID(), chave: randomUUID(),
+      }),
+      (error: unknown) => error instanceof PacoteAdminError && error.code === "DADOS_INVALIDOS",
+    );
+    await assert.rejects(
+      () => criarEntradaManual(tx, empresaA, ator, "2026-09-27", {
+        descricao: "Futuro", valor: 10, vencimento: "2026-10-01", status: "Pago", recebidoEm: "2026-09-28", chave: randomUUID(),
+      }),
+      (error: unknown) => error instanceof PacoteAdminError && error.code === "DADOS_INVALIDOS",
+    );
+    await assert.rejects(
+      () => prepararBaixa(tx, empresaA, { parcelaId: entradaAberta.id, valor: 10, data: "2026-09-27", forma: "PIX" }),
+      (error: unknown) => error instanceof PacoteAdminError && error.code === "NAO_ENCONTRADO" && error.httpStatus === 404,
+    );
+
+    const emSetembro = await listarRecebiveis(tx, empresaA, "2026-09-27");
+    assert.equal(emSetembro.find((item) => item.id === entradaAberta.id)?.status, "A receber");
+    assert.equal(emSetembro.find((item) => item.id === entradaAberta.id)?.origem, "ENTRADA_MANUAL");
+    assert.equal((await listarRecebiveis(tx, empresaA, "2026-10-20")).find((item) => item.id === entradaAberta.id)?.status, "Vencido");
+    const antiga = (await listarRecebiveis(tx, empresaA, "2026-03-18")).find((item) => item.id === entradaAntiga.id);
+    assert.equal(antiga?.status, "Vencido");
+    assert.equal(antiga?.saldoCentavos, 3000);
+    const recebida = emSetembro.find((item) => item.id === paga.id);
+    assert.equal(recebida?.status, "Pago");
+    assert.equal(recebida?.pacote, "Festa Completa");
+    const marcas = await db.query<{ id: string; historico: boolean }>(
+      "SELECT id::text AS id, historico FROM financeiro_entradas_manuais WHERE empresa_id = $1::uuid",
+      [empresaA],
+    );
+    assert.equal(marcas.rows.find((item) => item.id === entradaAberta.id)?.historico, false);
+    assert.equal(marcas.rows.find((item) => item.id === entradaAntiga.id)?.historico, true);
+    assert.equal(marcas.rows.find((item) => item.id === paga.id)?.historico, true);
+    const daEmpresaB = await listarRecebiveis(tx, empresaB, "2026-09-27");
+    assert.equal(daEmpresaB.some((item) => item.id === entradaAberta.id || item.id === paga.id || item.id === entradaAntiga.id), false);
+    assert.equal(daEmpresaB.some((item) => item.id === naOutra.id), true);
+    assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM festas WHERE contrato_id = $1::uuid", [contrato])).rows[0].n, 1);
+    assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM contratos WHERE fechamento_id = $1::uuid", [fechamento])).rows[0].n, 1);
+
+    const depoisDaFesta = await financeiroDaFesta(tx, empresaA, festa, "2026-09-27");
+    assert.equal(depoisDaFesta.valorContratadoCentavos, 11000);
+    assert.equal(depoisDaFesta.recebimentos.some((item) => item.id === paga.id), false);
+    assert.equal(depoisDaFesta.resultadoCaixaCentavos, 251900);
+    const marcoDepois = await relatorio(tx, empresaA, "2026-03-01", "2026-03-31", "2026-09-27");
+    assert.equal(marcoDepois.faturamentoCentavos, 11000);
+    assert.equal(marcoDepois.aReceberCentavos, 9000);
+    assert.equal(marcoDepois.inadimplenciaCentavos, 9000);
+    assert.equal(marcoDepois.margens[0]?.margemEstimadaCentavos, 8000);
+    assert.equal(marcoDepois.margens.find((item) => item.festaId === festa)?.resultadoCaixaCentavos, 2900);
+    const agosto = await relatorio(tx, empresaA, "2026-08-01", "2026-08-31", "2026-09-27");
+    assert.equal(agosto.faturamentoCentavos, 0);
+    assert.equal(agosto.recebidoCentavos, 249000);
+    assert.equal(agosto.taxasCentavos, 1000);
+    assert.equal(agosto.formas.some((item) => item.forma === "PIX" && item.centavos === 249000), true);
+    const agostoFesta = agosto.margens.find((item) => item.festaId === festa);
+    assert.equal(agostoFesta?.resultadoCaixaCentavos, 249000);
+    assert.equal(agostoFesta?.margemEstimadaCentavos, 0);
+    const caixaAgosto = await fluxoCaixa(tx, empresaA, "2026-08-01", "2026-08-31", "2026-09-27");
+    assert.equal(caixaAgosto.entradasCentavos, 249000);
+    assert.equal(caixaAgosto.linhas.some((linha) => linha.descricao === "Venda anterior ao Kidmais Manager" && linha.entrada === 249000), true);
+    const painel = await painelGeral(tx, empresaA, "2026-09-27");
+    assert.equal(painel.numeros.aReceberCentavos, 18000);
+    assert.equal((await db.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM financeiro_auditoria WHERE empresa_id = $1::uuid AND acao = 'ENTRADA_MANUAL_CRIADA'",
+      [empresaA],
+    )).rows[0].n, 3);
+    assert.equal((await db.query<{ detalhe: string }>(
+      "SELECT detalhe FROM financeiro_auditoria WHERE entidade_id = $1::uuid",
+      [paga.id],
+    )).rows[0].detalhe.includes("registro histórico"), true);
+
+    const aposInvalidar = await criarEntradaManual(tx, empresaA, ator, "2026-09-27", {
+      descricao: "Venda anterior ao Kidmais Manager",
+      contraparte: "Cliente antigo",
+      festaId: festa,
+      valor: 2500,
+      vencimento: "2026-08-15",
+      forma: "PIX",
+      status: "Pago",
+      recebidoEm: "2026-08-15",
+      taxa: 10,
+      observacao: "ajuste histórico",
+      chave: chavePaga,
+    });
+    assert.equal(aposInvalidar.reutilizado, true);
+    assert.equal(aposInvalidar.id, paga.id);
+    await assert.rejects(
+      () => criarEntradaManual(tx, empresaA, ator, "2026-09-27", {
+        descricao: "Outra venda", valor: 2500, vencimento: "2026-08-15", status: "Pago", recebidoEm: "2026-08-15", festaId: randomUUID(), chave: chavePaga,
+      }),
+      (error: unknown) => error instanceof PacoteAdminError && error.code === "IDEMPOTENCIA_CONFLITANTE",
+    );
+
     await db.query("ROLLBACK");
   } finally {
     await encerrarDescartavel(db);
