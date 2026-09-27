@@ -2,7 +2,8 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { FORMAS } from "@/lib/financeiro/calculos";
 import { consultarFinanceiro, hojeIso } from "@/lib/financeiro/http";
-import { cancelarConta, criarContaPagar, editarContaPagar, listarContasPagar, pagarConta } from "@/lib/financeiro/servico";
+import { cancelarConta, criarContaPagar, editarContaPagar, listarContasPagar, pagarConta, pagoNoPeriodo } from "@/lib/financeiro/servico";
+import { periodoSelecionado } from "@/lib/financeiro/calculos";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
@@ -22,6 +23,7 @@ const criar = z.object({
   forma: z.enum(FORMAS).optional(),
   observacao: z.string().max(500).optional(),
   recorrente: z.boolean().optional(),
+  chave: z.string().min(8).max(160),
 }).strict();
 
 const editar = z.object({
@@ -50,8 +52,10 @@ const corpo = z.discriminatedUnion("acao", [criar, editar, pagar, cancelar]);
 
 export async function GET(request: NextRequest) {
   const hoje = hojeIso();
+  const mes = periodoSelecionado(hoje, "mes");
   return consultarFinanceiro(request, async (tx, tenant) => ({
     contas: await listarContasPagar(tx, tenant.empresaComprovada, hoje),
+    pagoMesCentavos: await pagoNoPeriodo(tx, tenant.empresaComprovada, mes.inicio, mes.fim),
     categorias: (await tx.query<{ id: string; nome: string }>(
       `SELECT id::text AS id, nome FROM financeiro_categorias WHERE empresa_id = $1::uuid AND ativo ORDER BY nome`,
       [tenant.empresaComprovada],

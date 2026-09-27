@@ -1,3 +1,4 @@
+import type { DbExecutor } from "../../db/contracts";
 import type {
   EstornoRecord,
   MeioPlanoPagamento,
@@ -10,6 +11,10 @@ import type {
   RecebimentoRecord,
 } from "../repositories";
 
+export type ConfirmacaoRecebimento = {
+  recebimentoId: string;
+};
+
 export type PagamentoServiceContext = {
   token?: string;
   usuarioId?: string | null;
@@ -17,6 +22,10 @@ export type PagamentoServiceContext = {
   requestId?: string | null;
   ip?: string | null;
   userAgent?: string | null;
+  /** Roda na mesma transação da confirmação. Falha aqui desfaz o recebimento. */
+  aoConfirmar?: (tx: DbExecutor, confirmacao: ConfirmacaoRecebimento) => Promise<void>;
+  /** Quando o financeiro já abriu a transação do tenant, a baixa usa esse executor. */
+  executor?: DbExecutor;
 };
 
 export type PlanoPagamentoInput = {

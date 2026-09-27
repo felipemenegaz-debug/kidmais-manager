@@ -88,7 +88,7 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
       <section className={styles.kpis} aria-label="Indicadores">
         <article className={styles.kpi}><strong>{painel.festasProximas}</strong><span>Festas próximas</span></article>
         <article className={styles.kpi}><strong>{painel.contratosPendentes}</strong><span>Contratos pendentes</span></article>
-        <article className={`${styles.kpi} ${styles.receber}`}><strong>{reaisDe(painel.numeros.aReceberCentavos)}</strong><span>A receber</span></article>
+        <article className={`${styles.kpi} ${styles.receber}`}><strong>{reaisDe(painel.numeros.aReceberCentavos)}</strong><span>A receber total</span></article>
         <article className={`${styles.kpi} ${styles.atraso}`}><strong>{reaisDe(painel.numeros.emAtrasoCentavos)}</strong><span>Em atraso</span></article>
       </section>
 
@@ -137,8 +137,8 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
       <section className={`${styles.cartao} ${styles.estreito} ${styles.resumo}`}>
         <h2>Resumo financeiro</h2>
         <div className={styles.resumoLinha}><span>Recebido no mês</span><strong>{reaisDe(painel.numeros.recebidoMesCentavos)}</strong></div>
-        <div className={styles.resumoLinha}><span>A receber</span><strong>{reaisDe(painel.numeros.aReceberCentavos)}</strong></div>
-        <div className={styles.resumoLinha}><span>A pagar</span><strong>{reaisDe(painel.numeros.aPagarCentavos)}</strong></div>
+        <div className={styles.resumoLinha}><span>A receber total</span><strong>{reaisDe(painel.numeros.aReceberCentavos)}</strong></div>
+        <div className={styles.resumoLinha}><span>A pagar total</span><strong>{reaisDe(painel.numeros.aPagarCentavos)}</strong></div>
         <div className={`${styles.resumoLinha} ${styles.saldo}`}><span className={styles.verde}>Saldo previsto</span><strong>{reaisDe(painel.numeros.saldoPrevistoCentavos)}</strong></div>
         <Link className={styles.botao} href="/admin/financeiro">Ver financeiro</Link>
       </section>

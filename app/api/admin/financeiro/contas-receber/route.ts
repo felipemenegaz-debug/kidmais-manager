@@ -2,10 +2,10 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { FORMAS } from "@/lib/financeiro/calculos";
 import { consultarFinanceiro, hojeIso } from "@/lib/financeiro/http";
-import { registrarRecebimentoPagamento } from "@/lib/pagamentos/services/pagamento.service";
-import { auditarRecebimento, listarRecebiveis, prepararBaixa, resumo, recebidoNoMes } from "@/lib/financeiro/servico";
+import { baixarRecebimentoNoTenant } from "@/lib/financeiro/baixa";
+import { listarRecebiveis, resumo, recebidoNoMes } from "@/lib/financeiro/servico";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
-import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
+import { contextoCrmDaRequest, exigirApiAdminCrmDisponivel, tokenAdmin } from "@/lib/http/admin-crm-api";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 
 export const runtime = "nodejs";
@@ -34,20 +34,13 @@ export async function POST(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
     const input = baixa.parse(await request.json());
-    const preparado = await withTenantTransaction(sessao, null, (tx, tenant) => prepararBaixa(tx, tenant.empresaComprovada, input));
-    const resultado = await registrarRecebimentoPagamento({
-      pagamentoId: preparado.pagamentoId,
-      meioPagamento: preparado.meio,
-      valorBruto: preparado.valorReais,
-      recebidoEm: `${input.data}T00:00:00.000Z`,
-      chaveIdempotencia: input.chave,
-      observacoes: input.observacao ?? null,
-      metadataProvedor: { forma: input.forma, taxaCentavos: preparado.taxa },
-      confirmarAgora: true,
-      alocacoes: [{ parcelaId: preparado.parcelaId, valor: preparado.valorReais }],
-    }, { usuarioId: sessao.usuario_id, origem: "financeiro", requestId: input.chave });
-    await withTenantTransaction(sessao, null, (tx, tenant) => auditarRecebimento(tx, tenant.empresaComprovada, tenant.usuarioId, preparado.parcelaId, preparado.valorReais));
-    const data = { reutilizado: resultado.reutilizado, liquidoCentavos: preparado.liquidoCentavos };
+    const crm = contextoCrmDaRequest(request);
+    const data = await withTenantTransaction(sessao, null, (tx, tenant) => baixarRecebimentoNoTenant(tx, tenant, input, {
+      ...crm,
+      token: tokenAdmin(request),
+      origem: "financeiro",
+      requestId: input.chave,
+    }));
     return jsonNoStore({ ok: true, data });
   } catch (error) {
     return apiErrorResponse(error);

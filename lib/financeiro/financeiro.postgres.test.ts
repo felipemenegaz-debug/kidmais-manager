@@ -9,13 +9,16 @@ import type { DbExecutor } from "../db/contracts.ts";
 import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
 import {
+  cancelarConta,
   criarContaPagar,
   editarContaPagar,
+  estenderRecorrencia,
   financeiroDaFesta,
   fluxoCaixa,
   listarContasPagar,
   listarRecebiveis,
   pagarConta,
+  resumo,
   prepararBaixa,
   relatorio,
 } from "./servico.ts";
@@ -66,8 +69,7 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
     assert.equal(Number(ident.rows[0].port), 55498);
     await db.query(precheck);
-    const existe = await db.query("SELECT to_regclass('public.financeiro_contas_pagar') AS nome");
-    if (!existe.rows[0].nome) await db.query(migration);
+    await db.query(migration);
     await db.query(postcheck);
 
     await db.query("BEGIN");
@@ -118,18 +120,86 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
       descricao: "Não edita", favorecido: null, categoriaId, valor: 120, vencimento: "2026-03-01",
     }));
     const recorrente = await criarContaPagar(tx, empresaA, ator, {
-      descricao: "Energia", categoriaId, valor: 30, vencimento: "2026-01-31", recorrente: true,
+      descricao: "Energia", categoriaId, valor: 30, vencimento: "2026-01-31", recorrente: true, chave: "serie-energia-a",
     });
-    const ocorrencias = await db.query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM financeiro_contas_pagar WHERE recorrencia_id = (SELECT recorrencia_id FROM financeiro_contas_pagar WHERE id = $1::uuid)`,
+    const repetida = await criarContaPagar(tx, empresaA, ator, {
+      descricao: "Energia", categoriaId, valor: 30, vencimento: "2026-01-31", recorrente: true, chave: "serie-energia-a",
+    });
+    assert.equal(repetida, recorrente);
+    const serie = await db.query<{ id: string; n: number }>(
+      `SELECT recorrencia_id::text AS id, count(*)::int AS n
+         FROM financeiro_contas_pagar WHERE id = $1::uuid OR recorrencia_id = (SELECT recorrencia_id FROM financeiro_contas_pagar WHERE id = $1::uuid)
+        GROUP BY recorrencia_id`,
       [recorrente],
     );
-    assert.equal(ocorrencias.rows[0].n, 12);
+    assert.equal(serie.rows[0].n, 12);
+    assert.equal(await estenderRecorrencia(tx, empresaA, serie.rows[0].id, 3), 15);
+    assert.equal(await estenderRecorrencia(tx, empresaA, serie.rows[0].id, 3), 18);
+    assert.equal((await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM financeiro_contas_pagar WHERE recorrencia_id = $1::uuid`,
+      [serie.rows[0].id],
+    )).rows[0].n, 18);
+    const categoriaB = (await db.query<{ id: string }>(
+      `SELECT id FROM financeiro_categorias WHERE empresa_id = $1::uuid AND tipo = 'DESPESA' AND nome = 'Aluguel'`,
+      [empresaB],
+    )).rows[0].id;
+    await assert.rejects(
+      () => criarContaPagar(tx, empresaA, ator, { descricao: "Cruzada", categoriaId: categoriaB, valor: 10, vencimento: "2026-04-01" }),
+      (error: unknown) => error instanceof PacoteAdminError,
+    );
+    await assert.rejects(
+      () => editarContaPagar(tx, empresaA, ator, recorrente, {
+        descricao: "Energia", favorecido: null, categoriaId: categoriaB, valor: 30, vencimento: "2026-01-31",
+      }),
+      (error: unknown) => error instanceof PacoteAdminError,
+    );
+    const contaB = await criarContaPagar(tx, empresaB, ator, {
+      descricao: "Aluguel B", categoriaId: categoriaB, valor: 50, vencimento: "2026-03-01",
+    });
+    const chaveCompartilhada = randomUUID();
+    const saidaA = await pagarConta(tx, empresaA, ator, { contaId, valor: 10, data: hoje, forma: "PIX", chave: chaveCompartilhada });
+    const saidaB = await pagarConta(tx, empresaB, ator, { contaId: contaB, valor: 10, data: hoje, forma: "PIX", chave: chaveCompartilhada });
+    assert.equal(saidaA.reutilizado, false);
+    assert.equal(saidaB.reutilizado, false);
+    const retryParcial = await pagarConta(tx, empresaA, ator, { contaId, valor: 40, data: hoje, forma: "PIX", chave });
+    assert.equal(retryParcial.reutilizado, true);
+    await assert.rejects(
+      () => pagarConta(tx, empresaA, ator, { contaId, valor: 1, data: hoje, forma: "PIX", chave }),
+      (error: unknown) => error instanceof PacoteAdminError && error.code === "IDEMPOTENCIA_CONFLITANTE",
+    );
+    await assert.rejects(
+      () => pagarConta(tx, empresaA, ator, { contaId, valor: 40, data: "2026-03-19", forma: "PIX", chave }),
+      (error: unknown) => error instanceof PacoteAdminError && error.code === "IDEMPOTENCIA_CONFLITANTE",
+    );
+    await assert.rejects(
+      () => pagarConta(tx, empresaA, ator, { contaId, valor: 40, data: hoje, forma: "PIX", observacao: "outra", chave }),
+      (error: unknown) => error instanceof PacoteAdminError && error.code === "IDEMPOTENCIA_CONFLITANTE",
+    );
+    await pagarConta(tx, empresaA, ator, { contaId, valor: 70, data: hoje, forma: "PIX", chave: randomUUID() });
+    const retryQuitado = await pagarConta(tx, empresaA, ator, { contaId, valor: 40, data: hoje, forma: "PIX", chave });
+    assert.equal(retryQuitado.reutilizado, true);
+    assert.equal((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM financeiro_saidas WHERE chave_idempotencia = $1", [chave])).rows[0].n, 1);
+    await assert.rejects(
+      () => cancelarConta(tx, empresaA, ator, contaId),
+      (error: unknown) => error instanceof PacoteAdminError && error.message.includes("Estorne o pagamento"),
+    );
+    assert.equal((await db.query<{ n: number; cancelada: string | null }>(
+      `SELECT count(saida.id)::int AS n, conta.cancelado_em::text AS cancelada
+         FROM financeiro_contas_pagar conta
+         LEFT JOIN financeiro_saidas saida ON saida.conta_id = conta.id
+        WHERE conta.id = $1::uuid
+        GROUP BY conta.cancelado_em`,
+      [contaId],
+    )).rows[0].n, 3);
     const fluxo = await fluxoCaixa(tx, empresaA, "2026-03-01", "2026-03-31", hoje);
     assert.ok(fluxo.saidasCentavos >= 4000);
+    assert.equal(fluxo.saldoFinalCentavos, fluxo.saldoInicialCentavos + fluxo.entradasCentavos - fluxo.saidasCentavos);
     assert.ok(fluxo.linhas.some((linha) => linha.tipo === "realizado" && linha.saida > 0));
-    const leitura = await relatorio(tx, empresaA, hoje);
+    assert.ok(fluxo.linhas.filter((linha) => linha.tipo === "previsto").every((linha) => linha.saldo === null));
+    const leitura = await relatorio(tx, empresaA, "2026-03-01", "2026-03-31", hoje);
     assert.equal(leitura.aPagarCentavos > 0, true);
+    assert.equal(leitura.inicio, "2026-03-01");
+    assert.equal(leitura.fim, "2026-03-31");
     await db.query("ROLLBACK");
 
     await db.query("BEGIN");
@@ -169,6 +239,55 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
     await db.query("DELETE FROM financeiro_auditoria WHERE empresa_id = $1::uuid", [comDado]);
     await db.query("DELETE FROM financeiro_contas_pagar WHERE empresa_id = $1::uuid", [comDado]);
     await db.query("DELETE FROM financeiro_categorias WHERE empresa_id = $1::uuid", [comDado]);
+
+    await db.query("DELETE FROM financeiro_saidas");
+    await db.query("DELETE FROM financeiro_auditoria");
+    await db.query("DELETE FROM financeiro_contas_pagar");
+    await db.query("DELETE FROM financeiro_recorrencias");
+    await db.query("BEGIN");
+    const soAuditoria = await empresa(db, "Empresa so auditoria");
+    const atorAuditoria = await usuario(db);
+    await db.query(
+      `INSERT INTO financeiro_auditoria (empresa_id, acao, entidade, entidade_id, ator_id, detalhe)
+       VALUES ($1::uuid, 'RECEBIMENTO_REGISTRADO', 'pagamento_parcelas', $2::uuid, $3::uuid, 'ja confirmada')`,
+      [soAuditoria, randomUUID(), atorAuditoria],
+    );
+    await db.query("COMMIT");
+    await assert.rejects(
+      () => db.query(down),
+      (error: unknown) => error instanceof Error && error.message.includes("ainda há auditoria financeira"),
+    );
+    await db.query("ROLLBACK");
+    assert.equal((await db.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM financeiro_auditoria WHERE empresa_id = $1::uuid",
+      [soAuditoria],
+    )).rows[0].n, 1);
+
+    await db.query("BEGIN");
+    const corridaEmpresa = await empresa(db, "Empresa corrida auditoria");
+    const atorCorrida = await usuario(db);
+    await db.query(
+      `INSERT INTO financeiro_auditoria (empresa_id, acao, entidade, entidade_id, ator_id, detalhe)
+       VALUES ($1::uuid, 'RECEBIMENTO_REGISTRADO', 'pagamento_parcelas', $2::uuid, $3::uuid, 'ainda nao commitada')`,
+      [corridaEmpresa, randomUUID(), atorCorrida],
+    );
+    const queda = db2.query(down);
+    for (let tentativa = 0; tentativa < 40; tentativa += 1) {
+      const bloqueio = await db.query(
+        `SELECT 1 FROM pg_locks WHERE relation = 'public.financeiro_auditoria'::regclass AND NOT granted`,
+      );
+      if (bloqueio.rowCount) break;
+      if (tentativa === 39) throw new Error("o down não esperou a trava da auditoria");
+      await new Promise((resolver) => setTimeout(resolver, 50));
+    }
+    await db.query("COMMIT");
+    await assert.rejects(queda, (error: unknown) => error instanceof Error && error.message.includes("ainda há auditoria financeira"));
+    await db2.query("ROLLBACK");
+    assert.equal((await db.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM financeiro_auditoria WHERE empresa_id = $1::uuid",
+      [corridaEmpresa],
+    )).rows[0].n, 1);
+    await db.query("DELETE FROM financeiro_auditoria WHERE empresa_id = ANY($1::uuid[])", [[soAuditoria, corridaEmpresa]]);
   } finally {
     await encerrarDescartavel(db2, false);
     await encerrarDescartavel(db);
@@ -179,6 +298,8 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
   const client = await conectarDescartavel();
   const db = client as unknown as Client;
   try {
+    await db.query(migration);
+    await db.query(postcheck);
     await db.query("BEGIN");
     const empresaA = await empresa(db, "Empresa receber A");
     const empresaB = await empresa(db, "Empresa receber B");
@@ -245,8 +366,8 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
     await assert.rejects(() => prepararBaixa(tx, empresaA, { parcelaId: parcela, valor: 101, data: "2026-03-18", forma: "PIX" }));
     await assert.rejects(() => prepararBaixa(tx, empresaB, { parcelaId: parcela, valor: 10, data: "2026-03-18", forma: "PIX" }));
     const recebimento = (await db.query<{ id: string }>(
-      `INSERT INTO pagamento_recebimentos (pagamento_id, status, meio_pagamento, valor_bruto, confirmado_em, chave_idempotencia, metadata_provedor)
-       VALUES ($1::uuid, 'CONFIRMADO', 'PIX', 40, now(), $2, '{"forma":"PIX","taxaCentavos":100}'::jsonb) RETURNING id`,
+      `INSERT INTO pagamento_recebimentos (pagamento_id, status, meio_pagamento, valor_bruto, recebido_em, confirmado_em, chave_idempotencia, metadata_provedor)
+       VALUES ($1::uuid, 'CONFIRMADO', 'PIX', 40, '2026-03-01', now(), $2, '{"forma":"PIX","taxaCentavos":100}'::jsonb) RETURNING id`,
       [pagamento, randomUUID()],
     )).rows[0].id;
     await db.query(
@@ -274,11 +395,44 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
       descricao: "Insumo da festa", categoriaId: categoria, valor: 10, vencimento: "2026-03-10", festaId: festa,
     });
     await pagarConta(tx, empresaA, ator, { contaId: despesa, valor: 10, data: "2026-03-10", forma: "PIX", chave: randomUUID() });
+    await db.query(
+      `INSERT INTO pagamento_parcelas (plano_id, numero, valor_previsto, vencimento, status)
+       VALUES ($1::uuid, 2, 50, '2026-03-01', 'CANCELADA'), ($1::uuid, 3, 10, '2026-04-15', 'PENDENTE')`,
+      [plano],
+    );
+    const aberta = await criarContaPagar(tx, empresaA, ator, {
+      descricao: "Insumo em aberto", categoriaId: categoria, valor: 20, vencimento: "2026-04-20", festaId: festa,
+    });
     const daFesta = await financeiroDaFesta(tx, empresaA, festa, "2026-03-18");
     assert.equal(daFesta.recebimentos.some((item) => item.id === parcela), true);
-    assert.equal(daFesta.custosCentavos, 1000);
-    assert.equal(daFesta.margemEstimadaCentavos, daFesta.recebidoCentavos - 1000);
+    assert.equal(daFesta.valorContratadoCentavos, 11000);
+    assert.equal(daFesta.custosCentavos, 3000);
+    assert.equal(daFesta.margemEstimadaCentavos, 8000);
+    assert.equal(daFesta.resultadoCaixaCentavos, 2900);
     assert.equal((await financeiroDaFesta(tx, empresaB, festa, "2026-03-18")).recebimentos.length, 0);
+    const marco = await relatorio(tx, empresaA, "2026-03-01", "2026-03-31", "2026-03-18");
+    const abril = await relatorio(tx, empresaA, "2026-04-01", "2026-04-30", "2026-03-18");
+    assert.equal(marco.faturamentoCentavos, 11000);
+    assert.equal(marco.aReceberCentavos, 6000);
+    assert.equal(marco.inadimplenciaCentavos, 6000);
+    assert.equal(abril.faturamentoCentavos, 0);
+    assert.equal(abril.aReceberCentavos, 1000);
+    assert.equal(abril.aPagarCentavos, 2000);
+    assert.equal(marco.pacotes.some((item) => item.pacote === "Festa Completa" && item.centavos === 11000), true);
+    assert.equal(marco.margens[0]?.margemEstimadaCentavos, 8000);
+    assert.equal(marco.margens[0]?.resultadoCaixaCentavos, daFesta.resultadoCaixaCentavos);
+    const posicao = resumo(await listarRecebiveis(tx, empresaA, "2026-03-18"), await listarContasPagar(tx, empresaA, "2026-03-18"), 0, "2026-03-18");
+    assert.equal(posicao.aReceberCentavos, 7000);
+    assert.notEqual(posicao.aReceberCentavos, marco.aReceberCentavos);
+    const caixaLiquido = await fluxoCaixa(tx, empresaA, "2026-03-01", "2026-03-04", "2026-03-18");
+    assert.equal(caixaLiquido.entradasCentavos, 3900);
+    assert.equal(daFesta.resultadoCaixaCentavos, caixaLiquido.entradasCentavos - 1000);
+    assert.equal(daFesta.despesas.some((item) => item.id === aberta && item.status !== "Cancelado"), true);
+    const caixa = await fluxoCaixa(tx, empresaA, "2026-03-05", "2026-03-31", "2026-03-18");
+    assert.equal(caixa.saldoInicialCentavos, 3900);
+    assert.equal(caixa.entradasCentavos, 0);
+    assert.equal(caixa.saidasCentavos, 1000);
+    assert.equal(caixa.saldoFinalCentavos, 2900);
     await db.query("ROLLBACK");
   } finally {
     await encerrarDescartavel(db);

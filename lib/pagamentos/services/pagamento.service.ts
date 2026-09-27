@@ -687,7 +687,7 @@ export async function registrarRecebimentoPagamento(
   if (input.referenciaExterna?.trim() && !input.provedorCodigo?.trim()) {
     throw new PagamentoServiceError("RECEBIMENTO_INVALIDO", "Informe o provedor da referência externa.", 400);
   }
-  return withTransaction(async (tx) => {
+  const executar = async (tx: DbExecutor) => {
     const pagamento = await bloquearPagamento(input.pagamentoId, tx);
     if (!pagamento) throw new PagamentoServiceError("PAGAMENTO_NAO_ENCONTRADO", "Pagamento não encontrado.", 404);
     if (pagamento.status === "CANCELADO") throw new PagamentoServiceError("PAGAMENTO_CANCELADO", "Pagamento cancelado não aceita recebimentos.", 409);
@@ -707,9 +707,13 @@ export async function registrarRecebimentoPagamento(
         }
         const alocacoes = await listarAlocacoesRecebimento(existente.id, tx);
         validarRepeticaoRecebimento(existente, alocacoes, input);
+        const jaConfirmado = existente.status === "CONFIRMADO";
         const atual = input.confirmarAgora !== false
           ? await confirmarRecebimentoInterno(existente, context, tx)
           : existente;
+        if (!jaConfirmado && atual.status === "CONFIRMADO" && context.aoConfirmar) {
+          await context.aoConfirmar(tx, { recebimentoId: atual.id });
+        }
         const atualizado = await buscarPagamentoPorId(pagamento.id, tx) ?? pagamento;
         return {
           recebimento: atual,
@@ -798,6 +802,9 @@ export async function registrarRecebimentoPagamento(
         origem: context.origem, requestId: context.requestId ?? null, ip: context.ip ?? null, userAgent: context.userAgent ?? null,
       }, tx);
     }
+    if (final.status === "CONFIRMADO" && context.aoConfirmar) {
+      await context.aoConfirmar(tx, { recebimentoId: final.id });
+    }
     const pagamentoAtual = await buscarPagamentoPorId(pagamento.id, tx) ?? pagamento;
     return {
       recebimento: final,
@@ -809,7 +816,9 @@ export async function registrarRecebimentoPagamento(
         conflito: pagamentoAtual.reservaStatus === "CONFLITO",
       },
     };
-  });
+  };
+  if (context.executor) return executar(context.executor);
+  return withTransaction(executar);
 }
 
 export async function confirmarRecebimentoPagamento(

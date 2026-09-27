@@ -52,8 +52,13 @@ export const financeiroVitrine: AmostraFinanceira = {
     aReceberCentavos: 4730000,
     aPagarCentavos: 1890000,
     inadimplenciaCentavos: 320000,
+    ticketCentavos: 890000,
+    pacoteMaisVendido: "Festa Completa",
     despesas: [{ categoria: "Aluguel", centavos: 800000 }],
     pacotes: [{ pacote: "Festa Completa", centavos: 5000000 }],
+    formas: [{ forma: "PIX", centavos: 6240000 }],
+    taxasCentavos: 0,
+    margens: [{ festaId: "f1", cliente: "Maria Silva", margemEstimadaCentavos: 300000, resultadoCaixaCentavos: 200000 }],
   },
 };
 
@@ -62,7 +67,8 @@ export const festaVitrine = {
   recebidoCentavos: 500000,
   aReceberCentavos: 1000000,
   custosCentavos: 200000,
-  margemEstimadaCentavos: 300000,
+  margemEstimadaCentavos: 1300000,
+  resultadoCaixaCentavos: 300000,
   recebimentos: [{ id: "r2", parcela: 1, vencimento: "2026-03-28", valorCentavos: 1500000, status: "Parcialmente pago" }],
   despesas: [{ id: "d1", categoria: "Buffet / insumos", favorecido: "Fornecedor", valorCentavos: 200000, status: "Pago" }],
 };

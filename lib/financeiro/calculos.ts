@@ -80,8 +80,56 @@ export function aceitaBaixa(saldo: number, valor: number) {
   return valor > 0 && valor <= saldo;
 }
 
-export function margemEstimada(receitaCentavos: number, custosCentavos: number) {
-  return receitaCentavos - custosCentavos;
+export function margemEstimada(contratadoCentavos: number, custosVinculadosCentavos: number) {
+  return contratadoCentavos - custosVinculadosCentavos;
+}
+
+export function resultadoCaixa(recebidoCentavos: number, despesasPagasCentavos: number) {
+  return recebidoCentavos - despesasPagasCentavos;
+}
+
+export function hojeBrasilia(agora = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(agora);
+  const ler = (tipo: Intl.DateTimeFormatPartTypes) => parts.find((parte) => parte.type === tipo)?.value ?? "";
+  return `${ler("year")}-${ler("month")}-${ler("day")}`;
+}
+
+export function fimDoMes(dia: string) {
+  const [ano, mes] = dia.split("-").map(Number);
+  return new Date(Date.UTC(ano, mes, 0)).toISOString().slice(0, 10);
+}
+
+export function somarDias(dia: string, quantidade: number) {
+  const [ano, mes, data] = dia.split("-").map(Number);
+  return new Date(Date.UTC(ano, mes - 1, data + quantidade)).toISOString().slice(0, 10);
+}
+
+export function periodoSelecionado(hoje: string, modo: "mes" | "anterior" | "30") {
+  if (modo === "30") return { inicio: somarDias(hoje, -29), fim: hoje };
+  if (modo === "anterior") {
+    const [ano, mes] = hoje.split("-").map(Number);
+    const inicio = new Date(Date.UTC(ano, mes - 2, 1)).toISOString().slice(0, 10);
+    return { inicio, fim: new Date(Date.UTC(ano, mes - 1, 0)).toISOString().slice(0, 10) };
+  }
+  return { inicio: `${hoje.slice(0, 7)}-01`, fim: fimDoMes(hoje) };
+}
+
+export function escolherParcelaAberta<T extends { id: string; status: string; saldoCentavos?: number }>(
+  itens: T[],
+  escolhida?: string | null,
+) {
+  const abertas = itens.filter((item) => item.status !== "Pago" && item.status !== "Cancelado" && item.status !== "Reembolsado" && (item.saldoCentavos ?? 1) > 0);
+  if (escolhida) {
+    const parcela = abertas.find((item) => item.id === escolhida) ?? null;
+    return { parcela, ambiguo: false, vazia: abertas.length === 0 };
+  }
+  if (abertas.length === 1) return { parcela: abertas[0], ambiguo: false, vazia: false };
+  return { parcela: null, ambiguo: abertas.length > 1, vazia: abertas.length === 0 };
 }
 
 export function vencimentosMensais(inicio: string, quantidade = HORIZONTE_RECORRENCIA_MESES) {
