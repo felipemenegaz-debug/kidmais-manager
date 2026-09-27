@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { authError } from "@/lib/autenticacao/service";
 import { validarVinculoComposicao } from "@/lib/comercial/composicao";
+import { PacoteAdminError, alterarComposicaoPacoteAdmin } from "@/lib/comercial/pacotes-admin";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
@@ -9,8 +10,17 @@ import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Catálogo administrativo.
+ * (1) Tenant: adicionais, pacotes e a composição que passa pelo pacote da empresa.
+ * (2) Global, sem empresa_id e sem autoridade global no modelo: buffet_categorias,
+ *     buffet_itens e adicional_categorias. A leitura permanece. A escrita falha fechada.
+ * (3) Legado ainda sem tenant: linhas de pacotes, adicionais e tabelas com empresa_id nulo.
+ *     Não são alcançadas por esta escrita.
+ */
 const uuid = z.string().uuid();
 const nome = z.string().trim().min(1).max(160);
+const motivo = z.string().trim().min(3).max(500);
 const operacao = z.discriminatedUnion("acao", [
   z.object({ acao: z.literal("categoria"), id: uuid, nome, ativo: z.boolean() }).strict(),
   z.object({ acao: z.literal("item"), id: uuid, nome, ativo: z.boolean() }).strict(),
@@ -21,6 +31,7 @@ const operacao = z.discriminatedUnion("acao", [
     pacoteId: uuid,
     adicionalId: uuid,
     modalidade: z.enum(["INCLUSO", "EXTRA", "INDISPONIVEL"]),
+    motivo,
   }).strict(),
   z.object({ acao: z.literal("nova_categoria"), nome }).strict(),
   z.object({
@@ -29,8 +40,30 @@ const operacao = z.discriminatedUnion("acao", [
     categoriaId: uuid,
     ativo: z.boolean(),
     max: z.number().int().min(1).max(30),
+    motivo,
   }).strict(),
 ]);
+
+const acoesGlobais = new Set(["categoria", "item", "novo_item", "nova_categoria"]);
+
+function recusarCatalogoGlobal(): never {
+  throw new PacoteAdminError(
+    "CATALOGO_GLOBAL_SEM_AUTORIDADE",
+    "Referência global do catálogo não é alterada por uma membership de empresa.",
+    403,
+  );
+}
+
+function contextoEmpresa(bruto: unknown) {
+  if (bruto == null || typeof bruto !== "object" || Array.isArray(bruto)) {
+    return { empresaId: null as string | null, operacao: bruto };
+  }
+  const registro = { ...(bruto as Record<string, unknown>) };
+  const cru = registro.empresaId;
+  delete registro.empresaId;
+  if (cru == null || cru === "") return { empresaId: null, operacao: registro };
+  return { empresaId: z.string().uuid().parse(cru), operacao: registro };
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -81,22 +114,13 @@ export async function PATCH(request: NextRequest) {
     const sessao = await exigirApiAdminCrmDisponivel(request);
     if (sessao.papel !== "REPRESENTANTE_AUTORIZADO") throw authError("Apenas o proprietário pode editar o catálogo.", 403);
     const bruto = await request.json();
-    const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
-    const estado = await withTenantTransaction(sessao, pedido.empresaId ?? null, async (tx, tenant) => {
-      const data = operacao.parse(bruto);
+    const pedido = contextoEmpresa(bruto);
+    const estado = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
+      const data = operacao.parse(pedido.operacao);
       const empresaId = tenant.empresaComprovada;
-      let resultado;
-      if (data.acao === "categoria") {
-        resultado = await tx.query(
-          "UPDATE buffet_categorias SET nome=$2, ativo=$3, arquivado_em=CASE WHEN $3 THEN NULL ELSE clock_timestamp() END WHERE id=$1 RETURNING id",
-          [data.id, data.nome, data.ativo],
-        );
-      } else if (data.acao === "item") {
-        resultado = await tx.query(
-          "UPDATE buffet_itens SET nome=$2, ativo=$3, arquivado_em=CASE WHEN $3 THEN NULL ELSE clock_timestamp() END WHERE id=$1 RETURNING id",
-          [data.id, data.nome, data.ativo],
-        );
-      } else if (data.acao === "adicional") {
+      if (acoesGlobais.has(data.acao)) recusarCatalogoGlobal();
+      let resultado: { rowCount: number | null } | undefined;
+      if (data.acao === "adicional") {
         resultado = await tx.query(
           "UPDATE adicionais SET nome=$2, ativo=$3 WHERE id=$1::uuid AND empresa_id=$4::uuid RETURNING id",
           [data.id, data.nome, data.ativo, empresaId],
@@ -118,44 +142,50 @@ export async function PATCH(request: NextRequest) {
           modalidade: data.modalidade,
           modalidadeAtual: vinculo.modalidade,
         });
-        resultado = await tx.query(
-          `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade)
-           SELECT p.id, a.id, $3
-             FROM pacotes p
-             JOIN adicionais a ON a.id = $2::uuid AND a.empresa_id = p.empresa_id
-            WHERE p.id = $1::uuid AND p.empresa_id = $4::uuid
-           ON CONFLICT (pacote_id, adicional_id) DO UPDATE SET modalidade = EXCLUDED.modalidade, ativo = true
-           RETURNING pacote_id`,
-          [data.pacoteId, data.adicionalId, data.modalidade, empresaId],
+        await alterarComposicaoPacoteAdmin(
+          tx,
+          data.pacoteId,
+          { tipo: "vinculo", adicionalId: data.adicionalId, modalidade: data.modalidade },
+          {
+            empresaId,
+            usuarioId: sessao.usuario_id,
+            requestId: crypto.randomUUID(),
+            motivo: data.motivo,
+          },
         );
+        return { ausente: false as const };
       } else if (data.acao === "regra_buffet") {
-        resultado = await tx.query(
-          `INSERT INTO pacote_buffet_categorias (pacote_id, categoria_id, modo_itens, escolhas_min, escolhas_max, ativo)
-           SELECT p.id, $2::uuid, 'TODOS_ATIVOS', 0, $3, $4
+        const atual = await tx.query<{ escolhas_min: number | null }>(
+          `SELECT r.escolhas_min
              FROM pacotes p
-            WHERE p.id = $1::uuid AND p.empresa_id = $5::uuid
-           ON CONFLICT (pacote_id, categoria_id) DO UPDATE SET escolhas_max = EXCLUDED.escolhas_max, ativo = EXCLUDED.ativo
-           RETURNING pacote_id`,
-          [data.pacoteId, data.categoriaId, data.max, data.ativo, empresaId],
+             LEFT JOIN pacote_buffet_categorias r
+               ON r.pacote_id = p.id AND r.categoria_id = $2::uuid
+            WHERE p.id = $1::uuid AND p.empresa_id = $3::uuid`,
+          [data.pacoteId, data.categoriaId, empresaId],
         );
-      } else if (data.acao === "nova_categoria") {
-        const codigo = `CUSTOM_${crypto.randomUUID().replaceAll("-", "").toUpperCase()}`;
-        resultado = await tx.query(
-          `INSERT INTO buffet_categorias (codigo, nome, ordem_exibicao)
-           VALUES ($1, $2, (SELECT COALESCE(MAX(ordem_exibicao), 0) + 1 FROM buffet_categorias))
-           RETURNING id`,
-          [codigo, data.nome],
+        if (!atual.rows[0]) return { ausente: true as const };
+        const escolhasMin = atual.rows[0].escolhas_min == null ? 0 : Number(atual.rows[0].escolhas_min);
+        if (escolhasMin > data.max) {
+          throw new PacoteAdminError("LIMITE_BUFFET", "O mínimo de escolhas não pode passar do máximo.", 409);
+        }
+        await alterarComposicaoPacoteAdmin(
+          tx,
+          data.pacoteId,
+          {
+            tipo: "buffet",
+            categoriaId: data.categoriaId,
+            ativo: data.ativo,
+            escolhasMin,
+            escolhasMax: data.max,
+          },
+          {
+            empresaId,
+            usuarioId: sessao.usuario_id,
+            requestId: crypto.randomUUID(),
+            motivo: data.motivo,
+          },
         );
-      } else {
-        const codigo = `CUSTOM_${crypto.randomUUID().replaceAll("-", "").toUpperCase()}`;
-        resultado = await tx.query(
-          `INSERT INTO buffet_itens (categoria_id, codigo, nome, ordem_exibicao)
-           SELECT id, $2, $3, COALESCE((SELECT MAX(ordem_exibicao) + 1 FROM buffet_itens WHERE categoria_id = $1), 1)
-             FROM buffet_categorias
-            WHERE id = $1 AND ativo
-           RETURNING id`,
-          [data.categoriaId, codigo, data.nome],
-        );
+        return { ausente: false as const };
       }
       if (!resultado?.rowCount) return { ausente: true as const };
       return { ausente: false as const };

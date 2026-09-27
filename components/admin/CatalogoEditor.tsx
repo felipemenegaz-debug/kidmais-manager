@@ -14,6 +14,7 @@ export default function CatalogoEditor() {
   const [mensagem,setMensagem]=useState('');
   const [secao,setSecao]=useState<'buffet'|'adicionais'>('buffet');
   const [busca,setBusca]=useState('');
+  const [motivo,setMotivo]=useState('');
   const corresponde=(nome:string)=>nome.toLocaleLowerCase('pt-BR').includes(busca.trim().toLocaleLowerCase('pt-BR'));
   async function carregar() {
     const resposta=await adminFetch('/api/admin/configuracoes/catalogo');
@@ -27,7 +28,7 @@ export default function CatalogoEditor() {
       setDados(body.data);
     }).catch(e=>setErro(e instanceof Error?e.message:'Falha ao carregar catálogo.'));
   },[]);
-  async function salvar(acao:'categoria'|'item'|'adicional',registro:Registro) {
+  async function salvar(acao:'adicional',registro:Registro) {
     setErro('');setMensagem('');
     try {
       const resposta=await adminFetch('/api/admin/configuracoes/catalogo',{method:'PATCH',body:JSON.stringify({acao,id:registro.id,nome:registro.nome,ativo:registro.ativo})});
@@ -35,30 +36,30 @@ export default function CatalogoEditor() {
       setMensagem('Alteração salva.');await carregar();
     }catch(e){setErro(e instanceof Error?e.message:'Falha ao salvar.');}
   }
-  async function adicionar(categoriaId:string,nome:string) {
-    setErro('');setMensagem('');
-    try {
-      const resposta=await adminFetch('/api/admin/configuracoes/catalogo',{method:'PATCH',body:JSON.stringify({acao:'novo_item',categoriaId,nome})});
-      const body=await resposta.json();if(!body.ok)throw Error(body.erro);
-      setMensagem('Item adicionado.');await carregar();
-    }catch(e){setErro(e instanceof Error?e.message:'Falha ao adicionar.');}
+  function motivoValido() {
+    if (motivo.trim().length >= 3) return true;
+    setErro('A mudança de composição exige um motivo.');
+    setMensagem('');
+    return false;
   }
-  async function configurar(acao:'vinculo_adicional'|'nova_categoria'|'regra_buffet',dadosAcao:Record<string,string|boolean|number>){
+  async function configurar(acao:'vinculo_adicional'|'regra_buffet',dadosAcao:Record<string,string|boolean|number>){
+    if (!motivoValido()) return;
     setErro('');setMensagem('');
     try {
-      const resposta=await adminFetch('/api/admin/configuracoes/catalogo',{method:'PATCH',body:JSON.stringify({acao,...dadosAcao})});
+      const resposta=await adminFetch('/api/admin/configuracoes/catalogo',{method:'PATCH',body:JSON.stringify({acao,...dadosAcao,motivo:motivo.trim()})});
       const body=await resposta.json();if(!body.ok)throw Error(body.erro);
       setMensagem('Configuração salva.');await carregar();
     }catch(e){setErro(e instanceof Error?e.message:'Falha ao salvar configuração.');}
   }
   function editar(lista:'categorias'|'itens'|'adicionais',id:string,patch:Partial<Registro>){setDados(atual=>atual&&({...atual,[lista]:atual[lista].map(item=>item.id===id?{...item,...patch}:item)}));}
-  function linha(registro:Registro,acao:'categoria'|'item'|'adicional',lista:'categorias'|'itens'|'adicionais'){return <div key={registro.id} className={styles.grid}>
+  function linha(registro:Registro,acao:'adicional',lista:'adicionais'){return <div key={registro.id} className={styles.grid}>
     <label>{registro.codigo||'Nome'}<input value={registro.nome} onChange={e=>editar(lista,registro.id,{nome:e.target.value})}/></label>
     <div><label><input type="checkbox" checked={registro.ativo} onChange={e=>editar(lista,registro.id,{ativo:e.target.checked})}/> Ativo</label>
       <button type="button" onClick={()=>void salvar(acao,registro)}>Salvar</button></div>
   </div>;}
   return <main className={styles.page}><h1>Buffet e adicionais</h1>
-    <p>Edite nomes e disponibilidade. Itens desativados preservam os registros de contratos anteriores.</p>
+    <p>Adicionais e a composição dos pacotes desta empresa podem ser editados. Categorias e itens de buffet são referência global: esta tela só os mostra.</p>
+    <label>Motivo da composição<input value={motivo} onChange={e=>setMotivo(e.target.value)} minLength={3} maxLength={500}/></label>
     <div className={editor.toolbar}>
       <div className={editor.sections} aria-label="Seções do catálogo">
         <button type="button" aria-pressed={secao==='buffet'} onClick={()=>{setSecao('buffet');setBusca('');}}>Buffet</button>
@@ -68,16 +69,10 @@ export default function CatalogoEditor() {
       {erro&&<p role="alert">{erro}</p>}{mensagem&&<p role="status">{mensagem}</p>}
     </div>
     <div hidden={secao!=='buffet'}>
-    <details><summary>Adicionar categoria de buffet</summary><form className={editor.content} onSubmit={e=>{e.preventDefault();const input=e.currentTarget.elements.namedItem('nome') as HTMLInputElement;void configurar('nova_categoria',{nome:input.value}).then(()=>{input.value='';});}}>
-      <label>Nova categoria de buffet<input name="nome" required maxLength={160}/></label><button>Adicionar categoria</button>
-    </form></details>
     {dados?.categorias.map(categoria=><details key={categoria.id} hidden={!corresponde(categoria.nome)&&!dados.itens.some(item=>item.categoria_id===categoria.id&&corresponde(item.nome))}>
       <summary>{categoria.nome} · {dados.itens.filter(item=>item.categoria_id===categoria.id).length} itens</summary><div className={editor.content}>
-      {linha(categoria,'categoria','categorias')}
-      {dados.itens.filter(item=>item.categoria_id===categoria.id).map(item=>linha(item,'item','itens'))}
-      <form onSubmit={e=>{e.preventDefault();const form=e.currentTarget;const input=form.elements.namedItem('nome') as HTMLInputElement;void adicionar(categoria.id,input.value).then(()=>{input.value='';});}}>
-        <label>Novo item<input name="nome" required maxLength={160}/></label><button>Adicionar item</button>
-      </form>
+      <p>{categoria.nome}{categoria.ativo ? '' : ' · inativa'}</p>
+      <ul>{dados.itens.filter(item=>item.categoria_id===categoria.id).map(item=><li key={item.id}>{item.nome}{item.ativo ? '' : ' · inativo'}</li>)}</ul>
       <details><summary>Disponibilidade por pacote</summary><div className={styles.grid}>
         {dados.pacotes.map(pacote=>{
           const regra=dados.regras.find(r=>r.pacote_id===pacote.id&&r.categoria_id===categoria.id);
