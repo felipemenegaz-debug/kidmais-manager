@@ -281,6 +281,64 @@ test("estrutura de tenant da 043 no postgres descartável", { timeout: 120_000 }
       }
     });
 
+    await t.test("o down da 043 recusa tabela preenchida e preserva a linha", async () => {
+      const codigoEmpresa = codigo("hg8d");
+      const email = `${codigo("hg8d")}@example.test`;
+      await db.query(
+        `INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Empresa do down', 'PROVISIONAMENTO')`,
+        [codigoEmpresa],
+      );
+      const empresaId = (await db.query<{ id: string }>(
+        "SELECT id FROM empresas WHERE codigo = $1",
+        [codigoEmpresa],
+      )).rows[0].id;
+      const usuarioId = (await db.query<{ id: string }>(
+        `INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel)
+         VALUES ($1, 'Usuario do down', $2, 'REPRESENTANTE_AUTORIZADO') RETURNING id`,
+        [email, senhaFalsa()],
+      )).rows[0].id;
+      const membershipId = (await db.query<{ id: string }>(
+        `INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde)
+         VALUES ($1::uuid, $2::uuid, 'PENDENTE', clock_timestamp()) RETURNING id`,
+        [empresaId, usuarioId],
+      )).rows[0].id;
+      try {
+        let message = "";
+        await db.query("BEGIN");
+        try {
+          await db.query(semTransacaoExplicita(readFileSync(down043, "utf8")));
+          message = "passou";
+        } catch (error) {
+          message = texto(error);
+        }
+        await db.query("ROLLBACK");
+        assert.match(message, /043 down: rollback recusado porque a Foundation já tem dado/);
+        const preservada = await db.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM memberships WHERE id = $1::uuid",
+          [membershipId],
+        );
+        assert.equal(preservada.rows[0].n, 1);
+        const estrutura = await db.query<{ ok: boolean }>(
+          `SELECT to_regclass('public.memberships') IS NOT NULL
+              AND to_regclass('public.estabelecimentos') IS NOT NULL
+              AND to_regclass('public.membership_estabelecimentos') IS NOT NULL AS ok`,
+        );
+        assert.equal(estrutura.rows[0].ok, true);
+      } finally {
+        await db.query("ROLLBACK").catch(() => undefined);
+        await db.query("ALTER TABLE memberships DISABLE TRIGGER USER");
+        await db.query("ALTER TABLE empresas DISABLE TRIGGER USER");
+        try {
+          await db.query("DELETE FROM memberships WHERE id = $1::uuid", [membershipId]);
+          await db.query("DELETE FROM empresas WHERE id = $1::uuid", [empresaId]);
+          await db.query("DELETE FROM usuarios_administrativos WHERE id = $1::uuid", [usuarioId]);
+        } finally {
+          await db.query("ALTER TABLE empresas ENABLE TRIGGER USER");
+          await db.query("ALTER TABLE memberships ENABLE TRIGGER USER");
+        }
+      }
+    });
+
     await t.test("o down da 043 sai numa transação desfeita e a estrutura volta", async () => {
       await db.query("BEGIN");
       try {
