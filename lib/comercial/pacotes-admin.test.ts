@@ -7,6 +7,7 @@ import {
   criarPacoteAdmin,
   criarRevisaoPacoteAdmin,
   editarPacoteNaoUtilizado,
+  excluirPacoteArquivadoAdmin,
   listarPacotesAdmin,
   PacoteAdminError,
 } from "./pacotes-admin.ts";
@@ -53,8 +54,9 @@ test("a lista administrativa não inclui pacote de outra empresa nem legado sem 
   };
   assert.deepEqual(await listarPacotesAdmin(tx, ctx.empresaId), []);
   assert.match(sql, /empresa_id = \$1::uuid/);
-  assert.equal(sql.includes("IS NULL"), false);
+  assert.equal(sql.includes("empresa_id IS NULL"), false);
   assert.match(sql, /p\.vigente/);
+  assert.match(sql, /arquivado_em IS DISTINCT FROM NULL/);
 });
 
 test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", async () => {
@@ -86,7 +88,7 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
         return { rows: [{ id: linha(true).id } as Row], rowCount: 1 };
       }
       if (text.startsWith("INSERT INTO pacotes")) {
-        assert.equal(values?.[5], linha(true).id);
+        assert.equal(values?.[7], linha(true).id);
         return { rows: [{ id: "33333333-3333-4333-8333-333333333333" } as Row], rowCount: 1 };
       }
       if (text.startsWith("INSERT INTO auditoria")) {
@@ -178,12 +180,41 @@ test("composição cruzando empresas é recusada antes de gravar", async () => {
   assert.equal(chamadas.some((sql) => sql.startsWith("INSERT")), false);
 });
 
-test("a API administrativa não oferece exclusão física e reutiliza o papel existente", () => {
+test("pacote arquivado sem uso é apagado e um preço publicado bloqueia a exclusão", async () => {
+  const apagados: string[] = [];
+  const livre: DbExecutor = { async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+    if (text.includes("AS utilizado")) return { rows: [{ ...linha(false), arquivado_em: "2026-09-27", vigente: false, ativo: false } as Row], rowCount: 1 };
+    if (text.includes("pg_constraint")) return { rows: [{ tabela: "fechamentos", coluna: "pacote_id", composto: false } as Row, { tabela: "pacote_adicionais", coluna: "pacote_id", composto: false } as Row], rowCount: 2 };
+    if (text.includes("count(*)")) return { rows: [{ n: 0 } as Row], rowCount: 1 };
+    if (text.includes("publicada_em IS NOT NULL")) return { rows: [], rowCount: 0 };
+    if (text.startsWith("DELETE")) { apagados.push(text); return { rows: [], rowCount: 1 }; }
+    if (text.startsWith("INSERT INTO auditoria")) return { rows: [], rowCount: 1 };
+    throw new Error(text);
+  } };
+  await excluirPacoteArquivadoAdmin(livre, linha(false).id, ctx);
+  assert.equal(apagados.some((sql) => sql.includes("DELETE FROM pacotes")), true);
+  assert.equal(apagados.some((sql) => sql.includes("DELETE FROM fechamentos")), false);
+
+  const protegido: DbExecutor = { async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
+    if (text.includes("AS utilizado")) return { rows: [{ ...linha(false), arquivado_em: "2026-09-27" } as Row], rowCount: 1 };
+    if (text.includes("pg_constraint")) return { rows: [], rowCount: 0 };
+    if (text.includes("FROM precos_pacote")) return { rows: [{ ok: 1 } as Row], rowCount: 1 };
+    throw new Error(text);
+  } };
+  await assert.rejects(() => excluirPacoteArquivadoAdmin(protegido, linha(false).id, ctx), /preço protegido/);
+  const vigente: DbExecutor = { async query<Row extends object>(): Promise<DbQueryResult<Row>> {
+    return { rows: [{ ...linha(false), arquivado_em: null } as Row], rowCount: 1 };
+  } };
+  await assert.rejects(() => excluirPacoteArquivadoAdmin(vigente, linha(false).id, ctx), /Arquive o pacote/);
+});
+
+test("a API administrativa reutiliza o papel existente e só exclui pelo preflight do pacote arquivado", () => {
   const colecao = readFileSync("app/api/admin/configuracoes/pacotes/route.ts", "utf8");
   const item = readFileSync("app/api/admin/configuracoes/pacotes/[id]/route.ts", "utf8");
   assert.match(colecao, /REPRESENTANTE_AUTORIZADO/);
   assert.match(item, /REPRESENTANTE_AUTORIZADO/);
   assert.equal(colecao.includes("export async function DELETE"), false);
-  assert.equal(item.includes("export async function DELETE"), false);
+  assert.match(item, /export async function DELETE/);
+  assert.match(item, /excluirPacoteArquivadoAdmin/);
   assert.match(colecao, /exigirApiAdminCrmDisponivel/);
 });

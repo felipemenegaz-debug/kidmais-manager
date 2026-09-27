@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { authError } from "@/lib/autenticacao/service";
-import { criarPacoteAdmin, duplicarPacoteAdmin, listarPacotesAdmin } from "@/lib/comercial/pacotes-admin";
+import { MOTIVOS_PACOTE, motivoOu } from "@/lib/comercial/motivos-pacote";
+import { salvarPacoteComercial, duplicarPacoteComercial } from "@/lib/comercial/pacote-comercial";
+import { criarPacoteAdmin, listarPacotesAdmin } from "@/lib/comercial/pacotes-admin";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
@@ -28,9 +30,32 @@ const duplicar = z.object({
   empresaId: uuid,
   origemId: uuid,
   codigo: codigo.optional(),
-  motivo: z.string().trim().min(3).max(500),
+  motivo: z.string().trim().min(3).max(500).optional(),
 }).strict();
-const corpo = z.discriminatedUnion("acao", [criar, duplicar]);
+const faixa = z.object({
+  convidadosMin: z.number().int().positive().max(10000),
+  convidadosMax: z.number().int().positive().max(10000).nullable(),
+  valor: z.string().trim().min(1).max(20),
+}).strict();
+const salvar = z.object({
+  acao: z.literal("salvar"),
+  empresaId: uuid,
+  id: uuid.optional(),
+  nome,
+  descricao: texto,
+  duracaoMinutos: z.number().int().positive().max(1440),
+  convidadosMinimos: z.number().int().positive().max(10000),
+  convidadosMaximos: z.number().int().positive().max(10000),
+  dias: z.array(z.number().int().min(1).max(7)).max(7),
+  horariosIds: z.array(uuid).max(24),
+  faixas: z.array(faixa).max(40).nullable(),
+  categorias: z.array(z.object({
+    categoriaId: uuid,
+    escolhas: z.number().int().min(0).max(30),
+  }).strict()).max(40),
+  motivo: z.string().trim().min(3).max(500).optional(),
+}).strict();
+const corpo = z.discriminatedUnion("acao", [criar, duplicar, salvar]);
 
 async function exigirEscrita(request: NextRequest) {
   const sessao = await exigirApiAdminCrmDisponivel(request);
@@ -46,7 +71,24 @@ export async function GET(request: NextRequest) {
     const data = await withTenantTransaction(
       sessao,
       request.nextUrl.searchParams.get("empresaId"),
-      (tx, tenant) => listarPacotesAdmin(tx, tenant.empresaComprovada),
+      async (tx, tenant) => {
+        const empresaId = tenant.empresaComprovada;
+        const pacotes = await listarPacotesAdmin(tx, empresaId);
+        const horarios = await tx.query(
+          `SELECT id, nome, horario_inicio_padrao::text AS inicio, horario_fim_padrao::text AS fim
+             FROM configuracao_agenda
+            WHERE ativo
+            ORDER BY ordem_exibicao, nome`,
+        );
+        const categorias = await tx.query(
+          `SELECT id, nome FROM buffet_categorias WHERE ativo ORDER BY ordem_exibicao, nome`,
+        );
+        return {
+          pacotes,
+          horarios: horarios.rows,
+          categorias: categorias.rows,
+        };
+      },
     );
     return jsonNoStore({ ok: true, data });
   } catch (error) {
@@ -70,7 +112,13 @@ export async function POST(request: NextRequest) {
       if (input.acao === "criar") {
         return criarPacoteAdmin(tx, { ...input, empresaId: tenant.empresaComprovada }, ctx);
       }
-      return duplicarPacoteAdmin(tx, input.origemId, input.codigo, ctx);
+      if (input.acao === "duplicar") {
+        return duplicarPacoteComercial(tx, input.origemId, {
+          ...ctx,
+          motivo: motivoOu(input.motivo, MOTIVOS_PACOTE.duplicado),
+        });
+      }
+      return salvarPacoteComercial(tx, input, ctx);
     });
     return jsonNoStore({ ok: true, data }, { status: 201 });
   } catch (error) {

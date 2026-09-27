@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { authError } from "@/lib/autenticacao/service";
+import { MOTIVOS_PACOTE, motivoOu } from "@/lib/comercial/motivos-pacote";
 import { PacoteAdminError, alterarComposicaoPacoteAdmin } from "@/lib/comercial/pacotes-admin";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
@@ -10,7 +11,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const uuid = z.string().uuid();
-const motivo = z.string().trim().min(3).max(500);
+const motivo = z.string().trim().min(3).max(500).optional();
 const vinculo = z.object({
   acao: z.literal("vinculo"),
   empresaId: uuid,
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           empresaId: tenant.empresaComprovada,
           usuarioId: sessao.usuario_id,
           requestId: crypto.randomUUID(),
-          motivo: input.motivo,
+          motivo: motivoOu(input.motivo, MOTIVOS_PACOTE.composicao),
         },
       );
     });

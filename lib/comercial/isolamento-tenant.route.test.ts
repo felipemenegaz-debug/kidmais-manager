@@ -62,7 +62,7 @@ function carregarRota(arquivo: string, memberships: Array<{ id: string; empresa_
           consultas.push(`${sql}\n${JSON.stringify(values ?? [])}`);
           const prova = responderProva(sql, memberships);
           if (prova) return prova;
-          if (/^\s*SELECT\b/i.test(sql) && sql.includes("pacotes")) {
+          if (/^\s*SELECT\b/i.test(sql) && (sql.includes("pacotes") || sql.includes("configuracao_agenda") || sql.includes("buffet_categorias"))) {
             return { rows: [], rowCount: 0 };
           }
           throw new Error("DB_NAO_DEVE_RODAR");

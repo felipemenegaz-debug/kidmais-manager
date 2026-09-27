@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { authError } from "@/lib/autenticacao/service";
 import { validarVinculoComposicao } from "@/lib/comercial/composicao";
+import { MOTIVOS_PACOTE, motivoOu } from "@/lib/comercial/motivos-pacote";
 import { PacoteAdminError, alterarComposicaoPacoteAdmin } from "@/lib/comercial/pacotes-admin";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic";
  */
 const uuid = z.string().uuid();
 const nome = z.string().trim().min(1).max(160);
-const motivo = z.string().trim().min(3).max(500);
+const motivo = z.string().trim().min(3).max(500).optional();
 const operacao = z.discriminatedUnion("acao", [
   z.object({ acao: z.literal("categoria"), id: uuid, nome, ativo: z.boolean() }).strict(),
   z.object({ acao: z.literal("item"), id: uuid, nome, ativo: z.boolean() }).strict(),
@@ -150,7 +151,7 @@ export async function PATCH(request: NextRequest) {
             empresaId,
             usuarioId: sessao.usuario_id,
             requestId: crypto.randomUUID(),
-            motivo: data.motivo,
+            motivo: motivoOu(data.motivo, MOTIVOS_PACOTE.composicao),
           },
         );
         return { ausente: false as const };
@@ -182,7 +183,7 @@ export async function PATCH(request: NextRequest) {
             empresaId,
             usuarioId: sessao.usuario_id,
             requestId: crypto.randomUUID(),
-            motivo: data.motivo,
+            motivo: motivoOu(data.motivo, MOTIVOS_PACOTE.composicao),
           },
         );
         return { ausente: false as const };
