@@ -28,3 +28,13 @@
 .page input:not([type=checkbox]):not([type=radio]),.page select,.page textarea{border:1px solid var(--input-border);border-radius:12px;background:var(--input-bg);color:var(--main-text);padding:12px 16px}
 .card{border-color:var(--border-navy);border-radius:var(--admin-card-radius)}
 @media(max-width:800px){.page{padding:16px;font-size:14px}.page input,.page select,.page textarea{font-size:16px}}
+.card.financeiro{position:relative;isolation:isolate;background:radial-gradient(180px circle at 14% 8%,rgba(255,255,255,.045),transparent 60%),color-mix(in srgb,var(--km-card) 55%,transparent);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);border:1px solid rgba(255,255,255,.08);border-radius:var(--km-radius);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 8px 30px -14px rgba(0,0,0,.6)}
+.card.financeiro .actions button,.card.financeiro form button{min-height:44px;border-radius:10px;padding:10px 18px;font-weight:600}
+.card.financeiro .actions button:first-child,.card.financeiro form button[type=submit]{border:0;color:#fff;background:linear-gradient(120deg,var(--km-violet),var(--km-teal),var(--km-violet));background-size:300% 100%;animation:kmGradientMove 7s ease infinite;box-shadow:0 6px 20px -8px rgba(124,58,237,.4)}
+.card.financeiro .actions button:last-child{border:1px solid var(--km-border);background:var(--km-card-2);color:var(--km-text)}
+.card.financeiro form{margin-top:12px;padding:16px;border:1px solid var(--km-border);border-radius:var(--km-radius);background:color-mix(in srgb,var(--km-card) 92%,black)}
+.card.financeiro :focus-visible{outline:2px solid var(--km-lilac);outline-offset:2px}
+.caixaPositivo{color:var(--km-teal);font-weight:700}
+@keyframes kmGradientMove{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+@media(max-width:800px){.card.financeiro{backdrop-filter:blur(11px) saturate(140%);-webkit-backdrop-filter:blur(11px) saturate(140%)}}
+@media(prefers-reduced-motion:reduce){.card.financeiro .actions button:first-child,.card.financeiro form button[type=submit]{animation:none}.card.financeiro,.card.financeiro button{transition:none}}

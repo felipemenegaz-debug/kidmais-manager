@@ -104,14 +104,14 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
 
   if (erro) return <p role="alert">{erro} <button type="button" onClick={() => void carregar()}>Tentar novamente</button></p>;
   if (!dados) return <p>Carregando financeiro…</p>;
-  return <section className={styles.card}>
+  return <section className={`${styles.card} ${styles.financeiro}`}>
     <h2>Financeiro</h2>
     <p>Valor contratado {reaisDe(dados.valorContratadoCentavos)}</p>
     <p>Recebido {reaisDe(dados.recebidoCentavos)}</p>
     <p>A receber {reaisDe(dados.aReceberCentavos)}</p>
     <p>Custos {reaisDe(dados.custosCentavos)}</p>
     <p>Margem estimada {reaisDe(dados.margemEstimadaCentavos)}</p>
-    <p>Resultado de caixa {reaisDe(dados.resultadoCaixaCentavos)}</p>
+    <p className={dados.resultadoCaixaCentavos >= 0 ? styles.caixaPositivo : undefined}>Resultado de caixa {reaisDe(dados.resultadoCaixaCentavos)}</p>
     <h3>Recebimentos</h3>
     {dados.recebimentos.length === 0 && <p>Nenhuma parcela nesta festa.</p>}
     {dados.recebimentos.map((item) => <p key={item.id}>Parcela {item.parcela} · {item.vencimento} · {reaisDe(item.valorCentavos)} · {item.status}</p>)}

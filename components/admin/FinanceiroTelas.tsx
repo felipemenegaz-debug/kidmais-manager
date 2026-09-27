@@ -35,7 +35,9 @@ const ROTULOS: Record<FormaFinanceira, string> = {
 
 function classe(status: string) {
   if (status === 'Vencido') return styles.vencido;
-  if (status === 'Pago' || status === 'Reembolsado') return styles.pago;
+  if (status === 'Pago') return styles.pago;
+  if (status === 'Cancelado') return styles.cancelado;
+  if (status === 'Reembolsado') return styles.aberto;
   return styles.aberto;
 }
 
@@ -220,7 +222,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       <header className={styles.topo}><div><h1>Relatórios</h1><p>Leitura do período para decidir o que fazer.</p></div></header>
       <Periodo valor={periodo} aoMudar={setPeriodo} />
       <div className={styles.kpis}>
-        {[['Faturamento do período', relatorio.faturamentoCentavos], ['Recebido no período', relatorio.recebidoCentavos], ['A receber no período', relatorio.aReceberCentavos], ['A pagar no período', relatorio.aPagarCentavos], ['Inadimplência no período', relatorio.inadimplenciaCentavos], ['Ticket médio', relatorio.ticketCentavos ?? 0], ['Taxas no período', relatorio.taxasCentavos ?? 0]].map(([rotulo, valor]) => <article className={styles.kpi} key={String(rotulo)}><strong>{reaisDe(Number(valor))}</strong><span>{rotulo}</span></article>)}
+        {[['Faturamento do período', relatorio.faturamentoCentavos], ['Recebido no período', relatorio.recebidoCentavos], ['A receber no período', relatorio.aReceberCentavos], ['A pagar no período', relatorio.aPagarCentavos], ['Inadimplência no período', relatorio.inadimplenciaCentavos], ['Ticket médio', relatorio.ticketCentavos ?? 0], ['Taxas no período', relatorio.taxasCentavos ?? 0]].map(([rotulo, valor]) => <article className={`${styles.kpi} ${tomKpi(String(rotulo), Number(valor))}`} key={String(rotulo)}><strong>{reaisDe(Number(valor))}</strong><span>{rotulo}</span></article>)}
       </div>
       <p className={styles.vazio}>Pacote mais vendido: {relatorio.pacoteMaisVendido || '—'}</p>
       <div className={styles.meio}>
@@ -277,7 +279,15 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
 }
 
 function Kpis({ itens }: { itens: Array<[string, number | undefined]> }) {
-  return <section className={styles.kpis} aria-label="Indicadores">{itens.map(([rotulo, valor]) => <article className={styles.kpi} key={rotulo}><strong>{reaisDe(valor ?? 0)}</strong><span>{rotulo}</span></article>)}</section>;
+  const acento = itens.length <= 5;
+  return <section className={styles.kpis} aria-label="Indicadores">{itens.map(([rotulo, valor]) => <article className={`${styles.kpi} ${acento ? styles.acento : ''} ${tomKpi(rotulo, valor)}`} key={rotulo}><strong>{reaisDe(valor ?? 0)}</strong><span>{rotulo}</span></article>)}</section>;
+}
+function tomKpi(rotulo: string, valor?: number) {
+  const nome = rotulo.toLowerCase();
+  if (nome.includes('atraso') || nome.includes('vencido') || nome.includes('inadimpl')) return styles.alerta;
+  if (nome.includes('saída') || nome.includes('saida')) return styles.saida;
+  if ((nome.includes('saldo previsto') || nome.includes('saldo final') || nome.includes('recebido') || nome.includes('entradas')) && (valor ?? 0) >= 0) return styles.positivo;
+  return '';
 }
 function Periodo({ valor, aoMudar }: { valor: string; aoMudar: (valor: string) => void }) {
   return <div className={styles.filtros} role="group" aria-label="Período">{[['mes', 'Este mês'], ['anterior', 'Mês anterior'], ['30', '30 dias']].map(([id, rotulo]) => <button key={id} type="button" aria-pressed={valor === id} onClick={() => aoMudar(id)}>{rotulo}</button>)}</div>;
@@ -290,11 +300,13 @@ function Lista({ titulo, vazio, itens }: { titulo: string; vazio: string; itens:
 }
 function Tabela({ colunas, linhas }: { colunas: string[]; linhas: Array<{ id: string; celulas: string[]; status: string; acao?: () => void }> }) {
   return <>
-    <table className={styles.tabela}>
-      <thead><tr>{colunas.filter(Boolean).map((coluna) => <th key={coluna}>{coluna}</th>)}<th><span className={styles.srOnly}>Ações</span></th></tr></thead>
-      <tbody>{linhas.map((linha) => <tr key={linha.id} onClick={linha.acao}>{linha.celulas.map((celula, indice) => <td key={indice} className={indice === linha.celulas.length - 1 && ["Vencido", "Pago", "Reembolsado", "A receber", "Parcialmente pago", "A pagar", "Cancelado"].includes(linha.status) ? classe(linha.status) : undefined}>{celula}</td>)}<td>{linha.acao ? <button type="button" aria-label="Registrar" onClick={(evento) => { evento.stopPropagation(); linha.acao?.(); }}>Registrar</button> : null}</td></tr>)}</tbody>
-    </table>
-    <div className={styles.cards}>{linhas.map((linha) => <article className={styles.card} key={linha.id}><p>{linha.celulas[0]}</p><p>{linha.celulas[1]}</p><p className={classe(linha.status)}>{linha.status}</p>{linha.acao ? <button type="button" onClick={linha.acao}>Registrar</button> : null}</article>)}</div>
+    <div className={styles.painel}>
+      <table className={styles.tabela}>
+        <thead><tr>{colunas.filter(Boolean).map((coluna) => <th key={coluna}>{coluna}</th>)}<th><span className={styles.srOnly}>Ações</span></th></tr></thead>
+        <tbody>{linhas.map((linha) => <tr key={linha.id} onClick={linha.acao}>{linha.celulas.map((celula, indice) => <td key={indice} className={indice === linha.celulas.length - 1 && ["Vencido", "Pago", "Reembolsado", "A receber", "Parcialmente pago", "A pagar", "Cancelado"].includes(linha.status) ? classe(linha.status) : undefined}>{celula}</td>)}<td>{linha.acao ? <button className={styles.acao} type="button" aria-label="Registrar" onClick={(evento) => { evento.stopPropagation(); linha.acao?.(); }}>Registrar</button> : null}</td></tr>)}</tbody>
+      </table>
+    </div>
+    <div className={styles.cards}>{linhas.map((linha) => <article className={styles.card} key={linha.id}><p>{linha.celulas[0]}</p><p>{linha.celulas[1]}</p><p className={classe(linha.status)}>{linha.status}</p>{linha.acao ? <button className={styles.acao} type="button" onClick={linha.acao}>Registrar</button> : null}</article>)}</div>
   </>;
 }
 function intervalo(periodo: string) {
@@ -308,7 +320,7 @@ function Grafico({ linhas }: { linhas: Array<{ saldo: number | null }> }) {
   const max = Math.max(...valores, 1);
   const min = Math.min(...valores, 0);
   const pontos = valores.map((valor, indice) => `${(indice / Math.max(valores.length - 1, 1)) * 300},${140 - ((valor - min) / (max - min || 1)) * 120}`).join(' ');
-  return <svg className={styles.grafico} viewBox="0 0 300 160" role="img" aria-label="Saldo ao longo do período"><polyline fill="none" stroke="#5DE3B0" strokeWidth="3" points={pontos} /></svg>;
+  return <svg className={styles.grafico} viewBox="0 0 300 160" role="img" aria-label="Saldo ao longo do período"><polyline fill="none" stroke="currentColor" strokeWidth="3" points={pontos} /></svg>;
 }
 function Campo({ nome, rotulo, tipo = 'text', padrao, obrigatorio }: { nome: string; rotulo: string; tipo?: string; padrao?: string; obrigatorio?: boolean }) {
   return <label>{rotulo}<input name={nome} type={tipo} defaultValue={padrao} required={obrigatorio} step={tipo === 'number' ? '0.01' : undefined} min={tipo === 'number' ? '0' : undefined} aria-label={rotulo} /></label>;

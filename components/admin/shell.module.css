@@ -1,27 +1,37 @@
+@keyframes kmGradientMoveV {
+  0% { background-position: 0 0%; }
+  50% { background-position: 0 100%; }
+  100% { background-position: 0 0%; }
+}
 .shell { min-height:100svh; display:flex; align-items:stretch; font-family:var(--admin-font); background:var(--main-bg); color:var(--main-text); }
 .shell *, .shell *::before, .shell *::after { box-sizing:border-box; }
 .sidebar { width:var(--admin-sidebar-width); flex:none; height:100svh; position:sticky; top:0; display:flex; flex-direction:column; background:var(--card-bg); border-right:1px solid var(--border-navy); z-index:40; }
 .brand { display:flex; align-items:center; gap:12px; padding:32px; border-bottom:1px solid var(--border-navy); text-decoration:none; color:var(--main-text); }
-.brandMark { width:40px; height:40px; flex:none; border-radius:12px; background:var(--admin-primary); display:grid; place-items:center; font-size:24px; font-weight:900; }
+.brandMark { width:40px; height:40px; flex:none; border-radius:12px; background:linear-gradient(160deg, var(--km-violet), var(--km-teal)); display:grid; place-items:center; font-size:24px; font-weight:900; }
 .brandText { font-size:14px; line-height:16px; text-transform:uppercase; font-weight:900; letter-spacing:-.03em; }
 .brandText span { display:block; color:var(--primary-violet); }
 .sidebar nav { flex:1; overflow-y:auto; padding:24px 0; }
 .grupo { color:var(--secondary-text); font-size:10px; font-weight:900; letter-spacing:.2em; text-transform:uppercase; margin:8px 24px 12px; }
 .sidebar nav > div + div { margin-top:28px; }
-.sidebar nav a { display:flex; align-items:center; gap:12px; padding:14px 24px; font-size:14px; color:var(--secondary-text); border-right:3px solid transparent; text-decoration:none; }
+.sidebar nav a { position:relative; display:flex; align-items:center; gap:12px; padding:14px 24px; font-size:14px; color:var(--km-text-2); border-right:3px solid transparent; text-decoration:none; transition:background .2s ease; }
 .sidebar nav a:hover { background:rgba(255,255,255,.03); }
-.sidebar nav a[aria-current=page] { color:var(--main-text); background:rgba(124,58,237,.1); border-right-color:var(--primary-violet); }
+.sidebar nav a[aria-current=page] { color:var(--km-text); background:var(--km-violet-soft); font-weight:600; border-right-color:transparent; box-shadow:inset 0 0 0 1px rgba(124,58,237,.18), 0 0 18px -6px rgba(124,58,237,.50); }
+.sidebar nav a[aria-current=page]::before { content:""; position:absolute; left:0; top:10px; bottom:10px; width:3px; border-radius:3px; background:linear-gradient(var(--km-violet), var(--km-teal), var(--km-violet)); background-size:100% 300%; animation:kmGradientMoveV 8s ease infinite; pointer-events:none; }
 .navIcon { width:20px; display:inline-flex; flex:none; justify-content:center; color:var(--lilac-accent); }
 .conta { padding:24px 32px; border-top:1px solid var(--border-navy); }
 .identidade { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
 .avatar { width:36px; height:36px; border-radius:50%; background:rgba(124,58,237,.15); color:var(--lilac-accent); display:grid; place-items:center; font-weight:800; }
 .identidade p { margin:0; font-size:12px; font-weight:700; overflow-wrap:anywhere; }
 .identidade small { color:var(--secondary-text); font-size:10px; }
-.conta button { background:none; border:0; padding:8px 0; min-height:44px; color:#fb7185; text-transform:uppercase; font-weight:900; letter-spacing:.1em; font-size:11px; cursor:pointer; }
+.conta button { background:rgba(127,29,29,.35); border:1px solid rgba(248,113,113,.28); border-radius:10px; padding:10px 14px; min-height:44px; color:#fecdd3; text-transform:uppercase; font-weight:600; letter-spacing:.08em; font-size:11px; cursor:pointer; }
 .conteudo { flex:1; min-width:0; background:var(--main-bg); }
 .menu { display:none; }
 .cortina { position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:45; border:0; }
-.shell :focus-visible { outline:2px solid var(--lilac-accent); outline-offset:3px; }
+.shell :focus-visible { outline:2px solid var(--km-lilac); outline-offset:2px; }
+@media (prefers-reduced-motion: reduce) {
+  .sidebar nav a[aria-current=page]::before { animation:none; }
+  .sidebar nav a, .conta button { transition:none; }
+}
 .carregando { min-height:100svh; padding:32px; margin:0; }
 @media(max-width:800px) {
  .shell { display:block; }

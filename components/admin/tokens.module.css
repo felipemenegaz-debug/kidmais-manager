@@ -18,6 +18,18 @@
   --admin-sidebar-width: 256px;
   --admin-header-height: 80px;
   --admin-primary: linear-gradient(135deg, var(--brand-blue), var(--primary-violet));
+  --km-bg: var(--main-bg);
+  --km-card: var(--card-bg);
+  --km-card-2: #1B2238;
+  --km-violet: var(--primary-violet);
+  --km-violet-soft: color-mix(in srgb, var(--primary-violet) 15%, transparent);
+  --km-teal: var(--emerald-accent);
+  --km-lilac: var(--lilac-accent);
+  --km-orange: #FF7A3D;
+  --km-text: var(--main-text);
+  --km-text-2: var(--secondary-text);
+  --km-border: var(--input-border);
+  --km-radius: 14px;
   font-family: var(--admin-font);
   color-scheme: dark;
   background: var(--main-bg);
