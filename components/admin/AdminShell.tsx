@@ -8,18 +8,20 @@ import Link from 'next/link';
 import { AdminIcon, type AdminIconName } from './AdminIcon';
 import { itemAtivo, itensNavegacao } from '@/lib/admin/navegacao';
 
-export default function AdminShell({ children }: {
+export default function AdminShell({ children, vitrine }: {
     children: React.ReactNode;
+    vitrine?: { nome: string; caminho: string };
 }) {
-    const path = usePathname();
-    const [name, setName] = useState<string | null>(null);
-    const [configurar, setConfigurar] = useState(false);
+    const pathReal = usePathname();
+    const path = vitrine?.caminho ?? pathReal;
+    const [name, setName] = useState<string | null>(vitrine?.nome ?? null);
+    const [configurar, setConfigurar] = useState(Boolean(vitrine));
     const [aberto, setAberto] = useState(false);
     const menuRef = useRef<HTMLButtonElement>(null);
     const painelRef = useRef<HTMLElement>(null);
     const router = useRouter();
     useEffect(() => {
-        if (path === '/admin/login')
+        if (vitrine || path === '/admin/login')
             return;
         let alive = true;
         fetch('/api/admin/autenticacao', { cache: 'no-store' }).then(r => r.json()).then(b => {
@@ -31,7 +33,7 @@ export default function AdminShell({ children }: {
             }
         }).catch(() => router.replace('/admin/login'));
         return () => { alive = false; };
-    }, [path, router]);
+    }, [path, router, vitrine]);
     useEffect(() => {
         if (!aberto)
             return;

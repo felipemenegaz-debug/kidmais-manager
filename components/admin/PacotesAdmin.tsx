@@ -59,21 +59,47 @@ function diasTexto(dias: number[]) {
   return nomes.length ? nomes.join(' ') : 'Dias não definidos';
 }
 
-export default function PacotesAdmin() {
+export type VitrinePacotes = {
+  pacotes: Pacote[];
+  horarios: Horario[];
+  categorias: Categoria[];
+  filtro?: 'todos' | 'ativos' | 'arquivados';
+  edicao?: Painel | null;
+};
+
+export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) {
   const [busca, setBusca] = useState('');
-  const [filtro, setFiltro] = useState<'todos' | 'ativos' | 'arquivados'>('todos');
-  const [pacotes, setPacotes] = useState<Pacote[] | null>(null);
-  const [horarios, setHorarios] = useState<Horario[]>([]);
-  const [categorias, setCategorias] = useState<Categoria[]>([]);
-  const [form, setForm] = useState(vazio);
-  const [dias, setDias] = useState<number[]>([]);
-  const [horariosIds, setHorariosIds] = useState<string[]>([]);
-  const [faixas, setFaixas] = useState<FaixaForm[]>([{ convidadosMin: '', convidadosMax: '', valor: '' }]);
+  const [filtro, setFiltro] = useState<'todos' | 'ativos' | 'arquivados'>(vitrine?.filtro ?? 'todos');
+  const [pacotes, setPacotes] = useState<Pacote[] | null>(vitrine?.pacotes ?? null);
+  const [horarios, setHorarios] = useState<Horario[]>(vitrine?.horarios ?? []);
+  const [categorias, setCategorias] = useState<Categoria[]>(vitrine?.categorias ?? []);
+  const edicao = vitrine?.edicao;
+  const [form, setForm] = useState(edicao ? {
+    nome: edicao.pacote.nome,
+    descricao: edicao.pacote.descricao ?? '',
+    ...separarDuracao(edicao.pacote.duracaoMinutos),
+    minimo: edicao.pacote.convidadosMinimos == null ? '' : String(edicao.pacote.convidadosMinimos),
+    maximo: edicao.pacote.convidadosMaximos == null ? '' : String(edicao.pacote.convidadosMaximos),
+  } : vazio);
+  const [dias, setDias] = useState<number[]>(edicao?.dias ?? []);
+  const [horariosIds, setHorariosIds] = useState<string[]>(edicao?.horariosIds ?? []);
+  const [faixas, setFaixas] = useState<FaixaForm[]>(edicao?.faixas.faixas.length ? edicao.faixas.faixas.map((faixa) => ({
+    convidadosMin: String(faixa.convidadosMin),
+    convidadosMax: faixa.convidadosMax == null ? '' : String(faixa.convidadosMax),
+    valor: Number(faixa.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+  })) : [{ convidadosMin: '', convidadosMax: '', valor: '' }]);
   const [faixasEditaveis, setFaixasEditaveis] = useState(true);
   const [avisoFaixas, setAvisoFaixas] = useState('');
-  const [inclusos, setInclusos] = useState<Record<string, { incluso: boolean; escolhas: string }>>({});
-  const [selecionado, setSelecionado] = useState<string | null>(null);
-  const [carregando, setCarregando] = useState(true);
+  const [inclusos, setInclusos] = useState<Record<string, { incluso: boolean; escolhas: string }>>(() => {
+    const proximo: Record<string, { incluso: boolean; escolhas: string }> = {};
+    for (const categoria of vitrine?.categorias ?? []) {
+      const regra = edicao?.categorias.find((item) => item.categoriaId === categoria.id && item.ativo);
+      proximo[categoria.id] = { incluso: Boolean(regra), escolhas: String(regra?.escolhas ?? 1) };
+    }
+    return proximo;
+  });
+  const [selecionado, setSelecionado] = useState<string | null>(edicao?.pacote.id ?? null);
+  const [carregando, setCarregando] = useState(!vitrine);
   const [erro, setErro] = useState('');
   const [aviso, setAviso] = useState('');
 
@@ -99,6 +125,7 @@ export default function PacotesAdmin() {
   }, []);
 
   useEffect(() => {
+    if (vitrine) return;
     let ativo = true;
     adminFetch('/api/admin/configuracoes/pacotes')
       .then(async (lista) => {
@@ -118,7 +145,7 @@ export default function PacotesAdmin() {
       .catch((error) => { if (ativo) setErro(error instanceof Error ? error.message : 'Falha ao carregar.'); })
       .finally(() => { if (ativo) setCarregando(false); });
     return () => { ativo = false; };
-  }, []);
+  }, [vitrine]);
 
   function limpar() {
     setSelecionado(null);
@@ -210,7 +237,7 @@ export default function PacotesAdmin() {
         }),
       });
       const json = await ler(resposta);
-      setAviso(json.data.avisoPrecos || (selecionado ? 'Alterações salvas.' : 'Pacote salvo.'));
+      setAviso(selecionado ? 'Alterações salvas.' : 'Pacote salvo.');
       setSelecionado(json.data.pacote?.id ?? selecionado);
       await carregar();
     } catch (error) {
@@ -230,8 +257,8 @@ export default function PacotesAdmin() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ acao: 'duplicar', origemId: id }),
       });
-      const json = await ler(resposta);
-      setAviso(json.data.avisoPrecos || 'Cópia criada.');
+      await ler(resposta);
+      setAviso('Cópia criada.');
       await carregar();
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Falha ao duplicar.');

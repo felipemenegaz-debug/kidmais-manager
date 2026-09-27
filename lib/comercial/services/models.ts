@@ -12,6 +12,7 @@ import type {
 export type ObterContextoComercialInput = {
   data: string;
   configuracaoAgendaId: string;
+  empresaId?: string | null;
 };
 
 export type ContextoComercial = {

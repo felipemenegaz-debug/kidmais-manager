@@ -25,6 +25,7 @@ export type PacoteRecord = {
   duracaoMinutos: number | null;
   ordemExibicao: number;
   ativo: boolean;
+  empresaId?: string | null;
 };
 
 export type TabelaPrecoRecord = {

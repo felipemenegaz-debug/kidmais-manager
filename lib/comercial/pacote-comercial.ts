@@ -2,7 +2,7 @@ import type { DbExecutor } from "../db/contracts.ts";
 import type { FaixaFixa } from "./modelo-preco.ts";
 import { ModeloPrecoError } from "./modelo-preco.ts";
 import { MOTIVOS_PACOTE, motivoOu } from "./motivos-pacote.ts";
-import { gravarFaixasPacote, lerFaixasPacote } from "./pacote-precos.ts";
+import { copiarPrecosPacote, gravarFaixasPacote, lerFaixasPacote } from "./pacote-precos.ts";
 import {
   PacoteAdminError,
   consultarPacoteAdmin,
@@ -152,20 +152,6 @@ export async function salvarPacoteComercial(
 export async function duplicarPacoteComercial(tx: DbExecutor, origemId: string, ctx: Contexto) {
   const contexto = { ...ctx, motivo: motivoOu(ctx.motivo, MOTIVOS_PACOTE.duplicado) };
   const copia = await duplicarPacoteAdmin(tx, origemId, undefined, contexto);
-  const origem = await lerFaixasPacote(tx, ctx.empresaId, origemId);
-  let avisoPrecos: string | null = null;
-  if (origem.editavel && copia.convidadosMinimos != null && copia.convidadosMaximos != null) {
-    const precos = await gravarFaixasPacote(
-      tx,
-      ctx.empresaId,
-      copia.id,
-      origem.faixas,
-      { minimo: copia.convidadosMinimos, maximo: copia.convidadosMaximos },
-      contexto,
-    );
-    avisoPrecos = precos.aplicado ? null : precos.aviso;
-  } else if (!origem.editavel) {
-    avisoPrecos = origem.aviso;
-  }
-  return { pacote: copia, avisoPrecos };
+  await copiarPrecosPacote(tx, ctx.empresaId, origemId, copia.id, contexto);
+  return { pacote: copia, avisoPrecos: null as string | null };
 }

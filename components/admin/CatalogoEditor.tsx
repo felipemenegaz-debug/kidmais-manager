@@ -7,19 +7,20 @@ import editor from './catalogo-editor.module.css';
 type Registro = { id: string; nome: string; ativo: boolean; categoria_id?: string };
 type Catalogo = { categorias: Registro[]; itens: Registro[] };
 
-export default function CatalogoEditor() {
-  const [dados, setDados] = useState<Catalogo | null>(null);
+export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { secao?: 'categorias' | 'itens' } }) {
+  const [dados, setDados] = useState<Catalogo | null>(vitrine ?? null);
   const [erro, setErro] = useState('');
-  const [secao, setSecao] = useState<'categorias' | 'itens'>('categorias');
+  const [secao, setSecao] = useState<'categorias' | 'itens'>(vitrine?.secao ?? 'categorias');
   const [busca, setBusca] = useState('');
   const corresponde = (nome: string) => nome.toLocaleLowerCase('pt-BR').includes(busca.trim().toLocaleLowerCase('pt-BR'));
 
   useEffect(() => {
+    if (vitrine) return;
     void adminFetch('/api/admin/configuracoes/catalogo').then((r) => r.json()).then((body) => {
       if (!body.ok) throw Error(body.erro);
       setDados({ categorias: body.data.categorias, itens: body.data.itens });
     }).catch((e) => setErro(e instanceof Error ? e.message : 'Falha ao carregar o buffet.'));
-  }, []);
+  }, [vitrine]);
 
   const categorias = dados?.categorias.filter((categoria) => corresponde(categoria.nome) || dados.itens.some((item) => item.categoria_id === categoria.id && corresponde(item.nome))) ?? [];
   const itens = dados?.itens.filter((item) => corresponde(item.nome) || dados.categorias.some((categoria) => categoria.id === item.categoria_id && corresponde(categoria.nome))) ?? [];

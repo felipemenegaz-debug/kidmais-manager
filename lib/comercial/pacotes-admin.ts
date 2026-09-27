@@ -587,6 +587,11 @@ export async function definirCategoriasPacoteAdmin(
   return (await buscar(tx, ctx.empresaId, destino.id))!;
 }
 
+/**
+ * Apaga só pacote arquivado sem dependência.
+ * Pacote já usado fica bloqueado. Uma purga futura desse histórico exige migration com Human Gate;
+ * esta função não apaga fechamento, snapshot, contrato, festa nem preço publicado.
+ */
 export async function excluirPacoteArquivadoAdmin(tx: DbExecutor, id: string, ctx: Contexto) {
   const atual = await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);

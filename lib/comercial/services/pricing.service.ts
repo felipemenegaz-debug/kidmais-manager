@@ -7,6 +7,7 @@ import {
   buscarPacoteAtivoPorId,
   buscarPrecoPacoteAplicavel,
   buscarTabelaPrecoVigente,
+  listarTabelasPrecoDaEmpresa,
   listarAdicionaisAtivosComPreco,
   listarDescontosPacoteAplicaveis,
   listarPacotesAtivosComElegibilidade,
@@ -99,6 +100,21 @@ async function executarConsultasCompatíveisComTransacao<A, B>(
   return Promise.all([primeira(), segunda()]);
 }
 
+async function tabelaParaContratacao(data: string, empresaId: string | null | undefined, customDb?: DbExecutor) {
+  if (!empresaId) return buscarTabelaPrecoVigente(data, customDb);
+  const tabelas = await listarTabelasPrecoDaEmpresa(empresaId, data, customDb);
+  if (tabelas.length > 1) {
+    throw new PricingServiceError(
+      "PRECO_AMBIGUO",
+      "Há mais de um preço valendo ao mesmo tempo. Nada foi calculado.",
+      409,
+      { data },
+    );
+  }
+  if (tabelas.length === 1) return tabelas[0];
+  return buscarTabelaPrecoVigente(data, customDb);
+}
+
 function validarBase(input: ObterContextoComercialInput) {
   validarDataIso(input.data);
   validarConfiguracaoAgendaId(input.configuracaoAgendaId);
@@ -113,7 +129,7 @@ export async function obterContextoComercial(
   const [tabelaPreco, regraCategoria] =
     await executarConsultasCompatíveisComTransacao(
       customDb,
-      () => buscarTabelaPrecoVigente(input.data, customDb),
+      () => tabelaParaContratacao(input.data, input.empresaId, customDb),
       () =>
         buscarCategoriaHorarioAplicavel(
           input.data,
@@ -238,7 +254,7 @@ export async function precificarPacote(
   const [contexto, elegibilidade] =
     await executarConsultasCompatíveisComTransacao(
       customDb,
-      () => obterContextoComercial(input, customDb),
+      () => obterContextoComercial({ ...input, empresaId: pacote.empresaId }, customDb),
       () =>
         buscarElegibilidadePacoteAplicavel(
           {

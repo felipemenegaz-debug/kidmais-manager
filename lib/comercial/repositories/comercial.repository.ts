@@ -33,6 +33,7 @@ type PacoteRow = {
   duracao_minutos: number | null;
   ordem_exibicao: number;
   ativo: boolean;
+  empresa_id?: string | null;
 };
 
 type TabelaPrecoRow = {
@@ -122,7 +123,8 @@ const pacoteColumns = `
   convidados_maximos,
   duracao_minutos,
   ordem_exibicao,
-  ativo
+  ativo,
+  empresa_id
 `;
 
 function limitesConvidados(row: PacoteRow) {
@@ -148,6 +150,7 @@ function mapPacote(row: PacoteRow): PacoteRecord {
       row.duracao_minutos === null ? null : Number(row.duracao_minutos),
     ordemExibicao: Number(row.ordem_exibicao),
     ativo: row.ativo,
+    empresaId: row.empresa_id ?? null,
   };
 }
 
@@ -337,6 +340,35 @@ export async function buscarTabelaPrecoVigente(
   );
 
   return result.rows[0] ? mapTabelaPreco(result.rows[0]) : null;
+}
+
+export type TabelaPrecoEmpresa = TabelaPrecoRecord & { publicada: boolean };
+
+/** Tabela publicada corrente da empresa que cobre a data. Mais de uma é ambíguo e o cálculo recusa. */
+export async function listarTabelasPrecoDaEmpresa(
+  empresaId: string,
+  data: string,
+  customDb?: DbExecutor,
+): Promise<TabelaPrecoEmpresa[]> {
+  const result = await executor(customDb).query<TabelaPrecoRow & { publicada: boolean }>(
+    `SELECT
+       id,
+       codigo,
+       nome,
+       vigencia_inicio::text AS vigencia_inicio,
+       vigencia_fim::text AS vigencia_fim,
+       ativa,
+       publicada_em IS NOT NULL AS publicada
+     FROM tabelas_preco
+     WHERE empresa_id = $1::uuid
+       AND publicada_em IS NOT NULL
+       AND substituida_em IS NULL
+       AND vigencia_inicio <= $2::date
+       AND (vigencia_fim IS NULL OR vigencia_fim >= $2::date)
+     ORDER BY vigencia_inicio, criado_em`,
+    [empresaId, data],
+  );
+  return result.rows.map((row) => ({ ...mapTabelaPreco(row), publicada: Boolean(row.publicada) }));
 }
 
 export async function buscarCategoriaHorarioAplicavel(
