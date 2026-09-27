@@ -1,5 +1,5 @@
 -- Somente leitura. Não provisiona, não atribui e não apaga vínculo.
-DO $$ 
+DO $$
 DECLARE
   email_alvo text := 'felipemenegaz@gmail.com';
   sete text[] := ARRAY['COMPACTA','COMPLETA','ESSENCIAL','MINI_FESTA','PIZZA_PARTY','POCKET','PREMIUM'];
