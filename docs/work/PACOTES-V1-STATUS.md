@@ -2,7 +2,68 @@
 
 Documento temporário de continuidade. Não é fonte funcional. A decisão de produto permanece no Second Brain e no Goal Mestre. O Goal permanece aberto.
 
-## Estado atual — HG-6 provado em transação desfeita, Goal aberto
+## Estado atual — HG-4 no código, RC1 ainda não
+
+- Branch: `integration/saas-commercial-foundation`
+- Upstream: `origin/integration/saas-commercial-foundation`. `origin/staging` não foi movido. Não houve merge nem deploy.
+- Base desta passagem: `dac21d74a60d4f12cdbef0c58189848789a7afea`. Não houve rebase. Os arquivos 020, 031 e 036–046 não foram reescritos.
+- Produção não foi lida nem escrita. O banco de staging não foi escrito. O Next não foi apontado para banco real.
+
+### Caracterização, antes de qualquer backfill
+
+Banco `kidmais_pacotes_v1_descartavel` em `127.0.0.1:55498`, com `current_database()` e `inet_server_port()` conferidos.
+
+Três tabelas, nenhuma com `publicada_em`:
+
+| Código | Ativa | Publicada | Fechamentos | Empresa |
+| --- | --- | --- | --- | --- |
+| `COMERCIAL_2026_09` | sim | não | 0 | nula |
+| `COMERCIAL_2026_09_EXTRAS_V3` | sim | não | 2 | nula |
+| `COMERCIAL_2026_09_ROLHA_V2` | não | não | 0 | nula |
+
+Os preços ativos cobrem `POCKET`, `MINI_FESTA` e `COMPACTA` na categoria `GERAL`, e `ESSENCIAL`, `COMPLETA` e `PREMIUM` em `PADRAO` e `NOBRE`, em faixas contínuas de 50 a 150. `PIZZA_PARTY` não tem preço. Os sete pacotes seguem com `empresa_id` NULL.
+
+Não há linha publicada. Tratar o preço existente como escopo declarado seria chute: `GERAL` não é `PADRAO`/`NOBRE`, e a ausência de `PIZZA_PARTY` pode ser omissão ou incompletude. O backfill foi recusado. Rascunho novo recebe escopo pelo admin. As três tabelas comerciais permaneceram sem escopo e sem `publicada_em`.
+
+### HG-4
+
+`database/migrations/20260926_047_escopo_comercial_tabela.sql`. A publicação deixa de aceitar “um preço ativo”. Cada tabela declara o subconjunto que vende: pacote × categoria × faixas, com cobertura contínua opcional e limites opcionais. Sem declaração, a publicação falha fechada (`ESCOPO_AUSENTE`). Categoria não declarada não bloqueia. Faixa declarada precisa de preço válido, sem sobreposição e sem buraco quando a cobertura é contínua. Preço ativo fora do escopo bloqueia. Pacote, categoria e quantidade de faixas não estão fixos no código. `PIZZA_PARTY` pode ficar de fora.
+
+A guarda da 037/039/042 não foi reescrita nos arquivos publicados. A 047 troca o corpo de `kidmais_035_preservar_tabela_publicada`. Preço utilizado (030), trava de publicação e reativação de faixa continuam. Desativar um preço que não é o último, em tabela já publicada, continua na regra da 037: o escopo congelado não é reescrito, e esta passagem não transformou essa desativação em nova regra.
+
+A 047 foi aplicada no banco descartável. Não gravou escopo, não publicou linha e não mudou preço, fechamento ou contrato. O rollback, dentro de transação desfeita, recusa apagar escopo já gravado e, com as tabelas vazias, devolve a guarda anterior até o `ROLLBACK`.
+
+### Admin
+
+A tela `/admin/configuracoes/tabelas-preco` mostra pacotes incluídos, categorias, faixas, preços, completude e as lacunas que bloqueiam a publicação. O shell de `docs/ux/admin-v1` não foi copiado de `review/v1-perfil-empresa`. Não há link para rota inexistente e não há upload de logo. O browser não foi exercitado: o Next não pode apontar para banco real, de staging ou de produção.
+
+CRUD já especificado e deixado como está: restaurar arquivado continua recusado, não há exclusão física, e vínculo com PDF, papéis novos, herança por unidade e excedente configurável continuam sem decisão. Não foram inventados.
+
+### O que permanece
+
+- P0-02 não está fechado neste banco. A função da 040 continua ausente. Os sete pacotes e `SALADA_PREMIUM` seguem sem empresa. A 046 não foi aplicada aqui.
+- Perfil da Empresa aberto. `perfil_empresas` não foi fundido em `empresas`.
+- D03 adiado. Estabelecimento operacional continua fechado.
+- O catálogo público permanece fechado (`403` `CATALOGO_PUBLICO_INDETERMINADO`).
+- Sem merge, sem deploy e sem escrita em staging ou produção. O Goal não está completo.
+
+### Revisão da superfície de tenant, preço e pacote
+
+Nenhum P0 ou P1 novo. A leitura e a gravação do escopo passam por `withTenantTransaction`. Empresa alheia responde 403 e não escreve. O escopo de outra empresa é recusado no gatilho e no serviço. A publicação relê as lacunas dentro da trava já existente, antes de carimbar `publicada_em`. Escopo de tabela publicada não muda. Não houve achado cuja correção dependa de decisão nova de produto.
+
+### Validação desta passagem
+
+- PostgreSQL descartável, `hg4-escopo.postgres.test.ts`: passou, inclusive omissão de pacote, buraco contínuo, limite, preço fora do escopo e rollback.
+- `pacotes-v1-remediacao.postgres.test.ts`: 30 passaram. `isolamento-tenant.route.test.ts`: passou. `tabelas-preco-admin.test.ts`: passou.
+- `node --test scripts/production/production.test.mjs`: passou. O inventário aceita a 047 e continua recusando arquivo fora da lista.
+- `npx tsc --noEmit`: passou.
+- Browser da tela de tabelas: não executado.
+
+### RC1
+
+Não está pronto para staging. Além do HG-4, continuam abertos P0-02 neste banco, a 046 sem aplicação aqui, o perfil da empresa, D03 e o catálogo público. Não é gate de deploy.
+
+## HISTÓRICO — HG-6 provado em transação desfeita, Goal aberto
 
 - Branch: `integration/saas-commercial-foundation`
 - Upstream: `origin/integration/saas-commercial-foundation`. Não rastrear este trabalho em `origin/staging`. `origin/staging` não foi movido.
