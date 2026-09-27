@@ -691,7 +691,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
             AND a.empresa_id IS NULL`,
       );
       assert.equal(legado.rows[0].n, 7);
-      assert.equal(vinculo.rows[0].n, 1);
+      assert.equal(vinculo.rows[0].n, 0);
     });
 
     await t.test("a migration 038 volta atrás inteira com vínculo incompatível", async () => {
@@ -748,6 +748,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
 
     await t.test("a instalação da 038 não deixa outra transação mudar a empresa", async () => {
       const local = await db.query<{ id: string }>("SELECT id FROM empresas WHERE codigo = 'empresa-local'");
+      const empresaAlvo = local.rows[0]?.id ?? await empresa(db, "t038");
       const ja = await db.query<{ ok: boolean }>(
         "SELECT to_regprocedure('public.kidmais_038_falhar_se_incompativel()') IS NOT NULL AS ok",
       );
@@ -756,7 +757,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         async (cliente) => {
           await cliente.query(
             "UPDATE pacotes SET empresa_id = $1::uuid WHERE codigo = 'COMPACTA' AND empresa_id IS NULL",
-            [local.rows[0].id],
+            [empresaAlvo],
           );
         },
         async (titular) => {
@@ -1100,11 +1101,20 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
            (SELECT count(*)::int FROM pacotes WHERE empresa_id IS NULL) AS legado,
            to_regprocedure('public.kidmais_040_falhar_se_incompativel()') IS NOT NULL AS guarda`,
       );
-      assert.equal(antes.rows[0].vinculos, 1);
+      assert.equal(antes.rows[0].vinculos, 0);
       assert.equal(antes.rows[0].legado, 7);
       assert.equal(antes.rows[0].guarda, false);
       await db.query("BEGIN");
       try {
+        await db.query("ALTER TABLE pacote_adicionais DISABLE TRIGGER pacote_adicionais_empresa_trg");
+        const empresaA = await empresa(db, "t040h");
+        const pacoteA = await pacote(db, empresaA, "p040h");
+        const adicionalNulo = await adicional(db, null, "a040h");
+        await db.query(
+          `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade)
+           VALUES ($1::uuid, $2::uuid, 'EXTRA')`,
+          [pacoteA, adicionalNulo],
+        );
         let message = "";
         try {
           await db.query(semTransacaoExplicita(readFileSync(precheck040, "utf8")));
@@ -1115,6 +1125,15 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         assert.match(message, /040 precheck: vínculo incompatível/);
         await db.query("ROLLBACK");
         await db.query("BEGIN");
+        await db.query("ALTER TABLE pacote_adicionais DISABLE TRIGGER pacote_adicionais_empresa_trg");
+        const empresaB = await empresa(db, "t040i");
+        const pacoteB = await pacote(db, empresaB, "p040i");
+        const adicionalNuloB = await adicional(db, null, "a040i");
+        await db.query(
+          `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade)
+           VALUES ($1::uuid, $2::uuid, 'EXTRA')`,
+          [pacoteB, adicionalNuloB],
+        );
         message = "";
         try {
           await db.query(semTransacaoExplicita(readFileSync(migration040, "utf8")));
@@ -1140,7 +1159,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
            to_regprocedure('public.kidmais_040_falhar_se_incompativel()') IS NOT NULL AS guarda,
            position('SALADA_PREMIUM' IN pg_get_functiondef('public.kidmais_038_falhar_se_incompativel()'::regprocedure)) > 0 AS lista`,
       );
-      assert.equal(depois.rows[0].vinculos, 1);
+      assert.equal(depois.rows[0].vinculos, 0);
       assert.equal(depois.rows[0].legado, 7);
       assert.equal(depois.rows[0].guarda, false);
       assert.equal(depois.rows[0].lista, true);
@@ -1195,7 +1214,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
       const empresasNovas = await db.query<{ n: number }>(
         "SELECT count(*)::int AS n FROM empresas WHERE codigo ~ '^t040'",
       );
-      assert.equal(vinculo.rows[0].n, 1);
+      assert.equal(vinculo.rows[0].n, 0);
       assert.equal(guardas.rows[0].ok, true);
       assert.equal(empresasNovas.rows[0].n, 0);
     });
@@ -1303,7 +1322,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
       const guarda = await db.query<{ ok: boolean }>(
         "SELECT to_regprocedure('public.kidmais_040_falhar_se_incompativel()') IS NULL AS ok",
       );
-      assert.equal(vinculo.rows[0].n, 1);
+      assert.equal(vinculo.rows[0].n, 0);
       assert.equal(legado.rows[0].n, 7);
       assert.equal(guarda.rows[0].ok, true);
     });
@@ -1602,7 +1621,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         "SELECT count(*)::int AS n FROM adicionais WHERE codigo = 'SALADA_PREMIUM' AND empresa_id IS NULL",
       );
       assert.equal(legado.rows[0].n, 7);
-      assert.equal(vinculo.rows[0].n, 1);
+      assert.equal(vinculo.rows[0].n, 0);
       assert.equal(salada.rows[0].n, 1);
     });
   } finally {

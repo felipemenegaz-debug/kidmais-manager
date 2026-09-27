@@ -13,7 +13,7 @@ function recusar(code: string, message: string, status = 409): never {
   throw new PacoteAdminError(code, message, status);
 }
 
-/** Recusa a marca Kidmais antes de qualquer escrita. HG-6 continua aberto. */
+/** Recusa a marca Kidmais antes de qualquer escrita. Esta via não provisiona a empresa real. */
 export function recusarMarcaKidmais(codigo: string, nome: string): void {
   const texto = `${codigo}\n${nome}`.toLocaleLowerCase("pt-BR");
   if (texto.includes("kidmais")) {

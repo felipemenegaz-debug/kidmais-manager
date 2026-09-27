@@ -564,10 +564,30 @@ test("estrutura de tenant da 043 no postgres descartável", { timeout: 180_000 }
       }
     });
 
-    await t.test("a 040 continua abortando no vínculo histórico", async () => {
+    await t.test("a 040 continua abortando em vínculo incompatível e não o reescreve", async () => {
       await db.query("BEGIN");
       let message = "";
       try {
+        await db.query("ALTER TABLE pacote_adicionais DISABLE TRIGGER pacote_adicionais_empresa_trg");
+        const empresaId = (await db.query<{ id: string }>(
+          `INSERT INTO empresas (codigo, nome, status)
+           VALUES ('hg8v040a', 'Empresa da prova', 'PROVISIONAMENTO') RETURNING id`,
+        )).rows[0].id;
+        const pacoteId = (await db.query<{ id: string }>(
+          `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente)
+           VALUES ($1::uuid, 'hg8v040p', 'Pacote da prova', 400, true, true) RETURNING id`,
+          [empresaId],
+        )).rows[0].id;
+        const adicionalId = (await db.query<{ id: string }>(
+          `INSERT INTO adicionais (empresa_id, codigo, nome, categoria, categoria_id, unidade_cobranca, ordem_exibicao)
+           SELECT NULL, 'hg8v040d', 'Adicional da prova', categoria, categoria_id, unidade_cobranca, 400
+             FROM adicionais WHERE codigo = 'SALADA_PREMIUM' RETURNING id`,
+        )).rows[0].id;
+        await db.query(
+          `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade)
+           VALUES ($1::uuid, $2::uuid, 'EXTRA')`,
+          [pacoteId, adicionalId],
+        );
         try {
           await db.query(semTransacaoExplicita(readFileSync(precheck040, "utf8")));
           message = "passou";
@@ -577,6 +597,26 @@ test("estrutura de tenant da 043 no postgres descartável", { timeout: 180_000 }
         assert.match(message, /040 precheck: vínculo incompatível/);
         await db.query("ROLLBACK");
         await db.query("BEGIN");
+        await db.query("ALTER TABLE pacote_adicionais DISABLE TRIGGER pacote_adicionais_empresa_trg");
+        const empresaB = (await db.query<{ id: string }>(
+          `INSERT INTO empresas (codigo, nome, status)
+           VALUES ('hg8v040b', 'Empresa da prova', 'PROVISIONAMENTO') RETURNING id`,
+        )).rows[0].id;
+        const pacoteB = (await db.query<{ id: string }>(
+          `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente)
+           VALUES ($1::uuid, 'hg8v040q', 'Pacote da prova', 400, true, true) RETURNING id`,
+          [empresaB],
+        )).rows[0].id;
+        const adicionalB = (await db.query<{ id: string }>(
+          `INSERT INTO adicionais (empresa_id, codigo, nome, categoria, categoria_id, unidade_cobranca, ordem_exibicao)
+           SELECT NULL, 'hg8v040e', 'Adicional da prova', categoria, categoria_id, unidade_cobranca, 400
+             FROM adicionais WHERE codigo = 'SALADA_PREMIUM' RETURNING id`,
+        )).rows[0].id;
+        await db.query(
+          `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade)
+           VALUES ($1::uuid, $2::uuid, 'EXTRA')`,
+          [pacoteB, adicionalB],
+        );
         message = "";
         try {
           await db.query(semTransacaoExplicita(readFileSync(migration040, "utf8")));
@@ -606,10 +646,10 @@ test("estrutura de tenant da 043 no postgres descartável", { timeout: 180_000 }
     );
     assert.equal(depois.rows[0].empresas, antes.rows[0].empresas);
     assert.equal(depois.rows[0].legado, 7);
-    assert.equal(depois.rows[0].vinculos, 1);
+    assert.equal(depois.rows[0].vinculos, antes.rows[0].vinculos);
     assert.equal(depois.rows[0].kidmais, 0);
     assert.equal(antes.rows[0].legado, 7);
-    assert.equal(antes.rows[0].vinculos, 1);
+    assert.equal(antes.rows[0].vinculos, 0);
   } finally {
     await encerrarDescartavel(db);
   }
