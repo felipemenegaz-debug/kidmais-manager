@@ -10,6 +10,7 @@ export type FechamentoServiceErrorCode =
   | "ANIVERSARIANTE_INVALIDO"
   | "CADASTRO_INCOMPLETO"
   | "FLUXO_INTERNO_NAO_AUTORIZADO"
+  | "EMPRESA_INCOMPATIVEL"
   | "PACOTE_FORA_ESCOPO_V1";
 
 export class FechamentoServiceError extends Error {

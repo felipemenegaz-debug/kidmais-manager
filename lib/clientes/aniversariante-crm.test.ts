@@ -9,8 +9,13 @@ test("rotas administrativas de aniversariante preservam autenticação, CSRF e v
     assert.match(rota, /exigirApiAdminCrmDisponivel\(request\)/);
     assert.match(rota, /contextoCrmDaRequest\(request\)/);
   }
-  assert.match(criar, /cadastrarAniversarianteInterno\(clienteId\.data/);
-  assert.match(editar, /editarAniversarianteInterno\(clienteId\.data, aniversarianteId\.data/);
+  // PR-B1: o vínculo pelo Cliente passa pelo tenant comprovado; empresa nunca vem do corpo.
+  for (const rota of [criar, editar]) {
+    assert.match(rota, /withTenantTransaction\(sessao/);
+    assert.doesNotMatch(rota, /body\.empresaId|dados\.data\.empresaId/);
+  }
+  assert.match(criar, /cadastrarAniversarianteInterno\(clienteId\.data, tenant\.empresaComprovada/);
+  assert.match(editar, /editarAniversarianteInterno\(clienteId\.data, tenant\.empresaComprovada, aniversarianteId\.data/);
 });
 
 test("criação no CRM e no Fechamento compartilham bloqueio e recusa de duplicidade por nome", () => {

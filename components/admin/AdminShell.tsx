@@ -7,6 +7,7 @@ import tokens from './tokens.module.css';
 import Link from 'next/link';
 import { AdminIcon, type AdminIconName } from './AdminIcon';
 import { itemAtivo, itensNavegacao } from '@/lib/admin/navegacao';
+import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
 
 export default function AdminShell({ children, vitrine }: {
     children: React.ReactNode;
@@ -75,7 +76,7 @@ export default function AdminShell({ children, vitrine }: {
         setAberto(false);
         menuRef.current?.focus();
     }
-    return <div className={`${tokens.tema} ${styles.shell}`}>
+    return <div className={`${tokens.tema} ${styles.shell}`}><PerguntarKidmaisProvider>
         <button ref={menuRef} className={styles.menu} type="button" aria-expanded={aberto} aria-controls="menu-admin" onClick={() => setAberto((valor) => !valor)}><span>{aberto ? 'Fechar menu' : 'Abrir menu'}</span><b aria-hidden="true">{aberto ? '×' : '☰'}</b></button>
         {aberto && <button className={styles.cortina} type="button" aria-label="Fechar menu" onClick={fechar} />}
         <aside id="menu-admin" ref={painelRef} className={styles.sidebar} data-aberto={aberto}>
@@ -87,6 +88,7 @@ export default function AdminShell({ children, vitrine }: {
                     return <div key={grupo}><p className={styles.grupo}>{grupo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}</Link>)}</div>;
                 })}
             </nav>
+            <BotaoPerguntarKidmais className={styles.perguntar} aoAbrir={() => setAberto(false)}><span className={styles.navIcon} aria-hidden="true">✦</span>Perguntar ao Kidmais</BotaoPerguntarKidmais>
             <footer className={styles.conta}>
                 <div className={styles.identidade}><span className={styles.avatar} aria-hidden="true">{name.slice(0,1).toUpperCase()}</span><div><p>{name}</p><small>{configurar ? 'Proprietário' : 'Equipe'}</small></div></div>
                 <button type="button" onClick={async () => {
@@ -100,7 +102,7 @@ export default function AdminShell({ children, vitrine }: {
             </footer>
         </aside>
         <div className={styles.conteudo}>{children}</div>
-    </div>;
+    </PerguntarKidmaisProvider></div>;
 }
 
 function iconeDaRota(href: string): AdminIconName {

@@ -205,6 +205,7 @@ export async function listarPacotesComerciais(
     {
       data: input.data,
       configuracaoAgendaId: input.configuracaoAgendaId,
+      empresaId: input.empresaId ?? null,
     },
     customDb,
   );
@@ -618,7 +619,11 @@ export async function calcularResumoComercial(
   customDb?: DbExecutor,
 ): Promise<ResumoComercial> {
   const pacoteBase = await buscarPacoteAtivoPorId(input.pacoteId, customDb);
-  if (!pacoteBase) {
+  // Pacote de outra empresa responde igual a pacote inexistente: a resposta não revela
+  // se o id existe em outro tenant.
+  const deOutraEmpresa = pacoteBase !== null && input.empresaEsperada !== undefined
+    && (pacoteBase.empresaId ?? null) !== input.empresaEsperada;
+  if (!pacoteBase || deOutraEmpresa) {
     throw new PricingServiceError(
       "PACOTE_NAO_ENCONTRADO",
       "O pacote informado não existe ou está inativo.",

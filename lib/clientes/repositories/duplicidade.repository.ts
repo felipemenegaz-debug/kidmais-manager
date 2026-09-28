@@ -34,6 +34,18 @@ export async function registrarPossivelDuplicidade(
   const motivos = [...new Set(input.motivos.map((item) => item.trim()).filter(Boolean))];
   if (motivos.length === 0) throw new Error("Informe ao menos um motivo de duplicidade.");
 
+  // Defesa em profundidade: a busca de candidatos já é escopada, mas o vínculo só existe entre
+  // dois clientes da mesma empresa comprovada. Nunca entre empresas nem com legado sem empresa.
+  const mesmaEmpresa = await executor(customDb).query<{ ok: boolean }>(
+    `SELECT count(*) = 2 AND count(DISTINCT empresa_id) = 1 AND bool_and(empresa_id IS NOT NULL) AS ok
+       FROM clientes
+      WHERE id IN ($1::uuid, $2::uuid)`,
+    [clienteAId, clienteBId],
+  );
+  if (mesmaEmpresa.rows[0]?.ok !== true) {
+    throw new Error("Possível duplicidade exige dois Clientes da mesma empresa comprovada.");
+  }
+
   const result = await executor(customDb).query<DuplicidadeRow>(
     `INSERT INTO possiveis_duplicidades_cliente (
        cliente_a_id, cliente_b_id, motivos, observacoes

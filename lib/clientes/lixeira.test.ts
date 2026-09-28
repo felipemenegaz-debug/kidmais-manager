@@ -15,23 +15,25 @@ function carregar(path:string,mocks:Record<string,unknown>){
 class Falha extends Error {constructor(_code:string,message:string){super(message);}}
 const chave='11111111-1111-4111-8111-111111111111',quando='2026-09-16T10:00:00.123456Z';
 const contexto={usuarioId:'usuario-sintetico',origem:'CRM_INTERNO'};
+const empresaA='aaaaaaaa-0000-4000-8000-00000000000a',empresaB='bbbbbbbb-0000-4000-8000-00000000000b';
 function ambiente(){
-    const cliente={id:'cliente-sintetico',status:'ATIVO',atualizadoEm:quando};
+    const cliente={id:'cliente-sintetico',status:'ATIVO',atualizadoEm:quando,empresaId:empresaA as string|null};
     const auditoria:Record<string,unknown>[]=[],historico:Record<string,unknown>[]=[],sqls:string[]=[];
+    // O mock aplica o filtro de empresa como o SQL real: sem a mesma empresa, nenhuma linha.
     const tx={query:async(sql:string,v:unknown[]=[])=>{
         sqls.push(sql);
-        if(sql.startsWith('SELECT status,'))return{rows:[{status:cliente.status,mesma:v[1]===cliente.atualizadoEm}]};
+        if(sql.startsWith('SELECT status,')){assert.match(sql,/empresa_id=\$3::uuid/);return{rows:cliente.empresaId!==null&&v[2]===cliente.empresaId?[{status:cliente.status,mesma:v[1]===cliente.atualizadoEm}]:[]};}
         if(sql.startsWith('SELECT usuario_id,'))return{rows:auditoria.filter(a=>a.requestId===v[1]).map(a=>({usuario_id:a.usuarioId,justificativa:a.justificativa,dados_depois:a.dadosDepois}))};
-        if(sql.startsWith('UPDATE clientes')){cliente.status=String(v[1]);cliente.atualizadoEm='2026-09-16T11:00:00.654321Z';return{rows:[{quando:cliente.atualizadoEm}]};}
+        if(sql.startsWith('UPDATE clientes')){assert.match(sql,/empresa_id=\$4::uuid/);assert.equal(v[3],cliente.empresaId);cliente.status=String(v[1]);cliente.atualizadoEm='2026-09-16T11:00:00.654321Z';return{rows:[{quando:cliente.atualizadoEm}]};}
         throw Error('SQL não simulado: '+sql);
     }};
     const mod=carregar('lib/clientes/services/lixeira.ts',{
         '../repositories':{registrarAuditoria:async(a:Record<string,unknown>)=>{auditoria.push(a);},registrarEventoHistorico:async(a:Record<string,unknown>)=>{historico.push(a);}},
         './errors':{ClienteServiceError:Falha},
     });
-    const mover=mod.moverClienteLixeira as (tx:object,id:string,p:unknown,c:object)=>Promise<{reutilizado:boolean}>;
-    const executar=(p:object={},c:object=contexto)=>mover(tx,cliente.id,{acao:'EXCLUIR',motivo:'Cadastro de teste',chave,atualizadoEm:quando,confirmarRemocao:true,confirmarHistorico:true,...p},c);
-    return {cliente,auditoria,historico,sqls,executar};
+    const mover=mod.moverClienteLixeira as (tx:object,e:string,id:string,p:unknown,c:object)=>Promise<{reutilizado:boolean}>;
+    const executar=(p:object={},c:object=contexto,empresa:string=empresaA)=>mover(tx,empresa,cliente.id,{acao:'EXCLUIR',motivo:'Cadastro de teste',chave,atualizadoEm:quando,confirmarRemocao:true,confirmarHistorico:true,...p},c);
+    return {cliente,auditoria,historico,sqls,executar,mod};
 }
 for(const acao of ['EXCLUIR','ARQUIVAR'])test(`${acao} mantém cliente, ID, vínculos e audita autor/data/motivo`,async()=>{
     const a=ambiente();await a.executar({acao});assert.equal(a.cliente.status,'INATIVO');assert.equal(a.cliente.id,'cliente-sintetico');
@@ -57,7 +59,7 @@ test('arquivar e restaurar preserva uma contratação no CRM e altera apenas ind
             data: '2026-09-19', inicio: '11:00', fim: '15:00', pacote: 'Pacote', convidados: 40,
             criadoEm: quando, status: 'AGUARDANDO_CONTRATO', formaPagamento: null, contratoId: null, contratoStatus: null,
             versaoId: null, edicaoEstado: null, documentoRevisado: false, valorContratual: null, temFesta: false }] };
-    } } as unknown as DbExecutor, a.cliente.id);
+    } } as unknown as DbExecutor, empresaA, a.cliente.id);
     const antes = await fila();
     await a.executar({ acao: 'ARQUIVAR' });
     const arquivado = await fila();
@@ -87,17 +89,18 @@ test('listagem de lixeira mascara contatos, usa INATIVO e só indica 90 dias sem
     assert(!/DELETE FROM|ON DELETE CASCADE/.test(s));
 });
 test('busca e listagem padrão retornam ativos; filtro explícito inclui inativos',async()=>{
-    const clientes=[{id:'ativo',status:'ATIVO'},{id:'inativo',status:'INATIVO'}];
+    const empresaId='empresa-teste';
+    const clientes=[{id:'ativo',status:'ATIVO',empresaId},{id:'inativo',status:'INATIVO',empresaId}];
     const mod=carregar('lib/clientes/services/cliente.service.ts',{
-        '../repositories':{listarClientes:async(o:{status:string})=>o.status==='ATIVO'?clientes.slice(0,1):clientes,
+        '../repositories':{listarClientes:async(_e:string,o:{status:string})=>o.status==='ATIVO'?clientes.slice(0,1):clientes,
             buscarClientesPorNomeSemelhante:async()=>clientes,buscarClientesPorEmail:async()=>[]},
         './validators':{camposFaltantesParaContrato:()=>[]},
     });
-    const listar=mod.listarClientesCrm as (o?:object)=>Promise<{cliente:{id:string}}[]>;
-    const buscar=mod.buscarClientesCrm as (q:string,n:number,incluir?:boolean)=>Promise<{cliente:{id:string}}[]>;
-    assert.deepEqual((await listar()).map(c=>c.cliente.id),['ativo']);
-    assert.equal((await listar({status:'CANONICOS'})).length,2);
-    assert.equal((await buscar('Cliente',20)).length,1);assert.equal((await buscar('Cliente',20,true)).length,2);
+    const listar=mod.listarClientesCrm as (e:string,o?:object)=>Promise<{cliente:{id:string}}[]>;
+    const buscar=mod.buscarClientesCrm as (q:string,e:string,n:number,incluir?:boolean)=>Promise<{cliente:{id:string}}[]>;
+    assert.deepEqual((await listar(empresaId)).map(c=>c.cliente.id),['ativo']);
+    assert.equal((await listar(empresaId,{status:'CANONICOS'})).length,2);
+    assert.equal((await buscar('Cliente',empresaId,20)).length,1);assert.equal((await buscar('Cliente',empresaId,20,true)).length,2);
 });
 test('cadastro com CPF inativo oferece restauração e nunca chama criarCliente',async()=>{
     let criacoes=0;
@@ -108,7 +111,7 @@ test('cadastro com CPF inativo oferece restauração e nunca chama criarCliente'
         './validators':{validarCadastroBasicoCliente:()=>{}},'./errors':{ClienteServiceError:Falha},
     });
     const cadastrar=mod.cadastrarClienteInterno as (p:object,c:object)=>Promise<unknown>;
-    await assert.rejects(cadastrar({cpf:'cpf-sintetico',nomeCompleto:'Cliente sintético'},contexto),/restaurar/);assert.equal(criacoes,0);
+    await assert.rejects(cadastrar({cpf:'cpf-sintetico',nomeCompleto:'Cliente sintético',empresaId:empresaA},contexto),/restaurar/);assert.equal(criacoes,0);
 });
 test('contato/e-mail inativo segue detectado e bloqueia duplicação silenciosa',async()=>{
     const cliente={id:'inativo',nomeCompleto:'Cliente sintético',email:'teste@example.invalid',status:'INATIVO'};
@@ -118,9 +121,9 @@ test('contato/e-mail inativo segue detectado e bloqueia duplicação silenciosa'
         '../repositories/normalizers':{normalizarCpf:()=>null,normalizarTelefone:(s:string)=>s},
         './validators':{validarCadastroBasicoCliente:()=>{}},'./errors':{ClienteServiceError:Falha},
     });
-    const analisar=mod.analisarCadastroCliente as (p:object)=>Promise<{possiveisDuplicidades:{status:string;motivos:string[]}[]}>;
-    const payload={nomeCompleto:'Cliente sintético',telefone:'61999999999',email:cliente.email};
-    const resultado=await analisar(payload);assert.equal(resultado.possiveisDuplicidades[0].status,'INATIVO');
+    const analisar=mod.analisarCadastroCliente as (p:object,e:string)=>Promise<{possiveisDuplicidades:{status:string;motivos:string[]}[]}>;
+    const payload={nomeCompleto:'Cliente sintético',telefone:'61999999999',email:cliente.email,empresaId:empresaA};
+    const resultado=await analisar(payload,empresaA);assert.equal(resultado.possiveisDuplicidades[0].status,'INATIVO');
     assert.deepEqual(resultado.possiveisDuplicidades[0].motivos,['TELEFONE_IGUAL','EMAIL_IGUAL']);
     const cadastrar=mod.cadastrarClienteInterno as (p:object,c:object)=>Promise<unknown>;await assert.rejects(cadastrar(payload,contexto),/restaurar/);
 });
@@ -147,4 +150,30 @@ test('endpoints preservam autenticação administrativa e CSRF/Origin comum',asy
     for(const method of ['GET','POST']){const handler=mod[method] as (r:object,c:object)=>Promise<{status:number}>;assert.equal((await handler({},{params:Promise.resolve({id:chave})})).status,401);}
     assert.equal(consultas,0);
     const guard=readFileSync('lib/http/admin-crm-api.ts','utf8');assert(guard.includes('verificarOrigem(request)'));assert(guard.includes("request.headers.get('x-csrf-token')"));
+});
+
+// PR-B1: lixeira escopada pelo tenant comprovado.
+for(const [caso,empresaCliente] of [['de outra empresa',empresaB],['legado sem empresa',null]] as const)test(`lixeira: tenant A não arquiva/restaura cliente ${caso}`,async()=>{
+    const a=ambiente();a.cliente.empresaId=empresaCliente;
+    for(const acao of ['EXCLUIR','ARQUIVAR','RESTAURAR'])await assert.rejects(a.executar({acao,confirmarRemocao:true,confirmarHistorico:true}),/não encontrado/);
+    assert.equal(a.cliente.status,'ATIVO');assert.equal(a.auditoria.length,0);assert.equal(a.historico.length,0);
+    assert(!a.sqls.some(s=>s.startsWith('UPDATE')||s.startsWith('SELECT usuario_id,')),'nenhuma escrita nem leitura de auditoria antes da prova de empresa');
+});
+test('lixeira: A não lista nem consulta B — filtro de empresa na SQL, antes de ORDER BY/LIMIT',async()=>{
+    const a=ambiente();const consultas:{sql:string;v:unknown[]}[]=[];
+    const consultar=a.mod.consultarLixeira as (tx:object,e:string,id?:string,o?:number)=>Promise<unknown[]>;
+    const tx={query:async(sql:string,v:unknown[])=>{consultas.push({sql,v});return{rows:[]};}};
+    await consultar(tx,empresaA);await consultar(tx,empresaA,'cliente-b');
+    for(const c of consultas){
+        const where=c.sql.indexOf('c.empresa_id=$4::uuid'),order=c.sql.lastIndexOf('ORDER BY c.nome_completo'),limit=c.sql.lastIndexOf('LIMIT $2');
+        assert(where>0&&where<order&&order<limit,'empresa filtrada antes de ordenar e limitar');
+        assert.equal(c.v[3],empresaA);
+    }
+    await assert.rejects(consultar(tx,''),/Empresa administrativa/);
+});
+test('lixeira: rotas usam Tenant Context comprovado e não leem empresa do corpo',()=>{
+    for(const f of ['app/api/admin/clientes/lixeira/route.ts','app/api/admin/clientes/[id]/lixeira/route.ts']){
+        const s=readFileSync(f,'utf8');assert(s.includes('withTenantTransaction'),f);assert(s.includes('tenant.empresaComprovada'),f);
+        assert(!/body\.empresaId|bruto\.empresaId/.test(s),f);
+    }
 });

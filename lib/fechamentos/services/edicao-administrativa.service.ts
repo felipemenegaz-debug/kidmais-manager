@@ -4,7 +4,7 @@ import { calcularResumoComercial } from '../../comercial/services';
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix } from '../../comercial/condicao-pagamento';
 import { consultarDisponibilidadeData } from '../../disponibilidade/services';
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
-import { buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, listarAdicionaisDoFechamento } from '../repositories';
+import { buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamentoComTrava, listarAdicionaisDoFechamento } from '../repositories';
 import { persistirEdicaoFechamento } from '../repositories/edicao.repository';
 import { registrarAuditoria } from '../../clientes/repositories';
 import { FechamentoServiceError } from './errors';
@@ -35,10 +35,14 @@ export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFest
 export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoFestaInput, tx: DbExecutor) {
     const input = edicaoFestaSchema.parse(raw);
     if (input.vinculos) recusar('Troca de vínculos exige preparação operacional pós-assinatura.');
-    const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais }, tx);
+    // A empresa vem do fechamento gravado; o pacote do pedido não pode trocá-la.
+    // Pós-autorização: os chamadores já compararam o tenant e travaram o fechamento.
+    const empresaEsperada = await empresaDoFechamentoComTrava(f.id, tx);
+    if (empresaEsperada === undefined) recusar('Fechamento não encontrado.');
+    const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx);
     if (input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
         recusar('Quantidade abaixo do mínimo do pacote.');
-    const inclusos = await listarCodigosInclusos(tx, resumo.pacote.pacote.id);
+    const inclusos = await listarCodigosInclusos(tx, resumo.pacote.pacote.id, empresaEsperada);
     if (resumo.adicionais.itens.some(a => inclusos.includes(a.codigo)))
         recusar('Há adicional ou combo com item já incluído no pacote. Remova a cobrança duplicada e selecione os itens avulsos necessários.');
     const mudouAgenda = f.dataEvento !== input.dataEvento || f.horarioInicio.slice(0, 5) !== input.horarioInicio.slice(0, 5) || f.horarioFim.slice(0, 5) !== input.horarioFim.slice(0, 5) || f.configuracaoAgendaId !== input.configuracaoAgendaId;

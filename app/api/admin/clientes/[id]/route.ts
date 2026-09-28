@@ -3,6 +3,7 @@ import { z } from "zod";
 import { atualizarClienteInterno, obterClienteBase } from "@/lib/clientes/services";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 import { contextoCrmDaRequest, exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
+import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { clientePatchSchema } from "../schemas";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -16,12 +17,13 @@ async function getParams(context: RouteContext) {
 
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    await exigirApiAdminCrmDisponivel(request);
+    const sessao = await exigirApiAdminCrmDisponivel(request);
     const params = await getParams(context);
     if (!params) {
       return jsonNoStore({ ok: false, erro: "ID de Cliente inválido.", codigo: "DADOS_INVALIDOS" }, { status: 400 });
     }
-    const data = await obterClienteBase(params.id);
+    const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), (tx, tenant) =>
+      obterClienteBase(params.id, tenant.empresaComprovada, tx));
     return jsonNoStore({ ok: true, data });
   } catch (error) {
     return apiErrorResponse(error);
@@ -30,7 +32,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    await exigirApiAdminCrmDisponivel(request);
+    const sessao = await exigirApiAdminCrmDisponivel(request);
     const params = await getParams(context);
     if (!params) {
       return jsonNoStore({ ok: false, erro: "ID de Cliente inválido.", codigo: "DADOS_INVALIDOS" }, { status: 400 });
@@ -44,7 +46,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const data = await atualizarClienteInterno(params.id, parsed.data, contextoCrmDaRequest(request));
+    const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), (tx, tenant) =>
+      atualizarClienteInterno(params.id, tenant.empresaComprovada, parsed.data, contextoCrmDaRequest(request), tx));
     return jsonNoStore({ ok: true, data });
   } catch (error) {
     return apiErrorResponse(error);

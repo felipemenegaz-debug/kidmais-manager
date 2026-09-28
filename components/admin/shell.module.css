@@ -43,3 +43,6 @@
  .conteudo { min-height:100svh; }
  .conteudo > :not([data-profile-page]) { padding-top:72px; }
 }
+.perguntar { display:flex; align-items:center; gap:12px; margin:0 16px 16px; padding:12px 16px; min-height:44px; border-radius:12px; border:1px solid color-mix(in srgb, var(--km-violet) 30%, transparent); background:color-mix(in srgb, var(--km-violet) 8%, transparent); color:var(--km-text); font:600 13px/1.2 var(--admin-font); text-align:left; cursor:pointer; transition:border-color .2s ease, background .2s ease; }
+@media (hover: hover) { .perguntar:hover { border-color:color-mix(in srgb, var(--km-violet) 55%, transparent); background:color-mix(in srgb, var(--km-violet) 14%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .perguntar { transition:none; } }
