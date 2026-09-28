@@ -28,6 +28,9 @@ CONTRATO_ACEITE_DEV_ENABLED=false
 # O health check exige esta flag e confere a assinatura física da Migration 016.
 FESTA_ENABLED=true
 
+# Kidmais Intelligence (somente leitura, sem LLM). Ligada apenas com o valor exato true.
+INTELIGENCIA_ENABLED=false
+
 # Opções de build/runtime.
 NEXT_TELEMETRY_DISABLED=1
 KIDMAIS_FESTA_ISOLADO=false
