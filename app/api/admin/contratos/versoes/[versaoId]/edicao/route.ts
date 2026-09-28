@@ -10,6 +10,7 @@ import { fonteDaRevisaoInicial } from '@/lib/contratos/services/revisao-inicial'
 import { calcularResumoComercial, listarPacotesComerciais, listarCatalogoAdicionais } from '@/lib/comercial/services';
 import { consultarDisponibilidadeData } from '@/lib/disponibilidade/services';
 import { listarCodigosInclusos } from '@/lib/comercial/composicao';
+import { empresaDoFechamento } from '@/lib/fechamentos/repositories';
 export async function GET(request: NextRequest, context: {
     params: Promise<{
         versaoId: string;
@@ -30,11 +31,17 @@ export async function GET(request: NextRequest, context: {
         const adicionais = q.has('adicionais') ? z.array(z.object({ codigo: z.string().max(80), quantidade: z.number().positive() }).strict()).max(60).parse(JSON.parse(q.get('adicionais')!)) : fonte.adicionais;
         const disponibilidade = await consultarDisponibilidadeData(data,undefined,preparada?fonte.fechamento.id:undefined);
         const vinculos=preparada ? {clientes:(await db().query("SELECT id,nome_completo FROM clientes WHERE status<>'MESCLADO' ORDER BY nome_completo")).rows,aniversariantes:(await db().query('SELECT id,cliente_id,nome FROM aniversariantes WHERE ativo ORDER BY nome')).rows,responsaveis:(await db().query('SELECT id,cliente_id,nome FROM responsaveis_adicionais WHERE ativo ORDER BY nome')).rows}:null;
-        const pacotes = await listarPacotesComerciais({ data, configuracaoAgendaId });
-        const catalogo = await listarCatalogoAdicionais({ data, convidados });
+        // Catálogo e prévia só da empresa do fechamento gravado; `?pacote=` não escolhe outra empresa.
+        const empresaId = await empresaDoFechamento(v.snapshot.fechamento.id, db());
+        if (empresaId === undefined)
+            conflito('Fechamento não encontrado.');
+        const pacotes = await listarPacotesComerciais({ data, configuracaoAgendaId, empresaId });
+        const catalogo = await listarCatalogoAdicionais({ data, convidados, empresaId });
+        // Composição escopada pela empresa antes de qualquer outra consulta do pacote pedido.
+        const incluidos = await listarCodigosInclusos(db(), pacoteId, empresaId);
         let resumo = null, erroPreco = null;
         try {
-            resumo = await calcularResumoComercial({ data, configuracaoAgendaId, pacoteId, convidados, adicionais });
+            resumo = await calcularResumoComercial({ data, configuracaoAgendaId, pacoteId, convidados, adicionais, empresaEsperada: empresaId });
         }
         catch (e) {
             if (e instanceof Error)
@@ -42,7 +49,7 @@ export async function GET(request: NextRequest, context: {
             else
                 throw e;
         }
-        return jsonNoStore({ ok: true, data: { fonte, somenteRevisao, vinculos, disponibilidade, pacotes, catalogo, resumo, erroPreco, incluidos: await listarCodigosInclusos(db(), pacoteId) } });
+        return jsonNoStore({ ok: true, data: { fonte, somenteRevisao, vinculos, disponibilidade, pacotes, catalogo, resumo, erroPreco, incluidos } });
     }
     catch (e) {
         return apiErrorResponse(e);

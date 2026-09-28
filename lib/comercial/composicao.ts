@@ -1,7 +1,26 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
 
-export async function listarCodigosInclusos(tx: DbExecutor, pacoteId: string): Promise<string[]> {
+/**
+ * Com `empresaEsperada` (string ou null do legado), a composição só é lida se o pacote e os
+ * adicionais forem dessa empresa: pacote de outro tenant, ativo ou não, devolve lista vazia.
+ */
+export async function listarCodigosInclusos(tx: DbExecutor, pacoteId: string, empresaEsperada?: string | null): Promise<string[]> {
+  if (empresaEsperada !== undefined) {
+    const escopada = await tx.query<{ codigo: string }>(
+      `SELECT a.codigo
+         FROM pacote_adicionais pa
+         JOIN pacotes p ON p.id = pa.pacote_id AND p.empresa_id IS NOT DISTINCT FROM $2::uuid
+         JOIN adicionais a ON a.id = pa.adicional_id AND a.empresa_id IS NOT DISTINCT FROM $2::uuid
+        WHERE pa.pacote_id = $1::uuid
+          AND pa.ativo
+          AND pa.modalidade = 'INCLUSO'
+          AND a.ativo
+        ORDER BY a.codigo`,
+      [pacoteId, empresaEsperada],
+    );
+    return escopada.rows.map((row) => row.codigo);
+  }
   const result = await tx.query<{ codigo: string }>(
     `SELECT a.codigo
        FROM pacote_adicionais pa

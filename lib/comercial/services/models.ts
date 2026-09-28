@@ -83,6 +83,11 @@ export type ResultadoAdicionais = {
 
 export type CalcularResumoComercialInput = PrecificarPacoteInput & {
   adicionais?: AdicionalSelecionadoInput[];
+  /**
+   * Empresa já gravada no fechamento (lida do banco, nunca do pedido).
+   * Quando informada, o pacote tem de ser dessa empresa; `null` é o legado sem empresa.
+   */
+  empresaEsperada?: string | null;
 };
 
 export type ResumoComercial = {

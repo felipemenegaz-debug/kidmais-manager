@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
-import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao } from '../repositories';
+import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, empresaDoFechamento } from '../repositories';
 import type { FechamentoAdicionalRecord } from '../repositories';
 import { buscarRevisaoDaVersao, criarRevisaoOperacionalRegistro, listarItensRevisao, salvarOperacaoPreparada, aplicarOperacaoPreparada, type RevisaoOperacional } from '../repositories/revisao.repository';
 import { registrarAuditoria, buscarClientePorId, buscarAniversariantePorId, buscarResponsavelPorId } from '../../clientes/repositories';
@@ -139,10 +139,14 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
         await atualizarClienteInterno(f.clienteId!, input.cliente, { ...c, usuarioId: c.usuarioId, origem: 'CRM_INTERNO' }, tx);
     if (input.aniversariante)
         await atualizarAniversarianteInterno(f.aniversarianteId!, f.clienteId!, input.aniversariante, { ...c, usuarioId: c.usuarioId, origem: 'CRM_INTERNO' }, tx);
-    const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais }, tx);
+    // A empresa vem do fechamento gravado; o pacote do pedido não pode trocá-la.
+    const empresaEsperada = await empresaDoFechamento(r.fechamento_id, tx);
+    if (empresaEsperada === undefined)
+        recusar('Fechamento não encontrado.');
+    const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx);
     if (input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
         recusar('Quantidade abaixo do mínimo do pacote.');
-    const inclusos = await listarCodigosInclusos(tx, resumo.pacote.pacote.id);
+    const inclusos = await listarCodigosInclusos(tx, resumo.pacote.pacote.id, empresaEsperada);
     if (resumo.adicionais.itens.some(a => inclusos.includes(a.codigo)))
         recusar('Remova adicionais/combos que já estão incluídos no pacote.');
     const pacoteMudou = f.pacoteId !== input.pacoteId;

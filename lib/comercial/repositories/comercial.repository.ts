@@ -463,8 +463,9 @@ export async function listarPacotesAtivosComElegibilidade(
        LIMIT 1
      ) r ON true
      WHERE p.ativo = true
+       AND p.empresa_id IS NOT DISTINCT FROM $3::uuid
      ORDER BY p.ordem_exibicao ASC, p.nome ASC`,
-    [input.data, input.configuracaoAgendaId],
+    [input.data, input.configuracaoAgendaId, input.empresaId],
   );
 
   return result.rows.map(mapPacoteElegibilidade);
@@ -514,6 +515,8 @@ export async function buscarPrecoPacoteAplicavel(
 /**
  * Retorna adicionais ativos e, quando existente, a faixa de preço aplicável ao
  * número de convidados. Sem preço aplicável, `preco` será null.
+ * Só adicionais da empresa dona da tabela: o código é único por empresa, não no sistema.
+ * Tabela inexistente não vira legado: o JOIN exige a tabela e não devolve nada sem ela.
  */
 export async function listarAdicionaisAtivosComPreco(
   input: BuscarPrecosAdicionaisInput,
@@ -538,6 +541,9 @@ export async function listarAdicionaisAtivosComPreco(
        pa.valor,
        pa.observacoes AS preco_observacoes
      FROM adicionais a
+     JOIN tabelas_preco tabela
+       ON tabela.id = $1::uuid
+      AND a.empresa_id IS NOT DISTINCT FROM tabela.empresa_id
      LEFT JOIN LATERAL (
        SELECT preco.*
        FROM precos_adicional preco
