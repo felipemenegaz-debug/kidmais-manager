@@ -84,11 +84,16 @@ export const contratacoesSql = `WITH fila AS (
  (v.id=COALESCE(cf.versao_em_preparacao_id,cf.versao_vigente_id)
   OR (cf.versao_em_preparacao_id IS NULL AND cf.versao_vigente_id IS NULL AND v.numero_versao=c.versao_atual))
  LEFT JOIN public.contrato_edicoes e ON e.contrato_versao_id=v.id
- WHERE f.status=ANY($1::text[]) AND ($2::uuid IS NULL OR f.cliente_id=$2::uuid)
+ WHERE f.empresa_id=$3::uuid AND f.status=ANY($1::text[]) AND ($2::uuid IS NULL OR f.cliente_id=$2::uuid)
  ) SELECT * FROM fila WHERE NOT "temFesta" AND "contratoStatus" IS DISTINCT FROM 'CANCELADO'
  ORDER BY data,inicio,"criadoEm",id`;
 
-export async function listarContratacoes(tx: DbExecutor, clienteId?: string): Promise<Contratacao[]> {
-    const result = await tx.query<ContratacaoRow>(contratacoesSql, [estadosEmContratacao, clienteId ?? null]);
+/**
+ * Fila do tenant comprovado. `empresaId` filtra fechamentos.empresa_id (054) na consulta;
+ * fechamento de outra empresa ou legado sem empresa não aparece, nem pelo clienteId.
+ */
+export async function listarContratacoes(tx: DbExecutor, empresaId: string, clienteId?: string): Promise<Contratacao[]> {
+    if (typeof empresaId !== 'string' || empresaId === '') throw new Error('Empresa administrativa não comprovada.');
+    const result = await tx.query<ContratacaoRow>(contratacoesSql, [estadosEmContratacao, clienteId ?? null, empresaId]);
     return result.rows.map(classificarContratacao).filter((r): r is Contratacao => r !== null);
 }

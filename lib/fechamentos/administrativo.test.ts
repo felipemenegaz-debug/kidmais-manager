@@ -8,6 +8,8 @@ import { createHash } from 'node:crypto';
 import ts from 'typescript';
 
 const req = createRequire(import.meta.url);
+const empresaA = 'aaaaaaaa-0000-4000-8000-00000000000a';
+const empresaB = 'bbbbbbbb-0000-4000-8000-00000000000b';
 const clienteId = '11111111-1111-4111-8111-111111111111';
 const aniversarianteId = '22222222-2222-4222-8222-222222222222';
 const responsavelId = '33333333-3333-4333-8333-333333333333';
@@ -40,14 +42,15 @@ function responderFotografia(sql: string) {
 /** Loader fechado: postgres e repositórios são fixtures em memória; nenhuma conexão real. */
 function ambiente() {
     const state = {
-        cliente: { id: clienteId, status: 'ATIVO', nomeCompleto: 'Cliente fictício unitário', cpf: '52998224725',
+        tenant: empresaA as string, tenantRecusado: false,
+        cliente: { id: clienteId, empresaId: empresaA, status: 'ATIVO', nomeCompleto: 'Cliente fictício unitário', cpf: '52998224725',
             telefone: '11900000000', whatsapp: null, email: 'unitario@example.invalid', cep: '00000000',
             logradouro: 'Rua Fictícia', numero: '1', bairro: 'Teste', cidade: 'Teste', uf: 'SP' } as any,
         aniversariante: { id: aniversarianteId, clienteId, nome: 'Aniversariante fictício', ativo: true },
         responsavel: { id: responsavelId, clienteId, nome: 'Responsável fictício', ativo: true },
         sessao: { id: 'sessao', usuario_id: 'usuario-unitario', papel: 'ADMINISTRATIVO', csrf_hash: hash(csrf),
             revogada: false, ativo: true, expirada: false, ociosa: false, senhaAlterada: false },
-        pacote: { id: 'pacote', codigo: 'POCKET', nome: 'Pocket', convidadosMinimos: 20, convidadosMaximos: 150, ativo: true },
+        pacote: { id: 'pacote', codigo: 'POCKET', nome: 'Pocket', convidadosMinimos: 20, convidadosMaximos: 150, ativo: true, empresaId: empresaA } as any,
         indisponivel: false, pricingError: false, auditError: false, pricingInput: null as any,
         fechamentos: [] as any[], adicionais: [] as any[], aprovacoes: [] as any[], historico: [] as any[], auditoria: [] as any[], sql: [] as string[],
     };
@@ -89,8 +92,16 @@ function ambiente() {
         return exports;
     }
     mock('lib/db/postgres', { db: () => tx, withTransaction: transacao });
+    // Prova de tenant real tem teste próprio; aqui só entrega a empresa comprovada da sessão.
+    mock('lib/saas/provar-tenant', { executarNoTenant: async (executor: any, sessao: any, _pedida: any, work: any) => {
+        assert.equal(executor, tx);
+        // Mesmo erro que provarTenant lança (classe real carregada pelo harness).
+        if (state.tenantRecusado) { const { PacoteAdminError } = load('lib/comercial/pacotes-admin'); throw new PacoteAdminError('TENANT_NAO_COMPROVADO', 'A sessão administrativa não comprova a empresa autorizada.', 403); }
+        return work(executor, { empresaComprovada: state.tenant, membershipId: 'membership', usuarioId: sessao.usuario_id });
+    } });
     mock('lib/clientes/repositories', {
         buscarClienteCanonicoPorId: async () => state.cliente,
+        buscarClientePorId: async () => state.cliente,
         listarAniversariantesDoCliente: async () => [state.aniversariante], listarResponsaveisDoCliente: async () => [state.responsavel],
         registrarEventoHistorico: async (v: any, executor: any) => { assert.equal(executor, tx); state.historico.push(v); },
         registrarAuditoria: async (v: any, executor: any) => { assert.equal(executor, tx); if (state.auditError) throw Error('Auditoria indisponível'); state.auditoria.push(v); },
@@ -302,4 +313,34 @@ test('sessão expirada durante preenchimento redireciona ao login sem POST de cr
     const a = await formulario(); await a.preencher(); a.state.sessao.expirada = true; await a.submit();
     assert.deepEqual(a.redirects, ['/admin/login']); assert.equal(a.state.fechamentos.length, 0);
     assert.match(a.text(a.render()), /Faça login para continuar/);
+});
+
+// PR-B1: contexto administrativo de fechamento escopado pelo tenant comprovado.
+for (const [caso, empresaCliente] of [['de outra empresa', empresaB], ['legado sem empresa', null]] as const) {
+    test(`cliente ${caso}: GET e POST respondem como inexistente, sem gravação`, async () => {
+        const a = ambiente(); a.state.cliente.empresaId = empresaCliente;
+        const get = await a.chamar(null, { method: 'GET' });
+        assert.equal(get.status, 404);
+        const corpo = JSON.stringify(await get.json());
+        assert(!corpo.includes(a.state.cliente.nomeCompleto) && !corpo.includes(a.state.cliente.cpf));
+        assert.equal((await a.chamar()).status, 404);
+        assert.equal(a.state.fechamentos.length, 0); assert.equal(a.state.auditoria.length, 0);
+    });
+}
+test('tenant não comprovado: nada é lido nem gravado', async () => {
+    const a = ambiente(); a.state.tenantRecusado = true;
+    for (const r of [await a.chamar(null, { method: 'GET' }), await a.chamar()]) {
+        assert.equal(r.status, 403); assert.equal((await r.json()).codigo, 'TENANT_NAO_COMPROVADO');
+    }
+    assert.equal(a.state.fechamentos.length, 0); assert.equal(a.state.pricingInput, null); assert.equal(a.state.auditoria.length, 0);
+});
+test('cliente A com pacote B: guarda central recusa a nova associação', async () => {
+    const a = ambiente(); a.state.pacote.empresaId = empresaB;
+    const r = await a.chamar();
+    assert.equal(r.status, 409); assert.equal((await r.json()).codigo, 'EMPRESA_INCOMPATIVEL');
+    assert.equal(a.state.fechamentos.length, 0);
+});
+test('pacote legado sem empresa: guarda central recusa a nova associação', async () => {
+    const a = ambiente(); a.state.pacote.empresaId = null;
+    assert.equal((await a.chamar()).status, 409); assert.equal(a.state.fechamentos.length, 0);
 });

@@ -14,7 +14,7 @@ export async function POST(request: NextRequest, context: {
         const id = z.string().uuid().parse((await context.params).versaoId), parsed = acaoContratoSchema.safeParse(await request.json());
         if (!parsed.success)
             return NextResponse.json({ ok: false, erro: 'Dados inválidos ou campos não permitidos para esta ação.', detalhes: parsed.error.flatten() }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
-        const data = await operarContrato(id, parsed.data, tokenAdmin(request), { requestId: randomUUID(), ip: null, userAgent: request.headers.get('user-agent')?.slice(0, 1000) ?? null });
+        const data = await operarContrato(id, parsed.data, tokenAdmin(request), { requestId: randomUUID(), ip: null, userAgent: request.headers.get('user-agent')?.slice(0, 1000) ?? null }, request.nextUrl.searchParams.get('empresaId'));
         return NextResponse.json({ ok: true, data }, { headers: { 'Cache-Control': 'no-store' } });
     }
     catch (e) {

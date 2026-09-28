@@ -8,7 +8,7 @@ import {
 
 import type { DbExecutor } from "../../db/contracts";
 import {
-  buscarClienteCanonicoPorCpf,
+  buscarClienteCanonicoPorCpfParaIdentidade,
   buscarClienteCanonicoPorId,
   type ClienteRecord,
 } from "../../clientes/repositories";
@@ -231,7 +231,7 @@ export async function consultarCpfPublico(
   customDb?: DbExecutor,
 ): Promise<ConsultaCpfPublicaResult> {
   const cpf = validarCpfObrigatorio(cpfInformado);
-  const cliente = await buscarClienteCanonicoPorCpf(cpf, customDb);
+  const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, customDb);
 
   if (!cliente) {
     return { situacao: "NOVO_CLIENTE", canais: [] };
@@ -276,7 +276,7 @@ export function criarIdentityService(options: IdentityServiceOptions) {
     customDb?: DbExecutor,
   ): Promise<DesafioIdentidadePublico> {
     const cpf = validarCpfObrigatorio(input.cpf);
-    const cliente = await buscarClienteCanonicoPorCpf(cpf, customDb);
+    const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, customDb);
 
     if (!cliente) {
       throw new IdentityServiceError(
@@ -605,7 +605,7 @@ export function criarIdentityService(options: IdentityServiceOptions) {
     customDb?: DbExecutor,
   ): Promise<RecuperacaoIdentidadePublica> {
     const cpf = validarCpfObrigatorio(cpfInformado);
-    const cliente = await buscarClienteCanonicoPorCpf(cpf, customDb);
+    const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, customDb);
 
     if (!cliente) {
       throw new IdentityServiceError(

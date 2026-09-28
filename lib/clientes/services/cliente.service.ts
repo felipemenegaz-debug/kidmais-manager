@@ -98,13 +98,20 @@ function mergeCandidato(
   mapa.set(cliente.id, atual);
 }
 
+/**
+ * Deduplicação dentro do tenant comprovado. Toda busca filtra `empresa_id` na própria consulta,
+ * antes de ordenar e limitar: nunca devolve id, nome ou candidato de outra empresa.
+ * O índice global de CPF (até o PR-B2) ainda pode recusar um CPF de outra empresa no INSERT;
+ * esse caso é tratado em `cadastrarClienteInterno` sem revelar o dono.
+ */
 export async function analisarCadastroCliente(
   input: Pick<CreateClienteInput, "nomeCompleto" | "cpf" | "telefone" | "whatsapp" | "email">,
+  empresaId: string,
   options: { excluirClienteId?: string } = {},
   customDb?: DbExecutor,
 ): Promise<AnaliseCadastroCliente> {
   const cpf = normalizarCpf(input.cpf);
-  const cpfExistente = cpf ? await buscarClienteCanonicoPorCpf(cpf, customDb) : null;
+  const cpfExistente = cpf ? await buscarClienteCanonicoPorCpf(cpf, empresaId, customDb) : null;
   const cpfConflitante = cpfExistente && cpfExistente.id !== options.excluirClienteId
     ? cpfExistente
     : null;
@@ -117,7 +124,7 @@ export async function analisarCadastroCliente(
 
   for (const [motivo, contato] of contatos) {
     if (!contato) continue;
-    const encontrados = await buscarClientesPorContatoExato(contato, customDb);
+    const encontrados = await buscarClientesPorContatoExato(contato, empresaId, customDb);
     for (const cliente of encontrados) {
       if (cliente.id === options.excluirClienteId) continue;
       mergeCandidato(candidatos, cliente, motivo);
@@ -127,6 +134,7 @@ export async function analisarCadastroCliente(
   if (input.nomeCompleto.trim().length >= 3) {
     const nomes = await buscarClientesPorNomeSemelhante(
       input.nomeCompleto,
+      empresaId,
       { limit: 5, excluirClienteId: options.excluirClienteId },
       customDb,
     );
@@ -136,7 +144,7 @@ export async function analisarCadastroCliente(
   }
 
   if (input.email?.trim()) {
-    const porEmail = await buscarClientesPorEmailExato(input.email, customDb);
+    const porEmail = await buscarClientesPorEmailExato(input.email, empresaId, customDb);
     for (const cliente of porEmail) if(cliente.id!==options.excluirClienteId && cliente.email?.toLowerCase()===input.email.trim().toLowerCase()) mergeCandidato(candidatos,cliente,"EMAIL_IGUAL");
   }
   if (cpfConflitante) candidatos.delete(cpfConflitante.id);
@@ -172,14 +180,19 @@ async function registrarDuplicidadesDetectadas(
   }
 }
 
+/** Cadastro administrativo: `input.empresaId` é o tenant comprovado pela rota, nunca do body. */
 export async function cadastrarClienteInterno(
-  input: CreateClienteInput,
+  input: CreateClienteInput & { empresaId: string },
   context: ClienteServiceContext,
+  customDb?: DbExecutor,
 ) {
+  if (typeof input.empresaId !== "string" || input.empresaId === "") {
+    throw new ClienteServiceError("AUTENTICACAO_ADMINISTRATIVA", "Empresa administrativa não comprovada.", 403);
+  }
   validarCadastroBasicoCliente(input);
 
-  return withTransaction(async (tx) => {
-    const analise = await analisarCadastroCliente(input, {}, tx);
+  const executar = async (tx: DbExecutor) => {
+    const analise = await analisarCadastroCliente(input, input.empresaId, {}, tx);
     if (!analise.podeCadastrar && analise.cpfExistente) {
       throw new ClienteServiceError(
         "CPF_EXISTENTE",
@@ -195,15 +208,14 @@ export async function cadastrarClienteInterno(
     try {
       cliente = await criarCliente({ ...input, usuarioId: context.usuarioId ?? null }, tx);
     } catch (error) {
+      // O índice de CPF ainda é global (PR-B2). A análise acima já viu o CPF desta empresa, então
+      // a violação aqui vem de outra empresa (ou de uma corrida). A transação está abortada:
+      // nenhuma consulta nova, e a resposta não revela id, nome nem empresa do dono.
       if (isUniqueViolation(error, "clientes_cpf_canonico_uk")) {
-        const existente = input.cpf
-          ? await buscarClienteCanonicoPorCpf(input.cpf, tx)
-          : null;
         throw new ClienteServiceError(
-          "CPF_EXISTENTE",
-          "Já existe um Cliente cadastrado com este CPF. Use o cadastro existente.",
+          "CPF_INDISPONIVEL",
+          "Este CPF não pode ser cadastrado agora. Confira o documento ou fale com o suporte.",
           409,
-          existente ? { clienteId: existente.id, nomeCompleto: existente.nomeCompleto } : undefined,
         );
       }
       throw error;
@@ -259,23 +271,14 @@ export async function cadastrarClienteInterno(
       },
       possiveisDuplicidades: analise.possiveisDuplicidades,
     };
-  });
+  };
+  return customDb ? executar(customDb) : withTransaction(executar);
 }
 
-export async function obterClienteBase(clienteId: string) {
-  const original = await buscarClientePorId(clienteId);
-  if (!original) {
-    throw new ClienteServiceError("CLIENTE_NAO_ENCONTRADO", "Cliente não encontrado.", 404);
-  }
-
-  const cliente = await buscarClienteCanonicoPorId(clienteId);
-  if (!cliente) {
-    throw new ClienteServiceError("CLIENTE_NAO_ENCONTRADO", "Cliente canônico não encontrado.", 404);
-  }
-
+async function montarClienteBase(original: ClienteRecord, cliente: ClienteRecord, customDb?: DbExecutor) {
   const [aniversariantes, responsaveis] = await Promise.all([
-    listarAniversariantesDoCliente(cliente.id),
-    listarResponsaveisDoCliente(cliente.id),
+    listarAniversariantesDoCliente(cliente.id, {}, customDb),
+    listarResponsaveisDoCliente(cliente.id, {}, customDb),
   ]);
 
   const camposFaltantes = camposFaltantesParaContrato(cliente);
@@ -291,12 +294,57 @@ export async function obterClienteBase(clienteId: string) {
   };
 }
 
-export async function listarClientesCrm(options: {
+/**
+ * Leitura administrativa. `empresaId` é o tenant comprovado pela rota (nunca do body).
+ * Cliente de outra empresa, ou legado sem empresa, responde exatamente como inexistente.
+ */
+export async function obterClienteBase(clienteId: string, empresaId: string, customDb?: DbExecutor) {
+  const original = await buscarClientePorId(clienteId, customDb);
+  if (!original || original.empresaId === null || original.empresaId !== empresaId) {
+    throw new ClienteServiceError("CLIENTE_NAO_ENCONTRADO", "Cliente não encontrado.", 404);
+  }
+
+  const cliente = await buscarClienteCanonicoPorId(clienteId, customDb);
+  if (!cliente || cliente.empresaId === null || cliente.empresaId !== empresaId) {
+    throw new ClienteServiceError("CLIENTE_NAO_ENCONTRADO", "Cliente não encontrado.", 404);
+  }
+
+  return montarClienteBase(original, cliente, customDb);
+}
+
+/**
+ * Prova de identidade já resolvida por IdentityService.resolverClientePorProva (token válido, não
+ * expirado, não consumido, finalidade conferida, cliente canônico). É uma capacidade distinta do
+ * Tenant Context: dá acesso só ao cliente comprovado e não serve para nenhuma rota administrativa.
+ */
+export type IdentidadeClienteComprovada = {
+  readonly validacaoId: string;
+  readonly clienteId: string;
+};
+
+/** Leitura pelo próprio cliente, depois da prova de identidade. Não aceita outro id. */
+export async function obterClienteBasePorIdentidade(
+  identidade: IdentidadeClienteComprovada,
+  customDb?: DbExecutor,
+) {
+  if (!identidade.validacaoId || !identidade.clienteId) {
+    throw new ClienteServiceError("CLIENTE_NAO_ENCONTRADO", "Cliente não encontrado.", 404);
+  }
+  const original = await buscarClientePorId(identidade.clienteId, customDb);
+  const cliente = await buscarClienteCanonicoPorId(identidade.clienteId, customDb);
+  // A prova já aponta para o canônico; um id mesclado aqui significa prova antiga.
+  if (!original || !cliente || cliente.id !== identidade.clienteId) {
+    throw new ClienteServiceError("CLIENTE_NAO_ENCONTRADO", "Cliente não encontrado.", 404);
+  }
+  return montarClienteBase(original, cliente, customDb);
+}
+
+export async function listarClientesCrm(empresaId: string, options: {
   status?: ClienteStatus | "CANONICOS";
   limit?: number;
   offset?: number;
-} = {}) {
-  const clientes = await listarClientes({ ...options, status: options.status ?? "ATIVO" });
+} = {}, customDb?: DbExecutor) {
+  const clientes = await listarClientes(empresaId, { ...options, status: options.status ?? "ATIVO" }, customDb);
   return clientes.map((cliente) => {
     const camposFaltantes = camposFaltantesParaContrato(cliente);
     return {
@@ -307,33 +355,45 @@ export async function listarClientesCrm(options: {
   });
 }
 
-export async function buscarClientesCrm(termo: string, limit = 20, incluirInativos = false) {
+/**
+ * Busca do CRM dentro do tenant comprovado. O escopo está em cada consulta do repositório (antes
+ * de ORDER BY/LIMIT), não num filtro posterior: um cliente de outra empresa não ocupa vaga no
+ * limite nem aparece no resultado.
+ */
+export async function buscarClientesCrm(
+  termo: string,
+  empresaId: string,
+  limit = 20,
+  incluirInativos = false,
+  customDb?: DbExecutor,
+) {
   const q = termo.trim();
-  if (!q) return listarClientesCrm({ limit, status: incluirInativos ? "CANONICOS" : "ATIVO" });
+  if (!q) return listarClientesCrm(empresaId, { limit, status: incluirInativos ? "CANONICOS" : "ATIVO" }, customDb);
 
   const digits = q.replace(/\D/g, "");
   const encontrados = new Map<string, ClienteRecord>();
 
   if (digits.length === 11) {
-    const porCpf = await buscarClienteCanonicoPorCpf(digits);
+    const porCpf = await buscarClienteCanonicoPorCpf(digits, empresaId, customDb);
     if (porCpf) encontrados.set(porCpf.id, porCpf);
   }
 
   if (digits.length >= 10) {
-    const porContato = await buscarClientesPorContatoExato(digits);
+    const porContato = await buscarClientesPorContatoExato(digits, empresaId, customDb);
     porContato.forEach((cliente) => encontrados.set(cliente.id, cliente));
   }
 
   if (q.length >= 3) {
     const [porNome, porEmail] = await Promise.all([
-      buscarClientesPorNomeSemelhante(q, { limit, incluirInativos }),
-      buscarClientesPorEmail(q, { limit, incluirInativos }),
+      buscarClientesPorNomeSemelhante(q, empresaId, { limit, incluirInativos }, customDb),
+      buscarClientesPorEmail(q, empresaId, { limit, incluirInativos }, customDb),
     ]);
     porNome.forEach((cliente) => encontrados.set(cliente.id, cliente));
     porEmail.forEach((cliente) => encontrados.set(cliente.id, cliente));
   }
 
-  return [...encontrados.values()].filter(c => incluirInativos || c.status === "ATIVO").slice(0, limit).map((cliente) => {
+  return [...encontrados.values()]
+    .filter(c => incluirInativos || c.status === "ATIVO").slice(0, limit).map((cliente) => {
     const camposFaltantes = camposFaltantesParaContrato(cliente);
     return {
       cliente,
@@ -343,16 +403,25 @@ export async function buscarClientesCrm(termo: string, limit = 20, incluirInativ
   });
 }
 
+/**
+ * Edição administrativa. `empresaId` é sempre o tenant comprovado do chamador (rota do CRM,
+ * contratos ou revisão), nunca a empresa lida do próprio cliente. Legado sem empresa e cliente de
+ * outra empresa respondem como inexistentes.
+ */
 export async function atualizarClienteInterno(
   clienteId: string,
+  empresaId: string,
   patch: UpdateClienteInput,
   context: ClienteServiceContext,
   customDb?: DbExecutor,
 ) {
+  if (typeof empresaId !== "string" || empresaId === "") {
+    throw new ClienteServiceError("AUTENTICACAO_ADMINISTRATIVA", "Empresa administrativa não comprovada.", 403);
+  }
   const executar = async (tx: DbExecutor) => {
-    await tx.query('SELECT id FROM clientes WHERE id=$1 FOR UPDATE', [clienteId]);
+    await tx.query('SELECT id FROM clientes WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE', [clienteId, empresaId]);
     const atual = await buscarClientePorId(clienteId, tx);
-    if (!atual) {
+    if (!atual || atual.empresaId === null || atual.empresaId !== empresaId) {
       throw new ClienteServiceError("CLIENTE_NAO_ENCONTRADO", "Cliente não encontrado.", 404);
     }
     if (atual.status === "MESCLADO") {
@@ -373,6 +442,7 @@ export async function atualizarClienteInterno(
     }
 
     validarCadastroBasicoCliente({
+      empresaId: atual.empresaId,
       nomeCompleto: patch.nomeCompleto ?? atual.nomeCompleto,
       cpf: atual.cpf,
       telefone: patch.telefone ?? atual.telefone,
@@ -395,12 +465,14 @@ export async function atualizarClienteInterno(
         telefone: patch.telefone ?? atual.telefone,
         whatsapp: patch.whatsapp ?? atual.whatsapp,
       },
+      empresaId,
       { excluirClienteId: clienteId },
       tx,
     );
 
     const atualizado = await atualizarCliente(
       clienteId,
+      { tipo: "TENANT", empresaId },
       { ...patch, usuarioId: context.usuarioId ?? null },
       tx,
     );

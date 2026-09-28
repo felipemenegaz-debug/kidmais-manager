@@ -13,7 +13,8 @@ import { renderizarContratoOficial, gerarPdfContratoOficial, gerarPdfDocumentoCo
 import { guardarDocumento, lerDocumento } from '../storage/postgres';
 import { edicaoFestaSchema } from '../../fechamentos/services/edicao-administrativa-schema';
 import { editarFechamentoAdministrativo } from '../../fechamentos/services/edicao-administrativa.service';
-import { buscarFechamentoPorIdParaAtualizacao, buscarFechamentoPorId } from '../../fechamentos/repositories';
+import { buscarFechamentoPorIdParaAtualizacao, buscarFechamentoPorId, empresaDoFechamentoSemTrava } from '../../fechamentos/repositories';
+import { provarTenant } from '../../saas/provar-tenant';
 import { carregarSnapshot } from './contrato.service';
 import { atualizarClienteInterno } from '../../clientes/services';
 import { buscarClientePorId, buscarAniversariantePorId } from '../../clientes/repositories';
@@ -51,6 +52,27 @@ export type Edicao = {
     };
 };
 export function conflito(message: string): never { throw new ContratoServiceError('DADOS_CONTRATUAIS_INCONSISTENTES', message, 409); }
+/**
+ * Contrato da versão no tenant comprovado, antes de qualquer lock de domínio: prova o tenant da
+ * sessão (provarTenant, na transação), localiza versão/contrato por leitura simples e compara com
+ * a empresa gravada do fechamento. A empresa nunca é lida do alvo nem do payload. Outra empresa,
+ * legado sem empresa ou inexistente respondem igual — e nada do alvo fica travado.
+ */
+export async function contratoDoTenant(tx: DbExecutor, s: SessaoAdmin, versaoId: string, empresaSolicitada?: string | null) {
+    const tenant = await provarTenant(tx, s, empresaSolicitada);
+    const versao = await buscarVersaoPorId(versaoId, tx);
+    const contrato = versao ? (await tx.query<{ id: string; fechamento_id: string; status: string }>('SELECT id,fechamento_id,status FROM contratos WHERE id=$1', [versao.contratoId])).rows[0] : undefined;
+    const empresaFechamento = contrato ? await empresaDoFechamentoSemTrava(contrato.fechamento_id, tx) : undefined;
+    if (!contrato || !empresaFechamento || empresaFechamento !== tenant.empresaComprovada) conflito('Versão não encontrada.');
+    return { contrato, empresaAutorizada: tenant.empresaComprovada };
+}
+/** Leitura de versão no tenant comprovado (sem lock): outra empresa ou legado responde como inexistente. */
+export async function versaoDoTenant(tx: DbExecutor, versaoId: string, empresaAutorizada: string) {
+    const versao = await buscarVersaoPorId(versaoId, tx);
+    const empresaId = versao ? await empresaDoFechamentoSemTrava(versao.snapshot.fechamento.id, tx) : undefined;
+    if (!versao || !empresaId || empresaId !== empresaAutorizada) conflito('Versão não encontrada.');
+    return { versao, empresaId };
+}
 export async function edicaoDaVersao(id: string, tx: DbExecutor = db()) { return (await tx.query<Edicao>('SELECT * FROM contrato_edicoes WHERE contrato_versao_id=$1', [id])).rows[0] ?? null; }
 export async function iniciarEdicao(tx: DbExecutor, v: ContratoVersaoRecord, usuarioId: string, origem: string | null = null, tipo = 'INICIAL') {
     const active = (await tx.query('SELECT id FROM usuarios_administrativos WHERE id=$1 AND ativo', [usuarioId])).rows[0];
@@ -104,25 +126,25 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
     requestId: string;
     ip: string | null;
     userAgent: string | null;
-}) {
+}, empresaSolicitada?: string | null) {
     input=acaoContratoSchema.parse(input);
     return withTransaction(async (tx) => {
-        const preliminary = await buscarVersaoPorId(versaoId, tx);
-        if (!preliminary)
-            conflito('Versão não encontrada.');
-        const c = (await tx.query<{
-            id: string;
-            fechamento_id: string;
-            status: string;
-        }>('SELECT id,fechamento_id,status FROM contratos WHERE id=$1', [preliminary.contratoId])).rows[0];
-        await tx.query('SELECT id FROM fechamentos WHERE id=$1 FOR UPDATE', [c.fechamento_id]);
-        await tx.query('SELECT id FROM contratos WHERE id=$1 FOR UPDATE', [c.id]);
+        // Ordem comum com o GET de edição: sessão → tenant → recurso → comparação → locks. Toda ação
+        // (edição, salvar, revisar, assinar, cancelar, nova versão...) exige tenant da sessão = empresa
+        // do fechamento, independente do payload; tentativa A→B é recusada sem travar nada de B.
+        const s = await consultarSessao(token, tx, true);
+        const { contrato: c, empresaAutorizada } = await contratoDoTenant(tx, s, versaoId, empresaSolicitada);
+        // Primeiro lock já no escopo do tenant: revalida a empresa do fechamento atomicamente.
+        const fechamentoTravado = (await tx.query('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE', [c.fechamento_id, empresaAutorizada])).rows[0];
+        if (!fechamentoTravado) conflito('Versão não encontrada.');
+        const travado = (await tx.query<{ fechamento_id: string }>('SELECT id,fechamento_id FROM contratos WHERE id=$1 FOR UPDATE', [c.id])).rows[0];
+        if (travado && travado.fechamento_id !== c.fechamento_id) conflito('Versão não encontrada.');
         const f = (await tx.query<{
             versao_vigente_id: string | null;
             versao_em_preparacao_id: string | null;
         }>('SELECT * FROM contrato_fluxos WHERE contrato_id=$1 FOR UPDATE', [c.id])).rows[0];
         const v = (await buscarVersaoPorId(versaoId, tx, { forUpdate: true }))!;
-        const s = await consultarSessao(token, tx, true);
+        if (!v || v.contratoId !== c.id) conflito('Versão não encontrada.');
         const statusAtual=(await tx.query<{status:string}>('SELECT status FROM contratos WHERE id=$1',[c.id])).rows[0].status;
         if(statusAtual==='CANCELADO')conflito('Contratação cancelada: histórico disponível somente para consulta.');
         const rc = {...context,usuarioId:s.usuario_id};
@@ -206,7 +228,12 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             return { versaoId: next.id };
         }
         const e = await edicaoDaVersao(v.id, tx);
-        const preparacao=await buscarRevisaoDaVersao(v.id,tx,true);
+        // A revisão precisa ser do mesmo fechamento já confrontado com o tenant: compara na leitura
+        // simples e só então trava (e confere de novo o que ficou travado).
+        const preparacaoLida=await buscarRevisaoDaVersao(v.id,tx);
+        if(preparacaoLida && preparacaoLida.fechamento_id!==c.fechamento_id) conflito('Versão não encontrada.');
+        const preparacao=preparacaoLida ? await buscarRevisaoDaVersao(v.id,tx,true) : null;
+        if(preparacao && preparacao.fechamento_id!==c.fechamento_id) conflito('Versão não encontrada.');
         if (['editar_festa','salvar'].includes(input.acao)) {
             const assinatura = (await tx.query('SELECT 1 FROM contrato_assinaturas WHERE contrato_versao_id=$1 LIMIT 1',[v.id])).rows.length>0;
             exigirVersaoEditavel(v,e,c.id,f?.versao_em_preparacao_id,assinatura);
@@ -235,7 +262,8 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             if(hashSnapshotContrato(atual)!==hashSnapshotContrato(gravado)) conflito('Dados de origem mudaram. Salve a revisão para atualizar o documento antes de gerar, revisar ou assinar.');
         }
         if(input.acao==='editar_festa') {
-            if(preparacao){const nova=await editarPreparacao(tx,preparacao,input,rc);return salvarElaboracao(tx,v,e,s,await snapshotPreparacao(tx,nova,v));}
+            // empresaAutorizada já foi provada no início, para toda ação e qualquer payload.
+            if(preparacao){const nova=await editarPreparacao(tx,preparacao,input,{...rc,empresaAutorizada});return salvarElaboracao(tx,v,e,s,await snapshotPreparacao(tx,nova,v));}
             if(f?.versao_vigente_id || e.estado!=='EM_ELABORACAO' || f?.versao_em_preparacao_id!==v.id) conflito('Preparação documental anterior à revisão operacional. Cancele esta proposta e crie uma nova versão para editar a festa.');
             if(e.origem_versao_id) {
                 const fonte=await fonteDaRevisaoInicial(v,await fontesEdicao(c.fechamento_id,tx),tx);
@@ -248,10 +276,10 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             const fonte=await fontesEdicao(c.fechamento_id,tx);
             if(fonte.fonteHash!==input.fonteHash) conflito('Dados de origem mudaram. Reabra a edição para não sobrescrever outra alteração.');
             const fechamento=await editarFechamentoAdministrativo(c.fechamento_id,input,s.usuario_id,context.requestId,tx);
-            if(input.cliente) await atualizarClienteInterno(v.snapshot.contratante.clienteId,input.cliente,{usuarioId:s.usuario_id,origem:'CRM_INTERNO',...context},tx);
-            if(input.aniversariante) {
-                await atualizarAniversarianteInterno(v.snapshot.aniversariante.id,v.snapshot.contratante.clienteId,input.aniversariante,{usuarioId:s.usuario_id,origem:'CRM_INTERNO',...context},tx);
-            }
+            if(input.cliente)
+                await atualizarClienteInterno(v.snapshot.contratante.clienteId,empresaAutorizada,input.cliente,{usuarioId:s.usuario_id,origem:'CRM_INTERNO',...context},tx);
+            if(input.aniversariante)
+                await atualizarAniversarianteInterno(v.snapshot.aniversariante.id,v.snapshot.contratante.clienteId,empresaAutorizada,input.aniversariante,{usuarioId:s.usuario_id,origem:'CRM_INTERNO',...context},tx);
             const {snapshot}=await carregarSnapshot(fechamento,tx);
             return salvarElaboracao(tx,v,e,s,{...snapshot,documental:{observacoes:e.dados_fonte.observacoesDocumentais ?? ''}} as unknown as typeof snapshot);
         }

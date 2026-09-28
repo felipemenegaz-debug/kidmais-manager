@@ -25,7 +25,8 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
     let contratoStatus=vigente?'ASSINADO':'AGUARDANDO_ASSINATURA';
     const tx={query:async(sql:string,p:unknown[]=[])=>{
         sqls.push(sql);let rows:unknown[]=[];
-        if(sql.startsWith('SELECT id,fechamento_id,status'))rows=[{id:'c',fechamento_id:'f',status:contratoStatus}];
+        if(sql.startsWith('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE'))rows=p[1]==='empresa-a'?[{id:'f'}]:[];
+        else if(sql.startsWith('SELECT id,fechamento_id,status'))rows=[{id:'c',fechamento_id:'f',status:contratoStatus}];
         else if(sql.startsWith('SELECT status FROM contratos'))rows=[{status:contratoStatus}];
         else if(sql.startsWith('SELECT * FROM contrato_fluxos'))rows=[{...fluxo}];
         else if(sql.startsWith('SELECT * FROM contrato_edicoes'))rows=[{contrato_id:'c',contrato_versao_id:p[0],origem_versao_id:p[0]==='v1'?null:'v1',estado:edicoes[String(p[0])],revisao:1,dados_fonte:{schemaVersao:1}}];
@@ -51,7 +52,9 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
         './alteracoes':{diferencasContratuais},
         './revisao-inicial':carregar('lib/contratos/services/revisao-inicial.ts',{'./errors':{ContratoServiceError:Falha}}),
         './contrato.service':{carregarSnapshot:async()=>({snapshot})},
-        '../../fechamentos/repositories':{buscarFechamentoPorIdParaAtualizacao:async()=>({id:'f'})},
+        // PR-B1: toda ação prova o tenant da sessão e o compara com a empresa do fechamento.
+        '../../saas/provar-tenant':{provarTenant:async()=>({empresaComprovada:'empresa-a',membershipId:'m',usuarioId:'u'})},
+        '../../fechamentos/repositories':{buscarFechamentoPorIdParaAtualizacao:async()=>({id:'f'}),empresaDoFechamentoSemTrava:async()=>'empresa-a'},
         '../repositories':{buscarVersaoPorId:async(id:string)=>versoes.find(v=>v.id===id),criarContratoVersao:async(v:typeof original)=>{const next={...v,id:'v'+(versoes.length+1),status:'ATIVA'};versoes.push(next);return next;}},
         '../../fechamentos/repositories/revisao.repository':{
             buscarRevisaoDaVersao:async()=>vigente?antiga:null,

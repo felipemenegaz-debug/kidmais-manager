@@ -128,6 +128,7 @@ type FechamentoBaseFromCatalogoRow = {
   precoPacoteId: string;
   convidadosMin: number;
   valor: string;
+  empresaId: string | null;
 };
 
 type ContagensOperacionais = {
@@ -154,10 +155,8 @@ async function contarDadosOperacionais(): Promise<ContagensOperacionais> {
   return resultado.rows[0];
 }
 
-async function criarFechamentoSintetico(
-  tx: DbExecutor,
-  clienteId: string,
-): Promise<FechamentoTesteRow> {
+// Pacote com empresa: desde a 054, cliente e fechamento novos precisam da mesma empresa comprovada.
+async function modeloDoCatalogo(tx: DbExecutor): Promise<FechamentoBaseFromCatalogoRow> {
   const fromCatalogo = await tx.query<FechamentoBaseFromCatalogoRow>(
     `SELECT
        (SELECT id FROM configuracao_agenda ORDER BY ordem_exibicao LIMIT 1)
@@ -166,11 +165,13 @@ async function criarFechamentoSintetico(
        pp.tabela_preco_id AS "tabelaPrecoId",
        pp.id AS "precoPacoteId",
        pp.convidados_min AS "convidadosMin",
-       pp.valor::text AS valor
+       pp.valor::text AS valor,
+       p.empresa_id::text AS "empresaId"
      FROM precos_pacote pp
      JOIN pacotes p ON p.id = pp.pacote_id
      JOIN tabelas_preco t ON t.id = pp.tabela_preco_id
-     ORDER BY pp.valor
+     WHERE p.empresa_id IS NOT NULL
+     ORDER BY pp.valor, pp.id
      LIMIT 1`,
   );
 
@@ -178,11 +179,18 @@ async function criarFechamentoSintetico(
     fromCatalogo.rows[0],
     "Não foi possível montar fechamento sintético com os catálogos preservados.",
   );
+  return fromCatalogo.rows[0];
+}
 
-  const modelo = fromCatalogo.rows[0];
+async function criarFechamentoSintetico(
+  tx: DbExecutor,
+  clienteId: string,
+  modelo: FechamentoBaseFromCatalogoRow,
+): Promise<FechamentoTesteRow> {
   const convidados = Math.max(1, modelo.convidadosMin);
   const resultado = await tx.query<FechamentoTesteRow>(
     `INSERT INTO fechamentos (
+       empresa_id,
        cliente_id,
        data_evento,
        horario_inicio,
@@ -205,6 +213,7 @@ async function criarFechamentoSintetico(
        origem_fechamento,
        observacoes_equipe
      ) VALUES (
+       (SELECT empresa_id FROM pacotes WHERE id = $3),
        $1,
        (CURRENT_DATE + INTERVAL '14 days')::date,
        '11:00',
@@ -279,8 +288,10 @@ async function main() {
         cpf = gerarCpfValido();
       }
 
+      const modelo = await modeloDoCatalogo(tx);
       const cliente = await criarCliente(
         {
+          empresaId: modelo.empresaId,
           nomeCompleto: `Cliente Sintético IdentityService ${randomUUID()}`,
           cpf,
           whatsapp: "00000000000",
@@ -291,7 +302,7 @@ async function main() {
 
       clienteTesteId = cliente.id;
 
-      const fechamento = await criarFechamentoSintetico(tx, cliente.id);
+      const fechamento = await criarFechamentoSintetico(tx, cliente.id, modelo);
       fechamentoTesteId = fechamento.id;
 
       // ---------------------------------------------------------

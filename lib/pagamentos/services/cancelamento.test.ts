@@ -96,6 +96,8 @@ function ambiente(recebimentos: Row[] = [], consolidado = false, falha = '') {
     '../pagamentos/services/financeiro-consulta.service': {},
     '../autenticacao/service': { consultarSessao: async () => sessao },
     '../autenticacao/papeis': { nomePapelSistema },
+    // Só a consulta de festas prova tenant (PR-B1); o comando de cancelamento não usa este import.
+    '../saas/provar-tenant': { provarTenant: async () => { throw Error('provarTenant não é usado pelo comando de cancelamento'); } },
     '../db/postgres': { withTransaction: async (fn: (executor: unknown) => Promise<unknown>) => {
       const before = structuredClone(state); try { return await fn(tx); } catch (e) { state = before; throw e; }
     } },

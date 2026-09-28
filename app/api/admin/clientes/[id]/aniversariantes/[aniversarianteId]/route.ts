@@ -3,13 +3,14 @@ import { z } from 'zod';
 import { editarAniversarianteInterno } from '@/lib/clientes/services';
 import { apiErrorResponse, jsonNoStore } from '@/lib/http/api-response';
 import { contextoCrmDaRequest, exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
+import { withTenantTransaction } from '@/lib/saas/provar-tenant';
 import { aniversarianteSchema } from '../../../schemas';
 
 type RouteContext = { params: Promise<{ id: string; aniversarianteId: string }> };
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    await exigirApiAdminCrmDisponivel(request);
+    const sessao = await exigirApiAdminCrmDisponivel(request);
     const params = await context.params;
     const clienteId = z.string().uuid().safeParse(params.id);
     const aniversarianteId = z.string().uuid().safeParse(params.aniversarianteId);
@@ -18,7 +19,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const dados = aniversarianteSchema.safeParse(await request.json());
     if (!dados.success)
       return jsonNoStore({ ok: false, erro: 'Dados do aniversariante inválidos.', codigo: 'DADOS_INVALIDOS', detalhes: dados.error.flatten() }, { status: 400 });
-    const data = await editarAniversarianteInterno(clienteId.data, aniversarianteId.data, dados.data, contextoCrmDaRequest(request));
+    const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get('empresaId'), (tx, tenant) =>
+      editarAniversarianteInterno(clienteId.data, tenant.empresaComprovada, aniversarianteId.data, dados.data, contextoCrmDaRequest(request), tx));
     return jsonNoStore({ ok: true, data });
   } catch (error) {
     return apiErrorResponse(error);

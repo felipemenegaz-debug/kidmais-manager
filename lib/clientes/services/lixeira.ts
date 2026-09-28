@@ -12,12 +12,17 @@ export const acaoLixeiraSchema = z.object({
 
 function recusar(message: string) { return new ClienteServiceError('DADOS_INVALIDOS',message,409); }
 
-/** Caller supplies one transaction. Never removes records or changes business links. */
-export async function moverClienteLixeira(tx: DbExecutor, id: string, raw: unknown, ctx: ClienteServiceContext) {
+/**
+ * Caller supplies one transaction. Never removes records or changes business links.
+ * `empresaId` é o tenant comprovado pela rota: cliente de outra empresa ou legado sem empresa
+ * responde como inexistente, antes de qualquer leitura de auditoria.
+ */
+export async function moverClienteLixeira(tx: DbExecutor, empresaId: string, id: string, raw: unknown, ctx: ClienteServiceContext) {
     const p = acaoLixeiraSchema.parse(raw);
     if (!ctx.usuarioId) throw new ClienteServiceError('AUTENTICACAO_ADMINISTRATIVA','Autenticação administrativa obrigatória.',401);
+    if (typeof empresaId !== 'string' || empresaId === '') throw new ClienteServiceError('AUTENTICACAO_ADMINISTRATIVA','Empresa administrativa não comprovada.',403);
     const atual = (await tx.query<{ status: string; mesma: boolean }>(
-        'SELECT status,atualizado_em=$2::timestamptz AS mesma FROM clientes WHERE id=$1 FOR UPDATE',[id,p.atualizadoEm])).rows[0];
+        'SELECT status,atualizado_em=$2::timestamptz AS mesma FROM clientes WHERE id=$1 AND empresa_id=$3::uuid FOR UPDATE',[id,p.atualizadoEm,empresaId])).rows[0];
     if (!atual) throw new ClienteServiceError('CLIENTE_NAO_ENCONTRADO','Cliente não encontrado.',404);
     const anterior = (await tx.query<{ usuario_id: string; justificativa: string; dados_depois: Record<string, unknown> }>(
         "SELECT usuario_id,justificativa,dados_depois FROM auditoria WHERE entidade_tipo='CLIENTE' AND entidade_id=$1 AND request_id=$2 AND acao IN ('CLIENTE_ARQUIVAR','CLIENTE_EXCLUIR','CLIENTE_RESTAURAR')",[id,p.chave])).rows[0];
@@ -30,7 +35,7 @@ export async function moverClienteLixeira(tx: DbExecutor, id: string, raw: unkno
     if (atual.status !== (p.acao === 'RESTAURAR' ? 'INATIVO' : 'ATIVO')) throw recusar('Situação do cliente mudou. Recarregue antes de confirmar.');
     const status = p.acao === 'RESTAURAR' ? 'ATIVO' : 'INATIVO';
     const quando = (await tx.query<{ quando: string }>(
-        'UPDATE clientes SET status=$2,atualizado_por_usuario_id=$3,atualizado_em=clock_timestamp() WHERE id=$1 RETURNING clock_timestamp()::text AS quando',[id,status,ctx.usuarioId])).rows[0].quando;
+        'UPDATE clientes SET status=$2,atualizado_por_usuario_id=$3,atualizado_em=clock_timestamp() WHERE id=$1 AND empresa_id=$4::uuid RETURNING clock_timestamp()::text AS quando',[id,status,ctx.usuarioId,empresaId])).rows[0].quando;
     const depois = { status, acao: p.acao, quando, base: p.atualizadoEm };
     await registrarAuditoria({ clienteId:id, atorTipo:'USUARIO', usuarioId:ctx.usuarioId, acao:`CLIENTE_${p.acao}`, entidadeTipo:'CLIENTE', entidadeId:id,
         dadosAntes:{status:atual.status},dadosDepois:depois,justificativa:p.motivo,origem:'CRM_INTERNO',requestId:p.chave },tx);
@@ -50,9 +55,11 @@ export const consultaLixeiraSql = `SELECT c.id,c.nome_completo AS nome,c.status,
  WHERE entidade_tipo='CLIENTE' AND entidade_id=c.id AND acao IN ('CLIENTE_ARQUIVAR','CLIENTE_EXCLUIR','CLIENTE_RESTAURAR')
  ORDER BY (dados_depois->>'quando')::timestamptz DESC,criado_em DESC,id DESC LIMIT 1
  ) a ON true LEFT JOIN usuarios_administrativos u ON u.id=a.usuario_id
- WHERE (($1::uuid IS NULL AND c.status='INATIVO') OR c.id=$1::uuid)
+ WHERE c.empresa_id=$4::uuid AND (($1::uuid IS NULL AND c.status='INATIVO') OR c.id=$1::uuid)
  ORDER BY c.nome_completo,c.id LIMIT $2 OFFSET $3`;
 
-export async function consultarLixeira(tx: DbExecutor, id?: string, offset = 0) {
-    return (await tx.query(consultaLixeiraSql,[id??null,id?1:50,offset])).rows;
+/** `empresaId` é o tenant comprovado; o filtro está na consulta, antes de ORDER BY/LIMIT. */
+export async function consultarLixeira(tx: DbExecutor, empresaId: string, id?: string, offset = 0) {
+    if (typeof empresaId !== 'string' || empresaId === '') throw new ClienteServiceError('AUTENTICACAO_ADMINISTRATIVA','Empresa administrativa não comprovada.',403);
+    return (await tx.query(consultaLixeiraSql,[id??null,id?1:50,offset,empresaId])).rows;
 }
