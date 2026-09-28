@@ -66,6 +66,7 @@ test("mudança de convidados sem trocar o pacote também cria fotografia", async
       }),
       listarAdicionaisDoFechamento: async () => [],
       criarAprovacaoNegociacao: async () => {},
+      empresaDoFechamento: async () => null,
     },
     "lib/fechamentos/repositories/edicao.repository.ts": { persistirEdicaoFechamento: async () => {} },
     "lib/clientes/repositories/index.ts": { registrarAuditoria: async (evento: Record<string, unknown>) => { auditoria.push(evento); } },

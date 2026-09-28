@@ -440,6 +440,26 @@ export async function buscarFechamentoPorIdParaAtualizacao(
   return result.rows[0] ? mapFechamento(result.rows[0]) : null;
 }
 
+/**
+ * Empresa do fechamento, pela empresa do pacote gravado (o fechamento não tem empresa_id).
+ * Vem do banco, nunca do pedido. `null` é o legado sem empresa; fechamento inexistente
+ * devolve `undefined` para o chamador recusar.
+ */
+export async function empresaDoFechamento(
+  fechamentoId: string,
+  customDb: DbExecutor,
+): Promise<string | null | undefined> {
+  const result = await executor(customDb).query<{ empresa_id: string | null }>(
+    `SELECT p.empresa_id::text AS empresa_id
+       FROM fechamentos f
+       JOIN pacotes p ON p.id = f.pacote_id
+      WHERE f.id = $1::uuid
+      FOR SHARE OF f`,
+    [fechamentoId],
+  );
+  return result.rows[0] ? result.rows[0].empresa_id : undefined;
+}
+
 export async function marcarFechamentoContratoAssinado(
   fechamentoId: string,
   customDb?: DbExecutor,
