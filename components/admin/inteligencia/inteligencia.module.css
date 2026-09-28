@@ -1,0 +1,83 @@
+/* Kidmais Intelligence — reaproveita tokens e superfícies do Admin V1 (visual.module.css / tokens.module.css). */
+
+/* Card do Dashboard */
+.cardInicio { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.cardRodape { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.perguntaFeita { margin: 0 0 12px; color: var(--km-text-2); font-size: 13px; font-weight: 600; }
+.botaoDiscreto { composes: fantasma from "../visual.module.css"; min-height: 40px; padding: 8px 14px; font-size: 13px; color: var(--km-text-2); }
+
+/* Resposta */
+.resposta { display: flex; flex-direction: column; gap: 14px; }
+.resumo { margin: 0; color: var(--km-text); font-size: 16px; line-height: 1.5; font-weight: 500; }
+.resumoVazio { margin: 0; color: var(--km-text-2); font-size: 15px; line-height: 1.5; }
+.itens { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.item { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); color: inherit; text-decoration: none; transition: border-color .2s ease, background .2s ease; }
+.itemTexto { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.itemTexto strong { font-size: 15px; font-weight: 700; }
+.itemTexto small { color: var(--km-text-2); font-size: 13px; }
+.seta { color: var(--km-text-2); font-size: 18px; }
+.ponto { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--km-teal); }
+.ponto[data-prioridade="alta"] { background: var(--km-orange); }
+.ponto[data-prioridade="media"] { background: #e3c55a; }
+.evidencias { border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 10px; }
+.evidencias summary { cursor: pointer; width: fit-content; color: var(--km-text-2); font-size: 13px; font-weight: 600; border-radius: 6px; }
+.evidencias ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.evidencias li { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--km-text); font-size: 13px; }
+.evidencias li span { color: var(--km-text-2); min-width: 150px; }
+.evidencias .observacao { color: var(--km-text-2); }
+.referencia { margin: 0; color: var(--km-text-2); font-size: 12px; }
+
+/* Estados */
+.carregando { display: grid; gap: 8px; }
+.carregando span { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(255,255,255,.09), rgba(255,255,255,.04)); background-size: 200% 100%; animation: brilho 1.4s ease infinite; }
+.carregando span + span { width: 62%; }
+.carregando p { margin: 4px 0 0; color: var(--km-text-2); font-size: 13px; }
+.erro { margin: 0; color: #fca5a5; font-size: 14px; }
+@keyframes brilho { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+/* Drawer */
+.camada { position: fixed; inset: 0; z-index: 70; }
+.cortina { position: absolute; inset: 0; border: 0; background: rgba(4, 6, 14, .6); cursor: pointer; animation: surgir .18s ease; }
+.drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(460px, 100vw); display: flex; flex-direction: column; border-left: 1px solid rgba(255, 255, 255, 0.08); background: color-mix(in srgb, var(--km-card) 94%, transparent); backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%); box-shadow: -24px 0 60px -30px rgba(0, 0, 0, 0.8); animation: entrar .22s ease; }
+.drawerTopo { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 24px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.drawerTopo h2 { margin: 0; font-size: 18px; letter-spacing: -0.01em; }
+.drawerTopo p { margin: 4px 0 0; color: var(--km-text-2); font-size: 13px; }
+.fechar { flex: none; width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--km-border); background: transparent; color: var(--km-text); font-size: 22px; line-height: 1; cursor: pointer; }
+.historico { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 22px; }
+.inicio { display: grid; gap: 10px; }
+.inicio > p { margin: 0; color: var(--km-text-2); font-size: 13px; }
+.sugestao { display: grid; gap: 4px; text-align: left; padding: 14px 16px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--km-violet) 32%, transparent); background: color-mix(in srgb, var(--km-violet) 8%, transparent); color: var(--km-text); font: inherit; cursor: pointer; }
+.sugestao strong { font-size: 15px; }
+.sugestao small { color: var(--km-text-2); font-size: 13px; }
+.nota { color: var(--km-text-2); font-size: 12px; }
+.troca { display: grid; gap: 12px; }
+.pergunta { justify-self: end; max-width: 88%; margin: 0; padding: 10px 14px; border-radius: 14px 14px 4px 14px; background: color-mix(in srgb, var(--km-violet) 18%, transparent); color: var(--km-text); font-size: 14px; overflow-wrap: anywhere; }
+.indisponivel { display: grid; gap: 8px; }
+.indisponivel p { margin: 0; font-size: 15px; }
+.indisponivel p + p { color: var(--km-text-2); font-size: 13px; }
+.sugestaoCurta { justify-self: start; padding: 8px 12px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--km-teal) 35%, transparent); background: transparent; color: var(--km-teal); font: 600 13px/1.3 var(--admin-font); cursor: pointer; }
+.formulario { display: flex; gap: 8px; padding: 16px 24px 24px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.formulario input { flex: 1; min-width: 0; min-height: 44px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--km-border); background: var(--input-bg); color: var(--km-text); font: 400 15px var(--admin-font); }
+.formulario input:focus { background: var(--input-focus-bg); border-color: color-mix(in srgb, var(--km-violet) 55%, transparent); }
+.enviar { composes: primario from "../visual.module.css"; flex: none; }
+.oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.camada :focus-visible, .resposta :focus-visible, .cardInicio :focus-visible, .cardRodape :focus-visible { outline: 2px solid var(--km-lilac); outline-offset: 2px; }
+
+@keyframes entrar { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes surgir { from { opacity: 0; } to { opacity: 1; } }
+
+@media (hover: hover) {
+  .item:hover { border-color: color-mix(in srgb, var(--km-violet) 40%, transparent); background: rgba(255, 255, 255, 0.035); }
+  .sugestao:hover { border-color: color-mix(in srgb, var(--km-violet) 55%, transparent); }
+  .fechar:hover { border-color: color-mix(in srgb, var(--km-violet) 45%, transparent); }
+}
+@media (max-width: 800px) {
+  .drawer { width: 100vw; border-left: 0; }
+  .drawerTopo, .historico, .formulario { padding-left: 16px; padding-right: 16px; }
+  .evidencias li span { min-width: 0; width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .cortina, .carregando span { animation: none; }
+  .item { transition: none; }
+}

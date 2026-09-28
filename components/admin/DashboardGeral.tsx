@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { reaisDe } from '@/lib/financeiro/calculos';
 import styles from './dashboard.module.css';
+import InteligenciaCard from './InteligenciaCard';
 
 type Festa = { id: string; data: string; cliente: string; pacote: string; convidados: number; status: string; hora: string };
 type Atencao = { tom: 'alerta' | 'aviso'; titulo: string; detalhe: string; href: string };
@@ -91,6 +92,8 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
         <article className={`${styles.kpi} ${styles.receber}`}><strong>{reaisDe(painel.numeros.aReceberCentavos)}</strong><span>A receber total</span></article>
         <article className={`${styles.kpi} ${styles.atraso}`}><strong>{reaisDe(painel.numeros.emAtrasoCentavos)}</strong><span>Em atraso</span></article>
       </section>
+
+      <InteligenciaCard />
 
       <section className={`${styles.cartao} ${styles.largo} ${styles.agenda}`}>
         <div className={styles.cabeca}><h2 className={styles.lilas}>Agenda de hoje</h2><Link href="/admin/disponibilidade">Ver agenda completa</Link></div>

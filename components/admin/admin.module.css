@@ -25,3 +25,6 @@
 .anchor:focus { outline:2px solid var(--lilac-accent); outline-offset:6px; border-radius:8px; }
 .financialAnchor { min-height:calc(100svh - 40px); }
 @media(max-width:800px) { .page { padding:24px 16px; } .card { padding:24px; } .page fieldset { padding:16px; } .tableWrap table { min-width:560px; } .login { margin:24px 16px; width:calc(100% - 32px); } }
+.tituloContratos { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 16px; margin-bottom:24px; }
+.page .tituloContratos h1 { margin:0; }
+.importarContrato { composes: secundario from './visual.module.css'; }
