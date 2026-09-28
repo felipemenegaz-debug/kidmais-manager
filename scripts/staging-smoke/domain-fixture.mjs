@@ -41,7 +41,7 @@ export function fixture(root, env, smokeId) {
   const saveAudit = async input => { if (failAudit && input.acao === auditAction) throw new Error('synthetic audit failure'); state.audits.push(structuredClone(input)); };
   set('lib/db/postgres.ts', { db: () => tx, withTransaction: async work => work(tx) });
   set('lib/clientes/repositories/index.ts', {
-    buscarClienteCanonicoPorCpf: async cpf => cpf === customer.cpf ? customer : null,
+    buscarClienteCanonicoPorCpfParaIdentidade: async cpf => cpf === customer.cpf ? customer : null,
     buscarClienteCanonicoPorId: async cid => cid === customer.id ? customer : null,
     registrarAuditoria: saveAudit, registrarEventoHistorico: async x => state.history.push(structuredClone(x)),
   });

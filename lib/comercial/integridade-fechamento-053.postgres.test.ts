@@ -486,12 +486,15 @@ async function principal(db: Client, fonte: string) {
     assert.deepEqual(porCodigoB.map((item) => item.id), [b.adicional]);
 
     // Serviço: a empresa do fechamento vem do banco.
-    const empresaDoFechamento = carregarModulo("lib/fechamentos/repositories/fechamento.repository.ts").empresaDoFechamento as
-      (fechamentoId: string, tx: DbExecutor) => Promise<string | null | undefined>;
-    assert.equal(await empresaDoFechamento(fechamentoA, executor(db)), a.empresa);
-    assert.equal(await empresaDoFechamento(fechamentoB, executor(db)), b.empresa);
-    assert.equal(await empresaDoFechamento(fechamentoLegado, executor(db)), null);
-    assert.equal(await empresaDoFechamento(randomUUID(), executor(db)), undefined);
+    // PR-B1: variantes explícitas sem trava (autorização) e com trava (pós-autorização).
+    const repositorio = carregarModulo("lib/fechamentos/repositories/fechamento.repository.ts");
+    for (const nome of ["empresaDoFechamentoSemTrava", "empresaDoFechamentoComTrava"]) {
+      const empresaDoFechamento = repositorio[nome] as (fechamentoId: string, tx: DbExecutor) => Promise<string | null | undefined>;
+      assert.equal(await empresaDoFechamento(fechamentoA, executor(db)), a.empresa);
+      assert.equal(await empresaDoFechamento(fechamentoB, executor(db)), b.empresa);
+      assert.equal(await empresaDoFechamento(fechamentoLegado, executor(db)), null);
+      assert.equal(await empresaDoFechamento(randomUUID(), executor(db)), undefined);
+    }
 
     // Todo o estado válido acima passaria no COMMIT (gatilhos diferidos e chaves estrangeiras).
     await db.query("SET CONSTRAINTS ALL IMMEDIATE");

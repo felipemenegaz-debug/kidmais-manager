@@ -264,6 +264,11 @@ function mapAprovacao(row: AprovacaoNegociacaoRow): AprovacaoNegociacaoRecord {
   };
 }
 
+/**
+ * empresa_id vem por subconsulta no próprio pacote_id sendo gravado — nunca de um valor do
+ * input/caller. A trigger fechamentos_054_empresa_coerente_trg (migration 054) reforça isso no
+ * banco para qualquer outro caminho de escrita.
+ */
 export async function criarFechamento(
   input: CreateFechamentoInput,
   customDb?: DbExecutor,
@@ -272,6 +277,7 @@ export async function criarFechamento(
   if(!escolhas && [input.buffetLembrancinha,input.buffetEmpratado,input.buffetBombom].some(v=>!!v))throw new Error("Escolhas adicionais ainda indisponíveis neste ambiente.");
   const result = await executor(customDb).query<FechamentoRow>(
     `INSERT INTO fechamentos (
+       empresa_id,
        cliente_id,
        aniversariante_id,
        data_evento,
@@ -315,6 +321,7 @@ export async function criarFechamento(
        buffet_outros,
        condicao_pagamento ${escolhas ? ",buffet_lembrancinha,buffet_empratado,buffet_bombom" : ""}
      ) VALUES (
+       (SELECT empresa_id FROM public.pacotes WHERE id = $7::uuid),
        $1::uuid,
        $2::uuid,
        $3::date,
@@ -440,24 +447,38 @@ export async function buscarFechamentoPorIdParaAtualizacao(
   return result.rows[0] ? mapFechamento(result.rows[0]) : null;
 }
 
-/**
- * Empresa do fechamento, pela empresa do pacote gravado (o fechamento não tem empresa_id).
- * Vem do banco, nunca do pedido. `null` é o legado sem empresa; fechamento inexistente
- * devolve `undefined` para o chamador recusar.
+/*
+ * Empresa do fechamento. Desde a migration 054, lê a coluna própria `fechamentos.empresa_id`
+ * (imutável e coerente com `pacotes.empresa_id` pelas triggers da 054). Vem do banco, nunca do
+ * pedido. `null` é o legado sem empresa; fechamento inexistente devolve `undefined` para o
+ * chamador recusar. Duas variantes explícitas — nenhum helper ambíguo esconde lock:
+ *   - SemTrava: autorização. Leitura simples; tenant A nunca trava nem espera linha de B.
+ *   - ComTrava: só depois de o tenant ser comparado (FOR SHARE estabiliza o fechamento no cálculo).
  */
-export async function empresaDoFechamento(
-  fechamentoId: string,
-  customDb: DbExecutor,
-): Promise<string | null | undefined> {
+async function lerEmpresaDoFechamento(fechamentoId: string, customDb: DbExecutor, trava: boolean) {
   const result = await executor(customDb).query<{ empresa_id: string | null }>(
-    `SELECT p.empresa_id::text AS empresa_id
-       FROM fechamentos f
-       JOIN pacotes p ON p.id = f.pacote_id
-      WHERE f.id = $1::uuid
-      FOR SHARE OF f`,
+    `SELECT empresa_id::text AS empresa_id
+       FROM fechamentos
+      WHERE id = $1::uuid${trava ? "\n      FOR SHARE" : ""}`,
     [fechamentoId],
   );
   return result.rows[0] ? result.rows[0].empresa_id : undefined;
+}
+
+/** Autorização (antes de qualquer lock de domínio): sem FOR SHARE/UPDATE. */
+export async function empresaDoFechamentoSemTrava(
+  fechamentoId: string,
+  customDb: DbExecutor,
+): Promise<string | null | undefined> {
+  return lerEmpresaDoFechamento(fechamentoId, customDb, false);
+}
+
+/** Pós-autorização: trava o fechamento (FOR SHARE). Nunca usar antes de comparar o tenant. */
+export async function empresaDoFechamentoComTrava(
+  fechamentoId: string,
+  customDb: DbExecutor,
+): Promise<string | null | undefined> {
+  return lerEmpresaDoFechamento(fechamentoId, customDb, true);
 }
 
 export async function marcarFechamentoContratoAssinado(

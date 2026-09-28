@@ -9,7 +9,8 @@ function json(data:unknown,status=200){return NextResponse.json(data,{status,hea
 async function processar(request:NextRequest,write:boolean){try{
  await ambienteFesta(); // Before the shared guard: never refresh a real-database session from Festa.
  await exigirApiAdminCrmDisponivel(request);
- const ctx={token:tokenAdmin(request),requestId:randomUUID(),userAgent:request.headers.get('user-agent')?.slice(0,1000)??null};
+ // `?empresaId=` só escolhe entre memberships ATIVA do próprio usuário (provarTenant no serviço).
+ const ctx={token:tokenAdmin(request),requestId:randomUUID(),userAgent:request.headers.get('user-agent')?.slice(0,1000)??null,empresaSolicitada:request.nextUrl.searchParams.get('empresaId')};
  const recurso=request.nextUrl.searchParams.get('recurso');
  const rawId=request.nextUrl.searchParams.get('id');const id=rawId?z.string().uuid().parse(rawId).toLowerCase():undefined;
  const rawCliente=request.nextUrl.searchParams.get('clienteId');const clienteId=rawCliente?z.string().uuid().parse(rawCliente).toLowerCase():undefined;

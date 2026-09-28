@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { consultarSessao, authError, type SessaoAdmin } from '../../autenticacao/service';
 import { withTransaction } from '../../db/postgres';
 import type { DbExecutor } from '../../db/contracts';
-import { buscarClienteCanonicoPorId, listarAniversariantesDoCliente, listarResponsaveisDoCliente,
+import { buscarClienteCanonicoPorId, buscarClientePorId, listarAniversariantesDoCliente, listarResponsaveisDoCliente,
     registrarAuditoria, registrarEventoHistorico } from '../../clientes/repositories';
+import { executarNoTenant } from '../../saas/provar-tenant';
 import { validarCadastroBasicoCliente, camposFaltantesParaContrato } from '../../clientes/services/validators';
 import { revalidarHorarioSelecionado } from '../../disponibilidade/services';
 import { buscarPacoteAtivoPorCodigo } from '../../comercial/repositories';
@@ -14,19 +15,27 @@ import { fechamentoAdministrativoSchema } from '../administrativo-schema';
 import { criarFechamentoComercial } from './fechamento.service';
 import { FechamentoServiceError } from './errors';
 
-type Contexto = { token: string; requestId: string; userAgent: string | null };
+type Contexto = { token: string; requestId: string; userAgent: string | null; empresaSolicitada?: string | null };
 export function exigirPapelFechamento(sessao: SessaoAdmin) {
     if (!['ADMINISTRATIVO', 'REPRESENTANTE_AUTORIZADO'].includes(sessao.papel)) {
         throw authError('Papel não autorizado para iniciar Fechamento.', 403);
     }
 }
 
-async function carregarCliente(id: string, tx: DbExecutor, escrita: boolean) {
+/**
+ * Cliente no tenant comprovado da sessão. Cliente de outra empresa, ou legado sem empresa,
+ * responde como inexistente: esta rota não contorna o GET/PATCH principal do cliente.
+ */
+async function carregarCliente(id: string, empresaId: string, tx: DbExecutor, escrita: boolean) {
     const seletor = z.string().uuid().parse(id).toLowerCase();
     // Mesma ordem de lock da edição cadastral. Releitura no POST evita usar o GET como autorização.
-    if (escrita) await tx.query('SELECT id FROM clientes WHERE id=$1 FOR UPDATE', [seletor]);
+    if (escrita) await tx.query('SELECT id FROM clientes WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE', [seletor, empresaId]);
+    const original = await buscarClientePorId(seletor, tx);
     const cliente = await buscarClienteCanonicoPorId(seletor, tx);
-    if (!cliente) throw new FechamentoServiceError('DADOS_INVALIDOS', 'Cliente não encontrado.', 404);
+    if (!original || !cliente || original.empresaId === null || original.empresaId !== empresaId
+        || cliente.empresaId === null || cliente.empresaId !== empresaId) {
+        throw new FechamentoServiceError('DADOS_INVALIDOS', 'Cliente não encontrado.', 404);
+    }
     if (escrita && cliente.id !== seletor) {
         throw new FechamentoServiceError('DADOS_INVALIDOS', 'Cadastro mesclado. Abra e confira o cliente principal antes de concluir.', 409);
     }
@@ -41,8 +50,10 @@ async function carregarCliente(id: string, tx: DbExecutor, escrita: boolean) {
 
 export async function obterContextoFechamentoAdministrativo(id: string, contexto: Contexto) {
     return withTransaction(async tx => {
-        exigirPapelFechamento(await consultarSessao(contexto.token, tx));
-        return carregarCliente(id, tx, false);
+        const sessao = await consultarSessao(contexto.token, tx);
+        exigirPapelFechamento(sessao);
+        return executarNoTenant(tx, sessao, contexto.empresaSolicitada, (t, tenant) =>
+            carregarCliente(id, tenant.empresaComprovada, t, false));
     });
 }
 
@@ -50,8 +61,14 @@ export async function criarFechamentoAdministrativo(id: string, raw: unknown, co
     return withTransaction(async tx => {
         const sessao = await consultarSessao(contexto.token, tx, true);
         exigirPapelFechamento(sessao);
+        return executarNoTenant(tx, sessao, contexto.empresaSolicitada, (t, tenant) =>
+            criarNoTenant(id, raw, contexto, sessao, tenant.empresaComprovada, t));
+    });
+}
+
+async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessao: SessaoAdmin, empresaId: string, tx: DbExecutor) {
         const input = fechamentoAdministrativoSchema.parse(raw);
-        const { cliente, aniversariantes, responsaveis } = await carregarCliente(id, tx, true);
+        const { cliente, aniversariantes, responsaveis } = await carregarCliente(id, empresaId, tx, true);
         // Evita alteração concorrente dos vínculos entre a conferência e a gravação.
         await tx.query('SELECT id FROM aniversariantes WHERE id=$1 FOR UPDATE', [input.aniversarianteId]);
         const atualizados = (await listarAniversariantesDoCliente(cliente.id, {}, tx));
@@ -105,5 +122,4 @@ export async function criarFechamentoAdministrativo(id: string, raw: unknown, co
         await registrarAuditoria({ ...evento, atorTipo: 'USUARIO', acao: 'FECHAMENTO_CRIADO', requestId: contexto.requestId,
             userAgent: contexto.userAgent, dadosDepois: { status: resultado.fechamento.status, aniversarianteId: aniversariante.id } }, tx);
         return { fechamentoId: resultado.fechamento.id, status: resultado.fechamento.status, clienteId: cliente.id };
-    });
 }

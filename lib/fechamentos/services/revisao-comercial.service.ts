@@ -1,16 +1,29 @@
 import { createHash } from "node:crypto";
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix,
   type PretensaoPixInput, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
+import type { DbExecutor } from "../../db/contracts";
 import { withTransaction } from "../../db/postgres";
 import { registrarAuditoria, registrarEventoHistorico } from "../../clientes/repositories";
-import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao,
+import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamentoComTrava, empresaDoFechamentoSemTrava,
   listarAprovacoesDoFechamento, registrarDecisaoNoFechamento } from "../repositories/fechamento.repository";
 import { FechamentoServiceError } from "./errors";
 
-export async function obterRevisaoComercial(id: string) {
-  const fechamento = await buscarFechamentoPorId(id);
+/**
+ * `empresaId` é o tenant comprovado pela rota. Fechamento de outra empresa, legado sem empresa ou
+ * inexistente respondem igual, antes de ler ou alterar qualquer dado.
+ */
+async function exigirFechamentoDoTenant(id: string, empresaId: string, tx: DbExecutor) {
+  const empresa = typeof empresaId === "string" && empresaId ? await empresaDoFechamentoSemTrava(id, tx) : undefined;
+  if (!empresa || empresa !== empresaId) {
+    throw new FechamentoServiceError("FECHAMENTO_NAO_ENCONTRADO", "Fechamento não encontrado.", 404);
+  }
+}
+
+export async function obterRevisaoComercial(id: string, empresaId: string, tx: DbExecutor) {
+  await exigirFechamentoDoTenant(id, empresaId, tx);
+  const fechamento = await buscarFechamentoPorId(id, tx);
   if (!fechamento) throw new FechamentoServiceError("FECHAMENTO_NAO_ENCONTRADO", "Fechamento não encontrado.", 404);
-  return { fechamento, aprovacoes: await listarAprovacoesDoFechamento(id) };
+  return { fechamento, aprovacoes: await listarAprovacoesDoFechamento(id, tx) };
 }
 
 export type RevisarComercialInput = {
@@ -21,8 +34,8 @@ export type RevisarComercialInput = {
   motivo: string;
 };
 
-export async function revisarComercial(id: string, input: RevisarComercialInput,
-  context: { usuarioId?: string | null; origem: string }) {
+export async function revisarComercial(id: string, empresaId: string, input: RevisarComercialInput,
+  context: { usuarioId?: string | null; origem: string }, customDb?: DbExecutor) {
   if (!input.motivo?.trim() || input.motivo.length > 1000 ||
     !["APROVAR", "RECUSAR"].includes(input.decisao)) {
     throw new FechamentoServiceError("DADOS_INVALIDOS", "Informe decisão e motivo da revisão.");
@@ -34,9 +47,13 @@ export async function revisarComercial(id: string, input: RevisarComercialInput,
     solicitacaoId: input.solicitacaoId.toLowerCase(), decisao: input.decisao,
     baseInformada, propostaAprovada, motivo: input.motivo.trim(),
   })).digest("hex");
-  return withTransaction(async (tx) => {
+  const executar = async (tx: DbExecutor) => {
+    // Autorização sem lock; só então trava e revalida a empresa da linha travada.
+    await exigirFechamentoDoTenant(id, empresaId, tx);
     const f = await buscarFechamentoPorIdParaAtualizacao(id, tx);
-    if (!f) throw new FechamentoServiceError("FECHAMENTO_NAO_ENCONTRADO", "Fechamento não encontrado.", 404);
+    if (!f || await empresaDoFechamentoComTrava(id, tx) !== empresaId) {
+      throw new FechamentoServiceError("FECHAMENTO_NAO_ENCONTRADO", "Fechamento não encontrado.", 404);
+    }
     const historico = await listarAprovacoesDoFechamento(id, tx);
     const anterior = historico.find((a) => a.condicaoPagamento?.solicitacaoId === input.solicitacaoId.toLowerCase());
     if (anterior) {
@@ -91,5 +108,6 @@ export async function revisarComercial(id: string, input: RevisarComercialInput,
       detalhe: aprovada ? "Condição comercial aprovada pela Kidmais." : "Condição comercial recusada pela Kidmais.",
       metadata: { decisaoId: decisao.id } }, tx);
     return { fechamento, decisao, reutilizada: false };
-  });
+  };
+  return customDb ? executar(customDb) : withTransaction(executar);
 }

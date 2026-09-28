@@ -4,7 +4,7 @@ import { calcularResumoComercial } from '../../comercial/services';
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix } from '../../comercial/condicao-pagamento';
 import { consultarDisponibilidadeData } from '../../disponibilidade/services';
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
-import { buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamento, listarAdicionaisDoFechamento } from '../repositories';
+import { buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamentoComTrava, listarAdicionaisDoFechamento } from '../repositories';
 import { persistirEdicaoFechamento } from '../repositories/edicao.repository';
 import { registrarAuditoria } from '../../clientes/repositories';
 import { FechamentoServiceError } from './errors';
@@ -36,7 +36,8 @@ export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoF
     const input = edicaoFestaSchema.parse(raw);
     if (input.vinculos) recusar('Troca de vínculos exige preparação operacional pós-assinatura.');
     // A empresa vem do fechamento gravado; o pacote do pedido não pode trocá-la.
-    const empresaEsperada = await empresaDoFechamento(f.id, tx);
+    // Pós-autorização: os chamadores já compararam o tenant e travaram o fechamento.
+    const empresaEsperada = await empresaDoFechamentoComTrava(f.id, tx);
     if (empresaEsperada === undefined) recusar('Fechamento não encontrado.');
     const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx);
     if (input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))

@@ -10,6 +10,7 @@ import type {
 
 type ClienteRow = {
   id: string;
+  empresa_id: string | null;
   nome_completo: string;
   cpf: string | null;
   rg: string | null;
@@ -139,6 +140,7 @@ function dateOnly(value: Date | string | null) {
 export function mapCliente(row: ClienteRow): ClienteRecord {
   return {
     id: row.id,
+    empresaId: row.empresa_id,
     nomeCompleto: row.nome_completo,
     cpf: row.cpf,
     rg: row.rg,

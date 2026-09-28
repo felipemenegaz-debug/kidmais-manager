@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
-import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, empresaDoFechamento } from '../repositories';
+import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, empresaDoFechamentoComTrava, empresaDoFechamentoSemTrava } from '../repositories';
 import type { FechamentoAdicionalRecord } from '../repositories';
 import { buscarRevisaoDaVersao, criarRevisaoOperacionalRegistro, listarItensRevisao, salvarOperacaoPreparada, aplicarOperacaoPreparada, type RevisaoOperacional } from '../repositories/revisao.repository';
 import { registrarAuditoria, buscarClientePorId, buscarAniversariantePorId, buscarResponsavelPorId } from '../../clientes/repositories';
@@ -22,6 +22,8 @@ type Contexto = {
     requestId?: string | null;
     ip?: string | null;
     userAgent?: string | null;
+    /** Tenant comprovado da sessão administrativa (provarTenant). Só o chamador define. */
+    empresaAutorizada?: string | null;
 };
 function recusar(message: string): never { throw new FechamentoServiceError('DADOS_INVALIDOS', message, 409); }
 async function auditar(tx: DbExecutor, r: RevisaoOperacional, c: Contexto, acao: string, antes: unknown, depois: unknown) { await registrarAuditoria({ atorTipo: c.usuarioId ? 'USUARIO' : c.validacaoIdentidadeId ? 'CLIENTE' : 'SISTEMA', usuarioId: c.usuarioId, clienteId: r.operacao.clienteId, entidadeTipo: 'FECHAMENTO_REVISAO', entidadeId: r.id, origem: 'FECHAMENTO_ADMIN', acao, requestId: c.requestId ?? null, ip: c.ip ?? null, userAgent: c.userAgent ?? null, dadosAntes: antes === null ? null : { estado: antes }, dadosDepois: { resultado: depois, validacaoIdentidadeId: c.validacaoIdentidadeId ?? null } }, tx); }
@@ -113,13 +115,22 @@ export async function aprovarPreparacao(tx: DbExecutor, r: RevisaoOperacional, c
 export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, input: EdicaoFestaInput, c: Contexto) {
     if (r.estado !== 'EM_ELABORACAO' || !c.usuarioId)
         recusar('Preparação congelada ou usuário inválido.');
+    // Qualquer edição (data, pacote, comercial, cadastro, vínculo): tenant comprovado pelo
+    // chamador = empresa do fechamento da revisão, antes de ler ou alterar qualquer campo. Não
+    // depende do payload. Fechamento legado sem empresa falha fechado.
+    const empresaAutorizada = c.empresaAutorizada ?? null;
+    if (!empresaAutorizada)
+        recusar('Editar a preparação exige empresa administrativa comprovada.');
+    const empresaDaRevisao = await empresaDoFechamentoSemTrava(r.fechamento_id, tx);
+    if (!empresaDaRevisao || empresaDaRevisao !== empresaAutorizada)
+        recusar('Editar a preparação exige empresa administrativa comprovada.');
     const fonte = (await fontesPreparacao(r.contrato_versao_id, tx))!;
     if (fonte.fonteHash !== input.fonteHash)
         recusar('A preparação ou o cadastro mudou. Reabra a edição.');
     const f = { ...r.operacao };
     if (input.vinculos) {
         const cliente = await buscarClientePorId(input.vinculos.clienteId, tx);
-        if (!cliente || cliente.status === 'MESCLADO')
+        if (!cliente || cliente.status === 'MESCLADO' || cliente.empresaId === null || cliente.empresaId !== empresaAutorizada)
             recusar('Selecione um cliente canônico válido.');
         const child = await buscarAniversariantePorId(input.vinculos.aniversarianteId, tx);
         if (!child || !child.ativo || child.clienteId !== cliente.id)
@@ -136,11 +147,11 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
     await tx.query('SELECT id FROM clientes WHERE id=$1 FOR UPDATE', [f.clienteId]);
     await tx.query('SELECT id FROM aniversariantes WHERE id=$1 FOR UPDATE', [f.aniversarianteId]);
     if (input.cliente)
-        await atualizarClienteInterno(f.clienteId!, input.cliente, { ...c, usuarioId: c.usuarioId, origem: 'CRM_INTERNO' }, tx);
+        await atualizarClienteInterno(f.clienteId!, empresaAutorizada!, input.cliente, { ...c, usuarioId: c.usuarioId, origem: 'CRM_INTERNO' }, tx);
     if (input.aniversariante)
-        await atualizarAniversarianteInterno(f.aniversarianteId!, f.clienteId!, input.aniversariante, { ...c, usuarioId: c.usuarioId, origem: 'CRM_INTERNO' }, tx);
+        await atualizarAniversarianteInterno(f.aniversarianteId!, f.clienteId!, empresaAutorizada!, input.aniversariante, { ...c, usuarioId: c.usuarioId, origem: 'CRM_INTERNO' }, tx);
     // A empresa vem do fechamento gravado; o pacote do pedido não pode trocá-la.
-    const empresaEsperada = await empresaDoFechamento(r.fechamento_id, tx);
+    const empresaEsperada = await empresaDoFechamentoComTrava(r.fechamento_id, tx);
     if (empresaEsperada === undefined)
         recusar('Fechamento não encontrado.');
     const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx);

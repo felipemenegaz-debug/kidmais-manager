@@ -2,6 +2,7 @@ export type ClienteStatus = "ATIVO" | "INATIVO" | "MESCLADO";
 
 export type ClienteRecord = {
   id: string;
+  empresaId: string | null;
   nomeCompleto: string;
   cpf: string | null;
   rg: string | null;
@@ -26,6 +27,7 @@ export type ClienteRecord = {
 };
 
 export type CreateClienteInput = {
+  empresaId: string | null;
   nomeCompleto: string;
   cpf?: string | null;
   rg?: string | null;
@@ -44,7 +46,7 @@ export type CreateClienteInput = {
 };
 
 export type UpdateClienteInput = Partial<
-  Omit<CreateClienteInput, "usuarioId">
+  Omit<CreateClienteInput, "usuarioId" | "empresaId">
 > & {
   usuarioId?: string | null;
 };

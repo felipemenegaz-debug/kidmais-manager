@@ -162,7 +162,7 @@ function servicoDeEdicao(empresaGravada: string | null | undefined) {
   const recusaDoPreco = new PricingServiceError("PACOTE_NAO_ENCONTRADO", "O pacote informado não existe ou está inativo.", 404);
   const modulo = carregar("lib/fechamentos/services/edicao-administrativa.service.ts", {
     "../repositories": {
-      empresaDoFechamento: async (id: string) => { estado.empresaConsultada.push(id); return empresaGravada; },
+      empresaDoFechamentoComTrava: async (id: string) => { estado.empresaConsultada.push(id); return empresaGravada; },
       buscarFechamentoPorIdParaAtualizacao: async () => { throw new Error("não usado"); },
       criarAprovacaoNegociacao: async () => { throw new Error("não usado"); },
       listarAdicionaisDoFechamento: async () => [],
@@ -210,17 +210,21 @@ test("edição legado: fechamento sem empresa exige pacote também sem empresa (
 
 test("revisão operacional e prévia da edição passam a empresa do fechamento gravado", () => {
   const revisao = readFileSync("lib/fechamentos/services/revisao-operacional.service.ts", "utf8");
-  assert.match(revisao, /const empresaEsperada = await empresaDoFechamento\(r\.fechamento_id, tx\);/);
+  assert.match(revisao, /const empresaEsperada = await empresaDoFechamentoComTrava\(r\.fechamento_id, tx\);/);
   assert.match(revisao, /calcularResumoComercial\(\{[^}]*empresaEsperada \}, tx\)/);
   const rota = readFileSync("app/api/admin/contratos/versoes/[versaoId]/edicao/route.ts", "utf8");
-  assert.match(rota, /const empresaId = await empresaDoFechamento\(v\.snapshot\.fechamento\.id, db\(\)\);/);
-  assert.match(rota, /listarPacotesComerciais\(\{ data, configuracaoAgendaId, empresaId \}\)/);
-  assert.match(rota, /listarCatalogoAdicionais\(\{ data, convidados, empresaId \}\)/);
+  // PR-B1: a empresa do fechamento gravado vem de versaoDoTenant (empresaDoFechamentoSemTrava, sem lock) e só é
+  // usada depois de conferida contra o tenant comprovado da sessão.
+  assert.match(rota, /const \{ versao: v, empresaId \} = await versaoDoTenant\(tx, versaoId, tenant\.empresaComprovada\);/);
+  const administrativo = readFileSync("lib/contratos/services/administrativo.service.ts", "utf8");
+  assert.match(administrativo, /const empresaId = versao \? await empresaDoFechamentoSemTrava\(versao\.snapshot\.fechamento\.id, tx\) : undefined;/);
+  assert.match(rota, /listarPacotesComerciais\(\{ data: dataEvento, configuracaoAgendaId, empresaId \}\)/);
+  assert.match(rota, /listarCatalogoAdicionais\(\{ data: dataEvento, convidados, empresaId \}\)/);
   assert.match(rota, /empresaEsperada: empresaId/);
   // A5: a composição é escopada pela empresa e lida antes do cálculo; não depende do erro do preço.
-  assert.match(rota, /const incluidos = await listarCodigosInclusos\(db\(\), pacoteId, empresaId\);/);
-  assert.ok(rota.indexOf("listarCodigosInclusos(db(), pacoteId, empresaId)") < rota.indexOf("calcularResumoComercial("));
-  assert.doesNotMatch(rota, /listarCodigosInclusos\(db\(\), pacoteId\)/);
+  assert.match(rota, /const incluidos = await listarCodigosInclusos\(tx, pacoteId, empresaId\);/);
+  assert.ok(rota.indexOf("listarCodigosInclusos(tx, pacoteId, empresaId)") < rota.indexOf("calcularResumoComercial("));
+  assert.doesNotMatch(rota, /listarCodigosInclusos\((tx|db\(\)), pacoteId\)/);
   for (const servico of ["lib/fechamentos/services/edicao-administrativa.service.ts", "lib/fechamentos/services/revisao-operacional.service.ts"]) {
     assert.match(readFileSync(servico, "utf8"), /listarCodigosInclusos\(tx, resumo\.pacote\.pacote\.id, empresaEsperada\)/, servico);
   }
