@@ -189,7 +189,11 @@ test("permissões só estreitam (interseção); específica da capacidade vence 
   const r = (await catalogo([soLeitura]).resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "SUGESTAO_TEXTO", capacidade: null }))!;
   assert.ok(r, "READ em comum com a plataforma");
   const soSugestao = skill({ id: "procedimentos_operacionais", finalidades: ["PROCEDIMENTO"], permissoes: { classes: ["SUGGEST"] } });
-  assert.equal(await catalogo([soSugestao]).resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "PROCEDIMENTO", capacidade: null }), null, "sem classe em comum ⇒ não se aplica");
+  // Override que tenta trocar READ por SUGGEST é recusado; a base READ da plataforma continua (A2).
+  alertas.length = 0;
+  const base = (await catalogo([soSugestao]).resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "PROCEDIMENTO", capacidade: null }))!;
+  assert.deepEqual(base.cadeia.map((c) => c.nivel), ["PLATAFORMA"], "override que amplia não entra");
+  assert.ok(alertas.some((a) => a.id === "procedimentos_operacionais" && a.motivos.includes("OVERRIDE_AMPLIA")));
   const especifica = skill({ id: "festa_pendencias_a", finalidades: ["PROCEDIMENTO"], capacidades: ["pendencias_da_festa"], permissoes: { classes: ["READ"] } });
   const e = (await catalogo([especifica]).resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "PROCEDIMENTO", capacidade: "pendencias_da_festa" }))!;
   assert.equal(e.id, "festa_pendencias_a");
@@ -253,4 +257,52 @@ test("conversa: a porta de skill resolve com a empresa COMPROVADA pelo Tenant Co
   const outra = await atenderConversa({ lerCorpo: async () => ({ texto: "Redija uma mensagem de follow-up para a família" }), empresaSolicitada: empresaB }, deps);
   assert.notEqual(outra.status, 200, "empresa sem membership é recusada antes de qualquer skill");
   assert.equal(alvos.length, 1);
+});
+
+// ---------------------------------------------------------------- A2 (auditoria): herança só restringe
+
+test("A2: cadeia resolvida por id ANTES do filtro — override com outra finalidade/classe não substitui a base READ", async () => {
+  alertas.length = 0;
+  // Reprodução do auditor: base PLATAFORMA READ (procedimentos_operacionais, PROCEDIMENTO) + EMPRESA SUGGEST com outra finalidade.
+  const amplia = skill({ id: "procedimentos_operacionais", finalidades: ["SUGESTAO_TEXTO"], permissoes: { classes: ["SUGGEST"] } });
+  const c = catalogo([amplia]);
+  assert.equal(await c.resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "SUGESTAO_TEXTO", capacidade: null }).then((r) => r?.id === "procedimentos_operacionais" ? r : null), null,
+    "a finalidade nova do override não vira caminho para a skill");
+  const base = (await c.resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "PROCEDIMENTO", capacidade: null }))!;
+  assert.deepEqual(base.cadeia.map((x) => x.nivel), ["PLATAFORMA"]);
+  assert.ok(alertas.some((a) => a.motivos.includes("OVERRIDE_AMPLIA")));
+});
+
+test("A2: restrição da plataforma sempre permanece; estabelecimento não amplia a empresa; capacidades só estreitam", async () => {
+  alertas.length = 0;
+  const empresa = skill({ permissoes: { classes: ["READ"] }, capacidades: ["contratos_pendentes"], restricoes: ["Restrição da empresa."] });
+  const unidadeAmplia = skill({ nivel: "ESTABELECIMENTO", escopo: { empresaId: empresaA, estabelecimentoId: unidade1 }, versao: "1.2.0", permissoes: { classes: ["READ", "SUGGEST"] }, conteudo: { tom: "Tom que amplia." } });
+  const unidadeCapacidade = skill({ nivel: "ESTABELECIMENTO", escopo: { empresaId: empresaA, estabelecimentoId: unidade1 }, versao: "1.3.0", permissoes: { classes: ["READ"] }, capacidades: [], conteudo: { tom: "Tom sem capacidade." } });
+  const r = (await catalogo([empresa, unidadeAmplia, unidadeCapacidade]).resolver({ empresaId: empresaA, estabelecimentoId: unidade1, finalidade: "SUGESTAO_TEXTO", capacidade: "contratos_pendentes" }))!;
+  assert.deepEqual(r.cadeia.map((x) => x.nivel), ["PLATAFORMA", "EMPRESA"], "as duas camadas da unidade ampliam (classe; capacidade geral) e são recusadas");
+  assert.equal(alertas.filter((a) => a.motivos.includes("OVERRIDE_AMPLIA")).length, 2);
+  const plataforma = SKILLS_PLATAFORMA.find((s) => s.id === "atendimento_familias")!;
+  for (const x of plataforma.restricoes) assert.ok(r.restricoes.includes(x), `restrição da plataforma: ${x}`);
+  assert.ok(r.restricoes.includes("Restrição da empresa."));
+  // A empresa estreitou a capacidade: fora dela, nenhuma camada da empresa se aplica (só skills gerais da plataforma).
+  const fora = await catalogo([empresa]).resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "SUGESTAO_TEXTO", capacidade: "agenda_do_dia" });
+  assert.ok(!fora || fora.cadeia.every((x) => x.nivel === "PLATAFORMA"));
+});
+
+test("A2: base incompatível com a finalidade pedida ⇒ a cadeia inteira não se aplica; override não traz finalidade nova", async () => {
+  const override = skill({ id: "tom_kidmais", finalidades: ["TOM", "OBJECAO"], conteudo: { tom: "Tom da empresa." } });
+  const c = catalogo([override]);
+  const objecao = await c.resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "OBJECAO", capacidade: null });
+  assert.notEqual(objecao?.id, "tom_kidmais", "tom_kidmais da plataforma não é de OBJECAO: o override não cria esse caminho");
+  const tom = (await c.resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "TOM", capacidade: null }))!;
+  assert.equal(tom.id, "tom_kidmais");
+  assert.deepEqual(tom.cadeia.map((x) => x.nivel), ["PLATAFORMA"], "o override com finalidade extra amplia e é recusado");
+});
+
+test("A2: cross-tenant e cross-establishment continuam fora da cadeia", async () => {
+  const deB = skill({ escopo: { empresaId: empresaB, estabelecimentoId: null }, permissoes: { classes: ["READ"] }, conteudo: { tom: "Tom de B." } });
+  const unidade2A = skill({ nivel: "ESTABELECIMENTO", escopo: { empresaId: empresaA, estabelecimentoId: unidade2 }, permissoes: { classes: ["READ"] }, conteudo: { tom: "Tom unidade 2." } });
+  const r = (await catalogo([deB, unidade2A]).resolver({ empresaId: empresaA, estabelecimentoId: unidade1, finalidade: "SUGESTAO_TEXTO", capacidade: null }))!;
+  assert.deepEqual(r.cadeia.map((x) => x.nivel), ["PLATAFORMA"]);
+  assert.doesNotMatch(JSON.stringify(r), /Tom de B|unidade 2/);
 });

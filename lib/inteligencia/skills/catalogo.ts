@@ -110,15 +110,45 @@ export function criarCatalogoSkills(opcoes: OpcoesCatalogo): CatalogoSkills & { 
   return {
     plataformaValidas: plataforma,
     async resolver(alvo) {
-      const todas = (await candidatas(alvo.empresaId, alvo.estabelecimentoId)).filter((s) => s.finalidades.includes(alvo.finalidade as FinalidadeSkill));
-      // Específica da capacidade (2) > geral da finalidade (1); skill de outra capacidade não conta.
-      const pontua = (s: Skill) => (alvo.capacidade && s.capacidades.includes(alvo.capacidade) ? 2 : s.capacidades.length === 0 ? 1 : 0);
-      const ids = [...new Set(todas.filter((s) => pontua(s) > 0).map((s) => s.id))];
-      if (!ids.length) return null;
-      const melhor = ids.map((id) => {
-        const cadeia = todas.filter((s) => s.id === id && pontua(s) > 0).sort((a, b) => ORDEM_NIVEL[a.nivel] - ORDEM_NIVEL[b.nivel]);
-        return { id, cadeia, pontos: Math.max(...cadeia.map(pontua)), profundidade: ORDEM_NIVEL[cadeia.at(-1)!.nivel] };
-      }).sort((a, b) => b.pontos - a.pontos || b.profundidade - a.profundidade || a.id.localeCompare(b.id))[0];
+      // 1. Cadeia COMPLETA por id, antes de qualquer filtro: Plataforma → Empresa → Estabelecimento. Uma camada nunca
+      //    é descartada por finalidade/capacidade isoladamente (a base não pode sumir e deixar o override sozinho).
+      const porId = new Map<string, Skill[]>();
+      for (const s of await candidatas(alvo.empresaId, alvo.estabelecimentoId)) porId.set(s.id, [...(porId.get(s.id) ?? []), s]);
+      // 2. Composição cumulativa: cada override só ESTREITA o que veio antes (classes, finalidades, capacidades);
+      //    override que amplia é recusado com alerta e a cadeia segue sem ele. Restrições só acumulam (mesclar).
+      const cadeias = [...porId.entries()].map(([id, camadas]) => {
+        const ordenadas = [...camadas].sort((x, y) => ORDEM_NIVEL[x.nivel] - ORDEM_NIVEL[y.nivel] || x.versao.localeCompare(y.versao));
+        const cadeia: Skill[] = [];
+        let finalidades: Set<string> | null = null;
+        let classes: Set<string> | null = null;
+        let capacidades: Set<string> | null = null; // null ⇒ geral (todas)
+        for (const camada of ordenadas) {
+          const f = new Set<string>(camada.finalidades);
+          const c = new Set<string>(camada.permissoes.classes);
+          const cap = camada.capacidades.length ? new Set(camada.capacidades) : null;
+          const amplia = cadeia.length > 0 && (
+            [...f].some((x) => !finalidades!.has(x))
+            || [...c].some((x) => !classes!.has(x))
+            || (capacidades !== null && (cap === null || [...cap].some((x) => !capacidades!.has(x))))
+          );
+          if (amplia) {
+            alertar({ codigo: "SKILL_RECUSADA", id, nivel: camada.nivel, motivos: ["OVERRIDE_AMPLIA"] });
+            continue;
+          }
+          cadeia.push(camada);
+          finalidades = f;
+          classes = c;
+          if (cap !== null) capacidades = cap;
+        }
+        return { id, cadeia, finalidades: finalidades ?? new Set<string>(), capacidades };
+      });
+      // 3. Só então a aplicabilidade, sobre a skill COMPOSTA: finalidade pedida e capacidade (específica 2 > geral 1).
+      const pontua = (capacidades: Set<string> | null) => (capacidades === null ? 1 : alvo.capacidade && capacidades.has(alvo.capacidade) ? 2 : 0);
+      const aplicaveis = cadeias.filter((x) => x.cadeia.length > 0 && x.finalidades.has(alvo.finalidade) && pontua(x.capacidades) > 0);
+      if (!aplicaveis.length) return null;
+      const melhor = aplicaveis
+        .map((x) => ({ ...x, pontos: pontua(x.capacidades), profundidade: ORDEM_NIVEL[x.cadeia.at(-1)!.nivel] }))
+        .sort((x, y) => y.pontos - x.pontos || y.profundidade - x.profundidade || x.id.localeCompare(y.id))[0];
       const { conteudo, restricoes, classes } = mesclar(melhor.cadeia);
       // Sem nenhuma classe comum (um nível estreitou tudo), a skill não se aplica.
       if (classes.size === 0) return null;
