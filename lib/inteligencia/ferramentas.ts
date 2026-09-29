@@ -1,14 +1,48 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import type { TenantComprovado } from "../saas/provar-tenant.ts";
+import type { ClasseAcao, GrupoFlag } from "./contratos.ts";
 import { atencaoHoje } from "./atencao-hoje.ts";
+import { agendaDoDia } from "./leituras/agenda-do-dia.ts";
+import { analisarPagamentos } from "./leituras/analisar-pagamentos.ts";
+import { analisarRecebiveis } from "./leituras/analisar-recebiveis.ts";
+import { contratosPendentes } from "./leituras/contratos-pendentes.ts";
+import { festaEmRisco, pendenciasDaFesta, resumirFesta } from "./leituras/festa.ts";
+import { resumirCliente } from "./leituras/resumir-cliente.ts";
+import { resumirContrato } from "./leituras/resumir-contrato.ts";
 
-/** READ executa; SUGGEST/CONFIRM/DENY existem só para a política recusar enquanto a V1 for somente leitura. */
-export type ClasseFerramenta = "READ" | "SUGGEST" | "CONFIRM" | "DENY";
+/** Reexportado por conveniência de tipo: a classe é a mesma dos contratos estáveis. */
+export type ClasseFerramenta = ClasseAcao;
+
+/**
+ * Portas de domínio, montadas na rota (composition root) com os serviços reais.
+ *
+ * - `festas.consultarDetalhe` é `consultarFestas`: abre a própria transação, prova o tenant e exige a
+ *   capacidade FESTA_CONSULTAR. Não pode rodar dentro da transação do gateway: o `provarTenant` dele
+ *   trava a mesma linha de usuário e ficaria esperando a transação externa.
+ * - `clientes.obter` é `obterClienteBase` (tenant comprovado; outra empresa responde como inexistente).
+ *
+ * Portas ausentes (null) fazem a ferramenta responder com ausência de dados, nunca com invenção.
+ */
+export type PortaFestas = { consultarDetalhe(festaId: string): Promise<unknown> };
+
+/** Subconjunto de `obterClienteBase` usado pela IA. CPF, contato e endereço não são lidos daqui. */
+export type ClienteDominio = {
+  cliente: { nomeCompleto: string; status: string; criadoEm: string };
+  aniversariantes: ReadonlyArray<{ nome: string; dataNascimento: string | null; ativo: boolean }>;
+  responsaveis: readonly unknown[];
+  cadastro: { completoParaContrato: boolean; camposFaltantes: ReadonlyArray<{ campo: string; label: string }> };
+};
+export type PortaClientes = { obter(tx: DbExecutor, empresaId: string, clienteId: string): Promise<ClienteDominio> };
+
+export type PortasDominio = { festas: PortaFestas | null; clientes: PortaClientes | null };
+
+export const SEM_PORTAS: PortasDominio = Object.freeze({ festas: null, clientes: null });
 
 export type ContextoFerramenta = {
   /** Data de referência em America/Sao_Paulo, calculada no servidor. */
   hoje: string;
   geradoEm: string;
+  portas: PortasDominio;
 };
 
 export type ResultadoFerramenta = { estado: string; itens: readonly unknown[] };
@@ -19,22 +53,48 @@ export type ExecucaoFerramenta<R extends ResultadoFerramenta> = (
   contexto: ContextoFerramenta,
 ) => Promise<R>;
 
+/** Execução fora da transação do gateway: o serviço de domínio prova o tenant de novo, sozinho. */
+export type ExecucaoServico<R extends ResultadoFerramenta> = (
+  tenant: TenantComprovado,
+  contexto: ContextoFerramenta,
+) => Promise<R>;
+
+type BaseFerramenta = {
+  /** Nome estável e auditável da ferramenta (ex.: `festas.resumir`). */
+  nome: string;
+  /** Capacidade exposta ao operador (ex.: `resumir_festa`). */
+  capacidade: string;
+  classe: ClasseFerramenta;
+  grupo: GrupoFlag;
+  /** Papéis que já acessam a mesma informação nas telas atuais. A IA não amplia esse conjunto. */
+  papeis: readonly string[];
+  descricao: string;
+  /** Entidade exigida da tela (id revalidado no tenant pelo domínio). */
+  entidade?: "festa" | "cliente" | "contrato";
+};
+
 /**
  * A ferramenta nunca recebe SQL nem empresa do pedido.
  * `preparar` valida os parâmetros (schema estrito) antes de qualquer transação;
- * a execução só recebe a transação e o tenant já comprovados e chama serviços de domínio.
+ * a execução só recebe o tenant já comprovado e chama serviços de domínio.
  */
-export type Ferramenta<R extends ResultadoFerramenta = ResultadoFerramenta> = {
-  nome: string;
-  classe: ClasseFerramenta;
-  /** Papéis que já acessam a mesma informação nas telas atuais. A IA não amplia esse conjunto. */
-  papeis: readonly string[];
-  preparar(parametros: unknown): ExecucaoFerramenta<R>;
-};
+export type Ferramenta<R extends ResultadoFerramenta = ResultadoFerramenta> = BaseFerramenta & (
+  | { modo?: "TRANSACAO_TENANT"; preparar(parametros: unknown): ExecucaoFerramenta<R> }
+  | { modo: "SERVICO_PROPRIO"; preparar(parametros: unknown): ExecucaoServico<R> }
+);
 
-/** Registro fechado: só o que está aqui pode ser executado pelo gateway. */
+/** Registro fechado de leitura: só o que está aqui pode ser executado pelo gateway. */
 export const ferramentas: Readonly<Record<string, Ferramenta>> = Object.freeze({
   atencao_hoje: atencaoHoje,
+  analisar_recebiveis: analisarRecebiveis,
+  analisar_pagamentos: analisarPagamentos,
+  contratos_pendentes: contratosPendentes,
+  agenda_do_dia: agendaDoDia,
+  resumir_cliente: resumirCliente,
+  resumir_contrato: resumirContrato,
+  resumir_festa: resumirFesta,
+  pendencias_da_festa: pendenciasDaFesta,
+  festa_em_risco: festaEmRisco,
 });
 
 export function ferramentaRegistrada(nome: string): Ferramenta | null {

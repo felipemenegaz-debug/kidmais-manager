@@ -62,6 +62,27 @@
 .enviar { composes: primario from "../visual.module.css"; flex: none; }
 .oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
+.evidencias li[data-natureza="AUSENCIA"] { color: var(--km-text-2); font-style: italic; }
+
+/* Human Gate: rascunho, preview e resultado. Violeta só no selo; laranja só em avisos; teal no sucesso. */
+.acao { display: grid; gap: 12px; padding: 16px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.025); }
+.acao[data-estado="preview"] { border-color: color-mix(in srgb, var(--km-violet) 38%, transparent); }
+.acao[data-estado="resultado"] { border-color: color-mix(in srgb, var(--km-teal) 40%, transparent); }
+.acaoTitulo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 700; }
+.selo { border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: var(--km-lilac); background: color-mix(in srgb, var(--km-violet) 14%, transparent); }
+.campos { display: grid; gap: 6px; margin: 0; }
+.campos > div { display: grid; grid-template-columns: minmax(96px, 34%) 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.campos dt { color: var(--km-text-2); font-size: 13px; }
+.campos dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.perguntaKidmais { margin: 0; font-size: 15px; line-height: 1.45; }
+.avisos { list-style: none; margin: 0; padding: 10px 12px; display: grid; gap: 6px; border-radius: 10px; border-left: 3px solid var(--km-orange); background: color-mix(in srgb, var(--km-orange) 8%, transparent); color: var(--km-text); font-size: 13px; }
+.decisao { display: flex; flex-wrap: wrap; gap: 10px; }
+.confirmar { composes: primario from "../visual.module.css"; flex: 1 1 140px; }
+.cancelar { composes: fantasma from "../visual.module.css"; flex: 1 1 120px; }
+.resultadoTexto { margin: 0; color: var(--km-teal); font-size: 15px; font-weight: 600; }
+.rascunhoAtivo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 24px 0; color: var(--km-text-2); font-size: 13px; }
+.rascunhoAtivo strong { color: var(--km-text); }
+
 .camada :focus-visible, .resposta :focus-visible, .cardInicio :focus-visible, .cardRodape :focus-visible { outline: 2px solid var(--km-lilac); outline-offset: 2px; }
 
 @keyframes entrar { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -74,7 +95,8 @@
 }
 @media (max-width: 800px) {
   .drawer { width: 100vw; border-left: 0; }
-  .drawerTopo, .historico, .formulario { padding-left: 16px; padding-right: 16px; }
+  .drawerTopo, .historico, .formulario, .rascunhoAtivo { padding-left: 16px; padding-right: 16px; }
+  .campos > div { grid-template-columns: 1fr; gap: 2px; }
   .evidencias li span { min-width: 0; width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -78,5 +78,6 @@ test('UI de IA: só o endpoint somente leitura, sem SQL, sem repositório e sem 
     }
     assert.doesNotMatch(readFileSync(arquivo, 'utf8'), /method:\s*['"](PUT|PATCH|DELETE)/, arquivo);
   }
-  assert.deepEqual([...endpoints], ['/api/admin/inteligencia']);
+  // Lista fechada: leitura (V1), conversa (rascunhos) e Human Gate. Nenhum endpoint de domínio é chamado pela UI de IA.
+  assert.deepEqual([...endpoints].sort(), ['/api/admin/inteligencia', '/api/admin/inteligencia/conversa', '/api/admin/inteligencia/operacoes']);
 });

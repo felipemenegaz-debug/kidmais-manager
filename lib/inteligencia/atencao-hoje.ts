@@ -149,8 +149,12 @@ export function montarAtencaoHoje(recebiveis: readonly Recebivel[], contexto: Co
 }
 
 export const atencaoHoje: Ferramenta<AtencaoHoje> = {
+  // Nome e capacidade preservados da V1: traces e UI existentes dependem de "atencao_hoje".
   nome: "atencao_hoje",
+  capacidade: "atencao_hoje",
   classe: "READ",
+  grupo: "FUNDACAO",
+  descricao: "Pagamentos vencidos, que vencem hoje e valores a receber.",
   papeis: PAPEIS_FINANCEIRO,
   preparar(parametros) {
     parametrosSchema.parse(parametros);

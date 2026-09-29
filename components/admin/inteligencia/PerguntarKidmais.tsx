@@ -1,12 +1,14 @@
 'use client';
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { interpretarPergunta } from './perguntas';
-import { consultarAtencaoHoje } from './cliente-inteligencia';
-import { adicionarPergunta, aguardandoResposta, registrarResultado, type Mensagem } from './conversa';
+import { consultarAtencaoHoje, conversar, decidirOperacao, type ContextoTela, type RascunhoPublico } from './cliente-inteligencia';
+import {
+  adicionarPergunta, aguardandoResposta, marcarDecisao, rascunhoAberto, registrarConversa, registrarDecisao, registrarResultado, type Mensagem,
+} from './conversa';
 import DrawerKidmais from './DrawerKidmais';
 
-type Assistente = { abrir(): void };
+type Assistente = { abrir(): void; definirContexto(contexto: ContextoTela | null): void };
 
 const Contexto = createContext<Assistente | null>(null);
 
@@ -16,16 +18,22 @@ export function usePerguntarKidmais() {
 }
 
 /**
- * Drawer global “Perguntar ao Kidmais”. Não é um agente aberto: cada pergunta é roteada no navegador
- * para uma capacidade registrada (hoje só `atencao_hoje`) ou respondida como “ainda não disponível”.
- * Nada aqui escreve; a única chamada de rede é o mesmo POST somente leitura do card do Dashboard.
+ * Drawer global "Perguntar ao Kidmais".
+ *
+ * - "O que precisa da minha atenção hoje?" sem tela específica continua no endpoint da V1 (só a flag-mestra).
+ * - O resto vai ao orquestrador do servidor, que decide: leitura, rascunho sob Human Gate ou "ainda não".
+ * - Confirmar/cancelar só acontece pelo clique nos botões do preview; texto nunca confirma.
+ * - A UI envia só texto, contexto de tela e, no clique, operacaoId/versão/hash. Tenant e papel ficam no servidor.
  */
 export function PerguntarKidmaisProvider({ children }: { children: React.ReactNode }) {
   const [aberto, setAberto] = useState(false);
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
+  const [contexto, setContexto] = useState<ContextoTela | null>(null);
   const origemFoco = useRef<HTMLElement | null>(null);
   const proximoId = useRef(0);
   const emCurso = useRef(false);
+  const historico = useRef<Mensagem[]>([]);
+  useEffect(() => { historico.current = mensagens; }, [mensagens]);
 
   const abrir = useCallback(() => {
     origemFoco.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -38,26 +46,46 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
   }, []);
 
   const perguntar = useCallback(async (texto: string) => {
-    const interpretacao = interpretarPergunta(texto);
-    if (interpretacao.tipo === 'vazia' || emCurso.current) return;
-    const id = ++proximoId.current;
     const pergunta = texto.trim();
-    setMensagens((historico) => adicionarPergunta(historico, id, pergunta, interpretacao));
-    if (interpretacao.tipo !== 'capacidade') return;
+    if (!pergunta || emCurso.current) return;
+    const id = ++proximoId.current;
+    const rascunho = rascunhoAberto(historico.current);
+    const local = interpretarPergunta(pergunta);
+    const legado = !rascunho && !contexto && local.tipo === 'capacidade';
+    setMensagens((h) => adicionarPergunta(h, id, pergunta, legado ? local : { tipo: 'servidor' }));
     emCurso.current = true;
     try {
-      const resultado = await consultarAtencaoHoje(adminFetch);
-      setMensagens((historico) => registrarResultado(historico, id, resultado));
+      if (legado) {
+        const resultado = await consultarAtencaoHoje(adminFetch);
+        setMensagens((h) => registrarResultado(h, id, resultado));
+      } else {
+        const resultado = await conversar(adminFetch, { texto: pergunta, contexto, ...(rascunho ? { operacaoId: rascunho.operacaoId } : {}) });
+        setMensagens((h) => registrarConversa(h, id, resultado));
+      }
+    } finally {
+      emCurso.current = false;
+    }
+  }, [contexto]);
+
+  const decidir = useCallback(async (rascunho: RascunhoPublico, decisao: 'confirmar' | 'cancelar') => {
+    if (emCurso.current) return;
+    emCurso.current = true;
+    setMensagens((h) => marcarDecisao(h, rascunho.operacaoId, true));
+    try {
+      const resultado = await decidirOperacao(adminFetch, rascunho, decisao);
+      setMensagens((h) => registrarDecisao(h, rascunho.operacaoId, resultado));
     } finally {
       emCurso.current = false;
     }
   }, []);
 
-  const valor = useMemo<Assistente>(() => ({ abrir }), [abrir]);
+  const definirContexto = useCallback((novo: ContextoTela | null) => setContexto(novo), []);
+  const valor = useMemo<Assistente>(() => ({ abrir, definirContexto }), [abrir, definirContexto]);
 
   return <Contexto.Provider value={valor}>
     {children}
-    {aberto && <DrawerKidmais mensagens={mensagens} aguardando={aguardandoResposta(mensagens)} onPerguntar={perguntar} onFechar={fechar} />}
+    {aberto && <DrawerKidmais mensagens={mensagens} aguardando={aguardandoResposta(mensagens)} contexto={contexto}
+      onPerguntar={perguntar} onDecidir={decidir} onFechar={fechar} />}
   </Contexto.Provider>;
 }
 
@@ -65,4 +93,18 @@ export function BotaoPerguntarKidmais({ className, children = 'Perguntar ao Kidm
   const assistente = usePerguntarKidmais();
   if (!assistente) return null;
   return <button type="button" className={className} aria-haspopup="dialog" onClick={() => { aoAbrir?.(); assistente.abrir(); }}>{children}</button>;
+}
+
+/**
+ * Informa ao drawer em que tela o operador está (ex.: a festa aberta). Não renderiza nada.
+ * O id é só uma dica: o servidor revalida a entidade no tenant comprovado.
+ */
+export function ContextoKidmais({ tela, entidadeId }: ContextoTela) {
+  const assistente = usePerguntarKidmais();
+  useEffect(() => {
+    if (!assistente) return;
+    assistente.definirContexto(entidadeId ? { tela, entidadeId } : { tela });
+    return () => assistente.definirContexto(null);
+  }, [assistente, tela, entidadeId]);
+  return null;
 }

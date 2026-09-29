@@ -4,17 +4,11 @@ import { ClienteServiceError } from "../clientes/services/errors.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
-import { ferramentaRegistrada } from "./ferramentas.ts";
-import { InteligenciaError, autorizarFerramenta } from "./politica.ts";
-import type { CausaRastreio, RastreioInteligencia } from "./rastreio.ts";
-
-/**
- * Flag global da V1. Uma futura configuração por empresa deve entrar como condição adicional,
- * nunca como alternativa a esta.
- */
-export function inteligenciaAtiva(env: Readonly<Record<string, string | undefined>>) {
-  return env.INTELIGENCIA_ENABLED === "true";
-}
+import type { ResultadoPolitica } from "./contratos.ts";
+import { SEM_PORTAS, ferramentaRegistrada, type ContextoFerramenta, type Ferramenta, type PortasDominio, type ResultadoFerramenta } from "./ferramentas.ts";
+import { grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, type Ambiente } from "./flags.ts";
+import { InteligenciaError, autorizarFerramenta, avaliarPolitica } from "./politica.ts";
+import { novoRastreio, type CausaRastreio, type RastreioInteligencia } from "./rastreio.ts";
 
 /** A empresa nunca vem do corpo: a seleção usa o mesmo parâmetro `empresaId` das rotas do Financeiro, provado por provarTenant. */
 const pedidoSchema = z.object({
@@ -24,7 +18,7 @@ const pedidoSchema = z.object({
 }).strict();
 
 export type DependenciasGateway = {
-  env: Readonly<Record<string, string | undefined>>;
+  env: Ambiente;
   autenticar(): Promise<SessaoParaTenant>;
   withTenantTransaction<T>(
     sessao: SessaoParaTenant,
@@ -35,6 +29,8 @@ export type DependenciasGateway = {
   requestId(): string;
   registrar(rastreio: RastreioInteligencia): void;
   relogio?(): number;
+  /** Serviços de domínio injetados pela rota. Ausentes ⇒ ferramentas que dependem deles respondem sem dados. */
+  portas?: PortasDominio;
 };
 
 export type PedidoGateway = {
@@ -49,11 +45,15 @@ export type RespostaGateway = {
 
 const MENSAGEM_FALLBACK = "Não foi possível preparar este resumo agora. O Dashboard e o Financeiro continuam disponíveis.";
 
+export function recursoDesativado(): never {
+  throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Kidmais Intelligence indisponível neste ambiente.", 503);
+}
+
 /**
  * Só a leitura e a validação do pedido geram 400. Um ZodError ou SyntaxError vindo do domínio
  * é falha interna e cai no fallback, sem culpar o cliente.
  */
-function pedidoInvalido(error: unknown): never {
+export function pedidoInvalido(error: unknown): never {
   if (error instanceof ZodError || error instanceof SyntaxError) {
     throw new InteligenciaError("DADOS_INVALIDOS", "Dados inválidos.", 400);
   }
@@ -90,7 +90,14 @@ function causaInesperada(error: unknown): CausaRastreio {
   return pareceSqlstate ? "BANCO" : "INESPERADO";
 }
 
-function classificar(error: unknown): Classificacao {
+/** Recusa do Core com status HTTP próprio (4xx): mantém status e mensagem, como em apiErrorResponse. */
+function recusaDoCore(error: unknown): error is { code: string; message: string; httpStatus: number } {
+  if (error instanceof ClienteServiceError || error instanceof PacoteAdminError) return error.httpStatus >= 400 && error.httpStatus < 500;
+  // Erros de outros domínios (ex.: FestaError via porta) chegam só com status; a mensagem já é humana.
+  return false;
+}
+
+export function classificar(error: unknown, mensagemFallback = MENSAGEM_FALLBACK): Classificacao {
   if (error instanceof InteligenciaError) {
     return {
       status: error.httpStatus,
@@ -101,14 +108,13 @@ function classificar(error: unknown): Classificacao {
       fallback: false,
     };
   }
-  // Recusas do Core (sessão, tenant) mantêm status e mensagem, como em apiErrorResponse.
-  if ((error instanceof ClienteServiceError || error instanceof PacoteAdminError) && error.httpStatus >= 400 && error.httpStatus < 500) {
+  if (recusaDoCore(error)) {
     return {
       status: error.httpStatus,
       codigo: error.code,
       erro: error.message,
       resultado: resultadoDoStatus(error.httpStatus),
-      causa: causaDoCore(error),
+      causa: causaDoCore(error as ClienteServiceError),
       fallback: false,
     };
   }
@@ -116,39 +122,85 @@ function classificar(error: unknown): Classificacao {
   return {
     status: 503,
     codigo: "INTELIGENCIA_INDISPONIVEL",
-    erro: MENSAGEM_FALLBACK,
+    erro: mensagemFallback,
     resultado: "fallback",
     causa: causaInesperada(error),
     fallback: true,
   };
 }
 
+/** Allowlist por empresa, depois do Tenant Context. Fora da lista ⇒ mesmo tratamento de flag desligada. */
+export function exigirGrupoNaEmpresa(env: Ambiente, grupo: Parameters<typeof grupoAtivoParaEmpresa>[1], tenant: TenantComprovado) {
+  if (!grupoAtivoParaEmpresa(env, grupo, tenant.empresaComprovada)) recursoDesativado();
+}
+
 /**
- * AI Gateway da V1: flag → sessão → pedido → registro → política → tenant → ferramenta.
+ * Caminho único de leitura (gateway e conversa): flag do grupo → política → parâmetros → tenant → ferramenta.
+ * Parâmetros inválidos viram 400 antes de qualquer transação.
+ */
+export async function executarLeitura(
+  ferramenta: Ferramenta,
+  parametros: unknown,
+  sessao: SessaoParaTenant,
+  empresaSolicitada: string | null,
+  deps: DependenciasGateway,
+  rastreio: RastreioInteligencia,
+): Promise<ResultadoFerramenta> {
+  rastreio.capacidade = ferramenta.capacidade;
+  rastreio.ferramenta = ferramenta.nome;
+  rastreio.ferramentasSolicitadas = [...rastreio.ferramentasSolicitadas, ferramenta.nome];
+  if (!grupoAtivo(deps.env, ferramenta.grupo)) recursoDesativado();
+  const politica: ResultadoPolitica = avaliarPolitica(sessao, ferramenta, "LEITURA");
+  rastreio.politica = politica;
+  autorizarFerramenta(sessao, ferramenta);
+
+  const agora = deps.agora();
+  const contexto: ContextoFerramenta = { hoje: hojeBrasilia(agora), geradoEm: agora.toISOString(), portas: deps.portas ?? SEM_PORTAS };
+
+  let data: ResultadoFerramenta;
+  if (ferramenta.modo === "SERVICO_PROPRIO") {
+    let executar: ReturnType<typeof ferramenta.preparar>;
+    try {
+      executar = ferramenta.preparar(parametros);
+    } catch (error) {
+      pedidoInvalido(error);
+    }
+    // Prova o tenant numa transação curta; o serviço de domínio prova de novo, sozinho, na dele.
+    const tenant = await deps.withTenantTransaction(sessao, empresaSolicitada, async (_tx, comprovado) => comprovado);
+    rastreio.empresaId = tenant.empresaComprovada;
+    exigirGrupoNaEmpresa(deps.env, ferramenta.grupo, tenant);
+    data = await executar(tenant, contexto);
+  } else {
+    let executar: ReturnType<typeof ferramenta.preparar>;
+    try {
+      executar = ferramenta.preparar(parametros);
+    } catch (error) {
+      pedidoInvalido(error);
+    }
+    data = await deps.withTenantTransaction(sessao, empresaSolicitada, (tx, tenant) => {
+      rastreio.empresaId = tenant.empresaComprovada;
+      exigirGrupoNaEmpresa(deps.env, ferramenta.grupo, tenant);
+      return executar(tx, tenant, contexto);
+    });
+  }
+  rastreio.ferramentasExecutadas = [...rastreio.ferramentasExecutadas, ferramenta.nome];
+  rastreio.estado = data.estado;
+  rastreio.itens = data.itens.length;
+  return data;
+}
+
+/**
+ * AI Gateway de leitura: flag → sessão → pedido → registro → flag do grupo → política → tenant → ferramenta.
  * Não fala com o banco; só repassa a transação tenant-comprovada à ferramenta.
  */
 export async function atenderInteligencia(pedido: PedidoGateway, deps: DependenciasGateway): Promise<RespostaGateway> {
   const relogio = deps.relogio ?? (() => performance.now());
   const inicio = relogio();
-  const rastreio: RastreioInteligencia = {
-    evento: "inteligencia.capacidade",
-    requestId: deps.requestId(),
-    usuarioId: null,
-    empresaId: null,
-    capacidade: null,
-    ferramenta: null,
-    resultado: "sucesso",
-    codigo: null,
-    estado: null,
-    itens: null,
-    causa: null,
-    fallback: false,
-    duracaoMs: 0,
-  };
+  const rastreio = novoRastreio("inteligencia.capacidade", deps.requestId());
+  rastreio.intencao = "UI";
+  rastreio.humanGate = "NAO_SE_APLICA";
   try {
-    if (!inteligenciaAtiva(deps.env)) {
-      throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Kidmais Intelligence indisponível neste ambiente.", 503);
-    }
+    if (!inteligenciaAtiva(deps.env)) recursoDesativado();
     const sessao = await deps.autenticar();
     rastreio.usuarioId = sessao.usuario_id;
 
@@ -160,25 +212,7 @@ export async function atenderInteligencia(pedido: PedidoGateway, deps: Dependenc
     }
     const ferramenta = ferramentaRegistrada(entrada.capacidade);
     if (!ferramenta) throw new InteligenciaError("CAPACIDADE_DESCONHECIDA", "Capacidade não disponível.", 400);
-    rastreio.capacidade = ferramenta.nome;
-    rastreio.ferramenta = ferramenta.nome;
-
-    autorizarFerramenta(sessao, ferramenta);
-    let executar: ReturnType<typeof ferramenta.preparar>;
-    try {
-      executar = ferramenta.preparar(entrada.parametros === undefined ? {} : entrada.parametros);
-    } catch (error) {
-      pedidoInvalido(error);
-    }
-    const agora = deps.agora();
-    const contexto = { hoje: hojeBrasilia(agora), geradoEm: agora.toISOString() };
-
-    const data = await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, (tx, tenant) => {
-      rastreio.empresaId = tenant.empresaComprovada;
-      return executar(tx, tenant, contexto);
-    });
-    rastreio.estado = data.estado;
-    rastreio.itens = data.itens.length;
+    const data = await executarLeitura(ferramenta, entrada.parametros === undefined ? {} : entrada.parametros, sessao, pedido.empresaSolicitada, deps, rastreio);
     return { status: 200, corpo: { ok: true, data } };
   } catch (error) {
     const falha = classificar(error);
