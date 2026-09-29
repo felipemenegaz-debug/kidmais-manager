@@ -1,7 +1,7 @@
 # AI MODULE V1 BASELINE
 
 Estado congelado do AI Module V1 do Kidmais Manager, entregue como pilha de branches locais sobre a Foundation
-(`ai-v1/00-tooling` … `ai-v1/14-docs`), verificada por `node scripts/ia-v1-pilha.cjs` (`check:ia:prs`).
+(`ai-v1/00-tooling` … `ai-v1/15-gates`), verificada por `node scripts/ia-v1-pilha.cjs` (`check:ia:prs`).
 Arquitetura e operação: [IA_V1_ARQUITETURA.md](IA_V1_ARQUITETURA.md). Segurança: [IA_V1_SEGURANCA.md](IA_V1_SEGURANCA.md).
 
 ## Componentes e versões
@@ -23,6 +23,7 @@ Arquitetura e operação: [IA_V1_ARQUITETURA.md](IA_V1_ARQUITETURA.md). Seguran�
 | Segurança adversarial | 18 vetores, achados corrigidos | `ai-v1/12-seguranca` |
 | Cenários integrados | A–J | `ai-v1/13-integrado` |
 | Documentação | este baseline | `ai-v1/14-docs` |
+| Gates finais | suíte PostgreSQL de custos + correção do auto-review | `ai-v1/15-gates` |
 
 ## Flags (padrão: tudo desligado)
 
@@ -64,12 +65,12 @@ Números e resultados da execução final estão no relatório do Master Goal (F
 
 ## Gates de staging
 
-1. Merge da pilha em ordem (00 → 14), um PR por fase, com `check:ia:prs` verde a cada passo.
+1. Merge da pilha em ordem (00 → 15), um PR por fase, com `check:ia:prs` verde a cada passo.
 2. `check:v1:static`, `check:v1:ui`, `test:ia-demo` e `check:v1:postgres` (cluster descartável) verdes no HEAD de staging.
 3. Migrations 055/055a–d aplicadas em staging **somente com autorização**, seguindo `docs/OPERACAO_AGENTES.md`.
 4. Flags ligadas por etapa, com `AI_TENANT_ALLOWLIST` só para a empresa de teste: READ → Demerzel → ações → modelo.
 5. Orçamento e pricing configurados (tetos baixos) antes de qualquer flag de modelo.
-6. Smoke com o login do Felipe: leituras, agente de atendimento (rascunho), um CONFIRM de pacote com cancelamento e um com confirmação; conferir traces e `/custos`.
+6. Smoke autenticado da Foundation em staging: **concluído** (login do Felipe após o deploy; Configurações validadas; PRs #14 e #15 em staging — o HEAD atual de staging é a fonte de verdade). Depois de ligar as flags da V1: smoke funcional da IA (leituras, rascunho do agente de atendimento, um CONFIRM de pacote cancelado e um confirmado; traces e `/custos`).
 7. Revisão independente das skills da plataforma (hoje RESTRITAS).
 
 ## Gates de produção
