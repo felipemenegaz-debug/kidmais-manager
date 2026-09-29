@@ -18,6 +18,7 @@ import type { AdaptadorProvedor, PedidoModelo } from "../modelos/tipos.ts";
 import type { RastreioInteligencia } from "../rastreio.ts";
 import { criarCatalogoSkills, repositorioSemSkillsDeEmpresa } from "../skills/catalogo.ts";
 import { SKILLS_PLATAFORMA } from "../skills/plataforma.ts";
+import { construirContextoAutorizado, construirContextoModelo } from "../contexto/construtor.ts";
 import { criarComplementador, validarExplicacao } from "./complementador.ts";
 
 const raiz = join(import.meta.dirname, "..", "..", "..");
@@ -259,4 +260,37 @@ test("A1 ponta a ponta: conversa → Demerzel → intenção por modelo e explic
   for (const proibido of ["123.456.789-09", "123.456.789-00", "ana.lima@example.com", "98765-4321", "Mariana", "Souza", zw]) {
     assert.equal(enviado.includes(proibido), false, proibido);
   }
+});
+
+// ---------------------------------------------------------------- A1 (reauditoria): U+2066 e RG em todos os caminhos
+
+const LRI = String.fromCharCode(0x2066);
+const PROIBIDOS_REAUDITORIA = [LRI, "123.456.789-09", "ana.lima", "example.com", "12.345.678-9", "23.456.789-X"];
+const semReauditoria = (enviado: string, onde: string) => { for (const p of PROIBIDOS_REAUDITORIA) assert.equal(enviado.includes(p), false, `${onde}: ${JSON.stringify(p)}`); };
+
+test("A1 reauditoria ponta a ponta: conversa → Demerzel → intenção por modelo com U+2066 no CPF/e-mail e RG pontuado — provedor recebe redigido", async () => {
+  const roteiro = (pedido: PedidoModelo<unknown>) => (pedido.workload === "CLASSIFICAR_INTENCAO" ? JSON.stringify({ capacidade: "nenhuma", dia: null }) : explicaComDados(pedido));
+  const c = conversaCopiloto({ roteiro });
+  await c.perguntar(`hmm, aquele assunto: CPF 123${LRI}.456.789-09, ana${LRI}.lima@example.com, RG 12.345.678-9 e 23.456.789-X?`, null);
+  assert.ok(c.provedor.chamadas.some((p) => p.workload === "CLASSIFICAR_INTENCAO"), "a intenção por modelo foi chamada");
+  semReauditoria(JSON.stringify(c.provedor.chamadas.map((p) => p.mensagens)), "intenção");
+});
+
+test("A1 reauditoria: conteúdo ARMAZENADO hostil (fato com U+2066 no CPF, RG e instrução) vai ao provedor do Copiloto redigido", async () => {
+  const tenant = { empresaComprovada: empresaA, membershipId: "m", usuarioId: "u", papelAtual: "ADMINISTRATIVO" } as never;
+  const autorizado = construirContextoAutorizado({ sessao: { usuario_id: "u" }, tenant, contexto: null, capacidades: ["contratos_pendentes"] });
+  const dados = leitura("atencao");
+  const envenenado = { ...dados, fatos: [{ natureza: "FATO" as const, texto: `cliente cpf 123${LRI}.456.789-09, rg 12.345.678-9, e-mail ana${LRI}.lima@example.com`, fonte: "contratos" }] };
+  const { json } = construirContextoModelo(autorizado, [{ empresaId: empresaA, capacidade: "contratos_pendentes", resposta: envenenado }], { finalidade: "EXPLICAR_DADOS" });
+  const provedor = criarProvedorFake({ id: "OPENAI", roteiro: () => respostaFake(JSON.stringify({ frases: ["ok"] })) });
+  let n = 0;
+  const roteador = new RoteadorModelos({
+    politica: politicaDoAmbiente({ AI_PROVIDER_PRIMARY: "OPENAI", AI_MODEL_MAX_RETRIES: "0" }), adaptadores: new Map([["OPENAI", provedor as AdaptadorProvedor]]), precos: null,
+    orcamento: orcamentoDoAmbiente({ AI_BUDGET_JSON: JSON.stringify({ porEmpresa: { tokensDiario: 1_000_000 } }) }), registro: criarRegistroUsoEmMemoria(), circuito: new Circuito(),
+    agora: () => new Date("2026-09-29T15:00:00Z"), relogio: () => performance.now(), novoId: () => `${String(++n).padStart(8, "0")}-0000-4000-8000-00000000000d`,
+  });
+  await roteador.executar({ workload: "TEXTO_CURTO", mensagens: [{ papel: "system", conteudo: "explique" }, { papel: "user", conteudo: json }], esquema: { nome: "x", schema: {} }, maxTokensSaida: 10, validar: (t) => JSON.parse(t) },
+    { empresaId: empresaA, capacidade: "copiloto_explicar", correlationId: "c", hoje: "2026-09-29" });
+  assert.equal(provedor.chamadas.length, 1);
+  semReauditoria(JSON.stringify(provedor.chamadas[0].mensagens), "Copiloto (conteúdo armazenado)");
 });
