@@ -215,7 +215,7 @@ export type ModelUsage = {
  * (ex.: auditarMutacaoComercial). O trace só carrega identificadores e metadados.
  */
 export type AuditTrace = {
-  evento: "inteligencia.capacidade" | "inteligencia.conversa" | "inteligencia.operacao" | "inteligencia.documento";
+  evento: "inteligencia.capacidade" | "inteligencia.conversa" | "inteligencia.operacao" | "inteligencia.documento" | "inteligencia.custos";
   /** Id de rastreio ponta a ponta: correlationId (ou requestId sem correlação). */
   traceId: string;
   requestId: string;
