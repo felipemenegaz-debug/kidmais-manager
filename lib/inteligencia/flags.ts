@@ -60,3 +60,11 @@ export function envioDocumentoExternoAutorizado(env: Ambiente) {
 export function jevAtivo(env: Ambiente) {
   return inteligenciaAtiva(env) && env.AI_JEV_ENABLED === "true";
 }
+
+/**
+ * JEV V1 pode consultar um modelo ECONOMY quando as regras não têm confiança (AI_JEV_MODEL_ENABLED). Exige o JEV
+ * ligado. Mesmo ligado, sem provedor, orçamento aplicável ou pricing, o JEV segue só com regras (fail-closed).
+ */
+export function jevModeloAtivo(env: Ambiente) {
+  return jevAtivo(env) && env.AI_JEV_MODEL_ENABLED === "true";
+}
