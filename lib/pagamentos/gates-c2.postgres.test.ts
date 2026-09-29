@@ -564,9 +564,11 @@ test("gates C1–C3 + Human Gate em PostgreSQL real: concorrência, travas, roll
       let pausa: { aberta: Promise<void> } | null = null;
       let falhar = false;
       let pidExec = 0;
-      // Ação SINTÉTICA de teste (o motor do Human Gate, o repositório e as travas são os reais).
+      // Ação SINTÉTICA de teste (o motor do Human Gate, o repositório e as travas são os reais). Desde a Policy V1 toda
+      // ação precisa de manifesto no Tool Registry (sem ele: recusa fail-closed); a sintética usa a capacidade CONFIRM
+      // manifestada `criar_pacote` (mesmo papel e grupo), sem registrar manifesto novo em tempo de execução.
       const acao = {
-        nome: "gates.categoria", capacidade: "gates_categoria", classe: "CONFIRM", grupo: "ADMIN_ACTIONS", papeis: ["REPRESENTANTE_AUTORIZADO"],
+        nome: "gates.categoria", capacidade: "criar_pacote", classe: "CONFIRM", grupo: "ADMIN_ACTIONS", papeis: ["REPRESENTANTE_AUTORIZADO"],
         descricao: "gate", titulo: "Categoria de teste", origem: "CONVERSA", campos: [],
         extrair: () => ({ nome: `${PREFIXO} categoria ${randomUUID().slice(0, 6)}` }), faltando: () => [],
         validar: (p: Record<string, unknown>) => p, verificar: async (_tx: Tx, _t: Tenant, p: Record<string, unknown>) => ({ payload: p, avisos: [] }),
@@ -581,7 +583,7 @@ test("gates C1–C3 + Human Gate em PostgreSQL real: concorrência, travas, roll
       };
       const modulo = criarModuloAcoes([acao], { repositorio: repositorioOperacoesPostgres, agora: () => new Date(), novoId: randomUUID, ttlConfirmacaoSegundos: 600 });
       const env = { INTELIGENCIA_ENABLED: "true", AI_ADMIN_ACTIONS_ENABLED: "true" };
-      const preview = async (s: Sessao) => (await withTenantTransaction(s, null, (tx, tenant) => modulo.iniciar("gates_categoria", "criar", { tx, tenant, sessao: s, correlationId: randomUUID() }))).resposta.rascunho;
+      const preview = async (s: Sessao) => (await withTenantTransaction(s, null, (tx, tenant) => modulo.iniciar("criar_pacote", "criar", { tx, tenant, sessao: s, correlationId: randomUUID() }))).resposta.rascunho;
       const confirmar = (s: Sessao, r: { operacaoId: string; versao: number; payloadHash: string }) => atenderOperacao(
         { lerCorpo: async () => ({ operacaoId: r.operacaoId, versao: r.versao, payloadHash: r.payloadHash, decisao: "confirmar" }), empresaSolicitada: null },
         { env, autenticar: async () => s, withTenantTransaction, agora: () => new Date(), requestId: randomUUID, registrar: () => {}, acoes: modulo },
