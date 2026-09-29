@@ -1,3 +1,4 @@
+import { OCULTOS_MODELO, PADRAO_NUMERO_LONGO, PADROES_LINK, PADROES_PII } from "../texto-modelo.ts";
 import { normalizar } from "../texto-pt.ts";
 
 /**
@@ -11,19 +12,9 @@ import { normalizar } from "../texto-pt.ts";
  * - nomes informados explicitamente por quem monta o bloco (`sensiveis`);
  * - caracteres de controle/invisíveis.
  */
-const OCULTOS = new RegExp(`[${[[0x0, 0x8], [0xb, 0xc], [0xe, 0x1f], [0x7f, 0x7f], [0x200b, 0x200f], [0x2028, 0x202e], [0x2060, 0x2064], [0xfeff, 0xfeff]]
-  .map(([a, b]) => `\\u${a.toString(16).padStart(4, "0")}-\\u${b.toString(16).padStart(4, "0")}`).join("")}]`, "g");
-
-const PADROES: ReadonlyArray<[RegExp, string]> = [
-  [/https?:\/\/\S+/gi, "[link]"],
-  [/(?:^|\s)\/(?:admin|clientes|festas|contratos|api)\/\S*/g, " [link]"],
-  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]"],
-  [/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]"],
-  [/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, "[cnpj]"],
-  [/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "[cpf]"],
-  [/(?:\+?55\s?)?\(?\b\d{2}\)?\s?9?\d{4}[-\s]?\d{4}\b/g, "[telefone]"],
-  [/\b\d{6,}\b/g, "[numero]"],
-];
+// Ocultos e padrões de dado pessoal: os MESMOS da preparação canônica de texto para modelo (texto-modelo.ts).
+const OCULTOS = OCULTOS_MODELO;
+const PADROES: ReadonlyArray<readonly [RegExp, string]> = [...PADROES_LINK, ...PADROES_PII, PADRAO_NUMERO_LONGO];
 
 /**
  * Vocabulário do sistema que pode aparecer com inicial maiúscula (normalizado, sem acento). Nome de pessoa
