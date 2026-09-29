@@ -53,8 +53,9 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
     useEffect(()=>{
         if(!form.dataFesta || !form.pacote || !form.convidadosPagantes)return;
         const controller=new AbortController();
-        const url=`/api/fechamentos/adicionais?pacote=${encodeURIComponent(form.pacote)}&data=${encodeURIComponent(form.dataFesta)}&convidados=${form.convidadosPagantes}`;
-        void fetch(url,{signal:controller.signal,cache:'no-store'})
+        // Rota com Tenant Context: pacote, preços e adicionais da empresa comprovada pela sessão.
+        const url=`/api/admin/fechamentos/adicionais?pacote=${encodeURIComponent(form.pacote)}&data=${encodeURIComponent(form.dataFesta)}&convidados=${form.convidadosPagantes}`;
+        void adminFetch(url,{signal:controller.signal})
           .then(async r=>{if(!r.ok)throw Error();return r.json();})
           .then(body=>{
             const disponiveis=body.adicionais as AdicionalDisponivel[];

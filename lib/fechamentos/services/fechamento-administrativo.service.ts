@@ -4,7 +4,7 @@ import { withTransaction } from '../../db/postgres';
 import type { DbExecutor } from '../../db/contracts';
 import { buscarClienteCanonicoPorId, buscarClientePorId, listarAniversariantesDoCliente, listarResponsaveisDoCliente,
     registrarAuditoria, registrarEventoHistorico } from '../../clientes/repositories';
-import { executarNoTenant } from '../../saas/provar-tenant';
+import { executarNoTenant, type TenantComprovado } from '../../saas/provar-tenant';
 import { validarCadastroBasicoCliente, camposFaltantesParaContrato } from '../../clientes/services/validators';
 import { revalidarHorarioSelecionado } from '../../disponibilidade/services';
 import { buscarPacoteAtivoPorCodigo } from '../../comercial/repositories';
@@ -16,8 +16,8 @@ import { criarFechamentoComercial } from './fechamento.service';
 import { FechamentoServiceError } from './errors';
 
 type Contexto = { token: string; requestId: string; userAgent: string | null; empresaSolicitada?: string | null };
-export function exigirPapelFechamento(sessao: SessaoAdmin) {
-    if (!['ADMINISTRATIVO', 'REPRESENTANTE_AUTORIZADO'].includes(sessao.papel)) {
+export function exigirPapelFechamento(papel: string) {
+    if (!['ADMINISTRATIVO', 'REPRESENTANTE_AUTORIZADO'].includes(papel)) {
         throw authError('Papel não autorizado para iniciar Fechamento.', 403);
     }
 }
@@ -48,21 +48,33 @@ async function carregarCliente(id: string, empresaId: string, tx: DbExecutor, es
     return { cliente, aniversariantes, responsaveis, redirecionadoDe: cliente.id !== seletor ? seletor : null };
 }
 
+/**
+ * Papel NESTA empresa: o da membership comprovada (UX/056), nunca o papel global da identidade. No estágio sem o
+ * Tenant Context do UX (FECHAMENTO sozinho), o papel da sessão, como na base.
+ */
+function papelNestaEmpresa(sessao: SessaoAdmin, tenant: TenantComprovado): string {
+    let papel: string = sessao.papel;
+    papel = tenant.papelAtual; // @pr:UX
+    return papel;
+}
+
 export async function obterContextoFechamentoAdministrativo(id: string, contexto: Contexto) {
     return withTransaction(async tx => {
         const sessao = await consultarSessao(contexto.token, tx);
-        exigirPapelFechamento(sessao);
-        return executarNoTenant(tx, sessao, contexto.empresaSolicitada, (t, tenant) =>
-            carregarCliente(id, tenant.empresaComprovada, t, false));
+        return executarNoTenant(tx, sessao, contexto.empresaSolicitada, (t, tenant) => {
+            exigirPapelFechamento(papelNestaEmpresa(sessao, tenant));
+            return carregarCliente(id, tenant.empresaComprovada, t, false);
+        });
     });
 }
 
 export async function criarFechamentoAdministrativo(id: string, raw: unknown, contexto: Contexto) {
     return withTransaction(async tx => {
         const sessao = await consultarSessao(contexto.token, tx, true);
-        exigirPapelFechamento(sessao);
-        return executarNoTenant(tx, sessao, contexto.empresaSolicitada, (t, tenant) =>
-            criarNoTenant(id, raw, contexto, sessao, tenant.empresaComprovada, t));
+        return executarNoTenant(tx, sessao, contexto.empresaSolicitada, (t, tenant) => {
+            exigirPapelFechamento(papelNestaEmpresa(sessao, tenant));
+            return criarNoTenant(id, raw, contexto, sessao, tenant.empresaComprovada, t);
+        });
     });
 }
 
