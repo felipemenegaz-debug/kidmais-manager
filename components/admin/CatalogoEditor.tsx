@@ -3,6 +3,9 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import styles from './workspace.module.css';
 import editor from './catalogo-editor.module.css';
+import { AdminPrimaryButton } from './AdminPrimaryButton';
+
+const contagemItens = (total: number) => `${total} ${total === 1 ? 'item' : 'itens'}`;
 
 type Registro = { id: string; nome: string; ativo: boolean; categoria_id?: string | null };
 type Catalogo = { categorias: Registro[]; itens: Registro[] };
@@ -106,7 +109,7 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
   return <main className={styles.page} data-admin-workspace>
     <header className={styles.header}>
       <h1>Itens do Buffet</h1>
-      <button type="button" onClick={() => { setErro(''); setFormulario({ nome: '', ativo: true, categoriaId: filtroCategoria && filtroCategoria !== 'sem' ? filtroCategoria : '' }); }}>{secao === 'categorias' ? '+ Nova categoria' : '+ Novo item'}</button>
+      <AdminPrimaryButton onClick={() => { setErro(''); setFormulario({ nome: '', ativo: true, categoriaId: filtroCategoria && filtroCategoria !== 'sem' ? filtroCategoria : '' }); }}>{secao === 'categorias' ? '+ Nova categoria' : '+ Novo item'}</AdminPrimaryButton>
     </header>
     <div className={styles.content}>
       <div className={editor.toolbar}>
@@ -146,7 +149,7 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
         <div className={editor.cards}>
           {visiveis.map((linha) => <article key={linha.id}>
             <strong>{linha.nome}</strong>
-            <span>{secao === 'categorias' ? `${dados?.itens.filter((item) => item.categoria_id === linha.id).length ?? 0} itens` : nomeCategoria(linha.categoria_id)}</span>
+            <span>{secao === 'categorias' ? contagemItens(dados?.itens.filter((item) => item.categoria_id === linha.id).length ?? 0) : nomeCategoria(linha.categoria_id)}</span>
             <span>{linha.ativo ? 'Ativo' : 'Inativo'}</span>
             <button type="button" onClick={() => setFormulario({ id: linha.id, nome: linha.nome, ativo: linha.ativo, categoriaId: linha.categoria_id ?? '' })}>Editar</button>
             <button type="button" onClick={() => setExcluindo(linha)}>Excluir</button>
@@ -170,7 +173,7 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
             <option value="inativo">Inativo</option>
           </select></label>
           <div className={styles.actions}>
-            <button type="submit">{formulario.id ? 'Salvar alterações' : 'Salvar'}</button>
+            <AdminPrimaryButton type="submit">{formulario.id ? 'Salvar alterações' : 'Salvar'}</AdminPrimaryButton>
             <button type="button" onClick={() => setFormulario(null)}>Cancelar</button>
           </div>
         </form>

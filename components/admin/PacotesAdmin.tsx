@@ -7,6 +7,7 @@ import overlay from './catalogo-editor.module.css';
 import { DurationField } from './DurationField';
 import { formatarDuracao, juntarDuracao, separarDuracao } from '@/lib/comercial/duracao';
 import { AjudaCampo } from './AjudaCampo';
+import { AdminPrimaryButton } from './AdminPrimaryButton';
 
 function normalizarValor(texto: string) {
   const limpo = texto.trim().replace(/\s/g, '').replace(/^R\$/i, '');
@@ -343,7 +344,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
       <h1>Pacotes</h1>
       <div className={styles.actions}>
         <label className={styles.search}><span className={styles.srOnly}>Buscar pacote</span><input type="search" placeholder="Buscar pacote…" value={busca} onChange={(e) => setBusca(e.target.value)} /></label>
-        <button className={styles.primary} type="button" onClick={limpar}>Novo pacote</button>
+        <AdminPrimaryButton onClick={limpar}>Novo pacote</AdminPrimaryButton>
       </div>
     </header>
     <div className={styles.content}>
@@ -416,7 +417,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
             </div>}
           </section>
           <div className={styles.actions}>
-            <button className={styles.primary} type="submit" disabled={carregando}>{atual ? 'Salvar alterações' : 'Salvar pacote'}</button>
+            <AdminPrimaryButton type="submit" disabled={carregando}>{atual ? 'Salvar alterações' : 'Salvar pacote'}</AdminPrimaryButton>
           </div>
         </form>
         <aside className={styles.lateral} aria-label="Pacotes já criados">

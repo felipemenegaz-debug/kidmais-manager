@@ -62,16 +62,40 @@
   font: 600 14px/1 var(--admin-font);
   text-decoration: none;
   cursor: pointer;
-  transition: filter .2s ease, background .2s ease, border-color .2s ease;
+  transition: filter .2s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;
 }
+/* Ação primária canônica do Admin: gradiente azul→violeta estático (--admin-primary). Altura, raio, padding e
+   tipografia não mudam entre repouso/hover/pressionado/carregando: o texto nunca se desloca. */
 .primario {
+  position: relative;
+  gap: 8px;
   border: 0;
   color: white;
-  background: linear-gradient(120deg, var(--km-violet), var(--km-teal), var(--km-violet));
-  background-size: 300% 100%;
-  animation: kmGradientMove 7s ease infinite;
+  background: var(--admin-primary);
   box-shadow: 0 6px 20px -8px rgba(124,58,237,.40);
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
 }
+.primario:active:not(:disabled) { filter: brightness(.9); box-shadow: 0 2px 10px -6px rgba(124,58,237,.5); }
+.primario:focus-visible,
+.secundario:focus-visible,
+.fantasma:focus-visible,
+.perigo:focus-visible { outline: 2px solid var(--km-lilac); outline-offset: 3px; }
+/* Carregando: aria-busy deixa o rótulo no lugar (transparente) e sobrepõe um indicador centralizado. */
+.primario[aria-busy="true"] { color: transparent; cursor: progress; }
+.primario[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255,255,255,.35);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: kmGiro .8s linear infinite;
+}
+@keyframes kmGiro { to { transform: rotate(360deg); } }
 .secundario {
   border: 1px solid var(--km-border);
   background: var(--km-card-2);
@@ -111,11 +135,24 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .acento::before,
-  .primario { animation: none; }
+  .acento::before { animation: none; }
+  .primario[aria-busy="true"]::after { animation-duration: 2.4s; }
   .glass,
   .primario,
   .secundario,
   .fantasma,
   .perigo { transition: none; }
 }
+/* Retorno das subtelas de Configurações: link discreto com alvo de toque de 44 px. */
+.voltar {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: 8px;
+  color: var(--km-lilac);
+  font: 700 13px/1.2 var(--admin-font);
+  text-decoration: none;
+  text-underline-offset: 4px;
+}
+.voltar:hover { text-decoration: underline; }
+.voltar:focus-visible { outline: 2px solid var(--km-lilac); outline-offset: 3px; border-radius: 6px; }

@@ -36,14 +36,20 @@ function Ajuda({ texto }: { texto: string }) {
     const id = useId();
     const [aberto, setAberto] = useState(false);
     return <span className={styles.ajuda}>
-        <button type="button" aria-label="Ajuda sobre o campo" aria-expanded={aberto} aria-controls={id} onClick={() => setAberto((valor) => !valor)}><span aria-hidden="true">?</span></button>
+        <button type="button" aria-label="Ajuda sobre o campo" aria-expanded={aberto} aria-controls={id} onClick={() => setAberto((valor) => !valor)} onKeyDown={(evento) => { if (evento.key === 'Escape' && aberto) { evento.preventDefault(); setAberto(false); } }} onBlur={() => setAberto(false)}><span aria-hidden="true">?</span></button>
         {aberto && <span id={id} role="note" className={styles.nota}>{texto}</span>}
     </span>;
 }
 
+// Nome acessível do campo: inclui a exigência na aplicação, já que o asterisco visual fica oculto para leitores de tela.
+function nomeAcessivel(texto: string, campo: string, mesmoEndereco: boolean) {
+    return campoExigidoNaAplicacao(campo, mesmoEndereco) ? `${texto} (obrigatório ao aplicar)` : texto;
+}
+
 function Rotulo({ texto, campo, mesmoEndereco, ajuda }: { texto: string; campo?: string; mesmoEndereco: boolean; ajuda?: string }) {
     const exigido = campo ? campoExigidoNaAplicacao(campo, mesmoEndereco) : false;
-    return <span className={styles.rotulo}>{texto}{exigido && <abbr className={styles.asterisco}>*</abbr>}{ajuda && <Ajuda texto={ajuda} />}</span>;
+    // O asterisco é só visual; leitores de tela recebem o texto "obrigatório ao aplicar".
+    return <span className={styles.rotulo}>{texto}{exigido && <><span className={styles.asterisco} aria-hidden="true">*</span><span className={styles.srOnly}> (obrigatório ao aplicar)</span></>}{ajuda && <Ajuda texto={ajuda} />}</span>;
 }
 
 function dataLegivel(valor: string) {
@@ -184,8 +190,14 @@ export default function PerfilEmpresa() {
             });
             if (preenchido !== vigente)
                 atualizar({ [alvo]: preenchido });
+            // Nunca substituir em silêncio: se a consulta trocou algo que já estava preenchido, dizer o quê.
+            const substituidos = (['logradouro', 'bairro', 'cidade', 'uf'] as const)
+                .filter((campo) => vigente[campo].trim() !== '' && vigente[campo].trim().toLocaleUpperCase('pt-BR') !== preenchido[campo].trim().toLocaleUpperCase('pt-BR'))
+                .map((campo) => campo === 'uf' ? 'UF' : campo);
             if (vigente.cep.replace(/\D/g, '') === cep)
-                setCepStatus((estado) => ({ ...estado, [alvo]: 'Logradouro, bairro, cidade e UF foram consultados. Número e complemento continuam manuais.' }));
+                setCepStatus((estado) => ({ ...estado, [alvo]: substituidos.length
+                    ? `O CEP atualizou ${substituidos.join(', ')}; o valor anterior foi substituído. Confira antes de salvar. Número e complemento continuam manuais.`
+                    : 'Logradouro, bairro, cidade e UF foram consultados. Número e complemento continuam manuais.' }));
         } catch {
             if (ticket !== cepTicket.current[alvo])
                 return;
@@ -379,9 +391,9 @@ export default function PerfilEmpresa() {
             <fieldset className={styles.card} disabled={!podeEditar}>
                 <h2 className={styles.titulo}><AdminIcon name="profile" size={12} />Identificação</h2>
                 <div className={styles.grade + ' ' + styles.identificacao}>
-                    <label className={styles.campo}><Rotulo texto="Nome comercial" campo="nomeComercial" mesmoEndereco={mesmo} ajuda="Nome usado na operação. A razão social fica no documento." /><input aria-label="Nome comercial" value={form.nomeComercial} placeholder="Nome que seus clientes veem" onChange={(evento) => atualizar({ nomeComercial: evento.target.value })} /></label>
-                    <label className={styles.campo}><Rotulo texto="Razão social" campo="razaoSocial" mesmoEndereco={mesmo} ajuda="Nome jurídico exigido para aplicar o cadastro." /><input aria-label="Razão social" value={form.razaoSocial} placeholder="Nome utilizado nos documentos" onChange={(evento) => atualizar({ razaoSocial: evento.target.value })} /></label>
-                    <label className={styles.campo}><Rotulo texto="CNPJ" campo="cnpj" mesmoEndereco={mesmo} ajuda="Pode ficar vazio no rascunho. Na aplicação precisa ser um CNPJ válido." /><input aria-label="CNPJ" value={form.cnpj} placeholder="ID Fiscal" inputMode="text" autoComplete="off" onChange={(evento) => atualizar({ cnpj: evento.target.value })} /><small>Aceita formatos numéricos ou alfanuméricos.</small></label>
+                    <label className={styles.campo}><Rotulo texto="Nome comercial" campo="nomeComercial" mesmoEndereco={mesmo} ajuda="Nome usado na operação. A razão social fica no documento." /><input aria-label={nomeAcessivel("Nome comercial", "nomeComercial", mesmo)} value={form.nomeComercial} placeholder="Nome que seus clientes veem" onChange={(evento) => atualizar({ nomeComercial: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Razão social" campo="razaoSocial" mesmoEndereco={mesmo} ajuda="Nome jurídico exigido para aplicar o cadastro." /><input aria-label={nomeAcessivel("Razão social", "razaoSocial", mesmo)} value={form.razaoSocial} placeholder="Nome utilizado nos documentos" onChange={(evento) => atualizar({ razaoSocial: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="CNPJ" campo="cnpj" mesmoEndereco={mesmo} ajuda="Pode ficar vazio no rascunho. Na aplicação precisa ser um CNPJ válido." /><input aria-label={nomeAcessivel("CNPJ", "cnpj", mesmo)} value={form.cnpj} placeholder="ID Fiscal" inputMode="text" autoComplete="off" onChange={(evento) => atualizar({ cnpj: evento.target.value })} /><small>Aceita formatos numéricos ou alfanuméricos.</small></label>
                     <label className={styles.campo}><span className={styles.rotulo}>Código da empresa</span><input readOnly value={dados.contexto.codigoEmpresa} /></label>
                 </div>
             </fieldset>
@@ -389,15 +401,15 @@ export default function PerfilEmpresa() {
                 <h2 className={styles.titulo}><AdminIcon name="location" size={12} />Endereços</h2>
                 <h3 className={styles.subtitulo}>Endereço da sede</h3>
                 <div className={styles.grade + ' ' + styles.endereco}>
-                    <label className={styles.campo + ' ' + styles.cep}><Rotulo texto="CEP" campo="sede.cep" mesmoEndereco={mesmo} ajuda="Com 8 dígitos, a consulta preenche logradouro, bairro, cidade e UF. Número e complemento não são preenchidos." /><input aria-label="CEP" placeholder="CEP" value={sede.cep} inputMode="numeric" autoComplete="postal-code" onChange={(evento) => void consultarCep('sede', evento.target.value)} /></label>
+                    <label className={styles.campo + ' ' + styles.cep}><Rotulo texto="CEP" campo="sede.cep" mesmoEndereco={mesmo} ajuda="Com 8 dígitos, a consulta preenche logradouro, bairro, cidade e UF. Número e complemento não são preenchidos." /><input aria-label={nomeAcessivel("CEP", "sede.cep", mesmo)} placeholder="CEP" value={sede.cep} inputMode="numeric" autoComplete="postal-code" onChange={(evento) => void consultarCep('sede', evento.target.value)} /></label>
                     {cepStatus.sede && <p className={styles.estado} role="status">{cepStatus.sede}</p>}
-                    <label className={styles.campo + ' ' + styles.logradouro}><Rotulo texto="Logradouro" campo="sede.logradouro" mesmoEndereco={mesmo} /><input aria-label="Logradouro" placeholder="Logradouro" value={sede.logradouro} onChange={(evento) => atualizar({ sede: { ...sede, logradouro: evento.target.value } })} /></label>
-                    <div className={styles.numeroGrupo}><label className={`${styles.campo} ${styles.numero}`}><Rotulo texto="Nº" campo="sede.numero" mesmoEndereco={mesmo} /><input aria-label="Nº" placeholder="123" value={sede.numero} disabled={sede.semNumero || !podeEditar} onChange={(evento) => atualizar({ sede: { ...sede, numero: evento.target.value } })} /></label>
-                    <label className={styles.marca}><input type="checkbox" aria-label="Sem número" checked={sede.semNumero} onChange={(evento) => atualizar({ sede: { ...sede, semNumero: evento.target.checked, numero: evento.target.checked ? '' : sede.numero } })} /><span>S/ Nº</span></label></div>
+                    <label className={styles.campo + ' ' + styles.logradouro}><Rotulo texto="Logradouro" campo="sede.logradouro" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("Logradouro", "sede.logradouro", mesmo)} placeholder="Logradouro" value={sede.logradouro} onChange={(evento) => atualizar({ sede: { ...sede, logradouro: evento.target.value } })} /></label>
+                    <div className={styles.numeroGrupo}><label className={`${styles.campo} ${styles.numero}`}><Rotulo texto="Nº" campo="sede.numero" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("Nº", "sede.numero", mesmo)} placeholder="123" value={sede.numero} disabled={sede.semNumero || !podeEditar} onChange={(evento) => atualizar({ sede: { ...sede, numero: evento.target.value } })} /></label>
+                    <label className={styles.semNumero} title="Sem número"><input type="checkbox" aria-label="Sem número" checked={sede.semNumero} onChange={(evento) => atualizar({ sede: { ...sede, semNumero: evento.target.checked, numero: evento.target.checked ? '' : sede.numero } })} /><span aria-hidden="true">S/N</span></label></div>
                     <label className={styles.campo + ' ' + styles.complemento}><Rotulo texto="Complemento" mesmoEndereco={mesmo} ajuda="Opcional. A consulta de CEP nunca preenche este campo." /><input aria-label="Complemento" placeholder="Opcional" value={sede.complemento} onChange={(evento) => atualizar({ sede: { ...sede, complemento: evento.target.value } })} /></label>
-                    <label className={styles.campo + ' ' + styles.bairro}><Rotulo texto="Bairro" campo="sede.bairro" mesmoEndereco={mesmo} /><input aria-label="Bairro" placeholder="Bairro" value={sede.bairro} onChange={(evento) => atualizar({ sede: { ...sede, bairro: evento.target.value } })} /></label>
-                    <label className={styles.campo + ' ' + styles.cidade}><Rotulo texto="Cidade" campo="sede.cidade" mesmoEndereco={mesmo} /><input aria-label="Cidade" placeholder="Cidade" value={sede.cidade} onChange={(evento) => atualizar({ sede: { ...sede, cidade: evento.target.value } })} /></label>
-                    <label className={styles.campo + ' ' + styles.uf}><Rotulo texto="UF" campo="sede.uf" mesmoEndereco={mesmo} /><input aria-label="UF" placeholder="UF" value={sede.uf} maxLength={2} onChange={(evento) => atualizar({ sede: { ...sede, uf: evento.target.value } })} /></label>
+                    <label className={styles.campo + ' ' + styles.bairro}><Rotulo texto="Bairro" campo="sede.bairro" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("Bairro", "sede.bairro", mesmo)} placeholder="Bairro" value={sede.bairro} onChange={(evento) => atualizar({ sede: { ...sede, bairro: evento.target.value } })} /></label>
+                    <label className={styles.campo + ' ' + styles.cidade}><Rotulo texto="Cidade" campo="sede.cidade" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("Cidade", "sede.cidade", mesmo)} placeholder="Cidade" value={sede.cidade} onChange={(evento) => atualizar({ sede: { ...sede, cidade: evento.target.value } })} /></label>
+                    <label className={styles.campo + ' ' + styles.uf}><Rotulo texto="UF" campo="sede.uf" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("UF", "sede.uf", mesmo)} placeholder="UF" value={sede.uf} maxLength={2} onChange={(evento) => atualizar({ sede: { ...sede, uf: evento.target.value } })} /></label>
                 </div>
                 <div className={styles.localFesta}><h3 className={styles.subtitulo}>Local da festa</h3>
                 <label className={styles.marca}><input type="checkbox" checked={form.mesmoEnderecoSede} onChange={(evento) => atualizar({ mesmoEnderecoSede: evento.target.checked })} /><span>Mesmo endereço da sede</span></label>
@@ -405,17 +417,17 @@ export default function PerfilEmpresa() {
                 {form.mesmoEnderecoSede && <p className={styles.heranca}>O local da festa herda automaticamente o endereço da sede cadastrado acima.</p>}
                 <details className={styles.detalhesLocal} open={!form.mesmoEnderecoSede || undefined}><summary>Detalhes da unidade e referência de chegada</summary>
                 <div className={styles.grade}>
-                    <label className={styles.campo}><Rotulo texto="Nome da unidade" campo="unidadeNome" mesmoEndereco={mesmo} /><input aria-label="Nome da unidade" value={form.unidadeNome} onChange={(evento) => atualizar({ unidadeNome: evento.target.value })} /></label>
+                    <label className={styles.campo}><Rotulo texto="Nome da unidade" campo="unidadeNome" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("Nome da unidade", "unidadeNome", mesmo)} value={form.unidadeNome} onChange={(evento) => atualizar({ unidadeNome: evento.target.value })} /></label>
                     {!form.mesmoEnderecoSede && <>
-                        <label className={styles.campo}><Rotulo texto="CEP do evento" campo="unidade.cep" mesmoEndereco={mesmo} ajuda="A consulta segue a mesma regra da sede e não altera número nem complemento." /><input aria-label="CEP do evento" value={unidade.cep} inputMode="numeric" autoComplete="postal-code" onChange={(evento) => void consultarCep('unidade', evento.target.value)} /></label>
+                        <label className={styles.campo}><Rotulo texto="CEP do evento" campo="unidade.cep" mesmoEndereco={mesmo} ajuda="A consulta segue a mesma regra da sede e não altera número nem complemento." /><input aria-label={nomeAcessivel("CEP do evento", "unidade.cep", mesmo)} value={unidade.cep} inputMode="numeric" autoComplete="postal-code" onChange={(evento) => void consultarCep('unidade', evento.target.value)} /></label>
                         {cepStatus.unidade && <p className={styles.estado} role="status">{cepStatus.unidade}</p>}
-                        <label className={styles.campo}><Rotulo texto="Logradouro do evento" campo="unidade.logradouro" mesmoEndereco={mesmo} /><input aria-label="Logradouro do evento" value={unidade.logradouro} onChange={(evento) => atualizar({ unidade: { ...unidade, logradouro: evento.target.value } })} /></label>
-                        <label className={styles.campo}><Rotulo texto="Número do evento" campo="unidade.numero" mesmoEndereco={mesmo} /><input aria-label="Número do evento" value={unidade.numero} disabled={unidade.semNumero || !podeEditar} onChange={(evento) => atualizar({ unidade: { ...unidade, numero: evento.target.value } })} /></label>
-                        <label className={styles.marca}><input type="checkbox" checked={unidade.semNumero} onChange={(evento) => atualizar({ unidade: { ...unidade, semNumero: evento.target.checked, numero: evento.target.checked ? '' : unidade.numero } })} /><span>Sem número no evento</span></label>
+                        <label className={styles.campo}><Rotulo texto="Logradouro do evento" campo="unidade.logradouro" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("Logradouro do evento", "unidade.logradouro", mesmo)} value={unidade.logradouro} onChange={(evento) => atualizar({ unidade: { ...unidade, logradouro: evento.target.value } })} /></label>
+                        <label className={styles.campo}><Rotulo texto="Número do evento" campo="unidade.numero" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("Número do evento", "unidade.numero", mesmo)} value={unidade.numero} disabled={unidade.semNumero || !podeEditar} onChange={(evento) => atualizar({ unidade: { ...unidade, numero: evento.target.value } })} /></label>
+                        <label className={styles.semNumero}><input type="checkbox" checked={unidade.semNumero} onChange={(evento) => atualizar({ unidade: { ...unidade, semNumero: evento.target.checked, numero: evento.target.checked ? '' : unidade.numero } })} /><span>Sem número no evento</span></label>
                         <label className={styles.campo}><Rotulo texto="Complemento da unidade" mesmoEndereco={mesmo} /><input aria-label="Complemento da unidade" value={unidade.complemento} onChange={(evento) => atualizar({ unidade: { ...unidade, complemento: evento.target.value } })} /></label>
-                        <label className={styles.campo}><Rotulo texto="Bairro" campo="unidade.bairro" mesmoEndereco={mesmo} /><input aria-label="Bairro" value={unidade.bairro} onChange={(evento) => atualizar({ unidade: { ...unidade, bairro: evento.target.value } })} /></label>
-                        <label className={styles.campo}><Rotulo texto="Cidade" campo="unidade.cidade" mesmoEndereco={mesmo} /><input aria-label="Cidade" value={unidade.cidade} onChange={(evento) => atualizar({ unidade: { ...unidade, cidade: evento.target.value } })} /></label>
-                        <label className={styles.campo}><Rotulo texto="UF" campo="unidade.uf" mesmoEndereco={mesmo} /><input aria-label="UF" value={unidade.uf} maxLength={2} onChange={(evento) => atualizar({ unidade: { ...unidade, uf: evento.target.value } })} /></label>
+                        <label className={styles.campo}><Rotulo texto="Bairro" campo="unidade.bairro" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("Bairro", "unidade.bairro", mesmo)} value={unidade.bairro} onChange={(evento) => atualizar({ unidade: { ...unidade, bairro: evento.target.value } })} /></label>
+                        <label className={styles.campo}><Rotulo texto="Cidade" campo="unidade.cidade" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("Cidade", "unidade.cidade", mesmo)} value={unidade.cidade} onChange={(evento) => atualizar({ unidade: { ...unidade, cidade: evento.target.value } })} /></label>
+                        <label className={styles.campo}><Rotulo texto="UF" campo="unidade.uf" mesmoEndereco={mesmo} /><input aria-label={nomeAcessivel("UF", "unidade.uf", mesmo)} value={unidade.uf} maxLength={2} onChange={(evento) => atualizar({ unidade: { ...unidade, uf: evento.target.value } })} /></label>
                     </>}
                     <label className={styles.campo}><Rotulo texto="Referência de chegada" mesmoEndereco={mesmo} ajuda="Opcional. Ajuda quem chega ao local da festa." /><input aria-label="Referência de chegada" value={form.referenciaChegada} onChange={(evento) => atualizar({ referenciaChegada: evento.target.value })} /></label>
                 </div>
@@ -480,7 +492,7 @@ export default function PerfilEmpresa() {
                 </section>
                 <section>
                     <h3>Confirmação</h3>
-                    <label className={styles.marca}><input type="checkbox" checked={confirmado && revisaoAindaConfere(fluxo)} onChange={(evento) => publicar(confirmarRevisao(fluxoRef.current, evento.target.checked))} /><span>Confirmo o antes e o depois do rascunho salvo</span></label>
+                    <label className={styles.confirmacao}><input type="checkbox" checked={confirmado && revisaoAindaConfere(fluxo)} onChange={(evento) => publicar(confirmarRevisao(fluxoRef.current, evento.target.checked))} /><span>Confirmo o antes e o depois do rascunho salvo</span></label>
                 </section>
                 <div className={styles.acoes}>
                     <button type="button" onClick={() => void aplicar()} className={styles.primario} disabled={!aplicarLiberado}>Confirmar e aplicar</button>

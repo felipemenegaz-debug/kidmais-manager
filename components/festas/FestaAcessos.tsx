@@ -1,9 +1,10 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
-import Link from 'next/link';
 import {adminFetch} from '@/lib/http/admin-fetch';
 import {erroHumano} from '@/lib/festas/ux';
 import layout from './acessos.module.css';
+import {AdminPrimaryButton} from '@/components/admin/AdminPrimaryButton';
+import {VoltarConfiguracoes} from '@/components/admin/VoltarConfiguracoes';
 
 type Conta={id:string;nome:string;email:string;nivelSistema:string;ativo:boolean;podeAssinar?:boolean};
 type PerfilFesta={id:string;nome:string;nivelSistema:string;perfil:string};
@@ -280,16 +281,16 @@ export default function FestaAcessos(){
   </li>;
  }
 
- const avisoDesativadas=<p className={layout.info}><span className={layout.infoIcon} aria-hidden="true">i</span>Estas pessoas não acessam mais esta empresa. A conta, os registros anteriores e o acesso a outras empresas foram mantidos.</p>;
+ const avisoDesativadas=<p className={layout.info}><span className={layout.infoIcon} aria-hidden="true">i</span>Estas pessoas não acessam mais esta empresa. A conta, os registros anteriores e o acesso a outras empresas foram mantidos. Readmitir ou excluir definitivamente uma pessoa removida ainda não está disponível por esta tela.</p>;
 
  return <main className={layout.shell}>
-  <Link className={layout.voltar} href="/admin/configuracoes">← Voltar às Configurações</Link>
+  <VoltarConfiguracoes/>
   <div className={layout.topo}>
    <div>
     <h1>Usuários e acessos</h1>
     <p className={layout.intro}>Aqui aparecem só as pessoas desta empresa. O papel nesta empresa é separado do acesso às Festas, e o acesso a outras empresas não muda por aqui.</p>
    </div>
-   <button type="button" className={layout.cta} disabled={busy||!contas} onClick={abrirCriar}>+ Adicionar pessoa</button>
+   <AdminPrimaryButton className={layout.cta} disabled={busy||!contas} onClick={abrirCriar}>+ Adicionar pessoa</AdminPrimaryButton>
   </div>
   {erro&&<p role="alert" className={layout.alerta}>{erro}</p>}
   {notice&&<p role="status" className={layout.sucesso}><span><span className={layout.check} aria-hidden="true">✓</span>{notice}</span><button type="button" className={layout.fecharNotice} aria-label="Dispensar aviso" onClick={()=>setNotice('')}>×</button></p>}
@@ -381,7 +382,7 @@ export default function FestaAcessos(){
       </fieldset>
      </div>
      <div className={layout.drawerActions}>
-      <button type="submit" className={layout.cta} disabled={busy}>Adicionar pessoa</button>
+      <AdminPrimaryButton type="submit" className={layout.cta} carregando={busy}>Adicionar pessoa</AdminPrimaryButton>
       <button type="button" className={layout.ghost} disabled={busy} onClick={fecharCriar}>Cancelar</button>
      </div>
     </form>
@@ -406,7 +407,7 @@ export default function FestaAcessos(){
       {user.id===perfis?.usuarioId&&<label><input name="proprio" type="checkbox" required disabled={busy}/>Você está alterando seu próprio nível de acesso. Deseja continuar?</label>}
      </div>
      <div className={layout.drawerActions}>
-      <button className={layout.cta} disabled={busy}>Salvar</button>
+      <AdminPrimaryButton type="submit" className={layout.cta} carregando={busy}>Salvar</AdminPrimaryButton>
       <button type="button" className={layout.ghost} disabled={busy} onClick={()=>setUser(null)}>Cancelar</button>
      </div>
     </form>
