@@ -243,3 +243,20 @@ test("ponta a ponta: Copiloto nunca executa — mutação continua recusada; nav
   assert.equal(dados.itens[0].destino, "/admin/configuracoes/pacotes");
   assert.ok(!c.banco.consultas.some((sql) => sql.includes("FROM pagamento_parcelas")));
 });
+
+test("A1 ponta a ponta: conversa → Demerzel → intenção por modelo e explicação do Copiloto — o provedor nunca recebe CPF, e-mail, telefone ou nome", async () => {
+  const roteiro = (pedido: PedidoModelo<unknown>) => (pedido.workload === "CLASSIFICAR_INTENCAO" ? JSON.stringify({ capacidade: "nenhuma", dia: null }) : explicaComDados(pedido));
+  const c = conversaCopiloto({ roteiro });
+  const zw = String.fromCharCode(0x200b);
+  // Sem rota por regras ⇒ a Demerzel consulta o modelo de intenção (o caminho que o auditor reproduziu).
+  await c.perguntar(`hmm, e aquele assunto${zw} da cliente, CPF 123.456.789-09, ana.lima@example.com, (11) 98765-4321?`, null);
+  // Explicação do Copiloto sobre dados que contêm nome e CPF de cliente (Mariana Souza 123.456.789-00).
+  await c.perguntar("Explique estes números");
+  const workloads = c.provedor.chamadas.map((p) => p.workload);
+  assert.ok(workloads.includes("CLASSIFICAR_INTENCAO"), "a intenção por modelo foi de fato chamada");
+  assert.ok(workloads.includes("TEXTO_CURTO"), "a explicação foi de fato chamada");
+  const enviado = JSON.stringify(c.provedor.chamadas.map((p) => p.mensagens));
+  for (const proibido of ["123.456.789-09", "123.456.789-00", "ana.lima@example.com", "98765-4321", "Mariana", "Souza", zw]) {
+    assert.equal(enviado.includes(proibido), false, proibido);
+  }
+});
