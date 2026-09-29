@@ -16,6 +16,11 @@
       "pr": "DEMERZEL_V1",
       "branch": "ai-v1/02-demerzel",
       "descricao": "Demerzel V1: orquestradora determinística pelas portas guardadas da conversa; limites, anti-loop, trace por passo, fail-closed; flag AI_DEMERZEL_ENABLED"
+    },
+    {
+      "pr": "SKILLS_V1",
+      "branch": "ai-v1/03-skills",
+      "descricao": "Skills V1: playbooks Plataforma→Empresa→Estabelecimento sem autoridade; proveniência, hash, revisão, varredura de conteúdo; só plataforma até decisão de armazenamento"
     }
   ]
 }

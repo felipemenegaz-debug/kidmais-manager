@@ -137,6 +137,7 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
       const exec = new ExecucaoDemerzel(limites, portas);
       let julgamento: JulgamentoJev | null = null;
       let parada: MotivoParada = "NAO_SUPORTADO";
+      const skills: string[] = [];
       const resumo = (): ResumoOrquestracao => ({
         versao: VERSAO_DEMERZEL,
         passos: [...exec.passos],
@@ -144,6 +145,7 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
         chamadasModelo: portas.usosDeModelo().length,
         custoEstimadoMicros: exec.custo(),
         julgamento: julgamento ? resumoJulgamento(julgamento) : null,
+        skills: [...skills],
       });
       const { texto, contexto } = entrada;
 
@@ -231,6 +233,9 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
 
         await exec.passo("SEM_ROTA", "", () => null, () => j.actionSensitivity.classification);
         if (j.actionSensitivity.classification === "SUGGEST") {
+          // Skill de sugestão (playbook): selecionada com o tenant comprovado pela porta; só forma, nunca autoridade.
+          const skill = await exec.passo("SELECAO_SKILL", "SUGESTAO_TEXTO", () => portas.skill("SUGESTAO_TEXTO", null), (s) => (s ? s.nivel : "NENHUMA"));
+          if (skill) skills.push(`${skill.id}@${skill.versao}#${skill.hash.slice(0, 8)}`);
           return terminar("NAO_SUPORTADO", recusa("Ainda não redijo textos pelo Kidmais. Por enquanto, consigo consultar e resumir o que está no sistema:"));
         }
         return terminar("NAO_SUPORTADO", recusa("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:"));

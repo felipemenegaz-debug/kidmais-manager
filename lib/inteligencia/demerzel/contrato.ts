@@ -34,7 +34,7 @@ export const LIMITES_DEMERZEL_PADRAO: LimitesDemerzel = Object.freeze({
 
 export const TIPOS_PASSO = [
   "INTENCAO_REGRAS", "JULGAMENTO_JEV", "JULGAMENTO_JEV_MODELO", "SUGESTAO_AUXILIAR", "INTENCAO_MODELO",
-  "LEITURA", "PROPOSTA_ACAO", "RECUSA", "CONTEXTO", "HUMANO", "SEM_ROTA",
+  "LEITURA", "PROPOSTA_ACAO", "RECUSA", "CONTEXTO", "HUMANO", "SEM_ROTA", "SELECAO_SKILL",
 ] as const;
 export type TipoPasso = (typeof TIPOS_PASSO)[number];
 

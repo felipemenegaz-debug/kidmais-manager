@@ -92,6 +92,11 @@ export type PortasOrquestracao = {
   usosDeModelo(): readonly ModelUsage[];
   /** Resumo por passo para o trace, gravado também quando uma porta falha (ex.: Policy 403). */
   registrarResumo(resumo: ResumoOrquestracao): void;
+  /**
+   * Skill (playbook) aplicável à finalidade, resolvida com o tenant comprovado pela conversa
+   * (Plataforma → Empresa → Estabelecimento). null ⇒ nenhuma aplicável ou catálogo não instalado.
+   */
+  skill(finalidade: FinalidadeSkill, capacidade: string | null): Promise<SkillAplicavel | null>;
   relogio(): number;
 };
 
@@ -105,7 +110,47 @@ export type ResumoOrquestracao = {
   chamadasModelo: number;
   custoEstimadoMicros: number | null;
   julgamento: Readonly<Record<string, string | number>> | null;
+  /** Skills aplicadas, como `id@versao#hash8` (proveniência rastreável, sem conteúdo). */
+  skills: readonly string[];
 };
+
+// ---------------------------------------------------------------- skills (contratos neutros)
+
+/** Para que uma skill serve. Nenhuma finalidade é de autorização: skill orienta forma e conteúdo, nunca poder. */
+export type FinalidadeSkill = "TOM" | "ATENDIMENTO" | "SUGESTAO_TEXTO" | "PROCEDIMENTO" | "OBJECAO" | "FORMATACAO";
+
+/**
+ * Conteúdo de uma skill: orientação de forma e de atendimento. Preço, desconto, permissão, papel, acesso,
+ * alteração financeira, contrato e desvio de Policy NUNCA vêm daqui (a validação da feature SKILLS recusa).
+ * Templates só têm marcadores de uma lista fechada, preenchidos com dados do Core — nunca pela skill.
+ */
+export type ConteudoSkill = {
+  tom: string | null;
+  instrucoes: readonly string[];
+  procedimentos: ReadonlyArray<{ titulo: string; passos: readonly string[] }>;
+  objecoes: ReadonlyArray<{ objecao: string; resposta: string }>;
+  templates: ReadonlyArray<{ id: string; titulo: string; texto: string; marcadores: readonly string[] }>;
+  formatacao: { maxParagrafos: number | null; usarListas: boolean | null };
+};
+
+export type NivelSkill = "PLATAFORMA" | "EMPRESA" | "ESTABELECIMENTO";
+
+/** Skill já resolvida (cadeia mesclada, validada e revisada). Só o que é seguro levar ao pedido. */
+export type SkillAplicavel = {
+  id: string;
+  versao: string;
+  /** Hash da cadeia aplicada (cada nível contribui com o próprio hash revisado). */
+  hash: string;
+  nivel: NivelSkill;
+  cadeia: ReadonlyArray<{ nivel: NivelSkill; versao: string; hash: string }>;
+  conteudo: ConteudoSkill;
+  restricoes: readonly string[];
+};
+
+/** Catálogo de skills (feature SKILLS). Tenant e estabelecimento vêm SEMPRE do Tenant Context, nunca do pedido. */
+export interface CatalogoSkills {
+  resolver(alvo: { empresaId: string; estabelecimentoId: string | null; finalidade: FinalidadeSkill; capacidade: string | null }): Promise<SkillAplicavel | null>;
+}
 
 export type ResultadoOrquestracao = { resposta: AIResponse; resumo: ResumoOrquestracao };
 
@@ -127,6 +172,7 @@ export function chaveExtensao<T>(nome: string): ChaveExtensao<T> {
 export const CHAVE_MODULO_ACOES = chaveExtensao<ModuloAcoes>("core.modulo-acoes");
 export const CHAVE_CLASSIFICADOR_AUXILIAR = chaveExtensao<ClassificadorAuxiliar>("core.classificador-auxiliar");
 export const CHAVE_ORQUESTRADOR = chaveExtensao<Orquestrador>("core.orquestrador");
+export const CHAVE_CATALOGO_SKILLS = chaveExtensao<CatalogoSkills>("core.catalogo-skills");
 
 /** Contêiner de extensões por pedido. Valores podem ser preguiçosos (montados na primeira leitura). */
 export class RegistroExtensoes {

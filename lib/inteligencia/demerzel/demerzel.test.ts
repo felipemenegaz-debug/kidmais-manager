@@ -64,6 +64,7 @@ function espiao(opcoes: {
     descreverAcao: (capacidade) => ACOES[capacidade] ?? null,
     usosDeModelo: () => e.usos,
     registrarResumo: (r) => { e.resumos.push(r); },
+    skill: async () => null,
     relogio: opcoes.relogio ?? (() => performance.now()),
   };
   return e;
