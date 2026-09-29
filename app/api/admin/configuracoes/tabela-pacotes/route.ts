@@ -3,6 +3,7 @@ import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
 import { documentoVigente, publicarPdf } from '@/lib/catalogo/documento-publico';
 import { authError } from '@/lib/autenticacao/service';
 import { apiErrorResponse } from '@/lib/http/api-response';
+import { temAutoridadeDePlataforma } from '@/lib/autenticacao/plataforma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +19,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
-    if (sessao.papel !== 'REPRESENTANTE_AUTORIZADO') throw authError('Somente o proprietário autorizado pode publicar a tabela.', 403);
+    // Documento único da instalação (sem empresa): autoridade de PLATAFORMA, nunca papel de empresa (F1).
+    if (!temAutoridadeDePlataforma(sessao)) throw authError('Somente o proprietário autorizado pode publicar a tabela.', 403);
     const form = await request.formData();
     const file = form.get('arquivo');
     if (!(file instanceof File) || file.type !== 'application/pdf' || file.size > 10 * 1024 * 1024)

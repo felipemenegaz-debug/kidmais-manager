@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { authError } from "@/lib/autenticacao/service";
 import { validarVinculoComposicao } from "@/lib/comercial/composicao";
 import { MOTIVOS_PACOTE, motivoOu } from "@/lib/comercial/motivos-pacote";
 import { PacoteAdminError, alterarComposicaoPacoteAdmin } from "@/lib/comercial/pacotes-admin";
-import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 
@@ -116,10 +115,10 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
-    if (sessao.papel !== "REPRESENTANTE_AUTORIZADO") throw authError("Apenas o proprietário pode editar o catálogo.", 403);
     const bruto = await request.json();
     const pedido = contextoEmpresa(bruto);
     const estado = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
+      exigirGestaoNoTenant(tenant, "Apenas o proprietário pode editar o catálogo.");
       const data = operacao.parse(pedido.operacao);
       const empresaId = tenant.empresaComprovada;
       if (acoesGlobais.has(data.acao)) recusarCatalogoGlobal();

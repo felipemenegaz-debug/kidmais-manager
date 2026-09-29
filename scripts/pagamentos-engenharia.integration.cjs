@@ -86,7 +86,7 @@ async function main(c) {
   });
   await caso(c,'recebimento pendente revalida saldo na confirmação',async()=>{
     const a=await receber(d,30,0,{confirmarAgora:false});await receber(d,20);
-    await erro(s.confirmarRecebimentoPagamento(a.recebimento.id,ctx),'VALOR_EXCEDE_SALDO');
+    await erro(s.confirmarRecebimentoPagamento(d.pagamento.id,a.recebimento.id,{...ctx,executor:c,tenant:{empresaComprovada:(await c.query(`SELECT f.empresa_id::text AS e FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id JOIN contratos c ON c.id=v.contrato_id JOIN fechamentos f ON f.id=c.fechamento_id WHERE p.id=$1`,[d.pagamento.id])).rows[0].e}}),'VALOR_EXCEDE_SALDO');
     assert.equal((await r.buscarRecebimentoPorId(a.recebimento.id,c)).status,'PENDENTE');
   });
   await caso(c,'idempotência por chave e por provedor/referência',async()=>{
@@ -140,7 +140,7 @@ async function main(c) {
     const rec=await receber(d,10,0,{confirmarAgora:false});
     const est={pagamentoId:d.pagamento.id,recebimentoId:rec.recebimento.id,parcelaId:d.parcelas[0].id,valor:1};
     await erro(s.registrarEstornoPagamento(est,ctx),'ESTORNO_INVALIDO');
-    await s.confirmarRecebimentoPagamento(rec.recebimento.id,ctx);
+    await s.confirmarRecebimentoPagamento(d.pagamento.id,rec.recebimento.id,{...ctx,executor:c,tenant:{empresaComprovada:(await c.query(`SELECT f.empresa_id::text AS e FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id JOIN contratos c ON c.id=v.contrato_id JOIN fechamentos f ON f.id=c.fechamento_id WHERE p.id=$1`,[d.pagamento.id])).rows[0].e}});
     await erro(s.registrarEstornoPagamento({...est,parcelaId:d.parcelas[1].id},ctx),'ESTORNO_INVALIDO');
   });
   await caso(c,'estorno preserva pagamento cancelado e rejeita repetição em outro pagamento',async()=>{

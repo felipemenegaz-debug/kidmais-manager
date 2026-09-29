@@ -4,6 +4,8 @@ import { result, cli, isMain } from './common.mjs';
 import { readDatabase } from './check-database-target.mjs';
 // Explicit V1 inventory, not a numeric range: Foundation 020 belongs to another
 // branch and is deliberately absent. Any new/renamed file requires review.
+// Recognizing a file here never means it was applied (appliedState stays unknown);
+// 055a–d additionally require explicit authorization before any apply.
 const approvedFiles = [
   '20260907_001_crm_extensions.sql',
   '20260907_002_crm_people.sql',
@@ -30,6 +32,9 @@ const approvedFiles = [
   '20260923_023_adicionais_por_pacote.sql',
   '20260923_024_taxa_rolha_versionada.sql',
   '20260923_025_extras_unitarios_pizza.sql',
+  '20260925_026_perfil_empresa_estrutura.sql',
+  '20260925_027_perfil_empresa_cadastro.sql',
+  '20260925_028_perfil_empresa_revisao_aplicacao.sql',
   '20260926_029_fechamento_pacote_snapshot.sql',
   '20260926_030_preco_utilizado.sql',
   '20260926_031_empresas_comercial.sql',
@@ -49,7 +54,40 @@ const approvedFiles = [
   '20260926_045_ciclo_membership.sql',
   '20260926_046_kidmais_legado_controlado.sql',
   '20260926_047_escopo_comercial_tabela.sql',
+  '20260927_048_supersessao_tabela_publicada.sql',
+  '20260927_049_publicacao_insert_e_trava.sql',
+  '20260927_050_item_sem_categoria.sql',
+  '20260927_051_snapshot_item_especifico.sql',
+  '20260927_052_financeiro_gerencial.sql',
+  '20260928_053_integridade_tenant_fechamento.sql',
+  '20260928_054_empresa_id_clientes_fechamentos.sql',
+  '20260928_055a_inteligencia_uso.sql',
+  '20260928_055b_inteligencia_operacoes.sql',
+  '20260928_055c_inteligencia_documentos.sql',
+  '20260928_055d_inteligencia_importacoes.sql',
+  '20260929_056_membership_papel_festa_tenant.sql',
+  '20260929_057_assinatura_contrato_empresa.sql',
 ];
+// From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
+// except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
+// - 049–051 carry their prechecks inline (DO $$ ... RAISE) and have no external check files;
+// - 052 names its checks with the "financeiro" suffix;
+// - 054 needs its immediate backfill between precheck and postcheck;
+// - 055a–d carry the precheck inline and have an external postcheck.
+const checkFiles = {
+  '049': [], '050': [], '051': [],
+  '052': ['20260927_052_financeiro_precheck.sql', '20260927_052_financeiro_postcheck.sql'],
+  '054': ['20260928_054_precheck.sql', '20260928_054_backfill_imediato.sql', '20260928_054_postcheck.sql'],
+  '055a': ['20260928_055a_postcheck.sql'], '055b': ['20260928_055b_postcheck.sql'],
+  '055c': ['20260928_055c_postcheck.sql'], '055d': ['20260928_055d_postcheck.sql'],
+};
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057'];
+const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
+const requiredChecks = file => {
+  const id = file.split('_')[1];
+  if (Object.hasOwn(checkFiles, id)) return checkFiles[id];
+  return Number.parseInt(id, 10) >= 13 ? ['precheck', 'postcheck'].map(kind => file.slice(0, 12) + '_' + kind + '.sql') : [];
+};
 function inspectInventory(entries, hasCheck) {
   const r = result('migrations');
   // Only this existing rollback is excluded; an arbitrary *_down.sql is not approved.
@@ -60,15 +98,19 @@ function inspectInventory(entries, hasCheck) {
   for (const file of approvedFiles.filter(x => x.split('_')[1] !== '006a')) {
     const id = file.split('_')[1];
     if (files.filter(x => x === file).length !== 1 || ids.filter(x => x === id).length !== 1)
-      r.blockers.push('MIGRATION_SEQUENCE_INVALID_' + Number(id));
+      r.blockers.push('MIGRATION_SEQUENCE_INVALID_' + idLabel(id));
   }
   if (files.some(x => !approvedFiles.includes(x))) r.blockers.push('MIGRATION_BASELINE_REVIEW_REQUIRED');
-  for (const file of approvedFiles.filter(x => Number(x.split('_')[1]) >= 13)) {
-    for (const kind of ['precheck', 'postcheck']) if (!hasCheck(file.slice(0, 12) + '_' + kind + '.sql')) r.blockers.push('CHECK_FILE_MISSING_' + file.slice(9, 12) + '_' + kind);
+  for (const file of approvedFiles) {
+    for (const check of requiredChecks(file)) if (!hasCheck(check)) r.blockers.push('CHECK_FILE_MISSING_' + check.slice(9, -4));
   }
   r.evidence.push({ source: 'code', scope: 'REPOSITORY', status: r.status, migrations: files, latest: files.at(-1), appliedState: 'unknown',
-    deliberatelyAbsent: [{ id: '020', reason: 'FOUNDATION_SAAS_SEPARATE_BRANCH_NOT_REQUIRED_BY_CATALOG' }] });
+    deliberatelyAbsent: [{ id: '020', reason: 'FOUNDATION_SAAS_SEPARATE_BRANCH_NOT_REQUIRED_BY_CATALOG' }],
+    requiresExplicitAuthorization: files.filter(x => requiresExplicitAuthorization.includes(x.split('_')[1])) });
   r.pending.push('014_OLD_POSTCHECK_CAN_FALSE_NEGATIVE_ON_EVOLVED_SCHEMA');
+  r.pending.push('055A_D_NOT_APPLIED_REQUIRE_EXPLICIT_AUTHORIZATION');
+  r.pending.push('056_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('057_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {
@@ -82,4 +124,4 @@ async function check(env, options = {}) {
   return r;
 }
 if (isMain(import.meta.url)) cli('migrations', { 'inspect-db': 'boolean' }, check);
-export { check, inspectInventory };
+export { check, inspectInventory, approvedFiles, requiredChecks };

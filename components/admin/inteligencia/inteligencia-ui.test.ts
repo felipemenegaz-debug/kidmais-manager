@@ -170,6 +170,8 @@ test('Drawer: sugestões, envio, capacidade indisponível e fechamento por botã
     const RespostaAtencao = function RespostaAtencao() {};
     const tela = carregarComponente('components/admin/inteligencia/DrawerKidmais.tsx', {
       './perguntas': perguntas, './RespostaAtencao': { default: RespostaAtencao }, './inteligencia.module.css': cssFalso,
+      './conversa': conversa, './RespostaLeitura': { default: function RespostaLeitura() {} },
+      './AcaoKidmais': { PreviewAcao: function PreviewAcao() {}, RascunhoAcao: function RascunhoAcao() {}, ResultadoAcao: function ResultadoAcao() {} },
     });
     const enviadas: string[] = [];
     let fechou = 0;
@@ -209,11 +211,13 @@ test('Drawer: sugestões, envio, capacidade indisponível e fechamento por botã
   }
 });
 
-test('Provider: abre/fecha o drawer e só consulta a capacidade existente', async () => {
+test('Provider: atenção de hoje no endpoint da V1; o resto vai ao orquestrador, que decide (flag desligada ⇒ indisponível)', async () => {
   const navegador = navegadorFalso();
   try {
     const DrawerKidmais = function DrawerKidmais() {};
-    const { buscar, pedidos } = buscadorFalso(async () => Response.json({ ok: true, data: dados }));
+    const { buscar, pedidos } = buscadorFalso(async () => (pedidos.at(-1)!.url.endsWith('/conversa')
+      ? Response.json({ ok: false, erro: 'Kidmais Intelligence indisponível neste ambiente.', codigo: 'INTELIGENCIA_DESATIVADA' }, { status: 503 })
+      : Response.json({ ok: true, data: dados })));
     const tela = carregarComponente('components/admin/inteligencia/PerguntarKidmais.tsx', {
       '@/lib/http/admin-fetch': { adminFetch: buscar },
       './perguntas': perguntas,
@@ -231,10 +235,13 @@ test('Provider: abre/fecha o drawer e só consulta a capacidade existente', asyn
     const drawer = achar(arvore, DrawerKidmais);
 
     await (drawer.props.onPerguntar as (t: string) => Promise<void>)('Quantas festas tenho sábado?');
-    assert.equal(pedidos.length, 0);
-    await (drawer.props.onPerguntar as (t: string) => Promise<void>)('O que precisa da minha atenção hoje?');
     assert.equal(pedidos.length, 1);
-    assert.deepEqual(JSON.parse(String(pedidos[0].init.body)), { capacidade: 'atencao_hoje' });
+    assert.equal(pedidos[0].url, '/api/admin/inteligencia/conversa');
+    assert.deepEqual(JSON.parse(String(pedidos[0].init.body)), { texto: 'Quantas festas tenho sábado?' }, 'só o texto: sem empresa, usuário ou papel');
+    await (drawer.props.onPerguntar as (t: string) => Promise<void>)('O que precisa da minha atenção hoje?');
+    assert.equal(pedidos.length, 2);
+    assert.equal(pedidos[1].url, '/api/admin/inteligencia');
+    assert.deepEqual(JSON.parse(String(pedidos[1].init.body)), { capacidade: 'atencao_hoje' });
 
     const mensagens = achar(provider(), DrawerKidmais).props.mensagens as conversa.Mensagem[];
     assert.deepEqual(mensagens.map((m) => m.fase), ['indisponivel', 'resposta']);
@@ -244,6 +251,183 @@ test('Provider: abre/fecha o drawer e só consulta a capacidade existente', asyn
     valor.abrir();
     assert.equal((achar(provider(), DrawerKidmais).props.mensagens as unknown[]).length, 2, 'histórico visual curto é mantido na sessão da página');
     await tique();
+  } finally {
+    navegador.restaurar();
+  }
+});
+
+const rascunho: cliente.RascunhoPublico = {
+  operacaoId: '00000001-0000-4000-8000-000000000000', capacidade: 'criar_pacote', estado: 'AGUARDANDO_CONFIRMACAO', versao: 3,
+  payloadHash: 'a'.repeat(64), expiraEm: '2026-09-28T15:10:00.000Z', titulo: 'Novo pacote',
+  campos: [{ id: 'nome', rotulo: 'Nome', valor: 'Festa Plus', obrigatorio: true }, { id: 'descricao', rotulo: 'Descrição', valor: null, obrigatorio: false }],
+  avisos: ['Sem preço: o pacote fica sem valor até você definir em Pacotes.'],
+};
+
+test('cliente da conversa: envia só texto/contexto/operacaoId; decisão envia só operacaoId, versão, hash e decisão', async () => {
+  const ok = buscadorFalso(async () => Response.json({ ok: true, data: { tipo: 'preview', rascunho } }));
+  const r = await cliente.conversar(ok.buscar, { texto: 'Crie o pacote Festa Plus', contexto: { tela: 'pacotes' }, operacaoId: rascunho.operacaoId });
+  assert.deepEqual(r, { tipo: 'ok', resposta: { tipo: 'preview', rascunho } });
+  assert.equal(ok.pedidos[0].url, '/api/admin/inteligencia/conversa');
+  assert.deepEqual(JSON.parse(String(ok.pedidos[0].init.body)), { texto: 'Crie o pacote Festa Plus', contexto: { tela: 'pacotes' }, operacaoId: rascunho.operacaoId });
+
+  await cliente.decidirOperacao(ok.buscar, rascunho, 'confirmar');
+  assert.equal(ok.pedidos[1].url, '/api/admin/inteligencia/operacoes');
+  assert.deepEqual(JSON.parse(String(ok.pedidos[1].init.body)), { operacaoId: rascunho.operacaoId, versao: 3, payloadHash: 'a'.repeat(64), decisao: 'confirmar' });
+
+  const malformada = buscadorFalso(async () => Response.json({ ok: true, data: { tipo: 'preview', rascunho: { operacaoId: 'x' } } }));
+  assert.equal((await cliente.conversar(malformada.buscar, { texto: 'x' })).tipo, 'erro');
+  const recusa = buscadorFalso(async () => Response.json({ ok: false, erro: 'O rascunho mudou depois da revisão. Confira o preview de novo.', codigo: 'CONFIRMACAO_DESATUALIZADA' }, { status: 409 }));
+  assert.deepEqual(await cliente.decidirOperacao(recusa.buscar, rascunho, 'confirmar'), { tipo: 'erro', mensagem: 'O rascunho mudou depois da revisão. Confira o preview de novo.', codigo: 'CONFIRMACAO_DESATUALIZADA' });
+  const rede = buscadorFalso(async () => { throw new TypeError('timeout'); });
+  assert.deepEqual(await cliente.decidirOperacao(rede.buscar, rascunho, 'confirmar'), { tipo: 'erro', mensagem: cliente.MENSAGEM_ERRO, codigo: null });
+});
+
+test('atencao_hoje pedido em texto livre pelo /conversa chega no formato V1 e é exibido como atenção, não como erro', async () => {
+  const servidor = buscadorFalso(async () => Response.json({ ok: true, data: { tipo: 'resposta', dados } }));
+  const r = await cliente.conversar(servidor.buscar, { texto: 'quais pagamentos estão vencidos?' });
+  assert.deepEqual(r, { tipo: 'ok', resposta: { tipo: 'resposta', dados } });
+  let h: conversa.Mensagem[] = conversa.adicionarPergunta([], 1, 'quais pagamentos estão vencidos?', { tipo: 'servidor' });
+  h = conversa.registrarConversa(h, 1, r);
+  assert.equal(h[0].fase, 'resposta');
+  const leituraSemFatos = buscadorFalso(async () => Response.json({ ok: true, data: { tipo: 'resposta', dados: { ...dados, capacidade: 'outra' } } }));
+  assert.equal((await cliente.conversar(leituraSemFatos.buscar, { texto: 'x' })).tipo, 'erro', 'formato desconhecido continua recusado');
+});
+
+test('histórico do Human Gate: rascunho aberto, preview bloqueia envio durante a decisão e resultado substitui o preview', () => {
+  let h: conversa.Mensagem[] = conversa.adicionarPergunta([], 1, 'Crie o pacote Festa Plus', { tipo: 'servidor' });
+  h = conversa.registrarConversa(h, 1, { tipo: 'ok', resposta: { tipo: 'rascunho', rascunho: { ...rascunho, estado: 'COLETANDO' }, pergunta: 'Qual é a duração?', faltando: ['duracaoMinutos'] } });
+  assert.equal(conversa.rascunhoAberto(h)?.operacaoId, rascunho.operacaoId);
+  h = conversa.adicionarPergunta(h, 2, '4 horas', { tipo: 'servidor' });
+  h = conversa.registrarConversa(h, 2, { tipo: 'ok', resposta: { tipo: 'preview', rascunho } });
+  h = conversa.marcarDecisao(h, rascunho.operacaoId, true);
+  assert.equal(conversa.aguardandoResposta(h), true);
+  h = conversa.registrarDecisao(h, rascunho.operacaoId, { tipo: 'erro', mensagem: 'Falhou', codigo: null });
+  assert.deepEqual([h[1].fase, (h[1] as { erro: string }).erro, conversa.aguardandoResposta(h)], ['preview', 'Falhou', false]);
+  h = conversa.registrarDecisao(h, rascunho.operacaoId, { tipo: 'ok', resposta: { tipo: 'resultado_acao', rascunho: { ...rascunho, estado: 'EXECUTADA' }, mensagem: 'Pacote "Festa Plus" criado.', destino: '/admin/configuracoes/pacotes' } });
+  assert.equal(h[1].fase, 'resultado');
+  assert.equal(conversa.rascunhoAberto(h), null);
+});
+
+test('Preview: mostra campos preenchidos, avisos e "nada foi gravado"; Confirmar/Cancelar chamam a decisão e travam durante a gravação', () => {
+  const tela = carregarComponente('components/admin/inteligencia/AcaoKidmais.tsx', { 'next/link': { default: 'a' }, './inteligencia.module.css': cssFalso });
+  const decisoes: string[] = [];
+  const props = { rascunho, decidindo: false, erro: null, onDecidir: (_r: unknown, d: string) => decisoes.push(d) };
+  const arvore = tela.render('PreviewAcao', props);
+  const conteudo = texto(arvore);
+  assert.match(conteudo, /Confira antes de gravar/);
+  assert.match(conteudo, /Festa Plus/);
+  assert.doesNotMatch(conteudo, /Descrição/, 'campo vazio não aparece');
+  assert.match(conteudo, /Sem preço/);
+  assert.match(conteudo, /Nenhuma alteração foi feita no cadastro/);
+  (achar(arvore, 'button', 'Confirmar').props.onClick as () => void)();
+  (achar(arvore, 'button', 'Cancelar').props.onClick as () => void)();
+  assert.deepEqual(decisoes, ['confirmar', 'cancelar']);
+  const gravando = tela.render('PreviewAcao', { ...props, decidindo: true });
+  assert.equal(achar(gravando, 'button', 'Gravando…').props.disabled, true);
+  assert.equal(achar(gravando, 'button', 'Cancelar').props.disabled, true);
+  const falha = tela.render('PreviewAcao', { ...props, erro: 'O rascunho mudou.' });
+  assert.match(texto(elementos(falha).find((e) => e.props.role === 'alert')), /O rascunho mudou/);
+});
+
+test('Leitura genérica: resumo, links de origem e fatos classificados (dado, cálculo, sem dados)', () => {
+  const tela = carregarComponente('components/admin/inteligencia/RespostaLeitura.tsx', { 'next/link': { default: 'a' }, './cliente-inteligencia': cliente, './inteligencia.module.css': cssFalso });
+  const arvore = tela.render('default', { dados: {
+    capacidade: 'contratos_pendentes', estado: 'atencao', resumo: '2 contratos aguardam assinatura.',
+    fatos: [{ natureza: 'FATO', texto: '2 contratos.', fonte: 'contratos.aguardando_assinatura' }, { natureza: 'CALCULO', texto: 'Soma: 60.', fonte: 'festas.agenda' }, { natureza: 'AUSENCIA', texto: 'Sem plano.', fonte: 'festas.detalhe' }],
+    itens: [{ id: 'c1', prioridade: 'alta', titulo: 'Cliente · 02/10/2026', detalhe: 'Festa em 4 dias', destino: '/admin/contratos' }],
+    evidencias: [{ fonte: 'contratos.aguardando_assinatura', rotulo: 'Aguardando assinatura', valor: '2' }],
+    referencia: { hoje: '2026-09-28', geradoEm: '2026-09-28T15:00:00.000Z', fontes: ['contratos.aguardando_assinatura'] },
+  } });
+  const conteudo = texto(arvore);
+  assert.match(conteudo, /2 contratos aguardam assinatura/);
+  assert.match(conteudo, /Dado2 contratos/);
+  assert.match(conteudo, /CálculoSoma: 60/);
+  assert.match(conteudo, /Sem dadosSem plano/);
+  assert.deepEqual(elementos(arvore).filter((e) => e.type === 'a').map((e) => e.props.href), ['/admin/contratos']);
+  assert.match(conteudo, /Contratos/);
+});
+
+test('Provider: rascunho aberto recebe a próxima frase; o clique em Confirmar vai ao Human Gate uma vez só', async () => {
+  const navegador = navegadorFalso();
+  try {
+    const DrawerKidmais = function DrawerKidmais() {};
+    let liberar: (r: Response) => void = () => {};
+    const respostas: Array<() => Promise<Response>> = [
+      async () => Response.json({ ok: true, data: { tipo: 'rascunho', rascunho: { ...rascunho, estado: 'COLETANDO' }, pergunta: 'Qual é a duração?', faltando: ['duracaoMinutos'] } }),
+      async () => Response.json({ ok: true, data: { tipo: 'preview', rascunho } }),
+      () => new Promise((resolve) => { liberar = resolve; }),
+    ];
+    const { buscar, pedidos } = buscadorFalso(() => respostas[pedidos.length - 1]());
+    const tela = carregarComponente('components/admin/inteligencia/PerguntarKidmais.tsx', {
+      '@/lib/http/admin-fetch': { adminFetch: buscar }, './perguntas': perguntas, './cliente-inteligencia': cliente, './conversa': conversa, './DrawerKidmais': { default: DrawerKidmais },
+    });
+    const provider = () => tela.render('PerguntarKidmaisProvider', { children: null });
+    (elementos(provider())[0].props.value as { abrir(): void }).abrir();
+    const drawer = () => achar(provider(), DrawerKidmais);
+
+    // Render + efeitos depois de cada resposta: o provider sincroniza o histórico num efeito.
+    const sincronizar = () => { provider(); tela.efeitos(); };
+    await (drawer().props.onPerguntar as (t: string) => Promise<void>)('Crie o pacote Festa Plus');
+    sincronizar();
+    await (drawer().props.onPerguntar as (t: string) => Promise<void>)('4 horas');
+    sincronizar();
+    assert.deepEqual(JSON.parse(String(pedidos[1].init.body)), { texto: '4 horas', operacaoId: rascunho.operacaoId });
+    const antes = drawer().props.mensagens as conversa.Mensagem[];
+    assert.equal(antes.at(-1)!.fase, 'preview');
+
+    const onDecidir = drawer().props.onDecidir as (r: cliente.RascunhoPublico, d: string) => Promise<void>;
+    const primeiro = onDecidir(rascunho, 'confirmar');
+    await onDecidir(rascunho, 'confirmar');
+    assert.equal(pedidos.length, 3, 'clique duplo não dispara segunda gravação');
+    assert.equal(drawer().props.aguardando, true);
+    liberar(Response.json({ ok: true, data: { tipo: 'resultado_acao', rascunho: { ...rascunho, estado: 'EXECUTADA' }, mensagem: 'Pacote "Festa Plus" criado.', destino: '/admin/configuracoes/pacotes' } }));
+    await primeiro;
+    const depois = drawer().props.mensagens as conversa.Mensagem[];
+    assert.equal(depois.at(-1)!.fase, 'resultado');
+    assert.equal(pedidos[2].url, '/api/admin/inteligencia/operacoes');
+  } finally {
+    navegador.restaurar();
+  }
+});
+
+test('C4: cancelar rascunho em COLETANDO fecha o rascunho na conversa e no drawer; próxima frase não vai para ele', () => {
+  const coletando: cliente.RascunhoPublico = { ...rascunho, estado: 'COLETANDO', payloadHash: '', versao: 1 };
+  let h: conversa.Mensagem[] = conversa.adicionarPergunta([], 1, 'Crie um pacote', { tipo: 'servidor' });
+  h = conversa.registrarConversa(h, 1, { tipo: 'ok', resposta: { tipo: 'rascunho', rascunho: coletando, pergunta: 'Qual é o nome do pacote?', faltando: ['nome'] } });
+  assert.equal(conversa.rascunhoAberto(h)?.operacaoId, coletando.operacaoId);
+  // Durante o clique: bloqueia envio (sem duplo cancelamento nem nova frase para o rascunho).
+  h = conversa.marcarDecisao(h, coletando.operacaoId, true);
+  assert.equal(conversa.aguardandoResposta(h), true);
+  // Erro do servidor: o rascunho continua aberto, com o aviso.
+  const comErro = conversa.registrarDecisao(h, coletando.operacaoId, { tipo: 'erro', mensagem: 'O rascunho mudou desde a última vez que você o viu. Atualize antes de cancelar.', codigo: 'CONFIRMACAO_DESATUALIZADA' });
+  assert.equal(conversa.rascunhoAberto(comErro)?.operacaoId, coletando.operacaoId);
+  assert.deepEqual([comErro[0].fase, (comErro[0] as { erro: string }).erro !== null, conversa.aguardandoResposta(comErro)], ['rascunho', true, false]);
+  // Sucesso (CANCELADA): a mensagem vira resultado e o rascunho deixa de estar ativo.
+  h = conversa.registrarDecisao(h, coletando.operacaoId, { tipo: 'ok', resposta: { tipo: 'resultado_acao', rascunho: { ...coletando, estado: 'CANCELADA' }, mensagem: 'Rascunho cancelado. Nenhuma alteração foi feita.' } });
+  assert.equal(h[0].fase, 'resultado');
+  assert.equal((h[0] as { rascunho: cliente.RascunhoPublico }).rascunho.estado, 'CANCELADA');
+  assert.equal(conversa.rascunhoAberto(h), null, 'nada de rascunho ativo');
+  assert.equal(conversa.aguardandoResposta(h), false);
+  // Nova frase: vira pergunta nova (o provider só envia operacaoId quando há rascunho aberto).
+  h = conversa.adicionarPergunta(h, 2, 'Festa Plus', { tipo: 'servidor' });
+  assert.equal(conversa.rascunhoAberto(h), null);
+
+  // Drawer: sem barra "Respondendo ao rascunho" nem botão de cancelar depois do cancelamento.
+  const navegador = navegadorFalso();
+  try {
+    const tela = carregarComponente('components/admin/inteligencia/DrawerKidmais.tsx', {
+      './perguntas': perguntas, './RespostaAtencao': { default: function RespostaAtencao() {} }, './inteligencia.module.css': cssFalso,
+      './conversa': conversa, './RespostaLeitura': { default: function RespostaLeitura() {} },
+      './AcaoKidmais': { PreviewAcao: function PreviewAcao() {}, RascunhoAcao: function RascunhoAcao() {}, ResultadoAcao: function ResultadoAcao() {} },
+    });
+    const props = { mensagens: [] as conversa.Mensagem[], aguardando: false, onPerguntar: () => {}, onFechar: () => {}, onDecidir: () => {} };
+    const aberto = conversa.registrarConversa(conversa.adicionarPergunta([], 1, 'Crie um pacote', { tipo: 'servidor' }), 1, { tipo: 'ok', resposta: { tipo: 'rascunho', rascunho: coletando, pergunta: 'Qual é o nome do pacote?', faltando: ['nome'] } });
+    assert.match(texto(tela.render('default', { ...props, mensagens: aberto })), /Respondendo ao rascunho/);
+    const cancelado = conversa.registrarDecisao(aberto, coletando.operacaoId, { tipo: 'ok', resposta: { tipo: 'resultado_acao', rascunho: { ...coletando, estado: 'CANCELADA' }, mensagem: 'Rascunho cancelado. Nenhuma alteração foi feita.' } });
+    const depois = tela.render('default', { ...props, mensagens: cancelado });
+    assert.doesNotMatch(texto(depois), /Respondendo ao rascunho/);
+    assert.equal(elementos(depois).some((e) => e.type === 'button' && texto(e) === 'Cancelar rascunho'), false);
+    assert.equal(achar(depois, 'input').props.placeholder, 'Pergunte sobre sua operação…');
   } finally {
     navegador.restaurar();
   }

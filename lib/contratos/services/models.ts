@@ -1,3 +1,4 @@
+import type { DbExecutor } from "../../db/contracts";
 import type { ContratoRecord, ContratoVersaoRecord } from "../repositories";
 
 export type ContratoServiceContext = {
@@ -6,6 +7,8 @@ export type ContratoServiceContext = {
   requestId?: string | null;
   ip?: string | null;
   userAgent?: string | null;
+  /** C2: transação do tenant já provado pela rota; geração na MESMA transação da autorização. */
+  executor?: DbExecutor;
 };
 
 export type GerarContratoInput = {

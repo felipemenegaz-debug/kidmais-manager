@@ -1,5 +1,9 @@
 # Kidmais Intelligence V1 — fundação (PR1)
 
+> Histórico da fundação. A evolução para produção (Model Router, Human Gate, novas leituras, importação
+> histórica, migrations 055a–d) está em [INTELIGENCIA_PRODUCAO_V1.md](INTELIGENCIA_PRODUCAO_V1.md).
+> O contrato de `atencao_hoje` descrito aqui continua valendo.
+
 Primeira capacidade: **“O que precisa da minha atenção hoje?”**, somente leitura e **sem LLM**.
 
 ## Fluxo

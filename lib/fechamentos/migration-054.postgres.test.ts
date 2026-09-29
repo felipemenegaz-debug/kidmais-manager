@@ -662,6 +662,16 @@ async function locksAutorizacao(db: Client, fx: Fixtures) {
   };
   const semLock = (reg: Registro) => assert.deepEqual(reg.sql.filter((x) => LOCK.test(x.texto)).map((x) => x.texto), [], "nenhuma consulta com lock de qualquer modalidade");
 
+  // Repositório real lendo a coluna gravada pela 054 (movido da suíte da 053, que roda num estado anterior à 054):
+  // empresa A/B, legado → null, inexistente → undefined; a variante sem trava não emite lock.
+  for (const nome of ["empresaDoFechamentoSemTrava", "empresaDoFechamentoComTrava"] as const) {
+    await emTransacao(async (reg) => {
+      for (const [f, fid] of Object.entries(fx.fechamentos)) assert.equal(await s.repositorio[nome](fid, reg.exec), fx.esperadoFechamento[f], `${nome}: ${f}`);
+      assert.equal(await s.repositorio[nome](randomUUID(), reg.exec), undefined, `${nome}: inexistente`);
+      if (nome === "empresaDoFechamentoSemTrava") semLock(reg);
+    });
+  }
+
   // operarContrato A→B, para cada payload; fechamento legado; versão inexistente.
   for (const [caso, payload] of PAYLOADS) {
     for (const [alvo, fechamento, cliente] of [["B", fx.fechamentos.fB, fx.clientes.cB], ["legado", fx.fechamentos.fLeg, fx.clientes.cLeg]] as const) {

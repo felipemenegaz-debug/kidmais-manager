@@ -4,9 +4,12 @@ import { z } from "zod";
 import type { DbExecutor } from "../db/contracts.ts";
 import { ClienteServiceError } from "../clientes/services/errors.ts";
 import { executarNoTenant, type SessaoParaTenant } from "../saas/provar-tenant.ts";
-import { atenderInteligencia, inteligenciaAtiva, type DependenciasGateway } from "./gateway.ts";
+import { atenderInteligencia, type DependenciasGateway } from "./gateway.ts";
+import { atenderConversa } from "./conversa.ts";
+import { inteligenciaAtiva } from "./flags.ts";
 import { autorizarFerramenta } from "./politica.ts";
-import { registrarRastreio, type RastreioInteligencia } from "./rastreio.ts";
+import { anotarUsoModelo, novoRastreio, registrarRastreio, type RastreioInteligencia } from "./rastreio.ts";
+import type { ModelUsage } from "./contratos.ts";
 
 const empresaA = "11111111-1111-4111-8111-111111111111";
 const empresaB = "22222222-2222-4222-8222-222222222222";
@@ -71,7 +74,7 @@ function bancoFalso(opcoes: {
       if (sql.includes("FROM financeiro_entradas_manuais")) return r(dados[String(values[0])]?.manual ?? []);
       if (sql.includes("m.status AS membership")) return r(memberships.some((m) => m.id === values[0]) ? [{ membership: "ATIVA" }] : []);
       if (sql.includes("SELECT DISTINCT m.empresa_id")) return r(memberships.map((m) => ({ id: m.empresa_id })));
-      if (sql.includes("FROM memberships m") && sql.includes("JOIN empresas")) return r(memberships);
+      if (sql.includes("FROM memberships m") && sql.includes("JOIN empresas")) return r(memberships.map((m) => ({ papel: "ADMINISTRATIVO", ...m })));
       if (sql.includes("SELECT status FROM empresas")) return r([{ status: "ATIVA" }]);
       if (sql.includes("FROM empresas")) return r([{ id: values[0] }]);
       if (sql.includes("SELECT ativo")) return r([{ ativo: opcoes.usuarioAtivo ?? true }]);
@@ -376,8 +379,12 @@ test("11. o trace só leva metadados: sem PII, valores, tokens ou texto do pedid
   assert.doesNotMatch(texto, /\d{3}\.\d{3}\.\d{3}-\d{2}|@|\(\d{2}\)\s?\d{4,5}-\d{4}/);
   const primeiro = JSON.parse(linhas[0].replace(/^\[Kidmais Inteligência\] /, "")) as Record<string, unknown>;
   assert.deepEqual(Object.keys(primeiro).sort(), [
-    "capacidade", "causa", "codigo", "duracaoMs", "empresaId", "estado", "evento", "fallback", "ferramenta", "itens", "requestId", "resultado", "usuarioId",
+    "capacidade", "causa", "chamadasModelo", "codigo", "correlationId", "custoEstimadoMicros", "duracaoMs", "empresaId", "estado", "evento", "fallback",
+    "fallbackProvedor", "ferramenta", "ferramentasExecutadas", "ferramentasSolicitadas", "humanGate", "intencao", "itens", "modelo", "politica", "provedor", "requestId", "resultado",
+    "tokensEntrada", "tokensSaida", "usuarioId",
   ]);
+  assert.equal(primeiro.politica, "PERMITIDO");
+  assert.deepEqual(primeiro.ferramentasExecutadas, ["atencao_hoje"]);
   assert.equal(primeiro.requestId, "req-0001");
   assert.equal(primeiro.usuarioId, usuarioA);
   assert.equal(primeiro.empresaId, empresaA);
@@ -398,4 +405,53 @@ test("um trace que falha não derruba a resposta", async () => {
   deps.registrar = () => { throw new Error("stdout indisponível"); };
   const resposta = await atenderInteligencia(pedido({ capacidade: "atencao_hoje" }).pedido, deps);
   assert.equal(resposta.status, 200);
+});
+
+test("trace de custo/fallback: tokens e custo somados, desconhecido nunca vira zero, troca de provedor separada da resposta degradada", () => {
+  const uso = (p: Partial<ModelUsage>): ModelUsage => ({ correlationId: "c", empresaId: empresaA, estabelecimentoId: null, capacidade: "extrair_documento", workload: "EXTRACAO_CONTRATO", tier: "STANDARD", provedor: "OPENAI", modelo: "m1", tokensEntrada: 100, tokensSaida: 20, tokensCache: null, duracaoMs: 5, custoEstimadoMicros: 300, moeda: "BRL", sucesso: true, erro: null, fallback: false, em: agora.toISOString(), ...p });
+  const r = novoRastreio("inteligencia.documento", "req-1");
+  anotarUsoModelo(r, [uso({ sucesso: false, erro: "TIMEOUT" }), uso({ provedor: "DEEPSEEK", modelo: "m2", fallback: true })]);
+  assert.deepEqual([r.provedor, r.modelo, r.tokensEntrada, r.tokensSaida, r.custoEstimadoMicros, r.chamadasModelo, r.fallbackProvedor, r.fallback], ["DEEPSEEK", "m2", 200, 40, 600, 2, true, false]);
+  const desconhecido = novoRastreio("inteligencia.documento", "req-2");
+  anotarUsoModelo(desconhecido, [uso({ tokensEntrada: null, custoEstimadoMicros: null }), uso({ moeda: "USD" })]);
+  assert.deepEqual([desconhecido.tokensEntrada, desconhecido.custoEstimadoMicros], [null, null]);
+  const nada = novoRastreio("inteligencia.documento", "req-3");
+  anotarUsoModelo(nada, []);
+  assert.deepEqual([nada.provedor, nada.chamadasModelo, nada.custoEstimadoMicros], [null, 0, null]);
+  const linhas: string[] = [];
+  registrarRastreio(r, (l) => linhas.push(l));
+  assert.doesNotMatch(linhas[0], /mensagens|conteudo|prompt/);
+});
+
+test("A3: atencao_hoje em conversa recém-criada (sem operacaoId, contexto ou histórico) usa só fontes canônicas do tenant comprovado", async () => {
+  const env = { INTELIGENCIA_ENABLED: "true", AI_READ_ENABLED: "true" };
+  const perguntar = (m: ReturnType<typeof montar>) => atenderConversa(pedido({ texto: "O que precisa da minha atenção hoje?" }).pedido, { ...m.deps, acoes: null, roteador: null });
+
+  const m = montar({ env });
+  const r = await perguntar(m);
+  assert.equal(r.status, 200, JSON.stringify(r.corpo));
+  const resposta = (r.corpo as { data: { tipo: string; dados: { capacidade: string; estado: string; itens: unknown[] } } }).data;
+  assert.equal(resposta.tipo, "resposta");
+  assert.equal(resposta.dados.capacidade, "atencao_hoje");
+  assert.equal(resposta.dados.estado, "atencao");
+  const financeiras = consultasFinanceiras(m.banco.consultas);
+  assert.ok(financeiras.length > 0);
+  assert.ok(financeiras.every((c) => c.values[0] === empresaA), "só a empresa comprovada");
+  assert.equal(JSON.stringify(resposta).includes("9999"), false, "nada da empresa B");
+  assert.equal(m.banco.consultas.some(escrita), false);
+
+  // Sem dados: resposta segura, sem itens inventados.
+  const vazio = montar({ env, banco: bancoFalso({ dados: { [empresaA]: { receber: [], manual: [] } } }) });
+  const semDados = (await perguntar(vazio)).corpo as { data: { dados: { estado: string; itens: unknown[] } } };
+  assert.equal(semDados.data.dados.estado, "sem_dados");
+  assert.deepEqual(semDados.data.dados.itens, []);
+
+  // RBAC: papel desconhecido não lê nada; empresa pedida sem membership é recusada.
+  const semPapel = montar({ env, autenticar: async () => ({ ...sessao, papel: "VISITANTE" }) });
+  assert.equal((await perguntar(semPapel)).status, 403);
+  assert.equal(consultasFinanceiras(semPapel.banco.consultas).length, 0);
+  const outraEmpresa = montar({ env });
+  const recusa = await atenderConversa(pedido({ texto: "O que precisa da minha atenção hoje?" }, empresaB).pedido, { ...outraEmpresa.deps, acoes: null, roteador: null });
+  assert.equal(recusa.status, 403);
+  assert.equal(consultasFinanceiras(outraEmpresa.banco.consultas).length, 0);
 });

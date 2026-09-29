@@ -5,10 +5,14 @@ documento próprio, fora deste PR), depois da
 [053/PR-A](MIGRATION_053_INTEGRIDADE_TENANT_FECHAMENTO.md). **Não altera a unicidade de CPF**:
 `clientes_cpf_canonico_uk` continua global até o PR-B2.
 
-**Estado:** implementada no repositório. O ciclo completo foi executado **somente** no PostgreSQL
-descartável autorizado (`127.0.0.1:55498/kidmais_pacotes_v1_descartavel`) e passou, inclusive
-nas execuções 4 e 5 com o harness endurecido (seção "Ciclo PostgreSQL descartável"); a 054 foi removida desse banco ao final. **Não aplicada em staging
-nem em produção.**
+**Estado atual:** **aplicada em staging** (depois da 053, também aplicada em staging); o
+backfill imediato (`20260928_054_backfill_imediato.sql`) e o postcheck
+(`20260928_054_postcheck.sql`) passaram em staging. **Produção NÃO recebeu a 053 nem a 054.**
+
+**Histórico (antes da aplicação em staging):** implementada no repositório; o ciclo completo foi
+executado no PostgreSQL descartável autorizado (`127.0.0.1:55498/kidmais_pacotes_v1_descartavel`)
+e passou, inclusive nas execuções 4 e 5 com o harness endurecido (seção "Ciclo PostgreSQL
+descartável"); a 054 foi removida desse banco ao final.
 
 ## 1. Implementado
 
@@ -275,6 +279,9 @@ coerência da coluna nova com o pacote e com o cliente, e exige a 053 instalada.
 
 ## Aplicação
 
-**Não aplicada em staging nem em produção.** As únicas execuções (1 a 5) foram no PostgreSQL
-descartável autorizado, e a 054 está ausente desse banco ao final. Qualquer aplicação exige autorização explícita
+**Staging: aplicada** (053 e 054), com backfill imediato e postcheck aprovados. **Produção: não
+aplicada** — nem a 053 nem a 054. Qualquer aplicação em produção exige autorização explícita
 (`docs/OPERACAO_AGENTES.md`).
+
+Histórico: antes de staging, as execuções 1 a 5 foram no PostgreSQL descartável autorizado, e a
+054 ficou ausente desse banco ao final de cada ciclo.

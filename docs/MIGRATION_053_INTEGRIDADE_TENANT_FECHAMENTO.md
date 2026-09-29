@@ -165,7 +165,9 @@ O `_down.sql` remove exatamente o que a 053 criou: 9 gatilhos, a FK composta e 1
 
 ## Aplicação
 
-**Não aplicada em staging nem em produção.** No descartável, a 053 é instalada e removida pelo ciclo autorizado. Antes de staging, é preciso rodar o precheck e conferir os privilégios num clone autorizado. Qualquer aplicação exige autorização explícita (`docs/OPERACAO_AGENTES.md`).
+**Estado atual: aplicada em staging** (seguida da 054, também aplicada em staging, com backfill imediato e postcheck aprovados). **Produção NÃO recebeu a 053 nem a 054.** Qualquer aplicação em produção exige autorização explícita (`docs/OPERACAO_AGENTES.md`).
+
+Histórico: antes de staging, a 053 era instalada e removida pelo ciclo autorizado no descartável.
 
 ## Fora do escopo (PR-B e seguintes)
 

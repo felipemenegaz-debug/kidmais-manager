@@ -86,9 +86,11 @@ export async function avaliarPerdaDeElegibilidade(tx: DbExecutor, input: {
     const linhas = empresas.length === 0
         ? []
         : (await tx.query<LinhaElegivel>(
-            `SELECT c.empresa_id, c.usuario_id, u.papel, u.ativo
+            // 056: elegibilidade por empresa = papel e status da membership NAQUELA empresa.
+            `SELECT c.empresa_id, c.usuario_id, COALESCE(m.papel, '') AS papel, (u.ativo AND m.status IS NOT DISTINCT FROM 'ATIVA') AS ativo
              FROM public.perfil_empresa_concessoes c
              JOIN usuarios_administrativos u ON u.id = c.usuario_id
+             LEFT JOIN memberships m ON m.empresa_id = c.empresa_id AND m.usuario_id = c.usuario_id
              WHERE c.revogado_em IS NULL
                AND c.capacidade = 'PERFIL_ADMINISTRAR_CONCESSOES'
                AND c.empresa_id = ANY($1::uuid[])

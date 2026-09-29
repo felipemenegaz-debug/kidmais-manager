@@ -40,7 +40,7 @@ function responderProva(sql: string, memberships: Array<{ id: string; empresa_id
       ? { rows: [{ membership: "ATIVA", empresa: "ATIVA", ativo: true }], rowCount: 1 }
       : { rows: [], rowCount: 0 };
   }
-  if (sql.includes("FROM memberships")) return { rows: memberships, rowCount: memberships.length };
+  if (sql.includes("FROM memberships")) return { rows: memberships.map((m) => ({ papel: "REPRESENTANTE_AUTORIZADO", ...m })), rowCount: memberships.length };
   return null;
 }
 

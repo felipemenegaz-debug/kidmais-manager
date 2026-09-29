@@ -107,10 +107,13 @@ test('smoke mocked transport: GET, redirect refusal, invalid JSON, oversized bod
   for (const url of ['http://admin.example', 'https://user:FAKE@admin.example', 'https://admin.example/?token=FAKE']) assert.equal((await smoke.check(fixture(), { 'base-url': url }, () => { throw new Error('must not fetch'); })).status, 'FAIL_VERIFIED');
 });
 test('inventory excludes rollback and never claims applied state', async () => {
-  const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.equal(r.evidence[0].latest, '20260926_047_escopo_comercial_tabela.sql'); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999')));
-  assert.deepEqual(r.evidence[0].migrations.filter(x => Number(x.split('_')[1]) > 19), [
+  const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.equal(r.evidence[0].latest, '20260929_057_assinatura_contrato_empresa.sql'); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999') || x.endsWith('_down.sql')));
+  assert.deepEqual(r.evidence[0].migrations.filter(x => Number.parseInt(x.split('_')[1], 10) > 19), [
     '20260923_021_catalogo_configuravel_estrutura.sql', '20260923_022_catalogo_itens_iniciais.sql',
     '20260923_023_adicionais_por_pacote.sql', '20260923_024_taxa_rolha_versionada.sql', '20260923_025_extras_unitarios_pizza.sql',
+    '20260925_026_perfil_empresa_estrutura.sql',
+    '20260925_027_perfil_empresa_cadastro.sql',
+    '20260925_028_perfil_empresa_revisao_aplicacao.sql',
     '20260926_029_fechamento_pacote_snapshot.sql',
     '20260926_030_preco_utilizado.sql',
     '20260926_031_empresas_comercial.sql',
@@ -130,8 +133,69 @@ test('inventory excludes rollback and never claims applied state', async () => {
     '20260926_045_ciclo_membership.sql',
     '20260926_046_kidmais_legado_controlado.sql',
     '20260926_047_escopo_comercial_tabela.sql',
+    '20260927_048_supersessao_tabela_publicada.sql',
+    '20260927_049_publicacao_insert_e_trava.sql',
+    '20260927_050_item_sem_categoria.sql',
+    '20260927_051_snapshot_item_especifico.sql',
+    '20260927_052_financeiro_gerencial.sql',
+    '20260928_053_integridade_tenant_fechamento.sql',
+    '20260928_054_empresa_id_clientes_fechamentos.sql',
+    '20260928_055a_inteligencia_uso.sql',
+    '20260928_055b_inteligencia_operacoes.sql',
+    '20260928_055c_inteligencia_documentos.sql',
+    '20260928_055d_inteligencia_importacoes.sql',
+    '20260929_056_membership_papel_festa_tenant.sql',
+    '20260929_057_assinatura_contrato_empresa.sql',
   ]);
   assert.deepEqual(r.evidence[0].deliberatelyAbsent, [{ id: '020', reason: 'FOUNDATION_SAAS_SEPARATE_BRANCH_NOT_REQUIRED_BY_CATALOG' }]);
+  // 055a–d são reconhecidas, mas o inventário nunca afirma aplicação e marca a autorização explícita.
+  assert.deepEqual(r.evidence[0].requiresExplicitAuthorization, ['20260928_055a_inteligencia_uso.sql', '20260928_055b_inteligencia_operacoes.sql', '20260928_055c_inteligencia_documentos.sql', '20260928_055d_inteligencia_importacoes.sql', '20260929_056_membership_papel_festa_tenant.sql', '20260929_057_assinatura_contrato_empresa.sql']);
+  assert.ok(r.pending.includes('055A_D_NOT_APPLIED_REQUIRE_EXPLICIT_AUTHORIZATION'));
+  assert.ok(r.pending.includes('056_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
+  assert.ok(r.pending.includes('057_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
+});
+
+const root = path.resolve(import.meta.dirname, '../..');
+test('D4: the inventory mirrors database/migrations exactly (only the 999 down excluded); every rollback stays out', () => {
+  const dir = path.join(root, 'database/migrations');
+  const repo = fs.readdirSync(dir).filter(x => x !== '20260907_999_crm_core_down.sql').sort();
+  assert.deepEqual([...migrations.approvedFiles].sort(), repo, 'every legitimate up migration is recognized; nothing extra is approved');
+  assert.ok(!migrations.approvedFiles.some(x => x.endsWith('_down.sql')), 'no *_down.sql is an up migration');
+  for (const down of fs.readdirSync(path.join(root, 'database/rollback'))) {
+    const r = migrations.inspectInventory([...repo, down], () => true);
+    assert.ok(r.blockers.includes('MIGRATION_BASELINE_REVIEW_REQUIRED'), `${down}: a rollback placed with the migrations blocks`);
+  }
+  for (const unknown of ['20260928_055e_inteligencia_extra.sql', '20260928_055_inteligencia.sql', '20260929_056_future.sql', '20260929_057_future.sql', '20260930_058_future.sql', '20260928_055a_inteligencia_uso_down.sql']) {
+    assert.ok(migrations.inspectInventory([...repo, unknown], () => true).blockers.includes('MIGRATION_BASELINE_REVIEW_REQUIRED'), unknown);
+  }
+  for (const file of repo) {
+    const r = migrations.inspectInventory(repo.filter(x => x !== file), () => true);
+    const id = file.split('_')[1];
+    const esperado = id === '006a' ? 'MIGRATION_006A_MISSING' : 'MIGRATION_SEQUENCE_INVALID_' + (/^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, ''));
+    assert.ok(r.blockers.includes(esperado), `${file}: missing blocks with a readable id`);
+  }
+});
+
+test('D4: each migration requires its reviewed check files (inline-guarded 049–051 need none; 052/054/055a–d use their real names)', () => {
+  const repo = migrations.approvedFiles;
+  const expected = {
+    '20260927_049_publicacao_insert_e_trava.sql': [], '20260927_050_item_sem_categoria.sql': [], '20260927_051_snapshot_item_especifico.sql': [],
+    '20260927_052_financeiro_gerencial.sql': ['20260927_052_financeiro_precheck.sql', '20260927_052_financeiro_postcheck.sql'],
+    '20260928_053_integridade_tenant_fechamento.sql': ['20260928_053_precheck.sql', '20260928_053_postcheck.sql'],
+    '20260928_054_empresa_id_clientes_fechamentos.sql': ['20260928_054_precheck.sql', '20260928_054_backfill_imediato.sql', '20260928_054_postcheck.sql'],
+    '20260928_055a_inteligencia_uso.sql': ['20260928_055a_postcheck.sql'], '20260928_055d_inteligencia_importacoes.sql': ['20260928_055d_postcheck.sql'],
+    '20260929_056_membership_papel_festa_tenant.sql': ['20260929_056_precheck.sql', '20260929_056_postcheck.sql'],
+    '20260929_057_assinatura_contrato_empresa.sql': ['20260929_057_precheck.sql', '20260929_057_postcheck.sql'],
+    '20260925_026_perfil_empresa_estrutura.sql': ['20260925_026_precheck.sql', '20260925_026_postcheck.sql'],
+  };
+  for (const [file, checks] of Object.entries(expected)) assert.deepEqual(migrations.requiredChecks(file), checks, file);
+  for (const file of repo) {
+    for (const check of migrations.requiredChecks(file)) {
+      assert.ok(fs.existsSync(path.join(root, 'database/checks', check)), `${check} exists`);
+      const r = migrations.inspectInventory(repo, name => name !== check);
+      assert.deepEqual(r.blockers, ['CHECK_FILE_MISSING_' + check.slice(9, -4)], check);
+    }
+  }
 });
 
 test('V1 inventory rejects missing or duplicate approved migrations, including the legacy baseline', async () => {

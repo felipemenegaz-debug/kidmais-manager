@@ -7,7 +7,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import type { Client } from "pg";
-import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, portaDescartavel, linhaDeBase, LINHA_DE_BASE_ATUAL } from "../comercial/postgres-descartavel.ts";
 
 const req = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -206,7 +206,9 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
       "SELECT current_database() AS db, inet_server_port() AS port",
     );
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
+    // D3: produto parte do estado canônico ATUAL restaurado pela receita (046 aplicada: legado atribuído à Kidmais).
+    assert.deepEqual(await linhaDeBase(db), LINHA_DE_BASE_ATUAL, "estado canônico atual");
 
     await t.test("tenant não altera categoria global", async () => {
       const empresaA = await empresa(db, "Empresa A catalogo");
@@ -314,14 +316,14 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
       await db.query(
         `INSERT INTO fechamentos (
            data_evento, horario_inicio, horario_fim, configuracao_agenda_id,
-           pacote_id, tabela_preco_id, preco_pacote_id,
+           empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
            categoria_horario, categoria_preco_aplicada,
            convidados, convidados_faturados,
            valor_pacote_base, desconto_percentual, valor_desconto_pacote, valor_pacote_aplicado,
            valor_adicionais, valor_tabela, status, origem_fechamento
          ) VALUES (
            DATE '2026-11-11', TIME '10:00', TIME '14:00', $1::uuid,
-           $2::uuid, $3::uuid, $4::uuid,
+           (SELECT p.empresa_id FROM pacotes p WHERE p.id = $2::uuid), $2::uuid, $3::uuid, $4::uuid,
            'PADRAO', 'PADRAO', 30, 30,
            10, 0, 0, 10, 0, 10, 'RASCUNHO', 'ATENDIMENTO_KIDMAIS'
          )`,
@@ -406,14 +408,14 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
       await db.query(
         `INSERT INTO fechamentos (
            data_evento, horario_inicio, horario_fim, configuracao_agenda_id,
-           pacote_id, tabela_preco_id, preco_pacote_id,
+           empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
            categoria_horario, categoria_preco_aplicada,
            convidados, convidados_faturados,
            valor_pacote_base, desconto_percentual, valor_desconto_pacote, valor_pacote_aplicado,
            valor_adicionais, valor_tabela, status, origem_fechamento
          ) VALUES (
            DATE '2026-11-12', TIME '10:00', TIME '14:00', $1::uuid,
-           $2::uuid, $3::uuid, $4::uuid,
+           (SELECT p.empresa_id FROM pacotes p WHERE p.id = $2::uuid), $2::uuid, $3::uuid, $4::uuid,
            'PADRAO', 'PADRAO', 30, 30,
            10, 0, 0, 10, 0, 10, 'RASCUNHO', 'ATENDIMENTO_KIDMAIS'
          )`,
@@ -532,8 +534,9 @@ test("catálogo HG-8 no postgres descartável", { timeout: 120_000 }, async (t) 
            (SELECT count(*)::int FROM empresas WHERE codigo ILIKE '%kidmais%' OR nome ILIKE '%kidmais%') AS kidmais`,
       );
       assert.equal(resto.rows[0].empresas, 0);
-      assert.equal(resto.rows[0].legado, 7);
-      assert.equal(resto.rows[0].kidmais, 0);
+      assert.equal(resto.rows[0].legado, LINHA_DE_BASE_ATUAL.legado);
+      assert.equal(resto.rows[0].kidmais, LINHA_DE_BASE_ATUAL.kidmais, "nenhuma outra Kidmais");
+      assert.deepEqual(await linhaDeBase(db), LINHA_DE_BASE_ATUAL, "linha de base intacta");
     } finally {
       await encerrarDescartavel(db);
     }

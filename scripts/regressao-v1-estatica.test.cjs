@@ -106,3 +106,48 @@ test("sem opt-in a suíte dedicada falha fechada e não conecta", () => {
   assert.equal(saida.includes("escopo comercial declarado"), false);
   assert.equal(saida.includes("ECONNREFUSED"), false);
 });
+
+test("D3: toda suíte PostgreSQL declara um estado da receita; o runner restaura por suíte e não herda banco", () => {
+  const { ESTADO_POSTGRES, estadoDaSuite } = require("./regressao-v1-selecao.cjs");
+  const receita = require("./regressao-v1-postgres-receita.cjs");
+  const relativas = listarTestesPostgres(raiz).map((arquivo) => path.relative(raiz, arquivo).split(path.sep).join("/")).sort();
+  assert.deepEqual(relativas, Object.keys(ESTADO_POSTGRES).sort(), "declaração exata: nenhuma suíte sem estado, nenhum estado órfão");
+  for (const [suite, estado] of Object.entries(ESTADO_POSTGRES)) {
+    assert.ok(receita.MODELOS[estado.descartavel], `${suite}: estado ${estado.descartavel}`);
+    if (estado.rollback) assert.ok(receita.MODELOS[estado.rollback], `${suite}: estado ${estado.rollback}`);
+  }
+  assert.throws(() => estadoDaSuite(raiz, path.join(raiz, "lib", "nova", "nova.postgres.test.ts")), /sem estado declarado/);
+  assert.deepEqual({ ate: receita.MODELOS.atual.ate, sem: receita.MODELOS.atual.sem }, { ate: "057", sem: ["055a", "055b", "055c", "055d"] }, "estado atual = inventário até a 057 sem a 055a–d (autorização própria)");
+  const runner = fs.readFileSync(path.join(raiz, "scripts", "regressao-v1-postgres.cjs"), "utf8");
+  assert.match(runner, /receita\.construirModelo\(admin, porta, modelo\)/, "modelos recriados do schema vazio a cada execução");
+  assert.match(runner, /for \(const banco of receita\.TRABALHO\) await receita\.removerBanco\(admin, banco\);/, "bancos de trabalho removidos antes de cada suíte");
+  assert.match(runner, /receita\.restaurar\(admin, trabalho, estado\.descartavel\)/);
+  assert.match(runner, /\["--experimental-strip-types", "--test", arquivo\]/, "uma suíte por processo");
+  assert.match(runner, /timeout: LIMITE_POR_SUITE_MS/, "suíte que não termina falha, não trava o gate");
+  assert.match(runner, /conexoesDeTrabalho\(admin, receita\.TRABALHO\)/, "suíte que deixa conexão aberta falha");
+  assert.equal(runner.includes("--test-force-exit"), false, "sem encerramento forçado");
+});
+
+test("D3: a receita usa a mesma autorização de porta das suítes e recusa banco fora da lista", async () => {
+  const receita = require("./regressao-v1-postgres-receita.cjs");
+  const { portaDescartavel } = require("../lib/comercial/alvo-descartavel.ts");
+  const resultado = (fn, env) => { try { return fn(env); } catch { return "RECUSA"; } };
+  for (const env of [
+    {},
+    { KIDMAIS_DESCARTAVEL_PORTA: "55521", KIDMAIS_DESCARTAVEL_AUTORIZACAO: "127.0.0.1:55521/kidmais_pacotes_v1_descartavel" },
+    { KIDMAIS_DESCARTAVEL_PORTA: "55521" },
+    { KIDMAIS_DESCARTAVEL_PORTA: "55521", KIDMAIS_DESCARTAVEL_AUTORIZACAO: "127.0.0.1:55521/kidmais_manager" },
+    { KIDMAIS_DESCARTAVEL_PORTA: "80", KIDMAIS_DESCARTAVEL_AUTORIZACAO: "127.0.0.1:80/kidmais_pacotes_v1_descartavel" },
+    { DATABASE_URL: "postgresql://x@db.example:5432/kidmais_manager", PGPORT: "5432" },
+  ]) assert.equal(resultado(receita.portaAutorizada, env), resultado(portaDescartavel, env), JSON.stringify(env));
+  const consultas = [];
+  const falso = { query: async (sql) => { consultas.push(sql); return { rows: [] }; } };
+  await assert.rejects(receita.removerBanco(falso, "kidmais_manager"), /recusado/);
+  await assert.rejects(receita.restaurar(falso, "kidmais_manager", "atual"), /recusada/);
+  await assert.rejects(receita.restaurar(falso, "kidmais_pacotes_v1_descartavel", "inexistente"), /recusada/);
+  assert.deepEqual(consultas, [], "nenhum SQL antes da recusa");
+  const fonte = fs.readFileSync(path.join(raiz, "scripts", "regressao-v1-postgres-receita.cjs"), "utf8");
+  assert.match(fonte, /current_setting\('cluster_name'\)/, "identidade do cluster provada antes de escrever");
+  assert.match(fonte, /EXISTS \(SELECT 1 FROM pg_database WHERE lower\(datname\) = \$1\) AS tem_real/, "cluster com o banco real é recusado");
+  assert.equal(/DATABASE_URL|process\.env\.PG/.test(fonte.replace(/DATABASE_URL e PG\* nunca participam/g, "")), false, "sem destino genérico");
+});

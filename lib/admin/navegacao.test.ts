@@ -23,7 +23,6 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
     assert.equal(gestao.some((item) => item.rotulo === 'Tabelas de Preços' || item.href.includes('tabelas-preco')), false);
     const configuracao = gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo);
     assert.deepEqual(configuracao, [
-        'Configurações',
         'Perfil da empresa',
         'Pacotes',
         'Itens do Buffet',
@@ -32,6 +31,8 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
         'PDF de Pacotes',
     ]);
     assert.equal(configuracao.indexOf('Itens do Buffet'), configuracao.indexOf('Pacotes') + 1);
+    // O grupo continua; só o item clicável redundante saiu. A rota segue acessível diretamente.
+    assert.equal(gestao.some((item) => item.href === '/admin/configuracoes'), false);
 });
 
 test('o item ativo é o link mais específico', () => {

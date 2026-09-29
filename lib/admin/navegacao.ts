@@ -23,8 +23,8 @@ const FINANCEIRO: ItemNavegacao[] = [
     { href: '/admin/financeiro/relatorios', rotulo: 'Relatórios', grupo: 'Financeiro' },
 ];
 
+/** O grupo já se chama Configurações; a rota /admin/configuracoes continua existindo, sem item redundante. */
 const CONFIGURACAO: ItemNavegacao[] = [
-    { href: '/admin/configuracoes', rotulo: 'Configurações', grupo: 'Configurações' },
     { href: '/admin/configuracoes/perfil-empresa', rotulo: 'Perfil da empresa', grupo: 'Configurações' },
     { href: '/admin/configuracoes/pacotes', rotulo: 'Pacotes', grupo: 'Configurações' },
     { href: '/admin/configuracoes/catalogo', rotulo: 'Itens do Buffet', grupo: 'Configurações' },

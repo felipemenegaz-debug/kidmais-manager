@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
-import { withTransaction } from '../../db/postgres';
 import { consultarSessao, type SessaoAdmin } from '../../autenticacao/service';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
 import { lerPosicaoFinanceira, serializarFinanceiro, type PosicaoFinanceira } from '../repositories/alteracao-financeira.repository';
 import { centavosInteiros, posicaoEconomica, reaisCentavos, recusarFinanceiro, validarCronogramaConsolidado } from './alteracao-financeira-core';
 import type { ContextoFinanceiro, PedidoResolucao } from './alteracao-financeira.models';
 import { gravarCronograma } from './cronograma.service';
+import { naTransacao } from './transacao';
 
-export async function consultarFinanceiro(contratoId:string){return withTransaction(async tx=>serializarFinanceiro(await lerPosicaoFinanceira(tx,contratoId)));}
+export async function consultarFinanceiro(contratoId:string,executor?:DbExecutor){return naTransacao(executor,async tx=>serializarFinanceiro(await lerPosicaoFinanceira(tx,contratoId)));}
 export async function bloquearFinanceiro(tx:DbExecutor,contratoId:string,context:ContextoFinanceiro){
   const c=(await tx.query<{fechamento_id:string}>('SELECT fechamento_id FROM contratos WHERE id=$1',[contratoId])).rows[0];
   if(!c)recusarFinanceiro('RECURSO_NAO_ENCONTRADO','Contrato não encontrado.',404);
@@ -16,7 +16,11 @@ export async function bloquearFinanceiro(tx:DbExecutor,contratoId:string,context
   await tx.query('SELECT id FROM contratos WHERE id=$1 FOR UPDATE',[contratoId]);
   await tx.query('SELECT contrato_id FROM contrato_fluxos WHERE contrato_id=$1 FOR UPDATE',[contratoId]);
   await tx.query('SELECT id FROM contrato_versoes WHERE contrato_id=$1 ORDER BY id FOR UPDATE',[contratoId]);
-  const sessao=await consultarSessao(context.token,tx,true);
+  const identidade=await consultarSessao(context.token,tx,true);
+  // 056/057: vale SEMPRE o papel da membership comprovada (papelNoTenant); sem ele, recusa. O papel global
+  // da identidade nunca autoriza operação financeira de empresa.
+  if(!context.papelNoTenant)recusarFinanceiro('OPERACAO_NAO_AUTORIZADA','Papel não autorizado.',403);
+  const sessao:SessaoAdmin={...identidade,papel:context.papelNoTenant as SessaoAdmin['papel']};
   if(!['ADMINISTRATIVO','REPRESENTANTE_AUTORIZADO'].includes(sessao.papel))recusarFinanceiro('OPERACAO_NAO_AUTORIZADA','Papel não autorizado.',403);
   await tx.query("SELECT id FROM fechamento_revisoes WHERE contrato_id=$1 AND estado IN ('EM_ELABORACAO','CONGELADA') ORDER BY id FOR UPDATE",[contratoId]);
   await tx.query('SELECT p.id FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE v.contrato_id=$1 ORDER BY p.id FOR UPDATE OF p',[contratoId]);
@@ -46,7 +50,7 @@ function pendenciaAtual(p:PosicaoFinanceira,id:string){
  if(!p.motivos.length)recusarFinanceiro('SEM_IMPACTO_FINANCEIRO','Não há diferença financeira a reconhecer.');
  return pend;
 }
-export async function iniciarTratamento(contratoId:string,pendenciaId:string,hash:string,chave:string,context:ContextoFinanceiro){return withTransaction(async tx=>{
+export async function iniciarTratamento(contratoId:string,pendenciaId:string,hash:string,chave:string,context:ContextoFinanceiro){return naTransacao(context.executor,async tx=>{
  const s=await bloquearFinanceiro(tx,contratoId,context),p=await lerPosicaoFinanceira(tx,contratoId),pedido={acao:'iniciar',pendenciaId,hash};
  const retry=await repetirEvento(tx,p.pagamento.id,chave,pedido,s.usuario_id);if(retry)return retry;
  conferirPosicao(p,hash);pendenciaAtual(p,pendenciaId);
@@ -58,7 +62,7 @@ export async function iniciarTratamento(contratoId:string,pendenciaId:string,has
  await registrarEventoFinanceiro(tx,p,s,context,{tipo:'TRATAMENTO_INICIADO',chave,pedido,pendenciaId,tratamentoId:id,resultado});
  return{resultado,reutilizado:false};
 });}
-export async function cancelarTratamento(contratoId:string,id:string,motivo:string,chave:string,context:ContextoFinanceiro){return withTransaction(async tx=>{
+export async function cancelarTratamento(contratoId:string,id:string,motivo:string,chave:string,context:ContextoFinanceiro){return naTransacao(context.executor,async tx=>{
  const s=await bloquearFinanceiro(tx,contratoId,context),p=await lerPosicaoFinanceira(tx,contratoId),pedido={acao:'cancelar',id,motivo};
  const retry=await repetirEvento(tx,p.pagamento.id,chave,pedido,s.usuario_id);if(retry)return retry;
  const t=p.tratamentos.find(t=>t.id===id);if(!t||t.estado!=='EM_TRATAMENTO')recusarFinanceiro('TRATAMENTO_INDISPONIVEL','Tentativa não está aberta.');
@@ -92,8 +96,8 @@ export function simularPosicao(p:PosicaoFinanceira,input:PedidoResolucao,reprogr
  if(p.recebimentos.some(r=>r.status==='PENDENTE'))recusarFinanceiro('RECEBIMENTO_PENDENTE','Confirme ou trate os recebimentos pendentes antes de reorganizar o cronograma.');
  return {delta,depois,aproveitado,parcelas:input.parcelas};
 }
-export async function simularAlteracao(contratoId:string,id:string,input:PedidoResolucao){return withTransaction(async tx=>{const p=await lerPosicaoFinanceira(tx,contratoId);const t=p.tratamentos.find(t=>t.id===id&&t.estado==='EM_TRATAMENTO');if(!t)recusarFinanceiro('TRATAMENTO_INDISPONIVEL','Tentativa não está aberta.');pendenciaAtual(p,t.pendencia_id);return serializarFinanceiro(simularPosicao(p,input));});}
-export async function resolverAlteracao(contratoId:string,id:string,input:PedidoResolucao,chave:string,context:ContextoFinanceiro){return withTransaction(async tx=>{
+export async function simularAlteracao(contratoId:string,id:string,input:PedidoResolucao,executor?:DbExecutor){return naTransacao(executor,async tx=>{const p=await lerPosicaoFinanceira(tx,contratoId);const t=p.tratamentos.find(t=>t.id===id&&t.estado==='EM_TRATAMENTO');if(!t)recusarFinanceiro('TRATAMENTO_INDISPONIVEL','Tentativa não está aberta.');pendenciaAtual(p,t.pendencia_id);return serializarFinanceiro(simularPosicao(p,input));});}
+export async function resolverAlteracao(contratoId:string,id:string,input:PedidoResolucao,chave:string,context:ContextoFinanceiro){return naTransacao(context.executor,async tx=>{
  const s=await bloquearFinanceiro(tx,contratoId,context),p=await lerPosicaoFinanceira(tx,contratoId),pedido={acao:'resolver',id,...input};
  const retry=await repetirEvento(tx,p.pagamento.id,chave,pedido,s.usuario_id);if(retry)return retry;
  const t=p.tratamentos.find(t=>t.id===id&&t.estado==='EM_TRATAMENTO');if(!t)recusarFinanceiro('TRATAMENTO_INDISPONIVEL','Tentativa não está aberta.');pendenciaAtual(p,t.pendencia_id);

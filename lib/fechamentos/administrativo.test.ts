@@ -42,7 +42,7 @@ function responderFotografia(sql: string) {
 /** Loader fechado: postgres e repositórios são fixtures em memória; nenhuma conexão real. */
 function ambiente() {
     const state = {
-        tenant: empresaA as string, tenantRecusado: false,
+        tenant: empresaA as string, tenantRecusado: false, papelNaEmpresa: 'REPRESENTANTE_AUTORIZADO' as string,
         cliente: { id: clienteId, empresaId: empresaA, status: 'ATIVO', nomeCompleto: 'Cliente fictício unitário', cpf: '52998224725',
             telefone: '11900000000', whatsapp: null, email: 'unitario@example.invalid', cep: '00000000',
             logradouro: 'Rua Fictícia', numero: '1', bairro: 'Teste', cidade: 'Teste', uf: 'SP' } as any,
@@ -97,7 +97,7 @@ function ambiente() {
         assert.equal(executor, tx);
         // Mesmo erro que provarTenant lança (classe real carregada pelo harness).
         if (state.tenantRecusado) { const { PacoteAdminError } = load('lib/comercial/pacotes-admin'); throw new PacoteAdminError('TENANT_NAO_COMPROVADO', 'A sessão administrativa não comprova a empresa autorizada.', 403); }
-        return work(executor, { empresaComprovada: state.tenant, membershipId: 'membership', usuarioId: sessao.usuario_id });
+        return work(executor, { empresaComprovada: state.tenant, membershipId: 'membership', usuarioId: sessao.usuario_id, papelAtual: state.papelNaEmpresa });
     } });
     mock('lib/clientes/repositories', {
         buscarClienteCanonicoPorId: async () => state.cliente,
@@ -188,10 +188,11 @@ for (const [caso, options] of [['ausente', { token: '' }], ['malformada', { toke
 for (const campo of ['revogada', 'expirada', 'ociosa', 'senhaAlterada', 'ativo'] as const) {
     test(`sessão ${campo}: rejeitada pelo serviço real`, async () => { const a = ambiente(); a.state.sessao[campo] = campo !== 'ativo'; assert.equal((await a.chamar()).status, 401); assert.equal(a.state.fechamentos.length, 0); });
 }
-test('papel desconhecido negado; representante permitido', async () => {
-    const a = ambiente(); a.state.sessao.papel = 'VISITANTE'; assert.equal((await a.chamar()).status, 403);
-    a.state.sessao.papel = 'REPRESENTANTE_AUTORIZADO'; assert.equal((await a.chamar()).status, 201);
-});
+test('papel NESTA empresa (membership) decide; o papel global da identidade não autoriza nem recusa', async () => { // @pr:UX
+    const a = ambiente(); a.state.papelNaEmpresa = 'VISITANTE'; assert.equal((await a.chamar()).status, 403); // @pr:UX
+    assert.equal(a.state.fechamentos.length, 0); // @pr:UX
+    a.state.papelNaEmpresa = 'ADMINISTRATIVO'; a.state.sessao.papel = 'VISITANTE'; assert.equal((await a.chamar()).status, 201); // @pr:UX
+}); // @pr:UX
 for (const headers of [{ origin: 'https://outro.example.invalid' }, { 'x-csrf-token': '' }, { 'x-csrf-token': 'forjado' }]) {
     test(`origem/CSRF inválido ${JSON.stringify(headers)}`, async () => { const a = ambiente(); assert.equal((await a.chamar(payload, { headers })).status, 403); assert.equal(a.state.fechamentos.length, 0); });
 }
@@ -275,7 +276,9 @@ async function formulario() {
     a.external('__fetch', async (url: string, init: any = {}) => {
         if (url === '/api/admin/autenticacao') return Response.json({ ok: true, data: { usuarioId: a.state.sessao.expirada ? null : 'usuario-unitario', csrf } });
         if (url.startsWith('/api/disponibilidade?')) return Response.json({ ok: true, data: { periodos: [{ codigo: 'TURNO_1', horarios: [{ inicio: '11:00', fim: '15:00', ajusteMinutos: 0, status: 'DISPONIVEL' }] }] } });
-        if (url.startsWith('/api/fechamentos/adicionais?')) return Response.json({ adicionais: [] });
+        // Admin lê adicionais pela rota com Tenant Context; a pública (fechada desde a PR-A) não é usada.
+        if (url.startsWith('/api/admin/fechamentos/adicionais?')) return Response.json({ adicionais: [] });
+        assert(!url.startsWith('/api/fechamentos/adicionais'), 'wizard admin não usa a rota pública de adicionais');
         assert.equal(url, `/api/admin/clientes/${clienteId}/fechamentos`);
         return a.chamar(init.body ? JSON.parse(init.body) : null, { method: init.method ?? 'GET', headers: Object.fromEntries(new Headers(init.headers)) });
     });

@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
-import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from "../comercial/postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita, portaDescartavel } from "../comercial/postgres-descartavel.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const migration043 = resolve(root, "database/migrations/20260926_043_estrutura_tenant.sql");
@@ -127,7 +127,7 @@ test("estrutura de tenant da 043 no postgres descartável", { timeout: 180_000 }
       "SELECT current_database() AS db, inet_server_port() AS port",
     );
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
 
     const antes = await db.query<{ empresas: number; legado: number; vinculos: number }>(
       `SELECT

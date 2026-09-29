@@ -1,16 +1,19 @@
 import { randomUUID,createHash } from 'node:crypto';
-import { withTransaction } from '../../db/postgres';
 import { lerPosicaoFinanceira } from '../repositories/alteracao-financeira.repository';
 import { bloquearFinanceiro,conferirPosicao,registrarEventoFinanceiro,repetirEvento } from './alteracao-financeira.service';
 import { centavosInteiros,recusarFinanceiro } from './alteracao-financeira-core';
 import type { ContextoFinanceiro } from './alteracao-financeira.models';
+import { naTransacao } from './transacao';
 export type PedidoDevolucao={posicaoHash:string;valorCentavos:string;beneficiarioClienteId?:string;beneficiario:{nome:string;documento?:string};motivo:string;origens:Array<{alocacaoId:string;valorCentavos:string}>};
-export async function solicitarDevolucao(contratoId:string,input:PedidoDevolucao,chave:string,context:ContextoFinanceiro){return withTransaction(async tx=>{
+export async function solicitarDevolucao(contratoId:string,input:PedidoDevolucao,chave:string,context:ContextoFinanceiro){return naTransacao(context.executor,async tx=>{
  const s=await bloquearFinanceiro(tx,contratoId,context),p=await lerPosicaoFinanceira(tx,contratoId),pedido={acao:'solicitar_devolucao',...input};
  const retry=await repetirEvento(tx,p.pagamento.id,chave,pedido,s.usuario_id);if(retry)return retry;
  conferirPosicao(p,input.posicaoHash);const valor=centavosInteiros(input.valorCentavos);
  if(valor>p.posicao.disponivel)recusarFinanceiro('CREDITO_INDISPONIVEL','Valor superior ao crédito disponível.');
  if(!input.beneficiario.nome.trim()||!input.motivo.trim())recusarFinanceiro('DADOS_INVALIDOS','Informe beneficiário e motivo.',400);
+ // C3: beneficiário só da MESMA empresa do fechamento deste contrato (a empresa já provada no tenant, nesta
+ // transação). A FK global não basta: outra empresa, legado sem empresa e inexistente respondem igual.
+ if(input.beneficiarioClienteId&&!(await tx.query('SELECT cl.id FROM clientes cl JOIN fechamentos fech ON fech.empresa_id=cl.empresa_id JOIN contratos c ON c.fechamento_id=fech.id WHERE c.id=$1 AND cl.id=$2',[contratoId,input.beneficiarioClienteId])).rows[0])recusarFinanceiro('BENEFICIARIO_INVALIDO','Beneficiário não encontrado.',404);
  if(input.origens.reduce((sum,o)=>sum+centavosInteiros(o.valorCentavos),0n)!==valor||new Set(input.origens.map(o=>o.alocacaoId.toLowerCase())).size!==input.origens.length)recusarFinanceiro('ORIGEM_FINANCEIRA_COMPROMETIDA','As origens devem somar exatamente o valor sem repetição.');
  for(const o of input.origens){
   const row=(await tx.query<{disponivel:string}>(`SELECT (a.valor_alocado*100 - coalesce((SELECT sum(valor)*100 FROM pagamento_estornos WHERE recebimento_id=a.recebimento_id AND parcela_id=a.parcela_id AND status IN ('SOLICITADO','CONFIRMADO')),0) - coalesce((SELECT sum(da.valor_centavos) FROM pagamento_devolucao_alocacoes da JOIN pagamento_devolucoes d ON d.id=da.devolucao_id WHERE da.recebimento_alocacao_id=a.id AND d.estado IN ('PENDENTE','CONCLUIDA')),0))::bigint::text disponivel FROM pagamento_recebimento_alocacoes a JOIN pagamento_recebimentos r ON r.id=a.recebimento_id WHERE a.id=$1 AND r.pagamento_id=$2 AND r.status='CONFIRMADO'`,[o.alocacaoId,p.pagamento.id])).rows[0];
@@ -24,7 +27,7 @@ export async function solicitarDevolucao(contratoId:string,input:PedidoDevolucao
  return{resultado,reutilizado:false};
 });}
 export type ExecucaoDevolucao={posicaoHash:string;devolvidoEm:string;meio:'PIX'|'CARTAO'|'TRANSFERENCIA'|'DINHEIRO'|'OUTRO';provedorCodigo?:string;referenciaExterna?:string;observacao:string;justificativaSemComprovante?:string};
-export async function concluirDevolucao(contratoId:string,id:string,input:ExecucaoDevolucao,chave:string,context:ContextoFinanceiro){return withTransaction(async tx=>{
+export async function concluirDevolucao(contratoId:string,id:string,input:ExecucaoDevolucao,chave:string,context:ContextoFinanceiro){return naTransacao(context.executor,async tx=>{
  const s=await bloquearFinanceiro(tx,contratoId,context);
  if(s.papel!=='REPRESENTANTE_AUTORIZADO')recusarFinanceiro('OPERACAO_NAO_AUTORIZADA','Somente REPRESENTANTE_AUTORIZADO pode confirmar a saída financeira.',403);
  const p=await lerPosicaoFinanceira(tx,contratoId),pedido={acao:'concluir_devolucao',id,...input};
@@ -40,7 +43,7 @@ export async function concluirDevolucao(contratoId:string,id:string,input:Execuc
  await tx.query("UPDATE pagamento_devolucoes SET estado='CONCLUIDA',evento_conclusao_id=$2,devolvido_em=$3,meio_devolucao=$4,provedor_codigo=$5,referencia_externa=$6,observacao_execucao=$7,justificativa_sem_comprovante=$8 WHERE id=$1",[id,eventoId,data.toISOString(),input.meio,input.provedorCodigo??null,input.referenciaExterna??null,input.observacao,input.justificativaSemComprovante??null]);
  await tx.query("UPDATE pagamento_credito_reservas SET estado='CONSUMIDA',evento_encerramento_id=$2,encerrado_em=clock_timestamp() WHERE id=$1",[d.reserva_id,eventoId]);return{resultado,reutilizado:false};
 });}
-export async function cancelarDevolucao(contratoId:string,id:string,motivo:string,chave:string,context:ContextoFinanceiro){return withTransaction(async tx=>{
+export async function cancelarDevolucao(contratoId:string,id:string,motivo:string,chave:string,context:ContextoFinanceiro){return naTransacao(context.executor,async tx=>{
  const s=await bloquearFinanceiro(tx,contratoId,context),p=await lerPosicaoFinanceira(tx,contratoId),pedido={acao:'cancelar_devolucao',id,motivo};
  const retry=await repetirEvento(tx,p.pagamento.id,chave,pedido,s.usuario_id);if(retry)return retry;
  const d=p.devolucoes.find(d=>d.id===id);if(!d||d.estado!=='PENDENTE')recusarFinanceiro('DEVOLUCAO_INDISPONIVEL','Devolução não está pendente.');
@@ -50,7 +53,7 @@ export async function cancelarDevolucao(contratoId:string,id:string,motivo:strin
  await tx.query("UPDATE pagamento_devolucoes SET estado='CANCELADA',evento_cancelamento_id=$2 WHERE id=$1",[id,eventoId]);
  await tx.query("UPDATE pagamento_credito_reservas SET estado='LIBERADA',evento_encerramento_id=$2,encerrado_em=clock_timestamp() WHERE id=$1",[d.reserva_id,eventoId]);return{resultado,reutilizado:false};
 });}
-export async function anexarComprovanteDevolucao(contratoId:string,id:string,nome:string,mime:string,conteudo:Buffer,chave:string,context:ContextoFinanceiro){return withTransaction(async tx=>{
+export async function anexarComprovanteDevolucao(contratoId:string,id:string,nome:string,mime:string,conteudo:Buffer,chave:string,context:ContextoFinanceiro){return naTransacao(context.executor,async tx=>{
  const s=await bloquearFinanceiro(tx,contratoId,context),p=await lerPosicaoFinanceira(tx,contratoId),hash=createHash('sha256').update(conteudo).digest('hex'),pedido={acao:'comprovante_devolucao',id,nome,mime,hash};
  const retry=await repetirEvento(tx,p.pagamento.id,chave,pedido,s.usuario_id);if(retry)return retry;
  const d=p.devolucoes.find(d=>d.id===id);if(!d||d.estado!=='PENDENTE')recusarFinanceiro('DEVOLUCAO_INDISPONIVEL','Anexe a evidência antes da conclusão.');

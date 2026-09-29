@@ -1,8 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { authError } from "@/lib/autenticacao/service";
 import { simularPrecoPacote, simularTabelaPublicada, criarTabelaPrecoAdmin, incluirPrecoPacoteAdmin, publicarTabelaPrecoAdmin, substituirEscopoTabelaAdmin, consultarQuadroTabelaAdmin } from "@/lib/comercial/tabelas-preco-admin";
-import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 
@@ -81,13 +80,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
-    if (sessao.papel !== "REPRESENTANTE_AUTORIZADO") throw authError("Apenas o proprietário pode editar tabelas de preços.", 403);
     const bruto = await request.json();
     if (z.object({ acao: z.literal("simular") }).passthrough().safeParse(bruto).success && bruto.acao === "simular") {
       return jsonNoStore({ ok: true, data: simularPrecoPacote(simular.parse(bruto)) });
     }
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
     const data = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
+      exigirGestaoNoTenant(tenant, "Apenas o proprietário pode editar tabelas de preços.");
       const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
       const empresaId = tenant.empresaComprovada;
       const ator = { usuarioId: sessao.usuario_id, requestId: crypto.randomUUID(), motivo: null };

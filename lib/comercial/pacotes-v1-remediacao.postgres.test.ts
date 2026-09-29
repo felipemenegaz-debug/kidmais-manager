@@ -311,6 +311,13 @@ async function apagarEmpresasDeTeste(client: Client) {
 test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, async (t) => {
   const client = await conectarDescartavel();
   const db = client as unknown as Client;
+  // D3: esta suíte é de migration (036–042) e roda no estado histórico que declara (039, restaurado pela
+  // receita). Os subtestes que exercitam serviços de PRODUTO (revisão, composição, publicação) usam o schema
+  // corrente, então rodam num segundo banco restaurado do estado ATUAL — nunca num banco herdado.
+  const atual = (await conectarDescartavel({ database: "kidmais_pacotes_v1_rollback", travar: false }).catch(async (erro) => {
+    await encerrarDescartavel(client);
+    throw erro;
+  })) as unknown as Client;
   const estado039 = await db.query<{ trava: boolean; depois: boolean }>(
     `SELECT to_regprocedure('public.kidmais_039_travar_par(uuid,uuid)') IS NOT NULL AS trava,
             EXISTS (
@@ -569,43 +576,43 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
     });
 
     await t.test("revisão de pacote utilizado clona a disponibilidade e preserva a anterior", async () => {
-      await db.query("BEGIN");
+      await atual.query("BEGIN");
       try {
-        const empresaId = await empresa(db, "t036e");
-        const pacoteId = await pacote(db, empresaId, "p036e");
-        const tabelaId = await tabela(db, empresaId, "u036e", "2020-01-01", null);
-        const precoId = await preco(db, tabelaId, pacoteId);
-        const escopoId = await db.query<{ id: string }>(
+        const empresaId = await empresa(atual, "t036e");
+        const pacoteId = await pacote(atual, empresaId, "p036e");
+        const tabelaId = await tabela(atual, empresaId, "u036e", "2020-01-01", null);
+        const precoId = await preco(atual, tabelaId, pacoteId);
+        const escopoId = await atual.query<{ id: string }>(
           `INSERT INTO tabela_preco_escopos (
              tabela_preco_id, pacote_id, categoria_horario, cobertura_continua
            ) VALUES ($1::uuid, $2::uuid, 'PADRAO', true) RETURNING id`,
           [tabelaId, pacoteId],
         );
-        await db.query(
+        await atual.query(
           `INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max) VALUES ($1::uuid, 20, 40)`,
           [escopoId.rows[0].id],
         );
-        await db.query(`UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid`, [tabelaId]);
-        const agenda = await db.query<{ id: string }>(
+        await atual.query(`UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid`, [tabelaId]);
+        const agenda = await atual.query<{ id: string }>(
           "SELECT id FROM configuracao_agenda WHERE codigo = 'TURNO_2' AND ativo LIMIT 1",
         );
-        await db.query(
+        await atual.query(
           `INSERT INTO regras_disponibilidade_pacote (
              pacote_id, dia_semana, configuracao_agenda_id, estado, vigencia_inicio, ativo, observacoes
            ) VALUES ($1::uuid, 6, $2::uuid, 'INDISPONIVEL', DATE '2026-11-01', true, 'somente sabado turno 2')`,
           [pacoteId, agenda.rows[0].id],
         );
-        await db.query(
+        await atual.query(
           `INSERT INTO fechamentos (
              data_evento, horario_inicio, horario_fim, configuracao_agenda_id,
-             pacote_id, tabela_preco_id, preco_pacote_id,
+             empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
              categoria_horario, categoria_preco_aplicada,
              convidados, convidados_faturados,
              valor_pacote_base, desconto_percentual, valor_desconto_pacote, valor_pacote_aplicado,
              valor_adicionais, valor_tabela, status, origem_fechamento
            ) VALUES (
              DATE '2026-11-07', TIME '14:00', TIME '18:00', $1::uuid,
-             $2::uuid, $3::uuid, $4::uuid,
+             (SELECT p.empresa_id FROM pacotes p WHERE p.id = $2::uuid), $2::uuid, $3::uuid, $4::uuid,
              'PADRAO', 'PADRAO', 30, 30,
              10, 0, 0, 10, 0, 10, 'RASCUNHO', 'ATENDIMENTO_KIDMAIS'
            )`,
@@ -613,7 +620,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         );
         const tx = {
           async query<Row extends object>(text: string, values?: readonly unknown[]) {
-            const result = await db.query(text, values as unknown[]);
+            const result = await atual.query(text, values as unknown[]);
             return { rows: result.rows as Row[], rowCount: result.rowCount };
           },
         };
@@ -623,7 +630,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
           { nome: "Revisão com disponibilidade", descricao: null, duracaoMinutos: null },
           { empresaId, usuarioId: randomUUID(), requestId: randomUUID(), motivo: "Nova revisão do pacote usado" },
         );
-        const regras = async (id: string) => (await db.query<{ estado: string; dia_semana: number; observacoes: string }>(
+        const regras = async (id: string) => (await atual.query<{ estado: string; dia_semana: number; observacoes: string }>(
           `SELECT estado, dia_semana, observacoes
              FROM regras_disponibilidade_pacote
             WHERE pacote_id = $1::uuid
@@ -633,92 +640,97 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
         assert.deepEqual(await regras(nova.id), await regras(pacoteId));
         assert.equal((await regras(pacoteId)).length, 1);
         assert.equal((await regras(pacoteId))[0].observacoes, "somente sabado turno 2");
-        const precosNovos = await db.query<{ n: number }>(
+        const precosNovos = await atual.query<{ n: number }>(
           "SELECT count(*)::int AS n FROM precos_pacote WHERE pacote_id = $1::uuid",
           [nova.id],
         );
-        const precosAntigos = await db.query<{ n: number }>(
+        const precosAntigos = await atual.query<{ n: number }>(
           "SELECT count(*)::int AS n FROM precos_pacote WHERE pacote_id = $1::uuid",
           [pacoteId],
         );
         assert.equal(precosNovos.rows[0].n >= 1, true);
-        const precoOriginal = await db.query<{ valor: string }>(
+        const precoOriginal = await atual.query<{ valor: string }>(
           "SELECT valor::text AS valor FROM precos_pacote WHERE id = $1::uuid",
           [precoId],
         );
         assert.equal(precoOriginal.rows[0].valor, "10.00");
         assert.equal(precosAntigos.rows[0].n >= 1, true);
-        const anterior = await db.query<{ vigente: boolean }>("SELECT vigente FROM pacotes WHERE id = $1::uuid", [pacoteId]);
+        const anterior = await atual.query<{ vigente: boolean }>("SELECT vigente FROM pacotes WHERE id = $1::uuid", [pacoteId]);
         assert.equal(anterior.rows[0].vigente, false);
       } finally {
-        await db.query("ROLLBACK");
+        await atual.query("ROLLBACK");
       }
     });
 
     await t.test("auditoria da composição é uma, real, e some no rollback", async () => {
       const requestId = randomUUID();
-      await db.query("BEGIN");
-      const empresaId = await empresa(db, "t036f");
-      const pacoteId = await pacote(db, empresaId, "p036f");
-      const adicionalId = await adicional(db, empresaId, "a036f");
-      await db.query(
-        `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade) VALUES ($1::uuid, $2::uuid, 'INCLUSO')`,
-        [pacoteId, adicionalId],
-      );
-      const tabelaId = await tabela(db, empresaId, "u036f", "2020-01-01", null);
-      const precoId = await preco(db, tabelaId, pacoteId);
-      const escopoId = await db.query<{ id: string }>(
-        `INSERT INTO tabela_preco_escopos (
-           tabela_preco_id, pacote_id, categoria_horario, cobertura_continua
-         ) VALUES ($1::uuid, $2::uuid, 'PADRAO', true) RETURNING id`,
-        [tabelaId, pacoteId],
-      );
-      await db.query(
-        `INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max) VALUES ($1::uuid, 20, 40)`,
-        [escopoId.rows[0].id],
-      );
-      await db.query(`UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid`, [tabelaId]);
-      const agenda = await db.query<{ id: string }>(
-        "SELECT id FROM configuracao_agenda WHERE codigo = 'TURNO_1' AND ativo LIMIT 1",
-      );
-      await db.query(
-        `INSERT INTO fechamentos (
-           data_evento, horario_inicio, horario_fim, configuracao_agenda_id,
-           pacote_id, tabela_preco_id, preco_pacote_id,
-           categoria_horario, categoria_preco_aplicada,
-           convidados, convidados_faturados,
-           valor_pacote_base, desconto_percentual, valor_desconto_pacote, valor_pacote_aplicado,
-           valor_adicionais, valor_tabela, status, origem_fechamento
-         ) VALUES (
-           DATE '2026-11-09', TIME '10:00', TIME '14:00', $1::uuid,
-           $2::uuid, $3::uuid, $4::uuid,
-           'PADRAO', 'PADRAO', 30, 30,
-           10, 0, 0, 10, 0, 10, 'RASCUNHO', 'ATENDIMENTO_KIDMAIS'
-         )`,
-        [agenda.rows[0].id, pacoteId, tabelaId, precoId],
-      );
-      const tx = {
-        async query<Row extends object>(text: string, values?: readonly unknown[]) {
-          const result = await db.query(text, values as unknown[]);
-          return { rows: result.rows as Row[], rowCount: result.rowCount };
-        },
-      };
-      await alterarComposicaoPacoteAdmin(
-        tx,
-        pacoteId,
-        { tipo: "vinculo", adicionalId, modalidade: "EXTRA" },
-        { empresaId, usuarioId: randomUUID(), requestId, motivo: "Troca a modalidade do incluso" },
-      );
-      const eventos = await db.query<{ acao: string; dados_antes: { adicionais: Array<{ modalidade: string }> }; dados_depois: { adicionais: Array<{ modalidade: string }> } }>(
-        `SELECT acao, dados_antes, dados_depois FROM auditoria WHERE request_id = $1::uuid AND acao = 'PACOTE_COMPOSICAO'`,
-        [requestId],
-      );
-      assert.equal(eventos.rows.length, 1);
-      assert.equal(eventos.rows[0].acao, "PACOTE_COMPOSICAO");
-      assert.equal(eventos.rows[0].dados_antes.adicionais[0].modalidade, "INCLUSO");
-      assert.equal(eventos.rows[0].dados_depois.adicionais[0].modalidade, "EXTRA");
-      await db.query("ROLLBACK");
-      const depois = await db.query<{ n: number }>(
+      await atual.query("BEGIN");
+      try {
+        const empresaId = await empresa(atual, "t036f");
+        const pacoteId = await pacote(atual, empresaId, "p036f");
+        const adicionalId = await adicional(atual, empresaId, "a036f");
+        await atual.query(
+          `INSERT INTO pacote_adicionais (pacote_id, adicional_id, modalidade) VALUES ($1::uuid, $2::uuid, 'INCLUSO')`,
+          [pacoteId, adicionalId],
+        );
+        const tabelaId = await tabela(atual, empresaId, "u036f", "2020-01-01", null);
+        const precoId = await preco(atual, tabelaId, pacoteId);
+        const escopoId = await atual.query<{ id: string }>(
+          `INSERT INTO tabela_preco_escopos (
+             tabela_preco_id, pacote_id, categoria_horario, cobertura_continua
+           ) VALUES ($1::uuid, $2::uuid, 'PADRAO', true) RETURNING id`,
+          [tabelaId, pacoteId],
+        );
+        await atual.query(
+          `INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max) VALUES ($1::uuid, 20, 40)`,
+          [escopoId.rows[0].id],
+        );
+        await atual.query(`UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid`, [tabelaId]);
+        const agenda = await atual.query<{ id: string }>(
+          "SELECT id FROM configuracao_agenda WHERE codigo = 'TURNO_1' AND ativo LIMIT 1",
+        );
+        await atual.query(
+          `INSERT INTO fechamentos (
+             data_evento, horario_inicio, horario_fim, configuracao_agenda_id,
+             empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
+             categoria_horario, categoria_preco_aplicada,
+             convidados, convidados_faturados,
+             valor_pacote_base, desconto_percentual, valor_desconto_pacote, valor_pacote_aplicado,
+             valor_adicionais, valor_tabela, status, origem_fechamento
+           ) VALUES (
+             DATE '2026-11-09', TIME '10:00', TIME '14:00', $1::uuid,
+             (SELECT p.empresa_id FROM pacotes p WHERE p.id = $2::uuid), $2::uuid, $3::uuid, $4::uuid,
+             'PADRAO', 'PADRAO', 30, 30,
+             10, 0, 0, 10, 0, 10, 'RASCUNHO', 'ATENDIMENTO_KIDMAIS'
+           )`,
+          [agenda.rows[0].id, pacoteId, tabelaId, precoId],
+        );
+        const tx = {
+          async query<Row extends object>(text: string, values?: readonly unknown[]) {
+            const result = await atual.query(text, values as unknown[]);
+            return { rows: result.rows as Row[], rowCount: result.rowCount };
+          },
+        };
+        await alterarComposicaoPacoteAdmin(
+          tx,
+          pacoteId,
+          { tipo: "vinculo", adicionalId, modalidade: "EXTRA" },
+          { empresaId, usuarioId: randomUUID(), requestId, motivo: "Troca a modalidade do incluso" },
+        );
+        const eventos = await atual.query<{ acao: string; dados_antes: { adicionais: Array<{ modalidade: string }> }; dados_depois: { adicionais: Array<{ modalidade: string }> } }>(
+          `SELECT acao, dados_antes, dados_depois FROM auditoria WHERE request_id = $1::uuid AND acao = 'PACOTE_COMPOSICAO'`,
+          [requestId],
+        );
+        assert.equal(eventos.rows.length, 1);
+        assert.equal(eventos.rows[0].acao, "PACOTE_COMPOSICAO");
+        assert.equal(eventos.rows[0].dados_antes.adicionais[0].modalidade, "INCLUSO");
+        assert.equal(eventos.rows[0].dados_depois.adicionais[0].modalidade, "EXTRA");
+      } catch (erro) {
+        await atual.query("ROLLBACK");
+        throw erro;
+      }
+      await atual.query("ROLLBACK");
+      const depois = await atual.query<{ n: number }>(
         "SELECT count(*)::int AS n FROM auditoria WHERE request_id = $1::uuid",
         [requestId],
       );
@@ -727,38 +739,43 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
 
     await t.test("a publicação grava o carimbo devolvido e o rollback apaga a auditoria", async () => {
       const requestId = randomUUID();
-      await db.query("BEGIN");
-      const empresaId = await empresa(db, "t037f");
-      const pacoteId = await pacote(db, empresaId, "p037f");
-      const tabelaId = await tabela(db, empresaId, "u037f", "2097-01-01", "2097-06-30");
-      await preco(db, tabelaId, pacoteId);
-      await declararEscopoDosAtivos(db, tabelaId);
-      const tx = {
-        async query<Row extends object>(text: string, values?: readonly unknown[]) {
-          const result = await db.query(text, values as unknown[]);
-          return { rows: result.rows as Row[], rowCount: result.rowCount };
-        },
-      };
-      await publicarTabelaPrecoAdmin(tx, {
-        empresaId,
-        tabelaId,
-        usuarioId: randomUUID(),
-        requestId,
-        motivo: "Publicar a faixa conferida",
-      });
-      const evento = await db.query<{ dados_depois: { publicadaEm?: string } }>(
-        "SELECT dados_depois FROM auditoria WHERE request_id = $1::uuid",
-        [requestId],
-      );
-      const carimbo = await db.query<{ publicada_em: string }>(
-        "SELECT publicada_em::text AS publicada_em FROM tabelas_preco WHERE id = $1::uuid",
-        [tabelaId],
-      );
-      assert.equal(evento.rows.length, 1);
-      assert.equal(evento.rows[0].dados_depois.publicadaEm, carimbo.rows[0].publicada_em);
-      assert.equal(String(evento.rows[0].dados_depois.publicadaEm).includes("clock_timestamp()"), false);
-      await db.query("ROLLBACK");
-      const depois = await db.query<{ n: number }>(
+      await atual.query("BEGIN");
+      try {
+        const empresaId = await empresa(atual, "t037f");
+        const pacoteId = await pacote(atual, empresaId, "p037f");
+        const tabelaId = await tabela(atual, empresaId, "u037f", "2097-01-01", "2097-06-30");
+        await preco(atual, tabelaId, pacoteId);
+        await declararEscopoDosAtivos(atual, tabelaId);
+        const tx = {
+          async query<Row extends object>(text: string, values?: readonly unknown[]) {
+            const result = await atual.query(text, values as unknown[]);
+            return { rows: result.rows as Row[], rowCount: result.rowCount };
+          },
+        };
+        await publicarTabelaPrecoAdmin(tx, {
+          empresaId,
+          tabelaId,
+          usuarioId: randomUUID(),
+          requestId,
+          motivo: "Publicar a faixa conferida",
+        });
+        const evento = await atual.query<{ dados_depois: { publicadaEm?: string } }>(
+          "SELECT dados_depois FROM auditoria WHERE request_id = $1::uuid",
+          [requestId],
+        );
+        const carimbo = await atual.query<{ publicada_em: string }>(
+          "SELECT publicada_em::text AS publicada_em FROM tabelas_preco WHERE id = $1::uuid",
+          [tabelaId],
+        );
+        assert.equal(evento.rows.length, 1);
+        assert.equal(evento.rows[0].dados_depois.publicadaEm, carimbo.rows[0].publicada_em);
+        assert.equal(String(evento.rows[0].dados_depois.publicadaEm).includes("clock_timestamp()"), false);
+      } catch (erro) {
+        await atual.query("ROLLBACK");
+        throw erro;
+      }
+      await atual.query("ROLLBACK");
+      const depois = await atual.query<{ n: number }>(
         "SELECT count(*)::int AS n FROM auditoria WHERE request_id = $1::uuid",
         [requestId],
       );
@@ -1746,6 +1763,7 @@ test("remediação de pacotes no postgres descartável", { timeout: 300_000 }, a
       assert.equal(legado.rows[0].n, 7);
       assert.equal(gatilhos.rows[0].n, 0);
     } finally {
+      await encerrarDescartavel(atual, false);
       await encerrarDescartavel(db);
     }
   }

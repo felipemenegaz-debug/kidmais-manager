@@ -1,0 +1,62 @@
+import type { GrupoFlag } from "./contratos.ts";
+
+/**
+ * Feature flags do Kidmais Intelligence. Único lugar que lê as flags da IA.
+ *
+ * Todas falham fechadas: só o texto exato "true" liga. Ausente, vazio, "1", "TRUE" ⇒ desligado.
+ *
+ * - INTELIGENCIA_ENABLED: chave-mestra. Desligada, nenhuma rota da IA abre sessão ou banco.
+ * - AI_READ_ENABLED: novas capacidades READ e perguntas em texto livre.
+ * - AI_ADMIN_ACTIONS_ENABLED: capacidades CONFIRM (Human Gate) de cadastros administrativos.
+ * - AI_CONTRACT_IMPORT_ENABLED: upload, extração e importação de contratos históricos.
+ * - AI_TENANT_ALLOWLIST: opcional. Lista de empresas (uuid, separadas por vírgula) liberadas para os
+ *   grupos READ, ADMIN_ACTIONS e CONTRACT_IMPORT. Definida e inválida ⇒ nenhuma empresa liberada.
+ *
+ * - AI_JEV_ENABLED: classificador auxiliar (JEV). Só sugere rota; desligado, o roteamento segue normal.
+ *
+ * `atencao_hoje` (grupo FUNDACAO) continua dependendo só de INTELIGENCIA_ENABLED, como na V1.
+ */
+export type Ambiente = Readonly<Record<string, string | undefined>>;
+
+const VARIAVEL: Readonly<Record<Exclude<GrupoFlag, "FUNDACAO">, string>> = {
+  READ: "AI_READ_ENABLED",
+  ADMIN_ACTIONS: "AI_ADMIN_ACTIONS_ENABLED",
+  CONTRACT_IMPORT: "AI_CONTRACT_IMPORT_ENABLED",
+};
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export function inteligenciaAtiva(env: Ambiente) {
+  return env.INTELIGENCIA_ENABLED === "true";
+}
+
+/** Checagem global, antes de sessão e banco. */
+export function grupoAtivo(env: Ambiente, grupo: GrupoFlag) {
+  if (!inteligenciaAtiva(env)) return false;
+  if (grupo === "FUNDACAO") return true;
+  return env[VARIAVEL[grupo]] === "true";
+}
+
+/**
+ * Checagem por empresa, depois do Tenant Context. Sem allowlist, vale a flag global.
+ * Com allowlist, só as empresas listadas; qualquer entrada inválida invalida a lista inteira.
+ */
+export function grupoAtivoParaEmpresa(env: Ambiente, grupo: GrupoFlag, empresaId: string) {
+  if (!grupoAtivo(env, grupo)) return false;
+  if (grupo === "FUNDACAO") return true;
+  const bruto = env.AI_TENANT_ALLOWLIST;
+  if (bruto === undefined || bruto.trim() === "") return true;
+  const lista = bruto.split(",").map((valor) => valor.trim().toLowerCase());
+  if (lista.some((valor) => !UUID.test(valor))) return false;
+  return lista.includes(empresaId.toLowerCase());
+}
+
+/** Documento real só vai a provedor externo com autorização explícita do ambiente (Human Gate operacional). */
+export function envioDocumentoExternoAutorizado(env: Ambiente) {
+  return env.AI_DOCUMENT_EXTERNAL_PROVIDER_ALLOWED === "true";
+}
+
+/** Classificador auxiliar (JEV): só com a chave-mestra ligada. Fail-safe: desligado não muda nada. */
+export function jevAtivo(env: Ambiente) {
+  return inteligenciaAtiva(env) && env.AI_JEV_ENABLED === "true";
+}

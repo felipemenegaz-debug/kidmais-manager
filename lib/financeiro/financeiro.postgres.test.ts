@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
 import type { DbExecutor } from "../db/contracts.ts";
-import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, portaDescartavel } from "../comercial/postgres-descartavel.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
 import {
   cancelarConta,
@@ -69,7 +69,7 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
   try {
     const ident = await db.query<{ db: string; port: number }>("SELECT current_database() AS db, inet_server_port() AS port");
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
     await db.query(precheck);
     await db.query(migration);
     await db.query(postcheck);
@@ -327,14 +327,15 @@ test("parcela de contrato aparece só na empresa dona e a baixa parcial respeita
       [codigo()],
     )).rows[0].id;
     const cliente = (await db.query<{ id: string }>(
-      `INSERT INTO clientes (nome_completo) VALUES ('Maria Silva') RETURNING id`,
+      `INSERT INTO clientes (nome_completo, empresa_id) VALUES ('Maria Silva', (SELECT empresa_id FROM pacotes WHERE id = $1::uuid)) RETURNING id`,
+      [pacote],
     )).rows[0].id;
     const fechamento = (await db.query<{ id: string }>(
       `INSERT INTO fechamentos (
-         data_evento, horario_inicio, horario_fim, configuracao_agenda_id, pacote_id, tabela_preco_id, preco_pacote_id,
+         data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
          categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados,
          valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status
-       ) VALUES ('2026-03-01', '14:00', '18:00', $1::uuid, $2::uuid, $3::uuid, $4::uuid,
+       ) VALUES ('2026-03-01', '14:00', '18:00', $1::uuid, (SELECT p.empresa_id FROM pacotes p WHERE p.id = $2::uuid), $2::uuid, $3::uuid, $4::uuid,
          'PADRAO', 'PADRAO', 20, 20, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', $5::uuid, 'RASCUNHO') RETURNING id`,
       [agenda, pacote, tabela, preco, cliente],
     )).rows[0].id;

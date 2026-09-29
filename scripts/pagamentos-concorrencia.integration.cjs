@@ -58,12 +58,12 @@ async function main() {
     assert.equal(bloqueio.value.ativo,true);await b.query('ROLLBACK');
     console.log('OK: bloqueio administrativo compartilha o lock transacional da confirmação.');
     // Caso real utilizado apenas para leitura e locks, sem UPDATE/INSERT.
-    const rec=(await m.query(`SELECT r.id,c.fechamento_id FROM pagamento_recebimentos r JOIN pagamentos p ON p.id=r.pagamento_id
+    const rec=(await m.query(`SELECT r.id,r.pagamento_id,c.fechamento_id FROM pagamento_recebimentos r JOIN pagamentos p ON p.id=r.pagamento_id
       JOIN contrato_versoes v ON v.id=p.contrato_versao_id JOIN contratos c ON c.id=v.contrato_id WHERE r.status='CONFIRMADO' LIMIT 1`)).rows[0];
     assert.ok(rec,'Requer recebimento confirmado para o teste de ordem dos locks (somente leitura).');
     await a.query('BEGIN');await b.query('BEGIN');await b.query("SET LOCAL lock_timeout='6s'");
     await a.query('SELECT id FROM fechamentos WHERE id=$1 FOR UPDATE',[rec.fechamento_id]);
-    installPool(b);pending=s.confirmarRecebimentoPagamento(rec.id,ctx).then(value=>({value}),error=>({error}));
+    installPool(b);pending=s.confirmarRecebimentoPagamento(rec.pagamento_id,rec.id,{...ctx,executor:b,tenant:{empresaComprovada:(await m.query(`SELECT f.empresa_id::text AS e FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id JOIN contratos c ON c.id=v.contrato_id JOIN fechamentos f ON f.id=c.fechamento_id WHERE p.id=$1`,[rec.pagamento_id])).rows[0].e}}).then(value=>({value}),error=>({error}));
     await esperarBloqueio(m,b.processID,a.processID);
     await a.query('SELECT id FROM pagamento_recebimentos WHERE id=$1 FOR UPDATE NOWAIT',[rec.id]);
     await a.query('ROLLBACK');const confirmed=await pending;pending=null;if(confirmed.error)throw confirmed.error;

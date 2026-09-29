@@ -630,16 +630,57 @@ export async function buscarRecebimentoPorId(
   return result.rows[0] ? mapRecebimento(result.rows[0]) : null;
 }
 
-export async function buscarRecebimentoPorIdempotencia(
-  chave: string,
-  customDb?: DbExecutor,
+/**
+ * D2 — trava o recebimento SÓ se ele pertencer ao pagamento já provado (e travado) na transação do tenant.
+ * O escopo está na própria consulta de lock: um recebimento de outro pagamento (inclusive de outra empresa)
+ * não casa o WHERE e nunca recebe FOR UPDATE; o chamador responde como "não encontrado".
+ */
+export async function bloquearRecebimentoDoPagamento(
+  recebimentoId: string,
+  pagamentoId: string,
+  customDb: DbExecutor,
+): Promise<RecebimentoRecord | null> {
+  return buscarRecebimentoDoPagamento(recebimentoId, pagamentoId, customDb, { forUpdate: true });
+}
+
+/** Leitura (ou trava) do recebimento só dentro do pagamento provado: outro pagamento nunca é lido. */
+export async function buscarRecebimentoDoPagamento(
+  recebimentoId: string,
+  pagamentoId: string,
+  customDb: DbExecutor,
+  options: { forUpdate?: boolean } = {},
 ): Promise<RecebimentoRecord | null> {
   const result = await executor(customDb).query<RecebimentoRow>(
     `SELECT ${recebimentoColumns}
        FROM pagamento_recebimentos
-      WHERE chave_idempotencia = $1
+      WHERE id = $1::uuid
+        AND pagamento_id = $2::uuid
+      LIMIT 1
+      ${options.forUpdate ? "FOR UPDATE" : ""}`,
+    [recebimentoId, pagamentoId],
+  );
+  return result.rows[0] ? mapRecebimento(result.rows[0]) : null;
+}
+
+/**
+ * E2 — idempotência só dentro do pagamento já provado: a chave (escopada pelo chamador) e, para pedidos
+ * anteriores ao escopo, a chave legada — ambas com `pagamento_id` no WHERE. Nunca lê recebimento de outro
+ * pagamento (nem de outra empresa).
+ */
+export async function buscarRecebimentoPorIdempotencia(
+  chave: string,
+  pagamentoId: string,
+  customDb: DbExecutor,
+  legada: string | null = null,
+): Promise<RecebimentoRecord | null> {
+  const result = await executor(customDb).query<RecebimentoRow>(
+    `SELECT ${recebimentoColumns}
+       FROM pagamento_recebimentos
+      WHERE pagamento_id = $2::uuid
+        AND (chave_idempotencia = $1 OR ($3::text IS NOT NULL AND chave_idempotencia = $3))
+      ORDER BY (chave_idempotencia = $1) DESC
       LIMIT 1`,
-    [chave],
+    [chave, pagamentoId, legada],
   );
   return result.rows[0] ? mapRecebimento(result.rows[0]) : null;
 }
@@ -783,13 +824,16 @@ export async function criarEstorno(input: {
   return mapEstorno(result.rows[0]);
 }
 
-export async function buscarEstornoPorIdempotencia(chave: string, customDb?: DbExecutor) {
+/** E2 — idem para estorno: o pagamento vem do recebimento do estorno, no próprio WHERE. */
+export async function buscarEstornoPorIdempotencia(chave: string, pagamentoId: string, customDb: DbExecutor, legada: string | null = null) {
   const result = await executor(customDb).query<EstornoRow>(
     `SELECT ${estornoColumns}
        FROM pagamento_estornos
-      WHERE chave_idempotencia = $1
+      WHERE recebimento_id IN (SELECT id FROM pagamento_recebimentos WHERE pagamento_id = $2::uuid)
+        AND (chave_idempotencia = $1 OR ($3::text IS NOT NULL AND chave_idempotencia = $3))
+      ORDER BY (chave_idempotencia = $1) DESC
       LIMIT 1`,
-    [chave],
+    [chave, pagamentoId, legada],
   );
   return result.rows[0] ? mapEstorno(result.rows[0]) : null;
 }
@@ -850,15 +894,17 @@ export async function existeRecebimentoPagamento(pagamentoId: string, customDb?:
   return result.rows[0]?.existe === true;
 }
 
-export async function buscarRecebimentoPorReferencia(provedor: string, referencia: string, tx: DbExecutor) {
+/** Referência do provedor: procurada só no pagamento provado (a unicidade provedor+referência continua no banco). */
+export async function buscarRecebimentoPorReferencia(provedor: string, referencia: string, pagamentoId: string, tx: DbExecutor) {
   const result = await tx.query<RecebimentoRow>(`SELECT ${recebimentoColumns} FROM pagamento_recebimentos
-    WHERE provedor_codigo=$1 AND referencia_externa=$2`, [provedor, referencia]);
+    WHERE provedor_codigo=$1 AND referencia_externa=$2 AND pagamento_id=$3::uuid`, [provedor, referencia, pagamentoId]);
   return result.rows[0] ? mapRecebimento(result.rows[0]) : null;
 }
 
-export async function buscarEstornoPorReferencia(provedor: string, referencia: string, tx: DbExecutor) {
+export async function buscarEstornoPorReferencia(provedor: string, referencia: string, pagamentoId: string, tx: DbExecutor) {
   const result = await tx.query<EstornoRow>(`SELECT ${estornoColumns} FROM pagamento_estornos
-    WHERE provedor_codigo=$1 AND referencia_externa=$2`, [provedor, referencia]);
+    WHERE provedor_codigo=$1 AND referencia_externa=$2
+      AND recebimento_id IN (SELECT id FROM pagamento_recebimentos WHERE pagamento_id=$3::uuid)`, [provedor, referencia, pagamentoId]);
   return result.rows[0] ? mapEstorno(result.rows[0]) : null;
 }
 

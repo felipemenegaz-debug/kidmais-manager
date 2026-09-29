@@ -64,7 +64,8 @@ export async function contratoDoTenant(tx: DbExecutor, s: SessaoAdmin, versaoId:
     const contrato = versao ? (await tx.query<{ id: string; fechamento_id: string; status: string }>('SELECT id,fechamento_id,status FROM contratos WHERE id=$1', [versao.contratoId])).rows[0] : undefined;
     const empresaFechamento = contrato ? await empresaDoFechamentoSemTrava(contrato.fechamento_id, tx) : undefined;
     if (!contrato || !empresaFechamento || empresaFechamento !== tenant.empresaComprovada) conflito('Versão não encontrada.');
-    return { contrato, empresaAutorizada: tenant.empresaComprovada };
+    // 056: o tenant comprovado (membership e papel NESTA empresa) acompanha a autorização das ações.
+    return { contrato, empresaAutorizada: tenant.empresaComprovada, tenant };
 }
 /** Leitura de versão no tenant comprovado (sem lock): outra empresa ou legado responde como inexistente. */
 export async function versaoDoTenant(tx: DbExecutor, versaoId: string, empresaAutorizada: string) {
@@ -133,7 +134,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         // (edição, salvar, revisar, assinar, cancelar, nova versão...) exige tenant da sessão = empresa
         // do fechamento, independente do payload; tentativa A→B é recusada sem travar nada de B.
         const s = await consultarSessao(token, tx, true);
-        const { contrato: c, empresaAutorizada } = await contratoDoTenant(tx, s, versaoId, empresaSolicitada);
+        const { contrato: c, empresaAutorizada, tenant } = await contratoDoTenant(tx, s, versaoId, empresaSolicitada);
         // Primeiro lock já no escopo do tenant: revalida a empresa do fechamento atomicamente.
         const fechamentoTravado = (await tx.query('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE', [c.fechamento_id, empresaAutorizada])).rows[0];
         if (!fechamentoTravado) conflito('Versão não encontrada.');
@@ -153,7 +154,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         if(input.acao==='cancelar_contratacao') {
             if(statusAtual!=='AGUARDANDO_ASSINATURA'||f?.versao_vigente_id)
                 conflito('Esta contratação já foi assinada pelas duas partes. Use o fluxo de cancelamento da Festa.');
-            if(!(await tx.query("SELECT 1 FROM festa_usuario_capacidades WHERE usuario_id=$1 AND capacidade='FESTA_CORRIGIR' AND revogado_em IS NULL",[s.usuario_id])).rows.length)
+            if(!(await tx.query("SELECT 1 FROM festa_membership_capacidades WHERE membership_id=$1 AND empresa_id=$2 AND capacidade='FESTA_CORRIGIR' AND revogado_em IS NULL",[tenant.membershipId,tenant.empresaComprovada])).rows.length)
                 throw authError('Somente a Gestão pode cancelar a contratação.',403);
             if((await tx.query("SELECT 1 FROM contrato_assinaturas WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) AND parte='CLIENTE' LIMIT 1",[c.id])).rows.length)
                 conflito('Já existe assinatura do cliente. Confira a contratação antes de cancelar.');
@@ -284,8 +285,16 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             return salvarElaboracao(tx,v,e,s,{...snapshot,documental:{observacoes:e.dados_fonte.observacoesDocumentais ?? ''}} as unknown as typeof snapshot);
         }
         if (input.acao === 'assinar') {
-            if (s.papel !== 'REPRESENTANTE_AUTORIZADO')
+            // 056: representante NESTA empresa (papel da membership comprovada), não o papel global.
+            if (tenant.papelAtual !== 'REPRESENTANTE_AUTORIZADO')
                 throw authError('Somente representante autorizado pode assinar.', 403);
+            // 057: assinar pela empresa é capability EMPRESARIAL da membership comprovada (CONTRATO_ASSINAR_EMPRESA),
+            // nunca o papel global. O banco confere o mesmo no COMMIT (kidmais_057_pode_assinar_pela_empresa).
+            const podeAssinar = await tx.query(
+                "SELECT 1 FROM empresa_membership_capacidades WHERE membership_id=$1::uuid AND empresa_id=$2::uuid AND capacidade='CONTRATO_ASSINAR_EMPRESA' AND revogado_em IS NULL",
+                [tenant.membershipId, tenant.empresaComprovada]);
+            if (!podeAssinar.rows.length)
+                throw authError('Esta conta não tem permissão para assinar contratos por esta empresa.', 403);
             const previous = (await tx.query<{
                 id: string;
                 documento_id: string;
@@ -304,7 +313,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             const d = await lerDocumento(input.documentoId, tx);
             if (d.contrato_versao_id !== v.id || d.revisao !== e.revisao || d.snapshot_hash !== v.snapshotHash)
                 conflito('Documento não corresponde à revisão.');
-            const identity = { schemaVersao: 1, usuarioId: s.usuario_id, nome: s.nome, cargo: s.cargo, papel: s.papel };
+            const identity = { schemaVersao: 1, usuarioId: s.usuario_id, nome: s.nome, cargo: s.cargo, papel: tenant.papelAtual };
             const instante = (await tx.query<{
                 t: string;
             }>('SELECT clock_timestamp()::text AS t')).rows[0].t;
@@ -353,16 +362,17 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
         return { revisado: true };
     });
 }
-export async function detalheAdministrativo(contratoId: string) {
-    const contrato = (await db().query('SELECT * FROM contratos WHERE id=$1', [contratoId])).rows[0];
+/** D1: todas as consultas no `tx` do chamador (a transação da prova de tenant nas rotas do Admin). */
+export async function detalheAdministrativo(contratoId: string, tx: DbExecutor = db()) {
+    const contrato = (await tx.query('SELECT * FROM contratos WHERE id=$1', [contratoId])).rows[0];
     if (!contrato)
         conflito('Contrato não encontrado.');
-    const versoes = (await db().query(`SELECT v.*,e.estado AS estado_edicao,e.revisao,e.dados_fonte,e.origem_versao_id,e.alteracoes,e.documento_revisado_id FROM contrato_versoes v LEFT JOIN contrato_edicoes e ON e.contrato_versao_id=v.id WHERE v.contrato_id=$1 ORDER BY numero_versao DESC`, [contratoId])).rows;
-    const fluxo = (await db().query('SELECT * FROM contrato_fluxos WHERE contrato_id=$1', [contratoId])).rows[0] ?? null;
-    const documentos = (await db().query('SELECT id,contrato_versao_id,categoria,revisao,pdf_hash,tamanho_bytes,criado_em FROM contrato_documentos WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) ORDER BY criado_em DESC', [contratoId])).rows;
-    const assinaturas = (await db().query('SELECT * FROM contrato_assinaturas WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) ORDER BY assinado_em', [contratoId])).rows;
-    const revisoesOperacionais=(await db().query(`SELECT r.id,r.contrato_versao_id,r.estado,r.revisao,r.data_evento::text,r.horario_inicio,r.horario_fim,r.hold_destino_adquirido_em,f.status AS status_fechamento,public.kidmais019_ocupa(f.id) AS ocupa_vigente,f.data_evento::text AS data_vigente,ROW(r.data_evento,r.horario_inicio,r.horario_fim,r.configuracao_agenda_id) IS DISTINCT FROM ROW(f.data_evento,f.horario_inicio,f.horario_fim,f.configuracao_agenda_id) AS slot_alterado FROM fechamento_revisoes r JOIN fechamentos f ON f.id=r.fechamento_id WHERE r.contrato_id=$1 ORDER BY r.criado_em`,[contratoId])).rows;
-    const financeiro=(await db().query('SELECT p.id,p.contrato_versao_id,p.valor_total_contratado,p.status FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE v.contrato_id=$1',[contratoId])).rows;
-    const pendencias=(await db().query('SELECT id,motivo,versao_nova_id FROM contrato_pendencias_financeiras WHERE contrato_id=$1',[contratoId])).rows;
+    const versoes = (await tx.query(`SELECT v.*,e.estado AS estado_edicao,e.revisao,e.dados_fonte,e.origem_versao_id,e.alteracoes,e.documento_revisado_id FROM contrato_versoes v LEFT JOIN contrato_edicoes e ON e.contrato_versao_id=v.id WHERE v.contrato_id=$1 ORDER BY numero_versao DESC`, [contratoId])).rows;
+    const fluxo = (await tx.query('SELECT * FROM contrato_fluxos WHERE contrato_id=$1', [contratoId])).rows[0] ?? null;
+    const documentos = (await tx.query('SELECT id,contrato_versao_id,categoria,revisao,pdf_hash,tamanho_bytes,criado_em FROM contrato_documentos WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) ORDER BY criado_em DESC', [contratoId])).rows;
+    const assinaturas = (await tx.query('SELECT * FROM contrato_assinaturas WHERE contrato_versao_id IN (SELECT id FROM contrato_versoes WHERE contrato_id=$1) ORDER BY assinado_em', [contratoId])).rows;
+    const revisoesOperacionais=(await tx.query(`SELECT r.id,r.contrato_versao_id,r.estado,r.revisao,r.data_evento::text,r.horario_inicio,r.horario_fim,r.hold_destino_adquirido_em,f.status AS status_fechamento,public.kidmais019_ocupa(f.id) AS ocupa_vigente,f.data_evento::text AS data_vigente,ROW(r.data_evento,r.horario_inicio,r.horario_fim,r.configuracao_agenda_id) IS DISTINCT FROM ROW(f.data_evento,f.horario_inicio,f.horario_fim,f.configuracao_agenda_id) AS slot_alterado FROM fechamento_revisoes r JOIN fechamentos f ON f.id=r.fechamento_id WHERE r.contrato_id=$1 ORDER BY r.criado_em`,[contratoId])).rows;
+    const financeiro=(await tx.query('SELECT p.id,p.contrato_versao_id,p.valor_total_contratado,p.status FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE v.contrato_id=$1',[contratoId])).rows;
+    const pendencias=(await tx.query('SELECT id,motivo,versao_nova_id FROM contrato_pendencias_financeiras WHERE contrato_id=$1',[contratoId])).rows;
     return { contrato, fluxo, versoes, documentos, assinaturas, financeiro, pendencias, revisoesOperacionais };
 }

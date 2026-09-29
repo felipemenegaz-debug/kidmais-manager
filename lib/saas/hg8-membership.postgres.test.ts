@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
-import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from "../comercial/postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita, portaDescartavel, linhaDeBase, LINHA_DE_BASE_ATUAL } from "../comercial/postgres-descartavel.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const migration045 = resolve(root, "database/migrations/20260926_045_ciclo_membership.sql");
@@ -95,7 +95,9 @@ test("ciclo da membership no postgres descartável", { timeout: 120_000 }, async
       "SELECT current_database() AS db, inet_server_port() AS port",
     );
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
+    // D3: produto parte do estado canônico ATUAL restaurado pela receita (046 aplicada: legado atribuído à Kidmais).
+    assert.deepEqual(await linhaDeBase(db), LINHA_DE_BASE_ATUAL, "estado canônico atual");
 
     const ja = await db.query<{ ok: boolean }>(
       "SELECT to_regprocedure('public.kidmais_045_guard_memberships()') IS NOT NULL AS ok",
@@ -244,8 +246,7 @@ test("ciclo da membership no postgres descartável", { timeout: 120_000 }, async
       }
     });
 
-    const legado = await db.query<{ n: number }>("SELECT count(*)::int AS n FROM pacotes WHERE empresa_id IS NULL");
-    assert.equal(legado.rows[0].n, 7);
+    assert.deepEqual(await linhaDeBase(db), LINHA_DE_BASE_ATUAL, "linha de base intacta");
   } finally {
     try {
       await db.query("ROLLBACK");

@@ -1,18 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 
 /**
  * Proteção contra regressão, não fronteira de segurança.
- * A segurança vem do guard, do Tenant Context, da política e do registro fechado de ferramentas.
+ * A segurança vem do guard, do Tenant Context, da política, do Human Gate e do registro fechado de ferramentas.
  * Estes testes só impedem que uma mudança futura puxe driver, SQL ou domínios não aprovados
  * para a camada de IA sem que alguém perceba.
+ *
+ * Três camadas:
+ * - IA (`lib/inteligencia`): sem SQL, sem driver, lista fechada de imports de domínio.
+ * - Persistência da IA (`lib/ia-persistencia`): SQL das tabelas `ia_*`; da IA só importa tipos.
+ * - Rotas (`app/api/admin/inteligencia`): composition root; ligam portas aos serviços de domínio reais.
+ * O Core não importa nenhuma das três.
  */
 
 const raiz = join(import.meta.dirname, "..", "..");
-const ROTA = "app/api/admin/inteligencia/route.ts";
+const PASTA_ROTAS = join(raiz, "app", "api", "admin", "inteligencia");
 
 function arquivos(dir: string): string[] {
   return readdirSync(dir).flatMap((nome) => {
@@ -22,25 +28,69 @@ function arquivos(dir: string): string[] {
   });
 }
 
-const camadaIA = [
-  ...arquivos(join(raiz, "lib", "inteligencia")).filter((arquivo) => !arquivo.endsWith(".test.ts")),
-  join(raiz, ROTA),
-];
+const naoTeste = (arquivo: string) => !arquivo.endsWith(".test.ts");
+const camadaIA = arquivos(join(raiz, "lib", "inteligencia")).filter(naoTeste);
+const persistenciaIA = arquivos(join(raiz, "lib", "ia-persistencia")).filter(naoTeste);
+const rotasIA = arquivos(PASTA_ROTAS).filter(naoTeste);
 
-/** Lista fechada, por destino já resolvido: leitura do Financeiro, tenant, guard e utilitários. */
-const PERMITIDOS: Readonly<Record<string, readonly string[]>> = {
+/**
+ * Lista fechada da camada de IA, por destino já resolvido: leituras de domínio, tenant, erros e utilitários.
+ * Linhas marcadas com `@pr:` entram junto com a feature (o check de composição remove as das features ausentes).
+ */
+const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "zod": ["ZodError", "z"],
-  "next/server": ["NextRequest"],
-  "node:crypto": ["randomUUID"],
-  "lib/financeiro/servico": ["listarRecebiveis", "Recebivel"],
-  "lib/financeiro/calculos": ["reaisDe", "hojeBrasilia"],
-  "lib/saas/provar-tenant": ["SessaoParaTenant", "TenantComprovado", "withTenantTransaction"],
+  "node:crypto": ["createHash"],
+  "lib/financeiro/servico": ["listarRecebiveis", "Recebivel", "recebidoNoPeriodo"],
+  "lib/financeiro/calculos": ["reaisDe", "hojeBrasilia", "periodoSelecionado"],
+  "lib/saas/provar-tenant": ["SessaoParaTenant", "TenantComprovado"],
   "lib/clientes/services/errors": ["ClienteServiceError"],
   "lib/comercial/pacotes-admin": ["PacoteAdminError"],
   "lib/autenticacao/service": ["Papel"],
   "lib/db/contracts": ["DbExecutor"],
-  "lib/http/admin-crm-api": ["exigirApiAdminCrmDisponivel"],
+  "lib/contratos/services/leitura-tenant": ["contratosAguardandoAssinatura", "resumoContratoDoTenant", "ContratoPendente", "ResumoContratoTenant"],
+  "lib/festas/leitura-tenant": ["agendaDoTenant", "FestaAgenda"],
+  "lib/comercial/motivos-pacote": ["MOTIVOS_PACOTE"], // @pr:ACTIONS
+  // Documentos: funções puras (validação, extração, revisão) e só TIPOS do repositório SQL.
+  "lib/importacao-contrato/arquivo": ["ArquivoValidado", "limiteConfigurado", "validarArquivoEnviado"], // @pr:DOCUMENT
+  "lib/importacao-contrato/pdf-texto": ["extrairTextoPdf", "temTextoNativo", "OpcoesExtracao", "TextoPdf"], // @pr:DOCUMENT
+  "lib/importacao-contrato/extracao": ["EXTRACAO_JSON_SCHEMA", "extracaoSchema", "extracaoVazia", "extrairPorRegras", "ExtracaoLida", "SCHEMA_VERSAO"], // @pr:DOCUMENT
+  "lib/importacao-contrato/rascunho": ["aplicarRevisao", "montarRevisao", "dadosNormalizados"], // @pr:DOCUMENT
+  "lib/importacao-contrato/modelo": ["CampoExtraido", "ExtracaoContrato"], // @pr:DOCUMENT
+  "lib/importacao-contrato/repositorio-documentos": ["ExtracaoRegistrada", "RegistroExtracao"], // @pr:DOCUMENT
+  // Importação: plano puro e só TIPOS do repositório SQL.
+  "lib/importacao-contrato/plano": ["AnaliseDuplicidade", "PlanoImportacao", "DecisaoCliente", "classificarMatch", "montarPlano"], // @pr:IMPORT
+  "lib/importacao-contrato/repositorio-importacao": ["ImportacaoLida"], // @pr:IMPORT
+};
+
+/** Composition roots: além da IA, ligam guard, tenant, pool e os serviços de domínio reais às portas. */
+const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
+  "next/server": ["NextRequest"],
+  "node:crypto": ["randomUUID"],
+  "lib/http/admin-crm-api": ["exigirApiAdminCrmDisponivel", "tokenAdmin"],
   "lib/http/api-response": ["jsonNoStore"],
+  "lib/saas/provar-tenant": ["withTenantTransaction"],
+  "lib/db/postgres": ["db", "withTransaction"],
+  "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno"],
+  "lib/festas/service": ["FestaError", "consultarFestas"],
+  "lib/ia-persistencia/uso": ["criarRegistroUsoPostgres"],
+  "lib/comercial/pacote-comercial": ["painelPacoteAdmin", "salvarPacoteComercial"], // @pr:ACTIONS
+  "lib/comercial/pacote-precos": ["gravarFaixasPacote"], // @pr:ACTIONS
+  "lib/comercial/pacotes-admin": ["alterarSituacaoPacoteAdmin", "criarRevisaoPacoteAdmin", "editarPacoteNaoUtilizado", "listarPacotesAdmin"], // @pr:ACTIONS
+  "lib/ia-persistencia/operacoes": ["repositorioOperacoesPostgres"], // @pr:ACTIONS
+  "lib/importacao-contrato/arquivo": ["limiteConfigurado"], // @pr:DOCUMENT
+  "lib/importacao-contrato/pdf-isolado": ["extrairTextoPdfIsolado"], // @pr:DOCUMENT
+  "lib/importacao-contrato/multipart": ["TEMPO_PADRAO", "criarSemaforo", "lerMultipartLimitado", "limitesUpload", "CodigoMultipart"], // @pr:DOCUMENT
+  "lib/importacao-contrato/repositorio-documentos": ["documentosDisponiveis", "registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
+  "lib/importacao-contrato/motor": ["executarImportacao"], // @pr:IMPORT
+  "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorDocumento", "lerImportacao"], // @pr:IMPORT
+};
+
+/** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
+const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
+  "dependencias.ts": ["consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction"],
+  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin("], // @pr:ACTIONS
+  "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
+  "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao"], // @pr:IMPORT
 };
 
 /** SQL em qualquer caixa, só em literais de string/template: comentários não executam. */
@@ -61,12 +111,16 @@ function resolverDestino(origem: string, importador: string): Destino {
   return { tipo: "arquivo", chave, teste: /\.test(\.|$)/.test(basename(caminho)) };
 }
 
-function daCamadaIA(destino: Destino) {
-  return destino.tipo === "arquivo" && destino.chave.startsWith("lib/inteligencia/");
-}
+const daCamadaIA = (d: Destino) => d.tipo === "arquivo" && d.chave.startsWith("lib/inteligencia/");
+const daPersistenciaIA = (d: Destino) => d.tipo === "arquivo" && d.chave.startsWith("lib/ia-persistencia/");
+const dasRotasIA = (d: Destino) => d.tipo === "arquivo" && d.chave.startsWith("app/api/admin/inteligencia/");
+
+type Regras = { permitidos: Readonly<Record<string, readonly string[]>>; internos(d: Destino): boolean; sql: boolean };
+const REGRAS_IA: Regras = { permitidos: PERMITIDOS_IA, internos: daCamadaIA, sql: false };
+const REGRAS_ROTAS: Regras = { permitidos: PERMITIDOS_ROTAS, internos: (d) => daCamadaIA(d) || dasRotasIA(d), sql: false };
 
 /** Analisa a AST do TypeScript e devolve cada violação encontrada. */
-function violacoes(codigo: string, importador = join(raiz, "lib", "inteligencia", "amostra.ts")): string[] {
+function violacoes(codigo: string, importador = join(raiz, "lib", "inteligencia", "amostra.ts"), regras: Regras = REGRAS_IA): string[] {
   const fonte = ts.createSourceFile(importador, codigo, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const achados: string[] = [];
   const visitar = (no: ts.Node) => {
@@ -79,8 +133,8 @@ function violacoes(codigo: string, importador = join(raiz, "lib", "inteligencia"
         achados.push(`import sem ligação: ${origem}`);
       } else {
         if (clausula.namedBindings && ts.isNamespaceImport(clausula.namedBindings)) achados.push(`import * de ${origem}`);
-        if (!daCamadaIA(destino)) {
-          const lista = PERMITIDOS[destino.chave];
+        if (!regras.internos(destino)) {
+          const lista = regras.permitidos[destino.chave];
           if (!lista) achados.push(`destino não aprovado: ${origem} → ${destino.chave}`);
           else {
             if (clausula.name) achados.push(`import default de ${origem}`);
@@ -101,15 +155,15 @@ function violacoes(codigo: string, importador = join(raiz, "lib", "inteligencia"
       achados.push("import() dinâmico");
     } else if (ts.isCallExpression(no) && ts.isElementAccessExpression(no.expression) && !ts.isStringLiteralLike(no.expression.argumentExpression)) {
       achados.push("chamada por chave computada");
-    } else if (ts.isPropertyAccessExpression(no) && no.name.text === "query") {
+    } else if (!regras.sql && ts.isPropertyAccessExpression(no) && no.name.text === "query") {
       achados.push(".query");
-    } else if (ts.isElementAccessExpression(no) && ts.isStringLiteralLike(no.argumentExpression) && no.argumentExpression.text === "query") {
+    } else if (!regras.sql && ts.isElementAccessExpression(no) && ts.isStringLiteralLike(no.argumentExpression) && no.argumentExpression.text === "query") {
       achados.push("[\"query\"]");
-    } else if (ts.isBindingElement(no) && ((no.propertyName && ts.isIdentifier(no.propertyName) && no.propertyName.text === "query") || (ts.isIdentifier(no.name) && no.name.text === "query"))) {
+    } else if (!regras.sql && ts.isBindingElement(no) && ((no.propertyName && ts.isIdentifier(no.propertyName) && no.propertyName.text === "query") || (ts.isIdentifier(no.name) && no.name.text === "query"))) {
       achados.push("desestruturação de query");
     } else if (ts.isIdentifier(no) && INDIRETOS.has(no.text) && !ts.isTypeReferenceNode(no.parent)) {
       achados.push(`acesso indireto: ${no.text}`);
-    } else if (ts.isStringLiteralLike(no) || ts.isTemplateHead(no) || ts.isTemplateMiddle(no) || ts.isTemplateTail(no)) {
+    } else if (!regras.sql && (ts.isStringLiteralLike(no) || ts.isTemplateHead(no) || ts.isTemplateMiddle(no) || ts.isTemplateTail(no))) {
       if (SQL.test(no.text)) achados.push(`SQL: ${no.text.slice(0, 40)}`);
     }
     ts.forEachChild(no, visitar);
@@ -119,12 +173,54 @@ function violacoes(codigo: string, importador = join(raiz, "lib", "inteligencia"
 }
 
 test("12. a camada de IA não fala com o PostgreSQL e só importa o que está na lista fechada", () => {
-  assert.ok(camadaIA.length >= 5);
+  assert.ok(camadaIA.length >= 20);
   for (const arquivo of camadaIA) {
     const codigo = readFileSync(arquivo, "utf8");
     const nome = relative(raiz, arquivo);
     assert.deepEqual(violacoes(codigo, arquivo), [], nome);
-    assert.doesNotMatch(codigo, /process\.env\.(DATABASE_URL|ADMIN_AUTH_SECRET)|\.env\.local/, `${nome} lê secrets`);
+    assert.doesNotMatch(codigo, /process\.env|\.env\.local/, `${nome} lê o ambiente diretamente (deve receber por dependência)`);
+  }
+});
+
+test("rotas da IA: composition root sem SQL, só POST, com guard e Tenant Context existentes", () => {
+  assert.ok(rotasIA.length >= 4);
+  for (const arquivo of rotasIA) {
+    const codigo = readFileSync(arquivo, "utf8");
+    assert.deepEqual(violacoes(codigo, arquivo, REGRAS_ROTAS), [], relative(raiz, arquivo));
+    assert.doesNotMatch(codigo, /process\.env\.(DATABASE_URL|ADMIN_AUTH_SECRET)|\.env\.local/);
+    if (basename(arquivo) === "route.ts") {
+      assert.match(codigo, /export async function POST/);
+      assert.doesNotMatch(codigo, /export (async )?function (GET|PUT|PATCH|DELETE)/);
+      assert.match(codigo, /searchParams\.get\("empresaId"\)/);
+    }
+  }
+  const composicao = readFileSync(join(PASTA_ROTAS, "dependencias.ts"), "utf8");
+  assert.match(composicao, /exigirApiAdminCrmDisponivel\(request\)/);
+  assert.match(composicao, /withTenantTransaction,/);
+  // As portas apontam para os serviços de domínio reais, não para SQL próprio.
+  for (const [arquivo, servicos] of Object.entries(SERVICOS_POR_COMPOSICAO)) {
+    const fonte = readFileSync(join(PASTA_ROTAS, arquivo), "utf8");
+    for (const servico of servicos) assert.ok(fonte.includes(servico), `${arquivo}: ${servico}`);
+  }
+  // Editar pacote nunca passa por salvarPacoteComercial (regrava disponibilidade/buffet): só criar.
+  const acoes = join(PASTA_ROTAS, "operacoes", "composicao.ts");
+  if (existsSync(acoes)) assert.match(readFileSync(acoes, "utf8"), /criar: \(tx, dados, ctx\) => salvarPacoteComercial\(tx, \{ \.\.\.dados, disponibilidade: \[\], categorias: \[\], itens: \[\] \}, ctx\)/);
+});
+
+test("persistência da IA: SQL só das tabelas ia_*; da camada de IA importa apenas tipos", () => {
+  assert.ok(persistenciaIA.length >= 1);
+  for (const arquivo of persistenciaIA) {
+    const codigo = readFileSync(arquivo, "utf8");
+    const fonte = ts.createSourceFile(arquivo, codigo, ts.ScriptTarget.Latest, true);
+    for (const no of fonte.statements) {
+      if (!ts.isImportDeclaration(no)) continue;
+      const destino = resolverDestino((no.moduleSpecifier as ts.StringLiteral).text, arquivo);
+      assert.equal(no.importClause?.isTypeOnly, true, `${relative(raiz, arquivo)}: import de valor ${destino.chave}`);
+      assert.ok(daCamadaIA(destino) || destino.chave === "lib/db/contracts", `${relative(raiz, arquivo)}: destino ${destino.chave}`);
+    }
+    for (const tabela of codigo.matchAll(/\b(?:FROM|INTO|UPDATE|to_regclass\('public\.)\s*([a-z_]+)/g)) {
+      assert.match(tabela[1], /^ia_/, `${relative(raiz, arquivo)} toca ${tabela[1]}`);
+    }
   }
 });
 
@@ -139,6 +235,9 @@ test("o analisador detecta cada forma de contornar a lista fechada", () => {
     'import { db } from "../db/postgres.ts";',
     'import "../db/postgres.ts";',
     'import { consultarFestas } from "../festas/service.ts";',
+    'import { salvarPacoteComercial } from "../comercial/pacote-comercial.ts";',
+    'import { repositorioOperacoesPostgres } from "../ia-persistencia/operacoes.ts";',
+    'import { withTenantTransaction } from "../saas/provar-tenant.ts";',
     // Caminhos equivalentes que parecem locais (achados da revisão do Codex).
     'import { painelGeral } from "./../financeiro/servico.ts";',
     'import { db } from "@/lib/inteligencia/../db/postgres";',
@@ -180,27 +279,33 @@ test("o analisador detecta cada forma de contornar a lista fechada", () => {
     'import { listarRecebiveis, type Recebivel } from "../financeiro/servico.ts";',
     'import type { DbExecutor } from "../db/contracts.ts";',
     'import { autorizarFerramenta } from "./politica.ts";',
-    'import { withTenantTransaction } from "@/lib/saas/provar-tenant";',
+    'import type { TenantComprovado } from "@/lib/saas/provar-tenant";',
     'const texto = "Selecione o período. Nenhum pagamento vencido.";',
     "const item = ferramentas[nome];",
   ];
   for (const amostra of permitidos) {
     assert.deepEqual(violacoes(amostra), [], amostra);
   }
+  // Nas rotas, o composition root pode ligar o serviço real, mas não o driver nem SQL.
+  const rota = join(PASTA_ROTAS, "amostra.ts");
+  assert.deepEqual(violacoes('import { obterClienteBase } from "@/lib/clientes/services";', rota, REGRAS_ROTAS), []);
+  assert.notDeepEqual(violacoes('import { Pool } from "pg";', rota, REGRAS_ROTAS), []);
+  assert.notDeepEqual(violacoes('const sql = "select * from pacotes";', rota, REGRAS_ROTAS), []);
+  assert.notDeepEqual(violacoes('import { criarPacoteAdmin } from "@/lib/comercial/pacotes-admin";', rota, REGRAS_ROTAS), []);
 });
 
-test("a rota usa o guard administrativo e o Tenant Context existentes, somente por POST", () => {
-  const rota = readFileSync(join(raiz, ROTA), "utf8");
-  assert.match(rota, /exigirApiAdminCrmDisponivel\(request\)/);
-  assert.match(rota, /withTenantTransaction/);
-  assert.match(rota, /export async function POST/);
-  assert.doesNotMatch(rota, /export (async )?function (GET|PUT|PATCH|DELETE)/);
-  assert.match(rota, /searchParams\.get\("empresaId"\)/);
+test("LLM não recebe conexão: nenhum pedido de modelo carrega DbExecutor, tenant de pedido ou ferramenta executável", () => {
+  const tipos = readFileSync(join(raiz, "lib", "inteligencia", "modelos", "tipos.ts"), "utf8");
+  const pedido = tipos.slice(tipos.indexOf("export type PedidoModelo"), tipos.indexOf("export type RespostaBruta"));
+  assert.doesNotMatch(pedido, /DbExecutor|TenantComprovado|empresa|executar|tools?\b/i);
+  const adaptador = readFileSync(join(raiz, "lib", "inteligencia", "modelos", "openai-compativel.ts"), "utf8");
+  assert.doesNotMatch(adaptador, /["']tools["']|functions:|tool_choice/);
 });
 
-test("10. o Core não depende da IA: nenhum import fora da IA resolve para lib/inteligencia", () => {
+test("10. o Core não depende da IA: nenhum import fora das camadas de IA resolve para elas", () => {
+  const camadas = new Set([...camadaIA, ...persistenciaIA, ...rotasIA]);
   const foraDaIA = [...arquivos(join(raiz, "lib")), ...arquivos(join(raiz, "app")), ...arquivos(join(raiz, "components"))]
-    .filter((arquivo) => !camadaIA.includes(arquivo) && !relative(raiz, arquivo).replaceAll("\\", "/").startsWith("lib/inteligencia/"));
+    .filter((arquivo) => !camadas.has(arquivo) && !/^lib\/(inteligencia|ia-persistencia)\//.test(relative(raiz, arquivo).replaceAll("\\", "/")));
   assert.ok(foraDaIA.length > 100);
   for (const arquivo of foraDaIA) {
     const fonte = ts.createSourceFile(arquivo, readFileSync(arquivo, "utf8"), ts.ScriptTarget.Latest, true);
@@ -209,7 +314,8 @@ test("10. o Core não depende da IA: nenhum import fora da IA resolve para lib/i
         : ts.isCallExpression(no) && (no.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(no.expression) && no.expression.text === "require")) ? no.arguments[0]
           : undefined;
       if (especificador && ts.isStringLiteralLike(especificador)) {
-        assert.equal(daCamadaIA(resolverDestino(especificador.text, arquivo)), false, `${relative(raiz, arquivo)} importa ${especificador.text}`);
+        const destino = resolverDestino(especificador.text, arquivo);
+        assert.equal(daCamadaIA(destino) || daPersistenciaIA(destino), false, `${relative(raiz, arquivo)} importa ${especificador.text}`);
       }
       ts.forEachChild(no, visitar);
     };
@@ -217,9 +323,73 @@ test("10. o Core não depende da IA: nenhum import fora da IA resolve para lib/i
   }
 });
 
-test("a flag só é lida pela IA; o Core não consulta INTELIGENCIA_ENABLED", () => {
+test("as flags só são lidas pela IA; o Core não consulta INTELIGENCIA_ENABLED nem AI_*", () => {
   const leitores = [...arquivos(join(raiz, "lib")), ...arquivos(join(raiz, "app")), ...arquivos(join(raiz, "components"))]
-    .filter((arquivo) => !arquivo.endsWith(".test.ts") && readFileSync(arquivo, "utf8").includes("INTELIGENCIA_ENABLED"))
+    .filter((arquivo) => !arquivo.endsWith(".test.ts") && /INTELIGENCIA_ENABLED|AI_(READ|ADMIN_ACTIONS|CONTRACT_IMPORT|JEV)_ENABLED|AI_TENANT_ALLOWLIST/.test(readFileSync(arquivo, "utf8")))
     .map((arquivo) => relative(raiz, arquivo).replaceAll("\\", "/"));
-  assert.deepEqual(leitores, ["lib/inteligencia/gateway.ts"]);
+  assert.deepEqual(leitores, ["lib/inteligencia/flags.ts"]);
+});
+
+/**
+ * B2 — PRs separáveis. O CORE não importa nenhuma feature; cada feature só importa o CORE e as features
+ * anteriores na ordem CORE → ACTIONS → DOCUMENT → IMPORT. O único ponto de encontro é
+ * app/api/admin/inteligencia/extensoes.ts, com uma linha marcada `@pr:` por feature.
+ */
+const FEATURES = { jev: "JEV", acoes: "ACTIONS", documentos: "DOCUMENT", importacao: "IMPORT" } as const;
+const ORDEM = ["CORE", "JEV", "ACTIONS", "DOCUMENT", "IMPORT"] as const;
+type Camada = (typeof ORDEM)[number];
+
+function camadaDe(chave: string): Camada | null {
+  const ia = chave.match(/^lib\/inteligencia\/([^/]+)\//);
+  if (ia) return (FEATURES as Record<string, Camada>)[ia[1]] ?? "CORE";
+  if (/^lib\/inteligencia\/[^/]+$/.test(chave)) return "CORE";
+  const rota = chave.match(/^app\/api\/admin\/inteligencia\/(jev|operacoes|documentos|importacoes)\//);
+  if (rota) return ({ jev: "JEV", operacoes: "ACTIONS", documentos: "DOCUMENT", importacoes: "IMPORT" } as const)[rota[1] as "operacoes"];
+  if (/^app\/api\/admin\/inteligencia\/[^/]+$/.test(chave)) return "CORE";
+  if (/^lib\/importacao-contrato\/(plano|motor|repositorio-importacao)$/.test(chave)) return "IMPORT";
+  if (/^lib\/importacao-contrato\/(arquivo|pdf-texto|pdf-isolado|pdf-worker|extracao|validadores|rascunho|repositorio-documentos|multipart)$/.test(chave)) return "DOCUMENT";
+  if (/^lib\/ia-persistencia\/operacoes$/.test(chave)) return "ACTIONS";
+  if (/^lib\/ia-persistencia\/uso$/.test(chave)) return "CORE";
+  return null;
+}
+
+function importsDe(arquivo: string) {
+  const fonte = ts.createSourceFile(arquivo, readFileSync(arquivo, "utf8"), ts.ScriptTarget.Latest, true);
+  return fonte.statements.filter(ts.isImportDeclaration).map((no) => ({
+    destino: resolverDestino((no.moduleSpecifier as ts.StringLiteral).text, arquivo),
+    linha: fonte.text.slice(no.getStart(), fonte.text.indexOf("\n", no.getEnd()) < 0 ? undefined : fonte.text.indexOf("\n", no.getEnd())),
+  }));
+}
+
+test("B2: CORE não importa feature; feature só importa CORE e features anteriores; composição compartilhada é marcada", () => {
+  const candidatos = [
+    ...camadaIA,
+    ...rotasIA,
+    ...arquivos(join(raiz, "lib", "importacao-contrato")).filter(naoTeste),
+    ...persistenciaIA,
+  ];
+  for (const arquivo of candidatos) {
+    const chave = relative(raiz, arquivo).replaceAll("\\", "/").replace(/\.(ts|tsx)$/, "");
+    const origem = camadaDe(chave);
+    if (!origem) continue;
+    for (const { destino, linha } of importsDe(arquivo)) {
+      if (destino.tipo !== "arquivo") continue;
+      const alvo = camadaDe(destino.chave);
+      if (!alvo || ORDEM.indexOf(alvo) <= ORDEM.indexOf(origem)) continue;
+      // Exceção única: o ponto de extensão do CORE, com a linha marcada pela feature que a traz.
+      const marcada = chave === "app/api/admin/inteligencia/extensoes" && linha.includes(`// @pr:${alvo}`);
+      assert.ok(marcada, `${chave} (${origem}) importa ${destino.chave} (${alvo})`);
+    }
+  }
+});
+
+test("B2: o registro de ações é extensível (fábricas + RegistroExtensoes), sem lista estática de features futuras", () => {
+  const caminhoRegistro = join(raiz, "lib", "inteligencia", "acoes", "registro.ts");
+  if (existsSync(caminhoRegistro)) assert.doesNotMatch(readFileSync(caminhoRegistro, "utf8"), /importacao|documentos/);
+  const conversa = readFileSync(join(raiz, "lib", "inteligencia", "conversa.ts"), "utf8");
+  assert.doesNotMatch(conversa, /acoes\/|documentos\/|importacao\//, "a conversa recebe ModuloAcoes por dependência");
+  const extensoes = readFileSync(join(PASTA_ROTAS, "extensoes.ts"), "utf8");
+  for (const linha of extensoes.split(/\r?\n/).filter((l) => /registrar(Jev|Acoes|Importacao|Documentos)|composicao/.test(l))) {
+    assert.match(linha, /\/\/ @pr:(JEV|ACTIONS|DOCUMENT|IMPORT)$/, linha);
+  }
 });

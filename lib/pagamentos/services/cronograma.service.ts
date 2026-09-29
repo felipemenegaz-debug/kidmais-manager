@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
-import { withTransaction } from '../../db/postgres';
+import { naTransacao } from './transacao';
 import { lerPosicaoFinanceira, type PosicaoFinanceira } from '../repositories/alteracao-financeira.repository';
 import { reaisCentavos, reaisSql, recusarFinanceiro } from './alteracao-financeira-core';
 import type { PedidoResolucao, VersaoFinanceira, ContextoFinanceiro } from './alteracao-financeira.models';
@@ -25,7 +25,7 @@ export async function gravarCronograma(tx:DbExecutor,p:PosicaoFinanceira,input:P
   await tx.query(`INSERT INTO pagamento_cronograma_itens(cronograma_id,parcela_id,item_anterior_id,ordem,origem,saldo_inicial_centavos,recebido_base_centavos,estornado_base_centavos,vencimento_referencia) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[meta.id,parcelaId,anterior?.id??null,i+1,antiga?'PRESERVADA':input.modo==='MANTER_E_COMPLEMENTAR'?'COMPLEMENTO':'REPROGRAMADA',proposta.valorCentavos,antiga?reaisCentavos(antiga.recebido).toString():'0',antiga?reaisCentavos(antiga.estornado).toString():'0',proposta.vencimento]);
  }
 }
-export async function reprogramarCronograma(contratoId:string,input:PedidoResolucao,chave:string,context:ContextoFinanceiro){return withTransaction(async tx=>{
+export async function reprogramarCronograma(contratoId:string,input:PedidoResolucao,chave:string,context:ContextoFinanceiro){return naTransacao(context.executor,async tx=>{
  const s=await bloquearFinanceiro(tx,contratoId,context),p=await lerPosicaoFinanceira(tx,contratoId),pedido={acao:'reprogramar',...input};
  const retry=await repetirEvento(tx,p.pagamento.id,chave,pedido,s.usuario_id);if(retry)return retry;
  if(!p.ajustes.length)recusarFinanceiro('CRONOGRAMA_LEGADO','Use a substituição de plano existente antes da primeira regularização.');

@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { WhatsappOnboardingError } from './errors.ts';
+import { temAutoridadeDePlataforma } from '../autenticacao/plataforma.ts';
 
 const JANELA_REAUTENTICACAO_MS = 5 * 60 * 1000;
 const idMeta = z.string().regex(/^[0-9]+$/).max(64);
@@ -10,7 +11,8 @@ export const concluirOnboardingSchema = z.object({
 }).strict();
 
 export function exigirRepresentanteRecente(sessao: { papel: string; autenticado_em: string }, agora = Date.now()) {
-  if (sessao.papel !== 'REPRESENTANTE_AUTORIZADO') throw new WhatsappOnboardingError('WHATSAPP_AUTORIZACAO_RECUSADA', 'Somente representante autorizado pode configurar o WhatsApp.', 403);
+  // WhatsApp/Meta é configuração da instalação: autoridade de PLATAFORMA, nunca papel de empresa (F1).
+  if (!temAutoridadeDePlataforma(sessao)) throw new WhatsappOnboardingError('WHATSAPP_AUTORIZACAO_RECUSADA', 'Somente representante autorizado pode configurar o WhatsApp.', 403);
   const autenticado = new Date(sessao.autenticado_em).getTime();
   if (!Number.isFinite(autenticado) || agora - autenticado > JANELA_REAUTENTICACAO_MS) {
     throw new WhatsappOnboardingError('WHATSAPP_REAUTENTICACAO_NECESSARIA', 'Confirme sua senha novamente antes de configurar o WhatsApp.', 403);

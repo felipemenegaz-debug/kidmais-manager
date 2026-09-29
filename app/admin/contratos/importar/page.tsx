@@ -1,2 +1,2 @@
-import ImportarContratoAntigo from '@/components/admin/importacao/ImportarContratoAntigo';
-export default function Page() { return <ImportarContratoAntigo />; }
+import ImportacaoContrato from '@/components/admin/importacao/ImportacaoContrato';
+export default function Page() { return <ImportacaoContrato />; }

@@ -1,0 +1,66 @@
+{
+  "descricao": "Registro das skills de agentes do Kidmais Manager (tooling de desenvolvimento, nunca runtime). Cada skill presente em .claude/skills ou .codex/skills precisa de uma entrada com o sha256 atual do SKILL.md (conteúdo com fim de linha LF). Mudou o arquivo ⇒ o hash diverge e o lint exige nova revisão. Política: docs/SEGURANCA_SKILLS.md.",
+  "referencia": "OWASP Top 10 for Agentic Applications (ASI01–ASI10), mapeado em .claude/skills/kidmais-skill-security/SKILL.md",
+  "skills": [
+    {
+      "nome": "kidmais-render-production",
+      "arquivo": ".codex/skills/kidmais-render-production/SKILL.md",
+      "origem": "interna (repositório kidmais-manager, autor Felipe Menegaz)",
+      "versao": "fa0a62e",
+      "sha256": "1db4a2feb75941ef8fa58a66242037c332878d711b253fe156e30266b52a402d",
+      "revisadoEm": "2026-09-28",
+      "permissoes": { "arquivos": "leitura do repositório", "shell": "node scripts/ versionados (verificadores)", "rede": "URLs públicas autorizadas (smoke)", "secrets": "nenhum valor; só presença via env injetado", "git": "leitura", "banco": "nenhum", "producao": "leitura/avaliação; escrita só com autorização explícita" },
+      "owasp": { "ASI01": "ok", "ASI02": "risco: operações de produção existem no escopo; mitigado por gates explícitos", "ASI03": "ok", "ASI04": "ok", "ASI05": "ok", "ASI06": "ok", "ASI07": "ok", "ASI08": "ok", "ASI09": "ok: GO não é autorização", "ASI10": "ok" },
+      "restricoes": ["só verificadores e leitura", "deploy/env/restart/migration/SQL de escrita só com autorização explícita do Felipe", "nunca banco de produção para teste"],
+      "revisaoIndependente": "PENDENTE",
+      "decisao": "RESTRITA"
+    },
+    {
+      "nome": "kidmais-render-staging",
+      "arquivo": ".codex/skills/kidmais-render-staging/SKILL.md",
+      "origem": "interna (repositório kidmais-manager, autor Felipe Menegaz)",
+      "versao": "fa0a62e",
+      "sha256": "4e0e38d6b1d5d021c1c388dedd012a8673f0762cfda4338f709f716193fa01cd",
+      "revisadoEm": "2026-09-28",
+      "permissoes": { "arquivos": "leitura", "shell": "nenhum de escrita", "rede": "Render MCP (staging)", "secrets": "só nomes/presença", "git": "leitura", "banco": "nenhum", "producao": "nenhuma" },
+      "owasp": { "ASI01": "ok: logs e metadados são dados", "ASI02": "risco: o Render MCP expõe update_environment_variables e trigger_deploy; o texto proíbe, mas não impede tecnicamente", "ASI03": "ok", "ASI04": "ok", "ASI05": "ok", "ASI06": "ok", "ASI07": "ok", "ASI08": "ok", "ASI09": "ok", "ASI10": "ok: não cria monitor sem pedido" },
+      "restricoes": ["configurar no harness o Render MCP só com ferramentas de leitura", "nenhuma escrita sem autorização explícita"],
+      "revisaoIndependente": "PENDENTE",
+      "decisao": "RESTRITA"
+    },
+    {
+      "nome": "kidmais-skill-security (Codex)",
+      "arquivo": ".codex/skills/kidmais-skill-security/SKILL.md",
+      "origem": "interna (Kidmais Intelligence Production V1)",
+      "versao": "feature/ai-master-v1 (sem commit)",
+      "sha256": "ab99bf3e0ebfe8975b268dfd28ecac7e48372396fa220ddc98280f9c54d13e14",
+      "revisadoEm": "2026-09-28",
+      "permissoes": { "arquivos": "leitura de texto", "shell": "nenhum", "rede": "nenhuma", "secrets": "nenhum", "git": "nenhum", "banco": "nenhum", "producao": "nenhuma" },
+      "owasp": { "ASI01": "ok", "ASI02": "ok", "ASI03": "ok", "ASI04": "ok", "ASI05": "ok", "ASI06": "ok", "ASI07": "ok", "ASI08": "ok", "ASI09": "ok", "ASI10": "ok" },
+      "restricoes": [],
+      "revisaoIndependente": "PENDENTE",
+      "decisao": "APROVADA"
+    },
+    {
+      "nome": "kidmais-skill-security (Claude Code)",
+      "arquivo": ".claude/skills/kidmais-skill-security/SKILL.md",
+      "origem": "interna (Kidmais Intelligence, rodada de tooling)",
+      "versao": "feature/ai-master-v1 (sem commit)",
+      "sha256": "482b25d42c0aa51a5674f79704373797fc16b0e31fb25b42134eb9347ad075b9",
+      "revisadoEm": "2026-09-28",
+      "permissoes": { "arquivos": "leitura de texto; escrita só em scripts/skills-registro.json e docs/SEGURANCA_SKILLS.md", "shell": "nenhum", "rede": "nenhuma", "secrets": "nenhum", "git": "nenhum", "banco": "nenhum", "producao": "nenhuma" },
+      "owasp": { "ASI01": "ok", "ASI02": "ok", "ASI03": "ok", "ASI04": "ok", "ASI05": "ok", "ASI06": "ok: registro é revisado por humano", "ASI07": "ok", "ASI08": "ok", "ASI09": "ok: decisão não é autorização operacional", "ASI10": "ok" },
+      "restricoes": ["skill nova: só como checklist até a revisão independente"],
+      "revisaoIndependente": "PENDENTE",
+      "decisao": "RESTRITA"
+    }
+  ],
+  "pendentes": [
+    {
+      "origem": "Demerzel A.I.",
+      "situacao": "FONTE_NAO_DISPONIVEL",
+      "observacao": "Nenhuma skill Demerzel foi encontrada no repositório nem nas pastas de skills desta máquina (busca em 2026-09-28). Nada foi instalado, copiado ou executado. Para revisar: informar URL do repositório de origem + commit (e a lista das skills pretendidas); cada uma passa pela kidmais-skill-security e entra, se aprovada, só no PR-AI-TOOLING.",
+      "decisao": null
+    }
+  ]
+}

@@ -3,8 +3,9 @@ import test from "node:test";
 import { ZodError } from "zod";
 import type { Recebivel } from "../financeiro/servico.ts";
 import { atencaoHoje, montarAtencaoHoje } from "./atencao-hoje.ts";
+import { SEM_PORTAS } from "./ferramentas.ts";
 
-const contexto = { hoje: "2026-09-28", geradoEm: "2026-09-28T15:00:00.000Z" };
+const contexto = { hoje: "2026-09-28", geradoEm: "2026-09-28T15:00:00.000Z", portas: SEM_PORTAS };
 
 function recebivel(parcial: Partial<Recebivel> & Pick<Recebivel, "id" | "status" | "vencimento" | "saldoCentavos">): Recebivel {
   return {

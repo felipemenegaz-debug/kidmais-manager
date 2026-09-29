@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { authError } from "@/lib/autenticacao/service";
 import { motivoDaSituacao, motivoOu, MOTIVOS_PACOTE } from "@/lib/comercial/motivos-pacote";
 import { painelPacoteAdmin } from "@/lib/comercial/pacote-comercial";
 import { alterarSituacaoPacoteAdmin, criarRevisaoPacoteAdmin, editarPacoteNaoUtilizado, excluirPacoteArquivadoAdmin } from "@/lib/comercial/pacotes-admin";
-import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 
@@ -44,12 +43,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
-    if (sessao.papel !== "REPRESENTANTE_AUTORIZADO") throw authError("Apenas o proprietário pode editar pacotes.", 403);
     const id = uuid.safeParse((await context.params).id);
     if (!id.success) return jsonNoStore({ ok: false, erro: "Pacote inválido.", codigo: "DADOS_INVALIDOS" }, { status: 400 });
     const bruto = await request.json();
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
     const data = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
+      exigirGestaoNoTenant(tenant, "Apenas o proprietário pode editar pacotes.");
       const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
       const ctx = {
         empresaId: tenant.empresaComprovada,
@@ -72,10 +71,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
-    if (sessao.papel !== "REPRESENTANTE_AUTORIZADO") throw authError("Apenas o proprietário pode excluir pacotes.", 403);
     const id = uuid.safeParse((await context.params).id);
     if (!id.success) return jsonNoStore({ ok: false, erro: "Pacote inválido.", codigo: "DADOS_INVALIDOS" }, { status: 400 });
     await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), async (tx, tenant) => {
+      exigirGestaoNoTenant(tenant, "Apenas o proprietário pode excluir pacotes.");
       await excluirPacoteArquivadoAdmin(tx, id.data, {
         empresaId: tenant.empresaComprovada,
         usuarioId: sessao.usuario_id,

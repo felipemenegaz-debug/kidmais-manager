@@ -23,9 +23,12 @@ export async function consultarCapacidadesPerfil(tx: DbExecutor, empresaId: stri
     const vazio = mapaVazio();
     if (!estruturaInstalada)
         return { estruturaInstalada: false, gestaoAtiva: false, capacidades: vazio };
+    // 056: Gestão NESTA empresa = papel da membership ATIVA da empresa (nunca o papel global da identidade).
     const usuario = (await tx.query<{ id: string; papel: string; ativo: boolean }>(
-        'SELECT id, papel, ativo FROM usuarios_administrativos WHERE id=$1',
-        [usuarioId],
+        `SELECT u.id, m.papel, (u.ativo AND m.status = 'ATIVA') AS ativo
+           FROM usuarios_administrativos u JOIN memberships m ON m.usuario_id = u.id AND m.empresa_id = $2::uuid
+          WHERE u.id = $1`,
+        [usuarioId, empresaId],
     )).rows[0];
     if (!usuario || !usuario.ativo || usuario.papel !== 'REPRESENTANTE_AUTORIZADO')
         return { estruturaInstalada: true, gestaoAtiva: false, capacidades: vazio };

@@ -81,6 +81,8 @@ export type PagamentoDetalhe = {
 };
 
 export type RegistrarRecebimentoInput = {
+  /** E2: chave como o cliente a enviou antes do escopo por empresa/pagamento; só consultada dentro do pagamento, nunca gravada. */
+  chaveIdempotenciaLegada?: string | null;
   pagamentoId: string;
   meioPagamento: MeioRecebimento;
   valorBruto: number;
@@ -109,6 +111,8 @@ export type RegistrarRecebimentoResult = {
 };
 
 export type RegistrarEstornoInput = {
+  /** E2: chave como o cliente a enviou antes do escopo por empresa/pagamento; só consultada dentro do pagamento, nunca gravada. */
+  chaveIdempotenciaLegada?: string | null;
   reprogramacao?: import('./alteracao-financeira.models').PedidoResolucao;
   pagamentoId: string;
   recebimentoId: string;

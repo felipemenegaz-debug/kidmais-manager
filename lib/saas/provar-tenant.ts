@@ -11,9 +11,15 @@ export type TenantComprovado = {
   empresaComprovada: string;
   membershipId: string;
   usuarioId: string;
+  /**
+   * Papel PERSISTIDO do usuário NESTA empresa (memberships.papel, 056), lido com a membership travada
+   * (FOR UPDATE) nesta transação — não o papel da identidade global nem o da sessão. A trava vale até o
+   * commit: mudança concorrente de papel espera. Papel em outra empresa não conta.
+   */
+  papelAtual: string;
 };
 
-type LinhaMembership = { id: string; empresa_id: string };
+type LinhaMembership = { id: string; empresa_id: string; papel?: string };
 
 /**
  * Ordem única dos fluxos de tenant, para não cruzar com suspensão nem revogação:
@@ -85,7 +91,7 @@ export async function provarTenant(
   const empresasTravadas = await travarEmpresasDoUsuario(tx, sessao.usuario_id);
   if (empresasTravadas.length === 0) recusar();
   const memberships = await tx.query<LinhaMembership>(
-    `SELECT m.id::text AS id, m.empresa_id::text AS empresa_id
+    `SELECT m.id::text AS id, m.empresa_id::text AS empresa_id, m.papel
        FROM memberships m
        JOIN empresas e ON e.id = m.empresa_id
       WHERE m.usuario_id = $1::uuid
@@ -102,11 +108,23 @@ export async function provarTenant(
     ? (linhas.length === 1 ? linhas[0] : null)
     : linhas.find((linha) => linha.empresa_id === pedida) ?? null;
   if (!escolhida) recusar();
+  // 056: o papel é o DESTA membership (empresa comprovada), travada até o commit; nunca o da identidade global.
+  const papelAtual = escolhida.papel;
+  if (typeof papelAtual !== "string" || papelAtual === "") recusar();
   return {
     empresaComprovada: escolhida.empresa_id,
     membershipId: escolhida.id,
     usuarioId: sessao.usuario_id,
+    papelAtual,
   };
+}
+
+/**
+ * 056 — autoridade de Gestão NESTA empresa: o papel da membership comprovada (`papelAtual`), nunca o papel
+ * da identidade global nem o da sessão. Chamar dentro da transação do tenant.
+ */
+export function exigirGestaoNoTenant(tenant: TenantComprovado, mensagem: string): void {
+  if (tenant.papelAtual !== "REPRESENTANTE_AUTORIZADO") throw new PacoteAdminError("PAPEL_NAO_AUTORIZADO", mensagem, 403);
 }
 
 /** Relê a membership travada antes do commit. Revogação já confirmada impede a operação. */

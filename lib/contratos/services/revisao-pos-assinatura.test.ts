@@ -81,7 +81,7 @@ function ambiente() {
         },
         '../../fechamentos/repositories/revisao.repository': { buscarRevisaoDaVersao: async () => null },
         // PR-B1: toda ação prova o tenant da sessão e o compara com a empresa do fechamento.
-        '../../saas/provar-tenant': { provarTenant: async () => ({ empresaComprovada: 'empresa-a', membershipId: 'm', usuarioId: 'u' }) },
+        '../../saas/provar-tenant': { provarTenant: async () => ({ empresaComprovada: 'empresa-a', membershipId: 'm', usuarioId: 'u', papelAtual: 'REPRESENTANTE_AUTORIZADO' }) },
         '../../fechamentos/repositories': { empresaDoFechamentoSemTrava: async () => 'empresa-a' },
         '../../fechamentos/services/revisao-operacional.service': {
             iniciarPreparacao: async () => ({ id: 'r' }), snapshotPreparacao: async (_tx: unknown, _r: unknown, v: typeof origem) => v.snapshot,

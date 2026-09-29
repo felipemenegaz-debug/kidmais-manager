@@ -15,7 +15,7 @@ import {
 } from "./catalogo-buffet.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
 import { definirCategoriasPacoteAdmin, definirItensEspecificosPacoteAdmin } from "./pacotes-admin.ts";
-import { conectarDescartavel, encerrarDescartavel } from "./postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, portaDescartavel } from "./postgres-descartavel.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const migration050 = resolve(root, "database/migrations/20260927_050_item_sem_categoria.sql");
@@ -46,7 +46,7 @@ test("catálogo do buffet no postgres descartável", { timeout: 120_000 }, async
       "SELECT current_database() AS db, inet_server_port() AS port",
     );
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
     const coluna = await db.query<{ is_nullable: string }>(
       `SELECT is_nullable FROM information_schema.columns
         WHERE table_name = 'buffet_itens' AND column_name = 'categoria_id'`,

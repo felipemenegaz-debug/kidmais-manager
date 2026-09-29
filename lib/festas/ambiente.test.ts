@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { DbExecutor } from '../db/contracts';
 import { validarAmbienteFesta } from './ambiente.ts';
-import { assinaturaEstruturaFesta016 } from './estrutura-016.ts';
+import { assinaturaEstruturaFestaAtual } from './estrutura-016.ts';
 
 test('flag explícita + estrutura final independem do nome físico do banco',async()=>{
     const anterior=process.env.FESTA_ENABLED;
     try{
         process.env.FESTA_ENABLED='true';
-        const tx={query:async(sql:string)=>{assert(!/current_database|kidmais_016_/i.test(sql));assert(!/\b(CREATE|ALTER|INSERT|UPDATE|DELETE|DROP)\b/.test(sql));return {rows:[{assinatura:assinaturaEstruturaFesta016,valida:true,nome:'kidmais_cloud_producao'}],rowCount:1};}} as DbExecutor;
+        const tx={query:async(sql:string)=>{assert(!/current_database|kidmais_016_/i.test(sql));assert(!/\b(CREATE|ALTER|INSERT|UPDATE|DELETE|DROP)\b/.test(sql));return {rows:[{assinatura:assinaturaEstruturaFestaAtual,valida:true,nome:'kidmais_cloud_producao'}],rowCount:1};}} as DbExecutor;
         await validarAmbienteFesta(tx);
     }finally{if(anterior===undefined)delete process.env.FESTA_ENABLED;else process.env.FESTA_ENABLED=anterior;}
 });
@@ -29,7 +29,7 @@ test('estrutura ausente/incompleta ou falha de catálogo devolve erro seguro',as
 test('baseline 016 válida sem delta 019 não habilita a formalização',async()=>{
     const anterior=process.env.FESTA_ENABLED;process.env.FESTA_ENABLED='true';
     try {
-        const tx={query:async()=>({rows:[{assinatura:assinaturaEstruturaFesta016,valida:false}],rowCount:1})} as DbExecutor;
+        const tx={query:async()=>({rows:[{assinatura:assinaturaEstruturaFestaAtual,valida:false}],rowCount:1})} as DbExecutor;
         await assert.rejects(validarAmbienteFesta(tx),/instalação não validada/);
     } finally {if(anterior===undefined)delete process.env.FESTA_ENABLED;else process.env.FESTA_ENABLED=anterior;}
 });

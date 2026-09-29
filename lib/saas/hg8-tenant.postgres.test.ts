@@ -8,7 +8,7 @@ import type { Client } from "pg";
 import type { DbExecutor } from "../db/contracts.ts";
 import { listarPacotesAdmin } from "../comercial/pacotes-admin.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
-import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, portaDescartavel, linhaDeBase, LINHA_DE_BASE_ATUAL } from "../comercial/postgres-descartavel.ts";
 import { executarNoTenant, provarTenant } from "./provar-tenant.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -149,7 +149,9 @@ test("prova de tenant no postgres descartável", { timeout: 180_000 }, async (t)
       "SELECT current_database() AS db, inet_server_port() AS port",
     );
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
+    // D3: produto parte do estado canônico ATUAL restaurado pela receita (046 aplicada: legado atribuído à Kidmais).
+    assert.deepEqual(await linhaDeBase(db), LINHA_DE_BASE_ATUAL, "estado canônico atual");
 
     await t.test("só membership ativa em empresa ativa prova, e o id do cliente só escolhe", async () => {
       await db.query("BEGIN");
@@ -627,9 +629,8 @@ test("prova de tenant no postgres descartável", { timeout: 180_000 }, async (t)
     try {
       await limpar(db);
       const resto = await db.query<{ n: number }>("SELECT count(*)::int AS n FROM empresas WHERE codigo LIKE 'hg8p%'");
-      const legado = await db.query<{ n: number }>("SELECT count(*)::int AS n FROM pacotes WHERE empresa_id IS NULL");
       assert.equal(resto.rows[0].n, 0);
-      assert.equal(legado.rows[0].n, 7);
+      assert.deepEqual(await linhaDeBase(db), LINHA_DE_BASE_ATUAL, "linha de base intacta");
     } finally {
       await encerrarDescartavel(db);
     }

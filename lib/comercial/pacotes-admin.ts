@@ -248,12 +248,16 @@ export async function inserirRevisaoPacoteAdmin(
     convidadosMaximos?: number | null;
   },
   ctx: Contexto,
+  opcoes?: { preservarSituacao?: boolean },
 ) {
   if (!ctx.motivo || ctx.motivo.trim().length < 3) recusar("DADOS_INVALIDOS", "A nova revisão exige um motivo.", 409);
   const atual = await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   if (!atual.vigente) recusar("CONFLITO", "A revisão informada não é a vigente.", 409);
   if (!atual.utilizado) recusar("REVISAO_LIVRE", "A revisão ainda não utilizada pode ser editada.", 409);
+  // Padrão da tela: a revisão nasce ativa. `preservarSituacao` (Human Gate da IA) mantém a situação da
+  // revisão de origem, para nenhuma ativação acontecer fora do que o preview mostrou.
+  const ativo = opcoes?.preservarSituacao ? atual.ativo : true;
   const criada = await tx.query(
     `INSERT INTO pacotes (
        empresa_id, codigo, nome, descricao, duracao_minutos, convidados_minimos, convidados_maximos,
@@ -261,7 +265,7 @@ export async function inserirRevisaoPacoteAdmin(
      ) VALUES (
        $1::uuid, $2, $3, $4, $5, $6, $7,
        (SELECT ordem_exibicao FROM pacotes WHERE id = $8::uuid),
-       true, false, $8::uuid
+       $9::boolean, false, $8::uuid
      ) RETURNING id`,
     [
       ctx.empresaId,
@@ -272,6 +276,7 @@ export async function inserirRevisaoPacoteAdmin(
       input.convidadosMinimos === undefined ? atual.convidadosMinimos : input.convidadosMinimos,
       input.convidadosMaximos === undefined ? atual.convidadosMaximos : input.convidadosMaximos,
       id,
+      ativo,
     ],
   );
   const novaId = String((criada.rows[0] as { id: string }).id);
@@ -328,9 +333,9 @@ export async function criarRevisaoPacoteAdmin(
     convidadosMaximos?: number | null;
   },
   ctx: Contexto,
-  opcoes?: { silenciarAuditoria?: boolean },
+  opcoes?: { silenciarAuditoria?: boolean; preservarSituacao?: boolean },
 ) {
-  const criada = await inserirRevisaoPacoteAdmin(tx, id, input, ctx);
+  const criada = await inserirRevisaoPacoteAdmin(tx, id, input, ctx, { preservarSituacao: opcoes?.preservarSituacao });
   await preservarPrecosDaRevisao(tx, ctx, id, criada.novaId);
   return promoverRevisaoPacoteAdmin(tx, id, criada.novaId, input, ctx, { ...opcoes, origem: criada.origem });
 }
