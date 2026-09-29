@@ -6,7 +6,7 @@ import { FestaError, consultarFestas } from "@/lib/festas/service";
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from "@/lib/http/admin-crm-api";
 import { criarRegistroUsoPostgres } from "@/lib/ia-persistencia/uso";
 import type { DependenciasConversa } from "@/lib/inteligencia/conversa";
-import { CHAVE_CATALOGO_SKILLS, CHAVE_CLASSIFICADOR_AUXILIAR, CHAVE_MODULO_ACOES, CHAVE_ORQUESTRADOR } from "@/lib/inteligencia/extensoes";
+import { CHAVE_CATALOGO_SKILLS, CHAVE_CLASSIFICADOR_AUXILIAR, CHAVE_COPILOTO, CHAVE_MODULO_ACOES, CHAVE_ORQUESTRADOR } from "@/lib/inteligencia/extensoes";
 import type { PortasDominio } from "@/lib/inteligencia/ferramentas";
 import type { DependenciasGateway } from "@/lib/inteligencia/gateway";
 import { orcamentoDoAmbiente } from "@/lib/inteligencia/modelos/orcamento";
@@ -88,5 +88,6 @@ export function dependenciasConversa(request: NextRequest): DependenciasConversa
     classificador: extensoes.obter(CHAVE_CLASSIFICADOR_AUXILIAR),
     orquestrador: extensoes.obter(CHAVE_ORQUESTRADOR),
     skills: extensoes.obter(CHAVE_CATALOGO_SKILLS),
+    copiloto: extensoes.obter(CHAVE_COPILOTO),
   };
 }

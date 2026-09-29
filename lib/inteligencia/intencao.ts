@@ -32,6 +32,28 @@ function leituraComEntidade(capacidade: string, entidade: Entidade, contexto: Co
   return { tipo: "precisa_contexto", capacidade, entidade };
 }
 
+/** Tema de navegação do texto (mais específico primeiro). Só temas conhecidos; o resto é null. */
+const TEMAS: ReadonlyArray<[string, RegExp]> = [
+  ["importar_contrato", /\bimport\w*\b.*\bcontrato|\bcontrato (antigo|historico)\b/],
+  ["pdf_pacotes", /\bpdf\b|\btabela de (pacotes|precos)\b/],
+  ["contas_pagar", /\bcontas? a pagar\b|\bdespesa\w*\b|\bsaidas?\b/],
+  ["acessos", /\busuari\w*|\bacesso\w*|\bpermiss\w*|\bpapel\b|\bequipe\b/],
+  ["whatsapp", /\bwhats\s?app\b/],
+  ["perfil", /\bperfil\b|\bdados da empresa\b|\bcnpj\b|\brazao social\b|\bendereco da empresa\b/],
+  ["buffet", /\bbuffet\b|\bcardapio\b|\bcategorias?\b/],
+  ["pacotes", /\bpacotes?\b/],
+  ["contratos", /\bcontratos?\b|\bassinatura\w*\b/],
+  ["festas", /\bfestas?\b|\bchecklist\b/],
+  ["agenda", /\bagenda\b|\bdisponibilidade\b|\bdatas? livres?\b/],
+  ["clientes", /\bclientes?\b|\baniversariante\w*\b|\bcontratante\w*\b/],
+  ["financeiro", /\bfinanceiro\b|\bpagamentos?\b|\brecebimentos?\b|\bparcelas?\b|\bcontas? a receber\b/],
+  ["dashboard", /\bdashboard\b|\bpainel\b|\btela inicial\b/],
+];
+
+function temaNavegacao(n: string): string | null {
+  return TEMAS.find(([, padrao]) => padrao.test(n))?.[0] ?? null;
+}
+
 export function interpretarDeterministico(texto: string, contexto: ContextoTela | null): Intencao {
   const n = normalizar(texto);
   if (!n) return { tipo: "nenhuma" };
@@ -42,6 +64,13 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
   if (tem(n, /\bsql\b/, /\b(select|insert|update|delete|drop|truncate|alter)\b.*\b(from|into|table|set|where)\b/, /\bbanco de dados\b/, /\bdatabase\b/)) return acao("sql");
   if (tem(n, /\b(confirm\w*|aprov\w*|autoriz\w*)\b.*\b(sozinh\w*|automatic\w*|por mim|sem (me )?perguntar)\b/, /\b(ignore|ignora|desconsidere)\b.*\b(regras?|instruc\w*|politica\w*)\b/)) return acao("mutacao_nao_suportada");
   if (tem(n, /\b(exclu\w*|apag\w*|delet\w*|remov\w*)\b/)) return acao("excluir");
+
+  // Navegação conceitual (Copiloto): pergunta de ONDE/COMO FAZER vem antes dos comandos — "onde cadastro um
+  // pacote?" não é "cadastre um pacote". "Como está…" não é navegação (é consulta).
+  const tema = temaNavegacao(n);
+  if (tema && (/^onde\b/.test(n) || /^como (eu |a gente |faco para |faco pra |posso |consigo |se )?(cadastr|cri[ao]|criar|configur|mud[ao]|mudar|alter[ao]|alterar|import|public|conect|adicion|vejo|ver|encontr|acho|abro|abrir)\w*/.test(n))) {
+    return { tipo: "leitura", capacidade: "onde_encontrar", parametros: { tema }, origem };
+  }
 
   // "crianca" não é "criar": só formas verbais explícitas.
   const verboCriar = /\b(crie|criar|cria|crio|criando|cadastr\w*|adicion\w*|inclu\w*|mont[ae]\w*|nov[oa]s?)\b/;
@@ -61,6 +90,18 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
     return acao("mutacao_nao_suportada");
   }
 
+  // Copiloto por tela: pergunta sobre ESTE contrato/cliente vai para o resumo dele (sem ele aberto, pede contexto).
+  if (/\b(este|esse|deste|desse|neste|nesse) contrato\b/.test(n) || (contexto?.tela === "contrato" && contexto.entidadeId && tem(n, /\bassin\w*/, /\b(situacao|status|valor|vigente|versao|pendent\w*|falta\w*)\b/))) {
+    return leituraComEntidade("resumir_contrato", "contrato", contexto, origem);
+  }
+  if (/\b(este|esse|deste|desse|neste|nesse) cliente\b/.test(n) || (contexto?.tela === "cliente" && contexto.entidadeId && tem(n, /\b(cadastro|pendent\w*|falta\w*|situacao|aniversari\w*|completo)\b/))) {
+    return leituraComEntidade("resumir_cliente", "cliente", contexto, origem);
+  }
+
+  // Copiloto por tela: "explique estes números" no Financeiro/Dashboard lê o painel daquela tela.
+  if (contexto?.tela === "financeiro" && tem(n, /\bexpli\w*/, /\bentend\w*/, /\b(estes|esses) (numeros|valores)\b/)) return { tipo: "leitura", capacidade: "analisar_recebiveis", parametros: {}, origem };
+  if (contexto?.tela === "dashboard" && tem(n, /\bexpli\w*/, /\bentend\w*/, /\b(estes|esses) (numeros|valores)\b/)) return { tipo: "leitura", capacidade: "atencao_hoje", parametros: {}, origem };
+
   // Leituras com entidade da tela.
   if (tem(n, /\brisco\b/, /\bpreocup\w*\b/)) return leituraComEntidade("festa_em_risco", "festa", contexto, origem);
   if (contexto?.tela === "festa" && tem(n, /\bpendenc\w*\b/, /\bfalta\w*\b/, /\bpendente\w*\b/, /\btarefa\w*\b/)) return leituraComEntidade("pendencias_da_festa", "festa", contexto, origem);
@@ -77,10 +118,10 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
   if (tem(n, /\breceb(i|eu|emos|eram|ido|idos|ida|idas)\b/, /\brecebimentos?\b/, /\bentrou\b/, /\bentradas?\b/, /\bfaturamento\b/, /\bpagamentos? recebidos?\b/, /\bcompar\w*\b.*\bmes\b/)) {
     return { tipo: "leitura", capacidade: "analisar_pagamentos", parametros: {}, origem };
   }
-  if (tem(n, /\brecebive\w*\b/, /\binadimpl\w*\b/, /\bem aberto\b/, /\baging\b/, /\bfaixas? de atraso\b/, /\bquanto (tenho|temos|falta) (a|para) receber\b/)) {
+  if (tem(n, /\brecebive\w*\b/, /\binadimpl\w*\b/, /\bem aberto\b/, /\baging\b/, /\bfaixas? de atraso\b/, /\bquanto (tenho|temos|falta) (a|para) receber\b/, /\b(pagamentos?|parcelas?|boletos?)\b.*\b(atrasad\w*|vencid\w*|em atraso)\b/)) {
     return { tipo: "leitura", capacidade: "analisar_recebiveis", parametros: {}, origem };
   }
-  if (tem(n, /\batenc/, /\bpendenc/, /\bvencid/, /\bvence(m)? hoje\b/, /\bem atraso\b/, /\bpagamentos? atrasad/, /\ba receber\b/, /\bprioridade/)) {
+  if (tem(n, /\batenc/, /\bpendenc/, /\bvencid/, /\bvence(m)? hoje\b/, /\bem atraso\b/, /\bpagamentos? atrasad/, /\ba receber\b/, /\bprioridade/, /\b(preciso|precisamos|tenho que|temos que|devo) (resolver|fazer|ver|olhar)\b/)) {
     return { tipo: "leitura", capacidade: "atencao_hoje", parametros: {}, origem };
   }
   return { tipo: "nenhuma" };

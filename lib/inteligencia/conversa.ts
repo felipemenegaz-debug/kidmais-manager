@@ -3,9 +3,11 @@ import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.t
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
 import type { AIResponse, ContextoTela, ModelUsage, OrigemChamada, RespostaLeitura } from "./contratos.ts";
-import type { CatalogoSkills, ClassificadorAuxiliar, ContextoExtensao, ModuloAcoes, Orquestrador, PortaModeloClassificacao, PortasOrquestracao } from "./extensoes.ts";
+import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, Orquestrador, PortaModeloClassificacao, PortasOrquestracao } from "./extensoes.ts";
+import { construirContextoAutorizado, construirContextoModelo } from "./contexto/construtor.ts";
+import { ContextoRecusado } from "./contexto/contrato.ts";
 import { ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
-import { demerzelAtivo, grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo, jevModeloAtivo } from "./flags.ts";
+import { copilotoModeloAtivo, demerzelAtivo, grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo, jevModeloAtivo } from "./flags.ts";
 import {
   classificar, executarLeitura, exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado,
   type DependenciasGateway, type PedidoGateway, type RespostaGateway,
@@ -53,6 +55,8 @@ export type DependenciasConversa = DependenciasGateway & {
   orquestrador?: Orquestrador | null;
   /** Catálogo de skills (playbooks), opcional: só forma e atendimento; resolvido com o tenant comprovado. */
   skills?: CatalogoSkills | null;
+  /** Copiloto (próxima ação e explicação validada), opcional; só complementa leituras já autorizadas. */
+  copiloto?: Complementador | null;
 };
 
 /** Teto de espera pelo classificador auxiliar: nunca atrasa a resposta além disso. */
@@ -164,6 +168,7 @@ type Execucao = {
   deps: DependenciasConversa;
   rastreio: RastreioInteligencia;
   contextoExtensao: (tx: ContextoExtensao["tx"], tenant: ContextoExtensao["tenant"]) => ContextoExtensao;
+  contexto: ContextoTela | null;
 };
 
 /** Leitura pelo caminho único do gateway: registro fechado → flag → Policy → Tenant Context → serviço de domínio. */
@@ -271,15 +276,52 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
     descreverAcao: (capacidade) => deps.acoes?.descrever(capacidade) ?? null,
     usosDeModelo: () => usos,
     registrarResumo: (resumo) => { rastreio.orquestracao = resumo; },
-    async skill(finalidade, capacidade) {
-      const catalogo = deps.skills ?? null;
-      if (!catalogo) return null;
+    skill: (finalidade, capacidade) => skill(finalidade, capacidade),
+    async complementar(resposta, opcoes) {
+      const copiloto = deps.copiloto ?? null;
+      if (!copiloto || resposta.tipo !== "resposta") return resposta;
+      const dados = resposta.dados;
+      const capacidade = "capacidade" in dados ? dados.capacidade : "atencao_hoje";
       const comprovado = await tenant();
-      // Estabelecimento: o Tenant Context atual não tem unidade; overrides por estabelecimento ficam inativos.
-      return catalogo.resolver({ empresaId: comprovado.empresaComprovada, estabelecimentoId: null, finalidade, capacidade });
+      // Explicação por modelo: só sobre o contexto do Context Builder, montado com o tenant comprovado e com o
+      // bloco marcado com a empresa em que a leitura foi FEITA. Divergência ⇒ recusa ⇒ sem explicação (fail-closed).
+      let contextoModelo: ReturnType<typeof construirContextoModelo> | null = null;
+      let modelo: PortaModeloClassificacao | null = null;
+      if (opcoes.explicar && "fatos" in dados && deps.roteador && copilotoModeloAtivo(deps.env) && deps.roteador.disponivelPara("TEXTO_CURTO")) {
+        try {
+          const autorizado = construirContextoAutorizado({ sessao, tenant: comprovado, contexto: e.contexto, capacidades: catalogoDisponivel(deps.env, comprovado.papelAtual, deps.acoes).filter((c) => c.tipo === "leitura").map((c) => c.id) });
+          contextoModelo = construirContextoModelo(autorizado, [{ empresaId: rastreio.empresaId ?? "", capacidade: dados.capacidade, resposta: dados }], { finalidade: "EXPLICAR_DADOS" });
+        } catch (erro) {
+          if (!(erro instanceof ContextoRecusado)) throw erro;
+          contextoModelo = null;
+        }
+        const roteador = deps.roteador;
+        if (contextoModelo) {
+          modelo = {
+            disponivel: () => roteador.disponivelPara("TEXTO_CURTO"),
+            async executar(pedidoModelo) {
+              const r = await roteador.executar(pedidoModelo, { empresaId: comprovado.empresaComprovada, capacidade: "copiloto_explicar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
+              anotarUsoModelo(rastreio, r.usos);
+              usos.push(...r.usos);
+              return r;
+            },
+          };
+        }
+      }
+      const procedimento = await skill("PROCEDIMENTO", capacidade);
+      const complemento = await copiloto.complementar({ capacidade, dados, contextoModelo, procedimento, explicar: opcoes.explicar, modelo });
+      return complemento ? { ...resposta, complemento } : resposta;
     },
     relogio: deps.relogio ?? (() => performance.now()),
   };
+
+  async function skill(finalidade: FinalidadeSkill, capacidade: string | null) {
+    const catalogo = deps.skills ?? null;
+    if (!catalogo) return null;
+    const comprovado = await tenant();
+    // Estabelecimento: o Tenant Context atual não tem unidade; overrides por estabelecimento ficam inativos.
+    return catalogo.resolver({ empresaId: comprovado.empresaComprovada, estabelecimentoId: null, finalidade, capacidade });
+  }
 }
 
 export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasConversa): Promise<RespostaGateway> {
@@ -318,7 +360,7 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     }
 
     const contexto = entrada.contexto ?? null;
-    const execucao: Execucao = { texto: entrada.texto, sessao, pedido, deps, rastreio, contextoExtensao };
+    const execucao: Execucao = { texto: entrada.texto, sessao, pedido, deps, rastreio, contextoExtensao, contexto };
 
     // Orquestradora (Demerzel): decide o caminho com as mesmas portas guardadas. Qualquer erro dela cai no
     // fallback seguro abaixo — nunca no caminho sem guardas.

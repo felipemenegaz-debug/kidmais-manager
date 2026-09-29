@@ -65,6 +65,7 @@ function espiao(opcoes: {
     usosDeModelo: () => e.usos,
     registrarResumo: (r) => { e.resumos.push(r); },
     skill: async () => null,
+    complementar: async (r) => r,
     relogio: opcoes.relogio ?? (() => performance.now()),
   };
   return e;
@@ -82,7 +83,7 @@ test("READ: regras → JEV → leitura pela porta do gateway; um passo por etapa
   const { resposta, resumo } = await perguntar("O que precisa da minha atenção hoje?", e);
   assert.equal(resposta.tipo, "resposta");
   assert.deepEqual(e.lidas, [{ capacidade: "atencao_hoje", origem: "INTENCAO_DETERMINISTICA" }]);
-  assert.deepEqual(tipos(resumo), ["INTENCAO_REGRAS", "JULGAMENTO_JEV", "LEITURA"]);
+  assert.deepEqual(tipos(resumo), ["INTENCAO_REGRAS", "JULGAMENTO_JEV", "LEITURA", "COMPLEMENTO"]);
   assert.equal(resumo.parada, "LEITURA");
   assert.equal(e.chamadasModelo, 0);
   assert.equal(resumo.julgamento?.actionSensitivity, "READ");
@@ -168,7 +169,7 @@ test("sem rota pelas regras: auxiliar → modelo (enum fechado) → leitura com 
   const e = espiao({ interpretar: () => ({ tipo: "nenhuma" }), modelo: { tipo: "leitura", capacidade: "analisar_pagamentos", parametros: {}, origem: "INTENCAO_MODELO" } });
   const { resumo } = await perguntar("hmm aquilo do dinheiro", e);
   assert.deepEqual(e.lidas, [{ capacidade: "analisar_pagamentos", origem: "INTENCAO_MODELO" }]);
-  assert.deepEqual(tipos(resumo), ["INTENCAO_REGRAS", "JULGAMENTO_JEV", "SUGESTAO_AUXILIAR", "INTENCAO_MODELO", "LEITURA"]);
+  assert.deepEqual(tipos(resumo), ["INTENCAO_REGRAS", "JULGAMENTO_JEV", "SUGESTAO_AUXILIAR", "INTENCAO_MODELO", "LEITURA", "COMPLEMENTO"]);
   const semModelo = espiao({ interpretar: () => ({ tipo: "nenhuma" }) });
   const r2 = await perguntar("hmm aquilo", semModelo);
   assert.equal(r2.resumo.parada, "NAO_SUPORTADO");

@@ -76,3 +76,12 @@ export function jevModeloAtivo(env: Ambiente) {
 export function demerzelAtivo(env: Ambiente) {
   return inteligenciaAtiva(env) && env.AI_DEMERZEL_ENABLED === "true";
 }
+
+/**
+ * Copiloto pode pedir a um modelo uma explicação dos dados já lidos (AI_COPILOTO_MODEL_ENABLED). O modelo só vê o
+ * contexto minimizado do Context Builder e a saída é validada contra os dados; sem a flag, sem provedor ou sem
+ * orçamento aplicável, o Copiloto responde só com os dados e a próxima ação sugerida.
+ */
+export function copilotoModeloAtivo(env: Ambiente) {
+  return inteligenciaAtiva(env) && env.AI_COPILOTO_MODEL_ENABLED === "true";
+}

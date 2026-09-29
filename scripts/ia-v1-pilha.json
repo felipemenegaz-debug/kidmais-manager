@@ -26,6 +26,11 @@
       "pr": "CONTEXTO_V1",
       "branch": "ai-v1/04-contexto",
       "descricao": "Context Builder V1: contexto autorizado só do Tenant Context; contexto de modelo minimizado, redigido, rotulado, com limites e barreira final; cross-tenant fail-closed"
+    },
+    {
+      "pr": "COPILOTO_V1",
+      "branch": "ai-v1/05-copiloto",
+      "descricao": "Copiloto V1: perguntas por tela, navegação conceitual, próxima ação por procedimento de skill, explicação por modelo validada contra os dados; flag AI_COPILOTO_MODEL_ENABLED"
     }
   ]
 }

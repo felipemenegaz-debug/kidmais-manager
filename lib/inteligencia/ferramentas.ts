@@ -9,6 +9,7 @@ import { contratosPendentes } from "./leituras/contratos-pendentes.ts";
 import { festaEmRisco, pendenciasDaFesta, resumirFesta } from "./leituras/festa.ts";
 import { resumirCliente } from "./leituras/resumir-cliente.ts";
 import { resumirContrato } from "./leituras/resumir-contrato.ts";
+import { ondeEncontrar } from "./leituras/navegacao.ts";
 
 /** Reexportado por conveniência de tipo: a classe é a mesma dos contratos estáveis. */
 export type ClasseFerramenta = ClasseAcao;
@@ -95,6 +96,7 @@ export const ferramentas: Readonly<Record<string, Ferramenta>> = Object.freeze({
   resumir_festa: resumirFesta,
   pendencias_da_festa: pendenciasDaFesta,
   festa_em_risco: festaEmRisco,
+  onde_encontrar: ondeEncontrar,
 });
 
 export function ferramentaRegistrada(nome: string): Ferramenta | null {

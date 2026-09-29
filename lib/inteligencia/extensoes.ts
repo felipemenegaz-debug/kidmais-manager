@@ -1,6 +1,8 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import type { TenantComprovado } from "../saas/provar-tenant.ts";
-import type { AIResponse, ClasseAcao, ContextoTela, GrupoFlag, ModelUsage, OrigemChamada } from "./contratos.ts";
+import type { AIResponse, ClasseAcao, ComplementoCopiloto, ContextoTela, GrupoFlag, ModelUsage, OrigemChamada, RespostaLeitura } from "./contratos.ts";
+import type { AtencaoHoje } from "./atencao-hoje.ts";
+import type { ContextoModelo } from "./contexto/contrato.ts";
 import type { CapacidadeCatalogo, Intencao } from "./intencao.ts";
 import type { ResultadoRoteado } from "./modelos/roteador.ts";
 import type { PedidoModelo } from "./modelos/tipos.ts";
@@ -97,6 +99,12 @@ export type PortasOrquestracao = {
    * (Plataforma → Empresa → Estabelecimento). null ⇒ nenhuma aplicável ou catálogo não instalado.
    */
   skill(finalidade: FinalidadeSkill, capacidade: string | null): Promise<SkillAplicavel | null>;
+  /**
+   * Complemento do Copiloto a uma resposta READ já autorizada: próxima ação (procedimento de skill) e, se pedido,
+   * explicação por modelo sobre o contexto MINIMIZADO pelo Context Builder. Nunca muda os dados da resposta;
+   * sem Copiloto, falha ou recusa do contexto, devolve a resposta como veio.
+   */
+  complementar(resposta: AIResponse, opcoes: { explicar: boolean }): Promise<AIResponse>;
   relogio(): number;
 };
 
@@ -173,6 +181,7 @@ export const CHAVE_MODULO_ACOES = chaveExtensao<ModuloAcoes>("core.modulo-acoes"
 export const CHAVE_CLASSIFICADOR_AUXILIAR = chaveExtensao<ClassificadorAuxiliar>("core.classificador-auxiliar");
 export const CHAVE_ORQUESTRADOR = chaveExtensao<Orquestrador>("core.orquestrador");
 export const CHAVE_CATALOGO_SKILLS = chaveExtensao<CatalogoSkills>("core.catalogo-skills");
+export const CHAVE_COPILOTO = chaveExtensao<Complementador>("core.copiloto");
 
 /** Contêiner de extensões por pedido. Valores podem ser preguiçosos (montados na primeira leitura). */
 export class RegistroExtensoes {
@@ -202,4 +211,20 @@ export class RegistroExtensoes {
     }
     return this.obter(chave) as T[];
   }
+}
+
+/**
+ * Complementador do Copiloto (feature COPILOTO). Recebe só o que é seguro: a leitura já autorizada pelo gateway,
+ * o contexto de modelo já minimizado (Context Builder), a skill de procedimento já resolvida no tenant comprovado
+ * e uma porta de modelo com orçamento. Não recebe banco, tenant, sessão nem ferramenta.
+ */
+export interface Complementador {
+  complementar(entrada: {
+    capacidade: string;
+    dados: RespostaLeitura | AtencaoHoje;
+    contextoModelo: { contexto: ContextoModelo; json: string } | null;
+    procedimento: SkillAplicavel | null;
+    explicar: boolean;
+    modelo: PortaModeloClassificacao | null;
+  }): Promise<ComplementoCopiloto | null>;
 }

@@ -118,16 +118,19 @@ export type SinaisJev = {
 export function lerSinais(texto: string): SinaisJev {
   const n = normalizar(texto);
   const dominios = DOMINIOS.filter(([, , padroes]) => tem(n, ...padroes));
+  // Pergunta de ONDE/COMO FAZER ("onde eu cadastro um pacote?", "como cancelo uma festa?") é pedido de
+  // orientação, não comando: o verbo não conta como ação. Proibidos e injeção continuam valendo.
+  const comoFazer = /^(onde|como)\b/.test(n) && !/^como (esta|estao|anda|andam|foi|ficou|vai)\b/.test(n);
   return {
     vazio: n.length === 0,
     proibidos: PROIBIDOS.filter(([, padroes]) => tem(n, ...padroes)).map(([motivo]) => motivo),
     injecao: tem(n, ...INJECAO),
-    mutacaoFinanceira: tem(n, ...MUTACAO_FINANCEIRA),
-    envioExterno: tem(n, ...ENVIO_EXTERNO),
-    cancelamento: tem(n, ...CANCELAMENTO),
-    alteracao: tem(n, ...ALTERACAO),
+    mutacaoFinanceira: !comoFazer && tem(n, ...MUTACAO_FINANCEIRA),
+    envioExterno: !comoFazer && tem(n, ...ENVIO_EXTERNO),
+    cancelamento: !comoFazer && tem(n, ...CANCELAMENTO),
+    alteracao: !comoFazer && tem(n, ...ALTERACAO),
     sugestao: tem(n, ...SUGESTAO),
-    consulta: tem(n, ...CONSULTA),
+    consulta: comoFazer || tem(n, ...CONSULTA),
     pergunta: /\?\s*$/.test(texto.trim()),
     saudacao: tem(n, ...SAUDACAO),
     dominios: dominios.map(([classe]) => classe),
