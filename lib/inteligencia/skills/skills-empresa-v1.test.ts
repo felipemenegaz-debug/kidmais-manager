@@ -146,3 +146,18 @@ test("Repositório: só versões ATIVAS da empresa informada, somente leitura; s
   assert.deepEqual(leitura.values, [EMPRESA]);
   assert.ok(consultas.every((c) => !/\b(INSERT|UPDATE|DELETE)\b/.test(c.sql)));
 });
+
+test("A2 nas camadas: EMPRESA SUGGEST sobre base READ e unidade que amplia a empresa são recusadas; a base fica", async () => {
+  alertas.length = 0;
+  const base = SKILLS_PLATAFORMA.find((s) => s.id === "procedimentos_operacionais")!;
+  assert.deepEqual(base.permissoes.classes, ["READ"], "premissa: base da plataforma é READ");
+  const sugestao = override({ id: "procedimentos_operacionais", finalidades: ["PROCEDIMENTO"], permissoes: { classes: ["SUGGEST"] }, conteudo: { tom: "Tom que amplia." } });
+  const r = (await catalogo([sugestao]).resolver({ empresaId: EMPRESA, estabelecimentoId: null, finalidade: "PROCEDIMENTO", capacidade: null, niveis: ["PLATAFORMA", "EMPRESA"] }))!;
+  assert.deepEqual(r.cadeia.map((x) => x.nivel), ["PLATAFORMA"]);
+  assert.notEqual(r.conteudo.tom, "Tom que amplia.");
+  assert.ok(alertas.some((a) => a.motivos.includes("OVERRIDE_AMPLIA")));
+  const empresaSo = override({ finalidades: ["SUGESTAO_TEXTO"], permissoes: { classes: ["READ"] } });
+  const unidadeAmplia = override({ nivel: "ESTABELECIMENTO", escopo: { empresaId: EMPRESA, estabelecimentoId: UNIDADE }, versao: "1.2.0", finalidades: ["SUGESTAO_TEXTO", "ATENDIMENTO"], permissoes: { classes: ["READ", "SUGGEST"] } });
+  const u = (await catalogo([empresaSo, unidadeAmplia]).resolver({ empresaId: EMPRESA, estabelecimentoId: UNIDADE, finalidade: "SUGESTAO_TEXTO", capacidade: null, niveis: ["PLATAFORMA", "EMPRESA", "ESTABELECIMENTO"] }))!;
+  assert.deepEqual(u.cadeia.map((x) => x.nivel), ["PLATAFORMA", "EMPRESA"], "a unidade não amplia o que a empresa estreitou");
+});

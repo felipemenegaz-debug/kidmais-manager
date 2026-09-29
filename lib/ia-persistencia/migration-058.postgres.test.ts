@@ -125,3 +125,68 @@ test("058: skills de empresa/unidade — escopo, imutabilidade, uma ATIVA, leitu
     assert.equal(sobrou, false, "ROLLBACK desfez a 058 no descartável");
   }
 });
+
+// ---------------------------------------------------------------- A4 (auditoria): contrato da definição no banco
+
+test("058 A4: definição incompleta, com tipo errado, array vazio ou valor fora do contrato é recusada pelo BANCO; a completa passa", { timeout: 120_000 }, async (t) => {
+  if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") {
+    t.skip("opt-in ausente: harness PostgreSQL não executado");
+    return;
+  }
+  const db = await conectarDescartavel();
+  const id = async (sql: string, v: unknown[]) => (await db.query<{ id: string }>(sql, v)).rows[0].id;
+  try {
+    await db.query("BEGIN");
+    await db.query(semTransacaoExplicita(UP));
+    const A = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Empresa A4', 'PROVISIONAMENTO') RETURNING id`, [cod("a4")]);
+    const autor = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness A4', $2, 'REPRESENTANTE_AUTORIZADO', true) RETURNING id`,
+      [`${cod("u")}@example.test`, `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`]);
+    const inserir = `INSERT INTO ia_skills (empresa_id, estabelecimento_id, nivel, skill_id, versao, hash, status, definicao, criado_por)
+                     VALUES ($1::uuid, NULL, 'EMPRESA', 'atendimento_familias', '1.1.0', $2, 'RASCUNHO', $3::jsonb, $4::uuid)`;
+    const valida = override(A, null, "1.1.0", "Tom A4.");
+    const tentar = (definicao: unknown, hash = valida.hash) => recusa(db, inserir, [A, hash, JSON.stringify(definicao), autor], /ia_skills_058_definicao_(chaves|tipos|valores)?_?check|ia_skills_058_definicao_check/);
+
+    await tentar({});
+    for (const chave of ["id", "nivel", "escopo", "finalidades", "capacidades", "versao", "proveniencia", "revisao", "permissoes", "restricoes", "conteudo", "hash"]) {
+      const semChave: Record<string, unknown> = { ...valida };
+      delete semChave[chave];
+      await tentar(semChave);
+    }
+    const variantes: Array<Record<string, unknown>> = [
+      { finalidades: "SUGESTAO_TEXTO" }, { escopo: "empresa" }, { permissoes: { classes: "READ" } }, { restricoes: {} }, { conteudo: [] },
+      { finalidades: [] }, { permissoes: { classes: [] } },
+      { permissoes: { classes: ["CONFIRM"] } }, { finalidades: ["PAGAR"] },
+      { revisao: { ...valida.revisao, estado: "OK" } }, { proveniencia: { origem: "X", autor: "a", referencia: "r" } },
+      { proveniencia: { autor: "a", referencia: "r" } }, { revisao: { estado: "APROVADA" } }, { escopo: { empresaId: A } },
+      { id: "outra_skill" }, { versao: "9.9.9" }, { escopo: { empresaId: "22222222-2222-4222-8222-222222222222", estabelecimentoId: null } },
+    ];
+    for (const v of variantes) await tentar({ ...valida, ...v });
+    await tentar(valida, "f".repeat(64));
+
+    // Controle: a definição completa e coerente passa.
+    await db.query(inserir, [A, valida.hash, JSON.stringify(valida), autor]);
+  } finally {
+    await db.query("ROLLBACK").catch(() => undefined);
+    await encerrarDescartavel(db);
+  }
+});
+
+test("058 A4 controle negativo: o CHECK original (sem COALESCE) aceitava {} — reprodução do achado", { timeout: 120_000 }, async (t) => {
+  if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") {
+    t.skip("opt-in ausente: harness PostgreSQL não executado");
+    return;
+  }
+  const db = await conectarDescartavel();
+  try {
+    await db.query("BEGIN");
+    await db.query(`CREATE TEMP TABLE a4_original (skill_id text, versao text, hash text, nivel text, empresa_id uuid, estabelecimento_id uuid, definicao jsonb,
+      CHECK (definicao->>'id' = skill_id AND definicao->>'versao' = versao AND definicao->>'hash' = hash AND definicao->>'nivel' = nivel
+             AND definicao->'escopo'->>'empresaId' = empresa_id::text
+             AND (definicao->'escopo'->>'estabelecimentoId') IS NOT DISTINCT FROM estabelecimento_id::text))`);
+    await db.query(`INSERT INTO a4_original VALUES ('atendimento_familias', '1.1.0', $1, 'EMPRESA', gen_random_uuid(), NULL, '{}'::jsonb)`, ["a".repeat(64)]);
+    assert.equal((await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM a4_original`)).rows[0].n, 1, "o CHECK original deixava passar {} (NULL não falha)");
+  } finally {
+    await db.query("ROLLBACK").catch(() => undefined);
+    await encerrarDescartavel(db);
+  }
+});

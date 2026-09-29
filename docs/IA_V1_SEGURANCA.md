@@ -17,6 +17,15 @@ Suíte principal: `lib/inteligencia/seguranca-v1.test.ts` (roda em `npm run test
 | F7 | MÉDIA (auto-review #2) | Marcadores do rascunho (nome do cliente) eram lidos do domínio sem passar pela Policy V1 | Mesma decisão de `resumir_cliente` (manifesto, papel da membership, flag, allowlist) antes de ler; negada ⇒ sem marcador | integrado-v1 (auto-review 2) |
 | F6 | ALTA (funcional, Fase 11) | A UI recusava respostas de agente (caíam como erro) | Contrato da UI valida e renderiza `agente` e `complemento` | `inteligencia-ui.test.ts` (V1) |
 
+## Auditoria independente (NO-GO) — achados corrigidos
+
+| # | Severidade | Achado | Correção (fase) | Prova |
+|---|---|---|---|---|
+| A1 | ALTA | CPF/e-mail chegavam ao provedor por conversa → Demerzel → `interpretarComModelo` (texto só truncado) | Helper canônico `texto-modelo.ts` (ocultos, e-mail, id, CNPJ, CPF, telefone, links, números; redação antes do corte) usado por JEV, intenção e Context Builder + barreira de PII no Model Router para qualquer chamador, primário e fallback (01, 04); única exceção documentada: `EXTRACAO_CONTRATO`, só com `AI_DOCUMENT_EXTERNAL_PROVIDER_ALLOWED=true` | texto-modelo.test (payload do provedor falso), copiloto.test (ponta a ponta Demerzel + explicação); controles negativos |
+| A2 | MÉDIA | Filtro por finalidade antes de compor deixava override (EMPRESA SUGGEST) sem a base (PLATAFORMA READ) | Cadeia por id → composição cumulativa que só estreita (override que amplia: `OVERRIDE_AMPLIA`) → aplicabilidade na skill composta (03); camadas por empresa/unidade (17) | skills.test (A2), skills-empresa-v1; controle negativo com o resolvedor antigo |
+| A3 | MÉDIA | Trace substituía tokens/custo a cada chamada | Acúmulo no pedido; totais null com qualquer desconhecido; subtotal conhecido + `chamadasCustoDesconhecido` (09) | observabilidade.test (A3, roteador real com fallback); controle negativo |
+| A4 | MÉDIA | CHECK da 058 aceitava `{}` (NULL não falha) | Chaves, tipos, valores e coerência com `COALESCE(…, false)` (17) | migration-058.postgres (A4) + controle negativo com o script original |
+
 ## Vetores atacados
 
 | Vetor | Defesa | Prova |

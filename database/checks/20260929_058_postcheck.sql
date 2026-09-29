@@ -21,7 +21,8 @@ BEGIN
       RAISE EXCEPTION 'postcheck 058: função % ausente, SECURITY DEFINER ou sem search_path fixo', item;
     END IF;
   END LOOP;
-  FOREACH item IN ARRAY ARRAY['ia_skills_058_escopo_check', 'ia_skills_058_estabelecimento_fk', 'ia_skills_058_definicao_check', 'ia_skills_058_versao_uk'] LOOP
+  FOREACH item IN ARRAY ARRAY['ia_skills_058_escopo_check', 'ia_skills_058_estabelecimento_fk', 'ia_skills_058_definicao_chaves_check',
+                               'ia_skills_058_definicao_tipos_check', 'ia_skills_058_definicao_valores_check', 'ia_skills_058_definicao_check', 'ia_skills_058_versao_uk'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = item AND convalidated) THEN
       RAISE EXCEPTION 'postcheck 058: restrição % ausente ou não validada', item;
     END IF;

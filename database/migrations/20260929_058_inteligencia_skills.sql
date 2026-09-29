@@ -9,6 +9,8 @@
 --              skill completa (schema do Skills V1: proveniência, revisão, hash, permissões, restrições, conteúdo),
 --              validada e varrida pela aplicação ao ler; aqui só o que o banco consegue garantir:
 --   * escopo coerente: EMPRESA ⇔ estabelecimento_id NULL; unidade da MESMA empresa (FK composta);
+--   * a definição tem TODOS os campos do contrato, com os tipos certos, finalidades/classes não vazias e dentro dos
+--     valores permitidos (cada CHECK devolve false explícito, nunca NULL — auditoria A4);
 --   * a definição bate com as colunas (id, versão, hash, nível, empresa e unidade);
 --   * versão imutável: só o status muda (nova versão = nova linha); sem DELETE nem TRUNCATE;
 --   * no máximo UMA versão ATIVA por (empresa, unidade, skill);
@@ -42,14 +44,40 @@ CREATE TABLE ia_skills (
   CONSTRAINT ia_skills_058_escopo_check CHECK ((nivel = 'ESTABELECIMENTO') = (estabelecimento_id IS NOT NULL)),
   CONSTRAINT ia_skills_058_estabelecimento_fk FOREIGN KEY (empresa_id, estabelecimento_id)
     REFERENCES estabelecimentos (empresa_id, id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-  CONSTRAINT ia_skills_058_definicao_check CHECK (
+  -- Contrato da definição (A4): cada CHECK devolve false explícito (nunca NULL) quando falta campo ou o tipo é outro.
+  CONSTRAINT ia_skills_058_definicao_chaves_check CHECK (
+    definicao ?& ARRAY['id', 'nivel', 'escopo', 'finalidades', 'capacidades', 'versao', 'proveniencia', 'revisao',
+                      'permissoes', 'restricoes', 'conteudo', 'hash']
+  ),
+  CONSTRAINT ia_skills_058_definicao_tipos_check CHECK (COALESCE(
+    jsonb_typeof(definicao->'id') = 'string' AND jsonb_typeof(definicao->'nivel') = 'string'
+    AND jsonb_typeof(definicao->'versao') = 'string' AND jsonb_typeof(definicao->'hash') = 'string'
+    AND jsonb_typeof(definicao->'escopo') = 'object' AND jsonb_typeof(definicao->'proveniencia') = 'object'
+    AND jsonb_typeof(definicao->'revisao') = 'object' AND jsonb_typeof(definicao->'permissoes') = 'object'
+    AND jsonb_typeof(definicao->'conteudo') = 'object' AND jsonb_typeof(definicao->'finalidades') = 'array'
+    AND jsonb_typeof(definicao->'capacidades') = 'array' AND jsonb_typeof(definicao->'restricoes') = 'array'
+    AND jsonb_typeof(definicao->'permissoes'->'classes') = 'array',
+  false)),
+  CONSTRAINT ia_skills_058_definicao_valores_check CHECK (COALESCE(
+    (CASE WHEN jsonb_typeof(definicao->'finalidades') = 'array' THEN jsonb_array_length(definicao->'finalidades') > 0 ELSE false END)
+    AND (definicao->'finalidades') <@ '["TOM", "ATENDIMENTO", "SUGESTAO_TEXTO", "PROCEDIMENTO", "OBJECAO", "FORMATACAO"]'::jsonb
+    AND (CASE WHEN jsonb_typeof(definicao->'permissoes'->'classes') = 'array' THEN jsonb_array_length(definicao->'permissoes'->'classes') > 0 ELSE false END)
+    AND (definicao->'permissoes'->'classes') <@ '["READ", "SUGGEST"]'::jsonb
+    AND (definicao->'escopo') ?& ARRAY['empresaId', 'estabelecimentoId']
+    AND (definicao->'proveniencia') ?& ARRAY['origem', 'autor', 'referencia']
+    AND (definicao->'proveniencia'->>'origem') IN ('INTERNA', 'EMPRESA', 'TERCEIRO')
+    AND (definicao->'revisao') ?& ARRAY['estado', 'revisor', 'revisadoEm', 'hashRevisado']
+    AND (definicao->'revisao'->>'estado') IN ('APROVADA', 'RESTRITA', 'PENDENTE', 'REJEITADA'),
+  false)),
+  -- A definição bate com as colunas (id, versão, hash, nível, empresa e unidade).
+  CONSTRAINT ia_skills_058_definicao_check CHECK (COALESCE(
     definicao->>'id' = skill_id
     AND definicao->>'versao' = versao
     AND definicao->>'hash' = hash
     AND definicao->>'nivel' = nivel
     AND definicao->'escopo'->>'empresaId' = empresa_id::text
-    AND (definicao->'escopo'->>'estabelecimentoId') IS NOT DISTINCT FROM estabelecimento_id::text
-  ),
+    AND (definicao->'escopo'->>'estabelecimentoId') IS NOT DISTINCT FROM estabelecimento_id::text,
+  false)),
   CONSTRAINT ia_skills_058_datas_check CHECK (atualizado_em >= criado_em),
   CONSTRAINT ia_skills_058_versao_uk UNIQUE NULLS NOT DISTINCT (empresa_id, estabelecimento_id, skill_id, versao)
 );
