@@ -17,6 +17,13 @@ const dados: cliente.AtencaoHoje = {
   ],
 };
 
+/** Componentes V1 do drawer (selo, complemento do Copiloto, agente) como marcadores nos testes do drawer. */
+const DEPS_V1 = {
+  './CategoriaKidmais': { default: function SeloCategoria() {} },
+  './ComplementoKidmais': { default: function ComplementoKidmais() {} },
+  './RespostaAgente': { default: function RespostaAgente() {} },
+};
+
 type Pedido = { url: string; init: RequestInit };
 function buscadorFalso(resposta: () => Promise<Response>) {
   const pedidos: Pedido[] = [];
@@ -172,6 +179,7 @@ test('Drawer: sugestões, envio, capacidade indisponível e fechamento por botã
       './perguntas': perguntas, './RespostaAtencao': { default: RespostaAtencao }, './inteligencia.module.css': cssFalso,
       './conversa': conversa, './RespostaLeitura': { default: function RespostaLeitura() {} },
       './AcaoKidmais': { PreviewAcao: function PreviewAcao() {}, RascunhoAcao: function RascunhoAcao() {}, ResultadoAcao: function ResultadoAcao() {} },
+      ...DEPS_V1,
     });
     const enviadas: string[] = [];
     let fechou = 0;
@@ -419,6 +427,7 @@ test('C4: cancelar rascunho em COLETANDO fecha o rascunho na conversa e no drawe
       './perguntas': perguntas, './RespostaAtencao': { default: function RespostaAtencao() {} }, './inteligencia.module.css': cssFalso,
       './conversa': conversa, './RespostaLeitura': { default: function RespostaLeitura() {} },
       './AcaoKidmais': { PreviewAcao: function PreviewAcao() {}, RascunhoAcao: function RascunhoAcao() {}, ResultadoAcao: function ResultadoAcao() {} },
+      ...DEPS_V1,
     });
     const props = { mensagens: [] as conversa.Mensagem[], aguardando: false, onPerguntar: () => {}, onFechar: () => {}, onDecidir: () => {} };
     const aberto = conversa.registrarConversa(conversa.adicionarPergunta([], 1, 'Crie um pacote', { tipo: 'servidor' }), 1, { tipo: 'ok', resposta: { tipo: 'rascunho', rascunho: coletando, pergunta: 'Qual é o nome do pacote?', faltando: ['nome'] } });
@@ -430,5 +439,149 @@ test('C4: cancelar rascunho em COLETANDO fecha o rascunho na conversa e no drawe
     assert.equal(achar(depois, 'input').props.placeholder, 'Pergunte sobre sua operação…');
   } finally {
     navegador.restaurar();
+  }
+});
+
+// ---------------------------------------------------------------- AI V1: agentes, Copiloto, categorias, cancelar e repetir
+
+const leituraV1: cliente.RespostaLeitura = {
+  capacidade: 'contratos_pendentes', estado: 'atencao', resumo: '1 contrato aguarda assinatura.',
+  fatos: [{ natureza: 'FATO', texto: '1 contrato.', fonte: 'contratos.aguardando_assinatura' }], itens: [], evidencias: [],
+  referencia: { hoje: '2026-09-29', geradoEm: '2026-09-29T15:00:00.000Z', fontes: ['contratos.aguardando_assinatura'] },
+};
+const agenteV1 = {
+  tipo: 'agente', agente: { id: 'atendimento', nome: 'Atendimento' }, resumo: 'Rascunho pronto para você revisar.',
+  secoes: [{ titulo: 'Contratos aguardando assinatura', dados: leituraV1 }],
+  sugestao: { titulo: 'Retomar contato', texto: 'Olá, Ana!', fonte: 'skill:atendimento_familias@1.0.0#follow_up_orcamento', aviso: 'Rascunho para você revisar e enviar pelo canal oficial. O Kidmais não envia mensagens.', pendentes: ['data da festa'] },
+};
+
+test('V1 cliente: aceita agente e complemento do Copiloto válidos; formato adulterado continua recusado', async () => {
+  const ok = buscadorFalso(async () => Response.json({ ok: true, data: agenteV1 }));
+  const r = await cliente.conversar(ok.buscar, { texto: 'redija uma mensagem' });
+  assert.equal(r.tipo, 'ok');
+  const semNome = buscadorFalso(async () => Response.json({ ok: true, data: { ...agenteV1, agente: { id: 'x' } } }));
+  assert.equal((await cliente.conversar(semNome.buscar, { texto: 'x' })).tipo, 'erro');
+  const sugestaoRuim = buscadorFalso(async () => Response.json({ ok: true, data: { ...agenteV1, sugestao: { titulo: 't' } } }));
+  assert.equal((await cliente.conversar(sugestaoRuim.buscar, { texto: 'x' })).tipo, 'erro');
+
+  const complemento = { explicacao: { frases: ['1 contrato aguarda assinatura.'], origem: 'MODELO', aviso: 'Explicação gerada a partir dos dados acima.' }, proximaAcao: { titulo: 'Contrato aguardando assinatura', passos: ['Reenviar o link.'], destino: '/admin/contratos', fonte: 'skill:procedimentos_operacionais' } };
+  const comComplemento = buscadorFalso(async () => Response.json({ ok: true, data: { tipo: 'resposta', dados: leituraV1, complemento } }));
+  const rc = await cliente.conversar(comComplemento.buscar, { texto: 'explique' });
+  assert.equal(rc.tipo, 'ok');
+  const h = conversa.registrarConversa(conversa.adicionarPergunta([], 1, 'explique', { tipo: 'servidor' }), 1, rc);
+  assert.deepEqual(h[0].fase === 'leitura' && h[0].complemento, complemento);
+  const complementoRuim = buscadorFalso(async () => Response.json({ ok: true, data: { tipo: 'resposta', dados: leituraV1, complemento: { explicacao: { frases: [1] } } } }));
+  assert.equal((await cliente.conversar(complementoRuim.buscar, { texto: 'x' })).tipo, 'erro');
+});
+
+test('V1 categorias: informação, sugestão, confirmação e erro são sempre distintas', () => {
+  const casos: Array<[conversa.Mensagem, conversa.Categoria | null]> = [
+    [{ id: 1, pergunta: 'p', fase: 'leitura', dados: leituraV1 }, 'informacao'],
+    [{ id: 1, pergunta: 'p', fase: 'agente', agente: agenteV1.agente, resumo: 'r', secoes: [], sugestao: agenteV1.sugestao }, 'sugestao'],
+    [{ id: 1, pergunta: 'p', fase: 'agente', agente: agenteV1.agente, resumo: 'r', secoes: [], sugestao: null }, 'informacao'],
+    [{ id: 1, pergunta: 'p', fase: 'rascunho', rascunho, perguntaKidmais: 'q' }, 'confirmacao'],
+    [{ id: 1, pergunta: 'p', fase: 'preview', rascunho, decidindo: false, erro: null }, 'confirmacao'],
+    [{ id: 1, pergunta: 'p', fase: 'erro', mensagem: 'm', reenviavel: true }, 'erro'],
+    [{ id: 1, pergunta: 'p', fase: 'carregando' }, null],
+  ];
+  for (const [m, esperado] of casos) assert.equal(conversa.categoriaDa(m), esperado, m.fase);
+});
+
+test('V1 cancelar: o sinal vai ao fetch; abortado vira "cancelada" (não erro); só a pergunta em curso é cancelável', async () => {
+  const controle = new AbortController();
+  const servidor = buscadorFalso(async () => { controle.abort(); throw new DOMException('abortado', 'AbortError'); });
+  const r = await cliente.conversar(servidor.buscar, { texto: 'panorama' }, controle.signal);
+  assert.equal(servidor.pedidos[0].init.signal, controle.signal);
+  assert.deepEqual(r, { tipo: 'erro', mensagem: cliente.MENSAGEM_CANCELADA, codigo: cliente.CODIGO_CANCELADA });
+  let h = conversa.adicionarPergunta([], 7, 'panorama', { tipo: 'servidor' });
+  assert.equal(conversa.perguntaEmCurso(h), 7);
+  h = conversa.registrarConversa(h, 7, r);
+  assert.equal(h[0].fase, 'cancelada');
+  assert.equal(conversa.categoriaDa(h[0]), null);
+  assert.equal(conversa.perguntaEmCurso(h), null);
+  assert.equal(conversa.cancelarEspera(conversa.adicionarPergunta([], 8, 'x', { tipo: 'servidor' }), 8)[0].fase, 'cancelada');
+});
+
+test('V1 repetir com segurança: pergunta nova sim; resposta a rascunho e confirmação nunca', () => {
+  const falha: cliente.ResultadoConversa = { tipo: 'erro', mensagem: 'Não foi possível preparar esta análise agora.', codigo: null };
+  let h = conversa.registrarConversa(conversa.adicionarPergunta([], 1, 'Quais contratos estão pendentes?', { tipo: 'servidor' }), 1, falha);
+  assert.equal(conversa.perguntaReenviavel(h, 1), 'Quais contratos estão pendentes?');
+  h = conversa.registrarConversa(conversa.adicionarPergunta(h, 2, '4 horas', { tipo: 'servidor' }), 2, falha, false);
+  assert.equal(conversa.perguntaReenviavel(h, 2), null);
+  let d = conversa.registrarConversa(conversa.adicionarPergunta([], 3, 'crie o pacote', { tipo: 'servidor' }), 3, { tipo: 'ok', resposta: { tipo: 'preview', rascunho } });
+  d = conversa.registrarDecisao(d, rascunho.operacaoId, falha);
+  assert.equal(d[0].fase, 'preview', 'erro na confirmação mantém o preview (o botão é a repetição idempotente)');
+  assert.equal(conversa.perguntaReenviavel(d, 3), null);
+});
+
+test('V1 drawer: selo em texto, Cancelar na espera, "Tentar de novo" só em erro reenviável, cancelada anunciada', () => {
+  const navegador = navegadorFalso();
+  try {
+    const Selo = function SeloCategoria() {};
+    const Agente = function RespostaAgente() {};
+    const Complemento = function ComplementoKidmais() {};
+    const tela = carregarComponente('components/admin/inteligencia/DrawerKidmais.tsx', {
+      './perguntas': perguntas, './RespostaAtencao': { default: function RespostaAtencao() {} }, './inteligencia.module.css': cssFalso,
+      './conversa': conversa, './RespostaLeitura': { default: function RespostaLeitura() {} },
+      './AcaoKidmais': { PreviewAcao: function PreviewAcao() {}, RascunhoAcao: function RascunhoAcao() {}, ResultadoAcao: function ResultadoAcao() {} },
+      './CategoriaKidmais': { default: Selo }, './ComplementoKidmais': { default: Complemento }, './RespostaAgente': { default: Agente },
+    });
+    const acoes: string[] = [];
+    const base = { aguardando: false, onPerguntar: () => {}, onFechar: () => {}, onCancelar: () => acoes.push('cancelar'), onReenviar: (id: number) => acoes.push(`reenviar:${id}`) };
+    const espera = tela.render('default', { ...base, aguardando: true, mensagens: [{ id: 1, pergunta: 'panorama', fase: 'carregando' }] });
+    (achar(espera, 'button', 'Cancelar').props.onClick as () => void)();
+    assert.equal(achar(espera, 'button', 'Cancelar').props['aria-label'], 'Cancelar a pergunta');
+
+    const mensagens: conversa.Mensagem[] = [
+      { id: 2, pergunta: 'a', fase: 'erro', mensagem: 'Falhou.', reenviavel: true },
+      { id: 3, pergunta: 'b', fase: 'erro', mensagem: 'Falhou.', reenviavel: false },
+      { id: 4, pergunta: 'c', fase: 'cancelada' },
+      { id: 5, pergunta: 'd', fase: 'agente', agente: agenteV1.agente, resumo: 'r', secoes: [], sugestao: agenteV1.sugestao },
+      { id: 6, pergunta: 'e', fase: 'leitura', dados: leituraV1, complemento: { explicacao: null, proximaAcao: null } },
+    ];
+    const arvore = tela.render('default', { ...base, mensagens });
+    const tentar = elementos(arvore).filter((e) => e.type === 'button' && texto(e) === 'Tentar de novo');
+    assert.equal(tentar.length, 1);
+    (tentar[0].props.onClick as () => void)();
+    assert.deepEqual(acoes, ['cancelar', 'reenviar:2']);
+    assert.match(texto(elementos(arvore).find((e) => e.props.role === 'status')), /Pergunta cancelada\. Nada foi alterado\./);
+    assert.deepEqual(elementos(arvore).filter((e) => e.type === Selo).map((e) => e.props.categoria), ['erro', 'erro', 'sugestao', 'informacao']);
+    assert.equal(achar(arvore, Agente).props.sugestao, agenteV1.sugestao);
+    assert.ok(achar(arvore, Complemento));
+  } finally {
+    navegador.restaurar();
+  }
+});
+
+test('V1 agente e complemento: sugestão identificada, copiar sem enviar, sem jargão técnico', () => {
+  const agente = carregarComponente('components/admin/inteligencia/RespostaAgente.tsx', {
+    './cliente-inteligencia': cliente, './RespostaAtencao': { default: function RespostaAtencao() {} },
+    './RespostaLeitura': { default: function RespostaLeitura() {} }, './inteligencia.module.css': cssFalso,
+  });
+  const arvore = agente.render('default', { agente: agenteV1.agente, resumo: agenteV1.resumo, secoes: agenteV1.secoes, sugestao: agenteV1.sugestao });
+  const conteudo = texto(arvore);
+  assert.match(conteudo, /Atendimento/);
+  assert.match(conteudo, /Olá, Ana!/);
+  assert.match(conteudo, /Complete antes de usar: data da festa/);
+  assert.match(conteudo, /O Kidmais não envia mensagens/);
+  assert.doesNotMatch(conteudo, /skill:|atendimento_familias|follow_up/, 'proveniência técnica fica no trace, não na tela');
+  assert.ok(achar(arvore, 'button', 'Copiar texto'));
+
+  const selo = carregarComponente('components/admin/inteligencia/CategoriaKidmais.tsx', { './inteligencia.module.css': cssFalso });
+  assert.deepEqual(['informacao', 'sugestao', 'confirmacao', 'erro'].map((c) => texto(selo.render('default', { categoria: c }))),
+    ['Informação', 'Sugestão · revise antes de usar', 'Exige sua confirmação', 'Não foi possível']);
+
+  const comp = carregarComponente('components/admin/inteligencia/ComplementoKidmais.tsx', { 'next/link': { default: 'a' }, './inteligencia.module.css': cssFalso });
+  const c = texto(comp.render('default', { complemento: { explicacao: { frases: ['1 contrato aguarda assinatura.'], origem: 'MODELO', aviso: 'Explicação gerada a partir dos dados acima.' }, proximaAcao: { titulo: 'Contrato aguardando assinatura', passos: ['Reenviar o link.'], destino: '/admin/contratos', fonte: 'skill:x' } } }));
+  assert.match(c, /Explicação · confira nos dados acima/);
+  assert.match(c, /Próxima ação sugerida/);
+  assert.doesNotMatch(c, /skill:x/);
+});
+
+test('V1 nenhuma tela do Kidmais Intelligence mostra confiança numérica bruta', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const pasta = 'components/admin/inteligencia';
+  for (const arquivo of readdirSync(pasta).filter((a) => a.endsWith('.tsx'))) {
+    assert.doesNotMatch(readFileSync(`${pasta}/${arquivo}`, 'utf8'), /confian|confidence|probabilidade|score/i, arquivo);
   }
 });
