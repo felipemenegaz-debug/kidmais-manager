@@ -58,6 +58,8 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/modelo": ["CampoExtraido", "ExtracaoContrato"], // @pr:DOCUMENT
   "lib/importacao-contrato/repositorio-documentos": ["ExtracaoRegistrada", "RegistroExtracao"], // @pr:DOCUMENT
   // Importação: plano puro e só TIPOS do repositório SQL.
+  "lib/importacao-contrato/plano": ["AnaliseDuplicidade", "PlanoImportacao", "DecisaoCliente", "classificarMatch", "montarPlano"], // @pr:IMPORT
+  "lib/importacao-contrato/repositorio-importacao": ["ImportacaoLida"], // @pr:IMPORT
 };
 
 /** Composition roots: além da IA, ligam guard, tenant, pool e os serviços de domínio reais às portas. */
@@ -79,6 +81,8 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/pdf-isolado": ["extrairTextoPdfIsolado"], // @pr:DOCUMENT
   "lib/importacao-contrato/multipart": ["TEMPO_PADRAO", "criarSemaforo", "lerMultipartLimitado", "limitesUpload", "CodigoMultipart"], // @pr:DOCUMENT
   "lib/importacao-contrato/repositorio-documentos": ["documentosDisponiveis", "registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
+  "lib/importacao-contrato/motor": ["executarImportacao"], // @pr:IMPORT
+  "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorDocumento", "lerImportacao"], // @pr:IMPORT
 };
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
@@ -86,6 +90,7 @@ const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
   "dependencias.ts": ["consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction"],
   "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
+  "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao"], // @pr:IMPORT
 };
 
 /** SQL em qualquer caixa, só em literais de string/template: comentários não executam. */

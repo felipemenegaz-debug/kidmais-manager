@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { RegistroExtensoes } from "@/lib/inteligencia/extensoes";
 import { registrarJev } from "./jev/composicao"; // @pr:JEV
 import { registrarAcoes } from "./operacoes/composicao"; // @pr:ACTIONS
+import { registrarImportacao } from "./importacoes/composicao"; // @pr:IMPORT
 
 /**
  * Único ponto em que as features instaladas se registram no CORE.
@@ -14,5 +15,6 @@ export function montarExtensoes(request: NextRequest) {
   const registro = new RegistroExtensoes();
   registrarJev(registro); // @pr:JEV
   registrarAcoes(registro); // @pr:ACTIONS
+  registrarImportacao(registro, request); // @pr:IMPORT
   return registro;
 }
