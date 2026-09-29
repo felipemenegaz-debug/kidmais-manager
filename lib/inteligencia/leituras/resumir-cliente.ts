@@ -61,6 +61,7 @@ export const resumirCliente: Ferramenta<RespostaLeitura> = {
   capacidade: "resumir_cliente",
   classe: "READ",
   grupo: "READ",
+  entrada: comEntidade,
   papeis: PAPEIS_ADMIN,
   descricao: "Situação do cadastro, pendências para contrato e próximos aniversários do cliente aberto.",
   entidade: "cliente",

@@ -48,6 +48,7 @@ export const agendaDoDia: Ferramenta<RespostaLeitura> = {
   capacidade: "agenda_do_dia",
   classe: "READ",
   grupo: "READ",
+  entrada: parametrosSchema,
   papeis: PAPEIS_ADMIN,
   descricao: "Festas de hoje com horário, pacote, convidados e situação do contrato.",
   preparar(parametros) {

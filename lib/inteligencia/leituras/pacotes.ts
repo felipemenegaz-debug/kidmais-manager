@@ -49,6 +49,7 @@ export const pacotesDisponiveis: Ferramenta<RespostaLeitura> = {
   capacidade: "pacotes_disponiveis",
   classe: "READ",
   grupo: "READ",
+  entrada: semParametros,
   papeis: PAPEIS_ADMIN,
   descricao: "Pacotes ativos desta empresa: descrição, duração, faixa de convidados e dias (sem preço).",
   preparar(parametros) {

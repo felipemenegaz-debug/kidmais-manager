@@ -47,6 +47,7 @@ export const contratosPendentes: Ferramenta<RespostaLeitura> = {
   capacidade: "contratos_pendentes",
   classe: "READ",
   grupo: "READ",
+  entrada: semParametros,
   papeis: PAPEIS_ADMIN,
   descricao: "Contratos que aguardam assinatura, começando pelas festas mais próximas.",
   preparar(parametros) {

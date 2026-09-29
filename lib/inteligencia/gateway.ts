@@ -9,6 +9,7 @@ import { SEM_PORTAS, ferramentaRegistrada, type ContextoFerramenta, type Ferrame
 import { grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, type Ambiente } from "./flags.ts";
 import { InteligenciaError, autorizarFerramenta, avaliarPolitica } from "./politica.ts";
 import { novoRastreio, type CausaRastreio, type RastreioInteligencia } from "./rastreio.ts";
+import { manifestoLeitura, saidaValida } from "./registro-ferramentas.ts";
 
 /** A empresa nunca vem do corpo: a seleção usa o mesmo parâmetro `empresaId` das rotas do Financeiro, provado por provarTenant. */
 const pedidoSchema = z.object({
@@ -31,6 +32,8 @@ export type DependenciasGateway = {
   relogio?(): number;
   /** Serviços de domínio injetados pela rota. Ausentes ⇒ ferramentas que dependem deles respondem sem dados. */
   portas?: PortasDominio;
+  /** Teto operacional de prazo (ex.: testes). Só reduz o prazo do manifesto, nunca o aumenta. */
+  prazoMaximoMs?: number;
 };
 
 export type PedidoGateway = {
@@ -70,7 +73,24 @@ function resultadoDoStatus(status: number): RastreioInteligencia["resultado"] {
   return status === 401 || status === 403 ? "negado" : "invalido";
 }
 
+/** Falhas do próprio Tool Registry que viram fallback seguro (a resposta não é entregue). */
+const FALHAS_DE_REGISTRO: Readonly<Record<string, CausaRastreio>> = { INTELIGENCIA_TEMPO_ESGOTADO: "TEMPO", INTELIGENCIA_SAIDA_INVALIDA: "SAIDA" };
+
+/** Prazo da ferramenta (manifesto). Excedido ⇒ fallback; a leitura não tem efeito a desfazer. */
+export async function comPrazo<T>(ms: number, trabalho: () => Promise<T>): Promise<T> {
+  let temporizador: ReturnType<typeof setTimeout> | undefined;
+  const limite = new Promise<never>((_, rejeitar) => {
+    temporizador = setTimeout(() => rejeitar(new InteligenciaError("INTELIGENCIA_TEMPO_ESGOTADO", MENSAGEM_FALLBACK, 503)), ms);
+  });
+  try {
+    return await Promise.race([trabalho(), limite]);
+  } finally {
+    clearTimeout(temporizador);
+  }
+}
+
 function causaDaIA(error: InteligenciaError): CausaRastreio {
+  if (Object.hasOwn(FALHAS_DE_REGISTRO, error.code)) return FALHAS_DE_REGISTRO[error.code];
   if (error.code === "INTELIGENCIA_DESATIVADA") return "FLAG";
   if (error.code === "INTELIGENCIA_NAO_AUTORIZADA") return "POLITICA";
   return "VALIDACAO";
@@ -98,6 +118,9 @@ function recusaDoCore(error: unknown): error is { code: string; message: string;
 }
 
 export function classificar(error: unknown, mensagemFallback = MENSAGEM_FALLBACK): Classificacao {
+  if (error instanceof InteligenciaError && Object.hasOwn(FALHAS_DE_REGISTRO, error.code)) {
+    return { status: 503, codigo: error.code, erro: mensagemFallback, resultado: "fallback", causa: causaDaIA(error), fallback: true };
+  }
   if (error instanceof InteligenciaError) {
     return {
       status: error.httpStatus,
@@ -135,8 +158,9 @@ export function exigirGrupoNaEmpresa(env: Ambiente, grupo: Parameters<typeof gru
 }
 
 /**
- * Caminho único de leitura (gateway e conversa): flag do grupo → política → parâmetros → tenant → ferramenta.
- * Parâmetros inválidos viram 400 antes de qualquer transação.
+ * Caminho único de leitura (gateway e conversa): manifesto → flag do grupo → política → entrada (schema do
+ * manifesto) → tenant → ferramenta dentro do prazo → saída (schema do manifesto). Parâmetros inválidos viram 400
+ * antes de qualquer transação; prazo excedido ou saída fora do schema viram fallback (nada é entregue).
  */
 export async function executarLeitura(
   ferramenta: Ferramenta,
@@ -149,6 +173,9 @@ export async function executarLeitura(
   rastreio.capacidade = ferramenta.capacidade;
   rastreio.ferramenta = ferramenta.nome;
   rastreio.ferramentasSolicitadas = [...rastreio.ferramentasSolicitadas, ferramenta.nome];
+  const manifesto = manifestoLeitura(ferramenta);
+  const prazo = Math.min(manifesto?.prazoMs ?? 0, deps.prazoMaximoMs ?? Number.POSITIVE_INFINITY);
+  if (!manifesto || manifesto.classe !== "READ") throw new InteligenciaError("CAPACIDADE_DESCONHECIDA", "Capacidade não disponível.", 400);
   if (!grupoAtivo(deps.env, ferramenta.grupo)) recursoDesativado();
   const politica: ResultadoPolitica = avaliarPolitica(sessao, ferramenta, "LEITURA");
   rastreio.politica = politica;
@@ -161,6 +188,7 @@ export async function executarLeitura(
   if (ferramenta.modo === "SERVICO_PROPRIO") {
     let executar: ReturnType<typeof ferramenta.preparar>;
     try {
+      manifesto.entrada?.parse(parametros);
       executar = ferramenta.preparar(parametros);
     } catch (error) {
       pedidoInvalido(error);
@@ -169,10 +197,11 @@ export async function executarLeitura(
     const tenant = await deps.withTenantTransaction(sessao, empresaSolicitada, async (_tx, comprovado) => comprovado);
     rastreio.empresaId = tenant.empresaComprovada;
     exigirGrupoNaEmpresa(deps.env, ferramenta.grupo, tenant);
-    data = await executar(tenant, contexto);
+    data = await comPrazo(prazo, () => executar(tenant, contexto));
   } else {
     let executar: ReturnType<typeof ferramenta.preparar>;
     try {
+      manifesto.entrada?.parse(parametros);
       executar = ferramenta.preparar(parametros);
     } catch (error) {
       pedidoInvalido(error);
@@ -180,9 +209,10 @@ export async function executarLeitura(
     data = await deps.withTenantTransaction(sessao, empresaSolicitada, (tx, tenant) => {
       rastreio.empresaId = tenant.empresaComprovada;
       exigirGrupoNaEmpresa(deps.env, ferramenta.grupo, tenant);
-      return executar(tx, tenant, contexto);
+      return comPrazo(prazo, () => executar(tx, tenant, contexto));
     });
   }
+  if (!saidaValida(manifesto.saida, data)) throw new InteligenciaError("INTELIGENCIA_SAIDA_INVALIDA", MENSAGEM_FALLBACK, 503);
   rastreio.ferramentasExecutadas = [...rastreio.ferramentasExecutadas, ferramenta.nome];
   rastreio.estado = data.estado;
   rastreio.itens = data.itens.length;

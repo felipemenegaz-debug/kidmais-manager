@@ -36,6 +36,11 @@
       "pr": "AGENTES_V1",
       "branch": "ai-v1/06-agentes",
       "descricao": "Agentes V1: Atendimento, Analista Operacional, Documentos e Copiloto Administrativo, determinísticos e de plano fechado; leituras pelo catálogo do operador, propostas só pelo Human Gate; novas leituras pacotes_disponiveis (sem preço) e comparar_versoes_contrato (snapshots)"
+    },
+    {
+      "pr": "FERRAMENTAS_V1",
+      "branch": "ai-v1/07-ferramentas",
+      "descricao": "Tool Registry V1: manifesto por ferramenta (domínio, READ/SUGGEST/CONFIRM/FORBIDDEN, papéis, grupo, escopo de tenant/estabelecimento, entrada, saída, prazo, idempotência, auditoria); gateway aplica entrada/prazo/saída; ação sem manifesto não é oferecida"
     }
   ]
 }

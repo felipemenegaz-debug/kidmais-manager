@@ -1,3 +1,4 @@
+import type { z } from "zod";
 import type { DbExecutor } from "../db/contracts.ts";
 import type { TenantComprovado } from "../saas/provar-tenant.ts";
 import type { ClasseAcao, GrupoFlag } from "./contratos.ts";
@@ -90,6 +91,8 @@ type BaseFerramenta = {
   /** Papéis que já acessam a mesma informação nas telas atuais. A IA não amplia esse conjunto. */
   papeis: readonly string[];
   descricao: string;
+  /** inputSchema estrito, aplicado pelo gateway ANTES de preparar (que valida de novo). Nunca aceita empresa/usuário. */
+  entrada: z.ZodType;
   /** Entidade exigida da tela (id revalidado no tenant pelo domínio). */
   entidade?: "festa" | "cliente" | "contrato";
 };

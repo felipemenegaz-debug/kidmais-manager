@@ -55,6 +55,7 @@ export const resumirContrato: Ferramenta<RespostaLeitura> = {
   capacidade: "resumir_contrato",
   classe: "READ",
   grupo: "READ",
+  entrada: comEntidade,
   papeis: PAPEIS_ADMIN,
   descricao: "Situação, valor contratado, assinaturas e pendências da versão vigente do contrato.",
   entidade: "contrato",
