@@ -231,6 +231,18 @@ export type AuditTrace = {
   /** Versões dos contratos que decidiram o pedido (Tool Registry e Policy). */
   versaoRegistro: string;
   versaoPolitica: string;
+  /**
+   * Uso de modelo ACUMULADO no pedido (todas as chamadas: intenção, JEV, explicação, retries e fallback).
+   * `custoEstimadoMicros` só é conhecido se TODAS as chamadas tiverem custo conhecido na mesma moeda; senão fica
+   * null e `chamadasCustoDesconhecido` conta as desconhecidas, preservando o subtotal conhecido.
+   */
+  tokensTotal: number | null;
+  custoConhecidoMicros: number;
+  moedaCusto: string | null;
+  chamadasCustoDesconhecido: number;
+  chamadasTokensDesconhecidos: number;
+  /** Soma das latências das chamadas de modelo (a duração total do pedido é `duracaoMs`). */
+  duracaoModeloMs: number;
   usuarioId: string | null;
   empresaId: string | null;
   capacidade: string | null;

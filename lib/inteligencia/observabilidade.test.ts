@@ -103,3 +103,78 @@ test("Trace V1: uso de modelo com preço desconhecido fica null no trace (não z
   assert.equal(r.custoEstimadoMicros, null);
   assert.equal(r.tokensEntrada, 20);
 });
+
+// ---------------------------------------------------------------- A3 (auditoria): uso de modelo acumula no trace
+
+const usoA3 = (extra: Partial<ModelUsage>): ModelUsage => ({
+  correlationId: "c", empresaId: EMPRESA, estabelecimentoId: null, capacidade: "x", workload: "TEXTO_CURTO", tier: "ECONOMY", provedor: "OPENAI",
+  modelo: "m", tokensEntrada: 100, tokensSaida: 10, tokensCache: null, duracaoMs: 50, custoEstimadoMicros: 300, moeda: "USD", sucesso: true, erro: null, fallback: false, em: "",
+  ...extra,
+} as unknown as ModelUsage);
+
+test("A3: duas chamadas conhecidas em momentos diferentes SOMAM tokens, custo, chamadas e latência (nunca substituem)", () => {
+  const r = novoRastreio("inteligencia.conversa", "req");
+  anotarUsoModelo(r, [usoA3({})]);
+  anotarUsoModelo(r, [usoA3({ tokensEntrada: 40, tokensSaida: 5, custoEstimadoMicros: 120, duracaoMs: 30, modelo: "m2" })]);
+  assert.deepEqual([r.tokensEntrada, r.tokensSaida, r.tokensTotal, r.custoEstimadoMicros, r.custoConhecidoMicros, r.chamadasModelo, r.duracaoModeloMs, r.modelo],
+    [140, 15, 155, 420, 420, 2, 80, "m2"]);
+  assert.equal(r.chamadasCustoDesconhecido, 0);
+});
+
+test("A3: custo desconhecido nunca vira conhecido — primeira desconhecida + segunda conhecida, e o inverso", () => {
+  for (const ordem of [[null, 200], [200, null]] as const) {
+    const r = novoRastreio("inteligencia.conversa", "req");
+    for (const custo of ordem) anotarUsoModelo(r, [usoA3({ custoEstimadoMicros: custo, moeda: custo === null ? null : "USD" })]);
+    assert.equal(r.custoEstimadoMicros, null, JSON.stringify(ordem));
+    assert.equal(r.chamadasCustoDesconhecido, 1);
+    assert.equal(r.custoConhecidoMicros, 200, "subtotal conhecido preservado");
+    assert.equal(r.tokensTotal, 220);
+  }
+  const moedas = novoRastreio("inteligencia.conversa", "req");
+  anotarUsoModelo(moedas, [usoA3({ moeda: "USD" })]);
+  anotarUsoModelo(moedas, [usoA3({ moeda: "BRL" })]);
+  assert.equal(moedas.custoEstimadoMicros, null, "moedas diferentes nunca se somam");
+  assert.deepEqual([moedas.custoConhecidoMicros, moedas.moedaCusto, moedas.chamadasCustoDesconhecido], [300, "USD", 1]);
+});
+
+test("A3: tokens desconhecidos (timeout/retry) tornam o total desconhecido até o fim do pedido", () => {
+  const r = novoRastreio("inteligencia.conversa", "req");
+  anotarUsoModelo(r, [usoA3({ tokensEntrada: null, tokensSaida: null, custoEstimadoMicros: null, moeda: null, sucesso: false, erro: "TIMEOUT" } as never), usoA3({})]);
+  anotarUsoModelo(r, [usoA3({})]);
+  assert.deepEqual([r.tokensEntrada, r.tokensTotal, r.chamadasTokensDesconhecidos, r.chamadasModelo], [null, null, 1, 3]);
+});
+
+test("A3: roteador real — primário falha, fallback responde, e uma segunda chamada: o trace soma as três", async () => {
+  const { Circuito } = await import("./modelos/circuito.ts");
+  const { criarProvedorFake, respostaFake } = await import("./modelos/fake.ts");
+  const { criarRegistroUsoEmMemoria, orcamentoDoAmbiente } = await import("./modelos/orcamento.ts");
+  const { RoteadorModelos, politicaDoAmbiente } = await import("./modelos/roteador.ts");
+  const { ErroModelo } = await import("./modelos/tipos.ts");
+  let primarioVivo = false;
+  const primario = criarProvedorFake({ id: "OPENAI", roteiro: () => (primarioVivo ? respostaFake("{}", { entrada: 30, saida: 3 }) : new ErroModelo("HTTP_5XX", false)) });
+  const secundario = criarProvedorFake({ id: "DEEPSEEK", roteiro: () => respostaFake("{}", { entrada: 70, saida: 7 }) });
+  let n = 0;
+  const roteador = new RoteadorModelos({
+    politica: politicaDoAmbiente({ AI_PROVIDER_PRIMARY: "OPENAI", AI_PROVIDER_ECONOMY: "OPENAI", AI_MODEL_MAX_RETRIES: "0", AI_FALLBACK_ENABLED: "true" }),
+    adaptadores: new Map([["OPENAI", primario as never], ["DEEPSEEK", secundario as never]]),
+    precos: { moeda: "USD", modelos: { "OPENAI:fake-economy": { entrada: 1, saida: 1 }, "DEEPSEEK:fake-economy": { entrada: 1, saida: 1 } } },
+    orcamento: orcamentoDoAmbiente({ AI_BUDGET_JSON: JSON.stringify({ porEmpresa: { tokensDiario: 1_000_000 } }) }),
+    registro: criarRegistroUsoEmMemoria(), circuito: new Circuito(), agora: () => new Date("2026-09-29T12:00:00Z"), relogio: () => performance.now(),
+    novoId: () => `${String(++n).padStart(8, "0")}-0000-4000-8000-000000000000`,
+  });
+  const pedido = { workload: "TEXTO_CURTO" as const, mensagens: [{ papel: "user" as const, conteudo: "x" }], esquema: { nome: "x", schema: {} }, maxTokensSaida: 10, validar: (t: string) => JSON.parse(t) };
+  const alvo = { empresaId: EMPRESA, capacidade: "x", correlationId: "c", hoje: "2026-09-29" };
+  const r = novoRastreio("inteligencia.conversa", "req");
+  anotarUsoModelo(r, (await roteador.executar(pedido, alvo)).usos);
+  primarioVivo = true;
+  anotarUsoModelo(r, (await roteador.executar(pedido, alvo)).usos);
+  assert.equal(secundario.chamadas.length, 1, "o fallback respondeu a primeira");
+  assert.equal(r.chamadasModelo, 3, "falha do primário + fallback + segunda chamada");
+  assert.equal(r.fallbackProvedor, true);
+  // A falha HTTP 5XX do primário não tem uso conhecido: totais ficam desconhecidos (null), nunca "conhecidos" pela
+  // metade; o subtotal conhecido soma as DUAS respostas (fallback 70+7 e primário 30+3 = 110), não só a última.
+  assert.deepEqual(
+    { tokensTotal: r.tokensTotal, custo: r.custoEstimadoMicros, conhecido: r.custoConhecidoMicros, custoDesconhecido: r.chamadasCustoDesconhecido, tokensDesconhecidos: r.chamadasTokensDesconhecidos },
+    { tokensTotal: null, custo: null, conhecido: 110, custoDesconhecido: 1, tokensDesconhecidos: 1 },
+  );
+});

@@ -386,6 +386,8 @@ test("11. o trace só leva metadados: sem PII, valores, tokens ou texto do pedid
     "tokensEntrada", "tokensSaida", "usuarioId",
     // AI V1 (observabilidade): rastreio ponta a ponta, estabelecimento (null na V1), skills, JEV, proposta e versões.
     "classificadorJev", "estabelecimentoId", "propostaAcao", "skills", "traceId", "versaoPolitica", "versaoRegistro",
+    // A3: uso de modelo acumulado (tokens totais, subtotal de custo conhecido, desconhecidos e latência dos modelos).
+    "chamadasCustoDesconhecido", "chamadasTokensDesconhecidos", "custoConhecidoMicros", "duracaoModeloMs", "moedaCusto", "tokensTotal",
   ].sort());
   assert.equal(primeiro.orquestracao, null);
   assert.equal(primeiro.politica, "PERMITIDO");

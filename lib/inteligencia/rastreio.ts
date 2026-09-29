@@ -42,6 +42,12 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
     propostaAcao: null,
     versaoRegistro: VERSAO_REGISTRO,
     versaoPolitica: VERSAO_POLITICA,
+    tokensTotal: null,
+    custoConhecidoMicros: 0,
+    moedaCusto: null,
+    chamadasCustoDesconhecido: 0,
+    chamadasTokensDesconhecidos: 0,
+    duracaoModeloMs: 0,
     usuarioId: null,
     empresaId: null,
     capacidade: null,
@@ -70,20 +76,37 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
 }
 
 /**
- * Metadados das chamadas de modelo (nunca texto): provedor e modelo da última, tokens e custo somados,
- * troca de provedor. Uma parcela desconhecida (ou moedas diferentes no custo) deixa a soma em null,
- * nunca em zero.
+ * Metadados das chamadas de modelo (nunca texto), ACUMULADOS no pedido — cada chamada (intenção, JEV, explicação,
+ * retry, fallback) SOMA, nunca substitui. Provedor e modelo são os da última chamada.
+ * - Tokens: soma; qualquer chamada com tokens desconhecidos deixa o total null para sempre neste pedido.
+ * - Custo: subtotal conhecido (mesma moeda) + contagem de chamadas de custo desconhecido (preço ausente, uso
+ *   desconhecido ou moeda diferente). `custoEstimadoMicros` só é número quando NENHUMA chamada é desconhecida;
+ *   nunca "desconhecido + conhecido = conhecido".
  */
 export function anotarUsoModelo(rastreio: RastreioInteligencia, usos: readonly ModelUsage[]) {
   const ultimo = usos.at(-1);
   if (!ultimo) return;
-  const soma = (f: (u: ModelUsage) => number | null) => usos.every((u) => f(u) !== null) ? usos.reduce((t, u) => t + (f(u) as number), 0) : null;
+  const anteriores = rastreio.chamadasModelo;
+  const somaTokens = (atual: number | null, valores: ReadonlyArray<number | null>) =>
+    (anteriores > 0 && atual === null) || valores.some((v) => v === null) ? null : (atual ?? 0) + valores.reduce<number>((t, v) => t + (v as number), 0);
+  rastreio.tokensEntrada = somaTokens(rastreio.tokensEntrada, usos.map((u) => u.tokensEntrada));
+  rastreio.tokensSaida = somaTokens(rastreio.tokensSaida, usos.map((u) => u.tokensSaida));
+  rastreio.tokensTotal = rastreio.tokensEntrada === null || rastreio.tokensSaida === null ? null : rastreio.tokensEntrada + rastreio.tokensSaida;
+  rastreio.chamadasTokensDesconhecidos += usos.filter((u) => u.tokensEntrada === null || u.tokensSaida === null).length;
+  for (const u of usos) {
+    const moedaOk = u.moeda !== null && (rastreio.moedaCusto === null || rastreio.moedaCusto === u.moeda);
+    if (u.custoEstimadoMicros === null || !moedaOk) {
+      rastreio.chamadasCustoDesconhecido += 1;
+      continue;
+    }
+    rastreio.moedaCusto = u.moeda;
+    rastreio.custoConhecidoMicros += u.custoEstimadoMicros;
+  }
+  rastreio.custoEstimadoMicros = rastreio.chamadasCustoDesconhecido > 0 ? null : rastreio.custoConhecidoMicros;
+  rastreio.duracaoModeloMs += usos.reduce((t, u) => t + Math.max(0, u.duracaoMs), 0);
   rastreio.provedor = ultimo.provedor;
   rastreio.modelo = ultimo.modelo;
-  rastreio.tokensEntrada = soma((u) => u.tokensEntrada);
-  rastreio.tokensSaida = soma((u) => u.tokensSaida);
-  rastreio.custoEstimadoMicros = usos.every((u) => u.moeda === ultimo.moeda) ? soma((u) => u.custoEstimadoMicros) : null;
-  rastreio.chamadasModelo += usos.length;
+  rastreio.chamadasModelo = anteriores + usos.length;
   rastreio.fallbackProvedor = rastreio.fallbackProvedor || usos.some((u) => u.fallback);
 }
 
