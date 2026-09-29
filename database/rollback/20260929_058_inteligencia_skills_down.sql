@@ -27,5 +27,11 @@ END $$;
 DROP TABLE ia_skills;
 DROP FUNCTION kidmais_058_skill_guarda();
 DROP FUNCTION kidmais_058_bloquear_truncate();
+DROP FUNCTION kidmais_058_metadados_ok(jsonb);
+DROP FUNCTION kidmais_058_conteudo_ok(jsonb);
+DROP FUNCTION kidmais_058_chaves_exatas(jsonb, text[]);
+DROP FUNCTION kidmais_058_lista_textos_ok(jsonb, int, int);
+DROP FUNCTION kidmais_058_texto_ok(jsonb, int);
+DROP FUNCTION kidmais_058_trim_js(text);
 
 COMMIT;

@@ -12,7 +12,7 @@ BEGIN
       RAISE EXCEPTION 'postcheck 058: gatilho % ausente ou desligado', item;
     END IF;
   END LOOP;
-  FOREACH item IN ARRAY ARRAY['kidmais_058_skill_guarda', 'kidmais_058_bloquear_truncate'] LOOP
+  FOREACH item IN ARRAY ARRAY['kidmais_058_skill_guarda', 'kidmais_058_bloquear_truncate', 'kidmais_058_metadados_ok', 'kidmais_058_conteudo_ok', 'kidmais_058_chaves_exatas', 'kidmais_058_lista_textos_ok', 'kidmais_058_texto_ok', 'kidmais_058_trim_js'] LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
        WHERE n.nspname = 'public' AND p.proname = item AND NOT p.prosecdef
@@ -22,7 +22,7 @@ BEGIN
     END IF;
   END LOOP;
   FOREACH item IN ARRAY ARRAY['ia_skills_058_escopo_check', 'ia_skills_058_estabelecimento_fk', 'ia_skills_058_definicao_chaves_check',
-                               'ia_skills_058_definicao_tipos_check', 'ia_skills_058_definicao_valores_check', 'ia_skills_058_conteudo_check', 'ia_skills_058_definicao_check', 'ia_skills_058_versao_uk'] LOOP
+                               'ia_skills_058_definicao_tipos_check', 'ia_skills_058_definicao_valores_check', 'ia_skills_058_definicao_limites_check', 'ia_skills_058_conteudo_check', 'ia_skills_058_definicao_check', 'ia_skills_058_versao_uk'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = item AND convalidated) THEN
       RAISE EXCEPTION 'postcheck 058: restrição % ausente ou não validada', item;
     END IF;
