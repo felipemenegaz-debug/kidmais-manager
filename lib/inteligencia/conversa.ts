@@ -3,11 +3,11 @@ import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.t
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
 import type { AIResponse, ContextoTela, ModelUsage, OrigemChamada, RespostaLeitura } from "./contratos.ts";
-import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, Orquestrador, PortaModeloClassificacao, PortasOrquestracao, RegistroAgentes } from "./extensoes.ts";
+import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, NivelSkill, Orquestrador, PortaModeloClassificacao, PortasOrquestracao, RegistroAgentes } from "./extensoes.ts";
 import { construirContextoAutorizado, construirContextoModelo } from "./contexto/construtor.ts";
 import { ContextoRecusado } from "./contexto/contrato.ts";
 import { ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
-import { copilotoModeloAtivo, demerzelAtivo, grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo, jevModeloAtivo } from "./flags.ts";
+import { copilotoModeloAtivo, skillsEmpresaAtivas, demerzelAtivo, grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo, jevModeloAtivo } from "./flags.ts";
 import {
   classificar, comEstabelecimento, executarLeitura, exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado, unidadeDe,
   type DependenciasGateway, type PedidoGateway, type RespostaGateway,
@@ -361,7 +361,12 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
       if (decisao !== "PERMITIDO") return null;
     }
     // Override de estabelecimento só com unidade COMPROVADA no Tenant Context (nunca a do texto ou do modelo).
-    const aplicada = await catalogo.resolver({ empresaId: comprovado.empresaComprovada, estabelecimentoId: unidadeDe(comprovado), finalidade, capacidade });
+    // Camadas permitidas pela Policy: plataforma sempre; empresa com AI_SKILLS_EMPRESA_ENABLED + allowlist da empresa;
+    // estabelecimento só com isso E unidade comprovada. A resolução é Plataforma → Empresa → Estabelecimento.
+    const unidade = unidadeDe(comprovado);
+    const empresaLiberada = skillsEmpresaAtivas(deps.env) && grupoAtivoParaEmpresa(deps.env, "READ", comprovado.empresaComprovada);
+    const niveis: NivelSkill[] = ["PLATAFORMA", ...(empresaLiberada ? ["EMPRESA" as const] : []), ...(empresaLiberada && unidade ? ["ESTABELECIMENTO" as const] : [])];
+    const aplicada = await catalogo.resolver({ empresaId: comprovado.empresaComprovada, estabelecimentoId: unidade, finalidade, capacidade, niveis });
     if (aplicada) anotarSkill(e.rastreio, `${aplicada.id}@${aplicada.versao}#${aplicada.hash.slice(0, 8)}`);
     return aplicada;
   }

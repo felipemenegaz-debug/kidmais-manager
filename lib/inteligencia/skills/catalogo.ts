@@ -20,7 +20,7 @@ export interface RepositorioSkills {
   listar(empresaId: string): Promise<readonly unknown[]>;
 }
 
-/** Composição atual: sem armazenamento por empresa (decisão humana pendente) ⇒ só skills da plataforma. */
+/** Sem armazenamento (ou tabela ia_skills ausente) ⇒ só skills da plataforma. */
 export const repositorioSemSkillsDeEmpresa: RepositorioSkills = Object.freeze({ listar: async () => [] });
 
 /** Para testes e fixtures: devolve TUDO, de propósito — o catálogo é que precisa isolar por escopo. */
@@ -83,7 +83,9 @@ export function criarCatalogoSkills(opcoes: OpcoesCatalogo): CatalogoSkills & { 
     else alertar({ codigo: "SKILL_RECUSADA", id: v.ok ? v.skill.id : v.id, nivel: "PLATAFORMA", motivos: v.ok ? ["ESCOPO_INCOERENTE"] : v.motivos });
   }
 
-  async function candidatas(empresaId: string, estabelecimentoId: string | null): Promise<Skill[]> {
+  async function candidatas(empresaId: string, estabelecimentoId: string | null, niveis: ReadonlySet<NivelSkill>): Promise<Skill[]> {
+    // Policy pode negar camadas: sem EMPRESA/ESTABELECIMENTO permitidos, o repositório nem é consultado.
+    if (!niveis.has("EMPRESA") && !niveis.has("ESTABELECIMENTO")) return niveis.has("PLATAFORMA") ? [...plataforma] : [];
     let brutas: readonly unknown[] = [];
     try {
       brutas = await opcoes.repositorio.listar(empresaId);
@@ -99,21 +101,29 @@ export function criarCatalogoSkills(opcoes: OpcoesCatalogo): CatalogoSkills & { 
         continue;
       }
       const s = v.skill;
+      // Override, nunca skill nova: camada de empresa/estabelecimento só vale sobre uma skill da PLATAFORMA de mesmo id
+      // (a base e as restrições da plataforma ficam sempre na cadeia).
+      if (!plataforma.some((p) => p.id === s.id)) {
+        alertar({ codigo: "SKILL_RECUSADA", id: s.id, nivel: s.nivel, motivos: ["SEM_BASE_PLATAFORMA"] });
+        continue;
+      }
+      if (!niveis.has(s.nivel)) continue;
       const mesmaEmpresa = s.escopo.empresaId === empresaId;
       if (s.nivel === "EMPRESA" && mesmaEmpresa) daEmpresa.push(s);
       else if (s.nivel === "ESTABELECIMENTO" && mesmaEmpresa && estabelecimentoId !== null && s.escopo.estabelecimentoId === estabelecimentoId) daEmpresa.push(s);
       // PLATAFORMA vinda do repositório, outra empresa ou outro estabelecimento: ignorada (nunca eleva nem vaza).
     }
-    return [...plataforma, ...daEmpresa];
+    return [...(niveis.has("PLATAFORMA") ? plataforma : []), ...daEmpresa];
   }
 
   return {
     plataformaValidas: plataforma,
     async resolver(alvo) {
+      const niveis = new Set<NivelSkill>(alvo.niveis ?? ["PLATAFORMA", "EMPRESA", "ESTABELECIMENTO"]);
       // 1. Cadeia COMPLETA por id, antes de qualquer filtro: Plataforma → Empresa → Estabelecimento. Uma camada nunca
       //    é descartada por finalidade/capacidade isoladamente (a base não pode sumir e deixar o override sozinho).
       const porId = new Map<string, Skill[]>();
-      for (const s of await candidatas(alvo.empresaId, alvo.estabelecimentoId)) porId.set(s.id, [...(porId.get(s.id) ?? []), s]);
+      for (const s of await candidatas(alvo.empresaId, alvo.estabelecimentoId, niveis)) porId.set(s.id, [...(porId.get(s.id) ?? []), s]);
       // 2. Composição cumulativa: cada override só ESTREITA o que veio antes (classes, finalidades, capacidades);
       //    override que amplia é recusado com alerta e a cadeia segue sem ele. Restrições só acumulam (mesclar).
       const cadeias = [...porId.entries()].map(([id, camadas]) => {

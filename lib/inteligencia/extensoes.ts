@@ -161,7 +161,11 @@ export type SkillAplicavel = {
 
 /** Catálogo de skills (feature SKILLS). Tenant e estabelecimento vêm SEMPRE do Tenant Context, nunca do pedido. */
 export interface CatalogoSkills {
-  resolver(alvo: { empresaId: string; estabelecimentoId: string | null; finalidade: FinalidadeSkill; capacidade: string | null }): Promise<SkillAplicavel | null>;
+  /**
+   * `niveis`: camadas que a Policy permite neste pedido (ausente ⇒ todas). Resolução determinística:
+   * Plataforma (base) → Empresa (override) → Estabelecimento (override da unidade COMPROVADA).
+   */
+  resolver(alvo: { empresaId: string; estabelecimentoId: string | null; finalidade: FinalidadeSkill; capacidade: string | null; niveis?: readonly NivelSkill[] }): Promise<SkillAplicavel | null>;
 }
 
 export type ResultadoOrquestracao = { resposta: AIResponse; resumo: ResumoOrquestracao };

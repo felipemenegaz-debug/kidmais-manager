@@ -194,9 +194,18 @@ test("permissões só estreitam (interseção); específica da capacidade vence 
   const base = (await catalogo([soSugestao]).resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "PROCEDIMENTO", capacidade: null }))!;
   assert.deepEqual(base.cadeia.map((c) => c.nivel), ["PLATAFORMA"], "override que amplia não entra");
   assert.ok(alertas.some((a) => a.id === "procedimentos_operacionais" && a.motivos.includes("OVERRIDE_AMPLIA")));
-  const especifica = skill({ id: "festa_pendencias_a", finalidades: ["PROCEDIMENTO"], capacidades: ["pendencias_da_festa"], permissoes: { classes: ["READ"] } });
+  // Override específico da capacidade sobre a base da plataforma: entra na cadeia (a base e suas restrições ficam).
+  const especifica = skill({ id: "procedimentos_operacionais", finalidades: ["PROCEDIMENTO"], capacidades: ["pendencias_da_festa"], permissoes: { classes: ["READ"] } });
   const e = (await catalogo([especifica]).resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "PROCEDIMENTO", capacidade: "pendencias_da_festa" }))!;
-  assert.equal(e.id, "festa_pendencias_a");
+  assert.equal(e.id, "procedimentos_operacionais");
+  assert.deepEqual(e.cadeia.map((c) => c.nivel), ["PLATAFORMA", "EMPRESA"]);
+  // Skill nova de empresa (sem base na plataforma) nunca substitui a plataforma: recusada com alerta.
+  alertas.length = 0;
+  const nova = skill({ id: "festa_pendencias_a", finalidades: ["PROCEDIMENTO"], capacidades: ["pendencias_da_festa"], permissoes: { classes: ["READ"] } });
+  const n = (await catalogo([nova]).resolver({ empresaId: empresaA, estabelecimentoId: null, finalidade: "PROCEDIMENTO", capacidade: "pendencias_da_festa" }))!;
+  assert.equal(n.id, "procedimentos_operacionais");
+  assert.deepEqual(n.cadeia.map((c) => c.nivel), ["PLATAFORMA"]);
+  assert.ok(alertas.some((a) => a.motivos.includes("SEM_BASE_PLATAFORMA")));
 });
 
 test("falha do repositório ⇒ só plataforma (conteúdo seguro) com alerta; sem armazenamento por empresa ⇒ só plataforma", async () => {
@@ -253,7 +262,8 @@ test("conversa: a porta de skill resolve com a empresa COMPROVADA pelo Tenant Co
   };
   const r = await atenderConversa({ lerCorpo: async () => ({ texto: "Redija uma mensagem de follow-up para a família" }), empresaSolicitada: null }, deps);
   assert.equal(r.status, 200);
-  assert.deepEqual(alvos, [{ empresaId: empresaA, estabelecimentoId: null, finalidade: "SUGESTAO_TEXTO", capacidade: null }]);
+  // Sem AI_SKILLS_EMPRESA_ENABLED a Policy só permite a camada da plataforma.
+  assert.deepEqual(alvos, [{ empresaId: empresaA, estabelecimentoId: null, finalidade: "SUGESTAO_TEXTO", capacidade: null, niveis: ["PLATAFORMA"] }]);
   const outra = await atenderConversa({ lerCorpo: async () => ({ texto: "Redija uma mensagem de follow-up para a família" }), empresaSolicitada: empresaB }, deps);
   assert.notEqual(outra.status, 200, "empresa sem membership é recusada antes de qualquer skill");
   assert.equal(alvos.length, 1);
