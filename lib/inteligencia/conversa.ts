@@ -36,7 +36,7 @@ import { anotarOrquestracao, anotarSkill, anotarUsoModelo, novoRastreio, type Ra
 export const LIMITE_TEXTO = 300;
 
 const contextoSchema = z.object({
-  tela: z.enum(["dashboard", "festa", "cliente", "contrato", "financeiro", "pacotes", "geral"]),
+  tela: z.enum(["dashboard", "festa", "cliente", "contrato", "financeiro", "pacotes", "agenda", "configuracoes", "geral"]),
   entidadeId: z.string().uuid().optional(),
 }).strict();
 

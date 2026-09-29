@@ -31,12 +31,17 @@ const PADROES: ReadonlyArray<[MotivoRecusaSkill, RegExp[]]> = [
   ["CONTEUDO_PRECO", [/r\$\s*\d/, /\b\d+([.,]\d+)?\s*(reais|mil reais)\b/, /\b(preco|valor|custa|custo|mensalidade)\b[^.]{0,40}\b\d{2,}\b/]],
   ["CONTEUDO_DESCONTO", [/\b(desconto|descontos|cupom|cupons|abatimento|abater|de graca|gratuit\w*)\b/, /\b\d{1,3}\s?%\s*(off|a menos)\b/]],
   ["CONTEUDO_PERMISSAO", [/\b(permiss\w*|rbac|papeis|papel de (gestao|admin\w*|representante))\b/, /\b(conced\w*|liber\w*|d[ae]r?)\b[^.]{0,20}\bacesso\b/, /\b(torn\w*|promov\w*)\b[^.]{0,30}\badmin\w*\b/]],
-  ["CONTEUDO_FINANCEIRO", [/\b(registr\w*|confirm\w*|baix\w*|estorn\w*|quit\w*|lanc\w*|reembols\w*|devolv\w*)\b[^.]{0,40}\b(pagamento|pagamentos|parcela|parcelas|recebimento|recebimentos|pix|boleto)\b/]],
+  ["CONTEUDO_FINANCEIRO", [/\b(registr\w*|confirm\w*|baix\w*|estorn\w*|quit\w*|lanc\w*|reembols\w*|devolv\w*)\b[^.]{0,40}\b(pagamento|pagamentos|parcela|parcelas|recebimento|recebimentos|pix|boleto)\b/,
+    /\b(considere|considerar|trate|marque|de como)\b[^.]{0,30}\b(pag[oa]s?|quitad\w*|recebid\w*)\b/]],
   ["CONTEUDO_CONTRATO", [/\b(alter\w*|edit\w*|mud\w*|cancel\w*|rescind\w*|anul\w*)\b[^.]{0,30}\bcontrato\w*\b/]],
   ["CONTEUDO_DESVIO_POLITICA", [
     /\b(ignore|ignora|ignorar|desconsidere|pule|pular|contorne|burle)\b[^.]{0,40}\b(politica\w*|regra\w*|confirmac\w*|aprovac\w*|verificac\w*|human gate)\b/,
     /\bsem (pedir |precisar de )?(confirmac\w*|aprovac\w*)\b/, /\b(execute|confirme|aprove|faca)\b[^.]{0,20}\b(sozinh\w*|automatic\w*|direto)\b/,
     /\bsystem prompt\b/, /\bvoce agora e\b/, /\bmodo (desenvolvedor|admin|root)\b/,
+    // Sobrescrever instruções, fingir outro papel ou dispensar a confirmação humana (achados do adversarial V1).
+    /\b(ignore|ignora|ignorar|desconsidere|esqueca|esquece)\b[^.]{0,40}\b(instruc\w*|anterior\w*|restric\w*)\b/,
+    /\b(finja|finjam|fingir|aja como|atue como|passe-se)\b/, /\b(nao precisa|dispense|dispensa)\b[^.]{0,30}\b(confirmac\w*|aprovac\w*|perguntar)\b/,
+    /\bsem perguntar\b/, /\bnova instrucao\b/,
   ]],
   ["CONTEUDO_REMOTO", [/https?:\/\//, /\bwww\./, /\b(baixe|baixar|download|curl|wget|npx|npm install)\b/, /\b(siga|leia|carregue|busque)\b[^.]{0,30}\b(instruc\w*|arquivo|url|link|endereco)\b/]],
   ["CONTEUDO_SEGREDO", [/\b(senha|senhas|token|tokens|api[_ ]?key|chave de api|secret\w*|database_url|credencia\w*)\b/, /\.env\b/]],

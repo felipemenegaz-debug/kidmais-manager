@@ -1,5 +1,6 @@
 import type { AIResponse, ContextoTela, OrigemChamada, SecaoAgente, SugestaoAgente } from "../contratos.ts";
 import type { PortasAgente, RegistroAgentes, SkillAplicavel } from "../extensoes.ts";
+import { pareceInstrucao } from "../contexto/redacao.ts";
 import { temaNavegacao, type Intencao } from "../intencao.ts";
 import { normalizar } from "../texto-pt.ts";
 
@@ -128,7 +129,8 @@ const atendimento: Agente = {
     const pendentes: string[] = [];
     const texto = template.texto.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, nome: string) => {
       const valor = valores[nome];
-      if (valor) return valor;
+      // Valor do Core com cara de instrução (cadastro envenenado) nunca entra no rascunho: fica pendente.
+      if (valor && !pareceInstrucao(valor) && valor.length <= 120) return valor;
       if (!pendentes.includes(nome)) pendentes.push(nome);
       return `[${ROTULO_MARCADOR[nome] ?? nome}]`;
     });

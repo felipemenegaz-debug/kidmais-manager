@@ -46,8 +46,10 @@ const PROIBIDOS: ReadonlyArray<[MotivoJev, RegExp[]]> = [
   ["SINAL_SQL", [/\bsql\b/, /\b(select|insert|update|delete|drop|truncate|alter)\b.*\b(from|into|table|set|where)\b/, /\bbanco de dados\b/, /\bdatabase\b/]],
   ["SINAL_SEGREDO", [/\b(senha|password|token|api[\s_-]?key|chave (de|da) api|secret\w*|credencia\w*|database_url|connection string|otp)\b/, /\.env\b/]],
   ["SINAL_PERMISSAO", [/\b(d[ae]r?|conced\w*|liber\w*|mud\w*|alter\w*|troc\w*|remov\w*|tir\w*)\b.*\b(permiss\w*|acesso\w*|papel|papeis|rbac|role|administrador|admin)\b/, /\b(me |o |a )?(torn\w*|vir\w*|promov\w*)\b.*\b(admin\w*|gestao|representante|dono)\b/]],
-  ["SINAL_OUTRO_TENANT", [/\b(outr[ao]s?|tod[ao]s? as|demais|qualquer) (empresas?|buffets?|tenants?|contas?)\b/, /\bempresa (de outr\w*|vizinh\w*|concorrent\w*)\b/, /\b(dados|clientes|festas|contratos) (de|da|do) outr[ao]\b/, /\btroc\w* (de|a) empresa\b/]],
-  ["SINAL_OUTRO_ESTABELECIMENTO", [/\b(outr[ao]s?|tod[ao]s? as|demais) (unidades?|estabelecimentos?|filia\w*)\b/]],
+  ["SINAL_OUTRO_TENANT", [/\b(outr[ao]s?|tod[ao]s? as|demais|qualquer) (empresas?|buffets?|tenants?|contas?)\b/, /\bempresa (de outr\w*|vizinh\w*|concorrent\w*)\b/, /\b(dados|clientes|festas|contratos) (de|da|do) outr[ao]\b/, /\btroc\w* (de|a) empresa\b/,
+    // Tenant apontado por identificador no texto ("empresa 2222…", "tenant_id"): o tenant só vem da sessão.
+    /\b(empresas?|buffets?|tenants?|contas?)\s*(id\s*)?:?\s*\[(id|cnpj)\]/, /\b(empresa|tenant)[\s_]?id\b/]],
+  ["SINAL_OUTRO_ESTABELECIMENTO", [/\b(outr[ao]s?|tod[ao]s? as|demais) (unidades?|estabelecimentos?|filia\w*)\b/, /\b(unidades?|estabelecimentos?|filia\w*)\s*(id\s*)?:?\s*\[(id|numero)\]/, /\bestabelecimento[\s_]?id\b/]],
   ["SINAL_EXCLUSAO", [/\b(exclu\w*|apag\w*|delet\w*|elimin\w*)\b/, /\bremov\w* (o|a|os|as|este|esta|esse|essa) (cliente|festa|contrato|pagamento|registro|usuario)\b/]],
   ["SINAL_DESCONTO", [/\b(d[ae]r?|aplic\w*|conced\w*)\b.*\bdesconto\b/, /\bdesconto de\b/]],
   ["SINAL_CONTRATO_ASSINADO", [/\b(alter\w*|mud\w*|edit\w*|troc\w*)\b.*\bcontrato (ja )?assinado\b/]],
