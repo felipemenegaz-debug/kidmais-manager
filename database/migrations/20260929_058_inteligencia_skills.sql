@@ -69,6 +69,46 @@ CREATE TABLE ia_skills (
     AND (definicao->'revisao') ?& ARRAY['estado', 'revisor', 'revisadoEm', 'hashRevisado']
     AND (definicao->'revisao'->>'estado') IN ('APROVADA', 'RESTRITA', 'PENDENTE', 'REJEITADA'),
   false)),
+  -- Estrutura interna de `conteudo` = conteudoSchema do runtime (lib/inteligencia/skills/contrato.ts, estrito):
+  -- tom (texto não vazio | null); instrucoes [texto]; procedimentos [{titulo, passos: [texto] não vazio}];
+  -- objecoes [{objecao, resposta}]; templates [{id ^[a-z][a-z0-9_]{1,48}$, titulo, texto, marcadores ⊂ lista fechada}];
+  -- formatacao {maxParagrafos: inteiro 1..10 | null, usarListas: booleano | null}. Sem chaves extras. Nunca NULL (A4).
+  CONSTRAINT ia_skills_058_conteudo_check CHECK (COALESCE(
+    jsonb_typeof(definicao->'conteudo') = 'object'
+    AND (definicao->'conteudo') ?& ARRAY['tom', 'instrucoes', 'procedimentos', 'objecoes', 'templates', 'formatacao']
+    AND ((definicao->'conteudo') - ARRAY['tom', 'instrucoes', 'procedimentos', 'objecoes', 'templates', 'formatacao']) = '{}'::jsonb
+    AND (jsonb_typeof(definicao->'conteudo'->'tom') = 'null'
+         OR (jsonb_typeof(definicao->'conteudo'->'tom') = 'string' AND btrim(definicao->'conteudo'->>'tom') <> ''))
+    AND jsonb_typeof(definicao->'conteudo'->'instrucoes') = 'array'
+    AND jsonb_typeof(definicao->'conteudo'->'procedimentos') = 'array'
+    AND jsonb_typeof(definicao->'conteudo'->'objecoes') = 'array'
+    AND jsonb_typeof(definicao->'conteudo'->'templates') = 'array'
+    AND jsonb_typeof(definicao->'conteudo'->'formatacao') = 'object'
+    AND (definicao->'conteudo'->'formatacao') ?& ARRAY['maxParagrafos', 'usarListas']
+    AND ((definicao->'conteudo'->'formatacao') - ARRAY['maxParagrafos', 'usarListas']) = '{}'::jsonb
+    AND jsonb_typeof(definicao->'conteudo'->'formatacao'->'maxParagrafos') IN ('number', 'null')
+    AND jsonb_typeof(definicao->'conteudo'->'formatacao'->'usarListas') IN ('boolean', 'null')
+    AND NOT jsonb_path_exists(definicao, '$.conteudo.formatacao.maxParagrafos ? (@.type() == "number" && (@ < 1 || @ > 10 || @.floor() != @))')
+    AND NOT jsonb_path_exists(definicao, '$.conteudo.instrucoes[*] ? (@.type() != "string" || !(@ like_regex "[^[:space:]]"))')
+    AND NOT jsonb_path_exists(definicao, '$.conteudo.procedimentos[*] ? (@.type() != "object"
+          || !exists(@.titulo ? (@.type() == "string" && @ like_regex "[^[:space:]]"))
+          || !(@.passos.type() == "array") || !(@.passos.size() > 0)
+          || exists(@.passos[*] ? (@.type() != "string" || !(@ like_regex "[^[:space:]]")))
+          || exists(@.keyvalue() ? (@.key != "titulo" && @.key != "passos")))')
+    AND NOT jsonb_path_exists(definicao, '$.conteudo.objecoes[*] ? (@.type() != "object"
+          || !exists(@.objecao ? (@.type() == "string" && @ like_regex "[^[:space:]]"))
+          || !exists(@.resposta ? (@.type() == "string" && @ like_regex "[^[:space:]]"))
+          || exists(@.keyvalue() ? (@.key != "objecao" && @.key != "resposta")))')
+    AND NOT jsonb_path_exists(definicao, '$.conteudo.templates[*] ? (@.type() != "object"
+          || !exists(@.id ? (@.type() == "string" && @ like_regex "^[a-z][a-z0-9_]{1,48}$"))
+          || !exists(@.titulo ? (@.type() == "string" && @ like_regex "[^[:space:]]"))
+          || !exists(@.texto ? (@.type() == "string" && @ like_regex "[^[:space:]]"))
+          || !(@.marcadores.type() == "array")
+          || exists(@.marcadores[*] ? (!(@ == "nome_cliente" || @ == "nome_aniversariante" || @ == "data_festa" || @ == "horario_festa"
+               || @ == "nome_pacote" || @ == "convidados" || @ == "nome_empresa" || @ == "valor_em_aberto" || @ == "data_vencimento"
+               || @ == "situacao_contrato")))
+          || exists(@.keyvalue() ? (@.key != "id" && @.key != "titulo" && @.key != "texto" && @.key != "marcadores")))'),
+  false)),
   -- A definição bate com as colunas (id, versão, hash, nível, empresa e unidade).
   CONSTRAINT ia_skills_058_definicao_check CHECK (COALESCE(
     definicao->>'id' = skill_id

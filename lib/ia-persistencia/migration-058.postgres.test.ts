@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from "../comercial/postgres-descartavel.ts";
 import { criarCatalogoSkills } from "../inteligencia/skills/catalogo.ts";
-import type { Skill } from "../inteligencia/skills/contrato.ts";
+import { conteudoSchema, type Skill } from "../inteligencia/skills/contrato.ts";
 import { SKILLS_PLATAFORMA } from "../inteligencia/skills/plataforma.ts";
 import { hashSkill } from "../inteligencia/skills/validacao.ts";
 import { criarRepositorioSkillsPostgres } from "./skills.ts";
@@ -144,7 +144,7 @@ test("058 A4: definição incompleta, com tipo errado, array vazio ou valor fora
     const inserir = `INSERT INTO ia_skills (empresa_id, estabelecimento_id, nivel, skill_id, versao, hash, status, definicao, criado_por)
                      VALUES ($1::uuid, NULL, 'EMPRESA', 'atendimento_familias', '1.1.0', $2, 'RASCUNHO', $3::jsonb, $4::uuid)`;
     const valida = override(A, null, "1.1.0", "Tom A4.");
-    const tentar = (definicao: unknown, hash = valida.hash) => recusa(db, inserir, [A, hash, JSON.stringify(definicao), autor], /ia_skills_058_definicao_(chaves|tipos|valores)?_?check|ia_skills_058_definicao_check/);
+    const tentar = (definicao: unknown, hash = valida.hash) => recusa(db, inserir, [A, hash, JSON.stringify(definicao), autor], /ia_skills_058_definicao_(chaves|tipos|valores)?_?check|ia_skills_058_definicao_check|ia_skills_058_conteudo_check/);
 
     await tentar({});
     for (const chave of ["id", "nivel", "escopo", "finalidades", "capacidades", "versao", "proveniencia", "revisao", "permissoes", "restricoes", "conteudo", "hash"]) {
@@ -185,6 +185,83 @@ test("058 A4 controle negativo: o CHECK original (sem COALESCE) aceitava {} — 
              AND (definicao->'escopo'->>'estabelecimentoId') IS NOT DISTINCT FROM estabelecimento_id::text))`);
     await db.query(`INSERT INTO a4_original VALUES ('atendimento_familias', '1.1.0', $1, 'EMPRESA', gen_random_uuid(), NULL, '{}'::jsonb)`, ["a".repeat(64)]);
     assert.equal((await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM a4_original`)).rows[0].n, 1, "o CHECK original deixava passar {} (NULL não falha)");
+  } finally {
+    await db.query("ROLLBACK").catch(() => undefined);
+    await encerrarDescartavel(db);
+  }
+});
+
+// ---------------------------------------------------------------- A4 (reauditoria): estrutura interna de `conteudo`
+
+/** Casos derivados do conteudoSchema do runtime (lib/inteligencia/skills/contrato.ts). */
+function casosConteudo(valido: Skill["conteudo"]): Array<[string, unknown]> {
+  const sem = (chave: keyof Skill["conteudo"]) => { const c: Record<string, unknown> = { ...valido }; delete c[chave]; return c; };
+  const procedimento = { titulo: "Contrato aguardando assinatura", passos: ["Reenviar o link."] };
+  const objecao = { objecao: "Está caro", resposta: "Mostre o que está incluído." };
+  const template = { id: "confirmacao", titulo: "Confirmar", texto: "Olá, {{nome_cliente}}!", marcadores: ["nome_cliente"] };
+  return [
+    ["conteudo {}", {}],
+    ...(["tom", "instrucoes", "procedimentos", "objecoes", "templates", "formatacao"] as const).map((k): [string, unknown] => [`sem ${k}`, sem(k)]),
+    ["chave extra", { ...valido, script: "x" }],
+    ["tom número", { ...valido, tom: 1 }], ["tom vazio", { ...valido, tom: "  " }],
+    ["instrucoes objeto", { ...valido, instrucoes: {} }], ["instrucao número", { ...valido, instrucoes: [1] }],
+    ["procedimentos objeto", { ...valido, procedimentos: {} }], ["procedimento sem passos", { ...valido, procedimentos: [{ titulo: "x" }] }],
+    ["procedimento passos vazio", { ...valido, procedimentos: [{ ...procedimento, passos: [] }] }], ["procedimento sem titulo", { ...valido, procedimentos: [{ passos: ["a"] }] }],
+    ["procedimento passo número", { ...valido, procedimentos: [{ ...procedimento, passos: [1] }] }], ["procedimento chave extra", { ...valido, procedimentos: [{ ...procedimento, autoridade: true }] }],
+    ["objecoes string", { ...valido, objecoes: "x" }], ["objecao sem resposta", { ...valido, objecoes: [{ objecao: "Está caro" }] }],
+    ["objecao chave extra", { ...valido, objecoes: [{ ...objecao, desconto: 10 }] }],
+    ["templates objeto", { ...valido, templates: {} }], ["template sem marcadores", { ...valido, templates: [{ id: "x1", titulo: "t", texto: "t" }] }],
+    ["template marcador fora da lista", { ...valido, templates: [{ ...template, marcadores: ["senha_cliente"] }] }],
+    ["template id inválido", { ...valido, templates: [{ ...template, id: "Confirmação!" }] }], ["template sem texto", { ...valido, templates: [{ ...template, texto: "" }] }],
+    ["template chave extra", { ...valido, templates: [{ ...template, acao: "enviar" }] }],
+    ["formatacao vazia", { ...valido, formatacao: {} }], ["formatacao sem usarListas", { ...valido, formatacao: { maxParagrafos: null } }],
+    ["maxParagrafos 0", { ...valido, formatacao: { maxParagrafos: 0, usarListas: null } }], ["maxParagrafos 11", { ...valido, formatacao: { maxParagrafos: 11, usarListas: null } }],
+    ["maxParagrafos 2.5", { ...valido, formatacao: { maxParagrafos: 2.5, usarListas: null } }], ["maxParagrafos texto", { ...valido, formatacao: { maxParagrafos: "3", usarListas: null } }],
+    ["usarListas texto", { ...valido, formatacao: { maxParagrafos: null, usarListas: "sim" } }], ["formatacao chave extra", { ...valido, formatacao: { maxParagrafos: null, usarListas: null, cor: "x" } }],
+  ];
+}
+
+test("058 A4 reauditoria: conteudo {} e cada campo interno ausente/errado são recusados pelo BANCO; conteúdo runtime completo passa", { timeout: 120_000 }, async (t) => {
+  if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") {
+    t.skip("opt-in ausente: harness PostgreSQL não executado");
+    return;
+  }
+  const db = await conectarDescartavel();
+  const id = async (sql: string, v: unknown[]) => (await db.query<{ id: string }>(sql, v)).rows[0].id;
+  try {
+    await db.query("BEGIN");
+    await db.query(semTransacaoExplicita(UP));
+    const A = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Empresa A4b', 'PROVISIONAMENTO') RETURNING id`, [cod("a4b")]);
+    const autor = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness A4b', $2, 'REPRESENTANTE_AUTORIZADO', true) RETURNING id`,
+      [`${cod("u")}@example.test`, `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`]);
+    const inserir = `INSERT INTO ia_skills (empresa_id, estabelecimento_id, nivel, skill_id, versao, hash, status, definicao, criado_por)
+                     VALUES ($1::uuid, NULL, 'EMPRESA', 'atendimento_familias', '1.1.0', $2, 'RASCUNHO', $3::jsonb, $4::uuid)`;
+    const base = override(A, null, "1.1.0", "Tom A4b.");
+    const valido: Skill["conteudo"] = {
+      ...base.conteudo,
+      instrucoes: ["Use o nome do cliente."],
+      procedimentos: [{ titulo: "Contrato aguardando assinatura", passos: ["Reenviar o link."] }],
+      objecoes: [{ objecao: "Está caro", resposta: "Mostre o que está incluído." }],
+      templates: [{ id: "confirmacao", titulo: "Confirmar", texto: "Olá, {{nome_cliente}}!", marcadores: ["nome_cliente"] }],
+      formatacao: { maxParagrafos: 3, usarListas: true },
+    };
+    // Paridade com o runtime: o banco não é mais frouxo nem mais estrito que o conteudoSchema.
+    assert.equal(conteudoSchema.safeParse(valido).success, true, "runtime aceita o válido");
+    for (const [nome, conteudo] of casosConteudo(valido)) assert.equal(conteudoSchema.safeParse(conteudo).success, false, `runtime também recusa: ${nome}`);
+    for (const [nome, conteudo] of casosConteudo(valido)) {
+      await db.query("SAVEPOINT caso");
+      await assert.rejects(db.query(inserir, [A, base.hash, JSON.stringify({ ...base, conteudo }), autor]), /ia_skills_058_conteudo_check/, nome);
+      await db.query("ROLLBACK TO SAVEPOINT caso");
+    }
+    // Controle: conteúdo runtime completo (e o mínimo com listas vazias e nulos) passa.
+    await db.query(inserir, [A, base.hash, JSON.stringify({ ...base, conteudo: valido }), autor]);
+    await db.query(inserir.replace("'1.1.0'", "'1.1.1'"), [A, base.hash, JSON.stringify({ ...base, versao: "1.1.1", conteudo: base.conteudo }), autor]);
+    // O conteúdo real das skills da plataforma (templates, objeções, procedimentos) também é aceito pelo banco.
+    let v = 2;
+    for (const s of SKILLS_PLATAFORMA) {
+      const versao = `1.1.${v++}`;
+      await db.query(inserir.replace("'1.1.0'", `'${versao}'`), [A, base.hash, JSON.stringify({ ...base, versao, conteudo: s.conteudo }), autor]);
+    }
   } finally {
     await db.query("ROLLBACK").catch(() => undefined);
     await encerrarDescartavel(db);
