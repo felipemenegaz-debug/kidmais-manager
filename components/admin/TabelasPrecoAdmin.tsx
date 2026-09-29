@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import styles from './admin.module.css';
 import workspace from './workspace.module.css';
+import { AdminPrimaryButton } from './AdminPrimaryButton';
 
 type Pacote = { id: string; codigo: string; nome: string };
 type Tabela = { id: string; codigo: string; nome: string; vigencia_inicio: string; vigencia_fim: string | null; publicada: boolean };
@@ -291,10 +292,10 @@ export default function TabelasPrecoAdmin() {
           <label htmlFor="nova-tabela-codigo">Referência da tabela<input id="nova-tabela-codigo" value={novaTabela.codigo} onChange={e => setNovaTabela({ ...novaTabela,codigo:e.target.value.toUpperCase() })} required minLength={2} maxLength={50} pattern="[A-Z][A-Z0-9_]+" placeholder="EX.: FESTAS_2026" /></label>
           <label htmlFor="nova-tabela-inicio">Início da vigência<input id="nova-tabela-inicio" type="date" value={novaTabela.inicio} onChange={e => setNovaTabela({ ...novaTabela,inicio:e.target.value })} required /></label>
           <label htmlFor="nova-tabela-fim">Fim da vigência (opcional)<input id="nova-tabela-fim" type="date" value={novaTabela.fim} onChange={e => setNovaTabela({ ...novaTabela,fim:e.target.value })} /></label>
-        </div><button className={workspace.primary} type="submit" disabled={carregando}>Criar vigência</button>
+        </div><AdminPrimaryButton type="submit" disabled={carregando}>Criar vigência</AdminPrimaryButton>
       </form></details>
       <form className={workspace.card} onSubmit={(event) => { if (window.confirm('Publicar esta tabela? Fechamentos já gravados não serão recalculados.')) void enviar(event, { acao: 'publicar', tabelaId }); else event.preventDefault(); }}>
-        <button type="submit" className={workspace.primary} disabled={carregando || !atual?.completo || !atual.tabela || atual.tabela.publicada}>Publicar versão</button>
+        <AdminPrimaryButton type="submit" disabled={carregando || !atual?.completo || !atual.tabela || atual.tabela.publicada}>Publicar versão</AdminPrimaryButton>
       </form>
       </div>
     </main>

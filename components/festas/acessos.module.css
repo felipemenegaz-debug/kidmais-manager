@@ -1,6 +1,6 @@
 .shell{max-width:1400px;margin:auto;padding:32px 32px 72px;font:14px/1.5 var(--admin-font);color:var(--main-text);background:var(--main-bg)}
-.shell :where(button,input,select,textarea){font:inherit}
-.shell :where(button){min-height:44px;border:0;background:transparent;color:inherit;cursor:pointer;font-weight:600}
+.shell :where(button:not([data-km-primario]),input,select,textarea){font:inherit}
+.shell :where(button:not([data-km-primario])){min-height:44px;border:0;background:transparent;color:inherit;cursor:pointer;font-weight:600}
 .shell :where(button:disabled){opacity:.55;cursor:not-allowed}
 .shell :where(a){color: var(--lilac-accent);text-decoration:none;font-weight:700}
 .shell :where(p){margin:8px 0}
@@ -12,12 +12,13 @@
 .shell :where(input):not([type=checkbox]):not([type=radio]){display:block;width:100%;margin-top:8px;padding:12px 14px;border:1px solid var(--input-border);border-radius:12px;background:var(--card-bg);color: var(--secondary-text)}
 .shell :where(input[type=checkbox]),.shell :where(input[type=radio]){width:20px;height:20px;margin:0;accent-color:var(--primary-violet);flex:none}
 .shell :where(:focus-visible){outline:3px solid var(--lilac-accent);outline-offset:3px}
-.voltar{display:inline-block;margin-bottom:16px;color: var(--lilac-accent)}
 .topo{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:20px}
 .intro{color: var(--secondary-text);max-width:46rem;margin:0}
-.cta{background:var(--primary-violet);color:#fff;border-radius:14px;min-height:48px;padding:12px 22px;font-weight:700;white-space:nowrap}
-.ghost{background:var(--card-bg);color: var(--lilac-accent);border:2px solid var(--input-border);border-radius:14px;min-height:48px;padding:12px 22px}
-.perigo{background:#dc2626;color:#fff;border-radius:12px;min-height:48px;padding:12px 22px}
+/* Visual da ação primária vem do AdminPrimaryButton (visual.module.css); aqui só o encaixe no layout. */
+.cta{flex:none}
+.ghost{background:var(--card-bg);color: var(--lilac-accent);border:1px solid var(--input-border);border-radius:10px;min-height:44px;padding:10px 18px;transition:border-color .2s ease}
+@media(hover:hover){.ghost:hover:not(:disabled){border-color:color-mix(in srgb,var(--primary-violet) 45%,transparent)}}
+.perigo{background:#dc2626;color:#fff;border-radius:10px;min-height:44px;padding:10px 18px}
 .alerta{background:var(--input-bg);border-left:6px solid #945000;padding:16px;border-radius:10px;margin:0 0 16px}
 .sucesso{display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(93,227,176,.08);color: var(--emerald-accent);border:1px solid #b6e4c8;border-radius:12px;padding:12px 16px;margin:0 0 16px;font-weight:600}
 .sucesso span{display:flex;align-items:center;gap:8px}
@@ -81,7 +82,8 @@
 .vazioIcone:after{content:'';position:absolute;width:10px;height:2px;background:#8b91a5;right:16px;bottom:18px;transform:rotate(45deg)}
 .vazioTitulo{font-weight:800;font-size:1.15rem;margin:0 0 8px}
 .vazio .ghost{margin-top:16px}
-.overlay{position:fixed;inset:0;z-index:40;background:#1b1f3b73;display:flex;justify-content:flex-end}
+/* Acima do botão de menu móvel do shell (z-index 60): o diálogo é modal e não pode ter o título encoberto. */
+.overlay{position:fixed;inset:0;z-index:70;background:#1b1f3b73;display:flex;justify-content:flex-end}
 .drawer{width:min(440px,100%);height:100%;background:var(--card-bg);display:flex;flex-direction:column;outline:none}
 .drawerHead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px;border-bottom:1px solid var(--input-border);flex:none}
 .drawerForm{display:flex;flex-direction:column;min-height:0;flex:1}

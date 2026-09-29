@@ -28,3 +28,6 @@
 .tituloContratos { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 16px; margin-bottom:24px; }
 .page .tituloContratos h1 { margin:0; }
 .importarContrato { composes: secundario from './visual.module.css'; }
+/* PDF de Pacotes: links de abrir/baixar com alvo de toque de 44 px. */
+.linksPdf { display:flex; flex-wrap:wrap; gap:0 20px; }
+.linksPdf a { display:inline-flex; align-items:center; min-height:44px; }
