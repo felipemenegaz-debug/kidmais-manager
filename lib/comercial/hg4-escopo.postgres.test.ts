@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
-import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from "./postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita, portaDescartavel, linhaDeBase, LINHA_DE_BASE_ATUAL } from "./postgres-descartavel.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const migration047 = resolve(root, "database/migrations/20260926_047_escopo_comercial_tabela.sql");
@@ -44,7 +44,9 @@ test("escopo comercial declarado no postgres descartável", { timeout: 120_000 }
       "SELECT current_database() AS db, inet_server_port() AS port",
     );
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
+    // D3: produto parte do estado canônico ATUAL restaurado pela receita (046 aplicada: legado atribuído à Kidmais).
+    assert.deepEqual(await linhaDeBase(db), LINHA_DE_BASE_ATUAL, "estado canônico atual");
 
     const antes = await db.query<{ precos: number; publicadas: number; sem_empresa: number }>(
       `SELECT
@@ -53,7 +55,7 @@ test("escopo comercial declarado no postgres descartável", { timeout: 120_000 }
          (SELECT count(*)::int FROM pacotes WHERE empresa_id IS NULL) AS sem_empresa`,
     );
     assert.equal(antes.rows[0].publicadas, 0);
-    assert.equal(antes.rows[0].sem_empresa, 7);
+    assert.equal(antes.rows[0].sem_empresa, LINHA_DE_BASE_ATUAL.legado);
 
     const ja = await db.query<{ ok: boolean }>(
       "SELECT to_regclass('public.tabela_preco_escopos') IS NOT NULL AS ok",

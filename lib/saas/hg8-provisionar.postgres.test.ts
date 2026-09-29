@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
 import type { DbExecutor } from "../db/contracts.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
-import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, portaDescartavel, linhaDeBase, LINHA_DE_BASE_ATUAL } from "../comercial/postgres-descartavel.ts";
 import { provisionarTenant, recusarMarcaKidmais } from "./provisionar-tenant.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -52,7 +52,9 @@ test("provisionamento sintético no postgres descartável", { timeout: 60_000 },
       "SELECT current_database() AS db, inet_server_port() AS port",
     );
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
+    // D3: produto parte do estado canônico ATUAL restaurado pela receita (046 aplicada: legado atribuído à Kidmais).
+    assert.deepEqual(await linhaDeBase(db), LINHA_DE_BASE_ATUAL, "estado canônico atual");
     const tx = executor(db);
 
     await db.query("BEGIN");
@@ -145,13 +147,14 @@ test("provisionamento sintético no postgres descartável", { timeout: 60_000 },
 
     const resto = await db.query<{ empresas: number; legado: number; kidmais: number }>(
       `SELECT
-         (SELECT count(*)::int FROM empresas WHERE codigo LIKE 'hg8v%' OR codigo = 'kidmais') AS empresas,
+         (SELECT count(*)::int FROM empresas WHERE codigo LIKE 'hg8v%') AS empresas,
          (SELECT count(*)::int FROM pacotes WHERE empresa_id IS NULL) AS legado,
          (SELECT count(*)::int FROM empresas WHERE codigo ILIKE '%kidmais%' OR nome ILIKE '%kidmais%') AS kidmais`,
     );
     assert.equal(resto.rows[0].empresas, 0);
-    assert.equal(resto.rows[0].legado, 7);
-    assert.equal(resto.rows[0].kidmais, 0);
+    assert.equal(resto.rows[0].legado, LINHA_DE_BASE_ATUAL.legado);
+    assert.equal(resto.rows[0].kidmais, LINHA_DE_BASE_ATUAL.kidmais, "o provisionamento sintético nunca cria outra Kidmais");
+    assert.deepEqual(await linhaDeBase(db), LINHA_DE_BASE_ATUAL, "linha de base intacta");
   } finally {
     await encerrarDescartavel(db);
   }

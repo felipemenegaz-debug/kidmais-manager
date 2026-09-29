@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Client } from "pg";
 import type { DbExecutor } from "../db/contracts.ts";
-import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, portaDescartavel } from "../comercial/postgres-descartavel.ts";
 import { criarEntradaManual } from "../financeiro/servico.ts";
 import { executarNoTenant, type SessaoParaTenant } from "../saas/provar-tenant.ts";
 import { atenderInteligencia, type DependenciasGateway } from "./gateway.ts";
@@ -68,7 +68,7 @@ test("AI Foundation: atencao_hoje isola recebíveis por empresa no postgres desc
   try {
     const ident = await db.query<{ db: string; port: number }>("SELECT current_database() AS db, inet_server_port() AS port");
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
     const schema = await db.query<{ ok: boolean }>(
       `SELECT to_regclass('public.financeiro_entradas_manuais') IS NOT NULL
           AND to_regclass('public.memberships') IS NOT NULL AS ok`,

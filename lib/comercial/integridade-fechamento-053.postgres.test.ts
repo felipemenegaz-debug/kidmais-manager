@@ -1,18 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
-import ts from "typescript";
 import type { DbExecutor } from "../db/contracts.ts";
-import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from "./postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita, portaDescartavel } from "./postgres-descartavel.ts";
 import { listarAdicionaisAtivosComPreco } from "./repositories/comercial.repository.ts";
 import { listarCodigosInclusos } from "./composicao.ts";
 
-const req = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const migration053 = resolve(root, "database/migrations/20260928_053_integridade_tenant_fechamento.sql");
 const precheck053 = resolve(root, "database/checks/20260928_053_precheck.sql");
@@ -36,27 +33,6 @@ function executor(db: Client): DbExecutor {
       return { rows: result.rows as Row[], rowCount: result.rowCount };
     },
   };
-}
-
-/** fechamento.repository usa imports sem extensão: carregado transpilado, como nos testes de Fechamento. */
-function carregarModulo(arquivo: string): Record<string, unknown> {
-  const cache = new Map<string, Record<string, unknown>>();
-  const caminho = (base: string) => [`${base}.ts`, `${base}/index.ts`, base].find(existsSync) ?? base;
-  function load(file: string): Record<string, unknown> {
-    const hit = cache.get(file);
-    if (hit) return hit;
-    const exports: Record<string, unknown> = {};
-    cache.set(file, exports);
-    const code = ts.transpileModule(readFileSync(file, "utf8"), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
-    }).outputText;
-    const localRequire = (spec: string) => spec.startsWith(".")
-      ? load(caminho(resolve(dirname(file), spec).replace(/\.ts$/, "")))
-      : req(spec);
-    new Function("require", "exports", code)(localRequire, exports);
-    return exports;
-  }
-  return load(resolve(root, arquivo));
 }
 
 async function recusa(db: Client, sql: string, params: unknown[], trecho: string) {
@@ -199,10 +175,11 @@ test("integridade de tenant do fechamento 053 no postgres descartável", { timeo
   const db = client as unknown as Client;
   const fonte = readFileSync(migration053, "utf8");
   let instalouAqui = false;
+  let falhou = false;
   try {
     const ident = await db.query<{ db: string; port: number }>("SELECT current_database() AS db, inet_server_port() AS port");
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
     assert.equal(process.env.KIDMAIS_POSTGRES_DESCARTAVEL, "kidmais_pacotes_v1_descartavel");
     assert.equal(process.env.DATABASE_URL, undefined);
     assert.equal(/\b(UPDATE|DELETE FROM|INSERT INTO)\s+(public\.)?(fechamentos|fechamento_\w+|pacotes|tabelas_preco|adicionais|precos_\w+|regras_\w+)\b/i.test(fonte), false, "a 053 não reescreve dado");
@@ -222,6 +199,9 @@ test("integridade de tenant do fechamento 053 no postgres descartável", { timeo
     await concorrencia(db);
     await principal(db, fonte);
     await trocaDeTabelaNoCommit(db);
+  } catch (erro) {
+    falhou = true;
+    throw erro;
   } finally {
     try {
       if (instalouAqui) {
@@ -237,6 +217,9 @@ test("integridade de tenant do fechamento 053 no postgres descartável", { timeo
         [`${PREFIXO}%`],
       );
       assert.equal(Number(sobra.rows[0].n), 0, "nenhuma fixture do teste permanece");
+    } catch (erroLimpeza) {
+      // Com falha no corpo, a limpeza é tentada mas não substitui o erro original.
+      if (!falhou) throw erroLimpeza;
     } finally {
       await encerrarDescartavel(client);
     }
@@ -245,30 +228,44 @@ test("integridade de tenant do fechamento 053 no postgres descartável", { timeo
 
 /** A4: reatribuição de preço/desconto e primeira utilização concorrentes, com duas conexões. */
 async function concorrencia(db: Client) {
-  const c1 = (await conectarDescartavel({ travar: false })) as unknown as Client;
-  const c2 = (await conectarDescartavel({ travar: false })) as unknown as Client;
+  // D3: conexões e fixtures nascem DENTRO do try; o finally fecha as conexões (em paralelo, cancelando consulta
+  // pendente) e remove só o que chegou a existir. Falha em qualquer ponto não deixa conexão aberta nem trava o processo.
+  const conexoes: Array<{ client: Client; pid: number }> = [];
   const criados = { fechamentos: [] as string[] };
+  const fx: { cat?: Catalogo; cat2?: Catalogo; base?: Awaited<ReturnType<typeof apoio>>; pacote3?: string; adicionais: string[] } = { adicionais: [] };
+  const abrir = async () => {
+    const client = (await conectarDescartavel({ travar: false })) as unknown as Client;
+    const pid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+    conexoes.push({ client, pid });
+    return client;
+  };
+  try {
+  const c1 = await abrir();
+  const c2 = await abrir();
   // Fixtures confirmadas (duas conexões precisam vê-las). Catálogo legado: é removível no fim.
-  const cat = await catalogo(db, "concorrência", true);
-  const base = await apoio(db);
+  const cat = (fx.cat = await catalogo(db, "concorrência", true));
+  const base = (fx.base = await apoio(db));
   // Destino da reatribuição sem faixa na tabela (o gatilho de sobreposição de faixas da 006 continua valendo).
-  const pacote3 = await id(db, `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente) VALUES (NULL, $1, $2, 532, true, true) RETURNING id`, [codigo("P53").toUpperCase(), `${PREFIXO} concorrência 3`]);
+  const pacote3 = fx.pacote3 = await id(db, `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente) VALUES (NULL, $1, $2, 532, true, true) RETURNING id`, [codigo("P53").toUpperCase(), `${PREFIXO} concorrência 3`]);
   const precoZ = cat.precoTabela2;
   // Segundo catálogo legado para F1 (troca de tabela × inclusão de filho) e para o preço de adicional.
-  const cat2 = await catalogo(db, "concorrência F1", true);
+  const cat2 = (fx.cat2 = await catalogo(db, "concorrência F1", true));
   const categoria2 = (await db.query<{ codigo: string }>("SELECT codigo FROM adicional_categorias WHERE id = $1::uuid", [cat2.categoria])).rows[0].codigo;
   const novoAdicional = () => id(db, `INSERT INTO adicionais (empresa_id, codigo, nome, categoria, categoria_id, unidade_cobranca, ordem_exibicao) VALUES (NULL, $1, 'Adicional F1', $2, $3::uuid, 'PACOTE', 2) RETURNING id`, [codigo("A53").toUpperCase(), categoria2, cat2.categoria]);
   const adicional2 = await novoAdicional();
+  fx.adicionais.push(adicional2);
   const adicional3 = await novoAdicional();
+  fx.adicionais.push(adicional3);
   const precoA3 = await id(db, `INSERT INTO precos_adicional (tabela_preco_id, adicional_id, convidados_min, convidados_max, valor) VALUES ($1::uuid, $2::uuid, 1, NULL, 25) RETURNING id`, [cat2.tabela, adicional3]);
   const fechamentoF1 = () => id(db, INSERIR_FECHAMENTO, [base.agenda, cat2.pacote, cat2.tabela, cat2.preco, null, base.cliente]);
   const fF = await fechamentoF1();
+  criados.fechamentos.push(fF);
   const fG = await fechamentoF1();
+  criados.fechamentos.push(fG);
   const fH = await fechamentoF1();
-  criados.fechamentos.push(fF, fG, fH);
-  try {
-    const pid2 = (await c2.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
-    const pid1 = (await c1.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+  criados.fechamentos.push(fH);
+  {
+    const [pid1, pid2] = conexoes.map((c) => c.pid);
 
     // Cenário 1: a reatribuição trava a linha primeiro; a primeira utilização espera e vê a linha nova.
     await c1.query("BEGIN");
@@ -375,27 +372,41 @@ async function concorrencia(db: Client) {
     await c2.query("ROLLBACK");
     assert.equal(resultadoUsoA.includes("053: adicional do fechamento: preço do adicional"), true, resultadoUsoA);
     assert.deepEqual(await filhosDe(fH), []);
+  }
   } finally {
-    await c1.query("ROLLBACK").catch(() => {});
-    await c2.query("ROLLBACK").catch(() => {});
-    await encerrarDescartavel(c1 as never, false);
-    await encerrarDescartavel(c2 as never, false);
+    await fecharConcorrentes(db, conexoes);
     // Limpeza das fixtures confirmadas (catálogo legado, sem empresa: nenhuma guarda de exclusão).
-    const adicionais = [cat.adicional, cat2.adicional, adicional2, adicional3];
+    const { cat, cat2, base, pacote3 } = fx;
+    const existentes = (...ids: Array<string | null | undefined>) => ids.filter((x): x is string => typeof x === "string");
+    const adicionais = existentes(cat?.adicional, cat2?.adicional, ...fx.adicionais);
+    const tabelas = existentes(cat?.tabela, cat?.tabela2, cat2?.tabela, cat2?.tabela2);
     await db.query("DELETE FROM fechamento_adicionais WHERE fechamento_id = ANY($1::uuid[])", [criados.fechamentos]);
     await db.query("DELETE FROM fechamentos WHERE id = ANY($1::uuid[])", [criados.fechamentos]);
     await db.query("DELETE FROM precos_adicional WHERE adicional_id = ANY($1::uuid[])", [adicionais]);
     await db.query("DELETE FROM adicionais WHERE id = ANY($1::uuid[])", [adicionais]);
-    await db.query("DELETE FROM adicional_categorias WHERE id = ANY($1::uuid[])", [[cat.categoria, cat2.categoria]]);
-    await db.query("DELETE FROM regras_desconto_pacote WHERE id = ANY($1::uuid[])", [[cat.desconto, cat.desconto2, cat2.desconto, cat2.desconto2]]);
-    const tabelas = [cat.tabela, cat.tabela2, cat2.tabela, cat2.tabela2];
+    await db.query("DELETE FROM adicional_categorias WHERE id = ANY($1::uuid[])", [existentes(cat?.categoria, cat2?.categoria)]);
+    await db.query("DELETE FROM regras_desconto_pacote WHERE id = ANY($1::uuid[])", [existentes(cat?.desconto, cat?.desconto2, cat2?.desconto, cat2?.desconto2)]);
     await db.query("DELETE FROM precos_pacote WHERE tabela_preco_id = ANY($1::uuid[])", [tabelas]);
     await db.query("DELETE FROM tabelas_preco WHERE id = ANY($1::uuid[])", [tabelas]);
-    await db.query("DELETE FROM pacotes WHERE id = ANY($1::uuid[])", [[cat.pacote, cat.pacote2, pacote3, cat2.pacote, cat2.pacote2]]);
-    await db.query("DELETE FROM configuracao_agenda WHERE id = $1::uuid", [base.agenda]);
-    await db.query("DELETE FROM clientes WHERE id = $1::uuid", [base.cliente]);
-    await db.query("DELETE FROM usuarios_administrativos WHERE id = $1::uuid", [base.usuario]);
+    await db.query("DELETE FROM pacotes WHERE id = ANY($1::uuid[])", [existentes(cat?.pacote, cat?.pacote2, pacote3, cat2?.pacote, cat2?.pacote2)]);
+    await db.query("DELETE FROM configuracao_agenda WHERE id = ANY($1::uuid[])", [existentes(base?.agenda)]);
+    await db.query("DELETE FROM clientes WHERE id = ANY($1::uuid[])", [existentes(base?.cliente)]);
+    await db.query("DELETE FROM usuarios_administrativos WHERE id = ANY($1::uuid[])", [existentes(base?.usuario)]);
   }
+}
+
+/**
+ * D3: fecha conexões concorrentes sem depender da ordem. Consulta ainda esperando trava é cancelada pelo
+ * observador (que nunca segura trava aqui) e todas encerram em paralelo — um ROLLBACK em fila atrás de uma
+ * consulta bloqueada pela OUTRA conexão não prende o processo.
+ */
+async function fecharConcorrentes(observador: Client, conexoes: Array<{ client: Client; pid: number }>) {
+  if (conexoes.length === 0) return;
+  await observador.query(
+    "SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE pid = ANY($1::int[]) AND state = 'active'",
+    [conexoes.map((c) => c.pid)],
+  ).catch(() => undefined);
+  await Promise.allSettled(conexoes.map((c) => encerrarDescartavel(c.client as never, false)));
 }
 
 /** Transação única desfeita no fim; SET CONSTRAINTS ALL IMMEDIATE prova que o estado válido passaria no COMMIT. */
@@ -485,16 +496,8 @@ async function principal(db: Client, fonte: string) {
     const porCodigoB = await listarAdicionaisAtivosComPreco({ tabelaPrecoId: b.tabela, convidados: 20, codigos: [mesmoCodigo] }, executor(db));
     assert.deepEqual(porCodigoB.map((item) => item.id), [b.adicional]);
 
-    // Serviço: a empresa do fechamento vem do banco.
-    // PR-B1: variantes explícitas sem trava (autorização) e com trava (pós-autorização).
-    const repositorio = carregarModulo("lib/fechamentos/repositories/fechamento.repository.ts");
-    for (const nome of ["empresaDoFechamentoSemTrava", "empresaDoFechamentoComTrava"]) {
-      const empresaDoFechamento = repositorio[nome] as (fechamentoId: string, tx: DbExecutor) => Promise<string | null | undefined>;
-      assert.equal(await empresaDoFechamento(fechamentoA, executor(db)), a.empresa);
-      assert.equal(await empresaDoFechamento(fechamentoB, executor(db)), b.empresa);
-      assert.equal(await empresaDoFechamento(fechamentoLegado, executor(db)), null);
-      assert.equal(await empresaDoFechamento(randomUUID(), executor(db)), undefined);
-    }
+    // A leitura da empresa do fechamento pelo repositório (PR-B1) usa a coluna da 054; esta suíte roda no estado
+    // anterior à 054 (052 + a própria 053), então essa prova vive na suíte da migration 054 (locksAutorizacao).
 
     // Todo o estado válido acima passaria no COMMIT (gatilhos diferidos e chaves estrangeiras).
     await db.query("SET CONSTRAINTS ALL IMMEDIATE");

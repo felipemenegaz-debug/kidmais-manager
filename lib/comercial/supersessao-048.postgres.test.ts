@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
 import type { DbExecutor } from "../db/contracts.ts";
 import { gravarFaixasPacote } from "./pacote-precos.ts";
-import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from "./postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita, portaDescartavel } from "./postgres-descartavel.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const migration048 = resolve(root, "database/migrations/20260927_048_supersessao_tabela_publicada.sql");
@@ -125,7 +125,7 @@ test("supersessão 048 no postgres descartável", { timeout: 180_000 }, async (t
       "SELECT current_database() AS db, inet_server_port() AS port",
     );
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
     assert.equal(process.env.KIDMAIS_POSTGRES_DESCARTAVEL, "kidmais_pacotes_v1_descartavel");
     assert.equal(process.env.DATABASE_URL, undefined);
 
@@ -182,14 +182,14 @@ test("supersessão 048 no postgres descartável", { timeout: 180_000 }, async (t
       const fechamento = await db.query<{ id: string }>(
         `INSERT INTO fechamentos (
            data_evento, horario_inicio, horario_fim, configuracao_agenda_id,
-           pacote_id, tabela_preco_id, preco_pacote_id,
+           empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
            categoria_horario, categoria_preco_aplicada,
            convidados, convidados_faturados,
            valor_pacote_base, desconto_percentual, valor_desconto_pacote, valor_pacote_aplicado,
            valor_adicionais, valor_tabela, status, origem_fechamento
          ) VALUES (
            CURRENT_DATE, TIME '10:00', TIME '14:00', $1::uuid,
-           $2::uuid, $3::uuid, $4::uuid,
+           (SELECT p.empresa_id FROM pacotes p WHERE p.id = $2::uuid), $2::uuid, $3::uuid, $4::uuid,
            'PADRAO', 'PADRAO', 20, 20,
            10000, 0, 0, 10000, 0, 10000, 'RASCUNHO', 'ATENDIMENTO_KIDMAIS'
          ) RETURNING id`,

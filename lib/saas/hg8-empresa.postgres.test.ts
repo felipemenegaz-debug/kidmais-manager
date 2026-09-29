@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
-import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from "../comercial/postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita, portaDescartavel } from "../comercial/postgres-descartavel.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const migration044 = resolve(root, "database/migrations/20260926_044_ciclo_empresa.sql");
@@ -69,7 +69,7 @@ test("ciclo da empresa no postgres descartável", { timeout: 120_000 }, async (t
       "SELECT current_database() AS db, inet_server_port() AS port",
     );
     assert.equal(ident.rows[0].db, "kidmais_pacotes_v1_descartavel");
-    assert.equal(Number(ident.rows[0].port), 55498);
+    assert.equal(Number(ident.rows[0].port), portaDescartavel());
 
     const ja = await db.query<{ ok: boolean }>(
       "SELECT to_regprocedure('public.kidmais_044_guard_empresas()') IS NOT NULL AS ok",

@@ -169,14 +169,20 @@ test("a rota de baixa usa o token e confirma auditoria na mesma transação", { 
       [codigo()],
     )).rows[0].id;
     const cliente = (await db.query<{ id: string }>(
-      `INSERT INTO clientes (nome_completo) VALUES ('Cliente baixa') RETURNING id`,
+      `INSERT INTO clientes (nome_completo, empresa_id) VALUES ('Cliente baixa', $1::uuid) RETURNING id`,
+      [empresaA],
+    )).rows[0].id;
+    // 054: cliente pertence a uma empresa; o fechamento da empresa B usa um cliente da B.
+    const clienteB = (await db.query<{ id: string }>(
+      `INSERT INTO clientes (nome_completo, empresa_id) VALUES ('Cliente baixa B', $1::uuid) RETURNING id`,
+      [empresaB],
     )).rows[0].id;
     const fechamento = (await db.query<{ id: string }>(
       `INSERT INTO fechamentos (
-         data_evento, horario_inicio, horario_fim, configuracao_agenda_id, pacote_id, tabela_preco_id, preco_pacote_id,
+         data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
          categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados,
          valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status
-       ) VALUES ('2026-09-01', '14:00', '18:00', $1::uuid, $2::uuid, $3::uuid, $4::uuid,
+       ) VALUES ('2026-09-01', '14:00', '18:00', $1::uuid, (SELECT p.empresa_id FROM pacotes p WHERE p.id = $2::uuid), $2::uuid, $3::uuid, $4::uuid,
          'PADRAO', 'PADRAO', 20, 20, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', $5::uuid, 'AGUARDANDO_PAGAMENTO') RETURNING id`,
       [agenda, pacote, tabela, preco, cliente],
     )).rows[0].id;
@@ -220,12 +226,12 @@ test("a rota de baixa usa o token e confirma auditoria na mesma transação", { 
     )).rows[0].id;
     const fechamentoB = (await db.query<{ id: string }>(
       `INSERT INTO fechamentos (
-         data_evento, horario_inicio, horario_fim, configuracao_agenda_id, pacote_id, tabela_preco_id, preco_pacote_id,
+         data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
          categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados,
          valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status
-       ) VALUES ('2026-09-02', '15:00', '19:00', $1::uuid, $2::uuid, $3::uuid, $4::uuid,
+       ) VALUES ('2026-09-02', '15:00', '19:00', $1::uuid, (SELECT p.empresa_id FROM pacotes p WHERE p.id = $2::uuid), $2::uuid, $3::uuid, $4::uuid,
          'PADRAO', 'PADRAO', 20, 20, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', $5::uuid, 'AGUARDANDO_PAGAMENTO') RETURNING id`,
-      [agenda, pacoteB, tabelaB, precoB, cliente],
+      [agenda, pacoteB, tabelaB, precoB, clienteB],
     )).rows[0].id;
     const contratoB = (await db.query<{ id: string }>(
       `INSERT INTO contratos (fechamento_id, status, assinado_em) VALUES ($1::uuid, 'ASSINADO', now()) RETURNING id`,
