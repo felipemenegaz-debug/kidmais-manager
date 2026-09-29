@@ -49,6 +49,7 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "lib/db/contracts": ["DbExecutor"],
   "lib/contratos/services/leitura-tenant": ["contratosAguardandoAssinatura", "resumoContratoDoTenant", "ContratoPendente", "ResumoContratoTenant"],
   "lib/festas/leitura-tenant": ["agendaDoTenant", "FestaAgenda"],
+  "lib/comercial/motivos-pacote": ["MOTIVOS_PACOTE"], // @pr:ACTIONS
   // Documentos: funções puras (validação, extração, revisão) e só TIPOS do repositório SQL.
   // Importação: plano puro e só TIPOS do repositório SQL.
 };
@@ -64,11 +65,16 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno"],
   "lib/festas/service": ["FestaError", "consultarFestas"],
   "lib/ia-persistencia/uso": ["criarRegistroUsoPostgres"],
+  "lib/comercial/pacote-comercial": ["painelPacoteAdmin", "salvarPacoteComercial"], // @pr:ACTIONS
+  "lib/comercial/pacote-precos": ["gravarFaixasPacote"], // @pr:ACTIONS
+  "lib/comercial/pacotes-admin": ["alterarSituacaoPacoteAdmin", "criarRevisaoPacoteAdmin", "editarPacoteNaoUtilizado", "listarPacotesAdmin"], // @pr:ACTIONS
+  "lib/ia-persistencia/operacoes": ["repositorioOperacoesPostgres"], // @pr:ACTIONS
 };
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
   "dependencias.ts": ["consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction"],
+  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin("], // @pr:ACTIONS
 };
 
 /** SQL em qualquer caixa, só em literais de string/template: comentários não executam. */

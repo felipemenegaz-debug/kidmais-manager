@@ -1,9 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { authError } from "@/lib/autenticacao/service";
 import { MOTIVOS_PACOTE, motivoOu } from "@/lib/comercial/motivos-pacote";
 import { PacoteAdminError, alterarComposicaoPacoteAdmin } from "@/lib/comercial/pacotes-admin";
-import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 
@@ -34,12 +33,12 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
-    if (sessao.papel !== "REPRESENTANTE_AUTORIZADO") throw authError("Apenas o proprietário pode editar a composição.", 403);
     const id = uuid.safeParse((await context.params).id);
     if (!id.success) return jsonNoStore({ ok: false, erro: "Pacote inválido.", codigo: "DADOS_INVALIDOS" }, { status: 400 });
     const bruto = await request.json();
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
     await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
+      exigirGestaoNoTenant(tenant, "Apenas o proprietário pode editar a composição.");
       const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
       if (input.acao === "buffet" && input.escolhasMin > input.escolhasMax) {
         throw new PacoteAdminError("LIMITE_BUFFET", "O mínimo de escolhas não pode passar do máximo.", 409);

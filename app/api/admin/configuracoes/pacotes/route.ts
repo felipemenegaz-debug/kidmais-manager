@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { authError } from "@/lib/autenticacao/service";
 import { MOTIVOS_PACOTE, motivoOu } from "@/lib/comercial/motivos-pacote";
 import { salvarPacoteComercial, duplicarPacoteComercial } from "@/lib/comercial/pacote-comercial";
 import { criarPacoteAdmin, listarPacotesAdmin } from "@/lib/comercial/pacotes-admin";
-import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 
@@ -60,12 +59,9 @@ const salvar = z.object({
 }).strict();
 const corpo = z.discriminatedUnion("acao", [criar, duplicar, salvar]);
 
+/** 056: a autoridade de escrita é o papel da membership, conferido dentro da transação do tenant. */
 async function exigirEscrita(request: NextRequest) {
-  const sessao = await exigirApiAdminCrmDisponivel(request);
-  if (sessao.papel !== "REPRESENTANTE_AUTORIZADO") {
-    throw authError("Apenas o proprietário pode editar pacotes.", 403);
-  }
-  return sessao;
+  return exigirApiAdminCrmDisponivel(request);
 }
 
 export async function GET(request: NextRequest) {
@@ -109,6 +105,7 @@ export async function POST(request: NextRequest) {
     const bruto = await request.json();
     const pedido = z.object({ empresaId: z.string().optional() }).passthrough().parse(bruto);
     const data = await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
+      exigirGestaoNoTenant(tenant, "Apenas o proprietário pode editar pacotes.");
       const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
       const ctx = {
         empresaId: tenant.empresaComprovada,

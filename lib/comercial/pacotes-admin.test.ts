@@ -91,7 +91,8 @@ test("pacote utilizado não é reescrito; a revisão nova preserva a anterior", 
         return { rows: [{ id: "33333333-3333-4333-8333-333333333333" } as Row], rowCount: 1 };
       }
       if (text.startsWith("INSERT INTO pacotes")) {
-        assert.match(text, /true, false, \$8::uuid/);
+        assert.match(text, /\$9::boolean, false, \$8::uuid/);
+        assert.equal(values?.[8], true, "padrão da tela: a revisão nasce ativa");
         assert.equal(values?.[7], linha(true).id);
         return { rows: [{ id: "33333333-3333-4333-8333-333333333333" } as Row], rowCount: 1 };
       }
@@ -224,8 +225,11 @@ test("pacote arquivado sem uso é apagado e um preço publicado bloqueia a exclu
 test("a API administrativa reutiliza o papel existente e só exclui pelo preflight do pacote arquivado", () => {
   const colecao = readFileSync("app/api/admin/configuracoes/pacotes/route.ts", "utf8");
   const item = readFileSync("app/api/admin/configuracoes/pacotes/[id]/route.ts", "utf8");
-  assert.match(colecao, /REPRESENTANTE_AUTORIZADO/);
-  assert.match(item, /REPRESENTANTE_AUTORIZADO/);
+  // 056: Gestão é o papel DA MEMBERSHIP, conferido dentro da transação do tenant (nunca o papel global da sessão).
+  for (const fonte of [colecao, item]) {
+    assert.match(fonte, /exigirGestaoNoTenant\(tenant, "Apenas o proprietário pode (editar|excluir) pacotes\."\)/);
+    assert.doesNotMatch(fonte, /sessao\.papel/);
+  }
   assert.equal(colecao.includes("export async function DELETE"), false);
   assert.match(item, /export async function DELETE/);
   assert.match(item, /excluirPacoteArquivadoAdmin/);
