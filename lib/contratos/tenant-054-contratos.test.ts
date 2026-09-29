@@ -376,7 +376,8 @@ function festas(tenant: string) {
     const consultas: { sql: string; v: unknown[] }[] = [];
     const tx = { query: async (sql: string, v: unknown[] = []) => {
         consultas.push({ sql, v });
-        if (sql.startsWith('SELECT id FROM festa_usuario_capacidades')) return { rows: [{ id: 1 }] };
+        // 056: capacidade da membership comprovada (a do tenant do dublê).
+        if (sql.startsWith('SELECT id FROM festa_membership_capacidades')) return { rows: v[0] === 'membership-' + tenant ? [{ id: 1 }] : [] };
         if (sql.includes('FROM festas f JOIN contratos co') && sql.includes('fe.empresa_id=$2::uuid')) {
             // Aplica os mesmos filtros da SQL: empresa ($2) e, quando houver, cliente ($1) ou id ($1).
             const lista = sql.includes('WHERE f.id=$1')
@@ -390,7 +391,7 @@ function festas(tenant: string) {
         'lib/db/postgres.ts': { db: () => tx, withTransaction: (fn: any) => fn(tx) },
         'lib/festas/ambiente.ts': { validarAmbienteFesta: async () => undefined },
         'lib/autenticacao/service.ts': { consultarSessao: async () => ({ usuario_id: 'u1', papel: 'ADMINISTRATIVO' }) },
-        'lib/saas/provar-tenant.ts': { provarTenant: async (_t: unknown, _s: unknown, pedida: unknown) => { consultas.push({ sql: 'provarTenant', v: [pedida] }); return { empresaComprovada: tenant }; } },
+        'lib/saas/provar-tenant.ts': { provarTenant: async (_t: unknown, _s: unknown, pedida: unknown) => { consultas.push({ sql: 'provarTenant', v: [pedida] }); return { empresaComprovada: tenant, membershipId: 'membership-' + tenant, papelAtual: 'ADMINISTRATIVO' }; }, revalidarTenant: async () => { consultas.push({ sql: 'revalidarTenant', v: [] }); } },
         'lib/clientes/repositories/auditoria.repository.ts': { registrarAuditoria: async () => undefined },
         'lib/pagamentos/services/financeiro-consulta.service.ts': { consultarPainelFinanceiro: async () => null },
         'lib/contratos/services/cancelamento.service.ts': { cancelarContratacaoDaFesta: async () => undefined },

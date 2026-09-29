@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as jsx from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { montarResumo, selecionarVersaoResumo, type PainelResumo, type FinanceiroResumo } from './resumo-contratacao.ts';
+import { carregarResumo, montarResumo, selecionarVersaoResumo, type PainelResumo, type FinanceiroResumo } from './resumo-contratacao.ts';
 import type { ContratoSnapshotV1 } from '../../lib/contratos/repositories/models';
 
 const snapshot: ContratoSnapshotV1 = {
@@ -106,4 +106,20 @@ test('impressão renderiza resumo separado, escapa observações e possui regras
   assert.doesNotMatch(source, /method:\s*['"](?:POST|PUT|PATCH|DELETE)|gerarPdf|guardarDocumento/);
   const admin = readFileSync(new URL('./ContratoAdmin.tsx', import.meta.url), 'utf8');
   assert.match(admin, /Visualizar resumo/); assert.match(admin, /Imprimir resumo/); assert.match(admin, /Imprimir contrato completo/);
+});
+
+test('H9: Resumo e PDF A/A carregam pela rota com Tenant Context; A/B não monta nada', async () => {
+  const urls: string[] = [];
+  const buscarA = async (url: string) => { urls.push(url); return Response.json({ ok: true, data: { painel: painel(), financeiro: null } }); };
+  const resumo = await carregarResumo(buscarA, 'contrato');
+  assert.equal(resumo.secoes[0].linhas[1][1], 'contrato');
+  assert.equal(urls[0], '/api/admin/contratos/resumo-contratacao?contratoId=contrato');
+  // Contrato de outra empresa: a rota responde 404 igual ao inexistente e o resumo (base do PDF) não existe.
+  const buscarB = async () => Response.json({ ok: false, erro: 'Contrato não encontrado.', codigo: 'NAO_ENCONTRADO' }, { status: 404 });
+  await assert.rejects(carregarResumo(buscarB, 'contrato-de-B'), /Não foi possível consultar o contrato/);
+  // Vigente com plano financeiro mas sem posição: não imprime com dados incompletos.
+  const semFinanceiro = async () => Response.json({ ok: true, data: { painel: { ...painel(), financeiro: [{ id: 'p' }] }, financeiro: null } });
+  await assert.rejects(carregarResumo(semFinanceiro, 'contrato'), /Financeiro/);
+  const comFinanceiro = async () => Response.json({ ok: true, data: { painel: { ...painel(), financeiro: [{ id: 'p' }] }, financeiro: financeiro() } });
+  assert.ok(conteudo(await carregarResumo(comFinanceiro, 'contrato')).includes('8.811'));
 });

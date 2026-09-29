@@ -5,7 +5,7 @@ import {adminFetch} from '@/lib/http/admin-fetch';
 import {erroHumano} from '@/lib/festas/ux';
 import layout from './acessos.module.css';
 
-type Conta={id:string;nome:string;email:string;nivelSistema:string;ativo:boolean};
+type Conta={id:string;nome:string;email:string;nivelSistema:string;ativo:boolean;podeAssinar?:boolean};
 type PerfilFesta={id:string;nome:string;nivelSistema:string;perfil:string};
 type ContasData={usuarioId:string;usuarios:Conta[]};
 type PerfissData={usuarioId:string;usuarios:PerfilFesta[]};
@@ -193,14 +193,12 @@ export default function FestaAcessos(){
    const j=await r.json();
    if(!j.ok){
     const humano=erroHumano(j.erro);
-    if(r.status===409||/já existe uma conta com este e-mail/i.test(String(j.erro??''))){
-     setEmailErro('Este e-mail já está sendo usado por outra pessoa.');
-     return;
-    }
+    if(r.status===409){setEmailErro(humano);return;}
     setErro(humano);
     return;
    }
-   setNotice('Pessoa adicionada com sucesso.');
+   // F2: a resposta é a mesma para e-mail novo ou já usado no Kidmais; a tela não diz qual foi o caso.
+   setNotice('Acesso a esta empresa concedido. Se a pessoa já usa o Kidmais, ela entra com a senha que já tem.');
    form.reset();
    fecharCriar();
    setAba('ativas');
@@ -209,18 +207,32 @@ export default function FestaAcessos(){
   finally{setBusy(false);}
  }
 
+ // 057: assinar contratos em nome DESTA empresa (capability da membership). Não é acesso de plataforma.
+ async function alternarAssinatura(conta:Conta){
+  setMenuId(null);setBusy(true);setErro('');setNotice('');
+  try{
+   const conceder=!conta.podeAssinar;
+   const r=await adminFetch('/api/admin/configuracoes/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao:'assinatura',usuarioId:conta.id,conceder})});
+   const j=await r.json();
+   if(!j.ok){setErro(erroHumano(j.erro));return;}
+   setNotice(conceder?'Esta pessoa pode assinar contratos em nome desta empresa.':'Esta pessoa não assina mais contratos em nome desta empresa.');
+   await carregar();
+  }catch{setErro('Não foi possível alterar a assinatura de contratos. Atualize a lista e tente novamente.');}
+  finally{setBusy(false);}
+ }
+
  async function desativar(e:React.FormEvent<HTMLFormElement>){
   e.preventDefault();if(!alvoDesativar)return;
   setBusy(true);setErro('');
   try{
-   const r=await adminFetch('/api/admin/configuracoes/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao:'desativar',usuarioId:alvoDesativar.id,confirmar:true})});
+   const r=await adminFetch('/api/admin/configuracoes/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao:'remover',usuarioId:alvoDesativar.id,confirmar:true})});
    const j=await r.json();
    if(!j.ok){setErro(erroHumano(j.erro));return;}
-   setNotice('Conta desativada. Sessões encerradas; o histórico foi preservado.');
+   setNotice('Acesso a esta empresa removido. A conta, o histórico e o acesso a outras empresas foram preservados.');
    setAlvoDesativar(null);
    setAba('desativadas');
    await carregar();
-  }catch{setErro('Não foi possível desativar a conta. Atualize a lista e tente novamente.');}
+  }catch{setErro('Não foi possível remover o acesso. Atualize a lista e tente novamente.');}
   finally{setBusy(false);}
  }
 
@@ -240,7 +252,8 @@ export default function FestaAcessos(){
    </button>
    {menuId===conta.id&&<div className={layout.menu} role="menu">
     <button type="button" role="menuitem" aria-label={'Alterar acesso de '+conta.nome} disabled={busy} onClick={()=>{setUser(festa);setPerfil(festa.perfil==='Gestão'?'GESTAO':'EQUIPE');setAlvoDesativar(null);setCriarAberto(false);setMenuId(null);setNotice('');setErro('');}}>Alterar acesso às Festas</button>
-    {!propria&&<button type="button" role="menuitem" className={layout.menuDanger} aria-label={'Desativar conta de '+conta.nome} disabled={busy} onClick={()=>{setAlvoDesativar(conta);setUser(null);setCriarAberto(false);setMenuId(null);setNotice('');setErro('');}}>Desativar conta</button>}
+    {conta.nivelSistema==='Gestão'&&<button type="button" role="menuitem" aria-label={(conta.podeAssinar?'Retirar assinatura de contratos de ':'Permitir assinar contratos: ')+conta.nome} disabled={busy} onClick={()=>{void alternarAssinatura(conta);}}>{conta.podeAssinar?'Retirar assinatura de contratos':'Permitir assinar contratos'}</button>}
+    {!propria&&<button type="button" role="menuitem" className={layout.menuDanger} aria-label={'Remover desta empresa: '+conta.nome} disabled={busy} onClick={()=>{setAlvoDesativar(conta);setUser(null);setCriarAberto(false);setMenuId(null);setNotice('');setErro('');}}>Remover desta empresa</button>}
    </div>}
   </div>;
  }
@@ -258,22 +271,23 @@ export default function FestaAcessos(){
      {acoes(conta)}
     </div>
     <dl className={layout.tiles}>
-     <div className={conta.ativo?layout.tile:layout.tileMuted}><dt>Papel sistema</dt><dd>{conta.nivelSistema}</dd></div>
+     <div className={conta.ativo?layout.tile:layout.tileMuted}><dt>Papel nesta empresa</dt><dd>{conta.nivelSistema}</dd></div>
      <div className={conta.ativo?layout.tile:layout.tileMuted}><dt>Acesso Festas</dt><dd>{acessoFestas(conta,festaPorId)}</dd></div>
+     <div className={conta.ativo?layout.tile:layout.tileMuted}><dt>Assina contratos</dt><dd>{conta.ativo&&conta.podeAssinar?'Sim, por esta empresa':'Não'}</dd></div>
     </dl>
-    {!conta.ativo&&<p className={layout.situacao}><span className={layout.pontoMuted} aria-hidden="true"/>Desativada</p>}
+    {!conta.ativo&&<p className={layout.situacao}><span className={layout.pontoMuted} aria-hidden="true"/>Removida desta empresa</p>}
    </article>
   </li>;
  }
 
- const avisoDesativadas=<p className={layout.info}><span className={layout.infoIcon} aria-hidden="true">i</span>Estas pessoas não podem mais entrar no sistema. Os registros anteriores foram mantidos.</p>;
+ const avisoDesativadas=<p className={layout.info}><span className={layout.infoIcon} aria-hidden="true">i</span>Estas pessoas não acessam mais esta empresa. A conta, os registros anteriores e o acesso a outras empresas foram mantidos.</p>;
 
  return <main className={layout.shell}>
   <Link className={layout.voltar} href="/admin/configuracoes">← Voltar às Configurações</Link>
   <div className={layout.topo}>
    <div>
     <h1>Usuários e acessos</h1>
-    <p className={layout.intro}>O papel no sistema é separado do acesso às Festas. Uma pessoa pode ter papéis diferentes em cada um.</p>
+    <p className={layout.intro}>Aqui aparecem só as pessoas desta empresa. O papel nesta empresa é separado do acesso às Festas, e o acesso a outras empresas não muda por aqui.</p>
    </div>
    <button type="button" className={layout.cta} disabled={busy||!contas} onClick={abrirCriar}>+ Adicionar pessoa</button>
   </div>
@@ -286,7 +300,7 @@ export default function FestaAcessos(){
     <div className={layout.ferramentas}>
      <div className={layout.abas} role="tablist" aria-label="Situação das contas">
       <button type="button" role="tab" aria-selected={aba==='ativas'} className={aba==='ativas'?layout.abaAtiva:layout.aba} onClick={()=>setAba('ativas')}>Ativas</button>
-      <button type="button" role="tab" aria-selected={aba==='desativadas'} className={aba==='desativadas'?layout.abaAtiva:layout.aba} onClick={()=>setAba('desativadas')}>Desativadas</button>
+      <button type="button" role="tab" aria-selected={aba==='desativadas'} className={aba==='desativadas'?layout.abaAtiva:layout.aba} onClick={()=>setAba('desativadas')}>Removidas</button>
      </div>
      <label className={layout.busca}>
       <span className={layout.srOnly}>Buscar por nome ou e-mail</span>
@@ -302,15 +316,15 @@ export default function FestaAcessos(){
       <p className={layout.vazioTitulo}>{termo?(compacto?'Nenhum resultado':'Nenhum resultado encontrado'):'Nenhuma pessoa nesta lista.'}</p>
       {termo
        ? <p>Não encontramos ninguém com o termo “{busca.trim()}”.{compacto?'':' Tente buscar por outro nome ou e-mail.'}</p>
-       : <p>{aba==='desativadas'?'Nenhuma conta desativada.':'Ainda não há pessoas ativas para exibir.'}</p>}
+       : <p>{aba==='desativadas'?'Nenhuma pessoa removida desta empresa.':'Ainda não há pessoas ativas para exibir.'}</p>}
       {termo&&<button type="button" className={layout.ghost} onClick={()=>setBusca('')}>Limpar busca</button>}
      </div>
      : compacto
       ? <ul className={layout.cards}>{filtradas.map(cartao)}</ul>
       : <div className={layout.tabelaWrap}>
        <table className={layout.lista}>
-        <caption className={layout.srOnly}>{aba==='ativas'?'Contas ativas':'Contas desativadas'}</caption>
-        <thead><tr><th>Nome</th><th>E-mail</th><th>Papel no sistema</th><th>Acesso às Festas</th><th>Situação</th><th>Ações</th></tr></thead>
+        <caption className={layout.srOnly}>{aba==='ativas'?'Contas ativas':'Pessoas removidas desta empresa'}</caption>
+        <thead><tr><th>Nome</th><th>E-mail</th><th>Papel nesta empresa</th><th>Acesso às Festas</th><th>Situação</th><th>Ações</th></tr></thead>
         <tbody>{filtradas.map(conta=>{
          const propria=conta.id===contas.usuarioId;
          return <tr key={conta.id} className={conta.ativo?undefined:layout.linhaMuted}>
@@ -318,7 +332,7 @@ export default function FestaAcessos(){
           <td>{conta.email}</td>
           <td><span className={conta.ativo?layout.pill:layout.pillMuted}>{conta.nivelSistema}</span></td>
           <td><span className={conta.ativo?layout.pill:layout.pillMuted}>{acessoFestas(conta,festaPorId)}</span></td>
-          <td>{conta.ativo?<span className={layout.ativa}><span className={layout.pontoAtivo} aria-hidden="true"/>Ativa</span>:<span className={layout.desativada}><span className={layout.pontoMuted} aria-hidden="true"/>Desativada</span>}</td>
+          <td>{conta.ativo?<span className={layout.ativa}><span className={layout.pontoAtivo} aria-hidden="true"/>Ativa</span>:<span className={layout.desativada}><span className={layout.pontoMuted} aria-hidden="true"/>Removida</span>}</td>
           <td>{acoes(conta)}</td>
          </tr>;
         })}</tbody>
@@ -363,7 +377,7 @@ export default function FestaAcessos(){
         <input name="confirmacao" type={verSenha?'text':'password'} autoComplete="new-password" required minLength={8} maxLength={128} aria-invalid={Boolean(senhaErro)} aria-describedby={senhaErro?'senha-erro':undefined}/>
         {senhaErro&&<span id="senha-erro" role="alert">{senhaErro}</span>}
        </label>
-       <p className={layout.dica}><span className={layout.infoIcon} aria-hidden="true">i</span>Você define a senha inicial. Combine com a pessoa como entregá-la.</p>
+       <p className={layout.dica}><span className={layout.infoIcon} aria-hidden="true">i</span>Você define a senha inicial para quem ainda não usa o Kidmais. Quem já usa continua com a própria senha.</p>
       </fieldset>
      </div>
      <div className={layout.drawerActions}>
@@ -400,15 +414,15 @@ export default function FestaAcessos(){
   </div>}
 
   {alvoDesativar&&<div className={`${layout.overlay} ${layout.dim}`} onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setAlvoDesativar(null);}}>
-   <section ref={desativarRef} tabIndex={-1} aria-label="Desativar conta" className={layout.modal} role="dialog" aria-modal="true" aria-labelledby="desativar-titulo">
+   <section ref={desativarRef} tabIndex={-1} aria-label="Remover desta empresa" className={layout.modal} role="dialog" aria-modal="true" aria-labelledby="desativar-titulo">
     <div className={layout.modalIcon} aria-hidden="true">⊘</div>
-    <h2 id="desativar-titulo">Desativar conta de {alvoDesativar.nome}?</h2>
+    <h2 id="desativar-titulo">Remover {alvoDesativar.nome} desta empresa?</h2>
     <p className={layout.email}>{alvoDesativar.email}</p>
-    <p className={layout.aviso}>A pessoa não poderá mais entrar e as sessões abertas serão encerradas. A conta e os registros anteriores serão mantidos.</p>
+    <p className={layout.aviso}>A pessoa perde o acesso a esta empresa. A conta continua existindo, o acesso a outras empresas não muda e os registros anteriores serão mantidos.</p>
     <form onSubmit={desativar}>
      <div className={layout.modalActions}>
       <button type="button" className={layout.ghost} disabled={busy} onClick={()=>setAlvoDesativar(null)}>Cancelar</button>
-      <button className={layout.perigo} disabled={busy}>Desativar conta</button>
+      <button className={layout.perigo} disabled={busy}>Remover desta empresa</button>
      </div>
     </form>
    </section>

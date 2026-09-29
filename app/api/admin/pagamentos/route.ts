@@ -10,6 +10,8 @@ import {
   contextoCrmDaRequest,
   exigirApiAdminCrmDisponivel,
 } from "@/lib/http/admin-crm-api";
+import { executarComPosseNoTenant, fechamentoNoTenant } from "@/lib/contratos/services/contrato-tenant";
+import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +28,7 @@ function noStore(response: NextResponse) {
 
 export async function GET(request: NextRequest) {
   try {
-    await exigirApiAdminCrmDisponivel(request);
+    const sessao = await exigirApiAdminCrmDisponivel(request);
     const parsed = z.string().uuid().safeParse(
       request.nextUrl.searchParams.get("fechamentoId") ?? "",
     );
@@ -37,7 +39,8 @@ export async function GET(request: NextRequest) {
         codigo: "DADOS_INVALIDOS",
       }, { status: 400 }));
     }
-    const data = await obterPagamentoPorFechamento(parsed.data);
+    // C1/C2: posse do fechamento provada no tenant e leitura na MESMA transação. Outra empresa ⇒ 404 igual.
+    const data = await executarComPosseNoTenant(sessao, request.nextUrl.searchParams.get("empresaId"), parsed.data, fechamentoNoTenant, { withTenantTransaction }, (tx) => obterPagamentoPorFechamento(parsed.data, tx));
     return noStore(NextResponse.json({ ok: true, data }));
   } catch (error) {
     return erroPagamentoApi(error);
@@ -46,7 +49,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await exigirApiAdminCrmDisponivel(request);
+    const sessao = await exigirApiAdminCrmDisponivel(request);
     const body = await request.json().catch(() => null);
     const parsed = criarSchema.safeParse(body);
     if (!parsed.success) {
@@ -59,10 +62,12 @@ export async function POST(request: NextRequest) {
     }
 
     const crm = contextoCrmDaRequest(request);
-    const data = await criarPagamentoDoFechamento(parsed.data, {
+    // C1/C2: tenant + posse do fechamento e criação do pagamento na MESMA transação (executor).
+    const data = await executarComPosseNoTenant(sessao, request.nextUrl.searchParams.get("empresaId"), parsed.data.fechamentoId, fechamentoNoTenant, { withTenantTransaction }, (tx) => criarPagamentoDoFechamento(parsed.data, {
       ...crm,
       origem: "PAGAMENTO_INTERNO_DEV",
-    });
+      executor: tx,
+    }));
     if ('sugestao' in data) return noStore(NextResponse.json({
       ok: !data.sugestao.contraproposta, data,
       ...(data.sugestao.contraproposta ? { codigo: 'CONDICAO_PIX_INVIAVEL', erro: data.sugestao.motivo } : {}),

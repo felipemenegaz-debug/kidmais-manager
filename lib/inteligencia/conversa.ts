@@ -59,6 +59,7 @@ const MENSAGEM_FALLBACK = "Não foi possível responder agora. O restante do sis
  */
 function papelParaPolitica(sessao: SessaoParaTenant, tenant: TenantComprovado): string {
   let papel = sessao.papel;
+  papel = tenant.papelAtual; // @pr:UX
   return papel;
 }
 

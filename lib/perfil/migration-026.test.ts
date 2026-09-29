@@ -56,7 +56,7 @@ test('revogação preenchida exige motivo não nulo no texto; isso não prova o 
 });
 
 test('preços atuais e limites de revisão permanecem explícitos', () => {
-  assert.match(precos, /sessao\.papel !== 'REPRESENTANTE_AUTORIZADO'/);
+  assert.match(precos, /if \(!temAutoridadeDePlataforma\(sessao\)\) throw authError\(/);
   assert.match(revisao, /Nenhuma concessão poderá ocorrer antes/);
   assert.match(revisao, /trava estável antes da criação da primeira empresa/);
   assert.match(revisao, /permissões atuais de preços permanecem/);

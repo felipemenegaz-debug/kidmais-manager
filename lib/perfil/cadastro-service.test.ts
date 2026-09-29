@@ -79,7 +79,7 @@ function banco(opcoes: { instalada?: boolean; empresas?: number; edicao?: number
                 return { rows: [], rowCount: 1 };
             if (sql.includes('FROM public.perfil_unidades'))
                 return { rows: [{ id: unidadeId, codigo: 'UNI-1', nome: '', mesmo_endereco_sede: false, cep: '', logradouro: '', numero: null, sem_numero: false, complemento: null, bairro: '', cidade: '', uf: '', pais: 'BR', referencia_chegada: null, telefone: null, whatsapp: null, email_comercial: null, site: null, instagram: null }], rowCount: 1 };
-            if (sql.includes('SELECT id, papel, ativo FROM usuarios_administrativos'))
+            if (sql.includes('JOIN memberships m ON m.usuario_id = u.id AND m.empresa_id = $2::uuid'))
                 return { rows: [{ id: usuarioId, papel: 'REPRESENTANTE_AUTORIZADO', ativo: true }], rowCount: 1 };
             if (sql.includes('SELECT capacidade FROM public.perfil_empresa_concessoes'))
                 return { rows: [{ capacidade: 'PERFIL_CONSULTAR' }, { capacidade: 'PERFIL_EDITAR_RASCUNHO' }, { capacidade: 'PERFIL_APLICAR' }], rowCount: 3 };

@@ -301,7 +301,8 @@ export async function gerarContrato(
   input: GerarContratoInput,
   context: ContratoServiceContext,
 ): Promise<GerarContratoResult> {
-  return withTransaction(async (tx) => {
+  const emTransacao = <T>(trabalho: (tx: DbExecutor) => Promise<T>) => (context.executor ? trabalho(context.executor) : withTransaction(trabalho));
+  return emTransacao(async (tx) => {
     const fechamento = await buscarFechamentoPorIdParaAtualizacao(
       input.fechamentoId,
       tx,
@@ -477,8 +478,9 @@ export async function gerarContrato(
   });
 }
 
-export async function obterContratoPorFechamento(fechamentoId: string) {
-  const contrato = await buscarContratoPorFechamentoId(fechamentoId);
+/** D1: com `tx`, as consultas rodam na transação do chamador (prova de tenant). */
+export async function obterContratoPorFechamento(fechamentoId: string, tx?: DbExecutor) {
+  const contrato = await buscarContratoPorFechamentoId(fechamentoId, tx);
   if (!contrato) {
     throw new ContratoServiceError(
       "CONTRATO_NAO_ENCONTRADO",
@@ -487,7 +489,7 @@ export async function obterContratoPorFechamento(fechamentoId: string) {
     );
   }
 
-  const versao = await buscarVersaoCorrente(contrato.id);
+  const versao = await buscarVersaoCorrente(contrato.id, tx);
   if (!versao) {
     throw new ContratoServiceError(
       "DADOS_CONTRATUAIS_INCONSISTENTES",

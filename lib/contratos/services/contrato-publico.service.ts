@@ -9,7 +9,7 @@ import {
 import type { DbExecutor } from "../../db/contracts";
 import { db, withTransaction } from "../../db/postgres";
 import { edicaoDaVersao } from './administrativo.service';
-import { documentoParaLeitura, versaoPublicaId, concluirFluxoCliente } from './fluxo-publico';
+import { adquirirDocumentoParaLeitura, documentoParaLeitura, materializarDocumento, versaoPublicaId, concluirFluxoCliente } from './fluxo-publico';
 import { lerDocumento } from '../storage/postgres';
 import {
   buscarFechamentoPorIdParaAtualizacao,
@@ -336,9 +336,13 @@ export async function lerComprovantePublico(input:{contratoId:string;provaToken:
   if(!vinculo.rows[0])acessoNegado();return lerDocumento(input.documentoId);
 }
 
-export async function gerarPdfContratoAdmin(fechamentoId: string) {
+/**
+ * D1 — PDF do contrato no Admin: `adquirir` faz TODAS as consultas no `tx` da prova de tenant (contrato,
+ * versão corrente, edição e documento persistido); `renderizar` roda depois do commit, só em memória.
+ */
+async function contratoComVersaoDoFechamento(fechamentoId: string, tx: DbExecutor) {
   const { buscarContratoPorFechamentoId } = await import("../repositories");
-  const contrato = await buscarContratoPorFechamentoId(fechamentoId);
+  const contrato = await buscarContratoPorFechamentoId(fechamentoId, tx);
   if (!contrato) {
     throw new ContratoServiceError(
       "CONTRATO_NAO_ENCONTRADO",
@@ -346,7 +350,7 @@ export async function gerarPdfContratoAdmin(fechamentoId: string) {
       404,
     );
   }
-  const versao = await buscarVersaoCorrente(contrato.id);
+  const versao = await buscarVersaoCorrente(contrato.id, tx);
   if (!versao) {
     throw new ContratoServiceError(
       "DADOS_CONTRATUAIS_INCONSISTENTES",
@@ -354,7 +358,16 @@ export async function gerarPdfContratoAdmin(fechamentoId: string) {
       409,
     );
   }
-  return { contrato, versao, ...await documentoParaLeitura(versao) };
+  return { contrato, versao };
+}
+
+export async function adquirirPdfContratoAdmin(fechamentoId: string, tx: DbExecutor) {
+  const { contrato, versao } = await contratoComVersaoDoFechamento(fechamentoId, tx);
+  return { contrato, versao, documento: await adquirirDocumentoParaLeitura(versao, tx) };
+}
+
+export function renderizarPdfContratoAdmin(dados: Awaited<ReturnType<typeof adquirirPdfContratoAdmin>>) {
+  return { contrato: dados.contrato, versao: dados.versao, ...materializarDocumento(dados.documento) };
 }
 
 export async function gerarResumoContratoPublico(input: {
@@ -368,25 +381,13 @@ export async function gerarResumoContratoPublico(input: {
   return { contrato, versao, ...documento };
 }
 
-export async function gerarResumoContratoAdmin(fechamentoId: string) {
-  const { buscarContratoPorFechamentoId } = await import("../repositories");
-  const contrato = await buscarContratoPorFechamentoId(fechamentoId);
-  if (!contrato) {
-    throw new ContratoServiceError(
-      "CONTRATO_NAO_ENCONTRADO",
-      "Contrato ainda não gerado para este Fechamento.",
-      404,
-    );
-  }
-  const versao = await buscarVersaoCorrente(contrato.id);
-  if (!versao) {
-    throw new ContratoServiceError(
-      "DADOS_CONTRATUAIS_INCONSISTENTES",
-      "Contrato encontrado sem versão corrente.",
-      409,
-    );
-  }
-  return { contrato, versao, ...gerarResumoContratacaoPdfDaVersao(versao) };
+/** D1 — Resumo em PDF no Admin: consultas no `tx` da prova; renderização depois do commit, só em memória. */
+export async function adquirirResumoContratoAdmin(fechamentoId: string, tx: DbExecutor) {
+  return contratoComVersaoDoFechamento(fechamentoId, tx);
+}
+
+export function renderizarResumoContratoAdmin(dados: Awaited<ReturnType<typeof adquirirResumoContratoAdmin>>) {
+  return { ...dados, ...gerarResumoContratacaoPdfDaVersao(dados.versao) };
 }
 
 export async function assinarContratoPublico(

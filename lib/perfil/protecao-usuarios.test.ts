@@ -112,7 +112,7 @@ function executor(estado: Estado): DbExecutor {
                 }
                 return { rows: linhas, rowCount: linhas.length };
             }
-            if (sql.includes('SELECT id, papel, ativo FROM usuarios_administrativos')) {
+            if (sql.includes('JOIN memberships m ON m.usuario_id = u.id AND m.empresa_id = $2::uuid')) {
                 const usuario = estado.usuarios.find((item) => item.id === params[0]);
                 return { rows: usuario ? [{ id: usuario.id, papel: usuario.papel, ativo: usuario.ativo }] : [], rowCount: usuario ? 1 : 0 };
             }
@@ -496,6 +496,6 @@ test('o provisionamento atual não insere concessão de perfil', () => {
     assert.match(script, /retiradaGestaoSemEncerrarSessao && !hash/);
     assert.doesNotMatch(script, /INSERT INTO perfil_empresa_concessoes/);
     assert.doesNotMatch(usuarios, /INSERT INTO perfil_empresa_concessoes/);
-    assert.match(precos, /sessao\.papel !== 'REPRESENTANTE_AUTORIZADO'/);
+    assert.match(precos, /if \(!temAutoridadeDePlataforma\(sessao\)\) throw authError\(/);
     assert.doesNotMatch(precos, /PERFIL_/);
 });

@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
-  gerarResumoContratoAdmin,
+  adquirirResumoContratoAdmin,
   isContratoServiceError,
+  renderizarResumoContratoAdmin,
 } from "@/lib/contratos/services";
 import { isClienteServiceError } from "@/lib/clientes/services";
+import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
+import { exportarContratoDoTenant } from "@/lib/contratos/services/exportacao-tenant";
+import { ResumoTenantError } from "@/lib/contratos/services/resumo-tenant";
+import { apiErrorResponse } from "@/lib/http/api-response";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
+import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    await exigirApiAdminCrmDisponivel(request);
+    const sessao = await exigirApiAdminCrmDisponivel(request);
     const parsed = z.string().uuid().safeParse(
       request.nextUrl.searchParams.get("fechamentoId") ?? "",
     );
@@ -23,7 +29,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const data = await gerarResumoContratoAdmin(parsed.data);
+    // D1: prova de tenant e TODAS as consultas na mesma transação; o PDF é montado depois do commit, só em
+    // memória. Fechamento de outra empresa, legado ou inexistente ⇒ 404 igual.
+    const data = await exportarContratoDoTenant(sessao, request.nextUrl.searchParams.get("empresaId"), parsed.data, {
+      withTenantTransaction,
+      adquirir: adquirirResumoContratoAdmin,
+      renderizar: renderizarResumoContratoAdmin,
+    });
     return new NextResponse(new Uint8Array(data.pdf), {
       status: 200,
       headers: {
@@ -35,6 +47,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof ResumoTenantError) {
+      return NextResponse.json({ ok: false, erro: error.message, codigo: error.code }, { status: 404, headers: { "Cache-Control": "no-store" } });
+    }
+    if (error instanceof PacoteAdminError) return apiErrorResponse(error);
     if (isContratoServiceError(error) || isClienteServiceError(error)) {
       return NextResponse.json(
         { ok: false, erro: error.message, codigo: error.code, detalhes: error.details ?? null },

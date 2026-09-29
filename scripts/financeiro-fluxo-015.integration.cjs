@@ -3,7 +3,7 @@ const assert=require('node:assert/strict'),{randomUUID}=require('node:crypto'),{
 module.exports=async({c,admin,festa,payment,receber,nova,fresh,freeze,accept,op,ok})=>{
  const {db}=require('../lib/db/postgres.ts'),{installPool}=require('./pagamentos-test-support.cjs'),{lerPosicaoFinanceira}=require('../lib/pagamentos/repositories/alteracao-financeira.repository.ts');
  const s=require('../lib/pagamentos/services/alteracao-financeira.service.ts'),d=require('../lib/pagamentos/services/devolucao.service.ts'),ps=require('../lib/pagamentos/services/pagamento.service.ts');
- const ctx={token:admin.token,requestId:randomUUID(),ip:null,userAgent:'Fluxo financeiro completo 015'},pc={...ctx,usuarioId:admin.usuarioId,origem:'INTEGRACAO_015'};
+ const ctx={token:admin.token,requestId:randomUUID(),ip:null,userAgent:'Fluxo financeiro completo 015',papelNoTenant:'REPRESENTANTE_AUTORIZADO'},pc={...ctx,usuarioId:admin.usuarioId,origem:'INTEGRACAO_015'};
  const f=await festa('2095-08-15'),pagamento=await payment(f),receipt=await receber(pagamento),original=pagamento.pagamento.valorTotalContratado;
  const docs=(await c.query('SELECT cd.id,cd.pdf_hash,encode(cd.conteudo_pdf,\'hex\') bytes FROM contrato_documentos cd JOIN contrato_versoes v ON v.id=cd.contrato_versao_id WHERE v.contrato_id=$1 ORDER BY cd.id',[f.cid])).rows;
  const v2=await nova(f);await op(v2,await fresh(v2,{comercial:{confirmarAprovacao:true,forma:'CARTAO_CIELO',baseNegociada:original-100,condicaoPix:null}}));await freeze(v2);await accept(v2);

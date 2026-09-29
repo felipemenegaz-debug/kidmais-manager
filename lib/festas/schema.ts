@@ -9,7 +9,7 @@ const prioridade=z.enum(['NORMAL','ATENCAO','CRITICA']);
 const responsabilidade={areaId:uuid.nullable(),responsavelId:uuid.nullable(),prazo:z.iso.datetime({offset:true}).nullable()};
 export const criarSchema=z.object({contratoId:uuid,versaoId:uuid,chave:uuid}).strict();
 export const capacidadeSchema=z.object({usuarioId:uuid,capacidade:z.enum(capacidades),conceder:z.boolean(),motivo,confirmarAutoconcessao:z.boolean().default(false)}).strict();
-export const areaSchema=z.object({id:uuid.optional(),nome:z.string().trim().min(1).max(100),ativo:z.boolean(),motivo}).strict();
+export const areaSchema=z.object({id:uuid.optional(),estabelecimentoId:uuid.nullable().optional(),nome:z.string().trim().min(1).max(100),ativo:z.boolean(),motivo}).strict();
 const camposEscolhas=Object.fromEntries(escolhasBuffet.map(k=>[k,z.string().trim().max(2000).nullable().optional()])) as Record<typeof escolhasBuffet[number],z.ZodOptional<z.ZodNullable<z.ZodString>>>;
 export const comandoSchema=z.discriminatedUnion('acao',[
  z.object({...contexto,acao:z.literal('invalidar'),motivo}).strict(),

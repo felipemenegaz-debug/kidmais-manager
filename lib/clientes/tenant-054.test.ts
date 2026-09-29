@@ -11,7 +11,8 @@ import ts from 'typescript';
 const req = createRequire(import.meta.url);
 const empresaA = 'aaaaaaaa-0000-4000-8000-00000000000a';
 const empresaB = 'bbbbbbbb-0000-4000-8000-00000000000b';
-const ler = (f: string) => readFileSync(f, 'utf8');
+// Normaliza CRLF: checkouts com core.autocrlf=true (Windows) não podem mudar o resultado das regex.
+const ler = (f: string) => readFileSync(f, 'utf8').replace(/\r\n/g, '\n');
 
 /** Carrega o TS real; módulos cujo caminho termina com uma chave de `mocks` são substituídos. */
 function carregar(arquivo: string, mocks: Record<string, unknown>) {
@@ -378,7 +379,7 @@ test('contratos: empresa autorizada vem de provarTenant da sessão e é confront
     assert.match(s, /const tenant = await provarTenant\(tx, s, empresaSolicitada\)/);
     assert.match(s, /if \(!contrato \|\| !empresaFechamento \|\| empresaFechamento !== tenant\.empresaComprovada\) conflito\('Versão não encontrada\.'\)/);
     assert.doesNotMatch(s, /tocaCadastro/);
-    assert.match(s, /const \{ contrato: c, empresaAutorizada \} = await contratoDoTenant\(tx, s, versaoId, empresaSolicitada\)/);
+    assert.match(s, /const \{ contrato: c, empresaAutorizada, tenant \} = await contratoDoTenant\(tx, s, versaoId, empresaSolicitada\)/);
     assert.doesNotMatch(s, /clienteAtual/);
     assert.doesNotMatch(ler('lib/fechamentos/services/revisao-operacional.service.ts'), /clienteAtual/);
 });

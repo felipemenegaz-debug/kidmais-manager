@@ -8,6 +8,7 @@ import { AvailabilityServiceError } from '../disponibilidade/services/errors';
 import { CondicaoPagamentoError } from '../comercial/condicao-pagamento';
 import { PacoteAdminError } from '../comercial/pacotes-admin';
 import { isPagamentoServiceError } from '../pagamentos/services/errors';
+import { ResumoTenantError } from '../contratos/services/resumo-tenant';
 
 export function jsonNoStore(data: unknown, init?: ResponseInit) {
   const response = NextResponse.json(data, init);
@@ -16,6 +17,8 @@ export function jsonNoStore(data: unknown, init?: ResponseInit) {
 }
 
 export function apiErrorResponse(error: unknown) {
+  // Posse fora do tenant comprovado, legado ou inexistente: 404 igual, sem distinguir.
+  if (error instanceof ResumoTenantError) return jsonNoStore({ ok: false, erro: error.message, codigo: error.code }, { status: 404 });
   if(error instanceof CondicaoPagamentoError) return jsonNoStore({ok:false,erro:error.message,codigo:'DADOS_INVALIDOS'},{status:400});
   if (error instanceof SyntaxError || error instanceof ZodError) {
     return NextResponse.json({ok:false,erro:'Dados inválidos.',codigo:'DADOS_INVALIDOS'}, {status:400,headers:{'Cache-Control':'no-store'}});

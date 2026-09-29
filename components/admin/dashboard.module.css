@@ -69,7 +69,8 @@
 .mesGrade p { margin: 4px 0 0; color: var(--secondary-text); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .acoes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .acoes .cta, .acoes .atalho { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: center; }
-.atalho { display: flex; align-items: center; justify-content: center; padding: 20px 8px; border-radius: 16px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); color: var(--secondary-text); text-decoration: none; text-align: center; font-size: 10px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; min-height: 44px; }
+/* Mesma altura, raio, tipografia, padding, hover e foco das ações do Admin; hierarquia secundária. */
+.atalho { composes: secundario from "./visual.module.css"; width: 100%; }
 .vazio { color: var(--secondary-text); margin: 0; }
 .base { display: none; }
 .erro { color: #f87171; }
