@@ -4,6 +4,7 @@ import { registrarJev } from "./jev/composicao"; // @pr:JEV
 import { registrarDemerzel } from "./demerzel/composicao"; // @pr:DEMERZEL
 import { registrarSkills } from "./skills/composicao"; // @pr:SKILLS
 import { registrarCopiloto } from "./copiloto/composicao"; // @pr:COPILOTO
+import { registrarAgentes } from "./agentes/composicao"; // @pr:AGENTES
 import { registrarAcoes } from "./operacoes/composicao"; // @pr:ACTIONS
 import { registrarImportacao } from "./importacoes/composicao"; // @pr:IMPORT
 
@@ -20,6 +21,7 @@ export function montarExtensoes(request: NextRequest) {
   registrarDemerzel(registro); // @pr:DEMERZEL
   registrarSkills(registro); // @pr:SKILLS
   registrarCopiloto(registro); // @pr:COPILOTO
+  registrarAgentes(registro); // @pr:AGENTES
   registrarAcoes(registro); // @pr:ACTIONS
   registrarImportacao(registro, request); // @pr:IMPORT
   return registro;

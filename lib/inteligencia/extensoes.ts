@@ -105,6 +105,10 @@ export type PortasOrquestracao = {
    * sem Copiloto, falha ou recusa do contexto, devolve a resposta como veio.
    */
   complementar(resposta: AIResponse, opcoes: { explicar: boolean }): Promise<AIResponse>;
+  /** Registro de agentes (feature AGENTES), quando instalado; null ⇒ só o fluxo da orquestradora. */
+  agentes: RegistroAgentes | null;
+  /** Valores de marcadores de template para a entidade aberta, lidos pelo Core no tenant comprovado. */
+  marcadores(): Promise<Readonly<Record<string, string>>>;
   relogio(): number;
 };
 
@@ -182,6 +186,7 @@ export const CHAVE_CLASSIFICADOR_AUXILIAR = chaveExtensao<ClassificadorAuxiliar>
 export const CHAVE_ORQUESTRADOR = chaveExtensao<Orquestrador>("core.orquestrador");
 export const CHAVE_CATALOGO_SKILLS = chaveExtensao<CatalogoSkills>("core.catalogo-skills");
 export const CHAVE_COPILOTO = chaveExtensao<Complementador>("core.copiloto");
+export const CHAVE_AGENTES = chaveExtensao<RegistroAgentes>("core.agentes");
 
 /** Contêiner de extensões por pedido. Valores podem ser preguiçosos (montados na primeira leitura). */
 export class RegistroExtensoes {
@@ -227,4 +232,16 @@ export interface Complementador {
     explicar: boolean;
     modelo: PortaModeloClassificacao | null;
   }): Promise<ComplementoCopiloto | null>;
+}
+
+/** O que um agente pode usar: só leitura, proposta sob Human Gate, skills e marcadores — tudo guardado. */
+export type PortasAgente = Pick<PortasOrquestracao, "catalogo" | "ler" | "propor" | "descreverAcao" | "skill" | "marcadores">;
+
+/**
+ * Registro de agentes (feature AGENTES). Cada agente tem um plano FECHADO e uma lista própria de capacidades;
+ * não escolhe ferramenta livre, não recebe banco/tenant/sessão, não executa mutação (só propõe pelo Human Gate).
+ */
+export interface RegistroAgentes {
+  selecionar(entrada: { texto: string; contexto: ContextoTela | null; julgamento: Readonly<Record<string, string | number>>; regras: Intencao }): { id: string; motivo: string } | null;
+  executar(id: string, entrada: { texto: string; contexto: ContextoTela | null; regras: Intencao; motivo: string }, portas: PortasAgente): Promise<AIResponse>;
 }

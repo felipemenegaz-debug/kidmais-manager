@@ -66,6 +66,8 @@ function espiao(opcoes: {
     registrarResumo: (r) => { e.resumos.push(r); },
     skill: async () => null,
     complementar: async (r) => r,
+    agentes: null,
+    marcadores: async () => ({}),
     relogio: opcoes.relogio ?? (() => performance.now()),
   };
   return e;

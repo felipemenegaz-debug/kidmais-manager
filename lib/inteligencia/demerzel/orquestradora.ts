@@ -1,5 +1,5 @@
 import type { AIResponse, ContextoTela } from "../contratos.ts";
-import type { Orquestrador, PassoOrquestracao, PortasOrquestracao, ResumoOrquestracao } from "../extensoes.ts";
+import type { Orquestrador, PassoOrquestracao, PortasAgente, PortasOrquestracao, ResumoOrquestracao } from "../extensoes.ts";
 import type { Intencao } from "../intencao.ts";
 import { normalizar } from "../texto-pt.ts";
 import type { JulgamentoJev, MotivoJev, TelaJev } from "../jev/v1/contrato.ts";
@@ -238,7 +238,29 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
           return terminar("RECUSA_JULGAMENTO", recusa(mensagem));
         }
 
-        // 4. Caminho das regras: leitura (Policy + tenant no gateway) ou proposta sob Human Gate.
+        // 4. Agente: plano fechado sobre as MESMAS portas; cada leitura/proposta/skill/marcador é um passo contado
+        //    (limites, duplicidade, prazo e trace valem igual). O agente nunca recebe as portas cruas.
+        const agentes = portas.agentes;
+        if (agentes) {
+          const escolhido = await exec.passo("SELECAO_AGENTE", "", () => agentes.selecionar({ texto, contexto, julgamento: resumoJulgamento(j), regras }), (a) => a?.id ?? "NENHUM");
+          if (escolhido) {
+            const contadas: PortasAgente = {
+              catalogo: portas.catalogo,
+              descreverAcao: (capacidade) => portas.descreverAcao(capacidade),
+              ler: (capacidade, parametros, origem) => exec.passo("LEITURA", `${capacidade}:${JSON.stringify(parametros)}`, () => portas.ler(capacidade, parametros, origem), (v) => v.tipo),
+              propor: (capacidade, textoAcao, origem) => exec.passo("PROPOSTA_ACAO", capacidade, () => portas.propor(capacidade, textoAcao, origem), (v) => v.tipo),
+              skill: async (finalidade, capacidade) => {
+                const s = await exec.passo("SELECAO_SKILL", `${finalidade}:${capacidade ?? ""}`, () => portas.skill(finalidade, capacidade), (x) => (x ? x.nivel : "NENHUMA"));
+                if (s) skills.push(`${s.id}@${s.versao}#${s.hash.slice(0, 8)}`);
+                return s;
+              },
+              marcadores: () => exec.passo("MARCADORES", "", () => portas.marcadores(), (m) => String(Object.keys(m).length)),
+            };
+            return terminar("AGENTE", await agentes.executar(escolhido.id, { texto, contexto, regras, motivo: escolhido.motivo }, contadas));
+          }
+        }
+
+        // 5. Caminho das regras: leitura (Policy + tenant no gateway) ou proposta sob Human Gate.
         if (regras.tipo !== "nenhuma") return await despachar(regras, j);
 
         // Sem rota pelas regras: auxiliar legado → modelo (enum fechado do catálogo) → resposta honesta.

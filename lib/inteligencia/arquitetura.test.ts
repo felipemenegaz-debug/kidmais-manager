@@ -73,6 +73,9 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno"],
   "lib/festas/service": ["FestaError", "consultarFestas"],
   "lib/ia-persistencia/uso": ["criarRegistroUsoPostgres"],
+  // AI V1 (agentes): posse do contrato na empresa comprovada e detalhe do domínio para comparar versões.
+  "lib/contratos/services/contrato-tenant": ["contratoNoTenant"],
+  "lib/contratos/services/administrativo.service": ["detalheAdministrativo"],
   "lib/comercial/pacote-comercial": ["painelPacoteAdmin", "salvarPacoteComercial"], // @pr:ACTIONS
   "lib/comercial/pacote-precos": ["gravarFaixasPacote"], // @pr:ACTIONS
   "lib/comercial/pacotes-admin": ["alterarSituacaoPacoteAdmin", "criarRevisaoPacoteAdmin", "editarPacoteNaoUtilizado", "listarPacotesAdmin"], // @pr:ACTIONS
@@ -87,7 +90,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
-  "dependencias.ts": ["consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction"],
+  "dependencias.ts": ["consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo("],
   "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
   "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao"], // @pr:IMPORT
@@ -332,19 +335,19 @@ test("as flags só são lidas pela IA; o Core não consulta INTELIGENCIA_ENABLED
 
 /**
  * B2 — PRs separáveis. O CORE não importa nenhuma feature; cada feature só importa o CORE e as features
- * anteriores na ordem CORE → JEV → DEMERZEL → SKILLS → COPILOTO → ACTIONS → DOCUMENT → IMPORT. O único ponto de encontro é
+ * anteriores na ordem CORE → JEV → DEMERZEL → SKILLS → COPILOTO → AGENTES → ACTIONS → DOCUMENT → IMPORT. O único ponto de encontro é
  * app/api/admin/inteligencia/extensoes.ts, com uma linha marcada `@pr:` por feature.
  */
-const FEATURES = { jev: "JEV", demerzel: "DEMERZEL", skills: "SKILLS", copiloto: "COPILOTO", acoes: "ACTIONS", documentos: "DOCUMENT", importacao: "IMPORT" } as const;
-const ORDEM = ["CORE", "JEV", "DEMERZEL", "SKILLS", "COPILOTO", "ACTIONS", "DOCUMENT", "IMPORT"] as const;
+const FEATURES = { jev: "JEV", demerzel: "DEMERZEL", skills: "SKILLS", copiloto: "COPILOTO", agentes: "AGENTES", acoes: "ACTIONS", documentos: "DOCUMENT", importacao: "IMPORT" } as const;
+const ORDEM = ["CORE", "JEV", "DEMERZEL", "SKILLS", "COPILOTO", "AGENTES", "ACTIONS", "DOCUMENT", "IMPORT"] as const;
 type Camada = (typeof ORDEM)[number];
 
 function camadaDe(chave: string): Camada | null {
   const ia = chave.match(/^lib\/inteligencia\/([^/]+)\//);
   if (ia) return (FEATURES as Record<string, Camada>)[ia[1]] ?? "CORE";
   if (/^lib\/inteligencia\/[^/]+$/.test(chave)) return "CORE";
-  const rota = chave.match(/^app\/api\/admin\/inteligencia\/(jev|demerzel|skills|copiloto|operacoes|documentos|importacoes)\//);
-  if (rota) return ({ jev: "JEV", demerzel: "DEMERZEL", skills: "SKILLS", copiloto: "COPILOTO", operacoes: "ACTIONS", documentos: "DOCUMENT", importacoes: "IMPORT" } as const)[rota[1] as "operacoes"];
+  const rota = chave.match(/^app\/api\/admin\/inteligencia\/(jev|demerzel|skills|copiloto|agentes|operacoes|documentos|importacoes)\//);
+  if (rota) return ({ jev: "JEV", demerzel: "DEMERZEL", skills: "SKILLS", copiloto: "COPILOTO", agentes: "AGENTES", operacoes: "ACTIONS", documentos: "DOCUMENT", importacoes: "IMPORT" } as const)[rota[1] as "operacoes"];
   if (/^app\/api\/admin\/inteligencia\/[^/]+$/.test(chave)) return "CORE";
   if (/^lib\/importacao-contrato\/(plano|motor|repositorio-importacao)$/.test(chave)) return "IMPORT";
   if (/^lib\/importacao-contrato\/(arquivo|pdf-texto|pdf-isolado|pdf-worker|extracao|validadores|rascunho|repositorio-documentos|multipart)$/.test(chave)) return "DOCUMENT";
@@ -389,7 +392,7 @@ test("B2: o registro de ações é extensível (fábricas + RegistroExtensoes), 
   const conversa = readFileSync(join(raiz, "lib", "inteligencia", "conversa.ts"), "utf8");
   assert.doesNotMatch(conversa, /acoes\/|documentos\/|importacao\//, "a conversa recebe ModuloAcoes por dependência");
   const extensoes = readFileSync(join(PASTA_ROTAS, "extensoes.ts"), "utf8");
-  for (const linha of extensoes.split(/\r?\n/).filter((l) => /registrar(Jev|Demerzel|Skills|Copiloto|Acoes|Importacao|Documentos)|composicao/.test(l))) {
-    assert.match(linha, /\/\/ @pr:(JEV|DEMERZEL|SKILLS|COPILOTO|ACTIONS|DOCUMENT|IMPORT)$/, linha);
+  for (const linha of extensoes.split(/\r?\n/).filter((l) => /registrar(Jev|Demerzel|Skills|Copiloto|Agentes|Acoes|Importacao|Documentos)|composicao/.test(l))) {
+    assert.match(linha, /\/\/ @pr:(JEV|DEMERZEL|SKILLS|COPILOTO|AGENTES|ACTIONS|DOCUMENT|IMPORT)$/, linha);
   }
 });

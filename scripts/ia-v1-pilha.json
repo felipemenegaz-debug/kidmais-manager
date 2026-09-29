@@ -31,6 +31,11 @@
       "pr": "COPILOTO_V1",
       "branch": "ai-v1/05-copiloto",
       "descricao": "Copiloto V1: perguntas por tela, navegação conceitual, próxima ação por procedimento de skill, explicação por modelo validada contra os dados; flag AI_COPILOTO_MODEL_ENABLED"
+    },
+    {
+      "pr": "AGENTES_V1",
+      "branch": "ai-v1/06-agentes",
+      "descricao": "Agentes V1: Atendimento, Analista Operacional, Documentos e Copiloto Administrativo, determinísticos e de plano fechado; leituras pelo catálogo do operador, propostas só pelo Human Gate; novas leituras pacotes_disponiveis (sem preço) e comparar_versoes_contrato (snapshots)"
     }
   ]
 }

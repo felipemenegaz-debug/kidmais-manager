@@ -164,6 +164,8 @@ export type RascunhoPublico = {
 export type AIResponse =
   /** `atencao_hoje` (V1) mantém o próprio formato; as demais leituras usam RespostaLeitura. */
   | { tipo: "resposta"; dados: RespostaLeitura | AtencaoHoje; complemento?: ComplementoCopiloto }
+  /** Agente (V1): seções de leituras REAIS já autorizadas + rascunho rotulado. Nunca executa. */
+  | { tipo: "agente"; agente: { id: string; nome: string }; resumo: string; secoes: SecaoAgente[]; sugestao: SugestaoAgente | null }
   | { tipo: "rascunho"; rascunho: RascunhoPublico; pergunta: string; faltando: string[] }
   | { tipo: "preview"; rascunho: RascunhoPublico }
   | { tipo: "resultado_acao"; rascunho: RascunhoPublico; mensagem: string; destino?: string }
@@ -253,3 +255,12 @@ export type ComplementoCopiloto = {
   explicacao: { frases: string[]; origem: "MODELO"; aviso: string } | null;
   proximaAcao: { titulo: string; passos: string[]; destino: string | null; fonte: string } | null;
 };
+
+/** Uma leitura feita por um agente, pelo mesmo caminho do gateway (Policy + Tenant Context). */
+export type SecaoAgente = { titulo: string; dados: RespostaLeitura | AtencaoHoje };
+
+/**
+ * Rascunho de texto de um agente (template de skill com marcadores preenchidos pelo Core). É SUGESTÃO para a equipe
+ * revisar: nada é enviado. `pendentes` lista marcadores que o Core não tinha como preencher.
+ */
+export type SugestaoAgente = { titulo: string; texto: string; fonte: string; aviso: string; pendentes: string[] };

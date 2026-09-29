@@ -3,7 +3,7 @@ import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.t
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
 import type { AIResponse, ContextoTela, ModelUsage, OrigemChamada, RespostaLeitura } from "./contratos.ts";
-import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, Orquestrador, PortaModeloClassificacao, PortasOrquestracao } from "./extensoes.ts";
+import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, Orquestrador, PortaModeloClassificacao, PortasOrquestracao, RegistroAgentes } from "./extensoes.ts";
 import { construirContextoAutorizado, construirContextoModelo } from "./contexto/construtor.ts";
 import { ContextoRecusado } from "./contexto/contrato.ts";
 import { ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
@@ -57,6 +57,8 @@ export type DependenciasConversa = DependenciasGateway & {
   skills?: CatalogoSkills | null;
   /** Copiloto (próxima ação e explicação validada), opcional; só complementa leituras já autorizadas. */
   copiloto?: Complementador | null;
+  /** Agentes (planos fechados sobre as mesmas portas), opcional. */
+  agentes?: RegistroAgentes | null;
 };
 
 /** Teto de espera pelo classificador auxiliar: nunca atrasa a resposta além disso. */
@@ -311,6 +313,16 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
       const procedimento = await skill("PROCEDIMENTO", capacidade);
       const complemento = await copiloto.complementar({ capacidade, dados, contextoModelo, procedimento, explicar: opcoes.explicar, modelo });
       return complemento ? { ...resposta, complemento } : resposta;
+    },
+    agentes: deps.agentes ?? null,
+    async marcadores() {
+      // Só a entidade aberta na tela, lida pelo domínio no tenant comprovado (outra empresa ⇒ inexistente).
+      const porta = deps.portas?.clientes ?? null;
+      const id = e.contexto?.tela === "cliente" ? e.contexto.entidadeId : undefined;
+      if (!porta || !id) return {};
+      const cliente = await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, (tx, comprovado) => porta.obter(tx, comprovado.empresaComprovada, id));
+      const aniversariante = cliente.aniversariantes.find((a) => a.ativo)?.nome;
+      return { nome_cliente: cliente.cliente.nomeCompleto, ...(aniversariante ? { nome_aniversariante: aniversariante } : {}) };
     },
     relogio: deps.relogio ?? (() => performance.now()),
   };
