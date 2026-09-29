@@ -159,6 +159,17 @@ export const SUGESTOES: readonly Manifesto[] = Object.freeze([
   sugestao("copiloto.explicar_dados", "explicar_dados", "OPERACAO", "COPILOTO"),
 ]);
 
+/** Finalidade de skill que produz SUGESTÃO ⇒ capacidade SUGGEST do registro (Policy decide antes de resolver). */
+export const SUGESTAO_POR_FINALIDADE: Readonly<Record<string, string>> = Object.freeze({
+  SUGESTAO_TEXTO: "redigir_mensagem",
+  OBJECAO: "orientar_objecao",
+  PROCEDIMENTO: "proxima_acao",
+});
+
+export function manifestoSugestao(capacidade: string): Manifesto | null {
+  return SUGESTOES.find((m) => m.capacidade === capacidade) ?? null;
+}
+
 function sugestao(nome: string, capacidade: string, dominio: Dominio, executor: "AGENTE" | "COPILOTO"): Manifesto {
   return {
     nome, capacidade, dominio, classe: "SUGGEST", papeisExigidos: ["ADMINISTRATIVO", "REPRESENTANTE_AUTORIZADO"], grupoExigido: "READ",
