@@ -66,6 +66,11 @@
       "pr": "SEGURANCA_V1",
       "branch": "ai-v1/12-seguranca",
       "descricao": "Segurança adversarial V1: 18 vetores atacados com testes; correções de tenant citado por id, envenenamento de contexto, injeção em skill e em marcador, telas agenda/configurações no schema; riscos residuais classificados"
+    },
+    {
+      "pr": "INTEGRADO_V1",
+      "branch": "ai-v1/13-integrado",
+      "descricao": "Cenários ponta a ponta A–J com a composição V1 inteira (conversa, Tenant Context, JEV, Demerzel, Skills, Copiloto, Agentes, Registry, Policy, Human Gate, Model Router); só banco, provedor e portas falsos"
     }
   ]
 }
