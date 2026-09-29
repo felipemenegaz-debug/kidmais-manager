@@ -71,6 +71,11 @@
       "pr": "INTEGRADO_V1",
       "branch": "ai-v1/13-integrado",
       "descricao": "Cenários ponta a ponta A–J com a composição V1 inteira (conversa, Tenant Context, JEV, Demerzel, Skills, Copiloto, Agentes, Registry, Policy, Human Gate, Model Router); só banco, provedor e portas falsos"
+    },
+    {
+      "pr": "DOCS_V1",
+      "branch": "ai-v1/14-docs",
+      "descricao": "Documentação V1: arquitetura, runbooks e troubleshooting; AI MODULE V1 BASELINE (componentes, versões, flags, testes, limitações, gates de staging e produção)"
     }
   ]
 }
