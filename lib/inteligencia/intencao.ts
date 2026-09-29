@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ContextoTela, OrigemChamada } from "./contratos.ts";
+import { prepararTextoParaModelo } from "./texto-modelo.ts";
 import { normalizar } from "./texto-pt.ts";
 import type { RoteadorModelos, AlvoRoteamento, ResultadoRoteado } from "./modelos/roteador.ts";
 
@@ -108,7 +109,8 @@ export async function interpretarComModelo(
     workload: "CLASSIFICAR_INTENCAO",
     mensagens: [
       { papel: "system", conteudo: INSTRUCAO },
-      { papel: "user", conteudo: JSON.stringify({ texto: texto.slice(0, 300), capacidades: catalogo.map((c) => ({ id: c.id, descricao: c.descricao })) }) },
+      // Mesma preparação canônica de todo texto para modelo: sem ocultos, sem CPF/e-mail/telefone/ids, limitado.
+      { papel: "user", conteudo: JSON.stringify({ texto: prepararTextoParaModelo(texto).texto, capacidades: catalogo.map((c) => ({ id: c.id, descricao: c.descricao })) }) },
     ],
     esquema: {
       nome: "classificacao",

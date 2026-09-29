@@ -1,3 +1,4 @@
+import { prepararTextoParaModelo } from "../../texto-modelo.ts";
 import { normalizar } from "../../texto-pt.ts";
 import {
   VERSAO_JEV_V1, type ClasseJev, type ClassificadorJev, type EntradaJev, type JulgamentoJev, type MotivoJev, type ResultadoJev, type TelaJev,
@@ -16,16 +17,6 @@ export const LIMITE_TEXTO_JEV = 300;
 
 // ---------------------------------------------------------------- minimização
 
-const OCULTOS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u2028-\u202E\u2060-\u2064\uFEFF]/g;
-const PII: ReadonlyArray<[RegExp, string]> = [
-  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]"],
-  [/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]"],
-  [/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, "[cnpj]"],
-  [/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "[cpf]"],
-  [/(?:\+?55\s?)?\(?\b\d{2}\)?\s?9?\d{4}[-\s]?\d{4}\b/g, "[telefone]"],
-  [/\b\d{6,}\b/g, "[numero]"],
-];
-
 export type TextoMinimizado = { texto: string; motivos: MotivoJev[] };
 
 /**
@@ -34,22 +25,13 @@ export type TextoMinimizado = { texto: string; motivos: MotivoJev[] };
  */
 export function minimizarTexto(bruto: string): TextoMinimizado {
   const motivos: MotivoJev[] = [];
-  // NFKC: letras de largura total e compatibilidade viram as comuns ("ｅｘｃｌｕａ" ⇒ "exclua").
-  let texto = bruto.normalize("NFKC");
-  const semOcultos = texto.replace(OCULTOS, "");
-  if (semOcultos !== texto) motivos.push("CARACTERE_OCULTO_REMOVIDO");
-  texto = semOcultos.replace(/\s+/g, " ").trim();
-  if (texto.length > LIMITE_TEXTO_JEV) {
-    texto = texto.slice(0, LIMITE_TEXTO_JEV);
-    motivos.push("TEXTO_TRUNCADO");
-  }
-  let removeu = false;
-  for (const [padrao, marcador] of PII) {
-    const trocado = texto.replace(padrao, marcador);
-    if (trocado !== texto) removeu = true;
-    texto = trocado;
-  }
-  if (removeu) motivos.push("PII_REMOVIDA");
+  // Mesma preparação canônica de todo texto que vai a modelo (lib/inteligencia/texto-modelo.ts): NFKC, ocultos,
+  // redação ANTES do corte (e-mail, id, CNPJ, CPF, telefone, links, números longos) e limite.
+  const preparado = prepararTextoParaModelo(bruto, { limite: LIMITE_TEXTO_JEV });
+  const texto = preparado.texto;
+  if (preparado.ocultosRemovidos) motivos.push("CARACTERE_OCULTO_REMOVIDO");
+  if (preparado.truncado) motivos.push("TEXTO_TRUNCADO");
+  if (preparado.redacoes > 0) motivos.push("PII_REMOVIDA");
   // Homoglifos: palavra com letras latinas misturadas a cirílicas/gregas ("еxclua" com "е" cirílico) é disfarce.
   // NFKC não os converte; o julgamento trata como instrução suspeita (mais restritivo), nunca como texto limpo.
   if (texto.split(/\s+/).some((palavra) => /\p{Script=Latin}/u.test(palavra) && /[\p{Script=Cyrillic}\p{Script=Greek}]/u.test(palavra))) motivos.push("ESCRITA_MISTA");

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { CausaModelo, IdProvedor, ModelUsage, TierModelo, Workload } from "../contratos.ts";
 import type { Ambiente } from "../flags.ts";
+import { barreiraTextoModelo } from "../texto-modelo.ts";
 import { Circuito } from "./circuito.ts";
 import { PERFIL_DEEPSEEK, PERFIL_OPENAI, criarAdaptadorOpenAICompativel } from "./openai-compativel.ts";
 import { TTL_RESERVA_MS, estimarTokensEntrada, periodosDe, planejarReserva, type OrcamentoConfigurado, type RegistroUso } from "./orcamento.ts";
@@ -219,7 +220,15 @@ export class RoteadorModelos {
     }
   }
 
-  async executar<T>(pedido: PedidoModelo<T>, alvo: AlvoRoteamento): Promise<ResultadoRoteado<T>> {
+  async executar<T>(pedidoOriginal: PedidoModelo<T>, alvo: AlvoRoteamento): Promise<ResultadoRoteado<T>> {
+    // Barreira de PII do roteador: TODA mensagem de usuário de qualquer chamador passa pela preparação canônica
+    // (ocultos + CPF/CNPJ/e-mail/telefone/ids) antes de chegar a qualquer provedor, primário ou fallback. Única
+    // exceção: EXTRACAO_CONTRATO, cujo propósito é ler o documento e que só roda com
+    // AI_DOCUMENT_EXTERNAL_PROVIDER_ALLOWED=true (autorização humana explícita, desligada por padrão).
+    const pedido: PedidoModelo<T> = pedidoOriginal.workload === "EXTRACAO_CONTRATO" ? pedidoOriginal : {
+      ...pedidoOriginal,
+      mensagens: pedidoOriginal.mensagens.map((m) => (m.papel === "user" ? { ...m, conteudo: barreiraTextoModelo(m.conteudo) } : m)),
+    };
     const { politica, circuito, relogio } = this.deps;
     const tier = politica.tiers[pedido.workload];
     const usos: ModelUsage[] = [];
