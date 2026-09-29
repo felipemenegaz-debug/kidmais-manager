@@ -11,6 +11,10 @@
  * Antes, confere o manifesto: todo arquivo alterado em relação à base pertence a exatamente um PR,
  * e todo arquivo do manifesto existe. Nada aqui acessa banco, rede, env ou o repositório para escrita.
  *
+ * Manifesto CONGELADO (`ate`): a Foundation já foi integrada (merge em `ate`). Diff, existência e conteúdo
+ * dos arquivos vêm desse commit, não da árvore de trabalho: a prova continua reproduzível depois que a
+ * branch segue com outras mudanças (ex.: PRs posteriores que não pertencem a este manifesto).
+ *
  * Uso: node scripts/ia-composicao-prs.cjs [--so-manifesto] [--estagio CORE,ACTIONS]
  */
 const fs = require("node:fs");
@@ -28,18 +32,33 @@ function git(...argumentos) {
   return r.stdout;
 }
 
+/** Conteúdo binário-seguro de um arquivo no commit congelado (sem conversão de fim de linha). */
+function conteudoCongelado(arquivo) {
+  const r = spawnSync("git", ["-c", "core.autocrlf=false", "show", `${manifesto.ate}:${arquivo}`], { cwd: raiz, maxBuffer: 64 * 1024 * 1024 });
+  if (r.status !== 0) throw new Error(`git show ${manifesto.ate}:${arquivo}: ${r.stderr}`);
+  return r.stdout;
+}
+
+function existe(arquivo) {
+  if (!manifesto.ate) return fs.existsSync(path.join(raiz, arquivo));
+  return spawnSync("git", ["cat-file", "-e", `${manifesto.ate}:${arquivo}`], { cwd: raiz }).status === 0;
+}
+
 function conferirManifesto() {
-  const alterados = new Set([
-    ...git("diff", "--name-only", manifesto.base).split("\n"),
-    ...git("ls-files", "--others", "--exclude-standard").split("\n"),
-  ].map((l) => l.trim()).filter(Boolean));
+  if (manifesto.ate) git("cat-file", "-e", `${manifesto.ate}^{commit}`);
+  const alterados = new Set((manifesto.ate
+    ? git("diff", "--name-only", manifesto.base, manifesto.ate).split("\n")
+    : [
+      ...git("diff", "--name-only", manifesto.base).split("\n"),
+      ...git("ls-files", "--others", "--exclude-standard").split("\n"),
+    ]).map((l) => l.trim()).filter(Boolean));
   const dono = new Map();
   const erros = [];
   for (const [pr, arquivos] of Object.entries(manifesto.prs)) {
     for (const arquivo of arquivos) {
       if (dono.has(arquivo)) erros.push(`${arquivo}: em ${dono.get(arquivo)} e em ${pr}`);
       dono.set(arquivo, pr);
-      if (!fs.existsSync(path.join(raiz, arquivo))) erros.push(`${arquivo}: listado em ${pr} mas não existe`);
+      if (!existe(arquivo)) erros.push(`${arquivo}: listado em ${pr} mas não existe`);
     }
   }
   for (const arquivo of alterados) if (!dono.has(arquivo)) erros.push(`${arquivo}: alterado mas fora do manifesto`);
@@ -92,7 +111,8 @@ function montar(estagio) {
     for (const arquivo of manifesto.prs[pr]) {
       const destino = path.join(dir, arquivo);
       fs.mkdirSync(path.dirname(destino), { recursive: true });
-      fs.copyFileSync(path.join(raiz, arquivo), destino);
+      if (manifesto.ate) fs.writeFileSync(destino, conteudoCongelado(arquivo));
+      else fs.copyFileSync(path.join(raiz, arquivo), destino);
     }
   }
   for (const arquivo of Object.keys(manifesto.marcados)) {

@@ -1,6 +1,7 @@
 {
-  "descricao": "Manifesto dos PRs do Kidmais Intelligence Production V1. Cada arquivo alterado pertence a exatamente um PR. Arquivos em 'marcados' pertencem ao PR dono e recebem linhas de outros PRs marcadas com '// @pr:<PR>'.",
+  "descricao": "Manifesto dos PRs do Kidmais Intelligence Production V1. Cada arquivo alterado pertence a exatamente um PR. Arquivos em 'marcados' pertencem ao PR dono e recebem linhas de outros PRs marcadas com '// @pr:<PR>'. CONGELADO: a Foundation foi integrada em staging no merge 7bdb71e (PR #13); diff e conteúdo vêm de 'ate', não da árvore de trabalho. Trabalho posterior da IA usa a pilha V1 (scripts/ia-v1-pilha.json).",
   "base": "ef1e289",
+  "ate": "7bdb71ead1048dcc14c79a4c32ad6c98a2996fde",
   "ordem": [
     "CORE",
     "UX",

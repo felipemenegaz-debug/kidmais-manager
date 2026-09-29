@@ -1,6 +1,15 @@
 # Manifesto dos PRs — Kidmais Intelligence Production V1
 
 Fonte da verdade: `scripts/ia-prs-manifesto.json` (este arquivo é gerado dele). Base: `ef1e289` (origin/staging com o PR #12).
+
+> **Congelado.** A Foundation foi integrada em `staging` no merge `7bdb71e` (PR #13). O manifesto tem
+> `"ate": "7bdb71e…"`: diff, existência e conteúdo dos arquivos vêm desse commit, não da árvore de trabalho,
+> então a prova continua reproduzível depois de PRs posteriores (ex.: #14 e #15, que não pertencem a ela e
+> faziam o check acusar "alterado mas fora do manifesto"). O trabalho posterior da IA é provado pela
+> **pilha V1** (`scripts/ia-v1-pilha.json`, `scripts/ia-v1-pilha.cjs`): cada fase é uma branch que parte da
+> anterior; o check confere a ordem de ancestralidade e roda `tsc` + testes unitários no commit de cada fase.
+> `npm run check:ia:prs` roda os dois, nesta ordem.
+
 Cada arquivo alterado pertence a **exatamente um** PR. `npm run check:ia:prs` confere isso e prova, com
 estados intermediários reais (commit base + só os arquivos do estágio), que cada estágio compila e passa
 nos testes unitários:
