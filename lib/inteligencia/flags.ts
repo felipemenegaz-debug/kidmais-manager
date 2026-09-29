@@ -68,3 +68,11 @@ export function jevAtivo(env: Ambiente) {
 export function jevModeloAtivo(env: Ambiente) {
   return jevAtivo(env) && env.AI_JEV_MODEL_ENABLED === "true";
 }
+
+/**
+ * Orquestradora (Demerzel) no lugar do roteamento direto da conversa (AI_DEMERZEL_ENABLED). Exige a chave-mestra e
+ * AI_READ_ENABLED (a conversa já exige). Desligada, a conversa segue o caminho da Foundation, sem mudança.
+ */
+export function demerzelAtivo(env: Ambiente) {
+  return inteligenciaAtiva(env) && env.AI_DEMERZEL_ENABLED === "true";
+}
