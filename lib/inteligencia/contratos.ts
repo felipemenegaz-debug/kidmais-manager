@@ -216,8 +216,21 @@ export type ModelUsage = {
  */
 export type AuditTrace = {
   evento: "inteligencia.capacidade" | "inteligencia.conversa" | "inteligencia.operacao" | "inteligencia.documento";
+  /** Id de rastreio ponta a ponta: correlationId (ou requestId sem correlação). */
+  traceId: string;
   requestId: string;
   correlationId: string | null;
+  /** Sempre null na V1: o Tenant Context não tem estabelecimento (gate de produção registrado). */
+  estabelecimentoId: string | null;
+  /** Skills aplicadas como `id@versao#hash8` (proveniência, nunca conteúdo). */
+  skills: string[];
+  /** Origem do julgamento JEV (REGRAS, COMBINADO com modelo, FALLBACK_REGRAS); null quando o JEV não rodou. */
+  classificadorJev: string | null;
+  /** Capacidade CONFIRM proposta ao Human Gate neste pedido (proposta, nunca execução). */
+  propostaAcao: string | null;
+  /** Versões dos contratos que decidiram o pedido (Tool Registry e Policy). */
+  versaoRegistro: string;
+  versaoPolitica: string;
   usuarioId: string | null;
   empresaId: string | null;
   capacidade: string | null;

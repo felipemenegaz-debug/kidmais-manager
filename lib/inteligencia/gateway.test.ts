@@ -384,7 +384,9 @@ test("11. o trace só leva metadados: sem PII, valores, tokens ou texto do pedid
     // AI V1 (Demerzel): resumo por passo, só códigos e contagens; null fora da orquestradora.
     "orquestracao", "politica", "provedor", "requestId", "resultado",
     "tokensEntrada", "tokensSaida", "usuarioId",
-  ]);
+    // AI V1 (observabilidade): rastreio ponta a ponta, estabelecimento (null na V1), skills, JEV, proposta e versões.
+    "classificadorJev", "estabelecimentoId", "propostaAcao", "skills", "traceId", "versaoPolitica", "versaoRegistro",
+  ].sort());
   assert.equal(primeiro.orquestracao, null);
   assert.equal(primeiro.politica, "PERMITIDO");
   assert.deepEqual(primeiro.ferramentasExecutadas, ["atencao_hoje"]);

@@ -17,7 +17,7 @@ import type { RoteadorModelos } from "./modelos/roteador.ts";
 import { avaliarPolitica } from "./politica.ts";
 import { decidirPolitica } from "./politica-v1.ts";
 import { SUGESTAO_POR_FINALIDADE, manifestoAcao, manifestoLeitura, manifestoSugestao } from "./registro-ferramentas.ts";
-import { anotarUsoModelo, novoRastreio, type RastreioInteligencia } from "./rastreio.ts";
+import { anotarOrquestracao, anotarSkill, anotarUsoModelo, novoRastreio, type RastreioInteligencia } from "./rastreio.ts";
 
 /**
  * Orquestrador do drawer "Perguntar ao Kidmais".
@@ -216,6 +216,7 @@ async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execu
       return (await acoes.iniciar(acao.capacidade, e.texto, e.contextoExtensao(tx, tenant))).resposta;
     });
     rastreio.humanGate = resposta.tipo === "preview" ? "PREVIEW" : resposta.tipo === "rascunho" ? "RASCUNHO" : null;
+    if (rastreio.humanGate) rastreio.propostaAcao = acao.capacidade;
   }
   rastreio.estado = resposta.tipo;
   return resposta;
@@ -280,7 +281,7 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
     propor: (capacidade, _texto, origem) => responderAcao(capacidade, origem, e),
     descreverAcao: (capacidade) => deps.acoes?.descrever(capacidade) ?? null,
     usosDeModelo: () => usos,
-    registrarResumo: (resumo) => { rastreio.orquestracao = resumo; },
+    registrarResumo: (resumo) => anotarOrquestracao(rastreio, resumo),
     skill: (finalidade, capacidade) => skill(finalidade, capacidade),
     async complementar(resposta, opcoes) {
       const copiloto = deps.copiloto ?? null;
@@ -347,7 +348,9 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
       if (decisao !== "PERMITIDO") return null;
     }
     // Estabelecimento: o Tenant Context atual não tem unidade; overrides por estabelecimento ficam inativos.
-    return catalogo.resolver({ empresaId: comprovado.empresaComprovada, estabelecimentoId: null, finalidade, capacidade });
+    const aplicada = await catalogo.resolver({ empresaId: comprovado.empresaComprovada, estabelecimentoId: null, finalidade, capacidade });
+    if (aplicada) anotarSkill(e.rastreio, `${aplicada.id}@${aplicada.versao}#${aplicada.hash.slice(0, 8)}`);
+    return aplicada;
   }
 }
 

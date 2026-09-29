@@ -46,6 +46,11 @@
       "pr": "POLITICA_V1",
       "branch": "ai-v1/08-politica",
       "descricao": "Policy V1: decisão única sobre o manifesto (sem manifesto, FORBIDDEN, classe×caminho, origem da confirmação, papel da membership, flags/allowlist); aplicada no gateway (antes e dentro do tenant), em cada passo do Human Gate e antes de toda SUGESTÃO"
+    },
+    {
+      "pr": "OBSERVABILIDADE_V1",
+      "branch": "ai-v1/09-observabilidade",
+      "descricao": "Observabilidade V1: trace com traceId, estabelecimento (null na V1), skills, classificador JEV, proposta de ação e versões de Registry/Policy; saneamento de formato fechado com redação de PII/segredos; métricas agregadas sem custo desconhecido virar zero"
     }
   ]
 }
