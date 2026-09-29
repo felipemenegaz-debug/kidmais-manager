@@ -92,7 +92,8 @@ export function criarAdaptadores(env: Ambiente, buscar: Buscador): Map<IdProvedo
   ]);
 }
 
-export type AlvoRoteamento = { empresaId: string; capacidade: string; correlationId: string; hoje: string };
+/** `estabelecimentoId`: unidade COMPROVADA no Tenant Context (null/ausente ⇒ uso da empresa), só para custos/trace. */
+export type AlvoRoteamento = { empresaId: string; estabelecimentoId?: string | null; capacidade: string; correlationId: string; hoje: string };
 
 /** Alerta operacional (sem PII): o uso não pôde ser persistido. A reserva aberta continua contando. */
 export type AlertaRoteador = "USO_NAO_REGISTRADO";
@@ -153,7 +154,7 @@ export class RoteadorModelos {
     return {
       correlationId: base.alvo.correlationId,
       empresaId: base.alvo.empresaId,
-      estabelecimentoId: null,
+      estabelecimentoId: base.alvo.estabelecimentoId ?? null,
       capacidade: base.alvo.capacidade,
       workload: base.workload,
       tier: base.tier,

@@ -261,7 +261,7 @@ test("17 establishment escape: unidade citada ⇒ FORBIDDEN; skill de estabeleci
   const catalogo = criarCatalogoSkills({ plataforma: SKILLS_PLATAFORMA, repositorio: repositorioEmMemoria([{ ...base, nivel: "ESTABELECIMENTO", escopo: { empresaId: EMPRESA, estabelecimentoId: OUTRA } }]) });
   const s = await catalogo.resolver({ empresaId: EMPRESA, estabelecimentoId: null, finalidade: "SUGESTAO_TEXTO", capacidade: null });
   assert.equal(s?.nivel, "PLATAFORMA");
-  assert.ok(registroCompleto([]).manifestos.every((m) => m.escopoEstabelecimento === "EMPRESA_INTEIRA"));
+  assert.ok(registroCompleto([]).manifestos.every((m) => m.escopoEstabelecimento === "COMPANY"));
 });
 
 // ---------------------------------------------------------------- 18. saída malformada do modelo

@@ -69,6 +69,8 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/http/admin-crm-api": ["exigirApiAdminCrmDisponivel", "tokenAdmin"],
   "lib/http/api-response": ["jsonNoStore"],
   "lib/saas/provar-tenant": ["withTenantTransaction"],
+  // AI V1 (Establishment Context): prova da unidade no Core, dentro da transação do Tenant Context.
+  "lib/saas/provar-estabelecimento": ["provarEstabelecimento"],
   "lib/db/postgres": ["db", "withTransaction"],
   "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno"],
   "lib/festas/service": ["FestaError", "consultarFestas"],
@@ -90,7 +92,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
-  "dependencias.ts": ["consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo("],
+  "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo("],
   "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
   "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao"], // @pr:IMPORT

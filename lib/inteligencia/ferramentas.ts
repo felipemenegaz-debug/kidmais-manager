@@ -65,6 +65,11 @@ export type ContextoFerramenta = {
   hoje: string;
   geradoEm: string;
   portas: PortasDominio;
+  /**
+   * Unidade COMPROVADA no Tenant Context (null = escopo da empresa). Ferramenta ESTABLISHMENT filtra por ela;
+   * a Policy garante que ela existe antes de a ferramenta rodar.
+   */
+  estabelecimento?: string | null;
 };
 
 export type ResultadoFerramenta = { estado: string; itens: readonly unknown[] };

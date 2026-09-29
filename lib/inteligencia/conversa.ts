@@ -9,7 +9,7 @@ import { ContextoRecusado } from "./contexto/contrato.ts";
 import { ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
 import { copilotoModeloAtivo, demerzelAtivo, grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo, jevModeloAtivo } from "./flags.ts";
 import {
-  classificar, executarLeitura, exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado,
+  classificar, comEstabelecimento, executarLeitura, exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado, unidadeDe,
   type DependenciasGateway, type PedidoGateway, type RespostaGateway,
 } from "./gateway.ts";
 import { interpretarComModelo, interpretarDeterministico, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
@@ -145,6 +145,7 @@ async function interpretarPorModelo(texto: string, contexto: ContextoTela | null
   const tenant = await tenantParaModelo(sessao, pedido, deps, rastreio);
   const { intencao, roteado } = await interpretarComModelo(texto, contexto, catalogoDisponivel(deps.env, papelParaPolitica(sessao, tenant), deps.acoes), deps.roteador, {
     empresaId: tenant.empresaComprovada,
+    estabelecimentoId: unidadeDe(tenant),
     capacidade: "classificar_intencao",
     correlationId: rastreio.correlationId ?? rastreio.requestId,
     hoje: hojeBrasilia(deps.agora()),
@@ -266,6 +267,7 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
         async executar(pedidoModelo) {
           const r = await roteador.executar(pedidoModelo, {
             empresaId: comprovado.empresaComprovada,
+            estabelecimentoId: unidadeDe(comprovado),
             capacidade: "jev_julgar",
             correlationId: rastreio.correlationId ?? rastreio.requestId,
             hoje: hojeBrasilia(deps.agora()),
@@ -296,7 +298,7 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
       if (opcoes.explicar && "fatos" in dados && deps.roteador && copilotoModeloAtivo(deps.env) && deps.roteador.disponivelPara("TEXTO_CURTO")) {
         try {
           const autorizado = construirContextoAutorizado({ sessao, tenant: comprovado, contexto: e.contexto, capacidades: catalogoDisponivel(deps.env, comprovado.papelAtual, deps.acoes).filter((c) => c.tipo === "leitura").map((c) => c.id) });
-          contextoModelo = construirContextoModelo(autorizado, [{ empresaId: rastreio.empresaId ?? "", capacidade: dados.capacidade, resposta: dados }], { finalidade: "EXPLICAR_DADOS" });
+          contextoModelo = construirContextoModelo(autorizado, [{ empresaId: rastreio.empresaId ?? "", estabelecimentoId: rastreio.estabelecimentoId ?? null, capacidade: dados.capacidade, resposta: dados }], { finalidade: "EXPLICAR_DADOS" });
         } catch (erro) {
           if (!(erro instanceof ContextoRecusado)) throw erro;
           contextoModelo = null;
@@ -306,7 +308,7 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
           modelo = {
             disponivel: () => roteador.disponivelPara("TEXTO_CURTO"),
             async executar(pedidoModelo) {
-              const r = await roteador.executar(pedidoModelo, { empresaId: comprovado.empresaComprovada, capacidade: "copiloto_explicar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
+              const r = await roteador.executar(pedidoModelo, { empresaId: comprovado.empresaComprovada, estabelecimentoId: unidadeDe(comprovado), capacidade: "copiloto_explicar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
               anotarUsoModelo(rastreio, r.usos);
               usos.push(...r.usos);
               return r;
@@ -358,8 +360,8 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
       });
       if (decisao !== "PERMITIDO") return null;
     }
-    // Estabelecimento: o Tenant Context atual não tem unidade; overrides por estabelecimento ficam inativos.
-    const aplicada = await catalogo.resolver({ empresaId: comprovado.empresaComprovada, estabelecimentoId: null, finalidade, capacidade });
+    // Override de estabelecimento só com unidade COMPROVADA no Tenant Context (nunca a do texto ou do modelo).
+    const aplicada = await catalogo.resolver({ empresaId: comprovado.empresaComprovada, estabelecimentoId: unidadeDe(comprovado), finalidade, capacidade });
     if (aplicada) anotarSkill(e.rastreio, `${aplicada.id}@${aplicada.versao}#${aplicada.hash.slice(0, 8)}`);
     return aplicada;
   }
@@ -373,6 +375,8 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     if (!inteligenciaAtiva(deps.env) || !grupoAtivo(deps.env, "READ")) recursoDesativado();
     const sessao = await deps.autenticar();
     rastreio.usuarioId = sessao.usuario_id;
+    // Establishment Context: unidade pedida pela tela é provada em TODA transação de tenant deste pedido.
+    deps = comEstabelecimento(deps, pedido, rastreio);
     let entrada: z.infer<typeof pedidoSchema>;
     try {
       entrada = pedidoSchema.parse(await pedido.lerCorpo());

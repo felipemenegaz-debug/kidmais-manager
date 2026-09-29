@@ -56,7 +56,9 @@ Números e resultados da execução final estão no relatório do Master Goal (F
 ## Limitações conhecidas
 
 - Agentes são determinísticos (sem LLM): respondem só aos gatilhos declarados; o resto segue o fluxo normal.
-- Estabelecimento não existe no Tenant Context: toda leitura cobre a empresa inteira (`EMPRESA_INTEIRA`).
+- Establishment Context implementado (prova no Core, escopo COMPANY/ESTABLISHMENT, Policy, contexto, skills, trace, custos).
+  Todas as leituras V1 são `COMPANY` porque os dados do Core não têm unidade e a 043 mantém a unidade fechada (D03):
+  hoje nenhuma unidade é comprovável e a IA opera no escopo da empresa, fail-closed.
 - Skills de empresa/estabelecimento não têm armazenamento (exige migration); só as 3 skills da plataforma.
 - Detecção de injeção é por padrões; a segurança real vem da arquitetura (sem ferramentas no modelo, Policy, Human Gate).
 - Explicação por modelo pode conter afirmação não numérica falsa; é rotulada como sugestão, abaixo dos dados.

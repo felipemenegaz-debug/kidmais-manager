@@ -2,7 +2,7 @@ import { z } from "zod";
 import { cancelarOperacao, carregar, confirmarOperacao, type ContextoGate } from "./human-gate.ts";
 import type { ModuloAcoesCompleto } from "./modulo.ts";
 import { grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva } from "../flags.ts";
-import { classificar, pedidoInvalido, recursoDesativado, type DependenciasGateway, type PedidoGateway, type RespostaGateway } from "../gateway.ts";
+import { classificar, comEstabelecimento, pedidoInvalido, recursoDesativado, type DependenciasGateway, type PedidoGateway, type RespostaGateway } from "../gateway.ts";
 import { InteligenciaError } from "../politica.ts";
 import { novoRastreio } from "../rastreio.ts";
 
@@ -37,6 +37,7 @@ export async function atenderOperacao(pedido: PedidoGateway, deps: DependenciasO
     if (!inteligenciaAtiva(deps.env)) recursoDesativado();
     const sessao = await deps.autenticar();
     rastreio.usuarioId = sessao.usuario_id;
+    deps = comEstabelecimento(deps, pedido, rastreio);
     let entrada: z.infer<typeof pedidoSchema>;
     try {
       entrada = pedidoSchema.parse(await pedido.lerCorpo());

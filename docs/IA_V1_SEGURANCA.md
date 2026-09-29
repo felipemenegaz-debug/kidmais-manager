@@ -37,7 +37,7 @@ Suíte principal: `lib/inteligencia/seguranca-v1.test.ts` (roda em `npm run test
 | context poisoning | Bloco de outra empresa ou capacidade não autorizada recusa o contexto inteiro | seguranca-v1 #14, contexto |
 | agent loop | Portas contadas pela Demerzel: teto de passos, duplicidade, prazo, custo | seguranca-v1 #15, agentes |
 | cross-tenant UUID | Posse comprovada no domínio; outra empresa = 404 sem eco do id | seguranca-v1 #16, resumir-contrato |
-| establishment escape | Sem estabelecimento no Tenant Context V1: manifesto `EMPRESA_INTEIRA`; skill de estabelecimento nunca se aplica; JEV recusa unidade citada | seguranca-v1 #17 |
+| establishment escape | Establishment Context: unidade só da tela, provada pelo Core; ESTABLISHMENT exige unidade; bloco/skill de outra unidade recusados; JEV recusa unidade citada | seguranca-v1 #17, estabelecimento-v1, provar-estabelecimento.postgres |
 | malformed model output | Saída validada por schema estrito; inválida ⇒ regras (`FALLBACK_REGRAS`); explicação inválida ⇒ sem explicação | seguranca-v1 #18, jev-v1, copiloto |
 
 ## Riscos residuais (classificados)
@@ -45,7 +45,7 @@ Suíte principal: `lib/inteligencia/seguranca-v1.test.ts` (roda em `npm run test
 | # | Severidade | Risco | Mitigação atual | Decisão/Gate |
 |---|---|---|---|---|
 | R1 | MÉDIA | Detecção de injeção por padrões pode ser contornada por redação nova | Arquitetura não depende dela: modelo sem ferramentas, Policy/Registry/Human Gate decidem | Aceito na V1; revisar padrões com dados reais de staging |
-| R2 | MÉDIA | Tenant Context sem estabelecimento: leituras cobrem a empresa inteira | Declarado no manifesto; nenhuma leitura por unidade | **Decisão humana** antes de clientes multiunidade |
+| R2 | MÉDIA | Dados operacionais do Core ainda sem unidade e unidade fechada na 043 (D03) | Establishment Context pronto; leituras COMPANY; nenhuma unidade comprovável hoje (fail-closed) | Decisão do Core (D03 + unidade nos dados); na IA basta trocar o escopo no registro |
 | R3 | MÉDIA | Explicação do modelo pode conter afirmação falsa sem número | Rotulada como sugestão, abaixo dos dados; números/ids/ações/instruções validados | Aceito; Copiloto com modelo só com flag |
 | R4 | MÉDIA | Skills de empresa sem armazenamento (exige migration); skills da plataforma RESTRITAS sem revisão independente | Só plataforma; repositório vazio | **Decisão humana**: migration de skills + revisão independente |
 | R5 | BAIXA | Leitura que estoura o prazo continua no banco até terminar | Somente leitura; resposta já é fallback | Aceito |

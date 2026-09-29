@@ -33,6 +33,11 @@ export type DependenciasGateway = {
   relogio?(): number;
   /** Serviços de domínio injetados pela rota. Ausentes ⇒ ferramentas que dependem deles respondem sem dados. */
   portas?: PortasDominio;
+  /**
+   * Establishment Context: prova (Core, lib/saas/provar-estabelecimento) que a unidade pedida é da empresa comprovada
+   * e tem vínculo ATIVO da membership. Ausente ⇒ nenhuma unidade pode ser usada (pedido com unidade falha fechado).
+   */
+  provarEstabelecimento?(tx: DbExecutor, tenant: TenantComprovado, estabelecimentoId: string): Promise<{ estabelecimentoId: string }>;
   /** Teto operacional de prazo (ex.: testes). Só reduz o prazo do manifesto, nunca o aumenta. */
   prazoMaximoMs?: number;
 };
@@ -40,7 +45,36 @@ export type DependenciasGateway = {
 export type PedidoGateway = {
   lerCorpo(): Promise<unknown>;
   empresaSolicitada: string | null;
+  /** Unidade escolhida NA TELA (query string `estabelecimentoId`), nunca do corpo nem do modelo. null ⇒ escopo da empresa. */
+  estabelecimentoSolicitado?: string | null;
 };
+
+/** Tenant da IA: o comprovado pelo Core + a unidade comprovada (null ⇒ escopo da empresa). */
+export type TenantDaIA = TenantComprovado & { estabelecimentoComprovado?: string | null };
+
+export function unidadeDe(tenant: TenantComprovado): string | null {
+  return (tenant as TenantDaIA).estabelecimentoComprovado ?? null;
+}
+
+/**
+ * Establishment Context: sem unidade pedida, devolve as mesmas dependências (escopo da empresa). Com unidade pedida,
+ * TODA transação de tenant do pedido prova a unidade logo depois da membership e entrega às ferramentas um tenant com
+ * `estabelecimentoComprovado`. Falhou a prova ⇒ o pedido inteiro falha ("Unidade não encontrada"), nunca cai para a
+ * empresa inteira em silêncio.
+ */
+export function comEstabelecimento<D extends DependenciasGateway>(deps: D, pedido: PedidoGateway, rastreio: RastreioInteligencia): D {
+  const pedida = pedido.estabelecimentoSolicitado ?? null;
+  if (pedida === null) return deps;
+  const provar = deps.provarEstabelecimento;
+  const envolvida: DependenciasGateway["withTenantTransaction"] = (sessao, empresa, work) => deps.withTenantTransaction(sessao, empresa, async (tx, tenant) => {
+    if (!provar) throw new InteligenciaError("ESTABELECIMENTO_NAO_COMPROVADO", "Unidade não encontrada.", 404);
+    const prova = await provar(tx, tenant, pedida);
+    rastreio.estabelecimentoId = prova.estabelecimentoId;
+    const comUnidade: TenantDaIA = { ...tenant, estabelecimentoComprovado: prova.estabelecimentoId };
+    return work(tx, comUnidade);
+  });
+  return Object.assign(Object.create(Object.getPrototypeOf(deps) as object) as D, deps, { withTenantTransaction: envolvida });
+}
 
 export type RespostaGateway = {
   status: number;
@@ -99,7 +133,7 @@ function causaDaIA(error: InteligenciaError): CausaRastreio {
 
 function causaDoCore(error: ClienteServiceError | PacoteAdminError): CausaRastreio {
   if (error.httpStatus === 401) return "AUTENTICACAO";
-  if (error.code === "TENANT_NAO_COMPROVADO") return "TENANT";
+  if (error.code === "TENANT_NAO_COMPROVADO" || error.code === "ESTABELECIMENTO_NAO_COMPROVADO") return "TENANT";
   return "RECUSA_CORE";
 }
 
@@ -186,10 +220,14 @@ export async function executarLeitura(
     rastreio.politica = decidirPolitica(entrada);
     exigirPolitica(entrada);
   };
-  const politicaNoTenant = (tenant: TenantComprovado) => aplicarPolitica({
-    papel: tenant.papelAtual, manifesto, caminho: "LEITURA", origem: "UI", grupoAtivo: true,
-    grupoAtivoNaEmpresa: grupoAtivoParaEmpresa(deps.env, ferramenta.grupo, tenant.empresaComprovada),
-  });
+  const politicaNoTenant = (tenant: TenantComprovado) => {
+    aplicarPolitica({
+      papel: tenant.papelAtual, manifesto, caminho: "LEITURA", origem: "UI", grupoAtivo: true,
+      grupoAtivoNaEmpresa: grupoAtivoParaEmpresa(deps.env, ferramenta.grupo, tenant.empresaComprovada),
+      estabelecimento: unidadeDe(tenant),
+    });
+    contexto.estabelecimento = unidadeDe(tenant);
+  };
   aplicarPolitica({ papel: sessao.papel, manifesto, caminho: "LEITURA", origem: "UI", grupoAtivo: true, grupoAtivoNaEmpresa: null });
 
   const agora = deps.agora();
@@ -255,7 +293,7 @@ export async function atenderInteligencia(pedido: PedidoGateway, deps: Dependenc
     }
     const ferramenta = ferramentaRegistrada(entrada.capacidade);
     if (!ferramenta) throw new InteligenciaError("CAPACIDADE_DESCONHECIDA", "Capacidade não disponível.", 400);
-    const data = await executarLeitura(ferramenta, entrada.parametros === undefined ? {} : entrada.parametros, sessao, pedido.empresaSolicitada, deps, rastreio);
+    const data = await executarLeitura(ferramenta, entrada.parametros === undefined ? {} : entrada.parametros, sessao, pedido.empresaSolicitada, comEstabelecimento(deps, pedido, rastreio), rastreio);
     return { status: 200, corpo: { ok: true, data } };
   } catch (error) {
     const falha = classificar(error);
