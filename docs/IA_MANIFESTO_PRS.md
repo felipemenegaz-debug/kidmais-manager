@@ -335,6 +335,7 @@ O arquivo pertence ao PR dono; cada feature acrescenta só as próprias linhas, 
 - `docs/INTELIGENCIA_V1.md`
 - `docs/MIGRATION_053_INTEGRIDADE_TENANT_FECHAMENTO.md`
 - `docs/MIGRATION_054_EMPRESA_ID_CLIENTES_FECHAMENTOS.md`
+- `docs/OPERACAO_AGENTES.md`
 - `docs/SEGURANCA_SKILLS.md`
 - `lib/agentes/skills.test.ts`
 - `lib/comercial/alvo-descartavel.test.ts`
