@@ -93,3 +93,53 @@ test("A1 barreira do roteador: chamador que esquecer de preparar o texto ainda n
   await r.executar(pedido("EXTRACAO_CONTRATO"), alvo);
   assert.ok(payload(primario.chamadas.slice(-1)).includes(CPF), "controle negativo: sem a barreira (extração autorizada) o CPF passaria");
 });
+
+// ---------------------------------------------------------------- A1 (reauditoria): Unicode invisível e RG
+
+const LRI = String.fromCharCode(0x2066); // U+2066 LEFT-TO-RIGHT ISOLATE — o caractere da reauditoria
+const PDI = String.fromCharCode(0x2069);
+const VS16 = String.fromCharCode(0xfe0f);
+const CGJ = String.fromCharCode(0x034f);
+const SHY = String.fromCharCode(0x00ad);
+const CPF_ISOLADO = `123${LRI}.456${PDI}.789-09`;
+const EMAIL_ISOLADO = `ana${LRI}.lima@exam${LRI}ple.com`;
+const REAUDITORIA = [
+  `CPF ${CPF_ISOLADO}`, `e-mail ${EMAIL_ISOLADO}`, "RG 12.345.678-9", "rg: 23.456.789-X", "documento 12.345.678-X", "RG nº MG-12.345.678",
+  `CPF 1${VS16}2${CGJ}3.456.789-0${SHY}9`, `fone (11) 9${LRI}8765-4321`, "CNPJ 12.345.678/0001-90", "https://evil.example/x", "id 11111111-1111-4111-8111-111111111111",
+].join(" | ");
+const semPIIReauditoria = (payload: string, onde: string) => {
+  // JSON.stringify não escapa U+2066/Cf/Default_Ignorable: o payload serializado mostra os caracteres como chegaram.
+  const limpo = payload;
+  for (const proibido of [LRI, PDI, VS16, CGJ, SHY, "123.456.789-09", "456.789-09", "ana.lima", "example.com", "12.345.678-9", "23.456.789-X", "12.345.678-X", "MG-12.345.678", "98765-4321", "12.345.678/0001-90", "evil.example", "11111111-1111"]) {
+    assert.equal(limpo.includes(proibido), false, `${onde}: ${JSON.stringify(proibido)}`);
+  }
+};
+
+test("A1 reauditoria: U+2066 e outros invisíveis (Cf, Cc, Default_Ignorable) dentro de CPF/e-mail/telefone não impedem a redação; RG pontuado e rotulado redigidos", () => {
+  const p = prepararTextoParaModelo(REAUDITORIA, { limite: 2000 });
+  semPIIReauditoria(p.texto, "helper");
+  assert.match(p.texto, /CPF \[cpf\].*\[email\].*RG \[rg\].*RG \[rg\].*\[rg\].*RG \[rg\]/);
+  // Números operacionais continuam (a regra não apaga valores sem necessidade).
+  assert.equal(prepararTextoParaModelo("valor 12.345.678 reais, 60 convidados, org 12345", { numeros: false }).texto, "valor 12.345.678 reais, 60 convidados, org 12345");
+  // Serializado (JSON escapa controles): a barreira também remove as formas escapadas.
+  assert.equal(barreiraTextoModelo(JSON.stringify({ t: `CPF 123${String.fromCharCode(1)}.456.789-09` })), JSON.stringify({ t: "CPF [cpf]" }));
+});
+
+test("A1 reauditoria: payload REAL do provedor primário e do fallback (intenção por modelo) sem os contraexemplos", async () => {
+  const { r, primario, secundario } = roteador({ primarioFalha: true, fallback: true });
+  await interpretarComModelo(REAUDITORIA, null, [{ id: "analisar_recebiveis", descricao: "recebíveis", tipo: "leitura" }], r, alvo);
+  assert.equal(secundario.chamadas.length, 1, "o fallback foi acionado");
+  semPIIReauditoria(payload(primario.chamadas), "primário");
+  semPIIReauditoria(payload(secundario.chamadas), "fallback");
+});
+
+test("A1 reauditoria: JEV com modelo e barreira do roteador para chamador cru — sem os contraexemplos", async () => {
+  const saida = JSON.stringify({ intent: "FINANCEIRO", actionSensitivity: "READ", humanNeed: "NAO", risk: "LOW", contextSufficiency: "SUFFICIENT", confidence: 0.7, reasonCodes: [] });
+  const jev = roteador({ resposta: saida });
+  await criarJuizJev({ modelo: portaModeloDoRoteador(jev.r, { ...alvo, capacidade: "jev_julgar" }), limiarModelo: 1 }).julgar({ texto: `hmm ${CPF_ISOLADO} ${EMAIL_ISOLADO} RG 12.345.678-9`, tela: "geral", temEntidade: false });
+  assert.equal(jev.primario.chamadas.length, 1);
+  semPIIReauditoria(payload(jev.primario.chamadas), "JEV");
+  const cru = roteador({ resposta: JSON.stringify({ ok: true }) });
+  await cru.r.executar({ workload: "TEXTO_CURTO", mensagens: [{ papel: "user", conteudo: REAUDITORIA }], esquema: { nome: "x", schema: {} }, maxTokensSaida: 5, validar: (t) => JSON.parse(t) }, alvo);
+  semPIIReauditoria(payload(cru.primario.chamadas), "barreira");
+});

@@ -10,13 +10,13 @@
  * - limita o comprimento.
  */
 
-const hex = (n: number) => n.toString(16).padStart(4, "0");
-/** Faixas de code points invisíveis/de controle (montadas por código: nenhum caractere oculto literal no fonte). */
-const FAIXAS_OCULTAS: ReadonlyArray<readonly [number, number]> = [
-  [0x0000, 0x0008], [0x000b, 0x000c], [0x000e, 0x001f], [0x007f, 0x009f],
-  [0x00ad, 0x00ad], [0x200b, 0x200f], [0x2028, 0x202e], [0x2060, 0x2064], [0xfeff, 0xfeff],
-];
-export const OCULTOS_MODELO = new RegExp(`[${FAIXAS_OCULTAS.map(([a, b]) => (a === b ? `\\u${hex(a)}` : `\\u${hex(a)}-\\u${hex(b)}`)).join("")}]`, "g");
+/**
+ * Invisíveis e de controle, por PROPRIEDADE Unicode (não por lista de faixas, que envelhece): todo Cc (controle) exceto
+ * tab/LF/CR, todo Cf (formatação: zero-width, bidi embeddings/overrides/ISOLATES U+2066–U+2069, soft hyphen, BOM…) e todo
+ * Default_Ignorable_Code_Point (seletores de variação, fillers…). Removidos ANTES da redação, para que um identificador
+ * com invisíveis no meio ainda seja reconhecido e redigido.
+ */
+export const OCULTOS_MODELO = /(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
 
 /** Padrões de dado pessoal/identificador, na ordem de aplicação (e-mail e ids antes dos numéricos). */
 export const PADROES_LINK: ReadonlyArray<readonly [RegExp, string]> = [
@@ -28,6 +28,11 @@ export const PADROES_PII: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]"],
   [/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, "[cnpj]"],
   [/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, "[cpf]"],
+  // RG: o sistema guarda texto livre (clientes.rg; o contrato imprime "RG: …"). Qualquer valor logo depois do rótulo
+  // "RG" e o RG pontuado com dígito verificador (12.345.678-9 / -X, 1.234.567-8). Sem rótulo, o traço é exigido para
+  // não apagar números operacionais (um valor como 12.345.678 continua).
+  [/\bRG\b\s*(?:n[º°o.]?\s*)?[:.-]?\s*[0-9A-Za-z][0-9A-Za-z./-]{3,16}/gi, "RG [rg]"],
+  [/\b\d{1,2}\.\d{3}\.\d{3}-[\dXx]\b/g, "[rg]"],
   [/(?:\+?55\s?)?\(?\b\d{2}\)?\s?9?\d{4}[-\s]?\d{4}\b/g, "[telefone]"],
 ];
 export const PADRAO_NUMERO_LONGO: readonly [RegExp, string] = [/\b\d{6,}\b/g, "[numero]"];
@@ -74,9 +79,12 @@ export function prepararTextoParaModelo(bruto: string, opcoes: OpcoesTextoModelo
 
 /**
  * Barreira do Model Router: toda mensagem de usuário que chega a um provedor passa por aqui, qualquer que seja o
- * chamador. Remove ocultos e redige PII sem cortar (o chamador já limitou) e sem tocar em números (explicações de
- * valores agregados dependem deles). Idempotente: marcadores já redigidos não mudam.
+ * chamador. Remove ocultos e redige PII e links sem cortar (o chamador já limitou) e sem tocar em números (explicações
+ * de valores agregados dependem deles). Idempotente: marcadores já redigidos não mudam.
  */
 export function barreiraTextoModelo(conteudo: string): string {
-  return redigirPII(conteudo.replace(OCULTOS_MODELO, ""), { numeros: false, links: false }).texto;
+  // Conteúdo de usuário costuma chegar serializado (JSON.stringify escapa C0 como barra-u-00XX e quebras como barra-n):
+  // as formas escapadas também saem, senão um identificador com controle no meio escaparia da redação.
+  const semEscapados = conteudo.replace(/\\u00[01][0-9a-fA-F]|\\u007[fF]/g, "").replace(/\\[bfnrt]/g, " ");
+  return redigirPII(semEscapados.normalize("NFKC").replace(OCULTOS_MODELO, ""), { numeros: false }).texto;
 }
