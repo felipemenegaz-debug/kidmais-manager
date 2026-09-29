@@ -51,6 +51,12 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "lib/festas/leitura-tenant": ["agendaDoTenant", "FestaAgenda"],
   "lib/comercial/motivos-pacote": ["MOTIVOS_PACOTE"], // @pr:ACTIONS
   // Documentos: funções puras (validação, extração, revisão) e só TIPOS do repositório SQL.
+  "lib/importacao-contrato/arquivo": ["ArquivoValidado", "limiteConfigurado", "validarArquivoEnviado"], // @pr:DOCUMENT
+  "lib/importacao-contrato/pdf-texto": ["extrairTextoPdf", "temTextoNativo", "OpcoesExtracao", "TextoPdf"], // @pr:DOCUMENT
+  "lib/importacao-contrato/extracao": ["EXTRACAO_JSON_SCHEMA", "extracaoSchema", "extracaoVazia", "extrairPorRegras", "ExtracaoLida", "SCHEMA_VERSAO"], // @pr:DOCUMENT
+  "lib/importacao-contrato/rascunho": ["aplicarRevisao", "montarRevisao", "dadosNormalizados"], // @pr:DOCUMENT
+  "lib/importacao-contrato/modelo": ["CampoExtraido", "ExtracaoContrato"], // @pr:DOCUMENT
+  "lib/importacao-contrato/repositorio-documentos": ["ExtracaoRegistrada", "RegistroExtracao"], // @pr:DOCUMENT
   // Importação: plano puro e só TIPOS do repositório SQL.
 };
 
@@ -69,12 +75,17 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/comercial/pacote-precos": ["gravarFaixasPacote"], // @pr:ACTIONS
   "lib/comercial/pacotes-admin": ["alterarSituacaoPacoteAdmin", "criarRevisaoPacoteAdmin", "editarPacoteNaoUtilizado", "listarPacotesAdmin"], // @pr:ACTIONS
   "lib/ia-persistencia/operacoes": ["repositorioOperacoesPostgres"], // @pr:ACTIONS
+  "lib/importacao-contrato/arquivo": ["limiteConfigurado"], // @pr:DOCUMENT
+  "lib/importacao-contrato/pdf-isolado": ["extrairTextoPdfIsolado"], // @pr:DOCUMENT
+  "lib/importacao-contrato/multipart": ["TEMPO_PADRAO", "criarSemaforo", "lerMultipartLimitado", "limitesUpload", "CodigoMultipart"], // @pr:DOCUMENT
+  "lib/importacao-contrato/repositorio-documentos": ["documentosDisponiveis", "registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
 };
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
   "dependencias.ts": ["consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction"],
   "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin("], // @pr:ACTIONS
+  "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
 };
 
 /** SQL em qualquer caixa, só em literais de string/template: comentários não executam. */
