@@ -2,6 +2,15 @@
   "descricao": "Pilha de PRs do AI Module V1, depois da Foundation (congelada em scripts/ia-prs-manifesto.json). Cada fase é uma branch que parte da anterior e será integrada nesta ordem. 'commit' fixa a fase depois de publicada; sem ele vale a branch local.",
   "base": "9643a8fd77a873a9e067fea1eb7490a7d129cefb",
   "fases": [
-    { "pr": "TOOLING_V1", "branch": "ai-v1/00-tooling", "descricao": "Manifesto da Foundation congelado e prova da pilha V1" }
+    {
+      "pr": "TOOLING_V1",
+      "branch": "ai-v1/00-tooling",
+      "descricao": "Manifesto da Foundation congelado e prova da pilha V1"
+    },
+    {
+      "pr": "JEV_V1",
+      "branch": "ai-v1/01-jev",
+      "descricao": "JEV V1: contrato de julgamento, cinco classificadores, Model Router opcional (economy, orçamento fail-closed), adversariais"
+    }
   ]
 }
