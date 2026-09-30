@@ -170,11 +170,16 @@ function paraPorta(error: FestaError): Error {
   return error.status >= 400 && error.status < 500 ? new InteligenciaError(error.status === 404 ? "NAO_ENCONTRADO" : "FESTA_RECUSADA", error.message, error.status) : error;
 }
 
-function portasDominio(violacoes: Violacoes): PortasDominio {
+/** Opções do ambiente (testes de autoridade): membership sem a capacidade de festa do Core. */
+export type OpcoesAmbiente = { semCapacidadeFesta?: boolean };
+
+function portasDominio(violacoes: Violacoes, opcoes: OpcoesAmbiente = {}): PortasDominio {
   return {
     festas: {
       // `consultarFestas` prova o tenant sozinho; aqui a sessão é sempre da empresa A.
       async consultarDetalhe(id) {
+        // `consultarFestas` exige FESTA_CONSULTAR na membership: sem ela, 403 (mesma conversão da porta real).
+        if (opcoes.semCapacidadeFesta) throw paraPorta(new FestaError("Capacidade necessária: FESTA_CONSULTAR.", 403));
         const f = FIXTURE.festas.find((x) => x.id === id && x.empresa === EMPRESA_A);
         // Festa de outra empresa responde como inexistente (FestaError 404 no Core), convertida como faz a porta REAL
         // (app/api/admin/inteligencia/dependencias.ts): FestaError 4xx ⇒ InteligenciaError NAO_ENCONTRADO/FESTA_RECUSADA.
@@ -247,7 +252,7 @@ export function nomesRegistrados(modulo: { todas(): ReadonlyArray<{ ferramenta: 
 const EMPRESAS = { A: EMPRESA_A, B: EMPRESA_B } as const;
 
 /** Uma conversa isolada por caso (nada vaza de um caso para outro). */
-export function criarAmbiente() {
+export function criarAmbiente(opcoes: OpcoesAmbiente = {}) {
   const violacoes: Violacoes = { crossTenant: [], mutacoes: [], operacoesExecutadas: 0 };
   const tx = banco(violacoes);
   const rastros: RastreioInteligencia[] = [];
@@ -268,7 +273,7 @@ export function criarAmbiente() {
     requestId: () => `req-${++seq}`,
     registrar: (r) => rastros.push(structuredClone(r)),
     relogio: () => performance.now(),
-    portas: portasDominio(violacoes),
+    portas: portasDominio(violacoes, opcoes),
     acoes: modulo,
     roteador: null,
     classificador: criarClassificadorAuxiliarJev(criarJev()),

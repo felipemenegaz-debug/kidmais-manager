@@ -7,6 +7,7 @@ import { padraoBusca } from "../comercial/catalogo-leitura.ts";
 import { festaDoTenant, festasDoTenant } from "../festas/leitura-tenant.ts";
 import type { TenantComprovado } from "../saas/provar-tenant.ts";
 import type { AIResponse, RespostaLeitura } from "./contratos.ts";
+import { atenderConversa } from "./conversa.ts";
 import { ferramentaRegistrada, SEM_PORTAS, type ContextoFerramenta } from "./ferramentas.ts";
 import { interpretarDeterministico } from "./intencao.ts";
 import { manifestoLeitura, saidaValida } from "./registro-ferramentas.ts";
@@ -179,4 +180,33 @@ test("conversa: relação da festa de OUTRA empresa pela tela ⇒ 404 fail-close
   const propria = await perguntar("Quem é o cliente desta festa?", { tela: "festa", entidade: "FESTA_MARIA" });
   assert.equal(propria.resposta?.tipo, "resposta");
   assert.match(((propria.resposta as Extract<AIResponse, { tipo: "resposta" }>).dados as RespostaLeitura).resumo, /Cliente: Ana Oliveira/);
+});
+
+// ---------------------------------------------------------------- autoridade: id devolvido não é credencial
+
+test("autoridade: leitura de nível agenda devolve o id, mas o id NÃO abre leitura/navegação mais privilegiada (FESTA_CONSULTAR)", async () => {
+  // Membership sem FESTA_CONSULTAR: `consultarFestas` recusa (403), como a porta real converte.
+  const amb = criarAmbiente({ semCapacidadeFesta: true });
+  const [lista] = await amb.conversar({ id: "aut-01", categoria: "consultas", turnos: [{ texto: "Qual é a próxima festa?" }], esperado: { entendimento: "EXECUTADO" }, pr: "V1" });
+  const ref = ((lista.resposta as Extract<AIResponse, { tipo: "resposta" }>).dados as RespostaLeitura).entidades![0];
+  assert.deepEqual([ref.tipo, ref.id, ref.tela], ["FESTA", IDS.FESTA_MARIA, "festa"], "a leitura de nível agenda devolve a referência");
+
+  // A UI reapresenta o id (tela aberta): cada ferramenta revalida Policy + tenant + capacidade no domínio.
+  for (const texto of ["Resuma esta festa.", "O que falta nesta festa?", "abra esta festa"]) {
+    const [r] = await amb.conversar({ id: "aut-02", categoria: "consultas", turnos: [{ texto, contexto: { tela: "festa", entidade: "FESTA_MARIA" } }], esperado: { entendimento: "NEGADO_POLITICA" }, pr: "V1" });
+    assert.equal(r.status, 403, texto);
+    assert.equal(r.resposta, null, `${texto}: nada devolvido`);
+    assert.equal(r.rastro?.entendimento, "NEGADO_POLITICA", texto);
+  }
+  const [nav] = await amb.conversar({ id: "aut-03", categoria: "navegacao", turnos: [{ texto: "abra esta festa", contexto: { tela: "festa", entidade: "FESTA_MARIA" } }], esperado: { entendimento: "NEGADO_POLITICA" }, pr: "V1" });
+  assert.equal(nav.rastro?.navegacao?.resultado, "NEGADO", "sem destino: a navegação também é negada");
+  assert.deepEqual([amb.violacoes.mutacoes, amb.violacoes.operacoesExecutadas, amb.violacoes.crossTenant], [[], 0, []]);
+});
+
+test("autoridade: referência/`tela` não entram como autoridade — o pedido não aceita entidades do cliente e id no texto não é usado", async () => {
+  const amb = criarAmbiente();
+  const corpo = { texto: "Resuma esta festa.", entidades: [{ tipo: "FESTA", id: IDS.FESTA_B, rotulo: "x", tela: "festa" }] };
+  const r = await atenderConversa({ lerCorpo: async () => corpo, empresaSolicitada: EMPRESA_A }, amb.deps);
+  assert.equal(r.status, 400, "schema estrito do pedido: referência vinda do cliente é recusada");
+  assert.deepEqual(interpretarDeterministico(`Resuma a festa ${IDS.FESTA_MARIA}`, null).tipo, "precisa_contexto", "id digitado não vira parâmetro");
 });
