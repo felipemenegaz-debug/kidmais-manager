@@ -639,3 +639,48 @@ test('Provider: resposta de navegação com rota segura abre a tela e fecha o dr
     navegador.restaurar();
   }
 });
+
+// ---------------------------------------------------------------- AI V1.1 (PR 5): foco da conversa
+
+test('Foco: a UI aceita só o formato fechado e reenvia SÓ tipo + id (dica), mantendo o rótulo local', () => {
+  const id = '33333333-3333-4333-8333-000000000001';
+  const valido = cliente.focoValido({ entidades: [{ tipo: 'FESTA', id, rotulo: 'Festa de Ana — 01/10' }], principal: 0 });
+  assert.deepEqual(valido, { entidades: [{ tipo: 'FESTA', id, rotulo: 'Festa de Ana — 01/10' }], principal: 0 });
+  // Rótulo vazio do servidor (entidade antiga) ⇒ mantém o que a UI já exibia.
+  assert.equal(cliente.focoValido({ entidades: [{ tipo: 'FESTA', id, rotulo: '' }], principal: null }, valido)?.entidades[0].rotulo, 'Festa de Ana — 01/10');
+  for (const ruim of [null, { entidades: 'x' }, { entidades: [{ tipo: 'EMPRESA', id, rotulo: '' }] }, { entidades: [{ tipo: 'FESTA', id: '../x', rotulo: '' }] }, { entidades: Array.from({ length: 6 }, () => ({ tipo: 'FESTA', id, rotulo: '' })) }]) {
+    assert.equal(cliente.focoValido(ruim), null, JSON.stringify(ruim));
+  }
+  assert.equal(cliente.focoValido({ entidades: [{ tipo: 'FESTA', id, rotulo: 'x' }], principal: 7 })?.principal, null, 'principal fora da lista é ignorado');
+});
+
+test('Provider: reenvia o foco da resposta anterior só como tipo + id; resposta sem foco mantém o anterior', async () => {
+  const navegador = navegadorFalso();
+  try {
+    const DrawerKidmais = function DrawerKidmais() {};
+    const id = '33333333-3333-4333-8333-000000000001';
+    let foco: unknown = { entidades: [{ tipo: 'FESTA', id, rotulo: 'Festa de Ana — 01/10' }], principal: 0 };
+    const { buscar, pedidos } = buscadorFalso(async () => Response.json({ ok: true, data: { tipo: 'nao_suportado', mensagem: 'ok', sugestoes: [], ...(foco ? { foco } : {}) } }));
+    const tela = carregarComponente('components/admin/inteligencia/PerguntarKidmais.tsx', {
+      ...NAVEGACAO_FALSA,
+      '@/lib/http/admin-fetch': { adminFetch: buscar },
+      './perguntas': perguntas,
+      './cliente-inteligencia': cliente,
+      './conversa': conversa,
+      './DrawerKidmais': { default: DrawerKidmais },
+    });
+    const provider = () => tela.render('PerguntarKidmaisProvider', { children: 'conteúdo' });
+    (elementos(provider())[0].props.value as { abrir(): void }).abrir();
+    const perguntar = (t: string) => (achar(provider(), DrawerKidmais).props.onPerguntar as (t: string) => Promise<void>)(t);
+    await perguntar('Qual é a próxima festa?');
+    assert.equal('foco' in JSON.parse(String(pedidos[0].init.body)), false, 'primeira pergunta sem foco');
+    foco = undefined;
+    await perguntar('Quem é o cliente dela?');
+    assert.deepEqual(JSON.parse(String(pedidos[1].init.body)).foco, { entidades: [{ tipo: 'FESTA', id }], principal: 0 }, 'só tipo + id; nunca rótulo');
+    await perguntar('E o contrato?');
+    assert.deepEqual(JSON.parse(String(pedidos[2].init.body)).foco, { entidades: [{ tipo: 'FESTA', id }], principal: 0 }, 'sem foco novo, mantém o anterior');
+    await tique();
+  } finally {
+    navegador.restaurar();
+  }
+});

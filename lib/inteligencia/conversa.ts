@@ -2,7 +2,9 @@ import { z } from "zod";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
-import type { AcaoObjetivo, AIResponse, ContextoTela, ModelUsage, OrigemChamada, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
+import type { AcaoObjetivo, AIResponse, ContextoTela, EntidadeRef, ModelUsage, OrigemChamada, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
+import { atualizarFoco, focoEntradaSchema, type EntidadeFoco, type FocoConversa, type FocoEntrada, type OrigemFoco } from "./foco.ts";
+import { detectarReferencia, resolverReferencia, type Leitor, type Resolucao } from "./referencias.ts";
 import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, NivelSkill, Orquestrador, PortaModeloClassificacao, PortasOrquestracao, RegistroAgentes } from "./extensoes.ts";
 import { construirContextoAutorizado, construirContextoModelo } from "./contexto/construtor.ts";
 import { ContextoRecusado } from "./contexto/contrato.ts";
@@ -15,7 +17,7 @@ import {
 import { explicarResposta, mensagemIndisponivel, mensagemNavegacaoSemDestino, mensagemPrecisaContexto, objetivoDaCapacidade, objetivoDoTexto } from "./entendimento.ts";
 import { interpretarComModelo, interpretarDeterministico, pedeAutonomia, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
 import type { RoteadorModelos } from "./modelos/roteador.ts";
-import { avaliarPolitica } from "./politica.ts";
+import { InteligenciaError, avaliarPolitica } from "./politica.ts";
 import { decidirPolitica } from "./politica-v1.ts";
 import { SUGESTAO_POR_FINALIDADE, manifestoAcao, manifestoLeitura, manifestoSugestao } from "./registro-ferramentas.ts";
 import { normalizar } from "./texto-pt.ts";
@@ -47,6 +49,8 @@ const pedidoSchema = z.object({
   texto: z.string().trim().min(1).max(LIMITE_TEXTO),
   contexto: contextoSchema.optional(),
   operacaoId: z.string().uuid().optional(),
+  /** AI V1.1 (PR 5): foco da conversa reenviado pela UI — só DICA (tipo + id), sempre revalidada no servidor. */
+  foco: focoEntradaSchema.optional(),
 }).strict();
 
 export type DependenciasConversa = DependenciasGateway & {
@@ -186,6 +190,11 @@ type Execucao = {
   contexto: ContextoTela | null;
   /** Comando de navegação sem destino único (PR 3), visto pelas regras: a finalização diz por quê. */
   navegacaoPendente?: Extract<Intencao, { tipo: "navegacao_sem_destino" }>;
+  /** Foco reenviado pela UI (dica). */
+  foco: FocoEntrada | null;
+  /** Referência resolvida antes da orquestração (PR 5) e a intenção que ela produziu. */
+  resolucao?: Resolucao;
+  intencaoResolvida?: Intencao;
 };
 
 /** Leitura pelo caminho único do gateway: registro fechado → flag → Policy → Tenant Context → serviço de domínio. */
@@ -283,7 +292,100 @@ function semDestino(n: Extract<Intencao, { tipo: "navegacao_sem_destino" }>): AI
   };
 }
 
-function finalizar(resposta: AIResponse, texto: string, rastreio: RastreioInteligencia, pendente?: Execucao["navegacaoPendente"]): AIResponse {
+// ---------------------------------------------------------------- PR 5: referências e foco
+
+const ACOES_DE_MUTACAO = new Set(["CRIAR", "EDITAR", "EXCLUIR", "ENVIAR", "REGISTRAR", "CANCELAR"]);
+
+/** Entidade resolvida ⇒ intenção pelas mesmas ferramentas guardadas (leitura do resumo ou navegação). */
+function intencaoPara(entidade: EntidadeRef, texto: string): Intencao | null {
+  const acao = objetivoDoTexto(texto).acao;
+  const origem: OrigemChamada = "INTENCAO_DETERMINISTICA";
+  if (acao && ACOES_DE_MUTACAO.has(acao)) return null; // Mutação segue o caminho atual (Human Gate/indisponível).
+  if (acao === "ABRIR") {
+    if (entidade.tipo === "FESTA") return { tipo: "leitura", capacidade: "abrir_festa", parametros: { id: entidade.id }, origem };
+    if (entidade.tipo === "CLIENTE" || entidade.tipo === "CONTRATO") return { tipo: "leitura", capacidade: "abrir_tela", parametros: { tela: entidade.tipo === "CLIENTE" ? "cliente" : "contrato", id: entidade.id }, origem };
+    return { tipo: "leitura", capacidade: "abrir_tela", parametros: { tela: "catalogo" }, origem };
+  }
+  const resumo = { FESTA: "resumir_festa", CLIENTE: "resumir_cliente", CONTRATO: "resumir_contrato" } as const;
+  const capacidade = (resumo as Partial<Record<string, string>>)[entidade.tipo];
+  return capacidade ? { tipo: "leitura", capacidade, parametros: { id: entidade.id }, origem } : null;
+}
+
+const PLURAL: Readonly<Record<string, string>> = { FESTA: "festas", CLIENTE: "clientes", CONTRATO: "contratos", ITEM: "itens", CATEGORIA: "categorias" };
+const NOME: Readonly<Record<string, string>> = { FESTA: "festa", CLIENTE: "cliente", CONTRATO: "contrato", ITEM: "item", CATEGORIA: "categoria" };
+
+function respostaDaResolucao(r: Resolucao): AIResponse | null {
+  const ref = r.referencia;
+  if (r.resultado === "AMBIGUA") {
+    const tipo = r.candidatos[0]?.tipo ?? "FESTA";
+    const onde = ref.temporal ? ` para ${ref.temporal.rotulo.replace(/^(a |festa de )/, "")}` : "";
+    const lista = r.candidatos.slice(0, 5).map((c, i) => `${i + 1}. ${c.rotulo}`).join("\n");
+    return { ...naoSuportado(`Encontrei ${r.candidatos.length} ${PLURAL[tipo]}${onde}:\n${lista}\nQual ${tipo === "FESTA" || tipo === "CATEGORIA" ? "delas" : "deles"}?`), entendimento: "AMBIGUO" };
+  }
+  if (r.resultado === "NEGADA") {
+    return { ...naoSuportado("Não consegui usar essa referência: ela não está disponível para você nesta empresa."), entendimento: "NEGADO_POLITICA" };
+  }
+  if (r.resultado === "NAO_ENCONTRADA") {
+    if (ref.temporal && !r.ancora) return { ...naoSuportado(`Não encontrei ${ref.temporal.rotulo.startsWith("a ") ? ref.temporal.rotulo : `a ${ref.temporal.rotulo}`} registrada.`), entendimento: "EXECUTADO" };
+    if (ref.tipo === "NOME") return { ...naoSuportado("Não encontrei cliente com esse nome nesta empresa."), entendimento: "EXECUTADO" };
+    if (r.ancora && ref.alvo) return { ...naoSuportado(`Não encontrei ${NOME[ref.alvo]} vinculado a ${r.ancora.rotulo}.`), entendimento: "EXECUTADO" };
+    return { ...naoSuportado(`Não sei a qual ${ref.alvo ? NOME[ref.alvo] : "registro"} você se refere. Diga qual é ou abra o registro na tela e pergunte por ali.`), entendimento: "PRECISA_DADO" };
+  }
+  return null;
+}
+
+/**
+ * Antes da orquestração: se as regras não resolvem o pedido e há uma referência ("dela", "essa festa", "sábado"),
+ * resolve pelo Core (leituras do gateway) e devolve a intenção ou a resposta honesta (ambígua/não encontrada/negada).
+ */
+async function preResolver(e: Execucao): Promise<{ intencao?: Intencao; resposta?: AIResponse } | null> {
+  const regras = interpretarDeterministico(e.texto, e.contexto);
+  if (regras.tipo === "leitura" || regras.tipo === "acao" || regras.tipo === "revisao_humana") return null;
+  const hoje = hojeBrasilia(e.deps.agora());
+  const referencia = detectarReferencia(e.texto, hoje);
+  if (!referencia) return null;
+  const ler: Leitor = async (capacidade, parametros) => {
+    const ferramenta = ferramentaRegistrada(capacidade);
+    if (!ferramenta) throw new InteligenciaError("CAPACIDADE_DESCONHECIDA", "Capacidade não disponível.", 400);
+    return (await executarLeitura(ferramenta, parametros, e.sessao, e.pedido.empresaSolicitada, e.deps, e.rastreio)) as unknown as RespostaLeitura;
+  };
+  const r = await resolverReferencia(referencia, { contexto: e.contexto, foco: e.foco, hoje, ler });
+  e.resolucao = r;
+  anotarReferencia(e.rastreio, r);
+  // Nada na tela nem no foco e as regras já pedem a tela ("resuma esta festa"): mantém a resposta de contexto atual.
+  if (r.resultado === "NAO_ENCONTRADA" && r.origem === "FOCO" && regras.tipo === "precisa_contexto") return null;
+  if (r.resultado === "RESOLVIDA" && r.entidade) {
+    const intencao = intencaoPara(r.entidade, e.texto);
+    return intencao ? { intencao } : null;
+  }
+  const resposta = respostaDaResolucao(r);
+  return resposta ? { resposta } : null;
+}
+
+function anotarReferencia(rastreio: RastreioInteligencia, r: Resolucao) {
+  if (rastreio.referencias.length >= 5) return;
+  const tipos = [...new Set([r.ancora, r.entidade, ...r.candidatos].filter((x): x is EntidadeRef => !!x).map((x) => x.tipo))].sort();
+  rastreio.referencias.push({ tipo: r.referencia.tipo, alvo: r.referencia.alvo, origem: r.origem, resultado: r.resultado, tipos, candidatos: r.candidatos.length });
+}
+
+/** Novo foco: entidades desta resposta (a primeira é a principal) + âncora/alvo resolvidos + foco anterior válido. */
+function focoDaResposta(resposta: AIResponse, e: Execucao | undefined): FocoConversa | undefined {
+  const novas: Array<EntidadeRef & { origem?: OrigemFoco }> = [];
+  if (resposta.tipo === "resposta" && "entidades" in resposta.dados) novas.push(...(resposta.dados.entidades ?? []));
+  const r = e?.resolucao;
+  if (r?.resultado === "RESOLVIDA") {
+    if (r.entidade) novas.push({ ...r.entidade, origem: r.origem === "RELACAO_CORE" ? "RELACAO" : resposta.tipo === "navegacao" ? "NAVEGACAO" : "LEITURA" });
+    if (r.ancora) novas.push(r.ancora);
+  }
+  const anteriores: EntidadeFoco[] = (e?.foco?.entidades ?? []).map((x) => ({ ...x, rotulo: "", origem: "LEITURA" }));
+  if (!novas.length && !anteriores.length) return undefined;
+  const lista = new Set(novas.filter((x) => x.tipo === novas[0]?.tipo).map((x) => x.id)).size > 1;
+  return atualizarFoco(novas, anteriores, new Set(r?.descartados ?? []), !lista);
+}
+
+function finalizar(resposta: AIResponse, texto: string, rastreio: RastreioInteligencia, pendente?: Execucao["navegacaoPendente"], e?: Execucao): AIResponse {
+  const foco = focoDaResposta(resposta, e);
+  if (foco) resposta = { ...resposta, foco };
   // Demerzel devolveu o "não sei" genérico para um comando de abrir já entendido pelas regras.
   if (pendente && resposta.tipo === "nao_suportado" && !resposta.entendimento) resposta = semDestino(pendente);
   const capacidade = rastreio.capacidade
@@ -338,6 +440,8 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
   return {
     catalogo: catalogoDisponivel(deps.env, sessao.papel, deps.acoes),
     interpretar: (texto, contexto) => {
+      // Referência já resolvida pelo Core antes da orquestração: segue pelo mesmo caminho guardado.
+      if (e.intencaoResolvida) return e.intencaoResolvida;
       const intencao = interpretarDeterministico(texto, contexto);
       if (intencao.tipo === "navegacao_sem_destino") e.navegacaoPendente = intencao;
       return intencao;
@@ -495,7 +599,12 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     }
 
     const contexto = entrada.contexto ?? null;
-    const execucao: Execucao = { texto: entrada.texto, sessao, pedido, deps, rastreio, contextoExtensao, contexto };
+    const execucao: Execucao = { texto: entrada.texto, sessao, pedido, deps, rastreio, contextoExtensao, contexto, foco: entrada.foco ?? null };
+
+    // Reference Resolver (PR 5): só quando as regras não resolvem sozinhas; toda leitura passa pelo gateway.
+    const preResolvido = await preResolver(execucao);
+    if (preResolvido?.resposta) return { status: 200, corpo: { ok: true, data: finalizar(preResolvido.resposta, entrada.texto, rastreio, undefined, execucao) } };
+    if (preResolvido?.intencao) execucao.intencaoResolvida = preResolvido.intencao;
 
     // Orquestradora (Demerzel): decide o caminho com as mesmas portas guardadas. Qualquer erro dela cai no
     // fallback seguro abaixo — nunca no caminho sem guardas.
@@ -503,12 +612,12 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     if (orquestrador && demerzelAtivo(deps.env)) {
       const { resposta } = await orquestrador.atender({ texto: entrada.texto, contexto }, portasOrquestracao(execucao, []));
       rastreio.estado ??= resposta.tipo;
-      return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio, execucao.navegacaoPendente) } };
+      return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio, execucao.navegacaoPendente, execucao) } };
     }
 
-    const intencao = await resolverIntencao(entrada.texto, contexto, sessao, pedido, deps, rastreio);
+    const intencao = execucao.intencaoResolvida ?? await resolverIntencao(entrada.texto, contexto, sessao, pedido, deps, rastreio);
     const resposta = await responderIntencao(intencao, contexto, execucao);
-    return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio) } };
+    return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio, undefined, execucao) } };
   } catch (error) {
     const falha = classificar(error, MENSAGEM_FALLBACK);
     rastreio.resultado = falha.resultado;

@@ -190,12 +190,41 @@ async function postar(buscar: Buscador, url: string, corpo: object, sinal?: Abor
 }
 
 /** Pergunta livre ou resposta a um rascunho. `sinal` permite ao operador cancelar a espera (leitura não tem efeito). */
-export function conversar(buscar: Buscador, pedido: { texto: string; contexto?: ContextoTela | null; operacaoId?: string }, sinal?: AbortSignal) {
+export function conversar(buscar: Buscador, pedido: { texto: string; contexto?: ContextoTela | null; operacaoId?: string; foco?: FocoUI | null }, sinal?: AbortSignal) {
+  const foco = pedido.foco?.entidades.length ? focoParaEnvio(pedido.foco) : null;
   return postar(buscar, ENDPOINT_CONVERSA, {
     texto: pedido.texto,
     ...(pedido.contexto ? { contexto: pedido.contexto } : {}),
     ...(pedido.operacaoId ? { operacaoId: pedido.operacaoId } : {}),
+    ...(foco ? { foco } : {}),
   }, sinal);
+}
+
+/**
+ * Foco da conversa (AI V1.1, PR 5): entidades recentes devolvidas pelo servidor. A UI guarda o rótulo só para
+ * exibir e reenvia SÓ tipo + id (dica), como o contexto de tela; o servidor revalida tudo a cada uso.
+ */
+export type FocoUI = { entidades: Array<{ tipo: string; id: string; rotulo: string }>; principal: number | null };
+const TIPOS_FOCO = new Set(['FESTA', 'CLIENTE', 'CONTRATO', 'ITEM', 'CATEGORIA']);
+const UUID_FOCO = new RegExp(`^${UUID}$`);
+
+/** Aceita só o formato fechado; qualquer desvio ⇒ sem foco (a conversa segue sem dica). */
+export function focoValido(foco: unknown, anterior: FocoUI | null = null): FocoUI | null {
+  const f = foco as { entidades?: unknown; principal?: unknown } | null;
+  if (!f || !Array.isArray(f.entidades) || f.entidades.length > 5) return null;
+  const entidades: FocoUI['entidades'] = [];
+  for (const e of f.entidades as Array<{ tipo?: unknown; id?: unknown; rotulo?: unknown }>) {
+    if (!e || typeof e.tipo !== 'string' || !TIPOS_FOCO.has(e.tipo) || typeof e.id !== 'string' || !UUID_FOCO.test(e.id) || typeof e.rotulo !== 'string') return null;
+    // O servidor não conhece o rótulo das entidades antigas: a UI mantém o que já exibia.
+    const rotulo = e.rotulo || anterior?.entidades.find((a) => a.id === e.id)?.rotulo || '';
+    entidades.push({ tipo: e.tipo, id: e.id, rotulo: rotulo.slice(0, 120) });
+  }
+  const principal = typeof f.principal === 'number' && Number.isInteger(f.principal) && f.principal >= 0 && f.principal < entidades.length ? f.principal : null;
+  return { entidades, principal };
+}
+
+function focoParaEnvio(foco: FocoUI) {
+  return { entidades: foco.entidades.map(({ tipo, id }) => ({ tipo, id })), ...(foco.principal != null ? { principal: foco.principal } : {}) };
 }
 
 /** Clique humano no preview. Só o que o preview devolveu: o servidor revalida todo o resto. */

@@ -116,7 +116,8 @@ test("conversa: sem destino único ⇒ não navega; diz o que entendeu e registr
   assert.match((ambiguo.resposta as { mensagem: string }).mensagem, /^Entendi que você quer abrir o contrato, mas não sei qual\./);
   assert.deepEqual(ambiguo.rastro?.navegacao, { recurso: "CONTRATO", tela: null, resultado: "AMBIGUO", motivo: "AMBIGUO" });
 
-  const referencia = await perguntar("abra o contrato da próxima festa");
+  // Referência que o resolver (PR 5) ainda não resolve: contrato citado por nome de pessoa.
+  const referencia = await perguntar("abra o contrato da Ana");
   assert.equal(referencia.resposta?.entendimento, "CAPACIDADE_INDISPONIVEL");
   assert.equal(referencia.rastro?.navegacao?.resultado, "SEM_DESTINO");
 });
