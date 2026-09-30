@@ -67,6 +67,8 @@ const POR_CAPACIDADE: Readonly<Record<string, ObjetivoIA>> = {
   pendencias_da_festa: "CONSULTAR:FESTA",
   festa_em_risco: "CONSULTAR:FESTA",
   pacotes_disponiveis: "CONSULTAR:PACOTE",
+  proximas_festas: "CONSULTAR:FESTA",
+  buscar_clientes: "CONSULTAR:CLIENTE",
   criar_pacote: "CRIAR:PACOTE",
   editar_pacote: "EDITAR:PACOTE",
   ativar_pacote: "EDITAR:PACOTE",

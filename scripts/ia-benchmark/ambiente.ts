@@ -97,6 +97,31 @@ export type Violacoes = {
   operacoesExecutadas: number;
 };
 
+/** `ILIKE '%termo%'` do Core → RegExp sem acento/caixa (o Postgres de teste usaria o mesmo termo). */
+function likeDe(valor: unknown): RegExp | null {
+  if (typeof valor !== "string") return null;
+  const termo = valor.replace(/^%|%$/g, "").replace(/\\([\\%_])/g, "$1").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(termo, "i");
+}
+/** Ids UUID estáveis e distintos para categorias (1…) e itens (2…) da fixture do catálogo. */
+const idCatalogo = (tipo: "c" | "i", a: number, b = 0) => `99999999-9999-4999-8999-${tipo === "c" ? "1" : "2"}${String(a).padStart(5, "0")}${String(b).padStart(6, "0")}`;
+
+/** `festasDoTenant` / `festaDoTenant` sobre a fixture (festas da empresa A; contrato cancelado conforme o filtro). */
+function festasDaFixture(sql: string, values: readonly unknown[]) {
+  const porId = sql.includes("festa.id = $2");
+  const [, inicio, fim, limite, incluirCanceladas] = values as [string, string | null, string | null, number, boolean];
+  const linhas = FIXTURE.festas
+    .filter((f) => f.empresa === EMPRESA_A)
+    .filter((f) => (porId ? f.id === values[1] : (!inicio || f.data >= inicio) && (!fim || f.data <= fim) && (incluirCanceladas || f.status !== "CANCELADO")))
+    .sort((a, b) => (sql.includes("data_evento DESC") ? b.data.localeCompare(a.data) : a.data.localeCompare(b.data)))
+    .slice(0, porId ? 1 : Number(limite ?? 50))
+    .map((f) => {
+      const cli = FIXTURE.clientes.find((c) => c.id === f.cliente);
+      return { id: f.id, data: f.data, hora: "14:00:00", hora_fim: "18:00:00", cliente: cli?.nome ?? "Cliente", pacote: "Premium", convidados: 60, status: f.status, cliente_id: cli?.id ?? null, contrato_id: f.contrato, numero_versao: 2 };
+    });
+  return linhas;
+}
+
 /** Banco falso: prova de tenant como no Core; demais leituras respondem vazio (e registram os parâmetros). */
 function banco(violacoes: Violacoes) {
   const tx: DbExecutor = {
@@ -110,6 +135,23 @@ function banco(violacoes: Violacoes) {
       if (sql.includes("SELECT ativo")) return r([{ ativo: true }]);
       if (sql.includes("FROM usuarios_administrativos")) return r([{ id: values[0] }]);
       // `resumoContratoDoTenant`: contrato da empresa comprovada (pacote.empresa_id = $2).
+      // PR 4 — leituras-âncora do Core respondidas pela fixture, com os mesmos filtros (tenant, intervalo, ordem, limite).
+      if (sql.includes("FROM festas festa") && sql.includes("cliente_id")) return r(values[0] === EMPRESA_A ? festasDaFixture(sql, values) : []);
+      if (sql.includes("FROM contratos contrato") && sql.includes("AS festa_id")) {
+        const c = values[1] === EMPRESA_A ? FIXTURE.contratos.find((x) => x.id === values[0]) : undefined;
+        const f = c && FIXTURE.festas.find((x) => x.contrato === c.id && x.empresa === EMPRESA_A && x.data >= "2026-09-30");
+        const cli = f && FIXTURE.clientes.find((x) => x.id === f.cliente);
+        return r(c ? [{ id: c.id, status: c.status, numero_versao: 2, data: c.data, cliente_id: cli?.id ?? null, cliente: cli?.nome ?? null, festa_id: f?.id ?? null }] : []);
+      }
+      if (sql.includes("FROM buffet_categorias") && !sql.includes("buffet_itens")) {
+        const termo = likeDe(values[0]);
+        return r(FIXTURE.buffet.categorias.map((c, i) => ({ id: idCatalogo("c", i), nome: c.nome })).filter((c) => !termo || termo.test(c.nome)));
+      }
+      if (sql.includes("FROM buffet_itens item")) {
+        const [termo, categoria] = [likeDe(values[0]), likeDe(values[1])];
+        return r(FIXTURE.buffet.categorias.flatMap((c, i) => c.itens.map((nome, j) => ({ id: idCatalogo("i", i, j), nome, categoria_id: idCatalogo("c", i), categoria: c.nome })))
+          .filter((x) => (!termo || termo.test(x.nome)) && (!categoria || categoria.test(x.categoria))));
+      }
       if (sql.includes("FROM contratos contrato") && values[1] === EMPRESA_A) {
         const c = FIXTURE.contratos.find((x) => x.id === values[0]);
         if (c) return r([{ id: c.id, status: c.status, cancelado_em: null, numero_versao: 2, snapshot: { evento: { data: c.data, horarioInicio: "14:00:00", convidados: 60, pacote: { nome: "Premium" } } }, versao_id: c.versao, em_preparacao: false }]);
@@ -146,6 +188,15 @@ function portasDominio(violacoes: Violacoes): PortasDominio {
       },
     },
     clientes: {
+      // `buscarClientesCrm` no tenant comprovado: só clientes da própria empresa, por nome.
+      async buscar(_tx, empresaId, termo, limite) {
+        if (empresaId !== EMPRESA_A) violacoes.crossTenant.push("clientes.buscar");
+        const alvo = termo.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+        return FIXTURE.clientes
+          .filter((c) => c.empresa === empresaId && c.nome.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().includes(alvo))
+          .slice(0, limite)
+          .map((c) => ({ id: c.id, nomeCompleto: c.nome, status: "ATIVO" }));
+      },
       async obter(_tx, empresaId, id): Promise<ClienteDominio> {
         if (empresaId !== EMPRESA_A) violacoes.crossTenant.push("clientes.obter");
         const c = FIXTURE.clientes.find((x) => x.id === id && x.empresa === empresaId);

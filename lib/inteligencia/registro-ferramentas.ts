@@ -62,6 +62,15 @@ const texto = z.string().max(2000);
 const evidenciaSchema = z.object({ fonte: z.string().max(80), rotulo: z.string().max(200), valor: z.string().max(200), destino: z.string().max(300).optional() }).strict();
 const itemSchema = z.object({ id: z.string().max(80), prioridade: z.enum(["alta", "media", "baixa"]), titulo: texto, detalhe: texto, destino: z.string().max(300).optional() }).strict();
 
+const uuidSaida = z.string().uuid();
+const entidadeSchema = z.object({
+  tipo: z.enum(["FESTA", "CLIENTE", "CONTRATO", "ITEM", "CATEGORIA"]),
+  id: uuidSaida,
+  rotulo: z.string().min(1).max(120),
+  tela: z.enum(["cliente", "contrato", "festa", "catalogo"]).optional(),
+  relacoes: z.object({ cliente: uuidSaida.optional(), contrato: uuidSaida.optional(), festa: uuidSaida.optional(), categoria: uuidSaida.optional() }).strict().optional(),
+}).strict();
+
 export const saidaLeituraSchema = z.object({
   capacidade: z.string().max(64),
   estado: z.enum(["atencao", "em_dia", "sem_dados", "informativo"]),
@@ -70,6 +79,8 @@ export const saidaLeituraSchema = z.object({
   itens: z.array(itemSchema).max(100),
   evidencias: z.array(evidenciaSchema).max(40),
   referencia: z.object({ hoje: z.string().max(10), geradoEm: z.string().max(40), fontes: z.array(z.string().max(80)).max(20) }).strict(),
+  // AI V1.1 (PR 4): referências fechadas de entidade (id UUID do Core, rótulo curto, tela e relações).
+  entidades: z.array(entidadeSchema).max(30).optional(),
 }).strict();
 
 const evidenciaAgregadaSchema = z.object({ fonte: z.string().max(80) }).passthrough();
@@ -145,6 +156,12 @@ const LEITURAS: Readonly<Record<string, Meta>> = Object.freeze({
   onde_encontrar: { dominio: "NAVEGACAO", prazoMs: 1000 },
   abrir_tela: { dominio: "NAVEGACAO", prazoMs: 4000 },
   abrir_festa: { dominio: "NAVEGACAO", prazoMs: 6000 },
+  // AI V1.1 (PR 4): leituras-âncora e relações (entidades estruturadas do Core).
+  proximas_festas: { dominio: "FESTAS", prazoMs: 5000 },
+  relacoes_festa: { dominio: "FESTAS", prazoMs: 4000 },
+  relacoes_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
+  buscar_clientes: { dominio: "CLIENTES", prazoMs: 4000 },
+  buscar_catalogo: { dominio: "COMERCIAL", prazoMs: 4000 },
   pacotes_disponiveis: { dominio: "COMERCIAL", prazoMs: 4000 },
   comparar_versoes_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
 });

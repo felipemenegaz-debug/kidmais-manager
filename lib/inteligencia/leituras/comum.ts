@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Papel } from "../../autenticacao/service.ts";
-import type { Evidencia, Fato, ItemResposta, RespostaLeitura } from "../contratos.ts";
+import type { EntidadeRef, Evidencia, Fato, ItemResposta, RespostaLeitura } from "../contratos.ts";
 import type { ContextoFerramenta } from "../ferramentas.ts";
 
 /**
@@ -44,6 +44,8 @@ export function montarResposta(
     itens?: ItemResposta[];
     evidencias?: Evidencia[];
     fontes: string[];
+    /** AI V1.1 (PR 4): referências de entidade do Core (só quando a leitura as devolve). */
+    entidades?: EntidadeRef[];
   },
 ): RespostaLeitura {
   return {
@@ -54,6 +56,7 @@ export function montarResposta(
     itens: partes.itens ?? [],
     evidencias: partes.evidencias ?? [],
     referencia: { hoje: contexto.hoje, geradoEm: contexto.geradoEm, fontes: [...new Set(partes.fontes)] },
+    ...(partes.entidades ? { entidades: partes.entidades } : {}),
   };
 }
 

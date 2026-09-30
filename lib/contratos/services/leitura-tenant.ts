@@ -115,3 +115,45 @@ export async function resumoContratoDoTenant(tx: DbExecutor, empresaId: string, 
     canceladoEm: linha.cancelado_em,
   };
 }
+
+/**
+ * Relações de um contrato (AI V1.1, PR 4): contrato → cliente (fechamento.cliente_id) e contrato → festa ativa
+ * (festas.contrato_id, quando existir). Mesmo predicado de tenant: outra empresa ⇒ null (inexistente).
+ */
+export type RelacoesContrato = {
+  contratoId: string;
+  status: string;
+  versaoVigente: number | null;
+  dataEvento: string | null;
+  clienteId: string | null;
+  cliente: string | null;
+  festaId: string | null;
+};
+
+export async function relacoesContratoDoTenant(tx: DbExecutor, empresaId: string, contratoId: string): Promise<RelacoesContrato | null> {
+  const linha = (await tx.query<{
+    id: string; status: string; numero_versao: number | null; data: string | null; cliente_id: string | null; cliente: string | null; festa_id: string | null;
+  }>(
+    `SELECT contrato.id::text AS id, contrato.status, ver.numero_versao, fech.data_evento::text AS data,
+            cliente.id::text AS cliente_id, cliente.nome_completo AS cliente,
+            (SELECT festa.id::text FROM festas festa WHERE festa.contrato_id = contrato.id AND festa.invalidada_em IS NULL LIMIT 1) AS festa_id
+       FROM contratos contrato
+       JOIN fechamentos fech ON fech.id = contrato.fechamento_id
+       JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $2::uuid
+       LEFT JOIN clientes cliente ON cliente.id = fech.cliente_id
+       LEFT JOIN contrato_fluxos fluxo ON fluxo.contrato_id = contrato.id
+       LEFT JOIN contrato_versoes ver ON ver.id = fluxo.versao_vigente_id
+      WHERE contrato.id = $1::uuid`,
+    [contratoId, empresaId],
+  )).rows[0];
+  if (!linha) return null;
+  return {
+    contratoId: linha.id,
+    status: linha.status,
+    versaoVigente: linha.numero_versao == null ? null : Number(linha.numero_versao),
+    dataEvento: linha.data,
+    clienteId: linha.cliente_id,
+    cliente: linha.cliente,
+    festaId: linha.festa_id,
+  };
+}

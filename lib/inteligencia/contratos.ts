@@ -109,6 +109,32 @@ export type RespostaLeitura = {
   itens: ItemResposta[];
   evidencias: Evidencia[];
   referencia: { hoje: string; geradoEm: string; fontes: string[] };
+  /**
+   * AI V1.1 (PR 4): entidades devolvidas pelo Core, reutilizáveis por passos seguintes (referência e navegação) sem
+   * pedir id ao operador. Ids e relações vêm SÓ do serviço de domínio, nunca do texto nem do modelo.
+   */
+  entidades?: EntidadeRef[];
+};
+
+export type TipoEntidade = "FESTA" | "CLIENTE" | "CONTRATO" | "ITEM" | "CATEGORIA";
+
+/** Referência fechada de entidade. `tela` (lista de rotas-navegacao) permite navegar depois; `relacoes` vêm do Core. */
+export type EntidadeRef = {
+  tipo: TipoEntidade;
+  id: string;
+  rotulo: string;
+  tela?: "cliente" | "contrato" | "festa" | "catalogo";
+  relacoes?: { cliente?: string; contrato?: string; festa?: string; categoria?: string };
+};
+
+/** Resumo de uma leitura no trace (PR 4): só códigos e contagens — nunca rótulo, nome ou id. */
+export type LeituraRastreio = {
+  capacidade: string;
+  tipos: TipoEntidade[];
+  total: number;
+  cardinalidade: "ZERO" | "UM" | "MULTIPLOS";
+  relacoes: string[];
+  duracaoMs: number;
 };
 
 export type EstadoOperacao =
@@ -317,6 +343,8 @@ export type AuditTrace = {
   objetivo: ObjetivoIA | null;
   /** AI V1.1 (PR 3): navegação pedida neste pedido (tela da lista fechada, nunca a URL); null quando não houve. */
   navegacao: NavegacaoRastreio | null;
+  /** AI V1.1 (PR 4): leituras executadas neste pedido (entidades, cardinalidade, relações, duração), até 10. */
+  leituras: LeituraRastreio[];
   itens: number | null;
   causa: string | null;
   /** Resposta degradada (erro tratado com mensagem segura; o Core segue funcionando). */
