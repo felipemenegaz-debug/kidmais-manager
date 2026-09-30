@@ -22,7 +22,12 @@ const DEPS_V1 = {
   './CategoriaKidmais': { default: function SeloCategoria() {} },
   './ComplementoKidmais': { default: function ComplementoKidmais() {} },
   './RespostaAgente': { default: function RespostaAgente() {} },
+  // AI V1.1 (PR 3): link de navegação no drawer e navegação automática no provider.
+  'next/link': { default: 'a' },
 };
+/** Roteador falso: registra os destinos que o provider abriria. */
+const navegados: string[] = [];
+const NAVEGACAO_FALSA = { 'next/navigation': { useRouter: () => ({ push: (destino: string) => { navegados.push(destino); } }) } };
 
 type Pedido = { url: string; init: RequestInit };
 function buscadorFalso(resposta: () => Promise<Response>) {
@@ -227,6 +232,7 @@ test('Provider: atenção de hoje no endpoint da V1; o resto vai ao orquestrador
       ? Response.json({ ok: false, erro: 'Kidmais Intelligence indisponível neste ambiente.', codigo: 'INTELIGENCIA_DESATIVADA' }, { status: 503 })
       : Response.json({ ok: true, data: dados })));
     const tela = carregarComponente('components/admin/inteligencia/PerguntarKidmais.tsx', {
+      ...NAVEGACAO_FALSA,
       '@/lib/http/admin-fetch': { adminFetch: buscar },
       './perguntas': perguntas,
       './cliente-inteligencia': cliente,
@@ -367,6 +373,7 @@ test('Provider: rascunho aberto recebe a próxima frase; o clique em Confirmar v
     ];
     const { buscar, pedidos } = buscadorFalso(() => respostas[pedidos.length - 1]());
     const tela = carregarComponente('components/admin/inteligencia/PerguntarKidmais.tsx', {
+      ...NAVEGACAO_FALSA,
       '@/lib/http/admin-fetch': { adminFetch: buscar }, './perguntas': perguntas, './cliente-inteligencia': cliente, './conversa': conversa, './DrawerKidmais': { default: DrawerKidmais },
     });
     const provider = () => tela.render('PerguntarKidmaisProvider', { children: null });
@@ -525,6 +532,7 @@ test('V1 drawer: selo em texto, Cancelar na espera, "Tentar de novo" só em erro
       './conversa': conversa, './RespostaLeitura': { default: function RespostaLeitura() {} },
       './AcaoKidmais': { PreviewAcao: function PreviewAcao() {}, RascunhoAcao: function RascunhoAcao() {}, ResultadoAcao: function ResultadoAcao() {} },
       './CategoriaKidmais': { default: Selo }, './ComplementoKidmais': { default: Complemento }, './RespostaAgente': { default: Agente },
+      'next/link': { default: 'a' },
     });
     const acoes: string[] = [];
     const base = { aguardando: false, onPerguntar: () => {}, onFechar: () => {}, onCancelar: () => acoes.push('cancelar'), onReenviar: (id: number) => acoes.push(`reenviar:${id}`) };
@@ -583,5 +591,51 @@ test('V1 nenhuma tela do Kidmais Intelligence mostra confiança numérica bruta'
   const pasta = 'components/admin/inteligencia';
   for (const arquivo of readdirSync(pasta).filter((a) => a.endsWith('.tsx'))) {
     assert.doesNotMatch(readFileSync(`${pasta}/${arquivo}`, 'utf8'), /confian|confidence|probabilidade|score/i, arquivo);
+  }
+});
+
+// ---------------------------------------------------------------- AI V1.1 (PR 3): navegação
+
+test('Navegação: a UI só aceita rota interna da lista fechada (sem esquema, host, "..", barra invertida ou query fora do padrão)', () => {
+  const id = '44444444-4444-4444-8444-000000000001';
+  for (const ok of ['/admin/dashboard', '/clientes', `/clientes/${id}`, `/admin/contratos?contratoId=${id}`, `/admin/festas/${id}`, '/admin/financeiro/contas-receber', '/admin/disponibilidade', '/admin/configuracoes/catalogo', `/admin/clientes/${id}/fechamento`]) {
+    assert.equal(cliente.rotaInternaSegura(ok), true, ok);
+  }
+  for (const ruim of ['javascript:alert(1)', 'data:text/html,x', 'file:///etc/passwd', 'https://evil.example', '//evil.example/admin', '/admin/../etc', '/admin\dashboard', `/admin/contratos?contratoId=${id}&x=1`, '/admin/festas/nao-uuid', '/admin/qualquer', ' /admin/dashboard', '/admin/dashboard#x']) {
+    assert.equal(cliente.rotaInternaSegura(ruim), false, ruim);
+  }
+});
+
+test('Provider: resposta de navegação com rota segura abre a tela e fecha o drawer; rota fora da lista é descartada', async () => {
+  const navegador = navegadorFalso();
+  try {
+    const DrawerKidmais = function DrawerKidmais() {};
+    let destino = '/admin/financeiro/contas-receber';
+    const { buscar } = buscadorFalso(async () => Response.json({ ok: true, data: { tipo: 'navegacao', tela: 'contas_receber', recurso: 'FINANCEIRO', destino, rotulo: 'Financeiro › Contas a receber' } }));
+    const tela = carregarComponente('components/admin/inteligencia/PerguntarKidmais.tsx', {
+      ...NAVEGACAO_FALSA,
+      '@/lib/http/admin-fetch': { adminFetch: buscar },
+      './perguntas': perguntas,
+      './cliente-inteligencia': cliente,
+      './conversa': conversa,
+      './DrawerKidmais': { default: DrawerKidmais },
+    });
+    const provider = () => tela.render('PerguntarKidmaisProvider', { children: 'conteúdo' });
+    const valor = elementos(provider())[0].props.value as { abrir(): void };
+    navegados.length = 0;
+    valor.abrir();
+    await (achar(provider(), DrawerKidmais).props.onPerguntar as (t: string) => Promise<void>)('Abra a tela de contas a receber');
+    assert.deepEqual(navegados, ['/admin/financeiro/contas-receber']);
+    assert.equal(elementos(provider()).some((e) => e.type === DrawerKidmais), false, 'drawer fecha ao navegar');
+
+    destino = 'javascript:alert(1)';
+    valor.abrir();
+    await (achar(provider(), DrawerKidmais).props.onPerguntar as (t: string) => Promise<void>)('Abra a tela');
+    assert.deepEqual(navegados, ['/admin/financeiro/contas-receber'], 'destino inseguro nunca navega');
+    const ultima = (achar(provider(), DrawerKidmais).props.mensagens as conversa.Mensagem[]).at(-1)!;
+    assert.equal(ultima.fase, 'erro');
+    await tique();
+  } finally {
+    navegador.restaurar();
   }
 });

@@ -10,12 +10,12 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 
 | Métrica | Resultado | Meta | Status |
 | --- | --- | --- | --- |
-| Casos aprovados | 42/76 (55.3%) | — | — |
+| Casos aprovados | 45/76 (59.2%) | — | — |
 | Exemplos obrigatórios aprovados | 0/10 (0.0%) | — | — |
-| Objetivo (goal) correto | 50/62 (80.6%) | ≥ 95% | abaixo |
+| Objetivo (goal) correto | 53/62 (85.5%) | ≥ 95% | abaixo |
 | Roteamento correto (capacidade existente) | 23/27 (85.2%) | ≥ 95% | abaixo |
-| Estado de entendimento correto | 47/76 (61.8%) | — | — |
-| Perguntas evitáveis | 4 | 0 | abaixo |
+| Estado de entendimento correto | 48/76 (63.2%) | — | — |
+| Perguntas evitáveis | 3 | 0 | abaixo |
 
 ## Segurança — 0 violações
 
@@ -33,7 +33,7 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | Categoria | Aprovados | Taxa |
 | --- | --- | --- |
 | consultas | 4/4 | 100.0% |
-| navegacao | 1/4 | 25.0% |
+| navegacao | 4/4 | 100.0% |
 | temporal | 1/4 | 25.0% |
 | contexto | 0/4 | 0.0% |
 | festas | 2/4 | 50.0% |
@@ -59,7 +59,7 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | PR | Aprovados | Taxa |
 | --- | --- | --- |
 | PR2 | 9/9 | 100.0% |
-| PR3 | 0/3 | 0.0% |
+| PR3 | 3/3 | 100.0% |
 | PR4 | 0/4 | 0.0% |
 | PR5 | 0/10 | 0.0% |
 | PR6 | 1/6 | 16.7% |
@@ -76,15 +76,15 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | con-03 | V1 | Como está a agenda de hoje? | EXECUTADO · CONSULTAR:AGENDA | EXECUTADO · CONSULTAR:AGENDA · agenda_do_dia · LEITURA · resposta | ok |
 | con-04 | V1 | Quanto recebemos este mês? | EXECUTADO · CONSULTAR:FINANCEIRO | EXECUTADO · CONSULTAR:FINANCEIRO · analisar_pagamentos · LEITURA · resposta | ok |
 | nav-01 | V1 | Onde eu cadastro um pacote? | EXECUTADO · LOCALIZAR:PACOTE | EXECUTADO · LOCALIZAR:PACOTE · onde_encontrar · LEITURA · resposta | ok |
-| nav-02 | PR3 | Abra a tela de contas a receber | EXECUTADO · ABRIR:FINANCEIRO · nav FINANCEIRO | EXECUTADO · CONSULTAR:DASHBOARD · atencao_hoje · LEITURA · resposta | objetivo CONSULTAR:DASHBOARD ≠ ABRIR:FINANCEIRO; navegação — ≠ FINANCEIRO |
-| nav-03 | PR3 | Vá para a agenda | EXECUTADO · ABRIR:AGENDA · nav AGENDA | EXECUTADO · CONSULTAR:AGENDA · agenda_do_dia · LEITURA · resposta | objetivo CONSULTAR:AGENDA ≠ ABRIR:AGENDA; navegação — ≠ AGENDA |
-| nav-04 | PR3 | Leve-me para a tela de pacotes | EXECUTADO · ABRIR:PACOTE · nav PACOTE | CAPACIDADE_INDISPONIVEL · ABRIR:PACOTE · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; navegação — ≠ PACOTE |
+| nav-02 | PR3 | Abra a tela de contas a receber | EXECUTADO · ABRIR:FINANCEIRO · nav FINANCEIRO | EXECUTADO · ABRIR:FINANCEIRO · abrir_tela · LEITURA · navegacao | ok |
+| nav-03 | PR3 | Vá para a agenda | EXECUTADO · ABRIR:AGENDA · nav AGENDA | EXECUTADO · ABRIR:AGENDA · abrir_tela · LEITURA · navegacao | ok |
+| nav-04 | PR3 | Leve-me para a tela de pacotes | EXECUTADO · ABRIR:PACOTE · nav PACOTE | EXECUTADO · ABRIR:PACOTE · abrir_tela · LEITURA · navegacao | ok |
 | tmp-01 | V1 | Quais festas temos amanhã? | EXECUTADO · CONSULTAR:AGENDA | EXECUTADO · CONSULTAR:AGENDA · agenda_do_dia · LEITURA · resposta | ok |
 | tmp-02 ★ | PR4 | Qual é a próxima festa? | EXECUTADO · CONSULTAR:FESTA | CAPACIDADE_INDISPONIVEL · CONSULTAR:FESTA · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; capacidade — ∉ {proximas_festas} |
 | tmp-03 | PR5 | Resuma a festa de sábado | EXECUTADO · CONSULTAR:FESTA | PRECISA_DADO · CONSULTAR:FESTA · PRECISA_CONTEXTO · precisa_contexto | entendimento PRECISA_DADO ∉ {EXECUTADO}; capacidade — ∉ {resumir_festa} |
 | tmp-04 | PR5 | Como foi a última festa? | EXECUTADO · CONSULTAR:FESTA | CAPACIDADE_INDISPONIVEL · CONSULTAR:FESTA · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; capacidade — ∉ {resumir_festa} |
 | ctx-01 ★ | PR5 | Qual é a próxima festa? → Quem é o cliente dela? | EXECUTADO · CONSULTAR:CLIENTE | CAPACIDADE_INDISPONIVEL · CONSULTAR:CLIENTE · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; capacidade — ∉ {resumir_cliente, cliente_da_festa} |
-| ctx-02 ★ | PR5 | Qual é a próxima festa? → Quem é o cliente dela? → Abra o cadastro dele | EXECUTADO · ABRIR:CLIENTE · nav CLIENTE | AMBIGUO · ABRIR:CLIENTE · NAO_SUPORTADO · nao_suportado | entendimento AMBIGUO ∉ {EXECUTADO}; navegação — ≠ CLIENTE |
+| ctx-02 ★ | PR5 | Qual é a próxima festa? → Quem é o cliente dela? → Abra o cadastro dele | EXECUTADO · ABRIR:CLIENTE · nav CLIENTE | CAPACIDADE_INDISPONIVEL · ABRIR:CLIENTE · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; navegação — ≠ CLIENTE |
 | ctx-03 ★ | PR5 | Quem é o cliente da próxima festa? → Quanto ainda falta pagar? | EXECUTADO · CONSULTAR:PAGAMENTO | EXECUTADO · CONSULTAR:FINANCEIRO · analisar_recebiveis · LEITURA · resposta | objetivo CONSULTAR:FINANCEIRO ≠ CONSULTAR:PAGAMENTO |
 | ctx-04 | PR5 | Resuma a festa de sábado → Abra o contrato dela | EXECUTADO · ABRIR:CONTRATO · nav CONTRATO | CAPACIDADE_INDISPONIVEL · ABRIR:CONTRATO · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; navegação — ≠ CONTRATO |
 | fes-01 | V1 | Resuma esta festa. | EXECUTADO · CONSULTAR:FESTA | EXECUTADO · CONSULTAR:FESTA · resumir_festa · LEITURA · resposta | ok |
@@ -94,7 +94,7 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | cli-01 | V1 | Resuma este cliente | EXECUTADO · CONSULTAR:CLIENTE | EXECUTADO · CONSULTAR:CLIENTE · resumir_cliente · LEITURA · resposta | ok |
 | cli-02 | PR2 | O cadastro deste cliente está completo? | EXECUTADO · CONSULTAR:CLIENTE | EXECUTADO · CONSULTAR:CLIENTE · resumir_cliente · LEITURA · resposta | ok |
 | cli-03 | PR4 | Procure a cliente Ana Oliveira | EXECUTADO · CONSULTAR:CLIENTE | NAO_ENTENDIDO · NAO_SUPORTADO · nao_suportado | entendimento NAO_ENTENDIDO ∉ {EXECUTADO}; objetivo — ≠ CONSULTAR:CLIENTE; capacidade — ∉ {buscar_clientes} |
-| cli-04 | PR6 | Abra o cadastro da Ana Oliveira | EXECUTADO · ABRIR:CLIENTE · nav CLIENTE | NAO_ENTENDIDO · NAO_SUPORTADO · nao_suportado | entendimento NAO_ENTENDIDO ∉ {EXECUTADO}; objetivo — ≠ ABRIR:CLIENTE; navegação — ≠ CLIENTE |
+| cli-04 | PR6 | Abra o cadastro da Ana Oliveira | EXECUTADO · ABRIR:CLIENTE · nav CLIENTE | CAPACIDADE_INDISPONIVEL · ABRIR:CLIENTE · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; navegação — ≠ CLIENTE |
 | ctr-01 | V1 | Resuma este contrato | EXECUTADO · CONSULTAR:CONTRATO | EXECUTADO · CONSULTAR:CONTRATO · resumir_contrato · LEITURA · resposta | ok |
 | ctr-02 | V1 | Compare as versões deste contrato | EXECUTADO · CONSULTAR:CONTRATO | EXECUTADO · CONSULTAR:CONTRATO · resumir_contrato+comparar_versoes_contrato · AGENTE · agente | ok |
 | ctr-03 | PR5 | Qual é o último contrato? | EXECUTADO · CONSULTAR:CONTRATO | CAPACIDADE_INDISPONIVEL · CONSULTAR:CONTRATO · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO} |

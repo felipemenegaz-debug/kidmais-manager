@@ -99,7 +99,9 @@ export type RespostaIA =
   | { tipo: 'preview'; rascunho: RascunhoPublico }
   | { tipo: 'resultado_acao'; rascunho: RascunhoPublico; mensagem: string; destino?: string }
   | { tipo: 'nao_suportado'; mensagem: string; sugestoes: string[] }
-  | { tipo: 'precisa_contexto'; mensagem: string };
+  | { tipo: 'precisa_contexto'; mensagem: string }
+  /** Navegação interna (AI V1.1): só rota da lista fechada; a UI revalida antes de navegar. */
+  | { tipo: 'navegacao'; tela: string; recurso: string; destino: string; rotulo: string };
 
 export type ContextoTela = { tela: 'dashboard' | 'festa' | 'cliente' | 'contrato' | 'financeiro' | 'pacotes' | 'agenda' | 'configuracoes' | 'geral'; entidadeId?: string };
 
@@ -112,7 +114,21 @@ export type ResultadoConversa =
 export const CODIGO_CANCELADA = 'CANCELADA_PELO_OPERADOR';
 export const MENSAGEM_CANCELADA = 'Pergunta cancelada. Nada foi alterado.';
 
-const TIPOS_RESPOSTA = new Set(['resposta', 'agente', 'rascunho', 'preview', 'resultado_acao', 'nao_suportado', 'precisa_contexto']);
+const TIPOS_RESPOSTA = new Set(['resposta', 'agente', 'rascunho', 'preview', 'resultado_acao', 'nao_suportado', 'precisa_contexto', 'navegacao']);
+
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+/**
+ * Mesma lista fechada do servidor (lib/inteligencia/rotas-navegacao.ts), repetida aqui como defesa em profundidade
+ * (o Admin não importa lib/inteligencia): a UI só navega para rota interna conhecida — nunca esquema (javascript:,
+ * data:, file:, http:), host (//), "..", barra invertida ou query fora do padrão.
+ */
+const ROTA_INTERNA = new RegExp(
+  `^/(?:admin/(?:dashboard|contratos(?:\\?contratoId=${UUID})?|festas(?:/${UUID})?|clientes/${UUID}/fechamento|financeiro(?:/contas-(?:receber|pagar))?|disponibilidade|configuracoes(?:/(?:catalogo|pacotes))?)|clientes(?:/${UUID})?)$`,
+);
+
+export function rotaInternaSegura(destino: unknown): destino is string {
+  return typeof destino === 'string' && destino.length <= 200 && ROTA_INTERNA.test(destino);
+}
 
 function pareceRascunho(r: unknown): r is RascunhoPublico {
   const x = r as Partial<RascunhoPublico> | null;
@@ -152,6 +168,10 @@ function pareceResposta(dados: unknown): dados is RespostaIA {
   if (d.tipo === 'rascunho') return pareceRascunho(d.rascunho) && typeof d.pergunta === 'string';
   if (d.tipo === 'preview') return pareceRascunho(d.rascunho);
   if (d.tipo === 'resultado_acao') return pareceRascunho(d.rascunho) && typeof d.mensagem === 'string';
+  if (d.tipo === 'navegacao') {
+    const n = d as { destino?: unknown; rotulo?: unknown; tela?: unknown; recurso?: unknown };
+    return rotaInternaSegura(n.destino) && texto(n.rotulo) && texto(n.tela) && texto(n.recurso);
+  }
   return typeof d.mensagem === 'string';
 }
 

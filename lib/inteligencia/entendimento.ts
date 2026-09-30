@@ -43,6 +43,7 @@ const RECURSOS: ReadonlyArray<[Recurso, RegExp]> = [
   ["ITEM", /\bite(m|ns)\b/],
   ["PACOTE", /\bpacotes?\b/],
   ["CONTRATO", /\bcontratos?\b/],
+  ["FECHAMENTO", /\bfechamentos?\b/],
   ["PAGAMENTO", /\b(pagamentos?|parcelas?|recebimentos?|boletos?)\b/],
   ["FINANCEIRO", /\b(financeiro|contas? a (receber|pagar)|recebive\w*)\b/],
   ["AGENDA", /\b(agenda|disponibilidade)\b/],
@@ -144,6 +145,7 @@ const SINTAGMA: Readonly<Record<Recurso, readonly [string, string, string]>> = {
   PACOTE: ["o pacote", "um pacote", "pacotes"],
   MENSAGEM: ["a mensagem", "uma mensagem", "mensagens"],
   CONFIGURACAO: ["as configurações", "as configurações", "as configurações"],
+  FECHAMENTO: ["o fechamento", "um fechamento", "fechamentos"],
 };
 
 function descrever(o: { acao: Acao; recurso: Recurso; nome: string | null }): string {
@@ -164,6 +166,14 @@ export function mensagemIndisponivel(o: ObjetivoTexto, complemento?: string | nu
       : `Entendi que você quer ${descrever({ acao: o.acao, recurso: o.recurso, nome: o.nome })}. Essa ação ainda não está disponível pelo assistente.`
     : "Essa ação ainda não está disponível pelo assistente.";
   return complemento ? `${base} ${complemento}` : base;
+}
+
+/** Comando de abrir sem destino único (PR 3): ambíguo, ou referência que o assistente ainda não resolve. */
+export function mensagemNavegacaoSemDestino(recurso: Recurso, motivo: "AMBIGUO" | "REFERENCIA_NAO_RESOLVIDA"): string {
+  const alvo = SINTAGMA[recurso][0];
+  return motivo === "AMBIGUO"
+    ? `Entendi que você quer abrir ${alvo}, mas não sei qual. Abra ${alvo} na tela e pergunte por ali, ou diga qual é.`
+    : `Entendi que você quer abrir ${alvo}, mas ainda não consigo descobrir qual é pelo que foi dito. Abra ${alvo} pela tela correspondente.`;
 }
 
 export function mensagemAmbigua(o: ObjetivoTexto): string {
@@ -187,7 +197,7 @@ export type SinaisResposta = {
 export function estadoDaResposta(resposta: AIResponse, s: SinaisResposta): EstadoEntendimento | null {
   if (resposta.entendimento) return resposta.entendimento;
   switch (resposta.tipo) {
-    case "resposta": case "agente": case "resultado_acao": return "EXECUTADO";
+    case "resposta": case "agente": case "resultado_acao": case "navegacao": return "EXECUTADO";
     case "rascunho": return "PRECISA_DADO";
     case "preview": return "PRECISA_CONFIRMACAO";
     case "precisa_contexto": return "PRECISA_DADO";
@@ -211,7 +221,7 @@ export function estadoDaResposta(resposta: AIResponse, s: SinaisResposta): Estad
  */
 export function explicarResposta(resposta: AIResponse, texto: string, capacidade: string | null, s: SinaisResposta): AIResponse {
   const doTexto = objetivoDoTexto(texto);
-  const objetivo = objetivoDaCapacidade(capacidade) ?? objetivoDe(doTexto);
+  const objetivo = resposta.objetivo ?? objetivoDaCapacidade(capacidade) ?? objetivoDe(doTexto);
   let estado = estadoDaResposta(resposta, s);
   let final = resposta;
   if (estado === "NAO_ENTENDIDO" && resposta.tipo === "nao_suportado") {
@@ -220,7 +230,7 @@ export function explicarResposta(resposta: AIResponse, texto: string, capacidade
       estado = "AMBIGUO";
       final = { ...resposta, mensagem: mensagemAmbigua(doTexto) };
     } else if (doTexto.acao && doTexto.recurso && doTexto.acao !== "LOCALIZAR") {
-      const precisaQual = !doTexto.qualificado && !doTexto.nome && ["ABRIR", "CONSULTAR", "EDITAR"].includes(doTexto.acao) && ["FESTA", "CLIENTE", "CONTRATO"].includes(doTexto.recurso);
+      const precisaQual = !doTexto.qualificado && !doTexto.nome && ["ABRIR", "CONSULTAR", "EDITAR"].includes(doTexto.acao) && ["FESTA", "CLIENTE", "CONTRATO", "FECHAMENTO"].includes(doTexto.recurso);
       estado = precisaQual ? "AMBIGUO" : "CAPACIDADE_INDISPONIVEL";
       final = { ...resposta, mensagem: precisaQual ? mensagemAmbigua(doTexto) : mensagemIndisponivel(doTexto) };
     }

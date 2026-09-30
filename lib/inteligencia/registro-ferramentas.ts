@@ -143,6 +143,8 @@ const LEITURAS: Readonly<Record<string, Meta>> = Object.freeze({
   pendencias_da_festa: { dominio: "FESTAS", prazoMs: 6000 },
   festa_em_risco: { dominio: "FESTAS", prazoMs: 6000 },
   onde_encontrar: { dominio: "NAVEGACAO", prazoMs: 1000 },
+  abrir_tela: { dominio: "NAVEGACAO", prazoMs: 4000 },
+  abrir_festa: { dominio: "NAVEGACAO", prazoMs: 6000 },
   pacotes_disponiveis: { dominio: "COMERCIAL", prazoMs: 4000 },
   comparar_versoes_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
 });

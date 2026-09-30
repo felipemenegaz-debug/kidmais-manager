@@ -392,6 +392,8 @@ test("11. o trace só leva metadados: sem PII, valores, tokens ou texto do pedid
     "errosModelo",
     // AI V1.1 (PR 2): estado de entendimento e objetivo, só enums fechados (nunca texto do pedido).
     "entendimento", "objetivo",
+    // AI V1.1 (PR 3): navegação (recurso, tela da lista fechada, resultado e motivo; nunca a URL).
+    "navegacao",
   ].sort());
   assert.equal(primeiro.orquestracao, null);
   assert.equal(primeiro.politica, "PERMITIDO");

@@ -9,6 +9,9 @@
     "con-03",
     "con-04",
     "nav-01",
+    "nav-02",
+    "nav-03",
+    "nav-04",
     "tmp-01",
     "fes-01",
     "fes-02",
@@ -49,9 +52,9 @@
   ],
   "metricas": {
     "aprovados": {
-      "corretos": 42,
+      "corretos": 45,
       "total": 76,
-      "taxa": 55.3
+      "taxa": 59.2
     },
     "obrigatorios": {
       "corretos": 0,
@@ -60,9 +63,9 @@
     },
     "qualidade": {
       "objetivo": {
-        "corretos": 50,
+        "corretos": 53,
         "total": 62,
-        "taxa": 80.6
+        "taxa": 85.5
       },
       "roteamento": {
         "corretos": 23,
@@ -70,11 +73,11 @@
         "taxa": 85.2
       },
       "entendimento": {
-        "corretos": 47,
+        "corretos": 48,
         "total": 76,
-        "taxa": 61.8
+        "taxa": 63.2
       },
-      "perguntasEvitaveis": 4
+      "perguntasEvitaveis": 3
     },
     "seguranca": {
       "crossTenant": 0,
@@ -91,9 +94,9 @@
         "taxa": 100
       },
       "navegacao": {
-        "corretos": 1,
+        "corretos": 4,
         "total": 4,
-        "taxa": 25
+        "taxa": 100
       },
       "temporal": {
         "corretos": 1,
@@ -188,9 +191,9 @@
         "taxa": 100
       },
       "PR3": {
-        "corretos": 0,
+        "corretos": 3,
         "total": 3,
-        "taxa": 0
+        "taxa": 100
       },
       "PR4": {
         "corretos": 0,

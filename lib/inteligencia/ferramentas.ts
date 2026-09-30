@@ -10,6 +10,7 @@ import { contratosPendentes } from "./leituras/contratos-pendentes.ts";
 import { festaEmRisco, pendenciasDaFesta, resumirFesta } from "./leituras/festa.ts";
 import { resumirCliente } from "./leituras/resumir-cliente.ts";
 import { resumirContrato } from "./leituras/resumir-contrato.ts";
+import { abrirFesta, abrirTela } from "./leituras/abrir-tela.ts";
 import { ondeEncontrar } from "./leituras/navegacao.ts";
 import { pacotesDisponiveis } from "./leituras/pacotes.ts";
 import { compararVersoesContrato } from "./leituras/versoes-contrato.ts";
@@ -125,6 +126,8 @@ export const ferramentas: Readonly<Record<string, Ferramenta>> = Object.freeze({
   pendencias_da_festa: pendenciasDaFesta,
   festa_em_risco: festaEmRisco,
   onde_encontrar: ondeEncontrar,
+  abrir_tela: abrirTela,
+  abrir_festa: abrirFesta,
   pacotes_disponiveis: pacotesDisponiveis,
   comparar_versoes_contrato: compararVersoesContrato,
 });

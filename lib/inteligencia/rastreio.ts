@@ -68,6 +68,7 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
     estado: null,
     entendimento: null,
     objetivo: null,
+    navegacao: null,
     itens: null,
     causa: null,
     orquestracao: null,
