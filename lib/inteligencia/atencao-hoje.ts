@@ -154,6 +154,7 @@ export const atencaoHoje: Ferramenta<AtencaoHoje> = {
   capacidade: "atencao_hoje",
   classe: "READ",
   grupo: "FUNDACAO",
+  entrada: parametrosSchema,
   descricao: "Pagamentos vencidos, que vencem hoje e valores a receber.",
   papeis: PAPEIS_FINANCEIRO,
   preparar(parametros) {

@@ -73,6 +73,7 @@ export const analisarRecebiveis: Ferramenta<RespostaLeitura> = {
   capacidade: "analisar_recebiveis",
   classe: "READ",
   grupo: "READ",
+  entrada: semParametros,
   papeis: PAPEIS_ADMIN,
   descricao: "Quanto há em aberto, vencido por faixa de atraso e vencendo nos próximos dias.",
   preparar(parametros) {

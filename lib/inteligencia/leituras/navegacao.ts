@@ -36,6 +36,7 @@ export const ondeEncontrar: Ferramenta<RespostaLeitura> = {
   capacidade: "onde_encontrar",
   classe: "READ",
   grupo: "READ",
+  entrada: parametros,
   papeis: PAPEIS_ADMIN,
   descricao: "Onde fica cada assunto no Kidmais (tela e o que se faz nela).",
   preparar(bruto) {

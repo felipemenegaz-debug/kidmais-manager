@@ -15,6 +15,7 @@ import {
 import { interpretarComModelo, interpretarDeterministico, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
 import type { RoteadorModelos } from "./modelos/roteador.ts";
 import { avaliarPolitica } from "./politica.ts";
+import { manifestoAcao, manifestoLeitura } from "./registro-ferramentas.ts";
 import { anotarUsoModelo, novoRastreio, type RastreioInteligencia } from "./rastreio.ts";
 
 /**
@@ -79,10 +80,10 @@ function papelParaPolitica(sessao: SessaoParaTenant, tenant: TenantComprovado): 
 /** Catálogo que o operador pode usar agora: filtra por papel e flags; ações de tela ficam fora. */
 export function catalogoDisponivel(env: DependenciasGateway["env"], papel: string, acoes: ModuloAcoes | null): CapacidadeCatalogo[] {
   const leituras = Object.values(ferramentas)
-    .filter((f) => grupoAtivo(env, f.grupo) && avaliarPolitica({ papel }, f, "LEITURA") === "PERMITIDO")
+    .filter((f) => manifestoLeitura(f) !== null && grupoAtivo(env, f.grupo) && avaliarPolitica({ papel }, f, "LEITURA") === "PERMITIDO")
     .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura", ...(f.entidade ? { entidade: f.entidade } : {}) }));
   const doModulo = (acoes?.todas() ?? [])
-    .filter((a) => a.origem !== "TELA")
+    .filter((a) => a.origem !== "TELA" && manifestoAcao(a) !== null)
     .filter((a) => a.classe === "DENY" || (grupoAtivo(env, a.grupo) && avaliarPolitica({ papel }, a, "HUMAN_GATE") === "PERMITIDO"))
     .map((a): CapacidadeCatalogo => ({ id: a.capacidade, descricao: a.descricao, tipo: "acao" }));
   return [...leituras, ...doModulo];
@@ -190,7 +191,8 @@ async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execu
   const acoes = deps.acoes;
   const acao = acoes?.descrever(capacidade) ?? null;
   let resposta: AIResponse;
-  if (!acoes || !acao) {
+  // Ação sem manifesto no Tool Registry não é oferecida (fail-closed), mesmo que o módulo a tenha registrado.
+  if (!acoes || !acao || !manifestoAcao(acao)) {
     resposta = naoSuportado("Essa ação ainda não está disponível no Kidmais.");
   } else if (acao.origem === "TELA") {
     resposta = naoSuportado("Essa ação começa pela tela própria (por exemplo, Contratos › Importar contrato antigo).");

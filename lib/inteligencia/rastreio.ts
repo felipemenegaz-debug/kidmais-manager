@@ -21,6 +21,8 @@ export type CausaRastreio =
   | "DOMINIO"
   | "MODELO"
   | "HUMAN_GATE"
+  | "TEMPO"
+  | "SAIDA"
   | "INESPERADO";
 
 /** `orquestracao`: resumo por passo da orquestradora (Demerzel), só códigos e contagens; null fora dela. */

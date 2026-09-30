@@ -59,6 +59,7 @@ export const compararVersoesContrato: Ferramenta<RespostaLeitura> = {
   capacidade: "comparar_versoes_contrato",
   classe: "READ",
   grupo: "READ",
+  entrada: comEntidade,
   papeis: PAPEIS_ADMIN,
   descricao: "Compara a versão mais recente do contrato aberto com a anterior (snapshots, sem recálculo).",
   entidade: "contrato",

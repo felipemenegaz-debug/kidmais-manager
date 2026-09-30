@@ -72,6 +72,7 @@ export const analisarPagamentos: Ferramenta<RespostaLeitura> = {
   capacidade: "analisar_pagamentos",
   classe: "READ",
   grupo: "READ",
+  entrada: semParametros,
   papeis: PAPEIS_ADMIN,
   descricao: "Quanto foi recebido neste mês, comparado ao mesmo período do mês anterior.",
   preparar(parametros) {

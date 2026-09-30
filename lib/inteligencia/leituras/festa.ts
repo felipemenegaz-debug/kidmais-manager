@@ -177,6 +177,7 @@ function ferramentaFesta(nome: string, capacidade: string, descricao: string, mo
     capacidade,
     classe: "READ",
     grupo: "READ",
+    entrada: comEntidade,
     papeis: PAPEIS_ADMIN,
     descricao,
     entidade: "festa",
