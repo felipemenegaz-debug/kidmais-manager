@@ -332,19 +332,19 @@ test("as flags só são lidas pela IA; o Core não consulta INTELIGENCIA_ENABLED
 
 /**
  * B2 — PRs separáveis. O CORE não importa nenhuma feature; cada feature só importa o CORE e as features
- * anteriores na ordem CORE → JEV → DEMERZEL → ACTIONS → DOCUMENT → IMPORT. O único ponto de encontro é
+ * anteriores na ordem CORE → JEV → DEMERZEL → SKILLS → ACTIONS → DOCUMENT → IMPORT. O único ponto de encontro é
  * app/api/admin/inteligencia/extensoes.ts, com uma linha marcada `@pr:` por feature.
  */
-const FEATURES = { jev: "JEV", demerzel: "DEMERZEL", acoes: "ACTIONS", documentos: "DOCUMENT", importacao: "IMPORT" } as const;
-const ORDEM = ["CORE", "JEV", "DEMERZEL", "ACTIONS", "DOCUMENT", "IMPORT"] as const;
+const FEATURES = { jev: "JEV", demerzel: "DEMERZEL", skills: "SKILLS", acoes: "ACTIONS", documentos: "DOCUMENT", importacao: "IMPORT" } as const;
+const ORDEM = ["CORE", "JEV", "DEMERZEL", "SKILLS", "ACTIONS", "DOCUMENT", "IMPORT"] as const;
 type Camada = (typeof ORDEM)[number];
 
 function camadaDe(chave: string): Camada | null {
   const ia = chave.match(/^lib\/inteligencia\/([^/]+)\//);
   if (ia) return (FEATURES as Record<string, Camada>)[ia[1]] ?? "CORE";
   if (/^lib\/inteligencia\/[^/]+$/.test(chave)) return "CORE";
-  const rota = chave.match(/^app\/api\/admin\/inteligencia\/(jev|demerzel|operacoes|documentos|importacoes)\//);
-  if (rota) return ({ jev: "JEV", demerzel: "DEMERZEL", operacoes: "ACTIONS", documentos: "DOCUMENT", importacoes: "IMPORT" } as const)[rota[1] as "operacoes"];
+  const rota = chave.match(/^app\/api\/admin\/inteligencia\/(jev|demerzel|skills|operacoes|documentos|importacoes)\//);
+  if (rota) return ({ jev: "JEV", demerzel: "DEMERZEL", skills: "SKILLS", operacoes: "ACTIONS", documentos: "DOCUMENT", importacoes: "IMPORT" } as const)[rota[1] as "operacoes"];
   if (/^app\/api\/admin\/inteligencia\/[^/]+$/.test(chave)) return "CORE";
   if (/^lib\/importacao-contrato\/(plano|motor|repositorio-importacao)$/.test(chave)) return "IMPORT";
   if (/^lib\/importacao-contrato\/(arquivo|pdf-texto|pdf-isolado|pdf-worker|extracao|validadores|rascunho|repositorio-documentos|multipart)$/.test(chave)) return "DOCUMENT";
@@ -389,7 +389,7 @@ test("B2: o registro de ações é extensível (fábricas + RegistroExtensoes), 
   const conversa = readFileSync(join(raiz, "lib", "inteligencia", "conversa.ts"), "utf8");
   assert.doesNotMatch(conversa, /acoes\/|documentos\/|importacao\//, "a conversa recebe ModuloAcoes por dependência");
   const extensoes = readFileSync(join(PASTA_ROTAS, "extensoes.ts"), "utf8");
-  for (const linha of extensoes.split(/\r?\n/).filter((l) => /registrar(Jev|Demerzel|Acoes|Importacao|Documentos)|composicao/.test(l))) {
-    assert.match(linha, /\/\/ @pr:(JEV|DEMERZEL|ACTIONS|DOCUMENT|IMPORT)$/, linha);
+  for (const linha of extensoes.split(/\r?\n/).filter((l) => /registrar(Jev|Demerzel|Skills|Acoes|Importacao|Documentos)|composicao/.test(l))) {
+    assert.match(linha, /\/\/ @pr:(JEV|DEMERZEL|SKILLS|ACTIONS|DOCUMENT|IMPORT)$/, linha);
   }
 });

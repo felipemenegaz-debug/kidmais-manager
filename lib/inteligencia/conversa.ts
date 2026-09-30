@@ -3,7 +3,7 @@ import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.t
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
 import type { AIResponse, ContextoTela, ModelUsage, OrigemChamada, RespostaLeitura } from "./contratos.ts";
-import type { ClassificadorAuxiliar, ContextoExtensao, ModuloAcoes, Orquestrador, PortaModeloClassificacao, PortasOrquestracao } from "./extensoes.ts";
+import type { CatalogoSkills, ClassificadorAuxiliar, ContextoExtensao, ModuloAcoes, Orquestrador, PortaModeloClassificacao, PortasOrquestracao } from "./extensoes.ts";
 import { ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
 import { demerzelAtivo, grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo, jevModeloAtivo } from "./flags.ts";
 import {
@@ -51,6 +51,8 @@ export type DependenciasConversa = DependenciasGateway & {
   classificador?: ClassificadorAuxiliar | null;
   /** Orquestradora (Demerzel), opcional: decide o caminho com as mesmas portas; exige AI_DEMERZEL_ENABLED. */
   orquestrador?: Orquestrador | null;
+  /** Catálogo de skills (playbooks), opcional: só forma e atendimento; resolvido com o tenant comprovado. */
+  skills?: CatalogoSkills | null;
 };
 
 /** Teto de espera pelo classificador auxiliar: nunca atrasa a resposta além disso. */
@@ -237,6 +239,9 @@ async function responderIntencao(intencao: Intencao, contexto: ContextoTela | nu
 function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao {
   const { deps, sessao, pedido, rastreio } = e;
   let portaJev: Promise<PortaModeloClassificacao | null> | null = null;
+  // Tenant comprovado uma vez por pedido, para porta de modelo e resolução de skills.
+  let tenantPedido: ReturnType<typeof tenantParaModelo> | null = null;
+  const tenant = () => (tenantPedido ??= tenantParaModelo(sessao, pedido, deps, rastreio));
   return {
     catalogo: catalogoDisponivel(deps.env, sessao.papel, deps.acoes),
     interpretar: (texto, contexto) => interpretarDeterministico(texto, contexto),
@@ -245,11 +250,11 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
     portaModelo() {
       const roteador = deps.roteador;
       if (!roteador || !jevModeloAtivo(deps.env) || !roteador.disponivelPara("CLASSIFICAR_INTENCAO")) return Promise.resolve(null);
-      portaJev ??= tenantParaModelo(sessao, pedido, deps, rastreio).then((tenant): PortaModeloClassificacao => ({
+      portaJev ??= tenant().then((comprovado): PortaModeloClassificacao => ({
         disponivel: () => roteador.disponivelPara("CLASSIFICAR_INTENCAO"),
         async executar(pedidoModelo) {
           const r = await roteador.executar(pedidoModelo, {
-            empresaId: tenant.empresaComprovada,
+            empresaId: comprovado.empresaComprovada,
             capacidade: "jev_julgar",
             correlationId: rastreio.correlationId ?? rastreio.requestId,
             hoje: hojeBrasilia(deps.agora()),
@@ -266,6 +271,13 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
     descreverAcao: (capacidade) => deps.acoes?.descrever(capacidade) ?? null,
     usosDeModelo: () => usos,
     registrarResumo: (resumo) => { rastreio.orquestracao = resumo; },
+    async skill(finalidade, capacidade) {
+      const catalogo = deps.skills ?? null;
+      if (!catalogo) return null;
+      const comprovado = await tenant();
+      // Estabelecimento: o Tenant Context atual não tem unidade; overrides por estabelecimento ficam inativos.
+      return catalogo.resolver({ empresaId: comprovado.empresaComprovada, estabelecimentoId: null, finalidade, capacidade });
+    },
     relogio: deps.relogio ?? (() => performance.now()),
   };
 }
