@@ -88,7 +88,8 @@ const NOME_PROIBIDO = /\d{3}\D?\d{3}|\d{5,}|@|https?:|www\.|[<>{}]/i;
 function nomeCitado(texto: string, recurso: Recurso | null): string | null {
   if (recurso !== "ITEM" && recurso !== "CATEGORIA") return null;
   const palavra = recurso === "ITEM" ? "item" : "categoria";
-  const m = new RegExp(`\\b${palavra}\\s+(?:chamad[oa]\\s+|de nome\\s+)?["'“]?([^"'”?!.;:,]{2,80})`, "iu").exec(texto);
+  // "…categoria do buffet chamada Doces" ⇒ "Doces": o qualificador do catálogo não faz parte do nome.
+  const m = new RegExp(`\\b${palavra}\\s+(?:(?:do|de|no)\\s+(?:buffet|card[aá]pio)\\s+)?(?:chamad[oa]\\s+|de nome\\s+)?["'“]?([^"'”?!.;:,]{2,80})`, "iu").exec(texto);
   // Documento, contato, link ou marcação em QUALQUER ponto depois da palavra ⇒ não ecoa nada (nem um pedaço).
   if (!m || NOME_PROIBIDO.test(texto.slice(m.index))) return null;
   const nome = m[1].split(/\s+(?:na|no|da|do|para|em)\s+(?:categoria|pacote|festa)\b/i)[0].replace(/[^\p{L}\p{N} '\-]/gu, "").replace(/\s+/g, " ").trim().slice(0, 60);

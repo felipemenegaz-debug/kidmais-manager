@@ -52,6 +52,8 @@ test("regras de intenção: item/categoria do Buffet reconhecidos sem a palavra 
 test("nome citado: capitalizado, limitado e sem dados com cara de documento, contato ou link", () => {
   assert.equal(objetivoDoTexto("crie o item mini-pizza de chocolate").nome, "Mini-pizza de chocolate");
   assert.equal(objetivoDoTexto("Crie uma categoria chamada Bebidas Especiais").nome, "Bebidas Especiais");
+  assert.equal(objetivoDoTexto("Crie uma categoria do buffet chamada Doces").nome, "Doces");
+  assert.equal(objetivoDoTexto("Cadastre um item do cardápio chamado Coxinha de jaca").nome, "Coxinha de jaca");
   assert.equal(objetivoDoTexto("crie o item 123.456.789-09").nome, null);
   assert.equal(objetivoDoTexto("crie o item ana@exemplo.com").nome, null);
   assert.equal(objetivoDoTexto("crie o item <script>alert(1)</script>").nome?.includes("<"), undefined);

@@ -12,7 +12,7 @@ import type { FerramentaAcao } from "./tipos.ts";
  * (`CATALOGO_GLOBAL_SEM_AUTORIDADE`). A IA não pode ter mais autoridade que a tela.
  * Liberar exige decisão do Core (catálogo por empresa, com migration própria).
  */
-const MENSAGEM_BUFFET = "Hoje o catálogo do Buffet é global: nenhuma empresa pode alterá-lo, nem pela tela nem pelo Kidmais Intelligence. Isso depende de o catálogo passar a ser por empresa.";
+const MENSAGEM_BUFFET = "Hoje o Buffet é um catálogo global: nenhuma empresa pode alterá-lo, nem pela tela nem pelo Kidmais Intelligence. Isso depende de o catálogo passar a ser por empresa.";
 
 function negada(capacidade: string, titulo: string, mensagem: string, indisponivel = false): FerramentaAcao {
   const recusar = (): never => { throw new InteligenciaError("ACAO_NEGADA", mensagem, 403); };
