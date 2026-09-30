@@ -398,6 +398,8 @@ test("11. o trace só leva metadados: sem PII, valores, tokens ou texto do pedid
     "leituras",
     // AI V1.1 (PR 5): referências (tipo, alvo, origem, resultado, tipos, nº de candidatos; nunca rótulo ou id).
     "referencias",
+    // AI V1.1 (PR 6): plano (origem, motivo, objetivo, passos com capacidade/origem da entrada/resultado/duração).
+    "plano",
   ].sort());
   assert.equal(primeiro.orquestracao, null);
   assert.equal(primeiro.politica, "PERMITIDO");
