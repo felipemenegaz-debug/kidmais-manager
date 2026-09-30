@@ -21,6 +21,11 @@
       "pr": "SKILLS_V1",
       "branch": "ai-v1/03-skills",
       "descricao": "Skills V1: playbooks Plataforma→Empresa→Estabelecimento sem autoridade; proveniência, hash, revisão, varredura de conteúdo; só plataforma até decisão de armazenamento"
+    },
+    {
+      "pr": "CONTEXTO_V1",
+      "branch": "ai-v1/04-contexto",
+      "descricao": "Context Builder V1: contexto autorizado só do Tenant Context; contexto de modelo minimizado, redigido, rotulado, com limites e barreira final; cross-tenant fail-closed"
     }
   ]
 }
