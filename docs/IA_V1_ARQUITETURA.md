@@ -116,12 +116,31 @@ Linhas adicionais: `[Kidmais JEV]`, `[Kidmais Copiloto]`, `[Kidmais IA uso]` (se
 `AI_OPENAI_*`, `AI_DEEPSEEK_*`, `AI_WORKLOAD_TIERS`, `AI_MODEL_TIMEOUT_MS`, `AI_MODEL_MAX_RETRIES`,
 `AI_BUDGET_JSON`, `AI_PRICING_JSON`, `AI_CONFIRMACAO_TTL_SEGUNDOS`, `AI_UPLOAD_MAX_BYTES`.
 
+**Caminho de modelo do JEV (hardening V1):**
+
+- `AI_JEV_MODEL_TIMEOUT_MS`: prazo do modelo no JEV. Inteiro de 1000 a 30000 (só dígitos); ausente ou inválido ⇒
+  2500 ms (nunca "sem prazo"); nunca maior que `AI_MODEL_TIMEOUT_MS`. Estourou ⇒ regras (`PRAZO_EXCEDIDO`). As regras
+  determinísticas não dependem dele. Staging: 8000–10000 (o `gpt-6-luna` leva ~3–4 s).
+- `AI_OPENAI_REASONING_EFFORT_<TIER>` (`ECONOMY`, `STANDARD`, `ADVANCED`): `reasoning_effort` enviado ao OpenAI só
+  quando configurado com valor da lista fechada (`none`, `low`, `medium`, `high`, `xhigh`, `max`, os documentados
+  para o `gpt-6-luna`). Ausente ou fora da lista ⇒ não enviado (padrão do modelo). Nunca enviado ao DeepSeek. Recomendado: `ECONOMY=none` ou `low` (JEV e intenção, saída curta); STANDARD sem valor.
+- Circuito do Model Router por **provedor + modelo + workload**: falhas do JEV (`CLASSIFICAR_INTENCAO`) não abrem o
+  circuito do Copiloto (`ANALISE_ADMINISTRATIVA`). 3 falhas em 30 s abrem; depois, uma tentativa (meio-aberto).
+- Erro HTTP do provedor: o trace (`errosModelo`, máx. 5) guarda só `status` e `error.type/code/param` saneados;
+  nunca mensagem, corpo, prompt, chave ou header. Não é persistido (a 055a guarda só a causa).
+  429 `insufficient_quota`/`credit_balance_exhausted` não é repetido.
+- Contabilidade: resposta 200 sem conteúdo mas com `usage` (raciocínio consumiu o teto de saída) registra tokens e
+  custo reais; sem `usage` ⇒ desconhecido (`null`), nunca zero.
+
 ## 8. Runbooks
 
 **Desligar a IA inteira**: `INTELIGENCIA_ENABLED` ≠ `true`. Nenhuma rota abre sessão ou banco; Core intacto.
 
 **Desligar só o modelo** (manter regras): remover `AI_JEV_MODEL_ENABLED`, `AI_COPILOTO_MODEL_ENABLED` ou o
 orçamento. JEV, Demerzel, agentes e leituras seguem determinísticos.
+
+**Desligar só o modelo do JEV** (Copiloto continua): `AI_JEV_MODEL_ENABLED` ≠ `true`. Rollback do prazo ou do esforço:
+remover `AI_JEV_MODEL_TIMEOUT_MS` (volta a 2500 ms) e `AI_OPENAI_REASONING_EFFORT_ECONOMY` (volta ao padrão do modelo).
 
 **Desligar a orquestradora**: `AI_DEMERZEL_ENABLED` ≠ `true` ⇒ roteamento direto da Foundation (sem agentes).
 
@@ -150,4 +169,8 @@ empresa saem). Alerta `SKILL_RECUSADA` no log (id, nível, motivos; nunca conte�
 | "Não sigo instruções…" | JEV/Demerzel detectou injeção | `orquestracao.parada = RECUSA_INJECAO` |
 | Rascunho não confirma | Versão/hash mudou, expirou, papel/flag mudou | `humanGate`, `codigo` no trace `inteligencia.operacao` |
 | Custos `disponivel: false` | Tabelas `ia_uso_modelo`/`ia_orcamento_reservas` ausentes (055a) | migrations |
+| JEV sempre `FALLBACK_REGRAS` + `PRAZO_EXCEDIDO` | Modelo mais lento que `AI_JEV_MODEL_TIMEOUT_MS` (padrão 2,5 s) | `[Kidmais JEV]` `modelo.causa: PRAZO`; ajustar o prazo |
+| Modelo recusado com `HTTP_4XX` | Chave, modelo, parâmetro ou cota | `errosModelo` no trace (`status`, `tipo`, `codigo`, `parametro`), p.ex. 429 `credit_balance_exhausted` |
+| `CIRCUITO_ABERTO` | 3 falhas em 30 s no mesmo provedor + modelo + workload | `errosModelo` das chamadas anteriores; outros workloads seguem |
+| `RESPOSTA_INVALIDA` com saída no teto | Raciocínio consumiu `max_completion_tokens` | `AI_OPENAI_REASONING_EFFORT_ECONOMY=none`/`low` |
 | Agente respondeu com dados da própria empresa quando citei outra | (corrigido na V1) JEV recusa empresa citada por id | `SINAL_OUTRO_TENANT` |
