@@ -324,7 +324,18 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
       const porta = deps.portas?.clientes ?? null;
       const id = e.contexto?.tela === "cliente" ? e.contexto.entidadeId : undefined;
       if (!porta || !id) return {};
-      const cliente = await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, (tx, comprovado) => porta.obter(tx, comprovado.empresaComprovada, id));
+      const cliente = await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, comprovado) => {
+        // Mesmo dado de `resumir_cliente`: mesma Policy V1 (manifesto, papel da membership, flag e allowlist).
+        // Negada ⇒ nenhum marcador (o rascunho fica com pendências), nunca leitura por fora do registro.
+        const manifesto = manifestoLeitura(ferramentas.resumir_cliente);
+        const decisao = decidirPolitica({
+          papel: comprovado.papelAtual, manifesto, caminho: "LEITURA", origem: "INTENCAO_DETERMINISTICA",
+          grupoAtivo: grupoAtivo(deps.env, ferramentas.resumir_cliente.grupo),
+          grupoAtivoNaEmpresa: grupoAtivoParaEmpresa(deps.env, ferramentas.resumir_cliente.grupo, comprovado.empresaComprovada),
+        });
+        return decisao === "PERMITIDO" ? porta.obter(tx, comprovado.empresaComprovada, id) : null;
+      });
+      if (!cliente) return {};
       const aniversariante = cliente.aniversariantes.find((a) => a.ativo)?.nome;
       return { nome_cliente: cliente.cliente.nomeCompleto, ...(aniversariante ? { nome_aniversariante: aniversariante } : {}) };
     },

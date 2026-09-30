@@ -55,6 +55,7 @@ const ESTADO_POSTGRES = {
   "lib/financeiro/financeiro.postgres.test.ts": { descartavel: "atual" },
   "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual" },
   "lib/ia-persistencia/migration-055.postgres.test.ts": { descartavel: "atual" },
+  "lib/ia-persistencia/uso-custos.postgres.test.ts": { descartavel: "atual" },
   "lib/inteligencia/inteligencia.postgres.test.ts": { descartavel: "atual" },
   "lib/pagamentos/estorno-completo.postgres.test.ts": { descartavel: "atual" },
   "lib/pagamentos/gates-c2.postgres.test.ts": { descartavel: "atual" },

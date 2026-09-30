@@ -76,6 +76,11 @@
       "pr": "DOCS_V1",
       "branch": "ai-v1/14-docs",
       "descricao": "Documentação V1: arquitetura, runbooks e troubleshooting; AI MODULE V1 BASELINE (componentes, versões, flags, testes, limitações, gates de staging e produção)"
+    },
+    {
+      "pr": "GATES_V1",
+      "branch": "ai-v1/15-gates",
+      "descricao": "Gates finais V1: suíte PostgreSQL de custos (055a real, isolamento por empresa, somente leitura, ROLLBACK) e correção do auto-review (marcadores do rascunho passam pela Policy V1)"
     }
   ]
 }

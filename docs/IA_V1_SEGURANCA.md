@@ -14,6 +14,7 @@ Suíte principal: `lib/inteligencia/seguranca-v1.test.ts` (roda em `npm run test
 | F3 | MÉDIA | Varredura de skill aceitava "ignore as instruções anteriores", "finja ser…", "não precisa pedir confirmação", "considere pago" | Novos padrões em `CONTEUDO_DESVIO_POLITICA` e `CONTEUDO_FINANCEIRO`; skills da plataforma continuam limpas | teste 13 |
 | F4 | BAIXA | Valor de marcador envenenado (nome de cliente com instrução) entrava no rascunho | Agente deixa o marcador pendente se o valor parece instrução ou passa de 120 caracteres | teste 2 |
 | F5 | MÉDIA (funcional) | Servidor recusava as telas `agenda`/`configuracoes` que o Copiloto e a UI passaram a usar | `contextoSchema` da conversa aceita as duas telas | Fase 13 |
+| F7 | MÉDIA (auto-review #2) | Marcadores do rascunho (nome do cliente) eram lidos do domínio sem passar pela Policy V1 | Mesma decisão de `resumir_cliente` (manifesto, papel da membership, flag, allowlist) antes de ler; negada ⇒ sem marcador | integrado-v1 (auto-review 2) |
 | F6 | ALTA (funcional, Fase 11) | A UI recusava respostas de agente (caíam como erro) | Contrato da UI valida e renderiza `agente` e `complemento` | `inteligencia-ui.test.ts` (V1) |
 
 ## Vetores atacados

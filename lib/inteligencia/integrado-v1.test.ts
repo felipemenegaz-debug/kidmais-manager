@@ -305,3 +305,14 @@ test("J: documento hostil colado na conversa ⇒ tratado como dado: nenhum rascu
   assert.equal(a.provedor.chamadas.length, 0);
   semPII(a);
 });
+
+// ---------------------------------------------------------------- auto-review: nenhuma leitura de domínio por fora da Policy
+
+test("Auto-review 2: papel sem permissão na membership ⇒ sem sugestão e sem leitura do cliente (marcadores passam pela Policy)", async () => {
+  const a = ambiente();
+  a.estado.papel = "CONVIDADO";
+  const r = await a.perguntar("Redija uma mensagem de follow-up para este cliente", { tela: "cliente", entidadeId: CLIENTE });
+  assert.notEqual(r.data?.tipo, "agente");
+  assert.equal(a.dominio.clientes, 0, "nenhuma leitura do cliente");
+  assert.doesNotMatch(JSON.stringify(r.corpo), /Ana Lima/);
+});
