@@ -103,3 +103,23 @@
   .drawer, .cortina, .carregando span { animation: none; }
   .item { transition: none; }
 }
+
+/* V1: natureza de cada resposta (texto + cor discreta; laranja continua só para alertas). */
+.categoria { justify-self: start; width: fit-content; border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; border: 1px solid transparent; }
+.categoria[data-categoria="informacao"] { color: var(--km-teal); border-color: color-mix(in srgb, var(--km-teal) 35%, transparent); }
+.categoria[data-categoria="sugestao"] { color: var(--km-lilac); border-color: color-mix(in srgb, var(--km-violet) 40%, transparent); background: color-mix(in srgb, var(--km-violet) 10%, transparent); }
+.categoria[data-categoria="confirmacao"] { color: var(--km-text); border-color: color-mix(in srgb, var(--km-violet) 60%, transparent); background: color-mix(in srgb, var(--km-violet) 18%, transparent); }
+.categoria[data-categoria="erro"] { color: #fca5a5; border-color: rgba(252, 165, 165, 0.35); }
+.carregando button { justify-self: start; }
+.agenteNome { margin: 0; color: var(--km-text-2); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.secaoAgente { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.secaoAgente h3 { margin: 0; font-size: 14px; }
+.complemento, .sugestaoTexto { display: grid; gap: 10px; padding: 14px; border-radius: 12px; border: 1px dashed color-mix(in srgb, var(--km-violet) 40%, transparent); background: color-mix(in srgb, var(--km-violet) 5%, transparent); }
+.complemento section { display: grid; gap: 8px; }
+.complementoTitulo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; font-size: 14px; font-weight: 700; }
+.complementoTexto { margin: 0; font-size: 14px; line-height: 1.5; }
+.passos { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; }
+.sugestaoTexto blockquote { margin: 0; padding: 10px 12px; border-left: 3px solid var(--km-violet); border-radius: 8px; background: rgba(255, 255, 255, 0.03); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 800px) {
+  .complemento, .sugestaoTexto { padding: 12px; }
+}

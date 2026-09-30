@@ -23,15 +23,17 @@ export const CAPACIDADES_DISPONIVEIS: readonly CapacidadeDisponivel[] = Object.f
 
 export const LIMITE_PERGUNTA = 300;
 
-type Tela = "dashboard" | "festa" | "cliente" | "contrato" | "financeiro" | "pacotes" | "geral";
+type Tela = "dashboard" | "festa" | "cliente" | "contrato" | "financeiro" | "pacotes" | "agenda" | "configuracoes" | "geral";
 
 /** Sugestões iniciais conforme a tela aberta. O servidor decide o que de fato está liberado. */
 export function sugestoesPara(tela: Tela | null): readonly string[] {
   if (tela === "festa") return ["Resuma esta festa.", "O que falta nesta festa?", "Esta festa está em risco?"];
-  if (tela === "cliente") return ["Resuma este cliente."];
-  if (tela === "contrato") return ["Resuma este contrato."];
+  if (tela === "cliente") return ["Resuma este cliente.", "Redija uma mensagem de follow-up para este cliente."];
+  if (tela === "contrato") return ["Resuma este contrato.", "O que mudou entre as versões?"];
+  if (tela === "agenda") return ["Como está a agenda de hoje?", "Me dá um panorama da operação."];
+  if (tela === "configuracoes") return ["Onde eu cadastro um pacote?", "Quais pacotes temos?"];
   if (tela === "pacotes") return ["Crie um pacote.", "Desative um pacote."];
-  return ["Como está a agenda de hoje?", "Quais contratos estão pendentes?", "Quanto recebemos este mês?", "Crie um pacote."];
+  return ["Me dá um panorama da operação.", "Como está a agenda de hoje?", "Quais contratos estão pendentes?", "Quanto recebemos este mês?", "Crie um pacote."];
 }
 
 export type Interpretacao =

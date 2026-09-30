@@ -56,6 +56,11 @@
       "pr": "CUSTOS_V1",
       "branch": "ai-v1/10-custos",
       "descricao": "Custos V1: visão consolidada (empresa comprovada, estabelecimento, capacidade, modelo, dia/mês, reservas abertas) só para a Gestão; custo desconhecido nunca vira zero; leitura das tabelas ia_* sem escrita; orçamento segue fail-closed"
+    },
+    {
+      "pr": "UX_V1",
+      "branch": "ai-v1/11-ux",
+      "descricao": "UX V1: drawer distingue Informação / Sugestão / Exige confirmação / Erro em texto; renderiza agentes e complemento do Copiloto; cancelar espera; repetir com segurança; sem confiança numérica; telas agenda/configurações"
     }
   ]
 }

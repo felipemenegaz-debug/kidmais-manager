@@ -2,7 +2,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { CAPACIDADES_DISPONIVEIS, LIMITE_PERGUNTA, sugestoesPara } from './perguntas';
 import type { ContextoTela, RascunhoPublico } from './cliente-inteligencia';
-import { rascunhoAberto, type Mensagem } from './conversa';
+import { categoriaDa, rascunhoAberto, type Mensagem } from './conversa';
+import SeloCategoria from './CategoriaKidmais';
+import ComplementoKidmais from './ComplementoKidmais';
+import RespostaAgente from './RespostaAgente';
 import RespostaAtencao from './RespostaAtencao';
 import RespostaLeitura from './RespostaLeitura';
 import { PreviewAcao, RascunhoAcao, ResultadoAcao } from './AcaoKidmais';
@@ -10,12 +13,16 @@ import styles from './inteligencia.module.css';
 
 const FOCAVEIS = 'a[href], button:not([disabled]), input:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
-export default function DrawerKidmais({ mensagens, aguardando, contexto = null, onPerguntar, onDecidir = () => {}, onFechar }: {
+export default function DrawerKidmais({ mensagens, aguardando, contexto = null, onPerguntar, onDecidir = () => {}, onCancelar, onReenviar, onFechar }: {
   mensagens: readonly Mensagem[];
   aguardando: boolean;
   contexto?: ContextoTela | null;
   onPerguntar(texto: string): void;
   onDecidir?(rascunho: RascunhoPublico, decisao: 'confirmar' | 'cancelar'): void;
+  /** Cancela a ESPERA de uma pergunta (leitura/rascunho em conversa). Confirmação em gravação nunca é cancelável. */
+  onCancelar?(): void;
+  /** Repete com segurança uma pergunta que falhou (só quando o erro é reenviável). */
+  onReenviar?(id: number): void;
   onFechar(): void;
 }) {
   const [texto, setTexto] = useState('');
@@ -89,9 +96,15 @@ export default function DrawerKidmais({ mensagens, aguardando, contexto = null, 
 
         {mensagens.map((mensagem) => <article key={mensagem.id} className={styles.troca}>
           <p className={styles.pergunta}>{mensagem.pergunta}</p>
-          {mensagem.fase === 'carregando' && <div className={styles.carregando} aria-busy="true"><span /><span /><p>Consultando…</p></div>}
+          {categoriaDa(mensagem) && <SeloCategoria categoria={categoriaDa(mensagem)!} />}
+          {mensagem.fase === 'carregando' && <div className={styles.carregando} aria-busy="true"><span /><span /><p>Consultando…</p>
+            {onCancelar && <button type="button" className={styles.botaoDiscreto} aria-label="Cancelar a pergunta" onClick={onCancelar}>Cancelar</button>}
+          </div>}
           {mensagem.fase === 'resposta' && <RespostaAtencao dados={mensagem.dados} aoNavegar={onFechar} />}
           {mensagem.fase === 'leitura' && <RespostaLeitura dados={mensagem.dados} aoNavegar={onFechar} />}
+          {(mensagem.fase === 'resposta' || mensagem.fase === 'leitura') && mensagem.complemento && <ComplementoKidmais complemento={mensagem.complemento} aoNavegar={onFechar} />}
+          {mensagem.fase === 'agente' && <RespostaAgente agente={mensagem.agente} resumo={mensagem.resumo} secoes={mensagem.secoes} sugestao={mensagem.sugestao} aoNavegar={onFechar} />}
+          {mensagem.fase === 'cancelada' && <p className={styles.nota} role="status">Pergunta cancelada. Nada foi alterado.</p>}
           {mensagem.fase === 'rascunho' && <RascunhoAcao rascunho={mensagem.rascunho} pergunta={mensagem.perguntaKidmais} erro={mensagem.erro ?? null} />}
           {mensagem.fase === 'preview' && <PreviewAcao rascunho={mensagem.rascunho} decidindo={mensagem.decidindo} erro={mensagem.erro} onDecidir={onDecidir} />}
           {mensagem.fase === 'resultado' && <ResultadoAcao mensagem={mensagem.mensagem} destino={mensagem.destino} aoNavegar={onFechar} />}
@@ -99,7 +112,10 @@ export default function DrawerKidmais({ mensagens, aguardando, contexto = null, 
             <p>{mensagem.mensagem}</p>
             {mensagem.fase === 'nao_suportado' && mensagem.sugestoes.map((s) => <button key={s} type="button" className={styles.sugestaoCurta} onClick={() => enviar(s)}>{s}</button>)}
           </div>}
-          {mensagem.fase === 'erro' && <p className={styles.erro} role="alert">{mensagem.mensagem}</p>}
+          {mensagem.fase === 'erro' && <div className={styles.indisponivel}>
+            <p className={styles.erro} role="alert">{mensagem.mensagem}</p>
+            {mensagem.reenviavel && onReenviar && <button type="button" className={styles.sugestaoCurta} disabled={aguardando} onClick={() => onReenviar(mensagem.id)}>Tentar de novo</button>}
+          </div>}
           {mensagem.fase === 'indisponivel' && <div className={styles.indisponivel}>
             <p>Essa análise ainda não está disponível no Kidmais.</p>
             <p>Por enquanto, consigo responder:</p>

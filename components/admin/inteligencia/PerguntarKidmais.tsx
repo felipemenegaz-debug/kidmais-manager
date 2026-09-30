@@ -4,7 +4,8 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import { interpretarPergunta } from './perguntas';
 import { consultarAtencaoHoje, conversar, decidirOperacao, type ContextoTela, type RascunhoPublico } from './cliente-inteligencia';
 import {
-  adicionarPergunta, aguardandoResposta, marcarDecisao, rascunhoAberto, registrarConversa, registrarDecisao, registrarResultado, type Mensagem,
+  adicionarPergunta, aguardandoResposta, cancelarEspera, marcarDecisao, perguntaEmCurso, perguntaReenviavel, rascunhoAberto, registrarConversa, registrarDecisao,
+  registrarResultado, type Mensagem,
 } from './conversa';
 import DrawerKidmais from './DrawerKidmais';
 
@@ -32,6 +33,7 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
   const origemFoco = useRef<HTMLElement | null>(null);
   const proximoId = useRef(0);
   const emCurso = useRef(false);
+  const controle = useRef<AbortController | null>(null);
   const historico = useRef<Mensagem[]>([]);
   useEffect(() => { historico.current = mensagens; }, [mensagens]);
 
@@ -54,18 +56,35 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
     const legado = !rascunho && !contexto && local.tipo === 'capacidade';
     setMensagens((h) => adicionarPergunta(h, id, pergunta, legado ? local : { tipo: 'servidor' }));
     emCurso.current = true;
+    const abortar = new AbortController();
+    controle.current = abortar;
     try {
       if (legado) {
-        const resultado = await consultarAtencaoHoje(adminFetch);
-        setMensagens((h) => registrarResultado(h, id, resultado));
+        const resultado = await consultarAtencaoHoje(adminFetch, abortar.signal);
+        setMensagens((h) => (abortar.signal.aborted ? cancelarEspera(h, id) : registrarResultado(h, id, resultado)));
       } else {
-        const resultado = await conversar(adminFetch, { texto: pergunta, contexto, ...(rascunho ? { operacaoId: rascunho.operacaoId } : {}) });
-        setMensagens((h) => registrarConversa(h, id, resultado));
+        const resultado = await conversar(adminFetch, { texto: pergunta, contexto, ...(rascunho ? { operacaoId: rascunho.operacaoId } : {}) }, abortar.signal);
+        // Resposta a rascunho não é repetida automaticamente: o operador vê o estado atual e decide.
+        setMensagens((h) => registrarConversa(h, id, resultado, !rascunho));
       }
     } finally {
       emCurso.current = false;
+      controle.current = null;
     }
   }, [contexto]);
+
+  /** Cancela só a ESPERA da pergunta em curso; o clique de confirmação nunca passa por aqui. */
+  const cancelar = useCallback(() => {
+    const id = perguntaEmCurso(historico.current);
+    controle.current?.abort();
+    if (id !== null) setMensagens((h) => cancelarEspera(h, id));
+  }, []);
+
+  const reenviar = useCallback((id: number) => {
+    // Só pergunta nova (nunca resposta a rascunho) e só sem rascunho aberto: a repetição não pode cair num rascunho.
+    const pergunta = perguntaReenviavel(historico.current, id);
+    if (pergunta && !rascunhoAberto(historico.current)) void perguntar(pergunta);
+  }, [perguntar]);
 
   const decidir = useCallback(async (rascunho: RascunhoPublico, decisao: 'confirmar' | 'cancelar') => {
     if (emCurso.current) return;
@@ -85,7 +104,7 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
   return <Contexto.Provider value={valor}>
     {children}
     {aberto && <DrawerKidmais mensagens={mensagens} aguardando={aguardandoResposta(mensagens)} contexto={contexto}
-      onPerguntar={perguntar} onDecidir={decidir} onFechar={fechar} />}
+      onPerguntar={perguntar} onDecidir={decidir} onCancelar={cancelar} onReenviar={reenviar} onFechar={fechar} />}
   </Contexto.Provider>;
 }
 
