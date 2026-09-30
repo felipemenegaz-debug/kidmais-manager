@@ -41,6 +41,11 @@
       "pr": "FERRAMENTAS_V1",
       "branch": "ai-v1/07-ferramentas",
       "descricao": "Tool Registry V1: manifesto por ferramenta (domínio, READ/SUGGEST/CONFIRM/FORBIDDEN, papéis, grupo, escopo de tenant/estabelecimento, entrada, saída, prazo, idempotência, auditoria); gateway aplica entrada/prazo/saída; ação sem manifesto não é oferecida"
+    },
+    {
+      "pr": "POLITICA_V1",
+      "branch": "ai-v1/08-politica",
+      "descricao": "Policy V1: decisão única sobre o manifesto (sem manifesto, FORBIDDEN, classe×caminho, origem da confirmação, papel da membership, flags/allowlist); aplicada no gateway (antes e dentro do tenant), em cada passo do Human Gate e antes de toda SUGESTÃO"
     }
   ]
 }

@@ -2,6 +2,8 @@ import type { DbExecutor } from "../../db/contracts.ts";
 import type { TenantComprovado } from "../../saas/provar-tenant.ts";
 import type { AIResponse, HumanGateDraft, RascunhoPublico } from "../contratos.ts";
 import { InteligenciaError, autorizarAcao } from "../politica.ts";
+import { exigirPolitica, type CaminhoPolitica } from "../politica-v1.ts";
+import { manifestoAcao } from "../registro-ferramentas.ts";
 import { hashPayload } from "./hash.ts";
 import type { ContextoAcao, FerramentaAcao, RepositorioOperacoes } from "./tipos.ts";
 
@@ -51,6 +53,22 @@ function somarSegundos(data: Date, segundos: number) {
 /** RBAC do gate: papel da membership comprovada NESTA transação (056/F1), nunca o papel global da sessão. */
 function papelNaEmpresa(ctx: ContextoGate) {
   return { papel: ctx.tenant.papelAtual };
+}
+
+/**
+ * Autoridade AGORA, em cada passo (abrir, responder, confirmar, cancelar): papel da membership comprovada, classe,
+ * manifesto do Tool Registry, origem e flag. Nada do que foi aprovado antes vale como autorização permanente.
+ */
+function autorizarNoGate(ctx: ContextoGate, acao: FerramentaAcao, caminho: CaminhoPolitica, flagNaEmpresa: boolean | null) {
+  autorizarAcao(papelNaEmpresa(ctx), acao);
+  exigirPolitica({
+    papel: ctx.tenant.papelAtual,
+    manifesto: manifestoAcao({ ferramenta: acao.nome, capacidade: acao.capacidade, classe: acao.classe, grupo: acao.grupo, papeis: acao.papeis }),
+    caminho,
+    origem: "HUMAN_GATE",
+    grupoAtivo: true,
+    grupoAtivoNaEmpresa: flagNaEmpresa,
+  });
 }
 
 function contextoAcao(draft: HumanGateDraft, ctx: ContextoGate): ContextoAcao {
@@ -119,7 +137,7 @@ export async function iniciarRascunhoComPayload(acao: FerramentaAcao, payload: R
 }
 
 async function abrir(acao: FerramentaAcao, payloadInicial: Record<string, unknown>, ctx: ContextoGate, deps: DependenciasHumanGate): Promise<Avanco> {
-  autorizarAcao(papelNaEmpresa(ctx), acao);
+  autorizarNoGate(ctx, acao, "HUMAN_GATE", null);
   if (!await deps.repositorio.disponivel(ctx.tx)) {
     throw new InteligenciaError("ACOES_INDISPONIVEIS", "As ações pelo Kidmais ainda não estão disponíveis neste ambiente.", 503);
   }
@@ -160,7 +178,7 @@ function expirado(draft: HumanGateDraft, agora: Date) {
 
 /** Resposta do operador a uma pergunta, ou edição de um campo depois do preview (gera nova versão). */
 export async function responderRascunho(acao: FerramentaAcao, draft: HumanGateDraft, texto: string, ctx: ContextoGate, deps: DependenciasHumanGate): Promise<Avanco> {
-  autorizarAcao(papelNaEmpresa(ctx), acao);
+  autorizarNoGate(ctx, acao, "HUMAN_GATE", null);
   if (draft.estado !== "COLETANDO" && draft.estado !== "AGUARDANDO_CONFIRMACAO") {
     throw new InteligenciaError("OPERACAO_ENCERRADA", "Este rascunho já foi encerrado. Comece um novo pedido.", 409);
   }
@@ -196,7 +214,7 @@ export async function confirmarOperacao(
   if (draft.empresaId !== ctx.tenant.empresaComprovada || draft.usuarioId !== ctx.sessao.usuario_id) {
     throw new InteligenciaError("OPERACAO_NAO_ENCONTRADA", "Rascunho não encontrado.", 404);
   }
-  autorizarAcao(papelNaEmpresa(ctx), acao);
+  autorizarNoGate(ctx, acao, "CONFIRMACAO", null);
   if (!ctx.flagAtiva) throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Kidmais Intelligence indisponível neste ambiente.", 503);
   // Replay (clique duplo, retry após timeout): devolve o resultado gravado, sem executar de novo.
   if (draft.estado === "EXECUTADA") {
@@ -260,7 +278,7 @@ export async function cancelarOperacao(acao: FerramentaAcao, draft: HumanGateDra
   if (draft.empresaId !== ctx.tenant.empresaComprovada || draft.usuarioId !== ctx.sessao.usuario_id) {
     throw new InteligenciaError("OPERACAO_NAO_ENCONTRADA", "Rascunho não encontrado.", 404);
   }
-  autorizarAcao(papelNaEmpresa(ctx), acao);
+  autorizarNoGate(ctx, acao, "HUMAN_GATE", null);
   if (!ctx.flagAtiva) throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Kidmais Intelligence indisponível neste ambiente.", 503);
   // COLETANDO ainda não tem hash ("" nos dois lados); AGUARDANDO_CONFIRMACAO e CANCELADA têm o do preview.
   if (draft.versao !== pedido.versao || draft.payloadHash !== pedido.payloadHash) {

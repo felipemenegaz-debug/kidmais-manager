@@ -15,7 +15,8 @@ import {
 import { interpretarComModelo, interpretarDeterministico, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
 import type { RoteadorModelos } from "./modelos/roteador.ts";
 import { avaliarPolitica } from "./politica.ts";
-import { manifestoAcao, manifestoLeitura } from "./registro-ferramentas.ts";
+import { decidirPolitica } from "./politica-v1.ts";
+import { SUGESTAO_POR_FINALIDADE, manifestoAcao, manifestoLeitura, manifestoSugestao } from "./registro-ferramentas.ts";
 import { anotarUsoModelo, novoRastreio, type RastreioInteligencia } from "./rastreio.ts";
 
 /**
@@ -333,6 +334,18 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
     const catalogo = deps.skills ?? null;
     if (!catalogo) return null;
     const comprovado = await tenant();
+    // SUGGEST (rascunho, objeção, próxima ação): Policy V1 com o papel da membership e a allowlist da empresa.
+    const sugestao = Object.hasOwn(SUGESTAO_POR_FINALIDADE, finalidade) ? SUGESTAO_POR_FINALIDADE[finalidade] : null;
+    if (sugestao) {
+      const manifesto = manifestoSugestao(sugestao);
+      const grupo = manifesto && manifesto.grupoExigido !== "NENHUM" ? manifesto.grupoExigido : null;
+      const decisao = decidirPolitica({
+        papel: comprovado.papelAtual, manifesto, caminho: "SUGESTAO", origem: "INTENCAO_DETERMINISTICA",
+        grupoAtivo: grupo !== null && grupoAtivo(deps.env, grupo),
+        grupoAtivoNaEmpresa: grupo !== null && grupoAtivoParaEmpresa(deps.env, grupo, comprovado.empresaComprovada),
+      });
+      if (decisao !== "PERMITIDO") return null;
+    }
     // Estabelecimento: o Tenant Context atual não tem unidade; overrides por estabelecimento ficam inativos.
     return catalogo.resolver({ empresaId: comprovado.empresaComprovada, estabelecimentoId: null, finalidade, capacidade });
   }

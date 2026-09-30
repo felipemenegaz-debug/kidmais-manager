@@ -9,6 +9,7 @@ import { SEM_PORTAS, ferramentaRegistrada, type ContextoFerramenta, type Ferrame
 import { grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, type Ambiente } from "./flags.ts";
 import { InteligenciaError, autorizarFerramenta, avaliarPolitica } from "./politica.ts";
 import { novoRastreio, type CausaRastreio, type RastreioInteligencia } from "./rastreio.ts";
+import { decidirPolitica, exigirPolitica, type EntradaPolitica } from "./politica-v1.ts";
 import { manifestoLeitura, saidaValida } from "./registro-ferramentas.ts";
 
 /** A empresa nunca vem do corpo: a seleção usa o mesmo parâmetro `empresaId` das rotas do Financeiro, provado por provarTenant. */
@@ -180,6 +181,16 @@ export async function executarLeitura(
   const politica: ResultadoPolitica = avaliarPolitica(sessao, ferramenta, "LEITURA");
   rastreio.politica = politica;
   autorizarFerramenta(sessao, ferramenta);
+  // Policy V1 sobre o manifesto: antes do tenant (papel da sessão) e de novo dentro dele (papel da membership).
+  const aplicarPolitica = (entrada: EntradaPolitica) => {
+    rastreio.politica = decidirPolitica(entrada);
+    exigirPolitica(entrada);
+  };
+  const politicaNoTenant = (tenant: TenantComprovado) => aplicarPolitica({
+    papel: tenant.papelAtual, manifesto, caminho: "LEITURA", origem: "UI", grupoAtivo: true,
+    grupoAtivoNaEmpresa: grupoAtivoParaEmpresa(deps.env, ferramenta.grupo, tenant.empresaComprovada),
+  });
+  aplicarPolitica({ papel: sessao.papel, manifesto, caminho: "LEITURA", origem: "UI", grupoAtivo: true, grupoAtivoNaEmpresa: null });
 
   const agora = deps.agora();
   const contexto: ContextoFerramenta = { hoje: hojeBrasilia(agora), geradoEm: agora.toISOString(), portas: deps.portas ?? SEM_PORTAS };
@@ -197,6 +208,7 @@ export async function executarLeitura(
     const tenant = await deps.withTenantTransaction(sessao, empresaSolicitada, async (_tx, comprovado) => comprovado);
     rastreio.empresaId = tenant.empresaComprovada;
     exigirGrupoNaEmpresa(deps.env, ferramenta.grupo, tenant);
+    politicaNoTenant(tenant);
     data = await comPrazo(prazo, () => executar(tenant, contexto));
   } else {
     let executar: ReturnType<typeof ferramenta.preparar>;
@@ -209,6 +221,7 @@ export async function executarLeitura(
     data = await deps.withTenantTransaction(sessao, empresaSolicitada, (tx, tenant) => {
       rastreio.empresaId = tenant.empresaComprovada;
       exigirGrupoNaEmpresa(deps.env, ferramenta.grupo, tenant);
+      politicaNoTenant(tenant);
       return comPrazo(prazo, () => executar(tx, tenant, contexto));
     });
   }
