@@ -10,6 +10,8 @@ import { festaEmRisco, pendenciasDaFesta, resumirFesta } from "./leituras/festa.
 import { resumirCliente } from "./leituras/resumir-cliente.ts";
 import { resumirContrato } from "./leituras/resumir-contrato.ts";
 import { ondeEncontrar } from "./leituras/navegacao.ts";
+import { pacotesDisponiveis } from "./leituras/pacotes.ts";
+import { compararVersoesContrato } from "./leituras/versoes-contrato.ts";
 
 /** Reexportado por conveniência de tipo: a classe é a mesma dos contratos estáveis. */
 export type ClasseFerramenta = ClasseAcao;
@@ -35,9 +37,27 @@ export type ClienteDominio = {
 };
 export type PortaClientes = { obter(tx: DbExecutor, empresaId: string, clienteId: string): Promise<ClienteDominio> };
 
-export type PortasDominio = { festas: PortaFestas | null; clientes: PortaClientes | null };
+/** Subconjunto de `listarPacotesAdmin` (empresa comprovada no WHERE). Preço NÃO vem daqui: segue a tabela vigente. */
+export type PacoteDominio = {
+  nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null;
+  diasPermitidos: readonly number[]; ativo: boolean; vigente: boolean; arquivadoEm: string | null;
+};
+export type PortaPacotes = { listar(tx: DbExecutor, empresaId: string): Promise<readonly PacoteDominio[]> };
 
-export const SEM_PORTAS: PortasDominio = Object.freeze({ festas: null, clientes: null });
+/** Versão de contrato (snapshot congelado). null ⇒ contrato inexistente NESTA empresa (outra empresa = mesmo 404). */
+export type VersaoContratoDominio = {
+  numero: number;
+  status: string;
+  snapshot: {
+    evento?: { data?: string; horarioInicio?: string; horarioFim?: string; pacote?: { nome?: string }; convidados?: number };
+    comercial?: { valorFinalContrato?: number; formaPagamentoPretendida?: string | null; condicaoPagamento?: { forma?: string } };
+  } | null;
+};
+export type PortaContratos = { versoes(tx: DbExecutor, empresaId: string, contratoId: string): Promise<readonly VersaoContratoDominio[] | null> };
+
+export type PortasDominio = { festas: PortaFestas | null; clientes: PortaClientes | null; pacotes?: PortaPacotes | null; contratos?: PortaContratos | null };
+
+export const SEM_PORTAS: PortasDominio = Object.freeze({ festas: null, clientes: null, pacotes: null, contratos: null });
 
 export type ContextoFerramenta = {
   /** Data de referência em America/Sao_Paulo, calculada no servidor. */
@@ -97,6 +117,8 @@ export const ferramentas: Readonly<Record<string, Ferramenta>> = Object.freeze({
   pendencias_da_festa: pendenciasDaFesta,
   festa_em_risco: festaEmRisco,
   onde_encontrar: ondeEncontrar,
+  pacotes_disponiveis: pacotesDisponiveis,
+  comparar_versoes_contrato: compararVersoesContrato,
 });
 
 export function ferramentaRegistrada(nome: string): Ferramenta | null {

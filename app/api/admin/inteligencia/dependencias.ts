@@ -1,12 +1,15 @@
 import type { NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
 import { obterClienteBase } from "@/lib/clientes/services";
+import { listarPacotesAdmin } from "@/lib/comercial/pacotes-admin";
+import { detalheAdministrativo } from "@/lib/contratos/services/administrativo.service";
+import { contratoNoTenant } from "@/lib/contratos/services/contrato-tenant";
 import { db, withTransaction } from "@/lib/db/postgres";
 import { FestaError, consultarFestas } from "@/lib/festas/service";
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from "@/lib/http/admin-crm-api";
 import { criarRegistroUsoPostgres } from "@/lib/ia-persistencia/uso";
 import type { DependenciasConversa } from "@/lib/inteligencia/conversa";
-import { CHAVE_CATALOGO_SKILLS, CHAVE_CLASSIFICADOR_AUXILIAR, CHAVE_COPILOTO, CHAVE_MODULO_ACOES, CHAVE_ORQUESTRADOR } from "@/lib/inteligencia/extensoes";
+import { CHAVE_AGENTES, CHAVE_CATALOGO_SKILLS, CHAVE_CLASSIFICADOR_AUXILIAR, CHAVE_COPILOTO, CHAVE_MODULO_ACOES, CHAVE_ORQUESTRADOR } from "@/lib/inteligencia/extensoes";
 import type { PortasDominio } from "@/lib/inteligencia/ferramentas";
 import type { DependenciasGateway } from "@/lib/inteligencia/gateway";
 import { orcamentoDoAmbiente } from "@/lib/inteligencia/modelos/orcamento";
@@ -46,6 +49,16 @@ export function portasDominio(request: NextRequest): PortasDominio {
       },
     },
     clientes: { obter: (tx, empresaId, clienteId) => obterClienteBase(clienteId, empresaId, tx) },
+    // Pacotes: serviço comercial com a empresa comprovada no WHERE (sem preço; preço segue a tabela vigente).
+    pacotes: { listar: (tx, empresaId) => listarPacotesAdmin(tx, empresaId) },
+    // Versões de contrato: posse comprovada na empresa (fechamento + pacote) ANTES de ler o detalhe do domínio.
+    contratos: {
+      async versoes(tx, empresaId, contratoId) {
+        if (!(await contratoNoTenant(tx, empresaId, contratoId))) return null;
+        const detalhe = await detalheAdministrativo(contratoId, tx);
+        return (detalhe.versoes as Array<{ numero_versao: number; status: string; snapshot: unknown }>).map((v) => ({ numero: Number(v.numero_versao), status: String(v.status), snapshot: (v.snapshot ?? null) as never }));
+      },
+    },
   };
 }
 
@@ -89,5 +102,6 @@ export function dependenciasConversa(request: NextRequest): DependenciasConversa
     orquestrador: extensoes.obter(CHAVE_ORQUESTRADOR),
     skills: extensoes.obter(CHAVE_CATALOGO_SKILLS),
     copiloto: extensoes.obter(CHAVE_COPILOTO),
+    agentes: extensoes.obter(CHAVE_AGENTES),
   };
 }

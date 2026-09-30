@@ -50,7 +50,7 @@ const TEMAS: ReadonlyArray<[string, RegExp]> = [
   ["dashboard", /\bdashboard\b|\bpainel\b|\btela inicial\b/],
 ];
 
-function temaNavegacao(n: string): string | null {
+export function temaNavegacao(n: string): string | null {
   return TEMAS.find(([, padrao]) => padrao.test(n))?.[0] ?? null;
 }
 
