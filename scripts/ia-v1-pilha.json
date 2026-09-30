@@ -86,6 +86,11 @@
       "pr": "ESTABELECIMENTO_V1",
       "branch": "ai-v1/16-estabelecimento",
       "descricao": "Establishment Context V1: unidade só do pedido da tela, provada pelo Core (empresa comprovada, unidade ATIVA, vínculo ATIVO e vigente da membership); escopo COMPANY/ESTABLISHMENT no Tool Registry; Policy NEGADO_ESTABELECIMENTO; contexto, skills, trace e custos escopados; cross-establishment recusado"
+    },
+    {
+      "pr": "SKILLS_EMPRESA_V1",
+      "branch": "ai-v1/17-skills-empresa",
+      "descricao": "Skills V1 por empresa/unidade: migration 058 ia_skills (NÃO aplicada; escopo, coerência, versão imutável, uma ATIVA, sem DELETE/TRUNCATE), repositório somente leitura, override obrigatório sobre base da plataforma, camadas decididas pela Policy (AI_SKILLS_EMPRESA_ENABLED, allowlist, unidade comprovada), varredura sem autoridade comercial/financeira/capacidade/Human Gate/tenant"
     }
   ]
 }

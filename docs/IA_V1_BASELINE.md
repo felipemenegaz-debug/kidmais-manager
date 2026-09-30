@@ -11,7 +11,7 @@ Arquitetura e operação: [IA_V1_ARQUITETURA.md](IA_V1_ARQUITETURA.md). Seguran�
 | Tooling (manifesto Foundation congelado + pilha V1) | — | `ai-v1/00-tooling` |
 | JEV | `jev-v1.0.0` | `ai-v1/01-jev` |
 | Demerzel | `demerzel-v1.0.0` | `ai-v1/02-demerzel` |
-| Skills | `skills-v1.0.0`; `tom_kidmais@1.0.0#324d6d44`, `atendimento_familias@1.0.0#b045e8ea`, `procedimentos_operacionais@1.0.0#a626e6ad` (RESTRITAS) | `ai-v1/03-skills` |
+| Skills | `skills-v1.0.0` (+ camadas de empresa/unidade em `ia_skills`, 058, `ai-v1/17-skills-empresa`); `tom_kidmais@1.0.0#324d6d44`, `atendimento_familias@1.0.0#b045e8ea`, `procedimentos_operacionais@1.0.0#a626e6ad` (RESTRITAS) | `ai-v1/03-skills` |
 | Context Builder | `contexto-v1.0.0` | `ai-v1/04-contexto` |
 | Copiloto | `copiloto-v1.0.0` | `ai-v1/05-copiloto` |
 | Agentes | `agentes-v1.0.0` (atendimento, analista_operacional, documentos, administrativo) | `ai-v1/06-agentes` |
@@ -34,6 +34,7 @@ Arquitetura e operação: [IA_V1_ARQUITETURA.md](IA_V1_ARQUITETURA.md). Seguran�
 | `AI_ADMIN_ACTIONS_ENABLED` | CONFIRM de cadastro (Human Gate) | mestra + tabela `ia_operacoes` (055) |
 | `AI_CONTRACT_IMPORT_ENABLED` | Importação de contrato histórico | mestra + 055b–d |
 | `AI_TENANT_ALLOWLIST` | Restringe grupos a empresas listadas | — |
+| `AI_SKILLS_EMPRESA_ENABLED` | Camadas de skill da empresa e da unidade (sobre a plataforma) | mestra + 058 aplicada |
 | `AI_JEV_ENABLED` / `AI_JEV_MODEL_ENABLED` | Classificador auxiliar / modelo do JEV | mestra; modelo exige orçamento |
 | `AI_DEMERZEL_ENABLED` | Orquestradora + agentes | mestra |
 | `AI_COPILOTO_MODEL_ENABLED` | Explicação por modelo | mestra + orçamento + provedor |
@@ -59,7 +60,8 @@ Números e resultados da execução final estão no relatório do Master Goal (F
 - Establishment Context implementado (prova no Core, escopo COMPANY/ESTABLISHMENT, Policy, contexto, skills, trace, custos).
   Todas as leituras V1 são `COMPANY` porque os dados do Core não têm unidade e a 043 mantém a unidade fechada (D03):
   hoje nenhuma unidade é comprovável e a IA opera no escopo da empresa, fail-closed.
-- Skills de empresa/estabelecimento não têm armazenamento (exige migration); só as 3 skills da plataforma.
+- Skills de empresa/unidade: armazenamento e resolução prontos (058, não aplicada); o cadastro/aprovação pelo Admin é
+  fluxo futuro — até lá, só a plataforma (e o que for gravado por operação autorizada).
 - Detecção de injeção é por padrões; a segurança real vem da arquitetura (sem ferramentas no modelo, Policy, Human Gate).
 - Explicação por modelo pode conter afirmação não numérica falsa; é rotulada como sugestão, abaixo dos dados.
 - Visão de custos e orçamento em PostgreSQL dependem da 055a aplicada; sem ela, `disponivel: false` e nenhuma chamada paga.
@@ -69,7 +71,7 @@ Números e resultados da execução final estão no relatório do Master Goal (F
 
 1. Merge da pilha em ordem (00 → 15), um PR por fase, com `check:ia:prs` verde a cada passo.
 2. `check:v1:static`, `check:v1:ui`, `test:ia-demo` e `check:v1:postgres` (cluster descartável) verdes no HEAD de staging.
-3. Migrations 055/055a–d aplicadas em staging **somente com autorização**, seguindo `docs/OPERACAO_AGENTES.md`.
+3. Migrations 055/055a–d e 058 aplicadas em staging **somente com autorização**, seguindo `docs/OPERACAO_AGENTES.md`.
 4. Flags ligadas por etapa, com `AI_TENANT_ALLOWLIST` só para a empresa de teste: READ → Demerzel → ações → modelo.
 5. Orçamento e pricing configurados (tetos baixos) antes de qualquer flag de modelo.
 6. Smoke autenticado da Foundation em staging: **concluído** (login do Felipe após o deploy; Configurações validadas; PRs #14 e #15 em staging — o HEAD atual de staging é a fonte de verdade). Depois de ligar as flags da V1: smoke funcional da IA (leituras, rascunho do agente de atendimento, um CONFIRM de pacote cancelado e um confirmado; traces e `/custos`).

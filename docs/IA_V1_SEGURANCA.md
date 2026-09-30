@@ -17,6 +17,18 @@ Suíte principal: `lib/inteligencia/seguranca-v1.test.ts` (roda em `npm run test
 | F7 | MÉDIA (auto-review #2) | Marcadores do rascunho (nome do cliente) eram lidos do domínio sem passar pela Policy V1 | Mesma decisão de `resumir_cliente` (manifesto, papel da membership, flag, allowlist) antes de ler; negada ⇒ sem marcador | integrado-v1 (auto-review 2) |
 | F6 | ALTA (funcional, Fase 11) | A UI recusava respostas de agente (caíam como erro) | Contrato da UI valida e renderiza `agente` e `complemento` | `inteligencia-ui.test.ts` (V1) |
 
+## Auditoria independente (NO-GO) — achados corrigidos
+
+| # | Severidade | Achado | Correção (fase) | Prova |
+|---|---|---|---|---|
+| A1 | ALTA | CPF/e-mail chegavam ao provedor por conversa → Demerzel → `interpretarComModelo` (texto só truncado) | Helper canônico `texto-modelo.ts` (ocultos, e-mail, id, CNPJ, CPF, telefone, links, números; redação antes do corte) usado por JEV, intenção e Context Builder + barreira de PII no Model Router para qualquer chamador, primário e fallback (01, 04); única exceção documentada: `EXTRACAO_CONTRATO`, só com `AI_DOCUMENT_EXTERNAL_PROVIDER_ALLOWED=true` | texto-modelo.test (payload do provedor falso), copiloto.test (ponta a ponta Demerzel + explicação); controles negativos |
+| A2 | MÉDIA | Filtro por finalidade antes de compor deixava override (EMPRESA SUGGEST) sem a base (PLATAFORMA READ) | Cadeia por id → composição cumulativa que só estreita (override que amplia: `OVERRIDE_AMPLIA`) → aplicabilidade na skill composta (03); camadas por empresa/unidade (17) | skills.test (A2), skills-empresa-v1; controle negativo com o resolvedor antigo |
+| A3 | MÉDIA | Trace substituía tokens/custo a cada chamada | Acúmulo no pedido; totais null com qualquer desconhecido; subtotal conhecido + `chamadasCustoDesconhecido` (09) | observabilidade.test (A3, roteador real com fallback); controle negativo |
+| A4 | MÉDIA | CHECK da 058 aceitava `{}` (NULL não falha) | Chaves, tipos, valores e coerência com `COALESCE(…, false)` (17) | migration-058.postgres (A4) + controle negativo com o script original |
+| A1 (reauditoria) | ALTA | CPF/e-mail com U+2066 (bidi isolate) e RG pontuado chegavam ao primário e ao fallback | Invisíveis por propriedade Unicode (Cc exceto tab/LF/CR, Cf, Default_Ignorable_Code_Point) antes da redação; RG rotulado e pontuado; barreira remove controles escapados pelo JSON e redige links (01) | texto-modelo.test e copiloto.test (payload real: primário, fallback, JEV, barreira, Demerzel → intenção, conteúdo armazenado); controle negativo com a sanitização anterior |
+| A4 (paridade) | MÉDIA | 058 aceitava tom só com tab/LF, tom > 400, > 20 instruções/procedimentos, > 15 passos (e outros limites do runtime) | Validação da definição por funções IMMUTABLE que espelham skillSchema/conteudoSchema limite a limite: trim do JavaScript (`kidmais_058_trim_js`), comprimento em code points como o zod 4, máximos, formatos e chaves exatas (17) | migration-058.postgres (matriz de ~70 casos: runtime aceita ⇔ banco aceita) + controle negativo (a 058 anterior aceitava 36 casos) |
+| A4 (reauditoria) | MÉDIA | 058 aceitava `conteudo: {}` | `ia_skills_058_conteudo_check`: estrutura interna = `conteudoSchema` do runtime (chaves, tipos, itens, enum de marcadores, formatação, sem chaves extras), tudo com `COALESCE(…, false)` (17) | migration-058.postgres (36 casos + paridade com o runtime + conteúdo real da plataforma) + controle negativo com a 058 anterior |
+
 ## Vetores atacados
 
 | Vetor | Defesa | Prova |
@@ -47,7 +59,7 @@ Suíte principal: `lib/inteligencia/seguranca-v1.test.ts` (roda em `npm run test
 | R1 | MÉDIA | Detecção de injeção por padrões pode ser contornada por redação nova | Arquitetura não depende dela: modelo sem ferramentas, Policy/Registry/Human Gate decidem | Aceito na V1; revisar padrões com dados reais de staging |
 | R2 | MÉDIA | Dados operacionais do Core ainda sem unidade e unidade fechada na 043 (D03) | Establishment Context pronto; leituras COMPANY; nenhuma unidade comprovável hoje (fail-closed) | Decisão do Core (D03 + unidade nos dados); na IA basta trocar o escopo no registro |
 | R3 | MÉDIA | Explicação do modelo pode conter afirmação falsa sem número | Rotulada como sugestão, abaixo dos dados; números/ids/ações/instruções validados | Aceito; Copiloto com modelo só com flag |
-| R4 | MÉDIA | Skills de empresa sem armazenamento (exige migration); skills da plataforma RESTRITAS sem revisão independente | Só plataforma; repositório vazio | **Decisão humana**: migration de skills + revisão independente |
+| R4 | BAIXA | Skills de empresa/unidade: armazenamento (058) e resolução prontos; cadastro/aprovação no Admin ainda não existe; skills da plataforma RESTRITAS sem revisão independente | 058 não aplicada; flag desligada; varredura + hash + revisão + base da plataforma obrigatória | Gate de staging: aplicar 058 com autorização; fluxo de cadastro/aprovação e revisão independente |
 | R5 | BAIXA | Leitura que estoura o prazo continua no banco até terminar | Somente leitura; resposta já é fallback | Aceito |
 | R6 | BAIXA | Rascunho copiado pode ser enviado com erro pelo operador | Pendências explícitas; aviso "o Kidmais não envia" | Aceito |
 | R7 | BAIXA | Visão de custos depende da 055a aplicada | `disponivel: false` sem as tabelas | Gate de staging (aplicar 055a com autorização) |

@@ -42,6 +42,11 @@ const PADROES: ReadonlyArray<[MotivoRecusaSkill, RegExp[]]> = [
     /\b(ignore|ignora|ignorar|desconsidere|esqueca|esquece)\b[^.]{0,40}\b(instruc\w*|anterior\w*|restric\w*)\b/,
     /\b(finja|finjam|fingir|aja como|atue como|passe-se)\b/, /\b(nao precisa|dispense|dispensa)\b[^.]{0,30}\b(confirmac\w*|aprovac\w*|perguntar)\b/,
     /\bsem perguntar\b/, /\bnova instrucao\b/,
+    // Skill de empresa/unidade nunca mexe em capacidade, Human Gate, tenant ou unidade (Skills V1 por empresa).
+    /\b(capacidade\w*|capabilit\w*|ferramenta\w*|human gate|confirmacao humana|rascunho)\b[^.]{0,40}\b(liber\w*|habilit\w*|desativ\w*|remov\w*|pul\w*|dispens\w*|execut\w*)\b/,
+    /\b(liber\w*|habilit\w*|desativ\w*|remov\w*|pul\w*|dispens\w*)\b[^.]{0,40}\b(capacidade\w*|capabilit\w*|human gate|confirmacao humana)\b/,
+    /\b(troc\w*|mud\w*|alter\w*|us\w*|acess\w*|consult\w*)\b[^.]{0,30}\b(outr[ao]s? )?(empresa\w*|tenant\w*|estabelecimento\w*|unidade\w*)\b[^.]{0,20}\b(outr\w*|diferente\w*|qualquer|tod[ao]s)\b/,
+    /\b(outr[ao]s?|qualquer|tod[ao]s as) (empresas?|tenants?|estabelecimentos?|unidades?)\b/,
   ]],
   ["CONTEUDO_REMOTO", [/https?:\/\//, /\bwww\./, /\b(baixe|baixar|download|curl|wget|npx|npm install)\b/, /\b(siga|leia|carregue|busque)\b[^.]{0,30}\b(instruc\w*|arquivo|url|link|endereco)\b/]],
   ["CONTEUDO_SEGREDO", [/\b(senha|senhas|token|tokens|api[_ ]?key|chave de api|secret\w*|database_url|credencia\w*)\b/, /\.env\b/]],

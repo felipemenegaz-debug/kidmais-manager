@@ -75,6 +75,8 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno"],
   "lib/festas/service": ["FestaError", "consultarFestas"],
   "lib/ia-persistencia/uso": ["criarRegistroUsoPostgres", "lerUsoAgrupado"],
+  // AI V1 (Skills por empresa/unidade): leitura das camadas da 058; o catálogo revalida tudo.
+  "lib/ia-persistencia/skills": ["criarRepositorioSkillsPostgres"],
   // AI V1 (agentes): posse do contrato na empresa comprovada e detalhe do domínio para comparar versões.
   "lib/contratos/services/contrato-tenant": ["contratoNoTenant"],
   "lib/contratos/services/administrativo.service": ["detalheAdministrativo"],

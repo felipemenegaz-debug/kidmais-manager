@@ -85,3 +85,12 @@ export function demerzelAtivo(env: Ambiente) {
 export function copilotoModeloAtivo(env: Ambiente) {
   return inteligenciaAtiva(env) && env.AI_COPILOTO_MODEL_ENABLED === "true";
 }
+
+/**
+ * Camadas de skill da EMPRESA e do ESTABELECIMENTO (AI_SKILLS_EMPRESA_ENABLED) sobre a base da plataforma. Desligada:
+ * só a plataforma (a Policy nega as outras camadas). Ligada: ainda respeita a allowlist por empresa do grupo READ e,
+ * para a camada da unidade, exige unidade COMPROVADA no Tenant Context.
+ */
+export function skillsEmpresaAtivas(env: Ambiente) {
+  return inteligenciaAtiva(env) && env.AI_SKILLS_EMPRESA_ENABLED === "true";
+}

@@ -26,7 +26,7 @@ usuário e papel nunca vêm do pedido nem do modelo; toda mutação passa pelo H
 |---|---|---|---|
 | JEV V1 | `lib/inteligencia/jev/v1` | Minimiza o texto (NFKC, ocultos, PII→marcador) e julga 5 dimensões por regras; modelo (ECONOMY, teto de confiança 0,8) só se as regras não entenderam; o mais restritivo vence | Conceder autoridade, ver tenant, afrouxar regra |
 | Demerzel V1 | `lib/inteligencia/demerzel` | Orquestra por passos contados (teto de passos, de passos com modelo, de propostas, de custo, prazo, duplicidade); injeção e FORBIDDEN recusados antes de tudo | Chamar porta crua, executar ação, laço sem teto |
-| Skills V1 | `lib/inteligencia/skills` | Conteúdo de forma (tom, templates, objeções, procedimentos) com hash, revisão e varredura; hierarquia Plataforma → Empresa → Estabelecimento | Preço, desconto, permissão, mudança de política (recusados na varredura) |
+| Skills V1 | `lib/inteligencia/skills`, `lib/ia-persistencia/skills.ts` | Conteúdo de forma (tom, templates, objeções, procedimentos) com hash, revisão e varredura; Plataforma (base, código) → Empresa → Estabelecimento (overrides em `ia_skills`, 058), camadas decididas pela Policy | Preço, desconto, permissão, mudança de política (recusados na varredura) |
 | Context Builder V1 | `lib/inteligencia/contexto` | Único formato que chega a um modelo: blocos da empresa comprovada, redação de nomes/PII/instruções, limites, barreira final | Levar ids, contatos, dados de criança, texto de pessoa, conteúdo de outra empresa |
 | Copiloto V1 | `lib/inteligencia/copiloto` | Perguntas por tela, navegação, próxima ação (procedimento de skill) e explicação por modelo validada contra os dados | Ser fonte de fato; afirmar ação feita; inventar número/id |
 | Agentes V1 | `lib/inteligencia/agentes` | Atendimento, Analista Operacional, Documentos e Copiloto Administrativo: planos fechados, determinísticos, sobre as portas contadas | Enviar mensagem, assinar, negociar, ler fora da própria lista |
@@ -74,6 +74,20 @@ Policy V1 (primeira negação vence): sem manifesto → FORBIDDEN → classe×ca
   leituras V1 são `COMPANY` e, hoje, nenhuma unidade é comprovável (fail-closed). Quando o Core abrir D03 e der unidade
   a esses dados, cada leitura passa a `ESTABLISHMENT` no registro — sem mudar Policy, contexto, skills ou trace.
 
+## 4.2 Skills por empresa e por unidade
+
+- Base: as skills da PLATAFORMA (código revisado). Camadas: `ia_skills` (migration 058, **não aplicada**) guarda versões
+  de override da EMPRESA e do ESTABELECIMENTO; cada linha é a skill completa (proveniência, revisão, hash, permissões,
+  restrições, conteúdo) e o banco garante escopo, coerência com as colunas, versão imutável (nova versão = nova linha),
+  uma ATIVA por (empresa, unidade, skill), transições RASCUNHO → ATIVA ↔ SUSPENSA → ARQUIVADA, sem DELETE/TRUNCATE.
+- Resolução determinística: Plataforma → Empresa → Estabelecimento, sempre sobre uma skill da plataforma de mesmo id
+  (skill nova da empresa ⇒ `SEM_BASE_PLATAFORMA`); tom/templates/objeções/procedimentos refinados por chave, instruções e
+  restrições acumuladas (as da plataforma nunca saem), classes só estreitam.
+- Policy das camadas: plataforma sempre; EMPRESA com `AI_SKILLS_EMPRESA_ENABLED=true` + allowlist; ESTABELECIMENTO com
+  isso E unidade COMPROVADA. O catálogo revalida schema, hash, revisão APROVADA/RESTRITA sobre o hash atual, escopo e
+  varredura de conteúdo (preço, desconto, contrato, pagamento, papel/permissão, capacidade, Human Gate, tenant/unidade).
+- Sem escrita pela IA: o cadastro e a aprovação de skills de empresa são um fluxo futuro do Admin.
+
 ## 5. Observabilidade
 
 Uma linha JSON por pedido (`[Kidmais Inteligência]`), saneada (`sanearRastreio`): `traceId`, `requestId`,
@@ -97,7 +111,7 @@ Linhas adicionais: `[Kidmais JEV]`, `[Kidmais Copiloto]`, `[Kidmais IA uso]` (se
 ## 7. Flags (só o texto exato `true` liga)
 
 `INTELIGENCIA_ENABLED` (mestra) · `AI_READ_ENABLED` · `AI_ADMIN_ACTIONS_ENABLED` · `AI_CONTRACT_IMPORT_ENABLED` ·
-`AI_TENANT_ALLOWLIST` · `AI_JEV_ENABLED` · `AI_JEV_MODEL_ENABLED` · `AI_DEMERZEL_ENABLED` · `AI_COPILOTO_MODEL_ENABLED` ·
+`AI_TENANT_ALLOWLIST` · `AI_SKILLS_EMPRESA_ENABLED` · `AI_JEV_ENABLED` · `AI_JEV_MODEL_ENABLED` · `AI_DEMERZEL_ENABLED` · `AI_COPILOTO_MODEL_ENABLED` ·
 `AI_FALLBACK_ENABLED` · `AI_DOCUMENT_EXTERNAL_PROVIDER_ALLOWED`. Configuração: `AI_PROVIDER_PRIMARY/ECONOMY`,
 `AI_OPENAI_*`, `AI_DEEPSEEK_*`, `AI_WORKLOAD_TIERS`, `AI_MODEL_TIMEOUT_MS`, `AI_MODEL_MAX_RETRIES`,
 `AI_BUDGET_JSON`, `AI_PRICING_JSON`, `AI_CONFIRMACAO_TTL_SEGUNDOS`, `AI_UPLOAD_MAX_BYTES`.
@@ -119,8 +133,9 @@ recusadas com 503 (revalidação de flag no clique).
 **Custo subindo**: consultar `/api/admin/inteligencia/custos`; reduzir tetos em `AI_BUDGET_JSON` (efeito na
 próxima reserva); `recuperarOrfas` fecha reservas abertas antigas como ÓRFÃS (consumo mantido).
 
-**Skill suspeita**: skills da plataforma são código revisado; skill de empresa só existe com migration própria
-(ainda não criada). Alerta `SKILL_RECUSADA` no log indica tentativa recusada.
+**Skill suspeita**: skills da plataforma são código revisado. Skill de empresa/unidade: `UPDATE ia_skills SET status =
+SUSPENSA` na versão (efeito imediato: só ATIVAS são lidas) ou desligar `AI_SKILLS_EMPRESA_ENABLED` (todas as camadas da
+empresa saem). Alerta `SKILL_RECUSADA` no log (id, nível, motivos; nunca conteúdo) indica tentativa recusada.
 
 ## 9. Troubleshooting
 
