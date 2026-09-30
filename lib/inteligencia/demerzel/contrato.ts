@@ -34,12 +34,12 @@ export const LIMITES_DEMERZEL_PADRAO: LimitesDemerzel = Object.freeze({
 
 export const TIPOS_PASSO = [
   "INTENCAO_REGRAS", "JULGAMENTO_JEV", "JULGAMENTO_JEV_MODELO", "SUGESTAO_AUXILIAR", "INTENCAO_MODELO",
-  "LEITURA", "PROPOSTA_ACAO", "RECUSA", "CONTEXTO", "HUMANO", "SEM_ROTA", "SELECAO_SKILL",
+  "LEITURA", "PROPOSTA_ACAO", "RECUSA", "CONTEXTO", "HUMANO", "SEM_ROTA", "SELECAO_SKILL", "COMPLEMENTO", "COMPLEMENTO_MODELO",
 ] as const;
 export type TipoPasso = (typeof TIPOS_PASSO)[number];
 
 /** Passos que podem gastar modelo (contam em maxPassosModelo e no teto de custo). */
-export const PASSOS_COM_MODELO: readonly TipoPasso[] = ["JULGAMENTO_JEV_MODELO", "INTENCAO_MODELO"];
+export const PASSOS_COM_MODELO: readonly TipoPasso[] = ["JULGAMENTO_JEV_MODELO", "INTENCAO_MODELO", "COMPLEMENTO_MODELO"];
 
 export const MOTIVOS_PARADA = [
   "LEITURA", "PROPOSTA", "PRECISA_CONTEXTO", "HUMANO", "NAO_SUPORTADO", "PEDIDO_MISTO",

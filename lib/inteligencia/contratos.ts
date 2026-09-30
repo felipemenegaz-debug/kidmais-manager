@@ -43,7 +43,7 @@ export type Capability = {
 
 /** Contexto de tela que a UI pode informar. Ids de entidade são revalidados no tenant pelo domínio. */
 export type ContextoTela = {
-  tela: "dashboard" | "festa" | "cliente" | "contrato" | "financeiro" | "pacotes" | "geral";
+  tela: "dashboard" | "festa" | "cliente" | "contrato" | "financeiro" | "pacotes" | "agenda" | "configuracoes" | "geral";
   entidadeId?: string;
 };
 
@@ -163,7 +163,7 @@ export type RascunhoPublico = {
 
 export type AIResponse =
   /** `atencao_hoje` (V1) mantém o próprio formato; as demais leituras usam RespostaLeitura. */
-  | { tipo: "resposta"; dados: RespostaLeitura | AtencaoHoje }
+  | { tipo: "resposta"; dados: RespostaLeitura | AtencaoHoje; complemento?: ComplementoCopiloto }
   | { tipo: "rascunho"; rascunho: RascunhoPublico; pergunta: string; faltando: string[] }
   | { tipo: "preview"; rascunho: RascunhoPublico }
   | { tipo: "resultado_acao"; rascunho: RascunhoPublico; mensagem: string; destino?: string }
@@ -242,4 +242,14 @@ export type AuditTrace = {
   /** Chamadas de modelo feitas neste pedido (tentativas e fallback incluídos). */
   chamadasModelo: number;
   duracaoMs: number;
+};
+
+/**
+ * Complemento do Copiloto a uma resposta READ. É SEMPRE secundário aos dados: a explicação só reformula o que
+ * está nos fatos/evidências (números e datas validados contra eles) e a próxima ação é uma SUGESTÃO de
+ * procedimento — nunca executa nada, nunca é fonte de fato. A UI mostra cada parte com o seu rótulo.
+ */
+export type ComplementoCopiloto = {
+  explicacao: { frases: string[]; origem: "MODELO"; aviso: string } | null;
+  proximaAcao: { titulo: string; passos: string[]; destino: string | null; fonte: string } | null;
 };

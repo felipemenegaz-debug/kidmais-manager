@@ -217,7 +217,7 @@ test("Demerzel: sugestão seleciona skill pela porta e registra só id@versão#h
   const portas: PortasOrquestracao = {
     catalogo: [], interpretar: (t, c) => interpretarDeterministico(t, c), sugerirRota: async () => null, interpretarComModelo: async () => null, portaModelo: async () => null,
     ler: async () => { throw new Error("não deve ler"); }, propor: async () => { throw new Error("não deve propor"); }, descreverAcao: () => null,
-    usosDeModelo: () => [], registrarResumo: () => {}, skill: async (finalidade) => { pedidas.push(finalidade); return aplicada; }, relogio: () => performance.now(),
+    usosDeModelo: () => [], registrarResumo: () => {}, skill: async (finalidade) => { pedidas.push(finalidade); return aplicada; }, complementar: async (r) => r, relogio: () => performance.now(),
   };
   const { resposta, resumo } = await criarDemerzel().atender({ texto: "Redija uma mensagem de follow-up para a família", contexto: null }, portas);
   assert.deepEqual(pedidas, ["SUGESTAO_TEXTO"]);

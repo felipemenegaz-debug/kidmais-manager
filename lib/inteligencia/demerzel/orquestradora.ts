@@ -1,6 +1,7 @@
 import type { AIResponse, ContextoTela } from "../contratos.ts";
 import type { Orquestrador, PassoOrquestracao, PortasOrquestracao, ResumoOrquestracao } from "../extensoes.ts";
 import type { Intencao } from "../intencao.ts";
+import { normalizar } from "../texto-pt.ts";
 import type { JulgamentoJev, MotivoJev, TelaJev } from "../jev/v1/contrato.ts";
 import { criarJuizJev, type RastroJevV1 } from "../jev/v1/juiz.ts";
 import {
@@ -42,6 +43,9 @@ const EXPLICACAO_PROIBIDA: ReadonlyArray<[MotivoJev, string]> = [
 ];
 
 const INJECAO: readonly MotivoJev[] = ["INSTRUCAO_IGNORADA", "ESCRITA_MISTA"];
+
+/** Pedido de explicação (Copiloto): só então o complemento pode usar modelo. */
+const PEDE_EXPLICACAO = /\b(expli\w*|entend\w*|signific\w*|por que|porque|analis\w*|interpret\w*)\b/;
 
 function telaJev(contexto: ContextoTela | null): TelaJev {
   return contexto?.tela ?? "geral";
@@ -184,7 +188,19 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
           }
           const chave = `${intencao.capacidade}:${JSON.stringify(intencao.parametros)}`;
           const r = await exec.passo("LEITURA", chave, () => portas.ler(intencao.capacidade, intencao.parametros, intencao.origem), (v) => v.tipo);
-          return terminar("LEITURA", r);
+          if (r.tipo !== "resposta") return terminar("LEITURA", r);
+          // Copiloto: complemento opcional da leitura já autorizada (próxima ação; explicação só se pedida).
+          // Falha ou limite no complemento nunca derruba a leitura: ela sai como veio.
+          const explicar = PEDE_EXPLICACAO.test(normalizar(texto));
+          try {
+            const completo = await exec.passo(explicar ? "COMPLEMENTO_MODELO" : "COMPLEMENTO", intencao.capacidade,
+              () => portas.complementar(r, { explicar }).catch(() => r),
+              (v) => (v.tipo === "resposta" && v.complemento ? (v.complemento.explicacao ? "EXPLICACAO" : "PROXIMA_ACAO") : "SEM_COMPLEMENTO"));
+            return terminar("LEITURA", completo);
+          } catch (erro) {
+            if (!(erro instanceof LimiteDemerzel)) throw erro;
+            return terminar("LEITURA", r);
+          }
         }
         return terminar("NAO_SUPORTADO", recusa("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:"));
       };

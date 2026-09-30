@@ -60,6 +60,9 @@ test("regras: tabela de pedidos típicos → intent, sensibilidade, humano, risc
     ["Redija uma mensagem de follow-up para o cliente", "cliente", true, ["SOLICITAR_ACAO", "SUGGEST", "RECOMENDADO", "LOW", "SUFFICIENT"]],
     ["Envie o contrato por WhatsApp para a mãe", "contrato", true, ["SOLICITAR_ACAO", "CONFIRM", "OBRIGATORIO", "MEDIUM", "SUFFICIENT"]],
     ["Exclua o cliente Mariana", "cliente", true, ["SOLICITAR_ACAO", "FORBIDDEN", "OBRIGATORIO", "HIGH", "SUFFICIENT"]],
+    // Orientação ("onde/como faço") é consulta, não comando; proibido continua proibido.
+    ["Onde eu cadastro um pacote?", "geral", false, ["CONFIGURACAO", "READ", "NAO", "LOW", "SUFFICIENT"]],
+    ["Como faço para excluir o cliente?", "geral", false, ["SOLICITAR_ACAO", "FORBIDDEN", "OBRIGATORIO", "HIGH", "SUFFICIENT"]],
     ["Bom dia", "geral", false, ["OUTRO", "UNKNOWN", "RECOMENDADO", "UNKNOWN", "SUFFICIENT"]],
     ["qwe asd zxc", "geral", false, ["DESCONHECIDA", "UNKNOWN", "RECOMENDADO", "UNKNOWN", "INSUFFICIENT"]],
   ];
