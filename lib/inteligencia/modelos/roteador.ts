@@ -25,6 +25,8 @@ export const TIERS_PADRAO: Readonly<Record<Workload, TierModelo>> = {
   SUMARIZACAO: "STANDARD",
   EXTRACAO_CONTRATO: "STANDARD",
   REVISAO_COMPLEXA: "ADVANCED",
+  // PR 6: JSON pequeno com enum fechado e validação dura; plano inválido cai na resposta honesta. ECONOMY basta.
+  PLANEJAR: "ECONOMY",
 };
 
 /** Documento de cliente não muda de provedor sozinho: fallback desligado para extração. */
@@ -37,6 +39,7 @@ export const FALLBACK_PADRAO: Readonly<Record<Workload, boolean>> = {
   SUMARIZACAO: true,
   EXTRACAO_CONTRATO: false,
   REVISAO_COMPLEXA: true,
+  PLANEJAR: true,
 };
 
 export type PoliticaRoteamento = {

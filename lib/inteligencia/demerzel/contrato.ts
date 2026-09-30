@@ -25,7 +25,8 @@ export type LimitesDemerzel = {
 };
 
 export const LIMITES_DEMERZEL_PADRAO: LimitesDemerzel = Object.freeze({
-  maxPassos: 8,
+  // PR 6: plano de até 5 leituras + passos fixos (regras, JEV, plano, complemento). O teto do plano é separado.
+  maxPassos: 10,
   maxPassosModelo: 2,
   maxPropostas: 1,
   maxCustoMicros: null,
@@ -34,15 +35,15 @@ export const LIMITES_DEMERZEL_PADRAO: LimitesDemerzel = Object.freeze({
 
 export const TIPOS_PASSO = [
   "INTENCAO_REGRAS", "JULGAMENTO_JEV", "JULGAMENTO_JEV_MODELO", "SUGESTAO_AUXILIAR", "INTENCAO_MODELO",
-  "LEITURA", "PROPOSTA_ACAO", "RECUSA", "CONTEXTO", "HUMANO", "SEM_ROTA", "SELECAO_SKILL", "COMPLEMENTO", "COMPLEMENTO_MODELO", "SELECAO_AGENTE", "MARCADORES",
+  "LEITURA", "PROPOSTA_ACAO", "RECUSA", "CONTEXTO", "HUMANO", "SEM_ROTA", "SELECAO_SKILL", "COMPLEMENTO", "COMPLEMENTO_MODELO", "SELECAO_AGENTE", "MARCADORES", "PLANO", "PLANO_MODELO",
 ] as const;
 export type TipoPasso = (typeof TIPOS_PASSO)[number];
 
 /** Passos que podem gastar modelo (contam em maxPassosModelo e no teto de custo). */
-export const PASSOS_COM_MODELO: readonly TipoPasso[] = ["JULGAMENTO_JEV_MODELO", "INTENCAO_MODELO", "COMPLEMENTO_MODELO"];
+export const PASSOS_COM_MODELO: readonly TipoPasso[] = ["JULGAMENTO_JEV_MODELO", "INTENCAO_MODELO", "COMPLEMENTO_MODELO", "PLANO_MODELO"];
 
 export const MOTIVOS_PARADA = [
-  "LEITURA", "PROPOSTA", "AGENTE", "PRECISA_CONTEXTO", "HUMANO", "NAO_SUPORTADO", "PEDIDO_MISTO",
+  "LEITURA", "PROPOSTA", "AGENTE", "PLANO", "PRECISA_CONTEXTO", "HUMANO", "NAO_SUPORTADO", "PEDIDO_MISTO",
   "RECUSA_ACAO", "RECUSA_JULGAMENTO", "RECUSA_INJECAO",
   "LIMITE_PASSOS", "LIMITE_MODELO", "LIMITE_PROPOSTAS", "LIMITE_CUSTO", "CUSTO_DESCONHECIDO", "LIMITE_PRAZO", "ACAO_DUPLICADA",
 ] as const;

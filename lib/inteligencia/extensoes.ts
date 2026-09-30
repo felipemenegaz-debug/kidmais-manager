@@ -109,9 +109,28 @@ export type PortasOrquestracao = {
   complementar(resposta: AIResponse, opcoes: { explicar: boolean }): Promise<AIResponse>;
   /** Registro de agentes (feature AGENTES), quando instalado; null ⇒ só o fluxo da orquestradora. */
   agentes: RegistroAgentes | null;
+  /** Planner (PR 6): planos curtos de capacidades fechadas; ausente ⇒ uma intenção por pedido, como antes. */
+  planejador?: PortaPlanejador | null;
   /** Valores de marcadores de template para a entidade aberta, lidos pelo Core no tenant comprovado. */
   marcadores(): Promise<Readonly<Record<string, string>>>;
   relogio(): number;
+};
+
+/**
+ * Planner + executor (PR 6). `ler` é a leitura CONTADA pela orquestradora (limites, duplicidade, prazo, trace; Policy
+ * e Tenant Context no gateway). Saída: a intenção FINAL (despachada pelo caminho atual — leitura, navegação ou proposta
+ * sob Human Gate) ou uma resposta honesta de parada (ambíguo, sem dados, negado). null ⇒ sem plano: segue o fluxo atual.
+ */
+export type SaidaPlanejador = { intencao: Intencao } | { resposta: AIResponse };
+export type EntradaPlanejador = { texto: string; contexto: ContextoTela | null; regras: Intencao };
+export type PortaPlanejador = {
+  planejar(entrada: EntradaPlanejador, ler: (capacidade: string, parametros: Record<string, unknown>) => Promise<AIResponse>): Promise<SaidaPlanejador | null>;
+  /** O pedido compõe recursos (e o modelo pode planejar)? Sem rede, sem custo. */
+  pedeComposicao(texto: string): boolean;
+  /** Plano pelo modelo (workload PLANEJAR); `exigirAcaoFinal` quando o julgamento pede CONFIRM. null ⇒ sem plano válido. */
+  planejarComModelo(entrada: EntradaPlanejador, ler: (capacidade: string, parametros: Record<string, unknown>) => Promise<AIResponse>, exigirAcaoFinal: boolean): Promise<SaidaPlanejador | null>;
+  /** Resultado do despacho do passo final, para o trace do plano. */
+  concluir(resposta: AIResponse): void;
 };
 
 export type PassoOrquestracao = { tipo: string; resultado: string; duracaoMs: number };

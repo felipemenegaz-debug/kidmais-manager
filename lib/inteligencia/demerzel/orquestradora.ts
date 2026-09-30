@@ -16,6 +16,9 @@ import {
  *     ação registrada ⇒ proposta sob Human Gate (nunca executa) · DENY/TELA ⇒ recusa honesta
  *     JEV FORBIDDEN ⇒ recusa explicada · instrução embutida ⇒ recusa · leitura ⇒ gateway (Policy + tenant)
  *     leitura misturada com alteração ⇒ pedir uma coisa de cada vez · sem rota ⇒ auxiliar → modelo → "ainda não"
+ *   PR 6: depois das recusas, o Planner (regras) monta um plano curto; cada leitura do plano é um passo contado
+ *     (Policy por passo no gateway) e o passo final segue o despacho atual. Sem rota e com composição, o plano pelo
+ *     modelo substitui a interpretação por modelo (continua no máximo 2 passos com modelo).
  *
  * O JEV é consultivo: pode tornar o caminho mais restritivo, nunca menos. A Policy continua sendo a autoridade
  * (dentro das portas `ler`/`propor`), e o Human Gate a única forma de executar mutação.
@@ -239,7 +242,23 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
           return terminar("RECUSA_JULGAMENTO", recusa(mensagem));
         }
 
-        // 4. Agente: plano fechado sobre as MESMAS portas; cada leitura/proposta/skill/marcador é um passo contado
+        // 4. Planner por regras: plano curto sobre as mesmas portas; cada leitura é um passo contado e a Policy vale em
+        //    cada uma. O passo final (leitura, navegação ou proposta) segue o despacho atual, com o mesmo Human Gate.
+        const planejador = portas.planejador ?? null;
+        const lerPlano = (capacidade: string, parametros: Record<string, unknown>) =>
+          exec.passo("LEITURA", `${capacidade}:${JSON.stringify(parametros)}`, () => portas.ler(capacidade, parametros, "INTENCAO_DETERMINISTICA"), (v) => v.tipo);
+        if (planejador) {
+          const planejado = await planejador.planejar({ texto, contexto, regras }, lerPlano);
+          await exec.passo("PLANO", "", () => planejado, (p) => (p ? ("intencao" in p ? "INTENCAO" : "PARADA") : "NENHUM"));
+          if (planejado && "resposta" in planejado) return terminar("PLANO", planejado.resposta);
+          if (planejado) {
+            const r = await despachar(planejado.intencao, j);
+            planejador.concluir(r);
+            return r;
+          }
+        }
+
+        // 5. Agente: plano fechado sobre as MESMAS portas; cada leitura/proposta/skill/marcador é um passo contado
         //    (limites, duplicidade, prazo e trace valem igual). O agente nunca recebe as portas cruas.
         const agentes = portas.agentes;
         if (agentes) {
@@ -261,12 +280,25 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
           }
         }
 
-        // 5. Caminho das regras: leitura (Policy + tenant no gateway) ou proposta sob Human Gate.
+        // 6. Caminho das regras: leitura (Policy + tenant no gateway) ou proposta sob Human Gate.
         if (regras.tipo !== "nenhuma") return await despachar(regras, j);
 
         // Sem rota pelas regras: auxiliar legado → modelo (enum fechado do catálogo) → resposta honesta.
         const auxiliar = await exec.passo("SUGESTAO_AUXILIAR", "", () => portas.sugerirRota(texto, contexto), (i) => i?.tipo ?? "NENHUMA");
         if (auxiliar) return await despachar(auxiliar, j);
+        // Composição sem plano por regra: o modelo só MONTA o plano (enum fechado, revalidado); nada de id do modelo.
+        if (planejador && planejador.pedeComposicao(texto)) {
+          const planejado = await exec.passo("PLANO_MODELO", "", () => planejador.planejarComModelo({ texto, contexto, regras }, lerPlano, j.actionSensitivity.classification === "CONFIRM"),
+            (p) => (p ? ("intencao" in p ? "INTENCAO" : "PARADA") : "SEM_PLANO"));
+          if (planejado && "resposta" in planejado) return terminar("PLANO", planejado.resposta);
+          if (planejado) {
+            const r = await despachar(planejado.intencao, j);
+            planejador.concluir(r);
+            return r;
+          }
+          await exec.passo("SEM_ROTA", "", () => null, () => j.actionSensitivity.classification);
+          return terminar("NAO_SUPORTADO", recusa("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:"));
+        }
         const porModelo = await exec.passo("INTENCAO_MODELO", "", () => portas.interpretarComModelo(texto, contexto), (i) => i?.tipo ?? "INDISPONIVEL");
         if (porModelo && porModelo.tipo !== "nenhuma") return await despachar(porModelo, j);
 

@@ -17,7 +17,8 @@ export type TipoReferencia = "TEMPORAL" | "DEITICO" | "PRONOME" | "NOME" | "IMPL
 export type OrigemResolucao = "TELA" | "FOCO" | "TEMPORAL" | "RELACAO_CORE" | "BUSCA";
 export type ResultadoResolucao = "RESOLVIDA" | "AMBIGUA" | "NAO_ENCONTRADA" | "NEGADA";
 
-type Temporal = { seletor: "PROXIMA" | "ULTIMA" | "DIA"; dia?: string; rotulo: string };
+/** `ULTIMO_CONTRATO` (PR 6): o contrato mais recente, pelo critério do painel de Contratos (`ultimo_contrato`). */
+type Temporal = { seletor: "PROXIMA" | "ULTIMA" | "DIA" | "ULTIMO_CONTRATO"; dia?: string; rotulo: string };
 export type Referencia = {
   tipo: TipoReferencia;
   /** Entidade pedida no texto ("o cliente dela" ⇒ CLIENTE); null quando o alvo é a própria âncora ("quem é ele?"). */
@@ -121,8 +122,20 @@ export function detectarReferencia(texto: string, hoje: string): Referencia | nu
   return ref ? { ...ref, alvo: "CONTRATO", financeiro } : { tipo: "IMPLICITA", alvo: "CONTRATO", financeiro };
 }
 
+/** Tipos de entidade citados no texto, na ordem (sem repetição). Não lê dado nenhum. */
+export function entidadesCitadas(texto: string): TipoEntidade[] {
+  return [...new Set(substantivos(normalizar(texto), null))];
+}
+
+const ULTIMO_CONTRATO = /\b(ultimo|mais recente) contrato\b/;
+
 function detectarAncora(texto: string, hoje: string): Referencia | null {
   const n = normalizar(texto);
+  const ultimo = ULTIMO_CONTRATO.exec(n);
+  if (ultimo) {
+    const alvo = substantivos(n, [ultimo.index, ultimo.index + ultimo[0].length])[0] ?? "CONTRATO";
+    return { tipo: "TEMPORAL", alvo, temporal: { seletor: "ULTIMO_CONTRATO", rotulo: "o último contrato" } };
+  }
   const temporal = temporalDe(n, hoje);
   if (temporal) {
     const festa = /\bfestas?\b/.exec(n)!;
@@ -148,14 +161,14 @@ function detectarAncora(texto: string, hoje: string): Referencia | null {
 // ---------------------------------------------------------------- resolução
 
 /** Relações que o Core fornece (nunca inferidas por texto). */
-const RELACOES: Readonly<Record<TipoEntidade, readonly TipoEntidade[]>> = {
+export const RELACOES: Readonly<Record<TipoEntidade, readonly TipoEntidade[]>> = {
   FESTA: ["CLIENTE", "CONTRATO"],
   CONTRATO: ["CLIENTE", "FESTA"],
   CLIENTE: [],
   ITEM: ["CATEGORIA"],
   CATEGORIA: [],
 };
-const LEITURA_DE_RELACAO: Partial<Record<TipoEntidade, string>> = { FESTA: "relacoes_festa", CONTRATO: "relacoes_contrato" };
+export const LEITURA_DE_RELACAO: Partial<Record<TipoEntidade, string>> = { FESTA: "relacoes_festa", CONTRATO: "relacoes_contrato" };
 const TELA_DE: Partial<Record<TipoEntidade, ContextoTela["tela"]>> = { FESTA: "festa", CLIENTE: "cliente", CONTRATO: "contrato" };
 
 function compativel(tipo: TipoEntidade, ref: Referencia): boolean {
@@ -183,6 +196,35 @@ async function revalidar(ler: Leitor, e: { tipo: TipoEntidade; id: string }): Pr
 
 export type DependenciasResolucao = { contexto: ContextoTela | null; foco: FocoEntrada | null; hoje: string; ler: Leitor };
 
+/**
+ * Âncora de TELA/FOCO (dêitico, pronome, implícita): (1) tela aberta compatível; (2) principal do foco; (4) única
+ * compatível no foco. Cada uma revalidada no Core; nunca palpite. RESOLVIDA traz `ancora` (com relações do Core).
+ */
+export async function resolverAncoraContexto(ref: Referencia, deps: DependenciasResolucao): Promise<Resolucao> {
+  const base = { referencia: ref, entidade: null, ancora: null, candidatos: [] as EntidadeRef[], descartados: [] as string[] };
+  const fim = (resultado: ResultadoResolucao, origem: OrigemResolucao | null, extra: Partial<Resolucao> = {}): Resolucao => ({ ...base, resultado, origem, ...extra });
+  const tela = deps.contexto?.entidadeId ? (Object.entries(TELA_DE).find(([, v]) => v === deps.contexto!.tela)?.[0] as TipoEntidade | undefined) : undefined;
+  if (tela && compativel(tela, ref)) {
+    const ancora = await revalidar(deps.ler, { tipo: tela, id: deps.contexto!.entidadeId! });
+    return ancora ? fim("RESOLVIDA", "TELA", { ancora, entidade: ancora }) : fim("NEGADA", "TELA");
+  }
+  const foco = deps.foco?.entidades ?? [];
+  // Principal só se a UI o reenviou (resposta com UMA entidade principal; lista não tem principal).
+  const principal = deps.foco?.principal != null ? foco[deps.foco.principal] : undefined;
+  const compativeis = foco.filter((e) => compativel(e.tipo, ref));
+  const ordem = principal && compativel(principal.tipo, ref) ? [principal] : compativeis;
+  if (!ordem.length) return fim("NAO_ENCONTRADA", "FOCO");
+  const validas: EntidadeRef[] = [];
+  const descartados: string[] = [];
+  for (const e of ordem.slice(0, 5)) {
+    const v = await revalidar(deps.ler, e);
+    if (v) validas.push(v); else descartados.push(e.id);
+  }
+  if (!validas.length) return fim("NEGADA", "FOCO", { descartados });
+  if (validas.length > 1) return fim("AMBIGUA", "FOCO", { candidatos: validas, descartados });
+  return fim("RESOLVIDA", "FOCO", { ancora: validas[0], entidade: validas[0], descartados });
+}
+
 export async function resolverReferencia(ref: Referencia, deps: DependenciasResolucao): Promise<Resolucao> {
   const base = { referencia: ref, entidade: null, ancora: null, candidatos: [] as EntidadeRef[], descartados: [] as string[] };
   const fim = (resultado: ResultadoResolucao, origem: OrigemResolucao | null, extra: Partial<Resolucao> = {}): Resolucao => ({ ...base, resultado, origem, ...extra });
@@ -190,7 +232,14 @@ export async function resolverReferencia(ref: Referencia, deps: DependenciasReso
   // 1. Âncora.
   let ancora: EntidadeRef | null = null;
   let origem: OrigemResolucao | null = null;
-  if (ref.tipo === "TEMPORAL" && ref.temporal) {
+  if (ref.tipo === "TEMPORAL" && ref.temporal?.seletor === "ULTIMO_CONTRATO") {
+    const contratos = (await deps.ler("ultimo_contrato", {})).entidades ?? [];
+    if (!contratos.length) return fim("NAO_ENCONTRADA", "TEMPORAL");
+    // Empate no instante de criação: o Core devolve os dois ⇒ ambíguo, nunca escolhe.
+    if (contratos.length > 1) return fim("AMBIGUA", "TEMPORAL", { candidatos: contratos });
+    ancora = contratos[0];
+    origem = "TEMPORAL";
+  } else if (ref.tipo === "TEMPORAL" && ref.temporal) {
     const t = ref.temporal;
     const parametros = t.seletor === "DIA" ? { ordem: "ASC", inicio: t.dia, fim: t.dia, limite: 5 } : { ordem: t.seletor === "PROXIMA" ? "ASC" : "DESC", limite: 2 };
     const festas = (await deps.ler("proximas_festas", parametros)).entidades ?? [];
@@ -207,32 +256,11 @@ export async function resolverReferencia(ref: Referencia, deps: DependenciasReso
     ancora = clientes[0];
     origem = "BUSCA";
   } else {
-    // (1) tela aberta compatível.
-    const tela = deps.contexto?.entidadeId ? (Object.entries(TELA_DE).find(([, v]) => v === deps.contexto!.tela)?.[0] as TipoEntidade | undefined) : undefined;
-    const descartados: string[] = [];
-    if (tela && compativel(tela, ref)) {
-      ancora = await revalidar(deps.ler, { tipo: tela, id: deps.contexto!.entidadeId! });
-      if (!ancora) return fim("NEGADA", "TELA");
-      origem = "TELA";
-    } else {
-      // (2) principal do foco; (4) única compatível no foco. Cada uma é revalidada no Core.
-      const foco = deps.foco?.entidades ?? [];
-      // Principal só se a UI o reenviou (resposta com UMA entidade principal; lista não tem principal).
-      const principal = deps.foco?.principal != null ? foco[deps.foco.principal] : undefined;
-      const compativeis = foco.filter((e) => compativel(e.tipo, ref));
-      const ordem = principal && compativel(principal.tipo, ref) ? [principal] : compativeis;
-      if (!ordem.length) return fim("NAO_ENCONTRADA", "FOCO");
-      const validas: EntidadeRef[] = [];
-      for (const e of ordem.slice(0, 5)) {
-        const v = await revalidar(deps.ler, e);
-        if (v) validas.push(v); else descartados.push(e.id);
-      }
-      if (!validas.length) return fim("NEGADA", "FOCO", { descartados });
-      if (validas.length > 1) return fim("AMBIGUA", "FOCO", { candidatos: validas, descartados });
-      ancora = validas[0];
-      origem = "FOCO";
-      base.descartados = descartados;
-    }
+    const r = await resolverAncoraContexto(ref, deps);
+    if (r.resultado !== "RESOLVIDA" || !r.ancora) return r;
+    ancora = r.ancora;
+    origem = r.origem;
+    base.descartados = r.descartados;
   }
 
   // 2. Alvo: a própria âncora ou uma relação do Core a partir dela.

@@ -139,8 +139,10 @@ function interpretarLeituraAncora(texto: string, n: string, contexto: ContextoTe
 
   // PR 5.5: "qual é o último contrato?" (critério do painel de Contratos) e "próxima parcela a vencer" (empresa;
   // com festa/contrato na tela ou no foco, o resolver estreita para o contrato dele).
-  if (/\b(ultimo|mais recente) contrato\b/.test(n) && pergunta.test(n)) return leitura("ultimo_contrato");
+  // PR 6: parcela primeiro ("a próxima parcela do último contrato" é composição que o Planner estreita), e o último
+  // contrato com outro recurso ("o cliente do último contrato") também fica para o Planner.
   if (/\bproxima parcela\b/.test(n) && pergunta.test(n)) return leitura("proxima_parcela");
+  if (/\b(ultimo|mais recente) contrato\b/.test(n) && pergunta.test(n) && !/\b(cliente|pagamento|parcela|saldo|valor|festa|convidad\w*)\b/.test(n)) return leitura("ultimo_contrato");
 
   // "qual é a próxima festa?", "quais as próximas festas?", "liste as próximas festas" (sem outro recurso no pedido).
   if (/\bproximas? festas?\b/.test(n) && /^(qual|quais|quando|liste|mostre|me mostre|me diga|veja)\b/.test(n) && !outroRecurso.test(n)) {

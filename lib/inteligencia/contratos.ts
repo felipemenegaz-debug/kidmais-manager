@@ -29,7 +29,9 @@ export type Workload =
   | "ANALISE_ADMINISTRATIVA"
   | "SUMARIZACAO"
   | "EXTRACAO_CONTRATO"
-  | "REVISAO_COMPLEXA";
+  | "REVISAO_COMPLEXA"
+  /** AI V1.1 (PR 6): plano estruturado curto (Planner por modelo), saída fechada e revalidada. */
+  | "PLANEJAR";
 
 /** Capacidade exposta ao operador. Uma capacidade aponta para exatamente uma ferramenta registrada. */
 export type Capability = {
@@ -137,6 +139,25 @@ export type ReferenciaRastreio = {
   resultado: "RESOLVIDA" | "AMBIGUA" | "NAO_ENCONTRADA" | "NEGADA";
   tipos: TipoEntidade[];
   candidatos: number;
+};
+
+/** Plano (PR 6) no trace: só códigos, contagens e durações — nunca id, nome, valor, parâmetro ou texto. */
+export type OrigemPlano = "REGRAS" | "MODELO";
+export type OrigemEntrada = "PARAMETROS" | "PASSO" | "CONTEXTO";
+export type ResultadoPasso = "SUCESSO" | "SEM_DADOS" | "AMBIGUO" | "NEGADO" | "ERRO" | "PRECISA_CONFIRMACAO" | "NAO_EXECUTADO";
+export type PlanoRastreio = {
+  versao: string;
+  origem: OrigemPlano;
+  /** Por que o Planner foi chamado (código fechado). */
+  motivo: "REFERENCIA" | "ULTIMO_CONTRATO" | "COMPOSICAO";
+  objetivo: string | null;
+  quantidadePassos: number;
+  passos: Array<{ capacidade: string; origemEntrada: OrigemEntrada; resultado: ResultadoPasso; duracaoMs: number }>;
+  resultadoFinal: ResultadoPasso;
+  /** Onde parou: id do passo (p1..p5), FIM ou REJEITADO:<motivo>. */
+  parada: string | null;
+  duracaoMs: number;
+  usoModelo: boolean;
 };
 
 export type LeituraRastreio = {
@@ -360,6 +381,8 @@ export type AuditTrace = {
   leituras: LeituraRastreio[];
   /** AI V1.1 (PR 5): referências resolvidas neste pedido (tipo, alvo, origem, resultado, tipos e nº de candidatos). */
   referencias: ReferenciaRastreio[];
+  /** AI V1.1 (PR 6): plano executado neste pedido (origem, objetivo, passos com resultado e duração); null sem plano. */
+  plano: PlanoRastreio | null;
   itens: number | null;
   causa: string | null;
   /** Resposta degradada (erro tratado com mensagem segura; o Core segue funcionando). */

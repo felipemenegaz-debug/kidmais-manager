@@ -106,7 +106,7 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | cat-01 ★ | PR9 | Crie uma categoria chamada Bebidas Especiais | PRECISA_CONFIRMACAO · CRIAR:CATEGORIA | CAPACIDADE_INDISPONIVEL · CRIAR:CATEGORIA · criar_categoria_buffet · RECUSA_ACAO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_CONFIRMACAO} |
 | cat-02 | PR9 | Renomeie a categoria Doces para Doces Finos | PRECISA_CONFIRMACAO · EDITAR:CATEGORIA | CAPACIDADE_INDISPONIVEL · EDITAR:CATEGORIA · editar_categoria_buffet · RECUSA_ACAO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_CONFIRMACAO} |
 | cat-03 | PR4 | Quais categorias do buffet existem? | EXECUTADO · CONSULTAR:CATEGORIA | EXECUTADO · CONSULTAR:CATEGORIA · buscar_catalogo · LEITURA · resposta | ok |
-| cat-04 | PR5 | Quais categorias do buffet existem? → Desative essa categoria | AMBIGUO · EDITAR:CATEGORIA | AMBIGUO · EDITAR:CATEGORIA · buscar_catalogo · nao_suportado | ok |
+| cat-04 | PR5 | Quais categorias do buffet existem? → Desative essa categoria | AMBIGUO · EDITAR:CATEGORIA | AMBIGUO · EDITAR:CATEGORIA · buscar_catalogo · PLANO · nao_suportado | ok |
 | itm-01 ★ | PR9 | crie o item mini-pizza de chocolate | PRECISA_DADO · CRIAR:ITEM | CAPACIDADE_INDISPONIVEL · CRIAR:ITEM · criar_item_buffet · RECUSA_ACAO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_DADO} |
 | itm-02 | PR9 | crie o item mini-pizza de chocolate → Salgados | PRECISA_CONFIRMACAO · CRIAR:ITEM | NAO_ENTENDIDO · NAO_SUPORTADO · nao_suportado | entendimento NAO_ENTENDIDO ∉ {PRECISA_CONFIRMACAO}; objetivo — ≠ CRIAR:ITEM; capacidade — ∉ {criar_item_buffet} |
 | itm-03 | PR4 | Quais itens tem na categoria Salgados? | EXECUTADO · CONSULTAR:ITEM | EXECUTADO · CONSULTAR:ITEM · buscar_catalogo · LEITURA · resposta | ok |
@@ -122,7 +122,7 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | amb-01 | PR2 | Abra o contrato | AMBIGUO/PRECISA_DADO · ABRIR:CONTRATO | AMBIGUO · ABRIR:CONTRATO · NAO_SUPORTADO · nao_suportado | ok |
 | amb-02 | PR2 | Resuma a festa | AMBIGUO/PRECISA_DADO · CONSULTAR:FESTA | PRECISA_DADO · CONSULTAR:FESTA · PRECISA_CONTEXTO · precisa_contexto | ok |
 | amb-03 | PR2 | Mude isso | AMBIGUO/NAO_ENTENDIDO | AMBIGUO · AGENTE · nao_suportado | ok |
-| amb-04 | PR5 | Quem é ele? | AMBIGUO/PRECISA_DADO | PRECISA_DADO · nao_suportado | ok |
+| amb-04 | PR5 | Quem é ele? | AMBIGUO/PRECISA_DADO | PRECISA_DADO · PLANO · nao_suportado | ok |
 | imp-01 | PR2 | Envie um WhatsApp para a Ana confirmando a festa | CAPACIDADE_INDISPONIVEL · ENVIAR:MENSAGEM | CAPACIDADE_INDISPONIVEL · ENVIAR:MENSAGEM · mutacao_nao_suportada · RECUSA_ACAO · nao_suportado | ok |
 | imp-02 | PR2 | Cancele a festa de sábado | CAPACIDADE_INDISPONIVEL/NEGADO_POLITICA · CANCELAR:FESTA | CAPACIDADE_INDISPONIVEL · CANCELAR:FESTA · mutacao_nao_suportada · RECUSA_ACAO · nao_suportado | ok |
 | imp-03 | V1 | Qual vai ser a previsão do tempo no sábado? | NAO_ENTENDIDO | NAO_ENTENDIDO · NAO_SUPORTADO · nao_suportado | ok |

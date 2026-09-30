@@ -2,10 +2,14 @@ import { z } from "zod";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
-import type { AcaoObjetivo, AIResponse, ContextoTela, EntidadeRef, ModelUsage, OrigemChamada, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
+import type { AcaoObjetivo, AIResponse, ContextoTela, EntidadeRef, ModelUsage, OrigemChamada, OrigemPlano, PlanoRastreio, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
 import { atualizarFoco, focoEntradaSchema, type EntidadeFoco, type FocoConversa, type FocoEntrada, type OrigemFoco } from "./foco.ts";
-import { detectarReferencia, resolverReferencia, type Leitor, type Resolucao } from "./referencias.ts";
-import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, NivelSkill, Orquestrador, PortaModeloClassificacao, PortasOrquestracao, RegistroAgentes } from "./extensoes.ts";
+import { detectarReferencia, entidadesCitadas, resolverAncoraContexto, resolverReferencia, type Leitor, type Referencia, type Resolucao } from "./referencias.ts";
+import { executarPlano, resultadoFinal, type LerPlano } from "./planejador/executor.ts";
+import { planejarComModelo } from "./planejador/modelo.ts";
+import { VERSAO_PLANEJADOR, validarPlano, type Plano } from "./planejador/plano.ts";
+import { planejarPorRegras } from "./planejador/regras.ts";
+import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, NivelSkill, Orquestrador, PortaModeloClassificacao, PortaPlanejador, PortasOrquestracao, RegistroAgentes, SaidaPlanejador } from "./extensoes.ts";
 import { construirContextoAutorizado, construirContextoModelo } from "./contexto/construtor.ts";
 import { ContextoRecusado } from "./contexto/contrato.ts";
 import { ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
@@ -192,9 +196,8 @@ type Execucao = {
   navegacaoPendente?: Extract<Intencao, { tipo: "navegacao_sem_destino" }>;
   /** Foco reenviado pela UI (dica). */
   foco: FocoEntrada | null;
-  /** Referência resolvida antes da orquestração (PR 5) e a intenção que ela produziu. */
+  /** Referência resolvida pelo Planner/Resolver (PR 5/6), para o foco e o trace. */
   resolucao?: Resolucao;
-  intencaoResolvida?: Intencao;
 };
 
 /** Leitura pelo caminho único do gateway: registro fechado → flag → Policy → Tenant Context → serviço de domínio. */
@@ -343,37 +346,215 @@ function respostaDaResolucao(r: Resolucao): AIResponse | null {
 }
 
 /**
- * Antes da orquestração: se as regras não resolvem o pedido e há uma referência ("dela", "essa festa", "sábado"),
- * resolve pelo Core (leituras do gateway) e devolve a intenção ou a resposta honesta (ambígua/não encontrada/negada).
+ * Leituras de ESTA conversa como o Planner/Resolver as veem: só `RespostaLeitura` (com entidades do Core), e a mesma
+ * leitura (capacidade + parâmetros) nunca é feita duas vezes no pedido — revalidar a âncora e ler as relações dela
+ * é uma leitura só.
  */
-async function preResolver(e: Execucao): Promise<{ intencao?: Intencao; resposta?: AIResponse } | null> {
-  const regras = interpretarDeterministico(e.texto, e.contexto);
+function leitorMemoizado(ler: LerPlano): { leitor: Leitor; ler: LerPlano } {
+  const feitas = new Map<string, Promise<AIResponse>>();
+  const lerUmaVez: LerPlano = (capacidade, parametros) => {
+    const chave = `${capacidade}:${JSON.stringify(parametros)}`;
+    let r = feitas.get(chave);
+    if (!r) {
+      r = ler(capacidade, parametros);
+      feitas.set(chave, r);
+    }
+    return r;
+  };
+  const leitor: Leitor = async (capacidade, parametros) => {
+    const r = await lerUmaVez(capacidade, parametros);
+    if (r.tipo !== "resposta" || !("entidades" in r.dados)) throw new InteligenciaError("LEITURA_SEM_ENTIDADES", "Leitura indisponível.", 422);
+    return r.dados as RespostaLeitura;
+  };
+  return { leitor, ler: lerUmaVez };
+}
+
+/** Capacidades que EXISTEM no Tool Registry (planos por regra): a Policy de cada passo decide, no gateway. */
+function catalogoRegistro(acoes: ModuloAcoes | null): CapacidadeCatalogo[] {
+  const leituras = Object.values(ferramentas).filter((f) => manifestoLeitura(f) !== null)
+    .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura", ...(f.entidade ? { entidade: f.entidade } : {}) }));
+  const doModulo = (acoes?.todas() ?? []).filter((a) => a.origem !== "TELA" && manifestoAcao(a) !== null)
+    .map((a): CapacidadeCatalogo => ({ id: a.capacidade, descricao: a.descricao, tipo: "acao" }));
+  return [...leituras, ...doModulo];
+}
+
+/**
+ * Catálogo do Planner por MODELO: o mesmo do operador (registro + flags + papel + Policy), com as leituras de
+ * navegação como passo final. Buscas por termo continuam só por regra (o modelo não preenche nome de cliente).
+ */
+function catalogoPlanejamento(env: DependenciasGateway["env"], papel: string, acoes: ModuloAcoes | null): CapacidadeCatalogo[] {
+  const navegacao = Object.values(ferramentas)
+    .filter((f) => CAPACIDADES_NAVEGACAO.has(f.capacidade) && manifestoLeitura(f) !== null && grupoAtivo(env, f.grupo) && avaliarPolitica({ papel }, f, "LEITURA") === "PERMITIDO")
+    .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura" }));
+  return [...catalogoDisponivel(env, papel, acoes), ...navegacao];
+}
+
+/** Resultado da resolução de referência (PR 5) ⇒ intenção ou resposta honesta, como antes do Planner. */
+function concluirResolucao(e: Execucao, regras: Intencao, r: Resolucao): SaidaPlanejador | null {
+  e.resolucao = r;
+  anotarReferencia(e.rastreio, r);
+  // Nada na tela nem no foco e as regras já pedem a tela ("resuma esta festa"): mantém a resposta de contexto atual.
+  if (r.resultado === "NAO_ENCONTRADA" && r.origem === "FOCO" && regras.tipo === "precisa_contexto") return null;
+  // Financeiro sem âncora na tela/foco: segue a leitura da empresa (regras) — nunca pergunta o que o sistema responde.
+  if (r.referencia.tipo === "IMPLICITA" && r.resultado === "NAO_ENCONTRADA") {
+    return r.referencia.financeiro === "PARCELA" ? { intencao: { tipo: "leitura", capacidade: "proxima_parcela", parametros: {}, origem: "INTENCAO_DETERMINISTICA" } } : null;
+  }
+  if (r.resultado === "RESOLVIDA" && r.entidade) {
+    const intencao = intencaoPara(r.entidade, e.texto, r.referencia.financeiro);
+    return intencao ? { intencao } : null;
+  }
+  const resposta = respostaDaResolucao(r);
+  return resposta ? { resposta } : null;
+}
+
+type AncoraPlano = { entidade: EntidadeRef; origem: Resolucao["origem"]; descartados: string[] } | null;
+
+/**
+ * Executa um plano validado e o traduz de volta para a conversa: trace do plano, referência/foco (a mesma
+ * `Resolucao` do PR 5) e a intenção final ou a resposta de parada (ambíguo, sem dados, negado).
+ */
+async function executarPlanoDaConversa(
+  e: Execucao, plano: Plano, origem: OrigemPlano, motivo: PlanoRastreio["motivo"], referencia: Referencia, ancora: AncoraPlano,
+  ler: LerPlano, opcoes: { anotarReferencia: boolean; usoModelo: boolean },
+): Promise<SaidaPlanejador | null> {
+  const relogio = e.deps.relogio ?? (() => performance.now());
+  const inicio = relogio();
+  const r = await executarPlano(plano, {
+    ler, ancoraContexto: ancora?.entidade ?? null, catalogo: catalogoRegistro(e.deps.acoes),
+    entradaDe: (capacidade) => ferramentaRegistrada(capacidade)?.entrada ?? null,
+    origem: origem === "MODELO" ? "INTENCAO_MODELO" : "INTENCAO_DETERMINISTICA", relogio,
+  });
+  e.rastreio.plano = {
+    versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: plano.objetivo, quantidadePassos: plano.passos.length, passos: r.passos,
+    resultadoFinal: r.estado === "FINAL" ? "NAO_EXECUTADO" : r.estado, parada: r.estado === "FINAL" ? "FIM" : r.passoId,
+    duracaoMs: Math.max(0, Math.round(relogio() - inicio)), usoModelo: opcoes.usoModelo,
+  };
+  // Referência para o foco e o trace: âncora (tela/foco ou 1º passo), alvo (entrada do passo final) e origem.
+  const paradaEm = r.estado === "FINAL" ? plano.passos.at(-1)! : plano.passos.find((p) => p.id === r.passoId)!;
+  const fonte = paradaEm.entradaDe?.de === "PASSO" ? plano.passos.find((p) => p.id === (paradaEm.entradaDe as { passo: string }).passo) : undefined;
+  // Pela relação do Core: a entrada do passo veio de relacoes_*, ou a parada foi na própria leitura de relações.
+  const viaRelacao = Boolean(fonte?.capacidade.startsWith("relacoes_")) || (r.estado === "NEGADO" && paradaEm.capacidade.startsWith("relacoes_"));
+  const ancoraFinal = ancora?.entidade ?? r.entradas.get("p2") ?? null;
+  const origemAncora: Resolucao["origem"] = ancora ? ancora.origem : referencia.tipo === "NOME" ? "BUSCA" : "TEMPORAL";
+  const base = { referencia, ancora: ancoraFinal, descartados: ancora?.descartados ?? [], candidatos: [] as EntidadeRef[], entidade: null as EntidadeRef | null };
+  if (r.estado === "FINAL") {
+    e.resolucao = { ...base, resultado: "RESOLVIDA", origem: viaRelacao ? "RELACAO_CORE" : origemAncora, entidade: r.entradaFinal };
+    if (opcoes.anotarReferencia) anotarReferencia(e.rastreio, e.resolucao);
+    return { intencao: r.intencao };
+  }
+  if (r.estado === "ERRO") return { resposta: naoSuportado("Não consegui concluir este pedido com segurança agora. Tente de novo com um pedido mais simples.") };
+  const resultado = r.estado === "AMBIGUO" ? "AMBIGUA" : r.estado === "NEGADO" ? "NEGADA" : "NAO_ENCONTRADA";
+  // Parada na âncora (1º passo ou sua saída): ainda não há âncora; depois dela, a âncora explica o que faltou.
+  const naAncora = !ancora && (paradaEm.id === "p1" || fonte?.id === "p1");
+  e.resolucao = { ...base, ancora: naAncora ? null : ancoraFinal, resultado, origem: viaRelacao ? "RELACAO_CORE" : origemAncora, candidatos: r.candidatos };
+  if (opcoes.anotarReferencia) anotarReferencia(e.rastreio, e.resolucao);
+  return { resposta: respostaDaResolucao(e.resolucao) ?? naoSuportado("Não consegui concluir este pedido com segurança agora.") };
+}
+
+/**
+ * Planner por REGRAS (PR 6): se as regras não resolvem sozinhas (ou pediram uma leitura que a referência estreita) e
+ * há referência, monta o plano — âncora, relação do Core, capacidade final — e o executa passo a passo pela `ler`
+ * recebida (contada pela orquestradora; Policy + Tenant Context em cada leitura). Sem plano seguro, a resolução do
+ * PR 5 responde como antes. Nunca aceita id do texto, do foco sem revalidar ou do modelo.
+ */
+async function planejarPedido(e: Execucao, regras: Intencao, lerPorta: LerPlano): Promise<SaidaPlanejador | null> {
   // Leitura da empresa ou resumo padrão da tela pode ser estreitado ao saldo/parcela do contrato referido (só se a pergunta for financeira).
   const estreitavel = regras.tipo === "leitura" && LEITURAS_ESTREITAVEIS.has(regras.capacidade);
   if ((regras.tipo === "leitura" && !estreitavel) || regras.tipo === "acao" || regras.tipo === "revisao_humana") return null;
   const hoje = hojeBrasilia(e.deps.agora());
   const referencia = detectarReferencia(e.texto, hoje);
   if (!referencia || (estreitavel && !referencia.financeiro)) return null;
-  const ler: Leitor = async (capacidade, parametros) => {
-    const ferramenta = ferramentaRegistrada(capacidade);
-    if (!ferramenta) throw new InteligenciaError("CAPACIDADE_DESCONHECIDA", "Capacidade não disponível.", 400);
-    return (await executarLeitura(ferramenta, parametros, e.sessao, e.pedido.empresaSolicitada, e.deps, e.rastreio)) as unknown as RespostaLeitura;
+  const { leitor, ler } = leitorMemoizado(lerPorta);
+  const deps = { contexto: e.contexto, foco: e.foco, hoje, ler: leitor };
+
+  // Âncora de tela/foco: o Reference Resolver revalida no Core ANTES de planejar (o plano recebe só o tipo).
+  let ancora: AncoraPlano = null;
+  if (!referencia.temporal && referencia.tipo !== "NOME") {
+    const r = await resolverAncoraContexto(referencia, deps);
+    if (r.resultado !== "RESOLVIDA" || !r.ancora) return concluirResolucao(e, regras, r);
+    ancora = { entidade: r.ancora, origem: r.origem, descartados: r.descartados };
+  }
+  const porRegras = planejarPorRegras(referencia, e.texto, ancora?.entidade ?? null);
+  // Sem plano seguro (ex.: relação que o Core não fornece): resolução do PR 5, com as mesmas leituras memoizadas.
+  if (!porRegras) return concluirResolucao(e, regras, await resolverReferencia(referencia, deps));
+  const validacao = validarPlano(porRegras.plano, catalogoRegistro(e.deps.acoes));
+  if (!validacao.ok) {
+    e.rastreio.plano = planoRejeitado("REGRAS", porRegras.motivo, validacao.motivo);
+    return null;
+  }
+  return executarPlanoDaConversa(e, validacao.plano, "REGRAS", porRegras.motivo, referencia, ancora, ler, { anotarReferencia: true, usoModelo: false });
+}
+
+function planoRejeitado(origem: OrigemPlano, motivo: PlanoRastreio["motivo"], rejeicao: string): PlanoRastreio {
+  return { versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: null, quantidadePassos: 0, passos: [], resultadoFinal: "NAO_EXECUTADO", parada: `REJEITADO:${rejeicao}`, duracaoMs: 0, usoModelo: origem === "MODELO" };
+}
+
+/** Pedido que compõe recursos: 2+ entidades citadas, ou âncora temporal/nome com outro alvo. Sem rede, sem custo. */
+function pedeComposicao(texto: string, hoje: string): boolean {
+  if (entidadesCitadas(texto).length >= 2) return true;
+  const ref = detectarReferencia(texto, hoje);
+  return Boolean(ref && (ref.tipo === "TEMPORAL" || ref.tipo === "NOME") && ref.alvo);
+}
+
+/** Planner por MODELO (PR 6): só monta o plano (workload PLANEJAR); a execução é a mesma, com o catálogo do operador. */
+async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFinal: boolean, usos: ModelUsage[]): Promise<SaidaPlanejador | null> {
+  const { deps, sessao, pedido, rastreio } = e;
+  const roteador = deps.roteador;
+  if (!roteador?.disponivelPara("PLANEJAR")) return null;
+  const tenant = await tenantParaModelo(sessao, pedido, deps, rastreio);
+  const catalogo = catalogoPlanejamento(deps.env, papelParaPolitica(sessao, tenant), deps.acoes);
+  const doTexto = objetivoDoTexto(e.texto);
+  const saida = await planejarComModelo({
+    texto: e.texto, contexto: e.contexto, objetivo: doTexto.acao && doTexto.recurso ? `${doTexto.acao}:${doTexto.recurso}` : null,
+    focoTipos: [...new Set((e.foco?.entidades ?? []).map((x) => x.tipo))], catalogo,
+  }, roteador, { empresaId: tenant.empresaComprovada, estabelecimentoId: unidadeDe(tenant), capacidade: "planejar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
+  if (saida.roteado) {
+    anotarUsoModelo(rastreio, saida.roteado.usos);
+    usos.push(...saida.roteado.usos);
+  }
+  if (!saida.plano) {
+    rastreio.plano = planoRejeitado("MODELO", "COMPOSICAO", saida.rejeicao ?? "INDISPONIVEL");
+    return null;
+  }
+  const plano = saida.plano;
+  const final = catalogo.find((c) => c.id === plano.passos.at(-1)!.capacidade);
+  // Julgamento pede CONFIRM: só um plano que termina em proposta (Human Gate) é aceito; consulta pela metade, não.
+  if (exigirAcaoFinal && final?.tipo !== "acao") {
+    rastreio.plano = planoRejeitado("MODELO", "COMPOSICAO", "CONFIRM_SEM_ACAO");
+    return null;
+  }
+  const { leitor, ler } = leitorMemoizado(lerPorta);
+  const referencia: Referencia = { tipo: "IMPLICITA", alvo: plano.recursoFinal };
+  let ancora: AncoraPlano = null;
+  const primeira = plano.passos[0].entradaDe;
+  if (primeira?.de === "CONTEXTO") {
+    const tipo = primeira.entidade;
+    const r = await resolverAncoraContexto({ tipo: "DEITICO", alvo: tipo, deitico: tipo }, { contexto: e.contexto, foco: e.foco, hoje: hojeBrasilia(deps.agora()), ler: leitor });
+    if (r.resultado !== "RESOLVIDA" || !r.ancora) {
+      e.resolucao = r;
+      return { resposta: respostaDaResolucao(r) ?? naoSuportado("Não sei a qual registro você se refere. Abra o registro na tela e pergunte por ali.") };
+    }
+    ancora = { entidade: r.ancora, origem: r.origem, descartados: r.descartados };
+  }
+  return executarPlanoDaConversa(e, plano, "MODELO", "COMPOSICAO", referencia, ancora, ler, { anotarReferencia: false, usoModelo: true });
+}
+
+/** Porta do Planner para a orquestradora: planos por regra e por modelo sobre a `ler` contada que ela fornece. */
+function portaPlanejador(e: Execucao, usos: ModelUsage[]): PortaPlanejador {
+  return {
+    planejar: ({ regras }, ler) => planejarPedido(e, regras, ler),
+    pedeComposicao: (texto) => Boolean(e.deps.roteador?.disponivelPara("PLANEJAR")) && pedeComposicao(texto, hojeBrasilia(e.deps.agora())),
+    planejarComModelo: (_entrada, ler, exigirAcaoFinal) => planejarPorModelo(e, ler, exigirAcaoFinal, usos),
+    concluir: (resposta) => concluirPlano(e.rastreio, resposta),
   };
-  const r = await resolverReferencia(referencia, { contexto: e.contexto, foco: e.foco, hoje, ler });
-  e.resolucao = r;
-  anotarReferencia(e.rastreio, r);
-  // Nada na tela nem no foco e as regras já pedem a tela ("resuma esta festa"): mantém a resposta de contexto atual.
-  if (r.resultado === "NAO_ENCONTRADA" && r.origem === "FOCO" && regras.tipo === "precisa_contexto") return null;
-  // Financeiro sem âncora na tela/foco: segue a leitura da empresa (regras) — nunca pergunta o que o sistema responde.
-  if (referencia.tipo === "IMPLICITA" && r.resultado === "NAO_ENCONTRADA") {
-    return referencia.financeiro === "PARCELA" ? { intencao: { tipo: "leitura", capacidade: "proxima_parcela", parametros: {}, origem: "INTENCAO_DETERMINISTICA" } } : null;
-  }
-  if (r.resultado === "RESOLVIDA" && r.entidade) {
-    const intencao = intencaoPara(r.entidade, e.texto, referencia.financeiro);
-    return intencao ? { intencao } : null;
-  }
-  const resposta = respostaDaResolucao(r);
-  return resposta ? { resposta } : null;
+}
+
+/** Resultado do passo final (despachado pelo caminho atual) no trace do plano. */
+function concluirPlano(rastreio: RastreioInteligencia, resposta: AIResponse) {
+  const ultimo = rastreio.plano?.passos.at(-1);
+  if (!rastreio.plano || !ultimo || ultimo.resultado !== "NAO_EXECUTADO") return;
+  ultimo.resultado = resultadoFinal(resposta);
+  rastreio.plano.resultadoFinal = ultimo.resultado;
 }
 
 function anotarReferencia(rastreio: RastreioInteligencia, r: Resolucao) {
@@ -454,8 +635,6 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
   return {
     catalogo: catalogoDisponivel(deps.env, sessao.papel, deps.acoes),
     interpretar: (texto, contexto) => {
-      // Referência já resolvida pelo Core antes da orquestração: segue pelo mesmo caminho guardado.
-      if (e.intencaoResolvida) return e.intencaoResolvida;
       const intencao = interpretarDeterministico(texto, contexto);
       if (intencao.tipo === "navegacao_sem_destino") e.navegacaoPendente = intencao;
       return intencao;
@@ -524,6 +703,7 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
       return complemento ? { ...resposta, complemento } : resposta;
     },
     agentes: deps.agentes ?? null,
+    planejador: portaPlanejador(e, usos),
     async marcadores() {
       // Só a entidade aberta na tela, lida pelo domínio no tenant comprovado (outra empresa ⇒ inexistente).
       const porta = deps.portas?.clientes ?? null;
@@ -615,13 +795,8 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     const contexto = entrada.contexto ?? null;
     const execucao: Execucao = { texto: entrada.texto, sessao, pedido, deps, rastreio, contextoExtensao, contexto, foco: entrada.foco ?? null };
 
-    // Reference Resolver (PR 5): só quando as regras não resolvem sozinhas; toda leitura passa pelo gateway.
-    const preResolvido = await preResolver(execucao);
-    if (preResolvido?.resposta) return { status: 200, corpo: { ok: true, data: finalizar(preResolvido.resposta, entrada.texto, rastreio, undefined, execucao) } };
-    if (preResolvido?.intencao) execucao.intencaoResolvida = preResolvido.intencao;
-
-    // Orquestradora (Demerzel): decide o caminho com as mesmas portas guardadas. Qualquer erro dela cai no
-    // fallback seguro abaixo — nunca no caminho sem guardas.
+    // Orquestradora (Demerzel): decide o caminho com as mesmas portas guardadas (inclusive o Planner, depois do JEV).
+    // Qualquer erro dela cai no fallback seguro abaixo — nunca no caminho sem guardas.
     const orquestrador = deps.orquestrador ?? null;
     if (orquestrador && demerzelAtivo(deps.env)) {
       const { resposta } = await orquestrador.atender({ texto: entrada.texto, contexto }, portasOrquestracao(execucao, []));
@@ -629,8 +804,12 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
       return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio, execucao.navegacaoPendente, execucao) } };
     }
 
-    const intencao = execucao.intencaoResolvida ?? await resolverIntencao(entrada.texto, contexto, sessao, pedido, deps, rastreio);
+    // Sem orquestradora: Planner por regras (sem modelo) e, sem plano, a intenção da Foundation.
+    const planejado = await planejarPedido(execucao, interpretarDeterministico(entrada.texto, contexto), (capacidade, parametros) => responderLeitura(capacidade, parametros, "INTENCAO_DETERMINISTICA", execucao));
+    if (planejado && "resposta" in planejado) return { status: 200, corpo: { ok: true, data: finalizar(planejado.resposta, entrada.texto, rastreio, undefined, execucao) } };
+    const intencao = planejado?.intencao ?? await resolverIntencao(entrada.texto, contexto, sessao, pedido, deps, rastreio);
     const resposta = await responderIntencao(intencao, contexto, execucao);
+    if (planejado) concluirPlano(rastreio, resposta);
     return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio, undefined, execucao) } };
   } catch (error) {
     const falha = classificar(error, MENSAGEM_FALLBACK);
