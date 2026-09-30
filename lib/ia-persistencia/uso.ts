@@ -130,7 +130,8 @@ export function criarRegistroUsoPostgres(banco: BancoUso, log: (linha: string) =
     async registrar(uso) {
       const tx = banco.executor();
       if (!await tabelasExistem(tx)) {
-        log(`[Kidmais IA uso] ${JSON.stringify(uso)}`);
+        // O detalhe do erro do provedor é só do trace (H3): fora deste log também.
+        log(`[Kidmais IA uso] ${JSON.stringify({ ...uso, detalheErro: undefined })}`);
         return;
       }
       await inserirUso(tx, uso, null, null);

@@ -54,11 +54,11 @@ export const PERFIL_DEEPSEEK: Perfil = {
 const MODELO_VALIDO = /^[A-Za-z0-9._:\-/]{1,120}$/;
 
 /**
- * Valores de `reasoning_effort` documentados pela OpenAI (Chat Completions). O suporte é por modelo (ex.: gpt-6-luna:
- * none, low, medium, high, xhigh, max); valor não suportado pelo modelo configurado ⇒ o provedor recusa (HTTP 400,
- * visível pelo detalhe saneado), nunca uma chamada silenciosamente diferente.
+ * Valores de `reasoning_effort` aceitos (lista fechada, os documentados para o gpt-6-luna: none, low, medium, high,
+ * xhigh, max). Fora da lista ⇒ o parâmetro não é enviado (padrão do modelo). Valor que outro modelo não suporte ⇒ o
+ * provedor recusa (HTTP 400, visível pelo detalhe saneado), nunca uma chamada silenciosamente diferente.
  */
-export const ESFORCOS_RACIOCINIO = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export const ESFORCOS_RACIOCINIO = ["none", "low", "medium", "high", "xhigh", "max"] as const;
 export type EsforcoRaciocinio = (typeof ESFORCOS_RACIOCINIO)[number];
 
 /** Alfabeto dos identificadores de erro aceitos no trace: curto, sem espaço (não cabe frase, e-mail, URL ou chave). */
@@ -97,13 +97,41 @@ function identificador(valor: unknown): string | null {
 }
 
 /**
+ * Lê no máximo `max` bytes do corpo e cancela o restante: um corpo maior nunca é carregado inteiro.
+ * Corpo acima do limite ⇒ null (não é interpretado).
+ */
+async function lerLimitado(resposta: Response, max: number): Promise<string | null> {
+  if (!resposta.body) return "";
+  const leitor = resposta.body.getReader();
+  const partes: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await leitor.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) return null;
+      partes.push(value);
+    }
+  } finally {
+    if (total > max) await leitor.cancel().catch(() => undefined);
+    else leitor.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let pos = 0;
+  for (const p of partes) { bytes.set(p, pos); pos += p.byteLength; }
+  return new TextDecoder().decode(bytes);
+}
+
+/**
  * Detalhe SANEADO de uma recusa HTTP: status + `error.type`/`code`/`param` que passem no alfabeto seguro.
  * A mensagem do provedor (que pode ecoar o pedido) e o restante do corpo nunca saem daqui.
  */
 export async function detalheDoErro(resposta: Response): Promise<DetalheErroProvedor> {
   const detalhe: DetalheErroProvedor = { status: resposta.status, tipo: null, codigo: null, parametro: null };
   try {
-    const bruto = (await resposta.text()).slice(0, MAX_CORPO_ERRO);
+    const bruto = await lerLimitado(resposta, MAX_CORPO_ERRO);
+    if (bruto === null) return detalhe;
     const erro = (JSON.parse(bruto) as { error?: unknown })?.error;
     if (erro && typeof erro === "object") {
       const e = erro as Record<string, unknown>;

@@ -104,7 +104,7 @@ test("H1: modelo lento (escala de 3–4 s × prazo de 2,5 s) ⇒ PRAZO; com o pr
   assert.equal(curto.causaModelo, "PRAZO");
   assert.equal(curto.julgamento.origem, "FALLBACK_REGRAS");
   // Correção: prazo acima da latência observada ⇒ o resultado do modelo entra (com teto de confiança e o mais restritivo vence).
-  const configurado = await criarJuizJev({ modelo: portaLenta(80).porta, prazoModeloMs: 400 }).julgar({ texto: "hmm aquilo lá", tela: "geral", temEntidade: false });
+  const configurado = await criarJuizJev({ modelo: portaLenta(80).porta, prazoModeloMs: 2_000 }).julgar({ texto: "hmm aquilo lá", tela: "geral", temEntidade: false });
   assert.equal(configurado.causaModelo, null);
   assert.equal(configurado.julgamento.origem, "COMBINADO");
   assert.ok(configurado.julgamento.intent.confidence <= TETO_CONFIANCA_MODELO, "teto de confiança do modelo");
@@ -130,7 +130,7 @@ test("reasoning_effort: configurado por tier (ECONOMY) e só nele; inválido ou 
   await r.executar(pedido("ANALISE_ADMINISTRATIVA"), { ...alvo, capacidade: "copiloto_explicar" });
   assert.equal("reasoning_effort" in capturados[1].corpo, false, "STANDARD sem configuração: padrão do modelo");
 
-  for (const invalido of ["minimo", "LOWW", "", "none; drop"]) {
+  for (const invalido of ["minimal", "minimo", "LOWW", "", "none; drop"]) {
     const x = openai([ok('{"ok":true}')], { AI_OPENAI_REASONING_EFFORT_ECONOMY: invalido });
     await roteador([x.adaptador]).r.executar(pedido(), alvo);
     assert.equal("reasoning_effort" in x.capturados[0].corpo, false, `inválido "${invalido}" não é enviado`);
@@ -217,6 +217,16 @@ test("H3: corpo inválido, gigante ou com identificadores maliciosos ⇒ só o s
   assert.deepEqual(malicioso, { status: 400, tipo: null, codigo: null, parametro: null });
   const grande = await detalheDoErro(new Response(`{"error":{"type":"x","pad":"${"a".repeat(20_000)}"}}`, { status: 400 }));
   assert.deepEqual(grande, { status: 400, tipo: null, codigo: null, parametro: null }, "acima do limite de leitura: não interpreta");
+  // Leitura realmente limitada: corpo infinito ⇒ lê pouco mais de 8 KiB, cancela o stream e responde só o status.
+  let lidos = 0;
+  let cancelado = false;
+  const infinito = new ReadableStream<Uint8Array>({
+    pull(c) { lidos += 1024; c.enqueue(new Uint8Array(1024).fill(0x61)); },
+    cancel() { cancelado = true; },
+  });
+  assert.deepEqual(await detalheDoErro(new Response(infinito, { status: 400 })), { status: 400, tipo: null, codigo: null, parametro: null });
+  assert.equal(cancelado, true);
+  assert.ok(lidos <= 16 * 1024, `leu ${lidos} bytes`);
 });
 
 test("H3: 429 de cota esgotada não é repetido; o detalhe chega ao uso e ao trace (fechado e saneado), nunca à 055a", async () => {
