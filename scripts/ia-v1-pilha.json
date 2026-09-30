@@ -11,6 +11,11 @@
       "pr": "JEV_V1",
       "branch": "ai-v1/01-jev",
       "descricao": "JEV V1: contrato de julgamento, cinco classificadores, Model Router opcional (economy, orçamento fail-closed), adversariais"
+    },
+    {
+      "pr": "DEMERZEL_V1",
+      "branch": "ai-v1/02-demerzel",
+      "descricao": "Demerzel V1: orquestradora determinística pelas portas guardadas da conversa; limites, anti-loop, trace por passo, fail-closed; flag AI_DEMERZEL_ENABLED"
     }
   ]
 }

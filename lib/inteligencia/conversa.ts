@@ -2,10 +2,10 @@ import { z } from "zod";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
-import type { AIResponse, ContextoTela, RespostaLeitura } from "./contratos.ts";
-import type { ClassificadorAuxiliar, ContextoExtensao, ModuloAcoes } from "./extensoes.ts";
+import type { AIResponse, ContextoTela, ModelUsage, OrigemChamada, RespostaLeitura } from "./contratos.ts";
+import type { ClassificadorAuxiliar, ContextoExtensao, ModuloAcoes, Orquestrador, PortaModeloClassificacao, PortasOrquestracao } from "./extensoes.ts";
 import { ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
-import { grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo } from "./flags.ts";
+import { demerzelAtivo, grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo, jevModeloAtivo } from "./flags.ts";
 import {
   classificar, executarLeitura, exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado,
   type DependenciasGateway, type PedidoGateway, type RespostaGateway,
@@ -22,6 +22,9 @@ import { anotarUsoModelo, novoRastreio, type RastreioInteligencia } from "./rast
  *   READ: mesma execução do gateway;
  *   CONFIRM: rascunho sob Human Gate, pelo módulo de ações (feature ACTIONS), que nunca executa aqui;
  *   DENY / sem capacidade / sem módulo de ações: resposta honesta, sem inventar ferramenta.
+ *
+ * Com uma orquestradora registrada (Demerzel) e AI_DEMERZEL_ENABLED=true, a decisão do caminho é dela, mas a
+ * execução continua AQUI, pelas mesmas funções (portas): ela não recebe banco, tenant nem sessão.
  *
  * O CORE não importa a feature de ações: recebe um `ModuloAcoes` opcional por dependência.
  * Estado da conversa: só o rascunho persistido (Kidmais controla); nenhuma memória do modelo.
@@ -46,6 +49,8 @@ export type DependenciasConversa = DependenciasGateway & {
   roteador: RoteadorModelos | null;
   /** Classificador auxiliar (JEV), opcional: só sugere rota; indisponível ⇒ roteamento normal. */
   classificador?: ClassificadorAuxiliar | null;
+  /** Orquestradora (Demerzel), opcional: decide o caminho com as mesmas portas; exige AI_DEMERZEL_ENABLED. */
+  orquestrador?: Orquestrador | null;
 };
 
 /** Teto de espera pelo classificador auxiliar: nunca atrasa a resposta além disso. */
@@ -117,6 +122,28 @@ async function consultarAuxiliar(texto: string, contexto: ContextoTela | null, s
   return { tipo: "leitura", capacidade: sugestao.capacidade, parametros: {}, origem };
 }
 
+/** Tenant comprovado numa transação curta, para chamadas de modelo (orçamento/uso por empresa), FORA de transação. */
+async function tenantParaModelo(sessao: SessaoParaTenant, pedido: PedidoGateway, deps: DependenciasConversa, rastreio: RastreioInteligencia) {
+  const tenant = await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (_tx, comprovado) => comprovado);
+  rastreio.empresaId = tenant.empresaComprovada;
+  if (!grupoAtivoParaEmpresa(deps.env, "READ", tenant.empresaComprovada)) recursoDesativado();
+  return tenant;
+}
+
+async function interpretarPorModelo(texto: string, contexto: ContextoTela | null, sessao: SessaoParaTenant, pedido: PedidoGateway, deps: DependenciasConversa, rastreio: RastreioInteligencia, usos: ModelUsage[]): Promise<Intencao | null> {
+  if (!deps.roteador?.disponivelPara("CLASSIFICAR_INTENCAO")) return null;
+  const tenant = await tenantParaModelo(sessao, pedido, deps, rastreio);
+  const { intencao, roteado } = await interpretarComModelo(texto, contexto, catalogoDisponivel(deps.env, papelParaPolitica(sessao, tenant), deps.acoes), deps.roteador, {
+    empresaId: tenant.empresaComprovada,
+    capacidade: "classificar_intencao",
+    correlationId: rastreio.correlationId ?? rastreio.requestId,
+    hoje: hojeBrasilia(deps.agora()),
+  });
+  anotarUsoModelo(rastreio, roteado.usos);
+  usos.push(...roteado.usos);
+  return intencao;
+}
+
 async function resolverIntencao(texto: string, contexto: ContextoTela | null, sessao: SessaoParaTenant, pedido: PedidoGateway, deps: DependenciasConversa, rastreio: RastreioInteligencia): Promise<Intencao> {
   const deterministica = interpretarDeterministico(texto, contexto);
   if (deterministica.tipo !== "nenhuma") return deterministica;
@@ -125,19 +152,122 @@ async function resolverIntencao(texto: string, contexto: ContextoTela | null, se
     rastreio.intencao = "INTENCAO_JEV";
     return auxiliar;
   }
-  if (!deps.roteador?.disponivelPara("CLASSIFICAR_INTENCAO")) return deterministica;
-  // O modelo só é chamado com o tenant comprovado (orçamento/uso por empresa) e FORA de transação.
-  const tenant = await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (_tx, comprovado) => comprovado);
-  rastreio.empresaId = tenant.empresaComprovada;
-  if (!grupoAtivoParaEmpresa(deps.env, "READ", tenant.empresaComprovada)) recursoDesativado();
-  const { intencao, roteado } = await interpretarComModelo(texto, contexto, catalogoDisponivel(deps.env, papelParaPolitica(sessao, tenant), deps.acoes), deps.roteador, {
-    empresaId: tenant.empresaComprovada,
-    capacidade: "classificar_intencao",
-    correlationId: rastreio.correlationId ?? rastreio.requestId,
-    hoje: hojeBrasilia(deps.agora()),
-  });
-  anotarUsoModelo(rastreio, roteado.usos);
-  return intencao;
+  return (await interpretarPorModelo(texto, contexto, sessao, pedido, deps, rastreio, [])) ?? deterministica;
+}
+
+type Execucao = {
+  texto: string;
+  sessao: SessaoParaTenant;
+  pedido: PedidoGateway;
+  deps: DependenciasConversa;
+  rastreio: RastreioInteligencia;
+  contextoExtensao: (tx: ContextoExtensao["tx"], tenant: ContextoExtensao["tenant"]) => ContextoExtensao;
+};
+
+/** Leitura pelo caminho único do gateway: registro fechado → flag → Policy → Tenant Context → serviço de domínio. */
+async function responderLeitura(capacidade: string, parametros: Record<string, unknown>, origem: OrigemChamada, e: Execucao): Promise<AIResponse> {
+  e.rastreio.intencao = origem;
+  const ferramenta = ferramentaRegistrada(capacidade);
+  if (!ferramenta) return naoSuportado("Essa análise ainda não está disponível no Kidmais.");
+  const dados = await executarLeitura(ferramenta, parametros, e.sessao, e.pedido.empresaSolicitada, e.deps, e.rastreio);
+  return { tipo: "resposta", dados: dados as unknown as RespostaLeitura | AtencaoHoje };
+}
+
+/** Ação: DENY/TELA/flag respondem honestamente; CONFIRM só abre rascunho sob Human Gate (nunca executa aqui). */
+async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execucao): Promise<AIResponse> {
+  const { deps, rastreio } = e;
+  rastreio.intencao = origem;
+  rastreio.capacidade = capacidade;
+  const acoes = deps.acoes;
+  const acao = acoes?.descrever(capacidade) ?? null;
+  let resposta: AIResponse;
+  if (!acoes || !acao) {
+    resposta = naoSuportado("Essa ação ainda não está disponível no Kidmais.");
+  } else if (acao.origem === "TELA") {
+    resposta = naoSuportado("Essa ação começa pela tela própria (por exemplo, Contratos › Importar contrato antigo).");
+  } else if (acao.classe === "DENY") {
+    rastreio.politica = "NEGADO_DENY";
+    rastreio.humanGate = "RECUSADO";
+    resposta = naoSuportado(acao.mensagemNegada ?? "Essa ação não é feita pelo Kidmais.");
+  } else if (!grupoAtivo(deps.env, acao.grupo)) {
+    rastreio.politica = "NEGADO_FLAG";
+    resposta = naoSuportado("Criar e alterar cadastros pelo Kidmais ainda não está liberado. Use a tela correspondente.");
+  } else {
+    rastreio.ferramenta = acao.ferramenta;
+    rastreio.ferramentasSolicitadas = [...rastreio.ferramentasSolicitadas, acao.ferramenta];
+    resposta = await deps.withTenantTransaction(e.sessao, e.pedido.empresaSolicitada, async (tx, tenant) => {
+      rastreio.empresaId = tenant.empresaComprovada;
+      rastreio.politica = avaliarPolitica({ papel: papelParaPolitica(e.sessao, tenant) }, acao, "HUMAN_GATE");
+      if (!grupoAtivoParaEmpresa(deps.env, acao.grupo, tenant.empresaComprovada)) {
+        return naoSuportado("Criar e alterar cadastros pelo Kidmais ainda não está liberado para esta empresa.");
+      }
+      return (await acoes.iniciar(acao.capacidade, e.texto, e.contextoExtensao(tx, tenant))).resposta;
+    });
+    rastreio.humanGate = resposta.tipo === "preview" ? "PREVIEW" : resposta.tipo === "rascunho" ? "RASCUNHO" : null;
+  }
+  rastreio.estado = resposta.tipo;
+  return resposta;
+}
+
+/** Caminho da Foundation: a intenção resolvida define a resposta, sempre pelas mesmas funções guardadas. */
+async function responderIntencao(intencao: Intencao, contexto: ContextoTela | null, e: Execucao): Promise<AIResponse> {
+  const { rastreio } = e;
+  if (intencao.tipo === "revisao_humana") {
+    rastreio.estado = "revisao_humana";
+    return naoSuportado("Esse pedido precisa de uma pessoa da equipe. Encaminhe pelo atendimento; o Kidmais não responde nem age sozinho neste caso.");
+  }
+  if (intencao.tipo === "nenhuma") {
+    rastreio.estado = "nao_suportado";
+    return naoSuportado("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:");
+  }
+  if (intencao.tipo === "precisa_contexto") {
+    rastreio.capacidade = intencao.capacidade;
+    rastreio.estado = "precisa_contexto";
+    return { tipo: "precisa_contexto", mensagem: `Abra a ${ENTIDADE_TEXTO[intencao.entidade]} e pergunte por ali: assim eu sei de qual ${ENTIDADE_TEXTO[intencao.entidade]} você está falando.` };
+  }
+  if (intencao.tipo === "leitura") return responderLeitura(intencao.capacidade, intencao.parametros, intencao.origem, e);
+  void contexto;
+  return responderAcao(intencao.capacidade, intencao.origem, e);
+}
+
+/**
+ * Portas da orquestradora: as mesmas funções guardadas da conversa. A orquestradora escolhe o caminho;
+ * Policy, Tenant Context, registro fechado e Human Gate continuam aqui.
+ */
+function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao {
+  const { deps, sessao, pedido, rastreio } = e;
+  let portaJev: Promise<PortaModeloClassificacao | null> | null = null;
+  return {
+    catalogo: catalogoDisponivel(deps.env, sessao.papel, deps.acoes),
+    interpretar: (texto, contexto) => interpretarDeterministico(texto, contexto),
+    sugerirRota: (texto, contexto) => consultarAuxiliar(texto, contexto, sessao, deps),
+    interpretarComModelo: (texto, contexto) => interpretarPorModelo(texto, contexto, sessao, pedido, deps, rastreio, usos),
+    portaModelo() {
+      const roteador = deps.roteador;
+      if (!roteador || !jevModeloAtivo(deps.env) || !roteador.disponivelPara("CLASSIFICAR_INTENCAO")) return Promise.resolve(null);
+      portaJev ??= tenantParaModelo(sessao, pedido, deps, rastreio).then((tenant): PortaModeloClassificacao => ({
+        disponivel: () => roteador.disponivelPara("CLASSIFICAR_INTENCAO"),
+        async executar(pedidoModelo) {
+          const r = await roteador.executar(pedidoModelo, {
+            empresaId: tenant.empresaComprovada,
+            capacidade: "jev_julgar",
+            correlationId: rastreio.correlationId ?? rastreio.requestId,
+            hoje: hojeBrasilia(deps.agora()),
+          });
+          anotarUsoModelo(rastreio, r.usos);
+          usos.push(...r.usos);
+          return r;
+        },
+      }));
+      return portaJev;
+    },
+    ler: (capacidade, parametros, origem) => responderLeitura(capacidade, parametros, origem, e),
+    propor: (capacidade, _texto, origem) => responderAcao(capacidade, origem, e),
+    descreverAcao: (capacidade) => deps.acoes?.descrever(capacidade) ?? null,
+    usosDeModelo: () => usos,
+    registrarResumo: (resumo) => { rastreio.orquestracao = resumo; },
+    relogio: deps.relogio ?? (() => performance.now()),
+  };
 }
 
 export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasConversa): Promise<RespostaGateway> {
@@ -176,58 +306,19 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     }
 
     const contexto = entrada.contexto ?? null;
-    const intencao = await resolverIntencao(entrada.texto, contexto, sessao, pedido, deps, rastreio);
-    let resposta: AIResponse;
-    if (intencao.tipo === "revisao_humana") {
-      rastreio.estado = "revisao_humana";
-      resposta = naoSuportado("Esse pedido precisa de uma pessoa da equipe. Encaminhe pelo atendimento; o Kidmais não responde nem age sozinho neste caso.");
-    } else if (intencao.tipo === "nenhuma") {
-      rastreio.estado = "nao_suportado";
-      resposta = naoSuportado("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:");
-    } else if (intencao.tipo === "precisa_contexto") {
-      rastreio.capacidade = intencao.capacidade;
-      rastreio.estado = "precisa_contexto";
-      resposta = { tipo: "precisa_contexto", mensagem: `Abra a ${ENTIDADE_TEXTO[intencao.entidade]} e pergunte por ali: assim eu sei de qual ${ENTIDADE_TEXTO[intencao.entidade]} você está falando.` };
-    } else if (intencao.tipo === "leitura") {
-      rastreio.intencao = intencao.origem;
-      const ferramenta = ferramentaRegistrada(intencao.capacidade);
-      if (!ferramenta) {
-        resposta = naoSuportado("Essa análise ainda não está disponível no Kidmais.");
-      } else {
-        const dados = await executarLeitura(ferramenta, intencao.parametros, sessao, pedido.empresaSolicitada, deps, rastreio);
-        resposta = { tipo: "resposta", dados: dados as unknown as RespostaLeitura | AtencaoHoje };
-      }
-    } else {
-      rastreio.intencao = intencao.origem;
-      rastreio.capacidade = intencao.capacidade;
-      const acoes = deps.acoes;
-      const acao = acoes?.descrever(intencao.capacidade) ?? null;
-      if (!acoes || !acao) {
-        resposta = naoSuportado("Essa ação ainda não está disponível no Kidmais.");
-      } else if (acao.origem === "TELA") {
-        resposta = naoSuportado("Essa ação começa pela tela própria (por exemplo, Contratos › Importar contrato antigo).");
-      } else if (acao.classe === "DENY") {
-        rastreio.politica = "NEGADO_DENY";
-        rastreio.humanGate = "RECUSADO";
-        resposta = naoSuportado(acao.mensagemNegada ?? "Essa ação não é feita pelo Kidmais.");
-      } else if (!grupoAtivo(deps.env, acao.grupo)) {
-        rastreio.politica = "NEGADO_FLAG";
-        resposta = naoSuportado("Criar e alterar cadastros pelo Kidmais ainda não está liberado. Use a tela correspondente.");
-      } else {
-        rastreio.ferramenta = acao.ferramenta;
-        rastreio.ferramentasSolicitadas = [acao.ferramenta];
-        resposta = await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, tenant) => {
-          rastreio.empresaId = tenant.empresaComprovada;
-          rastreio.politica = avaliarPolitica({ papel: papelParaPolitica(sessao, tenant) }, acao, "HUMAN_GATE");
-          if (!grupoAtivoParaEmpresa(deps.env, acao.grupo, tenant.empresaComprovada)) {
-            return naoSuportado("Criar e alterar cadastros pelo Kidmais ainda não está liberado para esta empresa.");
-          }
-          return (await acoes.iniciar(acao.capacidade, entrada.texto, contextoExtensao(tx, tenant))).resposta;
-        });
-        rastreio.humanGate = resposta.tipo === "preview" ? "PREVIEW" : resposta.tipo === "rascunho" ? "RASCUNHO" : null;
-      }
-      rastreio.estado = resposta.tipo;
+    const execucao: Execucao = { texto: entrada.texto, sessao, pedido, deps, rastreio, contextoExtensao };
+
+    // Orquestradora (Demerzel): decide o caminho com as mesmas portas guardadas. Qualquer erro dela cai no
+    // fallback seguro abaixo — nunca no caminho sem guardas.
+    const orquestrador = deps.orquestrador ?? null;
+    if (orquestrador && demerzelAtivo(deps.env)) {
+      const { resposta } = await orquestrador.atender({ texto: entrada.texto, contexto }, portasOrquestracao(execucao, []));
+      rastreio.estado ??= resposta.tipo;
+      return { status: 200, corpo: { ok: true, data: resposta } };
     }
+
+    const intencao = await resolverIntencao(entrada.texto, contexto, sessao, pedido, deps, rastreio);
+    const resposta = await responderIntencao(intencao, contexto, execucao);
     return { status: 200, corpo: { ok: true, data: resposta } };
   } catch (error) {
     const falha = classificar(error, MENSAGEM_FALLBACK);

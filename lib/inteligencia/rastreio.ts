@@ -1,4 +1,5 @@
 import type { AuditTrace, ModelUsage } from "./contratos.ts";
+import type { ResumoOrquestracao } from "./extensoes.ts";
 
 /**
  * AI trace: uma linha JSON por pedido, sem persistência obrigatória.
@@ -22,7 +23,8 @@ export type CausaRastreio =
   | "HUMAN_GATE"
   | "INESPERADO";
 
-export type RastreioInteligencia = AuditTrace & { causa: CausaRastreio | null };
+/** `orquestracao`: resumo por passo da orquestradora (Demerzel), só códigos e contagens; null fora dela. */
+export type RastreioInteligencia = AuditTrace & { causa: CausaRastreio | null; orquestracao: ResumoOrquestracao | null };
 
 export function novoRastreio(evento: AuditTrace["evento"], requestId: string, correlationId: string | null = requestId): RastreioInteligencia {
   return {
@@ -48,6 +50,7 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
     estado: null,
     itens: null,
     causa: null,
+    orquestracao: null,
     fallback: false,
     fallbackProvedor: false,
     chamadasModelo: 0,

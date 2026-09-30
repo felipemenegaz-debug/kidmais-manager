@@ -380,9 +380,12 @@ test("11. o trace só leva metadados: sem PII, valores, tokens ou texto do pedid
   const primeiro = JSON.parse(linhas[0].replace(/^\[Kidmais Inteligência\] /, "")) as Record<string, unknown>;
   assert.deepEqual(Object.keys(primeiro).sort(), [
     "capacidade", "causa", "chamadasModelo", "codigo", "correlationId", "custoEstimadoMicros", "duracaoMs", "empresaId", "estado", "evento", "fallback",
-    "fallbackProvedor", "ferramenta", "ferramentasExecutadas", "ferramentasSolicitadas", "humanGate", "intencao", "itens", "modelo", "politica", "provedor", "requestId", "resultado",
+    "fallbackProvedor", "ferramenta", "ferramentasExecutadas", "ferramentasSolicitadas", "humanGate", "intencao", "itens", "modelo",
+    // AI V1 (Demerzel): resumo por passo, só códigos e contagens; null fora da orquestradora.
+    "orquestracao", "politica", "provedor", "requestId", "resultado",
     "tokensEntrada", "tokensSaida", "usuarioId",
   ]);
+  assert.equal(primeiro.orquestracao, null);
   assert.equal(primeiro.politica, "PERMITIDO");
   assert.deepEqual(primeiro.ferramentasExecutadas, ["atencao_hoje"]);
   assert.equal(primeiro.requestId, "req-0001");
