@@ -29,6 +29,7 @@ function descricao(a: FerramentaAcao): DescricaoAcao {
     descricao: a.descricao,
     origem: a.origem ?? "CONVERSA",
     ...(a.mensagemNegada ? { mensagemNegada: a.mensagemNegada } : {}),
+    ...(a.indisponivel ? { indisponivel: true } : {}),
   };
 }
 

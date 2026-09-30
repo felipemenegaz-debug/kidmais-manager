@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
-import type { AIResponse, ContextoTela, ModelUsage, OrigemChamada, RespostaLeitura } from "./contratos.ts";
+import type { AcaoObjetivo, AIResponse, ContextoTela, ModelUsage, OrigemChamada, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
 import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, NivelSkill, Orquestrador, PortaModeloClassificacao, PortasOrquestracao, RegistroAgentes } from "./extensoes.ts";
 import { construirContextoAutorizado, construirContextoModelo } from "./contexto/construtor.ts";
 import { ContextoRecusado } from "./contexto/contrato.ts";
@@ -12,11 +12,13 @@ import {
   classificar, comEstabelecimento, executarLeitura, exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado, unidadeDe,
   type DependenciasGateway, type PedidoGateway, type RespostaGateway,
 } from "./gateway.ts";
-import { interpretarComModelo, interpretarDeterministico, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
+import { explicarResposta, mensagemIndisponivel, mensagemPrecisaContexto, objetivoDaCapacidade, objetivoDoTexto } from "./entendimento.ts";
+import { interpretarComModelo, interpretarDeterministico, pedeAutonomia, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
 import type { RoteadorModelos } from "./modelos/roteador.ts";
 import { avaliarPolitica } from "./politica.ts";
 import { decidirPolitica } from "./politica-v1.ts";
 import { SUGESTAO_POR_FINALIDADE, manifestoAcao, manifestoLeitura, manifestoSugestao } from "./registro-ferramentas.ts";
+import { normalizar } from "./texto-pt.ts";
 import { anotarOrquestracao, anotarSkill, anotarUsoModelo, novoRastreio, type RastreioInteligencia } from "./rastreio.ts";
 
 /**
@@ -96,7 +98,6 @@ function naoSuportado(mensagem: string): AIResponse {
   return { tipo: "nao_suportado", mensagem, sugestoes: SUGESTOES_PADRAO };
 }
 
-const ENTIDADE_TEXTO = { festa: "festa", cliente: "cliente", contrato: "contrato" } as const;
 
 /**
  * Regras → classificador auxiliar (JEV) → modelo. A sugestão do auxiliar só vale se for uma LEITURA do
@@ -201,7 +202,18 @@ async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execu
   } else if (acao.classe === "DENY") {
     rastreio.politica = "NEGADO_DENY";
     rastreio.humanGate = "RECUSADO";
-    resposta = naoSuportado(acao.mensagemNegada ?? "Essa ação não é feita pelo Kidmais.");
+    if (acao.indisponivel && !pedeAutonomia(normalizar(e.texto))) {
+      // Entendido, mas o assistente ainda não faz: diz o que entendeu (nunca "não entendi"). Continua DENY.
+      const doTexto = objetivoDoTexto(e.texto);
+      const objetivo = objetivoDaCapacidade(capacidade);
+      const [acaoCap, recursoCap] = (objetivo?.split(":") ?? []) as [AcaoObjetivo?, RecursoObjetivo?];
+      const alvo = acaoCap && recursoCap && !doTexto.recurso ? { ...doTexto, acao: acaoCap, recurso: recursoCap } : doTexto;
+      resposta = { ...naoSuportado(mensagemIndisponivel(alvo, acao.mensagemNegada ?? null)), entendimento: "CAPACIDADE_INDISPONIVEL" };
+    } else if (pedeAutonomia(normalizar(e.texto))) {
+      resposta = { ...naoSuportado("Nada é confirmado sozinho: toda ação do Kidmais passa pela sua confirmação na tela."), entendimento: "NEGADO_POLITICA" };
+    } else {
+      resposta = { ...naoSuportado(acao.mensagemNegada ?? "Essa ação não é feita pelo Kidmais."), entendimento: "NEGADO_POLITICA" };
+    }
   } else if (!grupoAtivo(deps.env, acao.grupo)) {
     rastreio.politica = "NEGADO_FLAG";
     resposta = naoSuportado("Criar e alterar cadastros pelo Kidmais ainda não está liberado. Use a tela correspondente.");
@@ -223,6 +235,20 @@ async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execu
   return resposta;
 }
 
+/**
+ * Estado de entendimento + objetivo em TODA resposta e no trace (inclusive pedido de contexto e recusa). Só troca o
+ * "não sei" genérico pelo que foi entendido; nunca cria rota, leitura ou ação.
+ */
+function finalizar(resposta: AIResponse, texto: string, rastreio: RastreioInteligencia): AIResponse {
+  const capacidade = rastreio.capacidade
+    ?? (resposta.tipo === "resposta" && "capacidade" in resposta.dados ? resposta.dados.capacidade : null)
+    ?? (resposta.tipo === "rascunho" || resposta.tipo === "preview" ? resposta.rascunho.capacidade : null);
+  const final = explicarResposta(resposta, texto, capacidade, { parada: rastreio.orquestracao?.parada ?? null, politica: rastreio.politica });
+  rastreio.entendimento = final.entendimento ?? null;
+  rastreio.objetivo = final.objetivo ?? null;
+  return final;
+}
+
 /** Caminho da Foundation: a intenção resolvida define a resposta, sempre pelas mesmas funções guardadas. */
 async function responderIntencao(intencao: Intencao, contexto: ContextoTela | null, e: Execucao): Promise<AIResponse> {
   const { rastreio } = e;
@@ -237,7 +263,7 @@ async function responderIntencao(intencao: Intencao, contexto: ContextoTela | nu
   if (intencao.tipo === "precisa_contexto") {
     rastreio.capacidade = intencao.capacidade;
     rastreio.estado = "precisa_contexto";
-    return { tipo: "precisa_contexto", mensagem: `Abra a ${ENTIDADE_TEXTO[intencao.entidade]} e pergunte por ali: assim eu sei de qual ${ENTIDADE_TEXTO[intencao.entidade]} você está falando.` };
+    return { tipo: "precisa_contexto", mensagem: mensagemPrecisaContexto(intencao.entidade) };
   }
   if (intencao.tipo === "leitura") return responderLeitura(intencao.capacidade, intencao.parametros, intencao.origem, e);
   void contexto;
@@ -406,7 +432,7 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
       rastreio.ferramentasSolicitadas = [resultado.ferramenta];
       rastreio.humanGate = resultado.resposta.tipo === "preview" ? "PREVIEW" : "RASCUNHO";
       rastreio.estado = resultado.resposta.tipo;
-      return { status: 200, corpo: { ok: true, data: resultado.resposta } };
+      return { status: 200, corpo: { ok: true, data: finalizar(resultado.resposta, entrada.texto, rastreio) } };
     }
 
     const contexto = entrada.contexto ?? null;
@@ -418,18 +444,21 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     if (orquestrador && demerzelAtivo(deps.env)) {
       const { resposta } = await orquestrador.atender({ texto: entrada.texto, contexto }, portasOrquestracao(execucao, []));
       rastreio.estado ??= resposta.tipo;
-      return { status: 200, corpo: { ok: true, data: resposta } };
+      return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio) } };
     }
 
     const intencao = await resolverIntencao(entrada.texto, contexto, sessao, pedido, deps, rastreio);
     const resposta = await responderIntencao(intencao, contexto, execucao);
-    return { status: 200, corpo: { ok: true, data: resposta } };
+    return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio) } };
   } catch (error) {
     const falha = classificar(error, MENSAGEM_FALLBACK);
     rastreio.resultado = falha.resultado;
     rastreio.codigo = falha.codigo;
     rastreio.causa = falha.causa;
     rastreio.fallback = rastreio.fallback || falha.fallback;
+    // Tenant Context / Policy / entidade de outra empresa: recusa fail-closed, registrada como tal.
+    rastreio.entendimento = falha.status === 401 || falha.status === 403 || falha.status === 404 ? "NEGADO_POLITICA" : null;
+    rastreio.objetivo ??= objetivoDaCapacidade(rastreio.capacidade);
     return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo } };
   } finally {
     rastreio.duracaoMs = Math.max(0, Math.round(relogio() - inicio));

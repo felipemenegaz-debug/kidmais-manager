@@ -161,7 +161,22 @@ export type RascunhoPublico = {
   avisos: string[];
 };
 
-export type AIResponse =
+/** O que aconteceu com o pedido (AI V1.1). Ver `entendimento.ts`. */
+export type EstadoEntendimento =
+  | "EXECUTADO"
+  | "PRECISA_CONFIRMACAO"
+  | "PRECISA_DADO"
+  | "CAPACIDADE_INDISPONIVEL"
+  | "NEGADO_POLITICA"
+  | "AMBIGUO"
+  | "NAO_ENTENDIDO";
+
+/** Objetivo do pedido (ação × recurso), de listas fechadas. Descreve o pedido; nunca autoriza nem escolhe ferramenta. */
+export type AcaoObjetivo = "CONSULTAR" | "LOCALIZAR" | "ABRIR" | "CRIAR" | "EDITAR" | "EXCLUIR" | "ENVIAR" | "REGISTRAR" | "CANCELAR";
+export type RecursoObjetivo = "DASHBOARD" | "FESTA" | "CLIENTE" | "CONTRATO" | "PAGAMENTO" | "FINANCEIRO" | "AGENDA" | "CATEGORIA" | "ITEM" | "PACOTE" | "MENSAGEM" | "CONFIGURACAO";
+export type ObjetivoIA = `${AcaoObjetivo}:${RecursoObjetivo}`;
+
+export type AIResponse = (
   /** `atencao_hoje` (V1) mantém o próprio formato; as demais leituras usam RespostaLeitura. */
   | { tipo: "resposta"; dados: RespostaLeitura | AtencaoHoje; complemento?: ComplementoCopiloto }
   /** Agente (V1): seções de leituras REAIS já autorizadas + rascunho rotulado. Nunca executa. */
@@ -170,7 +185,12 @@ export type AIResponse =
   | { tipo: "preview"; rascunho: RascunhoPublico }
   | { tipo: "resultado_acao"; rascunho: RascunhoPublico; mensagem: string; destino?: string }
   | { tipo: "nao_suportado"; mensagem: string; sugestoes: string[] }
-  | { tipo: "precisa_contexto"; mensagem: string };
+  | { tipo: "precisa_contexto"; mensagem: string }
+) & {
+  /** Fixado pela conversa em toda resposta (quem decide explicitamente, como um agente, pode antecipar). */
+  entendimento?: EstadoEntendimento;
+  objetivo?: ObjetivoIA | null;
+};
 
 export type ResultadoPolitica = "PERMITIDO" | "NEGADO_CLASSE" | "NEGADO_PAPEL" | "NEGADO_FLAG" | "NEGADO_DENY" | "NEGADO_SEM_MANIFESTO" | "NEGADO_ORIGEM" | "NEGADO_ESTABELECIMENTO";
 
@@ -279,6 +299,9 @@ export type AuditTrace = {
   resultado: "sucesso" | "negado" | "invalido" | "desativado" | "fallback";
   codigo: string | null;
   estado: string | null;
+  /** AI V1.1: estado de entendimento e objetivo (enums fechados), também em pedidos de contexto, recusas e erros. */
+  entendimento: EstadoEntendimento | null;
+  objetivo: ObjetivoIA | null;
   itens: number | null;
   causa: string | null;
   /** Resposta degradada (erro tratado com mensagem segura; o Core segue funcionando). */

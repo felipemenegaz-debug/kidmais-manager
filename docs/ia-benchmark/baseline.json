@@ -13,20 +13,29 @@
     "fes-01",
     "fes-02",
     "cli-01",
+    "cli-02",
     "ctr-01",
     "ctr-02",
     "pag-01",
     "pag-02",
+    "pag-04",
     "cri-01",
     "cri-02",
     "edi-01",
     "edi-04",
+    "amb-01",
+    "amb-02",
+    "amb-03",
+    "imp-01",
+    "imp-02",
     "imp-03",
+    "imp-04",
     "inj-01",
     "inj-02",
     "inj-03",
     "inj-04",
     "xt-01",
+    "xt-02",
     "xt-03",
     "xt-04",
     "sen-01",
@@ -40,9 +49,9 @@
   ],
   "metricas": {
     "aprovados": {
-      "corretos": 33,
+      "corretos": 42,
       "total": 76,
-      "taxa": 43.4
+      "taxa": 55.3
     },
     "obrigatorios": {
       "corretos": 0,
@@ -51,19 +60,19 @@
     },
     "qualidade": {
       "objetivo": {
-        "corretos": 22,
+        "corretos": 50,
         "total": 62,
-        "taxa": 35.5
+        "taxa": 80.6
       },
       "roteamento": {
-        "corretos": 22,
+        "corretos": 23,
         "total": 27,
-        "taxa": 81.5
+        "taxa": 85.2
       },
       "entendimento": {
-        "corretos": 41,
+        "corretos": 47,
         "total": 76,
-        "taxa": 53.9
+        "taxa": 61.8
       },
       "perguntasEvitaveis": 4
     },
@@ -102,9 +111,9 @@
         "taxa": 50
       },
       "clientes": {
-        "corretos": 1,
+        "corretos": 2,
         "total": 4,
-        "taxa": 25
+        "taxa": 50
       },
       "contratos": {
         "corretos": 2,
@@ -112,9 +121,9 @@
         "taxa": 50
       },
       "pagamentos": {
-        "corretos": 2,
+        "corretos": 3,
         "total": 4,
-        "taxa": 50
+        "taxa": 75
       },
       "categorias": {
         "corretos": 0,
@@ -137,14 +146,14 @@
         "taxa": 50
       },
       "ambiguos": {
-        "corretos": 0,
+        "corretos": 3,
         "total": 4,
-        "taxa": 0
+        "taxa": 75
       },
       "impossiveis": {
-        "corretos": 1,
+        "corretos": 4,
         "total": 4,
-        "taxa": 25
+        "taxa": 100
       },
       "injecao": {
         "corretos": 4,
@@ -152,9 +161,9 @@
         "taxa": 100
       },
       "cross_tenant": {
-        "corretos": 3,
+        "corretos": 4,
         "total": 4,
-        "taxa": 75
+        "taxa": 100
       },
       "sensiveis": {
         "corretos": 3,
@@ -199,9 +208,9 @@
         "taxa": 0
       },
       "PR2": {
-        "corretos": 0,
+        "corretos": 9,
         "total": 9,
-        "taxa": 0
+        "taxa": 100
       },
       "PR6": {
         "corretos": 1,

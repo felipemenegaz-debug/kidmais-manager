@@ -390,6 +390,8 @@ test("11. o trace só leva metadados: sem PII, valores, tokens ou texto do pedid
     "chamadasCustoDesconhecido", "chamadasTokensDesconhecidos", "custoConhecidoMicros", "duracaoModeloMs", "moedaCusto", "tokensTotal",
     // H3 (JEV hardening): erros de modelo saneados (causa, workload, status, type, code, param).
     "errosModelo",
+    // AI V1.1 (PR 2): estado de entendimento e objetivo, só enums fechados (nunca texto do pedido).
+    "entendimento", "objetivo",
   ].sort());
   assert.equal(primeiro.orquestracao, null);
   assert.equal(primeiro.politica, "PERMITIDO");

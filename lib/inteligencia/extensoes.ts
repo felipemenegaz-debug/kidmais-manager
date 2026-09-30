@@ -24,6 +24,8 @@ export type DescricaoAcao = {
   /** "TELA": só começa pela tela própria; a conversa nunca a abre. */
   origem: "CONVERSA" | "TELA";
   mensagemNegada?: string;
+  /** DENY por indisponibilidade (não por proibição): continua DENY; só muda a explicação. */
+  indisponivel?: boolean;
 };
 
 export type ContextoExtensao = {

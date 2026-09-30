@@ -1,5 +1,6 @@
 import type { AIResponse, ContextoTela } from "../contratos.ts";
 import type { Orquestrador, PassoOrquestracao, PortasAgente, PortasOrquestracao, ResumoOrquestracao } from "../extensoes.ts";
+import { mensagemPrecisaContexto } from "../entendimento.ts";
 import type { Intencao } from "../intencao.ts";
 import { normalizar } from "../texto-pt.ts";
 import type { JulgamentoJev, MotivoJev, TelaJev } from "../jev/v1/contrato.ts";
@@ -29,7 +30,6 @@ export type OpcoesDemerzel = {
 const SUGESTOES = ["O que precisa da minha atenção hoje?", "Quais contratos estão pendentes?", "Como está a agenda de hoje?", "Quanto recebemos este mês?"];
 const recusa = (mensagem: string): AIResponse => ({ tipo: "nao_suportado", mensagem, sugestoes: SUGESTOES });
 
-const ENTIDADE_TEXTO = { festa: "festa", cliente: "cliente", contrato: "contrato" } as const;
 
 /** Explicação humana de cada recusa do julgamento. Nunca repete o texto do pedido. */
 const EXPLICACAO_PROIBIDA: ReadonlyArray<[MotivoJev, string]> = [
@@ -169,8 +169,7 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
         }
         if (intencao.tipo === "precisa_contexto") {
           await exec.passo("CONTEXTO", intencao.capacidade, () => null, () => "PRECISA_CONTEXTO");
-          const nome = ENTIDADE_TEXTO[intencao.entidade];
-          return terminar("PRECISA_CONTEXTO", { tipo: "precisa_contexto", mensagem: `Abra a ${nome} e pergunte por ali: assim eu sei de qual ${nome} você está falando.` });
+          return terminar("PRECISA_CONTEXTO", { tipo: "precisa_contexto", mensagem: mensagemPrecisaContexto(intencao.entidade) });
         }
         if (intencao.tipo === "acao") {
           const descricao = portas.descreverAcao(intencao.capacidade);

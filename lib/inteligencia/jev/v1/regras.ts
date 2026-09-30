@@ -66,7 +66,8 @@ const MUTACAO_FINANCEIRA = [/\b(registr\w*|confirm\w*|marc\w*|lanc\w*|baix\w*)\b
 const ENVIO_EXTERNO = [/\b(envi(e|ar|a|em)|mand(e|ar|a|em)|dispar(e|ar|a))\b/, /\bwhats\s?app\b.*\b(para|pro|pra)\b/];
 const CANCELAMENTO = [/\bcancel(ar|e|a|em)\b/];
 const ALTERACAO = [
-  /\b(crie|criar|cria|cadastr\w*|adicion\w*|inclu\w*|registr(e|ar|a|em)|nov[oa] (pacote|cliente|festa|item|categoria))\b/,
+  // "cadastro" (substantivo: "o cadastro deste cliente está completo?") é consulta, não alteração.
+  /\b(crie|criar|cria|cadastr(e|ar|a|em|ando)|adicion\w*|inclu\w*|registr(e|ar|a|em)|nov[oa] (pacote|cliente|festa|item|categoria))\b/,
   /\b(edit\w*|alter\w*|mud[ae]\w*|renome\w*|troc\w*|atualiz\w*|ajust\w*)\b/,
   /\b(ativ(e|ar|a)|desativ\w*|reativ\w*|paus\w*|suspend\w*)\b/,
 ];

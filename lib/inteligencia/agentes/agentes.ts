@@ -1,6 +1,7 @@
 import type { AIResponse, ContextoTela, OrigemChamada, SecaoAgente, SugestaoAgente } from "../contratos.ts";
 import type { PortasAgente, RegistroAgentes, SkillAplicavel } from "../extensoes.ts";
 import { pareceInstrucao } from "../contexto/redacao.ts";
+import { mensagemAmbigua, mensagemIndisponivel, objetivoDoTexto } from "../entendimento.ts";
 import { temaNavegacao, type Intencao } from "../intencao.ts";
 import { normalizar } from "../texto-pt.ts";
 
@@ -197,11 +198,14 @@ const administrativo: Agente = {
       const descricao = portas.descreverAcao(regras.capacidade);
       if (descricao?.classe === "CONFIRM") return portas.propor(regras.capacidade, e.texto, regras.origem);
     }
-    // Alteração que o Kidmais ainda não prepara: indica a tela certa, sem fingir que fez.
+    // Alteração que o Kidmais ainda não prepara: diz o que entendeu e indica a tela certa, sem fingir que fez.
     const tema = temaNavegacao(normalizar(e.texto));
     const s = tema ? await secao(administrativo, portas, "onde_encontrar", { tema }, "Onde fazer") : null;
-    if (!s) return recusa("Essa alteração ainda não é preparada pelo Kidmais. Use a tela correspondente.");
-    return resposta(administrativo, "Essa alteração ainda não é preparada pelo Kidmais; ela é feita na tela indicada, com as conferências de cada tela.", [s]);
+    const entendido = objetivoDoTexto(e.texto);
+    // Ação sem alvo ("mude isso"): pergunta sobre o quê, em vez de dizer que não está disponível.
+    if (!entendido.recurso && !s) return { ...recusa(mensagemAmbigua(entendido)), entendimento: "AMBIGUO" };
+    if (!s) return { ...recusa(mensagemIndisponivel(entendido, "Por enquanto, isso é feito na tela correspondente.")), entendimento: "CAPACIDADE_INDISPONIVEL" };
+    return { ...resposta(administrativo, mensagemIndisponivel(entendido, "Ela é feita na tela indicada, com as conferências de cada tela."), [s]), entendimento: "CAPACIDADE_INDISPONIVEL" };
   },
 };
 
