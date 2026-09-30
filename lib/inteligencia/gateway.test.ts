@@ -394,6 +394,8 @@ test("11. o trace só leva metadados: sem PII, valores, tokens ou texto do pedid
     "entendimento", "objetivo",
     // AI V1.1 (PR 3): navegação (recurso, tela da lista fechada, resultado e motivo; nunca a URL).
     "navegacao",
+    // AI V1.1 (PR 4): leituras (capacidade, tipos de entidade, total, zero/um/múltiplos, relações, duração).
+    "leituras",
   ].sort());
   assert.equal(primeiro.orquestracao, null);
   assert.equal(primeiro.politica, "PERMITIDO");

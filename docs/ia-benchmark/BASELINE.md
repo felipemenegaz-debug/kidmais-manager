@@ -10,11 +10,11 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 
 | Métrica | Resultado | Meta | Status |
 | --- | --- | --- | --- |
-| Casos aprovados | 45/76 (59.2%) | — | — |
-| Exemplos obrigatórios aprovados | 0/10 (0.0%) | — | — |
-| Objetivo (goal) correto | 53/62 (85.5%) | ≥ 95% | abaixo |
-| Roteamento correto (capacidade existente) | 23/27 (85.2%) | ≥ 95% | abaixo |
-| Estado de entendimento correto | 48/76 (63.2%) | — | — |
+| Casos aprovados | 49/76 (64.5%) | — | — |
+| Exemplos obrigatórios aprovados | 1/10 (10.0%) | — | — |
+| Objetivo (goal) correto | 54/62 (87.1%) | ≥ 95% | abaixo |
+| Roteamento correto (capacidade existente) | 25/29 (86.2%) | ≥ 95% | abaixo |
+| Estado de entendimento correto | 52/76 (68.4%) | — | — |
 | Perguntas evitáveis | 3 | 0 | abaixo |
 
 ## Segurança — 0 violações
@@ -34,14 +34,14 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | --- | --- | --- |
 | consultas | 4/4 | 100.0% |
 | navegacao | 4/4 | 100.0% |
-| temporal | 1/4 | 25.0% |
+| temporal | 2/4 | 50.0% |
 | contexto | 0/4 | 0.0% |
 | festas | 2/4 | 50.0% |
-| clientes | 2/4 | 50.0% |
+| clientes | 3/4 | 75.0% |
 | contratos | 2/4 | 50.0% |
 | pagamentos | 3/4 | 75.0% |
-| categorias | 0/4 | 0.0% |
-| itens | 0/4 | 0.0% |
+| categorias | 1/4 | 25.0% |
+| itens | 1/4 | 25.0% |
 | criacao | 2/4 | 50.0% |
 | edicao | 2/4 | 50.0% |
 | ambiguos | 3/4 | 75.0% |
@@ -60,7 +60,7 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | --- | --- | --- |
 | PR2 | 9/9 | 100.0% |
 | PR3 | 3/3 | 100.0% |
-| PR4 | 0/4 | 0.0% |
+| PR4 | 4/4 | 100.0% |
 | PR5 | 0/10 | 0.0% |
 | PR6 | 1/6 | 16.7% |
 | PR7 | 0/6 | 0.0% |
@@ -80,7 +80,7 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | nav-03 | PR3 | Vá para a agenda | EXECUTADO · ABRIR:AGENDA · nav AGENDA | EXECUTADO · ABRIR:AGENDA · abrir_tela · LEITURA · navegacao | ok |
 | nav-04 | PR3 | Leve-me para a tela de pacotes | EXECUTADO · ABRIR:PACOTE · nav PACOTE | EXECUTADO · ABRIR:PACOTE · abrir_tela · LEITURA · navegacao | ok |
 | tmp-01 | V1 | Quais festas temos amanhã? | EXECUTADO · CONSULTAR:AGENDA | EXECUTADO · CONSULTAR:AGENDA · agenda_do_dia · LEITURA · resposta | ok |
-| tmp-02 ★ | PR4 | Qual é a próxima festa? | EXECUTADO · CONSULTAR:FESTA | CAPACIDADE_INDISPONIVEL · CONSULTAR:FESTA · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; capacidade — ∉ {proximas_festas} |
+| tmp-02 ★ | PR4 | Qual é a próxima festa? | EXECUTADO · CONSULTAR:FESTA | EXECUTADO · CONSULTAR:FESTA · proximas_festas · LEITURA · resposta | ok |
 | tmp-03 | PR5 | Resuma a festa de sábado | EXECUTADO · CONSULTAR:FESTA | PRECISA_DADO · CONSULTAR:FESTA · PRECISA_CONTEXTO · precisa_contexto | entendimento PRECISA_DADO ∉ {EXECUTADO}; capacidade — ∉ {resumir_festa} |
 | tmp-04 | PR5 | Como foi a última festa? | EXECUTADO · CONSULTAR:FESTA | CAPACIDADE_INDISPONIVEL · CONSULTAR:FESTA · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; capacidade — ∉ {resumir_festa} |
 | ctx-01 ★ | PR5 | Qual é a próxima festa? → Quem é o cliente dela? | EXECUTADO · CONSULTAR:CLIENTE | CAPACIDADE_INDISPONIVEL · CONSULTAR:CLIENTE · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; capacidade — ∉ {resumir_cliente, cliente_da_festa} |
@@ -93,7 +93,7 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | fes-04 | PR7 | Crie uma festa para Maria no dia 12 | PRECISA_DADO/PRECISA_CONFIRMACAO · CRIAR:FESTA | CAPACIDADE_INDISPONIVEL · CRIAR:FESTA · onde_encontrar · AGENTE · agente | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_DADO, PRECISA_CONFIRMACAO} |
 | cli-01 | V1 | Resuma este cliente | EXECUTADO · CONSULTAR:CLIENTE | EXECUTADO · CONSULTAR:CLIENTE · resumir_cliente · LEITURA · resposta | ok |
 | cli-02 | PR2 | O cadastro deste cliente está completo? | EXECUTADO · CONSULTAR:CLIENTE | EXECUTADO · CONSULTAR:CLIENTE · resumir_cliente · LEITURA · resposta | ok |
-| cli-03 | PR4 | Procure a cliente Ana Oliveira | EXECUTADO · CONSULTAR:CLIENTE | NAO_ENTENDIDO · NAO_SUPORTADO · nao_suportado | entendimento NAO_ENTENDIDO ∉ {EXECUTADO}; objetivo — ≠ CONSULTAR:CLIENTE; capacidade — ∉ {buscar_clientes} |
+| cli-03 | PR4 | Procure a cliente Ana Oliveira | EXECUTADO · CONSULTAR:CLIENTE | EXECUTADO · CONSULTAR:CLIENTE · buscar_clientes · LEITURA · resposta | ok |
 | cli-04 | PR6 | Abra o cadastro da Ana Oliveira | EXECUTADO · ABRIR:CLIENTE · nav CLIENTE | CAPACIDADE_INDISPONIVEL · ABRIR:CLIENTE · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO}; navegação — ≠ CLIENTE |
 | ctr-01 | V1 | Resuma este contrato | EXECUTADO · CONSULTAR:CONTRATO | EXECUTADO · CONSULTAR:CONTRATO · resumir_contrato · LEITURA · resposta | ok |
 | ctr-02 | V1 | Compare as versões deste contrato | EXECUTADO · CONSULTAR:CONTRATO | EXECUTADO · CONSULTAR:CONTRATO · resumir_contrato+comparar_versoes_contrato · AGENTE · agente | ok |
@@ -105,11 +105,11 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | pag-04 | PR2 | Registre o pagamento de R$ 500 da festa da Maria | CAPACIDADE_INDISPONIVEL · REGISTRAR:PAGAMENTO | CAPACIDADE_INDISPONIVEL · REGISTRAR:PAGAMENTO · mutacao_nao_suportada · RECUSA_ACAO · nao_suportado | ok |
 | cat-01 ★ | PR9 | Crie uma categoria chamada Bebidas Especiais | PRECISA_CONFIRMACAO · CRIAR:CATEGORIA | CAPACIDADE_INDISPONIVEL · CRIAR:CATEGORIA · criar_categoria_buffet · RECUSA_ACAO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_CONFIRMACAO} |
 | cat-02 | PR9 | Renomeie a categoria Doces para Doces Finos | PRECISA_CONFIRMACAO · EDITAR:CATEGORIA | CAPACIDADE_INDISPONIVEL · EDITAR:CATEGORIA · editar_categoria_buffet · RECUSA_ACAO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_CONFIRMACAO} |
-| cat-03 | PR4 | Quais categorias do buffet existem? | EXECUTADO · CONSULTAR:CATEGORIA | CAPACIDADE_INDISPONIVEL · CONSULTAR:CATEGORIA · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO} |
+| cat-03 | PR4 | Quais categorias do buffet existem? | EXECUTADO · CONSULTAR:CATEGORIA | EXECUTADO · CONSULTAR:CATEGORIA · buscar_catalogo · LEITURA · resposta | ok |
 | cat-04 | PR5 | Quais categorias do buffet existem? → Desative essa categoria | AMBIGUO · EDITAR:CATEGORIA | CAPACIDADE_INDISPONIVEL · EDITAR:CATEGORIA · onde_encontrar · AGENTE · agente | entendimento CAPACIDADE_INDISPONIVEL ∉ {AMBIGUO} |
 | itm-01 ★ | PR9 | crie o item mini-pizza de chocolate | PRECISA_DADO · CRIAR:ITEM | CAPACIDADE_INDISPONIVEL · CRIAR:ITEM · criar_item_buffet · RECUSA_ACAO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_DADO} |
 | itm-02 | PR9 | crie o item mini-pizza de chocolate → Salgados | PRECISA_CONFIRMACAO · CRIAR:ITEM | NAO_ENTENDIDO · NAO_SUPORTADO · nao_suportado | entendimento NAO_ENTENDIDO ∉ {PRECISA_CONFIRMACAO}; objetivo — ≠ CRIAR:ITEM; capacidade — ∉ {criar_item_buffet} |
-| itm-03 | PR4 | Quais itens tem na categoria Salgados? | EXECUTADO · CONSULTAR:ITEM | CAPACIDADE_INDISPONIVEL · CONSULTAR:ITEM · NAO_SUPORTADO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {EXECUTADO} |
+| itm-03 | PR4 | Quais itens tem na categoria Salgados? | EXECUTADO · CONSULTAR:ITEM | EXECUTADO · CONSULTAR:ITEM · buscar_catalogo · LEITURA · resposta | ok |
 | itm-04 ★ | PR9 | Procure o item Mini-pizza de calabresa → Mude o nome desse item para Mini-pizza de Chocolate Belga | PRECISA_CONFIRMACAO · EDITAR:ITEM | CAPACIDADE_INDISPONIVEL · EDITAR:ITEM · editar_item_buffet · RECUSA_ACAO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_CONFIRMACAO} |
 | cri-01 | V1 | Crie o pacote Festa Plus por R$ 4.500 | PRECISA_DADO · CRIAR:PACOTE | PRECISA_DADO · CRIAR:PACOTE · criar_pacote · AGENTE · rascunho | ok |
 | cri-02 | V1 | Cadastre um novo pacote chamado Mini Festa | PRECISA_DADO · CRIAR:PACOTE | PRECISA_DADO · CRIAR:PACOTE · criar_pacote · AGENTE · rascunho | ok |

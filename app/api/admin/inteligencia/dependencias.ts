@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
-import { obterClienteBase } from "@/lib/clientes/services";
+import { buscarClientesCrm, obterClienteBase } from "@/lib/clientes/services";
 import { listarPacotesAdmin } from "@/lib/comercial/pacotes-admin";
 import { detalheAdministrativo } from "@/lib/contratos/services/administrativo.service";
 import { contratoNoTenant } from "@/lib/contratos/services/contrato-tenant";
@@ -50,7 +50,14 @@ export function portasDominio(request: NextRequest): PortasDominio {
         }
       },
     },
-    clientes: { obter: (tx, empresaId, clienteId) => obterClienteBase(clienteId, empresaId, tx) },
+    clientes: {
+      obter: (tx, empresaId, clienteId) => obterClienteBase(clienteId, empresaId, tx),
+      // Busca do CRM no tenant comprovado; a IA só recebe id, nome e status (sem CPF, contato ou endereço).
+      async buscar(tx, empresaId, termo, limite) {
+        const encontrados = await buscarClientesCrm(termo, empresaId, limite, false, tx);
+        return encontrados.map(({ cliente }) => ({ id: cliente.id, nomeCompleto: cliente.nomeCompleto, status: String(cliente.status) }));
+      },
+    },
     // Pacotes: serviço comercial com a empresa comprovada no WHERE (sem preço; preço segue a tabela vigente).
     pacotes: { listar: (tx, empresaId) => listarPacotesAdmin(tx, empresaId) },
     // Versões de contrato: posse comprovada na empresa (fechamento + pacote) ANTES de ler o detalhe do domínio.

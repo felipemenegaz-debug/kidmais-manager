@@ -4,11 +4,11 @@ import { ClienteServiceError } from "../clientes/services/errors.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
-import type { ResultadoPolitica } from "./contratos.ts";
+import type { EntidadeRef, ResultadoPolitica } from "./contratos.ts";
 import { SEM_PORTAS, ferramentaRegistrada, type ContextoFerramenta, type Ferramenta, type PortasDominio, type ResultadoFerramenta } from "./ferramentas.ts";
 import { grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, type Ambiente } from "./flags.ts";
 import { InteligenciaError, autorizarFerramenta, avaliarPolitica } from "./politica.ts";
-import { novoRastreio, type CausaRastreio, type RastreioInteligencia } from "./rastreio.ts";
+import { anotarLeitura, novoRastreio, type CausaRastreio, type RastreioInteligencia } from "./rastreio.ts";
 import { decidirPolitica, exigirPolitica, type EntradaPolitica } from "./politica-v1.ts";
 import { manifestoLeitura, saidaValida } from "./registro-ferramentas.ts";
 
@@ -233,6 +233,8 @@ export async function executarLeitura(
   const agora = deps.agora();
   const contexto: ContextoFerramenta = { hoje: hojeBrasilia(agora), geradoEm: agora.toISOString(), portas: deps.portas ?? SEM_PORTAS };
 
+  const relogioLeitura = deps.relogio ?? (() => performance.now());
+  const inicioLeitura = relogioLeitura();
   let data: ResultadoFerramenta;
   if (ferramenta.modo === "SERVICO_PROPRIO") {
     let executar: ReturnType<typeof ferramenta.preparar>;
@@ -265,6 +267,7 @@ export async function executarLeitura(
   }
   if (!saidaValida(manifesto.saida, data)) throw new InteligenciaError("INTELIGENCIA_SAIDA_INVALIDA", MENSAGEM_FALLBACK, 503);
   rastreio.ferramentasExecutadas = [...rastreio.ferramentasExecutadas, ferramenta.nome];
+  anotarLeitura(rastreio, ferramenta.capacidade, data as { entidades?: EntidadeRef[] }, relogioLeitura() - inicioLeitura);
   rastreio.estado = data.estado;
   rastreio.itens = data.itens.length;
   return data;

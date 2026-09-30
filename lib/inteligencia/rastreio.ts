@@ -1,4 +1,4 @@
-import type { AuditTrace, ModelUsage } from "./contratos.ts";
+import type { AuditTrace, EntidadeRef, ModelUsage } from "./contratos.ts";
 import type { ResumoOrquestracao } from "./extensoes.ts";
 import { VERSAO_POLITICA } from "./politica-v1.ts";
 import { VERSAO_REGISTRO } from "./registro-ferramentas.ts";
@@ -69,6 +69,7 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
     entendimento: null,
     objetivo: null,
     navegacao: null,
+    leituras: [],
     itens: null,
     causa: null,
     orquestracao: null,
@@ -127,6 +128,24 @@ export function anotarSkill(rastreio: RastreioInteligencia, proveniencia: string
 }
 
 /** Resumo da Demerzel: passos, skills e origem do julgamento JEV (só códigos). */
+/**
+ * Resumo de uma leitura (PR 4): tipos de entidade, quantidade, zero/um/múltiplos, relações resolvidas e duração.
+ * Nunca rótulo, nome, id ou parâmetro da leitura.
+ */
+export function anotarLeitura(rastreio: RastreioInteligencia, capacidade: string, dados: { entidades?: readonly EntidadeRef[] }, duracaoMs: number) {
+  const entidades = dados.entidades ?? [];
+  const relacoes = [...new Set(entidades.flatMap((e) => Object.keys(e.relacoes ?? {}).map((r) => `${e.tipo}.${r}`)))].sort();
+  if (rastreio.leituras.length >= 10) return;
+  rastreio.leituras.push({
+    capacidade,
+    tipos: [...new Set(entidades.map((e) => e.tipo))].sort(),
+    total: entidades.length,
+    cardinalidade: entidades.length === 0 ? "ZERO" : entidades.length === 1 ? "UM" : "MULTIPLOS",
+    relacoes,
+    duracaoMs: Math.max(0, Math.round(duracaoMs)),
+  });
+}
+
 export function anotarOrquestracao(rastreio: RastreioInteligencia, resumo: ResumoOrquestracao) {
   rastreio.orquestracao = resumo;
   for (const s of resumo.skills) anotarSkill(rastreio, s);

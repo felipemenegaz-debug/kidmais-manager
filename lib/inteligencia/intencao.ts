@@ -117,6 +117,58 @@ export function interpretarNavegacao(n: string, contexto: ContextoTela | null): 
   return { tipo: "leitura", capacidade: "abrir_tela", parametros: { tela, id }, origem };
 }
 
+/** Nome citado no texto ORIGINAL (com acentos), só letras; qualquer coisa com cara de documento ou contato é descartada. */
+function nomeDoTexto(texto: string, depoisDe: RegExp, permitirDigitos = false): string | null {
+  const m = depoisDe.exec(texto);
+  if (!m) return null;
+  const bruto = texto.slice(m.index + m[0].length).split(/[?!.;,]/)[0].trim().replace(/^["'“]|["'”]$/g, "").trim();
+  const valido = permitirDigitos ? /^[\p{L}\p{N}][\p{L}\p{N} .'-]{1,59}$/u : /^[\p{L}][\p{L} .'-]{2,59}$/u;
+  return valido.test(bruto) ? bruto : null;
+}
+
+/**
+ * Leituras-âncora (AI V1.1, PR 4), só por regra determinística e com parâmetros estruturados:
+ * próximas festas, busca de cliente pelo nome, catálogo do Buffet e relações da entidade aberta na tela.
+ * "Quem é o cliente da próxima festa?" (composição) fica para o PR 6: aqui só a leitura direta.
+ */
+function interpretarLeituraAncora(texto: string, n: string, contexto: ContextoTela | null): Intencao | null {
+  const origem: OrigemChamada = "INTENCAO_DETERMINISTICA";
+  const leitura = (capacidade: string, parametros: Record<string, unknown> = {}): Intencao => ({ tipo: "leitura", capacidade, parametros, origem });
+  const outroRecurso = /\b(cliente|contrato|pagamento|parcela|saldo|valor|convidad\w*)\b/;
+
+  // "qual é a próxima festa?", "quais as próximas festas?", "liste as próximas festas" (sem outro recurso no pedido).
+  if (/\bproximas? festas?\b/.test(n) && /^(qual|quais|quando|liste|mostre|me mostre|me diga|veja)\b/.test(n) && !outroRecurso.test(n)) {
+    return leitura("proximas_festas", { limite: /\bproximas festas\b/.test(n) ? 5 : 1 });
+  }
+
+  // "procure a cliente Ana Oliveira", "busque o cliente Maria".
+  const busca = /^(procur\w*|busqu\w*|busca\w*|encontr\w*|pesquis\w*|localiz\w*|ach[ae])\s+(o |a |os |as )?clientes?\b/;
+  if (busca.test(n)) {
+    const termo = nomeDoTexto(texto, /\bclientes?\s+(?:chamad[oa]\s+)?/iu);
+    return termo ? leitura("buscar_clientes", { termo }) : null;
+  }
+
+  // Catálogo do Buffet (somente leitura).
+  if (/^(quais|que|liste|mostre)\b.*\bcategorias\b/.test(n) && !/\bpacote/.test(n)) return leitura("buscar_catalogo", { tipo: "CATEGORIA" });
+  if (/^(quais|que|liste|mostre)\b.*\bitens\b.*\bcategoria\b/.test(n)) {
+    const categoria = nomeDoTexto(texto, /\bcategoria\s+/iu, true);
+    return categoria ? leitura("buscar_catalogo", { tipo: "ITEM", categoria }) : leitura("buscar_catalogo", { tipo: "ITEM" });
+  }
+  if (/^(existe|tem|temos|ha)\b.*\bitem\b/.test(n) || /\bem (qual|que) categoria (esta|fica)\b.*\bitem\b/.test(n)) {
+    const termo = nomeDoTexto(texto, /\bitem\s+(?:chamado\s+)?/iu, true);
+    if (termo) return leitura("buscar_catalogo", { tipo: "ITEM", termo });
+  }
+
+  // Relações da entidade ABERTA na tela ("quem é o cliente desta festa?", "qual o contrato desta festa?").
+  if (/\b(dest[ae]|dess[ae]) festa\b/.test(n) && /\b(cliente|contrato|contratante)\b/.test(n) && /^(quem|qual|quais|de quem)\b/.test(n)) {
+    return leituraComEntidade("relacoes_festa", "festa", contexto, origem);
+  }
+  if (/\b(dest[ae]|dess[ae]) contrato\b/.test(n) && /\b(cliente|festa|contratante)\b/.test(n) && /^(quem|qual|quais|de quem)\b/.test(n)) {
+    return leituraComEntidade("relacoes_contrato", "contrato", contexto, origem);
+  }
+  return null;
+}
+
 /**
  * Pedido para pular a confirmação ou ignorar regras ("confirme sozinho", "ignore as regras"). É recusa de POLÍTICA,
  * nunca "ainda não disponível": o Human Gate não é uma capacidade que falta.
@@ -169,6 +221,10 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
   if (tem(n, /\b(envi(e|ar|a|em)|mand(e|ar|a|em)|dispar(e|ar|a))\b/, /\bwhats\s?app\b.*\b(para|pro|pra)\b/, /\b(cobr(e|ar|a|em)|quit(e|ar|a)|estorn(e|ar|a))\b/, /\bregistr(e|ar|a|em)\b/, /\bcancel(ar|e|a|em)\b/, /\b(gere|gerar) (o )?contrato\b/)) {
     return acao("mutacao_nao_suportada");
   }
+
+  // Leituras-âncora (PR 4): o sistema descobre em vez de perguntar.
+  const ancora = interpretarLeituraAncora(texto, n, contexto);
+  if (ancora) return ancora;
 
   // Copiloto por tela: pergunta sobre ESTE contrato/cliente vai para o resumo dele (sem ele aberto, pede contexto).
   if (/\b(este|esse|deste|desse|neste|nesse) contrato\b/.test(n) || (contexto?.tela === "contrato" && contexto.entidadeId && tem(n, /\bassin\w*/, /\b(situacao|status|valor|vigente|versao|pendent\w*|falta\w*)\b/))) {

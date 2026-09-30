@@ -11,6 +11,8 @@ import { festaEmRisco, pendenciasDaFesta, resumirFesta } from "./leituras/festa.
 import { resumirCliente } from "./leituras/resumir-cliente.ts";
 import { resumirContrato } from "./leituras/resumir-contrato.ts";
 import { abrirFesta, abrirTela } from "./leituras/abrir-tela.ts";
+import { buscarCatalogo, buscarClientes } from "./leituras/buscas.ts";
+import { proximasFestas, relacoesContrato, relacoesFesta } from "./leituras/festas-relacoes.ts";
 import { ondeEncontrar } from "./leituras/navegacao.ts";
 import { pacotesDisponiveis } from "./leituras/pacotes.ts";
 import { compararVersoesContrato } from "./leituras/versoes-contrato.ts";
@@ -37,7 +39,13 @@ export type ClienteDominio = {
   responsaveis: readonly unknown[];
   cadastro: { completoParaContrato: boolean; camposFaltantes: ReadonlyArray<{ campo: string; label: string }> };
 };
-export type PortaClientes = { obter(tx: DbExecutor, empresaId: string, clienteId: string): Promise<ClienteDominio> };
+/** Resultado de busca de cliente para a IA (PR 4): só id, nome e status — nunca CPF, contato ou endereço. */
+export type ClienteEncontrado = { id: string; nomeCompleto: string; status: string };
+export type PortaClientes = {
+  obter(tx: DbExecutor, empresaId: string, clienteId: string): Promise<ClienteDominio>;
+  /** `buscarClientesCrm` no tenant comprovado (escopo dentro da consulta). Ausente ⇒ busca indisponível. */
+  buscar?(tx: DbExecutor, empresaId: string, termo: string, limite: number): Promise<readonly ClienteEncontrado[]>;
+};
 
 /** Subconjunto de `listarPacotesAdmin` (empresa comprovada no WHERE). Preço NÃO vem daqui: segue a tabela vigente. */
 export type PacoteDominio = {
@@ -128,6 +136,11 @@ export const ferramentas: Readonly<Record<string, Ferramenta>> = Object.freeze({
   onde_encontrar: ondeEncontrar,
   abrir_tela: abrirTela,
   abrir_festa: abrirFesta,
+  proximas_festas: proximasFestas,
+  relacoes_festa: relacoesFesta,
+  relacoes_contrato: relacoesContrato,
+  buscar_clientes: buscarClientes,
+  buscar_catalogo: buscarCatalogo,
   pacotes_disponiveis: pacotesDisponiveis,
   comparar_versoes_contrato: compararVersoesContrato,
 });

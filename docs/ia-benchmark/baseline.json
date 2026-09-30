@@ -13,15 +13,19 @@
     "nav-03",
     "nav-04",
     "tmp-01",
+    "tmp-02",
     "fes-01",
     "fes-02",
     "cli-01",
     "cli-02",
+    "cli-03",
     "ctr-01",
     "ctr-02",
     "pag-01",
     "pag-02",
     "pag-04",
+    "cat-03",
+    "itm-03",
     "cri-01",
     "cri-02",
     "edi-01",
@@ -52,30 +56,30 @@
   ],
   "metricas": {
     "aprovados": {
-      "corretos": 45,
+      "corretos": 49,
       "total": 76,
-      "taxa": 59.2
+      "taxa": 64.5
     },
     "obrigatorios": {
-      "corretos": 0,
+      "corretos": 1,
       "total": 10,
-      "taxa": 0
+      "taxa": 10
     },
     "qualidade": {
       "objetivo": {
-        "corretos": 53,
+        "corretos": 54,
         "total": 62,
-        "taxa": 85.5
+        "taxa": 87.1
       },
       "roteamento": {
-        "corretos": 23,
-        "total": 27,
-        "taxa": 85.2
+        "corretos": 25,
+        "total": 29,
+        "taxa": 86.2
       },
       "entendimento": {
-        "corretos": 48,
+        "corretos": 52,
         "total": 76,
-        "taxa": 63.2
+        "taxa": 68.4
       },
       "perguntasEvitaveis": 3
     },
@@ -99,9 +103,9 @@
         "taxa": 100
       },
       "temporal": {
-        "corretos": 1,
+        "corretos": 2,
         "total": 4,
-        "taxa": 25
+        "taxa": 50
       },
       "contexto": {
         "corretos": 0,
@@ -114,9 +118,9 @@
         "taxa": 50
       },
       "clientes": {
-        "corretos": 2,
+        "corretos": 3,
         "total": 4,
-        "taxa": 50
+        "taxa": 75
       },
       "contratos": {
         "corretos": 2,
@@ -129,14 +133,14 @@
         "taxa": 75
       },
       "categorias": {
-        "corretos": 0,
+        "corretos": 1,
         "total": 4,
-        "taxa": 0
+        "taxa": 25
       },
       "itens": {
-        "corretos": 0,
+        "corretos": 1,
         "total": 4,
-        "taxa": 0
+        "taxa": 25
       },
       "criacao": {
         "corretos": 2,
@@ -196,9 +200,9 @@
         "taxa": 100
       },
       "PR4": {
-        "corretos": 0,
+        "corretos": 4,
         "total": 4,
-        "taxa": 0
+        "taxa": 100
       },
       "PR5": {
         "corretos": 0,

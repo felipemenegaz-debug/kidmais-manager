@@ -84,7 +84,7 @@ function papelParaPolitica(sessao: SessaoParaTenant, tenant: TenantComprovado): 
 /** Catálogo que o operador pode usar agora: filtra por papel e flags; ações de tela ficam fora. */
 export function catalogoDisponivel(env: DependenciasGateway["env"], papel: string, acoes: ModuloAcoes | null): CapacidadeCatalogo[] {
   const leituras = Object.values(ferramentas)
-    .filter((f) => !CAPACIDADES_NAVEGACAO.has(f.capacidade) && manifestoLeitura(f) !== null && grupoAtivo(env, f.grupo) && avaliarPolitica({ papel }, f, "LEITURA") === "PERMITIDO")
+    .filter((f) => !SO_POR_REGRA.has(f.capacidade) && manifestoLeitura(f) !== null && grupoAtivo(env, f.grupo) && avaliarPolitica({ papel }, f, "LEITURA") === "PERMITIDO")
     .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura", ...(f.entidade ? { entidade: f.entidade } : {}) }));
   const doModulo = (acoes?.todas() ?? [])
     .filter((a) => a.origem !== "TELA" && manifestoAcao(a) !== null)
@@ -98,6 +98,8 @@ export function catalogoDisponivel(env: DependenciasGateway["env"], papel: strin
  * de intenção nem ao classificador auxiliar, que não escolhem tela.
  */
 const CAPACIDADES_NAVEGACAO: ReadonlySet<string> = new Set(["abrir_tela", "abrir_festa"]);
+/** Buscas com parâmetro extraído do texto (PR 4): só por regra; o modelo de intenção não as preenche. */
+const SO_POR_REGRA: ReadonlySet<string> = new Set([...CAPACIDADES_NAVEGACAO, "buscar_clientes", "buscar_catalogo"]);
 
 const SUGESTOES_PADRAO = ["O que precisa da minha atenção hoje?", "Quais contratos estão pendentes?", "Como está a agenda de hoje?", "Quanto recebemos este mês?"];
 

@@ -47,8 +47,10 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "lib/comercial/pacotes-admin": ["PacoteAdminError"],
   "lib/autenticacao/service": ["Papel"],
   "lib/db/contracts": ["DbExecutor"],
-  "lib/contratos/services/leitura-tenant": ["contratosAguardandoAssinatura", "resumoContratoDoTenant", "ContratoPendente", "ResumoContratoTenant"],
-  "lib/festas/leitura-tenant": ["agendaDoTenant", "FestaAgenda"],
+  "lib/contratos/services/leitura-tenant": ["contratosAguardandoAssinatura", "resumoContratoDoTenant", "ContratoPendente", "ResumoContratoTenant", "relacoesContratoDoTenant"],
+  "lib/festas/leitura-tenant": ["agendaDoTenant", "FestaAgenda", "festasDoTenant", "festaDoTenant", "FestaRelacionada"],
+  // AI V1.1 (PR 4): leitura do catálogo do Buffet (somente leitura; a escrita segue fora da IA).
+  "lib/comercial/catalogo-leitura": ["buscarCategoriasBuffet", "buscarItensBuffet"],
   "lib/comercial/motivos-pacote": ["MOTIVOS_PACOTE"], // @pr:ACTIONS
   // Documentos: funções puras (validação, extração, revisão) e só TIPOS do repositório SQL.
   "lib/importacao-contrato/arquivo": ["ArquivoValidado", "limiteConfigurado", "validarArquivoEnviado"], // @pr:DOCUMENT
@@ -72,7 +74,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // AI V1 (Establishment Context): prova da unidade no Core, dentro da transação do Tenant Context.
   "lib/saas/provar-estabelecimento": ["provarEstabelecimento"],
   "lib/db/postgres": ["db", "withTransaction"],
-  "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno"],
+  "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno", "buscarClientesCrm"],
   "lib/festas/service": ["FestaError", "consultarFestas"],
   "lib/ia-persistencia/uso": ["criarRegistroUsoPostgres", "lerUsoAgrupado"],
   // AI V1 (Skills por empresa/unidade): leitura das camadas da 058; o catálogo revalida tudo.
@@ -94,7 +96,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
-  "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo("],
+  "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo(", "buscarClientesCrm("],
   "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
   "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao"], // @pr:IMPORT
