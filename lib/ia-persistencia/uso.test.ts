@@ -146,3 +146,18 @@ test("B1 paridade memória × PostgreSQL: reserva sem teto aplicável/utilizáve
   assert.deepEqual(await criarRegistroUsoPostgres(b).reservar(pedido), { ok: true });
   assert.deepEqual(await criarRegistroUsoEmMemoria().reservar(pedido), { ok: true });
 });
+
+test("H3: detalhe saneado do erro do provedor é só do trace — nem no log de fallback nem no INSERT da 055a", async () => {
+  const comDetalhe = uso({ sucesso: false, erro: "HTTP_4XX", tokensEntrada: 0, tokensSaida: 0, detalheErro: { status: 429, tipo: "insufficient_quota", codigo: "credit_balance_exhausted", parametro: null } });
+  const linhas: string[] = [];
+  const semTabela = banco((sql) => ({ rows: sql.includes("to_regclass") ? [{ ok: false }] : [] }));
+  await criarRegistroUsoPostgres(semTabela.b, (l) => linhas.push(l)).registrar(comDetalhe);
+  assert.equal(linhas.length, 1);
+  assert.equal(/detalheErro|credit_balance_exhausted|insufficient_quota/.test(linhas[0]), false);
+  const comTab = banco(comTabela({ tokens: "0", custo: "0", desconhecido: false }));
+  await criarRegistroUsoPostgres(comTab.b).registrar(comDetalhe);
+  const insert = comTab.consultas.find((c) => c.sql.includes("INSERT INTO ia_uso_modelo"));
+  assert.ok(insert);
+  assert.equal(JSON.stringify(insert.values).includes("credit_balance_exhausted"), false);
+  assert.ok(insert.values.includes("HTTP_4XX"), "a 055a guarda só a causa");
+});

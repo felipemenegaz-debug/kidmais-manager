@@ -388,6 +388,8 @@ test("11. o trace só leva metadados: sem PII, valores, tokens ou texto do pedid
     "classificadorJev", "estabelecimentoId", "propostaAcao", "skills", "traceId", "versaoPolitica", "versaoRegistro",
     // A3: uso de modelo acumulado (tokens totais, subtotal de custo conhecido, desconhecidos e latência dos modelos).
     "chamadasCustoDesconhecido", "chamadasTokensDesconhecidos", "custoConhecidoMicros", "duracaoModeloMs", "moedaCusto", "tokensTotal",
+    // H3 (JEV hardening): erros de modelo saneados (causa, workload, status, type, code, param).
+    "errosModelo",
   ].sort());
   assert.equal(primeiro.orquestracao, null);
   assert.equal(primeiro.politica, "PERMITIDO");

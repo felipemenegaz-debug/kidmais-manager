@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { CausaModelo, IdProvedor, ModelUsage, TierModelo, Workload } from "../contratos.ts";
 import type { Ambiente } from "../flags.ts";
 import { barreiraTextoModelo } from "../texto-modelo.ts";
-import { Circuito } from "./circuito.ts";
+import { Circuito, chaveCircuito } from "./circuito.ts";
 import { PERFIL_DEEPSEEK, PERFIL_OPENAI, criarAdaptadorOpenAICompativel } from "./openai-compativel.ts";
 import { TTL_RESERVA_MS, estimarTokensEntrada, periodosDe, planejarReserva, type OrcamentoConfigurado, type RegistroUso } from "./orcamento.ts";
 import { custoEstimado, type TabelaPrecos } from "./precos.ts";
@@ -244,9 +244,11 @@ export class RoteadorModelos {
       if (!modelo) { if (!tentouAlgum) causa = "SEM_MODELO"; continue; }
       if (pedido.imagens?.length && !adaptador.aceitaImagens()) { if (!tentouAlgum) causa = "SEM_MODELO"; continue; }
       const base = { alvo, workload: pedido.workload, tier, provedor: adaptador.id, modelo, fallback: indice > 0 };
+      // H2: circuito por provedor + modelo + workload (falhas do JEV não fecham o Copiloto).
+      const chave = chaveCircuito(adaptador.id, modelo, pedido.workload);
 
       for (let tentativa = 0; tentativa <= politica.tentativasExtras; tentativa += 1) {
-        if (!circuito.permite(adaptador.id, relogio())) { causa = "CIRCUITO_ABERTO"; break; }
+        if (!circuito.permite(chave, relogio())) { causa = "CIRCUITO_ABERTO"; break; }
         // RESERVA antes de cada chamada: o teto vale por tentativa, não por pedido.
         const reserva = await this.reservar(pedido as PedidoModelo<unknown>, alvo, adaptador, modelo);
         if (reserva === "RECUSADA") { causa = "ORCAMENTO"; break; }
@@ -255,7 +257,7 @@ export class RoteadorModelos {
         const controle = new AbortController();
         const timer = setTimeout(() => controle.abort(), politica.timeoutMs);
         try {
-          const bruta = await adaptador.gerar(pedido as PedidoModelo<unknown>, modelo, controle.signal);
+          const bruta = await adaptador.gerar(pedido as PedidoModelo<unknown>, modelo, controle.signal, { tier });
           const duracaoMs = Math.max(0, Math.round(relogio() - inicio));
           const conhecido = bruta.tokensEntrada !== null && bruta.tokensSaida !== null;
           const custo = conhecido ? custoEstimado(this.deps.precos, adaptador.id, bruta.modelo, { entrada: bruta.tokensEntrada ?? 0, saida: bruta.tokensSaida ?? 0, cache: bruta.tokensCache }) : null;
@@ -276,29 +278,48 @@ export class RoteadorModelos {
             const uso = this.uso(base, { ...medida, erro: "RESPOSTA_INVALIDA" });
             usos.push(uso);
             await this.persistir(uso, reserva, "RECONCILIAR", alertas);
-            circuito.sucesso(adaptador.id);
+            circuito.sucesso(chave);
             causa = "RESPOSTA_INVALIDA";
             break;
           }
           const uso = this.uso(base, { ...medida, sucesso: true });
           usos.push(uso);
           await this.persistir(uso, reserva, "RECONCILIAR", alertas);
-          circuito.sucesso(adaptador.id);
+          circuito.sucesso(chave);
           return comAlertas({ ok: true as const, valor, usos, provedor: adaptador.id, modelo: bruta.modelo });
         } catch (erro) {
           const classificado = erro instanceof ErroModelo ? erro : new ErroModelo(controle.signal.aborted ? "TIMEOUT" : "INESPERADO", false);
+          const duracaoMs = Math.max(0, Math.round(relogio() - inicio));
+          if (classificado.uso) {
+            // H4: o provedor respondeu e informou o consumo, mas a saída é inaproveitável (ex.: raciocínio esgotou o
+            // teto sem texto). Uso REAL: reconcilia com os tokens informados (null continua desconhecido) e custo
+            // calculado; o provedor está saudável, então conta como sucesso para o circuito, como a saída inválida.
+            const u = classificado.uso;
+            const conhecido = u.tokensEntrada !== null && u.tokensSaida !== null;
+            const custo = conhecido ? custoEstimado(this.deps.precos, adaptador.id, u.modelo, { entrada: u.tokensEntrada ?? 0, saida: u.tokensSaida ?? 0, cache: u.tokensCache }) : null;
+            const uso = this.uso(base, {
+              modelo: u.modelo, tokensEntrada: u.tokensEntrada, tokensSaida: u.tokensSaida, tokensCache: u.tokensCache, duracaoMs,
+              custoEstimadoMicros: custo?.micros ?? null, moeda: custo?.moeda ?? null, erro: classificado.causa,
+            });
+            usos.push(uso);
+            await this.persistir(uso, reserva, "RECONCILIAR", alertas);
+            circuito.sucesso(chave);
+            causa = classificado.causa;
+            break;
+          }
           // Só recusas comprovadas antes do processamento liberam a reserva (uso zero, conhecido).
           // Timeout, rede, 5xx e inesperado: o provedor pode ter consumido ⇒ USO DESCONHECIDO.
           const naoProcessado = classificado.causa === "HTTP_4XX" || classificado.causa === "SEM_CHAVE" || classificado.causa === "SEM_MODELO";
           const uso = this.uso(base, {
-            duracaoMs: Math.max(0, Math.round(relogio() - inicio)),
+            duracaoMs,
             erro: classificado.causa,
+            detalheErro: classificado.detalhe,
             tokensEntrada: naoProcessado ? 0 : null,
             tokensSaida: naoProcessado ? 0 : null,
           });
           usos.push(uso);
           await this.persistir(uso, reserva, naoProcessado ? "LIBERAR" : "RECONCILIAR", alertas);
-          circuito.falha(adaptador.id, relogio());
+          circuito.falha(chave, relogio());
           causa = classificado.causa;
           if (!classificado.tentavel) break;
         } finally {

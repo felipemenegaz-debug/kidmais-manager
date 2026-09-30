@@ -22,6 +22,8 @@ import {
 export type OpcoesDemerzel = {
   limites?: Partial<LimitesDemerzel>;
   registrarJev?: (rastro: RastroJevV1) => void;
+  /** Prazo do modelo no JEV (H1), já validado pelo ambiente; ausente ⇒ padrão do JEV. */
+  prazoModeloJevMs?: number;
 };
 
 const SUGESTOES = ["O que precisa da minha atenção hoje?", "Quais contratos estão pendentes?", "Como está a agenda de hoje?", "Quanto recebemos este mês?"];
@@ -211,7 +213,7 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
         // Julgamento JEV sempre (barato). Modelo no JEV só se as regras não entenderam o pedido.
         const porta = regras.tipo === "nenhuma" ? await portas.portaModelo() : null;
         const comModelo = porta !== null && porta.disponivel();
-        const juiz = criarJuizJev({ modelo: comModelo ? porta : null, registrar: opcoes.registrarJev });
+        const juiz = criarJuizJev({ modelo: comModelo ? porta : null, registrar: opcoes.registrarJev, prazoModeloMs: opcoes.prazoModeloJevMs });
         const julgado = await exec.passo(comModelo ? "JULGAMENTO_JEV_MODELO" : "JULGAMENTO_JEV", "",
           () => juiz.julgar({ texto, tela: telaJev(contexto), temEntidade: Boolean(contexto?.entidadeId) }),
           (r) => `${r.julgamento.actionSensitivity.classification}:${r.julgamento.origem}`);

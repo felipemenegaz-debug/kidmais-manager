@@ -186,6 +186,21 @@ export type CausaModelo =
   | "ORCAMENTO"
   | "INESPERADO";
 
+/**
+ * Metadado SANEADO de uma recusa/erro do provedor (H3). Só status HTTP e os identificadores estruturados do corpo de
+ * erro (`error.type`, `error.code`, `error.param`), cada um restrito a um alfabeto seguro e curto. Nunca mensagem,
+ * corpo, prompt, cabeçalho ou chave. Campo ausente/fora do alfabeto ⇒ null.
+ */
+export type DetalheErroProvedor = {
+  status: number | null;
+  tipo: string | null;
+  codigo: string | null;
+  parametro: string | null;
+};
+
+/** Erro de modelo no trace: causa classificada + workload + detalhe saneado (nulls quando o provedor não informou). */
+export type ErroModeloRastreio = { causa: CausaModelo; workload: Workload } & DetalheErroProvedor;
+
 /** Uma linha por chamada de modelo. Sem prompt, sem resposta, sem PII. */
 export type ModelUsage = {
   correlationId: string;
@@ -206,6 +221,8 @@ export type ModelUsage = {
   moeda: string | null;
   sucesso: boolean;
   erro: CausaModelo | null;
+  /** H3: detalhe saneado do erro do provedor, só para o trace; a 055a persiste apenas a causa em `erro`. */
+  detalheErro?: DetalheErroProvedor | null;
   fallback: boolean;
   em: string;
 };
@@ -243,6 +260,8 @@ export type AuditTrace = {
   chamadasTokensDesconhecidos: number;
   /** Soma das latências das chamadas de modelo (a duração total do pedido é `duracaoMs`). */
   duracaoModeloMs: number;
+  /** H3: erros das chamadas de modelo deste pedido (causa + workload + status/type/code/param saneados), no máximo 5. */
+  errosModelo: ErroModeloRastreio[];
   usuarioId: string | null;
   empresaId: string | null;
   capacidade: string | null;
