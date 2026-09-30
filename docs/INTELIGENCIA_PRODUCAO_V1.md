@@ -1,5 +1,8 @@
 # Kidmais Intelligence — Production V1
 
+> **AI Module V1** (JEV, Demerzel, Skills, Context Builder, Copiloto, Agentes, Tool Registry, Policy, observabilidade,
+> custos e UX): [IA_V1_ARQUITETURA.md](IA_V1_ARQUITETURA.md) · [IA_V1_BASELINE.md](IA_V1_BASELINE.md) · [IA_V1_SEGURANCA.md](IA_V1_SEGURANCA.md).
+
 Evolução da [fundação V1](INTELIGENCIA_V1.md). Tudo aqui é **desligado por padrão** e falha fechado.
 Nenhuma migration criada por este Master Goal (055a–d, 056, 057) foi aplicada em ambiente real (só em
 PostgreSQL descartável). Nenhuma chave de API foi usada e
