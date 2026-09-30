@@ -48,6 +48,7 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
     chamadasCustoDesconhecido: 0,
     chamadasTokensDesconhecidos: 0,
     duracaoModeloMs: 0,
+    errosModelo: [],
     usuarioId: null,
     empresaId: null,
     capacidade: null,
@@ -83,6 +84,8 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
  *   desconhecido ou moeda diferente). `custoEstimadoMicros` só é número quando NENHUMA chamada é desconhecida;
  *   nunca "desconhecido + conhecido = conhecido".
  */
+const MAX_ERROS_MODELO = 5;
+
 export function anotarUsoModelo(rastreio: RastreioInteligencia, usos: readonly ModelUsage[]) {
   const ultimo = usos.at(-1);
   if (!ultimo) return;
@@ -104,6 +107,12 @@ export function anotarUsoModelo(rastreio: RastreioInteligencia, usos: readonly M
   }
   rastreio.custoEstimadoMicros = rastreio.chamadasCustoDesconhecido > 0 ? null : rastreio.custoConhecidoMicros;
   rastreio.duracaoModeloMs += usos.reduce((t, u) => t + Math.max(0, u.duracaoMs), 0);
+  // H3: só causa classificada + detalhe já saneado pelo adaptador (nunca mensagem/corpo); teto de 5 por pedido.
+  for (const u of usos) {
+    if (u.erro === null || rastreio.errosModelo.length >= MAX_ERROS_MODELO) continue;
+    const d = u.detalheErro ?? null;
+    rastreio.errosModelo.push({ causa: u.erro, workload: u.workload, status: d?.status ?? null, tipo: d?.tipo ?? null, codigo: d?.codigo ?? null, parametro: d?.parametro ?? null });
+  }
   rastreio.provedor = ultimo.provedor;
   rastreio.modelo = ultimo.modelo;
   rastreio.chamadasModelo = anteriores + usos.length;

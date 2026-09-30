@@ -1,4 +1,5 @@
 import type { CausaModelo, ModelUsage } from "../../contratos.ts";
+import type { Ambiente } from "../../flags.ts";
 import type { AlvoRoteamento, ResultadoRoteado, RoteadorModelos } from "../../modelos/roteador.ts";
 import type { PedidoModelo } from "../../modelos/tipos.ts";
 import {
@@ -75,7 +76,23 @@ export interface JuizJev {
 }
 
 export const LIMIAR_MODELO_JEV = 0.8;
+/** Prazo padrão do modelo no JEV (comportamento auditado da V1); o ambiente pode ajustá-lo (H1). */
 export const PRAZO_MODELO_JEV_MS = 2_500;
+export const PRAZO_MODELO_JEV_MIN_MS = 1_000;
+export const PRAZO_MODELO_JEV_MAX_MS = 30_000;
+
+/**
+ * Prazo do modelo no JEV a partir de `AI_JEV_MODEL_TIMEOUT_MS` (H1).
+ * - ausente ⇒ padrão (2,5 s); inválido (não inteiro, fora de 1–30 s) ⇒ padrão, nunca "sem prazo";
+ * - nunca maior que o timeout do Model Router (`AI_MODEL_TIMEOUT_MS`): o JEV não espera além do que o roteador espera.
+ * Só vale para o caminho com modelo; as regras determinísticas não dependem dele.
+ */
+export function prazoModeloJevDoAmbiente(env: Ambiente, timeoutRoteadorMs: number): number {
+  const bruto = env.AI_JEV_MODEL_TIMEOUT_MS?.trim();
+  const n = bruto && /^\d{1,6}$/.test(bruto) ? Number(bruto) : NaN;
+  const valido = Number.isInteger(n) && n >= PRAZO_MODELO_JEV_MIN_MS && n <= PRAZO_MODELO_JEV_MAX_MS;
+  return Math.min(valido ? n : PRAZO_MODELO_JEV_MS, Math.max(PRAZO_MODELO_JEV_MIN_MS, timeoutRoteadorMs));
+}
 /** Confiança máxima que um modelo pode transferir para o julgamento. */
 export const TETO_CONFIANCA_MODELO = 0.8;
 
