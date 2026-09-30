@@ -7,6 +7,7 @@ import { anotarUsoModelo, novoRastreio, sanearRastreio } from "../rastreio.ts";
 import { Circuito, chaveCircuito } from "./circuito.ts";
 import { criarProvedorFake, respostaFake } from "./fake.ts";
 import { PERFIL_DEEPSEEK, PERFIL_OPENAI, criarAdaptadorOpenAICompativel, detalheDoErro } from "./openai-compativel.ts";
+import { consolidarCustos, type UsoAgrupadoLido } from "../custos.ts";
 import { criarRegistroUsoEmMemoria, orcamentoDoAmbiente } from "./orcamento.ts";
 import { tabelaDoAmbiente } from "./precos.ts";
 import { RoteadorModelos, politicaDoAmbiente, type DependenciasRoteador } from "./roteador.ts";
@@ -236,7 +237,8 @@ test("H3: 429 de cota esgotada não é repetido; o detalhe chega ao uso e ao tra
   assert.equal(res.ok, false);
   assert.equal(capturados.length, 1, "sem retry para cota esgotada");
   const uso = res.usos[0];
-  assert.deepEqual([uso.erro, uso.tokensEntrada, uso.tokensSaida, uso.custoEstimadoMicros], ["HTTP_4XX", 0, 0, null], "recusa antes do processamento: zero conhecido");
+  assert.deepEqual([uso.erro, uso.tokensEntrada, uso.tokensSaida, uso.custoEstimadoMicros], ["HTTP_4XX", 0, 0, 0], "recusa antes do processamento: zero conhecido");
+  assert.equal(uso.moeda, "USD", "com preço configurado, custo zero conhecido na moeda do pricing");
   assert.deepEqual(uso.detalheErro, { status: 429, tipo: "insufficient_quota", codigo: "credit_balance_exhausted", parametro: null });
   assert.equal([...registro.reservas.values()][0].estado, "LIBERADA");
 
@@ -322,4 +324,73 @@ test("H4: múltiplas chamadas no mesmo pedido acumulam tokens e custo (JEV + Cop
   assert.equal(rastreio.custoConhecidoMicros, 58 + 145, "0.1×380+0.5×40=58; 0.1×458+0.5×198=144,8→145");
   assert.equal(rastreio.custoEstimadoMicros, 203);
   assert.deepEqual(rastreio.errosModelo, []);
+});
+
+// ---------------------------------------------------------------- Custo zero conhecido nas recusas
+
+/** Mesma agregação de `lerUsoAgrupado` (uso.ts): agrupa por moeda e conta custo null como desconhecido. */
+function agrupar(usos: readonly ModelUsage[]): UsoAgrupadoLido[] {
+  const grupos = new Map<string, UsoAgrupadoLido>();
+  for (const u of usos) {
+    const g = grupos.get(String(u.moeda)) ?? {
+      estabelecimentoId: null, capacidade: u.capacidade, provedor: u.provedor, modelo: u.modelo, dia: "2026-09-30", mes: "2026-09", moeda: u.moeda,
+      chamadas: 0, tokensEntrada: 0, tokensSaida: 0, tokensDesconhecidos: 0, custoMicros: 0, custoDesconhecido: 0,
+    };
+    g.chamadas += 1;
+    g.tokensEntrada += u.tokensEntrada ?? 0;
+    g.tokensSaida += u.tokensSaida ?? 0;
+    if (u.tokensEntrada === null || u.tokensSaida === null) g.tokensDesconhecidos += 1;
+    g.custoMicros += u.custoEstimadoMicros ?? 0;
+    if (u.custoEstimadoMicros === null) g.custoDesconhecido += 1;
+    grupos.set(String(u.moeda), g);
+  }
+  return [...grupos.values()];
+}
+
+const recusa = (causa: "HTTP_4XX" | "SEM_CHAVE" | "SEM_MODELO") =>
+  criarProvedorFake({ id: "OPENAI", modelos: { ECONOMY: "gpt-6-luna" }, roteiro: () => new ErroModelo(causa, false) });
+
+test("recusa antes do processamento (4xx, SEM_CHAVE, SEM_MODELO) com preço ⇒ custo 0 conhecido; total do mês continua conhecido", async () => {
+  for (const causa of ["HTTP_4XX", "SEM_CHAVE", "SEM_MODELO"] as const) {
+    const { r, registro } = roteador([recusa(causa)], {}, { AI_MODEL_MAX_RETRIES: "0" });
+    const res = await r.executar(pedido(), alvo);
+    assert.equal(res.ok, false);
+    const uso = res.usos[0];
+    assert.deepEqual([uso.erro, uso.tokensEntrada, uso.tokensSaida, uso.custoEstimadoMicros, uso.moeda], [causa, 0, 0, 0, "USD"], causa);
+    assert.equal([...registro.reservas.values()][0].estado, "LIBERADA");
+  }
+  const { adaptador } = openai([erroHttp(400, { type: "invalid_request_error" }), ok('{"ok":true}', { prompt_tokens: 400, completion_tokens: 60 })]);
+  const { r } = roteador([adaptador], { circuito: new Circuito(10, 60_000) }, { AI_MODEL_MAX_RETRIES: "0" });
+  const usos = [...(await r.executar(pedido(), alvo)).usos, ...(await r.executar(pedido(), alvo)).usos];
+  const visao = consolidarCustos({ disponivel: true, usos: agrupar(usos), reservas: [] }, "2026-09", "USD");
+  assert.deepEqual([visao.total.chamadas, visao.total.custoMicros, visao.total.desconhecidos], [2, 70, 0], "0 (recusa) + 0.1×400 + 0.5×60 = 70");
+});
+
+test("recusa sem preço configurado para o modelo ⇒ custo continua null (desconhecido), nunca zero inventado", async () => {
+  const outroModelo = tabelaDoAmbiente({ AI_PRICING_JSON: JSON.stringify({ moeda: "USD", modelos: { "OPENAI:outro-modelo": { entrada: 1, saida: 1 } } }) });
+  for (const precos of [null, outroModelo]) {
+    const { r } = roteador([recusa("HTTP_4XX")], { precos }, { AI_MODEL_MAX_RETRIES: "0" });
+    const uso = (await r.executar(pedido(), alvo)).usos[0];
+    assert.deepEqual([uso.tokensEntrada, uso.tokensSaida, uso.custoEstimadoMicros, uso.moeda], [0, 0, null, null]);
+  }
+});
+
+test("timeout, 5xx, rede e inesperado continuam com uso e custo desconhecidos (null), mesmo com preço", async () => {
+  for (const causa of ["TIMEOUT", "HTTP_5XX", "REDE", "INESPERADO"] as const) {
+    const provedor = criarProvedorFake({ id: "OPENAI", modelos: { ECONOMY: "gpt-6-luna" }, roteiro: () => new ErroModelo(causa, false) });
+    const uso = (await roteador([provedor], {}, { AI_MODEL_MAX_RETRIES: "0" }).r.executar(pedido(), alvo)).usos[0];
+    assert.deepEqual([uso.erro, uso.tokensEntrada, uso.tokensSaida, uso.custoEstimadoMicros, uso.moeda], [causa, null, null, null, null], causa);
+  }
+});
+
+test("orçamento só de custo: uma recusa SEM_CHAVE não deixa o consumo desconhecido nem bloqueia as chamadas seguintes", async () => {
+  let n = 0;
+  const provedor = criarProvedorFake({
+    id: "OPENAI", modelos: { ECONOMY: "gpt-6-luna" },
+    roteiro: () => (++n === 1 ? new ErroModelo("SEM_CHAVE", false) : respostaFake('{"ok":true}', { entrada: 400, saida: 60 })),
+  });
+  const orcamento = orcamentoDoAmbiente({ AI_BUDGET_JSON: JSON.stringify({ moeda: "USD", porEmpresa: { custoDiario: 1 } }) });
+  const { r } = roteador([provedor], { orcamento, circuito: new Circuito(10, 60_000) }, { AI_MODEL_MAX_RETRIES: "0" });
+  assert.equal((await r.executar(pedido(), alvo)).ok, false);
+  assert.equal((await r.executar(pedido(), alvo)).ok, true, "a recusa com custo 0 conhecido não torna o consumo do dia desconhecido");
 });
