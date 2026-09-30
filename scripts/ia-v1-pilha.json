@@ -61,6 +61,11 @@
       "pr": "UX_V1",
       "branch": "ai-v1/11-ux",
       "descricao": "UX V1: drawer distingue Informação / Sugestão / Exige confirmação / Erro em texto; renderiza agentes e complemento do Copiloto; cancelar espera; repetir com segurança; sem confiança numérica; telas agenda/configurações"
+    },
+    {
+      "pr": "SEGURANCA_V1",
+      "branch": "ai-v1/12-seguranca",
+      "descricao": "Segurança adversarial V1: 18 vetores atacados com testes; correções de tenant citado por id, envenenamento de contexto, injeção em skill e em marcador, telas agenda/configurações no schema; riscos residuais classificados"
     }
   ]
 }

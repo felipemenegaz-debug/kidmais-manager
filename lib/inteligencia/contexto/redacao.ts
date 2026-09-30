@@ -48,10 +48,26 @@ export type Redacao = { texto: string; redacoes: number };
 
 const MAIUSCULA = /^[\p{Lu}]/u;
 
+/**
+ * Envenenamento de contexto: texto de DADO (observação, nome, descrição) que parece instrução ao modelo nunca
+ * chega a ele — vira um marcador. O dado continua na tela para o operador; ao modelo vai só o que é informação.
+ */
+const INSTRUCAO = [
+  /\b(ignore|ignora|ignorar|desconsidere|desconsiderar|esqueca|esquece|disregard|forget)\b.*\b(regras?|instruc\w*|instruct\w*|anterior\w*|previous|politica\w*|restric\w*|rules?)\b/,
+  /\b(voce|you) (agora |now )?(e|sera|vai ser|are|will be)\b/, /\b(system|sistema|assistant|assistente) ?(prompt|:)/, /\bprompt\b/,
+  /\bmodo (desenvolvedor|admin|root|deus)\b/, /\bjailbreak\b/, /\bfinja (que|ser)\b/, /\bnova instrucao\b/, /<\/?[a-z_]+>/,
+];
+
+export function pareceInstrucao(texto: string) {
+  const n = normalizar(texto.normalize("NFKC").replace(OCULTOS, ""));
+  return INSTRUCAO.some((p) => p.test(n));
+}
+
 /** Troca PII, nomes informados e nomes próprios (heurística estrita) por marcadores. */
 export function redigir(bruto: string, opcoes: { sensiveis?: readonly string[]; maxCaracteres?: number } = {}): Redacao {
   let redacoes = 0;
   let texto = bruto.normalize("NFKC").replace(OCULTOS, "").replace(/\s+/g, " ").trim();
+  if (pareceInstrucao(texto)) return { texto: "[conteúdo omitido]", redacoes: 1 };
   for (const nome of opcoes.sensiveis ?? []) {
     const alvo = nome.trim();
     if (alvo.length < 2) continue;

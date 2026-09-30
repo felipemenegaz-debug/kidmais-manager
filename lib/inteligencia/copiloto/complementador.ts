@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ComplementoCopiloto } from "../contratos.ts";
 import type { Complementador, SkillAplicavel } from "../extensoes.ts";
+import { pareceInstrucao } from "../contexto/redacao.ts";
 import { normalizar } from "../texto-pt.ts";
 
 /**
@@ -54,7 +55,7 @@ const PROIBIDO_NA_EXPLICACAO = [
 ];
 const ACAO_FEITA = /\b(registrei|enviei|confirmei|alterei|cancelei|exclui|cobrei|paguei|lancei|aprovei|atualizei|marquei|agendei|mudei)\b/;
 
-export type MotivoExplicacaoRecusada = "SCHEMA" | "NUMERO_INVENTADO" | "IDENTIFICADOR" | "ACAO_ALEGADA";
+export type MotivoExplicacaoRecusada = "SCHEMA" | "NUMERO_INVENTADO" | "IDENTIFICADOR" | "ACAO_ALEGADA" | "INSTRUCAO";
 
 /** Validação determinística da explicação contra o contexto que o modelo recebeu. */
 export function validarExplicacao(frases: readonly string[], contextoJson: string): MotivoExplicacaoRecusada | null {
@@ -62,6 +63,8 @@ export function validarExplicacao(frases: readonly string[], contextoJson: strin
   for (const frase of frases) {
     if (PROIBIDO_NA_EXPLICACAO.some((p) => p.test(frase))) return "IDENTIFICADOR";
     if (ACAO_FEITA.test(normalizar(frase))) return "ACAO_ALEGADA";
+    // Modelo ecoando instrução (de dado envenenado ou dele mesmo): explicação descartada, dados continuam.
+    if (pareceInstrucao(frase)) return "INSTRUCAO";
     for (const n of numeros(frase)) if (!disponiveis.has(n)) return "NUMERO_INVENTADO";
   }
   return null;
