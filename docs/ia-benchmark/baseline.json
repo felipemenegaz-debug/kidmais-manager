@@ -14,17 +14,25 @@
     "nav-04",
     "tmp-01",
     "tmp-02",
+    "tmp-03",
+    "tmp-04",
+    "ctx-01",
+    "ctx-02",
+    "ctx-04",
     "fes-01",
     "fes-02",
     "cli-01",
     "cli-02",
     "cli-03",
+    "cli-04",
     "ctr-01",
     "ctr-02",
+    "ctr-04",
     "pag-01",
     "pag-02",
     "pag-04",
     "cat-03",
+    "cat-04",
     "itm-03",
     "cri-01",
     "cri-02",
@@ -33,6 +41,7 @@
     "amb-01",
     "amb-02",
     "amb-03",
+    "amb-04",
     "imp-01",
     "imp-02",
     "imp-03",
@@ -52,18 +61,20 @@
     "hg-02",
     "hg-03",
     "hg-04",
+    "mt-01",
+    "mt-02",
     "mt-04"
   ],
   "metricas": {
     "aprovados": {
-      "corretos": 49,
+      "corretos": 60,
       "total": 76,
-      "taxa": 64.5
+      "taxa": 78.9
     },
     "obrigatorios": {
-      "corretos": 1,
+      "corretos": 4,
       "total": 10,
-      "taxa": 10
+      "taxa": 40
     },
     "qualidade": {
       "objetivo": {
@@ -72,16 +83,16 @@
         "taxa": 87.1
       },
       "roteamento": {
-        "corretos": 25,
+        "corretos": 29,
         "total": 29,
-        "taxa": 86.2
+        "taxa": 100
       },
       "entendimento": {
-        "corretos": 52,
+        "corretos": 64,
         "total": 76,
-        "taxa": 68.4
+        "taxa": 84.2
       },
-      "perguntasEvitaveis": 3
+      "perguntasEvitaveis": 1
     },
     "seguranca": {
       "crossTenant": 0,
@@ -103,14 +114,14 @@
         "taxa": 100
       },
       "temporal": {
-        "corretos": 2,
+        "corretos": 4,
         "total": 4,
-        "taxa": 50
+        "taxa": 100
       },
       "contexto": {
-        "corretos": 0,
+        "corretos": 3,
         "total": 4,
-        "taxa": 0
+        "taxa": 75
       },
       "festas": {
         "corretos": 2,
@@ -118,14 +129,14 @@
         "taxa": 50
       },
       "clientes": {
+        "corretos": 4,
+        "total": 4,
+        "taxa": 100
+      },
+      "contratos": {
         "corretos": 3,
         "total": 4,
         "taxa": 75
-      },
-      "contratos": {
-        "corretos": 2,
-        "total": 4,
-        "taxa": 50
       },
       "pagamentos": {
         "corretos": 3,
@@ -133,9 +144,9 @@
         "taxa": 75
       },
       "categorias": {
-        "corretos": 1,
+        "corretos": 2,
         "total": 4,
-        "taxa": 25
+        "taxa": 50
       },
       "itens": {
         "corretos": 1,
@@ -153,9 +164,9 @@
         "taxa": 50
       },
       "ambiguos": {
-        "corretos": 3,
+        "corretos": 4,
         "total": 4,
-        "taxa": 75
+        "taxa": 100
       },
       "impossiveis": {
         "corretos": 4,
@@ -183,9 +194,9 @@
         "taxa": 100
       },
       "multi_tool": {
-        "corretos": 1,
+        "corretos": 3,
         "total": 4,
-        "taxa": 25
+        "taxa": 75
       }
     },
     "porPr": {
@@ -205,9 +216,9 @@
         "taxa": 100
       },
       "PR5": {
-        "corretos": 0,
+        "corretos": 7,
         "total": 10,
-        "taxa": 0
+        "taxa": 70
       },
       "PR7": {
         "corretos": 0,
@@ -220,9 +231,9 @@
         "taxa": 100
       },
       "PR6": {
-        "corretos": 1,
+        "corretos": 5,
         "total": 6,
-        "taxa": 16.7
+        "taxa": 83.3
       },
       "PR9": {
         "corretos": 0,

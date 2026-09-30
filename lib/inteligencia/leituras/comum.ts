@@ -75,3 +75,6 @@ export function dataCurta(data: string) {
   const [ano, mes, dia] = data.slice(0, 10).split("-");
   return dia && mes && ano ? `${dia}/${mes}/${ano}` : data;
 }
+
+/** Id de entidade devolvido ao foco só se for UUID (o outputSchema exige). */
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

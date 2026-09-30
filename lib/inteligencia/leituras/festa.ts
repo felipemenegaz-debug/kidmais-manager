@@ -2,7 +2,7 @@ import { z } from "zod";
 import { reaisDe } from "../../financeiro/calculos.ts";
 import type { ItemResposta, RespostaLeitura } from "../contratos.ts";
 import type { ContextoFerramenta, Ferramenta } from "../ferramentas.ts";
-import { PAPEIS_ADMIN, ausencia, calculo, comEntidade, dataCurta, diasEntre, evidencia, fato, montarResposta, plural } from "./comum.ts";
+import { PAPEIS_ADMIN, UUID, ausencia, calculo, comEntidade, dataCurta, diasEntre, evidencia, fato, montarResposta, plural } from "./comum.ts";
 
 /**
  * `resumir_festa`, `pendencias_da_festa` e `festa_em_risco`.
@@ -97,6 +97,8 @@ export function montarResumoFesta(d: Detalhe, contexto: ContextoFerramenta): Res
       evidencia(FONTE, "Campos de buffet sem definição", buffet.length, destino),
     ],
     fontes: [FONTE],
+    // AI V1.1 (PR 5): a própria festa, para o foco da conversa.
+    ...(UUID.test(d.festa.id) ? { entidades: [{ tipo: "FESTA" as const, id: d.festa.id, rotulo: `Festa — ${dataCurta(e.data)}`, tela: "festa" as const }] } : {}),
   });
 }
 

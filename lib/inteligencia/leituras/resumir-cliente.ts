@@ -1,6 +1,6 @@
 import type { RespostaLeitura } from "../contratos.ts";
 import type { ClienteDominio, ContextoFerramenta, Ferramenta } from "../ferramentas.ts";
-import { PAPEIS_ADMIN, ausencia, calculo, dataCurta, evidencia, fato, montarResposta, plural, comEntidade } from "./comum.ts";
+import { PAPEIS_ADMIN, UUID, ausencia, calculo, dataCurta, evidencia, fato, montarResposta, plural, comEntidade } from "./comum.ts";
 
 /**
  * `resumir_cliente`: situação do cadastro e aniversariantes, a partir de `obterClienteBase`
@@ -53,6 +53,8 @@ export function montarResumoCliente(dados: ClienteDominio, clienteId: string, co
       evidencia(FONTE, "Responsáveis adicionais", dados.responsaveis.length, destino),
     ],
     fontes: [FONTE],
+    // AI V1.1 (PR 5): a própria entidade, para o foco da conversa (id já revalidado pelo domínio nesta leitura).
+    ...(UUID.test(clienteId) ? { entidades: [{ tipo: "CLIENTE" as const, id: clienteId, rotulo: dados.cliente.nomeCompleto.slice(0, 120), tela: "cliente" as const }] } : {}),
   });
 }
 

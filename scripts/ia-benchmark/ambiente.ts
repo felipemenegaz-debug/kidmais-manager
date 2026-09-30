@@ -136,7 +136,8 @@ function banco(violacoes: Violacoes) {
       if (sql.includes("FROM usuarios_administrativos")) return r([{ id: values[0] }]);
       // `resumoContratoDoTenant`: contrato da empresa comprovada (pacote.empresa_id = $2).
       // PR 4 — leituras-âncora do Core respondidas pela fixture, com os mesmos filtros (tenant, intervalo, ordem, limite).
-      if (sql.includes("FROM festas festa") && sql.includes("cliente_id")) return r(values[0] === EMPRESA_A ? festasDaFixture(sql, values) : []);
+      // Relações do contrato antes das festas: a consulta tem uma subconsulta em festas.
+      if (sql.includes("FROM festas festa") && sql.includes("cliente_id") && !sql.includes("AS festa_id")) return r(values[0] === EMPRESA_A ? festasDaFixture(sql, values) : []);
       if (sql.includes("FROM contratos contrato") && sql.includes("AS festa_id")) {
         const c = values[1] === EMPRESA_A ? FIXTURE.contratos.find((x) => x.id === values[0]) : undefined;
         const f = c && FIXTURE.festas.find((x) => x.contrato === c.id && x.empresa === EMPRESA_A && x.data >= "2026-09-30");
@@ -293,15 +294,19 @@ export function criarAmbiente(opcoes: OpcoesAmbiente = {}) {
   async function conversar(caso: Caso): Promise<Observacao[]> {
     const observacoes: Observacao[] = [];
     let operacaoAberta: string | null = null;
+    // Emula o drawer (PR 5): reenvia o foco da última resposta só como tipo + id (dica; o servidor revalida).
+    let foco: { entidades: Array<{ tipo: string; id: string }>; principal?: number } | null = null;
     for (const turno of caso.turnos) {
       const contexto = contextoDe(turno);
-      const corpo = { texto: turno.texto, ...(contexto ? { contexto } : {}), ...(operacaoAberta ? { operacaoId: operacaoAberta } : {}) };
+      const corpo = { texto: turno.texto, ...(contexto ? { contexto } : {}), ...(operacaoAberta ? { operacaoId: operacaoAberta } : {}), ...(foco?.entidades.length ? { foco } : {}) };
       const antes = rastros.length;
       const r = await atenderConversa({ lerCorpo: async () => corpo, empresaSolicitada: EMPRESAS[caso.empresa ?? "A"] }, deps);
       const envelope = r.corpo as { ok: boolean; data?: AIResponse; codigo?: string };
       const resposta = envelope.ok ? envelope.data ?? null : null;
       observacoes.push({ status: r.status, resposta, codigo: envelope.codigo ?? null, rastro: rastros.length > antes ? rastros.at(-1)! : null });
       operacaoAberta = resposta && resposta.tipo === "rascunho" ? resposta.rascunho.operacaoId : resposta && resposta.tipo === "preview" ? resposta.rascunho.operacaoId : null;
+      const devolvido = (resposta as { foco?: { entidades: Array<{ tipo: string; id: string }>; principal: number | null } } | null)?.foco;
+      if (devolvido) foco = { entidades: devolvido.entidades.map(({ tipo, id }) => ({ tipo, id })), ...(devolvido.principal != null ? { principal: devolvido.principal } : {}) };
     }
     violacoes.operacoesExecutadas = [...repositorio.linhas.values()].filter((l) => l.estado === "EXECUTADA").length;
     return observacoes;

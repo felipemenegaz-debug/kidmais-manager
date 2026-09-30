@@ -1,3 +1,4 @@
+import type { FocoConversa } from "./foco.ts";
 /**
  * Contratos estáveis do Kidmais Intelligence (Fase 1 da Production V1).
  *
@@ -128,6 +129,16 @@ export type EntidadeRef = {
 };
 
 /** Resumo de uma leitura no trace (PR 4): só códigos e contagens — nunca rótulo, nome ou id. */
+/** Resolução de referência no trace (PR 5): só códigos e contagens — nunca rótulo, nome, id ou texto. */
+export type ReferenciaRastreio = {
+  tipo: "TEMPORAL" | "DEITICO" | "PRONOME" | "NOME";
+  alvo: TipoEntidade | null;
+  origem: "TELA" | "FOCO" | "TEMPORAL" | "RELACAO_CORE" | "BUSCA" | null;
+  resultado: "RESOLVIDA" | "AMBIGUA" | "NAO_ENCONTRADA" | "NEGADA";
+  tipos: TipoEntidade[];
+  candidatos: number;
+};
+
 export type LeituraRastreio = {
   capacidade: string;
   tipos: TipoEntidade[];
@@ -229,6 +240,8 @@ export type AIResponse = (
   /** Fixado pela conversa em toda resposta (quem decide explicitamente, como um agente, pode antecipar). */
   entendimento?: EstadoEntendimento;
   objetivo?: ObjetivoIA | null;
+  /** AI V1.1 (PR 5): foco da conversa (entidades recentes, com rótulo só para a UI). A UI reenvia tipo + id como dica. */
+  foco?: FocoConversa;
 };
 
 export type ResultadoPolitica = "PERMITIDO" | "NEGADO_CLASSE" | "NEGADO_PAPEL" | "NEGADO_FLAG" | "NEGADO_DENY" | "NEGADO_SEM_MANIFESTO" | "NEGADO_ORIGEM" | "NEGADO_ESTABELECIMENTO";
@@ -345,6 +358,8 @@ export type AuditTrace = {
   navegacao: NavegacaoRastreio | null;
   /** AI V1.1 (PR 4): leituras executadas neste pedido (entidades, cardinalidade, relações, duração), até 10. */
   leituras: LeituraRastreio[];
+  /** AI V1.1 (PR 5): referências resolvidas neste pedido (tipo, alvo, origem, resultado, tipos e nº de candidatos). */
+  referencias: ReferenciaRastreio[];
   itens: number | null;
   causa: string | null;
   /** Resposta degradada (erro tratado com mensagem segura; o Core segue funcionando). */

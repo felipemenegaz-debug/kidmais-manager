@@ -2,7 +2,7 @@ import { resumoContratoDoTenant, type ResumoContratoTenant } from "../../contrat
 import { InteligenciaError } from "../politica.ts";
 import type { RespostaLeitura } from "../contratos.ts";
 import type { ContextoFerramenta, Ferramenta } from "../ferramentas.ts";
-import { PAPEIS_ADMIN, ausencia, comEntidade, dataCurta, diasEntre, evidencia, fato, montarResposta } from "./comum.ts";
+import { PAPEIS_ADMIN, UUID, ausencia, comEntidade, dataCurta, diasEntre, evidencia, fato, montarResposta } from "./comum.ts";
 
 /**
  * `resumir_contrato`: situação da versão vigente, a partir do snapshot congelado.
@@ -47,6 +47,8 @@ export function montarResumoContrato(r: ResumoContratoTenant, contexto: Contexto
       evidencia(FONTE, "Assinaturas registradas", r.assinaturas.length, destino),
     ],
     fontes: [FONTE],
+    // AI V1.1 (PR 5): o próprio contrato, para o foco da conversa.
+    ...(UUID.test(r.contratoId) ? { entidades: [{ tipo: "CONTRATO" as const, id: r.contratoId, rotulo: `Contrato${r.pacote ? ` · ${r.pacote}` : ""}${r.dataEvento ? ` · ${dataCurta(r.dataEvento)}` : ""}`.slice(0, 120), tela: "contrato" as const }] } : {}),
   });
 }
 
