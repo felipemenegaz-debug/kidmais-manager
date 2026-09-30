@@ -1,6 +1,7 @@
 import type { DbExecutor } from "../../lib/db/contracts.ts";
 import { ClienteServiceError } from "../../lib/clientes/services/errors.ts";
 import { FestaError } from "../../lib/festas/domain.ts";
+import { InteligenciaError } from "../../lib/inteligencia/politica.ts";
 import { executarNoTenant, type SessaoParaTenant } from "../../lib/saas/provar-tenant.ts";
 import { criarRepositorioOperacoesEmMemoria } from "../../lib/inteligencia/acoes/memoria.ts";
 import { criarModuloAcoes } from "../../lib/inteligencia/acoes/modulo.ts";
@@ -122,14 +123,20 @@ function banco(violacoes: Violacoes) {
   return tx;
 }
 
+/** Mesma conversão da porta de festas real (dependencias.ts). */
+function paraPorta(error: FestaError): Error {
+  return error.status >= 400 && error.status < 500 ? new InteligenciaError(error.status === 404 ? "NAO_ENCONTRADO" : "FESTA_RECUSADA", error.message, error.status) : error;
+}
+
 function portasDominio(violacoes: Violacoes): PortasDominio {
   return {
     festas: {
       // `consultarFestas` prova o tenant sozinho; aqui a sessão é sempre da empresa A.
       async consultarDetalhe(id) {
         const f = FIXTURE.festas.find((x) => x.id === id && x.empresa === EMPRESA_A);
-        // Mesmo erro do Core: festa de outra empresa responde como inexistente.
-        if (!f) throw new FestaError("Festa não encontrada.", 404);
+        // Festa de outra empresa responde como inexistente (FestaError 404 no Core), convertida como faz a porta REAL
+        // (app/api/admin/inteligencia/dependencias.ts): FestaError 4xx ⇒ InteligenciaError NAO_ENCONTRADO/FESTA_RECUSADA.
+        if (!f) throw paraPorta(new FestaError("Festa não encontrada.", 404));
         return {
           festa: { id: f.id, estado: "PROXIMA" },
           contrato: { status: f.status, numero_versao: 1, snapshot: { evento: { data: f.data, horarioInicio: "14:00:00", convidados: 60, pacote: { nome: "Premium" } }, contratante: { cpf: PII[0], email: PII[1], telefone: PII[2] } } },
