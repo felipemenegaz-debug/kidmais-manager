@@ -51,6 +51,11 @@ export type FerramentaAcao<P extends Record<string, unknown> = Record<string, un
   titulo: string;
   /** DENY: explicação humana de por que a IA não faz isso. */
   mensagemNegada?: string;
+  /**
+   * DENY por INDISPONIBILIDADE (o assistente ainda não faz; ex.: catálogo global, envio de WhatsApp), e não por
+   * proibição (exclusão, SQL). Só muda a explicação e o estado de entendimento: continua DENY e nunca executa.
+   */
+  indisponivel?: boolean;
   /** "TELA": só começa por uma tela própria (ex.: importação); a conversa nunca a abre. */
   origem?: "CONVERSA" | "TELA";
   campos: readonly DefinicaoCampo[];

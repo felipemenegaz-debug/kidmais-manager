@@ -54,6 +54,14 @@ export function temaNavegacao(n: string): string | null {
   return TEMAS.find(([, padrao]) => padrao.test(n))?.[0] ?? null;
 }
 
+/**
+ * Pedido para pular a confirmação ou ignorar regras ("confirme sozinho", "ignore as regras"). É recusa de POLÍTICA,
+ * nunca "ainda não disponível": o Human Gate não é uma capacidade que falta.
+ */
+export function pedeAutonomia(textoNormalizado: string): boolean {
+  return tem(textoNormalizado, /\b(confirm\w*|aprov\w*|autoriz\w*)\b.*\b(sozinh\w*|automatic\w*|por mim|sem (me )?perguntar)\b/, /\b(ignore|ignora|desconsidere)\b.*\b(regras?|instruc\w*|politica\w*)\b/);
+}
+
 export function interpretarDeterministico(texto: string, contexto: ContextoTela | null): Intencao {
   const n = normalizar(texto);
   if (!n) return { tipo: "nenhuma" };
@@ -62,7 +70,7 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
 
   // Pedidos perigosos primeiro: nunca viram consulta nem rascunho.
   if (tem(n, /\bsql\b/, /\b(select|insert|update|delete|drop|truncate|alter)\b.*\b(from|into|table|set|where)\b/, /\bbanco de dados\b/, /\bdatabase\b/)) return acao("sql");
-  if (tem(n, /\b(confirm\w*|aprov\w*|autoriz\w*)\b.*\b(sozinh\w*|automatic\w*|por mim|sem (me )?perguntar)\b/, /\b(ignore|ignora|desconsidere)\b.*\b(regras?|instruc\w*|politica\w*)\b/)) return acao("mutacao_nao_suportada");
+  if (pedeAutonomia(n)) return acao("mutacao_nao_suportada");
   if (tem(n, /\b(exclu\w*|apag\w*|delet\w*|remov\w*)\b/)) return acao("excluir");
 
   // Navegação conceitual (Copiloto): pergunta de ONDE/COMO FAZER vem antes dos comandos — "onde cadastro um
@@ -73,10 +81,15 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
   }
 
   // "crianca" não é "criar": só formas verbais explícitas.
-  const verboCriar = /\b(crie|criar|cria|crio|criando|cadastr\w*|adicion\w*|inclu\w*|mont[ae]\w*|nov[oa]s?)\b/;
+  // "cadastro" (substantivo: "o cadastro deste cliente") não é verbo de criar.
+  const verboCriar = /\b(crie|criar|cria|crio|criando|cadastr(e|ar|a|em|ando)|adicion\w*|inclu\w*|mont[ae]\w*|nov[oa]s?)\b/;
   const verboEditar = /\b(edit\w*|alter\w*|mud[ae]\w*|renome\w*|troc\w*|atualiz\w*|ajust\w*)\b/;
-  if (tem(n, /\b(buffet|cardapio)\b/, /\bcategorias? (de|do)\b/) && tem(n, verboCriar, verboEditar)) {
-    const categoria = /\bcategoria/.test(n);
+  // Item/categoria do Buffet (inclusive sem a palavra "buffet": "crie o item mini-pizza de chocolate"). Pedido
+  // sobre pacote segue a regra de pacote. Enquanto o catálogo for global, é DENY por indisponibilidade.
+  if (!/\bpacote/.test(n) && tem(n, /\b(buffet|cardapio|ite(m|ns)|categorias?)\b/) && tem(n, verboCriar, verboEditar)) {
+    // O alvo é o primeiro citado: "cadastre o item X na categoria Doces" é item.
+    const posicao = (r: RegExp) => { const m = r.exec(n); return m ? m.index : Infinity; };
+    const categoria = posicao(/\bcategorias?\b/) < posicao(/\bite(m|ns)\b/);
     return acao(tem(n, verboEditar) ? (categoria ? "editar_categoria_buffet" : "editar_item_buffet") : (categoria ? "criar_categoria_buffet" : "criar_item_buffet"));
   }
   if (/\bpacote/.test(n)) {

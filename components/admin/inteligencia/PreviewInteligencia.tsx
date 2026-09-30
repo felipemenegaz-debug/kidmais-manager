@@ -49,7 +49,7 @@ const MENSAGENS: Mensagem[] = [
   },
   { id: 2, pergunta: 'Crie o pacote Festa Plus por R$ 4.500.', fase: 'rascunho', rascunho: base, perguntaKidmais: 'Qual é a duração da festa? Ex.: 4 horas ou 3h30.' },
   { id: 3, pergunta: 'de 30 a 80', fase: 'preview', rascunho: preview, decidindo: false, erro: null },
-  { id: 4, pergunta: 'Crie uma categoria do buffet chamada Doces', fase: 'nao_suportado', mensagem: 'Categorias e itens do Buffet são um catálogo global do Kidmais. Hoje nenhuma empresa pode alterá-lo, nem pela tela nem pelo Kidmais Intelligence.', sugestoes: ['O que precisa da minha atenção hoje?'] },
+  { id: 4, pergunta: 'Crie uma categoria do buffet chamada Doces', fase: 'nao_suportado', mensagem: "Entendi que você quer criar a categoria 'Doces'. Essa ação ainda não está disponível pelo assistente. Hoje o catálogo do Buffet é global: nenhuma empresa pode alterá-lo, nem pela tela nem pelo Kidmais Intelligence.", sugestoes: ['O que precisa da minha atenção hoje?'] },
   { id: 5, pergunta: 'Confirmar', fase: 'resultado', rascunho: { ...preview, estado: 'EXECUTADA' }, mensagem: 'Pacote "Festa Plus" criado.', destino: '/admin/configuracoes/pacotes' },
 ];
 

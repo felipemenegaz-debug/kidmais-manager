@@ -9,6 +9,7 @@ import styles from './admin.module.css';
 import Link from 'next/link';
 import { retornoFestaSeguro } from '@/lib/festas/apresentacao';
 import EdicaoFesta from './EdicaoFesta';
+import { ContextoKidmais } from './inteligencia/PerguntarKidmais';
 import FinanceiroContrato from './FinanceiroContrato';
 import CriarPlanoFinanceiro from './CriarPlanoFinanceiro';
 import { contextoCriacao } from './criacao-financeira';
@@ -159,7 +160,8 @@ export default function ContratoAdmin() {
         if(await action(podeSubstituir?{acao:'substituir_preparacao',motivo:motivo.trim(),chaveCriacao:pedidoRevisao.current.chave}:{acao:'nova_versao',tipo,motivo:motivo.trim(),chaveCriacao:pedidoRevisao.current.chave})){pedidoRevisao.current=null;setEditando(false);window.location.hash='alteracoes';}
     }
     const docUrl = (id: string) => `/api/admin/contratos/documentos/${id}`;
-    return <main className={styles.page}>{retorno&&<Link href={retorno}>Voltar à festa</Link>}<div className={styles.tituloContratos}><h1>Contratos</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato antigo</Link></div><p role="alert">{error}</p>
+    // Contrato aberto (carregado pela API do tenant) informa o drawer. É só dica: o servidor revalida no tenant comprovado.
+    return <main className={styles.page}>{cid&&data&&<ContextoKidmais tela="contrato" entidadeId={cid}/>}{retorno&&<Link href={retorno}>Voltar à festa</Link>}<div className={styles.tituloContratos}><h1>Contratos</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato antigo</Link></div><p role="alert">{error}</p>
  <label><input type="checkbox" checked={mostrarCancelados} onChange={e=>setMostrarCancelados(e.target.checked)}/> Incluir contratos cancelados</label>
  <label>Contrato <select aria-label="Contrato" value={cid} onChange={async (e) => { setCid(e.target.value); setData(null); setError('');setEditando(false); if(!e.target.value){return;} try {
         await load(e.target.value);
