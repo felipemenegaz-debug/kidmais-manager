@@ -145,3 +145,51 @@ export function criarRegistroUsoPostgres(banco: BancoUso, log: (linha: string) =
     },
   };
 }
+
+/** Linha do uso agrupado (visão de custos). Números como string no banco ⇒ convertidos aqui; null = desconhecido. */
+export type UsoAgrupado = {
+  estabelecimentoId: string | null; capacidade: string; provedor: string; modelo: string; dia: string; mes: string; moeda: string | null;
+  chamadas: number; tokensEntrada: number; tokensSaida: number; tokensDesconhecidos: number; custoMicros: number; custoDesconhecido: number;
+};
+export type ReservaAgrupada = { capacidade: string; dia: string; moeda: string | null; reservas: number; tokens: number; custoMicros: number; custoDesconhecido: number };
+
+/**
+ * Visão consolidada de custos de UMA empresa (a comprovada pelo Tenant Context, passada pela rota) num mês.
+ * Somente leitura. Sem as tabelas (migration 055a não aplicada) ⇒ `disponivel: false` (nunca zero inventado).
+ */
+export async function lerUsoAgrupado(tx: DbExecutor, empresaId: string, mes: string): Promise<{ disponivel: boolean; usos: UsoAgrupado[]; reservas: ReservaAgrupada[] }> {
+  const existe = await tx.query<{ ok: boolean }>(`SELECT to_regclass('public.ia_uso_modelo') IS NOT NULL AND to_regclass('public.ia_orcamento_reservas') IS NOT NULL AS ok`);
+  if (existe.rows[0]?.ok !== true) return { disponivel: false, usos: [], reservas: [] };
+  const usos = await tx.query<Record<string, string | number | null>>(
+    `SELECT estabelecimento_id::text AS estabelecimento_id, capacidade, provedor, modelo, periodo_dia::text AS dia, periodo_mes AS mes, moeda,
+            COUNT(*)::int AS chamadas,
+            COALESCE(SUM(tokens_entrada), 0)::text AS tokens_entrada, COALESCE(SUM(tokens_saida), 0)::text AS tokens_saida,
+            (COUNT(*) FILTER (WHERE tokens_entrada IS NULL OR tokens_saida IS NULL))::int AS tokens_desconhecidos,
+            COALESCE(SUM(custo_estimado_micros), 0)::text AS custo, (COUNT(*) FILTER (WHERE custo_estimado_micros IS NULL))::int AS custo_desconhecido
+       FROM ia_uso_modelo
+      WHERE empresa_id = $1::uuid AND periodo_mes = $2
+      GROUP BY estabelecimento_id, capacidade, provedor, modelo, periodo_dia, periodo_mes, moeda
+      ORDER BY periodo_dia, capacidade, modelo
+      LIMIT 5000`,
+    [empresaId, mes],
+  );
+  const reservas = await tx.query<Record<string, string | number | null>>(
+    `SELECT capacidade, periodo_dia::text AS dia, moeda, COUNT(*)::int AS reservas, COALESCE(SUM(tokens_reservados), 0)::text AS tokens,
+            COALESCE(SUM(custo_reservado_micros), 0)::text AS custo, (COUNT(*) FILTER (WHERE custo_reservado_micros IS NULL))::int AS custo_desconhecido
+       FROM ia_orcamento_reservas
+      WHERE empresa_id = $1::uuid AND periodo_mes = $2 AND estado IN ${CONTAM}
+      GROUP BY capacidade, periodo_dia, moeda
+      LIMIT 5000`,
+    [empresaId, mes],
+  );
+  const n = (v: string | number | null | undefined) => Number(v ?? 0);
+  const s = (v: string | number | null | undefined) => (v === null || v === undefined ? null : String(v));
+  return {
+    disponivel: true,
+    usos: usos.rows.map((r) => ({
+      estabelecimentoId: s(r.estabelecimento_id), capacidade: String(r.capacidade), provedor: String(r.provedor), modelo: String(r.modelo), dia: String(r.dia), mes: String(r.mes), moeda: s(r.moeda),
+      chamadas: n(r.chamadas), tokensEntrada: n(r.tokens_entrada), tokensSaida: n(r.tokens_saida), tokensDesconhecidos: n(r.tokens_desconhecidos), custoMicros: n(r.custo), custoDesconhecido: n(r.custo_desconhecido),
+    })),
+    reservas: reservas.rows.map((r) => ({ capacidade: String(r.capacidade), dia: String(r.dia), moeda: s(r.moeda), reservas: n(r.reservas), tokens: n(r.tokens), custoMicros: n(r.custo), custoDesconhecido: n(r.custo_desconhecido) })),
+  };
+}

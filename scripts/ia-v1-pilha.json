@@ -51,6 +51,11 @@
       "pr": "OBSERVABILIDADE_V1",
       "branch": "ai-v1/09-observabilidade",
       "descricao": "Observabilidade V1: trace com traceId, estabelecimento (null na V1), skills, classificador JEV, proposta de ação e versões de Registry/Policy; saneamento de formato fechado com redação de PII/segredos; métricas agregadas sem custo desconhecido virar zero"
+    },
+    {
+      "pr": "CUSTOS_V1",
+      "branch": "ai-v1/10-custos",
+      "descricao": "Custos V1: visão consolidada (empresa comprovada, estabelecimento, capacidade, modelo, dia/mês, reservas abertas) só para a Gestão; custo desconhecido nunca vira zero; leitura das tabelas ia_* sem escrita; orçamento segue fail-closed"
     }
   ]
 }

@@ -7,8 +7,9 @@ import { contratoNoTenant } from "@/lib/contratos/services/contrato-tenant";
 import { db, withTransaction } from "@/lib/db/postgres";
 import { FestaError, consultarFestas } from "@/lib/festas/service";
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from "@/lib/http/admin-crm-api";
-import { criarRegistroUsoPostgres } from "@/lib/ia-persistencia/uso";
+import { criarRegistroUsoPostgres, lerUsoAgrupado } from "@/lib/ia-persistencia/uso";
 import type { DependenciasConversa } from "@/lib/inteligencia/conversa";
+import type { DependenciasCustos } from "@/lib/inteligencia/custos";
 import { CHAVE_AGENTES, CHAVE_CATALOGO_SKILLS, CHAVE_CLASSIFICADOR_AUXILIAR, CHAVE_COPILOTO, CHAVE_MODULO_ACOES, CHAVE_ORQUESTRADOR } from "@/lib/inteligencia/extensoes";
 import type { PortasDominio } from "@/lib/inteligencia/ferramentas";
 import type { DependenciasGateway } from "@/lib/inteligencia/gateway";
@@ -71,6 +72,21 @@ export function dependenciasGateway(request: NextRequest): DependenciasGateway {
     requestId: randomUUID,
     registrar: (rastreio) => registrarRastreio(rastreio),
     portas: portasDominio(request),
+  };
+}
+
+/** Visão de custos: leitura agrupada das tabelas ia_* da empresa comprovada; moeda do pricing configurado. */
+export function dependenciasCustos(request: NextRequest): DependenciasCustos {
+  const base = dependenciasGateway(request);
+  return {
+    env: base.env,
+    autenticar: base.autenticar,
+    withTenantTransaction,
+    lerUso: (tx, empresaId, mes) => lerUsoAgrupado(tx, empresaId, mes),
+    moeda: () => tabelaDoAmbiente(process.env)?.moeda ?? null,
+    agora: base.agora,
+    requestId: base.requestId,
+    registrar: base.registrar,
   };
 }
 

@@ -72,7 +72,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/db/postgres": ["db", "withTransaction"],
   "lib/clientes/services": ["obterClienteBase", "analisarCadastroCliente", "cadastrarClienteInterno"],
   "lib/festas/service": ["FestaError", "consultarFestas"],
-  "lib/ia-persistencia/uso": ["criarRegistroUsoPostgres"],
+  "lib/ia-persistencia/uso": ["criarRegistroUsoPostgres", "lerUsoAgrupado"],
   // AI V1 (agentes): posse do contrato na empresa comprovada e detalhe do domínio para comparar versões.
   "lib/contratos/services/contrato-tenant": ["contratoNoTenant"],
   "lib/contratos/services/administrativo.service": ["detalheAdministrativo"],
