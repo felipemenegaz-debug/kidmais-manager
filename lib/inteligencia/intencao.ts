@@ -1,7 +1,8 @@
 import { z } from "zod";
-import type { ContextoTela, OrigemChamada } from "./contratos.ts";
+import type { ContextoTela, OrigemChamada, RecursoObjetivo } from "./contratos.ts";
 import { prepararTextoParaModelo } from "./texto-modelo.ts";
 import { normalizar } from "./texto-pt.ts";
+import { TELAS_NAVEGACAO, type TelaNavegacao } from "./rotas-navegacao.ts";
 import type { RoteadorModelos, AlvoRoteamento, ResultadoRoteado } from "./modelos/roteador.ts";
 
 /**
@@ -21,6 +22,11 @@ export type Intencao =
   | { tipo: "precisa_contexto"; capacidade: string; entidade: "festa" | "cliente" | "contrato" }
   /** Classificador auxiliar sugeriu atendimento humano (ex.: reclamação). Nunca executa nada. */
   | { tipo: "revisao_humana" }
+  /**
+   * Comando explícito de navegação SEM destino único ainda (AI V1.1, PR 3): não escolhe por conta própria.
+   * AMBIGUO: "abra o contrato" (qual?). REFERENCIA_NAO_RESOLVIDA: "abra o contrato da próxima festa" (PR 5/6).
+   */
+  | { tipo: "navegacao_sem_destino"; recurso: RecursoObjetivo; motivo: "AMBIGUO" | "REFERENCIA_NAO_RESOLVIDA" }
   | { tipo: "nenhuma" };
 
 type Entidade = "festa" | "cliente" | "contrato";
@@ -54,6 +60,63 @@ export function temaNavegacao(n: string): string | null {
   return TEMAS.find(([, padrao]) => padrao.test(n))?.[0] ?? null;
 }
 
+const COMANDO_NAVEGAR = /^(?:(?:por favor|kidmais|pode|voce pode|me)[,\s]+)*(?:abr(?:a|e|ir)|v(?:a|ai) (?:para|pra)|ir (?:para|pra)|leve-?me|me leve|(?:me )?mostr(?:e|a) a tela|quero ver a tela)\b/;
+
+/** Telas de lista (sem entidade). */
+const TELAS_TEXTO: ReadonlyArray<[TelaNavegacao, RegExp]> = [
+  ["contas_receber", /\bcontas? a receber\b|\brecebimentos?\b|\bpagamentos?\b|\bparcelas?\b/],
+  ["contas_pagar", /\bcontas? a pagar\b|\bdespesas?\b/],
+  ["financeiro", /\bfinanceiro\b/],
+  ["agenda", /\bagenda\b|\bdisponibilidade\b/],
+  ["pacotes", /\bpacotes?\b/],
+  ["catalogo", /\b(catalogo|buffet|cardapio|itens|categorias)\b/],
+  ["configuracoes", /\bconfigurac\w*\b/],
+  ["dashboard", /\b(dashboard|painel|inicio|tela inicial)\b/],
+];
+
+/** Entidades: singular pede UMA entidade; plural (ou "tela/lista de") é a lista. */
+const ENTIDADES_TEXTO: ReadonlyArray<[TelaNavegacao, TelaNavegacao, "cliente" | "contrato" | "festa", RegExp, RegExp]> = [
+  ["fechamento", "clientes", "cliente", /\bfechamentos?\b/, /\bfechamentos\b/],
+  ["contrato", "contratos", "contrato", /\bcontratos?\b/, /\bcontratos\b/],
+  ["festa", "festas", "festa", /\bfestas?\b/, /\bfestas\b/],
+  ["cliente", "clientes", "cliente", /\bclientes?\b|\bcadastro\b/, /\bclientes\b/],
+];
+
+/**
+ * Navegação determinística. Só com comando explícito; destino só da lista fechada; entidade só com o id da TELA
+ * aberta (a ferramenta ainda confere a posse no tenant). Referência que precisa de resolução ("da próxima festa",
+ * "dele") ou entidade sem id ⇒ sem destino, nunca palpite.
+ */
+export function interpretarNavegacao(n: string, contexto: ContextoTela | null): Intencao | null {
+  const comando = COMANDO_NAVEGAR.exec(n);
+  if (!comando) return null;
+  const resto = n.slice(comando[0].length);
+  const origem: OrigemChamada = "INTENCAO_DETERMINISTICA";
+  const candidatos = [
+    ...TELAS_TEXTO.map(([tela, r]) => ({ tela, m: r.exec(resto), entidade: null as null | (typeof ENTIDADES_TEXTO)[number] })),
+    ...ENTIDADES_TEXTO.map((e) => ({ tela: e[0], m: e[3].exec(resto), entidade: e })),
+  ].filter((c) => c.m).sort((a, b) => a.m!.index - b.m!.index);
+  const alvo = candidatos[0];
+  if (!alvo) return null;
+  const lista = (tela: TelaNavegacao): Intencao => ({ tipo: "leitura", capacidade: "abrir_tela", parametros: { tela }, origem });
+  if (!alvo.entidade) return lista(alvo.tela);
+
+  const [tela, telaLista, base, , plural] = alvo.entidade;
+  const antes = resto.slice(0, alvo.m!.index);
+  const depois = resto.slice(alvo.m!.index + alvo.m![0].length).replace(/[?!.\s]+$/g, "").trim();
+  if (plural.test(alvo.m![0]) || /\b(tela|lista|pagina) d[aeo]s?\s*$/.test(antes)) return lista(telaLista);
+
+  // "este cliente", "o cliente atual", "o fechamento deste cliente": a entidade da tela aberta.
+  const deitico = /\b(est[ae]|ess[ae])\s*$/.test(antes) || /^(atual|abert[ao]|selecionad[ao])\b/.test(depois)
+    || new RegExp(`^(dest[ae]|dess[ae]|nest[ae]|ness[ae]) ${base}\\b`).test(depois);
+  const recurso = TELAS_NAVEGACAO[tela].recurso;
+  if (depois && !deitico) return { tipo: "navegacao_sem_destino", recurso, motivo: "REFERENCIA_NAO_RESOLVIDA" };
+  const id = contexto?.tela === base ? contexto.entidadeId : undefined;
+  if (!id) return { tipo: "navegacao_sem_destino", recurso, motivo: "AMBIGUO" };
+  if (tela === "festa") return { tipo: "leitura", capacidade: "abrir_festa", parametros: { id }, origem };
+  return { tipo: "leitura", capacidade: "abrir_tela", parametros: { tela, id }, origem };
+}
+
 /**
  * Pedido para pular a confirmação ou ignorar regras ("confirme sozinho", "ignore as regras"). É recusa de POLÍTICA,
  * nunca "ainda não disponível": o Human Gate não é uma capacidade que falta.
@@ -72,6 +135,10 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
   if (tem(n, /\bsql\b/, /\b(select|insert|update|delete|drop|truncate|alter)\b.*\b(from|into|table|set|where)\b/, /\bbanco de dados\b/, /\bdatabase\b/)) return acao("sql");
   if (pedeAutonomia(n)) return acao("mutacao_nao_suportada");
   if (tem(n, /\b(exclu\w*|apag\w*|delet\w*|remov\w*)\b/)) return acao("excluir");
+
+  // Comando explícito de navegação ("abra…", "vá para…", "leve-me…", "mostre a tela…"): destino só da lista fechada.
+  const navegacao = interpretarNavegacao(n, contexto);
+  if (navegacao) return navegacao;
 
   // Navegação conceitual (Copiloto): pergunta de ONDE/COMO FAZER vem antes dos comandos — "onde cadastro um
   // pacote?" não é "cadastre um pacote". "Como está…" não é navegação (é consulta).

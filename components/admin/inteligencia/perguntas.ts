@@ -62,6 +62,9 @@ const GATILHOS: Readonly<Record<CapacidadeDisponivel["capacidade"], readonly Reg
  */
 const PEDIDO_DE_ACAO = /\b(cri[ae]r?|envi[ae]r?|mand[ae]r?|registr[ae]r?|cancel[ae]r?|exclu[ai]r?|apag[ae]r?|alter[ae]r?|mud[ae]r?|ger[ae]r?|cobr[ae]r?|quit[ae]r?|delete|drop|update|insert)\b/;
 
+/** Mesmo padrão de comando explícito de navegação do servidor (lib/inteligencia/intencao.ts). */
+const COMANDO_NAVEGAR = /^(?:(?:por favor|kidmais|pode|voce pode|me)[,\s]+)*(?:abr(?:a|e|ir)|v(?:a|ai) (?:para|pra)|ir (?:para|pra)|leve-?me|me leve|(?:me )?mostr(?:e|a) a tela|quero ver a tela)\b/;
+
 const DIACRITICOS = /[̀-ͯ]/g;
 
 export function normalizarPergunta(texto: string) {
@@ -72,6 +75,8 @@ export function interpretarPergunta(texto: string): Interpretacao {
   const normalizada = normalizarPergunta(texto.slice(0, LIMITE_PERGUNTA));
   if (!normalizada) return { tipo: "vazia" };
   if (PEDIDO_DE_ACAO.test(normalizada)) return { tipo: "indisponivel" };
+  // Comando de navegação ("abra a tela de contas a receber") nunca é o atalho da V1: o servidor decide o destino.
+  if (COMANDO_NAVEGAR.test(normalizada)) return { tipo: "indisponivel" };
   for (const { capacidade } of CAPACIDADES_DISPONIVEIS) {
     if (GATILHOS[capacidade].some((gatilho) => gatilho.test(normalizada))) return { tipo: "capacidade", capacidade };
   }

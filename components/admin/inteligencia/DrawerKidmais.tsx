@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { CAPACIDADES_DISPONIVEIS, LIMITE_PERGUNTA, sugestoesPara } from './perguntas';
 import type { ContextoTela, RascunhoPublico } from './cliente-inteligencia';
@@ -108,6 +109,10 @@ export default function DrawerKidmais({ mensagens, aguardando, contexto = null, 
           {mensagem.fase === 'rascunho' && <RascunhoAcao rascunho={mensagem.rascunho} pergunta={mensagem.perguntaKidmais} erro={mensagem.erro ?? null} />}
           {mensagem.fase === 'preview' && <PreviewAcao rascunho={mensagem.rascunho} decidindo={mensagem.decidindo} erro={mensagem.erro} onDecidir={onDecidir} />}
           {mensagem.fase === 'resultado' && <ResultadoAcao mensagem={mensagem.mensagem} destino={mensagem.destino} aoNavegar={onFechar} />}
+          {mensagem.fase === 'navegacao' && <div className={styles.indisponivel}>
+            <p role="status">Abrindo {mensagem.rotulo}.</p>
+            <Link className={styles.sugestaoCurta} href={mensagem.destino} onClick={onFechar}>Abrir de novo</Link>
+          </div>}
           {(mensagem.fase === 'nao_suportado' || mensagem.fase === 'precisa_contexto') && <div className={styles.indisponivel}>
             <p>{mensagem.mensagem}</p>
             {mensagem.fase === 'nao_suportado' && mensagem.sugestoes.map((s) => <button key={s} type="button" className={styles.sugestaoCurta} onClick={() => enviar(s)}>{s}</button>)}

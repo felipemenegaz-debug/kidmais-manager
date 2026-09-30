@@ -20,6 +20,8 @@ export type Mensagem = { id: number; pergunta: string } & (
   | { fase: 'resultado'; rascunho: RascunhoPublico; mensagem: string; destino?: string }
   | { fase: 'nao_suportado'; mensagem: string; sugestoes: string[] }
   | { fase: 'precisa_contexto'; mensagem: string }
+  /** Navegação interna já validada: o drawer navega sozinho e deixa o link como registro. */
+  | { fase: 'navegacao'; destino: string; rotulo: string }
   | { fase: 'indisponivel' }
   /** `reenviavel`: perguntar de novo é seguro (leitura ou pergunta nova; nunca resposta a rascunho nem confirmação). */
   | { fase: 'erro'; mensagem: string; reenviavel: boolean }
@@ -39,6 +41,7 @@ export function categoriaDa(m: Mensagem): Categoria | null {
     case 'leitura':
     case 'nao_suportado':
     case 'precisa_contexto':
+    case 'navegacao':
     case 'indisponivel':
     case 'resultado':
       return 'informacao';
@@ -85,6 +88,7 @@ export function mensagemDaConversa(id: number, pergunta: string, resultado: Resu
     case 'resultado_acao': return { id, pergunta, fase: 'resultado', rascunho: r.rascunho, mensagem: r.mensagem, ...(r.destino ? { destino: r.destino } : {}) };
     case 'nao_suportado': return { id, pergunta, fase: 'nao_suportado', mensagem: r.mensagem, sugestoes: r.sugestoes };
     case 'precisa_contexto': return { id, pergunta, fase: 'precisa_contexto', mensagem: r.mensagem };
+    case 'navegacao': return { id, pergunta, fase: 'navegacao', destino: r.destino, rotulo: r.rotulo };
   }
 }
 

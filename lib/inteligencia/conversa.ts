@@ -12,13 +12,14 @@ import {
   classificar, comEstabelecimento, executarLeitura, exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado, unidadeDe,
   type DependenciasGateway, type PedidoGateway, type RespostaGateway,
 } from "./gateway.ts";
-import { explicarResposta, mensagemIndisponivel, mensagemPrecisaContexto, objetivoDaCapacidade, objetivoDoTexto } from "./entendimento.ts";
+import { explicarResposta, mensagemIndisponivel, mensagemNavegacaoSemDestino, mensagemPrecisaContexto, objetivoDaCapacidade, objetivoDoTexto } from "./entendimento.ts";
 import { interpretarComModelo, interpretarDeterministico, pedeAutonomia, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
 import type { RoteadorModelos } from "./modelos/roteador.ts";
 import { avaliarPolitica } from "./politica.ts";
 import { decidirPolitica } from "./politica-v1.ts";
 import { SUGESTAO_POR_FINALIDADE, manifestoAcao, manifestoLeitura, manifestoSugestao } from "./registro-ferramentas.ts";
 import { normalizar } from "./texto-pt.ts";
+import { TELAS_NAVEGACAO, destinoSeguro, type TelaNavegacao } from "./rotas-navegacao.ts";
 import { anotarOrquestracao, anotarSkill, anotarUsoModelo, novoRastreio, type RastreioInteligencia } from "./rastreio.ts";
 
 /**
@@ -83,7 +84,7 @@ function papelParaPolitica(sessao: SessaoParaTenant, tenant: TenantComprovado): 
 /** Catálogo que o operador pode usar agora: filtra por papel e flags; ações de tela ficam fora. */
 export function catalogoDisponivel(env: DependenciasGateway["env"], papel: string, acoes: ModuloAcoes | null): CapacidadeCatalogo[] {
   const leituras = Object.values(ferramentas)
-    .filter((f) => manifestoLeitura(f) !== null && grupoAtivo(env, f.grupo) && avaliarPolitica({ papel }, f, "LEITURA") === "PERMITIDO")
+    .filter((f) => !CAPACIDADES_NAVEGACAO.has(f.capacidade) && manifestoLeitura(f) !== null && grupoAtivo(env, f.grupo) && avaliarPolitica({ papel }, f, "LEITURA") === "PERMITIDO")
     .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura", ...(f.entidade ? { entidade: f.entidade } : {}) }));
   const doModulo = (acoes?.todas() ?? [])
     .filter((a) => a.origem !== "TELA" && manifestoAcao(a) !== null)
@@ -91,6 +92,12 @@ export function catalogoDisponivel(env: DependenciasGateway["env"], papel: strin
     .map((a): CapacidadeCatalogo => ({ id: a.capacidade, descricao: a.descricao, tipo: "acao" }));
   return [...leituras, ...doModulo];
 }
+
+/**
+ * Navegação só por regra determinística (comando explícito + destino da lista fechada): nunca oferecida ao modelo
+ * de intenção nem ao classificador auxiliar, que não escolhem tela.
+ */
+const CAPACIDADES_NAVEGACAO: ReadonlySet<string> = new Set(["abrir_tela", "abrir_festa"]);
 
 const SUGESTOES_PADRAO = ["O que precisa da minha atenção hoje?", "Quais contratos estão pendentes?", "Como está a agenda de hoje?", "Quanto recebemos este mês?"];
 
@@ -175,6 +182,8 @@ type Execucao = {
   rastreio: RastreioInteligencia;
   contextoExtensao: (tx: ContextoExtensao["tx"], tenant: ContextoExtensao["tenant"]) => ContextoExtensao;
   contexto: ContextoTela | null;
+  /** Comando de navegação sem destino único (PR 3), visto pelas regras: a finalização diz por quê. */
+  navegacaoPendente?: Extract<Intencao, { tipo: "navegacao_sem_destino" }>;
 };
 
 /** Leitura pelo caminho único do gateway: registro fechado → flag → Policy → Tenant Context → serviço de domínio. */
@@ -182,8 +191,32 @@ async function responderLeitura(capacidade: string, parametros: Record<string, u
   e.rastreio.intencao = origem;
   const ferramenta = ferramentaRegistrada(capacidade);
   if (!ferramenta) return naoSuportado("Essa análise ainda não está disponível no Kidmais.");
-  const dados = await executarLeitura(ferramenta, parametros, e.sessao, e.pedido.empresaSolicitada, e.deps, e.rastreio);
+  const tela = CAPACIDADES_NAVEGACAO.has(capacidade) ? (capacidade === "abrir_festa" ? "festa" : String(parametros.tela ?? "")) as TelaNavegacao : null;
+  let dados: Awaited<ReturnType<typeof executarLeitura>>;
+  try {
+    dados = await executarLeitura(ferramenta, parametros, e.sessao, e.pedido.empresaSolicitada, e.deps, e.rastreio);
+  } catch (erro) {
+    // Entidade de outra empresa / Policy: navegação negada (fail-closed); o erro segue o tratamento da conversa.
+    if (tela) e.rastreio.navegacao = { recurso: TELAS_NAVEGACAO[tela]?.recurso ?? null, tela, resultado: "NEGADO", motivo: null };
+    throw erro;
+  }
+  if (tela) return respostaDeNavegacao(tela, dados as unknown as RespostaLeitura, e.rastreio);
   return { tipo: "resposta", dados: dados as unknown as RespostaLeitura | AtencaoHoje };
+}
+
+/**
+ * Leitura de navegação ⇒ resposta de navegação. O destino é REVALIDADO contra a lista fechada: qualquer coisa fora
+ * dela (esquema, host, "..", rota desconhecida) é descartada e a resposta vira recusa, sem navegar.
+ */
+function respostaDeNavegacao(tela: TelaNavegacao, dados: RespostaLeitura, rastreio: RastreioInteligencia): AIResponse {
+  const destino = dados.itens[0]?.destino;
+  const alvo = TELAS_NAVEGACAO[tela];
+  if (!alvo || !destinoSeguro(destino)) {
+    rastreio.navegacao = { recurso: alvo?.recurso ?? null, tela: alvo ? tela : null, resultado: "DESTINO_INVALIDO", motivo: null };
+    return naoSuportado("Não consegui abrir essa tela com segurança agora.");
+  }
+  rastreio.navegacao = { recurso: alvo.recurso, tela, resultado: "NAVEGADO", motivo: null };
+  return { tipo: "navegacao", tela, recurso: alvo.recurso, destino, rotulo: alvo.rotulo, entendimento: "EXECUTADO", objetivo: `ABRIR:${alvo.recurso}` };
 }
 
 /** Ação: DENY/TELA/flag respondem honestamente; CONFIRM só abre rascunho sob Human Gate (nunca executa aqui). */
@@ -239,13 +272,28 @@ async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execu
  * Estado de entendimento + objetivo em TODA resposta e no trace (inclusive pedido de contexto e recusa). Só troca o
  * "não sei" genérico pelo que foi entendido; nunca cria rota, leitura ou ação.
  */
-function finalizar(resposta: AIResponse, texto: string, rastreio: RastreioInteligencia): AIResponse {
+/** Resposta honesta a um comando de abrir sem destino único. Nunca escolhe um destino por conta própria. */
+function semDestino(n: Extract<Intencao, { tipo: "navegacao_sem_destino" }>): AIResponse {
+  return {
+    ...naoSuportado(mensagemNavegacaoSemDestino(n.recurso, n.motivo)),
+    entendimento: n.motivo === "AMBIGUO" ? "AMBIGUO" : "CAPACIDADE_INDISPONIVEL",
+    objetivo: `ABRIR:${n.recurso}`,
+  };
+}
+
+function finalizar(resposta: AIResponse, texto: string, rastreio: RastreioInteligencia, pendente?: Execucao["navegacaoPendente"]): AIResponse {
+  // Demerzel devolveu o "não sei" genérico para um comando de abrir já entendido pelas regras.
+  if (pendente && resposta.tipo === "nao_suportado" && !resposta.entendimento) resposta = semDestino(pendente);
   const capacidade = rastreio.capacidade
     ?? (resposta.tipo === "resposta" && "capacidade" in resposta.dados ? resposta.dados.capacidade : null)
     ?? (resposta.tipo === "rascunho" || resposta.tipo === "preview" ? resposta.rascunho.capacidade : null);
   const final = explicarResposta(resposta, texto, capacidade, { parada: rastreio.orquestracao?.parada ?? null, politica: rastreio.politica });
   rastreio.entendimento = final.entendimento ?? null;
   rastreio.objetivo = final.objetivo ?? null;
+  // Comando de abrir sem destino único: registra por quê (ambíguo ou referência ainda não resolvida).
+  if (!rastreio.navegacao && final.tipo !== "navegacao" && final.objetivo?.startsWith("ABRIR:")) {
+    rastreio.navegacao = { recurso: final.objetivo.split(":")[1] as RecursoObjetivo, tela: null, resultado: final.entendimento === "AMBIGUO" ? "AMBIGUO" : "SEM_DESTINO", motivo: final.entendimento ?? null };
+  }
   return final;
 }
 
@@ -266,6 +314,11 @@ async function responderIntencao(intencao: Intencao, contexto: ContextoTela | nu
     return { tipo: "precisa_contexto", mensagem: mensagemPrecisaContexto(intencao.entidade) };
   }
   if (intencao.tipo === "leitura") return responderLeitura(intencao.capacidade, intencao.parametros, intencao.origem, e);
+  if (intencao.tipo === "navegacao_sem_destino") {
+    // Sem destino único: diz o que foi entendido (ambíguo ou referência ainda não resolvida); nunca escolhe.
+    rastreio.estado = "nao_suportado";
+    return semDestino(intencao);
+  }
   void contexto;
   return responderAcao(intencao.capacidade, intencao.origem, e);
 }
@@ -282,7 +335,11 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
   const tenant = () => (tenantPedido ??= tenantParaModelo(sessao, pedido, deps, rastreio));
   return {
     catalogo: catalogoDisponivel(deps.env, sessao.papel, deps.acoes),
-    interpretar: (texto, contexto) => interpretarDeterministico(texto, contexto),
+    interpretar: (texto, contexto) => {
+      const intencao = interpretarDeterministico(texto, contexto);
+      if (intencao.tipo === "navegacao_sem_destino") e.navegacaoPendente = intencao;
+      return intencao;
+    },
     sugerirRota: (texto, contexto) => consultarAuxiliar(texto, contexto, sessao, deps),
     interpretarComModelo: (texto, contexto) => interpretarPorModelo(texto, contexto, sessao, pedido, deps, rastreio, usos),
     portaModelo() {
@@ -444,7 +501,7 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     if (orquestrador && demerzelAtivo(deps.env)) {
       const { resposta } = await orquestrador.atender({ texto: entrada.texto, contexto }, portasOrquestracao(execucao, []));
       rastreio.estado ??= resposta.tipo;
-      return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio) } };
+      return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio, execucao.navegacaoPendente) } };
     }
 
     const intencao = await resolverIntencao(entrada.texto, contexto, sessao, pedido, deps, rastreio);
@@ -458,7 +515,7 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     rastreio.fallback = rastreio.fallback || falha.fallback;
     // Tenant Context / Policy / entidade de outra empresa: recusa fail-closed, registrada como tal.
     rastreio.entendimento = falha.status === 401 || falha.status === 403 || falha.status === 404 ? "NEGADO_POLITICA" : null;
-    rastreio.objetivo ??= objetivoDaCapacidade(rastreio.capacidade);
+    rastreio.objetivo ??= objetivoDaCapacidade(rastreio.capacidade) ?? (rastreio.navegacao?.recurso ? `ABRIR:${rastreio.navegacao.recurso}` : null);
     return { status: falha.status, corpo: { ok: false, erro: falha.erro, codigo: falha.codigo } };
   } finally {
     rastreio.duracaoMs = Math.max(0, Math.round(relogio() - inicio));

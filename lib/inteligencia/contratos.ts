@@ -173,8 +173,16 @@ export type EstadoEntendimento =
 
 /** Objetivo do pedido (ação × recurso), de listas fechadas. Descreve o pedido; nunca autoriza nem escolhe ferramenta. */
 export type AcaoObjetivo = "CONSULTAR" | "LOCALIZAR" | "ABRIR" | "CRIAR" | "EDITAR" | "EXCLUIR" | "ENVIAR" | "REGISTRAR" | "CANCELAR";
-export type RecursoObjetivo = "DASHBOARD" | "FESTA" | "CLIENTE" | "CONTRATO" | "PAGAMENTO" | "FINANCEIRO" | "AGENDA" | "CATEGORIA" | "ITEM" | "PACOTE" | "MENSAGEM" | "CONFIGURACAO";
+export type RecursoObjetivo = "DASHBOARD" | "FESTA" | "CLIENTE" | "CONTRATO" | "PAGAMENTO" | "FINANCEIRO" | "AGENDA" | "CATEGORIA" | "ITEM" | "PACOTE" | "MENSAGEM" | "CONFIGURACAO" | "FECHAMENTO";
 export type ObjetivoIA = `${AcaoObjetivo}:${RecursoObjetivo}`;
+
+/** Resultado da navegação no trace (só códigos). */
+export type NavegacaoRastreio = {
+  recurso: RecursoObjetivo | null;
+  tela: string | null;
+  resultado: "NAVEGADO" | "AMBIGUO" | "SEM_DESTINO" | "NEGADO" | "DESTINO_INVALIDO";
+  motivo: string | null;
+};
 
 export type AIResponse = (
   /** `atencao_hoje` (V1) mantém o próprio formato; as demais leituras usam RespostaLeitura. */
@@ -186,6 +194,11 @@ export type AIResponse = (
   | { tipo: "resultado_acao"; rascunho: RascunhoPublico; mensagem: string; destino?: string }
   | { tipo: "nao_suportado"; mensagem: string; sugestoes: string[] }
   | { tipo: "precisa_contexto"; mensagem: string }
+  /**
+   * Navegação interna (AI V1.1, PR 3): destino SÓ da lista fechada de rotas (rotas-navegacao.ts), revalidado aqui e
+   * na UI antes de navegar. Não altera estado; a UI navega sozinha porque o pedido foi um comando explícito.
+   */
+  | { tipo: "navegacao"; tela: string; recurso: RecursoObjetivo; destino: string; rotulo: string }
 ) & {
   /** Fixado pela conversa em toda resposta (quem decide explicitamente, como um agente, pode antecipar). */
   entendimento?: EstadoEntendimento;
@@ -302,6 +315,8 @@ export type AuditTrace = {
   /** AI V1.1: estado de entendimento e objetivo (enums fechados), também em pedidos de contexto, recusas e erros. */
   entendimento: EstadoEntendimento | null;
   objetivo: ObjetivoIA | null;
+  /** AI V1.1 (PR 3): navegação pedida neste pedido (tela da lista fechada, nunca a URL); null quando não houve. */
+  navegacao: NavegacaoRastreio | null;
   itens: number | null;
   causa: string | null;
   /** Resposta degradada (erro tratado com mensagem segura; o Core segue funcionando). */

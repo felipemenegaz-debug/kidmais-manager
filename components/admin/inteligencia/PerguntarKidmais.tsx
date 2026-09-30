@@ -1,8 +1,9 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { interpretarPergunta } from './perguntas';
-import { consultarAtencaoHoje, conversar, decidirOperacao, type ContextoTela, type RascunhoPublico } from './cliente-inteligencia';
+import { consultarAtencaoHoje, conversar, decidirOperacao, rotaInternaSegura, type ContextoTela, type RascunhoPublico } from './cliente-inteligencia';
 import {
   adicionarPergunta, aguardandoResposta, cancelarEspera, marcarDecisao, perguntaEmCurso, perguntaReenviavel, rascunhoAberto, registrarConversa, registrarDecisao,
   registrarResultado, type Mensagem,
@@ -35,6 +36,7 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
   const emCurso = useRef(false);
   const controle = useRef<AbortController | null>(null);
   const historico = useRef<Mensagem[]>([]);
+  const router = useRouter();
   useEffect(() => { historico.current = mensagens; }, [mensagens]);
 
   const abrir = useCallback(() => {
@@ -66,12 +68,17 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
         const resultado = await conversar(adminFetch, { texto: pergunta, contexto, ...(rascunho ? { operacaoId: rascunho.operacaoId } : {}) }, abortar.signal);
         // Resposta a rascunho não é repetida automaticamente: o operador vê o estado atual e decide.
         setMensagens((h) => registrarConversa(h, id, resultado, !rascunho));
+        // Navegação pedida explicitamente, com destino único da lista fechada (revalidado aqui): abre a tela.
+        if (!abortar.signal.aborted && resultado.tipo === 'ok' && resultado.resposta.tipo === 'navegacao' && rotaInternaSegura(resultado.resposta.destino)) {
+          router.push(resultado.resposta.destino);
+          fechar();
+        }
       }
     } finally {
       emCurso.current = false;
       controle.current = null;
     }
-  }, [contexto]);
+  }, [contexto, router, fechar]);
 
   /** Cancela só a ESPERA da pergunta em curso; o clique de confirmação nunca passa por aqui. */
   const cancelar = useCallback(() => {
