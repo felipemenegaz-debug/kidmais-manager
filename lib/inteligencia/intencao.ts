@@ -135,6 +135,12 @@ function interpretarLeituraAncora(texto: string, n: string, contexto: ContextoTe
   const origem: OrigemChamada = "INTENCAO_DETERMINISTICA";
   const leitura = (capacidade: string, parametros: Record<string, unknown> = {}): Intencao => ({ tipo: "leitura", capacidade, parametros, origem });
   const outroRecurso = /\b(cliente|contrato|pagamento|parcela|saldo|valor|convidad\w*)\b/;
+  const pergunta = /^(qual|quais|quando|quanto|quem|liste|mostre|me mostre|me diga|veja)\b/;
+
+  // PR 5.5: "qual é o último contrato?" (critério do painel de Contratos) e "próxima parcela a vencer" (empresa;
+  // com festa/contrato na tela ou no foco, o resolver estreita para o contrato dele).
+  if (/\b(ultimo|mais recente) contrato\b/.test(n) && pergunta.test(n)) return leitura("ultimo_contrato");
+  if (/\bproxima parcela\b/.test(n) && pergunta.test(n)) return leitura("proxima_parcela");
 
   // "qual é a próxima festa?", "quais as próximas festas?", "liste as próximas festas" (sem outro recurso no pedido).
   if (/\bproximas? festas?\b/.test(n) && /^(qual|quais|quando|liste|mostre|me mostre|me diga|veja)\b/.test(n) && !outroRecurso.test(n)) {

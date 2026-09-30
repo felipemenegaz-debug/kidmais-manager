@@ -294,12 +294,20 @@ function semDestino(n: Extract<Intencao, { tipo: "navegacao_sem_destino" }>): AI
 
 // ---------------------------------------------------------------- PR 5: referências e foco
 
+/**
+ * Leituras que uma pergunta FINANCEIRA com referência (festa/contrato) pode estreitar: as da empresa inteira e os
+ * resumos padrão da tela ("quanto falta pagar?" na tela do contrato/festa pede o saldo, não o resumo).
+ */
+const LEITURAS_ESTREITAVEIS: ReadonlySet<string> = new Set(["analisar_recebiveis", "proxima_parcela", "atencao_hoje", "resumir_contrato", "resumir_festa", "pendencias_da_festa"]);
+
 const ACOES_DE_MUTACAO = new Set(["CRIAR", "EDITAR", "EXCLUIR", "ENVIAR", "REGISTRAR", "CANCELAR"]);
 
 /** Entidade resolvida ⇒ intenção pelas mesmas ferramentas guardadas (leitura do resumo ou navegação). */
-function intencaoPara(entidade: EntidadeRef, texto: string): Intencao | null {
+function intencaoPara(entidade: EntidadeRef, texto: string, financeiro?: "SALDO" | "PARCELA"): Intencao | null {
   const acao = objetivoDoTexto(texto).acao;
   const origem: OrigemChamada = "INTENCAO_DETERMINISTICA";
+  // Pergunta financeira sobre a entidade referida: a posição oficial do CONTRATO dela (PR 5.5).
+  if (financeiro) return entidade.tipo === "CONTRATO" ? { tipo: "leitura", capacidade: financeiro === "SALDO" ? "saldo_contrato" : "proxima_parcela", parametros: { id: entidade.id }, origem } : null;
   if (acao && ACOES_DE_MUTACAO.has(acao)) return null; // Mutação segue o caminho atual (Human Gate/indisponível).
   if (acao === "ABRIR") {
     if (entidade.tipo === "FESTA") return { tipo: "leitura", capacidade: "abrir_festa", parametros: { id: entidade.id }, origem };
@@ -340,10 +348,12 @@ function respostaDaResolucao(r: Resolucao): AIResponse | null {
  */
 async function preResolver(e: Execucao): Promise<{ intencao?: Intencao; resposta?: AIResponse } | null> {
   const regras = interpretarDeterministico(e.texto, e.contexto);
-  if (regras.tipo === "leitura" || regras.tipo === "acao" || regras.tipo === "revisao_humana") return null;
+  // Leitura da empresa ou resumo padrão da tela pode ser estreitado ao saldo/parcela do contrato referido (só se a pergunta for financeira).
+  const estreitavel = regras.tipo === "leitura" && LEITURAS_ESTREITAVEIS.has(regras.capacidade);
+  if ((regras.tipo === "leitura" && !estreitavel) || regras.tipo === "acao" || regras.tipo === "revisao_humana") return null;
   const hoje = hojeBrasilia(e.deps.agora());
   const referencia = detectarReferencia(e.texto, hoje);
-  if (!referencia) return null;
+  if (!referencia || (estreitavel && !referencia.financeiro)) return null;
   const ler: Leitor = async (capacidade, parametros) => {
     const ferramenta = ferramentaRegistrada(capacidade);
     if (!ferramenta) throw new InteligenciaError("CAPACIDADE_DESCONHECIDA", "Capacidade não disponível.", 400);
@@ -354,8 +364,12 @@ async function preResolver(e: Execucao): Promise<{ intencao?: Intencao; resposta
   anotarReferencia(e.rastreio, r);
   // Nada na tela nem no foco e as regras já pedem a tela ("resuma esta festa"): mantém a resposta de contexto atual.
   if (r.resultado === "NAO_ENCONTRADA" && r.origem === "FOCO" && regras.tipo === "precisa_contexto") return null;
+  // Financeiro sem âncora na tela/foco: segue a leitura da empresa (regras) — nunca pergunta o que o sistema responde.
+  if (referencia.tipo === "IMPLICITA" && r.resultado === "NAO_ENCONTRADA") {
+    return referencia.financeiro === "PARCELA" ? { intencao: { tipo: "leitura", capacidade: "proxima_parcela", parametros: {}, origem: "INTENCAO_DETERMINISTICA" } } : null;
+  }
   if (r.resultado === "RESOLVIDA" && r.entidade) {
-    const intencao = intencaoPara(r.entidade, e.texto);
+    const intencao = intencaoPara(r.entidade, e.texto, referencia.financeiro);
     return intencao ? { intencao } : null;
   }
   const resposta = respostaDaResolucao(r);

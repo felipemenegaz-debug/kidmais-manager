@@ -131,7 +131,7 @@ export type EntidadeRef = {
 /** Resumo de uma leitura no trace (PR 4): só códigos e contagens — nunca rótulo, nome ou id. */
 /** Resolução de referência no trace (PR 5): só códigos e contagens — nunca rótulo, nome, id ou texto. */
 export type ReferenciaRastreio = {
-  tipo: "TEMPORAL" | "DEITICO" | "PRONOME" | "NOME";
+  tipo: "TEMPORAL" | "DEITICO" | "PRONOME" | "NOME" | "IMPLICITA";
   alvo: TipoEntidade | null;
   origem: "TELA" | "FOCO" | "TEMPORAL" | "RELACAO_CORE" | "BUSCA" | null;
   resultado: "RESOLVIDA" | "AMBIGUA" | "NAO_ENCONTRADA" | "NEGADA";

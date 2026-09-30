@@ -72,9 +72,14 @@ export const FIXTURE = {
     { id: IDS.CLIENTE_B, empresa: EMPRESA_B, nome: `${MARCADOR_B} Roberto`, aniversariante: "Lucas" },
   ],
   contratos: [
-    { id: IDS.CONTRATO_MARIA, status: "ASSINADO", data: "2026-10-01", versao: "77777777-7777-4777-8777-000000000001" },
-    { id: IDS.CONTRATO_PEDRO, status: "AGUARDANDO_ASSINATURA", data: "2026-10-03", versao: "77777777-7777-4777-8777-000000000002" },
+    { id: IDS.CONTRATO_MARIA, status: "ASSINADO", data: "2026-10-01", versao: "77777777-7777-4777-8777-000000000001", criadoEm: "2026-08-10 10:00:00+00", cliente: IDS.CLIENTE_ANA },
+    { id: IDS.CONTRATO_PEDRO, status: "AGUARDANDO_ASSINATURA", data: "2026-10-03", versao: "77777777-7777-4777-8777-000000000002", criadoEm: "2026-09-05 15:30:00+00", cliente: IDS.CLIENTE_CARLA },
   ],
+  /** PR 5.5 — posição oficial por contrato e parcelas (valores em centavos; mesmos números nas duas fontes). */
+  financeiro: {
+    [IDS.CONTRATO_MARIA]: { obrigacao: 450000, liquido: 330000, parcelas: [{ numero: 1, valor: 150000, recebido: 150000, vencimento: "2026-09-01" }, { numero: 2, valor: 180000, recebido: 180000, vencimento: "2026-09-15" }, { numero: 3, valor: 120000, recebido: 0, vencimento: "2026-10-01" }] },
+    [IDS.CONTRATO_PEDRO]: { obrigacao: 500000, liquido: 0, parcelas: [{ numero: 1, valor: 250000, recebido: 0, vencimento: "2026-09-25" }, { numero: 2, valor: 250000, recebido: 0, vencimento: "2026-10-02" }] },
+  } as Record<string, { obrigacao: number; liquido: number; parcelas: Array<{ numero: number; valor: number; recebido: number; vencimento: string }> }>,
   pacotes: [
     { id: "66666666-6666-4666-8666-000000000001", nome: "Premium" },
     { id: "66666666-6666-4666-8666-000000000002", nome: "Essencial" },
@@ -136,6 +141,23 @@ function banco(violacoes: Violacoes) {
       if (sql.includes("FROM usuarios_administrativos")) return r([{ id: values[0] }]);
       // `resumoContratoDoTenant`: contrato da empresa comprovada (pacote.empresa_id = $2).
       // PR 4 — leituras-âncora do Core respondidas pela fixture, com os mesmos filtros (tenant, intervalo, ordem, limite).
+      // PR 5.5 — contratos mais recentes (mesma ordem do painel: criado_em DESC) e parcelas de Contas a receber.
+      if (sql.includes("ORDER BY c.criado_em DESC")) {
+        if (values[1] !== EMPRESA_A) return r([]);
+        return r([...FIXTURE.contratos].sort((a, b) => b.criadoEm.localeCompare(a.criadoEm)).slice(0, Number(values[2])).map((ct) => {
+          const cli = FIXTURE.clientes.find((x) => x.id === ct.cliente);
+          const f = FIXTURE.festas.find((x) => x.contrato === ct.id && x.empresa === EMPRESA_A && x.data >= "2026-09-30");
+          return { id: ct.id, status: ct.status, criado_em: ct.criadoEm, cliente: cli?.nome ?? null, cliente_id: cli?.id ?? null, data: ct.data, festa_id: f?.id ?? null };
+        }));
+      }
+      if (sql.includes("FROM pagamento_parcelas parcela")) {
+        if (values[0] !== EMPRESA_A) return r([]);
+        return r(FIXTURE.contratos.flatMap((ct) => (FIXTURE.financeiro[ct.id]?.parcelas ?? []).map((pa) => {
+          const cli = FIXTURE.clientes.find((x) => x.id === ct.cliente);
+          const f = FIXTURE.festas.find((x) => x.contrato === ct.id && x.empresa === EMPRESA_A && x.data >= "2026-09-30");
+          return { id: `${ct.id.slice(0, 30)}${String(pa.numero).padStart(6, "0")}`, pagamento_id: ct.id, numero: pa.numero, valor: (pa.valor / 100).toFixed(2), vencimento: pa.vencimento, status_gravado: "PENDENTE", cliente: cli?.nome ?? "Cliente", festa_id: f?.id ?? null, pacote: "Premium", data_evento: ct.data, recebido: (pa.recebido / 100).toFixed(2), forma: "PIX" };
+        })));
+      }
       // Relações do contrato antes das festas: a consulta tem uma subconsulta em festas.
       if (sql.includes("FROM festas festa") && sql.includes("cliente_id") && !sql.includes("AS festa_id")) return r(values[0] === EMPRESA_A ? festasDaFixture(sql, values) : []);
       if (sql.includes("FROM contratos contrato") && sql.includes("AS festa_id")) {
@@ -214,6 +236,21 @@ function portasDominio(violacoes: Violacoes, opcoes: OpcoesAmbiente = {}): Porta
       async listar(_tx, empresaId) {
         if (empresaId !== EMPRESA_A) violacoes.crossTenant.push("pacotes.listar");
         return FIXTURE.pacotes.map((p) => ({ nome: p.nome, descricao: null, duracaoMinutos: 240, convidadosMinimos: 30, convidadosMaximos: 100, diasPermitidos: [0, 1, 2, 3, 4, 5, 6], ativo: true, vigente: true, arquivadoEm: null }));
+      },
+    },
+    // PR 5.5 — posição financeira oficial (a porta real prova a posse e lê lerPosicaoFinanceira).
+    financeiro: {
+      async posicaoContrato(_tx, empresaId, contratoId) {
+        if (empresaId !== EMPRESA_A) violacoes.crossTenant.push("financeiro.posicaoContrato");
+        if (!FIXTURE.contratos.some((ct) => ct.id === contratoId)) return null;
+        const fin = FIXTURE.financeiro[contratoId];
+        if (!fin) return "SEM_OBRIGACAO";
+        const saldo = Math.max(0, fin.obrigacao - fin.liquido);
+        return {
+          contratoId, obrigacaoCentavos: String(fin.obrigacao), recebidoLiquidoCentavos: String(fin.liquido), saldoACobrarCentavos: String(saldo),
+          creditoCentavos: String(Math.max(0, fin.liquido - fin.obrigacao)), encerrada: false, acertoAdministrativoPendente: false,
+          parcelasAbertas: fin.parcelas.filter((pa) => pa.valor > pa.recebido).map((pa) => ({ numero: pa.numero, vencimento: pa.vencimento, valorCentavos: String(pa.valor - pa.recebido) })),
+        };
       },
     },
     contratos: {
