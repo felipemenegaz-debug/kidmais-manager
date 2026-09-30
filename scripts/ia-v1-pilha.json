@@ -81,6 +81,11 @@
       "pr": "GATES_V1",
       "branch": "ai-v1/15-gates",
       "descricao": "Gates finais V1: suíte PostgreSQL de custos (055a real, isolamento por empresa, somente leitura, ROLLBACK) e correção do auto-review (marcadores do rascunho passam pela Policy V1)"
+    },
+    {
+      "pr": "ESTABELECIMENTO_V1",
+      "branch": "ai-v1/16-estabelecimento",
+      "descricao": "Establishment Context V1: unidade só do pedido da tela, provada pelo Core (empresa comprovada, unidade ATIVA, vínculo ATIVO e vigente da membership); escopo COMPANY/ESTABLISHMENT no Tool Registry; Policy NEGADO_ESTABELECIMENTO; contexto, skills, trace e custos escopados; cross-establishment recusado"
     }
   ]
 }

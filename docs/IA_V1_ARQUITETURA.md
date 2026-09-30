@@ -49,7 +49,7 @@ usuário e papel nunca vêm do pedido nem do modelo; toda mutação passa pelo H
 ## 4. Tool Registry e Policy
 
 Cada manifesto: `nome`, `capacidade`, `dominio`, `classe`, `papeisExigidos` (requiredRole), `grupoExigido`
-(requiredCapability), `escopoTenant = EMPRESA_COMPROVADA`, `escopoEstabelecimento = EMPRESA_INTEIRA`, `entrada`
+(requiredCapability), `escopoTenant = EMPRESA_COMPROVADA`, `escopoEstabelecimento = COMPANY | ESTABLISHMENT`, `entrada`
 (inputSchema), `saida` (outputSchema), `prazoMs`, `idempotencia`, `auditoria`, `executor`.
 `validarRegistro` barra: SQL/shell executável, entrada que aceita empresa/usuário/papel, FORBIDDEN com papel,
 CONFIRM fora do Human Gate, SUGGEST com efeito.
@@ -57,6 +57,22 @@ CONFIRM fora do Human Gate, SUGGEST com efeito.
 Policy V1 (primeira negação vence): sem manifesto → FORBIDDEN → classe×caminho → confirmação só com origem
 `HUMAN_GATE` → papel conhecido e exigido (da membership) → flag + allowlist da empresa. Aplicada no gateway
 (antes e dentro do tenant), em cada passo do Human Gate e antes de toda sugestão.
+
+## 4.1 Establishment Context
+
+- A unidade vem SÓ do pedido da tela (`?estabelecimentoId=`, como `?empresaId=`); nunca do corpo, do texto ou do modelo.
+- `comEstabelecimento` (gateway) prova a unidade em TODA transação de tenant do pedido, logo depois da membership, pelo
+  Core (`lib/saas/provar-estabelecimento.ts`): unidade da empresa comprovada, `ATIVO`, com vínculo `ATIVA` e vigente
+  da membership. Qualquer falha ⇒ 404 "Unidade não encontrada" para o pedido inteiro (nunca cai para a empresa).
+- Tool Registry: `COMPANY` (dado da empresa) ou `ESTABLISHMENT` (operacional por unidade, filtra por
+  `contexto.estabelecimento`). Policy V1: `ESTABLISHMENT` sem unidade comprovada ⇒ `NEGADO_ESTABELECIMENTO`.
+- Context Builder: `ContextoAutorizado.estabelecimentoId` = unidade comprovada; bloco lido noutra unidade ⇒ recusa
+  (`OUTRO_ESTABELECIMENTO`). Skills: override de estabelecimento só com unidade comprovada. Trace e `ModelUsage`
+  carregam `estabelecimentoId`; custos agregam por unidade.
+- Estado do Core: a 043 mantém o caminho operacional da unidade FECHADO (unidade nasce SUSPENSO, vínculo SUSPENSA; D03)
+  e os dados operacionais (festas, contratos, financeiro, clientes, pacotes) não têm unidade. Por isso todas as
+  leituras V1 são `COMPANY` e, hoje, nenhuma unidade é comprovável (fail-closed). Quando o Core abrir D03 e der unidade
+  a esses dados, cada leitura passa a `ESTABLISHMENT` no registro — sem mudar Policy, contexto, skills ou trace.
 
 ## 5. Observabilidade
 

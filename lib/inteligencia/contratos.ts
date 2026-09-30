@@ -172,7 +172,7 @@ export type AIResponse =
   | { tipo: "nao_suportado"; mensagem: string; sugestoes: string[] }
   | { tipo: "precisa_contexto"; mensagem: string };
 
-export type ResultadoPolitica = "PERMITIDO" | "NEGADO_CLASSE" | "NEGADO_PAPEL" | "NEGADO_FLAG" | "NEGADO_DENY" | "NEGADO_SEM_MANIFESTO" | "NEGADO_ORIGEM";
+export type ResultadoPolitica = "PERMITIDO" | "NEGADO_CLASSE" | "NEGADO_PAPEL" | "NEGADO_FLAG" | "NEGADO_DENY" | "NEGADO_SEM_MANIFESTO" | "NEGADO_ORIGEM" | "NEGADO_ESTABELECIMENTO";
 
 export type CausaModelo =
   | "SEM_CHAVE"

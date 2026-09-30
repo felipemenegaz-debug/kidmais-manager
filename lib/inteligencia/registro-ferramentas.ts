@@ -39,10 +39,12 @@ export type Manifesto = {
   /** Empresa sempre comprovada pelo Tenant Context (sessão + membership), nunca vinda do pedido ou do modelo. */
   escopoTenant: "EMPRESA_COMPROVADA";
   /**
-   * O Tenant Context V1 não tem estabelecimento: leituras cobrem a empresa inteira que a membership já vê nas telas.
-   * Filtro por estabelecimento exige decisão do Core (registrada como gate de produção).
+   * Establishment scope. COMPANY: capacidade empresarial (dados da empresa comprovada; unidade comprovada, se houver,
+   * só entra no trace/contexto). ESTABLISHMENT: capacidade operacional por unidade — exige unidade COMPROVADA
+   * (provarEstabelecimento) e a ferramenta filtra por ela; sem unidade ⇒ Policy nega (NEGADO_ESTABELECIMENTO).
+   * A unidade nunca vem do modelo: só do pedido da tela, provada no Tenant Context.
    */
-  escopoEstabelecimento: "EMPRESA_INTEIRA";
+  escopoEstabelecimento: EscopoEstabelecimento;
   entidade: "festa" | "cliente" | "contrato" | null;
   /** inputSchema (zod estrito) ou null quando a entrada é o fluxo conversacional do Human Gate / texto do operador. */
   entrada: z.ZodType | null;
@@ -116,7 +118,17 @@ export function saidaValida(saida: SaidaDeclarada, dados: unknown): boolean {
 
 // ---------------------------------------------------------------- metadados por capacidade
 
-type Meta = { dominio: Dominio; prazoMs: number; saida?: SaidaDeclarada };
+export type EscopoEstabelecimento = "COMPANY" | "ESTABLISHMENT";
+
+type Meta = { dominio: Dominio; prazoMs: number; saida?: SaidaDeclarada; escopo?: EscopoEstabelecimento };
+
+/**
+ * Escopo padrão das leituras V1: COMPANY. Os dados do Core que elas leem (recebíveis, contratos, festas, agenda,
+ * clientes, pacotes) são da EMPRESA — nenhuma dessas tabelas tem unidade (só festa_areas tem estabelecimento
+ * opcional, 056), e a 043 mantém o caminho operacional da unidade fechado (D03). Quando o Core ganhar unidade nesses
+ * dados, a leitura passa a ESTABLISHMENT aqui e filtra por `contexto.estabelecimento`.
+ */
+const ESCOPO_PADRAO: EscopoEstabelecimento = "COMPANY";
 
 /** Leituras (READ). Toda ferramenta do registro fechado precisa estar aqui (teste). */
 const LEITURAS: Readonly<Record<string, Meta>> = Object.freeze({
@@ -173,7 +185,7 @@ export function manifestoSugestao(capacidade: string): Manifesto | null {
 function sugestao(nome: string, capacidade: string, dominio: Dominio, executor: "AGENTE" | "COPILOTO"): Manifesto {
   return {
     nome, capacidade, dominio, classe: "SUGGEST", papeisExigidos: ["ADMINISTRATIVO", "REPRESENTANTE_AUTORIZADO"], grupoExigido: "READ",
-    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: "EMPRESA_INTEIRA", entidade: null, entrada: null, saida: "SUGESTAO",
+    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: "COMPANY", entidade: null, entrada: null, saida: "SUGESTAO",
     prazoMs: 8000, idempotencia: "SEM_EFEITO", auditoria: "TRACE_IA", executor,
   };
 }
@@ -190,7 +202,7 @@ export function manifestoLeitura(f: Ferramenta): Manifesto | null {
   if (!meta) return null;
   return {
     nome: f.nome, capacidade: f.capacidade, dominio: meta.dominio, classe: classeV1(f.classe), papeisExigidos: f.papeis, grupoExigido: f.grupo,
-    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: "EMPRESA_INTEIRA", entidade: f.entidade ?? null, entrada: f.entrada,
+    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: meta.escopo ?? ESCOPO_PADRAO, entidade: f.entidade ?? null, entrada: f.entrada,
     saida: meta.saida ?? "RESPOSTA_LEITURA", prazoMs: meta.prazoMs, idempotencia: "LEITURA_SEM_EFEITO", auditoria: "TRACE_IA", executor: "GATEWAY",
   };
 }
@@ -205,7 +217,7 @@ export function manifestoAcao(a: AcaoDescrita): Manifesto | null {
   const confirma = classe === "CONFIRM";
   return {
     nome: a.ferramenta, capacidade: a.capacidade, dominio: meta.dominio, classe, papeisExigidos: confirma ? a.papeis : [], grupoExigido: confirma ? a.grupo : "NENHUM",
-    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: "EMPRESA_INTEIRA", entidade: null, entrada: null,
+    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: "COMPANY", entidade: null, entrada: null,
     saida: confirma ? "RASCUNHO_HUMAN_GATE" : "RECUSA", prazoMs: meta.prazoMs,
     idempotencia: confirma ? "OPERACAO_UNICA_HUMAN_GATE" : "NUNCA_EXECUTA",
     auditoria: confirma ? "TRACE_IA_E_AUDITORIA_NEGOCIO" : "TRACE_IA", executor: confirma ? "HUMAN_GATE" : "NENHUM",
@@ -248,6 +260,7 @@ export function validarRegistro(manifestos: readonly Manifesto[]): string[] {
     if (!(CLASSES_V1 as readonly string[]).includes(m.classe)) problemas.push(`${id}: classe inválida`);
     if (!(DOMINIOS as readonly string[]).includes(m.dominio)) problemas.push(`${id}: domínio inválido`);
     if (m.escopoTenant !== "EMPRESA_COMPROVADA") problemas.push(`${id}: tenant não comprovado`);
+    if (m.escopoEstabelecimento !== "COMPANY" && m.escopoEstabelecimento !== "ESTABLISHMENT") problemas.push(`${id}: escopo de estabelecimento inválido`);
     if (m.classe !== "FORBIDDEN" && (EXECUCAO_ARBITRARIA.test(m.nome) || EXECUCAO_ARBITRARIA.test(m.capacidade))) problemas.push(`${id}: execução arbitrária`);
     if (m.classe === "FORBIDDEN") {
       if (m.papeisExigidos.length) problemas.push(`${id}: FORBIDDEN com papel`);

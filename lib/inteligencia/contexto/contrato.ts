@@ -34,6 +34,8 @@ export type ContextoAutorizado = {
 /** Um bloco de dados vindo de uma leitura já executada pelo gateway, com a empresa em que foi lida. */
 export type BlocoDados = {
   empresaId: string;
+  /** Unidade em que a leitura foi feita (null/ausente ⇒ leitura da empresa). Outra unidade ⇒ recusa. */
+  estabelecimentoId?: string | null;
   capacidade: string;
   resposta: RespostaLeitura;
 };
@@ -94,7 +96,7 @@ export const LIMITES_CONTEXTO_PADRAO: LimitesContexto = Object.freeze({
 });
 
 /** Recusa do Context Builder: nunca "conserta" um bloco perigoso, descarta e registra o motivo. */
-export type MotivoRecusaContexto = "OUTRA_EMPRESA" | "CAPACIDADE_NAO_AUTORIZADA" | "LIMITE_BLOCOS" | "IDENTIFICADOR_RESIDUAL";
+export type MotivoRecusaContexto = "OUTRA_EMPRESA" | "OUTRO_ESTABELECIMENTO" | "CAPACIDADE_NAO_AUTORIZADA" | "LIMITE_BLOCOS" | "IDENTIFICADOR_RESIDUAL";
 
 export class ContextoRecusado extends Error {
   readonly motivo: MotivoRecusaContexto;

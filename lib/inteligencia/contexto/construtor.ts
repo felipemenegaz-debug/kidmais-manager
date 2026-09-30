@@ -28,7 +28,8 @@ export function construirContextoAutorizado(entrada: {
   return Object.freeze({
     usuarioId: sessao.usuario_id,
     empresaId: tenant.empresaComprovada,
-    estabelecimentoId: null,
+    // Unidade só se COMPROVADA no Tenant Context (Establishment Context); null ⇒ escopo da empresa.
+    estabelecimentoId: (tenant as TenantComprovado & { estabelecimentoComprovado?: string | null }).estabelecimentoComprovado ?? null,
     papel: tenant.papelAtual,
     tela,
     entidade: tipo && contexto?.entidadeId ? Object.freeze({ tipo, id: contexto.entidadeId }) : null,
@@ -57,6 +58,8 @@ export function construirContextoModelo(
   const limites: LimitesContexto = { ...LIMITES_CONTEXTO_PADRAO, ...opcoes.limites };
   for (const bloco of blocos) {
     if (bloco.empresaId !== autorizado.empresaId) throw new ContextoRecusado("OUTRA_EMPRESA");
+    // Bloco lido numa unidade só entra no contexto DESSA unidade (cross-establishment ⇒ recusa o contexto inteiro).
+    if ((bloco.estabelecimentoId ?? null) !== null && bloco.estabelecimentoId !== autorizado.estabelecimentoId) throw new ContextoRecusado("OUTRO_ESTABELECIMENTO");
     if (!autorizado.capacidades.includes(bloco.capacidade) || bloco.resposta.capacidade !== bloco.capacidade) throw new ContextoRecusado("CAPACIDADE_NAO_AUTORIZADA");
   }
   let removidos = 0;

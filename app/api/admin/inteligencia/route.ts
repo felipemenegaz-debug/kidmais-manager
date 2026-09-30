@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
     {
       lerCorpo: () => request.json(),
       empresaSolicitada: request.nextUrl.searchParams.get("empresaId"),
+      estabelecimentoSolicitado: request.nextUrl.searchParams.get("estabelecimentoId"),
     },
     dependenciasGateway(request),
   );

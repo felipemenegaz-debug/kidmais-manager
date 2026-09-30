@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 /** Drawer "Perguntar ao Kidmais": texto livre → leitura, rascunho sob Human Gate ou resposta honesta. Nunca executa escrita. */
 export async function POST(request: NextRequest) {
   const { status, corpo } = await atenderConversa(
-    { lerCorpo: () => request.json(), empresaSolicitada: request.nextUrl.searchParams.get("empresaId") },
+    { lerCorpo: () => request.json(), empresaSolicitada: request.nextUrl.searchParams.get("empresaId"), estabelecimentoSolicitado: request.nextUrl.searchParams.get("estabelecimentoId") },
     dependenciasConversa(request),
   );
   return jsonNoStore(corpo, { status });

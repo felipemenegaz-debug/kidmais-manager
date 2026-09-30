@@ -62,6 +62,7 @@ const ESTADO_POSTGRES = {
   "lib/saas/hg6-kidmais.postgres.test.ts": { descartavel: "045-sem-040" },
   "lib/saas/hg8-catalogo.postgres.test.ts": { descartavel: "atual" },
   "lib/saas/migration-056.postgres.test.ts": { descartavel: "atual" },
+  "lib/saas/provar-estabelecimento.postgres.test.ts": { descartavel: "atual" },
   "lib/saas/hg8-empresa.postgres.test.ts": { descartavel: "atual" },
   "lib/saas/hg8-estrutura.postgres.test.ts": { descartavel: "042-sem-040" },
   "lib/saas/hg8-membership.postgres.test.ts": { descartavel: "atual" },

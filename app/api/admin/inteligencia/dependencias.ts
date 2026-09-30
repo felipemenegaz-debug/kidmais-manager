@@ -18,6 +18,7 @@ import { tabelaDoAmbiente } from "@/lib/inteligencia/modelos/precos";
 import { RoteadorModelos, circuitoGlobal, criarAdaptadores, politicaDoAmbiente } from "@/lib/inteligencia/modelos/roteador";
 import { InteligenciaError } from "@/lib/inteligencia/politica";
 import { registrarRastreio } from "@/lib/inteligencia/rastreio";
+import { provarEstabelecimento } from "@/lib/saas/provar-estabelecimento";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { montarExtensoes } from "./extensoes";
 
@@ -72,6 +73,8 @@ export function dependenciasGateway(request: NextRequest): DependenciasGateway {
     requestId: randomUUID,
     registrar: (rastreio) => registrarRastreio(rastreio),
     portas: portasDominio(request),
+    // Establishment Context: prova do Core (unidade da empresa comprovada, ATIVA, com vínculo ATIVO da membership).
+    provarEstabelecimento: (tx, tenant, estabelecimentoId) => provarEstabelecimento(tx, tenant, estabelecimentoId),
   };
 }
 
