@@ -13,7 +13,7 @@ import { normalizar } from "./texto-pt.ts";
  * Toda leitura é feita por `ler`, que é o gateway (Policy + Tenant Context + posse/capacidade no domínio): o foco e a
  * tela são só dicas, e um id de outra empresa ou sem autoridade vira NEGADA. Nunca aceita id do texto nem do modelo.
  */
-export type TipoReferencia = "TEMPORAL" | "DEITICO" | "PRONOME" | "NOME";
+export type TipoReferencia = "TEMPORAL" | "DEITICO" | "PRONOME" | "NOME" | "IMPLICITA";
 export type OrigemResolucao = "TELA" | "FOCO" | "TEMPORAL" | "RELACAO_CORE" | "BUSCA";
 export type ResultadoResolucao = "RESOLVIDA" | "AMBIGUA" | "NAO_ENCONTRADA" | "NEGADA";
 
@@ -26,6 +26,8 @@ export type Referencia = {
   genero?: "M" | "F";
   temporal?: Temporal;
   nome?: string;
+  /** Pergunta financeira (PR 5.5): o alvo é o CONTRATO da entidade referida (ou da tela/foco, se implícita). */
+  financeiro?: "SALDO" | "PARCELA";
 };
 
 export type Resolucao = {
@@ -103,8 +105,23 @@ function substantivos(n: string, exceto: [number, number] | null): TipoEntidade[
   }).sort((a, b) => a.i - b.i).map((x) => x.tipo);
 }
 
+/** "quanto falta pagar", "saldo", "em aberto" ⇒ SALDO; "próxima parcela" ⇒ PARCELA. */
+function financeiroDe(n: string): Referencia["financeiro"] {
+  if (/\bproxima parcela\b/.test(n)) return "PARCELA";
+  if (/\bquanto (ainda )?(falta|resta)\w* (pagar|receber|quitar)\b|\bsaldo\b|\bem aberto\b|\bfalta (pagar|receber)\b/.test(n)) return "SALDO";
+  return undefined;
+}
+
 /** Referência no pedido (ou null). Não lê dado nenhum. */
 export function detectarReferencia(texto: string, hoje: string): Referencia | null {
+  const financeiro = financeiroDe(normalizar(texto));
+  const ref = detectarAncora(texto, hoje);
+  if (!financeiro) return ref;
+  // Financeiro: o alvo é sempre o contrato; sem âncora explícita, a da tela/foco (IMPLICITA).
+  return ref ? { ...ref, alvo: "CONTRATO", financeiro } : { tipo: "IMPLICITA", alvo: "CONTRATO", financeiro };
+}
+
+function detectarAncora(texto: string, hoje: string): Referencia | null {
   const n = normalizar(texto);
   const temporal = temporalDe(n, hoje);
   if (temporal) {

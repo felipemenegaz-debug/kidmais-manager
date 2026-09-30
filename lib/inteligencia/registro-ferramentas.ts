@@ -162,6 +162,10 @@ const LEITURAS: Readonly<Record<string, Meta>> = Object.freeze({
   relacoes_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
   buscar_clientes: { dominio: "CLIENTES", prazoMs: 4000 },
   buscar_catalogo: { dominio: "COMERCIAL", prazoMs: 4000 },
+  // AI V1.1 (PR 5.5): pagamentos e contratos (posição oficial, próxima parcela, contrato mais recente).
+  saldo_contrato: { dominio: "FINANCEIRO", prazoMs: 5000 },
+  proxima_parcela: { dominio: "FINANCEIRO", prazoMs: 5000 },
+  ultimo_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
   pacotes_disponiveis: { dominio: "COMERCIAL", prazoMs: 4000 },
   comparar_versoes_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
 });

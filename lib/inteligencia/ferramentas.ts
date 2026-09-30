@@ -13,6 +13,7 @@ import { resumirContrato } from "./leituras/resumir-contrato.ts";
 import { abrirFesta, abrirTela } from "./leituras/abrir-tela.ts";
 import { buscarCatalogo, buscarClientes } from "./leituras/buscas.ts";
 import { proximasFestas, relacoesContrato, relacoesFesta } from "./leituras/festas-relacoes.ts";
+import { proximaParcela, saldoContrato, ultimoContrato } from "./leituras/pagamentos.ts";
 import { ondeEncontrar } from "./leituras/navegacao.ts";
 import { pacotesDisponiveis } from "./leituras/pacotes.ts";
 import { compararVersoesContrato } from "./leituras/versoes-contrato.ts";
@@ -65,7 +66,24 @@ export type VersaoContratoDominio = {
 };
 export type PortaContratos = { versoes(tx: DbExecutor, empresaId: string, contratoId: string): Promise<readonly VersaoContratoDominio[] | null> };
 
-export type PortasDominio = { festas: PortaFestas | null; clientes: PortaClientes | null; pacotes?: PortaPacotes | null; contratos?: PortaContratos | null };
+/**
+ * Posição financeira OFICIAL de um contrato (AI V1.1, PR 5.5): `lerPosicaoFinanceira` (obrigação, líquido recebido,
+ * saldo, crédito) + `situacaoCobranca` + cronograma em aberto. Valores em centavos (string) vindos do Core; a IA
+ * nunca calcula. `null` ⇒ contrato inexistente NESTA empresa; `SEM_OBRIGACAO` ⇒ ainda sem plano financeiro.
+ */
+export type PosicaoContratoDominio = {
+  contratoId: string;
+  obrigacaoCentavos: string;
+  recebidoLiquidoCentavos: string;
+  saldoACobrarCentavos: string;
+  creditoCentavos: string;
+  encerrada: boolean;
+  acertoAdministrativoPendente: boolean;
+  parcelasAbertas: ReadonlyArray<{ numero: number; vencimento: string; valorCentavos: string }>;
+};
+export type PortaFinanceiro = { posicaoContrato(tx: DbExecutor, empresaId: string, contratoId: string): Promise<PosicaoContratoDominio | "SEM_OBRIGACAO" | null> };
+
+export type PortasDominio = { festas: PortaFestas | null; clientes: PortaClientes | null; pacotes?: PortaPacotes | null; contratos?: PortaContratos | null; financeiro?: PortaFinanceiro | null };
 
 export const SEM_PORTAS: PortasDominio = Object.freeze({ festas: null, clientes: null, pacotes: null, contratos: null });
 
@@ -141,6 +159,9 @@ export const ferramentas: Readonly<Record<string, Ferramenta>> = Object.freeze({
   relacoes_contrato: relacoesContrato,
   buscar_clientes: buscarClientes,
   buscar_catalogo: buscarCatalogo,
+  saldo_contrato: saldoContrato,
+  proxima_parcela: proximaParcela,
+  ultimo_contrato: ultimoContrato,
   pacotes_disponiveis: pacotesDisponiveis,
   comparar_versoes_contrato: compararVersoesContrato,
 });

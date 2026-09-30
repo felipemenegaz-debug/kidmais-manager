@@ -47,7 +47,7 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "lib/comercial/pacotes-admin": ["PacoteAdminError"],
   "lib/autenticacao/service": ["Papel"],
   "lib/db/contracts": ["DbExecutor"],
-  "lib/contratos/services/leitura-tenant": ["contratosAguardandoAssinatura", "resumoContratoDoTenant", "ContratoPendente", "ResumoContratoTenant", "relacoesContratoDoTenant"],
+  "lib/contratos/services/leitura-tenant": ["contratosAguardandoAssinatura", "resumoContratoDoTenant", "ContratoPendente", "ResumoContratoTenant", "relacoesContratoDoTenant", "RelacoesContrato", "ultimosContratosDoTenant"],
   "lib/festas/leitura-tenant": ["agendaDoTenant", "FestaAgenda", "festasDoTenant", "festaDoTenant", "FestaRelacionada"],
   // AI V1.1 (PR 4): leitura do catálogo do Buffet (somente leitura; a escrita segue fora da IA).
   "lib/comercial/catalogo-leitura": ["buscarCategoriasBuffet", "buscarItensBuffet"],
@@ -82,6 +82,9 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // AI V1 (agentes): posse do contrato na empresa comprovada e detalhe do domínio para comparar versões.
   "lib/contratos/services/contrato-tenant": ["contratoNoTenant"],
   "lib/contratos/services/administrativo.service": ["detalheAdministrativo"],
+  // AI V1.1 (PR 5.5): posição financeira OFICIAL do contrato (somente leitura), após a prova de posse no tenant.
+  "lib/pagamentos/repositories/alteracao-financeira.repository": ["lerPosicaoFinanceira"],
+  "lib/pagamentos/services/alteracao-financeira-core": ["AlteracaoFinanceiraError"],
   "lib/comercial/pacote-comercial": ["painelPacoteAdmin", "salvarPacoteComercial"], // @pr:ACTIONS
   "lib/comercial/pacote-precos": ["gravarFaixasPacote"], // @pr:ACTIONS
   "lib/comercial/pacotes-admin": ["alterarSituacaoPacoteAdmin", "criarRevisaoPacoteAdmin", "editarPacoteNaoUtilizado", "listarPacotesAdmin"], // @pr:ACTIONS
@@ -96,7 +99,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
-  "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo(", "buscarClientesCrm("],
+  "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo(", "buscarClientesCrm(", "lerPosicaoFinanceira("],
   "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
   "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao"], // @pr:IMPORT

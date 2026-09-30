@@ -5,6 +5,8 @@ import { listarPacotesAdmin } from "@/lib/comercial/pacotes-admin";
 import { detalheAdministrativo } from "@/lib/contratos/services/administrativo.service";
 import { contratoNoTenant } from "@/lib/contratos/services/contrato-tenant";
 import { db, withTransaction } from "@/lib/db/postgres";
+import { lerPosicaoFinanceira } from "@/lib/pagamentos/repositories/alteracao-financeira.repository";
+import { AlteracaoFinanceiraError } from "@/lib/pagamentos/services/alteracao-financeira-core";
 import { FestaError, consultarFestas } from "@/lib/festas/service";
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from "@/lib/http/admin-crm-api";
 import { criarRegistroUsoPostgres, lerUsoAgrupado } from "@/lib/ia-persistencia/uso";
@@ -66,6 +68,33 @@ export function portasDominio(request: NextRequest): PortasDominio {
         if (!(await contratoNoTenant(tx, empresaId, contratoId))) return null;
         const detalhe = await detalheAdministrativo(contratoId, tx);
         return (detalhe.versoes as Array<{ numero_versao: number; status: string; snapshot: unknown }>).map((v) => ({ numero: Number(v.numero_versao), status: String(v.status), snapshot: (v.snapshot ?? null) as never }));
+      },
+    },
+    // Posição financeira OFICIAL (AI V1.1, PR 5.5): posse do contrato na empresa ANTES da leitura; só o mínimo sai
+    // daqui (valores do Core em centavos, cobrança e cronograma em aberto) — nada de nomes, documentos ou histórico.
+    financeiro: {
+      async posicaoContrato(tx, empresaId, contratoId) {
+        if (!(await contratoNoTenant(tx, empresaId, contratoId))) return null;
+        try {
+          const p = await lerPosicaoFinanceira(tx, contratoId);
+          const abertas = p.futuro
+            .filter((f) => BigInt(f.valorCentavos) > 0n)
+            .map((f) => ({ numero: Number(p.parcelas.find((x) => x.id === f.parcelaId)?.numero ?? 0), vencimento: String(f.vencimento), valorCentavos: String(f.valorCentavos) }))
+            .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.numero - b.numero);
+          return {
+            contratoId,
+            obrigacaoCentavos: p.posicao.obrigacao.toString(),
+            recebidoLiquidoCentavos: p.posicao.liquido.toString(),
+            saldoACobrarCentavos: p.cobranca.saldoACobrar.toString(),
+            creditoCentavos: p.posicao.credito.toString(),
+            encerrada: p.cobranca.encerrada,
+            acertoAdministrativoPendente: p.cobranca.acertoAdministrativoPendente,
+            parcelasAbertas: abertas,
+          };
+        } catch (error) {
+          if (error instanceof AlteracaoFinanceiraError && error.code === "OBRIGACAO_NAO_DISPONIVEL") return "SEM_OBRIGACAO";
+          throw error;
+        }
       },
     },
   };

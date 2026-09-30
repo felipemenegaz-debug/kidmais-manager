@@ -157,3 +157,42 @@ export async function relacoesContratoDoTenant(tx: DbExecutor, empresaId: string
     festaId: linha.festa_id,
   };
 }
+
+/**
+ * Contratos mais recentes (AI V1.1, PR 5.5). "Último" = critério do próprio domínio: o painel de Contratos
+ * (`listarContratosDoTenant`) ordena por `contratos.criado_em DESC` e, por padrão, esconde os cancelados e as
+ * preparações canceladas. Mesmo filtro e mesma ordem aqui, com desempate por id e o instante de criação devolvido
+ * para detectar empate. Empresa comprovada no predicado (fechamento e pacote da empresa).
+ */
+export type ContratoRecente = {
+  contratoId: string;
+  status: string;
+  criadoEm: string;
+  cliente: string | null;
+  clienteId: string | null;
+  dataEvento: string | null;
+  festaId: string | null;
+};
+
+export async function ultimosContratosDoTenant(
+  tx: DbExecutor,
+  empresaId: string,
+  filtro: { limite: number; incluirCancelados?: boolean },
+): Promise<ContratoRecente[]> {
+  const r = await tx.query<{ id: string; status: string; criado_em: string; cliente: string | null; cliente_id: string | null; data: string | null; festa_id: string | null }>(
+    `SELECT c.id::text AS id, c.status, c.criado_em::text AS criado_em,
+            cliente.nome_completo AS cliente, cliente.id::text AS cliente_id, fech.data_evento::text AS data,
+            (SELECT festa.id::text FROM festas festa WHERE festa.contrato_id = c.id AND festa.invalidada_em IS NULL LIMIT 1) AS festa_id
+       FROM contratos c
+       JOIN fechamentos fech ON fech.id = c.fechamento_id AND fech.empresa_id = $2::uuid
+       JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $2::uuid
+       LEFT JOIN clientes cliente ON cliente.id = fech.cliente_id
+       LEFT JOIN contrato_versoes v ON v.contrato_id = c.id AND v.numero_versao = c.versao_atual
+       LEFT JOIN contrato_edicoes e ON e.contrato_versao_id = v.id
+      WHERE ($1::boolean OR (c.status <> 'CANCELADO' AND (e.estado IS DISTINCT FROM 'CANCELADA' OR c.status = 'ASSINADO')))
+      ORDER BY c.criado_em DESC, c.id DESC
+      LIMIT $3`,
+    [filtro.incluirCancelados === true, empresaId, Math.max(1, Math.min(filtro.limite, 20))],
+  );
+  return r.rows.map((l) => ({ contratoId: l.id, status: l.status, criadoEm: l.criado_em, cliente: l.cliente, clienteId: l.cliente_id, dataEvento: l.data, festaId: l.festa_id }));
+}
