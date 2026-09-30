@@ -310,12 +310,17 @@ export class RoteadorModelos {
           // Só recusas comprovadas antes do processamento liberam a reserva (uso zero, conhecido).
           // Timeout, rede, 5xx e inesperado: o provedor pode ter consumido ⇒ USO DESCONHECIDO.
           const naoProcessado = classificado.causa === "HTTP_4XX" || classificado.causa === "SEM_CHAVE" || classificado.causa === "SEM_MODELO";
+          // Uso zero conhecido com preço configurado ⇒ custo zero conhecido (não deixa o mês "desconhecido").
+          // Sem preço, o custo continua null; uso desconhecido nunca vira zero.
+          const custoZero = naoProcessado ? custoEstimado(this.deps.precos, adaptador.id, modelo, { entrada: 0, saida: 0, cache: null }) : null;
           const uso = this.uso(base, {
             duracaoMs,
             erro: classificado.causa,
             detalheErro: classificado.detalhe,
             tokensEntrada: naoProcessado ? 0 : null,
             tokensSaida: naoProcessado ? 0 : null,
+            custoEstimadoMicros: custoZero?.micros ?? null,
+            moeda: custoZero?.moeda ?? null,
           });
           usos.push(uso);
           await this.persistir(uso, reserva, naoProcessado ? "LIBERAR" : "RECONCILIAR", alertas);
