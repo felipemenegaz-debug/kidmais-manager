@@ -64,6 +64,7 @@ export default function PerfilEmpresa() {
     const [carregando, setCarregando] = useState(true);
     const [ocupado, setOcupado] = useState(false);
     const [semPermissao, setSemPermissao] = useState(false);
+    const [acessoMensagem, setAcessoMensagem] = useState('');
     const [dados, setDados] = useState<Resposta | null>(null);
     const [fluxo, setFluxo] = useState<EstadoFluxo>(estadoFluxoInicial);
     const [identidadeConflito, setIdentidadeConflito] = useState<{ numero: number | null; edicao: number | null; versaoBase: number } | null>(null);
@@ -116,9 +117,10 @@ export default function PerfilEmpresa() {
                 return;
             if (resposta.status === 403) {
                 setSemPermissao(true);
+                setAcessoMensagem(corpo.codigo === 'PERFIL_SEM_CONCESSAO' ? (corpo.erro || 'Sem concessão ativa para consultar o perfil.') : (corpo.erro || 'A API negou o acesso ao perfil.'));
                 return;
             }
-            if (!corpo.ok)
+            if (!resposta.ok || !corpo.ok)
                 throw new Error(corpo.erro ?? 'Não foi possível carregar o perfil.');
             aplicarCorpo(corpo.data, substituirForm);
         } catch (error) {
@@ -369,13 +371,13 @@ export default function PerfilEmpresa() {
         <header className={styles.header}>
             <div className={styles.heading}><h1>Perfil da Empresa</h1><div className={styles.unidadeAtual}><span>Unidade atual</span><strong>{form.unidadeNome || dados?.contexto?.codigoUnidade || '—'}</strong></div>{dados?.contexto && <span className={styles.badge} data-draft={Boolean(dados.contexto.rascunho || sujo)}>{dados.contexto.rascunho || sujo ? 'Rascunho' : 'Publicado'}</span>}</div>
             <div className={styles.headerRight}>
-                <div className={styles.acoes}>{podeEditar && <button className={styles.secundario} type="button" onClick={() => void salvar()} disabled={ocupado}>Salvar rascunho</button>}
-                {podeAplicarCapacidade && <button className={styles.primario} type="button" onClick={() => revisaoRef.current?.showModal()} disabled={ocupado}>Revisar e aplicar</button>}</div>
+                <div className={styles.acoes}>{podeEditar && <button className={styles.secundario} type="button" onClick={() => void salvar()} disabled={ocupado || carregando || semPermissao}>Salvar rascunho</button>}
+                {podeAplicarCapacidade && <button className={styles.primario} type="button" onClick={() => revisaoRef.current?.showModal()} disabled={ocupado || carregando || semPermissao}>Revisar e aplicar</button>}</div>
             </div>
         </header>
         {carregando && <p className={styles.estado} role="status">Carregando perfil.</p>}
         {ocupado && <p className={styles.estado} role="status">Operação em andamento.</p>}
-        {!carregando && semPermissao && <p className={styles.estado} role="alert">Sem concessão ativa para consultar o perfil.</p>}
+        {!carregando && semPermissao && <section className={styles.acesso} aria-labelledby="perfil-acesso"><h2 id="perfil-acesso">Acesso negado</h2><p role="alert">{acessoMensagem}</p><p>A resposta do servidor não permite abrir este perfil.</p><div><a href="/admin/configuracoes">Voltar às configurações</a><button type="button" onClick={() => void carregar(devePreencherNaRetentativa(fluxoRef.current))}>Tentar novamente</button></div></section>}
         {!carregando && !semPermissao && dados && !dados.estruturaInstalada && <p className={styles.estado}>A estrutura do perfil ainda não está instalada. Nenhum acesso foi concedido.</p>}
         {!carregando && !semPermissao && dados?.estruturaInstalada && dados.vazio && <p className={styles.estado}>Ainda não há empresa provisionada. O formulário não cria a primeira empresa.</p>}
         {erro && <p className={styles.erro} role="alert">{erro}</p>}
@@ -386,6 +388,7 @@ export default function PerfilEmpresa() {
             {sucesso && <p className={styles.sucesso} role="status">{sucesso}</p>}
             {conflito && <p>Os dados digitados foram mantidos. Aplicar fica bloqueado até você assumir a revisão atual e confirmar de novo o conteúdo.</p>}
             {conflito && <button type="button" onClick={() => void resolver()} disabled={!identidadeConflito || ocupado}>Carregar a versão publicada e manter o texto digitado</button>}
+            <div className={styles.etapas} aria-label="Etapas da atualização"><span>1. Editar dados</span><span>2. Salvar rascunho</span><span>3. Revisar e aplicar</span></div>
             <div className={styles.layout}>
             <div className={styles.principal}>
             <fieldset className={styles.card} disabled={!podeEditar}>
@@ -447,12 +450,12 @@ export default function PerfilEmpresa() {
             <p className={styles.regraCampos}>O rascunho pode ficar incompleto. O asterisco indica o que é exigido ao aplicar.</p>
             </div>
             <aside className={styles.lateral} aria-label="Marca e histórico">
-                <section className={styles.card}>
+                <details className={styles.card}><summary>Marca e logo</summary>
                     <h2 className={styles.titulo}><AdminIcon name="palette" size={12} />Marca</h2>
                     <div className={styles.marcaBloco}><h3>Logo atual</h3><div className={styles.logoBox}><span>Logo indisponível nesta etapa</span></div></div>
                     <div className={styles.marcaBloco}><h3>Nova logo — prévia</h3><div className={styles.logoBox}><span>Prévia indisponível</span></div><p className={styles.marcaNota}>O envio de logo ainda não está disponível.</p></div>
                     <div className={styles.previa}><h3>Prévias de aplicação</h3><div className={styles.documento}><span>Logo</span><div/><div/><div/></div><p>Cabeçalho de documento</p></div>
-                </section>
+                </details>
             <section className={`${styles.card} ${styles.historico}`}>
                 <h2 className={styles.titulo}><AdminIcon name="history" size={12} />Histórico</h2>
                 {(dados.historico ?? []).length === 0 && <div className={styles.historicoVazio}><AdminIcon name="history" size={24} /><p>Nenhuma revisão registrada.</p></div>}

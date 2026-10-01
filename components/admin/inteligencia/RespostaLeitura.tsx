@@ -26,12 +26,12 @@ export default function RespostaLeitura({ dados, aoNavegar }: { dados: Dados; ao
       </li>)}
     </ul>}
     <details className={styles.evidencias}>
-      <summary>Como cheguei nisso</summary>
+      <summary>Dados usados</summary>
+      <p className={styles.referencia}>{hora ? `Atualizado às ${hora} · ` : ''}{fontes}</p>
       <ul>
         {dados.fatos.map((f, i) => <li key={`f${i}`} data-natureza={f.natureza}><span>{rotuloFato(f.natureza)}</span>{f.texto}</li>)}
         {dados.evidencias.map((e, i) => <li key={`e${i}`}><span>{e.rotulo}</span>{e.valor}</li>)}
       </ul>
     </details>
-    <p className={styles.referencia}>{hora ? `Atualizado às ${hora} · ` : ''}{fontes}</p>
   </div>;
 }

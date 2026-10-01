@@ -19,7 +19,7 @@ export function RascunhoAcao({ rascunho, pergunta, erro = null }: { rascunho: Ra
   return <div className={styles.acao} data-estado="rascunho">
     <p className={styles.acaoTitulo}><span className={styles.selo}>Rascunho</span>{rascunho.titulo}</p>
     {campos(rascunho)}
-    <p className={styles.perguntaKidmais}>{pergunta}</p>
+    <p className={styles.perguntaKidmais} role="status">{pergunta}</p>
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
   </div>;
 }
@@ -34,7 +34,7 @@ export function PreviewAcao({ rascunho, decidindo, erro, onDecidir }: {
     <p className={styles.acaoTitulo}><span className={styles.selo}>Confira antes de gravar</span>{rascunho.titulo}</p>
     {campos(rascunho)}
     {rascunho.avisos.length > 0 && <ul className={styles.avisos}>{rascunho.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
-    <p className={styles.nota}>Nenhuma alteração foi feita no cadastro. Ela só acontece quando você confirmar.</p>
+    <p className={styles.nota}>Confira os dados. Confirmar salva este cadastro.</p>
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
     <div className={styles.decisao}>
       <button type="button" className={styles.confirmar} disabled={decidindo} onClick={() => onDecidir(rascunho, 'confirmar')}>{decidindo ? 'Gravando…' : 'Confirmar'}</button>

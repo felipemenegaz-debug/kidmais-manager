@@ -88,7 +88,7 @@ function ambiente() {
         const exports = {}; cache[file] = exports;
         const source = readFileSync(file, 'utf8');
         const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
-        new Function('require', 'exports', 'window', 'fetch', code)((n: string) => n in mocks ? mocks[n] : n.startsWith('@/') ? load(n.slice(2)) : n.startsWith('.') ? load(resolve(dirname(file), n)) : n === 'pg' ? (() => { throw Error('Conexão proibida'); })() : req(n), exports, mocks.__window, mocks.__fetch);
+        new Function('require', 'exports', 'window', 'fetch', 'requestAnimationFrame', code)((n: string) => n in mocks ? mocks[n] : n.startsWith('@/') ? load(n.slice(2)) : n.startsWith('.') ? load(resolve(dirname(file), n)) : n === 'pg' ? (() => { throw Error('Conexão proibida'); })() : req(n), exports, mocks.__window, mocks.__fetch, (fn: () => void) => fn());
         return exports;
     }
     mock('lib/db/postgres', { db: () => tx, withTransaction: transacao });
@@ -309,11 +309,14 @@ test('CRM → formulário administrativo → conclusão com GET/POST e núcleo r
     const profile = readFileSync('components/clientes/ClienteProfile.tsx', 'utf8');
     assert.match(profile, /href=\{`\/admin\/clientes\/\$\{clienteId\}\/fechamento`\}/);
     const a = await formulario(); await a.preencher(); await a.submit();
+    assert.match(a.text(a.render()), /Revise antes de criar/);
+    assert.equal(a.state.fechamentos.length, 0, 'A conferência não cria o fechamento.');
+    await a.submit();
     assert.match(a.text(a.render()), /Fechamento criado/); assert.equal(a.state.fechamentos.length, 1);
     assert.equal(a.state.fechamentos[0].clienteId, clienteId);
 });
 test('sessão expirada durante preenchimento redireciona ao login sem POST de criação', async () => {
-    const a = await formulario(); await a.preencher(); a.state.sessao.expirada = true; await a.submit();
+    const a = await formulario(); await a.preencher(); await a.submit(); a.state.sessao.expirada = true; await a.submit();
     assert.deepEqual(a.redirects, ['/admin/login']); assert.equal(a.state.fechamentos.length, 0);
     assert.match(a.text(a.render()), /Faça login para continuar/);
 });

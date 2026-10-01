@@ -38,7 +38,7 @@
 /* Drawer */
 .camada { position: fixed; inset: 0; z-index: 70; }
 .cortina { position: absolute; inset: 0; border: 0; background: rgba(4, 6, 14, .6); cursor: pointer; animation: surgir .18s ease; }
-.drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(460px, 100vw); display: flex; flex-direction: column; border-left: 1px solid rgba(255, 255, 255, 0.08); background: color-mix(in srgb, var(--km-card) 94%, transparent); backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%); box-shadow: -24px 0 60px -30px rgba(0, 0, 0, 0.8); animation: entrar .22s ease; }
+.drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(620px, 100vw); display: flex; flex-direction: column; border-left: 1px solid var(--km-border); background: var(--km-card); box-shadow: -24px 0 60px -30px rgba(0, 0, 0, 0.8); animation: entrar .22s ease; }
 .drawerTopo { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 24px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
 .drawerTopo h2 { margin: 0; font-size: 18px; letter-spacing: -0.01em; }
 .drawerTopo p { margin: 4px 0 0; color: var(--km-text-2); font-size: 13px; }
@@ -120,6 +120,22 @@
 .complementoTexto { margin: 0; font-size: 14px; line-height: 1.5; }
 .passos { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; }
 .sugestaoTexto blockquote { margin: 0; padding: 10px 12px; border-left: 3px solid var(--km-violet); border-radius: 8px; background: rgba(255, 255, 255, 0.03); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.drawer .sugestao { background:var(--input-bg); border-color:var(--km-border); }
+.drawer .sugestao strong { font-weight:500; }
+.drawer .pergunta { background:var(--input-focus-bg); padding:16px; }
+.drawer .selo,.drawer .categoria { background:var(--input-bg); border-color:var(--km-border); color:var(--km-text-2); font-weight:500; letter-spacing:0; }
+.drawer .acao { background:var(--input-bg); border-color:var(--km-border); }
+.drawer .acaoTitulo { font-weight:600; }
+.drawer .enviar,.drawer .confirmar { color:var(--km-bg); background:var(--km-teal); box-shadow:none; }
+.drawer .cancelar { flex:0 1 auto; }
+.drawer .evidencias { border-color:var(--km-border); }
+.drawer .evidencias summary { min-height:44px; display:flex; align-items:center; }
+.drawer .referencia { margin:10px 0; }
+.drawer .sugestaoCurta { min-height:44px; border-radius:8px; color:var(--km-text); border-color:var(--km-border); }
+.drawer .item { border-color:var(--km-border); background:var(--input-bg); }
+.drawer .itemTexto strong { font-weight:500; }
+.drawer .fechar { min-width:44px; min-height:44px; }
+.drawer :focus-visible { outline-color:var(--km-teal); }
 @media (max-width: 800px) {
   .complemento, .sugestaoTexto { padding: 12px; }
 }

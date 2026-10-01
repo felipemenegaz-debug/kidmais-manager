@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "resultados": [
+    {
+      "viewport": "desktop",
+      "abasTeclado": true,
+      "observacoesPreservadas": true,
+      "revisaoSemGravacao": true,
+      "criacaoPayloadPreservado": true,
+      "perfilEstados": true,
+      "iaCapabilityAusente": true,
+      "overflow": false
+    },
+    {
+      "viewport": "celular",
+      "abasTeclado": true,
+      "observacoesPreservadas": true,
+      "revisaoSemGravacao": true,
+      "criacaoPayloadPreservado": true,
+      "perfilEstados": true,
+      "iaCapabilityAusente": true,
+      "overflow": false
+    }
+  ],
+  "assinaturaLiberacaoMocks": true,
+  "conflitoMantemDados": true,
+  "temaAdministrativoNasPreferenciasClaraEscura": true,
+  "errors": [],
+  "inesperados": [],
+  "dados": "Sintéticos; todas as APIs interceptadas; banco inacessível.",
+  "runtime": "v24.20.0"
+}

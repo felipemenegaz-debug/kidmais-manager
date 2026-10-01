@@ -8,7 +8,8 @@ const rota = readFileSync('app/api/admin/configuracoes/perfil-empresa/route.ts',
 
 test('a tela cobre os estados e não envia concessão nem arquivo', () => {
     assert.match(tela, /Carregando perfil/);
-    assert.match(tela, /Sem concessão ativa/);
+    assert.match(tela, /corpo.codigo === 'PERFIL_SEM_CONCESSAO'/);
+    assert.match(tela, /Acesso negado/);
     assert.match(tela, /ainda não está instalada/);
     assert.match(tela, /não há empresa provisionada/);
     assert.match(tela, /Os dados digitados foram mantidos/);
