@@ -9,6 +9,7 @@ import {
   registrarResultado, type Mensagem,
 } from './conversa';
 import DrawerKidmais from './DrawerKidmais';
+import visual from '../visual.module.css';
 
 type Assistente = { abrir(): void; definirContexto(contexto: ContextoTela | null): void };
 
@@ -126,7 +127,7 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
 export function BotaoPerguntarKidmais({ className, children = 'Perguntar ao Kidmais', aoAbrir }: { className?: string; children?: React.ReactNode; aoAbrir?(): void }) {
   const assistente = usePerguntarKidmais();
   if (!assistente) return null;
-  return <button type="button" className={className} aria-haspopup="dialog" onClick={() => { aoAbrir?.(); assistente.abrir(); }}>{children}</button>;
+  return <button type="button" className={`${className ?? ''} ${visual.assistente}`} data-km-assistente aria-haspopup="dialog" onClick={() => { aoAbrir?.(); assistente.abrir(); }}>{children}</button>;
 }
 
 /**

@@ -1,5 +1,5 @@
 .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; }
-.card { position:relative; display:flex; flex-direction:column; align-items:flex-start; gap:16px; padding:32px; border-radius:32px; border:1px solid var(--border-navy); background:var(--card-bg); transition:border-color .2s ease; }
+.card { composes: glass secao from './visual.module.css'; position:relative; display:flex; flex-direction:column; align-items:flex-start; gap:16px; padding:32px; border-radius:32px; border:1px solid var(--border-navy); background:var(--km-card-surface); transition:border-color .2s ease; }
 .icon { display:grid; place-items:center; width:44px; height:44px; border-radius:12px; background:rgba(124,58,237,.1); color:var(--lilac-accent); }
 .card h2 { margin:0; font-size:16px; }
 .card p { margin:0; color:var(--secondary-text); font-size:13px; }

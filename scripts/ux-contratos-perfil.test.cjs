@@ -48,7 +48,8 @@ async function main() {
             if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: id(9), nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico' });
             if (url.pathname === '/api/admin/contratos/painel') {
                 await new Promise(r => setTimeout(r, 150));
-                return ok(url.searchParams.has('contratoId') ? { ...painel, contrato: { ...painel.contrato, status: estadoContrato === 'CONCLUIDA' ? 'ASSINADO' : 'AGUARDANDO_ASSINATURA' }, versoes: [{ ...versao, estado_edicao: estadoContrato, status: estadoContrato === 'CONCLUIDA' ? 'ASSINADA' : 'ATIVA', documento_revisado_id: revisado ? id(6) : null }] } : [{ id: contratoId, nome: snapshot.contratante.nomeCompleto, data_evento: snapshot.evento.data, pacote: 'Premium', convidados: 70, status: 'AGUARDANDO_ASSINATURA' }]);
+                const outro = url.searchParams.get('contratoId') === id(22);
+                return ok(url.searchParams.has('contratoId') ? { ...painel, contrato: { ...painel.contrato, id: outro ? id(22) : contratoId, status: estadoContrato === 'CONCLUIDA' ? 'ASSINADO' : 'AGUARDANDO_ASSINATURA' }, versoes: [{ ...versao, id: outro ? id(23) : versaoId, snapshot: outro ? {...snapshot,contratante:{...snapshot.contratante,nomeCompleto:'Outro Cliente de Exemplo'}} : snapshot, estado_edicao: estadoContrato, status: estadoContrato === 'CONCLUIDA' ? 'ASSINADA' : 'ATIVA', documento_revisado_id: revisado ? id(6) : null }] } : [contratoId,id(22)].map(id=>({id,nome: id===contratoId ? snapshot.contratante.nomeCompleto : 'Outro Cliente de Exemplo', data_evento: snapshot.evento.data,pacote:'Premium',convidados:70,status:'AGUARDANDO_ASSINATURA'})));
             }
             if (url.pathname === `/api/admin/contratos/versoes/${versaoId}`) {
                 if (body.acao === 'revisar') revisado = true;
@@ -87,6 +88,20 @@ async function main() {
         const foto = async nome => { const dialogo = await page.getByRole('dialog').count(); if (!dialogo) await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: `${out}/${nome}.png`, fullPage: !dialogo }); assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Overflow em ${nome}`); };
         for (const [viewport, width, height] of [['desktop', 1440, 1000], ['celular', 390, 844]]) {
             await page.setViewportSize({ width, height });
+            await page.goto(`${origin}/preview-ux/dashboard`);
+            await page.getByRole('heading',{name:'Dashboard',exact:true}).waitFor();
+            const ai=page.locator('[data-km-assistente]:visible');
+            assert.equal(await ai.count(),viewport==='desktop'?2:1);
+            assert.notEqual(await ai.first().evaluate(el=>getComputedStyle(el).animationName),'none');
+            await foto(`dashboard-${viewport}`);
+            const pendencia=page.getByRole('link',{name:/Contrato aguardando assinatura/});
+            await pendencia.click(); await page.getByRole('heading',{name:'Cliente de Exemplo',exact:true}).waitFor();
+            assert.equal(new URL(page.url()).searchParams.get('contratoId'),contratoId);
+            assert.equal(await page.getByRole('tab',{name:'Documentos',exact:true}).getAttribute('aria-selected'),'true');
+            await page.goto(`${origin}/preview-ux/dashboard`);
+            await page.getByRole('link',{name:'Abrir contrato da festa de João Souza',exact:true}).filter({visible:true}).click();
+            await page.getByRole('heading',{name:'Outro Cliente de Exemplo',exact:true}).waitFor();
+            assert.equal(new URL(page.url()).searchParams.get('contratoId'),id(22));
             await abrir('contratos'); await page.getByRole('heading', { name: 'Cliente de Exemplo', exact: true }).waitFor(); await foto(`contratos-${viewport}`);
             const tabs = page.getByRole('tablist', { name: 'Conteúdo do contrato' });
             await tabs.getByRole('tab', { name: 'Visão geral' }).focus(); await page.keyboard.press('ArrowRight');
@@ -124,7 +139,9 @@ async function main() {
         await page.getByLabel('Confirme sua senha').fill('senha-sintetica-sem-credencial-real');
         await page.getByRole('button', { name: 'Aprovar e assinar pela Kidmais', exact: true }).click();
         await page.getByRole('button', { name: 'Liberar para o cliente', exact: true }).click();
-        await page.getByRole('link', { name: 'Abrir acesso público do cliente', exact: true }).waitFor();
+        const publico = page.getByRole('link', { name: /^Abrir acesso público do cliente/ });
+        await publico.waitFor(); assert.equal(await publico.count(),1);
+        assert.equal(await publico.evaluate(el=>!!el.closest('div')?.textContent.includes('Próximo passo')),true);
         assert.deepEqual(posts.filter(p => p.url === `/api/admin/contratos/versoes/${versaoId}`).map(p => p.body.acao), ['revisar', 'assinar', 'liberar']);
         estadoPerfil = 'ok'; draft = null; await abrir('perfil');
         await page.getByLabel('Nome comercial (obrigatório ao aplicar)').fill('Perfil para revisão sintética');
@@ -139,6 +156,11 @@ async function main() {
         await abrir('contratos'); await page.getByRole('heading', { name: 'Cliente de Exemplo', exact: true }).waitFor(); await foto('contratos-preferencia-clara');
         await abrir('perfil'); await page.getByLabel('Nome comercial (obrigatório ao aplicar)').waitFor(); await foto('perfil-preferencia-clara');
         await page.goto(`${origin}/admin/fechamentos/${id(5)}/revisao`); await page.getByRole('button', { name: 'Gerar contrato', exact: true }).waitFor(); await foto('revisao-comercial-desktop');
+        await page.goto(`${origin}/preview-ux/dashboard`);
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        assert.equal(await page.locator('[data-km-assistente]:visible').first().evaluate(el=>getComputedStyle(el).animationName),'none');
+        assert.equal(await page.locator('section').filter({has:page.getByRole('heading',{name:'Precisa de atenção',exact:true})}).evaluate(el=>getComputedStyle(el,'::before').animationName),'none');
+        await page.emulateMedia({ reducedMotion: 'no-preference' });
         fs.writeFileSync(`${out}/resultados.json`, JSON.stringify({ ok: true, resultados, assinaturaLiberacaoMocks: true, conflitoMantemDados: true, temaAdministrativoNasPreferenciasClaraEscura: true, errors, inesperados, dados: 'Sintéticos; todas as APIs interceptadas; banco inacessível.', runtime: process.version }, null, 2));
         console.log(JSON.stringify(resultados));
     } finally {
