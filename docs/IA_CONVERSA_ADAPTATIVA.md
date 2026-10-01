@@ -26,7 +26,7 @@ Ele é atualizado a cada etapa. Uma etapa só é marcada como feita com a evidê
 | 10 | Gates locais (testes, TypeScript, ESLint, build, UI, benchmark) | feito | `56d6834`: test:inteligencia 422/422; check:v1:static 1633+103 com build; check:ia:prs, tsc, ESLint, UI 27/27, ux-contratos-perfil ok; benchmark sem diff. `check:v1:ui` falha também no staging puro `a6fbfd6` (endpoint de logo da #55) — anterior a esta entrega |
 | 11 | PR, CI, merge em staging e deploy manual | feito | PR #56, CI success; merge commit `9599af2` (árvore = `56d6834`); deploy `dep-dav35fojo6nc73fa0i9g` live, health 200, sem erros nos logs; auto-deploy OFF (staging e produção) conferido antes |
 | 12 | Revisão: 3 lacunas reproduzidas e corrigidas (fallback ambíguo, associação valor↔unidade na redação, estimativa negada) | feito | §5.1; PR #57 (CI success), merge `c37ca62`, deploy `dep-dav3mvc1nsns738g7i90` live, health 200 |
-| 13 | Homologação com o modelo real pelo app de staging (custo e latência medidos) | em andamento | §5.2: 1ª rodada em `9243d2c` (7 falhas e 1 ajuste, corrigidos na PR #61); 2ª rodada após o redeploy |
+| 13 | Homologação com o modelo real pelo app de staging (custo e latência medidos) | encerrada com pendência | §5.2: 1ª rodada em `9243d2c` (7 falhas e 1 ajuste ⇒ PR #61); 2ª rodada em `1dc986f` limitada pelo teto de orçamento (modelo recusado antes da chamada) ⇒ 2 falhas do caminho sem modelo corrigidas na PR #62. Pendência: repetir a rodada com modelo quando o orçamento diário permitir |
 
 ## 2. Auditoria do código de partida (`6b45783`)
 
@@ -199,3 +199,11 @@ Também achado: o trace `adaptativo` (e o `operacional`) não aparecia no log �
 8. Redação: negação de "regra da empresa" reconhecida na mesma oração ("não é uma regra da empresa", "sem regra da empresa").
 
 **Falha do provedor:** não exercitada ao vivo nesta rodada — exigiria mudar variáveis de configuração da IA em staging (fora da autorização). Coberta pelos testes de diálogo com provedor fora do ar (HTTP 5xx ⇒ caminho anterior, sem ação automática).
+
+**2ª rodada (01/10/2026, 18:12–18:15 UTC; staging `1dc986f`).** Só a 1ª mensagem chegou ao modelo ("crie uma do cliente Felipe para 50 convidados, pacote premium" ⇒ rascunho de festa com cliente, pacote e convidados; 1 chamada, 2.785 tokens, US$ 0,000352, 3,2 s). Da 2ª em diante, o trace `adaptativo` (agora no log) mostra `chamadasModelo: 0`, ~20 ms e `ENTENDIMENTO_INDISPONIVEL`, sem erro de provedor; o Planner também ficou `INDISPONIVEL`. Leitura: o roteador recusou a reserva antes da chamada — muito provavelmente o teto diário de tokens por empresa (`AI_BUDGET_JSON`), consumido pela 1ª rodada e pelos demais usos do dia. Não confirmado (exigiria ler a configuração ou o banco, fora da autorização).
+
+Com isso, a rodada virou uma observação real do **caminho sem modelo**: nada automático foi gravado; cálculo determinístico correto (60 convidados, regras ausentes perguntadas); cancelamento ok; "Quero criar uma festa e não um pacote" com o rascunho perguntando um nome ⇒ "Não consegui entender a resposta" (a correção 2 da PR #61 vale também sem modelo). Duas falhas, corrigidas na PR #62 (sem testes novos, a pedido do operador):
+1. "o aniversariante é o Theo" gravava "é o Theo" ⇒ o verbo e o artigo saem do nome.
+2. Cálculo sem festa sem plano do Planner respondia "Ainda não sei responder" ⇒ pergunta "Para qual festa?".
+
+**Pendências declaradas:** repetir os diálogos com o modelo (correções 1, 3, 5, 6 e 8 da PR #61 só foram comprovadas por testes de diálogo); falha do provedor ao vivo (exige mudar configuração).
