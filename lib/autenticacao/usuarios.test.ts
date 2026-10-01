@@ -487,7 +487,7 @@ test('desativar a última administradora do perfil recusa sem alterar a conta', 
                 sqls.push(sql);
                 if (sql.includes('to_regclass'))
                     return { rows: [{ empresas: 'perfil_empresas', concessoes: 'perfil_empresa_concessoes' }] };
-                if (sql.includes('FROM public.perfil_empresas'))
+                if (sql.includes('FROM public.perfil_empresas') && !sql.includes('FOR UPDATE OF c'))
                     return { rows: [{ id: empresaId }] };
                 if (sql.includes('pg_advisory_xact_lock'))
                     return { rows: [] };

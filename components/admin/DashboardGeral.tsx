@@ -6,7 +6,10 @@ import { reaisDe } from '@/lib/financeiro/calculos';
 import styles from './dashboard.module.css';
 import InteligenciaCard from './InteligenciaCard';
 
-type Festa = { id: string; data: string; cliente: string; pacote: string; convidados: number; status: string; hora: string };
+type Festa = { id: string; contratoId?: string; versaoId?: string | null; data: string; cliente: string; pacote: string; convidados: number; status: string; hora: string };
+function destinoFesta(festa: Festa) {
+  return festa.contratoId ? `/admin/contratos?contratoId=${festa.contratoId}${festa.versaoId ? `&versaoId=${festa.versaoId}` : ''}#documentacao` : `/admin/festas/${festa.id}`;
+}
 type Atencao = { tom: 'alerta' | 'aviso'; titulo: string; detalhe: string; href: string };
 export type PainelDashboard = {
   empresa: string;
@@ -71,7 +74,7 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
     return () => { ativo = false; };
   }, [inicial, tentativa]);
 
-  if (erro) return <main className={styles.pagina}><p className={styles.erro} role="alert">{erro}</p><button type="button" onClick={() => { setErro(''); setTentativa((n) => n + 1); }}>Tentar novamente</button></main>;
+  if (erro) return <main className={styles.pagina}><p className={styles.erro} role="alert">{erro}</p><button className={styles.atalho} type="button" onClick={() => { setErro(''); setTentativa((n) => n + 1); }}>Tentar novamente</button></main>;
   if (!painel) return <main className={styles.pagina} aria-busy="true"><p>Carregando o dia…</p></main>;
 
   return <main className={styles.pagina}>
@@ -96,7 +99,7 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
       <InteligenciaCard />
 
       <section className={`${styles.cartao} ${styles.largo} ${styles.agenda}`}>
-        <div className={styles.cabeca}><h2 className={styles.lilas}>Agenda de hoje</h2><Link href="/admin/disponibilidade">Ver agenda completa</Link></div>
+        <div className={styles.cabeca}><h2 className={styles.lilas}>Agenda de hoje</h2><Link className={styles.atalho} href="/admin/disponibilidade">Ver agenda completa</Link></div>
         {painel.agenda.length === 0 && <p className={styles.vazio}>Nenhuma festa hoje.</p>}
         {painel.agenda.map((festa) => <Link key={festa.id} className={styles.linha} href={`/admin/festas/${festa.id}`}>
           <div className={styles.hora}><strong>{hora(festa.hora)}</strong><span>Início</span></div>
@@ -109,9 +112,9 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
         <h2 className={styles.alertaTitulo}>Precisa de atenção</h2>
         {painel.atencao.length === 0 && <p className={styles.vazio}>Nada pendente por aqui.</p>}
         <div className={styles.atencao}>
-          {painel.atencao.map((item) => <Link key={item.titulo} href={item.href}>
+          {painel.atencao.map((item) => <Link key={item.href} href={item.href}>
             <span className={`${styles.ponto} ${item.tom === 'alerta' ? styles.vermelho : styles.amarelo}`} aria-hidden="true" />
-            <div className={styles.cresce}><p>{item.titulo}</p><small>{item.detalhe}</small></div>
+            <div className={styles.cresce}><p>{item.titulo}</p><small>{item.detalhe}</small><strong className={styles.abrir}>Abrir {item.href.startsWith('/admin/contratos?') ? 'contrato' : 'pendência'} →</strong></div>
           </Link>)}
         </div>
       </section>
@@ -123,14 +126,14 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
           <thead><tr><th>Data</th><th>Cliente</th><th>Pacote</th><th>Convidados</th><th>Status</th></tr></thead>
           <tbody>
             {painel.proximas.map((festa) => <tr key={festa.id}>
-              <td><Link href={`/admin/festas/${festa.id}`}>{dataCurta(festa.data)}</Link></td>
-              <td>{festa.cliente}</td><td>{festa.pacote}</td><td>{festa.convidados}</td>
+              <td><Link href={destinoFesta(festa)}>{dataCurta(festa.data)}</Link></td>
+              <td><Link className={styles.linkContrato} href={destinoFesta(festa)} aria-label={`Abrir contrato da festa de ${festa.cliente}`}>{festa.cliente} ↗</Link></td><td>{festa.pacote}</td><td>{festa.convidados}</td>
               <td className={classeTexto(festa.status)}>{rotulo(festa.status)}</td>
             </tr>)}
           </tbody>
         </table>
         <div className={styles.cards}>
-          {painel.proximas.map((festa) => <Link key={festa.id} className={styles.festaCard} href={`/admin/festas/${festa.id}`}>
+          {painel.proximas.map((festa) => <Link key={festa.id} className={styles.festaCard} href={destinoFesta(festa)} aria-label={`Abrir contrato da festa de ${festa.cliente}`}>
             <div className={styles.cresce}><p>{dataCurta(festa.data)} — {festa.cliente}</p><small>{festa.pacote} · {festa.convidados} conv</small></div>
             <span className={classe(festa.status)}>{rotulo(festa.status)}</span>
           </Link>)}

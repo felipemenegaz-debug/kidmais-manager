@@ -9,7 +9,7 @@
 .page summary { cursor:pointer; padding:16px; color:var(--lilac-accent); font-weight:700; background:var(--input-bg); border-radius:16px; }
 .page details fieldset { margin:0; border:0; }
 .login { width:100%; max-width:460px; min-height:auto; margin:70px auto; padding:32px; border:1px solid var(--border-navy); border-radius:32px; background:var(--card-bg); }
-.overview { background:var(--card-bg); border:1px solid var(--border-navy); border-radius:24px; padding:24px; margin-top:24px; }
+.overview { composes: glass secao from './visual.module.css'; background:var(--km-card-surface); border:1px solid var(--border-navy); border-radius:24px; padding:24px; margin-top:24px; }
 .overview h2 { margin-top:0; }
 .badge { composes: badge from './workspace.module.css'; }
 .actions { composes: actions from './workspace.module.css'; }

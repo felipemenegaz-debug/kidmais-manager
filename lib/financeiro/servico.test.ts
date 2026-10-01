@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DbExecutor } from "../db/contracts.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
-import { criarEntradaManual, leituraPeriodo, resumo, type ContaPagar, type Recebivel } from "./servico.ts";
+import { criarEntradaManual, leituraPeriodo, painelGeral, resumo, type ContaPagar, type Recebivel } from "./servico.ts";
 import { readFileSync } from "node:fs";
 
 test("o resumo do dashboard e do financeiro usa a mesma fórmula", () => {
@@ -146,4 +146,26 @@ test("a leitura de recebíveis e saídas fica presa à empresa", () => {
   assert.match(fonte, /pac\.empresa_id = \$1::uuid/);
   assert.match(fonte, /conta\.empresa_id = \$1::uuid/);
   assert.doesNotMatch(fonte, /empresaId do corpo|body\.empresaId/);
+});
+
+test('dashboard aponta cada pendência e festa para seu contrato e versão, mantendo o total',async()=>{
+  const empresa='00000000-0000-4000-8000-000000000001';
+  const tx={async query(sql:string,params:readonly unknown[]=[]) {
+    if(sql.includes('AS "contratoId"')) {
+      assert.equal(params[0],empresa); assert.match(sql,/pac\.empresa_id = \$1::uuid/);
+      return {rows:[{id:'festa',contratoId:'assinado',versaoId:'vigente',data:'2026-10-02',cliente:'Ana',pacote:'Premium',convidados:50,status:'ASSINADO',hora:'17:00'}]};
+    }
+    if(sql.includes('count(*) OVER ()::int')) {
+      assert.equal(params[0],empresa); assert.match(sql,/pac\.empresa_id = \$1::uuid/);
+      return {rows:[{id:'pendente-A',versaoId:'preparacao-A',cliente:'Bia',n:4},{id:'pendente-B',versaoId:null,cliente:'Caio',n:4}]};
+    }
+    return {rows:[]};
+  }} as unknown as DbExecutor;
+  const painel=await painelGeral(tx,empresa,'2026-10-01');
+  assert.equal(painel.contratosPendentes,4);
+  assert.equal(painel.proximas[0].contratoId,'assinado');
+  assert.deepEqual(painel.atencao.map(i=>i.href),[
+    '/admin/contratos?contratoId=pendente-A&versaoId=preparacao-A#documentacao',
+    '/admin/contratos?contratoId=pendente-B#documentacao'
+  ]);
 });

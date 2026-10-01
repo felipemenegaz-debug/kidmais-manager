@@ -10,12 +10,12 @@ export const painelVitrine: PainelDashboard = {
     { id: "2", data: "2026-03-17", hora: "18:30", cliente: "João Souza", pacote: "Festa Completa", convidados: 60, status: "AGUARDANDO_ASSINATURA" },
   ],
   proximas: [
-    { id: "1", data: "2026-03-18", hora: "14:00", cliente: "Maria Silva", pacote: "Premium", convidados: 45, status: "ASSINADO" },
-    { id: "2", data: "2026-03-19", hora: "18:30", cliente: "João Souza", pacote: "Completa", convidados: 60, status: "AGUARDANDO_ASSINATURA" },
+    { id: "1", contratoId: "00000000-0000-4000-8000-000000000002", versaoId: "00000000-0000-4000-8000-000000000003", data: "2026-03-18", hora: "14:00", cliente: "Maria Silva", pacote: "Premium", convidados: 45, status: "ASSINADO" },
+    { id: "2", contratoId: "00000000-0000-4000-8000-000000000022", versaoId: "00000000-0000-4000-8000-000000000023", data: "2026-03-19", hora: "18:30", cliente: "João Souza", pacote: "Completa", convidados: 60, status: "AGUARDANDO_ASSINATURA" },
   ],
   atencao: [
     { tom: "alerta", titulo: "Pagamento vencido — Roberto Lima", detalhe: "R$ 3.200 há 5 dias", href: "/admin/financeiro/contas-receber" },
-    { tom: "aviso", titulo: "Contrato aguardando assinatura", detalhe: "1 em aberto", href: "/admin/contratos" },
+    { tom: "aviso", titulo: "Contrato aguardando assinatura", detalhe: "Cliente de Exemplo", href: "/admin/contratos?contratoId=00000000-0000-4000-8000-000000000002&versaoId=00000000-0000-4000-8000-000000000003#documentacao" },
   ],
   contratosPendentes: 3,
   festasProximas: 8,

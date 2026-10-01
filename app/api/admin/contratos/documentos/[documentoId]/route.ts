@@ -16,7 +16,8 @@ export async function GET(request: NextRequest, context: {
         const id = z.string().uuid().parse((await context.params).documentoId);
         // Tenant Context: posse (documento → versão → contrato → fechamento → pacote da empresa) e leitura na mesma transação.
         const d = await lerDocumentoDoTenant(sessao, request.nextUrl.searchParams.get('empresaId'), id, { withTenantTransaction, ler: lerDocumento });
-        return new NextResponse(new Uint8Array(d.conteudo_pdf), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="contrato-${d.contrato_versao_id}-${d.id}.pdf"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+        const disposicao = request.nextUrl.searchParams.get('baixar') === '1' ? 'attachment' : 'inline';
+        return new NextResponse(new Uint8Array(d.conteudo_pdf), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `${disposicao}; filename="contrato-${d.contrato_versao_id}-${d.id}.pdf"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
     }
     catch (e) {
         if (e instanceof ResumoTenantError)

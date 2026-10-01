@@ -2,7 +2,7 @@ import type { DbExecutor } from '../db/contracts';
 import type { AppendAuditoriaInput } from '../clientes/repositories/auditoria.repository.ts';
 import { ClienteServiceError } from '../clientes/services/errors.ts';
 import type { CapacidadePerfil } from './capacidades.ts';
-import { exigirCapacidadePerfil } from './autorizacao.ts';
+import { exigirCapacidadePerfil, EMPRESA_SAAS_DO_PERFIL } from './autorizacao.ts';
 import { estruturaPerfilInstalada } from './estrutura.ts';
 import { exigirReautenticacaoPerfil } from './reautenticacao.ts';
 
@@ -90,7 +90,9 @@ export async function avaliarPerdaDeElegibilidade(tx: DbExecutor, input: {
             `SELECT c.empresa_id, c.usuario_id, COALESCE(m.papel, '') AS papel, (u.ativo AND m.status IS NOT DISTINCT FROM 'ATIVA') AS ativo
              FROM public.perfil_empresa_concessoes c
              JOIN usuarios_administrativos u ON u.id = c.usuario_id
-             LEFT JOIN memberships m ON m.empresa_id = c.empresa_id AND m.usuario_id = c.usuario_id
+             JOIN public.perfil_empresas p ON p.id = c.empresa_id
+             LEFT JOIN LATERAL (${EMPRESA_SAAS_DO_PERFIL}) e ON e.candidatos = 1 AND e.status = 'ATIVA'
+             LEFT JOIN memberships m ON m.empresa_id = e.id AND m.usuario_id = c.usuario_id
              WHERE c.revogado_em IS NULL
                AND c.capacidade = 'PERFIL_ADMINISTRAR_CONCESSOES'
                AND c.empresa_id = ANY($1::uuid[])
