@@ -757,6 +757,11 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
   }
   if (!saida.plano) {
     rastreio.plano = planoRejeitado("MODELO", "COMPOSICAO", saida.rejeicao ?? "INDISPONIVEL");
+    // Cálculo de consumo sem festa e sem plano (modelo indisponível, orçamento, plano inválido): pergunta qual festa,
+    // como faria sem o Planner — nunca "não sei responder".
+    if (e.consumo && e.resolucao?.resultado === "NAO_ENCONTRADA") {
+      return { resposta: { ...naoSuportado("Para qual festa? Por exemplo: “para a próxima festa”, ou abra a festa e pergunte por lá."), entendimento: "PRECISA_DADO" } };
+    }
     return null;
   }
   const doModelo = saida.plano;
