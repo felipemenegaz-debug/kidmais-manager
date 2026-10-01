@@ -10,8 +10,8 @@
 .page input:focus,.page select:focus,.page textarea:focus { border-color:var(--primary-violet); outline:none; background:var(--input-focus-bg); }
 .page select option { background:var(--card-bg); }
 .page input[type=checkbox],.page input[type=radio] { display:inline-block; width:18px; height:18px; accent-color:var(--primary-violet); margin:0 10px 0 0; vertical-align:middle; }
-.page button:not([data-km-primario]) { border:1px solid var(--input-border); border-radius:10px; padding:10px 16px; min-height:40px; background:rgba(255,255,255,.04); color:var(--main-text); cursor:pointer; font:800 11px/1.5 var(--admin-font); }
-.page button:not([data-km-primario]):hover:not(:disabled) { background-color:rgba(124,58,237,.2); border-color:rgba(124,58,237,.6); }
+.page button:not([data-km-primario]) { border:1px solid color-mix(in srgb,var(--secondary-text) 45%,var(--input-border)); border-radius:10px; padding:10px 16px; min-height:44px; background:linear-gradient(var(--input-bg),var(--card-bg)); color:var(--main-text); cursor:pointer; font:600 13px/1.5 var(--admin-font); transition:filter .2s,box-shadow .2s,border-color .2s; }
+.page button:not([data-km-primario]):hover:not(:disabled) { border-color:var(--emerald-accent); filter:brightness(1.1); box-shadow:0 0 15px color-mix(in srgb,var(--emerald-accent) 22%,transparent); }
 .page button:not([data-km-primario]):disabled { opacity:.45; cursor:not-allowed; }
 .page button.danger { color:#fda4af; }
 .page :focus-visible { outline:2px solid var(--lilac-accent); outline-offset:3px; }
@@ -27,8 +27,9 @@
 .filters { display:flex; gap:8px; flex-wrap:wrap; }
 .filters button { font-size:11px; text-transform:uppercase; padding:8px 16px; min-height:36px; }
 .filters button[aria-pressed=true] { background:var(--primary-violet); border-color:transparent; color:#fff; }
-.card,.tableCard { background:var(--card-bg); border:1px solid var(--border-navy); border-radius:32px; min-width:0; }
-.card { padding:32px; margin:24px 0; }
+.card,.tableCard { background:var(--km-card-surface,var(--card-bg)); border:1px solid var(--border-navy); border-radius:32px; min-width:0; }
+.card { composes: glass secao from './visual.module.css'; padding:32px; margin:24px 0; }
+.tableCard { composes: glass secao from './visual.module.css'; }
 .card > h2 { margin-top:0; }
 .tableCard { overflow:hidden; }
 .packagesTable { width:100%; border-collapse:collapse; text-align:left; }

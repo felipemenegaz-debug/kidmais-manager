@@ -3,6 +3,15 @@ import { ClienteServiceError } from '../clientes/services/errors.ts';
 import { CAPACIDADES_PERFIL, capacidadePerfil, type CapacidadePerfil } from './capacidades.ts';
 import { estruturaPerfilInstalada } from './estrutura.ts';
 
+// Legado V1: UUID e código EMP-* do perfil são independentes do cadastro SaaS.
+// Sem identidade/código comum, só o contexto com UMA empresa em CADA tabela é aceito.
+// Mais de um candidato fecha o acesso. Esta associação não concede capacidades.
+export const EMPRESA_SAAS_DO_PERFIL = `SELECT id, status, count(*) OVER () AS candidatos FROM empresas
+  WHERE id = p.id OR codigo = lower(p.codigo) OR (
+    (SELECT count(*) FROM empresas) = 1 AND
+    (SELECT count(*) FROM public.perfil_empresas) = 1
+  )`;
+
 export type ConsultaCapacidadesPerfil = {
     estruturaInstalada: boolean;
     gestaoAtiva: boolean;
@@ -23,10 +32,14 @@ export async function consultarCapacidadesPerfil(tx: DbExecutor, empresaId: stri
     const vazio = mapaVazio();
     if (!estruturaInstalada)
         return { estruturaInstalada: false, gestaoAtiva: false, capacidades: vazio };
-    // 056: Gestão NESTA empresa = papel da membership ATIVA da empresa (nunca o papel global da identidade).
+    // O cadastro do perfil (026) e a empresa SaaS (031) têm UUIDs independentes.
+    // A membership da empresa associada continua comprovando a Gestão.
     const usuario = (await tx.query<{ id: string; papel: string; ativo: boolean }>(
         `SELECT u.id, m.papel, (u.ativo AND m.status = 'ATIVA') AS ativo
-           FROM usuarios_administrativos u JOIN memberships m ON m.usuario_id = u.id AND m.empresa_id = $2::uuid
+           FROM usuarios_administrativos u
+           JOIN public.perfil_empresas p ON p.id = $2::uuid
+           JOIN LATERAL (${EMPRESA_SAAS_DO_PERFIL}) e ON e.candidatos = 1 AND e.status = 'ATIVA'
+           JOIN memberships m ON m.usuario_id = u.id AND m.empresa_id = e.id
           WHERE u.id = $1`,
         [usuarioId, empresaId],
     )).rows[0];

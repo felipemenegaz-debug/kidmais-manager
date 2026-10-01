@@ -112,7 +112,7 @@ function executor(estado: Estado): DbExecutor {
                 }
                 return { rows: linhas, rowCount: linhas.length };
             }
-            if (sql.includes('JOIN memberships m ON m.usuario_id = u.id AND m.empresa_id = $2::uuid')) {
+            if (sql.includes('JOIN memberships m ON m.usuario_id = u.id AND m.empresa_id = e.id')) {
                 const usuario = estado.usuarios.find((item) => item.id === params[0]);
                 return { rows: usuario ? [{ id: usuario.id, papel: usuario.papel, ativo: usuario.ativo }] : [], rowCount: usuario ? 1 : 0 };
             }

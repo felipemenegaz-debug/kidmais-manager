@@ -164,6 +164,15 @@ const FRASE = "crie uma festa do Felipe, pacote premium 50 convidados, beatriz 1
 
 // ---------------------------------------------------------------- criar festa ≠ criar pacote
 
+test('regressão da imagem — criar festa do cliente com pacote como atributo',async()=>{
+  const r = await ambiente().enviar('Crie uma festa do cliente Felipe para 50 pessoas, pacote premium, catarina 1 ano, tema unicarno.');
+  assert.equal(r.data?.tipo,'rascunho');
+  const proposta=r.data as Extract<AIResponse,{tipo:'rascunho'}>;
+  assert.equal(proposta.rascunho.capacidade,'preparar_contratacao');
+  assert.equal(proposta.objetivo,'CRIAR:FESTA');
+  assert(!proposta.faltando.includes('preco'));
+});
+
 test("aceite — frase exata: prepara a contratação (não pacote), pergunta só o que falta e abre a revisão preenchida", async () => {
   const a = ambiente();
   const r1 = await a.enviar(FRASE);
@@ -335,6 +344,8 @@ test("aceite — doces sem escolhas, com escolhas sem divisão e com divisão in
 test("aceite — refrigerantes: sem taxa/embalagem pergunta; com embalagem indivisível calcula em mL, converte e arredonda", async () => {
   const a = ambiente({ convidados: 50 });
   const pergunta = await a.enviar("Quantos refrigerantes a próxima festa vai precisar?");
+  assert.equal(pergunta.data?.tipo, "resposta");
+  assert.equal(pergunta.rastro.plano?.passos.at(-1)?.capacidade, "calcular_consumo");
   assert.deepEqual(pergunta.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO" });
   const taxa = await a.enviar("400 ml");
   const t = leitura(taxa.data);

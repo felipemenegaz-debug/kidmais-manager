@@ -237,7 +237,7 @@ test('Provider: atenção de hoje no endpoint da V1; o resto vai ao orquestrador
       './perguntas': perguntas,
       './cliente-inteligencia': cliente,
       './conversa': conversa,
-      './DrawerKidmais': { default: DrawerKidmais },
+      './DrawerKidmais': { default: DrawerKidmais }, '../visual.module.css': cssFalso,
     });
     const provider = (props: object = {}) => tela.render('PerguntarKidmaisProvider', { children: 'conteúdo', ...props });
 
@@ -374,7 +374,7 @@ test('Provider: rascunho aberto recebe a próxima frase; o clique em Confirmar v
     const { buscar, pedidos } = buscadorFalso(() => respostas[pedidos.length - 1]());
     const tela = carregarComponente('components/admin/inteligencia/PerguntarKidmais.tsx', {
       ...NAVEGACAO_FALSA,
-      '@/lib/http/admin-fetch': { adminFetch: buscar }, './perguntas': perguntas, './cliente-inteligencia': cliente, './conversa': conversa, './DrawerKidmais': { default: DrawerKidmais },
+      '@/lib/http/admin-fetch': { adminFetch: buscar }, './perguntas': perguntas, './cliente-inteligencia': cliente, './conversa': conversa, './DrawerKidmais': { default: DrawerKidmais }, '../visual.module.css': cssFalso,
     });
     const provider = () => tela.render('PerguntarKidmaisProvider', { children: null });
     (elementos(provider())[0].props.value as { abrir(): void }).abrir();
@@ -618,7 +618,7 @@ test('Provider: resposta de navegação com rota segura abre a tela e fecha o dr
       './perguntas': perguntas,
       './cliente-inteligencia': cliente,
       './conversa': conversa,
-      './DrawerKidmais': { default: DrawerKidmais },
+      './DrawerKidmais': { default: DrawerKidmais }, '../visual.module.css': cssFalso,
     });
     const provider = () => tela.render('PerguntarKidmaisProvider', { children: 'conteúdo' });
     const valor = elementos(provider())[0].props.value as { abrir(): void };
@@ -667,7 +667,7 @@ test('Provider: reenvia o foco da resposta anterior só como tipo + id; resposta
       './perguntas': perguntas,
       './cliente-inteligencia': cliente,
       './conversa': conversa,
-      './DrawerKidmais': { default: DrawerKidmais },
+      './DrawerKidmais': { default: DrawerKidmais }, '../visual.module.css': cssFalso,
     });
     const provider = () => tela.render('PerguntarKidmaisProvider', { children: 'conteúdo' });
     (elementos(provider())[0].props.value as { abrir(): void }).abrir();

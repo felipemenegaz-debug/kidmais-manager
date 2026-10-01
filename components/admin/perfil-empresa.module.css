@@ -8,14 +8,14 @@
 .badge { color:var(--emerald-accent); background:rgba(93,227,176,.1); border:1px solid rgba(93,227,176,.2); padding:4px 8px; border-radius:6px; font-size:9px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; }
 .acoes { display:flex; align-items:center; gap:12px; }
 .acoes button { min-height:40px; padding:10px 20px; border-radius:12px; font-size:10px; line-height:15px; font-weight:900; text-transform:uppercase; letter-spacing:.1em; cursor:pointer; }
-.secundario { border:1px solid var(--input-border); background:rgba(255,255,255,.05); color:var(--main-text); }
+.secundario { composes: secundario from './visual.module.css'; border:1px solid color-mix(in srgb,var(--secondary-text) 45%,var(--input-border)); background:linear-gradient(var(--km-card-2),var(--km-card)); color:var(--main-text); }
 .primario { border:1px solid transparent; background:var(--admin-primary); color:#fff; }
 .page button:disabled { opacity:.5; cursor:not-allowed; }
 .conteudo { max-width:1200px; margin:0 auto; padding:32px; }
 .layout { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:32px; }
 .principal { grid-column:span 2; }
 .principal,.lateral { display:flex; flex-direction:column; gap:32px; min-width:0; }
-.card { background:var(--card-bg); border:1px solid var(--border-navy); border-radius:32px; padding:32px; min-width:0; margin:0; }
+.card { composes: glass secao from './visual.module.css'; background:var(--km-card-surface); border:1px solid var(--border-navy); border-radius:32px; padding:32px; min-width:0; margin:0; }
 .titulo { display:flex; align-items:center; gap:8px; color:var(--lilac-accent); font-size:14px; font-weight:900; line-height:21px; text-transform:uppercase; letter-spacing:1.4px; margin:0 0 32px; }
 .grade { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
 .campo { display:flex; flex-direction:column; gap:12px; min-width:0; }

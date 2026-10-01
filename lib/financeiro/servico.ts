@@ -837,11 +837,12 @@ export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: strin
   const contas = await listarContasPagar(tx, empresaId, hoje);
   const recebido = await recebidoNoMes(tx, empresaId, hoje);
   const numeros = resumo(recebiveis, contas, recebido, hoje);
-  const festas = await tx.query<{ id: string; data: string; cliente: string; pacote: string; convidados: number; status: string; hora: string }>(
-    `SELECT festa.id::text AS id, fech.data_evento::text AS data, COALESCE(cliente.nome_completo, 'Cliente') AS cliente,
+  const festas = await tx.query<{ id: string; contratoId: string; versaoId: string | null; data: string; cliente: string; pacote: string; convidados: number; status: string; hora: string }>(
+    `SELECT festa.id::text AS id, contrato.id::text AS "contratoId", fluxo.versao_vigente_id::text AS "versaoId", fech.data_evento::text AS data, COALESCE(cliente.nome_completo, 'Cliente') AS cliente,
             pac.nome AS pacote, fech.convidados, contrato.status AS status, fech.horario_inicio::text AS hora
        FROM festas festa
        JOIN contratos contrato ON contrato.id = festa.contrato_id
+       LEFT JOIN contrato_fluxos fluxo ON fluxo.contrato_id = contrato.id
        JOIN fechamentos fech ON fech.id = contrato.fechamento_id
        JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
        LEFT JOIN clientes cliente ON cliente.id = fech.cliente_id
@@ -851,12 +852,16 @@ export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: strin
       LIMIT 8`,
     [empresaId, hoje],
   );
-  const pendentes = await tx.query<{ n: number }>(
-    `SELECT count(*)::int AS n
+  const pendentes = await tx.query<{ id: string; versaoId: string | null; cliente: string; n: number }>(
+    `SELECT contrato.id::text AS id, fluxo.versao_em_preparacao_id::text AS "versaoId",
+            COALESCE(cliente.nome_completo, 'Cliente') AS cliente, count(*) OVER ()::int AS n
        FROM contratos contrato
        JOIN fechamentos fech ON fech.id = contrato.fechamento_id
        JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
-      WHERE contrato.status = 'AGUARDANDO_ASSINATURA'`,
+       LEFT JOIN clientes cliente ON cliente.id = fech.cliente_id
+       LEFT JOIN contrato_fluxos fluxo ON fluxo.contrato_id = contrato.id
+      WHERE contrato.status = 'AGUARDANDO_ASSINATURA'
+      ORDER BY fech.data_evento, contrato.id LIMIT 3`,
     [empresaId],
   );
   const mes = periodoSelecionado(hoje, "mes");
@@ -896,8 +901,9 @@ export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: strin
       ...recebiveis.filter((item) => item.status === "Vencido").slice(0, 3).map((item) => ({
         tom: "alerta" as const, titulo: `Pagamento vencido — ${item.cliente}`, detalhe: item.vencimento, href: "/admin/financeiro/contas-receber",
       })),
-      ...Array.from({ length: Number(pendentes.rows[0]?.n ?? 0) > 0 ? 1 : 0 }, () => ({
-        tom: "aviso" as const, titulo: "Contrato aguardando assinatura", detalhe: `${pendentes.rows[0].n} em aberto`, href: "/admin/contratos",
+      ...pendentes.rows.map((item) => ({
+        tom: "aviso" as const, titulo: "Contrato aguardando assinatura", detalhe: item.cliente,
+        href: `/admin/contratos?contratoId=${item.id}${item.versaoId ? `&versaoId=${item.versaoId}` : ''}#documentacao`,
       })),
     ],
     contratosPendentes: Number(pendentes.rows[0]?.n ?? 0),

@@ -10,11 +10,10 @@
 }
 
 .glass {
+  --km-card-surface: linear-gradient(115deg, color-mix(in srgb, var(--km-card) 91%, var(--km-text)), var(--km-card) 28%, var(--main-bg));
   position: relative;
   isolation: isolate;
-  background:
-    radial-gradient(180px circle at 14% 8%, rgba(255,255,255,0.045), transparent 60%),
-    color-mix(in srgb, var(--km-card) 55%, transparent);
+  background: var(--km-card-surface);
   backdrop-filter: blur(18px) saturate(160%);
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   border: 1px solid rgba(255,255,255,0.08);
@@ -30,7 +29,7 @@
   content: "";
   position: absolute;
   inset: -1px;
-  border-radius: calc(var(--km-radius) + 1px);
+  border-radius: inherit;
   background: linear-gradient(120deg, var(--km-violet), var(--km-teal), var(--km-violet));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
@@ -45,8 +44,10 @@
   opacity: .5;
 }
 .secao::before {
-  padding: 1px;
-  opacity: .28;
+  padding: 1.5px;
+  background-size: 300% 100%;
+  animation: kmGradientMove 12s ease infinite;
+  opacity: .55;
 }
 
 .primario,
@@ -97,13 +98,13 @@
 }
 @keyframes kmGiro { to { transform: rotate(360deg); } }
 .secundario {
-  border: 1px solid var(--km-border);
-  background: var(--km-card-2);
+  border: 1px solid color-mix(in srgb, var(--km-text-2) 45%, var(--km-border));
+  background: linear-gradient(var(--km-card-2),var(--km-card));
   color: var(--km-text);
 }
 .fantasma {
-  border: 1px solid var(--km-border);
-  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--km-text-2) 40%, var(--km-border));
+  background: var(--km-card);
   color: var(--km-text);
 }
 .perigo {
@@ -126,7 +127,7 @@
 @media (hover: hover) {
   .primario:hover:not(:disabled) { filter: brightness(1.08); }
   .secundario:hover:not(:disabled),
-  .fantasma:hover:not(:disabled) { border-color: color-mix(in srgb, var(--km-violet) 45%, transparent); }
+  .fantasma:hover:not(:disabled),.perigo:hover:not(:disabled) { border-color: var(--km-teal); filter:brightness(1.1); box-shadow:0 0 16px color-mix(in srgb, var(--km-teal) 22%, transparent); }
 }
 @media (max-width: 800px) {
   .glass {
@@ -135,7 +136,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .acento::before { animation: none; }
+  .acento::before,.secao::before,.assistente.assistente.assistente { animation: none; }
   .primario[aria-busy="true"]::after { animation-duration: 2.4s; }
   .glass,
   .primario,
@@ -156,3 +157,16 @@
 }
 .voltar:hover { text-decoration: underline; }
 .voltar:focus-visible { outline: 2px solid var(--km-lilac); outline-offset: 3px; border-radius: 6px; }
+
+/* Destaque reservado ao assistente; superfície opaca e borda em movimento. */
+.assistente.assistente.assistente {
+  display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px;
+  padding:10px 14px; border:2px solid transparent; border-radius:10px; color:var(--km-text);
+  background:linear-gradient(var(--km-card),var(--km-card)) padding-box,linear-gradient(110deg,var(--km-teal),var(--km-violet),var(--km-lilac),var(--km-teal)) border-box;
+  background-size:100% 100%,300% 100%; animation:kmGradientMove 6s ease infinite;
+  box-shadow:0 0 20px color-mix(in srgb,var(--km-violet) 32%,transparent); cursor:pointer;
+}
+.assistente.assistente.assistente:hover { filter:brightness(1.15); box-shadow:0 0 26px color-mix(in srgb,var(--km-violet) 50%,transparent); }
+.assistente:focus-visible { outline:2px solid var(--km-teal); outline-offset:3px; }
+.assistente:active { filter:brightness(.95); }
+@media(prefers-reduced-motion:reduce) { .assistente.assistente.assistente { animation:none; } }

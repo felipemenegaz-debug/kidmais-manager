@@ -27,7 +27,8 @@
 .lilas { color: var(--km-lilac); }
 .alertaTitulo { color: var(--km-orange); }
 .cabeca { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.cabeca a, .link { color: var(--secondary-text); font-size: 12px; font-weight: 700; text-decoration: none; }
+.cabeca a, .link { font-size: 12px; font-weight: 700; text-decoration: none; }
+.cabeca .atalho { width:auto; margin-bottom:24px; }
 .linha, .atencao a, .festaCard { display: flex; align-items: center; gap: 16px; padding: 16px; border-radius: 16px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); text-decoration: none; color: inherit; margin-bottom: 12px; }
 .hora { min-width: 52px; text-align: center; }
 .hora strong { display: block; }
@@ -41,7 +42,14 @@
 .textoOk { color: var(--km-teal); font-weight: 800; }
 .textoPendente { color: #fde047; font-weight: 800; }
 .textoCancelada { color: #f87171; font-weight: 800; }
-.atencao p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atencao p { overflow-wrap:anywhere; }
+.abrir { display:block; border:1px solid var(--km-teal); border-radius:8px; padding:9px 12px; margin-top:14px; background:var(--km-teal); color:var(--main-bg); text-align:center; }
+.linha:hover,.atencao a:hover,.festaCard:hover { border-color:var(--km-teal); box-shadow:0 0 15px color-mix(in srgb,var(--km-teal) 18%,transparent); }
+.linha:focus-visible,.atencao a:focus-visible,.festaCard:focus-visible { outline:2px solid var(--km-teal); outline-offset:3px; }
+.linkContrato { composes: secundario from './visual.module.css'; white-space:normal; text-align:left; }
+.tabela tbody tr { position:relative; }
+.tabela .linkContrato::after { content:""; position:absolute; inset:0; }
+.tabela tbody tr:focus-within { outline:2px solid var(--km-teal); outline-offset:2px; }
 .ponto { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 .vermelho { background: var(--km-orange); }
 .amarelo { background: #facc15; }
@@ -79,6 +87,7 @@
   .kpis { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 800px) {
+  .acoes { grid-template-columns:1fr; }
   .pagina { padding: 16px 16px 88px; }
   .kpi { min-width: 0; }
   .kpi strong { font-size: 16px; overflow-wrap: anywhere; }
