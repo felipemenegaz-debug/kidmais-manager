@@ -1571,12 +1571,16 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
     e.luna = undefined;
     return null;
   }
-  // Vários pedidos numa mensagem: um de cada vez, dito com clareza (a leitura redigida já menciona; aqui as demais).
+  // Vários pedidos numa mensagem: um de cada vez, dito com clareza. Só a leitura REDIGIDA pela Luna já menciona os
+  // demais (ela recebe outrosPedidos); leitura determinística (redação reprovada, indisponível ou limite) recebe o aviso
+  // aqui — senão o pedido não feito sumiria sem explicação (homologação de ec4fac2).
   const outros = resultado.entendimento?.outrosPedidos ?? 0;
   const aviso = "Fiz um pedido por vez: comecei por este; o outro que você mencionou ainda não foi feito.";
-  const respostaCiclo: AIResponse = outros && resultado.resposta.tipo === "rascunho" ? { ...resultado.resposta, pergunta: `${aviso} ${resultado.resposta.pergunta}` }
-    : outros && resultado.resposta.tipo === "nao_suportado" ? { ...resultado.resposta, mensagem: `${resultado.resposta.mensagem} ${aviso}` }
-      : resultado.resposta;
+  const r0 = resultado.resposta;
+  const respostaCiclo: AIResponse = outros && r0.tipo === "rascunho" ? { ...r0, pergunta: `${aviso} ${r0.pergunta}` }
+    : outros && r0.tipo === "nao_suportado" ? { ...r0, mensagem: `${r0.mensagem} ${aviso}` }
+      : outros && r0.tipo === "resposta" && "fatos" in r0.dados && resultado.redacao !== "MODELO" ? { ...r0, dados: { ...r0.dados, resumo: `${r0.dados.resumo} ${aviso}` } }
+        : r0;
   if (finalizada) return respostaCiclo;
   let resposta = finalizar(respostaCiclo, e.texto, rastreio, e.navegacaoPendente, e);
   const continua = continuacaoDa(resposta, e);

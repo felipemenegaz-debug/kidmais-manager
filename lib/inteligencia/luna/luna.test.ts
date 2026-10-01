@@ -140,6 +140,16 @@ test("Redação: só números que existem nos fatos; links e marcação reprovam
   assert.equal(conferirRedacao("   ", { pergunta, resposta: r }), null);
 });
 
+test("Redação (PR 18): ênfase Markdown sai do texto (a UI mostra texto simples); as conferências de números continuam", () => {
+  const r = resposta([["CALCULO", "50 convidados × 400 mL = 20.000 mL = 20 L."], ["CALCULO", "20.000 mL ÷ 2 L por embalagem = 10 embalagens."]]);
+  const pergunta = "quantos refrigerantes?";
+  assert.equal(
+    conferirRedacao("## Resultado\nPara a festa de 01/10/2026, com **50 convidados**: __20 L__, ou seja, `10 garrafas de 2 L` (20.000 mL).", { pergunta, resposta: r }),
+    "Resultado Para a festa de 01/10/2026, com 50 convidados: 20 L, ou seja, 10 garrafas de 2 L (20.000 mL).",
+  );
+  assert.equal(conferirRedacao("São **12 garrafas**.", { pergunta, resposta: r }), null, "limpar a marcação não libera número inventado");
+});
+
 // ---------------------------------------------------------------- revisão: estimativa só com delegação positiva
 
 test("Luna (lacuna 3): negação, veto e \"não sei\" sozinho nunca autorizam estimativa; delegação positiva só da categoria citada", () => {
