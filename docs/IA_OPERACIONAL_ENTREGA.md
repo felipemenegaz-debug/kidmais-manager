@@ -130,6 +130,15 @@ Os complementos depois da execução **não chamam modelo**. Cada um é uma leit
    - reverter o merge;
    - 059: precheck, down (com confirmação explícita se houver dados) e postcheck.
 
-## 9. Gates do commit candidato
+## 9. Gates do commit candidato (`3407d2d`, checkout limpo, Node 22.23.2)
 
-Preenchido no fim da preparação: ver o corpo da revisão.
+| Gate | Resultado |
+|---|---|
+| `test:inteligencia` | 394/394 |
+| `test:ia-demo` | ok |
+| Benchmark de linguagem natural | sem diff, 0 violações |
+| `check:v1:static` (todos os `*.test.ts` de app/components/lib, lint, TypeScript, **build de produção** com ambiente vazio) | 1594/1594 + 103/103; build ok |
+| `check:ia:prs` (composição por estágios e pilha V1) | ok |
+| `tsc --noEmit`, ESLint | ok |
+| `check:v1:ui` (navegação da festa, desktop e celular) | ok |
+| `check:v1:postgres` | **não executado** (exige autorização de SQL) |
