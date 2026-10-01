@@ -3,6 +3,7 @@
 const fs = require('node:fs'), assert = require('node:assert/strict');
 const { spawn, execFileSync } = require('node:child_process');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const sharp = require('sharp');
 const origin = 'http://127.0.0.1:3037', out = '.local-ux/contratos-perfil';
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const clienteId = id(1), contratoId = id(2), versaoId = id(3), aniversarioId = id(4);
@@ -29,7 +30,9 @@ async function main() {
     const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '-p', '3037'], { windowsHide: true, env: { ...process.env, NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1', KIDMAIS_PREVIEW_UX: '1', KIDMAIS_FESTA_ISOLADO: 'true', KIDMAIS_FESTA_AMBIENTE: 'automated', DATABASE_URL: 'postgresql://ux:ux@127.0.0.1:1/ux_no_database' }, stdio: ['ignore', log, log] });
     let browser;
     const errors = [], inesperados = [], posts = [], resultados = [];
-    let estadoPerfil = 'ok', estadoIA = 'incompleto', estadoContrato = 'EM_ELABORACAO', revisado = false, draft = null;
+    let estadoPerfil = 'ok', estadoIA = 'incompleto', estadoContrato = 'EM_ELABORACAO', revisado = false, draft = null, logoAplicada = null;
+    const logoBytes = await sharp(fs.readFileSync('public/assets/kidmais-logo-horizontal.png')).resize({width:1024,height:512,fit:'inside',withoutEnlargement:true}).png().toBuffer();
+    const logo = `data:image/png;base64,${logoBytes.toString('base64')}`;
     try {
         let pronto = false;
         for (let i = 0; i < 120; i++) { try { if ((await fetch(`${origin}/admin/login`)).ok) { pronto = true; break; } } catch { /* iniciando */ } await new Promise(r => setTimeout(r, 500)); }
@@ -43,9 +46,12 @@ async function main() {
             if (!url.pathname.startsWith('/api/')) return route.continue();
             const ok = data => route.fulfill({ json: { ok: true, data } });
             const fail = (status, codigo, erro) => route.fulfill({ status, json: { ok: false, codigo, erro } });
-            const body = request.method() === 'POST' ? request.postDataJSON() : null;
+            const body = request.method() === 'POST' && request.headers()['content-type']?.includes('application/json') ? request.postDataJSON() : null;
             if (body) posts.push({ url: url.pathname, body });
             if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: id(9), nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico' });
+            if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') return ok({logoDataUrl:request.method()==='POST'?logo:logoAplicada});
+            if (url.pathname === '/api/admin/disponibilidade') return route.fulfill({json:{agenda:[],pacoteOverrides:[],descontos:[],bloqueios:[]}});
+            if (url.pathname === '/api/admin/clientes') return ok([{cliente:{id:clienteId,nomeCompleto:'Cliente de Exemplo',status:'ATIVO',whatsapp:'11999999999'},cadastroCompleto:true,camposFaltantes:[]}]);
             if (url.pathname === '/api/admin/contratos/painel') {
                 await new Promise(r => setTimeout(r, 150));
                 const outro = url.searchParams.get('contratoId') === id(22);
@@ -72,8 +78,8 @@ async function main() {
                 if (estadoPerfil === '403') return fail(403, 'ACESSO_NEGADO', 'Operação não permitida para esta sessão.');
                 if (estadoPerfil === 'erro') return fail(500, 'ERRO', 'Não foi possível carregar o perfil.');
                 if (body?.acao === 'salvar-rascunho') { draft = { numero: 1, edicao: 1, versaoBase: 1, conteudo: body.cadastro }; return ok(draft); }
-                if (body?.acao === 'aplicar') { if (estadoPerfil === 'conflito') { draft.edicao = 2; return route.fulfill({ status: 409, json: { ok: false, codigo: 'PERFIL_CONFLITO', erro: 'Outra edição alterou o perfil.', detalhes: { numero: 1, edicao: 2, versao: 1 } } }); } draft = null; return ok({ versao: 2 }); }
-                return ok({ ...perfil, contexto: { ...perfil.contexto, rascunho: draft } });
+                if (body?.acao === 'aplicar') { if (estadoPerfil === 'conflito') { draft.edicao = 2; return route.fulfill({ status: 409, json: { ok: false, codigo: 'PERFIL_CONFLITO', erro: 'Outra edição alterou o perfil.', detalhes: { numero: 1, edicao: 2, versao: 1 } } }); } logoAplicada=draft.conteudo.logoDataUrl??null; draft = null; return ok({ versao: 2 }); }
+                return ok({ ...perfil, contexto: { ...perfil.contexto, cadastro:{...cadastro,logoDataUrl:logoAplicada},rascunho: draft } });
             }
             if (url.pathname === '/api/admin/inteligencia/conversa') {
                 await new Promise(r => setTimeout(r, estadoIA === 'carregando' ? 2000 : 100));
@@ -93,7 +99,19 @@ async function main() {
             const ai=page.locator('[data-km-assistente]:visible');
             assert.equal(await ai.count(),viewport==='desktop'?2:1);
             assert.notEqual(await ai.first().evaluate(el=>getComputedStyle(el).animationName),'none');
+            assert.equal(await page.getByRole('link',{name:'Consultar disponibilidade',exact:true}).getAttribute('class'),await page.getByRole('link',{name:'Novo cliente',exact:true}).getAttribute('class'));
             await foto(`dashboard-${viewport}`);
+            await page.goto(`${origin}/clientes`); await page.getByRole('link',{name:/Cliente de Exemplo/}).filter({visible:true}).waitFor();
+            assert.equal(await page.locator('main header').count(),0);
+            assert.equal(await page.getByRole('link',{name:'Fechamento',exact:true}).getAttribute('href'),'/fechamento?origem=ATENDIMENTO_KIDMAIS&contexto=ADMIN');
+            await foto(`clientes-${viewport}`);
+            await page.goto(`${origin}/admin/disponibilidade`); await page.getByRole('combobox',{name:/^Pacote/}).waitFor();
+            assert.equal(await page.locator('main header img').count(),0);
+            const clienteView=page.getByRole('link',{name:'Ver tela do cliente →',exact:true});
+            const posView=await clienteView.boundingBox(),posFiltro=await page.getByRole('combobox',{name:/^Horário padrão/}).boundingBox();
+            assert(posView.y>=posFiltro.y+posFiltro.height);
+            await foto(`disponibilidade-${viewport}`);
+            await page.goto(`${origin}/preview-ux/dashboard`);
             const pendencia=page.getByRole('link',{name:/Contrato aguardando assinatura/});
             await pendencia.click(); await page.getByRole('heading',{name:'Cliente de Exemplo',exact:true}).waitFor();
             assert.equal(new URL(page.url()).searchParams.get('contratoId'),contratoId);
@@ -119,7 +137,13 @@ async function main() {
             const antes = posts.length; await page.getByRole('button', { name: 'Revisar contratação', exact: true }).click(); await page.getByRole('heading', { name: 'Revise antes de criar' }).waitFor(); assert.equal(posts.length, antes, 'Revisar não grava'); await foto(`revisao-${viewport}`);
             await page.getByRole('button', { name: 'Voltar e corrigir' }).click(); assert.equal(await page.getByLabel('Tema', { exact: true }).inputValue(), 'Unicórnio'); assert.equal(await page.getByLabel('Convidados pagantes', { exact: true }).inputValue(), '70');
             await page.getByRole('button', { name: 'Revisar contratação', exact: true }).click(); await page.getByRole('button', { name: 'Confirmar e criar fechamento' }).click(); await page.getByRole('heading', { name: 'Fechamento criado' }).waitFor(); const criado = posts.at(-1); assert.equal(criado.url, `/api/admin/clientes/${clienteId}/fechamentos`); assert.equal(criado.body.temaFesta, 'Unicórnio'); assert.equal(criado.body.convidadosPagantes, 70);
-            estadoPerfil = 'ok'; draft = null; await abrir('perfil'); await page.getByLabel('Nome comercial (obrigatório ao aplicar)').waitFor(); await foto(`perfil-${viewport}`);
+            estadoPerfil = 'ok'; draft = null; logoAplicada=null; await abrir('perfil'); await page.getByLabel('Nome comercial (obrigatório ao aplicar)').waitFor();
+            await page.getByLabel('Selecionar logo',{exact:true}).setInputFiles({name:'logo.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg/>')});
+            await page.getByRole('alert').filter({hasText:'PNG, JPEG ou WebP'}).waitFor(); assert.equal(await page.getByAltText('Prévia da logo do rascunho').count(),0);
+            await page.getByLabel('Selecionar logo',{exact:true}).setInputFiles({name:'logo.png',mimeType:'image/png',buffer:logoBytes});
+            await page.getByAltText('Prévia da logo do rascunho').waitFor(); assert.equal(await page.getByAltText('Prévia da logo do rascunho').getAttribute('src'),logo);
+            assert.equal(await page.getByAltText('Logo atual da empresa').count(),0);
+            await foto(`perfil-logo-${viewport}`);
             await page.getByLabel('Nome comercial (obrigatório ao aplicar)').fill('Empresa Revisada Exemplo'); await page.getByRole('button', { name: 'Salvar rascunho' }).click(); await page.getByText('Rascunho salvo.', { exact: true }).first().waitFor(); await page.getByRole('button', { name: 'Revisar e aplicar', exact: true }).click(); await page.getByRole('dialog').waitFor(); await foto(`perfil-revisao-${viewport}`); await page.getByRole('button', { name: 'Fechar revisão' }).click();
             estadoPerfil = '403'; await abrir('perfil'); await page.getByRole('heading', { name: 'Acesso negado' }).waitFor(); assert(!/Sem concessão/.test(await page.locator('main').innerText())); await foto(`perfil-acesso-${viewport}`);
             estadoPerfil = 'erro'; await abrir('perfil'); await page.getByRole('alert').waitFor(); await foto(`perfil-erro-${viewport}`); assert.equal(await page.getByRole('heading', { name: 'Acesso negado' }).count(), 0);
@@ -128,7 +152,7 @@ async function main() {
             const pergunta = 'Faça um contrato do Felipe, Premium, 70 convidados, 31/09 às 17h, Catarina 1 ano, tema unicórnio.';
             estadoIA = 'carregando'; await page.getByRole('textbox', { name: 'Sua pergunta' }).fill(pergunta); await page.getByRole('button', { name: 'Enviar', exact: true }).click(); await page.getByText('Preparando resposta…', { exact: true }).waitFor(); await foto(`ia-carregando-${viewport}`); await page.getByText(/^Criar contrato pela conversa/).waitFor(); await foto(`ia-${viewport}`); assert.equal(posts.at(-1).body.texto, pergunta);
             estadoIA = 'erro'; await page.getByRole('textbox', { name: 'Sua pergunta' }).fill('Consultar operação'); await page.getByRole('button', { name: 'Enviar', exact: true }).click(); await page.getByRole('alert').waitFor(); await foto(`ia-erro-${viewport}`); await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').count(), 0);
-            resultados.push({ viewport, abasTeclado: true, observacoesPreservadas: true, revisaoSemGravacao: true, criacaoPayloadPreservado: true, perfilEstados: true, iaCapabilityAusente: true, overflow: false });
+            resultados.push({ viewport, botoesPadronizados:true,cabecalhosSimplificados:true,logoUploadPrevia:true, abasTeclado: true, observacoesPreservadas: true, revisaoSemGravacao: true, criacaoPayloadPreservado: true, perfilEstados: true, iaCapabilityAusente: true, overflow: false });
         }
         estadoPerfil = 'concessao'; await abrir('perfil'); await page.getByText('Sem concessão ativa para consultar o perfil.', { exact: true }).waitFor();
         // Assinatura e liberação continuam usando as mesmas operações, apenas em mocks.
@@ -150,6 +174,23 @@ async function main() {
         const dialogoPerfil = page.getByRole('dialog'); await dialogoPerfil.getByLabel('Motivo da aplicação').fill('Conferência sintética'); await dialogoPerfil.getByLabel('Confirmo o antes e o depois do rascunho salvo').check();
         estadoPerfil = 'conflito'; await dialogoPerfil.getByRole('button', { name: 'Confirmar e aplicar', exact: true }).click(); await dialogoPerfil.getByText('Outra edição alterou o perfil.', { exact: true }).waitFor(); assert(await dialogoPerfil.getByRole('button', { name: 'Confirmar e aplicar', exact: true }).isDisabled()); await foto('perfil-conflito-desktop');
         await page.getByRole('button', { name: 'Fechar revisão' }).click(); assert.equal(await page.getByLabel('Nome comercial (obrigatório ao aplicar)').inputValue(), 'Perfil para revisão sintética');
+        // Fluxo completo no shell real: salvar não publica; aplicar atualiza o menu sem recarregar a página.
+        estadoPerfil='ok'; draft=null; logoAplicada=null;
+        await page.goto(`${origin}/admin/configuracoes/perfil-empresa`); await page.getByLabel('Selecionar logo',{exact:true}).waitFor();
+        await page.getByLabel('Selecionar logo',{exact:true}).setInputFiles({name:'logo.png',mimeType:'image/png',buffer:logoBytes});
+        await page.getByAltText('Prévia da logo do rascunho').waitFor();
+        await page.getByRole('button',{name:'Salvar rascunho',exact:true}).click();await page.getByText('Rascunho salvo.',{exact:true}).first().waitFor();
+        assert.equal(logoAplicada,null);assert.equal(draft.conteudo.logoDataUrl,logo);
+        await page.reload();await page.getByAltText('Prévia da logo do rascunho').waitFor();
+        await page.getByRole('button',{name:'Revisar e aplicar',exact:true}).click();await page.getByAltText('Logo salva para aplicar').waitFor();
+        const revisaoLogo=page.getByRole('dialog');await revisaoLogo.getByLabel('Motivo da aplicação').fill('Aplicar logo de exemplo');await revisaoLogo.getByLabel('Confirmo o antes e o depois do rascunho salvo').check();
+        await revisaoLogo.getByRole('button',{name:'Confirmar e aplicar',exact:true}).click();await page.getByAltText('Logo atual da empresa').waitFor();await page.getByAltText('Logo da empresa',{exact:true}).waitFor();
+        assert.equal(await page.getByRole('dialog').count(),0);await foto('perfil-logo-aplicada-desktop');
+        await page.getByRole('button',{name:'Remover logo do rascunho',exact:true}).click();assert.equal(await page.getByAltText('Logo atual da empresa').count(),1);
+        await page.getByRole('button',{name:'Salvar rascunho',exact:true}).click();await page.getByText('Rascunho salvo.',{exact:true}).first().waitFor();
+        await page.getByRole('button',{name:'Revisar e aplicar',exact:true}).click();const remover=page.getByRole('dialog');await remover.getByLabel('Motivo da aplicação').fill('Remover logo de exemplo');await remover.getByLabel('Confirmo o antes e o depois do rascunho salvo').check();await remover.getByRole('button',{name:'Confirmar e aplicar',exact:true}).click();
+        await page.getByText('Nenhuma logo aplicada',{exact:true}).waitFor();await page.waitForFunction(()=>!document.querySelector('img[alt="Logo da empresa"]'));assert.equal(logoAplicada,null);
+        assert.equal(await page.getByRole('dialog').count(),0);
         assert.deepEqual(errors, []); assert.deepEqual(inesperados, []);
         estadoPerfil = 'ok';
         await page.emulateMedia({ colorScheme: 'light' });
@@ -163,6 +204,10 @@ async function main() {
         await page.emulateMedia({ reducedMotion: 'no-preference' });
         fs.writeFileSync(`${out}/resultados.json`, JSON.stringify({ ok: true, resultados, assinaturaLiberacaoMocks: true, conflitoMantemDados: true, temaAdministrativoNasPreferenciasClaraEscura: true, errors, inesperados, dados: 'Sintéticos; todas as APIs interceptadas; banco inacessível.', runtime: process.version }, null, 2));
         console.log(JSON.stringify(resultados));
+    } catch(error) {
+        const atual=browser?.contexts()[0]?.pages()[0];
+        if(atual) { await atual.screenshot({path:`${out}/falha.png`,fullPage:true});fs.writeFileSync(`${out}/falha.txt`,JSON.stringify({url:atual.url(),texto:await atual.locator('body').innerText(),errors,inesperados},null,2)); }
+        throw error;
     } finally {
         if (browser) await browser.close();
         if (server.exitCode === null) {

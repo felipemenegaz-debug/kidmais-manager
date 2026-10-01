@@ -2,12 +2,30 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import type { DbExecutor } from '../db/contracts';
-import { aplicarCadastroPerfil, consultarCadastroPerfil, lerCadastroPerfil, salvarRascunhoPerfil } from './cadastro-service.ts';
+import { aplicarCadastroPerfil, consultarCadastroPerfil, consultarLogoPerfil, lerCadastroPerfil, salvarRascunhoPerfil } from './cadastro-service.ts';
 import type { CadastroPerfil } from './cadastro.ts';
+import sharp from 'sharp';
 
 /**
  * Double em memória. Não executa SQL e não prova concorrência no PostgreSQL.
- */
+*/
+
+test('logo do rascunho só fica vigente após aplicar, permanece em clientes antigos e pode ser removida',async()=>{
+    const b=banco({cnpj:'11222333000181'});
+    const logo=`data:image/png;base64,${(await sharp({create:{width:10,height:10,channels:4,background:'#5599ff'}}).png().toBuffer()).toString('base64')}`;
+    const gravado=await salvarRascunhoPerfil(b.tx,{usuarioId,empresaIdCliente:null,numero:null,edicao:null,versaoBase:0,cadastro:cadastro({logoDataUrl:logo}),requestId:'logo'},async()=>({}));
+    assert.equal((await consultarCadastroPerfil(b.tx,usuarioId)).contexto?.cadastro.logoDataUrl,null);
+    assert.equal(b.estado.conteudo.logoDataUrl,logo);
+    await aplicarCadastroPerfil(b.tx,{usuarioId,empresaIdCliente:null,...gravado,confirmar:true,motivo:'Aplicar marca',autenticadoEm:new Date().toISOString(),requestId:'logo-aplicada'},async()=>({}));
+    assert.equal((await consultarCadastroPerfil(b.tx,usuarioId)).contexto?.cadastro.logoDataUrl,logo);
+    const legado=await salvarRascunhoPerfil(b.tx,{usuarioId,empresaIdCliente:null,numero:null,edicao:null,versaoBase:1,cadastro:cadastro(),requestId:'legado'},async()=>({}));
+    assert.equal(b.estado.conteudo.logoDataUrl,logo);
+    const removido = await salvarRascunhoPerfil(b.tx,{usuarioId,empresaIdCliente:null,...legado,cadastro:cadastro({logoDataUrl:null}),requestId:'remover'},async()=>({}));
+    assert.equal(b.estado.conteudo.logoDataUrl,null);
+    assert.equal((await consultarCadastroPerfil(b.tx,usuarioId)).contexto?.cadastro.logoDataUrl,logo);
+    await aplicarCadastroPerfil(b.tx,{usuarioId,empresaIdCliente:null,...removido,confirmar:true,motivo:'Remover marca',autenticadoEm:new Date().toISOString(),requestId:'logo-removida'},async()=>({}));
+    assert.equal((await consultarCadastroPerfil(b.tx,usuarioId)).contexto?.cadastro.logoDataUrl,null);
+});
 
 const empresaId = '00000000-0000-4000-8000-000000000001';
 const unidadeId = '00000000-0000-4000-8000-000000000002';
@@ -32,7 +50,7 @@ function cadastro(parcial: Partial<CadastroPerfil> = {}): CadastroPerfil {
     };
 }
 
-function banco(opcoes: { instalada?: boolean; empresas?: number; edicao?: number | null; numero?: number | null; versao?: number; cnpj?: string; colunas?: number; maxEdicao?: number; maxNumero?: number } = {}) {
+function banco(opcoes: { instalada?: boolean; empresas?: number; edicao?: number | null; numero?: number | null; versao?: number; cnpj?: string; colunas?: number; maxEdicao?: number; maxNumero?: number; concessoes?: string[] } = {}) {
     const edicao = opcoes.edicao === undefined ? null : opcoes.edicao;
     const estado = {
         sqls: [] as string[],
@@ -49,6 +67,7 @@ function banco(opcoes: { instalada?: boolean; empresas?: number; edicao?: number
         cnpj: opcoes.cnpj ?? '',
         nome: '',
         historico: [] as Array<Record<string, unknown>>,
+        logoAplicada: null as string | null,
     };
     const tx = {
         async query(sql: string, params: readonly unknown[] = []) {
@@ -82,9 +101,11 @@ function banco(opcoes: { instalada?: boolean; empresas?: number; edicao?: number
             if (sql.includes('JOIN memberships m ON m.usuario_id = u.id AND m.empresa_id = e.id'))
                 return { rows: [{ id: usuarioId, papel: 'REPRESENTANTE_AUTORIZADO', ativo: true }], rowCount: 1 };
             if (sql.includes('SELECT capacidade FROM public.perfil_empresa_concessoes'))
-                return { rows: [{ capacidade: 'PERFIL_CONSULTAR' }, { capacidade: 'PERFIL_EDITAR_RASCUNHO' }, { capacidade: 'PERFIL_APLICAR' }], rowCount: 3 };
+                return { rows: (opcoes.concessoes ?? ['PERFIL_CONSULTAR','PERFIL_EDITAR_RASCUNHO','PERFIL_APLICAR']).map(capacidade=>({capacidade})), rowCount: 3 };
             if (sql.includes('COALESCE(max(edicao),0)'))
                 return { rows: [{ max_edicao: estado.maxEdicao, max_numero: estado.maxNumero }], rowCount: 1 };
+            if (sql.includes("conteudo->>'logoDataUrl'")) return {rows:[{logo:estado.logoAplicada}],rowCount:1};
+            if (sql.includes("ORDER BY (estado='RASCUNHO')")) return {rows:estado.edicao == null ? [{conteudo:{logoDataUrl:estado.logoAplicada}}] : [{conteudo:estado.conteudo}],rowCount:1};
             if (sql.includes('SELECT') && sql.includes('conteudo') && sql.includes('perfil_empresa_revisoes'))
                 return { rows: estado.edicao == null ? [] : [{ numero: estado.numero, edicao: estado.edicao, versao_base: estado.versaoBaseRascunho, conteudo: estado.conteudo }], rowCount: estado.edicao == null ? 0 : 1 };
             if (sql.includes('SELECT numero, edicao, versao_base FROM'))
@@ -117,6 +138,7 @@ function banco(opcoes: { instalada?: boolean; empresas?: number; edicao?: number
             if (sql.includes("SET estado='APLICADA'")) {
                 if (params[1] !== estado.numero || params[2] !== estado.edicao || params[6] !== estado.versaoBaseRascunho)
                     return { rows: [], rowCount: 0 };
+                estado.logoAplicada = JSON.parse(String(params[4])).logoDataUrl ?? null;
                 estado.edicao = null;
                 estado.numero = null;
                 return { rows: [], rowCount: 1 };
@@ -221,4 +243,18 @@ test('a leitura devolve versão, rascunho e histórico do mesmo snapshot', async
 test('mais de uma empresa é recusada pelo serviço, sem índice de singleton', async () => {
     const varias = banco({ empresas: 2 });
     await assert.rejects(() => consultarCadastroPerfil(varias.tx, usuarioId, null), (error: unknown) => error instanceof Error && 'code' in error && error.code === 'PERFIL_LIMITE_V1');
+});
+
+test('consulta e preparo da logo exigem as capacidades específicas e contexto único', async () => {
+    const semAcesso = banco({ concessoes: [] });
+    for (const editar of [false, true])
+        await assert.rejects(consultarLogoPerfil(semAcesso.tx, usuarioId, editar), { code: 'PERFIL_SEM_CONCESSAO' });
+    assert.equal(semAcesso.estado.sqls.some(sql=>sql.includes("conteudo->>'logoDataUrl'")),false);
+    const consulta = banco({ concessoes: ['PERFIL_CONSULTAR'] });
+    assert.equal(await consultarLogoPerfil(consulta.tx,usuarioId),null);
+    await assert.rejects(consultarLogoPerfil(consulta.tx,usuarioId,true),{code:'PERFIL_SEM_CONCESSAO'});
+    const edicao = banco({ concessoes: ['PERFIL_EDITAR_RASCUNHO'] });
+    assert.equal(await consultarLogoPerfil(edicao.tx,usuarioId,true),null);
+    await assert.rejects(consultarLogoPerfil(edicao.tx,usuarioId),{code:'PERFIL_SEM_CONCESSAO'});
+    await assert.rejects(consultarLogoPerfil(banco({empresas:2}).tx,usuarioId),{code:'PERFIL_LIMITE_V1'});
 });

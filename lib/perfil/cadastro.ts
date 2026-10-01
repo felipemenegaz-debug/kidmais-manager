@@ -13,6 +13,7 @@ export type EnderecoCadastro = {
 };
 
 export type CadastroPerfil = {
+    logoDataUrl?: string | null;
     nomeComercial: string;
     razaoSocial: string;
     cnpj: string;
@@ -64,6 +65,7 @@ export function cadastroVazio(): CadastroPerfil {
         emailComercial: '',
         site: '',
         instagram: '',
+        logoDataUrl: null,
     };
 }
 
@@ -89,6 +91,7 @@ export function normalizarCadastro(valor: Partial<CadastroPerfil>): CadastroPerf
         emailComercial: texto(valor.emailComercial, 254).toLowerCase(),
         site: texto(valor.site, 200),
         instagram: texto(valor.instagram, 200),
+        logoDataUrl: valor.logoDataUrl ?? null,
     };
 }
 
