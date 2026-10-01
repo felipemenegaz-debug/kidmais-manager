@@ -174,3 +174,10 @@ empresa saem). Alerta `SKILL_RECUSADA` no log (id, nível, motivos; nunca conte�
 | `CIRCUITO_ABERTO` | 3 falhas em 30 s no mesmo provedor + modelo + workload | `errosModelo` das chamadas anteriores; outros workloads seguem |
 | `RESPOSTA_INVALIDA` com saída no teto | Raciocínio consumiu `max_completion_tokens` | `AI_OPENAI_REASONING_EFFORT_ECONOMY=none`/`low` |
 | Agente respondeu com dados da própria empresa quando citei outra | (corrigido na V1) JEV recusa empresa citada por id | `SINAL_OUTRO_TENANT` |
+
+## 10. Planejamento comercial
+
+A próxima evolução registrada pelo usuário é o Comercial IA no WhatsApp. Escopo proposto, dependências do
+canal externo, agenda com turnos configuráveis, fornecedores e prioridades de produto estão em
+[Plano de produto para Comercial IA no WhatsApp](PLANO_PRODUTO_COMERCIAL_IA_WHATSAPP.md).
+Esse registro é planejamento e não altera o baseline ou as permissões atuais da IA.
