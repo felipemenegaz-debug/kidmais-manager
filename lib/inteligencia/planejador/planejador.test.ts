@@ -497,3 +497,44 @@ test("trace (6.2): parada antes da primeira leitura (âncora do foco negada) reg
   for (const proibido of [...Object.values(IDS), ...PII, "Lucas", TEXTO_SMOKE, "festa que vem"]) assert.equal(traco.includes(proibido), false, proibido);
   assert.deepEqual(amb.violacoes.crossTenant, []);
 });
+
+// ---------------------------------------------------------------- 8. PR 6.3: composição chega ao Planner; "evento" é temporal (smoke de staging)
+
+const TEXTO_AUXILIAR = "me diz o cliente e se o contrato da festa que vem aí está pago";
+
+test("staging (6.3): pedido composto vai ao Planner por modelo ANTES do auxiliar legado (que responderia só uma leitura)", async () => {
+  const vistos: string[] = [];
+  const { ultima } = await conversa([{ texto: TEXTO_AUXILIAR }], comModelo((p) => { vistos.push(p.workload); return p.workload === "PLANEJAR" ? PLANO_DOIS_RECURSOS : { capacidade: "nenhuma", dia: null }; }));
+  const tipos = (ultima.rastro?.orquestracao?.passos ?? []).map((p) => p.tipo);
+  assert.ok(tipos.includes("PLANO_MODELO"), "o Planner por modelo foi chamado");
+  assert.equal(tipos.includes("SUGESTAO_AUXILIAR"), false, "o auxiliar legado não intercepta o pedido composto");
+  assert.ok(tipos.indexOf("PLANO_MODELO") < (tipos.indexOf("SUGESTAO_AUXILIAR") === -1 ? Infinity : tipos.indexOf("SUGESTAO_AUXILIAR")));
+  assert.deepEqual(vistos, ["PLANEJAR"]);
+  assert.equal(ultima.rastro?.plano?.origem, "MODELO");
+  // Só ROTEAMENTO (escopo do 6.3): o pedido não é respondido pelo resumo de recebíveis da empresa inteira e o plano
+  // ancora na festa. Completude (cliente + quitação pela posição oficial) é verificada no PR 6.4.
+  assert.notEqual(ultima.resposta?.tipo === "resposta" ? dados(ultima.resposta).capacidade : null, "analisar_recebiveis");
+  assert.equal(passos(ultima)?.[0]?.[0], "proximas_festas");
+});
+
+test("staging (6.3): sem modelo disponível, o caminho de antes continua (auxiliar → interpretação), sem Planner por modelo", async () => {
+  const { ultima } = await conversa([{ texto: TEXTO_AUXILIAR }]);
+  const tipos = (ultima.rastro?.orquestracao?.passos ?? []).map((p) => p.tipo);
+  assert.equal(tipos.includes("PLANO_MODELO"), false);
+  assert.ok(tipos.includes("SUGESTAO_AUXILIAR"));
+  assert.equal(ultima.rastro?.chamadasModelo, 0);
+});
+
+test("staging (6.3): 'próximo evento' / 'último evento' são âncora temporal ⇒ plano por REGRAS (sem 'precisa contexto')", async () => {
+  assert.deepEqual(detectarReferencia("qual o contrato do próximo evento?", HOJE)?.temporal?.seletor, "PROXIMA");
+  assert.deepEqual(detectarReferencia("quem foi o cliente do último evento?", HOJE)?.temporal?.seletor, "ULTIMA");
+  assert.equal(detectarReferencia("me fale do evento de amanhã", HOJE)?.temporal?.seletor, "DIA");
+  const { ultima } = await conversa([{ texto: "quero saber a situação do contrato e o pagamento do próximo evento" }]);
+  assert.notEqual(ultima.resposta?.tipo, "precisa_contexto", "antes: 'Abra o contrato e pergunte por ali'");
+  assert.equal(ultima.rastro?.plano?.origem, "REGRAS");
+  // Só ROTEAMENTO (escopo do 6.3): âncora temporal na próxima festa e relação do Core. Os fatos pedidos (situação E
+  // pagamento) são exigidos no PR 6.4 — aqui não se afirma que a resposta está completa.
+  assert.deepEqual(passos(ultima)?.slice(0, 2).map(([c]) => c), ["proximas_festas", "relacoes_festa"]);
+  const parcela = await conversa([{ texto: "quanto falta pagar no próximo evento?" }]);
+  assert.deepEqual(passos(parcela.ultima)?.map(([c]) => c), ["proximas_festas", "relacoes_festa", "saldo_contrato"]);
+});

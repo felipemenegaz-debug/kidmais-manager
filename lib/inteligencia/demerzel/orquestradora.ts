@@ -283,10 +283,9 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
         // 6. Caminho das regras: leitura (Policy + tenant no gateway) ou proposta sob Human Gate.
         if (regras.tipo !== "nenhuma") return await despachar(regras, j);
 
-        // Sem rota pelas regras: auxiliar legado → modelo (enum fechado do catálogo) → resposta honesta.
-        const auxiliar = await exec.passo("SUGESTAO_AUXILIAR", "", () => portas.sugerirRota(texto, contexto), (i) => i?.tipo ?? "NENHUMA");
-        if (auxiliar) return await despachar(auxiliar, j);
-        // Composição sem plano por regra: o modelo só MONTA o plano (enum fechado, revalidado); nada de id do modelo.
+        // Sem rota pelas regras. Composição (PR 6.3): o Planner por modelo vem ANTES do auxiliar legado, que só sabe
+        // devolver UMA leitura e responderia o pedido composto pela metade. O modelo só MONTA o plano (enum fechado,
+        // revalidado); nada de id do modelo. Sem composição (ou sem modelo): auxiliar → modelo → resposta honesta.
         if (planejador && planejador.pedeComposicao(texto)) {
           const planejado = await exec.passo("PLANO_MODELO", "", () => planejador.planejarComModelo({ texto, contexto, regras }, lerPlano, j.actionSensitivity.classification === "CONFIRM"),
             (p) => (p ? ("intencao" in p ? "INTENCAO" : "PARADA") : "SEM_PLANO"));
@@ -299,6 +298,8 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
           await exec.passo("SEM_ROTA", "", () => null, () => j.actionSensitivity.classification);
           return terminar("NAO_SUPORTADO", recusa("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:"));
         }
+        const auxiliar = await exec.passo("SUGESTAO_AUXILIAR", "", () => portas.sugerirRota(texto, contexto), (i) => i?.tipo ?? "NENHUMA");
+        if (auxiliar) return await despachar(auxiliar, j);
         const porModelo = await exec.passo("INTENCAO_MODELO", "", () => portas.interpretarComModelo(texto, contexto), (i) => i?.tipo ?? "INDISPONIVEL");
         if (porModelo && porModelo.tipo !== "nenhuma") return await despachar(porModelo, j);
 
