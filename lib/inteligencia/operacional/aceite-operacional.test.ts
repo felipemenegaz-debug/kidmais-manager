@@ -1341,7 +1341,7 @@ test("Luna — A5 (gestão de contexto): resposta ao rascunho, correção e reto
   assert.deepEqual([novo.rastro.adaptativo?.outrosPedidos, novo.rastro.adaptativo?.outrosDescartados], [1, 0]);
 });
 
-test("Luna — PR 19: mensagem mista com rascunho (RESPONDE + cálculo): o campo do rascunho é aplicado e o cálculo é anunciado como não feito", async () => {
+test("Luna — mensagem mista com rascunho (RESPONDE + cálculo): o campo do rascunho é aplicado E o cálculo é atendido (pergunta necessária), sem aviso de pedido não feito", async () => {
   // Homologação de f41018e: "o cliente é … E quantos refrigerantes…?" ⇒ a Luna disse RESPONDE ao rascunho mas escolheu
   // CALCULO_CONSUMO; o dado do rascunho se perdia e nada era anunciado.
   const a = ambiente({ convidados: 50 });
@@ -1355,9 +1355,53 @@ test("Luna — PR 19: mensagem mista com rascunho (RESPONDE + cálculo): o campo
   const rasc = r2.data as Extract<AIResponse, { tipo: "rascunho" }>;
   assert.equal(rasc.rascunho.operacaoId, op);
   assert.equal(rasc.rascunho.campos.find((c) => c.id === "aniversariante")?.valor, "Theo", "o dado do rascunho não se perde");
-  assert.match(rasc.pergunta, /Fiz um pedido por vez/, "o cálculo é anunciado como não feito");
+  assert.doesNotMatch(rasc.pergunta, /Fiz um pedido por vez/, "o cálculo não fica para depois");
+  // O segundo pedido é atendido: o cálculo da próxima festa pergunta a taxa (nada inventado), com a continuação.
+  const seguinte = r2.data?.pedidoSeguinte;
+  assert.equal(seguinte?.tipo, "resposta");
+  assert.match((seguinte as { dados: { resumo: string } }).dados.resumo, /Quantos mL de refrigerante por convidado/);
+  assert.deepEqual(r2.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO", festaId: IDS.FESTA_MARIA });
   assert.equal(r2.rastro.operacional?.decisao, "LUNA:MENSAGEM_MISTA");
-  assert.equal(r2.rastro.adaptativo?.outrosPedidos, 1);
+});
+
+test("Luna — mensagem mista que COMPLETA o rascunho: a revisão abre (confirmação humana) e o segundo pedido segue junto; a conversa continua no cálculo", async () => {
+  // Homologação de ea32084: "o cliente é … E quantos refrigerantes…?" completou o rascunho, a UI abriu a revisão e fechou
+  // a conversa — o pedido de refrigerantes sumiu. Agora a navegação carrega o resultado/pergunta do segundo pedido.
+  const a = ambiente({ convidados: 50 });
+  const roteiro = [
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium", aniversariante: "beatriz", idade: 1, tema: "unicórnio" } }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { data: "2026-11-15" } }),
+    saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "RESPONDE", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] }, contratacao: { turno: "noite" }, outrosPedidos: [{ pedido: "refrigerantes", trecho: "quantos refrigerantes para a próxima festa" }] }),
+    saida({ objetivo: "CALCULO_CONSUMO", festa: "DA_CONVERSA", consumo: { categorias: ["REFRIGERANTES"], mlPorConvidado: 400 } }),
+  ];
+  comLuna(a, { entender: (_d, n) => roteiro[n - 1] });
+  await a.enviar(FRASE);
+  await a.enviar("15/11/2026");
+  const misto = await a.enviar("à noite. E quantos refrigerantes para a próxima festa?");
+  // 1) A revisão abre: navegação para o Fechamento, aguardando a confirmação humana (nada gravado).
+  assert.equal(misto.data?.tipo, "navegacao");
+  const nav = misto.data as Extract<AIResponse, { tipo: "navegacao" }>;
+  const op = nav.proposta!.operacaoId;
+  assert.equal(nav.destino, `/admin/clientes/${FELIPE}/fechamento?rascunho=${op}`);
+  assert.equal(nav.proposta!.estado, "AGUARDANDO_CONFIRMACAO");
+  assert.deepEqual(a.efeitos.fechamentos, []);
+  // 2) O segundo pedido não some: a pergunta necessária do cálculo segue junto, com a continuação da mesma festa.
+  assert.equal(misto.data?.pedidoSeguinte?.tipo, "resposta");
+  assert.match((misto.data!.pedidoSeguinte as { dados: { resumo: string } }).dados.resumo, /Quantos mL de refrigerante por convidado/);
+  assert.equal(misto.data?.continuacao?.festaId, IDS.FESTA_MARIA);
+  assert.equal(misto.data?.continuacao?.perguntado, "ML_POR_CONVIDADO");
+  assert.doesNotMatch(JSON.stringify(nav.proposta!.avisos), /Fiz um pedido por vez/);
+  // 3) A conversa continua no cálculo (a revisão segue aberta e intocada).
+  const versao = a.linha(op).versao;
+  const taxa = await a.enviar("400 ml");
+  assert.equal(taxa.data?.tipo, "resposta");
+  assert.ok(fatos(leitura(taxa.data)).includes("CALCULO:50 convidados × 400 mL = 20.000 mL = 20 L."));
+  assert.equal(a.linha(op).versao, versao, "a preparação em revisão não muda");
+  // 4) Confirmação humana: o chat nunca conclui; só o formulário oficial cria o Fechamento.
+  const chat = await a.decidir(a.linha(op), "confirmar");
+  assert.equal(chat.status, 409);
+  assert.equal((chat.corpo as { codigo: string }).codigo, "CONFIRMAR_NA_REVISAO");
+  assert.deepEqual(a.efeitos.fechamentos, []);
 });
 
 test("Luna — PR 18: mensagem mista respondida por leitura determinística anuncia o pedido não feito; com redação da Luna, a redação o faz", async () => {

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
-import type { AcaoObjetivo, AIResponse, ContinuacaoConsumo, ContextoTela, EntidadeRef, TipoEntidade, ModelUsage, OrigemChamada, OrigemPlano, PlanoRastreio, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
+import type { AcaoObjetivo, AIResponse, ContinuacaoConsumo, ContextoTela, EntidadeRef, TipoEntidade, ModelUsage, OrigemChamada, OrigemPlano, PedidoSeguinte, PlanoRastreio, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
 import { atualizarFoco, focoEntradaSchema, type EntidadeFoco, type FocoConversa, type FocoEntrada, type OrigemFoco } from "./foco.ts";
 import { detectarReferencia, entidadesCitadas, resolverAncoraContexto, resolverReferencia, type Leitor, type Referencia, type Resolucao } from "./referencias.ts";
 import { compor, faltando, fatosSolicitados, type FatoSolicitado } from "./planejador/composicao.ts";
@@ -1409,6 +1409,8 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
 
   /** Respostas que já passaram por atenderNovo saem finalizadas (foco, entendimento, continuação). */
   let finalizada = false;
+  /** Mensagem mista: resposta do segundo pedido (consulta/cálculo), anexada à resposta do rascunho no fim do ciclo. */
+  let seguinte: AIResponse | null = null;
   async function executar(ent: Entendimento): Promise<AIResponse> {
     e.luna = ent;
     rastreio.operacional = { rota: rascunho ? "RASCUNHO" : "CONSUMO", decisao: `LUNA:${ent.objetivo}`, leituras: 0, duracaoMs: 0 };
@@ -1448,10 +1450,20 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
     // A resposta ao rascunho vem primeiro (nada do que foi escrito se perde) e o outro pedido é anunciado como não feito.
     const mista = rascunho && acoes && (ent.relacaoRascunho === "RESPONDE" || ent.relacaoRascunho === "CORRIGE") && (ent.objetivo === "CONSULTA" || ent.objetivo === "CALCULO_CONSUMO");
     if (mista) {
-      ent.outrosPedidos = Math.max(ent.outrosPedidos, 1);
       rastreio.operacional = { ...rastreio.operacional, decisao: "LUNA:MENSAGEM_MISTA" };
       const doModelo = rascunho!.situacao.capacidade === "preparar_contratacao" ? ent.contratacao : undefined;
-      return noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, e.texto, ctx, doModelo));
+      const doRascunho = await noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, e.texto, ctx, doModelo));
+      // O segundo pedido também é atendido (resultado ou a pergunta necessária), pelas mesmas portas guardadas — não basta
+      // avisar que não foi feito. Ele é o pedido que a Luna contou em outrosPedidos: não é anunciado de novo.
+      ent.outrosPedidos = Math.max(0, ent.outrosPedidos - 1);
+      if (ent.objetivo === "CALCULO_CONSUMO") {
+        e.consumo = consumoDaLuna(ent, e.texto, continuacao);
+        seguinte = e.consumo ? await atenderNovo(e) : { ...naoSuportado("Quer que eu calcule doces, refrigerantes ou os dois? E para qual festa?"), entendimento: "PRECISA_DADO" };
+      } else {
+        e.consumo = undefined;
+        seguinte = await atenderNovo(e);
+      }
+      return doRascunho;
     }
     switch (ent.objetivo) {
       case "CANCELAR_RASCUNHO":
@@ -1611,7 +1623,21 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
   let resposta = finalizar(respostaCiclo, e.texto, rastreio, e.navegacaoPendente, e);
   const continua = continuacaoDa(resposta, e);
   if (continua) resposta = { ...resposta, continuacao: continua };
+  // Mensagem mista: o segundo pedido segue junto (e a continuação dele vale para a próxima mensagem).
+  // (atribuído dentro do ciclo, num closure: lido aqui com o tipo declarado)
+  const segundo = seguinte as AIResponse | null;
+  const pedidoSeguinte = segundo ? paraPedidoSeguinte(segundo) : null;
+  if (pedidoSeguinte && segundo) {
+    resposta = { ...resposta, pedidoSeguinte, ...(segundo.continuacao ? { continuacao: segundo.continuacao } : {}), ...(segundo.foco ? { foco: segundo.foco } : {}) };
+  }
   return resposta;
+}
+
+function paraPedidoSeguinte(r: AIResponse): PedidoSeguinte | null {
+  if (r.tipo === "resposta" && "fatos" in r.dados) return { tipo: "resposta", dados: r.dados as RespostaLeitura };
+  if (r.tipo === "nao_suportado") return { tipo: "nao_suportado", mensagem: r.mensagem, sugestoes: r.sugestoes };
+  if (r.tipo === "precisa_contexto") return { tipo: "precisa_contexto", mensagem: r.mensagem };
+  return null;
 }
 
 export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasConversa): Promise<RespostaGateway> {
