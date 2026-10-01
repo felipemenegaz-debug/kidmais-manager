@@ -6,7 +6,7 @@ const tela = readFileSync('components/admin/PerfilEmpresa.tsx', 'utf8');
 const estilo = readFileSync('components/admin/perfil-empresa.module.css', 'utf8');
 const rota = readFileSync('app/api/admin/configuracoes/perfil-empresa/route.ts', 'utf8');
 
-test('a tela cobre os estados e não envia concessão nem arquivo', () => {
+test('a tela cobre os estados, oferece prévia da logo e não concede acesso', () => {
     assert.match(tela, /Carregando perfil/);
     assert.match(tela, /corpo.codigo === 'PERFIL_SEM_CONCESSAO'/);
     assert.match(tela, /Acesso negado/);
@@ -22,7 +22,9 @@ test('a tela cobre os estados e não envia concessão nem arquivo', () => {
     assert.match(tela, /Sem número/);
     assert.match(tela, /Mesmo endereço da sede/);
     assert.match(tela, /reautenticar/);
-    assert.doesNotMatch(tela, /type="file"|perfil_empresa_concessoes|INSERT INTO/);
+    assert.doesNotMatch(tela, /perfil_empresa_concessoes|INSERT INTO/);
+    assert.match(tela, /type="file"/);
+    assert.match(tela, /Prévia da logo do rascunho/);
     assert.match(estilo, /background:var\(--main-bg\)/);
     assert.match(tela, /data-profile-page/);
     assert.match(tela, /<dialog/);

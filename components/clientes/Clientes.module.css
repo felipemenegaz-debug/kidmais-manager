@@ -34,7 +34,7 @@
 .topLink, .backLink { color: var(--blue); text-decoration: none; font-size: 13px; font-weight: 800; }
 
 .pageHeader, .profileHeader, .sectionHeader { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end; }
-.pageHeader { padding: 56px 0 26px; }
+.pageHeader { padding: 12px 0 26px; }
 .pageHeader h1, .profileHeader h1, .formHeader h1 { margin: 0; font-size: clamp(36px, 5vw, 52px); letter-spacing: -.045em; line-height: 1; }
 .pageHeader p:last-child, .formHeader > p:last-child { max-width: 640px; color: var(--muted); line-height: 1.55; margin: 12px 0 0; }
 .eyebrow { margin: 0 0 9px; color: var(--blue); font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }

@@ -163,7 +163,7 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
         <h2>Ações rápidas</h2>
         <div className={styles.acoes}>
           <Link className={styles.cta} href="/clientes">Novo cliente</Link>
-          <Link className={styles.atalho} href="/admin/disponibilidade">Consultar disponibilidade</Link>
+          <Link className={styles.cta} href="/admin/disponibilidade">Consultar disponibilidade</Link>
           <Link className={styles.cta} href="/admin/financeiro/contas-receber">Registrar pagamento</Link>
         </div>
       </section>

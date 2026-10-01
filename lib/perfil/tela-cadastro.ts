@@ -280,6 +280,8 @@ export function linhasAntesDepois(antes: CadastroPerfil, depois: CadastroPerfil)
         ['Site', esquerda.site, direita.site],
         ['Instagram', esquerda.instagram, direita.instagram],
     ];
+    if (esquerda.logoDataUrl !== direita.logoDataUrl)
+        pares.push(['Logo', esquerda.logoDataUrl ? 'Imagem atual' : 'Sem logo', direita.logoDataUrl ? 'Nova imagem' : 'Sem logo']);
     return pares
         .filter(([, valorAntes, valorDepois]) => valorAntes !== valorDepois)
         .map(([rotulo, valorAntes, valorDepois]) => ({ rotulo, antes: valorAntes, depois: valorDepois }));
@@ -287,6 +289,7 @@ export function linhasAntesDepois(antes: CadastroPerfil, depois: CadastroPerfil)
 
 export function agruparComparacao(linhas: Array<{ rotulo: string; antes: string; depois: string }>) {
     const grupoDe = (rotulo: string) => {
+        if (rotulo === 'Logo') return 'Marca';
         if (rotulo.includes('sede') || rotulo === 'Mesmo endereço da sede')
             return 'Endereço';
         if (rotulo.includes('unidade') || rotulo === 'Nome da unidade' || rotulo === 'Referência de chegada')
