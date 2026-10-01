@@ -6,6 +6,7 @@ import { withTransaction } from '@/lib/db/postgres';
 import { registrarAuditoria } from '@/lib/clientes/repositories/auditoria.repository';
 import { isClienteServiceError } from '@/lib/clientes/services/errors';
 import { aplicarCadastroPerfil, lerCadastroPerfil, salvarRascunhoPerfil } from '@/lib/perfil/cadastro-service';
+import { LOGO_MAX_DATA_URL } from '@/lib/perfil/logo-limites';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,7 @@ const endereco = z.object({
 }).strict();
 
 const cadastro = z.object({
+    logoDataUrl: z.string().max(LOGO_MAX_DATA_URL).nullable().optional(),
     nomeComercial: z.string().max(160).optional(),
     razaoSocial: z.string().max(160).optional(),
     cnpj: z.string().max(32).optional(),

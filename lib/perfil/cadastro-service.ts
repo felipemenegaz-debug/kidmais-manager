@@ -5,6 +5,7 @@ import { consultarCapacidadesPerfil, exigirCapacidadePerfil } from './autorizaca
 import { alteracaoSensivel, cadastroVazio, validarAplicacao, validarRascunho, type CadastroPerfil } from './cadastro.ts';
 import { travarEmpresasPerfil } from './protecao-usuarios.ts';
 import { exigirReautenticacaoPerfil } from './reautenticacao.ts';
+import { conferirLogoSalva } from './logo.ts';
 
 type Auditoria = (input: AppendAuditoriaInput, tx?: DbExecutor) => Promise<unknown>;
 
@@ -182,6 +183,23 @@ function conflito(versao: number, edicao: number | null, numero: number | null) 
     throw new ClienteServiceError('PERFIL_CONFLITO', 'Outra edição alterou o perfil. Os dados digitados foram mantidos.', 409, { versao, edicao, numero });
 }
 
+async function logoAplicada(tx: DbExecutor, empresaId: string): Promise<string | null> {
+    const linha = (await tx.query<{ logo: string | null }>(
+        `SELECT conteudo->>'logoDataUrl' AS logo FROM public.perfil_empresa_revisoes
+         WHERE empresa_id=$1 AND estado='APLICADA' ORDER BY numero DESC LIMIT 1`, [empresaId],
+    )).rows[0];
+    return linha?.logo ?? null;
+}
+
+export async function consultarLogoPerfil(tx: DbExecutor, usuarioId: string, editar = false) {
+    if (!await estruturaCadastroInstalada(tx))
+        throw new ClienteServiceError('PERFIL_ESTRUTURA_AUSENTE', 'O perfil ainda não está disponível.', 409);
+    const unico = await contextoUnico(tx, null, false);
+    if (!unico) throw new ClienteServiceError('PERFIL_ESTRUTURA_AUSENTE', 'Ainda não há empresa provisionada.', 409);
+    await exigirCapacidadePerfil(tx, unico.empresa.id, usuarioId, editar ? 'PERFIL_EDITAR_RASCUNHO' : 'PERFIL_CONSULTAR');
+    return editar ? null : logoAplicada(tx, unico.empresa.id);
+}
+
 export async function consultarCadastroPerfil(tx: DbExecutor, usuarioId: string, empresaIdCliente: string | null = null) {
     const instalada = await estruturaCadastroInstalada(tx);
     if (!instalada)
@@ -190,6 +208,7 @@ export async function consultarCadastroPerfil(tx: DbExecutor, usuarioId: string,
     if (!unico)
         return { estruturaInstalada: true as const, vazio: true, contexto: null as ContextoCadastro | null };
     await exigirCapacidadePerfil(tx, unico.empresa.id, usuarioId, 'PERFIL_CONSULTAR');
+    const logo = await logoAplicada(tx, unico.empresa.id);
     const rascunho = (await tx.query<{ numero: number; edicao: number; versao_base: number; conteudo: CadastroPerfil }>(
         `SELECT numero, edicao, versao_base, conteudo
          FROM public.perfil_empresa_revisoes
@@ -205,7 +224,7 @@ export async function consultarCadastroPerfil(tx: DbExecutor, usuarioId: string,
             codigoEmpresa: unico.empresa.codigo,
             codigoUnidade: unico.unidade.codigo,
             versao: unico.empresa.versao,
-            cadastro: cadastroDe(unico.empresa, unico.unidade),
+            cadastro: { ...cadastroDe(unico.empresa, unico.unidade), logoDataUrl: logo },
             rascunho: rascunho
                 ? { numero: rascunho.numero, edicao: rascunho.edicao, versaoBase: rascunho.versao_base, conteudo: rascunho.conteudo }
                 : null,
@@ -232,6 +251,16 @@ export async function salvarRascunhoPerfil(tx: DbExecutor, input: {
     if (!unico)
         throw new ClienteServiceError('PERFIL_ESTRUTURA_AUSENTE', 'Ainda não há empresa provisionada.', 409);
     await exigirCapacidadePerfil(tx, unico.empresa.id, input.usuarioId, 'PERFIL_EDITAR_RASCUNHO');
+    // Imagens passam pelo mesmo controle de versão e auditoria do rascunho.
+    // Clientes anteriores, sem esse campo, preservam a logo vigente/rascunhada.
+    if (input.cadastro.logoDataUrl === undefined) {
+        const anterior = (await tx.query<{ conteudo: CadastroPerfil }>(
+            `SELECT conteudo FROM public.perfil_empresa_revisoes WHERE empresa_id=$1
+             ORDER BY (estado='RASCUNHO') DESC, numero DESC LIMIT 1`, [unico.empresa.id],
+        )).rows[0];
+        validacao.cadastro.logoDataUrl = anterior?.conteudo.logoDataUrl ?? null;
+    }
+    validacao.cadastro.logoDataUrl = await conferirLogoSalva(validacao.cadastro.logoDataUrl);
     if (Number(unico.empresa.versao) !== input.versaoBase)
         conflito(unico.empresa.versao, null, null);
     const atual = (await tx.query<{ numero: number; edicao: number; versao_base: number }>(
@@ -318,6 +347,7 @@ export async function aplicarCadastroPerfil(tx: DbExecutor, input: {
     if (alteracaoSensivel(vigente, validacao.cadastro))
         exigirReautenticacaoPerfil({ autenticado_em: input.autenticadoEm }, input.agora);
     const cadastro = validacao.cadastro;
+    cadastro.logoDataUrl = await conferirLogoSalva(cadastro.logoDataUrl);
     const empresaAtualizada = await tx.query(
         `UPDATE public.perfil_empresas SET
            nome_comercial=$2, razao_social=$3, cnpj=$4,
