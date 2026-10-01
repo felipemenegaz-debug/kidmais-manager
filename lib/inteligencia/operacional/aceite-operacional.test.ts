@@ -11,6 +11,7 @@ import { criarAcaoParametroConsumo, type PortaParametrosAcao, type RegraVigente 
 import { atenderPreparacao, type DependenciasPreparacao } from "../acoes/preparacoes.ts";
 import type { VinculoPreparacao } from "../acoes/contratacao-revisao.ts";
 import { enviarPreparado, reconciliar, type Buscador } from "../../../components/admin/fechamento-preparacao.ts";
+import { continuacaoValida } from "../../../components/admin/inteligencia/cliente-inteligencia.ts";
 import { acoesNegadas } from "../acoes/registro.ts";
 import type { AIResponse, HumanGateDraft, RespostaLeitura } from "../contratos.ts";
 import { atenderConversa } from "../conversa.ts";
@@ -146,7 +147,8 @@ function ambiente(o: Opcoes = {}) {
     else if (data?.tipo === "resultado_acao") operacao = null;
     const f = (data as { foco?: { entidades: Array<{ tipo: string; id: string }>; principal: number | null } } | null)?.foco;
     if (f) foco = { entidades: f.entidades.map(({ tipo, id }) => ({ tipo, id })), ...(f.principal != null ? { principal: f.principal } : {}) };
-    continuacao = (data as { continuacao?: unknown } | null)?.continuacao ?? null;
+    // Como o drawer: a continuação passa pelo filtro de formato fechado da UI antes de voltar ao servidor.
+    continuacao = continuacaoValida((data as { continuacao?: unknown } | null)?.continuacao);
     return { status: r.status, data, corpo: r.corpo as { ok: boolean; codigo?: string; erro?: string }, rastro: amb.rastros.at(-1)! };
   }
   const decidir = (d: HumanGateDraft | { operacaoId: string; versao: number; payloadHash: string }, decisao: "confirmar" | "cancelar") =>
@@ -269,7 +271,7 @@ test("aceite — doces e refrigerantes com rascunho aberto: consulta atendida, r
   assert.match(d.resumo, /rascunho “Novo pacote” continua aberto/);
   assert.equal(doces.data?.rascunhoPausado?.operacaoId, rascunho.operacaoId);
   assert.ok(fatos(d).includes("FATO:Convidados contratados: 50 (contrato vigente V2)."));
-  assert.deepEqual(doces.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "DOCES", perguntado: "POR_CONVIDADO" });
+  assert.deepEqual(doces.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "DOCES", perguntado: "POR_CONVIDADO", festaId: IDS.FESTA_MARIA });
   assert.equal(a.linha(rascunho.operacaoId).versao, versao, "rascunho intocado");
   assert.equal(doces.rastro.operacional?.decisao, "NOVA_CONSULTA");
 
@@ -346,12 +348,12 @@ test("aceite — refrigerantes: sem taxa/embalagem pergunta; com embalagem indiv
   const pergunta = await a.enviar("Quantos refrigerantes a próxima festa vai precisar?");
   assert.equal(pergunta.data?.tipo, "resposta");
   assert.equal(pergunta.rastro.plano?.passos.at(-1)?.capacidade, "calcular_consumo");
-  assert.deepEqual(pergunta.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO" });
+  assert.deepEqual(pergunta.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO", festaId: IDS.FESTA_MARIA });
   const taxa = await a.enviar("400 ml");
   const t = leitura(taxa.data);
   assert.ok(fatos(t).includes("CALCULO:50 convidados × 400 mL = 20.000 mL = 20 L."));
   assert.match(t.resumo, /Qual é o tamanho da embalagem/);
-  assert.deepEqual(taxa.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "EMBALAGEM", parametros: { mlPorConvidado: 400 } });
+  assert.deepEqual(taxa.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "EMBALAGEM", parametros: { mlPorConvidado: 400 }, festaId: IDS.FESTA_MARIA });
   const emb = await a.enviar("garrafa de 2 litros");
   const e = leitura(emb.data);
   assert.match(e.resumo, /Total: 20 L = 10 embalagens de 2 L para 50 convidados/);
@@ -762,12 +764,94 @@ test("aceite — doces E refrigerantes na mesma pergunta (regras): dois cálculo
   assert.ok(fatos(d).some((x) => x.includes("= 10 embalagens")));
   assert.deepEqual([...new Set((d.entidades ?? []).map((e) => e.id))], [IDS.FESTA_MARIA]);
   assert.deepEqual(r.rastro.plano?.composicao?.faltando, []);
-  // Sem números: pergunta os dois; a continuação segue o PRIMEIRO pendente (doces), sem misturar categorias.
+  // Sem números: pergunta os dois; a continuação pergunta o PRIMEIRO pendente (doces) e leva as duas categorias e a festa.
   const sem = await ambiente({ convidados: 50 }).enviar("quantos doces e refrigerantes a próxima festa vai precisar?");
   const s = leitura(sem.data);
   assert.ok(fatos(s).includes("AUSENCIA:A empresa ainda não tem regra de docinhos por convidado cadastrada."));
   assert.ok(fatos(s).includes("AUSENCIA:A empresa ainda não tem regra de consumo de refrigerante cadastrada."));
-  assert.deepEqual(sem.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "DOCES", perguntado: "POR_CONVIDADO" });
+  assert.deepEqual(sem.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "DOCES", perguntado: "POR_CONVIDADO", categorias: ["DOCES", "REFRIGERANTES"], festaId: IDS.FESTA_MARIA });
+});
+
+test("aceite — continuação com várias categorias: festa, parâmetros e categorias pendentes preservados até os dois resultados", async () => {
+  const a = ambiente({ convidados: 50 });
+  // Abrir OUTRA festa na tela não pode desviar a continuação: a festa é a da pergunta (revalidada no Core).
+  const tela = { tela: "festa", entidadeId: IDS.FESTA_PEDRO };
+  const pergunta = await a.enviar("quantos doces e refrigerantes a próxima festa vai precisar?");
+  const p = leitura(pergunta.data);
+  assert.deepEqual(categorias(p).sort(), ["DOCES", "REFRIGERANTES"]);
+  assert.match(p.resumo, /Quantos docinhos por convidado/);
+  assert.deepEqual(pergunta.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "DOCES", perguntado: "POR_CONVIDADO", categorias: ["DOCES", "REFRIGERANTES"], festaId: IDS.FESTA_MARIA });
+
+  // 1ª resposta: só o número dos doces. Doces calculados; refrigerantes continuam pendentes e são perguntados.
+  const quatro = await a.enviar("4", { contexto: tela });
+  const q = leitura(quatro.data);
+  assert.deepEqual(categorias(q).sort(), ["DOCES", "REFRIGERANTES"]);
+  assert.ok(fatos(q).includes("CALCULO:50 convidados × 4 = 200 docinhos."));
+  assert.match(q.resumo, /mL de refrigerante por convidado/);
+  assert.deepEqual([...new Set((q.entidades ?? []).map((e) => e.id))], [IDS.FESTA_MARIA]);
+  assert.deepEqual(quatro.data?.continuacao, {
+    tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO", categorias: ["DOCES", "REFRIGERANTES"],
+    festaId: IDS.FESTA_MARIA, informados: { DOCES: { porConvidado: 4 } },
+  });
+
+  // 2ª resposta: taxa e embalagem juntas. Os dois resultados finais, da mesma festa, sem perguntar de novo.
+  const final = await a.enviar("400 mL e garrafas de 2 litros", { contexto: tela });
+  const f = leitura(final.data);
+  const lista = fatos(f);
+  assert.deepEqual(categorias(f).sort(), ["DOCES", "REFRIGERANTES"]);
+  assert.ok(lista.includes("CALCULO:50 convidados × 4 = 200 docinhos."));
+  assert.ok(lista.includes("CALCULO:50 convidados × 400 mL = 20.000 mL = 20 L."));
+  assert.ok(lista.some((x) => x.includes("= 10 embalagens")));
+  assert.equal(final.data?.continuacao, undefined, "nada mais pendente");
+  assert.doesNotMatch(f.resumo, /Quantos docinhos|mL de refrigerante por convidado\?|tamanho da embalagem/);
+  assert.deepEqual([...new Set((f.entidades ?? []).map((e) => e.id))], [IDS.FESTA_MARIA]);
+  // Sem repetir dados: cada fato aparece uma vez na resposta final.
+  assert.deepEqual(lista, [...new Set(lista)], "fato repetido na resposta final");
+  assert.deepEqual(final.rastro.plano?.passos.map((p) => p.capacidade), ["calcular_consumo", "calcular_consumo"]);
+  assert.deepEqual(a.efeitos.parametros, [], "nada salvo como padrão");
+});
+
+test("aceite — continuação com várias categorias em outra ordem: números da categoria NÃO perguntada valem e a perguntada segue pendente", async () => {
+  const a = ambiente({ convidados: 50 });
+  await a.enviar("quantos doces e refrigerantes a próxima festa vai precisar?");
+  // Perguntou doces; o operador responde primeiro os refrigerantes (números explícitos dessa categoria).
+  const refri = await a.enviar("400 ml de refrigerante por convidado e garrafa de 2 litros");
+  const r = leitura(refri.data);
+  assert.ok(fatos(r).includes("CALCULO:50 convidados × 400 mL = 20.000 mL = 20 L."));
+  assert.equal(fatos(r).some((x) => x.includes("docinhos.") && x.startsWith("CALCULO:50")), false, "doces ainda sem número");
+  assert.match(r.resumo, /Quantos docinhos por convidado/);
+  assert.deepEqual(refri.data?.continuacao, {
+    tipo: "PARAMETRO_CONSUMO", categoria: "DOCES", perguntado: "POR_CONVIDADO", categorias: ["DOCES", "REFRIGERANTES"],
+    festaId: IDS.FESTA_MARIA, informados: { REFRIGERANTES: { mlPorConvidado: 400, embalagemMl: 2000 } },
+  });
+  const final = await a.enviar("4");
+  const f = fatos(leitura(final.data));
+  assert.ok(f.includes("CALCULO:50 convidados × 4 = 200 docinhos."));
+  assert.ok(f.some((x) => x.includes("= 10 embalagens")));
+  assert.equal(final.data?.continuacao, undefined);
+  assert.deepEqual(f, [...new Set(f)]);
+});
+
+test("aceite — continuação adulterada: festa de outra empresa negada sem vazamento; formato inválido recusado", async () => {
+  const a = ambiente({ convidados: 50 });
+  const base = { tipo: "PARAMETRO_CONSUMO", categoria: "DOCES", perguntado: "POR_CONVIDADO", categorias: ["DOCES", "REFRIGERANTES"] };
+  const outra = await a.enviar("4", { continuacao: { ...base, festaId: IDS.FESTA_B } });
+  assert.equal(JSON.stringify(outra.corpo).includes(MARCADOR_B), false);
+  assert.notEqual(outra.data?.tipo, "resposta");
+  assert.equal(JSON.stringify(outra.corpo).includes("200"), false);
+  assert.deepEqual(a.amb.violacoes.crossTenant, []);
+  for (const continuacao of [
+    { ...base, categorias: ["REFRIGERANTES", "REFRIGERANTES"] },
+    { ...base, categorias: ["REFRIGERANTES"] },
+    { ...base, informados: { DOCES: { porConvidado: 4 } } },
+    { ...base, festaId: "festa-do-texto" },
+    { ...base, informados: { REFRIGERANTES: { mlPorConvidado: 999999 } } },
+    { ...base, empresaId: EMPRESA_B },
+  ]) {
+    const r = await a.enviar("4", { continuacao });
+    assert.equal(r.status, 400, JSON.stringify(continuacao));
+  }
+  assert.deepEqual(a.efeitos.parametros, []);
 });
 
 test("aceite — MODELO: variações sem regra para doces e refrigerantes; planos incompletos são completados por categoria", async () => {

@@ -77,6 +77,13 @@ test("consumo: parâmetros só do que foi escrito (inteiros, mL), nunca do nome 
   assert.deepEqual(extrairParametros("0,4 l por pessoa, garrafa de 2L", "REFRIGERANTES"), { mlPorConvidado: 400, embalagemMl: 2000 });
   assert.deepEqual(extrairParametros("2 litros", "REFRIGERANTES", "EMBALAGEM"), { embalagemMl: 2000 });
   assert.deepEqual(extrairParametros("350ml", "REFRIGERANTES", "ML_POR_CONVIDADO"), { mlPorConvidado: 350 });
+  // Resposta à pergunta da taxa com a embalagem junto: o volume solto é a taxa; o da garrafa, a embalagem.
+  assert.deepEqual(extrairParametros("400 mL e garrafas de 2 litros", "REFRIGERANTES", "ML_POR_CONVIDADO"), { mlPorConvidado: 400, embalagemMl: 2000 });
+  assert.deepEqual(extrairParametros("garrafa de 2 litros, 400 ml", "REFRIGERANTES", "ML_POR_CONVIDADO"), { mlPorConvidado: 400, embalagemMl: 2000 });
+  // Perguntada a embalagem e já escrita com papel explícito: o volume solto não é reatribuído a nada.
+  assert.deepEqual(extrairParametros("garrafa de 2 litros e 400 ml", "REFRIGERANTES", "EMBALAGEM"), { embalagemMl: 2000 });
+  // Dois volumes soltos: ambíguo, nada é escolhido.
+  assert.deepEqual(extrairParametros("400 ml ou 350 ml", "REFRIGERANTES", "ML_POR_CONVIDADO"), {});
   assert.deepEqual(extrairParametros("pacote premium", "REFRIGERANTES"), {});
   assert.deepEqual(extrairParametros("4 por convidado com margem de 10%", "DOCES"), { porConvidado: 4, margemPercentual: 10 });
   assert.deepEqual(extrairParametros("4 por convidado, 50% brigadeiro, 30% beijinho e 20% cajuzinho", "DOCES").distribuicao, [

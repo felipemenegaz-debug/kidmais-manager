@@ -297,7 +297,21 @@ export type ContinuacaoConsumo = {
   tipo: "PARAMETRO_CONSUMO";
   categoria: "DOCES" | "REFRIGERANTES";
   perguntado: "POR_CONVIDADO" | "ML_POR_CONVIDADO" | "EMBALAGEM";
-  parametros?: { porConvidado?: number; mlPorConvidado?: number; embalagemMl?: number; margemPercentual?: number };
+  parametros?: ParametrosEscritosConsumo;
+  /** Pergunta com várias categorias: todas elas (a perguntada inclusive), na ordem da pergunta. */
+  categorias?: Array<"DOCES" | "REFRIGERANTES">;
+  /** Números já escritos para as OUTRAS categorias da mesma pergunta. */
+  informados?: Partial<Record<"DOCES" | "REFRIGERANTES", ParametrosEscritosConsumo>>;
+  /** Festa da pergunta (dica; revalidada no Core a cada pedido). */
+  festaId?: string;
+};
+
+export type ParametrosEscritosConsumo = {
+  porConvidado?: number;
+  mlPorConvidado?: number;
+  embalagemMl?: number;
+  margemPercentual?: number;
+  distribuicao?: Array<{ tipo: string; percentual?: number; quantidade?: number }>;
 };
 
 export type ResultadoPolitica = "PERMITIDO" | "NEGADO_CLASSE" | "NEGADO_PAPEL" | "NEGADO_FLAG" | "NEGADO_DENY" | "NEGADO_SEM_MANIFESTO" | "NEGADO_ORIGEM" | "NEGADO_ESTABELECIMENTO";

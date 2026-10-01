@@ -218,17 +218,30 @@ const leitura = (capacidade: string, extra: Partial<RespostaLeitura> = {}): Resp
 const contratoRef = (id: string): EntidadeRef => ({ tipo: "CONTRATO", id, rotulo: "Contrato", tela: "contrato" });
 
 test("limites: composta acima do schema (fatos > 60, resumo > 2000) é RECUSADA inteira — nada é cortado em silêncio", () => {
-  const muitos = Array.from({ length: 31 }, (_, i) => ({ natureza: "FATO" as const, texto: `Fato ${i}.`, fonte: "x" }));
-  const r = compor([{ passoId: "p2", capacidade: "relacoes_festa", dados: leitura("relacoes_festa", { fatos: muitos }) }, { passoId: "p3", capacidade: "saldo_contrato", dados: leitura("saldo_contrato", { fatos: muitos }) }], []);
+  // Fatos DISTINTOS em cada parte (fatos idênticos da mesma fonte são unificados — ver o teste seguinte).
+  const fatosDe = (parte: string, n: number) => Array.from({ length: n }, (_, i) => ({ natureza: "FATO" as const, texto: `Fato ${parte} ${i}.`, fonte: "x" }));
+  const r = compor([{ passoId: "p2", capacidade: "relacoes_festa", dados: leitura("relacoes_festa", { fatos: fatosDe("a", 31) }) }, { passoId: "p3", capacidade: "saldo_contrato", dados: leitura("saldo_contrato", { fatos: fatosDe("b", 31) }) }], []);
   assert.deepEqual(r, { ok: false, motivo: "COMPOSICAO_LIMITE" });
   const longo = "a".repeat(1500);
   const r2 = compor([{ passoId: "p2", capacidade: "relacoes_festa", dados: leitura("relacoes_festa", { resumo: longo }) }, { passoId: "p3", capacidade: "saldo_contrato", dados: leitura("saldo_contrato", { resumo: longo }) }], []);
   assert.deepEqual(r2, { ok: false, motivo: "COMPOSICAO_LIMITE" });
   // No limite exato (30 + 30 = 60 fatos) compõe, com TODOS os fatos e fontes.
-  const exatos = muitos.slice(0, 30);
-  const ok = compor([{ passoId: "p2", capacidade: "relacoes_festa", dados: leitura("relacoes_festa", { fatos: exatos }) }, { passoId: "p3", capacidade: "saldo_contrato", dados: leitura("saldo_contrato", { fatos: exatos }) }], []);
+  const ok = compor([{ passoId: "p2", capacidade: "relacoes_festa", dados: leitura("relacoes_festa", { fatos: fatosDe("a", 30) }) }, { passoId: "p3", capacidade: "saldo_contrato", dados: leitura("saldo_contrato", { fatos: fatosDe("b", 30) }) }], []);
   assert.equal(ok.ok && ok.dados.fatos.length, 60);
   assert.deepEqual(ok.ok && ok.dados.referencia.fontes, ["relacoes_festa", "saldo_contrato"]);
+});
+
+test("composição: o MESMO fato da mesma fonte em duas leituras da mesma âncora aparece uma vez; fonte diferente não se funde", () => {
+  const convidados = { natureza: "FATO" as const, texto: "Convidados contratados: 50 (contrato vigente V2).", fonte: "festas.contrato_vigente" };
+  const doces = { natureza: "CALCULO" as const, texto: "50 convidados × 4 = 200 docinhos.", fonte: "operacional.calculo" };
+  const refri = { natureza: "CALCULO" as const, texto: "50 convidados × 400 mL = 20.000 mL = 20 L.", fonte: "operacional.calculo" };
+  const outraFonte = { ...convidados, fonte: "outra.fonte" };
+  const r = compor([
+    { passoId: "p1", capacidade: "calcular_consumo", dados: leitura("calcular_consumo", { fatos: [convidados, doces] }) },
+    { passoId: "p2", capacidade: "calcular_consumo", dados: leitura("calcular_consumo", { fatos: [convidados, refri, outraFonte] }) },
+  ], []);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.ok && r.dados.fatos, [convidados, doces, refri, outraFonte]);
 });
 
 test("mesma âncora: leituras de contratos diferentes nunca se juntam (ANCORA_DIVERGENTE)", () => {

@@ -205,24 +205,73 @@ export function conversar(buscar: Buscador, pedido: { texto: string; contexto?: 
  * IA operacional: pergunta de parâmetro pendente ("Quantos docinhos por convidado…?"). A UI guarda e reenvia SÓ na
  * próxima mensagem, como dica (categoria fechada + números já informados); o servidor relê a festa e recalcula.
  */
+type CategoriaUI = 'DOCES' | 'REFRIGERANTES';
+type ParametrosUI = Partial<Record<'porConvidado' | 'mlPorConvidado' | 'embalagemMl' | 'margemPercentual', number>> & {
+  distribuicao?: Array<{ tipo: string; percentual?: number; quantidade?: number }>;
+};
 export type ContinuacaoUI = {
   tipo: 'PARAMETRO_CONSUMO';
-  categoria: 'DOCES' | 'REFRIGERANTES';
+  categoria: CategoriaUI;
   perguntado: 'POR_CONVIDADO' | 'ML_POR_CONVIDADO' | 'EMBALAGEM';
-  parametros?: Partial<Record<'porConvidado' | 'mlPorConvidado' | 'embalagemMl' | 'margemPercentual', number>>;
+  parametros?: ParametrosUI;
+  /** Pergunta com várias categorias: todas elas seguem juntas até os resultados finais. */
+  categorias?: CategoriaUI[];
+  /** Números já escritos para as outras categorias da mesma pergunta. */
+  informados?: Partial<Record<CategoriaUI, ParametrosUI>>;
+  /** Festa da pergunta (dica; o servidor revalida). */
+  festaId?: string;
 };
+
+const CATEGORIAS_UI: readonly CategoriaUI[] = ['DOCES', 'REFRIGERANTES'];
+const UUID_CONTINUACAO = new RegExp(`^${UUID}$`);
+
+function parametrosValidos(p: unknown): ParametrosUI | null {
+  const x = p as Record<string, unknown> | null | undefined;
+  const parametros: ParametrosUI = {};
+  for (const chave of ['porConvidado', 'mlPorConvidado', 'embalagemMl', 'margemPercentual'] as const) {
+    const v = x?.[chave];
+    if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 20000) parametros[chave] = v;
+  }
+  const d = x?.distribuicao;
+  if (Array.isArray(d) && d.length >= 2 && d.length <= 10) {
+    const itens = d.map((i: { tipo?: unknown; percentual?: unknown; quantidade?: unknown } | null) => {
+      if (!i || typeof i.tipo !== 'string' || !/^[p{L} ]{1,40}$/u.test(i.tipo)) return null;
+      const n = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 100_000 ? v : undefined);
+      const percentual = n(i.percentual), quantidade = n(i.quantidade);
+      return { tipo: i.tipo, ...(percentual !== undefined ? { percentual } : {}), ...(quantidade !== undefined ? { quantidade } : {}) };
+    });
+    if (itens.every(Boolean)) parametros.distribuicao = itens as NonNullable<ParametrosUI['distribuicao']>;
+  }
+  return Object.keys(parametros).length ? parametros : null;
+}
 
 /** Aceita só o formato fechado; qualquer desvio ⇒ sem continuação (a próxima mensagem segue como pergunta nova). */
 export function continuacaoValida(c: unknown): ContinuacaoUI | null {
   const x = c as Partial<ContinuacaoUI> | null;
-  if (!x || x.tipo !== 'PARAMETRO_CONSUMO' || (x.categoria !== 'DOCES' && x.categoria !== 'REFRIGERANTES')) return null;
+  if (!x || x.tipo !== 'PARAMETRO_CONSUMO' || !CATEGORIAS_UI.includes(x.categoria as CategoriaUI)) return null;
   if (x.perguntado !== 'POR_CONVIDADO' && x.perguntado !== 'ML_POR_CONVIDADO' && x.perguntado !== 'EMBALAGEM') return null;
-  const parametros: NonNullable<ContinuacaoUI['parametros']> = {};
-  for (const chave of ['porConvidado', 'mlPorConvidado', 'embalagemMl', 'margemPercentual'] as const) {
-    const v = x.parametros?.[chave];
-    if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 20000) parametros[chave] = v;
+  const categoria = x.categoria as CategoriaUI;
+  const parametros = parametrosValidos(x.parametros);
+  let categorias: CategoriaUI[] | null = null;
+  if (x.categorias !== undefined) {
+    const lista = Array.isArray(x.categorias) ? x.categorias : [];
+    const validas = lista.length >= 2 && lista.every((k) => CATEGORIAS_UI.includes(k)) && new Set(lista).size === lista.length && lista.includes(categoria);
+    if (!validas) return null;
+    categorias = [...lista];
   }
-  return { tipo: 'PARAMETRO_CONSUMO', categoria: x.categoria, perguntado: x.perguntado, ...(Object.keys(parametros).length ? { parametros } : {}) };
+  const informados: Partial<Record<CategoriaUI, ParametrosUI>> = {};
+  for (const k of categorias ?? []) {
+    const p = k === categoria ? null : parametrosValidos(x.informados?.[k]);
+    if (p) informados[k] = p;
+  }
+  const festaId = typeof x.festaId === 'string' && UUID_CONTINUACAO.test(x.festaId) ? x.festaId : null;
+  return {
+    tipo: 'PARAMETRO_CONSUMO', categoria, perguntado: x.perguntado,
+    ...(parametros ? { parametros } : {}),
+    ...(categorias ? { categorias } : {}),
+    ...(Object.keys(informados).length ? { informados } : {}),
+    ...(festaId ? { festaId } : {}),
+  };
 }
 
 /**
