@@ -1033,6 +1033,39 @@ function comLuna(a: ReturnType<typeof ambiente>, o: {
   return { chamadas, recebidos };
 }
 
+test("Luna — PR 22: com rascunho pausado por uma consulta de consumo, \"não estime…\" e \"não sei\" respondem ao cálculo; resposta legítima ao rascunho continua indo ao rascunho", async () => {
+  // Homologação de c84b597: rascunho de contratação aberto, "quantos refrigerantes para a próxima festa?" (consulta
+  // paralela, pergunta a taxa), depois "Não estime…" ⇒ "Ainda não sei responder" e "não sei" ⇒ caía no rascunho.
+  const a = ambiente({ convidados: 50 });
+  const roteiro = [
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium" } }),
+    saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "CONSULTA_PARALELA", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] } }),
+    // Pior caso: a Luna liga a resposta sem dado ao rascunho.
+    saida({ objetivo: "CONSULTA", relacaoRascunho: "RESPONDE", consumo: { categorias: ["REFRIGERANTES"] } }),
+    saida({ objetivo: "ESCLARECER", relacaoRascunho: "RESPONDE" }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { turno: "noite" } }),
+  ];
+  comLuna(a, { entender: (_d, n) => roteiro[n - 1] });
+  const r1 = await a.enviar("crie uma festa do cliente Felipe para 50 convidados, pacote premium");
+  const op = (r1.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId;
+  const versao = a.linha(op).versao;
+  const consulta = await a.enviar("quantos refrigerantes para a próxima festa?");
+  assert.equal(consulta.data?.continuacao?.perguntado, "ML_POR_CONVIDADO");
+  assert.equal(consulta.data?.rascunhoPausado?.operacaoId, op);
+  for (const texto of ["Não estime o consumo; quero somente a regra cadastrada.", "não sei"]) {
+    const r = await a.enviar(texto);
+    assert.equal(r.data?.tipo, "resposta", texto);
+    assert.match(leitura(r.data).resumo, /Quantos mL de refrigerante por convidado/, `${texto}: refaz o cálculo pendente`);
+    assert.equal(r.data?.continuacao?.festaId, IDS.FESTA_MARIA, `${texto}: mesma festa`);
+    assert.equal(r.data?.rascunhoPausado?.operacaoId, op, `${texto}: rascunho continua pausado`);
+    assert.equal(a.linha(op).versao, versao, `${texto}: rascunho intocado`);
+  }
+  // Resposta legítima ao rascunho (com a continuação ainda no corpo): vai ao rascunho.
+  const turno = await a.enviar("à noite");
+  assert.equal(turno.data?.tipo, "rascunho");
+  assert.equal((turno.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId, op);
+});
+
 test("Luna — PR 21: estimativa pedida que não veio (ausente ou fora da faixa) é dita na resposta e registrada no trace; nada é inventado", async () => {
   // Homologação de 6c83539: "pode estimar os refrigerantes…" depois de "Não estime…" voltou com estimativa=false e a
   // resposta só perguntava a taxa, como se o pedido não existisse.
