@@ -1,9 +1,9 @@
 import sharp from 'sharp';
 import { ClienteServiceError } from '../clientes/services/errors.ts';
-import { LOGO_MAX_UPLOAD, LOGO_MAX_PNG, LOGO_MAX_DATA_URL } from './logo-limites.ts';
+import { LOGO_MAX_UPLOAD, LOGO_MAX_UPLOAD_MB, LOGO_MAX_PNG, LOGO_MAX_DATA_URL } from './logo-limites.ts';
 
 function invalida() {
-    return new ClienteServiceError('PERFIL_LOGO_INVALIDA', 'Envie uma imagem PNG, JPEG ou WebP válida de até 2 MB.', 400);
+    return new ClienteServiceError('PERFIL_LOGO_INVALIDA', `Envie uma imagem PNG, JPEG ou WebP válida de até ${LOGO_MAX_UPLOAD_MB} MB.`, 400);
 }
 
 // Apenas pixels de imagens estáticas. Reencodar remove metadados e conteúdo adicional.

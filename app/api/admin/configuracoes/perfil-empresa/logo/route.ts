@@ -4,7 +4,7 @@ import { withTransaction } from '@/lib/db/postgres';
 import { ClienteServiceError, isClienteServiceError } from '@/lib/clientes/services/errors';
 import { consultarLogoPerfil } from '@/lib/perfil/cadastro-service';
 import { prepararLogo } from '@/lib/perfil/logo';
-import { LOGO_MAX_UPLOAD, LOGO_TIPOS } from '@/lib/perfil/logo-limites';
+import { LOGO_MAX_UPLOAD, LOGO_MAX_UPLOAD_MB, LOGO_TIPOS } from '@/lib/perfil/logo-limites';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
             while(true) {
                 const parte = await reader.read(); if(parte.done) break;
                 tamanho += parte.value.length;
-                if(tamanho > LOGO_MAX_UPLOAD + 65536) throw new ClienteServiceError('PERFIL_LOGO_INVALIDA','A logo deve ter até 2 MB.',413);
+                if(tamanho > LOGO_MAX_UPLOAD + 65536) throw new ClienteServiceError('PERFIL_LOGO_INVALIDA',`A logo deve ter até ${LOGO_MAX_UPLOAD_MB} MB.`,413);
                 partes.push(parte.value);
             }
         } finally { await reader.cancel(); }

@@ -31,7 +31,11 @@ async function main() {
     let browser;
     const errors = [], inesperados = [], posts = [], resultados = [];
     let estadoPerfil = 'ok', estadoIA = 'incompleto', estadoContrato = 'EM_ELABORACAO', revisado = false, draft = null, logoAplicada = null;
-    const logoBytes = await sharp(fs.readFileSync('public/assets/kidmais-logo-horizontal.png')).resize({width:1024,height:512,fit:'inside',withoutEnlargement:true}).png().toBuffer();
+    const logoInputBytes = process.env.KIDMAIS_UX_LOGO_FILE
+        ? fs.readFileSync(process.env.KIDMAIS_UX_LOGO_FILE)
+        : Buffer.concat([fs.readFileSync('public/assets/kidmais-logo-horizontal.png'), Buffer.alloc(3 * 1024 * 1024)]);
+    assert(logoInputBytes.length > 2 * 1024 * 1024 && logoInputBytes.length <= 10 * 1024 * 1024, 'A regressão deve exercitar um PNG acima do antigo limite de 2 MB.');
+    const logoBytes = await sharp(logoInputBytes).rotate().resize({width:1024,height:512,fit:'inside',withoutEnlargement:true}).png().toBuffer();
     const logo = `data:image/png;base64,${logoBytes.toString('base64')}`;
     try {
         let pronto = false;
@@ -140,8 +144,14 @@ async function main() {
             estadoPerfil = 'ok'; draft = null; logoAplicada=null; await abrir('perfil'); await page.getByLabel('Nome comercial (obrigatório ao aplicar)').waitFor();
             await page.getByLabel('Selecionar logo',{exact:true}).setInputFiles({name:'logo.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg/>')});
             await page.getByRole('alert').filter({hasText:'PNG, JPEG ou WebP'}).waitFor(); assert.equal(await page.getByAltText('Prévia da logo do rascunho').count(),0);
-            await page.getByLabel('Selecionar logo',{exact:true}).setInputFiles({name:'logo.png',mimeType:'image/png',buffer:logoBytes});
+            await page.getByLabel('Selecionar logo',{exact:true}).setInputFiles({name:'logo.png',mimeType:'image/png',buffer:logoInputBytes});
+            await page.getByRole('status').filter({hasText:'logo.png: prévia pronta'}).waitFor();
             await page.getByAltText('Prévia da logo do rascunho').waitFor(); assert.equal(await page.getByAltText('Prévia da logo do rascunho').getAttribute('src'),logo);
+            await page.getByLabel('Selecionar logo',{exact:true}).setInputFiles({name:'grande.png',mimeType:'image/png',buffer:Buffer.alloc(11 * 1024 * 1024)});
+            await page.getByRole('alert').filter({hasText:'grande.png tem 11 MB. A logo deve ter até 10 MB.'}).waitFor();
+            assert.equal(await page.getByAltText('Prévia da logo do rascunho').getAttribute('src'),logo);
+            await page.getByLabel('Selecionar logo',{exact:true}).setInputFiles({name:'logo.png',mimeType:'image/png',buffer:logoInputBytes});
+            await page.getByRole('status').filter({hasText:'logo.png: prévia pronta'}).waitFor();
             assert.equal(await page.getByAltText('Logo atual da empresa').count(),0);
             await foto(`perfil-logo-${viewport}`);
             await page.getByLabel('Nome comercial (obrigatório ao aplicar)').fill('Empresa Revisada Exemplo'); await page.getByRole('button', { name: 'Salvar rascunho' }).click(); await page.getByText('Rascunho salvo.', { exact: true }).first().waitFor(); await page.getByRole('button', { name: 'Revisar e aplicar', exact: true }).click(); await page.getByRole('dialog').waitFor(); await foto(`perfil-revisao-${viewport}`); await page.getByRole('button', { name: 'Fechar revisão' }).click();
@@ -177,7 +187,7 @@ async function main() {
         // Fluxo completo no shell real: salvar não publica; aplicar atualiza o menu sem recarregar a página.
         estadoPerfil='ok'; draft=null; logoAplicada=null;
         await page.goto(`${origin}/admin/configuracoes/perfil-empresa`); await page.getByLabel('Selecionar logo',{exact:true}).waitFor();
-        await page.getByLabel('Selecionar logo',{exact:true}).setInputFiles({name:'logo.png',mimeType:'image/png',buffer:logoBytes});
+        await page.getByLabel('Selecionar logo',{exact:true}).setInputFiles({name:'logo.png',mimeType:'image/png',buffer:logoInputBytes});
         await page.getByAltText('Prévia da logo do rascunho').waitFor();
         await page.getByRole('button',{name:'Salvar rascunho',exact:true}).click();await page.getByText('Rascunho salvo.',{exact:true}).first().waitFor();
         assert.equal(logoAplicada,null);assert.equal(draft.conteudo.logoDataUrl,logo);

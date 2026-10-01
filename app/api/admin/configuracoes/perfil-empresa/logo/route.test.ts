@@ -79,3 +79,15 @@ test('upload rejeita conteúdo falso, SVG, multipart inválido e tamanho excessi
     assert.equal(oversized.status, 413);
     assert.equal((await oversized.json()).codigo, 'PERFIL_LOGO_INVALIDA');
 });
+
+test('multipart com PNG acima de 2 MB é aceito e retorna logo pequena para o rascunho', async () => {
+    const png = await sharp({ create: { width: 1755, height: 1452, channels: 4, background: '#8877cc80' } }).png().toBuffer();
+    const bytes = Buffer.concat([png, Buffer.alloc(3 * 1024 * 1024)]);
+    const r = rota();
+    const resposta = await r.exports.POST(await upload(bytes));
+    assert.equal(resposta.status, 200);
+    const logo = (await resposta.json()).data.logoDataUrl;
+    assert.match(logo, /^data:image\/png;base64,/);
+    assert(Buffer.from(logo.slice(22), 'base64').length <= limites.LOGO_MAX_PNG);
+    assert.deepEqual(r.contadores(), { permissoes: 1, imagens: 1 });
+});
