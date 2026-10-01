@@ -48,6 +48,8 @@ export type AdaptativoRastreio = {
   outrosPedidos: number;
   /** Pedidos adicionais devolvidos pela Luna e descartados por não estarem na mensagem atual (gestão de contexto). */
   outrosDescartados: number;
+  /** Códigos dos descartes da revalidação (só o código; sufixo apenas quando é uma categoria fechada). */
+  descartes: string[];
   chamadasModelo: number;
   leituras: number;
   redacao: "MODELO" | "DETERMINISTICA" | "NENHUMA";

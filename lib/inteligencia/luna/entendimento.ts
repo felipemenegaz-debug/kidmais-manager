@@ -192,6 +192,8 @@ export type Entendimento = {
   outrosDescartados: number;
   /** Campos descartados pela revalidação (só códigos, para o trace). */
   descartes: string[];
+  /** Categorias cuja estimativa o usuário PEDIU nesta mensagem mas que vieram sem valor utilizável da Luna. */
+  estimativaSemValor: Categoria[];
 };
 
 const INSTRUCAO = [
@@ -372,6 +374,10 @@ export function revalidar(saida: SaidaLuna, entrada: Pick<EntradaEntendimento, "
   for (const cat of c.estimar) if (!pedidas.has(cat)) descartes.push(`estimativa_sem_pedido:${cat}`);
   if (c.estimar.includes("DOCES") && pedidas.has("DOCES") && c.docesEstimado !== null) estimativa.porConvidado = c.docesEstimado;
   if (c.estimar.includes("REFRIGERANTES") && pedidas.has("REFRIGERANTES") && c.mlEstimado !== null) estimativa.mlPorConvidado = c.mlEstimado;
+  // Estimativa pedida (por regra, nesta mensagem) mas sem valor utilizável: registrada para o trace e para a resposta
+  // dizer isso, em vez de só perguntar o parâmetro como se o pedido não existisse.
+  const estimativaSemValor = [...pedidas].filter((cat) => (cat === "DOCES" ? !estimativa.porConvidado : !estimativa.mlPorConvidado) && (c.categorias.includes(cat) || c.estimar.includes(cat)));
+  for (const cat of estimativaSemValor) descartes.push(`estimativa_sem_valor:${cat}`);
   // Valor estimado sem a categoria marcada em `estimar` também não passa.
   if (c.docesEstimado !== null && !estimativa.porConvidado && c.estimar.includes("DOCES") === false) descartes.push("docesEstimado");
   if (c.mlEstimado !== null && !estimativa.mlPorConvidado && c.estimar.includes("REFRIGERANTES") === false) descartes.push("mlEstimado");
@@ -444,6 +450,7 @@ export function revalidar(saida: SaidaLuna, entrada: Pick<EntradaEntendimento, "
     outrosPedidos: outros.length,
     outrosDescartados: saida.outrosPedidos.length - outros.length,
     descartes,
+    estimativaSemValor,
   };
 }
 

@@ -1248,6 +1248,14 @@ function comPausa(resposta: AIResponse, pausado: Pausado | null): AIResponse {
 
 /** "Não sei" a uma pergunta de parâmetro: a estimativa existe, mas só se o operador pedir (rotulada como hipótese). */
 const DICA_ESTIMATIVA = "Se não souber, posso usar uma estimativa rotulada como hipótese: é só dizer “faça você a definição”.";
+const SEM_ESTIMATIVA = "Você pediu uma estimativa, mas ela não foi gerada desta vez: informe o valor ou peça de novo.";
+
+/** Estimativa pedida que não veio: a resposta diz isso (o parâmetro continua sendo perguntado, nada é inventado). */
+function avisoEstimativaAusente(r: AIResponse, ent: Entendimento, consumo: Execucao["consumo"]): AIResponse {
+  const faltou = ent.estimativaSemValor.filter((c) => !consumo?.estimativa?.[c]);
+  if (!faltou.length || r.tipo !== "resposta" || !("fatos" in r.dados) || !r.continuacao) return r;
+  return { ...r, dados: { ...r.dados, resumo: `${r.dados.resumo} ${SEM_ESTIMATIVA}` } };
+}
 
 /**
  * Leitura escolhida pela Luna como intenção: só capacidade do catálogo (já revalidada); entidade só da TELA aberta —
@@ -1570,6 +1578,7 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
     correcao: resultado.entendimento?.correcao ?? false,
     outrosPedidos: resultado.entendimento?.outrosPedidos ?? 0,
     outrosDescartados: resultado.entendimento?.outrosDescartados ?? 0,
+    descartes: [...new Set((resultado.entendimento?.descartes ?? []).map((d) => (/:(DOCES|REFRIGERANTES)$/.test(d) ? d : d.replace(/:.*$/, ""))))].slice(0, 10),
     chamadasModelo: usos.length,
     leituras: e.leiturasFeitas ?? 0,
     redacao: resultado.redacao,
@@ -1587,7 +1596,8 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
   // aqui — senão o pedido não feito sumiria sem explicação (homologação de ec4fac2).
   const outros = resultado.entendimento?.outrosPedidos ?? 0;
   const aviso = "Fiz um pedido por vez: comecei por este; o outro que você mencionou ainda não foi feito.";
-  const r0 = resultado.resposta;
+  // Estimativa pedida que não veio: dito no FIM do ciclo (a redação da Luna substitui o resumo e apagaria o aviso).
+  const r0 = resultado.entendimento ? avisoEstimativaAusente(resultado.resposta, resultado.entendimento, e.consumo) : resultado.resposta;
   const respostaCiclo: AIResponse = outros && r0.tipo === "rascunho" ? { ...r0, pergunta: `${aviso} ${r0.pergunta}` }
     : outros && r0.tipo === "nao_suportado" ? { ...r0, mensagem: `${r0.mensagem} ${aviso}` }
       : outros && r0.tipo === "resposta" && "fatos" in r0.dados && resultado.redacao !== "MODELO" ? { ...r0, dados: { ...r0.dados, resumo: `${r0.dados.resumo} ${aviso}` } }

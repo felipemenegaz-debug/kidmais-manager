@@ -1033,6 +1033,31 @@ function comLuna(a: ReturnType<typeof ambiente>, o: {
   return { chamadas, recebidos };
 }
 
+test("Luna — PR 21: estimativa pedida que não veio (ausente ou fora da faixa) é dita na resposta e registrada no trace; nada é inventado", async () => {
+  // Homologação de 6c83539: "pode estimar os refrigerantes…" depois de "Não estime…" voltou com estimativa=false e a
+  // resposta só perguntava a taxa, como se o pedido não existisse.
+  const texto = "pode estimar os refrigerantes da próxima festa? garrafa de 2 litros e uns 10% de margem";
+  const cenarios: Array<[string, Partial<SaidaLuna["consumo"]>]> = [
+    ["sem estimar", { categorias: ["REFRIGERANTES"], embalagemMl: 2000, margemPercentual: 10 }],
+    ["valor fora da faixa", { categorias: ["REFRIGERANTES"], embalagemMl: 2000, margemPercentual: 10, estimar: ["REFRIGERANTES"], mlEstimado: 5000 }],
+  ];
+  for (const [cenario, consumo] of cenarios) {
+    const a = ambiente({ convidados: 60 });
+    comLuna(a, { entender: () => saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo }) });
+    const r = await a.enviar(texto);
+    const d = leitura(r.data);
+    assert.match(d.resumo, /Você pediu uma estimativa, mas ela não foi gerada desta vez/, cenario);
+    assert.equal(d.fatos.some((f) => f.natureza === "ESTIMATIVA"), false, `${cenario}: nada inventado`);
+    assert.ok(r.rastro.adaptativo?.descartes.includes("estimativa_sem_valor:REFRIGERANTES"), `${cenario}: ${r.rastro.adaptativo?.descartes}`);
+  }
+  // Com a estimativa dentro da faixa, nenhum aviso.
+  const ok = ambiente({ convidados: 60 });
+  comLuna(ok, { entender: () => saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"], embalagemMl: 2000, margemPercentual: 10, estimar: ["REFRIGERANTES"], mlEstimado: 500 } }) });
+  const r = await ok.enviar(texto);
+  assert.doesNotMatch(leitura(r.data).resumo, /não foi gerada/);
+  assert.ok(leitura(r.data).fatos.some((f) => f.natureza === "ESTIMATIVA"));
+});
+
 test("Luna — PR 13: reserva recusada pelo orçamento ⇒ caminho anterior responde e o trace diz o motivo (teto, escopo, período e reserva)", async () => {
   const a = ambiente();
   // Teto diário menor que a reserva da Luna (entrada estimada a 1 token/byte + teto de saída): a Luna nunca é chamada.
