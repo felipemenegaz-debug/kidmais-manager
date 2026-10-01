@@ -9,6 +9,9 @@ import {
   tokenAdmin,
   exigirApiAdminCrmDisponivel,
 } from "@/lib/http/admin-crm-api";
+import { executarComPosseNoTenant, pagamentoNoTenant } from "@/lib/contratos/services/contrato-tenant";
+import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { chaveIdempotenciaNoPagamento } from "@/lib/pagamentos/services/idempotencia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +34,7 @@ export async function POST(
   context: { params: Promise<{ pagamentoId: string }> },
 ) {
   try {
-    await exigirApiAdminCrmDisponivel(request);
+    const sessao = await exigirApiAdminCrmDisponivel(request);
     const { pagamentoId } = await context.params;
     if (!z.string().uuid().safeParse(pagamentoId).success) {
       return NextResponse.json({ ok: false, erro: "pagamentoId inválido.", codigo: "DADOS_INVALIDOS" }, { status: 400, headers: { "Cache-Control": "no-store" } });
@@ -41,10 +44,13 @@ export async function POST(
       return NextResponse.json({ ok: false, erro: "Dados inválidos para o estorno.", codigo: "DADOS_INVALIDOS", detalhes: parsed.error.flatten() }, { status: 400, headers: { "Cache-Control": "no-store" } });
     }
     const crm = contextoCrmDaRequest(request);
-    const data = await registrarEstornoPagamento(
-      { pagamentoId, ...parsed.data },
-      { ...crm, token: tokenAdmin(request), origem: "PAGAMENTO_INTERNO_DEV" },
-    );
+    // C1/C2: tenant (usuário, empresa, membership, papel atual) + posse, com as travas até o commit, e a
+    // leitura/escrita na MESMA transação (executor). Outra empresa, legado ou inexistente ⇒ 404 igual.
+    const data = await executarComPosseNoTenant(sessao, request.nextUrl.searchParams.get("empresaId"), pagamentoId, pagamentoNoTenant, { withTenantTransaction }, (tx, tenant) => registrarEstornoPagamento(
+      // E2: chave do cliente escopada por empresa comprovada + pagamento provado (legada só para replay no mesmo pagamento).
+      { pagamentoId, ...parsed.data, chaveIdempotencia: chaveIdempotenciaNoPagamento(tenant.empresaComprovada, pagamentoId, "estorno", parsed.data.chaveIdempotencia), chaveIdempotenciaLegada: parsed.data.chaveIdempotencia ?? null },
+      { ...crm, token: tokenAdmin(request), origem: "PAGAMENTO_INTERNO_DEV", executor: tx },
+    ));
     const response = NextResponse.json({ ok: true, data }, { status: data.reutilizado ? 200 : 201 });
     response.headers.set("Cache-Control", "no-store");
     return response;

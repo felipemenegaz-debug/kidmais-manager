@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import styles from './admin.module.css';
+import { AdminPrimaryButton } from './AdminPrimaryButton';
+import { VoltarConfiguracoes } from './VoltarConfiguracoes';
 
 type Atual = { nome: string; publicadoEm: string } | null;
 export default function TabelaPacotesPdf() {
@@ -22,14 +24,13 @@ export default function TabelaPacotesPdf() {
     }catch(error){setErro(error instanceof Error?error.message:'Falha ao publicar PDF.');}
     finally{setEnviando(false);}
   }
-  return <main className={styles.page}><h1>Tabela de pacotes e preços</h1>
+  return <main className={styles.page}><VoltarConfiguracoes /><h1>PDF de Pacotes</h1>
     <p>O cliente poderá abrir o PDF durante o Fechamento. Sempre haverá no máximo uma tabela publicada.</p>
     <p role="alert">{erro}</p><p role="status">{mensagem}</p>
     {atual?<section className={styles.card}><h2>Tabela atual</h2><p>{atual.nome} · Publicada em {new Date(atual.publicadoEm).toLocaleString('pt-BR')}</p>
-      <p><a href="/api/fechamentos/tabela-pacotes" target="_blank" rel="noopener noreferrer">Abrir PDF em nova aba</a></p>
-      <p><a href="/api/fechamentos/tabela-pacotes?download=1" download="pacotes-e-precos.pdf">Baixar PDF para abrir no seu leitor</a></p>
+      <p className={styles.linksPdf}><a href="/api/fechamentos/tabela-pacotes" target="_blank" rel="noopener noreferrer">Abrir PDF em nova aba</a><a href="/api/fechamentos/tabela-pacotes?download=1" download="pacotes-e-precos.pdf">Baixar PDF para abrir no seu leitor</a></p>
       <p>Se o visualizador ficar em branco, baixe o arquivo e abra no leitor de PDF do seu dispositivo.</p>
     </section>:<p>Nenhuma tabela publicada.</p>}
-    <form onSubmit={enviar}><label>Substituir por PDF<input type="file" accept="application/pdf,.pdf" required onChange={e=>setArquivo(e.target.files?.[0]??null)}/></label><p>Até 10 MB. A tabela atual permanece disponível se o envio falhar.</p><button disabled={enviando||!arquivo}>{enviando?'Enviando…':'Publicar tabela'}</button></form>
+    <form onSubmit={enviar}><label>Substituir por PDF<input type="file" accept="application/pdf,.pdf" required onChange={e=>setArquivo(e.target.files?.[0]??null)}/></label><p>Até 10 MB. A tabela atual permanece disponível se o envio falhar.</p><AdminPrimaryButton type="submit" carregando={enviando} disabled={!arquivo}>Publicar tabela</AdminPrimaryButton></form>
   </main>;
 }

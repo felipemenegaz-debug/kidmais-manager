@@ -8,9 +8,26 @@ Informado e confirmado por Felipe para esta política; não é uma consulta cont
 
 - Existem as branches `main` e `staging`; desenvolvimento e homologação ocorrem em `staging`.
 - `staging` está 31 commits à frente de `main`; nenhuma das duas tem proteção de branch configurada.
-- O serviço Render de produção aponta indevidamente para `staging`. Registrar a pendência, sem corrigir por iniciativa do agente.
 - A integração oficial Render MCP está funcionando. Workspace conhecido: `My Workspace` (`tea-daidbj95efls73d2bcf0`).
-- Recursos conhecidos: `kidmais-manager-staging` (homologação), `kidmais-manager-production` e `kidmais-production-admin-019` (produção). A branch de origem não determina o ambiente: um serviço de produção continua sendo produção mesmo usando `staging`.
+- A branch de origem não determina o ambiente: um serviço de produção continua sendo produção qualquer que seja a branch que ele use.
+
+A afirmação registrada nesta data de que o serviço de produção apontava para `staging` foi superada pela leitura de 29/09/2026 abaixo.
+
+## Topologia Render confirmada em 29/09/2026
+
+Leitura somente de metadados pelo Render MCP (`list_services`/`list_deploys`, workspace `tea-daidbj95efls73d2bcf0`):
+
+| Serviço | ID | Branch | Auto-deploy | Deploy |
+|---|---|---|---|---|
+| `kidmais-manager-staging` (homologação) | `srv-daif418ae00c73e8k2gg` | `staging` | OFF | manual |
+| `kidmais-manager-production` (produção) | `srv-dak77m2d0e5s73b8rkkg` | `production` | OFF | manual |
+
+- PR previews OFF nos dois serviços.
+- Pela configuração lida, merge/push em `staging` não dispara deploy (só o CI do GitHub Actions); produção só muda por merge em `production` seguido de deploy manual autorizado.
+- Staging e produção têm fluxos separados: cada ambiente tem banco, migrations autorizadas e deploy manual próprios.
+- `kidmais-production-admin-019` não apareceu no workspace consultado; seu status (aposentado ou em outro workspace) deve ser confirmado separadamente se ainda for relevante.
+- A configuração do Render é mutável pelo painel: revalidar branch e auto-deploy dos serviços, por leitura, imediatamente antes de merges e deploys relevantes. Esta tabela é evidência datada, não garantia.
+- O deploy da AI Foundation exige coordenação com as migrations 055a–d, 056 e 057 (ver [INTELIGENCIA_PRODUCAO_V1.md](INTELIGENCIA_PRODUCAO_V1.md)): o código novo exige o schema novo e a 056/057 mudam o modelo de permissões. Não aplicar as migrations e manter o código antigo rodando, nem publicar o código novo sem o schema; o cutover de cada ambiente é uma operação coordenada (backup/clone, migrations com precheck/postcheck, deploy manual, smoke), com autorização explícita.
 
 Revalidar identidade, configuração e efeitos relevantes antes de uma escrita. Esta política não cria proteção de branch nem altera permissões do GitHub, Render ou Codex.
 
@@ -20,7 +37,7 @@ Revalidar identidade, configuração e efeitos relevantes antes de uma escrita. 
 - Testes locais, TypeScript, ESLint e build são permitidos. Usar ambiente de teste isolado, mocks ou configuração sintética; verificar os efeitos dos scripts e o destino antes de executar testes que possam conectar a banco ou serviços externos. Não carregar credenciais reais por conveniência.
 - Alterar código somente no escopo pedido, preservando alterações preexistentes do usuário.
 - Commit/push para `staging` somente após revisar o diff e concluir as validações adequadas à mudança. Para código, executar testes pertinentes, TypeScript, ESLint e build; para alterações exclusivamente documentais, revisão de conteúdo/links e `git diff --check` bastam. Respeitar qualquer revisão ou autorização pendente da tarefa.
-- Antes do push, verificar se a publicação pode disparar deploy em produção, especialmente enquanto produção usa `staging`. Efeito em produção exige autorização explícita de Felipe; não presumir que auto-deploy continua desligado.
+- Antes do push ou merge, revalidar por leitura a branch e o auto-deploy dos serviços Render e verificar se a publicação pode disparar deploy. Efeito em produção exige autorização explícita de Felipe; não presumir que auto-deploy continua desligado.
 - Acompanhar automaticamente um deploy de staging já iniciado ou autorizado, incluindo status, logs, health e regressão permitida. Acompanhar não autoriza disparar ou repetir deploy: isso deve estar no pedido ou em autorização explícita vigente para staging. Evitar deploy duplicado após push com auto-deploy habilitado.
 - Alterações de variáveis de ambiente, segredos, restart ou infraestrutura de staging exigem aprovação explícita. A permissão de testar não autoriza migrations, SQL de escrita, restore, delete ou troca de `DATABASE_URL`.
 

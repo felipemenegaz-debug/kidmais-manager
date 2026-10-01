@@ -1,4 +1,4 @@
-import type { ContratoSnapshotV1 } from "../repositories";
+import type { ContratoSnapshot } from "../repositories";
 
 export const CONTRATO_DOCUMENTO_TEMPLATE_ATUAL = 1 as const;
 
@@ -19,7 +19,7 @@ export type ContratoDocumentoRenderizado = {
 };
 
 export type GerarDocumentoContratoInput = {
-  snapshot: ContratoSnapshotV1;
+  snapshot: ContratoSnapshot;
   numeroVersao: number;
   snapshotHash: string;
   templateVersao?: ContratoDocumentoTemplateVersao;

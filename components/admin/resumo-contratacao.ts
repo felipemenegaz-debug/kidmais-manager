@@ -81,5 +81,25 @@ export function montarResumo(p: PainelResumo, id?: string | null, financeiro?: F
     const assinatura = assinaturas.find(a => a.parte === parte);
     return [parte, assinatura ? `${assinatura.identidade_snapshot.nome} · ${new Date(assinatura.assinado_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (Brasília)` : 'Não registrada'];
   }));
-  return { numeroVersao: v.numero_versao, classificacao, secoes, parcelas, avisoFinanceiro };
+  // `arquivo` só nomeia o PDF baixado; o conteúdo continua vindo de `secoes`/`parcelas`.
+  return { numeroVersao: v.numero_versao, classificacao, secoes, parcelas, avisoFinanceiro, arquivo: { contratante: s.contratante.nomeCompleto, dataEvento: s.evento.data } };
+}
+
+/** Rota com Tenant Context (H9), específica do Resumo (painel e financeiro do contrato). */
+export const ENDPOINT_RESUMO = '/api/admin/contratos/resumo-contratacao';
+
+type Buscador = (url: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Carrega os dados do Resumo (tela e PDF) pela rota com Tenant Context. Contrato de outra empresa,
+ * legado ou inexistente chega como a mesma recusa: nada é montado nem impresso.
+ */
+export async function carregarResumo(buscar: Buscador, contratoId: string, versaoId?: string | null) {
+  const resposta = await buscar(`${ENDPOINT_RESUMO}?contratoId=${encodeURIComponent(contratoId)}`);
+  const corpo = await resposta.json() as { ok?: boolean; data?: { painel?: PainelResumo; financeiro?: FinanceiroResumo | null } };
+  if (!resposta.ok || corpo.ok !== true || !corpo.data?.painel) throw Error('Não foi possível consultar o contrato. Verifique sua sessão e tente novamente.');
+  const painel = corpo.data.painel, versao = selecionarVersaoResumo(painel, versaoId);
+  const vigente = versao.id === painel.fluxo?.versao_vigente_id;
+  if (vigente && painel.financeiro.length && !corpo.data.financeiro) throw Error('Não foi possível consultar o Financeiro. O resumo não será impresso com dados incompletos.');
+  return montarResumo(painel, versao.id, vigente ? corpo.data.financeiro ?? null : null);
 }

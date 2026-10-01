@@ -6,6 +6,7 @@ import { registrarAuditoria } from '../clientes/repositories/auditoria.repositor
 import { configuracaoWhatsappPublica, configuracaoWhatsappServidorPronta, exigirConfiguracaoWhatsappPrivada, type AmbienteWhatsapp } from './configuracao.ts';
 import { cifrarCredencialWhatsapp } from './credencial.ts';
 import { WhatsappOnboardingError } from './errors.ts';
+import { temAutoridadeDePlataforma } from '../autenticacao/plataforma.ts';
 import { trocarCodigoEValidarAtivos } from './meta-client.ts';
 import { concluirOnboardingSchema, exigirRepresentanteRecente, hashState, stateCorresponde } from './onboarding-core.ts';
 
@@ -24,7 +25,7 @@ async function lockAmbiente(tx: DbExecutor, ambiente: AmbienteWhatsapp) {
 }
 
 export async function consultarConfiguracaoWhatsapp(sessao: SessaoAdmin, executor: DbExecutor = db()) {
-  if (sessao.papel !== 'REPRESENTANTE_AUTORIZADO') throw new WhatsappOnboardingError('WHATSAPP_AUTORIZACAO_RECUSADA', 'Somente representante autorizado pode consultar esta configuração.', 403);
+  if (!temAutoridadeDePlataforma(sessao)) throw new WhatsappOnboardingError('WHATSAPP_AUTORIZACAO_RECUSADA', 'Somente representante autorizado pode consultar esta configuração.', 403);
   const publica = configuracaoWhatsappPublica();
   const servidorPronto = configuracaoWhatsappServidorPronta();
   const ambiente = publica.ambiente;

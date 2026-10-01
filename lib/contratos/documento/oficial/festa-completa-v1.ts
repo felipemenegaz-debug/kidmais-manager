@@ -1,4 +1,4 @@
-import type { ContratoSnapshotV1 } from "../../repositories/index.ts";
+import type { ContratoSnapshot } from "../../repositories/index.ts";
 import {
   formatarCep,
   formatarCpf,
@@ -20,23 +20,23 @@ const CNPJ_KIDMAIS = "20.119.900/0001-60";
 const REPRESENTANTE = "Mary Marra Menegaz";
 const CPF_REPRESENTANTE = "226.945.441-34";
 
-function enderecoContratante(snapshot: ContratoSnapshotV1) {
+function enderecoContratante(snapshot: ContratoSnapshot) {
   const e = snapshot.contratante.endereco;
   const complemento = e.complemento?.trim() ? `, ${e.complemento.trim()}` : "";
   return `${e.logradouro}, ${e.numero}${complemento}, ${e.bairro}, ${e.cidade}/${e.uf}, CEP ${formatarCep(e.cep)}`;
 }
 
-function telefoneContratante(snapshot: ContratoSnapshotV1) {
+function telefoneContratante(snapshot: ContratoSnapshot) {
   return snapshot.contratante.whatsapp ?? snapshot.contratante.telefone ?? "Não informado";
 }
 
-function idadeAniversariante(snapshot: ContratoSnapshotV1) {
+function idadeAniversariante(snapshot: ContratoSnapshot) {
   return snapshot.aniversariante.idadeNoEvento == null
     ? "idade não informada"
     : `${snapshot.aniversariante.idadeNoEvento} anos`;
 }
 
-function responsavelAdicional(snapshot: ContratoSnapshotV1) {
+function responsavelAdicional(snapshot: ContratoSnapshot) {
   const r = snapshot.responsavelAdicional;
   if (!r) return "Outro responsável: não informado.";
   const partes = [`Outro responsável: ${r.nome}`];
@@ -57,7 +57,7 @@ function dataPorExtensoBr(value: string | null | undefined) {
   return `${date.getUTCDate()} de ${meses[date.getUTCMonth()]} de ${date.getUTCFullYear()}`;
 }
 
-function clausulaPagamento(snapshot: ContratoSnapshotV1) {
+function clausulaPagamento(snapshot: ContratoSnapshot) {
   const forma = snapshot.comercial.formaPagamentoPretendida;
   const formaLabel = formatarFormaPagamento(forma);
 

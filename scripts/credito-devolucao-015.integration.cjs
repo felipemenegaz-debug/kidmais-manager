@@ -6,7 +6,7 @@ const {db}=require('../lib/db/postgres.ts'),{lerPosicaoFinanceira}=require('../l
 const d=require('../lib/pagamentos/services/devolucao.service.ts');
 rollbackTest(async c=>{
  assert.match((await c.query('SELECT current_database() banco')).rows[0].banco,/^kidmais_015_\d+$/);
- const context={token:ctx.token,requestId:randomUUID(),ip:null,userAgent:'credito015'};
+ const context={token:ctx.token,requestId:randomUUID(),ip:null,userAgent:'credito015',papelNoTenant:'REPRESENTANTE_AUTORIZADO'};
  const f=await fixtureFinanceiro(c,ctx,100);await promover(c,f,70);await resolver(f,context);
  let p=await lerPosicaoFinanceira(db(),f.contratoId);assert.equal(p.posicao.credito,3000n);assert.equal(p.posicao.saldo,0n);
  const origem=f.recebimento.alocacoes[0].id;

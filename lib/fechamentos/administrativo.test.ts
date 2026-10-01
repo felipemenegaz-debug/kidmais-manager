@@ -8,6 +8,8 @@ import { createHash } from 'node:crypto';
 import ts from 'typescript';
 
 const req = createRequire(import.meta.url);
+const empresaA = 'aaaaaaaa-0000-4000-8000-00000000000a';
+const empresaB = 'bbbbbbbb-0000-4000-8000-00000000000b';
 const clienteId = '11111111-1111-4111-8111-111111111111';
 const aniversarianteId = '22222222-2222-4222-8222-222222222222';
 const responsavelId = '33333333-3333-4333-8333-333333333333';
@@ -19,17 +21,37 @@ const payload = { pacote: 'pocket', dataFesta: '2027-06-15', horarioBase: 'almoc
     buffetDefinicao: 'depois', valorCombinado: '10000,00', formaPagamento: 'pix_avista',
     aniversarianteId, idadeAniversariante: '', adicionaisSelecionados: [] };
 
+/** Harness da fotografia append-only (Pacotes V1, Marco 1). Não altera a regra do produto. */
+function responderFotografia(sql: string) {
+    const compact = sql.replace(/\s+/g, ' ').trim();
+    if (compact.startsWith('INSERT INTO fechamento_pacote_snapshots'))
+        return { rows: [{ id: 'snapshot-unitario' }], rowCount: 1 };
+    if (compact.startsWith('SELECT a.id, a.codigo, a.nome') && compact.includes('FROM pacote_adicionais'))
+        return { rows: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', codigo: 'PENNE', nome: 'Penne' }], rowCount: 1 };
+    if (compact.startsWith('SELECT c.id, c.codigo, c.nome') && compact.includes('FROM pacote_buffet_categorias'))
+        return { rows: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', codigo: 'SALGADOS', nome: 'Salgados', modo_itens: 'TODOS_ATIVOS', escolhas_min: 1, escolhas_max: 4 }], rowCount: 1 };
+    if (compact.startsWith('INSERT INTO fechamento_pacote_composicao'))
+        return { rows: [], rowCount: 1 };
+    if (compact.includes('to_regclass'))
+        return { rows: [{ especificos: false, fotografia: false }], rowCount: 1 };
+    if (compact.startsWith('UPDATE fechamentos') && compact.includes('pacote_snapshot_vigente_id'))
+        return { rows: [], rowCount: 1 };
+    return null;
+}
+
 /** Loader fechado: postgres e repositórios são fixtures em memória; nenhuma conexão real. */
 function ambiente() {
     const state = {
-        cliente: { id: clienteId, status: 'ATIVO', nomeCompleto: 'Cliente fictício unitário', cpf: '52998224725',
+        tenant: empresaA as string, tenantRecusado: false, papelNaEmpresa: 'REPRESENTANTE_AUTORIZADO' as string,
+        cliente: { id: clienteId, empresaId: empresaA, status: 'ATIVO', nomeCompleto: 'Cliente fictício unitário', cpf: '52998224725',
             telefone: '11900000000', whatsapp: null, email: 'unitario@example.invalid', cep: '00000000',
             logradouro: 'Rua Fictícia', numero: '1', bairro: 'Teste', cidade: 'Teste', uf: 'SP' } as any,
         aniversariante: { id: aniversarianteId, clienteId, nome: 'Aniversariante fictício', ativo: true },
         responsavel: { id: responsavelId, clienteId, nome: 'Responsável fictício', ativo: true },
         sessao: { id: 'sessao', usuario_id: 'usuario-unitario', papel: 'ADMINISTRATIVO', csrf_hash: hash(csrf),
             revogada: false, ativo: true, expirada: false, ociosa: false, senhaAlterada: false },
-        pacote: { id: 'pacote', codigo: 'POCKET', nome: 'Pocket', convidadosMinimos: 20, convidadosMaximos: 150, ativo: true },
+        pacote: { id: 'pacote', codigo: 'POCKET', nome: 'Pocket', convidadosMinimos: 20, convidadosMaximos: 150, ativo: true, empresaId: empresaA } as any,
+        consultasPacote: [] as Array<{ empresaId: unknown; codigo: unknown }>, pacotesExtras: [] as any[],
         indisponivel: false, pricingError: false, auditError: false, pricingInput: null as any,
         fechamentos: [] as any[], adicionais: [] as any[], aprovacoes: [] as any[], historico: [] as any[], auditoria: [] as any[], sql: [] as string[],
     };
@@ -42,6 +64,15 @@ function ambiente() {
             return { rows: params[0] === hash(token) && !s.revogada && s.ativo && !s.expirada && !s.ociosa && !s.senhaAlterada ? [s] : [] };
         }
         if (sql.startsWith('UPDATE sessoes_administrativas') || /^SELECT id FROM (clientes|aniversariantes|responsaveis_adicionais) WHERE/.test(sql)) return { rows: [] };
+        if (sql.includes('FROM pacotes') && sql.includes('WHERE empresa_id = $1::uuid')) {
+            // Mesmos predicados do SELECT real: empresa comprovada, código, vigente, ativo e não arquivado.
+            for (const predicate of ['codigo = $2', 'AND vigente', 'AND ativo', 'arquivado_em IS NULL']) assert(sql.includes(predicate));
+            state.consultasPacote.push({ empresaId: params[0], codigo: params[1] });
+            const linhas = [state.pacote, ...state.pacotesExtras].filter((x: any) => x.empresaId === params[0] && x.codigo === params[1] && x.ativo && x.vigente !== false && !x.arquivadoEm);
+            return { rows: linhas.map((x: any) => ({ id: x.id, codigo: x.codigo, nome: x.nome, descricao: null, convidados_minimos: x.convidadosMinimos, convidados_maximos: x.convidadosMaximos, duracao_minutos: 240, ordem_exibicao: 1, ativo: x.ativo, empresa_id: x.empresaId })) };
+        }
+        const fotografia = responderFotografia(sql);
+        if (fotografia) return fotografia;
         throw Error('SQL não permitido no mock: ' + sql);
     } };
     const transacao = async (fn: any) => {
@@ -65,19 +96,29 @@ function ambiente() {
         const exports = {}; cache[file] = exports;
         const source = readFileSync(file, 'utf8');
         const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
-        new Function('require', 'exports', 'window', 'fetch', code)((n: string) => n in mocks ? mocks[n] : n.startsWith('@/') ? load(n.slice(2)) : n.startsWith('.') ? load(resolve(dirname(file), n)) : n === 'pg' ? (() => { throw Error('Conexão proibida'); })() : req(n), exports, mocks.__window, mocks.__fetch);
+        new Function('require', 'exports', 'window', 'fetch', 'requestAnimationFrame', code)((n: string) => n in mocks ? mocks[n] : n.startsWith('@/') ? load(n.slice(2)) : n.startsWith('.') ? load(resolve(dirname(file), n)) : n === 'pg' ? (() => { throw Error('Conexão proibida'); })() : req(n), exports, mocks.__window, mocks.__fetch, (fn: () => void) => fn());
         return exports;
     }
     mock('lib/db/postgres', { db: () => tx, withTransaction: transacao });
+    // Prova de tenant real tem teste próprio; aqui só entrega a empresa comprovada da sessão.
+    mock('lib/saas/provar-tenant', { executarNoTenant: async (executor: any, sessao: any, _pedida: any, work: any) => {
+        assert.equal(executor, tx);
+        // Mesmo erro que provarTenant lança (classe real carregada pelo harness).
+        if (state.tenantRecusado) { const { PacoteAdminError } = load('lib/comercial/pacotes-admin'); throw new PacoteAdminError('TENANT_NAO_COMPROVADO', 'A sessão administrativa não comprova a empresa autorizada.', 403); }
+        return work(executor, { empresaComprovada: state.tenant, membershipId: 'membership', usuarioId: sessao.usuario_id, papelAtual: state.papelNaEmpresa });
+    } });
     mock('lib/clientes/repositories', {
         buscarClienteCanonicoPorId: async () => state.cliente,
+        buscarClientePorId: async () => state.cliente,
         listarAniversariantesDoCliente: async () => [state.aniversariante], listarResponsaveisDoCliente: async () => [state.responsavel],
         registrarEventoHistorico: async (v: any, executor: any) => { assert.equal(executor, tx); state.historico.push(v); },
         registrarAuditoria: async (v: any, executor: any) => { assert.equal(executor, tx); if (state.auditError) throw Error('Auditoria indisponível'); state.auditoria.push(v); },
     });
     mock('lib/clientes/repositories/auditoria.repository', {});
     mock('lib/clientes/services', load('lib/clientes/services/errors'));
-    mock('lib/comercial/repositories', { buscarPacoteAtivoPorCodigo: async () => state.pacote.ativo ? state.pacote : null });
+    // Repositório REAL de pacotes (busca da empresa comprovada) sobre a tabela fictícia; o catálogo público segue recusado.
+    const repositorioPacotes = load('lib/comercial/repositories/comercial.repository.ts');
+    mock('lib/comercial/repositories', { buscarPacoteAtivoPorCodigo: repositorioPacotes.buscarPacoteAtivoPorCodigo, buscarPacoteVigenteDaEmpresaPorCodigo: repositorioPacotes.buscarPacoteVigenteDaEmpresaPorCodigo });
     mock('lib/disponibilidade/services', { revalidarHorarioSelecionado: async (i: any, executor: any) => {
         assert.equal(executor, tx);
         if (state.indisponivel) throw Error('HORARIO_NAO_DISPONIVEL');
@@ -119,7 +160,13 @@ test('GET e POST reais: cliente existente, núcleo comercial, origem/ator do ser
     assert.equal(f.status, 'AGUARDANDO_CONTRATO');
     assert.equal(a.state.historico[0].tipoEvento, 'FECHAMENTO_CRIADO');
     assert.equal(a.state.auditoria[0].atorTipo, 'USUARIO'); assert(a.state.auditoria[0].requestId);
-    assert(!a.state.sql.some(s => /^(INSERT|DELETE|UPDATE (?!sessoes_administrativas))/.test(s)));
+    const sql = a.state.sql.map(s => s.replace(/\s+/g, ' ').trim());
+    const fotografia = /^(INSERT INTO fechamento_pacote_snapshots|INSERT INTO fechamento_pacote_composicao|UPDATE fechamentos SET pacote_snapshot_vigente_id )/;
+    assert(sql.filter(s => /^(INSERT|DELETE|UPDATE)/.test(s)).every(s => s.startsWith('UPDATE sessoes_administrativas') || fotografia.test(s)));
+    assert(sql.some(s => s.startsWith('INSERT INTO fechamento_pacote_snapshots')));
+    assert(sql.some(s => s.startsWith('INSERT INTO fechamento_pacote_composicao') && s.includes("'INCLUSO'")));
+    assert(sql.some(s => s.startsWith('INSERT INTO fechamento_pacote_composicao') && s.includes("'BUFFET'")));
+    assert(sql.some(s => s.startsWith('UPDATE fechamentos') && s.includes('pacote_snapshot_vigente_id IS NULL')));
 });
 
 test('extras unitários: SKUs próprios e quantidades chegam intactos ao cálculo administrativo', async () => {
@@ -151,10 +198,11 @@ for (const [caso, options] of [['ausente', { token: '' }], ['malformada', { toke
 for (const campo of ['revogada', 'expirada', 'ociosa', 'senhaAlterada', 'ativo'] as const) {
     test(`sessão ${campo}: rejeitada pelo serviço real`, async () => { const a = ambiente(); a.state.sessao[campo] = campo !== 'ativo'; assert.equal((await a.chamar()).status, 401); assert.equal(a.state.fechamentos.length, 0); });
 }
-test('papel desconhecido negado; representante permitido', async () => {
-    const a = ambiente(); a.state.sessao.papel = 'VISITANTE'; assert.equal((await a.chamar()).status, 403);
-    a.state.sessao.papel = 'REPRESENTANTE_AUTORIZADO'; assert.equal((await a.chamar()).status, 201);
-});
+test('papel NESTA empresa (membership) decide; o papel global da identidade não autoriza nem recusa', async () => { // @pr:UX
+    const a = ambiente(); a.state.papelNaEmpresa = 'VISITANTE'; assert.equal((await a.chamar()).status, 403); // @pr:UX
+    assert.equal(a.state.fechamentos.length, 0); // @pr:UX
+    a.state.papelNaEmpresa = 'ADMINISTRATIVO'; a.state.sessao.papel = 'VISITANTE'; assert.equal((await a.chamar()).status, 201); // @pr:UX
+}); // @pr:UX
 for (const headers of [{ origin: 'https://outro.example.invalid' }, { 'x-csrf-token': '' }, { 'x-csrf-token': 'forjado' }]) {
     test(`origem/CSRF inválido ${JSON.stringify(headers)}`, async () => { const a = ambiente(); assert.equal((await a.chamar(payload, { headers })).status, 403); assert.equal(a.state.fechamentos.length, 0); });
 }
@@ -238,7 +286,9 @@ async function formulario() {
     a.external('__fetch', async (url: string, init: any = {}) => {
         if (url === '/api/admin/autenticacao') return Response.json({ ok: true, data: { usuarioId: a.state.sessao.expirada ? null : 'usuario-unitario', csrf } });
         if (url.startsWith('/api/disponibilidade?')) return Response.json({ ok: true, data: { periodos: [{ codigo: 'TURNO_1', horarios: [{ inicio: '11:00', fim: '15:00', ajusteMinutos: 0, status: 'DISPONIVEL' }] }] } });
-        if (url.startsWith('/api/fechamentos/adicionais?')) return Response.json({ adicionais: [] });
+        // Admin lê adicionais pela rota com Tenant Context; a pública (fechada desde a PR-A) não é usada.
+        if (url.startsWith('/api/admin/fechamentos/adicionais?')) return Response.json({ adicionais: [] });
+        assert(!url.startsWith('/api/fechamentos/adicionais'), 'wizard admin não usa a rota pública de adicionais');
         assert.equal(url, `/api/admin/clientes/${clienteId}/fechamentos`);
         return a.chamar(init.body ? JSON.parse(init.body) : null, { method: init.method ?? 'GET', headers: Object.fromEntries(new Headers(init.headers)) });
     });
@@ -269,11 +319,62 @@ test('CRM → formulário administrativo → conclusão com GET/POST e núcleo r
     const profile = readFileSync('components/clientes/ClienteProfile.tsx', 'utf8');
     assert.match(profile, /href=\{`\/admin\/clientes\/\$\{clienteId\}\/fechamento`\}/);
     const a = await formulario(); await a.preencher(); await a.submit();
+    assert.match(a.text(a.render()), /Revise antes de criar/);
+    assert.equal(a.state.fechamentos.length, 0, 'A conferência não cria o fechamento.');
+    await a.submit();
     assert.match(a.text(a.render()), /Fechamento criado/); assert.equal(a.state.fechamentos.length, 1);
     assert.equal(a.state.fechamentos[0].clienteId, clienteId);
 });
 test('sessão expirada durante preenchimento redireciona ao login sem POST de criação', async () => {
-    const a = await formulario(); await a.preencher(); a.state.sessao.expirada = true; await a.submit();
+    const a = await formulario(); await a.preencher(); await a.submit(); a.state.sessao.expirada = true; await a.submit();
     assert.deepEqual(a.redirects, ['/admin/login']); assert.equal(a.state.fechamentos.length, 0);
     assert.match(a.text(a.render()), /Faça login para continuar/);
+});
+
+// PR-B1: contexto administrativo de fechamento escopado pelo tenant comprovado.
+for (const [caso, empresaCliente] of [['de outra empresa', empresaB], ['legado sem empresa', null]] as const) {
+    test(`cliente ${caso}: GET e POST respondem como inexistente, sem gravação`, async () => {
+        const a = ambiente(); a.state.cliente.empresaId = empresaCliente;
+        const get = await a.chamar(null, { method: 'GET' });
+        assert.equal(get.status, 404);
+        const corpo = JSON.stringify(await get.json());
+        assert(!corpo.includes(a.state.cliente.nomeCompleto) && !corpo.includes(a.state.cliente.cpf));
+        assert.equal((await a.chamar()).status, 404);
+        assert.equal(a.state.fechamentos.length, 0); assert.equal(a.state.auditoria.length, 0);
+    });
+}
+test('tenant não comprovado: nada é lido nem gravado', async () => {
+    const a = ambiente(); a.state.tenantRecusado = true;
+    for (const r of [await a.chamar(null, { method: 'GET' }), await a.chamar()]) {
+        assert.equal(r.status, 403); assert.equal((await r.json()).codigo, 'TENANT_NAO_COMPROVADO');
+    }
+    assert.equal(a.state.fechamentos.length, 0); assert.equal(a.state.pricingInput, null); assert.equal(a.state.auditoria.length, 0);
+});
+test('cliente A com pacote só na empresa B: a busca da empresa comprovada não o encontra; nada é associado', async () => {
+    const a = ambiente(); a.state.pacote.empresaId = empresaB;
+    const r = await a.chamar();
+    assert.equal(r.status, 404); assert.equal((await r.json()).erro, 'Pacote não disponível.');
+    assert.deepEqual(a.state.consultasPacote, [{ empresaId: empresaA, codigo: 'POCKET' }]);
+    assert.equal(a.state.fechamentos.length, 0); assert.equal(a.state.pricingInput, null);
+});
+test('pacote legado sem empresa: fora da busca da empresa comprovada; nada é associado', async () => {
+    const a = ambiente(); a.state.pacote.empresaId = null;
+    assert.equal((await a.chamar()).status, 404); assert.equal(a.state.fechamentos.length, 0);
+});
+test('busca de pacote pela empresa comprovada: vigente, ativo, não arquivado e sem ambiguidade; catálogo público segue recusado', async () => {
+    const ok = ambiente();
+    assert.equal((await ok.chamar()).status, 201);
+    assert.deepEqual(ok.state.consultasPacote, [{ empresaId: empresaA, codigo: 'POCKET' }]);
+    assert.equal(ok.state.pricingInput.pacoteId, 'pacote');
+    const ajustes: Array<(s: any) => void> = [
+        (s) => { s.pacote.ativo = false; }, (s) => { s.pacote.vigente = false; }, (s) => { s.pacote.arquivadoEm = '2026-01-01'; },
+        (s) => { s.pacotesExtras.push({ ...s.pacote, id: 'pacote-duplicado' }); },
+    ];
+    for (const ajuste of ajustes) {
+        const a = ambiente(); ajuste(a.state);
+        assert.equal((await a.chamar()).status, 404); assert.equal(a.state.fechamentos.length, 0);
+    }
+    const repositorio = ok.load('lib/comercial/repositories/comercial.repository.ts');
+    await assert.rejects(repositorio.buscarPacoteAtivoPorCodigo('POCKET'), (e: any) => e.code === 'CATALOGO_PUBLICO_INDETERMINADO');
+    await assert.rejects(repositorio.buscarPacoteVigenteDaEmpresaPorCodigo('', 'POCKET', { query: async () => { throw Error('não deveria consultar'); } }), (e: any) => e.code === 'CATALOGO_PUBLICO_INDETERMINADO');
 });

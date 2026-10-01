@@ -351,3 +351,30 @@ test("pacote desconhecido continua sem modelo oficial", () => {
   const documento = renderizarContratoOficial({ snapshot: semModelo, numeroVersao: 1, snapshotHash });
   assert.equal(documento, null);
 });
+
+test("schema 2 usa o nome congelado e não o nome do modelo oficial", () => {
+  const congelado = {
+    ...structuredClone(snapshot),
+    schemaVersao: 2 as const,
+    evento: {
+      ...snapshot.evento,
+      pacote: { ...snapshot.evento.pacote, nome: "Nome aplicado na fotografia" },
+    },
+    pacoteAplicado: {
+      snapshotId: "snap-1",
+      pacoteId: snapshot.evento.pacote.id,
+      codigo: snapshot.evento.pacote.codigo,
+      nome: "Nome aplicado na fotografia",
+      descricao: null,
+      duracaoMinutos: null,
+      tabelaPreco: { id: "tabela-1", codigo: "TABELA_ANTIGA", nome: "Tabela antiga" },
+      composicao: [{ tipo: "INCLUSO" as const, codigo: "PENNE", nome: "Penne", modoItens: null, escolhasMin: null, escolhasMax: null }],
+    },
+  };
+  const documento = renderizarContratoOficial({ snapshot: congelado, numeroVersao: 1, snapshotHash, templateVersao: 4 });
+  assert.ok(documento);
+  assert.equal(documento.pacoteNome, "Nome aplicado na fotografia");
+  assert.match(documento.clausulas[0].texto, /Nome aplicado na fotografia/);
+  assert.equal(documento.clausulas[0].texto.includes("Festa Completa"), false);
+  assert.equal(documento.modeloCodigo, "FESTA_COMPLETA_V4");
+});

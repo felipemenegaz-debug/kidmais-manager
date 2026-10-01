@@ -27,11 +27,14 @@ function api(resultado: object) {
     '@/lib/pagamentos/services': { criarPagamentoDoFechamento: async (body: unknown, ctx: { usuarioId: string }) => {
       assert.equal(ctx.usuarioId, 'admin'); chamadas.push(body); return resultado;
     } },
-    '@/lib/http/admin-crm-api': { exigirApiAdminCrmDisponivel: async () => {}, contextoCrmDaRequest: () => ({ usuarioId: 'admin' }) },
+    '@/lib/http/admin-crm-api': { exigirApiAdminCrmDisponivel: async () => ({ usuario_id: 'admin', papel: 'ADMINISTRATIVO' }), contextoCrmDaRequest: () => ({ usuarioId: 'admin' }) },
+    // C1/C2: posse do fechamento no tenant e criação na mesma transação (cobertos em tenant.test.ts).
+    '@/lib/contratos/services/contrato-tenant': { fechamentoNoTenant: async () => true, executarComPosseNoTenant: async (_s: unknown, _e: unknown, _id: unknown, _p: unknown, _d: unknown, trabalho: (tx: unknown) => unknown) => trabalho('tx') },
+    '@/lib/saas/provar-tenant': { withTenantTransaction: async () => { throw new Error('não usado aqui'); } },
     '@/lib/http/pagamentos-api': { erroPagamentoApi: (e: unknown) => { throw e; } },
   });
   const post = route.POST as (request: { json: () => Promise<unknown> }) => Promise<Response>;
-  return { enviar: (plano: object) => post({ json: async () => ({ fechamentoId, plano }) }), chamadas };
+  return { enviar: (plano: object) => post({ json: async () => ({ fechamentoId, plano }), nextUrl: new URL('http://x/api/admin/pagamentos') } as never), chamadas };
 }
 for (const contraproposta of [false, true]) test(`API retorna sugestão sem persistência, contraproposta=${contraproposta}`, async () => {
   const data = { sugestao: { contraproposta, motivo: contraproposta ? 'Prazo insuficiente' : null, hash: 'a'.repeat(64) }, exigeConfirmacao: true };

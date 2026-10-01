@@ -1,0 +1,114 @@
+{
+  "descricao": "Pilha de PRs do AI Module V1, depois da Foundation (congelada em scripts/ia-prs-manifesto.json). Cada fase é uma branch que parte da anterior e será integrada nesta ordem. 'commit' fixa a fase depois de publicada; sem ele vale a branch local.",
+  "base": "9643a8fd77a873a9e067fea1eb7490a7d129cefb",
+  "fases": [
+    {
+      "pr": "TOOLING_V1",
+      "branch": "ai-v1/00-tooling",
+      "commit": "39a39c4fabb922a261f7cc9339cf9f2f7cebd5db",
+      "descricao": "Manifesto da Foundation congelado e prova da pilha V1"
+    },
+    {
+      "pr": "JEV_V1",
+      "branch": "ai-v1/01-jev",
+      "commit": "5ad07fd6de25897ffdd53ca74e71a123f9e7b64e",
+      "descricao": "JEV V1: contrato de julgamento, cinco classificadores, Model Router opcional (economy, orçamento fail-closed), adversariais"
+    },
+    {
+      "pr": "DEMERZEL_V1",
+      "branch": "ai-v1/02-demerzel",
+      "commit": "87f983856438a18c442dd013d5abe009d68961c5",
+      "descricao": "Demerzel V1: orquestradora determinística pelas portas guardadas da conversa; limites, anti-loop, trace por passo, fail-closed; flag AI_DEMERZEL_ENABLED"
+    },
+    {
+      "pr": "SKILLS_V1",
+      "branch": "ai-v1/03-skills",
+      "commit": "3936c9a474fd8fe431ae6690a60a91fd43408921",
+      "descricao": "Skills V1: playbooks Plataforma→Empresa→Estabelecimento sem autoridade; proveniência, hash, revisão, varredura de conteúdo; só plataforma até decisão de armazenamento"
+    },
+    {
+      "pr": "CONTEXTO_V1",
+      "branch": "ai-v1/04-contexto",
+      "commit": "dedebbf52fa16ab2a5430be9999601e7f034c536",
+      "descricao": "Context Builder V1: contexto autorizado só do Tenant Context; contexto de modelo minimizado, redigido, rotulado, com limites e barreira final; cross-tenant fail-closed"
+    },
+    {
+      "pr": "COPILOTO_V1",
+      "branch": "ai-v1/05-copiloto",
+      "commit": "eaf28c4ef69ce336bc5ffd93ac0293561cc763d2",
+      "descricao": "Copiloto V1: perguntas por tela, navegação conceitual, próxima ação por procedimento de skill, explicação por modelo validada contra os dados; flag AI_COPILOTO_MODEL_ENABLED"
+    },
+    {
+      "pr": "AGENTES_V1",
+      "branch": "ai-v1/06-agentes",
+      "commit": "1d1239f59cf0a598c196fe36f67152a4954191fa",
+      "descricao": "Agentes V1: Atendimento, Analista Operacional, Documentos e Copiloto Administrativo, determinísticos e de plano fechado; leituras pelo catálogo do operador, propostas só pelo Human Gate; novas leituras pacotes_disponiveis (sem preço) e comparar_versoes_contrato (snapshots)"
+    },
+    {
+      "pr": "FERRAMENTAS_V1",
+      "branch": "ai-v1/07-ferramentas",
+      "commit": "a335cca0e3595b70b4fa02d07336000d0f9c46b6",
+      "descricao": "Tool Registry V1: manifesto por ferramenta (domínio, READ/SUGGEST/CONFIRM/FORBIDDEN, papéis, grupo, escopo de tenant/estabelecimento, entrada, saída, prazo, idempotência, auditoria); gateway aplica entrada/prazo/saída; ação sem manifesto não é oferecida"
+    },
+    {
+      "pr": "POLITICA_V1",
+      "branch": "ai-v1/08-politica",
+      "commit": "923424a3d99f463ef48071b4013c6087f286a204",
+      "descricao": "Policy V1: decisão única sobre o manifesto (sem manifesto, FORBIDDEN, classe×caminho, origem da confirmação, papel da membership, flags/allowlist); aplicada no gateway (antes e dentro do tenant), em cada passo do Human Gate e antes de toda SUGESTÃO"
+    },
+    {
+      "pr": "OBSERVABILIDADE_V1",
+      "branch": "ai-v1/09-observabilidade",
+      "commit": "320161b0b9ec3bf00a2eb0fd4cedd813f68cbc29",
+      "descricao": "Observabilidade V1: trace com traceId, estabelecimento (null na V1), skills, classificador JEV, proposta de ação e versões de Registry/Policy; saneamento de formato fechado com redação de PII/segredos; métricas agregadas sem custo desconhecido virar zero"
+    },
+    {
+      "pr": "CUSTOS_V1",
+      "branch": "ai-v1/10-custos",
+      "commit": "0e4108f544e9d36aa288cd8ce3c130a88b06d637",
+      "descricao": "Custos V1: visão consolidada (empresa comprovada, estabelecimento, capacidade, modelo, dia/mês, reservas abertas) só para a Gestão; custo desconhecido nunca vira zero; leitura das tabelas ia_* sem escrita; orçamento segue fail-closed"
+    },
+    {
+      "pr": "UX_V1",
+      "branch": "ai-v1/11-ux",
+      "commit": "127dc50e4d6ed951985563b7f80fc196faea490e",
+      "descricao": "UX V1: drawer distingue Informação / Sugestão / Exige confirmação / Erro em texto; renderiza agentes e complemento do Copiloto; cancelar espera; repetir com segurança; sem confiança numérica; telas agenda/configurações"
+    },
+    {
+      "pr": "SEGURANCA_V1",
+      "branch": "ai-v1/12-seguranca",
+      "commit": "8a2068893b2b8df1265ee78bbe7fd4b28de7f4da",
+      "descricao": "Segurança adversarial V1: 18 vetores atacados com testes; correções de tenant citado por id, envenenamento de contexto, injeção em skill e em marcador, telas agenda/configurações no schema; riscos residuais classificados"
+    },
+    {
+      "pr": "INTEGRADO_V1",
+      "branch": "ai-v1/13-integrado",
+      "commit": "10f4f89134f4ae996c554321a976b265315b46d1",
+      "descricao": "Cenários ponta a ponta A–J com a composição V1 inteira (conversa, Tenant Context, JEV, Demerzel, Skills, Copiloto, Agentes, Registry, Policy, Human Gate, Model Router); só banco, provedor e portas falsos"
+    },
+    {
+      "pr": "DOCS_V1",
+      "branch": "ai-v1/14-docs",
+      "commit": "b976263a1e052b9dfb4ec8f70a8b7443f4773709",
+      "descricao": "Documentação V1: arquitetura, runbooks e troubleshooting; AI MODULE V1 BASELINE (componentes, versões, flags, testes, limitações, gates de staging e produção)"
+    },
+    {
+      "pr": "GATES_V1",
+      "branch": "ai-v1/15-gates",
+      "commit": "9220c1efac65d67e7ab8f15ae22dbac21a27181e",
+      "descricao": "Gates finais V1: suíte PostgreSQL de custos (055a real, isolamento por empresa, somente leitura, ROLLBACK) e correção do auto-review (marcadores do rascunho passam pela Policy V1)"
+    },
+    {
+      "pr": "ESTABELECIMENTO_V1",
+      "branch": "ai-v1/16-estabelecimento",
+      "commit": "e9d393396a05ed6782c5ff2624d134ecc4b79b60",
+      "descricao": "Establishment Context V1: unidade só do pedido da tela, provada pelo Core (empresa comprovada, unidade ATIVA, vínculo ATIVO e vigente da membership); escopo COMPANY/ESTABLISHMENT no Tool Registry; Policy NEGADO_ESTABELECIMENTO; contexto, skills, trace e custos escopados; cross-establishment recusado"
+    },
+    {
+      "pr": "SKILLS_EMPRESA_V1",
+      "branch": "ai-v1/17-skills-empresa",
+      "commit": "95677c055447d196b717c911ee1bdfff0b221684",
+      "descricao": "Skills V1 por empresa/unidade: migration 058 ia_skills (NÃO aplicada; escopo, coerência, versão imutável, uma ATIVA, sem DELETE/TRUNCATE), repositório somente leitura, override obrigatório sobre base da plataforma, camadas decididas pela Policy (AI_SKILLS_EMPRESA_ENABLED, allowlist, unidade comprovada), varredura sem autoridade comercial/financeira/capacidade/Human Gate/tenant"
+    }
+  ]
+}

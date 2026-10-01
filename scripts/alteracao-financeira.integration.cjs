@@ -11,7 +11,7 @@ async function main(){
   const repo=require('../lib/pagamentos/repositories/alteracao-financeira.repository.ts');
   const {db,closeDatabasePool}=require('../lib/db/postgres.ts');
   const fid=(await c.query('SELECT contrato_id FROM contrato_pendencias_financeiras ORDER BY criado_em LIMIT 1')).rows[0].contrato_id;
-  const context={token:admin.token,requestId:crypto.randomUUID(),ip:null,userAgent:'015 integration'};
+  const context={token:admin.token,requestId:crypto.randomUUID(),ip:null,userAgent:'015 integration',papelNoTenant:'REPRESENTANTE_AUTORIZADO'};
   let p=await repo.lerPosicaoFinanceira(db(),fid);assert.equal(p.valorVigente,1313100n);assert.equal(p.posicao.liquido,849000n);
   const pend=p.pendencias.find(x=>x.versao_nova_id===p.vigente.id);
   const old=(await c.query('SELECT to_jsonb(p)::text row FROM pagamentos p ORDER BY id')).rows;

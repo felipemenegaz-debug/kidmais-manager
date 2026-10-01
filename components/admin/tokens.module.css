@@ -1,0 +1,41 @@
+.tema {
+  --main-bg: #090D1B;
+  --card-bg: #151B2E;
+  --primary-violet: #7C3AED;
+  --emerald-accent: #5DE3B0;
+  --lilac-accent: #C9B6FF;
+  --main-text: #F5F7FC;
+  --secondary-text: #B8C2D8;
+  --brand-blue: #2563EB;
+  --border-navy: rgba(255,255,255,.05);
+  --input-border: rgba(255,255,255,.08);
+  --input-bg: rgba(255,255,255,.03);
+  --input-focus-bg: rgba(255,255,255,.06);
+  --admin-font: var(--font-admin-inter), Inter, sans-serif;
+  --admin-space: 32px;
+  --admin-card-radius: 32px;
+  --admin-input-radius: 12px;
+  --admin-sidebar-width: 256px;
+  --admin-header-height: 80px;
+  --admin-primary: linear-gradient(135deg, var(--brand-blue), var(--primary-violet));
+  --km-bg: var(--main-bg);
+  --km-card: var(--card-bg);
+  --km-card-2: #1B2238;
+  --km-violet: var(--primary-violet);
+  --km-violet-soft: color-mix(in srgb, var(--primary-violet) 15%, transparent);
+  --km-teal: var(--emerald-accent);
+  --km-lilac: var(--lilac-accent);
+  --km-orange: #FF7A3D;
+  --km-text: var(--main-text);
+  --km-text-2: var(--secondary-text);
+  --km-border: var(--input-border);
+  --km-radius: 14px;
+  font-family: var(--admin-font);
+  color-scheme: dark;
+  background: var(--main-bg);
+  color: var(--main-text);
+}
+@media(max-width:800px) {
+  .tema { --admin-space: 16px; --admin-card-radius: 24px; --admin-header-height: 64px; }
+}
+.tema [aria-label="Kidmais Manager"] strong{color:var(--main-text)} .tema [aria-label="Kidmais Manager"] span{color:var(--secondary-text)}

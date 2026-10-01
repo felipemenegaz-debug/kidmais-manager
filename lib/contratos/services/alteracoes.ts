@@ -1,5 +1,5 @@
-import type { ContratoSnapshotV1 } from '../repositories/models';
-export function diferencasContratuais(antes: ContratoSnapshotV1, depois: ContratoSnapshotV1) {
+import type { ContratoSnapshot } from '../repositories/models';
+export function diferencasContratuais(antes: ContratoSnapshot, depois: ContratoSnapshot) {
     const resultado: Array<{
         campo: string;
         antes: unknown;
@@ -24,7 +24,7 @@ export function diferencasContratuais(antes: ContratoSnapshotV1, depois: Contrat
 }
 
 /** Documental is descriptive, never permission to bypass the existing double signature. */
-export function analisarRevisao(antes: ContratoSnapshotV1, depois: ContratoSnapshotV1) {
+export function analisarRevisao(antes: ContratoSnapshot, depois: ContratoSnapshot) {
     const campos = diferencasContratuais(antes, depois).map(d => ({
         ...d, natureza: d.campo === 'documental.observacoes' ? 'DOCUMENTAL' as const : 'MATERIAL' as const,
     }));

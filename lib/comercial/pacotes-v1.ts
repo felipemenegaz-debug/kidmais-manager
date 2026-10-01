@@ -10,10 +10,16 @@ export const PACOTES_CONTRATAVEIS_V1 = [
 
 // Regra comercial vigente para novas consultas/edições; não regrava snapshots históricos.
 export const LIMITES_PIZZA_PARTY = Object.freeze({ minimo: 20, maximo: 100 });
-export function erroConvidadosPizzaParty(pacote: string, quantidade: number) {
+export function limitesPizzaParty(persistido?: { minimo: number | null; maximo: number | null } | null) {
+  if (persistido?.minimo != null && persistido.maximo != null) return { minimo: persistido.minimo, maximo: persistido.maximo };
+  return LIMITES_PIZZA_PARTY;
+}
+
+export function erroConvidadosPizzaParty(pacote: string, quantidade: number, persistido?: { minimo: number | null; maximo: number | null } | null) {
   if (!['PIZZA_PARTY', 'pizza_party_scienza'].includes(pacote)) return null;
-  return !Number.isInteger(quantidade) || quantidade < LIMITES_PIZZA_PARTY.minimo || quantidade > LIMITES_PIZZA_PARTY.maximo
-    ? 'Pizza Party atende de 20 a 100 convidados. Informe uma quantidade inteira nesse intervalo.'
+  const limites = limitesPizzaParty(persistido);
+  return !Number.isInteger(quantidade) || quantidade < limites.minimo || quantidade > limites.maximo
+    ? `Pizza Party atende de ${limites.minimo} a ${limites.maximo} convidados. Informe uma quantidade inteira nesse intervalo.`
     : null;
 }
 

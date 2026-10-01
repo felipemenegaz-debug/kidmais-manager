@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { isClienteServiceError } from "../clientes/services";
 import { isPagamentoServiceError } from "../pagamentos/services";
 import { AlteracaoFinanceiraError } from '../pagamentos/services/alteracao-financeira-core';
+import { PacoteAdminError } from '../comercial/pacotes-admin';
+import { ResumoTenantError } from '../contratos/services/resumo-tenant';
+import { apiErrorResponse } from './api-response';
 
 function noStore(response: NextResponse) {
   response.headers.set("Cache-Control", "no-store");
@@ -9,6 +12,8 @@ function noStore(response: NextResponse) {
 }
 
 export function erroPagamentoApi(error: unknown) {
+  // Tenant não comprovado (403) ou contrato fora do tenant (404): mesmas respostas das demais rotas.
+  if (error instanceof ResumoTenantError || error instanceof PacoteAdminError) return apiErrorResponse(error);
   if (error instanceof AlteracaoFinanceiraError) return noStore(NextResponse.json({ok:false,erro:error.message,codigo:error.code},{status:error.status}));
   if (isPagamentoServiceError(error) || isClienteServiceError(error)) {
     return noStore(NextResponse.json({

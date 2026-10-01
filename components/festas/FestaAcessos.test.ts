@@ -10,7 +10,7 @@ test('a tela de acessos cria contas pela API administrativa e não pede SQL no t
     assert.match(ui, /\/api\/admin\/configuracoes\/usuarios/);
     assert.match(ui, /Papel no sistema/);
     assert.match(ui, /Acesso às Festas/);
-    assert.match(ui, /Contas desativadas/);
+    assert.match(ui, /Pessoas removidas desta empresa/);
     assert.match(ui, /Sua conta/);
     assert.match(ui, /acesso inicial às Festas/);
     assert.doesNotMatch(ui, /provisionamento administrativo no terminal/);
@@ -22,13 +22,22 @@ test('layout unifica lista, busca, abas e painel Adicionar pessoa', () => {
     assert.match(ui, /role="dialog"/);
     assert.match(ui, /Buscar por nome ou e-mail/);
     assert.match(ui, /aria-selected=\{aba==='ativas'\}/);
-    assert.match(ui, /Desativadas/);
+    assert.match(ui, /Removidas/);
     assert.match(ui, /Alterar acesso às Festas/);
-    assert.match(ui, /Desativar conta de /);
-    assert.match(ui, /Este e-mail já está sendo usado por outra pessoa/);
+    assert.match(ui, /Remover desta empresa: /);
+    // 056: a tela nunca desativa a identidade global.
+    assert.doesNotMatch(ui, /acao:'desativar'/);
+    assert.match(ui, /acao:'remover'/);
+    // 057: assinatura de contratos pela empresa é concedida/retirada por membership, só para Gestão desta empresa.
+    assert.match(ui, /acao:'assinatura',usuarioId:conta\.id,conceder/);
+    assert.match(ui, /conta\.nivelSistema==='Gestão'&&<button[^\n]*?alternarAssinatura\(conta\);\}\}>\{conta\.podeAssinar\?'Retirar assinatura de contratos':'Permitir assinar contratos'\}/);
+    assert.match(ui, /<dt>Assina contratos<\/dt>/);
+    // F2: nenhuma mensagem diz que o e-mail já existia no Kidmais; a confirmação é a mesma nos dois casos.
+    assert.doesNotMatch(ui, /já está sendo usado|já existe uma conta/i);
+    assert.match(ui, /Acesso a esta empresa concedido\. Se a pessoa já usa o Kidmais, ela entra com a senha que já tem\./);
     assert.match(ui, /Você define a senha inicial/);
     assert.match(ui, /Nenhum resultado encontrado/);
-    assert.match(ui, /Estas pessoas não podem mais entrar no sistema/);
+    assert.match(ui, /Estas pessoas não acessam mais esta empresa/);
     assert.doesNotMatch(ui, /<img/);
     assert.doesNotMatch(ui, /unsplash|avatar\.png|pravatar/i);
     assert.doesNotMatch(ui, /Mostrando \d+ de \d+/);
@@ -59,5 +68,10 @@ test('rota de usuários exige sessão administrativa e CSRF nas escritas', () =>
     const rota = readFileSync('app/api/admin/configuracoes/usuarios/route.ts', 'utf8');
     assert.equal((rota.match(/exigirApiAdminCrmDisponivel\(request\)/g) ?? []).length, 2);
     assert.match(rota, /criarUsuarioAdministrativo/);
-    assert.match(rota, /desativarUsuarioAdministrativo/);
+    // 056: a rota de tenant remove a membership; desativar a identidade global é ação de plataforma.
+    assert.match(rota, /removerDaEmpresa/);
+    assert.match(rota, /alterarPapelNaEmpresa/);
+    assert.doesNotMatch(rota, /desativarUsuarioAdministrativo/);
+    assert.match(rota, /ACAO_DE_PLATAFORMA/);
+    assert.match(rota, /searchParams\.get\('empresaId'\)/);
 });

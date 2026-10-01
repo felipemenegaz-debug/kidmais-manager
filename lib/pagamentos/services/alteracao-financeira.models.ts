@@ -1,4 +1,5 @@
 import type { ContratoSnapshotV1 } from '../../contratos/repositories/models';
+import type { DbExecutor } from '../../db/contracts';
 export type VersaoFinanceira = { id: string; numero_versao: number; status: string; snapshot: ContratoSnapshotV1; snapshot_hash: string; estado: string | null };
 export type ParcelaFinanceira = { id: string; plano_id: string; numero: number; valor_previsto: string; vencimento: string; status: string; confirma_reserva: boolean; recebido: string; estornado: string };
 export type AjusteFinanceiro = { id: string; versao_reconhecida_id: string; obrigacao_depois_centavos: string; delta_centavos: string; evento_id: string };
@@ -17,4 +18,10 @@ export type PedidoResolucao = {
   decisaoContratante: 'NAO_SE_APLICA' | 'MANTER_APROVEITAMENTO' | 'APROVEITAMENTO_AUTORIZADO' | 'DEVOLUCAO_AO_PAGADOR_ANTERIOR';
   justificativa: string;
 };
-export type ContextoFinanceiro = { token: string; requestId: string; ip: string | null; userAgent: string | null };
+export type ContextoFinanceiro = {
+  token: string; requestId: string; ip: string | null; userAgent: string | null;
+  /** C2: transação do tenant já provado pela rota; autorização e escrita na mesma transação. */
+  executor?: DbExecutor;
+  /** 056: papel da membership na empresa comprovada pela rota (substitui o papel global da sessão). */
+  papelNoTenant?: string;
+};

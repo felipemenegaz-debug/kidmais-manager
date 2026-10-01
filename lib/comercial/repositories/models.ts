@@ -25,6 +25,7 @@ export type PacoteRecord = {
   duracaoMinutos: number | null;
   ordemExibicao: number;
   ativo: boolean;
+  empresaId?: string | null;
 };
 
 export type TabelaPrecoRecord = {
@@ -129,6 +130,8 @@ export type BuscarRegraComercialInput = {
 export type ListarPacotesElegibilidadeInput = {
   data: string;
   configuracaoAgendaId: string;
+  /** Só pacotes desta empresa; `null` é o legado sem empresa. */
+  empresaId: string | null;
 };
 
 export type BuscarPrecosAdicionaisInput = {

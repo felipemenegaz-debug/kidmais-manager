@@ -3,16 +3,19 @@ import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from '@/lib/http/admin-crm-api';
 import { apiErrorResponse, jsonNoStore } from '@/lib/http/api-response';
-import { criarFechamentoAdministrativo, exigirPapelFechamento, obterContextoFechamentoAdministrativo } from '@/lib/fechamentos/services/fechamento-administrativo.service';
+import { criarFechamentoAdministrativo, obterContextoFechamentoAdministrativo } from '@/lib/fechamentos/services/fechamento-administrativo.service';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ id: string }> };
 async function autorizar(request: NextRequest, context: Context) {
-    // Autorizar antes de ler cliente ou body. O helper verifica origem e CSRF nas escritas.
-    exigirPapelFechamento(await exigirApiAdminCrmDisponivel(request));
+    // Autenticar antes de ler cliente ou body (o helper verifica origem e CSRF nas escritas). O papel é o DESTA
+    // empresa, conferido pelo serviço dentro da prova de tenant (nunca o papel global da identidade).
+    await exigirApiAdminCrmDisponivel(request);
+    // `?empresaId=` só escolhe entre memberships ATIVA do próprio usuário; o serviço prova o tenant.
     return { id: z.string().uuid().parse((await context.params).id).toLowerCase(),
-        credencial: { token: tokenAdmin(request), requestId: randomUUID(), userAgent: request.headers.get('user-agent')?.slice(0, 1000) ?? null } };
+        credencial: { token: tokenAdmin(request), requestId: randomUUID(), userAgent: request.headers.get('user-agent')?.slice(0, 1000) ?? null,
+            empresaSolicitada: request.nextUrl?.searchParams.get('empresaId') ?? null } };
 }
 export async function GET(request: NextRequest, context: Context) {
     try {

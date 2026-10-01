@@ -1,4 +1,5 @@
 import {escolhasDisponiveis,colunasEscolhas} from './escolhas-buffet';
+import { fotografarEstadoFechamento } from '../services/pacote-snapshot';
 import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
 import type { FechamentoRecord, FechamentoAdicionalRecord } from './models';
@@ -77,10 +78,12 @@ export async function salvarOperacaoPreparada(tx: DbExecutor, r: RevisaoOperacio
         await tx.query('UPDATE fechamento_revisoes SET conteudo_hash=$2,revisao=revisao+1,revisao_comercial_aprovada=NULL,aprovacao_negociacao_id=NULL,aprovado_comercial_por_usuario_id=NULL,aprovado_comercial_em=NULL WHERE id=$1', [r.id, hash]);
     return buscarRevisaoDaVersao(r.contrato_versao_id, tx);
 }
-export async function aplicarOperacaoPreparada(tx: DbExecutor, r: RevisaoOperacional) {
+export async function aplicarOperacaoPreparada(tx: DbExecutor, r: RevisaoOperacional, atorUsuarioId: string | null = null) {
     const camposOperacao=await camposDisponiveis(tx);
     await tx.query(`UPDATE fechamentos f SET ${camposOperacao.map(k => `${k}=r.${k}`).join(',')} FROM fechamento_revisoes r WHERE r.id=$1 AND f.id=r.fechamento_id`, [r.id]);
     await tx.query('DELETE FROM fechamento_adicionais WHERE fechamento_id=$1', [r.fechamento_id]);
     await tx.query(`INSERT INTO fechamento_adicionais(fechamento_id,${camposItens.join(',')}) SELECT $2,${camposItens.join(',')} FROM fechamento_revisao_adicionais WHERE fechamento_revisao_id=$1`, [r.id, r.fechamento_id]);
     await tx.query("UPDATE fechamento_revisoes SET estado='APLICADA',aplicado_em=clock_timestamp() WHERE id=$1", [r.id]);
+    const fotografia = await fotografarEstadoFechamento(tx, r.fechamento_id, { motivo: r.motivo, atorUsuarioId });
+    return fotografia?.id ?? null;
 }

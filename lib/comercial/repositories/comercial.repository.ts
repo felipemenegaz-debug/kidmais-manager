@@ -1,6 +1,7 @@
-import type { DbExecutor } from "../../db/contracts";
-import { db } from "../../db/postgres";
-import { LIMITES_PIZZA_PARTY } from '../pacotes-v1';
+import type { DbExecutor } from "../../db/contracts.ts";
+import { db } from "../../db/postgres.ts";
+import { recusarCatalogoPublicoSemTenant } from "../autorizacao-tenant.ts";
+import { limitesPizzaParty } from "../pacotes-v1.ts";
 import type {
   AdicionalComPrecoRecord,
   BuscarPrecoPacoteAplicavelInput,
@@ -32,6 +33,7 @@ type PacoteRow = {
   duracao_minutos: number | null;
   ordem_exibicao: number;
   ativo: boolean;
+  empresa_id?: string | null;
 };
 
 type TabelaPrecoRow = {
@@ -121,23 +123,34 @@ const pacoteColumns = `
   convidados_maximos,
   duracao_minutos,
   ordem_exibicao,
-  ativo
+  ativo,
+  empresa_id
 `;
 
+function limitesConvidados(row: PacoteRow) {
+  const minimo = row.convidados_minimos === null ? null : Number(row.convidados_minimos);
+  const maximo = row.convidados_maximos === null ? null : Number(row.convidados_maximos);
+  if (row.codigo !== "PIZZA_PARTY") return { minimo, maximo };
+  const efetivo = limitesPizzaParty({ minimo, maximo });
+  return row.convidados_minimos === null || row.convidados_maximos === null
+    ? { minimo: efetivo.minimo, maximo: efetivo.maximo }
+    : { minimo, maximo };
+}
+
 function mapPacote(row: PacoteRow): PacoteRecord {
+  const convidados = limitesConvidados(row);
   return {
     id: row.id,
     codigo: row.codigo,
     nome: row.nome,
     descricao: row.descricao,
-    convidadosMinimos:
-      row.codigo === 'PIZZA_PARTY' ? LIMITES_PIZZA_PARTY.minimo : row.convidados_minimos === null ? null : Number(row.convidados_minimos),
-    convidadosMaximos:
-      row.codigo === 'PIZZA_PARTY' ? LIMITES_PIZZA_PARTY.maximo : row.convidados_maximos === null ? null : Number(row.convidados_maximos),
+    convidadosMinimos: convidados.minimo,
+    convidadosMaximos: convidados.maximo,
     duracaoMinutos:
       row.duracao_minutos === null ? null : Number(row.duracao_minutos),
     ordemExibicao: Number(row.ordem_exibicao),
     ativo: row.ativo,
+    empresaId: row.empresa_id ?? null,
   };
 }
 
@@ -281,16 +294,33 @@ export async function buscarPacoteAtivoPorCodigo(
   codigo: string,
   customDb?: DbExecutor,
 ): Promise<PacoteRecord | null> {
-  const result = await executor(customDb).query<PacoteRow>(
+  void codigo;
+  void customDb;
+  recusarCatalogoPublicoSemTenant();
+}
+
+/**
+ * Pacote VIGENTE e ativo da empresa COMPROVADA pelo Tenant Context, pelo código. Substitui, no Fechamento
+ * administrativo, a busca pública por código (que continua recusada sem tenant). Nada aqui escolhe entre empresas:
+ * outra empresa, legado sem empresa, arquivado, inativo ou mais de uma linha (ambiguidade) ⇒ null.
+ */
+export async function buscarPacoteVigenteDaEmpresaPorCodigo(
+  empresaId: string,
+  codigo: string,
+  customDb: DbExecutor,
+): Promise<PacoteRecord | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(empresaId)) recusarCatalogoPublicoSemTenant();
+  const result = await customDb.query<PacoteRow>(
     `SELECT ${pacoteColumns}
        FROM pacotes
-      WHERE codigo = $1
-        AND ativo = true
-      LIMIT 1`,
-    [codigo.trim().toUpperCase()],
+      WHERE empresa_id = $1::uuid
+        AND codigo = $2
+        AND vigente
+        AND ativo
+        AND arquivado_em IS NULL`,
+    [empresaId, codigo],
   );
-
-  return result.rows[0] ? mapPacote(result.rows[0]) : null;
+  return result.rows.length === 1 && String(result.rows[0].empresa_id ?? "").toLowerCase() === empresaId.toLowerCase() ? mapPacote(result.rows[0]) : null;
 }
 
 /**
@@ -298,11 +328,24 @@ export async function buscarPacoteAtivoPorCodigo(
  * Caso futuramente exista mais de uma tabela ativa por erro/configuração,
  * a de vigência mais recente prevalece de forma determinística.
  */
+async function tabelaPrecoTemEmpresa(db: DbExecutor) {
+  const coluna = await db.query(
+    `SELECT 1 AS ok
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'tabelas_preco'
+        AND column_name = 'empresa_id'`,
+  );
+  return Boolean(coluna.rows[0]);
+}
+
 export async function buscarTabelaPrecoVigente(
   data: string,
   customDb?: DbExecutor,
 ): Promise<TabelaPrecoRecord | null> {
-  const result = await executor(customDb).query<TabelaPrecoRow>(
+  const db = executor(customDb);
+  const legado = await tabelaPrecoTemEmpresa(db);
+  const result = await db.query<TabelaPrecoRow>(
     `SELECT
        id,
        codigo,
@@ -314,12 +357,42 @@ export async function buscarTabelaPrecoVigente(
      WHERE ativa = true
        AND vigencia_inicio <= $1::date
        AND (vigencia_fim IS NULL OR vigencia_fim >= $1::date)
+       ${legado ? "AND empresa_id IS NULL" : ""}
      ORDER BY vigencia_inicio DESC, criado_em DESC
      LIMIT 1`,
     [data],
   );
 
   return result.rows[0] ? mapTabelaPreco(result.rows[0]) : null;
+}
+
+export type TabelaPrecoEmpresa = TabelaPrecoRecord & { publicada: boolean };
+
+/** Tabela publicada corrente da empresa que cobre a data. Mais de uma é ambíguo e o cálculo recusa. */
+export async function listarTabelasPrecoDaEmpresa(
+  empresaId: string,
+  data: string,
+  customDb?: DbExecutor,
+): Promise<TabelaPrecoEmpresa[]> {
+  const result = await executor(customDb).query<TabelaPrecoRow & { publicada: boolean }>(
+    `SELECT
+       id,
+       codigo,
+       nome,
+       vigencia_inicio::text AS vigencia_inicio,
+       vigencia_fim::text AS vigencia_fim,
+       ativa,
+       publicada_em IS NOT NULL AS publicada
+     FROM tabelas_preco
+     WHERE empresa_id = $1::uuid
+       AND publicada_em IS NOT NULL
+       AND substituida_em IS NULL
+       AND vigencia_inicio <= $2::date
+       AND (vigencia_fim IS NULL OR vigencia_fim >= $2::date)
+     ORDER BY vigencia_inicio, criado_em`,
+    [empresaId, data],
+  );
+  return result.rows.map((row) => ({ ...mapTabelaPreco(row), publicada: Boolean(row.publicada) }));
 }
 
 export async function buscarCategoriaHorarioAplicavel(
@@ -414,8 +487,9 @@ export async function listarPacotesAtivosComElegibilidade(
        LIMIT 1
      ) r ON true
      WHERE p.ativo = true
+       AND p.empresa_id IS NOT DISTINCT FROM $3::uuid
      ORDER BY p.ordem_exibicao ASC, p.nome ASC`,
-    [input.data, input.configuracaoAgendaId],
+    [input.data, input.configuracaoAgendaId, input.empresaId],
   );
 
   return result.rows.map(mapPacoteElegibilidade);
@@ -465,6 +539,8 @@ export async function buscarPrecoPacoteAplicavel(
 /**
  * Retorna adicionais ativos e, quando existente, a faixa de preço aplicável ao
  * número de convidados. Sem preço aplicável, `preco` será null.
+ * Só adicionais da empresa dona da tabela: o código é único por empresa, não no sistema.
+ * Tabela inexistente não vira legado: o JOIN exige a tabela e não devolve nada sem ela.
  */
 export async function listarAdicionaisAtivosComPreco(
   input: BuscarPrecosAdicionaisInput,
@@ -489,6 +565,9 @@ export async function listarAdicionaisAtivosComPreco(
        pa.valor,
        pa.observacoes AS preco_observacoes
      FROM adicionais a
+     JOIN tabelas_preco tabela
+       ON tabela.id = $1::uuid
+      AND a.empresa_id IS NOT DISTINCT FROM tabela.empresa_id
      LEFT JOIN LATERAL (
        SELECT preco.*
        FROM precos_adicional preco

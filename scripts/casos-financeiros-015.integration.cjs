@@ -5,7 +5,7 @@ const {db}=require('../lib/db/postgres.ts'),{lerPosicaoFinanceira}=require('../l
 const s=require('../lib/pagamentos/services/alteracao-financeira.service.ts'),ps=require('../lib/pagamentos/services/pagamento.service.ts');
 rollbackTest(async c=>{
  assert.match((await c.query('SELECT current_database() banco')).rows[0].banco,/^kidmais_015_\d+$/);
- const context={token:ctx.token,requestId:randomUUID(),ip:null,userAgent:'casos015'};let count=0;
+ const context={token:ctx.token,requestId:randomUUID(),ip:null,userAgent:'casos015',papelNoTenant:'REPRESENTANTE_AUTORIZADO'};let count=0;
  async function caso(nome,fn){await c.query('SAVEPOINT caso015');try{await fn();count++;console.log('PASS:',nome);}finally{await c.query('ROLLBACK TO SAVEPOINT caso015');}}
  for(const [valor,recebido,saldo,credito] of [[130,0,13000,0],[130,50,8000,0],[130,100,3000,0],[70,0,7000,0],[70,50,2000,0],[70,100,0,3000],[50,50,0,0]])await caso(`obrigação 100 → ${valor}; recebido ${recebido}`,async()=>{const f=await fixtureFinanceiro(c,ctx,recebido);await promover(c,f,valor);await resolver(f,context);const p=await lerPosicaoFinanceira(db(),f.contratoId);assert.equal(p.posicao.saldo,BigInt(saldo));assert.equal(p.posicao.credito,BigInt(credito));assert.equal(p.pagamento.valor_total_contratado,'100.00');});
  await caso('delta zero sem impacto não cria pendência',async()=>{const f=await fixtureFinanceiro(c,ctx,50),p=await promover(c,f,100);assert.equal(p.pendencias.length,0);});

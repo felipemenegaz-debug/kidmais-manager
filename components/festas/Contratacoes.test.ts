@@ -58,12 +58,12 @@ test('Festa sinaliza apenas preparação ativa e abre V2 preservando retorno à 
 
 test('API exige autorização antes da consulta, valida clienteId e usa no-store', async () => {
     let autorizado = false, consultas = 0;
-    const clientes: unknown[] = [];
+    const clientes: unknown[] = [], empresas: unknown[] = [];
     const { GET } = carregar('app/api/admin/fechamentos/contratacoes/route.ts', {
-        '@/lib/http/admin-crm-api': { exigirApiAdminCrmDisponivel: async () => { if (!autorizado) throw Error('sem sessão'); } },
+        '@/lib/http/admin-crm-api': { exigirApiAdminCrmDisponivel: async () => { if (!autorizado) throw Error('sem sessão'); return { usuario_id: 'u', papel: 'ADMINISTRATIVO' }; } },
         '@/lib/http/api-response': { jsonNoStore: (body: unknown) => Response.json(body, { headers: { 'Cache-Control': 'no-store' } }), apiErrorResponse: (error: Error) => Response.json({ erro: error.message }, { status: error.message === 'sem sessão' ? 401 : 400 }) },
-        '@/lib/db/postgres': { db: () => { consultas++; return {}; } },
-        '@/lib/fechamentos/contratacoes': { listarContratacoes: async (_db: unknown, clienteId: unknown) => { clientes.push(clienteId); return [{ id: 'sintetico' }]; } },
+        '@/lib/saas/provar-tenant': { withTenantTransaction: async (_s: unknown, _e: unknown, work: (tx: unknown, t: { empresaComprovada: string }) => unknown) => { consultas++; return work({}, { empresaComprovada: 'empresa-comprovada' }); } },
+        '@/lib/fechamentos/contratacoes': { listarContratacoes: async (_db: unknown, empresaId: unknown, clienteId: unknown) => { empresas.push(empresaId); clientes.push(clienteId); return [{ id: 'sintetico' }]; } },
     });
     const get = GET as (r: { nextUrl: URL }) => Promise<Response>;
     const req = (query = '') => ({ nextUrl: new URL('https://example.invalid/api/admin/fechamentos/contratacoes' + query) });
@@ -75,4 +75,5 @@ test('API exige autorização antes da consulta, valida clienteId e usa no-store
     assert.equal(response.status, 200); assert.equal(response.headers.get('Cache-Control'), 'no-store');
     assert.deepEqual(clientes, [id]); assert.equal((await response.json()).data.total, 1);
     await get(req()); assert.equal(clientes[1], undefined);
+    assert.deepEqual(empresas, ['empresa-comprovada', 'empresa-comprovada']);
 });

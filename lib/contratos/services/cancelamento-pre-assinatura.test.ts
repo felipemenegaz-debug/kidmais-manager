@@ -19,12 +19,13 @@ function caso(options: { status?: string; clienteAssinou?: boolean; temFinanceir
     const versao = { id: 'versao', contratoId: 'contrato', snapshot, snapshotHash: hashSnapshotContrato(snapshot) };
     const escritos: string[] = [];
     const auditoria: unknown[] = [];
-    const tx = { query: async (sql: string) => {
+    const tx = { query: async (sql: string, values: unknown[] = []) => {
         if (/^(UPDATE|INSERT|DELETE)/.test(sql)) escritos.push(sql);
-        const rows = sql.startsWith('SELECT id,fechamento_id,status FROM contratos') ? [{ id: 'contrato', fechamento_id: 'fechamento', status: options.status ?? 'AGUARDANDO_ASSINATURA' }]
+        const rows = sql.startsWith('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE') ? values[1] === 'empresa-a' ? [{ id: 'fechamento' }] : []
+            : sql.startsWith('SELECT id,fechamento_id,status FROM contratos') ? [{ id: 'contrato', fechamento_id: 'fechamento', status: options.status ?? 'AGUARDANDO_ASSINATURA' }]
             : sql.startsWith('SELECT * FROM contrato_fluxos') ? [{ versao_vigente_id: null, versao_em_preparacao_id: 'versao' }]
             : sql.startsWith('SELECT status FROM contratos') ? [{ status: options.status ?? 'AGUARDANDO_ASSINATURA' }]
-            : sql.includes('FROM festa_usuario_capacidades') ? options.capacidade === false ? [] : [{ id: 'capacidade' }]
+            : sql.includes('FROM festa_membership_capacidades WHERE membership_id=$1 AND empresa_id=$2') ? options.capacidade === false || values[0] !== 'm' || values[1] !== 'empresa-a' ? [] : [{ id: 'capacidade' }]
             : sql.includes('FROM contrato_assinaturas') ? options.clienteAssinou ? [{ id: 'assinatura' }] : []
             : sql.includes('FROM pagamentos p') ? options.temFinanceiro ? [{ id: 'pagamento' }] : []
             : [];
@@ -37,6 +38,9 @@ function caso(options: { status?: string; clienteAssinou?: boolean; temFinanceir
         './snapshot-core': { hashSnapshotContrato },
         './errors': { ContratoServiceError: class extends Error {} },
         '../repositories': { buscarVersaoPorId: async () => versao },
+        // PR-B1: toda ação prova o tenant da sessão e o compara com a empresa do fechamento.
+        '../../saas/provar-tenant': { provarTenant: async () => ({ empresaComprovada: 'empresa-a', membershipId: 'm', usuarioId: 'usuario', papelAtual: 'REPRESENTANTE_AUTORIZADO' }) },
+        '../../fechamentos/repositories': { empresaDoFechamentoSemTrava: async () => 'empresa-a' },
         '../../fechamentos/repositories/revisao.repository': { buscarRevisaoDaVersao: async () => null },
         '../../clientes/repositories': { registrarAuditoria: async (value: unknown) => { auditoria.push(value); }, registrarEventoHistorico: async () => {} },
     });

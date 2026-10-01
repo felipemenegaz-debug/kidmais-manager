@@ -1,4 +1,4 @@
-import type { ContratoSnapshotV1 } from "../../repositories/index.ts";
+import type { ContratoSnapshot } from "../../repositories/index.ts";
 import { renderizarContratoOficialFestaCompletaV1 } from "./festa-completa-v1.ts";
 import { renderizarContratoOficialFestasV2 } from './festas-v2.ts';
 import { configuracaoModeloOficialV3, renderizarContratoOficialFestasV3 } from './festas-v3.ts';
@@ -15,7 +15,7 @@ const FESTA_COMPLETA: ModeloContratoOficial = {
   renderizar: renderizarContratoOficialFestaCompletaV1,
 };
 
-export function resolverModeloContratoOficial(snapshot: ContratoSnapshotV1, templateVersao?: number): ModeloContratoOficial | null {
+export function resolverModeloContratoOficial(snapshot: ContratoSnapshot, templateVersao?: number): ModeloContratoOficial | null {
   if (templateVersao === 1) return snapshot.evento.pacote.codigo === 'COMPLETA' ? FESTA_COMPLETA : null;
   if (templateVersao != null && templateVersao !== 2 && templateVersao !== 3 && templateVersao !== 4) return null;
   const versao = templateVersao ?? 4;

@@ -20,7 +20,6 @@ import type {
   DisponibilidadeDataPublica,
   PeriodoDisponibilidadePublica,
 } from "@/lib/disponibilidade/services/models";
-import KidmaisBrand from "@/components/layout/KidmaisBrand";
 import styles from "./AdminDisponibilidade.module.css";
 
 const MESES = [
@@ -347,14 +346,12 @@ export default function AdminDisponibilidade() {
       <div className={styles.shell}>
         <header className={styles.header}>
           <div>
-            <KidmaisBrand compact context="manager" href="/clientes" />
             <h1>Disponibilidade e regras comerciais</h1>
             <span>
               Consulte a ocupação física da agenda e gerencie, separadamente,
               as regras comerciais de cada pacote.
             </span>
           </div>
-          <a href="/disponibilidade">Ver tela do cliente →</a>
         </header>
 
         <div className={styles.securityNotice}>
@@ -396,6 +393,8 @@ export default function AdminDisponibilidade() {
             </select>
           </label>
         </section>
+
+        <div className={styles.contentActions}><a className={styles.clientView} href="/disponibilidade">Ver tela do cliente →</a></div>
 
         <section className={styles.layout}>
           <div className={styles.calendarPanel}>

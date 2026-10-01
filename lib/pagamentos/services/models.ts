@@ -1,3 +1,4 @@
+import type { DbExecutor } from "../../db/contracts";
 import type {
   EstornoRecord,
   MeioPlanoPagamento,
@@ -10,6 +11,10 @@ import type {
   RecebimentoRecord,
 } from "../repositories";
 
+export type ConfirmacaoRecebimento = {
+  recebimentoId: string;
+};
+
 export type PagamentoServiceContext = {
   token?: string;
   usuarioId?: string | null;
@@ -17,6 +22,10 @@ export type PagamentoServiceContext = {
   requestId?: string | null;
   ip?: string | null;
   userAgent?: string | null;
+  /** Roda na mesma transação da confirmação. Falha aqui desfaz o recebimento. */
+  aoConfirmar?: (tx: DbExecutor, confirmacao: ConfirmacaoRecebimento) => Promise<void>;
+  /** Quando o financeiro já abriu a transação do tenant, a baixa usa esse executor. */
+  executor?: DbExecutor;
 };
 
 export type PlanoPagamentoInput = {
@@ -72,6 +81,8 @@ export type PagamentoDetalhe = {
 };
 
 export type RegistrarRecebimentoInput = {
+  /** E2: chave como o cliente a enviou antes do escopo por empresa/pagamento; só consultada dentro do pagamento, nunca gravada. */
+  chaveIdempotenciaLegada?: string | null;
   pagamentoId: string;
   meioPagamento: MeioRecebimento;
   valorBruto: number;
@@ -100,6 +111,8 @@ export type RegistrarRecebimentoResult = {
 };
 
 export type RegistrarEstornoInput = {
+  /** E2: chave como o cliente a enviou antes do escopo por empresa/pagamento; só consultada dentro do pagamento, nunca gravada. */
+  chaveIdempotenciaLegada?: string | null;
   reprogramacao?: import('./alteracao-financeira.models').PedidoResolucao;
   pagamentoId: string;
   recebimentoId: string;

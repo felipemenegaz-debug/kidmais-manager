@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { obterClienteBase } from "@/lib/clientes/services";
+import { obterClienteBasePorIdentidade } from "@/lib/clientes/services";
 import { enviarOtpComAmbiente } from "@/lib/identidade/delivery";
 import {
   criarIdentityServiceComAmbiente,
@@ -46,8 +46,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const service = criarIdentityServiceComAmbiente(enviarOtpComAmbiente);
+    // A prova (token válido, não expirado, não consumido, finalidade conferida) dá acesso só ao
+    // cliente canônico comprovado. Não é Tenant Context e o corpo não carrega clienteId.
     const resolvida = await service.resolverClientePorProva(parsed.data.provaToken);
-    const base = await obterClienteBase(resolvida.clienteId);
+    const base = await obterClienteBasePorIdentidade(resolvida);
 
     return noStore(
       NextResponse.json(

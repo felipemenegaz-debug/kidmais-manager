@@ -39,6 +39,7 @@ import {
   statusDataPacote,
 } from "@/lib/agenda/disponibilidade";
 import { calcularIdade, cpfValido } from "@/lib/clientes/utils";
+import { agruparPorCategoria, lerAdicionaisDisponiveis, type EstadoAdicionais } from "./adicionais-etapa";
 
 const ETAPAS = [
   "Pacote",
@@ -220,6 +221,9 @@ export default function FechamentoWizard() {
   const [categoriasBuffet,setCategoriasBuffet]=useState<CategoriaBuffet[]>([]);
   const [escolhasBuffet,setEscolhasBuffet]=useState<Record<string,string[]>>({});
   const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
+  const [tentativaAdicionais,setTentativaAdicionais]=useState(0);
+  // Resultado da última consulta, preso à chave (pacote, data, convidados, tentativa) que o gerou.
+  const [consultaAdicionais,setConsultaAdicionais]=useState<{chave:string;estado:'ok'|'erro'}|null>(null);
   const [configDisponibilidade, setConfigDisponibilidade] =
     useState<DisponibilidadeConfig>(CONFIG_VAZIA);
   const [ajustesDisponiveis, setAjustesDisponiveis] =
@@ -251,7 +255,28 @@ export default function FechamentoWizard() {
   const [erroCep, setErroCep] = useState("");
   const cepConsultaSeq = useRef(0);
 
-  const pacote = PACOTES_FECHAMENTO_V1.find((item) => item.id === form.pacote);
+  const [fatosPacote, setFatosPacote] = useState<Record<string, { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null }> | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/fechamentos/pacotes", { signal: controller.signal, cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((body) => {
+        if (!body?.pacotes) return;
+        setFatosPacote(Object.fromEntries(body.pacotes.map((item: { codigo: string }) => [item.codigo, item])));
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  const pacoteBase = PACOTES_FECHAMENTO_V1.find((item) => item.id === form.pacote);
+  const fato = pacoteBase ? fatosPacote?.[CODIGO_PACOTE[pacoteBase.id]] : undefined;
+  const pacote = pacoteBase && fato ? {
+    ...pacoteBase,
+    nome: fato.nome,
+    minPagantes: fato.convidadosMinimos ?? pacoteBase.minPagantes,
+    maxPagantes: fato.convidadosMaximos ?? pacoteBase.maxPagantes,
+    precoInicial: fato.precoMinimo == null ? null : Number(fato.precoMinimo),
+    duracao: fato.duracaoMinutos == null ? "" : `${fato.duracaoMinutos} minutos`,
+  } : pacoteBase;
   useEffect(()=>{
     const codigo=CODIGO_PACOTE[form.pacote];
     if(!codigo)return;
@@ -262,19 +287,27 @@ export default function FechamentoWizard() {
       .catch(()=>setCategoriasBuffet([]));
     return ()=>controller.abort();
   },[form.pacote]);
+  const chaveAdicionais=form.pacote && form.dataFesta && Number.isInteger(Number(form.convidadosPagantes)) && Number(form.convidadosPagantes)>=1
+    ? [form.pacote,form.dataFesta,form.convidadosPagantes,tentativaAdicionais].join('|')
+    : null;
+  // Carregando ≠ erro: sem resultado para a consulta atual, está carregando; a falha só aparece depois de a
+  // consulta falhar de verdade. Derivado da chave: nenhum setState síncrono no efeito.
+  const adicionaisEstado:EstadoAdicionais=consultaAdicionais && consultaAdicionais.chave===chaveAdicionais ? consultaAdicionais.estado : 'carregando';
   useEffect(()=>{
-    if(!form.pacote || !form.dataFesta || !Number.isInteger(Number(form.convidadosPagantes)) || Number(form.convidadosPagantes)<1)return;
+    if(!chaveAdicionais)return;
     const controller=new AbortController();
     const url=`/api/fechamentos/adicionais?pacote=${encodeURIComponent(form.pacote)}&data=${encodeURIComponent(form.dataFesta)}&convidados=${encodeURIComponent(form.convidadosPagantes)}`;
     void fetch(url,{signal:controller.signal,cache:'no-store'})
       .then(async r=>{if(!r.ok)throw Error('Não foi possível consultar adicionais.');return r.json();})
       .then(body=>{
-        const disponiveis=body.adicionais as AdicionalDisponivel[];
+        const disponiveis=lerAdicionaisDisponiveis(body);
+        if(!disponiveis)throw Error('Resposta de adicionais inválida.');
         setAdicionaisDisponiveis(disponiveis);
+        setConsultaAdicionais({chave:chaveAdicionais,estado:'ok'});
         setForm(atual=>({...atual,adicionaisSelecionados:atual.adicionaisSelecionados.filter(id=>disponiveis.some(item=>item.id===id))}));
-      }).catch(()=>setAdicionaisDisponiveis(null));
+      }).catch(()=>{ if(controller.signal.aborted)return; setAdicionaisDisponiveis(null); setConsultaAdicionais({chave:chaveAdicionais,estado:'erro'}); });
     return ()=>controller.abort();
-  },[form.pacote,form.dataFesta,form.convidadosPagantes]);
+  },[chaveAdicionais,form.pacote,form.dataFesta,form.convidadosPagantes]);
   const convidados = Number(form.convidadosPagantes || 0);
 
   const dadosCadastraisAlterados = useMemo(() => {
@@ -921,8 +954,8 @@ export default function FechamentoWizard() {
       if (mensagem) { setErro(mensagem); return false; }
     }
 
-    if (etapa === 4 && adicionaisDisponiveis === null) {
-      setErro('A consulta de adicionais está indisponível. Tente novamente antes de continuar.');
+    if (etapa === 4 && adicionaisEstado !== 'ok') {
+      setErro(adicionaisEstado === 'carregando' ? 'Aguarde a consulta dos adicionais.' : 'A consulta de adicionais está indisponível. Tente novamente antes de continuar.');
       return false;
     }
 
@@ -1263,7 +1296,10 @@ export default function FechamentoWizard() {
               </div>
 
               <div className={styles.packageGrid}>
-                {PACOTES_FECHAMENTO_V1.map((item) => (
+                {PACOTES_FECHAMENTO_V1.map((item) => {
+                  const publicado = fatosPacote?.[CODIGO_PACOTE[item.id]];
+                  const preco = publicado ? (publicado.precoMinimo == null ? null : Number(publicado.precoMinimo)) : item.precoInicial;
+                  return (
                   <button
                     key={item.id}
                     type="button"
@@ -1310,15 +1346,16 @@ export default function FechamentoWizard() {
                     <span className={styles.radioVisual}>
                       {form.pacote === item.id ? "✓" : ""}
                     </span>
-                    <strong>{item.nome}</strong>
-                    <b>{item.precoInicial == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(item.precoInicial)}`}</b>
-                    <p>{item.descricao}</p>
+                    <strong>{publicado?.nome ?? item.nome}</strong>
+                    <b>{preco == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(preco)}`}</b>
+                    <p>{publicado ? (publicado.descricao || "Descrição não cadastrada.") : item.descricao}</p>
                     <small>{item.disponibilidade}</small>
                     <span className={styles.selectText}>
                       {form.pacote === item.id ? "Selecionado" : "Selecionar"}
                     </span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
 
               {pacote && (
@@ -1341,11 +1378,11 @@ export default function FechamentoWizard() {
                   </div>
                   <div className={styles.detailWide}>
                     <span>Buffet</span>
-                    <p>{pacote.buffet}</p>
+                    <p>{categoriasBuffet.length ? categoriasBuffet.map((categoria) => categoria.nome).join(", ") : fato ? "Composição não cadastrada." : pacote.buffet}</p>
                   </div>
                   <div className={styles.detailWide}>
                     <span>Duração</span>
-                    <p>{pacote.duracao}</p>
+                    <p>{fato ? (fato.duracaoMinutos == null ? "Duração não cadastrada." : `${fato.duracaoMinutos} minutos`) : pacote.duracao}</p>
                   </div>
                   {pacote.observacao && (
                     <div className={styles.detailWide}>
@@ -1816,120 +1853,120 @@ export default function FechamentoWizard() {
               </StepTitle>
 
               {form.pacote === "premium" && <p>A Festa Premium inclui 4 bombons. Informe abaixo somente a quantidade extra desejada; nenhuma compra extra é obrigatória.</p>}
-              {adicionaisDisponiveis===null&&<p role="alert">Não foi possível consultar os adicionais deste pacote. Recarregue a página para tentar novamente.</p>}
-              {(["buffet", "mesa", "decoracao", "extra"] as const).map(
-                (categoria) => (
-                  <div className={styles.additionalSection} key={categoria}>
-                    <h3>
-                      {categoria === "buffet" && "Adicionais de buffet"}
-                      {categoria === "mesa" && "Mesas especiais"}
-                      {categoria === "decoracao" && "Decoração e extras"}
-                      {categoria === "extra" && "Outros adicionais"}
-                    </h3>
-                    <div className={styles.additionalGrid}>
-                      {(adicionaisDisponiveis??[]).filter(
-                        (item) => ({BUFFET:'buffet',MESA:'mesa',DECORACAO:'decoracao',EXTRA:'extra',BEBIDA:'extra',COMBO:'extra'}[item.categoria]??'extra') === categoria
-                      ).map((item) => {
-                        const preco = item.preco;
-                        const selected =
-                          form.adicionaisSelecionados.includes(item.id);
+              {adicionaisEstado === "carregando" && <p role="status">Consultando os adicionais deste pacote…</p>}
+              {adicionaisEstado === "erro" && (
+                <div className={styles.infoBox} role="alert">
+                  <strong>Não foi possível consultar os adicionais deste pacote.</strong>
+                  <p>Nenhum adicional foi selecionado. Tente novamente para continuar.</p>
+                  <button type="button" onClick={() => setTentativaAdicionais((n) => n + 1)}>Tentar novamente</button>
+                </div>
+              )}
+              {adicionaisEstado === "ok" && (
+                <>
+                  {agruparPorCategoria(adicionaisDisponiveis ?? []).length === 0 && <p>Nenhum adicional disponível para este pacote.</p>}
+                  {agruparPorCategoria(adicionaisDisponiveis ?? []).map((grupo) => (
+                    <div className={styles.additionalSection} key={grupo.categoria}>
+                      <h3>{grupo.titulo}</h3>
+                      <div className={styles.additionalGrid}>
+                        {grupo.itens.map((item) => {
+                          const preco = item.preco;
+                          const selected = form.adicionaisSelecionados.includes(item.id);
+                          return (
+                            <div key={item.id}>
+                              <button
+                                type="button"
+                                role="checkbox"
+                                aria-checked={selected}
+                                className={`${styles.additionalCard} ${selected ? styles.additionalSelected : ""}`}
+                                onClick={() => alternarAdicional(item.id)}
+                              >
+                                <span className={styles.checkBox}>{selected ? "✓" : ""}</span>
+                                <strong>{item.nome}</strong>
+                                <b>{numeroParaMoeda(preco)}{item.unidadeCobranca === "UNIDADE" ? " / unidade extra" : ""}</b>
+                              </button>
+                              {selected && item.unidadeCobranca === "UNIDADE" && <label className={styles.field}>Quantidade extra de {item.nome}
+                                <input type="number" min={1} step={1} value={form.adicionaisQuantidades[item.id] ?? 1} onChange={e => atualizar("adicionaisQuantidades", { ...form.adicionaisQuantidades, [item.id]: Number(e.target.value) })} />
+                                <span>Total: {numeroParaMoeda(preco * (form.adicionaisQuantidades[item.id] ?? 1))}</span>
+                              </label>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
 
-                        return (
-                          <div key={item.id}>
-                          <button
-                            type="button"
-                            key={item.id}
-                            className={`${styles.additionalCard} ${
-                              selected ? styles.additionalSelected : ""
-                            }`}
-                            onClick={() => alternarAdicional(item.id)}
-                          >
-                            <span className={styles.checkBox}>
-                              {selected ? "✓" : ""}
-                            </span>
-                            <strong>{item.nome}</strong>
-                            <b>{numeroParaMoeda(preco)}{item.unidadeCobranca === "UNIDADE" ? " / unidade extra" : ""}</b>
-                          </button>
-                          {selected && item.unidadeCobranca === "UNIDADE" && <label className={styles.field}>Quantidade extra de {item.nome}
-                            <input type="number" min={1} step={1} value={form.adicionaisQuantidades[item.id] ?? 1} onChange={e => atualizar("adicionaisQuantidades", { ...form.adicionaisQuantidades, [item.id]: Number(e.target.value) })} />
-                            <span>Total: {numeroParaMoeda(preco * (form.adicionaisQuantidades[item.id] ?? 1))}</span>
-                          </label>}
-                          </div>
-                        );
-                      })}
+                  <div className={styles.liveTotals}>
+                    <div>
+                      <span>Pacote</span>
+                      <strong>
+                        {valorPacoteConsiderado != null
+                          ? numeroParaMoeda(valorPacoteConsiderado)
+                          : "A confirmar"}
+                      </strong>
+                      {descontoAtual.ativo && (
+                        <small>
+                          Desconto aplicado: -
+                          {numeroParaMoeda(calculoDesconto.valorDesconto)}
+                        </small>
+                      )}
+                    </div>
+
+                    <div>
+                      <span>Adicionais selecionados</span>
+                      <strong>{numeroParaMoeda(adicionaisValor)}</strong>
+                      <small>
+                        {form.adicionaisSelecionados.length}{" "}
+                        {form.adicionaisSelecionados.length === 1
+                          ? "item selecionado"
+                          : "itens selecionados"}
+                      </small>
+                    </div>
+
+                    <div className={styles.liveTotalGrand}>
+                      <span>Valor total da festa</span>
+                      <strong>
+                        {totalCalculado != null
+                          ? numeroParaMoeda(totalCalculado)
+                          : "A confirmar"}
+                      </strong>
+                      <small>
+                        Atualiza instantaneamente conforme você adiciona ou remove itens.
+                      </small>
                     </div>
                   </div>
-                )
-              )}
 
-              <div className={styles.liveTotals}>
-                <div>
-                  <span>Pacote</span>
-                  <strong>
-                    {valorPacoteConsiderado != null
-                      ? numeroParaMoeda(valorPacoteConsiderado)
-                      : "A confirmar"}
-                  </strong>
-                  {descontoAtual.ativo && (
-                    <small>
-                      Desconto aplicado: -
-                      {numeroParaMoeda(calculoDesconto.valorDesconto)}
-                    </small>
+                  {(adicionaisDisponiveis ?? []).some((item) => item.categoria === "MESA") && (
+                    <div className={styles.infoBox}>
+                      <strong>Referência de tamanho das mesas</strong>
+                      <p>
+                        Pequena: até 50 pessoas. Média: 60 a 100. Grande: 110 a 150.
+                      </p>
+                    </div>
                   )}
-                </div>
 
-                <div>
-                  <span>Adicionais selecionados</span>
-                  <strong>{numeroParaMoeda(adicionaisValor)}</strong>
-                  <small>
-                    {form.adicionaisSelecionados.length}{" "}
-                    {form.adicionaisSelecionados.length === 1
-                      ? "item selecionado"
-                      : "itens selecionados"}
-                  </small>
-                </div>
+                  <label className={styles.field}>
+                    <span>Alterações combinadas no pacote</span>
+                    <textarea
+                      rows={4}
+                      placeholder="Ex.: retirar item, substituir opção, condição negociada..."
+                      value={form.alteracoesPacote}
+                      onChange={(e) => atualizar("alteracoesPacote", e.target.value)}
+                    />
+                  </label>
 
-                <div className={styles.liveTotalGrand}>
-                  <span>Valor total da festa</span>
-                  <strong>
-                    {totalCalculado != null
-                      ? numeroParaMoeda(totalCalculado)
-                      : "A confirmar"}
-                  </strong>
-                  <small>
-                    Atualiza instantaneamente conforme você adiciona ou remove itens.
-                  </small>
-                </div>
-              </div>
-
-              <div className={styles.infoBox}>
-                <strong>Referência de tamanho das mesas</strong>
-                <p>
-                  Pequena: até 50 pessoas. Média: 60 a 100. Grande: 110 a 150.
-                </p>
-              </div>
-
-              <label className={styles.field}>
-                <span>Alterações combinadas no pacote</span>
-                <textarea
-                  rows={4}
-                  placeholder="Ex.: retirar item, substituir opção, condição negociada..."
-                  value={form.alteracoesPacote}
-                  onChange={(e) => atualizar("alteracoesPacote", e.target.value)}
-                />
-              </label>
-
-              <label className={styles.field}>
-                <span>Observações para a equipe Kidmais</span>
-                <textarea
-                  rows={4}
-                  placeholder="Inclua qualquer informação importante para o fechamento."
-                  value={form.observacoesCliente}
-                  onChange={(e) =>
-                    atualizar("observacoesCliente", e.target.value)
-                  }
-                />
-              </label>
+                  <label className={styles.field}>
+                    <span>Observações para a equipe Kidmais</span>
+                    <textarea
+                      rows={4}
+                      placeholder="Inclua qualquer informação importante para o fechamento."
+                      value={form.observacoesCliente}
+                      onChange={(e) =>
+                        atualizar("observacoesCliente", e.target.value)
+                      }
+                    />
+                  </label>
+                </>
+              )}
             </section>
           )}
 

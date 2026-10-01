@@ -1,4 +1,4 @@
-import type { ContratoSnapshotV1 } from "../../repositories/index.ts";
+import type { ContratoSnapshot } from "../../repositories/index.ts";
 
 export const CONTRATO_OFICIAL_TEMPLATE_ATUAL = 4 as const;
 
@@ -29,7 +29,7 @@ export type ContratoOficialRenderizado = {
 };
 
 export type GerarContratoOficialInput = {
-  snapshot: ContratoSnapshotV1;
+  snapshot: ContratoSnapshot;
   numeroVersao: number;
   snapshotHash: string;
   geradoEm?: string | null;

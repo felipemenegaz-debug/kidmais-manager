@@ -32,6 +32,8 @@ function servico(existente = false, forma = 'PIX_PARCELADO') {
     './errors': { PagamentoServiceError },
     '../../contratos/services/snapshot-core': { hashSnapshotContrato },
     '../../db/postgres': { withTransaction: async (fn: (tx: unknown) => unknown) => fn(tx) },
+    // C2: mesma semântica do helper real — usa o executor recebido; sem ele, a transação própria.
+    './transacao': { naTransacao: async (executor: unknown, fn: (tx: unknown) => unknown) => fn(executor ?? tx) },
     '../../fechamentos/services/revisao-operacional.service': { revisaoAbertaDoFechamento: async () => null },
     '../../contratos/repositories': {
       buscarContratoPorFechamentoId: async () => contrato, buscarContratoPorId: async () => contrato,

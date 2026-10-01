@@ -10,20 +10,36 @@ import { gerarContratoOficialPdfDaVersao } from './documento.service';
 import { hashSnapshotContrato } from './snapshot-core';
 import { randomUUID } from 'node:crypto';
 import { detectarPendenciasFinanceiras } from '../../pagamentos/services/pendencias-financeiras.service';
-export async function documentoParaLeitura(v: ContratoVersaoRecord, tx: DbExecutor = db()) {
-
+/**
+ * D1 — aquisição (consultas, no `tx` do chamador) separada da materialização (só memória). Rotas com Tenant
+ * Context adquirem dentro da transação da prova e materializam depois do commit, sem nova consulta e sem
+ * segurar a transação durante a renderização.
+ */
+export type DocumentoAdquirido =
+    | { tipo: 'PERSISTIDO'; pdf: Buffer; pdfHash: string; templateVersao: number; modeloCodigo: string }
+    | { tipo: 'RENDERIZAR'; versao: ContratoVersaoRecord };
+export async function adquirirDocumentoParaLeitura(v: ContratoVersaoRecord, tx: DbExecutor = db()): Promise<DocumentoAdquirido> {
     const e = await edicaoDaVersao(v.id, tx);
     if (!e) {
         if (v.status === 'ASSINADA')
             conflito('Documento legado preservado no checkpoint. Importação para BYTEA ainda não autorizada.');
-        return gerarContratoOficialPdfDaVersao(v);
+        return { tipo: 'RENDERIZAR', versao: v };
     }
     if (!e.documento_revisado_id)
         conflito('Documento ainda não revisado.');
     const d = await lerDocumento(e.documento_revisado_id, tx);
     if (d.contrato_versao_id !== v.id || d.snapshot_hash !== v.snapshotHash || hashSnapshotContrato(v.snapshot) !== v.snapshotHash)
         conflito('Documento ou snapshot divergente.');
-    return { pdf: d.conteudo_pdf, pdfHash: d.pdf_hash, templateVersao: d.template_versao, modeloCodigo: d.template_codigo, documento: { homologadoParaProducao: true } };
+    return { tipo: 'PERSISTIDO', pdf: d.conteudo_pdf, pdfHash: d.pdf_hash, templateVersao: d.template_versao, modeloCodigo: d.template_codigo };
+}
+/** Só memória: devolve o PDF persistido ou renderiza o modelo oficial da versão. Nenhuma consulta. */
+export function materializarDocumento(a: DocumentoAdquirido) {
+    if (a.tipo === 'RENDERIZAR')
+        return gerarContratoOficialPdfDaVersao(a.versao);
+    return { pdf: a.pdf, pdfHash: a.pdfHash, templateVersao: a.templateVersao, modeloCodigo: a.modeloCodigo, documento: { homologadoParaProducao: true } };
+}
+export async function documentoParaLeitura(v: ContratoVersaoRecord, tx: DbExecutor = db()) {
+    return materializarDocumento(await adquirirDocumentoParaLeitura(v, tx));
 }
 export async function versaoPublicaId(contratoId: string, tx: DbExecutor = db()) {
     const f = (await tx.query<{

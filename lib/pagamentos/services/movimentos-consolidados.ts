@@ -52,7 +52,10 @@ export async function consolidarCronogramaDoEstorno(tx:DbExecutor,antes:PosicaoF
 
 export async function validarEstornoComDevolucoes(tx:DbExecutor,p:PosicaoFinanceira,recebimentoId:string,parcelaId:string,valor:number,referencia?:string|null,provedor?:string|null,confirmar=true){
  const devolvido=(await tx.query<{valor:string}>(`SELECT coalesce(sum(da.valor_centavos),0)::text valor FROM pagamento_devolucao_alocacoes da JOIN pagamento_devolucoes d ON d.id=da.devolucao_id JOIN pagamento_recebimento_alocacoes a ON a.id=da.recebimento_alocacao_id WHERE a.recebimento_id=$1 AND a.parcela_id=$2 AND d.estado IN ('PENDENTE','CONCLUIDA')`,[recebimentoId,parcelaId])).rows[0];
- if(referencia&&provedor&&(await tx.query('SELECT id FROM pagamento_devolucoes WHERE provedor_codigo=$1 AND referencia_externa=$2',[provedor,referencia])).rows.length)recusarFinanceiro('ESTORNO_INVALIDO','A saída já está registrada como devolução.');
+
+ // F4: a referência do PSP é única entre contas (integridade global); a recusa é a MESMA resposta genérica da colisão
+ // de unicidade (pagamentos-api), sem dizer em que tipo de saída, pagamento ou empresa ela já existe.
+ if(referencia&&provedor&&(await tx.query('SELECT id FROM pagamento_devolucoes WHERE provedor_codigo=$1 AND referencia_externa=$2',[provedor,referencia])).rows.length)recusarFinanceiro('OPERACAO_FINANCEIRA_DUPLICADA','A chave de idempotência ou referência do provedor já foi utilizada. Consulte a operação existente antes de tentar novamente.');
  if(confirmar&&p.posicao.reservado>0n&&p.posicao.liquido-reaisCentavos(valor)-p.posicao.obrigacao<p.posicao.reservado)recusarFinanceiro('CREDITO_RESERVADO','O estorno comprometeria uma devolução pendente. Cancele a solicitação antes de reavaliar.');
  return BigInt(devolvido.valor);
 }

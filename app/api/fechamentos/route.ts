@@ -7,6 +7,7 @@ import {
   isAvailabilityServiceError,
   revalidarHorarioSelecionado,
 } from "@/lib/disponibilidade/services";
+import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
 import { buscarPacoteAtivoPorCodigo } from "@/lib/comercial/repositories";
 import { isPricingServiceError } from "@/lib/comercial/services";
 import {
@@ -142,7 +143,18 @@ export async function POST(request: NextRequest) {
   }
 
   const codigoPacote = PACOTE_CODIGO_BANCO[dados.data.pacote];
-  const pacote = await buscarPacoteAtivoPorCodigo(codigoPacote);
+  let pacote;
+  try {
+    pacote = await buscarPacoteAtivoPorCodigo(codigoPacote);
+  } catch (error) {
+    if (error instanceof PacoteAdminError) {
+      return NextResponse.json(
+        { ok: false, erro: error.message, codigo: error.code },
+        { status: error.httpStatus, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    throw error;
+  }
   if (!pacote) {
     return NextResponse.json(
       {

@@ -72,14 +72,24 @@ test('consulta única parametrizada compartilha filtro do CRM e aceita contratos
     const tx = { query: async (sql: string, values?: readonly unknown[]) => {
         chamadas.push({ sql, values }); return { rows: [fechamento, comContrato], rowCount: 2 };
     } } as DbExecutor;
-    const itens = await listarContratacoes(tx, fechamento.clienteId!);
+    const empresa = 'aaaaaaaa-0000-4000-8000-00000000000a';
+    const itens = await listarContratacoes(tx, empresa, fechamento.clienteId!);
     assert.equal(itens.length, 2); assert.equal(chamadas.length, 1);
-    assert.deepEqual(chamadas[0].values, [estadosEmContratacao, fechamento.clienteId]);
+    assert.deepEqual(chamadas[0].values, [estadosEmContratacao, fechamento.clienteId, empresa]);
     assert.match(chamadas[0].sql, /LEFT JOIN public.contratos/);
     assert.match(chamadas[0].sql, /f.cliente_id=\$2::uuid/);
     assert.doesNotMatch(chamadas[0].sql, /\b(?:INSERT|UPDATE|DELETE)\b/);
-    await listarContratacoes(tx);
+    await listarContratacoes(tx, empresa);
     assert.equal(chamadas[1].values?.[1], null);
+});
+test('PR-B1: fila de contratações só do tenant comprovado, com filtro na SQL antes da ordenação', async () => {
+    const sql = contratacoesSql;
+    const where = sql.indexOf('f.empresa_id=$3::uuid'), order = sql.lastIndexOf('ORDER BY');
+    assert(where > 0 && where < order);
+    const tx = { query: async () => ({ rows: [], rowCount: 0 }) } as unknown as DbExecutor;
+    await assert.rejects(listarContratacoes(tx, ''), /Empresa administrativa/);
+    const rota = readFileSync('app/api/admin/fechamentos/contratacoes/route.ts', 'utf8');
+    assert.match(rota, /withTenantTransaction/); assert.match(rota, /tenant\.empresaComprovada/);
 });
 test('DTO não vaza documentos ou credenciais extras do executor', () => {
     const item = classificarContratacao({ ...fechamento, senha: 'sentinela-nao-real', snapshot: { cpf: 'sentinela-cpf' } } as ContratacaoRow);

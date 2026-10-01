@@ -5,6 +5,7 @@ import type { Edicao, fontesEdicao } from './administrativo.service';
 import type { EdicaoFestaInput } from '../../fechamentos/services/edicao-administrativa-schema';
 import { calcularEdicaoFechamento } from '../../fechamentos/services/edicao-administrativa.service';
 import { persistirEdicaoFechamento } from '../../fechamentos/repositories/edicao.repository';
+import { fotografarEstadoFechamento } from '../../fechamentos/services/pacote-snapshot';
 import { buscarFechamentoPorId, listarAdicionaisDoFechamento, type FechamentoAdicionalRecord } from '../../fechamentos/repositories';
 import { buscarResponsavelPorId, registrarAuditoria } from '../../clientes/repositories';
 import { validarCadastroBasicoCliente } from '../../clientes/services/validators';
@@ -88,7 +89,8 @@ export async function aplicarRevisaoInicial(tx: DbExecutor, v: ContratoVersaoRec
         h.status === 'DISPONIVEL' && h.inicio === f.horarioInicio.slice(0, 5) && h.fim === f.horarioFim.slice(0, 5)))
         recusar('Data/horário da proposta indisponível. Nenhuma alteração foi aplicada.');
     await persistirEdicaoFechamento(tx, f, proposta.resumo);
+    const fotografia = await fotografarEstadoFechamento(tx, f.id, { motivo: proposta.motivo, atorUsuarioId: null });
     await registrarAuditoria({ clienteId: f.clienteId, atorTipo: 'SISTEMA', acao: 'CONTRATO_REVISAO_INICIAL_APLICADA',
         entidadeTipo: 'CONTRATO_VERSAO', entidadeId: v.id, origem: 'CONTRATO_PUBLICO', dadosAntes: atual,
-        dadosDepois: { fechamento: f, snapshotHash: v.snapshotHash }, justificativa: proposta.motivo }, tx);
+        dadosDepois: { fechamento: f, snapshotHash: v.snapshotHash, pacoteSnapshotId: fotografia?.id ?? null, empresaId: fotografia?.empresaId ?? null }, justificativa: proposta.motivo }, tx);
 }

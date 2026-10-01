@@ -28,6 +28,46 @@ CONTRATO_ACEITE_DEV_ENABLED=false
 # O health check exige esta flag e confere a assinatura física da Migration 016.
 FESTA_ENABLED=true
 
+# Kidmais Intelligence. Todas as flags ligam só com o valor exato true (fail closed).
+# Guia completo: docs/INTELIGENCIA_PRODUCAO_V1.md
+INTELIGENCIA_ENABLED=false
+AI_READ_ENABLED=false
+AI_ADMIN_ACTIONS_ENABLED=false
+AI_CONTRACT_IMPORT_ENABLED=false
+# JEV: classificador auxiliar (só sugere leitura/triagem; nunca autoriza ação). Desligado = nada muda.
+AI_JEV_ENABLED=false
+# Opcional: empresas liberadas (uuid separados por vírgula). Definida e inválida = nenhuma empresa.
+AI_TENANT_ALLOWLIST=
+# Documento real só vai a provedor externo com true (gate humano; ver docs).
+AI_DOCUMENT_EXTERNAL_PROVIDER_ALLOWED=false
+AI_UPLOAD_MAX_BYTES=15728640
+AI_CONFIRMACAO_TTL_SEGUNDOS=600
+
+# Model Router (opcional). Sem chave ou sem modelo por tier, o provedor fica indisponível e a IA usa só regras.
+# Nomes de modelo e preços NÃO têm padrão no código: configure a partir da página oficial do provedor.
+AI_PROVIDER_PRIMARY=
+AI_PROVIDER_ECONOMY=
+OPENAI_API_KEY=
+AI_OPENAI_MODEL_ECONOMY=
+AI_OPENAI_MODEL_STANDARD=
+AI_OPENAI_MODEL_ADVANCED=
+DEEPSEEK_API_KEY=
+AI_DEEPSEEK_MODEL_ECONOMY=
+AI_DEEPSEEK_MODEL_STANDARD=
+AI_DEEPSEEK_MODEL_ADVANCED=
+AI_MODEL_TIMEOUT_MS=20000
+AI_MODEL_MAX_RETRIES=1
+# Troca de provedor numa falha: só com true (fail closed). Extração de contrato nunca troca de provedor.
+AI_FALLBACK_ENABLED=false
+AI_WORKLOAD_TIERS=
+AI_PRICING_JSON=
+# Orçamento com reserva antes de cada chamada. OBRIGATÓRIO: ausente ou inválido = nenhuma chamada de modelo.
+# Limite de custo exige "moeda" igual à de AI_PRICING_JSON.
+# Ex.: {"moeda":"USD","porEmpresa":{"custoDiario":2,"tokensDiario":200000}}
+# Estimativa conservadora da reserva (opcional; padrão abaixo):
+# "estimativa":{"overheadTokens":512,"tokensPorMensagem":16,"tokensPorImagem":6000}
+AI_BUDGET_JSON=
+
 # Opções de build/runtime.
 NEXT_TELEMETRY_DISABLED=1
 KIDMAIS_FESTA_ISOLADO=false

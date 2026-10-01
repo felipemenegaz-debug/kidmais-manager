@@ -31,6 +31,8 @@ import {
   buscarParcelaPorId,
   buscarPlanoAtivo,
   buscarUltimoPlanoCancelado,
+  bloquearRecebimentoDoPagamento,
+  buscarRecebimentoDoPagamento,
   buscarRecebimentoPorId,
   buscarRecebimentoPorIdempotencia,
   buscarEstornoPorIdempotencia,
@@ -70,6 +72,9 @@ import {
   validarPlanoPagamento,
 } from "./financeiro-core";
 import { PagamentoServiceError } from "./errors";
+import { exigirExecutorDoTenant, naTransacao } from "./transacao";
+import { pagamentoPertenceAoTenant } from "../../contratos/services/contrato-tenant";
+import type { TenantComprovado } from "../../saas/provar-tenant";
 import { sugerirParcelamentoPix } from './sugestao-pix';
 import { validarCondicaoContratual } from './condicao-contratual';
 import { validarRepeticaoEstorno, validarRepeticaoRecebimento } from "./idempotencia";
@@ -252,7 +257,7 @@ export async function criarPagamentoDoFechamento(
   input: PedidoPagamentoInicial,
   context: PagamentoServiceContext,
 ): Promise<PagamentoCriado | SugestaoPagamentoResult> {
-  return withTransaction(async (tx) => {
+  return naTransacao(context.executor, async (tx) => {
     // Assinatura trava Contrato antes de Fechamento. Rejeita o contrato ainda
     // não assinado antes de segurar Fechamento, evitando disputar esses locks
     // em ordem inversa com uma assinatura em andamento. Revalida abaixo.
@@ -422,8 +427,9 @@ export async function criarPagamentoDoFechamento(
   });
 }
 
-export async function obterPagamentoPorFechamento(fechamentoId: string) {
-  const pagamento = await buscarPagamentoPorFechamentoId(fechamentoId);
+/** `tx`: transação do tenant já provado pela rota (a leitura acontece depois da prova, na mesma transação). */
+export async function obterPagamentoPorFechamento(fechamentoId: string, tx?: DbExecutor) {
+  const pagamento = await buscarPagamentoPorFechamentoId(fechamentoId, tx);
   if (!pagamento) {
     throw new PagamentoServiceError(
       "PAGAMENTO_NAO_ENCONTRADO",
@@ -431,7 +437,7 @@ export async function obterPagamentoPorFechamento(fechamentoId: string) {
       404,
     );
   }
-  return detalhePagamento(pagamento);
+  return detalhePagamento(pagamento, tx);
 }
 
 async function contextoDoPagamento(pagamento: PagamentoRecord, tx: DbExecutor) {
@@ -687,29 +693,31 @@ export async function registrarRecebimentoPagamento(
   if (input.referenciaExterna?.trim() && !input.provedorCodigo?.trim()) {
     throw new PagamentoServiceError("RECEBIMENTO_INVALIDO", "Informe o provedor da referência externa.", 400);
   }
-  return withTransaction(async (tx) => {
+  const executar = async (tx: DbExecutor) => {
     const pagamento = await bloquearPagamento(input.pagamentoId, tx);
     if (!pagamento) throw new PagamentoServiceError("PAGAMENTO_NAO_ENCONTRADO", "Pagamento não encontrado.", 404);
     if (pagamento.status === "CANCELADO") throw new PagamentoServiceError("PAGAMENTO_CANCELADO", "Pagamento cancelado não aceita recebimentos.", 409);
 
     const chaveIdempotencia = input.chaveIdempotencia?.trim() || null;
-    const porChave = chaveIdempotencia ? await buscarRecebimentoPorIdempotencia(chaveIdempotencia, tx) : null;
+    // E2: idempotência e referência procuradas só no pagamento provado (sem leitura nem oráculo de outro pagamento).
+    const porChave = chaveIdempotencia ? await buscarRecebimentoPorIdempotencia(chaveIdempotencia, pagamento.id, tx, input.chaveIdempotenciaLegada?.trim() || null) : null;
     const porReferencia = input.provedorCodigo?.trim() && input.referenciaExterna?.trim()
-      ? await buscarRecebimentoPorReferencia(input.provedorCodigo.trim(), input.referenciaExterna.trim(), tx) : null;
+      ? await buscarRecebimentoPorReferencia(input.provedorCodigo.trim(), input.referenciaExterna.trim(), pagamento.id, tx) : null;
     if (porChave && porReferencia && porChave.id !== porReferencia.id) {
       throw new PagamentoServiceError("RECEBIMENTO_INVALIDO", "Chave e referência apontam para recebimentos diferentes.", 409);
     }
     {
       const existente = porChave ?? porReferencia;
       if (existente) {
-        if (existente.pagamentoId !== pagamento.id) {
-          throw new PagamentoServiceError("RECEBIMENTO_INVALIDO", "Chave de idempotência já utilizada em outro Pagamento.", 409);
-        }
         const alocacoes = await listarAlocacoesRecebimento(existente.id, tx);
         validarRepeticaoRecebimento(existente, alocacoes, input);
+        const jaConfirmado = existente.status === "CONFIRMADO";
         const atual = input.confirmarAgora !== false
           ? await confirmarRecebimentoInterno(existente, context, tx)
           : existente;
+        if (!jaConfirmado && atual.status === "CONFIRMADO" && context.aoConfirmar) {
+          await context.aoConfirmar(tx, { recebimentoId: atual.id });
+        }
         const atualizado = await buscarPagamentoPorId(pagamento.id, tx) ?? pagamento;
         return {
           recebimento: atual,
@@ -798,6 +806,9 @@ export async function registrarRecebimentoPagamento(
         origem: context.origem, requestId: context.requestId ?? null, ip: context.ip ?? null, userAgent: context.userAgent ?? null,
       }, tx);
     }
+    if (final.status === "CONFIRMADO" && context.aoConfirmar) {
+      await context.aoConfirmar(tx, { recebimentoId: final.id });
+    }
     const pagamentoAtual = await buscarPagamentoPorId(pagamento.id, tx) ?? pagamento;
     return {
       recebimento: final,
@@ -809,25 +820,36 @@ export async function registrarRecebimentoPagamento(
         conflito: pagamentoAtual.reservaStatus === "CONFLITO",
       },
     };
-  });
+  };
+  if (context.executor) return executar(context.executor);
+  return withTransaction(executar);
 }
 
+/**
+ * E3 — confirma um recebimento de um pagamento JÁ PROVADO pelo chamador (`executarComPosseNoTenant` com
+ * `pagamentoNoTenant`, repassando `context.executor`). O UUID do recebimento nunca define o pagamento: o
+ * pagamento vem do chamador, é travado primeiro (mesma ordem de registro/estorno) e o recebimento só é
+ * encontrado/travado se for DELE (`bloquearRecebimentoDoPagamento`). Outro pagamento, outra empresa e
+ * inexistente respondem o mesmo 404. Nenhuma rota expõe esta função hoje.
+ * F3: executor e tenant comprovado são OBRIGATÓRIOS (tipo e execução) — sem eles a função recusa antes de qualquer
+ * consulta e nunca abre transação própria por UUID; a posse do pagamento é conferida de novo AQUI, com a empresa
+ * comprovada no WHERE (outra empresa responde o mesmo 404).
+ */
+export type ContextoPagamentoNoTenant = PagamentoServiceContext & { executor: DbExecutor; tenant: Pick<TenantComprovado, "empresaComprovada"> };
+
 export async function confirmarRecebimentoPagamento(
+  pagamentoId: string,
   recebimentoId: string,
-  context: PagamentoServiceContext,
+  context: ContextoPagamentoNoTenant,
 ) {
-  return withTransaction(async (tx) => {
-    const origem = await buscarRecebimentoPorId(recebimentoId, tx);
-    if (!origem) throw new PagamentoServiceError("RECEBIMENTO_NAO_ENCONTRADO", "Recebimento não encontrado.", 404);
-    // Mesma ordem de locks de registro/estorno: pagamento antes do recebimento.
-    // A ordem inversa permite deadlock entre confirmação e estorno simultâneos.
-    await bloquearPagamento(origem.pagamentoId, tx);
-    const recebimento = await buscarRecebimentoPorId(recebimentoId, tx, { forUpdate: true });
-    if (!recebimento) throw new PagamentoServiceError("RECEBIMENTO_NAO_ENCONTRADO", "Recebimento não encontrado.", 404);
-    const confirmado = await confirmarRecebimentoInterno(recebimento, context, tx);
-    const pagamento = await buscarPagamentoPorId(confirmado.pagamentoId, tx) as PagamentoRecord;
-    return { recebimento: confirmado, detalhe: await detalhePagamento(pagamento, tx) };
-  });
+  const { tx, empresaId } = exigirExecutorDoTenant(context);
+  if (!await pagamentoPertenceAoTenant(tx, empresaId, pagamentoId)) throw new PagamentoServiceError("RECEBIMENTO_NAO_ENCONTRADO", "Recebimento não encontrado.", 404);
+  const travado = await bloquearPagamento(pagamentoId, tx);
+  const recebimento = travado ? await bloquearRecebimentoDoPagamento(recebimentoId, travado.id, tx) : null;
+  if (!recebimento) throw new PagamentoServiceError("RECEBIMENTO_NAO_ENCONTRADO", "Recebimento não encontrado.", 404);
+  const confirmado = await confirmarRecebimentoInterno(recebimento, context, tx);
+  const pagamento = await buscarPagamentoPorId(confirmado.pagamentoId, tx) as PagamentoRecord;
+  return { recebimento: confirmado, detalhe: await detalhePagamento(pagamento, tx) };
 }
 
 export async function substituirPlanoPagamento(
@@ -836,7 +858,7 @@ export async function substituirPlanoPagamento(
   motivo: string,
   context: PagamentoServiceContext,
 ) {
-  return withTransaction(async (tx) => {
+  return naTransacao(context.executor, async (tx) => {
     const pagamento = await bloquearPagamento(pagamentoId, tx);
     if (!pagamento) throw new PagamentoServiceError("PAGAMENTO_NAO_ENCONTRADO", "Pagamento não encontrado.", 404);
     if (await possuiCronograma(tx, pagamento.id)) throw new PagamentoServiceError('CRONOGRAMA_CONSOLIDADO', 'Use a reprogramação do cronograma consolidado.', 409);
@@ -898,14 +920,15 @@ export async function registrarEstornoPagamento(
   if (input.confirmarAgora === false && !input.chaveIdempotencia?.trim() && !input.referenciaExterna?.trim()) {
     throw new PagamentoServiceError("ESTORNO_INVALIDO", "Estorno solicitado exige chave de idempotência ou referência do provedor para confirmação posterior.", 400);
   }
-  return withTransaction(async (tx) => {
+  return naTransacao(context.executor, async (tx) => {
     const pagamento = await bloquearPagamento(input.pagamentoId, tx);
     if (!pagamento) throw new PagamentoServiceError("PAGAMENTO_NAO_ENCONTRADO", "Pagamento não encontrado.", 404);
 
     const chaveIdempotencia = input.chaveIdempotencia?.trim() || null;
-    const porChave = chaveIdempotencia ? await buscarEstornoPorIdempotencia(chaveIdempotencia, tx) : null;
+    // E2: idempotência e referência procuradas só no pagamento provado.
+    const porChave = chaveIdempotencia ? await buscarEstornoPorIdempotencia(chaveIdempotencia, pagamento.id, tx, input.chaveIdempotenciaLegada?.trim() || null) : null;
     const porReferencia = input.provedorCodigo?.trim() && input.referenciaExterna?.trim()
-      ? await buscarEstornoPorReferencia(input.provedorCodigo.trim(), input.referenciaExterna.trim(), tx) : null;
+      ? await buscarEstornoPorReferencia(input.provedorCodigo.trim(), input.referenciaExterna.trim(), pagamento.id, tx) : null;
     if (porChave && porReferencia && porChave.id !== porReferencia.id) {
       throw new PagamentoServiceError("ESTORNO_INVALIDO", "Chave e referência apontam para estornos diferentes.", 409);
     }
@@ -928,12 +951,15 @@ export async function registrarEstornoPagamento(
       }
     }
 
-    const recebimento = await buscarRecebimentoPorId(input.recebimentoId, tx, { forUpdate: true });
+    // D2: o lock já exige o pagamento provado no WHERE; recebimento de outro pagamento nunca é travado.
+    const recebimento = await bloquearRecebimentoDoPagamento(input.recebimentoId, pagamento.id, tx);
     if (!recebimento || recebimento.pagamentoId !== pagamento.id || recebimento.status !== "CONFIRMADO") {
       throw new PagamentoServiceError("ESTORNO_INVALIDO", "O estorno exige recebimento confirmado deste Pagamento.", 409);
     }
     const parcela = await buscarParcelaPorId(input.parcelaId, tx);
-    if (!parcela) throw new PagamentoServiceError("PARCELA_NAO_ENCONTRADA", "Parcela não encontrada.", 404);
+    // C1: a parcela precisa ser de um plano DESTE pagamento (já provado no tenant); id solto não basta.
+    const planoDaParcela = parcela ? (await tx.query<{ pagamento_id: string }>("SELECT pagamento_id::text AS pagamento_id FROM pagamento_planos WHERE id = $1::uuid", [parcela.planoId])).rows[0] : undefined;
+    if (!parcela || planoDaParcela?.pagamento_id !== pagamento.id) throw new PagamentoServiceError("PARCELA_NAO_ENCONTRADA", "Parcela não encontrada.", 404);
 
     const valor = centavosParaDinheiro(dinheiroParaCentavos(input.valor, "valor do estorno"));
     // A transacao compartilha um unico pg.Client; mantenha as consultas
@@ -1033,10 +1059,11 @@ export async function registrarComprovantePagamento(input: {
   sha256: string;
   localizadorArquivo: string;
 }, context: PagamentoServiceContext) {
-  return withTransaction(async (tx) => {
+  return naTransacao(context.executor, async (tx) => {
     const pagamento = await bloquearPagamento(input.pagamentoId, tx);
     if (!pagamento) throw new PagamentoServiceError("PAGAMENTO_NAO_ENCONTRADO", "Pagamento não encontrado.", 404);
-    const recebimento = await buscarRecebimentoPorId(input.recebimentoId, tx);
+    // E2/D2: o recebimento só é lido dentro do pagamento provado.
+    const recebimento = await buscarRecebimentoDoPagamento(input.recebimentoId, pagamento.id, tx);
     if (!recebimento || recebimento.pagamentoId !== pagamento.id) {
       throw new PagamentoServiceError("COMPROVANTE_INVALIDO", "O comprovante não pertence a um recebimento deste Pagamento.", 409);
     }

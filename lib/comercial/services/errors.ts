@@ -7,19 +7,27 @@ export type PricingServiceErrorCode =
   | "PACOTE_INDISPONIVEL"
   | "PACOTE_SOB_CONSULTA"
   | "PRECO_PACOTE_NAO_CONFIGURADO"
+  | "PRECO_AMBIGUO"
   | "ADICIONAL_DUPLICADO"
   | "ADICIONAL_NAO_ENCONTRADO"
   | "PRECO_ADICIONAL_NAO_CONFIGURADO";
 
 export class PricingServiceError extends Error {
+  readonly code: PricingServiceErrorCode;
+  readonly httpStatus: number;
+  readonly details?: Record<string, unknown>;
+
   constructor(
-    public readonly code: PricingServiceErrorCode,
+    code: PricingServiceErrorCode,
     message: string,
-    public readonly httpStatus = 400,
-    public readonly details?: Record<string, unknown>,
+    httpStatus = 400,
+    details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "PricingServiceError";
+    this.code = code;
+    this.httpStatus = httpStatus;
+    this.details = details;
   }
 }
 

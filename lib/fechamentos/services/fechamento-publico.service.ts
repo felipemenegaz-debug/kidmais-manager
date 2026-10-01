@@ -141,6 +141,7 @@ function diffCliente(before: ClienteRecord, after: ClienteRecord) {
 
 function validarDadosClientePublico(dados: DadosClienteFechamentoPublico) {
   validarCadastroBasicoCliente({
+    empresaId: null,
     nomeCompleto: dados.nomeCompleto,
     cpf: dados.cpf,
     telefone: dados.telefone,
@@ -193,6 +194,7 @@ function validarDadosClientePublico(dados: DadosClienteFechamentoPublico) {
 
 async function registrarDuplicidadesNovoCliente(
   clienteId: string,
+  empresaId: string,
   dados: DadosClienteFechamentoPublico,
   tx: DbExecutor,
 ) {
@@ -203,6 +205,7 @@ async function registrarDuplicidadesNovoCliente(
       telefone: dados.telefone,
       whatsapp: dados.whatsapp,
     },
+    empresaId,
     { excluirClienteId: clienteId },
     tx,
   );
@@ -219,13 +222,20 @@ async function registrarDuplicidadesNovoCliente(
   }
 }
 
+/**
+ * `empresaId` vem do pacote já resolvido por `buscarPacoteAtivoPorId` (fonte transitória do
+ * PR-B1, nunca do body) e já foi conferido como não nulo pelo chamador. A consulta de CPF é da
+ * mesma empresa; um CPF de outra empresa só aparece como violação do índice global (PR-B2), sem
+ * revelar o dono.
+ */
 async function criarNovoCliente(
   dados: DadosClienteFechamentoPublico,
   input: CriarFechamentoPublicoInput,
+  empresaId: string,
   tx: DbExecutor,
 ) {
   const cpf = normalizarCpf(dados.cpf);
-  const existente = cpf ? await buscarClienteCanonicoPorCpf(cpf, tx) : null;
+  const existente = cpf ? await buscarClienteCanonicoPorCpf(cpf, empresaId, tx) : null;
   if (existente) {
     throw new FechamentoServiceError(
       "CPF_EXISTENTE_REQUER_VALIDACAO",
@@ -238,6 +248,7 @@ async function criarNovoCliente(
   try {
     cliente = await criarCliente(
       {
+        empresaId,
         nomeCompleto: dados.nomeCompleto,
         cpf: dados.cpf,
         rg: dados.rg,
@@ -266,7 +277,7 @@ async function criarNovoCliente(
     throw error;
   }
 
-  await registrarDuplicidadesNovoCliente(cliente.id, dados, tx);
+  await registrarDuplicidadesNovoCliente(cliente.id, empresaId, dados, tx);
 
   await registrarEventoHistorico(
     {
@@ -324,8 +335,10 @@ async function atualizarClienteConfirmado(
     return { cliente, atualizado: false };
   }
 
+  // Escrita autorizada pela prova de identidade do próprio cliente, não por Tenant Context.
   const atualizado = await atualizarCliente(
     cliente.id,
+    { tipo: "IDENTIDADE", clienteIdComprovado: cliente.id },
     {
       nomeCompleto: dados.nomeCompleto,
       rg: dados.rg,
@@ -529,6 +542,16 @@ export async function criarFechamentoPublicoComIdentidade(
         409,
       );
     }
+    // Fonte transitória do tenant neste fluxo: a empresa do pacote já resolvido por UUID.
+    // Pacote sem empresa (legado) não gera associação nova (a 054 também recusa no banco).
+    const empresaDoPacote = pacoteV1.empresaId ?? null;
+    if (!empresaDoPacote) {
+      throw new FechamentoServiceError(
+        "PACOTE_FORA_ESCOPO_V1",
+        "O pacote selecionado ainda não está disponível para fechamento online.",
+        409,
+      );
+    }
 
     let cliente: ClienteRecord;
     let clienteNovo = false;
@@ -558,6 +581,15 @@ export async function criarFechamentoPublicoComIdentidade(
           409,
         );
       }
+      // A prova identifica a pessoa, não concede tenant: o cadastro comprovado só entra em
+      // fechamento da própria empresa. Legado sem empresa não recebe associação nova.
+      if (canonico.empresaId === null || canonico.empresaId !== empresaDoPacote) {
+        throw new FechamentoServiceError(
+          "EMPRESA_INCOMPATIVEL",
+          "Este cadastro não pode ser usado nesta contratação. Fale com a equipe.",
+          409,
+        );
+      }
 
       const atualizacao = await atualizarClienteConfirmado(
         canonico,
@@ -568,7 +600,7 @@ export async function criarFechamentoPublicoComIdentidade(
       cliente = atualizacao.cliente;
       cadastroAtualizado = atualizacao.atualizado;
     } else {
-      cliente = await criarNovoCliente(input.cliente, input, tx);
+      cliente = await criarNovoCliente(input.cliente, input, empresaDoPacote, tx);
       clienteNovo = true;
     }
 

@@ -1,0 +1,18 @@
+/* Complementos do modo real. A base visual continua em importacao.module.css. */
+.carregando { display: grid; gap: 8px; margin: 12px 0; }
+.carregando span { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(255,255,255,.09), rgba(255,255,255,.04)); background-size: 200% 100%; animation: brilho 1.4s ease infinite; }
+.carregando span + span { width: 62%; }
+@keyframes brilho { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.evidencia { color: var(--km-text-2); font-style: italic; overflow-wrap: anywhere; }
+.evidencia[data-conferida="false"] { color: #e9d38a; }
+.edicao { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.edicao input { flex: 1 1 180px; min-height: 40px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--km-border); background: var(--input-bg); color: var(--km-text); font: 400 14px var(--admin-font); }
+.edicao input:focus { background: var(--input-focus-bg); border-color: color-mix(in srgb, var(--km-violet) 55%, transparent); }
+.cliente { display: grid; gap: 8px; }
+.cliente h3 { margin: 0; font-size: 14px; }
+.cliente p { margin: 0; color: var(--km-text-2); font-size: 13px; }
+.opcoes { display: grid; gap: 6px; }
+.opcoes button { min-height: 40px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--km-border); background: transparent; color: var(--km-text); font: 600 13px var(--admin-font); text-align: left; cursor: pointer; }
+.opcoes button[aria-checked="true"] { border-color: color-mix(in srgb, var(--km-teal) 55%, transparent); background: color-mix(in srgb, var(--km-teal) 10%, transparent); }
+.opcoes button:focus-visible, .edicao input:focus-visible { outline: 2px solid var(--km-lilac); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .carregando span { animation: none; } }

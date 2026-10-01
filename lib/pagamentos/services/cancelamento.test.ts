@@ -42,8 +42,9 @@ function ambiente(recebimentos: Row[] = [], consolidado = false, falha = '') {
     const s = sql.replace(/\s+/g, ' ').trim();
     if (falha && s.startsWith(falha)) throw Error('Falha injetada');
     let rows: unknown[] = [];
-    if (s.startsWith('SELECT * FROM festas')) rows = [structuredClone(state.festa)];
-    else if (s.includes('FROM festa_usuario_capacidades')) rows = [{ id: 'cap' }];
+    if (s.startsWith('SELECT f.* FROM festas f JOIN contratos co')) { assert.match(s, /fe\.empresa_id=\$2::uuid/); rows = params[1] === 'empresa-a' ? [structuredClone(state.festa)] : []; }
+    else if (s.startsWith('SELECT * FROM festas')) rows = [structuredClone(state.festa)];
+    else if (s.includes('FROM festa_membership_capacidades')) { assert.equal(params[0], 'm', 'capacidade da membership comprovada'); rows = [{ id: 'cap' }]; }
     else if (s.startsWith('SELECT * FROM festa_eventos')) rows = state.eventos.filter(e => e.chave_idempotencia === params[0]);
     else if (s.startsWith('SELECT c.*,f.cliente_id')) rows = [structuredClone(state.contrato)];
     else if (s.includes('FROM festa_contagens_convidados') || s.includes('FROM fechamento_revisoes')) rows = [];
@@ -96,6 +97,8 @@ function ambiente(recebimentos: Row[] = [], consolidado = false, falha = '') {
     '../pagamentos/services/financeiro-consulta.service': {},
     '../autenticacao/service': { consultarSessao: async () => sessao },
     '../autenticacao/papeis': { nomePapelSistema },
+    // E1: o comando prova o tenant (a Festa é buscada com a empresa comprovada) e revalida antes do commit.
+    '../saas/provar-tenant': { provarTenant: async () => ({ empresaComprovada: 'empresa-a', membershipId: 'm', usuarioId: 'admin', papelAtual: 'REPRESENTANTE_AUTORIZADO' }), revalidarTenant: async () => undefined },
     '../db/postgres': { withTransaction: async (fn: (executor: unknown) => Promise<unknown>) => {
       const before = structuredClone(state); try { return await fn(tx); } catch (e) { state = before; throw e; }
     } },
@@ -148,7 +151,7 @@ test('projeção encerra cobrança sem inventar quitação nem crédito e conser
 test('alteração e reprogramação consolidadas não reabrem cobrança cancelada', () => {
   const service = carregar('lib/pagamentos/services/alteracao-financeira.service.ts', {
     'node:crypto': {}, '../../db/postgres': {}, '../../autenticacao/service': {}, '../../contratos/services/snapshot-core': {},
-    '../repositories/alteracao-financeira.repository': {}, './cronograma.service': {},
+    '../repositories/alteracao-financeira.repository': {}, './cronograma.service': {}, './transacao': {},
     './alteracao-financeira-core': { recusarFinanceiro: (code: string, message: string) => { throw new PagamentoServiceError(code as 'PAGAMENTO_CANCELADO', message, 409); } },
   });
   for (const reprogramacao of [false, true]) assert.throws(() => service.simularPosicao({ contrato: { status: 'CANCELADO' }, pagamento: { status: 'CANCELADO' } }, {}, reprogramacao), { code: 'PAGAMENTO_CANCELADO' });

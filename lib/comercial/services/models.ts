@@ -12,6 +12,8 @@ import type {
 export type ObterContextoComercialInput = {
   data: string;
   configuracaoAgendaId: string;
+  empresaId?: string | null;
+  tabelaPrecoId?: string | null;
 };
 
 export type ContextoComercial = {
@@ -56,6 +58,8 @@ export type PrecificarAdicionaisInput = {
   data: string;
   convidados: number;
   itens: AdicionalSelecionadoInput[];
+  empresaId?: string | null;
+  tabelaPrecoId?: string | null;
 };
 
 export type AdicionalPrecificado = {
@@ -79,6 +83,11 @@ export type ResultadoAdicionais = {
 
 export type CalcularResumoComercialInput = PrecificarPacoteInput & {
   adicionais?: AdicionalSelecionadoInput[];
+  /**
+   * Empresa já gravada no fechamento (lida do banco, nunca do pedido).
+   * Quando informada, o pacote tem de ser dessa empresa; `null` é o legado sem empresa.
+   */
+  empresaEsperada?: string | null;
 };
 
 export type ResumoComercial = {
@@ -95,6 +104,7 @@ export type CatalogoAdicionaisInput = {
   data: string;
   convidados: number;
   codigos?: string[];
+  empresaId?: string | null;
 };
 
 export type CatalogoAdicionais = {

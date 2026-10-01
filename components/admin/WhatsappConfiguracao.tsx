@@ -1,5 +1,6 @@
 'use client';
-import Link from 'next/link';
+import { AdminPrimaryButton } from './AdminPrimaryButton';
+import { VoltarConfiguracoes } from './VoltarConfiguracoes';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import styles from './admin.module.css';
@@ -98,11 +99,11 @@ export default function WhatsappConfiguracao() {
     } catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível iniciar a conexão.'); setOcupado(false); }
   }
 
-  return <main className={styles.page}><Link href="/admin/configuracoes">Voltar às configurações</Link><h1>WhatsApp</h1><p>Conecte uma conta pelo fluxo oficial da Meta com suporte ao WhatsApp Business App.</p>
+  return <main className={styles.page}><VoltarConfiguracoes /><h1>WhatsApp</h1><p>Conecte uma conta pelo fluxo oficial da Meta com suporte ao WhatsApp Business App.</p>
     {erro && <p role="alert">{erro}</p>}{aviso && <p role="status" className={whatsapp.pending}>{aviso}</p>}
     {!data ? <p>Carregando…</p> : <><section className={whatsapp.status}><strong>{rotulos[data.estado] ?? 'Ação necessária'}</strong>{data.conexao ? <><p>{data.conexao.nomeVerificado} · {data.conexao.numeroExibicao}</p><p className={whatsapp.technical}>Conta Meta e número foram conferidos. Webhook, mensagens e OTP permanecem desativados.</p></> : <p>Nenhuma conexão WhatsApp está ativa neste ambiente.</p>}</section>
       {!data.metaConfigurada && <p className={whatsapp.pending}>Configuração Meta pendente. Informe no Render os dados e o snippet atual do Embedded Signup antes de iniciar.</p>}
-      {!data.conexao && <section className={styles.card}><h2>Conectar WhatsApp Business</h2><p>Use somente um número secundário e controlado no staging. O número oficial da Kidmais não deve ser conectado nesta etapa.</p><div className={whatsapp.actions}><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label><button disabled={ocupado || !senha || !data.metaConfigurada} onClick={conectar}>{ocupado ? 'Aguardando…' : 'Conectar WhatsApp Business'}</button></div></section>}
+      {!data.conexao && <section className={styles.card}><h2>Conectar WhatsApp Business</h2><p>Use somente um número secundário e controlado no staging. O número oficial da Kidmais não deve ser conectado nesta etapa.</p><div className={whatsapp.actions}><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senha || !data.metaConfigurada} onClick={conectar}>Conectar WhatsApp Business</AdminPrimaryButton></div></section>}
       <section className={styles.card}><h2>Próximas etapas</h2><p>Testar envio e Desconectar serão habilitados em blocos posteriores. Nenhuma mensagem ou OTP é enviado por esta tela.</p><button disabled>Testar</button><button disabled>Desconectar</button></section></>}
   </main>;
 }

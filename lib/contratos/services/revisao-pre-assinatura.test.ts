@@ -23,9 +23,11 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
     const copias:unknown[]=[],antiga={id:'r1',operacao:{dataEvento:'2026-10-20',convidados:90},estado:'CONGELADA'};
     const auditorias:Record<string,unknown>[]=[],sqls:string[]=[];
     let contratoStatus=vigente?'ASSINADO':'AGUARDANDO_ASSINATURA';
+    let capacidadeAssinar=true;
     const tx={query:async(sql:string,p:unknown[]=[])=>{
         sqls.push(sql);let rows:unknown[]=[];
-        if(sql.startsWith('SELECT id,fechamento_id,status'))rows=[{id:'c',fechamento_id:'f',status:contratoStatus}];
+        if(sql.startsWith('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE'))rows=p[1]==='empresa-a'?[{id:'f'}]:[];
+        else if(sql.startsWith('SELECT id,fechamento_id,status'))rows=[{id:'c',fechamento_id:'f',status:contratoStatus}];
         else if(sql.startsWith('SELECT status FROM contratos'))rows=[{status:contratoStatus}];
         else if(sql.startsWith('SELECT * FROM contrato_fluxos'))rows=[{...fluxo}];
         else if(sql.startsWith('SELECT * FROM contrato_edicoes'))rows=[{contrato_id:'c',contrato_versao_id:p[0],origem_versao_id:p[0]==='v1'?null:'v1',estado:edicoes[String(p[0])],revisao:1,dados_fonte:{schemaVersao:1}}];
@@ -38,6 +40,8 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
         else if(sql.startsWith('UPDATE contrato_fluxos'))fluxo.versao_em_preparacao_id=null;
         else if(sql.startsWith('SELECT max(numero_versao)'))rows=[{n:versoes.length+1}];
         else if(sql.startsWith('SELECT id FROM usuarios'))rows=[{id:'u'}];
+        // 057: capability de assinatura da membership comprovada (m) na empresa comprovada (empresa-a).
+        else if(sql.startsWith('SELECT 1 FROM empresa_membership_capacidades')){assert.deepEqual(p,['m','empresa-a']);rows=capacidadeAssinar?[{}]:[];}
         else if(sql.startsWith('INSERT INTO contrato_edicoes'))edicoes[String(p[0])]='EM_ELABORACAO';
         else if(sql.startsWith('INSERT INTO contrato_fluxos'))fluxo.versao_em_preparacao_id=String(p[1]);
         else if(!sql.includes('FOR UPDATE'))throw Error('SQL inesperado: '+sql);
@@ -45,13 +49,15 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
     }};
     const mod=carregar('lib/contratos/services/administrativo.service.ts',{
         '../../db/postgres':{withTransaction:async(fn:(tx:unknown)=>unknown)=>fn(tx)},
-        '../../autenticacao/service':{consultarSessao:async()=>({usuario_id:'u',papel:'REPRESENTANTE_AUTORIZADO',autenticado_em:new Date().toISOString()})},
+        '../../autenticacao/service':{authError:(m:string,s:number)=>Object.assign(new Error(m),{status:s}),consultarSessao:async()=>({usuario_id:'u',papel:'REPRESENTANTE_AUTORIZADO',autenticado_em:new Date().toISOString()})},
         '../../fechamentos/services/edicao-administrativa-schema':carregar('lib/fechamentos/services/edicao-administrativa-schema.ts',{}),
         './snapshot-core':{hashSnapshotContrato},'./errors':{ContratoServiceError:Falha},
         './alteracoes':{diferencasContratuais},
         './revisao-inicial':carregar('lib/contratos/services/revisao-inicial.ts',{'./errors':{ContratoServiceError:Falha}}),
         './contrato.service':{carregarSnapshot:async()=>({snapshot})},
-        '../../fechamentos/repositories':{buscarFechamentoPorIdParaAtualizacao:async()=>({id:'f'})},
+        // PR-B1: toda ação prova o tenant da sessão e o compara com a empresa do fechamento.
+        '../../saas/provar-tenant':{provarTenant:async()=>({empresaComprovada:'empresa-a',membershipId:'m',usuarioId:'u',papelAtual:'REPRESENTANTE_AUTORIZADO'})},
+        '../../fechamentos/repositories':{buscarFechamentoPorIdParaAtualizacao:async()=>({id:'f'}),empresaDoFechamentoSemTrava:async()=>'empresa-a'},
         '../repositories':{buscarVersaoPorId:async(id:string)=>versoes.find(v=>v.id===id),criarContratoVersao:async(v:typeof original)=>{const next={...v,id:'v'+(versoes.length+1),status:'ATIVA'};versoes.push(next);return next;}},
         '../../fechamentos/repositories/revisao.repository':{
             buscarRevisaoDaVersao:async()=>vigente?antiga:null,
@@ -69,6 +75,7 @@ function ambiente(estado='AGUARDANDO_CLIENTE',vigente=false) {
     const operar=mod.operarContrato as (id:string,body:object,token:string,ctx:object)=>Promise<{versaoId:string;reutilizado?:boolean}>;
     return {original,versoes,edicoes,fluxo,sqls,auditorias,tx,operar,copias,
         substituir:(extra:object={})=>operar('v1',{acao:'substituir_preparacao',motivo:'Correção solicitada',chaveCriacao:chave,...extra},'sintetico',{requestId:chave}),
+        semCapacidadeAssinar:()=>{capacidadeAssinar=false;},
         assinarAntes:()=>{original.status='ASSINADA';edicoes.v1='CONCLUIDA';contratoStatus='ASSINADO';},
     };
 }
@@ -89,6 +96,14 @@ for(const estado of ['ASSINADA_KIDMAIS','AGUARDANDO_CLIENTE'])test(`${estado}: s
     a.edicoes.v2='ASSINADA_KIDMAIS';
     await a.operar('v2',{acao:'liberar',revisao:1},'sintetico',{});
     assert.equal(a.edicoes.v2,'AGUARDANDO_CLIENTE');assert.equal(a.edicoes.v1,'CANCELADA');
+});
+test('057: Gestão desta empresa SEM a capability CONTRATO_ASSINAR_EMPRESA não assina; nada é gravado',async()=>{
+    const a=ambiente('ASSINADA_KIDMAIS');
+    await a.substituir();
+    a.semCapacidadeAssinar();
+    const chave2='33333333-3333-4333-8333-333333333333';
+    await assert.rejects(a.operar('v2',{acao:'assinar',revisao:1,documentoId:chave2,chaveIdempotencia:chave2},'sintetico',{}),/não tem permissão para assinar contratos por esta empresa/);
+    assert(!a.sqls.some(s=>/INSERT INTO contrato_assinaturas/.test(s)));
 });
 test('substituir revisão congelada de contrato com vigência conserva base/Festa e dados propostos',async()=>{
     const a=ambiente('AGUARDANDO_CLIENTE',true),base=structuredClone(a.versoes[0]);

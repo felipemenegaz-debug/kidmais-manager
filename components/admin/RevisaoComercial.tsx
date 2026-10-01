@@ -72,17 +72,17 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     finally { setOcupado(false); }
   }
   return <main className={styles.page}>
-    <p className={styles.brand}>KIDMAIS MANAGER · COMERCIAL</p>
-    <h1>Revisão do fechamento</h1>
-    <p>A proposta do cliente e a condição aprovada ficam registradas separadamente.</p>
+    <h1>Revisar condição comercial</h1>
+    <p>Confira a proposta e registre a decisão antes de gerar o contrato.</p>
     {erro && <p role="alert" className={styles.error}>{erro}</p>}
     {mensagem && <p role="status">{mensagem}</p>}
     {contratoGerado && <a href={`/api/admin/contratos/resumo?fechamentoId=${encodeURIComponent(fechamentoId)}`} target="_blank" rel="noreferrer">Abrir Resumo da Contratação</a>}
     {contratoGerado && <p><a href="/admin/contratos">Abrir revisão e assinatura administrativa do Contrato</a></p>}
     {!f && !erro && <p>Carregando fechamento…</p>}
     {f && <>
+      <section className={styles.card}><h2>Cliente e festa</h2>{f.clienteId && <a href={`/clientes/${encodeURIComponent(f.clienteId)}`}>Conferir cadastro do cliente</a>}<p>{f.dataEvento.split('-').reverse().join('/')} · {f.horarioInicio.slice(0,5)}–{f.horarioFim.slice(0,5)} · {f.convidados} convidados</p>{f.temaFesta && <p>Tema: {f.temaFesta}</p>}</section>
       <section className={styles.card}>
-        <h2>{formatarFormaPagamento(f.formaPagamentoPretendida)}</h2>
+        <h2>Condições comerciais e pagamento</h2><p>{formatarFormaPagamento(f.formaPagamentoPretendida)}</p>
         <p>Estado: {f.status}</p>
         <p>Valor de tabela: <strong>{formatarMoeda(f.valorTabela)}</strong></p>
         {f.valorNegociado !== null && <p>Base negociada proposta: {formatarMoeda(f.valorNegociado)}</p>}
@@ -102,7 +102,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
             <label>Quantidade de parcelas<input type="number" min="1" step="1" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} /></label>
           </div>
         </fieldset>}
-        <label>Motivo da decisão<textarea maxLength={1000} value={motivo} onChange={(e) => setMotivo(e.target.value)} /></label>
+        <label>Motivo da decisão<textarea maxLength={1000} value={motivo} onChange={(e) => setMotivo(e.target.value)} />{!motivo.trim() && <small>Informe o motivo para registrar a decisão.</small>}</label>
         <label className={styles.check}><input type="checkbox" checked={conferido} onChange={(e) => setConferido(e.target.checked)} />Conferi o valor e as condições com o cliente.</label>
         <div className={styles.actions}>
           <button disabled={ocupado} onClick={() => decidir("APROVAR")}>Aprovar condição</button>

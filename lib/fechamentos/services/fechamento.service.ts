@@ -1,3 +1,4 @@
+import { buscarClientePorId } from "../../clientes/repositories";
 import { calcularResumoComercial } from "../../comercial/services";
 import { centavosComerciais, validarPretensaoPix, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
 import type { DbExecutor } from "../../db/contracts";
@@ -9,6 +10,7 @@ import {
   type FechamentoAdicionalRecord,
 } from "../repositories";
 import { FechamentoServiceError } from "./errors";
+import { gravarFotografiaPacoteFechamento } from "./pacote-snapshot";
 import type {
   CriarFechamentoComercialInput,
   CriarFechamentoComercialResult,
@@ -80,6 +82,20 @@ async function criarFechamentoComercialNaTransacao(
     },
     tx,
   );
+
+  // Nova associação cliente↔fechamento: as duas empresas comprovadas e iguais. A empresa do
+  // fechamento é a do pacote gravado; a do cliente é imutável. A 054 repete no banco.
+  if (input.clienteId) {
+    const empresaDoPacote = resumoComercial.pacote.pacote.empresaId ?? null;
+    const cliente = await buscarClientePorId(input.clienteId, tx);
+    if (!cliente || !empresaDoPacote || cliente.empresaId === null || cliente.empresaId !== empresaDoPacote) {
+      throw new FechamentoServiceError(
+        "EMPRESA_INCOMPATIVEL",
+        "Cliente e pacote não pertencem à mesma empresa.",
+        409,
+      );
+    }
+  }
 
   const valorTabela = arredondarDinheiro(resumoComercial.valorTotalTabela);
   const valorProposto = centavosComerciais(input.valorProposto) / 100;
@@ -170,6 +186,8 @@ async function criarFechamentoComercialNaTransacao(
       ),
     );
   }
+
+  await gravarFotografiaPacoteFechamento(tx, fechamento, resumoComercial);
 
   const aprovacaoNegociacao = revisaoNecessaria
     ? await criarAprovacaoNegociacao(

@@ -399,7 +399,7 @@ export default function ClienteForm({ mode, clienteId }: { mode: "create" | "edi
 
           <div className={styles.formActions}>
             <Link className={styles.secondaryButton} href={voltar}>Cancelar</Link>
-            <button className={styles.primaryButton} type="submit" disabled={salvando || consultandoCep || Boolean(cpfExistente) || (mode === "create" && contatoDuplicado?.status === "INATIVO")}>{salvando ? "Salvando..." : consultandoCep ? "Buscando CEP..." : "Salvar cliente"}</button>
+            <button className={styles.cta} type="submit" disabled={salvando || consultandoCep || Boolean(cpfExistente) || (mode === "create" && contatoDuplicado?.status === "INATIVO")}>{salvando ? "Salvando..." : consultandoCep ? "Buscando CEP..." : "Salvar cliente"}</button>
           </div>
         </form>
       </div>

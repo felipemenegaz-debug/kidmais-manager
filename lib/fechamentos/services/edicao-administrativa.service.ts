@@ -4,20 +4,14 @@ import { calcularResumoComercial } from '../../comercial/services';
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix } from '../../comercial/condicao-pagamento';
 import { consultarDisponibilidadeData } from '../../disponibilidade/services';
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
-import { buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, listarAdicionaisDoFechamento } from '../repositories';
+import { buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamentoComTrava, listarAdicionaisDoFechamento } from '../repositories';
 import { persistirEdicaoFechamento } from '../repositories/edicao.repository';
 import { registrarAuditoria } from '../../clientes/repositories';
 import { FechamentoServiceError } from './errors';
 import { edicaoFestaSchema, type EdicaoFestaInput } from './edicao-administrativa-schema';
+import { fotografarEstadoFechamento } from './pacote-snapshot';
+import { listarCodigosInclusos } from '../../comercial/composicao';
 function recusar(mensagem: string): never { throw new FechamentoServiceError('DADOS_INVALIDOS', mensagem, 409); }
-// Itens já incluídos conforme a composição publicada dos pacotes; preferências não são cobrança.
-export function adicionaisIncluidos(codigo: string): string[] {
-    // Combos oficiais 006 contêm penne / crepe + sorvete. Para não repetir
-    // cobrança, selecione os itens avulsos que ainda não pertencem ao pacote.
-    const completa = ['PENNE', 'CREPE_1_SABOR', 'SORVETE', 'COMBO_ADULTOS', 'COMBO_LANCHINHOS'];
-    // BOMBOM identifica somente unidades extras; os 4 incluídos não entram nesta seleção.
-    return codigo === 'PREMIUM' ? [...completa, 'CREPE_2_SABORES', 'PASTELZINHO', 'EMPRATADO_PREMIUM', 'SALADA_PREMIUM'] : codigo === 'COMPLETA' ? completa : [];
-}
 export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFestaInput, usuarioId: string, requestId: string, tx: DbExecutor) {
     const input = edicaoFestaSchema.parse(raw);
     if(input.vinculos) recusar('Troca de vínculos exige preparação operacional pós-assinatura.');
@@ -32,7 +26,8 @@ export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFest
     const { fechamento: novo, resumo } = await calcularEdicaoFechamento(f, input, tx);
     if (input.comercial) await criarAprovacaoNegociacao({ fechamentoId: id, status: 'APROVADO', valorInformado: resumo.valorTotalTabela, valorAprovado: novo.valorAprovado ?? resumo.valorTotalTabela, motivo: input.motivo, aprovadoPorUsuarioId: usuarioId, condicaoPagamento: { ...novo.condicaoPagamento!, valores: calcularCondicaoComercial(novo.valorAprovado ?? resumo.valorTotalTabela, input.comercial.forma) } }, tx);
     await persistirEdicaoFechamento(tx, novo, resumo);
-    await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, clienteId: f.clienteId, acao: 'ALTERACAO_ADMINISTRATIVA', entidadeTipo: 'FECHAMENTO', entidadeId: id, origem: 'CONTRATO_ADMIN', requestId, dadosAntes: { fechamento: f, adicionais: anteriorAdicionais }, dadosDepois: { fechamento: novo, adicionais: resumo.adicionais.itens, motivo: input.motivo } }, tx);
+    const fotografia = await fotografarEstadoFechamento(tx, id, { motivo: input.motivo, atorUsuarioId: usuarioId });
+    await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, clienteId: f.clienteId, acao: 'ALTERACAO_ADMINISTRATIVA', entidadeTipo: 'FECHAMENTO', entidadeId: id, origem: 'CONTRATO_ADMIN', requestId, dadosAntes: { fechamento: f, adicionais: anteriorAdicionais }, dadosDepois: { fechamento: novo, adicionais: resumo.adicionais.itens, motivo: input.motivo, pacoteSnapshotId: fotografia?.id ?? null, empresaId: fotografia?.empresaId ?? null } }, tx);
     return (await buscarFechamentoPorIdParaAtualizacao(id, tx))!;
 }
 
@@ -40,10 +35,15 @@ export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFest
 export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoFestaInput, tx: DbExecutor) {
     const input = edicaoFestaSchema.parse(raw);
     if (input.vinculos) recusar('Troca de vínculos exige preparação operacional pós-assinatura.');
-    const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais }, tx);
+    // A empresa vem do fechamento gravado; o pacote do pedido não pode trocá-la.
+    // Pós-autorização: os chamadores já compararam o tenant e travaram o fechamento.
+    const empresaEsperada = await empresaDoFechamentoComTrava(f.id, tx);
+    if (empresaEsperada === undefined) recusar('Fechamento não encontrado.');
+    const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx);
     if (input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
         recusar('Quantidade abaixo do mínimo do pacote.');
-    if (resumo.adicionais.itens.some(a => adicionaisIncluidos(resumo.pacote.pacote.codigo).includes(a.codigo)))
+    const inclusos = await listarCodigosInclusos(tx, resumo.pacote.pacote.id, empresaEsperada);
+    if (resumo.adicionais.itens.some(a => inclusos.includes(a.codigo)))
         recusar('Há adicional ou combo com item já incluído no pacote. Remova a cobrança duplicada e selecione os itens avulsos necessários.');
     const mudouAgenda = f.dataEvento !== input.dataEvento || f.horarioInicio.slice(0, 5) !== input.horarioInicio.slice(0, 5) || f.horarioFim.slice(0, 5) !== input.horarioFim.slice(0, 5) || f.configuracaoAgendaId !== input.configuracaoAgendaId;
     if (mudouAgenda) {

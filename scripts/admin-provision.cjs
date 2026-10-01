@@ -33,12 +33,16 @@ function segredo(prompt) {
         process.stdin.on('data', receive);
     });
 }
-async function provisionar(client, input) {
+async function hashDaSenha(senha) {
     const { criarHashSenha } = await import('../lib/autenticacao/senha.ts');
-    const hash = input.senha ? await criarHashSenha(input.senha) : null;
+    return criarHashSenha(senha);
+}
+async function provisionar(client, input) {
+    const hash = input.senha ? await hashDaSenha(input.senha) : null;
     await client.query('BEGIN');
     try {
-        await client.query('LOCK TABLE usuarios_administrativos IN EXCLUSIVE MODE');
+        if (input.acao !== 'atualizar')
+            await client.query('LOCK TABLE usuarios_administrativos IN EXCLUSIVE MODE');
         const count = (await client.query('SELECT count(*)::int AS n FROM usuarios_administrativos')).rows[0].n;
         if (input.acao === 'bootstrap' && count !== 0)
             throw Error('Bootstrap recusado: já existe usuário administrativo.');
@@ -54,13 +58,42 @@ async function provisionar(client, input) {
             user = (await client.query('INSERT INTO usuarios_administrativos(email,nome,cargo,senha_hash,papel) VALUES($1,$2,$3,$4,$5) RETURNING id,email,nome,papel,ativo', [email, input.nome.trim(), input.cargo?.trim() || null, hash, input.acao === 'bootstrap' ? 'REPRESENTANTE_AUTORIZADO' : input.papel])).rows[0];
         }
         else {
-            const old = (await client.query('SELECT id FROM usuarios_administrativos WHERE email=$1 FOR UPDATE', [email])).rows[0];
-            if (!old)
-                throw Error('Usuário não encontrado.');
+            const { aplicarProtecaoPerfilNaAtualizacao, revogarConcessoesAtivasDoUsuario, registrarAuditoriaCli } = require('../lib/perfil/protecao-cli.cjs');
+            const executor = { query: (text, values) => client.query(text, values ? [...values] : []) };
+            const efeito = await aplicarProtecaoPerfilNaAtualizacao(executor, {
+                email,
+                papelDepois: input.papel,
+                ativoDepois: input.ativo,
+                operadorEmail: input.operadorEmail || null,
+            });
+            const old = efeito.usuario;
+            const operadorId = efeito.operadorId;
+            if (efeito.recusado) {
+                await registrarAuditoriaCli(executor, {
+                    usuarioId: operadorId, acao: 'PERFIL_REVOGACAO_RECUSADA',
+                    entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: old.id,
+                    dadosDepois: { empresas: efeito.empresasBloqueadas, operacao: 'atualizar' },
+                    justificativa: efeito.mensagem, origem: 'CLI_PROVISIONAMENTO', requestId: randomUUID(),
+                });
+                await client.query('COMMIT');
+                const recusa = Error(efeito.mensagem);
+                recusa.recusaConfirmada = true;
+                throw recusa;
+            }
             user = (await client.query(`UPDATE usuarios_administrativos SET papel=$2,ativo=$3,
     senha_hash=COALESCE($4,senha_hash),senha_alterada_em=CASE WHEN $4::text IS NOT NULL THEN clock_timestamp() ELSE senha_alterada_em END
     WHERE id=$1 RETURNING id,email,nome,papel,ativo`, [old.id, input.papel, input.ativo, hash])).rows[0];
-            await client.query('UPDATE sessoes_administrativas SET revogado_em=clock_timestamp() WHERE usuario_id=$1 AND revogado_em IS NULL', [old.id]);
+            if (!(efeito.retiradaGestaoSemEncerrarSessao && !hash))
+                await client.query('UPDATE sessoes_administrativas SET revogado_em=clock_timestamp() WHERE usuario_id=$1 AND revogado_em IS NULL', [old.id]);
+            if (efeito.revogar) {
+                const motivo = input.ativo === false ? 'Desativação da conta administrativa' : 'Retirada do papel Gestão';
+                const concessoes = await revogarConcessoesAtivasDoUsuario(executor, { usuarioId: old.id, operadorId, motivo });
+                await registrarAuditoriaCli(executor, {
+                    usuarioId: operadorId, acao: 'PERFIL_REVOGADO_NA_ATUALIZACAO',
+                    entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: old.id,
+                    dadosDepois: { concessoes: concessoes.map((linha) => linha.id) }, origem: 'CLI_PROVISIONAMENTO', requestId: randomUUID(),
+                });
+            }
         }
         await client.query(`INSERT INTO auditoria(ator_tipo,acao,entidade_tipo,entidade_id,dados_depois,origem,request_id)
    VALUES('SISTEMA',$1,'USUARIO_ADMINISTRATIVO',$2,$3,'CLI_PROVISIONAMENTO',$4)`, ['ADMIN_' + input.acao.toUpperCase(), user.id, user, randomUUID()]);
@@ -68,7 +101,8 @@ async function provisionar(client, input) {
         return user;
     }
     catch (e) {
-        await client.query('ROLLBACK');
+        if (!e.recusaConfirmada)
+            await client.query('ROLLBACK');
         throw e;
     }
 }
@@ -83,6 +117,7 @@ async function main() {
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
         const email = await rl.question('Email: '), nome = action === 'atualizar' ? '' : await rl.question('Nome: '), cargo = action === 'atualizar' ? '' : await rl.question('Cargo (opcional): ');
         const papel = action === 'bootstrap' ? 'REPRESENTANTE_AUTORIZADO' : await rl.question('Papel (ADMINISTRATIVO ou REPRESENTANTE_AUTORIZADO): ');
+        const operadorEmail = action === 'atualizar' ? (await rl.question('Email do operador, se a mudança puder revogar concessões do perfil: ')).trim() : '';
         const ativo = action === 'atualizar' ? (await rl.question('Manter ativo? (sim/não): ')).toLowerCase() === 'sim' : true;
         const changePassword = action !== 'atualizar' || (await rl.question('Redefinir senha? (sim/não): ')).toLowerCase() === 'sim';
         rl.close();
@@ -97,7 +132,7 @@ async function main() {
         confirm.close();
         if (answer !== 'CONFIRMAR')
             throw Error('Operação cancelada.');
-        const user = await provisionar(c, { acao: action, email, nome, cargo, papel, ativo, senha });
+        const user = await provisionar(c, { acao: action, email, nome, cargo, papel, ativo, senha, operadorEmail: operadorEmail || null });
         console.log(JSON.stringify({ id: user.id, email: user.email, papel: user.papel, ativo: user.ativo }));
     }
     finally {

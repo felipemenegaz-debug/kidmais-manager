@@ -45,3 +45,7 @@ SELECT encode(sha256(convert_to(documento::text,'UTF8')),'hex') assinatura FROM 
 
 // Obtida exclusivamente do clone com aplicação limpa + postcheck da migration final.
 export const assinaturaEstruturaFesta016 = "d723f81def59be627132230aa6de2e00b0b509d48f20b0e0701afd7eb99650d7";
+// 016 + 056 (área por empresa/estabelecimento, capacidade global congelada, vínculo de tarefa/pendência na empresa):
+// obtida do banco montado pela receita canônica (scripts/regressao-v1-postgres-receita.cjs, estado "atual").
+// O código atual exige a 056: sem ela o módulo Festa responde indisponível (fail closed).
+export const assinaturaEstruturaFestaAtual = "2cf91b8100e2254f0e559afc3f51c764523cb86d4c9d468c4f3be18795b407ff";

@@ -1,19 +1,9 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { arquivosDoCheckEstatico } = require("./regressao-v1-selecao.cjs");
 
 const raiz = path.resolve(__dirname, "..");
-
-function arquivosTeste(diretorio) {
-  const encontrados = [];
-  for (const item of fs.readdirSync(diretorio, { withFileTypes: true })) {
-    const caminho = path.join(diretorio, item.name);
-    if (item.isDirectory()) encontrados.push(...arquivosTeste(caminho));
-    else if (item.name.endsWith(".test.ts")) encontrados.push(caminho);
-  }
-  return encontrados;
-}
 
 function executar(nome, argumentos) {
   console.log(`\n=== ${nome} ===`);
@@ -26,9 +16,7 @@ function executar(nome, argumentos) {
   if (resultado.status !== 0) process.exit(resultado.status ?? 1);
 }
 
-const testes = ["app", "components", "lib"]
-  .flatMap((pasta) => arquivosTeste(path.join(raiz, pasta)))
-  .sort();
+const testes = arquivosDoCheckEstatico(raiz);
 
 executar("Testes unitários V1", ["--experimental-strip-types", "--test", ...testes]);
 executar("Harness staging — somente mocks, sem rede/banco", ["--test", "scripts/staging-smoke/smoke.test.mjs"]);

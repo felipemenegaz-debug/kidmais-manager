@@ -25,9 +25,12 @@ import {
   criarContrato,
   criarContratoVersao,
   substituirVersaoAtiva,
+  type ContratoSnapshot,
   type ContratoSnapshotV1,
+  type PacoteAplicadoContrato,
   type ReferenciasComerciaisContrato,
 } from "../repositories";
+import { lerFotografiaPacoteVigente } from "./fotografia-pacote";
 import { ContratoServiceError } from "./errors";
 import type {
   ContratoServiceContext,
@@ -170,6 +173,26 @@ bombom: fechamento.buffetBombom ?? null,
   };
 }
 
+function referenciasDaFotografia(aplicada: PacoteAplicadoContrato): ReferenciasComerciaisContrato {
+  return {
+    pacoteId: aplicada.pacoteId,
+    pacoteCodigo: aplicada.codigo,
+    pacoteNome: aplicada.nome,
+    pacoteDuracaoMinutos: aplicada.duracaoMinutos,
+    tabelaPrecoId: aplicada.tabelaPreco.id,
+    tabelaPrecoCodigo: aplicada.tabelaPreco.codigo,
+    tabelaPrecoNome: aplicada.tabelaPreco.nome,
+  };
+}
+
+function comFotografia(base: ContratoSnapshotV1, aplicada: PacoteAplicadoContrato): ContratoSnapshot {
+  return {
+    ...base,
+    schemaVersao: 2,
+    pacoteAplicado: aplicada,
+  };
+}
+
 function pendenciasParaAssinatura(fechamento: FechamentoRecord) {
   const pendencias: Array<{ campo: string; label: string }> = [];
   if (!fechamento.formaPagamentoPretendida) {
@@ -186,7 +209,7 @@ export async function carregarSnapshot(
   tx: DbExecutor,
   preparacao?: { id: string; adicionais: FechamentoAdicionalRecord[] },
 ): Promise<{
-  snapshot: ContratoSnapshotV1;
+  snapshot: ContratoSnapshot;
   cliente: ClienteRecord;
 }> {
   if (!fechamento.clienteId) {
@@ -225,7 +248,10 @@ export async function carregarSnapshot(
 
   const aniversariante=await buscarAniversariantePorId(fechamento.aniversarianteId, tx);
   const adicionais=preparacao ? preparacao.adicionais : await listarAdicionaisDoFechamento(fechamento.id, tx);
-  const referencias=await buscarReferenciasComerciaisContrato(fechamento.id, tx, preparacao?.id);
+  const aplicada = preparacao ? null : await lerFotografiaPacoteVigente(tx, fechamento.id);
+  const referencias = aplicada
+    ? referenciasDaFotografia(aplicada)
+    : await buscarReferenciasComerciaisContrato(fechamento.id, tx, preparacao?.id);
 
   if (!aniversariante) {
     throw new ContratoServiceError(
@@ -257,16 +283,17 @@ export async function carregarSnapshot(
     }
   }
 
+  const base = montarSnapshotContratoV1({
+    fechamento,
+    cliente,
+    aniversariante,
+    responsavelAdicional,
+    adicionais,
+    referencias,
+  });
   return {
     cliente,
-    snapshot: montarSnapshotContratoV1({
-      fechamento,
-      cliente,
-      aniversariante,
-      responsavelAdicional,
-      adicionais,
-      referencias,
-    }),
+    snapshot: aplicada ? comFotografia(base, aplicada) : base,
   };
 }
 
@@ -274,7 +301,8 @@ export async function gerarContrato(
   input: GerarContratoInput,
   context: ContratoServiceContext,
 ): Promise<GerarContratoResult> {
-  return withTransaction(async (tx) => {
+  const emTransacao = <T>(trabalho: (tx: DbExecutor) => Promise<T>) => (context.executor ? trabalho(context.executor) : withTransaction(trabalho));
+  return emTransacao(async (tx) => {
     const fechamento = await buscarFechamentoPorIdParaAtualizacao(
       input.fechamentoId,
       tx,
@@ -450,8 +478,9 @@ export async function gerarContrato(
   });
 }
 
-export async function obterContratoPorFechamento(fechamentoId: string) {
-  const contrato = await buscarContratoPorFechamentoId(fechamentoId);
+/** D1: com `tx`, as consultas rodam na transação do chamador (prova de tenant). */
+export async function obterContratoPorFechamento(fechamentoId: string, tx?: DbExecutor) {
+  const contrato = await buscarContratoPorFechamentoId(fechamentoId, tx);
   if (!contrato) {
     throw new ContratoServiceError(
       "CONTRATO_NAO_ENCONTRADO",
@@ -460,7 +489,7 @@ export async function obterContratoPorFechamento(fechamentoId: string) {
     );
   }
 
-  const versao = await buscarVersaoCorrente(contrato.id);
+  const versao = await buscarVersaoCorrente(contrato.id, tx);
   if (!versao) {
     throw new ContratoServiceError(
       "DADOS_CONTRATUAIS_INCONSISTENTES",

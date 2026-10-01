@@ -6,6 +6,11 @@ import {
   obterContratoPorFechamento,
 } from "@/lib/contratos/services";
 import { isClienteServiceError } from "@/lib/clientes/services";
+import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
+import { executarComPosseNoTenant, fechamentoNoTenant } from "@/lib/contratos/services/contrato-tenant";
+import { ResumoTenantError } from "@/lib/contratos/services/resumo-tenant";
+import { apiErrorResponse } from "@/lib/http/api-response";
+import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 import {
   contextoCrmDaRequest,
   exigirApiAdminCrmDisponivel,
@@ -27,6 +32,8 @@ function noStore(response: NextResponse) {
 }
 
 function erroContrato(error: unknown) {
+  // Fechamento fora do tenant (404 igual) ou tenant não comprovado (403).
+  if (error instanceof ResumoTenantError || error instanceof PacoteAdminError) return apiErrorResponse(error);
   if (isContratoServiceError(error) || isClienteServiceError(error)) {
     return noStore(
       NextResponse.json(
@@ -56,7 +63,7 @@ function erroContrato(error: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    await exigirApiAdminCrmDisponivel(request);
+    const sessao = await exigirApiAdminCrmDisponivel(request);
     const fechamentoId = request.nextUrl.searchParams.get("fechamentoId") ?? "";
     const parsed = z.string().uuid().safeParse(fechamentoId);
     if (!parsed.success) {
@@ -72,7 +79,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const data = await obterContratoPorFechamento(parsed.data);
+    // B2/D1: posse do fechamento e leitura do contrato (snapshot com dados pessoais) na MESMA transação.
+    const data = await executarComPosseNoTenant(sessao, request.nextUrl.searchParams.get("empresaId"), parsed.data, fechamentoNoTenant, { withTenantTransaction }, (tx) => obterContratoPorFechamento(parsed.data, tx));
     return noStore(NextResponse.json({ ok: true, data }));
   } catch (error) {
     return erroContrato(error);
@@ -81,7 +89,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await exigirApiAdminCrmDisponivel(request);
+    const sessao = await exigirApiAdminCrmDisponivel(request);
 
     let body: unknown;
     try {
@@ -110,14 +118,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // B2/C2: tenant + posse do fechamento e geração do contrato na MESMA transação (executor).
     const crm = contextoCrmDaRequest(request);
-    const data = await gerarContrato(parsed.data, {
+    const data = await executarComPosseNoTenant(sessao, request.nextUrl.searchParams.get("empresaId"), parsed.data.fechamentoId, fechamentoNoTenant, { withTenantTransaction }, (tx) => gerarContrato(parsed.data, {
       usuarioId: crm.usuarioId,
       origem: "CONTRATO_INTERNO_DEV",
       requestId: crm.requestId,
       ip: crm.ip,
       userAgent: crm.userAgent,
-    });
+      executor: tx,
+    }));
 
     return noStore(
       NextResponse.json(

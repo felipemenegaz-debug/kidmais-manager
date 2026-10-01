@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { listarClientesApi, type ClienteListaApiItem } from "@/lib/clientes/api-client";
 import { formatTelefone } from "@/lib/clientes/utils";
-import KidmaisBrand from "@/components/layout/KidmaisBrand";
 import styles from "./Clientes.module.css";
 
 export default function ClientesPage() {
@@ -45,11 +44,6 @@ export default function ClientesPage() {
       <div className={styles.decoracaoUm} />
       <div className={styles.decoracaoDois} />
       <div className={styles.shell}>
-        <header className={styles.topbar}>
-          <KidmaisBrand context="manager" href="/clientes" subtitle="Gestão de clientes e festas" />
-          <Link className={styles.topLink} href="/fechamento?origem=ATENDIMENTO_KIDMAIS&contexto=ADMIN">Fechamento</Link>
-        </header>
-
         <section className={styles.pageHeader}>
           <div>
             <p className={styles.eyebrow}>Relacionamento</p>
@@ -57,8 +51,9 @@ export default function ClientesPage() {
             <p>Encontre famílias, acompanhe festas e inicie novos fechamentos.</p>
           </div>
           <div className={styles.headerActions}>
+            <Link className={styles.secondaryButton} href="/fechamento?origem=ATENDIMENTO_KIDMAIS&contexto=ADMIN">Fechamento</Link>
             <Link className={styles.secondaryButton} href="/clientes/lixeira">Lixeira / Arquivados</Link>
-            <Link className={styles.primaryButton} href="/clientes/novo">+ Novo cliente</Link>
+            <Link className={styles.cta} href="/clientes/novo">+ Novo cliente</Link>
           </div>
         </section>
 
@@ -91,7 +86,7 @@ export default function ClientesPage() {
             <div className={styles.emptyIcon}>👥</div>
             <h2>Nenhum cliente encontrado</h2>
             <p>Revise a busca ou cadastre uma nova família.</p>
-            <Link className={styles.primaryButton} href="/clientes/novo">+ Cadastrar novo cliente</Link>
+            <Link className={styles.cta} href="/clientes/novo">+ Cadastrar novo cliente</Link>
           </section>
         ) : !erro && (
           <>

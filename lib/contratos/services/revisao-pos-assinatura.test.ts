@@ -52,7 +52,8 @@ function ambiente() {
     const tx = { query: async (sql: string, values: unknown[] = []) => {
         queries.push(sql);
         let rows: unknown[] = [];
-        if (sql.startsWith('SELECT id,fechamento_id,status')) rows = [{ id: 'c', fechamento_id: 'f', status: contratoStatus }];
+        if (sql.startsWith('SELECT id FROM fechamentos WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE')) rows = values[1] === 'empresa-a' ? [{ id: 'f' }] : [];
+        else if (sql.startsWith('SELECT id,fechamento_id,status')) rows = [{ id: 'c', fechamento_id: 'f', status: contratoStatus }];
         else if (sql.startsWith('SELECT status FROM contratos')) rows = [{ status: contratoStatus }];
         else if (sql.startsWith('SELECT * FROM contrato_fluxos')) rows = [fluxo];
         else if (sql.startsWith('SELECT * FROM contrato_edicoes')) rows = [edicoes[String(values[0])]];
@@ -79,6 +80,9 @@ function ambiente() {
             criarContratoVersao: async (input: typeof origem) => { const v = { ...input, id: 'v2', status: 'ATIVA' }; versoes.push(v); return v; },
         },
         '../../fechamentos/repositories/revisao.repository': { buscarRevisaoDaVersao: async () => null },
+        // PR-B1: toda ação prova o tenant da sessão e o compara com a empresa do fechamento.
+        '../../saas/provar-tenant': { provarTenant: async () => ({ empresaComprovada: 'empresa-a', membershipId: 'm', usuarioId: 'u', papelAtual: 'REPRESENTANTE_AUTORIZADO' }) },
+        '../../fechamentos/repositories': { empresaDoFechamentoSemTrava: async () => 'empresa-a' },
         '../../fechamentos/services/revisao-operacional.service': {
             iniciarPreparacao: async () => ({ id: 'r' }), snapshotPreparacao: async (_tx: unknown, _r: unknown, v: typeof origem) => v.snapshot,
         },
@@ -97,7 +101,8 @@ test('nova revisão inicia elaboração, preserva V1/hash e mantém vigência/Fe
     assert.equal((await a.criar()).versaoId, 'v2');
     assert.equal(a.edicoes.v2.estado, 'EM_ELABORACAO'); assert.equal(a.fluxo.versao_vigente_id, 'v1');
     assert.equal(a.fluxo.versao_em_preparacao_id, 'v2'); assert.equal(JSON.stringify(a.versoes[0]), original);
-    assert(a.queries.some(s => s === 'SELECT id FROM contratos WHERE id=$1 FOR UPDATE'));
+    // PR-B1: o lock do contrato relê fechamento_id para conferir o recurso já comparado com o tenant.
+    assert(a.queries.some(s => s === 'SELECT id,fechamento_id FROM contratos WHERE id=$1 FOR UPDATE'));
     assert(!a.queries.some(s => /(?:UPDATE|DELETE FROM|INSERT INTO) (?:festas|fechamentos|pagamentos|contrato_documentos|contrato_assinaturas)\b/.test(s)));
 });
 test('motivo obrigatório recusa antes de consultar ou criar versão', async () => {

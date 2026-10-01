@@ -1,7 +1,8 @@
-import { withTransaction } from '../../db/postgres';
+import type { DbExecutor } from '../../db/contracts';
+import { naTransacao } from './transacao';
 import { lerPosicaoFinanceira, serializarFinanceiro } from '../repositories/alteracao-financeira.repository';
 
-export async function consultarPainelFinanceiro(contratoId:string){return withTransaction(async tx=>{
+export async function consultarPainelFinanceiro(contratoId:string,executor?:DbExecutor){return naTransacao(executor,async tx=>{
  const p=await lerPosicaoFinanceira(tx,contratoId);
  const eventos=(await tx.query<{id:string;tipo:string;criado_em:string;resultado:Record<string,unknown>;identidade_snapshot:Record<string,unknown>;justificativa:string|null}>('SELECT id,tipo,criado_em::text,resultado,identidade_snapshot,justificativa FROM pagamento_eventos WHERE pagamento_id=$1 ORDER BY sequencia',[p.pagamento.id])).rows;
  const origens=(await tx.query<{id:string;recebimento_id:string;parcela_id:string;disponivel_centavos:string;valor_bruto:string;recebido_em:string;meio_pagamento:string}>(`SELECT a.id,a.recebimento_id,a.parcela_id,r.valor_bruto::text,r.recebido_em::text,r.meio_pagamento,(a.valor_alocado*100-coalesce((SELECT sum(e.valor)*100 FROM pagamento_estornos e WHERE e.recebimento_id=a.recebimento_id AND e.parcela_id=a.parcela_id AND e.status IN ('SOLICITADO','CONFIRMADO')),0)-coalesce((SELECT sum(da.valor_centavos) FROM pagamento_devolucao_alocacoes da JOIN pagamento_devolucoes d ON d.id=da.devolucao_id WHERE da.recebimento_alocacao_id=a.id AND d.estado IN ('PENDENTE','CONCLUIDA')),0))::bigint::text disponivel_centavos FROM pagamento_recebimento_alocacoes a JOIN pagamento_recebimentos r ON r.id=a.recebimento_id WHERE r.pagamento_id=$1 AND r.status='CONFIRMADO' ORDER BY r.recebido_em,a.id`,[p.pagamento.id])).rows;

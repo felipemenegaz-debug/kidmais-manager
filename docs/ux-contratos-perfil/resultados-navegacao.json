@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "results": [
+    {
+      "viewport": "desktop",
+      "contratoVersao": true,
+      "financeiroAposCarga": true,
+      "alteracoes": true,
+      "retorno": true,
+      "historico": true
+    },
+    {
+      "viewport": "celular",
+      "contratoVersao": true,
+      "financeiroAposCarga": true,
+      "alteracoes": true,
+      "retorno": true,
+      "historico": true
+    }
+  ],
+  "semPagamento": true,
+  "retornoInseguroRejeitado": true,
+  "errors": [],
+  "unexpected": [],
+  "dados": "Simulados; banco inacessível; todas as APIs interceptadas"
+}
