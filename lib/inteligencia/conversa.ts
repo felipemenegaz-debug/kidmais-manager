@@ -633,7 +633,8 @@ async function planejarConsumo(e: Execucao, lerPorta: LerPlano): Promise<SaidaPl
       if (r.resultado === "AMBIGUA" || r.resultado === "NEGADA") return { resposta: respostaDaResolucao(r) ?? naoSuportado("Não consegui identificar a festa com segurança.") };
       // Frase sem âncora que as regras conheçam ("pra comemoração que vem aí…"): o Planner por modelo tenta ancorar pela
       // listagem do Core; o cálculo continua sendo a mesma leitura determinística.
-      if (e.planejadorModelo) return null;
+      // Se a Luna já entendeu que a mensagem não aponta festa, o Planner não é consultado: pergunta-se qual festa.
+      if (e.planejadorModelo && e.luna?.festa !== "NENHUMA") return null;
       return { resposta: { ...naoSuportado("Para qual festa? Por exemplo: “para a próxima festa”, ou abra a festa e pergunte por lá."), entendimento: "PRECISA_DADO" } };
     }
     ancora = { entidade: r.ancora, origem: r.origem, descartados: r.descartados };
@@ -1234,6 +1235,9 @@ function comPausa(resposta: AIResponse, pausado: Pausado | null): AIResponse {
 
 // ---------------------------------------------------------------- conversa adaptativa (Luna + Demerzel)
 
+/** "Não sei" a uma pergunta de parâmetro: a estimativa existe, mas só se o operador pedir (rotulada como hipótese). */
+const DICA_ESTIMATIVA = "Se não souber, posso usar uma estimativa rotulada como hipótese: é só dizer “faça você a definição”.";
+
 /**
  * Leitura escolhida pela Luna como intenção: só capacidade do catálogo (já revalidada); entidade só da TELA aberta —
  * sem ela, "precisa de contexto" (o Planner/Resolver ainda pode ancorar pelo foco). Nunca id vindo do modelo.
@@ -1259,6 +1263,8 @@ function conciliarComLuna(regras: Intencao, luna: Entendimento, contexto: Contex
   const escolhidas = luna.consultas;
   const daLuna = (): Intencao => (escolhidas.length === 1 ? leituraDaLuna(escolhidas[0], contexto) ?? { tipo: "nenhuma" } : { tipo: "nenhuma" });
   if (regras.tipo === "acao") return daLuna();
+  // Várias consultas na mesma mensagem ("contratos pendentes E quanto recebemos"): a regra casaria só uma; vai ao Planner.
+  if (regras.tipo === "leitura" && new Set(escolhidas).size >= 2 && !SO_POR_REGRA.has(regras.capacidade)) return { tipo: "nenhuma" };
   if (regras.tipo === "leitura" && escolhidas.length && !escolhidas.includes(regras.capacidade) && !SO_POR_REGRA.has(regras.capacidade)) return daLuna();
   return regras;
 }
@@ -1393,6 +1399,21 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
     if (aoRascunho) {
       const doModelo = rascunho!.situacao.capacidade === "preparar_contratacao" ? ent.contratacao : undefined;
       return noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, e.texto, ctx, doModelo));
+    }
+    // Parâmetro de consumo pendente e mensagem sem objetivo novo ("Não estime; quero só a regra cadastrada", "não sei"):
+    // é resposta à pergunta do cálculo. Refaz o MESMO cálculo (mesma festa, só o que foi escrito ou delegado), mantendo a
+    // continuação — nunca "não entendi", nunca estimativa sem pedido.
+    if (continuacao && !rascunho && (ent.objetivo === "ESCLARECER" || ent.objetivo === "CONVERSA" || ent.objetivo === "FORA_DO_ESCOPO")) {
+      e.consumo = consumoDaLuna(ent, e.texto, continuacao);
+      if (e.consumo) {
+        finalizada = true;
+        const r = await atenderNovo(e);
+        const naoSabe = /\bn[aã]o sei\b/i.test(e.texto) && !Object.keys(e.consumo.estimativa ?? {}).length;
+        if (naoSabe && r.tipo === "resposta" && r.continuacao && "fatos" in r.dados) {
+          return { ...r, dados: { ...r.dados, resumo: `${r.dados.resumo} ${DICA_ESTIMATIVA}` } };
+        }
+        return r;
+      }
     }
     switch (ent.objetivo) {
       case "CANCELAR_RASCUNHO":

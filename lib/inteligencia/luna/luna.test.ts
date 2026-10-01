@@ -154,6 +154,13 @@ test("Redação (lacuna 2): valores trocados entre unidades/categorias são repr
   // Parâmetro informado pelo usuário não pode virar "regra da empresa"; dizer que NÃO é padrão é permitido.
   assert.equal(conferirRedacao("Pela regra da empresa, 4 docinhos por convidado: 240 docinhos para 60 convidados.", { pergunta: p, resposta: r }), null);
   assert.equal(conferirRedacao("Com 4 docinhos por convidado (não é padrão da empresa): 240 docinhos para 60 convidados.", { pergunta: p, resposta: r }), "Com 4 docinhos por convidado (não é padrão da empresa): 240 docinhos para 60 convidados.");
+  // Homologação: outras formas de negar continuam livres; afirmar depois de uma negação em outra oração, não.
+  for (const livre of [
+    "Com 4 docinhos por convidado, que não é uma regra da empresa, são 240 docinhos para 60 convidados.",
+    "Sem regra da empresa cadastrada, usei os 4 docinhos por convidado que você informou: 240 docinhos para 60 convidados.",
+    "Usei 4 por convidado, valor que nem foi salvo como padrão da empresa: 240 docinhos para 60 convidados.",
+  ]) assert.equal(conferirRedacao(livre, { pergunta: p, resposta: r }), livre);
+  assert.equal(conferirRedacao("Não houve erro. Pela regra da empresa, são 240 docinhos para 60 convidados.", { pergunta: p, resposta: r }), null);
 });
 
 test("Redação (lacuna 2): resultado que depende de estimativa precisa dizer que é estimativa; texto livre registrado não autoriza quantidades", () => {

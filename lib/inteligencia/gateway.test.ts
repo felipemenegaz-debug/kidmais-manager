@@ -400,6 +400,8 @@ test("11. o trace só leva metadados: sem PII, valores, tokens ou texto do pedid
     "referencias",
     // AI V1.1 (PR 6): plano (origem, motivo, objetivo, passos com capacidade/origem da entrada/resultado/duração).
     "plano",
+    // IA operacional e conversa adaptativa: rota/decisão e o ciclo da Luna, só códigos, contagens e durações.
+    "operacional", "adaptativo",
   ].sort());
   assert.equal(primeiro.orquestracao, null);
   assert.equal(primeiro.politica, "PERMITIDO");
