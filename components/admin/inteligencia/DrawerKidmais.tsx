@@ -79,26 +79,27 @@ export default function DrawerKidmais({ mensagens, aguardando, contexto = null, 
     <aside ref={painelRef} className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby="kidmais-drawer-titulo">
       <header className={styles.drawerTopo}>
         <div>
-          <h2 id="kidmais-drawer-titulo">Perguntar ao Kidmais</h2>
-          <p>Consultas sobre a sua empresa e rascunhos de cadastro. Nenhum cadastro é alterado sem a sua confirmação.</p>
+          <h2 id="kidmais-drawer-titulo">Assistente Kidmais</h2>
+          <p>Consulte a operação ou prepare um cadastro para revisar.</p>
         </div>
         <button type="button" className={styles.fechar} aria-label="Fechar" onClick={onFechar}>×</button>
       </header>
 
       <div className={styles.historico} aria-live="polite">
         {mensagens.length === 0 && <div className={styles.inicio}>
-          <p>Posso ajudar com:</p>
+          <p>O que vamos preparar?</p>
           {sugestoes.map((pergunta) => <button key={pergunta} type="button" className={styles.sugestao} onClick={() => enviar(pergunta)}>
             <strong>{pergunta}</strong>
             {CAPACIDADES_DISPONIVEIS.find((c) => c.pergunta === pergunta) && <small>{CAPACIDADES_DISPONIVEIS.find((c) => c.pergunta === pergunta)!.escopo}</small>}
           </button>)}
-          <small className={styles.nota}>Outras análises serão liberadas aos poucos.</small>
+          <small className={styles.nota}>Você confirma antes de salvar.</small>
+          <details className={styles.evidencias}><summary>Preparar uma contratação</summary><p className={styles.nota}>Abra o cliente no CRM e use o fechamento administrativo.</p><Link className={styles.sugestaoCurta} href="/clientes" onClick={onFechar}>Escolher cliente</Link></details>
         </div>}
 
         {mensagens.map((mensagem) => <article key={mensagem.id} className={styles.troca}>
           <p className={styles.pergunta}>{mensagem.pergunta}</p>
           {categoriaDa(mensagem) && <SeloCategoria categoria={categoriaDa(mensagem)!} />}
-          {mensagem.fase === 'carregando' && <div className={styles.carregando} aria-busy="true"><span /><span /><p>Consultando…</p>
+          {mensagem.fase === 'carregando' && <div className={styles.carregando} aria-busy="true"><span /><span /><p>Preparando resposta…</p>
             {onCancelar && <button type="button" className={styles.botaoDiscreto} aria-label="Cancelar a pergunta" onClick={onCancelar}>Cancelar</button>}
           </div>}
           {mensagem.fase === 'resposta' && <RespostaAtencao dados={mensagem.dados} aoNavegar={onFechar} />}
@@ -114,7 +115,7 @@ export default function DrawerKidmais({ mensagens, aguardando, contexto = null, 
             <Link className={styles.sugestaoCurta} href={mensagem.destino} onClick={onFechar}>Abrir de novo</Link>
           </div>}
           {(mensagem.fase === 'nao_suportado' || mensagem.fase === 'precisa_contexto') && <div className={styles.indisponivel}>
-            <p>{mensagem.mensagem}</p>
+            <p role="status">{mensagem.mensagem}</p>
             {mensagem.fase === 'nao_suportado' && mensagem.sugestoes.map((s) => <button key={s} type="button" className={styles.sugestaoCurta} onClick={() => enviar(s)}>{s}</button>)}
           </div>}
           {mensagem.fase === 'erro' && <div className={styles.indisponivel}>
@@ -138,7 +139,7 @@ export default function DrawerKidmais({ mensagens, aguardando, contexto = null, 
         <label className={styles.oculto} htmlFor="kidmais-pergunta">{rascunho ? 'Sua resposta' : 'Sua pergunta'}</label>
         <input ref={campoRef} id="kidmais-pergunta" value={texto} maxLength={LIMITE_PERGUNTA} autoComplete="off"
           placeholder={rascunho ? 'Responda aqui…' : 'Pergunte sobre sua operação…'} onChange={(evento) => setTexto(evento.target.value)} />
-        <button type="submit" className={styles.enviar} disabled={!texto.trim() || aguardando}>{rascunho ? 'Responder' : 'Perguntar'}</button>
+        <button type="submit" className={styles.enviar} disabled={!texto.trim() || aguardando}>{rascunho ? 'Responder' : 'Enviar'}</button>
       </form>
     </aside>
   </div>;
