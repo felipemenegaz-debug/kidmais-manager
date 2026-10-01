@@ -1413,8 +1413,11 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
     }
     // Parâmetro de consumo pendente e mensagem sem objetivo novo ("Não estime; quero só a regra cadastrada", "não sei"):
     // é resposta à pergunta do cálculo. Refaz o MESMO cálculo (mesma festa, só o que foi escrito ou delegado), mantendo a
-    // continuação — nunca "não entendi", nunca estimativa sem pedido.
-    if (continuacao && !rascunho && (ent.objetivo === "ESCLARECER" || ent.objetivo === "CONVERSA" || ent.objetivo === "FORA_DO_ESCOPO")) {
+    // continuação — nunca "não entendi", nunca estimativa sem pedido. A resposta sem dado reconhecida por regra vale qualquer
+    // que seja o rótulo da Luna (em staging ela chamou "não estime; só a regra cadastrada" de CONSULTA sem consultas).
+    const semObjetivoNovo = ent.objetivo === "ESCLARECER" || ent.objetivo === "CONVERSA" || ent.objetivo === "FORA_DO_ESCOPO"
+      || (respondeSemDado(e.texto) && !detectarConsumo(e.texto) && !ent.consultas.length);
+    if (continuacao && !rascunho && semObjetivoNovo) {
       e.consumo = consumoDaLuna(ent, e.texto, continuacao);
       if (e.consumo) {
         finalizada = true;
@@ -1462,11 +1465,31 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
         finalizada = true;
         return pausa(await atenderNovo(e));
       }
-      case "CONSULTA":
+      case "CONSULTA": {
         // A consulta segue pelas mesmas portas guardadas (regras conciliadas com a Luna, Planner, Policy por leitura).
         e.consumo = undefined;
         finalizada = true;
+        // Duas ou mais consultas INDEPENDENTES (nenhuma precisa de entidade de entrada: "contratos pendentes e quanto
+        // recebemos"): cada uma pela mesma porta guardada e a composição determinística junta os fatos. O Planner é para
+        // cadeias (âncora → relação) e descarta listagens da resposta. Qualquer leitura que não volte ⇒ caminho anterior.
+        const independentes = ent.consultas.length >= 2 && ent.consultas.every((id) => {
+          const item = catalogo.find((c) => c.id === id);
+          return item?.tipo === "leitura" && !item.entidade;
+        });
+        if (independentes) {
+          const partes: ParteResposta[] = [];
+          for (const [i, id] of ent.consultas.entries()) {
+            const lida = await responderLeitura(id, {}, "INTENCAO_MODELO", e);
+            if (lida.tipo !== "resposta" || !("fatos" in lida.dados)) break;
+            partes.push({ passoId: `p${i + 1}`, capacidade: id, dados: lida.dados as RespostaLeitura });
+          }
+          if (partes.length === ent.consultas.length) {
+            const c = compor(partes, []);
+            if (c.ok) return pausa({ tipo: "resposta", dados: c.dados });
+          }
+        }
         return pausa(await atenderNovo(e));
+      }
       case "CONVERSA":
         return pausa({ ...naoSuportado("Estou aqui. Posso consultar festas, contratos, clientes e o financeiro, calcular doces e bebidas de uma festa ou preparar a contratação de uma festa para a sua revisão."), entendimento: "EXECUTADO" });
       case "ESCLARECER":

@@ -129,7 +129,9 @@ export async function executarPlano(plano: Plano, deps: DependenciasExecutor): P
       throw erro;
     }
     const duracaoMs = Math.max(0, Math.round(deps.relogio() - inicio));
-    if (resposta.tipo !== "resposta" || !("entidades" in resposta.dados)) return parar("ERRO", passo, origemEntrada, [], duracaoMs);
+    // Qualquer leitura com fatos serve de passo (composição: "contratos pendentes e recebimentos"); sem entidades, a saída
+    // é vazia e um passo que dependa dela para (SEM_DADOS) — nunca o plano inteiro por falta de entidade.
+    if (resposta.tipo !== "resposta" || !("fatos" in resposta.dados)) return parar("ERRO", passo, origemEntrada, [], duracaoMs);
     saidas.set(passo.id, (resposta.dados as RespostaLeitura).entidades ?? []);
     if (passo.resposta) partes.push({ passoId: passo.id, capacidade: passo.capacidade, dados: resposta.dados as RespostaLeitura });
     passos.push({ capacidade: passo.capacidade, origemEntrada, fonte: fonteDe(passo), resultado: "SUCESSO", duracaoMs });
