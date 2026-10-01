@@ -58,29 +58,69 @@ function papelNestaEmpresa(sessao: SessaoAdmin, tenant: TenantComprovado): strin
     return papel;
 }
 
-export async function obterContextoFechamentoAdministrativo(id: string, contexto: Contexto) {
+/**
+ * Leitura para PREPARAR um Fechamento (Kidmais), sem gravar e sem lançar por cadastro incompleto: as mesmas regras de
+ * `carregarCliente` (cliente da empresa comprovada, ativo, canônico) devolvidas como dados — o que falta vira lista.
+ * Outra empresa, legado sem empresa ou inexistente ⇒ null (mesma resposta).
+ */
+export async function clienteParaPreparacao(id: string, empresaId: string, tx: DbExecutor) {
+    const seletor = z.string().uuid().parse(id).toLowerCase();
+    const original = await buscarClientePorId(seletor, tx);
+    const cliente = await buscarClienteCanonicoPorId(seletor, tx);
+    if (!original || !cliente || original.empresaId !== empresaId || cliente.empresaId !== empresaId || cliente.id !== seletor) return null;
+    const aniversariantes = (await listarAniversariantesDoCliente(cliente.id, {}, tx)).filter(a => a.ativo);
+    return {
+        nome: cliente.nomeCompleto,
+        ativo: cliente.status === 'ATIVO',
+        camposFaltantes: camposFaltantesParaContrato(cliente).map(c => c.label),
+        aniversariantes: aniversariantes.map(a => ({ id: a.id, nome: a.nome })),
+    };
+}
+
+/** Escopo comprovado (empresa, usuário, cliente) para leituras/vínculos de uma preparação externa (ex.: Kidmais). */
+export type EscopoPreparacao = { empresaId: string; usuarioId: string; clienteId: string };
+export type ResultadoFechamentoAdministrativo = { fechamentoId: string; status: string; clienteId: string };
+/**
+ * Preparação externa vinculada ao envio OFICIAL: `validar` antes da criação e `concluir` depois, na mesma transação
+ * (qualquer falha desfaz tudo). `repetido` ⇒ a preparação já virou este Fechamento: devolve-o, sem criar outro.
+ */
+export type VinculoPreparacaoFechamento = {
+    validar(tx: DbExecutor, ctx: EscopoPreparacao & { input: { pacote: string; convidadosPagantes: number; dataFesta: string; horarioBase: string } }): Promise<{ repetido: ResultadoFechamentoAdministrativo | null }>;
+    concluir(tx: DbExecutor, resultado: ResultadoFechamentoAdministrativo): Promise<void>;
+};
+
+export async function obterContextoFechamentoAdministrativo<P = never>(id: string, contexto: Contexto, preparacao?: (tx: DbExecutor, escopo: EscopoPreparacao) => Promise<P>) {
     return withTransaction(async tx => {
         const sessao = await consultarSessao(contexto.token, tx);
-        return executarNoTenant(tx, sessao, contexto.empresaSolicitada, (t, tenant) => {
+        return executarNoTenant(tx, sessao, contexto.empresaSolicitada, async (t, tenant) => {
             exigirPapelFechamento(papelNestaEmpresa(sessao, tenant));
-            return carregarCliente(id, tenant.empresaComprovada, t, false);
+            const base: Awaited<ReturnType<typeof carregarCliente>> & { preparacao?: P } = await carregarCliente(id, tenant.empresaComprovada, t, false);
+            // Só LEITURA da preparação, no mesmo Tenant Context: abrir a revisão nunca grava nada.
+            if (preparacao) base.preparacao = await preparacao(t, { empresaId: tenant.empresaComprovada, usuarioId: sessao.usuario_id, clienteId: base.cliente.id });
+            return base;
         });
     });
 }
 
-export async function criarFechamentoAdministrativo(id: string, raw: unknown, contexto: Contexto) {
+export async function criarFechamentoAdministrativo(id: string, raw: unknown, contexto: Contexto, vinculo?: VinculoPreparacaoFechamento) {
     return withTransaction(async tx => {
         const sessao = await consultarSessao(contexto.token, tx, true);
         return executarNoTenant(tx, sessao, contexto.empresaSolicitada, (t, tenant) => {
             exigirPapelFechamento(papelNestaEmpresa(sessao, tenant));
-            return criarNoTenant(id, raw, contexto, sessao, tenant.empresaComprovada, t);
+            return criarNoTenant(id, raw, contexto, sessao, tenant.empresaComprovada, t, vinculo);
         });
     });
 }
 
-async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessao: SessaoAdmin, empresaId: string, tx: DbExecutor) {
+async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessao: SessaoAdmin, empresaId: string, tx: DbExecutor, vinculo?: VinculoPreparacaoFechamento): Promise<ResultadoFechamentoAdministrativo> {
         const input = fechamentoAdministrativoSchema.parse(raw);
         const { cliente, aniversariantes, responsaveis } = await carregarCliente(id, empresaId, tx, true);
+        // Preparação vinculada (Kidmais): conferida e travada AQUI; reenvio da mesma preparação devolve o já criado.
+        if (vinculo) {
+            const conferido = await vinculo.validar(tx, { empresaId, usuarioId: sessao.usuario_id, clienteId: cliente.id,
+                input: { pacote: input.pacote, convidadosPagantes: input.convidadosPagantes, dataFesta: input.dataFesta, horarioBase: input.horarioBase } });
+            if (conferido.repetido) return conferido.repetido;
+        }
         // Evita alteração concorrente dos vínculos entre a conferência e a gravação.
         await tx.query('SELECT id FROM aniversariantes WHERE id=$1 FOR UPDATE', [input.aniversarianteId]);
         const atualizados = (await listarAniversariantesDoCliente(cliente.id, {}, tx));
@@ -133,5 +173,7 @@ async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessa
             detalhe: 'Fechamento criado pela equipe autenticada.', metadata: { requestId: contexto.requestId, aniversarianteId: aniversariante.id } }, tx);
         await registrarAuditoria({ ...evento, atorTipo: 'USUARIO', acao: 'FECHAMENTO_CRIADO', requestId: contexto.requestId,
             userAgent: contexto.userAgent, dadosDepois: { status: resultado.fechamento.status, aniversarianteId: aniversariante.id } }, tx);
-        return { fechamentoId: resultado.fechamento.id, status: resultado.fechamento.status, clienteId: cliente.id };
+        const saida = { fechamentoId: resultado.fechamento.id, status: resultado.fechamento.status, clienteId: cliente.id };
+        if (vinculo) await vinculo.concluir(tx, saida);
+        return saida;
 }

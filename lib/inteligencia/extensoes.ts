@@ -43,7 +43,30 @@ export interface ModuloAcoes {
   iniciar(capacidade: string, texto: string, ctx: ContextoExtensao): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string }>;
   /** Resposta do operador a um rascunho aberto (do mesmo tenant e usuário). */
   responder(operacaoId: string, texto: string, ctx: ContextoExtensao): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string }>;
+  /** IA operacional: o que a mensagem é para o rascunho (sem alterar nada), para o coordenador da conversa decidir. */
+  situacao?(operacaoId: string, texto: string, ctx: ContextoExtensao): Promise<SituacaoRascunho>;
+  /** IA operacional: encerra o rascunho sem executar (cancelamento pedido em texto), registrando o motivo. */
+  abandonar?(operacaoId: string, ctx: ContextoExtensao): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string }>;
+  /** IA operacional: troca de objetivo — abre o novo rascunho e encerra o antigo como SUBSTITUIDO, na mesma transação. */
+  substituir?(operacaoId: string, capacidade: string, texto: string, ctx: ContextoExtensao): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string; anterior: string }>;
+  /** IA operacional: reapresenta o passo atual do rascunho (pergunta pendente ou revisão), sem escrita. */
+  retomar?(operacaoId: string, ctx: ContextoExtensao): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string }>;
 }
+
+export type SituacaoRascunho = {
+  capacidade: string;
+  ferramenta: string;
+  titulo: string;
+  /** COLETANDO/AGUARDANDO e dentro do prazo. */
+  aberto: boolean;
+  /** Campo da pergunta pendente (null na prévia). */
+  perguntado: string | null;
+  pergunta: string | null;
+  /** A mensagem traz dado para o campo perguntado (extração determinística da própria ação). */
+  respondeCampo: boolean;
+  /** A mensagem traz algum dado reconhecível deste rascunho (correção de outro campo). */
+  trazDados: boolean;
+};
 
 /**
  * Classificador AUXILIAR (ex.: JEV). Só SUGERE uma rota depois que as regras determinísticas não

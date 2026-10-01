@@ -21,6 +21,8 @@ export const FORNECEDORES: Readonly<Record<FatoSolicitado, readonly string[]>> =
   CLIENTE: ["relacoes_festa", "relacoes_contrato", "resumir_cliente"],
   SITUACAO_CONTRATO: ["resumir_contrato"],
   POSICAO_FINANCEIRA: ["saldo_contrato"],
+  CONVIDADOS: ["contexto_operacional_festa"],
+  BUFFET: ["contexto_operacional_festa"],
 };
 
 /** Fonte inequívoca de UM contrato na cadeia: relações (o contrato da festa/do contrato) ou o último contrato. */
@@ -50,6 +52,19 @@ export function completarPlano(plano: Plano, solicitados: readonly FatoSolicitad
   const empurrar = (p: Omit<PassoPlano, "id">) => { passos.push({ ...p, id: id(passos.length) } as PassoPlano); adicionados.push(p.capacidade); return passos.at(-1)!; };
 
   // Relações da cadeia (já no plano, ou a partir da festa / do contrato que o plano ancorou).
+  // IA operacional: convidados/buffet ⇒ projeção operacional da MESMA festa da cadeia (passo que produz FESTA).
+  if (faltam.includes("CONVIDADOS") || faltam.includes("BUFFET")) {
+    const festa = passos.find((p) => p.capacidade !== "contexto_operacional_festa" && catalogo.find((c) => c.id === p.capacidade)?.produz?.includes("FESTA"));
+    if (!festa) return { tipo: "IMPOSSIVEL", motivo: "SEM_FONTE" };
+    empurrar({ capacidade: "contexto_operacional_festa", entradaDe: { de: "PASSO", passo: festa.id, entidade: "FESTA" }, resposta: true });
+  }
+  if (!faltam.some((f) => f === "CLIENTE" || f === "SITUACAO_CONTRATO" || f === "POSICAO_FINANCEIRA")) {
+    passos[ultimo].resposta = true;
+    delete passos[passos.length - 1].resposta;
+    const v = validarPlano({ ...plano, passos }, catalogo, { contexto });
+    if (!v.ok) return { tipo: "IMPOSSIVEL", motivo: v.motivo };
+    return { tipo: "COMPLETADO", plano: v.plano, adicionados, marcados };
+  }
   let relacoes = passos.find((p) => p.capacidade === "relacoes_festa" || p.capacidade === "relacoes_contrato");
   const precisaContrato = faltam.includes("SITUACAO_CONTRATO") || faltam.includes("POSICAO_FINANCEIRA");
   let fonteContrato = relacoes ?? passos.find((p) => FONTES_DE_CONTRATO.has(p.capacidade));

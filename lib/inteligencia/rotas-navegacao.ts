@@ -38,7 +38,7 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
  * sem host (//), sem "..", sem barra invertida, sem query fora do padrão.
  */
 const PERMITIDAS = new RegExp(
-  `^/(?:admin/(?:dashboard|contratos(?:\\?contratoId=${UUID})?|festas(?:/${UUID})?|clientes/${UUID}/fechamento|financeiro(?:/contas-(?:receber|pagar))?|disponibilidade|configuracoes(?:/(?:catalogo|pacotes))?)|clientes(?:/${UUID})?)$`,
+  `^/(?:admin/(?:dashboard|contratos(?:\\?contratoId=${UUID})?|festas(?:/${UUID})?|clientes/${UUID}/fechamento(?:\\?rascunho=${UUID})?|financeiro(?:/contas-(?:receber|pagar))?|disponibilidade|configuracoes(?:/(?:catalogo|pacotes))?)|clientes(?:/${UUID})?)$`,
 );
 
 export function destinoSeguro(destino: unknown): destino is string {

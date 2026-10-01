@@ -11,6 +11,7 @@ import { erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import type { DisponibilidadeDataPublica } from '@/lib/disponibilidade/services/models';
 import CalendarioDisponibilidade from '@/components/fechamento/CalendarioDisponibilidade';
 import { PACOTES_FECHAMENTO_V1 } from '@/components/fechamento/data';
+import { ENDPOINT_PREPARACOES, formularioPreparado, preparacaoValida, type PreparacaoAplicada } from './fechamento-preparacao';
 import styles from '@/components/fechamento/FechamentoWizard.module.css';
 
 type Contexto = Awaited<ReturnType<typeof obterContextoFechamentoAdministrativo>>;
@@ -27,7 +28,7 @@ const buffet = [
     ['buffetOutros', 'Outras preferências'], ['buffetLembrancinha', 'Lembrancinha'], ['buffetEmpratado', 'Empratado'], ['buffetBombom', 'Bombom'],
 ] as const;
 
-export default function FechamentoAdminWizard({ clienteId }: { clienteId: string }) {
+export default function FechamentoAdminWizard({ clienteId, rascunho }: { clienteId: string; rascunho?: string }) {
     const router = useRouter();
     const [contexto, setContexto] = useState<Contexto | null>(null);
     const [form, setForm] = useState(inicial);
@@ -40,6 +41,12 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
     const envioEmCurso = useRef(false);
     const endpoint = `/api/admin/clientes/${encodeURIComponent(clienteId)}/fechamentos`;
 
+    // Preparação do Kidmais (opcional): só a referência opaca; o envio oficial a confere e consome no servidor.
+    const [preparacao, setPreparacao] = useState<PreparacaoAplicada | null>(null);
+    const [semPreparacao, setSemPreparacao] = useState(false);
+    const [erroPreparacao, setErroPreparacao] = useState(false);
+    const [avisoPreparacao, setAvisoPreparacao] = useState('');
+
     useEffect(() => {
         let ativo = true;
         void adminFetch(endpoint).then(async response => {
@@ -49,6 +56,26 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
         }).catch(error => { if (ativo) setErro(error instanceof Error ? error.message : 'Falha ao carregar cliente.'); });
         return () => { ativo = false; };
     }, [endpoint]);
+
+    // Preparação do Kidmais: lida pela rota da IA (somente leitura). Indisponível ⇒ formulário vazio, como sempre.
+    useEffect(() => {
+        if (!rascunho) return;
+        let ativo = true;
+        void adminFetch(ENDPOINT_PREPARACOES, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'abrir', clienteId, operacaoId: rascunho }) })
+            .then(async response => {
+                const body = await response.json();
+                const p = preparacaoValida(body?.data);
+                if (!ativo) return;
+                if (!response.ok || !body.ok || !p) return setAvisoPreparacao(typeof body?.erro === 'string' ? body.erro : 'A preparação do Kidmais não está disponível. Preencha o formulário normalmente.');
+                if (!p.disponivel) return setAvisoPreparacao(p.motivo);
+                const aplicada = formularioPreparado(inicial, p);
+                setForm(aplicada.form);
+                setPreparacao(aplicada);
+                void selecionarData(aplicada.form.dataFesta, aplicada.form.horarioBase, aplicada.horarioDesejado);
+            }).catch(() => { if (ativo) setAvisoPreparacao('A preparação do Kidmais não está disponível. Preencha o formulário normalmente.'); });
+        return () => { ativo = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- uma vez por preparação; selecionarData usa só os argumentos
+    }, [clienteId, rascunho]);
 
     useEffect(()=>{
         if(!form.dataFesta || !form.pacote || !form.convidadosPagantes)return;
@@ -73,7 +100,7 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
         setHorarios([]);
         setForm(atual => ({ ...atual, dataFesta: '', horarioInicio: '', horarioFim: '' }));
     }
-    async function selecionarData(data: string) {
+    async function selecionarData(data: string, base: FechamentoAdministrativoInput['horarioBase'] = form.horarioBase, preferido: string | null = null) {
         const sequencia = ++consultando.current;
         setHorarios([]);
         setErro('');
@@ -83,9 +110,12 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
             const body = await response.json();
             if (!response.ok || !body.ok) throw Error(body.erro ?? 'Falha ao consultar disponibilidade.');
             const dia = body.data as DisponibilidadeDataPublica;
-            const opcoes = dia.periodos.find(p => p.codigo === (form.horarioBase === 'almoco' ? 'TURNO_1' : 'TURNO_2'))?.horarios.filter(h => h.status === 'DISPONIVEL') ?? [];
+            const opcoes = dia.periodos.find(p => p.codigo === (base === 'almoco' ? 'TURNO_1' : 'TURNO_2'))?.horarios.filter(h => h.status === 'DISPONIVEL') ?? [];
             if (sequencia !== consultando.current) return;
             setHorarios(opcoes);
+            // Horário citado na conversa: só pré-seleciona se estiver entre os disponíveis agora (nunca força).
+            const desejado = preferido ? opcoes.find(h => h.inicio === preferido) : undefined;
+            if (desejado) setForm(atual => ({ ...atual, horarioInicio: desejado.inicio, horarioFim: desejado.fim, ajusteHorario: String(desejado.ajusteMinutos) as typeof atual.ajusteHorario }));
             if (!opcoes.length) throw Error('Horário não disponível. Escolha outra data.');
         } catch (error) { if (sequencia === consultando.current) setErro(error instanceof Error ? error.message : 'Falha de disponibilidade.'); }
     }
@@ -102,12 +132,17 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
             if (mensagem) throw Error(mensagem);
             const parsed = fechamentoAdministrativoSchema.safeParse(form);
             if (!parsed.success) throw Error('Confira os campos obrigatórios, horário e condição de pagamento.');
-            const response = await adminFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(parsed.data) });
+            // Com a preparação: o MESMO envio oficial, pela rota da IA, que a confere e consome na transação da criação.
+            const usarPreparacao = preparacao && !semPreparacao;
+            const response = usarPreparacao
+                ? await adminFetch(ENDPOINT_PREPARACOES, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'concluir', clienteId, referencia: preparacao.referencia, formulario: parsed.data }) })
+                : await adminFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(parsed.data) });
             const body = await response.json();
             if (response.status === 401) {
                 router.replace('/admin/login');
                 throw Error('Sessão expirada. Faça login novamente.');
             }
+            if (usarPreparacao && typeof body.codigo === 'string' && body.codigo.startsWith('PREPARACAO_')) setErroPreparacao(true);
             if (!response.ok || !body.ok) throw Error(body.erro ?? 'Não foi possível concluir o Fechamento.');
             setResultado(body.data);
         } catch (error) { setErro(error instanceof Error ? error.message : 'Não foi possível concluir.'); }
@@ -123,6 +158,12 @@ export default function FechamentoAdminWizard({ clienteId }: { clienteId: string
         <p>CPF: {contexto.cliente.cpf?.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '***.$2.$3-**')}</p>
         <Link href={`/clientes/${clienteId}`}>Conferir cadastro no CRM</Link>
         {erro && <p role="alert">{erro}</p>}
+        {avisoPreparacao && <p role="status">{avisoPreparacao}</p>}
+        {preparacao && !semPreparacao && <section aria-label="Preparado pelo Kidmais">
+            <p>Preparado pelo Kidmais. Confira, complete e conclua: nada foi gravado até você concluir.</p>
+            {preparacao.pendencias.length > 0 && <ul>{preparacao.pendencias.map(p => <li key={p}>{p}</li>)}</ul>}
+            {erroPreparacao && <button type="button" onClick={() => { setSemPreparacao(true); setErroPreparacao(false); setErro(''); }}>Enviar sem a preparação do Kidmais</button>}
+        </section>}
         <form onSubmit={concluir}>
             <fieldset disabled={enviando} style={{ border: 0, padding: 0 }}>
                 <legend>Condição comercial e evento</legend>

@@ -174,6 +174,9 @@ const LEITURAS: Readonly<Record<string, Meta>> = Object.freeze({
   ultimo_contrato: { dominio: "CONTRATOS", prazoMs: 4000, produz: ["CONTRATO"] },
   pacotes_disponiveis: { dominio: "COMERCIAL", prazoMs: 4000 },
   comparar_versoes_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
+  // IA operacional: projeção operacional da festa e cálculo determinístico de consumo (sem escrita).
+  contexto_operacional_festa: { dominio: "OPERACAO", prazoMs: 6000, produz: ["FESTA"] },
+  calcular_consumo: { dominio: "OPERACAO", prazoMs: 6000, produz: ["FESTA"] },
 });
 
 /** Ações (CONFIRM/DENY) conhecidas. Ação sem entrada aqui não é oferecida. */
@@ -183,6 +186,9 @@ const ACOES: Readonly<Record<string, Meta>> = Object.freeze({
   ativar_pacote: { dominio: "COMERCIAL", prazoMs: 8000 },
   desativar_pacote: { dominio: "COMERCIAL", prazoMs: 8000 },
   importar_contrato: { dominio: "CONTRATOS", prazoMs: 15000 },
+  // IA operacional: contratação aprovada na revisão oficial; parâmetro de consumo como padrão da empresa.
+  preparar_contratacao: { dominio: "COMERCIAL", prazoMs: 8000 },
+  salvar_parametro_consumo: { dominio: "OPERACAO", prazoMs: 8000 },
   criar_categoria_buffet: { dominio: "COMERCIAL", prazoMs: 0 },
   criar_item_buffet: { dominio: "COMERCIAL", prazoMs: 0 },
   editar_categoria_buffet: { dominio: "COMERCIAL", prazoMs: 0 },

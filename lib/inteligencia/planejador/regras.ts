@@ -22,7 +22,7 @@ const TELA: Partial<Record<TipoEntidade, "cliente" | "contrato">> = { CLIENTE: "
 
 export type PlanoPorRegras = { plano: Plano; motivo: PlanoRastreio["motivo"] };
 
-export function planejarPorRegras(ref: Referencia, texto: string, ancoraContexto: EntidadeRef | null): PlanoPorRegras | null {
+export function planejarPorRegras(ref: Referencia, texto: string, ancoraContexto: EntidadeRef | null, operacional = false): PlanoPorRegras | null {
   const passos: PassoPlano[] = [];
   const id = () => `p${passos.length + 1}` as PassoPlano["id"];
   let fonte: NonNullable<PassoPlano["entradaDe"]>;
@@ -53,8 +53,23 @@ export function planejarPorRegras(ref: Referencia, texto: string, ancoraContexto
   // PR 6.4: pedido com 2+ fatos (cliente, situação do contrato, posição financeira) da mesma festa/contrato: uma
   // leitura por fato, todas sobre a MESMA cadeia de âncora (o contrato vem da relação do Core); as intermediárias
   // marcadas `resposta`. A completude é conferida depois, contra o que o Core devolveu.
-  const pedidos = fatosSolicitados(texto);
+  const pedidos = fatosSolicitados(texto, operacional);
   const acaoPedido = objetivoDoTexto(texto).acao;
+  // IA operacional: convidados/buffet da festa ⇒ projeção operacional (versão vigente + escolhas efetivas), sem
+  // depender da frase exata: os fatos pedidos decidem as leituras, a âncora vem do Core.
+  const operacionais = pedidos.filter((f) => f === "CONVIDADOS" || f === "BUFFET");
+  const contratuais = pedidos.filter((f) => f !== "CONVIDADOS" && f !== "BUFFET");
+  if (operacionais.length && tipoAncora === "FESTA" && acaoPedido !== "ABRIR" && !(acaoPedido && ACOES_DE_MUTACAO.has(acaoPedido)) && !ref.financeiro) {
+    passos.push({ id: id(), capacidade: "contexto_operacional_festa", entradaDe: fonte, ...(contratuais.length ? { resposta: true } : {}) });
+    if (contratuais.length) {
+      passos.push({ id: id(), capacidade: "relacoes_festa", entradaDe: fonte, ...(contratuais.includes("CLIENTE") ? { resposta: true } : {}) });
+      const contrato: NonNullable<PassoPlano["entradaDe"]> = { de: "PASSO", passo: passos.at(-1)!.id, entidade: "CONTRATO" };
+      if (contratuais.includes("SITUACAO_CONTRATO")) passos.push({ id: id(), capacidade: "resumir_contrato", entradaDe: contrato, resposta: true });
+      if (contratuais.includes("POSICAO_FINANCEIRA")) passos.push({ id: id(), capacidade: "saldo_contrato", entradaDe: contrato, resposta: true });
+      delete passos[passos.length - 1].resposta;
+    }
+    return { plano: { objetivo: "CONSULTAR:FESTA", recursoFinal: contratuais.length ? null : "FESTA", passos }, motivo: "REFERENCIA" };
+  }
   if (pedidos.length >= 2 && (tipoAncora === "FESTA" || tipoAncora === "CONTRATO") && acaoPedido !== "ABRIR" && !(acaoPedido && ACOES_DE_MUTACAO.has(acaoPedido))) {
     let contrato: NonNullable<PassoPlano["entradaDe"]> = fonte;
     if (tipoAncora === "FESTA") {

@@ -13,23 +13,28 @@ import type { ParteResposta } from "./executor.ts";
  *   é recusada inteira — nunca truncada, nunca com fato, fonte ou aviso descartado.
  * - Forma de pagamento, contrato assinado ou valor contratado NUNCA cobrem "pago": só a posição financeira oficial.
  */
-export type FatoSolicitado = "CLIENTE" | "SITUACAO_CONTRATO" | "POSICAO_FINANCEIRA";
+export type FatoSolicitado = "CLIENTE" | "SITUACAO_CONTRATO" | "POSICAO_FINANCEIRA" | "CONVIDADOS" | "BUFFET";
 
 const ROTULO: Readonly<Record<FatoSolicitado, string>> = {
   CLIENTE: "cliente",
   SITUACAO_CONTRATO: "situação do contrato",
   POSICAO_FINANCEIRA: "posição financeira (pago, saldo, em aberto)",
+  CONVIDADOS: "convidados da festa",
+  BUFFET: "escolhas do buffet",
 };
 
 const PEDE_CLIENTE = /\b(clientes?|contratante)\b/;
 const PEDE_POSICAO = /\b(pag[oa]s?|pagamentos?|quitad[oa]s?|quitacao|saldo|em aberto|falta (pagar|receber)|quanto (ainda )?(falta|resta)\w*)\b/;
 const PEDE_SITUACAO = /\b(situacao|status|assinad[oa]s?|vigente|como esta)\b/;
+/** IA operacional: convidados e escolhas do buffet da festa (só com a flag; sem ela, os fatos de antes). */
+const PEDE_CONVIDADOS = /\b(convidad[oa]s?|numero de convidados)\b/;
+const PEDE_BUFFET = /\b(buffet|cardapio|doces?|docinhos?|salgad\w*|bebidas?|bolo|sabor(es)?)\b/;
 
 /**
  * Fatos que o operador pediu. Contrato como OBJETO do pedido ("o contrato", "situação do contrato") pede a situação
  * contratual; contrato só como âncora ("a parcela do último contrato", "se o contrato está pago") não pede.
  */
-export function fatosSolicitados(texto: string): FatoSolicitado[] {
+export function fatosSolicitados(texto: string, operacional = false): FatoSolicitado[] {
   const n = normalizar(texto);
   const posicao = PEDE_POSICAO.test(n);
   const contrato = /\bcontratos?\b/.test(n);
@@ -38,6 +43,8 @@ export function fatosSolicitados(texto: string): FatoSolicitado[] {
     ...(PEDE_CLIENTE.test(n) ? ["CLIENTE" as const] : []),
     ...(situacao ? ["SITUACAO_CONTRATO" as const] : []),
     ...(posicao ? ["POSICAO_FINANCEIRA" as const] : []),
+    ...(operacional && PEDE_CONVIDADOS.test(n) ? ["CONVIDADOS" as const] : []),
+    ...(operacional && PEDE_BUFFET.test(n) ? ["BUFFET" as const] : []),
   ];
 }
 
@@ -50,6 +57,9 @@ function cobre(fato: FatoSolicitado, p: Pick<ParteResposta, "capacidade" | "dado
     }
     return p.capacidade === "resumir_cliente" && p.dados.estado !== "sem_dados";
   }
+  // IA operacional: convidados da versão vigente e escolhas efetivas do buffet vêm da projeção operacional da festa.
+  if (fato === "CONVIDADOS") return (p.capacidade === "contexto_operacional_festa" || p.capacidade === "calcular_consumo") && p.dados.estado !== "sem_dados";
+  if (fato === "BUFFET") return p.capacidade === "contexto_operacional_festa" && p.dados.estado !== "sem_dados";
   // Relação com CONTRATO não cobre a situação contratual: só o resumo do contrato.
   if (fato === "SITUACAO_CONTRATO") return p.capacidade === "resumir_contrato";
   // Só a posição financeira OFICIAL (inclusive a ausência explícita de plano financeiro). proxima_parcela não basta.
