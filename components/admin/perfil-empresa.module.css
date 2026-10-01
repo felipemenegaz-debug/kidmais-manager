@@ -61,6 +61,7 @@
 .avisoContato { margin:32px 0 0; border:1px solid var(--border-navy); border-radius:16px; padding:20px; color:var(--secondary-text); font-size:11px; line-height:17.875px; background:rgba(255,255,255,.02); }
 .regraCampos { color:var(--secondary-text); font-size:11px; margin:0; }
 .marcaBloco { margin-bottom:32px; }
+.marcaBloco > p { overflow-wrap:anywhere; }
 .marcaBloco h3,.previa h3 { font-size:10px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:var(--secondary-text); margin:0 0 16px; }
 .logoBox { height:160px; border:1px dashed var(--input-border); border-radius:16px; display:grid; place-items:center; background-image:radial-gradient(circle at center,#1e293b .5px,transparent .5px); background-size:10px 10px; }
 .logoBox span { font-size:11px; color:var(--secondary-text); }

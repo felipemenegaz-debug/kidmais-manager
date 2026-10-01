@@ -7,7 +7,7 @@ import { aplicarConsultaCep, cepCompleto, type PedidoCep } from '@/lib/perfil/co
 import { agruparComparacao, aposAplicar, aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, pedidoRascunho, podeAplicar, resolverCarregamento, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
 import { AdminIcon } from './AdminIcon';
 import styles from './perfil-empresa.module.css';
-import { LOGO_MAX_UPLOAD, LOGO_TIPOS } from '@/lib/perfil/logo-limites';
+import { erroArquivoLogo, LOGO_MAX_UPLOAD_MB } from '@/lib/perfil/logo-limites';
 
 type Historico = {
     numero: number;
@@ -75,6 +75,7 @@ export default function PerfilEmpresa() {
     const [motivo, setMotivo] = useState('');
     const [senha, setSenha] = useState('');
     const [logoErro, setLogoErro] = useState('');
+    const [logoPreparada, setLogoPreparada] = useState('');
     const [preparandoLogo, setPreparandoLogo] = useState(false);
     const [cepStatus, setCepStatus] = useState<{ sede: string; unidade: string }>({ sede: '', unidade: '' });
     const cepTicket = useRef({ sede: 0, unidade: 0 });
@@ -156,9 +157,9 @@ export default function PerfilEmpresa() {
     async function selecionarLogo(arquivo?: File) {
         if (!arquivo || bloqueio.current || !podeEditar) return;
         setLogoErro('');
-        if (!LOGO_TIPOS.includes(arquivo.type) || arquivo.size > LOGO_MAX_UPLOAD) {
-            setLogoErro('Selecione uma imagem PNG, JPEG ou WebP de até 2 MB.'); return;
-        }
+        setLogoPreparada('');
+        const erroArquivo = erroArquivoLogo(arquivo);
+        if (erroArquivo) { setLogoErro(erroArquivo); return; }
         bloqueio.current = true; setOcupado(true); setPreparandoLogo(true);
         try {
             const envio = new FormData(); envio.append('arquivo', arquivo);
@@ -166,6 +167,7 @@ export default function PerfilEmpresa() {
             const corpo = await resposta.json();
             if (!resposta.ok || !corpo.ok) throw new Error(corpo.erro ?? 'Não foi possível preparar a logo.');
             atualizar({logoDataUrl:corpo.data.logoDataUrl});
+            setLogoPreparada(`${arquivo.name}: prévia pronta. Salve o rascunho e revise para aplicar.`);
         } catch(error) { setLogoErro(error instanceof Error ? error.message : 'Não foi possível preparar a logo.'); }
         finally { bloqueio.current = false; setOcupado(false); setPreparandoLogo(false); }
     }
@@ -476,11 +478,12 @@ export default function PerfilEmpresa() {
                     <h2 className={styles.titulo}><AdminIcon name="palette" size={12} />Marca</h2>
                     <div className={styles.marcaBloco}><h3>Logo atual</h3><div className={styles.logoBox}>{dados.contexto?.cadastro.logoDataUrl ? <img src={dados.contexto.cadastro.logoDataUrl} alt="Logo atual da empresa" /> : <span>Nenhuma logo aplicada</span>}</div></div>
                     <div className={styles.marcaBloco}><h3>Nova logo — prévia</h3><div className={styles.logoBox}>{form.logoDataUrl ? <img src={form.logoDataUrl} alt="Prévia da logo do rascunho" /> : <span>Selecione uma imagem</span>}</div>
-                        <label className={styles.logoUpload}>Selecionar logo<input type="file" accept="image/png,image/jpeg,image/webp" disabled={!podeEditar || ocupado} onChange={e=>{void selecionarLogo(e.target.files?.[0]);e.target.value='';}} /></label>
-                        {form.logoDataUrl && <button type="button" className={styles.secundario} disabled={!podeEditar || ocupado} onClick={()=>{setLogoErro('');atualizar({logoDataUrl:null});}}>Remover logo do rascunho</button>}
+                        <label className={styles.logoUpload} aria-busy={preparandoLogo}>Selecionar logo<input type="file" accept="image/png,image/jpeg,image/webp" disabled={!podeEditar || ocupado} onChange={e=>{void selecionarLogo(e.target.files?.[0]);e.target.value='';}} /></label>
+                        {form.logoDataUrl && <button type="button" className={styles.secundario} disabled={!podeEditar || ocupado} onClick={()=>{setLogoErro('');setLogoPreparada('');atualizar({logoDataUrl:null});}}>Remover logo do rascunho</button>}
                         {preparandoLogo && <p role="status">Preparando logo…</p>}
                         {logoErro && <p role="alert">{logoErro}</p>}
-                        <p className={styles.marcaNota}>PNG, JPEG ou WebP · até 2 MB. Salve o rascunho e revise para aplicar a logo.</p>
+                        {logoPreparada && <p role="status">{logoPreparada}</p>}
+                        <p className={styles.marcaNota}>PNG, JPEG ou WebP · até {LOGO_MAX_UPLOAD_MB} MB. A imagem é reduzida automaticamente, mantendo a transparência.</p>
                     </div>
                     <div className={styles.previa}><h3>Prévia no menu</h3><div className={styles.marcaMenu}>{form.logoDataUrl ? <img src={form.logoDataUrl} alt="Prévia da logo no menu" /> : <span>Logo da empresa</span>}<span>Admin</span></div><p>A logo do menu muda após aplicar o rascunho.</p></div>
                 </details>
