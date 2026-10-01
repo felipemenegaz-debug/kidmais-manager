@@ -177,15 +177,33 @@ test("navegação no fim: o contrato de navegação é mantido (nada é composto
   assert.equal(o.rastro?.plano?.composicao, null, "nada é composto em navegação");
 });
 
-test("validação: `resposta` só em leitura intermediária com entrada da cadeia (nunca no fim nem em listagem de âncora)", () => {
+test("validação (6.4.1): `resposta` vale só em leitura intermediária com entrada da cadeia; no fim ou em listagem é IGNORADA", () => {
   const cat = [{ id: "proximas_festas", descricao: "", tipo: "leitura" as const }, { id: "relacoes_festa", descricao: "", tipo: "leitura" as const }, { id: "saldo_contrato", descricao: "", tipo: "leitura" as const }];
   const p = (passos: unknown[]) => validarPlano({ objetivo: "CONSULTAR:PAGAMENTO", recursoFinal: null, passos }, cat);
   const p1 = { id: "p1", capacidade: "proximas_festas", parametros: { ordem: "ASC", limite: 2 }, selecao: "PRIMEIRA" };
   const p2 = { id: "p2", capacidade: "relacoes_festa", entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" } };
   const p3 = { id: "p3", capacidade: "saldo_contrato", entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" } };
-  assert.equal(p([p1, { ...p2, resposta: true }, p3]).ok, true);
-  assert.deepEqual(p([{ ...p1, resposta: true }, p2, p3]), { ok: false, motivo: "RESPOSTA_INVALIDA" }, "listagem de âncora");
-  assert.deepEqual(p([p1, p2, { ...p3, resposta: true }]), { ok: false, motivo: "RESPOSTA_INVALIDA" }, "passo final");
+  const marcas = (v: ReturnType<typeof p>) => (v.ok ? v.plano.passos.map((x) => x.resposta === true) : v.motivo);
+  assert.deepEqual(marcas(p([p1, { ...p2, resposta: true }, p3])), [false, true, false]);
+  // Antes (6.4): RESPOSTA_INVALIDA e o plano inteiro era descartado (smoke de staging). Agora a marca é normalizada:
+  // a listagem nunca entra e o final sempre entra — nenhum fato é acrescentado.
+  assert.deepEqual(marcas(p([{ ...p1, resposta: true }, p2, p3])), [false, false, false], "listagem de âncora");
+  assert.deepEqual(marcas(p([p1, p2, { ...p3, resposta: true }])), [false, false, false], "passo final");
+  assert.deepEqual(marcas(p([{ ...p1, resposta: true }, { ...p2, resposta: true }, { ...p3, resposta: true }])), [false, true, false], "todas marcadas");
+});
+
+test("staging (6.4.1): modelo que marca TODOS os passos ⇒ plano aceito; só a relação e o final entram; fatos corretos", async () => {
+  const tudoMarcado = { ...PLANO_CLIENTE_PAGO, passos: PLANO_CLIENTE_PAGO.passos.map((p) => ({ ...p, resposta: true })) };
+  const { o } = await perguntar(FRASE_CLIENTE_PAGO, { financeiroProximaFesta: "PARCIAL" }, tudoMarcado);
+  assert.notEqual(o.rastro?.plano?.parada, "REJEITADO:RESPOSTA_INVALIDA", "antes: plano rejeitado");
+  assert.deepEqual([o.rastro?.plano?.origem, o.rastro?.plano?.parada, o.rastro?.plano?.motivoParada], ["MODELO", "FIM", null]);
+  assert.deepEqual(o.rastro?.plano?.composicao, { leituras: 2, solicitados: ["CLIENTE", "POSICAO_FINANCEIRA"], faltando: [] });
+  const d = dados(o.resposta);
+  const f = textos(d);
+  for (const esperado of ["FATO:Cliente: Ana Oliveira.", "FATO:Valor pago (líquido): R$ 3.300,00.", "FATO:Situação: Em aberto."]) assert.ok(f.includes(esperado), esperado);
+  // A listagem de âncora (proximas_festas, com 2 festas) não entrou: nada da festa do Pedro/Carla.
+  assert.equal(f.some((x) => x.includes("Carla Souza")), false);
+  semContratoErrado(d);
 });
 
 // ---------------------------------------------------------------- limites e mesma âncora (unidade)
