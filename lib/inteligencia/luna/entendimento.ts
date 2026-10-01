@@ -219,7 +219,47 @@ export function mensagensEntendimento(e: EntradaEntendimento) {
 
 // ---------------------------------------------------------------- revalidação no servidor
 
-const PISTA_ESTIMATIVA = /\b(estim\w*|defin\w*|decid\w*|sugir\w*|sugest\w*|propon\w*|chut\w*|calcul\w* voce|faca voce|voce (?:define|decide|escolhe|sugere)|tanto faz|nao sei)\b/;
+/**
+ * Delegação POSITIVA de um parâmetro ao Kidmais ("faça você a definição", "estime", "pode sugerir"). "Não sei" sozinho
+ * NÃO é delegação (é falta de dado: pergunta-se). Negação próxima anula ("não estime", "sem estimativa", "nem sugira").
+ */
+const DELEGACAO = /\b(estim(?:a|e|ar)\w*|estimativa|sugir[ao]\w*|suger(?:e|ir)\w*|sugest\w*|propo(?:n|nh)\w*|chut\w*|defin(?:a|e|ir)\w*|definicao|decid(?:a|e|ir)\w*|escolh(?:a|e|er)\w*|calcul(?:a|e|ar)\w* (?:voce|por mim)|faca voce|faz voce|voce (?:define|decide|escolhe|sugere|estima|calcula)|fica a seu criterio|a seu criterio|tanto faz)\b/g;
+const NEGACAO_ANTES = /\b(nao|nem|sem|nunca|jamais|evite|evitar)\b(?:\s+\S+){0,3}\s*$/;
+/** Pedido explícito de usar só o que está cadastrado: veta qualquer estimativa na mensagem. */
+const SO_CADASTRADO = /\b(?:so|somente|apenas|unicamente)\b.{0,30}\b(?:regra|padrao|parametro|valor)\w*\b.{0,20}\b(?:cadastrad\w*|registrad\w*|da empresa|oficial\w*)\b|\bnao (?:quero|precisa|preciso) (?:de )?(?:estimativa|chute|sugestao)\b/;
+const CATEGORIA_DOCES = /\b(doces?|docinhos?|brigadeiros?|beijinhos?)\b/;
+const CATEGORIA_REFRI = /\b(refrigerantes?|refris?|bebidas?|ml|mls|litros?|garrafas?)\b/;
+
+/**
+ * Categorias cuja estimativa o usuário PEDIU nesta mensagem. Cada oração com delegação positiva (não negada) autoriza a
+ * categoria que ela cita; sem categoria na oração, vale a da oração anterior (contexto: "não sei quantos ml…. faça você
+ * a definição") ou, por último, o parâmetro pendente da conversa. Um veto explícito ("só a regra cadastrada") anula tudo.
+ */
+export function estimativasPedidas(texto: string, pendente: ConsumoPendente | null = null): Set<Categoria> {
+  const n = normalizar(texto);
+  const pedidas = new Set<Categoria>();
+  if (SO_CADASTRADO.test(n)) return pedidas;
+  const categoriasDe = (oracao: string): Categoria[] => [
+    ...(CATEGORIA_DOCES.test(oracao) ? ["DOCES" as const] : []),
+    ...(CATEGORIA_REFRI.test(oracao) ? ["REFRIGERANTES" as const] : []),
+  ];
+  // Oração = trecho entre pontuações (a negação vale só dentro dela: "não sei, faça você a definição" delega).
+  const oracoes = n.split(/[.;:!?,\n]+|\b(?:mas|porem|entretanto|contudo)\b/).map((o) => o.trim()).filter(Boolean);
+  let anteriores: Categoria[] = [];
+  for (const oracao of oracoes) {
+    const proprias = categoriasDe(oracao);
+    let positiva = false;
+    for (const m of oracao.matchAll(DELEGACAO)) {
+      if (!NEGACAO_ANTES.test(oracao.slice(0, m.index))) positiva = true;
+    }
+    if (positiva) {
+      const alvo = proprias.length ? proprias : anteriores.length ? anteriores : pendente ? [pendente.perguntado === "POR_CONVIDADO" ? "DOCES" as const : "REFRIGERANTES" as const] : [];
+      for (const c of alvo) pedidas.add(c);
+    }
+    if (proprias.length) anteriores = proprias;
+  }
+  return pedidas;
+}
 
 /** Formas escritas de um número (inteiro, milhar, decimal com vírgula/ponto) para conferir se o usuário o escreveu. */
 function formas(valor: number): string[] {
@@ -262,7 +302,7 @@ function nomeCitado(nome: string, textoUsuario: string): boolean {
  * Revalidação DETERMINÍSTICA da saída da Luna: enums do catálogo, parâmetros citados pelo usuário, datas reais,
  * estimativa só com pedido explícito. O que não passa é descartado (registrado em `descartes`), nunca corrigido.
  */
-export function revalidar(saida: SaidaLuna, entrada: Pick<EntradaEntendimento, "texto" | "historico" | "consultas" | "acoes">): Entendimento {
+export function revalidar(saida: SaidaLuna, entrada: Pick<EntradaEntendimento, "texto" | "historico" | "consultas" | "acoes"> & { consumoPendente?: ConsumoPendente | null }): Entendimento {
   const descartes: string[] = [];
   const textosUsuario = [entrada.texto, ...entrada.historico.map((t) => t.pergunta)];
   const textoUsuario = textosUsuario.join(" \n ");
@@ -286,11 +326,15 @@ export function revalidar(saida: SaidaLuna, entrada: Pick<EntradaEntendimento, "
   if (objetivo === "ACAO" && !acao) objetivo = "FORA_DO_ESCOPO";
 
   const c = saida.consumo;
-  const pediuEstimativa = PISTA_ESTIMATIVA.test(normalizar(entrada.texto));
+  // Estimativa só da categoria que o USUÁRIO delegou nesta mensagem (negação, veto e categoria respeitados).
+  const pedidas = estimativasPedidas(entrada.texto, entrada.consumoPendente ?? null);
   const estimativa: Entendimento["consumo"]["estimativa"] = {};
-  if (c.estimar.length && !pediuEstimativa) descartes.push("estimativa_sem_pedido");
-  if (pediuEstimativa && c.estimar.includes("DOCES") && c.docesEstimado !== null) estimativa.porConvidado = c.docesEstimado;
-  if (pediuEstimativa && c.estimar.includes("REFRIGERANTES") && c.mlEstimado !== null) estimativa.mlPorConvidado = c.mlEstimado;
+  for (const cat of c.estimar) if (!pedidas.has(cat)) descartes.push(`estimativa_sem_pedido:${cat}`);
+  if (c.estimar.includes("DOCES") && pedidas.has("DOCES") && c.docesEstimado !== null) estimativa.porConvidado = c.docesEstimado;
+  if (c.estimar.includes("REFRIGERANTES") && pedidas.has("REFRIGERANTES") && c.mlEstimado !== null) estimativa.mlPorConvidado = c.mlEstimado;
+  // Valor estimado sem a categoria marcada em `estimar` também não passa.
+  if (c.docesEstimado !== null && !estimativa.porConvidado && c.estimar.includes("DOCES") === false) descartes.push("docesEstimado");
+  if (c.mlEstimado !== null && !estimativa.mlPorConvidado && c.estimar.includes("REFRIGERANTES") === false) descartes.push("mlEstimado");
 
   const k = saida.contratacao;
   const contratacao: Record<string, string | number> = {};

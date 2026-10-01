@@ -105,7 +105,7 @@ export function extrairContratacao(texto: string, perguntado: string | null): Re
     if (ano) v.ano = Number(ano[1]);
   }
 
-  const cliente = new RegExp(String.raw`\b(?:festa|aniversario|contratacao)\s+(?:do|da|de|para o|para a|pro|pra)\s+([\p{L}][\p{L}' ]{1,58}?)${FIM_NOME}`, "iu").exec(t)
+  const cliente = new RegExp(String.raw`\b(?:festa|aniversario|contratacao)\s+(?:do|da|de|para o|para a|pro|pra)\s+(?:(?:o |a )?(?:cliente|contratante)\s+)?([\p{L}][\p{L}' ]{1,58}?)${FIM_NOME}`, "iu").exec(t)
     ?? new RegExp(String.raw`\bclientes?\s*:?\s+([\p{L}][\p{L}' ]{1,58}?)${FIM_NOME}`, "iu").exec(t);
   if (cliente && !PALAVRAS_NAO_NOME.has(normalizar(cliente[1]))) v.cliente = capitalizar(cliente[1]);
 

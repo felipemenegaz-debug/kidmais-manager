@@ -5,7 +5,7 @@ import { interpretarDeterministico } from "./intencao.ts";
 const festa = { tela: "festa" as const, entidadeId: "33333333-3333-4333-8333-333333333333" };
 const alvo = (texto: string, contexto: Parameters<typeof interpretarDeterministico>[1] = null) => {
   const i = interpretarDeterministico(texto, contexto);
-  return i.tipo === "nenhuma" || i.tipo === "revisao_humana" ? i.tipo : i.tipo === "navegacao_sem_destino" ? `${i.tipo}:${i.motivo}` : `${i.tipo}:${i.capacidade}`;
+  return i.tipo === "nenhuma" || i.tipo === "revisao_humana" || i.tipo === "esclarecer" ? i.tipo : i.tipo === "navegacao_sem_destino" ? `${i.tipo}:${i.motivo}` : `${i.tipo}:${i.capacidade}`;
 };
 
 test("regras: leituras, comandos, perigos e contexto de tela", () => {

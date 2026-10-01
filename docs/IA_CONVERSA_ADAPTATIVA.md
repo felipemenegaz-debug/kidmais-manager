@@ -23,9 +23,10 @@ Ele é atualizado a cada etapa. Uma etapa só é marcada como feita com a evidê
 | 7 | Conversa: portas do ciclo, rascunhos com dados do modelo, consumo com estimativa, fallback seguro | feito | `conversa.ts`, `acoes/*`, `leituras/operacional.ts` |
 | 8 | UI: histórico curto como contexto; indicação discreta do rascunho pausado; rótulos das naturezas | feito | `cliente-inteligencia.ts`, `conversa.ts` (UI), `PerguntarKidmais.tsx`; a barra existente "Respondendo ao rascunho" é a indicação discreta |
 | 9 | Testes de diálogo (mocks determinísticos) e regressões | feito | 15 diálogos "Luna —" em `aceite-operacional.test.ts`; 8 unitários; 1 de UI |
-| 10 | Gates locais (testes, TypeScript, ESLint, build, UI, benchmark) | pendente | |
-| 11 | PR, CI, merge em staging e deploy manual | pendente | |
-| 12 | Homologação com o modelo real pelo app de staging (custo e latência medidos) | pendente | |
+| 10 | Gates locais (testes, TypeScript, ESLint, build, UI, benchmark) | feito | `56d6834`: test:inteligencia 422/422; check:v1:static 1633+103 com build; check:ia:prs, tsc, ESLint, UI 27/27, ux-contratos-perfil ok; benchmark sem diff. `check:v1:ui` falha também no staging puro `a6fbfd6` (endpoint de logo da #55) — anterior a esta entrega |
+| 11 | PR, CI, merge em staging e deploy manual | feito | PR #56, CI success; merge commit `9599af2` (árvore = `56d6834`); deploy `dep-dav35fojo6nc73fa0i9g` live, health 200, sem erros nos logs; auto-deploy OFF (staging e produção) conferido antes |
+| 12 | Revisão: 3 lacunas reproduzidas e corrigidas (fallback ambíguo, associação valor↔unidade na redação, estimativa negada) | feito | §5.1; branch `ai-v11/10-correcoes-luna` |
+| 13 | Homologação com o modelo real pelo app de staging (custo e latência medidos) | pendente | depende do login no Admin de staging |
 
 ## 2. Auditoria do código de partida (`6b45783`)
 
@@ -153,4 +154,14 @@ Só códigos, contagens e durações: objetivo, relação, consultas, categorias
 
 ## 5. Evidências por cenário
 
-(preenchida durante a validação)
+### 5.1 Revisão (01/10/2026): lacunas reproduzidas e corrigidas
+
+| # | Lacuna (reproduzida antes da correção) | Correção | Regressões |
+|---|---|---|---|
+| 1 | Sem a Luna, o fallback por regras classificava "crie uma do cliente Felipe para 50 convidados, pacote premium" como `criar_pacote` | `criacaoAmbigua` (`intencao.ts`): criação com "pacote" cujo objeto não é pacote, num pedido sobre cliente, convidados ou aniversário, vira **esclarecimento**. A pergunta repete o que foi entendido, e as sugestões são as frases completas de cada caminho, então o contexto não se perde. A extração "festa do cliente Felipe" passou a dar o cliente "Felipe". Correção relacionada: a pergunta "qual o preço do pacote premium **novo**…?" não abre mais rascunho. A Luna usa a mesma pergunta quando pede esclarecimento. | Diálogos "Fallback (lacuna 1)": sem modelo, provedor fora, 3 variações, pacote explícito, pergunta, rascunho aberto; "Luna (lacuna 1)" |
+| 2 | `conferirRedacao` aceitava "60 docinhos para 240 convidados" com dados "240 docinhos para 60 convidados" | Pares **valor + unidade/categoria** (`quantidadesDe`): número com unidade no texto precisa existir com a mesma unidade nos dados; resultado com estimativa precisa dizer "estimativa"; "regra da empresa" só com regra registrada; quantidades de texto livre "como registrado" não autorizam pares. A forma da frase continua livre. | "Redação (lacuna 2)": troca valor/unidade, categoria errada, paráfrases livres aceitas, parâmetro como "regra da empresa", estimativa sem rótulo, 350 mL × 350 convidados, 999 injetado |
+| 3 | `revalidar` aceitava estimativa para "Não estime o consumo; quero somente a regra cadastrada." e para "não sei" | `estimativasPedidas`: só uma **delegação positiva** ("faça você a definição", "estime", "pode sugerir") não negada na oração; veto explícito ("somente a regra cadastrada", "não quero chute") anula tudo; "não sei" sozinho nunca autoriza; a categoria vem da oração, da anterior ou do parâmetro pendente. | "Luna (lacuna 3)": 13 frases (negações, veto, "não sei", "nem pense em estimar", "mas não os doces", contexto pendente); revalidar por categoria; diálogo sem regra (pergunta) e com regra cadastrada (usa a regra) |
+
+### 5.2 Homologação com modelo real
+
+(pendente: login no Admin de staging)
