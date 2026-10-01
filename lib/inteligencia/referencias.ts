@@ -73,7 +73,8 @@ const FESTA_OU_EVENTO = /\b(festas?|eventos?)\b/;
 
 function temporalDe(n: string, hoje: string): Temporal | null {
   if (!FESTA_OU_EVENTO.test(n)) return null;
-  if (/\bproxima festa\b|\bfesta seguinte\b|\bproximo evento\b|\bevento seguinte\b/.test(n)) return { seletor: "PROXIMA", rotulo: "a próxima festa" };
+  // PR 6.4.3: "a festa que vem aí", "o evento que vem por aí".
+  if (/\bproxima festa\b|\bfesta seguinte\b|\bproximo evento\b|\bevento seguinte\b|\b(festa|evento) que vem (por )?ai\b/.test(n)) return { seletor: "PROXIMA", rotulo: "a próxima festa" };
   if (/\bultima festa\b|\bfesta anterior\b|\bultimo evento\b|\bevento anterior\b/.test(n)) return { seletor: "ULTIMA", rotulo: "a última festa" };
   if (/\bdepois de amanha\b/.test(n)) { const dia = somarDias(hoje, 2); return { seletor: "DIA", dia, rotulo: `festa de ${dataCurta(dia)}` }; }
   if (/\bamanha\b/.test(n)) { const dia = somarDias(hoje, 1); return { seletor: "DIA", dia, rotulo: "festa de amanhã" }; }

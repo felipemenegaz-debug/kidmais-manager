@@ -62,7 +62,8 @@ const INJECAO = [
   /\bjailbreak\b/, /\bfinja (que|ser)\b/, /\bnova instrucao\b/, /<\/?(script|system|instrucao)[^>]*>/,
 ];
 
-const MUTACAO_FINANCEIRA = [/\b(registr\w*|confirm\w*|marc\w*|lanc\w*|baix\w*)\b.*\b(pagamento|recebimento|pago|quitad\w*|parcela)\b/, /\b(estorn\w*|quit\w*|reembols\w*|devolv\w*)\b/, /\bcobr(e|ar|a|em)\b/];
+// PR 6.4.3: "quitar" só como VERBO de ação (quite, quitar, quitou…); "está quitada?" é consulta, não mutação.
+const MUTACAO_FINANCEIRA = [/\b(registr\w*|confirm\w*|marc\w*|lanc\w*|baix\w*)\b.*\b(pagamento|recebimento|pago|quitad\w*|parcela)\b/, /\b(estorn\w*|quit(e|ar|a|em|ou)\b|reembols\w*|devolv\w*)\b/, /\bcobr(e|ar|a|em)\b/];
 const ENVIO_EXTERNO = [/\b(envi(e|ar|a|em)|mand(e|ar|a|em)|dispar(e|ar|a))\b/, /\bwhats\s?app\b.*\b(para|pro|pra)\b/];
 const CANCELAMENTO = [/\bcancel(ar|e|a|em)\b/];
 const ALTERACAO = [
