@@ -1246,6 +1246,43 @@ test("Luna — F: âncora correta: os 50 convidados de uma contratação em prep
   assert.match((r3.data as Extract<AIResponse, { tipo: "rascunho" }>).pergunta, /aniversariante/);
 });
 
+test("Luna — A5 (gestão de contexto): resposta ao rascunho, correção e retomada não anunciam pedidos do histórico; pedido novo da mensagem sim", async () => {
+  // Homologação com o modelo real (01/10, staging 3b66958): depois de "antes, quantos docinhos…?", a resposta "à noite"
+  // voltou com outrosPedidos=1 e o rascunho dizia "o outro que você mencionou ainda não foi feito".
+  const AVISO = /Fiz um pedido por vez/;
+  const doHistorico = { pedido: "calcular docinhos", trecho: "quantos docinhos preciso para 60 convidados" };
+  const a = ambiente();
+  const roteiro = [
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium" } }),
+    saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "CONSULTA_PARALELA", festa: "NENHUMA", consumo: { categorias: ["DOCES"] } }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { aniversariante: "Theo" }, outrosPedidos: [doHistorico] }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "CORRIGE", correcao: true, contratacao: { convidados: 60 }, outrosPedidos: [doHistorico] }),
+    saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "CONSULTA_PARALELA", festa: "PROXIMA", consumo: { categorias: ["DOCES"], docesPorConvidado: 4 } }),
+    saida({ objetivo: "RETOMAR_RASCUNHO", outrosPedidos: [doHistorico] }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { data: "2027-11-14" }, outrosPedidos: [{ pedido: "refrigerantes", trecho: "quantos refrigerantes para a próxima festa" }] }),
+  ];
+  comLuna(a, { entender: (_d, n) => roteiro[n - 1] });
+  const r1 = await a.enviar("crie uma festa do cliente Felipe para 50 convidados, pacote premium");
+  const op = (r1.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId;
+  await a.enviar("antes, quantos docinhos preciso para 60 convidados?");
+  const texto = (r: { data: AIResponse | null }) => (r.data?.tipo === "rascunho" ? r.data.pergunta : r.data?.tipo === "nao_suportado" ? r.data.mensagem : r.data?.tipo === "resposta" ? r.data.dados.resumo : "");
+  const responde = await a.enviar("o aniversariante é o Theo");
+  assert.equal(responde.data?.tipo, "rascunho");
+  assert.doesNotMatch(texto(responde), AVISO, "resposta ao campo: o pedido de docinhos é do histórico");
+  assert.deepEqual([responde.rastro.adaptativo?.outrosPedidos, responde.rastro.adaptativo?.outrosDescartados], [0, 1]);
+  const corrige = await a.enviar("na verdade são 60 convidados");
+  assert.doesNotMatch(texto(corrige), AVISO, "correção");
+  assert.equal(corrige.rastro.adaptativo?.outrosDescartados, 1);
+  await a.enviar("e a próxima festa, quantos docinhos com 4 por convidado?");
+  const retoma = await a.enviar("vamos voltar para a festa do Felipe");
+  assert.equal((retoma.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId, op, "retomada volta ao mesmo rascunho");
+  assert.doesNotMatch(texto(retoma), AVISO, "retomada");
+  // Pedido realmente novo, escrito nesta mensagem: anunciado (um pedido por vez).
+  const novo = await a.enviar("dia 14/11/2027. E quantos refrigerantes para a próxima festa?");
+  assert.match(texto(novo), AVISO);
+  assert.deepEqual([novo.rastro.adaptativo?.outrosPedidos, novo.rastro.adaptativo?.outrosDescartados], [1, 0]);
+});
+
 test("Luna (homologação): cálculo sem festa no meio do rascunho pergunta qual festa, sem Planner, e o rascunho fica pausado", async () => {
   // Achado da homologação em staging: "antes, quantos docinhos preciso para 60 convidados?" caía no Planner e respondia
   // "Ainda não sei responder isso". A Luna já disse que não há festa: pergunta-se qual, com o rascunho intocado.
