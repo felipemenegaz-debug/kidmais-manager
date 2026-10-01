@@ -68,10 +68,13 @@ function somarDias(data: string, dias: number): string {
 }
 const dataCurta = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 
+/** "Evento" é sinônimo de festa nas expressões temporais (PR 6.3): "próximo evento", "último evento", "evento de sábado". */
+const FESTA_OU_EVENTO = /\b(festas?|eventos?)\b/;
+
 function temporalDe(n: string, hoje: string): Temporal | null {
-  if (!/\bfestas?\b/.test(n)) return null;
-  if (/\bproxima festa\b|\bfesta seguinte\b/.test(n)) return { seletor: "PROXIMA", rotulo: "a próxima festa" };
-  if (/\bultima festa\b|\bfesta anterior\b/.test(n)) return { seletor: "ULTIMA", rotulo: "a última festa" };
+  if (!FESTA_OU_EVENTO.test(n)) return null;
+  if (/\bproxima festa\b|\bfesta seguinte\b|\bproximo evento\b|\bevento seguinte\b/.test(n)) return { seletor: "PROXIMA", rotulo: "a próxima festa" };
+  if (/\bultima festa\b|\bfesta anterior\b|\bultimo evento\b|\bevento anterior\b/.test(n)) return { seletor: "ULTIMA", rotulo: "a última festa" };
   if (/\bdepois de amanha\b/.test(n)) { const dia = somarDias(hoje, 2); return { seletor: "DIA", dia, rotulo: `festa de ${dataCurta(dia)}` }; }
   if (/\bamanha\b/.test(n)) { const dia = somarDias(hoje, 1); return { seletor: "DIA", dia, rotulo: "festa de amanhã" }; }
   if (/\bhoje\b/.test(n)) return { seletor: "DIA", dia: hoje, rotulo: "festa de hoje" };
@@ -138,7 +141,7 @@ function detectarAncora(texto: string, hoje: string): Referencia | null {
   }
   const temporal = temporalDe(n, hoje);
   if (temporal) {
-    const festa = /\bfestas?\b/.exec(n)!;
+    const festa = FESTA_OU_EVENTO.exec(n)!;
     const alvo = substantivos(n, [festa.index, festa.index + festa[0].length])[0] ?? "FESTA";
     return { tipo: "TEMPORAL", alvo, temporal };
   }
