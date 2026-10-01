@@ -991,6 +991,8 @@ function comLuna(a: ReturnType<typeof ambiente>, o: {
   limites?: Record<string, number>;
   /** AI_BUDGET_JSON do roteador (padrão: teto diário folgado). */
   orcamento?: string;
+  /** Resposta do classificador de intenção antigo (caminho sem a Luna); padrão "nenhuma". */
+  classificar?: string;
 }) {
   const chamadas: string[] = [];
   const recebidos: string[] = [];
@@ -1015,6 +1017,7 @@ function comLuna(a: ReturnType<typeof ambiente>, o: {
         return r instanceof ErroModelo ? r : respostaFake(JSON.stringify(r), { entrada: 900, saida: 80 });
       }
       if (p.workload === "PLANEJAR" && o.plano) return respostaFake(JSON.stringify(o.plano));
+      if (p.esquema?.nome === "classificacao" && o.classificar) return respostaFake(JSON.stringify({ capacidade: o.classificar, dia: null }));
       return respostaFake(JSON.stringify({ capacidade: "nenhuma", dia: null }));
     },
   });
@@ -1045,6 +1048,37 @@ test("Luna — PR 13: reserva recusada pelo orçamento ⇒ caminho anterior resp
   // Só metadados: nada do texto do pedido no trace.
   assert.doesNotMatch(JSON.stringify(r.rastro.recusasModelo), /Felipe|premium|convidados/);
   assert.deepEqual(a.efeitos.pacotes, []);
+});
+
+test("Fallback (PR 14): sem a Luna, \"não estime / só a regra cadastrada\" e \"não sei\" refazem o MESMO cálculo — nunca propõem cadastrar regra", async () => {
+  for (const cenario of ["sem modelo", "Luna fora, classificador antigo propõe salvar regra"] as const) {
+    const a = ambiente({ convidados: 50 });
+    if (cenario !== "sem modelo") comLuna(a, { entender: () => new ErroModelo("HTTP_5XX", false), classificar: "salvar_parametro_consumo" });
+    const pergunta = await a.enviar("quantos refrigerantes para a próxima festa?");
+    assert.deepEqual(pergunta.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO", festaId: IDS.FESTA_MARIA }, cenario);
+    for (const texto of ["Não estime o consumo; quero somente a regra cadastrada.", "não sei"]) {
+      const r = await a.enviar(texto);
+      assert.equal(r.data?.tipo, "resposta", `${cenario}: ${texto}`);
+      assert.equal(r.rastro.plano?.passos.at(-1)?.capacidade, "calcular_consumo", `${cenario}: mesmo cálculo`);
+      assert.match(leitura(r.data).resumo, /Quantos mL de refrigerante por convidado/, `${cenario}: pergunta de novo o que falta`);
+      assert.deepEqual(r.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO", festaId: IDS.FESTA_MARIA }, `${cenario}: mesma festa`);
+      assert.equal(leitura(r.data).fatos.some((f) => f.natureza === "ESTIMATIVA"), false, "nunca estima sem pedido");
+      assert.equal([...a.repositorio.linhas.values()].length, 0, `${cenario}: nenhum rascunho de regra`);
+    }
+  }
+});
+
+test("Fallback (PR 14): sem a Luna, \"pode estimar os refrigerantes da próxima festa? garrafa de 2 litros e 10% de margem\" é cálculo de consumo, não resumo da festa", async () => {
+  for (const cenario of ["sem modelo", "Luna fora"] as const) {
+    const a = ambiente({ convidados: 50 });
+    if (cenario === "Luna fora") comLuna(a, { entender: () => new ErroModelo("HTTP_5XX", false) });
+    const r = await a.enviar("pode estimar os refrigerantes da próxima festa? garrafa de 2 litros e uns 10% de margem");
+    assert.equal(r.data?.tipo, "resposta", cenario);
+    assert.equal(r.rastro.plano?.passos.at(-1)?.capacidade, "calcular_consumo", cenario);
+    assert.match(leitura(r.data).resumo, /Quantos mL de refrigerante por convidado/, `${cenario}: a taxa falta e é perguntada (sem a Luna não há estimativa)`);
+    assert.equal(leitura(r.data).fatos.some((f) => f.natureza === "ESTIMATIVA"), false, cenario);
+    assert.deepEqual(r.data?.continuacao?.parametros, { embalagemMl: 2000, margemPercentual: 10 }, `${cenario}: embalagem e margem escritas são guardadas`);
+  }
 });
 
 const FRASE_C = "4 doces por convidados, refrigerante de 2l. Não sei dizer quantos ml por convidados o consumo. faça você a definição.";
