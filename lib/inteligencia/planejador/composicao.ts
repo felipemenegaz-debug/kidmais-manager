@@ -105,6 +105,12 @@ export type Composicao =
  * Junta as leituras (na ordem do plano; a final por último) numa única RespostaLeitura. Estado = o mais restritivo;
  * fato pedido e não obtido ⇒ ausência explícita + estado "atencao" (nunca apresentado como concluído).
  */
+/** Primeira ocorrência de cada chave, na ordem. */
+function unicos<T>(lista: readonly T[], chave: (x: T) => string): T[] {
+  const vistas = new Set<string>();
+  return lista.filter((x) => !vistas.has(chave(x)) && Boolean(vistas.add(chave(x))));
+}
+
 export function compor(partes: readonly ParteResposta[], solicitados: readonly FatoSolicitado[]): Composicao {
   if (!mesmaAncora(partes)) return { ok: false, motivo: "ANCORA_DIVERGENTE" };
   const sem = faltando(solicitados, partes);
@@ -117,10 +123,11 @@ export function compor(partes: readonly ParteResposta[], solicitados: readonly F
     capacidade: final.capacidade,
     estado,
     resumo: [...partes.map((p) => p.dados.resumo), ...(aviso ? [aviso] : [])].join(" "),
-    fatos: [...partes.flatMap((p) => p.dados.fatos), ...sem.map((f) => ({ natureza: "AUSENCIA" as const, texto: `Não consegui obter: ${ROTULO[f]}.`, fonte: FONTE_COMPLETUDE }))],
+    // O mesmo fato da mesma fonte em duas leituras da MESMA âncora (ex.: convidados nos dois cálculos) aparece uma vez.
+    fatos: [...unicos(partes.flatMap((p) => p.dados.fatos), (x) => `${x.natureza}|${x.fonte}|${x.texto}`), ...sem.map((f) => ({ natureza: "AUSENCIA" as const, texto: `Não consegui obter: ${ROTULO[f]}.`, fonte: FONTE_COMPLETUDE }))],
     // Ids de item prefixados pelo passo: duas leituras podem ter um item "contrato".
     itens: partes.flatMap((p) => p.dados.itens.map((i) => ({ ...i, id: `${p.passoId}_${i.id}`.slice(0, 80) }))),
-    evidencias: partes.flatMap((p) => p.dados.evidencias),
+    evidencias: unicos(partes.flatMap((p) => p.dados.evidencias), (x) => JSON.stringify(x)),
     referencia: { hoje: final.referencia.hoje, geradoEm: final.referencia.geradoEm, fontes: [...new Set([...partes.flatMap((p) => p.dados.referencia.fontes), ...(sem.length ? [FONTE_COMPLETUDE] : [])])] },
     ...(entidades.length ? { entidades } : {}),
   };

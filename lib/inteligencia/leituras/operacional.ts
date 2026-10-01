@@ -164,15 +164,19 @@ const distribuicaoSchema = z.object({
   quantidade: z.number().int().min(1).max(100_000).optional(),
 }).strict();
 
-/** Entrada: festa (id do Core via plano/tela), categoria fechada e, opcionalmente, parâmetros ESCRITOS pelo operador. */
-export const entradaConsumo = z.object({
-  id: z.string().uuid(),
-  categoria: z.enum(CATEGORIAS_CONSUMO),
+/** Parâmetros ESCRITOS pelo operador para um cálculo (os mesmos limites na ferramenta e na continuação da conversa). */
+export const parametrosEscritosConsumo = z.object({
   porConvidado: z.number().int().min(1).max(100).optional(),
   mlPorConvidado: z.number().int().min(1).max(5000).optional(),
   embalagemMl: z.number().int().min(50).max(20000).optional(),
   margemPercentual: z.number().int().min(0).max(100).optional(),
   distribuicao: z.array(distribuicaoSchema).min(2).max(10).optional(),
+}).strict();
+
+/** Entrada: festa (id do Core via plano/tela), categoria fechada e, opcionalmente, parâmetros ESCRITOS pelo operador. */
+export const entradaConsumo = parametrosEscritosConsumo.extend({
+  id: z.string().uuid(),
+  categoria: z.enum(CATEGORIAS_CONSUMO),
 }).strict();
 
 type Regra = { origem: "EMPRESA"; versao: number; porConvidado: number | null; mlPorConvidado: number | null; embalagemMl: number | null; margemPercentual: number | null }

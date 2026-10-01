@@ -120,12 +120,14 @@ export function extrairParametros(texto: string, categoria: CategoriaConsumo, pe
     const ml = emb[1] !== undefined ? volumeMl(emb[1], emb[2]) : volumeMl(emb[3], emb[4]);
     if (ml && ml >= 50 && ml <= 20000) p.embalagemMl = ml;
   }
-  // Resposta curta à pergunta feita ("400 ml", "2 litros"): um único volume vale para o parâmetro PERGUNTADO.
-  const volumes = [...n.matchAll(new RegExp(`${NUM}${UNIDADE_VOL}`, "g"))];
-  if (perguntado && volumes.length === 1 && p.mlPorConvidado === undefined && p.embalagemMl === undefined) {
-    const ml = volumeMl(volumes[0][1], volumes[0][2]);
-    if (ml && perguntado === "ML_POR_CONVIDADO" && ml <= 5000) p.mlPorConvidado = ml;
-    if (ml && perguntado === "EMBALAGEM" && ml >= 50 && ml <= 20000) p.embalagemMl = ml;
+  // Resposta curta à pergunta feita ("400 ml", "2 litros"): um único volume SEM papel explícito vale para o parâmetro
+  // PERGUNTADO — inclusive ao lado de outro de papel explícito ("400 mL e garrafas de 2 litros" ⇒ taxa 400 + embalagem).
+  const explicitos = [taxa, emb].filter((m): m is RegExpExecArray => m !== null).map((m) => [m.index, m.index + m[0].length]);
+  const soltos = [...n.matchAll(new RegExp(`${NUM}${UNIDADE_VOL}`, "g"))].filter((v) => !explicitos.some(([ini, fim]) => v.index! >= ini && v.index! < fim));
+  if (perguntado && soltos.length === 1) {
+    const ml = volumeMl(soltos[0][1], soltos[0][2]);
+    if (ml && perguntado === "ML_POR_CONVIDADO" && p.mlPorConvidado === undefined && ml <= 5000) p.mlPorConvidado = ml;
+    if (ml && perguntado === "EMBALAGEM" && p.embalagemMl === undefined && ml >= 50 && ml <= 20000) p.embalagemMl = ml;
   }
   return p;
 }

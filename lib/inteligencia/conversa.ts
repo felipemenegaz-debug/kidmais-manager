@@ -15,7 +15,7 @@ import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExt
 import { construirContextoAutorizado, construirContextoModelo } from "./contexto/construtor.ts";
 import { ContextoRecusado } from "./contexto/contrato.ts";
 import { CAPACIDADES_OPERACIONAIS, ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
-import { ROTULO_PENDENTE } from "./leituras/operacional.ts";
+import { ROTULO_PENDENTE, parametrosEscritosConsumo } from "./leituras/operacional.ts";
 import { CATEGORIAS_CONSUMO, detectarConsumo, extrairParametros, type CategoriaConsumo, type ParametrosConsumo } from "./operacional/consumo.ts";
 import { coordenarRascunho, type DecisaoRascunho } from "./operacional/objetivo.ts";
 import type { PassoPlano } from "./planejador/plano.ts";
@@ -63,19 +63,22 @@ const pedidoSchema = z.object({
   foco: focoEntradaSchema.optional(),
   /**
    * IA operacional: continuação de uma pergunta de parâmetro (ex.: "Quantos docinhos por convidado…?"). Só DICA: categoria
-   * fechada e números já escritos pelo operador; a festa vem do foco/tela e é revalidada no Core a cada pedido.
+   * fechada e números já escritos pelo operador. Pergunta com várias categorias: TODAS as categorias da pergunta e os
+   * números já escritos de cada uma seguem juntos. A festa da pergunta segue como `festaId` e é revalidada no Core a
+   * cada pedido (vale mais que a tela aberta, que pode ser outra festa).
    */
   continuacao: z.object({
     tipo: z.literal("PARAMETRO_CONSUMO"),
     categoria: z.enum(CATEGORIAS_CONSUMO),
     perguntado: z.enum(["POR_CONVIDADO", "ML_POR_CONVIDADO", "EMBALAGEM"]),
-    parametros: z.object({
-      porConvidado: z.number().int().min(1).max(100).optional(),
-      mlPorConvidado: z.number().int().min(1).max(5000).optional(),
-      embalagemMl: z.number().int().min(50).max(20000).optional(),
-      margemPercentual: z.number().int().min(0).max(100).optional(),
-    }).strict().optional(),
-  }).strict().optional(),
+    parametros: parametrosEscritosConsumo.optional(),
+    categorias: z.array(z.enum(CATEGORIAS_CONSUMO)).min(2).max(CATEGORIAS_CONSUMO.length).optional(),
+    informados: z.object({ DOCES: parametrosEscritosConsumo, REFRIGERANTES: parametrosEscritosConsumo }).partial().strict().optional(),
+    festaId: z.string().uuid().optional(),
+  }).strict()
+    .refine((c) => !c.categorias || (new Set(c.categorias).size === c.categorias.length && c.categorias.includes(c.categoria)), "categorias")
+    .refine((c) => !c.informados?.[c.categoria], "informados")
+    .optional(),
 }).strict();
 
 export type DependenciasConversa = DependenciasGateway & {
@@ -226,7 +229,7 @@ type Execucao = {
   /** PR 6.4: resultados completos dos passos marcados `resposta`, para compor a resposta de leitura. */
   partesPlano?: ParteResposta[];
   /** IA operacional: pergunta de quantidade (categoria + parâmetros ESCRITOS neste pedido, só para este cálculo). */
-  consumo?: { categorias: CategoriaConsumo[]; parametros: Partial<Record<CategoriaConsumo, ParametrosConsumo>> };
+  consumo?: { categorias: CategoriaConsumo[]; parametros: Partial<Record<CategoriaConsumo, ParametrosConsumo>>; festaId?: string };
   /** IA operacional: a `ler` do plano em curso (contada pela orquestradora), para os complementos depois da execução. */
   lerPlano?: LerPlano;
   /** IA operacional: a orquestradora vai tentar o Planner por modelo se as regras não ancorarem o pedido. */
@@ -595,7 +598,9 @@ async function planejarConsumo(e: Execucao, lerPorta: LerPlano): Promise<SaidaPl
     fonte = { de: "PASSO", passo: "p1", entidade: "FESTA" };
   } else {
     referencia = { tipo: "DEITICO", alvo: "FESTA", deitico: "FESTA" };
-    const r = await resolverAncoraContexto(referencia, { contexto: e.contexto, foco: e.foco, hoje, ler: leitor });
+    // Continuação: a festa da PERGUNTA (dica, revalidada no Core como o foco), não a tela aberta agora.
+    const pergunta = consumo.festaId ? { contexto: null, foco: { entidades: [{ tipo: "FESTA" as const, id: consumo.festaId }], principal: 0 } } : { contexto: e.contexto, foco: e.foco };
+    const r = await resolverAncoraContexto(referencia, { ...pergunta, hoje, ler: leitor });
     if (r.resultado !== "RESOLVIDA" || !r.ancora || (r.ancora.tipo !== "FESTA" && r.ancora.tipo !== "CONTRATO")) {
       e.resolucao = r;
       anotarReferencia(e.rastreio, r);
@@ -614,8 +619,12 @@ async function planejarConsumo(e: Execucao, lerPorta: LerPlano): Promise<SaidaPl
   }
   // Uma leitura de cálculo por categoria pedida (doces E refrigerantes ⇒ duas), todas da MESMA festa da cadeia; a
   // composição junta as respostas e confere a mesma âncora.
+  // A tela/foco só pode alimentar o PRIMEIRO passo (validarPlano): ancorado nela, o 2º cálculo lê a festa que o 1º
+  // devolveu do Core (calcular_consumo produz FESTA), sem leitura extra.
   consumo.categorias.forEach((categoria, i) => {
-    passos.push({ id: `p${passos.length + 1}` as PassoPlano["id"], capacidade: "calcular_consumo", parametros: { categoria }, entradaDe: fonte, ...(i < consumo.categorias.length - 1 ? { resposta: true } : {}) });
+    const id = `p${passos.length + 1}` as PassoPlano["id"];
+    passos.push({ id, capacidade: "calcular_consumo", parametros: { categoria }, entradaDe: fonte, ...(i < consumo.categorias.length - 1 ? { resposta: true } : {}) });
+    if (fonte.de === "CONTEXTO") fonte = { de: "PASSO", passo: id, entidade: "FESTA" };
   });
   const catalogo = catalogoRegistro(e.deps.acoes);
   const validacao = validarPlano({ objetivo: "CONSULTAR:FESTA", recursoFinal: "FESTA", passos }, catalogo, { contexto: ancora ? [ancora.entidade.tipo] : [] });
@@ -635,19 +644,37 @@ function continuacaoDa(resposta: AIResponse, e: Execucao): ContinuacaoConsumo | 
   const categoria = pendente[0] as CategoriaConsumo;
   const perguntado = pendente[1] as ContinuacaoConsumo["perguntado"];
   if (!CATEGORIAS_CONSUMO.includes(categoria) || !["POR_CONVIDADO", "ML_POR_CONVIDADO", "EMBALAGEM"].includes(perguntado)) return undefined;
-  const { porConvidado, mlPorConvidado, embalagemMl, margemPercentual } = e.consumo.parametros[categoria] ?? {};
-  const parametros = Object.fromEntries(Object.entries({ porConvidado, mlPorConvidado, embalagemMl, margemPercentual }).filter(([, v]) => typeof v === "number"));
-  return { tipo: "PARAMETRO_CONSUMO", categoria, perguntado, ...(Object.keys(parametros).length ? { parametros } : {}) };
+  const { categorias, parametros: escritos } = e.consumo;
+  if (!categorias.includes(categoria)) return undefined;
+  const parametros = escritos[categoria];
+  const informados = Object.fromEntries(categorias.filter((c) => c !== categoria && escritos[c] && Object.keys(escritos[c]!).length).map((c) => [c, escritos[c]]));
+  // A festa que o Core devolveu para TODOS os cálculos (uma só); outra situação ⇒ sem festa na dica (a próxima mensagem
+  // resolve pela tela/foco, como antes).
+  const festas = [...new Set((resposta.dados.entidades ?? []).filter((x) => x.tipo === "FESTA").map((x) => x.id))];
+  return {
+    tipo: "PARAMETRO_CONSUMO", categoria, perguntado,
+    ...(parametros && Object.keys(parametros).length ? { parametros } : {}),
+    ...(categorias.length > 1 ? { categorias: [...categorias] } : {}),
+    ...(festas.length === 1 ? { festaId: festas[0] } : {}),
+    ...(Object.keys(informados).length ? { informados } : {}),
+  };
 }
 
 /**
  * Pergunta de quantidade deste pedido: continuação de uma pergunta de parâmetro (a resposta traz o número) ou pergunta
- * nova ("quantos docinhos…"). Só os números ESCRITOS entram; nada vira padrão da empresa.
+ * nova ("quantos docinhos…"). Só os números ESCRITOS entram; nada vira padrão da empresa. Na continuação, a resposta
+ * vale para o parâmetro PERGUNTADO; números explícitos de outra categoria da mesma pergunta também valem ("4, e 400 ml
+ * por convidado"); as demais categorias e os números já informados seguem intactos, e a festa da pergunta também.
  */
 function consumoDoPedido(texto: string, continuacao: ContinuacaoConsumo | undefined): Execucao["consumo"] {
   if (continuacao) {
-    const novos = extrairParametros(texto, continuacao.categoria, continuacao.perguntado);
-    if (Object.keys(novos).length) return { categorias: [continuacao.categoria], parametros: { [continuacao.categoria]: { ...continuacao.parametros, ...novos } } };
+    const categorias = continuacao.categorias ?? [continuacao.categoria];
+    const novos = new Map(categorias.map((c) => [c, c === continuacao.categoria ? extrairParametros(texto, c, continuacao.perguntado) : extrairParametros(texto, c)]));
+    if ([...novos.values()].some((p) => Object.keys(p).length)) {
+      const parametros: Partial<Record<CategoriaConsumo, ParametrosConsumo>> = {};
+      for (const c of categorias) parametros[c] = { ...(c === continuacao.categoria ? continuacao.parametros : continuacao.informados?.[c]), ...novos.get(c) };
+      return { categorias: [...categorias], parametros, ...(continuacao.festaId ? { festaId: continuacao.festaId } : {}) };
+    }
   }
   const detectado = detectarConsumo(texto);
   if (!detectado) return undefined;
