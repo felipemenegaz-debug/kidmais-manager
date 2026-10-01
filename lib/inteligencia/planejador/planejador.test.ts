@@ -271,7 +271,7 @@ test("trace do plano: só códigos, contagens e durações — nenhum id, nome, 
     for (const proibido of [...PII, "Ana Oliveira", "Carla Souza", "R$", "1.200", "2.500", "próxima", "contrato da", ...Object.values(IDS)]) {
       assert.equal(plano.includes(proibido), false, `plano contém ${proibido}`);
     }
-    if (o.rastro?.plano) assert.deepEqual(Object.keys(o.rastro.plano).sort(), ["duracaoMs", "motivo", "objetivo", "origem", "parada", "passos", "quantidadePassos", "resultadoFinal", "usoModelo", "versao"]);
+    if (o.rastro?.plano) assert.deepEqual(Object.keys(o.rastro.plano).sort(), ["duracaoMs", "motivo", "motivoParada", "objetivo", "origem", "parada", "passos", "quantidadePassos", "resultadoFinal", "usoModelo", "versao"]);
     const trace = JSON.stringify(o.rastro);
     for (const proibido of [...PII, "Ana Oliveira", "Carla Souza", "R$"]) assert.equal(trace.includes(proibido), false, proibido);
   }
@@ -420,5 +420,80 @@ test("composição com dois recursos (contrato → cliente) pelo modelo: 4 passo
   assert.match(dados(ultima.resposta).resumo, /^Ana Oliveira/);
   const traco = JSON.stringify(ultima.rastro?.plano);
   for (const proibido of [...Object.values(IDS), "Ana Oliveira", ...PII]) assert.equal(traco.includes(proibido), false, proibido);
+  assert.deepEqual(amb.violacoes.crossTenant, []);
+});
+
+// ---------------------------------------------------------------- 7. PR 6.2: CONTEXTO só com contexto real (smoke de staging, caso 8 após o #44)
+
+const PLANO_COM_CONTEXTO = {
+  objetivo: "CONSULTAR:CONTRATO", recursoFinal: null,
+  passos: [
+    { id: "p1", capacidade: "relacoes_festa", parametros: null, entradaDe: { de: "CONTEXTO", passo: null, entidade: "FESTA" }, selecao: null },
+    { id: "p2", capacidade: "resumir_contrato", parametros: null, entradaDe: { de: "PASSO", passo: "p1", entidade: "CONTRATO" }, selecao: null },
+  ],
+};
+type SchemaPlano = { properties: { passos: { items: { properties: { entradaDe: { anyOf: Array<{ properties?: { de: { enum: string[] } } }> } } } } } };
+const opcoesDe = (p: PedidoModelo<unknown>) => (p.esquema.schema as SchemaPlano).properties.passos.items.properties.entradaDe.anyOf[0].properties!.de.enum;
+
+test("staging (6.2): sem tela e sem foco, o schema e a instrução NÃO oferecem CONTEXTO; o modelo ancora em proximas_festas ASC e o plano vai até FIM", async () => {
+  // Provedor que reproduz o modelo de staging: se CONTEXTO for opção, ele escolhe CONTEXTO; se não, a âncora temporal.
+  const vistos: Array<PedidoModelo<unknown>> = [];
+  const { ultima } = await conversa([{ texto: TEXTO_SMOKE }], comModelo((p) => {
+    if (p.workload !== "PLANEJAR") return { capacidade: "nenhuma", dia: null };
+    vistos.push(p);
+    return opcoesDe(p).includes("CONTEXTO") ? PLANO_COM_CONTEXTO : PLANO_DOIS_RECURSOS;
+  }));
+  assert.equal(vistos.length, 1);
+  assert.deepEqual(opcoesDe(vistos[0]), ["PASSO"], "sem tela/foco, CONTEXTO não é opção no schema");
+  const sistema = vistos[0].mensagens[0].conteudo;
+  assert.match(sistema, /Não há registro na tela nem no foco/);
+  assert.match(sistema, /proximas_festas com ordem ASC/);
+  assert.match(vistos[0].mensagens[1].conteudo, /"contextoDisponivel":\[\]/);
+  assert.deepEqual([ultima.rastro?.plano?.origem, ultima.rastro?.plano?.parada, ultima.rastro?.plano?.motivoParada, ultima.rastro?.plano?.resultadoFinal], ["MODELO", "FIM", null, "SUCESSO"]);
+  assert.deepEqual(passos(ultima), [["proximas_festas", "PARAMETROS", "SUCESSO"], ["relacoes_festa", "PASSO", "SUCESSO"], ["resumir_contrato", "PASSO", "SUCESSO"]]);
+  assert.equal(dados(ultima.resposta).capacidade, "resumir_contrato");
+});
+
+test("staging (6.2, negativo): modelo que gera CONTEXTO sem tela/foco ⇒ plano rejeitado (CONTEXTO_INDISPONIVEL) antes de qualquer leitura", async () => {
+  const { ultima } = await conversa([{ texto: TEXTO_SMOKE }], comModelo((p) => (p.workload === "PLANEJAR" ? PLANO_COM_CONTEXTO : { capacidade: "nenhuma", dia: null })));
+  assert.deepEqual([ultima.rastro?.plano?.origem, ultima.rastro?.plano?.parada, ultima.rastro?.plano?.motivoParada], ["MODELO", "REJEITADO:CONTEXTO_INDISPONIVEL", "CONTEXTO_INDISPONIVEL"]);
+  assert.deepEqual(ultima.rastro?.leituras, [], "nenhuma leitura");
+  assert.equal(ultima.resposta?.tipo, "nao_suportado");
+  // Camada da validação, isolada: CONTEXTO de tipo ausente é recusado; de tipo presente, aceito.
+  const catalogo = [...CATALOGO];
+  const limpo = { objetivo: "CONSULTAR:CONTRATO", recursoFinal: null, passos: [{ id: "p1", capacidade: "relacoes_festa", entradaDe: { de: "CONTEXTO", entidade: "FESTA" } }, { id: "p2", capacidade: "resumir_contrato", entradaDe: { de: "PASSO", passo: "p1", entidade: "CONTRATO" } }] };
+  assert.deepEqual(validarPlano(limpo, catalogo, { contexto: [] }), { ok: false, motivo: "CONTEXTO_INDISPONIVEL" });
+  assert.deepEqual(validarPlano(limpo, catalogo, { contexto: ["CLIENTE"] }), { ok: false, motivo: "CONTEXTO_INDISPONIVEL" });
+  assert.equal(validarPlano(limpo, catalogo, { contexto: ["FESTA"] }).ok, true);
+});
+
+test("staging (6.2): com festa na tela, CONTEXTO volta a ser opção e o plano usa a festa aberta", async () => {
+  const vistos: Array<PedidoModelo<unknown>> = [];
+  const { ultima } = await conversa([{ texto: TEXTO_SMOKE, contexto: { tela: "festa", entidade: "FESTA_MARIA" } }], comModelo((p) => {
+    if (p.workload !== "PLANEJAR") return { capacidade: "nenhuma", dia: null };
+    vistos.push(p);
+    return PLANO_COM_CONTEXTO;
+  }));
+  assert.equal(vistos.length, 1, "as regras não resolvem este texto: o Planner por modelo é chamado");
+  assert.deepEqual(opcoesDe(vistos[0]), ["PASSO", "CONTEXTO"]);
+  assert.match(vistos[0].mensagens[1].conteudo, /"contextoDisponivel":\["FESTA"\]/);
+  assert.deepEqual(passos(ultima), [["relacoes_festa", "CONTEXTO", "SUCESSO"], ["resumir_contrato", "PASSO", "SUCESSO"]]);
+  assert.equal(ultima.rastro?.plano?.origem, "MODELO");
+});
+
+test("trace (6.2): parada antes da primeira leitura (âncora do foco negada) registra plano, sequência e motivo — sem id/PII", async () => {
+  const amb = criarAmbiente();
+  comModelo((p) => (p.workload === "PLANEJAR" ? PLANO_COM_CONTEXTO : { capacidade: "nenhuma", dia: null }))(amb);
+  const { atenderConversa } = await import("../conversa.ts");
+  // Foco adulterado com festa de OUTRA empresa: o tipo existe (CONTEXTO é oferecido), mas a revalidação no Core nega.
+  const r = await atenderConversa({ lerCorpo: async () => ({ texto: TEXTO_SMOKE, foco: { entidades: [{ tipo: "FESTA", id: IDS.FESTA_B }], principal: 0 } }), empresaSolicitada: null }, amb.deps);
+  const data = (r.corpo as { data?: AIResponse }).data!;
+  assert.equal(data.entendimento, "NEGADO_POLITICA");
+  const plano = amb.rastros.at(-1)!.plano!;
+  assert.deepEqual([plano.origem, plano.objetivo, plano.quantidadePassos, plano.parada, plano.motivoParada, plano.resultadoFinal], ["MODELO", "CONSULTAR:CONTRATO", 2, "p1", "CONTEXTO_NEGADA", "NEGADO"]);
+  assert.deepEqual(plano.passos.map((p) => [p.capacidade, p.origemEntrada, p.resultado]), [["relacoes_festa", "CONTEXTO", "NEGADO"], ["resumir_contrato", "PASSO", "NAO_EXECUTADO"]]);
+  assert.equal(amb.rastros.at(-1)!.leituras.some((l) => l.capacidade === "resumir_contrato"), false, "o passo seguinte nunca executa");
+  const traco = JSON.stringify(plano);
+  for (const proibido of [...Object.values(IDS), ...PII, "Lucas", TEXTO_SMOKE, "festa que vem"]) assert.equal(traco.includes(proibido), false, proibido);
   assert.deepEqual(amb.violacoes.crossTenant, []);
 });

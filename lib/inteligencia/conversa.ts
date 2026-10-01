@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
-import type { AcaoObjetivo, AIResponse, ContextoTela, EntidadeRef, ModelUsage, OrigemChamada, OrigemPlano, PlanoRastreio, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
+import type { AcaoObjetivo, AIResponse, ContextoTela, EntidadeRef, TipoEntidade, ModelUsage, OrigemChamada, OrigemPlano, PlanoRastreio, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
 import { atualizarFoco, focoEntradaSchema, type EntidadeFoco, type FocoConversa, type FocoEntrada, type OrigemFoco } from "./foco.ts";
 import { detectarReferencia, entidadesCitadas, resolverAncoraContexto, resolverReferencia, type Leitor, type Referencia, type Resolucao } from "./referencias.ts";
 import { executarPlano, resultadoFinal, type LerPlano } from "./planejador/executor.ts";
@@ -427,6 +427,7 @@ async function executarPlanoDaConversa(
   e.rastreio.plano = {
     versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: plano.objetivo, quantidadePassos: plano.passos.length, passos: r.passos,
     resultadoFinal: r.estado === "FINAL" ? "NAO_EXECUTADO" : r.estado, parada: r.estado === "FINAL" ? "FIM" : r.passoId,
+    motivoParada: r.estado === "FINAL" ? null : r.estado,
     duracaoMs: Math.max(0, Math.round(relogio() - inicio)), usoModelo: opcoes.usoModelo,
   };
   // Referência para o foco e o trace: âncora (tela/foco ou 1º passo), alvo (entrada do passo final) e origem.
@@ -477,7 +478,7 @@ async function planejarPedido(e: Execucao, regras: Intencao, lerPorta: LerPlano)
   const porRegras = planejarPorRegras(referencia, e.texto, ancora?.entidade ?? null);
   // Sem plano seguro (ex.: relação que o Core não fornece): resolução do PR 5, com as mesmas leituras memoizadas.
   if (!porRegras) return concluirResolucao(e, regras, await resolverReferencia(referencia, deps));
-  const validacao = validarPlano(porRegras.plano, catalogoRegistro(e.deps.acoes));
+  const validacao = validarPlano(porRegras.plano, catalogoRegistro(e.deps.acoes), { contexto: ancora ? [ancora.entidade.tipo] : [] });
   if (!validacao.ok) {
     e.rastreio.plano = planoRejeitado("REGRAS", porRegras.motivo, validacao.motivo);
     return null;
@@ -486,7 +487,14 @@ async function planejarPedido(e: Execucao, regras: Intencao, lerPorta: LerPlano)
 }
 
 function planoRejeitado(origem: OrigemPlano, motivo: PlanoRastreio["motivo"], rejeicao: string): PlanoRastreio {
-  return { versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: null, quantidadePassos: 0, passos: [], resultadoFinal: "NAO_EXECUTADO", parada: `REJEITADO:${rejeicao}`, duracaoMs: 0, usoModelo: origem === "MODELO" };
+  return { versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: null, quantidadePassos: 0, passos: [], resultadoFinal: "NAO_EXECUTADO", parada: `REJEITADO:${rejeicao}`, motivoParada: rejeicao, duracaoMs: 0, usoModelo: origem === "MODELO" };
+}
+
+/** Tipos de entidade que existem DE FATO neste pedido: registro aberto na tela e entidades do foco (dicas, revalidadas depois). */
+function contextoDisponivel(e: Execucao): TipoEntidade[] {
+  const daTela: Partial<Record<ContextoTela["tela"], TipoEntidade>> = { festa: "FESTA", cliente: "CLIENTE", contrato: "CONTRATO" };
+  const tela = e.contexto?.entidadeId ? daTela[e.contexto.tela] : undefined;
+  return [...new Set([...(tela ? [tela] : []), ...(e.foco?.entidades ?? []).map((x) => x.tipo)])];
 }
 
 /** Pedido que compõe recursos: 2+ entidades citadas, ou âncora temporal/nome com outro alvo. Sem rede, sem custo. */
@@ -506,7 +514,7 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
   const doTexto = objetivoDoTexto(e.texto);
   const saida = await planejarComModelo({
     texto: e.texto, contexto: e.contexto, objetivo: doTexto.acao && doTexto.recurso ? `${doTexto.acao}:${doTexto.recurso}` : null,
-    focoTipos: [...new Set((e.foco?.entidades ?? []).map((x) => x.tipo))], catalogo,
+    focoTipos: [...new Set((e.foco?.entidades ?? []).map((x) => x.tipo))], contextoTipos: contextoDisponivel(e), catalogo,
   }, roteador, { empresaId: tenant.empresaComprovada, estabelecimentoId: unidadeDe(tenant), capacidade: "planejar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
   if (saida.roteado) {
     anotarUsoModelo(rastreio, saida.roteado.usos);
@@ -532,6 +540,13 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
     const r = await resolverAncoraContexto({ tipo: "DEITICO", alvo: tipo, deitico: tipo }, { contexto: e.contexto, foco: e.foco, hoje: hojeBrasilia(deps.agora()), ler: leitor });
     if (r.resultado !== "RESOLVIDA" || !r.ancora) {
       e.resolucao = r;
+      // Parada antes da primeira leitura do plano: o trace mostra o plano aceito e onde/por que parou (só códigos).
+      const resultado = r.resultado === "AMBIGUA" ? "AMBIGUO" : r.resultado === "NEGADA" ? "NEGADO" : "SEM_DADOS";
+      rastreio.plano = {
+        versao: VERSAO_PLANEJADOR, origem: "MODELO", motivo: "COMPOSICAO", objetivo: plano.objetivo, quantidadePassos: plano.passos.length,
+        passos: plano.passos.map((p, i) => ({ capacidade: p.capacidade, origemEntrada: p.entradaDe ? (p.entradaDe.de === "CONTEXTO" ? "CONTEXTO" : "PASSO") : "PARAMETROS", resultado: i === 0 ? resultado : "NAO_EXECUTADO", duracaoMs: 0 })),
+        resultadoFinal: resultado, parada: "p1", motivoParada: `CONTEXTO_${r.resultado}`, duracaoMs: 0, usoModelo: true,
+      };
       return { resposta: respostaDaResolucao(r) ?? naoSuportado("Não sei a qual registro você se refere. Abra o registro na tela e pergunte por ali.") };
     }
     ancora = { entidade: r.ancora, origem: r.origem, descartados: r.descartados };

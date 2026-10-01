@@ -156,6 +156,11 @@ export type PlanoRastreio = {
   resultadoFinal: ResultadoPasso;
   /** Onde parou: id do passo (p1..p5), FIM ou REJEITADO:<motivo>. */
   parada: string | null;
+  /**
+   * PR 6.2: por que parou (código fechado): null no FIM; estado do passo (SEM_DADOS, AMBIGUO, NEGADO, ERRO);
+   * CONTEXTO_<resultado> quando a âncora de tela/foco falha antes da primeira leitura; ou o motivo da rejeição.
+   */
+  motivoParada: string | null;
   duracaoMs: number;
   usoModelo: boolean;
 };

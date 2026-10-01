@@ -62,7 +62,9 @@ export type Plano = z.infer<typeof planoSchema>;
 export type PassoPlano = z.infer<typeof passoSchema>;
 
 export type MotivoRejeicao =
-  | "SCHEMA" | "CAMPO_EXTRA" | "LIMITE_PASSOS" | "TOOL_DESCONHECIDA" | "ID_LITERAL" | "REFERENCIA_INVALIDA" | "ACAO_FORA_DO_FIM" | "NAVEGACAO_FORA_DO_FIM";
+  | "SCHEMA" | "CAMPO_EXTRA" | "LIMITE_PASSOS" | "TOOL_DESCONHECIDA" | "ID_LITERAL" | "REFERENCIA_INVALIDA" | "ACAO_FORA_DO_FIM" | "NAVEGACAO_FORA_DO_FIM"
+  /** PR 6.2: `entradaDe: CONTEXTO` sem tela/foco do tipo pedido (o pedido não tem a que se referir). */
+  | "CONTEXTO_INDISPONIVEL";
 
 export type ValidacaoPlano = { ok: true; plano: Plano } | { ok: false; motivo: MotivoRejeicao };
 
@@ -75,9 +77,10 @@ const CHAVE_PROIBIDA = /ids?$|^(empresa|tenant|unidade|estabelecimento|usuario|p
 
 /**
  * Valida um plano bruto (do modelo ou das regras) contra o schema fechado E o catálogo que o operador pode usar agora.
- * Qualquer violação rejeita o plano inteiro.
+ * `contexto` (PR 6.2): tipos de entidade que existem DE FATO na tela/foco deste pedido; com ele, CONTEXTO de um tipo
+ * ausente é rejeitado (fail-closed). Qualquer violação rejeita o plano inteiro.
  */
-export function validarPlano(bruto: unknown, catalogo: readonly CapacidadeCatalogo[]): ValidacaoPlano {
+export function validarPlano(bruto: unknown, catalogo: readonly CapacidadeCatalogo[], opcoes: { contexto?: readonly TipoEntidade[] } = {}): ValidacaoPlano {
   if (bruto && typeof bruto === "object" && Array.isArray((bruto as { passos?: unknown }).passos) && (bruto as { passos: unknown[] }).passos.length > LIMITES_PLANO.maxPassos) {
     return { ok: false, motivo: "LIMITE_PASSOS" };
   }
@@ -104,6 +107,7 @@ export function validarPlano(bruto: unknown, catalogo: readonly CapacidadeCatalo
     if (CAPACIDADES_NAVEGACAO.has(passo.capacidade) && !ultimo) return { ok: false, motivo: "NAVEGACAO_FORA_DO_FIM" };
     if (passo.entradaDe?.de === "PASSO" && !vistos.has(passo.entradaDe.passo)) return { ok: false, motivo: "REFERENCIA_INVALIDA" };
     if (passo.entradaDe?.de === "CONTEXTO" && i !== 0) return { ok: false, motivo: "REFERENCIA_INVALIDA" };
+    if (passo.entradaDe?.de === "CONTEXTO" && opcoes.contexto && !opcoes.contexto.includes(passo.entradaDe.entidade)) return { ok: false, motivo: "CONTEXTO_INDISPONIVEL" };
     vistos.add(passo.id);
   }
   return { ok: true, plano };
