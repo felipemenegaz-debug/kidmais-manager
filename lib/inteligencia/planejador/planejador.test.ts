@@ -189,7 +189,7 @@ test("Demerzel: plano que termina em ação CONFIRM para no Human Gate (rascunho
   const propostas: string[] = [];
   const planejador: PortaPlanejador = {
     planejar: async () => ({ intencao: { tipo: "acao", capacidade: "criar_pacote", origem: "INTENCAO_DETERMINISTICA" } }),
-    pedeComposicao: () => false, planejarComModelo: async () => null, concluir: () => {},
+    pedeComposicao: () => false, planejarComModelo: async () => null, concluir: (r) => r,
   };
   const portas = {
     catalogo: [], interpretar: () => ({ tipo: "nenhuma" }) as Intencao, sugerirRota: async () => null, interpretarComModelo: async () => null, portaModelo: async () => null,
@@ -271,7 +271,7 @@ test("trace do plano: só códigos, contagens e durações — nenhum id, nome, 
     for (const proibido of [...PII, "Ana Oliveira", "Carla Souza", "R$", "1.200", "2.500", "próxima", "contrato da", ...Object.values(IDS)]) {
       assert.equal(plano.includes(proibido), false, `plano contém ${proibido}`);
     }
-    if (o.rastro?.plano) assert.deepEqual(Object.keys(o.rastro.plano).sort(), ["duracaoMs", "motivo", "motivoParada", "objetivo", "origem", "parada", "passos", "quantidadePassos", "resultadoFinal", "usoModelo", "versao"]);
+    if (o.rastro?.plano) assert.deepEqual(Object.keys(o.rastro.plano).sort(), ["composicao", "duracaoMs", "motivo", "motivoParada", "objetivo", "origem", "parada", "passos", "quantidadePassos", "resultadoFinal", "usoModelo", "versao"]);
     const trace = JSON.stringify(o.rastro);
     for (const proibido of [...PII, "Ana Oliveira", "Carla Souza", "R$"]) assert.equal(trace.includes(proibido), false, proibido);
   }
@@ -298,8 +298,9 @@ const PLANO_MODELO = {
   objetivo: "CONSULTAR:CONTRATO", recursoFinal: "CONTRATO",
   passos: [
     { id: "p1", capacidade: "proximas_festas", parametros: { ordem: "ASC", limite: 2, inicio: null, fim: null, dia: null, incluirCancelados: null }, entradaDe: null, selecao: "PRIMEIRA" },
-    { id: "p2", capacidade: "relacoes_festa", parametros: null, entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" }, selecao: null },
-    { id: "p3", capacidade: "resumir_contrato", parametros: null, entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" }, selecao: null },
+    // PR 6.4: o pedido ("o contrato e o cliente") pede o cliente — a relação entra na resposta.
+    { id: "p2", capacidade: "relacoes_festa", parametros: null, entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" }, selecao: null, resposta: true },
+    { id: "p3", capacidade: "resumir_contrato", parametros: null, entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" }, selecao: null, resposta: null },
   ],
 };
 
@@ -355,7 +356,7 @@ const PLANO_DOIS_RECURSOS = {
   objetivo: "CONSULTAR:CONTRATO", recursoFinal: null,
   passos: [
     { id: "p1", capacidade: "proximas_festas", parametros: { ordem: "ASC", limite: 2, inicio: null, fim: null, dia: null, incluirCancelados: null }, entradaDe: null, selecao: "PRIMEIRA" },
-    { id: "p2", capacidade: "relacoes_festa", parametros: null, entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" }, selecao: null },
+    { id: "p2", capacidade: "relacoes_festa", parametros: null, entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" }, selecao: null, resposta: true },
     { id: "p3", capacidade: "resumir_contrato", parametros: null, entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" }, selecao: null },
   ],
 };

@@ -50,6 +50,11 @@ const passoSchema = z.object({
   entradaDe: entradaDe.optional(),
   /** Como escolher a entidade que sai DESTE passo: UNICA (0 ⇒ sem dados; 2+ ⇒ ambíguo) ou PRIMEIRA (lista ordenada, empate ⇒ ambíguo). */
   selecao: z.enum(["UNICA", "PRIMEIRA"]).optional(),
+  /**
+   * PR 6.4: os fatos DESTE passo intermediário entram na resposta (o passo final sempre entra). Só em leitura que
+   * recebe a entidade da cadeia (`entradaDe`): listagens de âncora nunca entram. Seleciona; não comprova completude.
+   */
+  resposta: z.boolean().optional(),
 }).strict();
 
 export const planoSchema = z.object({
@@ -64,7 +69,9 @@ export type PassoPlano = z.infer<typeof passoSchema>;
 export type MotivoRejeicao =
   | "SCHEMA" | "CAMPO_EXTRA" | "LIMITE_PASSOS" | "TOOL_DESCONHECIDA" | "ID_LITERAL" | "REFERENCIA_INVALIDA" | "ACAO_FORA_DO_FIM" | "NAVEGACAO_FORA_DO_FIM"
   /** PR 6.2: `entradaDe: CONTEXTO` sem tela/foco do tipo pedido (o pedido não tem a que se referir). */
-  | "CONTEXTO_INDISPONIVEL";
+  | "CONTEXTO_INDISPONIVEL"
+  /** PR 6.4: `resposta` fora de leitura intermediária com `entradaDe`. */
+  | "RESPOSTA_INVALIDA";
 
 export type ValidacaoPlano = { ok: true; plano: Plano } | { ok: false; motivo: MotivoRejeicao };
 
@@ -105,6 +112,7 @@ export function validarPlano(bruto: unknown, catalogo: readonly CapacidadeCatalo
       if (!ultimo || acoes > LIMITES_PLANO.maxAcoes) return { ok: false, motivo: "ACAO_FORA_DO_FIM" };
     }
     if (CAPACIDADES_NAVEGACAO.has(passo.capacidade) && !ultimo) return { ok: false, motivo: "NAVEGACAO_FORA_DO_FIM" };
+    if (passo.resposta && (ultimo || item.tipo !== "leitura" || !passo.entradaDe)) return { ok: false, motivo: "RESPOSTA_INVALIDA" };
     if (passo.entradaDe?.de === "PASSO" && !vistos.has(passo.entradaDe.passo)) return { ok: false, motivo: "REFERENCIA_INVALIDA" };
     if (passo.entradaDe?.de === "CONTEXTO" && i !== 0) return { ok: false, motivo: "REFERENCIA_INVALIDA" };
     if (passo.entradaDe?.de === "CONTEXTO" && opcoes.contexto && !opcoes.contexto.includes(passo.entradaDe.entidade)) return { ok: false, motivo: "CONTEXTO_INDISPONIVEL" };

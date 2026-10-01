@@ -5,7 +5,8 @@ import type { AtencaoHoje } from "./atencao-hoje.ts";
 import type { AcaoObjetivo, AIResponse, ContextoTela, EntidadeRef, TipoEntidade, ModelUsage, OrigemChamada, OrigemPlano, PlanoRastreio, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
 import { atualizarFoco, focoEntradaSchema, type EntidadeFoco, type FocoConversa, type FocoEntrada, type OrigemFoco } from "./foco.ts";
 import { detectarReferencia, entidadesCitadas, resolverAncoraContexto, resolverReferencia, type Leitor, type Referencia, type Resolucao } from "./referencias.ts";
-import { executarPlano, resultadoFinal, type LerPlano } from "./planejador/executor.ts";
+import { compor, faltando, fatosSolicitados } from "./planejador/composicao.ts";
+import { executarPlano, resultadoFinal, type LerPlano, type ParteResposta } from "./planejador/executor.ts";
 import { planejarComModelo } from "./planejador/modelo.ts";
 import { VERSAO_PLANEJADOR, validarPlano, type Plano } from "./planejador/plano.ts";
 import { planejarPorRegras } from "./planejador/regras.ts";
@@ -198,6 +199,8 @@ type Execucao = {
   foco: FocoEntrada | null;
   /** Referência resolvida pelo Planner/Resolver (PR 5/6), para o foco e o trace. */
   resolucao?: Resolucao;
+  /** PR 6.4: resultados completos dos passos marcados `resposta`, para compor a resposta de leitura. */
+  partesPlano?: ParteResposta[];
 };
 
 /** Leitura pelo caminho único do gateway: registro fechado → flag → Policy → Tenant Context → serviço de domínio. */
@@ -427,7 +430,7 @@ async function executarPlanoDaConversa(
   e.rastreio.plano = {
     versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: plano.objetivo, quantidadePassos: plano.passos.length, passos: r.passos,
     resultadoFinal: r.estado === "FINAL" ? "NAO_EXECUTADO" : r.estado, parada: r.estado === "FINAL" ? "FIM" : r.passoId,
-    motivoParada: r.estado === "FINAL" ? null : r.estado,
+    motivoParada: r.estado === "FINAL" ? null : r.estado, composicao: null,
     duracaoMs: Math.max(0, Math.round(relogio() - inicio)), usoModelo: opcoes.usoModelo,
   };
   // Referência para o foco e o trace: âncora (tela/foco ou 1º passo), alvo (entrada do passo final) e origem.
@@ -441,6 +444,7 @@ async function executarPlanoDaConversa(
   if (r.estado === "FINAL") {
     e.resolucao = { ...base, resultado: "RESOLVIDA", origem: viaRelacao ? "RELACAO_CORE" : origemAncora, entidade: r.entradaFinal };
     if (opcoes.anotarReferencia) anotarReferencia(e.rastreio, e.resolucao);
+    e.partesPlano = r.partes;
     return { intencao: r.intencao };
   }
   if (r.estado === "ERRO") return { resposta: naoSuportado("Não consegui concluir este pedido com segurança agora. Tente de novo com um pedido mais simples.") };
@@ -487,7 +491,7 @@ async function planejarPedido(e: Execucao, regras: Intencao, lerPorta: LerPlano)
 }
 
 function planoRejeitado(origem: OrigemPlano, motivo: PlanoRastreio["motivo"], rejeicao: string): PlanoRastreio {
-  return { versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: null, quantidadePassos: 0, passos: [], resultadoFinal: "NAO_EXECUTADO", parada: `REJEITADO:${rejeicao}`, motivoParada: rejeicao, duracaoMs: 0, usoModelo: origem === "MODELO" };
+  return { versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: null, quantidadePassos: 0, passos: [], resultadoFinal: "NAO_EXECUTADO", parada: `REJEITADO:${rejeicao}`, motivoParada: rejeicao, composicao: null, duracaoMs: 0, usoModelo: origem === "MODELO" };
 }
 
 /** Tipos de entidade que existem DE FATO neste pedido: registro aberto na tela e entidades do foco (dicas, revalidadas depois). */
@@ -545,7 +549,7 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
       rastreio.plano = {
         versao: VERSAO_PLANEJADOR, origem: "MODELO", motivo: "COMPOSICAO", objetivo: plano.objetivo, quantidadePassos: plano.passos.length,
         passos: plano.passos.map((p, i) => ({ capacidade: p.capacidade, origemEntrada: p.entradaDe ? (p.entradaDe.de === "CONTEXTO" ? "CONTEXTO" : "PASSO") : "PARAMETROS", resultado: i === 0 ? resultado : "NAO_EXECUTADO", duracaoMs: 0 })),
-        resultadoFinal: resultado, parada: "p1", motivoParada: `CONTEXTO_${r.resultado}`, duracaoMs: 0, usoModelo: true,
+        resultadoFinal: resultado, parada: "p1", motivoParada: `CONTEXTO_${r.resultado}`, composicao: null, duracaoMs: 0, usoModelo: true,
       };
       return { resposta: respostaDaResolucao(r) ?? naoSuportado("Não sei a qual registro você se refere. Abra o registro na tela e pergunte por ali.") };
     }
@@ -560,16 +564,44 @@ function portaPlanejador(e: Execucao, usos: ModelUsage[]): PortaPlanejador {
     planejar: ({ regras }, ler) => planejarPedido(e, regras, ler),
     pedeComposicao: (texto) => Boolean(e.deps.roteador?.disponivelPara("PLANEJAR")) && pedeComposicao(texto, hojeBrasilia(e.deps.agora())),
     planejarComModelo: (_entrada, ler, exigirAcaoFinal) => planejarPorModelo(e, ler, exigirAcaoFinal, usos),
-    concluir: (resposta) => concluirPlano(e.rastreio, resposta),
+    concluir: (resposta) => concluirPlano(e, resposta),
   };
 }
 
-/** Resultado do passo final (despachado pelo caminho atual) no trace do plano. */
-function concluirPlano(rastreio: RastreioInteligencia, resposta: AIResponse) {
-  const ultimo = rastreio.plano?.passos.at(-1);
-  if (!rastreio.plano || !ultimo || ultimo.resultado !== "NAO_EXECUTADO") return;
+/**
+ * Fecha o plano: resultado do passo final (despachado pelo caminho atual) no trace e, em RESPOSTA DE LEITURA, a
+ * composição determinística (PR 6.4) — leituras marcadas + final, completude dos fatos pedidos, mesma âncora e
+ * limites do schema. Navegação, proposta (Human Gate), recusa e erro voltam como vieram: nada transforma uma execução
+ * interrompida em sucesso. O complemento do Copiloto (calculado só sobre a leitura final) não acompanha a composta.
+ */
+function concluirPlano(e: Execucao, resposta: AIResponse): AIResponse {
+  const plano = e.rastreio.plano;
+  const ultimo = plano?.passos.at(-1);
+  if (!plano || !ultimo || ultimo.resultado !== "NAO_EXECUTADO") return resposta;
   ultimo.resultado = resultadoFinal(resposta);
-  rastreio.plano.resultadoFinal = ultimo.resultado;
+  plano.resultadoFinal = ultimo.resultado;
+  if (resposta.tipo !== "resposta" || !("fatos" in resposta.dados)) return resposta;
+  const solicitados = fatosSolicitados(e.texto);
+  const final = resposta.dados as RespostaLeitura;
+  const partes: ParteResposta[] = [...(e.partesPlano ?? []), { passoId: `p${plano.quantidadePassos}`, capacidade: final.capacidade, dados: final }];
+  if (partes.length === 1 && !faltando(solicitados, partes).length) {
+    plano.composicao = { leituras: 1, solicitados, faltando: [] };
+    return resposta;
+  }
+  const c = compor(partes, solicitados);
+  if (!c.ok) {
+    ultimo.resultado = "ERRO";
+    plano.resultadoFinal = "ERRO";
+    plano.parada = `p${plano.quantidadePassos}`;
+    plano.motivoParada = c.motivo;
+    plano.composicao = { leituras: partes.length, solicitados, faltando: [] };
+    return naoSuportado(c.motivo === "COMPOSICAO_LIMITE"
+      ? "Encontrei os dados, mas a resposta combinada passou do tamanho permitido. Peça uma coisa de cada vez."
+      : "Não consegui confirmar que os dados são do mesmo registro. Peça uma coisa de cada vez.");
+  }
+  plano.composicao = { leituras: partes.length, solicitados, faltando: c.faltando };
+  if (c.faltando.length) plano.motivoParada = "INCOMPLETO";
+  return { tipo: "resposta", dados: c.dados };
 }
 
 function anotarReferencia(rastreio: RastreioInteligencia, r: Resolucao) {
@@ -823,8 +855,8 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     const planejado = await planejarPedido(execucao, interpretarDeterministico(entrada.texto, contexto), (capacidade, parametros) => responderLeitura(capacidade, parametros, "INTENCAO_DETERMINISTICA", execucao));
     if (planejado && "resposta" in planejado) return { status: 200, corpo: { ok: true, data: finalizar(planejado.resposta, entrada.texto, rastreio, undefined, execucao) } };
     const intencao = planejado?.intencao ?? await resolverIntencao(entrada.texto, contexto, sessao, pedido, deps, rastreio);
-    const resposta = await responderIntencao(intencao, contexto, execucao);
-    if (planejado) concluirPlano(rastreio, resposta);
+    const respondida = await responderIntencao(intencao, contexto, execucao);
+    const resposta = planejado ? concluirPlano(execucao, respondida) : respondida;
     return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio, undefined, execucao) } };
   } catch (error) {
     const falha = classificar(error, MENSAGEM_FALLBACK);
