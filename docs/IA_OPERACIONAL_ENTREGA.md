@@ -7,11 +7,11 @@ Data: 01/10/2026. Especificação: `IA_OPERACIONAL_ARQUITETURA_E_ENTREGA.md` e `
 | Item | Situação |
 |---|---|
 | PR 7 (`ai-v11/07-ia-operacional`) | Mergeada em staging como PR #52, com merge commit `59a2ff4` (pais `6ed6c2e` + `bdc5adc`). |
-| Deploy em staging | `59a2ff4` no ar (`dep-dav0ncbncjis738mj010`, via `STAGING_DEPLOY_NONCE`). `/api/health` ok; `/api/admin/inteligencia/preparacoes` responde 503 `PREPARACAO_INDISPONIVEL` (flag desligada), como esperado. |
-| No ar em staging sem flag | Só a correção do Core: o Fechamento busca o pacote pela empresa comprovada. |
-| Migration 059 em staging | **Não aplicada.** Script de aplicação revisado e validado sem conexão (§8). |
-| `AI_OPERACIONAL_ENABLED` em staging | **Desligada.** |
-| Continuação com várias categorias | Corrigida na branch `ai-v11/08-continuacao-consumo` (a partir de `59a2ff4`), ainda sem commit, PR nem deploy (§1, §7). |
+| Deploy em staging | `59a2ff4` no ar com a flag (`dep-dav1ekm0tbcc73d5qmu0`, via `STAGING_DEPLOY_NONCE`, auto-deploy OFF conferido em staging e produção). `/api/health` 200; `/api/admin/inteligencia/preparacoes` deixou de responder 503 (sem dados: 400 `DADOS_INVALIDOS`). |
+| Antes da flag | Só a correção do Core estava ativa (busca de pacote pela empresa comprovada), no deploy `dep-dav0ncbncjis738mj010`. |
+| Migration 059 em staging | **Aplicada** em 01/10/2026 pelo script do §8: backup novo antes (`pg_dump -Fc`, 1245 itens), UP atômico, **postcheck OK** (tabela e 2 funções). Não reaplicar. |
+| `AI_OPERACIONAL_ENABLED` em staging | **Ligada** (só no serviço de staging). |
+| Continuação com várias categorias | Corrigida na branch `ai-v11/08-continuacao-consumo` (a partir de `59a2ff4`), PR contra staging (§1, §7). |
 | Produção | Intocada. |
 
 ## 0. Resumo honesto
