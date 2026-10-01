@@ -1283,6 +1283,24 @@ test("Luna — A5 (gestão de contexto): resposta ao rascunho, correção e reto
   assert.deepEqual([novo.rastro.adaptativo?.outrosPedidos, novo.rastro.adaptativo?.outrosDescartados], [1, 0]);
 });
 
+test("Luna — PR 18: mensagem mista respondida por leitura determinística anuncia o pedido não feito; com redação da Luna, a redação o faz", async () => {
+  // Homologação de b72f612: "o cliente é … E quantos refrigerantes para a próxima festa?" ⇒ cálculo + outrosPedidos=1,
+  // redação reprovada (determinística) e nenhum aviso — o pedido do cliente sumia sem explicação.
+  const texto = "o cliente é Maria Souza. E quantos docinhos para a próxima festa com 4 por convidado?";
+  const ent = saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo: { categorias: ["DOCES"], docesPorConvidado: 4 }, outrosPedidos: [{ pedido: "informar o cliente", trecho: "o cliente é Maria Souza" }] });
+  const semRedacao = ambiente({ convidados: 50 });
+  comLuna(semRedacao, { entender: () => ent, redigir: () => new ErroModelo("HTTP_5XX", false) });
+  const r1 = await semRedacao.enviar(texto);
+  assert.equal(r1.rastro.adaptativo?.redacao, "DETERMINISTICA");
+  assert.ok(fatos(leitura(r1.data)).includes("CALCULO:50 convidados × 4 = 200 docinhos."));
+  assert.match(leitura(r1.data).resumo, /Fiz um pedido por vez/, "o pedido não feito é dito");
+  const comRedacao = ambiente({ convidados: 50 });
+  comLuna(comRedacao, { entender: () => ent, redigir: (d) => ({ resposta: `${d.resumoDoSistema} O outro pedido ainda não foi feito.`, complementos: [] }) });
+  const r2 = await comRedacao.enviar(texto);
+  assert.equal(r2.rastro.adaptativo?.redacao, "MODELO");
+  assert.doesNotMatch(leitura(r2.data).resumo, /Fiz um pedido por vez/, "sem aviso duplicado quando a Luna redige");
+});
+
 test("Luna (homologação): cálculo sem festa no meio do rascunho pergunta qual festa, sem Planner, e o rascunho fica pausado", async () => {
   // Achado da homologação em staging: "antes, quantos docinhos preciso para 60 convidados?" caía no Planner e respondia
   // "Ainda não sei responder isso". A Luna já disse que não há festa: pergunta-se qual, com o rascunho intocado.
