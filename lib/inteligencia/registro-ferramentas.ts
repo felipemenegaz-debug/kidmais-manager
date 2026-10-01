@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ClasseAcao, GrupoFlag } from "./contratos.ts";
+import type { ClasseAcao, GrupoFlag, TipoEntidade } from "./contratos.ts";
 import type { DescricaoAcao } from "./extensoes.ts";
 import { ferramentas, type Ferramenta } from "./ferramentas.ts";
 
@@ -46,6 +46,11 @@ export type Manifesto = {
    */
   escopoEstabelecimento: EscopoEstabelecimento;
   entidade: "festa" | "cliente" | "contrato" | null;
+  /**
+   * PR 6.4.2: tipos de entidade que a leitura pode devolver em `entidades` (ids do Core). O Planner só encadeia um
+   * passo a partir de outro que DECLARA produzir o tipo pedido; vazio ⇒ não serve de origem (fail-closed).
+   */
+  produz: readonly TipoEntidade[];
   /** inputSchema (zod estrito) ou null quando a entrada é o fluxo conversacional do Human Gate / texto do operador. */
   entrada: z.ZodType | null;
   saida: SaidaDeclarada;
@@ -131,7 +136,7 @@ export function saidaValida(saida: SaidaDeclarada, dados: unknown): boolean {
 
 export type EscopoEstabelecimento = "COMPANY" | "ESTABLISHMENT";
 
-type Meta = { dominio: Dominio; prazoMs: number; saida?: SaidaDeclarada; escopo?: EscopoEstabelecimento };
+type Meta = { dominio: Dominio; prazoMs: number; saida?: SaidaDeclarada; escopo?: EscopoEstabelecimento; produz?: readonly TipoEntidade[] };
 
 /**
  * Escopo padrão das leituras V1: COMPANY. Os dados do Core que elas leem (recebíveis, contratos, festas, agenda,
@@ -148,24 +153,25 @@ const LEITURAS: Readonly<Record<string, Meta>> = Object.freeze({
   analisar_pagamentos: { dominio: "FINANCEIRO", prazoMs: 5000 },
   contratos_pendentes: { dominio: "CONTRATOS", prazoMs: 5000 },
   agenda_do_dia: { dominio: "FESTAS", prazoMs: 5000 },
-  resumir_cliente: { dominio: "CLIENTES", prazoMs: 4000 },
-  resumir_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
-  resumir_festa: { dominio: "FESTAS", prazoMs: 6000 },
+  resumir_cliente: { dominio: "CLIENTES", prazoMs: 4000, produz: ["CLIENTE"] },
+  resumir_contrato: { dominio: "CONTRATOS", prazoMs: 4000, produz: ["CONTRATO"] },
+  resumir_festa: { dominio: "FESTAS", prazoMs: 6000, produz: ["FESTA"] },
   pendencias_da_festa: { dominio: "FESTAS", prazoMs: 6000 },
   festa_em_risco: { dominio: "FESTAS", prazoMs: 6000 },
   onde_encontrar: { dominio: "NAVEGACAO", prazoMs: 1000 },
   abrir_tela: { dominio: "NAVEGACAO", prazoMs: 4000 },
   abrir_festa: { dominio: "NAVEGACAO", prazoMs: 6000 },
   // AI V1.1 (PR 4): leituras-âncora e relações (entidades estruturadas do Core).
-  proximas_festas: { dominio: "FESTAS", prazoMs: 5000 },
-  relacoes_festa: { dominio: "FESTAS", prazoMs: 4000 },
-  relacoes_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
-  buscar_clientes: { dominio: "CLIENTES", prazoMs: 4000 },
-  buscar_catalogo: { dominio: "COMERCIAL", prazoMs: 4000 },
+  // Listagem de festas: só FESTA (o contrato/cliente de uma festa vêm de relacoes_festa).
+  proximas_festas: { dominio: "FESTAS", prazoMs: 5000, produz: ["FESTA"] },
+  relacoes_festa: { dominio: "FESTAS", prazoMs: 4000, produz: ["FESTA", "CLIENTE", "CONTRATO"] },
+  relacoes_contrato: { dominio: "CONTRATOS", prazoMs: 4000, produz: ["CONTRATO", "CLIENTE", "FESTA"] },
+  buscar_clientes: { dominio: "CLIENTES", prazoMs: 4000, produz: ["CLIENTE"] },
+  buscar_catalogo: { dominio: "COMERCIAL", prazoMs: 4000, produz: ["CATEGORIA", "ITEM"] },
   // AI V1.1 (PR 5.5): pagamentos e contratos (posição oficial, próxima parcela, contrato mais recente).
-  saldo_contrato: { dominio: "FINANCEIRO", prazoMs: 5000 },
-  proxima_parcela: { dominio: "FINANCEIRO", prazoMs: 5000 },
-  ultimo_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
+  saldo_contrato: { dominio: "FINANCEIRO", prazoMs: 5000, produz: ["CONTRATO"] },
+  proxima_parcela: { dominio: "FINANCEIRO", prazoMs: 5000, produz: ["CONTRATO", "FESTA"] },
+  ultimo_contrato: { dominio: "CONTRATOS", prazoMs: 4000, produz: ["CONTRATO"] },
   pacotes_disponiveis: { dominio: "COMERCIAL", prazoMs: 4000 },
   comparar_versoes_contrato: { dominio: "CONTRATOS", prazoMs: 4000 },
 });
@@ -208,7 +214,7 @@ export function manifestoSugestao(capacidade: string): Manifesto | null {
 function sugestao(nome: string, capacidade: string, dominio: Dominio, executor: "AGENTE" | "COPILOTO"): Manifesto {
   return {
     nome, capacidade, dominio, classe: "SUGGEST", papeisExigidos: ["ADMINISTRATIVO", "REPRESENTANTE_AUTORIZADO"], grupoExigido: "READ",
-    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: "COMPANY", entidade: null, entrada: null, saida: "SUGESTAO",
+    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: "COMPANY", entidade: null, produz: [], entrada: null, saida: "SUGESTAO",
     prazoMs: 8000, idempotencia: "SEM_EFEITO", auditoria: "TRACE_IA", executor,
   };
 }
@@ -225,7 +231,7 @@ export function manifestoLeitura(f: Ferramenta): Manifesto | null {
   if (!meta) return null;
   return {
     nome: f.nome, capacidade: f.capacidade, dominio: meta.dominio, classe: classeV1(f.classe), papeisExigidos: f.papeis, grupoExigido: f.grupo,
-    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: meta.escopo ?? ESCOPO_PADRAO, entidade: f.entidade ?? null, entrada: f.entrada,
+    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: meta.escopo ?? ESCOPO_PADRAO, entidade: f.entidade ?? null, produz: meta.produz ?? [], entrada: f.entrada,
     saida: meta.saida ?? "RESPOSTA_LEITURA", prazoMs: meta.prazoMs, idempotencia: "LEITURA_SEM_EFEITO", auditoria: "TRACE_IA", executor: "GATEWAY",
   };
 }
@@ -240,7 +246,7 @@ export function manifestoAcao(a: AcaoDescrita): Manifesto | null {
   const confirma = classe === "CONFIRM";
   return {
     nome: a.ferramenta, capacidade: a.capacidade, dominio: meta.dominio, classe, papeisExigidos: confirma ? a.papeis : [], grupoExigido: confirma ? a.grupo : "NENHUM",
-    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: "COMPANY", entidade: null, entrada: null,
+    escopoTenant: "EMPRESA_COMPROVADA", escopoEstabelecimento: "COMPANY", entidade: null, produz: [], entrada: null,
     saida: confirma ? "RASCUNHO_HUMAN_GATE" : "RECUSA", prazoMs: meta.prazoMs,
     idempotencia: confirma ? "OPERACAO_UNICA_HUMAN_GATE" : "NUNCA_EXECUTA",
     auditoria: confirma ? "TRACE_IA_E_AUDITORIA_NEGOCIO" : "TRACE_IA", executor: confirma ? "HUMAN_GATE" : "NENHUM",

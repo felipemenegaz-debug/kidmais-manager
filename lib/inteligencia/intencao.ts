@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ContextoTela, OrigemChamada, RecursoObjetivo } from "./contratos.ts";
+import type { ContextoTela, OrigemChamada, RecursoObjetivo, TipoEntidade } from "./contratos.ts";
 import { prepararTextoParaModelo } from "./texto-modelo.ts";
 import { normalizar } from "./texto-pt.ts";
 import { TELAS_NAVEGACAO, type TelaNavegacao } from "./rotas-navegacao.ts";
@@ -271,7 +271,8 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
   return { tipo: "nenhuma" };
 }
 
-export type CapacidadeCatalogo = { id: string; descricao: string; tipo: "leitura" | "acao"; entidade?: Entidade };
+/** `produz` (PR 6.4.2): tipos de entidade que a leitura devolve, do manifesto do registro (origem válida no Planner). */
+export type CapacidadeCatalogo = { id: string; descricao: string; tipo: "leitura" | "acao"; entidade?: Entidade; produz?: readonly TipoEntidade[] };
 
 const INSTRUCAO = [
   "Você classifica o pedido de um operador de buffet infantil em UMA capacidade de uma lista fechada.",

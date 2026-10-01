@@ -152,7 +152,8 @@ export type PlanoRastreio = {
   motivo: "REFERENCIA" | "ULTIMO_CONTRATO" | "COMPOSICAO";
   objetivo: string | null;
   quantidadePassos: number;
-  passos: Array<{ capacidade: string; origemEntrada: OrigemEntrada; resultado: ResultadoPasso; duracaoMs: number }>;
+  /** `fonte` (PR 6.4.2): de onde veio a entrada — id do passo (p1..p5), CONTEXTO ou null (parâmetros). Nunca um id do Core. */
+  passos: Array<{ capacidade: string; origemEntrada: OrigemEntrada; fonte: string | null; resultado: ResultadoPasso; duracaoMs: number }>;
   resultadoFinal: ResultadoPasso;
   /** Onde parou: id do passo (p1..p5), FIM ou REJEITADO:<motivo>. */
   parada: string | null;

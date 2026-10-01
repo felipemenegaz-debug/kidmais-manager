@@ -51,6 +51,9 @@ function selecionar(entidades: readonly EntidadeRef[], tipo: EntidadeRef["tipo"]
   return { ok: false, estado: "AMBIGUO", candidatos: unicos };
 }
 
+/** De onde veio a entrada do passo, para o trace: id do passo, CONTEXTO ou null (só parâmetros). */
+const fonteDe = (passo: PassoPlano): string | null => (passo.entradaDe ? (passo.entradaDe.de === "CONTEXTO" ? "CONTEXTO" : passo.entradaDe.passo) : null);
+
 const negada = (erro: unknown) => erro instanceof InteligenciaError && (erro.httpStatus === 403 || erro.httpStatus === 404);
 
 export async function executarPlano(plano: Plano, deps: DependenciasExecutor): Promise<ResultadoExecucao> {
@@ -60,7 +63,7 @@ export async function executarPlano(plano: Plano, deps: DependenciasExecutor): P
   // Resultados conservados para a resposta (só passos marcados `resposta`), na ordem do plano.
   const partes: ParteResposta[] = [];
   const parar = (estado: "SEM_DADOS" | "AMBIGUO" | "NEGADO" | "ERRO", passo: PassoPlano, origemEntrada: OrigemEntrada, candidatos: EntidadeRef[] = [], duracaoMs = 0): ResultadoExecucao => {
-    passos.push({ capacidade: passo.capacidade, origemEntrada, resultado: estado, duracaoMs });
+    passos.push({ capacidade: passo.capacidade, origemEntrada, fonte: fonteDe(passo), resultado: estado, duracaoMs });
     return { estado, passoId: passo.id, candidatos, passos, entradas };
   };
 
@@ -107,7 +110,7 @@ export async function executarPlano(plano: Plano, deps: DependenciasExecutor): P
 
     if (ultimo && item) {
       // Resultado do passo final é preenchido depois do despacho (leitura, navegação ou Human Gate).
-      passos.push({ capacidade: passo.capacidade, origemEntrada, resultado: "NAO_EXECUTADO", duracaoMs: 0 });
+      passos.push({ capacidade: passo.capacidade, origemEntrada, fonte: fonteDe(passo), resultado: "NAO_EXECUTADO", duracaoMs: 0 });
       const intencao: Intencao = item.tipo === "acao"
         ? { tipo: "acao", capacidade: passo.capacidade, origem: deps.origem }
         : { tipo: "leitura", capacidade: passo.capacidade, parametros, origem: deps.origem };
@@ -122,14 +125,14 @@ export async function executarPlano(plano: Plano, deps: DependenciasExecutor): P
       const duracao = Math.max(0, Math.round(deps.relogio() - inicio));
       // Policy / tenant / posse recusaram: para aqui (fail-closed). Outros erros seguem o tratamento seguro da conversa.
       if (negada(erro)) return parar("NEGADO", passo, origemEntrada, [], duracao);
-      passos.push({ capacidade: passo.capacidade, origemEntrada, resultado: "ERRO", duracaoMs: duracao });
+      passos.push({ capacidade: passo.capacidade, origemEntrada, fonte: fonteDe(passo), resultado: "ERRO", duracaoMs: duracao });
       throw erro;
     }
     const duracaoMs = Math.max(0, Math.round(deps.relogio() - inicio));
     if (resposta.tipo !== "resposta" || !("entidades" in resposta.dados)) return parar("ERRO", passo, origemEntrada, [], duracaoMs);
     saidas.set(passo.id, (resposta.dados as RespostaLeitura).entidades ?? []);
     if (passo.resposta) partes.push({ passoId: passo.id, capacidade: passo.capacidade, dados: resposta.dados as RespostaLeitura });
-    passos.push({ capacidade: passo.capacidade, origemEntrada, resultado: "SUCESSO", duracaoMs });
+    passos.push({ capacidade: passo.capacidade, origemEntrada, fonte: fonteDe(passo), resultado: "SUCESSO", duracaoMs });
   }
   // Inalcançável: o schema exige ao menos um passo e o último sempre retorna acima.
   return { estado: "ERRO", passoId: "p1", candidatos: [], passos, entradas };

@@ -94,7 +94,7 @@ function papelParaPolitica(sessao: SessaoParaTenant, tenant: TenantComprovado): 
 export function catalogoDisponivel(env: DependenciasGateway["env"], papel: string, acoes: ModuloAcoes | null): CapacidadeCatalogo[] {
   const leituras = Object.values(ferramentas)
     .filter((f) => !SO_POR_REGRA.has(f.capacidade) && manifestoLeitura(f) !== null && grupoAtivo(env, f.grupo) && avaliarPolitica({ papel }, f, "LEITURA") === "PERMITIDO")
-    .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura", ...(f.entidade ? { entidade: f.entidade } : {}) }));
+    .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura", ...(f.entidade ? { entidade: f.entidade } : {}), ...((manifestoLeitura(f)?.produz.length ?? 0) ? { produz: manifestoLeitura(f)!.produz } : {}) }));
   const doModulo = (acoes?.todas() ?? [])
     .filter((a) => a.origem !== "TELA" && manifestoAcao(a) !== null)
     .filter((a) => a.classe === "DENY" || (grupoAtivo(env, a.grupo) && avaliarPolitica({ papel }, a, "HUMAN_GATE") === "PERMITIDO"))
@@ -375,7 +375,7 @@ function leitorMemoizado(ler: LerPlano): { leitor: Leitor; ler: LerPlano } {
 /** Capacidades que EXISTEM no Tool Registry (planos por regra): a Policy de cada passo decide, no gateway. */
 function catalogoRegistro(acoes: ModuloAcoes | null): CapacidadeCatalogo[] {
   const leituras = Object.values(ferramentas).filter((f) => manifestoLeitura(f) !== null)
-    .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura", ...(f.entidade ? { entidade: f.entidade } : {}) }));
+    .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura", ...(f.entidade ? { entidade: f.entidade } : {}), ...((manifestoLeitura(f)?.produz.length ?? 0) ? { produz: manifestoLeitura(f)!.produz } : {}) }));
   const doModulo = (acoes?.todas() ?? []).filter((a) => a.origem !== "TELA" && manifestoAcao(a) !== null)
     .map((a): CapacidadeCatalogo => ({ id: a.capacidade, descricao: a.descricao, tipo: "acao" }));
   return [...leituras, ...doModulo];
@@ -388,7 +388,7 @@ function catalogoRegistro(acoes: ModuloAcoes | null): CapacidadeCatalogo[] {
 function catalogoPlanejamento(env: DependenciasGateway["env"], papel: string, acoes: ModuloAcoes | null): CapacidadeCatalogo[] {
   const navegacao = Object.values(ferramentas)
     .filter((f) => CAPACIDADES_NAVEGACAO.has(f.capacidade) && manifestoLeitura(f) !== null && grupoAtivo(env, f.grupo) && avaliarPolitica({ papel }, f, "LEITURA") === "PERMITIDO")
-    .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura" }));
+    .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura", ...((manifestoLeitura(f)?.produz.length ?? 0) ? { produz: manifestoLeitura(f)!.produz } : {}) }));
   return [...catalogoDisponivel(env, papel, acoes), ...navegacao];
 }
 
@@ -453,6 +453,11 @@ async function executarPlanoDaConversa(
   const naAncora = !ancora && (paradaEm.id === "p1" || fonte?.id === "p1");
   e.resolucao = { ...base, ancora: naAncora ? null : ancoraFinal, resultado, origem: viaRelacao ? "RELACAO_CORE" : origemAncora, candidatos: r.candidatos };
   if (opcoes.anotarReferencia) anotarReferencia(e.rastreio, e.resolucao);
+  // PR 6.4.2: no plano do MODELO a referência é sintética — o operador não citou um registro. Sem dados no Core e sem
+  // âncora para nomear, dizer que não há dado (EXECUTADO), nunca pedir que ele esclareça o que não perguntou.
+  if (origem === "MODELO" && resultado === "NAO_ENCONTRADA" && !e.resolucao.ancora) {
+    return { resposta: { ...naoSuportado("Não encontrei no sistema os dados pedidos para esta consulta."), entendimento: "EXECUTADO" } };
+  }
   return { resposta: respostaDaResolucao(e.resolucao) ?? naoSuportado("Não consegui concluir este pedido com segurança agora.") };
 }
 
@@ -548,7 +553,7 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
       const resultado = r.resultado === "AMBIGUA" ? "AMBIGUO" : r.resultado === "NEGADA" ? "NEGADO" : "SEM_DADOS";
       rastreio.plano = {
         versao: VERSAO_PLANEJADOR, origem: "MODELO", motivo: "COMPOSICAO", objetivo: plano.objetivo, quantidadePassos: plano.passos.length,
-        passos: plano.passos.map((p, i) => ({ capacidade: p.capacidade, origemEntrada: p.entradaDe ? (p.entradaDe.de === "CONTEXTO" ? "CONTEXTO" : "PASSO") : "PARAMETROS", resultado: i === 0 ? resultado : "NAO_EXECUTADO", duracaoMs: 0 })),
+        passos: plano.passos.map((p, i) => ({ capacidade: p.capacidade, origemEntrada: p.entradaDe ? (p.entradaDe.de === "CONTEXTO" ? "CONTEXTO" : "PASSO") : "PARAMETROS", fonte: p.entradaDe ? (p.entradaDe.de === "CONTEXTO" ? "CONTEXTO" : p.entradaDe.passo) : null, resultado: i === 0 ? resultado : "NAO_EXECUTADO", duracaoMs: 0 })),
         resultadoFinal: resultado, parada: "p1", motivoParada: `CONTEXTO_${r.resultado}`, composicao: null, duracaoMs: 0, usoModelo: true,
       };
       return { resposta: respostaDaResolucao(r) ?? naoSuportado("Não sei a qual registro você se refere. Abra o registro na tela e pergunte por ali.") };
