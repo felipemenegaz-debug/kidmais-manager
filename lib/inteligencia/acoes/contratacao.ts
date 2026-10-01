@@ -62,6 +62,21 @@ export type PortaContratacao = {
 const MESES = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const PALAVRAS_NAO_NOME = new Set(["festa", "pacote", "tema", "convidados", "convidado", "cliente", "dia", "de", "do", "da", "com", "para", "e", "a", "o", "aniversario", "aniversariante", "uma", "um", "crie", "criar", "nova", "novo", "premium", "mini", "pocket", "compacta", "essencial", "completa"]);
 
+/**
+ * Resposta crua a uma pergunta de nome só vale se PARECER nome: poucas palavras e nenhuma palavra de pedido ("Quero criar
+ * uma festa e não um pacote" respondendo "Qual é o cliente?" não vira o cliente). Conectivos de nome ("da Silva") valem.
+ */
+const PALAVRAS_DE_PEDIDO = new Set([
+  ...[...PALAVRAS_NAO_NOME].filter((p) => !["de", "do", "da", "e", "a", "o"].includes(p)),
+  "quero", "queria", "gostaria", "preciso", "nao", "sim", "cancele", "cancelar", "cancela", "voltar", "volte", "retomar",
+  "quantos", "quantas", "qual", "quais", "como", "quando", "onde", "faca", "estime", "calcule", "mostre", "abra", "rascunho",
+  "docinhos", "doces", "refrigerante", "refrigerantes",
+]);
+function pareceNome(nome: string): boolean {
+  const palavras = normalizar(nome).split(/\s+/).filter(Boolean);
+  return palavras.length >= 1 && palavras.length <= 6 && !palavras.some((p) => PALAVRAS_DE_PEDIDO.has(p));
+}
+
 const iso = (a: number, m: number, d: number) => `${a}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
 export function dataReal(data: string): boolean {
@@ -97,7 +112,7 @@ export function extrairContratacao(texto: string, perguntado: string | null): Re
   // Resposta direta à pergunta feita.
   if (perguntado === "cliente") {
     const nome = nomeDaResposta(t.replace(/^(?:[ée] (?:o|a) |o cliente |a cliente |cliente )/i, ""));
-    if (nome && /^[\p{L}][\p{L}' .-]{1,79}$/u.test(nome)) v.cliente = nome;
+    if (nome && /^[\p{L}][\p{L}' .-]{1,79}$/u.test(nome) && pareceNome(nome)) v.cliente = nome;
     return v;
   }
   if (perguntado === "ano") {
@@ -121,7 +136,7 @@ export function extrairContratacao(texto: string, perguntado: string | null): Re
   const marcado = /\baniversariante\s*:?\s*([\p{L}][\p{L}' ]{1,40}?)(?=\s*(?:[,;.!?]|$|\s(?:com|de \d|\d)\b))/iu.exec(t);
   if (perguntado === "aniversariante" && !comIdade && !marcado) {
     const nome = nomeDaResposta(t);
-    if (nome && /^[\p{L}][\p{L}' -]{1,59}$/u.test(nome)) v.aniversariante = capitalizar(nome);
+    if (nome && /^[\p{L}][\p{L}' -]{1,59}$/u.test(nome) && pareceNome(nome)) v.aniversariante = capitalizar(nome);
   } else if (marcado && !PALAVRAS_NAO_NOME.has(normalizar(marcado[1]))) {
     v.aniversariante = capitalizar(marcado[1]);
   } else if (comIdade && !PALAVRAS_NAO_NOME.has(normalizar(comIdade[1]))) {

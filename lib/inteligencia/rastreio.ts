@@ -100,6 +100,9 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
     itens: null,
     causa: null,
     orquestracao: null,
+    // Presentes desde o início: a saída do log é FECHADA nas chaves daqui (sem elas, o trace operacional/adaptativo sumia).
+    operacional: null,
+    adaptativo: null,
     fallback: false,
     fallbackProvedor: false,
     chamadasModelo: 0,

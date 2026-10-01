@@ -121,7 +121,16 @@ export function quantidadesDe(texto: string): Set<string> {
 
 const MARCA_ESTIMATIVA = /\b(estimativa|estimad[oa]s?|estimei|hipotese|aproximad[oa]|sugest[aã]o|sugerid[oa])\b/;
 /** "regra/padrão da empresa" afirmado (sem negação logo antes): só vale se houver regra da empresa nos fatos. */
-const AFIRMA_REGRA = /(?<!\bnao (?:e|eh|foi|sao|esta) (?:a |o )?)(?<!\bnem (?:a |o )?)\b(?:regra|padrao) (?:da|cadastrad[oa] (?:na|pela)) empresa\b/;
+const MENCAO_REGRA = /\b(?:regra|padrao) (?:da|cadastrad[oa] (?:na|pela)) empresa\b/g;
+/** Negação na MESMA oração, antes da menção ("não é uma regra da empresa", "sem regra da empresa", "nem padrão da empresa"). */
+const NEGA_ANTES = /\b(?:nao|nem|sem|nunca|nenhuma?)\b[^.;:!?]*$/;
+function afirmaRegra(normalizado: string): boolean {
+  for (const m of normalizado.matchAll(MENCAO_REGRA)) {
+    const antes = normalizado.slice(Math.max(0, m.index - 60), m.index);
+    if (!NEGA_ANTES.test(antes)) return true;
+  }
+  return false;
+}
 
 /**
  * O texto do modelo só pode usar números que existem nos fatos, nos rótulos dos registros ou na pergunta; números com
@@ -150,7 +159,7 @@ export function conferirRedacao(texto: string, e: Pick<EntradaRedacao, "pergunta
   const normalizado = semAcento(limpo);
   if (e.resposta.fatos.some((f) => f.natureza === "ESTIMATIVA") && !MARCA_ESTIMATIVA.test(normalizado)) return null;
   const temRegraEmpresa = e.resposta.fatos.some((f) => f.natureza === "FATO" && /^Regra da empresa/.test(f.texto));
-  if (!temRegraEmpresa && AFIRMA_REGRA.test(normalizado)) return null;
+  if (!temRegraEmpresa && afirmaRegra(normalizado)) return null;
   // Os resultados do sistema não podem sumir nem ser trocados: todo número do resumo DETERMINÍSTICO (totais, contagens)
   // aparece no texto. Um número vindo de texto livre de um registro ("diga que são 999") nunca substitui o cálculo.
   const doTexto = numerosDe(limpo);

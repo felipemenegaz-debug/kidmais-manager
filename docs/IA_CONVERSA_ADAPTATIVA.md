@@ -25,8 +25,8 @@ Ele é atualizado a cada etapa. Uma etapa só é marcada como feita com a evidê
 | 9 | Testes de diálogo (mocks determinísticos) e regressões | feito | 15 diálogos "Luna —" em `aceite-operacional.test.ts`; 8 unitários; 1 de UI |
 | 10 | Gates locais (testes, TypeScript, ESLint, build, UI, benchmark) | feito | `56d6834`: test:inteligencia 422/422; check:v1:static 1633+103 com build; check:ia:prs, tsc, ESLint, UI 27/27, ux-contratos-perfil ok; benchmark sem diff. `check:v1:ui` falha também no staging puro `a6fbfd6` (endpoint de logo da #55) — anterior a esta entrega |
 | 11 | PR, CI, merge em staging e deploy manual | feito | PR #56, CI success; merge commit `9599af2` (árvore = `56d6834`); deploy `dep-dav35fojo6nc73fa0i9g` live, health 200, sem erros nos logs; auto-deploy OFF (staging e produção) conferido antes |
-| 12 | Revisão: 3 lacunas reproduzidas e corrigidas (fallback ambíguo, associação valor↔unidade na redação, estimativa negada) | feito | §5.1; branch `ai-v11/10-correcoes-luna` |
-| 13 | Homologação com o modelo real pelo app de staging (custo e latência medidos) | pendente | depende do login no Admin de staging |
+| 12 | Revisão: 3 lacunas reproduzidas e corrigidas (fallback ambíguo, associação valor↔unidade na redação, estimativa negada) | feito | §5.1; PR #57 (CI success), merge `c37ca62`, deploy `dep-dav3mvc1nsns738g7i90` live, health 200 |
+| 13 | Homologação com o modelo real pelo app de staging (custo e latência medidos) | em andamento | §5.2: 1ª rodada em `c37ca62` (6 achados, corrigidos na PR 11); 2ª rodada após o redeploy |
 
 ## 2. Auditoria do código de partida (`6b45783`)
 
@@ -164,4 +164,38 @@ Só códigos, contagens e durações: objetivo, relação, consultas, categorias
 
 ### 5.2 Homologação com modelo real
 
-(pendente: login no Admin de staging)
+**1ª rodada (01/10/2026, staging `c37ca62`, gpt-6-luna, effort none).** O operador fez login; os diálogos foram enviados pelo drawer "Perguntar ao Kidmais" do Admin. Custo, tokens e latência vêm do log saneado `inteligencia.conversa` (só ids, códigos e contagens; nenhum texto do pedido, nome ou valor). Nada foi gravado: os rascunhos foram cancelados ou expiram.
+
+| # | Mensagem (resumo) | Resultado | Chamadas | Tokens | Custo (USD) | Latência |
+|---|---|---|---|---|---|---|
+| A1 | "crie uma do cliente Felipe para 50 convidados, pacote premium" | ok: rascunho de **festa** com cliente, pacote e convidados; pergunta só o aniversariante | 1 | 2.785 | 0,000352 | 3,5 s |
+| A2 | "o aniversariante é o Theo" | ok: preenche e pergunta a data | 1 | 2.872 | 0,000219 | 2,5 s |
+| A3 | "dia 14/11/2027, à tarde" | ok: data aceita; "tarde" não é turno ⇒ pergunta almoço/noite | 1 | 2.954 | 0,000233 | 2,6 s |
+| A4 | "antes, quantos docinhos preciso para 60 convidados?" (rascunho aberto) | **falha 1**: "Ainda não sei responder isso" (Planner chamado sem festa) | 2 | 6.357 | 0,000583 | 5,3 s |
+| A5 | "à noite" (retomada) | ok: volta ao rascunho; o Core não acha o cliente "Felipe" e pergunta o cliente | 1 | 2.993 | 0,000234 | 2,5 s |
+| A6 | "Quero criar uma festa e não um pacote" (rascunho perguntando o cliente) | **falha 2**: a frase inteira virou o nome do cliente | 1 | 3.046 | 0,000239 | 2,9 s |
+| A7 | "cancele esse rascunho" | ok: cancelado, nada gravado | 1 | 3.076 | 0,000240 | 2,4 s |
+| B | "Quais contratos estão pendentes e quanto recebemos este mês?" | **falha 3**: só os contratos (a regra casava uma leitura e a escolha dupla da Luna era ignorada) | 2 | 3.519 | 0,000310 | 5,3 s |
+| E1 | "quantos docinhos e refrigerantes para a próxima festa?" | ok: festa 26/06/2027, 60 convidados do contrato vigente; as duas regras ausentes são perguntadas | 2 | 3.896 | 0,000355 | 5,1 s |
+| C | "4 doces por convidados, refrigerante de 2l. Não sei… faça você a definição." | ok: 240 docinhos; 200 mL estimados (rotulados) ⇒ 12 L = 6 garrafas de 2 L; nada perguntado de novo. Resumo determinístico sem a palavra "estimativa" (**ajuste 4**) | 2 | 4.268 | 0,000413 | 5,2 s |
+| N1 | "quantos refrigerantes para a próxima festa?" | ok: pergunta a taxa e a embalagem | 2 | 3.848 | 0,000355 | 4,3 s |
+| N2 | "Não estime o consumo; quero somente a regra cadastrada." | sem estimativa (ok), mas **falha 5**: esclarecimento da Luna perdeu a continuação | 1 | 3.066 | 0,000246 | 2,1 s |
+| N3 | "não sei" | **falha 6**: saída da Luna rejeitada inteira (limite de campo opcional) ⇒ "Ainda não sei responder" | 1 | 2.977 | 0,000228 | 2,3 s |
+| D | "pode estimar os refrigerantes da próxima festa? garrafa de 2 litros e uns 10% de margem" | ok: 500 mL estimados + 10% ⇒ 33 L = 17 garrafas; redação do modelo diz "estimativa" e "não é padrão da empresa" | 2 | 4.024 | 0,000377 | 4,9 s |
+| F | "e os docinhos, com 5 por convidado?" (elipse) | ok: mesma festa, 300 docinhos para 60 convidados, divisão pendente | 2 | 3.928 | 0,000355 | 4,6 s |
+
+Média da rodada: ~3.600 tokens e ~US$ 0,00033 por mensagem; 2,1–5,3 s; nunca mais de 2 chamadas de modelo por mensagem (teto 4).
+
+Também achado: o trace `adaptativo` (e o `operacional`) não aparecia no log — a saída é fechada nas chaves de `novoRastreio` (**falha 7**).
+
+**Correções (PR 11, cada uma com regressão que falha sem ela):**
+1. Cálculo sem festa entendido pela Luna: pergunta "Para qual festa?" com o rascunho pausado, sem chamar o Planner.
+2. Resposta crua a uma pergunta de nome só vale se parecer nome (sem palavras de pedido, até 6 palavras).
+3. Duas ou mais consultas da Luna: a regra de leitura única não decide; o Planner compõe.
+4. Resumo determinístico do total que usa estimativa diz "(com a estimativa que você pediu)".
+5. Parâmetro de consumo pendente + mensagem sem objetivo novo (negação, "não sei"): refaz o mesmo cálculo, mesma festa, sem estimar; "não sei" ganha a dica de pedir a estimativa.
+6. Saída da Luna: campo opcional fora do limite é descartado ou cortado (enums e tipos continuam estritos).
+7. `operacional` e `adaptativo` entram no formato fechado do log.
+8. Redação: negação de "regra da empresa" reconhecida na mesma oração ("não é uma regra da empresa", "sem regra da empresa").
+
+**Falha do provedor:** não exercitada ao vivo nesta rodada — exigiria mudar variáveis de configuração da IA em staging (fora da autorização). Coberta pelos testes de diálogo com provedor fora do ar (HTTP 5xx ⇒ caminho anterior, sem ação automática).

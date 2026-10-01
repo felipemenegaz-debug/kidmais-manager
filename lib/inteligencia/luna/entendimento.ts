@@ -116,38 +116,51 @@ export function schemaEntendimento(consultas: readonly string[], acoes: readonly
 }
 
 const n = <T extends z.ZodTypeAny>(t: T) => t.nullable();
+/*
+ * O modo estrito do provedor garante tipos e enums, mas NÃO limites (maxLength, minimum/maximum, maxItems). Um campo
+ * opcional fora do limite é descartado (nulo/vazio) ou cortado — nunca derruba o entendimento inteiro. Enums,
+ * tipos e campos obrigatórios continuam estritos (saída fora do contrato ⇒ inválida ⇒ caminho anterior).
+ */
+const numero = (min: number, max: number) => z.number().int().min(min).max(max).nullable().catch(null);
+const texto = (max: number) => z.string().max(max).nullable().catch(null);
+const lista = <T extends z.ZodTypeAny>(item: T, max: number) => z.array(z.unknown()).transform((a) => [...new Set(a.flatMap((x) => {
+  const lido = item.safeParse(x);
+  return lido.success ? [lido.data as z.infer<T>] : [];
+}))].slice(0, max));
+const cortado = (max: number) => z.string().nullable().transform((s) => (s && s.length > max ? `${s.slice(0, max - 1).replace(/\s+\S*$/, "")}…` : s));
+
 const saidaSchema = z.object({
   objetivo: z.enum(OBJETIVOS),
-  acao: z.string().max(60).nullable(),
+  acao: texto(60),
   relacaoRascunho: z.enum(RELACOES),
   correcao: z.boolean(),
-  consultas: z.array(z.string().max(60)).max(4),
+  consultas: lista(z.string().max(60), 4),
   festa: z.enum(FESTAS),
-  dataFesta: n(z.string().max(10)),
+  dataFesta: texto(10),
   consumo: z.object({
-    categorias: z.array(z.enum(CATEGORIAS)).max(2),
-    docesPorConvidado: n(z.number().int().min(1).max(100)),
-    mlPorConvidado: n(z.number().int().min(1).max(5000)),
-    embalagemMl: n(z.number().int().min(50).max(20000)),
-    margemPercentual: n(z.number().int().min(0).max(100)),
-    estimar: z.array(z.enum(CATEGORIAS)).max(2),
-    docesEstimado: n(z.number().int().min(1).max(20)),
-    mlEstimado: n(z.number().int().min(100).max(1000)),
+    categorias: lista(z.enum(CATEGORIAS), 2),
+    docesPorConvidado: numero(1, 100),
+    mlPorConvidado: numero(1, 5000),
+    embalagemMl: numero(50, 20000),
+    margemPercentual: numero(0, 100),
+    estimar: lista(z.enum(CATEGORIAS), 2),
+    docesEstimado: numero(1, 20),
+    mlEstimado: numero(100, 1000),
   }).strict(),
   contratacao: z.object({
-    cliente: n(z.string().max(80)),
-    pacote: n(z.enum(PACOTES)),
-    convidados: n(z.number().int().min(1).max(500)),
-    aniversariante: n(z.string().max(60)),
-    idade: n(z.number().int().min(0).max(120)),
-    tema: n(z.string().max(80)),
-    data: n(z.string().max(10)),
-    diaMes: n(z.string().max(5)),
-    turno: n(z.enum(["almoco", "noite"])),
-    horario: n(z.string().max(5)),
+    cliente: texto(80),
+    pacote: n(z.enum(PACOTES)).catch(null),
+    convidados: numero(1, 500),
+    aniversariante: texto(60),
+    idade: numero(0, 120),
+    tema: texto(80),
+    data: texto(10),
+    diaMes: texto(5),
+    turno: n(z.enum(["almoco", "noite"])).catch(null),
+    horario: texto(5),
   }).strict(),
-  esclarecimento: n(z.string().max(220)),
-  outrosPedidos: z.array(z.string().max(120)).max(2),
+  esclarecimento: cortado(220),
+  outrosPedidos: lista(z.string().transform((s) => s.slice(0, 120)), 2),
 }).strict();
 export type SaidaLuna = z.infer<typeof saidaSchema>;
 

@@ -30,6 +30,8 @@ export const ROTULO_CATEGORIA = "Categoria do cálculo";
 export const ROTULO_PENDENTE = "Parâmetro pendente";
 
 export const PERGUNTA_DOCES = "Quantos docinhos por convidado a empresa utiliza?";
+/** Total que usa a estimativa pedida: o resumo também diz que é hipótese (o fato detalha). */
+const COM_ESTIMATIVA = " (com a estimativa que você pediu)";
 export const PERGUNTA_TAXA_REFRIGERANTE = "Quantos mL de refrigerante por convidado a empresa considera?";
 export const PERGUNTA_EMBALAGEM = "Qual é o tamanho da embalagem (ex.: garrafa de 2 L)?";
 
@@ -275,7 +277,7 @@ export const calcularConsumo: Ferramenta<RespostaLeitura> = {
         }
         if (!r.distribuicao && escolhidos) extras.push(ausencia(`Divisão entre os tipos escolhidos não definida: como dividir os ${formatar(r.total)} docinhos? Informe percentuais ou quantidades.`, FONTE_CALCULO));
         if (regraOperador?.porConvidado) extras.push(parametro(`Para usar como padrão da empresa, peça: "salvar ${porConvidado} docinhos por convidado como padrão" (proposta separada, com a sua confirmação).`, FONTE_INFORMADO));
-        return resposta(escolhidos && r.distribuicao ? "informativo" : "atencao",`Total: ${formatar(r.total)} docinhos para ${formatar(c.convidados)} convidados.`, extras);
+        return resposta(escolhidos && r.distribuicao ? "informativo" : "atencao",`Total: ${formatar(r.total)} docinhos para ${formatar(c.convidados)} convidados${estimadoPorConvidado ? COM_ESTIMATIVA : ""}.`, extras);
       }
 
       // REFRIGERANTES: taxa e embalagem só da regra ou do texto; nunca do nome do pacote.
@@ -288,10 +290,10 @@ export const calcularConsumo: Ferramenta<RespostaLeitura> = {
       const extras: Fato[] = r.formula.map((f) => calculo(f, FONTE_CALCULO));
       if (r.embalagens === null) {
         extras.push(ausencia("Tamanho da embalagem não informado.", FONTE_PARAMETRO_AUSENTE));
-        return resposta("atencao", `Total: ${litros(r.totalMl)} de refrigerante. ${PERGUNTA_EMBALAGEM}`, extras);
+        return resposta("atencao", `Total: ${litros(r.totalMl)} de refrigerante${estimadoMl ? COM_ESTIMATIVA : ""}. ${PERGUNTA_EMBALAGEM}`, extras);
       }
       if (regraOperador?.mlPorConvidado) extras.push(parametro(`Para usar como padrão da empresa, peça: "salvar ${formatar(mlPorConvidado)} ml de refrigerante por convidado${embalagemMl ? `, garrafa de ${litros(embalagemMl)}` : ""} como padrão" (proposta separada, com a sua confirmação).`, FONTE_INFORMADO));
-      return resposta("informativo", `Total: ${litros(r.totalMl)} = ${r.embalagens} ${r.embalagens === 1 ? "embalagem" : "embalagens"} de ${litros(embalagemMl!)} para ${formatar(c.convidados)} convidados.`, extras);
+      return resposta("informativo", `Total: ${litros(r.totalMl)} = ${r.embalagens} ${r.embalagens === 1 ? "embalagem" : "embalagens"} de ${litros(embalagemMl!)} para ${formatar(c.convidados)} convidados${estimadoMl ? COM_ESTIMATIVA : ""}.`, extras);
     };
   },
 };
