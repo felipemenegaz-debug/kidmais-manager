@@ -72,7 +72,9 @@ export type MotivoRejeicao =
   /** PR 6.2: `entradaDe: CONTEXTO` sem tela/foco do tipo pedido (o pedido não tem a que se referir). */
   | "CONTEXTO_INDISPONIVEL"
   /** PR 6.4: `resposta` fora de leitura intermediária com `entradaDe`. */
-  | "RESPOSTA_INVALIDA";
+  | "RESPOSTA_INVALIDA"
+  /** PR 6.4.2: `entradaDe` pede um tipo que a capacidade do passo de origem não declara produzir. */
+  | "ENTRADA_INCOMPATIVEL";
 
 export type ValidacaoPlano = { ok: true; plano: Plano } | { ok: false; motivo: MotivoRejeicao };
 
@@ -119,6 +121,13 @@ export function validarPlano(bruto: unknown, catalogo: readonly CapacidadeCatalo
     if (passo.resposta && item.tipo !== "leitura") return { ok: false, motivo: "RESPOSTA_INVALIDA" };
     if (passo.resposta && (ultimo || !passo.entradaDe)) delete passo.resposta;
     if (passo.entradaDe?.de === "PASSO" && !vistos.has(passo.entradaDe.passo)) return { ok: false, motivo: "REFERENCIA_INVALIDA" };
+    // PR 6.4.2: a origem tem de PRODUZIR o tipo pedido (manifesto do registro). Ex.: CONTRATO não sai de
+    // proximas_festas (só FESTA) — sai de relacoes_festa. Origem sem declaração ⇒ incompatível (fail-closed).
+    if (passo.entradaDe?.de === "PASSO") {
+      const de = passo.entradaDe;
+      const origem = catalogo.find((c) => c.id === plano.passos.find((p) => p.id === de.passo)?.capacidade);
+      if (!origem?.produz?.includes(de.entidade)) return { ok: false, motivo: "ENTRADA_INCOMPATIVEL" };
+    }
     if (passo.entradaDe?.de === "CONTEXTO" && i !== 0) return { ok: false, motivo: "REFERENCIA_INVALIDA" };
     if (passo.entradaDe?.de === "CONTEXTO" && opcoes.contexto && !opcoes.contexto.includes(passo.entradaDe.entidade)) return { ok: false, motivo: "CONTEXTO_INDISPONIVEL" };
     vistos.add(passo.id);

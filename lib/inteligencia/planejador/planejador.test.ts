@@ -33,10 +33,11 @@ const passos = (o: { rastro: { plano: { passos: Array<{ capacidade: string; orig
   o.rastro?.plano?.passos.map((p) => [p.capacidade, p.origemEntrada, p.resultado]);
 
 const CATALOGO: CapacidadeCatalogo[] = [
-  { id: "proximas_festas", descricao: "", tipo: "leitura" },
-  { id: "relacoes_festa", descricao: "", tipo: "leitura", entidade: "festa" },
-  { id: "resumir_contrato", descricao: "", tipo: "leitura", entidade: "contrato" },
-  { id: "saldo_contrato", descricao: "", tipo: "leitura", entidade: "contrato" },
+  // produz: os mesmos tipos declarados no registro (PR 6.4.2).
+  { id: "proximas_festas", descricao: "", tipo: "leitura", produz: ["FESTA"] },
+  { id: "relacoes_festa", descricao: "", tipo: "leitura", entidade: "festa", produz: ["FESTA", "CLIENTE", "CONTRATO"] },
+  { id: "resumir_contrato", descricao: "", tipo: "leitura", entidade: "contrato", produz: ["CONTRATO"] },
+  { id: "saldo_contrato", descricao: "", tipo: "leitura", entidade: "contrato", produz: ["CONTRATO"] },
   { id: "abrir_tela", descricao: "", tipo: "leitura" },
   { id: "criar_pacote", descricao: "", tipo: "acao" },
 ];
@@ -370,7 +371,7 @@ test("hipótese 1 (smoke): `recursoFinal: null` do modelo NÃO é descartado ant
   assert.deepEqual(passos(ultima)?.map(([c]) => c), ["proximas_festas", "relacoes_festa", "resumir_contrato"]);
   assert.equal(dados(ultima.resposta).capacidade, "resumir_contrato");
   // Validação direta: com a chave explicitamente nula o plano é válido; sem a chave, continua inválido (obrigatória).
-  const catalogo = [...CATALOGO, { id: "resumir_cliente", descricao: "", tipo: "leitura" as const }];
+  const catalogo = [...CATALOGO, { id: "resumir_cliente", descricao: "", tipo: "leitura" as const, produz: ["CLIENTE" as const] }];
   const limpo = {
     objetivo: "CONSULTAR:CONTRATO", recursoFinal: null,
     passos: [

@@ -178,7 +178,7 @@ test("navegação no fim: o contrato de navegação é mantido (nada é composto
 });
 
 test("validação (6.4.1): `resposta` vale só em leitura intermediária com entrada da cadeia; no fim ou em listagem é IGNORADA", () => {
-  const cat = [{ id: "proximas_festas", descricao: "", tipo: "leitura" as const }, { id: "relacoes_festa", descricao: "", tipo: "leitura" as const }, { id: "saldo_contrato", descricao: "", tipo: "leitura" as const }];
+  const cat = [{ id: "proximas_festas", descricao: "", tipo: "leitura" as const, produz: ["FESTA" as const] }, { id: "relacoes_festa", descricao: "", tipo: "leitura" as const, produz: ["FESTA" as const, "CLIENTE" as const, "CONTRATO" as const] }, { id: "saldo_contrato", descricao: "", tipo: "leitura" as const, produz: ["CONTRATO" as const] }];
   const p = (passos: unknown[]) => validarPlano({ objetivo: "CONSULTAR:PAGAMENTO", recursoFinal: null, passos }, cat);
   const p1 = { id: "p1", capacidade: "proximas_festas", parametros: { ordem: "ASC", limite: 2 }, selecao: "PRIMEIRA" };
   const p2 = { id: "p2", capacidade: "relacoes_festa", entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" } };
@@ -245,4 +245,64 @@ test("trace da composição: só códigos e contagens — sem id, nome, valor ou
     const plano2 = JSON.stringify(r2.o.rastro?.plano);
     for (const proibido of [...Object.values(IDS), "Ana Oliveira", "R$", FRASE_SITUACAO_PAGAMENTO]) assert.equal(plano2.includes(proibido), false, `${cenario}: ${proibido}`);
   }
+});
+
+// ---------------------------------------------------------------- PR 6.4.2: entrada só de passo que PRODUZ o tipo pedido (smoke de staging)
+
+/** Plano exatamente como o modelo real gerou: saldo_contrato ligado à LISTAGEM (p1), que não produz CONTRATO. */
+const PLANO_CONTRATO_DA_LISTAGEM = {
+  ...PLANO_CLIENTE_PAGO,
+  passos: [PLANO_CLIENTE_PAGO.passos[0], PLANO_CLIENTE_PAGO.passos[1], { ...PLANO_CLIENTE_PAGO.passos[2], entradaDe: { de: "PASSO", passo: "p1", entidade: "CONTRATO" } }],
+};
+
+test("staging (6.4.2): saldo_contrato com CONTRATO vindo de proximas_festas ⇒ plano rejeitado ANTES de qualquer leitura; sem pedir dado ao operador", async () => {
+  const { o } = await perguntar(FRASE_CLIENTE_PAGO, {}, PLANO_CONTRATO_DA_LISTAGEM);
+  assert.deepEqual([o.rastro?.plano?.parada, o.rastro?.plano?.motivoParada], ["REJEITADO:ENTRADA_INCOMPATIVEL", "ENTRADA_INCOMPATIVEL"]);
+  assert.deepEqual(o.rastro?.leituras, [], "nenhuma leitura");
+  assert.equal(o.resposta?.tipo, "nao_suportado");
+  assert.notEqual(o.resposta?.entendimento, "PRECISA_DADO", "antes: 'Não sei a qual contrato você se refere'");
+  assert.doesNotMatch((o.resposta as { mensagem: string }).mensagem, /Não sei a qual/);
+});
+
+test("validação (6.4.2): o tipo pedido tem de estar em `produz` da origem (manifesto do registro); sem declaração ⇒ incompatível", async () => {
+  const { manifestoLeitura } = await import("../registro-ferramentas.ts");
+  const { ferramentas } = await import("../ferramentas.ts");
+  assert.deepEqual(manifestoLeitura(ferramentas.proximas_festas)!.produz, ["FESTA"]);
+  assert.ok(manifestoLeitura(ferramentas.relacoes_festa)!.produz.includes("CONTRATO"));
+  assert.ok(manifestoLeitura(ferramentas.relacoes_festa)!.produz.includes("CLIENTE"));
+  const cat = [
+    { id: "proximas_festas", descricao: "", tipo: "leitura" as const, produz: ["FESTA" as const] },
+    { id: "relacoes_festa", descricao: "", tipo: "leitura" as const, produz: ["FESTA" as const, "CLIENTE" as const, "CONTRATO" as const] },
+    { id: "saldo_contrato", descricao: "", tipo: "leitura" as const, produz: ["CONTRATO" as const] },
+    { id: "sem_declaracao", descricao: "", tipo: "leitura" as const },
+  ];
+  const p1 = { id: "p1", capacidade: "proximas_festas", parametros: { ordem: "ASC", limite: 2 }, selecao: "PRIMEIRA" };
+  const v = (passos: unknown[]) => validarPlano({ objetivo: "CONSULTAR:PAGAMENTO", recursoFinal: null, passos }, cat);
+  assert.deepEqual(v([p1, { id: "p2", capacidade: "saldo_contrato", entradaDe: { de: "PASSO", passo: "p1", entidade: "CONTRATO" } }]), { ok: false, motivo: "ENTRADA_INCOMPATIVEL" });
+  assert.equal(v([p1, { id: "p2", capacidade: "relacoes_festa", entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" } }, { id: "p3", capacidade: "saldo_contrato", entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" } }]).ok, true);
+  assert.deepEqual(v([{ id: "p1", capacidade: "sem_declaracao" }, { id: "p2", capacidade: "saldo_contrato", entradaDe: { de: "PASSO", passo: "p1", entidade: "CONTRATO" } }]), { ok: false, motivo: "ENTRADA_INCOMPATIVEL" });
+});
+
+test("trace (6.4.2): cada passo registra a FONTE da entrada (p1..p5, CONTEXTO ou null) — nunca um id do Core", async () => {
+  const { o } = await perguntar(FRASE_CLIENTE_PAGO, {}, PLANO_CLIENTE_PAGO);
+  assert.deepEqual(o.rastro?.plano?.passos.map((p) => [p.capacidade, p.fonte]), [["proximas_festas", null], ["relacoes_festa", "p1"], ["saldo_contrato", "p2"]]);
+});
+
+test("modelo (6.4.2): recebe `produz` de cada capacidade e a regra de que contrato/cliente da festa vêm de relacoes_festa", async () => {
+  const amb = criarAmbiente();
+  const provedor = comModelo(amb, PLANO_CLIENTE_PAGO);
+  await amb.conversar({ id: "x", categoria: "multi_tool", turnos: [{ texto: FRASE_CLIENTE_PAGO }], esperado: { entendimento: "EXECUTADO" }, pr: "PR6" });
+  const pedido = provedor.chamadas.find((c) => c.workload === "PLANEJAR")!;
+  assert.match(pedido.mensagens[0].conteudo, /Contrato e cliente de uma festa vêm SEMPRE de relacoes_festa/);
+  const capacidades = (JSON.parse(pedido.mensagens[1].conteudo) as { capacidades: Array<{ id: string; produz?: string[] }> }).capacidades;
+  assert.deepEqual(capacidades.find((c) => c.id === "proximas_festas")?.produz, ["FESTA"]);
+  assert.ok(capacidades.find((c) => c.id === "relacoes_festa")?.produz?.includes("CONTRATO"));
+});
+
+test("parada (6.4.2): plano do modelo sem dados no Core e sem âncora ⇒ 'não encontrei' (EXECUTADO), nunca pedido de esclarecimento", async () => {
+  const semFestas = { ...PLANO_CLIENTE_PAGO, passos: [{ ...ancora, parametros: { ...ancora.parametros, inicio: "2030-01-01", fim: "2030-01-31" } }, PLANO_CLIENTE_PAGO.passos[1], PLANO_CLIENTE_PAGO.passos[2]] };
+  const { o } = await perguntar(FRASE_CLIENTE_PAGO, {}, semFestas);
+  assert.deepEqual([o.rastro?.plano?.parada, o.rastro?.plano?.motivoParada], ["p2", "SEM_DADOS"]);
+  assert.equal(o.resposta?.entendimento, "EXECUTADO");
+  assert.equal((o.resposta as { mensagem: string }).mensagem, "Não encontrei no sistema os dados pedidos para esta consulta.");
 });
