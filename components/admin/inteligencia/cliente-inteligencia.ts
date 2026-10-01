@@ -247,6 +247,24 @@ function parametrosValidos(p: unknown): ParametrosUI | null {
   return Object.keys(parametros).length ? parametros : null;
 }
 
+/**
+ * Mensagem mista (responde ao rascunho E pede uma consulta/cálculo): resultado ou pergunta do segundo pedido, que a UI
+ * mostra como mais uma resposta. Aceita só o formato fechado; qualquer desvio ⇒ ignorado (nada é inventado).
+ */
+export type PedidoSeguinteUI =
+  | { tipo: 'resposta'; dados: RespostaLeitura }
+  | { tipo: 'nao_suportado'; mensagem: string; sugestoes: string[] }
+  | { tipo: 'precisa_contexto'; mensagem: string };
+
+export function pedidoSeguinteValido(p: unknown): PedidoSeguinteUI | null {
+  const x = p as { tipo?: unknown; dados?: { resumo?: unknown; fatos?: unknown }; mensagem?: unknown; sugestoes?: unknown } | null | undefined;
+  if (!x) return null;
+  if (x.tipo === 'resposta' && x.dados && typeof x.dados.resumo === 'string' && Array.isArray(x.dados.fatos)) return { tipo: 'resposta', dados: x.dados as RespostaLeitura };
+  if (x.tipo === 'nao_suportado' && typeof x.mensagem === 'string') return { tipo: 'nao_suportado', mensagem: x.mensagem, sugestoes: Array.isArray(x.sugestoes) ? x.sugestoes.filter((s): s is string => typeof s === 'string') : [] };
+  if (x.tipo === 'precisa_contexto' && typeof x.mensagem === 'string') return { tipo: 'precisa_contexto', mensagem: x.mensagem };
+  return null;
+}
+
 /** Aceita só o formato fechado; qualquer desvio ⇒ sem continuação (a próxima mensagem segue como pergunta nova). */
 export function continuacaoValida(c: unknown): ContinuacaoUI | null {
   const x = c as Partial<ContinuacaoUI> | null;

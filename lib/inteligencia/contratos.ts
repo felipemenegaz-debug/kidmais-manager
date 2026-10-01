@@ -301,7 +301,19 @@ export type AIResponse = (
   rascunhoPausado?: { operacaoId: string; titulo: string; pergunta: string | null };
   /** Conversa adaptativa: o resumo foi redigido pela Luna a partir dos fatos verificados (números conferidos). */
   redacao?: "MODELO" | "DETERMINISTICA";
+  /**
+   * Mensagem mista (responde ao rascunho E pede uma consulta/cálculo): o resultado ou a pergunta do SEGUNDO pedido, já
+   * executado pelas mesmas portas guardadas. A UI o mostra como mais uma resposta na conversa e não a fecha ao abrir a
+   * revisão — a abertura da revisão nunca apaga nem esconde o segundo pedido.
+   */
+  pedidoSeguinte?: PedidoSeguinte;
 };
+
+/** Segundo pedido de uma mensagem mista: só leitura com fatos ou pergunta/esclarecimento (nunca outra ação). */
+export type PedidoSeguinte =
+  | { tipo: "resposta"; dados: RespostaLeitura }
+  | { tipo: "nao_suportado"; mensagem: string; sugestoes: string[] }
+  | { tipo: "precisa_contexto"; mensagem: string };
 
 export type ContinuacaoConsumo = {
   tipo: "PARAMETRO_CONSUMO";

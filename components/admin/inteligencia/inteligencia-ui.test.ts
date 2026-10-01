@@ -641,6 +641,65 @@ test('Provider: resposta de navegação com rota segura abre a tela e fecha o dr
   }
 });
 
+test('Provider (mensagem mista): abrir a revisão NÃO fecha a conversa quando há um segundo pedido; a resposta dele aparece logo depois', async () => {
+  const navegador = navegadorFalso();
+  try {
+    const DrawerKidmais = function DrawerKidmais() {};
+    const OP = '33333333-3333-4333-8333-000000000099';
+    const CLIENTE = '11111111-1111-4111-8111-000000000001';
+    const destino = `/admin/clientes/${CLIENTE}/fechamento?rascunho=${OP}`;
+    const leituraSeguinte = { capacidade: 'calcular_consumo', estado: 'atencao', resumo: 'Quantos mL de refrigerante por convidado a empresa considera?', fatos: [{ natureza: 'FATO', texto: 'Festa em 26/06/2027 com 60 convidados.', fonte: 'festa' }], itens: [], evidencias: [], referencia: { hoje: '2026-10-01', geradoEm: '2026-10-01T00:00:00Z', fontes: [] } };
+    const { buscar, pedidos } = buscadorFalso(async () => Response.json({ ok: true, data: {
+        tipo: 'navegacao', tela: 'fechamento', recurso: 'FECHAMENTO', destino, rotulo: 'Revisar contratação',
+        pedidoSeguinte: { tipo: 'resposta', dados: leituraSeguinte },
+        continuacao: { tipo: 'PARAMETRO_CONSUMO', categoria: 'REFRIGERANTES', perguntado: 'ML_POR_CONVIDADO' },
+      } }));
+    const tela = carregarComponente('components/admin/inteligencia/PerguntarKidmais.tsx', {
+      ...NAVEGACAO_FALSA,
+      '@/lib/http/admin-fetch': { adminFetch: buscar },
+      './perguntas': perguntas,
+      './cliente-inteligencia': cliente,
+      './conversa': conversa,
+      './DrawerKidmais': { default: DrawerKidmais }, '../visual.module.css': cssFalso,
+    });
+    const provider = () => tela.render('PerguntarKidmaisProvider', { children: 'conteúdo' });
+    const valor = elementos(provider())[0].props.value as { abrir(): void };
+    navegados.length = 0;
+    valor.abrir();
+    await (achar(provider(), DrawerKidmais).props.onPerguntar as (t: string) => Promise<void>)('à noite. E quantos refrigerantes para a próxima festa?');
+    assert.deepEqual(navegados, [destino], 'a revisão abre');
+    const drawer = elementos(provider()).find((e) => e.type === DrawerKidmais);
+    assert.ok(drawer, 'a conversa continua aberta sobre a revisão');
+    const mensagens = drawer.props.mensagens as conversa.Mensagem[];
+    assert.deepEqual(mensagens.map((m) => m.fase), ['navegacao', 'leitura'], 'navegação registrada + resposta do segundo pedido');
+    const seguinte = mensagens[1] as Extract<conversa.Mensagem, { fase: 'leitura' }>;
+    assert.equal(seguinte.pergunta, '', 'sem repetir a pergunta do usuário');
+    assert.match(seguinte.dados.resumo, /Quantos mL de refrigerante/);
+    // A próxima mensagem continua o cálculo (a continuação do segundo pedido vai como dica).
+    await (achar(provider(), DrawerKidmais).props.onPerguntar as (t: string) => Promise<void>)('400 ml');
+    const corpos = pedidos.filter((p) => p.url.includes('/conversa')).map((p) => JSON.parse(String(p.init.body)) as { continuacao?: { categoria: string } });
+    assert.equal(corpos.at(-1)?.continuacao?.categoria, 'REFRIGERANTES');
+    await tique();
+  } finally {
+    navegador.restaurar();
+  }
+});
+
+test('Mensagem mista: só o formato fechado do segundo pedido é aceito; sem ele, nada é acrescentado e a navegação fecha a conversa como antes', () => {
+  const ok = (resposta: unknown) => ({ tipo: 'ok', resposta } as cliente.ResultadoConversa);
+  const nav = { tipo: 'navegacao', tela: 'fechamento', recurso: 'FECHAMENTO', destino: '/admin/dashboard', rotulo: 'x' };
+  assert.equal(conversa.manterAbertoAoNavegar(ok(nav)), false);
+  assert.equal(conversa.manterAbertoAoNavegar(ok({ ...nav, pedidoSeguinte: { tipo: 'acao', x: 1 } })), false, 'tipo fora da lista');
+  assert.equal(conversa.manterAbertoAoNavegar(ok({ ...nav, pedidoSeguinte: { tipo: 'resposta', dados: { resumo: 1 } } })), false, 'formato inválido');
+  assert.equal(conversa.manterAbertoAoNavegar(ok({ ...nav, pedidoSeguinte: { tipo: 'nao_suportado', mensagem: 'Para qual festa?' } })), true);
+  const h0: conversa.Mensagem[] = [{ id: 1, pergunta: 'p', fase: 'navegacao', destino: '/admin/dashboard', rotulo: 'x' }];
+  assert.deepEqual(conversa.registrarPedidoSeguinte(h0, 2, ok(nav)), h0);
+  const h1 = conversa.registrarPedidoSeguinte(h0, 2, ok({ ...nav, pedidoSeguinte: { tipo: 'nao_suportado', mensagem: 'Para qual festa?', sugestoes: [1, 'a'] } }));
+  assert.deepEqual(h1.at(-1), { id: 2, pergunta: '', fase: 'nao_suportado', mensagem: 'Para qual festa?', sugestoes: ['a'] });
+  // O histórico enviado à Luna inclui a resposta do segundo pedido como fala do Kidmais.
+  assert.deepEqual(conversa.historicoParaServidor(h1).at(-1), { pergunta: '', resposta: 'Para qual festa?' });
+});
+
 // ---------------------------------------------------------------- AI V1.1 (PR 5): foco da conversa
 
 test('Foco: a UI aceita só o formato fechado e reenvia SÓ tipo + id (dica), mantendo o rótulo local', () => {

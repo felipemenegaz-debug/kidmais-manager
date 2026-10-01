@@ -273,6 +273,56 @@ Total da rodada: 21 chamadas, 53.168 tokens, US$ 0,004721. Média de ~3.540 toke
 2. O executor do Planner aceita passo intermediário com fatos e sem `entidades`. A saída fica vazia, e um passo que dependa dela para em SEM_DADOS.
 3. Com parâmetro de consumo pendente, a resposta sem dado reconhecida por regra ("não sei", "não estime", "só a regra cadastrada") refaz o mesmo cálculo, seja qual for o rótulo da Luna.
 
-**Pendências:**
-- A5: o aviso de "outro pedido" vem do histórico. Registrado, não corrigido.
+**Pendências (na época):**
+- A5: o aviso de "outro pedido" vem do histórico. Corrigido nas PRs #67 a #73 (ver §5.3).
 - Falha do provedor ao vivo: exige mudar configuração.
+
+### 5.3 Gestão de contexto (A5) e encerramento
+
+**Rodadas com a Luna real depois da 4ª (01/10/2026, 22:15–23:25 UTC).** Cada rodada rodou na candidata publicada e cada achado virou uma PR com regressão que falha sem a correção.
+
+| Candidata | Achado com o modelo real | PR |
+|---|---|---|
+| `c594cc1` | A5: "à noite" ao rascunho contou o pedido de docinhos do histórico como novo ("o outro que você mencionou…") | #67: outro pedido exige o **trecho literal da mensagem atual**, conferido no servidor; o que vem do histórico é descartado (`adaptativo.outrosDescartados`); a instrução separa mensagem atual e contexto |
+| `ec4fac2` | A5 resolvido (resposta ao campo, correção e retomada sem aviso). Mensagem mista "o cliente é … E quantos refrigerantes…?" perdeu o pedido: a frase "resposta ao rascunho não tem outros pedidos" da #67 era ampla demais | #68: frase removida; instrução de mensagem mista |
+| `b72f612` | Mensagem mista: outro pedido registrado, mas a leitura com redação determinística não o anunciava. Caso C: redação com `**negrito**` mostrado cru | #69: aviso também em leitura determinística; Markdown removido antes das conferências |
+| `f41018e` | Mensagem mista com rascunho: a Luna marcou RESPONDE + CALCULO_CONSUMO e o dado do rascunho se perdia | #70: RESPONDE/CORRIGE + consulta/cálculo com rascunho aberto ⇒ resposta ao rascunho primeiro e o outro pedido anunciado (`operacional.decisao = LUNA:MENSAGEM_MISTA`) |
+| `ea32084` | F recebeu a margem de 10% dita antes para os refrigerantes; N3 citava a embalagem de outra pergunta; D não estimou depois de "Não estime…" no histórico | #71: parâmetros de consumo só da mensagem atual (o já informado vem da continuação); vetos antigos não valem agora |
+| `6c83539` | D ainda sem estimativa na sequência N1→N3→D | #72: estimativa pedida sem valor utilizável é registrada (`estimativa_sem_valor:<categoria>` em `adaptativo.descartes`) e dita na resposta; nada é inventado |
+| `c84b597` | Com o rascunho de contratação aberto, a consulta paralela de refrigerantes deixava a taxa pendente e "não estime…"/"não sei" iam ao rascunho | #73: com continuação pendente, a resposta sem dado vai ao cálculo; resposta legítima ao rascunho continua indo ao rascunho |
+
+**Regressões de A5 e da gestão de contexto** (todas falham sem a correção): unitárias em `luna.test.ts` (histórico, correção, retomada, pedido inventado, pedido novo com pontuação/acento, trecho = mensagem inteira; parâmetros de consumo do histórico descartados com elipse da contratação preservada; instrução) e diálogos em `aceite-operacional.test.ts` (fluxo A com resposta ao campo, correção, retomada e pedido novo; mensagem mista com redação determinística e com redação da Luna; mensagem mista com rascunho; estimativa pedida sem valor; continuação com rascunho pausado).
+
+#### Orçamento de staging (`AI_BUDGET_JSON`)
+
+O valor anterior **não pôde ser lido**: a integração do Render não expõe valores de variáveis, os eventos do serviço não guardam valores e o app não registra o orçamento em log. Ele foi substituído por outra sessão (com autorização do operador), que também não o leu antes. O que as evidências permitem afirmar:
+
+| Item | Antes | Agora | Evidência |
+|---|---|---|---|
+| `porEmpresa.tokensDiario` | existia; entre 89.434 e 101.575 (provavelmente 100.000) | 500.000 | recusa `TETO_TOKENS / EMPRESA / DIA` às 21:01 com consumo de 89.434 e reserva de 12.141 |
+| `porEmpresa.tokensMensal` | desconhecido (nenhuma recusa mensal observada; o mês = o dia) | 5.000.000 | — |
+| `custoDiario` / `custoMensal` / `moeda` | desconhecidos (nenhuma recusa de custo observada) | 0,50 / 5 USD | — |
+| `porCapacidade` | desconhecido (nenhuma recusa com escopo CAPACIDADE) | ausente | se existia, foi removido |
+| `estimativa` (fator de reserva) | desconhecido; reservas observadas coerentes com o padrão (1 token/byte, overhead 512) | ausente (padrão) | reservas de 12–13k para ~2,8k reais |
+
+Não há mudança operacional obrigatória: a configuração atual funciona e as recusas ficam visíveis no trace. Para fechar a dúvida sobre o que foi removido, só o operador pode conferir num registro próprio (cofre de senhas, anotação ou histórico do painel, se houver).
+
+#### Mensagem mista que completa o rascunho (PR desta entrega)
+
+Antes: "o cliente é … E quantos refrigerantes para a próxima festa?" completava a preparação, a UI abria a revisão do Fechamento e fechava a conversa — o pedido de refrigerantes sumia (ou, nas PRs #69/#70, só era anunciado como "não feito").
+
+Agora, com a integração mínima entre conversa e revisão (sem redesenho):
+- **servidor** (`conversa.ts`): RESPONDE/CORRIGE + consulta/cálculo com rascunho aberto ⇒ a resposta vai ao rascunho **e** o segundo pedido é executado pelas mesmas portas guardadas; o resultado (ou a pergunta necessária, ex.: "Quantos mL de refrigerante por convidado…?") vai em `pedidoSeguinte`, e a continuação e o foco dele valem para a próxima mensagem. Não há mais aviso de "pedido não feito" para ele;
+- **UI** (`PerguntarKidmais`, `conversa.ts`, `cliente-inteligencia.ts`): o segundo pedido entra como mais uma resposta do Kidmais (validada por formato fechado); ao abrir a revisão com um segundo pedido, a conversa **não fecha** — fica aberta sobre a revisão, no mesmo layout do Admin;
+- **confirmação humana** inalterada: a revisão só cria o Fechamento ao concluir o formulário; o "Confirmar" do chat continua recusado (`CONFIRMAR_NA_REVISAO`).
+
+Regressões (falham sem a correção): diálogo do fluxo completo em `aceite-operacional.test.ts` (rascunho ⇒ mensagem mista que o completa ⇒ navegação para a revisão + pergunta do cálculo ⇒ "400 ml" continua o cálculo com a revisão intocada ⇒ chat não confirma, nenhum Fechamento); mensagem mista sem completar o rascunho; provider em `inteligencia-ui.test.ts` (navega sem fechar a conversa, mostra a segunda resposta, reenvia a continuação) e formato fechado do segundo pedido.
+
+Limite conhecido: a conversa é estado em memória do layout do Admin. Navegar de uma tela do CRM (`/clientes`, outro layout) para a revisão (`/admin/...`) recarrega o layout e a conversa recomeça — comportamento anterior, inalterado.
+
+#### Cobertura, em quatro frentes separadas
+
+1. **Compreensão com o modelo real (gpt-6-luna, ECONOMY, effort none):** 1ª rodada (`9243d2c`), 4ª (`3b66958`), rodadas de §5.3 (`c594cc1` a `c84b597`) e a **rodada final** abaixo. Só contam mensagens com `luna_entender` executado (sem `recusasModelo`).
+2. **Fallback (caminho anterior sem a Luna):** 3ª rodada ao vivo (`bfe6fac`, 15 diálogos com a Luna recusada): 11 ok, B limitado (composição exige Luna/Planner), 3 falhas corrigidas na PR #65. Nessa rodada os modelos menores (JEV e classificador antigo) ainda responderam onde a reserva deles cabia — não é evidência da Luna. Testes: diálogos "Fallback (lacuna 1)", "Fallback (PR 14)" e os de provedor fora do ar.
+3. **Recusa de orçamento, ao vivo:** 2ª rodada (`1dc986f`) e 3ª rodada (`bfe6fac`), com a causa exata no trace (`recusasModelo`: `ORCAMENTO / TETO_TOKENS / EMPRESA / DIA` e a reserva tentada). Testes: `roteador.test.ts` (AUSENTE, INVALIDO, SEM_TETO, SEM_PRECO, TETO_TOKENS por empresa e por capacidade) e o diálogo "Luna — PR 13".
+4. **Falha do provedor (HTTP 5xx, timeout, saída inválida): só testes.** Não exercitada ao vivo nesta etapa, por decisão do operador (não alterar configuração para forçá-la). Cobertura: diálogos com `ErroModelo("HTTP_5XX")` ("Fallback (lacuna 1)", "Fallback (PR 14)", "PR 18"), testes do roteador (circuito, retry, uso desconhecido, liberação da reserva em 4xx) e `hardening-jev.test.ts`.

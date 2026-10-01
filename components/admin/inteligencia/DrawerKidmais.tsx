@@ -97,7 +97,7 @@ export default function DrawerKidmais({ mensagens, aguardando, contexto = null, 
         </div>}
 
         {mensagens.map((mensagem) => <article key={mensagem.id} className={styles.troca}>
-          <p className={styles.pergunta}>{mensagem.pergunta}</p>
+          {mensagem.pergunta && <p className={styles.pergunta}>{mensagem.pergunta}</p>}
           {categoriaDa(mensagem) && <SeloCategoria categoria={categoriaDa(mensagem)!} />}
           {mensagem.fase === 'carregando' && <div className={styles.carregando} aria-busy="true"><span /><span /><p>Preparando resposta…</p>
             {onCancelar && <button type="button" className={styles.botaoDiscreto} aria-label="Cancelar a pergunta" onClick={onCancelar}>Cancelar</button>}
