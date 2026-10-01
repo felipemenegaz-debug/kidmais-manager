@@ -31,7 +31,11 @@ export type Workload =
   | "EXTRACAO_CONTRATO"
   | "REVISAO_COMPLEXA"
   /** AI V1.1 (PR 6): plano estruturado curto (Planner por modelo), saída fechada e revalidada. */
-  | "PLANEJAR";
+  | "PLANEJAR"
+  /** Conversa adaptativa: a Luna lê a mensagem inteira com o contexto e devolve objetivo, parâmetros e consultas. */
+  | "INTERPRETAR_CONVERSA"
+  /** Conversa adaptativa: resposta final em linguagem natural, só sobre fatos verificados (números conferidos). */
+  | "REDIGIR_RESPOSTA";
 
 /** Capacidade exposta ao operador. Uma capacidade aponta para exatamente uma ferramenta registrada. */
 export type Capability = {
@@ -83,8 +87,12 @@ export type ToolResult<T = unknown> =
   | { ferramenta: string; ok: true; dados: T }
   | { ferramenta: string; ok: false; codigo: string };
 
-/** Distinção obrigatória nas respostas: fato lido, cálculo determinístico ou ausência de dados. */
-export type NaturezaFato = "FATO" | "CALCULO" | "AUSENCIA";
+/**
+ * Distinção obrigatória nas respostas: dado registrado (FATO), parâmetro informado pelo usuário só para esta consulta
+ * (PARAMETRO), cálculo determinístico (CALCULO), hipótese/estimativa pedida pelo usuário (ESTIMATIVA — nunca padrão da
+ * empresa nem recomendação comprovada) ou ausência de dados.
+ */
+export type NaturezaFato = "FATO" | "PARAMETRO" | "CALCULO" | "ESTIMATIVA" | "AUSENCIA";
 
 export type Fato = { natureza: NaturezaFato; texto: string; fonte: string };
 
@@ -291,6 +299,8 @@ export type AIResponse = (
   continuacao?: ContinuacaoConsumo;
   /** IA operacional: rascunho preservado enquanto esta consulta foi respondida (retomável respondendo à pergunta dele). */
   rascunhoPausado?: { operacaoId: string; titulo: string; pergunta: string | null };
+  /** Conversa adaptativa: o resumo foi redigido pela Luna a partir dos fatos verificados (números conferidos). */
+  redacao?: "MODELO" | "DETERMINISTICA";
 };
 
 export type ContinuacaoConsumo = {

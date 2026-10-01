@@ -33,7 +33,27 @@ export type CausaRastreio =
  * rota e duração — só códigos e contagens; null fora dela.
  */
 export type OperacionalRastreio = { rota: "CONSUMO" | "RASCUNHO"; decisao: string | null; leituras: number; duracaoMs: number };
-export type RastreioInteligencia = AuditTrace & { causa: CausaRastreio | null; orquestracao: ResumoOrquestracao | null; operacional?: OperacionalRastreio | null };
+/**
+ * `adaptativo` (conversa adaptativa): o que a Luna entendeu e o que o ciclo fez — só códigos, contagens e durações
+ * (nunca texto, nomes, valores de negócio ou ids). `fallback`: por que o caminho anterior respondeu no lugar do ciclo.
+ */
+export type AdaptativoRastreio = {
+  versao: string;
+  objetivo: string | null;
+  relacaoRascunho: string | null;
+  consultas: string[];
+  categorias: string[];
+  estimativa: boolean;
+  correcao: boolean;
+  outrosPedidos: number;
+  chamadasModelo: number;
+  leituras: number;
+  redacao: "MODELO" | "DETERMINISTICA" | "NENHUMA";
+  parada: string | null;
+  fallback: string | null;
+  duracaoMs: number;
+};
+export type RastreioInteligencia = AuditTrace & { causa: CausaRastreio | null; orquestracao: ResumoOrquestracao | null; operacional?: OperacionalRastreio | null; adaptativo?: AdaptativoRastreio | null };
 
 export function novoRastreio(evento: AuditTrace["evento"], requestId: string, correlationId: string | null = requestId): RastreioInteligencia {
   return {

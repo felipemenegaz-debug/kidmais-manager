@@ -80,7 +80,7 @@ export const saidaLeituraSchema = z.object({
   capacidade: z.string().max(64),
   estado: z.enum(["atencao", "em_dia", "sem_dados", "informativo"]),
   resumo: texto,
-  fatos: z.array(z.object({ natureza: z.enum(["FATO", "CALCULO", "AUSENCIA"]), texto, fonte: z.string().max(80) }).strict()).max(60),
+  fatos: z.array(z.object({ natureza: z.enum(["FATO", "PARAMETRO", "CALCULO", "ESTIMATIVA", "AUSENCIA"]), texto, fonte: z.string().max(80) }).strict()).max(60),
   itens: z.array(itemSchema).max(100),
   evidencias: z.array(evidenciaSchema).max(40),
   referencia: z.object({ hoje: z.string().max(10), geradoEm: z.string().max(40), fontes: z.array(z.string().max(80)).max(20) }).strict(),

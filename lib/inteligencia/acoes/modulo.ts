@@ -36,6 +36,19 @@ function descricao(a: FerramentaAcao): DescricaoAcao {
 
 type Resultado = { resposta: AIResponse; capacidade: string; ferramenta: string };
 
+const CAMPOS_ABERTOS = new Set(["pacote", "turno", "data", "diaMes", "horario", "categoria", "arredondamento"]);
+
+/** Campos com valor para o contexto da Luna: ids e listas fora; texto livre vira "(informado)" (sem dado pessoal). */
+export function preenchidosDe(payload: Readonly<Record<string, unknown>>): Record<string, string | number | null> {
+  const saida: Record<string, string | number | null> = {};
+  for (const [chave, valor] of Object.entries(payload)) {
+    if (/Id$|Hash$|^pendencias$/.test(chave) || valor === null || valor === undefined || Array.isArray(valor) || typeof valor === "object") continue;
+    if (typeof valor === "number" || typeof valor === "boolean") saida[chave] = typeof valor === "boolean" ? String(valor) : valor;
+    else if (typeof valor === "string") saida[chave] = CAMPOS_ABERTOS.has(chave) ? valor.slice(0, 20) : "(informado)";
+  }
+  return saida;
+}
+
 /**
  * IA operacional: ação aprovada na REVISÃO OFICIAL (ex.: contratação). A prévia pronta vira navegação para a revisão
  * preenchida, com a proposta (versão + hash) para a UI; nunca um botão "Confirmar" que executaria pelo chat.
@@ -59,10 +72,10 @@ export function criarModuloAcoes(lista: readonly FerramentaAcao[], gate: Depende
     return { draft, acao };
   }
 
-  async function iniciar(capacidade: string, texto: string, ctx: ContextoExtensao) {
+  async function iniciar(capacidade: string, texto: string, ctx: ContextoExtensao, doModelo?: Readonly<Record<string, unknown>>) {
     const acao = registro.acao(capacidade);
     if (!acao || acao.classe !== "CONFIRM") throw new InteligenciaError("ACAO_NEGADA", "Essa ação não é feita pelo Kidmais.", 403);
-    const avanco = await iniciarRascunho(acao, texto, ctx, gate);
+    const avanco = await iniciarRascunho(acao, texto, ctx, gate, doModelo);
     return { resposta: paraRevisao(acao, avanco.draft, avanco.resposta), capacidade: acao.capacidade, ferramenta: acao.nome, draft: avanco.draft };
   }
 
@@ -71,13 +84,13 @@ export function criarModuloAcoes(lista: readonly FerramentaAcao[], gate: Depende
     gate,
     descrever: (capacidade) => descricoes.find((d) => d.capacidade === capacidade) ?? null,
     todas: () => descricoes,
-    async iniciar(capacidade, texto, ctx: ContextoExtensao): Promise<Resultado> {
-      const { resposta, capacidade: c, ferramenta } = await iniciar(capacidade, texto, ctx);
+    async iniciar(capacidade, texto, ctx: ContextoExtensao, doModelo): Promise<Resultado> {
+      const { resposta, capacidade: c, ferramenta } = await iniciar(capacidade, texto, ctx, doModelo);
       return { resposta, capacidade: c, ferramenta };
     },
-    async responder(operacaoId, texto, ctx: ContextoExtensao): Promise<Resultado> {
+    async responder(operacaoId, texto, ctx: ContextoExtensao, doModelo): Promise<Resultado> {
       const { draft, acao } = await doRascunho(operacaoId, ctx, true);
-      const avanco = await responderRascunho(acao, draft, texto, ctx, gate);
+      const avanco = await responderRascunho(acao, draft, texto, ctx, gate, doModelo);
       return { resposta: paraRevisao(acao, avanco.draft, avanco.resposta), capacidade: acao.capacidade, ferramenta: acao.nome };
     },
     async situacao(operacaoId, texto, ctx): Promise<SituacaoRascunho> {
@@ -91,6 +104,7 @@ export function criarModuloAcoes(lista: readonly FerramentaAcao[], gate: Depende
         capacidade: acao.capacidade, ferramenta: acao.nome, titulo: acao.titulo, aberto, perguntado, pergunta,
         respondeCampo: perguntado !== null && Object.hasOwn(noCampo, perguntado) || (perguntado === "convidadosMinimos" && Object.hasOwn(noCampo, "convidadosMaximos")),
         trazDados: Object.keys(livres).length > 0,
+        preenchidos: preenchidosDe(draft.payload),
       };
     },
     async abandonar(operacaoId, ctx): Promise<Resultado> {
@@ -98,10 +112,10 @@ export function criarModuloAcoes(lista: readonly FerramentaAcao[], gate: Depende
       const encerrado = await abandonarRascunho(acao, draft, "CANCELADO_NA_CONVERSA", ctx, gate);
       return { resposta: { tipo: "resultado_acao", rascunho: publico(acao, encerrado), mensagem: "Rascunho cancelado. Nenhuma alteração foi feita." }, capacidade: acao.capacidade, ferramenta: acao.nome };
     },
-    async substituir(operacaoId, capacidade, texto, ctx) {
+    async substituir(operacaoId, capacidade, texto, ctx, doModelo) {
       const { draft, acao } = await doRascunho(operacaoId, ctx, true);
       // Primeiro o novo (se falhar, a transação desfaz tudo e o antigo continua como estava); depois o antigo, auditável.
-      const novo = await iniciar(capacidade, texto, ctx);
+      const novo = await iniciar(capacidade, texto, ctx, doModelo);
       await abandonarRascunho(acao, draft, "SUBSTITUIDO", ctx, gate, novo.draft.operacaoId);
       return { resposta: novo.resposta, capacidade: novo.capacidade, ferramenta: novo.ferramenta, anterior: acao.titulo };
     },

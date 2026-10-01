@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Fato, RespostaLeitura } from "../contratos.ts";
 import type { ContextoFerramenta, Ferramenta, RegraConsumoDominio } from "../ferramentas.ts";
 import { CATEGORIAS_CONSUMO, calcularDoces, calcularRefrigerantes, formatar, litros, type CategoriaConsumo, type DistribuicaoInformada } from "../operacional/consumo.ts";
-import { PAPEIS_ADMIN, UUID, ausencia, calculo, comEntidade, dataCurta, evidencia, fato, montarResposta } from "./comum.ts";
+import { PAPEIS_ADMIN, UUID, ausencia, calculo, comEntidade, dataCurta, estimativa, evidencia, fato, montarResposta, parametro } from "./comum.ts";
 
 /**
  * IA operacional (marco B): `contexto_operacional_festa` e `calcular_consumo`.
@@ -21,6 +21,7 @@ const FONTE_BUFFET = "festas.buffet_efetivo";
 const FONTE_REGRA = "empresa.parametros_consumo";
 const FONTE_INFORMADO = "operador.informado";
 const FONTE_CALCULO = "operacional.calculo";
+const FONTE_ESTIMATIVA = "operacional.estimativa";
 /** Marca de "falta parâmetro": a conversa devolve à UI a continuação da pergunta (dica, revalidada no servidor). */
 export const FONTE_PARAMETRO_AUSENTE = "operacional.parametro_ausente";
 
@@ -173,10 +174,20 @@ export const parametrosEscritosConsumo = z.object({
   distribuicao: z.array(distribuicaoSchema).min(2).max(10).optional(),
 }).strict();
 
+/**
+ * Estimativa PEDIDA pelo usuário ("não sei quantos mL, faça você a definição"): hipótese só para esta consulta, usada
+ * apenas quando nem o usuário nem a regra da empresa definem o parâmetro. Limites estreitos; nunca vira padrão.
+ */
+export const estimativaConsumo = z.object({
+  porConvidado: z.number().int().min(1).max(20).optional(),
+  mlPorConvidado: z.number().int().min(100).max(1000).optional(),
+}).strict();
+
 /** Entrada: festa (id do Core via plano/tela), categoria fechada e, opcionalmente, parâmetros ESCRITOS pelo operador. */
 export const entradaConsumo = parametrosEscritosConsumo.extend({
   id: z.string().uuid(),
   categoria: z.enum(CATEGORIAS_CONSUMO),
+  estimativa: estimativaConsumo.optional(),
 }).strict();
 
 type Regra = { origem: "EMPRESA"; versao: number; porConvidado: number | null; mlPorConvidado: number | null; embalagemMl: number | null; margemPercentual: number | null }
@@ -197,7 +208,7 @@ function descreverRegra(regra: Regra, categoria: CategoriaConsumo): Fato {
   const texto = partes.filter(Boolean).join(", ");
   return regra.origem === "EMPRESA"
     ? fato(`Regra da empresa (versão ${regra.versao}): ${texto}.`, FONTE_REGRA)
-    : calculo(`Parâmetro informado por você só para este cálculo: ${texto} (não foi salvo como padrão).`, FONTE_INFORMADO);
+    : parametro(`Parâmetro informado por você só para este cálculo: ${texto} (não foi salvo como padrão).`, FONTE_INFORMADO);
 }
 
 export const calcularConsumo: Ferramenta<RespostaLeitura> = {
@@ -228,12 +239,17 @@ export const calcularConsumo: Ferramenta<RespostaLeitura> = {
         embalagemMl: p.embalagemMl ?? null,
         margemPercentual: p.margemPercentual ?? null,
       } : null;
-      const porConvidado = p.porConvidado ?? regraEmpresa?.porConvidado ?? null;
-      const mlPorConvidado = p.mlPorConvidado ?? regraEmpresa?.mlPorConvidado ?? null;
+      // Estimativa pedida: só preenche o que nem o usuário nem a empresa definiram (e é sempre rotulada como hipótese).
+      const estimadoPorConvidado = p.porConvidado === undefined && !regraEmpresa?.porConvidado ? p.estimativa?.porConvidado : undefined;
+      const estimadoMl = p.mlPorConvidado === undefined && !regraEmpresa?.mlPorConvidado ? p.estimativa?.mlPorConvidado : undefined;
+      const porConvidado = p.porConvidado ?? regraEmpresa?.porConvidado ?? estimadoPorConvidado ?? null;
+      const mlPorConvidado = p.mlPorConvidado ?? regraEmpresa?.mlPorConvidado ?? estimadoMl ?? null;
       const embalagemMl = p.embalagemMl ?? regraEmpresa?.embalagemMl ?? null;
       const margem = p.margemPercentual ?? regraEmpresa?.margemPercentual ?? undefined;
       if (regraEmpresa) fatos.push(descreverRegra(regraEmpresa, p.categoria));
       if (regraOperador) fatos.push(descreverRegra(regraOperador, p.categoria));
+      if (p.categoria === "DOCES" && estimadoPorConvidado) fatos.push(estimativa(`Estimativa que você pediu (hipótese, não é padrão da empresa nem recomendação técnica): ${estimadoPorConvidado} docinhos por convidado. Ajuste se a sua experiência indicar outro valor.`, FONTE_ESTIMATIVA));
+      if (p.categoria === "REFRIGERANTES" && estimadoMl) fatos.push(estimativa(`Estimativa que você pediu (hipótese, não é padrão da empresa nem recomendação técnica): ${formatar(estimadoMl)} mL de refrigerante por convidado. Ajuste se a sua experiência indicar outro valor.`, FONTE_ESTIMATIVA));
 
       // Evidências estruturadas (só códigos): a categoria calculada e o parâmetro que falta — a composição e a continuação
       // leem daqui, nunca do texto.
@@ -242,7 +258,7 @@ export const calcularConsumo: Ferramenta<RespostaLeitura> = {
           evidencia(FONTE_CALCULO, ROTULO_CATEGORIA, p.categoria),
           ...(extras.some((f) => f.fonte === FONTE_PARAMETRO_AUSENTE) ? [evidencia(FONTE_PARAMETRO_AUSENTE, ROTULO_PENDENTE, `${p.categoria}:${p.categoria === "DOCES" ? "POR_CONVIDADO" : mlPorConvidado ? "EMBALAGEM" : "ML_POR_CONVIDADO"}`)] : []),
         ],
-        estado, resumo, fatos: [...fatos, ...extras], fontes: [FONTE, FONTE_VIGENTE, FONTE_BUFFET, ...(regraEmpresa ? [FONTE_REGRA] : []), ...(regraOperador ? [FONTE_INFORMADO] : []), FONTE_CALCULO], entidades: entidade(c),
+        estado, resumo, fatos: [...fatos, ...extras], fontes: [FONTE, FONTE_VIGENTE, FONTE_BUFFET, ...(regraEmpresa ? [FONTE_REGRA] : []), ...(regraOperador ? [FONTE_INFORMADO] : []), ...(estimadoPorConvidado || estimadoMl ? [FONTE_ESTIMATIVA] : []), FONTE_CALCULO], entidades: entidade(c),
       });
       if (!c.convidados) return resposta("sem_dados", "Não consigo calcular: o contrato vigente não informa o número de convidados.", []);
 
@@ -258,7 +274,7 @@ export const calcularConsumo: Ferramenta<RespostaLeitura> = {
           return resposta("atencao", `Total: ${formatar(r.total)} docinhos. A divisão informada não fecha.`, extras);
         }
         if (!r.distribuicao && escolhidos) extras.push(ausencia(`Divisão entre os tipos escolhidos não definida: como dividir os ${formatar(r.total)} docinhos? Informe percentuais ou quantidades.`, FONTE_CALCULO));
-        if (regraOperador?.porConvidado) extras.push(calculo(`Para usar como padrão da empresa, peça: "salvar ${porConvidado} docinhos por convidado como padrão" (proposta separada, com a sua confirmação).`, FONTE_INFORMADO));
+        if (regraOperador?.porConvidado) extras.push(parametro(`Para usar como padrão da empresa, peça: "salvar ${porConvidado} docinhos por convidado como padrão" (proposta separada, com a sua confirmação).`, FONTE_INFORMADO));
         return resposta(escolhidos && r.distribuicao ? "informativo" : "atencao",`Total: ${formatar(r.total)} docinhos para ${formatar(c.convidados)} convidados.`, extras);
       }
 
@@ -274,7 +290,7 @@ export const calcularConsumo: Ferramenta<RespostaLeitura> = {
         extras.push(ausencia("Tamanho da embalagem não informado.", FONTE_PARAMETRO_AUSENTE));
         return resposta("atencao", `Total: ${litros(r.totalMl)} de refrigerante. ${PERGUNTA_EMBALAGEM}`, extras);
       }
-      if (regraOperador?.mlPorConvidado) extras.push(calculo(`Para usar como padrão da empresa, peça: "salvar ${formatar(mlPorConvidado)} ml de refrigerante por convidado${embalagemMl ? `, garrafa de ${litros(embalagemMl)}` : ""} como padrão" (proposta separada, com a sua confirmação).`, FONTE_INFORMADO));
+      if (regraOperador?.mlPorConvidado) extras.push(parametro(`Para usar como padrão da empresa, peça: "salvar ${formatar(mlPorConvidado)} ml de refrigerante por convidado${embalagemMl ? `, garrafa de ${litros(embalagemMl)}` : ""} como padrão" (proposta separada, com a sua confirmação).`, FONTE_INFORMADO));
       return resposta("informativo", `Total: ${litros(r.totalMl)} = ${r.embalagens} ${r.embalagens === 1 ? "embalagem" : "embalagens"} de ${litros(embalagemMl!)} para ${formatar(c.convidados)} convidados.`, extras);
     };
   },

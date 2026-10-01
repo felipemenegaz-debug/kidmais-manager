@@ -6,6 +6,7 @@ import type { ContextoModelo } from "./contexto/contrato.ts";
 import type { CapacidadeCatalogo, Intencao } from "./intencao.ts";
 import type { ResultadoRoteado } from "./modelos/roteador.ts";
 import type { PedidoModelo } from "./modelos/tipos.ts";
+import type { Entendimento } from "./luna/entendimento.ts";
 
 /**
  * Pontos de extensão do CORE (contratos neutros).
@@ -40,15 +41,15 @@ export interface ModuloAcoes {
   descrever(capacidade: string): DescricaoAcao | null;
   todas(): readonly DescricaoAcao[];
   /** Abre um rascunho. Nunca executa mutação de negócio. */
-  iniciar(capacidade: string, texto: string, ctx: ContextoExtensao): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string }>;
-  /** Resposta do operador a um rascunho aberto (do mesmo tenant e usuário). */
-  responder(operacaoId: string, texto: string, ctx: ContextoExtensao): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string }>;
+  iniciar(capacidade: string, texto: string, ctx: ContextoExtensao, doModelo?: Readonly<Record<string, unknown>>): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string }>;
+  /** Resposta do operador a um rascunho aberto (do mesmo tenant e usuário). `doModelo`: o que a Luna entendeu (a ação revalida). */
+  responder(operacaoId: string, texto: string, ctx: ContextoExtensao, doModelo?: Readonly<Record<string, unknown>>): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string }>;
   /** IA operacional: o que a mensagem é para o rascunho (sem alterar nada), para o coordenador da conversa decidir. */
   situacao?(operacaoId: string, texto: string, ctx: ContextoExtensao): Promise<SituacaoRascunho>;
   /** IA operacional: encerra o rascunho sem executar (cancelamento pedido em texto), registrando o motivo. */
   abandonar?(operacaoId: string, ctx: ContextoExtensao): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string }>;
   /** IA operacional: troca de objetivo — abre o novo rascunho e encerra o antigo como SUBSTITUIDO, na mesma transação. */
-  substituir?(operacaoId: string, capacidade: string, texto: string, ctx: ContextoExtensao): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string; anterior: string }>;
+  substituir?(operacaoId: string, capacidade: string, texto: string, ctx: ContextoExtensao, doModelo?: Readonly<Record<string, unknown>>): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string; anterior: string }>;
   /** IA operacional: reapresenta o passo atual do rascunho (pergunta pendente ou revisão), sem escrita. */
   retomar?(operacaoId: string, ctx: ContextoExtensao): Promise<{ resposta: AIResponse; capacidade: string; ferramenta: string }>;
 }
@@ -66,6 +67,11 @@ export type SituacaoRascunho = {
   respondeCampo: boolean;
   /** A mensagem traz algum dado reconhecível deste rascunho (correção de outro campo). */
   trazDados: boolean;
+  /**
+   * Conversa adaptativa: campos que já têm valor no rascunho. Números, datas e códigos fechados vão como estão; texto
+   * livre (nomes, tema) só como "(informado)" — o modelo sabe que existe, sem receber o dado pessoal.
+   */
+  preenchidos?: Record<string, string | number | null>;
 };
 
 /**
@@ -102,6 +108,11 @@ export type PortaModeloClassificacao = {
 export type PortasOrquestracao = {
   /** Capacidades que o operador pode usar agora (papel + flags). A orquestradora só escolhe entre estas. */
   catalogo: readonly CapacidadeCatalogo[];
+  /**
+   * Conversa adaptativa: objetivo que a Luna já entendeu (código). Com CONSULTA/CALCULO_CONSUMO, uma leitura não é
+   * recusada como "pedido misto" por heurística de palavras (a parte de alteração nunca é executada por aqui).
+   */
+  entendido?: { objetivo: string } | null;
   /** Regras determinísticas (sem rede, sem custo). */
   interpretar(texto: string, contexto: ContextoTela | null): Intencao;
   /** Classificador auxiliar legado (V0), quando instalado e ligado; null ⇒ indisponível. */
@@ -221,8 +232,41 @@ export type ResultadoOrquestracao = { resposta: AIResponse; resumo: ResumoOrques
  * Orquestradora (ex.: Demerzel). Decide o caminho, nunca a autoridade: não recebe banco, tenant nem sessão;
  * só as portas acima. Falha dela ⇒ fallback seguro da conversa (nunca o caminho sem guardas).
  */
+/**
+ * Conversa adaptativa (Luna + Demerzel): portas GUARDADAS fornecidas pela conversa. A orquestradora coordena o ciclo
+ * entender → executar → analisar/complementar → redigir dentro dos seus limites; Policy, Tenant Context, Core e Human
+ * Gate continuam dentro de cada porta. A Luna só entende e redige; nunca decide autorização.
+ */
+export type PortasAdaptativas = {
+  relogio(): number;
+  usosDeModelo(): readonly ModelUsage[];
+  /** Leituras de negócio já feitas neste pedido (todas as rotas), para o teto do ciclo. */
+  leiturasFeitas(): number;
+  /** Luna: entendimento da mensagem inteira com o contexto (1 chamada de modelo). null ⇒ caminho anterior. */
+  entender(): Promise<Entendimento | null>;
+  /** Executa o objetivo entendido pelas portas guardadas (rascunho, consumo, consulta, ação sob Human Gate). */
+  executar(entendimento: Entendimento): Promise<AIResponse>;
+  /** Consultas complementares autorizadas e possíveis agora (âncora única devolvida pelo Core). */
+  complementosPossiveis(resposta: AIResponse): ReadonlyArray<{ id: string; descricao: string }>;
+  /** Luna: redação final + lacunas (1 chamada). Sem texto aprovado, a resposta volta como veio. */
+  redigir(resposta: AIResponse, entendimento: Entendimento, complementos: ReadonlyArray<{ id: string; descricao: string }>): Promise<{ resposta: AIResponse; complementos: string[] }>;
+  /** Lê os complementos pedidos (contados, Policy em cada leitura) e recompõe a resposta. */
+  complementar(resposta: AIResponse, ids: readonly string[], maxLeituras: number): Promise<AIResponse>;
+};
+
+export type ResultadoAdaptativo = {
+  /** null ⇒ a Luna não entendeu (indisponível, prazo, saída inválida): a conversa segue pelo caminho anterior. */
+  resposta: AIResponse | null;
+  entendimento: Entendimento | null;
+  parada: string;
+  redacao: "MODELO" | "DETERMINISTICA" | "NENHUMA";
+  resumo: ResumoOrquestracao;
+};
+
 export interface Orquestrador {
   atender(entrada: { texto: string; contexto: ContextoTela | null }, portas: PortasOrquestracao): Promise<ResultadoOrquestracao>;
+  /** Conversa adaptativa (opcional): ciclo limitado com a Luna. Ausente ⇒ só o caminho `atender`. */
+  atenderAdaptativo?(entrada: { texto: string; contexto: ContextoTela | null }, portas: PortasAdaptativas): Promise<ResultadoAdaptativo>;
 }
 
 /** Chave tipada de uma extensão. Cada feature cria as suas; o CORE só conhece as dele. */

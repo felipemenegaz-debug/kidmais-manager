@@ -11,13 +11,15 @@ import { executarPlano, resultadoFinal, type LerPlano, type ParteResposta } from
 import { planejarComModelo } from "./planejador/modelo.ts";
 import { VERSAO_PLANEJADOR, validarPlano, type Plano } from "./planejador/plano.ts";
 import { planejarPorRegras } from "./planejador/regras.ts";
-import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, NivelSkill, Orquestrador, PortaModeloClassificacao, PortaPlanejador, PortasOrquestracao, RegistroAgentes, SaidaPlanejador } from "./extensoes.ts";
+import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, NivelSkill, Orquestrador, PortaModeloClassificacao, PortaPlanejador, PortasOrquestracao, RegistroAgentes, SaidaPlanejador, SituacaoRascunho } from "./extensoes.ts";
 import { construirContextoAutorizado, construirContextoModelo } from "./contexto/construtor.ts";
 import { ContextoRecusado } from "./contexto/contrato.ts";
 import { CAPACIDADES_OPERACIONAIS, ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
 import { ROTULO_PENDENTE, parametrosEscritosConsumo } from "./leituras/operacional.ts";
 import { CATEGORIAS_CONSUMO, detectarConsumo, extrairParametros, type CategoriaConsumo, type ParametrosConsumo } from "./operacional/consumo.ts";
 import { coordenarRascunho, type DecisaoRascunho } from "./operacional/objetivo.ts";
+import { LIMITE_HISTORICO as LIMITE_HISTORICO_LUNA, VERSAO_LUNA, entenderComModelo, type Categoria, type ConsumoPendente, type Entendimento, type RascunhoParaLuna, type TrocaHistorico } from "./luna/entendimento.ts";
+import { redigirComModelo } from "./luna/redacao.ts";
 import type { PassoPlano } from "./planejador/plano.ts";
 import { copilotoModeloAtivo, skillsEmpresaAtivas, demerzelAtivo, grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo, jevModeloAtivo, operacionalAtivo } from "./flags.ts";
 import {
@@ -79,6 +81,11 @@ const pedidoSchema = z.object({
     .refine((c) => !c.categorias || (new Set(c.categorias).size === c.categorias.length && c.categorias.includes(c.categoria)), "categorias")
     .refine((c) => !c.informados?.[c.categoria], "informados")
     .optional(),
+  /**
+   * Conversa adaptativa: últimas trocas mostradas na tela (pergunta do usuário + resumo da resposta). Só CONTEXTO para a
+   * Luna entender elipses e correções: nunca é fonte de fatos, autorização, tenant ou conteúdo de rascunho.
+   */
+  historico: z.array(z.object({ pergunta: z.string().max(LIMITE_TEXTO), resposta: z.string().max(LIMITE_TEXTO) }).strict()).max(LIMITE_HISTORICO_LUNA).optional(),
 }).strict();
 
 export type DependenciasConversa = DependenciasGateway & {
@@ -229,11 +236,23 @@ type Execucao = {
   /** PR 6.4: resultados completos dos passos marcados `resposta`, para compor a resposta de leitura. */
   partesPlano?: ParteResposta[];
   /** IA operacional: pergunta de quantidade (categoria + parâmetros ESCRITOS neste pedido, só para este cálculo). */
-  consumo?: { categorias: CategoriaConsumo[]; parametros: Partial<Record<CategoriaConsumo, ParametrosConsumo>>; festaId?: string };
+  consumo?: {
+    categorias: CategoriaConsumo[];
+    parametros: Partial<Record<CategoriaConsumo, ParametrosConsumo>>;
+    festaId?: string;
+    /** Estimativa PEDIDA pelo usuário (hipótese só desta consulta), por categoria. */
+    estimativa?: Partial<Record<CategoriaConsumo, { porConvidado?: number; mlPorConvidado?: number }>>;
+    /** Festa que a Luna entendeu ("a próxima", "do dia 15/11"); sem ela, a do texto/continuação/tela. */
+    festaRef?: { tipo: "PROXIMA" } | { tipo: "DIA"; dia: string };
+  };
   /** IA operacional: a `ler` do plano em curso (contada pela orquestradora), para os complementos depois da execução. */
   lerPlano?: LerPlano;
   /** IA operacional: a orquestradora vai tentar o Planner por modelo se as regras não ancorarem o pedido. */
   planejadorModelo?: boolean;
+  /** Conversa adaptativa: o que a Luna entendeu (revalidado). Presente ⇒ as regras não decidem sozinhas. */
+  luna?: Entendimento;
+  /** Leituras de negócio feitas neste pedido (todas as rotas), para o teto do ciclo adaptativo. */
+  leiturasFeitas?: number;
 };
 
 /** Leitura pelo caminho único do gateway: registro fechado → flag → Policy → Tenant Context → serviço de domínio. */
@@ -246,7 +265,10 @@ async function responderLeitura(capacidade: string, parametros: Record<string, u
     const categoria = parametros.categoria as CategoriaConsumo | undefined;
     const escritos = categoria ? e.consumo.parametros[categoria] : undefined;
     if (escritos) parametros = { ...parametros, ...escritos };
+    const estimada = categoria ? e.consumo.estimativa?.[categoria] : undefined;
+    if (estimada && Object.keys(estimada).length) parametros = { ...parametros, estimativa: estimada };
   }
+  e.leiturasFeitas = (e.leiturasFeitas ?? 0) + 1;
   const tela = CAPACIDADES_NAVEGACAO.has(capacidade) ? (capacidade === "abrir_festa" ? "festa" : String(parametros.tela ?? "")) as TelaNavegacao : null;
   let dados: Awaited<ReturnType<typeof executarLeitura>>;
   try {
@@ -276,7 +298,7 @@ function respostaDeNavegacao(tela: TelaNavegacao, dados: RespostaLeitura, rastre
 }
 
 /** Ação: DENY/TELA/flag respondem honestamente; CONFIRM só abre rascunho sob Human Gate (nunca executa aqui). */
-async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execucao): Promise<AIResponse> {
+async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execucao, doModelo?: Readonly<Record<string, unknown>>): Promise<AIResponse> {
   const { deps, rastreio } = e;
   rastreio.intencao = origem;
   rastreio.capacidade = capacidade;
@@ -315,7 +337,7 @@ async function responderAcao(capacidade: string, origem: OrigemChamada, e: Execu
       if (!grupoAtivoParaEmpresa(deps.env, acao.grupo, tenant.empresaComprovada)) {
         return naoSuportado("Criar e alterar cadastros pelo Kidmais ainda não está liberado para esta empresa.");
       }
-      return (await acoes.iniciar(acao.capacidade, e.texto, e.contextoExtensao(tx, tenant))).resposta;
+      return (await acoes.iniciar(acao.capacidade, e.texto, e.contextoExtensao(tx, tenant), doModelo)).resposta;
     });
     rastreio.humanGate = resposta.tipo === "preview" ? "PREVIEW" : resposta.tipo === "rascunho" ? "RASCUNHO" : null;
     if (rastreio.humanGate) rastreio.propostaAcao = acao.capacidade;
@@ -582,7 +604,11 @@ async function planejarConsumo(e: Execucao, lerPorta: LerPlano): Promise<SaidaPl
   const contado = lerContado(e, lerPorta);
   e.lerPlano = contado;
   const { leitor, ler } = leitorMemoizado(contado);
-  const detectada = detectarReferencia(e.texto, hoje);
+  // Festa entendida pela Luna ("a próxima", "do dia 15/11") vale mais que a detecção por regra no texto.
+  const ref = consumo.festaRef;
+  const detectada: Referencia | null = ref?.tipo === "PROXIMA" ? { tipo: "TEMPORAL", alvo: "FESTA", temporal: { seletor: "PROXIMA", rotulo: "a próxima festa" } }
+    : ref?.tipo === "DIA" ? { tipo: "TEMPORAL", alvo: "FESTA", temporal: { seletor: "DIA", dia: ref.dia, rotulo: `a festa de ${ref.dia.slice(8, 10)}/${ref.dia.slice(5, 7)}` } }
+      : detectarReferencia(e.texto, hoje);
   const passos: PassoPlano[] = [];
   let ancora: AncoraPlano = null;
   let referencia: Referencia;
@@ -770,7 +796,7 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
 function portaPlanejador(e: Execucao, usos: ModelUsage[]): PortaPlanejador {
   return {
     planejar: ({ regras }, ler) => planejarPedido(e, regras, ler),
-    pedeComposicao: (texto) => Boolean(e.deps.roteador?.disponivelPara("PLANEJAR")) && pedeComposicao(texto, hojeBrasilia(e.deps.agora()), operacionalAtivo(e.deps.env)),
+    pedeComposicao: (texto) => Boolean(e.deps.roteador?.disponivelPara("PLANEJAR")) && ((e.luna?.consultas.length ?? 0) >= 2 || pedeComposicao(texto, hojeBrasilia(e.deps.agora()), operacionalAtivo(e.deps.env))),
     planejarComModelo: (_entrada, ler, exigirAcaoFinal) => planejarPorModelo(e, ler, exigirAcaoFinal, usos),
     concluir: (resposta) => concluirPlano(e, resposta),
   };
@@ -977,18 +1003,22 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
   const tenant = () => (tenantPedido ??= tenantParaModelo(sessao, pedido, deps, rastreio));
   return {
     catalogo: catalogoDisponivel(deps.env, sessao.papel, deps.acoes),
+    entendido: e.luna ? { objetivo: e.luna.objetivo } : null,
     interpretar: (texto, contexto) => {
       // Quantidade operacional: nunca vira a leitura genérica das regras (ex.: "devo fazer" ⇒ atenção de hoje).
       if (e.consumo) return { tipo: "nenhuma" };
       const intencao = interpretarDeterministico(texto, contexto);
       if (intencao.tipo === "navegacao_sem_destino") e.navegacaoPendente = intencao;
-      return intencao;
+      // Conversa adaptativa: a Luna já entendeu a mensagem inteira; a regra só vale se concordar com ela.
+      return e.luna ? conciliarComLuna(intencao, e.luna, contexto) : intencao;
     },
-    sugerirRota: (texto, contexto) => consultarAuxiliar(texto, contexto, sessao, deps),
-    interpretarComModelo: (texto, contexto) => interpretarPorModelo(texto, contexto, sessao, pedido, deps, rastreio, usos),
+    // Com a Luna, nenhum classificador extra por modelo: a escolha dela (catálogo revalidado) responde.
+    sugerirRota: (texto, contexto) => (e.luna ? Promise.resolve(e.luna.consultas.length === 1 ? leituraDaLuna(e.luna.consultas[0], contexto) : null) : consultarAuxiliar(texto, contexto, sessao, deps)),
+    interpretarComModelo: (texto, contexto) => (e.luna ? Promise.resolve(null) : interpretarPorModelo(texto, contexto, sessao, pedido, deps, rastreio, usos)),
     portaModelo() {
       const roteador = deps.roteador;
-      if (!roteador || !jevModeloAtivo(deps.env) || !roteador.disponivelPara("CLASSIFICAR_INTENCAO")) return Promise.resolve(null);
+      // Com a Luna, o JEV julga só por regras (risco); a compreensão já foi feita.
+      if (e.luna || !roteador || !jevModeloAtivo(deps.env) || !roteador.disponivelPara("CLASSIFICAR_INTENCAO")) return Promise.resolve(null);
       portaJev ??= tenant().then((comprovado): PortaModeloClassificacao => ({
         disponivel: () => roteador.disponivelPara("CLASSIFICAR_INTENCAO"),
         async executar(pedidoModelo) {
@@ -1190,15 +1220,304 @@ async function coordenar(e: Execucao, acoes: ModuloAcoes, operacaoId: string): P
   }
 }
 
-/** A consulta respondida no meio de um rascunho diz que ele continua disponível (e como retomar). */
+/**
+ * A consulta respondida no meio de um rascunho preserva o rascunho e o indica de forma DISCRETA (campo estruturado que a
+ * UI mostra numa linha curta). A pergunta pendente não é repetida no texto da resposta.
+ */
 function comPausa(resposta: AIResponse, pausado: Pausado | null): AIResponse {
-  if (!pausado) return resposta;
-  const nota = `O rascunho “${pausado.titulo}” continua aberto: ${pausado.pergunta ? `quando quiser, responda — ${pausado.pergunta}` : "diga “retomar” para voltar a ele"}`;
-  if (resposta.tipo === "resposta" && "fatos" in resposta.dados) {
-    return { ...resposta, dados: { ...resposta.dados, resumo: `${resposta.dados.resumo} ${nota}`.slice(0, 2000) }, rascunhoPausado: pausado };
+  return pausado ? { ...resposta, rascunhoPausado: pausado } : resposta;
+}
+
+// ---------------------------------------------------------------- conversa adaptativa (Luna + Demerzel)
+
+/**
+ * Leitura escolhida pela Luna como intenção: só capacidade do catálogo (já revalidada); entidade só da TELA aberta —
+ * sem ela, "precisa de contexto" (o Planner/Resolver ainda pode ancorar pelo foco). Nunca id vindo do modelo.
+ */
+function leituraDaLuna(capacidade: string, contexto: ContextoTela | null): Intencao | null {
+  const ferramenta = ferramentaRegistrada(capacidade);
+  if (!ferramenta || SO_POR_REGRA.has(capacidade) || SO_PLANO.has(capacidade)) return null;
+  const origem: OrigemChamada = "INTENCAO_MODELO";
+  if (ferramenta.entidade) {
+    if (contexto?.tela === ferramenta.entidade && contexto.entidadeId) return { tipo: "leitura", capacidade, parametros: { id: contexto.entidadeId }, origem };
+    return { tipo: "precisa_contexto", capacidade, entidade: ferramenta.entidade };
   }
-  if (resposta.tipo === "nao_suportado" || resposta.tipo === "precisa_contexto") return { ...resposta, mensagem: `${resposta.mensagem} ${nota}`, rascunhoPausado: pausado };
-  return { ...resposta, rascunhoPausado: pausado };
+  return { tipo: "leitura", capacidade, parametros: {}, origem };
+}
+
+/**
+ * Regra × Luna numa CONSULTA: a regra só decide se concordar com o que a Luna entendeu da mensagem inteira. Uma ação
+ * casada por palavra numa pergunta, ou uma leitura diferente da escolhida, dá lugar à escolha da Luna (ou ao Planner,
+ * quando ela pediu várias consultas). Navegação e buscas com parâmetro continuam das regras (a Luna não as preenche).
+ */
+function conciliarComLuna(regras: Intencao, luna: Entendimento, contexto: ContextoTela | null): Intencao {
+  if (luna.objetivo !== "CONSULTA") return regras;
+  const escolhidas = luna.consultas;
+  const daLuna = (): Intencao => (escolhidas.length === 1 ? leituraDaLuna(escolhidas[0], contexto) ?? { tipo: "nenhuma" } : { tipo: "nenhuma" });
+  if (regras.tipo === "acao") return daLuna();
+  if (regras.tipo === "leitura" && escolhidas.length && !escolhidas.includes(regras.capacidade) && !SO_POR_REGRA.has(regras.capacidade)) return daLuna();
+  return regras;
+}
+
+/**
+ * Cálculo de consumo a partir do entendimento: categorias e números que a Luna leu da mensagem inteira, por cima da
+ * continuação (revalidada) e da extração por regra (complemento). Estimativa só a PEDIDA (rotulada como hipótese).
+ * Os convidados vêm sempre da festa no Core — nunca de um rascunho de contratação.
+ */
+function consumoDaLuna(luna: Entendimento, texto: string, continuacao: ContinuacaoConsumo | undefined): Execucao["consumo"] {
+  const base = consumoDoPedido(texto, continuacao);
+  const pendentes = continuacao ? (continuacao.categorias ?? [continuacao.categoria]) : [];
+  const categorias = [...new Set([...pendentes, ...luna.consumo.categorias, ...(base?.categorias ?? [])])].filter((c): c is CategoriaConsumo => (CATEGORIAS_CONSUMO as readonly string[]).includes(c));
+  if (!categorias.length) return undefined;
+  const anteriores = (c: CategoriaConsumo): ParametrosConsumo => ({
+    ...(continuacao && c === continuacao.categoria ? continuacao.parametros : continuacao?.informados?.[c]),
+    ...base?.parametros[c],
+  });
+  const k = luna.consumo;
+  const parametros: Partial<Record<CategoriaConsumo, ParametrosConsumo>> = {};
+  const estimativa: NonNullable<NonNullable<Execucao["consumo"]>["estimativa"]> = {};
+  for (const c of categorias) {
+    const p: ParametrosConsumo = { ...anteriores(c) };
+    if (c === "DOCES" && k.docesPorConvidado !== null) p.porConvidado = k.docesPorConvidado;
+    if (c === "REFRIGERANTES" && k.mlPorConvidado !== null) p.mlPorConvidado = k.mlPorConvidado;
+    if (c === "REFRIGERANTES" && k.embalagemMl !== null) p.embalagemMl = k.embalagemMl;
+    if (k.margemPercentual !== null) p.margemPercentual = k.margemPercentual;
+    parametros[c] = p;
+    if (c === "DOCES" && k.estimativa.porConvidado && p.porConvidado === undefined) estimativa.DOCES = { porConvidado: k.estimativa.porConvidado };
+    if (c === "REFRIGERANTES" && k.estimativa.mlPorConvidado && p.mlPorConvidado === undefined) estimativa.REFRIGERANTES = { mlPorConvidado: k.estimativa.mlPorConvidado };
+  }
+  const festaRef = luna.festa === "PROXIMA" ? { tipo: "PROXIMA" as const } : luna.festa === "POR_DATA" && luna.dataFesta ? { tipo: "DIA" as const, dia: luna.dataFesta } : undefined;
+  // Continuação da MESMA festa (dica revalidada no Core), salvo se a mensagem apontou outra festa explicitamente.
+  const festaId = !festaRef && luna.festa !== "DA_TELA" ? continuacao?.festaId : undefined;
+  return { categorias, parametros, ...(festaId ? { festaId } : {}), ...(Object.keys(estimativa).length ? { estimativa } : {}), ...(festaRef ? { festaRef } : {}) };
+}
+
+/** Continuação da conversa como a Luna a vê: categorias pendentes, o que foi perguntado e os números já informados. */
+function consumoPendenteParaLuna(c: ContinuacaoConsumo | undefined): ConsumoPendente | null {
+  if (!c) return null;
+  const numeros = (p: ParametrosConsumo | undefined) => Object.fromEntries(Object.entries(p ?? {}).filter(([, v]) => typeof v === "number")) as Record<string, number>;
+  const informados: ConsumoPendente["informados"] = {};
+  for (const cat of c.categorias ?? [c.categoria]) {
+    const n = numeros(cat === c.categoria ? c.parametros : c.informados?.[cat]);
+    if (Object.keys(n).length) informados[cat as Categoria] = n;
+  }
+  return { categorias: (c.categorias ?? [c.categoria]) as Categoria[], perguntado: c.perguntado, informados, festaDefinida: Boolean(c.festaId) };
+}
+
+type EstadoRascunhoLuna = { operacaoId: string; situacao: SituacaoRascunho } | null;
+
+/** Disponível só com a IA operacional, a Demerzel com o ciclo adaptativo e um provedor para o entendimento. */
+function adaptativoDisponivel(deps: DependenciasConversa): boolean {
+  return operacionalAtivo(deps.env) && demerzelAtivo(deps.env) && Boolean(deps.orquestrador?.atenderAdaptativo) && Boolean(deps.roteador?.disponivelPara("INTERPRETAR_CONVERSA"));
+}
+
+/** Leituras com entidade (âncora única devolvida pelo Core) que a Luna pode pedir como complemento de uma resposta. */
+function complementosDe(e: Execucao, resposta: AIResponse, feitas: ReadonlySet<string>) {
+  if (resposta.tipo !== "resposta" || !("entidades" in resposta.dados)) return [];
+  const ancoras = new Map<string, string>();
+  for (const tipo of ["festa", "cliente", "contrato"] as const) {
+    const ids = [...new Set((resposta.dados.entidades ?? []).filter((x) => x.tipo === tipo.toUpperCase()).map((x) => x.id))];
+    if (ids.length === 1) ancoras.set(tipo, ids[0]);
+  }
+  const autorizadas = catalogoDisponivel(e.deps.env, e.sessao.papel, e.deps.acoes).filter((c) => c.tipo === "leitura" && !SO_PLANO.has(c.id) && !SO_POR_REGRA.has(c.id));
+  return autorizadas.flatMap((c) => {
+    const f = ferramentaRegistrada(c.id);
+    const id = f?.entidade ? ancoras.get(f.entidade) : undefined;
+    return id && !feitas.has(`${c.id}:${id}`) && c.id !== resposta.dados.capacidade ? [{ id: c.id, descricao: c.descricao, ancora: id }] : [];
+  }).slice(0, 8);
+}
+
+/**
+ * Ciclo adaptativo: a Demerzel coordena; esta função fornece as portas GUARDADAS (as mesmas da conversa). Devolve null
+ * quando a Luna não entendeu (indisponível, prazo, saída inválida): o caminho anterior responde, como antes.
+ */
+async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[], continuacao: ContinuacaoConsumo | undefined, operacaoId: string | null): Promise<AIResponse | null> {
+  const { deps, sessao, pedido, rastreio } = e;
+  const relogio = deps.relogio ?? (() => performance.now());
+  const inicio = relogio();
+  const usos: ModelUsage[] = [];
+  const acoes = deps.acoes;
+  const noTenant = <T>(fn: (ctx: ContextoExtensao) => Promise<T>) => deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, tenant) => {
+    rastreio.empresaId = tenant.empresaComprovada;
+    exigirGrupoNaEmpresa(deps.env, "ADMIN_ACTIONS", tenant);
+    return fn(e.contextoExtensao(tx, tenant));
+  });
+
+  // Estado do SERVIDOR: o rascunho é relido no tenant comprovado (dono, empresa, estado e prazo); o cliente só aponta qual.
+  let rascunho: EstadoRascunhoLuna = null;
+  if (operacaoId && acoes?.situacao && grupoAtivo(deps.env, "ADMIN_ACTIONS")) {
+    const situacao = await noTenant((ctx) => acoes.situacao!(operacaoId, e.texto, ctx));
+    if (situacao.aberto) rascunho = { operacaoId, situacao };
+  }
+  const paraLuna: RascunhoParaLuna | null = rascunho ? {
+    capacidade: rascunho.situacao.capacidade,
+    titulo: rascunho.situacao.titulo,
+    estado: rascunho.situacao.perguntado ? "COLETANDO" : "AGUARDANDO_REVISAO",
+    perguntaPendente: rascunho.situacao.pergunta,
+    camposPreenchidos: rascunho.situacao.preenchidos ?? {},
+    pausado: false,
+  } : null;
+
+  const alvo = async (capacidade: string) => {
+    const tenant = await tenantParaModelo(sessao, pedido, deps, rastreio);
+    return { empresaId: tenant.empresaComprovada, estabelecimentoId: unidadeDe(tenant), capacidade, correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) };
+  };
+  const anotar = (r: { usos: readonly ModelUsage[] }) => {
+    anotarUsoModelo(rastreio, [...r.usos]);
+    usos.push(...r.usos);
+  };
+  const catalogo = catalogoDisponivel(deps.env, sessao.papel, acoes);
+  const consultas = catalogo.filter((c) => c.tipo === "leitura" && !SO_PLANO.has(c.id) && !SO_POR_REGRA.has(c.id)).map((c) => ({ id: c.id, descricao: c.descricao }));
+  const acoesCatalogo = catalogo.filter((c) => c.tipo === "acao" && c.id !== "preparar_contratacao").map((c) => ({ id: c.id, descricao: c.descricao }));
+
+  /** Rascunho aberto e a resposta resultante (resposta ao campo, correção, troca de objetivo, cancelar, retomar). */
+  const noRascunho = async (r: NonNullable<EstadoRascunhoLuna>, fn: (ctx: ContextoExtensao) => Promise<ResultadoRascunho>) => {
+    const resultado = await noTenant(fn);
+    anotarRascunho(rastreio, resultado);
+    return resultado.resposta;
+  };
+  const pausa = (resposta: AIResponse) => (rascunho ? comPausa(resposta, { operacaoId: rascunho.operacaoId, titulo: rascunho.situacao.titulo, pergunta: rascunho.situacao.pergunta }) : resposta);
+
+  /** Respostas que já passaram por atenderNovo saem finalizadas (foco, entendimento, continuação). */
+  let finalizada = false;
+  async function executar(ent: Entendimento): Promise<AIResponse> {
+    e.luna = ent;
+    rastreio.operacional = { rota: rascunho ? "RASCUNHO" : "CONSUMO", decisao: `LUNA:${ent.objetivo}`, leituras: 0, duracaoMs: 0 };
+    // Resposta/correção ao rascunho com objetivo genérico (ex.: "4 horas" no rascunho de pacote): vai ao próprio rascunho,
+    // que extrai e revalida o campo. Troca de objetivo, consulta, cancelar e retomar seguem os casos abaixo.
+    const aoRascunho = rascunho && acoes && (ent.relacaoRascunho === "RESPONDE" || ent.relacaoRascunho === "CORRIGE") && (ent.objetivo === "ESCLARECER" || ent.objetivo === "CONVERSA" || ent.objetivo === "FORA_DO_ESCOPO");
+    if (aoRascunho) {
+      const doModelo = rascunho!.situacao.capacidade === "preparar_contratacao" ? ent.contratacao : undefined;
+      return noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, e.texto, ctx, doModelo));
+    }
+    switch (ent.objetivo) {
+      case "CANCELAR_RASCUNHO":
+        if (!rascunho || !acoes?.abandonar) return { ...naoSuportado("Não há rascunho aberto para cancelar."), entendimento: "EXECUTADO" };
+        return noRascunho(rascunho, (ctx) => acoes.abandonar!(rascunho!.operacaoId, ctx));
+      case "RETOMAR_RASCUNHO":
+        if (!rascunho || !acoes?.retomar) return { ...naoSuportado("Não há rascunho aberto para retomar."), entendimento: "EXECUTADO" };
+        return noRascunho(rascunho, (ctx) => acoes.retomar!(rascunho!.operacaoId, ctx));
+      case "PREPARAR_CONTRATACAO":
+      case "ACAO": {
+        const capacidade = ent.objetivo === "PREPARAR_CONTRATACAO" ? "preparar_contratacao" : ent.acao!;
+        const doModelo = capacidade === "preparar_contratacao" ? ent.contratacao : undefined;
+        if (rascunho && acoes) {
+          // Mesmo objetivo do rascunho ⇒ resposta/correção (nova versão; confirmações antigas deixam de valer).
+          if (rascunho.situacao.capacidade === capacidade) return noRascunho(rascunho, (ctx) => acoes.responder(rascunho!.operacaoId, e.texto, ctx, doModelo));
+          // Outro objetivo ⇒ troca auditável: o novo rascunho nasce e o antigo é encerrado como SUBSTITUIDO.
+          const alvoAcao = acoes.descrever(capacidade);
+          if (!alvoAcao || alvoAcao.classe !== "CONFIRM" || alvoAcao.origem === "TELA" || !grupoAtivo(deps.env, alvoAcao.grupo) || !acoes.substituir) {
+            return pausa(await responderAcao(capacidade, "INTENCAO_MODELO", e, doModelo));
+          }
+          const r = await noTenant((ctx) => acoes.substituir!(rascunho!.operacaoId, capacidade, e.texto, ctx, doModelo));
+          anotarRascunho(rastreio, r);
+          rastreio.propostaAcao = r.capacidade;
+          const aviso = `Entendi: troquei o objetivo. O rascunho “${r.anterior}” foi descartado (nada foi gravado).`;
+          return r.resposta.tipo === "rascunho" ? { ...r.resposta, pergunta: `${aviso} ${r.resposta.pergunta}` }
+            : r.resposta.tipo === "nao_suportado" ? { ...r.resposta, mensagem: `${aviso} ${r.resposta.mensagem}` }
+              : r.resposta.tipo === "navegacao" && r.resposta.proposta ? { ...r.resposta, proposta: { ...r.resposta.proposta, avisos: [aviso, ...r.resposta.proposta.avisos] } }
+                : r.resposta;
+        }
+        return responderAcao(capacidade, "INTENCAO_MODELO", e, doModelo);
+      }
+      case "CALCULO_CONSUMO": {
+        e.consumo = consumoDaLuna(ent, e.texto, continuacao);
+        if (!e.consumo) return pausa({ ...naoSuportado("Quer que eu calcule doces, refrigerantes ou os dois? E para qual festa?"), entendimento: "PRECISA_DADO" });
+        finalizada = true;
+        return pausa(await atenderNovo(e));
+      }
+      case "CONSULTA":
+        // A consulta segue pelas mesmas portas guardadas (regras conciliadas com a Luna, Planner, Policy por leitura).
+        e.consumo = undefined;
+        finalizada = true;
+        return pausa(await atenderNovo(e));
+      case "CONVERSA":
+        return pausa({ ...naoSuportado("Estou aqui. Posso consultar festas, contratos, clientes e o financeiro, calcular doces e bebidas de uma festa ou preparar a contratação de uma festa para a sua revisão."), entendimento: "EXECUTADO" });
+      case "ESCLARECER":
+        return pausa({ tipo: "nao_suportado", mensagem: ent.esclarecimento ?? "Pode me dizer um pouco mais do que você quer fazer?", sugestoes: [], entendimento: "AMBIGUO" });
+      case "FORA_DO_ESCOPO":
+        return pausa({ ...naoSuportado("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:"), entendimento: "CAPACIDADE_INDISPONIVEL" });
+    }
+  }
+
+  const feitas = new Set<string>();
+  let baseDeterministica: AIResponse | null = null;
+  const resultado = await deps.orquestrador!.atenderAdaptativo!({ texto: e.texto, contexto: e.contexto }, {
+    relogio,
+    usosDeModelo: () => usos,
+    leiturasFeitas: () => e.leiturasFeitas ?? 0,
+    async entender() {
+      const r = await entenderComModelo({
+        texto: e.texto, hoje: hojeBrasilia(deps.agora()), contexto: e.contexto, historico, rascunho: paraLuna,
+        consumoPendente: consumoPendenteParaLuna(continuacao), consultas, acoes: acoesCatalogo,
+      }, deps.roteador!, await alvo("luna_entender"));
+      anotar(r.roteado);
+      return r.entendimento;
+    },
+    executar,
+    complementosPossiveis: (resposta) => complementosDe(e, resposta, feitas).map(({ id, descricao }) => ({ id, descricao })),
+    async redigir(resposta, ent, possiveis) {
+      if (resposta.tipo !== "resposta" || !("fatos" in resposta.dados)) return { resposta, complementos: [] };
+      baseDeterministica ??= resposta;
+      const r = await redigirComModelo({
+        pergunta: e.texto, resposta: resposta.dados, complementos: possiveis,
+        faltando: rastreio.plano?.composicao?.faltando ?? [], outrosPedidos: ent.outrosPedidos,
+      }, deps.roteador!, await alvo("luna_redigir"));
+      anotar(r.roteado);
+      if (!r.redacao.texto) return { resposta: { ...resposta, redacao: "DETERMINISTICA" }, complementos: r.redacao.complementos };
+      return { resposta: { ...resposta, dados: { ...resposta.dados, resumo: r.redacao.texto }, redacao: "MODELO" }, complementos: r.redacao.complementos };
+    },
+    async complementar(resposta, ids, maxLeituras) {
+      // Recompõe a partir da resposta DETERMINÍSTICA (a redação anterior não entra como fato).
+      const base = baseDeterministica ?? resposta;
+      if (base.tipo !== "resposta" || !("fatos" in base.dados)) return resposta;
+      const opcoes = complementosDe(e, base, feitas);
+      const partes: ParteResposta[] = [{ passoId: "r1", capacidade: base.dados.capacidade, dados: base.dados as RespostaLeitura }];
+      for (const id of ids.slice(0, Math.max(0, maxLeituras))) {
+        const opcao = opcoes.find((o) => o.id === id);
+        if (!opcao) continue;
+        feitas.add(`${id}:${opcao.ancora}`);
+        const lida = await responderLeitura(id, { id: opcao.ancora }, "INTENCAO_MODELO", e).catch(() => null);
+        if (lida?.tipo === "resposta" && "fatos" in lida.dados) partes.push({ passoId: `c${partes.length}`, capacidade: id, dados: lida.dados as RespostaLeitura });
+      }
+      if (partes.length === 1) return base;
+      const c = compor(partes, []);
+      return c.ok ? { ...base, tipo: "resposta", dados: c.dados } : base;
+    },
+  });
+
+  rastreio.adaptativo = {
+    versao: VERSAO_LUNA,
+    objetivo: resultado.entendimento?.objetivo ?? null,
+    relacaoRascunho: resultado.entendimento?.relacaoRascunho ?? null,
+    consultas: resultado.entendimento?.consultas ?? [],
+    categorias: resultado.entendimento?.consumo.categorias ?? [],
+    estimativa: Boolean(resultado.entendimento && Object.keys(resultado.entendimento.consumo.estimativa).length),
+    correcao: resultado.entendimento?.correcao ?? false,
+    outrosPedidos: resultado.entendimento?.outrosPedidos ?? 0,
+    chamadasModelo: usos.length,
+    leituras: e.leiturasFeitas ?? 0,
+    redacao: resultado.redacao,
+    parada: resultado.parada,
+    fallback: resultado.resposta ? null : resultado.parada,
+    duracaoMs: Math.max(0, Math.round(relogio() - inicio)),
+  };
+  if (!resultado.resposta) {
+    // Caminho anterior a seguir: o estado de execução volta ao que era antes do ciclo.
+    e.luna = undefined;
+    return null;
+  }
+  // Vários pedidos numa mensagem: um de cada vez, dito com clareza (a leitura redigida já menciona; aqui as demais).
+  const outros = resultado.entendimento?.outrosPedidos ?? 0;
+  const aviso = "Fiz um pedido por vez: comecei por este; o outro que você mencionou ainda não foi feito.";
+  const respostaCiclo: AIResponse = outros && resultado.resposta.tipo === "rascunho" ? { ...resultado.resposta, pergunta: `${aviso} ${resultado.resposta.pergunta}` }
+    : outros && resultado.resposta.tipo === "nao_suportado" ? { ...resultado.resposta, mensagem: `${resultado.resposta.mensagem} ${aviso}` }
+      : resultado.resposta;
+  if (finalizada) return respostaCiclo;
+  let resposta = finalizar(respostaCiclo, e.texto, rastreio, e.navegacaoPendente, e);
+  const continua = continuacaoDa(resposta, e);
+  if (continua) resposta = { ...resposta, continuacao: continua };
+  return resposta;
 }
 
 export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasConversa): Promise<RespostaGateway> {
@@ -1225,6 +1544,15 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
       texto: entrada.texto, sessao, pedido, deps, rastreio, contextoExtensao, contexto, foco: entrada.foco ?? null,
       ...(operacional ? { consumo: consumoDoPedido(entrada.texto, entrada.continuacao) } : {}),
     };
+
+    // Conversa adaptativa: a Luna entende a mensagem inteira (com histórico, rascunho e pendências) ANTES de qualquer
+    // regra; a Demerzel coordena o ciclo. Sem entendimento (modelo indisponível, prazo, saída inválida), o caminho
+    // anterior responde exatamente como antes.
+    if (adaptativoDisponivel(deps)) {
+      if (entrada.operacaoId && (!deps.acoes || !grupoAtivo(deps.env, "ADMIN_ACTIONS"))) recursoDesativado();
+      const adaptativa = await atenderComLuna(execucao, entrada.historico ?? [], entrada.continuacao, entrada.operacaoId ?? null);
+      if (adaptativa) return { status: 200, corpo: { ok: true, data: adaptativa } };
+    }
 
     // Continuação de rascunho: a resposta do operador só edita o rascunho do próprio tenant e usuário.
     if (entrada.operacaoId) {

@@ -126,9 +126,14 @@ async function avancar(acao: FerramentaAcao, draft: HumanGateDraft, ctx: Context
   }
 }
 
-export async function iniciarRascunho(acao: FerramentaAcao, texto: string, ctx: ContextoGate, deps: DependenciasHumanGate): Promise<Avanco> {
+/** Extração da mensagem: regras da ação e, por cima, o que a Luna entendeu (só os campos que a ação aceita). */
+function extraidosDa(acao: FerramentaAcao, texto: string, perguntado: string | null, doModelo?: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return { ...acao.extrair(texto, perguntado), ...(doModelo && acao.doModelo ? acao.doModelo(doModelo) : {}) };
+}
+
+export async function iniciarRascunho(acao: FerramentaAcao, texto: string, ctx: ContextoGate, deps: DependenciasHumanGate, doModelo?: Readonly<Record<string, unknown>>): Promise<Avanco> {
   if (acao.origem === "TELA") throw new InteligenciaError("ACAO_SOMENTE_TELA", "Esta ação começa pela tela correspondente.", 409);
-  return abrir(acao, acao.extrair(texto, null), ctx, deps);
+  return abrir(acao, extraidosDa(acao, texto, null, doModelo), ctx, deps);
 }
 
 /** Fluxos de tela (ex.: importação) abrem o gate com o payload montado pela própria tela. */
@@ -177,14 +182,14 @@ function expirado(draft: HumanGateDraft, agora: Date) {
 }
 
 /** Resposta do operador a uma pergunta, ou edição de um campo depois do preview (gera nova versão). */
-export async function responderRascunho(acao: FerramentaAcao, draft: HumanGateDraft, texto: string, ctx: ContextoGate, deps: DependenciasHumanGate): Promise<Avanco> {
+export async function responderRascunho(acao: FerramentaAcao, draft: HumanGateDraft, texto: string, ctx: ContextoGate, deps: DependenciasHumanGate, doModelo?: Readonly<Record<string, unknown>>): Promise<Avanco> {
   autorizarNoGate(ctx, acao, "HUMAN_GATE", null);
   if (draft.estado !== "COLETANDO" && draft.estado !== "AGUARDANDO_CONFIRMACAO") {
     throw new InteligenciaError("OPERACAO_ENCERRADA", "Este rascunho já foi encerrado. Comece um novo pedido.", 409);
   }
   if (expirado(draft, deps.agora())) throw new InteligenciaError("OPERACAO_EXPIRADA", "Este rascunho expirou. Comece um novo pedido.", 409);
   const perguntado = acao.faltando(draft.payload)[0] ?? null;
-  const novos = acao.extrair(texto, perguntado);
+  const novos = extraidosDa(acao, texto, perguntado, doModelo);
   const semNovidade = Object.keys(novos).length === 0;
   const atualizado: HumanGateDraft = { ...draft, payload: { ...draft.payload, ...novos }, versao: draft.versao + 1 };
   const avanco = await avancar(acao, atualizado, ctx, deps, semNovidade ? "Não consegui entender a resposta. " : "");
