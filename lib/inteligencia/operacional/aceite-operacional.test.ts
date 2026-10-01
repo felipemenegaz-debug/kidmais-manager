@@ -1283,6 +1283,25 @@ test("Luna — A5 (gestão de contexto): resposta ao rascunho, correção e reto
   assert.deepEqual([novo.rastro.adaptativo?.outrosPedidos, novo.rastro.adaptativo?.outrosDescartados], [1, 0]);
 });
 
+test("Luna — PR 19: mensagem mista com rascunho (RESPONDE + cálculo): o campo do rascunho é aplicado e o cálculo é anunciado como não feito", async () => {
+  // Homologação de f41018e: "o cliente é … E quantos refrigerantes…?" ⇒ a Luna disse RESPONDE ao rascunho mas escolheu
+  // CALCULO_CONSUMO; o dado do rascunho se perdia e nada era anunciado.
+  const a = ambiente({ convidados: 50 });
+  comLuna(a, { entender: (_d, n) => (n === 1
+    ? saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium" } })
+    : saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "RESPONDE", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] }, contratacao: { aniversariante: "Theo" } })) });
+  const r1 = await a.enviar("crie uma festa do cliente Felipe para 50 convidados, pacote premium");
+  const op = (r1.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId;
+  const r2 = await a.enviar("o aniversariante é o Theo. E quantos refrigerantes para a próxima festa?");
+  assert.equal(r2.data?.tipo, "rascunho", "a resposta ao rascunho vem primeiro");
+  const rasc = r2.data as Extract<AIResponse, { tipo: "rascunho" }>;
+  assert.equal(rasc.rascunho.operacaoId, op);
+  assert.equal(rasc.rascunho.campos.find((c) => c.id === "aniversariante")?.valor, "Theo", "o dado do rascunho não se perde");
+  assert.match(rasc.pergunta, /Fiz um pedido por vez/, "o cálculo é anunciado como não feito");
+  assert.equal(r2.rastro.operacional?.decisao, "LUNA:MENSAGEM_MISTA");
+  assert.equal(r2.rastro.adaptativo?.outrosPedidos, 1);
+});
+
 test("Luna — PR 18: mensagem mista respondida por leitura determinística anuncia o pedido não feito; com redação da Luna, a redação o faz", async () => {
   // Homologação de b72f612: "o cliente é … E quantos refrigerantes para a próxima festa?" ⇒ cálculo + outrosPedidos=1,
   // redação reprovada (determinística) e nenhum aviso — o pedido do cliente sumia sem explicação.

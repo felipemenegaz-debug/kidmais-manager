@@ -1411,6 +1411,17 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
       const doModelo = rascunho!.situacao.capacidade === "preparar_contratacao" ? ent.contratacao : undefined;
       return noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, e.texto, ctx, doModelo));
     }
+    // Mensagem MISTA: a Luna diz que a mensagem responde/corrige o rascunho, mas escolheu uma consulta ou um cálculo como
+    // objetivo (homologação de f41018e: "o cliente é … E quantos refrigerantes…?" ⇒ RESPONDE + CALCULO_CONSUMO, e o
+    // dado do cliente se perdia). Consulta paralela pura vem como CONSULTA_PARALELA/SEM_RASCUNHO, nunca RESPONDE.
+    // A resposta ao rascunho vem primeiro (nada do que foi escrito se perde) e o outro pedido é anunciado como não feito.
+    const mista = rascunho && acoes && (ent.relacaoRascunho === "RESPONDE" || ent.relacaoRascunho === "CORRIGE") && (ent.objetivo === "CONSULTA" || ent.objetivo === "CALCULO_CONSUMO");
+    if (mista) {
+      ent.outrosPedidos = Math.max(ent.outrosPedidos, 1);
+      rastreio.operacional = { ...rastreio.operacional, decisao: "LUNA:MENSAGEM_MISTA" };
+      const doModelo = rascunho!.situacao.capacidade === "preparar_contratacao" ? ent.contratacao : undefined;
+      return noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, e.texto, ctx, doModelo));
+    }
     // Parâmetro de consumo pendente e mensagem sem objetivo novo ("Não estime; quero só a regra cadastrada", "não sei"):
     // é resposta à pergunta do cálculo. Refaz o MESMO cálculo (mesma festa, só o que foi escrito ou delegado), mantendo a
     // continuação — nunca "não entendi", nunca estimativa sem pedido. A resposta sem dado reconhecida por regra vale qualquer
