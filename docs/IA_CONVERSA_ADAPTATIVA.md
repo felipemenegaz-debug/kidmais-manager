@@ -26,7 +26,7 @@ Ele é atualizado a cada etapa. Uma etapa só é marcada como feita com a evidê
 | 10 | Gates locais (testes, TypeScript, ESLint, build, UI, benchmark) | feito | `56d6834`: test:inteligencia 422/422; check:v1:static 1633+103 com build; check:ia:prs, tsc, ESLint, UI 27/27, ux-contratos-perfil ok; benchmark sem diff. `check:v1:ui` falha também no staging puro `a6fbfd6` (endpoint de logo da #55) — anterior a esta entrega |
 | 11 | PR, CI, merge em staging e deploy manual | feito | PR #56, CI success; merge commit `9599af2` (árvore = `56d6834`); deploy `dep-dav35fojo6nc73fa0i9g` live, health 200, sem erros nos logs; auto-deploy OFF (staging e produção) conferido antes |
 | 12 | Revisão: 3 lacunas reproduzidas e corrigidas (fallback ambíguo, associação valor↔unidade na redação, estimativa negada) | feito | §5.1; PR #57 (CI success), merge `c37ca62`, deploy `dep-dav3mvc1nsns738g7i90` live, health 200 |
-| 13 | Homologação com o modelo real pelo app de staging (custo e latência medidos) | encerrada com pendência | §5.2: 1ª rodada em `9243d2c` (7 falhas e 1 ajuste ⇒ PR #61); 2ª rodada em `1dc986f` limitada pelo teto de orçamento (modelo recusado antes da chamada) ⇒ 2 falhas do caminho sem modelo corrigidas na PR #62. Pendência: repetir a rodada com modelo quando o orçamento diário permitir |
+| 13 | Homologação com o modelo real pelo app de staging (custo e latência medidos) | encerrada com pendência | §5.2: 1ª rodada em `9243d2c` (7 falhas e 1 ajuste ⇒ PR #61); 2ª rodada em `1dc986f` limitada pelo teto de orçamento (modelo recusado antes da chamada) ⇒ 2 falhas do caminho sem modelo corrigidas na PR #62. Causa exata comprovada pela PR #64: `TETO_TOKENS` diário da empresa. 3ª rodada (fallback) em `bfe6fac` ⇒ 3 falhas do caminho anterior corrigidas na PR 14. Pendência: repetir a rodada com a Luna quando o teto diário permitir |
 
 ## 2. Auditoria do código de partida (`6b45783`)
 
@@ -207,3 +207,37 @@ Com isso, a rodada virou uma observação real do **caminho sem modelo**: nada a
 2. Cálculo sem festa sem plano do Planner respondia "Ainda não sei responder" ⇒ pergunta "Para qual festa?".
 
 **Pendências declaradas:** repetir os diálogos com o modelo (correções 1, 3, 5, 6 e 8 da PR #61 só foram comprovadas por testes de diálogo); falha do provedor ao vivo (exige mudar configuração).
+
+**Causa exata da recusa (01/10/2026, 21:01 UTC; staging `bfe6fac`, PR #64).** O trace passou a registrar `recusasModelo`. A recusa da Luna é `ORCAMENTO / TETO_TOKENS / EMPRESA / DIA`, com reserva tentada de 12.141 a 13.263 tokens.
+
+A visão de custos do Admin mostra, no dia:
+- 89.434 tokens reais em 43 chamadas, US$ 0,00874;
+- nenhuma reserva aberta ou órfã;
+- nenhum custo desconhecido.
+
+Conclusão: o **teto diário de tokens da empresa** em `AI_BUDGET_JSON` (valor não lido; ele fica entre 89.434 e 101.575) não comporta a reserva da Luna. A reserva estima a entrada a 1 token por byte e fica cerca de 4,5× acima do consumo real (~2,8k). As reservas do JEV (~3k) e do classificador antigo ainda cabem, e por isso eles continuam chamando o modelo. Ficam descartadas reserva pendente, custo desconhecido e orçamento ausente ou inválido.
+
+**3ª rodada: fallback (21:01–21:05 UTC; staging `bfe6fac`).** Os mesmos diálogos foram enviados pelo drawer com a Luna recusada pelo orçamento. Esta rodada observa o **caminho anterior** e não serve de evidência de compreensão da Luna. Em 100% das mensagens o trace traz `recusasModelo` com `luna_entender` e `adaptativo.fallback = ENTENDIMENTO_INDISPONIVEL`. O caminho anterior ainda usou modelos pequenos em N2 (JEV + classificador antigo: 2 chamadas, 2.173 tokens, US$ 0,00026, 4,2 s) e em D e F (JEV: ~775 tokens, ~US$ 0,00011, 1,8–2,2 s). Nas demais mensagens: 0 chamadas e 23–1.104 ms.
+
+| # | Resultado sem a Luna |
+|---|---|
+| A1 | ok: esclarece com o contexto (festa ou pacote) e não abre nada; a sugestão abre o rascunho de festa com cliente, pacote e convidados |
+| A2–A3 | ok: aniversariante "Theo" (sem "é o"); data aceita; pergunta o turno |
+| A4 | ok: "Para qual festa?" com o rascunho pausado |
+| A5 | ok: retoma; o Core não acha o cliente e pergunta |
+| A6 | ok: "Não consegui entender a resposta" (não vira nome) |
+| A7 | ok: cancelado, nada gravado |
+| B | limitação esperada: só os contratos (composição exige Luna/Planner, recusados) |
+| E1 | ok: festa e convidados do Core; as duas regras ausentes são perguntadas |
+| C | ok sem estimar: 240 docinhos; pergunta mL e embalagem ("2l" não é lido sem a Luna) |
+| N1 | ok: pergunta taxa e embalagem |
+| N2 | **falha (corrigida na PR 14)**: o classificador antigo propôs *cadastrar* "Regra de consumo da empresa" |
+| N3 | **falha (corrigida na PR 14)**: "não sei" respondia ao rascunho de regra ("Não consegui entender") |
+| D | **falha (corrigida na PR 14)**: "pode estimar os refrigerantes…" virou resumo da festa ("Festa em 268 dias") |
+| F | ok: 300 docinhos para 60 convidados (mesma festa) |
+
+Nada foi gravado: os rascunhos de regra abertos por N2 foram cancelados.
+
+**Correções da PR 14 (caminho determinístico; cada uma com teste que falha sem ela):**
+1. Com um parâmetro de consumo pendente, "não sei", "não estime" e "só a regra cadastrada" refazem o mesmo cálculo (mesma festa, sem estimativa) antes de qualquer classificador. É a regra que a PR #61 já aplicava no caminho da Luna.
+2. "Estimar os refrigerantes/doces" é pedido de cálculo de consumo. Sem a Luna, a taxa ausente é perguntada (não há estimativa sem delegação entendida).

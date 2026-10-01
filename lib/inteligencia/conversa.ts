@@ -16,7 +16,7 @@ import { construirContextoAutorizado, construirContextoModelo } from "./contexto
 import { ContextoRecusado } from "./contexto/contrato.ts";
 import { CAPACIDADES_OPERACIONAIS, ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
 import { ROTULO_PENDENTE, parametrosEscritosConsumo } from "./leituras/operacional.ts";
-import { CATEGORIAS_CONSUMO, detectarConsumo, extrairParametros, type CategoriaConsumo, type ParametrosConsumo } from "./operacional/consumo.ts";
+import { CATEGORIAS_CONSUMO, detectarConsumo, extrairParametros, respondeSemDado, type CategoriaConsumo, type ParametrosConsumo } from "./operacional/consumo.ts";
 import { coordenarRascunho, type DecisaoRascunho } from "./operacional/objetivo.ts";
 import { LIMITE_HISTORICO as LIMITE_HISTORICO_LUNA, VERSAO_LUNA, entenderComModelo, type Categoria, type ConsumoPendente, type Entendimento, type RascunhoParaLuna, type TrocaHistorico } from "./luna/entendimento.ts";
 import { redigirComModelo } from "./luna/redacao.ts";
@@ -700,6 +700,12 @@ function consumoDoPedido(texto: string, continuacao: ContinuacaoConsumo | undefi
     if ([...novos.values()].some((p) => Object.keys(p).length)) {
       const parametros: Partial<Record<CategoriaConsumo, ParametrosConsumo>> = {};
       for (const c of categorias) parametros[c] = { ...(c === continuacao.categoria ? continuacao.parametros : continuacao.informados?.[c]), ...novos.get(c) };
+      return { categorias: [...categorias], parametros, ...(continuacao.festaId ? { festaId: continuacao.festaId } : {}) };
+    }
+    // "não sei", "não estime", "só a regra cadastrada": o mesmo cálculo, a mesma festa, sem estimar (também sem a Luna).
+    if (respondeSemDado(texto) && !detectarConsumo(texto)) {
+      const parametros: Partial<Record<CategoriaConsumo, ParametrosConsumo>> = {};
+      for (const c of categorias) parametros[c] = { ...(c === continuacao.categoria ? continuacao.parametros : continuacao.informados?.[c]) };
       return { categorias: [...categorias], parametros, ...(continuacao.festaId ? { festaId: continuacao.festaId } : {}) };
     }
   }
