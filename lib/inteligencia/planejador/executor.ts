@@ -30,8 +30,11 @@ export type DependenciasExecutor = {
 
 export type PassoExecutado = PlanoRastreio["passos"][number];
 
+/** PR 6.4: resultado COMPLETO (já validado pelo outputSchema no gateway) de um passo marcado `resposta`. */
+export type ParteResposta = { passoId: string; capacidade: string; dados: RespostaLeitura };
+
 export type ResultadoExecucao =
-  | { estado: "FINAL"; intencao: Intencao; passos: PassoExecutado[]; entradas: Map<string, EntidadeRef>; entradaFinal: EntidadeRef | null }
+  | { estado: "FINAL"; intencao: Intencao; passos: PassoExecutado[]; entradas: Map<string, EntidadeRef>; entradaFinal: EntidadeRef | null; partes: ParteResposta[] }
   | { estado: "SEM_DADOS" | "AMBIGUO" | "NEGADO" | "ERRO"; passoId: string; candidatos: EntidadeRef[]; passos: PassoExecutado[]; entradas: Map<string, EntidadeRef> };
 
 type Selecao = { ok: true; entidade: EntidadeRef } | { ok: false; estado: "SEM_DADOS" | "AMBIGUO" | "ERRO"; candidatos: EntidadeRef[] };
@@ -54,6 +57,8 @@ export async function executarPlano(plano: Plano, deps: DependenciasExecutor): P
   const passos: PassoExecutado[] = [];
   const saidas = new Map<string, readonly EntidadeRef[]>();
   const entradas = new Map<string, EntidadeRef>();
+  // Resultados conservados para a resposta (só passos marcados `resposta`), na ordem do plano.
+  const partes: ParteResposta[] = [];
   const parar = (estado: "SEM_DADOS" | "AMBIGUO" | "NEGADO" | "ERRO", passo: PassoPlano, origemEntrada: OrigemEntrada, candidatos: EntidadeRef[] = [], duracaoMs = 0): ResultadoExecucao => {
     passos.push({ capacidade: passo.capacidade, origemEntrada, resultado: estado, duracaoMs });
     return { estado, passoId: passo.id, candidatos, passos, entradas };
@@ -106,7 +111,7 @@ export async function executarPlano(plano: Plano, deps: DependenciasExecutor): P
       const intencao: Intencao = item.tipo === "acao"
         ? { tipo: "acao", capacidade: passo.capacidade, origem: deps.origem }
         : { tipo: "leitura", capacidade: passo.capacidade, parametros, origem: deps.origem };
-      return { estado: "FINAL", intencao, passos, entradas, entradaFinal: entrada };
+      return { estado: "FINAL", intencao, passos, entradas, entradaFinal: entrada, partes };
     }
 
     const inicio = deps.relogio();
@@ -123,6 +128,7 @@ export async function executarPlano(plano: Plano, deps: DependenciasExecutor): P
     const duracaoMs = Math.max(0, Math.round(deps.relogio() - inicio));
     if (resposta.tipo !== "resposta" || !("entidades" in resposta.dados)) return parar("ERRO", passo, origemEntrada, [], duracaoMs);
     saidas.set(passo.id, (resposta.dados as RespostaLeitura).entidades ?? []);
+    if (passo.resposta) partes.push({ passoId: passo.id, capacidade: passo.capacidade, dados: resposta.dados as RespostaLeitura });
     passos.push({ capacidade: passo.capacidade, origemEntrada, resultado: "SUCESSO", duracaoMs });
   }
   // Inalcançável: o schema exige ao menos um passo e o último sempre retorna acima.

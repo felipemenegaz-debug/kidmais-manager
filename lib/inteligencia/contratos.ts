@@ -161,6 +161,11 @@ export type PlanoRastreio = {
    * CONTEXTO_<resultado> quando a âncora de tela/foco falha antes da primeira leitura; ou o motivo da rejeição.
    */
   motivoParada: string | null;
+  /**
+   * PR 6.4: composição da resposta de leitura — quantas leituras entraram, fatos pedidos no texto (códigos) e os que
+   * não foram obtidos do Core. null fora de resposta de leitura (navegação, proposta, parada).
+   */
+  composicao: { leituras: number; solicitados: string[]; faltando: string[] } | null;
   duracaoMs: number;
   usoModelo: boolean;
 };

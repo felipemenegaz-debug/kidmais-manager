@@ -129,8 +129,11 @@ export type PortaPlanejador = {
   pedeComposicao(texto: string): boolean;
   /** Plano pelo modelo (workload PLANEJAR); `exigirAcaoFinal` quando o julgamento pede CONFIRM. null ⇒ sem plano válido. */
   planejarComModelo(entrada: EntradaPlanejador, ler: (capacidade: string, parametros: Record<string, unknown>) => Promise<AIResponse>, exigirAcaoFinal: boolean): Promise<SaidaPlanejador | null>;
-  /** Resultado do despacho do passo final, para o trace do plano. */
-  concluir(resposta: AIResponse): void;
+  /**
+   * Fecha o plano com o resultado do despacho do passo final: trace e, em resposta de leitura, a composição
+   * determinística dos fatos (PR 6.4). Devolve a resposta a entregar (a mesma, se não houver composição).
+   */
+  concluir(resposta: AIResponse): AIResponse;
 };
 
 export type PassoOrquestracao = { tipo: string; resultado: string; duracaoMs: number };

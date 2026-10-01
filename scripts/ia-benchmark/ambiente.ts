@@ -194,7 +194,14 @@ function paraPorta(error: FestaError): Error {
 }
 
 /** Opções do ambiente (testes de autoridade): membership sem a capacidade de festa do Core. */
-export type OpcoesAmbiente = { semCapacidadeFesta?: boolean };
+export type OpcoesAmbiente = {
+  semCapacidadeFesta?: boolean;
+  /**
+   * PR 6.4 (só testes; o benchmark usa o padrão PARCIAL): posição oficial do contrato da PRÓXIMA festa (Maria). O outro
+   * contrato da empresa (Pedro) segue em aberto, para detectar resposta agregada ou do contrato errado.
+   */
+  financeiroProximaFesta?: "PARCIAL" | "QUITADO" | "SEM_POSICAO" | "NEGADO";
+};
 
 function portasDominio(violacoes: Violacoes, opcoes: OpcoesAmbiente = {}): PortasDominio {
   return {
@@ -243,7 +250,11 @@ function portasDominio(violacoes: Violacoes, opcoes: OpcoesAmbiente = {}): Porta
       async posicaoContrato(_tx, empresaId, contratoId) {
         if (empresaId !== EMPRESA_A) violacoes.crossTenant.push("financeiro.posicaoContrato");
         if (!FIXTURE.contratos.some((ct) => ct.id === contratoId)) return null;
-        const fin = FIXTURE.financeiro[contratoId];
+        const cenario = contratoId === IDS.CONTRATO_MARIA ? opcoes.financeiroProximaFesta ?? "PARCIAL" : "PARCIAL";
+        if (cenario === "NEGADO") throw new InteligenciaError("PAPEL_SEM_PERMISSAO", "Sem permissão para o financeiro.", 403);
+        if (cenario === "SEM_POSICAO") return "SEM_OBRIGACAO";
+        const base = FIXTURE.financeiro[contratoId];
+        const fin = cenario === "QUITADO" && base ? { ...base, liquido: base.obrigacao, parcelas: base.parcelas.map((pa) => ({ ...pa, recebido: pa.valor })) } : base;
         if (!fin) return "SEM_OBRIGACAO";
         const saldo = Math.max(0, fin.obrigacao - fin.liquido);
         return {

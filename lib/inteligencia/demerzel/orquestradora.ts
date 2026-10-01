@@ -252,9 +252,7 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
           await exec.passo("PLANO", "", () => planejado, (p) => (p ? ("intencao" in p ? "INTENCAO" : "PARADA") : "NENHUM"));
           if (planejado && "resposta" in planejado) return terminar("PLANO", planejado.resposta);
           if (planejado) {
-            const r = await despachar(planejado.intencao, j);
-            planejador.concluir(r);
-            return r;
+            return planejador.concluir(await despachar(planejado.intencao, j));
           }
         }
 
@@ -291,9 +289,7 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
             (p) => (p ? ("intencao" in p ? "INTENCAO" : "PARADA") : "SEM_PLANO"));
           if (planejado && "resposta" in planejado) return terminar("PLANO", planejado.resposta);
           if (planejado) {
-            const r = await despachar(planejado.intencao, j);
-            planejador.concluir(r);
-            return r;
+            return planejador.concluir(await despachar(planejado.intencao, j));
           }
           await exec.passo("SEM_ROTA", "", () => null, () => j.actionSensitivity.classification);
           return terminar("NAO_SUPORTADO", recusa("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:"));

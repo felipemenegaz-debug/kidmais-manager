@@ -2,6 +2,7 @@ import type { EntidadeRef, TipoEntidade } from "../contratos.ts";
 import { objetivoDoTexto } from "../entendimento.ts";
 import { LEITURA_DE_RELACAO, RELACOES, type Referencia } from "../referencias.ts";
 import type { PlanoRastreio } from "../contratos.ts";
+import { fatosSolicitados } from "./composicao.ts";
 import type { PassoPlano, Plano } from "./plano.ts";
 
 /**
@@ -47,6 +48,27 @@ export function planejarPorRegras(ref: Referencia, texto: string, ancoraContexto
     tipoAncora = "CLIENTE";
   } else {
     return null;
+  }
+
+  // PR 6.4: pedido com 2+ fatos (cliente, situação do contrato, posição financeira) da mesma festa/contrato: uma
+  // leitura por fato, todas sobre a MESMA cadeia de âncora (o contrato vem da relação do Core); as intermediárias
+  // marcadas `resposta`. A completude é conferida depois, contra o que o Core devolveu.
+  const pedidos = fatosSolicitados(texto);
+  const acaoPedido = objetivoDoTexto(texto).acao;
+  if (pedidos.length >= 2 && (tipoAncora === "FESTA" || tipoAncora === "CONTRATO") && acaoPedido !== "ABRIR" && !(acaoPedido && ACOES_DE_MUTACAO.has(acaoPedido))) {
+    let contrato: NonNullable<PassoPlano["entradaDe"]> = fonte;
+    if (tipoAncora === "FESTA") {
+      passos.push({ id: id(), capacidade: "relacoes_festa", entradaDe: fonte, ...(pedidos.includes("CLIENTE") ? { resposta: true } : {}) });
+      contrato = { de: "PASSO", passo: passos.at(-1)!.id, entidade: "CONTRATO" };
+    } else if (pedidos.includes("CLIENTE")) {
+      passos.push({ id: id(), capacidade: "relacoes_contrato", entradaDe: fonte, resposta: true });
+    }
+    if (pedidos.includes("SITUACAO_CONTRATO")) passos.push({ id: id(), capacidade: "resumir_contrato", entradaDe: contrato, resposta: true });
+    if (pedidos.includes("POSICAO_FINANCEIRA")) passos.push({ id: id(), capacidade: "saldo_contrato", entradaDe: contrato, resposta: true });
+    // A última leitura é a final (sempre entra na resposta): sem a marca.
+    delete passos[passos.length - 1].resposta;
+    const objetivo = pedidos.includes("POSICAO_FINANCEIRA") ? "CONSULTAR:PAGAMENTO" : "CONSULTAR:CONTRATO";
+    return { plano: { objetivo, recursoFinal: null, passos }, motivo: ref.temporal?.seletor === "ULTIMO_CONTRATO" ? "ULTIMO_CONTRATO" : "REFERENCIA" };
   }
 
   const alvo = ref.alvo ?? tipoAncora;
