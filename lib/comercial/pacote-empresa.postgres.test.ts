@@ -11,7 +11,10 @@ import { conectarDescartavel, encerrarDescartavel } from "./postgres-descartavel
  * `check:v1:postgres`). Tudo numa transação que termina em ROLLBACK. Duas empresas com o MESMO código: cada uma só vê o
  * próprio pacote vigente e ativo; inativo, não vigente ou arquivado não é encontrado; o catálogo público segue recusado.
  */
-const cod = (p: string) => `${p}${randomBytes(4).toString("hex")}`.toUpperCase();
+const sufixo = () => randomBytes(4).toString("hex");
+/** Código de empresa: minúsculo (empresas_codigo_ck); código de pacote: maiúsculo, como no catálogo. */
+const codEmpresa = (p: string) => `${p}${sufixo()}`;
+const codPacote = (p: string) => `${p}${sufixo()}`.toUpperCase();
 
 test("pacote do Fechamento pela empresa comprovada: isolamento por empresa e estados do pacote", { timeout: 120_000 }, async (t) => {
   if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") {
@@ -23,13 +26,13 @@ test("pacote do Fechamento pela empresa comprovada: isolamento por empresa e est
   try {
     await db.query("BEGIN");
     const empresa = async (nome: string) => {
-      const id = (await db.query<{ id: string }>(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [cod("pe"), nome])).rows[0].id;
+      const id = (await db.query<{ id: string }>(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [codEmpresa("pe"), nome])).rows[0].id;
       await db.query(`UPDATE empresas SET status = 'ATIVA' WHERE id = $1::uuid`, [id]);
       return id;
     };
     const A = await empresa("Empresa pacote A");
     const B = await empresa("Empresa pacote B");
-    const codigo = cod("PREM");
+    const codigo = codPacote("PREM");
     const pacote = async (empresaId: string, nome: string, ativo = true, vigente = true) => (await db.query<{ id: string }>(
       `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente, convidados_minimos, convidados_maximos)
        VALUES ($1::uuid, $2, $3, 1, $4, $5, 20, 100) RETURNING id`, [empresaId, codigo, nome, ativo, vigente])).rows[0].id;

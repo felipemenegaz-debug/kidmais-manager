@@ -10,7 +10,7 @@ Esta entrega não inclui merge, deploy, mudança de env/flags, migration executa
 |---|---|
 | **Completo e verificado no código real** (unitário e integração local, sem banco) | Objetivo principal e coordenação de rascunhos; cálculo de consumo; preparação da contratação; vínculo idempotente com o formulário oficial; reconciliação de resultado incerto; consulta adaptativa com complementos depois da execução; busca de pacote do Fechamento pela empresa comprovada. |
 | **Verificado com portas falsas** (simula o Core) | Matriz de aceite de ponta a ponta na conversa: CRM, festa, agenda, preço e criação do Fechamento são simulados. O Core falso modela transação e trava de linha; não é PostgreSQL. |
-| **Preparado, não executado** (exige autorização de SQL, mesmo em ambiente isolado — `OPERACAO_AGENTES.md` §48) | `lib/comercial/pacote-empresa.postgres.test.ts` (busca real de pacote) e `lib/operacional/migration-059.postgres.test.ts` (059 + serviço real). Ambos pulam sem o opt-in do PostgreSQL descartável. |
+| **Executado no PostgreSQL descartável** (autorizado) | `lib/comercial/pacote-empresa.postgres.test.ts` (busca real de pacote) e `lib/operacional/migration-059.postgres.test.ts` (059 + serviço real), junto com as outras 27 suítes: 29/29. |
 | **Pendente de homologação** (exige merge, flag, migration e deploy autorizados) | Criação real do Fechamento ponta a ponta com preparação; concorrência real de duas abas em PostgreSQL; custo com o provedor real; dados reais de staging. |
 
 ## 1. O que a entrega faz
@@ -141,4 +141,4 @@ Os complementos depois da execução **não chamam modelo**. Cada um é uma leit
 | `check:ia:prs` (composição por estágios e pilha V1) | ok |
 | `tsc --noEmit`, ESLint | ok |
 | `check:v1:ui` (navegação da festa, desktop e celular) | ok |
-| `check:v1:postgres` | **não executado** (exige autorização de SQL) |
+| `check:v1:postgres` (autorizado; cluster descartável NOVO, `cluster_name=kidmais_descartavel`, porta 55591, sem o banco real) | **29/29 arquivos OK**, inclusive `pacote-empresa` (busca real) e `migration-059` (up, postcheck, gatilhos, serviço real, rollback) |
