@@ -84,6 +84,8 @@ export function coordenarRascunho(texto: string, s: SituacaoRascunho, regras: In
   // Outro pedido de criação explícito (verbo + objeto): troca de objetivo; o mesmo objetivo é correção dos dados.
   if (regras.tipo === "acao" && objetoDeCriacao(texto)) return regras.capacidade === s.capacidade ? { tipo: "CORRECAO" } : { tipo: "MUDANCA_OBJETIVO", capacidade: regras.capacidade };
   if (consulta) return { tipo: "NOVA_CONSULTA" };
+  // Criação ambígua no meio de um rascunho: o esclarecimento responde, o rascunho fica intocado.
+  if (regras.tipo === "esclarecer") return { tipo: "NOVA_CONSULTA" };
   const pergunta = ehPergunta(texto);
   if (s.respondeCampo && !pergunta) return { tipo: "RESPOSTA_CAMPO" };
   if (pergunta) return s.respondeCampo && regras.tipo === "nenhuma" ? { tipo: "AMBIGUO" } : { tipo: "NOVA_CONSULTA" };

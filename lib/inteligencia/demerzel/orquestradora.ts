@@ -176,6 +176,11 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
           await exec.passo("HUMANO", "", () => null, () => "ENCAMINHADO");
           return terminar("HUMANO", recusa("Esse pedido precisa de uma pessoa da equipe. Encaminhe pelo atendimento; o Kidmais não responde nem age sozinho neste caso."));
         }
+        if (intencao.tipo === "esclarecer") {
+          // Pedido ambíguo: pergunta (com o que foi entendido e as frases completas como sugestões); nada é aberto.
+          await exec.passo("CONTEXTO", "ESCLARECER", () => null, () => "ESCLARECER");
+          return terminar("PRECISA_CONTEXTO", { tipo: "nao_suportado", mensagem: intencao.mensagem, sugestoes: intencao.sugestoes, entendimento: "AMBIGUO" });
+        }
         if (intencao.tipo === "precisa_contexto") {
           await exec.passo("CONTEXTO", intencao.capacidade, () => null, () => "PRECISA_CONTEXTO");
           return terminar("PRECISA_CONTEXTO", { tipo: "precisa_contexto", mensagem: mensagemPrecisaContexto(intencao.entidade) });

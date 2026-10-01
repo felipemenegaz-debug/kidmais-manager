@@ -1004,7 +1004,10 @@ function comLuna(a: ReturnType<typeof ambiente>, o: {
         return r instanceof ErroModelo ? r : respostaFake(JSON.stringify(r), { entrada: 1200, saida: 150 });
       }
       if (p.workload === "REDIGIR_RESPOSTA") {
-        const padrao = (d: DadosRedacao) => ({ resposta: d.fatos.filter((f) => f.tipo === "cálculo do sistema").map((f) => f.texto).join(" ") || "Pronto.", complementos: [] });
+        const padrao = (d: DadosRedacao) => ({
+          resposta: `${d.fatos.some((f) => f.tipo.startsWith("estimativa")) ? "Com a estimativa que você pediu: " : ""}${d.fatos.filter((f) => f.tipo === "cálculo do sistema").map((f) => f.texto).join(" ") || "Pronto."}`,
+          complementos: [],
+        });
         const r = (o.redigir ?? padrao)(dados as DadosRedacao, ++nR);
         return r instanceof ErroModelo ? r : respostaFake(JSON.stringify(r), { entrada: 900, saida: 80 });
       }
@@ -1286,4 +1289,85 @@ test("Luna — resposta ao rascunho com objetivo genérico (\"4 horas\" no pacot
   const r3 = await a.enviar("de 30 a 80 convidados");
   assert.equal(r3.data?.tipo, "preview");
   assert.deepEqual(a.efeitos.pacotes, [], "nada gravado antes da confirmação humana");
+});
+
+// ---------------------------------------------------------------- revisão: fallback sem a Luna (lacuna 1)
+
+const ELIPSE = "crie uma do cliente Felipe para 50 convidados, pacote premium";
+
+test("Fallback (lacuna 1): sem a Luna, a elipse \"crie uma do cliente Felipe…, pacote premium\" esclarece com o contexto; nunca abre pacote", async () => {
+  for (const cenario of ["sem modelo", "provedor fora do ar"] as const) {
+    const a = ambiente();
+    if (cenario === "provedor fora do ar") comLuna(a, { entender: () => new ErroModelo("HTTP_5XX", false) });
+    const r = await a.enviar(ELIPSE);
+    assert.equal(r.data?.tipo, "nao_suportado", cenario);
+    assert.equal(r.data?.entendimento, "AMBIGUO", cenario);
+    const n = r.data as Extract<AIResponse, { tipo: "nao_suportado" }>;
+    assert.match(n.mensagem, /cliente Felipe, 50 convidados, pacote premium/, "repete o que foi entendido");
+    assert.deepEqual(n.sugestoes, ["Crie uma festa do cliente Felipe para 50 convidados, pacote premium", "Crie um pacote chamado Premium"]);
+    assert.equal([...a.repositorio.linhas.values()].length, 0, "nenhum rascunho aberto");
+    assert.deepEqual(a.efeitos.pacotes, []);
+    // A sugestão (frase completa) resolve sem perder nada: contratação com cliente, convidados e pacote.
+    const s = await a.enviar(n.sugestoes[0]);
+    const rasc = s.data as Extract<AIResponse, { tipo: "rascunho" }>;
+    assert.equal(rasc.rascunho.capacidade, "preparar_contratacao", cenario);
+    assert.equal(rasc.rascunho.campos.find((c) => c.id === "cliente")?.valor, "Felipe", "\"festa do cliente Felipe\" ⇒ cliente Felipe");
+    assert.equal(rasc.rascunho.campos.find((c) => c.id === "convidados")?.valor, "50");
+    assert.equal(rasc.rascunho.campos.find((c) => c.id === "pacote")?.valor, "Premium");
+  }
+});
+
+test("Fallback (lacuna 1): variações da elipse esclarecem; pacote explícito continua pacote; pergunta não abre nada", async () => {
+  const a = ambiente();
+  for (const t of ["cria uma pra cliente Ana Paula com 30 pessoas, pacote mini", "monte uma para o cliente Felipe, pacote essencial", "crie um do cliente Felipe, aniversário da Beatriz, pacote completa"]) {
+    const r = await a.enviar(t);
+    assert.equal(r.data?.entendimento, "AMBIGUO", t);
+    assert.equal(r.data?.tipo, "nao_suportado", t);
+  }
+  assert.equal([...a.repositorio.linhas.values()].length, 0);
+  const explicito = await a.enviar("crie um pacote premium para 50 convidados");
+  assert.equal((explicito.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.capacidade, "criar_pacote");
+  const b = ambiente();
+  const pergunta = await b.enviar("qual o preço do pacote premium novo para 50 convidados?");
+  assert.notEqual(pergunta.data?.tipo, "rascunho");
+  assert.equal([...b.repositorio.linhas.values()].length, 0);
+});
+
+test("Fallback (lacuna 1): com um rascunho de pacote aberto, a elipse esclarece e o rascunho fica intocado", async () => {
+  const a = ambiente();
+  const r1 = await a.enviar("Crie um pacote chamado Festa Plus por R$ 4.500");
+  const op = (r1.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId;
+  const versao = a.linha(op).versao;
+  const r2 = await a.enviar(ELIPSE);
+  assert.equal(r2.data?.entendimento, "AMBIGUO");
+  assert.equal(r2.data?.rascunhoPausado?.operacaoId, op);
+  assert.equal(a.linha(op).versao, versao);
+  assert.deepEqual(a.efeitos.pacotes, []);
+});
+
+test("Luna (lacuna 1): esclarecimento da Luna sem texto próprio usa o que foi entendido e as frases completas", async () => {
+  const a = ambiente();
+  comLuna(a, { entender: () => saida({ objetivo: "ACAO", acao: "criar_pacote" }) });
+  const r = await a.enviar(ELIPSE);
+  const n = r.data as Extract<AIResponse, { tipo: "nao_suportado" }>;
+  assert.equal(n.entendimento, "AMBIGUO");
+  assert.match(n.mensagem, /cliente Felipe/);
+  assert.equal(n.sugestoes.length, 2);
+});
+
+test("Luna (lacuna 3): \"Não estime o consumo; quero somente a regra cadastrada.\" sem regra ⇒ pergunta o parâmetro; nenhuma estimativa", async () => {
+  const a = ambiente({ convidados: 50 });
+  comLuna(a, { entender: () => saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"], estimar: ["REFRIGERANTES"], mlEstimado: 300 } }) });
+  const r = await a.enviar("Quantos refrigerantes a próxima festa precisa? Não estime o consumo; quero somente a regra cadastrada.");
+  const d = leitura(r.data);
+  assert.equal(fatos(d).some((x) => x.startsWith("ESTIMATIVA:")), false);
+  assert.ok(fatos(d).includes("AUSENCIA:A empresa ainda não tem regra de consumo de refrigerante cadastrada."));
+  assert.equal(r.rastro.adaptativo?.estimativa, false);
+  // Com regra cadastrada, ela é usada (e nada é estimado).
+  const b = ambiente({ convidados: 50, regras: { REFRIGERANTES: { categoria: "REFRIGERANTES", versao: 3, porConvidado: null, mlPorConvidado: 400, embalagemMl: 2000, margemPercentual: null, vigenteDesde: "2026-09-01T00:00:00.000Z" } } });
+  comLuna(b, { entender: () => saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"], estimar: ["REFRIGERANTES"], mlEstimado: 300 } }) });
+  const q = await b.enviar("Quantos refrigerantes a próxima festa precisa? Não estime o consumo; quero somente a regra cadastrada.");
+  const f = fatos(leitura(q.data));
+  assert.ok(f.includes("FATO:Regra da empresa (versão 3): 400 mL por convidado, embalagem de 2 L."));
+  assert.equal(f.some((x) => x.startsWith("ESTIMATIVA:")), false);
 });

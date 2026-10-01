@@ -27,7 +27,7 @@ import {
   type DependenciasGateway, type PedidoGateway, type RespostaGateway,
 } from "./gateway.ts";
 import { explicarResposta, mensagemIndisponivel, mensagemNavegacaoSemDestino, mensagemPrecisaContexto, objetivoDaCapacidade, objetivoDoTexto } from "./entendimento.ts";
-import { interpretarComModelo, interpretarDeterministico, pedeAutonomia, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
+import { criacaoAmbigua, interpretarComModelo, interpretarDeterministico, pedeAutonomia, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
 import type { RoteadorModelos } from "./modelos/roteador.ts";
 import { InteligenciaError, avaliarPolitica } from "./politica.ts";
 import { decidirPolitica } from "./politica-v1.ts";
@@ -982,6 +982,10 @@ async function responderIntencao(intencao: Intencao, contexto: ContextoTela | nu
     return { tipo: "precisa_contexto", mensagem: mensagemPrecisaContexto(intencao.entidade) };
   }
   if (intencao.tipo === "leitura") return responderLeitura(intencao.capacidade, intencao.parametros, intencao.origem, e);
+  if (intencao.tipo === "esclarecer") {
+    rastreio.estado = "nao_suportado";
+    return { tipo: "nao_suportado", mensagem: intencao.mensagem, sugestoes: intencao.sugestoes, entendimento: "AMBIGUO" };
+  }
   if (intencao.tipo === "navegacao_sem_destino") {
     // Sem destino único: diz o que foi entendido (ambíguo ou referência ainda não resolvida); nunca escolhe.
     rastreio.estado = "nao_suportado";
@@ -1434,7 +1438,11 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
       case "CONVERSA":
         return pausa({ ...naoSuportado("Estou aqui. Posso consultar festas, contratos, clientes e o financeiro, calcular doces e bebidas de uma festa ou preparar a contratação de uma festa para a sua revisão."), entendimento: "EXECUTADO" });
       case "ESCLARECER":
-        return pausa({ tipo: "nao_suportado", mensagem: ent.esclarecimento ?? "Pode me dizer um pouco mais do que você quer fazer?", sugestoes: [], entendimento: "AMBIGUO" });
+      {
+        // Criação ambígua ("crie uma do cliente…, pacote…"): o que foi entendido + as frases completas como sugestões.
+        const ambigua = criacaoAmbigua(e.texto);
+        return pausa({ tipo: "nao_suportado", mensagem: ent.esclarecimento ?? ambigua?.mensagem ?? "Pode me dizer um pouco mais do que você quer fazer?", sugestoes: ambigua?.sugestoes ?? [], entendimento: "AMBIGUO" });
+      }
       case "FORA_DO_ESCOPO":
         return pausa({ ...naoSuportado("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:"), entendimento: "CAPACIDADE_INDISPONIVEL" });
     }

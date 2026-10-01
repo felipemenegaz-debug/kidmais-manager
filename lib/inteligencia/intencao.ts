@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ContextoTela, OrigemChamada, RecursoObjetivo, TipoEntidade } from "./contratos.ts";
 import { prepararTextoParaModelo } from "./texto-modelo.ts";
 import { pedeSalvarParametro } from "./operacional/consumo.ts";
-import { correcaoDeObjetivo, objetoDeCriacao } from "./operacional/objetivo.ts";
+import { correcaoDeObjetivo, ehPergunta, objetoDeCriacao } from "./operacional/objetivo.ts";
 import { normalizar } from "./texto-pt.ts";
 import { TELAS_NAVEGACAO, type TelaNavegacao } from "./rotas-navegacao.ts";
 import type { RoteadorModelos, AlvoRoteamento, ResultadoRoteado } from "./modelos/roteador.ts";
@@ -29,6 +29,11 @@ export type Intencao =
    * AMBIGUO: "abra o contrato" (qual?). REFERENCIA_NAO_RESOLVIDA: "abra o contrato da próxima festa" (PR 5/6).
    */
   | { tipo: "navegacao_sem_destino"; recurso: RecursoObjetivo; motivo: "AMBIGUO" | "REFERENCIA_NAO_RESOLVIDA" }
+  /**
+   * Pedido de criação ambíguo (ex.: "crie uma do cliente Felipe…, pacote premium"): pergunta qual cadastro, repetindo o
+   * que foi entendido e oferecendo as frases completas como sugestões (o contexto não se perde). Nunca abre rascunho.
+   */
+  | { tipo: "esclarecer"; mensagem: string; sugestoes: string[] }
   | { tipo: "nenhuma" };
 
 type Entidade = "festa" | "cliente" | "contrato";
@@ -187,6 +192,33 @@ export function pedeAutonomia(textoNormalizado: string): boolean {
   return tem(textoNormalizado, /\b(confirm\w*|aprov\w*|autoriz\w*)\b.*\b(sozinh\w*|automatic\w*|por mim|sem (me )?perguntar)\b/, /\b(ignore|ignora|desconsidere)\b.*\b(regras?|instruc\w*|politica\w*)\b/);
 }
 
+/** Verbos de criação das regras ("crianca" não é "criar"; "cadastro" substantivo não conta). */
+const VERBO_CRIAR_REGRA = /\b(crie|criar|cria|crio|criando|cadastr(e|ar|a|em|ando)|adicion\w*|inclu\w*|mont[ae]\w*|nov[oa]s?)\b/;
+
+const NOMES_PACOTE = ["pocket", "mini festa", "mini", "compacta", "essencial", "completa", "premium", "pizza party"];
+
+/**
+ * Criação com "pacote" mas cujo objeto NÃO é pacote, num pedido sobre cliente/convidados/aniversário ("crie uma do
+ * cliente Felipe para 50 convidados, pacote premium"): ambíguo. A pergunta repete o que foi entendido e as sugestões são
+ * as frases completas de cada caminho, para a próxima mensagem não perder o contexto.
+ */
+export function criacaoAmbigua(texto: string, n: string = normalizar(texto), verboCriar: RegExp = VERBO_CRIAR_REGRA): Extract<Intencao, { tipo: "esclarecer" }> | null {
+  if (!/\bpacote/.test(n) || !verboCriar.test(n) || ehPergunta(texto) || objetoDeCriacao(texto) !== null) return null;
+  if (!/\b(clientes?|contratante|convidad\w*|pessoas|aniversari\w*|criancas?)\b/.test(n)) return null;
+  const cliente = /\b(?:clientes?|contratante)\s+([\p{L}][\p{L}']{1,30}(?:\s+(?!para\b|com\b|de\b|do\b|da\b|e\b|pacote\b)[\p{L}][\p{L}']{1,30})?)/iu.exec(texto)?.[1] ?? null;
+  const convidados = /\b(\d{1,3})\s*(?:convidad\w*|pessoas|criancas)\b/.exec(n)?.[1] ?? null;
+  const pacote = NOMES_PACOTE.find((p) => new RegExp(`\\bpacote\\s+${p}\\b`).test(n)) ?? null;
+  const partes = [cliente ? `o cliente ${cliente}` : null, convidados ? `${convidados} convidados` : null, pacote ? `pacote ${pacote}` : null].filter(Boolean);
+  const resumo = partes.length ? ` (${partes.join(", ")})` : "";
+  const festa = `Crie uma festa${cliente ? ` do cliente ${cliente}` : ""}${convidados ? ` para ${convidados} convidados` : ""}${pacote ? `, pacote ${pacote}` : ""}`;
+  const novoPacote = pacote ? `Crie um pacote chamado ${pacote.replace(/\b\w/g, (c) => c.toUpperCase())}` : "Crie um pacote novo no catálogo";
+  return {
+    tipo: "esclarecer",
+    mensagem: `Entendi${resumo}, mas não ficou claro o que criar. Você quer preparar a contratação de uma festa ou cadastrar um pacote novo no catálogo?`,
+    sugestoes: [festa.slice(0, 280), novoPacote.slice(0, 280)],
+  };
+}
+
 export function interpretarDeterministico(texto: string, contexto: ContextoTela | null): Intencao {
   const n = normalizar(texto);
   if (!n) return { tipo: "nenhuma" };
@@ -226,11 +258,16 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
     const categoria = posicao(/\bcategorias?\b/) < posicao(/\bite(m|ns)\b/);
     return acao(tem(n, verboEditar) ? (categoria ? "editar_categoria_buffet" : "editar_item_buffet") : (categoria ? "criar_categoria_buffet" : "criar_item_buffet"));
   }
+  // "pacote" como ATRIBUTO de um pedido de criação sobre cliente/festa (o objeto não é pacote): esclarecer, nunca abrir o
+  // cadastro de pacote pela palavra.
+  const ambigua = criacaoAmbigua(texto, n, verboCriar);
+  if (ambigua) return ambigua;
   if (/\bpacote/.test(n)) {
     if (tem(n, /\b(desativ\w*|paus\w*|suspend\w*|inativ\w*|tir\w* do ar)\b/)) return acao("desativar_pacote");
     if (tem(n, /\b(ativ\w*|reativ\w*|volt\w* a vender)\b/)) return acao("ativar_pacote");
     if (tem(n, verboEditar) || /\bpacote .+ para r\$/.test(n)) return acao("editar_pacote");
-    if (tem(n, verboCriar)) return acao("criar_pacote");
+    // Pergunta ("qual o preço do pacote premium novo?") não é pedido de criação: "novo" ali é adjetivo.
+    if (tem(n, verboCriar) && !/^(qual|quais|quanto|quantos|quantas|quem|quando|onde|o que|por que)\b/.test(n)) return acao("criar_pacote");
   }
   // Só formas de comando: "registrado", "enviados", "cobrado" em perguntas não são pedidos de ação.
   if (tem(n, /\b(envi(e|ar|a|em)|mand(e|ar|a|em)|dispar(e|ar|a))\b/, /\bwhats\s?app\b.*\b(para|pro|pra)\b/, /\b(cobr(e|ar|a|em)|quit(e|ar|a)|estorn(e|ar|a))\b/, /\bregistr(e|ar|a|em)\b/, /\bcancel(ar|e|a|em)\b/, /\b(gere|gerar) (o )?contrato\b/)) {
