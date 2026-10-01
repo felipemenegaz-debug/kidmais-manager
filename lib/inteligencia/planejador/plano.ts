@@ -53,6 +53,7 @@ const passoSchema = z.object({
   /**
    * PR 6.4: os fatos DESTE passo intermediário entram na resposta (o passo final sempre entra). Só em leitura que
    * recebe a entidade da cadeia (`entradaDe`): listagens de âncora nunca entram. Seleciona; não comprova completude.
+   * PR 6.4.1: no último passo ou numa listagem a marca é ignorada (normalizada), não recusada.
    */
   resposta: z.boolean().optional(),
 }).strict();
@@ -112,7 +113,11 @@ export function validarPlano(bruto: unknown, catalogo: readonly CapacidadeCatalo
       if (!ultimo || acoes > LIMITES_PLANO.maxAcoes) return { ok: false, motivo: "ACAO_FORA_DO_FIM" };
     }
     if (CAPACIDADES_NAVEGACAO.has(passo.capacidade) && !ultimo) return { ok: false, motivo: "NAVEGACAO_FORA_DO_FIM" };
-    if (passo.resposta && (ultimo || item.tipo !== "leitura" || !passo.entradaDe)) return { ok: false, motivo: "RESPOSTA_INVALIDA" };
+    // PR 6.4.1: a marca é só SELEÇÃO. No último passo (que sempre entra) ou numa listagem de âncora (sem `entradaDe`,
+    // que nunca entra) ela é redundante/inaplicável e é IGNORADA — removê-la não acrescenta fato algum à resposta.
+    // Fora de leitura continua recusada.
+    if (passo.resposta && item.tipo !== "leitura") return { ok: false, motivo: "RESPOSTA_INVALIDA" };
+    if (passo.resposta && (ultimo || !passo.entradaDe)) delete passo.resposta;
     if (passo.entradaDe?.de === "PASSO" && !vistos.has(passo.entradaDe.passo)) return { ok: false, motivo: "REFERENCIA_INVALIDA" };
     if (passo.entradaDe?.de === "CONTEXTO" && i !== 0) return { ok: false, motivo: "REFERENCIA_INVALIDA" };
     if (passo.entradaDe?.de === "CONTEXTO" && opcoes.contexto && !opcoes.contexto.includes(passo.entradaDe.entidade)) return { ok: false, motivo: "CONTEXTO_INDISPONIVEL" };
