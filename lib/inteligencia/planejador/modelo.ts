@@ -2,7 +2,7 @@ import type { ContextoTela, TipoEntidade } from "../contratos.ts";
 import type { CapacidadeCatalogo } from "../intencao.ts";
 import type { AlvoRoteamento, ResultadoRoteado, RoteadorModelos } from "../modelos/roteador.ts";
 import { prepararTextoParaModelo } from "../texto-modelo.ts";
-import { LIMITES_PLANO, TIPOS_ENTIDADE, validarPlano, type MotivoRejeicao, type Plano } from "./plano.ts";
+import { LIMITES_PLANO, OBJETIVOS_PLANO, TIPOS_ENTIDADE, validarPlano, type MotivoRejeicao, type Plano } from "./plano.ts";
 
 /**
  * Planner por MODELO (PR 6): só quando as regras não montam um plano seguro e o pedido compõe recursos.
@@ -30,7 +30,8 @@ function esquema(ids: readonly string[]) {
     additionalProperties: false,
     required: ["objetivo", "recursoFinal", "passos"],
     properties: {
-      objetivo: { type: "string" },
+      // Mesmo conjunto fechado da validação (`planoSchema`): geração e validação não divergem.
+      objetivo: { type: "string", enum: [...OBJETIVOS_PLANO] },
       recursoFinal: n(entidade),
       passos: {
         type: "array",
@@ -69,7 +70,18 @@ function esquema(ids: readonly string[]) {
   };
 }
 
-/** Remove nulos (o schema do provedor exige todas as chaves); NÃO remove chave desconhecida — essa invalida o plano. */
+/**
+ * Nulo = "não se aplica" nos campos OPCIONAIS do plano (o schema do provedor exige todas as chaves) e é removido.
+ * `recursoFinal` é OBRIGATÓRIO e aceita null (pedido com mais de um recurso, ex.: contrato + cliente): fica como
+ * veio. Chave desconhecida nunca é removida — ela invalida o plano (CAMPO_EXTRA).
+ */
+function normalizarSaida(bruto: unknown): unknown {
+  if (!bruto || typeof bruto !== "object" || Array.isArray(bruto)) return bruto;
+  const { recursoFinal, ...resto } = bruto as Record<string, unknown>;
+  const normal = semNulos(resto) as Record<string, unknown>;
+  return Object.hasOwn(bruto, "recursoFinal") ? { ...normal, recursoFinal } : normal;
+}
+
 function semNulos(valor: unknown): unknown {
   if (Array.isArray(valor)) return valor.map(semNulos);
   if (valor && typeof valor === "object") {
@@ -110,7 +122,7 @@ export async function planejarComModelo(entrada: EntradaPlanoModelo, roteador: R
     esquema: { nome: "plano", schema: esquema(ids) },
     maxTokensSaida: 400,
     validar: (bruto) => {
-      const lido = semNulos(JSON.parse(bruto)) as { passos?: unknown[] };
+      const lido = normalizarSaida(JSON.parse(bruto)) as { passos?: unknown[] };
       if (Array.isArray(lido.passos) && lido.passos.length === 0) return { vazio: true } as const;
       const v = validarPlano(lido, entrada.catalogo);
       if (!v.ok) {

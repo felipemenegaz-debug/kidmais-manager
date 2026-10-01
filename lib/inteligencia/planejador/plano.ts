@@ -24,6 +24,13 @@ const ACOES = ["CONSULTAR", "LOCALIZAR", "ABRIR", "CRIAR", "EDITAR", "EXCLUIR", 
 const RECURSOS = ["DASHBOARD", "FESTA", "CLIENTE", "CONTRATO", "PAGAMENTO", "FINANCEIRO", "AGENDA", "CATEGORIA", "ITEM", "PACOTE", "MENSAGEM", "CONFIGURACAO", "FECHAMENTO"] as const;
 const IDS_PASSO = ["p1", "p2", "p3", "p4", "p5"] as const;
 
+/**
+ * Conjunto FECHADO de objetivos (AÇÃO:RECURSO). É o mesmo para a validação e para o schema enviado ao provedor
+ * (Planner por modelo), para que geração e validação nunca divirjam.
+ */
+export const OBJETIVOS_PLANO: readonly string[] = Object.freeze(ACOES.flatMap((a) => RECURSOS.map((r) => `${a}:${r}`)));
+const OBJETIVOS = new Set(OBJETIVOS_PLANO);
+
 const tipoEntidade = z.enum(TIPOS_ENTIDADE);
 const idPasso = z.enum(IDS_PASSO);
 
@@ -46,10 +53,7 @@ const passoSchema = z.object({
 }).strict();
 
 export const planoSchema = z.object({
-  objetivo: z.string().refine((o) => {
-    const [acao, recurso, ...resto] = o.split(":");
-    return !resto.length && (ACOES as readonly string[]).includes(acao) && (RECURSOS as readonly string[]).includes(recurso ?? "");
-  }),
+  objetivo: z.string().refine((o) => OBJETIVOS.has(o)),
   recursoFinal: tipoEntidade.nullable(),
   passos: z.array(passoSchema).min(1).max(LIMITES_PLANO.maxPassos),
 }).strict();

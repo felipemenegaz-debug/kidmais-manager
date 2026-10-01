@@ -15,7 +15,7 @@ import type { AdaptadorProvedor, PedidoModelo } from "../modelos/tipos.ts";
 import { InteligenciaError } from "../politica.ts";
 import { detectarReferencia } from "../referencias.ts";
 import { executarPlano, type DependenciasExecutor } from "./executor.ts";
-import { LIMITES_PLANO, validarPlano, type Plano } from "./plano.ts";
+import { LIMITES_PLANO, OBJETIVOS_PLANO, planoSchema, validarPlano, type Plano } from "./plano.ts";
 import { planejarPorRegras } from "./regras.ts";
 
 /** AI V1.1 — PR 6: Planner + Multi-tool Executor (plano fechado, Policy por passo, sem id do modelo, Human Gate). */
@@ -344,4 +344,81 @@ test("modelo: no máximo 2 passos com modelo por pedido; sem provedor, nenhum pl
   const comModeloPassos = (ultima.rastro?.orquestracao?.passos ?? []).filter((p) => ["JULGAMENTO_JEV_MODELO", "INTENCAO_MODELO", "COMPLEMENTO_MODELO", "PLANO_MODELO"].includes(p.tipo));
   assert.ok(comModeloPassos.length <= 2);
   assert.equal((ultima.rastro?.orquestracao?.passos ?? []).some((p) => p.tipo === "INTENCAO_MODELO"), false, "o plano substitui a interpretação por modelo");
+});
+
+// ---------------------------------------------------------------- 6. PR 6.1: correção do Planner por modelo (smoke de staging, caso 8)
+
+/** Texto exato do caso 8 do smoke em staging. */
+const TEXTO_SMOKE = "me mostra o contrato e o cliente da festa que vem aí";
+const PLANO_DOIS_RECURSOS = {
+  // Pedido com dois recursos: o modelo responde `recursoFinal: null` — chave obrigatória, valor explicitamente nulo.
+  objetivo: "CONSULTAR:CONTRATO", recursoFinal: null,
+  passos: [
+    { id: "p1", capacidade: "proximas_festas", parametros: { ordem: "ASC", limite: 2, inicio: null, fim: null, dia: null, incluirCancelados: null }, entradaDe: null, selecao: "PRIMEIRA" },
+    { id: "p2", capacidade: "relacoes_festa", parametros: null, entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" }, selecao: null },
+    { id: "p3", capacidade: "resumir_contrato", parametros: null, entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" }, selecao: null },
+  ],
+};
+
+test("hipótese 1 (smoke): `recursoFinal: null` do modelo NÃO é descartado antes da validação ⇒ plano aceito e executado", async () => {
+  const { ultima, amb } = await conversa([{ texto: TEXTO_SMOKE }], comModelo((p) => (p.workload === "PLANEJAR" ? PLANO_DOIS_RECURSOS : { capacidade: "nenhuma", dia: null })));
+  const provedor = (amb as unknown as { provedor: ReturnType<typeof criarProvedorFake> }).provedor;
+  assert.deepEqual(provedor.chamadas.map((c) => c.workload), ["PLANEJAR"]);
+  assert.notEqual(ultima.rastro?.plano?.parada, "REJEITADO:SCHEMA", "antes da correção: REJEITADO:SCHEMA");
+  assert.deepEqual([ultima.rastro?.plano?.origem, ultima.rastro?.plano?.parada, ultima.rastro?.plano?.resultadoFinal], ["MODELO", "FIM", "SUCESSO"]);
+  assert.deepEqual(passos(ultima)?.map(([c]) => c), ["proximas_festas", "relacoes_festa", "resumir_contrato"]);
+  assert.equal(dados(ultima.resposta).capacidade, "resumir_contrato");
+  // Validação direta: com a chave explicitamente nula o plano é válido; sem a chave, continua inválido (obrigatória).
+  const catalogo = [...CATALOGO, { id: "resumir_cliente", descricao: "", tipo: "leitura" as const }];
+  const limpo = {
+    objetivo: "CONSULTAR:CONTRATO", recursoFinal: null,
+    passos: [
+      { id: "p1", capacidade: "proximas_festas", parametros: { ordem: "ASC", limite: 2 }, selecao: "PRIMEIRA" },
+      { id: "p2", capacidade: "relacoes_festa", entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" } },
+      { id: "p3", capacidade: "resumir_contrato", entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" } },
+    ],
+  };
+  assert.equal(validarPlano(limpo, catalogo).ok, true);
+  const { recursoFinal: _omitido, ...semChave } = limpo;
+  void _omitido;
+  assert.deepEqual(validarPlano(semChave, catalogo), { ok: false, motivo: "SCHEMA" });
+});
+
+test("hipótese 2 (smoke): `objetivo` no schema do provedor é o MESMO conjunto fechado do planoSchema; fora dele ⇒ rejeitado sem leitura", async () => {
+  const capturado: Array<PedidoModelo<unknown>> = [];
+  const { amb } = await conversa([{ texto: TEXTO_SMOKE }], comModelo((p) => { capturado.push(p); return p.workload === "PLANEJAR" ? PLANO_DOIS_RECURSOS : { capacidade: "nenhuma", dia: null }; }));
+  void amb;
+  const schema = capturado.find((p) => p.workload === "PLANEJAR")!.esquema.schema as { properties: { objetivo: { type: string; enum?: string[] } } };
+  assert.deepEqual(schema.properties.objetivo.enum, [...OBJETIVOS_PLANO], "geração e validação usam o mesmo enum");
+  // Todo valor do enum é aceito pela validação; nada fora dele é.
+  for (const objetivo of OBJETIVOS_PLANO) assert.equal(planoSchema.shape.objetivo.safeParse(objetivo).success, true, objetivo);
+  for (const objetivo of ["CONSULTAR:CONTRATO,CLIENTE", "consultar contrato e cliente", "CONSULTAR:CONTRATO:CLIENTE", "CONSULTAR", "", "LER:CONTRATO"]) {
+    assert.equal(planoSchema.shape.objetivo.safeParse(objetivo).success, false, objetivo);
+  }
+  // Provedor que ignore o enum: o plano é rejeitado inteiro (SCHEMA) e NENHUMA leitura acontece (fail-closed).
+  for (const objetivo of ["CONSULTAR:CONTRATO,CLIENTE", "consultar contrato e cliente"]) {
+    const { ultima } = await conversa([{ texto: TEXTO_SMOKE }], comModelo((p) => (p.workload === "PLANEJAR" ? { ...PLANO_DOIS_RECURSOS, objetivo } : { capacidade: "nenhuma", dia: null })));
+    assert.equal(ultima.rastro?.plano?.parada, "REJEITADO:SCHEMA", objetivo);
+    assert.deepEqual(ultima.rastro?.leituras, [], `${objetivo}: nenhuma leitura`);
+    assert.equal(ultima.resposta?.tipo, "nao_suportado");
+  }
+});
+
+test("composição com dois recursos (contrato → cliente) pelo modelo: 4 passos, ids só do Core, trace sem id/nome", async () => {
+  const plano = {
+    objetivo: "CONSULTAR:CLIENTE", recursoFinal: null,
+    passos: [
+      { id: "p1", capacidade: "proximas_festas", parametros: { ordem: "ASC", limite: 2, inicio: null, fim: null, dia: null, incluirCancelados: null }, entradaDe: null, selecao: "PRIMEIRA" },
+      { id: "p2", capacidade: "relacoes_festa", parametros: null, entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" }, selecao: null },
+      { id: "p3", capacidade: "relacoes_contrato", parametros: null, entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" }, selecao: null },
+      { id: "p4", capacidade: "resumir_cliente", parametros: null, entradaDe: { de: "PASSO", passo: "p3", entidade: "CLIENTE" }, selecao: null },
+    ],
+  };
+  const { ultima, amb } = await conversa([{ texto: TEXTO_SMOKE }], comModelo((p) => (p.workload === "PLANEJAR" ? plano : { capacidade: "nenhuma", dia: null })));
+  assert.deepEqual(passos(ultima)?.map(([c, , r]) => [c, r]), [["proximas_festas", "SUCESSO"], ["relacoes_festa", "SUCESSO"], ["relacoes_contrato", "SUCESSO"], ["resumir_cliente", "SUCESSO"]]);
+  assert.equal(dados(ultima.resposta).capacidade, "resumir_cliente");
+  assert.match(dados(ultima.resposta).resumo, /^Ana Oliveira/);
+  const traco = JSON.stringify(ultima.rastro?.plano);
+  for (const proibido of [...Object.values(IDS), "Ana Oliveira", ...PII]) assert.equal(traco.includes(proibido), false, proibido);
+  assert.deepEqual(amb.violacoes.crossTenant, []);
 });
