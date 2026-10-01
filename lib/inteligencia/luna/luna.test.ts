@@ -18,6 +18,39 @@ function saidaLuna(parcial: Omit<Partial<SaidaLuna>, "consumo" | "contratacao"> 
 const CATALOGO = { consultas: [{ id: "proximas_festas", descricao: "x" }, { id: "resumir_festa", descricao: "y" }], acoes: [{ id: "criar_pacote", descricao: "z" }] };
 const entrada = (texto: string, historico: Array<{ pergunta: string; resposta: string }> = []) => ({ texto, historico, ...CATALOGO });
 
+test("Luna (A5, gestão de contexto): outro pedido só conta com trecho literal da mensagem ATUAL; histórico nunca vira pedido novo", () => {
+  const historico = [
+    { pergunta: "crie uma do cliente Felipe para 50 convidados, pacote premium", resposta: "Qual é o nome do aniversariante?" },
+    { pergunta: "antes, quantos docinhos preciso para 60 convidados?", resposta: "Para qual festa?" },
+  ];
+  const doHistorico = { pedido: "calcular docinhos", trecho: "quantos docinhos preciso para 60 convidados" };
+  // Resposta a um campo do rascunho: o pedido antigo do histórico é descartado (e contado para o trace).
+  const resposta = revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { turno: "noite" }, outrosPedidos: [doHistorico] }), entrada("à noite", historico));
+  assert.equal(resposta.outrosPedidos, 0);
+  assert.equal(resposta.outrosDescartados, 1);
+  assert.ok(resposta.descartes.includes("outro_pedido_fora_da_mensagem"));
+  // Correção e retomada também não herdam pedidos antigos.
+  for (const [texto, objetivo] of [["na verdade são 60 convidados", "PREPARAR_CONTRATACAO"], ["vamos voltar para a festa do Felipe", "RETOMAR_RASCUNHO"]] as const) {
+    const e = revalidar(saidaLuna({ objetivo, relacaoRascunho: "CORRIGE", outrosPedidos: [doHistorico, { pedido: "abrir agenda", trecho: "veja a agenda de amanhã" }] }), entrada(texto, historico));
+    assert.equal(e.outrosPedidos, 0, texto);
+    assert.equal(e.outrosDescartados, 2, `${texto}: pedido do histórico e pedido inventado`);
+  }
+  // Pedido realmente novo, escrito NESTA mensagem: conta (pontuação, acento e caixa não importam).
+  const novo = revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { turno: "noite" }, outrosPedidos: [{ pedido: "refrigerantes", trecho: "Quantos refrigerantes para a proxima festa" }] }), entrada("À noite. E quantos refrigerantes para a próxima festa?", historico));
+  assert.equal(novo.outrosPedidos, 1);
+  assert.equal(novo.outrosDescartados, 0);
+  // O trecho não pode ser a mensagem inteira (aí é o pedido principal, não um adicional) nem vazio.
+  const inteiro = revalidar(saidaLuna({ objetivo: "CONSULTA", outrosPedidos: [{ pedido: "x", trecho: "quantos refrigerantes para a próxima festa?" }, { pedido: "y", trecho: " " }] }), entrada("quantos refrigerantes para a próxima festa?"));
+  assert.deepEqual([inteiro.outrosPedidos, inteiro.outrosDescartados], [0, 2]);
+});
+
+test("Luna (A5): a instrução e o schema separam a mensagem atual do histórico e exigem o trecho", () => {
+  const [sistema] = mensagensEntendimento({ texto: "à noite", hoje: "2026-10-01", contexto: null, historico: [], rascunho: null, consumoPendente: null, ...CATALOGO });
+  assert.match(sistema.conteudo, /Pedidos que aparecem no histórico já foram atendidos ou estão em andamento: nunca os conte como pedidos novos/);
+  const itens = ((schemaEntendimento(["x"], ["y"]) as { properties: { outrosPedidos: { items: { required: string[] } } } }).properties.outrosPedidos.items);
+  assert.deepEqual(itens.required, ["pedido", "trecho"]);
+});
+
 test("Luna: caso C — 4 doces, embalagem de 2l e estimativa PEDIDA são aceitos; nada é perguntado de novo", () => {
   const texto = "4 doces por convidados, refrigerante de 2l. Não sei dizer quantos ml por convidados o consumo. faça você a definição.";
   const e = revalidar(saidaLuna({ objetivo: "CALCULO_CONSUMO", festa: "DA_CONVERSA", consumo: { categorias: ["DOCES", "REFRIGERANTES"], docesPorConvidado: 4, embalagemMl: 2000, estimar: ["REFRIGERANTES"], mlEstimado: 350 } }), entrada(texto));

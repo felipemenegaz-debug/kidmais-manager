@@ -46,6 +46,8 @@ export type AdaptativoRastreio = {
   estimativa: boolean;
   correcao: boolean;
   outrosPedidos: number;
+  /** Pedidos adicionais devolvidos pela Luna e descartados por não estarem na mensagem atual (gestão de contexto). */
+  outrosDescartados: number;
   chamadasModelo: number;
   leituras: number;
   redacao: "MODELO" | "DETERMINISTICA" | "NENHUMA";
