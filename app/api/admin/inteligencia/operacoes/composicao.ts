@@ -131,11 +131,13 @@ export function dependenciasPreparacao(request: NextRequest, empresaSolicitada: 
     agora: () => new Date(),
     repositorio: repositorioOperacoesPostgres,
     porta: portaContratacao,
-    async abrir(clienteId, ler) {
+    async noEscopo(clienteId, ler) {
       await exigirApiAdminCrmDisponivel(request);
       try {
+        // Mesma prova do Fechamento administrativo (sessão, tenant, papel, cliente); a leitura roda no tenant comprovado.
         const contexto = await obterContextoFechamentoAdministrativo(clienteId, credencial(), ler);
-        return contexto.preparacao ?? { disponivel: false, motivo: "Preparação não encontrada." };
+        if (!("preparacao" in contexto)) throw new InteligenciaError("PREPARACAO_INVALIDA", "Preparação não encontrada.", 404);
+        return contexto.preparacao as Awaited<ReturnType<typeof ler>>;
       } catch (erro) {
         return recusaDoCore(erro);
       }

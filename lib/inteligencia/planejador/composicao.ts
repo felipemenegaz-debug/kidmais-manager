@@ -1,6 +1,7 @@
 import type { EntidadeRef, RespostaLeitura } from "../contratos.ts";
 import { saidaLeituraSchema } from "../registro-ferramentas.ts";
 import { normalizar } from "../texto-pt.ts";
+import { detectarConsumo } from "../operacional/consumo.ts";
 import type { ParteResposta } from "./executor.ts";
 
 /**
@@ -13,7 +14,7 @@ import type { ParteResposta } from "./executor.ts";
  *   é recusada inteira — nunca truncada, nunca com fato, fonte ou aviso descartado.
  * - Forma de pagamento, contrato assinado ou valor contratado NUNCA cobrem "pago": só a posição financeira oficial.
  */
-export type FatoSolicitado = "CLIENTE" | "SITUACAO_CONTRATO" | "POSICAO_FINANCEIRA" | "CONVIDADOS" | "BUFFET";
+export type FatoSolicitado = "CLIENTE" | "SITUACAO_CONTRATO" | "POSICAO_FINANCEIRA" | "CONVIDADOS" | "BUFFET" | "CONSUMO_DOCES" | "CONSUMO_REFRIGERANTES";
 
 const ROTULO: Readonly<Record<FatoSolicitado, string>> = {
   CLIENTE: "cliente",
@@ -21,6 +22,8 @@ const ROTULO: Readonly<Record<FatoSolicitado, string>> = {
   POSICAO_FINANCEIRA: "posição financeira (pago, saldo, em aberto)",
   CONVIDADOS: "convidados da festa",
   BUFFET: "escolhas do buffet",
+  CONSUMO_DOCES: "quantidade de doces",
+  CONSUMO_REFRIGERANTES: "quantidade de refrigerantes",
 };
 
 const PEDE_CLIENTE = /\b(clientes?|contratante)\b/;
@@ -38,13 +41,19 @@ export function fatosSolicitados(texto: string, operacional = false): FatoSolici
   const n = normalizar(texto);
   const posicao = PEDE_POSICAO.test(n);
   const contrato = /\bcontratos?\b/.test(n);
+  const consumo = operacional ? detectarConsumo(n) : null;
   const situacao = contrato && (PEDE_SITUACAO.test(n) || (/\b(o|os|um) contratos?\b/.test(n) && !posicao));
   return [
     ...(PEDE_CLIENTE.test(n) ? ["CLIENTE" as const] : []),
     ...(situacao ? ["SITUACAO_CONTRATO" as const] : []),
     ...(posicao ? ["POSICAO_FINANCEIRA" as const] : []),
-    ...(operacional && PEDE_CONVIDADOS.test(n) ? ["CONVIDADOS" as const] : []),
-    ...(operacional && PEDE_BUFFET.test(n) ? ["BUFFET" as const] : []),
+    // "por convidado" é a unidade de um parâmetro, não um pedido dos convidados.
+    ...(operacional && PEDE_CONVIDADOS.test(n.replace(/\bpor convidad\w*/g, "")) ? ["CONVIDADOS" as const] : []),
+    // Quantidade de doces/refrigerantes é cálculo (CONSUMO_*); a palavra "doces" numa pergunta de quantidade não pede as
+    // escolhas do buffet, a menos que o pedido cite escolhas/tipos/sabores.
+    ...(operacional && PEDE_BUFFET.test(n) && (!consumo || /(escolhw*|quais|tipos?|sabor(es)?|cardapio|buffet)/.test(n)) ? ["BUFFET" as const] : []),
+    ...(consumo?.categorias.includes("DOCES") ? ["CONSUMO_DOCES" as const] : []),
+    ...(consumo?.categorias.includes("REFRIGERANTES") ? ["CONSUMO_REFRIGERANTES" as const] : []),
   ];
 }
 
@@ -59,11 +68,17 @@ function cobre(fato: FatoSolicitado, p: Pick<ParteResposta, "capacidade" | "dado
   }
   // IA operacional: convidados da versão vigente e escolhas efetivas do buffet vêm da projeção operacional da festa.
   if (fato === "CONVIDADOS") return (p.capacidade === "contexto_operacional_festa" || p.capacidade === "calcular_consumo") && p.dados.estado !== "sem_dados";
+  if (fato === "CONSUMO_DOCES" || fato === "CONSUMO_REFRIGERANTES") return p.capacidade === "calcular_consumo" && categoriaDoCalculo(p.dados) === (fato === "CONSUMO_DOCES" ? "DOCES" : "REFRIGERANTES");
   if (fato === "BUFFET") return p.capacidade === "contexto_operacional_festa" && p.dados.estado !== "sem_dados";
   // Relação com CONTRATO não cobre a situação contratual: só o resumo do contrato.
   if (fato === "SITUACAO_CONTRATO") return p.capacidade === "resumir_contrato";
   // Só a posição financeira OFICIAL (inclusive a ausência explícita de plano financeiro). proxima_parcela não basta.
   return p.capacidade === "saldo_contrato";
+}
+
+/** Categoria do cálculo, pela evidência estruturada da leitura (nunca pelo texto). */
+export function categoriaDoCalculo(d: Pick<RespostaLeitura, "evidencias">): string | null {
+  return d.evidencias.find((e) => e.rotulo === "Categoria do cálculo")?.valor ?? null;
 }
 
 export function faltando(solicitados: readonly FatoSolicitado[], partes: ReadonlyArray<Pick<ParteResposta, "capacidade" | "dados">>): FatoSolicitado[] {

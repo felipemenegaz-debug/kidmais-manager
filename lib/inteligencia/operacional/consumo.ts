@@ -110,7 +110,7 @@ export function extrairParametros(texto: string, categoria: CategoriaConsumo, pe
     return p;
   }
   // REFRIGERANTES: taxa por convidado (com unidade) e embalagem (garrafa/lata/pet/embalagem ou "cada").
-  const taxa = new RegExp(`${NUM}${UNIDADE_VOL}${POR_PESSOA}`).exec(n);
+  const taxa = new RegExp(`${NUM}${UNIDADE_VOL}(?:\\s*de\\s*(?:refrigerantes?|refris?|bebidas?))?${POR_PESSOA}`).exec(n);
   if (taxa) {
     const ml = volumeMl(taxa[1], taxa[2]);
     if (ml && ml >= 1 && ml <= 5000) p.mlPorConvidado = ml;

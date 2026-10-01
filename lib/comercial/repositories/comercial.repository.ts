@@ -300,6 +300,30 @@ export async function buscarPacoteAtivoPorCodigo(
 }
 
 /**
+ * Pacote VIGENTE e ativo da empresa COMPROVADA pelo Tenant Context, pelo código. Substitui, no Fechamento
+ * administrativo, a busca pública por código (que continua recusada sem tenant). Nada aqui escolhe entre empresas:
+ * outra empresa, legado sem empresa, arquivado, inativo ou mais de uma linha (ambiguidade) ⇒ null.
+ */
+export async function buscarPacoteVigenteDaEmpresaPorCodigo(
+  empresaId: string,
+  codigo: string,
+  customDb: DbExecutor,
+): Promise<PacoteRecord | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(empresaId)) recusarCatalogoPublicoSemTenant();
+  const result = await customDb.query<PacoteRow>(
+    `SELECT ${pacoteColumns}
+       FROM pacotes
+      WHERE empresa_id = $1::uuid
+        AND codigo = $2
+        AND vigente
+        AND ativo
+        AND arquivado_em IS NULL`,
+    [empresaId, codigo],
+  );
+  return result.rows.length === 1 && String(result.rows[0].empresa_id ?? "").toLowerCase() === empresaId.toLowerCase() ? mapPacote(result.rows[0]) : null;
+}
+
+/**
  * Retorna a tabela ativa aplicável à data informada.
  * Caso futuramente exista mais de uma tabela ativa por erro/configuração,
  * a de vigência mais recente prevalece de forma determinística.

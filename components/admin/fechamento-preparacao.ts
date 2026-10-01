@@ -65,3 +65,83 @@ export function formularioPreparado(base: FechamentoAdministrativoInput, p: Extr
         horarioDesejado: c.horarioDesejado,
     };
 }
+
+// ---------------------------------------------------------------- envio com a preparação e reconciliação
+
+type RespostaHttp = { ok: boolean; status: number; json(): Promise<unknown> };
+export type Buscador = (url: string, init: { method: 'POST'; headers: Record<string, string>; body: string }) => Promise<RespostaHttp>;
+export type ResultadoFechamento = { fechamentoId: string; status: string };
+
+/**
+ * Desfecho de um envio pela preparação. A regra: depois de um resultado INCERTO (rede caiu, resposta perdida, 5xx,
+ * conflito de concorrência), nenhuma nova criação é permitida antes de reconciliar com o servidor.
+ * - CRIADO: o Fechamento existe (inclusive quando só a reconciliação o confirmou);
+ * - RECUSADO: recusa definitiva, nada foi criado (a transação do Core foi desfeita);
+ * - NAO_CRIADO: incerto, mas a reconciliação confirmou que nada foi criado: pode enviar de novo;
+ * - INCERTO: não foi possível reconciliar: bloqueia novas tentativas até verificar de novo;
+ * - SESSAO: sessão expirada.
+ */
+export type DesfechoEnvio =
+    | { tipo: 'CRIADO'; data: ResultadoFechamento; reconciliado: boolean }
+    | { tipo: 'RECUSADO'; erro: string; codigo: string | null; daPreparacao: boolean }
+    | { tipo: 'NAO_CRIADO'; erro: string }
+    | { tipo: 'INCERTO'; erro: string }
+    | { tipo: 'SESSAO' };
+
+const MENSAGEM_INCERTO = 'Não foi possível confirmar se o Fechamento foi criado. Verifique de novo antes de enviar outra vez.';
+const INCERTOS = new Set(['PREPARACAO_CONCORRENTE', 'PREPARACAO_FALHOU']);
+
+async function postar(buscar: Buscador, corpo: object) {
+    return buscar(ENDPOINT_PREPARACOES, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+}
+
+function resultadoValido(d: unknown): ResultadoFechamento | null {
+    const x = d as Partial<ResultadoFechamento> | null;
+    return x && typeof x.fechamentoId === 'string' && typeof x.status === 'string' ? { fechamentoId: x.fechamentoId, status: x.status } : null;
+}
+
+/** Pergunta ao servidor (somente leitura) se a preparação já virou Fechamento. */
+export async function reconciliar(buscar: Buscador, clienteId: string, operacaoId: string): Promise<DesfechoEnvio> {
+    try {
+        const r = await postar(buscar, { acao: 'situacao', clienteId, operacaoId });
+        if (r.status === 401) return { tipo: 'SESSAO' };
+        const body = await r.json() as { ok?: boolean; data?: { estado?: string; resultado?: unknown } };
+        if (!r.ok || !body?.ok || !body.data) return { tipo: 'INCERTO', erro: MENSAGEM_INCERTO };
+        if (body.data.estado === 'CONSUMIDA') {
+            const data = resultadoValido(body.data.resultado);
+            return data ? { tipo: 'CRIADO', data, reconciliado: true } : { tipo: 'INCERTO', erro: MENSAGEM_INCERTO };
+        }
+        if (body.data.estado === 'ABERTA') return { tipo: 'NAO_CRIADO', erro: 'O envio não foi confirmado e nada foi criado. Você pode enviar de novo.' };
+        return { tipo: 'RECUSADO', erro: 'A preparação foi encerrada. Recarregue o formulário sem ela.', codigo: 'PREPARACAO_ENCERRADA', daPreparacao: true };
+    } catch {
+        return { tipo: 'INCERTO', erro: MENSAGEM_INCERTO };
+    }
+}
+
+/**
+ * Envio oficial pela preparação (com as conferências da prévia) ou "sem a preparação" (só o formulário oficial). Os dois
+ * usam a MESMA operação como âncora: alternar caminhos, repetir ou outra aba nunca criam um segundo Fechamento.
+ */
+export async function enviarPreparado(buscar: Buscador, entrada: { clienteId: string; referencia: ReferenciaPreparacao; formulario: object; semPreparacao: boolean }): Promise<DesfechoEnvio> {
+    const corpo = entrada.semPreparacao
+        ? { acao: 'concluir_sem_preparacao', clienteId: entrada.clienteId, operacaoId: entrada.referencia.operacaoId, formulario: entrada.formulario }
+        : { acao: 'concluir', clienteId: entrada.clienteId, referencia: entrada.referencia, formulario: entrada.formulario };
+    let r: RespostaHttp;
+    try {
+        r = await postar(buscar, corpo);
+    } catch {
+        return reconciliar(buscar, entrada.clienteId, entrada.referencia.operacaoId);
+    }
+    if (r.status === 401) return { tipo: 'SESSAO' };
+    type Corpo = { ok?: boolean; data?: unknown; erro?: unknown; codigo?: unknown };
+    let body: Corpo | null;
+    try { body = await r.json() as Corpo | null; } catch { body = null; }
+    const codigo = typeof body?.codigo === 'string' ? body.codigo : null;
+    if (r.ok && body?.ok) {
+        const data = resultadoValido(body.data);
+        if (data) return { tipo: 'CRIADO', data, reconciliado: false };
+    }
+    // Sem corpo legível, 5xx ou conflito: o servidor pode ter gravado ⇒ reconciliar ANTES de qualquer nova tentativa.
+    if (!body || r.status >= 500 || (codigo && INCERTOS.has(codigo)) || (r.ok && body?.ok)) return reconciliar(buscar, entrada.clienteId, entrada.referencia.operacaoId);
+    return { tipo: 'RECUSADO', erro: typeof body.erro === 'string' ? body.erro : 'Não foi possível concluir o Fechamento.', codigo, daPreparacao: Boolean(codigo?.startsWith('PREPARACAO_')) };
+}

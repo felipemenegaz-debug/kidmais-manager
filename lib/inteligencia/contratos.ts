@@ -172,6 +172,11 @@ export type PlanoRastreio = {
    * ou o motivo de não ter sido possível completar com segurança (códigos). null quando nada faltava.
    */
   complemento: { adicionados: string[]; marcados: string[]; impossivel: string | null } | null;
+  /**
+   * IA operacional: complementos DEPOIS da execução — fatos pedidos que os resultados não cobriram, buscados com a âncora
+   * devolvida pelo Core (capacidades lidas, rodadas e por que parou; só códigos). Ausente fora da IA operacional.
+   */
+  aposExecucao?: { leituras: string[]; rodadas: number; parada: string | null };
   duracaoMs: number;
   usoModelo: boolean;
 };

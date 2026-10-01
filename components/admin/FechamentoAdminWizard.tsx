@@ -11,7 +11,7 @@ import { erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import type { DisponibilidadeDataPublica } from '@/lib/disponibilidade/services/models';
 import CalendarioDisponibilidade from '@/components/fechamento/CalendarioDisponibilidade';
 import { PACOTES_FECHAMENTO_V1 } from '@/components/fechamento/data';
-import { ENDPOINT_PREPARACOES, formularioPreparado, preparacaoValida, type PreparacaoAplicada } from './fechamento-preparacao';
+import { ENDPOINT_PREPARACOES, enviarPreparado, formularioPreparado, preparacaoValida, reconciliar, type Buscador, type DesfechoEnvio, type PreparacaoAplicada } from './fechamento-preparacao';
 import styles from '@/components/fechamento/FechamentoWizard.module.css';
 
 type Contexto = Awaited<ReturnType<typeof obterContextoFechamentoAdministrativo>>;
@@ -46,6 +46,8 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     const [semPreparacao, setSemPreparacao] = useState(false);
     const [erroPreparacao, setErroPreparacao] = useState(false);
     const [avisoPreparacao, setAvisoPreparacao] = useState('');
+    /** Resultado incerto ainda não reconciliado: nenhuma nova criação até o servidor confirmar o que aconteceu. */
+    const [incerto, setIncerto] = useState(false);
 
     useEffect(() => {
         let ativo = true;
@@ -121,7 +123,8 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     }
     async function concluir(event: FormEvent) {
         event.preventDefault();
-        if (envioEmCurso.current || resultado) return;
+        // Incerto: só "Verificar de novo" (reconciliação) libera outra tentativa.
+        if (envioEmCurso.current || resultado || incerto) return;
         envioEmCurso.current = true;
         setEnviando(true);
         setErro('');
@@ -132,20 +135,35 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
             if (mensagem) throw Error(mensagem);
             const parsed = fechamentoAdministrativoSchema.safeParse(form);
             if (!parsed.success) throw Error('Confira os campos obrigatórios, horário e condição de pagamento.');
-            // Com a preparação: o MESMO envio oficial, pela rota da IA, que a confere e consome na transação da criação.
-            const usarPreparacao = preparacao && !semPreparacao;
-            const response = usarPreparacao
-                ? await adminFetch(ENDPOINT_PREPARACOES, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'concluir', clienteId, referencia: preparacao.referencia, formulario: parsed.data }) })
-                : await adminFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(parsed.data) });
+            // Com a preparação (com ou sem as conferências dela): o MESMO envio oficial pela rota da IA, sempre com a
+            // operação como âncora; resultado incerto é reconciliado antes de qualquer nova tentativa.
+            if (preparacao) {
+                aplicarDesfecho(await enviarPreparado(adminFetch as unknown as Buscador, { clienteId, referencia: preparacao.referencia, formulario: parsed.data, semPreparacao }));
+                return;
+            }
+            const response = await adminFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(parsed.data) });
             const body = await response.json();
             if (response.status === 401) {
                 router.replace('/admin/login');
                 throw Error('Sessão expirada. Faça login novamente.');
             }
-            if (usarPreparacao && typeof body.codigo === 'string' && body.codigo.startsWith('PREPARACAO_')) setErroPreparacao(true);
             if (!response.ok || !body.ok) throw Error(body.erro ?? 'Não foi possível concluir o Fechamento.');
             setResultado(body.data);
         } catch (error) { setErro(error instanceof Error ? error.message : 'Não foi possível concluir.'); }
+        finally { envioEmCurso.current = false; setEnviando(false); }
+    }
+
+    function aplicarDesfecho(d: DesfechoEnvio) {
+        setIncerto(d.tipo === 'INCERTO');
+        if (d.tipo === 'CRIADO') return setResultado(d.data);
+        if (d.tipo === 'SESSAO') { router.replace('/admin/login'); return setErro('Sessão expirada. Faça login novamente.'); }
+        if (d.tipo === 'RECUSADO' && d.daPreparacao) setErroPreparacao(true);
+        setErro(d.erro);
+    }
+    async function verificarDeNovo() {
+        if (!preparacao || envioEmCurso.current) return;
+        envioEmCurso.current = true; setEnviando(true);
+        try { aplicarDesfecho(await reconciliar(adminFetch as unknown as Buscador, clienteId, preparacao.referencia.operacaoId)); }
         finally { envioEmCurso.current = false; setEnviando(false); }
     }
 
@@ -162,7 +180,8 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         {preparacao && !semPreparacao && <section aria-label="Preparado pelo Kidmais">
             <p>Preparado pelo Kidmais. Confira, complete e conclua: nada foi gravado até você concluir.</p>
             {preparacao.pendencias.length > 0 && <ul>{preparacao.pendencias.map(p => <li key={p}>{p}</li>)}</ul>}
-            {erroPreparacao && <button type="button" onClick={() => { setSemPreparacao(true); setErroPreparacao(false); setErro(''); }}>Enviar sem a preparação do Kidmais</button>}
+            {erroPreparacao && !incerto && !semPreparacao && <button type="button" onClick={() => { setSemPreparacao(true); setErroPreparacao(false); setErro(''); }}>Enviar sem a preparação do Kidmais</button>}
+            {incerto && <button type="button" onClick={() => void verificarDeNovo()}>Verificar de novo</button>}
         </section>}
         <form onSubmit={concluir}>
             <fieldset disabled={enviando} style={{ border: 0, padding: 0 }}>
@@ -192,7 +211,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 <label className={styles.field}>Forma de pagamento pretendida<select value={form.formaPagamento} onChange={e => setForm(atual => ({ ...atual, formaPagamento: e.target.value as typeof form.formaPagamento, condicaoPixPretendida: null }))}><option value="pix_avista">PIX à vista</option><option value="pix_parcelado">PIX parcelado</option><option value="cartao_cielo">Cartão Cielo</option></select></label>
                 {form.formaPagamento === 'pix_parcelado' && (['entrada', 'valorParcela', 'quantidadeParcelas'] as const).map((key, i) => <label className={styles.field} key={key}>{['Entrada pretendida (R$)', 'Parcela pretendida (R$)', 'Quantidade pretendida'][i]}<input inputMode={key === 'quantidadeParcelas' ? 'numeric' : 'decimal'} value={form.condicaoPixPretendida?.[key] ?? ''} onChange={e => campo('condicaoPixPretendida', { ...form.condicaoPixPretendida, [key]: e.target.value === '' ? null : key === 'quantidadeParcelas' ? Number(e.target.value) : e.target.value.replace(',', '.') })} /></label>)}
                 <p>Confira os dados antes de concluir. Os preços serão calculados pelo servidor; negociação e PIX parcelado seguem para revisão comercial quando exigido.</p>
-                <button type="submit">{enviando ? 'Concluindo…' : 'Concluir Fechamento'}</button>
+                <button type="submit" disabled={incerto}>{enviando ? 'Concluindo…' : 'Concluir Fechamento'}</button>
             </fieldset>
         </form>
     </main>;

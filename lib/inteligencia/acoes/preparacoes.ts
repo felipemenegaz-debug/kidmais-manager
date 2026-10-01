@@ -4,7 +4,7 @@ import { grupoAtivo, inteligenciaAtiva, operacionalAtivo, type Ambiente } from "
 import { InteligenciaError } from "../politica.ts";
 import { novoRastreio, type RastreioInteligencia } from "../rastreio.ts";
 import { CAPACIDADE_CONTRATACAO, type PortaContratacao } from "./contratacao.ts";
-import { criarVinculo, lerPreparacao, type PreparacaoRevisao, type ResultadoCriacao, type VinculoPreparacao } from "./contratacao-revisao.ts";
+import { criarVinculo, lerPreparacao, situacaoPreparacao, type ResultadoCriacao, type VinculoPreparacao } from "./contratacao-revisao.ts";
 import type { RepositorioOperacoes } from "./tipos.ts";
 
 /**
@@ -19,7 +19,11 @@ import type { RepositorioOperacoes } from "./tipos.ts";
 const referencia = z.object({ operacaoId: z.string().uuid(), versao: z.number().int().min(1).max(10_000), payloadHash: z.string().regex(/^[0-9a-f]{64}$/) }).strict();
 const pedidoSchema = z.discriminatedUnion("acao", [
   z.object({ acao: z.literal("abrir"), clienteId: z.string().uuid(), operacaoId: z.string().uuid() }).strict(),
+  /** Reconciliação depois de um envio com resultado incerto: só leitura. */
+  z.object({ acao: z.literal("situacao"), clienteId: z.string().uuid(), operacaoId: z.string().uuid() }).strict(),
   z.object({ acao: z.literal("concluir"), clienteId: z.string().uuid(), referencia, formulario: z.record(z.string(), z.unknown()) }).strict(),
+  /** "Enviar sem a preparação": formulário oficial sem as conferências da prévia, mesma operação como âncora. */
+  z.object({ acao: z.literal("concluir_sem_preparacao"), clienteId: z.string().uuid(), operacaoId: z.string().uuid(), formulario: z.record(z.string(), z.unknown()) }).strict(),
 ]);
 
 export type DependenciasPreparacao = {
@@ -29,8 +33,8 @@ export type DependenciasPreparacao = {
   agora(): Date;
   repositorio: RepositorioOperacoes;
   porta: Pick<PortaContratacao, "pacote" | "horarios" | "precoTabela">;
-  /** Contexto do Fechamento administrativo (sessão, tenant e papel provados pelo Core) + leitura da preparação no mesmo tenant. */
-  abrir(clienteId: string, ler: (tx: DbExecutor, escopo: { empresaId: string; usuarioId: string; clienteId: string }) => Promise<PreparacaoRevisao>): Promise<PreparacaoRevisao>;
+  /** Sessão, tenant, papel e cliente provados pelo Core (Fechamento administrativo); a leitura roda no mesmo tenant. */
+  noEscopo<T>(clienteId: string, ler: (tx: DbExecutor, escopo: { empresaId: string; usuarioId: string; clienteId: string }) => Promise<T>): Promise<T>;
   /** Criação OFICIAL do Fechamento administrativo com o vínculo (mesma transação). */
   concluir(clienteId: string, formulario: Record<string, unknown>, vinculo: VinculoPreparacao): Promise<ResultadoCriacao>;
 };
@@ -57,12 +61,20 @@ export async function atenderPreparacao(lerCorpo: () => Promise<unknown>, deps: 
     }
     if (pedido.acao === "abrir") {
       const operacaoId = pedido.operacaoId.toLowerCase();
-      const data = await deps.abrir(pedido.clienteId.toLowerCase(), (tx, escopo) => lerPreparacao(deps.repositorio, tx, operacaoId, { ...escopo, agora: deps.agora() }));
+      const data = await deps.noEscopo(pedido.clienteId.toLowerCase(), (tx, escopo) => lerPreparacao(deps.repositorio, tx, operacaoId, { ...escopo, agora: deps.agora() }));
       rastreio.estado = data.disponivel ? "preparacao_aberta" : "preparacao_indisponivel";
       rastreio.humanGate = "PREVIEW";
       return { status: 200, corpo: { ok: true, data } };
     }
-    const vinculo = criarVinculo(deps.repositorio, deps.porta, { ...pedido.referencia, operacaoId: pedido.referencia.operacaoId.toLowerCase() }, deps.agora);
+    if (pedido.acao === "situacao") {
+      const operacaoId = pedido.operacaoId.toLowerCase();
+      const data = await deps.noEscopo(pedido.clienteId.toLowerCase(), (tx, escopo) => situacaoPreparacao(deps.repositorio, tx, operacaoId, { ...escopo, agora: deps.agora() }));
+      rastreio.estado = `reconciliacao_${data.estado.toLowerCase()}`;
+      return { status: 200, corpo: { ok: true, data } };
+    }
+    const vinculo = pedido.acao === "concluir"
+      ? criarVinculo(deps.repositorio, deps.porta, { ...pedido.referencia, operacaoId: pedido.referencia.operacaoId.toLowerCase() }, deps.agora, "PREPARACAO")
+      : criarVinculo(deps.repositorio, deps.porta, { operacaoId: pedido.operacaoId.toLowerCase() }, deps.agora, "SEM_PREPARACAO");
     const data = await deps.concluir(pedido.clienteId.toLowerCase(), pedido.formulario, vinculo);
     rastreio.humanGate = "CONFIRMADO";
     rastreio.estado = "executada";

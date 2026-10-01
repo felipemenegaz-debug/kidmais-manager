@@ -78,11 +78,23 @@ export type VinculoPreparacao = {
 };
 
 /**
- * Vínculo do envio oficial com a preparação. `validar` roda ANTES da criação e `concluir` DEPOIS, na mesma transação do
- * serviço de domínio (qualquer falha desfaz a criação inteira). Valor de tabela diferente do visto na preparação (para o
- * mesmo pacote, convidados, data e turno) ⇒ recusa e nova revisão; nunca grava em cima de uma prévia desatualizada.
+ * Modo do envio oficial com a preparação como ÂNCORA de idempotência:
+ * - PREPARACAO: o envio aprova a prévia vista (versão + hash + prazo + valor de tabela conferidos);
+ * - SEM_PREPARACAO: "Enviar sem a preparação" — o formulário oficial é a única verdade (as conferências da prévia não
+ *   se aplicam), mas a MESMA operação continua sendo a âncora: alternar caminhos, repetir, outra aba ou resposta perdida
+ *   nunca criam um segundo Fechamento.
  */
-export function criarVinculo(repositorio: RepositorioOperacoes, porta: Pick<PortaContratacao, "pacote" | "horarios" | "precoTabela">, ref: ReferenciaPreparacao, agora: () => Date): VinculoPreparacao {
+export type ModoEnvio = "PREPARACAO" | "SEM_PREPARACAO";
+
+/**
+ * Vínculo do envio oficial com a preparação. `validar` roda ANTES da criação e `concluir` DEPOIS, na mesma transação do
+ * serviço de domínio (qualquer falha desfaz a criação inteira). A operação é travada (FOR UPDATE): envios concorrentes da
+ * mesma preparação se serializam e o segundo encontra EXECUTADA ⇒ devolve o Fechamento já criado, em qualquer modo.
+ */
+export function criarVinculo(
+  repositorio: RepositorioOperacoes, porta: Pick<PortaContratacao, "pacote" | "horarios" | "precoTabela">,
+  ref: { operacaoId: string; versao?: number; payloadHash?: string }, agora: () => Date, modo: ModoEnvio = "PREPARACAO",
+): VinculoPreparacao {
   let travado: HumanGateDraft | null = null;
   return {
     async validar(tx, ctx) {
@@ -90,14 +102,21 @@ export function criarVinculo(repositorio: RepositorioOperacoes, porta: Pick<Port
       const conferido = conferir(await repositorio.buscar(tx, { operacaoId: ref.operacaoId, empresaId: ctx.empresaId, usuarioId: ctx.usuarioId }, true), escopo);
       if (typeof conferido === "string") throw new InteligenciaError("PREPARACAO_INVALIDA", conferido, 404);
       const { draft, payload } = conferido;
+      // Já virou Fechamento (clique duplo, retry após resposta perdida, outra aba, outro modo): devolve o mesmo.
+      if (draft.estado === "EXECUTADA") {
+        const r = resultadoGravado(draft, ctx.clienteId);
+        if (!r) throw new InteligenciaError("PREPARACAO_INVALIDA", "Preparação já encerrada.", 409);
+        return { repetido: r };
+      }
+      if (modo === "SEM_PREPARACAO") {
+        if (draft.estado !== "AGUARDANDO_CONFIRMACAO" && draft.estado !== "COLETANDO") {
+          throw new InteligenciaError("PREPARACAO_ENCERRADA", "Esta preparação foi encerrada. Recarregue o formulário sem ela.", 409);
+        }
+        travado = draft;
+        return { repetido: null };
+      }
       if (draft.versao !== ref.versao || draft.payloadHash !== ref.payloadHash || !integra(draft)) {
         throw new InteligenciaError("PREPARACAO_DESATUALIZADA", "A preparação mudou depois que esta revisão foi aberta. Recarregue a revisão.", 409);
-      }
-      // Reenvio (clique duplo, retry, outra aba): devolve o Fechamento já criado por esta preparação.
-      if (draft.estado === "EXECUTADA") {
-        const r = draft.resultado as Partial<ResultadoCriacao> & { entidadeId?: string } | null;
-        if (!r?.entidadeId || !r.status) throw new InteligenciaError("PREPARACAO_INVALIDA", "Preparação já encerrada.", 409);
-        return { repetido: { fechamentoId: r.entidadeId, status: r.status, clienteId: ctx.clienteId } };
       }
       if (draft.estado !== "AGUARDANDO_CONFIRMACAO") throw new InteligenciaError("PREPARACAO_ENCERRADA", "Esta preparação foi encerrada. Envie sem ela ou peça uma nova ao Kidmais.", 409);
       if (Date.parse(draft.expiraEm) <= escopo.agora.getTime()) throw new InteligenciaError("PREPARACAO_EXPIRADA", "A preparação expirou. Envie sem ela ou peça uma nova ao Kidmais.", 409);
@@ -117,11 +136,43 @@ export function criarVinculo(repositorio: RepositorioOperacoes, porta: Pick<Port
       if (!travado) throw new InteligenciaError("PREPARACAO_INVALIDA", "Preparação não conferida.", 409);
       const executada: HumanGateDraft = {
         ...travado, estado: "EXECUTADA", atualizadoEm: agora().toISOString(),
-        resultado: { entidadeId: resultado.fechamentoId, status: resultado.status, mensagem: "Fechamento criado pela revisão oficial.", destino: `/clientes/${resultado.clienteId}?tab=eventos` },
+        resultado: {
+          entidadeId: resultado.fechamentoId, status: resultado.status, modo,
+          mensagem: modo === "PREPARACAO" ? "Fechamento criado pela revisão oficial." : "Fechamento criado pelo formulário oficial, sem as conferências da preparação.",
+          destino: `/clientes/${resultado.clienteId}?tab=eventos`,
+        },
       };
-      if (!await repositorio.atualizar(tx, executada, { versao: travado.versao, estado: "AGUARDANDO_CONFIRMACAO" })) {
+      // Compare-and-set no estado TRAVADO: nada muda no meio; falhou ⇒ a transação desfaz a criação.
+      if (!await repositorio.atualizar(tx, executada, { versao: travado.versao, estado: travado.estado })) {
         throw new InteligenciaError("PREPARACAO_CONCORRENTE", "A preparação mudou durante o envio. Nenhuma alteração foi feita.", 409);
       }
     },
   };
+}
+
+function resultadoGravado(draft: HumanGateDraft, clienteId: string): ResultadoCriacao | null {
+  const r = draft.resultado as { entidadeId?: unknown; status?: unknown } | null;
+  return typeof r?.entidadeId === "string" && typeof r.status === "string" ? { fechamentoId: r.entidadeId, status: r.status, clienteId } : null;
+}
+
+export type SituacaoPreparacao =
+  | { estado: "CONSUMIDA"; resultado: ResultadoCriacao }
+  | { estado: "ABERTA" }
+  | { estado: "ENCERRADA" }
+  | { estado: "INEXISTENTE" };
+
+/**
+ * RECONCILIAÇÃO (somente leitura): depois de um envio com resultado incerto (resposta perdida, erro de rede, 5xx), diz se
+ * a preparação já virou Fechamento. A UI só permite outra tentativa depois desta resposta.
+ */
+export async function situacaoPreparacao(repositorio: RepositorioOperacoes, tx: DbExecutor, operacaoId: string, escopo: Escopo): Promise<SituacaoPreparacao> {
+  if (!await repositorio.disponivel(tx)) return { estado: "INEXISTENTE" };
+  const conferido = conferir(await repositorio.buscar(tx, { operacaoId, empresaId: escopo.empresaId, usuarioId: escopo.usuarioId }, false), escopo);
+  if (typeof conferido === "string") return { estado: "INEXISTENTE" };
+  const { draft } = conferido;
+  if (draft.estado === "EXECUTADA") {
+    const r = resultadoGravado(draft, escopo.clienteId);
+    return r ? { estado: "CONSUMIDA", resultado: r } : { estado: "ENCERRADA" };
+  }
+  return draft.estado === "AGUARDANDO_CONFIRMACAO" || draft.estado === "COLETANDO" ? { estado: "ABERTA" } : { estado: "ENCERRADA" };
 }

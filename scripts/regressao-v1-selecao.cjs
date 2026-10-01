@@ -44,6 +44,7 @@ function listarTestesPostgres(raiz) {
 const ESTADO_POSTGRES = {
   "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/hg4-escopo.postgres.test.ts": { descartavel: "atual" },
+  "lib/comercial/pacote-empresa.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/integridade-fechamento-053.postgres.test.ts": { descartavel: "052" },
   "lib/comercial/pacotes-v1-remediacao.postgres.test.ts": { descartavel: "039", rollback: "atual" },
   "lib/comercial/round4-remediacao.postgres.test.ts": { descartavel: "atual" },

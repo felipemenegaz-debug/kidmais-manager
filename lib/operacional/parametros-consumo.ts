@@ -19,9 +19,13 @@ export type ParametroConsumo = {
 };
 
 export class ParametroConsumoError extends Error {
-  constructor(readonly code: "FONTE_INDISPONIVEL" | "VERSAO_DIVERGENTE" | "DADOS_INVALIDOS", message: string, readonly status = 409) {
+  readonly code: "FONTE_INDISPONIVEL" | "VERSAO_DIVERGENTE" | "DADOS_INVALIDOS";
+  readonly status: number;
+  constructor(code: ParametroConsumoError["code"], message: string, status = 409) {
     super(message);
     this.name = "ParametroConsumoError";
+    this.code = code;
+    this.status = status;
   }
 }
 

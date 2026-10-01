@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Fato, RespostaLeitura } from "../contratos.ts";
 import type { ContextoFerramenta, Ferramenta, RegraConsumoDominio } from "../ferramentas.ts";
 import { CATEGORIAS_CONSUMO, calcularDoces, calcularRefrigerantes, formatar, litros, type CategoriaConsumo, type DistribuicaoInformada } from "../operacional/consumo.ts";
-import { PAPEIS_ADMIN, UUID, ausencia, calculo, comEntidade, dataCurta, fato, montarResposta } from "./comum.ts";
+import { PAPEIS_ADMIN, UUID, ausencia, calculo, comEntidade, dataCurta, evidencia, fato, montarResposta } from "./comum.ts";
 
 /**
  * IA operacional (marco B): `contexto_operacional_festa` e `calcular_consumo`.
@@ -23,6 +23,10 @@ const FONTE_INFORMADO = "operador.informado";
 const FONTE_CALCULO = "operacional.calculo";
 /** Marca de "falta parâmetro": a conversa devolve à UI a continuação da pergunta (dica, revalidada no servidor). */
 export const FONTE_PARAMETRO_AUSENTE = "operacional.parametro_ausente";
+
+/** Rótulos das evidências estruturadas do cálculo (categoria e parâmetro pendente). */
+export const ROTULO_CATEGORIA = "Categoria do cálculo";
+export const ROTULO_PENDENTE = "Parâmetro pendente";
 
 export const PERGUNTA_DOCES = "Quantos docinhos por convidado a empresa utiliza?";
 export const PERGUNTA_TAXA_REFRIGERANTE = "Quantos mL de refrigerante por convidado a empresa considera?";
@@ -227,7 +231,13 @@ export const calcularConsumo: Ferramenta<RespostaLeitura> = {
       if (regraEmpresa) fatos.push(descreverRegra(regraEmpresa, p.categoria));
       if (regraOperador) fatos.push(descreverRegra(regraOperador, p.categoria));
 
+      // Evidências estruturadas (só códigos): a categoria calculada e o parâmetro que falta — a composição e a continuação
+      // leem daqui, nunca do texto.
       const resposta = (estado: RespostaLeitura["estado"], resumo: string, extras: Fato[]) => montarResposta("calcular_consumo", contexto, {
+        evidencias: [
+          evidencia(FONTE_CALCULO, ROTULO_CATEGORIA, p.categoria),
+          ...(extras.some((f) => f.fonte === FONTE_PARAMETRO_AUSENTE) ? [evidencia(FONTE_PARAMETRO_AUSENTE, ROTULO_PENDENTE, `${p.categoria}:${p.categoria === "DOCES" ? "POR_CONVIDADO" : mlPorConvidado ? "EMBALAGEM" : "ML_POR_CONVIDADO"}`)] : []),
+        ],
         estado, resumo, fatos: [...fatos, ...extras], fontes: [FONTE, FONTE_VIGENTE, FONTE_BUFFET, ...(regraEmpresa ? [FONTE_REGRA] : []), ...(regraOperador ? [FONTE_INFORMADO] : []), FONTE_CALCULO], entidades: entidade(c),
       });
       if (!c.convidados) return resposta("sem_dados", "Não consigo calcular: o contrato vigente não informa o número de convidados.", []);

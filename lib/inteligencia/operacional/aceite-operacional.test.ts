@@ -9,6 +9,8 @@ import { atenderOperacao } from "../acoes/operacoes.ts";
 import { criarAcoesPacote, type PortaPacotes } from "../acoes/pacotes.ts";
 import { criarAcaoParametroConsumo, type PortaParametrosAcao, type RegraVigente } from "../acoes/parametros-consumo.ts";
 import { atenderPreparacao, type DependenciasPreparacao } from "../acoes/preparacoes.ts";
+import type { VinculoPreparacao } from "../acoes/contratacao-revisao.ts";
+import { enviarPreparado, reconciliar, type Buscador } from "../../../components/admin/fechamento-preparacao.ts";
 import { acoesNegadas } from "../acoes/registro.ts";
 import type { AIResponse, HumanGateDraft, RespostaLeitura } from "../contratos.ts";
 import { atenderConversa } from "../conversa.ts";
@@ -479,22 +481,47 @@ async function preparada(o: Opcoes = {}) {
   const op = a.operacaoAtual()!;
   assert.equal(a.linha(op).estado, "AGUARDANDO_CONFIRMACAO");
   const criacoes: ResultadoCriacao[] = [];
-  /** Criação oficial falsa: o MESMO contrato do serviço (validar ⇒ criar ⇒ concluir), contada. */
+  // Trava da linha da operação (FOR UPDATE do PostgreSQL): segura do validar ao commit. `semTrava` simula o pior caso.
+  let fila: Promise<unknown> = Promise.resolve();
+  const opcoes = { semTrava: false };
+  /**
+   * Criação oficial falsa com o MESMO contrato do serviço: validar ⇒ criar ⇒ concluir dentro de UMA transação; a criação só
+   * é confirmada (commit) se o vínculo concluir — senão é desfeita, como no Core.
+   */
+  const transacao = async (clienteId: string, formulario: Record<string, unknown>, vinculo: VinculoPreparacao): Promise<ResultadoCriacao> => {
+    const escopo = { empresaId: EMPRESA_A, usuarioId: a.linha(op).usuarioId, clienteId };
+    const v = await vinculo.validar({} as never, { ...escopo, input: formulario as never });
+    if (v.repetido) return v.repetido;
+    await new Promise((ok) => setTimeout(ok, 5));
+    const r = { fechamentoId: `fech-${criacoes.length + 1}`, status: "RASCUNHO", clienteId };
+    await vinculo.concluir({} as never, r);
+    criacoes.push(r);
+    a.efeitos.fechamentos.push(r.fechamentoId);
+    return r;
+  };
   const depsPreparacao = (agora = () => a.relogio.agora): DependenciasPreparacao => ({
     env: a.amb.deps.env, requestId: () => "req", registrar: () => {}, agora, repositorio: a.repositorio, porta: a.contratacao,
-    abrir: (clienteId, ler) => ler({} as never, { empresaId: EMPRESA_A, usuarioId: a.linha(op).usuarioId, clienteId }),
+    noEscopo: (clienteId, ler) => ler({} as never, { empresaId: EMPRESA_A, usuarioId: a.linha(op).usuarioId, clienteId }),
     async concluir(clienteId, formulario, vinculo) {
-      const escopo = { empresaId: EMPRESA_A, usuarioId: a.linha(op).usuarioId, clienteId };
-      const v = await vinculo.validar({} as never, { ...escopo, input: formulario as never });
-      if (v.repetido) return v.repetido;
-      const r = { fechamentoId: `fech-${criacoes.length + 1}`, status: "RASCUNHO", clienteId };
-      criacoes.push(r);
-      a.efeitos.fechamentos.push(r.fechamentoId);
-      await vinculo.concluir({} as never, r);
+      const executar = () => transacao(clienteId, formulario, vinculo);
+      const r = opcoes.semTrava ? executar() : (fila = fila.then(executar, executar)) as Promise<ResultadoCriacao>;
       return r;
     },
   });
-  return { a, op, criacoes, depsPreparacao };
+  /** Navegador falso: o wizard fala com a rota da preparação; `perderResposta` derruba a próxima resposta de "concluir". */
+  const rede = { perderProximaResposta: false, situacaoFora: false };
+  const buscar: Buscador = async (_url, init) => {
+    const corpo = JSON.parse(init.body) as { acao: string };
+    if (corpo.acao === "situacao" && rede.situacaoFora) throw new Error("offline");
+    const r = await atenderPreparacao(async () => corpo, depsPreparacao());
+    if (corpo.acao.startsWith("concluir") && rede.perderProximaResposta) {
+      rede.perderProximaResposta = false;
+      throw new Error("resposta perdida");
+    }
+    return { ok: r.status < 300, status: r.status, json: async () => r.corpo };
+  };
+  const referencia = () => ({ operacaoId: op, versao: a.linha(op).versao, payloadHash: a.linha(op).payloadHash });
+  return { a, op, criacoes, depsPreparacao, opcoes, rede, buscar, referencia };
 }
 
 const formulario = { pacote: "premium", convidadosPagantes: 50, dataFesta: "2026-11-15", horarioBase: "noite" };
@@ -633,4 +660,188 @@ test("aceite — MODELO indisponível para frase nova: resposta honesta, nada in
   assert.notEqual(r.data?.tipo, "resposta");
   assert.equal(JSON.stringify(r.corpo).includes("50"), false);
   assert.equal([...a.repositorio.linhas.values()].length, 0);
+});
+
+// ---------------------------------------------------------------- envio: resultado incerto, alternância de caminhos, concorrência
+
+test("aceite — resposta perdida DEPOIS da gravação: reconcilia e mostra o Fechamento criado; reenvio e \"sem preparação\" não duplicam", async () => {
+  const { criacoes, rede, buscar, referencia } = await preparada();
+  rede.perderProximaResposta = true;
+  const primeiro = await enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: false });
+  assert.deepEqual(primeiro, { tipo: "CRIADO", data: { fechamentoId: "fech-1", status: "RASCUNHO" }, reconciliado: true });
+  // O operador reenvia (com a preparação) e depois tenta "sem a preparação": sempre o MESMO Fechamento.
+  const reenvio = await enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: false });
+  const semPreparacao = await enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: true });
+  for (const d of [reenvio, semPreparacao]) assert.deepEqual(d, { tipo: "CRIADO", data: { fechamentoId: "fech-1", status: "RASCUNHO" }, reconciliado: false });
+  assert.equal(criacoes.length, 1);
+});
+
+test("aceite — resposta perdida SEM saber o resultado e reconciliação fora do ar: bloqueia nova criação até verificar", async () => {
+  const { criacoes, rede, buscar, referencia, op } = await preparada();
+  rede.perderProximaResposta = true;
+  rede.situacaoFora = true;
+  const d = await enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: false });
+  assert.equal(d.tipo, "INCERTO");
+  assert.equal(criacoes.length, 1, "o servidor gravou; a tela não sabe");
+  rede.situacaoFora = false;
+  // "Verificar de novo" (reconciliação) é a única saída: confirma o que existe, sem criar outro.
+  assert.deepEqual(await reconciliar(buscar, FELIPE, op), { tipo: "CRIADO", data: { fechamentoId: "fech-1", status: "RASCUNHO" }, reconciliado: true });
+  assert.equal(criacoes.length, 1);
+});
+
+test("aceite — falha ANTES de gravar: reconciliação diz que nada foi criado e a nova tentativa cria uma vez", async () => {
+  const { a, criacoes, buscar, referencia, op } = await preparada();
+  const preco = a.contratacao.precoTabela;
+  // Serviço oficial indisponível no meio do envio (exceção não tratada ⇒ 503 PREPARACAO_FALHOU): incerto ⇒ reconcilia.
+  a.contratacao.precoTabela = async () => { throw new Error("banco instável"); };
+  const d = await enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: false });
+  assert.equal(d.tipo, "NAO_CRIADO");
+  assert.equal(a.linha(op).estado, "AGUARDANDO_CONFIRMACAO");
+  a.contratacao.precoTabela = preco;
+  assert.equal((await enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: false })).tipo, "CRIADO");
+  assert.equal(criacoes.length, 1);
+});
+
+test("aceite — preço mudou ⇒ recusa definitiva; \"Enviar sem a preparação\" cria UMA vez e a prévia não cria outra", async () => {
+  const { a, criacoes, buscar, referencia, op } = await preparada();
+  a.contratacao.precoTabela = async () => 480000;
+  const recusa = await enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: false });
+  assert.deepEqual(recusa.tipo === "RECUSADO" && [recusa.codigo, recusa.daPreparacao], ["PREPARACAO_PRECO_ALTERADO", true]);
+  assert.equal(criacoes.length, 0);
+  const sem = await enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: true });
+  assert.equal(sem.tipo, "CRIADO");
+  assert.equal((a.linha(op).resultado as { modo: string }).modo, "SEM_PREPARACAO");
+  // A mesma preparação, de novo pelo caminho com conferência (outra aba): devolve o mesmo Fechamento.
+  a.contratacao.precoTabela = async () => 450000;
+  const outraAba = await enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: false });
+  assert.deepEqual(outraAba.tipo === "CRIADO" && outraAba.data, { fechamentoId: "fech-1", status: "RASCUNHO" });
+  assert.equal(criacoes.length, 1);
+});
+
+test("aceite — duas abas ao mesmo tempo (com e sem a preparação), com trava e no pior caso sem trava: um só Fechamento", async () => {
+  for (const semTrava of [false, true]) {
+    const { criacoes, buscar, referencia, opcoes } = await preparada();
+    opcoes.semTrava = semTrava;
+    const [x, y, z] = await Promise.all([
+      enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: false }),
+      enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: true }),
+      enviarPreparado(buscar, { clienteId: FELIPE, referencia: referencia(), formulario, semPreparacao: false }),
+    ]);
+    assert.equal(criacoes.length, 1, `semTrava=${semTrava}`);
+    // Sem trava, o perdedor recebe conflito (a transação dele é desfeita) e a reconciliação mostra o vencedor.
+    for (const d of [x, y, z]) assert.deepEqual(d.tipo === "CRIADO" && d.data, { fechamentoId: "fech-1", status: "RASCUNHO" }, `semTrava=${semTrava}`);
+  }
+});
+
+// ---------------------------------------------------------------- consulta adaptativa: doces E refrigerantes, lacunas e complementos
+
+const FESTA_P1 = { de: "PASSO", passo: "p1", entidade: "FESTA" };
+const passo = (id: string, capacidade: string, extra: Record<string, unknown> = {}) => ({ id, capacidade, parametros: null, entradaDe: null, selecao: null, resposta: null, ...extra });
+const listagem = passo("p1", "proximas_festas", { parametros: { ordem: "ASC", limite: 2 }, selecao: "PRIMEIRA" });
+const categorias = (d: RespostaLeitura) => d.evidencias.filter((x) => x.rotulo === "Categoria do cálculo").map((x) => x.valor);
+
+test("aceite — doces E refrigerantes na mesma pergunta (regras): dois cálculos da MESMA festa, cada um com os seus números", async () => {
+  const a = ambiente({ convidados: 50 });
+  const r = await a.enviar("quantos doces e refrigerantes a próxima festa vai precisar? 4 docinhos por convidado, 400 ml de refrigerante por convidado, garrafas de 2 litros");
+  const d = leitura(r.data);
+  assert.deepEqual(r.rastro.plano?.passos.map((p) => p.capacidade), ["proximas_festas", "calcular_consumo", "calcular_consumo"]);
+  assert.deepEqual(categorias(d).sort(), ["DOCES", "REFRIGERANTES"]);
+  assert.ok(fatos(d).includes("CALCULO:50 convidados × 4 = 200 docinhos."));
+  assert.ok(fatos(d).includes("CALCULO:50 convidados × 400 mL = 20.000 mL = 20 L."));
+  assert.ok(fatos(d).some((x) => x.includes("= 10 embalagens")));
+  assert.deepEqual([...new Set((d.entidades ?? []).map((e) => e.id))], [IDS.FESTA_MARIA]);
+  assert.deepEqual(r.rastro.plano?.composicao?.faltando, []);
+  // Sem números: pergunta os dois; a continuação segue o PRIMEIRO pendente (doces), sem misturar categorias.
+  const sem = await ambiente({ convidados: 50 }).enviar("quantos doces e refrigerantes a próxima festa vai precisar?");
+  const s = leitura(sem.data);
+  assert.ok(fatos(s).includes("AUSENCIA:A empresa ainda não tem regra de docinhos por convidado cadastrada."));
+  assert.ok(fatos(s).includes("AUSENCIA:A empresa ainda não tem regra de consumo de refrigerante cadastrada."));
+  assert.deepEqual(sem.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "DOCES", perguntado: "POR_CONVIDADO" });
+});
+
+test("aceite — MODELO: variações sem regra para doces e refrigerantes; planos incompletos são completados por categoria", async () => {
+  const frases = [
+    "pra comemoração que vem aí, quanto de doce e de refri eu preciso? 4 docinhos por convidado e 400 ml por convidado, garrafa de 2 litros",
+    "me calcula os brigadeiros e os refris da comemoração que tá chegando: 4 docinhos por convidado, 400 ml por convidado, garrafa de 2 litros",
+    "na comemoração que vem aí, quantos docinhos e quantos litros de refrigerante? 4 docinhos por convidado, 400 ml por convidado, garrafa de 2 litros",
+  ];
+  const planos = {
+    soListagem: { objetivo: "CONSULTAR:FESTA", recursoFinal: null, passos: [listagem] },
+    soDoces: { objetivo: "CONSULTAR:FESTA", recursoFinal: "FESTA", passos: [listagem, passo("p2", "calcular_consumo", { parametros: { categoria: "DOCES" }, entradaDe: FESTA_P1 })] },
+    projecao: { objetivo: "CONSULTAR:FESTA", recursoFinal: "FESTA", passos: [listagem, passo("p2", "contexto_operacional_festa", { entradaDe: FESTA_P1 })] },
+  };
+  for (const frase of frases) {
+    for (const [nome, plano] of Object.entries(planos)) {
+      const a = ambiente({ convidados: 50 });
+      comPlanoDoModelo(a, plano);
+      const r = await a.enviar(frase);
+      const rotulo = `${frase.slice(0, 40)} · ${nome}`;
+      assert.equal(r.rastro.plano?.origem, "MODELO", rotulo);
+      const d = leitura(r.data);
+      assert.deepEqual(categorias(d).sort(), ["DOCES", "REFRIGERANTES"], rotulo);
+      assert.ok(fatos(d).includes("CALCULO:50 convidados × 4 = 200 docinhos."), rotulo);
+      assert.ok(fatos(d).some((x) => x.includes("= 10 embalagens")), rotulo);
+      assert.deepEqual(r.rastro.plano?.composicao?.faltando, [], rotulo);
+      assert.equal([...a.repositorio.linhas.values()].length, 0, rotulo);
+    }
+  }
+});
+
+test("aceite — lacuna DEPOIS da execução: o plano não traz a festa; a ponte do Core (contrato ⇒ festa) e os cálculos vêm da âncora devolvida", async () => {
+  const a = ambiente({ convidados: 50 });
+  // O modelo planeja só o último contrato: antes de executar não há festa na cadeia (SEM_FONTE); o resultado traz o contrato.
+  comPlanoDoModelo(a, { objetivo: "CONSULTAR:CONTRATO", recursoFinal: "CONTRATO", passos: [passo("p1", "ultimo_contrato", { selecao: "UNICA" })] });
+  const r = await a.enviar("do contrato mais recente, quantos doces e refrigerantes a festa vai precisar? 4 docinhos por convidado, 400 ml de refrigerante por convidado, garrafa de 2 litros");
+  const d = leitura(r.data);
+  assert.equal(r.rastro.plano?.origem, "MODELO");
+  assert.equal(r.rastro.plano?.complemento?.impossivel, "SEM_FONTE");
+  assert.deepEqual(r.rastro.plano?.aposExecucao?.leituras, ["relacoes_contrato", "calcular_consumo", "calcular_consumo"]);
+  assert.equal(r.rastro.plano?.aposExecucao?.rodadas, 2);
+  assert.deepEqual(categorias(d).sort(), ["DOCES", "REFRIGERANTES"]);
+  assert.ok(fatos(d).includes("CALCULO:50 convidados × 4 = 200 docinhos."));
+  assert.ok(fatos(d).some((x) => x.includes("= 10 embalagens")));
+  assert.deepEqual(r.rastro.plano?.composicao?.faltando, []);
+  // A festa é a do contrato devolvido pelo Core (o mais recente da fixture é o do Pedro), não a próxima festa da empresa.
+  assert.deepEqual([...new Set((d.entidades ?? []).filter((e) => e.tipo === "FESTA").map((e) => e.id))], [IDS.FESTA_PEDRO]);
+  assert.deepEqual([...new Set((d.entidades ?? []).filter((e) => e.tipo === "CONTRATO").map((e) => e.id))], [IDS.CONTRATO_PEDRO]);
+});
+
+test("aceite — lacuna depois da execução com o teto de passos da orquestradora: para no limite e aponta o que faltou", async () => {
+  const a = ambiente({ convidados: 50 });
+  // Plano de 4 passos (cliente, situação, posição); completar antes com 2 cálculos passaria de 5 ⇒ impossível.
+  comPlanoDoModelo(a, { objetivo: "CONSULTAR:PAGAMENTO", recursoFinal: null, passos: [
+    listagem,
+    passo("p2", "relacoes_festa", { entradaDe: FESTA_P1, resposta: true }),
+    passo("p3", "resumir_contrato", { entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" }, resposta: true }),
+    passo("p4", "saldo_contrato", { entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" } }),
+  ] });
+  const r = await a.enviar("da comemoração que vem aí: o cliente, a situação do contrato, se está pago e quantos doces e refrigerantes precisa (4 docinhos por convidado, 400 ml por convidado, garrafa de 2 litros)");
+  const d = leitura(r.data);
+  assert.equal(r.rastro.plano?.complemento?.impossivel, "LIMITE_PASSOS");
+  // Os limites atuais (passos da orquestradora) valem: o complemento para neles, sem afrouxá-los.
+  assert.equal(r.rastro.plano?.aposExecucao?.parada, "RECUSA_OU_LIMITE");
+  assert.ok((r.rastro.orquestracao?.passos.length ?? 0) <= 10);
+  assert.ok(fatos(d).includes("FATO:Cliente: Ana Oliveira."));
+  const faltou = r.rastro.plano?.composicao?.faltando ?? [];
+  assert.ok(faltou.length > 0);
+  for (const f of faltou) assert.ok(["CONSUMO_DOCES", "CONSUMO_REFRIGERANTES"].includes(f));
+  assert.ok(fatos(d).some((x) => x.startsWith("AUSENCIA:Não consegui obter: quantidade de")));
+});
+
+test("aceite — complemento recusado (acesso revogado à festa): para, entrega só o comprovado e aponta a ausência", async () => {
+  const a = ambiente({ convidados: 50, semCapacidadeFesta: true });
+  comPlanoDoModelo(a, { objetivo: "CONSULTAR:CONTRATO", recursoFinal: "CONTRATO", passos: [passo("p1", "ultimo_contrato", { selecao: "UNICA" })] });
+  const r = await a.enviar("do contrato mais recente, quantos doces a festa vai precisar? 4 docinhos por convidado");
+  const d = leitura(r.data);
+  assert.equal(r.rastro.plano?.aposExecucao?.parada, "RECUSA_OU_LIMITE");
+  assert.deepEqual(r.rastro.plano?.aposExecucao?.leituras, ["relacoes_contrato", "calcular_consumo"]);
+  assert.deepEqual(r.rastro.plano?.composicao?.faltando, ["CONSUMO_DOCES"]);
+  assert.ok(fatos(d).includes("AUSENCIA:Não consegui obter: quantidade de doces."));
+  assert.equal(JSON.stringify(d).includes("200 docinhos"), false);
+  // Uma ferramenta negada no PASSO FINAL do plano: recusa inteira, sem dados (o mesmo contrato de antes).
+  const b = ambiente({ convidados: 50, semCapacidadeFesta: true });
+  comPlanoDoModelo(b, { objetivo: "CONSULTAR:FESTA", recursoFinal: null, passos: [listagem, passo("p2", "relacoes_festa", { entradaDe: FESTA_P1 })] });
+  const negada = await b.enviar("da comemoração que vem aí: o cliente e quantos doces precisa (4 docinhos por convidado)");
+  assert.equal(negada.status, 403);
+  assert.equal(JSON.stringify(negada.corpo).includes("200"), false);
 });

@@ -51,6 +51,7 @@ function ambiente() {
         sessao: { id: 'sessao', usuario_id: 'usuario-unitario', papel: 'ADMINISTRATIVO', csrf_hash: hash(csrf),
             revogada: false, ativo: true, expirada: false, ociosa: false, senhaAlterada: false },
         pacote: { id: 'pacote', codigo: 'POCKET', nome: 'Pocket', convidadosMinimos: 20, convidadosMaximos: 150, ativo: true, empresaId: empresaA } as any,
+        consultasPacote: [] as Array<{ empresaId: unknown; codigo: unknown }>, pacotesExtras: [] as any[],
         indisponivel: false, pricingError: false, auditError: false, pricingInput: null as any,
         fechamentos: [] as any[], adicionais: [] as any[], aprovacoes: [] as any[], historico: [] as any[], auditoria: [] as any[], sql: [] as string[],
     };
@@ -63,6 +64,13 @@ function ambiente() {
             return { rows: params[0] === hash(token) && !s.revogada && s.ativo && !s.expirada && !s.ociosa && !s.senhaAlterada ? [s] : [] };
         }
         if (sql.startsWith('UPDATE sessoes_administrativas') || /^SELECT id FROM (clientes|aniversariantes|responsaveis_adicionais) WHERE/.test(sql)) return { rows: [] };
+        if (sql.includes('FROM pacotes') && sql.includes('WHERE empresa_id = $1::uuid')) {
+            // Mesmos predicados do SELECT real: empresa comprovada, código, vigente, ativo e não arquivado.
+            for (const predicate of ['codigo = $2', 'AND vigente', 'AND ativo', 'arquivado_em IS NULL']) assert(sql.includes(predicate));
+            state.consultasPacote.push({ empresaId: params[0], codigo: params[1] });
+            const linhas = [state.pacote, ...state.pacotesExtras].filter((x: any) => x.empresaId === params[0] && x.codigo === params[1] && x.ativo && x.vigente !== false && !x.arquivadoEm);
+            return { rows: linhas.map((x: any) => ({ id: x.id, codigo: x.codigo, nome: x.nome, descricao: null, convidados_minimos: x.convidadosMinimos, convidados_maximos: x.convidadosMaximos, duracao_minutos: 240, ordem_exibicao: 1, ativo: x.ativo, empresa_id: x.empresaId })) };
+        }
         const fotografia = responderFotografia(sql);
         if (fotografia) return fotografia;
         throw Error('SQL não permitido no mock: ' + sql);
@@ -108,7 +116,9 @@ function ambiente() {
     });
     mock('lib/clientes/repositories/auditoria.repository', {});
     mock('lib/clientes/services', load('lib/clientes/services/errors'));
-    mock('lib/comercial/repositories', { buscarPacoteAtivoPorCodigo: async () => state.pacote.ativo ? state.pacote : null });
+    // Repositório REAL de pacotes (busca da empresa comprovada) sobre a tabela fictícia; o catálogo público segue recusado.
+    const repositorioPacotes = load('lib/comercial/repositories/comercial.repository.ts');
+    mock('lib/comercial/repositories', { buscarPacoteAtivoPorCodigo: repositorioPacotes.buscarPacoteAtivoPorCodigo, buscarPacoteVigenteDaEmpresaPorCodigo: repositorioPacotes.buscarPacoteVigenteDaEmpresaPorCodigo });
     mock('lib/disponibilidade/services', { revalidarHorarioSelecionado: async (i: any, executor: any) => {
         assert.equal(executor, tx);
         if (state.indisponivel) throw Error('HORARIO_NAO_DISPONIVEL');
@@ -337,13 +347,31 @@ test('tenant não comprovado: nada é lido nem gravado', async () => {
     }
     assert.equal(a.state.fechamentos.length, 0); assert.equal(a.state.pricingInput, null); assert.equal(a.state.auditoria.length, 0);
 });
-test('cliente A com pacote B: guarda central recusa a nova associação', async () => {
+test('cliente A com pacote só na empresa B: a busca da empresa comprovada não o encontra; nada é associado', async () => {
     const a = ambiente(); a.state.pacote.empresaId = empresaB;
     const r = await a.chamar();
-    assert.equal(r.status, 409); assert.equal((await r.json()).codigo, 'EMPRESA_INCOMPATIVEL');
-    assert.equal(a.state.fechamentos.length, 0);
+    assert.equal(r.status, 404); assert.equal((await r.json()).erro, 'Pacote não disponível.');
+    assert.deepEqual(a.state.consultasPacote, [{ empresaId: empresaA, codigo: 'POCKET' }]);
+    assert.equal(a.state.fechamentos.length, 0); assert.equal(a.state.pricingInput, null);
 });
-test('pacote legado sem empresa: guarda central recusa a nova associação', async () => {
+test('pacote legado sem empresa: fora da busca da empresa comprovada; nada é associado', async () => {
     const a = ambiente(); a.state.pacote.empresaId = null;
-    assert.equal((await a.chamar()).status, 409); assert.equal(a.state.fechamentos.length, 0);
+    assert.equal((await a.chamar()).status, 404); assert.equal(a.state.fechamentos.length, 0);
+});
+test('busca de pacote pela empresa comprovada: vigente, ativo, não arquivado e sem ambiguidade; catálogo público segue recusado', async () => {
+    const ok = ambiente();
+    assert.equal((await ok.chamar()).status, 201);
+    assert.deepEqual(ok.state.consultasPacote, [{ empresaId: empresaA, codigo: 'POCKET' }]);
+    assert.equal(ok.state.pricingInput.pacoteId, 'pacote');
+    const ajustes: Array<(s: any) => void> = [
+        (s) => { s.pacote.ativo = false; }, (s) => { s.pacote.vigente = false; }, (s) => { s.pacote.arquivadoEm = '2026-01-01'; },
+        (s) => { s.pacotesExtras.push({ ...s.pacote, id: 'pacote-duplicado' }); },
+    ];
+    for (const ajuste of ajustes) {
+        const a = ambiente(); ajuste(a.state);
+        assert.equal((await a.chamar()).status, 404); assert.equal(a.state.fechamentos.length, 0);
+    }
+    const repositorio = ok.load('lib/comercial/repositories/comercial.repository.ts');
+    await assert.rejects(repositorio.buscarPacoteAtivoPorCodigo('POCKET'), (e: any) => e.code === 'CATALOGO_PUBLICO_INDETERMINADO');
+    await assert.rejects(repositorio.buscarPacoteVigenteDaEmpresaPorCodigo('', 'POCKET', { query: async () => { throw Error('não deveria consultar'); } }), (e: any) => e.code === 'CATALOGO_PUBLICO_INDETERMINADO');
 });

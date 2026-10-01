@@ -7,7 +7,7 @@ import { buscarClienteCanonicoPorId, buscarClientePorId, listarAniversariantesDo
 import { executarNoTenant, type TenantComprovado } from '../../saas/provar-tenant';
 import { validarCadastroBasicoCliente, camposFaltantesParaContrato } from '../../clientes/services/validators';
 import { revalidarHorarioSelecionado } from '../../disponibilidade/services';
-import { buscarPacoteAtivoPorCodigo } from '../../comercial/repositories';
+import { buscarPacoteVigenteDaEmpresaPorCodigo } from '../../comercial/repositories';
 import { pacoteIdContratavelV1 } from '../../comercial/pacotes-v1';
 import { PACOTE_CODIGO_BANCO, FORMA_PAGAMENTO_BANCO, moedaParaNumeroServidor, traduzirAdicionais } from '../comercial-input';
 import { erroConvidadosFechamento } from '../convidados';
@@ -137,7 +137,8 @@ async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessa
         }
         if (!pacoteIdContratavelV1(input.pacote)) throw new FechamentoServiceError('PACOTE_FORA_ESCOPO_V1', 'Pacote fora do escopo V1.', 409);
         if (input.pacote === 'pizza_party_scienza') throw new FechamentoServiceError('DADOS_INVALIDOS', 'O Pizza Party está sob consulta. Confirme com a equipe antes de continuar.', 409);
-        const pacote = await buscarPacoteAtivoPorCodigo(PACOTE_CODIGO_BANCO[input.pacote], tx);
+        // Pacote da empresa COMPROVADA (Tenant Context), nunca do catálogo público sem tenant (que continua recusado).
+        const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(empresaId, PACOTE_CODIGO_BANCO[input.pacote], tx);
         if (!pacote) throw new FechamentoServiceError('DADOS_INVALIDOS', 'Pacote não disponível.', 404);
         const erroConvidados = erroConvidadosFechamento(input.convidadosPagantes, {
             id: input.pacote, nome: pacote.nome, minPagantes: pacote.convidadosMinimos ?? 1, maxPagantes: pacote.convidadosMaximos ?? 150,

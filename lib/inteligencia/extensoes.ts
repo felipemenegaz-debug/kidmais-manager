@@ -156,7 +156,7 @@ export type PortaPlanejador = {
    * Fecha o plano com o resultado do despacho do passo final: trace e, em resposta de leitura, a composição
    * determinística dos fatos (PR 6.4). Devolve a resposta a entregar (a mesma, se não houver composição).
    */
-  concluir(resposta: AIResponse): AIResponse;
+  concluir(resposta: AIResponse): AIResponse | Promise<AIResponse>;
 };
 
 export type PassoOrquestracao = { tipo: string; resultado: string; duracaoMs: number };
