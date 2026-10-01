@@ -178,6 +178,22 @@ test("executor: Policy nega o passo 2 ⇒ o passo 3 nunca executa (caso 11); err
   assert.equal(empate.estado, "AMBIGUO");
 });
 
+test("executor (PR 15): passo de composição sem entidades na saída (ex.: contratos_pendentes) não derruba o plano; quem depende dele para em SEM_DADOS", async () => {
+  // Homologação em staging: "Quais contratos estão pendentes e quanto recebemos este mês?" — o passo 1 é uma leitura que
+  // devolve fatos e itens, mas nenhuma `entidades`; o executor exigia o campo e o plano inteiro virava ERRO.
+  const semEntidades: AIResponse = { tipo: "resposta", dados: { capacidade: "proximas_festas", estado: "atencao", resumo: "1 item.", fatos: [{ natureza: "FATO", texto: "1 item.", fonte: "x" }], itens: [], evidencias: [], referencia: { hoje: HOJE, geradoEm: `${HOJE}T00:00:00Z`, fontes: [] } } };
+  const composicao = plano({ objetivo: "CONSULTAR:CONTRATO", recursoFinal: null, passos: [
+    { id: "p1", capacidade: "proximas_festas", parametros: { limite: 2 }, resposta: true },
+    { id: "p2", capacidade: "abrir_tela", parametros: { tela: "catalogo" } },
+  ] });
+  const r = await executarPlano(composicao, executor(async () => semEntidades).deps);
+  assert.equal(r.estado, "FINAL");
+  assert.deepEqual(r.passos.map((p) => p.resultado), ["SUCESSO", "NAO_EXECUTADO"], "o passo sem entidades não é ERRO");
+  // Um passo que precisa da entidade do anterior continua parando (nunca inventa entrada).
+  const dependente = await executarPlano(plano(PLANO_OK), executor(async () => semEntidades).deps);
+  assert.deepEqual([dependente.estado, dependente.passos.at(-1)!.capacidade], ["SEM_DADOS", "relacoes_festa"]);
+});
+
 test("executor: ação no fim vira intenção de proposta — nunca é executada pelo executor (caso 12)", async () => {
   const comAcao = plano({ objetivo: "CRIAR:PACOTE", recursoFinal: null, passos: [{ id: "p1", capacidade: "proximas_festas", parametros: { limite: 2 }, selecao: "PRIMEIRA" }, { id: "p2", capacidade: "criar_pacote" }] });
   const { deps, lidas } = executor(async () => resposta([festaA]));

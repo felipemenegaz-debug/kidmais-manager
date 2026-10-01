@@ -1303,12 +1303,32 @@ test("Luna (homologação): B — duas consultas que a regra casaria pela metade
     ] },
   });
   const r = await a.enviar("Quais contratos estão pendentes e quanto recebemos este mês?");
-  // O ambiente sintético não emula as consultas financeiras: aqui se prova o ROTEAMENTO (as duas consultas vão ao plano
-  // composto, não à leitura única da regra); a leitura das duas foi conferida com o modelo real em staging.
-  assert.ok(luna.chamadas.includes("PLANEJAR"), "o Planner compõe");
-  assert.equal(r.rastro.plano?.origem, "MODELO");
-  assert.equal(r.rastro.plano?.quantidadePassos, 2);
-  assert.equal((r.rastro.orquestracao?.passos ?? []).find((p) => p.tipo === "INTENCAO_REGRAS")?.resultado, "nenhuma", "a regra não decide sozinha");
+  // PR 15 (homologação com o modelo real, 01/10): o plano composto falhava em staging — o executor exigia `entidades` no
+  // passo 1 e o Planner descarta listagens da resposta. Consultas independentes agora são lidas e compostas direto.
+  assert.equal(luna.chamadas.includes("PLANEJAR"), false, "consultas independentes não precisam do Planner");
+  assert.equal(r.data?.tipo, "resposta");
+  assert.deepEqual(r.rastro.leituras.map((l) => l.capacidade), ["contratos_pendentes", "analisar_pagamentos"], "as duas leituras, pela porta guardada");
+  const fontes = new Set(leitura(r.data).fatos.map((f) => f.fonte.split(".")[0]));
+  assert.ok(fontes.size >= 2, `fatos das duas leituras na resposta: ${[...fontes]}`);
+  assert.deepEqual(r.rastro.adaptativo?.consultas, ["contratos_pendentes", "analisar_pagamentos"], "a escolha da Luna decide, não a regra pela metade");
+});
+
+test("Luna — PR 15: \"não estime; só a regra cadastrada\" chamado de CONSULTA (sem consultas) pela Luna ainda responde a pergunta pendente", async () => {
+  // Homologação com o modelo real: a Luna rotulou N2 como CONSULTA com consultas [] e categoria REFRIGERANTES; a regra de
+  // continuação só valia para ESCLARECER/CONVERSA/FORA_DO_ESCOPO e a resposta virou "Ainda não sei responder isso".
+  const a = ambiente({ convidados: 50 });
+  comLuna(a, { entender: (_d, n) => (n === 1
+    ? saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] } })
+    : saida({ objetivo: "CONSULTA", consultas: [], correcao: true, consumo: { categorias: ["REFRIGERANTES"] } })) });
+  const pergunta = await a.enviar("quantos refrigerantes para a próxima festa?");
+  assert.equal(pergunta.data?.continuacao?.perguntado, "ML_POR_CONVIDADO");
+  for (const texto of ["Não estime o consumo; quero somente a regra cadastrada.", "não sei"]) {
+    const r = await a.enviar(texto);
+    assert.equal(r.data?.tipo, "resposta", texto);
+    assert.match(leitura(r.data).resumo, /Quantos mL de refrigerante por convidado/, texto);
+    assert.deepEqual(r.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO", festaId: IDS.FESTA_MARIA }, texto);
+    assert.equal(leitura(r.data).fatos.some((f) => f.natureza === "ESTIMATIVA"), false, "nunca estima sem pedido");
+  }
 });
 
 test("Luna (homologação): \"Não estime…; só a regra cadastrada\" e \"não sei\" respondem a pergunta pendente sem perder a festa e sem estimar", async () => {

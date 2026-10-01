@@ -241,3 +241,38 @@ Nada foi gravado: os rascunhos de regra abertos por N2 foram cancelados.
 **Correções da PR 14 (caminho determinístico; cada uma com teste que falha sem ela):**
 1. Com um parâmetro de consumo pendente, "não sei", "não estime" e "só a regra cadastrada" refazem o mesmo cálculo (mesma festa, sem estimativa) antes de qualquer classificador. É a regra que a PR #61 já aplicava no caminho da Luna.
 2. "Estimar os refrigerantes/doces" é pedido de cálculo de consumo. Sem a Luna, a taxa ausente é perguntada (não há estimativa sem delegação entendida).
+
+**4ª rodada: Luna real (01/10/2026, 21:28–21:30 UTC; staging `3b66958` = PR #65, deploy `dep-davctr9srm7s73bgvvg0`; gpt-6-luna, effort none).**
+
+Orçamento: `AI_BUDGET_JSON` de staging passou a `{"moeda":"USD","porEmpresa":{"tokensDiario":500000,"tokensMensal":5000000,"custoDiario":0.5,"custoMensal":5}}`, com autorização do operador. Se havia `porCapacidade` ou `estimativa` antes, saíram.
+
+As 15 mensagens rodaram sem nenhuma recusa (`recusasModelo: []`). Custo, tokens e latência vêm do trace saneado `inteligencia.conversa`.
+
+| # | Resultado com a Luna | Chamadas | Tokens | Custo (USD) | Latência |
+|---|---|---|---|---|---|
+| A1 | ok: rascunho de festa com cliente, pacote e convidados direto (sem esclarecimento) | 1 | 2.785 | 0,000352 | 3,4 s |
+| A2 | ok: "Theo"; pergunta a data | 1 | 2.872 | 0,000219 | 2,8 s |
+| A3 | ok: data aceita; "tarde" ⇒ pergunta almoço/noite | 1 | 2.945 | 0,000229 | 2,6 s |
+| A4 | ok: "Para qual festa?" com o rascunho pausado (correção 1 da PR #61) | 1 | 2.967 | 0,000231 | 2,3 s |
+| A5 | ok, com ressalva: turno preenchido, mas a Luna marcou `outrosPedidos: 1` e a resposta disse "o outro que você mencionou ainda não foi feito" (o pedido de docinhos do histórico) | 1 | 3.021 | 0,000245 | 2,9 s |
+| A6 | ok: não vira nome; pergunta o cliente (correção 2 da PR #61) | 1 | 3.065 | 0,000247 | 2,7 s |
+| A7 | ok: cancelado, nada gravado | 1 | 3.039 | 0,000236 | 2,5 s |
+| B | **falha (corrigida na PR 15)**: a Luna escolheu `contratos_pendentes` + `analisar_pagamentos`; o Planner montou 2 passos e o passo 1 deu ERRO ⇒ "ainda não consigo responder" | 2 | 6.388 | 0,000613 | 4,4 s |
+| E1 | ok: festa e convidados do Core; regras ausentes perguntadas | 2 | 3.884 | 0,000366 | 4,6 s |
+| C | ok: 240 docinhos; 500 mL estimados (pedido) ⇒ 30 L = 15 × 2 L; divisão pendente | 2 | 4.225 | 0,000408 | 5,1 s |
+| N1 | ok: pergunta taxa e embalagem | 2 | 3.873 | 0,000359 | 5,2 s |
+| N2 | **falha (corrigida na PR 15)**: a Luna rotulou como `CONSULTA` sem consultas ⇒ "Ainda não sei responder isso" | 1 | 3.072 | 0,000240 | 2,5 s |
+| N3 | **falha (corrigida na PR 15)**: o mesmo, para "não sei" | 1 | 3.037 | 0,000242 | 2,6 s |
+| D | ok: 500 mL estimados + 10% ⇒ 33 L = 17 × 2 L; "hipótese, não padrão da empresa" | 2 | 4.071 | 0,000381 | 5,0 s |
+| F | ok: mesma festa, 300 docinhos, divisão pendente | 2 | 3.924 | 0,000353 | 4,0 s |
+
+Total da rodada: 21 chamadas, 53.168 tokens, US$ 0,004721. Média de ~3.540 tokens e ~US$ 0,00031 por mensagem; latência de 2,3 a 5,2 s.
+
+**Correções da PR 15 (cada uma com teste que falha sem ela):**
+1. Consultas independentes pedidas pela Luna (nenhuma exige entidade de entrada) são lidas pela mesma porta guardada e compostas de forma determinística, sem o Planner. O Planner foi desenhado para cadeias e descarta listagens da resposta.
+2. O executor do Planner aceita passo intermediário com fatos e sem `entidades`. A saída fica vazia, e um passo que dependa dela para em SEM_DADOS.
+3. Com parâmetro de consumo pendente, a resposta sem dado reconhecida por regra ("não sei", "não estime", "só a regra cadastrada") refaz o mesmo cálculo, seja qual for o rótulo da Luna.
+
+**Pendências:**
+- A5: o aviso de "outro pedido" vem do histórico. Registrado, não corrigido.
+- Falha do provedor ao vivo: exige mudar configuração.
