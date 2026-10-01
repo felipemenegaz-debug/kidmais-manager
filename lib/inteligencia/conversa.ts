@@ -6,6 +6,7 @@ import type { AcaoObjetivo, AIResponse, ContextoTela, EntidadeRef, TipoEntidade,
 import { atualizarFoco, focoEntradaSchema, type EntidadeFoco, type FocoConversa, type FocoEntrada, type OrigemFoco } from "./foco.ts";
 import { detectarReferencia, entidadesCitadas, resolverAncoraContexto, resolverReferencia, type Leitor, type Referencia, type Resolucao } from "./referencias.ts";
 import { compor, faltando, fatosSolicitados } from "./planejador/composicao.ts";
+import { FORNECEDORES, completarPlano } from "./planejador/completar.ts";
 import { executarPlano, resultadoFinal, type LerPlano, type ParteResposta } from "./planejador/executor.ts";
 import { planejarComModelo } from "./planejador/modelo.ts";
 import { VERSAO_PLANEJADOR, validarPlano, type Plano } from "./planejador/plano.ts";
@@ -418,7 +419,7 @@ type AncoraPlano = { entidade: EntidadeRef; origem: Resolucao["origem"]; descart
  */
 async function executarPlanoDaConversa(
   e: Execucao, plano: Plano, origem: OrigemPlano, motivo: PlanoRastreio["motivo"], referencia: Referencia, ancora: AncoraPlano,
-  ler: LerPlano, opcoes: { anotarReferencia: boolean; usoModelo: boolean },
+  ler: LerPlano, opcoes: { anotarReferencia: boolean; usoModelo: boolean; complemento?: PlanoRastreio["complemento"] },
 ): Promise<SaidaPlanejador | null> {
   const relogio = e.deps.relogio ?? (() => performance.now());
   const inicio = relogio();
@@ -430,7 +431,7 @@ async function executarPlanoDaConversa(
   e.rastreio.plano = {
     versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: plano.objetivo, quantidadePassos: plano.passos.length, passos: r.passos,
     resultadoFinal: r.estado === "FINAL" ? "NAO_EXECUTADO" : r.estado, parada: r.estado === "FINAL" ? "FIM" : r.passoId,
-    motivoParada: r.estado === "FINAL" ? null : r.estado, composicao: null,
+    motivoParada: r.estado === "FINAL" ? null : r.estado, composicao: null, complemento: opcoes.complemento ?? null,
     duracaoMs: Math.max(0, Math.round(relogio() - inicio)), usoModelo: opcoes.usoModelo,
   };
   // Referência para o foco e o trace: âncora (tela/foco ou 1º passo), alvo (entrada do passo final) e origem.
@@ -492,11 +493,20 @@ async function planejarPedido(e: Execucao, regras: Intencao, lerPorta: LerPlano)
     e.rastreio.plano = planoRejeitado("REGRAS", porRegras.motivo, validacao.motivo);
     return null;
   }
-  return executarPlanoDaConversa(e, validacao.plano, "REGRAS", porRegras.motivo, referencia, ancora, ler, { anotarReferencia: true, usoModelo: false });
+  const comp = completar(e, validacao.plano, catalogoRegistro(e.deps.acoes), ancora ? [ancora.entidade.tipo] : []);
+  return executarPlanoDaConversa(e, comp.plano, "REGRAS", porRegras.motivo, referencia, ancora, ler, { anotarReferencia: true, usoModelo: false, complemento: comp.rastro });
 }
 
 function planoRejeitado(origem: OrigemPlano, motivo: PlanoRastreio["motivo"], rejeicao: string): PlanoRastreio {
-  return { versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: null, quantidadePassos: 0, passos: [], resultadoFinal: "NAO_EXECUTADO", parada: `REJEITADO:${rejeicao}`, motivoParada: rejeicao, composicao: null, duracaoMs: 0, usoModelo: origem === "MODELO" };
+  return { versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: null, quantidadePassos: 0, passos: [], resultadoFinal: "NAO_EXECUTADO", parada: `REJEITADO:${rejeicao}`, motivoParada: rejeicao, composicao: null, complemento: null, duracaoMs: 0, usoModelo: origem === "MODELO" };
+}
+
+/** Complemento determinístico (PR 6.4.3) + o que vai para o trace (só códigos). */
+function completar(e: Execucao, plano: Plano, catalogo: readonly CapacidadeCatalogo[], contexto: readonly TipoEntidade[]): { plano: Plano; rastro: PlanoRastreio["complemento"] } {
+  const c = completarPlano(plano, fatosSolicitados(e.texto), catalogo, contexto);
+  if (c.tipo === "COMPLETADO") return { plano: c.plano, rastro: { adicionados: c.adicionados, marcados: c.marcados, impossivel: null } };
+  if (c.tipo === "IMPOSSIVEL") return { plano, rastro: { adicionados: [], marcados: [], impossivel: c.motivo } };
+  return { plano, rastro: null };
 }
 
 /** Tipos de entidade que existem DE FATO neste pedido: registro aberto na tela e entidades do foco (dicas, revalidadas depois). */
@@ -508,7 +518,8 @@ function contextoDisponivel(e: Execucao): TipoEntidade[] {
 
 /** Pedido que compõe recursos: 2+ entidades citadas, ou âncora temporal/nome com outro alvo. Sem rede, sem custo. */
 function pedeComposicao(texto: string, hoje: string): boolean {
-  if (entidadesCitadas(texto).length >= 2) return true;
+  // PR 6.4.3: 2+ fatos pedidos (ex.: situação do contrato E pagamento) também é composição, mesmo com um recurso citado.
+  if (entidadesCitadas(texto).length >= 2 || fatosSolicitados(texto).length >= 2) return true;
   const ref = detectarReferencia(texto, hoje);
   return Boolean(ref && (ref.tipo === "TEMPORAL" || ref.tipo === "NOME") && ref.alvo);
 }
@@ -524,6 +535,7 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
   const saida = await planejarComModelo({
     texto: e.texto, contexto: e.contexto, objetivo: doTexto.acao && doTexto.recurso ? `${doTexto.acao}:${doTexto.recurso}` : null,
     focoTipos: [...new Set((e.foco?.entidades ?? []).map((x) => x.tipo))], contextoTipos: contextoDisponivel(e), catalogo,
+    fatosPedidos: fatosSolicitados(e.texto).map((fato) => ({ fato, capacidades: FORNECEDORES[fato].filter((c) => catalogo.some((x) => x.id === c)) })),
   }, roteador, { empresaId: tenant.empresaComprovada, estabelecimentoId: unidadeDe(tenant), capacidade: "planejar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
   if (saida.roteado) {
     anotarUsoModelo(rastreio, saida.roteado.usos);
@@ -533,13 +545,16 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
     rastreio.plano = planoRejeitado("MODELO", "COMPOSICAO", saida.rejeicao ?? "INDISPONIVEL");
     return null;
   }
-  const plano = saida.plano;
-  const final = catalogo.find((c) => c.id === plano.passos.at(-1)!.capacidade);
+  const doModelo = saida.plano;
+  const final = catalogo.find((c) => c.id === doModelo.passos.at(-1)!.capacidade);
   // Julgamento pede CONFIRM: só um plano que termina em proposta (Human Gate) é aceito; consulta pela metade, não.
   if (exigirAcaoFinal && final?.tipo !== "acao") {
     rastreio.plano = planoRejeitado("MODELO", "COMPOSICAO", "CONFIRM_SEM_ACAO");
     return null;
   }
+  // PR 6.4.3: plano do modelo que não cobre os fatos pedidos é completado ANTES da execução (e revalidado inteiro).
+  const comp = completar(e, doModelo, catalogo, contextoDisponivel(e));
+  const plano = comp.plano;
   const { leitor, ler } = leitorMemoizado(lerPorta);
   const referencia: Referencia = { tipo: "IMPLICITA", alvo: plano.recursoFinal };
   let ancora: AncoraPlano = null;
@@ -554,13 +569,13 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
       rastreio.plano = {
         versao: VERSAO_PLANEJADOR, origem: "MODELO", motivo: "COMPOSICAO", objetivo: plano.objetivo, quantidadePassos: plano.passos.length,
         passos: plano.passos.map((p, i) => ({ capacidade: p.capacidade, origemEntrada: p.entradaDe ? (p.entradaDe.de === "CONTEXTO" ? "CONTEXTO" : "PASSO") : "PARAMETROS", fonte: p.entradaDe ? (p.entradaDe.de === "CONTEXTO" ? "CONTEXTO" : p.entradaDe.passo) : null, resultado: i === 0 ? resultado : "NAO_EXECUTADO", duracaoMs: 0 })),
-        resultadoFinal: resultado, parada: "p1", motivoParada: `CONTEXTO_${r.resultado}`, composicao: null, duracaoMs: 0, usoModelo: true,
+        resultadoFinal: resultado, parada: "p1", motivoParada: `CONTEXTO_${r.resultado}`, composicao: null, complemento: null, duracaoMs: 0, usoModelo: true,
       };
       return { resposta: respostaDaResolucao(r) ?? naoSuportado("Não sei a qual registro você se refere. Abra o registro na tela e pergunte por ali.") };
     }
     ancora = { entidade: r.ancora, origem: r.origem, descartados: r.descartados };
   }
-  return executarPlanoDaConversa(e, plano, "MODELO", "COMPOSICAO", referencia, ancora, ler, { anotarReferencia: false, usoModelo: true });
+  return executarPlanoDaConversa(e, plano, "MODELO", "COMPOSICAO", referencia, ancora, ler, { anotarReferencia: false, usoModelo: true, complemento: comp.rastro });
 }
 
 /** Porta do Planner para a orquestradora: planos por regra e por modelo sobre a `ler` contada que ela fornece. */

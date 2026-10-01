@@ -272,7 +272,7 @@ test("trace do plano: só códigos, contagens e durações — nenhum id, nome, 
     for (const proibido of [...PII, "Ana Oliveira", "Carla Souza", "R$", "1.200", "2.500", "próxima", "contrato da", ...Object.values(IDS)]) {
       assert.equal(plano.includes(proibido), false, `plano contém ${proibido}`);
     }
-    if (o.rastro?.plano) assert.deepEqual(Object.keys(o.rastro.plano).sort(), ["composicao", "duracaoMs", "motivo", "motivoParada", "objetivo", "origem", "parada", "passos", "quantidadePassos", "resultadoFinal", "usoModelo", "versao"]);
+    if (o.rastro?.plano) assert.deepEqual(Object.keys(o.rastro.plano).sort(), ["complemento", "composicao", "duracaoMs", "motivo", "motivoParada", "objetivo", "origem", "parada", "passos", "quantidadePassos", "resultadoFinal", "usoModelo", "versao"]);
     const trace = JSON.stringify(o.rastro);
     for (const proibido of [...PII, "Ana Oliveira", "Carla Souza", "R$"]) assert.equal(trace.includes(proibido), false, proibido);
   }
@@ -351,7 +351,8 @@ test("modelo: no máximo 2 passos com modelo por pedido; sem provedor, nenhum pl
 // ---------------------------------------------------------------- 6. PR 6.1: correção do Planner por modelo (smoke de staging, caso 8)
 
 /** Texto exato do caso 8 do smoke em staging. */
-const TEXTO_SMOKE = "me mostra o contrato e o cliente da festa que vem aí";
+// Variação sem "festa" (as regras não resolvem): mantém estes testes no caminho do Planner por MODELO (PR 6.4.3).
+const TEXTO_SMOKE = "me mostra o contrato e o cliente da comemoração que vem aí";
 const PLANO_DOIS_RECURSOS = {
   // Pedido com dois recursos: o modelo responde `recursoFinal: null` — chave obrigatória, valor explicitamente nulo.
   objetivo: "CONSULTAR:CONTRATO", recursoFinal: null,
@@ -406,7 +407,7 @@ test("hipótese 2 (smoke): `objetivo` no schema do provedor é o MESMO conjunto 
   }
 });
 
-test("composição com dois recursos (contrato → cliente) pelo modelo: 4 passos, ids só do Core, trace sem id/nome", async () => {
+test("composição com dois recursos (contrato → cliente) pelo modelo: cadeia de 4 passos + situação do contrato completada (6.4.3); ids só do Core", async () => {
   const plano = {
     objetivo: "CONSULTAR:CLIENTE", recursoFinal: null,
     passos: [
@@ -417,8 +418,11 @@ test("composição com dois recursos (contrato → cliente) pelo modelo: 4 passo
     ],
   };
   const { ultima, amb } = await conversa([{ texto: TEXTO_SMOKE }], comModelo((p) => (p.workload === "PLANEJAR" ? plano : { capacidade: "nenhuma", dia: null })));
-  assert.deepEqual(passos(ultima)?.map(([c, , r]) => [c, r]), [["proximas_festas", "SUCESSO"], ["relacoes_festa", "SUCESSO"], ["relacoes_contrato", "SUCESSO"], ["resumir_cliente", "SUCESSO"]]);
-  assert.equal(dados(ultima.resposta).capacidade, "resumir_cliente");
+  // "o contrato e o cliente": o modelo terminou no cliente; a situação do contrato é acrescentada antes de executar.
+  assert.deepEqual(passos(ultima)?.map(([c, , r]) => [c, r]), [["proximas_festas", "SUCESSO"], ["relacoes_festa", "SUCESSO"], ["relacoes_contrato", "SUCESSO"], ["resumir_cliente", "SUCESSO"], ["resumir_contrato", "SUCESSO"]]);
+  assert.deepEqual(ultima.rastro?.plano?.complemento?.adicionados, ["resumir_contrato"]);
+  assert.deepEqual(ultima.rastro?.plano?.composicao?.faltando, []);
+  assert.equal(dados(ultima.resposta).capacidade, "resumir_contrato");
   assert.match(dados(ultima.resposta).resumo, /^Ana Oliveira/);
   const traco = JSON.stringify(ultima.rastro?.plano);
   for (const proibido of [...Object.values(IDS), "Ana Oliveira", ...PII]) assert.equal(traco.includes(proibido), false, proibido);
@@ -502,7 +506,7 @@ test("trace (6.2): parada antes da primeira leitura (âncora do foco negada) reg
 
 // ---------------------------------------------------------------- 8. PR 6.3: composição chega ao Planner; "evento" é temporal (smoke de staging)
 
-const TEXTO_AUXILIAR = "me diz o cliente e se o contrato da festa que vem aí está pago";
+const TEXTO_AUXILIAR = "me diz o cliente e se o contrato da comemoração que vem aí está pago";
 
 test("staging (6.3): pedido composto vai ao Planner por modelo ANTES do auxiliar legado (que responderia só uma leitura)", async () => {
   const vistos: string[] = [];

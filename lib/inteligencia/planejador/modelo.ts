@@ -24,6 +24,7 @@ function instrucao(contexto: readonly TipoEntidade[]): string {
       ? `Um passo recebe a entidade de um passo ANTERIOR (entradaDe.de = PASSO) ou da tela/foco (entradaDe.de = CONTEXTO, só no p1, e só destes tipos: ${contexto.join(", ")}).`
       : "Um passo recebe a entidade de um passo ANTERIOR (entradaDe.de = PASSO). Não há registro na tela nem no foco: a âncora vem SEMPRE de uma consulta no p1.",
     "Festa no tempo ('próxima festa', 'festa que vem aí', 'próximo evento'): p1 = proximas_festas com ordem ASC e selecao PRIMEIRA; 'última festa' ⇒ ordem DESC.",
+    "Cada item de `fatosPedidos` precisa de uma leitura NA RESPOSTA entre as `capacidades` indicadas para ele (relações não dão a situação do contrato; proxima_parcela não comprova quitação).",
     "entradaDe.entidade tem de estar em `produz` da capacidade do passo de origem. Contrato e cliente de uma festa vêm SEMPRE de relacoes_festa (proximas_festas só produz FESTA).",
     "Nunca escreva ids, nomes, valores ou datas que não estejam no pedido. Navegação (abrir_*) e ação só no último passo.",
     "Pedido com mais de um fato: uma leitura por fato, todas da mesma festa/contrato; marque resposta=true nas leituras intermediárias que respondem ao pedido (ex.: relacoes_festa para o cliente, resumir_contrato para a situação). 'Pago', 'quitado' ou 'saldo' ⇒ saldo_contrato. O último passo sempre entra na resposta e o p1 de listagem (proximas_festas) nunca entra: não os marque.",
@@ -109,6 +110,8 @@ export type EntradaPlanoModelo = {
   focoTipos: readonly TipoEntidade[];
   /** Tipos de entidade que existem DE FATO na tela (com registro aberto) ou no foco deste pedido. Vazio ⇒ sem CONTEXTO. */
   contextoTipos: readonly TipoEntidade[];
+  /** PR 6.4.3: fatos pedidos no texto (códigos) e as capacidades do catálogo que os fornecem. */
+  fatosPedidos: ReadonlyArray<{ fato: string; capacidades: readonly string[] }>;
   catalogo: readonly CapacidadeCatalogo[];
 };
 
@@ -130,6 +133,7 @@ export async function planejarComModelo(entrada: EntradaPlanoModelo, roteador: R
           temEntidadeNaTela: Boolean(entrada.contexto?.entidadeId),
           foco: entrada.focoTipos,
           contextoDisponivel: entrada.contextoTipos,
+          fatosPedidos: entrada.fatosPedidos,
           capacidades: entrada.catalogo.map((c) => ({ id: c.id, tipo: c.tipo, descricao: c.descricao, ...(c.entidade ? { recebe: c.entidade } : {}), ...(c.produz?.length ? { produz: c.produz } : {}) })),
         }),
       },

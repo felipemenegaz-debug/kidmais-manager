@@ -167,6 +167,11 @@ export type PlanoRastreio = {
    * não foram obtidos do Core. null fora de resposta de leitura (navegação, proposta, parada).
    */
   composicao: { leituras: number; solicitados: string[]; faltando: string[] } | null;
+  /**
+   * PR 6.4.3: complemento determinístico ANTES da execução — capacidades acrescentadas para cobrir os fatos pedidos,
+   * ou o motivo de não ter sido possível completar com segurança (códigos). null quando nada faltava.
+   */
+  complemento: { adicionados: string[]; marcados: string[]; impossivel: string | null } | null;
   duracaoMs: number;
   usoModelo: boolean;
 };

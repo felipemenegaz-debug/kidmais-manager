@@ -15,7 +15,9 @@ import { validarPlano } from "./plano.ts";
  * Os fatos pedidos têm de vir do Core, da MESMA festa/contrato; resposta parcial nunca é sucesso.
  */
 const HOJE = "2026-09-30";
-const FRASE_CLIENTE_PAGO = "me diz o cliente e se o contrato da festa que vem aí está pago";
+// Variação que as regras NÃO resolvem (sem "festa"): exercita o caminho do Planner por MODELO. A frase exata do smoke
+// ("…da festa que vem aí…") passou a ser resolvida pelas regras no PR 6.4.3 e é coberta na matriz de aceite.
+const FRASE_CLIENTE_PAGO = "me diz o cliente e se o contrato da comemoração que vem aí está pago";
 const FRASE_SITUACAO_PAGAMENTO = "quero saber a situação do contrato e o pagamento do próximo evento";
 
 type Amb = ReturnType<typeof criarAmbiente>;
@@ -137,26 +139,28 @@ test("frase 2 (regras): situação do contrato E posição oficial, do mesmo con
 
 // ---------------------------------------------------------------- completude: a marca não basta; o que conta é o que o Core devolveu
 
-test("completude: sem a relação na resposta, o cliente falta ⇒ ausência explícita, estado atenção, INCOMPLETO", async () => {
+test("complemento (6.4.3): plano do modelo sem a relação na resposta ⇒ a relação da cadeia é MARCADA antes de executar; cliente obtido", async () => {
+  // Antes (6.4): faltava o cliente e a resposta apontava a ausência. Agora a leitura existe na cadeia ⇒ é usada.
   const semMarca = { ...PLANO_CLIENTE_PAGO, passos: PLANO_CLIENTE_PAGO.passos.map((p) => ({ ...p, resposta: null })) };
   const { o } = await perguntar(FRASE_CLIENTE_PAGO, {}, semMarca);
   const d = dados(o.resposta);
-  assert.ok(textos(d).includes("AUSENCIA:Não consegui obter: cliente."));
-  assert.equal(textos(d).some((x) => x.startsWith("FATO:Cliente:")), false);
-  assert.equal(d.estado, "atencao");
-  assert.deepEqual([o.rastro?.plano?.motivoParada, o.rastro?.plano?.composicao?.faltando], ["INCOMPLETO", ["CLIENTE"]]);
+  assert.ok(textos(d).includes("FATO:Cliente: Ana Oliveira."));
+  assert.deepEqual(o.rastro?.plano?.complemento, { adicionados: [], marcados: ["relacoes_festa"], impossivel: null });
+  assert.deepEqual([o.rastro?.plano?.motivoParada, o.rastro?.plano?.composicao?.faltando], [null, []]);
 });
 
-test("completude: proxima_parcela NÃO comprova quitação; relação com CONTRATO NÃO cobre a situação contratual", async () => {
+test("complemento (6.4.3): proxima_parcela não comprova quitação e relação não dá a situação ⇒ saldo_contrato / resumir_contrato ACRESCENTADOS", async () => {
   const comParcela = { ...PLANO_CLIENTE_PAGO, passos: [PLANO_CLIENTE_PAGO.passos[0], PLANO_CLIENTE_PAGO.passos[1], { ...PLANO_CLIENTE_PAGO.passos[2], capacidade: "proxima_parcela" }] };
   const { o } = await perguntar(FRASE_CLIENTE_PAGO, {}, comParcela);
-  assert.deepEqual(o.rastro?.plano?.composicao?.faltando, ["POSICAO_FINANCEIRA"]);
-  assert.ok(textos(dados(o.resposta)).includes("AUSENCIA:Não consegui obter: posição financeira (pago, saldo, em aberto)."));
-  // "o contrato e o cliente": a relação devolve "Contrato V2 assinado.", mas isso não é a situação contratual.
+  assert.deepEqual(o.rastro?.plano?.complemento?.adicionados, ["saldo_contrato"]);
+  assert.deepEqual(o.rastro?.plano?.composicao?.faltando, []);
+  assert.ok(textos(dados(o.resposta)).includes("FATO:Situação: Em aberto."), "a quitação vem da posição oficial acrescentada");
+  // "o contrato e o cliente": a relação devolve "Contrato V2 assinado.", que NÃO é a situação contratual ⇒ resumir_contrato.
   const soRelacao = { objetivo: "CONSULTAR:CONTRATO", recursoFinal: null, passos: [ancora, { id: "p2", capacidade: "relacoes_festa", ...nulos, entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" } }] };
-  const r = await perguntar("me mostra o contrato e o cliente da festa que vem aí", {}, soRelacao);
-  assert.deepEqual(r.o.rastro?.plano?.composicao?.faltando, ["SITUACAO_CONTRATO"]);
-  assert.equal(dados(r.o.resposta).estado, "atencao");
+  const r = await perguntar("me mostra o contrato e o cliente da comemoração que vem aí", {}, soRelacao);
+  assert.deepEqual(r.o.rastro?.plano?.complemento?.adicionados, ["resumir_contrato"]);
+  assert.deepEqual(r.o.rastro?.plano?.composicao?.faltando, []);
+  assert.ok(textos(dados(r.o.resposta)).includes("FATO:Contrato assinado, versão vigente V2."));
 });
 
 test("fatos pedidos: o texto decide (cliente, situação, posição); contrato só como âncora não pede situação", () => {
@@ -171,7 +175,7 @@ test("fatos pedidos: o texto decide (cliente, situação, posição); contrato s
 
 test("navegação no fim: o contrato de navegação é mantido (nada é composto), mesmo com leitura marcada antes", async () => {
   const abrir = { objetivo: "ABRIR:CONTRATO", recursoFinal: "CONTRATO", passos: [ancora, { id: "p2", capacidade: "relacoes_festa", ...nulos, entradaDe: { de: "PASSO", passo: "p1", entidade: "FESTA" }, resposta: true }, { id: "p3", capacidade: "abrir_tela", ...nulos, parametros: { ordem: null, limite: null, inicio: null, fim: null, dia: null, incluirCancelados: null }, entradaDe: { de: "PASSO", passo: "p2", entidade: "CONTRATO" } }] };
-  const { o } = await perguntar("me leva para o contrato e o cliente da festa que vem aí", {}, abrir);
+  const { o } = await perguntar("me leva para o contrato e o cliente da comemoração que vem aí", {}, abrir);
   assert.equal(o.resposta?.tipo, "navegacao", "o contrato de navegação é mantido");
   assert.equal((o.resposta as { destino?: string }).destino, `/admin/contratos?contratoId=${IDS.CONTRATO_MARIA}`);
   assert.equal(o.rastro?.plano?.composicao, null, "nada é composto em navegação");

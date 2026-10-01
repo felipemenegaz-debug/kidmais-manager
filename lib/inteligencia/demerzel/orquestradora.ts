@@ -164,6 +164,8 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
       };
 
       /** Leva uma intenção resolvida até a resposta, sempre pelas portas guardadas. */
+      /** Leituras de RESPOSTA já feitas neste pedido pelas portas contadas (chave = capacidade + parâmetros). */
+      const lidas = new Map<string, AIResponse>();
       const despachar = async (intencao: Intencao, j: JulgamentoJev): Promise<AIResponse> => {
         const sensibilidade = j.actionSensitivity.classification;
         if (intencao.tipo === "revisao_humana") {
@@ -191,7 +193,9 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
             return terminar("PEDIDO_MISTO", recusa("Esse pedido mistura consulta com alteração ou envio. Peça uma coisa de cada vez: primeiro a consulta, depois a ação (que sempre pede a sua confirmação)."));
           }
           const chave = `${intencao.capacidade}:${JSON.stringify(intencao.parametros)}`;
-          const r = await exec.passo("LEITURA", chave, () => portas.ler(intencao.capacidade, intencao.parametros, intencao.origem), (v) => v.tipo);
+          // PR 6.4.3: a mesma leitura já feita NESTE pedido (ex.: revalidar a âncora da tela e lê-la como passo final do
+          // plano) é reaproveitada — já passou por Policy e Tenant Context; repeti-la seria barrada como duplicada.
+          const r = lidas.get(chave) ?? await exec.passo("LEITURA", chave, () => portas.ler(intencao.capacidade, intencao.parametros, intencao.origem), (v) => v.tipo);
           if (r.tipo !== "resposta") return terminar("LEITURA", r);
           // Copiloto: complemento opcional da leitura já autorizada (próxima ação; explicação só se pedida).
           // Falha ou limite no complemento nunca derruba a leitura: ela sai como veio.
@@ -245,8 +249,12 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
         // 4. Planner por regras: plano curto sobre as mesmas portas; cada leitura é um passo contado e a Policy vale em
         //    cada uma. O passo final (leitura, navegação ou proposta) segue o despacho atual, com o mesmo Human Gate.
         const planejador = portas.planejador ?? null;
-        const lerPlano = (capacidade: string, parametros: Record<string, unknown>) =>
-          exec.passo("LEITURA", `${capacidade}:${JSON.stringify(parametros)}`, () => portas.ler(capacidade, parametros, "INTENCAO_DETERMINISTICA"), (v) => v.tipo);
+        const lerPlano = async (capacidade: string, parametros: Record<string, unknown>) => {
+          const chave = `${capacidade}:${JSON.stringify(parametros)}`;
+          const r = await exec.passo("LEITURA", chave, () => portas.ler(capacidade, parametros, "INTENCAO_DETERMINISTICA"), (v) => v.tipo);
+          if (r.tipo === "resposta") lidas.set(chave, r);
+          return r;
+        };
         if (planejador) {
           const planejado = await planejador.planejar({ texto, contexto, regras }, lerPlano);
           await exec.passo("PLANO", "", () => planejado, (p) => (p ? ("intencao" in p ? "INTENCAO" : "PARADA") : "NENHUM"));
@@ -279,7 +287,10 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
         }
 
         // 6. Caminho das regras: leitura (Policy + tenant no gateway) ou proposta sob Human Gate.
-        if (regras.tipo !== "nenhuma") return await despachar(regras, j);
+        // PR 6.4.3: "precisa de contexto" num pedido COMPOSTO (com modelo disponível) tenta antes o Planner por modelo —
+        // ele pode ancorar a festa/contrato pela listagem; sem plano válido, a resposta de contexto de antes.
+        const compostoSemContexto = regras.tipo === "precisa_contexto" && planejador !== null && planejador.pedeComposicao(texto);
+        if (regras.tipo !== "nenhuma" && !compostoSemContexto) return await despachar(regras, j);
 
         // Sem rota pelas regras. Composição (PR 6.3): o Planner por modelo vem ANTES do auxiliar legado, que só sabe
         // devolver UMA leitura e responderia o pedido composto pela metade. O modelo só MONTA o plano (enum fechado,
@@ -291,6 +302,7 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
           if (planejado) {
             return planejador.concluir(await despachar(planejado.intencao, j));
           }
+          if (compostoSemContexto) return await despachar(regras, j);
           await exec.passo("SEM_ROTA", "", () => null, () => j.actionSensitivity.classification);
           return terminar("NAO_SUPORTADO", recusa("Ainda não sei responder isso pelo Kidmais. Veja o que consigo fazer agora:"));
         }
