@@ -36,16 +36,26 @@ export const LIMITES_DEMERZEL_PADRAO: LimitesDemerzel = Object.freeze({
 export const TIPOS_PASSO = [
   "INTENCAO_REGRAS", "JULGAMENTO_JEV", "JULGAMENTO_JEV_MODELO", "SUGESTAO_AUXILIAR", "INTENCAO_MODELO",
   "LEITURA", "PROPOSTA_ACAO", "RECUSA", "CONTEXTO", "HUMANO", "SEM_ROTA", "SELECAO_SKILL", "COMPLEMENTO", "COMPLEMENTO_MODELO", "SELECAO_AGENTE", "MARCADORES", "PLANO", "PLANO_MODELO",
+  // Conversa adaptativa (Luna): risco por regras, entendimento, execução guardada, redação e complemento por lacuna.
+  "RISCO", "ENTENDIMENTO_MODELO", "EXECUCAO", "REDACAO_MODELO", "COMPLEMENTO_LUNA",
 ] as const;
 export type TipoPasso = (typeof TIPOS_PASSO)[number];
 
 /** Passos que podem gastar modelo (contam em maxPassosModelo e no teto de custo). */
-export const PASSOS_COM_MODELO: readonly TipoPasso[] = ["JULGAMENTO_JEV_MODELO", "INTENCAO_MODELO", "COMPLEMENTO_MODELO", "PLANO_MODELO"];
+export const PASSOS_COM_MODELO: readonly TipoPasso[] = ["JULGAMENTO_JEV_MODELO", "INTENCAO_MODELO", "COMPLEMENTO_MODELO", "PLANO_MODELO", "ENTENDIMENTO_MODELO", "REDACAO_MODELO"];
+
+/**
+ * Limites da conversa adaptativa (valores de projeto, medidos no trace): até 4 chamadas de modelo no pedido INTEIRO
+ * (entendimento + planner + redação), 8 leituras e 20 s. Valem só para esta rota; os limites globais acima não mudam.
+ * A espera por resposta humana encerra o pedido (nada fica rodando).
+ */
+export const LIMITES_ADAPTATIVOS = Object.freeze({ chamadasModelo: 4, leituras: 8, prazoMs: 20_000, maxPassos: 12, folgaRedacaoMs: 3_000 });
 
 export const MOTIVOS_PARADA = [
   "LEITURA", "PROPOSTA", "AGENTE", "PLANO", "PRECISA_CONTEXTO", "HUMANO", "NAO_SUPORTADO", "PEDIDO_MISTO",
   "RECUSA_ACAO", "RECUSA_JULGAMENTO", "RECUSA_INJECAO",
   "LIMITE_PASSOS", "LIMITE_MODELO", "LIMITE_PROPOSTAS", "LIMITE_CUSTO", "CUSTO_DESCONHECIDO", "LIMITE_PRAZO", "ACAO_DUPLICADA",
+  "ADAPTATIVO", "ENTENDIMENTO_INDISPONIVEL",
 ] as const;
 export type MotivoParada = (typeof MOTIVOS_PARADA)[number];
 

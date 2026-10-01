@@ -26,6 +26,16 @@ export function calculo(texto: string, fonte: string): Fato {
   return { natureza: "CALCULO", texto, fonte };
 }
 
+/** Parâmetro que o usuário informou só para esta consulta (nunca padrão da empresa). */
+export function parametro(texto: string, fonte: string): Fato {
+  return { natureza: "PARAMETRO", texto, fonte };
+}
+
+/** Hipótese pedida pelo usuário: nunca padrão da empresa, nunca recomendação comprovada. */
+export function estimativa(texto: string, fonte: string): Fato {
+  return { natureza: "ESTIMATIVA", texto, fonte };
+}
+
 export function ausencia(texto: string, fonte: string): Fato {
   return { natureza: "AUSENCIA", texto, fonte };
 }

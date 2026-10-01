@@ -147,6 +147,32 @@ export function aguardandoResposta(historico: readonly Mensagem[]) {
   return historico.some((mensagem) => mensagem.fase === 'carregando' || ((mensagem.fase === 'preview' || mensagem.fase === 'rascunho') && mensagem.decidindo === true));
 }
 
+/** Texto curto que a tela mostrou para a mensagem (o que o operador leu), para o histórico enviado como contexto. */
+function textoMostrado(m: Mensagem): string {
+  switch (m.fase) {
+    case 'leitura': return m.dados.resumo;
+    case 'resposta': return 'Resumo do que precisa de atenção hoje.';
+    case 'agente': return m.resumo;
+    case 'rascunho': return m.perguntaKidmais;
+    case 'preview': return `Prévia: ${m.rascunho.titulo}`;
+    case 'resultado': return m.mensagem;
+    case 'nao_suportado': case 'precisa_contexto': return m.mensagem;
+    case 'navegacao': return `Abrindo ${m.rotulo}`;
+    case 'erro': return m.mensagem;
+    default: return '';
+  }
+}
+
+/**
+ * Conversa adaptativa: as últimas trocas concluídas (pergunta + texto mostrado), para a Luna entender elipses e correções.
+ * Só contexto: o servidor relê rascunho, tenant e fatos; nada disto é autoridade.
+ */
+export function historicoParaServidor(historico: readonly Mensagem[], limite = 4): Array<{ pergunta: string; resposta: string }> {
+  return historico.filter((m) => m.fase !== 'carregando' && m.fase !== 'cancelada' && m.fase !== 'indisponivel')
+    .slice(-limite)
+    .map((m) => ({ pergunta: m.pergunta.slice(0, 300), resposta: textoMostrado(m).slice(0, 300) }));
+}
+
 /** Id da pergunta em curso (a única que pode ser cancelada). */
 export function perguntaEmCurso(historico: readonly Mensagem[]): number | null {
   return historico.find((m) => m.fase === 'carregando')?.id ?? null;

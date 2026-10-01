@@ -386,7 +386,8 @@ test('Provider: rascunho aberto recebe a próxima frase; o clique em Confirmar v
     sincronizar();
     await (drawer().props.onPerguntar as (t: string) => Promise<void>)('4 horas');
     sincronizar();
-    assert.deepEqual(JSON.parse(String(pedidos[1].init.body)), { texto: '4 horas', operacaoId: rascunho.operacaoId });
+    // A troca anterior vai como CONTEXTO (histórico curto); o rascunho continua indicado só pelo id.
+    assert.deepEqual(JSON.parse(String(pedidos[1].init.body)), { texto: '4 horas', operacaoId: rascunho.operacaoId, historico: [{ pergunta: 'Crie o pacote Festa Plus', resposta: 'Qual é a duração?' }] });
     const antes = drawer().props.mensagens as conversa.Mensagem[];
     assert.equal(antes.at(-1)!.fase, 'preview');
 
@@ -683,4 +684,23 @@ test('Provider: reenvia o foco da resposta anterior só como tipo + id; resposta
   } finally {
     navegador.restaurar();
   }
+});
+
+test("conversa adaptativa: histórico enviado = últimas trocas concluídas (pergunta + texto mostrado), limitado e truncado", () => {
+  const longa = "x".repeat(400);
+  const h: conversa.Mensagem[] = [
+    { id: 1, pergunta: "antiga", fase: "nao_suportado", mensagem: "m1", sugestoes: [] },
+    { id: 2, pergunta: "crie uma do cliente Felipe para 50 convidados, pacote premium", fase: "nao_suportado", mensagem: "Você quer preparar a contratação de uma festa?", sugestoes: [] },
+    { id: 3, pergunta: "cancelada", fase: "cancelada" },
+    { id: 4, pergunta: longa, fase: "precisa_contexto", mensagem: longa },
+    { id: 5, pergunta: "doces?", fase: "rascunho", rascunho: { operacaoId: "o", capacidade: "c", estado: "COLETANDO", versao: 1, payloadHash: "", expiraEm: "", titulo: "T", campos: [], avisos: [] }, perguntaKidmais: "Quantos convidados?" },
+    { id: 6, pergunta: "uma festa", fase: "erro", mensagem: "falhou", reenviavel: true },
+    { id: 7, pergunta: "em curso", fase: "carregando" },
+  ];
+  const enviado = conversa.historicoParaServidor(h);
+  assert.equal(enviado.length, 4);
+  assert.deepEqual(enviado.map((x) => x.pergunta.slice(0, 10)), ["crie uma d", "x".repeat(10), "doces?", "uma festa"]);
+  assert.equal(enviado[1].pergunta.length, 300);
+  assert.equal(enviado[2].resposta, "Quantos convidados?");
+  assert.equal(enviado.some((x) => x.pergunta === "em curso" || x.pergunta === "cancelada"), false);
 });

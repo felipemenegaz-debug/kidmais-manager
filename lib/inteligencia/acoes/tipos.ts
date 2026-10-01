@@ -66,6 +66,11 @@ export type FerramentaAcao<P extends Record<string, unknown> = Record<string, un
   revisao?: { rotulo: string; destino(payload: Record<string, unknown>, operacaoId: string): string | null; ttlSegundos?: number };
   /** Extração determinística de texto livre. `perguntado` é o campo da última pergunta, se houver. */
   extrair(texto: string, perguntado: string | null): Record<string, unknown>;
+  /**
+   * Conversa adaptativa: valores que a Luna entendeu da mensagem inteira (já conferidos contra o texto do usuário).
+   * A ação só aceita os campos e tipos dela; tudo passa depois por `validar` e `verificar` no Core. Ausente ⇒ ignorado.
+   */
+  doModelo?(valores: Readonly<Record<string, unknown>>): Record<string, unknown>;
   /** Campos que ainda faltam, na ordem em que serão perguntados. */
   faltando(payload: Record<string, unknown>): string[];
   /** Normaliza e valida o payload completo. Lança InteligenciaError com mensagem humana se inválido. */

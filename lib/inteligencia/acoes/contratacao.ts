@@ -147,6 +147,29 @@ export function extrairContratacao(texto: string, perguntado: string | null): Re
   return v;
 }
 
+/**
+ * Conversa adaptativa: campos da contratação que a Luna entendeu (já conferidos contra o texto do usuário). Só nomes,
+ * números e códigos fechados — nenhum id; cliente, aniversariante e pacote continuam resolvidos no Core por `verificar`.
+ */
+export function contratacaoDoModelo(v: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const saida: Record<string, unknown> = {};
+  const texto = (x: unknown, max: number) => (typeof x === "string" && x.trim() && x.trim().length <= max ? x.trim() : null);
+  const cliente = texto(v.cliente, 80);
+  if (cliente && /^[\p{L}][\p{L}' .-]{1,79}$/u.test(cliente)) saida.cliente = capitalizar(cliente);
+  const aniversariante = texto(v.aniversariante, 60);
+  if (aniversariante && /^[\p{L}][\p{L}' .-]{1,59}$/u.test(aniversariante)) saida.aniversariante = capitalizar(aniversariante);
+  if (typeof v.pacote === "string" && (CODIGOS as readonly string[]).includes(v.pacote)) saida.pacote = v.pacote;
+  if (Number.isInteger(v.convidados) && (v.convidados as number) >= 1 && (v.convidados as number) <= 500) saida.convidados = v.convidados;
+  if (Number.isInteger(v.idade) && (v.idade as number) >= 0 && (v.idade as number) <= 120) saida.idade = v.idade;
+  const tema = texto(v.tema, 200);
+  if (tema) saida.tema = tema;
+  if (typeof v.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.data)) saida.data = v.data;
+  else if (typeof v.diaMes === "string" && /^\d{2}\/\d{2}$/.test(v.diaMes)) saida.diaMes = v.diaMes;
+  if (v.turno === "almoco" || v.turno === "noite") saida.turno = v.turno;
+  if (typeof v.horario === "string" && HORA.test(v.horario)) saida.horario = v.horario;
+  return saida;
+}
+
 // ---------------------------------------------------------------- campos, validação e preview
 
 const CAMPOS: readonly DefinicaoCampo[] = [
@@ -314,6 +337,7 @@ export function criarAcaoContratacao(porta: PortaContratacao, hoje: () => string
     campos: CAMPOS,
     revisao: { rotulo: "Revisão da contratação", destino: destinoRevisao, ttlSegundos: TTL_PREPARACAO_SEGUNDOS },
     extrair: (texto, perguntado) => extrairContratacao(texto, perguntado),
+    doModelo: (valores) => contratacaoDoModelo(valores),
     faltando: (payload) => {
       completarAno(payload);
       return faltandoContratacao(payload);

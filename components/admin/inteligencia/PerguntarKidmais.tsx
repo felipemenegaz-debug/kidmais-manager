@@ -5,7 +5,7 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import { interpretarPergunta } from './perguntas';
 import { consultarAtencaoHoje, continuacaoValida, conversar, decidirOperacao, focoValido, rotaInternaSegura, type ContextoTela, type ContinuacaoUI, type FocoUI, type RascunhoPublico } from './cliente-inteligencia';
 import {
-  adicionarPergunta, aguardandoResposta, cancelarEspera, marcarDecisao, perguntaEmCurso, perguntaReenviavel, rascunhoAberto, registrarConversa, registrarDecisao,
+  adicionarPergunta, aguardandoResposta, cancelarEspera, historicoParaServidor, marcarDecisao, perguntaEmCurso, perguntaReenviavel, rascunhoAberto, registrarConversa, registrarDecisao,
   registrarResultado, type Mensagem,
 } from './conversa';
 import DrawerKidmais from './DrawerKidmais';
@@ -72,7 +72,7 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
       } else {
         const pendente = continuacao.current;
         continuacao.current = null;
-        const resultado = await conversar(adminFetch, { texto: pergunta, contexto, ...(rascunho ? { operacaoId: rascunho.operacaoId } : {}), foco: foco.current, continuacao: pendente }, abortar.signal);
+        const resultado = await conversar(adminFetch, { texto: pergunta, contexto, ...(rascunho ? { operacaoId: rascunho.operacaoId } : {}), foco: foco.current, continuacao: pendente, historico: historicoParaServidor(historico.current) }, abortar.signal);
         if (resultado.tipo === 'ok') foco.current = focoValido((resultado.resposta as { foco?: unknown }).foco, foco.current) ?? foco.current;
         if (resultado.tipo === 'ok') continuacao.current = continuacaoValida((resultado.resposta as { continuacao?: unknown }).continuacao);
         // Resposta a rascunho não é repetida automaticamente: o operador vê o estado atual e decide.

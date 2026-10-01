@@ -63,7 +63,7 @@ export async function consultarAtencaoHoje(buscar: Buscador, sinal?: AbortSignal
 export const ENDPOINT_CONVERSA = '/api/admin/inteligencia/conversa';
 export const ENDPOINT_OPERACOES = '/api/admin/inteligencia/operacoes';
 
-export type Fato = { natureza: 'FATO' | 'CALCULO' | 'AUSENCIA'; texto: string; fonte: string };
+export type Fato = { natureza: 'FATO' | 'PARAMETRO' | 'CALCULO' | 'ESTIMATIVA' | 'AUSENCIA'; texto: string; fonte: string };
 export type RespostaLeitura = {
   capacidade: string;
   estado: 'atencao' | 'em_dia' | 'sem_dados' | 'informativo';
@@ -190,7 +190,7 @@ async function postar(buscar: Buscador, url: string, corpo: object, sinal?: Abor
 }
 
 /** Pergunta livre ou resposta a um rascunho. `sinal` permite ao operador cancelar a espera (leitura não tem efeito). */
-export function conversar(buscar: Buscador, pedido: { texto: string; contexto?: ContextoTela | null; operacaoId?: string; foco?: FocoUI | null; continuacao?: ContinuacaoUI | null }, sinal?: AbortSignal) {
+export function conversar(buscar: Buscador, pedido: { texto: string; contexto?: ContextoTela | null; operacaoId?: string; foco?: FocoUI | null; continuacao?: ContinuacaoUI | null; historico?: ReadonlyArray<{ pergunta: string; resposta: string }> }, sinal?: AbortSignal) {
   const foco = pedido.foco?.entidades.length ? focoParaEnvio(pedido.foco) : null;
   return postar(buscar, ENDPOINT_CONVERSA, {
     texto: pedido.texto,
@@ -198,6 +198,8 @@ export function conversar(buscar: Buscador, pedido: { texto: string; contexto?: 
     ...(pedido.operacaoId ? { operacaoId: pedido.operacaoId } : {}),
     ...(foco ? { foco } : {}),
     ...(pedido.continuacao ? { continuacao: pedido.continuacao } : {}),
+    // Conversa adaptativa: as últimas trocas mostradas, só como contexto (o servidor não confia nelas como fato).
+    ...(pedido.historico?.length ? { historico: pedido.historico.slice(-4).map((t) => ({ pergunta: t.pergunta.slice(0, 300), resposta: t.resposta.slice(0, 300) })) } : {}),
   }, sinal);
 }
 
@@ -306,7 +308,7 @@ export function decidirOperacao(buscar: Buscador, rascunho: RascunhoPublico, dec
   return postar(buscar, ENDPOINT_OPERACOES, { operacaoId: rascunho.operacaoId, versao: rascunho.versao, payloadHash: rascunho.payloadHash, decisao });
 }
 
-const ROTULOS_FATO: Readonly<Record<Fato['natureza'], string>> = { FATO: 'Dado', CALCULO: 'Cálculo', AUSENCIA: 'Sem dados' };
+const ROTULOS_FATO: Readonly<Record<Fato['natureza'], string>> = { FATO: 'Dado', PARAMETRO: 'Informado por você', CALCULO: 'Cálculo', ESTIMATIVA: 'Estimativa', AUSENCIA: 'Sem dados' };
 export function rotuloFato(natureza: Fato['natureza']) {
   return ROTULOS_FATO[natureza];
 }

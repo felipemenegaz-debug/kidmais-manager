@@ -5,8 +5,9 @@ import type { Intencao } from "../intencao.ts";
 import { normalizar } from "../texto-pt.ts";
 import type { JulgamentoJev, MotivoJev, TelaJev } from "../jev/v1/contrato.ts";
 import { criarJuizJev, type RastroJevV1 } from "../jev/v1/juiz.ts";
+import { atenderAdaptativo } from "./adaptativo.ts";
 import {
-  LIMITES_DEMERZEL_PADRAO, LimiteDemerzel, PASSOS_COM_MODELO, VERSAO_DEMERZEL, type LimitesDemerzel, type MotivoParada, type TipoPasso,
+  LIMITES_ADAPTATIVOS, LIMITES_DEMERZEL_PADRAO, LimiteDemerzel, PASSOS_COM_MODELO, VERSAO_DEMERZEL, type LimitesDemerzel, type MotivoParada, type TipoPasso,
 } from "./contrato.ts";
 
 /**
@@ -28,6 +29,8 @@ export type OpcoesDemerzel = {
   registrarJev?: (rastro: RastroJevV1) => void;
   /** Prazo do modelo no JEV (H1), já validado pelo ambiente; ausente ⇒ padrão do JEV. */
   prazoModeloJevMs?: number;
+  /** Conversa adaptativa: limites da rota (padrão LIMITES_ADAPTATIVOS). */
+  adaptativo?: Partial<typeof LIMITES_ADAPTATIVOS>;
 };
 
 const SUGESTOES = ["O que precisa da minha atenção hoje?", "Quais contratos estão pendentes?", "Como está a agenda de hoje?", "Quanto recebemos este mês?"];
@@ -35,7 +38,7 @@ const recusa = (mensagem: string): AIResponse => ({ tipo: "nao_suportado", mensa
 
 
 /** Explicação humana de cada recusa do julgamento. Nunca repete o texto do pedido. */
-const EXPLICACAO_PROIBIDA: ReadonlyArray<[MotivoJev, string]> = [
+export const EXPLICACAO_PROIBIDA: ReadonlyArray<[MotivoJev, string]> = [
   ["SINAL_OUTRO_TENANT", "Eu só mostro e faço coisas da empresa em que você está agora. Para outra empresa, entre nela pelo seletor de empresa."],
   ["SINAL_OUTRO_ESTABELECIMENTO", "Eu só trabalho com os dados da unidade e da empresa em que você está agora."],
   ["SINAL_SEGREDO", "Senhas, tokens, chaves e configurações secretas nunca são mostrados pelo Kidmais."],
@@ -47,7 +50,7 @@ const EXPLICACAO_PROIBIDA: ReadonlyArray<[MotivoJev, string]> = [
   ["SINAL_AUTONOMIA", "Nada é confirmado sozinho: toda ação do Kidmais passa pela sua confirmação na tela."],
 ];
 
-const INJECAO: readonly MotivoJev[] = ["INSTRUCAO_IGNORADA", "ESCRITA_MISTA"];
+export const INJECAO: readonly MotivoJev[] = ["INSTRUCAO_IGNORADA", "ESCRITA_MISTA"];
 
 /** Pedido de explicação (Copiloto): só então o complemento pode usar modelo. */
 const PEDE_EXPLICACAO = /\b(expli\w*|entend\w*|signific\w*|por que|porque|analis\w*|interpret\w*)\b/;
@@ -56,7 +59,7 @@ function telaJev(contexto: ContextoTela | null): TelaJev {
   return contexto?.tela ?? "geral";
 }
 
-function motivosDe(j: JulgamentoJev): Set<MotivoJev> {
+export function motivosDe(j: JulgamentoJev): Set<MotivoJev> {
   return new Set([...j.intent.reasonCodes, ...j.actionSensitivity.reasonCodes, ...j.risk.reasonCodes]);
 }
 
@@ -80,9 +83,9 @@ export class ExecucaoDemerzel {
   private propostas = 0;
   private readonly inicio: number;
   private readonly limites: LimitesDemerzel;
-  private readonly portas: PortasOrquestracao;
+  private readonly portas: Pick<PortasOrquestracao, "relogio" | "usosDeModelo">;
 
-  constructor(limites: LimitesDemerzel, portas: PortasOrquestracao) {
+  constructor(limites: LimitesDemerzel, portas: Pick<PortasOrquestracao, "relogio" | "usosDeModelo">) {
     this.limites = limites;
     this.portas = portas;
     this.inicio = portas.relogio();
@@ -142,6 +145,7 @@ export class ExecucaoDemerzel {
 export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
   const limites: LimitesDemerzel = { ...LIMITES_DEMERZEL_PADRAO, ...opcoes.limites };
   return {
+    atenderAdaptativo: (entrada, portas) => atenderAdaptativo(entrada, portas, { limites: opcoes.adaptativo, registrarJev: opcoes.registrarJev }),
     async atender(entrada, portas) {
       const exec = new ExecucaoDemerzel(limites, portas);
       let julgamento: JulgamentoJev | null = null;
@@ -188,7 +192,8 @@ export function criarDemerzel(opcoes: OpcoesDemerzel = {}): Orquestrador {
         }
         if (intencao.tipo === "leitura") {
           // Consulta misturada com pedido de alteração/envio: nada é executado pela metade.
-          if (sensibilidade === "CONFIRM") {
+          const consultaEntendida = portas.entendido?.objetivo === "CONSULTA" || portas.entendido?.objetivo === "CALCULO_CONSUMO";
+          if (sensibilidade === "CONFIRM" && !consultaEntendida) {
             await exec.passo("RECUSA", "PEDIDO_MISTO", () => null, () => "PEDIDO_MISTO");
             return terminar("PEDIDO_MISTO", recusa("Esse pedido mistura consulta com alteração ou envio. Peça uma coisa de cada vez: primeiro a consulta, depois a ação (que sempre pede a sua confirmação)."));
           }

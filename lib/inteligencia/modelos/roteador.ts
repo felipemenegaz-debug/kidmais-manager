@@ -27,6 +27,9 @@ export const TIERS_PADRAO: Readonly<Record<Workload, TierModelo>> = {
   REVISAO_COMPLEXA: "ADVANCED",
   // PR 6: JSON pequeno com enum fechado e validação dura; plano inválido cai na resposta honesta. ECONOMY basta.
   PLANEJAR: "ECONOMY",
+  // Conversa adaptativa: saída estruturada estrita e revalidada (entendimento) e texto curto conferido (redação).
+  INTERPRETAR_CONVERSA: "ECONOMY",
+  REDIGIR_RESPOSTA: "ECONOMY",
 };
 
 /** Documento de cliente não muda de provedor sozinho: fallback desligado para extração. */
@@ -40,6 +43,8 @@ export const FALLBACK_PADRAO: Readonly<Record<Workload, boolean>> = {
   EXTRACAO_CONTRATO: false,
   REVISAO_COMPLEXA: true,
   PLANEJAR: true,
+  INTERPRETAR_CONVERSA: true,
+  REDIGIR_RESPOSTA: true,
 };
 
 export type PoliticaRoteamento = {
