@@ -49,6 +49,9 @@ test("Luna (A5): a instrução e o schema separam a mensagem atual do histórico
   assert.match(sistema.conteudo, /Pedidos que aparecem no histórico já foram atendidos ou estão em andamento: nunca os conte como pedidos novos/);
   const itens = ((schemaEntendimento(["x"], ["y"]) as { properties: { outrosPedidos: { items: { required: string[] } } } }).properties.outrosPedidos.items);
   assert.deepEqual(itens.required, ["pedido", "trecho"]);
+  // PR 17 (homologação de ec4fac2): a instrução não pode inibir pedido novo numa resposta ao rascunho (mensagem mista).
+  assert.doesNotMatch(sistema.conteudo, /resposta a pergunta do rascunho não tem outros pedidos/);
+  assert.match(sistema.conteudo, /Mensagem mista \(responde ao rascunho E pede outra coisa nova\)/);
 });
 
 test("Luna: caso C — 4 doces, embalagem de 2l e estimativa PEDIDA são aceitos; nada é perguntado de novo", () => {

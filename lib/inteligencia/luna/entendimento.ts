@@ -213,7 +213,8 @@ const INSTRUCAO = [
   "- Datas: data só com ano escrito (AAAA-MM-DD); sem ano, use diaMes (DD/MM). Não corrija datas impossíveis: copie como escrito.",
   "- Estimativa: só se o usuário pedir explicitamente que você defina/estime/sugira um parâmetro que ele não sabe. Então ponha a categoria em consumo.estimar e um valor prudente em docesEstimado (docinhos por convidado) ou mlEstimado (mL por convidado). Caso contrário, deixe estimar vazio e os estimados nulos.",
   "- festa: PROXIMA (\"a próxima festa\"), DA_TELA (\"esta festa\" com festa aberta), DA_CONVERSA (a festa já em discussão), POR_DATA (com dataFesta AAAA-MM-DD), NENHUMA.",
-  "- outrosPedidos: só pedidos ADICIONAIS escritos na `mensagem` atual que não cabem no objetivo principal (até 2). Para cada um, `trecho` é a cópia literal do pedaço da mensagem que o pede. Nunca inclua pedidos do histórico, do rascunho ou do consumoPendente; uma resposta a pergunta do rascunho não tem outros pedidos.",
+  "- outrosPedidos: só pedidos ADICIONAIS escritos na `mensagem` atual que não cabem no objetivo principal (até 2). Para cada um, `trecho` é a cópia literal do pedaço da mensagem que o pede. Nunca inclua pedidos do histórico, do rascunho ou do consumoPendente.",
+  "- Mensagem mista (responde ao rascunho E pede outra coisa nova): o objetivo principal é a resposta ao rascunho (RESPONDE/CORRIGE, com os dados em contratacao) e o pedido novo vai em outrosPedidos, com o trecho — nada do que o usuário escreveu se perde.",
 ].join("\n");
 
 function redigir(texto: string, limite: number) {
