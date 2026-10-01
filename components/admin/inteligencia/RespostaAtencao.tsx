@@ -22,13 +22,13 @@ export default function RespostaAtencao({ dados, aoNavegar }: { dados: AtencaoHo
       </li>)}
     </ul>}
     <details className={styles.evidencias}>
-      <summary>Evidências</summary>
+      <summary>Dados usados</summary>
+      <p className={styles.referencia}>{hora ? `Atualizado às ${hora} · ` : ''}{fonte}</p>
       <ul>
         <li><span>Fonte</span>{fonte}</li>
         {dados.itens.map((item) => <li key={item.tipo}><span>{item.titulo}</span>{evidenciaTexto(item)}</li>)}
         {dados.itens.length > 1 && <li className={styles.observacao}>Cada indicador é independente: “Valores a receber” já inclui os vencidos e os que vencem hoje.</li>}
       </ul>
     </details>
-    <p className={styles.referencia}>{hora ? `Atualizado às ${hora} · ` : ''}{fonte}</p>
   </div>;
 }

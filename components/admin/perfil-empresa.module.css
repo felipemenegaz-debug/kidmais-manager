@@ -175,3 +175,44 @@
 @media(hover:hover) { .confirmacao:hover { border-color:color-mix(in srgb,var(--primary-violet) 45%,transparent); } }
 .dialogo .acoes { justify-content:flex-end; }
 @media(prefers-reduced-motion:reduce) { .acoes button,.ajuda button,.semNumero,.confirmacao { transition:none; } }
+/* Perfil: leitura, rascunho e aplicação com a mesma hierarquia das telas comerciais. */
+.header { height:auto; min-height:80px; background:var(--main-bg); padding-block:16px; }
+.heading { flex-wrap:wrap; gap:16px; }
+.heading h1 { font-weight:600; text-transform:none; }
+.titulo,.rotulo,.subtitulo,.marca { text-transform:none; letter-spacing:0; font-weight:500; }
+.titulo { color:var(--main-text); font-size:18px; margin-bottom:20px; }
+.rotulo { font-size:13px; color:var(--secondary-text); }
+.subtitulo { font-size:14px; }
+.card { border-radius:12px; padding:24px; }
+.layout { gap:24px; }
+.principal,.lateral { gap:20px; }
+.acoes button,.header .acoes button,.header .acoes .primario { text-transform:none; letter-spacing:0; font-size:14px; font-weight:600; min-height:44px; padding:10px 16px; }
+.primario { color:var(--main-bg); background:var(--emerald-accent); box-shadow:none; }
+.etapas { display:flex; flex-wrap:wrap; gap:12px 24px; color:var(--secondary-text); margin-bottom:24px; font-size:13px; }
+.lateral > .card:first-child { min-height:0; }
+.lateral summary { cursor:pointer; font-weight:500; min-height:44px; }
+.lateral details .titulo { margin-top:16px; }
+.acesso { max-width:540px; margin:64px auto; padding:24px; }
+.acesso h2 { font-size:22px; }
+.acesso p { color:var(--secondary-text); margin:12px 0; }
+.acesso div { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+.acesso button { min-height:44px; padding:10px 16px; border:1px solid var(--input-border); background:var(--input-bg); color:var(--main-text); border-radius:8px; cursor:pointer; }
+.acesso a { color:var(--main-text); text-underline-offset:4px; }
+.revisao h3,.revisao h4,.revisao > section > h3 { color:var(--main-text); text-transform:none; letter-spacing:0; font-size:15px; font-weight:600; }
+.localFesta { margin-top:24px; }
+.endereco { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.endereco > .cep { grid-column:span 1; }
+.endereco > .logradouro { grid-column:span 2; }
+.endereco > .cidade { grid-column:span 3; }
+.endereco > .uf,.endereco > .numeroGrupo { grid-column:span 1; }
+@media(max-width:800px) {
+ .header { padding-left:64px; min-height:64px; }
+ .heading h1 { font-size:17px; }
+ .conteudo { padding:20px 16px 120px; }
+ .endereco > .campo:not(.complemento) > .rotulo,.contatos .rotulo { display:flex; }
+ .campo small,.regraCampos,.avisoContato { font-size:12px; }
+ .endereco { grid-template-columns:1fr; }
+ .endereco > .cep,.endereco > .logradouro,.endereco > .complemento,.endereco > .cidade,.endereco > .uf,.endereco > .numeroGrupo { grid-column:1/-1; }
+ .identificacao > :last-child { display:flex; }
+ .acesso { margin:32px 16px; }
+}

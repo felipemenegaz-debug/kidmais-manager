@@ -166,7 +166,7 @@ test('Resposta: resumo, links de origem e evidências agregadas sem somar indica
   const conteudo = texto(arvore);
   assert.match(conteudo, /Existe 1 pagamento vencido/);
   assert.deepEqual(elementos(arvore).filter((e) => e.type === 'a').map((e) => e.props.href), Array(3).fill('/admin/financeiro/contas-receber'));
-  assert.match(conteudo, /Evidências/);
+  assert.match(conteudo, /Dados usados/);
   assert.match(conteudo, /Financeiro · Contas a receber/);
   assert.match(conteudo, /1 registro · R\$ 3\.000,00 · maior atraso 8 dias/);
   assert.match(conteudo, /já inclui os vencidos/);
@@ -195,7 +195,7 @@ test('Drawer: sugestões, envio, capacidade indisponível e fechamento por botã
     const dialogo = elementos(inicial).find((e) => e.props.role === 'dialog');
     assert(dialogo);
     assert.equal(dialogo.props['aria-modal'], 'true');
-    assert.match(texto(inicial), /Perguntar ao Kidmais/);
+    assert.match(texto(inicial), /Assistente Kidmais/);
     assert.equal(document.body.style.overflow, 'hidden');
 
     (achar(inicial, 'button', /O que precisa da minha atenção hoje\?/).props.onClick as () => void)();
@@ -214,7 +214,7 @@ test('Drawer: sugestões, envio, capacidade indisponível e fechamento por botã
     assert.equal(achar(comHistorico, RespostaAtencao).props.dados, dados);
 
     const aguardando = tela.render('default', { ...props, aguardando: true });
-    assert.equal(achar(aguardando, 'button', 'Perguntar').props.disabled, true);
+    assert.equal(achar(aguardando, 'button', 'Enviar').props.disabled, true);
 
     (achar(tela.render('default', props), 'button', 'Fechar').props.onClick as () => void)();
     assert.equal(navegador.tecla('Escape'), true);
@@ -332,7 +332,7 @@ test('Preview: mostra campos preenchidos, avisos e "nada foi gravado"; Confirmar
   assert.match(conteudo, /Festa Plus/);
   assert.doesNotMatch(conteudo, /Descrição/, 'campo vazio não aparece');
   assert.match(conteudo, /Sem preço/);
-  assert.match(conteudo, /Nenhuma alteração foi feita no cadastro/);
+  assert.match(conteudo, /Confirmar salva este cadastro/);
   (achar(arvore, 'button', 'Confirmar').props.onClick as () => void)();
   (achar(arvore, 'button', 'Cancelar').props.onClick as () => void)();
   assert.deepEqual(decisoes, ['confirmar', 'cancelar']);

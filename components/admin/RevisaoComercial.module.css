@@ -15,3 +15,13 @@
 .actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .error { color: #fda4af; background: rgba(251,191,36,.08); border-radius: 8px; padding: 16px; }
 @media (max-width: 650px) { .grid { grid-template-columns: 1fr; } .page { padding: 24px 16px; } }
+.page { color:var(--main-text); font-family:var(--admin-font); }
+.page h1 { font-size:28px; font-weight:600; }
+.page h2 { font-size:18px; font-weight:600; }
+.page a { color:var(--main-text); text-underline-offset:4px; }
+.card { border-radius:12px; }
+.page input:not([type=checkbox]),.page textarea { width:100%; background:var(--input-bg); color:var(--main-text); border-color:var(--input-border); }
+.page button { background:var(--emerald-accent); color:var(--main-bg); min-height:44px; }
+.actions button + button { background:var(--input-bg); color:var(--main-text); border:1px solid var(--input-border); }
+.page small { color:var(--secondary-text); font-size:13px; font-weight:400; }
+@media(max-width:800px) { .page { padding-top:80px; } .page input,.page textarea { font-size:16px; } }
