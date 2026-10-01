@@ -28,7 +28,7 @@ import {
 } from "./gateway.ts";
 import { explicarResposta, mensagemIndisponivel, mensagemNavegacaoSemDestino, mensagemPrecisaContexto, objetivoDaCapacidade, objetivoDoTexto } from "./entendimento.ts";
 import { criacaoAmbigua, interpretarComModelo, interpretarDeterministico, pedeAutonomia, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
-import type { RoteadorModelos } from "./modelos/roteador.ts";
+import type { ResultadoRoteado, RoteadorModelos } from "./modelos/roteador.ts";
 import { InteligenciaError, avaliarPolitica } from "./politica.ts";
 import { decidirPolitica } from "./politica-v1.ts";
 import { SUGESTAO_POR_FINALIDADE, manifestoAcao, manifestoLeitura, manifestoSugestao } from "./registro-ferramentas.ts";
@@ -203,7 +203,7 @@ async function interpretarPorModelo(texto: string, contexto: ContextoTela | null
     correlationId: rastreio.correlationId ?? rastreio.requestId,
     hoje: hojeBrasilia(deps.agora()),
   });
-  anotarUsoModelo(rastreio, roteado.usos);
+  anotarUsoModelo(rastreio, roteado.usos, roteado.ok ? undefined : roteado.recusa);
   usos.push(...roteado.usos);
   return intencao;
 }
@@ -752,7 +752,7 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
     fatosPedidos: fatosSolicitados(e.texto, operacionalAtivo(deps.env)).map((fato) => ({ fato, capacidades: FORNECEDORES[fato].filter((c) => catalogo.some((x) => x.id === c)) })),
   }, roteador, { empresaId: tenant.empresaComprovada, estabelecimentoId: unidadeDe(tenant), capacidade: "planejar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
   if (saida.roteado) {
-    anotarUsoModelo(rastreio, saida.roteado.usos);
+    anotarUsoModelo(rastreio, saida.roteado.usos, saida.roteado.ok ? undefined : saida.roteado.recusa);
     usos.push(...saida.roteado.usos);
   }
   if (!saida.plano) {
@@ -1039,7 +1039,7 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
             correlationId: rastreio.correlationId ?? rastreio.requestId,
             hoje: hojeBrasilia(deps.agora()),
           });
-          anotarUsoModelo(rastreio, r.usos);
+          anotarUsoModelo(rastreio, r.usos, r.ok ? undefined : r.recusa);
           usos.push(...r.usos);
           return r;
         },
@@ -1076,7 +1076,7 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
             disponivel: () => roteador.disponivelPara("TEXTO_CURTO"),
             async executar(pedidoModelo) {
               const r = await roteador.executar(pedidoModelo, { empresaId: comprovado.empresaComprovada, estabelecimentoId: unidadeDe(comprovado), capacidade: "copiloto_explicar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
-              anotarUsoModelo(rastreio, r.usos);
+              anotarUsoModelo(rastreio, r.usos, r.ok ? undefined : r.recusa);
               usos.push(...r.usos);
               return r;
             },
@@ -1377,8 +1377,8 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
     const tenant = await tenantParaModelo(sessao, pedido, deps, rastreio);
     return { empresaId: tenant.empresaComprovada, estabelecimentoId: unidadeDe(tenant), capacidade, correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) };
   };
-  const anotar = (r: { usos: readonly ModelUsage[] }) => {
-    anotarUsoModelo(rastreio, [...r.usos]);
+  const anotar = (r: ResultadoRoteado<unknown>) => {
+    anotarUsoModelo(rastreio, [...r.usos], r.ok ? undefined : r.recusa);
     usos.push(...r.usos);
   };
   const catalogo = catalogoDisponivel(deps.env, sessao.papel, acoes);

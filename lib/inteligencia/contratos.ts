@@ -353,6 +353,27 @@ export type DetalheErroProvedor = {
 /** Erro de modelo no trace: causa classificada + workload + detalhe saneado (nulls quando o provedor não informou). */
 export type ErroModeloRastreio = { causa: CausaModelo; workload: Workload } & DetalheErroProvedor;
 
+/** Por que o orçamento recusou uma reserva (código fechado; nunca valor de teto ou de consumo). */
+export type MotivoRecusaOrcamento =
+  | "AUSENTE" | "INVALIDO" | "SEM_TETO" | "SEM_PRECO"
+  | "TETO_TOKENS" | "TETO_CUSTO" | "CUSTO_DESCONHECIDO"
+  | "REGISTRO_INDISPONIVEL" | "REGISTRO_ERRO";
+
+/**
+ * Chamada de modelo que o roteador NÃO fez (sem provedor, sem modelo, circuito aberto ou reserva de orçamento recusada).
+ * `motivo`, `escopo` e `periodo` só existem na recusa de orçamento; `tokensReserva` é o teto estimado que se tentou
+ * reservar (entrada estimada + teto de saída). Sem texto, valores de negócio, tetos configurados ou consumo.
+ */
+export type RecusaModeloRastreio = {
+  causa: CausaModelo;
+  workload: Workload;
+  capacidade: string;
+  motivo: MotivoRecusaOrcamento | null;
+  escopo: "EMPRESA" | "CAPACIDADE" | null;
+  periodo: "DIA" | "MES" | null;
+  tokensReserva: number | null;
+};
+
 /** Uma linha por chamada de modelo. Sem prompt, sem resposta, sem PII. */
 export type ModelUsage = {
   correlationId: string;
@@ -414,6 +435,8 @@ export type AuditTrace = {
   duracaoModeloMs: number;
   /** H3: erros das chamadas de modelo deste pedido (causa + workload + status/type/code/param saneados), no máximo 5. */
   errosModelo: ErroModeloRastreio[];
+  /** Chamadas de modelo recusadas ANTES do provedor (orçamento, circuito, sem chave/modelo), com o motivo; no máximo 5. */
+  recusasModelo: RecusaModeloRastreio[];
   usuarioId: string | null;
   empresaId: string | null;
   capacidade: string | null;

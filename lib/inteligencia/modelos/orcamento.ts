@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ModelUsage } from "../contratos.ts";
+import type { ModelUsage, MotivoRecusaOrcamento } from "../contratos.ts";
 import type { Ambiente } from "../flags.ts";
 
 /**
@@ -80,7 +80,17 @@ export type PedidoReserva = {
   limites: readonly LimiteReserva[];
 };
 
-export type ResultadoReserva = { ok: true } | { ok: false; motivo: "ORCAMENTO" | "INDISPONIVEL" };
+/**
+ * Por que uma reserva foi recusada — só códigos fechados, escopo e período (nunca valor de teto ou de consumo), para o
+ * trace provar a causa exata sem ler configuração nem banco.
+ */
+export type { MotivoRecusaOrcamento };
+export type RecusaReserva = { motivo: MotivoRecusaOrcamento; escopo: LimiteReserva["escopo"] | null; periodo: LimiteReserva["periodo"]["tipo"] | null };
+
+export const recusaSemLimite = (motivo: MotivoRecusaOrcamento): RecusaReserva => ({ motivo, escopo: null, periodo: null });
+export const recusaNoLimite = (motivo: MotivoRecusaOrcamento, limite: LimiteReserva): RecusaReserva => ({ motivo, escopo: limite.escopo, periodo: limite.periodo.tipo });
+
+export type ResultadoReserva = { ok: true } | { ok: false; motivo: "ORCAMENTO" | "INDISPONIVEL"; recusa?: RecusaReserva };
 
 export interface RegistroUso {
   /** Reserva atômica. Recusa se consumo + reservas abertas + esta reserva excederia qualquer limite. */
@@ -131,7 +141,7 @@ function limitesDe(l: Limites | undefined, escopo: LimiteReserva["escopo"], capa
 }
 
 export type PlanoReserva =
-  | { tipo: "RECUSAR" }
+  | { tipo: "RECUSAR"; motivo: MotivoRecusaOrcamento }
   | { tipo: "RESERVAR"; limites: LimiteReserva[] };
 
 /**
@@ -140,15 +150,15 @@ export type PlanoReserva =
  * fixo. Teto de tokens não depende de preço; teto de custo exige preço e moeda iguais.
  */
 export function planejarReserva(orcamento: OrcamentoConfigurado, alvo: { capacidade: string; hoje: string; moedaPreco: string | null; precoConhecido: boolean }): PlanoReserva {
-  if (orcamento === "INVALIDO" || orcamento === "AUSENTE") return { tipo: "RECUSAR" };
+  if (orcamento === "INVALIDO" || orcamento === "AUSENTE") return { tipo: "RECUSAR", motivo: orcamento };
   const daCapacidade = orcamento.porCapacidade?.[alvo.capacidade];
   if (temLimiteDeCusto(orcamento.porEmpresa) || temLimiteDeCusto(daCapacidade)) {
-    if (!alvo.precoConhecido || !orcamento.moeda || orcamento.moeda !== alvo.moedaPreco) return { tipo: "RECUSAR" };
+    if (!alvo.precoConhecido || !orcamento.moeda || orcamento.moeda !== alvo.moedaPreco) return { tipo: "RECUSAR", motivo: "SEM_PRECO" };
   }
   const periodos = periodosDe(alvo.hoje);
   const limites = [...limitesDe(orcamento.porEmpresa, "EMPRESA", null, periodos), ...limitesDe(daCapacidade, "CAPACIDADE", alvo.capacidade, periodos)];
   // `{}`, `{"porEmpresa":{}}` ou limite só de OUTRA capacidade: nenhum teto aplicável ⇒ não chama.
-  if (!temTetoAplicavel(limites)) return { tipo: "RECUSAR" };
+  if (!temTetoAplicavel(limites)) return { tipo: "RECUSAR", motivo: "SEM_TETO" };
   return { tipo: "RESERVAR", limites };
 }
 
@@ -164,6 +174,18 @@ export function estimarTokensEntrada(
   const bytes = pedido.mensagens.reduce((t, m) => t + Buffer.byteLength(m.conteudo, "utf8"), 0);
   const schema = pedido.esquema ? Buffer.byteLength(JSON.stringify(pedido.esquema.schema), "utf8") : 0;
   return bytes + schema + pedido.mensagens.length * e.tokensPorMensagem + (pedido.imagens?.length ?? 0) * e.tokensPorImagem + e.overheadTokens;
+}
+
+/**
+ * Qual teto a reserva excederia (null = cabe). Mesma regra nas implementações em memória e PostgreSQL: tokens primeiro;
+ * no custo, preço desconhecido e consumo de custo desconhecido no período também recusam (fail closed).
+ */
+export function limiteExcedido(limite: LimiteReserva, pedido: Pick<PedidoReserva, "tokens" | "custoMicros">, atual: { tokens: number; custo: number; custoDesconhecido: boolean }): MotivoRecusaOrcamento | null {
+  if (limite.tokensMax !== null && atual.tokens + pedido.tokens > limite.tokensMax) return "TETO_TOKENS";
+  if (limite.custoMaxMicros === null) return null;
+  if (pedido.custoMicros === null) return "SEM_PRECO";
+  if (atual.custoDesconhecido) return "CUSTO_DESCONHECIDO";
+  return atual.custo + pedido.custoMicros > limite.custoMaxMicros ? "TETO_CUSTO" : null;
 }
 
 // ---------------------------------------------------------------- implementação em memória (testes)
@@ -211,11 +233,11 @@ export function criarRegistroUsoEmMemoria(): RegistroUso & { usos: UsoMemoria[];
     usos,
     reservas,
     async reservar(pedido) {
-      if (!temTetoAplicavel(pedido.limites)) return { ok: false, motivo: "ORCAMENTO" };
+      if (!temTetoAplicavel(pedido.limites)) return { ok: false, motivo: "ORCAMENTO", recusa: recusaSemLimite("SEM_TETO") };
       for (const limite of pedido.limites) {
         const atual = consumo(pedido.empresaId, limite, pedido.moeda);
-        if (limite.tokensMax !== null && atual.tokens + pedido.tokens > limite.tokensMax) return { ok: false, motivo: "ORCAMENTO" };
-        if (limite.custoMaxMicros !== null && (pedido.custoMicros === null || atual.custoDesconhecido || atual.custo + pedido.custoMicros > limite.custoMaxMicros)) return { ok: false, motivo: "ORCAMENTO" };
+        const motivo = limiteExcedido(limite, pedido, atual);
+        if (motivo) return { ok: false, motivo: "ORCAMENTO", recusa: recusaNoLimite(motivo, limite) };
       }
       reservas.set(pedido.id, { ...pedido, estado: "ABERTA" });
       return { ok: true };

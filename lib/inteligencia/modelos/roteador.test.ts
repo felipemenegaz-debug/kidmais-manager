@@ -52,7 +52,10 @@ test("provedor sem chave fica indisponível de forma segura, sem chamar a rede",
   const adaptadores = criarAdaptadores({ AI_OPENAI_MODEL_ECONOMY: "modelo-x" }, buscar);
   const { r } = roteador([...adaptadores.values()]);
   const resultado = await r.executar(pedido(), alvo);
-  assert.deepEqual(resultado, { ok: false, causa: "SEM_CHAVE", usos: [] });
+  assert.deepEqual(resultado, {
+    ok: false, causa: "SEM_CHAVE", usos: [],
+    recusa: { causa: "SEM_CHAVE", workload: "CLASSIFICAR_INTENCAO", capacidade: "criar_pacote", motivo: null, escopo: null, periodo: null, tokensReserva: null },
+  });
   assert.equal(chamadas, 0);
   assert.equal(r.disponivelPara("CLASSIFICAR_INTENCAO"), false);
 });
@@ -424,11 +427,55 @@ test("A5: reserva órfã (processo caiu) vira ORFA pela rotina, continua contand
   assert.equal(await registro.recuperarOrfas(new Date(agora - TTL_RESERVA_MS).toISOString()), 1);
   assert.equal(registro.reservas.get("r1")!.estado, "ORFA");
   const nova = await registro.reservar({ id: "r2", empresaId: alvo.empresaId, capacidade: "x", correlationId: "c", em: "2026-09-28T12:20:00.000Z", periodos, tokens: 400, custoMicros: null, moeda: null, limites });
-  assert.deepEqual(nova, { ok: false, motivo: "ORCAMENTO" }, "órfã continua contando: 700 + 400 > 1000");
+  assert.deepEqual(nova, { ok: false, motivo: "ORCAMENTO", recusa: { motivo: "TETO_TOKENS", escopo: "EMPRESA", periodo: "DIA" } }, "órfã continua contando: 700 + 400 > 1000");
   await assert.rejects(registro.liberar("r1", { ...usoBase(), tokensEntrada: 0, tokensSaida: 0 }), /ORFA_NAO_LIBERA/, "órfã nunca é liberada");
   await registro.reconciliar("r1", { ...usoBase(), tokensEntrada: 100, tokensSaida: 0 });
   assert.equal(registro.reservas.get("r1")!.estado, "RECONCILIADA", "reconciliação tardia troca a reserva pelo uso real");
   assert.deepEqual(registro.usos[0].periodos, periodos);
+});
+
+// ---------------------------------------------------------------- PR 13: motivo da recusa no resultado (trace)
+
+test("PR 13: recusa de orçamento diz o teto, o escopo e o tamanho da reserva — reserva pequena cabe, a grande não", async () => {
+  const fake = criarProvedorFake({ id: "OPENAI", modelos: { ECONOMY: "m" }, roteiro: () => respostaFake('{"ok":true}', { entrada: 100, saida: 10 }) });
+  const orcamento = orcamentoDoAmbiente({ AI_BUDGET_JSON: JSON.stringify({ porEmpresa: { tokensDiario: 1000 }, estimativa: { overheadTokens: 0, tokensPorMensagem: 0 } }) });
+  const { r } = roteador([fake], { orcamento }, { AI_PROVIDER_ECONOMY: "OPENAI" });
+  const pequeno = pedido();
+  assert.equal((await r.executar(pequeno, alvo)).ok, true, "reserva pequena (estilo JEV) cabe no saldo");
+  const grande = { ...pedido(), maxTokensSaida: 900 };
+  const recusado = await r.executar(grande, alvo);
+  assert.equal(recusado.ok, false);
+  assert.equal(fake.chamadas.length, 1, "a grande nunca chega ao provedor");
+  const tokensReserva = estimarTokensEntrada(grande, { overheadTokens: 0, tokensPorMensagem: 0 }) + 900;
+  assert.deepEqual(!recusado.ok && recusado.recusa, {
+    causa: "ORCAMENTO", workload: "CLASSIFICAR_INTENCAO", capacidade: "criar_pacote",
+    motivo: "TETO_TOKENS", escopo: "EMPRESA", periodo: "DIA", tokensReserva,
+  });
+});
+
+test("PR 13: teto por capacidade aparece como escopo CAPACIDADE; orçamento ausente e custo sem preço têm motivo próprio", async () => {
+  const fake = () => criarProvedorFake({ id: "OPENAI", modelos: { ECONOMY: "m" }, roteiro: () => respostaFake('{"ok":true}', { entrada: 1, saida: 1 }) });
+  const recusa = async (budget: string | undefined) => {
+    const { r } = roteador([fake()], { orcamento: orcamentoDoAmbiente(budget === undefined ? {} : { AI_BUDGET_JSON: budget }) }, { AI_PROVIDER_ECONOMY: "OPENAI" });
+    const res = await r.executar(pedido(), alvo);
+    assert.equal(res.ok, false);
+    return !res.ok && res.recusa ? { motivo: res.recusa.motivo, escopo: res.recusa.escopo, periodo: res.recusa.periodo } : null;
+  };
+  assert.deepEqual(await recusa(JSON.stringify({ porEmpresa: { tokensDiario: 1_000_000 }, porCapacidade: { criar_pacote: { tokensMensal: 10 } } })), { motivo: "TETO_TOKENS", escopo: "CAPACIDADE", periodo: "MES" });
+  assert.deepEqual(await recusa(undefined), { motivo: "AUSENTE", escopo: null, periodo: null });
+  assert.deepEqual(await recusa("{"), { motivo: "INVALIDO", escopo: null, periodo: null });
+  assert.deepEqual(await recusa(JSON.stringify({ porCapacidade: { outra: { tokensDiario: 10 } } })), { motivo: "SEM_TETO", escopo: null, periodo: null });
+  assert.deepEqual(await recusa(JSON.stringify({ moeda: "USD", porEmpresa: { custoDiario: 1 } })), { motivo: "SEM_PRECO", escopo: null, periodo: null }, "precos: null");
+});
+
+test("PR 13: sucesso e falha do provedor não levam recusa (a chamada aconteceu)", async () => {
+  const ok = criarProvedorFake({ id: "OPENAI", modelos: { ECONOMY: "m" }, roteiro: () => respostaFake('{"ok":true}', { entrada: 1, saida: 1 }) });
+  const resOk = await roteador([ok], {}, { AI_PROVIDER_ECONOMY: "OPENAI" }).r.executar(pedido(), alvo);
+  assert.equal("recusa" in resOk, false);
+  const falha = criarProvedorFake({ id: "OPENAI", modelos: { ECONOMY: "m" }, roteiro: () => { throw new ErroModelo("HTTP_5XX", false); } });
+  const resFalha = await roteador([falha], {}, { AI_PROVIDER_ECONOMY: "OPENAI", AI_FALLBACK_ENABLED: "false" }).r.executar(pedido(), alvo);
+  assert.equal(resFalha.ok, false);
+  assert.equal("recusa" in resFalha, false);
 });
 
 function usoBase() {

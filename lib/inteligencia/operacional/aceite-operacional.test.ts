@@ -989,6 +989,8 @@ function comLuna(a: ReturnType<typeof ambiente>, o: {
   redigir?: (d: DadosRedacao, n: number) => { resposta: string; complementos: string[] } | ErroModelo;
   plano?: unknown;
   limites?: Record<string, number>;
+  /** AI_BUDGET_JSON do roteador (padrão: teto diário folgado). */
+  orcamento?: string;
 }) {
   const chamadas: string[] = [];
   const recebidos: string[] = [];
@@ -1020,13 +1022,30 @@ function comLuna(a: ReturnType<typeof ambiente>, o: {
   a.amb.deps.roteador = new RoteadorModelos({
     politica: politicaDoAmbiente({ AI_PROVIDER_PRIMARY: "OPENAI", AI_MODEL_MAX_RETRIES: "0" }),
     adaptadores: new Map([["OPENAI", provedor as AdaptadorProvedor]]), precos: null,
-    orcamento: orcamentoDoAmbiente({ AI_BUDGET_JSON: JSON.stringify({ porEmpresa: { tokensDiario: 1_000_000 } }) }),
+    orcamento: orcamentoDoAmbiente({ AI_BUDGET_JSON: o.orcamento ?? JSON.stringify({ porEmpresa: { tokensDiario: 1_000_000 } }) }),
     registro: criarRegistroUsoEmMemoria(), circuito: new Circuito(), agora: () => new Date("2026-09-30T15:00:00Z"), relogio: () => 0,
     novoId: () => `${String(++n).padStart(8, "0")}-0000-4000-8000-0000000000bb`,
   });
   if (o.limites) a.amb.deps.orquestrador = criarDemerzel({ adaptativo: o.limites });
   return { chamadas, recebidos };
 }
+
+test("Luna — PR 13: reserva recusada pelo orçamento ⇒ caminho anterior responde e o trace diz o motivo (teto, escopo, período e reserva)", async () => {
+  const a = ambiente();
+  // Teto diário menor que a reserva da Luna (entrada estimada a 1 token/byte + teto de saída): a Luna nunca é chamada.
+  const luna = comLuna(a, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium" } }), orcamento: JSON.stringify({ porEmpresa: { tokensDiario: 2000 } }) });
+  const r = await a.enviar("crie uma festa do cliente Felipe para 50 convidados, pacote premium");
+  assert.equal(r.corpo.ok, true, "o caminho anterior responde");
+  assert.equal(luna.chamadas.includes("INTERPRETAR_CONVERSA"), false, "a Luna não foi chamada");
+  assert.equal(r.rastro.adaptativo?.fallback, "ENTENDIMENTO_INDISPONIVEL");
+  const daLuna = r.rastro.recusasModelo.find((x) => x.capacidade === "luna_entender");
+  assert.ok(daLuna, JSON.stringify(r.rastro.recusasModelo));
+  assert.deepEqual({ ...daLuna, tokensReserva: undefined }, { causa: "ORCAMENTO", workload: "INTERPRETAR_CONVERSA", capacidade: "luna_entender", motivo: "TETO_TOKENS", escopo: "EMPRESA", periodo: "DIA", tokensReserva: undefined });
+  assert.ok((daLuna.tokensReserva ?? 0) > 2000, "a reserva tentada passa do teto");
+  // Só metadados: nada do texto do pedido no trace.
+  assert.doesNotMatch(JSON.stringify(r.rastro.recusasModelo), /Felipe|premium|convidados/);
+  assert.deepEqual(a.efeitos.pacotes, []);
+});
 
 const FRASE_C = "4 doces por convidados, refrigerante de 2l. Não sei dizer quantos ml por convidados o consumo. faça você a definição.";
 

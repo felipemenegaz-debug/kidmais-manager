@@ -49,7 +49,7 @@ test("sem as tabelas da 055a: uso vira linha de log (sem PII) e a reserva é rec
   const registro = criarRegistroUsoPostgres(b, (l) => linhas.push(l));
   await registro.registrar(uso());
   assert.match(linhas[0], /^\[Kidmais IA uso\] \{/);
-  assert.deepEqual(await registro.reservar(pedido), { ok: false, motivo: "INDISPONIVEL" });
+  assert.deepEqual(await registro.reservar(pedido), { ok: false, motivo: "INDISPONIVEL", recusa: { motivo: "REGISTRO_INDISPONIVEL", escopo: null, periodo: null } });
 });
 
 test("reserva: advisory lock por empresa, saldo do PERÍODO FIXO e INSERT com o período, na MESMA transação", async () => {
@@ -75,14 +75,14 @@ test("limite mensal usa a chave do mês", async () => {
 
 test("reserva recusada quando uso + reservas abertas + nova reserva passam do limite; nada é inserido", async () => {
   const { b, consultas } = banco(comTabela({ tokens: "401", custo: "0", desconhecido: false }));
-  assert.deepEqual(await criarRegistroUsoPostgres(b).reservar(pedido), { ok: false, motivo: "ORCAMENTO" });
+  assert.deepEqual(await criarRegistroUsoPostgres(b).reservar(pedido), { ok: false, motivo: "ORCAMENTO", recusa: { motivo: "TETO_TOKENS", escopo: "EMPRESA", periodo: "DIA" } });
   assert.equal(consultas.some((c) => c.sql.includes("INSERT INTO ia_orcamento_reservas")), false);
 });
 
 test("limite de custo: custo desconhecido ou em outra moeda no período bloqueia; moedas nunca se somam", async () => {
   const comCusto: PedidoReserva = { ...pedido, limites: [{ ...pedido.limites[0], tokensMax: null, custoMaxMicros: 1_000_000 }] };
   const { b, consultas } = banco(comTabela({ tokens: "0", custo: "0", desconhecido: true }));
-  assert.deepEqual(await criarRegistroUsoPostgres(b).reservar(comCusto), { ok: false, motivo: "ORCAMENTO" });
+  assert.deepEqual(await criarRegistroUsoPostgres(b).reservar(comCusto), { ok: false, motivo: "ORCAMENTO", recusa: { motivo: "CUSTO_DESCONHECIDO", escopo: "EMPRESA", periodo: "DIA" } });
   const sql = consultas.find((c) => c.sql.includes("WITH ia_uso_periodo"))!.sql;
   assert.match(sql, /WHERE moeda = \$5/, "soma só a moeda do orçamento");
   assert.match(sql, /moeda IS DISTINCT FROM \$5/, "outra moeda conta como desconhecido");
@@ -137,9 +137,9 @@ test("B1 paridade memória × PostgreSQL: reserva sem teto aplicável/utilizáve
   ];
   for (const limites of semTeto) {
     const { b, consultas } = banco(comTabela({ tokens: "0", custo: "0", desconhecido: false }));
-    assert.deepEqual(await criarRegistroUsoPostgres(b).reservar({ ...pedido, limites }), { ok: false, motivo: "ORCAMENTO" }, JSON.stringify(limites));
+    assert.deepEqual(await criarRegistroUsoPostgres(b).reservar({ ...pedido, limites }), { ok: false, motivo: "ORCAMENTO", recusa: { motivo: "SEM_TETO", escopo: null, periodo: null } }, JSON.stringify(limites));
     assert.equal(consultas.length, 0, "nada é consultado nem inserido");
-    assert.deepEqual(await criarRegistroUsoEmMemoria().reservar({ ...pedido, limites }), { ok: false, motivo: "ORCAMENTO" }, JSON.stringify(limites));
+    assert.deepEqual(await criarRegistroUsoEmMemoria().reservar({ ...pedido, limites }), { ok: false, motivo: "ORCAMENTO", recusa: { motivo: "SEM_TETO", escopo: null, periodo: null } }, JSON.stringify(limites));
   }
   // Com teto válido os dois aceitam.
   const { b } = banco(comTabela({ tokens: "0", custo: "0", desconhecido: false }));
