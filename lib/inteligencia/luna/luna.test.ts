@@ -54,6 +54,27 @@ test("Luna (A5): a instrução e o schema separam a mensagem atual do histórico
   assert.match(sistema.conteudo, /Mensagem mista \(responde ao rascunho E pede outra coisa nova\)/);
 });
 
+test("Luna (PR 20, gestão de contexto): parâmetros de consumo só da mensagem atual; contratação ainda resolve elipse pelo histórico", () => {
+  // Homologação de ea32084: "e os docinhos, com 5 por convidado?" recebeu a margem de 10% dita antes para os refrigerantes.
+  const historico = [
+    { pergunta: "4 doces por convidados, refrigerante de 2l. faça você a definição.", resposta: "…" },
+    { pergunta: "pode estimar os refrigerantes da próxima festa? garrafa de 2 litros e uns 10% de margem", resposta: "…" },
+  ];
+  const f = revalidar(saidaLuna({ objetivo: "CALCULO_CONSUMO", festa: "DA_CONVERSA", consumo: { categorias: ["DOCES"], docesPorConvidado: 5, margemPercentual: 10, embalagemMl: 2000 } }), entrada("e os docinhos, com 5 por convidado?", historico));
+  assert.equal(f.consumo.docesPorConvidado, 5, "da mensagem atual");
+  assert.equal(f.consumo.margemPercentual, null, "margem de outra pergunta, do histórico");
+  assert.equal(f.consumo.embalagemMl, null, "embalagem de outra pergunta, do histórico");
+  assert.deepEqual(f.descartes.sort(), ["embalagemMl", "margemPercentual"]);
+  // "não sei" não herda a embalagem dita duas perguntas antes.
+  const naoSei = revalidar(saidaLuna({ objetivo: "CALCULO_CONSUMO", consumo: { categorias: ["REFRIGERANTES"], embalagemMl: 2000 } }), entrada("não sei", historico));
+  assert.equal(naoSei.consumo.embalagemMl, null);
+  // Elipse da contratação continua usando o histórico.
+  const elipse = revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { convidados: 50 } }), entrada("o aniversariante é o Theo", [{ pergunta: "crie uma do cliente Felipe para 50 convidados", resposta: "…" }]));
+  assert.equal(elipse.contratacao.convidados, 50);
+  const [sistema] = mensagensEntendimento({ texto: "x", hoje: "2026-10-01", contexto: null, historico: [], rascunho: null, consumoPendente: null, ...CATALOGO });
+  assert.match(sistema.conteudo, /um "não estime" antigo não impede a estimativa pedida agora/);
+});
+
 test("Luna: caso C — 4 doces, embalagem de 2l e estimativa PEDIDA são aceitos; nada é perguntado de novo", () => {
   const texto = "4 doces por convidados, refrigerante de 2l. Não sei dizer quantos ml por convidados o consumo. faça você a definição.";
   const e = revalidar(saidaLuna({ objetivo: "CALCULO_CONSUMO", festa: "DA_CONVERSA", consumo: { categorias: ["DOCES", "REFRIGERANTES"], docesPorConvidado: 4, embalagemMl: 2000, estimar: ["REFRIGERANTES"], mlEstimado: 350 } }), entrada(texto));
