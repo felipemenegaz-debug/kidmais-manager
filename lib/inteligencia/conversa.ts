@@ -2,10 +2,10 @@ import { z } from "zod";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
-import type { AcaoObjetivo, AIResponse, ContextoTela, EntidadeRef, TipoEntidade, ModelUsage, OrigemChamada, OrigemPlano, PlanoRastreio, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
+import type { AcaoObjetivo, AIResponse, ContinuacaoConsumo, ContextoTela, EntidadeRef, TipoEntidade, ModelUsage, OrigemChamada, OrigemPlano, PlanoRastreio, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
 import { atualizarFoco, focoEntradaSchema, type EntidadeFoco, type FocoConversa, type FocoEntrada, type OrigemFoco } from "./foco.ts";
 import { detectarReferencia, entidadesCitadas, resolverAncoraContexto, resolverReferencia, type Leitor, type Referencia, type Resolucao } from "./referencias.ts";
-import { compor, faltando, fatosSolicitados } from "./planejador/composicao.ts";
+import { compor, faltando, fatosSolicitados, type FatoSolicitado } from "./planejador/composicao.ts";
 import { FORNECEDORES, completarPlano } from "./planejador/completar.ts";
 import { executarPlano, resultadoFinal, type LerPlano, type ParteResposta } from "./planejador/executor.ts";
 import { planejarComModelo } from "./planejador/modelo.ts";
@@ -14,8 +14,12 @@ import { planejarPorRegras } from "./planejador/regras.ts";
 import type { CatalogoSkills, ClassificadorAuxiliar, Complementador, ContextoExtensao, FinalidadeSkill, ModuloAcoes, NivelSkill, Orquestrador, PortaModeloClassificacao, PortaPlanejador, PortasOrquestracao, RegistroAgentes, SaidaPlanejador } from "./extensoes.ts";
 import { construirContextoAutorizado, construirContextoModelo } from "./contexto/construtor.ts";
 import { ContextoRecusado } from "./contexto/contrato.ts";
-import { ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
-import { copilotoModeloAtivo, skillsEmpresaAtivas, demerzelAtivo, grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo, jevModeloAtivo } from "./flags.ts";
+import { CAPACIDADES_OPERACIONAIS, ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
+import { ROTULO_PENDENTE } from "./leituras/operacional.ts";
+import { CATEGORIAS_CONSUMO, detectarConsumo, extrairParametros, type CategoriaConsumo, type ParametrosConsumo } from "./operacional/consumo.ts";
+import { coordenarRascunho, type DecisaoRascunho } from "./operacional/objetivo.ts";
+import type { PassoPlano } from "./planejador/plano.ts";
+import { copilotoModeloAtivo, skillsEmpresaAtivas, demerzelAtivo, grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, jevAtivo, jevModeloAtivo, operacionalAtivo } from "./flags.ts";
 import {
   classificar, comEstabelecimento, executarLeitura, exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado, unidadeDe,
   type DependenciasGateway, type PedidoGateway, type RespostaGateway,
@@ -57,6 +61,21 @@ const pedidoSchema = z.object({
   operacaoId: z.string().uuid().optional(),
   /** AI V1.1 (PR 5): foco da conversa reenviado pela UI — só DICA (tipo + id), sempre revalidada no servidor. */
   foco: focoEntradaSchema.optional(),
+  /**
+   * IA operacional: continuação de uma pergunta de parâmetro (ex.: "Quantos docinhos por convidado…?"). Só DICA: categoria
+   * fechada e números já escritos pelo operador; a festa vem do foco/tela e é revalidada no Core a cada pedido.
+   */
+  continuacao: z.object({
+    tipo: z.literal("PARAMETRO_CONSUMO"),
+    categoria: z.enum(CATEGORIAS_CONSUMO),
+    perguntado: z.enum(["POR_CONVIDADO", "ML_POR_CONVIDADO", "EMBALAGEM"]),
+    parametros: z.object({
+      porConvidado: z.number().int().min(1).max(100).optional(),
+      mlPorConvidado: z.number().int().min(1).max(5000).optional(),
+      embalagemMl: z.number().int().min(50).max(20000).optional(),
+      margemPercentual: z.number().int().min(0).max(100).optional(),
+    }).strict().optional(),
+  }).strict().optional(),
 }).strict();
 
 export type DependenciasConversa = DependenciasGateway & {
@@ -95,6 +114,7 @@ function papelParaPolitica(sessao: SessaoParaTenant, tenant: TenantComprovado): 
 export function catalogoDisponivel(env: DependenciasGateway["env"], papel: string, acoes: ModuloAcoes | null): CapacidadeCatalogo[] {
   const leituras = Object.values(ferramentas)
     .filter((f) => !SO_POR_REGRA.has(f.capacidade) && manifestoLeitura(f) !== null && grupoAtivo(env, f.grupo) && avaliarPolitica({ papel }, f, "LEITURA") === "PERMITIDO")
+    .filter((f) => !CAPACIDADES_OPERACIONAIS.has(f.capacidade) || operacionalAtivo(env))
     .map((f): CapacidadeCatalogo => ({ id: f.capacidade, descricao: f.descricao, tipo: "leitura", ...(f.entidade ? { entidade: f.entidade } : {}), ...((manifestoLeitura(f)?.produz.length ?? 0) ? { produz: manifestoLeitura(f)!.produz } : {}) }));
   const doModulo = (acoes?.todas() ?? [])
     .filter((a) => a.origem !== "TELA" && manifestoAcao(a) !== null)
@@ -110,6 +130,9 @@ export function catalogoDisponivel(env: DependenciasGateway["env"], papel: strin
 const CAPACIDADES_NAVEGACAO: ReadonlySet<string> = new Set(["abrir_tela", "abrir_festa"]);
 /** Buscas com parâmetro extraído do texto (PR 4): só por regra; o modelo de intenção não as preenche. */
 const SO_POR_REGRA: ReadonlySet<string> = new Set([...CAPACIDADES_NAVEGACAO, "buscar_clientes", "buscar_catalogo"]);
+/** Só como passo de plano (IA operacional): exige categoria + festa vinda do Core; o classificador nunca a escolhe. */
+const SO_PLANO: ReadonlySet<string> = new Set(["calcular_consumo"]);
+const paraClassificador = (catalogo: CapacidadeCatalogo[]) => catalogo.filter((c) => !SO_PLANO.has(c.id));
 
 const SUGESTOES_PADRAO = ["O que precisa da minha atenção hoje?", "Quais contratos estão pendentes?", "Como está a agenda de hoje?", "Quanto recebemos este mês?"];
 
@@ -126,7 +149,7 @@ function naoSuportado(mensagem: string): AIResponse {
 async function consultarAuxiliar(texto: string, contexto: ContextoTela | null, sessao: SessaoParaTenant, deps: DependenciasConversa): Promise<Intencao | null> {
   const auxiliar = deps.classificador;
   if (!auxiliar || !jevAtivo(deps.env)) return null;
-  const catalogo = catalogoDisponivel(deps.env, sessao.papel, deps.acoes).map((c) => ({ id: c.id, tipo: c.tipo }));
+  const catalogo = paraClassificador(catalogoDisponivel(deps.env, sessao.papel, deps.acoes)).map((c) => ({ id: c.id, tipo: c.tipo }));
   const controle = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const limite = new Promise<null>((ok) => { timer = setTimeout(() => { controle.abort(); ok(null); }, LIMITE_AUXILIAR_MS); });
@@ -163,7 +186,7 @@ async function tenantParaModelo(sessao: SessaoParaTenant, pedido: PedidoGateway,
 async function interpretarPorModelo(texto: string, contexto: ContextoTela | null, sessao: SessaoParaTenant, pedido: PedidoGateway, deps: DependenciasConversa, rastreio: RastreioInteligencia, usos: ModelUsage[]): Promise<Intencao | null> {
   if (!deps.roteador?.disponivelPara("CLASSIFICAR_INTENCAO")) return null;
   const tenant = await tenantParaModelo(sessao, pedido, deps, rastreio);
-  const { intencao, roteado } = await interpretarComModelo(texto, contexto, catalogoDisponivel(deps.env, papelParaPolitica(sessao, tenant), deps.acoes), deps.roteador, {
+  const { intencao, roteado } = await interpretarComModelo(texto, contexto, paraClassificador(catalogoDisponivel(deps.env, papelParaPolitica(sessao, tenant), deps.acoes)), deps.roteador, {
     empresaId: tenant.empresaComprovada,
     estabelecimentoId: unidadeDe(tenant),
     capacidade: "classificar_intencao",
@@ -202,6 +225,12 @@ type Execucao = {
   resolucao?: Resolucao;
   /** PR 6.4: resultados completos dos passos marcados `resposta`, para compor a resposta de leitura. */
   partesPlano?: ParteResposta[];
+  /** IA operacional: pergunta de quantidade (categoria + parâmetros ESCRITOS neste pedido, só para este cálculo). */
+  consumo?: { categorias: CategoriaConsumo[]; parametros: Partial<Record<CategoriaConsumo, ParametrosConsumo>> };
+  /** IA operacional: a `ler` do plano em curso (contada pela orquestradora), para os complementos depois da execução. */
+  lerPlano?: LerPlano;
+  /** IA operacional: a orquestradora vai tentar o Planner por modelo se as regras não ancorarem o pedido. */
+  planejadorModelo?: boolean;
 };
 
 /** Leitura pelo caminho único do gateway: registro fechado → flag → Policy → Tenant Context → serviço de domínio. */
@@ -209,6 +238,12 @@ async function responderLeitura(capacidade: string, parametros: Record<string, u
   e.rastreio.intencao = origem;
   const ferramenta = ferramentaRegistrada(capacidade);
   if (!ferramenta) return naoSuportado("Essa análise ainda não está disponível no Kidmais.");
+  // IA operacional: os parâmetros que o operador ESCREVEU entram só no cálculo (schema estrito da ferramenta valida).
+  if (capacidade === "calcular_consumo" && e.consumo) {
+    const categoria = parametros.categoria as CategoriaConsumo | undefined;
+    const escritos = categoria ? e.consumo.parametros[categoria] : undefined;
+    if (escritos) parametros = { ...parametros, ...escritos };
+  }
   const tela = CAPACIDADES_NAVEGACAO.has(capacidade) ? (capacidade === "abrir_festa" ? "festa" : String(parametros.tela ?? "")) as TelaNavegacao : null;
   let dados: Awaited<ReturnType<typeof executarLeitura>>;
   try {
@@ -308,6 +343,8 @@ function semDestino(n: Extract<Intencao, { tipo: "navegacao_sem_destino" }>): AI
 const LEITURAS_ESTREITAVEIS: ReadonlySet<string> = new Set(["analisar_recebiveis", "proxima_parcela", "atencao_hoje", "resumir_contrato", "resumir_festa", "pendencias_da_festa"]);
 
 const ACOES_DE_MUTACAO = new Set(["CRIAR", "EDITAR", "EXCLUIR", "ENVIAR", "REGISTRAR", "CANCELAR"]);
+/** IA operacional: leituras das regras que, num pedido de convidados/buffet com referência, são só a âncora. */
+const ANCORAS_OPERACIONAIS: ReadonlySet<string> = new Set(["agenda_do_dia", "proximas_festas", "resumir_festa", "atencao_hoje"]);
 
 /** Entidade resolvida ⇒ intenção pelas mesmas ferramentas guardadas (leitura do resumo ou navegação). */
 function intencaoPara(entidade: EntidadeRef, texto: string, financeiro?: "SALDO" | "PARCELA"): Intencao | null {
@@ -469,12 +506,19 @@ async function executarPlanoDaConversa(
  * PR 5 responde como antes. Nunca aceita id do texto, do foco sem revalidar ou do modelo.
  */
 async function planejarPedido(e: Execucao, regras: Intencao, lerPorta: LerPlano): Promise<SaidaPlanejador | null> {
+  // IA operacional: pergunta de quantidade ⇒ plano fechado âncora → calcular_consumo (antes de qualquer outra regra).
+  if (e.consumo) return planejarConsumo(e, lerPorta);
+  e.lerPlano = lerPorta;
   // Leitura da empresa ou resumo padrão da tela pode ser estreitado ao saldo/parcela do contrato referido (só se a pergunta for financeira).
   const estreitavel = regras.tipo === "leitura" && LEITURAS_ESTREITAVEIS.has(regras.capacidade);
-  if ((regras.tipo === "leitura" && !estreitavel) || regras.tipo === "acao" || regras.tipo === "revisao_humana") return null;
+  // IA operacional: convidados/buffet de uma festa referida ("a festa de amanhã") — a agenda/listagem das regras vira a
+  // âncora do plano, não a resposta (que não traria esses fatos).
+  const operacionalPedido = operacionalAtivo(e.deps.env) && fatosSolicitados(e.texto, true).some((f) => f === "CONVIDADOS" || f === "BUFFET");
+  const ancoraOperacional = operacionalPedido && regras.tipo === "leitura" && ANCORAS_OPERACIONAIS.has(regras.capacidade);
+  if ((regras.tipo === "leitura" && !estreitavel && !ancoraOperacional) || regras.tipo === "acao" || regras.tipo === "revisao_humana") return null;
   const hoje = hojeBrasilia(e.deps.agora());
   const referencia = detectarReferencia(e.texto, hoje);
-  if (!referencia || (estreitavel && !referencia.financeiro)) return null;
+  if (!referencia || (estreitavel && !referencia.financeiro && !operacionalPedido)) return null;
   const { leitor, ler } = leitorMemoizado(lerPorta);
   const deps = { contexto: e.contexto, foco: e.foco, hoje, ler: leitor };
 
@@ -485,7 +529,7 @@ async function planejarPedido(e: Execucao, regras: Intencao, lerPorta: LerPlano)
     if (r.resultado !== "RESOLVIDA" || !r.ancora) return concluirResolucao(e, regras, r);
     ancora = { entidade: r.ancora, origem: r.origem, descartados: r.descartados };
   }
-  const porRegras = planejarPorRegras(referencia, e.texto, ancora?.entidade ?? null);
+  const porRegras = planejarPorRegras(referencia, e.texto, ancora?.entidade ?? null, operacionalAtivo(e.deps.env));
   // Sem plano seguro (ex.: relação que o Core não fornece): resolução do PR 5, com as mesmas leituras memoizadas.
   if (!porRegras) return concluirResolucao(e, regras, await resolverReferencia(referencia, deps));
   const validacao = validarPlano(porRegras.plano, catalogoRegistro(e.deps.acoes), { contexto: ancora ? [ancora.entidade.tipo] : [] });
@@ -497,13 +541,127 @@ async function planejarPedido(e: Execucao, regras: Intencao, lerPorta: LerPlano)
   return executarPlanoDaConversa(e, comp.plano, "REGRAS", porRegras.motivo, referencia, ancora, ler, { anotarReferencia: true, usoModelo: false, complemento: comp.rastro });
 }
 
+/**
+ * Limites da rota operacional (valores de projeto, medidos no trace): leituras e prazo por pedido. Não substituem os
+ * da orquestradora nem os da conversa: valem por cima deles. Modelo: a rota de consumo não chama modelo.
+ */
+export const LIMITES_OPERACIONAIS = Object.freeze({ chamadasModelo: 4, leituras: 8, prazoMs: 20_000 });
+
+/** Leitura contada da rota operacional: passou do limite ou do prazo ⇒ parada honesta, nada é inventado. */
+function lerContado(e: Execucao, ler: LerPlano): LerPlano {
+  const relogio = e.deps.relogio ?? (() => performance.now());
+  const inicio = relogio();
+  // Consulta no meio de um rascunho: a decisão do coordenador (NOVA_CONSULTA) continua no trace.
+  e.rastreio.operacional = { rota: "CONSUMO", decisao: e.rastreio.operacional?.decisao ?? null, leituras: 0, duracaoMs: 0 };
+  return async (capacidade, parametros) => {
+    const op = e.rastreio.operacional!;
+    if (op.leituras >= LIMITES_OPERACIONAIS.leituras || relogio() - inicio > LIMITES_OPERACIONAIS.prazoMs) {
+      op.decisao = "LIMITE";
+      throw new InteligenciaError("LIMITE_OPERACIONAL", "Não consegui concluir o cálculo dentro do limite desta consulta. Tente de novo com um pedido mais simples.", 503);
+    }
+    op.leituras += 1;
+    try {
+      return await ler(capacidade, parametros);
+    } finally {
+      op.duracaoMs = Math.max(0, Math.round(relogio() - inicio));
+    }
+  };
+}
+
+/**
+ * Pergunta de quantidade (IA operacional): festa pela referência do texto ("a próxima festa", "sábado") ou pela tela/foco
+ * revalidados no Core; o cálculo é a leitura `calcular_consumo` (convidados da versão vigente × regra da empresa ou
+ * parâmetro escrito). Sem festa identificável ⇒ pergunta qual; nunca escolhe por palpite.
+ */
+async function planejarConsumo(e: Execucao, lerPorta: LerPlano): Promise<SaidaPlanejador | null> {
+  const consumo = e.consumo!;
+  const hoje = hojeBrasilia(e.deps.agora());
+  const contado = lerContado(e, lerPorta);
+  e.lerPlano = contado;
+  const { leitor, ler } = leitorMemoizado(contado);
+  const detectada = detectarReferencia(e.texto, hoje);
+  const passos: PassoPlano[] = [];
+  let ancora: AncoraPlano = null;
+  let referencia: Referencia;
+  let fonte: NonNullable<PassoPlano["entradaDe"]>;
+  if (detectada?.tipo === "TEMPORAL" && detectada.temporal && detectada.temporal.seletor !== "ULTIMO_CONTRATO") {
+    const t = detectada.temporal;
+    referencia = { ...detectada, alvo: "FESTA" };
+    passos.push({
+      id: "p1", capacidade: "proximas_festas",
+      parametros: t.seletor === "DIA" && t.dia ? { ordem: "ASC", inicio: t.dia, fim: t.dia, limite: 5 } : { ordem: t.seletor === "PROXIMA" ? "ASC" : "DESC", limite: 2 },
+      selecao: t.seletor === "DIA" ? "UNICA" : "PRIMEIRA",
+    });
+    fonte = { de: "PASSO", passo: "p1", entidade: "FESTA" };
+  } else {
+    referencia = { tipo: "DEITICO", alvo: "FESTA", deitico: "FESTA" };
+    const r = await resolverAncoraContexto(referencia, { contexto: e.contexto, foco: e.foco, hoje, ler: leitor });
+    if (r.resultado !== "RESOLVIDA" || !r.ancora || (r.ancora.tipo !== "FESTA" && r.ancora.tipo !== "CONTRATO")) {
+      e.resolucao = r;
+      anotarReferencia(e.rastreio, r);
+      if (r.resultado === "AMBIGUA" || r.resultado === "NEGADA") return { resposta: respostaDaResolucao(r) ?? naoSuportado("Não consegui identificar a festa com segurança.") };
+      // Frase sem âncora que as regras conheçam ("pra comemoração que vem aí…"): o Planner por modelo tenta ancorar pela
+      // listagem do Core; o cálculo continua sendo a mesma leitura determinística.
+      if (e.planejadorModelo) return null;
+      return { resposta: { ...naoSuportado("Para qual festa? Por exemplo: “para a próxima festa”, ou abra a festa e pergunte por lá."), entendimento: "PRECISA_DADO" } };
+    }
+    ancora = { entidade: r.ancora, origem: r.origem, descartados: r.descartados };
+    if (r.ancora.tipo === "FESTA") fonte = { de: "CONTEXTO", entidade: "FESTA" };
+    else {
+      passos.push({ id: "p1", capacidade: "relacoes_contrato", entradaDe: { de: "CONTEXTO", entidade: "CONTRATO" } });
+      fonte = { de: "PASSO", passo: "p1", entidade: "FESTA" };
+    }
+  }
+  // Uma leitura de cálculo por categoria pedida (doces E refrigerantes ⇒ duas), todas da MESMA festa da cadeia; a
+  // composição junta as respostas e confere a mesma âncora.
+  consumo.categorias.forEach((categoria, i) => {
+    passos.push({ id: `p${passos.length + 1}` as PassoPlano["id"], capacidade: "calcular_consumo", parametros: { categoria }, entradaDe: fonte, ...(i < consumo.categorias.length - 1 ? { resposta: true } : {}) });
+  });
+  const catalogo = catalogoRegistro(e.deps.acoes);
+  const validacao = validarPlano({ objetivo: "CONSULTAR:FESTA", recursoFinal: "FESTA", passos }, catalogo, { contexto: ancora ? [ancora.entidade.tipo] : [] });
+  if (!validacao.ok) {
+    e.rastreio.plano = planoRejeitado("REGRAS", "REFERENCIA", validacao.motivo);
+    return { resposta: naoSuportado("Não consegui montar esse cálculo com segurança agora.") };
+  }
+  return executarPlanoDaConversa(e, validacao.plano, "REGRAS", "REFERENCIA", referencia, ancora, ler, { anotarReferencia: true, usoModelo: false });
+}
+
+/** Pergunta de parâmetro pendente na resposta do cálculo ⇒ continuação para a UI (dica, revalidada no próximo pedido). */
+function continuacaoDa(resposta: AIResponse, e: Execucao): ContinuacaoConsumo | undefined {
+  if (!e.consumo || resposta.tipo !== "resposta" || !("fatos" in resposta.dados)) return undefined;
+  // O primeiro parâmetro pendente, pela evidência estruturada do cálculo ("CATEGORIA:PARAMETRO"), nunca pelo texto.
+  const pendente = resposta.dados.evidencias.find((x) => x.rotulo === ROTULO_PENDENTE)?.valor.split(":");
+  if (!pendente) return undefined;
+  const categoria = pendente[0] as CategoriaConsumo;
+  const perguntado = pendente[1] as ContinuacaoConsumo["perguntado"];
+  if (!CATEGORIAS_CONSUMO.includes(categoria) || !["POR_CONVIDADO", "ML_POR_CONVIDADO", "EMBALAGEM"].includes(perguntado)) return undefined;
+  const { porConvidado, mlPorConvidado, embalagemMl, margemPercentual } = e.consumo.parametros[categoria] ?? {};
+  const parametros = Object.fromEntries(Object.entries({ porConvidado, mlPorConvidado, embalagemMl, margemPercentual }).filter(([, v]) => typeof v === "number"));
+  return { tipo: "PARAMETRO_CONSUMO", categoria, perguntado, ...(Object.keys(parametros).length ? { parametros } : {}) };
+}
+
+/**
+ * Pergunta de quantidade deste pedido: continuação de uma pergunta de parâmetro (a resposta traz o número) ou pergunta
+ * nova ("quantos docinhos…"). Só os números ESCRITOS entram; nada vira padrão da empresa.
+ */
+function consumoDoPedido(texto: string, continuacao: ContinuacaoConsumo | undefined): Execucao["consumo"] {
+  if (continuacao) {
+    const novos = extrairParametros(texto, continuacao.categoria, continuacao.perguntado);
+    if (Object.keys(novos).length) return { categorias: [continuacao.categoria], parametros: { [continuacao.categoria]: { ...continuacao.parametros, ...novos } } };
+  }
+  const detectado = detectarConsumo(texto);
+  if (!detectado) return undefined;
+  // Cada categoria lê só os SEUS números ("4 docinhos por convidado e 400 ml de refrigerante por convidado").
+  return { categorias: detectado.categorias, parametros: Object.fromEntries(detectado.categorias.map((c) => [c, extrairParametros(texto, c)])) };
+}
+
 function planoRejeitado(origem: OrigemPlano, motivo: PlanoRastreio["motivo"], rejeicao: string): PlanoRastreio {
   return { versao: VERSAO_PLANEJADOR, origem, motivo, objetivo: null, quantidadePassos: 0, passos: [], resultadoFinal: "NAO_EXECUTADO", parada: `REJEITADO:${rejeicao}`, motivoParada: rejeicao, composicao: null, complemento: null, duracaoMs: 0, usoModelo: origem === "MODELO" };
 }
 
 /** Complemento determinístico (PR 6.4.3) + o que vai para o trace (só códigos). */
 function completar(e: Execucao, plano: Plano, catalogo: readonly CapacidadeCatalogo[], contexto: readonly TipoEntidade[]): { plano: Plano; rastro: PlanoRastreio["complemento"] } {
-  const c = completarPlano(plano, fatosSolicitados(e.texto), catalogo, contexto);
+  const c = completarPlano(plano, fatosSolicitados(e.texto, operacionalAtivo(e.deps.env)), catalogo, contexto);
   if (c.tipo === "COMPLETADO") return { plano: c.plano, rastro: { adicionados: c.adicionados, marcados: c.marcados, impossivel: null } };
   if (c.tipo === "IMPOSSIVEL") return { plano, rastro: { adicionados: [], marcados: [], impossivel: c.motivo } };
   return { plano, rastro: null };
@@ -517,9 +675,11 @@ function contextoDisponivel(e: Execucao): TipoEntidade[] {
 }
 
 /** Pedido que compõe recursos: 2+ entidades citadas, ou âncora temporal/nome com outro alvo. Sem rede, sem custo. */
-function pedeComposicao(texto: string, hoje: string): boolean {
+function pedeComposicao(texto: string, hoje: string, operacional = false): boolean {
   // PR 6.4.3: 2+ fatos pedidos (ex.: situação do contrato E pagamento) também é composição, mesmo com um recurso citado.
-  if (entidadesCitadas(texto).length >= 2 || fatosSolicitados(texto).length >= 2) return true;
+  if (entidadesCitadas(texto).length >= 2 || fatosSolicitados(texto, operacional).length >= 2) return true;
+  // IA operacional: quantidade operacional sem âncora que as regras conheçam também pede o Planner (ele ancora a festa).
+  if (operacional && detectarConsumo(texto)) return true;
   const ref = detectarReferencia(texto, hoje);
   return Boolean(ref && (ref.tipo === "TEMPORAL" || ref.tipo === "NOME") && ref.alvo);
 }
@@ -535,7 +695,7 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
   const saida = await planejarComModelo({
     texto: e.texto, contexto: e.contexto, objetivo: doTexto.acao && doTexto.recurso ? `${doTexto.acao}:${doTexto.recurso}` : null,
     focoTipos: [...new Set((e.foco?.entidades ?? []).map((x) => x.tipo))], contextoTipos: contextoDisponivel(e), catalogo,
-    fatosPedidos: fatosSolicitados(e.texto).map((fato) => ({ fato, capacidades: FORNECEDORES[fato].filter((c) => catalogo.some((x) => x.id === c)) })),
+    fatosPedidos: fatosSolicitados(e.texto, operacionalAtivo(deps.env)).map((fato) => ({ fato, capacidades: FORNECEDORES[fato].filter((c) => catalogo.some((x) => x.id === c)) })),
   }, roteador, { empresaId: tenant.empresaComprovada, estabelecimentoId: unidadeDe(tenant), capacidade: "planejar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
   if (saida.roteado) {
     anotarUsoModelo(rastreio, saida.roteado.usos);
@@ -555,6 +715,7 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
   // PR 6.4.3: plano do modelo que não cobre os fatos pedidos é completado ANTES da execução (e revalidado inteiro).
   const comp = completar(e, doModelo, catalogo, contextoDisponivel(e));
   const plano = comp.plano;
+  e.lerPlano = lerPorta;
   const { leitor, ler } = leitorMemoizado(lerPorta);
   const referencia: Referencia = { tipo: "IMPLICITA", alvo: plano.recursoFinal };
   let ancora: AncoraPlano = null;
@@ -582,10 +743,95 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
 function portaPlanejador(e: Execucao, usos: ModelUsage[]): PortaPlanejador {
   return {
     planejar: ({ regras }, ler) => planejarPedido(e, regras, ler),
-    pedeComposicao: (texto) => Boolean(e.deps.roteador?.disponivelPara("PLANEJAR")) && pedeComposicao(texto, hojeBrasilia(e.deps.agora())),
+    pedeComposicao: (texto) => Boolean(e.deps.roteador?.disponivelPara("PLANEJAR")) && pedeComposicao(texto, hojeBrasilia(e.deps.agora()), operacionalAtivo(e.deps.env)),
     planejarComModelo: (_entrada, ler, exigirAcaoFinal) => planejarPorModelo(e, ler, exigirAcaoFinal, usos),
     concluir: (resposta) => concluirPlano(e, resposta),
   };
+}
+
+/**
+ * Complementos por fato pedido (IA operacional): a leitura que fornece o fato e a entidade-âncora de que ela precisa.
+ * Só leituras do catálogo; a âncora é sempre um id DEVOLVIDO pelo Core nesta mesma execução (nunca do texto ou do modelo).
+ */
+const COMPLEMENTOS: Readonly<Record<FatoSolicitado, ReadonlyArray<{ capacidade: string; ancora: TipoEntidade; parametros?: Record<string, string> }>>> = {
+  CLIENTE: [{ capacidade: "relacoes_festa", ancora: "FESTA" }, { capacidade: "relacoes_contrato", ancora: "CONTRATO" }],
+  SITUACAO_CONTRATO: [{ capacidade: "resumir_contrato", ancora: "CONTRATO" }],
+  POSICAO_FINANCEIRA: [{ capacidade: "saldo_contrato", ancora: "CONTRATO" }],
+  CONVIDADOS: [{ capacidade: "contexto_operacional_festa", ancora: "FESTA" }],
+  BUFFET: [{ capacidade: "contexto_operacional_festa", ancora: "FESTA" }],
+  CONSUMO_DOCES: [{ capacidade: "calcular_consumo", ancora: "FESTA", parametros: { categoria: "DOCES" } }],
+  CONSUMO_REFRIGERANTES: [{ capacidade: "calcular_consumo", ancora: "FESTA", parametros: { categoria: "REFRIGERANTES" } }],
+};
+/** Teto de leituras de complemento por pedido (abaixo do teto de leituras da rota e dos passos da orquestradora). */
+export const MAX_COMPLEMENTOS = 4;
+
+/**
+ * Análise dos resultados ⇒ lacunas ⇒ complementos autorizados (IA operacional). Até 2 rodadas e MAX_COMPLEMENTOS leituras:
+ * 1. lacunas = fatos pedidos que nenhuma leitura cobriu;
+ * 2. âncora = entidade ÚNICA de cada tipo nos resultados (duas festas ou dois contratos ⇒ nada é escolhido);
+ * 3. para cada lacuna, a leitura que a fornece com a âncora disponível; sem contrato mas com festa, a ponte é a relação
+ *    do Core (relacoes_festa), e a próxima rodada usa o contrato devolvido;
+ * 4. cada leitura passa pela mesma porta contada (Policy + Tenant Context no gateway); recusa, erro ou limite ⇒ para e a
+ *    resposta aponta a ausência — nada é inventado.
+ */
+async function complementarAposExecucao(e: Execucao, partes: ParteResposta[], solicitados: readonly FatoSolicitado[], plano: PlanoRastreio): Promise<ParteResposta[]> {
+  const ler = e.lerPlano;
+  if (!ler) return partes;
+  const autorizadas = new Set(catalogoDisponivel(e.deps.env, e.sessao.papel, e.deps.acoes).filter((c) => c.tipo === "leitura").map((c) => c.id));
+  const feitas = new Set<string>();
+  const rastro = { leituras: [] as string[], rodadas: 0, parada: null as string | null };
+  plano.aposExecucao = rastro;
+  const resultado = [...partes];
+  for (let rodada = 0; rodada < 2; rodada += 1) {
+    const lacunas = faltando(solicitados, resultado);
+    if (!lacunas.length) break;
+    const ancoras = new Map<TipoEntidade, string>();
+    for (const tipo of ["FESTA", "CONTRATO", "CLIENTE"] as const) {
+      const ids = [...new Set(resultado.flatMap((p) => (p.dados.entidades ?? []).filter((x) => x.tipo === tipo).map((x) => x.id)))];
+      if (ids.length === 1) ancoras.set(tipo, ids[0]);
+    }
+    // Cálculos primeiro: um cálculo também comprova os convidados (versão vigente), evitando leitura redundante.
+    const ordenadas = [...lacunas].sort((x, y) => Number(!x.startsWith("CONSUMO_")) - Number(!y.startsWith("CONSUMO_")));
+    let leuNestaRodada = false;
+    for (const fato of ordenadas) {
+      // A lacuna pode ter sido coberta por um complemento desta mesma rodada.
+      if (!faltando([fato], resultado).length) continue;
+      const opcao = COMPLEMENTOS[fato].find((c) => autorizadas.has(c.capacidade) && ancoras.has(c.ancora));
+      // Sem a âncora pedida, a PONTE é a relação do Core entre festa e contrato (nos dois sentidos).
+      const ponte = (de: TipoEntidade, capacidade: string, para: TipoEntidade) =>
+        COMPLEMENTOS[fato].some((c) => c.ancora === para) && !ancoras.has(para) && ancoras.has(de) && autorizadas.has(capacidade)
+          ? { capacidade, parametros: { id: ancoras.get(de)! } as Record<string, unknown> } : null;
+      const p = opcao
+        ? { capacidade: opcao.capacidade, parametros: { ...(opcao.parametros ?? {}), id: ancoras.get(opcao.ancora)! } as Record<string, unknown> }
+        : ponte("FESTA", "relacoes_festa", "CONTRATO") ?? ponte("CONTRATO", "relacoes_contrato", "FESTA");
+      if (!p) continue;
+      const chave = `${p.capacidade}:${JSON.stringify(p.parametros)}`;
+      if (feitas.has(chave)) continue;
+      if (!leuNestaRodada) rastro.rodadas += 1;
+      leuNestaRodada = true;
+      if (rastro.leituras.length >= MAX_COMPLEMENTOS) {
+        rastro.parada = "LIMITE";
+        return resultado;
+      }
+      feitas.add(chave);
+      rastro.leituras.push(p.capacidade);
+      let r: AIResponse;
+      try {
+        r = await ler(p.capacidade, p.parametros);
+      } catch {
+        // Policy, Tenant Context, prazo ou limite da orquestradora: para aqui, com o que foi comprovado.
+        rastro.parada = "RECUSA_OU_LIMITE";
+        return resultado;
+      }
+      if (r.tipo === "resposta" && "fatos" in r.dados) resultado.push({ passoId: `c${rastro.leituras.length}`, capacidade: p.capacidade, dados: r.dados as RespostaLeitura });
+      else rastro.parada = "SEM_DADOS";
+    }
+    if (!leuNestaRodada) {
+      rastro.parada ??= "SEM_COMPLEMENTO";
+      break;
+    }
+  }
+  return resultado;
 }
 
 /**
@@ -594,16 +840,19 @@ function portaPlanejador(e: Execucao, usos: ModelUsage[]): PortaPlanejador {
  * limites do schema. Navegação, proposta (Human Gate), recusa e erro voltam como vieram: nada transforma uma execução
  * interrompida em sucesso. O complemento do Copiloto (calculado só sobre a leitura final) não acompanha a composta.
  */
-function concluirPlano(e: Execucao, resposta: AIResponse): AIResponse {
+async function concluirPlano(e: Execucao, resposta: AIResponse): Promise<AIResponse> {
   const plano = e.rastreio.plano;
   const ultimo = plano?.passos.at(-1);
   if (!plano || !ultimo || ultimo.resultado !== "NAO_EXECUTADO") return resposta;
   ultimo.resultado = resultadoFinal(resposta);
   plano.resultadoFinal = ultimo.resultado;
   if (resposta.tipo !== "resposta" || !("fatos" in resposta.dados)) return resposta;
-  const solicitados = fatosSolicitados(e.texto);
+  const solicitados = fatosSolicitados(e.texto, operacionalAtivo(e.deps.env));
   const final = resposta.dados as RespostaLeitura;
-  const partes: ParteResposta[] = [...(e.partesPlano ?? []), { passoId: `p${plano.quantidadePassos}`, capacidade: final.capacidade, dados: final }];
+  let partes: ParteResposta[] = [...(e.partesPlano ?? []), { passoId: `p${plano.quantidadePassos}`, capacidade: final.capacidade, dados: final }];
+  // IA operacional: analisa o que VOLTOU, identifica fatos pedidos ainda faltando e busca complementos autorizados, com a
+  // âncora que o Core devolveu, dentro dos limites (leituras contadas pela orquestradora).
+  if (operacionalAtivo(e.deps.env) && faltando(solicitados, partes).length) partes = await complementarAposExecucao(e, partes, solicitados, plano);
   if (partes.length === 1 && !faltando(solicitados, partes).length) {
     plano.composicao = { leituras: 1, solicitados, faltando: [] };
     return resposta;
@@ -702,6 +951,8 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
   return {
     catalogo: catalogoDisponivel(deps.env, sessao.papel, deps.acoes),
     interpretar: (texto, contexto) => {
+      // Quantidade operacional: nunca vira a leitura genérica das regras (ex.: "devo fazer" ⇒ atenção de hoje).
+      if (e.consumo) return { tipo: "nenhuma" };
       const intencao = interpretarDeterministico(texto, contexto);
       if (intencao.tipo === "navegacao_sem_destino") e.navegacaoPendente = intencao;
       return intencao;
@@ -822,6 +1073,107 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
   }
 }
 
+/** Pedido novo (sem rascunho, ou consulta no meio de um): orquestradora ou caminho da Foundation, como sempre. */
+async function atenderNovo(e: Execucao): Promise<AIResponse> {
+  const { deps, rastreio, contexto, texto } = e;
+  let resposta: AIResponse;
+  // Orquestradora (Demerzel): decide o caminho com as mesmas portas guardadas (inclusive o Planner, depois do JEV).
+  // Qualquer erro dela cai no fallback seguro da conversa — nunca no caminho sem guardas.
+  const orquestrador = deps.orquestrador ?? null;
+  if (orquestrador && demerzelAtivo(deps.env)) {
+    e.planejadorModelo = Boolean(deps.roteador?.disponivelPara("PLANEJAR"));
+    const r = await orquestrador.atender({ texto, contexto }, portasOrquestracao(e, []));
+    rastreio.estado ??= r.resposta.tipo;
+    resposta = finalizar(r.resposta, texto, rastreio, e.navegacaoPendente, e);
+  } else {
+    // Sem orquestradora: Planner por regras (sem modelo) e, sem plano, a intenção da Foundation.
+    const planejado = await planejarPedido(e, interpretarDeterministico(texto, contexto), (capacidade, parametros) => responderLeitura(capacidade, parametros, "INTENCAO_DETERMINISTICA", e));
+    if (planejado && "resposta" in planejado) resposta = finalizar(planejado.resposta, texto, rastreio, undefined, e);
+    else {
+      const intencao = planejado?.intencao ?? await resolverIntencao(texto, contexto, e.sessao, e.pedido, deps, rastreio);
+      const respondida = await responderIntencao(intencao, contexto, e);
+      resposta = finalizar(planejado ? await concluirPlano(e, respondida) : respondida, texto, rastreio, undefined, e);
+    }
+  }
+  const continuacao = continuacaoDa(resposta, e);
+  return continuacao ? { ...resposta, continuacao } : resposta;
+}
+
+type ResultadoRascunho = { resposta: AIResponse; capacidade: string; ferramenta: string };
+
+function anotarRascunho(rastreio: RastreioInteligencia, r: ResultadoRascunho) {
+  rastreio.capacidade = r.capacidade;
+  rastreio.ferramenta = r.ferramenta;
+  rastreio.ferramentasSolicitadas = [r.ferramenta];
+  rastreio.humanGate = r.resposta.tipo === "preview" || (r.resposta.tipo === "navegacao" && r.resposta.proposta) ? "PREVIEW"
+    : r.resposta.tipo === "resultado_acao" ? "CANCELADO" : "RASCUNHO";
+  rastreio.estado = r.resposta.tipo;
+}
+
+type Pausado = NonNullable<AIResponse["rascunhoPausado"]>;
+type Coordenado = { resposta: AIResponse } | { novo: true; pausado: Pausado | null };
+
+/**
+ * IA operacional: coordenação de uma mensagem enviada com um rascunho aberto. A situação do rascunho é lida no tenant
+ * comprovado (dono, empresa, estado e prazo revalidados); `null` ⇒ caminho atual (resposta ao campo / correção).
+ */
+async function coordenar(e: Execucao, acoes: ModuloAcoes, operacaoId: string): Promise<Coordenado | null> {
+  const { deps, sessao, pedido, rastreio } = e;
+  rastreio.operacional = { rota: "RASCUNHO", decisao: null, leituras: 0, duracaoMs: 0 };
+  const noTenant = <T>(fn: (ctx: ContextoExtensao) => Promise<T>) => deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, tenant) => {
+    rastreio.empresaId = tenant.empresaComprovada;
+    exigirGrupoNaEmpresa(deps.env, "ADMIN_ACTIONS", tenant);
+    return fn(e.contextoExtensao(tx, tenant));
+  });
+  const situacao = await noTenant((ctx) => acoes.situacao!(operacaoId, e.texto, ctx));
+  const decisao: DecisaoRascunho = coordenarRascunho(e.texto, situacao, interpretarDeterministico(e.texto, e.contexto), Boolean(e.consumo));
+  rastreio.operacional.decisao = decisao.tipo;
+  switch (decisao.tipo) {
+    case "RESPOSTA_CAMPO":
+    case "CORRECAO":
+      return null;
+    case "ENCERRADO":
+      return { novo: true, pausado: null };
+    case "NOVA_CONSULTA":
+      return { novo: true, pausado: { operacaoId, titulo: situacao.titulo, pergunta: situacao.pergunta } };
+    case "AMBIGUO":
+      return { resposta: { ...naoSuportado(`Isso é a resposta para o rascunho “${situacao.titulo}” ou uma nova pergunta?${situacao.pergunta ? ` O rascunho pergunta: ${situacao.pergunta}` : ""}`), entendimento: "AMBIGUO" } };
+    case "CANCELAR":
+    case "RETOMAR": {
+      const r = await noTenant((ctx) => (decisao.tipo === "CANCELAR" ? acoes.abandonar!(operacaoId, ctx) : acoes.retomar!(operacaoId, ctx)));
+      anotarRascunho(rastreio, r);
+      return { resposta: r.resposta };
+    }
+    case "MUDANCA_OBJETIVO": {
+      const alvo = acoes.descrever(decisao.capacidade);
+      // Novo objetivo indisponível (sem ação, DENY, flag): diz o que entendeu e preserva o rascunho atual.
+      if (!alvo || alvo.classe !== "CONFIRM" || alvo.origem === "TELA" || !grupoAtivo(deps.env, alvo.grupo) || !acoes.substituir) {
+        return { resposta: { ...naoSuportado(`Entendi que você quer ${decisao.capacidade === "preparar_contratacao" ? "preparar a contratação de uma festa" : "outro cadastro"}, mas isso ainda não está disponível pelo Kidmais. O rascunho “${situacao.titulo}” continua aberto.`), entendimento: "CAPACIDADE_INDISPONIVEL" } };
+      }
+      const r = await noTenant((ctx) => acoes.substituir!(operacaoId, decisao.capacidade, e.texto, ctx));
+      anotarRascunho(rastreio, r);
+      rastreio.propostaAcao = r.capacidade;
+      const aviso = `Entendi: troquei o objetivo. O rascunho “${r.anterior}” foi descartado (nada foi gravado).`;
+      const resposta: AIResponse = r.resposta.tipo === "rascunho" ? { ...r.resposta, pergunta: `${aviso} ${r.resposta.pergunta}` }
+        : r.resposta.tipo === "nao_suportado" ? { ...r.resposta, mensagem: `${aviso} ${r.resposta.mensagem}` }
+          : r.resposta.tipo === "navegacao" && r.resposta.proposta ? { ...r.resposta, proposta: { ...r.resposta.proposta, avisos: [aviso, ...r.resposta.proposta.avisos] } }
+            : r.resposta;
+      return { resposta };
+    }
+  }
+}
+
+/** A consulta respondida no meio de um rascunho diz que ele continua disponível (e como retomar). */
+function comPausa(resposta: AIResponse, pausado: Pausado | null): AIResponse {
+  if (!pausado) return resposta;
+  const nota = `O rascunho “${pausado.titulo}” continua aberto: ${pausado.pergunta ? `quando quiser, responda — ${pausado.pergunta}` : "diga “retomar” para voltar a ele"}`;
+  if (resposta.tipo === "resposta" && "fatos" in resposta.dados) {
+    return { ...resposta, dados: { ...resposta.dados, resumo: `${resposta.dados.resumo} ${nota}`.slice(0, 2000) }, rascunhoPausado: pausado };
+  }
+  if (resposta.tipo === "nao_suportado" || resposta.tipo === "precisa_contexto") return { ...resposta, mensagem: `${resposta.mensagem} ${nota}`, rascunhoPausado: pausado };
+  return { ...resposta, rascunhoPausado: pausado };
+}
+
 export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasConversa): Promise<RespostaGateway> {
   const relogio = deps.relogio ?? (() => performance.now());
   const inicio = relogio();
@@ -840,44 +1192,37 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
     }
     const contextoExtensao = (tx: ContextoExtensao["tx"], tenant: ContextoExtensao["tenant"]): ContextoExtensao => ({ tx, tenant, sessao, correlationId: rastreio.correlationId ?? rastreio.requestId });
 
+    const operacional = operacionalAtivo(deps.env);
+    const contexto = entrada.contexto ?? null;
+    const execucao: Execucao = {
+      texto: entrada.texto, sessao, pedido, deps, rastreio, contextoExtensao, contexto, foco: entrada.foco ?? null,
+      ...(operacional ? { consumo: consumoDoPedido(entrada.texto, entrada.continuacao) } : {}),
+    };
+
     // Continuação de rascunho: a resposta do operador só edita o rascunho do próprio tenant e usuário.
     if (entrada.operacaoId) {
       const acoes = deps.acoes;
       if (!acoes || !grupoAtivo(deps.env, "ADMIN_ACTIONS")) recursoDesativado();
       rastreio.intencao = "UI";
       const operacaoId = entrada.operacaoId;
+      // IA operacional: o coordenador decide o que a mensagem é (resposta, correção, troca de objetivo, consulta,
+      // cancelar/retomar). Sem a flag, o comportamento anterior: toda mensagem responde ao rascunho.
+      const coordenado = operacional && acoes.situacao ? await coordenar(execucao, acoes, operacaoId) : null;
+      if (coordenado && "novo" in coordenado) {
+        const resposta = await atenderNovo(execucao);
+        return { status: 200, corpo: { ok: true, data: comPausa(resposta, coordenado.pausado) } };
+      }
+      if (coordenado) return { status: 200, corpo: { ok: true, data: finalizar(coordenado.resposta, entrada.texto, rastreio) } };
       const resultado = await deps.withTenantTransaction(sessao, pedido.empresaSolicitada, async (tx, tenant) => {
         rastreio.empresaId = tenant.empresaComprovada;
         exigirGrupoNaEmpresa(deps.env, "ADMIN_ACTIONS", tenant);
         return acoes.responder(operacaoId, entrada.texto, contextoExtensao(tx, tenant));
       });
-      rastreio.capacidade = resultado.capacidade;
-      rastreio.ferramenta = resultado.ferramenta;
-      rastreio.ferramentasSolicitadas = [resultado.ferramenta];
-      rastreio.humanGate = resultado.resposta.tipo === "preview" ? "PREVIEW" : "RASCUNHO";
-      rastreio.estado = resultado.resposta.tipo;
+      anotarRascunho(rastreio, resultado);
       return { status: 200, corpo: { ok: true, data: finalizar(resultado.resposta, entrada.texto, rastreio) } };
     }
 
-    const contexto = entrada.contexto ?? null;
-    const execucao: Execucao = { texto: entrada.texto, sessao, pedido, deps, rastreio, contextoExtensao, contexto, foco: entrada.foco ?? null };
-
-    // Orquestradora (Demerzel): decide o caminho com as mesmas portas guardadas (inclusive o Planner, depois do JEV).
-    // Qualquer erro dela cai no fallback seguro abaixo — nunca no caminho sem guardas.
-    const orquestrador = deps.orquestrador ?? null;
-    if (orquestrador && demerzelAtivo(deps.env)) {
-      const { resposta } = await orquestrador.atender({ texto: entrada.texto, contexto }, portasOrquestracao(execucao, []));
-      rastreio.estado ??= resposta.tipo;
-      return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio, execucao.navegacaoPendente, execucao) } };
-    }
-
-    // Sem orquestradora: Planner por regras (sem modelo) e, sem plano, a intenção da Foundation.
-    const planejado = await planejarPedido(execucao, interpretarDeterministico(entrada.texto, contexto), (capacidade, parametros) => responderLeitura(capacidade, parametros, "INTENCAO_DETERMINISTICA", execucao));
-    if (planejado && "resposta" in planejado) return { status: 200, corpo: { ok: true, data: finalizar(planejado.resposta, entrada.texto, rastreio, undefined, execucao) } };
-    const intencao = planejado?.intencao ?? await resolverIntencao(entrada.texto, contexto, sessao, pedido, deps, rastreio);
-    const respondida = await responderIntencao(intencao, contexto, execucao);
-    const resposta = planejado ? concluirPlano(execucao, respondida) : respondida;
-    return { status: 200, corpo: { ok: true, data: finalizar(resposta, entrada.texto, rastreio, undefined, execucao) } };
+    return { status: 200, corpo: { ok: true, data: await atenderNovo(execucao) } };
   } catch (error) {
     const falha = classificar(error, MENSAGEM_FALLBACK);
     rastreio.resultado = falha.resultado;

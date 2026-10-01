@@ -17,6 +17,7 @@ import { proximaParcela, saldoContrato, ultimoContrato } from "./leituras/pagame
 import { ondeEncontrar } from "./leituras/navegacao.ts";
 import { pacotesDisponiveis } from "./leituras/pacotes.ts";
 import { compararVersoesContrato } from "./leituras/versoes-contrato.ts";
+import { calcularConsumo, contextoOperacionalFesta } from "./leituras/operacional.ts";
 
 /** Reexportado por conveniência de tipo: a classe é a mesma dos contratos estáveis. */
 export type ClasseFerramenta = ClasseAcao;
@@ -83,7 +84,25 @@ export type PosicaoContratoDominio = {
 };
 export type PortaFinanceiro = { posicaoContrato(tx: DbExecutor, empresaId: string, contratoId: string): Promise<PosicaoContratoDominio | "SEM_OBRIGACAO" | null> };
 
-export type PortasDominio = { festas: PortaFestas | null; clientes: PortaClientes | null; pacotes?: PortaPacotes | null; contratos?: PortaContratos | null; financeiro?: PortaFinanceiro | null };
+/**
+ * Regra de consumo VIGENTE da empresa (IA operacional, migration 059): fonte de negócio versionada, nunca skill,
+ * memória do modelo ou rascunho. `INDISPONIVEL` ⇒ a fonte ainda não existe neste ambiente (o cálculo pergunta).
+ */
+export type RegraConsumoDominio = {
+  categoria: "DOCES" | "REFRIGERANTES";
+  versao: number;
+  porConvidado: number | null;
+  mlPorConvidado: number | null;
+  embalagemMl: number | null;
+  margemPercentual: number | null;
+  vigenteDesde: string;
+};
+export type PortaParametrosConsumo = { vigente(empresaId: string, categoria: RegraConsumoDominio["categoria"]): Promise<RegraConsumoDominio | null | "INDISPONIVEL"> };
+
+export type PortasDominio = {
+  festas: PortaFestas | null; clientes: PortaClientes | null; pacotes?: PortaPacotes | null; contratos?: PortaContratos | null; financeiro?: PortaFinanceiro | null;
+  parametrosConsumo?: PortaParametrosConsumo | null;
+};
 
 export const SEM_PORTAS: PortasDominio = Object.freeze({ festas: null, clientes: null, pacotes: null, contratos: null });
 
@@ -164,7 +183,13 @@ export const ferramentas: Readonly<Record<string, Ferramenta>> = Object.freeze({
   ultimo_contrato: ultimoContrato,
   pacotes_disponiveis: pacotesDisponiveis,
   comparar_versoes_contrato: compararVersoesContrato,
+  // IA operacional (AI_OPERACIONAL_ENABLED): fora do catálogo e recusadas pelo gateway com a flag desligada.
+  contexto_operacional_festa: contextoOperacionalFesta,
+  calcular_consumo: calcularConsumo,
 });
+
+/** Leituras da IA operacional: só existem para o operador com AI_OPERACIONAL_ENABLED=true. */
+export const CAPACIDADES_OPERACIONAIS: ReadonlySet<string> = new Set(["contexto_operacional_festa", "calcular_consumo"]);
 
 export function ferramentaRegistrada(nome: string): Ferramenta | null {
   return Object.hasOwn(ferramentas, nome) ? ferramentas[nome] : null;

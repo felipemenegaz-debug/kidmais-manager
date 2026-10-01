@@ -94,3 +94,12 @@ export function copilotoModeloAtivo(env: Ambiente) {
 export function skillsEmpresaAtivas(env: Ambiente) {
   return inteligenciaAtiva(env) && env.AI_SKILLS_EMPRESA_ENABLED === "true";
 }
+
+/**
+ * IA operacional (AI_OPERACIONAL_ENABLED): coordenação de rascunhos (consultar/corrigir/retomar sem perder o rascunho),
+ * contexto operacional da festa e cálculo de consumo, preparação da contratação e proposta de parâmetro de consumo.
+ * Exige a chave-mestra. Desligada, a conversa segue exatamente como antes (rollback por flag, sem apagar dados).
+ */
+export function operacionalAtivo(env: Ambiente) {
+  return inteligenciaAtiva(env) && env.AI_OPERACIONAL_ENABLED === "true";
+}

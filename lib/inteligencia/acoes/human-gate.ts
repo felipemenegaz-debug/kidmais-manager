@@ -113,7 +113,7 @@ async function avancar(acao: FerramentaAcao, draft: HumanGateDraft, ctx: Context
       ...draft,
       payload,
       estado: "AGUARDANDO_CONFIRMACAO",
-      expiraEm: somarSegundos(agora, deps.ttlConfirmacaoSegundos),
+      expiraEm: somarSegundos(agora, acao.revisao?.ttlSegundos ?? deps.ttlConfirmacaoSegundos),
       atualizadoEm: agora.toISOString(),
       payloadHash: hashPayload({ capacidade: draft.capacidade, ferramenta: draft.ferramenta, empresaId: draft.empresaId, usuarioId: draft.usuarioId, versao: draft.versao, payload }),
     };
@@ -216,6 +216,8 @@ export async function confirmarOperacao(
   }
   autorizarNoGate(ctx, acao, "CONFIRMACAO", null);
   if (!ctx.flagAtiva) throw new InteligenciaError("INTELIGENCIA_DESATIVADA", "Kidmais Intelligence indisponível neste ambiente.", 503);
+  // Aprovação pela revisão oficial (ex.: contratação): o clique do chat nunca executa — um só caminho de escrita.
+  if (acao.revisao) throw new InteligenciaError("CONFIRMAR_NA_REVISAO", "Esta proposta é concluída na revisão oficial, não pelo chat.", 409);
   // Replay (clique duplo, retry após timeout): devolve o resultado gravado, sem executar de novo.
   if (draft.estado === "EXECUTADA") {
     if (draft.versao !== pedido.versao || draft.payloadHash !== pedido.payloadHash) {
@@ -293,4 +295,39 @@ export async function cancelarOperacao(acao: FerramentaAcao, draft: HumanGateDra
     throw new InteligenciaError("OPERACAO_CONCORRENTE", "O rascunho mudou em outra aba. Atualize e tente de novo.", 409);
   }
   return { draft: cancelada, resposta: { tipo: "resultado_acao", rascunho: publico(acao, cancelada), mensagem: "Rascunho cancelado. Nenhuma alteração foi feita." } };
+}
+
+// ---------------------------------------------------------------- IA operacional: coordenação do rascunho
+
+/** Rascunho ainda aberto (coletando ou aguardando revisão) e dentro do prazo. */
+export function rascunhoAberto(draft: HumanGateDraft, agora: Date) {
+  return (draft.estado === "COLETANDO" || draft.estado === "AGUARDANDO_CONFIRMACAO") && !expirado(draft, agora);
+}
+
+/**
+ * Encerra o rascunho SEM executar nada: cancelamento pedido em texto ou substituição por outro objetivo
+ * ("quero criar uma festa, não um pacote"). Compare-and-set na versão atual; o motivo (e o substituto) ficam
+ * registrados em `resultado`, de forma auditável. A prévia antiga deixa de ser confirmável.
+ */
+export async function abandonarRascunho(
+  acao: FerramentaAcao, draft: HumanGateDraft, motivo: "CANCELADO_NA_CONVERSA" | "SUBSTITUIDO", ctx: ContextoGate, deps: DependenciasHumanGate, substituto: string | null = null,
+): Promise<HumanGateDraft> {
+  autorizarNoGate(ctx, acao, "HUMAN_GATE", null);
+  if (!rascunhoAberto(draft, deps.agora())) throw new InteligenciaError("OPERACAO_ENCERRADA", "Este rascunho já foi encerrado.", 409);
+  const encerrado: HumanGateDraft = {
+    ...draft, estado: "CANCELADA", atualizadoEm: deps.agora().toISOString(),
+    resultado: { motivo, ...(substituto ? { substitutoId: substituto } : {}) },
+  };
+  if (!await deps.repositorio.atualizar(ctx.tx, encerrado, { versao: draft.versao, estado: draft.estado })) {
+    throw new InteligenciaError("OPERACAO_CONCORRENTE", "O rascunho mudou em outra aba. Atualize e tente de novo.", 409);
+  }
+  return encerrado;
+}
+
+/** Reapresenta o passo atual (próxima pergunta ou prévia) sem nova versão nem escrita. */
+export function reapresentar(acao: FerramentaAcao, draft: HumanGateDraft): AIResponse {
+  if (draft.estado === "AGUARDANDO_CONFIRMACAO") return { tipo: "preview", rascunho: publico(acao, draft) };
+  const faltando = acao.faltando({ ...draft.payload });
+  const campo = acao.campos.find((c) => c.id === faltando[0]);
+  return { tipo: "rascunho", rascunho: publico(acao, draft), pergunta: campo?.pergunta ?? "Complete os dados do rascunho.", faltando };
 }

@@ -5,8 +5,8 @@ import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
 import type { EntidadeRef, ResultadoPolitica } from "./contratos.ts";
-import { SEM_PORTAS, ferramentaRegistrada, type ContextoFerramenta, type Ferramenta, type PortasDominio, type ResultadoFerramenta } from "./ferramentas.ts";
-import { grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, type Ambiente } from "./flags.ts";
+import { CAPACIDADES_OPERACIONAIS, SEM_PORTAS, ferramentaRegistrada, type ContextoFerramenta, type Ferramenta, type PortasDominio, type ResultadoFerramenta } from "./ferramentas.ts";
+import { grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva, operacionalAtivo, type Ambiente } from "./flags.ts";
 import { InteligenciaError, autorizarFerramenta, avaliarPolitica } from "./politica.ts";
 import { anotarLeitura, novoRastreio, type CausaRastreio, type RastreioInteligencia } from "./rastreio.ts";
 import { decidirPolitica, exigirPolitica, type EntradaPolitica } from "./politica-v1.ts";
@@ -212,6 +212,7 @@ export async function executarLeitura(
   const prazo = Math.min(manifesto?.prazoMs ?? 0, deps.prazoMaximoMs ?? Number.POSITIVE_INFINITY);
   if (!manifesto || manifesto.classe !== "READ") throw new InteligenciaError("CAPACIDADE_DESCONHECIDA", "Capacidade não disponível.", 400);
   if (!grupoAtivo(deps.env, ferramenta.grupo)) recursoDesativado();
+  if (CAPACIDADES_OPERACIONAIS.has(ferramenta.capacidade) && !operacionalAtivo(deps.env)) recursoDesativado();
   const politica: ResultadoPolitica = avaliarPolitica(sessao, ferramenta, "LEITURA");
   rastreio.politica = politica;
   autorizarFerramenta(sessao, ferramenta);

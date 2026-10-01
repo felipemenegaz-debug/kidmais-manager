@@ -73,6 +73,11 @@ const POR_CAPACIDADE: Readonly<Record<string, ObjetivoIA>> = {
   proxima_parcela: "CONSULTAR:PAGAMENTO",
   ultimo_contrato: "CONSULTAR:CONTRATO",
   criar_pacote: "CRIAR:PACOTE",
+  // IA operacional: preparar a contratação de uma festa (proposta; o Fechamento só nasce na revisão oficial).
+  preparar_contratacao: "CRIAR:FESTA",
+  salvar_parametro_consumo: "EDITAR:CONFIGURACAO",
+  contexto_operacional_festa: "CONSULTAR:FESTA",
+  calcular_consumo: "CONSULTAR:FESTA",
   editar_pacote: "EDITAR:PACOTE",
   ativar_pacote: "EDITAR:PACOTE",
   desativar_pacote: "EDITAR:PACOTE",

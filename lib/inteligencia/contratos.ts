@@ -172,6 +172,11 @@ export type PlanoRastreio = {
    * ou o motivo de não ter sido possível completar com segurança (códigos). null quando nada faltava.
    */
   complemento: { adicionados: string[]; marcados: string[]; impossivel: string | null } | null;
+  /**
+   * IA operacional: complementos DEPOIS da execução — fatos pedidos que os resultados não cobriram, buscados com a âncora
+   * devolvida pelo Core (capacidades lidas, rodadas e por que parou; só códigos). Ausente fora da IA operacional.
+   */
+  aposExecucao?: { leituras: string[]; rodadas: number; parada: string | null };
   duracaoMs: number;
   usoModelo: boolean;
 };
@@ -272,13 +277,27 @@ export type AIResponse = (
    * Navegação interna (AI V1.1, PR 3): destino SÓ da lista fechada de rotas (rotas-navegacao.ts), revalidado aqui e
    * na UI antes de navegar. Não altera estado; a UI navega sozinha porque o pedido foi um comando explícito.
    */
-  | { tipo: "navegacao"; tela: string; recurso: RecursoObjetivo; destino: string; rotulo: string }
+  | { tipo: "navegacao"; tela: string; recurso: RecursoObjetivo; destino: string; rotulo: string; proposta?: RascunhoPublico }
 ) & {
   /** Fixado pela conversa em toda resposta (quem decide explicitamente, como um agente, pode antecipar). */
   entendimento?: EstadoEntendimento;
   objetivo?: ObjetivoIA | null;
   /** AI V1.1 (PR 5): foco da conversa (entidades recentes, com rótulo só para a UI). A UI reenvia tipo + id como dica. */
   foco?: FocoConversa;
+  /**
+   * IA operacional: pergunta de parâmetro pendente (ex.: docinhos por convidado). A UI reenvia com a próxima mensagem
+   * como DICA (categoria fechada + números já informados); o servidor relê a festa e recalcula tudo.
+   */
+  continuacao?: ContinuacaoConsumo;
+  /** IA operacional: rascunho preservado enquanto esta consulta foi respondida (retomável respondendo à pergunta dele). */
+  rascunhoPausado?: { operacaoId: string; titulo: string; pergunta: string | null };
+};
+
+export type ContinuacaoConsumo = {
+  tipo: "PARAMETRO_CONSUMO";
+  categoria: "DOCES" | "REFRIGERANTES";
+  perguntado: "POR_CONVIDADO" | "ML_POR_CONVIDADO" | "EMBALAGEM";
+  parametros?: { porConvidado?: number; mlPorConvidado?: number; embalagemMl?: number; margemPercentual?: number };
 };
 
 export type ResultadoPolitica = "PERMITIDO" | "NEGADO_CLASSE" | "NEGADO_PAPEL" | "NEGADO_FLAG" | "NEGADO_DENY" | "NEGADO_SEM_MANIFESTO" | "NEGADO_ORIGEM" | "NEGADO_ESTABELECIMENTO";

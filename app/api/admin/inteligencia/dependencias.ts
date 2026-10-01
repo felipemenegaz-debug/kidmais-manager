@@ -8,6 +8,7 @@ import { db, withTransaction } from "@/lib/db/postgres";
 import { lerPosicaoFinanceira } from "@/lib/pagamentos/repositories/alteracao-financeira.repository";
 import { AlteracaoFinanceiraError } from "@/lib/pagamentos/services/alteracao-financeira-core";
 import { FestaError, consultarFestas } from "@/lib/festas/service";
+import { fonteParametrosDisponivel, parametroVigente } from "@/lib/operacional/parametros-consumo";
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from "@/lib/http/admin-crm-api";
 import { criarRegistroUsoPostgres, lerUsoAgrupado } from "@/lib/ia-persistencia/uso";
 import type { DependenciasConversa } from "@/lib/inteligencia/conversa";
@@ -96,6 +97,11 @@ export function portasDominio(request: NextRequest): PortasDominio {
           throw error;
         }
       },
+    },
+    // IA operacional: regra de consumo VIGENTE da empresa comprovada (serviço da 059, somente leitura). Sem a tabela,
+    // INDISPONIVEL: o cálculo pergunta o parâmetro ao operador.
+    parametrosConsumo: {
+      vigente: (empresaId, categoria) => withTransaction(async (tx) => ((await fonteParametrosDisponivel(tx)) ? parametroVigente(tx, empresaId, categoria) : "INDISPONIVEL")),
     },
   };
 }

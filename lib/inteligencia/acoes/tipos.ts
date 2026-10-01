@@ -59,6 +59,11 @@ export type FerramentaAcao<P extends Record<string, unknown> = Record<string, un
   /** "TELA": só começa por uma tela própria (ex.: importação); a conversa nunca a abre. */
   origem?: "CONVERSA" | "TELA";
   campos: readonly DefinicaoCampo[];
+  /**
+   * IA operacional: a aprovação acontece no FORMULÁRIO OFICIAL (revisão preenchida), nunca pelo "Confirmar" do chat.
+   * A prévia vira navegação para `destino` (só a referência opaca da operação); o Human Gate recusa confirmar por aqui.
+   */
+  revisao?: { rotulo: string; destino(payload: Record<string, unknown>, operacaoId: string): string | null; ttlSegundos?: number };
   /** Extração determinística de texto livre. `perguntado` é o campo da última pergunta, se houver. */
   extrair(texto: string, perguntado: string | null): Record<string, unknown>;
   /** Campos que ainda faltam, na ordem em que serão perguntados. */

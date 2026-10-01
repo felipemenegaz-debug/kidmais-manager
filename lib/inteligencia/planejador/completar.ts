@@ -21,7 +21,21 @@ export const FORNECEDORES: Readonly<Record<FatoSolicitado, readonly string[]>> =
   CLIENTE: ["relacoes_festa", "relacoes_contrato", "resumir_cliente"],
   SITUACAO_CONTRATO: ["resumir_contrato"],
   POSICAO_FINANCEIRA: ["saldo_contrato"],
+  CONVIDADOS: ["contexto_operacional_festa"],
+  BUFFET: ["contexto_operacional_festa"],
+  CONSUMO_DOCES: ["calcular_consumo"],
+  CONSUMO_REFRIGERANTES: ["calcular_consumo"],
 };
+
+/** Categoria exigida pelo fato de consumo (o mesmo cálculo serve a duas categorias, com parâmetro diferente). */
+export const CATEGORIA_DO_FATO: Partial<Record<FatoSolicitado, "DOCES" | "REFRIGERANTES">> = { CONSUMO_DOCES: "DOCES", CONSUMO_REFRIGERANTES: "REFRIGERANTES" };
+
+/** O passo fornece o fato? (cálculo de consumo: só o da MESMA categoria). */
+export function passoFornece(fato: FatoSolicitado, passo: Pick<PassoPlano, "capacidade" | "parametros">): boolean {
+  if (!FORNECEDORES[fato].includes(passo.capacidade)) return false;
+  const categoria = CATEGORIA_DO_FATO[fato];
+  return !categoria || passo.parametros?.categoria === categoria;
+}
 
 /** Fonte inequívoca de UM contrato na cadeia: relações (o contrato da festa/do contrato) ou o último contrato. */
 const FONTES_DE_CONTRATO = new Set(["relacoes_festa", "relacoes_contrato", "ultimo_contrato"]);
@@ -36,7 +50,7 @@ const id = (i: number) => `p${i + 1}` as PassoPlano["id"];
 export function completarPlano(plano: Plano, solicitados: readonly FatoSolicitado[], catalogo: readonly CapacidadeCatalogo[], contexto: readonly TipoEntidade[]): Complemento {
   const ultimo = plano.passos.length - 1;
   const naResposta = (p: PassoPlano, i: number) => i === ultimo || p.resposta === true;
-  const faltam = solicitados.filter((f) => !plano.passos.some((p, i) => naResposta(p, i) && FORNECEDORES[f].includes(p.capacidade)));
+  const faltam = solicitados.filter((f) => !plano.passos.some((p, i) => naResposta(p, i) && passoFornece(f, p)));
   if (!faltam.length) return { tipo: "INALTERADO" };
   const final = plano.passos[ultimo];
   // Navegação e ação mantêm o contrato atual: nada é acrescentado depois delas.
@@ -50,6 +64,23 @@ export function completarPlano(plano: Plano, solicitados: readonly FatoSolicitad
   const empurrar = (p: Omit<PassoPlano, "id">) => { passos.push({ ...p, id: id(passos.length) } as PassoPlano); adicionados.push(p.capacidade); return passos.at(-1)!; };
 
   // Relações da cadeia (já no plano, ou a partir da festa / do contrato que o plano ancorou).
+  // IA operacional: convidados/buffet ⇒ projeção operacional da MESMA festa da cadeia (passo que produz FESTA).
+  const consumo = faltam.filter((f) => CATEGORIA_DO_FATO[f]);
+  if (faltam.includes("CONVIDADOS") || faltam.includes("BUFFET") || consumo.length) {
+    const festa = passos.find((p) => p.capacidade !== "contexto_operacional_festa" && p.capacidade !== "calcular_consumo" && catalogo.find((c) => c.id === p.capacidade)?.produz?.includes("FESTA"));
+    if (!festa) return { tipo: "IMPOSSIVEL", motivo: "SEM_FONTE" };
+    const de = { de: "PASSO" as const, passo: festa.id, entidade: "FESTA" as const };
+    // O cálculo já traz os convidados da versão vigente: a projeção só entra se o BUFFET (escolhas) for pedido ou não houver cálculo.
+    if (faltam.includes("BUFFET") || (faltam.includes("CONVIDADOS") && !consumo.length)) empurrar({ capacidade: "contexto_operacional_festa", entradaDe: de, resposta: true });
+    for (const f of consumo) empurrar({ capacidade: "calcular_consumo", parametros: { categoria: CATEGORIA_DO_FATO[f]! }, entradaDe: de, resposta: true });
+  }
+  if (!faltam.some((f) => f === "CLIENTE" || f === "SITUACAO_CONTRATO" || f === "POSICAO_FINANCEIRA")) {
+    passos[ultimo].resposta = true;
+    delete passos[passos.length - 1].resposta;
+    const v = validarPlano({ ...plano, passos }, catalogo, { contexto });
+    if (!v.ok) return { tipo: "IMPOSSIVEL", motivo: v.motivo };
+    return { tipo: "COMPLETADO", plano: v.plano, adicionados, marcados };
+  }
   let relacoes = passos.find((p) => p.capacidade === "relacoes_festa" || p.capacidade === "relacoes_contrato");
   const precisaContrato = faltam.includes("SITUACAO_CONTRATO") || faltam.includes("POSICAO_FINANCEIRA");
   let fonteContrato = relacoes ?? passos.find((p) => FONTES_DE_CONTRATO.has(p.capacidade));

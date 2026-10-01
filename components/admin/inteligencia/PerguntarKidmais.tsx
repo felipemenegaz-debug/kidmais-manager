@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { interpretarPergunta } from './perguntas';
-import { consultarAtencaoHoje, conversar, decidirOperacao, focoValido, rotaInternaSegura, type ContextoTela, type FocoUI, type RascunhoPublico } from './cliente-inteligencia';
+import { consultarAtencaoHoje, continuacaoValida, conversar, decidirOperacao, focoValido, rotaInternaSegura, type ContextoTela, type ContinuacaoUI, type FocoUI, type RascunhoPublico } from './cliente-inteligencia';
 import {
   adicionarPergunta, aguardandoResposta, cancelarEspera, marcarDecisao, perguntaEmCurso, perguntaReenviavel, rascunhoAberto, registrarConversa, registrarDecisao,
   registrarResultado, type Mensagem,
@@ -38,6 +38,8 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
   const historico = useRef<Mensagem[]>([]);
   /** Foco da conversa (PR 5): só na sessão da página; reenviado como dica (tipo + id). */
   const foco = useRef<FocoUI | null>(null);
+  /** IA operacional: pergunta de parâmetro pendente; vale só para a próxima mensagem (dica revalidada no servidor). */
+  const continuacao = useRef<ContinuacaoUI | null>(null);
   const router = useRouter();
   useEffect(() => { historico.current = mensagens; }, [mensagens]);
 
@@ -67,8 +69,11 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
         const resultado = await consultarAtencaoHoje(adminFetch, abortar.signal);
         setMensagens((h) => (abortar.signal.aborted ? cancelarEspera(h, id) : registrarResultado(h, id, resultado)));
       } else {
-        const resultado = await conversar(adminFetch, { texto: pergunta, contexto, ...(rascunho ? { operacaoId: rascunho.operacaoId } : {}), foco: foco.current }, abortar.signal);
+        const pendente = continuacao.current;
+        continuacao.current = null;
+        const resultado = await conversar(adminFetch, { texto: pergunta, contexto, ...(rascunho ? { operacaoId: rascunho.operacaoId } : {}), foco: foco.current, continuacao: pendente }, abortar.signal);
         if (resultado.tipo === 'ok') foco.current = focoValido((resultado.resposta as { foco?: unknown }).foco, foco.current) ?? foco.current;
+        if (resultado.tipo === 'ok') continuacao.current = continuacaoValida((resultado.resposta as { continuacao?: unknown }).continuacao);
         // Resposta a rascunho não é repetida automaticamente: o operador vê o estado atual e decide.
         setMensagens((h) => registrarConversa(h, id, resultado, !rascunho));
         // Navegação pedida explicitamente, com destino único da lista fechada (revalidado aqui): abre a tela.

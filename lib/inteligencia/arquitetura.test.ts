@@ -89,6 +89,15 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/comercial/pacote-precos": ["gravarFaixasPacote"], // @pr:ACTIONS
   "lib/comercial/pacotes-admin": ["alterarSituacaoPacoteAdmin", "criarRevisaoPacoteAdmin", "editarPacoteNaoUtilizado", "listarPacotesAdmin"], // @pr:ACTIONS
   "lib/ia-persistencia/operacoes": ["repositorioOperacoesPostgres"], // @pr:ACTIONS
+  // IA operacional: leituras OFICIAIS para preparar a contratação (CRM, Fechamento administrativo, disponibilidade, valor
+  // de tabela, regra de convidados), a criação oficial do Fechamento (envio do formulário, com o vínculo) e o serviço
+  // de parâmetros de consumo da 059. Nenhuma escrita própria da IA: só os serviços de domínio.
+  "lib/fechamentos/services/fechamento-administrativo.service": ["clienteParaPreparacao", "criarFechamentoAdministrativo", "obterContextoFechamentoAdministrativo"],
+  "lib/fechamentos/convidados": ["erroConvidadosFechamento"],
+  "lib/disponibilidade/services": ["consultarDisponibilidadeData"],
+  "lib/comercial/services": ["calcularResumoComercial"],
+  "lib/financeiro/calculos": ["hojeBrasilia"],
+  "lib/operacional/parametros-consumo": ["fonteParametrosDisponivel", "parametroVigente", "registrarParametroConsumo"],
   "lib/importacao-contrato/arquivo": ["limiteConfigurado"], // @pr:DOCUMENT
   "lib/importacao-contrato/pdf-isolado": ["extrairTextoPdfIsolado"], // @pr:DOCUMENT
   "lib/importacao-contrato/multipart": ["TEMPO_PADRAO", "criarSemaforo", "lerMultipartLimitado", "limitesUpload", "CodigoMultipart"], // @pr:DOCUMENT
@@ -100,7 +109,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */
 const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
   "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo(", "buscarClientesCrm(", "lerPosicaoFinanceira("],
-  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin("], // @pr:ACTIONS
+  "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
   "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao"], // @pr:IMPORT
 };

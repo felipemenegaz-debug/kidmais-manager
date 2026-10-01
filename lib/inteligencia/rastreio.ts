@@ -28,7 +28,12 @@ export type CausaRastreio =
   | "INESPERADO";
 
 /** `orquestracao`: resumo por passo da orquestradora (Demerzel), só códigos e contagens; null fora dela. */
-export type RastreioInteligencia = AuditTrace & { causa: CausaRastreio | null; orquestracao: ResumoOrquestracao | null };
+/**
+ * `operacional` (IA operacional): rota (CONSUMO, RASCUNHO), decisão do coordenador (código fechado), leituras feitas na
+ * rota e duração — só códigos e contagens; null fora dela.
+ */
+export type OperacionalRastreio = { rota: "CONSUMO" | "RASCUNHO"; decisao: string | null; leituras: number; duracaoMs: number };
+export type RastreioInteligencia = AuditTrace & { causa: CausaRastreio | null; orquestracao: ResumoOrquestracao | null; operacional?: OperacionalRastreio | null };
 
 export function novoRastreio(evento: AuditTrace["evento"], requestId: string, correlationId: string | null = requestId): RastreioInteligencia {
   return {

@@ -123,7 +123,7 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
  * data:, file:, http:), host (//), "..", barra invertida ou query fora do padrão.
  */
 const ROTA_INTERNA = new RegExp(
-  `^/(?:admin/(?:dashboard|contratos(?:\\?contratoId=${UUID})?|festas(?:/${UUID})?|clientes/${UUID}/fechamento|financeiro(?:/contas-(?:receber|pagar))?|disponibilidade|configuracoes(?:/(?:catalogo|pacotes))?)|clientes(?:/${UUID})?)$`,
+  `^/(?:admin/(?:dashboard|contratos(?:\\?contratoId=${UUID})?|festas(?:/${UUID})?|clientes/${UUID}/fechamento(?:\\?rascunho=${UUID})?|financeiro(?:/contas-(?:receber|pagar))?|disponibilidade|configuracoes(?:/(?:catalogo|pacotes))?)|clientes(?:/${UUID})?)$`,
 );
 
 export function rotaInternaSegura(destino: unknown): destino is string {
@@ -190,14 +190,39 @@ async function postar(buscar: Buscador, url: string, corpo: object, sinal?: Abor
 }
 
 /** Pergunta livre ou resposta a um rascunho. `sinal` permite ao operador cancelar a espera (leitura não tem efeito). */
-export function conversar(buscar: Buscador, pedido: { texto: string; contexto?: ContextoTela | null; operacaoId?: string; foco?: FocoUI | null }, sinal?: AbortSignal) {
+export function conversar(buscar: Buscador, pedido: { texto: string; contexto?: ContextoTela | null; operacaoId?: string; foco?: FocoUI | null; continuacao?: ContinuacaoUI | null }, sinal?: AbortSignal) {
   const foco = pedido.foco?.entidades.length ? focoParaEnvio(pedido.foco) : null;
   return postar(buscar, ENDPOINT_CONVERSA, {
     texto: pedido.texto,
     ...(pedido.contexto ? { contexto: pedido.contexto } : {}),
     ...(pedido.operacaoId ? { operacaoId: pedido.operacaoId } : {}),
     ...(foco ? { foco } : {}),
+    ...(pedido.continuacao ? { continuacao: pedido.continuacao } : {}),
   }, sinal);
+}
+
+/**
+ * IA operacional: pergunta de parâmetro pendente ("Quantos docinhos por convidado…?"). A UI guarda e reenvia SÓ na
+ * próxima mensagem, como dica (categoria fechada + números já informados); o servidor relê a festa e recalcula.
+ */
+export type ContinuacaoUI = {
+  tipo: 'PARAMETRO_CONSUMO';
+  categoria: 'DOCES' | 'REFRIGERANTES';
+  perguntado: 'POR_CONVIDADO' | 'ML_POR_CONVIDADO' | 'EMBALAGEM';
+  parametros?: Partial<Record<'porConvidado' | 'mlPorConvidado' | 'embalagemMl' | 'margemPercentual', number>>;
+};
+
+/** Aceita só o formato fechado; qualquer desvio ⇒ sem continuação (a próxima mensagem segue como pergunta nova). */
+export function continuacaoValida(c: unknown): ContinuacaoUI | null {
+  const x = c as Partial<ContinuacaoUI> | null;
+  if (!x || x.tipo !== 'PARAMETRO_CONSUMO' || (x.categoria !== 'DOCES' && x.categoria !== 'REFRIGERANTES')) return null;
+  if (x.perguntado !== 'POR_CONVIDADO' && x.perguntado !== 'ML_POR_CONVIDADO' && x.perguntado !== 'EMBALAGEM') return null;
+  const parametros: NonNullable<ContinuacaoUI['parametros']> = {};
+  for (const chave of ['porConvidado', 'mlPorConvidado', 'embalagemMl', 'margemPercentual'] as const) {
+    const v = x.parametros?.[chave];
+    if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 20000) parametros[chave] = v;
+  }
+  return { tipo: 'PARAMETRO_CONSUMO', categoria: x.categoria, perguntado: x.perguntado, ...(Object.keys(parametros).length ? { parametros } : {}) };
 }
 
 /**
@@ -245,6 +270,12 @@ const FONTES: Readonly<Record<string, string>> = {
   'festas.agenda': 'Festas · Agenda',
   'festas.detalhe': 'Festas',
   'crm.clientes': 'Clientes',
+  'festas.contrato_vigente': 'Festas · Contrato vigente',
+  'festas.buffet_efetivo': 'Festas · Buffet',
+  'empresa.parametros_consumo': 'Regra da empresa',
+  'operador.informado': 'Informado por você',
+  'operacional.calculo': 'Cálculo do Kidmais',
+  'operacional.parametro_ausente': 'Regra da empresa',
 };
 
 export function rotuloFonte(fonte: string) {
