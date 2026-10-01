@@ -1412,6 +1412,29 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
   async function executar(ent: Entendimento): Promise<AIResponse> {
     e.luna = ent;
     rastreio.operacional = { rota: rascunho ? "RASCUNHO" : "CONSUMO", decisao: `LUNA:${ent.objetivo}`, leituras: 0, duracaoMs: 0 };
+    // Parâmetro de consumo pendente e mensagem sem objetivo novo ("Não estime; quero só a regra cadastrada", "não sei"):
+    // é resposta à pergunta do cálculo. Refaz o MESMO cálculo (mesma festa, só o que foi escrito ou delegado), mantendo a
+    // continuação — nunca "não entendi", nunca estimativa sem pedido. A resposta sem dado reconhecida por regra vale qualquer
+    // que seja o rótulo da Luna (em staging ela chamou "não estime; só a regra cadastrada" de CONSULTA sem consultas).
+    const semObjetivoNovo = ent.objetivo === "ESCLARECER" || ent.objetivo === "CONVERSA" || ent.objetivo === "FORA_DO_ESCOPO"
+      || (respondeSemDado(e.texto) && !detectarConsumo(e.texto) && !ent.consultas.length);
+    // Com rascunho PAUSADO por esta consulta, a última pergunta feita foi a do cálculo (a UI só manda a continuação logo
+    // depois dela): a resposta sem dado vai ao cálculo, não ao rascunho (homologação de c84b597: "não sei" caía no rascunho).
+    // Para não desviar uma resposta legítima ao rascunho, com rascunho aberto só vale a resposta sem dado reconhecida por
+    // regra, ou a mensagem que a Luna não liga ao rascunho.
+    const ligadaAoRascunho = ent.relacaoRascunho === "RESPONDE" || ent.relacaoRascunho === "CORRIGE";
+    if (continuacao && semObjetivoNovo && (!rascunho || respondeSemDado(e.texto) || !ligadaAoRascunho)) {
+      e.consumo = consumoDaLuna(ent, e.texto, continuacao);
+      if (e.consumo) {
+        finalizada = true;
+        const r = await atenderNovo(e);
+        const naoSabe = /\bn[aã]o sei\b/i.test(e.texto) && !Object.keys(e.consumo.estimativa ?? {}).length;
+        if (naoSabe && r.tipo === "resposta" && r.continuacao && "fatos" in r.dados) {
+          return pausa({ ...r, dados: { ...r.dados, resumo: `${r.dados.resumo} ${DICA_ESTIMATIVA}` } });
+        }
+        return pausa(r);
+      }
+    }
     // Resposta/correção ao rascunho com objetivo genérico (ex.: "4 horas" no rascunho de pacote): vai ao próprio rascunho,
     // que extrai e revalida o campo. Troca de objetivo, consulta, cancelar e retomar seguem os casos abaixo.
     const aoRascunho = rascunho && acoes && (ent.relacaoRascunho === "RESPONDE" || ent.relacaoRascunho === "CORRIGE") && (ent.objetivo === "ESCLARECER" || ent.objetivo === "CONVERSA" || ent.objetivo === "FORA_DO_ESCOPO");
@@ -1429,24 +1452,6 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
       rastreio.operacional = { ...rastreio.operacional, decisao: "LUNA:MENSAGEM_MISTA" };
       const doModelo = rascunho!.situacao.capacidade === "preparar_contratacao" ? ent.contratacao : undefined;
       return noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, e.texto, ctx, doModelo));
-    }
-    // Parâmetro de consumo pendente e mensagem sem objetivo novo ("Não estime; quero só a regra cadastrada", "não sei"):
-    // é resposta à pergunta do cálculo. Refaz o MESMO cálculo (mesma festa, só o que foi escrito ou delegado), mantendo a
-    // continuação — nunca "não entendi", nunca estimativa sem pedido. A resposta sem dado reconhecida por regra vale qualquer
-    // que seja o rótulo da Luna (em staging ela chamou "não estime; só a regra cadastrada" de CONSULTA sem consultas).
-    const semObjetivoNovo = ent.objetivo === "ESCLARECER" || ent.objetivo === "CONVERSA" || ent.objetivo === "FORA_DO_ESCOPO"
-      || (respondeSemDado(e.texto) && !detectarConsumo(e.texto) && !ent.consultas.length);
-    if (continuacao && !rascunho && semObjetivoNovo) {
-      e.consumo = consumoDaLuna(ent, e.texto, continuacao);
-      if (e.consumo) {
-        finalizada = true;
-        const r = await atenderNovo(e);
-        const naoSabe = /\bn[aã]o sei\b/i.test(e.texto) && !Object.keys(e.consumo.estimativa ?? {}).length;
-        if (naoSabe && r.tipo === "resposta" && r.continuacao && "fatos" in r.dados) {
-          return { ...r, dados: { ...r.dados, resumo: `${r.dados.resumo} ${DICA_ESTIMATIVA}` } };
-        }
-        return r;
-      }
     }
     switch (ent.objetivo) {
       case "CANCELAR_RASCUNHO":
