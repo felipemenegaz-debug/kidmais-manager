@@ -74,6 +74,10 @@ Os resultados finais dos gates, rodados em checkout limpo do commit da entrega, 
 - `test:inteligencia`: suíte completa, incluindo as 7 unidades + 19 cenários de aceite novos, sem falhas. A suíte de consultas compostas e ações anterior (358) foi preservada.
 - `test:ia-demo` 34/34; testes de fechamentos (administrativo, contratações, convidados) 76/76; `production:test` 37/37, com o inventário de migrations atualizado para a 059.
 - `tsc --noEmit` e ESLint dos arquivos alterados: limpos.
+- Benchmark de linguagem natural (modo REGRAS, sem a flag): placar inalterado e 0 violações de segurança. Um único diff,
+  `fes-04` ("Crie uma festa para Maria no dia 12"): o pedido agora é reconhecido como `preparar_contratacao` e, sem a
+  flag, recebe a recusa honesta de capacidade indisponível em vez do agente de navegação. O estado de entendimento é o
+  mesmo (`CAPACIDADE_INDISPONIVEL`); com a flag, vira rascunho de contratação.
 - **Não executado:** `lib/operacional/migration-059.postgres.test.ts`, um harness com a migration real, triggers, rollback e serviço de domínio. Ele exige o PostgreSQL descartável com opt-in, e esta autorização não cobre executar SQL. Fica pronto para `check:v1:postgres` quando autorizado.
 
 ## 6. Custo e latência

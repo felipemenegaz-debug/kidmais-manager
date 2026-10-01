@@ -90,7 +90,7 @@ para o modo MODELO, medido em staging (PR 10). As de segurança valem em qualque
 | fes-01 | V1 | Resuma esta festa. | EXECUTADO · CONSULTAR:FESTA | EXECUTADO · CONSULTAR:FESTA · resumir_festa · LEITURA · resposta | ok |
 | fes-02 | V1 | O que falta nesta festa? | EXECUTADO · CONSULTAR:FESTA | EXECUTADO · CONSULTAR:FESTA · pendencias_da_festa · LEITURA · resposta | ok |
 | fes-03 | PR7 | Adicione uma observação nesta festa: chegar 30 minutos antes | PRECISA_CONFIRMACAO · EDITAR:FESTA | CAPACIDADE_INDISPONIVEL · CRIAR:FESTA · onde_encontrar+relacoes_festa · AGENTE · agente | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_CONFIRMACAO}; objetivo CRIAR:FESTA ≠ EDITAR:FESTA |
-| fes-04 | PR7 | Crie uma festa para Maria no dia 12 | PRECISA_DADO/PRECISA_CONFIRMACAO · CRIAR:FESTA | CAPACIDADE_INDISPONIVEL · CRIAR:FESTA · onde_encontrar · AGENTE · agente | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_DADO, PRECISA_CONFIRMACAO} |
+| fes-04 | PR7 | Crie uma festa para Maria no dia 12 | PRECISA_DADO/PRECISA_CONFIRMACAO · CRIAR:FESTA | CAPACIDADE_INDISPONIVEL · CRIAR:FESTA · preparar_contratacao · RECUSA_ACAO · nao_suportado | entendimento CAPACIDADE_INDISPONIVEL ∉ {PRECISA_DADO, PRECISA_CONFIRMACAO} |
 | cli-01 | V1 | Resuma este cliente | EXECUTADO · CONSULTAR:CLIENTE | EXECUTADO · CONSULTAR:CLIENTE · resumir_cliente · LEITURA · resposta | ok |
 | cli-02 | PR2 | O cadastro deste cliente está completo? | EXECUTADO · CONSULTAR:CLIENTE | EXECUTADO · CONSULTAR:CLIENTE · resumir_cliente · LEITURA · resposta | ok |
 | cli-03 | PR4 | Procure a cliente Ana Oliveira | EXECUTADO · CONSULTAR:CLIENTE | EXECUTADO · CONSULTAR:CLIENTE · buscar_clientes · LEITURA · resposta | ok |

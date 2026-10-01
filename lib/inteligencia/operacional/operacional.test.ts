@@ -19,6 +19,12 @@ test("objeto principal: festa com pacote como atributo prepara contratação; pa
   assert.equal(correcaoDeObjetivo("Quero criar uma festa e não um pacote"), "FESTA");
   assert.equal(correcaoDeObjetivo("não é pacote, é uma festa"), "FESTA");
   assert.equal(correcaoDeObjetivo("é um pacote, não uma festa"), "PACOTE");
+  // O objeto é o primeiro substantivo depois do verbo: tarefa/observação numa festa não é criar festa.
+  assert.equal(objetoDeCriacao("Crie uma tarefa nesta festa: confirmar a decoração"), null);
+  assert.equal(objetoDeCriacao("Adicione uma observação nesta festa"), null);
+  assert.equal(objetoDeCriacao("prepare a contratação do Felipe"), "FESTA");
+  assert.equal(objetoDeCriacao("nova festa da Ana"), "FESTA");
+  assert.equal(objetoDeCriacao("crie um pacote para a festa de verão"), "PACOTE");
   // Perguntas e referências nunca viram criação.
   for (const t of ["quantos docinhos devo fazer para a próxima festa?", "quem vai montar a festa de sábado?", "como crio uma festa?", "o que precisa fazer na festa de amanhã?", "qual pacote a próxima festa usa?"]) {
     assert.equal(objetoDeCriacao(t), null, t);

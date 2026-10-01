@@ -357,7 +357,7 @@ test("aceite — salvar parâmetro confirmado: versão, auditoria, empresa compr
   const p = (preview.data as Extract<AIResponse, { tipo: "preview" }>).rascunho;
   assert.equal(p.capacidade, "salvar_parametro_consumo");
   assert.ok(p.avisos.some((x) => /toda a empresa nos próximos cálculos/.test(x)));
-  assert.deepEqual(a.efeitos.parametros, [], "nada antes da confirmação");
+  assert.equal(a.efeitos.parametros.length, 0, "nada antes da confirmação");
   const ok = await a.decidir(p, "confirmar");
   assert.equal(ok.status, 200);
   assert.equal(a.efeitos.parametros.length, 1);

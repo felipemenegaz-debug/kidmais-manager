@@ -26,12 +26,15 @@ export function objetoDeCriacao(texto: string): ObjetoCriacao | null {
   const n = normalizar(texto).replace(NEGADO, " ");
   const verbo = VERBO_CRIAR.exec(n);
   if (!verbo) return null;
-  const resto = n.slice(verbo.index);
-  const f = FESTA.exec(resto);
-  const p = PACOTE.exec(resto);
-  if (!f && !p) return null;
-  if (f && (!p || f.index < p.index)) return "FESTA";
-  return "PACOTE";
+  if (/contratacao$/.test(verbo[0])) return "FESTA";
+  // O OBJETO do verbo é o primeiro substantivo depois dele (artigos e "nova/novo" à parte): "crie uma TAREFA nesta
+  // festa" cria tarefa, não festa; "crie uma festa … pacote premium" cria festa (o pacote vem depois, como atributo).
+  const palavras = n.slice(verbo.index + verbo[0].length).replace(/[^a-z0-9 ]/g, " ").split(" ").filter(Boolean);
+  const objeto = palavras.find((p) => !/^(um|uma|o|a|os|as|nov[oa]s?|outr[oa]|mais|de|da|do|essa|esse|esta|este|minha|meu)$/.test(p));
+  if (!objeto) return null;
+  if (FESTA.test(objeto)) return "FESTA";
+  if (PACOTE.test(objeto)) return "PACOTE";
+  return null;
 }
 
 /**
