@@ -133,9 +133,10 @@ export function extrairContratacao(texto: string, perguntado: string | null): Re
 
   // Aniversariante + idade: "beatriz 1 ano", "Beatriz, 5 anos", "aniversariante Beatriz".
   const comIdade = /([\p{L}]{2,30})\s*,?\s*(?:de |com |faz |fara |completa )?(\d{1,2})\s*anos?\b/iu.exec(t.normalize("NFC"));
-  const marcado = /\baniversariante\s*:?\s*([\p{L}][\p{L}' ]{1,40}?)(?=\s*(?:[,;.!?]|$|\s(?:com|de \d|\d)\b))/iu.exec(t);
+  // "o aniversariante é o Theo" / "aniversariante se chama Ana": o verbo e o artigo não fazem parte do nome.
+  const marcado = /\baniversariante\s*:?\s*(?:(?:é|e|eh|sera|será|se chama|chama)\s+)?(?:(?:o|a)\s+)?([\p{L}][\p{L}' ]{1,40}?)(?=\s*(?:[,;.!?]|$|\s(?:com|de \d|\d)\b))/iu.exec(t);
   if (perguntado === "aniversariante" && !comIdade && !marcado) {
-    const nome = nomeDaResposta(t);
+    const nome = nomeDaResposta(t.replace(/^(?:[ée] (?:o|a) |(?:o|a) )/i, ""));
     if (nome && /^[\p{L}][\p{L}' -]{1,59}$/u.test(nome) && pareceNome(nome)) v.aniversariante = capitalizar(nome);
   } else if (marcado && !PALAVRAS_NAO_NOME.has(normalizar(marcado[1]))) {
     v.aniversariante = capitalizar(marcado[1]);
