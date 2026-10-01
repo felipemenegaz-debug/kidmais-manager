@@ -25,6 +25,7 @@ async function main(){
    const ok=data=>route.fulfill({json:{ok:true,data}});
    if(url.pathname==='/api/admin/autenticacao')return ok({usuarioId:id(1),nome:'Teste visual',papel:'REPRESENTANTE_AUTORIZADO',csrf:'simulado'});
    if(url.pathname==='/api/admin/festas')return ok(festa);
+   if(url.pathname==='/api/admin/configuracoes/perfil-empresa/logo')return ok({logoDataUrl:null});
    if(url.pathname==='/api/admin/contratos/painel'){
     await new Promise(r=>setTimeout(r,250));
     if(url.searchParams.has('contratoId')){assert.equal(url.searchParams.get('contratoId'),cid);return ok({...painel,financeiro:semPagamento?[]:painel.financeiro});}
