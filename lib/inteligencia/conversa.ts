@@ -1695,7 +1695,8 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
       const operacaoId = entrada.operacaoId;
       // IA operacional: o coordenador decide o que a mensagem é (resposta, correção, troca de objetivo, consulta,
       // cancelar/retomar). Sem a flag, o comportamento anterior: toda mensagem responde ao rascunho.
-      const coordenado = (operacional || pedeContaPagar(entrada.texto)) && acoes.situacao ? await coordenar(execucao, acoes, operacaoId) : null;
+      // Conta a pagar é ação administrativa (ADMIN_ACTIONS), não amplia a IA operacional: trocar de rascunho segue a flag.
+      const coordenado = operacional && acoes.situacao ? await coordenar(execucao, acoes, operacaoId) : null;
       if (coordenado && "novo" in coordenado) {
         const resposta = await atenderNovo(execucao);
         return { status: 200, corpo: { ok: true, data: comPausa(resposta, coordenado.pausado) } };

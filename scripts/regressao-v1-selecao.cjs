@@ -58,6 +58,7 @@ const ESTADO_POSTGRES = {
   "lib/ia-persistencia/migration-055.postgres.test.ts": { descartavel: "atual" },
   "lib/ia-persistencia/uso-custos.postgres.test.ts": { descartavel: "atual" },
   "lib/ia-persistencia/migration-058.postgres.test.ts": { descartavel: "atual" },
+  "lib/inteligencia/acoes/conta-pagar.postgres.test.ts": { descartavel: "atual" },
   "lib/inteligencia/inteligencia.postgres.test.ts": { descartavel: "atual" },
   "lib/operacional/migration-059.postgres.test.ts": { descartavel: "atual" },
   "lib/pagamentos/estorno-completo.postgres.test.ts": { descartavel: "atual" },

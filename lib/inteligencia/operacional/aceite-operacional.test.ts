@@ -58,7 +58,7 @@ type Opcoes = {
 function ambiente(o: Opcoes = {}) {
   const amb = criarAmbiente({ semCapacidadeFesta: o.semCapacidadeFesta });
   amb.deps.env = { ...amb.deps.env, ...(o.operacional === false ? {} : { AI_OPERACIONAL_ENABLED: "true" }) };
-  const efeitos = { pacotes: [] as string[], parametros: [] as Array<Record<string, unknown>>, fechamentos: [] as string[], leiturasParametro: [] as string[], leiturasFesta: 0 };
+  const efeitos = { contas: [] as Array<Record<string, unknown>>, pacotes: [] as string[], parametros: [] as Array<Record<string, unknown>>, fechamentos: [] as string[], leiturasParametro: [] as string[], leiturasFesta: 0 };
   const portas = amb.deps.portas!;
   const original = portas.festas!.consultarDetalhe.bind(portas.festas);
   portas.festas = {
@@ -133,7 +133,7 @@ function ambiente(o: Opcoes = {}) {
   const relogio = { agora: new Date("2026-09-30T15:00:00Z") };
   const gate = { repositorio, agora: () => relogio.agora, novoId: () => `${String(++seq).padStart(8, "0")}-1111-4111-8111-000000000000`, ttlConfirmacaoSegundos: 600 };
   const acoes = o.operacional === false ? [] : [criarAcaoContratacao(contratacao, () => "2026-09-30"), criarAcaoParametroConsumo(portaParametros)];
-  const modulo = criarModuloAcoes([...criarAcoesPacote(pacotes), ...acoesNegadas(), ...acoes, criarAcaoContaPagar({ categorias: async () => [{ id: PREMIUM, nome: 'Outros' }], criar: async () => { efeitos.pacotes.push('conta'); return PREMIUM; } })], gate);
+  const modulo = criarModuloAcoes([...criarAcoesPacote(pacotes), ...acoesNegadas(), ...acoes, criarAcaoContaPagar({ categorias: async () => [{ id: PREMIUM, nome: 'Outros' }], criar: async (_tx, empresaId, _usuarioId, entrada) => { efeitos.pacotes.push('conta'); efeitos.contas.push({ empresaId, ...entrada }); return PREMIUM; } })], gate);
   amb.deps.acoes = modulo;
   amb.deps.agora = () => relogio.agora;
 
@@ -1815,4 +1815,113 @@ test('Luna: comando explícito de conta mensal troca o rascunho mesmo se o model
   assert.equal(sim.data?.tipo, 'rascunho');
   assert.equal(a.linha(a.operacaoAtual()!).capacidade, 'criar_conta_pagar');
   assert.deepEqual(a.efeitos.pacotes, []);
+});
+
+// ---------------------------------------------------------------- conta a pagar: flags e Human Gate
+// criar_conta_pagar é ação administrativa (grupo ADMIN_ACTIONS), independente da IA operacional: a flag de ações e a
+// allowlist decidem se existe; AI_OPERACIONAL_ENABLED só decide se um pedido novo troca outro rascunho aberto.
+
+const CONTA = 'adicione conta a pagar todos mes dia 10 do Chat-gpt pro 550 rais.';
+const linhasConta = (a: ReturnType<typeof ambiente>) => [...a.repositorio.linhas.values()].filter((l) => l.capacidade === 'criar_conta_pagar');
+const semVariavel = (env: Record<string, string | undefined>, nome: string) => Object.fromEntries(Object.entries(env).filter(([k]) => k !== nome));
+
+async function contaAteRevisao(a: ReturnType<typeof ambiente>) {
+  const r = await a.enviar(CONTA);
+  assert.equal(r.data?.tipo, 'rascunho');
+  await a.enviar('10/10/2026');
+  const preview = await a.enviar('Outros');
+  assert.equal(preview.data?.tipo, 'preview');
+  return (preview.data as Extract<AIResponse, { tipo: 'preview' }>).rascunho;
+}
+
+test('conta a pagar — ações administrativas desligadas: pedido novo não abre rascunho; revisão aberta não confirma', async () => {
+  const desligada = ambiente();
+  desligada.amb.deps.env = semVariavel(desligada.amb.deps.env, 'AI_ADMIN_ACTIONS_ENABLED');
+  const r = await desligada.enviar(CONTA);
+  assert.equal(r.data?.tipo, 'nao_suportado');
+  assert.equal(r.rastro.politica, 'NEGADO_FLAG');
+  assert.equal(linhasConta(desligada).length, 0);
+  assert.deepEqual(desligada.efeitos.pacotes, []);
+
+  // Desligada DEPOIS da revisão: a flag de agora vale para o clique; religada, a mesma revisão grava uma vez.
+  const a = ambiente();
+  const rascunho = await contaAteRevisao(a);
+  const ligado = a.amb.deps.env;
+  a.amb.deps.env = semVariavel(ligado, 'AI_ADMIN_ACTIONS_ENABLED');
+  const nega = await a.decidir(rascunho, 'confirmar');
+  assert.equal(nega.status, 503);
+  assert.deepEqual(a.efeitos.pacotes, []);
+  assert.equal(a.linha(rascunho.operacaoId).estado, 'AGUARDANDO_CONFIRMACAO');
+  a.amb.deps.env = ligado;
+  assert.equal((await a.decidir(rascunho, 'confirmar')).status, 200);
+  assert.deepEqual(a.efeitos.pacotes, ['conta']);
+});
+
+test('conta a pagar — IA operacional desligada: a ação administrativa funciona sozinha e não troca outro rascunho', async () => {
+  const a = ambiente({ operacional: false });
+  const rascunho = await contaAteRevisao(a);
+  assert.deepEqual(a.efeitos.pacotes, []);
+  assert.equal((await a.decidir(rascunho, 'confirmar')).status, 200);
+  assert.deepEqual(a.efeitos.pacotes, ['conta']);
+
+  // Sem o coordenador operacional, a mensagem responde ao rascunho aberto, como antes: nada é substituído.
+  const b = ambiente({ operacional: false });
+  await b.enviar('crie um pacote chamado Alegria');
+  const pacote = b.operacaoAtual()!;
+  const r = await b.enviar(CONTA);
+  assert.equal(b.operacaoAtual(), pacote);
+  assert.equal(b.linha(pacote).capacidade, 'criar_pacote');
+  assert.notEqual(b.linha(pacote).estado, 'CANCELADA');
+  assert.equal(linhasConta(b).length, 0);
+  assert.equal(r.rastro.operacional ?? null, null);
+  assert.deepEqual(b.efeitos.pacotes, []);
+});
+
+test('conta a pagar — empresa fora da allowlist: não abre rascunho e não confirma revisão anterior', async () => {
+  const fora = ambiente();
+  fora.amb.deps.env = { ...fora.amb.deps.env, AI_TENANT_ALLOWLIST: EMPRESA_B };
+  const r = await fora.enviar(CONTA);
+  assert.equal(r.data?.tipo, 'nao_suportado');
+  assert.match((r.data as Extract<AIResponse, { tipo: 'nao_suportado' }>).mensagem, /para esta empresa/);
+  assert.equal(linhasConta(fora).length, 0);
+
+  const a = ambiente();
+  const rascunho = await contaAteRevisao(a);
+  a.amb.deps.env = { ...a.amb.deps.env, AI_TENANT_ALLOWLIST: EMPRESA_B };
+  const nega = await a.decidir(rascunho, 'confirmar');
+  assert.equal(nega.status, 503);
+  assert.deepEqual(a.efeitos.pacotes, []);
+  assert.equal(a.linha(rascunho.operacaoId).estado, 'AGUARDANDO_CONFIRMACAO');
+});
+
+test('conta a pagar — nada é gravado antes do clique: coleta, revisão, "sim" digitado e cancelamento não executam', async () => {
+  const a = ambiente();
+  const r = await a.enviar(CONTA);
+  assert.equal(r.data?.tipo, 'rascunho');
+  await a.enviar('sim');
+  await a.enviar('10/10/2026');
+  const preview = await a.enviar('Outros');
+  assert.equal(preview.data?.tipo, 'preview');
+  const rascunho = (preview.data as Extract<AIResponse, { tipo: 'preview' }>).rascunho;
+  await a.enviar('sim');
+  assert.deepEqual(a.efeitos.pacotes, [], 'texto "sim" não confirma');
+  const aviso = rascunho.campos.find((c) => c.id === 'recorrente')?.valor;
+  assert.equal(aviso, 'Mensal — 12 ocorrências');
+
+  const atual = a.linha(rascunho.operacaoId);
+  const cancelado = await a.decidir({ operacaoId: rascunho.operacaoId, versao: atual.versao, payloadHash: atual.payloadHash }, 'cancelar');
+  assert.equal(cancelado.status, 200);
+  assert.equal(a.linha(rascunho.operacaoId).estado, 'CANCELADA');
+  const depois = await a.decidir({ operacaoId: rascunho.operacaoId, versao: atual.versao, payloadHash: atual.payloadHash }, 'confirmar');
+  assert.notEqual(depois.status, 200);
+  assert.deepEqual(a.efeitos.pacotes, []);
+  assert.deepEqual(a.efeitos.contas, []);
+});
+
+test('conta a pagar — o clique grava uma vez, com a chave da operação, na empresa comprovada', async () => {
+  const a = ambiente();
+  const rascunho = await contaAteRevisao(a);
+  assert.equal((await a.decidir(rascunho, 'confirmar')).status, 200);
+  assert.equal((await a.decidir(rascunho, 'confirmar')).status, 200);
+  assert.deepEqual(a.efeitos.contas, [{ empresaId: EMPRESA_A, descricao: 'Chat-gpt pro', valor: 550, vencimento: '2026-10-10', categoriaId: PREMIUM, recorrente: true, chave: rascunho.operacaoId }]);
 });
