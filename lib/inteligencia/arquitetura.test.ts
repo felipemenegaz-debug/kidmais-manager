@@ -41,7 +41,7 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "zod": ["ZodError", "z"],
   "node:crypto": ["createHash"],
   "lib/financeiro/servico": ["listarRecebiveis", "Recebivel", "recebidoNoPeriodo"],
-  "lib/financeiro/calculos": ["reaisDe", "hojeBrasilia", "periodoSelecionado"],
+  "lib/financeiro/calculos": ["reaisDe", "hojeBrasilia", "periodoSelecionado", "HORIZONTE_RECORRENCIA_MESES"],
   "lib/saas/provar-tenant": ["SessaoParaTenant", "TenantComprovado"],
   "lib/clientes/services/errors": ["ClienteServiceError"],
   "lib/comercial/pacotes-admin": ["PacoteAdminError"],
@@ -66,6 +66,7 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
 
 /** Composition roots: além da IA, ligam guard, tenant, pool e os serviços de domínio reais às portas. */
 const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
+  "lib/financeiro/servico": ["criarContaPagar", "listarCategoriasDespesa"],
   "next/server": ["NextRequest"],
   "node:crypto": ["randomUUID"],
   "lib/http/admin-crm-api": ["exigirApiAdminCrmDisponivel", "tokenAdmin"],

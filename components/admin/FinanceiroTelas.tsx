@@ -1,13 +1,14 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
+import Link from 'next/link';
 import { FORMAS, hojeBrasilia, periodoSelecionado, reaisDe, type FormaFinanceira } from '@/lib/financeiro/calculos';
 import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, type AcaoFinanceira } from '@/lib/financeiro/submissao';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import styles from './financeiro.module.css';
 
 type Resumo = { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; emAtrasoCentavos: number; saldoPrevistoCentavos: number; pagoMesCentavos: number };
-type Recebivel = { id: string; origem?: "CONTRATO" | "ENTRADA_MANUAL"; cliente: string; pacote: string; festaId: string | null; parcela: number; vencimento: string; valorCentavos: number; recebidoCentavos: number; saldoCentavos: number; forma: string; status: string; diasAtraso: number };
+type Recebivel = { id: string; origem?: "CONTRATO" | "ENTRADA_MANUAL"; cliente: string; clienteId?: string | null; pacote: string; festaId: string | null; parcela: number; vencimento: string; valorCentavos: number; recebidoCentavos: number; saldoCentavos: number; forma: string; status: string; diasAtraso: number };
 type Conta = { id: string; descricao: string; favorecido: string | null; categoria: string; categoriaId: string; vencimento: string; valorCentavos: number; saldoCentavos: number; pagoCentavos: number; status: string; forma: string | null };
 type Categoria = { id: string; nome: string };
 type Fluxo = { saldoInicialCentavos: number; entradasCentavos: number; saidasCentavos: number; saldoFinalCentavos: number; linhas: Array<{ data: string; descricao: string; entrada: number; saida: number; saldo: number | null; tipo: string }> };
@@ -195,7 +196,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       {listaReceber.length === 0 && <p className={styles.vazio}>{filtro === 'Vencidos' ? 'Tudo em dia. Nenhum recebimento vencido.' : 'Nenhum recebimento neste filtro.'}</p>}
       <Tabela colunas={['Cliente', 'Festa', 'Vencimento', 'Valor', 'Saldo', 'Status', '']} linhas={listaReceber.map((item) => ({
         id: item.id,
-        celulas: [item.cliente, item.pacote, item.vencimento, reaisDe(item.valorCentavos), reaisDe(item.saldoCentavos), item.status],
+        celulas: [item.clienteId ? <Link href={`/clientes/${item.clienteId}`} onClick={(evento) => evento.stopPropagation()}>{item.cliente}</Link> : item.cliente, item.pacote, item.vencimento, reaisDe(item.valorCentavos), reaisDe(item.saldoCentavos), item.status],
         status: item.status,
         acao: item.origem !== 'ENTRADA_MANUAL' && item.saldoCentavos > 0 && item.status !== 'Cancelado' ? () => abrirDialogo('receber', item) : undefined,
       }))} />
@@ -299,7 +300,7 @@ function Filtros({ opcoes, valor, aoMudar }: { opcoes: string[]; valor: string; 
 function Lista({ titulo, vazio, itens }: { titulo: string; vazio: string; itens: Array<{ id: string; titulo: string; detalhe: string; valor: number }> }) {
   return <section className={styles.cartao}><h2>{titulo}</h2>{itens.length === 0 && <p className={styles.vazio}>{vazio}</p>}{itens.map((item) => <div className={styles.linha} key={item.id}><div><p>{item.titulo}</p><small>{item.detalhe}</small></div><strong>{reaisDe(item.valor)}</strong></div>)}</section>;
 }
-function Tabela({ colunas, linhas }: { colunas: string[]; linhas: Array<{ id: string; celulas: string[]; status: string; acao?: () => void }> }) {
+function Tabela({ colunas, linhas }: { colunas: string[]; linhas: Array<{ id: string; celulas: ReactNode[]; status: string; acao?: () => void }> }) {
   return <>
     <div className={styles.painel}>
       <table className={styles.tabela}>

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ContextoTela, OrigemChamada, RecursoObjetivo, TipoEntidade } from "./contratos.ts";
 import { prepararTextoParaModelo } from "./texto-modelo.ts";
 import { pedeSalvarParametro } from "./operacional/consumo.ts";
-import { correcaoDeObjetivo, ehPergunta, objetoDeCriacao } from "./operacional/objetivo.ts";
+import { correcaoDeObjetivo, ehPergunta, objetoDeCriacao, pedeContaPagar } from "./operacional/objetivo.ts";
 import { normalizar } from "./texto-pt.ts";
 import { TELAS_NAVEGACAO, type TelaNavegacao } from "./rotas-navegacao.ts";
 import type { RoteadorModelos, AlvoRoteamento, ResultadoRoteado } from "./modelos/roteador.ts";
@@ -248,6 +248,7 @@ export function interpretarDeterministico(texto: string, contexto: ContextoTela 
   // IA operacional: o OBJETO PRINCIPAL governa ("crie uma festa do Felipe, pacote premium…" prepara a contratação; o
   // pacote é atributo). "Crie um pacote chamado Premium" continua pacote; objeto negado ("…e não um pacote") não conta.
   if (objetoDeCriacao(texto) === "FESTA" || correcaoDeObjetivo(texto) === "FESTA") return acao("preparar_contratacao");
+  if (pedeContaPagar(texto)) return acao("criar_conta_pagar");
   // Tornar um parâmetro de consumo PADRÃO da empresa: proposta própria (Human Gate), nunca efeito de um cálculo.
   if (pedeSalvarParametro(texto)) return acao("salvar_parametro_consumo");
   // Item/categoria do Buffet (inclusive sem a palavra "buffet": "crie o item mini-pizza de chocolate"). Pedido

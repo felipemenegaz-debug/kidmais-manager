@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as cliente from './cliente-importacao.ts';
 import * as revisao from '../../../lib/importacao-contrato/revisao.ts';
 import type { EtapaImportacao } from './ImportacaoReal';
-import { achar, carregarComponente, cssFalso, tique } from '../teste-componente.ts';
+import { achar, carregarComponente, cssFalso, tique, texto, elementos } from '../teste-componente.ts';
 
 type Pedido = { url: string; init: RequestInit };
 function buscador(resposta: (p: Pedido) => Promise<Response>) {
@@ -74,22 +74,22 @@ test('envio: multipart só com o arquivo; depois abre a importação pelo docume
   assert.deepEqual(recusa, { ok: false, mensagem: 'A revisão mudou em outra aba. Atualize a página.', codigo: 'IMPORTACAO_DESATUALIZADA' });
 });
 
-test('tela: demonstração exige escolha explícita quando importação não está habilitada', async () => {
+test('tela: falha explícita; demonstração exige escolha e liberação abre modo real', async () => {
   for (const [habilitado, esperado] of [[false, 'Demo'], [true, 'Real']] as const) {
     const Demo = function Demo() {};
     const Real = function Real() {};
     const tela = carregarComponente('components/admin/importacao/ImportacaoContrato.tsx', {
+      'next/link': { default: 'a' },
       '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
       './ImportarContratoAntigo': { default: Demo },
       './ImportacaoReal': { default: Real },
-      './cliente-importacao': { importacaoHabilitada: async () => habilitado },
+      './cliente-importacao': { verificarImportacao: async () => habilitado ? ({ ok: true, dados: { habilitado: true } }) : ({ ok: false, mensagem: 'Importação desabilitada', codigo: 'INTELIGENCIA_DESATIVADA' }) },
       './importacao.module.css': cssFalso,
     });
     tela.render();
     tela.efeitos();
     await tique();
     const arvore = tela.render();
-    if (esperado === 'Demo') { const botao = achar(arvore, 'button', 'Abrir demonstração com dados fictícios'); (botao.props.onClick as () => void)(); assert(achar(tela.render(), Demo)); }
-    else assert(achar(arvore, Real));
+    if (esperado === 'Real') assert(achar(arvore, Real)); else { assert(!elementos(arvore).some((e) => e.type === Demo)); assert.match(texto(arvore), /Importação desabilitada/); const botao = achar(arvore, 'button', 'Abrir demonstração com dados fictícios'); (botao.props.onClick as () => void)(); assert(achar(tela.render(), Demo)); }
   }
 });

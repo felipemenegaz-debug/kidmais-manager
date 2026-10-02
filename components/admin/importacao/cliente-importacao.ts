@@ -50,9 +50,14 @@ async function ler<T>(resposta: Promise<Response>, valido: (d: unknown) => d is 
 
 const postarJson = (buscar: Buscador, corpo: object) => buscar(ENDPOINT_IMPORTACOES, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
 
-/** Falhas são explícitas; demonstração exige uma escolha separada do operador. */
-export async function importacaoHabilitada(buscar: Buscador) {
+/** Disponibilidade real: preserva o erro; falha nunca vira demonstração. */
+export async function verificarImportacao(buscar: Buscador): Promise<Resultado<{ habilitado: boolean }>> {
   const r = await ler(postarJson(buscar, { acao: 'estado' }), (d): d is { habilitado: boolean } => typeof (d as { habilitado?: unknown })?.habilitado === 'boolean');
+  return r;
+}
+
+export async function importacaoHabilitada(buscar: Buscador) {
+  const r = await verificarImportacao(buscar);
   if (!r.ok) throw new Error(r.mensagem);
   return r.dados.habilitado;
 }
