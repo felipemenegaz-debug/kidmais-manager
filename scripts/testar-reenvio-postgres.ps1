@@ -1,11 +1,15 @@
-param([Parameter(Mandatory = $true)][string]$PdfOriginal)
+param([Parameter(Mandatory = $true)][string]$PdfOriginal, [switch]$RetomarClusterVazio)
 $ErrorActionPreference = 'Stop'
 $raizTeste = Split-Path $PSScriptRoot -Parent
 $clusterTeste = Join-Path $raizTeste '.local-reenvio-pg-20261002'
 $binTeste = 'C:/Program Files/PostgreSQL/18/bin'
-if (Test-Path -LiteralPath $clusterTeste) { throw 'Exige diretório novo para cluster descartável.' }
-& "$binTeste/initdb.exe" -D $clusterTeste -U postgres -A trust --encoding=UTF8 --locale=C
-if ($LASTEXITCODE -ne 0) { throw 'initdb falhou' }
+if ($RetomarClusterVazio) {
+  if ((Get-Content -LiteralPath "$clusterTeste/PG_VERSION") -ne '18') { throw 'Cluster temporário inesperado' }
+} else {
+  if (Test-Path -LiteralPath $clusterTeste) { throw 'Exige diretório novo para cluster descartável.' }
+  & "$binTeste/initdb.exe" -D $clusterTeste -U postgres -A trust --encoding=UTF8 --locale=C
+  if ($LASTEXITCODE -ne 0) { throw 'initdb falhou' }
+}
 & "$binTeste/pg_ctl.exe" -D $clusterTeste -l "$clusterTeste/servidor.log" -o '-h 127.0.0.1 -p 55447' -w start
 if ($LASTEXITCODE -ne 0) { throw 'Servidor descartável não iniciou' }
 try {
