@@ -1,5 +1,6 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
+import { contarEventosImportadosAIntegrar } from "../contratos/importados.ts";
 import {
   CATEGORIAS_DESPESA,
   FORMAS,
@@ -902,12 +903,15 @@ export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: strin
     [empresaId, mes.inicio, hoje, mes.fim],
   );
   const linhaMes = mesResumo.rows[0];
+  // Eventos de contratos importados com data futura: só um aviso com link; nunca entram em `proximas` nem nos contadores.
+  const importadosAIntegrar = await contarEventosImportadosAIntegrar(tx, empresaId, hoje);
   return {
     empresa: empresa.rows[0]?.nome ?? "Empresa",
     hoje,
     numeros,
     agenda: festas.rows.filter((festa) => festa.data === hoje),
     proximas: festas.rows,
+    importadosAIntegrar,
     atencao: [
       ...recebiveis.filter((item) => item.status === "Vencido").slice(0, 3).map((item) => ({
         tom: "alerta" as const, titulo: `Pagamento vencido — ${item.cliente}`, detalhe: item.vencimento, href: "/admin/financeiro/contas-receber",

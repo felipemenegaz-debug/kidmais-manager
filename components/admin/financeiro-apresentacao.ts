@@ -18,7 +18,8 @@ export function origemApresentacao(origem: { valor_bruto?: string; recebido_em?:
   const valor = origem.valor_bruto ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(origem.valor_bruto)) : 'valor não informado';
   return `Recebimento de ${valor} — ${dataApresentacao(origem.recebido_em)} — ${origem.meio_pagamento ?? 'Meio não informado'}`;
 }
-export type ContextoContrato = { id: string; nome: string | null; data_evento?: string | null; pacote?: string | null; convidados?: string | number | null; status?: string | null };
+/** `origem: 'IMPORTACAO'` identifica o contrato histórico importado (lido de `ia_importacoes`), que não é um contrato do Core. */
+export type ContextoContrato = { id: string; nome: string | null; data_evento?: string | null; pacote?: string | null; convidados?: string | number | null; status?: string | null; origem?: string | null };
 export function contratoApresentacao(c: ContextoContrato) {
   return `${c.nome || 'Contratante não informado'} — ${dataApresentacao(c.data_evento)} — ${c.pacote || 'Pacote não informado'} — ${c.convidados ?? '?'} convidados — ${(c.status || 'Status não informado').replaceAll('_', ' ')} — ref. ${c.id.slice(0, 8)}`;
 }

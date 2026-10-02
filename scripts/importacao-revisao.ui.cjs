@@ -29,6 +29,20 @@ function extracaoInicial() {
 const plano = { pronto: false, bloqueios: ['Confirme a data do evento.'], avisos: [], match: { estado: 'NOVO_CLIENTE', clienteId: null, candidatos: [], motivo: 'Nenhum cliente com este nome.' } };
 const festaImportada = { id: IMPORTACAO, origem: 'IMPORTACAO', clienteId: DOCUMENTO, snapshot: { contratante: { nomeCompleto: 'Pessoa Exemplo' }, aniversariante: { nome: 'Aniversariante Exemplo', idadeNoEvento: 4 }, evento: { data: '2099-10-10', horarioInicio: '10:00', horarioFim: '14:00', convidados: 50, tema: 'Carros', pacote: { nome: 'Pacote original' } } }, itens: 'Itens do contrato', buffet: { itens: 'Salgados' }, observacoes: null };
 
+// Etapa 1: o contrato importado é consultado em Contratos (lista e detalhe por `importacaoId`), somente leitura.
+const contratoResumo = { id: IMPORTACAO, origem: 'IMPORTACAO', status: 'IMPORTADO', nome: 'Pessoa Exemplo', data_evento: '2099-10-10', pacote: 'Original 2025', convidados: 50, clienteId: DOCUMENTO, situacaoEvento: 'FUTURO', importadoEm: '2026-10-02T12:00:00Z' };
+const contratoImportado = {
+  id: IMPORTACAO, origem: 'IMPORTACAO', status: 'IMPORTADO', situacaoEvento: 'FUTURO', importadoEm: '2026-10-02T12:00:00Z', importadoPor: 'Revisão visual',
+  cliente: { id: DOCUMENTO, nome: 'Pessoa Exemplo' }, documento: { id: DOCUMENTO, nome: 'contrato-exemplo.pdf', contentType: 'application/pdf', tamanhoBytes: 1234 }, podeVerOriginal: true, pendencias: [],
+  contrato: {
+    evento: { data: '2099-10-10', horario: { inicio: '10:00', fim: '14:00' }, duracaoMinutos: 240, aniversariante: 'Aniversariante Exemplo', idade: 4, convidados: 50, tema: 'Carros' },
+    pacote: { nome: 'Original 2025', duracaoMinutos: 240, quantidade: 50, itens: 'Itens originais' }, buffet: { itens: 'Salgados', observacoes: null, restricoes: null },
+    valores: { preco: 500000, adicionais: null, total: 500000 },
+    pagamentosPrevistos: { condicao: 'Entrada e 2 parcelas', entrada: { valor: 100000, vencimento: '2099-01-10' }, parcelas: [{ numero: 1, valor: 200000, vencimento: '2099-05-10' }, { numero: 2, valor: 200000, vencimento: '2099-09-10' }], natureza: 'PREVISTO' },
+    observacoes: null,
+  },
+};
+
 function cdp(wsUrl) {
   const ws = new WebSocket(wsUrl);
   let seq = 0; const pendentes = new Map(), ouvintes = new Map();
@@ -88,6 +102,7 @@ async function main() {
       try {
         if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: '00000000-0000-4000-8000-000000000009', nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico' });
         if (url.pathname === '/api/admin/festas' && p.request.method === 'GET') return ok(url.searchParams.has('importacaoId') ? { importada: festaImportada } : { festas: [], importadas: [festaImportada], elegiveis: [], capacidades: ['FESTA_CONSULTAR'], areas: [], usuarios: [] });
+        if (url.pathname === '/api/admin/contratos/painel' && p.request.method === 'GET') return ok(url.searchParams.has('importacaoId') ? contratoImportado : [contratoResumo]);
         if (url.pathname === '/api/admin/inteligencia/documentos' && p.request.method === 'POST') { posts.push({ url: url.pathname, corpo: 'multipart' }); return ok({ documentoId: DOCUMENTO, avisos: [] }); }
         if (url.pathname === '/api/admin/inteligencia/importacoes' && p.request.method === 'POST') {
           const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo });
@@ -121,7 +136,10 @@ async function main() {
     await cliente.enviar('Fetch.enable', { patterns: [{ urlPattern: '*/api/*', requestStage: 'Request' }] });
     await cliente.enviar('Runtime.enable'); await cliente.enviar('Page.enable'); await cliente.enviar('DOM.enable');
     const avaliar = async (expr) => { const r = await cliente.enviar('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.text); return r.result.value; };
-    const aguardar = async (expr, descricao, ms = 120000) => { const fim = Date.now() + ms; while (Date.now() < fim) { if (await avaliar(expr).catch(() => false)) return; await esperar(100); } throw new Error(`Tempo esgotado: ${descricao}`); };
+    const aguardar = async (expr, descricao, ms = 120000) => { const fim = Date.now() + ms; while (Date.now() < fim) { if (await avaliar(expr).catch(() => false)) return; await esperar(100); }
+      // Diagnóstico do tempo esgotado: texto da página (só dados sintéticos das APIs simuladas) em arquivo local.
+      fs.writeFileSync(`${out}/ultimo-timeout.txt`, `${descricao}\n${await avaliar('document.body.innerText').catch(() => '')}`);
+      throw new Error(`Tempo esgotado: ${descricao}`); };
     const ir = (u) => cliente.enviar('Page.navigate', { url: `${origin}${u}` });
     const texto = (t) => `document.body.innerText.includes(${JSON.stringify(t)})`;
     const botao = (rotulo, extra = '') => `[...document.querySelectorAll('button')].find(b => (b.textContent.trim() === ${JSON.stringify(rotulo)} || b.getAttribute('aria-label') === ${JSON.stringify(rotulo)}) && b.offsetParent !== null ${extra})`;
@@ -256,7 +274,7 @@ async function main() {
       assert.deepEqual(posteriores(m), [{ acao: 'descartar', importacaoId: IMPORTACAO, versao: 3 }]);
     });
 
-    await caso('Reenvio de contrato importado abre resultado, sem edição nem confirmação duplicada; festa aparece em Próximas e abre detalhe', async () => {
+    await caso('Reenvio de contrato importado abre resultado, sem edição nem confirmação duplicada; "Abrir contrato" mostra o contrato importado; evento futuro fica no bloco a integrar, fora da grade de festas', async () => {
       statusAbertura = 'IMPORTADA';
       for (let vez = 0; vez < 2; vez++) {
         await ir('/admin/contratos/importar');
@@ -270,16 +288,26 @@ async function main() {
         assert.deepEqual(posteriores(m), [{ acao: 'abrir', documentoId: DOCUMENTO }]);
       }
       await fotografar('contrato-ja-importado');
-      await avaliar(`document.querySelector('a[href="/admin/festas?visao=proximas"]').click()`);
-      await aguardar(texto('Aniversariante Exemplo — 4 anos'), 'festa importada na lista');
-      assert.equal(await avaliar(`(${botao('Próximas')}).getAttribute('aria-pressed')`), 'true');
-      assert.equal(await avaliar(texto('50 convidados')), true);
-      await fotografar('proximas-importada');
-      await avaliar(`document.querySelector('a[href="/admin/festas/importadas/${IMPORTACAO}"]').click()`);
-      await aguardar(texto('Festa de contrato importado'), 'detalhe importado');
-      await aguardar(texto('Itens do contrato'), 'dados confirmados no detalhe');
+      assert.equal(await existeBotao('Abrir festa importada'), false, 'a importação não anuncia festa');
+      await avaliar(`document.querySelector('a[href="/admin/contratos?importacaoId=${IMPORTACAO}"]').click()`);
+      await aguardar(texto('Evento importado — ainda não integrado à agenda'), 'detalhe do contrato importado em Contratos');
+      // O selo é exibido em maiúsculas por CSS (innerText acompanha); conferir pelo textContent das três parcelas previstas.
+      await aguardar(`[...document.querySelectorAll('td span')].filter(s => s.textContent.trim() === 'Previsto, não cobrado').length === 3`, 'pagamentos identificados como previstos');
+      assert.equal(await existeBotao('Registrar recebimento'), false, 'nenhuma baixa financeira no contrato importado');
       assert.equal(await avaliar(texto('Carros')), true);
-      await fotografar('festa-importada');
+      assert.equal(await avaliar(texto('Itens originais')), true, 'snapshot do documento');
+      assert.equal(await avaliar(`!!document.querySelector('a[href="/api/admin/contratos/importados/${IMPORTACAO}/original"]')`), true, 'original visível ao papel autorizado');
+      assert.equal(await avaliar(`document.querySelector('select[aria-label="Contrato"]')?.value`), `importacao:${IMPORTACAO}`, 'seletor aponta o contrato importado');
+      assert.equal(await existeBotao('Editar dados desta revisão'), false, 'nenhuma ação de contrato do Core');
+      await fotografar('contrato-importado');
+      await ir('/admin/festas?visao=proximas');
+      await aguardar(texto('Eventos importados a integrar'), 'bloco de eventos importados');
+      assert.equal(await avaliar(`(${botao('Próximas')}).getAttribute('aria-pressed')`), 'true');
+      assert.equal(await avaliar(texto('Aniversariante Exemplo — 4 anos')), true);
+      assert.equal(await avaliar(texto('Nenhuma festa nesta visão.')), true, 'evento importado não entra na grade de festas');
+      await fotografar('proximas-importados-a-integrar');
+      await avaliar(`document.querySelector('#importados-a-integrar a[href="/admin/contratos?importacaoId=${IMPORTACAO}"]').click()`);
+      await aguardar(texto('Dados do contrato'), 'volta ao contrato importado');
     });
 
     await caso('Revisão encerrada em outra aba é atualizada para resultado após tentativa de correção', async () => {

@@ -159,10 +159,19 @@ test('dashboard aponta cada pendência e festa para seu contrato e versão, mant
       assert.equal(params[0],empresa); assert.match(sql,/pac\.empresa_id = \$1::uuid/);
       return {rows:[{id:'pendente-A',versaoId:'preparacao-A',cliente:'Bia',n:4},{id:'pendente-B',versaoId:null,cliente:'Caio',n:4}]};
     }
+    if(sql.includes("to_regclass('public.ia_importacoes')")) return {rows:[{ok:true}]};
+    if(sql.includes('FROM ia_importacoes')) {
+      // Eventos importados futuros: só o aviso; nunca entram em `proximas` nem em `festasProximas`.
+      assert.equal(params[0],empresa); assert.equal(params[1],'2026-10-01'); assert.match(sql,/i\.status = 'IMPORTADA'/);
+      return {rows:[{n:3}]};
+    }
     return {rows:[]};
   }} as unknown as DbExecutor;
   const painel=await painelGeral(tx,empresa,'2026-10-01');
   assert.equal(painel.contratosPendentes,4);
+  assert.equal(painel.importadosAIntegrar,3);
+  assert.equal(painel.proximas.length,1,'o evento importado não vira festa próxima');
+  assert.equal(painel.festasProximas,0,'o contador de festas não inclui eventos importados');
   assert.equal(painel.proximas[0].contratoId,'assinado');
   assert.deepEqual(painel.atencao.map(i=>i.href),[
     '/admin/contratos?contratoId=pendente-A&versaoId=preparacao-A#documentacao',

@@ -21,7 +21,8 @@ type Etapa =
   | { etapa: 'revisao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; avisos: string[]; ocupado: boolean; erro: string | null }
   | { etapa: 'confirmacao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; rascunho: RascunhoPublico; decidindo: boolean; erro: string | null }
   | { etapa: 'cancelada' }
-  | { etapa: 'concluida'; mensagem: string; destino?: string; festaDestino?: string };
+  /** `contratoDestino`: o contrato importado em Contratos (registro criado); `destino`: o cliente vinculado. */
+  | { etapa: 'concluida'; mensagem: string; destino?: string; contratoDestino: string };
 
 const PASSOS = ['Enviar', 'Ler', 'Revisar', 'Confirmar'] as const;
 const ROTULO: Record<EstadoCampo | 'REVISADO', string> = { ENCONTRADO: 'Encontrado', PRECISA_REVISAO: 'Precisa revisão', NAO_ENCONTRADO: 'Não encontrado', REVISADO: 'Revisado' };
@@ -38,10 +39,13 @@ function campos(i: ImportacaoPublica) {
 
 export type EtapaImportacao = Etapa;
 
+/** Registro criado pela confirmação: o contrato importado, consultado em Contratos pela URL. */
+export const contratoImportadoUrl = (importacaoId: string) => `/admin/contratos?importacaoId=${importacaoId}`;
+
 /** Reenvio e atualização de outra aba respeitam o estado terminal devolvido pelo servidor. */
 function etapaDaResposta(dados: RespostaImportacao): Etapa {
   const i = dados.importacao;
-  if (i.status === 'IMPORTADA') return { etapa: 'concluida', mensagem: 'Este contrato já foi importado.', destino: i.resultado?.destino, festaDestino: `/admin/festas/importadas/${i.id}` };
+  if (i.status === 'IMPORTADA') return { etapa: 'concluida', mensagem: 'Este contrato já foi importado.', destino: i.resultado?.destino, contratoDestino: contratoImportadoUrl(i.id) };
   if (i.status === 'DESCARTADA') return { etapa: 'cancelada' };
   return { etapa: 'revisao', importacao: i, plano: dados.plano ?? null, avisos: dados.avisos ?? [], ocupado: false, erro: null };
 }
@@ -106,7 +110,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     if (r.tipo !== 'ok') { setEstado({ ...estado, decidindo: false, erro: r.mensagem }); return; }
     if (decisao === 'cancelar') { setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); return; }
     const resposta = r.resposta;
-    if (resposta.tipo === 'resultado_acao') setEstado({ etapa: 'concluida', mensagem: resposta.mensagem, destino: resposta.destino, festaDestino: `/admin/festas/importadas/${estado.importacao.id}` });
+    if (resposta.tipo === 'resultado_acao') setEstado({ etapa: 'concluida', mensagem: resposta.mensagem, destino: resposta.destino, contratoDestino: contratoImportadoUrl(estado.importacao.id) });
     else setEstado({ ...estado, decidindo: false, erro: 'Resposta inesperada. Confira de novo: repetir a confirmação não duplica a importação.' });
   }
 
@@ -216,10 +220,9 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     {estado.etapa === 'concluida' && <section className={styles.painel} role="status">
       <span className={styles.seloPronto}>Importado</span>
       <h2 className={styles.titulo}>{estado.mensagem}</h2>
-      <p className={styles.texto}>O evento pode ser consultado em Festas, conforme a data do contrato. Não é necessário importar o arquivo novamente.</p>
+      <p className={styles.texto}>Contrato histórico registrado em Contratos, com o documento original e os pagamentos como previstos. Nenhuma Festa operacional, reserva de agenda, cobrança ou pagamento foi criado. Não é necessário importar o arquivo novamente.</p>
       <div className={styles.acoesFinais}>
-        {estado.festaDestino && <Link className={styles.primario} href={estado.festaDestino}>Abrir festa importada</Link>}
-        <Link className={styles.fantasma} href="/admin/festas?visao=proximas">Ver próximas festas</Link>
+        <Link className={styles.primario} href={estado.contratoDestino}>Abrir contrato</Link>
         {estado.destino && <Link className={styles.fantasma} href={estado.destino}>Abrir cliente</Link>}
         <button type="button" className={styles.fantasma} onClick={() => setEstado({ etapa: 'upload', erro: null })}>Importar outro contrato</button>
       </div>
