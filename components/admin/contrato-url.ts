@@ -11,10 +11,20 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export type PedidoContrato =
   | { tipo: 'nenhum' }
   | { tipo: 'invalido' }
-  | { tipo: 'contrato'; contratoId: string; versaoId: string | null };
+  | { tipo: 'contrato'; contratoId: string; versaoId: string | null }
+  /** Contrato histórico importado (`?importacaoId=`): registro de `ia_importacoes`, não um contrato do Core. */
+  | { tipo: 'importado'; importacaoId: string };
 
-/** Lê `contratoId`/`versaoId` da URL. `versaoId` inválida é ignorada (cai na versão padrão do contrato). */
+/** Valor do seletor para o contrato importado: nunca se confunde com o id de um contrato do Core. */
+export const PREFIXO_IMPORTADO = 'importacao:';
+export function valorDaSelecao(c: { id: string; origem?: string | null }) {
+  return c.origem === 'IMPORTACAO' ? `${PREFIXO_IMPORTADO}${c.id}` : c.id;
+}
+
+/** Lê `contratoId`/`versaoId` (ou `importacaoId`) da URL. `versaoId` inválida é ignorada (cai na versão padrão do contrato). */
 export function pedidoDaUrl(params: Pick<URLSearchParams, 'get'>): PedidoContrato {
+  const importacaoId = params.get('importacaoId')?.trim() ?? '';
+  if (importacaoId) return UUID.test(importacaoId) ? { tipo: 'importado', importacaoId: importacaoId.toLowerCase() } : { tipo: 'invalido' };
   const contratoId = params.get('contratoId')?.trim() ?? '';
   if (!contratoId) return { tipo: 'nenhum' };
   if (!UUID.test(contratoId)) return { tipo: 'invalido' };
@@ -22,12 +32,21 @@ export function pedidoDaUrl(params: Pick<URLSearchParams, 'get'>): PedidoContrat
   return { tipo: 'contrato', contratoId: contratoId.toLowerCase(), versaoId: UUID.test(versaoId) ? versaoId.toLowerCase() : null };
 }
 
-/** URL da seleção feita pelo seletor: preserva os demais parâmetros (ex.: returnTo) e descarta a versão anterior. */
-export function urlDaSelecao(pathname: string, atual: Pick<URLSearchParams, 'toString'>, contratoId: string): string {
+/**
+ * URL da seleção feita pelo seletor: preserva os demais parâmetros (ex.: returnTo) e descarta a versão anterior.
+ * `selecao` é o id do contrato do Core, `importacao:<id>` para o importado ou vazio para limpar.
+ */
+export function urlDaSelecao(pathname: string, atual: Pick<URLSearchParams, 'toString'>, selecao: string): string {
   const params = new URLSearchParams(atual.toString());
   params.delete('versaoId');
-  if (contratoId) params.set('contratoId', contratoId);
-  else params.delete('contratoId');
+  if (selecao.startsWith(PREFIXO_IMPORTADO)) {
+    params.delete('contratoId');
+    params.set('importacaoId', selecao.slice(PREFIXO_IMPORTADO.length));
+  } else {
+    params.delete('importacaoId');
+    if (selecao) params.set('contratoId', selecao);
+    else params.delete('contratoId');
+  }
   const busca = params.toString();
   return busca ? `${pathname}?${busca}` : pathname;
 }

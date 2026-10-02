@@ -17,6 +17,8 @@ export type PainelDashboard = {
   numeros: { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; emAtrasoCentavos: number; saldoPrevistoCentavos: number };
   agenda: Festa[];
   proximas: Festa[];
+  /** Eventos de contratos importados com data futura, ainda não integrados à agenda. Não são festas operacionais. */
+  importadosAIntegrar?: number;
   atencao: Atencao[];
   contratosPendentes: number;
   festasProximas: number;
@@ -138,6 +140,10 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
             <span className={classe(festa.status)}>{rotulo(festa.status)}</span>
           </Link>)}
         </div>
+        {(painel.importadosAIntegrar ?? 0) > 0 && <p className={styles.vazio} data-testid="importados-a-integrar">
+          <Link href="/admin/festas?visao=proximas#importados-a-integrar">{painel.importadosAIntegrar === 1 ? '1 evento importado aguarda' : `${painel.importadosAIntegrar} eventos importados aguardam`} integração à agenda →</Link>
+          {' '}Não contam como festas confirmadas.
+        </p>}
       </section>
 
       <section className={`${styles.cartao} ${styles.estreito} ${styles.resumo}`}>

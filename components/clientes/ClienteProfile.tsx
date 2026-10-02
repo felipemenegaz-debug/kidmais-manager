@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { atualizarAniversarianteApi, cadastrarAniversarianteApi, obterClienteApi, type AniversarianteApiRecord, type ClienteDetalheApi } from "@/lib/clientes/api-client";
+import ContratosImportadosDoCliente from "./ContratosImportadosDoCliente";
 import {
   calcularIdade,
   formatCpf,
@@ -246,6 +247,8 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
               <div className={styles.cardLabel}>Observações</div>
               <p>{cliente.observacoes ?? "Nenhuma observação cadastrada."}</p>
             </article>
+
+            <ContratosImportadosDoCliente clienteId={cliente.id} />
           </section>
         )}
 

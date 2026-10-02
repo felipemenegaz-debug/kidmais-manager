@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FalhaContrato, MENSAGEM_LINK_INVALIDO, MENSAGEM_SEM_ACESSO, criarSequenciador, mensagemFalhaContrato, opcaoForaDaLista, pedidoDaUrl, urlDaSelecao,
+  FalhaContrato, MENSAGEM_LINK_INVALIDO, MENSAGEM_SEM_ACESSO, PREFIXO_IMPORTADO, criarSequenciador, mensagemFalhaContrato, opcaoForaDaLista, pedidoDaUrl, urlDaSelecao, valorDaSelecao,
 } from './contrato-url.ts';
 
 const A = '00000000-0000-4000-8000-00000000000a';
@@ -20,6 +20,18 @@ test('urlDaSelecao: troca o contrato, descarta a versão anterior e preserva os 
   const atual = new URLSearchParams(`contratoId=${A}&versaoId=${V}&returnTo=%2Fadmin%2Ffestas%2Fx`);
   assert.equal(urlDaSelecao('/admin/contratos', atual, B), `/admin/contratos?contratoId=${B}&returnTo=%2Fadmin%2Ffestas%2Fx`);
   assert.equal(urlDaSelecao('/admin/contratos', new URLSearchParams(`contratoId=${A}`), ''), '/admin/contratos');
+});
+
+test('contrato importado: `importacaoId` na URL é um pedido próprio; o seletor usa o prefixo e a troca limpa o contrato do Core', () => {
+  const I = '00000000-0000-4000-8000-0000000000a1';
+  assert.deepEqual(pedidoDaUrl(new URLSearchParams(`importacaoId=${I.toUpperCase()}`)), { tipo: 'importado', importacaoId: I });
+  assert.deepEqual(pedidoDaUrl(new URLSearchParams(`importacaoId=${I}&contratoId=${A}`)), { tipo: 'importado', importacaoId: I }, 'importacaoId prevalece');
+  assert.deepEqual(pedidoDaUrl(new URLSearchParams('importacaoId=nao-uuid')), { tipo: 'invalido' });
+  assert.equal(valorDaSelecao({ id: I, origem: 'IMPORTACAO' }), `${PREFIXO_IMPORTADO}${I}`);
+  assert.equal(valorDaSelecao({ id: A }), A);
+  assert.equal(urlDaSelecao('/admin/contratos', new URLSearchParams(`contratoId=${A}&versaoId=${V}&returnTo=x`), `${PREFIXO_IMPORTADO}${I}`), `/admin/contratos?returnTo=x&importacaoId=${I}`);
+  assert.equal(urlDaSelecao('/admin/contratos', new URLSearchParams(`importacaoId=${I}`), B), `/admin/contratos?contratoId=${B}`);
+  assert.equal(urlDaSelecao('/admin/contratos', new URLSearchParams(`importacaoId=${I}`), ''), '/admin/contratos');
 });
 
 test('mensagemFalhaContrato: inexistente/outra empresa (404) e sem permissão (403) têm mensagem clara', () => {
