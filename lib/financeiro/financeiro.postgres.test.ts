@@ -204,6 +204,8 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
     assert.equal(leitura.fim, "2026-03-31");
     await db.query("ROLLBACK");
 
+    // Corrida real de pagamento: a conta é confirmada antes, visível às duas conexões; a primeira baixa segura a
+    // trava da conta, a segunda comprovadamente espera por ela e, depois do COMMIT, precisa ver o saldo atualizado.
     await db.query("BEGIN");
     const dona = await empresa(db, "Empresa concorrencia");
     const ator2 = await usuario(db);
@@ -214,12 +216,54 @@ test("financeiro gerencial no postgres descartável", { timeout: 120_000 }, asyn
     const conta = await criarContaPagar(executor(db), dona, ator2, {
       descricao: "Água", categoriaId: categoria, valor: 100, vencimento: "2026-04-01",
     });
+    await db.query("COMMIT");
+    const pid2 = (await db2.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+    assert.equal((await db2.query<{ n: number }>("SELECT count(*)::int AS n FROM financeiro_contas_pagar WHERE id = $1::uuid", [conta])).rows[0].n, 1, "conta visível à segunda conexão");
+    await db.query("BEGIN");
     await pagarConta(executor(db), dona, ator2, { contaId: conta, valor: 60, data: "2026-04-01", forma: "DINHEIRO", chave: randomUUID() });
     await db2.query("BEGIN");
-    const corrida = pagarConta(executor(db2), dona, ator2, { contaId: conta, valor: 50, data: "2026-04-01", forma: "PIX", chave: randomUUID() });
+    // O tratamento da rejeição é registrado no mesmo instante em que a operação concorrente começa.
+    const corrida = pagarConta(executor(db2), dona, ator2, { contaId: conta, valor: 50, data: "2026-04-01", forma: "PIX", chave: randomUUID() })
+      .then(() => null, (error: unknown) => error);
+    for (let tentativa = 0; ; tentativa += 1) {
+      const espera = await db.query(`SELECT 1 FROM pg_locks WHERE pid = $1 AND NOT granted`, [pid2]);
+      if (espera.rowCount) break;
+      if (tentativa === 99) throw new Error("a segunda baixa não esperou a trava da conta: não houve concorrência real");
+      await new Promise((resolver) => setTimeout(resolver, 50));
+    }
     await db.query("COMMIT");
-    await assert.rejects(corrida, (error: unknown) => error instanceof PacoteAdminError);
+    const erro = await corrida;
+    assert.ok(erro instanceof PacoteAdminError, `a segunda baixa devia ser recusada; resultado: ${String(erro)}`);
+    assert.equal(erro.code, "VALOR_EXCEDE_SALDO");
+    assert.equal(erro.httpStatus, 409);
     await db2.query("ROLLBACK");
+    assert.deepEqual((await db.query<{ n: number; total: number }>(
+      "SELECT count(*)::int AS n, COALESCE(SUM(valor), 0)::float8 AS total FROM financeiro_saidas WHERE conta_id = $1::uuid",
+      [conta],
+    )).rows[0], { n: 1, total: 60 }, "só a primeira baixa ficou; a conta nunca passa do valor");
+    // Mesma corrida para cancelar e editar: com uma baixa concorrente confirmada, a conta já tem pagamento.
+    for (const operacao of ["cancelar", "editar"] as const) {
+      await db.query("BEGIN");
+      const alvo = await criarContaPagar(executor(db), dona, ator2, { descricao: `Corrida ${operacao}`, categoriaId: categoria, valor: 30, vencimento: "2026-04-02" });
+      await db.query("COMMIT");
+      await db.query("BEGIN");
+      await pagarConta(executor(db), dona, ator2, { contaId: alvo, valor: 10, data: "2026-04-02", forma: "PIX", chave: randomUUID() });
+      await db2.query("BEGIN");
+      const concorrente = (operacao === "cancelar"
+        ? cancelarConta(executor(db2), dona, ator2, alvo)
+        : editarContaPagar(executor(db2), dona, ator2, alvo, { descricao: "Editada na corrida", favorecido: null, categoriaId: categoria, valor: 5, vencimento: "2026-04-02" }))
+        .then(() => null, (error: unknown) => error);
+      for (let tentativa = 0; ; tentativa += 1) {
+        if ((await db.query(`SELECT 1 FROM pg_locks WHERE pid = $1 AND NOT granted`, [pid2])).rowCount) break;
+        if (tentativa === 99) throw new Error(`${operacao}: não houve concorrência real`);
+        await new Promise((resolver) => setTimeout(resolver, 50));
+      }
+      await db.query("COMMIT");
+      const recusa = await concorrente;
+      assert.ok(recusa instanceof PacoteAdminError, `${operacao} concorrente devia ser recusado; resultado: ${String(recusa)}`);
+      assert.equal(recusa.code, "EM_USO");
+      await db2.query("ROLLBACK");
+    }
     await db.query("DELETE FROM financeiro_saidas WHERE empresa_id = $1::uuid", [dona]);
     await db.query("DELETE FROM financeiro_auditoria WHERE empresa_id = $1::uuid", [dona]);
     await db.query("DELETE FROM financeiro_contas_pagar WHERE empresa_id = $1::uuid", [dona]);
