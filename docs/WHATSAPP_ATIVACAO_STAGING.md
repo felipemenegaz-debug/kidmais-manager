@@ -33,6 +33,16 @@ Três camadas, todas fail-closed. **Nenhuma comprova sozinha a exclusividade ent
 
 Para trocar o receptor no futuro (staging → produção), a ordem é: desligar `ENABLED` e `RECEIVE_ENABLED` em staging, remover `RECEPTOR` de staging, parar o worker de staging e só então configurar produção. Nunca os dois ao mesmo tempo.
 
+## Condições para iniciar a homologação real
+
+A homologação real (E5 em diante) fica bloqueada até as três condições estarem comprovadas:
+
+1. **Autenticação Gupshup:** o mecanismo efetivamente suportado para o app `KidmaisManager` (chamado #277630). Não enfraquecer o webhook nem alterar assinaturas para contornar.
+2. **Receptor exclusivo:** E0 sem divergência. Produção sem as variáveis de automação do atendimento; nenhuma outra assinatura com `MESSAGE` levando a resposta automática.
+3. **OTP preservado:** depois do deploy (E3), o webhook continua 204 para os status de OTP, e o OTP de login funciona em staging.
+
+O merge (E1) não implica deploy nem ativação. Cada etapa seguinte tem autorização própria.
+
 ## Decisões do Felipe antes de ativar
 
 | # | Decisão | Recomendação |
@@ -51,7 +61,7 @@ Ordem pensada para que cada etapa seja reversível e o canal fique desligado at�
 | E0 — Leituras | Render: branch/auto-deploy de staging e produção; nomes (não valores) das variáveis de staging e, com autorização, de produção. Gupshup: listar as assinaturas do app (painel ou `GET` da Partner API) | Nenhum | Assinaturas atuais, modos e URLs anotados. Em staging, `GUPSHUP_WEBHOOK_SECRET` e `KIDMAIS_DEPLOY_ENV=staging` presentes. **Exclusividade:** produção sem `WHATSAPP_ATENDIMENTO_RECEPTOR`, `RECEIVE_ENABLED` e `ENABLED`, e nenhuma outra assinatura com `MESSAGE` apontando para um receptor que responda automaticamente | Divergência: parar antes de E1 |
 | E1 — Merge | PR → `staging` (merge commit), com autorização, depois de revalidar imediatamente antes: HEAD e base da PR, CI verde do HEAD, branch e auto-deploy dos serviços Render | Código em `staging`. Sem deploy **se** o auto-deploy continuar desligado, o que não é garantia permanente. Deploy nunca é consequência automática | CI verde; `git log origin/staging`; deploys do serviço inalterados | Revert do merge |
 | E2 — Banco | Backup do banco de staging; 060 com precheck inline e postcheck | Cria 5 tabelas vazias; Core intacto | Postcheck; contagem de tabelas do Core igual antes e depois | Down da 060 (recusa se houver dados sem descarte explícito). Ensaio validado no PostgreSQL descartável |
-| E3 — Deploy | Deploy manual do commit de `staging` | Código novo no ar com o canal desligado | Health; `/admin/atendimento` abre com "Receber mensagens: Desligado"; webhook continua 204 para status de OTP | Deploy do commit anterior |
+| E3 — Deploy | Deploy manual do commit de `staging`, com autorização própria (não decorre do merge) | Código novo no ar com o canal desligado | Health; `/admin/atendimento` abre com "Receber mensagens: Desligado"; webhook continua 204 para status de OTP; **login com OTP funciona em staging** (condição 3) | Deploy do commit anterior |
 | E4 — Variáveis | Staging: `WHATSAPP_ATENDIMENTO_EMPRESA_ID`, `WHATSAPP_ATENDIMENTO_RECEPTOR=staging`, `WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS=<D2>`, `WHATSAPP_ATENDIMENTO_WORKER_SECRET` (novo, exclusivo), `WHATSAPP_ATENDIMENTO_WORKER_URL`, teto em `AI_BUDGET_JSON.porCapacidade.whatsapp_atendimento` (baixo). `RECEIVE_ENABLED` e `ENABLED` ainda **desligados**. Produção: nada | A troca de variáveis provoca deploy de staging | Tela: "Receptor: Este ambiente", "Orçamento: Definido", demais desligados | Remover as variáveis (novo deploy) |
 | E5 — Assinatura | Gupshup: **acrescentar** assinatura v2 de staging, tag `kidmais-staging-atendimento`, URL `https://kidmais-manager-staging.onrender.com/api/integracoes/gupshup/webhook`, modos MESSAGE, SENT, DELIVERED, READ, FAILED, `meta` com o segredo de staging (D1) | Staging passa a receber cópias dos eventos; com `RECEIVE_ENABLED` desligado só registra metadados | H1: mensagem do número de teste aparece só como metadado no log, sem gravação | Remover só essa assinatura pela tag |
 | E6 — Recepção | `RECEIVE_ENABLED=true` (deploy) | Mensagens do número de teste são gravadas; demais confirmadas sem gravar | H2 | Desligar a variável |

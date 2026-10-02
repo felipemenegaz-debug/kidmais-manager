@@ -8,8 +8,18 @@ Atualizado em 02/10/2026. Documento único de estado da V1. Substitui os registr
 | --- | --- |
 | Implementado e validado localmente | **Sim.** PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O código foi validado em `a55aed8`. Commits posteriores só mudam documentação e comentário de teste |
 | Integrado em staging | **Não.** PR aberta, sem merge. Migration 060 não aplicada no banco de staging. Nenhuma variável configurada |
-| Homologado com Gupshup real | **Não.** Bloqueado: autenticação do webhook e acesso ao app `KidmaisManager` aguardam o Gupshup (chamado #277630) |
-| Ativo em produção | **Não.** Produção não foi lida nem alterada nesta entrega. Não presumir seu estado; exige etapa e autorização próprias |
+| Homologado com Gupshup real | **Não.** Bloqueado até comprovar três condições: autenticação do webhook pelo mecanismo do Gupshup (chamado #277630, acesso ao app `KidmaisManager`), receptor exclusivo do número entre ambientes (E0) e preservação do OTP |
+| Ativo em produção | **Estado não verificado; não ativado por esta entrega.** Produção não foi lida nem alterada. Não presumir seu estado; exige etapa e autorização próprias |
+
+**Operações remotas desta entrega:**
+- **Feitas, só no GitHub:** push da branch `whatsapp/atendimento-ia-v1` e criação/edição da PR #80 (título, descrição), sem merge.
+- **Leituras:** metadados dos serviços Render (branch e auto-deploy) e estado da PR e do CI.
+- **Nenhuma operação de infraestrutura:**
+  - sem deploy nem restart;
+  - nenhuma variável ou segredo alterado;
+  - nenhuma migration ou SQL em banco de staging ou produção;
+  - nada no Gupshup (assinaturas, callback) e nenhuma mensagem real.
+- **Local, autorizado pelo Felipe:** o PostgreSQL descartável (127.0.0.1:55498), criado e removido em cada rodada.
 
 ## Checkout e branches
 
@@ -103,6 +113,7 @@ O OTP usa o endpoint de template e não passa pelo transporte do atendimento. O 
 | Prioridade | Pendência | Responsável |
 | --- | --- | --- |
 | P0 | Resposta do Gupshup ao chamado #277630: mecanismo de autenticação e acesso Partner ao app `KidmaisManager` | Felipe / Gupshup |
+| P0 | Antes da homologação real, comprovar as três condições: autenticação Gupshup, receptor exclusivo (E0) e OTP preservado. O webhook continua 204 para os status de OTP, e o OTP de login segue funcionando em staging depois do deploy (E3) | Felipe autoriza; Claude verifica |
 | P1 | Revisão independente do HEAD final da PR #80 | Codex |
 | P1 | Merge em `staging`, com autorização e revalidação de HEAD/base, CI e Render (branch e auto-deploy) | Felipe autoriza; Claude executa |
 | P1 | Etapas E0–E8 de staging ([WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md)), cada uma com autorização própria, depois do P0 | Felipe autoriza; Claude executa |
