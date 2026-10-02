@@ -18,9 +18,10 @@ function extracaoInicial() {
       { id: 'contratante', titulo: 'Contratante', campos: [
         { id: 'contratante.nomeCompleto', rotulo: 'Nome do contratante', valor: 'Pessoa Exemplo', estado: 'ENCONTRADO', evidencia: { pagina: 1, trecho: 'Pessoa Exemplo', conferida: true } },
         { id: 'contratante.email', rotulo: 'E-mail', valor: 'contato@example.invalid', estado: 'ENCONTRADO', evidencia: { pagina: 1, trecho: 'contato@example.invalid', conferida: true } },
+        { id: 'contratante.whatsapp', rotulo: 'WhatsApp', valor: null, estado: 'NAO_ENCONTRADO', motivo: 'WhatsApp não localizado.' },
       ] },
       { id: 'evento', titulo: 'Evento', campos: [
-        { id: 'evento.data', rotulo: 'Data do evento', valor: '10/10/2099', estado: 'PRECISA_REVISAO', motivo: 'Confira a data.' },
+        { id: 'evento.data', rotulo: 'Data do evento', valor: '10/10/2099', estado: 'PRECISA_REVISAO', motivo: 'Confira a data.', evidencia: { pagina: 1, trecho: 'Evento em 10/10/2099', conferida: true } },
       ] },
     ],
   };
@@ -129,11 +130,15 @@ async function main() {
       await cliente.enviar('DOM.setFileInputFiles', { nodeId, files: [arquivoPdf] });
     };
     const posteriores = (n) => posts.slice(n).filter((x) => x.url === '/api/admin/inteligencia/importacoes' && x.corpo.acao !== 'estado').map((x) => x.corpo);
+    const fotografar = async (nome) => {
+      const { data } = await cliente.enviar('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      fs.writeFileSync(`${out}/${nome}.png`, Buffer.from(data, 'base64'));
+    };
 
     await caso('Importação desabilitada para a empresa: erro explícito, sem abrir demonstração automaticamente', async () => {
       modoEstado = 'desabilitado';
       await ir('/admin/contratos/importar');
-      await aguardar(`[...document.querySelectorAll('[role="alert"]')].some(e => e.textContent.includes('desabilitada para esta empresa'))`, 'alerta de desabilitada');
+      await aguardar(`[...document.querySelectorAll('[role="alert"]')].some(e => e.textContent.includes('não está habilitada neste ambiente'))`, 'alerta de desabilitada');
       await esperar(800);
       assert.equal(await avaliar(texto('Arraste o contrato para cá')), false, 'não abre envio (demonstração) sozinho');
       assert.equal(await existeBotao('Abrir demonstração com dados fictícios'), true);
@@ -142,7 +147,7 @@ async function main() {
     await caso('Falha ao verificar a importação: erro explícito, sem demonstração automática', async () => {
       modoEstado = 'falha';
       await ir('/admin/contratos/importar');
-      await aguardar(`[...document.querySelectorAll('[role="alert"]')].some(e => e.textContent.includes('Não foi possível verificar a importação'))`, 'alerta de falha');
+      await aguardar(`[...document.querySelectorAll('[role="alert"]')].some(e => e.textContent.includes('Não foi possível concluir agora'))`, 'alerta de falha');
       await esperar(800);
       assert.equal(await avaliar(texto('Arraste o contrato para cá')), false);
     });
@@ -186,6 +191,13 @@ async function main() {
       await enviarArquivo();
       await aguardar(texto('Pessoa Exemplo'), 'revisão real');
       assert(posts.slice(n).some((x) => x.url === '/api/admin/inteligencia/documentos'), 'documento enviado');
+      assert.equal(await existeBotao('Não consta no documento'), false, 'remoção não compete com a leitura');
+      assert.equal(await avaliar(`document.querySelector('details')?.open`), false, 'trecho encontrado começa recolhido');
+      await avaliar(`document.querySelector('details summary').click()`);
+      assert.equal(await avaliar(`document.querySelector('details')?.open`), true, 'trecho continua acessível');
+      await avaliar(`document.querySelector('details summary').click()`);
+      assert.equal(await avaliar(`[...document.querySelectorAll('details')].at(-1)?.open`), true, 'evidência pendente permanece visível');
+      await fotografar('revisao-desktop');
       await clicar('Corrigir Nome do contratante');
       await aguardar(`!!document.querySelector('#editar-contratante\\\\.nomeCompleto')`, 'editor real');
       await digitar('#editar-contratante\\.nomeCompleto', 'Pessoa Exemplo Corrigida');
@@ -198,6 +210,23 @@ async function main() {
     await caso('Modo real: "Não consta no documento" remove o valor (revisar com valor vazio)', async () => {
       const m = posts.length;
       const botaoDoEmail = `[...document.querySelectorAll('div')].find(d => d.querySelector(':scope > dt')?.textContent === 'E-mail')`;
+      await clicar('Corrigir E-mail');
+      await aguardar(`!!(${botao('Não consta no documento')})`, 'remoção dentro da edição');
+      await clicar('Cancelar');
+      await aguardar(`!(${botao('Não consta no documento')})`, 'cancelar fecha edição');
+      assert.deepEqual(posteriores(m), [], 'abrir e cancelar edição não salva nem remove');
+      await clicar('Corrigir E-mail');
+      await aguardar(`!!(${botao('Não consta no documento')})`, 'editor reaberto');
+      for (const width of [390, 320]) {
+        await cliente.enviar('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true });
+        await esperar(150);
+        assert.equal(await avaliar('document.documentElement.scrollWidth <= window.innerWidth'), true, `sem rolagem horizontal a ${width}px`);
+        const tamanho = await avaliar(`(${botao('Não consta no documento')}).getBoundingClientRect().height`);
+        assert(tamanho <= 40 && tamanho >= 24, 'ação secundária compacta e clicável');
+        await avaliar(`(${botao('Não consta no documento')}).scrollIntoView({block:'center'})`);
+        await fotografar(`edicao-mobile-${width}`);
+      }
+      await cliente.enviar('Emulation.clearDeviceMetricsOverride');
       assert.equal(await avaliar(`(() => { const b = [...(${botaoDoEmail})?.querySelectorAll('button') ?? []].find(x => x.textContent.trim() === 'Não consta no documento'); if (!b) return false; b.click(); return true; })()`), true);
       await aguardar(`(() => { const d = ${botaoDoEmail}; return !!d && d.textContent.includes('Não localizado no contrato') && d.textContent.includes('Removido na revisão.'); })()`, 'e-mail removido');
       assert.equal(await avaliar(texto('contato@example.invalid')), false);

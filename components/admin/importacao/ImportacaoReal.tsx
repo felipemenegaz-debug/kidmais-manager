@@ -137,7 +137,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
       const contagem = { ENCONTRADO: 0, PRECISA_REVISAO: 0, NAO_ENCONTRADO: 0 };
       for (const c of lista) contagem[c.estado] += 1;
       const match = estado.plano?.match;
-      return <div className={styles.revisao}>
+      return <div className={`${styles.revisao} ${real.revisao}`}>
         <div className={styles.principal}>
           <div className={styles.cabecalhoRevisao}>
             <div>
@@ -223,22 +223,29 @@ function Campo({ campo, revisado, ocupado, editando, onEditar, onAgir }: {
   // Valor recusado pelo validador (inválido, ambíguo, não representável) só sai corrigido ou removido.
   const recusado = campo.validacao === 'INVALIDO' || campo.validacao === 'AMBIGUO' || campo.validacao === 'NAO_REPRESENTAVEL';
   const confirmavel = campo.estado === 'PRECISA_REVISAO' && !recusado;
-  return <div className={styles.campo} data-estado={visual}>
+  return <div className={`${styles.campo} ${real.campo}`} data-estado={visual}>
     <dt>{campo.rotulo}</dt>
     <dd className={styles.valorCampo}>
       {editando !== null
         ? <form className={real.edicao} onSubmit={(e) => { e.preventDefault(); onAgir({ acao: 'revisar', campoId: campo.id, valor: editando }); }}>
           <label className={styles.oculto} htmlFor={`editar-${campo.id}`}>{campo.rotulo}</label>
-          <input id={`editar-${campo.id}`} value={editando} maxLength={500} autoFocus onChange={(e) => onEditar(e.target.value)} />
-          <button type="submit" className={styles.confirmarCampo} disabled={ocupado}>Salvar</button>
-          <button type="button" className={styles.linkBotao} onClick={() => onEditar(null)}>Cancelar</button>
+          <input id={`editar-${campo.id}`} value={editando} maxLength={500} autoFocus disabled={ocupado} onChange={(e) => onEditar(e.target.value)} />
+          <div className={real.acoesEdicao}>
+            <button type="submit" className={styles.confirmarCampo} disabled={ocupado}>Salvar</button>
+            <button type="button" className={styles.linkBotao} disabled={ocupado} onClick={() => onEditar(null)}>Cancelar</button>
+          </div>
+          {campo.valor && <button type="button" className={real.removerValor} disabled={ocupado} onClick={() => onAgir({ acao: 'revisar', campoId: campo.id, valor: '' })}>Não consta no documento</button>}
         </form>
         : <span className={campo.valor ? styles.valor : styles.valorAusente}>{campo.valor ?? 'Não localizado no contrato'}</span>}
-      {campo.evidencia && <small className={real.evidencia} data-conferida={campo.evidencia.conferida}>
-        {campo.evidencia.pagina ? `Página ${campo.evidencia.pagina} · ` : ''}“{campo.evidencia.trecho}”{campo.evidencia.conferida ? '' : ' · trecho não localizado'}
-      </small>}
+      {campo.evidencia && <details className={real.fonte} open={campo.estado === 'PRECISA_REVISAO' && !revisado}>
+        <summary>Ver trecho do contrato</summary>
+        <small className={real.evidencia} data-conferida={campo.evidencia.conferida}>
+          {campo.evidencia.pagina ? `Página ${campo.evidencia.pagina} · ` : ''}“{campo.evidencia.trecho}”{campo.evidencia.conferida ? '' : ' · trecho não localizado'}
+        </small>
+        {campo.bruto && campo.normalizado && campo.bruto !== campo.normalizado && <small>Lido como “{campo.bruto}”</small>}
+      </details>}
       {campo.origem && !campo.evidencia && <small>{campo.origem}</small>}
-      {campo.bruto && campo.normalizado && campo.bruto !== campo.normalizado && <small>Lido como “{campo.bruto}”</small>}
+      {!campo.evidencia && campo.bruto && campo.normalizado && campo.bruto !== campo.normalizado && <small>Lido como “{campo.bruto}”</small>}
       {campo.motivo && !revisado && <small className={styles.motivo}>{campo.motivo}</small>}
     </dd>
     <dd className={styles.estadoCampo}>
@@ -249,7 +256,6 @@ function Campo({ campo, revisado, ocupado, editando, onEditar, onAgir }: {
         {campo.conflito ? 'O contrato diz isso' : 'Confirmar leitura'}</button>}
       {editavel && editando === null && <button type="button" className={styles.linkBotao} disabled={ocupado}
         aria-label={`Corrigir ${campo.rotulo}`} onClick={() => onEditar(campo.valor ?? '')}>Corrigir</button>}
-      {editavel && editando === null && campo.valor && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => onAgir({ acao: 'revisar', campoId: campo.id, valor: '' })}>Não consta no documento</button>}
     </dd>
   </div>;
 }

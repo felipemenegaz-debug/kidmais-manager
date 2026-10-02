@@ -9,8 +9,14 @@
 @keyframes brilho { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 .evidencia { color: var(--km-text-2); font-style: italic; overflow-wrap: anywhere; }
 .evidencia[data-conferida="false"] { color: #e9d38a; }
-.edicao { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.edicao input { flex: 1 1 180px; min-height: 40px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--km-border); background: var(--input-bg); color: var(--km-text); font: 400 14px var(--admin-font); }
+.revisao .campo { grid-template-columns: 130px minmax(0, 1fr) auto; }
+.fonte { margin-top: 2px; }
+.fonte summary { width: fit-content; padding: 4px 0; color: var(--km-text-2); font-size: 12px; cursor: pointer; }
+.fonte small { display: block; margin-top: 4px; line-height: 1.5; }
+.edicao { display: grid; gap: 8px; }
+.edicao input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--km-border); background: var(--input-bg); color: var(--km-text); font: 400 14px var(--admin-font); }
+.acoesEdicao { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.removerValor { justify-self: start; min-height: 32px; padding: 4px 0; border: 0; background: transparent; color: var(--km-text-2); font: 400 12px/1.4 var(--admin-font); text-align: left; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .edicao input:focus { background: var(--input-focus-bg); border-color: color-mix(in srgb, var(--km-violet) 55%, transparent); }
 .cliente { display: grid; gap: 8px; }
 .cliente h3 { margin: 0; font-size: 14px; }
@@ -19,4 +25,13 @@
 .opcoes button { min-height: 40px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--km-border); background: transparent; color: var(--km-text); font: 600 13px var(--admin-font); text-align: left; cursor: pointer; }
 .opcoes button[aria-checked="true"] { border-color: color-mix(in srgb, var(--km-teal) 55%, transparent); background: color-mix(in srgb, var(--km-teal) 10%, transparent); }
 .opcoes button:focus-visible, .edicao input:focus-visible { outline: 2px solid var(--km-lilac); outline-offset: 2px; }
+@media (max-width: 800px) {
+  .revisao .campo { grid-template-columns: minmax(0, 1fr) auto; }
+}
+@media (max-width: 600px) {
+  .revisao .campo { gap: 8px; }
+  .revisao .campo dt { grid-column: 1; }
+  .revisao .campo dd:first-of-type { grid-column: 1 / -1; }
+  .revisao .campo dd:last-of-type { grid-column: 2; grid-row: 1; }
+}
 @media (prefers-reduced-motion: reduce) { .carregando span { animation: none; } }
