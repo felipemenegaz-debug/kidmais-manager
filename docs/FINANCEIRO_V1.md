@@ -38,6 +38,8 @@ Toda rota usa a sessão administrativa já existente e `withTenantTransaction`. 
 
 A baixa de parcela chama `registrarRecebimentoPagamento` com a sessão administrativa, a chave de idempotência e o executor da transação do tenant. A saída procura a chave da empresa antes de travar a conta e comparar o saldo. Chave nova segue para o `FOR UPDATE` e para o saldo.
 
+Pagar, editar e cancelar uma conta a pagar usam `travarConta`. Primeiro o `SELECT ... FOR UPDATE` trava a conta. Só depois, em outro comando, os pagamentos já feitos são somados. Em READ COMMITTED, um `SUM` dentro do mesmo comando da trava usaria o retrato anterior à espera, e uma baixa concorrente recém-confirmada ficaria de fora. Por isso a conta podia ser paga além do valor, cancelada já paga ou editada já paga. A regressão em `financeiro.postgres.test.ts` prova a espera real pela trava (`pg_locks`) e exige `VALOR_EXCEDE_SALDO` ou `EM_USO`.
+
 RBAC V1 reutiliza a membership administrativa comprovada. Não há papel financeiro novo. Uma capability futura pode separar consulta, baixa e relatórios sem mudar o modelo de dados.
 
 ## Fora desta versão
