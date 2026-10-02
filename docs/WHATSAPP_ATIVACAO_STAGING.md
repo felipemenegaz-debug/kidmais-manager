@@ -20,10 +20,15 @@ Consulta de 02/10/2026, somente leitura. Itens marcados "não documentado" preci
 
 ## Receptor único do número
 
-Três camadas, todas fail-closed:
+Três camadas, todas fail-closed. **Nenhuma comprova sozinha a exclusividade entre ambientes**: a flag é local a cada ambiente, e a configuração do outro ambiente e as assinaturas do Gupshup precisam ser verificadas (E0).
 
-1. **Código:** só grava e envia o ambiente em que `WHATSAPP_ATENDIMENTO_RECEPTOR` = `KIDMAIS_DEPLOY_ENV`. Ausente, vazio ou divergente: nada é gravado nem enviado, mesmo com `RECEIVE_ENABLED` e `ENABLED` ligados. Produção hoje não tem nenhuma das variáveis do atendimento e fica desligada.
-2. **Gupshup:** cada ambiente tem seu `GUPSHUP_WEBHOOK_SECRET`. Só a assinatura com o segredo do receptor autentica mensagens; a cópia de outro ambiente sem o segredo dele recebe 401.
+1. **Código:** só grava e envia o ambiente em que `WHATSAPP_ATENDIMENTO_RECEPTOR` = `KIDMAIS_DEPLOY_ENV`. Ausente, vazio ou divergente: nada é gravado nem enviado, mesmo com `RECEIVE_ENABLED` e `ENABLED` ligados.
+   - Garante só o lado de cada ambiente.
+   - O estado das variáveis de produção **não foi verificado** nesta entrega; conferir os nomes por leitura, com autorização (E0).
+2. **Gupshup:** cada ambiente **deve** ter o seu `GUPSHUP_WEBHOOK_SECRET`.
+   - Só a assinatura com o segredo do receptor autentica mensagens; a cópia de outro ambiente sem o segredo dele recebe 401.
+   - Presença não comprova que os segredos são diferentes: isso fica a cargo de quem os gerou.
+   - A lista de assinaturas do app mostra quais URLs recebem `MESSAGE`.
 3. **Janela de 24 h:** o envio exige mensagem do cliente recebida *no mesmo banco* nas últimas 24 h. O ambiente que não recebeu não tem conversa aberta para responder.
 
 Para trocar o receptor no futuro (staging → produção), a ordem é: desligar `ENABLED` e `RECEIVE_ENABLED` em staging, remover `RECEPTOR` de staging, parar o worker de staging e só então configurar produção. Nunca os dois ao mesmo tempo.
@@ -34,7 +39,7 @@ Para trocar o receptor no futuro (staging → produção), a ordem é: desligar 
 | --- | --- | --- |
 | D1 | Como autenticar o webhook (**pendente:** consulta ao Gupshup no chamado #277630, aberto e sem resposta em 02/10/2026; canal não é ativado antes da comprovação) | Assinatura v2 criada pela Partner API, com `meta` = `{"X-Kidmais-Webhook-Secret": <segredo de staging>}`. Se não houver acesso Partner para o app `KidmaisManager`, parar: a alternativa (segredo no caminho da URL) exige outra mudança de código e revisão de segurança, e não está implementada |
 | D2 | Número destinatário de teste (A1) | Um número do Felipe ou de pessoa que consentiu; só ele na lista de permitidos |
-| D3 | Onde roda o worker (A6) | Na homologação: processo temporário na máquina do Felipe durante a janela de teste. Depois: Background Worker do Render, decidido junto com a ativação em produção |
+| D3 | Onde roda o worker (A6) | **Decidido:** processo temporário na máquina do Felipe, só durante a janela autorizada. Nenhum serviço Render é criado; o worker de produção é decisão da etapa própria de produção |
 | D4 | Quem recebe hoje as mensagens do número | Ler as assinaturas atuais antes de qualquer mudança. A nova assinatura de staging é **acrescentada**, nunca substitui as existentes |
 
 ## Ativação em staging, etapa por etapa
@@ -43,8 +48,8 @@ Ordem pensada para que cada etapa seja reversível e o canal fique desligado at�
 
 | Etapa | Alvo e ação | Efeito | Validação | Recuperação |
 | --- | --- | --- | --- | --- |
-| E0 — Leituras | Render: branch/auto-deploy de staging e produção; nomes (não valores) das variáveis de staging. Gupshup: listar as assinaturas do app (painel ou `GET` da Partner API) | Nenhum | Assinaturas atuais, modos e URLs anotados; `GUPSHUP_WEBHOOK_SECRET` e `KIDMAIS_DEPLOY_ENV=staging` presentes em staging | — |
-| E1 — Merge | PR → `staging` (merge commit), depois do CI verde | Código em `staging`; sem deploy (auto-deploy desligado) | CI verde; `git log origin/staging` | Revert do merge |
+| E0 — Leituras | Render: branch/auto-deploy de staging e produção; nomes (não valores) das variáveis de staging e, com autorização, de produção. Gupshup: listar as assinaturas do app (painel ou `GET` da Partner API) | Nenhum | Assinaturas atuais, modos e URLs anotados. Em staging, `GUPSHUP_WEBHOOK_SECRET` e `KIDMAIS_DEPLOY_ENV=staging` presentes. **Exclusividade:** produção sem `WHATSAPP_ATENDIMENTO_RECEPTOR`, `RECEIVE_ENABLED` e `ENABLED`, e nenhuma outra assinatura com `MESSAGE` apontando para um receptor que responda automaticamente | Divergência: parar antes de E1 |
+| E1 — Merge | PR → `staging` (merge commit), com autorização, depois de revalidar imediatamente antes: HEAD e base da PR, CI verde do HEAD, branch e auto-deploy dos serviços Render | Código em `staging`. Sem deploy **se** o auto-deploy continuar desligado, o que não é garantia permanente. Deploy nunca é consequência automática | CI verde; `git log origin/staging`; deploys do serviço inalterados | Revert do merge |
 | E2 — Banco | Backup do banco de staging; 060 com precheck inline e postcheck | Cria 5 tabelas vazias; Core intacto | Postcheck; contagem de tabelas do Core igual antes e depois | Down da 060 (recusa se houver dados sem descarte explícito). Ensaio validado no PostgreSQL descartável |
 | E3 — Deploy | Deploy manual do commit de `staging` | Código novo no ar com o canal desligado | Health; `/admin/atendimento` abre com "Receber mensagens: Desligado"; webhook continua 204 para status de OTP | Deploy do commit anterior |
 | E4 — Variáveis | Staging: `WHATSAPP_ATENDIMENTO_EMPRESA_ID`, `WHATSAPP_ATENDIMENTO_RECEPTOR=staging`, `WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS=<D2>`, `WHATSAPP_ATENDIMENTO_WORKER_SECRET` (novo, exclusivo), `WHATSAPP_ATENDIMENTO_WORKER_URL`, teto em `AI_BUDGET_JSON.porCapacidade.whatsapp_atendimento` (baixo). `RECEIVE_ENABLED` e `ENABLED` ainda **desligados**. Produção: nada | A troca de variáveis provoca deploy de staging | Tela: "Receptor: Este ambiente", "Orçamento: Definido", demais desligados | Remover as variáveis (novo deploy) |

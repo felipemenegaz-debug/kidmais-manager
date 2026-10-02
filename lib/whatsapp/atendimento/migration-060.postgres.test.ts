@@ -10,9 +10,10 @@ import { carregarComponente } from "../../../components/admin/teste-componente.t
 import * as core from "./core.ts";
 
 /**
- * Migration 060 (atendimento WhatsApp) no PostgreSQL descartável. ESCRITO, NÃO EXECUTADO: só roda pelo
- * `check:v1:postgres`, com KIDMAIS_POSTGRES_DESCARTAVEL e no cluster descartável (127.0.0.1, cluster_name
- * kidmais_descartavel, sem o banco real), com autorização explícita do Felipe (docs/OPERACAO_AGENTES.md).
+ * Migration 060 (atendimento WhatsApp) no PostgreSQL descartável. Só roda pelo `check:v1:postgres`, com
+ * KIDMAIS_POSTGRES_DESCARTAVEL e no cluster descartável (127.0.0.1, cluster_name kidmais_descartavel, sem o banco
+ * real), com autorização explícita do Felipe (docs/OPERACAO_AGENTES.md). Execuções registradas em
+ * docs/HANDOFF_CLAUDE_UX_WHATSAPP.md (evidências por commit).
  *
  * Dados exclusivamente sintéticos. Modelo e Gupshup são portas simuladas: nenhuma chamada de rede.
  * O serviço e o worker REAIS rodam com conexões próprias por transação, para exercer concorrência de verdade.

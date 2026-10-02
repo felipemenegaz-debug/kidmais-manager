@@ -1,6 +1,6 @@
 # Validação da migration 060 e homologação do Gupshup
 
-Preparado em 01/10/2026. A **Parte 1 foi executada em 02/10/2026** no cluster descartável autorizado (resultado abaixo). As Partes 2 e 3 não incluem nenhuma operação remota executada. Cada passo remoto aguarda a aprovação explícita do Felipe para o destino e a ação, conforme [OPERACAO_AGENTES.md](OPERACAO_AGENTES.md). Estado da candidata: [HANDOFF_CLAUDE_UX_WHATSAPP.md](HANDOFF_CLAUDE_UX_WHATSAPP.md).
+Preparado em 01/10/2026. Registro histórico das rodadas de 02/10/2026; o estado consolidado e as evidências por commit estão em [HANDOFF_CLAUDE_UX_WHATSAPP.md](HANDOFF_CLAUDE_UX_WHATSAPP.md). A **Parte 1 foi executada em 02/10/2026** no cluster descartável autorizado (resultado abaixo). As Partes 2 e 3 não incluem nenhuma operação remota executada. Cada passo remoto aguarda a aprovação explícita do Felipe para o destino e a ação, conforme [OPERACAO_AGENTES.md](OPERACAO_AGENTES.md). Estado da candidata: [HANDOFF_CLAUDE_UX_WHATSAPP.md](HANDOFF_CLAUDE_UX_WHATSAPP.md).
 
 ## Resultado da Parte 1 (02/10/2026)
 
@@ -118,7 +118,7 @@ Staging e production nunca são destino.
 
 ### Cobertura da suíte `lib/whatsapp/atendimento/migration-060.postgres.test.ts`
 
-A suíte foi escrita e registrada, mas não foi executada. Ela usa o serviço e o worker reais, com uma conexão por transação para que a concorrência seja real. O modelo e o Gupshup são simulados.
+A suíte roda no `check:v1:postgres` (execuções e commits em [HANDOFF_CLAUDE_UX_WHATSAPP.md](HANDOFF_CLAUDE_UX_WHATSAPP.md); a última, em `a55aed8`, cobre também os passos 8b–8f: modelo indisponível, ordem, limite, entrada atrasada e resposta publicada revogada). Ela usa o serviço e o worker reais, com uma conexão por transação para que a concorrência seja real. O modelo e o Gupshup são simulados.
 
 | Pedido | Passo da suíte |
 | --- | --- |
