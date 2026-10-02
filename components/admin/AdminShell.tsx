@@ -116,7 +116,7 @@ function iconeDaRota(href: string): AdminIconName {
     if (href.includes('contratos')) return 'contract';
     if (href.includes('festas')) return 'cake';
     if (href.includes('disponibilidade')) return 'calendar';
-    if (href.includes('whatsapp')) return 'contact';
+    if (href.includes('whatsapp') || href.includes('atendimento')) return 'contact';
     if (href.includes('dashboard')) return 'dashboard';
     if (href.includes('contas-receber')) return 'receive';
     if (href.includes('contas-pagar')) return 'pay';

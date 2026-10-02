@@ -440,3 +440,10 @@ test('ACK rápido: agenda somente metadados sem executar trabalho pós-resposta'
 test('retries não têm efeitos de negócio ou persistência', async () => {
     for (let i = 0; i < 3; i++) assert.equal((await receive()).status, 204);
 });
+test('persistência opcional é autenticada e precede ACK; falha durável permite retry',async()=>{
+    let persistido=false;
+    assert.equal((await receiveGupshupWebhook(request(),env,()=>assert.equal(persistido,true),async()=>{persistido=true;})).status,204);
+    assert.equal((await receiveGupshupWebhook(request(),env,()=>assert.fail('Não confirmar falha'),async()=>{throw Error('Banco indisponível');})).status,503);
+    assert.equal((await receiveGupshupWebhook(withoutSecret(event()),env,()=>{},async()=>assert.fail('Sem autenticação'))).status,401);
+    assert.equal((await receiveGupshupWebhook(withoutSecret(handshake()),env,()=>{},async()=>assert.fail('Handshake não grava'))).status,204);
+});
