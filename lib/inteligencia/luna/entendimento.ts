@@ -190,6 +190,8 @@ export type Entendimento = {
   outrosPedidos: number;
   /** Pedidos adicionais devolvidos pela Luna mas descartados por não estarem na mensagem atual (ex.: vindos do histórico). */
   outrosDescartados: number;
+  /** Trechos literais (da mensagem atual) dos pedidos adicionais aceitos — usados para reconhecer a mensagem mista. */
+  outrosTrechos: string[];
   /** Campos descartados pela revalidação (só códigos, para o trace). */
   descartes: string[];
   /** Categorias cuja estimativa o usuário PEDIU nesta mensagem mas que vieram sem valor utilizável da Luna. */
@@ -449,6 +451,7 @@ export function revalidar(saida: SaidaLuna, entrada: Pick<EntradaEntendimento, "
     esclarecimento: saida.esclarecimento?.replace(/https?:\/\/\S+/g, "").trim().slice(0, 220) || null,
     outrosPedidos: outros.length,
     outrosDescartados: saida.outrosPedidos.length - outros.length,
+    outrosTrechos: outros.map((o) => o.trecho.trim()),
     descartes,
     estimativaSemValor,
   };

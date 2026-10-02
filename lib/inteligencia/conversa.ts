@@ -1448,11 +1448,22 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
     // objetivo (homologação de f41018e: "o cliente é … E quantos refrigerantes…?" ⇒ RESPONDE + CALCULO_CONSUMO, e o
     // dado do cliente se perdia). Consulta paralela pura vem como CONSULTA_PARALELA/SEM_RASCUNHO, nunca RESPONDE.
     // A resposta ao rascunho vem primeiro (nada do que foi escrito se perde) e o outro pedido é anunciado como não feito.
-    const mista = rascunho && acoes && (ent.relacaoRascunho === "RESPONDE" || ent.relacaoRascunho === "CORRIGE") && (ent.objetivo === "CONSULTA" || ent.objetivo === "CALCULO_CONSUMO");
+    const outroObjetivo = ent.objetivo === "CONSULTA" || ent.objetivo === "CALCULO_CONSUMO";
+    let mista = Boolean(rascunho && acoes && (ent.relacaoRascunho === "RESPONDE" || ent.relacaoRascunho === "CORRIGE") && outroObjetivo);
+    let textoDoRascunho = e.texto;
+    // O rótulo da Luna oscila (homologação de 3930273: a mesma frase veio SEM_RASCUNHO, com o dado do cliente como "outro
+    // pedido"). Reconhecimento determinístico: se o TRECHO literal de um outro pedido responde ao campo que o rascunho está
+    // perguntando (pelo extrator do próprio rascunho), a mensagem é mista e esse trecho é a resposta ao rascunho.
+    if (!mista && rascunho && acoes?.situacao && outroObjetivo && ent.outrosTrechos.length) {
+      for (const trecho of ent.outrosTrechos) {
+        const s = await noTenant((ctx) => acoes.situacao!(rascunho!.operacaoId, trecho, ctx));
+        if (s.aberto && s.respondeCampo) { mista = true; textoDoRascunho = trecho; break; }
+      }
+    }
     if (mista) {
       rastreio.operacional = { ...rastreio.operacional, decisao: "LUNA:MENSAGEM_MISTA" };
       const doModelo = rascunho!.situacao.capacidade === "preparar_contratacao" ? ent.contratacao : undefined;
-      const doRascunho = await noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, e.texto, ctx, doModelo));
+      const doRascunho = await noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, textoDoRascunho, ctx, doModelo));
       // O segundo pedido também é atendido (resultado ou a pergunta necessária), pelas mesmas portas guardadas — não basta
       // avisar que não foi feito. Ele é o pedido que a Luna contou em outrosPedidos: não é anunciado de novo.
       ent.outrosPedidos = Math.max(0, ent.outrosPedidos - 1);
