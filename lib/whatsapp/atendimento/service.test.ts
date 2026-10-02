@@ -26,7 +26,7 @@ function carregar(op: Opcoes = {}) {
   const modulo = carregarComponente('lib/whatsapp/atendimento/service.ts', {
     '../../db/postgres.ts': { db: () => ({ query }), withTransaction: async (fn: (tx: unknown) => unknown) => fn({ query }) },
     '../../saas/provar-tenant.ts': { withTenantTransaction: async (_s: unknown, empresa: string, fn: (tx: unknown, t: unknown) => unknown) => { tenants.push(empresa); return fn({ query }, { empresaComprovada: empresa, papelAtual: op.papel ?? 'ADMINISTRATIVO' }); } },
-    './configuracao.ts': { ambienteAtendimento: () => 'staging', empresaPiloto: () => 'e', atendimentoAtivo: () => op.ativo ?? true, contatoPermitido: () => op.permitido ?? true },
+    './configuracao.ts': { ambienteAtendimento: () => 'staging', empresaPiloto: () => 'e', atendimentoAtivo: () => op.ativo ?? true, contatoPermitido: () => op.permitido ?? true, recepcaoAtiva: () => true, receptorDoNumero: () => true },
     './core.ts': core,
   }).modulo as typeof import('./service.ts');
   const sqls = (trecho: string) => comandos.filter(c => c.sql.includes(trecho));
@@ -115,4 +115,25 @@ test('contato fora da lista permitida é confirmado sem gravar nada', async () =
   const { modulo, comandos } = carregar({ permitido: false });
   await modulo.receberEntrada(entrada('Olá'));
   assert.equal(comandos.length, 0);
+});
+test('horário do evento à frente do relógio vale como agora (sem 503 que o provedor repetiria sem fim)', async () => {
+  const { modulo, sqls } = carregar();
+  const antes = Date.now();
+  await modulo.receberEntrada({ ...entrada('Olá'), timestamp: antes + 10 * 60000 });
+  const criada = Date.parse(String(sqls('INSERT INTO whatsapp_atendimento_mensagens')[0].args[7]));
+  assert.ok(criada >= antes && criada <= Date.now(), 'entrada gravada com o horário atual');
+  // Replay antigo não reabre a janela: mantém o horário original do evento.
+  const antigo = carregar();
+  const ontem = antes - 30 * 3600000;
+  await antigo.modulo.receberEntrada({ ...entrada('Olá', 'evento-antigo'), timestamp: ontem });
+  assert.equal(Date.parse(String(antigo.sqls('INSERT INTO whatsapp_atendimento_mensagens')[0].args[7])), ontem);
+});
+test('lista mostra o responsável só com vínculo ativo na mesma empresa e a situação do canal em partes', async () => {
+  const { modulo, sqls } = carregar();
+  const dados = await modulo.listarAtendimento(sessao, 'c');
+  const lista = sqls('FROM whatsapp_atendimento_conversas c')[0];
+  assert.match(lista.sql, /LEFT JOIN usuarios_administrativos u ON u\.id=c\.responsavel_id AND EXISTS\(SELECT 1 FROM memberships m WHERE m\.usuario_id=u\.id AND m\.empresa_id=c\.empresa_id AND m\.status='ATIVA'\)/);
+  assert.deepEqual(lista.args, ['e', 'staging']);
+  assert.match(sqls('autor_usuario_id IS NOT NULL AS humana')[0].sql, /empresa_id=\$1 AND ambiente=\$2 AND conversa_id=\$3/);
+  assert.deepEqual(dados.canal, { ambiente: 'staging', receptor: true, recepcao: true, envio: true });
 });

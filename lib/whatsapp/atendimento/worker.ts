@@ -1,6 +1,6 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto } from './configuracao.ts';
-import { comandoDireto, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao } from './core.ts';
+import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao } from './core.ts';
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, type Conversa, type Mensagem } from './service.ts';
 
 export type DependenciasWorker = { interpretar(empresa: string, texto: string, config: ConfiguracaoAtendimento): Promise<Interpretacao>; enviar(contato: string, texto: string): Promise<string> };
@@ -54,8 +54,15 @@ export async function processarAtendimento(deps: DependenciasWorker) {
   const { mensagem, conversa, config } = tarefa;
   try {
     if (mensagem.direcao === 'ENTRADA') {
-      const historico = (await db().query<{ texto: string }>("SELECT texto FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='ENTRADA' AND criada_em<=$3 AND texto IS NOT NULL ORDER BY criada_em DESC,id DESC LIMIT 8", [conversa.id, empresa, mensagem.criada_em])).rows.reverse();
-      const plano = comandoDireto(mensagem.texto ?? '') ?? await deps.interpretar(empresa, JSON.stringify({ mensagens: historico.map(m => m.texto), mensagemAtual: mensagem.texto, interesseAnterior: conversa.interesse }), config);
+      // Ordem lógica: as entradas seguem o horário do evento, não a ordem de chegada. A tarefa válida é a da versão
+      // atual (a última a chegar), mas a resposta considera a entrada mais recente e as anteriores, em ordem.
+      const historico = (await db().query<{ texto: string }>("SELECT texto FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='ENTRADA' AND texto IS NOT NULL ORDER BY criada_em DESC,id DESC LIMIT 8", [conversa.id, empresa])).rows.reverse();
+      const atual = historico.at(-1)?.texto ?? mensagem.texto ?? '';
+      const respondidas = Number((await db().query<{ n: string }>("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='SAIDA' AND autor_usuario_id IS NULL AND estado<>'CANCELADA' AND criada_em > clock_timestamp()-interval '24 hours'", [conversa.id, empresa])).rows[0]?.n ?? 0);
+      if (respondidas >= config.limites.respostasPor24h) return await encaminharSemModelo(mensagem, 'PROCESSADA');
+      let plano: Interpretacao;
+      try { plano = comandoDireto(atual) ?? await deps.interpretar(empresa, JSON.stringify({ mensagens: historico.map(m => m.texto), mensagemAtual: atual, interesseAnterior: conversa.interesse }), config); }
+      catch { return await encaminharSemModelo(mensagem, 'FALHOU'); }
       const hoje = hojeOperacao();
       // Data passada ou inexistente não substitui nem conserva interesse: uma data anterior já vencida também é descartada.
       const interesse = { data: dataDeInteresse(plano.data, hoje) ?? dataDeInteresse(conversa.interesse.data, hoje), convidados: plano.convidados ?? conversa.interesse.convidados };
@@ -90,11 +97,33 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       await correlacionarStatus(tx, empresa, ambiente, provedorId);
     });
     return 'SUBMETIDA';
-  } catch {
+  } catch (erro) {
+    // Recusa do provedor ou transporte sem configuração: nada saiu, termina FALHOU. Demais falhas no envio: INCERTO.
+    const naoEnviada = erro instanceof Error && ['ATENDIMENTO_ENVIO_RECUSADO', 'ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO'].includes(erro.message);
     await withTransaction(async tx => {
-      await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado=CASE WHEN estado='ENVIANDO' THEN 'INCERTO' ELSE 'FALHOU' END WHERE id=$1 AND estado IN ('PROCESSANDO','ENVIANDO')", [mensagem.id]);
+      await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado=CASE WHEN estado='ENVIANDO' AND NOT $2::boolean THEN 'INCERTO' ELSE 'FALHOU' END WHERE id=$1 AND estado IN ('PROCESSANDO','ENVIANDO')", [mensagem.id, naoEnviada]);
       await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [conversa.id]);
     });
     return 'ENCAMINHADA';
   }
+}
+
+/**
+ * Modelo indisponível, orçamento recusado ou limite de respostas atingido: a conversa vai para a equipe e o contato
+ * recebe só o texto fixo de encaminhamento. Revalida tudo sob a trava da conversa: se um atendente assumiu ou chegou
+ * entrada nova durante a chamada, nada é criado (a entrada é cancelada).
+ */
+async function encaminharSemModelo(mensagem: Mensagem, estadoEntrada: 'FALHOU' | 'PROCESSADA') {
+  const empresa = empresaPiloto(), ambiente = ambienteAtendimento();
+  await withTransaction(async tx => {
+    const empresaAtiva = (await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR SHARE", [empresa])).rows.length;
+    const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [mensagem.conversa_id])).rows[0];
+    const valido = Boolean(empresaAtiva && atual && mensagemAindaValida(mensagem, atual) && atendimentoAtivo() && (await configuracao(tx, empresa))?.ativo);
+    await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado=$2 WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id, valido ? estadoEntrada : 'CANCELADA']);
+    if (!valido) return;
+    const versao = Number(atual.versao) + 1;
+    await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=$2,atualizada_em=clock_timestamp() WHERE id=$1", [atual.id, versao]);
+    await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,direcao,texto,estado,versao_conversa) VALUES($1,$2,$3,$4,'SAIDA',$5,'PENDENTE',$6) ON CONFLICT(origem_id) DO NOTHING`, [atual.id, empresa, ambiente, mensagem.id, MENSAGEM_ENCAMINHAMENTO, versao]);
+  });
+  return 'ENCAMINHADA' as const;
 }

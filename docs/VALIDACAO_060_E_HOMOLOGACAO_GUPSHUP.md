@@ -215,6 +215,8 @@ O rollback de código e de flags não apaga dados, e o down só roda depois de e
 
 **Objetivo:** provar o fluxo real com o número comercial da Kidmais. Só destinatários de teste explicitamente autorizados participam. Nenhuma mensagem pode ir a cliente real.
 
+> **Atualizado em 02/10/2026:** o plano concreto de ativação (etapas E0–E8 com alvo, efeito, validação e recuperação), o que a documentação oficial do Gupshup confirma e o receptor único (`WHATSAPP_ATENDIMENTO_RECEPTOR`) estão em [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md). A tabela A1–A6 abaixo continua valendo; A4 ganha `WHATSAPP_ATENDIMENTO_RECEPTOR=staging` e A5 passa a ser **acrescentar** uma assinatura com cabeçalho pela Partner API, sem trocar as existentes.
+
 ### Proteção contra clientes reais (implementada)
 
 `WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS` recebe números com DDI, só dígitos, separados por vírgula.

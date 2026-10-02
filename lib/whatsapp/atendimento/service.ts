@@ -1,11 +1,16 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant } from '../../saas/provar-tenant.ts';
-import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto } from './configuracao.ts';
+import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
 import { configuracaoSchema, comandoDireto, janelaAberta, type Entrada } from './core.ts';
 
-export type Conversa = { id: string; empresa_id: string; ambiente: string; contato: string; estado: 'IA' | 'HUMANO' | 'AGUARDANDO_HUMANO' | 'ENCERRADA'; responsavel_id: string | null; nao_contatar: boolean; versao: number; ultima_entrada_em: string; interesse: { data: string | null; convidados: number | null } };
+export type Conversa = { id: string; empresa_id: string; ambiente: string; contato: string; estado: 'IA' | 'HUMANO' | 'AGUARDANDO_HUMANO' | 'ENCERRADA'; responsavel_id: string | null; nao_contatar: boolean; versao: number; ultima_entrada_em: string; atualizada_em?: string; interesse: { data: string | null; convidados: number | null } };
 export type Mensagem = { id: string; conversa_id: string; empresa_id: string; ambiente: string; origem_id: string | null; autor_usuario_id: string | null; texto: string | null; direcao: string; estado: string; versao_conversa: number; criada_em: string };
+/** Linha da tela: só o necessário (contato mascarado na UI, nome do responsável, sem dados de outras empresas). */
+export type ConversaLista = Conversa & { responsavel_nome: string | null };
+export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean };
+/** Situação do canal neste ambiente, em partes separadas: receber, responder e a configuração da empresa. */
+export type EstadoCanal = { ambiente: string; receptor: boolean; recepcao: boolean; envio: boolean };
 export async function configuracao(tx: DbExecutor, empresaId: string) {
   const r = await tx.query<{ configuracao: unknown }>('SELECT configuracao FROM whatsapp_atendimento_config WHERE empresa_id=$1 AND ambiente=$2', [empresaId, ambienteAtendimento()]);
   const parsed = configuracaoSchema.safeParse(r.rows[0]?.configuracao);
@@ -15,9 +20,10 @@ export async function receberEntrada(entrada: Entrada) {
   const empresa = empresaPiloto(), ambiente = ambienteAtendimento();
   // Fora da lista de contatos permitidos: confirma o evento sem gravar nada (nenhum dado do contato entra no banco).
   if (!contatoPermitido(entrada.source)) return;
-  if (entrada.app !== 'KidmaisManager' || entrada.timestamp > Date.now() + 60000) throw new Error('ATENDIMENTO_EVENTO_INVALIDO');
-  // A sessão usa o horário comprovado do evento; replay não reabre a janela.
-  const em = new Date(entrada.timestamp).toISOString();
+  if (entrada.app !== 'KidmaisManager') throw new Error('ATENDIMENTO_EVENTO_INVALIDO');
+  // A sessão usa o horário do evento no Gupshup (ms); replay não reabre a janela. Horário à frente do relógio local
+  // (diferença de relógio) vale como agora: recusar faria o provedor repetir o evento sem fim.
+  const em = new Date(Math.min(entrada.timestamp, Date.now())).toISOString();
   await withTransaction(async tx => {
     const ativa = await tx.query('SELECT id FROM empresas WHERE id=$1 AND status=\'ATIVA\' FOR SHARE', [empresa]);
     if (!ativa.rows.length) throw new Error('ATENDIMENTO_EMPRESA_INATIVA');
@@ -70,9 +76,13 @@ export async function acessoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: 
 export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: string) {
   return acessoAtendimento(sessao, async (tx, empresa, papel) => {
     const ambiente = ambienteAtendimento();
-    const conversas = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE empresa_id=$1 AND ambiente=$2 ORDER BY atualizada_em DESC LIMIT 100', [empresa, ambiente])).rows;
-    const mensagens = conversaId ? (await tx.query<Mensagem>('SELECT id,conversa_id,direcao,texto,estado,criada_em FROM whatsapp_atendimento_mensagens WHERE empresa_id=$1 AND ambiente=$2 AND conversa_id=$3 ORDER BY criada_em DESC,id DESC LIMIT 100', [empresa, ambiente, conversaId])).rows.reverse() : [];
-    return { conversas: conversas.map(c => ({ ...c, versao: Number(c.versao) })), mensagens, usuarioId: sessao.usuario_id, configuracao: await configuracao(tx, empresa), automacaoDisponivel: atendimentoAtivo(), podeConfigurar: papel === 'REPRESENTANTE_AUTORIZADO' };
+    // Nome do responsável só quando ele tem vínculo ativo com a mesma empresa (o mesmo critério do envio humano).
+    const conversas = (await tx.query<ConversaLista>(`SELECT c.*,u.nome AS responsavel_nome FROM whatsapp_atendimento_conversas c
+      LEFT JOIN usuarios_administrativos u ON u.id=c.responsavel_id AND EXISTS(SELECT 1 FROM memberships m WHERE m.usuario_id=u.id AND m.empresa_id=c.empresa_id AND m.status='ATIVA')
+      WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY c.atualizada_em DESC LIMIT 100`, [empresa, ambiente])).rows;
+    const mensagens = conversaId ? (await tx.query<MensagemLista>('SELECT id,conversa_id,direcao,texto,estado,criada_em,autor_usuario_id IS NOT NULL AS humana FROM whatsapp_atendimento_mensagens WHERE empresa_id=$1 AND ambiente=$2 AND conversa_id=$3 ORDER BY criada_em DESC,id DESC LIMIT 100', [empresa, ambiente, conversaId])).rows.reverse() : [];
+    const canal: EstadoCanal = { ambiente, receptor: receptorDoNumero(), recepcao: recepcaoAtiva(), envio: atendimentoAtivo() };
+    return { conversas: conversas.map(c => ({ ...c, versao: Number(c.versao) })), mensagens, usuarioId: sessao.usuario_id, configuracao: await configuracao(tx, empresa), automacaoDisponivel: atendimentoAtivo(), canal, podeConfigurar: papel === 'REPRESENTANTE_AUTORIZADO' };
   });
 }
 export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { acao: 'assumir' | 'retomar' | 'encerrar' | 'enviar'; conversaId: string; texto?: string; versao: number }) {

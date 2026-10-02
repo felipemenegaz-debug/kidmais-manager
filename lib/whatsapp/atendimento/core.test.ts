@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { comandoDireto, configuracaoSchema, dataDeInteresse, dataValida, entradaGupshup, hojeOperacao, interpretacaoSchema, janelaAberta, responder } from './core.ts';
-const config = {ativo:true,nome:'Empresa sintética',perguntas:[{id:'endereco',pergunta:'Onde fica?',resposta:'Endereço aprovado pelo responsável.'}]};
+const config = {ativo:true,nome:'Empresa sintética',perguntas:[{id:'endereco',pergunta:'Onde fica?',resposta:'Endereço aprovado pelo responsável.'}],limites:{respostasPor24h:20}};
 const plano = {intencao:'DUVIDA' as const,perguntaId:'endereco',data:null,convidados:null};
 test('FAQ só responde com fonte publicada; id desconhecido encaminha para humano',()=>{
   assert.equal(responder(config,plano,{data:null,convidados:null}).texto,config.perguntas[0].resposta);
@@ -45,4 +45,32 @@ test('lista de contatos permitidos: staging exige lista; produção sem lista at
   assert.equal(contatoPermitido('5561999990000',env('staging','5561999990000,+55 61')),false);
   assert.equal(contatoPermitido('5561777770000',env('production')),true);
   assert.equal(contatoPermitido('5561777770000',env('production','5561999990000')),false);
+});
+test('limites: configuração antiga recebe o padrão; fora da faixa é recusado', () => {
+  const antiga = { ativo: config.ativo, nome: config.nome, perguntas: config.perguntas };
+  const lida = configuracaoSchema.parse(antiga);
+  assert.deepEqual(lida.limites, { respostasPor24h: 20 });
+  assert.equal(configuracaoSchema.safeParse({ ...config, limites: { respostasPor24h: 0 } }).success, false);
+  assert.equal(configuracaoSchema.safeParse({ ...config, limites: { respostasPor24h: 101 } }).success, false);
+  assert.equal(configuracaoSchema.safeParse({ ...config, limites: { respostasPor24h: 5, outro: 1 } }).success, false);
+  assert.equal(configuracaoSchema.parse({ ...config, limites: { respostasPor24h: 5 } }).limites.respostasPor24h, 5);
+});
+test('receptor único: só o ambiente nomeado grava e envia; ausente ou divergente fecha tudo', async () => {
+  const { receptorDoNumero, recepcaoAtiva, atendimentoAtivo } = await import('./configuracao.ts');
+  const env = (ambiente: string, receptor?: string) => ({ KIDMAIS_DEPLOY_ENV: ambiente, WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED: 'true', WHATSAPP_ATENDIMENTO_ENABLED: 'true', ...(receptor === undefined ? {} : { WHATSAPP_ATENDIMENTO_RECEPTOR: receptor }) }) as unknown as NodeJS.ProcessEnv;
+  assert.equal(receptorDoNumero(env('staging', 'staging')), true);
+  assert.equal(recepcaoAtiva(env('staging', 'staging')), true); assert.equal(atendimentoAtivo(env('staging', 'staging')), true);
+  // Produção com o receptor apontando para staging (janela de homologação): nada é gravado nem enviado.
+  for (const e of [env('production', 'staging'), env('production'), env('staging', 'STAGING'), env('staging', ''), env('desconhecido', 'desconhecido')]) {
+    assert.equal(receptorDoNumero(e), false); assert.equal(recepcaoAtiva(e), false); assert.equal(atendimentoAtivo(e), false);
+  }
+  assert.equal(recepcaoAtiva({ ...env('staging', 'staging'), WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED: 'false' }), false);
+  assert.equal(atendimentoAtivo({ ...env('staging', 'staging'), WHATSAPP_ATENDIMENTO_ENABLED: '1' }), false);
+});
+test('entrada: timestamp em milissegundos (formato v2 do Gupshup) e origem sem "+"', () => {
+  const evento = { app: 'KidmaisManager', version: 2, type: 'message', timestamp: 1718007189549, payload: { id: 'wamid.sintetico', type: 'text', source: '5561999990000', payload: { text: 'Olá' }, sender: { phone: '5561999990000', name: 'Nome não usado' } } };
+  const lida = entradaGupshup(evento)!;
+  assert.equal(new Date(lida.timestamp).toISOString(), '2024-06-10T08:13:09.549Z');
+  assert.equal(lida.source, '5561999990000');
+  assert.equal(JSON.stringify(lida).includes('Nome não usado'), false, 'nome do remetente não é guardado');
 });

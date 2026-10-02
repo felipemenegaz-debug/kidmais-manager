@@ -28,6 +28,8 @@ import * as core from "./core.ts";
  *  6. PARAR bloqueia envios; janela de 24 h recusa e cancela envio humano;
  *  7. status recebido antes do retorno do envio é aplicado e apagado; status sem correspondência (OTP) expira em 24 h;
  *  8. interrupção: PROCESSANDO/ENVIANDO antigos viram FALHOU/INCERTO, conversa para humano, nada reenviado;
+ *     modelo indisponível envia só o texto fixo de encaminhamento; eventos fora de ordem respondem pelo mais
+ *     recente; limite de respostas em 24 h encaminha sem chamar o modelo;
  *  9. rollback: precheck, down recusado com dados e com envio em andamento, down com descarte, pós-rollback.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
@@ -59,7 +61,7 @@ const db = () => ({ query: async (sql: string, v?: unknown[]) => { const c = awa
 type Servico = typeof import("./service.ts");
 type Worker = typeof import("./worker.ts");
 function carregar(empresaPiloto: string) {
-  const configuracao = { ambienteAtendimento: () => "staging", empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
+  const configuracao = { ambienteAtendimento: () => "staging", empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
   const postgres = { withTransaction, db };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
     "../../db/postgres.ts": postgres,
@@ -207,6 +209,38 @@ test("060: atendimento WhatsApp — isolamento, deduplicação, concorrência, t
     assert.deepEqual((await mensagens(c60.id)).map((m) => m.estado).sort(), ["FALHOU", "INCERTO"]);
     assert.equal((await conversa("5561900000060")).estado, "AGUARDANDO_HUMANO");
     assert.equal(enviados.length, 0);
+
+    // 8b. Modelo indisponível: a conversa vai para a equipe e o contato recebe só o texto fixo de encaminhamento.
+    await servico.receberEntrada(evento(70, "5561900000070", "Qual o valor?"));
+    enviados.length = 0;
+    await worker.processarLote(deps({ interpretar: async () => { throw new Error("ATENDIMENTO_MODELO_INDISPONIVEL"); } }), { maxTarefas: 10 });
+    const c70 = await conversa("5561900000070");
+    assert.equal(c70.estado, "AGUARDANDO_HUMANO");
+    assert.deepEqual((await mensagens(c70.id)).map((m) => `${m.direcao}:${m.estado}:${m.direcao === "SAIDA" ? m.texto : ""}`), ["ENTRADA:FALHOU:", `SAIDA:SUBMETIDA:${core.MENSAGEM_ENCAMINHAMENTO}`]);
+    assert.deepEqual(enviados, ["5561900000070"]);
+
+    // 8c. Ordem: o evento mais recente chega antes do anterior; a única resposta considera o mais recente.
+    let pedido = "";
+    await servico.receberEntrada(evento(81, "5561900000080", "Para 40 pessoas", agora - 1000));
+    await servico.receberEntrada(evento(80, "5561900000080", "Oi", agora - 5000));
+    enviados.length = 0;
+    await worker.processarLote(deps({ interpretar: async (_e: string, texto: string) => { pedido = texto; return { intencao: "OUTRO" as const, perguntaId: null, data: null, convidados: null }; } }), { maxTarefas: 10 });
+    assert.equal(JSON.parse(pedido).mensagemAtual, "Para 40 pessoas");
+    assert.deepEqual(JSON.parse(pedido).mensagens, ["Oi", "Para 40 pessoas"]);
+    assert.equal(enviados.length, 1);
+
+    // 8d. Limite de respostas em 24 h: atingido, encaminha sem chamar o modelo.
+    await servico.salvarConfiguracao(representante, { ativo: true, nome: "Empresa sintética A", perguntas: [{ id: "endereco", pergunta: "Onde fica?", resposta: "Resposta aprovada sintética." }], limites: { respostasPor24h: 1 } });
+    let chamadasModelo = 0;
+    const contado = deps({ interpretar: async () => { chamadasModelo++; return { intencao: "DUVIDA" as const, perguntaId: "endereco", data: null, convidados: null }; } });
+    await servico.receberEntrada(evento(90, "5561900000090", "Onde fica?"));
+    await worker.processarLote(contado, { maxTarefas: 10 });
+    await servico.receberEntrada(evento(91, "5561900000090", "E o horário?"));
+    await worker.processarLote(contado, { maxTarefas: 10 });
+    assert.equal(chamadasModelo, 1, "a segunda entrada não chama o modelo");
+    const c90 = await conversa("5561900000090");
+    assert.equal(c90.estado, "AGUARDANDO_HUMANO");
+    assert.equal((await mensagens(c90.id)).at(-1)?.texto, core.MENSAGEM_ENCAMINHAMENTO);
 
     // 9. Rollback: precheck; down recusado com envio em andamento e com dados sem descarte; down com descarte.
     await c.query(PRE_DOWN);

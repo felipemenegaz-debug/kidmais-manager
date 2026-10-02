@@ -2,6 +2,39 @@
 
 Atualizado em 01/10/2026. Modelo recomendado para continuar: Claude Opus 5.5 no Claude Code, com acesso a este checkout. Este documento registra a candidata local; não atesta uma publicação ou uma integração real homologada.
 
+## Rodada de 02/10/2026 (Claude): separação e conclusão da primeira versão
+
+**Separação da candidata:**
+- O WhatsApp está na branch `whatsapp/atendimento-ia-v1`, criada de `origin/staging` (881690f), que vira a PR para staging.
+- As correções de importação ficaram na branch local `ux/importacao-revisao-cancelamento` (c1a252d), sem push, para uma entrega própria.
+- A candidata inteira, como estava, ficou em `backup/ux-whatsapp-candidata-20261002`.
+- A correção do financeiro **não** entra nesta PR: já está em `staging` (PR #77) e em `production` (PR #79), com código idêntico ao local.
+
+**Mudanças desta rodada** (detalhes e plano de ativação em [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md)):
+- **Envio:** o transporte só aceitava HTTP 202, mas a API de sessão do Gupshup documenta 2xx (exemplo 200). Todo envio real terminaria "Entrega não confirmada".
+  - 2xx com `submitted` passa a ser sucesso.
+  - Recusa documentada (4xx) termina FALHOU.
+  - O resto continua INCERTO, sem reenvio.
+- **Receptor único:** `WHATSAPP_ATENDIMENTO_RECEPTOR` precisa ser igual a `KIDMAIS_DEPLOY_ENV` para gravar ou enviar. Ausente, nada é gravado nem enviado. O app Gupshup pode ter até cinco assinaturas, e todas recebem cópia.
+- **Falha do modelo, orçamento ou limite:** a conversa vai para a equipe e o contato recebe só um texto fixo de encaminhamento. Antes, ficava sem resposta.
+- **Limite configurável:** respostas automáticas por conversa em 24 h (padrão 20, de 1 a 100), definidas na tela. O teto de custo continua no `AI_BUDGET_JSON` da capacidade `whatsapp_atendimento`.
+- **Ordem:** a resposta considera a entrada mais recente pelo horário do evento, mesmo que ela tenha chegado antes de outra mais antiga.
+- **Horário do evento:** à frente do relógio, vale como agora. Antes devolvia 503, e o Gupshup repetiria o evento sem fim.
+- **Tela:**
+  - situação do canal em partes (receptor, receber, enviar, orçamento, empresa);
+  - responsável na lista, no quadro e na conversa;
+  - autor de cada mensagem (cliente, assistente virtual ou atendente);
+  - motivo quando a resposta está bloqueada (janela, opt-out, não assumida);
+  - "Voltar às conversas" no celular;
+  - limite de respostas na configuração, com validação do navegador;
+  - acesso negado agora devolve 403.
+- **Worker:** recusa iniciar com URL ou segredo inválidos. Faz espera crescente até 60 s, registra só mudanças de estado e um resumo a cada 10 min, e para por sinal sem perder trabalho.
+
+**Validação desta rodada** (Node 22.23.2, sem banco, rede ou provedor reais):
+- `check:v1:static`: 1.713 testes unitários e 103 do harness, lint (só o warning preexistente), TypeScript e build. Log: `.local-ux/whatsapp-static-node22-v2.log`.
+- QA no navegador com APIs simuladas (`.local-ux/qa-whatsapp-ui-v2.cjs`, capturas em `.local-ux/whatsapp-qa-v2/`), em celular 390×844 e desktop 1280×900. Coberto: teclado e foco, rolagem, conflito 409, janela expirada, opt-out, passagem entre atendentes, redução de movimento, configuração e quadro.
+- **Não executado:** a suíte PostgreSQL da 060 ganhou os passos 8b–8d (modelo indisponível, ordem e limite), mas não rodou. Precisa de nova autorização do cluster descartável (O1–O4). A migration 060 **não mudou**.
+
 ## Checkout e instruções
 
 - Diretório: `C:/Users/Glass/.codex/worktrees/0997/kidmais-manager-ai-master`.
@@ -29,6 +62,7 @@ Nomes de configuração a conferir por presença/formato, nunca imprimir valores
 
 - `KIDMAIS_DEPLOY_ENV`: ambiente explícito staging ou production.
 - `WHATSAPP_ATENDIMENTO_EMPRESA_ID`: UUID da empresa piloto comprovada.
+- `WHATSAPP_ATENDIMENTO_RECEPTOR`: `staging` ou `production`, igual a `KIDMAIS_DEPLOY_ENV` só no ambiente que recebe e responde o número (receptor único). Ausente: nada é gravado nem enviado.
 - `WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED`: libera persistência autenticada do webhook.
 - `WHATSAPP_ATENDIMENTO_ENABLED`: libera a fila do canal; ausente/desligada não envia.
 - `WHATSAPP_ATENDIMENTO_WORKER_SECRET`: segredo exclusivo por ambiente, de 32 a 256 caracteres imprimíveis sem espaços.

@@ -1,10 +1,16 @@
 import { z } from 'zod';
 
+export const LIMITE_PADRAO_RESPOSTAS = 20;
 export const configuracaoSchema = z.object({
   ativo: z.boolean(), nome: z.string().trim().min(2).max(100),
   perguntas: z.array(z.object({ id: z.string().regex(/^[a-z0-9_-]{1,40}$/), pergunta: z.string().trim().min(3).max(250), resposta: z.string().trim().min(3).max(1500) }).strict()).max(30),
+  // Respostas automáticas por conversa em 24 h; atingido o limite, a conversa vai para a equipe sem chamar o modelo.
+  // O teto de tokens/custo continua no orçamento da capacidade `whatsapp_atendimento`, definido no servidor.
+  limites: z.object({ respostasPor24h: z.number().int().min(1).max(100) }).strict().default({ respostasPor24h: LIMITE_PADRAO_RESPOSTAS }),
 }).strict().refine(v => new Set(v.perguntas.map(p => p.id)).size === v.perguntas.length, 'Identificadores repetidos.');
 export type ConfiguracaoAtendimento = z.infer<typeof configuracaoSchema>;
+/** Texto fixo quando a IA não pode responder (modelo, orçamento ou limite): encaminha sem inventar conteúdo. */
+export const MENSAGEM_ENCAMINHAMENTO = 'Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe; a resposta dependerá do horário de atendimento.';
 export const interpretacaoSchema = z.object({
   intencao: z.enum(['DUVIDA', 'INTERESSE', 'HUMANO', 'PARAR', 'OUTRO']),
   perguntaId: z.string().max(40).nullable(),

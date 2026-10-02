@@ -8,12 +8,12 @@ const agora = new Date();
 const conversa: Conversa = {id:'c',empresa_id:'e',ambiente:'staging',contato:'5561999999999',estado:'IA',responsavel_id:null,nao_contatar:false,versao:3,ultima_entrada_em:agora.toISOString(),interesse:{data:null,convidados:null}};
 const mensagem: Mensagem = {id:'m',conversa_id:'c',empresa_id:'e',ambiente:'staging',direcao:'SAIDA',origem_id:'entrada',autor_usuario_id:null,texto:'Resposta aprovada',estado:'PENDENTE',versao_conversa:3,criada_em:agora.toISOString()};
 let limpezas=0; const correlacoes:string[]=[];
-function carregar(query: (sql: string, args?: unknown[]) => Promise<{rows: unknown[]}>, ativo=true, permitido=true) {
+function carregar(query: (sql: string, args?: unknown[]) => Promise<{rows: unknown[]}>, ativo=true, permitido=true, limite=20) {
   return carregarComponente('lib/whatsapp/atendimento/worker.ts', {
     '../../db/postgres.ts':{db:()=>({query}),withTransaction:async(fn:(tx:unknown)=>unknown)=>fn({query})},
     './configuracao.ts':{ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido},
     './core.ts':core,
-    './service.ts':{configuracao:async()=>({ativo:true,nome:'Kidmais',perguntas:[]}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);}},
+    './service.ts':{configuracao:async()=>({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);}},
     './modelo.ts':{interpretarMensagem:async()=>{throw Error('modelo real proibido no teste');}},
     './transporte.ts':{enviarMensagem:async()=>{throw Error('rede real proibida no teste');}},
   }).modulo as {
@@ -63,11 +63,11 @@ test('timeout do provedor marca entrega incerta e não tenta enviar novamente',a
   assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;throw Error('timeout');}}),'ENCAMINHADA');
   assert.equal(envios,1); assert(comandos.some(sql=>sql.includes("THEN 'INCERTO'"))); assert(comandos.some(sql=>sql.includes("estado='AGUARDANDO_HUMANO'")));
 });
-test('orçamento esgotado ou modelo indisponível encaminha para humano sem resposta automática',async()=>{
+test('orçamento esgotado ou modelo indisponível: equipe assume e o contato recebe só o texto fixo de encaminhamento',async()=>{
   const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Qual o horário de vocês?'};
-  let envios=0; const comandos:string[]=[];
-  const worker=carregar(async(sql)=>{
-    comandos.push(sql);
+  let envios=0; const comandos:{sql:string;args?:unknown[]}[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
     if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
     if(sql.includes('SELECT m.*')) return {rows:[entrada]};
     if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
@@ -75,8 +75,77 @@ test('orçamento esgotado ou modelo indisponível encaminha para humano sem resp
   });
   assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('ATENDIMENTO_MODELO_INDISPONIVEL');},enviar:async()=>{envios++;return 'id';}}),'ENCAMINHADA');
   assert.equal(envios,0);
-  assert(comandos.some(sql=>sql.includes("ELSE 'FALHOU'"))); assert(comandos.some(sql=>sql.includes("estado='AGUARDANDO_HUMANO'")));
-  assert(!comandos.some(sql=>sql.includes("'SAIDA',$5,'PENDENTE'")),'nenhuma resposta automática é criada');
+  assert.deepEqual(comandos.find(c=>c.sql.includes("SET estado=$2 WHERE id=$1 AND estado='PROCESSANDO'"))?.args,['m','FALHOU']);
+  assert.deepEqual(comandos.find(c=>c.sql.includes("SET estado='AGUARDANDO_HUMANO',versao=$2"))?.args,['c',4]);
+  const fixa=comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"));
+  assert.deepEqual(fixa?.args,['c','e','staging','m',core.MENSAGEM_ENCAMINHAMENTO,4],'só o texto fixo, na nova versão da conversa');
+});
+test('falha do modelo depois que um atendente assumiu não cria mensagem automática',async()=>{
+  const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Quanto custa?'};
+  let leituras=0; const comandos:{sql:string;args?:unknown[]}[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[++leituras===1?conversa:{...conversa,estado:'HUMANO',responsavel_id:'u',versao:4}]};
+    return {rows:[]};
+  });
+  assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('timeout');},enviar:async()=>'id'}),'ENCAMINHADA');
+  assert.deepEqual(comandos.find(c=>c.sql.includes("WHERE id=$1 AND estado='PROCESSANDO'"))?.args,['m','CANCELADA']);
+  assert.equal(comandos.some(c=>c.sql.includes('INSERT INTO whatsapp_atendimento_mensagens')),false);
+});
+test('limite de respostas em 24 h encaminha à equipe sem chamar o modelo',async()=>{
+  const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Mais uma pergunta'};
+  let modelo=0; const comandos:{sql:string;args?:unknown[]}[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    if(sql.includes('SELECT count(*) AS n')) return {rows:[{n:'3'}]};
+    return {rows:[]};
+  },true,true,3);
+  assert.equal(await worker.processarAtendimento({interpretar:async()=>{modelo++;return {intencao:'OUTRO' as const,perguntaId:null,data:null,convidados:null};},enviar:async()=>'id'}),'ENCAMINHADA');
+  assert.equal(modelo,0);
+  const contagem=comandos.find(c=>c.sql.includes('SELECT count(*) AS n'))!;
+  assert.match(contagem.sql,/direcao='SAIDA' AND autor_usuario_id IS NULL AND estado<>'CANCELADA' AND criada_em > clock_timestamp\(\)-interval '24 hours'/);
+  assert.deepEqual(comandos.find(c=>c.sql.includes("WHERE id=$1 AND estado='PROCESSANDO'"))?.args,['m','PROCESSADA']);
+  assert.equal(comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"))?.args?.[4],core.MENSAGEM_ENCAMINHAMENTO);
+});
+test('ordem: a resposta considera a entrada mais recente pelo horário do evento, mesmo que tenha chegado antes',async()=>{
+  // "Oi" chegou por último (versão atual da conversa), mas o evento "Para 40 pessoas" é mais recente.
+  const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Oi',criada_em:new Date(agora.getTime()-60000).toISOString()};
+  const comandos:{sql:string;args?:unknown[]}[]=[]; let pedido='';
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    if(sql.includes('SELECT texto FROM')) return {rows:[{texto:'Para 40 pessoas'},{texto:'Oi'}]};
+    return {rows:[]};
+  });
+  await worker.processarAtendimento({interpretar:async(_e:string,texto:string)=>{pedido=texto;return {intencao:'OUTRO' as const,perguntaId:null,data:null,convidados:null};},enviar:async()=>'id'} as never);
+  const historico=comandos.find(c=>c.sql.includes('SELECT texto FROM'))!;
+  assert.doesNotMatch(historico.sql,/criada_em<=/,'não corta entradas mais recentes que chegaram antes');
+  assert.match(historico.sql,/ORDER BY criada_em DESC,id DESC LIMIT 8/);
+  assert.deepEqual(JSON.parse(pedido).mensagens,['Oi','Para 40 pessoas']);
+  assert.equal(JSON.parse(pedido).mensagemAtual,'Para 40 pessoas');
+});
+test('recusa do provedor termina FALHOU; timeout continua INCERTO; nenhum reenvio',async()=>{
+  const casos=[['ATENDIMENTO_ENVIO_RECUSADO',true],['ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO',true],['ATENDIMENTO_RESULTADO_INCERTO',false]] as const;
+  for (const [erro,naoEnviada] of casos) {
+    let envios=0; const comandos:{sql:string;args?:unknown[]}[]=[];
+    const worker=carregar(async(sql,args)=>{
+      comandos.push({sql,args});
+      if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+      if(sql.includes('SELECT m.*')) return {rows:[mensagem]};
+      if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+      return {rows:[]};
+    });
+    assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;throw Error(erro);}}),'ENCAMINHADA');
+    assert.equal(envios,1);
+    assert.deepEqual(comandos.find(c=>c.sql.includes("THEN 'INCERTO'"))?.args,['m',naoEnviada],erro);
+  }
 });
 
 test('lote esvazia a fila numa chamada: entrada e saída da mesma resposta sem esperar o próximo ciclo',async()=>{

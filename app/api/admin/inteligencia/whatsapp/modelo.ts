@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db, withTransaction } from '@/lib/db/postgres';
 import { criarRegistroUsoPostgres } from '@/lib/ia-persistencia/uso';
-import { orcamentoDoAmbiente } from '@/lib/inteligencia/modelos/orcamento.ts';
+import { orcamentoDoAmbiente, planejarReserva } from '@/lib/inteligencia/modelos/orcamento.ts';
 import { tabelaDoAmbiente } from '@/lib/inteligencia/modelos/precos.ts';
 import { RoteadorModelos, circuitoGlobal, criarAdaptadores, politicaDoAmbiente } from '@/lib/inteligencia/modelos/roteador.ts';
 import { interpretacaoSchema, ESQUEMA_INTERPRETACAO, type ConfiguracaoAtendimento } from '@/lib/whatsapp/atendimento/core';
@@ -13,6 +13,17 @@ import { enviarMensagem } from '@/lib/whatsapp/atendimento/transporte';
 export async function processarFilaAtendimento() {
   if (!inteligenciaAtiva(process.env)) return { estado: 'DESLIGADO' as const, tarefas: 0 };
   return processarLote({interpretar:interpretarMensagem,enviar:enviarMensagem});
+}
+
+/**
+ * Para a tela: só presença, nunca valores. `ia` é a chave-mestra (sem ela o processador não roda, nem envio humano);
+ * `orcamento` indica um teto utilizável para a capacidade `whatsapp_atendimento` (sem ele o modelo não é chamado).
+ */
+export function estadoIaAtendimento(env: NodeJS.ProcessEnv = process.env) {
+  const orcamento = env.AI_BUDGET_JSON ? orcamentoDoAmbiente(env) : 'AUSENTE';
+  const hoje = new Date().toISOString().slice(0, 10);
+  const comTeto = typeof orcamento !== 'string' && planejarReserva(orcamento, { capacidade: 'whatsapp_atendimento', hoje, moedaPreco: orcamento.moeda ?? null, precoConhecido: true }).tipo === 'RESERVAR';
+  return { ia: inteligenciaAtiva(env), orcamento: comTeto };
 }
 
 export async function interpretarMensagem(empresaId: string, texto: string, config: ConfiguracaoAtendimento) {

@@ -8,7 +8,18 @@ export function empresaPiloto(env: NodeJS.ProcessEnv = process.env) {
   if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) throw new Error('ATENDIMENTO_EMPRESA_NAO_CONFIGURADA');
   return id;
 }
-export function atendimentoAtivo(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_ENABLED === 'true'; }
+/**
+ * Receptor único do número comercial. O app Gupshup aceita até cinco assinaturas de webhook e cada uma recebe uma
+ * cópia dos eventos: staging e produção podem receber a mesma mensagem. Só o ambiente nomeado em
+ * WHATSAPP_ATENDIMENTO_RECEPTOR (igual a KIDMAIS_DEPLOY_ENV) grava entradas e envia respostas. Ausente ou divergente:
+ * nenhuma automação (fail-closed); as flags de ligar não bastam sem o receptor.
+ */
+export function receptorDoNumero(env: NodeJS.ProcessEnv = process.env) {
+  const receptor = env.WHATSAPP_ATENDIMENTO_RECEPTOR;
+  return (receptor === 'staging' || receptor === 'production') && receptor === env.KIDMAIS_DEPLOY_ENV;
+}
+export function recepcaoAtiva(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED === 'true' && receptorDoNumero(env); }
+export function atendimentoAtivo(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_ENABLED === 'true' && receptorDoNumero(env); }
 
 /**
  * Contatos que o canal pode receber e responder (WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS: números com DDI, só
