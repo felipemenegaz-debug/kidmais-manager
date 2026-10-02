@@ -50,10 +50,11 @@ async function ler<T>(resposta: Promise<Response>, valido: (d: unknown) => d is 
 
 const postarJson = (buscar: Buscador, corpo: object) => buscar(ENDPOINT_IMPORTACOES, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
 
-/** A importação real está liberada para esta empresa? Qualquer falha ⇒ modo demonstração. */
+/** Falhas são explícitas; demonstração exige uma escolha separada do operador. */
 export async function importacaoHabilitada(buscar: Buscador) {
   const r = await ler(postarJson(buscar, { acao: 'estado' }), (d): d is { habilitado: boolean } => typeof (d as { habilitado?: unknown })?.habilitado === 'boolean');
-  return r.ok && r.dados.habilitado;
+  if (!r.ok) throw new Error(r.mensagem);
+  return r.dados.habilitado;
 }
 
 type DocumentoEnviado = { documentoId: string; avisos: string[] };
