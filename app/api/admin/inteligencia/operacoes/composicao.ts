@@ -14,6 +14,8 @@ import type { DependenciasPreparacao } from "@/lib/inteligencia/acoes/preparacoe
 import { InteligenciaError } from "@/lib/inteligencia/politica";
 import { hojeBrasilia } from "@/lib/financeiro/calculos";
 import { criarAcaoContratacao, type PortaContratacao } from "@/lib/inteligencia/acoes/contratacao";
+import { criarAcaoContaPagar, type PortaContaPagar } from "@/lib/inteligencia/acoes/conta-pagar";
+import { criarContaPagar, listarCategoriasDespesa } from "@/lib/financeiro/servico";
 import { criarAcaoParametroConsumo, type PortaParametrosAcao } from "@/lib/inteligencia/acoes/parametros-consumo";
 import { operacionalAtivo } from "@/lib/inteligencia/flags";
 import { fonteParametrosDisponivel, parametroVigente, registrarParametroConsumo } from "@/lib/operacional/parametros-consumo";
@@ -87,6 +89,11 @@ export const portaParametros: PortaParametrosAcao = {
   registrar: (tx, entrada) => registrarParametroConsumo(tx, entrada),
 };
 
+export const portaContaPagar: PortaContaPagar = {
+  categorias: listarCategoriasDespesa,
+  criar: criarContaPagar,
+};
+
 function ttlConfirmacao() {
   const n = Number(process.env.AI_CONFIRMACAO_TTL_SEGUNDOS);
   return Number.isInteger(n) && n >= 60 && n <= 3600 ? n : 600;
@@ -100,6 +107,7 @@ export function gateDoAmbiente(): DependenciasHumanGate {
 export function registrarAcoes(registro: RegistroExtensoes) {
   const lista = registro.lista(CHAVE_ACOES);
   lista.push(...criarAcoesPacote(portaPacotes), ...acoesNegadas());
+  lista.push(criarAcaoContaPagar(portaContaPagar));
   // IA operacional só com AI_OPERACIONAL_ENABLED=true: desligada, as ações nem existem (rollback por flag).
   if (operacionalAtivo(process.env)) lista.push(criarAcaoContratacao(portaContratacao, () => hojeBrasilia(new Date())), criarAcaoParametroConsumo(portaParametros));
   registro.definir(CHAVE_HUMAN_GATE, gateDoAmbiente);

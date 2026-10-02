@@ -9,13 +9,19 @@ import { normalizar } from "../texto-pt.ts";
  * festa (o pacote é um atributo); "crie um pacote chamado Premium" continua sendo criação de pacote. Objeto negado
  * ("…e não um pacote") nunca vira alvo. Nada aqui autoriza: Policy, Tenant Context e Human Gate seguem decidindo.
  */
-export type ObjetoCriacao = "FESTA" | "PACOTE";
+export type ObjetoCriacao = "FESTA" | "PACOTE" | "CONTA_PAGAR";
 
-export const CAPACIDADE_DO_OBJETO: Readonly<Record<ObjetoCriacao, string>> = { FESTA: "preparar_contratacao", PACOTE: "criar_pacote" };
+export const CAPACIDADE_DO_OBJETO: Readonly<Record<ObjetoCriacao, string>> = { FESTA: "preparar_contratacao", PACOTE: "criar_pacote", CONTA_PAGAR: "criar_conta_pagar" };
 
 const VERBO_CRIAR = /\b(crie|criar|cria|crio|cadastr(?:e|ar|a)|mont(?:e|ar)|agend(?:e|ar|a)|marc(?:ar|que)|fech(?:ar|e)|nov[oa]|prepar\w* (?:a |uma )?contratacao)\b/;
 const FESTA = /\b(festa|aniversario|contratacao|fechamento)\b/;
 const PACOTE = /\bpacotes?\b/;
+export function pedeContaPagar(texto: string): boolean {
+  const n = normalizar(texto);
+  return /\b(?:adicion\w*|inclu\w*|crie|criar|cria|cadastre|cadastrar|nova)\b/.test(n)
+    && /\bconta a pagar\b/.test(n) && !ehPergunta(texto)
+    && !/\bnao\s+(?:quero\s+)?(?:adicion\w*|inclu\w*|cri\w*|cadastr\w*)\b/.test(n);
+}
 /** "não (é) (um/o) pacote", "não festa": o objeto negado é retirado antes de procurar o principal. */
 const NEGADO = /\b(?:e )?nao (?:e |eh |seria |quero |quero criar |criar )?(?:um |uma |o |a )?(pacotes?|festas?)\b/g;
 
@@ -23,6 +29,7 @@ const NEGADO = /\b(?:e )?nao (?:e |eh |seria |quero |quero criar |criar )?(?:um 
 export function objetoDeCriacao(texto: string): ObjetoCriacao | null {
   // Pergunta ("quem vai montar a festa?", "como crio um pacote?") nunca é pedido de criação.
   if (ehPergunta(texto)) return null;
+  if (pedeContaPagar(texto)) return "CONTA_PAGAR";
   const n = normalizar(texto).replace(NEGADO, " ");
   const verbo = VERBO_CRIAR.exec(n);
   if (!verbo) return null;
