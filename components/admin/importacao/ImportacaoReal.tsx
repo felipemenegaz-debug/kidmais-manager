@@ -6,7 +6,7 @@ import type { CampoExtraido, EstadoCampo } from '@/lib/importacao-contrato/model
 import { decidirOperacao, type RascunhoPublico } from '@/components/admin/inteligencia/cliente-inteligencia';
 import { PreviewAcao } from '@/components/admin/inteligencia/AcaoKidmais';
 import { ACEITE_ARQUIVO, formatoArquivo, tamanhoLegivel } from '@/lib/importacao-contrato/revisao';
-import { agirNaImportacao, enviarContrato, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico } from './cliente-importacao';
+import { agirNaImportacao, enviarContrato, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico, type RespostaImportacao } from './cliente-importacao';
 import styles from './importacao.module.css';
 import real from './importacao-real.module.css';
 
@@ -20,7 +20,8 @@ type Etapa =
   | { etapa: 'lendo'; nome: string }
   | { etapa: 'revisao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; avisos: string[]; ocupado: boolean; erro: string | null }
   | { etapa: 'confirmacao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; rascunho: RascunhoPublico; decidindo: boolean; erro: string | null }
-  | { etapa: 'concluida'; mensagem: string; destino?: string };
+  | { etapa: 'cancelada' }
+  | { etapa: 'concluida'; mensagem: string; destino?: string; festaDestino?: string };
 
 const PASSOS = ['Enviar', 'Ler', 'Revisar', 'Confirmar'] as const;
 const ROTULO: Record<EstadoCampo | 'REVISADO', string> = { ENCONTRADO: 'Encontrado', PRECISA_REVISAO: 'Precisa revisão', NAO_ENCONTRADO: 'Não encontrado', REVISADO: 'Revisado' };
@@ -36,6 +37,14 @@ function campos(i: ImportacaoPublica) {
 }
 
 export type EtapaImportacao = Etapa;
+
+/** Reenvio e atualização de outra aba respeitam o estado terminal devolvido pelo servidor. */
+function etapaDaResposta(dados: RespostaImportacao): Etapa {
+  const i = dados.importacao;
+  if (i.status === 'IMPORTADA') return { etapa: 'concluida', mensagem: 'Este contrato já foi importado.', destino: i.resultado?.destino, festaDestino: `/admin/festas/importadas/${i.id}` };
+  if (i.status === 'DESCARTADA') return { etapa: 'cancelada' };
+  return { etapa: 'revisao', importacao: i, plano: dados.plano ?? null, avisos: dados.avisos ?? [], ocupado: false, erro: null };
+}
 
 /** `vitrine`: estado inicial estático para /preview-ux (sem sessão e sem rede). */
 export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
@@ -68,14 +77,21 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     setEstado({ etapa: 'lendo', nome: arquivo.name });
     const enviado = await enviarContrato(adminFetch, arquivo);
     if (!enviado.ok) { setEstado({ etapa: 'upload', erro: enviado.mensagem }); return; }
-    setEstado({ etapa: 'revisao', importacao: enviado.dados.importacao, plano: enviado.dados.plano ?? null, avisos: enviado.dados.avisos ?? [], ocupado: false, erro: null });
+    setEditando(null);
+    setEstado(etapaDaResposta(enviado.dados));
   }
 
   async function agir(acao: AcaoImportacao) {
     if (estado.etapa !== 'revisao' || estado.ocupado) return;
     setEstado({ ...estado, ocupado: true, erro: null });
     const r = await agirNaImportacao(adminFetch, estado.importacao, acao);
-    if (!r.ok) { setEstado({ ...estado, ocupado: false, erro: r.mensagem }); return; }
+    if (!r.ok) {
+      if (r.codigo === 'IMPORTACAO_ENCERRADA') {
+        const atual = await agirNaImportacao(adminFetch, estado.importacao, { acao: 'ler' });
+        if (atual.ok) { setEditando(null); setEstado(etapaDaResposta(atual.dados)); return; }
+      }
+      setEstado({ ...estado, ocupado: false, erro: r.mensagem }); return;
+    }
     setEditando(null);
     if (acao.acao === 'descartar') { setEstado({ etapa: 'upload', erro: null }); return; }
     const rascunho = r.dados.gate?.tipo === 'preview' ? r.dados.gate.rascunho : undefined;
@@ -90,7 +106,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     if (r.tipo !== 'ok') { setEstado({ ...estado, decidindo: false, erro: r.mensagem }); return; }
     if (decisao === 'cancelar') { setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); return; }
     const resposta = r.resposta;
-    if (resposta.tipo === 'resultado_acao') setEstado({ etapa: 'concluida', mensagem: resposta.mensagem, destino: resposta.destino });
+    if (resposta.tipo === 'resultado_acao') setEstado({ etapa: 'concluida', mensagem: resposta.mensagem, destino: resposta.destino, festaDestino: `/admin/festas/importadas/${estado.importacao.id}` });
     else setEstado({ ...estado, decidindo: false, erro: 'Resposta inesperada. Confira de novo: repetir a confirmação não duplica a importação.' });
   }
 
@@ -200,11 +216,18 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     {estado.etapa === 'concluida' && <section className={styles.painel} role="status">
       <span className={styles.seloPronto}>Importado</span>
       <h2 className={styles.titulo}>{estado.mensagem}</h2>
-      <p className={styles.texto}>A festa não foi criada automaticamente: ela depende de um serviço do Core ainda não disponível para contratos históricos.</p>
+      <p className={styles.texto}>O evento pode ser consultado em Festas, conforme a data do contrato. Não é necessário importar o arquivo novamente.</p>
       <div className={styles.acoesFinais}>
-        {estado.destino && <Link className={styles.primario} href={estado.destino}>Abrir cliente</Link>}
+        {estado.festaDestino && <Link className={styles.primario} href={estado.festaDestino}>Abrir festa importada</Link>}
+        <Link className={styles.fantasma} href="/admin/festas?visao=proximas">Ver próximas festas</Link>
+        {estado.destino && <Link className={styles.fantasma} href={estado.destino}>Abrir cliente</Link>}
         <button type="button" className={styles.fantasma} onClick={() => setEstado({ etapa: 'upload', erro: null })}>Importar outro contrato</button>
       </div>
+    </section>}
+    {estado.etapa === 'cancelada' && <section className={styles.painel} role="status">
+      <h2 className={styles.titulo}>Esta revisão foi cancelada.</h2>
+      <p className={styles.texto}>Envie o contrato novamente para iniciar uma nova revisão.</p>
+      <button type="button" className={styles.primario} onClick={() => setEstado({ etapa: 'upload', erro: null })}>Enviar contrato novamente</button>
     </section>}
     <dialog ref={dialogo} className={`${styles.painel} ${real.cancelarDialogo}`} aria-labelledby="cancelar-importacao" onCancel={e => { e.preventDefault(); if (!decidindoCancelamento) setCancelando(false); }}><h2 id="cancelar-importacao">Descartar esta revisão?</h2><p>Nenhum cliente ou contrato será criado. O documento privado continuará sujeito à política de retenção do sistema.</p><div className={styles.acoesFinais}><button type="button" className={styles.fantasma} onClick={() => setCancelando(false)} disabled={decidindoCancelamento}>Continuar revisão</button><button type="button" className={styles.primario} onClick={() => void cancelarImportacao()} disabled={decidindoCancelamento}>Sim, cancelar importação</button></div></dialog>
   </main>;

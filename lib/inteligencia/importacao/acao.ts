@@ -161,7 +161,7 @@ export function criarAcaoImportacao(porta: PortaImportacao): FerramentaAcao {
         linha("itens", "Itens", r.itens),
         linha("naoEncontrados", "Campos não encontrados", String(r.naoEncontrados)),
         linha("evidencias", "Evidências conferidas no documento", String(r.evidencias)),
-        linha("festa", "Festa", "Não será criada agora: depende de serviço do Core."),
+        linha("festa", "Festa", "Será exibida em Festas conforme a data do contrato, com os dados confirmados na importação."),
       ];
     },
     async executar(tx, tenant, payload, contexto) {
