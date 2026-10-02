@@ -58,7 +58,8 @@ export async function verificarImportacao(buscar: Buscador): Promise<Resultado<{
 
 export async function importacaoHabilitada(buscar: Buscador) {
   const r = await verificarImportacao(buscar);
-  return r.ok && r.dados.habilitado;
+  if (!r.ok) throw new Error(r.mensagem);
+  return r.dados.habilitado;
 }
 
 type DocumentoEnviado = { documentoId: string; avisos: string[] };
