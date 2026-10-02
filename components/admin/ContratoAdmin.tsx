@@ -2,6 +2,7 @@
 import { analisarRevisao } from '@/lib/contratos/services/alteracoes';
 import { configuracaoModeloOficial } from '../../lib/contratos/documento/oficial/configuracao';
 import { useCallback, useEffect, useState, useRef } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ContratoSnapshotV1 } from '@/lib/contratos/repositories/models';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { formatarFormaPagamento, formatarMoeda, formatarCondicaoPix } from '@/lib/contratos/documento/formatters';
@@ -14,6 +15,7 @@ import FinanceiroContrato from './FinanceiroContrato';
 import CriarPlanoFinanceiro from './CriarPlanoFinanceiro';
 import { contextoCriacao } from './criacao-financeira';
 import { contratoApresentacao, type ContextoContrato } from './financeiro-apresentacao';
+import { FalhaContrato, MENSAGEM_LINK_INVALIDO, criarSequenciador, mensagemFalhaContrato, opcaoForaDaLista, pedidoDaUrl, urlDaSelecao } from './contrato-url';
 type Versao = {
     id: string;
     numero_versao: number;
@@ -74,10 +76,31 @@ export default function ContratoAdmin() {
     useEffect(()=>{const atualizar=()=>{setDestino(window.location.hash);setRetorno(retornoFestaSeguro(new URLSearchParams(window.location.search).get('returnTo')));};atualizar();window.addEventListener('hashchange',atualizar);return()=>window.removeEventListener('hashchange',atualizar);},[]);
     const [lista, setLista] = useState<ContextoContrato[]>([]), [mostrarCancelados,setMostrarCancelados]=useState(false), [cid, setCid] = useState(''), [data, setData] = useState<Painel | null>(null), [vid, setVid] = useState('');
     const [note, setNote] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [senha, setSenha] = useState(''), [motivo, setMotivo] = useState(''), [tipo, setTipo] = useState('NOVA_VERSAO'), [key, setKey] = useState('');
-    const load = useCallback(async (id: string, selected?: string) => { const res = await adminFetch('/api/admin/contratos/painel?contratoId=' + id); const b = await res.json(); if (!b.ok)
-        throw Error(b.erro); const p = b.data as Painel; setData(p); const v = p.versoes.find(x => x.id === selected) || p.versoes.find(x => x.id === p.fluxo?.versao_em_preparacao_id) || p.versoes[0]; setVid(v.id); setNote(v.dados_fonte?.observacoesDocumentais ?? ''); }, []);
-    useEffect(() => { adminFetch('/api/admin/contratos/painel'+(mostrarCancelados?'?incluirCancelados=1':'')).then(r => r.json()).then(async b => { if (!b.ok)
-        throw Error(b.erro); setLista(b.data); const solicitado=new URLSearchParams(window.location.search).get('contratoId'); if(solicitado&&b.data.some((c:ContextoContrato)=>c.id===solicitado)){setCid(solicitado);await load(solicitado,new URLSearchParams(window.location.search).get('versaoId')??undefined);} }).catch(e => setError(e.message)); }, [load,mostrarCancelados]);
+    // A URL é a fonte da seleção (link do Dashboard/Financeiro/festa/assistente, seletor, voltar/avançar). Ver contrato-url.ts.
+    const params = useSearchParams(), pathname = usePathname(), router = useRouter();
+    const pedidoUrl = pedidoDaUrl(params);
+    const urlContrato = pedidoUrl.tipo === 'contrato' ? pedidoUrl.contratoId : '', urlVersao = pedidoUrl.tipo === 'contrato' ? pedidoUrl.versaoId ?? '' : '', urlInvalida = pedidoUrl.tipo === 'invalido';
+    const sequencia = useRef(criarSequenciador());
+    // Só a resposta do último pedido é aplicada: um contrato clicado antes não substitui o atual quando responde atrasado.
+    const load = useCallback(async (id: string, selected?: string): Promise<boolean> => { const pedido = sequencia.current.iniciar(); let res: Response, b: { ok: boolean; data?: unknown; erro?: string };
+        try { res = await adminFetch('/api/admin/contratos/painel?contratoId=' + id); b = await res.json(); }
+        catch (e) { if (!sequencia.current.vigente(pedido)) return false; throw e; }
+        if (!sequencia.current.vigente(pedido)) return false;
+        if (!b.ok) throw new FalhaContrato(res.status, mensagemFalhaContrato(res.status, b.erro));
+        const p = b.data as Painel; setData(p); const v = p.versoes.find(x => x.id === selected) || p.versoes.find(x => x.id === p.fluxo?.versao_em_preparacao_id) || p.versoes[0]; setVid(v.id); setNote(v.dados_fonte?.observacoesDocumentais ?? ''); return true; }, []);
+    useEffect(() => { adminFetch('/api/admin/contratos/painel'+(mostrarCancelados?'?incluirCancelados=1':'')).then(r => r.json()).then(b => { if (!b.ok)
+        throw Error(b.erro); setLista(b.data); }).catch(e => setError(e.message)); }, [mostrarCancelados]);
+    // Nova URL ⇒ a seleção anterior sai na hora (ajuste de estado no render, sem efeito em cascata).
+    const chaveUrl = urlInvalida ? 'invalida' : `${urlContrato}|${urlVersao}`;
+    const [chaveAplicada, setChaveAplicada] = useState<string | null>(null);
+    if (chaveAplicada !== chaveUrl) {
+        setChaveAplicada(chaveUrl); setCid(urlContrato); setData(null); setVid(''); setEditando(false); setError(urlInvalida ? MENSAGEM_LINK_INVALIDO : '');
+    }
+    // Contrato pedido pela URL: carregado pelo detalhe do tenant mesmo se os filtros da lista o ocultarem.
+    useEffect(() => {
+        if (!urlContrato) { sequencia.current.iniciar(); return; }
+        load(urlContrato, urlVersao || undefined).catch(e => { setCid(''); setData(null); setError(e instanceof FalhaContrato ? e.message : 'Não foi possível carregar o contrato. Tente novamente.'); });
+    }, [urlContrato, urlVersao, load]);
     const v = data?.versoes.find(x => x.id === vid), docs = data?.documentos.filter(d => d.contrato_versao_id === vid) ?? [], signatures = data?.assinaturas.filter(s => s.contrato_versao_id === vid) ?? [];
     const financeiroKey=cid+':'+data?.fluxo?.versao_vigente_id;
     const financeiroCarregado=useCallback(()=>setFinanceiroPronto(financeiroKey),[financeiroKey]);
@@ -141,6 +164,7 @@ export default function ContratoAdmin() {
             const response=await adminFetch('/api/admin/contratos/painel');
             const body=await response.json();if(body.ok)setLista(body.data);
             setCid('');setVid('');setData(null);
+            router.replace(urlDaSelecao(pathname, params, ''), { scroll: false });
         }
     }
     const revisaoOperacional=data?.revisoesOperacionais.find(r=>r.contrato_versao_id===vid);
@@ -169,15 +193,13 @@ export default function ContratoAdmin() {
     }
     const proximo = v?.estado_edicao === 'EM_ELABORACAO' ? (v.documento_revisado_id ? 'Assinar pela Kidmais' : docs.some(d => d.categoria === 'CONTRATO' && d.revisao === v.revisao) ? 'Revisar o PDF' : 'Preparar o documento') : v?.estado_edicao === 'ASSINADA_KIDMAIS' ? 'Liberar para o cliente' : v?.estado_edicao === 'AGUARDANDO_CLIENTE' ? 'Acompanhar assinatura do cliente' : 'Conferir documentos e assinaturas';
     const docUrl = (id: string) => `/api/admin/contratos/documentos/${id}`;
+    // Contrato aberto pelo link mas oculto pelos filtros da lista: aparece no seletor, identificado como tal.
+    const foraDaLista = opcaoForaDaLista(lista, cid, data);
+    const opcaoUrl = cid && !lista.some(c => c.id === cid) ? (foraDaLista ? `${contratoApresentacao(foraDaLista)} — fora dos filtros da lista` : 'Carregando contrato…') : null;
     // Contrato aberto (carregado pela API do tenant) informa o drawer. É só dica: o servidor revalida no tenant comprovado.
     return <main className={styles.page}>{cid&&data&&<ContextoKidmais tela="contrato" entidadeId={cid}/>}{retorno&&<Link href={retorno}>Voltar à festa</Link>}<div className={styles.tituloContratos}><h1>Contratos</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato antigo</Link></div>{error && <p role="alert">{error}</p>}{cid && !data && !error && <p role="status">Carregando contrato…</p>}
  <details><summary>Filtros da lista</summary><label><input type="checkbox" checked={mostrarCancelados} onChange={e=>setMostrarCancelados(e.target.checked)}/> Incluir contratos cancelados</label></details>
- <label>Contrato <select aria-label="Contrato" value={cid} onChange={async (e) => { setCid(e.target.value); setData(null); setError('');setEditando(false); if(!e.target.value){return;} try {
-        await load(e.target.value);
-    }
-    catch (e) {
-        setError(String(e));
-    } }}><option value="">Selecione</option>{lista.map(c => <option key={c.id} value={c.id}>{contratoApresentacao(c)}</option>)}</select></label>
+ <label>Contrato <select aria-label="Contrato" value={cid} onChange={(e) => { router.push(urlDaSelecao(pathname, params, e.target.value), { scroll: false }); }}><option value="">Selecione</option>{lista.map(c => <option key={c.id} value={c.id}>{contratoApresentacao(c)}</option>)}{opcaoUrl && <option value={cid}>{opcaoUrl}</option>}</select></label>
  {v && data && <><header className={styles.overview}><div className={styles.hero}><div><span className={styles.badge}>{v.estado_edicao ?? v.status}</span><h2>{v.snapshot.contratante.nomeCompleto}</h2><p>{v.snapshot.evento.data.split('-').reverse().join('/')} · {v.snapshot.evento.pacote.nome} · {v.snapshot.evento.convidados} convidados</p></div><div className={styles.total}><span>Valor contratual · V{v.numero_versao}</span><strong>{formatarMoeda(v.snapshot.comercial.valorFinalContrato)}</strong></div></div><div className={styles.actions}>{v.estado_edicao==='EM_ELABORACAO' && <button disabled={busy} onClick={()=>{setEditando(!editando);window.location.hash='alteracoes';}}>Editar dados desta revisão</button>}{(podeRevisar||podeSubstituir)&&<a href="#alteracoes"><strong>{podeSubstituir?'Criar nova revisão':'Criar revisão / retificação'}</strong></a>}{data.contrato.status==='AGUARDANDO_ASSINATURA'&&!data.fluxo?.versao_vigente_id&&<details><summary>Mais ações</summary><button disabled={busy} onClick={cancelarContratacao}>Cancelar contratação</button></details>}</div></header>
  <div className={styles.next}><div><strong>Próximo passo</strong><p>{data.contrato.status === 'CANCELADO' ? 'Contratação cancelada. Consulte os registros preservados.' : proximo}</p></div>{v?.estado_edicao === 'AGUARDANDO_CLIENTE' && data.contrato.status !== 'CANCELADO' ? <a href={`/contrato/${cid}`} target="_blank" rel="noreferrer">Abrir acesso público do cliente ↗</a> : <a href="#documentacao">Ver documentos</a>}</div>
  <label className={styles.version}>Versão em consulta<select aria-label="Versão contratual" value={vid} onChange={e => { const n = data.versoes.find(x => x.id === e.target.value)!; setVid(n.id);setEditando(false); setNote(n.dados_fonte?.observacoesDocumentais ?? ''); setKey(''); }}>{data.versoes.map(x => <option key={x.id} value={x.id}>V{x.numero_versao} — {x.status==='ASSINADA'?'ASSINADA':x.estado_edicao ?? `LEGADO / ${x.status}`}</option>)}</select></label>
