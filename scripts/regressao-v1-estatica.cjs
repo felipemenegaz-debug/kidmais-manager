@@ -18,6 +18,8 @@ function executar(nome, argumentos) {
 
 const testes = arquivosDoCheckEstatico(raiz);
 
+executar("Worker de PDF atualizado", ["scripts/gerar-pdf-worker.cjs", "--check"]);
+
 executar("Testes unitários V1", ["--experimental-strip-types", "--test", ...testes]);
 executar("Harness staging — somente mocks, sem rede/banco", ["--test", "scripts/staging-smoke/smoke.test.mjs"]);
 executar("Lint", [
@@ -26,5 +28,6 @@ executar("Lint", [
 ]);
 executar("TypeScript", [require.resolve("typescript/lib/tsc.js"), "--noEmit"]);
 executar("Build de produção", [require.resolve("next/dist/bin/next"), "build"]);
+executar("Leitura de PDF no asset de produção", ["scripts/verificar-pdf-worker-build.cjs"]);
 
 console.log("\nPASS regressão estática V1: testes, lint, TypeScript e build aprovados.");

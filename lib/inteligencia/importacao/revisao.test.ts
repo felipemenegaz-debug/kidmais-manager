@@ -327,3 +327,23 @@ test("a conversa nunca abre a importação: ação só de tela", () => {
   const modulo = criarModuloAcoes([a.deps.acao!], a.gate);
   assert.equal(modulo.descrever("importar_contrato")?.origem, "TELA");
 });
+
+test('reenvio recupera revisão vazia intocada e preserva revisão já editada', async () => {
+  for (const editada of [false, true]) {
+    const a = ambiente();
+    const documento = await a.enviar();
+    const aberta = dados(await a.importar({ acao: 'abrir', documentoId: documento.documentoId })).importacao;
+    const atual = a.importacao.importacoes.get(aberta.id)!;
+    const anteriores = atual.dados as unknown as { extracao: ImportacaoPublica['extracao']; revisados: string[] };
+    for (const s of anteriores.extracao.secoes) for (const c of s.campos) { c.valor = null; c.estado = 'NAO_ENCONTRADO'; }
+    if (editada) anteriores.revisados.push('contratante.nome');
+    const registro = a.documentos.extracoes[0];
+    a.documentos.extracoes.push({ ...structuredClone(registro), extracaoId: '99999999-1111-4111-8111-111111111111' });
+    const r = await a.importar({ acao: 'abrir', documentoId: documento.documentoId });
+    assert.equal(r.status, 200, JSON.stringify(r.corpo));
+    const recuperada = dados(r).importacao;
+    assert.equal(recuperada.id, aberta.id);
+    assert.equal(recuperada.versao, editada ? aberta.versao : aberta.versao + 1);
+    assert.equal(recuperada.extracao.secoes.some(s => s.campos.some(c => c.valor)), !editada);
+  }
+});
