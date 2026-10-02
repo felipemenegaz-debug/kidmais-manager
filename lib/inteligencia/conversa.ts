@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { SessaoParaTenant, TenantComprovado } from "../saas/provar-tenant.ts";
 import { hojeBrasilia } from "../financeiro/calculos.ts";
 import type { AtencaoHoje } from "./atencao-hoje.ts";
-import type { AcaoObjetivo, AIResponse, ContinuacaoConsumo, ContextoTela, EntidadeRef, TipoEntidade, ModelUsage, OrigemChamada, OrigemPlano, PlanoRastreio, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
+import type { AcaoObjetivo, AIResponse, ContinuacaoConsumo, ContextoTela, EntidadeRef, TipoEntidade, ModelUsage, OrigemChamada, OrigemPlano, PedidoSeguinte, PlanoRastreio, RecursoObjetivo, RespostaLeitura } from "./contratos.ts";
 import { atualizarFoco, focoEntradaSchema, type EntidadeFoco, type FocoConversa, type FocoEntrada, type OrigemFoco } from "./foco.ts";
 import { detectarReferencia, entidadesCitadas, resolverAncoraContexto, resolverReferencia, type Leitor, type Referencia, type Resolucao } from "./referencias.ts";
 import { compor, faltando, fatosSolicitados, type FatoSolicitado } from "./planejador/composicao.ts";
@@ -16,7 +16,7 @@ import { construirContextoAutorizado, construirContextoModelo } from "./contexto
 import { ContextoRecusado } from "./contexto/contrato.ts";
 import { CAPACIDADES_OPERACIONAIS, ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
 import { ROTULO_PENDENTE, parametrosEscritosConsumo } from "./leituras/operacional.ts";
-import { CATEGORIAS_CONSUMO, detectarConsumo, extrairParametros, type CategoriaConsumo, type ParametrosConsumo } from "./operacional/consumo.ts";
+import { CATEGORIAS_CONSUMO, detectarConsumo, extrairParametros, respondeSemDado, type CategoriaConsumo, type ParametrosConsumo } from "./operacional/consumo.ts";
 import { coordenarRascunho, type DecisaoRascunho } from "./operacional/objetivo.ts";
 import { LIMITE_HISTORICO as LIMITE_HISTORICO_LUNA, VERSAO_LUNA, entenderComModelo, type Categoria, type ConsumoPendente, type Entendimento, type RascunhoParaLuna, type TrocaHistorico } from "./luna/entendimento.ts";
 import { redigirComModelo } from "./luna/redacao.ts";
@@ -28,7 +28,7 @@ import {
 } from "./gateway.ts";
 import { explicarResposta, mensagemIndisponivel, mensagemNavegacaoSemDestino, mensagemPrecisaContexto, objetivoDaCapacidade, objetivoDoTexto } from "./entendimento.ts";
 import { criacaoAmbigua, interpretarComModelo, interpretarDeterministico, pedeAutonomia, type CapacidadeCatalogo, type Intencao } from "./intencao.ts";
-import type { RoteadorModelos } from "./modelos/roteador.ts";
+import type { ResultadoRoteado, RoteadorModelos } from "./modelos/roteador.ts";
 import { InteligenciaError, avaliarPolitica } from "./politica.ts";
 import { decidirPolitica } from "./politica-v1.ts";
 import { SUGESTAO_POR_FINALIDADE, manifestoAcao, manifestoLeitura, manifestoSugestao } from "./registro-ferramentas.ts";
@@ -203,7 +203,7 @@ async function interpretarPorModelo(texto: string, contexto: ContextoTela | null
     correlationId: rastreio.correlationId ?? rastreio.requestId,
     hoje: hojeBrasilia(deps.agora()),
   });
-  anotarUsoModelo(rastreio, roteado.usos);
+  anotarUsoModelo(rastreio, roteado.usos, roteado.ok ? undefined : roteado.recusa);
   usos.push(...roteado.usos);
   return intencao;
 }
@@ -633,7 +633,8 @@ async function planejarConsumo(e: Execucao, lerPorta: LerPlano): Promise<SaidaPl
       if (r.resultado === "AMBIGUA" || r.resultado === "NEGADA") return { resposta: respostaDaResolucao(r) ?? naoSuportado("Não consegui identificar a festa com segurança.") };
       // Frase sem âncora que as regras conheçam ("pra comemoração que vem aí…"): o Planner por modelo tenta ancorar pela
       // listagem do Core; o cálculo continua sendo a mesma leitura determinística.
-      if (e.planejadorModelo) return null;
+      // Se a Luna já entendeu que a mensagem não aponta festa, o Planner não é consultado: pergunta-se qual festa.
+      if (e.planejadorModelo && e.luna?.festa !== "NENHUMA") return null;
       return { resposta: { ...naoSuportado("Para qual festa? Por exemplo: “para a próxima festa”, ou abra a festa e pergunte por lá."), entendimento: "PRECISA_DADO" } };
     }
     ancora = { entidade: r.ancora, origem: r.origem, descartados: r.descartados };
@@ -701,6 +702,12 @@ function consumoDoPedido(texto: string, continuacao: ContinuacaoConsumo | undefi
       for (const c of categorias) parametros[c] = { ...(c === continuacao.categoria ? continuacao.parametros : continuacao.informados?.[c]), ...novos.get(c) };
       return { categorias: [...categorias], parametros, ...(continuacao.festaId ? { festaId: continuacao.festaId } : {}) };
     }
+    // "não sei", "não estime", "só a regra cadastrada": o mesmo cálculo, a mesma festa, sem estimar (também sem a Luna).
+    if (respondeSemDado(texto) && !detectarConsumo(texto)) {
+      const parametros: Partial<Record<CategoriaConsumo, ParametrosConsumo>> = {};
+      for (const c of categorias) parametros[c] = { ...(c === continuacao.categoria ? continuacao.parametros : continuacao.informados?.[c]) };
+      return { categorias: [...categorias], parametros, ...(continuacao.festaId ? { festaId: continuacao.festaId } : {}) };
+    }
   }
   const detectado = detectarConsumo(texto);
   if (!detectado) return undefined;
@@ -751,11 +758,16 @@ async function planejarPorModelo(e: Execucao, lerPorta: LerPlano, exigirAcaoFina
     fatosPedidos: fatosSolicitados(e.texto, operacionalAtivo(deps.env)).map((fato) => ({ fato, capacidades: FORNECEDORES[fato].filter((c) => catalogo.some((x) => x.id === c)) })),
   }, roteador, { empresaId: tenant.empresaComprovada, estabelecimentoId: unidadeDe(tenant), capacidade: "planejar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
   if (saida.roteado) {
-    anotarUsoModelo(rastreio, saida.roteado.usos);
+    anotarUsoModelo(rastreio, saida.roteado.usos, saida.roteado.ok ? undefined : saida.roteado.recusa);
     usos.push(...saida.roteado.usos);
   }
   if (!saida.plano) {
     rastreio.plano = planoRejeitado("MODELO", "COMPOSICAO", saida.rejeicao ?? "INDISPONIVEL");
+    // Cálculo de consumo sem festa e sem plano (modelo indisponível, orçamento, plano inválido): pergunta qual festa,
+    // como faria sem o Planner — nunca "não sei responder".
+    if (e.consumo && e.resolucao?.resultado === "NAO_ENCONTRADA") {
+      return { resposta: { ...naoSuportado("Para qual festa? Por exemplo: “para a próxima festa”, ou abra a festa e pergunte por lá."), entendimento: "PRECISA_DADO" } };
+    }
     return null;
   }
   const doModelo = saida.plano;
@@ -1033,7 +1045,7 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
             correlationId: rastreio.correlationId ?? rastreio.requestId,
             hoje: hojeBrasilia(deps.agora()),
           });
-          anotarUsoModelo(rastreio, r.usos);
+          anotarUsoModelo(rastreio, r.usos, r.ok ? undefined : r.recusa);
           usos.push(...r.usos);
           return r;
         },
@@ -1070,7 +1082,7 @@ function portasOrquestracao(e: Execucao, usos: ModelUsage[]): PortasOrquestracao
             disponivel: () => roteador.disponivelPara("TEXTO_CURTO"),
             async executar(pedidoModelo) {
               const r = await roteador.executar(pedidoModelo, { empresaId: comprovado.empresaComprovada, estabelecimentoId: unidadeDe(comprovado), capacidade: "copiloto_explicar", correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) });
-              anotarUsoModelo(rastreio, r.usos);
+              anotarUsoModelo(rastreio, r.usos, r.ok ? undefined : r.recusa);
               usos.push(...r.usos);
               return r;
             },
@@ -1234,6 +1246,17 @@ function comPausa(resposta: AIResponse, pausado: Pausado | null): AIResponse {
 
 // ---------------------------------------------------------------- conversa adaptativa (Luna + Demerzel)
 
+/** "Não sei" a uma pergunta de parâmetro: a estimativa existe, mas só se o operador pedir (rotulada como hipótese). */
+const DICA_ESTIMATIVA = "Se não souber, posso usar uma estimativa rotulada como hipótese: é só dizer “faça você a definição”.";
+const SEM_ESTIMATIVA = "Você pediu uma estimativa, mas ela não foi gerada desta vez: informe o valor ou peça de novo.";
+
+/** Estimativa pedida que não veio: a resposta diz isso (o parâmetro continua sendo perguntado, nada é inventado). */
+function avisoEstimativaAusente(r: AIResponse, ent: Entendimento, consumo: Execucao["consumo"]): AIResponse {
+  const faltou = ent.estimativaSemValor.filter((c) => !consumo?.estimativa?.[c]);
+  if (!faltou.length || r.tipo !== "resposta" || !("fatos" in r.dados) || !r.continuacao) return r;
+  return { ...r, dados: { ...r.dados, resumo: `${r.dados.resumo} ${SEM_ESTIMATIVA}` } };
+}
+
 /**
  * Leitura escolhida pela Luna como intenção: só capacidade do catálogo (já revalidada); entidade só da TELA aberta —
  * sem ela, "precisa de contexto" (o Planner/Resolver ainda pode ancorar pelo foco). Nunca id vindo do modelo.
@@ -1259,6 +1282,8 @@ function conciliarComLuna(regras: Intencao, luna: Entendimento, contexto: Contex
   const escolhidas = luna.consultas;
   const daLuna = (): Intencao => (escolhidas.length === 1 ? leituraDaLuna(escolhidas[0], contexto) ?? { tipo: "nenhuma" } : { tipo: "nenhuma" });
   if (regras.tipo === "acao") return daLuna();
+  // Várias consultas na mesma mensagem ("contratos pendentes E quanto recebemos"): a regra casaria só uma; vai ao Planner.
+  if (regras.tipo === "leitura" && new Set(escolhidas).size >= 2 && !SO_POR_REGRA.has(regras.capacidade)) return { tipo: "nenhuma" };
   if (regras.tipo === "leitura" && escolhidas.length && !escolhidas.includes(regras.capacidade) && !SO_POR_REGRA.has(regras.capacidade)) return daLuna();
   return regras;
 }
@@ -1366,8 +1391,8 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
     const tenant = await tenantParaModelo(sessao, pedido, deps, rastreio);
     return { empresaId: tenant.empresaComprovada, estabelecimentoId: unidadeDe(tenant), capacidade, correlationId: rastreio.correlationId ?? rastreio.requestId, hoje: hojeBrasilia(deps.agora()) };
   };
-  const anotar = (r: { usos: readonly ModelUsage[] }) => {
-    anotarUsoModelo(rastreio, [...r.usos]);
+  const anotar = (r: ResultadoRoteado<unknown>) => {
+    anotarUsoModelo(rastreio, [...r.usos], r.ok ? undefined : r.recusa);
     usos.push(...r.usos);
   };
   const catalogo = catalogoDisponivel(deps.env, sessao.papel, acoes);
@@ -1384,15 +1409,72 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
 
   /** Respostas que já passaram por atenderNovo saem finalizadas (foco, entendimento, continuação). */
   let finalizada = false;
+  /** Mensagem mista: resposta do segundo pedido (consulta/cálculo), anexada à resposta do rascunho no fim do ciclo. */
+  let seguinte: AIResponse | null = null;
   async function executar(ent: Entendimento): Promise<AIResponse> {
     e.luna = ent;
     rastreio.operacional = { rota: rascunho ? "RASCUNHO" : "CONSUMO", decisao: `LUNA:${ent.objetivo}`, leituras: 0, duracaoMs: 0 };
+    // Parâmetro de consumo pendente e mensagem sem objetivo novo ("Não estime; quero só a regra cadastrada", "não sei"):
+    // é resposta à pergunta do cálculo. Refaz o MESMO cálculo (mesma festa, só o que foi escrito ou delegado), mantendo a
+    // continuação — nunca "não entendi", nunca estimativa sem pedido. A resposta sem dado reconhecida por regra vale qualquer
+    // que seja o rótulo da Luna (em staging ela chamou "não estime; só a regra cadastrada" de CONSULTA sem consultas).
+    const semObjetivoNovo = ent.objetivo === "ESCLARECER" || ent.objetivo === "CONVERSA" || ent.objetivo === "FORA_DO_ESCOPO"
+      || (respondeSemDado(e.texto) && !detectarConsumo(e.texto) && !ent.consultas.length);
+    // Com rascunho PAUSADO por esta consulta, a última pergunta feita foi a do cálculo (a UI só manda a continuação logo
+    // depois dela): a resposta sem dado vai ao cálculo, não ao rascunho (homologação de c84b597: "não sei" caía no rascunho).
+    // Para não desviar uma resposta legítima ao rascunho, com rascunho aberto só vale a resposta sem dado reconhecida por
+    // regra, ou a mensagem que a Luna não liga ao rascunho.
+    const ligadaAoRascunho = ent.relacaoRascunho === "RESPONDE" || ent.relacaoRascunho === "CORRIGE";
+    if (continuacao && semObjetivoNovo && (!rascunho || respondeSemDado(e.texto) || !ligadaAoRascunho)) {
+      e.consumo = consumoDaLuna(ent, e.texto, continuacao);
+      if (e.consumo) {
+        finalizada = true;
+        const r = await atenderNovo(e);
+        const naoSabe = /\bn[aã]o sei\b/i.test(e.texto) && !Object.keys(e.consumo.estimativa ?? {}).length;
+        if (naoSabe && r.tipo === "resposta" && r.continuacao && "fatos" in r.dados) {
+          return pausa({ ...r, dados: { ...r.dados, resumo: `${r.dados.resumo} ${DICA_ESTIMATIVA}` } });
+        }
+        return pausa(r);
+      }
+    }
     // Resposta/correção ao rascunho com objetivo genérico (ex.: "4 horas" no rascunho de pacote): vai ao próprio rascunho,
     // que extrai e revalida o campo. Troca de objetivo, consulta, cancelar e retomar seguem os casos abaixo.
     const aoRascunho = rascunho && acoes && (ent.relacaoRascunho === "RESPONDE" || ent.relacaoRascunho === "CORRIGE") && (ent.objetivo === "ESCLARECER" || ent.objetivo === "CONVERSA" || ent.objetivo === "FORA_DO_ESCOPO");
     if (aoRascunho) {
       const doModelo = rascunho!.situacao.capacidade === "preparar_contratacao" ? ent.contratacao : undefined;
       return noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, e.texto, ctx, doModelo));
+    }
+    // Mensagem MISTA: a Luna diz que a mensagem responde/corrige o rascunho, mas escolheu uma consulta ou um cálculo como
+    // objetivo (homologação de f41018e: "o cliente é … E quantos refrigerantes…?" ⇒ RESPONDE + CALCULO_CONSUMO, e o
+    // dado do cliente se perdia). Consulta paralela pura vem como CONSULTA_PARALELA/SEM_RASCUNHO, nunca RESPONDE.
+    // A resposta ao rascunho vem primeiro (nada do que foi escrito se perde) e o outro pedido é anunciado como não feito.
+    const outroObjetivo = ent.objetivo === "CONSULTA" || ent.objetivo === "CALCULO_CONSUMO";
+    let mista = Boolean(rascunho && acoes && (ent.relacaoRascunho === "RESPONDE" || ent.relacaoRascunho === "CORRIGE") && outroObjetivo);
+    let textoDoRascunho = e.texto;
+    // O rótulo da Luna oscila (homologação de 3930273: a mesma frase veio SEM_RASCUNHO, com o dado do cliente como "outro
+    // pedido"). Reconhecimento determinístico: se o TRECHO literal de um outro pedido responde ao campo que o rascunho está
+    // perguntando (pelo extrator do próprio rascunho), a mensagem é mista e esse trecho é a resposta ao rascunho.
+    if (!mista && rascunho && acoes?.situacao && outroObjetivo && ent.outrosTrechos.length) {
+      for (const trecho of ent.outrosTrechos) {
+        const s = await noTenant((ctx) => acoes.situacao!(rascunho!.operacaoId, trecho, ctx));
+        if (s.aberto && s.respondeCampo) { mista = true; textoDoRascunho = trecho; break; }
+      }
+    }
+    if (mista) {
+      rastreio.operacional = { ...rastreio.operacional, decisao: "LUNA:MENSAGEM_MISTA" };
+      const doModelo = rascunho!.situacao.capacidade === "preparar_contratacao" ? ent.contratacao : undefined;
+      const doRascunho = await noRascunho(rascunho!, (ctx) => acoes!.responder(rascunho!.operacaoId, textoDoRascunho, ctx, doModelo));
+      // O segundo pedido também é atendido (resultado ou a pergunta necessária), pelas mesmas portas guardadas — não basta
+      // avisar que não foi feito. Ele é o pedido que a Luna contou em outrosPedidos: não é anunciado de novo.
+      ent.outrosPedidos = Math.max(0, ent.outrosPedidos - 1);
+      if (ent.objetivo === "CALCULO_CONSUMO") {
+        e.consumo = consumoDaLuna(ent, e.texto, continuacao);
+        seguinte = e.consumo ? await atenderNovo(e) : { ...naoSuportado("Quer que eu calcule doces, refrigerantes ou os dois? E para qual festa?"), entendimento: "PRECISA_DADO" };
+      } else {
+        e.consumo = undefined;
+        seguinte = await atenderNovo(e);
+      }
+      return doRascunho;
     }
     switch (ent.objetivo) {
       case "CANCELAR_RASCUNHO":
@@ -1430,11 +1512,31 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
         finalizada = true;
         return pausa(await atenderNovo(e));
       }
-      case "CONSULTA":
+      case "CONSULTA": {
         // A consulta segue pelas mesmas portas guardadas (regras conciliadas com a Luna, Planner, Policy por leitura).
         e.consumo = undefined;
         finalizada = true;
+        // Duas ou mais consultas INDEPENDENTES (nenhuma precisa de entidade de entrada: "contratos pendentes e quanto
+        // recebemos"): cada uma pela mesma porta guardada e a composição determinística junta os fatos. O Planner é para
+        // cadeias (âncora → relação) e descarta listagens da resposta. Qualquer leitura que não volte ⇒ caminho anterior.
+        const independentes = ent.consultas.length >= 2 && ent.consultas.every((id) => {
+          const item = catalogo.find((c) => c.id === id);
+          return item?.tipo === "leitura" && !item.entidade;
+        });
+        if (independentes) {
+          const partes: ParteResposta[] = [];
+          for (const [i, id] of ent.consultas.entries()) {
+            const lida = await responderLeitura(id, {}, "INTENCAO_MODELO", e);
+            if (lida.tipo !== "resposta" || !("fatos" in lida.dados)) break;
+            partes.push({ passoId: `p${i + 1}`, capacidade: id, dados: lida.dados as RespostaLeitura });
+          }
+          if (partes.length === ent.consultas.length) {
+            const c = compor(partes, []);
+            if (c.ok) return pausa({ tipo: "resposta", dados: c.dados });
+          }
+        }
         return pausa(await atenderNovo(e));
+      }
       case "CONVERSA":
         return pausa({ ...naoSuportado("Estou aqui. Posso consultar festas, contratos, clientes e o financeiro, calcular doces e bebidas de uma festa ou preparar a contratação de uma festa para a sua revisão."), entendimento: "EXECUTADO" });
       case "ESCLARECER":
@@ -1503,6 +1605,8 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
     estimativa: Boolean(resultado.entendimento && Object.keys(resultado.entendimento.consumo.estimativa).length),
     correcao: resultado.entendimento?.correcao ?? false,
     outrosPedidos: resultado.entendimento?.outrosPedidos ?? 0,
+    outrosDescartados: resultado.entendimento?.outrosDescartados ?? 0,
+    descartes: [...new Set((resultado.entendimento?.descartes ?? []).map((d) => (/:(DOCES|REFRIGERANTES)$/.test(d) ? d : d.replace(/:.*$/, ""))))].slice(0, 10),
     chamadasModelo: usos.length,
     leituras: e.leiturasFeitas ?? 0,
     redacao: resultado.redacao,
@@ -1515,17 +1619,36 @@ async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[],
     e.luna = undefined;
     return null;
   }
-  // Vários pedidos numa mensagem: um de cada vez, dito com clareza (a leitura redigida já menciona; aqui as demais).
+  // Vários pedidos numa mensagem: um de cada vez, dito com clareza. Só a leitura REDIGIDA pela Luna já menciona os
+  // demais (ela recebe outrosPedidos); leitura determinística (redação reprovada, indisponível ou limite) recebe o aviso
+  // aqui — senão o pedido não feito sumiria sem explicação (homologação de ec4fac2).
   const outros = resultado.entendimento?.outrosPedidos ?? 0;
   const aviso = "Fiz um pedido por vez: comecei por este; o outro que você mencionou ainda não foi feito.";
-  const respostaCiclo: AIResponse = outros && resultado.resposta.tipo === "rascunho" ? { ...resultado.resposta, pergunta: `${aviso} ${resultado.resposta.pergunta}` }
-    : outros && resultado.resposta.tipo === "nao_suportado" ? { ...resultado.resposta, mensagem: `${resultado.resposta.mensagem} ${aviso}` }
-      : resultado.resposta;
+  // Estimativa pedida que não veio: dito no FIM do ciclo (a redação da Luna substitui o resumo e apagaria o aviso).
+  const r0 = resultado.entendimento ? avisoEstimativaAusente(resultado.resposta, resultado.entendimento, e.consumo) : resultado.resposta;
+  const respostaCiclo: AIResponse = outros && r0.tipo === "rascunho" ? { ...r0, pergunta: `${aviso} ${r0.pergunta}` }
+    : outros && r0.tipo === "nao_suportado" ? { ...r0, mensagem: `${r0.mensagem} ${aviso}` }
+      : outros && r0.tipo === "resposta" && "fatos" in r0.dados && resultado.redacao !== "MODELO" ? { ...r0, dados: { ...r0.dados, resumo: `${r0.dados.resumo} ${aviso}` } }
+        : r0;
   if (finalizada) return respostaCiclo;
   let resposta = finalizar(respostaCiclo, e.texto, rastreio, e.navegacaoPendente, e);
   const continua = continuacaoDa(resposta, e);
   if (continua) resposta = { ...resposta, continuacao: continua };
+  // Mensagem mista: o segundo pedido segue junto (e a continuação dele vale para a próxima mensagem).
+  // (atribuído dentro do ciclo, num closure: lido aqui com o tipo declarado)
+  const segundo = seguinte as AIResponse | null;
+  const pedidoSeguinte = segundo ? paraPedidoSeguinte(segundo) : null;
+  if (pedidoSeguinte && segundo) {
+    resposta = { ...resposta, pedidoSeguinte, ...(segundo.continuacao ? { continuacao: segundo.continuacao } : {}), ...(segundo.foco ? { foco: segundo.foco } : {}) };
+  }
   return resposta;
+}
+
+function paraPedidoSeguinte(r: AIResponse): PedidoSeguinte | null {
+  if (r.tipo === "resposta" && "fatos" in r.dados) return { tipo: "resposta", dados: r.dados as RespostaLeitura };
+  if (r.tipo === "nao_suportado") return { tipo: "nao_suportado", mensagem: r.mensagem, sugestoes: r.sugestoes };
+  if (r.tipo === "precisa_contexto") return { tipo: "precisa_contexto", mensagem: r.mensagem };
+  return null;
 }
 
 export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasConversa): Promise<RespostaGateway> {

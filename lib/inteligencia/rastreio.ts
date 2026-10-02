@@ -1,4 +1,4 @@
-import type { AuditTrace, EntidadeRef, ModelUsage } from "./contratos.ts";
+import type { AuditTrace, EntidadeRef, ModelUsage, RecusaModeloRastreio } from "./contratos.ts";
 import type { ResumoOrquestracao } from "./extensoes.ts";
 import { VERSAO_POLITICA } from "./politica-v1.ts";
 import { VERSAO_REGISTRO } from "./registro-ferramentas.ts";
@@ -46,6 +46,10 @@ export type AdaptativoRastreio = {
   estimativa: boolean;
   correcao: boolean;
   outrosPedidos: number;
+  /** Pedidos adicionais devolvidos pela Luna e descartados por não estarem na mensagem atual (gestão de contexto). */
+  outrosDescartados: number;
+  /** Códigos dos descartes da revalidação (só o código; sufixo apenas quando é uma categoria fechada). */
+  descartes: string[];
   chamadasModelo: number;
   leituras: number;
   redacao: "MODELO" | "DETERMINISTICA" | "NENHUMA";
@@ -74,6 +78,7 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
     chamadasTokensDesconhecidos: 0,
     duracaoModeloMs: 0,
     errosModelo: [],
+    recusasModelo: [],
     usuarioId: null,
     empresaId: null,
     capacidade: null,
@@ -100,6 +105,9 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
     itens: null,
     causa: null,
     orquestracao: null,
+    // Presentes desde o início: a saída do log é FECHADA nas chaves daqui (sem elas, o trace operacional/adaptativo sumia).
+    operacional: null,
+    adaptativo: null,
     fallback: false,
     fallbackProvedor: false,
     chamadasModelo: 0,
@@ -117,7 +125,9 @@ export function novoRastreio(evento: AuditTrace["evento"], requestId: string, co
  */
 const MAX_ERROS_MODELO = 5;
 
-export function anotarUsoModelo(rastreio: RastreioInteligencia, usos: readonly ModelUsage[]) {
+export function anotarUsoModelo(rastreio: RastreioInteligencia, usos: readonly ModelUsage[], recusa?: RecusaModeloRastreio) {
+  // Chamada recusada antes do provedor (orçamento, circuito, sem chave/modelo): fica registrada com o motivo.
+  if (recusa && rastreio.recusasModelo.length < MAX_ERROS_MODELO) rastreio.recusasModelo.push({ ...recusa });
   const ultimo = usos.at(-1);
   if (!ultimo) return;
   const anteriores = rastreio.chamadasModelo;

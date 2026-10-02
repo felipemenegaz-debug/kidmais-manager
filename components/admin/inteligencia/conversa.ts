@@ -1,6 +1,6 @@
 import type { Interpretacao } from './perguntas.ts';
 import {
-  CODIGO_CANCELADA, pareceAtencaoHoje, type AtencaoHoje, type ComplementoCopiloto, type RascunhoPublico, type RespostaLeitura, type ResultadoAtencao,
+  CODIGO_CANCELADA, pareceAtencaoHoje, pedidoSeguinteValido, type AtencaoHoje, type ComplementoCopiloto, type RascunhoPublico, type RespostaLeitura, type ResultadoAtencao,
   type ResultadoConversa, type SecaoAgente, type SugestaoAgente,
 } from './cliente-inteligencia.ts';
 
@@ -94,6 +94,24 @@ export function mensagemDaConversa(id: number, pergunta: string, resultado: Resu
 
 export function registrarConversa(historico: readonly Mensagem[], id: number, resultado: ResultadoConversa, reenviavel = true): Mensagem[] {
   return historico.map((m) => (m.id === id && m.fase === 'carregando' ? mensagemDaConversa(id, m.pergunta, resultado, reenviavel) : m));
+}
+
+/**
+ * Mensagem mista: o segundo pedido (resultado ou pergunta) entra como MAIS UMA resposta do Kidmais, logo depois da
+ * resposta ao rascunho — sem repetir a pergunta do usuário. Sem segundo pedido válido, o histórico fica como está.
+ */
+export function registrarPedidoSeguinte(historico: readonly Mensagem[], id: number, resultado: ResultadoConversa): Mensagem[] {
+  const p = resultado.tipo === 'ok' ? pedidoSeguinteValido((resultado.resposta as { pedidoSeguinte?: unknown }).pedidoSeguinte) : null;
+  if (!p) return [...historico];
+  const nova: Mensagem = p.tipo === 'resposta' ? { id, pergunta: '', fase: 'leitura', dados: p.dados, complemento: null }
+    : p.tipo === 'nao_suportado' ? { id, pergunta: '', fase: 'nao_suportado', mensagem: p.mensagem, sugestoes: p.sugestoes }
+      : { id, pergunta: '', fase: 'precisa_contexto', mensagem: p.mensagem };
+  return [...historico, nova].slice(-LIMITE_HISTORICO);
+}
+
+/** Abrir a revisão não pode esconder o segundo pedido: com ele, a conversa continua aberta depois da navegação. */
+export function manterAbertoAoNavegar(resultado: ResultadoConversa): boolean {
+  return resultado.tipo === 'ok' && pedidoSeguinteValido((resultado.resposta as { pedidoSeguinte?: unknown }).pedidoSeguinte) !== null;
 }
 
 /** Cancelamento local da espera: a mensagem em curso vira "cancelada" (o servidor não altera nada numa leitura). */

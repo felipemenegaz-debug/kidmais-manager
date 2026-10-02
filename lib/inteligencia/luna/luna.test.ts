@@ -18,6 +18,63 @@ function saidaLuna(parcial: Omit<Partial<SaidaLuna>, "consumo" | "contratacao"> 
 const CATALOGO = { consultas: [{ id: "proximas_festas", descricao: "x" }, { id: "resumir_festa", descricao: "y" }], acoes: [{ id: "criar_pacote", descricao: "z" }] };
 const entrada = (texto: string, historico: Array<{ pergunta: string; resposta: string }> = []) => ({ texto, historico, ...CATALOGO });
 
+test("Luna (A5, gestão de contexto): outro pedido só conta com trecho literal da mensagem ATUAL; histórico nunca vira pedido novo", () => {
+  const historico = [
+    { pergunta: "crie uma do cliente Felipe para 50 convidados, pacote premium", resposta: "Qual é o nome do aniversariante?" },
+    { pergunta: "antes, quantos docinhos preciso para 60 convidados?", resposta: "Para qual festa?" },
+  ];
+  const doHistorico = { pedido: "calcular docinhos", trecho: "quantos docinhos preciso para 60 convidados" };
+  // Resposta a um campo do rascunho: o pedido antigo do histórico é descartado (e contado para o trace).
+  const resposta = revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { turno: "noite" }, outrosPedidos: [doHistorico] }), entrada("à noite", historico));
+  assert.equal(resposta.outrosPedidos, 0);
+  assert.equal(resposta.outrosDescartados, 1);
+  assert.ok(resposta.descartes.includes("outro_pedido_fora_da_mensagem"));
+  // Correção e retomada também não herdam pedidos antigos.
+  for (const [texto, objetivo] of [["na verdade são 60 convidados", "PREPARAR_CONTRATACAO"], ["vamos voltar para a festa do Felipe", "RETOMAR_RASCUNHO"]] as const) {
+    const e = revalidar(saidaLuna({ objetivo, relacaoRascunho: "CORRIGE", outrosPedidos: [doHistorico, { pedido: "abrir agenda", trecho: "veja a agenda de amanhã" }] }), entrada(texto, historico));
+    assert.equal(e.outrosPedidos, 0, texto);
+    assert.equal(e.outrosDescartados, 2, `${texto}: pedido do histórico e pedido inventado`);
+  }
+  // Pedido realmente novo, escrito NESTA mensagem: conta (pontuação, acento e caixa não importam).
+  const novo = revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { turno: "noite" }, outrosPedidos: [{ pedido: "refrigerantes", trecho: "Quantos refrigerantes para a proxima festa" }] }), entrada("À noite. E quantos refrigerantes para a próxima festa?", historico));
+  assert.equal(novo.outrosPedidos, 1);
+  assert.equal(novo.outrosDescartados, 0);
+  // O trecho não pode ser a mensagem inteira (aí é o pedido principal, não um adicional) nem vazio.
+  const inteiro = revalidar(saidaLuna({ objetivo: "CONSULTA", outrosPedidos: [{ pedido: "x", trecho: "quantos refrigerantes para a próxima festa?" }, { pedido: "y", trecho: " " }] }), entrada("quantos refrigerantes para a próxima festa?"));
+  assert.deepEqual([inteiro.outrosPedidos, inteiro.outrosDescartados], [0, 2]);
+});
+
+test("Luna (A5): a instrução e o schema separam a mensagem atual do histórico e exigem o trecho", () => {
+  const [sistema] = mensagensEntendimento({ texto: "à noite", hoje: "2026-10-01", contexto: null, historico: [], rascunho: null, consumoPendente: null, ...CATALOGO });
+  assert.match(sistema.conteudo, /Pedidos que aparecem no histórico já foram atendidos ou estão em andamento: nunca os conte como pedidos novos/);
+  const itens = ((schemaEntendimento(["x"], ["y"]) as { properties: { outrosPedidos: { items: { required: string[] } } } }).properties.outrosPedidos.items);
+  assert.deepEqual(itens.required, ["pedido", "trecho"]);
+  // PR 17 (homologação de ec4fac2): a instrução não pode inibir pedido novo numa resposta ao rascunho (mensagem mista).
+  assert.doesNotMatch(sistema.conteudo, /resposta a pergunta do rascunho não tem outros pedidos/);
+  assert.match(sistema.conteudo, /Mensagem mista \(responde ao rascunho E pede outra coisa nova\)/);
+});
+
+test("Luna (PR 20, gestão de contexto): parâmetros de consumo só da mensagem atual; contratação ainda resolve elipse pelo histórico", () => {
+  // Homologação de ea32084: "e os docinhos, com 5 por convidado?" recebeu a margem de 10% dita antes para os refrigerantes.
+  const historico = [
+    { pergunta: "4 doces por convidados, refrigerante de 2l. faça você a definição.", resposta: "…" },
+    { pergunta: "pode estimar os refrigerantes da próxima festa? garrafa de 2 litros e uns 10% de margem", resposta: "…" },
+  ];
+  const f = revalidar(saidaLuna({ objetivo: "CALCULO_CONSUMO", festa: "DA_CONVERSA", consumo: { categorias: ["DOCES"], docesPorConvidado: 5, margemPercentual: 10, embalagemMl: 2000 } }), entrada("e os docinhos, com 5 por convidado?", historico));
+  assert.equal(f.consumo.docesPorConvidado, 5, "da mensagem atual");
+  assert.equal(f.consumo.margemPercentual, null, "margem de outra pergunta, do histórico");
+  assert.equal(f.consumo.embalagemMl, null, "embalagem de outra pergunta, do histórico");
+  assert.deepEqual(f.descartes.sort(), ["embalagemMl", "margemPercentual"]);
+  // "não sei" não herda a embalagem dita duas perguntas antes.
+  const naoSei = revalidar(saidaLuna({ objetivo: "CALCULO_CONSUMO", consumo: { categorias: ["REFRIGERANTES"], embalagemMl: 2000 } }), entrada("não sei", historico));
+  assert.equal(naoSei.consumo.embalagemMl, null);
+  // Elipse da contratação continua usando o histórico.
+  const elipse = revalidar(saidaLuna({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { convidados: 50 } }), entrada("o aniversariante é o Theo", [{ pergunta: "crie uma do cliente Felipe para 50 convidados", resposta: "…" }]));
+  assert.equal(elipse.contratacao.convidados, 50);
+  const [sistema] = mensagensEntendimento({ texto: "x", hoje: "2026-10-01", contexto: null, historico: [], rascunho: null, consumoPendente: null, ...CATALOGO });
+  assert.match(sistema.conteudo, /um "não estime" antigo não impede a estimativa pedida agora/);
+});
+
 test("Luna: caso C — 4 doces, embalagem de 2l e estimativa PEDIDA são aceitos; nada é perguntado de novo", () => {
   const texto = "4 doces por convidados, refrigerante de 2l. Não sei dizer quantos ml por convidados o consumo. faça você a definição.";
   const e = revalidar(saidaLuna({ objetivo: "CALCULO_CONSUMO", festa: "DA_CONVERSA", consumo: { categorias: ["DOCES", "REFRIGERANTES"], docesPorConvidado: 4, embalagemMl: 2000, estimar: ["REFRIGERANTES"], mlEstimado: 350 } }), entrada(texto));
@@ -104,6 +161,16 @@ test("Redação: só números que existem nos fatos; links e marcação reprovam
   assert.equal(conferirRedacao("   ", { pergunta, resposta: r }), null);
 });
 
+test("Redação (PR 18): ênfase Markdown sai do texto (a UI mostra texto simples); as conferências de números continuam", () => {
+  const r = resposta([["CALCULO", "50 convidados × 400 mL = 20.000 mL = 20 L."], ["CALCULO", "20.000 mL ÷ 2 L por embalagem = 10 embalagens."]]);
+  const pergunta = "quantos refrigerantes?";
+  assert.equal(
+    conferirRedacao("## Resultado\nPara a festa de 01/10/2026, com **50 convidados**: __20 L__, ou seja, `10 garrafas de 2 L` (20.000 mL).", { pergunta, resposta: r }),
+    "Resultado Para a festa de 01/10/2026, com 50 convidados: 20 L, ou seja, 10 garrafas de 2 L (20.000 mL).",
+  );
+  assert.equal(conferirRedacao("São **12 garrafas**.", { pergunta, resposta: r }), null, "limpar a marcação não libera número inventado");
+});
+
 // ---------------------------------------------------------------- revisão: estimativa só com delegação positiva
 
 test("Luna (lacuna 3): negação, veto e \"não sei\" sozinho nunca autorizam estimativa; delegação positiva só da categoria citada", () => {
@@ -154,6 +221,13 @@ test("Redação (lacuna 2): valores trocados entre unidades/categorias são repr
   // Parâmetro informado pelo usuário não pode virar "regra da empresa"; dizer que NÃO é padrão é permitido.
   assert.equal(conferirRedacao("Pela regra da empresa, 4 docinhos por convidado: 240 docinhos para 60 convidados.", { pergunta: p, resposta: r }), null);
   assert.equal(conferirRedacao("Com 4 docinhos por convidado (não é padrão da empresa): 240 docinhos para 60 convidados.", { pergunta: p, resposta: r }), "Com 4 docinhos por convidado (não é padrão da empresa): 240 docinhos para 60 convidados.");
+  // Homologação: outras formas de negar continuam livres; afirmar depois de uma negação em outra oração, não.
+  for (const livre of [
+    "Com 4 docinhos por convidado, que não é uma regra da empresa, são 240 docinhos para 60 convidados.",
+    "Sem regra da empresa cadastrada, usei os 4 docinhos por convidado que você informou: 240 docinhos para 60 convidados.",
+    "Usei 4 por convidado, valor que nem foi salvo como padrão da empresa: 240 docinhos para 60 convidados.",
+  ]) assert.equal(conferirRedacao(livre, { pergunta: p, resposta: r }), livre);
+  assert.equal(conferirRedacao("Não houve erro. Pela regra da empresa, são 240 docinhos para 60 convidados.", { pergunta: p, resposta: r }), null);
 });
 
 test("Redação (lacuna 2): resultado que depende de estimativa precisa dizer que é estimativa; texto livre registrado não autoriza quantidades", () => {

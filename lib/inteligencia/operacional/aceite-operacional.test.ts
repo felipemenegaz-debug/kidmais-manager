@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { criarAmbiente, EMPRESA_A, EMPRESA_B, IDS, MARCADOR_B } from "../../../scripts/ia-benchmark/ambiente.ts";
-import { criarAcaoContratacao, type PortaContratacao } from "../acoes/contratacao.ts";
+import { criarAcaoContratacao, extrairContratacao, type PortaContratacao } from "../acoes/contratacao.ts";
 import { criarVinculo, lerPreparacao, type ResultadoCriacao } from "../acoes/contratacao-revisao.ts";
 import { criarRepositorioOperacoesEmMemoria } from "../acoes/memoria.ts";
 import { criarModuloAcoes } from "../acoes/modulo.ts";
@@ -24,6 +24,7 @@ import { criarProvedorFake, respostaFake } from "../modelos/fake.ts";
 import { criarRegistroUsoEmMemoria, orcamentoDoAmbiente } from "../modelos/orcamento.ts";
 import { RoteadorModelos, politicaDoAmbiente } from "../modelos/roteador.ts";
 import { ErroModelo, type AdaptadorProvedor, type PedidoModelo } from "../modelos/tipos.ts";
+import { sanearRastreio } from "../rastreio.ts";
 
 /**
  * MATRIZ DE ACEITE da IA operacional (docs/IA_OPERACIONAL_ARQUITETURA_E_ENTREGA.md §8).
@@ -988,6 +989,10 @@ function comLuna(a: ReturnType<typeof ambiente>, o: {
   redigir?: (d: DadosRedacao, n: number) => { resposta: string; complementos: string[] } | ErroModelo;
   plano?: unknown;
   limites?: Record<string, number>;
+  /** AI_BUDGET_JSON do roteador (padrão: teto diário folgado). */
+  orcamento?: string;
+  /** Resposta do classificador de intenção antigo (caminho sem a Luna); padrão "nenhuma". */
+  classificar?: string;
 }) {
   const chamadas: string[] = [];
   const recebidos: string[] = [];
@@ -1012,6 +1017,7 @@ function comLuna(a: ReturnType<typeof ambiente>, o: {
         return r instanceof ErroModelo ? r : respostaFake(JSON.stringify(r), { entrada: 900, saida: 80 });
       }
       if (p.workload === "PLANEJAR" && o.plano) return respostaFake(JSON.stringify(o.plano));
+      if (p.esquema?.nome === "classificacao" && o.classificar) return respostaFake(JSON.stringify({ capacidade: o.classificar, dia: null }));
       return respostaFake(JSON.stringify({ capacidade: "nenhuma", dia: null }));
     },
   });
@@ -1019,13 +1025,119 @@ function comLuna(a: ReturnType<typeof ambiente>, o: {
   a.amb.deps.roteador = new RoteadorModelos({
     politica: politicaDoAmbiente({ AI_PROVIDER_PRIMARY: "OPENAI", AI_MODEL_MAX_RETRIES: "0" }),
     adaptadores: new Map([["OPENAI", provedor as AdaptadorProvedor]]), precos: null,
-    orcamento: orcamentoDoAmbiente({ AI_BUDGET_JSON: JSON.stringify({ porEmpresa: { tokensDiario: 1_000_000 } }) }),
+    orcamento: orcamentoDoAmbiente({ AI_BUDGET_JSON: o.orcamento ?? JSON.stringify({ porEmpresa: { tokensDiario: 1_000_000 } }) }),
     registro: criarRegistroUsoEmMemoria(), circuito: new Circuito(), agora: () => new Date("2026-09-30T15:00:00Z"), relogio: () => 0,
     novoId: () => `${String(++n).padStart(8, "0")}-0000-4000-8000-0000000000bb`,
   });
   if (o.limites) a.amb.deps.orquestrador = criarDemerzel({ adaptativo: o.limites });
   return { chamadas, recebidos };
 }
+
+test("Luna — PR 22: com rascunho pausado por uma consulta de consumo, \"não estime…\" e \"não sei\" respondem ao cálculo; resposta legítima ao rascunho continua indo ao rascunho", async () => {
+  // Homologação de c84b597: rascunho de contratação aberto, "quantos refrigerantes para a próxima festa?" (consulta
+  // paralela, pergunta a taxa), depois "Não estime…" ⇒ "Ainda não sei responder" e "não sei" ⇒ caía no rascunho.
+  const a = ambiente({ convidados: 50 });
+  const roteiro = [
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium" } }),
+    saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "CONSULTA_PARALELA", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] } }),
+    // Pior caso: a Luna liga a resposta sem dado ao rascunho.
+    saida({ objetivo: "CONSULTA", relacaoRascunho: "RESPONDE", consumo: { categorias: ["REFRIGERANTES"] } }),
+    saida({ objetivo: "ESCLARECER", relacaoRascunho: "RESPONDE" }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { turno: "noite" } }),
+  ];
+  comLuna(a, { entender: (_d, n) => roteiro[n - 1] });
+  const r1 = await a.enviar("crie uma festa do cliente Felipe para 50 convidados, pacote premium");
+  const op = (r1.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId;
+  const versao = a.linha(op).versao;
+  const consulta = await a.enviar("quantos refrigerantes para a próxima festa?");
+  assert.equal(consulta.data?.continuacao?.perguntado, "ML_POR_CONVIDADO");
+  assert.equal(consulta.data?.rascunhoPausado?.operacaoId, op);
+  for (const texto of ["Não estime o consumo; quero somente a regra cadastrada.", "não sei"]) {
+    const r = await a.enviar(texto);
+    assert.equal(r.data?.tipo, "resposta", texto);
+    assert.match(leitura(r.data).resumo, /Quantos mL de refrigerante por convidado/, `${texto}: refaz o cálculo pendente`);
+    assert.equal(r.data?.continuacao?.festaId, IDS.FESTA_MARIA, `${texto}: mesma festa`);
+    assert.equal(r.data?.rascunhoPausado?.operacaoId, op, `${texto}: rascunho continua pausado`);
+    assert.equal(a.linha(op).versao, versao, `${texto}: rascunho intocado`);
+  }
+  // Resposta legítima ao rascunho (com a continuação ainda no corpo): vai ao rascunho.
+  const turno = await a.enviar("à noite");
+  assert.equal(turno.data?.tipo, "rascunho");
+  assert.equal((turno.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId, op);
+});
+
+test("Luna — PR 21: estimativa pedida que não veio (ausente ou fora da faixa) é dita na resposta e registrada no trace; nada é inventado", async () => {
+  // Homologação de 6c83539: "pode estimar os refrigerantes…" depois de "Não estime…" voltou com estimativa=false e a
+  // resposta só perguntava a taxa, como se o pedido não existisse.
+  const texto = "pode estimar os refrigerantes da próxima festa? garrafa de 2 litros e uns 10% de margem";
+  const cenarios: Array<[string, Partial<SaidaLuna["consumo"]>]> = [
+    ["sem estimar", { categorias: ["REFRIGERANTES"], embalagemMl: 2000, margemPercentual: 10 }],
+    ["valor fora da faixa", { categorias: ["REFRIGERANTES"], embalagemMl: 2000, margemPercentual: 10, estimar: ["REFRIGERANTES"], mlEstimado: 5000 }],
+  ];
+  for (const [cenario, consumo] of cenarios) {
+    const a = ambiente({ convidados: 60 });
+    comLuna(a, { entender: () => saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo }) });
+    const r = await a.enviar(texto);
+    const d = leitura(r.data);
+    assert.match(d.resumo, /Você pediu uma estimativa, mas ela não foi gerada desta vez/, cenario);
+    assert.equal(d.fatos.some((f) => f.natureza === "ESTIMATIVA"), false, `${cenario}: nada inventado`);
+    assert.ok(r.rastro.adaptativo?.descartes.includes("estimativa_sem_valor:REFRIGERANTES"), `${cenario}: ${r.rastro.adaptativo?.descartes}`);
+  }
+  // Com a estimativa dentro da faixa, nenhum aviso.
+  const ok = ambiente({ convidados: 60 });
+  comLuna(ok, { entender: () => saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"], embalagemMl: 2000, margemPercentual: 10, estimar: ["REFRIGERANTES"], mlEstimado: 500 } }) });
+  const r = await ok.enviar(texto);
+  assert.doesNotMatch(leitura(r.data).resumo, /não foi gerada/);
+  assert.ok(leitura(r.data).fatos.some((f) => f.natureza === "ESTIMATIVA"));
+});
+
+test("Luna — PR 13: reserva recusada pelo orçamento ⇒ caminho anterior responde e o trace diz o motivo (teto, escopo, período e reserva)", async () => {
+  const a = ambiente();
+  // Teto diário menor que a reserva da Luna (entrada estimada a 1 token/byte + teto de saída): a Luna nunca é chamada.
+  const luna = comLuna(a, { entender: () => saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium" } }), orcamento: JSON.stringify({ porEmpresa: { tokensDiario: 2000 } }) });
+  const r = await a.enviar("crie uma festa do cliente Felipe para 50 convidados, pacote premium");
+  assert.equal(r.corpo.ok, true, "o caminho anterior responde");
+  assert.equal(luna.chamadas.includes("INTERPRETAR_CONVERSA"), false, "a Luna não foi chamada");
+  assert.equal(r.rastro.adaptativo?.fallback, "ENTENDIMENTO_INDISPONIVEL");
+  const daLuna = r.rastro.recusasModelo.find((x) => x.capacidade === "luna_entender");
+  assert.ok(daLuna, JSON.stringify(r.rastro.recusasModelo));
+  assert.deepEqual({ ...daLuna, tokensReserva: undefined }, { causa: "ORCAMENTO", workload: "INTERPRETAR_CONVERSA", capacidade: "luna_entender", motivo: "TETO_TOKENS", escopo: "EMPRESA", periodo: "DIA", tokensReserva: undefined });
+  assert.ok((daLuna.tokensReserva ?? 0) > 2000, "a reserva tentada passa do teto");
+  // Só metadados: nada do texto do pedido no trace.
+  assert.doesNotMatch(JSON.stringify(r.rastro.recusasModelo), /Felipe|premium|convidados/);
+  assert.deepEqual(a.efeitos.pacotes, []);
+});
+
+test("Fallback (PR 14): sem a Luna, \"não estime / só a regra cadastrada\" e \"não sei\" refazem o MESMO cálculo — nunca propõem cadastrar regra", async () => {
+  for (const cenario of ["sem modelo", "Luna fora, classificador antigo propõe salvar regra"] as const) {
+    const a = ambiente({ convidados: 50 });
+    if (cenario !== "sem modelo") comLuna(a, { entender: () => new ErroModelo("HTTP_5XX", false), classificar: "salvar_parametro_consumo" });
+    const pergunta = await a.enviar("quantos refrigerantes para a próxima festa?");
+    assert.deepEqual(pergunta.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO", festaId: IDS.FESTA_MARIA }, cenario);
+    for (const texto of ["Não estime o consumo; quero somente a regra cadastrada.", "não sei"]) {
+      const r = await a.enviar(texto);
+      assert.equal(r.data?.tipo, "resposta", `${cenario}: ${texto}`);
+      assert.equal(r.rastro.plano?.passos.at(-1)?.capacidade, "calcular_consumo", `${cenario}: mesmo cálculo`);
+      assert.match(leitura(r.data).resumo, /Quantos mL de refrigerante por convidado/, `${cenario}: pergunta de novo o que falta`);
+      assert.deepEqual(r.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO", festaId: IDS.FESTA_MARIA }, `${cenario}: mesma festa`);
+      assert.equal(leitura(r.data).fatos.some((f) => f.natureza === "ESTIMATIVA"), false, "nunca estima sem pedido");
+      assert.equal([...a.repositorio.linhas.values()].length, 0, `${cenario}: nenhum rascunho de regra`);
+    }
+  }
+});
+
+test("Fallback (PR 14): sem a Luna, \"pode estimar os refrigerantes da próxima festa? garrafa de 2 litros e 10% de margem\" é cálculo de consumo, não resumo da festa", async () => {
+  for (const cenario of ["sem modelo", "Luna fora"] as const) {
+    const a = ambiente({ convidados: 50 });
+    if (cenario === "Luna fora") comLuna(a, { entender: () => new ErroModelo("HTTP_5XX", false) });
+    const r = await a.enviar("pode estimar os refrigerantes da próxima festa? garrafa de 2 litros e uns 10% de margem");
+    assert.equal(r.data?.tipo, "resposta", cenario);
+    assert.equal(r.rastro.plano?.passos.at(-1)?.capacidade, "calcular_consumo", cenario);
+    assert.match(leitura(r.data).resumo, /Quantos mL de refrigerante por convidado/, `${cenario}: a taxa falta e é perguntada (sem a Luna não há estimativa)`);
+    assert.equal(leitura(r.data).fatos.some((f) => f.natureza === "ESTIMATIVA"), false, cenario);
+    assert.deepEqual(r.data?.continuacao?.parametros, { embalagemMl: 2000, margemPercentual: 10 }, `${cenario}: embalagem e margem escritas são guardadas`);
+  }
+});
 
 const FRASE_C = "4 doces por convidados, refrigerante de 2l. Não sei dizer quantos ml por convidados o consumo. faça você a definição.";
 
@@ -1190,6 +1302,294 @@ test("Luna — F: âncora correta: os 50 convidados de uma contratação em prep
   const r3 = await a.enviar("vamos voltar para a festa do Felipe");
   assert.equal((r3.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId, op);
   assert.match((r3.data as Extract<AIResponse, { tipo: "rascunho" }>).pergunta, /aniversariante/);
+});
+
+test("Luna — A5 (gestão de contexto): resposta ao rascunho, correção e retomada não anunciam pedidos do histórico; pedido novo da mensagem sim", async () => {
+  // Homologação com o modelo real (01/10, staging 3b66958): depois de "antes, quantos docinhos…?", a resposta "à noite"
+  // voltou com outrosPedidos=1 e o rascunho dizia "o outro que você mencionou ainda não foi feito".
+  const AVISO = /Fiz um pedido por vez/;
+  const doHistorico = { pedido: "calcular docinhos", trecho: "quantos docinhos preciso para 60 convidados" };
+  const a = ambiente();
+  const roteiro = [
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium" } }),
+    saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "CONSULTA_PARALELA", festa: "NENHUMA", consumo: { categorias: ["DOCES"] } }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { aniversariante: "Theo" }, outrosPedidos: [doHistorico] }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "CORRIGE", correcao: true, contratacao: { convidados: 60 }, outrosPedidos: [doHistorico] }),
+    saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "CONSULTA_PARALELA", festa: "PROXIMA", consumo: { categorias: ["DOCES"], docesPorConvidado: 4 } }),
+    saida({ objetivo: "RETOMAR_RASCUNHO", outrosPedidos: [doHistorico] }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { data: "2027-11-14" }, outrosPedidos: [{ pedido: "refrigerantes", trecho: "quantos refrigerantes para a próxima festa" }] }),
+  ];
+  comLuna(a, { entender: (_d, n) => roteiro[n - 1] });
+  const r1 = await a.enviar("crie uma festa do cliente Felipe para 50 convidados, pacote premium");
+  const op = (r1.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId;
+  await a.enviar("antes, quantos docinhos preciso para 60 convidados?");
+  const texto = (r: { data: AIResponse | null }) => (r.data?.tipo === "rascunho" ? r.data.pergunta : r.data?.tipo === "nao_suportado" ? r.data.mensagem : r.data?.tipo === "resposta" ? r.data.dados.resumo : "");
+  const responde = await a.enviar("o aniversariante é o Theo");
+  assert.equal(responde.data?.tipo, "rascunho");
+  assert.doesNotMatch(texto(responde), AVISO, "resposta ao campo: o pedido de docinhos é do histórico");
+  assert.deepEqual([responde.rastro.adaptativo?.outrosPedidos, responde.rastro.adaptativo?.outrosDescartados], [0, 1]);
+  const corrige = await a.enviar("na verdade são 60 convidados");
+  assert.doesNotMatch(texto(corrige), AVISO, "correção");
+  assert.equal(corrige.rastro.adaptativo?.outrosDescartados, 1);
+  await a.enviar("e a próxima festa, quantos docinhos com 4 por convidado?");
+  const retoma = await a.enviar("vamos voltar para a festa do Felipe");
+  assert.equal((retoma.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId, op, "retomada volta ao mesmo rascunho");
+  assert.doesNotMatch(texto(retoma), AVISO, "retomada");
+  // Pedido realmente novo, escrito nesta mensagem: anunciado (um pedido por vez).
+  const novo = await a.enviar("dia 14/11/2027. E quantos refrigerantes para a próxima festa?");
+  assert.match(texto(novo), AVISO);
+  assert.deepEqual([novo.rastro.adaptativo?.outrosPedidos, novo.rastro.adaptativo?.outrosDescartados], [1, 0]);
+});
+
+test("Luna — mensagem mista com rascunho (RESPONDE + cálculo): o campo do rascunho é aplicado E o cálculo é atendido (pergunta necessária), sem aviso de pedido não feito", async () => {
+  // Homologação de f41018e: "o cliente é … E quantos refrigerantes…?" ⇒ a Luna disse RESPONDE ao rascunho mas escolheu
+  // CALCULO_CONSUMO; o dado do rascunho se perdia e nada era anunciado.
+  const a = ambiente({ convidados: 50 });
+  comLuna(a, { entender: (_d, n) => (n === 1
+    ? saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium" } })
+    : saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "RESPONDE", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] }, contratacao: { aniversariante: "Theo" } })) });
+  const r1 = await a.enviar("crie uma festa do cliente Felipe para 50 convidados, pacote premium");
+  const op = (r1.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId;
+  const r2 = await a.enviar("o aniversariante é o Theo. E quantos refrigerantes para a próxima festa?");
+  assert.equal(r2.data?.tipo, "rascunho", "a resposta ao rascunho vem primeiro");
+  const rasc = r2.data as Extract<AIResponse, { tipo: "rascunho" }>;
+  assert.equal(rasc.rascunho.operacaoId, op);
+  assert.equal(rasc.rascunho.campos.find((c) => c.id === "aniversariante")?.valor, "Theo", "o dado do rascunho não se perde");
+  assert.doesNotMatch(rasc.pergunta, /Fiz um pedido por vez/, "o cálculo não fica para depois");
+  // O segundo pedido é atendido: o cálculo da próxima festa pergunta a taxa (nada inventado), com a continuação.
+  const seguinte = r2.data?.pedidoSeguinte;
+  assert.equal(seguinte?.tipo, "resposta");
+  assert.match((seguinte as { dados: { resumo: string } }).dados.resumo, /Quantos mL de refrigerante por convidado/);
+  assert.deepEqual(r2.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO", festaId: IDS.FESTA_MARIA });
+  assert.equal(r2.rastro.operacional?.decisao, "LUNA:MENSAGEM_MISTA");
+});
+
+test("Luna — mensagem mista reconhecida pelo TRECHO quando a Luna marca SEM_RASCUNHO: o trecho responde ao campo, a revisão abre e o cálculo segue junto", async () => {
+  // Homologação de 3930273: a mesma frase veio com relacaoRascunho=SEM_RASCUNHO e o dado do rascunho como "outro pedido".
+  const roteiro = (outro: { pedido: string; trecho: string }) => [
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium", aniversariante: "beatriz", idade: 1, tema: "unicórnio" } }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { data: "2026-11-15" } }),
+    saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "SEM_RASCUNHO", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] }, outrosPedidos: [outro] }),
+  ];
+  const a = ambiente({ convidados: 50 });
+  const r = roteiro({ pedido: "informar o turno", trecho: "à noite" });
+  comLuna(a, { entender: (_d, n) => r[n - 1] });
+  await a.enviar(FRASE);
+  await a.enviar("15/11/2026");
+  const misto = await a.enviar("à noite. E quantos refrigerantes para a próxima festa?");
+  assert.equal(misto.data?.tipo, "navegacao", "o trecho completou o rascunho: a revisão abre");
+  assert.equal(misto.rastro.operacional?.decisao, "LUNA:MENSAGEM_MISTA");
+  assert.match((misto.data!.pedidoSeguinte as { dados: { resumo: string } }).dados.resumo, /Quantos mL de refrigerante por convidado/);
+  assert.deepEqual(a.efeitos.fechamentos, []);
+  // Trecho que NÃO responde ao campo pendente: não é mensagem mista (o rascunho fica como estava, o cálculo é atendido).
+  const b = ambiente({ convidados: 50 });
+  const rb = roteiro({ pedido: "agenda", trecho: "veja a agenda de hoje" });
+  comLuna(b, { entender: (_d, n) => rb[n - 1] });
+  await b.enviar(FRASE);
+  await b.enviar("15/11/2026");
+  const so = await b.enviar("quantos refrigerantes para a próxima festa? e veja a agenda de hoje");
+  assert.equal(so.data?.tipo, "resposta");
+  assert.notEqual(so.rastro.operacional?.decisao, "LUNA:MENSAGEM_MISTA");
+  assert.equal(b.linha(b.operacaoAtual()!).estado, "COLETANDO", "rascunho intocado");
+});
+
+test("Luna — mensagem mista que COMPLETA o rascunho: a revisão abre (confirmação humana) e o segundo pedido segue junto; a conversa continua no cálculo", async () => {
+  // Homologação de ea32084: "o cliente é … E quantos refrigerantes…?" completou o rascunho, a UI abriu a revisão e fechou
+  // a conversa — o pedido de refrigerantes sumiu. Agora a navegação carrega o resultado/pergunta do segundo pedido.
+  const a = ambiente({ convidados: 50 });
+  const roteiro = [
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium", aniversariante: "beatriz", idade: 1, tema: "unicórnio" } }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { data: "2026-11-15" } }),
+    saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "RESPONDE", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] }, contratacao: { turno: "noite" }, outrosPedidos: [{ pedido: "refrigerantes", trecho: "quantos refrigerantes para a próxima festa" }] }),
+    saida({ objetivo: "CALCULO_CONSUMO", festa: "DA_CONVERSA", consumo: { categorias: ["REFRIGERANTES"], mlPorConvidado: 400 } }),
+  ];
+  comLuna(a, { entender: (_d, n) => roteiro[n - 1] });
+  await a.enviar(FRASE);
+  await a.enviar("15/11/2026");
+  const misto = await a.enviar("à noite. E quantos refrigerantes para a próxima festa?");
+  // 1) A revisão abre: navegação para o Fechamento, aguardando a confirmação humana (nada gravado).
+  assert.equal(misto.data?.tipo, "navegacao");
+  const nav = misto.data as Extract<AIResponse, { tipo: "navegacao" }>;
+  const op = nav.proposta!.operacaoId;
+  assert.equal(nav.destino, `/admin/clientes/${FELIPE}/fechamento?rascunho=${op}`);
+  assert.equal(nav.proposta!.estado, "AGUARDANDO_CONFIRMACAO");
+  assert.deepEqual(a.efeitos.fechamentos, []);
+  // 2) O segundo pedido não some: a pergunta necessária do cálculo segue junto, com a continuação da mesma festa.
+  assert.equal(misto.data?.pedidoSeguinte?.tipo, "resposta");
+  assert.match((misto.data!.pedidoSeguinte as { dados: { resumo: string } }).dados.resumo, /Quantos mL de refrigerante por convidado/);
+  assert.equal(misto.data?.continuacao?.festaId, IDS.FESTA_MARIA);
+  assert.equal(misto.data?.continuacao?.perguntado, "ML_POR_CONVIDADO");
+  assert.doesNotMatch(JSON.stringify(nav.proposta!.avisos), /Fiz um pedido por vez/);
+  // 3) A conversa continua no cálculo (a revisão segue aberta e intocada).
+  const versao = a.linha(op).versao;
+  const taxa = await a.enviar("400 ml");
+  assert.equal(taxa.data?.tipo, "resposta");
+  assert.ok(fatos(leitura(taxa.data)).includes("CALCULO:50 convidados × 400 mL = 20.000 mL = 20 L."));
+  assert.equal(a.linha(op).versao, versao, "a preparação em revisão não muda");
+  // 4) Confirmação humana: o chat nunca conclui; só o formulário oficial cria o Fechamento.
+  const chat = await a.decidir(a.linha(op), "confirmar");
+  assert.equal(chat.status, 409);
+  assert.equal((chat.corpo as { codigo: string }).codigo, "CONFIRMAR_NA_REVISAO");
+  assert.deepEqual(a.efeitos.fechamentos, []);
+});
+
+test("Luna — PR 18: mensagem mista respondida por leitura determinística anuncia o pedido não feito; com redação da Luna, a redação o faz", async () => {
+  // Homologação de b72f612: "o cliente é … E quantos refrigerantes para a próxima festa?" ⇒ cálculo + outrosPedidos=1,
+  // redação reprovada (determinística) e nenhum aviso — o pedido do cliente sumia sem explicação.
+  const texto = "o cliente é Maria Souza. E quantos docinhos para a próxima festa com 4 por convidado?";
+  const ent = saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo: { categorias: ["DOCES"], docesPorConvidado: 4 }, outrosPedidos: [{ pedido: "informar o cliente", trecho: "o cliente é Maria Souza" }] });
+  const semRedacao = ambiente({ convidados: 50 });
+  comLuna(semRedacao, { entender: () => ent, redigir: () => new ErroModelo("HTTP_5XX", false) });
+  const r1 = await semRedacao.enviar(texto);
+  assert.equal(r1.rastro.adaptativo?.redacao, "DETERMINISTICA");
+  assert.ok(fatos(leitura(r1.data)).includes("CALCULO:50 convidados × 4 = 200 docinhos."));
+  assert.match(leitura(r1.data).resumo, /Fiz um pedido por vez/, "o pedido não feito é dito");
+  const comRedacao = ambiente({ convidados: 50 });
+  comLuna(comRedacao, { entender: () => ent, redigir: (d) => ({ resposta: `${d.resumoDoSistema} O outro pedido ainda não foi feito.`, complementos: [] }) });
+  const r2 = await comRedacao.enviar(texto);
+  assert.equal(r2.rastro.adaptativo?.redacao, "MODELO");
+  assert.doesNotMatch(leitura(r2.data).resumo, /Fiz um pedido por vez/, "sem aviso duplicado quando a Luna redige");
+});
+
+test("Luna (homologação): cálculo sem festa no meio do rascunho pergunta qual festa, sem Planner, e o rascunho fica pausado", async () => {
+  // Achado da homologação em staging: "antes, quantos docinhos preciso para 60 convidados?" caía no Planner e respondia
+  // "Ainda não sei responder isso". A Luna já disse que não há festa: pergunta-se qual, com o rascunho intocado.
+  const a = ambiente();
+  const luna = comLuna(a, { entender: (d, n) => (n === 1
+    ? saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium" } })
+    : saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "CONSULTA_PARALELA", festa: "NENHUMA", consumo: { categorias: ["DOCES"] } })) });
+  const r1 = await a.enviar("crie uma festa do cliente Felipe para 50 convidados, pacote premium");
+  const op = (r1.data as Extract<AIResponse, { tipo: "rascunho" }>).rascunho.operacaoId;
+  const versao = a.linha(op).versao;
+  const r2 = await a.enviar("antes, quantos docinhos preciso para 60 convidados?");
+  assert.equal(r2.data?.tipo, "nao_suportado");
+  assert.equal(r2.data?.entendimento, "PRECISA_DADO");
+  assert.match((r2.data as Extract<AIResponse, { tipo: "nao_suportado" }>).mensagem, /Para qual festa?/);
+  assert.equal(r2.data?.rascunhoPausado?.operacaoId, op);
+  assert.equal(a.linha(op).versao, versao, "rascunho intocado");
+  assert.equal(luna.chamadas.includes("PLANEJAR"), false, "o Planner não é consultado");
+  assert.equal(r2.rastro.adaptativo?.fallback, null);
+});
+
+test("Luna (homologação): com o rascunho perguntando um nome, \"Quero criar uma festa e não um pacote\" não vira o nome (cliente ou aniversariante)", async () => {
+  // Achado da homologação em staging: a resposta crua à pergunta "Qual é o cliente?" aceitava a frase inteira como nome.
+  const a = ambiente();
+  comLuna(a, { entender: (d, n) => (n === 1
+    ? saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Fulano", convidados: 50, pacote: "premium" } })
+    : saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "CORRIGE", correcao: true })) });
+  const r1 = await a.enviar("crie uma festa do cliente Fulano para 50 convidados, pacote premium");
+  const rasc1 = r1.data as Extract<AIResponse, { tipo: "rascunho" }>;
+  assert.match(rasc1.pergunta, /aniversariante/i, "pergunta de nome pendente");
+  for (const frase of ["Quero criar uma festa e não um pacote", "não, quero uma festa", "cancele o pacote e crie a festa"]) {
+    const r = await a.enviar(frase);
+    const rasc = r.data as Extract<AIResponse, { tipo: "rascunho" }>;
+    assert.equal(rasc.rascunho.operacaoId, rasc1.rascunho.operacaoId);
+    for (const id of ["cliente", "aniversariante"]) assert.doesNotMatch(rasc.rascunho.campos.find((x) => x.id === id)?.valor ?? "", /quero|festa|pacote|n[aã]o/i, `${id}: ${frase}`);
+    assert.match(rasc.pergunta, /aniversariante/i, "a pergunta pendente continua");
+    assert.equal(rasc.rascunho.campos.find((c) => c.id === "convidados")?.valor, "50", "dados válidos preservados");
+  }
+  assert.deepEqual(a.efeitos.pacotes, []);
+  // Mesma regra na pergunta do cliente; nomes reais continuam aceitos.
+  assert.deepEqual(extrairContratacao("Quero criar uma festa e não um pacote", "cliente"), {});
+  assert.deepEqual(extrairContratacao("Maria da Silva", "cliente"), { cliente: "Maria da Silva" });
+  assert.deepEqual(extrairContratacao("é o João Pedro", "cliente"), { cliente: "João Pedro" });
+  assert.equal(extrairContratacao("Ana Clara", "aniversariante").aniversariante, "Ana Clara");
+});
+
+test("Luna (homologação): B — duas consultas que a regra casaria pela metade vão ao plano composto, não à leitura única", async () => {
+  // Achado da homologação em staging: "Quais contratos estão pendentes e quanto recebemos este mês?" lia só os contratos
+  // (a regra casava contratos_pendentes e a escolha dupla da Luna era ignorada).
+  const a = ambiente();
+  const luna = comLuna(a, {
+    entender: () => saida({ objetivo: "CONSULTA", consultas: ["contratos_pendentes", "analisar_pagamentos"] }),
+    plano: { objetivo: "CONSULTAR:CONTRATO", recursoFinal: null, passos: [
+      { id: "p1", capacidade: "contratos_pendentes", parametros: {}, entradaDe: null, selecao: null, resposta: true },
+      { id: "p2", capacidade: "analisar_pagamentos", parametros: {}, entradaDe: null, selecao: null, resposta: null },
+    ] },
+  });
+  const r = await a.enviar("Quais contratos estão pendentes e quanto recebemos este mês?");
+  // PR 15 (homologação com o modelo real, 01/10): o plano composto falhava em staging — o executor exigia `entidades` no
+  // passo 1 e o Planner descarta listagens da resposta. Consultas independentes agora são lidas e compostas direto.
+  assert.equal(luna.chamadas.includes("PLANEJAR"), false, "consultas independentes não precisam do Planner");
+  assert.equal(r.data?.tipo, "resposta");
+  assert.deepEqual(r.rastro.leituras.map((l) => l.capacidade), ["contratos_pendentes", "analisar_pagamentos"], "as duas leituras, pela porta guardada");
+  const fontes = new Set(leitura(r.data).fatos.map((f) => f.fonte.split(".")[0]));
+  assert.ok(fontes.size >= 2, `fatos das duas leituras na resposta: ${[...fontes]}`);
+  assert.deepEqual(r.rastro.adaptativo?.consultas, ["contratos_pendentes", "analisar_pagamentos"], "a escolha da Luna decide, não a regra pela metade");
+});
+
+test("Luna — PR 15: \"não estime; só a regra cadastrada\" chamado de CONSULTA (sem consultas) pela Luna ainda responde a pergunta pendente", async () => {
+  // Homologação com o modelo real: a Luna rotulou N2 como CONSULTA com consultas [] e categoria REFRIGERANTES; a regra de
+  // continuação só valia para ESCLARECER/CONVERSA/FORA_DO_ESCOPO e a resposta virou "Ainda não sei responder isso".
+  const a = ambiente({ convidados: 50 });
+  comLuna(a, { entender: (_d, n) => (n === 1
+    ? saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] } })
+    : saida({ objetivo: "CONSULTA", consultas: [], correcao: true, consumo: { categorias: ["REFRIGERANTES"] } })) });
+  const pergunta = await a.enviar("quantos refrigerantes para a próxima festa?");
+  assert.equal(pergunta.data?.continuacao?.perguntado, "ML_POR_CONVIDADO");
+  for (const texto of ["Não estime o consumo; quero somente a regra cadastrada.", "não sei"]) {
+    const r = await a.enviar(texto);
+    assert.equal(r.data?.tipo, "resposta", texto);
+    assert.match(leitura(r.data).resumo, /Quantos mL de refrigerante por convidado/, texto);
+    assert.deepEqual(r.data?.continuacao, { tipo: "PARAMETRO_CONSUMO", categoria: "REFRIGERANTES", perguntado: "ML_POR_CONVIDADO", festaId: IDS.FESTA_MARIA }, texto);
+    assert.equal(leitura(r.data).fatos.some((f) => f.natureza === "ESTIMATIVA"), false, "nunca estima sem pedido");
+  }
+});
+
+test("Luna (homologação): \"Não estime…; só a regra cadastrada\" e \"não sei\" respondem a pergunta pendente sem perder a festa e sem estimar", async () => {
+  // Achado da homologação em staging: o esclarecimento da Luna perdia a continuação e o "não sei" seguinte virava
+  // "Ainda não sei responder isso".
+  const a = ambiente({ convidados: 50 });
+  const luna = comLuna(a, { entender: (d, n) => (n === 1
+    ? saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] } })
+    : n === 2 ? saida({ objetivo: "ESCLARECER", esclarecimento: "Qual é a regra cadastrada de mL de refrigerante por convidado?", consumo: { estimar: ["REFRIGERANTES"], mlEstimado: 300 } })
+      : saida({ objetivo: "FORA_DO_ESCOPO", consumo: { estimar: ["REFRIGERANTES"], mlEstimado: 300 } })) });
+  const p = await a.enviar("quantos refrigerantes para a próxima festa?");
+  assert.equal((p.data?.continuacao as { perguntado?: string } | undefined)?.perguntado, "ML_POR_CONVIDADO");
+  for (const [frase, dica] of [["Não estime o consumo; quero somente a regra cadastrada.", false], ["não sei", true]] as const) {
+    const r = await a.enviar(frase);
+    const d = leitura(r.data);
+    assert.ok(fatos(d).includes("AUSENCIA:A empresa ainda não tem regra de consumo de refrigerante cadastrada."), frase);
+    assert.equal(fatos(d).some((x) => x.startsWith("ESTIMATIVA")), false, `sem estimativa: ${frase}`);
+    assert.equal((r.data?.continuacao as { perguntado?: string; festaId?: string } | undefined)?.festaId, IDS.FESTA_MARIA, `mesma festa: ${frase}`);
+    assert.equal(/faça você a definição/.test(d.resumo), dica, frase);
+    assert.equal(r.rastro.adaptativo?.estimativa, false);
+  }
+  assert.ok(luna.chamadas.filter((w) => w === "INTERPRETAR_CONVERSA").length === 3);
+  assert.deepEqual(a.efeitos.parametros, []);
+});
+
+test("Luna (homologação): campo opcional fora do limite (o provedor não garante limites) é descartado, sem derrubar o entendimento", async () => {
+  // Achado da homologação em staging: "não sei" caiu no caminho antigo — a saída da Luna foi rejeitada inteira.
+  const a = ambiente({ convidados: 50 });
+  comLuna(a, { entender: () => ({
+    ...saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA" }),
+    consumo: { ...saida().consumo, categorias: ["DOCES", "DOCES", "REFRIGERANTES", "OUTRA"], docesPorConvidado: 4, mlEstimado: 50, embalagemMl: 3 },
+    contratacao: { ...saida().contratacao, cliente: "x".repeat(200), convidados: 9999 },
+    esclarecimento: "Explicação muito longa ".repeat(30),
+    outrosPedidos: ["a", "b", "c"],
+  } as unknown as SaidaLuna) });
+  const r = await a.enviar("4 docinhos por convidado para a próxima festa");
+  assert.equal(r.rastro.adaptativo?.fallback, null, "entendimento aceito");
+  assert.equal(r.rastro.adaptativo?.objetivo, "CALCULO_CONSUMO");
+  assert.ok(fatos(leitura(r.data)).includes("CALCULO:50 convidados × 4 = 200 docinhos."));
+  // Enum fora do contrato continua inválido (caminho anterior).
+  const b = ambiente({ convidados: 50 });
+  comLuna(b, { entender: () => ({ ...saida(), festa: "QUALQUER" } as unknown as SaidaLuna) });
+  const rb = await b.enviar("4 docinhos por convidado para a próxima festa");
+  assert.equal(rb.rastro.adaptativo?.fallback, "ENTENDIMENTO_INDISPONIVEL");
+});
+
+test("Luna (homologação): o trace adaptativo e o operacional chegam ao log saneado", async () => {
+  // Achado da homologação: a saída do log é fechada nas chaves de novoRastreio e descartava os dois traces.
+  const a = ambiente({ convidados: 50 });
+  comLuna(a, { entender: () => saida({ objetivo: "CALCULO_CONSUMO", festa: "PROXIMA", consumo: { categorias: ["DOCES"], docesPorConvidado: 4 } }) });
+  const r = await a.enviar("4 docinhos por convidado para a próxima festa da Maria");
+  const log = sanearRastreio(r.rastro) as { adaptativo?: { objetivo?: string; chamadasModelo?: number }; operacional?: { rota?: string } | null };
+  assert.equal(log.adaptativo?.objetivo, "CALCULO_CONSUMO");
+  assert.ok((log.adaptativo?.chamadasModelo ?? 0) >= 1);
+  assert.ok(log.operacional && log.operacional.rota);
+  assert.equal(JSON.stringify(log).includes("Maria"), false);
 });
 
 test("Luna — consulta em que uma regra casaria uma ação pela palavra: a pergunta não abre rascunho", async () => {

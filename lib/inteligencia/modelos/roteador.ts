@@ -1,10 +1,10 @@
 import { z } from "zod";
-import type { CausaModelo, IdProvedor, ModelUsage, TierModelo, Workload } from "../contratos.ts";
+import type { CausaModelo, IdProvedor, ModelUsage, RecusaModeloRastreio, TierModelo, Workload } from "../contratos.ts";
 import type { Ambiente } from "../flags.ts";
 import { barreiraTextoModelo } from "../texto-modelo.ts";
 import { Circuito, chaveCircuito } from "./circuito.ts";
 import { PERFIL_DEEPSEEK, PERFIL_OPENAI, criarAdaptadorOpenAICompativel } from "./openai-compativel.ts";
-import { TTL_RESERVA_MS, estimarTokensEntrada, periodosDe, planejarReserva, type OrcamentoConfigurado, type RegistroUso } from "./orcamento.ts";
+import { TTL_RESERVA_MS, estimarTokensEntrada, periodosDe, planejarReserva, recusaSemLimite, type OrcamentoConfigurado, type RecusaReserva, type RegistroUso } from "./orcamento.ts";
 import { custoEstimado, type TabelaPrecos } from "./precos.ts";
 import { ErroModelo, type AdaptadorProvedor, type Buscador, type PedidoModelo } from "./tipos.ts";
 
@@ -108,7 +108,7 @@ export type AlertaRoteador = "USO_NAO_REGISTRADO";
 
 export type ResultadoRoteado<T> =
   | { ok: true; valor: T; usos: ModelUsage[]; provedor: IdProvedor; modelo: string; alertas?: AlertaRoteador[] }
-  | { ok: false; causa: CausaModelo; usos: ModelUsage[]; alertas?: AlertaRoteador[] };
+  | { ok: false; causa: CausaModelo; usos: ModelUsage[]; alertas?: AlertaRoteador[]; recusa?: RecusaModeloRastreio };
 
 export type DependenciasRoteador = {
   politica: PoliticaRoteamento;
@@ -206,13 +206,15 @@ export class RoteadorModelos {
     }
   }
 
-  /** Reserva o teto estimado antes da chamada. "RECUSADA" ⇒ não chamar (não existe chamada sem reserva). */
-  private async reservar(pedido: PedidoModelo<unknown>, alvo: AlvoRoteamento, adaptador: AdaptadorProvedor, modelo: string): Promise<string | "RECUSADA"> {
+  /** Reserva o teto estimado antes da chamada. Recusa ⇒ não chamar (não existe chamada sem reserva), com o motivo para o trace. */
+  private async reservar(pedido: PedidoModelo<unknown>, alvo: AlvoRoteamento, adaptador: AdaptadorProvedor, modelo: string): Promise<string | { recusa: RecusaReserva; tokens: number }> {
     const orcamento = this.deps.orcamento;
     const entrada = estimarTokensEntrada(pedido, typeof orcamento === "object" ? orcamento.estimativa : undefined);
     const teto = custoEstimado(this.deps.precos, adaptador.id, modelo, { entrada, saida: pedido.maxTokensSaida, cache: null });
     const plano = planejarReserva(this.deps.orcamento, { capacidade: alvo.capacidade, hoje: alvo.hoje, moedaPreco: teto?.moeda ?? null, precoConhecido: teto !== null });
-    if (plano.tipo === "RECUSAR" || !this.deps.registro || !this.deps.novoId) return "RECUSADA";
+    const tokens = entrada + pedido.maxTokensSaida;
+    if (plano.tipo === "RECUSAR") return { recusa: recusaSemLimite(plano.motivo), tokens };
+    if (!this.deps.registro || !this.deps.novoId) return { recusa: recusaSemLimite("REGISTRO_INDISPONIVEL"), tokens };
     const id = this.deps.novoId();
     try {
       // Rotina controlada de órfãs (processo que caiu antes de reconciliar): vira ORFA e CONTINUA contando.
@@ -221,11 +223,12 @@ export class RoteadorModelos {
         id, empresaId: alvo.empresaId, capacidade: alvo.capacidade, correlationId: alvo.correlationId, em: this.deps.agora().toISOString(),
         // Período fixo no momento da reserva: a reconciliação nunca o recalcula.
         periodos: periodosDe(alvo.hoje),
-        tokens: entrada + pedido.maxTokensSaida, custoMicros: teto?.micros ?? null, moeda: teto?.moeda ?? null, limites: plano.limites,
+        tokens, custoMicros: teto?.micros ?? null, moeda: teto?.moeda ?? null, limites: plano.limites,
       });
-      return r.ok ? id : "RECUSADA";
+      if (r.ok) return id;
+      return { recusa: r.recusa ?? recusaSemLimite(r.motivo === "INDISPONIVEL" ? "REGISTRO_INDISPONIVEL" : "SEM_TETO"), tokens };
     } catch {
-      return "RECUSADA";
+      return { recusa: recusaSemLimite("REGISTRO_ERRO"), tokens };
     }
   }
 
@@ -245,6 +248,7 @@ export class RoteadorModelos {
     const comAlertas = <R extends object>(r: R) => (alertas.length ? { ...r, alertas } : r);
     let causa: CausaModelo = "SEM_CHAVE";
     let tentouAlgum = false;
+    let recusaOrcamento: { recusa: RecusaReserva; tokens: number } | null = null;
 
     for (const [indice, adaptador] of this.candidatos(pedido.workload).entries()) {
       const modelo = adaptador.modeloPara(tier);
@@ -259,7 +263,7 @@ export class RoteadorModelos {
         if (!circuito.permite(chave, relogio())) { causa = "CIRCUITO_ABERTO"; break; }
         // RESERVA antes de cada chamada: o teto vale por tentativa, não por pedido.
         const reserva = await this.reservar(pedido as PedidoModelo<unknown>, alvo, adaptador, modelo);
-        if (reserva === "RECUSADA") { causa = "ORCAMENTO"; break; }
+        if (typeof reserva !== "string") { causa = "ORCAMENTO"; recusaOrcamento = reserva; break; }
         tentouAlgum = true;
         const inicio = relogio();
         const controle = new AbortController();
@@ -340,6 +344,16 @@ export class RoteadorModelos {
         }
       }
     }
-    return comAlertas({ ok: false as const, causa, usos });
+    // A causa final é de uma chamada que NÃO aconteceu: o trace diz por quê (motivo do orçamento, sem valores).
+    // SEM_CHAVE/SEM_MODELO também podem vir de um erro do provedor depois de uma chamada: só contam sem tentativa.
+    const naoChamou = causa === "ORCAMENTO" || causa === "CIRCUITO_ABERTO" || (!tentouAlgum && (causa === "SEM_CHAVE" || causa === "SEM_MODELO"));
+    const recusa: RecusaModeloRastreio | undefined = naoChamou ? {
+      causa, workload: pedido.workload, capacidade: alvo.capacidade,
+      motivo: causa === "ORCAMENTO" ? recusaOrcamento?.recusa.motivo ?? null : null,
+      escopo: causa === "ORCAMENTO" ? recusaOrcamento?.recusa.escopo ?? null : null,
+      periodo: causa === "ORCAMENTO" ? recusaOrcamento?.recusa.periodo ?? null : null,
+      tokensReserva: causa === "ORCAMENTO" ? recusaOrcamento?.tokens ?? null : null,
+    } : undefined;
+    return comAlertas({ ok: false as const, causa, usos, ...(recusa ? { recusa } : {}) });
   }
 }

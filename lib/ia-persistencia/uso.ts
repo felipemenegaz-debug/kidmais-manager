@@ -1,6 +1,6 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import type { ModelUsage } from "../inteligencia/contratos.ts";
-import type { LimiteReserva, PedidoReserva, RegistroUso, ResultadoReserva } from "../inteligencia/modelos/orcamento.ts";
+import type { LimiteReserva, MotivoRecusaOrcamento, PedidoReserva, RegistroUso, ResultadoReserva } from "../inteligencia/modelos/orcamento.ts";
 
 /**
  * Uso de modelos e reservas de orçamento em PostgreSQL (`ia_uso_modelo`, `ia_orcamento_reservas`,
@@ -48,16 +48,19 @@ const CONSUMO = `
                      AND (custo_estimado_micros IS NULL OR moeda IS DISTINCT FROM $5))
           OR EXISTS (SELECT 1 FROM ia_reservas_periodo WHERE custo_reservado_micros IS NULL OR moeda IS DISTINCT FROM $5)) AS desconhecido`;
 
-async function excede(tx: DbExecutor, pedido: PedidoReserva, limite: LimiteReserva) {
+/** Qual teto a reserva excederia (null = cabe). Mesma ordem de `limiteExcedido` (orcamento.ts), repetida aqui porque a persistência importa da IA só tipos. */
+async function excede(tx: DbExecutor, pedido: PedidoReserva, limite: LimiteReserva): Promise<MotivoRecusaOrcamento | null> {
   const dia = limite.periodo.tipo === "DIA" ? limite.periodo.chave : null;
   const mes = limite.periodo.tipo === "MES" ? limite.periodo.chave : null;
   const r = await tx.query<{ tokens: string; custo: string; desconhecido: boolean }>(CONSUMO, [pedido.empresaId, dia, mes, limite.capacidade, pedido.moeda]);
   const linha = r.rows[0];
   const tokens = Number(linha?.tokens ?? 0);
   const custo = Number(linha?.custo ?? 0);
-  if (limite.tokensMax !== null && tokens + pedido.tokens > limite.tokensMax) return true;
-  if (limite.custoMaxMicros !== null && (pedido.custoMicros === null || linha?.desconhecido === true || custo + pedido.custoMicros > limite.custoMaxMicros)) return true;
-  return false;
+  if (limite.tokensMax !== null && tokens + pedido.tokens > limite.tokensMax) return "TETO_TOKENS";
+  if (limite.custoMaxMicros === null) return null;
+  if (pedido.custoMicros === null) return "SEM_PRECO";
+  if (linha?.desconhecido === true) return "CUSTO_DESCONHECIDO";
+  return custo + pedido.custoMicros > limite.custoMaxMicros ? "TETO_CUSTO" : null;
 }
 
 /** Períodos do uso: os da reserva (reconciliação) ou, sem reserva, o dia de `uso.em` em São Paulo. */
@@ -105,13 +108,14 @@ export function criarRegistroUsoPostgres(banco: BancoUso, log: (linha: string) =
       // B1: mesma regra de `temTetoAplicavel` (lib/inteligencia/modelos/orcamento.ts), repetida porque a
       // persistência importa da IA só tipos. Sem teto aplicável e utilizável: recusa, sem abrir transação.
       const tetoValido = (l: LimiteReserva) => (l.tokensMax !== null && l.tokensMax > 0) || (l.custoMaxMicros !== null && l.custoMaxMicros > 0);
-      if (pedido.limites.length === 0 || !pedido.limites.every(tetoValido)) return { ok: false, motivo: "ORCAMENTO" };
-      return banco.transacao(async (tx) => {
-        if (!await tabelasExistem(tx)) return { ok: false, motivo: "INDISPONIVEL" };
+      if (pedido.limites.length === 0 || !pedido.limites.every(tetoValido)) return { ok: false, motivo: "ORCAMENTO", recusa: { motivo: "SEM_TETO", escopo: null, periodo: null } };
+      return banco.transacao(async (tx): Promise<ResultadoReserva> => {
+        if (!await tabelasExistem(tx)) return { ok: false, motivo: "INDISPONIVEL", recusa: { motivo: "REGISTRO_INDISPONIVEL", escopo: null, periodo: null } };
         // Serializa as reservas da empresa: a conferência do saldo e o INSERT não se intercalam.
         await tx.query(`SELECT pg_advisory_xact_lock(hashtext('kidmais-ia-orcamento'), hashtext($1::text))`, [pedido.empresaId]);
         for (const limite of pedido.limites) {
-          if (await excede(tx, pedido, limite)) return { ok: false, motivo: "ORCAMENTO" };
+          const motivo = await excede(tx, pedido, limite);
+          if (motivo) return { ok: false, motivo: "ORCAMENTO", recusa: { motivo, escopo: limite.escopo, periodo: limite.periodo.tipo } };
         }
         await tx.query(
           `INSERT INTO ia_orcamento_reservas (id, empresa_id, capacidade, correlation_id, tokens_reservados, custo_reservado_micros, moeda, estado, criado_em, periodo_dia, periodo_mes)

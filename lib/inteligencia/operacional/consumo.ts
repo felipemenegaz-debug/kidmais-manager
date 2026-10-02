@@ -19,9 +19,10 @@ const PALAVRAS: Readonly<Record<CategoriaConsumo, RegExp>> = {
 
 /**
  * A quantidade pedida é DA categoria ("quantos docinhos", "quantos litros de refrigerante", "quantidade de doces",
- * "calcule os refrigerantes"): "quantos convidados … e quais doces" pergunta convidados e escolhas, não um cálculo.
+ * "calcule os refrigerantes", "pode estimar os refrigerantes"): "quantos convidados … e quais doces" pergunta convidados e
+ * escolhas, não um cálculo. "Estimar" só nomeia o cálculo: a estimativa em si continua exigindo delegação (Luna).
  */
-const PEDE_QUANTIDADE = /\b(?:quant[oa]s?|quantidade(?: de)?|calcul\w*(?: (?:a|o|os|as))?(?: quantidade de)?)\s+(?:\w+\s+)?(?:de\s+)?(?:doces?|docinhos?|brigadeiros?|refrigerantes?|refris?)\b/;
+const PEDE_QUANTIDADE = /\b(?:quant[oa]s?|quantidade(?: de)?|(?:calcul|estim)\w*(?: (?:a|o|os|as))?(?: quantidade de)?)\s+(?:\w+\s+)?(?:de\s+)?(?:doces?|docinhos?|brigadeiros?|refrigerantes?|refris?)\b/;
 const VERBO_MUTACAO = /\b(crie|criar|cadastr(e|ar)|salv(e|ar|a)|grav(e|ar)|registr(e|ar)|alter(e|ar)|mud(e|ar)|exclu\w*|apag\w*|envi(e|ar))\b/;
 
 /** Categorias citadas no texto (normalizado ou não). */
@@ -40,6 +41,17 @@ export function detectarConsumo(texto: string): { categorias: CategoriaConsumo[]
   if (VERBO_MUTACAO.test(n) || !(PEDE_QUANTIDADE.test(n) || /\bpor (convidad|pessoa|crianc)/.test(n))) return null;
   const categorias = categoriasCitadas(n);
   return categorias.length ? { categorias } : null;
+}
+
+/**
+ * Resposta à pergunta de parâmetro pendente SEM número nem pedido novo: "não sei", "não estime", "só a regra cadastrada".
+ * Vale também sem a Luna (orçamento, provedor fora): o mesmo cálculo é refeito e o que falta volta a ser perguntado —
+ * nunca vira proposta de cadastrar regra nem estimativa.
+ */
+const SEM_DADO = /\b(?:nao sei|sei la|nao (?:estim|chut)\w*|sem (?:estimativa|chute)|(?:so|somente|apenas) (?:com |a |pela |na )?regras?\b|regras? (?:cadastrad|registrad)\w*)/;
+export function respondeSemDado(texto: string): boolean {
+  const n = normalizar(texto);
+  return SEM_DADO.test(n) && !VERBO_MUTACAO.test(n);
 }
 
 /** Pedido para gravar um parâmetro como PADRÃO da empresa (proposta separada, sob Human Gate). */

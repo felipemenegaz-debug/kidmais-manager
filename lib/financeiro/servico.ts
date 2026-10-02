@@ -688,6 +688,27 @@ export async function criarContaPagar(
   return primeira;
 }
 
+/**
+ * Trava a conta e só DEPOIS soma os pagamentos, em outro comando. Em READ COMMITTED, um SUM no mesmo
+ * SELECT ... FOR UPDATE usa o retrato tirado antes de esperar a trava: uma baixa concorrente recém-confirmada
+ * ficaria de fora e a conta poderia ser paga além do valor, editada ou cancelada depois de paga.
+ */
+async function travarConta(tx: DbExecutor, empresaId: string, id: string) {
+  const conta = await tx.query<{ valor: string; cancelado_em: string | null }>(
+    `SELECT valor::text AS valor, cancelado_em::text AS cancelado_em
+       FROM financeiro_contas_pagar
+      WHERE id = $1::uuid AND empresa_id = $2::uuid
+      FOR UPDATE`,
+    [id, empresaId],
+  );
+  if (!conta.rowCount) recusar("NAO_ENCONTRADO", "Conta não encontrada nesta empresa.", 404);
+  const pago = await tx.query<{ pago: string }>(
+    `SELECT COALESCE(SUM(valor), 0)::text AS pago FROM financeiro_saidas WHERE conta_id = $1::uuid AND empresa_id = $2::uuid`,
+    [id, empresaId],
+  );
+  return { ...conta.rows[0], pago: pago.rows[0].pago };
+}
+
 export async function editarContaPagar(
   tx: DbExecutor,
   empresaId: string,
@@ -695,15 +716,8 @@ export async function editarContaPagar(
   id: string,
   input: { descricao: string; favorecido?: string | null; categoriaId: string; valor: number; vencimento: string; observacao?: string | null },
 ) {
-  const trava = await tx.query<{ pago: string }>(
-    `SELECT COALESCE((SELECT SUM(valor) FROM financeiro_saidas WHERE conta_id = conta.id AND empresa_id = conta.empresa_id), 0)::text AS pago
-       FROM financeiro_contas_pagar conta
-      WHERE conta.id = $1::uuid AND conta.empresa_id = $2::uuid
-      FOR UPDATE`,
-    [id, empresaId],
-  );
-  if (!trava.rowCount) recusar("NAO_ENCONTRADO", "Conta não encontrada nesta empresa.", 404);
-  if (centavosDe(trava.rows[0].pago) > 0) recusar("EM_USO", "Esta conta já tem pagamento e não volta a ser editada.", 409);
+  const trava = await travarConta(tx, empresaId, id);
+  if (centavosDe(trava.pago) > 0) recusar("EM_USO", "Esta conta já tem pagamento e não volta a ser editada.", 409);
   const categoria = await tx.query(
     `SELECT id FROM financeiro_categorias WHERE id = $1::uuid AND empresa_id = $2::uuid AND ativo`,
     [input.categoriaId, empresaId],
@@ -735,17 +749,9 @@ export async function pagarConta(
     if (!mesmaSaida(linha, input)) recusar("IDEMPOTENCIA_CONFLITANTE", "Esta chave já registrou outro pagamento nesta empresa.", 409);
     return { reutilizado: true, id: linha.id };
   }
-  const trava = await tx.query<{ valor: string; cancelado_em: string | null; pago: string }>(
-    `SELECT conta.valor::text AS valor, conta.cancelado_em::text AS cancelado_em,
-            COALESCE((SELECT SUM(valor) FROM financeiro_saidas WHERE conta_id = conta.id AND empresa_id = conta.empresa_id), 0)::text AS pago
-       FROM financeiro_contas_pagar conta
-      WHERE conta.id = $1::uuid AND conta.empresa_id = $2::uuid
-      FOR UPDATE`,
-    [input.contaId, empresaId],
-  );
-  if (!trava.rowCount) recusar("NAO_ENCONTRADO", "Conta não encontrada nesta empresa.", 404);
-  if (trava.rows[0].cancelado_em) recusar("CANCELADA", "Conta cancelada não recebe pagamento.", 409);
-  const saldo = saldoCentavos(centavosDe(trava.rows[0].valor), centavosDe(trava.rows[0].pago));
+  const trava = await travarConta(tx, empresaId, input.contaId);
+  if (trava.cancelado_em) recusar("CANCELADA", "Conta cancelada não recebe pagamento.", 409);
+  const saldo = saldoCentavos(centavosDe(trava.valor), centavosDe(trava.pago));
   const valor = centavosDe(input.valor);
   if (!aceitaBaixa(saldo, valor)) recusar("VALOR_EXCEDE_SALDO", "O valor passa do saldo desta conta.", 409);
   await tx.query("SAVEPOINT saida_idempotente");
@@ -790,15 +796,8 @@ function chaveRepetida(error: unknown) {
 }
 
 export async function cancelarConta(tx: DbExecutor, empresaId: string, atorId: string, id: string) {
-  const trava = await tx.query<{ pago: string }>(
-    `SELECT COALESCE((SELECT SUM(valor) FROM financeiro_saidas WHERE conta_id = conta.id AND empresa_id = conta.empresa_id), 0)::text AS pago
-       FROM financeiro_contas_pagar conta
-      WHERE conta.id = $1::uuid AND conta.empresa_id = $2::uuid
-      FOR UPDATE`,
-    [id, empresaId],
-  );
-  if (!trava.rowCount) recusar("NAO_ENCONTRADO", "Conta não encontrada nesta empresa.", 404);
-  if (centavosDe(trava.rows[0].pago) > 0) recusar("EM_USO", "Estorne o pagamento antes de cancelar esta conta.", 409);
+  const trava = await travarConta(tx, empresaId, id);
+  if (centavosDe(trava.pago) > 0) recusar("EM_USO", "Estorne o pagamento antes de cancelar esta conta.", 409);
   const atualizada = await tx.query(
     `UPDATE financeiro_contas_pagar
         SET cancelado_em = COALESCE(cancelado_em, now()), atualizado_em = now()

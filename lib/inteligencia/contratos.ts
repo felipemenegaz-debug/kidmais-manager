@@ -301,7 +301,19 @@ export type AIResponse = (
   rascunhoPausado?: { operacaoId: string; titulo: string; pergunta: string | null };
   /** Conversa adaptativa: o resumo foi redigido pela Luna a partir dos fatos verificados (números conferidos). */
   redacao?: "MODELO" | "DETERMINISTICA";
+  /**
+   * Mensagem mista (responde ao rascunho E pede uma consulta/cálculo): o resultado ou a pergunta do SEGUNDO pedido, já
+   * executado pelas mesmas portas guardadas. A UI o mostra como mais uma resposta na conversa e não a fecha ao abrir a
+   * revisão — a abertura da revisão nunca apaga nem esconde o segundo pedido.
+   */
+  pedidoSeguinte?: PedidoSeguinte;
 };
+
+/** Segundo pedido de uma mensagem mista: só leitura com fatos ou pergunta/esclarecimento (nunca outra ação). */
+export type PedidoSeguinte =
+  | { tipo: "resposta"; dados: RespostaLeitura }
+  | { tipo: "nao_suportado"; mensagem: string; sugestoes: string[] }
+  | { tipo: "precisa_contexto"; mensagem: string };
 
 export type ContinuacaoConsumo = {
   tipo: "PARAMETRO_CONSUMO";
@@ -352,6 +364,27 @@ export type DetalheErroProvedor = {
 
 /** Erro de modelo no trace: causa classificada + workload + detalhe saneado (nulls quando o provedor não informou). */
 export type ErroModeloRastreio = { causa: CausaModelo; workload: Workload } & DetalheErroProvedor;
+
+/** Por que o orçamento recusou uma reserva (código fechado; nunca valor de teto ou de consumo). */
+export type MotivoRecusaOrcamento =
+  | "AUSENTE" | "INVALIDO" | "SEM_TETO" | "SEM_PRECO"
+  | "TETO_TOKENS" | "TETO_CUSTO" | "CUSTO_DESCONHECIDO"
+  | "REGISTRO_INDISPONIVEL" | "REGISTRO_ERRO";
+
+/**
+ * Chamada de modelo que o roteador NÃO fez (sem provedor, sem modelo, circuito aberto ou reserva de orçamento recusada).
+ * `motivo`, `escopo` e `periodo` só existem na recusa de orçamento; `tokensReserva` é o teto estimado que se tentou
+ * reservar (entrada estimada + teto de saída). Sem texto, valores de negócio, tetos configurados ou consumo.
+ */
+export type RecusaModeloRastreio = {
+  causa: CausaModelo;
+  workload: Workload;
+  capacidade: string;
+  motivo: MotivoRecusaOrcamento | null;
+  escopo: "EMPRESA" | "CAPACIDADE" | null;
+  periodo: "DIA" | "MES" | null;
+  tokensReserva: number | null;
+};
 
 /** Uma linha por chamada de modelo. Sem prompt, sem resposta, sem PII. */
 export type ModelUsage = {
@@ -414,6 +447,8 @@ export type AuditTrace = {
   duracaoModeloMs: number;
   /** H3: erros das chamadas de modelo deste pedido (causa + workload + status/type/code/param saneados), no máximo 5. */
   errosModelo: ErroModeloRastreio[];
+  /** Chamadas de modelo recusadas ANTES do provedor (orçamento, circuito, sem chave/modelo), com o motivo; no máximo 5. */
+  recusasModelo: RecusaModeloRastreio[];
   usuarioId: string | null;
   empresaId: string | null;
   capacidade: string | null;

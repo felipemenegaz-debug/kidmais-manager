@@ -5,7 +5,7 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import { interpretarPergunta } from './perguntas';
 import { consultarAtencaoHoje, continuacaoValida, conversar, decidirOperacao, focoValido, rotaInternaSegura, type ContextoTela, type ContinuacaoUI, type FocoUI, type RascunhoPublico } from './cliente-inteligencia';
 import {
-  adicionarPergunta, aguardandoResposta, cancelarEspera, historicoParaServidor, marcarDecisao, perguntaEmCurso, perguntaReenviavel, rascunhoAberto, registrarConversa, registrarDecisao,
+  adicionarPergunta, aguardandoResposta, cancelarEspera, historicoParaServidor, manterAbertoAoNavegar, marcarDecisao, perguntaEmCurso, perguntaReenviavel, rascunhoAberto, registrarConversa, registrarDecisao, registrarPedidoSeguinte,
   registrarResultado, type Mensagem,
 } from './conversa';
 import DrawerKidmais from './DrawerKidmais';
@@ -77,10 +77,17 @@ export function PerguntarKidmaisProvider({ children }: { children: React.ReactNo
         if (resultado.tipo === 'ok') continuacao.current = continuacaoValida((resultado.resposta as { continuacao?: unknown }).continuacao);
         // Resposta a rascunho não é repetida automaticamente: o operador vê o estado atual e decide.
         setMensagens((h) => registrarConversa(h, id, resultado, !rascunho));
+        // Mensagem mista: o segundo pedido (resultado ou pergunta) aparece como mais uma resposta, nunca escondido.
+        const manterAberto = manterAbertoAoNavegar(resultado);
+        if (manterAberto) {
+          const idSeguinte = ++proximoId.current;
+          setMensagens((h) => registrarPedidoSeguinte(h, idSeguinte, resultado));
+        }
         // Navegação pedida explicitamente, com destino único da lista fechada (revalidado aqui): abre a tela.
         if (!abortar.signal.aborted && resultado.tipo === 'ok' && resultado.resposta.tipo === 'navegacao' && rotaInternaSegura(resultado.resposta.destino)) {
           router.push(resultado.resposta.destino);
-          fechar();
+          // Com um segundo pedido, a conversa continua aberta sobre a tela aberta (a revisão não o apaga nem esconde).
+          if (!manterAberto) fechar();
         }
       }
     } finally {
