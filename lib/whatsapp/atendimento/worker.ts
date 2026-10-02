@@ -80,13 +80,16 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       const hoje = hojeOperacao();
       // Data passada ou inexistente não substitui nem conserva interesse: uma data anterior já vencida também é descartada.
       const interesse = { data: dataDeInteresse(plano.data, hoje) ?? dataDeInteresse(conversa.interesse.data, hoje), convidados: plano.convidados ?? conversa.interesse.convidados };
-      const resposta = responder(config, plano, interesse, hoje);
       await withTransaction(async tx => {
         const empresaAtiva = (await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR SHARE", [empresa])).rows.length;
         const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [conversa.id])).rows[0];
-        if (!empresaAtiva || !mensagemAindaValida(mensagem,atual) || !atendimentoAtivo() || !(await configuracao(tx, empresa))?.ativo) {
+        // Configuração VIGENTE, travada até gravar a saída: resposta publicada removida ou corrigida durante a chamada
+        // ao modelo não sai com o texto antigo. A classificação vale; o texto vem da versão atual.
+        const vigente = await configuracao(tx, empresa, true);
+        if (!empresaAtiva || !mensagemAindaValida(mensagem,atual) || !atendimentoAtivo() || !vigente?.ativo) {
           await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1", [mensagem.id]); return;
         }
+        const resposta = responder(vigente, plano, interesse, hoje);
         await tx.query('UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,estado=$3,nao_contatar=nao_contatar OR $4,atualizada_em=clock_timestamp() WHERE id=$1', [conversa.id, JSON.stringify(interesse), resposta.encerrada ? 'ENCERRADA' : resposta.humano ? 'AGUARDANDO_HUMANO' : 'IA',resposta.encerrada]);
         await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1", [mensagem.id]);
         if (resposta.texto) await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,direcao,texto,estado,versao_conversa) VALUES($1,$2,$3,$4,'SAIDA',$5,'PENDENTE',$6) ON CONFLICT(origem_id) DO NOTHING`, [conversa.id, empresa, ambiente, mensagem.id, resposta.texto, atual.versao]);
@@ -98,7 +101,13 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       const empresaAtiva = (await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR SHARE", [empresa])).rows.length;
       const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [conversa.id])).rows[0];
       const autorAtivo = !mensagem.autor_usuario_id || (await tx.query("SELECT u.id FROM usuarios_administrativos u JOIN memberships m ON m.usuario_id=u.id WHERE u.id=$1 AND u.ativo=true AND m.empresa_id=$2 AND m.status='ATIVA' AND m.papel IN ('ADMINISTRATIVO','REPRESENTANTE_AUTORIZADO')", [mensagem.autor_usuario_id,empresa])).rows.length > 0;
-      const ok = empresaAtiva && autorAtivo && contatoPermitido(atual.contato) && mensagemAindaValida(mensagem,atual) && atendimentoAtivo() && (await configuracao(tx, empresa))?.ativo;
+      // Resposta automática gerada antes da última alteração da configuração (resposta publicada removida, corrigida,
+      // nome ou limites mudados) não sai: pode carregar texto revogado. Comparação no banco, com precisão total; a
+      // trava FOR SHARE impede que um salvamento passe entre esta leitura e a marcação ENVIANDO. A mensagem fixa de
+      // encaminhamento e as mensagens humanas não dependem das respostas publicadas.
+      const vigente = await configuracao(tx, empresa, true);
+      const revogada = !mensagem.autor_usuario_id && mensagem.texto !== MENSAGEM_ENCAMINHAMENTO && (await tx.query("SELECT 1 FROM whatsapp_atendimento_config c JOIN whatsapp_atendimento_mensagens m ON m.empresa_id=c.empresa_id AND m.ambiente=c.ambiente WHERE m.id=$1 AND c.empresa_id=$2 AND c.ambiente=$3 AND c.atualizada_em > m.criada_em", [mensagem.id, empresa, ambiente])).rows.length > 0;
+      const ok = empresaAtiva && autorAtivo && !revogada && contatoPermitido(atual.contato) && mensagemAindaValida(mensagem,atual) && atendimentoAtivo() && vigente?.ativo;
       await tx.query('UPDATE whatsapp_atendimento_mensagens SET estado=$2,iniciada_em=clock_timestamp() WHERE id=$1', [mensagem.id, ok ? 'ENVIANDO' : 'CANCELADA']);
       return ok ? atual.contato : null;
     });

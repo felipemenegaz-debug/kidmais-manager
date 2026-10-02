@@ -8,12 +8,13 @@ const agora = new Date();
 const conversa: Conversa = {id:'c',empresa_id:'e',ambiente:'staging',contato:'5561999999999',estado:'IA',responsavel_id:null,nao_contatar:false,versao:3,ultima_entrada_em:agora.toISOString(),interesse:{data:null,convidados:null}};
 const mensagem: Mensagem = {id:'m',conversa_id:'c',empresa_id:'e',ambiente:'staging',direcao:'SAIDA',origem_id:'entrada',autor_usuario_id:null,texto:'Resposta aprovada',estado:'PENDENTE',versao_conversa:3,criada_em:agora.toISOString()};
 let limpezas=0; const correlacoes:string[]=[];
-function carregar(query: (sql: string, args?: unknown[]) => Promise<{rows: unknown[]}>, ativo=true, permitido=true, limite=20) {
+type Cfg = {ativo:boolean;nome:string;perguntas:{id:string;pergunta:string;resposta:string}[];limites:{respostasPor24h:number}};
+function carregar(query: (sql: string, args?: unknown[]) => Promise<{rows: unknown[]}>, ativo=true, permitido=true, limite=20, cfg?: (travar:boolean)=>Cfg|null) {
   return carregarComponente('lib/whatsapp/atendimento/worker.ts', {
     '../../db/postgres.ts':{db:()=>({query}),withTransaction:async(fn:(tx:unknown)=>unknown)=>fn({query})},
     './configuracao.ts':{ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido},
     './core.ts':core,
-    './service.ts':{configuracao:async()=>({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);}},
+    './service.ts':{configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);}},
     './modelo.ts':{interpretarMensagem:async()=>{throw Error('modelo real proibido no teste');}},
     './transporte.ts':{enviarMensagem:async()=>{throw Error('rede real proibida no teste');}},
   }).modulo as {
@@ -231,4 +232,62 @@ test('histórico enviado ao modelo fica na sessão atual (24 h antes da última 
   const historico=comandos.find(c=>c.sql.includes('SELECT texto FROM'))!;
   assert.match(historico.sql,/criada_em > \$3::timestamptz - interval '24 hours'/);
   assert.deepEqual(historico.args,['c','e',conversa.ultima_entrada_em]);
+});
+
+// Resposta publicada revogada (removida ou corrigida) não pode sair com o texto antigo.
+const FAQ_ANTIGA='Endereço antigo revogado.', FAQ_NOVA='Endereço corrigido e aprovado.';
+const comFaq=(resposta:string|null):Cfg=>({ativo:true,nome:'Kidmais',perguntas:resposta?[{id:'endereco',pergunta:'Onde fica?',resposta}]:[],limites:{respostasPor24h:20}});
+for (const [caso,vigente,esperado] of [['corrigida',comFaq(FAQ_NOVA),FAQ_NOVA],['removida',comFaq(null),null]] as const) {
+  test(`resposta publicada ${caso} durante a chamada ao modelo: a saída usa a configuração vigente, travada`,async()=>{
+    const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Onde fica?'};
+    const comandos:{sql:string;args?:unknown[]}[]=[]; const leituras:boolean[]=[];
+    const worker=carregar(async(sql,args)=>{
+      comandos.push({sql,args});
+      if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+      if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+      if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+      return {rows:[]};
+    },true,true,20,travar=>{leituras.push(travar);return travar?vigente:comFaq(FAQ_ANTIGA);});
+    assert.equal(await worker.processarAtendimento({interpretar:async()=>({intencao:'DUVIDA' as const,perguntaId:'endereco',data:null,convidados:null}),enviar:async()=>'id'}),'PROCESSADA');
+    assert.ok(leituras.includes(true),'a gravação relê a configuração com trava');
+    const saida=comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"));
+    assert.notEqual(saida?.args?.[4],FAQ_ANTIGA,'texto revogado não é gravado');
+    if (esperado) assert.equal(saida?.args?.[4],esperado);
+    else assert.doesNotMatch(String(saida?.args?.[4]),/Endereço/,'sem a resposta removida: mensagem padrão de encaminhamento');
+  });
+}
+test('saída automática pendente gerada antes de a configuração mudar é cancelada sem chamar o provedor',async()=>{
+  const pendente={...mensagem,texto:FAQ_ANTIGA};
+  let envios=0; const comandos:{sql:string;args?:unknown[]}[]=[]; const leituras:boolean[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[pendente]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    if(sql.includes('c.atualizada_em > m.criada_em')) return {rows:[{'?column?':1}]};
+    return {rows:[]};
+  },true,true,20,travar=>{leituras.push(travar);return comFaq(null);});
+  assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;return 'id';}}),'CANCELADA');
+  assert.equal(envios,0,'texto revogado não chega ao provedor');
+  assert.ok(leituras.includes(true));
+  assert.deepEqual(comandos.find(c=>c.sql.includes('c.atualizada_em > m.criada_em'))?.args,['m','e','staging']);
+  assert.deepEqual(comandos.filter(c=>c.sql.includes('SET estado=$2,iniciada_em')).map(c=>c.args?.[1]),['PROCESSANDO','CANCELADA'],'reservada e depois cancelada antes do envio');
+});
+test('mensagem humana e encaminhamento fixo não dependem das respostas publicadas: a revogação não os cancela',async()=>{
+  for (const m of [{...mensagem,origem_id:null,autor_usuario_id:'u'},{...mensagem,texto:core.MENSAGEM_ENCAMINHAMENTO}]) {
+    let envios=0; const comandos:string[]=[];
+    const conv=m.autor_usuario_id?{...conversa,estado:'HUMANO' as const,responsavel_id:'u'}:{...conversa,estado:'AGUARDANDO_HUMANO' as const};
+    const worker=carregar(async(sql)=>{
+      comandos.push(sql);
+      if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+      if(sql.includes('SELECT m.*')) return {rows:[m]};
+      if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conv]};
+      if(sql.includes('FROM usuarios_administrativos')) return {rows:[{id:'u'}]};
+      if(sql.includes('c.atualizada_em > m.criada_em')) return {rows:[{'?column?':1}]};
+      return {rows:[]};
+    });
+    assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;return 'id';}}),'SUBMETIDA');
+    assert.equal(envios,1);
+    assert.equal(comandos.some(sql=>sql.includes('c.atualizada_em > m.criada_em')),false,'nem consulta a revogação');
+  }
 });

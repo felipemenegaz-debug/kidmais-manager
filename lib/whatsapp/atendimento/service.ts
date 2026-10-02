@@ -11,8 +11,12 @@ export type ConversaLista = Omit<Conversa, 'contato'> & { contato_final: string;
 export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean };
 /** Situação do canal neste ambiente, em partes separadas: receber, responder e a configuração da empresa. */
 export type EstadoCanal = { ambiente: string; receptor: boolean; recepcao: boolean; envio: boolean };
-export async function configuracao(tx: DbExecutor, empresaId: string) {
-  const r = await tx.query<{ configuracao: unknown }>('SELECT configuracao FROM whatsapp_atendimento_config WHERE empresa_id=$1 AND ambiente=$2', [empresaId, ambienteAtendimento()]);
+/**
+ * `travar`: FOR SHARE na linha da configuração até o fim da transação. Salvar a configuração espera essa transação
+ * terminar (e grava `atualizada_em` depois dela); quem trava depois de um salvamento lê a versão nova.
+ */
+export async function configuracao(tx: DbExecutor, empresaId: string, travar = false) {
+  const r = await tx.query<{ configuracao: unknown }>(`SELECT configuracao FROM whatsapp_atendimento_config WHERE empresa_id=$1 AND ambiente=$2${travar ? ' FOR SHARE' : ''}`, [empresaId, ambienteAtendimento()]);
   const parsed = configuracaoSchema.safeParse(r.rows[0]?.configuracao);
   return parsed.success ? parsed.data : null;
 }

@@ -53,6 +53,17 @@ Atualizado em 01/10/2026. Modelo recomendado para continuar: Claude Opus 5.5 no 
 
 A suíte PostgreSQL ganhou o passo 8e (entrada atrasada e contato mascarado).
 
+**Resposta publicada revogada (P1 apontado pelo Felipe depois de a588185).** O worker montava a resposta com a configuração lida na reserva e, antes de enviar, só conferia `ativo`. Uma resposta publicada removida ou corrigida ainda podia sair dentro dos 15 min. Agora:
+- **Durante a geração:** ao gravar a saída, o worker relê a configuração com `FOR SHARE` e monta o texto a partir da versão vigente. Resposta removida vira a mensagem padrão de encaminhamento; resposta corrigida sai com o texto novo.
+- **Saída pendente:** antes de enviar, a resposta automática criada antes da última alteração da configuração (`atualizada_em` maior que `criada_em`, comparado no banco) é cancelada.
+  - A trava impede que um salvamento passe entre essa leitura e a marcação ENVIANDO.
+  - Mensagens humanas e o texto fixo de encaminhamento não dependem das respostas publicadas e seguem.
+  - Efeito colateral aceito: salvar a configuração, mesmo sem mudar respostas, cancela respostas automáticas ainda pendentes. A conversa continua visível para a equipe.
+- **Tela:** "Enviar resposta" exige a configuração da empresa ligada, como o servidor, e explica o motivo.
+- **Testes:**
+  - unitários para resposta corrigida e removida durante a geração, para saída pendente revogada (provedor não chamado) e para mensagens humanas e de encaminhamento que seguem;
+  - PostgreSQL, passo 8f: resposta corrigida durante a chamada ao modelo e removida com a saída pendente. Só o texto vigente chega ao provedor.
+
 **Ativação continua bloqueada:** o acesso à Partner API e a autenticação real do webhook aguardam resposta do Gupshup (chamado #277630). Não ativar o canal antes disso.
 
 ## Checkout e instruções

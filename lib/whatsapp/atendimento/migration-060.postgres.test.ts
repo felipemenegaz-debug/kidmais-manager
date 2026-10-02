@@ -253,6 +253,27 @@ test("060: atendimento WhatsApp — isolamento, deduplicação, concorrência, t
     await worker.processarLote(contado, { maxTarefas: 10 });
     assert.deepEqual([chamadasModelo, enviados.length], [1, 1], "nenhuma chamada nem envio a mais");
     assert.deepEqual((await mensagens((await conversa("5561900000100")).id)).map((m) => `${m.direcao}:${m.estado}`), ["ENTRADA:PROCESSADA", "ENTRADA:PROCESSADA", "SAIDA:SUBMETIDA"]);
+    // 8f. Resposta publicada revogada: nenhum texto revogado chega ao provedor.
+    const faq = (resposta: string | null) => ({ ativo: true, nome: "Empresa sintética A", perguntas: resposta ? [{ id: "endereco", pergunta: "Onde fica?", resposta }] : [] });
+    const textosEnviados: string[] = [];
+    const registrando = (extra: Partial<Parameters<Worker["processarLote"]>[0]> = {}) => deps({ enviar: async (_c: string, texto: string) => { textosEnviados.push(texto); return cod("gs-"); }, interpretar: async () => ({ intencao: "DUVIDA" as const, perguntaId: "endereco", data: null, convidados: null }), ...extra });
+    await servico.salvarConfiguracao(representante, faq("Endereço antigo sintético."));
+    //   a) corrigida DURANTE a chamada ao modelo: a saída usa o texto corrigido.
+    await servico.receberEntrada(evento(110, "5561900000110", "Onde fica?"));
+    const trava8f = adiado(), entrou8f = adiado();
+    const gerando = worker.processarLote(registrando({ interpretar: async () => { entrou8f.liberar(); await trava8f.p; return { intencao: "DUVIDA" as const, perguntaId: "endereco", data: null, convidados: null }; } }), { maxTarefas: 10 });
+    await entrou8f.p;
+    await servico.salvarConfiguracao(representante, faq("Endereço corrigido sintético."));
+    trava8f.liberar(); await gerando;
+    //   b) removida com a saída PENDENTE: a saída é cancelada antes do provedor.
+    await servico.receberEntrada(evento(111, "5561900000111", "Onde fica?"));
+    await worker.processarLote(registrando(), { maxTarefas: 1 });
+    const c111 = await conversa("5561900000111");
+    assert.deepEqual((await mensagens(c111.id)).map((m) => `${m.direcao}:${m.estado}:${m.texto}`), ["ENTRADA:PROCESSADA:Onde fica?", "SAIDA:PENDENTE:Endereço corrigido sintético."]);
+    await servico.salvarConfiguracao(representante, faq(null));
+    await worker.processarLote(registrando(), { maxTarefas: 10 });
+    assert.equal((await mensagens(c111.id)).at(-1)?.estado, "CANCELADA");
+    assert.deepEqual(textosEnviados, ["Endereço corrigido sintético."], "só o texto vigente saiu; o antigo e o removido não");
     // A tela recebe só os 4 últimos dígitos do contato.
     const tela = await servico.listarAtendimento(atendente);
     assert.ok(tela.conversas.every((x) => !("contato" in x) && /^\d{4}$/.test(x.contato_final)));
