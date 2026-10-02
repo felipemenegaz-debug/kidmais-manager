@@ -90,6 +90,8 @@ function hora(texto: string): string | null | "INVALIDA" {
 
 /** "14:00 às 18:00", "das 14h às 18h30", "14h" (só início). */
 export function validarHorario(texto: string): Validacao<{ inicio: string; fim: string | null }> {
+  const formal = texto.trim().match(/^in[ií]cio\s+[aàá]s\s+(\d{1,2}:\d{2})\s+e\s+t[eé]rmino\s+[aàá]s\s+(\d{1,2}:\d{2})$/i);
+  if (formal) return validarHorario(`${formal[1]} às ${formal[2]}`);
   const t = semAcento(texto).toLowerCase().trim().replace(/^das?\s+/, "");
   const partes = t.split(/\s*(?:\bas\b|\ba\b|\bate\b|-|–)\s*/).filter((p) => p.length);
   if (partes.length > 2) return falha("Horário com mais de um intervalo.", "AMBIGUO");

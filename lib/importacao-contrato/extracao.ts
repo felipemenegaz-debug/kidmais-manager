@@ -242,11 +242,12 @@ type Regra = { caminho: string; padrao: RegExp; grupo?: number };
 const SINAL = "(?:menos\\s+|-\\s*)?";
 const ESCALA = "(?:\\s*(?:mil|milh(?:ão|ao|ões|oes)|k)\\b)?";
 const DINHEIRO = `(${SINAL}(?:R\\$\\s*)?-?\\s*\\d[\\d.,]{0,20}${ESCALA})`;
+const DINHEIRO_FRASE = `(${SINAL}(?:R\\$\\s*)?-?\\s*\\d(?:[\\d.,]{0,19}\\d)?${ESCALA})`;
 const NUMERO = `(${SINAL}\\d[\\d.,]{0,12}${ESCALA})`;
 const ROTULO = "\\s*[:\\-–]\\s*";
 const REGRAS: readonly Regra[] = [
-  { caminho: "contratante.nome", padrao: new RegExp(`(?:contratante|nome do contratante|nome do cliente)${ROTULO}([^\\n,;]{3,120})`, "i") },
-  { caminho: "contratante.cpf", padrao: /\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2})\b/ },
+  { caminho: "contratante.nome", padrao: new RegExp(`(?:contratante|nome do contratante|nome do cliente)${ROTULO}([^\\n,;]{3,120}?)(?=\\s+(?:de\\s+)?CPF\\b|[\\n,;]|$)`, "i") },
+  { caminho: "contratante.cpf", padrao: /(?:contratante\s*[:\-–][\s\S]{0,160}?\bCPF\s*(?:n[ºo°.]\s*)?[:\-–]?\s*)(\d{3}\.?\d{3}\.?\d{3}-?\d{2})\b/i },
   { caminho: "contratante.whatsapp", padrao: /whats\s*app\s*[:\-–]?\s*(\(?\d{2}\)?\s*9?\s?\d{4}[\s-]?\d{4})/i },
   { caminho: "contratante.telefone", padrao: /(?:telefone|tel\.?|celular|fone)\s*[:\-–]?\s*(\(?\d{2}\)?\s*9?\s?\d{4}[\s-]?\d{4})/i },
   { caminho: "contratante.email", padrao: /([A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,})/ },
@@ -268,6 +269,14 @@ const REGRAS: readonly Regra[] = [
   { caminho: "pagamentoPrevisto.entradaVencimento", padrao: /entrada[^\n]*?(?:em|até|vencimento)\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i },
   { caminho: "pagamentoPrevisto.condicao", padrao: new RegExp(`(?:forma|condi[cç][aã]o) de pagamento${ROTULO}([^\\n]{3,160})`, "i") },
   { caminho: "observacoes", padrao: new RegExp(`observa[cç][oõ]es${ROTULO}([^\\n]{3,500})`, "i") },
+  // Formulações do contrato jurídico KidMais, com escopo explícito para não ler taxas/multas como total.
+  { caminho: "evento.data", padrao: /festa\s+ser[aá]\s+realizada\s+no\s+dia\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i },
+  { caminho: "evento.horario", padrao: /\b(in[ií]cio\s+[aàá]s\s+\d{1,2}:\d{2}\s+e\s+t[eé]rmino\s+[aàá]s\s+\d{1,2}:\d{2})/i },
+  { caminho: "evento.aniversariante", padrao: /aniversariante\s+de\s+nome\s+([^\n,;]{2,80}?)(?=\s+que\s+far[aá]|[\n,;]|$)/i },
+  { caminho: "evento.convidados", padrao: new RegExp(`t[eé]rmino\\s+[aàá]s\\s+\\d{1,2}:\\d{2}\\s+para\\s+${NUMERO}\\s+pessoas\\b`, "i") },
+  { caminho: "pacote.nome", padrao: /festa\s+tipo\s+([^\n,;.]{2,80})/i },
+  { caminho: "valores.total", padrao: new RegExp(`valor da festa contratada\\s+[eé]\\s+de\\s+${DINHEIRO_FRASE}`, "i") },
+  { caminho: "pagamentoPrevisto.condicao", padrao: /valor\s+da\s+festa\s+de\s+forma\s+([aàá]\s+vista)/i },
 ];
 
 function linhaDe(pagina: string, indice: number) {
@@ -286,7 +295,9 @@ export function extrairPorRegras(paginas: readonly string[]): ExtracaoLida {
     for (const [i, pagina] of paginas.entries()) {
       const achado = regra.padrao.exec(pagina);
       if (!achado) continue;
-      const lido: CampoLido = { valor: achado[regra.grupo ?? 1].trim(), pagina: i + 1, trecho: linhaDe(pagina, achado.index) };
+      const valor = achado[regra.grupo ?? 1].trim();
+      const linha = linhaDe(pagina, achado.index + achado[0].indexOf(valor));
+      const lido: CampoLido = { valor, pagina: i + 1, trecho: normalizarTrecho(linha).includes(normalizarTrecho(valor)) ? linha : achado[0].trim().slice(0, 280) };
       const [secao, chave] = regra.caminho.split(".");
       if (chave) (resultado[secao] as Record<string, CampoLido>)[chave] = lido;
       else resultado[secao] = lido;

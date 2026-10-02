@@ -58,6 +58,10 @@ export function extracaoGuardada(registro: ExtracaoRegistrada | null): ExtracaoC
   return r && Array.isArray(r.secoes) && typeof r.fonte === "string" ? (r as ExtracaoContrato) : null;
 }
 
+export function extracaoTemDados(extracao: ExtracaoContrato): boolean {
+  return extracao.secoes.some((s) => s.campos.some((c) => typeof c.valor === "string" && c.valor.trim().length > 0));
+}
+
 export async function responderComRastreio(rastreio: RastreioInteligencia, deps: Pick<DependenciasGateway, "relogio" | "registrar">, trabalho: () => Promise<unknown>, fallback = MENSAGEM_FALLBACK): Promise<RespostaGateway> {
   const relogio = deps.relogio ?? (() => performance.now());
   const inicio = relogio();
@@ -106,7 +110,7 @@ export async function atenderDocumento(
       return { tenant, registro, anterior };
     });
     // Reenvio do mesmo arquivo: devolve a extração que já existe, sem ler de novo.
-    if (recepcao.anterior) {
+    if (recepcao.anterior && extracaoTemDados(recepcao.anterior)) {
       rastreio.estado = "reaproveitado";
       return { documentoId: recepcao.registro.documentoId, reaproveitado: true, metodo: null, extracao: recepcao.anterior, avisos: ["DOCUMENTO_JA_ENVIADO"] };
     }
@@ -122,6 +126,9 @@ export async function atenderDocumento(
       alvo: { empresaId: recepcao.tenant.empresaComprovada, capacidade: "extrair_documento", correlationId: rastreio.requestId, hoje: hojeBrasilia(deps.agora()) },
     });
     anotarUsoModelo(rastreio, extracao.usos);
+    if (extracao.avisos.includes("PDF_WORKER_FALHOU")) {
+      throw new InteligenciaError("LEITURA_PDF_INDISPONIVEL", "Não foi possível ler o PDF agora. Tente enviar novamente; nenhum campo foi importado.", 503);
+    }
     const revisao = montarRevisao(extracao.lida, extracao.paginas, { nome: arquivo.nomeSeguro, tipo: arquivo.contentType, tamanhoBytes: arquivo.tamanhoBytes });
     const evidencias = revisao.secoes.flatMap((s) => s.campos).filter((c) => c.evidencia).map((c) => ({ campo: c.id, pagina: c.evidencia!.pagina, trecho: c.evidencia!.trecho, conferida: c.evidencia!.conferida }));
 
