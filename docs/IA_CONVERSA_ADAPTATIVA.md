@@ -358,6 +358,6 @@ As 20 mensagens foram enviadas numa única conversa pelo drawer "Perguntar ao Ki
 | 18 | D — estimar refrigerantes, 2 L, 10% de margem | ok: 250 mL estimados + 10% ⇒ 16,5 L = 9 × 2 L | 2 | 4.498 | 0,000395 | 4,4 s |
 | 19 | F — "e os docinhos, com 5 por convidado?" | ok: mesma festa, 300 docinhos, **sem** a margem dos refrigerantes | 2 | 4.310 | 0,000364 | 4,1 s |
 
-Total: 30 chamadas de modelo, 76.935 tokens, US$ 0,005473 (média de ~3.850 tokens e ~US$ 0,00027 por mensagem); latência de 2,0 a 6,5 s; no máximo 3 chamadas por mensagem (teto 4).
+Total: 31 chamadas de modelo, 76.935 tokens, US$ 0,005473 (média de ~3.850 tokens e ~US$ 0,00027 por mensagem); latência de 2,0 a 6,5 s; no máximo 3 chamadas por mensagem (teto 4).
 
 Os 15 cenários de §5.2 (A1–A7, B, E1, C, N1–N3, D, F) e os 4 de gestão de contexto (correção, consulta paralela, retomada, mensagem mista) passaram na mesma candidata. Recusa de orçamento e fallback não aparecem nesta rodada (ver frentes 2 e 3 acima); a falha do provedor continua coberta só por testes (frente 4).
