@@ -32,7 +32,7 @@ Para trocar o receptor no futuro (staging → produção), a ordem é: desligar 
 
 | # | Decisão | Recomendação |
 | --- | --- | --- |
-| D1 | Como autenticar o webhook | Assinatura v2 criada pela Partner API, com `meta` = `{"X-Kidmais-Webhook-Secret": <segredo de staging>}`. Se não houver acesso Partner para o app `KidmaisManager`, parar: a alternativa (segredo no caminho da URL) exige outra mudança de código e revisão de segurança, e não está implementada |
+| D1 | Como autenticar o webhook (**pendente:** consulta ao Gupshup no chamado #277630, aberto e sem resposta em 02/10/2026; canal não é ativado antes da comprovação) | Assinatura v2 criada pela Partner API, com `meta` = `{"X-Kidmais-Webhook-Secret": <segredo de staging>}`. Se não houver acesso Partner para o app `KidmaisManager`, parar: a alternativa (segredo no caminho da URL) exige outra mudança de código e revisão de segurança, e não está implementada |
 | D2 | Número destinatário de teste (A1) | Um número do Felipe ou de pessoa que consentiu; só ele na lista de permitidos |
 | D3 | Onde roda o worker (A6) | Na homologação: processo temporário na máquina do Felipe durante a janela de teste. Depois: Background Worker do Render, decidido junto com a ativação em produção |
 | D4 | Quem recebe hoje as mensagens do número | Ler as assinaturas atuais antes de qualquer mudança. A nova assinatura de staging é **acrescentada**, nunca substitui as existentes |

@@ -18,7 +18,11 @@ export function receptorDoNumero(env: NodeJS.ProcessEnv = process.env) {
   const receptor = env.WHATSAPP_ATENDIMENTO_RECEPTOR;
   return (receptor === 'staging' || receptor === 'production') && receptor === env.KIDMAIS_DEPLOY_ENV;
 }
-export function recepcaoAtiva(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED === 'true' && receptorDoNumero(env); }
+/** Sem empresa piloto válida a recepção fica desligada (só metadados): erro de configuração não vira 503 eterno. */
+export function recepcaoAtiva(env: NodeJS.ProcessEnv = process.env) {
+  if (env.WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED !== 'true' || !receptorDoNumero(env)) return false;
+  try { empresaPiloto(env); return true; } catch { return false; }
+}
 export function atendimentoAtivo(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_ENABLED === 'true' && receptorDoNumero(env); }
 
 /**

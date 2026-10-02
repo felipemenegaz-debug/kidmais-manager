@@ -34,6 +34,11 @@ test('tomada humana e revisão posterior invalidam resposta automática; novos e
   assert.equal(valida(manual,{...humana,responsavel_id:'outro'},agora),false);
   assert.equal(valida(manual,{...humana,nao_contatar:true},agora),false);
   assert.equal(valida(manual,{...humana,ultima_entrada_em:new Date(agora.getTime()-24*3600000).toISOString()},agora),false);
+  // Saída parada na fila além do prazo não sai mais (automática ou humana), mesmo com a janela aberta.
+  const velha=new Date(agora.getTime()-16*60000).toISOString();
+  assert.equal(valida({...mensagem,criada_em:velha},conversa,agora),false);
+  assert.equal(valida({...manual,criada_em:velha},humana,agora),false);
+  assert.equal(valida({...mensagem,criada_em:new Date(agora.getTime()-14*60000).toISOString()},conversa,agora),true);
 });
 test('automação desligada não consulta banco, modelo ou provedor',async()=>{
   const worker=carregar(async()=>{throw Error('banco proibido');},false);
@@ -184,4 +189,46 @@ test('destino fora da lista permitida é cancelado antes do provedor',async()=>{
   },true,false);
   assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;return 'id';}}),'CANCELADA');
   assert.equal(envios,0);
+});
+test('entrada antiga que chega depois de uma mais recente já tratada vira só histórico: sem modelo e sem nova resposta',async()=>{
+  const atrasada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Oi',criada_em:new Date(agora.getTime()-60000).toISOString()};
+  let modelo=0; const comandos:{sql:string;args?:unknown[]}[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[atrasada]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    if(sql.includes("criada_em>$3 AND estado IN ('PROCESSADA','FALHOU')")) return {rows:[{'?column?':1}]};
+    return {rows:[]};
+  });
+  assert.equal(await worker.processarAtendimento({interpretar:async()=>{modelo++;return {intencao:'OUTRO' as const,perguntaId:null,data:null,convidados:null};},enviar:async()=>'id'}),'PROCESSADA');
+  assert.equal(modelo,0);
+  assert.deepEqual(comandos.find(c=>c.sql.includes("criada_em>$3 AND estado IN"))?.args,['c','e',atrasada.criada_em]);
+  assert.equal(comandos.some(c=>c.sql.includes('INSERT INTO whatsapp_atendimento_mensagens')),false);
+});
+test('outro worker com tarefa ativa na mesma conversa não encerra o lote como fila vazia',async()=>{
+  let reservas=0;
+  const worker=carregar(async(sql)=>{
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:reservas++<2?[mensagem]:[]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    if(sql.includes("WHERE conversa_id=$1 AND estado IN ('PROCESSANDO','ENVIANDO')")) return {rows:[{id:'outra'}]};
+    return {rows:[]};
+  });
+  assert.deepEqual(await worker.processarLote({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{throw Error('envio proibido');}}),{estado:'SEM_TAREFA',tarefas:2});
+});
+test('histórico enviado ao modelo fica na sessão atual (24 h antes da última entrada)',async()=>{
+  const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Onde fica?'};
+  const comandos:{sql:string;args?:unknown[]}[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    return {rows:[]};
+  });
+  await worker.processarAtendimento({interpretar:async()=>({intencao:'OUTRO' as const,perguntaId:null,data:null,convidados:null}),enviar:async()=>'id'});
+  const historico=comandos.find(c=>c.sql.includes('SELECT texto FROM'))!;
+  assert.match(historico.sql,/criada_em > \$3::timestamptz - interval '24 hours'/);
+  assert.deepEqual(historico.args,['c','e',conversa.ultima_entrada_em]);
 });

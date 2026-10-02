@@ -64,9 +64,15 @@ test('conversa encerrada pela equipe reabre com nova mensagem; opt-out continua 
   assert.equal(optOut.sqls('INSERT INTO whatsapp_atendimento_mensagens')[0].args[5], 'PROCESSADA');
   assert.equal(optOut.sqls('UPDATE whatsapp_atendimento_conversas').length, 0);
 });
-test('empresa inativa ou configuração ausente recusa a entrada para retry durável', async () => {
-  await assert.rejects(carregar({ empresaAtiva: false }).modulo.receberEntrada(entrada('Olá')), /ATENDIMENTO_EMPRESA_INATIVA/);
-  await assert.rejects(carregar({ config: { invalida: true } }).modulo.receberEntrada(entrada('Olá')), /ATENDIMENTO_CONFIGURACAO_AUSENTE/);
+test('condição que retry não corrige não devolve erro: empresa suspensa confirma sem gravar; sem configuração grava para a equipe', async () => {
+  const suspensa = carregar({ empresaAtiva: false });
+  await suspensa.modulo.receberEntrada(entrada('Olá'));
+  assert.equal(suspensa.sqls('INSERT INTO').length, 0);
+  assert.doesNotMatch(suspensa.sqls('FROM empresas')[0].sql, /FOR (SHARE|UPDATE)/, 'webhook não trava a linha da empresa');
+  const semConfig = carregar({ config: { invalida: true } });
+  await semConfig.modulo.receberEntrada(entrada('Olá'));
+  assert.equal(semConfig.sqls('INSERT INTO whatsapp_atendimento_mensagens')[0].args[5], 'PROCESSADA');
+  assert.equal(semConfig.sqls("SET estado='AGUARDANDO_HUMANO'").length, 1);
 });
 test('controle usa só a empresa piloto comprovada e recusa papel sem atendimento', async () => {
   const { modulo, tenants } = carregar({ papel: 'OPERACIONAL' });
@@ -97,6 +103,8 @@ test('status considera só entregue, lido e falha; ignora identificador inválid
   assert.deepEqual(sqls('INSERT INTO whatsapp_atendimento_status')[0].args, ['e', 'staging', 'g', 'FALHOU']);
   // Correlacionado: aplica à mensagem e apaga a linha; sem correspondência, a linha fica até expirar.
   assert.deepEqual(sqls('DELETE FROM whatsapp_atendimento_status s USING')[0].args, ['e', 'staging', 'g']);
+  // Retenção roda também na recepção (processador pode estar desligado).
+  assert.equal(sqls('DELETE FROM whatsapp_atendimento_status WHERE ctid IN').length, 1);
 });
 test('retenção: status sem correspondência (ex.: OTP) expira em 24 h, em lote e só da empresa/ambiente do piloto', async () => {
   const { modulo, sqls } = carregar();
@@ -134,6 +142,7 @@ test('lista mostra o responsável só com vínculo ativo na mesma empresa e a si
   const lista = sqls('FROM whatsapp_atendimento_conversas c')[0];
   assert.match(lista.sql, /LEFT JOIN usuarios_administrativos u ON u\.id=c\.responsavel_id AND EXISTS\(SELECT 1 FROM memberships m WHERE m\.usuario_id=u\.id AND m\.empresa_id=c\.empresa_id AND m\.status='ATIVA'\)/);
   assert.deepEqual(lista.args, ['e', 'staging']);
+  assert.match(lista.sql, /right\(c\.contato,4\) AS contato_final/); assert.doesNotMatch(lista.sql, /c\.\*|,c\.contato,/, 'telefone completo não sai do servidor');
   assert.match(sqls('autor_usuario_id IS NOT NULL AS humana')[0].sql, /empresa_id=\$1 AND ambiente=\$2 AND conversa_id=\$3/);
   assert.deepEqual(dados.canal, { ambiente: 'staging', receptor: true, recepcao: true, envio: true });
 });

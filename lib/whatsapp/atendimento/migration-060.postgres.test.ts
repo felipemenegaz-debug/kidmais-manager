@@ -242,6 +242,21 @@ test("060: atendimento WhatsApp — isolamento, deduplicação, concorrência, t
     assert.equal(c90.estado, "AGUARDANDO_HUMANO");
     assert.equal((await mensagens(c90.id)).at(-1)?.texto, core.MENSAGEM_ENCAMINHAMENTO);
 
+    // 8e. Entrada antiga que chega depois de a mais recente ter sido respondida (retry do provedor): vira histórico,
+    // sem modelo e sem segunda resposta.
+    await servico.salvarConfiguracao(representante, { ativo: true, nome: "Empresa sintética A", perguntas: [{ id: "endereco", pergunta: "Onde fica?", resposta: "Resposta aprovada sintética." }] });
+    chamadasModelo = 0; enviados.length = 0;
+    await servico.receberEntrada(evento(101, "5561900000100", "Onde fica?", agora - 1000));
+    await worker.processarLote(contado, { maxTarefas: 10 });
+    assert.deepEqual([chamadasModelo, enviados.length], [1, 1]);
+    await servico.receberEntrada(evento(100, "5561900000100", "Oi", agora - 5000));
+    await worker.processarLote(contado, { maxTarefas: 10 });
+    assert.deepEqual([chamadasModelo, enviados.length], [1, 1], "nenhuma chamada nem envio a mais");
+    assert.deepEqual((await mensagens((await conversa("5561900000100")).id)).map((m) => `${m.direcao}:${m.estado}`), ["ENTRADA:PROCESSADA", "ENTRADA:PROCESSADA", "SAIDA:SUBMETIDA"]);
+    // A tela recebe só os 4 últimos dígitos do contato.
+    const tela = await servico.listarAtendimento(atendente);
+    assert.ok(tela.conversas.every((x) => !("contato" in x) && /^\d{4}$/.test(x.contato_final)));
+
     // 9. Rollback: precheck; down recusado com envio em andamento e com dados sem descarte; down com descarte.
     await c.query(PRE_DOWN);
     await c.query("UPDATE whatsapp_atendimento_mensagens SET estado = 'ENVIANDO' WHERE id = (SELECT id FROM whatsapp_atendimento_mensagens WHERE conversa_id = $1 AND estado = 'INCERTO')", [c60.id]);

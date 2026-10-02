@@ -33,7 +33,27 @@ Atualizado em 01/10/2026. Modelo recomendado para continuar: Claude Opus 5.5 no 
 **Validação desta rodada** (Node 22.23.2, sem banco, rede ou provedor reais):
 - `check:v1:static`: 1.713 testes unitários e 103 do harness, lint (só o warning preexistente), TypeScript e build. Log: `.local-ux/whatsapp-static-node22-v2.log`.
 - QA no navegador com APIs simuladas (`.local-ux/qa-whatsapp-ui-v2.cjs`, capturas em `.local-ux/whatsapp-qa-v2/`), em celular 390×844 e desktop 1280×900. Coberto: teclado e foco, rolagem, conflito 409, janela expirada, opt-out, passagem entre atendentes, redução de movimento, configuração e quadro.
-- **Não executado:** a suíte PostgreSQL da 060 ganhou os passos 8b–8d (modelo indisponível, ordem e limite), mas não rodou. Precisa de nova autorização do cluster descartável (O1–O4). A migration 060 **não mudou**.
+- PostgreSQL descartável (autorizado pelo Felipe, mesmo destino 127.0.0.1:55498, identidade conferida): `check:v1:postgres` 30/30, com a suíte da 060 executando os passos 8b–8d. Log: `.local-ux/pg-060/check-v1-postgres-r5-whatsapp.log`. A migration 060 **não mudou**.
+
+**Revisão independente da PR #80 e correções (02/10/2026).** A revisão confirmou isolamento, autenticação da rota administrativa, revalidação sob trava e INCERTO sem reenvio. Achados corrigidos:
+1. Condição permanente não devolve mais 503 no webhook:
+   - empresa suspensa: confirma sem gravar;
+   - sem configuração: grava para a equipe, sem automação;
+   - empresa piloto ausente ou inválida: recepção desligada (só metadados).
+2. Saída parada na fila há mais de 15 min não é enviada. Envio humano e "Retomar IA" são recusados (409) com a chave da IA desligada.
+3. Entrada antiga que chega depois de uma mais recente já tratada vira histórico, sem nova resposta.
+4. A retenção de status também roda na recepção.
+5. Erros de regra de negócio devolvem 409 ou 404, não 503.
+6. O processador registra só um código fixo de erro.
+7. A tela recebe só os 4 últimos dígitos do contato.
+8. O histórico da conversa anterior não aparece ao trocar de conversa.
+9. O modelo recebe só a sessão atual, com telefone e e-mail omitidos (além do CPF).
+10. O webhook não trava a linha da empresa.
+11. Um worker que perde a corrida numa conversa segue com o lote.
+
+A suíte PostgreSQL ganhou o passo 8e (entrada atrasada e contato mascarado).
+
+**Ativação continua bloqueada:** o acesso à Partner API e a autenticação real do webhook aguardam resposta do Gupshup (chamado #277630). Não ativar o canal antes disso.
 
 ## Checkout e instruções
 

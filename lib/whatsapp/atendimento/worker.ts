@@ -4,8 +4,14 @@ import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, dataDeInteresse, hojeOperacao, 
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, type Conversa, type Mensagem } from './service.ts';
 
 export type DependenciasWorker = { interpretar(empresa: string, texto: string, config: ConfiguracaoAtendimento): Promise<Interpretacao>; enviar(contato: string, texto: string): Promise<string> };
+/**
+ * Saída parada na fila além deste prazo (automação, chave da IA ou empresa desligadas e religadas depois) não sai mais:
+ * uma resposta de horas atrás chegaria fora de contexto. O atendente vê "Não enviada" e pode responder de novo.
+ */
+export const PRAZO_SAIDA_MS = 15 * 60 * 1000;
 export function mensagemAindaValida(mensagem: Mensagem, conversa: Conversa, agora = new Date()) {
   if (conversa.nao_contatar || !janelaAberta(new Date(conversa.ultima_entrada_em), agora)) return false;
+  if (mensagem.direcao === 'SAIDA' && agora.getTime() - new Date(mensagem.criada_em).getTime() > PRAZO_SAIDA_MS) return false;
   if (mensagem.autor_usuario_id) return janelaAberta(new Date(mensagem.criada_em),agora) && mensagem.direcao === 'SAIDA' && conversa.estado === 'HUMANO' && conversa.responsavel_id === mensagem.autor_usuario_id;
   return Number(mensagem.versao_conversa) === Number(conversa.versao) && (mensagem.direcao === 'ENTRADA' ? conversa.estado === 'IA' : ['IA','AGUARDANDO_HUMANO'].includes(conversa.estado));
 }
@@ -43,20 +49,28 @@ export async function processarAtendimento(deps: DependenciasWorker) {
     if (!mensagem) return null;
     const conversa = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [mensagem.conversa_id])).rows[0];
     // Revalidação após lock da conversa evita dois workers gerarem respostas simultâneas.
-    if ((await tx.query("SELECT id FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND estado IN ('PROCESSANDO','ENVIANDO')", [conversa.id])).rows.length) return null;
+    // Perdeu a corrida para outro worker nesta conversa: não é fila vazia, o lote segue para as demais conversas.
+    if ((await tx.query("SELECT id FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND estado IN ('PROCESSANDO','ENVIANDO')", [conversa.id])).rows.length) return 'OCUPADA' as const;
     const valido = mensagemAindaValida(mensagem,conversa);
     await tx.query('UPDATE whatsapp_atendimento_mensagens SET estado=$2,iniciada_em=clock_timestamp() WHERE id=$1', [mensagem.id, valido ? 'PROCESSANDO' : 'CANCELADA']);
     return valido ? { mensagem, conversa, config } : 'CANCELADA' as const;
   });
   if (!tarefa) return 'SEM_TAREFA';
   // Mensagem obsoleta cancelada na reserva: conta como tarefa; o lote segue para a próxima da fila.
-  if (tarefa === 'CANCELADA') return 'CANCELADA';
+  if (tarefa === 'CANCELADA' || tarefa === 'OCUPADA') return tarefa;
   const { mensagem, conversa, config } = tarefa;
   try {
     if (mensagem.direcao === 'ENTRADA') {
       // Ordem lógica: as entradas seguem o horário do evento, não a ordem de chegada. A tarefa válida é a da versão
       // atual (a última a chegar), mas a resposta considera a entrada mais recente e as anteriores, em ordem.
-      const historico = (await db().query<{ texto: string }>("SELECT texto FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='ENTRADA' AND texto IS NOT NULL ORDER BY criada_em DESC,id DESC LIMIT 8", [conversa.id, empresa])).rows.reverse();
+      // Entrada antiga que chegou atrasada (ex.: retry do provedor) depois de uma mais recente já tratada: vira só
+      // histórico. Responder agora repetiria a resposta à mensagem mais recente.
+      if ((await db().query("SELECT 1 FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='ENTRADA' AND criada_em>$3 AND estado IN ('PROCESSADA','FALHOU') LIMIT 1", [conversa.id, empresa, mensagem.criada_em])).rows.length) {
+        await db().query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
+        return 'PROCESSADA';
+      }
+      // Só a sessão atual (24 h antes da última entrada) vai ao modelo: conversas antigas do contato ficam de fora.
+      const historico = (await db().query<{ texto: string }>("SELECT texto FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='ENTRADA' AND texto IS NOT NULL AND criada_em > $3::timestamptz - interval '24 hours' ORDER BY criada_em DESC,id DESC LIMIT 8", [conversa.id, empresa, conversa.ultima_entrada_em])).rows.reverse();
       const atual = historico.at(-1)?.texto ?? mensagem.texto ?? '';
       const respondidas = Number((await db().query<{ n: string }>("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='SAIDA' AND autor_usuario_id IS NULL AND estado<>'CANCELADA' AND criada_em > clock_timestamp()-interval '24 hours'", [conversa.id, empresa])).rows[0]?.n ?? 0);
       if (respondidas >= config.limites.respostasPor24h) return await encaminharSemModelo(mensagem, 'PROCESSADA');

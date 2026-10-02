@@ -6,8 +6,8 @@ import { configuracaoSchema, comandoDireto, janelaAberta, type Entrada } from '.
 
 export type Conversa = { id: string; empresa_id: string; ambiente: string; contato: string; estado: 'IA' | 'HUMANO' | 'AGUARDANDO_HUMANO' | 'ENCERRADA'; responsavel_id: string | null; nao_contatar: boolean; versao: number; ultima_entrada_em: string; atualizada_em?: string; interesse: { data: string | null; convidados: number | null } };
 export type Mensagem = { id: string; conversa_id: string; empresa_id: string; ambiente: string; origem_id: string | null; autor_usuario_id: string | null; texto: string | null; direcao: string; estado: string; versao_conversa: number; criada_em: string };
-/** Linha da tela: só o necessário (contato mascarado na UI, nome do responsável, sem dados de outras empresas). */
-export type ConversaLista = Conversa & { responsavel_nome: string | null };
+/** Linha da tela: só o necessário. O telefone completo não sai do servidor: só os 4 últimos dígitos. */
+export type ConversaLista = Omit<Conversa, 'contato'> & { contato_final: string; responsavel_nome: string | null };
 export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean };
 /** Situação do canal neste ambiente, em partes separadas: receber, responder e a configuração da empresa. */
 export type EstadoCanal = { ambiente: string; receptor: boolean; recepcao: boolean; envio: boolean };
@@ -25,10 +25,13 @@ export async function receberEntrada(entrada: Entrada) {
   // (diferença de relógio) vale como agora: recusar faria o provedor repetir o evento sem fim.
   const em = new Date(Math.min(entrada.timestamp, Date.now())).toISOString();
   await withTransaction(async tx => {
-    const ativa = await tx.query('SELECT id FROM empresas WHERE id=$1 AND status=\'ATIVA\' FOR SHARE', [empresa]);
-    if (!ativa.rows.length) throw new Error('ATENDIMENTO_EMPRESA_INATIVA');
+    // Condições que um retry não corrige não devolvem 503 (o Gupshup repetiria até desistir e a mensagem se perderia).
+    // Empresa suspensa: confirma sem gravar. Sem trava na linha da empresa: o worker revalida antes de enviar, e uma
+    // transação administrativa longa não segura o webhook além do prazo de 10 s do provedor.
+    const ativa = await tx.query('SELECT id FROM empresas WHERE id=$1 AND status=\'ATIVA\'', [empresa]);
+    if (!ativa.rows.length) return;
+    // Sem configuração salva: grava para a equipe, sem automação.
     const config = await configuracao(tx, empresa);
-    if (!config) throw new Error('ATENDIMENTO_CONFIGURACAO_AUSENTE');
     await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`wa:${ambiente}:${empresa}:${entrada.source}`]);
     if ((await tx.query('SELECT id FROM whatsapp_atendimento_mensagens WHERE empresa_id=$1 AND ambiente=$2 AND externa_id=$3', [empresa, ambiente, entrada.id])).rows.length) return;
     const conversa = (await tx.query<Conversa>(`INSERT INTO whatsapp_atendimento_conversas(empresa_id,ambiente,contato,ultima_entrada_em) VALUES($1,$2,$3,$4)
@@ -37,7 +40,7 @@ export async function receberEntrada(entrada: Entrada) {
     // Encerrada pela equipe (sem pedido de PARAR): nova mensagem do cliente reabre como um contato novo.
     const reaberta = conversa.estado === 'ENCERRADA' && !conversa.nao_contatar;
     const estadoAtual = reaberta ? 'IA' : conversa.estado;
-    const automatico = atendimentoAtivo() && config.ativo && !conversa.nao_contatar && estadoAtual === 'IA' && entrada.texto !== null;
+    const automatico = atendimentoAtivo() && !!config?.ativo && !conversa.nao_contatar && estadoAtual === 'IA' && entrada.texto !== null;
     await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,externa_id,direcao,texto,estado,versao_conversa,criada_em) VALUES($1,$2,$3,$4,'ENTRADA',$5,$6,$7,$8)`, [conversa.id, empresa, ambiente, entrada.id, entrada.texto, automatico ? 'PENDENTE' : 'PROCESSADA', conversa.versao, em]);
     if (reaberta) await tx.query('UPDATE whatsapp_atendimento_conversas SET estado=$2,responsavel_id=NULL WHERE id=$1', [conversa.id, automatico ? 'IA' : 'AGUARDANDO_HUMANO']);
     else if (estadoAtual === 'IA' && !automatico) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO' WHERE id=$1", [conversa.id]);
@@ -60,6 +63,9 @@ export async function receberStatus(raw: unknown) {
     await tx.query(`INSERT INTO whatsapp_atendimento_status(empresa_id,ambiente,provedor_id,estado) VALUES($1,$2,$3,$4) ON CONFLICT(empresa_id,ambiente,provedor_id) DO UPDATE SET estado=CASE WHEN whatsapp_atendimento_status.estado='ENTREGUE' THEN 'ENTREGUE' ELSE EXCLUDED.estado END`, [empresaPiloto(),ambienteAtendimento(),id,estado]);
     await correlacionarStatus(tx, empresaPiloto(), ambienteAtendimento(), id);
   });
+  // Retenção também com só a recepção ligada (o processador pode estar desligado): status de OTP não se acumulam.
+  // Falha na limpeza não recusa o evento já gravado.
+  await limparStatusExpirados().catch(() => {});
 }
 
 /** Aplica o status guardado à mensagem com o mesmo identificador e apaga a linha: só os sem correspondência ficam. */
@@ -77,7 +83,7 @@ export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: s
   return acessoAtendimento(sessao, async (tx, empresa, papel) => {
     const ambiente = ambienteAtendimento();
     // Nome do responsável só quando ele tem vínculo ativo com a mesma empresa (o mesmo critério do envio humano).
-    const conversas = (await tx.query<ConversaLista>(`SELECT c.*,u.nome AS responsavel_nome FROM whatsapp_atendimento_conversas c
+    const conversas = (await tx.query<ConversaLista>(`SELECT c.id,c.empresa_id,c.ambiente,right(c.contato,4) AS contato_final,c.estado,c.responsavel_id,c.nao_contatar,c.versao,c.ultima_entrada_em,c.atualizada_em,c.interesse,u.nome AS responsavel_nome FROM whatsapp_atendimento_conversas c
       LEFT JOIN usuarios_administrativos u ON u.id=c.responsavel_id AND EXISTS(SELECT 1 FROM memberships m WHERE m.usuario_id=u.id AND m.empresa_id=c.empresa_id AND m.status='ATIVA')
       WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY c.atualizada_em DESC LIMIT 100`, [empresa, ambiente])).rows;
     const mensagens = conversaId ? (await tx.query<MensagemLista>('SELECT id,conversa_id,direcao,texto,estado,criada_em,autor_usuario_id IS NOT NULL AS humana FROM whatsapp_atendimento_mensagens WHERE empresa_id=$1 AND ambiente=$2 AND conversa_id=$3 ORDER BY criada_em DESC,id DESC LIMIT 100', [empresa, ambiente, conversaId])).rows.reverse() : [];

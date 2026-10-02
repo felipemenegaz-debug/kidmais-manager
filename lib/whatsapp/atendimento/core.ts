@@ -20,6 +20,16 @@ export const interpretacaoSchema = z.object({
 export type Interpretacao = z.infer<typeof interpretacaoSchema>;
 export const ESQUEMA_INTERPRETACAO = { type: 'object', additionalProperties: false, required: ['intencao', 'perguntaId', 'data', 'convidados'], properties: { intencao: { type: 'string', enum: ['DUVIDA', 'INTERESSE', 'HUMANO', 'PARAR', 'OUTRO'] }, perguntaId: { type: ['string', 'null'] }, data: { type: ['string', 'null'] }, convidados: { type: ['integer', 'null'] } } };
 
+/**
+ * Minimização antes do modelo: CPF, e-mail e telefone (com DDD) viram marcadores. Datas como 14/11/2027 e
+ * quantidades ficam: são o que a classificação precisa.
+ */
+export function ocultarDadosPessoais(texto: string) {
+  return texto
+    .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, '[documento omitido]')
+    .replace(/[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu, '[e-mail omitido]')
+    .replace(/(?<!\d)(?:\+?55[\s.-]?)?\(?\d{2}\)?[\s.-]?9?\d{4}[\s.-]?\d{4}(?!\d)/g, '[telefone omitido]');
+}
 export function dataValida(valor: string) {
   const data = new Date(`${valor}T12:00:00Z`);
   return !Number.isNaN(data.getTime()) && data.toISOString().slice(0, 10) === valor;
