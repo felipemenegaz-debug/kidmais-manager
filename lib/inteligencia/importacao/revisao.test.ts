@@ -42,6 +42,8 @@ function importacaoMemoria(documentos: ReturnType<typeof documentosMemoria>, nov
     async atualizarImportacao(_tx, empresaId, i, versao) {
       const atual = importacoes.get(i.id);
       if (!atual || atual.empresaId !== empresaId || atual.versao !== versao) return false;
+      if (atual.extracaoId !== i.extracaoId || atual.documentoId !== i.documentoId || atual.criadoPor !== i.criadoPor) throw new Error('Identidade da importação é imutável (055d).');
+      if (atual.status !== 'EM_REVISAO' || i.versao <= atual.versao) throw new Error('Transição recusada pela guarda 055d.');
       importacoes.set(i.id, { ...structuredClone(i), empresaId });
       return true;
     },
@@ -342,8 +344,13 @@ test('reenvio recupera revisão vazia intocada e preserva revisão já editada',
     const r = await a.importar({ acao: 'abrir', documentoId: documento.documentoId });
     assert.equal(r.status, 200, JSON.stringify(r.corpo));
     const recuperada = dados(r).importacao;
-    assert.equal(recuperada.id, aberta.id);
-    assert.equal(recuperada.versao, editada ? aberta.versao : aberta.versao + 1);
+    if (editada) assert.equal(recuperada.id, aberta.id);
+    else {
+      assert.notEqual(recuperada.id, aberta.id);
+      assert.equal(a.importacao.importacoes.get(aberta.id)!.status, 'DESCARTADA');
+      assert.equal(a.importacao.importacoes.get(aberta.id)!.extracaoId, atual.extracaoId);
+    }
+    assert.equal(recuperada.versao, editada ? aberta.versao : 1);
     assert.equal(recuperada.extracao.secoes.some(s => s.campos.some(c => c.valor)), !editada);
   }
 });
