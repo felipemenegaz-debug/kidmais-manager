@@ -26,7 +26,7 @@ Ele é atualizado a cada etapa. Uma etapa só é marcada como feita com a evidê
 | 10 | Gates locais (testes, TypeScript, ESLint, build, UI, benchmark) | feito | `56d6834`: test:inteligencia 422/422; check:v1:static 1633+103 com build; check:ia:prs, tsc, ESLint, UI 27/27, ux-contratos-perfil ok; benchmark sem diff. `check:v1:ui` falha também no staging puro `a6fbfd6` (endpoint de logo da #55) — anterior a esta entrega |
 | 11 | PR, CI, merge em staging e deploy manual | feito | PR #56, CI success; merge commit `9599af2` (árvore = `56d6834`); deploy `dep-dav35fojo6nc73fa0i9g` live, health 200, sem erros nos logs; auto-deploy OFF (staging e produção) conferido antes |
 | 12 | Revisão: 3 lacunas reproduzidas e corrigidas (fallback ambíguo, associação valor↔unidade na redação, estimativa negada) | feito | §5.1; PR #57 (CI success), merge `c37ca62`, deploy `dep-dav3mvc1nsns738g7i90` live, health 200 |
-| 13 | Homologação com o modelo real pelo app de staging (custo e latência medidos) | encerrada com pendência | §5.2: 1ª rodada em `9243d2c` (7 falhas e 1 ajuste ⇒ PR #61); 2ª rodada em `1dc986f` limitada pelo teto de orçamento (modelo recusado antes da chamada) ⇒ 2 falhas do caminho sem modelo corrigidas na PR #62. Causa exata comprovada pela PR #64: `TETO_TOKENS` diário da empresa. 3ª rodada (fallback) em `bfe6fac` ⇒ 3 falhas do caminho anterior corrigidas na PR 14. Pendência: repetir a rodada com a Luna quando o teto diário permitir |
+| 13 | Homologação com o modelo real pelo app de staging (custo e latência medidos) | feito | §5.2 e §5.3: 1ª rodada em `9243d2c` (7 falhas e 1 ajuste ⇒ PR #61); 2ª em `1dc986f` limitada pelo teto de orçamento ⇒ PR #62; causa exata (`TETO_TOKENS` diário da empresa) comprovada pela PR #64; 3ª (fallback) em `bfe6fac` ⇒ PR #65; 4ª (Luna) em `3b66958` ⇒ PR #66; rodadas de gestão de contexto ⇒ PRs #67 a #75; **rodada final em `82f9bb1`: 19 cenários + 1 continuação, todos ok, nenhuma recusa** (§5.3). Falha do provedor: só testes |
 
 ## 2. Auditoria do código de partida (`6b45783`)
 
@@ -307,7 +307,7 @@ O valor anterior **não pôde ser lido**: a integração do Render não expõe v
 
 Não há mudança operacional obrigatória: a configuração atual funciona e as recusas ficam visíveis no trace. Para fechar a dúvida sobre o que foi removido, só o operador pode conferir num registro próprio (cofre de senhas, anotação ou histórico do painel, se houver).
 
-#### Mensagem mista que completa o rascunho (PR desta entrega)
+#### Mensagem mista que completa o rascunho (PRs #74 e #75)
 
 Antes: "o cliente é … E quantos refrigerantes para a próxima festa?" completava a preparação, a UI abria a revisão do Fechamento e fechava a conversa — o pedido de refrigerantes sumia (ou, nas PRs #69/#70, só era anunciado como "não feito").
 
@@ -318,6 +318,8 @@ Agora, com a integração mínima entre conversa e revisão (sem redesenho):
 
 Regressões (falham sem a correção): diálogo do fluxo completo em `aceite-operacional.test.ts` (rascunho ⇒ mensagem mista que o completa ⇒ navegação para a revisão + pergunta do cálculo ⇒ "400 ml" continua o cálculo com a revisão intocada ⇒ chat não confirma, nenhum Fechamento); mensagem mista sem completar o rascunho; provider em `inteligencia-ui.test.ts` (navega sem fechar a conversa, mostra a segunda resposta, reenvia a continuação) e formato fechado do segundo pedido.
 
+**PR #75 (achado da rodada parcial em `3930273`, 00:30–00:32 UTC):** com o modelo real, a mensagem mista voltou com `relacaoRascunho: SEM_RASCUNHO` — a Luna rotulou só o cálculo e o nome do cliente se perdia. A mensagem mista passou a ser reconhecida também pelo **trecho** que responde ao campo pendente do rascunho (`outrosPedidos[].trecho`, conferido literalmente na mensagem atual), não só pelo rótulo da Luna. Regressão em `aceite-operacional.test.ts` (rótulo SEM_RASCUNHO + trecho ⇒ rascunho completo e segundo pedido atendido).
+
 Limite conhecido: a conversa é estado em memória do layout do Admin. Navegar de uma tela do CRM (`/clientes`, outro layout) para a revisão (`/admin/...`) recarrega o layout e a conversa recomeça — comportamento anterior, inalterado.
 
 #### Cobertura, em quatro frentes separadas
@@ -326,3 +328,36 @@ Limite conhecido: a conversa é estado em memória do layout do Admin. Navegar d
 2. **Fallback (caminho anterior sem a Luna):** 3ª rodada ao vivo (`bfe6fac`, 15 diálogos com a Luna recusada): 11 ok, B limitado (composição exige Luna/Planner), 3 falhas corrigidas na PR #65. Nessa rodada os modelos menores (JEV e classificador antigo) ainda responderam onde a reserva deles cabia — não é evidência da Luna. Testes: diálogos "Fallback (lacuna 1)", "Fallback (PR 14)" e os de provedor fora do ar.
 3. **Recusa de orçamento, ao vivo:** 2ª rodada (`1dc986f`) e 3ª rodada (`bfe6fac`), com a causa exata no trace (`recusasModelo`: `ORCAMENTO / TETO_TOKENS / EMPRESA / DIA` e a reserva tentada). Testes: `roteador.test.ts` (AUSENTE, INVALIDO, SEM_TETO, SEM_PRECO, TETO_TOKENS por empresa e por capacidade) e o diálogo "Luna — PR 13".
 4. **Falha do provedor (HTTP 5xx, timeout, saída inválida): só testes.** Não exercitada ao vivo nesta etapa, por decisão do operador (não alterar configuração para forçá-la). Cobertura: diálogos com `ErroModelo("HTTP_5XX")` ("Fallback (lacuna 1)", "Fallback (PR 14)", "PR 18"), testes do roteador (circuito, retry, uso desconhecido, liberação da reserva em 4xx) e `hardening-jev.test.ts`.
+
+#### Rodada final (02/10/2026, 00:44–00:47 UTC)
+
+Candidata publicada: `82f9bb1` (merge da PR #75), deploy `dep-davfq8e7bikc73dtf1tg` live desde 00:43:37 UTC; modelo gpt-6-luna (ECONOMY, effort none). Orçamento: `AI_BUDGET_JSON.porEmpresa.tokensDiario` de staging passou de 500.000 para 1.000.000 com autorização do operador (demais campos preservados: `tokensMensal` 5.000.000, `custoDiario` 0,50, `custoMensal` 5 USD). Produção intocada.
+
+As 20 mensagens foram enviadas numa única conversa pelo drawer "Perguntar ao Kidmais" do Admin. Todas tiveram `luna_entender` executado, `recusasModelo: []` e `errosModelo: []`, sem fallback. Nenhuma resposta trouxe Markdown cru. Custo, tokens e latência vêm do trace saneado `inteligencia.conversa`. Nada foi gravado: o rascunho foi cancelado por A7 e a revisão aberta pela mensagem mista não foi concluída.
+
+| # | Cenário | Resultado | Chamadas | Tokens | Custo (USD) | Latência |
+|---|---|---|---|---|---|---|
+| 1 | A1 — criar festa (cliente, 50 convidados, pacote) | ok: rascunho de festa; pergunta o aniversariante | 1 | 3.078 | 0,000121 | 2,3 s |
+| 2 | A2 — aniversariante | ok: "Theo"; pergunta a data | 1 | 3.165 | 0,000121 | 2,0 s |
+| 3 | A3 — data e "à tarde" | ok: data aceita; pergunta o turno | 1 | 3.249 | 0,000130 | 2,3 s |
+| 4 | A4 — docinhos para 60 convidados com rascunho aberto | ok: "Para qual festa?", rascunho pausado | 1 | 3.262 | 0,000126 | 2,7 s |
+| 5 | A5 — "à noite" (resposta ao campo) | ok: turno preenchido, **sem aviso de outro pedido** (`outrosPedidos: 0`) | 1 | 3.293 | 0,000125 | 2,1 s |
+| 6 | Correção ("60 convidados") | ok: rascunho corrigido, sem aviso | 1 | 3.329 | 0,000129 | 2,5 s |
+| 7 | Consulta paralela de docinhos com rascunho aberto | ok: 240 docinhos; rascunho continua pausado | 2 | 4.310 | 0,000257 | 4,6 s |
+| 8 | Retomada do rascunho | ok: volta ao campo pendente | 1 | 3.373 | 0,000245 | 2,5 s |
+| 9 | A6 — "quero criar uma festa e não um pacote" | ok: `TROCA_OBJETIVO`, não vira nome | 1 | 3.370 | 0,000247 | 2,7 s |
+| 10 | Mensagem mista: cliente + "quantos refrigerantes para a próxima festa?" | ok: `LUNA:MENSAGEM_MISTA`, `relacaoRascunho: RESPONDE`; rascunho completo ⇒ revisão aberta (`PREVIEW`); a conversa **ficou aberta** com a pergunta dos mL | 1 | 3.379 | 0,000251 | 3,1 s |
+| 10a | "400 ml" (continuação do segundo pedido) | ok: 24 L; pergunta a embalagem; revisão intocada | 2 | 4.309 | 0,000368 | 3,6 s |
+| 11 | A7 — "cancele esse rascunho" | ok: `CANCELADO`, nada gravado; o chat não confirma | 1 | 3.403 | 0,000246 | 2,5 s |
+| 12 | B — contratos pendentes e recebido no mês | ok: 1 contrato + R$ 0,00 (composição das duas leituras) | 2 | 3.949 | 0,000325 | 3,7 s |
+| 13 | E1 — docinhos e refrigerantes da próxima festa | ok: festa e convidados do Core; regras ausentes perguntadas | 2 | 4.216 | 0,000360 | 5,1 s |
+| 14 | C — 4 doces por convidado, 2 L, "faça você a definição" | ok: 240 docinhos; 250 mL **estimados** ⇒ 15 L = 8 × 2 L | 3 | 5.708 | 0,000577 | 6,5 s |
+| 15 | N1 — refrigerantes da próxima festa | ok: pergunta taxa e embalagem | 2 | 4.203 | 0,000356 | 4,7 s |
+| 16 | N2 — "não estime; só a regra cadastrada" | ok: refaz o cálculo sem estimar e pergunta de novo | 2 | 4.245 | 0,000355 | 5,4 s |
+| 17 | N3 — "não sei" | ok: dica de pedir a estimativa; embalagem antiga descartada (`descartes: embalagemMl`) | 2 | 4.286 | 0,000375 | 4,0 s |
+| 18 | D — estimar refrigerantes, 2 L, 10% de margem | ok: 250 mL estimados + 10% ⇒ 16,5 L = 9 × 2 L | 2 | 4.498 | 0,000395 | 4,4 s |
+| 19 | F — "e os docinhos, com 5 por convidado?" | ok: mesma festa, 300 docinhos, **sem** a margem dos refrigerantes | 2 | 4.310 | 0,000364 | 4,1 s |
+
+Total: 30 chamadas de modelo, 76.935 tokens, US$ 0,005473 (média de ~3.850 tokens e ~US$ 0,00027 por mensagem); latência de 2,0 a 6,5 s; no máximo 3 chamadas por mensagem (teto 4).
+
+Os 15 cenários de §5.2 (A1–A7, B, E1, C, N1–N3, D, F) e os 4 de gestão de contexto (correção, consulta paralela, retomada, mensagem mista) passaram na mesma candidata. Recusa de orçamento e fallback não aparecem nesta rodada (ver frentes 2 e 3 acima); a falha do provedor continua coberta só por testes (frente 4).
