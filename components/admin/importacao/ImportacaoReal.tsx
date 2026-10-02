@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { CampoExtraido, EstadoCampo } from '@/lib/importacao-contrato/modelo';
@@ -42,6 +42,26 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
   const [estado, setEstado] = useState<Etapa>(vitrine ?? { etapa: 'upload', erro: null });
   const [editando, setEditando] = useState<{ id: string; valor: string } | null>(null);
   const [arrastando, setArrastando] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const dialogo = useRef<HTMLDialogElement>(null);
+  const decidindoCancelamento = (estado.etapa === 'confirmacao' && estado.decidindo) || (estado.etapa === 'revisao' && estado.ocupado);
+  useEffect(() => { if (cancelando) dialogo.current?.showModal(); else dialogo.current?.close(); }, [cancelando]);
+
+  async function cancelarImportacao() {
+    if ((estado.etapa === 'revisao' && estado.ocupado) || (estado.etapa === 'confirmacao' && estado.decidindo)) return;
+    if (estado.etapa === 'revisao') setEstado({ ...estado, ocupado: true, erro: null });
+    if (estado.etapa === 'confirmacao') {
+      setEstado({ ...estado, decidindo: true, erro: null });
+      const gate = await decidirOperacao(adminFetch, estado.rascunho, 'cancelar');
+      if (gate.tipo !== 'ok') { setEstado({ ...estado, decidindo: false, erro: gate.mensagem }); setCancelando(false); return; }
+    }
+    if (estado.etapa !== 'revisao' && estado.etapa !== 'confirmacao') return;
+    const resposta = await agirNaImportacao(adminFetch, estado.importacao, { acao: 'descartar' });
+    if (!resposta.ok) {
+      setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: resposta.mensagem });
+    } else { setEstado({ etapa: 'upload', erro: null }); setEditando(null); }
+    setCancelando(false);
+  }
 
   async function enviar(arquivo: File | undefined) {
     if (!arquivo) return;
@@ -166,13 +186,14 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
           {estado.erro && <p className={styles.erro} role="alert">{estado.erro}</p>}
           <button type="button" className={styles.primario} disabled={estado.ocupado || !estado.plano?.pronto} onClick={() => void agir({ acao: 'preparar' })}>{estado.ocupado ? 'Aguarde…' : 'Revisar importação'}</button>
           <p className={styles.garantia}>Nenhum cadastro é criado ou alterado sem a sua confirmação. Pagamentos entram como previstos, nunca como pagos.</p>
-          <button type="button" className={styles.linkBotao} disabled={estado.ocupado} onClick={() => void agir({ acao: 'descartar' })}>Descartar este documento</button>
+          <button type="button" className={styles.fantasma} disabled={estado.ocupado} onClick={() => setCancelando(true)}>Cancelar importação</button>
         </aside>
       </div>;
     })()}
 
     {estado.etapa === 'confirmacao' && <section className={styles.painel} aria-labelledby="confirmar-real">
       <h2 id="confirmar-real" className={styles.titulo}>Confirmar importação</h2>
+      <div className={styles.acoesFinais}><button type="button" className={styles.fantasma} disabled={estado.decidindo} onClick={() => void decidir(estado.rascunho, 'cancelar')}>Voltar e corrigir</button><button type="button" className={styles.fantasma} disabled={estado.decidindo} onClick={() => setCancelando(true)}>Cancelar importação</button></div>
       <PreviewAcao rascunho={estado.rascunho} decidindo={estado.decidindo} erro={estado.erro} onDecidir={(r, d) => void decidir(r, d)} />
     </section>}
 
@@ -185,6 +206,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
         <button type="button" className={styles.fantasma} onClick={() => setEstado({ etapa: 'upload', erro: null })}>Importar outro contrato</button>
       </div>
     </section>}
+    <dialog ref={dialogo} className={`${styles.painel} ${real.cancelarDialogo}`} aria-labelledby="cancelar-importacao" onCancel={e => { e.preventDefault(); if (!decidindoCancelamento) setCancelando(false); }}><h2 id="cancelar-importacao">Descartar esta revisão?</h2><p>Nenhum cliente ou contrato será criado. O documento privado continuará sujeito à política de retenção do sistema.</p><div className={styles.acoesFinais}><button type="button" className={styles.fantasma} onClick={() => setCancelando(false)} disabled={decidindoCancelamento}>Continuar revisão</button><button type="button" className={styles.primario} onClick={() => void cancelarImportacao()} disabled={decidindoCancelamento}>Sim, cancelar importação</button></div></dialog>
   </main>;
 }
 
@@ -227,6 +249,7 @@ function Campo({ campo, revisado, ocupado, editando, onEditar, onAgir }: {
         {campo.conflito ? 'O contrato diz isso' : 'Confirmar leitura'}</button>}
       {editavel && editando === null && <button type="button" className={styles.linkBotao} disabled={ocupado}
         aria-label={`Corrigir ${campo.rotulo}`} onClick={() => onEditar(campo.valor ?? '')}>Corrigir</button>}
+      {editavel && editando === null && campo.valor && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => onAgir({ acao: 'revisar', campoId: campo.id, valor: '' })}>Não consta no documento</button>}
     </dd>
   </div>;
 }
