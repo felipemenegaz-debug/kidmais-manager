@@ -1,4 +1,5 @@
 import {validarAmbienteFesta} from './ambiente';
+import {listarFestasImportadas} from './importadas';
 import {camposBuffet,escolhasEfetivas,escolhasBuffet,type EscolhaBuffet} from './buffet';
 import {cancelarContratacaoDaFesta} from '../contratos/services/cancelamento.service';
 import {perfis,nomePerfil} from './perfis';
@@ -68,6 +69,14 @@ export async function criarFesta(raw:unknown){
  * (explícito desde a 054). Festa de outra empresa ou de fechamento legado sem empresa não aparece
  * na lista, nem pelo clienteId, e responde como inexistente no detalhe.
  */
+export async function consultarFestaImportada(ctx:Contexto,importacaoId:string){
+ return withTransaction(async tx=>{
+  const s=await sessao(tx,ctx);const tenant=await tenantDaSessao(tx,s,ctx);
+  await autorizar(tx,tenant,'FESTA_CONSULTAR');
+  const importada=(await listarFestasImportadas(tx,tenant.empresaComprovada,undefined,importacaoId))[0];
+  exigir(importada,'Festa não encontrada.',404);await revalidarTenant(tx,tenant);return {importada};
+ });
+}
 export async function consultarFestas(ctx:Contexto,id?:string,clienteId?:string){
  return withTransaction(async tx=>{
  const s=await sessao(tx,ctx);const tenant=await tenantDaSessao(tx,s,ctx);const empresaId=tenant.empresaComprovada;
@@ -76,7 +85,7 @@ export async function consultarFestas(ctx:Contexto,id?:string,clienteId?:string)
  const areas=(await tx.query<Registro>('SELECT * FROM festa_areas WHERE empresa_id=$1::uuid ORDER BY nome',[empresaId])).rows;
  const usuarios=(await tx.query<Registro>(membrosDaEmpresaSql,[empresaId])).rows.filter(u=>u.ativo).map(({id,nome,papel})=>({id,nome,papel}));
  if(!id){const festas=(await tx.query<Festa>(`SELECT f.*,(SELECT a.data_nascimento::text FROM aniversariantes a WHERE a.id=fe.aniversariante_id) nascimento_crm,(SELECT detalhe FROM eventos_historico_cliente h WHERE h.entidade_tipo='CONTRATO' AND h.entidade_id=f.contrato_id AND h.tipo_evento='CONTRATO_CANCELADO' ORDER BY criado_em DESC LIMIT 1) motivo_cancelamento,co.cancelado_em,co.status contrato_status,v.numero_versao,v.snapshot,fe.cliente_id,fe.aniversariante_id,(SELECT count(*)::int FROM festa_pendencias p WHERE p.festa_id=f.id AND p.estado NOT IN ('RESOLVIDA','NAO_SE_APLICA')) pendencias_abertas,(SELECT descricao FROM festa_pendencias p WHERE p.festa_id=f.id AND p.estado NOT IN ('RESOLVIDA','NAO_SE_APLICA') ORDER BY (p.prioridade='CRITICA') DESC,p.criado_em LIMIT 1) pendencia_resumo,(SELECT count(*)::int FROM festa_tarefas t WHERE t.festa_id=f.id AND t.estado NOT IN ('CONCLUIDA','NAO_SE_APLICA')) tarefas_importantes FROM festas f JOIN contratos co ON co.id=f.contrato_id JOIN fechamentos fe ON fe.id=co.fechamento_id JOIN contrato_fluxos cf ON cf.contrato_id=f.contrato_id JOIN contrato_versoes v ON v.id=cf.versao_vigente_id WHERE f.invalidada_em IS NULL AND fe.empresa_id=$2::uuid AND ($1::uuid IS NULL OR fe.cliente_id=$1) ORDER BY f.criado_em DESC`,[clienteId??null,empresaId])).rows;
- const elegiveis=(await tx.query<Registro>(`SELECT c.id,cf.versao_vigente_id,v.numero_versao,v.snapshot,(SELECT a.data_nascimento::text FROM fechamentos fe JOIN aniversariantes a ON a.id=fe.aniversariante_id WHERE fe.id=c.fechamento_id) nascimento_crm FROM contratos c JOIN contrato_fluxos cf ON cf.contrato_id=c.id JOIN contrato_versoes v ON v.id=cf.versao_vigente_id JOIN contrato_edicoes e ON e.contrato_versao_id=v.id WHERE ${formalizacaoElegivelSql} AND NOT EXISTS(SELECT 1 FROM festas f WHERE f.contrato_id=c.id AND f.invalidada_em IS NULL) AND EXISTS(SELECT 1 FROM fechamentos fe WHERE fe.id=c.fechamento_id AND fe.empresa_id=$2::uuid AND ($1::uuid IS NULL OR fe.cliente_id=$1)) ORDER BY c.criado_em DESC`,[clienteId??null,empresaId])).rows;await revalidarTenant(tx,tenant);return {festas:festas.map(f=>({...f,estado:estadoDerivado(f.snapshot,f.contrato_status==='CANCELADO',!!f.invalidada_em)})),elegiveis,capacidades:caps,areas,usuarios};}
+ const elegiveis=(await tx.query<Registro>(`SELECT c.id,cf.versao_vigente_id,v.numero_versao,v.snapshot,(SELECT a.data_nascimento::text FROM fechamentos fe JOIN aniversariantes a ON a.id=fe.aniversariante_id WHERE fe.id=c.fechamento_id) nascimento_crm FROM contratos c JOIN contrato_fluxos cf ON cf.contrato_id=c.id JOIN contrato_versoes v ON v.id=cf.versao_vigente_id JOIN contrato_edicoes e ON e.contrato_versao_id=v.id WHERE ${formalizacaoElegivelSql} AND NOT EXISTS(SELECT 1 FROM festas f WHERE f.contrato_id=c.id AND f.invalidada_em IS NULL) AND EXISTS(SELECT 1 FROM fechamentos fe WHERE fe.id=c.fechamento_id AND fe.empresa_id=$2::uuid AND ($1::uuid IS NULL OR fe.cliente_id=$1)) ORDER BY c.criado_em DESC`,[clienteId??null,empresaId])).rows;const importadas=await listarFestasImportadas(tx,empresaId,clienteId);await revalidarTenant(tx,tenant);return {importadas,festas:festas.map(f=>({...f,estado:estadoDerivado(f.snapshot,f.contrato_status==='CANCELADO',!!f.invalidada_em)})),elegiveis,capacidades:caps,areas,usuarios};}
  const f=(await tx.query<Festa>('SELECT f.* FROM festas f JOIN contratos co ON co.id=f.contrato_id JOIN fechamentos fe ON fe.id=co.fechamento_id WHERE f.id=$1 AND fe.empresa_id=$2::uuid',[id,empresaId])).rows[0];exigir(f,'Festa não encontrada.',404);const c=await contrato(tx,f.contrato_id);const itens=await filhos(tx,id);const counts=await contagens(tx,f);
  const temPagamento=(await tx.query('SELECT p.id FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE v.contrato_id=$1',[c.id])).rows.length>0;
  const financeiro=temPagamento?await consultarPainelFinanceiro(c.id,tx) as {posicao:Record<string,string>;pendencias:Registro[]}:null;

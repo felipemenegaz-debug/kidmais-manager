@@ -15,6 +15,7 @@ export type ImportacaoPublica = {
   documentoId?: string;
   versao: number;
   status: 'EM_REVISAO' | 'IMPORTADA' | 'DESCARTADA';
+  resultado?: { clienteId: string; destino: string; importadoEm: string; pendencias: string[] } | null;
   extracao: ExtracaoContrato;
   revisados: string[];
   decisaoCliente: DecisaoCliente;

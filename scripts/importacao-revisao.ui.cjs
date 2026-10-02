@@ -27,6 +27,7 @@ function extracaoInicial() {
   };
 }
 const plano = { pronto: false, bloqueios: ['Confirme a data do evento.'], avisos: [], match: { estado: 'NOVO_CLIENTE', clienteId: null, candidatos: [], motivo: 'Nenhum cliente com este nome.' } };
+const festaImportada = { id: IMPORTACAO, origem: 'IMPORTACAO', clienteId: DOCUMENTO, snapshot: { contratante: { nomeCompleto: 'Pessoa Exemplo' }, aniversariante: { nome: 'Aniversariante Exemplo', idadeNoEvento: 4 }, evento: { data: '2099-10-10', horarioInicio: '10:00', horarioFim: '14:00', convidados: 50, tema: 'Carros', pacote: { nome: 'Pacote original' } } }, itens: 'Itens do contrato', buffet: { itens: 'Salgados' }, observacoes: null };
 
 function cdp(wsUrl) {
   const ws = new WebSocket(wsUrl);
@@ -60,6 +61,7 @@ async function main() {
   const erros = [], inesperados = [], posts = [], resultados = [];
   let modoEstado = 'habilitado';                                                   // habilitado | desabilitado | falha
   let importacao = null;
+  let statusAbertura = 'EM_REVISAO';
   const dialogos = [];                                                             // mensagens de window.confirm
   let respostaConfirm = false;
   const continuar = process.env.UI_CONTINUAR_APOS_FALHA === '1';                  // só para controle negativo
@@ -85,6 +87,7 @@ async function main() {
       const ok = (data) => json(200, { ok: true, data });
       try {
         if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: '00000000-0000-4000-8000-000000000009', nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico' });
+        if (url.pathname === '/api/admin/festas' && p.request.method === 'GET') return ok(url.searchParams.has('importacaoId') ? { importada: festaImportada } : { festas: [], importadas: [festaImportada], elegiveis: [], capacidades: ['FESTA_CONSULTAR'], areas: [], usuarios: [] });
         if (url.pathname === '/api/admin/inteligencia/documentos' && p.request.method === 'POST') { posts.push({ url: url.pathname, corpo: 'multipart' }); return ok({ documentoId: DOCUMENTO, avisos: [] }); }
         if (url.pathname === '/api/admin/inteligencia/importacoes' && p.request.method === 'POST') {
           const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo });
@@ -93,7 +96,9 @@ async function main() {
             if (modoEstado === 'desabilitado') return ok({ habilitado: false, envioExterno: false });
             return ok({ habilitado: true, envioExterno: false });
           }
-          if (corpo.acao === 'abrir') { importacao = { id: IMPORTACAO, documentoId: DOCUMENTO, versao: 1, status: 'EM_REVISAO', extracao: extracaoInicial(), revisados: [], decisaoCliente: null }; return ok({ importacao, plano, avisos: [] }); }
+          if (corpo.acao === 'abrir') { importacao = { id: IMPORTACAO, documentoId: DOCUMENTO, versao: 1, status: statusAbertura, resultado: statusAbertura === 'IMPORTADA' ? { clienteId: DOCUMENTO, destino: `/clientes/${DOCUMENTO}`, importadoEm: '2026-10-02T12:00:00Z', pendencias: [] } : null, extracao: extracaoInicial(), revisados: [], decisaoCliente: null }; return ok({ importacao, plano: statusAbertura === 'EM_REVISAO' ? plano : null, avisos: [] }); }
+          if (corpo.acao === 'ler' && corpo.importacaoId === IMPORTACAO) return ok({ importacao, plano: null });
+          if (importacao?.status !== 'EM_REVISAO') return json(409, { ok: false, codigo: 'IMPORTACAO_ENCERRADA', erro: 'Esta importação já foi encerrada.' });
           if (corpo.importacaoId !== IMPORTACAO || corpo.versao !== importacao?.versao) return json(409, { ok: false, codigo: 'IMPORTACAO_DESATUALIZADA', erro: 'A revisão mudou em outra aba. Atualize a página.' });
           if (corpo.acao === 'revisar') {
             const campos = importacao.extracao.secoes.flatMap((s) => s.campos);
@@ -249,6 +254,61 @@ async function main() {
       await clicar('Sim, cancelar importação');
       await aguardar(texto('Arraste o contrato para cá'), 'volta ao envio');
       assert.deepEqual(posteriores(m), [{ acao: 'descartar', importacaoId: IMPORTACAO, versao: 3 }]);
+    });
+
+    await caso('Reenvio de contrato importado abre resultado, sem edição nem confirmação duplicada; festa aparece em Próximas e abre detalhe', async () => {
+      statusAbertura = 'IMPORTADA';
+      for (let vez = 0; vez < 2; vez++) {
+        await ir('/admin/contratos/importar');
+        await aguardar(texto('Arraste o contrato para cá'), 'envio para recuperar resultado');
+        const m = posts.length;
+        await enviarArquivo();
+        await aguardar(texto('Este contrato já foi importado.'), 'resultado da importação anterior');
+        assert.equal(await existeBotao('Revisar importação'), false);
+        assert.equal(await existeBotao('Corrigir Nome do contratante'), false);
+        assert.equal(await existeBotao('Cancelar importação'), false);
+        assert.deepEqual(posteriores(m), [{ acao: 'abrir', documentoId: DOCUMENTO }]);
+      }
+      await fotografar('contrato-ja-importado');
+      await avaliar(`document.querySelector('a[href="/admin/festas?visao=proximas"]').click()`);
+      await aguardar(texto('Aniversariante Exemplo — 4 anos'), 'festa importada na lista');
+      assert.equal(await avaliar(`(${botao('Próximas')}).getAttribute('aria-pressed')`), 'true');
+      assert.equal(await avaliar(texto('50 convidados')), true);
+      await fotografar('proximas-importada');
+      await avaliar(`document.querySelector('a[href="/admin/festas/importadas/${IMPORTACAO}"]').click()`);
+      await aguardar(texto('Festa de contrato importado'), 'detalhe importado');
+      await aguardar(texto('Itens do contrato'), 'dados confirmados no detalhe');
+      assert.equal(await avaliar(texto('Carros')), true);
+      await fotografar('festa-importada');
+    });
+
+    await caso('Revisão encerrada em outra aba é atualizada para resultado após tentativa de correção', async () => {
+      statusAbertura = 'EM_REVISAO';
+      await ir('/admin/contratos/importar');
+      await aguardar(texto('Arraste o contrato para cá'), 'envio real');
+      await enviarArquivo();
+      await aguardar(texto('Pessoa Exemplo'), 'revisão aberta');
+      await clicar('Corrigir E-mail');
+      await aguardar(`!!(${botao('Salvar')})`, 'editor aberto');
+      importacao.status = 'IMPORTADA';
+      const m = posts.length;
+      await clicar('Salvar');
+      await aguardar(texto('Este contrato já foi importado.'), 'atualiza estado encerrado');
+      assert.deepEqual(posteriores(m).map(p => p.acao), ['revisar', 'ler']);
+      assert.equal(await existeBotao('Salvar'), false);
+    });
+
+    await caso('Revisão cancelada não abre editor; reenviar permite começar de novo', async () => {
+      statusAbertura = 'DESCARTADA';
+      await ir('/admin/contratos/importar');
+      await aguardar(texto('Arraste o contrato para cá'), 'envio');
+      await enviarArquivo();
+      await aguardar(texto('Esta revisão foi cancelada.'), 'cancelamento legível');
+      assert.equal(await existeBotao('Revisar importação'), false);
+      await clicar('Enviar contrato novamente');
+      statusAbertura = 'EM_REVISAO';
+      await enviarArquivo();
+      await aguardar(`!!(${botao('Corrigir E-mail')})`, 'nova revisão editável');
     });
 
     assert.deepEqual(falhas, [], `cenários com falha: ${falhas.join(' | ')}`);
