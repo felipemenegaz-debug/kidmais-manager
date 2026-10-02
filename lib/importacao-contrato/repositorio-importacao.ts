@@ -75,9 +75,9 @@ export async function lerImportacao(tx: DbExecutor, empresaId: string, id: strin
 /** Compare-and-set pela versão. */
 export async function atualizarImportacao(tx: DbExecutor, empresaId: string, i: ImportacaoLida, versaoEsperada: number) {
   const r = await tx.query(
-    `UPDATE ia_importacoes SET status = $4, versao = $5, dados = $6::jsonb, cliente_id = $7::uuid, resultado = $8::jsonb, extracao_id = $9::uuid, atualizado_em = now()
+    `UPDATE ia_importacoes SET status = $4, versao = $5, dados = $6::jsonb, cliente_id = $7::uuid, resultado = $8::jsonb, atualizado_em = now()
       WHERE id = $1::uuid AND empresa_id = $2::uuid AND versao = $3 RETURNING id`,
-    [i.id, empresaId, versaoEsperada, i.status, i.versao, JSON.stringify(i.dados), i.clienteId, i.resultado ? JSON.stringify(i.resultado) : null, i.extracaoId],
+    [i.id, empresaId, versaoEsperada, i.status, i.versao, JSON.stringify(i.dados), i.clienteId, i.resultado ? JSON.stringify(i.resultado) : null],
   );
   return r.rowCount === 1;
 }
