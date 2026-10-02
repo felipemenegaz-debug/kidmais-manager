@@ -272,6 +272,8 @@ test('saída automática pendente gerada antes de a configuração mudar é canc
   assert.ok(leituras.includes(true));
   assert.deepEqual(comandos.find(c=>c.sql.includes('c.atualizada_em > m.criada_em'))?.args,['m','e','staging']);
   assert.deepEqual(comandos.filter(c=>c.sql.includes('SET estado=$2,iniciada_em')).map(c=>c.args?.[1]),['PROCESSANDO','CANCELADA'],'reservada e depois cancelada antes do envio');
+  // A IA conduzia e a resposta seria enviada: a conversa vai para a equipe (nova versão invalida trabalho automático).
+  assert.deepEqual(comandos.filter(c=>c.sql.includes("SET estado='AGUARDANDO_HUMANO',versao=versao+1")).map(c=>c.args),[['c']]);
 });
 test('mensagem humana e encaminhamento fixo não dependem das respostas publicadas: a revogação não os cancela',async()=>{
   for (const m of [{...mensagem,origem_id:null,autor_usuario_id:'u'},{...mensagem,texto:core.MENSAGEM_ENCAMINHAMENTO}]) {
@@ -290,4 +292,51 @@ test('mensagem humana e encaminhamento fixo não dependem das respostas publicad
     assert.equal(envios,1);
     assert.equal(comandos.some(sql=>sql.includes('c.atualizada_em > m.criada_em')),false,'nem consulta a revogação');
   }
+});
+
+test('saída revogada com a conversa já com a equipe: estado e responsável humanos são preservados',async()=>{
+  for (const conv of [{...conversa,estado:'AGUARDANDO_HUMANO' as const},{...conversa,estado:'HUMANO' as const,responsavel_id:'u'},{...conversa,estado:'ENCERRADA' as const}]) {
+    let envios=0; const comandos:string[]=[];
+    const worker=carregar(async(sql)=>{
+      comandos.push(sql);
+      if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+      if(sql.includes('SELECT m.*')) return {rows:[{...mensagem,texto:FAQ_ANTIGA}]};
+      if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conv]};
+      if(sql.includes('c.atualizada_em > m.criada_em')) return {rows:[{'?column?':1}]};
+      return {rows:[]};
+    });
+    assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;return 'id';}}),'CANCELADA',conv.estado);
+    assert.equal(envios,0);
+    assert.equal(comandos.some(sql=>sql.includes('UPDATE whatsapp_atendimento_conversas')),false,`${conv.estado}: conversa intocada`);
+  }
+});
+test('saída inválida por outro motivo (entrada nova pendente) não é escalada pela revogação',async()=>{
+  const comandos:string[]=[];
+  const worker=carregar(async(sql)=>{
+    comandos.push(sql);
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[{...mensagem,texto:FAQ_ANTIGA}]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[{...conversa,versao:4}]};
+    if(sql.includes('c.atualizada_em > m.criada_em')) return {rows:[{'?column?':1}]};
+    return {rows:[]};
+  });
+  assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>'id'}),'CANCELADA');
+  assert.equal(comandos.some(sql=>sql.includes('UPDATE whatsapp_atendimento_conversas')),false,'a entrada nova segue para a IA');
+});
+test('configuração alterada depois da marcação ENVIANDO não retém o envio já iniciado (comportamento documentado)',async()=>{
+  // A trava só cobre até o COMMIT que marca ENVIANDO; o POST ocorre depois. Uma alteração nesse intervalo não é
+  // consultada de novo: a mensagem sai com o texto lido e termina SUBMETIDA.
+  let alterada=false, envios=0; const comandos:string[]=[];
+  const worker=carregar(async(sql)=>{
+    comandos.push(sql);
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[{...mensagem,texto:FAQ_ANTIGA}]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    if(sql.includes('c.atualizada_em > m.criada_em')) return {rows:alterada?[{'?column?':1}]:[]};
+    return {rows:[]};
+  });
+  assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{alterada=true;envios++;return 'gs-1';}}),'SUBMETIDA');
+  assert.equal(envios,1);
+  assert.equal(comandos.filter(sql=>sql.includes('c.atualizada_em > m.criada_em')).length,1,'revogação conferida uma vez, antes do POST');
+  assert(comandos.some(sql=>sql.includes("SET estado='SUBMETIDA'")));
 });

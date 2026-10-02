@@ -102,17 +102,24 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [conversa.id])).rows[0];
       const autorAtivo = !mensagem.autor_usuario_id || (await tx.query("SELECT u.id FROM usuarios_administrativos u JOIN memberships m ON m.usuario_id=u.id WHERE u.id=$1 AND u.ativo=true AND m.empresa_id=$2 AND m.status='ATIVA' AND m.papel IN ('ADMINISTRATIVO','REPRESENTANTE_AUTORIZADO')", [mensagem.autor_usuario_id,empresa])).rows.length > 0;
       // Resposta automática gerada antes da última alteração da configuração (resposta publicada removida, corrigida,
-      // nome ou limites mudados) não sai: pode carregar texto revogado. Comparação no banco, com precisão total; a
-      // trava FOR SHARE impede que um salvamento passe entre esta leitura e a marcação ENVIANDO. A mensagem fixa de
-      // encaminhamento e as mensagens humanas não dependem das respostas publicadas.
+      // nome ou limites mudados) não sai: pode carregar texto revogado. Comparação no banco, com precisão total. A
+      // mensagem fixa de encaminhamento e as mensagens humanas não dependem das respostas publicadas.
+      // Alcance da trava: o FOR SHARE dura só até o COMMIT desta transação, que marca ENVIANDO. O POST ao provedor
+      // acontece depois, fora dela. Um salvamento que chega antes do COMMIT espera e grava `atualizada_em` depois; um
+      // salvamento depois do COMMIT NÃO retém o envio já iniciado: o texto lido aqui sai (ou termina INCERTO).
       const vigente = await configuracao(tx, empresa, true);
       const revogada = !mensagem.autor_usuario_id && mensagem.texto !== MENSAGEM_ENCAMINHAMENTO && (await tx.query("SELECT 1 FROM whatsapp_atendimento_config c JOIN whatsapp_atendimento_mensagens m ON m.empresa_id=c.empresa_id AND m.ambiente=c.ambiente WHERE m.id=$1 AND c.empresa_id=$2 AND c.ambiente=$3 AND c.atualizada_em > m.criada_em", [mensagem.id, empresa, ambiente])).rows.length > 0;
-      const ok = empresaAtiva && autorAtivo && !revogada && contatoPermitido(atual.contato) && mensagemAindaValida(mensagem,atual) && atendimentoAtivo() && vigente?.ativo;
+      const valida = mensagemAindaValida(mensagem,atual);
+      const ok = empresaAtiva && autorAtivo && !revogada && contatoPermitido(atual.contato) && valida && atendimentoAtivo() && vigente?.ativo;
       await tx.query('UPDATE whatsapp_atendimento_mensagens SET estado=$2,iniciada_em=clock_timestamp() WHERE id=$1', [mensagem.id, ok ? 'ENVIANDO' : 'CANCELADA']);
+      // Revogada quando ainda seria enviada, com a IA conduzindo: o cliente ficaria sem resposta, então a conversa vai
+      // para a equipe. Estado humano (AGUARDANDO_HUMANO, HUMANO, ENCERRADA) e responsável não mudam.
+      if (revogada && valida && atual.estado === 'IA') await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [atual.id]);
       return ok ? atual.contato : null;
     });
     if (!destino) return 'CANCELADA';
-    // Não há transação aberta em rede. Assumir durante ENVIANDO é recusado pela API até o resultado.
+    // Daqui em diante não há transação nem trava abertas (rede). Assumir durante ENVIANDO é recusado pela API até o
+    // resultado; alteração da configuração neste intervalo não cancela o envio já marcado.
     const provedorId = await deps.enviar(destino, mensagem.texto ?? '');
     await withTransaction(async tx => {
       await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='SUBMETIDA',provedor_id=$2 WHERE id=$1 AND estado='ENVIANDO'", [mensagem.id, provedorId]);

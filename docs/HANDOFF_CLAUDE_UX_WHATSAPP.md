@@ -56,13 +56,22 @@ A suíte PostgreSQL ganhou o passo 8e (entrada atrasada e contato mascarado).
 **Resposta publicada revogada (P1 apontado pelo Felipe depois de a588185).** O worker montava a resposta com a configuração lida na reserva e, antes de enviar, só conferia `ativo`. Uma resposta publicada removida ou corrigida ainda podia sair dentro dos 15 min. Agora:
 - **Durante a geração:** ao gravar a saída, o worker relê a configuração com `FOR SHARE` e monta o texto a partir da versão vigente. Resposta removida vira a mensagem padrão de encaminhamento; resposta corrigida sai com o texto novo.
 - **Saída pendente:** antes de enviar, a resposta automática criada antes da última alteração da configuração (`atualizada_em` maior que `criada_em`, comparado no banco) é cancelada.
-  - A trava impede que um salvamento passe entre essa leitura e a marcação ENVIANDO.
+  - **Alcance da trava:** o `FOR SHARE` dura só até o COMMIT da transação que marca ENVIANDO. O POST ao Gupshup vem depois, fora de qualquer trava.
+    - Salvamento que chega **antes** desse COMMIT: espera, grava `atualizada_em` depois e a saída é cancelada.
+    - Salvamento **depois** do COMMIT (envio já iniciado): não retém o envio. O texto lido sai, ou termina INCERTO. Não há reconferência nem recolhimento.
+    - Essa janela dura no máximo o tempo do POST (até 10 s).
+  - **Estado da conversa depois do cancelamento:**
+    - IA conduzindo e saída que ainda seria enviada: a conversa vai para "Aguardando atendente", sem responsável e com nova versão.
+    - Já com a equipe (AGUARDANDO_HUMANO, HUMANO, ENCERRADA): estado, responsável e versão não mudam.
+    - Saída inválida por outro motivo (entrada nova pendente): não é escalada, a entrada nova segue para a IA.
   - Mensagens humanas e o texto fixo de encaminhamento não dependem das respostas publicadas e seguem.
   - Efeito colateral aceito: salvar a configuração, mesmo sem mudar respostas, cancela respostas automáticas ainda pendentes. A conversa continua visível para a equipe.
 - **Tela:** "Enviar resposta" exige a configuração da empresa ligada, como o servidor, e explica o motivo.
 - **Testes:**
   - unitários para resposta corrigida e removida durante a geração, para saída pendente revogada (provedor não chamado) e para mensagens humanas e de encaminhamento que seguem;
   - PostgreSQL, passo 8f: resposta corrigida durante a chamada ao modelo e removida com a saída pendente. Só o texto vigente chega ao provedor.
+  - Depois do cancelamento (8f): a conversa conduzida pela IA fica AGUARDANDO_HUMANO, sem responsável e com versão +1. A conversa assumida fica HUMANO, com o mesmo responsável e a mesma versão.
+  - Unitários do escalonamento: estados humanos preservados, entrada nova não escalada e envio iniciado não retido. A revogação é conferida uma vez, antes do POST.
 
 **Ativação continua bloqueada:** o acesso à Partner API e a autenticação real do webhook aguardam resposta do Gupshup (chamado #277630). Não ativar o canal antes disso.
 

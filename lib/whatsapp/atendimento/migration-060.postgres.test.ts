@@ -270,10 +270,27 @@ test("060: atendimento WhatsApp — isolamento, deduplicação, concorrência, t
     await worker.processarLote(registrando(), { maxTarefas: 1 });
     const c111 = await conversa("5561900000111");
     assert.deepEqual((await mensagens(c111.id)).map((m) => `${m.direcao}:${m.estado}:${m.texto}`), ["ENTRADA:PROCESSADA:Onde fica?", "SAIDA:PENDENTE:Endereço corrigido sintético."]);
+    assert.equal(c111.estado, "IA");
     await servico.salvarConfiguracao(representante, faq(null));
     await worker.processarLote(registrando(), { maxTarefas: 10 });
     assert.equal((await mensagens(c111.id)).at(-1)?.estado, "CANCELADA");
     assert.deepEqual(textosEnviados, ["Endereço corrigido sintético."], "só o texto vigente saiu; o antigo e o removido não");
+    //      Estado depois do cancelamento: a IA conduzia, então a conversa vai para a equipe, sem responsável e com nova versão.
+    const c111depois = await conversa("5561900000111");
+    assert.deepEqual([c111depois.estado, c111depois.responsavel_id, Number(c111depois.versao)], ["AGUARDANDO_HUMANO", null, Number(c111.versao) + 1]);
+    //   c) conversa já assumida por atendente: saída revogada é cancelada e estado/responsável humanos ficam como estão.
+    await servico.salvarConfiguracao(representante, faq("Endereço vigente sintético."));
+    await servico.receberEntrada(evento(112, "5561900000112", "Onde fica?"));
+    await worker.processarLote(registrando(), { maxTarefas: 1 });
+    const c112 = await conversa("5561900000112");
+    await servico.controlarAtendimento(atendente, { acao: "assumir", conversaId: c112.id, versao: Number(c112.versao) });
+    const c112assumida = await conversa("5561900000112");
+    await servico.salvarConfiguracao(representante, faq(null));
+    await worker.processarLote(registrando(), { maxTarefas: 10 });
+    const c112depois = await conversa("5561900000112");
+    assert.equal((await mensagens(c112.id)).at(-1)?.estado, "CANCELADA");
+    assert.deepEqual([c112depois.estado, c112depois.responsavel_id, Number(c112depois.versao)], ["HUMANO", atendente.usuario_id, Number(c112assumida.versao)], "estado, responsável e versão humanos preservados");
+    assert.deepEqual(textosEnviados, ["Endereço corrigido sintético."], "nada mais saiu");
     // A tela recebe só os 4 últimos dígitos do contato.
     const tela = await servico.listarAtendimento(atendente);
     assert.ok(tela.conversas.every((x) => !("contato" in x) && /^\d{4}$/.test(x.contato_final)));
