@@ -1364,6 +1364,35 @@ test("Luna — mensagem mista com rascunho (RESPONDE + cálculo): o campo do ras
   assert.equal(r2.rastro.operacional?.decisao, "LUNA:MENSAGEM_MISTA");
 });
 
+test("Luna — mensagem mista reconhecida pelo TRECHO quando a Luna marca SEM_RASCUNHO: o trecho responde ao campo, a revisão abre e o cálculo segue junto", async () => {
+  // Homologação de 3930273: a mesma frase veio com relacaoRascunho=SEM_RASCUNHO e o dado do rascunho como "outro pedido".
+  const roteiro = (outro: { pedido: string; trecho: string }) => [
+    saida({ objetivo: "PREPARAR_CONTRATACAO", contratacao: { cliente: "Felipe", convidados: 50, pacote: "premium", aniversariante: "beatriz", idade: 1, tema: "unicórnio" } }),
+    saida({ objetivo: "PREPARAR_CONTRATACAO", relacaoRascunho: "RESPONDE", contratacao: { data: "2026-11-15" } }),
+    saida({ objetivo: "CALCULO_CONSUMO", relacaoRascunho: "SEM_RASCUNHO", festa: "PROXIMA", consumo: { categorias: ["REFRIGERANTES"] }, outrosPedidos: [outro] }),
+  ];
+  const a = ambiente({ convidados: 50 });
+  const r = roteiro({ pedido: "informar o turno", trecho: "à noite" });
+  comLuna(a, { entender: (_d, n) => r[n - 1] });
+  await a.enviar(FRASE);
+  await a.enviar("15/11/2026");
+  const misto = await a.enviar("à noite. E quantos refrigerantes para a próxima festa?");
+  assert.equal(misto.data?.tipo, "navegacao", "o trecho completou o rascunho: a revisão abre");
+  assert.equal(misto.rastro.operacional?.decisao, "LUNA:MENSAGEM_MISTA");
+  assert.match((misto.data!.pedidoSeguinte as { dados: { resumo: string } }).dados.resumo, /Quantos mL de refrigerante por convidado/);
+  assert.deepEqual(a.efeitos.fechamentos, []);
+  // Trecho que NÃO responde ao campo pendente: não é mensagem mista (o rascunho fica como estava, o cálculo é atendido).
+  const b = ambiente({ convidados: 50 });
+  const rb = roteiro({ pedido: "agenda", trecho: "veja a agenda de hoje" });
+  comLuna(b, { entender: (_d, n) => rb[n - 1] });
+  await b.enviar(FRASE);
+  await b.enviar("15/11/2026");
+  const so = await b.enviar("quantos refrigerantes para a próxima festa? e veja a agenda de hoje");
+  assert.equal(so.data?.tipo, "resposta");
+  assert.notEqual(so.rastro.operacional?.decisao, "LUNA:MENSAGEM_MISTA");
+  assert.equal(b.linha(b.operacaoAtual()!).estado, "COLETANDO", "rascunho intocado");
+});
+
 test("Luna — mensagem mista que COMPLETA o rascunho: a revisão abre (confirmação humana) e o segundo pedido segue junto; a conversa continua no cálculo", async () => {
   // Homologação de ea32084: "o cliente é … E quantos refrigerantes…?" completou o rascunho, a UI abriu a revisão e fechou
   // a conversa — o pedido de refrigerantes sumiu. Agora a navegação carrega o resultado/pergunta do segundo pedido.
