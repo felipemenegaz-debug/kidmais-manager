@@ -43,6 +43,47 @@ const contratoImportado = {
   },
 };
 
+// Etapa 2: integração ao Core. Opções do assistente, resumo calculado pelo "servidor" e o contrato integrado.
+const CONTRATO = '00000000-0000-4000-8000-0000000000c1', VERSAO = '00000000-0000-4000-8000-0000000000e1';
+const opcoesIntegracao = (integrado) => ({
+  disponivel: true, hoje: new Date().toISOString().slice(0, 10), integracao: integrado ? { contratoId: CONTRATO, financeiroPendente: false, valorContratadoCentavos: 500000 } : null,
+  cliente: { id: DOCUMENTO, nome: 'Pessoa Exemplo', ativo: true }, documento: { pacote: 'Original 2025', aniversariante: 'Aniversariante Exemplo', tema: 'Carros' },
+  sugestao: { evento: { data: '2099-10-10', horarioInicio: '10:00', horarioFim: '14:00', convidados: 50 }, valorContratadoCentavos: 500000, condicaoDocumento: 'Entrada e 2 parcelas',
+    parcelasPrevistas: [{ valorCentavos: 100000, vencimento: '2099-01-10' }, { valorCentavos: 200000, vencimento: '2099-05-10' }, { valorCentavos: 200000, vencimento: '2099-09-10' }] },
+  estabelecimentos: [{ id: '00000000-0000-4000-8000-0000000000f1', nome: 'Unidade Exemplo' }],
+  pacotes: [{ id: '00000000-0000-4000-8000-0000000000b1', codigo: 'COMPLETA', nome: 'Festa Completa', duracaoMinutos: 240, ativo: true }],
+  formas: ['PIX'], declaracao: 'Conferi o documento original assinado em papel. Os dados confirmados correspondem a ele, exceto as correções e complementos indicados. Nenhuma assinatura digital é registrada.',
+});
+function resumoDoServidor(d) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const parcelas = (d.financeiro.parcelas ?? []).map((p, i) => ({ ...p, numero: i + 1 }));
+  const recebido = parcelas.filter((p) => p.recebimento).reduce((s, p) => s + p.valorCentavos, 0);
+  return {
+    contrato: { cliente: 'Pessoa Exemplo', pacoteDocumento: 'Original 2025', pacoteReferencia: 'Festa Completa (COMPLETA)', unidade: 'Unidade Exemplo', valorContratadoCentavos: d.valorContratadoCentavos, conferencia: 'Contrato assinado em papel, conferido por operador autorizado. Sem assinatura digital.' },
+    festa: { data: d.evento.data, horarioInicio: d.evento.horarioInicio, horarioFim: d.evento.horarioFim, convidados: d.evento.convidados, aniversariante: 'Aniversariante Exemplo', tema: 'Carros', aniversarianteCadastro: 'NOVO' },
+    agenda: { ocupa: d.evento.data >= hoje, descricao: 'Ocupa a agenda em ' + d.evento.data.split('-').reverse().join('/') + ', das ' + d.evento.horarioInicio + ' às ' + d.evento.horarioFim + ' (Unidade Exemplo).' },
+    financeiro: d.financeiro.situacao === 'NAO_CONFERIDO' ? { situacao: 'NAO_CONFERIDO', contratadoCentavos: d.valorContratadoCentavos, pendencia: 'Conferir pagamentos do contrato importado.' } : {
+      situacao: d.financeiro.situacao, contratadoCentavos: d.valorContratadoCentavos, recebidoCentavos: recebido, saldoCentavos: d.valorContratadoCentavos - recebido, parcelas: [],
+      recebimentos: parcelas.filter((p) => p.recebimento).map((p) => ({ numero: p.numero, valorCentavos: p.valorCentavos, data: p.recebimento.data, forma: p.recebimento.forma })),
+      aReceber: parcelas.filter((p) => !p.recebimento).map((p) => ({ numero: p.numero, valorCentavos: p.valorCentavos, vencimento: p.vencimento, situacao: p.vencimento < hoje ? 'VENCIDA' : 'A_RECEBER', recebidaEm: null, forma: null })) },
+    campos: [],
+  };
+}
+const snapshotIntegrado = {
+  schemaVersao: 1, origem: { tipo: 'IMPORTACAO_HISTORICA', importacaoId: IMPORTACAO }, fechamento: { id: 'f', status: 'CONFIRMADO', origem: 'IMPORTACAO_HISTORICA' },
+  contratante: { clienteId: DOCUMENTO, nomeCompleto: 'Pessoa Exemplo', email: null }, aniversariante: { id: null, nome: 'Aniversariante Exemplo', idadeNoEvento: 4, temaFesta: 'Carros' },
+  evento: { data: '2099-10-10', horarioInicio: '10:00', horarioFim: '14:00', pacote: { id: 'p', codigo: 'COMPLETA', nome: 'Original 2025' }, convidados: 50, convidadosFaturados: 50 },
+  contratacao: { adicionais: [], buffet: {} }, comercial: { valorFinalContrato: 5000, formaPagamentoPretendida: null },
+};
+const painelIntegrado = {
+  contrato: { id: CONTRATO, fechamento_id: 'f', versao_atual: 1, status: 'ASSINADO' }, fluxo: { versao_vigente_id: VERSAO, versao_em_preparacao_id: null },
+  versoes: [{ id: VERSAO, numero_versao: 1, motivo_nova_versao: null, criado_em: '2026-10-02T12:00:00Z', gerado_por_usuario_id: null, status: 'ASSINADA', estado_edicao: 'CONCLUIDA', revisao: 1, origem_versao_id: null, alteracoes: { correcoes: [] }, documento_revisado_id: null, snapshot: snapshotIntegrado, dados_fonte: { schemaVersao: 1 } }],
+  documentos: [], assinaturas: [], financeiro: [], pendencias: [], revisoesOperacionais: [],
+  origemHistorica: { importacaoId: IMPORTACAO, conferidoEm: '2026-10-02T12:00:00Z', conferidoPor: 'Revisão visual', conferidoPapel: 'REPRESENTANTE_AUTORIZADO', declaracao: 'Conferi.', unidade: 'Unidade Exemplo',
+    documento: { id: DOCUMENTO, nome: 'contrato-exemplo.pdf', contentType: 'application/pdf', tamanhoBytes: 1234 }, podeVerOriginal: true, financeiroPendente: false,
+    financeiro: { situacao: 'PARCIALMENTE_PAGO', recebidoCentavos: 100000, saldoCentavos: 400000 }, campos: [], contratoHistorico: null },
+};
+
 function cdp(wsUrl) {
   const ws = new WebSocket(wsUrl);
   let seq = 0; const pendentes = new Map(), ouvintes = new Map();
@@ -76,6 +117,7 @@ async function main() {
   let modoEstado = 'habilitado';                                                   // habilitado | desabilitado | falha
   let importacao = null;
   let statusAbertura = 'EM_REVISAO';
+  let integrado = false;
   const dialogos = [];                                                             // mensagens de window.confirm
   let respostaConfirm = false;
   const continuar = process.env.UI_CONTINUAR_APOS_FALHA === '1';                  // só para controle negativo
@@ -102,7 +144,22 @@ async function main() {
       try {
         if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: '00000000-0000-4000-8000-000000000009', nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico' });
         if (url.pathname === '/api/admin/festas' && p.request.method === 'GET') return ok(url.searchParams.has('importacaoId') ? { importada: festaImportada } : { festas: [], importadas: [festaImportada], elegiveis: [], capacidades: ['FESTA_CONSULTAR'], areas: [], usuarios: [] });
-        if (url.pathname === '/api/admin/contratos/painel' && p.request.method === 'GET') return ok(url.searchParams.has('importacaoId') ? contratoImportado : [contratoResumo]);
+        if (url.pathname === '/api/admin/contratos/painel' && p.request.method === 'GET') {
+          if (url.searchParams.has('importacaoId')) return ok(integrado ? { integrado: true, contratoId: CONTRATO } : contratoImportado);
+          if (url.searchParams.get('contratoId') === CONTRATO) return ok(painelIntegrado);
+          return ok(integrado ? [{ id: CONTRATO, fechamento_id: 'f', status: 'ASSINADO', nome: 'Pessoa Exemplo', data_evento: '2099-10-10', pacote: 'Original 2025', convidados: '50', origem_fechamento: 'IMPORTACAO_HISTORICA' }] : [contratoResumo]);
+        }
+        if (url.pathname === '/api/admin/contratos/importados/' + IMPORTACAO + '/integracao') {
+          if (p.request.method === 'GET') return ok(opcoesIntegracao(integrado));
+          const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo });
+          if (corpo.acao === 'simular') return ok({ integrada: false, pronto: true, bloqueios: [], avisos: corpo.decisoes.conferenciaDeclarada ? [] : ['Para confirmar, declare a conferência do documento original.'], resumo: resumoDoServidor(corpo.decisoes), resumoHash: (corpo.decisoes.conferenciaDeclarada ? 'b' : 'a').repeat(64), possiveisVinculos: [] });
+          if (corpo.acao === 'confirmar') {
+            if (corpo.resumoHash !== 'b'.repeat(64)) return json(409, { ok: false, codigo: 'RESUMO_DESATUALIZADO', erro: 'Os dados mudaram desde a revisão.' });
+            integrado = true;
+            return ok({ reutilizado: false, contratoId: CONTRATO, festaId: '00000000-0000-4000-8000-0000000000aa', agendaOcupada: true, financeiro: { situacao: corpo.decisoes.financeiro.situacao, pendente: false, recebidoCentavos: 100000, saldoCentavos: 400000 }, destino: '/admin/contratos?contratoId=' + CONTRATO });
+          }
+          return json(400, { ok: false, erro: 'Ação não simulada.' });
+        }
         if (url.pathname === '/api/admin/inteligencia/documentos' && p.request.method === 'POST') { posts.push({ url: url.pathname, corpo: 'multipart' }); return ok({ documentoId: DOCUMENTO, avisos: [] }); }
         if (url.pathname === '/api/admin/inteligencia/importacoes' && p.request.method === 'POST') {
           const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo });
@@ -281,7 +338,8 @@ async function main() {
         await aguardar(texto('Arraste o contrato para cá'), 'envio para recuperar resultado');
         const m = posts.length;
         await enviarArquivo();
-        await aguardar(texto('Este contrato já foi importado.'), 'resultado da importação anterior');
+        await aguardar(texto('Os dados deste contrato já estão registrados.'), 'importação anterior reaberta na integração');
+        await aguardar(texto('Falta integrar ao sistema'), 'sem anúncio de sucesso antes da integração');
         assert.equal(await existeBotao('Revisar importação'), false);
         assert.equal(await existeBotao('Corrigir Nome do contratante'), false);
         assert.equal(await existeBotao('Cancelar importação'), false);
@@ -321,7 +379,7 @@ async function main() {
       importacao.status = 'IMPORTADA';
       const m = posts.length;
       await clicar('Salvar');
-      await aguardar(texto('Este contrato já foi importado.'), 'atualiza estado encerrado');
+      await aguardar(texto('Os dados deste contrato já estão registrados.'), 'atualiza estado encerrado');
       assert.deepEqual(posteriores(m).map(p => p.acao), ['revisar', 'ler']);
       assert.equal(await existeBotao('Salvar'), false);
     });
@@ -337,6 +395,62 @@ async function main() {
       statusAbertura = 'EM_REVISAO';
       await enviarArquivo();
       await aguardar(`!!(${botao('Corrigir E-mail')})`, 'nova revisão editável');
+    });
+
+    await caso('Integrar ao sistema (importação existente): festa e agenda, pagamentos conferidos, revisão do servidor e declaração; sucesso só após confirmar; link antigo leva ao contrato integrado', async () => {
+      integrado = false;
+      contratoImportado.podeIntegrar = true;
+      await ir('/admin/contratos?importacaoId=' + IMPORTACAO);
+      await aguardar(texto('Ainda não integrado ao sistema.'), 'contrato importado sem integração');
+      await clicar('Integrar ao sistema');
+      await aguardar(texto('Festa e agenda'), 'assistente aberto sem reenviar arquivo');
+      assert.equal(await avaliar(`(${botao("Continuar para pagamentos")})?.disabled`), true, 'situação do contrato começa em branco');
+      const marcar = (rotulo) => avaliar(`(() => { const l = [...document.querySelectorAll('label')].find(x => x.textContent.includes(${JSON.stringify(rotulo)})); l.querySelector('input').click(); return true; })()`);
+      const escolher = (seletor, valor) => avaliar(`(() => { const s = document.querySelector(${JSON.stringify(seletor)}); const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; set.call(s, ${JSON.stringify(valor)}); s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+      await marcar('Cancelado');
+      await aguardar(texto('não vira festa e não ocupa agenda'), 'cancelado não integra');
+      await marcar('Vigente');
+      const pacote = await avaliar(`(() => { const s = [...document.querySelectorAll('select')].find(x => [...x.options].some(o => o.text === 'Festa Completa')); s.id = 'pacote-ref'; return true; })()`);
+      assert.equal(pacote, true);
+      await escolher('#pacote-ref', '00000000-0000-4000-8000-0000000000b1');
+      await clicar('Continuar para pagamentos');
+      await aguardar(texto('não comprova que algo foi pago'), 'condição do documento não vira pagamento');
+      await fotografar('integracao-festa-agenda');
+      await marcar('Parte foi paga');
+      await avaliar(`document.querySelector('input[aria-label="Parcela 1 foi recebida"]').click()`);
+      await aguardar(`!!document.querySelector('input[aria-label="Data em que a parcela 1 foi recebida"]')`, 'campos do recebimento');
+      await digitar('input[aria-label="Data em que a parcela 1 foi recebida"]', '2026-09-01');
+      await escolher('select[aria-label="Forma da parcela 1"]', 'PIX');
+      await aguardar(texto('Saldo a receber R$ 4.000,00'), 'conferência em centavos na tela');
+      await fotografar('integracao-pagamentos');
+      const m = posts.length;
+      await clicar('Revisar e confirmar');
+      await aguardar(texto('Revisão final'), 'revisão final');
+      await aguardar(texto('Ocupa a agenda em 10/10/2099'), 'agenda no resumo');
+      await aguardar(texto('Parcela 1: R$ 1.000,00 em 01/09/2026 · Pix'), 'recebimento na data real');
+      await aguardar(texto('Parcela 3: R$ 2.000,00, vence 10/09/2099'), 'parcela a receber');
+      assert.equal(await avaliar(`(${botao("Confirmar integração")})?.disabled`), true, 'sem declaração não confirma');
+      assert.equal(await avaliar(texto('Contrato integrado ao sistema')), false);
+      await marcar('Conferi o documento original');
+      await aguardar(`!(${botao("Confirmar integração")})?.disabled`, 'declaração libera a confirmação');
+      await fotografar('integracao-revisao-final');
+      await clicar('Confirmar integração');
+      await aguardar(texto('Contrato integrado ao sistema'), 'sucesso só depois da resposta');
+      const enviados = posts.slice(m).filter((x) => x.url.endsWith('/integracao')).map((x) => x.corpo);
+      const confirmacao = enviados.find((x) => x.acao === 'confirmar');
+      assert.equal(confirmacao.resumoHash, 'b'.repeat(64));
+      assert.match(confirmacao.chave, /^[0-9a-f-]{36}$/);
+      assert.equal(/empresa|usuario|tenant/i.test(JSON.stringify(Object.keys(confirmacao.decisoes))), false, 'payload sem empresa/usuário');
+      assert.deepEqual(confirmacao.decisoes.financeiro.parcelas.map((p) => p.recebimento?.data ?? null), ['2026-09-01', null, null]);
+      await fotografar('integracao-concluida');
+      await ir('/admin/contratos?importacaoId=' + IMPORTACAO);
+      await aguardar(`location.search.includes('contratoId=' + ${JSON.stringify(CONTRATO)})`, 'link antigo redireciona ao contrato integrado');
+      await aguardar(texto('Contrato histórico — assinado em papel'), 'origem histórica no contrato do Core');
+      assert.equal(await avaliar(texto('Não há assinatura digital, OTP nem comprovante eletrônico')), true);
+      assert.equal(await avaliar(texto('Ainda não integrado ao sistema.')), false, 'projeção da importação não aparece duplicada');
+      await fotografar('contrato-integrado');
+      integrado = false;
+      delete contratoImportado.podeIntegrar;
     });
 
     assert.deepEqual(falhas, [], `cenários com falha: ${falhas.join(' | ')}`);

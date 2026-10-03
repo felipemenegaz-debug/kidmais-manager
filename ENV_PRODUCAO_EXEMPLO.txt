@@ -34,6 +34,12 @@ INTELIGENCIA_ENABLED=false
 AI_READ_ENABLED=false
 AI_ADMIN_ACTIONS_ENABLED=false
 AI_CONTRACT_IMPORT_ENABLED=false
+# Integração de contrato importado ao Core (festa, agenda, financeiro; migration 061). Desligado = só consulta.
+CONTRACT_IMPORT_INTEGRATION_ENABLED=false
+# Agenda pública por empresa/unidade (migration 062). Só o servidor escolhe; o navegador nunca informa empresa/unidade.
+# Vazias = alcance anterior (agenda global, conservadora). Definidas e inválidas = agenda pública indisponível (503).
+AGENDA_PUBLICA_EMPRESA_ID=
+AGENDA_PUBLICA_UNIDADE_ID=
 # JEV: classificador auxiliar (só sugere leitura/triagem; nunca autoriza ação). Desligado = nada muda.
 AI_JEV_ENABLED=false
 # Opcional: empresas liberadas (uuid separados por vírgula). Definida e inválida = nenhuma empresa.

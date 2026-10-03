@@ -1,12 +1,13 @@
-import type { DbExecutor } from "../../db/contracts";
+import type { DbExecutor } from "../../db/contracts.ts";
+import { db } from "../../db/postgres.ts";
+import { escopoDoFechamento, type EscopoAgenda } from "../escopo.ts";
 import {
   listarBloqueiosAtivosPorPeriodo,
   listarConfiguracoesAgendaAtivas,
   listarFechamentosConfirmadosPorPeriodo,
-  type BloqueioAgendaRecord,
-  type OcupacaoConfirmadaRecord,
-} from "../repositories";
-import { AvailabilityServiceError } from "./errors";
+} from "../repositories/disponibilidade.repository.ts";
+import type { BloqueioAgendaRecord, OcupacaoConfirmadaRecord } from "../repositories/models.ts";
+import { AvailabilityServiceError } from "./errors.ts";
 import {
   adicionarDiasIso,
   bloqueioConflitaComCandidato,
@@ -14,20 +15,34 @@ import {
   diferencaDiasIso,
   gerarHorariosCandidatos,
   ocupacaoConflitaComCandidato,
-} from "./horario.utils";
+} from "./horario.utils.ts";
 import type {
   DisponibilidadeDataPublica,
   PeriodoDisponibilidadePublica,
-} from "./models";
+} from "./models.ts";
 
 const MAX_DIAS_CONSULTA = 62;
 
+/** Escopo explícito, ou o da contratação indicada (lido do banco, nunca do pedido). */
+export type EscopoConsulta = EscopoAgenda | { fechamentoId: string };
+
+async function resolverEscopo(customDb: DbExecutor | undefined, informado?: EscopoConsulta, excluirFechamentoId?: string) {
+  const fechamentoId = informado && "fechamentoId" in informado ? informado.fechamentoId : informado ? null : excluirFechamentoId;
+  if (fechamentoId) return escopoDoFechamento(customDb ?? db(), fechamentoId);
+  return informado && !("fechamentoId" in informado) ? informado : undefined;
+}
+
+/**
+ * Escopo (062): o recurso consultado (ou a contratação de onde lê-lo). Sem escopo e com contratação a excluir
+ * (remarcação/edição), vale o escopo gravado nessa contratação; sem nenhum dos dois, o alcance global (conservador).
+ */
 export async function consultarDisponibilidadeData(
   data: string,
   customDb?: DbExecutor,
   excluirFechamentoId?: string,
+  escopo?: EscopoConsulta,
 ): Promise<DisponibilidadeDataPublica> {
-  const [resultado] = await consultarDisponibilidadePeriodo(data, data, customDb, excluirFechamentoId);
+  const [resultado] = await consultarDisponibilidadePeriodo(data, data, customDb, excluirFechamentoId, escopo);
   return resultado;
 }
 
@@ -43,8 +58,9 @@ export type RevalidarHorarioSelecionadoInput = {
 export async function revalidarHorarioSelecionado(
   input: RevalidarHorarioSelecionadoInput,
   customDb?: DbExecutor,
+  escopo?: EscopoConsulta,
 ) {
-  const disponibilidade = await consultarDisponibilidadeData(input.data, customDb);
+  const disponibilidade = await consultarDisponibilidadeData(input.data, customDb, undefined, escopo);
   const periodo = disponibilidade.periodos.find(
     (item) => item.codigo === input.codigoPeriodo,
   );
@@ -80,19 +96,21 @@ export async function consultarDisponibilidadePeriodo(
   fim: string,
   customDb?: DbExecutor,
   excluirFechamentoId?: string,
+  escopoInformado?: EscopoConsulta,
 ): Promise<DisponibilidadeDataPublica[]> {
   validarPeriodo(inicio, fim);
 
+  const escopo = await resolverEscopo(customDb, escopoInformado, excluirFechamentoId);
   const [configuracoes, bloqueios, ocupacoesConfirmadas] = customDb
     ? [
-        await listarConfiguracoesAgendaAtivas(customDb),
-        await listarBloqueiosAtivosPorPeriodo(inicio, fim, customDb),
-        await listarFechamentosConfirmadosPorPeriodo(inicio, fim, customDb),
+        await listarConfiguracoesAgendaAtivas(customDb, escopo),
+        await listarBloqueiosAtivosPorPeriodo(inicio, fim, customDb, escopo),
+        await listarFechamentosConfirmadosPorPeriodo(inicio, fim, customDb, escopo),
       ]
     : await Promise.all([
-        listarConfiguracoesAgendaAtivas(),
-        listarBloqueiosAtivosPorPeriodo(inicio, fim),
-        listarFechamentosConfirmadosPorPeriodo(inicio, fim),
+        listarConfiguracoesAgendaAtivas(undefined, escopo),
+        listarBloqueiosAtivosPorPeriodo(inicio, fim, undefined, escopo),
+        listarFechamentosConfirmadosPorPeriodo(inicio, fim, undefined, escopo),
       ]);
 
   if (configuracoes.length === 0) {

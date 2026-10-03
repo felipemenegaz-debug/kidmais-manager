@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
 import { detalheAdministrativo } from '@/lib/contratos/services/administrativo.service';
 import { contratoNoTenant, executarComPosseNoTenant, listarContratosDoTenant } from '@/lib/contratos/services/contrato-tenant';
-import { detalheContratoImportado, listarContratosImportados } from '@/lib/contratos/importados';
+import { contratoIntegradoDaImportacao, detalheContratoImportado, listarContratosImportados, origemHistoricaDoContrato } from '@/lib/contratos/importados';
 import { hojeBrasilia } from '@/lib/financeiro/calculos';
 import { apiErrorResponse } from '@/lib/http/api-response';
 import { withTenantTransaction } from '@/lib/saas/provar-tenant';
@@ -18,11 +18,19 @@ export async function GET(request: NextRequest) {
         // Tenant Context (B2/D1): detalhe lido na MESMA transação da posse provada; lista já filtrada pela empresa no SQL.
         let data: unknown;
         if (id) {
-            data = await executarComPosseNoTenant(sessao, empresaSolicitada, id, contratoNoTenant, { withTenantTransaction }, (tx) => detalheAdministrativo(id, tx));
+            // Contrato integrado de importação histórica: o mesmo detalhe do Core + a origem (conferência em papel, original, correções).
+            data = await executarComPosseNoTenant(sessao, empresaSolicitada, id, contratoNoTenant, { withTenantTransaction }, async (tx, tenant) => ({
+                ...await detalheAdministrativo(id, tx),
+                origemHistorica: await origemHistoricaDoContrato(tx, tenant.empresaComprovada, id.toLowerCase(), tenant.papelAtual),
+            }));
         }
         else if (importacaoId) {
             // Contrato importado (somente leitura): empresa comprovada no SQL; outra empresa ou inexistente ⇒ 404 igual.
-            const importado = await withTenantTransaction(sessao, empresaSolicitada, (tx, tenant) => detalheContratoImportado(tx, tenant.empresaComprovada, hojeBrasilia(), importacaoId.toLowerCase(), tenant.papelAtual));
+            // Já integrada: o link antigo leva ao contrato do Core (sem exibir a projeção duplicada).
+            const importado = await withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+                const contratoId = await contratoIntegradoDaImportacao(tx, tenant.empresaComprovada, importacaoId.toLowerCase());
+                return contratoId ? { integrado: true as const, contratoId } : detalheContratoImportado(tx, tenant.empresaComprovada, hojeBrasilia(), importacaoId.toLowerCase(), tenant.papelAtual);
+            });
             if (!importado) return NextResponse.json({ ok: false, erro: 'Contrato não encontrado.' }, { status: 404, headers: semCache });
             data = importado;
         }

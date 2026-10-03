@@ -114,7 +114,7 @@ function ambiente(o: Opcoes = {}) {
       return empresaId === EMPRESA_A && codigo === "PREMIUM" ? { id: PREMIUM, nome: "Premium", minimo: 20, maximo: 100 } : null;
     },
     erroConvidados: (_c, p, n) => (n > (p.maximo ?? 150) ? `${p.nome} atende até ${p.maximo} convidados neste pacote.` : n < (p.minimo ?? 1) ? `${p.nome} possui mínimo de ${p.minimo} pagantes.` : null),
-    async horarios(_tx, _data, turno) {
+    async horarios(_tx, _empresa, _data, turno) {
       return { configuracaoId: AGENDA_NOITE, horarios: turno === "noite" ? [{ inicio: "19:00", fim: "23:00" }] : [{ inicio: "12:00", fim: "16:00" }] };
     },
     async precoTabela() { return o.preco === undefined ? 450000 : o.preco; },

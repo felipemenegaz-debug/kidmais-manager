@@ -7,13 +7,15 @@ import { decidirOperacao, type RascunhoPublico } from '@/components/admin/inteli
 import { PreviewAcao } from '@/components/admin/inteligencia/AcaoKidmais';
 import { ACEITE_ARQUIVO, formatoArquivo, tamanhoLegivel } from '@/lib/importacao-contrato/revisao';
 import { agirNaImportacao, enviarContrato, type AcaoImportacao, type ImportacaoPublica, type PlanoPublico, type RespostaImportacao } from './cliente-importacao';
+import IntegracaoContrato, { type PassoIntegracao } from './IntegracaoContrato';
 import styles from './importacao.module.css';
 import real from './importacao-real.module.css';
 
 /**
  * Importação de contrato histórico — modo real.
- * O arquivo é enviado ao servidor, fica privado e é lido lá. Nada vai para o cadastro até o clique em
- * "Confirmar" no preview do Human Gate; pagamentos entram só como previstos.
+ * O arquivo é enviado ao servidor, fica privado e é lido lá. Etapas: Dados do contrato e cliente (revisão + Human
+ * Gate: registra o snapshot e o cliente) → Festa e agenda → Pagamentos → Revisão final (integração ao Core).
+ * Sucesso só é anunciado quando a integração termina; até lá a tela diz o que falta.
  */
 type Etapa =
   | { etapa: 'upload'; erro: string | null }
@@ -21,10 +23,11 @@ type Etapa =
   | { etapa: 'revisao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; avisos: string[]; ocupado: boolean; erro: string | null }
   | { etapa: 'confirmacao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; rascunho: RascunhoPublico; decidindo: boolean; erro: string | null }
   | { etapa: 'cancelada' }
-  /** `contratoDestino`: o contrato importado em Contratos (registro criado); `destino`: o cliente vinculado. */
-  | { etapa: 'concluida'; mensagem: string; destino?: string; contratoDestino: string };
+  /** Dados do contrato e cliente registrados; segue o assistente de integração (festa, agenda, pagamentos). */
+  | { etapa: 'integracao'; importacaoId: string; destino?: string; acabouDeRegistrar: boolean };
 
-const PASSOS = ['Enviar', 'Ler', 'Revisar', 'Confirmar'] as const;
+const PASSOS = ['Enviar', 'Dados do contrato e cliente', 'Festa e agenda', 'Pagamentos', 'Revisão final'] as const;
+const PASSO_INTEGRACAO: Record<PassoIntegracao, number> = { festa: 2, pagamentos: 3, revisao: 4, concluida: 5 };
 const ROTULO: Record<EstadoCampo | 'REVISADO', string> = { ENCONTRADO: 'Encontrado', PRECISA_REVISAO: 'Precisa revisão', NAO_ENCONTRADO: 'Não encontrado', REVISADO: 'Revisado' };
 const AVISOS: Readonly<Record<string, string>> = {
   ENVIO_EXTERNO_NAO_AUTORIZADO: 'Leitura feita só no servidor do Kidmais, por regras. Confira os campos com atenção.',
@@ -45,7 +48,7 @@ export const contratoImportadoUrl = (importacaoId: string) => `/admin/contratos?
 /** Reenvio e atualização de outra aba respeitam o estado terminal devolvido pelo servidor. */
 function etapaDaResposta(dados: RespostaImportacao): Etapa {
   const i = dados.importacao;
-  if (i.status === 'IMPORTADA') return { etapa: 'concluida', mensagem: 'Este contrato já foi importado.', destino: i.resultado?.destino, contratoDestino: contratoImportadoUrl(i.id) };
+  if (i.status === 'IMPORTADA') return { etapa: 'integracao', importacaoId: i.id, destino: i.resultado?.destino, acabouDeRegistrar: false };
   if (i.status === 'DESCARTADA') return { etapa: 'cancelada' };
   return { etapa: 'revisao', importacao: i, plano: dados.plano ?? null, avisos: dados.avisos ?? [], ocupado: false, erro: null };
 }
@@ -56,6 +59,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
   const [editando, setEditando] = useState<{ id: string; valor: string } | null>(null);
   const [arrastando, setArrastando] = useState(false);
   const [cancelando, setCancelando] = useState(false);
+  const [passoIntegracao, setPassoIntegracao] = useState<PassoIntegracao>('festa');
   const dialogo = useRef<HTMLDialogElement>(null);
   const decidindoCancelamento = (estado.etapa === 'confirmacao' && estado.decidindo) || (estado.etapa === 'revisao' && estado.ocupado);
   useEffect(() => { if (cancelando) dialogo.current?.showModal(); else dialogo.current?.close(); }, [cancelando]);
@@ -110,17 +114,17 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     if (r.tipo !== 'ok') { setEstado({ ...estado, decidindo: false, erro: r.mensagem }); return; }
     if (decisao === 'cancelar') { setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); return; }
     const resposta = r.resposta;
-    if (resposta.tipo === 'resultado_acao') setEstado({ etapa: 'concluida', mensagem: resposta.mensagem, destino: resposta.destino, contratoDestino: contratoImportadoUrl(estado.importacao.id) });
+    if (resposta.tipo === 'resultado_acao') setEstado({ etapa: 'integracao', importacaoId: estado.importacao.id, destino: resposta.destino, acabouDeRegistrar: true });
     else setEstado({ ...estado, decidindo: false, erro: 'Resposta inesperada. Confira de novo: repetir a confirmação não duplica a importação.' });
   }
 
-  const passo = estado.etapa === 'upload' ? 0 : estado.etapa === 'lendo' ? 1 : estado.etapa === 'revisao' ? 2 : 3;
+  const passo = estado.etapa === 'upload' || estado.etapa === 'lendo' ? 0 : estado.etapa === 'integracao' ? PASSO_INTEGRACAO[passoIntegracao] : 1;
 
   return <main className={styles.pagina}>
     <Link className={styles.voltar} href="/admin/contratos">← Contratos</Link>
     <header className={styles.topo}>
       <div className={styles.tituloLinha}><h1>Importar contrato antigo</h1></div>
-      <p>Envie o contrato em PDF, JPG ou PNG. O Kidmais lê, você revisa e só depois confirma a importação.</p>
+      <p>Envie o contrato em PDF, JPG ou PNG. O Kidmais lê e sugere; você confere os dados, a festa, a agenda e os pagamentos e só então confirma.</p>
     </header>
     <ol className={styles.passos} aria-label="Etapas da importação">
       {PASSOS.map((p, i) => <li key={p} data-estado={i < passo ? 'feito' : i === passo ? 'atual' : 'pendente'} aria-current={i === passo ? 'step' : undefined}><span aria-hidden="true">{i + 1}</span>{p}</li>)}
@@ -204,29 +208,32 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
             {estado.plano.avisos.length > 0 && <ul className={styles.discreto}>{estado.plano.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
           </div>}
           {estado.erro && <p className={styles.erro} role="alert">{estado.erro}</p>}
-          <button type="button" className={styles.primario} disabled={estado.ocupado || !estado.plano?.pronto} onClick={() => void agir({ acao: 'preparar' })}>{estado.ocupado ? 'Aguarde…' : 'Revisar importação'}</button>
-          <p className={styles.garantia}>Nenhum cadastro é criado ou alterado sem a sua confirmação. Pagamentos entram como previstos, nunca como pagos.</p>
+          <button type="button" className={styles.primario} disabled={estado.ocupado || !estado.plano?.pronto} onClick={() => void agir({ acao: 'preparar' })}>{estado.ocupado ? 'Aguarde…' : 'Revisar dados do contrato'}</button>
+          <p className={styles.garantia}>Nenhum cadastro é criado ou alterado sem a sua confirmação. Recebimentos só entram quando você informar data e forma de cada um.</p>
           <button type="button" className={styles.fantasma} disabled={estado.ocupado} onClick={() => setCancelando(true)}>Cancelar importação</button>
         </aside>
       </div>;
     })()}
 
     {estado.etapa === 'confirmacao' && <section className={styles.painel} aria-labelledby="confirmar-real">
-      <h2 id="confirmar-real" className={styles.titulo}>Confirmar importação</h2>
+      <h2 id="confirmar-real" className={styles.titulo}>Registrar dados do contrato e cliente</h2>
+      <p className={styles.texto}>Este passo guarda o contrato como está no documento e o cliente. Festa, agenda e pagamentos são confirmados nas próximas etapas.</p>
       <div className={styles.acoesFinais}><button type="button" className={styles.fantasma} disabled={estado.decidindo} onClick={() => void decidir(estado.rascunho, 'cancelar')}>Voltar e corrigir</button><button type="button" className={styles.fantasma} disabled={estado.decidindo} onClick={() => setCancelando(true)}>Cancelar importação</button></div>
       <PreviewAcao rascunho={estado.rascunho} decidindo={estado.decidindo} erro={estado.erro} onDecidir={(r, d) => void decidir(r, d)} />
     </section>}
 
-    {estado.etapa === 'concluida' && <section className={styles.painel} role="status">
-      <span className={styles.seloPronto}>Importado</span>
-      <h2 className={styles.titulo}>{estado.mensagem}</h2>
-      <p className={styles.texto}>Contrato histórico registrado em Contratos, com o documento original e os pagamentos como previstos. Nenhuma Festa operacional, reserva de agenda, cobrança ou pagamento foi criado. Não é necessário importar o arquivo novamente.</p>
+    {estado.etapa === 'integracao' && <>
+      {passoIntegracao !== 'concluida' && <p className={styles.aviso} role="status">
+        {estado.acabouDeRegistrar ? 'Dados do contrato e cliente registrados, com o documento original. ' : 'Os dados deste contrato já estão registrados. '}
+        Falta integrar ao sistema: confirme festa, agenda e pagamentos. Você pode parar aqui e continuar depois pelo contrato importado, sem reenviar o arquivo.
+      </p>}
+      <IntegracaoContrato importacaoId={estado.importacaoId} onPasso={setPassoIntegracao} />
       <div className={styles.acoesFinais}>
-        <Link className={styles.primario} href={estado.contratoDestino}>Abrir contrato</Link>
+        <Link className={styles.fantasma} href={contratoImportadoUrl(estado.importacaoId)}>{passoIntegracao === 'concluida' ? 'Ver contrato' : 'Continuar depois'}</Link>
         {estado.destino && <Link className={styles.fantasma} href={estado.destino}>Abrir cliente</Link>}
-        <button type="button" className={styles.fantasma} onClick={() => setEstado({ etapa: 'upload', erro: null })}>Importar outro contrato</button>
+        <button type="button" className={styles.fantasma} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'upload', erro: null }); }}>Importar outro contrato</button>
       </div>
-    </section>}
+    </>}
     {estado.etapa === 'cancelada' && <section className={styles.painel} role="status">
       <h2 className={styles.titulo}>Esta revisão foi cancelada.</h2>
       <p className={styles.texto}>Envie o contrato novamente para iniciar uma nova revisão.</p>

@@ -1,12 +1,15 @@
+// Campos declarados (sem parameter properties) para o arquivo também rodar nos testes com --experimental-strip-types.
 export class AvailabilityServiceError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-    public readonly httpStatus = 400,
-    public readonly details?: unknown,
-  ) {
+  readonly code: string;
+  readonly httpStatus: number;
+  readonly details?: unknown;
+
+  constructor(code: string, message: string, httpStatus = 400, details?: unknown) {
     super(message);
     this.name = "AvailabilityServiceError";
+    this.code = code;
+    this.httpStatus = httpStatus;
+    this.details = details;
   }
 }
 
