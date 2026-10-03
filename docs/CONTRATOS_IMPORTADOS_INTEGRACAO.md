@@ -241,25 +241,37 @@ módulos nativos ficam protegidos pela ordem "código antes", pelos fingerprints
 
 ## 9. Publicação e recuperação
 
-**Ordem** (cada passo exige autorização própria):
+### Plano de staging (cada linha é uma operação separada; nenhuma está autorizada por esta PR)
 
-1. PostgreSQL descartável (seção 10).
-2. PR para `staging`, resolvendo o inventário junto com a #80 (seção 12).
-3. Publicar o código em **todas** as instâncias de staging e confirmar que não resta instância anterior. Com o código
-   anterior ainda vivo, a 061 derruba Festa e assinatura pública.
-4. Janela de manutenção coordenada, com precheck → migration → postcheck da 061 e, em seguida, da 062.
-   - Cada script usa `lock_timeout = '5s'`: falha em vez de ficar esperando, e pode ser repetido.
-   - Durante cada transação, as escritas e parte das leituras em `fechamentos`, `contrato_versoes`, `festas` (061),
-     `bloqueios_agenda`, `configuracao_agenda`, `estabelecimentos` e `contrato_importacoes` (062) esperam.
-   - Na prática, Festa, fechamento, pagamentos e disponibilidade ficam parados nesse intervalo.
-   - **A duração não foi medida em volume real.** O cluster sintético aplica o inventário inteiro a partir do schema
-     vazio, o que não representa o volume de produção. A duração deve ser medida num ensaio em clone de staging com
-     volume real (autorização própria) antes de marcar a janela.
-5. Rodar o levantamento e decidir D3 (bloqueios) e o legado sem empresa; o Representante habilita as unidades que vão
-   receber agenda (nenhuma é habilitada automaticamente).
-6. Configurar `AGENDA_PUBLICA_EMPRESA_ID` (sem isso, a agenda pública fica indisponível depois da 062).
-7. Homologação (seção 13) e só depois a flag.
-8. Produção na mesma ordem.
+Produção fica fora deste plano. Ela repete a mesma ordem depois da homologação, com autorizações próprias.
+
+| # | Operação | Tipo | Autorização necessária | Pré-condição / verificação |
+|---|---|---|---|---|
+| S1 | Revisão independente da PR | Revisão | Nenhuma operação remota | PR aberta; CI do GitHub Actions verde |
+| S2 | Ler no Render a branch e o auto-deploy do serviço de staging | Leitura de infraestrutura | Leitura do Render | Confirmar que o merge em `staging` não dispara deploy sozinho |
+| S3 | Merge da PR em `staging` (coordenado com a #80: inventário por união, 060 antes de 061/062) | Escrita no GitHub | Merge | S1 e S2; sem conflito pendente |
+| S4 | Deploy **manual** do código em staging, com a flag desligada e sem `AGENDA_PUBLICA_*` | Deploy | Deploy de staging | Todas as instâncias novas; health ok; Festa, assinatura pública, fechamento, pagamentos e disponibilidade como antes (schema ainda 057) |
+| S5 | Ensaio de duração: 061 + 062 num **clone** do banco de staging, medindo cada passo | Banco (clone) | Criar o clone e aplicar migrations nele | Clone isolado; resultado decide a janela de S6 |
+| S6 | Janela de manutenção: aviso, precheck → 061 → postcheck, depois precheck → 062 → postcheck | Migration | Migration em staging (061 e 062) | S4 concluído (**nunca** com o código anterior vivo); `lock_timeout` 5 s; falha = repetir ou parar |
+| S7 | Verificação pós-migration: Festa (conjunto 062), assinatura pública, fechamento, pagamentos, disponibilidade | Leitura/regressão | Testes em staging | Sem 503; regressão do roteiro nativo |
+| S8 | Levantamento de agenda (`database/repairs/…_levantamento_agenda.sql`, somente leitura) | SQL de leitura | Leitura no banco de staging | Lista o legado global (contratações sem empresa, bloqueios sem dono) |
+| S9 | Decisão de dono de cada bloqueio sem dono (D3) | Decisão de produto | Felipe | Resultado de S8 |
+| S10 | Gravar as decisões em `agenda_062_bloqueios_resolucao` e rodar o reparo de bloqueios | SQL de escrita | Reparo de dados em staging | S9 completo (o reparo trava se faltar decisão) |
+| S11 | Reparo das contratações sem empresa (política da 054; script próprio, **ainda não escrito**) | SQL de escrita | Escrita do script e reparo em staging | S8; até lá, elas seguem bloqueando todas as empresas |
+| S12 | Unidade principal (D2), se alguma empresa ativa não tiver unidade | SQL de escrita | Reparo de dados em staging | S8 (a unidade nasce SUSPENSO e **não** fica habilitada) |
+| S13 | Habilitar as unidades que vão receber agenda | Ação de negócio no app (Representante autorizado, com motivo) | Felipe escolhe as unidades; se for o agente a executar, autorização para escrita via app | Nenhuma é habilitada automaticamente; auditado |
+| S14 | Configurar `AGENDA_PUBLICA_EMPRESA_ID` (e, se for o caso, `AGENDA_PUBLICA_UNIDADE_ID`) | Env + restart/redeploy | Alteração de env em staging | Sem isso, a agenda pública fica indisponível depois da 062 (comportamento intencional) |
+| S15 | Ligar `CONTRACT_IMPORT_INTEGRATION_ENABLED` | Env + restart/redeploy | Alteração de env em staging | Só depois de S7–S14 |
+| S16 | Homologação (seção 13), com dados de teste | Testes com escrita em staging | Homologação | Inclui duas unidades habilitadas, conflito na mesma unidade, revogação e integração |
+| S17 | Recuperação, se necessária (tabela abaixo) | Varia | Autorização específica de cada ação | Nunca voltar ao código anterior com 061/062 aplicadas |
+
+Riscos da janela S6: durante cada transação, as escritas e parte das leituras em `fechamentos`, `contrato_versoes`,
+`festas` (061), `bloqueios_agenda`, `configuracao_agenda`, `estabelecimentos`, `contrato_importacoes` e
+`fechamento_revisoes` (062) esperam. Na prática, Festa, fechamento, pagamentos e disponibilidade param nesse
+intervalo.
+
+**A duração não foi medida em volume real.** O cluster sintético aplicou o inventário inteiro a partir do schema vazio,
+o que não representa o volume de produção. Use S5 para medir.
 
 **Recuperação:**
 
