@@ -119,6 +119,11 @@ function ambiente() {
     // Repositório REAL de pacotes (busca da empresa comprovada) sobre a tabela fictícia; o catálogo público segue recusado.
     const repositorioPacotes = load('lib/comercial/repositories/comercial.repository.ts');
     mock('lib/comercial/repositories', { buscarPacoteAtivoPorCodigo: repositorioPacotes.buscarPacoteAtivoPorCodigo, buscarPacoteVigenteDaEmpresaPorCodigo: repositorioPacotes.buscarPacoteVigenteDaEmpresaPorCodigo });
+    // Agenda por empresa/unidade (062): o escopo é resolvido na mesma transação, pela empresa comprovada.
+    mock('lib/disponibilidade/escopo', { escopoDaEmpresa: async (executor: any, empresaId: string, unidade?: string | null) => {
+        assert.equal(executor, tx); assert.equal(empresaId, state.tenant);
+        return { empresaId, estabelecimentoId: unidade ?? null };
+    } });
     mock('lib/disponibilidade/services', { revalidarHorarioSelecionado: async (i: any, executor: any) => {
         assert.equal(executor, tx);
         if (state.indisponivel) throw Error('HORARIO_NAO_DISPONIVEL');
@@ -280,12 +285,15 @@ async function formulario() {
     a.external('react', {
         useState: (initial: any) => { const i = si++; if (!(i in states)) states[i] = initial; return [states[i], (value: any) => { states[i] = typeof value === 'function' ? value(states[i]) : value; }]; },
         useRef: (initial: any) => { const i = ri++; return refs[i] ??= { current: initial }; },
+        useCallback: (fn: any) => fn,
         useEffect: (fn: any, values: any[]) => { const i = ei++; if (!deps[i] || values.some((v, j) => v !== deps[i][j])) { deps[i] = values; effects.push(fn); } },
     });
     a.external('__window', { location: { assign: (url: string) => redirects.push(url) } });
     a.external('__fetch', async (url: string, init: any = {}) => {
         if (url === '/api/admin/autenticacao') return Response.json({ ok: true, data: { usuarioId: a.state.sessao.expirada ? null : 'usuario-unitario', csrf } });
-        if (url.startsWith('/api/disponibilidade?')) return Response.json({ ok: true, data: { periodos: [{ codigo: 'TURNO_1', horarios: [{ inicio: '11:00', fim: '15:00', ajusteMinutos: 0, status: 'DISPONIVEL' }] }] } });
+        // Admin lê a agenda da empresa comprovada (062); a API pública (sem tenant) não é usada pelo wizard.
+        assert(!url.startsWith('/api/disponibilidade'), 'wizard admin não usa a disponibilidade pública');
+        if (url.startsWith('/api/admin/disponibilidade?')) return Response.json({ dias: [{ periodos: [{ codigo: 'TURNO_1', horarios: [{ inicio: '11:00', fim: '15:00', ajusteMinutos: 0, status: 'DISPONIVEL' }] }] }], unidades: [] });
         // Admin lê adicionais pela rota com Tenant Context; a pública (fechada desde a PR-A) não é usada.
         if (url.startsWith('/api/admin/fechamentos/adicionais?')) return Response.json({ adicionais: [] });
         assert(!url.startsWith('/api/fechamentos/adicionais'), 'wizard admin não usa a rota pública de adicionais');

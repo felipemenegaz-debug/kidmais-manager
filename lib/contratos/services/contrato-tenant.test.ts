@@ -105,7 +105,8 @@ test("B2: lista do painel já vem filtrada pela empresa comprovada no SQL", asyn
 test("B2 rotas: painel, detalhe, financeiro (GET/POST/comprovantes) e contrato por fechamento provam o tenant antes do serviço", () => {
   const painel = readFileSync("app/api/admin/contratos/painel/route.ts", "utf8");
   // D1: detalhe lido com o tx da prova (nenhuma leitura depois do commit).
-  assert.match(painel, /data = await executarComPosseNoTenant\(sessao, empresaSolicitada, id, contratoNoTenant, \{ withTenantTransaction \}, \(tx\) => detalheAdministrativo\(id, tx\)\);/);
+  // Detalhe e origem histórica (061) leem o mesmo tx da prova de posse, com a empresa comprovada.
+  assert.match(painel, /data = await executarComPosseNoTenant\(sessao, empresaSolicitada, id, contratoNoTenant, \{ withTenantTransaction \}, async \(tx, tenant\) => \(\{\s*\.\.\.await detalheAdministrativo\(id, tx\),\s*origemHistorica: await origemHistoricaDoContrato\(tx, tenant\.empresaComprovada, /);
   assert.doesNotMatch(painel, /exigirPosseNoTenant|detalheAdministrativo\(id\)/);
   assert.match(painel, /withTenantTransaction\(sessao, empresaSolicitada, \(tx, tenant\) => listarContratosDoTenant\(tx, tenant\.empresaComprovada/);
   assert.doesNotMatch(painel, /db\(\)/, "sem consulta global no painel");

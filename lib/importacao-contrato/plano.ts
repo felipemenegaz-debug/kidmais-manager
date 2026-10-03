@@ -103,7 +103,7 @@ export function montarPlano(extracao: ExtracaoContrato, _revisados: readonly str
     bloqueios.push(match.motivo);
   }
   passos.push({ tipo: "CONTRATO_HISTORICO", acao: "REGISTRAR_SNAPSHOT" });
-  passos.push({ tipo: "FESTA", acao: "PENDENTE_CORE", motivo: "A criação de festa a partir de contrato histórico depende de serviço de domínio ainda inexistente (fechamento com Tenant Context público)." });
+  passos.push({ tipo: "FESTA", acao: "PENDENTE_CORE", motivo: "Festa, agenda e pagamentos são confirmados na integração ao sistema, depois deste registro." });
   const previstos = (dados.pagamentos.entrada ? 1 : 0) + dados.pagamentos.parcelas.length;
   passos.push({ tipo: "PAGAMENTOS_PREVISTOS", acao: "REGISTRAR_NO_SNAPSHOT", quantidade: previstos });
 
@@ -113,7 +113,7 @@ export function montarPlano(extracao: ExtracaoContrato, _revisados: readonly str
     const conferencia = parcelasConferem(dados.pagamentos.entrada, dados.pagamentos.parcelas, total, dados.evento.data);
     if (!conferencia.ok) avisos.push(`${conferencia.motivo} Será guardado como está no contrato.`);
   }
-  avisos.push("Os pagamentos ficam registrados como previstos. Nenhum pagamento é marcado como recebido.");
+  avisos.push("Nenhum pagamento é marcado como recebido aqui. Recebimentos e parcelas a receber são confirmados na integração, com data e forma.");
 
   return {
     pronto: bloqueios.length === 0,

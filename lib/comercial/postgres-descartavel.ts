@@ -1,21 +1,25 @@
 import pg from "pg";
-import { portaDescartavel } from "./alvo-descartavel.ts";
+import { exigirAmbienteSemConexaoHerdada, portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
 
 const PERMITIDOS = new Set(["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"]);
 const TRAVA_TESTE = 8742036;
 // Guarda da porta num módulo puro (testável sem driver); reexportada para as suítes.
-export { portaDescartavel } from "./alvo-descartavel.ts";
+export { portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
 
 /** Conecta só no cluster descartável e confirma o banco antes de qualquer outro SQL. */
 export async function conectarDescartavel(opcoes?: { travar?: boolean; database?: string }) {
   const database = opcoes?.database ?? "kidmais_pacotes_v1_descartavel";
   if (!PERMITIDOS.has(database)) throw new Error("banco recusado");
+  exigirAmbienteSemConexaoHerdada();
   const portaAutorizada = portaDescartavel();
+  // Tudo explícito; nenhuma senha é carregada (pgpass/PGPASSWORD) e nenhuma variável PG* participa.
   const client = new pg.Client({
     host: "127.0.0.1",
     port: portaAutorizada,
     user: "kidmais_descartavel",
     database,
+    password: senhaRecusada,
+    application_name: "kidmais-descartavel",
   });
   await client.connect();
   const ident = await client.query<{ db: string; port: number }>(

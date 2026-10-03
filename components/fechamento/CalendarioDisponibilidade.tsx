@@ -37,6 +37,21 @@ function hojeIso() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Fonte do mês. Padrão: API pública. O painel administrativo passa a agenda da empresa/unidade comprovadas. */
+export type ConsultaAgendaMes = (inicio: string, fim: string) => Promise<{
+  dias: DisponibilidadeDataPublica[];
+  comercial?: Pick<DisponibilidadeConfig, "pacoteOverrides" | "descontos">;
+}>;
+
+async function consultaPublica(inicio: string, fim: string) {
+  const r = await fetch(`/api/disponibilidade?inicio=${inicio}&fim=${fim}`, { cache: "no-store" });
+  const json = await r.json().catch(() => null);
+  // Agenda pública sem contexto no servidor (062): mostra o motivo do servidor, nunca horários de outra empresa.
+  if (!r.ok) throw new Error(String(json?.codigo ?? "").startsWith("AGENDA_PUBLICA_") ? String(json.erro) : "");
+  const dias: DisponibilidadeDataPublica[] = Array.isArray(json.data) ? json.data : [json.data];
+  return { dias, comercial: json.comercial };
+}
+
 export default function CalendarioDisponibilidade({
   pacote,
   horario,
@@ -44,6 +59,7 @@ export default function CalendarioDisponibilidade({
   onSelecionar,
   onTrocarHorario,
   onConfigChange,
+  consultar = consultaPublica,
 }: {
   pacote: PacoteId;
   horario: HorarioBase;
@@ -55,6 +71,7 @@ export default function CalendarioDisponibilidade({
   ) => void;
   onTrocarHorario: (horario: HorarioBase) => void;
   onConfigChange?: (config: DisponibilidadeConfig) => void;
+  consultar?: ConsultaAgendaMes;
 }) {
   const agora = new Date();
   const [mes, setMes] = useState(agora.getMonth());
@@ -79,17 +96,8 @@ export default function CalendarioDisponibilidade({
       const inicio = iso(ano, mes, 1);
       const ultimoDia = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
       const fim = iso(ano, mes, ultimoDia);
-      const r = await fetch(
-        `/api/disponibilidade?inicio=${inicio}&fim=${fim}`,
-        { cache: "no-store" },
-      );
-
-      if (!r.ok) throw new Error();
-
-      const json = await r.json();
-      const dias: DisponibilidadeDataPublica[] = Array.isArray(json.data)
-        ? json.data
-        : [json.data];
+      const json = await consultar(inicio, fim);
+      const dias = json.dias;
       setOperacionalPorData(
         Object.fromEntries(dias.map((item) => [item.data, item])),
       );
@@ -102,19 +110,19 @@ export default function CalendarioDisponibilidade({
       setConfig(novaConfig);
       onConfigChange?.(novaConfig);
       setAviso(null);
-    } catch {
+    } catch (falha) {
       setOperacionalPorData({});
       setConfig(CONFIG_VAZIA);
       onConfigChange?.(CONFIG_VAZIA);
       setAviso({
         tipo: "erro",
         titulo: "Não foi possível consultar a disponibilidade agora.",
-        texto: "Tente novamente antes de selecionar a data.",
+        texto: (falha instanceof Error && falha.message) || "Tente novamente antes de selecionar a data.",
       });
     } finally {
       setCarregando(false);
     }
-  }, [ano, mes, onConfigChange]);
+  }, [ano, mes, onConfigChange, consultar]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void carregar(), 0);

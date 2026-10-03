@@ -8,6 +8,25 @@
  */
 export const PORTA_PADRAO = 55498;
 
+/**
+ * Configuração de conexão herdada que o driver (`pg`/libpq) usaria sem pedir: DATABASE_URL e QUALQUER PG*
+ * (PGHOST, PGPORT, PGOPTIONS, PGSERVICE, PGSERVICEFILE, PGPASSFILE, PGPASSWORD, PGSSL*...). Nunca pode existir no
+ * processo que conecta ao cluster descartável.
+ */
+export function variavelDeConexaoHerdada(nome: string) {
+  return nome === "DATABASE_URL" || /^PG/i.test(nome);
+}
+
+export function exigirAmbienteSemConexaoHerdada(env: Record<string, string | undefined> = process.env) {
+  const herdadas = Object.keys(env).filter(variavelDeConexaoHerdada);
+  if (herdadas.length) throw new Error(`cluster descartável recusado: configuração de conexão herdada (${herdadas.join(", ")})`);
+}
+
+/** O cluster descartável usa trust só em 127.0.0.1: se o servidor pedir senha, o destino diverge e a conexão falha. */
+export async function senhaRecusada(): Promise<string> {
+  throw new Error("cluster descartável: o servidor pediu senha; nenhuma credencial é carregada");
+}
+
 export function portaDescartavel(env: Record<string, string | undefined> = process.env): number {
   const texto = env.KIDMAIS_DESCARTAVEL_PORTA;
   if (texto === undefined || texto === "") return PORTA_PADRAO;

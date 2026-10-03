@@ -19,9 +19,11 @@ export function origemApresentacao(origem: { valor_bruto?: string; recebido_em?:
   return `Recebimento de ${valor} — ${dataApresentacao(origem.recebido_em)} — ${origem.meio_pagamento ?? 'Meio não informado'}`;
 }
 /** `origem: 'IMPORTACAO'` identifica o contrato histórico importado (lido de `ia_importacoes`), que não é um contrato do Core. */
-export type ContextoContrato = { id: string; nome: string | null; data_evento?: string | null; pacote?: string | null; convidados?: string | number | null; status?: string | null; origem?: string | null };
+/** `origem_fechamento: 'IMPORTACAO_HISTORICA'`: contrato do Core integrado a partir de importação (assinado em papel). */
+export type ContextoContrato = { id: string; nome: string | null; data_evento?: string | null; pacote?: string | null; convidados?: string | number | null; status?: string | null; origem?: string | null; origem_fechamento?: string | null };
 export function contratoApresentacao(c: ContextoContrato) {
-  return `${c.nome || 'Contratante não informado'} — ${dataApresentacao(c.data_evento)} — ${c.pacote || 'Pacote não informado'} — ${c.convidados ?? '?'} convidados — ${(c.status || 'Status não informado').replaceAll('_', ' ')} — ref. ${c.id.slice(0, 8)}`;
+  const status = c.origem_fechamento === 'IMPORTACAO_HISTORICA' && c.status === 'ASSINADO' ? 'HISTÓRICO INTEGRADO (papel)' : (c.status || 'Status não informado').replaceAll('_', ' ');
+  return `${c.nome || 'Contratante não informado'} — ${dataApresentacao(c.data_evento)} — ${c.pacote || 'Pacote não informado'} — ${c.convidados ?? '?'} convidados — ${status} — ref. ${c.id.slice(0, 8)}`;
 }
 // Correção apenas de apresentação de palavras reconhecíveis; nunca regrava o histórico.
 export function textoHistorico(texto?: string | null) {
