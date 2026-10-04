@@ -32,7 +32,7 @@ function responsavel(c: ConversaLista, usuarioId: string) {
 
 export default function AtendimentoWhatsapp() {
   const [dados,setDados] = useState<Dados | null>(null), [selecionada,setSelecionada] = useState<string | null>(null), [erro,setErro] = useState(''), [ocupado,setOcupado] = useState(false), [texto,setTexto] = useState(''), [quadro,setQuadro] = useState(false), [config,setConfig] = useState<ConfiguracaoAtendimento | null>(null), [lidoEm,setLidoEm] = useState(0), [statusAcao,setStatusAcao] = useState('');
-  const pedidoAtual = useRef(0), tituloConversa = useRef<HTMLHeadingElement>(null), focarConversa = useRef(false), cartoes = useRef(new Map<string, HTMLButtonElement>()), dialogoEncerrar = useRef<HTMLDialogElement>(null), botaoEncerrar = useRef<HTMLButtonElement>(null), campoResposta = useRef<HTMLTextAreaElement>(null), encerrouAgora = useRef(false);
+  const pedidoAtual = useRef(0), tituloConversa = useRef<HTMLHeadingElement>(null), focarConversa = useRef(false), cartoes = useRef(new Map<string, HTMLButtonElement>()), dialogoEncerrar = useRef<HTMLDialogElement>(null), botaoEncerrar = useRef<HTMLButtonElement>(null), campoResposta = useRef<HTMLTextAreaElement>(null);
   const carregar = useCallback(async () => {
     const pedido = ++pedidoAtual.current;
     try { const r = await adminFetch('/api/admin/atendimento' + (selecionada ? '?conversaId=' + selecionada : '')); const json = await r.json(); if (!r.ok || !json.ok) throw Error(json.erro || 'Não foi possível carregar o atendimento.'); if (pedido === pedidoAtual.current) { setDados(json.data); setLidoEm(Date.now()); setErro(''); } }
@@ -50,16 +50,16 @@ export default function AtendimentoWhatsapp() {
   }
   // Encerrar pede confirmação (diálogo nativo: foco preso, Esc cancela). Abrir/fechar é imperativo: o próprio diálogo
   // é a fonte da verdade (um estado React espelhado ficava "aberto" depois do Esc nativo e impedia reabrir).
-  // Cancelar/Esc devolvem o foco ao botão (comportamento nativo); depois de encerrar, o foco vai ao título.
+  // Cancelar/Esc devolvem o foco ao botão (comportamento nativo do diálogo). Depois de encerrar, o botão fica desabilitado:
+  // o foco vai explicitamente ao título da conversa (sem depender do evento "close", que não chegou pelo React).
   // As pendentes são canceladas no servidor, na mesma transação; o histórico fica.
   function abrirConfirmacaoEncerrar() { const d = dialogoEncerrar.current; if (d && !d.open) d.showModal(); }
   async function encerrarConfirmado() {
     const r = await agir('encerrar');
-    encerrouAgora.current = !!r;
     dialogoEncerrar.current?.close();
+    if (r) window.setTimeout(() => tituloConversa.current?.focus(), 0);
     if (r) setStatusAcao(r.canceladas ? `Atendimento encerrado. ${r.canceladas === 1 ? '1 resposta pendente foi cancelada' : r.canceladas + ' respostas pendentes foram canceladas'}; o histórico foi mantido.` : 'Atendimento encerrado. O histórico foi mantido.');
   }
-  function aoFecharDialogo() { if (encerrouAgora.current) { encerrouAgora.current = false; window.setTimeout(() => tituloConversa.current?.focus(), 0); } }
   function usarProntaNaResposta(rascunho: string) { setTexto(rascunho); window.setTimeout(() => campoResposta.current?.focus(), 0); }
   async function salvar() {
     if (!config || ocupado) return;setOcupado(true);setErro('');
@@ -120,7 +120,7 @@ export default function AtendimentoWhatsapp() {
           {/* Fora do formulário de resposta: Enter na busca não pode enviar a resposta. */}
           <MensagensProntas conversaId={conversa.id} podeUsar={podeResponder} motivoBloqueio={motivoSemResposta} textoAtual={texto} onUsar={usarProntaNaResposta} />
           <form onSubmit={e=>{e.preventDefault();if(podeResponder&&texto.trim())void agir('enviar');}}><label htmlFor="resposta-whatsapp">Resposta do atendente</label><textarea ref={campoResposta} id="resposta-whatsapp" maxLength={4000} value={texto} onChange={e=>setTexto(e.target.value)} disabled={!podeResponder} aria-describedby={motivoSemResposta ? 'resposta-motivo' : undefined} />{motivoSemResposta && <p id="resposta-motivo">{motivoSemResposta}</p>}<button className={styles.primario} disabled={!podeResponder||!texto.trim()}>Enviar resposta</button></form>
-          <dialog ref={dialogoEncerrar} className={styles.dialogo} aria-labelledby="encerrar-titulo" aria-describedby="encerrar-texto" onClose={aoFecharDialogo}>
+          <dialog ref={dialogoEncerrar} className={styles.dialogo} aria-labelledby="encerrar-titulo" aria-describedby="encerrar-texto">
             <h2 id="encerrar-titulo">Encerrar atendimento?</h2>
             <p id="encerrar-texto">A conversa será marcada como encerrada e as respostas automáticas pendentes serão canceladas. O histórico será mantido.</p>
             <div className={styles.acoes}><button type="button" autoFocus onClick={()=>dialogoEncerrar.current?.close()}>Cancelar</button><button type="button" className={styles.perigo} disabled={ocupado} onClick={()=>void encerrarConfirmado()}>Encerrar atendimento</button></div>
