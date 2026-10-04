@@ -121,16 +121,16 @@ Suíte PostgreSQL nova `lib/whatsapp/atendimento/empresa-ativa.postgres.test.ts`
 | E1 | Sem a 063 (modelo `atual` + 060), sessão sem `empresa_ativa_id` | Abre na piloto, como hoje |
 | E2 | Com a 063, empresa ativa = piloto | Lista e mensagens prontas ok |
 | E3 | Com a 063, usuário com vínculo ATIVO na piloto **e** em B, empresa ativa = B | GET recusado (`TENANT_NAO_COMPROVADO`), nenhum dado da piloto. POST `assumir` recusado: versão da conversa inalterada, nenhuma saída, nenhum evento |
-| E4 | Com a 063, empresa ativa = nula (seleção pendente) | **Decisão do Felipe.** Pelo contrato atual do painel, abre na piloto se o vínculo for ativo; a tela do painel já bloqueia com "Escolha a empresa". O teste fixa o que for decidido |
+| E4 | Com a 063, empresa ativa = nula (seleção pendente) | **Decidido pelo Felipe: seleção explícita obrigatória.** `ATENDIMENTO_EMPRESA_NAO_SELECIONADA`, mesmo com vínculo ativo na piloto; o próprio atendimento recusa, antes do `provarTenant` do painel, que abriria na piloto |
 | E5 | Troca de empresa depois do carregamento | Sessão antiga revogada → recusa. Cabeçalho `x-kidmais-sessao` divergente → 409 "A empresa ou a sessão mudou" |
 | E6 | Rotas de mensagens prontas (`/api/admin/atendimento/prontas`) | O mesmo que E2/E3 |
 | E7 | Recepção (`receberEntrada`) e worker com a 063 aplicada | Seguem gravando na piloto. Não usam sessão, então não há regressão |
 
 **Unitários:**
 - a rota do Atendimento devolve 403 com a mensagem do tenant;
-- a tela mostra uma mensagem clara em vez do erro técnico. Texto proposto, **para aprovação**: "O Atendimento WhatsApp pertence a outra empresa. Troque a empresa ativa no menu para usá-lo."
+- a tela distingue três situações: divergência, seleção pendente e falta de acesso, cada uma com um bloco próprio e sem dados da piloto.
 
-É a única mudança de código de tela prevista.
+**Implementado na candidata em `ba9f8c4`**, com testes (unitários, serviço, biblioteca e tela). Textos e procedimento em [VALIDACAO_INTEGRACAO.md](VALIDACAO_INTEGRACAO.md).
 
 ### 6.3 Coexistência das migrations 060/063/064/065
 
@@ -169,7 +169,7 @@ Suíte nova `lib/whatsapp/atendimento/coexistencia-060-065.postgres.test.ts`:
 
 ### 6.5 Decisões pendentes do Felipe
 
-1. **E4:** empresa ativa nula abre na piloto (contrato atual do painel) ou exige seleção explícita?
-2. **Texto da recusa na tela** (6.2).
-3. **Ordem de entrada em `staging`**: recomendação, o painel primeiro (seção 4).
-4. **Autorizações:** a mescla de verificação (I1) e as rodadas de banco/navegador (I3/I4).
+1. ~~E4~~ **decidido:** seleção explícita obrigatória com a 063.
+2. **Textos dos três blocos** (implementados; ajustáveis): ver [VALIDACAO_INTEGRACAO.md](VALIDACAO_INTEGRACAO.md).
+3. ~~Ordem~~ **decidido:** o painel primeiro em `staging`.
+4. **Autorizações pendentes:** I1+I2 (mescla de verificação e gate) e I3 (PostgreSQL), conforme [VALIDACAO_INTEGRACAO.md](VALIDACAO_INTEGRACAO.md); I4 é preparado depois.

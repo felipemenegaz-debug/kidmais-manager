@@ -4,9 +4,9 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 
 ## Candidata local consolidada — 04/10/2026, fim do dia
 
-**HEAD do código:** `9145e1d9db257b10cff194ac2bf948641c738090` na worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`. Os commits de docs que trazem esta seção vêm logo depois.
+**HEAD do código:** `ba9f8c467ba35142affec809996260c27c2d9f22` na worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`. Os commits de docs que trazem esta seção vêm logo depois.
 - Remoto `origin/whatsapp/atendimento-ia-v1`: `bdb1e75`.
-- 31 commits locais até `9145e1d` (conferido com `git rev-list --count`), mais os de docs, **sem push**.
+- 36 commits locais até `ba9f8c4` (conferido com `git rev-list --count`), mais os de docs, **sem push**.
 - `git merge-tree` (leitura, depois de `git fetch` às 19:00 de 04/10):
   - contra `origin/staging` `904b451`: **sem conflito**;
   - contra `codex/painel-multi-20261004` `c0158d4`: conflito **só** nos inventários `check-migrations.mjs` e `production.test.mjs` (união de listas; ver o doc de identificação);
@@ -26,6 +26,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 | Foco da biblioteca e título sob o menu no celular | `730ba89` | [VALIDACAO_NAVEGADOR_PRONTAS.md](VALIDACAO_NAVEGADOR_PRONTAS.md) |
 | **Nome e número completo** na tela autorizada; migration do nome de perfil (preparada) | `48034b5` | [IDENTIFICACAO_CONTATO_ATENDIMENTO.md](IDENTIFICACAO_CONTATO_ATENDIMENTO.md) |
 | **Numeração coordenada** com o painel: prontas **064**, nome de perfil **065** (063 = painel); recusa obrigatória na suíte 065 | `090e7df`, `ccb8b48` | idem, "Numeração" |
+| Empresa ativa explícita com a 063 do painel (compatível sem ela); tela distingue divergência, seleção pendente e falta de acesso | `ba9f8c4` | [VALIDACAO_INTEGRACAO.md](VALIDACAO_INTEGRACAO.md) |
 | Celular: botão "Voltar às conversas" abaixo do menu fixo (título a 120 px até 760px) | `9145e1d` | [VALIDACAO_IDENTIFICACAO.md](VALIDACAO_IDENTIFICACAO.md), "Tratamento das observações" |
 
 **Evidências por HEAD:**
@@ -41,6 +42,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 | PostgreSQL descartável: 060, 064, 065, concorrência + suíte completa | `78ed9d8` | **PASS 4/4 e 39/39**, nenhuma pulada; recusas obrigatórias da 065 |
 | Navegador, identificação do contato (I1–I8, desktop/celular/teclado) | `78ed9d8` | ok; zero saídas. 3 observações sem bloqueio, tratadas depois ([VALIDACAO_IDENTIFICACAO.md](VALIDACAO_IDENTIFICACAO.md)) |
 | Regressão estática, idem | **`9145e1d`** | **PASS** 1921/1921 + 103/103; lint sem erros (o mesmo aviso antigo). Log `.local-ux/check-v1-static-9145e1d.log` (SHA-256 `4c8a54ca…c7a9e`), com HEAD e árvore limpa na 1ª linha. A regra nova está no CSS do build |
+| Regressão estática, idem | **`ba9f8c4`** | **PASS** 1937/1937 + 103/103; lint, `tsc` e build. Log `.local-ux/check-v1-static-ba9f8c4.log` (SHA-256 `41160130…1fc851`) |
 | Checagem de produção | `9145e1d` | 37/37; simulação da mescla com o painel `660c216`: 37/37; com `ad6b1b9` (HEAD `287f978`): 37/37 + unitários 1982/1982 + `tsc` |
 | Navegador, botão "Voltar" abaixo do menu (C1–C5, celular/teclado/780/desktop) | `dbfd5c9` (código `9145e1d`) | **ok**: título a 120 px, "Voltar" a 67 px, sem sobreposição; teclado com foco correto; zero saídas; limpeza ok ([VALIDACAO_VOLTAR_CELULAR.md](VALIDACAO_VOLTAR_CELULAR.md)) |
 
@@ -60,7 +62,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 
 | Nível | Estado |
 | --- | --- |
-| Implementado e validado localmente | **Sim, com pendências** (ver "Candidata local consolidada"). PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `bdb1e75`. A candidata local está em `9145e1d` (código), 31 commits à frente (mais o de docs desta seção), **sem push** |
+| Implementado e validado localmente | **Sim, com pendências** (ver "Candidata local consolidada"). PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `bdb1e75`. A candidata local está em `ba9f8c4` (código), 36 commits à frente (mais o de docs desta seção), **sem push** |
 | Integrado em staging | **Código: não.** PR aberta, sem merge na branch `staging`. **Banco de staging: estado não verificado** — não há leitura datada das migrations (E2a nunca executada); esta entrega não aplicou nada nele. **Variáveis no Render: estado não verificado**; esta entrega não configurou nenhuma |
 | Homologado com Gupshup real | **Não.** Bloqueado até comprovar três condições: autenticação do webhook pelo mecanismo do Gupshup (chamado #277630, acesso ao app `KidmaisManager`), receptor exclusivo do número entre ambientes (E0) e preservação do OTP |
 | Ativo em produção | **Estado não verificado; não ativado por esta entrega.** Produção não foi lida nem alterada. Não presumir seu estado; exige etapa e autorização próprias |
