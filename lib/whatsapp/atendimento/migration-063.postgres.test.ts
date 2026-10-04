@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { Client } from "pg";
 import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from "../../comercial/postgres-descartavel.ts";
-import { carregarAtendimento, cod, fixtures } from "./harness-postgres.ts";
+import { carregarAtendimento, cod } from "./harness-postgres.ts";
 
 /**
  * Migration 063 (mensagens prontas) no PostgreSQL descartável. Só roda pelo check:v1:postgres, com
@@ -37,6 +37,25 @@ async function recusa(c: Client, sql: string, v: unknown[], motivo: RegExp) {
   await c.query("BEGIN");
   await assert.rejects(c.query(sql, v), motivo);
   await c.query("ROLLBACK");
+}
+
+const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
+/** Empresas e usuários sintéticos (membership ATIVA), no mesmo padrão da suíte 060. */
+function fixtures(c: Client) {
+  const id = async (sql: string, v: unknown[]) => (await c.query<{ id: string }>(sql, v)).rows[0].id;
+  const empresa = async (nome: string) => {
+    const e = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [cod("wa"), nome]);
+    await c.query(`UPDATE empresas SET status = 'ATIVA' WHERE id = $1::uuid`, [e]);
+    return e;
+  };
+  const usuario = async (papel: string, empresaId: string) => {
+    const u = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness atendimento', $2, $3, true) RETURNING id`, [`${cod("u")}@example.test`, SENHA, papel]);
+    const m = await id(`INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1::uuid, $2::uuid, 'PENDENTE', clock_timestamp(), $3) RETURNING id`, [empresaId, u, papel]);
+    await c.query(`UPDATE memberships SET status = 'ATIVA' WHERE id = $1::uuid`, [m]);
+    return { usuario_id: u, papel } as SessaoParaTenant;
+  };
+  const cliente = async (empresaId: string, telefone: string) => id(`INSERT INTO clientes (nome_completo, empresa_id, telefone) VALUES ($1, $2::uuid, $3) RETURNING id`, [`Cliente sintético ${cod("")}`, empresaId, telefone]);
+  return { id, empresa, usuario, cliente };
 }
 
 test("063: mensagens prontas — aplicação, postcheck, cadastro, favoritas, isolamento, conflitos, rascunho e rollback", { timeout: 300_000 }, async (t) => {

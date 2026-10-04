@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import type { Client } from "pg";
 import { conectarDescartavel } from "../../comercial/postgres-descartavel.ts";
 import type { DbExecutor } from "../../db/contracts.ts";
 import { executarNoTenant, type SessaoParaTenant } from "../../saas/provar-tenant.ts";
@@ -16,9 +15,10 @@ import { listarContratacoes } from "../../fechamentos/contratacoes.ts";
  * que rodam pelo check:v1:postgres no cluster descartável com opt-in e autorização explícita. Dados sintéticos.
  * Serviço, worker, biblioteca e o repositório REAL de clientes rodam com uma conexão por transação (como o pool),
  * para corridas e travas de verdade. Modelo e Gupshup são portas simuladas: nenhuma chamada de rede.
+ * As fixtures que criam identidades ficam nas próprias suítes (*.postgres.test.ts): fora de teste, só
+ * lib/autenticacao/usuarios.ts cria usuário (invariante de lib/autenticacao/plataforma.test.ts).
  */
 export const cod = (p: string) => `${p}${randomBytes(4).toString("hex")}`;
-const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 
 export async function withTransaction<T>(fn: (tx: DbExecutor) => Promise<T>): Promise<T> {
   const c = await conectarDescartavel({ travar: false });
@@ -55,24 +55,6 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging")
     "./configuracao.ts": configuracao, "./service.ts": servico, "./prontas.ts": prontas, "./prontas-link.ts": prontasLink,
   }).modulo as typeof import("./prontas-servico.ts");
   return { servico, worker, biblioteca };
-}
-
-/** Empresas e usuários sintéticos (membership ATIVA), no mesmo padrão da suíte 060. */
-export function fixtures(c: Client) {
-  const id = async (sql: string, v: unknown[]) => (await c.query<{ id: string }>(sql, v)).rows[0].id;
-  const empresa = async (nome: string) => {
-    const e = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [cod("wa"), nome]);
-    await c.query(`UPDATE empresas SET status = 'ATIVA' WHERE id = $1::uuid`, [e]);
-    return e;
-  };
-  const usuario = async (papel: string, empresaId: string) => {
-    const u = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness atendimento', $2, $3, true) RETURNING id`, [`${cod("u")}@example.test`, SENHA, papel]);
-    const m = await id(`INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1::uuid, $2::uuid, 'PENDENTE', clock_timestamp(), $3) RETURNING id`, [empresaId, u, papel]);
-    await c.query(`UPDATE memberships SET status = 'ATIVA' WHERE id = $1::uuid`, [m]);
-    return { usuario_id: u, papel } as SessaoParaTenant;
-  };
-  const cliente = async (empresaId: string, telefone: string) => id(`INSERT INTO clientes (nome_completo, empresa_id, telefone) VALUES ($1, $2::uuid, $3) RETURNING id`, [`Cliente sintético ${cod("")}`, empresaId, telefone]);
-  return { id, empresa, usuario, cliente };
 }
 
 export const adiado = <T = void>() => { let liberar!: (v: T) => void; const p = new Promise<T>((r) => { liberar = r; }); return { p, liberar }; };
