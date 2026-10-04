@@ -2,11 +2,51 @@
 
 Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "Preparação de 04/10/2026"). Documento único de estado da V1. Substitui os registros por rodada anteriores, que ficam no histórico do Git. Planos de origem: [ATENDIMENTO_IA_WHATSAPP_PLANO.md](ATENDIMENTO_IA_WHATSAPP_PLANO.md) e [PROXIMA_ENTREGA_UX_WHATSAPP.md](PROXIMA_ENTREGA_UX_WHATSAPP.md) (escopo histórico). Ativação: [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md). Banco descartável: [VALIDACAO_060_E_HOMOLOGACAO_GUPSHUP.md](VALIDACAO_060_E_HOMOLOGACAO_GUPSHUP.md). Autorizações: [OPERACAO_AGENTES.md](OPERACAO_AGENTES.md).
 
+## Candidata local consolidada — 04/10/2026, fim do dia
+
+**HEAD do código:** `48034b5d1add421c133f50c6fd8efe6a043a6f25` na worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`. O commit de docs que traz esta seção vem logo depois.
+- Remoto `origin/whatsapp/atendimento-ia-v1`: `bdb1e75`.
+- 24 commits locais, **sem push**: 44 arquivos, +2760/−49.
+- `git merge-tree` contra `origin/staging` `904b451` (leitura, depois de `git fetch`): **sem conflito**.
+
+**O que entrou desde `bdb1e75`:**
+
+| Tema | Commits | Doc |
+| --- | --- | --- |
+| Data do modelo no formato do cliente; Mostrar/Ocultar senha | `0cc0758`, `9c396da` | — |
+| Encerrar cancela pendentes na mesma transação (SKIP LOCKED); diálogo de confirmação; contador por direção | `c091b02`, `e44eb63`, `ba14dc0`, `f88a84e`, `25f1efd`, `fd7b131` | [VALIDACAO_063_E_ENCERRAMENTO.md](VALIDACAO_063_E_ENCERRAMENTO.md) |
+| Mensagens prontas (fase A) + migration 063; prévia vinculada à conversa | `e44eb63`, `62f2e10` | idem |
+| Foco da biblioteca e título sob o menu no celular | `730ba89` | [VALIDACAO_NAVEGADOR_PRONTAS.md](VALIDACAO_NAVEGADOR_PRONTAS.md) |
+| **Nome e número completo** na tela autorizada; migration **064** (nome de perfil, preparada) | `48034b5` | [IDENTIFICACAO_CONTATO_ATENDIMENTO.md](IDENTIFICACAO_CONTATO_ATENDIMENTO.md) |
+
+**Evidências por HEAD:**
+
+| Verificação | HEAD | Resultado |
+| --- | --- | --- |
+| Regressão estática (unitários, harness, lint, TypeScript, build) | `48034b5` | **PASS**: 1919/1919 + 103/103; lint sem erros (1 aviso antigo em `catalogo.ts`) |
+| Checagem de produção (`production.test.mjs`) | `48034b5` | 37/37, com a 064 no inventário |
+| PostgreSQL descartável: 060, 063, concorrência + suíte completa | `ba6d47c` (código de `1e40264`) | PASS 3/3 e 38/38. **Não refeita** depois de `730ba89` (só tela) e de `48034b5`, que mudou a SQL da listagem, a suíte da 060 e criou a suíte da 064 |
+| Navegador, biblioteca (B1–B10, desktop/celular/teclado) | `930121d` | ok. Ocorrências registradas no doc |
+| Navegador, regressão de foco (F1–F9) | `4b58b08` | ok; zero saídas |
+| Navegador, identificação do contato | — | **não executada** |
+
+**Lacunas explícitas (nenhuma resolvida por esta candidata):**
+1. **HTTPS visual:** o link individual **preenchido** nunca foi visto na tela. O navegador embutido não abre `https://localhost` com certificado autoassinado. Foi validado só pela rota real em https, com TLS verificado contra o certificado da execução, e pela suíte PostgreSQL (passo 6b).
+2. **Homologação Gupshup:** **não feita**. Continua bloqueada até comprovar:
+   - autenticação do webhook pelo mecanismo do Gupshup (Partner API, chamado #277630);
+   - receptor exclusivo do número entre ambientes (E0);
+   - preservação do OTP.
+
+   Nenhuma mensagem real foi enviada nem recebida; tudo foi simulado ou sintético. O nome de perfil (`payload.sender.name`) segue a documentação oficial v2, mas não foi visto num evento real.
+3. **Numeração de migrations:** a 063 desta candidata colide com `origin/feat/painel-desenvolvedor-20261004` (063 `painel_desenvolvedor`). Quem entrar depois renumera (ver o doc de identificação, "Numeração").
+4. **PostgreSQL** a refazer no HEAD atual (060, 063, 064, concorrência e completa) e **validação visual** da identificação: as duas dependem de autorização.
+5. **Demo local** parada desde o desligamento do Windows (13:10 de 04/10); não reiniciada.
+
 ## Estado em quatro níveis
 
 | Nível | Estado |
 | --- | --- |
-| Implementado e validado localmente | **Sim.** PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `b7db96a` (código validado em `a55aed8`). A preparação de 04/10/2026 está só no checkout local, sem push: integração local de `origin/staging` (`e099edd`) e melhorias de tela, com o código validado em `918b0a1` |
+| Implementado e validado localmente | **Sim, com pendências** (ver "Candidata local consolidada"). PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `bdb1e75`. A candidata local está em `48034b5` (código), 24 commits à frente, **sem push** |
 | Integrado em staging | **Não.** PR aberta, sem merge. Migration 060 não aplicada no banco de staging. Nenhuma variável configurada |
 | Homologado com Gupshup real | **Não.** Bloqueado até comprovar três condições: autenticação do webhook pelo mecanismo do Gupshup (chamado #277630, acesso ao app `KidmaisManager`), receptor exclusivo do número entre ambientes (E0) e preservação do OTP |
 | Ativo em produção | **Estado não verificado; não ativado por esta entrega.** Produção não foi lida nem alterada. Não presumir seu estado; exige etapa e autorização próprias |
