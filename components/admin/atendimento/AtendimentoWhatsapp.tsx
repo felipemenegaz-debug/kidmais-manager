@@ -31,7 +31,7 @@ function responsavel(c: ConversaLista, usuarioId: string) {
 }
 
 export default function AtendimentoWhatsapp() {
-  const [dados,setDados] = useState<Dados | null>(null), [selecionada,setSelecionada] = useState<string | null>(null), [erro,setErro] = useState(''), [ocupado,setOcupado] = useState(false), [texto,setTexto] = useState(''), [quadro,setQuadro] = useState(false), [config,setConfig] = useState<ConfiguracaoAtendimento | null>(null), [lidoEm,setLidoEm] = useState(0), [confirmarEncerrar,setConfirmarEncerrar] = useState(false), [statusAcao,setStatusAcao] = useState('');
+  const [dados,setDados] = useState<Dados | null>(null), [selecionada,setSelecionada] = useState<string | null>(null), [erro,setErro] = useState(''), [ocupado,setOcupado] = useState(false), [texto,setTexto] = useState(''), [quadro,setQuadro] = useState(false), [config,setConfig] = useState<ConfiguracaoAtendimento | null>(null), [lidoEm,setLidoEm] = useState(0), [statusAcao,setStatusAcao] = useState('');
   const pedidoAtual = useRef(0), tituloConversa = useRef<HTMLHeadingElement>(null), focarConversa = useRef(false), cartoes = useRef(new Map<string, HTMLButtonElement>()), dialogoEncerrar = useRef<HTMLDialogElement>(null), botaoEncerrar = useRef<HTMLButtonElement>(null), campoResposta = useRef<HTMLTextAreaElement>(null), encerrouAgora = useRef(false);
   const carregar = useCallback(async () => {
     const pedido = ++pedidoAtual.current;
@@ -48,16 +48,18 @@ export default function AtendimentoWhatsapp() {
     try { const r = await adminFetch('/api/admin/atendimento',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({acao,conversaId:conversa.id,versao:Number(conversa.versao),...(acao==='enviar'?{texto}: {})})}); const json = await r.json(); if (!r.ok || !json.ok) throw Error(json.erro || 'Não foi possível concluir.'); if (acao==='enviar') setTexto(''); await carregar(); return (json.data ?? {}) as { canceladas?: number }; }
     catch(e) {setErro(e instanceof Error ? e.message : 'Não foi possível concluir.'); return null;} finally {setOcupado(false);}
   }
-  // Encerrar pede confirmação (diálogo nativo: foco preso, Esc cancela). As pendentes são canceladas no servidor, na
-  // mesma transação; o histórico fica. Ao fechar, o foco volta ao botão (ou ao título, se a conversa foi encerrada).
-  useEffect(() => { const d = dialogoEncerrar.current; if (!d) return; if (confirmarEncerrar && !d.open) d.showModal(); else if (!confirmarEncerrar && d.open) d.close(); }, [confirmarEncerrar]);
+  // Encerrar pede confirmação (diálogo nativo: foco preso, Esc cancela). Abrir/fechar é imperativo: o próprio diálogo
+  // é a fonte da verdade (um estado React espelhado ficava "aberto" depois do Esc nativo e impedia reabrir).
+  // Cancelar/Esc devolvem o foco ao botão (comportamento nativo); depois de encerrar, o foco vai ao título.
+  // As pendentes são canceladas no servidor, na mesma transação; o histórico fica.
+  function abrirConfirmacaoEncerrar() { const d = dialogoEncerrar.current; if (d && !d.open) d.showModal(); }
   async function encerrarConfirmado() {
     const r = await agir('encerrar');
     encerrouAgora.current = !!r;
-    setConfirmarEncerrar(false);
+    dialogoEncerrar.current?.close();
     if (r) setStatusAcao(r.canceladas ? `Atendimento encerrado. ${r.canceladas === 1 ? '1 resposta pendente foi cancelada' : r.canceladas + ' respostas pendentes foram canceladas'}; o histórico foi mantido.` : 'Atendimento encerrado. O histórico foi mantido.');
   }
-  function aoFecharDialogo() { setConfirmarEncerrar(false); if (encerrouAgora.current) { encerrouAgora.current = false; tituloConversa.current?.focus(); } else botaoEncerrar.current?.focus(); }
+  function aoFecharDialogo() { if (encerrouAgora.current) { encerrouAgora.current = false; window.setTimeout(() => tituloConversa.current?.focus(), 0); } }
   function usarProntaNaResposta(rascunho: string) { setTexto(rascunho); window.setTimeout(() => campoResposta.current?.focus(), 0); }
   async function salvar() {
     if (!config || ocupado) return;setOcupado(true);setErro('');
@@ -113,7 +115,7 @@ export default function AtendimentoWhatsapp() {
           <h2 ref={tituloConversa} tabIndex={-1}>Contato · final {conversa.contato_final} · {estados[conversa.estado]}</h2>
           <p>Responsável: {responsavel(conversa, dados.usuarioId)} · Interesse: {dataBr(conversa.interesse.data) || 'data pendente'} · {conversa.interesse.convidados || 'quantidade pendente'} convidados</p>
           {conversa.nao_contatar && <p role="status">Este contato pediu para não receber mensagens. Novos envios estão bloqueados.</p>}
-          <div className={styles.acoes}><button disabled={ocupado||conversa.nao_contatar||(conversa.estado==='HUMANO'&&conversa.responsavel_id===dados.usuarioId)} onClick={()=>void agir('assumir')}>Assumir e pausar IA</button><button className={styles.retomarIa} disabled={ocupado||conversa.nao_contatar||!dados.automacaoDisponivel||!dados.ia.ia||!dados.configuracao?.ativo||conversa.estado==='ENCERRADA'||conversa.estado==='IA'} onClick={()=>void agir('retomar')}>Retomar IA</button><button ref={botaoEncerrar} aria-haspopup="dialog" disabled={ocupado||conversa.estado==='ENCERRADA'} onClick={()=>setConfirmarEncerrar(true)}>Encerrar</button><Link className={styles.primario} href="/clientes">Preparar contratação</Link></div>{motivoRetomar && <p>{motivoRetomar}</p>}
+          <div className={styles.acoes}><button disabled={ocupado||conversa.nao_contatar||(conversa.estado==='HUMANO'&&conversa.responsavel_id===dados.usuarioId)} onClick={()=>void agir('assumir')}>Assumir e pausar IA</button><button className={styles.retomarIa} disabled={ocupado||conversa.nao_contatar||!dados.automacaoDisponivel||!dados.ia.ia||!dados.configuracao?.ativo||conversa.estado==='ENCERRADA'||conversa.estado==='IA'} onClick={()=>void agir('retomar')}>Retomar IA</button><button ref={botaoEncerrar} aria-haspopup="dialog" disabled={ocupado||conversa.estado==='ENCERRADA'} onClick={abrirConfirmacaoEncerrar}>Encerrar</button><Link className={styles.primario} href="/clientes">Preparar contratação</Link></div>{motivoRetomar && <p>{motivoRetomar}</p>}
           <div className={styles.historico} aria-label="Histórico da conversa">{!historico.length && <p>Nenhuma mensagem para mostrar.</p>}{historico.map(m=><article key={m.id} className={styles.mensagem} data-direcao={m.direcao}><small>{m.direcao==='ENTRADA'?'Cliente':m.humana?'Atendente':'Assistente virtual'} · {(m.direcao==='ENTRADA'?entrada:saida)[m.estado] || m.estado} · <time dateTime={m.criada_em}>{horario(m.criada_em)}</time></small><p>{m.texto || 'Conteúdo sem texto (mídia ou mensagem longa demais). Consulte o canal original; a análise desse conteúdo ainda não está disponível.'}</p>{m.direcao==='SAIDA' && explicacaoSaida[m.estado] && <p className={styles.explicacao} data-estado={m.estado}>{explicacaoSaida[m.estado]}</p>}</article>)}</div>
           {/* Fora do formulário de resposta: Enter na busca não pode enviar a resposta. */}
           <MensagensProntas conversaId={conversa.id} podeUsar={podeResponder} motivoBloqueio={motivoSemResposta} textoAtual={texto} onUsar={usarProntaNaResposta} />
@@ -121,7 +123,7 @@ export default function AtendimentoWhatsapp() {
           <dialog ref={dialogoEncerrar} className={styles.dialogo} aria-labelledby="encerrar-titulo" aria-describedby="encerrar-texto" onClose={aoFecharDialogo}>
             <h2 id="encerrar-titulo">Encerrar atendimento?</h2>
             <p id="encerrar-texto">A conversa será marcada como encerrada e as respostas automáticas pendentes serão canceladas. O histórico será mantido.</p>
-            <div className={styles.acoes}><button type="button" autoFocus onClick={()=>setConfirmarEncerrar(false)}>Cancelar</button><button type="button" className={styles.perigo} disabled={ocupado} onClick={()=>void encerrarConfirmado()}>Encerrar atendimento</button></div>
+            <div className={styles.acoes}><button type="button" autoFocus onClick={()=>dialogoEncerrar.current?.close()}>Cancelar</button><button type="button" className={styles.perigo} disabled={ocupado} onClick={()=>void encerrarConfirmado()}>Encerrar atendimento</button></div>
           </dialog>
         </>}</section>
       </div>}
