@@ -1,5 +1,19 @@
 import type { ContratoSnapshot } from '../repositories/models';
-export function diferencasContratuais(antes: ContratoSnapshot, depois: ContratoSnapshot) {
+
+/**
+ * Base histórica (061: versão 1 conferida em papel) traz metadados que a versão nativa seguinte não tem (origem,
+ * histórico, condição do documento, itens do papel). Eles não são alteração: compara-se só o que a versão nova
+ * descreve. Base nativa segue comparada por inteiro.
+ */
+function projetarBaseHistorica(antes: unknown, depois: unknown): unknown {
+    if (!antes || typeof antes !== 'object' || Array.isArray(antes) || !depois || typeof depois !== 'object' || Array.isArray(depois)) return antes;
+    const b = depois as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(antes as Record<string, unknown>).filter(([k]) => k in b).map(([k, v]) => [k, projetarBaseHistorica(v, b[k])]));
+}
+const baseHistorica = (s: unknown) => (s as { origem?: { tipo?: unknown } } | null)?.origem?.tipo === 'IMPORTACAO_HISTORICA';
+
+export function diferencasContratuais(antesBruto: ContratoSnapshot, depois: ContratoSnapshot) {
+    const antes = (baseHistorica(antesBruto) && !baseHistorica(depois) ? projetarBaseHistorica(antesBruto, depois) : antesBruto) as ContratoSnapshot;
     const resultado: Array<{
         campo: string;
         antes: unknown;

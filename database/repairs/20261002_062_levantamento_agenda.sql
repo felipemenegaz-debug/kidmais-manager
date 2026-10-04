@@ -12,12 +12,13 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 1. Elegibilidade das unidades (D6). Regra única: kidmais062_unidade_agendavel (hoje só ATIVO, inalcançável pela 043).
---    Sem unidade elegível, a empresa é um único recurso de agenda.
+-- 1. Elegibilidade das unidades (D6 = opção A). Regra única: kidmais062_unidade_agendavel = empresa ATIVA, unidade não
+--    desativada e HABILITAÇÃO vigente (agenda_062_unidades_habilitacao). O status SUSPENSO da 043 não conta.
+--    Sem unidade habilitada, a empresa é um único recurso de agenda.
 SELECT e.id AS empresa_id, e.codigo, e.status AS empresa_status,
        count(u.id) FILTER (WHERE u.status = 'SUSPENSO') AS unidades_suspensas,
        count(u.id) FILTER (WHERE u.status = 'DESATIVADO') AS unidades_desativadas,
-       count(u.id) FILTER (WHERE public.kidmais062_unidade_agendavel(u.empresa_id, u.id)) AS unidades_elegiveis
+       count(u.id) FILTER (WHERE public.kidmais062_unidade_agendavel(u.empresa_id, u.id)) AS unidades_habilitadas
   FROM empresas e LEFT JOIN estabelecimentos u ON u.empresa_id = e.id
  GROUP BY e.id, e.codigo, e.status
  ORDER BY e.codigo;
@@ -30,9 +31,11 @@ SELECT o.fechamento_id, o.revisao_id, o.origem, o.data, o.horario_inicio, o.hora
  WHERE o.empresa_id IS NULL
  ORDER BY o.data, o.horario_inicio;
 
--- 3. GLOBAL — bloqueios ativos sem dono (todos os anteriores à 062 e os criados com a 062 removida). Valem para todas
---    as empresas até a resolução D3 (agenda_062_bloqueios_resolucao + reparo de propriedade). As empresas do autor
---    são só INDÍCIO para quem decide; nunca são aplicadas automaticamente.
+-- 3. GLOBAL — bloqueios ativos sem dono, de hoje em diante (todos os anteriores à 062 e os criados com a 062
+--    removida). Valem para todas as empresas até a resolução D3 (agenda_062_bloqueios_resolucao + reparo de
+--    propriedade). Mesmo predicado que trava o reparo: toda linha PENDENTE aqui impede a aplicação. As empresas do
+--    autor são só INDÍCIO para quem decide; nunca são aplicadas automaticamente. Resolução para unidade exige a
+--    unidade habilitada (consulta 1).
 SELECT b.id AS bloqueio_id, b.data, b.dia_inteiro, b.horario_inicio, b.horario_fim, b.motivo,
        (SELECT array_agg(DISTINCT m.empresa_id) FROM memberships m WHERE m.usuario_id = b.criado_por_usuario_id) AS indicio_empresas_do_autor,
        r.empresa_id AS resolvido_para_empresa, r.estabelecimento_id AS resolvido_para_unidade,
@@ -42,7 +45,7 @@ SELECT b.id AS bloqueio_id, b.data, b.dia_inteiro, b.horario_inicio, b.horario_f
  ORDER BY b.data, b.horario_inicio NULLS FIRST;
 
 -- 4. EMPRESA INTEIRA — contratações futuras de empresa sem unidade. Isoladas entre empresas; dentro da empresa valem
---    para todas as unidades (é o comportamento esperado enquanto a D6 não definir unidades elegíveis).
+--    para todas as unidades até a decisão por contratação (consulta 6).
 SELECT f.empresa_id, count(*) AS contratacoes_futuras_sem_unidade
   FROM fechamentos f
  WHERE f.empresa_id IS NOT NULL AND f.estabelecimento_id IS NULL AND f.data_evento >= current_date AND public.kidmais019_ocupa(f.id)
@@ -52,4 +55,23 @@ SELECT f.empresa_id, count(*) AS contratacoes_futuras_sem_unidade
 SELECT CASE WHEN estabelecimento_id IS NOT NULL THEN 'UNIDADE' WHEN empresa_id IS NOT NULL THEN 'EMPRESA' ELSE 'GLOBAL' END AS nivel,
        count(*) AS turnos, count(*) FILTER (WHERE ativo) AS ativos
   FROM configuracao_agenda GROUP BY 1 ORDER BY 1;
+
+-- 6. DECISÃO D2 — contratações futuras (propostas e reservas, não canceladas) sem unidade, com as unidades possíveis
+--    da empresa e a decisão já gravada. Mesmo predicado da pendência do reparo de unidade.
+--    Quem decide grava em agenda_062_fechamentos_resolucao (unidade, decidido_por, motivo); o reparo
+--    20261002_062_fechamentos_unidade.sql aplica só as decididas, com a unidade já habilitada. Nada é inferido de
+--    "a empresa só tem uma unidade".
+SELECT f.id AS fechamento_id, f.empresa_id, f.data_evento, f.horario_inicio, f.horario_fim, f.status,
+       (SELECT array_agg(u.id ORDER BY u.nome) FROM estabelecimentos u WHERE u.empresa_id = f.empresa_id AND u.status <> 'DESATIVADO') AS unidades_da_empresa,
+       (SELECT array_agg(u.id ORDER BY u.nome) FROM estabelecimentos u WHERE u.empresa_id = f.empresa_id AND public.kidmais062_unidade_agendavel(u.empresa_id, u.id)) AS unidades_habilitadas,
+       r.estabelecimento_id AS decidido_para_unidade,
+       CASE WHEN r.fechamento_id IS NULL THEN 'SEM_DECISAO'
+            WHEN public.kidmais062_unidade_agendavel(r.empresa_id, r.estabelecimento_id) THEN 'DECIDIDO'
+            ELSE 'DECIDIDO_UNIDADE_NAO_HABILITADA' END AS situacao
+  FROM fechamentos f LEFT JOIN agenda_062_fechamentos_resolucao r ON r.fechamento_id = f.id
+ WHERE f.empresa_id IS NOT NULL AND f.estabelecimento_id IS NULL AND f.data_evento >= current_date AND f.status NOT IN ('CANCELADO', 'RECUSADO', 'EXPIRADO')
+ ORDER BY f.empresa_id, f.data_evento, f.horario_inicio;
+
+-- 7. Bloqueios PASSADOS sem dono (informativo; não travam o reparo nem decidem agenda futura).
+SELECT count(*) AS bloqueios_passados_sem_dono FROM bloqueios_agenda WHERE ativo AND empresa_id IS NULL AND data < current_date;
 COMMIT;

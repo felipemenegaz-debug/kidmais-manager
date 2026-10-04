@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import {
-  confirmar, conferirFinanceiro, lerOpcoes, novaChave, simular, simularFinanceiro,
-  type OpcoesIntegracao, type ResultadoIntegracao, type ResumoFinanceiro, type Simulacao, type SimulacaoFinanceira,
+  confirmar, conferirFinanceiro, lerOpcoes, novaChave, reautenticar, simular, simularFinanceiro,
+  type OpcoesIntegracao, type SinalDuplicidade, type ResultadoIntegracao, type ResumoFinanceiro, type Simulacao, type SimulacaoFinanceira,
 } from './cliente-integracao';
 import {
   camposCorrigidos, conferenciaParcelas, dataBr, decisoesDoForm, errosFesta, errosPagamentos, financeiroDoFormulario, formInicial,
@@ -25,6 +25,17 @@ type Modo = 'completo' | 'financeiro';
 type Carga = { tipo: 'carregando' } | { tipo: 'erro'; mensagem: string } | { tipo: 'pronto'; opcoes: OpcoesIntegracao };
 type Revisao = { tipo: 'nenhuma' } | { tipo: 'calculando' } | { tipo: 'integracao'; sim: Extract<Simulacao, { integrada: false }>; chave: string } | { tipo: 'financeiro'; sim: Extract<SimulacaoFinanceira, { conferido: false }>; chave: string };
 
+/** Caminho oficial dos pagamentos depois da integração (mesma regra da tela do contrato). */
+const TEXTO_CAMINHO = {
+  CONFERIR_HISTORICO: 'Os pagamentos ainda não foram conferidos.',
+  PLANO_NA_VERSAO_VIGENTE: 'O contrato foi revisado depois da integração: registre os pagamentos no Financeiro do contrato (plano na versão vigente e recebimentos com a data real).',
+  AGUARDAR_REVISAO: 'Há uma revisão do contrato em andamento: conclua ou cancele a revisão antes de registrar os pagamentos.',
+  CONCLUIDO: 'Os pagamentos estão no Financeiro do contrato.',
+} as const;
+
+const ROTULO_SINAL: Record<SinalDuplicidade, string> = { MESMO_CLIENTE: 'mesmo cliente', MESMO_CONTATO: 'mesmo CPF ou telefone em outro cadastro', MESMO_ANIVERSARIANTE: 'mesmo aniversariante',
+  MESMO_VALOR: 'mesmo valor', MESMO_DOCUMENTO: 'mesmo documento original', DATA_DO_DOCUMENTO: 'na data lida no documento', DATA_INVERTIDA: 'dia e mês trocados', DATA_PROXIMA: 'data próxima' };
+
 const ROTULO_CAMPO: Record<CampoDoc, string> = { data: 'data', horarioInicio: 'início', horarioFim: 'término', convidados: 'convidados', valorContratado: 'valor contratado' };
 
 export default function IntegracaoContrato({ importacaoId, modoInicial = 'completo', onPasso }: { importacaoId: string; modoInicial?: Modo; onPasso?(passo: PassoIntegracao): void }) {
@@ -38,6 +49,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoIntegracao | null>(null);
   const [financeiroConcluido, setFinanceiroConcluido] = useState<ResumoFinanceiro | null>(null);
+  const [senha, setSenha] = useState('');
 
   const setPasso = useCallback((p: PassoIntegracao) => { setPassoInterno(p); onPasso?.(p); }, [onPasso]);
 
@@ -74,10 +86,12 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
   if (o.integracao && modo === 'completo') return <section className={styles.painel} role="status">
     <span className={styles.seloPronto}>Integrado</span>
     <h2 className={styles.titulo}>Este contrato já faz parte do sistema</h2>
-    <p className={styles.texto}>Festa, agenda e contrato estão no Core. {o.integracao.financeiroPendente ? 'Os pagamentos ainda não foram conferidos.' : 'Os pagamentos já foram conferidos.'}</p>
+    <p className={styles.texto}>Festa, agenda e contrato estão no Core. {TEXTO_CAMINHO[o.integracao.caminhoFinanceiro ?? (o.integracao.financeiroPendente ? 'CONFERIR_HISTORICO' : 'CONCLUIDO')]}</p>
     <div className={styles.acoesFinais}>
       <Link className={styles.primario} href={`/admin/contratos?contratoId=${o.integracao.contratoId}`}>Abrir contrato</Link>
-      {o.integracao.financeiroPendente && <button type="button" className={styles.fantasma} onClick={() => { setModo('financeiro'); setPasso('pagamentos'); }}>Conferir pagamentos</button>}
+      {(o.integracao.caminhoFinanceiro ?? (o.integracao.financeiroPendente ? 'CONFERIR_HISTORICO' : 'CONCLUIDO')) === 'CONFERIR_HISTORICO'
+        ? <button type="button" className={styles.fantasma} onClick={() => { setModo('financeiro'); setPasso('pagamentos'); }}>Conferir pagamentos</button>
+        : o.integracao.caminhoFinanceiro !== 'AGUARDAR_REVISAO' && <Link className={styles.fantasma} href={`/admin/contratos?contratoId=${o.integracao.contratoId}#financeiro`}>Abrir Financeiro do contrato</Link>}
     </div>
   </section>;
 
@@ -103,9 +117,13 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
   }
 
   async function confirmarAgora() {
-    if (enviando || (revisao.tipo !== 'integracao' && revisao.tipo !== 'financeiro')) return;
+    if (enviando || !senha || (revisao.tipo !== 'integracao' && revisao.tipo !== 'financeiro')) return;
     setEnviando(true); setErro(null);
     try {
+      // Autenticação recente primeiro (mesma rota da assinatura Kidmais); a senha não fica guardada na tela.
+      const auth = await reautenticar(adminFetch, senha);
+      setSenha('');
+      if (!auth.ok) { setErro(auth.mensagem); return; }
       if (revisao.tipo === 'financeiro') {
         const r = await conferirFinanceiro(adminFetch, importacaoId, financeiroDoFormulario(f), revisao.sim.resumoHash, revisao.chave);
         if (r.ok) { setFinanceiroConcluido(revisao.sim.resumo); setPasso('concluida'); return; }
@@ -122,6 +140,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
     setErro(mensagem);
     if (codigo === 'RESUMO_DESATUALIZADO' || codigo === 'CONFLITO_AGENDA' || codigo === 'INTEGRACAO_BLOQUEADA') void revisar(f, true);
     if (codigo === 'IMPORTACAO_JA_INTEGRADA' || codigo === 'FINANCEIRO_JA_CONFERIDO') { void carregar(); setRevisao({ tipo: 'nenhuma' }); }
+    if (codigo === 'IDEMPOTENCIA_CONFLITANTE') void revisar(f, true);
     if (Array.isArray(detalhes?.bloqueios)) setErros(detalhes.bloqueios.filter((b): b is string => typeof b === 'string'));
   }
 
@@ -193,7 +212,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
       {f.situacaoFinanceira && f.situacaoFinanceira !== 'NAO_CONFERIDO' && <div className={ui.parcelas}>
         <table>
           <caption className={styles.oculto}>Parcelas do contrato</caption>
-          <thead><tr><th scope="col">#</th><th scope="col">Valor</th><th scope="col">Vencimento</th><th scope="col">Recebida?</th><th scope="col">Recebida em</th><th scope="col">Forma</th><th scope="col"><span className={styles.oculto}>Remover</span></th></tr></thead>
+          <thead><tr><th scope="col">#</th><th scope="col">Valor</th><th scope="col">Vencimento</th><th scope="col">Recebida?</th><th scope="col">Recebida em</th><th scope="col">Forma</th><th scope="col">Exceção</th><th scope="col"><span className={styles.oculto}>Remover</span></th></tr></thead>
           <tbody>{f.parcelas.map((p, i) => <tr key={p.chave} data-recebida={p.recebida}>
             <td>{i + 1}</td>
             <td><input aria-label={`Valor da parcela ${i + 1}`} inputMode="decimal" placeholder="0,00" value={p.valor} onChange={(e) => atualizarParcela(p.chave, { valor: e.target.value })} /></td>
@@ -203,6 +222,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
             <td>{p.recebida && <select aria-label={`Forma da parcela ${i + 1}`} value={p.forma} onChange={(e) => atualizarParcela(p.chave, { forma: e.target.value as ParcelaForm['forma'] })}>
               <option value="">Forma</option>{(Object.keys(FORMAS_ROTULO) as Array<keyof typeof FORMAS_ROTULO>).map((k) => <option key={k} value={k}>{FORMAS_ROTULO[k]}</option>)}
             </select>}</td>
+            <td>{f.data && p.vencimento > f.data && <label className={ui.excecao}><input type="checkbox" aria-label={`Parcela ${i + 1} vence depois da festa conforme o contrato original`} checked={p.aposFestaConfirmada} onChange={(e) => atualizarParcela(p.chave, { aposFestaConfirmada: e.target.checked })} />Vence depois da festa: consta do contrato original</label>}</td>
             <td><button type="button" className={styles.linkBotao} aria-label={`Remover parcela ${i + 1}`} onClick={() => atualizar({ parcelas: f.parcelas.filter((x) => x.chave !== p.chave) })}>Remover</button></td>
           </tr>)}</tbody>
         </table>
@@ -237,8 +257,12 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
           </li>)}</ul>
         </div>}
         {revisao.sim.possiveisVinculos.length > 0 && <div className={styles.aviso}>
-          <p>Este cliente já tem {revisao.sim.possiveisVinculos.length === 1 ? 'uma contratação' : 'contratações'} neste dia: {revisao.sim.possiveisVinculos.map((v) => `${v.horario} (${v.status.toLowerCase()}${v.comPagamento ? ', com pagamentos' : ''})`).join('; ')}. Confira antes de seguir; nada é unido automaticamente.</p>
-          <label className={ui.declaracao}><input type="checkbox" checked={f.outroContratoConfirmado} onChange={(e) => { const novo = { ...f, outroContratoConfirmado: e.target.checked }; setForm(novo); void revisar(novo); }} />É outro contrato (não é o mesmo já registrado)</label>
+          <p>Possível duplicidade: {revisao.sim.possiveisVinculos.length === 1 ? 'há uma contratação parecida' : 'há contratações parecidas'} nesta empresa {revisao.sim.possiveisVinculos.some((v) => v.alcance === 'OUTRA_DATA') ? 'neste dia ou em outra data (a data pode ter sido lida ou corrigida de outro jeito)' : 'neste dia'}. Pode ser o mesmo contrato escaneado de novo. Confira antes de seguir; nada é unido nem descartado automaticamente.</p>
+          <ul>{revisao.sim.possiveisVinculos.map((v) => <li key={v.fechamentoId}>{v.alcance === 'OUTRA_DATA' ? `${dataBr(v.data)}, ` : ''}{v.horario} · {v.status.toLowerCase()}{v.importado ? ' · contrato importado' : ''}{v.comPagamento ? ' · com pagamentos' : ''} — {v.sinais.map((s) => ROTULO_SINAL[s]).join(', ')}{v.contratoId && <> · <Link href={`/admin/contratos?contratoId=${v.contratoId}`} target="_blank">abrir</Link></>}</li>)}</ul>
+          <label className={ui.declaracao}><input type="checkbox" aria-label="É outro contrato" checked={f.outroContratoConfirmado} onChange={(e) => setForm({ ...f, outroContratoConfirmado: e.target.checked })} />É outro contrato (não é o mesmo já registrado)</label>
+          {f.outroContratoConfirmado && <label className={ui.motivo}><span>Por que é outro contrato? (fica registrado na auditoria)</span>
+            <input aria-label="Motivo: é outro contrato" value={f.motivoOutroContrato} maxLength={500} onChange={(e) => setForm({ ...f, motivoOutroContrato: e.target.value })} /></label>}
+          <button type="button" className={styles.fantasma} disabled={f.outroContratoConfirmado && f.motivoOutroContrato.trim().length < 5} onClick={() => void revisar(f)}>Registrar decisão</button>
         </div>}
         <Erros erros={revisao.sim.bloqueios} erro={erro} />
         {revisao.sim.avisos.filter((a) => !/declare a conferência/i.test(a)).length > 0 && <ul className={styles.discreto}>{revisao.sim.avisos.filter((a) => !/declare a conferência/i.test(a)).map((a) => <li key={a}>{a}</li>)}</ul>}
@@ -250,9 +274,11 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
         <Erros erros={revisao.sim.bloqueios} erro={erro} />
       </>}
       {revisao.tipo === 'nenhuma' && <Erros erros={erros} erro={erro} />}
+      {(revisao.tipo === 'integracao' || revisao.tipo === 'financeiro') && <label className={ui.campo}><span>Confirme sua senha para registrar</span>
+        <input type="password" aria-label="Senha para confirmar" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label>}
       <div className={styles.acoesFinais}>
         <button type="button" className={styles.fantasma} disabled={enviando} onClick={() => setPasso('pagamentos')}>Voltar e corrigir</button>
-        <button type="button" className={styles.primario} disabled={enviando || !((revisao.tipo === 'integracao' && revisao.sim.pronto && f.conferenciaDeclarada) || (revisao.tipo === 'financeiro' && revisao.sim.pronto))} onClick={() => void confirmarAgora()}>
+        <button type="button" className={styles.primario} disabled={enviando || !senha || !((revisao.tipo === 'integracao' && revisao.sim.pronto && f.conferenciaDeclarada) || (revisao.tipo === 'financeiro' && revisao.sim.pronto))} onClick={() => void confirmarAgora()}>
           {enviando ? 'Integrando…' : modo === 'financeiro' ? 'Confirmar pagamentos' : 'Confirmar integração'}
         </button>
       </div>

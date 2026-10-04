@@ -37,6 +37,28 @@ function adicionais(snapshot: ContratoSnapshot) {
   );
 }
 
+/**
+ * Versão histórica (061): o snapshot traz só o que o contrato em papel e a conferência registraram. Campos que ele
+ * não tem (endereço, RG, e-mail, aniversariante, escolhas do buffet) aparecem como "Não informado" — nada é inventado.
+ * A versão nativa continua com exatamente as mesmas linhas de antes.
+ */
+const versaoHistorica = (snapshot: ContratoSnapshot) =>
+  (snapshot as { origem?: { tipo?: unknown } }).origem?.tipo === "IMPORTACAO_HISTORICA";
+
+function enderecoHistorico(snapshot: ContratoSnapshot) {
+  return snapshot.contratante.endereco ? endereco(snapshot) : "Não informado";
+}
+
+function buffetHistorico(snapshot: ContratoSnapshot) {
+  const b = snapshot.contratacao.buffet as { status?: string; itens?: string | null; observacoes?: string | null; restricoes?: string | null } | undefined;
+  if (!b || b.status !== "DEFINIDO") return buffet({ ...snapshot, contratacao: { ...snapshot.contratacao, buffet: { status: "PENDENTE" } as never } });
+  return [
+    linha(`Itens do buffet (conforme o documento original): ${textoOuNaoInformado(b.itens)}`),
+    linha(`Observações: ${textoOuNaoInformado(b.observacoes)}`),
+    linha(`Restrições: ${textoOuNaoInformado(b.restricoes)}`),
+  ];
+}
+
 function buffet(snapshot: ContratoSnapshot) {
   const b = snapshot.contratacao.buffet;
   if (b.status === "PENDENTE") {
@@ -65,6 +87,7 @@ export function renderizarContratoTemplateV1(
   input: GerarDocumentoContratoInput,
 ) {
   const s = input.snapshot;
+  const historico = versaoHistorica(s);
   const linhas: ContratoDocumentoLinha[] = [
     linha("KIDMAIS FESTAS", "subtitulo", 3),
     linha("RESUMO DA CONTRATAÇÃO", "titulo", 8),
@@ -78,11 +101,11 @@ export function renderizarContratoTemplateV1(
     linha(`Nome: ${s.contratante.nomeCompleto}`),
     linha(`CPF: ${formatarCpf(s.contratante.cpf)}`),
     linha(`RG: ${textoOuNaoInformado(s.contratante.rg)}`),
-    linha(`E-mail: ${s.contratante.email}`),
-    linha(`Endereço: ${endereco(s)}`, "corpo", 10),
+    linha(`E-mail: ${historico ? textoOuNaoInformado(s.contratante.email) : s.contratante.email}`),
+    linha(`Endereço: ${historico ? enderecoHistorico(s) : endereco(s)}`, "corpo", 10),
 
     linha("2. DADOS DO EVENTO", "secao", 5),
-    linha(`Aniversariante: ${s.aniversariante.nome}`),
+    linha(`Aniversariante: ${historico ? textoOuNaoInformado(s.aniversariante.nome) : s.aniversariante.nome}`),
     linha(`Tema: ${textoOuNaoInformado(s.aniversariante.temaFesta)}`),
     linha(`Data: ${formatarDataContrato(s.evento.data)}`),
     linha(
@@ -109,7 +132,7 @@ export function renderizarContratoTemplateV1(
     ),
 
     linha("4. BUFFET", "secao", 5),
-    ...buffet(s),
+    ...(historico ? buffetHistorico(s) : buffet(s)),
     linha("", "corpo", 5),
 
     linha("5. VALOR E FORMA DE PAGAMENTO", "secao", 5),
@@ -143,7 +166,10 @@ export function renderizarContratoTemplateV1(
       "O Resumo da Contratação e o Contrato Oficial são gerados a partir da mesma versão congelada do snapshot, evitando divergência de dados entre os dois documentos.",
     ),
     linha(
-      "Este Resumo não substitui o Contrato Oficial. O aceite eletrônico é realizado sobre o Contrato Oficial correspondente ao pacote contratado.",
+      // Versão histórica (061): o contrato foi assinado em papel; o texto nativo (aceite eletrônico) fica idêntico.
+      (s as { origem?: { tipo?: unknown } }).origem?.tipo === "IMPORTACAO_HISTORICA"
+        ? "Contrato assinado em papel, conferido pela Kidmais na importação. Não há aceite nem comprovante eletrônico: a prova é o documento original."
+        : "Este Resumo não substitui o Contrato Oficial. O aceite eletrônico é realizado sobre o Contrato Oficial correspondente ao pacote contratado.",
       "corpo",
       12,
     ),

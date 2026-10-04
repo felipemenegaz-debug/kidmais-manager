@@ -43,6 +43,10 @@ DO $$ BEGIN
      OR (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais_validar_agenda_revisao()'::regprocedure) IS DISTINCT FROM '997158485f6dc9595cf6045594b220206c59c31b631bc164aad3956963875e89' THEN
     RAISE EXCEPTION '061: formalização/agenda divergem da 019.';
   END IF;
+  -- A 061 troca UMA condição do gatilho financeiro diferido da 015 (seção 6): o corpo instalado precisa ser o da 015.
+  IF (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais_015_validar()'::regprocedure) IS DISTINCT FROM 'f003f5f39c136b98aa3d1784584b1dca8fd6aca9fd665dc7351d3044e6f6e06c' THEN
+    RAISE EXCEPTION '061: validação financeira diverge da 015.';
+  END IF;
   IF EXISTS(SELECT 1 FROM public.fechamentos WHERE origem_fechamento = 'IMPORTACAO_HISTORICA')
      OR EXISTS(SELECT 1 FROM public.contrato_versoes WHERE aceite_metodo IS DISTINCT FROM 'OTP' AND aceite_metodo IS NOT NULL) THEN
     RAISE EXCEPTION '061: origem histórica já presente sem a migration.';
@@ -188,6 +192,19 @@ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pagamentos p WHERE p.id=NEW.pagamento_id AND p.contrato_versao_id=ci.contrato_versao_id
    AND round(p.valor_total_contratado*100)::bigint=NEW.contratado_centavos) THEN
   RAISE EXCEPTION '061: pagamento não é a obrigação do contrato histórico' USING ERRCODE='23514'; END IF;
+ -- Conferência posterior: só sobre a versão conferida enquanto ela é a VIGENTE, sem revisão aberta e com contrato e
+ -- fechamento não cancelados (revisão do contrato muda valores; obrigação na versão antiga ficaria órfã).
+ IF NOT EXISTS(SELECT 1 FROM contrato_fluxos cf JOIN contratos c ON c.id=cf.contrato_id JOIN fechamentos f ON f.id=c.fechamento_id
+   WHERE cf.contrato_id=ci.contrato_id AND cf.versao_vigente_id=ci.contrato_versao_id AND c.status<>'CANCELADO' AND f.status<>'CANCELADO')
+   OR EXISTS(SELECT 1 FROM fechamento_revisoes r WHERE r.contrato_id=ci.contrato_id AND r.estado IN ('EM_ELABORACAO','CONGELADA')) THEN
+  RAISE EXCEPTION '061: a versão conferida não é mais a vigente (ou há revisão aberta ou cancelamento)' USING ERRCODE='23514'; END IF;
+ -- Exceção histórica: parcela que vence depois da festa só com a confirmação do operador gravada na decisão, para a
+ -- MESMA parcela e o MESMO vencimento (o vencimento nunca é ajustado; contratos nativos não passam por aqui).
+ IF EXISTS(SELECT 1 FROM pagamento_parcelas pp JOIN pagamento_planos pl ON pl.id=pp.plano_id JOIN fechamentos f ON f.id=ci.fechamento_id
+   WHERE pl.pagamento_id=NEW.pagamento_id AND pp.vencimento>f.data_evento
+     AND NOT (COALESCE(NEW.decisoes->'financeiro'->'parcelas'->(pp.numero-1)->>'aposFestaConfirmada','false')='true'
+              AND NEW.decisoes->'financeiro'->'parcelas'->(pp.numero-1)->>'vencimento'=pp.vencimento::text)) THEN
+  RAISE EXCEPTION '061: parcela vence depois da festa sem a exceção histórica confirmada' USING ERRCODE='23514'; END IF;
  IF NOT EXISTS(SELECT 1 FROM memberships m JOIN usuarios_administrativos u ON u.id=m.usuario_id
    WHERE m.empresa_id=NEW.empresa_id AND m.usuario_id=NEW.conferido_por AND m.status='ATIVA' AND m.papel=NEW.conferido_papel AND u.ativo) THEN
   RAISE EXCEPTION '061: conferência exige operador ativo da empresa' USING ERRCODE='23514'; END IF;
@@ -369,6 +386,84 @@ BEGIN
    IF prova.id IS NULL OR prova.finalidade<>'CONTRATO_ACEITE' OR prova.status<>'CONSUMIDA' OR prova.consumido_por_contrato_versao_id IS DISTINCT FROM vid THEN RAISE EXCEPTION 'OTP inválido para assinatura' USING ERRCODE='23514'; END IF;
   END IF;
  END IF;
+ RETURN NULL;
+END $$;
+
+-- 6. Exceção histórica de vencimento no gatilho financeiro diferido da 015. Sem isto, o commit de um cronograma PIX
+--    parcelado recusava ("Item incompatível com cronograma") a parcela do contrato original que vence depois da festa,
+--    mesmo confirmada na integração e preservada sem mudança — o serviço aceitava e o banco recusava no commit.
+--    Mesmo critério do serviço (excecoesHistoricasDoPagamento): só parcela do plano HISTÓRICO comprovado (versão 1 do
+--    pagamento criado pela integração), com a confirmação gravada para aquele número e aquele vencimento. Plano
+--    substituto ou parcela nova não herdam. ÚNICA mudança no corpo da 015: o "AND NOT kidmais061_excecao_historica(...)".
+CREATE FUNCTION public.kidmais061_excecao_historica(uuid, date) RETURNS boolean
+LANGUAGE sql STABLE SET search_path = public, pg_catalog AS $$
+ SELECT EXISTS(SELECT 1 FROM contrato_importacao_financeiro cif
+   JOIN pagamento_planos pl ON pl.pagamento_id=cif.pagamento_id AND pl.numero_versao=1
+   JOIN pagamento_parcelas pp ON pp.plano_id=pl.id
+  WHERE pp.id=$1 AND pp.vencimento=$2
+    AND cif.decisoes->'financeiro'->'parcelas'->(pp.numero-1)->>'aposFestaConfirmada'='true'
+    AND cif.decisoes->'financeiro'->'parcelas'->(pp.numero-1)->>'vencimento'=pp.vencimento::text);
+$$;
+
+CREATE OR REPLACE FUNCTION public.kidmais_015_validar() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE j jsonb:=to_jsonb(NEW); pid uuid; cid uuid; o bigint; l bigint; reservado bigint; r record;
+BEGIN
+ pid:=(j->>'pagamento_id')::uuid;
+ IF pid IS NULL AND TG_TABLE_NAME='pagamentos' THEN pid:=NEW.id; END IF;
+ IF pid IS NULL AND TG_TABLE_NAME='pagamento_parcelas' THEN SELECT pagamento_id INTO pid FROM pagamento_planos WHERE id=NEW.plano_id; END IF;
+ IF pid IS NULL AND TG_TABLE_NAME IN ('pagamento_estornos','pagamento_recebimento_alocacoes') THEN SELECT pagamento_id INTO pid FROM pagamento_recebimentos WHERE id=NEW.recebimento_id; END IF;
+ IF pid IS NULL AND j ? 'cronograma_id' THEN SELECT pagamento_id INTO pid FROM pagamento_cronogramas WHERE id=(j->>'cronograma_id')::uuid; END IF;
+ IF pid IS NULL AND j ? 'devolucao_id' THEN SELECT pagamento_id INTO pid FROM pagamento_devolucoes WHERE id=(j->>'devolucao_id')::uuid; END IF;
+ IF pid IS NULL AND j ? 'ajuste_id' THEN SELECT pagamento_id INTO pid FROM pagamento_ajustes_contratuais WHERE id=(j->>'ajuste_id')::uuid; END IF;
+ IF pid IS NULL THEN RAISE EXCEPTION 'Contexto 015 ausente' USING ERRCODE='23514'; END IF;
+ SELECT contrato_id INTO cid FROM pagamento_gestoes WHERE pagamento_id=pid;
+ IF cid IS NULL AND TG_TABLE_NAME IN ('pagamentos','pagamento_parcelas','pagamento_recebimentos','pagamento_estornos','pagamento_recebimento_alocacoes') THEN RETURN NULL; END IF;
+ PERFORM 1 FROM pagamentos WHERE id=pid FOR UPDATE;
+ IF NOT EXISTS(SELECT 1 FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE p.id=pid AND v.contrato_id=cid) THEN RAISE EXCEPTION 'Gestão pertence a outro contrato' USING ERRCODE='23514'; END IF;
+ IF EXISTS(SELECT 1 FROM pagamento_tratamentos t JOIN contrato_pendencias_financeiras p ON p.id=t.pendencia_id WHERE t.pagamento_id=pid AND (p.pagamento_id<>pid OR p.contrato_id<>cid)) THEN RAISE EXCEPTION 'Pendência divergente' USING ERRCODE='23514'; END IF;
+ IF EXISTS(SELECT 1 FROM pagamento_eventos e LEFT JOIN pagamento_tratamentos t ON t.id=e.tratamento_id LEFT JOIN contrato_pendencias_financeiras p ON p.id=e.pendencia_id WHERE e.pagamento_id=pid AND ((t.id IS NOT NULL AND (t.pagamento_id<>pid OR t.pendencia_id IS DISTINCT FROM e.pendencia_id)) OR (p.id IS NOT NULL AND p.pagamento_id<>pid))) THEN RAISE EXCEPTION 'Evento em contexto divergente' USING ERRCODE='23514'; END IF;
+ IF EXISTS(SELECT 1 FROM pagamento_movimentos_contextos m JOIN pagamento_eventos e ON e.id=m.evento_id JOIN contrato_versoes v ON v.id=m.versao_financeira_id LEFT JOIN pagamento_recebimentos pr ON pr.id=m.recebimento_id LEFT JOIN pagamento_estornos s ON s.id=m.estorno_id LEFT JOIN pagamento_recebimentos sr ON sr.id=s.recebimento_id WHERE m.pagamento_id=pid AND (e.pagamento_id<>pid OR v.contrato_id<>cid OR coalesce(pr.pagamento_id,sr.pagamento_id)<>pid OR v.status<>'ASSINADA')) THEN RAISE EXCEPTION 'Autoria econômica divergente' USING ERRCODE='23514'; END IF;
+ IF TG_TABLE_NAME='pagamento_ajustes_contratuais' THEN
+  IF NOT EXISTS(SELECT 1 FROM contrato_fluxos WHERE contrato_id=cid AND versao_vigente_id=NEW.versao_reconhecida_id) THEN RAISE EXCEPTION 'Versão reconhecida não é vigente' USING ERRCODE='23514'; END IF;
+ END IF;
+ IF EXISTS(SELECT 1 FROM pagamento_ajuste_bases b JOIN pagamento_ajustes_contratuais a ON a.id=b.ajuste_id LEFT JOIN pagamento_recebimentos pr ON pr.id=b.recebimento_id LEFT JOIN pagamento_estornos e ON e.id=b.estorno_id LEFT JOIN pagamento_recebimentos er ON er.id=e.recebimento_id LEFT JOIN pagamento_devolucoes d ON d.id=b.devolucao_id WHERE a.pagamento_id=pid AND (coalesce(pr.pagamento_id,er.pagamento_id,d.pagamento_id)<>pid OR coalesce(pr.valor_bruto*100,e.valor*100,d.valor_centavos)<>b.valor_centavos OR coalesce(pr.status,e.status,d.estado) NOT IN ('CONFIRMADO','CONCLUIDA'))) THEN RAISE EXCEPTION 'Base histórica divergente' USING ERRCODE='23514'; END IF;
+ IF (SELECT sequencia FROM pagamento_gestoes WHERE pagamento_id=pid)<>(SELECT coalesce(max(sequencia),0) FROM pagamento_eventos WHERE pagamento_id=pid) OR (SELECT count(*) FROM pagamento_eventos WHERE pagamento_id=pid)<>(SELECT sequencia FROM pagamento_gestoes WHERE pagamento_id=pid) THEN RAISE EXCEPTION 'Sequência sem evento' USING ERRCODE='23514'; END IF;
+ FOR r IN SELECT a.*,v.snapshot,v.status AS vs,v.contrato_id AS vc,p.versao_nova_id,t.estado AS te,e.tipo,e.pagamento_id AS ep,e.sequencia AS es FROM pagamento_ajustes_contratuais a JOIN contrato_versoes v ON v.id=a.versao_reconhecida_id JOIN pagamento_tratamentos t ON t.id=a.tratamento_id JOIN contrato_pendencias_financeiras p ON p.id=t.pendencia_id JOIN pagamento_eventos e ON e.id=a.evento_id WHERE a.pagamento_id=pid LOOP
+ IF r.vc<>cid OR r.vs<>'ASSINADA' OR r.versao_nova_id<>r.versao_reconhecida_id OR r.te<>'RESOLVIDA' OR r.tipo<>'ALTERACAO_RESOLVIDA' OR r.ep<>pid OR (r.snapshot->'comercial'->>'valorFinalContrato')::numeric*100<>r.obrigacao_depois_centavos THEN RAISE EXCEPTION 'Reconhecimento inconsistente' USING ERRCODE='23514'; END IF;
+ IF r.ajuste_anterior_id IS NULL THEN
+ IF NOT EXISTS(SELECT 1 FROM pagamentos WHERE id=pid AND contrato_versao_id=r.versao_base_financeira_id AND valor_total_contratado*100=r.obrigacao_antes_centavos) THEN RAISE EXCEPTION 'Base original divergente' USING ERRCODE='23514'; END IF;
+ ELSIF NOT EXISTS(SELECT 1 FROM pagamento_ajustes_contratuais a JOIN pagamento_eventos ev ON ev.id=a.evento_id WHERE a.id=r.ajuste_anterior_id AND a.pagamento_id=pid AND a.versao_reconhecida_id=r.versao_base_financeira_id AND a.obrigacao_depois_centavos=r.obrigacao_antes_centavos AND ev.sequencia<r.es) THEN RAISE EXCEPTION 'Cadeia de ajustes inválida' USING ERRCODE='23514'; END IF;
+ END LOOP;
+ IF EXISTS(SELECT 1 FROM pagamento_tratamentos t WHERE t.pagamento_id=pid AND t.estado='RESOLVIDA' AND NOT EXISTS(SELECT 1 FROM pagamento_ajustes_contratuais a WHERE a.tratamento_id=t.id)) THEN RAISE EXCEPTION 'Tratamento resolvido sem ajuste' USING ERRCODE='23514'; END IF;
+ FOR r IN SELECT c.*,v.contrato_id AS vc,v.snapshot,e.pagamento_id AS ep,e.sequencia AS es FROM pagamento_cronogramas c JOIN contrato_versoes v ON v.id=c.versao_referencia_id JOIN pagamento_eventos e ON e.id=c.evento_id WHERE c.pagamento_id=pid LOOP
+ IF r.vc<>cid OR r.ep<>pid OR (r.plano_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM pagamento_planos WHERE id=r.plano_id AND pagamento_id=pid)) OR r.saldo_inicial_centavos<>(SELECT coalesce(sum(saldo_inicial_centavos),0) FROM pagamento_cronograma_itens WHERE cronograma_id=r.id) THEN RAISE EXCEPTION 'Cronograma inconsistente' USING ERRCODE='23514'; END IF;
+ IF r.cronograma_anterior_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM pagamento_cronogramas cr JOIN pagamento_eventos ev ON ev.id=cr.evento_id WHERE cr.id=r.cronograma_anterior_id AND cr.pagamento_id=pid AND ev.sequencia<r.es) THEN RAISE EXCEPTION 'Cadeia de cronogramas inválida' USING ERRCODE='23514'; END IF;
+ IF r.ajuste_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM pagamento_ajustes_contratuais a WHERE a.id=r.ajuste_id AND a.pagamento_id=pid AND a.evento_id=r.evento_id AND a.versao_reconhecida_id=r.versao_referencia_id) THEN RAISE EXCEPTION 'Cronograma não corresponde ao ajuste' USING ERRCODE='23514'; END IF;
+ IF EXISTS(SELECT 1 FROM pagamento_cronograma_itens i JOIN pagamento_parcelas p ON p.id=i.parcela_id JOIN pagamento_planos pl ON pl.id=p.plano_id WHERE i.cronograma_id=r.id AND (pl.pagamento_id<>pid OR p.vencimento<>i.vencimento_referencia OR i.saldo_inicial_centavos>p.valor_previsto*100 OR (coalesce(r.snapshot->'comercial'->'condicaoPagamento'->>'forma',r.snapshot->'comercial'->>'formaPagamentoPretendida')='PIX_PARCELADO' AND i.vencimento_referencia>r.data_festa_referencia AND NOT public.kidmais061_excecao_historica(i.parcela_id,i.vencimento_referencia)))) THEN RAISE EXCEPTION 'Item incompatível com cronograma' USING ERRCODE='23514'; END IF;
+ END LOOP;
+ FOR r IN SELECT d.*,cr.estado AS re,cr.valor_centavos AS rv,cr.pagamento_id AS rp FROM pagamento_devolucoes d JOIN pagamento_credito_reservas cr ON cr.id=d.reserva_id WHERE d.pagamento_id=pid LOOP
+ IF r.rp<>pid OR r.rv<>r.valor_centavos OR r.re<>(CASE r.estado WHEN 'PENDENTE' THEN 'ATIVA' WHEN 'CONCLUIDA' THEN 'CONSUMIDA' ELSE 'LIBERADA' END) OR r.valor_centavos<>(SELECT coalesce(sum(valor_centavos),0) FROM pagamento_devolucao_alocacoes WHERE devolucao_id=r.id) THEN RAISE EXCEPTION 'Devolução/reserva divergente' USING ERRCODE='23514'; END IF;
+ IF r.estado='CONCLUIDA' AND (NOT EXISTS(SELECT 1 FROM pagamento_eventos e WHERE e.id=r.evento_conclusao_id AND e.pagamento_id=pid AND e.tipo='DEVOLUCAO_CONCLUIDA' AND e.identidade_snapshot->>'papel'='REPRESENTANTE_AUTORIZADO') OR (NOT EXISTS(SELECT 1 FROM pagamento_devolucao_comprovantes WHERE devolucao_id=r.id) AND coalesce(length(btrim(r.justificativa_sem_comprovante)),0)=0)) THEN RAISE EXCEPTION 'Conclusão sem representante/evidência' USING ERRCODE='23514'; END IF;
+ IF r.referencia_externa IS NOT NULL AND EXISTS(SELECT 1 FROM pagamento_estornos WHERE provedor_codigo=r.provedor_codigo AND referencia_externa=r.referencia_externa) THEN RAISE EXCEPTION 'Saída registrada também como estorno' USING ERRCODE='23514'; END IF;
+ END LOOP;
+ IF EXISTS(SELECT 1 FROM pagamento_credito_reservas cr WHERE cr.pagamento_id=pid AND NOT EXISTS(SELECT 1 FROM pagamento_devolucoes d WHERE d.reserva_id=cr.id)) THEN RAISE EXCEPTION 'Reserva sem devolução' USING ERRCODE='23514'; END IF;
+ FOR r IN SELECT a.id,a.valor_alocado,a.recebimento_id,a.parcela_id FROM pagamento_recebimento_alocacoes a JOIN pagamento_recebimentos pr ON pr.id=a.recebimento_id WHERE pr.pagamento_id=pid LOOP
+ IF r.valor_alocado*100 < (SELECT coalesce(sum(valor),0)*100 FROM pagamento_estornos WHERE recebimento_id=r.recebimento_id AND parcela_id=r.parcela_id AND status IN ('SOLICITADO','CONFIRMADO')) + (SELECT coalesce(sum(da.valor_centavos),0) FROM pagamento_devolucao_alocacoes da JOIN pagamento_devolucoes d ON d.id=da.devolucao_id WHERE da.recebimento_alocacao_id=r.id AND d.estado IN ('PENDENTE','CONCLUIDA')) THEN RAISE EXCEPTION 'Origem financeira comprometida' USING ERRCODE='23514'; END IF;
+ END LOOP;
+ IF EXISTS(SELECT 1 FROM pagamento_devolucao_alocacoes da JOIN pagamento_devolucoes d ON d.id=da.devolucao_id JOIN pagamento_recebimento_alocacoes a ON a.id=da.recebimento_alocacao_id JOIN pagamento_recebimentos pr ON pr.id=a.recebimento_id WHERE d.pagamento_id=pid AND (pr.pagamento_id<>pid OR pr.status<>'CONFIRMADO')) THEN RAISE EXCEPTION 'Origem de devolução inválida' USING ERRCODE='23514'; END IF;
+ SELECT valor_total_contratado*100 INTO o FROM pagamentos WHERE id=pid;
+ o:=o+(SELECT coalesce(sum(delta_centavos),0) FROM pagamento_ajustes_contratuais WHERE pagamento_id=pid);
+ SELECT coalesce(sum(valor_bruto),0)*100 INTO l FROM pagamento_recebimentos WHERE pagamento_id=pid AND status='CONFIRMADO';
+ l:=l-(SELECT coalesce(sum(e.valor),0)*100 FROM pagamento_estornos e JOIN pagamento_recebimentos pr ON pr.id=e.recebimento_id WHERE pr.pagamento_id=pid AND e.status='CONFIRMADO')-(SELECT coalesce(sum(valor_centavos),0) FROM pagamento_devolucoes WHERE pagamento_id=pid AND estado='CONCLUIDA');
+ SELECT coalesce(sum(valor_centavos),0) INTO reservado FROM pagamento_credito_reservas WHERE pagamento_id=pid AND estado='ATIVA';
+ IF o<0 OR l<0 OR reservado>greatest(l-o,0) THEN RAISE EXCEPTION 'Posição econômica/reserva inválida' USING ERRCODE='23514'; END IF;
+ IF EXISTS(SELECT 1 FROM pagamento_ajustes_contratuais WHERE pagamento_id=pid) AND NOT EXISTS(SELECT 1 FROM pagamento_cronogramas WHERE pagamento_id=pid AND estado='ATIVO') THEN RAISE EXCEPTION 'Regularização sem cronograma canônico' USING ERRCODE='23514'; END IF;
+ IF EXISTS(SELECT 1 FROM pagamento_cronogramas WHERE pagamento_id=pid AND estado='ATIVO') AND
+ (SELECT coalesce(sum(greatest(i.saldo_inicial_centavos+i.recebido_base_centavos-i.estornado_base_centavos
+ -coalesce((SELECT sum(al.valor_alocado)*100 FROM pagamento_recebimento_alocacoes al JOIN pagamento_recebimentos pr ON pr.id=al.recebimento_id WHERE al.parcela_id=i.parcela_id AND pr.status='CONFIRMADO'),0)
+ +coalesce((SELECT sum(es.valor)*100 FROM pagamento_estornos es WHERE es.parcela_id=i.parcela_id AND es.status='CONFIRMADO'),0),0)),0)
+ FROM pagamento_cronograma_itens i JOIN pagamento_cronogramas cr ON cr.id=i.cronograma_id WHERE cr.pagamento_id=pid AND cr.estado='ATIVO')<>greatest(o-l,0)
+ THEN RAISE EXCEPTION 'Saldo econômico exige cronograma com cobertura exata' USING ERRCODE='23514'; END IF;
  RETURN NULL;
 END $$;
 

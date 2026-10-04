@@ -5,7 +5,7 @@ import type { TenantComprovado } from '../../saas/provar-tenant.ts';
 import { decisoesBase, snapshotBase } from './fixtures.ts';
 import type { DecisoesIntegracao } from './modelo.ts';
 import {
-  conferirFinanceiro, confirmarIntegracao, instanteDoRecebimento, IntegracaoImportadoError, opcoesIntegracao, simularFinanceiro, simularIntegracao,
+  conferirFinanceiro, confirmarIntegracao, instanteDoRecebimento, IntegracaoImportadoError, opcoesIntegracao, recusaDoPlanoNativo, simularFinanceiro, simularIntegracao,
   type Core,
 } from './servico.ts';
 
@@ -28,6 +28,13 @@ type Estado = {
   ocupado: boolean; bloqueado: boolean; disponivel: boolean;
   vinculosCliente: Array<Record<string, unknown>>;
   contratoStatus: string; fechamentoStatus: string;
+  /** Conferência posterior: versão conferida ainda vigente, revisão aberta, obrigação nativa já existente. */
+  versaoVigente: boolean; revisaoAberta: boolean; comPagamento: boolean;
+  sqlVinculos: string[];
+  /** Parâmetros de cada busca de possíveis duplicados. */
+  paramsVinculos: Array<readonly unknown[]>;
+  /** Candidatos que só aparecem a partir da 2ª consulta da mesma confirmação (commit concorrente antes do lock). */
+  vinculosDepoisDoLock: Array<Record<string, unknown>> | null;
   locks: string[]; sql: string[];
   aniversarianteExistente: string | null;
 };
@@ -37,6 +44,7 @@ function estadoInicial(): Estado {
     importacoes: [{ id: IMP, empresa: EMPRESA, cliente: CLIENTE, documento: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', status: 'IMPORTADA', snapshot: snapshotBase() }],
     vinculos: [], financeiros: [], inserts: [], ocupado: false, bloqueado: false, disponivel: true, vinculosCliente: [],
     contratoStatus: 'ASSINADO', fechamentoStatus: 'CONFIRMADO', locks: [], sql: [], aniversarianteExistente: null,
+    versaoVigente: true, revisaoAberta: false, comPagamento: false, sqlVinculos: [], paramsVinculos: [], vinculosDepoisDoLock: null,
   };
 }
 
@@ -59,13 +67,31 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
     if (sql.includes('FROM precos_pacote pp')) return linhas([{ tabela_preco_id: '44444444-4444-4444-8444-444444444444', preco_pacote_id: '55555555-5555-4555-8555-555555555555', categoria: 'NOBRE' }]);
     if (sql.includes('FROM configuracao_agenda')) return linhas([{ id: '66666666-6666-4666-8666-666666666666' }]);
     if (sql.includes('kidmais_lock_datas_revisao')) { estado.locks.push(`data:${v[0]}`); return linhas([]); }
+    if (sql.includes('AS com_pagamento') && sql.includes('AS vigente_conferida')) {
+      return linhas([{ com_pagamento: estado.comPagamento, revisao_aberta: estado.revisaoAberta, vigente_conferida: estado.versaoVigente }]);
+    }
+    if (sql.includes('kidmais:importacao-duplicidade:')) {
+      // Uma serialização por EMPRESA (a busca complementar alcança outras datas): a chave não leva a data.
+      assert.equal(v.length, 1);
+      estado.locks.push(`duplicidade:${v[0]}`);
+      return linhas([]);
+    }
+    if (sql.includes('kidmais062_travar_habilitacao')) { estado.locks.push(`unidade:${v[0]}`); return linhas([]); }
     // Conflito no MESMO recurso (062): empresa comprovada e unidade escolhida vão no SQL.
     if (sql.includes('kidmais062_ocupacoes_escopo')) {
       assert.ok(sql.includes('kidmais062_mesmo_recurso($4::uuid, $5::uuid') && sql.includes('kidmais062_bloqueio_aplica(b.empresa_id, b.estabelecimento_id, $4::uuid, $5::uuid)'));
       assert.equal(v[3], EMPRESA);
       return linhas([{ ocupado: estado.ocupado, bloqueado: estado.bloqueado }]);
     }
-    if (sql.includes('FROM fechamentos f LEFT JOIN contratos c')) return linhas(estado.vinculosCliente);
+    if (sql.includes('WITH base AS')) {
+      // Candidatos da empresa comprovada, de qualquer cliente: o filtro é empresa + data + sinal.
+      assert.equal(v[0], EMPRESA);
+      estado.sqlVinculos.push(sql);
+      estado.paramsVinculos.push(v);
+      const depoisDoLock = estado.locks.some((l) => l.startsWith('duplicidade:'));
+      const linhasVinculo = depoisDoLock && estado.vinculosDepoisDoLock ? estado.vinculosDepoisDoLock : estado.vinculosCliente;
+      return linhas(linhasVinculo.map((l) => ({ data_evento: v[2], ...l })));
+    }
     if (sql.includes('FROM aniversariantes')) return linhas(estado.aniversarianteExistente ? [{ id: estado.aniversarianteExistente }] : []);
     if (sql.includes('kidmais061_historico_passado(ci.fechamento_id)')) {
       const ci = estado.vinculos.find((x) => x.id === v[0] && x.empresa_id === v[1]);
@@ -85,7 +111,8 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
       return linhas([{ outra }]);
     }
     if (sql.includes('FROM contratos c JOIN fechamentos f ON f.id = c.fechamento_id JOIN contrato_versoes v')) {
-      return linhas(v[2] === EMPRESA ? [{ contrato_status: estado.contratoStatus, fechamento_status: estado.fechamentoStatus, valor: '8500', cliente_id: CLIENTE }] : []);
+      return linhas(v[2] === EMPRESA ? [{ contrato_status: estado.contratoStatus, fechamento_status: estado.fechamentoStatus, valor: '8500', cliente_id: CLIENTE, data_evento: '2026-11-14',
+        vigente: estado.versaoVigente, revisao_aberta: estado.revisaoAberta, com_pagamento: estado.comPagamento }] : []);
     }
     if (sql.includes('kidmais019_bloquear_contrato') || sql.includes('kidmais019_validar_destino')) { estado.locks.push(sql.includes('validar') ? 'validar_destino' : 'bloquear_contrato'); return linhas([]); }
     const insert = sql.match(/INSERT INTO (?:public\.)?(\w+)/);
@@ -148,7 +175,9 @@ function coreFalso(chamadas: Chamada[], falharNoRecebimento = false): Core {
 
 process.env.CONTRACT_IMPORT_INTEGRATION_ENABLED = 'true';
 const tenant = (papel = 'ADMINISTRATIVO', empresa = EMPRESA): TenantComprovado => ({ empresaComprovada: empresa, membershipId: 'm', usuarioId: USUARIO, papelAtual: papel } as TenantComprovado);
-const ctx = { usuarioId: USUARIO, token: 'token-sessao', requestId: '77777777-7777-4777-8777-777777777777', ip: null, userAgent: 'teste' };
+const ctx = { usuarioId: USUARIO, token: 'token-sessao', requestId: '77777777-7777-4777-8777-777777777777', ip: null, userAgent: 'teste', autenticadoEm: new Date().toISOString() };
+/** Sessão autenticada por senha há mais de 5 minutos (janela nativa da assinatura e do perfil). */
+const ctxAntigo = { ...ctx, autenticadoEm: new Date(Date.now() - 6 * 60 * 1000).toISOString() };
 const CHAVE = '88888888-8888-4888-8888-888888888888';
 
 async function simularEConfirmar(estado: Estado, d: DecisoesIntegracao, chamadas: Chamada[], opcoes: { chave?: string; falhar?: boolean; papel?: string; empresa?: string } = {}) {
@@ -169,6 +198,10 @@ test('parcialmente pago, evento futuro: Core completo, agenda travada e revalida
   assert.equal(res.agendaOcupada, true);
   assert.deepEqual(tabelas(estado), ['contratos', 'contrato_versoes', 'contrato_edicoes', 'contrato_fluxos', 'contrato_importacoes', 'festas', 'festa_eventos', 'contrato_importacao_financeiro']);
   assert.ok(estado.locks.indexOf(`importacao:${IMP}`) < estado.locks.indexOf('data:2026-11-14'), 'lock da importação antes do lock da data');
+  // Ordem única da 062: unidade (empresa → unidade → habilitação) antes da data.
+  const lockUnidade = estado.locks.indexOf('unidade:22222222-2222-4222-8222-222222222222');
+  const lockDuplicidade = estado.locks.indexOf(`duplicidade:${EMPRESA}`);
+  assert.ok(lockUnidade >= 0 && lockUnidade < lockDuplicidade && lockDuplicidade < estado.locks.indexOf('data:2026-11-14'), 'unidade → duplicidade → data');
   assert.ok(estado.locks.includes('bloquear_contrato') && estado.locks.includes('validar_destino'));
   const fech = chamadas.find((c) => c.metodo === 'criarFechamento')!.args as Record<string, unknown>;
   assert.deepEqual([fech.status, fech.origemFechamento, fech.valorTabela, fech.valorAdicionais, fech.dataEvento, fech.convidados], ['CONFIRMADO', 'IMPORTACAO_HISTORICA', 8500, 500, '2026-11-14', 80]);
@@ -227,7 +260,7 @@ test('pagamento não conferido: integra sem financeiro; a pendência é concluí
   assert.equal(chamadas.filter((c) => c.metodo === 'criarPagamento').length, 0);
   assert.equal(estado.vinculos[0].financeiro_declarado, 'NAO_CONFERIDO');
   const opcoes = await emTransacao(estado, (tx) => opcoesIntegracao(tx, tenant(), IMP, HOJE));
-  assert.deepEqual(opcoes.integracao, { contratoId: estado.vinculos[0].contrato_id, financeiroPendente: true, valorContratadoCentavos: 850000 });
+  assert.deepEqual(opcoes.integracao, { contratoId: estado.vinculos[0].contrato_id, financeiroPendente: true, caminhoFinanceiro: 'CONFERIR_HISTORICO', valorContratadoCentavos: 850000 });
 
   const financeiro = { situacao: 'PARCIALMENTE_PAGO', parcelas: [{ valorCentavos: 300000, vencimento: '2026-09-01', recebimento: { data: '2026-09-01', forma: 'BOLETO' } }, { valorCentavos: 550000, vencimento: '2026-11-14', recebimento: null }] };
   const sim = await emTransacao(estado, (tx) => simularFinanceiro(tx, tenant(), IMP, financeiro, HOJE));
@@ -280,6 +313,7 @@ test('evento passado: Histórico, sem lock nem revalidação de agenda futura', 
   if (res.reutilizado) throw new Error('inesperado');
   assert.equal(res.agendaOcupada, false);
   assert.ok(!estado.locks.some((l) => l.startsWith('data:')) && !estado.locks.includes('validar_destino'));
+  assert.ok(estado.locks.includes(`duplicidade:${EMPRESA}`), 'evento passado também passa pela serialização de duplicidade');
   assert.equal((chamadas.find((c) => c.metodo === 'registrarRecebimento')!.args as { input: Record<string, unknown> }).input.recebidoEm, '2025-05-01T12:00:00.000Z');
 });
 
@@ -348,16 +382,125 @@ test('isolamento: outra empresa não encontra a importação; papel sem acesso �
   await assert.rejects(emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, { ...decisoesBase(), empresaId: OUTRA }, HOJE)));
 });
 
-test('possível vínculo: mesmo cliente com contratação no dia exige confirmar "é outro contrato" (nunca deduplica sozinho)', async () => {
+test('possível duplicidade (outro cliente, mesmo aniversariante/valor): exige "é outro contrato" + motivo auditado; nunca une nem recusa sozinha', async () => {
   const estado = estadoInicial();
-  estado.vinculosCliente = [{ fechamento_id: 'f1', contrato_id: 'c1', status: 'ASSINADO', horario_inicio: '10:00', horario_fim: '12:00', com_pagamento: true }];
+  // Reescaneamento do mesmo papel cadastrado em outro cliente: sinais de aniversariante e valor, não de cliente.
+  estado.vinculosCliente = [{ fechamento_id: 'f1', contrato_id: 'c1', status: 'ASSINADO', horario_inicio: '14:00', horario_fim: '18:00', com_pagamento: true, importado: true, sinais: ['MESMO_ANIVERSARIANTE', 'MESMO_VALOR'] }];
   const sim = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, decisoesBase(), HOJE));
   if (sim.integrada) throw new Error('inesperado');
   assert.equal(sim.pronto, false);
-  assert.equal(sim.possiveisVinculos.length, 1);
-  const confirmado = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, decisoesBase({ outroContratoConfirmado: true }), HOJE));
-  if (confirmado.integrada) throw new Error('inesperado');
-  assert.equal(confirmado.pronto, true);
+  assert.deepEqual(sim.possiveisVinculos.map((v) => [v.importado, v.sinais]), [[true, ['MESMO_ANIVERSARIANTE', 'MESMO_VALOR']]]);
+  // A consulta não se limita ao mesmo cliente (filtra empresa e data) e recebe aniversariante, valor e documento.
+  const consulta = estado.sqlVinculos[0];
+  assert.ok(!/WHERE f\.empresa_id = \$1::uuid AND f\.cliente_id/.test(consulta) && /mesmo_aniversariante/.test(consulta) && /documento_sha256 = \$6/.test(consulta));
+  // Só marcar não basta: sem motivo continua bloqueado.
+  const semMotivo = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, decisoesBase({ outroContratoConfirmado: true }), HOJE));
+  if (semMotivo.integrada) throw new Error('inesperado');
+  assert.equal(semMotivo.pronto, false);
+  const d = decisoesBase({ outroContratoConfirmado: true, motivoOutroContrato: 'Festa da irmã gêmea, contrato separado' });
+  const chamadas: Chamada[] = [];
+  const { sim: comMotivo, res } = await simularEConfirmar(estado, d, chamadas);
+  assert.equal(comMotivo.pronto, true);
+  assert.equal(res.reutilizado, false);
+  const auditoria = chamadas.find((c) => c.metodo === 'auditoria' && (c.args as { acao: string }).acao === 'POSSIVEL_DUPLICIDADE_DESCARTADA')!.args as { justificativa: string; dadosDepois: { candidatos: Array<{ sinais: string[] }> } };
+  assert.equal(auditoria.justificativa, 'Festa da irmã gêmea, contrato separado');
+  assert.deepEqual(auditoria.dadosDepois.candidatos[0].sinais, ['MESMO_ANIVERSARIANTE', 'MESMO_VALOR']);
+  // A decisão também fica no vínculo imutável.
+  assert.equal((estado.vinculos[0].decisoes as { decisoes: { motivoOutroContrato: string } }).decisoes.motivoOutroContrato, 'Festa da irmã gêmea, contrato separado');
+});
+
+test('busca complementar: candidato em OUTRA data (mesmo documento, data lida, dia/mês trocados ou próxima com dois sinais) exige a mesma decisão explícita e auditada', async () => {
+  const estado = estadoInicial();
+  // Data lida no documento ≠ data decidida: o operador corrigiu a data; a outra importação ficou com a data lida.
+  const d0 = decisoesBase({ evento: { data: '2026-11-21', horarioInicio: '14:00', horarioFim: '18:00', convidados: 80 }, motivos: { data: 'O contrato foi remarcado à mão no papel.' } });
+  estado.vinculosCliente = [{ fechamento_id: 'f-lida', contrato_id: 'k-lida', status: 'ASSINADO', data_evento: '2026-11-14', horario_inicio: '14:00', horario_fim: '18:00', com_pagamento: false, importado: true, sinais: ['MESMO_ANIVERSARIANTE', 'DATA_DO_DOCUMENTO'] }];
+  const sim = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, d0, HOJE));
+  if (sim.integrada) throw new Error('inesperado');
+  assert.equal(sim.pronto, false, 'não integra sem decisão');
+  assert.deepEqual(sim.possiveisVinculos.map((v) => [v.data, v.alcance, v.sinais]), [['2026-11-14', 'OUTRA_DATA', ['MESMO_ANIVERSARIANTE', 'DATA_DO_DOCUMENTO']]]);
+  assert.ok(sim.bloqueios.some((b) => /neste dia ou em data próxima/.test(b)));
+  // Critério: data decidida, data lida no documento, dia/mês trocados, contato só com dígitos, janela de 90 dias.
+  const p = estado.paramsVinculos[0];
+  assert.deepEqual([p[0], p[2], p[6], p[7], p[8], p[9], p[10]], [EMPRESA, '2026-11-21', '2026-11-14', null, null, ['11999990000'], 90]);
+  // Nunca une nem descarta sozinho: com "é outro contrato" + motivo integra e audita data e alcance do candidato.
+  const d = { ...d0, outroContratoConfirmado: true, motivoOutroContrato: 'Festa do irmão, contrato separado' };
+  const chamadas: Chamada[] = [];
+  const { sim: comMotivo, res } = await simularEConfirmar(estado, d, chamadas);
+  assert.equal(comMotivo.pronto, true);
+  assert.equal(res.reutilizado, false);
+  const auditoria = chamadas.find((c) => c.metodo === 'auditoria' && (c.args as { acao: string }).acao === 'POSSIVEL_DUPLICIDADE_DESCARTADA')!.args as { justificativa: string; dadosDepois: { candidatos: Array<Record<string, unknown>> } };
+  assert.equal(auditoria.justificativa, 'Festa do irmão, contrato separado');
+  assert.deepEqual(auditoria.dadosDepois.candidatos, [{ fechamentoId: 'f-lida', contratoId: 'k-lida', data: '2026-11-14', alcance: 'OUTRA_DATA', sinais: ['MESMO_ANIVERSARIANTE', 'DATA_DO_DOCUMENTO'] }]);
+  assert.ok(estado.locks.includes(`duplicidade:${EMPRESA}`));
+});
+
+test('sem candidato de duplicidade nenhuma decisão é exigida nem auditada', async () => {
+  const estado = estadoInicial(); const chamadas: Chamada[] = [];
+  await simularEConfirmar(estado, decisoesBase(), chamadas);
+  assert.ok(!chamadas.some((c) => c.metodo === 'auditoria' && (c.args as { acao: string }).acao === 'POSSIVEL_DUPLICIDADE_DESCARTADA'));
+});
+
+test('idempotência: a MESMA chave com outro conteúdo é recusada (409), sem escrita, na integração e na conferência de pagamentos', async () => {
+  const estado = estadoInicial();
+  await simularEConfirmar(estado, decisoesBase({ financeiro: { situacao: 'NAO_CONFERIDO' } }), []);
+  const inserts = estado.inserts.length;
+  await assert.rejects(emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: decisoesBase(), resumoHash: '5'.repeat(64), chave: CHAVE }, HOJE, coreFalso([]))),
+    (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'IDEMPOTENCIA_CONFLITANTE' && e.httpStatus === 409);
+  assert.equal(estado.inserts.length, inserts);
+  const financeiro = { situacao: 'PAGO', parcelas: [{ valorCentavos: 850000, vencimento: '2026-09-01', recebimento: { data: '2026-09-01', forma: 'PIX' } }] };
+  const sim = await emTransacao(estado, (tx) => simularFinanceiro(tx, tenant(), IMP, financeiro, HOJE));
+  if (sim.conferido) throw new Error('inesperado');
+  const chaveFin = '14141414-1414-4141-8141-141414141414';
+  await emTransacao(estado, (tx) => conferirFinanceiro(tx, tenant(), ctx, IMP, { financeiro, resumoHash: sim.resumoHash, chave: chaveFin }, HOJE, coreFalso([])));
+  const depois = estado.inserts.length;
+  assert.ok(depois > inserts);
+  await assert.rejects(emTransacao(estado, (tx) => conferirFinanceiro(tx, tenant(), ctx, IMP, { financeiro, resumoHash: '6'.repeat(64), chave: chaveFin }, HOJE, coreFalso([]))),
+    (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'IDEMPOTENCIA_CONFLITANTE');
+  assert.equal(estado.inserts.length, depois);
+  assert.equal(estado.financeiros.length, 1);
+});
+
+test('autenticação recente: senha há mais de 5 minutos recusa integrar e conferir pagamentos (403), sem escrita; repetição não exige', async () => {
+  const estado = estadoInicial();
+  const d = decisoesBase({ financeiro: { situacao: 'NAO_CONFERIDO' } });
+  const sim = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, d, HOJE));
+  if (sim.integrada) throw new Error('inesperado');
+  await assert.rejects(emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctxAntigo, IMP, { decisoes: d, resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso([]))),
+    (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'REAUTENTICACAO_NECESSARIA' && e.httpStatus === 403);
+  assert.equal(estado.inserts.length, 0);
+  await emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: d, resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso([])));
+  // Repetir o pedido já gravado não escreve nada: devolve o resultado mesmo com sessão antiga.
+  const repetida = await emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctxAntigo, IMP, { decisoes: d, resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso([])));
+  assert.equal(repetida.reutilizado, true);
+  const financeiro = { situacao: 'NAO_PAGO', parcelas: [{ valorCentavos: 850000, vencimento: '2026-11-14', recebimento: null }] };
+  const simFin = await emTransacao(estado, (tx) => simularFinanceiro(tx, tenant(), IMP, financeiro, HOJE));
+  if (simFin.conferido) throw new Error('inesperado');
+  const antes = estado.inserts.length;
+  await assert.rejects(emTransacao(estado, (tx) => conferirFinanceiro(tx, tenant(), ctxAntigo, IMP, { financeiro, resumoHash: simFin.resumoHash, chave: '15151515-1515-4151-8151-151515151515' }, HOJE, coreFalso([]))),
+    (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'REAUTENTICACAO_NECESSARIA');
+  assert.equal(estado.inserts.length, antes);
+});
+
+test('conferência posterior de pagamentos: só na versão conferida ainda vigente, sem revisão aberta e sem obrigação nativa', async () => {
+  const financeiro = { situacao: 'NAO_PAGO', parcelas: [{ valorCentavos: 850000, vencimento: '2026-11-14', recebimento: null }] };
+  const casos: Array<[Partial<Estado>, RegExp]> = [
+    [{ versaoVigente: false }, /revisado depois da integração/],
+    [{ revisaoAberta: true }, /revisão do contrato em andamento/],
+    [{ comPagamento: true }, /já tem obrigação financeira/],
+  ];
+  for (const [mudar, motivo] of casos) {
+    const estado = estadoInicial();
+    await simularEConfirmar(estado, decisoesBase({ financeiro: { situacao: 'NAO_CONFERIDO' } }), []);
+    Object.assign(estado, mudar);
+    const sim = await emTransacao(estado, (tx) => simularFinanceiro(tx, tenant(), IMP, financeiro, HOJE));
+    if (sim.conferido) throw new Error('inesperado');
+    assert.equal(sim.pronto, false);
+    assert.match(sim.bloqueios.join(' '), motivo);
+    const antes = estado.inserts.length;
+    await assert.rejects(emTransacao(estado, (tx) => conferirFinanceiro(tx, tenant(), ctx, IMP, { financeiro, resumoHash: sim.resumoHash, chave: '16161616-1616-4161-8161-161616161616' }, HOJE, coreFalso([]))),
+      (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'INTEGRACAO_BLOQUEADA');
+    assert.equal(estado.inserts.length, antes, 'nenhuma obrigação na versão antiga');
+  }
 });
 
 test('sem a migration 061 a integração responde indisponível (sem tocar o Core)', async () => {
@@ -435,4 +578,111 @@ test('chave de ativação desligada: integração indisponível mesmo com a 061 
   } finally {
     process.env.CONTRACT_IMPORT_INTEGRATION_ENABLED = 'true';
   }
+});
+
+test('plano de pagamento segue as regras nativas (validarPlanoPagamento): parcela depois da festa SEM confirmação bloqueia integração e conferência posterior', async () => {
+  const depoisDaFesta = { situacao: 'NAO_PAGO' as const, parcelas: [{ valorCentavos: 850000, vencimento: '2026-12-01', recebimento: null }] };
+  const estado = estadoInicial();
+  const sim = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, decisoesBase({ financeiro: depoisDaFesta }), HOJE));
+  if (sim.integrada) throw new Error('inesperado');
+  assert.equal(sim.pronto, false);
+  // Sem a confirmação explícita da exceção histórica, a regra nativa vale.
+  assert.match(sim.bloqueios.join(' '), /Parcela 1: vence depois da festa. Confirme que isso consta do contrato original/);
+  await assert.rejects(emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: decisoesBase({ financeiro: depoisDaFesta }), resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso([]))),
+    (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'INTEGRACAO_BLOQUEADA');
+  assert.equal(estado.inserts.length, 0);
+  // Conferência posterior: mesma regra, com a data da festa da contratação.
+  await simularEConfirmar(estado, decisoesBase({ financeiro: { situacao: 'NAO_CONFERIDO' } }), []);
+  const simFin = await emTransacao(estado, (tx) => simularFinanceiro(tx, tenant(), IMP, depoisDaFesta, HOJE));
+  if (simFin.conferido) throw new Error('inesperado');
+  assert.equal(simFin.pronto, false);
+  assert.match(simFin.bloqueios.join(' '), /vence depois da festa/);
+});
+
+test('exceção histórica: parcela depois da festa só com confirmação explícita; vencimento nunca alterado; exceção auditada', async () => {
+  const parcelas = (confirmada?: boolean) => ({ situacao: 'NAO_PAGO' as const, parcelas: [
+    { valorCentavos: 300000, vencimento: '2026-11-01', recebimento: null },
+    { valorCentavos: 550000, vencimento: '2026-12-15', recebimento: null, ...(confirmada === undefined ? {} : { aposFestaConfirmada: confirmada }) },
+  ] });
+  const estado = estadoInicial();
+  for (const sem of [parcelas(), parcelas(false)]) {
+    const sim = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, decisoesBase({ financeiro: sem }), HOJE));
+    if (sim.integrada) throw new Error('inesperado');
+    assert.equal(sim.pronto, false);
+    assert.match(sim.bloqueios.join(' '), /Parcela 2: vence depois da festa\. Confirme que isso consta do contrato original/);
+  }
+  const chamadas: Chamada[] = [];
+  const { sim, res } = await simularEConfirmar(estado, decisoesBase({ financeiro: parcelas(true) }), chamadas);
+  assert.equal(sim.pronto, true);
+  assert.equal(res.reutilizado, false);
+  const vencimentos = chamadas.filter((c) => c.metodo === 'criarParcela').map((c) => (c.args as { vencimento: string }).vencimento);
+  assert.deepEqual(vencimentos, ['2026-11-01', '2026-12-15'], 'vencimentos gravados exatamente como confirmados');
+  const excecao = chamadas.find((c) => c.metodo === 'auditoria' && (c.args as { acao: string }).acao === 'EXCECAO_HISTORICA_VENCIMENTO_APOS_FESTA')!.args as { dadosDepois: unknown; justificativa: string };
+  assert.deepEqual(excecao.dadosDepois, { dataFesta: '2026-11-14', parcelas: [{ numero: 2, vencimento: '2026-12-15' }] });
+  assert.match(excecao.justificativa, /conforme o contrato original, confirmado pelo operador/);
+  // A decisão gravada no registro financeiro carrega a confirmação (o gatilho da 061 confere no banco).
+  assert.equal(JSON.stringify(estado.inserts.find((i) => i.tabela === 'contrato_importacao_financeiro')!.valores).includes('aposFestaConfirmada'), true);
+});
+
+test('exceção histórica não relaxa as outras regras nativas do plano (soma, quantidade, primeira parcela)', () => {
+  const recusa = recusaDoPlanoNativo({ situacao: 'NAO_PAGO', parcelas: [{ valorCentavos: 100000, vencimento: '2027-01-10', recebimento: null, aposFestaConfirmada: true }] }, 850000, '2026-11-14');
+  assert.match(String(recusa), /fora das regras do financeiro: .*soma/i);
+  // Contrato sem parcela pós-festa: nada muda.
+  assert.equal(recusaDoPlanoNativo({ situacao: 'NAO_PAGO', parcelas: [{ valorCentavos: 850000, vencimento: '2026-11-14', recebimento: null }] }, 850000, '2026-11-14'), null);
+});
+
+test('caminho financeiro da importação integrada: obrigação existente leva ao Financeiro do contrato, nunca a "Conferir pagamentos"', async () => {
+  const casos: Array<[Partial<Estado>, string, boolean]> = [
+    [{}, 'CONFERIR_HISTORICO', true],
+    [{ comPagamento: true }, 'CONCLUIDO', false],
+    [{ revisaoAberta: true }, 'AGUARDAR_REVISAO', true],
+    [{ versaoVigente: false }, 'PLANO_NA_VERSAO_VIGENTE', true],
+  ];
+  for (const [mudar, caminho, pendente] of casos) {
+    const estado = estadoInicial();
+    await simularEConfirmar(estado, decisoesBase({ financeiro: { situacao: 'NAO_CONFERIDO' } }), []);
+    Object.assign(estado, mudar);
+    const o = await emTransacao(estado, (tx) => opcoesIntegracao(tx, tenant(), IMP, HOJE));
+    assert.deepEqual([o.integracao?.caminhoFinanceiro, o.integracao?.financeiroPendente], [caminho, pendente], JSON.stringify(mudar));
+  }
+  // Conferida na integração: concluído, mesmo sem consultar outra obrigação.
+  const estado = estadoInicial();
+  await simularEConfirmar(estado, decisoesBase(), []);
+  assert.equal((await emTransacao(estado, (tx) => opcoesIntegracao(tx, tenant(), IMP, HOJE))).integracao?.caminhoFinanceiro, 'CONCLUIDO');
+});
+
+const candidato = (id: string) => ({ fechamento_id: id, contrato_id: `k-${id}`, status: 'ASSINADO', horario_inicio: '19:00', horario_fim: '21:00', com_pagamento: false, importado: true, sinais: ['MESMO_ANIVERSARIANTE', 'MESMO_VALOR'] });
+
+test('duplicidade concorrente: candidato confirmado por outro operador antes do lock de duplicidade é visto e exige nova revisão', async () => {
+  const estado = estadoInicial();
+  // Evento passado: não trava a agenda — a serialização de duplicidade é que cobre.
+  const d = decisoesBase({ evento: { data: '2025-05-10', horarioInicio: '14:00', horarioFim: '18:00', convidados: 80 }, motivos: { data: 'Contrato de 2025 (ano lido errado).' }, financeiro: { situacao: 'NAO_CONFERIDO' } });
+  const sim = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, d, HOJE));
+  if (sim.integrada) throw new Error('inesperado');
+  assert.equal(sim.pronto, true);
+  estado.vinculosDepoisDoLock = [candidato('f-concorrente')];
+  await assert.rejects(emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: d, resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso([]))),
+    (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'RESUMO_DESATUALIZADO' && Array.isArray(e.details?.possiveisVinculos) && (e.details!.possiveisVinculos as unknown[]).length === 1);
+  assert.equal(estado.inserts.length, 0, 'nada gravado');
+  // (A transação falsa desfaz o próprio registro de locks na falha; a serialização do passado é provada no teste 'evento passado'.)
+});
+
+test('decisão "é outro contrato" vale só para os candidatos revisados: candidato novo exige nova decisão', async () => {
+  const estado = estadoInicial();
+  estado.vinculosCliente = [candidato('f-a')];
+  const d = decisoesBase({ outroContratoConfirmado: true, motivoOutroContrato: 'Festa da irmã, contrato separado', financeiro: { situacao: 'NAO_CONFERIDO' } });
+  const sim = await emTransacao(estado, (tx) => simularIntegracao(tx, tenant(), IMP, d, HOJE));
+  if (sim.integrada) throw new Error('inesperado');
+  assert.equal(sim.pronto, true);
+  estado.vinculosDepoisDoLock = [candidato('f-a'), candidato('f-b')];
+  await assert.rejects(emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: d, resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso([]))),
+    (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'RESUMO_DESATUALIZADO');
+  assert.equal(estado.inserts.length, 0);
+  // Sem candidato novo, a mesma decisão confirma e é auditada com os candidatos revisados.
+  estado.vinculosDepoisDoLock = null;
+  const chamadas: Chamada[] = [];
+  const r = await emTransacao(estado, (tx) => confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: d, resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso(chamadas)));
+  assert.equal(r.reutilizado, false);
+  const auditoria = chamadas.find((c) => c.metodo === 'auditoria' && (c.args as { acao: string }).acao === 'POSSIVEL_DUPLICIDADE_DESCARTADA')!.args as { justificativa: string; dadosDepois: { candidatos: Array<{ fechamentoId: string }> } };
+  assert.deepEqual([auditoria.justificativa, auditoria.dadosDepois.candidatos.map((c) => c.fechamentoId)], ['Festa da irmã, contrato separado', ['f-a']]);
 });

@@ -1,8 +1,9 @@
 import type { ContratoSnapshotV1 } from '../../lib/contratos/repositories/models';
 import { formatarMoeda, formatarFormaPagamento, formatarCondicaoPix, formatarDataContrato, formatarHorarioContrato } from '../../lib/contratos/documento/formatters.ts';
+import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '../../lib/contratos/assinatura-papel.ts';
 
 export type VersaoResumo = {
-  id: string; numero_versao: number; status: string; estado_edicao: string | null;
+  id: string; numero_versao: number; status: string; estado_edicao: string | null; aceite_metodo?: string | null;
   snapshot: ContratoSnapshotV1 & { documental?: { observacoes?: string } };
 };
 export type PainelResumo = {
@@ -34,12 +35,13 @@ export function selecionarVersaoResumo(painel: PainelResumo, id?: string | null)
 /** Apresentação apenas: valores comerciais vêm integralmente do snapshot selecionado. */
 export function montarResumo(p: PainelResumo, id?: string | null, financeiro?: FinanceiroResumo | null) {
   const v = selecionarVersaoResumo(p, id), s = v.snapshot;
+  const papel = versaoAssinadaEmPapel(v);
   const vigente = p.fluxo?.versao_vigente_id === v.id;
   const classificacao = vigente ? 'Versão vigente' : p.fluxo?.versao_em_preparacao_id === v.id ? 'Versão em preparação — não vigente' : 'Versão histórica';
   const secoes: SecaoResumo[] = [];
   const texto = (value: string | number | null | undefined) => value == null || value === '' ? 'Não informado' : String(value);
   const secao = (titulo: string, linhas: SecaoResumo['linhas']) => secoes.push({ titulo, linhas });
-  secao('Contratação', [['Fechamento', p.contrato.fechamento_id], ['Contrato', p.contrato.id], ['Versão', `V${v.numero_versao} · ${classificacao}`], ['Status atual do contrato', p.contrato.status], ['Estado desta versão', v.estado_edicao ?? v.status]]);
+  secao('Contratação', [['Fechamento', p.contrato.fechamento_id], ['Contrato', p.contrato.id], ['Versão', `V${v.numero_versao} · ${classificacao}`], ['Status atual do contrato', papel && p.contrato.status === 'ASSINADO' ? 'ASSINADO (em papel)' : p.contrato.status], ['Estado desta versão', papel ? 'Conferência do contrato assinado em papel' : v.estado_edicao ?? v.status]]);
   secao('Contratante e aniversariante', [['Contratante', s.contratante.nomeCompleto], ['Aniversariante', s.aniversariante.nome], ['Idade no evento', texto(s.aniversariante.idadeNoEvento)], ['Tema', texto(s.aniversariante.temaFesta)], ...(s.responsavelAdicional ? [['Responsável adicional', s.responsavelAdicional.nome] as [string, string]] : [])]);
   secao('Festa', [['Data', formatarDataContrato(s.evento.data)], ['Horário', `${formatarHorarioContrato(s.evento.horarioInicio)}–${formatarHorarioContrato(s.evento.horarioFim)}`], ['Pacote', s.evento.pacote.nome], ['Convidados', texto(s.evento.convidados)], ['Convidados faturados', texto(s.evento.convidadosFaturados)]]);
   const buffet = s.contratacao.buffet;
@@ -77,7 +79,9 @@ export function montarResumo(p: PainelResumo, id?: string | null, financeiro?: F
   const observacoes = ([['Cliente', s.contratacao.observacoesCliente], ['Equipe', s.contratacao.observacoesEquipe], ['Documentais desta versão', s.documental?.observacoes]] as Array<[string, string | null | undefined]>).filter(([, value]) => !!value).map(([label, value]): [string, string] => [label, value!]);
   if (observacoes.length) secao('Observações', observacoes);
   const assinaturas = p.assinaturas.filter(a => a.contrato_versao_id === v.id);
-  secao('Assinaturas desta versão', ['KIDMAIS', 'CLIENTE'].map(parte => {
+  // Versão histórica: nunca listar "Não registrada" como se faltasse assinatura eletrônica.
+  if (papel) secao('Assinatura desta versão', [['Forma', 'Assinado em papel'], ['Observação', TEXTO_ASSINADO_EM_PAPEL]]);
+  else secao('Assinaturas desta versão', ['KIDMAIS', 'CLIENTE'].map(parte => {
     const assinatura = assinaturas.find(a => a.parte === parte);
     return [parte, assinatura ? `${assinatura.identidade_snapshot.nome} · ${new Date(assinatura.assinado_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (Brasília)` : 'Não registrada'];
   }));

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { estruturaFesta019Sql } from '../../festas/estrutura-019.ts';
 
@@ -9,6 +9,7 @@ const ler = (f: string) => readFileSync(f, 'utf8').replaceAll('\r', '');
 const M061 = ler('database/migrations/20261002_061_contratos_importados_integracao.sql');
 const M019 = ler('database/migrations/20260915_019_festa_formalizacao.sql');
 const M057 = ler('database/migrations/20260929_057_assinatura_contrato_empresa.sql');
+const M015 = ler('database/migrations/20260910_015_tratamento_financeiro.sql');
 const DOWN = ler('database/rollback/20261002_061_contratos_importados_integracao_down.sql');
 const PRE = ler('database/checks/20261002_061_precheck.sql');
 const POS = ler('database/checks/20261002_061_postcheck.sql');
@@ -53,12 +54,40 @@ test('precheck exige os corpos exatos da 019/057; postcheck exige os da 061 e a 
 
 test('a 061 não toca a reserva (kidmais019_ocupa) e substitui exatamente três funções da 019', () => {
   assert.doesNotMatch(M061, /FUNCTION public\.kidmais019_ocupa\(/);
-  const substituidas = [...M061.matchAll(/CREATE OR REPLACE FUNCTION public\.(\w+)\(/g)].map((x) => x[1]).filter((n) => n !== 'kidmais_validar_fluxo_contrato');
+  const substituidas = [...M061.matchAll(/CREATE OR REPLACE FUNCTION public\.(\w+)\(/g)].map((x) => x[1]).filter((n) => n !== 'kidmais_validar_fluxo_contrato' && n !== 'kidmais_015_validar');
   assert.deepEqual(substituidas, SUBSTITUIDAS);
+  assert.equal(M061.split('CREATE OR REPLACE FUNCTION public.kidmais_015_validar(').length, 2, 'a 015 é substituída uma única vez');
+});
+
+// R5: o gatilho financeiro diferido da 015 recusava no commit a parcela histórica preservada (PIX depois da festa).
+const HASH_015 = 'f003f5f39c136b98aa3d1784584b1dca8fd6aca9fd665dc7351d3044e6f6e06c';
+const ANTES_015 = 'AND i.vencimento_referencia>r.data_festa_referencia)))';
+const DEPOIS_015 = 'AND i.vencimento_referencia>r.data_festa_referencia AND NOT public.kidmais061_excecao_historica(i.parcela_id,i.vencimento_referencia))))';
+
+test('[R5] 015: a 061 muda SÓ a condição de vencimento PIX do gatilho financeiro (exceção do plano histórico); pre/postcheck e rollback byte a byte', () => {
+  assert.equal(sha(corpo(M015, 'kidmais_015_validar')), HASH_015);
+  assert.equal(corpo(M015, 'kidmais_015_validar').split(ANTES_015).length, 2, 'condição original única');
+  assert.equal(corpo(M061, 'kidmais_015_validar'), corpo(M015, 'kidmais_015_validar').split(ANTES_015).join(DEPOIS_015), 'nenhuma outra mudança');
+  for (const sql of [M061, PRE]) assert.ok(sql.includes(HASH_015), 'precheck exige o corpo da 015');
+  assert.ok(M061.indexOf(HASH_015) < M061.indexOf('CREATE OR REPLACE FUNCTION public.kidmais_015_validar'), 'confere antes de substituir');
+  assert.ok(POS.includes(sha(corpo(M061, 'kidmais_015_validar'))), 'postcheck exige o corpo da 061');
+  assert.equal(corpo(DOWN, 'kidmais_015_validar'), corpo(M015, 'kidmais_015_validar'), 'rollback restaura a 015');
+  assert.ok(DOWN.indexOf('FUNCTION public.kidmais_015_validar') < DOWN.indexOf('DROP FUNCTION public.kidmais061_excecao_historica(uuid, date);'), 'restaura antes de remover a função usada');
+  assert.ok(DOWN.includes(HASH_015), 'rollback confere o corpo restaurado');
+  // Mesmo critério do serviço: plano versão 1, confirmação gravada para o número e o vencimento.
+  const excecao = corpo(M061, 'kidmais061_excecao_historica');
+  for (const trecho of ["pl.numero_versao=1", "->>'aposFestaConfirmada'='true'", "->>'vencimento'=pp.vencimento::text", "WHERE pp.id=$1 AND pp.vencimento=$2"]) {
+    assert.ok(excecao.includes(trecho), trecho);
+  }
+  const repo = ler('lib/pagamentos/repositories/alteracao-financeira.repository.ts');
+  assert.ok(repo.includes('pl.numero_versao = 1'), 'serviço com o mesmo critério');
 });
 
 test('rollback recusa com dados integrados e restaura 019/057 byte a byte', () => {
   assert.match(DOWN, /Rollback 061 recusado: há contratos históricos integrados/);
+  // Com as regras da 062 instaladas, a 061 não pode ser desfeita (restauraria a agenda global por baixo da 062).
+  assert.match(DOWN, /IF to_regprocedure\('public\.kidmais062_ocupacoes_escopo\(date,date\)'\) IS NOT NULL THEN\s+RAISE EXCEPTION 'Rollback 061 recusado: a 062 está aplicada; aplique antes o rollback da 062\.'/);
+  assert.ok(DOWN.indexOf('a 062 está aplicada') < DOWN.indexOf('DROP TRIGGER'), 'a recusa vem antes de qualquer remoção');
   for (const nome of SUBSTITUIDAS) assert.equal(corpo(DOWN, nome), corpo(M019, nome), nome);
   assert.equal(corpo(DOWN, 'kidmais_validar_fluxo_contrato'), corpo(M057, 'kidmais_validar_fluxo_contrato'));
   assert.match(DOWN, /DROP FUNCTION public\.kidmais061_historico_passado\(uuid\);/);
@@ -118,6 +147,16 @@ test('vínculo e conferência financeira: imutáveis, mesma empresa, operador at
   assert.match(vinc, /i\.empresa_id<>NEW\.empresa_id OR i\.status<>'IMPORTADA'/);
   assert.match(vinc, /m\.empresa_id=NEW\.empresa_id AND m\.usuario_id=NEW\.conferido_por AND m\.status='ATIVA' AND m\.papel=NEW\.conferido_papel/);
   assert.match(corpo(M061, 'kidmais061_exigir_vinculo'), /Festa de importação histórica só nasce da conferência do contrato importado/);
+  // Conferência posterior de pagamentos: só na versão conferida ainda vigente, sem revisão aberta e sem cancelamento.
+  const fin = corpo(M061, 'kidmais061_validar_financeiro');
+  assert.match(fin, /cf\.versao_vigente_id=ci\.contrato_versao_id AND c\.status<>'CANCELADO' AND f\.status<>'CANCELADO'/);
+  assert.match(fin, /r\.estado IN \('EM_ELABORACAO','CONGELADA'\)/);
+  assert.match(fin, /a versão conferida não é mais a vigente/);
+  // Exceção histórica (vencimento depois da festa) conferida no banco: mesma parcela, mesmo vencimento, confirmação gravada.
+  assert.match(fin, /pp\.vencimento>f\.data_evento/);
+  assert.match(fin, /->>'aposFestaConfirmada','false'\)='true'/);
+  assert.match(fin, /->>'vencimento'=pp\.vencimento::text/);
+  assert.match(fin, /parcela vence depois da festa sem a exceção histórica confirmada/);
 });
 
 /** Conjuntos que o módulo Festa aceita: conjunto → função → hash (lidos do SQL gerado). */
@@ -140,4 +179,17 @@ test('módulo Festa aceita conjuntos coerentes (019 ou 061), nunca mistura funç
   // Válido se ALGUM conjunto bate por inteiro; o IN por função (que aceitava misturas) não existe mais.
   assert.match(estruturaFesta019Sql, /EXISTS\(SELECT 1 FROM \(SELECT DISTINCT conjunto FROM esperadas\) c WHERE NOT EXISTS\(SELECT 1 FROM esperadas e WHERE e\.conjunto=c\.conjunto/);
   assert.doesNotMatch(estruturaFesta019Sql, /x\.nome=e\.nome/);
+});
+
+test('SQL da 061/062 (migrations, checks, rollbacks e reparos): delimitadores $tag$ pareados e nenhum bloco DO com delimitador quebrado', () => {
+  const dirs = ['database/migrations', 'database/checks', 'database/rollback', 'database/repairs'];
+  const arquivos = dirs.flatMap((d) => readdirSync(d).filter((n) => /2026100[12]_06[12]_/.test(n)).map((n) => d + '/' + n));
+  assert.ok(arquivos.length >= 10, String(arquivos.length));
+  for (const arquivo of arquivos) {
+    const sql = ler(arquivo);
+    assert.doesNotMatch(sql, /\bDO \$ /, arquivo);
+    const tags = new Map<string, number>();
+    for (const [tag] of sql.matchAll(/\$[A-Za-z_]*\$/g)) tags.set(tag, (tags.get(tag) ?? 0) + 1);
+    for (const [tag, n] of tags) assert.equal(n % 2, 0, arquivo + ': ' + tag + ' ímpar');
+  }
 });

@@ -91,10 +91,16 @@ export async function listarUnidadesAgenda(tx: DbExecutor, empresaId: string): P
   }));
 }
 
-/** Trava a unidade da empresa comprovada (serializa habilitar/revogar da mesma unidade). Outra empresa = não encontrada. */
+/**
+ * Trava a unidade da empresa comprovada na ordem única da agenda (empresa → unidade → habilitação; 062,
+ * kidmais062_travar_habilitacao). FOR NO KEY UPDATE: serializa habilitar/revogar com as gravações na unidade (que
+ * pedem FOR SHARE) sem conflitar com o KEY SHARE do FK de fechamentos/bloqueios. Depois deste lock, habilitar/revogar
+ * só tocam a habilitação: nunca esperam por data nem por contratação. Outra empresa = não encontrada.
+ */
 async function travarUnidade(tx: DbExecutor, empresaId: string, unidadeId: string) {
+  await tx.query(`SELECT 1 FROM public.empresas WHERE id = $1::uuid FOR SHARE`, [empresaId]);
   const r = await tx.query<{ status: string }>(
-    `SELECT status FROM public.estabelecimentos WHERE empresa_id = $1::uuid AND id = $2::uuid FOR UPDATE`,
+    `SELECT status FROM public.estabelecimentos WHERE empresa_id = $1::uuid AND id = $2::uuid FOR NO KEY UPDATE`,
     [empresaId, unidadeId],
   );
   const unidade = r.rows[0];

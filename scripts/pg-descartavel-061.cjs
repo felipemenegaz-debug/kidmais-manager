@@ -46,13 +46,14 @@ function registrar(nome, conteudo) {
 /** Ambiente dos processos do PostgreSQL e das suítes: sem nenhuma configuração de conexão herdada. */
 function ambienteLimpo(extra = {}) {
   const env = { ...process.env };
-  for (const nome of Object.keys(env)) if (variavelDeConexaoHerdada(nome)) delete env[nome];
+  // Também qualquer *DATABASE_URL (ex.: KIDMAIS_HOMOLOGACAO_DATABASE_URL): nenhum destino herdado chega às suítes.
+  for (const nome of Object.keys(env)) if (variavelDeConexaoHerdada(nome) || /DATABASE_URL$/i.test(nome)) delete env[nome];
   return { ...env, ...extra };
 }
 
 function exigirAutorizacao() {
   if (process.env.KIDMAIS_CLUSTER_061_AUTORIZACAO !== AUTORIZACAO) falhar(`defina KIDMAIS_CLUSTER_061_AUTORIZACAO=${AUTORIZACAO}`);
-  for (const nome of Object.keys(process.env)) if (variavelDeConexaoHerdada(nome)) delete process.env[nome];
+  for (const nome of Object.keys(process.env)) if (variavelDeConexaoHerdada(nome) || /DATABASE_URL$/i.test(nome)) delete process.env[nome];
 }
 
 /** Caminho exato, sem junction/symlink no diretório nem no pai. */

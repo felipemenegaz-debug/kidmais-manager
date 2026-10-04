@@ -188,3 +188,24 @@ test("D3: cada suíte recebe ambiente explícito — sem DATABASE_URL/PG* herdad
   assert.equal(filtrarSuites(planos, {}).length, 2);
   assert.throws(() => filtrarSuites(planos, { KIDMAIS_POSTGRES_SOMENTE: "lib/inexistente.postgres.test.ts" }), /suíte desconhecida/);
 });
+
+test("isolamento: o conector exige opt-in antes de abrir conexão e confere a identidade antes de qualquer SQL; suítes não abrem conexão própria sem ele", () => {
+  const conector = fs.readFileSync(path.join(raiz, "lib", "comercial", "postgres-descartavel.ts"), "utf8");
+  const corpo = conector.slice(conector.indexOf("export async function conectarDescartavel("));
+  assert.ok(corpo.indexOf("exigirOptInDescartavel()") >= 0 && corpo.indexOf("exigirOptInDescartavel()") < corpo.indexOf("new pg.Client("), "opt-in antes do socket");
+  assert.match(corpo, /current_setting\('cluster_name'\)/);
+  assert.match(corpo, /addr !== "127\.0\.0\.1" \|\| papel !== PAPEL_DESCARTAVEL \|\| cluster !== PAPEL_DESCARTAVEL/);
+  const alvo = fs.readFileSync(path.join(raiz, "lib", "comercial", "alvo-descartavel.ts"), "utf8");
+  assert.doesNotMatch(alvo, /return PORTA_PADRAO;/, "sem porta padrão implícita");
+  for (const arquivo of listarTestesPostgres(raiz)) {
+    const fonte = fs.readFileSync(arquivo, "utf8");
+    const proprio = fonte.search(/new pg\.(Client|Pool)\(|new (Client|Pool)\(/);
+    if (proprio < 0) continue;
+    const guardado = Math.min(...["conectarDescartavel(", "conectar054("].map((g) => fonte.indexOf(g)).filter((i) => i >= 0));
+    assert.ok(Number.isFinite(guardado) && guardado < proprio, `${arquivo}: conexão própria sem passar antes pelo conector guardado`);
+  }
+  // O orquestrador do cluster sintético não repassa nenhum *DATABASE_URL às suítes.
+  assert.match(fs.readFileSync(path.join(raiz, "scripts", "pg-descartavel-061.cjs"), "utf8"), /variavelDeConexaoHerdada\(nome\) \|\| \/DATABASE_URL\$\/i\.test\(nome\)/);
+  const env = require("./regressao-v1-selecao.cjs").ambienteDaSuite({ KIDMAIS_HOMOLOGACAO_DATABASE_URL: "x" }, {}, 55498, "kidmais_pacotes_v1_descartavel");
+  assert.equal(env.KIDMAIS_POSTGRES_DESCARTAVEL, "kidmais_pacotes_v1_descartavel", "opt-in explícito por suíte");
+});

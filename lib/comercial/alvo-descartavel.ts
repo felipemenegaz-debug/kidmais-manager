@@ -2,11 +2,23 @@
  * Alvo do cluster PostgreSQL descartável das suítes `*.postgres.test.ts` (mesmo padrão de `alvo-054.ts`).
  * Módulo puro (sem driver): testado sem banco.
  *
- * Porta padrão histórica 55498. Outra porta só com variáveis próprias e a autorização literal
- * `127.0.0.1:<porta>/kidmais_pacotes_v1_descartavel`. DATABASE_URL e PG* genéricas nunca escolhem o
- * destino; o host é sempre 127.0.0.1 e o conector confere `inet_server_port()` antes de qualquer SQL.
+ * Sem padrão implícito: a suíte só conecta com opt-in explícito (`KIDMAIS_POSTGRES_DESCARTAVEL`), porta explícita
+ * (`KIDMAIS_DESCARTAVEL_PORTA`) e a autorização literal `127.0.0.1:<porta>/kidmais_pacotes_v1_descartavel` — o que o
+ * runner (`check:v1:postgres`) repassa a cada suíte. Execução local comum (`node --test` direto) falha ANTES de
+ * qualquer conexão. DATABASE_URL e PG* genéricas nunca escolhem o destino; o host é sempre 127.0.0.1 e o conector
+ * confere a identidade do servidor antes de qualquer outro SQL.
  */
+/** Porta do cluster sintético autorizado (documentação e orquestrador); NUNCA usada como padrão pelo conector. */
 export const PORTA_PADRAO = 55498;
+export const BANCO_DESCARTAVEL = "kidmais_pacotes_v1_descartavel";
+export const PAPEL_DESCARTAVEL = "kidmais_descartavel";
+
+/** Opt-in explícito do harness PostgreSQL; sem ele nenhuma suíte conecta. */
+export function exigirOptInDescartavel(env: Record<string, string | undefined> = process.env) {
+  if (env.KIDMAIS_POSTGRES_DESCARTAVEL !== BANCO_DESCARTAVEL) {
+    throw new Error("suíte PostgreSQL sem opt-in explícito (KIDMAIS_POSTGRES_DESCARTAVEL): nenhuma conexão tentada. Rode pelo check:v1:postgres no cluster sintético autorizado.");
+  }
+}
 
 /**
  * Configuração de conexão herdada que o driver (`pg`/libpq) usaria sem pedir: DATABASE_URL e QUALQUER PG*
@@ -28,8 +40,9 @@ export async function senhaRecusada(): Promise<string> {
 }
 
 export function portaDescartavel(env: Record<string, string | undefined> = process.env): number {
+  exigirOptInDescartavel(env);
   const texto = env.KIDMAIS_DESCARTAVEL_PORTA;
-  if (texto === undefined || texto === "") return PORTA_PADRAO;
+  if (texto === undefined || texto === "") throw new Error("KIDMAIS_DESCARTAVEL_PORTA ausente: o conector não usa porta padrão");
   if (!/^[0-9]{4,5}$/.test(texto)) throw new Error("KIDMAIS_DESCARTAVEL_PORTA inválida");
   const porta = Number(texto);
   if (porta < 1024 || porta > 65535) throw new Error("KIDMAIS_DESCARTAVEL_PORTA fora do intervalo");

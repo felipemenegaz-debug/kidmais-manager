@@ -29,6 +29,12 @@ export const parcelaSchema = z.object({
   valorCentavos: CENTAVOS,
   vencimento: DATA,
   recebimento: z.object({ data: DATA, forma: z.enum(FORMAS) }).strict().nullable(),
+  /**
+   * Exceção HISTÓRICA: o operador confirma que esta parcela vence depois da festa conforme o contrato original. Só
+   * nesse caso o vencimento posterior é aceito (contratos nativos seguem a regra do plano nativo). O vencimento nunca
+   * é alterado automaticamente.
+   */
+  aposFestaConfirmada: z.boolean().optional(),
 }).strict();
 
 export const financeiroSchema = z.discriminatedUnion('situacao', [
@@ -49,8 +55,12 @@ export const decisoesSchema = z.object({
   valorContratadoCentavos: CENTAVOS,
   motivos: z.object({ data: MOTIVO, horarioInicio: MOTIVO, horarioFim: MOTIVO, convidados: MOTIVO, valorContratado: MOTIVO }).partial().strict().default({}),
   financeiro: financeiroSchema,
-  /** "É outro contrato": exigido quando o cliente já tem contratação no mesmo dia (nunca se deduplica por nome e data). */
+  /**
+   * "É outro contrato" + motivo: decisão auditada exigida quando há contratação parecida na empresa no mesmo dia
+   * (mesmo cliente, aniversariante, valor ou documento). Nada é unido nem recusado só por nome e data.
+   */
   outroContratoConfirmado: z.boolean().default(false),
+  motivoOutroContrato: z.string().trim().max(500).default(''),
   conferenciaDeclarada: z.boolean().default(false),
 }).strict();
 

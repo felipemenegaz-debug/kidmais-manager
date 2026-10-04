@@ -124,6 +124,7 @@ const VARIAVEIS_054 = ["KIDMAIS_054_PG_HOST", "KIDMAIS_054_PG_PORT", "KIDMAIS_05
 function ambienteDaSuite(base, estado, porta, banco) {
   const env = { ...base, NEXT_TELEMETRY_DISABLED: "1" };
   for (const nome of Object.keys(env)) if (variavelDeConexaoHerdada(nome) || VARIAVEIS_054.includes(nome)) delete env[nome];
+  env[OPT_IN] = BANCO;
   env.KIDMAIS_DESCARTAVEL_PORTA = String(porta);
   env.KIDMAIS_DESCARTAVEL_AUTORIZACAO = `127.0.0.1:${porta}/${BANCO}`;
   if (estado.alvo054) {

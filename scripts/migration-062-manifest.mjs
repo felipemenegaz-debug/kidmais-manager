@@ -41,14 +41,14 @@ const ESTRUTURA_FUNCOES = [['kidmais062_habilitacao_guard', '()']];
 const NOVAS = [
   ['kidmais062_mesmo_recurso', '(uuid,uuid,uuid,uuid)'], ['kidmais062_bloqueio_aplica', '(uuid,uuid,uuid,uuid)'],
   ['kidmais062_operador_agenda', '(uuid,uuid,text)'], ['kidmais062_unidade_agendavel', '(uuid,uuid)'], ['kidmais062_travar_habilitacao', '(uuid)'],
-  ['kidmais062_ocupacoes_escopo', '(date,date)'], ['kidmais062_unidade_fechamento', '()'], ['kidmais062_unidade_ativa', '()'],
+  ['kidmais062_ocupacoes_escopo', '(date,date)'], ['kidmais062_unidade_fechamento', '()'], ['kidmais062_fluxo_unidade', '()'], ['kidmais062_unidade_ativa', '()'],
   ['kidmais062_revisao_unidade', '()'], ['kidmais062_vinculo_unidade', '()'],
 ];
 const criadasNa062 = [...m062.matchAll(/CREATE FUNCTION public\.(\w+)\(/g)].map((x) => x[1]);
 if (criadasNa062.join() !== [...ESTRUTURA_FUNCOES, ...NOVAS].map(([n]) => n).join()) throw Error(`062 cria ${criadasNa062.join()}`);
 /** Gatilhos das regras (removidos pelo rollback). */
 const GATILHOS = [
-  ['fechamentos_062_unidade_trg', 'fechamentos'], ['bloqueios_agenda_062_unidade_trg', 'bloqueios_agenda'],
+  ['fechamentos_062_unidade_trg', 'fechamentos'], ['contrato_fluxos_062_unidade_trg', 'contrato_fluxos'], ['bloqueios_agenda_062_unidade_trg', 'bloqueios_agenda'],
   ['configuracao_agenda_062_unidade_trg', 'configuracao_agenda'], ['fechamento_revisoes_062_unidade_trg', 'fechamento_revisoes'],
   ['contrato_importacoes_062_unidade_trg', 'contrato_importacoes'],
 ];
@@ -85,7 +85,7 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM public.estabelecimentos u WHERE u.empresa_id = e.id AND u.status <> 'DESATIVADO');
   SELECT count(*) INTO bloqueios FROM public.bloqueios_agenda WHERE ativo;
   SELECT count(*) INTO turnos FROM public.configuracao_agenda WHERE ativo;
-  RAISE NOTICE '062 precheck: % empresa(s) ativa(s) sem unidade (D2: reparo Unidade principal); % bloqueio(s) ativo(s) continuam globais até resolução (D3); % turno(s) ativo(s) ficam como modelos globais (D5).', sem_unidade, bloqueios, turnos;
+  RAISE NOTICE '062 precheck: % empresa(s) ativa(s) sem unidade (D2: reparo Unidade principal e decisões por contratação); % bloqueio(s) ativo(s) continuam globais até resolução (D3); % turno(s) ativo(s) ficam como modelos globais (D5).', sem_unidade, bloqueios, turnos;
 END $$;
 SELECT '062 precheck OK' AS resultado;
 `;
@@ -102,6 +102,7 @@ BEGIN
       (table_name = 'fechamentos' AND column_name = 'estabelecimento_id')
       OR (table_name IN ('bloqueios_agenda', 'configuracao_agenda') AND column_name IN ('empresa_id', 'estabelecimento_id')))) <> 5
      OR to_regclass('public.agenda_062_bloqueios_resolucao') IS NULL
+     OR to_regclass('public.agenda_062_fechamentos_resolucao') IS NULL
      OR to_regclass('public.agenda_062_unidades_habilitacao') IS NULL
      OR to_regclass('public.agenda_062_unidades_habilitacao_vigente_uk') IS NULL
      OR to_regclass('public.configuracao_agenda_062_codigo_escopo_uk') IS NULL
@@ -146,11 +147,12 @@ const rollback = `-- Rollback 062 — devolve a agenda GLOBAL (019/061). NÃO AP
 --   * sem nenhum escopo gravado: removida por completo (volta ao schema da 061, inclusive o código de turno único);
 --   * com escopo gravado (unidades, donos, resoluções): rollback SUAVE — colunas, tabela e dados preservados, só as
 --     regras saem. A 062 pode ser reaplicada depois e reencontra a estrutura (database/migrations/...062...sql).
--- Recusa se houver turno ativo por empresa/unidade: sem a 062 ele entraria na agenda global de todas as empresas.
+-- Recusa se houver turno ativo por empresa/unidade (sem a 062 ele entraria na agenda global de todas as empresas) ou
+-- bloqueio com dono que alcançaria reserva de outro recurso (sem a 062 todo bloqueio volta a ser global).
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL search_path = public, pg_catalog;
-LOCK TABLE public.fechamentos, public.fechamento_revisoes, public.bloqueios_agenda, public.configuracao_agenda, public.contrato_importacoes,
+LOCK TABLE public.fechamentos, public.fechamento_revisoes, public.contrato_fluxos, public.bloqueios_agenda, public.configuracao_agenda, public.contrato_importacoes,
   public.agenda_062_unidades_habilitacao IN ACCESS EXCLUSIVE MODE;
 DO $$ BEGIN
   IF to_regprocedure('public.kidmais062_ocupacoes_escopo(date,date)') IS NULL THEN RAISE EXCEPTION 'Rollback 062: não aplicada.'; END IF;
@@ -164,16 +166,26 @@ DO $$ BEGIN
                 AND b.horario_inicio < a.horario_fim AND b.horario_fim > a.horario_inicio) THEN
     RAISE EXCEPTION 'Rollback 062 recusado: há reservas simultâneas em recursos diferentes; a agenda global as tornaria conflitantes. Correção forward necessária.';
   END IF;
+  -- Sem a 062, todo bloqueio ativo volta a valer para todas as empresas (o dono é ignorado): bloqueio de uma empresa ou
+  -- unidade que alcança reserva de OUTRO recurso passaria a conflitar com ela.
+  IF EXISTS (SELECT 1 FROM public.kidmais062_ocupacoes_escopo('-infinity'::date, 'infinity'::date) o
+               JOIN public.bloqueios_agenda b ON b.ativo AND b.data = o.data
+                AND (b.dia_inteiro OR b.horario_inicio IS NULL OR b.horario_fim IS NULL OR (b.horario_inicio < o.horario_fim AND b.horario_fim > o.horario_inicio))
+              WHERE NOT public.kidmais062_bloqueio_aplica(b.empresa_id, b.estabelecimento_id, o.empresa_id, o.estabelecimento_id)) THEN
+    RAISE EXCEPTION 'Rollback 062 recusado: há bloqueio de empresa/unidade no horário de reserva de outro recurso; a agenda global os tornaria conflitantes. Desative o bloqueio por decisão explícita ou corrija para frente.';
+  END IF;
 END $$;
 DROP TRIGGER contrato_importacoes_062_unidade_trg ON public.contrato_importacoes;
 DROP TRIGGER fechamento_revisoes_062_unidade_trg ON public.fechamento_revisoes;
 DROP TRIGGER configuracao_agenda_062_unidade_trg ON public.configuracao_agenda;
 DROP TRIGGER bloqueios_agenda_062_unidade_trg ON public.bloqueios_agenda;
+DROP TRIGGER contrato_fluxos_062_unidade_trg ON public.contrato_fluxos;
 DROP TRIGGER fechamentos_062_unidade_trg ON public.fechamentos;
 ${SUBSTITUIDAS.map(([n, , f]) => definicao(f, n)).join('\n')}
 DROP FUNCTION public.kidmais062_vinculo_unidade();
 DROP FUNCTION public.kidmais062_revisao_unidade();
 DROP FUNCTION public.kidmais062_unidade_ativa();
+DROP FUNCTION public.kidmais062_fluxo_unidade();
 DROP FUNCTION public.kidmais062_unidade_fechamento();
 DROP FUNCTION public.kidmais062_ocupacoes_escopo(date, date);
 DROP FUNCTION public.kidmais062_unidade_agendavel(uuid, uuid);
@@ -186,12 +198,14 @@ DO $estrutura$ BEGIN
      OR EXISTS (SELECT 1 FROM public.bloqueios_agenda WHERE empresa_id IS NOT NULL)
      OR EXISTS (SELECT 1 FROM public.configuracao_agenda WHERE empresa_id IS NOT NULL)
      OR EXISTS (SELECT 1 FROM public.agenda_062_bloqueios_resolucao)
+     OR EXISTS (SELECT 1 FROM public.agenda_062_fechamentos_resolucao)
      OR EXISTS (SELECT 1 FROM public.agenda_062_unidades_habilitacao) THEN
-    RAISE NOTICE 'Rollback 062 SUAVE: escopos e habilitações preservados (colunas, resoluções e histórico de habilitação com a guarda); agenda global ativa.';
+    RAISE NOTICE 'Rollback 062 SUAVE: escopos e habilitações preservados (colunas, decisões D2/D3 e histórico de habilitação com a guarda); agenda global ativa.';
     RETURN;
   END IF;
   DROP TABLE public.agenda_062_unidades_habilitacao;
   DROP FUNCTION public.kidmais062_habilitacao_guard();
+  DROP TABLE public.agenda_062_fechamentos_resolucao;
   DROP TABLE public.agenda_062_bloqueios_resolucao;
   DROP INDEX public.configuracao_agenda_062_codigo_escopo_uk;
   DROP INDEX public.bloqueios_agenda_062_escopo_idx;

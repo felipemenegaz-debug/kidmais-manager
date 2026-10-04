@@ -152,14 +152,24 @@ export async function importacao(db: Client, c: Cenario, evento: Evento) {
   return { id: imp, cliente, sha };
 }
 
-/** Sem unidade por padrão: a regra de elegibilidade da 062 (D6) ainda não aceita unidade SUSPENSO (a única possível na 043). */
-export function decisoes(c: Cenario, evento: Evento, financeiro: unknown, unidade: string | null = null) {
+/**
+ * Sem unidade por padrão: unidade só com habilitação explícita (D6 = opção A). Os cenários sintéticos repetem o mesmo
+ * valor e aniversariante em várias importações da empresa, então, por padrão, a decisão "é outro contrato" vem
+ * tomada (com motivo); o caminho sem decisão é provado à parte, com `duplicidade: null`.
+ */
+export function decisoes(c: Cenario, evento: Evento, financeiro: unknown, unidade: string | null = null,
+  duplicidade: { motivo: string } | null = { motivo: "Cenário sintético: contratos distintos" }) {
   return {
     situacaoContrato: "VIGENTE", estabelecimentoId: unidade, pacoteReferenciaId: c.pacote,
     evento: { data: evento.data, horarioInicio: evento.inicio, horarioFim: evento.fim, convidados: 50 },
-    valorContratadoCentavos: 500000, motivos: {}, financeiro, outroContratoConfirmado: false, conferenciaDeclarada: true,
+    valorContratadoCentavos: 500000, motivos: {}, financeiro,
+    outroContratoConfirmado: duplicidade !== null, motivoOutroContrato: duplicidade?.motivo ?? "", conferenciaDeclarada: true,
   };
 }
+
+/** Contexto da sessão do cenário com autenticação recente (senha confirmada agora), como a rota monta. */
+export const ctxIntegracao = (c: Cenario, autenticadoEm = new Date().toISOString()) =>
+  ({ usuarioId: c.usuario, token: c.token, requestId: randomUUID(), ip: null, userAgent: "h061", autenticadoEm });
 export const PARCIAL = () => ({ situacao: "PARCIALMENTE_PAGO", parcelas: [
   { valorCentavos: 150000, vencimento: dia(-60), recebimento: { data: dia(-58), forma: "PIX" } },
   { valorCentavos: 350000, vencimento: dia(30), recebimento: null },
@@ -171,6 +181,119 @@ export async function integrar(s: Servico, core: unknown, db: Client, c: Cenario
   const tx = executor(db);
   const sim = await s.simularIntegracao(tx, c.tenant as never, imp, d, dia(0));
   if (sim.integrada || !sim.pronto) throw new Error(`simulação não pronta: ${JSON.stringify(sim)}`);
-  const ctx = { usuarioId: c.usuario, token: c.token, requestId: randomUUID(), ip: null, userAgent: "h061" };
-  return s.confirmarIntegracao(tx, c.tenant as never, ctx, imp, { decisoes: d, resumoHash: sim.resumoHash, chave }, dia(0), core as never);
+  return s.confirmarIntegracao(tx, c.tenant as never, ctxIntegracao(c), imp, { decisoes: d, resumoHash: sim.resumoHash, chave }, dia(0), core as never);
+}
+
+/* ───────────────────────── Fluxos NATIVOS (revisão, assinaturas, financeiro) — cenários [R5] ─────────────────────────
+ * Reproduzem a sequência dos scripts de integração nativos (festa-019, contrato-revisao-inicial, alteracao-financeira),
+ * dentro da transação do teste: o pool global é trocado por um adaptador que transforma BEGIN/COMMIT/ROLLBACK dos
+ * serviços em SAVEPOINT; as verificações diferidas rodam com `validarAgora` e o ROLLBACK final desfaz tudo.
+ * Sem WhatsApp: o código do desafio é capturado pelo emissor injetado. Sem PDF de modelo externo: pacote COMPLETA. */
+
+/** CPF sintético com dígitos verificadores válidos. */
+export function cpfValido() {
+  const d = Array.from({ length: 9 }, () => Math.floor(Math.random() * 10));
+  for (const peso of [10, 11]) { const r = d.reduce((soma, x, i) => soma + x * (peso - i), 0) * 10 % 11; d.push(r === 10 ? 0 : r); }
+  return d.join("");
+}
+
+/** Pool global apontando para a conexão do teste (BEGIN/COMMIT/ROLLBACK dos serviços viram SAVEPOINT). Devolve a restauração. */
+export function poolNaTransacao(db: Client) {
+  const g = globalThis as { __kidmaisPgPool?: unknown };
+  const anterior = g.__kidmaisPgPool;
+  const troca: Record<string, string> = { BEGIN: "SAVEPOINT operacao_nativa", COMMIT: "RELEASE SAVEPOINT operacao_nativa", ROLLBACK: "ROLLBACK TO SAVEPOINT operacao_nativa" };
+  g.__kidmaisPgPool = {
+    query: (sql: string, v?: unknown[]) => db.query(sql, v),
+    connect: async () => ({ query: (sql: string, v?: unknown[]) => db.query(troca[sql] ?? sql, v), release() {} }),
+  };
+  return () => { g.__kidmaisPgPool = anterior; };
+}
+
+/** Ambiente dos fluxos nativos de assinatura (o mesmo dos scripts de integração). Devolve a restauração. */
+export function ambienteAssinatura() {
+  const nomes = ["FESTA_ENABLED", "CONTRATO_ACEITE_DEV_ENABLED", "IDENTIDADE_OTP_PEPPER", "IDENTIDADE_OTP_PROVIDER"] as const;
+  const antes = Object.fromEntries(nomes.map((n) => [n, process.env[n]]));
+  process.env.FESTA_ENABLED = "true";
+  process.env.CONTRATO_ACEITE_DEV_ENABLED = "true";
+  process.env.IDENTIDADE_OTP_PEPPER = randomBytes(32).toString("hex");
+  delete process.env.IDENTIDADE_OTP_PROVIDER;
+  return () => { for (const n of nomes) { if (antes[n] === undefined) delete process.env[n]; else process.env[n] = antes[n]; } };
+}
+
+/**
+ * Catálogo do cenário apto aos fluxos nativos: pacote com modelo oficial (COMPLETA), tabela publicada como o caminho real
+ * (só `publicada_em`; a 035 exige tabela inativa na publicação) e regra de
+ * categoria de horário para todos os dias no turno do cenário. Representante autorizado com sessão (senha "agora") e a
+ * capacidade de assinar pela empresa.
+ */
+export async function catalogoNativo(db: Client, c: Cenario) {
+  await db.query(`UPDATE pacotes SET codigo = 'COMPLETA' WHERE id = $1::uuid`, [c.pacote]);
+  // Escopo comercial declarado (047) igual ao único preço do cenário: pacote, PADRAO, a partir de 1 convidado.
+  const tabela = (await db.query<{ id: string }>(`SELECT id FROM tabelas_preco WHERE empresa_id = $1::uuid AND publicada_em IS NULL`, [c.empresa])).rows[0].id;
+  const escopo = await id(db, `INSERT INTO tabela_preco_escopos (tabela_preco_id, pacote_id, categoria_horario, cobertura_continua) VALUES ($1::uuid, $2::uuid, 'PADRAO', true) RETURNING id`, [tabela, c.pacote]);
+  await db.query(`INSERT INTO tabela_preco_escopo_faixas (escopo_id, convidados_min, convidados_max) VALUES ($1::uuid, 1, NULL)`, [escopo]);
+  await db.query(`UPDATE tabelas_preco SET publicada_em = clock_timestamp() WHERE id = $1::uuid`, [tabela]);
+  const turno = (await db.query<{ id: string }>(`SELECT id FROM configuracao_agenda WHERE codigo = $1`, [c.agendaCodigo])).rows[0].id;
+  await catalogoNoTurno(db, c, turno);
+  const rep = await representante(db, c);
+  const token = randomBytes(32).toString("base64url");
+  await db.query(`INSERT INTO sessoes_administrativas (usuario_id, token_hash, csrf_hash, autenticado_em, ultima_atividade_em, expira_em)
+     VALUES ($1::uuid, $2, $3, clock_timestamp(), clock_timestamp(), clock_timestamp() + interval '8 hours')`, [rep.usuarioId, hashToken(token), hashToken(randomBytes(32).toString("base64url"))]);
+  await db.query(`INSERT INTO empresa_membership_capacidades (empresa_id, membership_id, capacidade, concedido_por, motivo) VALUES ($1::uuid, $2::uuid, 'CONTRATO_ASSINAR_EMPRESA', $3::uuid, 'Cenário R5')`,
+    [c.empresa, rep.membershipId, rep.usuarioId]);
+  return { turno, representante: rep, tokenRepresentante: token };
+}
+
+/**
+ * Categoria de horário e elegibilidade comercial do pacote do cenário em um turno, todos os dias (o que o cadastro
+ * grava). A categoria PADRAO entra como a regra MAIS RECENTE do turno: os turnos semeados (TURNO_1/TURNO_2, 006) têm
+ * domingo/sábado NOBRE desde 2026-09-07, e o cenário só tem preço PADRAO — sem isso o dia da semana decidiria o teste.
+ */
+export async function catalogoNoTurno(db: Client, c: Cenario, turno: string) {
+  for (let dia = 1; dia <= 7; dia++) {
+    const inicio = (await db.query<{ d: string }>(`SELECT greatest(DATE '2020-01-01', max(vigencia_inicio) + 1)::text d FROM regras_categoria_horario WHERE dia_semana = $1 AND configuracao_agenda_id = $2::uuid`,
+      [dia, turno])).rows[0].d;
+    // Nova vigência como o cadastro faz: a regra aberta anterior termina na véspera (vigências não se sobrepõem, 006).
+    await db.query(`UPDATE regras_categoria_horario SET vigencia_fim = $3::date - 1 WHERE dia_semana = $1 AND configuracao_agenda_id = $2::uuid AND ativo
+      AND vigencia_inicio < $3::date AND (vigencia_fim IS NULL OR vigencia_fim >= $3::date)`, [dia, turno, inicio]);
+    await db.query(`INSERT INTO regras_categoria_horario (dia_semana, configuracao_agenda_id, categoria_horario, vigencia_inicio) VALUES ($1, $2::uuid, 'PADRAO', $3::date)
+      ON CONFLICT (dia_semana, configuracao_agenda_id, vigencia_inicio) DO UPDATE SET ativo = true, vigencia_fim = NULL`, [dia, turno, inicio]);
+    await db.query(`INSERT INTO regras_disponibilidade_pacote (pacote_id, dia_semana, configuracao_agenda_id, estado, vigencia_inicio) VALUES ($1::uuid, $2, $3::uuid, 'DISPONIVEL', '2020-01-01')
+      ON CONFLICT (pacote_id, dia_semana, configuracao_agenda_id, vigencia_inicio) DO NOTHING`, [c.pacote, dia, turno]);
+  }
+}
+
+/** Dados contratuais completos do cliente (o snapshot nativo e o desafio OTP exigem). Devolve o CPF. */
+export async function completarCliente(db: Client, clienteId: string) {
+  const cpf = cpfValido();
+  await db.query(`UPDATE clientes SET cpf = $2, email = $3, whatsapp = '11999998888', telefone = '11999998888', cep = '01001000', logradouro = 'Rua Sintética',
+      numero = '1', bairro = 'Centro', cidade = 'São Paulo', uf = 'SP' WHERE id = $1::uuid`, [clienteId, cpf, `${randomUUID()}@example.invalid`]);
+  return cpf;
+}
+
+type Operar = (versaoId: string, input: Record<string, unknown>, token: string, ctx: { requestId: string; ip: null; userAgent: string }, empresa?: string) => Promise<Record<string, unknown>>;
+
+/** Congela a versão em preparação como o Admin faz: PDF, revisão, assinatura Kidmais (representante) e liberação ao cliente. */
+export async function congelarEAssinarKidmais(db: Client, operar: Operar, versaoId: string, empresa: string, tokenAdmin: string, tokenRepresentante: string) {
+  const ctxOp = () => ({ requestId: randomUUID(), ip: null, userAgent: "r5" });
+  const revisao = async () => (await db.query<{ revisao: number }>(`SELECT revisao FROM contrato_edicoes WHERE contrato_versao_id = $1`, [versaoId])).rows[0].revisao;
+  const pdf = await operar(versaoId, { acao: "gerar_pdf", revisao: await revisao() }, tokenAdmin, ctxOp(), empresa) as { documentoId: string };
+  await operar(versaoId, { acao: "revisar", revisao: await revisao(), documentoId: pdf.documentoId }, tokenAdmin, ctxOp(), empresa);
+  await operar(versaoId, { acao: "assinar", revisao: await revisao(), documentoId: pdf.documentoId, chaveIdempotencia: randomUUID() }, tokenRepresentante, ctxOp(), empresa);
+  await operar(versaoId, { acao: "liberar", revisao: await revisao() }, tokenAdmin, ctxOp(), empresa);
+}
+
+/** Assinatura do cliente pelo fluxo público real (acesso por CPF, desafio, prova, contexto, aceite). */
+export async function assinarComoCliente(contratoId: string, cpf: string) {
+  const publico = carregar<typeof import("../lib/contratos/services/contrato-publico.service.ts")>("lib/contratos/services/contrato-publico.service.ts");
+  const identidade = carregar<{ criarIdentityServiceComAmbiente: (s: (x: { codigo: string }) => Promise<void>) => { confirmarCodigo: (i: { validacaoId: string; codigo: string }) => Promise<{ provaToken: string }> } }>("lib/identidade/services/index.ts");
+  const acesso = await publico.consultarAcessoContrato({ contratoId, cpf }) as { canais: Array<{ canal: string }> };
+  let codigo = "";
+  const emissor = async (x: { codigo: string }) => { codigo = x.codigo; };
+  const desafio = await publico.iniciarDesafioContrato({ contratoId, cpf, canal: acesso.canais[0].canal } as never, emissor as never) as { validacaoId: string; acessoToken: string };
+  const prova = await identidade.criarIdentityServiceComAmbiente(emissor).confirmarCodigo({ validacaoId: desafio.validacaoId, codigo });
+  const entrada = { contratoId, acessoToken: desafio.acessoToken, provaToken: prova.provaToken };
+  const contexto = await publico.obterContextoContratoPublico(entrada);
+  return publico.assinarContratoPublico({ ...entrada, versaoId: contexto.versao.id, snapshotHash: contexto.versao.snapshotHash, documentoPdfHash: contexto.versao.documentoPdfHash } as never,
+    (async () => { throw new Error("nenhum OTP externo"); }) as never, { requestId: randomUUID() });
 }

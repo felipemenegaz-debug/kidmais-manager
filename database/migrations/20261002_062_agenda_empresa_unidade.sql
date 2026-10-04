@@ -64,15 +64,16 @@ BEGIN
         'bloqueios_agenda_062_estabelecimento_fk', 'bloqueios_agenda_062_unidade_exige_empresa_check',
         'configuracao_agenda_062_estabelecimento_fk', 'configuracao_agenda_062_unidade_exige_empresa_check'))
     + (CASE WHEN to_regclass('public.agenda_062_bloqueios_resolucao') IS NULL THEN 0 ELSE 1 END)
+    + (CASE WHEN to_regclass('public.agenda_062_fechamentos_resolucao') IS NULL THEN 0 ELSE 1 END)
     + (CASE WHEN to_regclass('public.configuracao_agenda_062_codigo_escopo_uk') IS NULL THEN 0 ELSE 1 END)
     + (CASE WHEN to_regclass('public.fechamentos_062_agenda_idx') IS NULL THEN 0 ELSE 1 END)
     + (CASE WHEN to_regclass('public.bloqueios_agenda_062_escopo_idx') IS NULL THEN 0 ELSE 1 END);
-  IF pecas = 19 AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'configuracao_agenda_codigo_uk') THEN
+  IF pecas = 20 AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'configuracao_agenda_codigo_uk') THEN
     PERFORM set_config('kidmais.m062_reaplicacao', 'sim', true);
     RAISE NOTICE '062: estrutura preservada por rollback suave; recriando só as regras.';
     RETURN;
   END IF;
-  IF pecas <> 0 THEN RAISE EXCEPTION '062: estrutura parcial (% de 19 peças); instalação divergente.', pecas; END IF;
+  IF pecas <> 0 THEN RAISE EXCEPTION '062: estrutura parcial (% de 20 peças); instalação divergente.', pecas; END IF;
   PERFORM set_config('kidmais.m062_reaplicacao', 'nao', true);
 
   ALTER TABLE public.fechamentos ADD COLUMN estabelecimento_id uuid,
@@ -107,6 +108,19 @@ BEGIN
     motivo text NOT NULL CHECK (length(btrim(motivo)) BETWEEN 5 AND 1000),
     decidido_em timestamptz NOT NULL DEFAULT clock_timestamp(),
     CONSTRAINT agenda_062_bloqueios_resolucao_estabelecimento_fk FOREIGN KEY (empresa_id, estabelecimento_id)
+      REFERENCES public.estabelecimentos(empresa_id, id) ON DELETE RESTRICT ON UPDATE RESTRICT
+  );
+
+  -- D2: unidade de contratação existente só por decisão explícita, uma linha por contratação (levantamento e aplicação
+  -- em database/repairs). Nenhuma atribuição em massa por "a empresa só tem uma unidade".
+  CREATE TABLE public.agenda_062_fechamentos_resolucao (
+    fechamento_id uuid PRIMARY KEY REFERENCES public.fechamentos(id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    empresa_id uuid NOT NULL,
+    estabelecimento_id uuid NOT NULL,
+    decidido_por text NOT NULL CHECK (length(btrim(decidido_por)) BETWEEN 3 AND 200),
+    motivo text NOT NULL CHECK (length(btrim(motivo)) BETWEEN 5 AND 1000),
+    decidido_em timestamptz NOT NULL DEFAULT clock_timestamp(),
+    CONSTRAINT agenda_062_fechamentos_resolucao_estabelecimento_fk FOREIGN KEY (empresa_id, estabelecimento_id)
       REFERENCES public.estabelecimentos(empresa_id, id) ON DELETE RESTRICT ON UPDATE RESTRICT
   );
 
@@ -197,12 +211,17 @@ LANGUAGE sql STABLE SET search_path = public, pg_catalog AS $$
    WHERE u.empresa_id = p_empresa AND u.id = p_unidade AND u.status <> 'DESATIVADO' AND e.status = 'ATIVA');
 $$;
 
--- Serializa gravações na unidade com a revogação: quem grava reserva, bloqueio, turno ou destino na unidade trava a
--- habilitação vigente (FOR SHARE) antes de conferir a elegibilidade; a revogação (UPDATE) espera essas transações, e
--- as que vêm depois dela já leem a unidade revogada.
+-- Serializa gravações na unidade com habilitação, revogação e mudança de status da empresa ou da unidade. Ordem ÚNICA
+-- de locks da agenda: empresa → unidade → habilitação → data (kidmais:agenda:<data>) → contratação. Quem grava
+-- reserva, bloqueio, turno ou destino na unidade trava, nesta ordem, empresa e unidade (FOR SHARE: conflita com
+-- UPDATE de status/linha, não entre gravações) e a habilitação vigente (FOR SHARE) antes de conferir a elegibilidade.
+-- Habilitar/revogar travam a unidade (FOR NO KEY UPDATE) antes de tocar a habilitação: a mesma ordem, então quem chega
+-- depois espera em vez de formar ciclo (o FK de fechamentos/bloqueios só pede KEY SHARE na unidade já travada).
 CREATE FUNCTION public.kidmais062_travar_habilitacao(p_unidade uuid) RETURNS void
 LANGUAGE plpgsql SET search_path = public, pg_catalog AS $$
 BEGIN
+ PERFORM 1 FROM empresas e WHERE e.id = (SELECT u.empresa_id FROM estabelecimentos u WHERE u.id = p_unidade) FOR SHARE;
+ PERFORM 1 FROM estabelecimentos WHERE id = p_unidade FOR SHARE;
  PERFORM 1 FROM agenda_062_unidades_habilitacao WHERE estabelecimento_id = p_unidade AND revogada_em IS NULL FOR SHARE;
 END $$;
 
@@ -223,7 +242,8 @@ $$;
 -- 4. Unidade do fechamento: preenchida pelo banco quando a empresa tem exatamente uma unidade ELEGÍVEL (código
 --    anterior continua funcionando); nunca muda depois de definida (troca de unidade = nova contratação, D1/V1).
 --    Unidade sem habilitação vigente (revogada): a reserva gravada fica como está e continua ocupando; mudar data ou
---    horário dela é recusado (remarcar exige habilitar de novo ou nova contratação em unidade habilitada).
+--    horário dela é recusado (remarcar exige habilitar de novo ou nova contratação em unidade habilitada), e uma
+--    proposta antiga que ainda NÃO ocupa não pode passar a CONFIRMADO (confirmação seria nova reserva na unidade).
 CREATE FUNCTION public.kidmais062_unidade_fechamento() RETURNS trigger
 LANGUAGE plpgsql SET search_path = public, pg_catalog AS $$
 DECLARE unica uuid; n int;
@@ -242,27 +262,58 @@ BEGIN
     AND ROW(NEW.data_evento, NEW.horario_inicio, NEW.horario_fim) IS DISTINCT FROM ROW(OLD.data_evento, OLD.horario_inicio, OLD.horario_fim)
     AND NOT kidmais062_unidade_agendavel(NEW.empresa_id, NEW.estabelecimento_id) THEN
   RAISE EXCEPTION '062: unidade sem habilitação vigente; alterar data ou horário exige unidade habilitada' USING ERRCODE='23514'; END IF;
+ -- BEFORE: kidmais019_ocupa ainda lê a linha anterior. Só a proposta que não ocupava é recusada.
+ IF TG_OP='UPDATE' AND NEW.estabelecimento_id IS NOT NULL AND NEW.status='CONFIRMADO' AND OLD.status IS DISTINCT FROM 'CONFIRMADO'
+    AND NOT kidmais019_ocupa(OLD.id) AND NOT kidmais062_unidade_agendavel(NEW.empresa_id, NEW.estabelecimento_id) THEN
+  RAISE EXCEPTION '062: unidade sem habilitação vigente; confirmar nova reserva exige unidade habilitada' USING ERRCODE='23514'; END IF;
  RETURN NEW;
 END $$;
-CREATE TRIGGER fechamentos_062_unidade_trg BEFORE INSERT OR UPDATE OF estabelecimento_id, data_evento, horario_inicio, horario_fim ON public.fechamentos
+CREATE TRIGGER fechamentos_062_unidade_trg BEFORE INSERT OR UPDATE OF estabelecimento_id, data_evento, horario_inicio, horario_fim, status ON public.fechamentos
   FOR EACH ROW EXECUTE FUNCTION public.kidmais062_unidade_fechamento();
 
-CREATE FUNCTION public.kidmais062_unidade_ativa() RETURNS trigger
+-- Formalização de proposta antiga em unidade revogada: a versão vigente formalizada é a outra porta de entrada da
+-- ocupação (kidmais019_ocupa). Trocar a vigente de contratação que ainda NÃO ocupa exige unidade habilitada;
+-- reserva já ocupando (preservada pela revogação) segue podendo formalizar revisões sem mudança de horário.
+CREATE FUNCTION public.kidmais062_fluxo_unidade() RETURNS trigger
 LANGUAGE plpgsql SET search_path = public, pg_catalog AS $$
+DECLARE f fechamentos%ROWTYPE;
 BEGIN
- IF NEW.estabelecimento_id IS NOT NULL THEN PERFORM kidmais062_travar_habilitacao(NEW.estabelecimento_id); END IF;
- IF NEW.estabelecimento_id IS NOT NULL AND (TG_OP='INSERT' OR NEW.estabelecimento_id IS DISTINCT FROM OLD.estabelecimento_id)
-    AND NOT kidmais062_unidade_agendavel(NEW.empresa_id, NEW.estabelecimento_id) THEN
-  RAISE EXCEPTION '062: unidade não elegível para agenda ou de outra empresa' USING ERRCODE='23514'; END IF;
+ IF NEW.versao_vigente_id IS NULL OR (TG_OP='UPDATE' AND NEW.versao_vigente_id IS NOT DISTINCT FROM OLD.versao_vigente_id) THEN RETURN NEW; END IF;
+ -- INSERT ... ON CONFLICT da preparação nativa repete a vigente atual: não é troca.
+ IF TG_OP='INSERT' AND EXISTS(SELECT 1 FROM contrato_fluxos WHERE contrato_id = NEW.contrato_id AND versao_vigente_id = NEW.versao_vigente_id) THEN RETURN NEW; END IF;
+ SELECT fe.* INTO f FROM contratos c JOIN fechamentos fe ON fe.id = c.fechamento_id WHERE c.id = NEW.contrato_id;
+ IF f.estabelecimento_id IS NULL THEN RETURN NEW; END IF;
+ PERFORM kidmais062_travar_habilitacao(f.estabelecimento_id);
+ IF NOT kidmais019_ocupa(f.id) AND NOT kidmais062_unidade_agendavel(f.empresa_id, f.estabelecimento_id) THEN
+  RAISE EXCEPTION '062: unidade sem habilitação vigente; formalizar nova reserva exige unidade habilitada' USING ERRCODE='23514'; END IF;
  RETURN NEW;
 END $$;
-CREATE TRIGGER bloqueios_agenda_062_unidade_trg BEFORE INSERT OR UPDATE OF empresa_id, estabelecimento_id ON public.bloqueios_agenda
+CREATE TRIGGER contrato_fluxos_062_unidade_trg BEFORE INSERT OR UPDATE OF versao_vigente_id ON public.contrato_fluxos
+  FOR EACH ROW EXECUTE FUNCTION public.kidmais062_fluxo_unidade();
+
+-- Bloqueio e turno na unidade: com habilitação vigente, livres; sem ela (revogada), só desativar ou corrigir a
+-- descrição. Criar, reativar, mudar data/horário/período ou mover para a unidade são recusados.
+CREATE FUNCTION public.kidmais062_unidade_ativa() RETURNS trigger
+LANGUAGE plpgsql SET search_path = public, pg_catalog AS $$
+DECLARE descritivos CONSTANT text[] := ARRAY['motivo', 'observacoes', 'nome', 'ordem_exibicao', 'atualizado_em'];
+BEGIN
+ IF NEW.estabelecimento_id IS NULL THEN RETURN NEW; END IF;
+ PERFORM kidmais062_travar_habilitacao(NEW.estabelecimento_id);
+ IF kidmais062_unidade_agendavel(NEW.empresa_id, NEW.estabelecimento_id) THEN RETURN NEW; END IF;
+ IF TG_OP='INSERT' OR ROW(NEW.empresa_id, NEW.estabelecimento_id) IS DISTINCT FROM ROW(OLD.empresa_id, OLD.estabelecimento_id) THEN
+  RAISE EXCEPTION '062: unidade não elegível para agenda ou de outra empresa' USING ERRCODE='23514'; END IF;
+ IF NEW.ativo AND (NOT OLD.ativo OR (to_jsonb(NEW) - descritivos) IS DISTINCT FROM (to_jsonb(OLD) - descritivos)) THEN
+  RAISE EXCEPTION '062: unidade sem habilitação vigente; só é possível desativar ou corrigir a descrição' USING ERRCODE='23514'; END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER bloqueios_agenda_062_unidade_trg BEFORE INSERT OR UPDATE ON public.bloqueios_agenda
   FOR EACH ROW EXECUTE FUNCTION public.kidmais062_unidade_ativa();
-CREATE TRIGGER configuracao_agenda_062_unidade_trg BEFORE INSERT OR UPDATE OF empresa_id, estabelecimento_id ON public.configuracao_agenda
+CREATE TRIGGER configuracao_agenda_062_unidade_trg BEFORE INSERT OR UPDATE ON public.configuracao_agenda
   FOR EACH ROW EXECUTE FUNCTION public.kidmais062_unidade_ativa();
 
--- Revisão em preparação com destino DIFERENTE do slot atual numa unidade sem habilitação vigente: recusada já ao
--- preparar (mesma regra da alteração direta do fechamento). Revisão sem mudança de agenda segue normalmente.
+-- Revisão em preparação com destino DIFERENTE do slot atual numa unidade sem habilitação vigente: recusada ao
+-- preparar E ao adquirir o hold do destino (hold_destino_adquirido_em: é ele que faz o destino ocupar), mesmo que a
+-- revisão tenha sido preparada antes da revogação. Revisão sem mudança de agenda segue normalmente.
 CREATE FUNCTION public.kidmais062_revisao_unidade() RETURNS trigger
 LANGUAGE plpgsql SET search_path = public, pg_catalog AS $$
 DECLARE f fechamentos%ROWTYPE;
@@ -276,7 +327,7 @@ BEGIN
   RAISE EXCEPTION '062: unidade sem habilitação vigente; alterar data ou horário exige unidade habilitada' USING ERRCODE='23514'; END IF;
  RETURN NEW;
 END $$;
-CREATE TRIGGER fechamento_revisoes_062_unidade_trg BEFORE INSERT OR UPDATE OF data_evento, horario_inicio, horario_fim, estado ON public.fechamento_revisoes
+CREATE TRIGGER fechamento_revisoes_062_unidade_trg BEFORE INSERT OR UPDATE OF data_evento, horario_inicio, horario_fim, estado, hold_destino_adquirido_em ON public.fechamento_revisoes
   FOR EACH ROW EXECUTE FUNCTION public.kidmais062_revisao_unidade();
 
 -- Contrato histórico integrado (061): a unidade do vínculo é a mesma da contratação que ele cria.
@@ -293,14 +344,22 @@ CREATE TRIGGER contrato_importacoes_062_unidade_trg BEFORE INSERT ON public.cont
 -- 5. Conflitos com escopo. Mesmas regras, mensagens e gatilhos da 019/061; muda só o alcance da comparação.
 CREATE OR REPLACE FUNCTION public.kidmais019_validar_destino(cid uuid) RETURNS void
 LANGUAGE plpgsql SET search_path = public, pg_catalog AS $$
-DECLARE fid uuid; dia date; ini time; fim time; emp uuid; uni uuid;
+DECLARE fid uuid; dia date; ini time; fim time; emp uuid; uni uuid; mesmo_slot boolean;
 BEGIN
- SELECT f.id,COALESCE(r.data_evento,f.data_evento),COALESCE(r.horario_inicio,f.horario_inicio),COALESCE(r.horario_fim,f.horario_fim),f.empresa_id,f.estabelecimento_id
- INTO fid,dia,ini,fim,emp,uni FROM contratos c JOIN fechamentos f ON f.id=c.fechamento_id
+ SELECT f.id,COALESCE(r.data_evento,f.data_evento),COALESCE(r.horario_inicio,f.horario_inicio),COALESCE(r.horario_fim,f.horario_fim),f.empresa_id,f.estabelecimento_id,
+  r.id IS NULL OR ROW(r.data_evento,r.horario_inicio,r.horario_fim) IS NOT DISTINCT FROM ROW(f.data_evento,f.horario_inicio,f.horario_fim)
+ INTO fid,dia,ini,fim,emp,uni,mesmo_slot FROM contratos c JOIN fechamentos f ON f.id=c.fechamento_id
  LEFT JOIN contrato_fluxos cf ON cf.contrato_id=c.id
  LEFT JOIN fechamento_revisoes r ON r.contrato_versao_id=cf.versao_em_preparacao_id AND r.estado IN ('EM_ELABORACAO','CONGELADA')
  WHERE c.id=cid AND c.status<>'CANCELADO';
  IF fid IS NULL THEN RAISE EXCEPTION 'Contratação ausente ou cancelada' USING ERRCODE='23514'; END IF;
+ -- Unidade revogada: só a reserva que já ocupa, no mesmo horário, segue (formalização de proposta antiga e novo
+ -- destino são novas ocupações na unidade).
+ IF uni IS NOT NULL THEN
+  PERFORM kidmais062_travar_habilitacao(uni);
+  IF NOT kidmais062_unidade_agendavel(emp,uni) AND (NOT kidmais019_ocupa(fid) OR NOT mesmo_slot) THEN
+   RAISE EXCEPTION '062: unidade sem habilitação vigente; nova reserva ou novo horário exige unidade habilitada' USING ERRCODE='23514'; END IF;
+ END IF;
  IF EXISTS(SELECT 1 FROM kidmais062_ocupacoes_escopo(dia,dia) o WHERE o.fechamento_id<>fid AND o.horario_inicio<fim AND o.horario_fim>ini
    AND kidmais062_mesmo_recurso(emp,uni,o.empresa_id,o.estabelecimento_id))
  OR EXISTS(SELECT 1 FROM bloqueios_agenda b WHERE b.ativo AND b.data=dia AND kidmais062_bloqueio_aplica(b.empresa_id,b.estabelecimento_id,emp,uni) AND

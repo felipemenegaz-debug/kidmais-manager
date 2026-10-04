@@ -123,6 +123,18 @@ export async function configuracaoAgenda(tx: DbExecutor, horarioInicio: string, 
   return r.rows[0]?.id ?? null;
 }
 
+/**
+ * Serialização da DETECÇÃO DE DUPLICIDADE da integração: UMA por empresa, para toda confirmação (inclusive evento
+ * passado, que não trava a agenda, slots diferentes e datas divergentes — a busca complementar alcança outras datas,
+ * então a chave não pode ser a data). Só a integração usa esse namespace; na ordem global ele fica entre a
+ * unidade/habilitação e a data (empresa → unidade → habilitação → duplicidade → data → contratação). Segura até o fim da
+ * transação: a próxima confirmação da mesma empresa espera o commit e então enxerga a contratação recém-integrada.
+ * Confirmações de contrato histórico são humanas e curtas; empresas diferentes não se esperam.
+ */
+export async function travarDuplicidade(tx: DbExecutor, empresaId: string) {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtextextended('kidmais:importacao-duplicidade:' || $1::text, 0))", [empresaId]);
+}
+
 /** Lock da data no mesmo namespace do Core (kidmais:agenda:YYYY-MM-DD). Segura até o fim da transação. */
 export async function travarData(tx: DbExecutor, data: string) {
   await tx.query('SELECT public.kidmais_lock_datas_revisao(ARRAY[$1::date])', [data]);
@@ -145,19 +157,109 @@ export async function conflitoAgenda(tx: DbExecutor, data: string, inicio: strin
   return r.rows[0] ?? { ocupado: false, bloqueado: false };
 }
 
-/** Contratações do MESMO cliente no mesmo dia, nesta empresa: possível vínculo a conferir (nunca deduplicado sozinho). */
-export async function possiveisVinculos(tx: DbExecutor, empresaId: string, clienteId: string, data: string) {
-  const r = await tx.query<{ fechamento_id: string; contrato_id: string | null; status: string; horario_inicio: string; horario_fim: string; com_pagamento: boolean }>(
-    `SELECT f.id::text AS fechamento_id, c.id::text AS contrato_id, coalesce(c.status, f.status) AS status,
-            to_char(f.horario_inicio, 'HH24:MI') AS horario_inicio, to_char(f.horario_fim, 'HH24:MI') AS horario_fim,
-            EXISTS(SELECT 1 FROM pagamentos p JOIN contrato_versoes v ON v.id = p.contrato_versao_id WHERE v.contrato_id = c.id) AS com_pagamento
-       FROM fechamentos f LEFT JOIN contratos c ON c.fechamento_id = f.id
-      WHERE f.empresa_id = $1::uuid AND f.cliente_id = $2::uuid AND f.data_evento = $3::date
-        AND f.status NOT IN ('CANCELADO', 'RECUSADO', 'EXPIRADO') AND coalesce(c.status, '') <> 'CANCELADO'
-      ORDER BY f.horario_inicio, f.id`,
-    [empresaId, clienteId, data],
+export type SinalDuplicidade = 'MESMO_CLIENTE' | 'MESMO_CONTATO' | 'MESMO_ANIVERSARIANTE' | 'MESMO_VALOR' | 'MESMO_DOCUMENTO'
+  | 'DATA_DO_DOCUMENTO' | 'DATA_INVERTIDA' | 'DATA_PROXIMA';
+export type AlcanceDuplicidade = 'MESMO_DIA' | 'OUTRA_DATA';
+
+/** Datas próximas (em dias) para a busca complementar com sinais combinados; a festa do ano seguinte fica fora. */
+export const JANELA_DATA_PROXIMA_DIAS = 90;
+
+/** Nome comparável no SQL: sem acento, minúsculo, espaços simples. */
+const NOME_SQL = (expr: string) => `lower(translate(regexp_replace(btrim(${expr}), '\\s+', ' ', 'g'), 'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑáàâãäéèêëíìîïóòôõöúùûüçñ', 'AAAAAEEEEIIIIOOOOOUUUUCNaaaaaeeeeiiiiooooouuuucn'))`;
+/** Só os dígitos (CPF e telefone comparáveis no SQL). */
+const DIGITOS_SQL = (expr: string) => `regexp_replace(coalesce(${expr}, ''), '\\D', '', 'g')`;
+
+/** Dia e mês trocados (leitura DD/MM × MM/DD), quando a troca dá outra data válida. */
+export function dataInvertida(data: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data);
+  if (!m || m[2] === m[3] || Number(m[3]) > 12) return null;
+  const trocada = `${m[1]}-${m[3]}-${m[2]}`;
+  const d = new Date(`${trocada}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== trocada ? null : trocada;
+}
+
+/** Contato comparável do cliente da importação: CPF (11 dígitos) e telefones (8+ dígitos), só dígitos. */
+export function contatoComparavel(c: { cpf: string | null; telefone: string | null; whatsapp: string | null }) {
+  const so = (v: string | null) => (v ?? '').replace(/\D/g, '');
+  const cpf = so(c.cpf).length === 11 ? so(c.cpf) : null;
+  const telefones = [...new Set([so(c.telefone), so(c.whatsapp)].filter((t) => t.length >= 8))];
+  return { cpf, telefones };
+}
+
+/**
+ * Possível duplicidade a conferir (nunca unida nem recusada sozinha; a decisão é explícita, com motivo, e auditada).
+ * Contratações ativas da MESMA empresa (outra empresa nunca aparece):
+ * - **mesmo dia** da festa decidida, com pelo menos um sinal: mesmo cliente, mesmo contato (CPF/telefone de outro
+ *   cadastro), mesmo aniversariante (nome normalizado), mesmo valor contratado vigente ou o mesmo documento original;
+ * - **outra data** (busca complementar, para data lida errada ou corrigida de forma divergente): o mesmo documento
+ *   original em qualquer data; a data lida no documento (quando o operador a corrigiu) ou a data com dia e mês trocados,
+ *   com pelo menos um sinal pessoal; ou data a até JANELA_DATA_PROXIMA_DIAS dias com pelo menos DOIS sinais entre
+ *   {cliente ou contato, aniversariante, valor}. Nome ou data sozinhos não bastam; a festa do ano seguinte não aparece
+ *   por proximidade.
+ */
+export async function possiveisVinculos(tx: DbExecutor, empresaId: string, e: {
+  clienteId: string; data: string; dataDocumento: string | null; aniversariante: string | null; valorCentavos: number; documentoSha256: string;
+  cpf: string | null; telefones: string[];
+}) {
+  const dataDocumento = e.dataDocumento && e.dataDocumento !== e.data ? e.dataDocumento : null;
+  const r = await tx.query<{ fechamento_id: string; contrato_id: string | null; status: string; data_evento: string; horario_inicio: string; horario_fim: string; com_pagamento: boolean; importado: boolean; sinais: SinalDuplicidade[] }>(
+    `WITH base AS (
+       SELECT f.id, f.data_evento, f.status AS f_status, f.horario_inicio, f.horario_fim, c.id AS contrato_id, c.status AS c_status,
+              coalesce(f.cliente_id = $2::uuid, false) AS mesmo_cliente,
+              (f.cliente_id IS DISTINCT FROM $2::uuid AND cl.id IS NOT NULL AND (
+                 ($9::text IS NOT NULL AND ${DIGITOS_SQL('cl.cpf')} = $9::text)
+                 OR (cardinality($10::text[]) > 0 AND (${DIGITOS_SQL('cl.telefone')} = ANY($10::text[]) OR ${DIGITOS_SQL('cl.whatsapp')} = ANY($10::text[]))))) AS mesmo_contato,
+              ($4::text IS NOT NULL AND length(btrim($4::text)) >= 2 AND a.nome IS NOT NULL AND ${NOME_SQL('a.nome')} = ${NOME_SQL('$4::text')}) AS mesmo_aniversariante,
+              CASE WHEN (vv.snapshot->'comercial'->>'valorFinalContrato') ~ '^[0-9]+(\\.[0-9]+)?$'
+                   THEN round((vv.snapshot->'comercial'->>'valorFinalContrato')::numeric * 100) = $5::bigint ELSE false END AS mesmo_valor,
+              EXISTS(SELECT 1 FROM contrato_importacoes ci WHERE ci.fechamento_id = f.id AND ci.documento_sha256 = $6) AS mesmo_documento,
+              EXISTS(SELECT 1 FROM contrato_importacoes ci WHERE ci.fechamento_id = f.id) AS importado
+         FROM fechamentos f
+         LEFT JOIN contratos c ON c.fechamento_id = f.id
+         LEFT JOIN contrato_fluxos cf ON cf.contrato_id = c.id
+         LEFT JOIN contrato_versoes vv ON vv.id = cf.versao_vigente_id
+         LEFT JOIN aniversariantes a ON a.id = f.aniversariante_id
+         LEFT JOIN clientes cl ON cl.id = f.cliente_id
+        WHERE f.empresa_id = $1::uuid
+          AND f.status NOT IN ('CANCELADO', 'RECUSADO', 'EXPIRADO') AND coalesce(c.status, '') <> 'CANCELADO'
+          AND (f.data_evento = $3::date OR f.data_evento = $7::date OR f.data_evento = $8::date
+               OR abs(f.data_evento - $3::date) <= $11::int
+               OR EXISTS(SELECT 1 FROM contrato_importacoes ci WHERE ci.fechamento_id = f.id AND ci.documento_sha256 = $6))
+     ), sinal AS (
+       SELECT base.*, (mesmo_cliente OR mesmo_contato) AS pessoa,
+              (mesmo_cliente OR mesmo_contato)::int + mesmo_aniversariante::int + mesmo_valor::int AS combinados,
+              data_evento = $3::date AS mesmo_dia
+         FROM base
+     )
+     SELECT id::text AS fechamento_id, contrato_id::text, coalesce(c_status, f_status) AS status, data_evento::text,
+            to_char(horario_inicio, 'HH24:MI') AS horario_inicio, to_char(horario_fim, 'HH24:MI') AS horario_fim,
+            EXISTS(SELECT 1 FROM pagamentos p JOIN contrato_versoes v ON v.id = p.contrato_versao_id WHERE v.contrato_id = sinal.contrato_id) AS com_pagamento,
+            importado,
+            array_remove(ARRAY[CASE WHEN mesmo_cliente THEN 'MESMO_CLIENTE' END, CASE WHEN mesmo_contato THEN 'MESMO_CONTATO' END,
+                               CASE WHEN mesmo_aniversariante THEN 'MESMO_ANIVERSARIANTE' END, CASE WHEN mesmo_valor THEN 'MESMO_VALOR' END,
+                               CASE WHEN mesmo_documento THEN 'MESMO_DOCUMENTO' END,
+                               CASE WHEN NOT mesmo_dia AND data_evento = $7::date THEN 'DATA_DO_DOCUMENTO' END,
+                               CASE WHEN NOT mesmo_dia AND data_evento = $8::date THEN 'DATA_INVERTIDA' END,
+                               CASE WHEN NOT mesmo_dia AND abs(data_evento - $3::date) <= $11::int THEN 'DATA_PROXIMA' END], NULL) AS sinais
+       FROM sinal
+      WHERE (mesmo_dia AND (pessoa OR mesmo_aniversariante OR mesmo_valor OR mesmo_documento))
+         OR (NOT mesmo_dia AND (mesmo_documento
+              OR ((data_evento = $7::date OR data_evento = $8::date) AND (pessoa OR mesmo_aniversariante OR mesmo_valor))
+              OR (abs(data_evento - $3::date) <= $11::int AND combinados >= 2)))
+      ORDER BY NOT mesmo_dia, abs(data_evento - $3::date), data_evento, horario_inicio, id`,
+    [empresaId, e.clienteId, e.data, e.aniversariante, e.valorCentavos, e.documentoSha256, dataDocumento, dataInvertida(e.data),
+      e.cpf, e.telefones, JANELA_DATA_PROXIMA_DIAS],
   );
-  return r.rows.map((l) => ({ fechamentoId: l.fechamento_id, contratoId: l.contrato_id, status: l.status, horario: `${l.horario_inicio}–${l.horario_fim}`, comPagamento: l.com_pagamento }));
+  return r.rows.map((l) => ({
+    fechamentoId: l.fechamento_id, contratoId: l.contrato_id, status: l.status, data: l.data_evento,
+    alcance: (l.data_evento === e.data ? 'MESMO_DIA' : 'OUTRA_DATA') as AlcanceDuplicidade,
+    horario: `${l.horario_inicio}–${l.horario_fim}`, comPagamento: l.com_pagamento, importado: l.importado, sinais: l.sinais,
+  }));
+}
+
+/** Unidade antes da data (ordem única de locks da 062: empresa → unidade → habilitação → data → contratação). */
+export async function travarUnidade(tx: DbExecutor, estabelecimentoId: string) {
+  await tx.query('SELECT public.kidmais062_travar_habilitacao($1::uuid)', [estabelecimentoId]);
 }
 
 export type VinculoExistente = {
@@ -185,6 +287,30 @@ export async function vinculoDaImportacao(tx: DbExecutor, empresaId: string, imp
     financeiro: l.fin_id ? { id: l.fin_id, pagamentoId: l.pagamento_id!, payloadHash: (l.fin_hash ?? '').trim(), chave: l.fin_chave! } : null,
     valorContratadoCentavos: Math.round(Number(l.valor_contratado ?? 0) * 100),
   };
+}
+
+export type CaminhoFinanceiro = 'CONFERIR_HISTORICO' | 'PLANO_NA_VERSAO_VIGENTE' | 'AGUARDAR_REVISAO' | 'CONCLUIDO';
+
+/**
+ * Caminho OFICIAL dos pagamentos do contrato histórico: obrigação já existente (conferida na integração ou criada no
+ * Financeiro) ⇒ CONCLUIDO (Financeiro do contrato); revisão aberta ⇒ aguardar; versão conferida vigente ⇒ "Conferir
+ * pagamentos"; revisão vigente ⇒ plano nativo na versão vigente.
+ */
+export function caminhoFinanceiro(e: { conferido: boolean; comPagamento: boolean; revisaoAberta: boolean; vigenteConferida: boolean }): CaminhoFinanceiro {
+  if (e.conferido || e.comPagamento) return 'CONCLUIDO';
+  if (e.revisaoAberta) return 'AGUARDAR_REVISAO';
+  return e.vigenteConferida ? 'CONFERIR_HISTORICO' : 'PLANO_NA_VERSAO_VIGENTE';
+}
+
+export async function estadoFinanceiroDoContrato(tx: DbExecutor, contratoId: string, versaoConferidaId: string) {
+  const r = await tx.query<{ com_pagamento: boolean; revisao_aberta: boolean; vigente_conferida: boolean }>(
+    `SELECT EXISTS(SELECT 1 FROM pagamentos p JOIN contrato_versoes pv ON pv.id = p.contrato_versao_id WHERE pv.contrato_id = $1::uuid) AS com_pagamento,
+            EXISTS(SELECT 1 FROM fechamento_revisoes r WHERE r.contrato_id = $1::uuid AND r.estado IN ('EM_ELABORACAO', 'CONGELADA')) AS revisao_aberta,
+            coalesce((SELECT cf.versao_vigente_id = $2::uuid FROM contrato_fluxos cf WHERE cf.contrato_id = $1::uuid), false) AS vigente_conferida`,
+    [contratoId, versaoConferidaId],
+  );
+  const l = r.rows[0];
+  return { comPagamento: l?.com_pagamento === true, revisaoAberta: l?.revisao_aberta === true, vigenteConferida: l?.vigente_conferida === true };
 }
 
 /** A chave de idempotência é global (UNIQUE); reutilizada em outra importação ⇒ conflito, sem dizer onde. */

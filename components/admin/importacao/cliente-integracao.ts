@@ -21,7 +21,7 @@ export type ResumoIntegracao = {
 export type OpcoesIntegracao = {
   disponivel: boolean;
   hoje: string;
-  integracao: { contratoId: string; financeiroPendente: boolean; valorContratadoCentavos: number } | null;
+  integracao: { contratoId: string; financeiroPendente: boolean; caminhoFinanceiro?: 'CONFERIR_HISTORICO' | 'PLANO_NA_VERSAO_VIGENTE' | 'AGUARDAR_REVISAO' | 'CONCLUIDO'; valorContratadoCentavos: number } | null;
   cliente: { id: string; nome: string; ativo: boolean } | null;
   documento: { pacote: string | null; aniversariante: string | null; tema: string | null };
   sugestao: Sugestao;
@@ -32,7 +32,11 @@ export type OpcoesIntegracao = {
 };
 export type Simulacao =
   | { integrada: true; contratoId: string }
-  | { integrada: false; pronto: boolean; bloqueios: string[]; avisos: string[]; resumo: ResumoIntegracao; resumoHash: string; possiveisVinculos: Array<{ fechamentoId: string; contratoId: string | null; status: string; horario: string; comPagamento: boolean }> };
+  | { integrada: false; pronto: boolean; bloqueios: string[]; avisos: string[]; resumo: ResumoIntegracao; resumoHash: string; possiveisVinculos: PossivelVinculo[] };
+export type SinalDuplicidade = 'MESMO_CLIENTE' | 'MESMO_CONTATO' | 'MESMO_ANIVERSARIANTE' | 'MESMO_VALOR' | 'MESMO_DOCUMENTO'
+  | 'DATA_DO_DOCUMENTO' | 'DATA_INVERTIDA' | 'DATA_PROXIMA';
+export type PossivelVinculo = { fechamentoId: string; contratoId: string | null; status: string; data: string; alcance: 'MESMO_DIA' | 'OUTRA_DATA'; horario: string;
+  comPagamento: boolean; importado: boolean; sinais: SinalDuplicidade[] };
 export type ResultadoIntegracao = {
   reutilizado: boolean; contratoId: string; destino?: string; festaId?: string; agendaOcupada?: boolean;
   financeiro?: { situacao: string; pendente: boolean; recebidoCentavos?: number; saldoCentavos?: number };
@@ -73,6 +77,13 @@ export const confirmar = (buscar: Buscador, id: string, decisoes: object, resumo
 export const simularFinanceiro = (buscar: Buscador, id: string, financeiro: object) => ler<SimulacaoFinanceira>(postar(buscar, id, { acao: 'simular-financeiro', financeiro }));
 export const conferirFinanceiro = (buscar: Buscador, id: string, financeiro: object, resumoHash: string, chave: string) =>
   ler<{ reutilizado: boolean; contratoId: string; pagamentoId?: string; situacao?: string }>(postar(buscar, id, { acao: 'conferir-financeiro', financeiro, resumoHash, chave }));
+
+/**
+ * Autenticação recente exigida para confirmar (mesmo mecanismo nativo da assinatura Kidmais): a senha vai só para a
+ * rota de autenticação, nunca para a integração.
+ */
+export const reautenticar = (buscar: Buscador, senha: string) =>
+  ler<unknown>(buscar('/api/admin/autenticacao', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ acao: 'reautenticar', senha }) }));
 
 /** Uma chave por resumo exibido: repetir o clique (ou a rede) não duplica; resumo novo ⇒ chave nova. */
 export function novaChave() {

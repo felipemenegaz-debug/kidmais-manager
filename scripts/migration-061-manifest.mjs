@@ -5,6 +5,7 @@ const ler = (f) => fs.readFileSync(f, 'utf8').replaceAll('\r', '');
 const m019 = ler('database/migrations/20260915_019_festa_formalizacao.sql');
 const m057 = ler('database/migrations/20260929_057_assinatura_contrato_empresa.sql');
 const m061 = ler('database/migrations/20261002_061_contratos_importados_integracao.sql');
+const m015 = ler('database/migrations/20260910_015_tratamento_financeiro.sql');
 const re = (nome) => new RegExp(String.raw`CREATE (?:OR REPLACE )?FUNCTION (?:public\.)?` + nome + String.raw`\([\s\S]*?AS \$\$([\s\S]*?)\$\$;`);
 const definicao = (sql, nome) => {
   const m = sql.match(re(nome));
@@ -17,23 +18,35 @@ const md5 = (s) => createHash('md5').update(s).digest('hex');
 
 /** Funções da 019 que a 061 substitui (assinatura regprocedure) — e nenhuma outra. */
 const SUBSTITUIDAS_019 = [['kidmais019_formalizacao', '(uuid,uuid)'], ['kidmais_ocupacoes_operacionais', '(date,date)'], ['kidmais_validar_agenda_revisao', '()']];
-const substituidasNa061 = [...m061.matchAll(/CREATE OR REPLACE FUNCTION public\.(\w+)\(/g)].map((x) => x[1]).filter((n) => n !== 'kidmais_validar_fluxo_contrato');
+const substituidasNa061 = [...m061.matchAll(/CREATE OR REPLACE FUNCTION public\.(\w+)\(/g)].map((x) => x[1]).filter((n) => n !== 'kidmais_validar_fluxo_contrato' && n !== 'kidmais_015_validar');
 if (substituidasNa061.join() !== SUBSTITUIDAS_019.map(([n]) => n).join()) throw Error(`061 substitui ${substituidasNa061.join()}`);
+// 015: a 061 troca SÓ a condição de vencimento PIX do gatilho financeiro diferido (exceção histórica).
+const ANTES_015 = "AND i.vencimento_referencia>r.data_festa_referencia)))";
+const DEPOIS_015 = "AND i.vencimento_referencia>r.data_festa_referencia AND NOT public.kidmais061_excecao_historica(i.parcela_id,i.vencimento_referencia))))";
+if (corpo(m061, 'kidmais_015_validar') !== corpo(m015, 'kidmais_015_validar').split(ANTES_015).join(DEPOIS_015)
+  || corpo(m015, 'kidmais_015_validar').split(ANTES_015).length !== 2) throw Error('061: corpo da 015 difere além da exceção histórica');
+const hash015 = (fonte) => `     OR ${hashSql('kidmais_015_validar', '()', sha(corpo(fonte, 'kidmais_015_validar')))}`;
 const hashSql = (nome, assinatura, hash) => `(SELECT encode(sha256(convert_to(replace(prosrc, E'\\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.${nome}${assinatura}'::regprocedure) IS DISTINCT FROM '${hash}'`;
 const conferir = (fonte) => SUBSTITUIDAS_019.map(([n, a]) => `     OR ${hashSql(n, a, sha(corpo(fonte, n)))}`).join('\n');
 // kidmais019_ocupa NÃO é substituída: a reserva do contrato histórico é vigente como qualquer outra.
 const ocupa019 = `     OR ${hashSql('kidmais019_ocupa', '(uuid)', sha(corpo(m019, 'kidmais019_ocupa')))}`;
 
-const out = `-- Rollback 061 — só antes de qualquer integração. Nunca remove contrato, festa ou financeiro integrados.
+const out = `-- Rollback 061 — só antes de qualquer integração e só com a 062 fora (regras removidas). Nunca remove contrato,
+-- festa ou financeiro integrados.
 -- NÃO APLICADO. Exige autorização explícita (docs/OPERACAO_AGENTES.md).
 -- Gerado offline por scripts/migration-061-manifest.mjs: restaura byte a byte ${SUBSTITUIDAS_019.map(([n]) => n).join(', ')} (019)
--- e kidmais_validar_fluxo_contrato (057), e confere os hashes no fim.
+-- mais kidmais_validar_fluxo_contrato (057) e kidmais_015_validar (015), e confere os hashes no fim.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL search_path = public, pg_catalog;
 LOCK TABLE public.contrato_importacoes, public.contrato_importacao_financeiro, public.fechamentos, public.contratos,
   public.contrato_versoes, public.festas IN ACCESS EXCLUSIVE MODE;
 DO $$ BEGIN
+  -- Com as regras da 062 instaladas, restaurar os corpos da 019 apagaria o escopo por empresa/unidade e deixaria a 062
+  -- apontando para funções da 061 removidas. Ordem obrigatória: rollback da 062 antes (o suave basta: remove as regras).
+  IF to_regprocedure('public.kidmais062_ocupacoes_escopo(date,date)') IS NOT NULL THEN
+    RAISE EXCEPTION 'Rollback 061 recusado: a 062 está aplicada; aplique antes o rollback da 062.';
+  END IF;
   IF EXISTS(SELECT 1 FROM public.contrato_importacoes) OR EXISTS(SELECT 1 FROM public.contrato_importacao_financeiro)
      OR EXISTS(SELECT 1 FROM public.fechamentos WHERE origem_fechamento = 'IMPORTACAO_HISTORICA')
      OR EXISTS(SELECT 1 FROM public.contrato_versoes WHERE aceite_metodo = 'CONFERENCIA_PAPEL')
@@ -46,9 +59,11 @@ DROP TRIGGER fechamentos_061_vinculo_trg ON public.fechamentos;
 DROP TRIGGER fechamentos_061_origem_trg ON public.fechamentos;
 ${SUBSTITUIDAS_019.map(([n]) => definicao(m019, n)).join('\n')}
 ${definicao(m057, 'kidmais_validar_fluxo_contrato')}
+${definicao(m015, 'kidmais_015_validar')}
 DROP TABLE public.contrato_importacao_financeiro;
 DROP TABLE public.contrato_importacoes;
 DROP FUNCTION public.kidmais061_historico_passado(uuid);
+DROP FUNCTION public.kidmais061_excecao_historica(uuid, date);
 DROP FUNCTION public.kidmais061_conferencia_historica(uuid, uuid);
 DROP FUNCTION public.kidmais061_exigir_vinculo();
 DROP FUNCTION public.kidmais061_origem_fechamento();
@@ -69,8 +84,9 @@ ALTER TABLE public.fechamentos DROP CONSTRAINT fechamentos_origem_check,
 DO $$ BEGIN
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.kidmais_validar_fluxo_contrato()'::regprocedure) IS DISTINCT FROM '${md5(corpo(m057, 'kidmais_validar_fluxo_contrato'))}'
 ${conferir(m019)}
+${hash015(m015)}
 ${ocupa019} THEN
-    RAISE EXCEPTION 'Rollback 061: corpos restaurados divergem de 019/057.';
+    RAISE EXCEPTION 'Rollback 061: corpos restaurados divergem de 019/057/015.';
   END IF;
 END $$;
 COMMIT;
@@ -96,7 +112,7 @@ BEGIN
     END IF;
   END LOOP;
   FOREACH item IN ARRAY ARRAY['kidmais061_imutavel', 'kidmais061_validar_vinculo', 'kidmais061_validar_financeiro',
-    'kidmais061_origem_fechamento', 'kidmais061_exigir_vinculo', 'kidmais061_conferencia_historica', 'kidmais061_historico_passado'] LOOP
+    'kidmais061_origem_fechamento', 'kidmais061_exigir_vinculo', 'kidmais061_conferencia_historica', 'kidmais061_historico_passado', 'kidmais061_excecao_historica'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
        WHERE n.nspname = 'public' AND p.proname = item AND NOT p.prosecdef AND p.proconfig @> ARRAY['search_path=public, pg_catalog']) THEN
       RAISE EXCEPTION 'postcheck 061: função % ausente, SECURITY DEFINER ou sem search_path fixo', item;
@@ -104,8 +120,9 @@ BEGIN
   END LOOP;
   IF (SELECT md5(replace(prosrc, chr(13), '')) FROM pg_proc WHERE oid = 'public.kidmais_validar_fluxo_contrato()'::regprocedure) IS DISTINCT FROM '${md5(corpo(m061, 'kidmais_validar_fluxo_contrato'))}'
 ${conferir(m061)}
+${hash015(m061)}
 ${ocupa019} THEN
-    RAISE EXCEPTION 'postcheck 061: corpos de validação/formalização/agenda divergem da 061 (ou a ocupação da 019 mudou)';
+    RAISE EXCEPTION 'postcheck 061: corpos de validação/formalização/agenda/financeiro divergem da 061 (ou a ocupação da 019 mudou)';
   END IF;
   FOREACH item IN ARRAY ARRAY['fechamentos_origem_check', 'contrato_versoes_aceite_metodo_check', 'contrato_versoes_assinatura_documento_check',
     'festa019_autoria_check', 'contrato_importacao_financeiro_soma_ck', 'contrato_importacao_financeiro_situacao_ck'] LOOP
@@ -125,4 +142,5 @@ SELECT 'postcheck 061 OK' AS resultado;
 `;
 fs.writeFileSync('database/checks/20261002_061_postcheck.sql', postcheck);
 console.log(JSON.stringify(Object.fromEntries([...SUBSTITUIDAS_019.map(([n]) => [n, { '019': sha(corpo(m019, n)), '061': sha(corpo(m061, n)) }]),
+  ['kidmais_015_validar', { '015': sha(corpo(m015, 'kidmais_015_validar')), '061': sha(corpo(m061, 'kidmais_015_validar')) }],
   ['validador', { '057': md5(corpo(m057, 'kidmais_validar_fluxo_contrato')), '061': md5(corpo(m061, 'kidmais_validar_fluxo_contrato')) }]]), null, 1));

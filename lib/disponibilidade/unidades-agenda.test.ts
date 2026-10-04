@@ -24,7 +24,9 @@ function banco(opcoes: { v062?: boolean; vigente?: boolean; reservas?: number } 
       estado.sql.push({ text, values });
       const linhas = (rows: unknown[]) => ({ rows, rowCount: rows.length }) as never;
       if (text.includes('to_regprocedure')) return linhas([{ instalada: opcoes.v062 ?? true }]);
-      if (text.includes('FROM public.estabelecimentos WHERE empresa_id = $1::uuid AND id = $2::uuid FOR UPDATE')) {
+      // Ordem única de locks (062): empresa → unidade (FOR NO KEY UPDATE: não conflita com o KEY SHARE do FK).
+      if (text.includes('FROM public.empresas WHERE id = $1::uuid FOR SHARE')) return linhas(values[0] === EMPRESA ? [{}] : []);
+      if (text.includes('FROM public.estabelecimentos WHERE empresa_id = $1::uuid AND id = $2::uuid FOR NO KEY UPDATE')) {
         if (values[0] !== EMPRESA) return linhas([]);
         return linhas(values[1] === U1 ? [{ status: 'SUSPENSO' }] : values[1] === DESATIVADA ? [{ status: 'DESATIVADO' }] : []);
       }

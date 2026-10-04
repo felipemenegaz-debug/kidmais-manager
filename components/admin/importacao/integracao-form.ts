@@ -24,7 +24,8 @@ export const SITUACAO_FINANCEIRA_ROTULO = {
 } as const;
 
 export type CampoDoc = 'data' | 'horarioInicio' | 'horarioFim' | 'convidados' | 'valorContratado';
-export type ParcelaForm = { chave: string; valor: string; vencimento: string; recebida: boolean; recebidaEm: string; forma: Forma | '' };
+/** `aposFestaConfirmada`: exceção histórica — o operador confirma que a parcela vence depois da festa conforme o contrato. */
+export type ParcelaForm = { chave: string; valor: string; vencimento: string; recebida: boolean; recebidaEm: string; forma: Forma | ''; aposFestaConfirmada: boolean };
 export type FormIntegracao = {
   situacaoContrato: keyof typeof SITUACAO_CONTRATO_ROTULO | '';
   estabelecimentoId: string;
@@ -35,6 +36,8 @@ export type FormIntegracao = {
   situacaoFinanceira: keyof typeof SITUACAO_FINANCEIRA_ROTULO | '';
   parcelas: ParcelaForm[];
   outroContratoConfirmado: boolean;
+  /** Motivo da decisão "É outro contrato" (auditado; exigido quando há contratação parecida). */
+  motivoOutroContrato: string;
   conferenciaDeclarada: boolean;
 };
 
@@ -60,7 +63,7 @@ export const reais = (c: number) => `R$ ${textoDeCentavos(c)}`;
 export const dataBr = (iso: string) => /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : iso;
 
 let seq = 0;
-export const novaParcela = (p: Partial<ParcelaForm> = {}): ParcelaForm => ({ chave: `p${++seq}`, valor: '', vencimento: '', recebida: false, recebidaEm: '', forma: '', ...p });
+export const novaParcela = (p: Partial<ParcelaForm> = {}): ParcelaForm => ({ chave: `p${++seq}`, valor: '', vencimento: '', recebida: false, recebidaEm: '', forma: '', aposFestaConfirmada: false, ...p });
 
 export function formInicial(o: { sugestao: Sugestao; estabelecimentos: Array<{ id: string }> }): FormIntegracao {
   const s = o.sugestao;
@@ -76,6 +79,7 @@ export function formInicial(o: { sugestao: Sugestao; estabelecimentos: Array<{ i
     // Parcelas previstas no documento: ponto de partida, nunca marcadas como recebidas.
     parcelas: s.parcelasPrevistas.map((p) => novaParcela({ valor: textoDeCentavos(p.valorCentavos), vencimento: p.vencimento ?? '' })),
     outroContratoConfirmado: false,
+    motivoOutroContrato: '',
     conferenciaDeclarada: false,
   };
 }
@@ -150,6 +154,8 @@ function financeiroDoForm(f: FormIntegracao) {
       valorCentavos: centavosDeTexto(p.valor) ?? 0,
       vencimento: p.vencimento,
       recebimento: p.recebida ? { data: p.recebidaEm, forma: p.forma as Forma } : null,
+      // Só vale para parcela que vence depois da festa; nunca muda o vencimento.
+      ...(p.aposFestaConfirmada && !!f.data && p.vencimento > f.data ? { aposFestaConfirmada: true } : {}),
     })),
   };
 }
@@ -167,6 +173,7 @@ export function decisoesDoForm(f: FormIntegracao, s: Sugestao) {
     motivos,
     financeiro: financeiroDoForm(f),
     outroContratoConfirmado: f.outroContratoConfirmado,
+    motivoOutroContrato: f.outroContratoConfirmado ? f.motivoOutroContrato.trim() : '',
     conferenciaDeclarada: f.conferenciaDeclarada,
   };
 }

@@ -14,6 +14,7 @@ import {
   dataIsoValida,
   diferencaDiasIso,
   gerarHorariosCandidatos,
+  horaParaMinutos,
   ocupacaoConflitaComCandidato,
 } from "./horario.utils.ts";
 import type {
@@ -46,6 +47,29 @@ export async function consultarDisponibilidadeData(
   return resultado;
 }
 
+
+/**
+ * Intervalo EXATO sem conflito na data, sem exigir que seja um dos horários candidatos do turno: reservas confirmadas e
+ * bloqueios ativos do escopo da própria contratação (062), excluída ela mesma. Uso restrito à manutenção de uma reserva
+ * que já existe no mesmo destino (horário histórico preservado na revisão). Mudança de destino continua exigindo os
+ * candidatos oficiais de `consultarDisponibilidadeData`.
+ */
+export async function intervaloSemConflito(
+  data: string,
+  inicio: string,
+  fim: string,
+  customDb: DbExecutor,
+  fechamentoId: string,
+): Promise<boolean> {
+  validarPeriodo(data, data);
+  const escopo = await resolverEscopo(customDb, undefined, fechamentoId);
+  const bloqueios = await listarBloqueiosAtivosPorPeriodo(data, data, customDb, escopo);
+  const ocupacoes = await listarFechamentosConfirmadosPorPeriodo(data, data, customDb, escopo);
+  const intervalo = { inicioMinutos: horaParaMinutos(inicio), fimMinutos: horaParaMinutos(fim) };
+  if (!(intervalo.fimMinutos > intervalo.inicioMinutos)) return false;
+  return !bloqueios.some((b) => b.data === data && bloqueioConflitaComCandidato(b, intervalo))
+    && !ocupacoes.some((o) => o.fechamentoId !== fechamentoId && o.data === data && ocupacaoConflitaComCandidato(o, intervalo));
+}
 
 export type RevalidarHorarioSelecionadoInput = {
   data: string;

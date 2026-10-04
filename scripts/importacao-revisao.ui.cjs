@@ -142,6 +142,11 @@ async function main() {
       const json = (status, corpo) => cliente.enviar('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: status, responseHeaders: [{ name: 'content-type', value: 'application/json' }], body: Buffer.from(JSON.stringify(corpo)).toString('base64') });
       const ok = (data) => json(200, { ok: true, data });
       try {
+        // Reautenticação (senha antes de confirmar): registrada sem a senha; a sessão sintética responde ok.
+        if (url.pathname === '/api/admin/autenticacao' && p.request.method === 'POST') {
+          const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo: { acao: corpo.acao, senhaInformada: typeof corpo.senha === 'string' && corpo.senha.length > 0 } });
+          return ok({ csrf: 'csrf-sintetico' });
+        }
         if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: '00000000-0000-4000-8000-000000000009', nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico' });
         if (url.pathname === '/api/admin/festas' && p.request.method === 'GET') return ok(url.searchParams.has('importacaoId') ? { importada: festaImportada } : { festas: [], importadas: [festaImportada], elegiveis: [], capacidades: ['FESTA_CONSULTAR'], areas: [], usuarios: [] });
         if (url.pathname === '/api/admin/contratos/painel' && p.request.method === 'GET') {
@@ -432,11 +437,18 @@ async function main() {
       assert.equal(await avaliar(`(${botao("Confirmar integração")})?.disabled`), true, 'sem declaração não confirma');
       assert.equal(await avaliar(texto('Contrato integrado ao sistema')), false);
       await marcar('Conferi o documento original');
-      await aguardar(`!(${botao("Confirmar integração")})?.disabled`, 'declaração libera a confirmação');
+      await esperar(300);
+      assert.equal(await avaliar(`(${botao("Confirmar integração")})?.disabled`), true, 'sem senha não confirma (autenticação recente)');
+      await digitar('input[aria-label="Senha para confirmar"]', 'senha-sintetica');
+      await aguardar(`!(${botao("Confirmar integração")})?.disabled`, 'declaração e senha liberam a confirmação');
       await fotografar('integracao-revisao-final');
       await clicar('Confirmar integração');
       await aguardar(texto('Contrato integrado ao sistema'), 'sucesso só depois da resposta');
+      const ordem = posts.slice(m).filter((x) => x.url === '/api/admin/autenticacao' || (x.url.endsWith('/integracao') && x.corpo.acao === 'confirmar'));
+      assert.deepEqual(ordem.map((x) => x.corpo.acao), ['reautenticar', 'confirmar'], 'reautentica antes de confirmar');
+      assert.equal(ordem[0].corpo.senhaInformada, true);
       const enviados = posts.slice(m).filter((x) => x.url.endsWith('/integracao')).map((x) => x.corpo);
+      assert.equal(JSON.stringify(enviados).includes('senha-sintetica'), false, 'a senha nunca vai para a integração');
       const confirmacao = enviados.find((x) => x.acao === 'confirmar');
       assert.equal(confirmacao.resumoHash, 'b'.repeat(64));
       assert.match(confirmacao.chave, /^[0-9a-f-]{36}$/);

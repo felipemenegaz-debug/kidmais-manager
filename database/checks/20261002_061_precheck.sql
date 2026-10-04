@@ -25,6 +25,9 @@ BEGIN
      OR (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais_validar_agenda_revisao()'::regprocedure) IS DISTINCT FROM '997158485f6dc9595cf6045594b220206c59c31b631bc164aad3956963875e89' THEN
     RAISE EXCEPTION '061 precheck: formalização/ocupação/agenda diferem da 019.';
   END IF;
+  IF (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais_015_validar()'::regprocedure) IS DISTINCT FROM 'f003f5f39c136b98aa3d1784584b1dca8fd6aca9fd665dc7351d3044e6f6e06c' THEN
+    RAISE EXCEPTION '061 precheck: kidmais_015_validar difere da 015.';
+  END IF;
   IF EXISTS (SELECT 1 FROM public.contrato_versoes WHERE aceite_metodo IS NOT NULL AND aceite_metodo <> 'OTP') THEN
     RAISE EXCEPTION '061 precheck: há versão com método de aceite desconhecido.';
   END IF;

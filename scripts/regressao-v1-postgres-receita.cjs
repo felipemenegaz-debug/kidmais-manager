@@ -35,7 +35,7 @@ const raiz = path.resolve(__dirname, "..");
 const HOST = "127.0.0.1";
 const USUARIO = "kidmais_descartavel";
 const CLUSTER = "kidmais_descartavel";
-const PORTA_PADRAO = 55498;
+// Sem porta padrão: a porta vem sempre de KIDMAIS_DESCARTAVEL_PORTA com a autorização literal (cluster autorizado: 55498).
 const BANCO_REAL = "kidmais_manager";
 
 const MODELOS = {
@@ -56,8 +56,9 @@ const GERENCIAVEIS = new Set([...TRABALHO, ...Object.values(MODELOS).map((m) => 
 
 /** Mesma regra de lib/comercial/alvo-descartavel.ts (espelhada; um teste estático confere as duas). */
 function portaAutorizada(env = process.env) {
+  if (env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") throw new Error("suíte PostgreSQL sem opt-in explícito (KIDMAIS_POSTGRES_DESCARTAVEL): nenhuma conexão tentada.");
   const texto = env.KIDMAIS_DESCARTAVEL_PORTA;
-  if (texto === undefined || texto === "") return PORTA_PADRAO;
+  if (texto === undefined || texto === "") throw new Error("KIDMAIS_DESCARTAVEL_PORTA ausente: sem porta padrão");
   if (!/^[0-9]{4,5}$/.test(texto)) throw new Error("KIDMAIS_DESCARTAVEL_PORTA inválida");
   const porta = Number(texto);
   if (porta < 1024 || porta > 65535) throw new Error("KIDMAIS_DESCARTAVEL_PORTA fora do intervalo");

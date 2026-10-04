@@ -15,6 +15,7 @@ const DOWN = ler('database/rollback/20261002_062_agenda_empresa_unidade_down.sql
 const LEVANTAMENTO = ler('database/repairs/20261002_062_levantamento_agenda.sql');
 const PRINCIPAL = ler('database/repairs/20261002_062_unidade_principal.sql');
 const BLOQUEIOS = ler('database/repairs/20261002_062_bloqueios_propriedade.sql');
+const FECHAMENTOS = ler('database/repairs/20261002_062_fechamentos_unidade.sql');
 
 const definicao = (sql: string, nome: string) => {
   const m = sql.match(new RegExp(String.raw`CREATE (?:OR REPLACE )?FUNCTION (?:public\.)?` + nome + String.raw`\([\s\S]*?AS \$\$([\s\S]*?)\$\$;`));
@@ -59,7 +60,9 @@ test('062 exige a 061 e os corpos anteriores exatos; substitui só quatro funç�
 test('regras substituídas: mesmas mensagens e gatilhos; muda só o alcance (mesmo recurso / bloqueio que alcança)', () => {
   for (const [nome, fonte] of SUBSTITUIDAS) {
     const novo = corpo(M062, nome);
-    assert.deepEqual(mensagens(novo), mensagens(corpo(fonte, nome)), `${nome}: mensagens preservadas`);
+    // Mensagens nativas preservadas; a única nova é a da habilitação (D6) no destino, prefixada com "062: unidade".
+    assert.deepEqual(mensagens(novo).filter((m) => !m.startsWith('062: unidade')), mensagens(corpo(fonte, nome)), `${nome}: mensagens preservadas`);
+    if (nome !== 'kidmais019_validar_destino') assert.ok(!mensagens(novo).some((m) => m.startsWith('062:')), nome);
     assert.match(novo, /kidmais062_(mesmo_recurso|bloqueio_aplica)\(/, `${nome}: compara por recurso`);
     assert.doesNotMatch(novo, /kidmais_ocupacoes_operacionais\(/, `${nome}: usa a ocupação com escopo`);
   }
@@ -96,7 +99,7 @@ test('elegibilidade (D6 = opção A): só habilitação explícita vigente; SUSP
   assert.doesNotMatch(agendavel, /SUSPENSO|'ATIVO'/, 'o status da unidade não concede nada');
   // Nenhuma unidade existente é habilitada pela migration nem por reparo.
   assert.doesNotMatch(M062, /INSERT INTO (public\.)?agenda_062_unidades_habilitacao/);
-  for (const reparo of [LEVANTAMENTO, PRINCIPAL, BLOQUEIOS]) assert.doesNotMatch(reparo, /INSERT INTO (public\.)?agenda_062_unidades_habilitacao/);
+  for (const reparo of [LEVANTAMENTO, PRINCIPAL, BLOQUEIOS, FECHAMENTOS]) assert.doesNotMatch(reparo, /INSERT INTO (public\.)?agenda_062_unidades_habilitacao/);
   // Código e integração usam a mesma regra única; ninguém decide elegibilidade por status.
   for (const [nome, sql] of [['061', M061], ['escopo.ts', ler('lib/disponibilidade/escopo.ts')], ['repositorio.ts', ler('lib/contratos/integracao-importados/repositorio.ts')]]) {
     assert.doesNotMatch(sql, /status\s*<>\s*'DESATIVADO'/, nome);
@@ -127,14 +130,29 @@ test('revogação = suspensão administrativa: reservas gravadas ficam; novas, m
   assert.match(f, /TG_OP='INSERT'[\s\S]*kidmais062_unidade_agendavel\(empresa_id, id\);\s+IF n=1 THEN NEW\.estabelecimento_id := unica; END IF;/);
   assert.match(f, /AND NOT kidmais062_unidade_agendavel\(NEW\.empresa_id, NEW\.estabelecimento_id\) THEN\s+RAISE EXCEPTION '062: unidade não elegível para agenda ou de outra empresa'/);
   assert.match(f, /ROW\(NEW\.data_evento, NEW\.horario_inicio, NEW\.horario_fim\) IS DISTINCT FROM ROW\(OLD\.data_evento, OLD\.horario_inicio, OLD\.horario_fim\)[\s\S]*alterar data ou horário exige unidade habilitada/);
-  assert.match(M062, /CREATE TRIGGER fechamentos_062_unidade_trg BEFORE INSERT OR UPDATE OF estabelecimento_id, data_evento, horario_inicio, horario_fim ON public\.fechamentos/);
+  assert.match(M062, /CREATE TRIGGER fechamentos_062_unidade_trg BEFORE INSERT OR UPDATE OF estabelecimento_id, data_evento, horario_inicio, horario_fim, status ON public\.fechamentos/);
+  // Proposta antiga (que ainda não ocupa) não vira reserva na unidade revogada: nem por CONFIRMADO...
+  assert.match(f, /NEW\.status='CONFIRMADO' AND OLD\.status IS DISTINCT FROM 'CONFIRMADO'\s+AND NOT kidmais019_ocupa\(OLD\.id\) AND NOT kidmais062_unidade_agendavel\(NEW\.empresa_id, NEW\.estabelecimento_id\) THEN\s+RAISE EXCEPTION '062: unidade sem habilitação vigente; confirmar nova reserva exige unidade habilitada'/);
+  // ... nem pela formalização (troca da versão vigente) ...
+  const fluxo = corpo(M062, 'kidmais062_fluxo_unidade');
+  assert.match(fluxo, /IF NOT kidmais019_ocupa\(f\.id\) AND NOT kidmais062_unidade_agendavel\(f\.empresa_id, f\.estabelecimento_id\) THEN\s+RAISE EXCEPTION '062: unidade sem habilitação vigente; formalizar nova reserva exige unidade habilitada'/);
+  assert.match(M062, /CREATE TRIGGER contrato_fluxos_062_unidade_trg BEFORE INSERT OR UPDATE OF versao_vigente_id ON public\.contrato_fluxos/);
+  // ... nem no destino validado pela formalização nativa e pela integração.
+  assert.match(corpo(M062, 'kidmais019_validar_destino'), /IF NOT kidmais062_unidade_agendavel\(emp,uni\) AND \(NOT kidmais019_ocupa\(fid\) OR NOT mesmo_slot\) THEN/);
+  // Hold do destino adquirido depois da revogação também passa pela regra da revisão.
+  assert.match(M062, /CREATE TRIGGER fechamento_revisoes_062_unidade_trg BEFORE INSERT OR UPDATE OF data_evento, horario_inicio, horario_fim, estado, hold_destino_adquirido_em ON public\.fechamento_revisoes/);
   assert.match(corpo(M062, 'kidmais062_revisao_unidade'), /alterar data ou horário exige unidade habilitada/);
-  assert.match(corpo(M062, 'kidmais062_unidade_ativa'), /AND NOT kidmais062_unidade_agendavel\(NEW\.empresa_id, NEW\.estabelecimento_id\) THEN/);
+  // Bloqueio/turno: na unidade revogada só desativar ou corrigir descrição; criar, reativar ou mudar horário é recusado.
+  const ativa = corpo(M062, 'kidmais062_unidade_ativa');
+  assert.match(ativa, /IF kidmais062_unidade_agendavel\(NEW\.empresa_id, NEW\.estabelecimento_id\) THEN RETURN NEW; END IF;/);
+  assert.match(ativa, /IF NEW\.ativo AND \(NOT OLD\.ativo OR \(to_jsonb\(NEW\) - descritivos\) IS DISTINCT FROM \(to_jsonb\(OLD\) - descritivos\)\) THEN/);
+  assert.match(M062, /CREATE TRIGGER bloqueios_agenda_062_unidade_trg BEFORE INSERT OR UPDATE ON public\.bloqueios_agenda/);
+  assert.match(M062, /CREATE TRIGGER configuracao_agenda_062_unidade_trg BEFORE INSERT OR UPDATE ON public\.configuracao_agenda/);
   // A ocupação NÃO depende da habilitação: a reserva gravada continua ocupando depois da revogação.
   assert.doesNotMatch(corpo(M062, 'kidmais062_ocupacoes_escopo'), /agendavel|habilitacao/);
   // Revogação concorrente: quem grava na unidade trava a habilitação vigente antes de conferir.
   assert.match(corpo(M062, 'kidmais062_travar_habilitacao'), /FOR SHARE/);
-  for (const nome of ['kidmais062_unidade_fechamento', 'kidmais062_unidade_ativa', 'kidmais062_revisao_unidade']) {
+  for (const nome of ['kidmais062_unidade_fechamento', 'kidmais062_fluxo_unidade', 'kidmais062_unidade_ativa', 'kidmais062_revisao_unidade', 'kidmais019_validar_destino']) {
     assert.match(corpo(M062, nome), /PERFORM kidmais062_travar_habilitacao\(/, nome);
   }
   assert.match(corpo(M062, 'kidmais062_vinculo_unidade'), /unidade do vínculo difere da contratação/);
@@ -159,9 +177,31 @@ test('compatibilidade: código que usa objetos da 062 só o faz depois de detect
   for (const arquivo of usam) assert.match(ler(arquivo), /kidmais062_/);
 });
 
-test('reaplicação depois de rollback suave: estrutura completa (19 peças) é reaproveitada; parcial recusa', () => {
-  assert.match(M062, /IF pecas = 19 AND NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'configuracao_agenda_codigo_uk'\) THEN/);
-  assert.match(M062, /RAISE EXCEPTION '062: estrutura parcial \(% de 19 peças\); instalação divergente\.'/);
+test('ordem única de locks: empresa → unidade → habilitação (→ data → contratação); habilitar/revogar travam a unidade sem bloquear o FK', () => {
+  const travar = corpo(M062, 'kidmais062_travar_habilitacao');
+  const empresa = travar.indexOf('FROM empresas e'), unidade = travar.indexOf('FROM estabelecimentos WHERE id = p_unidade FOR SHARE'), hab = travar.indexOf('FROM agenda_062_unidades_habilitacao');
+  assert.ok(empresa >= 0 && empresa < unidade && unidade < hab, 'empresa, depois unidade, depois habilitação');
+  assert.match(travar, /FROM empresas e WHERE[\s\S]*?FOR SHARE;/);
+  const servico = ler('lib/disponibilidade/unidades-agenda.ts');
+  const travarUnidade = servico.slice(servico.indexOf('async function travarUnidade('), servico.indexOf('export async function habilitarUnidadeAgenda('));
+  assert.ok(travarUnidade.indexOf('FROM public.empresas WHERE id = $1::uuid FOR SHARE') < travarUnidade.indexOf('FOR NO KEY UPDATE'), 'empresa antes da unidade');
+  assert.doesNotMatch(travarUnidade, /FOR UPDATE\b/, 'FOR UPDATE conflitaria com o KEY SHARE do FK (ciclo com a reserva)');
+  // Gatilhos da 062 disparam antes dos locks de data da 019 na mesma tabela (ordem alfabética do PostgreSQL).
+  assert.ok('fechamentos_062_unidade_trg' < 'festa019_lock_fechamento' && 'contrato_fluxos_062_unidade_trg' < 'festa019_lock_fluxo'
+    && 'fechamento_revisoes_062_unidade_trg' < 'festa019_lock_revisao' && 'bloqueios_agenda_062_unidade_trg' < 'fr_bloqueio_proteger_trg');
+  // A integração trava a unidade antes da data.
+  const integracao = ler('lib/contratos/integracao-importados/servico.ts');
+  assert.ok(integracao.indexOf('await repo.travarUnidade(tx, decisoes.estabelecimentoId)') < integracao.indexOf('await repo.travarData(tx, decisoes.evento.data)'));
+  // Duplicidade (só a integração, uma por empresa) entre unidade e data, e os candidatos reconsultados depois desse lock.
+  const iDup = integracao.indexOf('await repo.travarDuplicidade(tx, empresaId)');
+  assert.ok(integracao.indexOf('await repo.travarUnidade(tx, decisoes.estabelecimentoId)') < iDup && iDup < integracao.indexOf('await repo.travarData(tx, decisoes.evento.data)'));
+  assert.ok(iDup < integracao.indexOf('const vinculosAgora = await repo.possiveisVinculos(tx, empresaId, p.criterio)'));
+});
+
+test('reaplicação depois de rollback suave: estrutura completa (20 peças) é reaproveitada; parcial recusa', () => {
+  assert.match(M062, /IF pecas = 20 AND NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'configuracao_agenda_codigo_uk'\) THEN/);
+  assert.match(M062, /RAISE EXCEPTION '062: estrutura parcial \(% de 20 peças\); instalação divergente\.'/);
+  assert.match(M062, /\+ \(CASE WHEN to_regclass\('public\.agenda_062_fechamentos_resolucao'\) IS NULL THEN 0 ELSE 1 END\)/);
   assert.match(M062, /RAISE EXCEPTION '062 já aplicada\.'/);
 });
 
@@ -172,22 +212,51 @@ test('rollback: devolve a agenda global byte a byte, recusa turnos por empresa e
   }
   assert.match(DOWN, /Rollback 062 recusado: há turno ativo por empresa\/unidade/);
   assert.match(DOWN, /Rollback 062 recusado: há reservas simultâneas em recursos diferentes/);
+  // Bloqueio com dono que alcançaria reserva de OUTRO recurso quando todo bloqueio voltar a ser global.
+  assert.match(DOWN, /WHERE NOT public\.kidmais062_bloqueio_aplica\(b\.empresa_id, b\.estabelecimento_id, o\.empresa_id, o\.estabelecimento_id\)\) THEN\s+RAISE EXCEPTION 'Rollback 062 recusado: há bloqueio de empresa\/unidade no horário de reserva de outro recurso/);
+  assert.ok(DOWN.indexOf('bloqueio de empresa/unidade no horário') < DOWN.indexOf('DROP TRIGGER'), 'recusas antes de qualquer remoção');
+  assert.match(DOWN, /OR EXISTS \(SELECT 1 FROM public\.agenda_062_fechamentos_resolucao\)/, 'decisão D2 gravada força o rollback suave');
+  assert.match(DOWN, /DROP TRIGGER contrato_fluxos_062_unidade_trg ON public\.contrato_fluxos;/);
   assert.match(DOWN, /Rollback 062 SUAVE: escopos e habilitações preservados/);
   assert.match(DOWN, /OR EXISTS \(SELECT 1 FROM public\.agenda_062_unidades_habilitacao\) THEN/, 'habilitação gravada força o rollback suave');
   assert.match(DOWN, /ADD CONSTRAINT configuracao_agenda_codigo_uk UNIQUE \(codigo\)/);
   assert.match(DOWN, /DROP FUNCTION public\.kidmais062_ocupacoes_escopo\(date, date\);/, 'sem a função, o código volta às consultas globais');
 });
 
-test('reparos (D2/D3): levantamento só lê; aplicação exige variável de sessão explícita; bloqueio sem decisão trava tudo', () => {
+test('reparos (D2/D3): levantamento só lê; aplicação exige variável de sessão explícita; nada é atribuído sem decisão por registro', () => {
   assert.match(LEVANTAMENTO, /^BEGIN READ ONLY;/m);
   assert.doesNotMatch(topo(LEVANTAMENTO), /^\s*(INSERT|UPDATE|DELETE)\b/im);
   assert.match(PRINCIPAL, /current_setting\('kidmais\.reparo_062', true\) IS DISTINCT FROM 'unidade_principal'/);
   assert.match(PRINCIPAL, /'principal', 'Unidade principal', 'SUSPENSO'/);
-  assert.match(PRINCIPAL, /WHERE kidmais062_unidade_agendavel\(empresa_id, id\) GROUP BY empresa_id HAVING count\(\*\) = 1/, 'só empresas com exatamente uma unidade ELEGÍVEL recebem atribuição');
+  // Unidade principal só cria a identidade: nenhuma contratação recebe unidade por suposição.
+  assert.doesNotMatch(topo(PRINCIPAL), /UPDATE\s+(public\.)?fechamentos/i);
+  assert.doesNotMatch(PRINCIPAL, /HAVING count\(\*\) = 1/);
+  // Unidade da contratação: só decisões gravadas, unidade já habilitada, mesma empresa; inválida trava tudo.
+  assert.match(M062, /CREATE TABLE public\.agenda_062_fechamentos_resolucao \(/);
+  assert.match(FECHAMENTOS, /current_setting\('kidmais\.reparo_062', true\) IS DISTINCT FROM 'fechamentos_unidade'/);
+  assert.match(FECHAMENTOS, /OR \(f\.estabelecimento_id IS NULL AND NOT kidmais062_unidade_agendavel\(r\.empresa_id, r\.estabelecimento_id\)\)/);
+  assert.match(FECHAMENTOS, /f\.empresa_id IS DISTINCT FROM r\.empresa_id/);
+  assert.match(topo(FECHAMENTOS), /UPDATE fechamentos f SET estabelecimento_id = r\.estabelecimento_id\s+FROM agenda_062_fechamentos_resolucao r\s+WHERE r\.fechamento_id = f\.id AND f\.empresa_id = r\.empresa_id AND f\.estabelecimento_id IS NULL/);
+  assert.match(LEVANTAMENTO, /-- 6\. DECISÃO D2/);
+  // Reparos: unidades, depois TODAS as datas ordenadas, antes do UPDATE; e a pausa de escritas de agenda documentada.
+  for (const reparo of [FECHAMENTOS, BLOQUEIOS]) {
+    assert.ok(reparo.indexOf('PERFORM kidmais062_travar_habilitacao(') < reparo.indexOf('PERFORM kidmais_lock_datas_revisao(ARRAY(SELECT DISTINCT'));
+    assert.ok(reparo.indexOf('PERFORM kidmais_lock_datas_revisao(ARRAY(SELECT DISTINCT') < reparo.search(/^UPDATE /m));
+    assert.match(reparo, /escritas de agenda PAUSADAS/);
+    assert.match(reparo, /lock_timeout só limita a espera; não evita deadlock/);
+  }
+  assert.match(ler('docs/CONTRATOS_IMPORTADOS_INTEGRACAO.md'), /\| S17 \|[^\n]*escritas de agenda pausadas/);
+  const candidatosD2 = "f.empresa_id IS NOT NULL AND f.estabelecimento_id IS NULL AND f.data_evento >= current_date AND f.status NOT IN ('CANCELADO', 'RECUSADO', 'EXPIRADO')";
+  assert.ok(LEVANTAMENTO.includes(candidatosD2) && FECHAMENTOS.includes(candidatosD2), 'mesmo predicado de candidatos D2');
+  // Mesmo predicado de pendência no levantamento (consulta 3) e no reparo de bloqueios.
+  assert.match(LEVANTAMENTO, /WHERE b\.ativo AND b\.empresa_id IS NULL AND b\.data >= current_date/);
+  assert.match(BLOQUEIOS, /WHERE b\.ativo AND b\.empresa_id IS NULL AND b\.data >= current_date\s+AND NOT EXISTS \(SELECT 1 FROM agenda_062_bloqueios_resolucao r WHERE r\.bloqueio_id = b\.id\)/);
+  assert.match(BLOQUEIOS, /resolução\(ões\) para unidade sem habilitação vigente/);
+  assert.doesNotMatch(LEVANTAMENTO, /hoje só ATIVO|inalcançável/, 'comentário antigo da elegibilidade');
   // O levantamento lista nominalmente o que continua global (contratação sem empresa e bloqueio sem dono).
   assert.match(LEVANTAMENTO, /-- 2\. GLOBAL — contratações que ocupam agenda/);
   assert.match(LEVANTAMENTO, /-- 3\. GLOBAL — bloqueios ativos sem dono/);
-  assert.match(BLOQUEIOS, /bloqueio\(s\) ativo\(s\) sem dono resolvido; resolva todos/);
+  assert.match(BLOQUEIOS, /bloqueio\(s\) ativo\(s\), futuros, sem dono resolvido; resolva todos/);
   assert.match(BLOQUEIOS, /current_setting\('kidmais\.reparo_062', true\) IS DISTINCT FROM 'bloqueios'/);
 });
 
@@ -200,4 +269,21 @@ test('módulo Festa: conjunto 062 = 061 com as quatro regras da 062; nenhum outr
     assert.equal(conjuntos['062'][nome], esperado, nome);
   }
   assert.equal(Object.keys(conjuntos['062']).length, 10);
+});
+
+test('legado sem empresa (D7): bloqueia todas as empresas, aparece no levantamento e NUNCA recebe empresa por reparo automático', () => {
+  // Regra de conflito: ocupação sem empresa conflita com qualquer recurso; bloqueio global alcança qualquer ocupação.
+  assert.match(corpo(M062, 'kidmais062_mesmo_recurso'), /e1 IS NULL OR e2 IS NULL OR e1=e2/);
+  assert.match(corpo(M062, 'kidmais062_bloqueio_aplica'), /be IS NULL OR e IS NULL/);
+  // Listado nominalmente (consulta 2), sem identificar cliente na disponibilidade.
+  assert.match(LEVANTAMENTO, /-- 2\. GLOBAL — contratações que ocupam agenda[\s\S]*WHERE o\.empresa_id IS NULL/);
+  // Nenhuma migration, reparo ou código atribui empresa a fechamento existente.
+  const reparos = [PRINCIPAL, BLOQUEIOS, FECHAMENTOS, LEVANTAMENTO, M062];
+  const atribuiEmpresa = /UPDATE\s+(public\.)?fechamentos\b(\s+\w+)?\s+SET\s+(?:(?!\bFROM\b|\bWHERE\b)[^;])*\bempresa_id\s*=/i;
+  assert.match('UPDATE fechamentos f SET estabelecimento_id = 1, empresa_id = 2 WHERE x', atribuiEmpresa, 'o detector pega a atribuição');
+  assert.doesNotMatch('UPDATE fechamentos f SET estabelecimento_id = r.x FROM r WHERE f.empresa_id = r.empresa_id', atribuiEmpresa, 'filtro por empresa não é atribuição');
+  for (const sql of reparos) assert.doesNotMatch(sql, atribuiEmpresa);
+  assert.match(FECHAMENTOS, /WHERE r\.fechamento_id = f\.id AND f\.empresa_id = r\.empresa_id AND f\.estabelecimento_id IS NULL/, 'D2 exige empresa já definida');
+  const doc = ler('docs/CONTRATOS_IMPORTADOS_INTEGRACAO.md');
+  assert.match(doc, /\*\*D7 — contratações legadas sem empresa:\*\*/);
 });

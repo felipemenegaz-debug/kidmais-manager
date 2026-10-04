@@ -1,6 +1,8 @@
 import type { DbExecutor } from '../../db/contracts.ts';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
 import type { TenantComprovado } from '../../saas/provar-tenant.ts';
+import { validarPlanoPagamento } from '../../pagamentos/services/financeiro-core.ts';
+import { reautenticacaoPerfilRecente } from '../../perfil/reautenticacao.ts';
 import { hashSnapshotContrato } from '../services/snapshot-core.ts';
 import {
   avaliarFinanceiro, avaliarIntegracao, centavosParaReais, DECLARACAO_CONFERENCIA, decisoesSchema, financeiroSchema, hashCanonico, hashResumo,
@@ -35,7 +37,8 @@ export class IntegracaoImportadoError extends Error {
 export const PAPEIS_INTEGRACAO = ['ADMINISTRATIVO', 'REPRESENTANTE_AUTORIZADO'] as const;
 export const ORIGEM_INTEGRACAO = 'IMPORTACAO_HISTORICA';
 
-export type ContextoIntegracao = { usuarioId: string; token: string; requestId: string; ip: string | null; userAgent: string | null };
+/** `autenticadoEm`: instante da última autenticação por senha da sessão (`sessoes_administrativas.autenticado_em`). */
+export type ContextoIntegracao = { usuarioId: string; token: string; requestId: string; ip: string | null; userAgent: string | null; autenticadoEm: string };
 
 type Auditoria = { clienteId?: string | null; atorTipo: 'USUARIO'; usuarioId: string; acao: string; entidadeTipo: string; entidadeId: string; dadosAntes?: Record<string, unknown> | null; dadosDepois?: Record<string, unknown> | null; justificativa?: string | null; origem: string; requestId?: string | null; ip?: string | null; userAgent?: string | null };
 type Historico = { clienteId: string; tipoEvento: string; origem: string; entidadeTipo?: string | null; entidadeId?: string | null; usuarioId?: string | null; detalhe?: string | null; metadata?: Record<string, unknown>; critico?: boolean };
@@ -48,7 +51,7 @@ export type Core = {
   confirmarReserva(tx: DbExecutor, pagamentoId: string): Promise<unknown>;
   criarPlano(tx: DbExecutor, input: { pagamentoId: string; numeroVersao: number; meioPagamento: 'PIX' | 'CARTAO'; modalidade: 'AVISTA' | 'PARCELADO'; quantidadeParcelas: number; observacoes: string; criadoPorUsuarioId: string }): Promise<{ id: string }>;
   criarParcela(tx: DbExecutor, input: { planoId: string; numero: number; valorPrevisto: number; vencimento: string; confirmaReserva: boolean }): Promise<{ id: string }>;
-  /** `registrarRecebimentoPagamento` nativo (sessão revalidada, alocação, estados, ledger e auditoria). */
+  /** `registrarRecebimentoPagamento` nativo (alocação, estados, ledger e auditoria) no executor da transação do tenant. */
   registrarRecebimento(input: {
     pagamentoId: string; meioPagamento: 'PIX' | 'CARTAO' | 'TRANSFERENCIA' | 'DINHEIRO' | 'OUTRO'; valorBruto: number; recebidoEm: string;
     chaveIdempotencia: string; observacoes: string; metadataProvedor: Record<string, unknown>; confirmarAgora: true; alocacoes: Array<{ parcelaId: string; valor: number }>;
@@ -59,6 +62,26 @@ export type Core = {
   meioDoRecebimento(forma: FormaFinanceira): 'PIX' | 'CARTAO' | 'TRANSFERENCIA' | 'DINHEIRO' | 'OUTRO';
   auditarRecebimento(tx: DbExecutor, empresaId: string, atorId: string, parcelaId: string, valorReais: number): Promise<void>;
 };
+
+/**
+ * Autenticação recente (mesma janela de 5 minutos e mesmo mecanismo nativo da assinatura e do perfil): a conferência
+ * histórica grava contrato, festa, agenda e financeiro em nome do operador. A tela pede a senha (`reautenticar`).
+ */
+export function exigirAutenticacaoRecente(ctx: ContextoIntegracao, agora = Date.now()) {
+  if (!reautenticacaoPerfilRecente(ctx.autenticadoEm, agora)) {
+    throw new IntegracaoImportadoError('REAUTENTICACAO_NECESSARIA', 'Confirme sua senha novamente antes de integrar o contrato ou conferir pagamentos.', 403);
+  }
+}
+
+/** Mesma chave = mesmo pedido: devolve o gravado se o conteúdo é o mesmo; chave repetida com outro conteúdo é recusada. */
+function repeticao(gravado: { chave: string; payloadHash: string }, pedido: { chave: string; resumoHash: string }) {
+  if (gravado.chave === pedido.chave) {
+    if (gravado.payloadHash === pedido.resumoHash) return true;
+    throw new IntegracaoImportadoError('IDEMPOTENCIA_CONFLITANTE', 'Esta confirmação já foi usada com outro conteúdo. Recarregue e confira de novo.', 409);
+  }
+  // Outra chave com o MESMO conteúdo (duas abas, reenvio): é o mesmo pedido; nada é gravado de novo.
+  return gravado.payloadHash === pedido.resumoHash;
+}
 
 function exigirPapel(tenant: TenantComprovado) {
   if (!(PAPEIS_INTEGRACAO as readonly string[]).includes(tenant.papelAtual ?? '')) {
@@ -92,6 +115,22 @@ export function instanteDoRecebimento(data: string, agora = new Date()) {
 
 type Preparo = Awaited<ReturnType<typeof preparar>>;
 
+/** Critério da busca de possíveis duplicados: o mesmo na simulação e na reconsulta depois do lock. */
+function criterioDuplicidade(e: { cliente: repo.ClienteIntegracao; documento: { sha256: string }; decisoes: DecisoesIntegracao; nomeAniversariante: string | null;
+  snapshot: { evento?: { data?: string | null } | null }; valorCentavos: number }) {
+  const contato = repo.contatoComparavel(e.cliente);
+  return {
+    clienteId: e.cliente.id, data: e.decisoes.evento.data, dataDocumento: e.snapshot.evento?.data ?? null, aniversariante: e.nomeAniversariante,
+    valorCentavos: e.valorCentavos, documentoSha256: e.documento.sha256, cpf: contato.cpf, telefones: contato.telefones,
+  };
+}
+
+function mensagemDuplicidade(vinculos: Array<{ alcance: repo.AlcanceDuplicidade }>) {
+  const outraData = vinculos.some((v) => v.alcance === 'OUTRA_DATA');
+  const quantas = vinculos.length === 1 ? 'uma contratação parecida' : `${vinculos.length} contratações parecidas`;
+  return `Há ${quantas} nesta empresa ${outraData ? 'neste dia ou em data próxima (a data do documento pode ter sido lida ou corrigida de outro jeito)' : 'neste dia'}. Confira se é o mesmo contrato; se for outro, confirme "É outro contrato" e explique o motivo.`;
+}
+
 async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: string, decisoes: DecisoesIntegracao, hoje: string, travar: boolean) {
   const empresaId = tenant.empresaComprovada;
   const importacao = await importacaoConfirmada(tx, empresaId, importacaoId, travar);
@@ -113,12 +152,17 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   const nomeAniversariante = importacao.snapshot.evento?.aniversariante?.trim() || null;
   const aniversarianteExistente = nomeAniversariante && nomeAniversariante.length >= 2 ? await repo.aniversarianteDoCliente(tx, cliente.id, nomeAniversariante) : null;
   avaliacao.resumo.festa.aniversarianteCadastro = !nomeAniversariante || nomeAniversariante.length < 2 ? null : aniversarianteExistente ? 'EXISTENTE' : 'NOVO';
+  const recusaPlano = recusaDoPlanoNativo(decisoes.financeiro, avaliacao.resumo.financeiro.contratadoCentavos, decisoes.evento.data);
+  if (recusaPlano) avaliacao.bloqueios.push(recusaPlano);
   if (avaliacao.resumo.festa.aniversarianteCadastro === null) avaliacao.avisos.push('O documento não traz o nome do aniversariante: a festa fica sem aniversariante vinculado. Revisões futuras do contrato pedirão esse cadastro.');
-  const vinculos = await repo.possiveisVinculos(tx, empresaId, cliente.id, decisoes.evento.data);
-  if (vinculos.length && !decisoes.outroContratoConfirmado) {
-    avaliacao.bloqueios.push(`${cliente.nomeCompleto} já tem ${vinculos.length === 1 ? 'uma contratação' : `${vinculos.length} contratações`} neste dia. Confira se é o mesmo contrato; se for outro, confirme "É outro contrato".`);
+  // Possível duplicidade (reescaneamento, outro cliente cadastrado para a mesma festa, data lida ou corrigida de forma
+  // divergente): nunca unida nem recusada sozinha; exige decisão auditada do operador ("É outro contrato" + motivo).
+  const criterio = criterioDuplicidade({ cliente, documento, decisoes, nomeAniversariante, snapshot: importacao.snapshot, valorCentavos: avaliacao.resumo.contrato.valorContratadoCentavos });
+  const vinculos = await repo.possiveisVinculos(tx, empresaId, criterio);
+  if (vinculos.length && !(decisoes.outroContratoConfirmado && decisoes.motivoOutroContrato.length >= 5)) {
+    avaliacao.bloqueios.push(mensagemDuplicidade(vinculos));
   }
-  return { empresaId, importacao, cliente, documento, referencias, avaliacao, vinculos, pacote, precoReferencia, configuracaoAgendaId, nomeAniversariante, aniversarianteExistente };
+  return { empresaId, importacao, cliente, documento, referencias, avaliacao, vinculos, criterio, pacote, precoReferencia, configuracaoAgendaId, nomeAniversariante, aniversarianteExistente };
 }
 
 async function conflito(tx: DbExecutor, p: Preparo, d: DecisoesIntegracao) {
@@ -140,7 +184,12 @@ export async function opcoesIntegracao(tx: DbExecutor, tenant: TenantComprovado,
   return {
     disponivel,
     hoje,
-    integracao: vinculo ? { contratoId: vinculo.contratoId, financeiroPendente: vinculo.financeiro === null, valorContratadoCentavos: vinculo.valorContratadoCentavos } : null,
+    integracao: vinculo ? await (async () => {
+      // Com obrigação já criada (aqui ou no Financeiro), o caminho é o Financeiro do contrato, nunca "Conferir pagamentos".
+      const estado = await repo.estadoFinanceiroDoContrato(tx, vinculo.contratoId, vinculo.versaoId);
+      const caminho = repo.caminhoFinanceiro({ conferido: vinculo.financeiro !== null, ...estado });
+      return { contratoId: vinculo.contratoId, financeiroPendente: caminho !== 'CONCLUIDO', caminhoFinanceiro: caminho, valorContratadoCentavos: vinculo.valorContratadoCentavos };
+    })() : null,
     cliente: cliente ? { id: cliente.id, nome: cliente.nomeCompleto, ativo: cliente.status === 'ATIVO' } : null,
     documento: {
       pacote: importacao.snapshot.pacote?.nome ?? null,
@@ -171,7 +220,7 @@ export async function simularIntegracao(tx: DbExecutor, tenant: TenantComprovado
     bloqueios: p.avaliacao.bloqueios,
     avisos: p.avaliacao.avisos,
     resumo: p.avaliacao.resumo,
-    resumoHash: hashResumo(importacaoId, decisoes, p.avaliacao.resumo),
+    resumoHash: hashDaRevisao(importacaoId, decisoes, p.avaliacao.resumo, p.vinculos),
     possiveisVinculos: p.vinculos,
   };
 }
@@ -181,13 +230,50 @@ function meioDoPlano(f: Extract<DecisoesFinanceiras, { parcelas: unknown }>): 'P
   return formas.length > 0 && formas.every((x) => x === 'CARTAO_CREDITO' || x === 'CARTAO_DEBITO') ? 'CARTAO' : 'PIX';
 }
 
+/** Parcelas que vencem depois da festa (números 1..n), confirmadas ou não pelo operador. */
+export function parcelasAposFesta(f: DecisoesFinanceiras, dataFesta: string) {
+  if (!('parcelas' in f)) return { confirmadas: [] as number[], pendentes: [] as number[] };
+  const apos = f.parcelas.map((p, i) => ({ numero: i + 1, p })).filter(({ p }) => p.vencimento > dataFesta);
+  return { confirmadas: apos.filter(({ p }) => p.aposFestaConfirmada).map(({ numero }) => numero), pendentes: apos.filter(({ p }) => !p.aposFestaConfirmada).map(({ numero }) => numero) };
+}
+
+/**
+ * O plano gravado precisa obedecer às MESMAS regras do plano nativo (`validarPlanoPagamento`: 1 a 60 parcelas, soma
+ * exata, primeira parcela confirma a reserva, vencimentos até a data da festa): é o plano que o financeiro do contrato
+ * vai editar depois. Única exceção, só do contrato HISTÓRICO: parcela que vence depois da festa conforme o contrato
+ * original e confirmada explicitamente pelo operador (`aposFestaConfirmada`); as demais regras continuam valendo e o
+ * vencimento nunca é alterado. Fora delas, a conferência fica bloqueada com o motivo (pode ficar "não conferido").
+ */
+export function recusaDoPlanoNativo(f: DecisoesFinanceiras, contratadoCentavos: number, dataFesta: string): string | null {
+  if (!('parcelas' in f) || contratadoCentavos <= 0) return null;
+  const n = f.parcelas.length;
+  const { pendentes } = parcelasAposFesta(f, dataFesta);
+  if (pendentes.length) {
+    return `Parcela ${pendentes.join(', ')}: vence depois da festa. Confirme que isso consta do contrato original (exceção histórica) ou corrija o vencimento.`;
+  }
+  // Exceção confirmada: a data-limite da regra nativa passa a ser o último vencimento confirmado; nada mais muda.
+  const limite = f.parcelas.reduce((m, p) => (p.aposFestaConfirmada && p.vencimento > m ? p.vencimento : m), dataFesta);
+  try {
+    validarPlanoPagamento(centavosParaReais(contratadoCentavos), {
+      meioPagamento: meioDoPlano(f), modalidade: n === 1 ? 'AVISTA' : 'PARCELADO',
+      parcelas: f.parcelas.map((p, i) => ({ valor: centavosParaReais(p.valorCentavos), vencimento: p.vencimento, confirmaReserva: i === 0 })),
+    }, limite);
+    return null;
+  } catch (e) {
+    if (e && typeof e === 'object' && typeof (e as { code?: unknown }).code === 'string') return `Plano de pagamento fora das regras do financeiro: ${(e as Error).message}`;
+    throw e;
+  }
+}
+
 /** Obrigação, plano, parcelas e recebimentos nos serviços nativos. Chaves determinísticas: repetir não duplica. */
 async function integrarFinanceiro(tx: DbExecutor, tenant: TenantComprovado, ctx: ContextoIntegracao, core: Core, e: {
   importacaoId: string; vinculoId: string; versaoId: string; contratoId: string; clienteId: string;
   financeiro: Extract<DecisoesFinanceiras, { parcelas: unknown }>; resumo: Extract<ResumoFinanceiro, { recebidoCentavos: number }>;
-  chave: string; payloadHash: string;
+  chave: string; payloadHash: string; dataFesta: string;
 }) {
   const empresaId = tenant.empresaComprovada;
+  const recusaPlano = recusaDoPlanoNativo(e.financeiro, e.resumo.contratadoCentavos, e.dataFesta);
+  if (recusaPlano) throw new IntegracaoImportadoError('INTEGRACAO_BLOQUEADA', recusaPlano, 422, { bloqueios: [recusaPlano] });
   const pagamento = await core.criarPagamento(tx, { contratoVersaoId: e.versaoId, valorTotalContratado: centavosParaReais(e.resumo.contratadoCentavos), criadoPorUsuarioId: ctx.usuarioId });
   // Reserva já confirmada pela conferência do contrato vigente: recebimento histórico não decide agenda.
   await core.confirmarReserva(tx, pagamento.id);
@@ -202,6 +288,12 @@ async function integrarFinanceiro(tx: DbExecutor, tenant: TenantComprovado, ctx:
   }
   await core.registrarEventoHistorico(tx, { clienteId: e.clienteId, tipoEvento: 'PAGAMENTO_CRIADO', origem: ORIGEM_INTEGRACAO, entidadeTipo: 'PAGAMENTO', entidadeId: pagamento.id, usuarioId: ctx.usuarioId, detalhe: `Obrigação do contrato histórico: ${reais(e.resumo.contratadoCentavos)} em ${n} parcela(s).`, metadata: { importacaoId: e.importacaoId, contratoId: e.contratoId } });
   await core.registrarAuditoria(tx, { clienteId: e.clienteId, atorTipo: 'USUARIO', usuarioId: ctx.usuarioId, acao: 'PAGAMENTO_CRIADO', entidadeTipo: 'PAGAMENTO', entidadeId: pagamento.id, dadosDepois: { contratoVersaoId: e.versaoId, valorTotalCentavos: e.resumo.contratadoCentavos, parcelas: n, origem: ORIGEM_INTEGRACAO }, origem: ORIGEM_INTEGRACAO, requestId: ctx.requestId, ip: ctx.ip, userAgent: ctx.userAgent });
+  const excecao = parcelasAposFesta(e.financeiro, e.dataFesta).confirmadas;
+  if (excecao.length) {
+    await core.registrarAuditoria(tx, { clienteId: e.clienteId, atorTipo: 'USUARIO', usuarioId: ctx.usuarioId, acao: 'EXCECAO_HISTORICA_VENCIMENTO_APOS_FESTA', entidadeTipo: 'PAGAMENTO', entidadeId: pagamento.id,
+      dadosDepois: { dataFesta: e.dataFesta, parcelas: excecao.map((numero) => ({ numero, vencimento: e.financeiro.parcelas[numero - 1].vencimento })) },
+      justificativa: 'Vencimento posterior à festa conforme o contrato original, confirmado pelo operador.', origem: ORIGEM_INTEGRACAO, requestId: ctx.requestId, ip: ctx.ip, userAgent: ctx.userAgent });
+  }
   for (const [i, p] of e.financeiro.parcelas.entries()) {
     if (!p.recebimento) continue;
     const valor = centavosParaReais(p.valorCentavos);
@@ -227,6 +319,15 @@ async function integrarFinanceiro(tx: DbExecutor, tenant: TenantComprovado, ctx:
 
 export type PedidoConfirmacao = { decisoes: unknown; resumoHash: string; chave: string };
 
+/**
+ * Hash do que o operador revisou. Com possíveis duplicados, inclui os candidatos exibidos: a decisão "É outro
+ * contrato" vale só para eles; um candidato novo exige nova revisão. Sem candidatos, é o hash do resumo de sempre.
+ */
+export function hashDaRevisao(importacaoId: string, decisoes: DecisoesIntegracao, resumo: Parameters<typeof hashResumo>[2], vinculos: Array<{ fechamentoId: string }>) {
+  const base = hashResumo(importacaoId, decisoes, resumo);
+  return vinculos.length ? hashCanonico({ resumo: base, candidatos: vinculos.map((v) => v.fechamentoId).sort() }) : base;
+}
+
 export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprovado, ctx: ContextoIntegracao, importacaoId: string, pedido: PedidoConfirmacao, hoje: string, core: Core) {
   exigirPapel(tenant);
   await exigirDisponivel(tx);
@@ -236,23 +337,35 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
   await importacaoConfirmada(tx, empresaId, importacaoId, true);
   const existente = await repo.vinculoDaImportacao(tx, empresaId, importacaoId);
   if (existente) {
-    // Mesma chave (repetição após timeout) ou mesmo conteúdo confirmado: devolve o resultado gravado, sem escrever nada.
-    if (existente.chave === pedido.chave || existente.payloadHash === pedido.resumoHash) {
+    // Mesmo conteúdo já confirmado (repetição após timeout, outra aba): devolve o resultado gravado, sem escrever nada.
+    if (repeticao(existente, pedido)) {
       const gravado = await repo.resultadoGravado(tx, empresaId, existente.id);
       return { reutilizado: true as const, ...gravado!, destino: `/admin/contratos?contratoId=${existente.contratoId}` };
     }
     throw new IntegracaoImportadoError('IMPORTACAO_JA_INTEGRADA', 'Este contrato importado já foi integrado. Abra o contrato integrado.', 409, { contratoId: existente.contratoId });
   }
   if (await repo.chaveUsadaEmOutra(tx, pedido.chave, importacaoId)) throw new IntegracaoImportadoError('IDEMPOTENCIA_CONFLITANTE', 'Esta confirmação já foi usada para outra operação. Recarregue e confirme de novo.', 409);
+  exigirAutenticacaoRecente(ctx);
 
   const p = await preparar(tx, tenant, importacaoId, decisoes, hoje, true);
   if (!decisoes.conferenciaDeclarada) p.avaliacao.bloqueios.push('Declare a conferência do documento original antes de confirmar.');
   if (p.avaliacao.bloqueios.length) throw new IntegracaoImportadoError('INTEGRACAO_BLOQUEADA', p.avaliacao.bloqueios[0], 422, { bloqueios: p.avaliacao.bloqueios });
-  const resumoHash = hashResumo(importacaoId, decisoes, p.avaliacao.resumo);
+  const resumoHash = hashDaRevisao(importacaoId, decisoes, p.avaliacao.resumo, p.vinculos);
   if (resumoHash !== pedido.resumoHash) {
     throw new IntegracaoImportadoError('RESUMO_DESATUALIZADO', 'Os dados mudaram desde a revisão. Confira o resumo atualizado e confirme de novo.', 409, { resumo: p.avaliacao.resumo, resumoHash });
   }
   const ocupa = p.avaliacao.resumo.agenda.ocupa;
+  // Ordem única de locks (062 + integração): empresa → unidade → habilitação → duplicidade → data → contratação.
+  if (decisoes.estabelecimentoId) await repo.travarUnidade(tx, decisoes.estabelecimentoId);
+  // Possíveis duplicados reconsultados DENTRO da serialização por empresa (vale para evento passado, slots diferentes e
+  // datas divergentes): a confirmação concorrente da mesma empresa já terminou e é vista aqui.
+  await repo.travarDuplicidade(tx, empresaId);
+  const vinculosAgora = await repo.possiveisVinculos(tx, empresaId, p.criterio);
+  if (hashDaRevisao(importacaoId, decisoes, p.avaliacao.resumo, vinculosAgora) !== resumoHash) {
+    throw new IntegracaoImportadoError('RESUMO_DESATUALIZADO', 'Uma contratação parecida acabou de ser registrada nesta empresa. Confira se é o mesmo contrato e decida antes de confirmar.', 409,
+      { resumo: p.avaliacao.resumo, possiveisVinculos: vinculosAgora });
+  }
+  p.vinculos = vinculosAgora;
   if (ocupa) {
     // Lock da data no namespace do Core e revalidação depois dele (READ COMMITTED vê o último vencedor).
     await repo.travarData(tx, decisoes.evento.data);
@@ -316,6 +429,11 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     dadosDepois: { importacaoId, fechamentoId: fechamento.id, versaoId, festaId, agendaOcupada: ocupa, financeiro: decisoes.financeiro.situacao, correcoes, unidade: unidade?.id ?? null },
     justificativa: DECLARACAO_CONFERENCIA });
   await core.registrarAuditoria(tx, { ...base, acao: 'FESTA_CRIADA', entidadeTipo: 'FESTA', entidadeId: festaId, dadosDepois: causa, justificativa: 'Conferência de contrato histórico assinado em papel' });
+  if (p.vinculos.length) {
+    await core.registrarAuditoria(tx, { ...base, acao: 'POSSIVEL_DUPLICIDADE_DESCARTADA', entidadeTipo: 'CONTRATO', entidadeId: contratoId,
+      dadosDepois: { importacaoId, candidatos: p.vinculos.map((v) => ({ fechamentoId: v.fechamentoId, contratoId: v.contratoId, data: v.data, alcance: v.alcance, sinais: v.sinais })) },
+      justificativa: decisoes.motivoOutroContrato });
+  }
   await core.registrarEventoHistorico(tx, { clienteId: p.cliente.id, tipoEvento: 'CONTRATO_HISTORICO_INTEGRADO', origem: ORIGEM_INTEGRACAO, entidadeTipo: 'CONTRATO', entidadeId: contratoId, usuarioId: ctx.usuarioId,
     detalhe: `Contrato importado integrado: festa em ${decisoes.evento.data} ${ocupa ? '(ocupa agenda)' : '(histórico)'}.`, metadata: { importacaoId, festaId }, critico: true });
   await core.registrarEventoHistorico(tx, { clienteId: p.cliente.id, tipoEvento: 'FESTA_CRIADA', origem: ORIGEM_INTEGRACAO, entidadeTipo: 'FESTA', entidadeId: festaId, usuarioId: ctx.usuarioId,
@@ -326,22 +444,31 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     ? { situacao: 'NAO_CONFERIDO' as const, pendente: true }
     : { ...await integrarFinanceiro(tx, tenant, ctx, core, {
       importacaoId, vinculoId: vinculo.id, versaoId, contratoId, clienteId: p.cliente.id,
-      financeiro: decisoes.financeiro, resumo: resumoFin, chave: pedido.chave, payloadHash: resumoHash,
+      financeiro: decisoes.financeiro, resumo: resumoFin, chave: pedido.chave, payloadHash: resumoHash, dataFesta: decisoes.evento.data,
     }), pendente: false };
 
   return { reutilizado: false as const, contratoId, fechamentoId: fechamento.id, festaId, agendaOcupada: ocupa, financeiro, destino: `/admin/contratos?contratoId=${contratoId}` };
 }
 
-/** Pendência "Conferir pagamentos": mesma regra da integração, com o valor contratado da versão conferida (imutável aqui). */
+/**
+ * Pendência "Conferir pagamentos": mesma regra da integração, com o valor contratado da versão conferida. Só enquanto
+ * essa versão é a VIGENTE, sem revisão aberta e sem obrigação nativa já criada: depois de uma revisão do contrato o
+ * valor pode ter mudado, e o financeiro segue o contrato (a 061 confere o mesmo no banco).
+ */
 async function prepararFinanceiro(tx: DbExecutor, tenant: TenantComprovado, importacaoId: string, bruto: unknown, hoje: string, travar: boolean) {
   const financeiro = financeiroSchema.parse(bruto);
   const empresaId = tenant.empresaComprovada;
   await importacaoConfirmada(tx, empresaId, importacaoId, travar);
   const vinculo = await repo.vinculoDaImportacao(tx, empresaId, importacaoId);
   if (!vinculo) throw new IntegracaoImportadoError('IMPORTACAO_NAO_INTEGRADA', 'Integre o contrato antes de conferir os pagamentos.', 409);
-  const estado = (await tx.query<{ contrato_status: string; fechamento_status: string; valor: string; cliente_id: string }>(
-    `SELECT c.status AS contrato_status, f.status AS fechamento_status, (v.snapshot->'comercial'->>'valorFinalContrato') AS valor, f.cliente_id::text
-       FROM contratos c JOIN fechamentos f ON f.id = c.fechamento_id JOIN contrato_versoes v ON v.id = $2::uuid
+  const estado = (await tx.query<{ contrato_status: string; fechamento_status: string; valor: string; cliente_id: string; data_evento: string; vigente: boolean; revisao_aberta: boolean; com_pagamento: boolean }>(
+    `SELECT c.status AS contrato_status, f.status AS fechamento_status, (v.snapshot->'comercial'->>'valorFinalContrato') AS valor, f.cliente_id::text,
+            f.data_evento::text AS data_evento,
+            coalesce(cf.versao_vigente_id = v.id, false) AS vigente,
+            EXISTS(SELECT 1 FROM fechamento_revisoes r WHERE r.contrato_id = c.id AND r.estado IN ('EM_ELABORACAO', 'CONGELADA')) AS revisao_aberta,
+            EXISTS(SELECT 1 FROM pagamentos p JOIN contrato_versoes pv ON pv.id = p.contrato_versao_id WHERE pv.contrato_id = c.id) AS com_pagamento
+       FROM contratos c JOIN fechamentos f ON f.id = c.fechamento_id JOIN contrato_versoes v ON v.id = $2::uuid AND v.contrato_id = c.id
+       LEFT JOIN contrato_fluxos cf ON cf.contrato_id = c.id
       WHERE c.id = $1::uuid AND f.empresa_id = $3::uuid${travar ? ' FOR UPDATE OF c, f' : ''}`,
     [vinculo.contratoId, vinculo.versaoId, empresaId],
   )).rows[0];
@@ -349,9 +476,14 @@ async function prepararFinanceiro(tx: DbExecutor, tenant: TenantComprovado, impo
   const contratado = Math.round(Number(estado.valor) * 100);
   const bloqueios: string[] = [], avisos: string[] = [];
   if (estado.contrato_status !== 'ASSINADO' || estado.fechamento_status !== 'CONFIRMADO') bloqueios.push('O contrato não está vigente: a conferência de pagamentos deve seguir o tratamento financeiro do contrato.');
+  else if (estado.revisao_aberta) bloqueios.push('Há uma revisão do contrato em andamento: conclua ou cancele a revisão antes de registrar os pagamentos.');
+  else if (!estado.vigente) bloqueios.push('O contrato foi revisado depois da integração: registre os pagamentos no Financeiro do contrato — "Criar plano financeiro" na versão vigente e "Registrar recebimento" com a data real de cada pagamento já feito.');
+  else if (estado.com_pagamento) bloqueios.push('O contrato já tem obrigação financeira registrada: use o financeiro do contrato.');
   if (financeiro.situacao === 'NAO_CONFERIDO') bloqueios.push('Escolha a situação dos pagamentos conferidos.');
   const resumo = avaliarFinanceiro(financeiro, contratado, hoje, bloqueios, avisos);
-  return { vinculo, financeiro, resumo, bloqueios, avisos, clienteId: estado.cliente_id, resumoHash: hashCanonico({ importacaoId, financeiro, resumo }) };
+  const recusaPlano = recusaDoPlanoNativo(financeiro, contratado, estado.data_evento);
+  if (recusaPlano) bloqueios.push(recusaPlano);
+  return { vinculo, financeiro, resumo, bloqueios, avisos, clienteId: estado.cliente_id, dataFesta: estado.data_evento, resumoHash: hashCanonico({ importacaoId, financeiro, resumo }) };
 }
 
 export async function simularFinanceiro(tx: DbExecutor, tenant: TenantComprovado, importacaoId: string, bruto: unknown, hoje: string) {
@@ -367,19 +499,20 @@ export async function conferirFinanceiro(tx: DbExecutor, tenant: TenantComprovad
   await exigirDisponivel(tx);
   const p = await prepararFinanceiro(tx, tenant, importacaoId, pedido.financeiro, hoje, true);
   if (p.vinculo.financeiro) {
-    if (p.vinculo.financeiro.chave === pedido.chave || p.vinculo.financeiro.payloadHash === pedido.resumoHash) {
+    if (repeticao(p.vinculo.financeiro, pedido)) {
       const gravado = await repo.resultadoGravado(tx, tenant.empresaComprovada, p.vinculo.id);
       return { reutilizado: true as const, contratoId: p.vinculo.contratoId, ...gravado!.financeiro };
     }
     throw new IntegracaoImportadoError('FINANCEIRO_JA_CONFERIDO', 'Os pagamentos deste contrato já foram conferidos. Use o financeiro do contrato para ajustes.', 409, { contratoId: p.vinculo.contratoId });
   }
   if (await repo.chaveUsadaEmOutra(tx, pedido.chave, importacaoId) || pedido.chave === p.vinculo.chave) throw new IntegracaoImportadoError('IDEMPOTENCIA_CONFLITANTE', 'Esta confirmação já foi usada para outra operação. Recarregue e confirme de novo.', 409);
+  exigirAutenticacaoRecente(ctx);
   if (p.bloqueios.length) throw new IntegracaoImportadoError('INTEGRACAO_BLOQUEADA', p.bloqueios[0], 422, { bloqueios: p.bloqueios });
   if (p.resumoHash !== pedido.resumoHash) throw new IntegracaoImportadoError('RESUMO_DESATUALIZADO', 'Os dados mudaram desde a revisão. Confira o resumo atualizado e confirme de novo.', 409, { resumo: p.resumo, resumoHash: p.resumoHash });
   if (p.financeiro.situacao === 'NAO_CONFERIDO' || p.resumo.situacao === 'NAO_CONFERIDO') throw new IntegracaoImportadoError('INTEGRACAO_BLOQUEADA', 'Escolha a situação dos pagamentos conferidos.', 422);
   const r = await integrarFinanceiro(tx, tenant, ctx, core, {
     importacaoId, vinculoId: p.vinculo.id, versaoId: p.vinculo.versaoId, contratoId: p.vinculo.contratoId, clienteId: p.clienteId,
-    financeiro: p.financeiro, resumo: p.resumo, chave: pedido.chave, payloadHash: p.resumoHash,
+    financeiro: p.financeiro, resumo: p.resumo, chave: pedido.chave, payloadHash: p.resumoHash, dataFesta: p.dataFesta,
   });
   await core.registrarAuditoria(tx, { clienteId: p.clienteId, atorTipo: 'USUARIO', usuarioId: ctx.usuarioId, acao: 'PAGAMENTOS_HISTORICOS_CONFERIDOS', entidadeTipo: 'CONTRATO', entidadeId: p.vinculo.contratoId,
     dadosDepois: { importacaoId, ...r }, origem: ORIGEM_INTEGRACAO, requestId: ctx.requestId, ip: ctx.ip, userAgent: ctx.userAgent });

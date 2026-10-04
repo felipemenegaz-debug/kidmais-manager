@@ -56,3 +56,4 @@
   .grade { grid-template-columns: 1fr; }
   .opcoes { display: grid; }
 }
+.excecao { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 1.4; color: var(--km-text-2); }

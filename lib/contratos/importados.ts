@@ -1,3 +1,4 @@
+import { caminhoFinanceiro } from './integracao-importados/repositorio.ts';
 import type { DbExecutor } from '../db/contracts.ts';
 import type { SnapshotHistorico } from '../importacao-contrato/plano.ts';
 
@@ -95,6 +96,12 @@ export type OrigemHistoricaContrato = {
   documento: DocumentoImportado | null;
   podeVerOriginal: boolean;
   financeiroPendente: boolean;
+  /**
+   * Caminho OFICIAL para os pagamentos do contrato histórico: CONFERIR_HISTORICO ("Conferir pagamentos" da integração,
+   * enquanto a versão conferida é a vigente); PLANO_NA_VERSAO_VIGENTE (depois de revisão: "Criar plano financeiro"
+   * nativo + "Registrar recebimento" com a data real); AGUARDAR_REVISAO (revisão aberta); CONCLUIDO.
+   */
+  caminhoFinanceiro: 'CONFERIR_HISTORICO' | 'PLANO_NA_VERSAO_VIGENTE' | 'AGUARDAR_REVISAO' | 'CONCLUIDO';
   financeiro: { situacao: string; recebidoCentavos: number; saldoCentavos: number } | null;
   /** Campos que diferem do documento (correção de leitura) ou que não constavam nele (complemento). */
   campos: Array<{ campo: string; rotulo: string; documento: string | null; efetivo: string; origem: string; motivo: string | null }>;
@@ -105,11 +112,15 @@ export type OrigemHistoricaContrato = {
 export async function origemHistoricaDoContrato(tx: DbExecutor, empresaId: string, contratoId: string, papel: string | null | undefined): Promise<OrigemHistoricaContrato | null> {
   if (!(await disponibilidade(tx)).integracao) return null;
   const r = await tx.query<{
-    importacao_id: string; conferido_em: string; conferido_por: string | null; conferido_papel: string; declaracao: string; unidade: string | null;
+    importacao_id: string; versao_conferida_id: string; vigente_conferida: boolean; revisao_aberta: boolean; com_pagamento: boolean; conferido_em: string; conferido_por: string | null; conferido_papel: string; declaracao: string; unidade: string | null;
     campos: unknown; contrato_historico: SnapshotHistorico | null; fin_situacao: string | null; fin_recebido: string | null; fin_saldo: string | null;
     documento_id: string | null; documento_nome: string | null; documento_tipo: string | null; documento_tamanho: number | string | null;
   }>(
-    `SELECT ci.importacao_id::text, ci.conferido_em::text, u.nome AS conferido_por, ci.conferido_papel, ci.declaracao, e.nome AS unidade,
+    `SELECT ci.importacao_id::text, ci.contrato_versao_id::text AS versao_conferida_id,
+            coalesce((SELECT cf.versao_vigente_id = ci.contrato_versao_id FROM contrato_fluxos cf WHERE cf.contrato_id = ci.contrato_id), false) AS vigente_conferida,
+            EXISTS(SELECT 1 FROM fechamento_revisoes r WHERE r.contrato_id = ci.contrato_id AND r.estado IN ('EM_ELABORACAO', 'CONGELADA')) AS revisao_aberta,
+            EXISTS(SELECT 1 FROM pagamentos p JOIN contrato_versoes pv ON pv.id = p.contrato_versao_id WHERE pv.contrato_id = ci.contrato_id) AS com_pagamento,
+            ci.conferido_em::text, u.nome AS conferido_por, ci.conferido_papel, ci.declaracao, e.nome AS unidade,
             ci.decisoes->'resumo'->'campos' AS campos, i.resultado->'contratoHistorico' AS contrato_historico,
             f.situacao AS fin_situacao, f.recebido_centavos::text AS fin_recebido, f.saldo_centavos::text AS fin_saldo,
             o.id::text AS documento_id, o.nome_original AS documento_nome, o.content_type AS documento_tipo, o.tamanho_bytes AS documento_tamanho
@@ -129,7 +140,9 @@ export async function origemHistoricaDoContrato(tx: DbExecutor, empresaId: strin
     importacaoId: l.importacao_id, conferidoEm: l.conferido_em, conferidoPor: l.conferido_por, conferidoPapel: l.conferido_papel, declaracao: l.declaracao, unidade: l.unidade,
     documento: l.documento_id ? { id: l.documento_id, nome: l.documento_nome ?? 'documento', contentType: l.documento_tipo ?? 'application/octet-stream', tamanhoBytes: Number(l.documento_tamanho ?? 0) } : null,
     podeVerOriginal: podeVerOriginal(papel),
-    financeiroPendente: l.fin_situacao === null,
+    financeiroPendente: l.fin_situacao === null && !l.com_pagamento,
+    // Caminho do financeiro pendente: conferência da v1 enquanto ela é a vigente; depois de revisão, o plano nativo.
+    caminhoFinanceiro: caminhoFinanceiro({ conferido: l.fin_situacao !== null, comPagamento: l.com_pagamento, revisaoAberta: l.revisao_aberta, vigenteConferida: l.vigente_conferida }),
     financeiro: l.fin_situacao ? { situacao: l.fin_situacao, recebidoCentavos: Number(l.fin_recebido ?? 0), saldoCentavos: Number(l.fin_saldo ?? 0) } : null,
     campos,
     contratoHistorico: l.contrato_historico && typeof l.contrato_historico === 'object' ? l.contrato_historico : null,

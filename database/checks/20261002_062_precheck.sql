@@ -23,6 +23,6 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM public.estabelecimentos u WHERE u.empresa_id = e.id AND u.status <> 'DESATIVADO');
   SELECT count(*) INTO bloqueios FROM public.bloqueios_agenda WHERE ativo;
   SELECT count(*) INTO turnos FROM public.configuracao_agenda WHERE ativo;
-  RAISE NOTICE '062 precheck: % empresa(s) ativa(s) sem unidade (D2: reparo Unidade principal); % bloqueio(s) ativo(s) continuam globais até resolução (D3); % turno(s) ativo(s) ficam como modelos globais (D5).', sem_unidade, bloqueios, turnos;
+  RAISE NOTICE '062 precheck: % empresa(s) ativa(s) sem unidade (D2: reparo Unidade principal e decisões por contratação); % bloqueio(s) ativo(s) continuam globais até resolução (D3); % turno(s) ativo(s) ficam como modelos globais (D5).', sem_unidade, bloqueios, turnos;
 END $$;
 SELECT '062 precheck OK' AS resultado;

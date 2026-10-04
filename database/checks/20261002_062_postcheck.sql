@@ -9,6 +9,7 @@ BEGIN
       (table_name = 'fechamentos' AND column_name = 'estabelecimento_id')
       OR (table_name IN ('bloqueios_agenda', 'configuracao_agenda') AND column_name IN ('empresa_id', 'estabelecimento_id')))) <> 5
      OR to_regclass('public.agenda_062_bloqueios_resolucao') IS NULL
+     OR to_regclass('public.agenda_062_fechamentos_resolucao') IS NULL
      OR to_regclass('public.agenda_062_unidades_habilitacao') IS NULL
      OR to_regclass('public.agenda_062_unidades_habilitacao_vigente_uk') IS NULL
      OR to_regclass('public.configuracao_agenda_062_codigo_escopo_uk') IS NULL
@@ -20,17 +21,17 @@ BEGIN
       RAISE EXCEPTION 'postcheck 062: restrição % ausente ou não validada', item;
     END IF;
   END LOOP;
-  FOREACH item IN ARRAY ARRAY['fechamentos_062_unidade_trg', 'bloqueios_agenda_062_unidade_trg', 'configuracao_agenda_062_unidade_trg', 'fechamento_revisoes_062_unidade_trg', 'contrato_importacoes_062_unidade_trg', 'agenda_062_unidades_habilitacao_guard_trg', 'agenda_062_unidades_habilitacao_truncate_trg'] LOOP
+  FOREACH item IN ARRAY ARRAY['fechamentos_062_unidade_trg', 'contrato_fluxos_062_unidade_trg', 'bloqueios_agenda_062_unidade_trg', 'configuracao_agenda_062_unidade_trg', 'fechamento_revisoes_062_unidade_trg', 'contrato_importacoes_062_unidade_trg', 'agenda_062_unidades_habilitacao_guard_trg', 'agenda_062_unidades_habilitacao_truncate_trg'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = item AND tgenabled = 'O' AND NOT tgisinternal) THEN
       RAISE EXCEPTION 'postcheck 062: gatilho % ausente ou desligado', item;
     END IF;
   END LOOP;
-  FOREACH item IN ARRAY ARRAY['public.kidmais062_habilitacao_guard()', 'public.kidmais062_mesmo_recurso(uuid,uuid,uuid,uuid)', 'public.kidmais062_bloqueio_aplica(uuid,uuid,uuid,uuid)', 'public.kidmais062_operador_agenda(uuid,uuid,text)', 'public.kidmais062_unidade_agendavel(uuid,uuid)', 'public.kidmais062_travar_habilitacao(uuid)', 'public.kidmais062_ocupacoes_escopo(date,date)', 'public.kidmais062_unidade_fechamento()', 'public.kidmais062_unidade_ativa()', 'public.kidmais062_revisao_unidade()', 'public.kidmais062_vinculo_unidade()'] LOOP
+  FOREACH item IN ARRAY ARRAY['public.kidmais062_habilitacao_guard()', 'public.kidmais062_mesmo_recurso(uuid,uuid,uuid,uuid)', 'public.kidmais062_bloqueio_aplica(uuid,uuid,uuid,uuid)', 'public.kidmais062_operador_agenda(uuid,uuid,text)', 'public.kidmais062_unidade_agendavel(uuid,uuid)', 'public.kidmais062_travar_habilitacao(uuid)', 'public.kidmais062_ocupacoes_escopo(date,date)', 'public.kidmais062_unidade_fechamento()', 'public.kidmais062_fluxo_unidade()', 'public.kidmais062_unidade_ativa()', 'public.kidmais062_revisao_unidade()', 'public.kidmais062_vinculo_unidade()'] LOOP
     IF to_regprocedure(item) IS NULL OR (SELECT prosecdef FROM pg_proc WHERE oid = to_regprocedure(item)) THEN
       RAISE EXCEPTION 'postcheck 062: função % ausente ou SECURITY DEFINER', item;
     END IF;
   END LOOP;
-  IF (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais019_validar_destino(uuid)'::regprocedure) IS DISTINCT FROM 'fa126f7ffcf572a4710616ebbeb59f19609b5b1a144639d4297bdac274191af4'
+  IF (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais019_validar_destino(uuid)'::regprocedure) IS DISTINCT FROM '95d78b638b10bc449dc20e795727e5bc52220d2977c291158aecdbecc33c633d'
      OR (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais019_validar_contrato()'::regprocedure) IS DISTINCT FROM '8572e2ee2cc990c6b6cd20045911b5c852510c7dafda73714e0f8808c72229e6'
      OR (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais_proteger_bloqueio_revisao()'::regprocedure) IS DISTINCT FROM '74ac39079d343f7db514322ca043925ea9c6a2fb2ffe7b5b7752b0a181d812b9'
      OR (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais_validar_agenda_revisao()'::regprocedure) IS DISTINCT FROM '830dd6a376f1dceadab9f20ad606665ec7b4692bfd531881c3da42f1e3d0b2ad'
