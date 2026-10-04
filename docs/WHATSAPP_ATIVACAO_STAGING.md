@@ -82,10 +82,10 @@ Preparado em 04/10/2026. **Não depende da resposta do Gupshup**: nada aqui liga
 
 ### Prova de que o canal fica desligado
 
-- **Recepção:** `recepcaoAtiva()` exige `WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED=true`, `WHATSAPP_ATENDIMENTO_RECEPTOR` igual a `KIDMAIS_DEPLOY_ENV` e uma empresa piloto válida. `WHATSAPP_ATENDIMENTO_RECEPTOR` foi criada por esta PR e **não foi configurada por esta entrega** (nenhuma autorização de variável foi dada). A ausência em staging só é confirmada pela tela depois do deploy. Sem ela, a recepção fica desligada e o webhook se comporta como hoje.
+- **Recepção:** `recepcaoAtiva()` exige `WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED=true`, `WHATSAPP_ATENDIMENTO_RECEPTOR` igual a `KIDMAIS_DEPLOY_ENV` e uma empresa piloto válida. `WHATSAPP_ATENDIMENTO_RECEPTOR` foi criada por esta PR e **não foi configurada por esta entrega** (nenhuma autorização de variável foi dada). A ausência em staging é confirmada antes do deploy pela leitura E3-pré (sem inferência) e de novo pela tela depois dele. Sem ela, a recepção fica desligada e o webhook se comporta como hoje.
 - **Envio:** `atendimentoAtivo()` exige `WHATSAPP_ATENDIMENTO_ENABLED=true` e o mesmo receptor. O processador exige `WHATSAPP_ATENDIMENTO_WORKER_SECRET` (401 sem ele) e só roda se for chamado. Nenhum worker existe nem será iniciado.
-- **Verificação depois do deploy:** a tela mostra "Situação do canal", lida do ambiente do servidor. O esperado é "Receptor do número: Outro ambiente ou nenhum", "Receber mensagens: Desligado" e "Enviar respostas: Desligado".
-- **Limitação:** o Render MCP não lista nomes de variáveis. A confirmação da ausência vem da tela depois do deploy. Se aparecer algo ligado, parar e reverter o código.
+- **Confirmação ANTES do deploy (E3-pré), sem inferir ausência:** leitura das variáveis `WHATSAPP_ATENDIMENTO_*` do serviço de staging no painel do Render, feita pelo Felipe, com o resultado informado no chat. O Render MCP não lista variáveis, e o código live não as lê. Critério: `RECEPTOR` inexistente e nem `RECEIVE_ENABLED` nem `ENABLED` iguais a `true`; senão, **parar** (mudar variável é operação própria). Roteiro: `.local-ux/staging-060/E3-pre-conferencia-variaveis.md`.
+- **Confirmação DEPOIS do deploy (segunda, não substitui a anterior):** a tela mostra a "Situação do canal", lida do ambiente do servidor. O esperado: "Receptor do número: Outro ambiente ou nenhum", "Receber mensagens: Desligado" e "Enviar respostas: Desligado". Divergência leva a reverter para o deploy anterior.
 
 ### Efeito no OTP
 
@@ -100,15 +100,24 @@ Preparado em 04/10/2026. **Não depende da resposta do Gupshup**: nada aqui liga
 | --- | --- | --- | --- | --- | --- |
 | P1 | Push da branch `whatsapp/atendimento-ia-v1` | GitHub (PR #80) | PR atualizada sem conflito; CI do HEAD exato. Nenhum serviço Render acompanha esta branch | CI verde do HEAD; descrição da PR atualizada | Force push não; corrigir com novo commit |
 | E1 | Merge da PR #80 em `staging` (merge commit) | GitHub | `origin/staging` passa a conter a candidata. Sem deploy com o auto-deploy desligado (revalidar antes) | `origin/staging` = merge; deploy live inalterado | Revert do merge |
-| E2a | **Leitura** do estado das migrations: `aplicar-060-staging.ps1 -Alvo <sha> -SomenteEstado`, executado pelo Felipe (URL digitada mascarada) | Banco de staging, `default_transaction_read_only=on` | Nenhum | Linha de estado 055a–062 | — |
-| E2b | Backup fresco (`pg_dump -Fc`) e 060 (precheck embutido, atômica, `lock_timeout` 5 s) e postcheck em leitura: o mesmo script sem `-SomenteEstado`, com frase digitada | Banco de staging | Cria 5 tabelas vazias; Core intacto. O código live (`87b9611`) as ignora | Postcheck OK; estado `m060_tabelas=5` | Tabelas vazias: rollback precheck, down e postcheck da 060 (o down recusa se houver dados sem descarte explícito). Nunca restaurar o backup sem decisão |
+| E2a | **Leitura** do estado das migrations: `aplicar-060-staging.ps1 -Alvo <sha> -SomenteEstado`, executado pelo Felipe (URL digitada mascarada) | Banco de staging, `default_transaction_read_only=on` | Nenhum | **Marcadores = presença preliminar.** Para cada migration com marcador presente, o **postcheck oficial** do commit alvo roda em leitura e é o que a **confirma**. Ausente ou parcial nunca conta como confirmada | — |
+| E2b | Backup fresco (`pg_dump -Fc`) e 060 (precheck embutido, atômica, `lock_timeout` 5 s) e postcheck oficial em leitura: o mesmo script sem `-SomenteEstado`, com frase digitada. Só prossegue com 055a–059 **confirmadas** por postcheck, 061/062 sem estado parcial nem postcheck falhando, e 060 ausente | Banco de staging | Cria 5 tabelas vazias; Core intacto. O código live (`87b9611`) as ignora | Postcheck oficial da 060 OK em leitura; marcadores da 060 presentes | **Falha durante a 060 = resultado potencialmente incerto** (a conexão pode cair em volta do COMMIT). O script não repete: inspeciona em leitura (marcadores e, se presentes, o postcheck) ou, sem conexão, declara o estado desconhecido. Não repetir, não executar DOWN e não fazer deploy antes da inspeção (`-SomenteEstado`) e de uma decisão. Tabelas vazias: rollback precheck, down e postcheck da 060 só por decisão. Nunca restaurar o backup sem decisão |
+| E3-pré | Leitura das variáveis `WHATSAPP_ATENDIMENTO_*` no painel do Render, feita pelo Felipe; nova leitura dos serviços (sem worker) | `srv-daif418ae00c73e8k2gg` (leitura) | Nenhum | Critério do roteiro `E3-pre-conferencia-variaveis.md` | Divergência: parar antes do deploy |
 | E3 | Deploy manual do commit de `origin/staging` (o merge da E1) | `srv-daif418ae00c73e8k2gg` | Build com `check:v1:static`; código novo no ar com o canal desligado | Deploy `live` com o commit certo; `/api/health`; logs sanitizados; tela de Atendimento abre com tudo desligado; login com OTP funciona | Deploy do commit anterior (`87b9611`) |
 
-**Ordem recomendada:** P1 → (CI e revisão) → E1 → E2a → E2b → E3. Com a 060 antes do deploy, a tela funciona assim que o código sobe. Se E2 for adiada, E3 continua segura, mas a tela fica "indisponível" até a 060.
+**Ordem recomendada:** P1 → (CI e revisão) → E1 → E2a → E2b → E3-pré → E3. Com a 060 antes do deploy, a tela funciona assim que o código sobe. Se E2 for adiada, E3 continua segura, mas a tela fica "indisponível" até a 060. E3 nunca acontece sem E3-pré.
 
 **OTP na verificação:** o login em staging dispara um OTP real para o número do usuário que entra. Só com autorização explícita, ou com o próprio Felipe fazendo o login.
 
-**O script** `aplicar-060-staging.ps1` (com `estado-migrations-staging.sql`, `guard-origem.ps1` e `sonda-encoding.sql`) segue o formato do script da 059. Ele fica no scratchpad desta sessão do Claude Code, fora do Git. Foi validado offline (`-SomenteValidar`): o positivo passa os guards de commit e blob; os negativos param sem a 060 no alvo e com chave proibida.
+**Scripts para revisão (fora do Git, no checkout).** Pasta `C:/Users/Glass/.codex/worktrees/0997/kidmais-manager-ai-master/.local-ux/staging-060/`, com hashes SHA-256 em `MANIFESTO.txt`:
+- `aplicar-060-staging.ps1`: modos `-SomenteValidar`, `-SomenteEstado` e padrão;
+- `estado-migrations-staging.sql`: marcadores de presença preliminar;
+- `guard-origem.ps1` e `sonda-encoding.sql`: copiados sem alteração do script da 059, com hash idêntico à origem;
+- `E3-pre-conferencia-variaveis.md`.
+
+Validação offline (`-SomenteValidar`), sem conexão:
+- o positivo extrai e confere por blob a 060 e os 11 postchecks oficiais;
+- os negativos param sem conectar quando o alvo não tem a 060, com chave proibida e quando o `staging` remoto difere do alvo.
 
 ## Ativação em staging, etapa por etapa
 
