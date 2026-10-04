@@ -13,7 +13,15 @@ BEGIN
      OR to_regclass('public.agenda_062_unidades_habilitacao') IS NULL
      OR to_regclass('public.agenda_062_unidades_habilitacao_vigente_uk') IS NULL
      OR to_regclass('public.configuracao_agenda_062_codigo_escopo_uk') IS NULL
-     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'configuracao_agenda_codigo_uk') THEN
+     OR EXISTS (SELECT i.indexrelid, ic.relname AS nome, co.conname AS restricao,
+       i.indisvalid, i.indisready, am.amname
+  FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid
+  JOIN pg_am am ON am.oid = ic.relam
+  JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attname = 'codigo' AND NOT a.attisdropped
+  LEFT JOIN pg_constraint co ON co.conindid = i.indexrelid AND co.contype = 'u'
+ WHERE i.indrelid = 'public.configuracao_agenda'::regclass AND i.indisunique
+   AND i.indnkeyatts = 1 AND i.indkey[0] = a.attnum
+   AND i.indpred IS NULL AND i.indexprs IS NULL) THEN
     RAISE EXCEPTION 'postcheck 062: estrutura de escopo ausente ou código de turno ainda único globalmente';
   END IF;
   FOREACH item IN ARRAY ARRAY['fechamentos_062_estabelecimento_fk', 'fechamentos_062_unidade_exige_empresa_check', 'bloqueios_agenda_062_estabelecimento_fk', 'bloqueios_agenda_062_unidade_exige_empresa_check', 'configuracao_agenda_062_estabelecimento_fk', 'configuracao_agenda_062_unidade_exige_empresa_check'] LOOP

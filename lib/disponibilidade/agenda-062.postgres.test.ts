@@ -121,6 +121,14 @@ test("062: agenda por empresa e unidade — compatibilidade por etapa, isolament
       await a.query("ROLLBACK");
     });
 
+    await t.test("062: índice UNIQUE autônomo do staging legado — aplicação e rollback preservam unicidade", async () => {
+      await a.query("ALTER TABLE configuracao_agenda DROP CONSTRAINT configuracao_agenda_codigo_uk; CREATE UNIQUE INDEX uq_configuracao_agenda_codigo ON configuracao_agenda (codigo)");
+      await instalar062(a);
+      assert.equal((await a.query("SELECT to_regclass('public.uq_configuracao_agenda_codigo') IS NULL AS removido")).rows[0].removido, true);
+      await a.query(ler("database/rollback/20261002_062_agenda_empresa_unidade_down.sql"));
+      assert.equal((await a.query("SELECT count(*)::int AS quantidade FROM pg_constraint WHERE conrelid='public.configuracao_agenda'::regclass AND contype='u' AND pg_get_constraintdef(oid)='UNIQUE (codigo)'")).rows[0].quantidade, 1, "rollback restaura a mesma regra como constraint canônica");
+    });
+
     await instalar062(a);
 
     await t.test("[R2] rollback da 061 recusado enquanto a 062 está aplicada (nada é removido)", async () => {

@@ -49,8 +49,25 @@ END $$;
 --    O rollback SUAVE da 062 a preserva com as unidades e donos já gravados e remove só as regras; uma reaplicação
 --    encontra a estrutura completa e recria apenas as regras. Estrutura parcial = instalação divergente (recusa).
 DO $estrutura$
-DECLARE pecas integer;
+DECLARE pecas integer; codigo_global record; codigos_globais integer := 0;
 BEGIN
+  -- A 005 usa constraint; o staging legado usa índice UNIQUE autônomo. A regra é a mesma:
+  -- codigo único globalmente, sem expressão/predicado. Identificar pela estrutura, nunca só pelo nome.
+  FOR codigo_global IN
+-- BEGIN CODIGO GLOBAL QUERY
+SELECT i.indexrelid, ic.relname AS nome, co.conname AS restricao,
+       i.indisvalid, i.indisready, am.amname
+  FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid
+  JOIN pg_am am ON am.oid = ic.relam
+  JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attname = 'codigo' AND NOT a.attisdropped
+  LEFT JOIN pg_constraint co ON co.conindid = i.indexrelid AND co.contype = 'u'
+ WHERE i.indrelid = 'public.configuracao_agenda'::regclass AND i.indisunique
+   AND i.indnkeyatts = 1 AND i.indkey[0] = a.attnum
+   AND i.indpred IS NULL AND i.indexprs IS NULL
+-- END CODIGO GLOBAL QUERY
+  LOOP
+    codigos_globais := codigos_globais + 1;
+  END LOOP;
   SELECT count(*) INTO pecas FROM information_schema.columns WHERE table_schema = 'public' AND (
     (table_name = 'fechamentos' AND column_name = 'estabelecimento_id')
     OR (table_name IN ('bloqueios_agenda', 'configuracao_agenda') AND column_name IN ('empresa_id', 'estabelecimento_id')));
@@ -68,12 +85,18 @@ BEGIN
     + (CASE WHEN to_regclass('public.configuracao_agenda_062_codigo_escopo_uk') IS NULL THEN 0 ELSE 1 END)
     + (CASE WHEN to_regclass('public.fechamentos_062_agenda_idx') IS NULL THEN 0 ELSE 1 END)
     + (CASE WHEN to_regclass('public.bloqueios_agenda_062_escopo_idx') IS NULL THEN 0 ELSE 1 END);
-  IF pecas = 20 AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'configuracao_agenda_codigo_uk') THEN
+  IF pecas = 20 AND codigos_globais = 0 THEN
     PERFORM set_config('kidmais.m062_reaplicacao', 'sim', true);
     RAISE NOTICE '062: estrutura preservada por rollback suave; recriando só as regras.';
     RETURN;
   END IF;
   IF pecas <> 0 THEN RAISE EXCEPTION '062: estrutura parcial (% de 20 peças); instalação divergente.', pecas; END IF;
+  IF codigos_globais <> 1 THEN
+    RAISE EXCEPTION '062: esperada uma regra UNIQUE global de codigo; encontradas %.', codigos_globais;
+  END IF;
+  IF NOT codigo_global.indisvalid OR NOT codigo_global.indisready OR codigo_global.amname <> 'btree' THEN
+    RAISE EXCEPTION '062: unicidade global de codigo inválida ou não suportada.';
+  END IF;
   PERFORM set_config('kidmais.m062_reaplicacao', 'nao', true);
 
   ALTER TABLE public.fechamentos ADD COLUMN estabelecimento_id uuid,
@@ -93,8 +116,12 @@ BEGIN
     ADD COLUMN estabelecimento_id uuid,
     ADD CONSTRAINT configuracao_agenda_062_estabelecimento_fk FOREIGN KEY (empresa_id, estabelecimento_id)
       REFERENCES public.estabelecimentos(empresa_id, id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-    ADD CONSTRAINT configuracao_agenda_062_unidade_exige_empresa_check CHECK (estabelecimento_id IS NULL OR empresa_id IS NOT NULL),
-    DROP CONSTRAINT configuracao_agenda_codigo_uk;
+    ADD CONSTRAINT configuracao_agenda_062_unidade_exige_empresa_check CHECK (estabelecimento_id IS NULL OR empresa_id IS NOT NULL);
+  IF codigo_global.restricao IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE public.configuracao_agenda DROP CONSTRAINT %I', codigo_global.restricao);
+  ELSE
+    EXECUTE format('DROP INDEX public.%I', codigo_global.nome);
+  END IF;
   -- Código único por escopo (global / empresa / unidade); os modelos globais existentes continuam únicos entre si.
   CREATE UNIQUE INDEX configuracao_agenda_062_codigo_escopo_uk ON public.configuracao_agenda
     (coalesce(empresa_id, '00000000-0000-0000-0000-000000000000'::uuid), coalesce(estabelecimento_id, '00000000-0000-0000-0000-000000000000'::uuid), codigo);

@@ -199,7 +199,7 @@ test('ordem única de locks: empresa → unidade → habilitação (→ data →
 });
 
 test('reaplicação depois de rollback suave: estrutura completa (20 peças) é reaproveitada; parcial recusa', () => {
-  assert.match(M062, /IF pecas = 20 AND NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'configuracao_agenda_codigo_uk'\) THEN/);
+  assert.match(M062, /IF pecas = 20 AND codigos_globais = 0 THEN/);
   assert.match(M062, /RAISE EXCEPTION '062: estrutura parcial \(% de 20 peças\); instalação divergente\.'/);
   assert.match(M062, /\+ \(CASE WHEN to_regclass\('public\.agenda_062_fechamentos_resolucao'\) IS NULL THEN 0 ELSE 1 END\)/);
   assert.match(M062, /RAISE EXCEPTION '062 já aplicada\.'/);

@@ -64,13 +64,17 @@ for (const r of RESTRICOES) if (!m062.includes(r)) throw Error('sem restrição 
 
 const divergentes = (lista, fonte) => lista.map(([n, a, f]) => `${hashSql(n, a)} IS DISTINCT FROM '${sha(corpo(fonte ?? f, n))}'`).join('\n     OR ');
 
+// Mesma identificação estrutural usada pela migration; inclui índices UNIQUE autônomos do legado.
+const codigoGlobal = m062.match(/-- BEGIN CODIGO GLOBAL QUERY\n([\s\S]*?)\n-- END CODIGO GLOBAL QUERY/)[1];
+const codigoGlobalExiste = `EXISTS (${codigoGlobal})`;
+
 // Precheck: o mesmo teste do topo da migration, sem escrever, com relatório do que a 062 NÃO faz.
 const precheck = `-- 062 precheck (somente leitura). Gerado offline por scripts/migration-062-manifest.mjs.
 -- Pré-requisitos (061 aplicada), corpos anteriores exatos (019/061) e relatório do que a migration NÃO faz:
 -- nenhuma contratação ou bloqueio existente recebe empresa/unidade (D2/D3 ficam em database/repairs).
 DO $$
 DECLARE
-  sem_unidade integer; bloqueios integer; turnos integer;
+  sem_unidade integer; bloqueios integer; turnos integer; codigos_globais integer;
 BEGIN
   IF to_regclass('public.contrato_importacoes') IS NULL OR to_regprocedure('public.kidmais061_historico_passado(uuid)') IS NULL THEN
     RAISE EXCEPTION '062 precheck: 061 não aplicada.';
@@ -80,6 +84,13 @@ BEGIN
   IF ${divergentes(SUBSTITUIDAS)}
      OR ${divergentes(MANTIDAS)} THEN
     RAISE EXCEPTION '062 precheck: corpos de agenda divergem da 019/061.';
+  END IF;
+  SELECT count(*) INTO codigos_globais FROM (${codigoGlobal}) codigo_global;
+  IF codigos_globais > 1
+     OR (codigos_globais = 0 AND to_regclass('public.configuracao_agenda_062_codigo_escopo_uk') IS NULL)
+     OR EXISTS (SELECT 1 FROM (${codigoGlobal}) codigo_global
+                 WHERE NOT indisvalid OR NOT indisready OR amname <> 'btree') THEN
+    RAISE EXCEPTION '062 precheck: unicidade global de codigo ausente, múltipla ou inválida.';
   END IF;
   SELECT count(*) INTO sem_unidade FROM public.empresas e WHERE e.status = 'ATIVA'
     AND NOT EXISTS (SELECT 1 FROM public.estabelecimentos u WHERE u.empresa_id = e.id AND u.status <> 'DESATIVADO');
@@ -106,7 +117,7 @@ BEGIN
      OR to_regclass('public.agenda_062_unidades_habilitacao') IS NULL
      OR to_regclass('public.agenda_062_unidades_habilitacao_vigente_uk') IS NULL
      OR to_regclass('public.configuracao_agenda_062_codigo_escopo_uk') IS NULL
-     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'configuracao_agenda_codigo_uk') THEN
+     OR ${codigoGlobalExiste} THEN
     RAISE EXCEPTION 'postcheck 062: estrutura de escopo ausente ou código de turno ainda único globalmente';
   END IF;
   FOREACH item IN ARRAY ARRAY[${RESTRICOES.map((r) => `'${r}'`).join(', ')}] LOOP

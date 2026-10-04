@@ -3,7 +3,7 @@
 -- nenhuma contratação ou bloqueio existente recebe empresa/unidade (D2/D3 ficam em database/repairs).
 DO $$
 DECLARE
-  sem_unidade integer; bloqueios integer; turnos integer;
+  sem_unidade integer; bloqueios integer; turnos integer; codigos_globais integer;
 BEGIN
   IF to_regclass('public.contrato_importacoes') IS NULL OR to_regprocedure('public.kidmais061_historico_passado(uuid)') IS NULL THEN
     RAISE EXCEPTION '062 precheck: 061 não aplicada.';
@@ -18,6 +18,29 @@ BEGIN
      OR (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais_ocupacoes_operacionais(date,date)'::regprocedure) IS DISTINCT FROM '3fb0ae66b6e7f9f12f2382d7dc916fa4b485828716350496cc9839fd6c4d98c5'
      OR (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid = 'public.kidmais019_formalizacao(uuid,uuid)'::regprocedure) IS DISTINCT FROM '1b428128346f7158389c6a3495f72e9c92a39930b2cb4afe571b9aec900a91ba' THEN
     RAISE EXCEPTION '062 precheck: corpos de agenda divergem da 019/061.';
+  END IF;
+  SELECT count(*) INTO codigos_globais FROM (SELECT i.indexrelid, ic.relname AS nome, co.conname AS restricao,
+       i.indisvalid, i.indisready, am.amname
+  FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid
+  JOIN pg_am am ON am.oid = ic.relam
+  JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attname = 'codigo' AND NOT a.attisdropped
+  LEFT JOIN pg_constraint co ON co.conindid = i.indexrelid AND co.contype = 'u'
+ WHERE i.indrelid = 'public.configuracao_agenda'::regclass AND i.indisunique
+   AND i.indnkeyatts = 1 AND i.indkey[0] = a.attnum
+   AND i.indpred IS NULL AND i.indexprs IS NULL) codigo_global;
+  IF codigos_globais > 1
+     OR (codigos_globais = 0 AND to_regclass('public.configuracao_agenda_062_codigo_escopo_uk') IS NULL)
+     OR EXISTS (SELECT 1 FROM (SELECT i.indexrelid, ic.relname AS nome, co.conname AS restricao,
+       i.indisvalid, i.indisready, am.amname
+  FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid
+  JOIN pg_am am ON am.oid = ic.relam
+  JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attname = 'codigo' AND NOT a.attisdropped
+  LEFT JOIN pg_constraint co ON co.conindid = i.indexrelid AND co.contype = 'u'
+ WHERE i.indrelid = 'public.configuracao_agenda'::regclass AND i.indisunique
+   AND i.indnkeyatts = 1 AND i.indkey[0] = a.attnum
+   AND i.indpred IS NULL AND i.indexprs IS NULL) codigo_global
+                 WHERE NOT indisvalid OR NOT indisready OR amname <> 'btree') THEN
+    RAISE EXCEPTION '062 precheck: unicidade global de codigo ausente, múltipla ou inválida.';
   END IF;
   SELECT count(*) INTO sem_unidade FROM public.empresas e WHERE e.status = 'ATIVA'
     AND NOT EXISTS (SELECT 1 FROM public.estabelecimentos u WHERE u.empresa_id = e.id AND u.status <> 'DESATIVADO');
