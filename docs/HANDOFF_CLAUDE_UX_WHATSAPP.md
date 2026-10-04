@@ -4,10 +4,14 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 
 ## Candidata local consolidada — 04/10/2026, fim do dia
 
-**HEAD do código:** `ccb8b48c3591b535c069b6e8364cc134d33a5088` na worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`. Os commits de docs que trazem esta seção vêm logo depois.
+**HEAD do código:** `9145e1d9db257b10cff194ac2bf948641c738090` na worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`. Os commits de docs que trazem esta seção vêm logo depois.
 - Remoto `origin/whatsapp/atendimento-ia-v1`: `bdb1e75`.
-- 27 commits locais até `ccb8b48` (conferido com `git rev-list --count`), mais os de docs, **sem push**.
-- `git merge-tree` (leitura, depois de `git fetch`): contra `origin/staging` `904b451` **sem conflito**; contra as candidatas do painel (`origin/feat/painel-desenvolvedor-20261004` `2b6702a` e `codex/painel-multi-20261004` `c0158d4`) conflito **só** nos inventários `check-migrations.mjs` e `production.test.mjs` (união de listas; ver o doc de identificação).
+- 31 commits locais até `9145e1d` (conferido com `git rev-list --count`), mais os de docs, **sem push**.
+- `git merge-tree` (leitura, depois de `git fetch` por volta das 18:47 de 04/10):
+  - contra `origin/staging` `904b451`: **sem conflito**;
+  - contra `codex/painel-multi-20261004` `c0158d4`: conflito **só** nos inventários `check-migrations.mjs` e `production.test.mjs` (união de listas; ver o doc de identificação);
+  - contra `origin/feat/painel-desenvolvedor-20261004`, que **avançou** de `2b6702a` para `660c216` (outra sessão): os mesmos inventários **e** `app/admin/login/page.tsx`. As duas mudanças são independentes: o estado do "Mostrar senha" daqui e o `<AvisoContexto />` do painel; basta manter as duas.
+  - Simulação da mescla numa worktree temporária, já removida: `production.test.mjs` 37/37 e `check-migrations.mjs` ok. Evidência em `.local-ux/coordenacao-painel/simulacao-660c216.txt`.
 
 **O que entrou desde `bdb1e75`:**
 
@@ -19,6 +23,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 | Foco da biblioteca e título sob o menu no celular | `730ba89` | [VALIDACAO_NAVEGADOR_PRONTAS.md](VALIDACAO_NAVEGADOR_PRONTAS.md) |
 | **Nome e número completo** na tela autorizada; migration do nome de perfil (preparada) | `48034b5` | [IDENTIFICACAO_CONTATO_ATENDIMENTO.md](IDENTIFICACAO_CONTATO_ATENDIMENTO.md) |
 | **Numeração coordenada** com o painel: prontas **064**, nome de perfil **065** (063 = painel); recusa obrigatória na suíte 065 | `090e7df`, `ccb8b48` | idem, "Numeração" |
+| Celular: botão "Voltar às conversas" abaixo do menu fixo (título a 120 px até 760px) | `9145e1d` | [VALIDACAO_IDENTIFICACAO.md](VALIDACAO_IDENTIFICACAO.md), "Tratamento das observações" |
 
 **Evidências por HEAD:**
 
@@ -27,10 +32,14 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 | Regressão estática (unitários, harness, lint, TypeScript, build) | `48034b5` | PASS 1919/1919 + 103/103. Log `.local-ux/check-v1-static-identificacao.log` (SHA-256 `f424bb95…e4bea1a`), gerado com a árvore igual a `48034b5`, antes do commit |
 | Regressão estática, idem | **`ccb8b48`** | **PASS** 1919/1919 + 103/103; lint sem erros (1 aviso antigo em `catalogo.ts`). Log `.local-ux/check-v1-static-ccb8b48.log`, que registra HEAD e árvore limpa na 1ª linha |
 | Checagem de produção (`production.test.mjs`) | `ccb8b48` | 37/37 com 064/065; simulação da mescla com o painel: 37/37 |
-| PostgreSQL descartável: 060, 063 (hoje 064), concorrência + suíte completa | `ba6d47c` (código de `1e40264`) | PASS 3/3 e 38/38. **Não refeita** depois da tela (`730ba89`), da identificação (`48034b5`) e da renumeração (`090e7df`) — procedimento em [VALIDACAO_IDENTIFICACAO.md](VALIDACAO_IDENTIFICACAO.md) |
+| PostgreSQL descartável: 060, 063 (hoje 064), concorrência + suíte completa | `ba6d47c` (código de `1e40264`) | PASS 3/3 e 38/38 |
 | Navegador, biblioteca (B1–B10, desktop/celular/teclado) | `930121d` | ok. Ocorrências registradas no doc |
 | Navegador, regressão de foco (F1–F9) | `4b58b08` | ok; zero saídas |
-| Navegador, identificação do contato | — | **não executada** (procedimento preparado) |
+| PostgreSQL descartável: 060, 064, 065, concorrência + suíte completa | `78ed9d8` | **PASS 4/4 e 39/39**, nenhuma pulada; recusas obrigatórias da 065 |
+| Navegador, identificação do contato (I1–I8, desktop/celular/teclado) | `78ed9d8` | ok; zero saídas. 3 observações sem bloqueio, tratadas depois ([VALIDACAO_IDENTIFICACAO.md](VALIDACAO_IDENTIFICACAO.md)) |
+| Regressão estática, idem | **`9145e1d`** | **PASS** 1921/1921 + 103/103; lint sem erros (o mesmo aviso antigo). Log `.local-ux/check-v1-static-9145e1d.log` (SHA-256 `4c8a54ca…c7a9e`), com HEAD e árvore limpa na 1ª linha. A regra nova está no CSS do build |
+| Checagem de produção | `9145e1d` | 37/37; simulação da mescla com o painel `660c216`: 37/37 |
+| Navegador, botão "Voltar" abaixo do menu | — | **não refeita** (exige base sintética nova e autorização); coberta pelo teste estático `layout-celular.test.ts` |
 
 **Lacunas explícitas (nenhuma resolvida por esta candidata):**
 1. **HTTPS visual:** o link individual **preenchido** nunca foi visto na tela. O navegador embutido não abre `https://localhost` com certificado autoassinado. Foi validado só pela rota real em https, com TLS verificado contra o certificado da execução, e pela suíte PostgreSQL (passo 6b).
@@ -40,15 +49,15 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
    - preservação do OTP.
 
    Nenhuma mensagem real foi enviada nem recebida; tudo foi simulado ou sintético. O nome de perfil (`payload.sender.name`) segue a documentação oficial v2, mas não foi visto num evento real.
-3. **Numeração de migrations:** **resolvida localmente** — 063 = painel (publicada), 064/065 = atendimento. Na segunda mescla, seja qual for, ainda é preciso unir as listas dos inventários. Nada foi alterado na branch do painel.
-4. **PostgreSQL** a refazer no HEAD atual (060, 064, 065, concorrência e completa) e **validação no navegador** da identificação: preparadas, dependem de autorização.
+3. **Numeração de migrations:** **resolvida localmente** — 063 = painel (publicada), 064/065 = atendimento. Na segunda mescla, seja qual for, ainda é preciso unir as listas dos inventários e, com o painel em `660c216`, manter as duas mudanças do login. Nada foi alterado na branch do painel.
+4. **Validações em banco:** PostgreSQL e navegador da identificação feitos em `78ed9d8`. Depois disso, só o CSS do botão (`9145e1d`) e os textos das fixtures, fora do Git, mudaram. A conferência visual do botão fica para a próxima rodada autorizada.
 5. **Demo local** parada desde o desligamento do Windows (13:10 de 04/10); não reiniciada.
 
 ## Estado em quatro níveis
 
 | Nível | Estado |
 | --- | --- |
-| Implementado e validado localmente | **Sim, com pendências** (ver "Candidata local consolidada"). PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `bdb1e75`. A candidata local está em `48034b5` (código), 23 commits à frente (24 com o de docs desta seção), **sem push** |
+| Implementado e validado localmente | **Sim, com pendências** (ver "Candidata local consolidada"). PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `bdb1e75`. A candidata local está em `9145e1d` (código), 31 commits à frente (mais o de docs desta seção), **sem push** |
 | Integrado em staging | **Não.** PR aberta, sem merge. Migration 060 não aplicada no banco de staging. Nenhuma variável configurada |
 | Homologado com Gupshup real | **Não.** Bloqueado até comprovar três condições: autenticação do webhook pelo mecanismo do Gupshup (chamado #277630, acesso ao app `KidmaisManager`), receptor exclusivo do número entre ambientes (E0) e preservação do OTP |
 | Ativo em produção | **Estado não verificado; não ativado por esta entrega.** Produção não foi lida nem alterada. Não presumir seu estado; exige etapa e autorização próprias |

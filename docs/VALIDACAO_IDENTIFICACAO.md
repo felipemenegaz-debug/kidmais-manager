@@ -61,7 +61,7 @@ Scripts em `.local-ux/val-prontas/`, fora do Git; os hashes estão em `MANIFESTO
 | 0102 | nenhum | "Perfil enviado antes da 065" (deve ser **ignorado**); depois "Bruna Perfil Nova" (novo), "Bruna Perfil Antiga" (replay antigo, **não** pode vencer) e um evento sem nome (não apaga) |
 | 0103, 0104 | 1 cliente | — |
 | 0105 | **2 clientes** (com e sem 55) | "Perfil do 0105" |
-| 0106 | 1 cliente com **nome longo** (~150 caracteres) | perfil de **80** caracteres, com acento e emoji |
+| 0106 | 1 cliente com **nome longo** (154 caracteres) | perfil de **80** caracteres, com acento e emoji |
 | 0107 | nenhum | nenhum |
 | `…0199` (empresa B) e `…0198` (A em `production`) | B tem cliente | "PERFIL DA OUTRA EMPRESA" e "PERFIL DE OUTRO AMBIENTE" — **nunca** podem aparecer |
 
@@ -80,7 +80,7 @@ Scripts em `.local-ux/val-prontas/`, fora do Git; os hashes estão em `MANIFESTO
 | I7 teclado | lista → conversa | O nome acessível do cartão traz título + número; Enter abre e foca o título longo, com contorno; ordem lógica |
 | I8 atendente | login do atendente | A mesma identificação; ele não vê o cadastro de mensagens prontas |
 
-**Teste offline** (`teste-offline.ps1`): 51/51, incluindo as verificações estáticas da V2b, do preparo, da conferência e do `vp.ps1`.
+**Teste offline** (`teste-offline.ps1`): 51/51 na rodada `78ed9d8` (53/53 depois das correções das fixtures), incluindo as verificações estáticas da V2b, do preparo, da conferência e do `vp.ps1`.
 
 ## Resultado (04/10/2026, HEAD `78ed9d8`)
 
@@ -115,3 +115,14 @@ Os detalhes ficam fora do Git: `.local-ux/val-prontas/estado/resultado-identific
 1. No celular, o menu fixo cobre o início do botão "Voltar às conversas", acima do título.
 2. O texto final de `preparar.mjs` está desatualizado.
 3. O perfil longo de teste ficou com 79 caracteres (o emoji ocupa duas unidades UTF-16).
+
+**Tratamento das observações (local, sem banco; 04/10/2026):**
+1. **Botão sob o menu:** corrigido em `9145e1d`. Até 760px, o título que vem depois do botão para a 120 px (54 do menu + 14 de folga + 44 do botão + 8 de margem). O teste `components/admin/atendimento/layout-celular.test.ts` confere essa conta a partir do CSS do menu e da tela, e falha com o CSS anterior. A regra está no CSS do build. **A conferência visual no navegador não foi refeita**: exige uma base sintética nova e autorização.
+2. **Resumo de `preparar.mjs`:** agora lê as contagens do banco em vez de números fixos. O esperado é:
+   - 7 conversas de A em staging + 2 de isolamento;
+   - 5 contratações, das quais 4 aguardam o cliente.
+
+   Essas consultas ainda não rodaram contra um banco.
+3. **Perfil longo:** cortado com `Array.from`, fica com 80 caracteres. Uma guarda recusa rodar se não der 80.
+
+Hashes novos na seção 6 de `.local-ux/val-prontas/MANIFESTO.txt`, **não autorizados** para execução. Teste offline: 53/53.
