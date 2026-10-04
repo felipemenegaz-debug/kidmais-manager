@@ -124,7 +124,7 @@ test("060: atendimento WhatsApp — isolamento, deduplicação, concorrência, t
     });
 
     // 2. Isolamento entre empresas.
-    await assert.rejects(servico.listarAtendimento(deB), /não comprova a empresa autorizada/, "usuário só de B não acessa o piloto A");
+    await assert.rejects(servico.listarAtendimento(deB), /ATENDIMENTO_SEM_ACESSO/, "usuário só de B não acessa o piloto A");
     await servico.receberEntrada(evento(1, "5561900000001", "Olá"));
     const c1 = await conversa("5561900000001");
     await recusa(c, `INSERT INTO whatsapp_atendimento_mensagens (conversa_id, empresa_id, ambiente, direcao, texto, estado, versao_conversa) VALUES ($1, $2, 'staging', 'SAIDA', 'x', 'PENDENTE', 0)`, [c1.id, B], /foreign key|violates/);

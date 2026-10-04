@@ -185,7 +185,7 @@ test("064: mensagens prontas — aplicação, postcheck, cadastro, favoritas, is
     await assert.rejects(biblioteca.favoritarPronta(atendA, { id: tabela, favorita: true }), /ATENDIMENTO_PRONTA_NAO_ENCONTRADA/, "removida não favorita");
 
     // 5. Isolamento.
-    await assert.rejects(biblioteca.listarProntas(repB), /não comprova a empresa autorizada/, "usuário só de B não acessa a biblioteca do piloto A");
+    await assert.rejects(biblioteca.listarProntas(repB), /ATENDIMENTO_SEM_ACESSO/, "usuário só de B não acessa a biblioteca do piloto A");
     const deB = (await c.query<{ id: string }>(`INSERT INTO whatsapp_atendimento_mensagens_prontas (empresa_id, ambiente, titulo, categoria, tipo, texto, criada_por, atualizada_por) VALUES ($1, 'staging', 'Só de B', 'Teste', 'TEXTO', 'texto de B', $2, $2) RETURNING id`, [B, repB.usuario_id])).rows[0].id;
     const deProducao = (await c.query<{ id: string }>(`INSERT INTO whatsapp_atendimento_mensagens_prontas (empresa_id, ambiente, titulo, categoria, tipo, texto, criada_por, atualizada_por) VALUES ($1, 'production', 'Só de produção', 'Teste', 'TEXTO', 'x', $2, $2) RETURNING id`, [A, repA.usuario_id])).rows[0].id;
     const idsA = (await biblioteca.listarProntas(atendA)).prontas.map((p) => p.id);

@@ -119,9 +119,9 @@ test("065: nome de perfil (não verificado), número completo e cadastro na tela
     // Recusas obrigatórias (fixtures sem catch): o banco só aceita os papéis ADMINISTRATIVO e REPRESENTANTE_AUTORIZADO,
     // ambos com atendimento; quem não vê a tela é quem não comprova a empresa piloto.
     const deB = await f.usuario("ADMINISTRATIVO", B);
-    await assert.rejects(servico.listarAtendimento(deB), /não comprova a empresa autorizada/, "usuário só de B não vê a tela do piloto A");
+    await assert.rejects(servico.listarAtendimento(deB), /ATENDIMENTO_SEM_ACESSO/, "usuário só de B não vê a tela do piloto A");
     const pendenteA = await f.usuario("ADMINISTRATIVO", A, false);
-    await assert.rejects(servico.listarAtendimento(pendenteA), /não comprova a empresa autorizada/, "vínculo de A não ativo não vê a tela");
+    await assert.rejects(servico.listarAtendimento(pendenteA), /ATENDIMENTO_SEM_ACESSO/, "vínculo de A não ativo não vê a tela");
 
     // 6. Rollback.
     await assert.rejects(c.query(DOWN), /Rollback da 065 recusado/); await c.query("ROLLBACK").catch(() => {});

@@ -293,3 +293,22 @@ test('falta de acesso: sem vínculo ativo na piloto (tenant não comprovado) vir
   const papel = carregar({ papel: 'OPERACIONAL' });
   await assert.rejects(papel.modulo.listarAtendimento(sessao), /ATENDIMENTO_ACESSO_NEGADO/);
 });
+
+test('configuração inválida: a recusa de acesso vem antes da validação do conteúdo (empresa ativa, vínculo, papel)', async () => {
+  const invalida = { ativo: false, nome: 'X', perguntas: [] };
+  const casos: [Opcoes, Record<string, unknown>, RegExp][] = [
+    [{ papel: 'REPRESENTANTE_AUTORIZADO' }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: null }, /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/],
+    [{ papel: 'REPRESENTANTE_AUTORIZADO' }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: 'b' }, /ATENDIMENTO_EMPRESA_DIVERGENTE/],
+    [{ tenantRecusado: true }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO' }, /ATENDIMENTO_SEM_ACESSO/],
+    [{ papel: 'ADMINISTRATIVO' }, { usuario_id: 'u', papel: 'ADMINISTRATIVO' }, /ATENDIMENTO_ACESSO_NEGADO/],
+  ];
+  for (const [op, s, motivo] of casos) {
+    const { modulo, sqls } = carregar(op);
+    await assert.rejects(modulo.salvarConfiguracao(s as never, invalida), (e: unknown) => e instanceof Error && motivo.test(e.message) && e.name !== 'ZodError', String(motivo));
+    assert.equal(sqls('whatsapp_atendimento_config').length, 0, `${motivo}: nada gravado`);
+  }
+  // Com acesso comprovado, aí sim o conteúdo inválido é recusado pela validação — e nada é gravado.
+  const { modulo, sqls } = carregar({ papel: 'REPRESENTANTE_AUTORIZADO' });
+  await assert.rejects(modulo.salvarConfiguracao({ usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO' } as never, invalida), (e: unknown) => (e as Error).name === 'ZodError');
+  assert.equal(sqls('whatsapp_atendimento_config').length, 0);
+});

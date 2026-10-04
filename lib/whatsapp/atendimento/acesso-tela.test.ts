@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readdirSync, readFileSync } from 'node:fs';
 import { bloqueioDoCodigo } from './acesso-tela.ts';
 import { respostaDeErroAtendimento } from './erros.ts';
 
@@ -28,4 +29,12 @@ test('a rota responde 403 com código próprio para cada recusa de acesso', () =
     assert.equal(r.corpo.codigo, codigo);
     assert.doesNotMatch(r.corpo.erro, /indisponível/i, codigo);
   }
+});
+
+test('nenhuma suíte PostgreSQL do atendimento espera a mensagem crua do tenant: a recusa chega como ATENDIMENTO_SEM_ACESSO', () => {
+  // Guarda estática (roda no gate sem banco): a rodada PostgreSQL de 2442f37 falhou porque 060/064/065 ainda esperavam o texto antigo.
+  const dir = 'lib/whatsapp/atendimento';
+  const suites = readdirSync(dir).filter((f) => f.endsWith('.postgres.test.ts'));
+  assert.ok(suites.length >= 4, 'suítes PostgreSQL do atendimento encontradas');
+  for (const f of suites) assert.doesNotMatch(readFileSync(`${dir}/${f}`, 'utf8'), /não comprova a empresa autorizada/, f);
 });

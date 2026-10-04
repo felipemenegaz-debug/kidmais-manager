@@ -167,9 +167,10 @@ export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { a
   });
 }
 export async function salvarConfiguracao(sessao: SessaoParaTenant, valor: unknown) {
-  const config = configuracaoSchema.parse(valor);
+  // Acesso antes do conteúdo: empresa ativa, vínculo e papel são conferidos antes de validar a configuração enviada.
   return naEmpresaDoAtendimento(sessao, async (tx, tenant) => {
     if (tenant.papelAtual !== 'REPRESENTANTE_AUTORIZADO') throw new Error('ATENDIMENTO_ACESSO_NEGADO');
+    const config = configuracaoSchema.parse(valor);
     if (config.ativo && !atendimentoAtivo()) throw new Error('ATENDIMENTO_AUTOMACAO_DESLIGADA');
     await tx.query(`INSERT INTO whatsapp_atendimento_config(empresa_id,ambiente,configuracao) VALUES($1,$2,$3::jsonb) ON CONFLICT(empresa_id,ambiente) DO UPDATE SET configuracao=EXCLUDED.configuracao,atualizada_em=clock_timestamp()`, [tenant.empresaComprovada, ambienteAtendimento(), JSON.stringify(config)]);
     await tx.query('INSERT INTO whatsapp_atendimento_auditoria(empresa_id,ambiente,usuario_id,acao) VALUES($1,$2,$3,$4)', [tenant.empresaComprovada, ambienteAtendimento(), sessao.usuario_id, 'CONFIGURACAO_ATUALIZADA']);
