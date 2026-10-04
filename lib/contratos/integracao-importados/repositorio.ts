@@ -15,17 +15,17 @@ export async function integracaoDisponivel(tx: DbExecutor) {
   return r.rows[0]?.ok === true;
 }
 
-export type ImportacaoParaIntegrar = { id: string; clienteId: string; documentoId: string; status: string; snapshot: SnapshotHistorico | null };
+export type ImportacaoParaIntegrar = { id: string; clienteId: string; documentoId: string; status: string; snapshot: SnapshotHistorico | null; recebimentosDocumento?: unknown };
 
 export async function lerImportacao(tx: DbExecutor, empresaId: string, importacaoId: string, travar: boolean): Promise<ImportacaoParaIntegrar | null> {
-  const r = await tx.query<{ id: string; cliente_id: string | null; documento_id: string; status: string; snapshot: SnapshotHistorico | null }>(
-    `SELECT id::text, cliente_id::text, documento_id::text, status, resultado->'contratoHistorico' AS snapshot
+  const r = await tx.query<{ id: string; cliente_id: string | null; documento_id: string; status: string; snapshot: SnapshotHistorico | null; recebimentos_documento: unknown }>(
+    `SELECT id::text, cliente_id::text, documento_id::text, status, resultado->'contratoHistorico' AS snapshot, dados->'extracao'->'recebimentosDocumento' AS recebimentos_documento
        FROM ia_importacoes WHERE id = $1::uuid AND empresa_id = $2::uuid${travar ? ' FOR UPDATE' : ''}`,
     [importacaoId, empresaId],
   );
   const l = r.rows[0];
   if (!l || !l.cliente_id) return null;
-  return { id: l.id, clienteId: l.cliente_id, documentoId: l.documento_id, status: l.status, snapshot: l.snapshot && typeof l.snapshot === 'object' ? l.snapshot : null };
+  return { id: l.id, clienteId: l.cliente_id, documentoId: l.documento_id, status: l.status, recebimentosDocumento: l.recebimentos_documento, snapshot: l.snapshot && typeof l.snapshot === 'object' ? l.snapshot : null };
 }
 
 export async function documentoOriginal(tx: DbExecutor, empresaId: string, documentoId: string) {
@@ -198,7 +198,7 @@ export function contatoComparavel(c: { cpf: string | null; telefone: string | nu
  *   por proximidade.
  */
 export async function possiveisVinculos(tx: DbExecutor, empresaId: string, e: {
-  clienteId: string; data: string; dataDocumento: string | null; aniversariante: string | null; valorCentavos: number; documentoSha256: string;
+  clienteId: string | null; data: string; dataDocumento: string | null; aniversariante: string | null; valorCentavos: number; documentoSha256: string;
   cpf: string | null; telefones: string[];
 }) {
   const dataDocumento = e.dataDocumento && e.dataDocumento !== e.data ? e.dataDocumento : null;

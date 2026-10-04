@@ -1,3 +1,4 @@
+import { leituraRecebimentosGuardada } from '../../importacao-contrato/recebimentos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
 import type { TenantComprovado } from '../../saas/provar-tenant.ts';
@@ -115,6 +116,13 @@ export function instanteDoRecebimento(data: string, agora = new Date()) {
 
 type Preparo = Awaited<ReturnType<typeof preparar>>;
 
+/** Fonte interna para o preview anterior ao cadastro. Nunca é aceita de um corpo HTTP. */
+export type FonteIntegracaoRascunho = {
+  importacao: repo.ImportacaoParaIntegrar & { snapshot: NonNullable<repo.ImportacaoParaIntegrar['snapshot']> };
+  cliente: repo.ClienteIntegracao;
+  clienteNovo: boolean;
+};
+
 /** Critério da busca de possíveis duplicados: o mesmo na simulação e na reconsulta depois do lock. */
 function criterioDuplicidade(e: { cliente: repo.ClienteIntegracao; documento: { sha256: string }; decisoes: DecisoesIntegracao; nomeAniversariante: string | null;
   snapshot: { evento?: { data?: string | null } | null }; valorCentavos: number }) {
@@ -131,10 +139,10 @@ function mensagemDuplicidade(vinculos: Array<{ alcance: repo.AlcanceDuplicidade 
   return `Há ${quantas} nesta empresa ${outraData ? 'neste dia ou em data próxima (a data do documento pode ter sido lida ou corrigida de outro jeito)' : 'neste dia'}. Confira se é o mesmo contrato; se for outro, confirme "É outro contrato" e explique o motivo.`;
 }
 
-async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: string, decisoes: DecisoesIntegracao, hoje: string, travar: boolean) {
+async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: string, decisoes: DecisoesIntegracao, hoje: string, travar: boolean, fonte?: FonteIntegracaoRascunho) {
   const empresaId = tenant.empresaComprovada;
-  const importacao = await importacaoConfirmada(tx, empresaId, importacaoId, travar);
-  const cliente = await repo.clienteDaEmpresa(tx, empresaId, importacao.clienteId, travar);
+  const importacao = fonte?.importacao ?? await importacaoConfirmada(tx, empresaId, importacaoId, travar);
+  const cliente = fonte?.cliente ?? await repo.clienteDaEmpresa(tx, empresaId, importacao.clienteId, travar);
   if (!cliente) throw new IntegracaoImportadoError('IMPORTACAO_NAO_ENCONTRADA', 'Contrato importado não encontrado.', 404);
   const documento = await repo.documentoOriginal(tx, empresaId, importacao.documentoId);
   if (!documento) throw new IntegracaoImportadoError('DOCUMENTO_ORIGINAL_AUSENTE', 'O documento original desta importação não foi encontrado. Ele é obrigatório para a conferência.', 409);
@@ -150,7 +158,7 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   // Aniversariante do documento: vinculado ao cadastro do cliente (mesmo nome) ou criado nele. As revisões nativas
   // do contrato reconstroem o snapshot a partir do fechamento e exigem aniversariante vinculado.
   const nomeAniversariante = importacao.snapshot.evento?.aniversariante?.trim() || null;
-  const aniversarianteExistente = nomeAniversariante && nomeAniversariante.length >= 2 ? await repo.aniversarianteDoCliente(tx, cliente.id, nomeAniversariante) : null;
+  const aniversarianteExistente = !fonte?.clienteNovo && nomeAniversariante && nomeAniversariante.length >= 2 ? await repo.aniversarianteDoCliente(tx, cliente.id, nomeAniversariante) : null;
   avaliacao.resumo.festa.aniversarianteCadastro = !nomeAniversariante || nomeAniversariante.length < 2 ? null : aniversarianteExistente ? 'EXISTENTE' : 'NOVO';
   const recusaPlano = recusaDoPlanoNativo(decisoes.financeiro, avaliacao.resumo.financeiro.contratadoCentavos, decisoes.evento.data);
   if (recusaPlano) avaliacao.bloqueios.push(recusaPlano);
@@ -158,7 +166,9 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   // Possível duplicidade (reescaneamento, outro cliente cadastrado para a mesma festa, data lida ou corrigida de forma
   // divergente): nunca unida nem recusada sozinha; exige decisão auditada do operador ("É outro contrato" + motivo).
   const criterio = criterioDuplicidade({ cliente, documento, decisoes, nomeAniversariante, snapshot: importacao.snapshot, valorCentavos: avaliacao.resumo.contrato.valorContratadoCentavos });
-  const vinculos = await repo.possiveisVinculos(tx, empresaId, criterio);
+  // Cliente ainda não criado não pode coincidir por um UUID virtual. Contatos e demais sinais continuam valendo.
+  const criterioEfetivo = fonte?.clienteNovo ? { ...criterio, clienteId: null } : criterio;
+  const vinculos = await repo.possiveisVinculos(tx, empresaId, criterioEfetivo);
   if (vinculos.length && !(decisoes.outroContratoConfirmado && decisoes.motivoOutroContrato.length >= 5)) {
     avaliacao.bloqueios.push(mensagemDuplicidade(vinculos));
   }
@@ -196,7 +206,7 @@ export async function opcoesIntegracao(tx: DbExecutor, tenant: TenantComprovado,
       aniversariante: importacao.snapshot.evento?.aniversariante ?? null,
       tema: importacao.snapshot.evento?.tema ?? null,
     },
-    sugestao: sugestaoInicial(importacao.snapshot),
+    sugestao: { ...sugestaoInicial(importacao.snapshot), recebimentosDocumento: leituraRecebimentosGuardada(importacao.recebimentosDocumento) },
     estabelecimentos: disponivel ? await repo.estabelecimentosAtivos(tx, empresaId) : [],
     pacotes: disponivel ? await repo.pacotesDaEmpresa(tx, empresaId) : [],
     formas: FORMAS,
@@ -204,13 +214,13 @@ export async function opcoesIntegracao(tx: DbExecutor, tenant: TenantComprovado,
   };
 }
 
-export async function simularIntegracao(tx: DbExecutor, tenant: TenantComprovado, importacaoId: string, bruto: unknown, hoje: string) {
+export async function simularIntegracao(tx: DbExecutor, tenant: TenantComprovado, importacaoId: string, bruto: unknown, hoje: string, fonte?: FonteIntegracaoRascunho) {
   exigirPapel(tenant);
   await exigirDisponivel(tx);
   const decisoes = decisoesSchema.parse(bruto);
   const vinculo = await repo.vinculoDaImportacao(tx, tenant.empresaComprovada, importacaoId);
   if (vinculo) return { integrada: true as const, contratoId: vinculo.contratoId };
-  const p = await preparar(tx, tenant, importacaoId, decisoes, hoje, false);
+  const p = await preparar(tx, tenant, importacaoId, decisoes, hoje, false, fonte);
   const motivoConflito = await conflito(tx, p, decisoes);
   if (motivoConflito) p.avaliacao.bloqueios.push(motivoConflito);
   if (!decisoes.conferenciaDeclarada) p.avaliacao.avisos.push('Para confirmar, declare a conferência do documento original.');
@@ -222,6 +232,20 @@ export async function simularIntegracao(tx: DbExecutor, tenant: TenantComprovado
     resumo: p.avaliacao.resumo,
     resumoHash: hashDaRevisao(importacaoId, decisoes, p.avaliacao.resumo, p.vinculos),
     possiveisVinculos: p.vinculos,
+  };
+}
+
+export async function opcoesIntegracaoRascunho(tx: DbExecutor, tenant: TenantComprovado, fonte: FonteIntegracaoRascunho, hoje: string) {
+  exigirPapel(tenant);
+  await exigirDisponivel(tx);
+  const empresaId = tenant.empresaComprovada, snapshot = fonte.importacao.snapshot;
+  return {
+    disponivel: true, hoje, integracao: null,
+    cliente: { id: fonte.clienteNovo ? null : fonte.cliente.id, nome: fonte.cliente.nomeCompleto, ativo: fonte.cliente.status === 'ATIVO' },
+    documento: { pacote: snapshot.pacote?.nome ?? null, aniversariante: snapshot.evento?.aniversariante ?? null, tema: snapshot.evento?.tema ?? null },
+    sugestao: { ...sugestaoInicial(snapshot), recebimentosDocumento: leituraRecebimentosGuardada(fonte.importacao.recebimentosDocumento) },
+    estabelecimentos: await repo.estabelecimentosAtivos(tx, empresaId), pacotes: await repo.pacotesDaEmpresa(tx, empresaId),
+    formas: FORMAS, declaracao: DECLARACAO_CONFERENCIA,
   };
 }
 

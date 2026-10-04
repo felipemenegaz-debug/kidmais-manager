@@ -128,8 +128,8 @@ export async function representante(db: Client, c: { empresa: string }) {
 export type Evento = { data: string; inicio: string; fim: string };
 
 /** Importação CONFIRMADA (IMPORTADA) com original real e o snapshot como o motor grava. */
-export async function importacao(db: Client, c: Cenario, evento: Evento) {
-  const cliente = await id(db, `INSERT INTO clientes (nome_completo, empresa_id, telefone) VALUES ('Cliente 061', $1::uuid, '11999990000') RETURNING id`, [c.empresa]);
+export async function importacao(db: Client, c: Cenario, evento: Evento, apenasRascunho = false) {
+  const cliente = apenasRascunho ? randomUUID() : await id(db, `INSERT INTO clientes (nome_completo, empresa_id, telefone) VALUES ('Cliente 061', $1::uuid, '11999990000') RETURNING id`, [c.empresa]);
   const documento = await id(db, `INSERT INTO ia_documentos (empresa_id, tipo, status, enviado_por) VALUES ($1::uuid, 'CONTRATO_HISTORICO', 'RECEBIDO', $2::uuid) RETURNING id`, [c.empresa, c.usuario]);
   const pdf = Buffer.from(`%PDF-1.4\n% contrato em papel ${randomUUID()}\n%%EOF\n`);
   const sha = createHash("sha256").update(pdf).digest("hex");
@@ -144,12 +144,12 @@ export async function importacao(db: Client, c: Cenario, evento: Evento) {
     pacote: { nome: "Festa de 2019", duracaoMinutos: 240, quantidade: 50, itens: "Buffet completo" },
     buffet: { itens: null, observacoes: null, restricoes: null },
     valores: { preco: 500000, adicionais: 0, total: 500000 },
-    pagamentosPrevistos: { condicao: "30% de entrada", entrada: { valor: 150000, vencimento: dia(-60) }, parcelas: [{ numero: 1, valor: 350000, vencimento: dia(30) }], natureza: "PREVISTO" },
+    pagamentosPrevistos: { condicao: "30% de entrada", entrada: { valor: 150000, vencimento: dia(-60) }, parcelas: [{ numero: 1, valor: 350000, vencimento: dia(30) }], natureza: "PREVISTO" as const },
     observacoes: null,
   };
-  await db.query(`UPDATE ia_importacoes SET status = 'IMPORTADA', versao = 2, cliente_id = $2::uuid, resultado = $3::jsonb WHERE id = $1::uuid`,
+  if (!apenasRascunho) await db.query(`UPDATE ia_importacoes SET status = 'IMPORTADA', versao = 2, cliente_id = $2::uuid, resultado = $3::jsonb WHERE id = $1::uuid`,
     [imp, cliente, JSON.stringify({ clienteId: cliente, clienteAcao: "CRIAR", contratoHistorico: snapshot, pendencias: [], importadoEm: new Date().toISOString(), importadoPor: c.usuario })]);
-  return { id: imp, cliente, sha };
+  return { id: imp, cliente, sha, documento, extracao, snapshot };
 }
 
 /**

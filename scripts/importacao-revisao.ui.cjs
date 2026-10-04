@@ -118,6 +118,8 @@ async function main() {
   let importacao = null;
   let statusAbertura = 'EM_REVISAO';
   let integrado = false;
+  let fluxoUnico = false;
+  const gateUnico = { operacaoId: '00000000-0000-4000-8000-0000000000ab', versao: 1, payloadHash: 'e'.repeat(64), campos: [], avisos: [] };
   const dialogos = [];                                                             // mensagens de window.confirm
   let respostaConfirm = false;
   const continuar = process.env.UI_CONTINUAR_APOS_FALHA === '1';                  // só para controle negativo
@@ -165,6 +167,11 @@ async function main() {
           }
           return json(400, { ok: false, erro: 'Ação não simulada.' });
         }
+        if (url.pathname === '/api/admin/inteligencia/operacoes' && fluxoUnico) {
+          const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo });
+          assert.equal(corpo.decisao, 'confirmar'); integrado = true;
+          return ok({ tipo: 'resultado_acao', rascunho: { ...gateUnico, versao: 2 }, mensagem: 'Concluído', destino: '/admin/contratos?contratoId=' + CONTRATO });
+        }
         if (url.pathname === '/api/admin/inteligencia/documentos' && p.request.method === 'POST') { posts.push({ url: url.pathname, corpo: 'multipart' }); return ok({ documentoId: DOCUMENTO, avisos: [] }); }
         if (url.pathname === '/api/admin/inteligencia/importacoes' && p.request.method === 'POST') {
           const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo });
@@ -177,6 +184,19 @@ async function main() {
           if (corpo.acao === 'ler' && corpo.importacaoId === IMPORTACAO) return ok({ importacao, plano: null });
           if (importacao?.status !== 'EM_REVISAO') return json(409, { ok: false, codigo: 'IMPORTACAO_ENCERRADA', erro: 'Esta importação já foi encerrada.' });
           if (corpo.importacaoId !== IMPORTACAO || corpo.versao !== importacao?.versao) return json(409, { ok: false, codigo: 'IMPORTACAO_DESATUALIZADA', erro: 'A revisão mudou em outra aba. Atualize a página.' });
+          if (fluxoUnico && corpo.acao === 'opcoes-completas') {
+            const o = opcoesIntegracao(false); o.cliente.id = null; o.sugestao.parcelasPrevistas = [];
+            o.sugestao.recebimentosDocumento = { pendencias: [], recebimentos: [
+              { valorCentavos:250000,data:'2026-08-10',forma:'PIX',pagina:1,trecho:'Recebido R$ 2.500,00 em 10/08/2026 via PIX' },
+              { valorCentavos:250000,data:'2026-09-10',forma:'PIX',pagina:1,trecho:'Recebido R$ 2.500,00 em 10/09/2026 via PIX' },
+            ] }; return ok({ opcoes:o });
+          }
+          if (fluxoUnico && corpo.acao === 'simular-completa') return ok({ simulacao: { integrada:false,pronto:true,bloqueios:[],avisos:[],resumo:resumoDoServidor(corpo.integracao),resumoHash:'b'.repeat(64),planoHash:'d'.repeat(64),possiveisVinculos:[] } });
+          if (fluxoUnico && corpo.acao === 'preparar') {
+            assert.equal(corpo.integracaoHash,'b'.repeat(64)); assert.equal(corpo.planoHash,'d'.repeat(64));
+            assert.equal(corpo.integracao.financeiro.situacao,'PAGO');
+            return ok({gate:{tipo:'preview',rascunho:gateUnico}});
+          }
           if (corpo.acao === 'revisar') {
             const campos = importacao.extracao.secoes.flatMap((s) => s.campos);
             const campo = campos.find((c) => c.id === corpo.campoId);
@@ -197,7 +217,7 @@ async function main() {
     });
     await cliente.enviar('Fetch.enable', { patterns: [{ urlPattern: '*/api/*', requestStage: 'Request' }] });
     await cliente.enviar('Runtime.enable'); await cliente.enviar('Page.enable'); await cliente.enviar('DOM.enable');
-    const avaliar = async (expr) => { const r = await cliente.enviar('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.text); return r.result.value; };
+    const avaliar = async (expr) => { const r = await cliente.enviar('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text); return r.result.value; };
     const aguardar = async (expr, descricao, ms = 120000) => { const fim = Date.now() + ms; while (Date.now() < fim) { if (await avaliar(expr).catch(() => false)) return; await esperar(100); }
       // Diagnóstico do tempo esgotado: texto da página (só dados sintéticos das APIs simuladas) em arquivo local.
       fs.writeFileSync(`${out}/ultimo-timeout.txt`, `${descricao}\n${await avaliar('document.body.innerText').catch(() => '')}`);
@@ -443,7 +463,7 @@ async function main() {
       await aguardar(`!(${botao("Confirmar integração")})?.disabled`, 'declaração e senha liberam a confirmação');
       await fotografar('integracao-revisao-final');
       await clicar('Confirmar integração');
-      await aguardar(texto('Contrato integrado ao sistema'), 'sucesso só depois da resposta');
+      await aguardar(texto('Contrato histórico — assinado em papel'), 'contrato do Core só depois da resposta');
       const ordem = posts.slice(m).filter((x) => x.url === '/api/admin/autenticacao' || (x.url.endsWith('/integracao') && x.corpo.acao === 'confirmar'));
       assert.deepEqual(ordem.map((x) => x.corpo.acao), ['reautenticar', 'confirmar'], 'reautentica antes de confirmar');
       assert.equal(ordem[0].corpo.senhaInformada, true);
@@ -465,6 +485,30 @@ async function main() {
       delete contratoImportado.podeIntegrar;
     });
 
+    await caso('Importação nova: pagamentos completos, uma confirmação final e navegação ao contrato Core', async () => {
+      fluxoUnico=true; integrado=false; statusAbertura='EM_REVISAO'; plano.pronto=true; plano.bloqueios=[];
+      await ir('/admin/contratos/importar'); await aguardar(texto('Arraste o contrato para cá'),'envio único');
+      await enviarArquivo(); await aguardar(texto('Pessoa Exemplo'),'revisão do cliente');
+      const inicio=posts.length; await clicar('Continuar para festa e pagamentos');
+      await aguardar("[...document.querySelectorAll('label')].some(l=>l.textContent.includes('Vigente'))",'festa carregada antes do cadastro');
+      assert(!posts.slice(inicio).some(p=>p.corpo.acao==='preparar'||p.corpo.decisao==='confirmar'),'nenhuma confirmação antecipada');
+      await avaliar(`[...document.querySelectorAll('label')].find(l=>l.textContent.includes('Vigente')).querySelector('input').click()`);
+      await aguardar("[...document.querySelectorAll('select')].some(s=>[...s.options].some(o=>o.text==='Festa Completa'))",'referência operacional visível');
+      await avaliar(`(() => { const s=[...document.querySelectorAll('select')].find(x=>[...x.options].some(o=>o.text==='Festa Completa')); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,'00000000-0000-4000-8000-0000000000b1'); s.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+      await clicar('Revisar e concluir'); await aguardar(texto('Revisão final'),'resumo completo');
+      await aguardar(texto('Parcela 1: R$ 2.500,00 em 10/08/2026 · Pix'),'primeiro PIX');
+      await aguardar(texto('Parcela 2: R$ 2.500,00 em 10/09/2026 · Pix'),'segundo PIX');
+      await avaliar(`[...document.querySelectorAll('label')].find(l=>l.textContent.includes('Conferi o documento original')).querySelector('input').click()`);
+      await aguardar("!!document.querySelector('input[aria-label=\"Senha para confirmar\"]')","revisão recalculada após declaração");
+      await digitar('input[aria-label="Senha para confirmar"]','senha-sintetica');
+      await aguardar(`!(${botao('Confirmar integração')})?.disabled`,'declaração e senha');
+      await fotografar('importacao-confirmacao-unica');
+      await clicar('Confirmar integração');
+      await aguardar(`location.search.includes('contratoId=' + ${JSON.stringify(CONTRATO)})`,'destino do Core');
+      assert.deepEqual(posts.slice(inicio).filter(p=>p.url==='/api/admin/autenticacao'||p.corpo.acao==='preparar'||p.corpo.decisao).map(p=>p.corpo.acao??p.corpo.decisao),['reautenticar','preparar','confirmar']);
+      fluxoUnico=false; plano.pronto=false; plano.bloqueios=['Confirme a data do evento.'];
+    });
+
     assert.deepEqual(falhas, [], `cenários com falha: ${falhas.join(' | ')}`);
     assert.deepEqual(erros, [], `erros de página: ${erros.join(' | ')}`);
     console.log(`PASS ${resultados.length} cenários; chamadas não simuladas: ${JSON.stringify([...new Set(inesperados)])}`);
@@ -475,4 +519,4 @@ async function main() {
     try { fs.rmSync(perfil, { recursive: true, force: true }); } catch { /* em uso */ }
   }
 }
-main().catch((e) => { console.error(`FAIL ${e.message}`); process.exit(1); });
+main().catch((e) => { console.error(`FAIL ${e.stack ?? e.message}`); process.exit(1); });

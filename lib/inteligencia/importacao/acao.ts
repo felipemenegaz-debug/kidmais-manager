@@ -1,3 +1,7 @@
+import { decisoesSchema, type DecisoesIntegracao, type ResumoIntegracao } from "../../contratos/integracao-importados/modelo.ts";
+import type { TenantComprovado } from "../../saas/provar-tenant.ts";
+import type { ContextoAcao } from "../acoes/tipos.ts";
+import { linhasDaConclusao } from "./conclusao.ts";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { DbExecutor } from "../../db/contracts.ts";
@@ -50,6 +54,9 @@ const payloadSchema = z.object({
   decisaoCliente: decisaoSchema,
   planoHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   resumo: resumoSchema.optional(),
+  integracao: decisoesSchema.optional(),
+  integracaoHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  conclusao: z.array(z.object({ id: z.string(), rotulo: z.string(), valor: z.string().nullable() }).strict()).max(120).optional(),
 }).strict();
 type Payload = z.infer<typeof payloadSchema>;
 
@@ -58,6 +65,11 @@ type Payload = z.infer<typeof payloadSchema>;
  * leitura da extração registrada pela feature DOCUMENT, análise de duplicidade do CRM e Import Engine.
  */
 export type PortaImportacao = {
+  completa?: {
+    opcoes(tx: DbExecutor, tenant: TenantComprovado, i: ImportacaoLida, p: PlanoImportacao): Promise<unknown>;
+    simular(tx: DbExecutor, tenant: TenantComprovado, i: ImportacaoLida, p: PlanoImportacao, d: DecisoesIntegracao): Promise<{ integrada: false; pronto: boolean; bloqueios: string[]; avisos: string[]; resumo: ResumoIntegracao; resumoHash: string }>;
+    confirmar(tx: DbExecutor, tenant: TenantComprovado, i: ImportacaoLida, d: DecisoesIntegracao, hash: string, ctx: ContextoAcao): Promise<{ contratoId: string; destino?: string }>;
+  };
   disponivel(tx: DbExecutor): Promise<boolean>;
   ultimaExtracao(tx: DbExecutor, empresaId: string, documentoId: string): Promise<ExtracaoRegistrada | null>;
   abrirImportacao(tx: DbExecutor, e: { empresaId: string; documentoId: string; extracaoId: string; usuarioId: string; dados: Record<string, unknown> }): Promise<ImportacaoLida>;
@@ -144,9 +156,21 @@ export function criarAcaoImportacao(porta: PortaImportacao): FerramentaAcao {
       return lido.data;
     },
     async verificar(tx, tenant, payload) {
-      const { dados, plano } = await planoAtual(tx, tenant.empresaComprovada, porta, payload);
+      const { importacao, dados, plano } = await planoAtual(tx, tenant.empresaComprovada, porta, payload);
       const campos = dados.extracao.secoes.flatMap((s) => s.campos);
-      return { payload: { importacaoId: payload.importacaoId, versaoImportacao: payload.versaoImportacao, decisaoCliente: payload.decisaoCliente, planoHash: hashPlano(plano), resumo: resumoDoPlano(plano, campos) }, avisos: plano.avisos };
+      let completa: Pick<Payload, 'integracao' | 'integracaoHash' | 'conclusao'> = {};
+      let avisos = plano.avisos;
+      if (payload.integracao) {
+        if (!porta.completa) throw new InteligenciaError('INTEGRACAO_INDISPONIVEL', 'A conclusão completa ainda não está disponível.', 503);
+        if (!payload.integracao.conferenciaDeclarada) throw new InteligenciaError('CONFERENCIA_NECESSARIA', 'Declare a conferência do documento antes de preparar a revisão final.', 422);
+        if (payload.planoHash && payload.planoHash !== hashPlano(plano)) throw new InteligenciaError('RESUMO_DESATUALIZADO', 'O cliente ou o contrato mudou. Confira novamente.', 409);
+        const sim = await porta.completa.simular(tx, tenant, importacao, plano, payload.integracao);
+        if (payload.integracaoHash && payload.integracaoHash !== sim.resumoHash) throw new InteligenciaError('RESUMO_DESATUALIZADO', 'A integração mudou. Confira novamente.', 409);
+        if (!sim.pronto) throw new InteligenciaError('INTEGRACAO_BLOQUEADA', sim.bloqueios.join(' '), 409);
+        completa = { integracao: payload.integracao, integracaoHash: sim.resumoHash, conclusao: linhasDaConclusao(sim.resumo) };
+        avisos = [...avisos, ...sim.avisos];
+      }
+      return { payload: { ...completa, importacaoId: payload.importacaoId, versaoImportacao: payload.versaoImportacao, decisaoCliente: payload.decisaoCliente, planoHash: hashPlano(plano), resumo: resumoDoPlano(plano, campos) }, avisos };
     },
     apresentar(p) {
       const r = p.resumo as z.infer<typeof resumoSchema> | undefined;
@@ -161,13 +185,20 @@ export function criarAcaoImportacao(porta: PortaImportacao): FerramentaAcao {
         linha("itens", "Itens", r.itens),
         linha("naoEncontrados", "Campos não encontrados", String(r.naoEncontrados)),
         linha("evidencias", "Evidências conferidas no documento", String(r.evidencias)),
-        linha("proximo", "Próximas etapas", "Este passo registra o contrato como está no documento e o cliente. Festa, agenda e pagamentos recebidos são confirmados em seguida, na integração ao sistema."),
+        ...(p.integracao && Array.isArray(p.conclusao) ? (p.conclusao as NonNullable<Payload['conclusao']>).map(c => linha(c.id, c.rotulo, c.valor)) : []),
+        linha("proximo", p.integracao ? "Ao confirmar" : "Próximas etapas", p.integracao ? "Cliente, contrato, festa, agenda e financeiro serão concluídos juntos. Em caso de falha, nenhum cadastro de negócio será gravado." : "Este passo registra o contrato como está no documento e o cliente. Festa, agenda e pagamentos recebidos são confirmados em seguida, na integração ao sistema."),
       ];
     },
     async executar(tx, tenant, payload, contexto) {
       const { importacao, plano } = await planoAtual(tx, tenant.empresaComprovada, porta, payload);
       if (hashPlano(plano) !== payload.planoHash) throw new InteligenciaError("CONFIRMACAO_DESATUALIZADA", "O plano mudou depois do preview. Confira de novo.", 409);
+      // O Human Gate já revalidou o payload completo. Cliente e Core compartilham esta transação.
+      if (payload.integracao && (!porta.completa || !payload.integracaoHash)) throw new InteligenciaError('INTEGRACAO_INDISPONIVEL', 'Prepare novamente a revisão completa.', 409);
       const resultado = await porta.executar(tx, { empresaId: tenant.empresaComprovada, usuarioId: contexto.usuarioId, requestId: contexto.operacaoId, importacao, plano, agora: new Date().toISOString() });
+      if (payload.integracao) {
+        const integrado = await porta.completa!.confirmar(tx, tenant, importacao, payload.integracao, payload.integracaoHash!, contexto);
+        return { entidadeId: integrado.contratoId, mensagem: 'Importação concluída: cliente, contrato, festa, agenda e financeiro integrados.', destino: integrado.destino };
+      }
       return {
         entidadeId: resultado.clienteId,
         mensagem: `Dados do contrato registrados${resultado.clienteAcao === "CRIAR" ? " e cliente criado" : " no cliente existente"}. Falta integrar festa, agenda e pagamentos.`,

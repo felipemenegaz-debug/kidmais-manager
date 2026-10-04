@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { lerRecebimentos } from "./recebimentos.ts";
 import { localizarEvidencia, type CampoLido, type ExtracaoLida, type Localizacao } from "./extracao.ts";
 import type { ArquivoSelecionado, CampoExtraido, EstadoValidacao, ExtracaoContrato, IdSecao, SecaoRevisao } from "./modelo.ts";
 import {
@@ -218,7 +219,15 @@ export function montarRevisao(lida: ExtracaoLida, paginas: readonly string[], ar
       ] : []),
     ],
   }));
-  const base: ExtracaoContrato = { fonte: "DOCUMENTO", arquivo, secoes };
+  const recebimentosDocumento = lerRecebimentos(paginas);
+  const realizados = secoes.find(s => s.id === "pagamentos")!.campos.find(c => c.id === "pagamentos.realizados")!;
+  if (recebimentosDocumento.recebimentos.length) {
+    realizados.valor = recebimentosDocumento.recebimentos.map(r => `${reais(r.valorCentavos)} em ${dataBr(r.data)} por ${r.forma} (página ${r.pagina})`).join("; ");
+    realizados.estado = "ENCONTRADO";
+    realizados.motivo = "Recebimentos explícitos no documento. Confira na revisão final; nada foi lançado no Financeiro.";
+  }
+  if (recebimentosDocumento.pendencias.length) realizados.motivo = recebimentosDocumento.pendencias.join(" ");
+  const base: ExtracaoContrato = { fonte: "DOCUMENTO", arquivo, secoes, recebimentosDocumento };
   return comCampos(base, reavaliar(secoes.flatMap((s) => s.campos)).campos);
 }
 
