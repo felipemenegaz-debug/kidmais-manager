@@ -103,6 +103,15 @@ export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { a
     if (Number(conversa.versao) !== pedido.versao) throw new Error('ATENDIMENTO_DESATUALIZADO');
     if (conversa.nao_contatar && pedido.acao !== 'encerrar') throw new Error('ATENDIMENTO_CONTATO_BLOQUEADO');
     if ((await tx.query("SELECT id FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND estado='ENVIANDO'", [conversa.id])).rows.length) throw new Error('ATENDIMENTO_ENVIO_EM_ANDAMENTO');
+    let canceladas = 0;
+    if (pedido.acao === 'encerrar') {
+      // Na MESMA transação do encerramento, sob a trava da conversa: entradas ainda sem resposta e saídas na fila
+      // (automáticas ou do atendente) viram CANCELADA; o histórico fica. ENVIANDO já recusou acima (não há cancelamento
+      // de envio iniciado). SKIP LOCKED evita espera cruzada com o worker, que trava a mensagem antes da conversa: a
+      // linha que ele segura é pulada aqui e cancelada por ele mesmo, ao revalidar sob a trava e ver ENCERRADA.
+      canceladas = (await tx.query(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id IN (
+        SELECT id FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado IN ('PENDENTE','PROCESSANDO') FOR UPDATE SKIP LOCKED) RETURNING id`, [conversa.id, empresa, ambiente])).rows.length;
+    }
     if (pedido.acao === 'enviar') {
       if (!atendimentoAtivo() || !(await configuracao(tx,empresa))?.ativo) throw new Error('ATENDIMENTO_AUTOMACAO_DESLIGADA');
       if (!pedido.texto || conversa.estado !== 'HUMANO' || conversa.responsavel_id !== sessao.usuario_id) throw new Error('ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR');
@@ -113,6 +122,7 @@ export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { a
     if (pedido.acao === 'retomar' && (!atendimentoAtivo() || !(await configuracao(tx, empresa))?.ativo)) throw new Error('ATENDIMENTO_AUTOMACAO_DESLIGADA');
     await tx.query('UPDATE whatsapp_atendimento_conversas SET estado=$2,responsavel_id=$3,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1', [conversa.id, estado, estado === 'HUMANO' ? sessao.usuario_id : null]);
     await tx.query('INSERT INTO whatsapp_atendimento_auditoria(empresa_id,ambiente,usuario_id,acao,conversa_id) VALUES($1,$2,$3,$4,$5)', [empresa, ambiente, sessao.usuario_id, pedido.acao, conversa.id]);
+    return { canceladas };
   });
 }
 export async function salvarConfiguracao(sessao: SessaoParaTenant, valor: unknown) {
