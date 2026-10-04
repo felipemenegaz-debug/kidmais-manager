@@ -31,7 +31,7 @@ Pedido do Felipe: preparar o módulo sem depender do Gupshup. Não autorizou mer
   - Não há colisão de número: staging não tem 060.
   - Os modelos PostgreSQL `061`/`062` passam a incluir a 060, com tabelas independentes.
   - A suíte da 060 continua no estado `atual`.
-- **Tela (lacunas comprovadas na revisão de fila humana, pendentes, incertos e motivos):**
+- **Tela (lacunas comprovadas na revisão de fila humana, pendentes, incertos e motivos):** as contagens dizem que valem para as conversas carregadas (até as 100 atualizadas mais recentemente).
   - **Fila humana:** contagem "N conversas aguardando atendente" na lista e contagem em cada coluna do quadro.
   - **Saídas que não chegaram:** a explicação aparece abaixo da mensagem, para os estados Na fila, Não enviada e Entrega não confirmada.
     - Na fila: prazo de 15 min.
@@ -147,8 +147,8 @@ O OTP usa o endpoint de template e não passa pelo transporte do atendimento. O 
 | P0 | Antes da homologação real, comprovar as três condições: autenticação Gupshup, receptor exclusivo (E0) e OTP preservado. O webhook continua 204 para os status de OTP, e o OTP de login segue funcionando em staging depois do deploy (E3) | Felipe autoriza; Claude verifica |
 | P1 | Revisão independente da preparação local de 04/10/2026 (merge com staging, tela e documentos) | Codex |
 | P1 | Push da preparação local para a PR #80, para remover o conflito com `staging` e rodar o CI. É mudança remota (GitHub) e precisa de autorização | Felipe autoriza |
-| P1 | `check:v1:postgres` no descartável com a base nova (061/062 e 060 juntas) antes do merge | Felipe autoriza; Claude executa |
-| P1 | Aprovação dos textos iniciais ([WHATSAPP_RESPOSTAS_INICIAIS.md](WHATSAPP_RESPOSTAS_INICIAIS.md)). O texto 2 corrige uma lacuna real: dúvida sem resposta publicada é encaminhada sem avisar o cliente | Felipe |
+| P1 | `check:v1:postgres` no descartável com a base nova (060 com 061/062): procedimento pronto em [VALIDACAO_060_E_HOMOLOGACAO_GUPSHUP.md](VALIDACAO_060_E_HOMOLOGACAO_GUPSHUP.md), Parte 4 (alvo, efeitos, verificação, limpeza; 32 suítes em 36 execuções). Não executado | Felipe autoriza; Claude executa |
+| P1 | Aprovação dos textos iniciais ([WHATSAPP_RESPOSTAS_INICIAIS.md](WHATSAPP_RESPOSTAS_INICIAIS.md)). O texto 2 corrige uma lacuna real: dúvida sem resposta publicada é encaminhada sem avisar o cliente. Nenhum texto promete atendimento "agora", e o PARAR não oferece "atendente": o bloqueio não é desfeito por mensagem do contato (teste em `service.test.ts`) | Felipe |
 | P2 | Confirmar a tarifa de serviço do Brasil na tabela da Meta e a taxa do Gupshup no painel ou contrato ([WHATSAPP_CUSTOS_ESTIMATIVA.md](WHATSAPP_CUSTOS_ESTIMATIVA.md)) | Felipe |
 | P1 | Merge em `staging`, com autorização e revalidação de HEAD/base, CI e Render (branch e auto-deploy) | Felipe autoriza; Claude executa |
 | P1 | Etapas E0–E8 de staging ([WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md)), cada uma com autorização própria, depois do P0 | Felipe autoriza; Claude executa |

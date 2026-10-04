@@ -146,3 +146,11 @@ test('lista mostra o responsável só com vínculo ativo na mesma empresa e a si
   assert.match(sqls('autor_usuario_id IS NOT NULL AS humana')[0].sql, /empresa_id=\$1 AND ambiente=\$2 AND conversa_id=\$3/);
   assert.deepEqual(dados.canal, { ambiente: 'staging', receptor: true, recepcao: true, envio: true });
 });
+test('depois do PARAR, "atendente" fica registrado mas não reabre a conversa nem libera ações', async () => {
+  const bloqueada = carregar({ conversa: { estado: 'ENCERRADA', nao_contatar: true } });
+  await bloqueada.modulo.receberEntrada(entrada('Quero falar com um atendente', 'evento-apos-parar'));
+  assert.equal(bloqueada.sqls('INSERT INTO whatsapp_atendimento_mensagens')[0].args[5], 'PROCESSADA', 'gravada sem automação');
+  assert.equal(bloqueada.sqls('UPDATE whatsapp_atendimento_conversas').length, 0, 'continua encerrada e bloqueada');
+  for (const acao of ['assumir', 'retomar', 'enviar'] as const)
+    await assert.rejects(carregar({ conversa: { estado: 'ENCERRADA', nao_contatar: true } }).modulo.controlarAtendimento(sessao, { acao, conversaId: 'c', versao: 1, texto: 'Olá' }), /ATENDIMENTO_CONTATO_BLOQUEADO/, acao);
+});

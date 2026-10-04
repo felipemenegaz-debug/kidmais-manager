@@ -262,6 +262,61 @@ Cada passo usa só o número de teste (A1) e registra trace e estado, sem conte�
 
 **Critério de interrupção imediata:** qualquer envio a um número fora da lista, mensagem de cliente real gravada, resposta com preço ou condição que não esteja nas respostas publicadas, ou erro de isolamento. Nesse caso, desligar as flags, parar o worker e registrar.
 
+## Parte 4 — Validação PostgreSQL integrada (060 com 061/062) — preparada, NÃO executada
+
+Preparada em 04/10/2026, depois da integração local de `origin/staging` (`35a2bd9`, 061/062) na branch. **Precisa de autorização explícita do Felipe para O1–O4 neste alvo** antes de qualquer comando. As execuções anteriores (rodadas de 02/10, até `a55aed8`) foram feitas na base antiga, sem 061/062.
+
+**Objetivo:** provar no PostgreSQL que a candidata integrada passa a suíte inteira.
+- A 060 continua íntegra no estado `atual`: aplicação, isolamento, fila, revogação e rollback.
+- Os modelos `061` e `062` são montados com o inventário inteiro, que agora inclui a 060, e as suítes que também rodam nesses estados passam com a 060 presente.
+
+### Alvo (o mesmo das rodadas anteriores)
+
+| Item | Valor |
+| --- | --- |
+| Binários | `C:\Program Files\PostgreSQL\18\bin` |
+| Diretório de dados | `C:\Users\Glass\AppData\Local\Temp\kidmais-pg-060\data`. Precisa **não existir** antes de O1 |
+| Endereço e porta | `127.0.0.1:55498`, só loopback. A porta 5432 local (pode ter o banco real `kidmais_manager`) nunca é usada |
+| Identidade exigida | `cluster_name = kidmais_descartavel`, superusuário `kidmais_descartavel`, locale C, 60 conexões, nenhum banco `kidmais_manager` |
+| Bancos criados pela receita | Modelos `kidmais_v1_modelo_{atual,053,052,039,042_sem_040,045_sem_040,061,062}` e de trabalho `kidmais_pacotes_v1_descartavel` e `kidmais_pacotes_v1_rollback` |
+| Dados | Exclusivamente sintéticos, criados pelas suítes |
+
+**Conflito de porta a evitar:** `staging` trouxe `scripts/pg-descartavel-061.cjs`, que usa a **mesma porta 55498** com outro diretório (`D:\glass\KidMais Manager\ambientes-locais\pg-descartavel-061`). Antes de O1:
+- confirmar que a porta 55498 está livre;
+- confirmar que nenhum cluster daquele diretório está em execução.
+
+Se a porta estiver ocupada, **parar** sem tocar no outro cluster. Este procedimento não usa aquele script nem aquele diretório.
+
+### Mudança de contrato vinda de staging
+
+O conector descartável não tem mais porta padrão. Cada suíte exige, além do opt-in:
+
+```text
+KIDMAIS_POSTGRES_DESCARTAVEL=kidmais_pacotes_v1_descartavel
+KIDMAIS_DESCARTAVEL_PORTA=55498
+KIDMAIS_DESCARTAVEL_AUTORIZACAO=127.0.0.1:55498/kidmais_pacotes_v1_descartavel
+```
+
+Nenhuma variável `PG*` ou `DATABASE_URL` pode existir no processo: o runner e o conector recusam.
+
+### Operações
+
+Os scripts `o1.sh` e `o4.sh` ficam em `.local-ux/pg-060/`, fora do Git, e já foram usados nas rodadas anteriores.
+
+| # | Comando | Efeito | Verificação | Parada |
+| --- | --- | --- | --- | --- |
+| O0 | Leituras: `netstat` na porta 55498; existência do diretório de dados; `git rev-parse HEAD` e `git status` limpo | Nenhum | Porta livre, diretório ausente, HEAD anotado | Qualquer divergência |
+| O1 | `bash .local-ux/pg-060/o1.sh r8-integrada` | `initdb` (locale C, UTF8, trust só em 127.0.0.1), configuração e `pg_ctl start` | Identidade gravada em `identidade-o1-r8-integrada.txt` igual a `kidmais_descartavel\|127.0.0.1\|55498\|kidmais_descartavel\|postgres\|0\|C\|60\|<diretório>` | Identidade divergente: o script para |
+| O2 | Com Node 22.23.2 e as três variáveis acima, sem `PG*` nem `DATABASE_URL`: `node scripts/regressao-v1-postgres.cjs`. Saída em `.local-ux/pg-060/check-v1-postgres-r8-integrada-<HEAD>.log` | A receita monta os modelos com o inventário oficial (agora 060, 061 e 062) e roda **32 suítes em 36 execuções** (`tenant-festa` e `estorno-completo` também nos estados 061 e 062), cada uma em banco restaurado do modelo | `PASS suíte PostgreSQL descartável: 36 arquivos`; `migration-060` OK; `tenant-festa` e `estorno-completo` OK em `[061]` e `[062]` | Qualquer falha: registrar e investigar antes de repetir. Não repetir em outro alvo |
+| O3 | (Opcional, só se o Felipe pedir) repetir o ensaio de exportação/restauração da 060 com o usuário restrito (`ensaio-recuperacao-restrito.sh`) | Aplica a 060 num banco de trabalho, exporta, faz o down e restaura | Dados e estrutura idênticos, como em 02/10 | Divergência |
+| O4 | `bash .local-ux/pg-060/o4.sh` | Confere identidade e diretório, faz `pg_ctl stop` e remove **somente** `...\kidmais-pg-060\data` | Porta 55498 livre; diretório ausente; a pasta-mãe fica | Identidade divergente: não remove nada |
+
+**Duração estimada:** alguns minutos (as rodadas de 02/10 levaram cerca de 5 a 8 min para 30 execuções).
+
+**Evidência:** o log de O2 com o HEAD no nome, a identidade de O1 e a saída de O4, todos em `.local-ux/pg-060/` (fora do Git). O registro do resultado entra no handoff, ligado ao HEAD validado.
+
+**Recuperação:** se O2 falhar no meio, O4 ainda é seguro, porque confere a identidade antes de parar e só remove o diretório descartável. Se o servidor não parar, não remover nada e investigar. Nada fora do diretório descartável e da porta 55498 é tocado.
+
 ## Pendências mantidas fora deste ciclo
 
 - **Nova festa:** atalho administrativo mais curto, pelos serviços oficiais de contratação, sem inserção direta.

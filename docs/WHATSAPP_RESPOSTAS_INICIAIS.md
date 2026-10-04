@@ -5,7 +5,8 @@ Preparado em 04/10/2026. **Proposta: nada foi alterado no código.** Os textos a
 ## Regras dos textos fixos
 
 - Não citar preço, desconto, disponibilidade, prazo, condição comercial nem cláusula. Isso só aparece nas **respostas publicadas** pela empresa, cadastradas na tela.
-- Não prometer horário de retorno: o atendimento humano não tem horário configurado na V1.
+- Não prometer horário de retorno nem atendimento imediato ("agora"): o atendimento humano não tem horário configurado na V1.
+- Não sugerir "atendente" a quem pediu PARAR: o bloqueio não é desfeito por nenhuma mensagem do contato.
 - Sempre deixar claro quando a conversa foi encaminhada a uma pessoa e como pedir um atendente.
 - Data nunca é "reservada" nem "disponível": só registrada como interesse.
 - Frases curtas, sem emoji, tratamento por "você". O nome da empresa vem da configuração (`{empresa}`).
@@ -15,7 +16,7 @@ Preparado em 04/10/2026. **Proposta: nada foi alterado no código.** Os textos a
 | # | Situação (gatilho no código) | Texto atual | Proposta | Motivo |
 | --- | --- | --- | --- | --- |
 | 1 | **Apresentação:** mensagem sem pergunta reconhecida (`OUTRO`) | Sou o atendimento virtual da {empresa}. Posso ajudar com as informações publicadas e encaminhar sua festa para a equipe. Para falar com uma pessoa, escreva “atendente”. | Olá! Sou o atendimento virtual da {empresa}. Posso responder dúvidas sobre a casa e registrar a data e o número de convidados da sua festa para a equipe. Para falar com uma pessoa, escreva “atendente”. | Diz o que o assistente faz, sem prometer valores ou datas |
-| 2 | **Dúvida sem resposta publicada** (`DUVIDA` sem correspondência; a conversa vai para a equipe) | (usa o texto 1) | Não tenho essa informação nas respostas publicadas. Encaminhei sua pergunta para a equipe da {empresa}; para falar com uma pessoa agora, escreva “atendente”. | **Lacuna comprovada:** hoje a conversa vai para a equipe, mas o cliente recebe a apresentação e não sabe que foi encaminhado |
+| 2 | **Dúvida sem resposta publicada** (`DUVIDA` sem correspondência; a conversa vai para a equipe) | (usa o texto 1) | Não tenho essa informação nas respostas publicadas. Encaminhei sua pergunta para a equipe da {empresa}, que vai continuar o atendimento por aqui. | **Lacuna comprovada:** hoje a conversa vai para a equipe, mas o cliente recebe a apresentação e não sabe que foi encaminhado |
 | 3 | **Qualificação, falta a data** (`INTERESSE`) | Qual é a data desejada para a festa? Informe também o ano. | Qual é a data desejada para a festa? Informe dia, mês e ano. | Pede a data completa de forma explícita |
 | 4 | **Qualificação, falta o número de convidados** | Quantas pessoas você pretende convidar? | Quantos convidados você espera, contando adultos e crianças? | Evita contar só crianças. **Decisão:** a empresa quer separar adultos e crianças? A V1 guarda um único número |
 | 5 | **Data inexistente** | Essa data não existe no calendário. Qual é a data completa da festa, incluindo o ano? | (manter) | — |
@@ -24,7 +25,7 @@ Preparado em 04/10/2026. **Proposta: nada foi alterado no código.** Os textos a
 | 8 | **Pedido de atendente, reclamação, negociação ou pagamento** (`HUMANO`) | Vou encaminhar seu pedido para um atendente. A resposta dependerá do horário da equipe. | Certo, encaminhei sua conversa para a equipe da {empresa}. Uma pessoa vai continuar o atendimento por aqui assim que possível. | Confirma o encaminhamento sem prometer horário |
 | 9 | **Falha da IA, orçamento ou limite** (`MENSAGEM_ENCAMINHAMENTO`) | Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe; a resposta dependerá do horário de atendimento. | Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe da {empresa}, que vai continuar o atendimento por aqui. | Hoje é uma constante: a regra de revogação o reconhece por igualdade e o deixa sair mesmo depois de a configuração mudar. Incluir o nome da empresa exige ajustar essa regra. **Decisão:** manter sem o nome (recomendado)? |
 | 10 | **Mídia, áudio ou mensagem longa** (vai para a equipe sem modelo) | (nada é enviado) | Recebi seu arquivo. Ainda não consigo analisar esse tipo de conteúdo; encaminhei para a equipe da {empresa}. | Hoje o cliente fica sem retorno. **Decisão:** responder ou só encaminhar em silêncio? |
-| 11 | **PARAR** (opt-out) | (nada é enviado; contato bloqueado) | Pronto, você não vai mais receber mensagens automáticas por aqui. Se precisar, é só escrever “atendente”. | **Decisão:** confirmar ou não. Recomendação: confirmar uma única vez. Exige liberar só essa confirmação depois do bloqueio |
+| 11 | **PARAR** (opt-out) | (nada é enviado; contato bloqueado) | Pronto: você não vai mais receber mensagens da {empresa} por aqui. | **Decisão:** confirmar ou não. Recomendação: confirmar uma única vez. Exige liberar só essa confirmação depois do bloqueio. **O texto não oferece "atendente":** depois do PARAR, mensagens novas do contato (inclusive "atendente") ficam registradas, mas não reabrem a conversa nem liberam envios, e a equipe também não pode responder pela tela. Reativação exige consentimento verificável, fora da V1 |
 
 ## Ausência
 
