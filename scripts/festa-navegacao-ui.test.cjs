@@ -23,7 +23,7 @@ async function main(){
   await context.route('**/api/**',async route=>{
    const req=route.request(),url=new URL(req.url());if(req.method()!=='GET'){unexpected.push(req.method()+' '+url.pathname);return route.abort();}
    const ok=data=>route.fulfill({json:{ok:true,data}});
-   if(url.pathname==='/api/admin/autenticacao')return ok({usuarioId:id(1),nome:'Teste visual',papel:'REPRESENTANTE_AUTORIZADO',csrf:'simulado'});
+   if(url.pathname==='/api/admin/autenticacao')return ok({usuarioId:id(1),nome:'Teste visual',papel:'REPRESENTANTE_AUTORIZADO',contexto:{empresaAtual:{id:'e',nome:'Empresa visual',papel:'REPRESENTANTE_AUTORIZADO'},empresas:[],gestaoNaEmpresa:true,plataforma:true,desenvolvedor:false,selecaoNecessaria:false},csrf:'simulado'});
    if(url.pathname==='/api/admin/festas')return ok(festa);
    if(url.pathname==='/api/admin/configuracoes/perfil-empresa/logo')return ok({logoDataUrl:null});
    if(url.pathname==='/api/admin/contratos/painel'){

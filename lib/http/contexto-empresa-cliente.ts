@@ -1,0 +1,89 @@
+'use client';
+
+/**
+ * Contexto de acesso da página (sessão + empresa ativa). Qualquer mudança descarta a página inteira (navegação
+ * completa), EXCETO a renovação comprovada de sessão: depois de uma reautenticação ou troca de senha validadas, o
+ * servidor devolve { anterior, atual } e esta página aceita a troca só se `anterior` for exatamente a sessão que ela
+ * tinha, `atual` for a sessão que o servidor agora informa e a empresa continuar a mesma. Nenhuma outra troca de
+ * sessão é aceita, nem na mesma empresa.
+ */
+let contexto: string | null = null;
+let renovacaoEmCurso: { anterior: string } | null = null;
+const AVISO = 'kidmais-aviso-contexto';
+
+const sessaoDe = (valor: string | null) => (valor ?? '').split(':')[0] ?? '';
+const empresaDe = (valor: string | null) => (valor ?? '').split(':')[1] ?? '';
+const chave = (sessaoId: string, empresaId: string | null) => `${sessaoId}:${empresaId ?? ''}`;
+
+/** Mudança aguardada durante uma renovação em curso: mesma empresa, sessão ainda não confirmada. Não recarrega. */
+function aguardandoRenovacao(empresaId: string | null) {
+    return renovacaoEmCurso !== null && sessaoDe(contexto) === renovacaoEmCurso.anterior && empresaDe(contexto) === (empresaId ?? '');
+}
+
+/** true quando a sessão/empresa informadas diferem das desta página (sem efeitos colaterais). */
+export function contextoMudou(sessaoId: string, empresaId: string | null) {
+    return contexto !== null && contexto !== chave(sessaoId, empresaId) && !aguardandoRenovacao(empresaId);
+}
+
+export function registrarContextoEmpresa(sessaoId: string, empresaId: string | null, aviso?: string) {
+    const novo = chave(sessaoId, empresaId);
+    if (contexto !== null && contexto !== novo) {
+        if (aguardandoRenovacao(empresaId))
+            return false;
+        reiniciarContextoEmpresa(aviso ?? 'A empresa ativa ou a sessão mudou. Os dados da tela anterior foram descartados.');
+        return false;
+    }
+    contexto = novo;
+    return true;
+}
+
+/** Marca o início de uma reautenticação/troca de senha desta página (a sessão atual é a "anterior"). */
+export function iniciarRenovacaoDeSessao() {
+    renovacaoEmCurso = contexto ? { anterior: sessaoDe(contexto) } : null;
+}
+
+export function cancelarRenovacaoDeSessao() {
+    renovacaoEmCurso = null;
+}
+
+/**
+ * Conclui a renovação. `renovacao` vem da resposta do servidor à reautenticação; `sessaoAtual`/`empresaAtual` vêm
+ * de uma leitura da sessão feita logo depois. Qualquer divergência descarta a página.
+ */
+export function concluirRenovacaoDeSessao(renovacao: { anterior: string; atual: string } | null | undefined, sessaoAtual: string | null, empresaAtual: string | null) {
+    const esperada = renovacaoEmCurso;
+    renovacaoEmCurso = null;
+    const valida = Boolean(renovacao && esperada && contexto !== null
+        && renovacao.anterior === esperada.anterior && sessaoDe(contexto) === renovacao.anterior
+        && sessaoAtual === renovacao.atual && empresaDe(contexto) === (empresaAtual ?? ''));
+    if (!valida) {
+        reiniciarContextoEmpresa('A sessão mudou de forma inesperada. Os dados da tela anterior foram descartados.');
+        return false;
+    }
+    contexto = chave(renovacao!.atual, empresaAtual);
+    return true;
+}
+
+export function guardarAvisoDeContexto(texto: string) {
+    try { sessionStorage.setItem(AVISO, texto.slice(0, 500)); } catch { /* sem armazenamento: o aviso se perde, os dados antigos não */ }
+}
+
+/** Lê e remove o aviso deixado antes de uma navegação de descarte (mostrado pela próxima tela). */
+export function lerAvisoDeContexto() {
+    try {
+        const texto = sessionStorage.getItem(AVISO);
+        if (texto) sessionStorage.removeItem(AVISO);
+        return texto;
+    }
+    catch {
+        return null;
+    }
+}
+
+export function reiniciarContextoEmpresa(aviso?: string, destino?: string) {
+    if (aviso) guardarAvisoDeContexto(aviso);
+    // Navegação completa descarta o Router Cache, estados React, conversas/rascunhos e pedidos da página antiga.
+    // Nenhum dado de negócio é guardado no sinal entre abas nem no aviso.
+    const alvo = destino ?? (window.location.pathname.startsWith('/desenvolvedor') ? '/desenvolvedor' : '/admin/dashboard');
+    window.location.replace(alvo);
+}
