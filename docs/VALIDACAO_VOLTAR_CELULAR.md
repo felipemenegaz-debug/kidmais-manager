@@ -92,3 +92,5 @@ Detalhes fora do Git em `.local-ux/val-prontas/estado/voltar-dbfd5c9/`: `RESULTA
 - demo parada, com o `postmaster.pid` inalterado.
 
 **Observação sem bloqueio:** 6 respostas 409 em `/api/admin/configuracoes/perfil-empresa/logo` (a empresa sintética não tem perfil), alheias à tela conferida.
+
+**Errata (após a revisão):** os logs do `vp.ps1` desta rodada (V1 e V4), e também os da rodada `78ed9d8`, descrevem a pasta da demo como "vivo". O rótulo é fixo no script (`guardas.ps1`, linha 105). A demo esteve **parada**: porta 55498 livre, identidade sem resposta, `postmaster.pid` antigo e inalterado; o retrato à parte deu a mesma listagem antes e depois. Os logs originais foram preservados sem edição. Detalhes em `.local-ux/val-prontas/estado/voltar-dbfd5c9/ERRATA-demo-vivo.md`. A correção do rótulo no script fica proposta para uma próxima rodada, com hashes novos.
