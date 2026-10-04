@@ -59,7 +59,7 @@ export default function ContratoImportado({ importacaoId }: { importacaoId: stri
       </div>
     </header>
 
-    {integrando && <IntegracaoContrato importacaoId={dados.id} />}
+    {integrando && <IntegracaoContrato importacaoId={dados.id} onIntegrado={({ contratoId }) => router.replace(`/admin/contratos?contratoId=${encodeURIComponent(contratoId)}`, { scroll: false })} />}
 
     <section className={styles.card} aria-labelledby="importado-evento">
       <h2 id="importado-evento">Evento</h2>

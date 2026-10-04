@@ -38,7 +38,7 @@ const ROTULO_SINAL: Record<SinalDuplicidade, string> = { MESMO_CLIENTE: 'mesmo c
 
 const ROTULO_CAMPO: Record<CampoDoc, string> = { data: 'data', horarioInicio: 'início', horarioFim: 'término', convidados: 'convidados', valorContratado: 'valor contratado' };
 
-export default function IntegracaoContrato({ importacaoId, modoInicial = 'completo', onPasso }: { importacaoId: string; modoInicial?: Modo; onPasso?(passo: PassoIntegracao): void }) {
+export default function IntegracaoContrato({ importacaoId, modoInicial = 'completo', onPasso, onIntegrado }: { importacaoId: string; modoInicial?: Modo; onPasso?(passo: PassoIntegracao): void; onIntegrado?(resultado: ResultadoIntegracao): void }) {
   const [carga, setCarga] = useState<Carga>({ tipo: 'carregando' });
   const [modo, setModo] = useState<Modo>(modoInicial);
   const [form, setForm] = useState<FormIntegracao | null>(null);
@@ -131,7 +131,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
         return;
       }
       const r = await confirmar(adminFetch, importacaoId, decisoesDoForm(f, o.sugestao), revisao.sim.resumoHash, revisao.chave);
-      if (r.ok) { setResultado(r.dados); setPasso('concluida'); return; }
+      if (r.ok) { setResultado(r.dados); setPasso('concluida'); onIntegrado?.(r.dados); return; }
       tratarFalha(r.codigo, r.mensagem, r.detalhes);
     } finally { setEnviando(false); }
   }

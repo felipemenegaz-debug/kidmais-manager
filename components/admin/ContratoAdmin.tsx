@@ -97,9 +97,9 @@ export default function ContratoAdmin() {
         if (!sequencia.current.vigente(pedido)) return false;
         if (!b.ok) throw new FalhaContrato(res.status, mensagemFalhaContrato(res.status, b.erro));
         const p = b.data as Painel; setData(p); const v = p.versoes.find(x => x.id === selected) || p.versoes.find(x => x.id === p.fluxo?.versao_em_preparacao_id) || p.versoes[0]; setVid(v.id); setNote(v.dados_fonte?.observacoesDocumentais ?? ''); return true; }, []);
-    useEffect(() => { const filtros = new URLSearchParams(); if (mostrarCancelados) filtros.set('incluirCancelados', '1'); if (!mostrarImportados) filtros.set('incluirImportados', '0'); const busca = filtros.toString();
+    useEffect(() => { let ativo = true; const filtros = new URLSearchParams(); if (mostrarCancelados) filtros.set('incluirCancelados', '1'); if (!mostrarImportados) filtros.set('incluirImportados', '0'); const busca = filtros.toString();
         adminFetch('/api/admin/contratos/painel'+(busca?`?${busca}`:'')).then(r => r.json()).then(b => { if (!b.ok)
-        throw Error(b.erro); setLista(b.data); }).catch(e => setError(e.message)); }, [mostrarCancelados, mostrarImportados]);
+        throw Error(b.erro); if (ativo) setLista(b.data); }).catch(e => { if (ativo) setError(e.message); }); return () => { ativo = false; }; }, [mostrarCancelados, mostrarImportados, urlContrato, urlImportacao]);
     // Nova URL ⇒ a seleção anterior sai na hora (ajuste de estado no render, sem efeito em cascata).
     const chaveUrl = urlInvalida ? 'invalida' : `${urlContrato}|${urlVersao}|${urlImportacao}`;
     const [chaveAplicada, setChaveAplicada] = useState<string | null>(null);
