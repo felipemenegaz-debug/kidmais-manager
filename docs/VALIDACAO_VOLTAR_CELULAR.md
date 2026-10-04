@@ -1,6 +1,6 @@
 # Conferência visual curta — "Voltar às conversas" no celular e no teclado
 
-**Situação:** preparada; **não executada**. Precisa de autorização explícita do Felipe ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)) porque recria uma base sintética local.
+**Situação:** EXECUTADA em 04/10/2026 (19:14–19:32) no HEAD `dbfd5c9`, com autorização do Felipe; resultado ao final. Antes: preparada; precisava de autorização explícita ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)) porque recria uma base sintética local.
 
 | Fora de escopo | Motivo |
 | --- | --- |
@@ -70,3 +70,25 @@ A medição (colar `voltar-medicao.js` no `javascript_tool`) é a evidência. As
 | C5 saídas | V3c depois dos casos | `saidas_total = 0`; Next sem chamadas de envio, erros nem 5xx |
 
 Tempo estimado: 20 minutos.
+
+## Resultado (04/10/2026, HEAD `dbfd5c9`)
+
+Detalhes fora do Git em `.local-ux/val-prontas/estado/voltar-dbfd5c9/`: `RESULTADO.md`, `medicoes.txt`, capturas e `EVIDENCIAS.txt` (SHA-256). Os seis hashes foram conferidos na V0.
+
+| Caso | Resultado |
+| --- | --- |
+| C1 celular, toque (0106) | ok: título a 120 px, focado; "Voltar" de 67 a 112 px; sobreposição com o menu 0; sem rolagem horizontal |
+| C2 celular, teclado (0105) | ok: medição antes de cada uma das 14 teclas, envio sempre bloqueado. 1. Enter: título a 120 px, "Voltar" a 67 px. 2. Shift+Tab: foco no "Voltar" (72–117 px), sem sobreposição. 3. Enter: foco de volta ao cartão 0105, visível |
+| C3 780×900 | ok: "Voltar" oculto; título a 72 px (regra antiga); duas colunas |
+| C4 desktop 1280×800 | ok: menu não fixo; "Voltar" oculto; título a 16 px |
+| C5 saídas | ok: V3c antes e depois idênticas, `saidas_total = 0` e nenhuma conversa assumida; único POST do Next = login; sem 5xx |
+
+**Limpeza (V4):**
+- só a base `…-cd655b` foi removida;
+- credenciais e dados sintéticos apagados;
+- `next-env.d.ts` e `tsconfig.json` devolvidos;
+- portas livres e árvore limpa;
+- protegidos idênticos antes e depois, inclusive o cluster da outra sessão;
+- demo parada, com o `postmaster.pid` inalterado.
+
+**Observação sem bloqueio:** 6 respostas 409 em `/api/admin/configuracoes/perfil-empresa/logo` (a empresa sintética não tem perfil), alheias à tela conferida.

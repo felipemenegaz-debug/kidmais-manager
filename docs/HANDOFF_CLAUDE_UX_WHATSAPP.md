@@ -42,7 +42,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 | Navegador, identificação do contato (I1–I8, desktop/celular/teclado) | `78ed9d8` | ok; zero saídas. 3 observações sem bloqueio, tratadas depois ([VALIDACAO_IDENTIFICACAO.md](VALIDACAO_IDENTIFICACAO.md)) |
 | Regressão estática, idem | **`9145e1d`** | **PASS** 1921/1921 + 103/103; lint sem erros (o mesmo aviso antigo). Log `.local-ux/check-v1-static-9145e1d.log` (SHA-256 `4c8a54ca…c7a9e`), com HEAD e árvore limpa na 1ª linha. A regra nova está no CSS do build |
 | Checagem de produção | `9145e1d` | 37/37; simulação da mescla com o painel `660c216`: 37/37; com `ad6b1b9` (HEAD `287f978`): 37/37 + unitários 1982/1982 + `tsc` |
-| Navegador, botão "Voltar" abaixo do menu | — | **não refeita**; coberta pelo teste estático `layout-celular.test.ts`. Conferência curta preparada em [VALIDACAO_VOLTAR_CELULAR.md](VALIDACAO_VOLTAR_CELULAR.md) (recria a base sintética; precisa de autorização; sem PostgreSQL) |
+| Navegador, botão "Voltar" abaixo do menu (C1–C5, celular/teclado/780/desktop) | `dbfd5c9` (código `9145e1d`) | **ok**: título a 120 px, "Voltar" a 67 px, sem sobreposição; teclado com foco correto; zero saídas; limpeza ok ([VALIDACAO_VOLTAR_CELULAR.md](VALIDACAO_VOLTAR_CELULAR.md)) |
 
 **Lacunas explícitas (nenhuma resolvida por esta candidata):**
 1. **HTTPS visual:** o link individual **preenchido** nunca foi visto na tela. O navegador embutido não abre `https://localhost` com certificado autoassinado. Foi validado só pela rota real em https, com TLS verificado contra o certificado da execução, e pela suíte PostgreSQL (passo 6b).
@@ -53,7 +53,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 
    Nenhuma mensagem real foi enviada nem recebida; tudo foi simulado ou sintético. O nome de perfil (`payload.sender.name`) segue a documentação oficial v2, mas não foi visto num evento real.
 3. **Numeração de migrations:** **resolvida localmente nos arquivos** — 063 = painel (branch publicada no GitHub), 064/065 = atendimento. Isso não diz nada sobre bancos: staging e produção com estado não verificado. Na segunda mescla, seja qual for, ainda é preciso unir as listas dos inventários e, com o painel em `660c216`/`ad6b1b9`, manter as duas mudanças do login ([PLANO_INTEGRACAO_ATENDIMENTO.md](PLANO_INTEGRACAO_ATENDIMENTO.md)). Nada foi alterado na branch do painel.
-4. **Validações em banco:** PostgreSQL e navegador da identificação feitos em `78ed9d8`. Depois disso, só o CSS do botão (`9145e1d`) e os textos das fixtures, fora do Git, mudaram. A conferência visual do botão está preparada em [VALIDACAO_VOLTAR_CELULAR.md](VALIDACAO_VOLTAR_CELULAR.md). PostgreSQL não se repete sem mudança que o justifique; o próximo motivo é a mescla com o painel (063 + 064 + 065 juntas).
+4. **Validações em banco:** PostgreSQL e navegador da identificação feitos em `78ed9d8`. Depois disso, só o CSS do botão (`9145e1d`) e os textos das fixtures, fora do Git, mudaram. A conferência visual do botão foi feita em `dbfd5c9` (ok; [VALIDACAO_VOLTAR_CELULAR.md](VALIDACAO_VOLTAR_CELULAR.md)). PostgreSQL não se repete sem mudança que o justifique; o próximo motivo é a mescla com o painel (063 + 064 + 065 juntas).
 5. **Demo local** parada desde o desligamento do Windows (13:10 de 04/10); não reiniciada.
 
 ## Estado em quatro níveis
