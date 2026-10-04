@@ -6,7 +6,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 
 **HEAD do código:** `ccb8b48c3591b535c069b6e8364cc134d33a5088` na worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`. Os commits de docs que trazem esta seção vêm logo depois.
 - Remoto `origin/whatsapp/atendimento-ia-v1`: `bdb1e75`.
-- 26 commits locais até `ccb8b48`, mais os de docs, **sem push**.
+- 27 commits locais até `ccb8b48` (conferido com `git rev-list --count`), mais os de docs, **sem push**.
 - `git merge-tree` (leitura, depois de `git fetch`): contra `origin/staging` `904b451` **sem conflito**; contra as candidatas do painel (`origin/feat/painel-desenvolvedor-20261004` `2b6702a` e `codex/painel-multi-20261004` `c0158d4`) conflito **só** nos inventários `check-migrations.mjs` e `production.test.mjs` (união de listas; ver o doc de identificação).
 
 **O que entrou desde `bdb1e75`:**
