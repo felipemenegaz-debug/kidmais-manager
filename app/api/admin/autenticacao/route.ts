@@ -66,7 +66,9 @@ export async function POST(request: NextRequest) {
             : body.data.acao === 'selecionar-empresa'
                 ? await selecionarEmpresaAtiva(tokenAdmin(request), body.data.empresaId)
             : await reautenticarAdmin(tokenAdmin(request), body.data.senha);
-        const res = response({ ok: true, data: { csrf: result.csrf } });
+        // Só a reautenticação devolve a renovação (sessão anterior → nova); login e seleção de empresa não.
+        const renovacao = body.data.acao === 'reautenticar' && 'renovacao' in result ? result.renovacao : null;
+        const res = response({ ok: true, data: { csrf: result.csrf, renovacao } });
         for (const [name, value] of [[policy.cookie, result.token], [policy.csrfCookie, result.csrf]])
             res.cookies.set(name, value, { httpOnly: true, secure: policy.secure, sameSite: 'lax', path: '/', expires: result.expires });
         return res;

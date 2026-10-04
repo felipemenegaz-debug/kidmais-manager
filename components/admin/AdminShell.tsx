@@ -12,6 +12,7 @@ import { itemAtivo, itensNavegacao, type PermissoesNavegacao } from '@/lib/admin
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
 import LogoEmpresa from './LogoEmpresa';
+import AvisoContexto from './AvisoContexto';
 
 export default function AdminShell({ children, vitrine }: {
     children: React.ReactNode;
@@ -51,7 +52,7 @@ export default function AdminShell({ children, vitrine }: {
         void carregar();
         const timer = window.setInterval(carregar, 15000);
         const foco = () => { void carregar(); };
-        const outraAba = (e: StorageEvent) => { if (e.key === 'kidmais-contexto-alterado') reiniciarContextoEmpresa(); };
+        const outraAba = (e: StorageEvent) => { if (e.key === 'kidmais-contexto-alterado') reiniciarContextoEmpresa('A empresa ativa foi trocada em outra aba. Os dados desta tela foram descartados.'); };
         window.addEventListener('focus', foco);
         window.addEventListener('storage', outraAba);
         return () => { alive = false; clearInterval(timer); window.removeEventListener('focus', foco); window.removeEventListener('storage', outraAba); };
@@ -144,7 +145,7 @@ export default function AdminShell({ children, vitrine }: {
                 }}><AdminIcon name="logout" size={12} /> Sair</button>
             </footer>
         </aside>
-        <div className={styles.conteudo}>{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && path !== '/admin/perfil'
+        <div className={styles.conteudo}><AvisoContexto />{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && path !== '/admin/perfil'
             ? <section><h1>Empresa ativa</h1><p>Escolha a empresa que deseja acessar.</p>{seletor}{contexto?.empresas.length === 0 && <p>Nenhuma empresa com acesso ativo.</p>}</section>
             : children}</div>
     </PerguntarKidmaisProvider></div>;

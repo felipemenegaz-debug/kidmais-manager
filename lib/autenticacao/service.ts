@@ -24,15 +24,23 @@ export function authError(message = 'Autenticação administrativa necessária.'
 export async function consultarSessao(token: string, tx: DbExecutor = db(), lock = false): Promise<SessaoAdmin> {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token))
         throw authError();
-    const result = await tx.query<SessaoAdmin>(`SELECT s.id,s.usuario_id,u.nome,u.cargo,u.papel,s.autenticado_em::text,s.expira_em::text,s.csrf_hash,
-    clock_timestamp()::text AS consultado_em, to_jsonb(s)->>'empresa_ativa_id' AS empresa_ativa_id
+    const result = await tx.query<SessaoAdmin & { selecao_instalada: boolean }>(`SELECT s.id,s.usuario_id,u.nome,u.cargo,u.papel,s.autenticado_em::text,s.expira_em::text,s.csrf_hash,
+    clock_timestamp()::text AS consultado_em, to_jsonb(s)->>'empresa_ativa_id' AS empresa_ativa_id,
+    (to_jsonb(s) ? 'empresa_ativa_id') AS selecao_instalada
     FROM sessoes_administrativas s JOIN usuarios_administrativos u ON u.id=s.usuario_id
     WHERE s.token_hash=$1 AND s.revogado_em IS NULL AND u.ativo AND s.expira_em>clock_timestamp()
     AND s.ultima_atividade_em>clock_timestamp()-interval '30 minutes' AND s.autenticado_em>=u.senha_alterada_em
     ${lock ? 'FOR UPDATE OF u,s' : ''}`, [hashToken(token)]);
-    if (!result.rows[0])
+    const linha = result.rows[0];
+    if (!linha)
         throw authError();
-    return result.rows[0];
+    // Antes da 063 não existe seleção de empresa na sessão: `empresa_ativa_id` fica AUSENTE (undefined), e
+    // provarTenant mantém a regra legada (o empresaId pedido escolhe entre as memberships ativas). Com a 063,
+    // null significa "nenhuma empresa selecionada" e a seleção explícita passa a valer.
+    const { selecao_instalada: instalada, ...sessao } = linha;
+    if (!instalada)
+        delete sessao.empresa_ativa_id;
+    return sessao;
 }
 function limitKey(value: string) {
     const secret = process.env.ADMIN_AUTH_SECRET;
@@ -101,18 +109,22 @@ export async function loginAdmin(email: string, password: string, requestId: str
             return { error: 401 } as const;
         }
         let empresaAnterior: string | null = null;
+        let sessaoAnterior: string | null = null;
         if (oldToken) {
             const old = await consultarSessao(oldToken, tx, true);
             if (old.usuario_id !== user.id)
                 throw authError();
             await tx.query('UPDATE sessoes_administrativas SET revogado_em=clock_timestamp() WHERE id=$1', [old.id]);
             empresaAnterior = old.empresa_ativa_id ?? null;
+            sessaoAnterior = old.id;
         }
         await tx.query('DELETE FROM limites_autenticacao WHERE chave_hash=$1', [limitKey(`IDENTIFICADOR|${email.trim().toLowerCase()}`)]);
         const session = await criarSessaoAdministrativa(tx, user.id, ip, userAgent);
         if (empresaAnterior) await tx.query('UPDATE sessoes_administrativas SET empresa_ativa_id=$2::uuid WHERE id=$1', [session.id, empresaAnterior]);
         await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId: user.id, acao: oldToken ? 'ADMIN_REAUTENTICACAO' : 'ADMIN_LOGIN', entidadeTipo: 'SESSAO_ADMINISTRATIVA', entidadeId: session.id, origem: 'ADMIN_AUTENTICACAO', requestId, ip, userAgent }, tx);
-        return { token: session.token, csrf: session.csrf, expires: session.expires };
+        // Reautenticação: a sessão nova descende da anterior (mesma empresa ativa). O cliente só aceita a troca de
+        // sessão quando recebe esta renovação para a sessão que ele mesmo enviou.
+        return { token: session.token, csrf: session.csrf, expires: session.expires, renovacao: sessaoAnterior ? { anterior: sessaoAnterior, atual: session.id } : null };
     });
     if ('error' in result)
         throw authError(result.error === 429 ? 'Aguarde antes de tentar novamente.' : 'Credenciais inválidas.', result.error);

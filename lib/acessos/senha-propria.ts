@@ -85,11 +85,11 @@ export async function trocarPropriaSenha(token: string, raw: unknown, ctx: Conte
             dadosDepois: { resultado: 'SUCESSO', sessoesEncerradas: encerradas, novaSessaoNesteDispositivo: true }, origem: 'PERFIL_SENHA',
             requestId: ctx.requestId, ip: ctx.ip, userAgent: ctx.userAgent,
         }, tx);
-        return { tipo: 'ok' as const, sessao: nova, encerradas };
+        return { tipo: 'ok' as const, sessao: nova, encerradas, anterior: sessao.id };
     });
     if (resultado.tipo === 'limite')
         throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde 15 minutos e tente novamente.', 429);
     if (resultado.tipo === 'senha-atual')
         throw erroAcesso('SENHA_ATUAL_INCORRETA', 'A senha atual não confere.', 400);
-    return { token: resultado.sessao.token, csrf: resultado.sessao.csrf, expires: resultado.sessao.expires, sessoesEncerradas: resultado.encerradas };
+    return { token: resultado.sessao.token, csrf: resultado.sessao.csrf, expires: resultado.sessao.expires, sessoesEncerradas: resultado.encerradas, renovacao: { anterior: resultado.anterior, atual: resultado.sessao.id } };
 }

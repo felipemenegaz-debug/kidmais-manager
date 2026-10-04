@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
         await exigirApiAdminCrmDisponivel(request);
         const policy = politicaAdmin(request);
         const resultado = await trocarPropriaSenha(tokenAdmin(request), await lerJson(request), contextoDaRequisicao(request));
-        const res = responder({ ok: true, data: { csrf: resultado.csrf, sessoesEncerradas: resultado.sessoesEncerradas } });
+        const res = responder({ ok: true, data: { csrf: resultado.csrf, sessoesEncerradas: resultado.sessoesEncerradas, renovacao: resultado.renovacao } });
         for (const [nome, valor] of [[policy.cookie, resultado.token], [policy.csrfCookie, resultado.csrf]] as const)
             res.cookies.set(nome, valor, { httpOnly: true, secure: policy.secure, sameSite: 'lax', path: '/', expires: resultado.expires });
         return res;

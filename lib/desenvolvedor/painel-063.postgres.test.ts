@@ -441,6 +441,27 @@ test('seleção: suspensão invalida só as sessões daquele acesso, reativar n�
     assert.equal(await sessaoValida(b.token), false, 'reativação exige uma seleção nova');
 });
 
+test('renovação comprovada: reautenticação devolve anterior→atual e preserva a empresa ativa; senha errada não muda nada; login comum não renova', async () => {
+    const selecao = carregar('lib/autenticacao/empresa-ativa.ts') as unknown as { selecionarEmpresaAtiva: (t: string, e: string) => Promise<{ token: string }> };
+    const consultar = svc.auth.consultarSessao as unknown as (t: string) => Promise<{ id: string; empresa_ativa_id: string | null }>;
+    const reautenticar = svc.auth.reautenticarAdmin as unknown as (t: string, s: string) => Promise<{ token: string; renovacao: { anterior: string; atual: string } | null }>;
+    const escolhida = await selecao.selecionarEmpresaAtiva((await sessaoDe(ids.dono)).token, ids.legado);
+    const antes = await consultar(escolhida.token);
+    assert.equal(antes.empresa_ativa_id, ids.legado);
+    await assert.rejects(reautenticar(escolhida.token, 'senha-errada-063'));
+    assert.equal(await sessaoValida(escolhida.token), true, 'senha errada mantém a sessão');
+    assert.equal((await consultar(escolhida.token)).empresa_ativa_id, ids.legado, 'senha errada mantém a empresa');
+    const r = await reautenticar(escolhida.token, senhas.dono);
+    assert.ok(r.renovacao);
+    assert.equal(r.renovacao!.anterior, antes.id);
+    const depois = await consultar(r.token);
+    assert.equal(depois.id, r.renovacao!.atual, 'a renovação aponta a sessão nova emitida');
+    assert.equal(depois.empresa_ativa_id, ids.legado, 'a empresa ativa é preservada');
+    assert.equal(await sessaoValida(escolhida.token), false, 'a sessão anterior deixa de valer');
+    const login = await (svc.auth.loginAdmin as unknown as (...a: unknown[]) => Promise<{ renovacao: unknown }>)(email('dono'), senhas.dono, randomUUID(), null, null);
+    assert.equal(login.renovacao, null, 'login comum não é renovação');
+});
+
 test('rollback da 063 recusa depois do uso (vínculo suspenso ou registros), sem apagar nada', async () => {
     const dev = (await sessaoDe(ids.dev)).sessao;
     await svc.vinculos.alterarSituacaoVinculo(dev as never, ids.empresa as never, ids.dono as never, 'desativar' as never, { motivo: 'Prova de rollback' } as never, ctx() as never, deps() as never);

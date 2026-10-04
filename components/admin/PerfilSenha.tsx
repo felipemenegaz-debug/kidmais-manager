@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import admin from '@/components/admin/admin.module.css';
 import workspace from '@/components/admin/workspace.module.css';
-import { adminFetch } from '@/lib/http/admin-fetch';
+import { adminFetch, cancelarRenovacaoDeSessao, confirmarRenovacao, iniciarRenovacaoDeSessao } from '@/lib/http/admin-fetch';
 
 /**
  * Troca da própria senha. Política: 8 a 128 caracteres, diferente da atual. Ao concluir, todas as sessões da conta
@@ -31,17 +31,22 @@ export default function PerfilSenha() {
                 setErro('');
                 setSucesso('');
                 try {
+                    iniciarRenovacaoDeSessao();
                     const res = await adminFetch('/api/admin/perfil/senha', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ senhaAtual: atual, novaSenha: nova, confirmacao }) });
-                    const corpo = await res.json().catch(() => null) as { ok?: boolean; erro?: string; data?: { sessoesEncerradas: number } } | null;
+                    const corpo = await res.json().catch(() => null) as { ok?: boolean; erro?: string; data?: { sessoesEncerradas: number; renovacao?: { anterior: string; atual: string } } } | null;
                     if (!res.ok || !corpo?.ok) {
+                        cancelarRenovacaoDeSessao();
                         setErro(corpo?.erro ?? 'Não foi possível trocar a senha.');
                         return;
                     }
+                    // A troca validou a senha atual: a sessão nova deste navegador é aceita só se descender desta.
+                    await confirmarRenovacao(corpo.data?.renovacao);
                     setAtual(''); setNova(''); setConfirmacao('');
                     const outras = Math.max(0, (corpo.data?.sessoesEncerradas ?? 1) - 1);
                     setSucesso(`Senha alterada. ${outras > 0 ? `${outras} sessão(ões) em outros dispositivos foram encerradas.` : 'Nenhuma outra sessão estava aberta.'}`);
                 }
                 catch {
+                    cancelarRenovacaoDeSessao();
                     setErro('Falha de conexão. Confira se a senha foi alterada tentando entrar novamente.');
                 }
                 finally {

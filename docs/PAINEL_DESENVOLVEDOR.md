@@ -43,7 +43,7 @@ Guarda única `exigirDesenvolvedor` (sessão válida + concessão ativa + identi
 ## Comportamentos definidos no servidor
 
 - **Interessada** não cria empresa, usuário nem acesso. **Provisionar** (confirmação explícita): cria empresa (PROVISIONAMENTO→ATIVA), cadastro administrativo, marca a interessada CONVERTIDA e cria o convite do responsável; nenhum usuário é criado até o aceite.
-- **Suspender empresa**: empresa SUSPENSA (dados preservados). `provarTenant` recusa seu acesso; a 063 também revoga as sessões que selecionaram essa empresa. Sessões selecionadas em outra empresa permanecem válidas. Quem fica sem nenhum acesso ativo continua sujeito à política de encerramento D4. Reativar devolve ATIVA, mas não restaura sessões ou escolhas revogadas.
+- **Suspender empresa**: empresa SUSPENSA (dados preservados). `provarTenant` recusa seu acesso; a 063 também revoga as sessões que selecionaram essa empresa. Sessões selecionadas em outra empresa permanecem válidas. **A sessão que estava com a empresa suspensa selecionada é encerrada e exige novo login, mesmo que a pessoa tenha outra membership ativa** (o acesso às outras empresas é preservado: basta entrar de novo e escolher). Quem fica sem nenhum acesso ativo continua sujeito à política de encerramento D4. Reativar devolve ATIVA, mas não restaura sessões ou escolhas revogadas.
 - **Desativar vínculo**: membership SUSPENSA (só aquela empresa); reativar volta a ATIVA. Protege a última Gestão. Sessões que selecionaram aquele vínculo são revogadas; outras empresas ficam intactas. Revogação terminal também invalida a seleção.
 - **Convite**: token de 32 bytes (só o hash no banco), validade 7 dias, reenvio com intervalo mínimo e limite, cancelamento. Aceite: e-mail novo define nome e senha (identidade com papel global neutro); e-mail existente confirma com a senha atual. Sempre cria/ativa só a membership da empresa do convite.
 - **Recuperação**: token de uso único, 30 min, novo pedido invalida os anteriores, intervalo mínimo entre pedidos, limite por IP e por e-mail, resposta pública idêntica exista ou não a conta. O desenvolvedor só dispara o pedido; não vê link nem senha.
@@ -60,7 +60,7 @@ Guarda única `exigirDesenvolvedor` (sessão válida + concessão ativa + identi
 | D1 | Provedor real de e-mail e remetente | **Pendente.** Envio real desligado; convites e recuperação não operacionais sem validação de entrega |
 | D2 | Reativação | Adotada: empresa SUSPENSA→ATIVA e vínculo SUSPENSA→ATIVA, só pelo painel (concessão de desenvolvedor). Empresa DESATIVADA e vínculo REVOGADO continuam terminais (guard + serviço; testado). Sem concessão, nem as rotas novas nem as legadas reativam (testado) |
 | D3 | Concessão de desenvolvedor | Adotada: somente por CLI |
-| D4 | Sessões | Adotada: troca de senha encerra as outras sessões (o dispositivo da troca recebe sessão nova); suspensão preserva os acessos válidos a outras empresas |
+| D4 | Sessões | Adotada: troca de senha encerra as outras sessões (o dispositivo da troca recebe sessão nova); suspensão preserva os acessos válidos a outras empresas, mas a sessão com a empresa suspensa selecionada exige novo login |
 | D5 | Implantação | Adotada: estado separado da situação da empresa (`plataforma_empresas_cadastro.implantacao`) |
 | D6 | Testes em cluster descartável | Executados em cluster sintético próprio (a porta 55498 estava ocupada por outro PostgreSQL, não tocado; ver Evidências) |
 | D7 | Menu Configurações | Adotada nesta PR (ver abaixo) |
@@ -126,7 +126,7 @@ Links de convite e recuperação usam `ADMIN_AUTH_ORIGIN` e levam o token no fra
 
 **Defeitos achados e corrigidos na rodada anterior.** (a) A comparação de relógios diferentes recebeu uma tolerância provisória; ela foi substituída pela comparação no relógio PostgreSQL, mantendo cinco minutos e recusando futuro. (b) Senha errada no diálogo de reautenticação levava ao login (401 tratado como sessão encerrada no cliente) → o diálogo mostra "Senha incorreta" e a sessão segue (E2E anterior). (c) Custo do hash antes do limite na redefinição pública, no aceite de convite e na troca de senha → scrypt só depois do limite e de token/senha válidos (testado).
 
-**Limitações conhecidas.** D1 pendente (sem validação de entrega real). A contratante recém-provisionada não ganha automaticamente um Perfil legado/unidade: a API recusa um perfil ausente em vez de usar o de outra empresa. O módulo Festas respondeu 503 no E2E anterior (trava de ambiente pré-existente, sem relação com esta PR). Evidências da seleção e plano concreto de staging em `docs/HOMOLOGACAO_PAINEL_MULTI_EMPRESA.md`.
+**Limitações conhecidas.** D1 pendente (sem validação de entrega real). **Perfil ausente (limitação de implantação):** a contratante recém-provisionada não ganha automaticamente um Perfil/unidade; a tela Perfil da empresa responde "O perfil desta empresa ainda não está disponível" (409) em vez de usar o de outra empresa. Criar o Perfil de uma contratante nova continua fora desta PR e deve entrar no roteiro de implantação. O módulo Festas respondeu 503 no E2E anterior (trava de ambiente pré-existente, sem relação com esta PR). Evidências da seleção e plano concreto de staging em `docs/HOMOLOGACAO_PAINEL_MULTI_EMPRESA.md`.
 
 ## Roteiro de homologação (staging, após autorização da 063 e do deploy)
 

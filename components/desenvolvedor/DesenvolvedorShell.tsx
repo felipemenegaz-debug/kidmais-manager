@@ -6,6 +6,7 @@ import styles from '@/components/admin/shell.module.css';
 import tokens from '@/components/admin/tokens.module.css';
 import { AdminIcon } from '@/components/admin/AdminIcon';
 import { adminFetch } from '@/lib/http/admin-fetch';
+import AvisoContexto from '@/components/admin/AvisoContexto';
 
 const ITENS = [
     { href: '/desenvolvedor', rotulo: 'Resumo', icone: 'dashboard' as const },
@@ -49,6 +50,6 @@ export default function DesenvolvedorShell({ nome, children }: { nome: string; c
                 }}><AdminIcon name="logout" size={12} /> Sair</button>
             </footer>
         </aside>
-        <div className={styles.conteudo}>{children}</div>
+        <div className={styles.conteudo}><AvisoContexto />{children}</div>
     </div>;
 }

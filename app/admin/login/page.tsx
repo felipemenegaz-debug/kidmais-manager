@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import styles from '@/components/admin/admin.module.css';
+import AvisoContexto from '@/components/admin/AvisoContexto';
 /** Retorno após o login: só caminhos internos do Admin, do perfil ou do painel do desenvolvedor. */
 function destinoSeguro() {
     const voltar = new URLSearchParams(window.location.search).get('voltar') ?? '';
@@ -10,7 +11,7 @@ function destinoSeguro() {
 export default function LoginAdmin() {
     const router = useRouter();
     const [error, setError] = useState(''), [busy, setBusy] = useState(false);
-    return <main className={`${styles.page} ${styles.login}`}><h1>Kidmais Manager</h1><h2>Acesso administrativo</h2>
+    return <main className={`${styles.page} ${styles.login}`}><h1>Kidmais Manager</h1><h2>Acesso administrativo</h2><AvisoContexto />
  <form onSubmit={async (event) => {
             event.preventDefault();
             setBusy(true);

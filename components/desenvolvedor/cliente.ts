@@ -1,5 +1,5 @@
 'use client';
-import { adminFetch } from '@/lib/http/admin-fetch';
+import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
 
 /** Chamada às APIs do painel com CSRF; devolve sempre o resultado real (sucesso ou erro com mensagem do servidor). */
 export type Falha = { ok: false; erro: string; codigo: string | null; detalhes: Record<string, unknown> | null; status: number };
@@ -27,20 +27,12 @@ export async function chamar<T>(url: string, metodo: 'GET' | 'POST' | 'PATCH' = 
 }
 
 /**
- * Reautenticação: 401 aqui é "senha incorreta" (a sessão continua válida), então não passa pelo `chamar`,
- * que trata 401 como sessão encerrada e leva ao login.
+ * Reautenticação do diálogo: senha incorreta mantém sessão, contexto e formulário; sucesso só aceita a sessão nova
+ * renovada pelo servidor para a sessão desta página (lib/http/admin-fetch.ts → reautenticarSessao).
  */
 export async function confirmarSenha(senha: string): Promise<string | null> {
-    try {
-        const res = await adminFetch('/api/admin/autenticacao', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'reautenticar', senha }) });
-        if (res.ok)
-            return null;
-        const json = await res.json().catch(() => null) as { erro?: string } | null;
-        return res.status === 401 ? 'Senha incorreta.' : (json?.erro ?? `Não foi possível confirmar a senha (HTTP ${res.status}).`);
-    }
-    catch {
-        return 'Falha de conexão. Tente novamente.';
-    }
+    const r = await reautenticarSessao(senha);
+    return r.ok ? null : r.erro;
 }
 
 export function formatarData(iso: string | null | undefined, comHora = true) {

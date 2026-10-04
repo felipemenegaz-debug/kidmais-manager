@@ -1,7 +1,7 @@
 'use client';
 /* eslint-disable @next/next/no-img-element -- Prévias de imagens locais/data URLs, sem otimização remota. */
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { adminFetch } from '@/lib/http/admin-fetch';
+import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
 import { campoExigidoNaAplicacao, contatoExigidoNaAplicacao, type CadastroPerfil } from '@/lib/perfil/cadastro';
 import { aplicarConsultaCep, cepCompleto, type PedidoCep } from '@/lib/perfil/consulta-cep';
 import { agruparComparacao, aposAplicar, aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, pedidoRascunho, podeAplicar, resolverCarregamento, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
@@ -305,13 +305,11 @@ export default function PerfilEmpresa() {
         setErro('');
         try {
             if (senha) {
-                const auth = await adminFetch('/api/admin/autenticacao', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ acao: 'reautenticar', senha }),
-                });
+                // Renovação comprovada: senha incorreta mantém sessão, rascunho e formulário; sucesso segue para aplicar
+                // na mesma página, uma única vez.
+                const auth = await reautenticarSessao(senha);
                 if (!auth.ok)
-                    throw new Error('Não foi possível confirmar a senha. Tente novamente.');
+                    throw new Error(auth.senhaIncorreta ? 'Senha incorreta. O rascunho foi preservado.' : auth.erro);
             }
             const resposta = await adminFetch('/api/admin/configuracoes/perfil-empresa', {
                 method: 'POST',
