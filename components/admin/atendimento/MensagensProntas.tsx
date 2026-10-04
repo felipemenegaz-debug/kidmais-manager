@@ -1,11 +1,13 @@
 'use client';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { ATALHOS, NOME_ATALHO, NOME_TIPO, TIPOS, categorias, filtrarProntas, type Atalho, type Pronta, type TipoPronta } from '@/lib/whatsapp/atendimento/prontas';
 import styles from './atendimento.module.css';
 
 type Biblioteca = { prontas: Pronta[]; favoritas: string[]; podeGerenciar: boolean };
-type Rascunho = { titulo: string; texto: string; linkIndividual: 'PREENCHIDO' | 'NAO_PREENCHIDO' | null; aviso: string | null };
+type RascunhoServidor = { titulo: string; texto: string; linkIndividual: 'PREENCHIDO' | 'NAO_PREENCHIDO' | null; aviso: string | null };
+/** O rascunho pertence à conversa de ORIGEM: o link individual e o texto só valem para ela. */
+type Rascunho = RascunhoServidor & { conversaId: string };
 const ROTA = '/api/admin/atendimento/prontas';
 
 async function chamar<T>(corpo?: unknown): Promise<T> {
@@ -27,27 +29,46 @@ function useBiblioteca(ativa: boolean) {
  * Biblioteca junto ao campo de resposta: busca, categorias, favoritas e os atalhos em destaque. Escolher prepara um
  * rascunho com prévia editável; "Colocar na resposta" só preenche o campo. O envio continua no "Enviar resposta".
  */
-export function MensagensProntas({ conversaId, podeUsar, motivoBloqueio, textoAtual, onUsar }: { conversaId: string; podeUsar: boolean; motivoBloqueio: string; textoAtual: string; onUsar: (texto: string) => void }) {
+export function MensagensProntas({ conversaId, podeUsar, motivoBloqueio, textoAtual, onUsar }: { conversaId: string; podeUsar: boolean; motivoBloqueio: string; textoAtual: string; onUsar: (texto: string, conversaId: string) => void }) {
   const [aberta, setAberta] = useState(false), [busca, setBusca] = useState(''), [categoria, setCategoria] = useState(''), [soFavoritas, setSoFavoritas] = useState(false);
   const [rascunho, setRascunho] = useState<Rascunho | null>(null), [ocupado, setOcupado] = useState(false), [aviso, setAviso] = useState('');
+  // Conversa vigente e número do último pedido de prévia: retorno atrasado (de outra conversa ou de pedido anterior) é descartado.
+  const conversaAtual = useRef(conversaId), pedidoRascunho = useRef(0);
   const { dados, erro, setErro, carregar } = useBiblioteca(aberta);
   const id = useId(), painel = `${id}-painel`, previa = `${id}-previa`;
   const favoritas = useMemo(() => new Set(dados?.favoritas ?? []), [dados]);
   const lista = useMemo(() => dados ? filtrarProntas(dados.prontas, { busca, categoria: categoria || null, favoritas: soFavoritas ? favoritas : null }) : [], [dados, busca, categoria, soFavoritas, favoritas]);
   const porAtalho = (a: Atalho) => dados?.prontas.find(p => p.atalho === a);
-  // Trocar de conversa descarta a prévia: o link individual depende do contato.
-  useEffect(() => { const t = window.setTimeout(() => setRascunho(null), 0); return () => window.clearTimeout(t); }, [conversaId]);
+  // Trocar de conversa: invalida o pedido em andamento, descarta a prévia e o aviso (o link individual depende do contato).
+  useEffect(() => {
+    conversaAtual.current = conversaId; pedidoRascunho.current++;
+    const t = window.setTimeout(() => { setRascunho(null); setAviso(''); setOcupado(false); }, 0);
+    return () => window.clearTimeout(t);
+  }, [conversaId]);
+  // Mesmo antes do efeito acima rodar, só aparece a prévia da conversa aberta.
+  const previaAtual = rascunho && rascunho.conversaId === conversaId ? rascunho : null;
 
   async function preparar(p: Pronta) {
-    if (ocupado) return; setOcupado(true); setErro(''); setAviso('');
-    try { setRascunho(await chamar<Rascunho>({ acao: 'rascunho', id: p.id, conversaId })); }
-    catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível preparar o rascunho.'); } finally { setOcupado(false); }
+    if (ocupado) return;
+    const pedido = ++pedidoRascunho.current, origem = conversaId;
+    setOcupado(true); setErro(''); setAviso('');
+    try {
+      const r = await chamar<RascunhoServidor>({ acao: 'rascunho', id: p.id, conversaId: origem });
+      if (pedido !== pedidoRascunho.current || origem !== conversaAtual.current) return;
+      setRascunho({ ...r, conversaId: origem });
+    } catch (e) { if (pedido === pedidoRascunho.current) setErro(e instanceof Error ? e.message : 'Não foi possível preparar o rascunho.'); }
+    finally { if (pedido === pedidoRascunho.current) setOcupado(false); }
   }
   async function alternarFavorita(p: Pronta) {
     try { await chamar({ acao: 'favoritar', id: p.id, favorita: !favoritas.has(p.id) }); await carregar(); }
     catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível atualizar a favorita.'); }
   }
-  function usar() { if (!rascunho || !podeUsar) return; onUsar(rascunho.texto); setRascunho(null); setAviso('Rascunho colocado no campo de resposta. Revise e envie quando quiser.'); }
+  // Confere o vínculo de novo no clique: só a prévia da conversa aberta vai para a resposta, levando a origem junto.
+  function usar() {
+    const r = previaAtual;
+    if (!r || !podeUsar || r.conversaId !== conversaAtual.current) return;
+    onUsar(r.texto, r.conversaId); setRascunho(null); setAviso('Rascunho colocado no campo de resposta. Revise e envie quando quiser.');
+  }
 
   return <div className={styles.prontas}>
     <button type="button" aria-expanded={aberta} aria-controls={painel} onClick={() => setAberta(v => !v)}>{aberta ? 'Fechar mensagens prontas' : 'Mensagens prontas'}</button>
@@ -75,13 +96,13 @@ export function MensagensProntas({ conversaId, podeUsar, motivoBloqueio, textoAt
         </ul>
         {!lista.length && <p>{dados.prontas.length ? 'Nenhuma mensagem com esse filtro.' : 'Nenhuma mensagem pronta cadastrada.'}</p>}
       </>}
-      {rascunho && <div className={styles.previa}>
-        <label htmlFor={previa}>Prévia de “{rascunho.titulo}” — edite antes de usar</label>
-        <textarea id={previa} maxLength={4000} value={rascunho.texto} onChange={e => setRascunho({ ...rascunho, texto: e.target.value })} aria-describedby={rascunho.aviso ? `${previa}-aviso` : undefined} />
-        {rascunho.aviso && <p id={`${previa}-aviso`} role="status" className={styles.fila}>{rascunho.aviso}</p>}
-        {rascunho.linkIndividual === 'PREENCHIDO' && <p className={styles.nota}>Link individual preenchido pelo fluxo de contratação deste cliente.</p>}
+      {previaAtual && <div className={styles.previa}>
+        <label htmlFor={previa}>Prévia de “{previaAtual.titulo}” — edite antes de usar</label>
+        <textarea id={previa} maxLength={4000} value={previaAtual.texto} onChange={e => setRascunho({ ...previaAtual, texto: e.target.value })} aria-describedby={previaAtual.aviso ? `${previa}-aviso` : undefined} />
+        {previaAtual.aviso && <p id={`${previa}-aviso`} role="status" className={styles.fila}>{previaAtual.aviso}</p>}
+        {previaAtual.linkIndividual === 'PREENCHIDO' && <p className={styles.nota}>Link individual preenchido pelo fluxo de contratação deste cliente.</p>}
         <div className={styles.acoes}>
-          <button type="button" className={styles.primario} disabled={!podeUsar || !rascunho.texto.trim()} onClick={usar}>{textoAtual.trim() ? 'Substituir a resposta' : 'Colocar na resposta'}</button>
+          <button type="button" className={styles.primario} disabled={!podeUsar || !previaAtual.texto.trim()} onClick={usar}>{textoAtual.trim() ? 'Substituir a resposta' : 'Colocar na resposta'}</button>
           <button type="button" onClick={() => setRascunho(null)}>Descartar prévia</button>
         </div>
         {!podeUsar && motivoBloqueio && <p>{motivoBloqueio}</p>}

@@ -6,6 +6,7 @@ import type { ConfiguracaoAtendimento } from '@/lib/whatsapp/atendimento/core';
 import type { ConversaLista, EstadoCanal, MensagemLista } from '@/lib/whatsapp/atendimento/service';
 import styles from './atendimento.module.css';
 import { GerenciarMensagensProntas, MensagensProntas } from './MensagensProntas';
+import { resumoEncerramento } from '@/lib/whatsapp/atendimento/encerramento';
 
 type Dados = { usuarioId: string; conversas: ConversaLista[]; mensagens: MensagemLista[]; configuracao: ConfiguracaoAtendimento | null; automacaoDisponivel: boolean; canal: EstadoCanal; ia: { ia: boolean; orcamento: boolean }; podeConfigurar: boolean };
 type Estado = ConversaLista['estado'];
@@ -32,7 +33,7 @@ function responsavel(c: ConversaLista, usuarioId: string) {
 
 export default function AtendimentoWhatsapp() {
   const [dados,setDados] = useState<Dados | null>(null), [selecionada,setSelecionada] = useState<string | null>(null), [erro,setErro] = useState(''), [ocupado,setOcupado] = useState(false), [texto,setTexto] = useState(''), [quadro,setQuadro] = useState(false), [config,setConfig] = useState<ConfiguracaoAtendimento | null>(null), [lidoEm,setLidoEm] = useState(0), [statusAcao,setStatusAcao] = useState('');
-  const pedidoAtual = useRef(0), tituloConversa = useRef<HTMLHeadingElement>(null), focarConversa = useRef(false), cartoes = useRef(new Map<string, HTMLButtonElement>()), dialogoEncerrar = useRef<HTMLDialogElement>(null), botaoEncerrar = useRef<HTMLButtonElement>(null), campoResposta = useRef<HTMLTextAreaElement>(null);
+  const pedidoAtual = useRef(0), tituloConversa = useRef<HTMLHeadingElement>(null), focarConversa = useRef(false), cartoes = useRef(new Map<string, HTMLButtonElement>()), dialogoEncerrar = useRef<HTMLDialogElement>(null), botaoEncerrar = useRef<HTMLButtonElement>(null), campoResposta = useRef<HTMLTextAreaElement>(null), selecionadaAtual = useRef<string | null>(null);
   const carregar = useCallback(async () => {
     const pedido = ++pedidoAtual.current;
     try { const r = await adminFetch('/api/admin/atendimento' + (selecionada ? '?conversaId=' + selecionada : '')); const json = await r.json(); if (!r.ok || !json.ok) throw Error(json.erro || 'Não foi possível carregar o atendimento.'); if (pedido === pedidoAtual.current) { setDados(json.data); setLidoEm(Date.now()); setErro(''); } }
@@ -40,12 +41,13 @@ export default function AtendimentoWhatsapp() {
   },[selecionada]);
   useEffect(() => { const contador = pedidoAtual; const inicio = window.setTimeout(() => void carregar(),0); const timer = window.setInterval(() => { if (!document.hidden) void carregar(); },10000); return () => { ++contador.current; window.clearTimeout(inicio); window.clearInterval(timer); }; },[carregar]);
   const conversa = dados?.conversas.find(c => c.id === selecionada);
+  useEffect(() => { selecionadaAtual.current = selecionada; }, [selecionada]);
   // Celular e teclado: ao escolher uma conversa, o foco vai para ela (a lista pode ter até 100 itens acima).
   useEffect(() => { if (conversa && focarConversa.current) { focarConversa.current = false; tituloConversa.current?.focus(); tituloConversa.current?.scrollIntoView({ block: 'start' }); } }, [conversa]);
   async function agir(acao: 'assumir' | 'retomar' | 'encerrar' | 'enviar') {
     if (!conversa || ocupado) return null;
     setOcupado(true);setErro('');setStatusAcao('');
-    try { const r = await adminFetch('/api/admin/atendimento',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({acao,conversaId:conversa.id,versao:Number(conversa.versao),...(acao==='enviar'?{texto}: {})})}); const json = await r.json(); if (!r.ok || !json.ok) throw Error(json.erro || 'Não foi possível concluir.'); if (acao==='enviar') setTexto(''); await carregar(); return (json.data ?? {}) as { canceladas?: number }; }
+    try { const r = await adminFetch('/api/admin/atendimento',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({acao,conversaId:conversa.id,versao:Number(conversa.versao),...(acao==='enviar'?{texto}: {})})}); const json = await r.json(); if (!r.ok || !json.ok) throw Error(json.erro || 'Não foi possível concluir.'); if (acao==='enviar') setTexto(''); await carregar(); return (json.data ?? {}) as { canceladas?: { entradas: number; saidas: number } }; }
     catch(e) {setErro(e instanceof Error ? e.message : 'Não foi possível concluir.'); return null;} finally {setOcupado(false);}
   }
   // Encerrar pede confirmação (diálogo nativo: foco preso, Esc cancela). Abrir/fechar é imperativo: o próprio diálogo
@@ -58,9 +60,10 @@ export default function AtendimentoWhatsapp() {
     const r = await agir('encerrar');
     dialogoEncerrar.current?.close();
     if (r) window.setTimeout(() => tituloConversa.current?.focus(), 0);
-    if (r) setStatusAcao(r.canceladas ? `Atendimento encerrado. ${r.canceladas === 1 ? '1 resposta pendente foi cancelada' : r.canceladas + ' respostas pendentes foram canceladas'}; o histórico foi mantido.` : 'Atendimento encerrado. O histórico foi mantido.');
+    if (r) setStatusAcao(resumoEncerramento(r.canceladas));
   }
-  function usarProntaNaResposta(rascunho: string) { setTexto(rascunho); window.setTimeout(() => campoResposta.current?.focus(), 0); }
+  // Só aceita rascunho da conversa aberta (a biblioteca já confere; aqui é a segunda trava, pela conversa vigente).
+  function usarProntaNaResposta(rascunho: string, origem: string) { if (origem !== selecionadaAtual.current) return; setTexto(rascunho); window.setTimeout(() => campoResposta.current?.focus(), 0); }
   async function salvar() {
     if (!config || ocupado) return;setOcupado(true);setErro('');
     try { const r=await adminFetch('/api/admin/atendimento',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({acao:'configurar',configuracao:config})});const json=await r.json();if(!r.ok||!json.ok)throw Error(json.erro||'Confira os campos da configuração.');setConfig(null);await carregar(); } catch(e){setErro(e instanceof Error?e.message:'Falha ao salvar.');}finally{setOcupado(false);}
@@ -122,7 +125,7 @@ export default function AtendimentoWhatsapp() {
           <form onSubmit={e=>{e.preventDefault();if(podeResponder&&texto.trim())void agir('enviar');}}><label htmlFor="resposta-whatsapp">Resposta do atendente</label><textarea ref={campoResposta} id="resposta-whatsapp" maxLength={4000} value={texto} onChange={e=>setTexto(e.target.value)} disabled={!podeResponder} aria-describedby={motivoSemResposta ? 'resposta-motivo' : undefined} />{motivoSemResposta && <p id="resposta-motivo">{motivoSemResposta}</p>}<button className={styles.primario} disabled={!podeResponder||!texto.trim()}>Enviar resposta</button></form>
           <dialog ref={dialogoEncerrar} className={styles.dialogo} aria-labelledby="encerrar-titulo" aria-describedby="encerrar-texto">
             <h2 id="encerrar-titulo">Encerrar atendimento?</h2>
-            <p id="encerrar-texto">A conversa será marcada como encerrada e as respostas automáticas pendentes serão canceladas. O histórico será mantido.</p>
+            <p id="encerrar-texto">A conversa será marcada como encerrada e as respostas pendentes serão canceladas. O histórico será mantido.</p>
             <div className={styles.acoes}><button type="button" autoFocus onClick={()=>dialogoEncerrar.current?.close()}>Cancelar</button><button type="button" className={styles.perigo} disabled={ocupado} onClick={()=>void encerrarConfirmado()}>Encerrar atendimento</button></div>
           </dialog>
         </>}</section>
