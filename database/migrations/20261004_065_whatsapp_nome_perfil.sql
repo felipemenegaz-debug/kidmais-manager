@@ -1,25 +1,25 @@
--- 064 — Atendimento WhatsApp: nome de PERFIL do contato (não verificado), por conversa.
+-- 065 — Atendimento WhatsApp: nome de PERFIL do contato (não verificado), por conversa.
 --
 -- O Gupshup entrega em cada mensagem recebida `payload.sender.name`: o nome que a própria pessoa pôs no perfil do
 -- WhatsApp. Não é verificado e não identifica cliente; a tela o mostra rotulado como tal, separado do nome cadastrado
 -- (que vem do cadastro de clientes da empresa, consultado na hora, sem coluna nova).
 --
 -- Aditiva e sem reescrita de tabela: duas colunas anuláveis em whatsapp_atendimento_conversas (isolada por empresa e
--- ambiente desde a 060). Exige a 060; independe da 063. Falha fechada se já aplicada.
--- Aplicação real somente com autorização explícita (docs/OPERACAO_AGENTES.md). Postcheck: database/checks/20261004_064_postcheck.sql.
--- NUMERAÇÃO PROVISÓRIA: em 04/10/2026 a 063 também é usada por feat/painel-desenvolvedor-20261004; a ordem final
--- depende de qual entra primeiro em staging (docs/IDENTIFICACAO_CONTATO_ATENDIMENTO.md, "Numeração").
+-- ambiente desde a 060). Exige a 060; independe da 064. Falha fechada se já aplicada.
+-- Aplicação real somente com autorização explícita (docs/OPERACAO_AGENTES.md). Postcheck: database/checks/20261004_065_postcheck.sql.
+-- Numeração coordenada em 04/10/2026: a 063 fica com feat/painel-desenvolvedor-20261004 (já publicada); as do
+-- atendimento são a 064 (mensagens prontas) e esta 065. Entram em qualquer ordem (docs/IDENTIFICACAO_CONTATO_ATENDIMENTO.md).
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
 DO $$ BEGIN
   IF to_regclass('public.whatsapp_atendimento_conversas') IS NULL THEN
-    RAISE EXCEPTION '064 exige a 060 (atendimento WhatsApp).';
+    RAISE EXCEPTION '065 exige a 060 (atendimento WhatsApp).';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.whatsapp_atendimento_conversas'::regclass
               AND attname IN ('nome_perfil', 'nome_perfil_em') AND NOT attisdropped) THEN
-    RAISE EXCEPTION '064 já aplicada (total ou parcialmente).';
+    RAISE EXCEPTION '065 já aplicada (total ou parcialmente).';
   END IF;
 END $$;
 

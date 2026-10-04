@@ -65,7 +65,7 @@ test('salvar valida, grava na empresa comprovada e controla versão; link indivi
   assert.match(velha.comandos[0].sql, /versao=\$4 AND ativa/);
 });
 
-test('sem a 063 a biblioteca fica indisponível; unicidade vira mensagem clara', async () => {
+test('sem a 064 a biblioteca fica indisponível; unicidade vira mensagem clara', async () => {
   await assert.rejects(carregar({ erro: { code: '42P01' } }).modulo.listarProntas(sessao), /ATENDIMENTO_PRONTAS_INDISPONIVEL/);
   await assert.rejects(carregar({ papel: 'REPRESENTANTE_AUTORIZADO', erro: { code: '23505', constraint: 'whatsapp_prontas_atalho_unico' } }).modulo.salvarPronta(sessao, nova), /ATENDIMENTO_PRONTA_ATALHO_EM_USO/);
   await assert.rejects(carregar({ papel: 'REPRESENTANTE_AUTORIZADO', erro: { code: '23505', constraint: 'whatsapp_prontas_titulo_unico' } }).modulo.salvarPronta(sessao, nova), /ATENDIMENTO_PRONTA_TITULO_EM_USO/);

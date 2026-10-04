@@ -15,8 +15,8 @@ export type ConversaLista = Conversa & { contato_final: string; responsavel_nome
 type LinhaConversa = Omit<ConversaLista, 'cadastro'> & { clientes: number; cliente_nome: string | null };
 
 /**
- * A coluna nome_perfil chega com a migration 064; sem ela (ou depois do rollback), o atendimento segue sem o nome de
- * perfil. Consulta de catálogo a cada uso, sem cache: aplicar ou reverter a 064 não exige reiniciar a aplicação.
+ * A coluna nome_perfil chega com a migration 065; sem ela (ou depois do rollback), o atendimento segue sem o nome de
+ * perfil. Consulta de catálogo a cada uso, sem cache: aplicar ou reverter a 065 não exige reiniciar a aplicação.
  */
 async function temNomePerfil(tx: DbExecutor) {
   const r = await tx.query<{ existe: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.whatsapp_atendimento_conversas') AND attname='nome_perfil' AND NOT attisdropped) AS existe`);

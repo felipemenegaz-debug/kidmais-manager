@@ -10,7 +10,7 @@ import { adiado, carregarAtendimento, cod, noPrazo } from "./harness-postgres.ts
  * Evidência de concorrência do ENCERRAR (cancelamento na mesma transação com FOR UPDATE SKIP LOCKED), no PostgreSQL
  * descartável. Só roda pelo check:v1:postgres, com KIDMAIS_POSTGRES_DESCARTAVEL, no cluster descartável e com
  * autorização explícita do Felipe (docs/OPERACAO_AGENTES.md). PREPARADA: execução registrada em
- * docs/VALIDACAO_063_E_ENCERRAMENTO.md. Dados sintéticos; modelo e Gupshup simulados.
+ * docs/@@DOC064@@.md. Dados sintéticos; modelo e Gupshup simulados.
  *
  * Roteiro:
  *  1. controle do risco: sem SKIP LOCKED, a ordem de travas inversa (worker: mensagem → conversa; encerrar:

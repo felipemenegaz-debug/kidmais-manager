@@ -164,21 +164,21 @@ test('tela autorizada: número completo, cadastro só da empresa (sem mesclados,
   assert.match(sql, /CASE WHEN c\.contato LIKE '55%' AND length\(c\.contato\) IN \(12,13\) THEN substr\(c\.contato,3\) END AS sem55/, 'mesma variante sem 55 de variantesTelefone');
   assert.match(sql, /CASE WHEN count\(\*\)=1 THEN max\(cl\.nome_completo\) END AS cliente_nome/, 'com vários clientes nenhum nome sai do banco');
   assert.match(sql, /WHERE c\.empresa_id=\$1 AND c\.ambiente=\$2/, 'conversas da empresa e do ambiente');
-  assert.match(sql, /NULL::text AS nome_perfil/, 'sem a 064, sem nome de perfil (e sem erro)');
+  assert.match(sql, /NULL::text AS nome_perfil/, 'sem a 065, sem nome de perfil (e sem erro)');
   assert.deepEqual(dados.conversas.map(c => [c.contato, c.versao, c.cadastro]), [
     ['5561900000101', 3, { situacao: 'UNICO', nome: 'Ana Souza' }],
     ['5561900000105', 1, { situacao: 'AMBIGUO', quantidade: 2 }],
     ['5561900000102', 1, { situacao: 'SEM_CADASTRO' }],
   ]);
   assert.ok(dados.conversas.every(c => !('clientes' in c) && !('cliente_nome' in c)), 'colunas auxiliares não vão para a tela');
-  const com064 = carregar({ nomePerfil: true });
-  await com064.modulo.listarAtendimento(sessao);
-  assert.match(com064.sqls('FROM whatsapp_atendimento_conversas c')[0].sql, /c\.nome_perfil AS nome_perfil/);
+  const com065 = carregar({ nomePerfil: true });
+  await com065.modulo.listarAtendimento(sessao);
+  assert.match(com065.sqls('FROM whatsapp_atendimento_conversas c')[0].sql, /c\.nome_perfil AS nome_perfil/);
   // Papel sem atendimento não vê nada disso.
   await assert.rejects(carregar({ papel: 'OPERACIONAL' }).modulo.listarAtendimento(sessao), /ATENDIMENTO_ACESSO_NEGADO/);
 });
 
-test('nome de perfil: gravado só com a 064 aplicada, saneado, sem mudar versão/estado, e replay antigo não sobrescreve', async () => {
+test('nome de perfil: gravado só com a 065 aplicada, saneado, sem mudar versão/estado, e replay antigo não sobrescreve', async () => {
   const sem = carregar();
   await sem.modulo.receberEntrada({ ...entrada('Olá'), nomePerfil: 'Ana' });
   assert.equal(sem.sqls('SET nome_perfil').length, 0, 'sem a coluna, nada é gravado e a mensagem segue');

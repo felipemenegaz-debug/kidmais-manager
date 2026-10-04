@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Mensagens prontas do atendimento (063). Biblioteca da EQUIPE: o atendente escolhe, revisa e envia.
+ * Mensagens prontas do atendimento (064). Biblioteca da EQUIPE: o atendente escolhe, revisa e envia.
  * Não são fontes da IA (as respostas publicadas ficam na configuração) nem automações: nada aqui sai sozinho.
  *
  * Tipos da fase A: TEXTO, LINK fixo (https) e LINK individual de fechamento. O link individual nunca é digitado:

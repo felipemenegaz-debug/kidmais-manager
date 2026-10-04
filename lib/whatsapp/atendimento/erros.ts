@@ -11,7 +11,7 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_ACESSO_NEGADO: 'Seu perfil não tem acesso a esta ação do atendimento.',
   ATENDIMENTO_IA_DESLIGADA: 'A chave da IA está desligada neste ambiente: a fila não envia respostas agora.',
   ATENDIMENTO_NAO_ENCONTRADO: 'Conversa não encontrada. Atualize a lista.',
-  ATENDIMENTO_PRONTAS_INDISPONIVEL: 'Mensagens prontas indisponíveis neste ambiente: a estrutura da biblioteca (migration 063) ainda não foi aplicada.',
+  ATENDIMENTO_PRONTAS_INDISPONIVEL: 'Mensagens prontas indisponíveis neste ambiente: a estrutura da biblioteca (migration 064) ainda não foi aplicada.',
   ATENDIMENTO_PRONTA_ATALHO_EM_USO: 'Já existe uma mensagem ativa neste atalho. Edite a atual ou tire o atalho dela antes.',
   ATENDIMENTO_PRONTA_TITULO_EM_USO: 'Já existe uma mensagem pronta com este título.',
   ATENDIMENTO_PRONTA_DESATUALIZADA: 'A mensagem pronta mudou. Atualize a lista antes de continuar.',

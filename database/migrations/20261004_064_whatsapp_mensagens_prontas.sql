@@ -1,4 +1,4 @@
--- 063 — Atendimento WhatsApp: biblioteca de mensagens prontas da equipe (fase A: texto e links) e favoritas por usuário.
+-- 064 — Atendimento WhatsApp: biblioteca de mensagens prontas da equipe (fase A: texto e links) e favoritas por usuário.
 --
 -- NÃO APLICADA. Exige autorização explícita (docs/OPERACAO_AGENTES.md) para qualquer banco, inclusive staging,
 -- clones e o cluster descartável. Depende da 060 (não a altera). Sem esta migration a tela de Atendimento continua
@@ -19,11 +19,11 @@ SET LOCAL lock_timeout = '5s';
 DO $$ BEGIN
   IF to_regclass('public.whatsapp_atendimento_conversas') IS NULL OR to_regclass('public.empresas') IS NULL
      OR to_regclass('public.usuarios_administrativos') IS NULL THEN
-    RAISE EXCEPTION '063 exige a 060 (atendimento WhatsApp), empresas e usuarios_administrativos.';
+    RAISE EXCEPTION '064 exige a 060 (atendimento WhatsApp), empresas e usuarios_administrativos.';
   END IF;
   IF to_regclass('public.whatsapp_atendimento_mensagens_prontas') IS NOT NULL
      OR to_regclass('public.whatsapp_atendimento_mensagens_prontas_favoritas') IS NOT NULL THEN
-    RAISE EXCEPTION '063 já aplicada (total ou parcialmente).';
+    RAISE EXCEPTION '064 já aplicada (total ou parcialmente).';
   END IF;
 END $$;
 

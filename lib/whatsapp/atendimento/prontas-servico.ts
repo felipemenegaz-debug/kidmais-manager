@@ -8,13 +8,13 @@ import { comporRascunho, linkSeguro, prontaEntradaSchema, type Pronta } from './
 import { EXPLICACAO_SEM_LINK, resolverLinkFechamento } from './prontas-link.ts';
 
 /**
- * Serviço da biblioteca de mensagens prontas (063). Mesma porta de acesso do atendimento: empresa comprovada pela
+ * Serviço da biblioteca de mensagens prontas (064). Mesma porta de acesso do atendimento: empresa comprovada pela
  * sessão e papel ADMINISTRATIVO ou REPRESENTANTE_AUTORIZADO; cadastrar e arquivar só o representante.
  * Nada aqui envia mensagem: o rascunho volta para a tela e o envio continua sendo a ação "enviar" do atendente.
  */
 const COLUNAS = 'id,titulo,categoria,tipo,texto,link,atalho,versao,atualizada_em';
 
-/** Sem a 063 a biblioteca fica indisponível, sem derrubar o atendimento; conflitos de unicidade viram mensagens claras. */
+/** Sem a 064 a biblioteca fica indisponível, sem derrubar o atendimento; conflitos de unicidade viram mensagens claras. */
 function traduzir(erro: unknown) {
   const e = erro as { code?: string; constraint?: string };
   if (e?.code === '42P01') return new Error('ATENDIMENTO_PRONTAS_INDISPONIVEL');

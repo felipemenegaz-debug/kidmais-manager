@@ -292,7 +292,7 @@ test("060: atendimento WhatsApp — isolamento, deduplicação, concorrência, t
     assert.equal((await mensagens(c112.id)).at(-1)?.estado, "CANCELADA");
     assert.deepEqual([c112depois.estado, c112depois.responsavel_id, Number(c112depois.versao)], ["HUMANO", atendente.usuario_id, Number(c112assumida.versao)], "estado, responsável e versão humanos preservados");
     assert.deepEqual(textosEnviados, ["Endereço corrigido sintético."], "nada mais saiu");
-    // Tela autorizada (04/10/2026): número completo, final de 4 dígitos, vínculo com o cadastro e, sem a 064, sem nome de
+    // Tela autorizada (04/10/2026): número completo, final de 4 dígitos, vínculo com o cadastro e, sem a 065, sem nome de
     // perfil — e sem erro por a coluna não existir.
     const tela = await servico.listarAtendimento(atendente);
     assert.ok(tela.conversas.every((x) => /^\d{8,15}$/.test(x.contato) && x.contato.endsWith(x.contato_final) && /^\d{4}$/.test(x.contato_final)));

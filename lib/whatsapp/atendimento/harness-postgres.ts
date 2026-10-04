@@ -11,7 +11,7 @@ import * as normalizers from "../../clientes/repositories/normalizers.ts";
 import { listarContratacoes } from "../../fechamentos/contratacoes.ts";
 
 /**
- * Apoio das suítes PostgreSQL do atendimento (063 e concorrência do encerramento). Só usado por *.postgres.test.ts,
+ * Apoio das suítes PostgreSQL do atendimento (064 e concorrência do encerramento). Só usado por *.postgres.test.ts,
  * que rodam pelo check:v1:postgres no cluster descartável com opt-in e autorização explícita. Dados sintéticos.
  * Serviço, worker, biblioteca e o repositório REAL de clientes rodam com uma conexão por transação (como o pool),
  * para corridas e travas de verdade. Modelo e Gupshup são portas simuladas: nenhuma chamada de rede.
