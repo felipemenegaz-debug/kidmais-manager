@@ -95,6 +95,8 @@ Evidências locais em `.local-ux/` (fora do Git), vinculadas ao commit.
 - `production:test`: 37/37;
 - CI do GitHub: verde.
 
+**Integração seguinte (04/10/2026, local):** `origin/staging` avançou para `87b9611` (PR #92: tela de contrato integrado e 7 linhas em `lib/financeiro/servico.ts`), sem migration nem sobreposição com a candidata. Merge local `6cf5813`: `check:v1:static` 1.879 + 103, lint, TypeScript e build (`.local-ux/whatsapp-static-6cf5813.log`), `production:test` 37/37 (`.local-ux/production-test-6cf5813.log`). O PostgreSQL integrado (36/36 em `af14865`) vale para o código do WhatsApp e para as migrations, que a integração não mudou. As 7 linhas do financeiro vêm da PR #92 de staging, com sua própria validação. **Plano de deploy em staging com o canal desligado:** [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md), "Deploy da candidata com o canal desligado".
+
 **Gates do código validado da preparação: `918b0a1` (local, base `35a2bd9` integrada, árvore limpa):**
 - `check:v1:static`: 1.879 testes unitários e 103 do harness, lint, TypeScript, build e leitura de PDF no asset (`.local-ux/whatsapp-static-918b0a1.log`);
 - `production:test`: 37/37 com 060, 061 e 062 (`.local-ux/production-test-918b0a1.log`);

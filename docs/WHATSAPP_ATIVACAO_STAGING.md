@@ -52,6 +52,64 @@ O merge (E1) não implica deploy nem ativação. Cada etapa seguinte tem autoriz
 | D3 | Onde roda o worker (A6) | **Decidido:** processo temporário na máquina do Felipe, só durante a janela autorizada. Nenhum serviço Render é criado; o worker de produção é decisão da etapa própria de produção |
 | D4 | Quem recebe hoje as mensagens do número | Ler as assinaturas atuais antes de qualquer mudança. A nova assinatura de staging é **acrescentada**, nunca substitui as existentes |
 
+## Deploy da candidata com o canal desligado (E1–E3 concretas)
+
+Preparado em 04/10/2026. **Não depende da resposta do Gupshup**: nada aqui liga recepção ou envio, cria assinatura, muda variável, inicia worker ou manda mensagem. Cada linha exige autorização própria.
+
+### Leituras feitas (04/10/2026)
+
+**Render, workspace `tea-daidbj95efls73d2bcf0`:**
+- `kidmais-manager-staging` (`srv-daif418ae00c73e8k2gg`): branch `staging`, auto-deploy desligado (`autoDeploy: no`, trigger `off`), previews desligados.
+- Deploy live: `dep-db0u5g6gekts73ba5urg`, commit `87b9611`, igual ao `origin/staging` atual.
+- `kidmais-manager-production`: branch `production`, auto-deploy desligado.
+- Não existe Background Worker nem outro serviço além dos dois web services.
+
+**Banco de staging:** `kidmais-staging` (`dpg-daidko3m8hqs73ce4jt0-a`, banco `kidmais_staging_1z91`, PostgreSQL 18).
+
+**Migrations aplicadas em staging: NÃO comprovadas.**
+- O inventário não tem tabela de controle (`appliedState: unknown`).
+- O repositório registra a 059 aplicada em 01/10 (por um script executado pelo Felipe) e um plano para 061/062 (`docs/CONTRATOS_IMPORTADOS_INTEGRACAO.md`, S1–S21), sem registro de execução.
+- O deploy live de `87b9611`, que contém o código da 061/062, sugere as duas aplicadas, mas não prova.
+- Leitura necessária: E2a.
+
+### O que a candidata exige do schema
+
+| Migration | Exigida pelo código da candidata? | Observação |
+| --- | --- | --- |
+| 055a–059 | Sim, pelo código já em produção de staging (IA, skills, operacional) | A candidata não muda essa dependência |
+| 060 | Só para a tela de Atendimento, a API administrativa e o processador | Sem a 060: a tela responde "indisponível"; o webhook não toca no banco com o canal desligado; o OTP não muda |
+| 061/062 | Pelo código de contratos e agenda já live em `87b9611` (com detecção de schema) | A candidata não muda essa dependência: o deploy só acrescenta o WhatsApp ao que já está no ar |
+
+### Prova de que o canal fica desligado
+
+- **Recepção:** `recepcaoAtiva()` exige `WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED=true`, `WHATSAPP_ATENDIMENTO_RECEPTOR` igual a `KIDMAIS_DEPLOY_ENV` e uma empresa piloto válida. `WHATSAPP_ATENDIMENTO_RECEPTOR` foi criada por esta PR e **não foi configurada por esta entrega** (nenhuma autorização de variável foi dada). A ausência em staging só é confirmada pela tela depois do deploy. Sem ela, a recepção fica desligada e o webhook se comporta como hoje.
+- **Envio:** `atendimentoAtivo()` exige `WHATSAPP_ATENDIMENTO_ENABLED=true` e o mesmo receptor. O processador exige `WHATSAPP_ATENDIMENTO_WORKER_SECRET` (401 sem ele) e só roda se for chamado. Nenhum worker existe nem será iniciado.
+- **Verificação depois do deploy:** a tela mostra "Situação do canal", lida do ambiente do servidor. O esperado é "Receptor do número: Outro ambiente ou nenhum", "Receber mensagens: Desligado" e "Enviar respostas: Desligado".
+- **Limitação:** o Render MCP não lista nomes de variáveis. A confirmação da ausência vem da tela depois do deploy. Se aparecer algo ligado, parar e reverter o código.
+
+### Efeito no OTP
+
+- O envio do OTP (`lib/identidade`) não mudou.
+- A rota `/api/integracoes/gupshup/webhook` ganhou um ramo de persistência que **só existe com a recepção ligada**. Desligada, o receptor é chamado sem `persistEvent` e responde como hoje (204/400/401/403/405/408/413/415/503).
+- O pool do banco é criado só na primeira consulta: importar o serviço não conecta.
+- Evidência: `webhook.test.ts`, no gate de `918b0a1` e do merge `6cf5813`.
+
+### Ordem e operações
+
+| # | Operação | Alvo | Efeito | Verificação | Recuperação |
+| --- | --- | --- | --- | --- | --- |
+| P1 | Push da branch `whatsapp/atendimento-ia-v1` | GitHub (PR #80) | PR atualizada sem conflito; CI do HEAD exato. Nenhum serviço Render acompanha esta branch | CI verde do HEAD; descrição da PR atualizada | Force push não; corrigir com novo commit |
+| E1 | Merge da PR #80 em `staging` (merge commit) | GitHub | `origin/staging` passa a conter a candidata. Sem deploy com o auto-deploy desligado (revalidar antes) | `origin/staging` = merge; deploy live inalterado | Revert do merge |
+| E2a | **Leitura** do estado das migrations: `aplicar-060-staging.ps1 -Alvo <sha> -SomenteEstado`, executado pelo Felipe (URL digitada mascarada) | Banco de staging, `default_transaction_read_only=on` | Nenhum | Linha de estado 055a–062 | — |
+| E2b | Backup fresco (`pg_dump -Fc`) e 060 (precheck embutido, atômica, `lock_timeout` 5 s) e postcheck em leitura: o mesmo script sem `-SomenteEstado`, com frase digitada | Banco de staging | Cria 5 tabelas vazias; Core intacto. O código live (`87b9611`) as ignora | Postcheck OK; estado `m060_tabelas=5` | Tabelas vazias: rollback precheck, down e postcheck da 060 (o down recusa se houver dados sem descarte explícito). Nunca restaurar o backup sem decisão |
+| E3 | Deploy manual do commit de `origin/staging` (o merge da E1) | `srv-daif418ae00c73e8k2gg` | Build com `check:v1:static`; código novo no ar com o canal desligado | Deploy `live` com o commit certo; `/api/health`; logs sanitizados; tela de Atendimento abre com tudo desligado; login com OTP funciona | Deploy do commit anterior (`87b9611`) |
+
+**Ordem recomendada:** P1 → (CI e revisão) → E1 → E2a → E2b → E3. Com a 060 antes do deploy, a tela funciona assim que o código sobe. Se E2 for adiada, E3 continua segura, mas a tela fica "indisponível" até a 060.
+
+**OTP na verificação:** o login em staging dispara um OTP real para o número do usuário que entra. Só com autorização explícita, ou com o próprio Felipe fazendo o login.
+
+**O script** `aplicar-060-staging.ps1` (com `estado-migrations-staging.sql`, `guard-origem.ps1` e `sonda-encoding.sql`) segue o formato do script da 059. Ele fica no scratchpad desta sessão do Claude Code, fora do Git. Foi validado offline (`-SomenteValidar`): o positivo passa os guards de commit e blob; os negativos param sem a 060 no alvo e com chave proibida.
+
 ## Ativação em staging, etapa por etapa
 
 Ordem pensada para que cada etapa seja reversível e o canal fique desligado até o fim. Staging: `kidmais-manager-staging` (`srv-daif418ae00c73e8k2gg`), branch `staging`, auto-deploy desligado (revalidar por leitura antes de E1 e E3).
