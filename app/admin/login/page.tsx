@@ -2,6 +2,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import styles from '@/components/admin/admin.module.css';
+/** Retorno após o login: só caminhos internos do Admin, do perfil ou do painel do desenvolvedor. */
+function destinoSeguro() {
+    const voltar = new URLSearchParams(window.location.search).get('voltar') ?? '';
+    return /^\/(admin|desenvolvedor)(\/[A-Za-z0-9_\-/]*)?$/.test(voltar) && !voltar.includes('//') && !voltar.startsWith('/admin/login') ? voltar : '/admin/contratos';
+}
 export default function LoginAdmin() {
     const router = useRouter();
     const [error, setError] = useState(''), [busy, setBusy] = useState(false);
@@ -20,7 +25,7 @@ export default function LoginAdmin() {
                 const body = await res.json();
                 if (!body.ok)
                     throw Error(body.erro);
-                router.replace('/admin/contratos');
+                router.replace(destinoSeguro());
                 router.refresh();
             }
             catch (e) {
@@ -33,5 +38,6 @@ export default function LoginAdmin() {
  <label style={{ display: 'block', marginBottom: 16 }}>Email<input name="email" type="email" autoComplete="username" required style={{ display: 'block', width: '100%', padding: 10 }}/></label>
  <label style={{ display: 'block', marginBottom: 16 }}>Senha<input name="senha" type="password" autoComplete="current-password" required style={{ display: 'block', width: '100%', padding: 10 }}/></label>
  <button disabled={busy} type="submit">{busy ? 'Entrando…' : 'Entrar'}</button><p role="alert">{error}</p></form>
- <p>Contas são criadas pelo operador autorizado. Não há cadastro público.</p></main>;
+ <p><a href="/acesso/recuperar">Esqueci minha senha</a></p>
+ <p>Contas são criadas pelo operador autorizado ou por convite. Não há cadastro público.</p></main>;
 }
