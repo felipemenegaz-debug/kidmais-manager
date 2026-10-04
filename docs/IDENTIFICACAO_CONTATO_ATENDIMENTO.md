@@ -1,6 +1,6 @@
 # Identificação do contato no Atendimento WhatsApp — nome e número completo
 
-**Situação:** implementada localmente em 04/10/2026, sem push. A migration **065** (nome de perfil) está preparada e **não foi aplicada** em nenhum banco. As suítes PostgreSQL e a validação no navegador estão preparadas e não foram executadas: precisam de autorização (docs/OPERACAO_AGENTES.md).
+**Situação:** implementada localmente em 04/10/2026, sem push. A migration **065** (nome de perfil) foi aplicada **somente** nos bancos descartáveis das validações autorizadas de 04/10/2026 (HEAD `78ed9d8`; resultado em [VALIDACAO_IDENTIFICACAO.md](VALIDACAO_IDENTIFICACAO.md)), já removidos. Esta entrega não aplicou nada em staging nem em produção; o estado desses bancos **não foi verificado**.
 
 ## O que a tela mostra
 
@@ -38,7 +38,7 @@ Com cadastro ambíguo, o cartão ganha o aviso "Vários cadastros com este núme
 - **Logs:** o webhook continua omitindo `source` e `sender` dos registros.
 - **Mudança de regra antiga:** até aqui a tela recebia só os 4 últimos dígitos. O pedido do Felipe de 04/10/2026 muda isso **só** para esta tela autorizada. As prévias de mensagens prontas continuam sem telefone.
 
-## Migration 065 (preparada, não aplicada)
+## Migration 065 (preparada; aplicada só em bancos descartáveis de validação)
 
 | Arquivo | Conteúdo |
 | --- | --- |
@@ -52,21 +52,21 @@ Com cadastro ambíguo, o cartão ganha o aviso "Vários cadastros com este núme
 
 **Leitura de 04/10/2026, depois de `git fetch`:**
 
-| Ref | Migrations 06x |
+| Ref | Arquivos de migration 06x na branch (não é o estado de nenhum banco) |
 | --- | --- |
 | `origin/staging` (`904b451`) e `origin/production` (`650e268`) | até a **062** |
-| `origin/feat/painel-desenvolvedor-20261004` (`2b6702a`) = local `feat/…`; local `codex/painel-multi-20261004` (`c0158d4`, sessão ativa) | **063 `painel_desenvolvedor`**, com `063_precheck`/`063_postcheck` e rollback. Base no `staging` atual; 2–3 commits à frente; **já publicada** |
+| `origin/feat/painel-desenvolvedor-20261004` (`2b6702a`; em `660c216` na leitura das 18:47, mesma 063) = local `feat/…`; local `codex/painel-multi-20261004` (`c0158d4`, sessão ativa) | **063 `painel_desenvolvedor`**, com `063_precheck`/`063_postcheck` e rollback. Base no `staging` atual; 2–3 commits à frente; **já publicada** |
 | Esta candidata, antes da coordenação | 063 prontas + 064 nome de perfil, colidindo com o painel no id e no arquivo `database/checks/20261004_063_postcheck.sql` |
 
 **Decisão:**
-- o painel, já publicado, mantém a **063**;
+- o painel, com a branch já publicada no GitHub, mantém a **063**;
 - esta candidata, ainda não publicada, renumerou para **064 (mensagens prontas)** e **065 (nome de perfil)** no commit `090e7df`.
 
 Foram atualizados migrations, rollbacks, postchecks, mensagens de erro ("064 exige a 060", "migration 064" na tela), variáveis de descarte (`kidmais.rollback_064_descartar_prontas` e `kidmais.rollback_065_descartar_nomes`), `check-migrations`, `production.test`, a seleção PostgreSQL, os testes estáticos e as suítes. O inventário de produção é uma lista explícita e só exige ids únicos, sem sequência contígua. Por isso as duas candidatas entram **em qualquer ordem**: as tabelas são independentes e nenhuma depende da outra.
 
 **Prova (só leitura/local):**
 - `git merge-tree` da candidata com `origin/staging`: **sem conflito**.
-- Com o painel (`2b6702a`) e com `codex/painel-multi-20261004` (`c0158d4`): conflito **só** em `scripts/production/check-migrations.mjs` e `production.test.mjs`, que são listas adjacentes.
+- Com o painel (`2b6702a`) e com `codex/painel-multi-20261004` (`c0158d4`): conflito **só** em `scripts/production/check-migrations.mjs` e `production.test.mjs`, que são listas adjacentes. Com o painel em `660c216` (leitura das 18:47), também em `app/admin/login/page.tsx`: ver [PLANO_INTEGRACAO_ATENDIMENTO.md](PLANO_INTEGRACAO_ATENDIMENTO.md).
 - Simulação numa worktree descartável do painel com esta candidata mesclada, com os inventários resolvidos pela união das listas:
   - `production.test` **37/37**;
   - `check-migrations` sem bloqueio, com 060…065 únicos e a última sendo a 065;

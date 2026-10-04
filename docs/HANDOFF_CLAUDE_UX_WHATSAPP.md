@@ -7,11 +7,14 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 **HEAD do código:** `9145e1d9db257b10cff194ac2bf948641c738090` na worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`. Os commits de docs que trazem esta seção vêm logo depois.
 - Remoto `origin/whatsapp/atendimento-ia-v1`: `bdb1e75`.
 - 31 commits locais até `9145e1d` (conferido com `git rev-list --count`), mais os de docs, **sem push**.
-- `git merge-tree` (leitura, depois de `git fetch` por volta das 18:47 de 04/10):
+- `git merge-tree` (leitura, depois de `git fetch` às 19:00 de 04/10):
   - contra `origin/staging` `904b451`: **sem conflito**;
   - contra `codex/painel-multi-20261004` `c0158d4`: conflito **só** nos inventários `check-migrations.mjs` e `production.test.mjs` (união de listas; ver o doc de identificação);
-  - contra `origin/feat/painel-desenvolvedor-20261004`, que **avançou** de `2b6702a` para `660c216` (outra sessão): os mesmos inventários **e** `app/admin/login/page.tsx`. As duas mudanças são independentes: o estado do "Mostrar senha" daqui e o `<AvisoContexto />` do painel; basta manter as duas.
-  - Simulação da mescla numa worktree temporária, já removida: `production.test.mjs` 37/37 e `check-migrations.mjs` ok. Evidência em `.local-ux/coordenacao-painel/simulacao-660c216.txt`.
+  - contra `origin/feat/painel-desenvolvedor-20261004`, que **avançou** de `2b6702a` para `660c216` e depois `ad6b1b9` (outra sessão, 18:51): os mesmos inventários **e** `app/admin/login/page.tsx`. As duas mudanças são independentes: o estado do "Mostrar senha" daqui e o `<AvisoContexto />` do painel; basta manter as duas.
+  - Simulação da mescla com `ad6b1b9`, numa worktree temporária já removida: unitários da árvore mesclada **1982/1982**, `tsc` sem erros, `production.test` 37/37, `check-migrations` ok; build e lint não rodados. Evidência em `.local-ux/coordenacao-painel/simulacao-ad6b1b9.txt`.
+  - Ponto sem teste: com o painel, o Atendimento só abre quando a **empresa ativa** da sessão for a piloto (ver o plano, seção 3).
+  - Plano de integração consolidado: [PLANO_INTEGRACAO_ATENDIMENTO.md](PLANO_INTEGRACAO_ATENDIMENTO.md).
+- **Branches não são bancos.** A numeração de migrations das branches (`staging` e `production` até a 062; painel 063; esta candidata 060/064/065) descreve só os **arquivos**. Não demonstra o que está aplicado em nenhum banco. Bancos de staging e de produção: **estado não verificado**, sem leitura datada (a etapa E2a, só leitura, nunca foi executada; ver [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md), "Migrations aplicadas em staging: NÃO comprovadas").
 
 **O que entrou desde `bdb1e75`:**
 
@@ -38,8 +41,8 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 | PostgreSQL descartável: 060, 064, 065, concorrência + suíte completa | `78ed9d8` | **PASS 4/4 e 39/39**, nenhuma pulada; recusas obrigatórias da 065 |
 | Navegador, identificação do contato (I1–I8, desktop/celular/teclado) | `78ed9d8` | ok; zero saídas. 3 observações sem bloqueio, tratadas depois ([VALIDACAO_IDENTIFICACAO.md](VALIDACAO_IDENTIFICACAO.md)) |
 | Regressão estática, idem | **`9145e1d`** | **PASS** 1921/1921 + 103/103; lint sem erros (o mesmo aviso antigo). Log `.local-ux/check-v1-static-9145e1d.log` (SHA-256 `4c8a54ca…c7a9e`), com HEAD e árvore limpa na 1ª linha. A regra nova está no CSS do build |
-| Checagem de produção | `9145e1d` | 37/37; simulação da mescla com o painel `660c216`: 37/37 |
-| Navegador, botão "Voltar" abaixo do menu | — | **não refeita** (exige base sintética nova e autorização); coberta pelo teste estático `layout-celular.test.ts` |
+| Checagem de produção | `9145e1d` | 37/37; simulação da mescla com o painel `660c216`: 37/37; com `ad6b1b9` (HEAD `287f978`): 37/37 + unitários 1982/1982 + `tsc` |
+| Navegador, botão "Voltar" abaixo do menu | — | **não refeita**; coberta pelo teste estático `layout-celular.test.ts`. Conferência curta preparada em [VALIDACAO_VOLTAR_CELULAR.md](VALIDACAO_VOLTAR_CELULAR.md) (recria a base sintética; precisa de autorização; sem PostgreSQL) |
 
 **Lacunas explícitas (nenhuma resolvida por esta candidata):**
 1. **HTTPS visual:** o link individual **preenchido** nunca foi visto na tela. O navegador embutido não abre `https://localhost` com certificado autoassinado. Foi validado só pela rota real em https, com TLS verificado contra o certificado da execução, e pela suíte PostgreSQL (passo 6b).
@@ -49,8 +52,8 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
    - preservação do OTP.
 
    Nenhuma mensagem real foi enviada nem recebida; tudo foi simulado ou sintético. O nome de perfil (`payload.sender.name`) segue a documentação oficial v2, mas não foi visto num evento real.
-3. **Numeração de migrations:** **resolvida localmente** — 063 = painel (publicada), 064/065 = atendimento. Na segunda mescla, seja qual for, ainda é preciso unir as listas dos inventários e, com o painel em `660c216`, manter as duas mudanças do login. Nada foi alterado na branch do painel.
-4. **Validações em banco:** PostgreSQL e navegador da identificação feitos em `78ed9d8`. Depois disso, só o CSS do botão (`9145e1d`) e os textos das fixtures, fora do Git, mudaram. A conferência visual do botão fica para a próxima rodada autorizada.
+3. **Numeração de migrations:** **resolvida localmente nos arquivos** — 063 = painel (branch publicada no GitHub), 064/065 = atendimento. Isso não diz nada sobre bancos: staging e produção com estado não verificado. Na segunda mescla, seja qual for, ainda é preciso unir as listas dos inventários e, com o painel em `660c216`/`ad6b1b9`, manter as duas mudanças do login ([PLANO_INTEGRACAO_ATENDIMENTO.md](PLANO_INTEGRACAO_ATENDIMENTO.md)). Nada foi alterado na branch do painel.
+4. **Validações em banco:** PostgreSQL e navegador da identificação feitos em `78ed9d8`. Depois disso, só o CSS do botão (`9145e1d`) e os textos das fixtures, fora do Git, mudaram. A conferência visual do botão está preparada em [VALIDACAO_VOLTAR_CELULAR.md](VALIDACAO_VOLTAR_CELULAR.md). PostgreSQL não se repete sem mudança que o justifique; o próximo motivo é a mescla com o painel (063 + 064 + 065 juntas).
 5. **Demo local** parada desde o desligamento do Windows (13:10 de 04/10); não reiniciada.
 
 ## Estado em quatro níveis
@@ -58,7 +61,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 | Nível | Estado |
 | --- | --- |
 | Implementado e validado localmente | **Sim, com pendências** (ver "Candidata local consolidada"). PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `bdb1e75`. A candidata local está em `9145e1d` (código), 31 commits à frente (mais o de docs desta seção), **sem push** |
-| Integrado em staging | **Não.** PR aberta, sem merge. Migration 060 não aplicada no banco de staging. Nenhuma variável configurada |
+| Integrado em staging | **Código: não.** PR aberta, sem merge na branch `staging`. **Banco de staging: estado não verificado** — não há leitura datada das migrations (E2a nunca executada); esta entrega não aplicou nada nele. **Variáveis no Render: estado não verificado**; esta entrega não configurou nenhuma |
 | Homologado com Gupshup real | **Não.** Bloqueado até comprovar três condições: autenticação do webhook pelo mecanismo do Gupshup (chamado #277630, acesso ao app `KidmaisManager`), receptor exclusivo do número entre ambientes (E0) e preservação do OTP |
 | Ativo em produção | **Estado não verificado; não ativado por esta entrega.** Produção não foi lida nem alterada. Não presumir seu estado; exige etapa e autorização próprias |
 
@@ -79,7 +82,7 @@ Pedido do Felipe: preparar o módulo sem depender do Gupshup. Não autorizou mer
 - **Base atualizada:** `origin/staging` avançou para `35a2bd9` (contratos históricos 061 e agenda por empresa 062), e a PR #80 ficou em conflito (`dirty`).
   - Integração **local**: `e099edd`, merge de `origin/staging` na branch.
   - Conflitos só nos inventários: 060 ao lado de 061/062 em `check-migrations`, `production.test`, seleção das suítes PostgreSQL e `PERMITIDOS_ROTAS`.
-  - Não há colisão de número: staging não tem 060.
+  - Não há colisão de número: a branch `staging` não tem arquivo 060 (vale para os arquivos, não para o banco).
   - Os modelos PostgreSQL `061`/`062` passam a incluir a 060, com tabelas independentes.
   - A suíte da 060 continua no estado `atual`.
 - **Tela (lacunas comprovadas na revisão de fila humana, pendentes, incertos e motivos):** as contagens dizem que valem para as conversas carregadas (até as 100 atualizadas mais recentemente).
@@ -103,7 +106,7 @@ Pedido do Felipe: preparar o módulo sem depender do Gupshup. Não autorizou mer
 - **Branches locais, sem push:**
   - `ux/importacao-revisao-cancelamento` (c1a252d): correções de UX da importação, para entrega própria;
   - `backup/ux-whatsapp-candidata-20261002` (4d7402f): a candidata original inteira.
-- **Correção financeira:** não faz parte desta PR. Já está em staging (#77) e em production (#79), com código idêntico ao da candidata.
+- **Correção financeira:** não faz parte desta PR. O código já foi mesclado nas branches `staging` (#77) e `production` (#79), idêntico ao da candidata. O que roda em cada ambiente não foi verificado por esta entrega.
 - **Node:** os gates rodam com Node 22.23.2, chamando `node.exe` diretamente. `npm` com esse Node falha em silêncio.
 
 ## O que a V1 faz e não faz

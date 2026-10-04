@@ -132,4 +132,4 @@ Controle: os mesmos casos contra o O4 anterior (sem a verificação de ancestrai
 | `protegidos-antes.txt` | `414d26e6a70a6dd1a0eeeafdfaab551331051e6b54b19f795d2869b07cd2d30a` |
 | `protegidos-depois.txt` | `529144de64e8992a830bd9a983504add15215bf3cd2f0dd7b586bfa175079f0f` |
 
-**Fora desta autorização:** push, merge, staging, produção, deploy e ativação. A 063 continua **não aplicada** fora deste cluster descartável, que já foi removido.
+**Fora desta autorização:** push, merge, staging, produção, deploy e ativação. Esta rodada aplicou a 063 (hoje 064) só neste cluster descartável, já removido. O estado dos bancos de staging e de produção **não foi verificado**.
