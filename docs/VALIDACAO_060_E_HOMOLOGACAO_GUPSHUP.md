@@ -262,7 +262,7 @@ Cada passo usa só o número de teste (A1) e registra trace e estado, sem conte�
 
 **Critério de interrupção imediata:** qualquer envio a um número fora da lista, mensagem de cliente real gravada, resposta com preço ou condição que não esteja nas respostas publicadas, ou erro de isolamento. Nesse caso, desligar as flags, parar o worker e registrar.
 
-## Parte 4 — Validação PostgreSQL integrada (060 com 061/062) — preparada, NÃO executada
+## Parte 4 — Validação PostgreSQL integrada (060 com 061/062) — EXECUTADA em 04/10/2026 (O1, O2, O4)
 
 Preparada em 04/10/2026, depois da integração local de `origin/staging` (`35a2bd9`, 061/062) na branch. **Precisa de autorização explícita do Felipe para O1–O4 neste alvo** antes de qualquer comando. As execuções anteriores (rodadas de 02/10, até `a55aed8`) foram feitas na base antiga, sem 061/062.
 
@@ -316,6 +316,18 @@ Os scripts `o1.sh` e `o4.sh` ficam em `.local-ux/pg-060/`, fora do Git, e já fo
 **Evidência:** o log de O2 com o HEAD no nome, a identidade de O1 e a saída de O4, todos em `.local-ux/pg-060/` (fora do Git). O registro do resultado entra no handoff, ligado ao HEAD validado.
 
 **Recuperação:** se O2 falhar no meio, O4 ainda é seguro, porque confere a identidade antes de parar e só remove o diretório descartável. Se o servidor não parar, não remover nada e investigar. Nada fora do diretório descartável e da porta 55498 é tocado.
+
+### Resultado (04/10/2026, autorizado pelo Felipe: O1, O2 e O4 neste alvo; O3 fora)
+
+- **HEAD:** `af14865` (código idêntico a `918b0a1`; fora de `docs/` não há diferença). Árvore limpa.
+- **O0:** porta 55498 livre; diretório de dados ausente; diretório do cluster 061 ausente; nenhuma variável `PG*` ou `DATABASE_URL` no ambiente.
+- **O1:** identidade `kidmais_descartavel|127.0.0.1|55498|kidmais_descartavel|postgres|0|C|60|C:/Users/Glass/AppData/Local/Temp/kidmais-pg-060/data`, exatamente a esperada (`.local-ux/pg-060/identidade-o1-r8-integrada.txt`).
+- **O2:** `PASS suíte PostgreSQL descartável: 36 arquivos`, sem falhas (`.local-ux/pg-060/check-v1-postgres-r8-integrada-af14865.log`).
+  - `migration-060` OK no estado `atual`, com todos os passos (2 a 8f, mais o rollback).
+  - `tenant-festa` e `estorno-completo` OK em `atual`, `061` e `062`.
+  - Leitura no mesmo cluster, antes de O4: o modelo `atual` não tem a 060 (a suíte a aplica e desfaz); os modelos `061` e `062` contêm `whatsapp_atendimento_conversas`. Portanto as suítes nesses estados passaram com 060, 061 e 062 juntas.
+- **O4:** identidade e diretório conferidos; servidor parado; **somente** `...kidmais-pg-060data` removido (a pasta-mãe ficou vazia); porta 55498 livre (`.local-ux/pg-060/o4-r8-integrada.out`).
+- **O3** não executado (fora da autorização). Vale o ensaio de exportação/restauração de 02/10, com a 060 inalterada desde `a7ac6bd`.
 
 ## Pendências mantidas fora deste ciclo
 
