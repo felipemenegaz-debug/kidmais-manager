@@ -79,6 +79,7 @@ export async function trocarPropriaSenha(token: string, raw: unknown, ctx: Conte
         const encerradas = await deps.revogarSessoesDoUsuario(tx, sessao.usuario_id);
         await deps.limparLimite(tx, 'IDENTIFICADOR', sessao.usuario_id, REGRA_TROCA.namespace);
         const nova = await deps.criarSessaoAdministrativa(tx, sessao.usuario_id, ctx.ip, ctx.userAgent);
+        if (sessao.empresa_ativa_id) await tx.query('UPDATE sessoes_administrativas SET empresa_ativa_id=$2::uuid WHERE id=$1', [nova.id, sessao.empresa_ativa_id]);
         await deps.registrarAuditoria({
             atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'SENHA_ALTERADA', entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: sessao.usuario_id,
             dadosDepois: { resultado: 'SUCESSO', sessoesEncerradas: encerradas, novaSessaoNesteDispositivo: true }, origem: 'PERFIL_SENHA',

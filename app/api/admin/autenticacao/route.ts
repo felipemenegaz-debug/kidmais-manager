@@ -7,15 +7,18 @@ import { exigirApiAdminCrmDisponivel, politicaAdmin, tokenAdmin, verificarOrigem
 import { isClienteServiceError } from '@/lib/clientes/services/errors';
 import { db } from '@/lib/db/postgres';
 import { contextoDaSessao } from '@/lib/autenticacao/contexto';
+import { selecionarEmpresaAtiva } from '@/lib/autenticacao/empresa-ativa';
+import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 const schema = z.discriminatedUnion('acao', [
     z.object({ acao: z.literal('login'), email: z.string().trim().email().max(254), senha: z.string().max(512) }).strict(),
     z.object({ acao: z.literal('logout') }).strict(),
     z.object({ acao: z.literal('reautenticar'), senha: z.string().max(512) }).strict(),
+    z.object({ acao: z.literal('selecionar-empresa'), empresaId: z.string().uuid() }).strict(),
 ]);
 function response(data: unknown, status = 200) { return NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } }); }
-function fail(error: unknown) { return isClienteServiceError(error) ? response({ ok: false, erro: error.message, codigo: error.code }, error.httpStatus) : response({ ok: false, erro: 'Falha na autenticação.' }, 500); }
+function fail(error: unknown) { return isClienteServiceError(error) || error instanceof PacoteAdminError ? response({ ok: false, erro: error.message, codigo: error.code }, error.httpStatus) : response({ ok: false, erro: 'Falha na autenticação.' }, 500); }
 export async function GET(request: NextRequest) {
     try {
         const policy = politicaAdmin(request);
@@ -25,8 +28,8 @@ export async function GET(request: NextRequest) {
             if (hashToken(csrf) !== session.csrf_hash)
                 throw authError();
             // D7: o menu segue o papel NA EMPRESA selecionada (mesma regra de provarTenant), não o papel global.
-            const contexto = await contextoDaSessao(db(), session, request.nextUrl.searchParams.get('empresaId'));
-            return response({ ok: true, data: { usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf, contexto } });
+            const contexto = await contextoDaSessao(db(), session);
+            return response({ ok: true, data: { sessaoId: session.id, usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf, contexto } });
         }
         catch (error) {
             if (!isClienteServiceError(error) || error.httpStatus !== 401)
@@ -60,6 +63,8 @@ export async function POST(request: NextRequest) {
         }
         const result = body.data.acao === 'login'
             ? await loginAdmin(body.data.email, body.data.senha, randomUUID(), null, request.headers.get('user-agent')?.slice(0, 1000) ?? null)
+            : body.data.acao === 'selecionar-empresa'
+                ? await selecionarEmpresaAtiva(tokenAdmin(request), body.data.empresaId)
             : await reautenticarAdmin(tokenAdmin(request), body.data.senha);
         const res = response({ ok: true, data: { csrf: result.csrf } });
         for (const [name, value] of [[policy.cookie, result.token], [policy.csrfCookie, result.csrf]])

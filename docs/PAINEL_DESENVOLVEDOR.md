@@ -43,15 +43,15 @@ Guarda única `exigirDesenvolvedor` (sessão válida + concessão ativa + identi
 ## Comportamentos definidos no servidor
 
 - **Interessada** não cria empresa, usuário nem acesso. **Provisionar** (confirmação explícita): cria empresa (PROVISIONAMENTO→ATIVA), cadastro administrativo, marca a interessada CONVERTIDA e cria o convite do responsável; nenhum usuário é criado até o aceite.
-- **Suspender empresa**: empresa SUSPENSA (dados preservados). `provarTenant` já recusa toda requisição da empresa na hora; além disso as sessões de quem não tem outro acesso ativo são revogadas. Usuários com outras empresas continuam nelas. Reativar devolve ATIVA.
-- **Desativar vínculo**: membership SUSPENSA (só aquela empresa); reativar volta a ATIVA. Protege a última Gestão. Sessões do usuário são revogadas apenas se ele ficar sem nenhum acesso ativo.
+- **Suspender empresa**: empresa SUSPENSA (dados preservados). `provarTenant` recusa seu acesso; a 063 também revoga as sessões que selecionaram essa empresa. Sessões selecionadas em outra empresa permanecem válidas. Quem fica sem nenhum acesso ativo continua sujeito à política de encerramento D4. Reativar devolve ATIVA, mas não restaura sessões ou escolhas revogadas.
+- **Desativar vínculo**: membership SUSPENSA (só aquela empresa); reativar volta a ATIVA. Protege a última Gestão. Sessões que selecionaram aquele vínculo são revogadas; outras empresas ficam intactas. Revogação terminal também invalida a seleção.
 - **Convite**: token de 32 bytes (só o hash no banco), validade 7 dias, reenvio com intervalo mínimo e limite, cancelamento. Aceite: e-mail novo define nome e senha (identidade com papel global neutro); e-mail existente confirma com a senha atual. Sempre cria/ativa só a membership da empresa do convite.
 - **Recuperação**: token de uso único, 30 min, novo pedido invalida os anteriores, intervalo mínimo entre pedidos, limite por IP e por e-mail, resposta pública idêntica exista ou não a conta. O desenvolvedor só dispara o pedido; não vê link nem senha.
 - **Troca de senha**: senha atual + nova + confirmação, política do projeto, mesmo hash; revoga todas as sessões (inclusive de outros dispositivos) e emite sessão nova para o dispositivo atual.
 - **Auditoria**: ator, horário, empresa, ação, resultado e campos alterados (lista branca). Nunca senha, hash, token, link ou documento. Recusas de autorização do painel também são auditadas.
 - **E-mail**: porta `lib/acessos/email.ts` com provedores `desativado` (padrão), `arquivo` (somente local/teste, grava em pasta, nunca envia; recusado em deploy) e um provedor HTTP real (D1). Sem envio, o convite fica registrado como "não enviado" (reenvio possível) e o pedido de recuperação é invalidado; a tela mostra o resultado real.
 - **Custo do hash (revisado)**: redefinição pública, aceite de convite e troca de senha só calculam o scrypt (N=131072, ~128 MB) DEPOIS do limite de tentativas e de token/senha válidos. Token falso, excesso de tentativas ou senha atual errada nunca custam um scrypt de senha nova (testado).
-- **Reautenticação**: janela de 5 min; carimbo do banco até 2 min à frente do relógio da aplicação é aceito (diferença de relógio/resolução não derruba a confirmação recém-feita).
+- **Reautenticação**: janela inclusiva de 5 min. `autenticado_em` e `consultado_em` vêm do mesmo relógio PostgreSQL (`clock_timestamp`); o painel não consulta `Date.now` para autorizar. Carimbo futuro, inválido ou ausência do relógio comum recusam a operação. A tolerância de dois minutos foi removida.
 
 ## Decisões (Felipe, 04/10/2026)
 
@@ -67,7 +67,9 @@ Guarda única `exigirDesenvolvedor` (sessão válida + concessão ativa + identi
 
 ### D7 — menu pelo papel na empresa
 
-`GET /api/admin/autenticacao` devolve `contexto` (`lib/autenticacao/contexto.ts`): empresa selecionada pela MESMA regra de `provarTenant` (`empresaId` pedido entre as memberships ativas, ou a única ativa), papel da membership nessa empresa, autoridade de plataforma da identidade e concessão de desenvolvedor. O `AdminShell` mostra as configurações de empresa (Perfil, Pacotes, Itens do Buffet, Usuários e acessos) só com Gestão na empresa e as da instalação (WhatsApp, PDF de Pacotes) só com autoridade de plataforma; o rodapé mostra "Gestão/Equipe · empresa" e, para desenvolvedor, o link do painel. Servidor: cada item corresponde à API que já exige a mesma autoridade (`exigirGestaoNoTenant`, papel da membership no Perfil e em Usuários; `temAutoridadeDePlataforma` em WhatsApp/PDF) — teste amarra menu e API. Limitação conhecida (anterior a esta PR): não há seletor de empresa; quem tem duas ou mais empresas ativas fica sem empresa selecionada e o menu esconde as configurações de empresa (o servidor também recusa operar sem escolha).
+`GET /api/admin/autenticacao` devolve o contexto da sessão persistida, sem permitir escolher por query string. O seletor "Empresa ativa" usa `POST` com origem/CSRF, prova o vínculo ATIVA na empresa ATIVA e rotaciona token/CSRF, sem estender o login ou renovar a reautenticação. A 063 inclui `sessoes_administrativas.empresa_ativa_id`. Sem escolha, apenas uma membership ativa admite seleção automática; múltiplas empresas exigem escolha antes de montar as páginas de negócio. Menu, APIs e serviços usam essa escolha, sempre revalidada no banco. Um `empresaId` divergente não troca o contexto por fora do seletor. Gestão/Equipe vem da membership atual, plataforma da identidade e painel da concessão própria.
+
+A troca faz navegação completa para Dashboard: descarta estados React, conversas, rascunhos, caches de navegação e URLs de registros da empresa anterior. O sinal entre abas contém só um horário; foco e consulta periódica revalidam o contexto. `adminFetch` vincula os pedidos à sessão da página e confere o contexto antes de devolver resultados; pedidos com a sessão anterior são recusados. Suspensão ou revogação encerra a sessão selecionada (também por rotas legadas), exigindo login/seleção novos. Os endpoints de cadastro/logo do Perfil agora provam o tenant e resolvem o UUID legado unicamente para aquela empresa; perfil ausente ou ambíguo retorna 409, sem usar o perfil de outra empresa.
 
 ---
 
@@ -122,9 +124,9 @@ Links de convite e recuperação usam `ADMIN_AUTH_ORIGIN` e levam o token no fra
 9. Reautenticação após 5 min: diálogo exigido; senha errada → "Senha incorreta." no diálogo; correta → operação concluída.
 10. Auditoria do banco E2E: 62 registros, 9 segredos procurados (senhas e tokens) → **0 ocorrências**; nenhum registro do painel sem ator ou resultado.
 
-**Defeitos achados e corrigidos nesta rodada.** (a) Reautenticação recusada com carimbo do banco milissegundos à frente do relógio da aplicação → tolerância de 2 min (testado). (b) Senha errada no diálogo de reautenticação levava ao login (401 tratado como sessão encerrada no cliente) → o diálogo agora mostra "Senha incorreta" e a sessão segue (E2E). (c) Custo do hash antes do limite na redefinição pública, no aceite de convite e na troca de senha → scrypt só depois do limite e de token/senha válidos (testado).
+**Defeitos achados e corrigidos na rodada anterior.** (a) A comparação de relógios diferentes recebeu uma tolerância provisória; ela foi substituída pela comparação no relógio PostgreSQL, mantendo cinco minutos e recusando futuro. (b) Senha errada no diálogo de reautenticação levava ao login (401 tratado como sessão encerrada no cliente) → o diálogo mostra "Senha incorreta" e a sessão segue (E2E anterior). (c) Custo do hash antes do limite na redefinição pública, no aceite de convite e na troca de senha → scrypt só depois do limite e de token/senha válidos (testado).
 
-**Limitações conhecidas.** D1 pendente (sem validação de entrega real); não há seletor de empresa para quem tem duas ou mais (anterior a esta PR); o módulo Festas responde 503 no ambiente E2E (trava de ambiente pré-existente, sem relação com esta PR).
+**Limitações conhecidas.** D1 pendente (sem validação de entrega real). A contratante recém-provisionada não ganha automaticamente um Perfil legado/unidade: a API recusa um perfil ausente em vez de usar o de outra empresa. O módulo Festas respondeu 503 no E2E anterior (trava de ambiente pré-existente, sem relação com esta PR). Evidências da seleção e plano concreto de staging em `docs/HOMOLOGACAO_PAINEL_MULTI_EMPRESA.md`.
 
 ## Roteiro de homologação (staging, após autorização da 063 e do deploy)
 
@@ -149,5 +151,5 @@ Pré-requisitos: 063 aplicada com precheck/postcheck; código publicado; `EMAIL_
 ## Rollback
 
 - **Código**: a 063 é aditiva fora dos dois guards; voltar o código anterior funciona com a 063 aplicada (as tabelas novas ficam sem uso; vínculo SUSPENSA aparece como inativo).
-- **Schema**: `database/rollback/20261004_063_painel_desenvolvedor_down.sql` só para desfazer ANTES do uso — recusa com vínculo SUSPENSO ou qualquer registro nas tabelas novas; nunca apaga dado.
+- **Schema**: `database/rollback/20261004_063_painel_desenvolvedor_down.sql` só para desfazer ANTES do uso — recusa com vínculo SUSPENSO, seleção de empresa já utilizada ou qualquer registro nas tabelas novas; nunca apaga dado.
 - **Concessão**: `node scripts/admin-provision.cjs desenvolvedor` → `revogar` (efeito imediato em toda requisição).

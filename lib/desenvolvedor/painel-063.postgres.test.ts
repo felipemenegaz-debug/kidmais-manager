@@ -407,10 +407,44 @@ test('D7: o contexto da sessão segue o papel NA empresa (Gestão por membership
     assert.deepEqual([dev.desenvolvedor, dev.empresaAtual], [true, null]);
 });
 
+test('múltiplas empresas: escolha explícita, contexto/papel únicos, sessão anterior recusada e prazo preservado', async () => {
+    const escolha = carregar('lib/autenticacao/empresa-ativa.ts') as unknown as { selecionarEmpresaAtiva: (t: string, e: string) => Promise<{ token: string }> };
+    const auth = svc.auth as unknown as { consultarSessao: (t: string) => Promise<Record<string, string>> };
+    const contexto = carregar('lib/autenticacao/contexto.ts') as unknown as { contextoDaSessao: (tx: Client, s: unknown) => Promise<{ empresaAtual: { id: string }; gestaoNaEmpresa: boolean }> };
+    const anterior = await sessaoDe(ids.dono);
+    const a = await escolha.selecionarEmpresaAtiva(anterior.token, ids.legado);
+    const sessaoA = await auth.consultarSessao(a.token);
+    assert.equal(await sessaoValida(anterior.token), false);
+    assert.equal(sessaoA.autenticado_em, anterior.sessao.autenticado_em, 'troca não reautentica');
+    assert.equal(sessaoA.expira_em, anterior.sessao.expira_em, 'troca não estende oito horas');
+    assert.equal((await contexto.contextoDaSessao(client, sessaoA)).gestaoNaEmpresa, true);
+    assert.equal((await withTransaction(tx => svc.tenant.provarTenant(tx as never, sessaoA as never)) as unknown as { empresaComprovada: string }).empresaComprovada, ids.legado);
+    await assert.rejects(withTransaction(tx => svc.tenant.provarTenant(tx as never, sessaoA as never, ids.empresa as never)), /não comprova/);
+    const b = await escolha.selecionarEmpresaAtiva(a.token, ids.empresa);
+    const sessaoB = await auth.consultarSessao(b.token);
+    assert.equal(await sessaoValida(a.token), false);
+    await assert.rejects(withTransaction(tx => svc.tenant.provarTenant(tx as never, sessaoA as never)), /não comprova/, 'pedido em voo da sessão anterior');
+    const c = await contexto.contextoDaSessao(client, sessaoB);
+    assert.deepEqual([c.empresaAtual.id, c.gestaoNaEmpresa], [ids.empresa, false]);
+    await assert.rejects(escolha.selecionarEmpresaAtiva(b.token, randomUUID()), /não comprova/);
+    assert.equal(await sessaoValida(b.token), true, 'escolha recusada preserva a sessão');
+});
+
+test('seleção: suspensão invalida só as sessões daquele acesso, reativar não restaura a seleção', async () => {
+    const escolha = carregar('lib/autenticacao/empresa-ativa.ts') as unknown as { selecionarEmpresaAtiva: (t: string, e: string) => Promise<{ token: string }> };
+    const a = await escolha.selecionarEmpresaAtiva((await sessaoDe(ids.dono)).token, ids.legado);
+    const b = await escolha.selecionarEmpresaAtiva((await sessaoDe(ids.dono)).token, ids.empresa);
+    await client.query("UPDATE memberships SET status='SUSPENSA' WHERE usuario_id=$1 AND empresa_id=$2", [ids.dono, ids.empresa]);
+    assert.equal(await sessaoValida(b.token), false);
+    assert.equal(await sessaoValida(a.token), true, 'outra empresa mantém a sessão');
+    await client.query("UPDATE memberships SET status='ATIVA' WHERE usuario_id=$1 AND empresa_id=$2", [ids.dono, ids.empresa]);
+    assert.equal(await sessaoValida(b.token), false, 'reativação exige uma seleção nova');
+});
+
 test('rollback da 063 recusa depois do uso (vínculo suspenso ou registros), sem apagar nada', async () => {
     const dev = (await sessaoDe(ids.dev)).sessao;
     await svc.vinculos.alterarSituacaoVinculo(dev as never, ids.empresa as never, ids.dono as never, 'desativar' as never, { motivo: 'Prova de rollback' } as never, ctx() as never, deps() as never);
-    await assert.rejects(client.query(readFileSync('database/rollback/20261004_063_painel_desenvolvedor_down.sql', 'utf8')), /vínculo SUSPENSO/);
+    await assert.rejects(client.query(readFileSync('database/rollback/20261004_063_painel_desenvolvedor_down.sql', 'utf8')), /vínculo SUSPENSO|seleção de empresa já utilizada/);
     await client.query('ROLLBACK').catch(() => undefined);
     assert.ok(await contar('SELECT count(*)::int AS n FROM plataforma_interessadas') > 0);
 });

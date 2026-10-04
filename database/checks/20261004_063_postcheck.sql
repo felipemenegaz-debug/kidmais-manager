@@ -3,6 +3,14 @@ DO $$
 DECLARE
   tabela text;
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
+      AND table_name='sessoes_administrativas' AND column_name='empresa_ativa_id' AND data_type='uuid') THEN
+    RAISE EXCEPTION '063 postcheck: empresa ativa da sessão ausente.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.empresas'::regclass AND tgname='kidmais_063_empresa_selecao_trg')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.memberships'::regclass AND tgname='kidmais_063_membership_selecao_trg') THEN
+    RAISE EXCEPTION '063 postcheck: invalidação da seleção ausente.';
+  END IF;
   FOREACH tabela IN ARRAY ARRAY['plataforma_desenvolvedores', 'plataforma_interessadas', 'plataforma_empresas_cadastro', 'convites_acesso', 'recuperacoes_senha'] LOOP
     IF to_regclass('public.' || tabela) IS NULL THEN RAISE EXCEPTION '063 postcheck: tabela % ausente.', tabela; END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = ('public.' || tabela)::regclass AND tgfoid = 'public.kidmais_063_sem_exclusao()'::regprocedure AND NOT tgisinternal) THEN

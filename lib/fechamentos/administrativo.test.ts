@@ -290,7 +290,7 @@ async function formulario() {
     });
     a.external('__window', { location: { assign: (url: string) => redirects.push(url) } });
     a.external('__fetch', async (url: string, init: any = {}) => {
-        if (url === '/api/admin/autenticacao') return Response.json({ ok: true, data: { usuarioId: a.state.sessao.expirada ? null : 'usuario-unitario', csrf } });
+        if (url === '/api/admin/autenticacao') return Response.json({ ok: true, data: { sessaoId: a.state.sessao.id, usuarioId: a.state.sessao.expirada ? null : 'usuario-unitario', csrf, contexto: { empresaAtual: { id: empresaA } } } });
         // Admin lê a agenda da empresa comprovada (062); a API pública (sem tenant) não é usada pelo wizard.
         assert(!url.startsWith('/api/disponibilidade'), 'wizard admin não usa a disponibilidade pública');
         if (url.startsWith('/api/admin/disponibilidade?')) return Response.json({ dias: [{ periodos: [{ codigo: 'TURNO_1', horarios: [{ inicio: '11:00', fim: '15:00', ajusteMinutos: 0, status: 'DISPONIVEL' }] }] }], unidades: [] });

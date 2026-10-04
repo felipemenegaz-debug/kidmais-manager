@@ -14,7 +14,7 @@ const json = (body: unknown, init?: { status?: number }) => new Response(JSON.st
 const agora = Date.now();
 const sessao = (papel = 'REPRESENTANTE_AUTORIZADO', autenticadoHaMs = 60_000) => ({
     id: 's', usuario_id: '00000000-0000-4000-8000-000000000001', nome: 'Pessoa', cargo: null, papel,
-    autenticado_em: new Date(agora - autenticadoHaMs).toISOString(), expira_em: new Date(agora + 3_600_000).toISOString(), csrf_hash: 'h',
+    autenticado_em: new Date(agora - autenticadoHaMs).toISOString(), consultado_em: new Date(agora).toISOString(), expira_em: new Date(agora + 3_600_000).toISOString(), csrf_hash: 'h',
 });
 
 class Recusa extends Error {
@@ -177,16 +177,23 @@ test('operações de efeito exigem senha confirmada há no máximo 5 minutos, an
         await assert.rejects(caso(), (e: { code?: string; httpStatus?: number }) => e.code === 'REAUTENTICACAO' && e.httpStatus === 403);
 });
 
-test('reautenticação: até 5 min vale; carimbo do banco levemente à frente (≤ 2 min) vale; além disso ou antigo recusa', () => {
+test('reautenticação: mesmo relógio, 5 min inclusivos; futuro, expirado e carimbo inválido recusam', () => {
     const { exigirReautenticacaoRecente } = carregarModulo('lib/desenvolvedor/autorizacao.ts', {}) as { exigirReautenticacaoRecente: (s: { autenticado_em: string }, agora: number) => void };
     const t0 = Date.parse('2026-10-04T12:00:00.000Z');
     const em = (ms: number) => ({ autenticado_em: new Date(t0 + ms).toISOString() });
     assert.doesNotThrow(() => exigirReautenticacaoRecente(em(-4 * 60_000), t0));
-    assert.doesNotThrow(() => exigirReautenticacaoRecente(em(15), t0), 'relógio do banco 15 ms à frente');
-    assert.doesNotThrow(() => exigirReautenticacaoRecente(em(90_000), t0));
+    assert.doesNotThrow(() => exigirReautenticacaoRecente(em(0), t0));
+    assert.doesNotThrow(() => exigirReautenticacaoRecente(em(-300_000), t0));
+    assert.doesNotThrow(() => exigirReautenticacaoRecente(em(-299_999), t0));
+    assert.throws(() => exigirReautenticacaoRecente(em(-300_001), t0), /Confirme sua senha/);
+    assert.throws(() => exigirReautenticacaoRecente(em(1), t0), /Confirme sua senha/);
+    assert.throws(() => exigirReautenticacaoRecente(em(90_000), t0), /Confirme sua senha/);
     assert.throws(() => exigirReautenticacaoRecente(em(3 * 60_000), t0), /Confirme sua senha/);
     assert.throws(() => exigirReautenticacaoRecente(em(-6 * 60_000), t0), /Confirme sua senha/);
     assert.throws(() => exigirReautenticacaoRecente({ autenticado_em: 'invalido' }, t0), /Confirme sua senha/);
+    const verifica = exigirReautenticacaoRecente as (s: { autenticado_em: string; consultado_em?: string }) => void;
+    assert.doesNotThrow(() => verifica({ autenticado_em: new Date(t0 - 300_000).toISOString(), consultado_em: new Date(t0).toISOString() }), 'usa o horário do banco, independentemente de Date.now');
+    assert.throws(() => verifica({ autenticado_em: new Date(t0).toISOString() }), /Confirme sua senha/, 'sem fonte comum fecha o acesso');
 });
 
 test('auditoria do painel: remove senha, token, hash, link/URL e cookies em qualquer nível e mascara documento', () => {

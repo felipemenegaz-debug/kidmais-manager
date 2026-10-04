@@ -41,6 +41,14 @@ test('consulta: só membership ATIVA em empresa ATIVA da própria identidade', a
     assert.deepEqual(tx.executados[0].params, ['00000000-0000-4000-8000-000000000001']);
 });
 
+test('sessão escolhida prevalece sobre URL; perda de acesso não seleciona outra empresa automaticamente', async () => {
+    const s = { ...neutra, empresa_ativa_id: A.id };
+    const c = await contextoDaSessao(banco([A, B]), s, B.id);
+    assert.equal((c.empresaAtual as { id: string }).id, A.id);
+    const suspensa = await contextoDaSessao(banco([B]), s);
+    assert.deepEqual([suspensa.empresaAtual, suspensa.selecaoNecessaria, suspensa.gestaoNaEmpresa], [null, true, false]);
+});
+
 test('menu: Configurações de empresa só com Gestão na empresa; WhatsApp e PDF só com autoridade de plataforma', () => {
     const conf = (p: { gestaoEmpresa: boolean; plataforma: boolean }) => itensNavegacao(p).filter((i) => i.grupo === 'Configurações').map((i) => i.href);
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: false }), []);
@@ -67,5 +75,5 @@ test('cada item do menu tem a autorização correspondente na API do servidor; o
     const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
     assert.match(shell, /gestaoEmpresa: Boolean\(c\?\.gestaoNaEmpresa\)/);
     assert.doesNotMatch(shell, /data\.papel === 'REPRESENTANTE_AUTORIZADO'/);
-    assert.match(readFileSync('app/api/admin/autenticacao/route.ts', 'utf8'), /contextoDaSessao\(db\(\), session, request\.nextUrl\.searchParams\.get\('empresaId'\)\)/);
+    assert.match(readFileSync('app/api/admin/autenticacao/route.ts', 'utf8'), /contextoDaSessao\(db\(\), session\)/);
 });

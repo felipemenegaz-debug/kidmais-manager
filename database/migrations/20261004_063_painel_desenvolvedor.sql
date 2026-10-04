@@ -45,6 +45,31 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Escolha por sessão, sem modificar usuários/memberships existentes. A FK não concede acesso:
+-- provarTenant revalida o vínculo e o status em cada transação.
+ALTER TABLE sessoes_administrativas ADD COLUMN empresa_ativa_id uuid REFERENCES empresas(id);
+-- Suspensão/revogação invalida definitivamente as sessões que escolheram aquele acesso.
+-- Sessões de outra empresa e sessões ainda sem escolha permanecem sob a política D4.
+CREATE FUNCTION kidmais_063_invalidar_selecao()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog, public AS $f$
+BEGIN
+  IF NEW.status IS DISTINCT FROM OLD.status AND NEW.status <> 'ATIVA' THEN
+    IF TG_TABLE_NAME = 'empresas' THEN
+      UPDATE public.sessoes_administrativas SET revogado_em=clock_timestamp()
+       WHERE empresa_ativa_id=NEW.id AND revogado_em IS NULL;
+    ELSE
+      UPDATE public.sessoes_administrativas SET revogado_em=clock_timestamp()
+       WHERE empresa_ativa_id=NEW.empresa_id AND usuario_id=NEW.usuario_id AND revogado_em IS NULL;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$f$;
+CREATE TRIGGER kidmais_063_empresa_selecao_trg AFTER UPDATE OF status ON empresas
+  FOR EACH ROW EXECUTE FUNCTION kidmais_063_invalidar_selecao();
+CREATE TRIGGER kidmais_063_membership_selecao_trg AFTER UPDATE OF status ON memberships
+  FOR EACH ROW EXECUTE FUNCTION kidmais_063_invalidar_selecao();
+
 -- Proteção comum: nada destas tabelas é apagado nem truncado.
 CREATE FUNCTION kidmais_063_sem_exclusao()
 RETURNS trigger

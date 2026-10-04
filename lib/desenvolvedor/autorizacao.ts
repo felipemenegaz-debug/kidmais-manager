@@ -28,18 +28,12 @@ export async function exigirDesenvolvedorNaTransacao(tx: DbExecutor, sessao: Pic
         throw erroAcesso('NAO_ENCONTRADO', RECUSA_PAINEL, 404);
 }
 
-/** Diferença tolerada entre o relógio do banco (que carimba autenticado_em) e o do servidor da aplicação. */
-export const TOLERANCIA_RELOGIO_MS = 2 * 60 * 1000;
-
 /**
  * Operações de efeito (provisionar, suspender/reativar, papel, vínculo) exigem senha confirmada há no máximo 5 min.
- * `autenticado_em` vem do relógio do PostgreSQL; um carimbo levemente "no futuro" (relógios diferentes ou resolução
- * menor do relógio da aplicação) conta como recente, até a tolerância acima.
+ * Ambos os horários vêm de consultarSessao/PostgreSQL. Carimbos futuros são recusados.
  */
-export function exigirReautenticacaoRecente(sessao: Pick<SessaoAdmin, 'autenticado_em'>, agora = Date.now()) {
-    const autenticado = new Date(sessao.autenticado_em).getTime();
-    const noFuturoTolerado = Number.isFinite(autenticado) && autenticado > agora && autenticado - agora <= TOLERANCIA_RELOGIO_MS;
-    if (!noFuturoTolerado && !reautenticacaoPerfilRecente(sessao.autenticado_em, agora))
+export function exigirReautenticacaoRecente(sessao: Pick<SessaoAdmin, 'autenticado_em' | 'consultado_em'>, agora = Date.parse(sessao.consultado_em ?? '')) {
+    if (!reautenticacaoPerfilRecente(sessao.autenticado_em, agora))
         throw erroAcesso('REAUTENTICACAO', 'Confirme sua senha para concluir esta operação.', 403);
 }
 

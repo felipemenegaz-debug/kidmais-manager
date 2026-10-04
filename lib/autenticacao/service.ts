@@ -14,6 +14,9 @@ export type SessaoAdmin = {
     autenticado_em: string;
     expira_em: string;
     csrf_hash: string;
+    /** Carimbo e leitura usam o mesmo relógio PostgreSQL. */
+    consultado_em?: string;
+    empresa_ativa_id?: string | null;
 };
 export function authError(message = 'Autenticação administrativa necessária.', status = 401) {
     return new ClienteServiceError('AUTENTICACAO_ADMINISTRATIVA', message, status);
@@ -21,7 +24,8 @@ export function authError(message = 'Autenticação administrativa necessária.'
 export async function consultarSessao(token: string, tx: DbExecutor = db(), lock = false): Promise<SessaoAdmin> {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token))
         throw authError();
-    const result = await tx.query<SessaoAdmin>(`SELECT s.id,s.usuario_id,u.nome,u.cargo,u.papel,s.autenticado_em::text,s.expira_em::text,s.csrf_hash
+    const result = await tx.query<SessaoAdmin>(`SELECT s.id,s.usuario_id,u.nome,u.cargo,u.papel,s.autenticado_em::text,s.expira_em::text,s.csrf_hash,
+    clock_timestamp()::text AS consultado_em, to_jsonb(s)->>'empresa_ativa_id' AS empresa_ativa_id
     FROM sessoes_administrativas s JOIN usuarios_administrativos u ON u.id=s.usuario_id
     WHERE s.token_hash=$1 AND s.revogado_em IS NULL AND u.ativo AND s.expira_em>clock_timestamp()
     AND s.ultima_atividade_em>clock_timestamp()-interval '30 minutes' AND s.autenticado_em>=u.senha_alterada_em
@@ -96,14 +100,17 @@ export async function loginAdmin(email: string, password: string, requestId: str
             await registrarAuditoria({ atorTipo: 'SISTEMA', acao: 'ADMIN_LOGIN_RECUSADO', entidadeTipo: 'AUTENTICACAO', entidadeId: requestId, origem: 'ADMIN_AUTENTICACAO', requestId, ip, userAgent }, tx);
             return { error: 401 } as const;
         }
+        let empresaAnterior: string | null = null;
         if (oldToken) {
             const old = await consultarSessao(oldToken, tx, true);
             if (old.usuario_id !== user.id)
                 throw authError();
             await tx.query('UPDATE sessoes_administrativas SET revogado_em=clock_timestamp() WHERE id=$1', [old.id]);
+            empresaAnterior = old.empresa_ativa_id ?? null;
         }
         await tx.query('DELETE FROM limites_autenticacao WHERE chave_hash=$1', [limitKey(`IDENTIFICADOR|${email.trim().toLowerCase()}`)]);
         const session = await criarSessaoAdministrativa(tx, user.id, ip, userAgent);
+        if (empresaAnterior) await tx.query('UPDATE sessoes_administrativas SET empresa_ativa_id=$2::uuid WHERE id=$1', [session.id, empresaAnterior]);
         await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId: user.id, acao: oldToken ? 'ADMIN_REAUTENTICACAO' : 'ADMIN_LOGIN', entidadeTipo: 'SESSAO_ADMINISTRATIVA', entidadeId: session.id, origem: 'ADMIN_AUTENTICACAO', requestId, ip, userAgent }, tx);
         return { token: session.token, csrf: session.csrf, expires: session.expires };
     });

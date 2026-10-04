@@ -14,6 +14,9 @@ SET LOCAL search_path = public, pg_catalog;
 LOCK TABLE public.empresas, public.memberships IN SHARE ROW EXCLUSIVE MODE;
 
 DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM public.sessoes_administrativas WHERE empresa_ativa_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'Rollback 063: seleção de empresa já utilizada; preservada.';
+  END IF;
   IF to_regclass('public.plataforma_desenvolvedores') IS NULL OR to_regprocedure('public.kidmais_063_guard_empresas()') IS NULL THEN
     RAISE EXCEPTION 'Rollback 063: não aplicada.';
   END IF;
@@ -51,6 +54,10 @@ FOR EACH ROW
 EXECUTE FUNCTION kidmais_044_guard_empresas();
 DROP FUNCTION public.kidmais_063_guard_empresas();
 
+DROP TRIGGER kidmais_063_empresa_selecao_trg ON public.empresas;
+DROP TRIGGER kidmais_063_membership_selecao_trg ON public.memberships;
+DROP FUNCTION public.kidmais_063_invalidar_selecao();
+ALTER TABLE public.sessoes_administrativas DROP COLUMN empresa_ativa_id;
 DROP TABLE public.recuperacoes_senha;
 DROP TABLE public.convites_acesso;
 DROP TABLE public.plataforma_empresas_cadastro;
