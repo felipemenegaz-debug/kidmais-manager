@@ -6,7 +6,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 
 **HEAD do código:** `48034b5d1add421c133f50c6fd8efe6a043a6f25` na worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`. O commit de docs que traz esta seção vem logo depois.
 - Remoto `origin/whatsapp/atendimento-ia-v1`: `bdb1e75`.
-- 24 commits locais, **sem push**: 44 arquivos, +2760/−49.
+- 23 commits locais até `48034b5`, mais o de docs, **sem push**: 44 arquivos, +2760/−49 até `48034b5`.
 - `git merge-tree` contra `origin/staging` `904b451` (leitura, depois de `git fetch`): **sem conflito**.
 
 **O que entrou desde `bdb1e75`:**
@@ -46,7 +46,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 
 | Nível | Estado |
 | --- | --- |
-| Implementado e validado localmente | **Sim, com pendências** (ver "Candidata local consolidada"). PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `bdb1e75`. A candidata local está em `48034b5` (código), 24 commits à frente, **sem push** |
+| Implementado e validado localmente | **Sim, com pendências** (ver "Candidata local consolidada"). PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `bdb1e75`. A candidata local está em `48034b5` (código), 23 commits à frente (24 com o de docs desta seção), **sem push** |
 | Integrado em staging | **Não.** PR aberta, sem merge. Migration 060 não aplicada no banco de staging. Nenhuma variável configurada |
 | Homologado com Gupshup real | **Não.** Bloqueado até comprovar três condições: autenticação do webhook pelo mecanismo do Gupshup (chamado #277630, acesso ao app `KidmaisManager`), receptor exclusivo do número entre ambientes (E0) e preservação do OTP |
 | Ativo em produção | **Estado não verificado; não ativado por esta entrega.** Produção não foi lida nem alterada. Não presumir seu estado; exige etapa e autorização próprias |
