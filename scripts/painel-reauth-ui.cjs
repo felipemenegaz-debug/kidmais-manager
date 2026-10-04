@@ -10,6 +10,8 @@
  *   3. Troca de empresa antes do processamento: nada alterado, dados antigos descartados, aviso.
  *   4. Troca de empresa depois da escrita e antes da resposta: aviso "concluída", dados descartados, sem repetição.
  *   5. Suspensão durante a escrita com resposta perdida: "resultado incerto", sem repetição; sessão encerrada.
+ *   6. Leitura + troca de empresa + falha na confirmação da sessão: dados nunca entregues ao componente, descarte.
+ *   7. Escrita confirmada + troca + falha na confirmação: continua "concluída" (não vira incerta), sem repetição.
  */
 const assert = require('node:assert/strict');
 const { randomBytes } = require('node:crypto');
@@ -208,7 +210,7 @@ async function principal() {
     try {
         await page.getByText('Cadastro aplicado. Contratos e PDFs existentes não foram alterados.', { exact: true }).first().waitFor({ timeout: 30000 });
     }
-    catch (erro) {
+    catch {
         const alertas = await page.locator('[role=alert],[role=status]').allInnerTexts();
         throw Error(`PERFIL_NAO_APLICOU: ${JSON.stringify(alertas).slice(0, 600)}`);
     }
@@ -270,6 +272,69 @@ async function principal() {
     await teste.encerrar();
     resultados.push(`Troca depois da escrita: executada uma vez, tela descartada. Aviso: "${avisoDepois}"`);
     console.log('E2E_TROCA_DEPOIS_OK');
+
+    // 6–7. Troca de empresa seguida de FALHA na consulta de confirmação da sessão (contexto desconhecido).
+    // Enquanto armada, toda leitura de /api/admin/autenticacao feita pela página falha (rede); desarma quando a página
+    // é descartada para o dashboard. A troca é feita pela API do contexto (fora da página), sem passar pelas rotas.
+    let falharConfirmacao = false;
+    await page.route('**/api/admin/autenticacao', (route) => (falharConfirmacao && route.request().method() === 'GET' ? route.abort('failed') : route.continue()));
+    page.on('framenavigated', (frame) => { if (frame === page.mainFrame() && frame.url().includes('/admin/dashboard')) falharConfirmacao = false; });
+    // Detector no navegador: registra se o formulário do Perfil chegou a receber os dados da Alfa.
+    const vistos = [];
+    await page.exposeBinding('kidmaisViuDadosAlfa', (_fonte, valor) => { vistos.push(valor); });
+    await page.addInitScript(() => {
+      const timer = setInterval(() => {
+        const campoRazao = document.querySelector('input[aria-label^="Razão social"]');
+        if (campoRazao && campoRazao.value.includes('Alfa Reauth')) { window.kidmaisViuDadosAlfa(campoRazao.value); clearInterval(timer); }
+      }, 5);
+    });
+
+    // 6. LEITURA: o GET do Perfil responde com dados da Alfa, a empresa é trocada e a confirmação falha.
+    if ((await sessaoAtual()).data.contexto.empresaAtual?.id !== empresas.alfa.id) await trocar(empresas.alfa.id);
+    vistos.length = 0;
+    await page.route(URL_PERFIL, async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const resposta = await route.fetch();
+      await trocarPorFora(empresas.beta.id);
+      falharConfirmacao = true;
+      await route.fulfill({ response: resposta });
+    });
+    await page.goto(`${base}/admin/configuracoes/perfil-empresa`);
+    await page.waitForURL(`${base}/admin/dashboard`);
+    await aviso().waitFor();
+    const avisoLeitura = (await aviso().innerText()).replace(/\s*×$/, '');
+    assert.match(avisoLeitura, /Não foi possível confirmar a empresa ativa depois da leitura\. Os dados recebidos foram descartados/);
+    assert.deepEqual(vistos, [], 'os dados da Alfa nunca chegaram ao formulário');
+    assert.equal(await page.getByText('Alfa Reauth Festas Ltda').count(), 0);
+    assert.equal((await sessaoAtual()).data.contexto.empresaAtual.id, empresas.beta.id, 'sessão segue na empresa trocada');
+    await page.unroute(URL_PERFIL);
+    resultados.push(`Leitura + troca + falha da confirmação: dados da Alfa nunca entregues ao formulário, tela descartada. Aviso: "${avisoLeitura}"`);
+    console.log('E2E_LEITURA_FALHA_CONFIRMACAO_OK');
+
+    // 7. ESCRITA confirmada pelo servidor, troca de empresa e falha na confirmação: continua "concluída".
+    vistos.length = 0;
+    await abrirPerfilNaAlfa();
+    // Controle do detector: num carregamento normal (contexto confirmado) ele registra os dados da Alfa.
+    for (let n = 0; n < 100 && vistos.length === 0; n++) await page.waitForTimeout(50);
+    assert.ok(vistos.length > 0, 'controle: o detector vê os dados quando a leitura é confirmada');
+    salvos = await contar('PERFIL_RASCUNHO_SALVO');
+    teste = await salvarComInterceptacao(async (route) => {
+      const resposta = await route.fetch();
+      await trocarPorFora(empresas.beta.id);
+      falharConfirmacao = true;
+      await route.fulfill({ response: resposta });
+    });
+    await page.waitForURL(`${base}/admin/dashboard`);
+    await aviso().waitFor();
+    const avisoEscrita = (await aviso().innerText()).replace(/\s*×$/, '');
+    assert.match(avisoEscrita, /A operação foi concluída, mas não foi possível confirmar a empresa ativa em seguida/);
+    assert.doesNotMatch(avisoEscrita, /incerto/i, 'resposta confirmada não vira resultado incerto');
+    assert.equal(teste.envios.length, 1, 'nenhuma repetição automática');
+    assert.equal(await contar('PERFIL_RASCUNHO_SALVO'), salvos + 1, 'executada exatamente uma vez');
+    await teste.encerrar();
+    resultados.push(`Escrita confirmada + troca + falha da confirmação: executada uma vez, tela descartada, sem "incerto". Aviso: "${avisoEscrita}"`);
+    console.log('E2E_ESCRITA_FALHA_CONFIRMACAO_OK');
+    await page.unroute('**/api/admin/autenticacao');
 
     // 5. Suspensão da empresa durante a escrita, com a resposta perdida: resultado incerto, sem repetição.
     await abrirPerfilNaAlfa();

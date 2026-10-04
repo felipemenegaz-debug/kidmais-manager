@@ -43,6 +43,27 @@ Os dois testes de interface foram reexecutados com o código final (depois da co
 
 Reprodução: como abaixo, depois `node --experimental-strip-types scripts/painel-reauth-ui.cjs` (porta web 3138 livre; Playwright por `KIDMAIS_PLAYWRIGHT_MODULE`). O teste envelhece só sessões sintéticas para passar da janela de 5 min e intercepta a consulta de CEP (nada sai da máquina).
 
+## Falha na confirmação da sessão depois da operação (rodada 5)
+
+- **Defeito corrigido.** Se a leitura da sessão feita logo após a resposta falhasse (rede, HTTP não-2xx ou corpo inválido), `adminFetch` entregava a resposta ao componente sem confirmar que a empresa/sessão continuavam as mesmas — por exemplo, dados da empresa anterior depois de uma troca em outra aba.
+- **Agora** nenhuma resposta chega ao componente sem a confirmação. Falha na confirmação = contexto desconhecido: a tela é descartada (navegação completa) com aviso.
+  - Leitura: "Não foi possível confirmar a empresa ativa depois da leitura. Os dados recebidos foram descartados por segurança."
+  - Escrita já respondida com sucesso: continua **concluída** ("A operação foi concluída, mas não foi possível confirmar a empresa ativa em seguida…") — não vira "resultado incerto" só porque a confirmação falhou.
+  - Escrita com 5xx: resultado incerto; recusa (4xx): não concluída; escrita com resposta perdida: continua incerta.
+  - Falha na confirmação ANTES do envio: nada é enviado nem entregue (só a mensagem de erro).
+  - Nada é reenviado automaticamente em nenhum caso.
+
+| Verificação (cluster sintético exclusivo em `127.0.0.1:55503`, diretório `ambientes-locais/pg-descartavel-painel-063-r5`, destino conferido e registrado antes de conectar, removido ao final) | Resultado |
+|---|---|
+| Unitários do cliente (`lib/http/contexto-empresa.test.ts`): GET com falha por rede/HTTP 500/corpo inválido; escrita confirmada, 5xx, 4xx e perdida com falha; falha antes do envio | 16/16 |
+| Interface, cenário 6: o GET do Perfil responde com dados da Alfa, a empresa é trocada e toda confirmação falha → dados nunca entregues ao formulário (detector no navegador; controle positivo no carregamento normal), tela descartada com o aviso de leitura | Passou |
+| Interface, cenário 7: escrita confirmada + troca + falha na confirmação → aviso "concluída…", sem "incerto", 1 envio, executada uma vez | Passou |
+| O mesmo teste contra o `admin-fetch.ts` anterior (`660c216`) | Falhou no cenário 6 (sem descarte), como esperado |
+| Demais cenários de `painel-reauth-ui.cjs` e `painel-multi-ui.cjs` | Passaram |
+| `painel-063.postgres.test.ts` | 21/21 |
+
+Esta rodada só alterou o cliente (`lib/http/admin-fetch.ts`) e testes; a regressão PostgreSQL completa de `660c216` (258/258) segue válida para o servidor.
+
 ## Evidências locais
 
 PostgreSQL 18, cluster sintético criado exclusivamente em `127.0.0.1:55501`, com `cluster_name=kidmais_descartavel`, papel `kidmais_descartavel`, diretório `ambientes-locais/pg-painel-multi-codex-20261004`. Porta e diretório livres antes da criação; a receita confere endereço, porta, usuário, cluster e ausência do banco real antes de escrever. O PostgreSQL de outra sessão na porta 55498 não foi utilizado.

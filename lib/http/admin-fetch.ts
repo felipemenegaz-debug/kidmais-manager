@@ -8,9 +8,27 @@ type InfoSessao = { ok?: boolean; data?: { usuarioId?: string | null; sessaoId?:
 
 export const AVISO_RESULTADO_INCERTO = 'Resultado incerto: a operação pode ou não ter sido concluída. Confira antes de repetir — nada é reenviado automaticamente.';
 
-async function lerSessao(): Promise<InfoSessao> {
-    return (await fetch('/api/admin/autenticacao', { cache: 'no-store' })).json();
+/**
+ * Leitura da sessão para confirmar o contexto. Distingue sessão encerrada (resposta válida sem usuário) de FALHA
+ * na própria confirmação (rede, HTTP não-2xx ou corpo inválido): na falha o contexto é desconhecido.
+ */
+type Confirmacao = { estado: 'valida'; info: InfoSessao } | { estado: 'encerrada' } | { estado: 'falha' };
+async function confirmarSessao(): Promise<Confirmacao> {
+    try {
+        const r = await fetch('/api/admin/autenticacao', { cache: 'no-store' });
+        if (!r.ok) return { estado: 'falha' };
+        const info = await r.json() as InfoSessao;
+        if (!info?.ok) return { estado: 'falha' };
+        return info.data?.usuarioId ? { estado: 'valida', info } : { estado: 'encerrada' };
+    }
+    catch {
+        return { estado: 'falha' };
+    }
 }
+
+export const AVISO_LEITURA_NAO_CONFIRMADA = 'Não foi possível confirmar a empresa ativa depois da leitura. Os dados recebidos foram descartados por segurança.';
+export const AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO = 'A operação foi concluída, mas não foi possível confirmar a empresa ativa em seguida. A tela foi recarregada; confira o resultado.';
+export const AVISO_RECUSADA_SEM_CONTEXTO = 'A operação não foi concluída: o servidor recusou. Os dados da tela anterior foram descartados.';
 const empresaDe = (info: InfoSessao) => info.data?.contexto?.empresaAtual?.id ?? null;
 
 /**
@@ -18,12 +36,18 @@ const empresaDe = (info: InfoSessao) => info.data?.contexto?.empresaAtual?.id ??
  * Se a empresa/sessão mudar no meio do caminho, descarta a página e deixa um aviso com o resultado REAL:
  *   - mudou antes do envio, ou o servidor recusou pelo contexto antigo → nada foi alterado;
  *   - escrita respondida com sucesso, contexto mudou depois → concluída (dados antigos descartados);
- *   - escrita sem resposta (conexão) ou erro 5xx → resultado incerto.
+ *   - escrita sem resposta (conexão) ou erro 5xx → resultado incerto;
+ *   - falha na confirmação da sessão depois da resposta → nada é entregue ao componente: leitura descartada;
+ *     escrita confirmada continua "concluída", 5xx continua incerto, recusa continua recusa.
  */
 export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {}) {
     const escrita = !['GET', 'HEAD'].includes((init.method ?? 'GET').toUpperCase());
-    const info = await lerSessao();
-    if (!info.ok || !info.data?.usuarioId) {
+    const previa = await confirmarSessao();
+    if (previa.estado === 'falha')
+        // Nada foi pedido ao servidor e nada é entregue: o componente só recebe o erro.
+        throw Error(escrita ? 'Não foi possível confirmar a sessão antes do envio. Nada foi enviado.' : 'Não foi possível confirmar a sessão. Tente novamente.');
+    const info: InfoSessao = previa.estado === 'valida' ? previa.info : {};
+    if (previa.estado === 'encerrada' || !info.data?.usuarioId) {
         if (escrita) guardarAvisoDeContexto('Sua sessão terminou antes do envio. Nada foi enviado.');
         // Limpa a página administrativa em memória quando a sessão expira; helper fora de React.
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
@@ -55,21 +79,24 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
     const url = String(input);
     if (url.includes('/api/admin/autenticacao') || url.includes('/api/admin/perfil/senha'))
         return resposta;
-    let atual: InfoSessao | null = null;
-    try {
-        atual = await lerSessao();
+    // Nenhum dado chega ao componente sem confirmar que a empresa/sessão continuam as mesmas.
+    const depois = await confirmarSessao();
+    if (depois.estado === 'falha') {
+        // Contexto desconhecido: descarta a tela. Escrita já respondida com sucesso continua "concluída" (não vira
+        // incerta só porque a confirmação falhou); 5xx continua incerto; recusa continua recusa.
+        const aviso = !escrita ? AVISO_LEITURA_NAO_CONFIRMADA
+            : resposta.ok ? AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO
+                : resposta.status >= 500 ? AVISO_RESULTADO_INCERTO : AVISO_RECUSADA_SEM_CONTEXTO;
+        reiniciarContextoEmpresa(aviso);
+        throw Error(aviso);
     }
-    catch {
-        return resposta;
-    }
-    const encerrada = !atual?.ok || !atual.data?.usuarioId;
-    if (encerrada || contextoMudou(atual.data!.sessaoId!, empresaDe(atual))) {
+    const encerrada = depois.estado === 'encerrada';
+    if (encerrada || contextoMudou(depois.info.data!.sessaoId!, empresaDe(depois.info))) {
         const aviso = !escrita
             ? 'A empresa ativa ou a sessão mudou. Os dados da tela anterior foram descartados.'
             : resposta.ok
                 ? 'A operação foi concluída antes da mudança de empresa ou de sessão. Os dados da tela anterior foram descartados; confira o resultado.'
-                : resposta.status >= 500 ? AVISO_RESULTADO_INCERTO
-                    : 'A operação não foi concluída: o servidor recusou. Os dados da tela anterior foram descartados.';
+                : resposta.status >= 500 ? AVISO_RESULTADO_INCERTO : AVISO_RECUSADA_SEM_CONTEXTO;
         reiniciarContextoEmpresa(aviso, encerrada ? '/admin/login' : undefined);
         throw Error(aviso);
     }
@@ -83,8 +110,11 @@ export type ResultadoReautenticacao = { ok: true } | { ok: false; erro: string; 
  * então aceita a sessão nova. Senha incorreta mantém sessão, contexto e formulário intactos.
  */
 export async function reautenticarSessao(senha: string): Promise<ResultadoReautenticacao> {
-    const inicial = await lerSessao();
-    if (!inicial.ok || !inicial.data?.usuarioId)
+    const confirmada = await confirmarSessao();
+    if (confirmada.estado === 'falha')
+        return { ok: false, erro: 'Não foi possível confirmar a sessão. Tente novamente.', senhaIncorreta: false };
+    const inicial: InfoSessao = confirmada.estado === 'valida' ? confirmada.info : {};
+    if (!inicial.data?.usuarioId)
         return { ok: false, erro: 'Sua sessão terminou. Entre novamente.', senhaIncorreta: false };
     if (!registrarContextoEmpresa(inicial.data.sessaoId!, empresaDe(inicial)))
         return { ok: false, erro: 'A empresa ou a sessão mudou. Atualizando a página.', senhaIncorreta: false };
@@ -107,7 +137,8 @@ export async function reautenticarSessao(senha: string): Promise<ResultadoReaute
 
 /** Conclui uma renovação devolvida pelo servidor (reautenticação ou troca de senha). */
 export async function confirmarRenovacao(renovacao: { anterior: string; atual: string } | null | undefined): Promise<ResultadoReautenticacao> {
-    const depois = await lerSessao().catch(() => null);
+    const confirmada = await confirmarSessao();
+    const depois = confirmada.estado === 'valida' ? confirmada.info : null;
     if (!concluirRenovacaoDeSessao(renovacao, depois?.data?.sessaoId ?? null, depois ? empresaDe(depois) : null))
         return { ok: false, erro: 'A sessão mudou de forma inesperada. Atualizando a página.', senhaIncorreta: false };
     return { ok: true };

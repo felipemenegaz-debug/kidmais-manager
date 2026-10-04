@@ -7,7 +7,8 @@ import { carregarModulo } from '../acessos/teste-carregador.ts';
  * escrita repetida e aviso com o resultado real quando a empresa/sessão muda durante uma operação.
  */
 type Resp = { status: number; corpo: unknown };
-function ambiente(roteiro: { sessoes: Array<{ sessaoId: string | null; empresa: string | null }>; alvo?: Resp | 'rede'; reautenticar?: Resp }) {
+type Leitura = { sessaoId: string | null; empresa: string | null } | 'rede' | 'http500' | 'corpo-invalido';
+function ambiente(roteiro: { sessoes: Leitura[]; alvo?: Resp | 'rede'; reautenticar?: Resp }) {
     const navegacoes: string[] = [];
     const armazenado = new Map<string, string>();
     const chamadas: Array<{ url: string; metodo: string; sessao: string | null }> = [];
@@ -22,6 +23,9 @@ function ambiente(roteiro: { sessoes: Array<{ sessaoId: string | null; empresa: 
         if (String(input) === '/api/admin/autenticacao' && metodo === 'GET') {
             const s = roteiro.sessoes[Math.min(leitura, roteiro.sessoes.length - 1)];
             leitura += 1;
+            if (s === 'rede') throw new TypeError('fetch failed');
+            if (s === 'http500') return new Response('{}', { status: 500 });
+            if (s === 'corpo-invalido') return new Response('<html>', { status: 200 });
             return new Response(JSON.stringify({ ok: true, data: { usuarioId: s.sessaoId ? 'u' : null, sessaoId: s.sessaoId, csrf: 'c', contexto: { empresaAtual: s.empresa ? { id: s.empresa } : null } } }));
         }
         if (String(input) === '/api/admin/autenticacao') {
@@ -134,4 +138,55 @@ test('troca de sessão sem reautenticação (mesma empresa) continua descartando
     await a.mod.adminFetch('/api/x');
     await assert.rejects(a.mod.adminFetch('/api/x', { method: 'POST' }));
     assert.equal(a.navegacoes.at(-1), 'replace:/admin/dashboard');
+});
+
+// ---------------------------------------------------------------- falha na confirmação depois da resposta
+// Cenário: a empresa foi trocada em outra aba durante a operação e a consulta de confirmação falha. A página não sabe
+// qual é o contexto atual: nada pode ser entregue ao componente.
+const A = { sessaoId: 's1', empresa: 'A' } as const;
+
+test('GET + troca de empresa + falha na confirmação: dados NÃO entregues, tela descartada com aviso', async () => {
+    for (const falha of ['rede', 'http500', 'corpo-invalido'] as const) {
+        const a = ambiente({ sessoes: [A, falha], alvo: { status: 200, corpo: { ok: true, data: { segredo: 'dado-da-empresa-A' } } } });
+        let entregue: unknown = null;
+        await assert.rejects(async () => { entregue = await a.mod.adminFetch('/api/x'); }, /Não foi possível confirmar a empresa ativa depois da leitura/);
+        assert.equal(entregue, null, `${falha}: a resposta não chega ao componente`);
+        assert.equal(a.navegacoes.at(-1), 'replace:/admin/dashboard', falha);
+        assert.match(a.aviso()!, /dados recebidos foram descartados/, falha);
+        assert.equal(a.alvos(), 1, falha);
+    }
+});
+
+test('escrita CONFIRMADA + troca + falha na confirmação: continua "concluída" (não vira incerta), sem repetir', async () => {
+    const a = ambiente({ sessoes: [A, 'rede'], alvo: { status: 200, corpo: { ok: true } } });
+    await assert.rejects(a.mod.adminFetch('/api/x', { method: 'POST' }), /foi concluída, mas não foi possível confirmar/);
+    assert.match(a.aviso()!, /foi concluída, mas não foi possível confirmar a empresa ativa/);
+    assert.doesNotMatch(a.aviso()!, /incerto/i);
+    assert.equal(a.alvos(), 1);
+    assert.equal(a.navegacoes.at(-1), 'replace:/admin/dashboard');
+});
+
+test('escrita com 5xx + falha na confirmação: incerta; com recusa 4xx: não concluída; ambas sem repetir', async () => {
+    const incerta = ambiente({ sessoes: [A, 'http500'], alvo: { status: 503, corpo: {} } });
+    await assert.rejects(incerta.mod.adminFetch('/api/x', { method: 'POST' }));
+    assert.match(incerta.aviso()!, /Resultado incerto/);
+    assert.equal(incerta.alvos(), 1);
+    const recusada = ambiente({ sessoes: [A, 'rede'], alvo: { status: 422, corpo: { ok: false } } });
+    await assert.rejects(recusada.mod.adminFetch('/api/x', { method: 'POST' }));
+    assert.match(recusada.aviso()!, /não foi concluída: o servidor recusou/);
+    assert.equal(recusada.alvos(), 1);
+});
+
+test('escrita com resposta PERDIDA continua incerta mesmo que a confirmação também falhe; nunca reenvia', async () => {
+    const a = ambiente({ sessoes: [A, 'rede'], alvo: 'rede' });
+    await assert.rejects(a.mod.adminFetch('/api/x', { method: 'POST' }), /Resultado incerto/);
+    assert.equal(a.alvos(), 1);
+});
+
+test('falha na confirmação ANTES do envio: nada é enviado nem entregue', async () => {
+    const leitura = ambiente({ sessoes: ['rede'], alvo: { status: 200, corpo: { ok: true } } });
+    await assert.rejects(leitura.mod.adminFetch('/api/x'), /Não foi possível confirmar a sessão/);
+    const escrita = ambiente({ sessoes: ['http500'], alvo: { status: 200, corpo: { ok: true } } });
+    await assert.rejects(escrita.mod.adminFetch('/api/x', { method: 'POST' }), /Nada foi enviado/);
+    assert.equal(leitura.alvos() + escrita.alvos(), 0);
 });
