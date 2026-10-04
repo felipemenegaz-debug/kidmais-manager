@@ -35,45 +35,80 @@
 | `arquivos/lib/whatsapp/atendimento/empresa-ativa.postgres.test.ts` | Suíte E2–E7 (6.2 do plano). Só compila na árvore mesclada |
 | `arquivos/lib/whatsapp/atendimento/coexistencia-060-065.postgres.test.ts` | Suíte K1–K4 (6.3 do plano) |
 | `teste-i1-offline.sh` | Prova a resolução sem mesclar o repositório: `git merge-file` em pasta temporária gera os mesmos conflitos; o resultado é idêntico ao da simulação das 19:01 |
+| `i2-gate.sh` | I2: gate na worktree do I1 (confere branch, HEAD registrado e árvore limpa) |
 | `pg/o0.sh`, `o1.sh`, `o2.sh`, `o4.ps1`, `teste-o4.ps1`, `retrato.ps1` | Rodada PostgreSQL (I3) |
 
-SHA-256 dos arquivos fixos:
+## Identidade dos protegidos (corrigida antes da rodada de banco)
 
-```
-23b1d2e3f968d42f11593ac5b1432c3e06c1eb7257f4404e6b56729044673fd7 *integracao/i1-auxiliar.cjs
-320df634d03310e3ec96649524d69e348198dc7af14e2f282f914ccb767d3785 *integracao/i1-mensagem.txt
-85f58075a8617c401e186d8d10c1e4cabd6878e492eeebb14be138446a363127 *integracao/arquivos/.../empresa-ativa.postgres.test.ts
-f81f275ca614d34e35d2eacc99014ec07d2deb7188cd9f8f94d3dddbca361cac *integracao/arquivos/.../coexistencia-060-065.postgres.test.ts
-057dd37877d782a198239641754f64c9e5d95c554b14f7c2d8c498f117ffc33a *coordenacao-painel/resolver-inventario.mjs
-4436db6d9bb950f578a7b0790656fa7dfef5be3677716b240b8f27290a39f431 *coordenacao-painel/simulacao-resolucao.diff
-e6c3c6e5f63cb267cb9b60c484d2a4733c2ea1ba6571c7f8b18a5cf98a7988f3 *integracao/pg/o0.sh
-4685d30814e15a271e591e993187f7cf46ba8343a7b9cc3e1ebda9c640de4f1d *integracao/pg/o1.sh
-e26976d7780d99f53da429b560da0fc3afb95c2fde97cdbd7fb6ceb97d03be01 *integracao/pg/o2.sh
-add4f8d2328f41436aab2198069bec776043eaccc493d53471bd2d5208eece4b *integracao/pg/o4.ps1
-48d6467da682406c4100498180b6615d0b89e461f28766cc342c2213b06ef468 *integracao/pg/retrato.ps1
-bc6b63bc6385d19a2f4384ba0f58e709343b392f581cde0287a78981b90e53a8 *val-prontas/guardas.ps1   (usado pelo retrato)
-```
+O retrato (`val-prontas/guardas.ps1`, usado pelo `vp.ps1` e por `pg/retrato.ps1`) agora **comprova** se o processo é o postmaster do diretório registrado. Ele usa os campos do `postmaster.pid` (PID, diretório, início em segundos Unix, porta) e o processo pelo CIM (nome, início, linha de comando).
 
-## Etapas e alvos
+| Situação | Resultado |
+| --- | --- |
+| `-D` da linha de comando = este diretório **e** início igual (±5 s) | Em execução |
+| Linha de comando ilegível (processo de outro usuário), início igual **e** o servidor na porta registrada confirma o `data_directory` | Em execução |
+| Sem `postmaster.pid`; PID sem processo; PID de processo que não é postgres | Parado (com hash) |
+| **PID antigo reutilizado por outro postgres**: `-D` de outro diretório, ou início diferente do registrado | Parado (com hash) |
+| `postmaster.pid` ilegível ou de outro diretório; `-D` igual com início diferente; linha ilegível sem confirmação do servidor | **INCONCLUSIVO**: sem retrato; o `vp.ps1` e o `retrato.ps1` **param** (o retrato fica gravado como evidência) |
 
-| # | Operação | Alvo | O que faz | Autorização |
-| --- | --- | --- | --- | --- |
-| I0 | `git fetch` + conferência de refs | leitura | Painel `ad6b1b9`, staging `904b451` (contido no painel), candidata = HEAD autorizado. Divergência = parar e reapresentar | — |
-| I1 | `bash .local-ux/integracao/i1-mescla.sh` | Worktree **nova** `C:\Users\Glass\.codex\worktrees\0997\kidmais-integracao-painel`, branch local **`integracao/atendimento-x-painel`** (nunca publicada) | Mescla o painel (traz também a PR #93 de staging, 2 commits). Exige exatamente os 3 conflitos previstos e resolução idêntica à simulação. Copia as 2 suítes e as põe na seleção PostgreSQL. `production.test` + `check-migrations`. **1 commit local**; `node_modules` por hardlink (`cp -al`, nada baixado). Qualquer divergência desfaz worktree e branch | **Sim** (mescla) |
-| I2 | Gate estático completo na worktree de I1 (`scripts/regressao-v1-estatica.cjs`), log com HEAD e árvore limpa | local | Unitários, harness, lint, `tsc`, build | Incluída em I1 |
-| I3 | `retrato.ps1 -Rotulo antes` → `pg/o0.sh` → `o1.sh` → `o2.sh alvo` → `o2.sh completa` → `o4.ps1` → `retrato.ps1 -Rotulo depois` | Cluster **novo** em `C:\Users\Glass\AppData\Local\Temp\kidmais-pg-integracao\data` (não existe), **127.0.0.1:55500**, banco `kidmais_pacotes_v1_descartavel`, marca `# Validacao integracao atendimento x painel (descartavel)`, identidade `kidmais_descartavel\|127.0.0.1\|55500\|kidmais_descartavel\|postgres\|0\|C\|60\|<diretório>` | **Alvo:** empresa-ativa, coexistência, painel-063, 060/064/065, concorrência, hg8-tenant, tenant-festa. **Completa:** todas. O4 remove só o alvo | **Sim** (banco), no HEAD gerado por I1 (`.local-ux/integracao/HEAD-integracao.txt`) |
-| I4 | Navegador curto na árvore mesclada | — | **Preparado depois de I1–I3.** Depende do fluxo de seleção de empresa do painel na árvore mesclada; nova base sintética com a 063 | Sim, à parte |
+**Por que importa:** nesta máquina rodam 17 processos postgres dos serviços 17/18, com linha de comando ilegível. A versão anterior marcava "em execução" qualquer postgres vivo no PID registrado e pulava o hash da pasta.
 
-**Protegidos (só retratados, nunca tocados):**
-- a demo parada (`…-4b6271`);
-- `kidmais-pg-demo-atendimento`, `kidmais-pg-063`, `kidmais-pg-060` e `kidmais-pg-identificacao` (vazia);
-- o cluster da outra sessão em `D:\glass\KidMais Manager\ambientes-locais\pg-painel-multi-codex-20261004`.
+| Controle (`postmaster.pid` com o PID real de um postgres do serviço) | Resultado |
+| --- | --- |
+| Versão anterior | "em execução (... PID 6556, postgres)" |
+| Versão nova | "parado (... reutilizado por outro postgres (início 13:40:11 ≠ registrado 04:20:21))" |
 
-O retrato agora **mede** o estado: em execução só se o `postmaster.pid` aponta para um processo postgres vivo. Parado, o cluster é retratado com hash e precisa ficar idêntico antes e depois. Hoje todos aparecem parados; a demo tem um `postmaster.pid` antigo sem processo.
+**Testes offline** (`val-prontas/teste-offline.ps1`): **74/74**.
+- 12 combinações simuladas de identidade;
+- retrato e `Test-VpRetratoInconclusivo`;
+- dois casos com processos **reais**, só leitura: este PowerShell e um postgres do serviço.
+
+**Retrato real de hoje:** todos os protegidos parados, com a mesma listagem antes da mudança (`pg/retrato-preparo-identidade.txt`).
+
+**Evidências preservadas:** as versões anteriores dos scripts, manifestos e logs estão em `.local-ux/historico/antes-identidade-protegidos/` (`SHA256.txt`).
+
+## Pedido de autorização 1 — I1 e I2 (mescla de verificação local + gate)
+
+| Item | Valor |
+| --- | --- |
+| Candidata | HEAD fixado em `i1-mescla.sh` (o commit que traz este documento; no `MANIFESTO.txt`), árvore limpa |
+| Refs exigidas | Painel `ad6b1b9`, `origin/staging` `904b451` (contido no painel). O I0 refaz o `git fetch`; divergência = parar e reapresentar |
+| Alvo | Worktree **nova** `C:\Users\Glass\.codex\worktrees\0997\kidmais-integracao-painel`, branch local **`integracao/atendimento-x-painel`** (nunca publicada) |
+| I1 | `bash .local-ux/integracao/i1-mescla.sh` |
+| I2 | `bash .local-ux/integracao/i2-gate.sh` |
+| Fora | Banco, push, PR, merge em `staging` e deploy |
+
+**I1 — o que faz:**
+- mescla o painel, o que traz também a PR #93 de staging (2 commits);
+- exige exatamente os 3 conflitos previstos e uma resolução idêntica à simulação;
+- acrescenta as 2 suítes à seleção PostgreSQL;
+- roda `production.test` e `check-migrations`;
+- faz **1 commit local** e copia o `node_modules` por hardlink (nada baixado);
+- qualquer divergência desfaz a worktree e a branch.
+
+**I2 — o que faz:** o gate completo na árvore integrada. Depois dele relato **HEAD, resultados e eventuais falhas**, e nada é corrigido no meio.
+
+Hashes: seção "I1–I2" do `.local-ux/integracao/MANIFESTO.txt`.
+
+## Pedido de autorização 2 — I3 (PostgreSQL descartável), só depois do relato do I2
+
+| Item | Valor |
+| --- | --- |
+| HEAD | O da branch de verificação, gerado pelo I1 e relatado depois do I2 (`.local-ux/integracao/HEAD-integracao.txt`) |
+| Cluster | **Novo**, em `C:\Users\Glass\AppData\Local\Temp\kidmais-pg-integracao\data` (não existe) |
+| Endereço | **127.0.0.1:55500**, só loopback; banco `kidmais_pacotes_v1_descartavel` |
+| Marca | `# Validacao integracao atendimento x painel (descartavel)` |
+| Identidade exigida | `kidmais_descartavel\|127.0.0.1\|55500\|kidmais_descartavel\|postgres\|0\|C\|60\|<diretório>` |
+| Sequência | `retrato.ps1 -Rotulo antes` (para se houver INCONCLUSIVO) → `o0.sh` → `o1.sh` → `o2.sh alvo` → `o2.sh completa` → `o4.ps1` → `retrato.ps1 -Rotulo depois` |
+| Alvo da O2 | empresa-ativa, coexistência, painel-063, 060/064/065, concorrência, hg8-tenant, tenant-festa |
+| Completa | todas as suítes |
+| O4 | Remove só o alvo |
+| Protegidos | A demo parada (`…-4b6271`), `kidmais-pg-demo-atendimento`, `kidmais-pg-063`, `kidmais-pg-060`, `kidmais-pg-identificacao` e o cluster da outra sessão em `D:\glass\KidMais Manager\ambientes-locais\pg-painel-multi-codex-20261004`. Retratados com identidade comprovada; antes e depois idênticos |
+
+Hashes: seção "I3" do `.local-ux/integracao/MANIFESTO.txt`.
+
+**I4 (navegador)** é preparado depois de I1–I3; depende do fluxo de seleção de empresa do painel na árvore mesclada.
 
 **Testes offline:**
-- `teste-i1-offline.sh`: 12/12 com o HEAD preenchido;
+- `teste-i1-offline.sh`: 12/12;
 - `pg/teste-o4.ps1`: 15/15;
-- `val-prontas/teste-offline.ps1`: 59/59, incluindo o retrato medido.
-
-**Fora desta etapa:** push, PR, merge em `staging`, banco remoto, deploy e Gupshup.
+- `val-prontas/teste-offline.ps1`: 74/74.
