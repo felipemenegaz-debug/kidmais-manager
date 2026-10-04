@@ -12,7 +12,7 @@ export type FechamentoStatus =
   | "RECUSADO"
   | "EXPIRADO";
 
-export type OrigemFechamento = "CLIENTE" | "ATENDIMENTO_KIDMAIS";
+export type OrigemFechamento = "CLIENTE" | "ATENDIMENTO_KIDMAIS" | "IMPORTACAO_HISTORICA";
 export type BuffetStatus = "PENDENTE" | "DEFINIDO";
 export type FormaPagamentoPretendida = "PIX_AVISTA" | "PIX_PARCELADO" | "CARTAO_CIELO";
 export type CategoriaHorario = "PADRAO" | "NOBRE";
@@ -77,6 +77,8 @@ export type CreateFechamentoInput = {
   horarioInicio: string;
   horarioFim: string;
   configuracaoAgendaId: string;
+  /** 062: gravada só quando informada (coluna existe a partir da 062); o gatilho confere empresa e status. */
+  estabelecimentoId?: string | null;
   pacoteId: string;
   tabelaPrecoId: string;
   precoPacoteId: string;

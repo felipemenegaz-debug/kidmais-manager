@@ -27,7 +27,7 @@
 @media(max-width:800px) { .page { padding:24px 16px; } .card { padding:24px; } .page fieldset { padding:16px; } .tableWrap table { min-width:560px; } .login { margin:24px 16px; width:calc(100% - 32px); } }
 .tituloContratos { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 16px; margin-bottom:24px; }
 .page .tituloContratos h1 { margin:0; }
-.importarContrato { composes: secundario from './visual.module.css'; }
+.importarContrato { composes: primario from './visual.module.css'; }
 /* PDF de Pacotes: links de abrir/baixar com alvo de toque de 44 px. */
 .linksPdf { display:flex; flex-wrap:wrap; gap:0 20px; }
 .linksPdf a { display:inline-flex; align-items:center; min-height:44px; }

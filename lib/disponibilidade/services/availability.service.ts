@@ -1,36 +1,75 @@
-import type { DbExecutor } from "../../db/contracts";
+import type { DbExecutor } from "../../db/contracts.ts";
+import { db } from "../../db/postgres.ts";
+import { escopoDoFechamento, type EscopoAgenda } from "../escopo.ts";
 import {
   listarBloqueiosAtivosPorPeriodo,
   listarConfiguracoesAgendaAtivas,
   listarFechamentosConfirmadosPorPeriodo,
-  type BloqueioAgendaRecord,
-  type OcupacaoConfirmadaRecord,
-} from "../repositories";
-import { AvailabilityServiceError } from "./errors";
+} from "../repositories/disponibilidade.repository.ts";
+import type { BloqueioAgendaRecord, OcupacaoConfirmadaRecord } from "../repositories/models.ts";
+import { AvailabilityServiceError } from "./errors.ts";
 import {
   adicionarDiasIso,
   bloqueioConflitaComCandidato,
   dataIsoValida,
   diferencaDiasIso,
   gerarHorariosCandidatos,
+  horaParaMinutos,
   ocupacaoConflitaComCandidato,
-} from "./horario.utils";
+} from "./horario.utils.ts";
 import type {
   DisponibilidadeDataPublica,
   PeriodoDisponibilidadePublica,
-} from "./models";
+} from "./models.ts";
 
 const MAX_DIAS_CONSULTA = 62;
 
+/** Escopo explícito, ou o da contratação indicada (lido do banco, nunca do pedido). */
+export type EscopoConsulta = EscopoAgenda | { fechamentoId: string };
+
+async function resolverEscopo(customDb: DbExecutor | undefined, informado?: EscopoConsulta, excluirFechamentoId?: string) {
+  const fechamentoId = informado && "fechamentoId" in informado ? informado.fechamentoId : informado ? null : excluirFechamentoId;
+  if (fechamentoId) return escopoDoFechamento(customDb ?? db(), fechamentoId);
+  return informado && !("fechamentoId" in informado) ? informado : undefined;
+}
+
+/**
+ * Escopo (062): o recurso consultado (ou a contratação de onde lê-lo). Sem escopo e com contratação a excluir
+ * (remarcação/edição), vale o escopo gravado nessa contratação; sem nenhum dos dois, o alcance global (conservador).
+ */
 export async function consultarDisponibilidadeData(
   data: string,
   customDb?: DbExecutor,
   excluirFechamentoId?: string,
+  escopo?: EscopoConsulta,
 ): Promise<DisponibilidadeDataPublica> {
-  const [resultado] = await consultarDisponibilidadePeriodo(data, data, customDb, excluirFechamentoId);
+  const [resultado] = await consultarDisponibilidadePeriodo(data, data, customDb, excluirFechamentoId, escopo);
   return resultado;
 }
 
+
+/**
+ * Intervalo EXATO sem conflito na data, sem exigir que seja um dos horários candidatos do turno: reservas confirmadas e
+ * bloqueios ativos do escopo da própria contratação (062), excluída ela mesma. Uso restrito à manutenção de uma reserva
+ * que já existe no mesmo destino (horário histórico preservado na revisão). Mudança de destino continua exigindo os
+ * candidatos oficiais de `consultarDisponibilidadeData`.
+ */
+export async function intervaloSemConflito(
+  data: string,
+  inicio: string,
+  fim: string,
+  customDb: DbExecutor,
+  fechamentoId: string,
+): Promise<boolean> {
+  validarPeriodo(data, data);
+  const escopo = await resolverEscopo(customDb, undefined, fechamentoId);
+  const bloqueios = await listarBloqueiosAtivosPorPeriodo(data, data, customDb, escopo);
+  const ocupacoes = await listarFechamentosConfirmadosPorPeriodo(data, data, customDb, escopo);
+  const intervalo = { inicioMinutos: horaParaMinutos(inicio), fimMinutos: horaParaMinutos(fim) };
+  if (!(intervalo.fimMinutos > intervalo.inicioMinutos)) return false;
+  return !bloqueios.some((b) => b.data === data && bloqueioConflitaComCandidato(b, intervalo))
+    && !ocupacoes.some((o) => o.fechamentoId !== fechamentoId && o.data === data && ocupacaoConflitaComCandidato(o, intervalo));
+}
 
 export type RevalidarHorarioSelecionadoInput = {
   data: string;
@@ -43,8 +82,9 @@ export type RevalidarHorarioSelecionadoInput = {
 export async function revalidarHorarioSelecionado(
   input: RevalidarHorarioSelecionadoInput,
   customDb?: DbExecutor,
+  escopo?: EscopoConsulta,
 ) {
-  const disponibilidade = await consultarDisponibilidadeData(input.data, customDb);
+  const disponibilidade = await consultarDisponibilidadeData(input.data, customDb, undefined, escopo);
   const periodo = disponibilidade.periodos.find(
     (item) => item.codigo === input.codigoPeriodo,
   );
@@ -80,19 +120,21 @@ export async function consultarDisponibilidadePeriodo(
   fim: string,
   customDb?: DbExecutor,
   excluirFechamentoId?: string,
+  escopoInformado?: EscopoConsulta,
 ): Promise<DisponibilidadeDataPublica[]> {
   validarPeriodo(inicio, fim);
 
+  const escopo = await resolverEscopo(customDb, escopoInformado, excluirFechamentoId);
   const [configuracoes, bloqueios, ocupacoesConfirmadas] = customDb
     ? [
-        await listarConfiguracoesAgendaAtivas(customDb),
-        await listarBloqueiosAtivosPorPeriodo(inicio, fim, customDb),
-        await listarFechamentosConfirmadosPorPeriodo(inicio, fim, customDb),
+        await listarConfiguracoesAgendaAtivas(customDb, escopo),
+        await listarBloqueiosAtivosPorPeriodo(inicio, fim, customDb, escopo),
+        await listarFechamentosConfirmadosPorPeriodo(inicio, fim, customDb, escopo),
       ]
     : await Promise.all([
-        listarConfiguracoesAgendaAtivas(),
-        listarBloqueiosAtivosPorPeriodo(inicio, fim),
-        listarFechamentosConfirmadosPorPeriodo(inicio, fim),
+        listarConfiguracoesAgendaAtivas(undefined, escopo),
+        listarBloqueiosAtivosPorPeriodo(inicio, fim, undefined, escopo),
+        listarFechamentosConfirmadosPorPeriodo(inicio, fim, undefined, escopo),
       ]);
 
   if (configuracoes.length === 0) {

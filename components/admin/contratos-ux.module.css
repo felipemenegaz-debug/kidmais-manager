@@ -55,3 +55,12 @@
 .page.page .documentDetails:not([open]) { padding-bottom:0; }
 .page.page button:not([role=tab]):hover:not(:disabled) { border-color:var(--emerald-accent); filter:brightness(1.1); box-shadow:0 0 15px color-mix(in srgb,var(--emerald-accent) 20%,transparent); }
 @media(max-width:800px) { .page.page { padding-top:80px; } .tabs { gap:8px 16px; } .page.page input,.page.page select,.page.page textarea { font-size:16px; } .overview { padding:18px; } }
+/* Contrato importado (etapa 1, somente leitura): cards do snapshot, documento, cliente e pagamentos previstos. */
+.contratoImportado { display:grid; gap:0; }
+.origemImportado { color:var(--secondary-text); font-size:12px; margin:8px 0 0; max-width:72ch; }
+.dados { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px 20px; margin:16px 0 0; }
+.dados > div { min-width:0; }
+.dados dt { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--lilac-accent); font-weight:900; }
+.dados dd { margin:4px 0 0; overflow-wrap:anywhere; }
+.discreto { color:var(--secondary-text); font-size:12px; }
+.seloPrevisto { display:inline-block; padding:4px 10px; border-radius:999px; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; color:var(--secondary-text); background:var(--input-bg); border:1px solid var(--border-navy); }

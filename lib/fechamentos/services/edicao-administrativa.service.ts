@@ -49,7 +49,7 @@ export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoF
     if (mudouAgenda) {
         for (const dia of [...new Set([f.dataEvento, input.dataEvento])].sort())
             await adquirirLockConfirmacaoAgenda(dia, tx);
-        const disponivel = await consultarDisponibilidadeData(input.dataEvento, tx);
+        const disponivel = await consultarDisponibilidadeData(input.dataEvento, tx, undefined, { fechamentoId: f.id });
         const periodo = disponivel.periodos.find(p => p.configuracaoId === input.configuracaoAgendaId);
         if (!periodo?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === input.horarioInicio.slice(0, 5) && h.fim === input.horarioFim.slice(0, 5)))
             recusar('Data/horário indisponível ou fora das opções oficiais.');

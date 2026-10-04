@@ -1,7 +1,29 @@
 import { situacaoCobranca } from '../services/cancelamento-core';
 import type { DbExecutor } from '../../db/contracts';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
-import { posicaoEconomica, reaisCentavos, recusarFinanceiro } from '../services/alteracao-financeira-core';
+import { chaveExcecaoHistorica, posicaoEconomica, reaisCentavos, recusarFinanceiro } from '../services/alteracao-financeira-core';
+
+/**
+ * Parcelas do PLANO HISTÓRICO (versão 1 do pagamento criado pela integração 061) cujo vencimento depois da festa foi
+ * confirmado na integração (mesma parcela e mesmo vencimento da decisão gravada). Parcela de plano substituto ou nova,
+ * mesmo com o mesmo número e vencimento, não herda a exceção. Sem a 061, conjunto vazio.
+ */
+export async function excecoesHistoricasDoPagamento(tx: DbExecutor, pagamentoId: string): Promise<Set<string>> {
+  const tem061 = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.contrato_importacao_financeiro') IS NOT NULL AS ok")).rows[0]?.ok === true;
+  if (!tem061) return new Set();
+  const r = await tx.query<{ parcela_id: string; vencimento: string }>(
+    `SELECT pp.id::text AS parcela_id, pp.vencimento::text AS vencimento
+       FROM contrato_importacao_financeiro cif
+       -- Só o plano HISTÓRICO comprovado (versão 1, criado pela integração): plano substituto não herda a exceção.
+       JOIN pagamento_planos pl ON pl.pagamento_id = cif.pagamento_id AND pl.numero_versao = 1
+       JOIN pagamento_parcelas pp ON pp.plano_id = pl.id
+      WHERE cif.pagamento_id = $1::uuid
+        AND cif.decisoes->'financeiro'->'parcelas'->(pp.numero - 1)->>'aposFestaConfirmada' = 'true'
+        AND cif.decisoes->'financeiro'->'parcelas'->(pp.numero - 1)->>'vencimento' = pp.vencimento::text`,
+    [pagamentoId],
+  );
+  return new Set(r.rows.map((l) => chaveExcecaoHistorica(l.parcela_id, l.vencimento)));
+}
 import type { VersaoFinanceira, AjusteFinanceiro, CronogramaFinanceiro, ItemCronograma, MovimentoFinanceiro, EstornoFinanceiro, DevolucaoFinanceira, ParcelaFinanceira, PendenciaFinanceira, TratamentoFinanceiro } from '../services/alteracao-financeira.models';
 
 export async function lerPosicaoFinanceira(tx: DbExecutor, contratoId: string, movimentoLegado = false) {
@@ -29,6 +51,7 @@ export async function lerPosicaoFinanceira(tx: DbExecutor, contratoId: string, m
   const planos=(await tx.query<{id:string;status:string;numero_versao:number}>('SELECT id,status,numero_versao FROM pagamento_planos WHERE pagamento_id=$1 ORDER BY numero_versao',[p.id])).rows;
   const cronograma=(await tx.query<CronogramaFinanceiro>('SELECT id,plano_id,versao_referencia_id,saldo_inicial_centavos::text,estado FROM pagamento_cronogramas WHERE pagamento_id=$1 AND estado=\'ATIVO\'',[p.id])).rows[0]??null;
   const itens=cronograma?(await tx.query<ItemCronograma>('SELECT id,parcela_id,saldo_inicial_centavos::text,recebido_base_centavos::text,estornado_base_centavos::text,vencimento_referencia::text FROM pagamento_cronograma_itens WHERE cronograma_id=$1 ORDER BY ordem',[cronograma.id])).rows:[];
+  const excecoesHistoricas=await excecoesHistoricasDoPagamento(tx,p.id);
   const encerrada=contrato.status==='CANCELADO'||p.status==='CANCELADO';
   const futuro=encerrada?[]:cronograma?itens.map(i=>{const parcela=parcelas.find(p=>p.id===i.parcela_id)!;const saldo=BigInt(i.saldo_inicial_centavos)-(reaisCentavos(parcela.recebido)-reaisCentavos(parcela.estornado)-BigInt(i.recebido_base_centavos)+BigInt(i.estornado_base_centavos));return{parcelaId:parcela.id,itemId:i.id,valorCentavos:(saldo>0n?saldo:0n).toString(),vencimento:i.vencimento_referencia};}):parcelas.filter(pp=>planos.some(pl=>pl.id===pp.plano_id&&pl.status==='ATIVO')&&pp.status!=='CANCELADA').map(pp=>{const saldo=reaisCentavos(pp.valor_previsto)-reaisCentavos(pp.recebido)+reaisCentavos(pp.estornado);return{parcelaId:pp.id,itemId:null,valorCentavos:(saldo>0n?saldo:0n).toString(),vencimento:pp.vencimento};});
   const posicao=posicaoEconomica(reaisCentavos(p.valor_total_contratado),ajustes.reduce((a,j)=>a+BigInt(j.delta_centavos),0n),recebimentos.filter(r=>r.status==='CONFIRMADO').reduce((a,r)=>a+reaisCentavos(r.valor_bruto),0n),estornos.filter(e=>e.status==='CONFIRMADO').reduce((a,e)=>a+reaisCentavos(e.valor),0n),devolucoes.filter(d=>d.estado==='CONCLUIDA').reduce((a,d)=>a+BigInt(d.valor_centavos),0n),reservas.filter(r=>r.estado==='ATIVA').reduce((a,r)=>a+BigInt(r.valor_centavos),0n));
@@ -39,13 +62,14 @@ export async function lerPosicaoFinanceira(tx: DbExecutor, contratoId: string, m
   if(valorVigente!==posicao.obrigacao)motivos.push('VALOR');
   if(hashSnapshotContrato(comercial(vigente))!==hashSnapshotContrato(comercial(reconhecida)))motivos.push('CONDICAO');
   if(vigente.snapshot.contratante?.clienteId!==reconhecida.snapshot.contratante?.clienteId)motivos.push('CONTRATANTE');
-  if(forma==='PIX_PARCELADO'&&futuro.some(i=>BigInt(i.valorCentavos)>0n&&i.vencimento>vigente.snapshot.evento.data))motivos.push('CRONOGRAMA_DATA');
+  // Vencimento histórico confirmado (061) e preservado não é pendência: não obriga mudança.
+  if(forma==='PIX_PARCELADO'&&futuro.some(i=>BigInt(i.valorCentavos)>0n&&i.vencimento>vigente.snapshot.evento.data&&!excecoesHistoricas.has(chaveExcecaoHistorica(i.parcelaId,i.vencimento))))motivos.push('CRONOGRAMA_DATA');
   const pendencias=(await tx.query<PendenciaFinanceira>('SELECT id,versao_anterior_id,versao_nova_id,motivo,criado_em::text FROM contrato_pendencias_financeiras WHERE pagamento_id=$1 ORDER BY criado_em,id',[p.id])).rows;
   const tratamentos=(await tx.query<TratamentoFinanceiro>('SELECT id,pendencia_id,pagamento_id,estado,tentativa,iniciado_por_usuario_id FROM pagamento_tratamentos WHERE pagamento_id=$1 ORDER BY tentativa',[p.id])).rows;
   const gestao=(await tx.query<{sequencia:string}>('SELECT sequencia::text FROM pagamento_gestoes WHERE pagamento_id=$1',[p.id])).rows[0];
   const cobranca=situacaoCobranca(contrato.status,p.status,recebimentos.length,posicao.saldo);
   const base={contratoStatus:contrato.status,pagamento:p,versoes,ajustes,recebimentos,estornos,devolucoes,reservas,parcelas,planos,cronograma,itens,sequencia:gestao?.sequencia??'0',vigente:vigente.id};
-  return{cobranca,contrato,pagamento:p,original,vigente,reconhecida,ajustes,recebimentos,estornos,devolucoes,reservas,parcelas,planos,cronograma,itens,futuro,posicao,valorVigente,forma,motivos,pendencias,tratamentos,posicaoHash:hashSnapshotContrato(base)};
+  return{cobranca,contrato,pagamento:p,original,vigente,reconhecida,ajustes,recebimentos,estornos,devolucoes,reservas,parcelas,planos,cronograma,itens,futuro,posicao,valorVigente,forma,motivos,pendencias,tratamentos,excecoesHistoricas,posicaoHash:hashSnapshotContrato(base)};
 }
 export type PosicaoFinanceira = Awaited<ReturnType<typeof lerPosicaoFinanceira>>;
 export function serializarFinanceiro<T>(v:T):unknown{return JSON.parse(JSON.stringify(v,(_,x)=>typeof x==='bigint'?x.toString():x));}

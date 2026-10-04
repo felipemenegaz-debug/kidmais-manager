@@ -6,6 +6,8 @@ import {
   consultarDisponibilidadePeriodo,
   isAvailabilityServiceError,
 } from "@/lib/disponibilidade/services";
+import { escopoPublico } from "@/lib/disponibilidade/escopo";
+import { db } from "@/lib/db/postgres";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,12 +67,14 @@ export async function GET(request: NextRequest) {
     const data = searchParams.get("data")?.trim();
     const inicio = searchParams.get("inicio")?.trim();
     const fim = searchParams.get("fim")?.trim();
+    // D4: empresa/unidade só da configuração do servidor; nenhum parâmetro do pedido escolhe o escopo.
+    const escopo = await escopoPublico(db);
 
     const [resultado, comercial] = await Promise.all([
       data
-        ? consultarDisponibilidadeData(data)
+        ? consultarDisponibilidadeData(data, undefined, undefined, escopo)
         : inicio && fim
-          ? consultarDisponibilidadePeriodo(inicio, fim)
+          ? consultarDisponibilidadePeriodo(inicio, fim, undefined, undefined, escopo)
           : Promise.reject(
               new Error(
                 "Informe data=YYYY-MM-DD ou inicio=YYYY-MM-DD&fim=YYYY-MM-DD.",

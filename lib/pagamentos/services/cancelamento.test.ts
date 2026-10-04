@@ -87,6 +87,7 @@ function ambiente(recebimentos: Row[] = [], consolidado = false, falha = '') {
   });
   const sessao = { usuario_id: 'admin', nome: 'Ficticio', papel: 'REPRESENTANTE_AUTORIZADO' };
   const festa = carregar('lib/festas/service.ts', {
+    './importadas': { listarFestasImportadas: async () => { throw new Error('Cancelamento não deve consultar importações'); } },
     './ambiente': { validarAmbienteFesta: async () => {} }, './buffet': {}, './perfis': {}, zod: {},
     './politica': { politicaOperacao: () => ({ corrigir: false, motivoObrigatorio: true }) },
     'node:crypto': { createHash }, './domain': domain,

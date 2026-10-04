@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as cliente from './cliente-importacao.ts';
-import { achar, carregarComponente, cssFalso, tique } from '../teste-componente.ts';
+import * as revisao from '../../../lib/importacao-contrato/revisao.ts';
+import type { EtapaImportacao } from './ImportacaoReal';
+import { achar, carregarComponente, cssFalso, tique, texto, elementos } from '../teste-componente.ts';
 
 type Pedido = { url: string; init: RequestInit };
 function buscador(resposta: (p: Pedido) => Promise<Response>) {
@@ -11,13 +13,43 @@ function buscador(resposta: (p: Pedido) => Promise<Response>) {
 
 const importacao = { id: '00000001-1111-4111-8111-111111111111', versao: 2, status: 'EM_REVISAO', extracao: { fonte: 'DOCUMENTO', arquivo: { nome: 'c.pdf', tipo: 'application/pdf', tamanhoBytes: 10 }, secoes: [] }, revisados: [], decisaoCliente: null };
 
-test('estado da importação: só ok explícito liga o modo real; recusa ou rede ⇒ demonstração', async () => {
+test('cancelar exige confirmação; continuar preserva revisão; falha no descarte não apaga estado',async()=>{
+  for (const sucesso of [true,false]) {
+    const acoes:unknown[]=[];
+    const tela=carregarComponente('components/admin/importacao/ImportacaoReal.tsx',{
+      'next/link':{default:'a'}, '@/lib/http/admin-fetch':{adminFetch:async()=>new Response()},
+      '@/components/admin/inteligencia/cliente-inteligencia':{decidirOperacao:async()=>{throw Error('gate não deve ser chamado na revisão');}},
+      '@/components/admin/inteligencia/AcaoKidmais':{PreviewAcao:()=>null},
+      '@/lib/importacao-contrato/revisao':revisao,
+      './cliente-importacao':{agirNaImportacao:async(_buscar:unknown,_estado:unknown,acao:unknown)=>{acoes.push(acao);return sucesso?{ok:true,dados:{}}:{ok:false,mensagem:'Revisão mudou em outra aba.'};}},
+      './importacao.module.css':cssFalso, './importacao-real.module.css':cssFalso, './IntegracaoContrato':{default:function IntegracaoContrato(){return null;}},
+    });
+    const props={vitrine:{etapa:'revisao',importacao,plano:null,avisos:[],ocupado:false,erro:null} as EtapaImportacao};
+    let arvore=tela.render('default',props);
+    (achar(arvore,'button','Cancelar importação').props.onClick as ()=>void)();
+    assert.equal(acoes.length,0);
+    arvore=tela.render('default',props);
+    (achar(arvore,'button','Continuar revisão').props.onClick as ()=>void)();
+    assert.equal(acoes.length,0);
+    arvore=tela.render('default',props);
+    (achar(arvore,'button','Cancelar importação').props.onClick as ()=>void)();
+    arvore=tela.render('default',props);
+    (achar(arvore,'button','Sim, cancelar importação').props.onClick as ()=>void)();
+    await tique();
+    assert.deepEqual(acoes,[{acao:'descartar'}]);
+    arvore=tela.render('default',props);
+    if(sucesso) assert(achar(arvore,'h2','Enviar contrato'));
+    else { assert(achar(arvore,'button','Cancelar importação')); assert(achar(arvore,'p','Revisão mudou em outra aba.')); }
+  }
+});
+
+test('estado da importação: recusa ou falha de rede são explícitas e não simulam extração', async () => {
   const ok = buscador(async () => Response.json({ ok: true, data: { habilitado: true, envioExterno: false } }));
   assert.equal(await cliente.importacaoHabilitada(ok.buscar), true);
   assert.equal(ok.pedidos[0].url, '/api/admin/inteligencia/importacoes');
   assert.deepEqual(JSON.parse(String(ok.pedidos[0].init.body)), { acao: 'estado' });
-  assert.equal(await cliente.importacaoHabilitada(buscador(async () => Response.json({ ok: false, codigo: 'INTELIGENCIA_DESATIVADA' }, { status: 503 })).buscar), false);
-  assert.equal(await cliente.importacaoHabilitada(buscador(async () => { throw new TypeError('offline'); }).buscar), false);
+  await assert.rejects(cliente.importacaoHabilitada(buscador(async () => Response.json({ ok: false, codigo: 'INTELIGENCIA_DESATIVADA' }, { status: 503 })).buscar));
+  await assert.rejects(cliente.importacaoHabilitada(buscador(async () => { throw new TypeError('offline'); }).buscar));
 });
 
 test('envio: multipart só com o arquivo; depois abre a importação pelo documento; ações levam só id, versão e o campo revisado', async () => {
@@ -42,21 +74,62 @@ test('envio: multipart só com o arquivo; depois abre a importação pelo docume
   assert.deepEqual(recusa, { ok: false, mensagem: 'A revisão mudou em outra aba. Atualize a página.', codigo: 'IMPORTACAO_DESATUALIZADA' });
 });
 
-test('tela: sem liberação do servidor abre a demonstração; com liberação, o modo real', async () => {
+test('tela: falha explícita; demonstração exige escolha e liberação abre modo real', async () => {
   for (const [habilitado, esperado] of [[false, 'Demo'], [true, 'Real']] as const) {
     const Demo = function Demo() {};
     const Real = function Real() {};
     const tela = carregarComponente('components/admin/importacao/ImportacaoContrato.tsx', {
+      'next/link': { default: 'a' },
       '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
       './ImportarContratoAntigo': { default: Demo },
       './ImportacaoReal': { default: Real },
-      './cliente-importacao': { importacaoHabilitada: async () => habilitado },
+      './cliente-importacao': { verificarImportacao: async () => habilitado ? ({ ok: true, dados: { habilitado: true } }) : ({ ok: false, mensagem: 'Importação desabilitada', codigo: 'INTELIGENCIA_DESATIVADA' }) },
       './importacao.module.css': cssFalso,
     });
     tela.render();
     tela.efeitos();
     await tique();
     const arvore = tela.render();
-    assert(achar(arvore, esperado === 'Demo' ? Demo : Real));
+    if (esperado === 'Real') assert(achar(arvore, Real)); else { assert(!elementos(arvore).some((e) => e.type === Demo)); assert.match(texto(arvore), /Importação desabilitada/); const botao = achar(arvore, 'button', 'Abrir demonstração com dados fictícios'); (botao.props.onClick as () => void)(); assert(achar(tela.render(), Demo)); }
   }
+});
+
+test('confirmar o registro não anuncia sucesso: segue para Festa e agenda; importação já registrada reabre a integração', async () => {
+  const Integracao = function IntegracaoContrato() { return null; };
+  const rascunho = { operacaoId: 'op', versao: 1, payloadHash: 'h', campos: [], avisos: [] };
+  const tela = carregarComponente('components/admin/importacao/ImportacaoReal.tsx', {
+    'next/link': { default: 'a' }, '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
+    '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => ({ tipo: 'ok', resposta: { tipo: 'resultado_acao', mensagem: 'Dados do contrato registrados e cliente criado.', destino: '/clientes/c1' } }) },
+    '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null },
+    '@/lib/importacao-contrato/revisao': revisao,
+    './cliente-importacao': { agirNaImportacao: async () => ({ ok: true, dados: {} }) },
+    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, './IntegracaoContrato': { default: Integracao },
+  });
+  const props = { vitrine: { etapa: 'confirmacao', importacao, plano: null, rascunho, decidindo: false, erro: null } as unknown as EtapaImportacao };
+  let arvore = tela.render('default', props);
+  assert.match(texto(achar(arvore, 'ol')), /Dados do contrato e cliente.*Festa e agenda.*Pagamentos.*Revisão final/);
+  const preview = elementos(arvore).find((e) => typeof e.type === 'function' && (e.props as { onDecidir?: unknown }).onDecidir)!;
+  (preview.props.onDecidir as (r: unknown, d: string) => void)(rascunho, 'confirmar');
+  await tique();
+  arvore = tela.render('default', props);
+  const wizard = achar(arvore, Integracao);
+  assert.equal(wizard.props.importacaoId, importacao.id);
+  assert.doesNotMatch(texto(arvore), /Importado|Integrado/);
+  assert.match(texto(arvore), /Falta integrar ao sistema: confirme festa, agenda e pagamentos/);
+  const atual = elementos(arvore).find((e) => e.type === 'li' && e.props['aria-current'] === 'step');
+  assert.match(texto(atual), /Festa e agenda/);
+  (wizard.props.onPasso as (p: string) => void)('revisao');
+  arvore = tela.render('default', props);
+  assert.match(texto(elementos(arvore).find((e) => e.type === 'li' && e.props['aria-current'] === 'step')), /Revisão final/);
+
+  const reaberta = carregarComponente('components/admin/importacao/ImportacaoReal.tsx', {
+    'next/link': { default: 'a' }, '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
+    '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => { throw Error('sem gate'); } },
+    '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null }, '@/lib/importacao-contrato/revisao': revisao,
+    './cliente-importacao': { agirNaImportacao: async () => ({ ok: true, dados: {} }) },
+    './importacao.module.css': cssFalso, './importacao-real.module.css': cssFalso, './IntegracaoContrato': { default: Integracao },
+  });
+  const r = reaberta.render('default', { vitrine: { etapa: 'integracao', importacaoId: importacao.id, acabouDeRegistrar: false } as unknown as EtapaImportacao });
+  assert.match(texto(r), /Os dados deste contrato já estão registrados/);
+  assert(achar(r, Integracao));
 });

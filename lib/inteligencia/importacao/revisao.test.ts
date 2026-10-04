@@ -42,6 +42,8 @@ function importacaoMemoria(documentos: ReturnType<typeof documentosMemoria>, nov
     async atualizarImportacao(_tx, empresaId, i, versao) {
       const atual = importacoes.get(i.id);
       if (!atual || atual.empresaId !== empresaId || atual.versao !== versao) return false;
+      if (atual.extracaoId !== i.extracaoId || atual.documentoId !== i.documentoId || atual.criadoPor !== i.criadoPor) throw new Error('Identidade da importação é imutável (055d).');
+      if (atual.status !== 'EM_REVISAO' || i.versao <= atual.versao) throw new Error('Transição recusada pela guarda 055d.');
       importacoes.set(i.id, { ...structuredClone(i), empresaId });
       return true;
     },
@@ -326,4 +328,29 @@ test("a conversa nunca abre a importação: ação só de tela", () => {
   assert.equal(a.deps.acao?.origem, "TELA");
   const modulo = criarModuloAcoes([a.deps.acao!], a.gate);
   assert.equal(modulo.descrever("importar_contrato")?.origem, "TELA");
+});
+
+test('reenvio recupera revisão vazia intocada e preserva revisão já editada', async () => {
+  for (const editada of [false, true]) {
+    const a = ambiente();
+    const documento = await a.enviar();
+    const aberta = dados(await a.importar({ acao: 'abrir', documentoId: documento.documentoId })).importacao;
+    const atual = a.importacao.importacoes.get(aberta.id)!;
+    const anteriores = atual.dados as unknown as { extracao: ImportacaoPublica['extracao']; revisados: string[] };
+    for (const s of anteriores.extracao.secoes) for (const c of s.campos) { c.valor = null; c.estado = 'NAO_ENCONTRADO'; }
+    if (editada) anteriores.revisados.push('contratante.nome');
+    const registro = a.documentos.extracoes[0];
+    a.documentos.extracoes.push({ ...structuredClone(registro), extracaoId: '99999999-1111-4111-8111-111111111111' });
+    const r = await a.importar({ acao: 'abrir', documentoId: documento.documentoId });
+    assert.equal(r.status, 200, JSON.stringify(r.corpo));
+    const recuperada = dados(r).importacao;
+    if (editada) assert.equal(recuperada.id, aberta.id);
+    else {
+      assert.notEqual(recuperada.id, aberta.id);
+      assert.equal(a.importacao.importacoes.get(aberta.id)!.status, 'DESCARTADA');
+      assert.equal(a.importacao.importacoes.get(aberta.id)!.extracaoId, atual.extracaoId);
+    }
+    assert.equal(recuperada.versao, editada ? aberta.versao : 1);
+    assert.equal(recuperada.extracao.secoes.some(s => s.campos.some(c => c.valor)), !editada);
+  }
 });

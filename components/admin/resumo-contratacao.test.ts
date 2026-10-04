@@ -123,3 +123,15 @@ test('H9: Resumo e PDF A/A carregam pela rota com Tenant Context; A/B não monta
   const comFinanceiro = async () => Response.json({ ok: true, data: { painel: { ...painel(), financeiro: [{ id: 'p' }] }, financeiro: financeiro() } });
   assert.ok(conteudo(await carregarResumo(comFinanceiro, 'contrato')).includes('8.811'));
 });
+
+test('versão histórica assinada em papel: resumo diz "assinado em papel" e não lista assinatura eletrônica faltando', () => {
+  const p = painel();
+  p.versoes[1] = { ...p.versoes[1], aceite_metodo: 'CONFERENCIA_PAPEL' };
+  p.assinaturas = p.assinaturas.filter((a) => a.contrato_versao_id !== 'v2');
+  const r = conteudo(montarResumo(p));
+  assert.match(r, /ASSINADO \(em papel\)/);
+  assert.match(r, /Assinatura desta versão","linhas":\[\["Forma","Assinado em papel"\]/);
+  assert.doesNotMatch(r, /Não registrada/);
+  // Versão nativa continua com as duas assinaturas eletrônicas.
+  assert.match(conteudo(montarResumo(painel())), /Signatário KIDMAIS/);
+});

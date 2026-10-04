@@ -115,7 +115,9 @@ test("D3: toda suíte PostgreSQL declara um estado da receita; o runner restaura
   for (const [suite, estado] of Object.entries(ESTADO_POSTGRES)) {
     assert.ok(receita.MODELOS[estado.descartavel], `${suite}: estado ${estado.descartavel}`);
     if (estado.rollback) assert.ok(receita.MODELOS[estado.rollback], `${suite}: estado ${estado.rollback}`);
+    for (const extra of estado.tambem ?? []) assert.ok(receita.MODELOS[extra], `${suite}: estado ${extra}`);
   }
+  assert.deepEqual({ ate: receita.MODELOS["062"].ate, sem: receita.MODELOS["062"].sem }, { ate: "062", sem: [] }, "etapa 062 = inventário inteiro até a 062");
   assert.throws(() => estadoDaSuite(raiz, path.join(raiz, "lib", "nova", "nova.postgres.test.ts")), /sem estado declarado/);
   assert.deepEqual({ ate: receita.MODELOS.atual.ate, sem: receita.MODELOS.atual.sem }, { ate: "057", sem: ["055a", "055b", "055c", "055d"] }, "estado atual = inventário até a 057 sem a 055a–d (autorização própria)");
   const runner = fs.readFileSync(path.join(raiz, "scripts", "regressao-v1-postgres.cjs"), "utf8");
@@ -150,4 +152,60 @@ test("D3: a receita usa a mesma autorização de porta das suítes e recusa banc
   assert.match(fonte, /current_setting\('cluster_name'\)/, "identidade do cluster provada antes de escrever");
   assert.match(fonte, /EXISTS \(SELECT 1 FROM pg_database WHERE lower\(datname\) = \$1\) AS tem_real/, "cluster com o banco real é recusado");
   assert.equal(/DATABASE_URL|process\.env\.PG/.test(fonte.replace(/DATABASE_URL e PG\* nunca participam/g, "")), false, "sem destino genérico");
+});
+
+test("D3: cada suíte recebe ambiente explícito — sem DATABASE_URL/PG* herdados, porta 55498 repassada com a autorização literal", async () => {
+  const { ambienteDaSuite, filtrarSuites } = require("./regressao-v1-selecao.cjs");
+  const receita = require("./regressao-v1-postgres-receita.cjs");
+  const { portaDescartavel, exigirAmbienteSemConexaoHerdada } = require("../lib/comercial/alvo-descartavel.ts");
+  const herdado = {
+    DATABASE_URL: "postgresql://x@db.example:5432/kidmais_manager", PGHOST: "db.example", PGPORT: "5432", PGUSER: "real", PGDATABASE: "kidmais_manager",
+    PGPASSWORD: "x", PGPASSFILE: "C:/pgpass.conf", PGOPTIONS: "-c search_path=outro", PGSERVICE: "real", PGSERVICEFILE: "C:/pg_service.conf",
+    PGSYSCONFDIR: "C:/pg", PGSSLMODE: "disable", PGAPPNAME: "x", KIDMAIS_054_PG_HOST: "db.example", PATH: "mantido",
+  };
+  const env = ambienteDaSuite(herdado, {}, 55498, "kidmais_pacotes_v1_descartavel");
+  assert.deepEqual(Object.keys(env).filter((k) => k === "DATABASE_URL" || /^PG/i.test(k) || k.startsWith("KIDMAIS_054_")), [], "nada herdado do driver nem alvo da 054");
+  assert.equal(env.PATH, "mantido");
+  assert.equal(env.KIDMAIS_DESCARTAVEL_PORTA, "55498");
+  assert.equal(env.KIDMAIS_DESCARTAVEL_AUTORIZACAO, "127.0.0.1:55498/kidmais_pacotes_v1_descartavel");
+  assert.equal(portaDescartavel(env), 55498, "a suíte chega a 55498 pela autorização explícita, não por PGPORT nem padrão");
+  assert.equal(receita.portaAutorizada(env), 55498);
+  assert.doesNotThrow(() => exigirAmbienteSemConexaoHerdada(env));
+  assert.throws(() => exigirAmbienteSemConexaoHerdada({ PGOPTIONS: "-c x=y" }), /configuração de conexão herdada \(PGOPTIONS\)/);
+  const e054 = ambienteDaSuite(herdado, { alvo054: true }, 55498, "kidmais_pacotes_v1_descartavel");
+  assert.equal(e054.KIDMAIS_054_AUTORIZACAO, "127.0.0.1:55498/kidmais_pacotes_v1_descartavel");
+  // Conectores: tudo explícito e nenhuma senha carregada.
+  const conector = fs.readFileSync(path.join(raiz, "lib", "comercial", "postgres-descartavel.ts"), "utf8");
+  assert.match(conector, /exigirAmbienteSemConexaoHerdada\(\);\s+const portaAutorizada = portaDescartavel\(\);/);
+  assert.match(conector, /host: "127\.0\.0\.1",\s+port: portaAutorizada,\s+user: "kidmais_descartavel",\s+database,\s+password: senhaRecusada,/);
+  await assert.rejects(require("../lib/comercial/alvo-descartavel.ts").senhaRecusada(), /nenhuma credencial é carregada/);
+  assert.match(fs.readFileSync(path.join(raiz, "lib", "fechamentos", "postgres-descartavel-054.ts"), "utf8"), /password: senhaRecusada,/);
+  assert.match(fs.readFileSync(path.join(raiz, "lib", "pagamentos", "gates-c2.postgres.test.ts"), "utf8"), /new pg\.Pool\(\{ host: "127\.0\.0\.1", port: porta, user: "kidmais_descartavel", database: "kidmais_pacotes_v1_descartavel", password: senhaRecusada,/);
+  const runner = fs.readFileSync(path.join(raiz, "scripts", "regressao-v1-postgres.cjs"), "utf8");
+  assert.match(runner, /for \(const nome of Object\.keys\(process\.env\)\) if \(variavelDeConexaoHerdada\(nome\)\) delete process\.env\[nome\];/, "o próprio runner limpa antes de conectar");
+  // Repetição de suítes pertinentes só com caminhos exatos declarados.
+  const planos = [{ estado: { relativo: "lib/a.postgres.test.ts" } }, { estado: { relativo: "lib/b.postgres.test.ts" } }];
+  assert.equal(filtrarSuites(planos, {}).length, 2);
+  assert.throws(() => filtrarSuites(planos, { KIDMAIS_POSTGRES_SOMENTE: "lib/inexistente.postgres.test.ts" }), /suíte desconhecida/);
+});
+
+test("isolamento: o conector exige opt-in antes de abrir conexão e confere a identidade antes de qualquer SQL; suítes não abrem conexão própria sem ele", () => {
+  const conector = fs.readFileSync(path.join(raiz, "lib", "comercial", "postgres-descartavel.ts"), "utf8");
+  const corpo = conector.slice(conector.indexOf("export async function conectarDescartavel("));
+  assert.ok(corpo.indexOf("exigirOptInDescartavel()") >= 0 && corpo.indexOf("exigirOptInDescartavel()") < corpo.indexOf("new pg.Client("), "opt-in antes do socket");
+  assert.match(corpo, /current_setting\('cluster_name'\)/);
+  assert.match(corpo, /addr !== "127\.0\.0\.1" \|\| papel !== PAPEL_DESCARTAVEL \|\| cluster !== PAPEL_DESCARTAVEL/);
+  const alvo = fs.readFileSync(path.join(raiz, "lib", "comercial", "alvo-descartavel.ts"), "utf8");
+  assert.doesNotMatch(alvo, /return PORTA_PADRAO;/, "sem porta padrão implícita");
+  for (const arquivo of listarTestesPostgres(raiz)) {
+    const fonte = fs.readFileSync(arquivo, "utf8");
+    const proprio = fonte.search(/new pg\.(Client|Pool)\(|new (Client|Pool)\(/);
+    if (proprio < 0) continue;
+    const guardado = Math.min(...["conectarDescartavel(", "conectar054("].map((g) => fonte.indexOf(g)).filter((i) => i >= 0));
+    assert.ok(Number.isFinite(guardado) && guardado < proprio, `${arquivo}: conexão própria sem passar antes pelo conector guardado`);
+  }
+  // O orquestrador do cluster sintético não repassa nenhum *DATABASE_URL às suítes.
+  assert.match(fs.readFileSync(path.join(raiz, "scripts", "pg-descartavel-061.cjs"), "utf8"), /variavelDeConexaoHerdada\(nome\) \|\| \/DATABASE_URL\$\/i\.test\(nome\)/);
+  const env = require("./regressao-v1-selecao.cjs").ambienteDaSuite({ KIDMAIS_HOMOLOGACAO_DATABASE_URL: "x" }, {}, 55498, "kidmais_pacotes_v1_descartavel");
+  assert.equal(env.KIDMAIS_POSTGRES_DESCARTAVEL, "kidmais_pacotes_v1_descartavel", "opt-in explícito por suíte");
 });

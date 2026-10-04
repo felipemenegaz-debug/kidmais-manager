@@ -18,3 +18,10 @@ test('Texto histórico corrompido é corrigido somente na apresentação', () =>
   assert.equal(fonte.texto, 'Mudança de condi��o e obrigaÃ§Ã£o');
   assert.equal(textoHistorico('Condição correta — PIX'), 'Condição correta — PIX');
 });
+
+test('contrato integrado de importação histórica é identificado na lista sem perder o status do Core nos demais', () => {
+  const base = { id: 'abcdef12-0000-4000-8000-000000000000', nome: 'Ana', data_evento: '2026-11-14', pacote: 'Festa', convidados: 80 };
+  assert.match(contratoApresentacao({ ...base, status: 'ASSINADO', origem_fechamento: 'IMPORTACAO_HISTORICA' }), /HISTÓRICO INTEGRADO \(papel\)/);
+  assert.match(contratoApresentacao({ ...base, status: 'ASSINADO', origem_fechamento: 'ATENDIMENTO_KIDMAIS' }), /— ASSINADO —/);
+  assert.match(contratoApresentacao({ ...base, status: 'CANCELADO', origem_fechamento: 'IMPORTACAO_HISTORICA' }), /— CANCELADO —/);
+});

@@ -6,7 +6,7 @@ import type { TenantComprovado } from "../../saas/provar-tenant.ts";
 import { iniciarRascunhoComPayload, type ContextoGate, type DependenciasHumanGate } from "../acoes/human-gate.ts";
 import type { FerramentaAcao } from "../acoes/tipos.ts";
 import type { AIResponse } from "../contratos.ts";
-import { exigirPapelDocumento, extracaoGuardada, responderComRastreio } from "../documentos/upload.ts";
+import { exigirPapelDocumento, extracaoGuardada, extracaoTemDados, responderComRastreio } from "../documentos/upload.ts";
 import { envioDocumentoExternoAutorizado, grupoAtivo, inteligenciaAtiva } from "../flags.ts";
 import { exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado, type DependenciasGateway, type RespostaGateway } from "../gateway.ts";
 import { InteligenciaError } from "../politica.ts";
@@ -126,7 +126,16 @@ export async function atenderImportacao(pedido: { lerCorpo(): Promise<unknown>; 
         const extracao = extracaoGuardada(registro);
         if (!registro || !extracao) throw new InteligenciaError("NAO_ENCONTRADO", "Documento não encontrado.", 404);
         const dados: DadosImportacao = { extracao, revisados: [], decisaoCliente: null };
-        const aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+        let aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+        const anterior = dadosDaImportacao(aberta);
+        // Recupera só revisão vazia e intocada. Edições, decisões e importações concluídas são preservadas.
+        if (aberta.status === "EM_REVISAO" && aberta.extracaoId !== registro.extracaoId && anterior.revisados.length === 0 && anterior.decisaoCliente === null && !extracaoTemDados(anterior.extracao) && extracaoTemDados(extracao)) {
+          // A extração faz parte da identidade imutável (055d). Encerra a revisão vazia
+          // e abre outra, na mesma transação, em vez de trocar seu vínculo histórico.
+          const descartada = { ...aberta, status: "DESCARTADA" as const, versao: aberta.versao + 1 };
+          if (!await p.atualizarImportacao(tx, tenant.empresaComprovada, descartada, aberta.versao)) throw new InteligenciaError("IMPORTACAO_DESATUALIZADA", "A revisão mudou em outra aba. Atualize a página.", 409);
+          aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+        }
         return { importacao: publico(aberta), plano: aberta.status === "EM_REVISAO" ? planoPublico(await planejar(tx, tenant.empresaComprovada, p, dadosDaImportacao(aberta))) : null };
       }
       if (entrada.acao === "consultar") {

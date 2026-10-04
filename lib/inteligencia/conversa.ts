@@ -17,7 +17,7 @@ import { ContextoRecusado } from "./contexto/contrato.ts";
 import { CAPACIDADES_OPERACIONAIS, ferramentaRegistrada, ferramentas } from "./ferramentas.ts";
 import { ROTULO_PENDENTE, parametrosEscritosConsumo } from "./leituras/operacional.ts";
 import { CATEGORIAS_CONSUMO, detectarConsumo, extrairParametros, respondeSemDado, type CategoriaConsumo, type ParametrosConsumo } from "./operacional/consumo.ts";
-import { coordenarRascunho, type DecisaoRascunho } from "./operacional/objetivo.ts";
+import { coordenarRascunho, pedeContaPagar, type DecisaoRascunho } from "./operacional/objetivo.ts";
 import { LIMITE_HISTORICO as LIMITE_HISTORICO_LUNA, VERSAO_LUNA, entenderComModelo, type Categoria, type ConsumoPendente, type Entendimento, type RascunhoParaLuna, type TrocaHistorico } from "./luna/entendimento.ts";
 import { redigirComModelo } from "./luna/redacao.ts";
 import type { PassoPlano } from "./planejador/plano.ts";
@@ -1361,6 +1361,8 @@ function complementosDe(e: Execucao, resposta: AIResponse, feitas: ReadonlySet<s
  * quando a Luna não entendeu (indisponível, prazo, saída inválida): o caminho anterior responde, como antes.
  */
 async function atenderComLuna(e: Execucao, historico: readonly TrocaHistorico[], continuacao: ContinuacaoConsumo | undefined, operacaoId: string | null): Promise<AIResponse | null> {
+  // Pedido explícito segue o extrator e coordenador do Core, mesmo com outro rascunho aberto.
+  if (pedeContaPagar(e.texto)) return null;
   const { deps, sessao, pedido, rastreio } = e;
   const relogio = deps.relogio ?? (() => performance.now());
   const inicio = relogio();
@@ -1693,7 +1695,7 @@ export async function atenderConversa(pedido: PedidoGateway, deps: DependenciasC
       const operacaoId = entrada.operacaoId;
       // IA operacional: o coordenador decide o que a mensagem é (resposta, correção, troca de objetivo, consulta,
       // cancelar/retomar). Sem a flag, o comportamento anterior: toda mensagem responde ao rascunho.
-      const coordenado = operacional && acoes.situacao ? await coordenar(execucao, acoes, operacaoId) : null;
+      const coordenado = (operacional || pedeContaPagar(entrada.texto)) && acoes.situacao ? await coordenar(execucao, acoes, operacaoId) : null;
       if (coordenado && "novo" in coordenado) {
         const resposta = await atenderNovo(execucao);
         return { status: 200, corpo: { ok: true, data: comPausa(resposta, coordenado.pausado) } };

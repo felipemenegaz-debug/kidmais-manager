@@ -295,3 +295,24 @@ test("A4 (H5): a revisão guarda os offsets da evidência e não confere trecho 
   assert.equal(cpf.conferida, true);
   assert.equal(PAGINAS[0].slice(cpf.inicio!, cpf.fim!), "CPF 529.982.247-25");
 });
+
+test('contrato jurídico KidMais: identifica contratante, cláusulas e pagamento sem usar CPF da contratada ou multas', () => {
+  const paginas = [
+    'CONTRATADA: Empresa Exemplo. Representante CPF 111.444.777-35.\nCONTRATANTE: Maria Teste de CPF: 529.982.247-25, de\ntelefone: 11987654321 e aniversariante de nome João Teste\nque fará 4 anos.\nCláusula 1 - realização de festa tipo Standard, de acordo com orçamento. A festa será realizada\nno dia 18/10/2026, com início às 10:00 e término às 14:00 para 50 pessoas.\nCláusula 2 - O valor da festa contratada é de R$ 7.811,50.\nCláusula 3 - R$120,00 por pessoa excedente.\nCláusula 6 - O CONTRATANTE pagará o valor da festa de forma à vista\ne o primeiro pagamento será no dia da assinatura.\nCláusula 8 - R$ 700,00 por hora extra.',
+  ];
+  const lida = extrairPorRegras(paginas);
+  assert.equal(lida.contratante.nome.valor, 'Maria Teste');
+  assert.equal(lida.contratante.cpf.valor, '529.982.247-25');
+  assert.equal(lida.evento.data.valor, '18/10/2026');
+  assert.equal(lida.evento.aniversariante.valor, 'João Teste');
+  assert.equal(lida.evento.convidados.valor, '50');
+  assert.equal(lida.pacote.nome.valor, 'Standard');
+  assert.equal(lida.valores.total.valor, 'R$ 7.811,50');
+  assert.equal(lida.pagamentoPrevisto.condicao.valor, 'à vista');
+  assert.equal(lida.pagamentoPrevisto.entrada.valor, null);
+  const revisao = montarRevisao(lida, paginas, ARQUIVO);
+  const cs = campos(revisao);
+  for (const id of ['contratante.nome','contratante.cpf','evento.data','evento.horario','evento.aniversariante','evento.convidados','pacote.nome','valores.total','pagamentos.condicao']) assert.equal(cs[id].estado, 'ENCONTRADO', id);
+  assert.deepEqual(validarHorario('início às 10:00 e término às 14:00'), { ok: true, valor: { inicio: '10:00', fim: '14:00' } });
+  assert.equal(validarHorario('início às 14:00 e término às 10:00').ok, false);
+});

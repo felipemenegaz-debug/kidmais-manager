@@ -157,11 +157,11 @@ export function criarAcaoImportacao(porta: PortaImportacao): FerramentaAcao {
         linha("pacote", "Pacote original", r.pacote),
         linha("convidados", "Convidados", r.convidados),
         linha("valor", "Valor contratado", r.valor),
-        linha("pagamento", "Pagamento previsto", r.pagamento),
+        linha("pagamento", "Condição no documento", r.pagamento),
         linha("itens", "Itens", r.itens),
         linha("naoEncontrados", "Campos não encontrados", String(r.naoEncontrados)),
         linha("evidencias", "Evidências conferidas no documento", String(r.evidencias)),
-        linha("festa", "Festa", "Não será criada agora: depende de serviço do Core."),
+        linha("proximo", "Próximas etapas", "Este passo registra o contrato como está no documento e o cliente. Festa, agenda e pagamentos recebidos são confirmados em seguida, na integração ao sistema."),
       ];
     },
     async executar(tx, tenant, payload, contexto) {
@@ -170,7 +170,7 @@ export function criarAcaoImportacao(porta: PortaImportacao): FerramentaAcao {
       const resultado = await porta.executar(tx, { empresaId: tenant.empresaComprovada, usuarioId: contexto.usuarioId, requestId: contexto.operacaoId, importacao, plano, agora: new Date().toISOString() });
       return {
         entidadeId: resultado.clienteId,
-        mensagem: `Contrato histórico importado${resultado.clienteAcao === "CRIAR" ? " e cliente criado" : " no cliente existente"}. Os pagamentos ficaram como previstos.`,
+        mensagem: `Dados do contrato registrados${resultado.clienteAcao === "CRIAR" ? " e cliente criado" : " no cliente existente"}. Falta integrar festa, agenda e pagamentos.`,
         destino: `/clientes/${resultado.clienteId}`,
       };
     },
