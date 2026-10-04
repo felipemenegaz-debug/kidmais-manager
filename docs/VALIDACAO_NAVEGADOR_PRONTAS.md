@@ -126,7 +126,7 @@ As importações do preparo foram conferidas sem conexão (`teste-importacoes.lo
 
 ## Resultado (04/10/2026, HEAD `930121d`)
 
-O detalhe por caso, com textos, ARIA, respostas da rota e registros do atraso, está em `.local-ux/val-prontas/estado/resultado-930121d.md` (fora do Git). Os hashes estão em `EVIDENCIAS-930121d.txt`.
+O detalhe por caso, com textos, ARIA, respostas da rota e registros do atraso, está em `.local-ux/val-prontas/estado/execucao-930121d/resultado-930121d.md` (fora do Git). Os hashes estão em `estado/execucao-930121d/EVIDENCIAS-930121d.txt`.
 
 | Caso | Desktop | Celular | Teclado |
 | --- | --- | --- | --- |
@@ -173,7 +173,7 @@ O detalhe por caso, com textos, ARIA, respostas da rota e registros do atraso, e
 
 **3. HTTPS validado apenas pela rota (limitação).**
 - Na tela, o link individual preenchido **não foi validado**: o navegador embutido não abre `https://localhost:3050` com certificado autoassinado (aba em branco, sem tela de aviso para prosseguir).
-- O que foi validado, apenas pela **rota real** em https (`estado/https-rascunho.mjs`, TLS verificado contra o certificado desta execução; login + rascunho):
+- O que foi validado, apenas pela **rota real** em https (`estado/execucao-930121d/https-rascunho.mjs`, TLS verificado contra o certificado desta execução; login + rascunho):
   - **0101 PREENCHIDO** com `https://localhost:3050/contrato/e6b4c974-…` (contrato de A, nunca o da empresa B com o mesmo telefone);
   - 0102 a 0105 com os avisos;
   - nenhum corpo contém o telefone.
@@ -205,7 +205,7 @@ O detalhe por caso, com textos, ARIA, respostas da rota e registros do atraso, e
 - credenciais, dados sintéticos e chave/certificado apagados;
 - protegidos e demonstração idênticos antes e depois.
 
-## Regressão de foco (PREPARADA, não executada)
+## Regressão de foco (EXECUTADA em 04/10/2026, HEAD `4b58b08`; resultado ao final)
 
 **Correção (código).**
 - `components/admin/atendimento/MensagensProntas.tsx`:
@@ -247,3 +247,33 @@ O procedimento foi **alterado** (ocorrência 4): `vp.ps1` grava a marca em UTF-8
 | F9 teclado | F1–F7 só com teclas, com trilha de foco registrada e contorno visível em cada parada |
 
 **Operações:** V0, V1 (`subir -Base …-387115`), V2, V3, V3c e V4, como na tabela de operações, com os scripts dos hashes atuais.
+
+### Resultado da regressão de foco (04/10/2026, 14:14–14:24, HEAD `4b58b08`)
+
+O detalhe está em `.local-ux/val-prontas/estado/regressao-foco/resultado-4b58b08.md` e os hashes em `EVIDENCIAS-4b58b08.txt`, na mesma pasta.
+
+**Estado inicial aceito pelo Felipe:** a demo estava **parada**, pelo desligamento do Windows às 13:10. Não foi reiniciada nem alterada. O retrato à parte dela (3120 itens, hash da listagem e do `postmaster.pid` antigo, portas livres) ficou idêntico antes e depois.
+
+| Caso | Desktop | Celular | Teclado |
+| --- | --- | --- | --- |
+| F1 Nova → Título; Tab → Categoria | ok | — | ok |
+| F2 Cancelar → "Nova mensagem pronta" | ok | ok | ok |
+| F3 Editar → Título; Salvar → "Editar <item>" | ok | — | ok |
+| F4 Remover: confirmação recusada → foco fica; aceita → "Nova" | ok | — | ok |
+| F5 Durante o pedido o foco fica no item (`aria-disabled`); na entrega, na prévia | ok | ok (prévia a 630 px) | ok |
+| F6 Descartar → item de origem | ok | — | ok |
+| F7 Atraso 0101 com a 0102 aberta: foco e contato da 0102 na entrega; sem prévia (captura) | ok | — | ok (na 2ª tentativa, com guarda; a 1ª não foi conclusiva porque a entrega chegou antes da troca) |
+| F8 Título e campos abaixo do menu (base em 54 px) | — | ok: título a 178 px (pior caso 114); Título do cadastro a 419 px (pior caso, focado sob o menu: 72 px); sem rolagem horizontal; capturas | — |
+
+**Operações:**
+- V1–V4 sem divergência; a V4 removeu **somente** a base `…-387115`, na primeira tentativa.
+- **V3c: `saidas_total = 0`**. Nenhuma conversa foi assumida; o campo de resposta e o "Enviar" ficaram desabilitados em todas as etapas; os logs do Next têm 0 chamadas a `processar`/`gupshup`.
+
+**Limpeza:**
+- portas 55502 e 3050 livres;
+- base e build ausentes;
+- worktree limpa;
+- credenciais e dados apagados;
+- protegidos idênticos.
+
+Processos postgres alheios, não tocados: os serviços do Windows (17 e 18) e um cluster de outra sessão na porta 55501.
