@@ -94,7 +94,7 @@ Scripts em `.local-ux/pg-063/` (fora do Git), com SHA-256 em `MANIFESTO.txt`. Ne
 
 **Teste offline do O4** (`teste-o4.ps1`, log `teste-o4.log`): 14/14 — alvo ausente; caminho com `..`; alvo protegido; alvo junção (destino intacto); junção dentro do alvo; **pasta-mãe junção** (PARAR; destino com `data`, `postgresql.conf` e vizinho intactos; a junção continua lá); **avô junção** (PARAR; destino intacto); sem a marca; `postmaster.pid`; porta ocupada por algo que não é o cluster; remoção só do alvo (vizinho e pasta-mãe intactos); alvo real não criado.
 
-Controle: os mesmos casos contra o O4 anterior (sem a verificação de ancestrais), só na árvore falsa, falham — com a pasta-mãe junção, o O4 anterior removia o `data` do destino da junção. A verificação de ancestrais é o que impede isso. Os ancestrais do alvo real (`C:UsersGlassAppDataLocalTemp` até `C:`) foram conferidos em leitura: nenhum é link/junção.
+Controle: os mesmos casos contra o O4 anterior (sem a verificação de ancestrais), só na árvore falsa, falham — com a pasta-mãe junção, o O4 anterior removia o `data` do destino da junção. A verificação de ancestrais é o que impede isso. Os ancestrais do alvo real (`C:\Users\Glass\AppData\Local\Temp` até `C:\`) foram conferidos em leitura: nenhum é link/junção.
 
 **Recuperação:** se O2 falhar no meio, O4 continua seguro. Se o servidor não parar, não remover nada e investigar.
 
