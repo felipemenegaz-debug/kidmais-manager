@@ -326,6 +326,9 @@ Os scripts `o1.sh` e `o4.sh` ficam em `.local-ux/pg-060/`, fora do Git, e já fo
   - `migration-060` OK no estado `atual`, com todos os passos (2 a 8f, mais o rollback).
   - `tenant-festa` e `estorno-completo` OK em `atual`, `061` e `062`.
   - Leitura no mesmo cluster, antes de O4: o modelo `atual` não tem a 060 (a suíte a aplica e desfaz); os modelos `061` e `062` contêm `whatsapp_atendimento_conversas`. Portanto as suítes nesses estados passaram com 060, 061 e 062 juntas.
+    - A saída original da consulta está em `.local-ux/pg-060/coexistencia-modelos-r8-integrada.txt`.
+    - Ela foi transcrita literalmente da saída da sessão, sem nova execução: o cluster já tinha sido removido.
+    - A terceira coluna é só o total de tabelas em `public` (94 → 111 → 114) e não identifica tabelas da 061/062.
 - **O4:** identidade e diretório conferidos; servidor parado; **somente** `C:/Users/Glass/AppData/Local/Temp/kidmais-pg-060/data` removido (a pasta-mãe ficou vazia); porta 55498 livre (`.local-ux/pg-060/o4-r8-integrada.out`).
 - **O3** não executado (fora da autorização). Vale o ensaio de exportação/restauração de 02/10, com a 060 inalterada desde `a7ac6bd`.
 
