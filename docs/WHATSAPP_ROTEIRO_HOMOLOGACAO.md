@@ -1,6 +1,6 @@
 # Atendimento WhatsApp — roteiro de homologação em staging
 
-Preparado em 04/10/2026. **Nada deste roteiro foi executado.** Evidências locais: código validado em `a55aed8` e tela na preparação local de 04/10 (ver o handoff). Ele detalha o que provar na janela de homologação. As etapas operacionais (E0–E8, com alvo, efeito e recuperação) estão em [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md), e cada uma exige autorização própria ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)).
+Preparado em 04/10/2026. **Nada deste roteiro foi executado.** Evidências locais: código do WhatsApp validado em `a55aed8`; base integrada e tela validadas em `918b0a1`, local (ver o handoff). Ele detalha o que provar na janela de homologação. As etapas operacionais (E0–E8, com alvo, efeito e recuperação) estão em [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md), e cada uma exige autorização própria ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)).
 
 ## Pré-condições (bloqueantes)
 
@@ -36,7 +36,7 @@ Preparado em 04/10/2026. **Nada deste roteiro foi executado.** Evidências locai
 | H9d | Timeout do provedor | `transporte.test.ts`, `worker.test.ts` (`a55aed8`) | **Não forçar no Gupshup real.** Fica só a evidência local | — | — |
 | H10 | Janela de 24 h | PostgreSQL 6b (`a55aed8`) | Ao vivo só se houver tempo para a expiração real; senão fica a evidência local | Tela: motivo "janela de 24 horas expirou" | E7 |
 | H11 | Encerramento | — | Flags desligadas, worker parado, lista vazia, assinatura de staging removida ou desligada; assinaturas anteriores iguais às de E0 | Tela tudo desligado; painel Gupshup | E8 |
-| UX | Tela em celular, desktop e teclado | QA Playwright com APIs simuladas: fila contada, explicação de saídas não entregues, motivos de bloqueio. Commit final desta preparação | Conferência visual do Felipe com dados reais de teste | Celular e desktop | E7 |
+| UX | Tela em celular, desktop e teclado | QA Playwright com APIs simuladas: fila contada nas conversas carregadas, explicação de saídas não entregues, motivos de bloqueio (`918b0a1`) | Conferência visual do Felipe com dados reais de teste | Celular e desktop | E7 |
 
 **Interrupção imediata:**
 - envio a número fora da lista;

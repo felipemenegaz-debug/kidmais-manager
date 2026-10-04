@@ -6,7 +6,7 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 
 | Nível | Estado |
 | --- | --- |
-| Implementado e validado localmente | **Sim.** PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `b7db96a` (código validado em `a55aed8`). A preparação de 04/10/2026 está só no checkout local, sem push: integração local de `origin/staging` (`e099edd`) e melhorias de tela, validadas no commit local seguinte |
+| Implementado e validado localmente | **Sim.** PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `b7db96a` (código validado em `a55aed8`). A preparação de 04/10/2026 está só no checkout local, sem push: integração local de `origin/staging` (`e099edd`) e melhorias de tela, com o código validado em `918b0a1` |
 | Integrado em staging | **Não.** PR aberta, sem merge. Migration 060 não aplicada no banco de staging. Nenhuma variável configurada |
 | Homologado com Gupshup real | **Não.** Bloqueado até comprovar três condições: autenticação do webhook pelo mecanismo do Gupshup (chamado #277630, acesso ao app `KidmaisManager`), receptor exclusivo do número entre ambientes (E0) e preservação do OTP |
 | Ativo em produção | **Estado não verificado; não ativado por esta entrega.** Produção não foi lida nem alterada. Não presumir seu estado; exige etapa e autorização próprias |
@@ -87,7 +87,7 @@ Evidências locais em `.local-ux/` (fora do Git), vinculadas ao commit.
 | 7 | Resposta publicada revogada | Ao gravar, a saída usa a configuração vigente (`FOR SHARE`). Saída pendente criada antes da última alteração é cancelada. Com a IA conduzindo, a conversa vai para AGUARDANDO_HUMANO; estados humanos, responsável e versão são preservados | PostgreSQL 8f: corrigida durante a geração, removida com saída pendente, estado após o cancelamento; `worker.test.ts` (`a55aed8`) | Validado localmente | — |
 | 8 | Limite explícito da revogação | A trava termina no COMMIT que marca ENVIANDO; o POST vem depois. Alteração posterior não retém o envio: sai o texto lido ou INCERTO. Não há promessa de cancelamento nem recolhimento | Comentário em `worker.ts`; teste "envio iniciado não retido" (`a55aed8`) | Validado localmente | — |
 | 9 | Migration 060, postchecks e recuperação | Pré-condição inline, postcheck, down fail-closed, rollback precheck/postcheck, inventário | `check:v1:postgres` 30/30 em `a55aed8` (`.local-ux/pg-060/check-v1-postgres-r7-escalonamento.log`). Ensaio de exportação/restauração, também com usuário restrito sem superusuário, em 02/10, com a 060 idêntica (não mudou desde `a7ac6bd`). `production:test` 37/37 em `a55aed8` | Validado no descartável | Aplicação em staging exige backup e autorização (E2) |
-| 10 | UX desktop, celular e teclado; motivos e estados reais | Situação do canal em partes; responsável; autor e estado por direção; motivo de bloqueio da resposta e do "Retomar IA"; fila humana contada; explicação das saídas na fila, não enviadas e incertas; "Voltar às conversas" no celular; só 4 dígitos do contato | QA Playwright com APIs simuladas em 390×844 e 1280×900 (`.local-ux/qa-whatsapp-ui-v2.cjs`, `.local-ux/whatsapp-qa-v2/`), rodado na preparação de 04/10 (commit local seguinte a `e099edd`) | Validado localmente | Conferência visual do Felipe em staging após o deploy |
+| 10 | UX desktop, celular e teclado; motivos e estados reais | Situação do canal em partes; responsável; autor e estado por direção; motivo de bloqueio da resposta e do "Retomar IA"; fila humana contada; explicação das saídas na fila, não enviadas e incertas; "Voltar às conversas" no celular; só 4 dígitos do contato | QA Playwright com APIs simuladas em 390×844 e 1280×900 (`.local-ux/qa-whatsapp-ui-v2.cjs`, `.local-ux/whatsapp-qa-v2/`), rodado em `918b0a1` (`.local-ux/whatsapp-qa-v2/execucao-918b0a1.log`) | Validado localmente | Conferência visual do Felipe em staging após o deploy |
 
 **Gates do código validado (`a55aed8`, remoto):**
 - `check:v1:static`: 1.724 testes unitários e 103 do harness com mocks, lint, TypeScript e build (`.local-ux/whatsapp-static-node22-v5.log`);
@@ -95,12 +95,16 @@ Evidências locais em `.local-ux/` (fora do Git), vinculadas ao commit.
 - `production:test`: 37/37;
 - CI do GitHub: verde.
 
-**Gates da preparação de 04/10/2026 (local, base `35a2bd9` integrada):**
-- `check:v1:static`: 1.878 testes unitários e 103 do harness, lint, TypeScript, build e leitura de PDF no asset, no merge `e099edd` (`.local-ux/whatsapp-static-node22-v6-merge.log`) e de novo com a tela final (`.local-ux/whatsapp-static-node22-v7-ux.log`);
-- `production:test`: 37/37 com 060, 061 e 062;
-- QA da tela: passou em celular e desktop;
-- `check:v1:postgres` **não executado** na base nova (sem autorização nesta rodada);
-- CI não se aplica, porque não houve push.
+**Gates do código validado da preparação: `918b0a1` (local, base `35a2bd9` integrada, árvore limpa):**
+- `check:v1:static`: 1.879 testes unitários e 103 do harness, lint, TypeScript, build e leitura de PDF no asset (`.local-ux/whatsapp-static-918b0a1.log`);
+- `production:test`: 37/37 com 060, 061 e 062 (`.local-ux/production-test-918b0a1.log`);
+- QA da tela em celular 390×844 e desktop 1280×900: todos os cenários (`.local-ux/whatsapp-qa-v2/execucao-918b0a1.log`; capturas em `.local-ux/whatsapp-qa-v2/`);
+- `check:v1:postgres` **não executado** na base nova: procedimento pronto (Parte 4 da validação), aguardando autorização;
+- CI não se aplica: não houve push.
+
+Execuções intermediárias, substituídas pela de `918b0a1`: `e099edd` (merge) e `149d2a4` (primeira versão da tela).
+
+O HEAD local final é um commit só de documentação depois de `918b0a1` (registro destas evidências). Fora de `docs/`, ele é idêntico a `918b0a1`.
 
 ## Configuração (só nomes; nunca imprimir valores)
 
