@@ -1,6 +1,6 @@
 # Validação da identificação do contato (nome e número) — PostgreSQL e navegador
 
-**Situação:** PREPARADA em 04/10/2026, **não executada**. As duas rodadas precisam de autorização explícita do Felipe (docs/OPERACAO_AGENTES.md). Nada em staging, produção, Render ou Gupshup, nem no banco local real `kidmais_manager`. A demo (parada) e os diretórios protegidos não são tocados.
+**Situação:** EXECUTADA em 04/10/2026 (15:11–15:20) no HEAD `78ed9d8`, com autorização do Felipe para as duas rodadas; resultado ao final. Antes: preparada; as duas rodadas precisavam de autorização explícita do Felipe (docs/OPERACAO_AGENTES.md). Nada em staging, produção, Render ou Gupshup, nem no banco local real `kidmais_manager`. A demo (parada) e os diretórios protegidos não são tocados.
 
 Contexto: [IDENTIFICACAO_CONTATO_ATENDIMENTO.md](IDENTIFICACAO_CONTATO_ATENDIMENTO.md). Numeração coordenada: **064** prontas e **065** nome de perfil; a 063 é do painel.
 
@@ -81,3 +81,37 @@ Scripts em `.local-ux/val-prontas/`, fora do Git; os hashes estão em `MANIFESTO
 | I8 atendente | login do atendente | A mesma identificação; ele não vê o cadastro de mensagens prontas |
 
 **Teste offline** (`teste-offline.ps1`): 51/51, incluindo as verificações estáticas da V2b, do preparo, da conferência e do `vp.ps1`.
+
+## Resultado (04/10/2026, HEAD `78ed9d8`)
+
+Os detalhes ficam fora do Git: `.local-ux/val-prontas/estado/resultado-identificacao-78ed9d8.md`, com hashes em `EVIDENCIAS-identificacao-78ed9d8.txt` e, da rodada 1, em `.local-ux/pg-identificacao/EVIDENCIAS-78ed9d8.txt`.
+
+**Rodada 1 — PostgreSQL, 127.0.0.1:55500:**
+- O1 com identidade exata.
+- **O2a PASS 4/4** (060, 064, 065, concorrência; nenhuma pulada).
+- **O2b PASS 39/39**.
+- O4 removeu só o alvo.
+- Protegidos idênticos, inclusive o cluster da outra sessão.
+
+**Rodada 2 — navegador, 55502 / http://localhost:3050:**
+- V1/V2 ok, com a 065 **ausente**.
+- V3c: coluna ausente, `saidas_total = 0`.
+- **V2b** aplicou a 065 com o Next rodando.
+- V3c: coluna presente, `saidas_total = 0`; Next sem chamadas de envio, erros nem 5xx.
+- V4 removeu só a base `…-ba6eac`; protegidos e demo parada idênticos.
+
+| Caso | Resultado |
+| --- | --- |
+| I1 sem a 065 | ok: números, cadastro único, aviso de vários cadastros sem nomes, perfil "não informado", nome enviado antes da 065 ignorado |
+| I2 sem reinício | ok |
+| I3 nomes antigos e novos | ok: "Bruna Perfil Nova" vence; antigo e anterior à 065 nunca aparecem; perfil separado do cadastro |
+| I4 isolamento | ok na página e no JSON da rota: só A/staging (1 empresa); B e production existem no banco e não aparecem |
+| I5 layout desktop | ok: nada transborda; título longo quebra (captura) |
+| I6 celular 375×812 | ok: título a 72 px (menu até 54); uma coluna; sem rolagem horizontal (capturas) |
+| I7 teclado | ok: cartões com título + número; Enter foca o título longo com contorno (captura) |
+| I8 atendente | ok |
+
+**Observações, sem bloqueio:**
+1. No celular, o menu fixo cobre o início do botão "Voltar às conversas", acima do título.
+2. O texto final de `preparar.mjs` está desatualizado.
+3. O perfil longo de teste ficou com 79 caracteres (o emoji ocupa duas unidades UTF-16).
