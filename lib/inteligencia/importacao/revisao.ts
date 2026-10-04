@@ -1,3 +1,4 @@
+import { decisoesSchema } from "../../contratos/integracao-importados/modelo.ts";
 import { z } from "zod";
 import type { PlanoImportacao } from "../../importacao-contrato/plano.ts";
 import { aplicarRevisao } from "../../importacao-contrato/rascunho.ts";
@@ -6,12 +7,12 @@ import type { TenantComprovado } from "../../saas/provar-tenant.ts";
 import { iniciarRascunhoComPayload, type ContextoGate, type DependenciasHumanGate } from "../acoes/human-gate.ts";
 import type { FerramentaAcao } from "../acoes/tipos.ts";
 import type { AIResponse } from "../contratos.ts";
-import { exigirPapelDocumento, extracaoGuardada, responderComRastreio } from "../documentos/upload.ts";
+import { exigirPapelDocumento, extracaoGuardada, extracaoTemDados, responderComRastreio } from "../documentos/upload.ts";
 import { envioDocumentoExternoAutorizado, grupoAtivo, inteligenciaAtiva } from "../flags.ts";
 import { exigirGrupoNaEmpresa, pedidoInvalido, recursoDesativado, type DependenciasGateway, type RespostaGateway } from "../gateway.ts";
 import { InteligenciaError } from "../politica.ts";
 import { novoRastreio } from "../rastreio.ts";
-import { dadosDaImportacao, decisaoSchema, planejar, type DadosImportacao, type PortaImportacao } from "./acao.ts";
+import { dadosDaImportacao, decisaoSchema, hashPlano, planejar, type DadosImportacao, type PortaImportacao } from "./acao.ts";
 
 /**
  * Importação histórica (feature IMPORT): documento extraído → rascunho de importação → revisão →
@@ -92,7 +93,9 @@ const pedidoSchema = z.discriminatedUnion("acao", [
   z.object({ acao: z.literal("consultar"), documentoId: z.string().uuid() }).strict(),
   z.object({ acao: z.literal("revisar"), ...comVersao, campoId: z.string().regex(/^[a-z]+\.[A-Za-z0-9_]{1,40}$/), valor: z.string().max(500).optional(), confirmarDivergencia: z.literal(true).optional() }).strict(),
   z.object({ acao: z.literal("cliente"), ...comVersao, decisao: decisaoSchema }).strict(),
-  z.object({ acao: z.literal("preparar"), ...comVersao }).strict(),
+  z.object({ acao: z.literal("opcoes-completas"), ...comVersao }).strict(),
+  z.object({ acao: z.literal("simular-completa"), ...comVersao, integracao: decisoesSchema }).strict(),
+  z.object({ acao: z.literal("preparar"), ...comVersao, integracao: decisoesSchema.optional(), integracaoHash: z.string().regex(/^[0-9a-f]{64}$/).optional(), planoHash: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict(),
   z.object({ acao: z.literal("descartar"), ...comVersao }).strict(),
 ]);
 
@@ -126,7 +129,16 @@ export async function atenderImportacao(pedido: { lerCorpo(): Promise<unknown>; 
         const extracao = extracaoGuardada(registro);
         if (!registro || !extracao) throw new InteligenciaError("NAO_ENCONTRADO", "Documento não encontrado.", 404);
         const dados: DadosImportacao = { extracao, revisados: [], decisaoCliente: null };
-        const aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+        let aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+        const anterior = dadosDaImportacao(aberta);
+        // Recupera só revisão vazia e intocada. Edições, decisões e importações concluídas são preservadas.
+        if (aberta.status === "EM_REVISAO" && aberta.extracaoId !== registro.extracaoId && anterior.revisados.length === 0 && anterior.decisaoCliente === null && !extracaoTemDados(anterior.extracao) && extracaoTemDados(extracao)) {
+          // A extração faz parte da identidade imutável (055d). Encerra a revisão vazia
+          // e abre outra, na mesma transação, em vez de trocar seu vínculo histórico.
+          const descartada = { ...aberta, status: "DESCARTADA" as const, versao: aberta.versao + 1 };
+          if (!await p.atualizarImportacao(tx, tenant.empresaComprovada, descartada, aberta.versao)) throw new InteligenciaError("IMPORTACAO_DESATUALIZADA", "A revisão mudou em outra aba. Atualize a página.", 409);
+          aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+        }
         return { importacao: publico(aberta), plano: aberta.status === "EM_REVISAO" ? planoPublico(await planejar(tx, tenant.empresaComprovada, p, dadosDaImportacao(aberta))) : null };
       }
       if (entrada.acao === "consultar") {
@@ -171,9 +183,24 @@ export async function atenderImportacao(pedido: { lerCorpo(): Promise<unknown>; 
       // preparar: plano sem bloqueio ⇒ abre o Human Gate com preview; com bloqueio ⇒ devolve o que falta.
       const plano = await planejar(tx, tenant.empresaComprovada, p, dados);
       if (!plano.pronto) return { importacao: publico(atual), plano: planoPublico(plano), gate: null };
+      if (entrada.acao === 'opcoes-completas') {
+        if (!p.completa) throw new InteligenciaError('INTEGRACAO_INDISPONIVEL', 'A conclusão completa ainda não está disponível.', 503);
+        return { importacao: publico(atual), plano: planoPublico(plano), opcoes: await p.completa.opcoes(tx, tenant, atual, plano) };
+      }
+      if (entrada.acao === 'simular-completa') {
+        if (!p.completa) throw new InteligenciaError('INTEGRACAO_INDISPONIVEL', 'A conclusão completa ainda não está disponível.', 503);
+        const simulacao = await p.completa.simular(tx, tenant, atual, plano, entrada.integracao);
+        return { importacao: publico(atual), plano: planoPublico(plano), simulacao: { ...simulacao, planoHash: hashPlano(plano) } };
+      }
+      if (entrada.acao === 'preparar' && entrada.integracao) {
+        if (entrada.planoHash && entrada.planoHash !== hashPlano(plano)) throw new InteligenciaError('RESUMO_DESATUALIZADO', 'O cadastro do cliente ou os dados do contrato mudaram. Confira novamente.', 409);
+        if (!p.completa) throw new InteligenciaError('INTEGRACAO_INDISPONIVEL', 'A conclusão completa ainda não está disponível.', 503);
+        const sim = await p.completa.simular(tx, tenant, atual, plano, entrada.integracao);
+        if (!entrada.integracaoHash || entrada.integracaoHash !== sim.resumoHash) throw new InteligenciaError('RESUMO_DESATUALIZADO', 'A festa, a agenda ou os pagamentos mudaram. Confira novamente.', 409);
+      }
       if (!deps.gate || !deps.acao) throw new InteligenciaError("ACOES_INDISPONIVEIS", "As confirmações do Kidmais ainda não estão disponíveis neste ambiente.", 503);
       const ctx: ContextoGate = { tx, tenant, sessao, correlationId: rastreio.requestId };
-      const avanco = await iniciarRascunhoComPayload(deps.acao, { importacaoId: atual.id, versaoImportacao: atual.versao, decisaoCliente: dados.decisaoCliente }, ctx, deps.gate);
+      const avanco = await iniciarRascunhoComPayload(deps.acao, { importacaoId: atual.id, versaoImportacao: atual.versao, decisaoCliente: dados.decisaoCliente, ...(entrada.acao === "preparar" && entrada.integracao !== undefined ? { integracao: entrada.integracao, integracaoHash: entrada.integracaoHash, planoHash: entrada.planoHash } : {}) }, ctx, deps.gate);
       rastreio.humanGate = avanco.resposta.tipo === "preview" ? "PREVIEW" : "RASCUNHO";
       return { importacao: publico(atual), plano: planoPublico(plano), gate: avanco.resposta as AIResponse };
     });

@@ -20,6 +20,7 @@ playwright-report/
 .tmp/
 .backups/
 *.log
+.local-reenvio-pg-20261002/
 *.dump
 *.backup
 *.bak

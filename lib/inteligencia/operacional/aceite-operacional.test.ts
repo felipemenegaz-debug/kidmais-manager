@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { criarAmbiente, EMPRESA_A, EMPRESA_B, IDS, MARCADOR_B } from "../../../scripts/ia-benchmark/ambiente.ts";
 import { criarAcaoContratacao, extrairContratacao, type PortaContratacao } from "../acoes/contratacao.ts";
+import { criarAcaoContaPagar } from "../acoes/conta-pagar.ts";
 import { criarVinculo, lerPreparacao, type ResultadoCriacao } from "../acoes/contratacao-revisao.ts";
 import { criarRepositorioOperacoesEmMemoria } from "../acoes/memoria.ts";
 import { criarModuloAcoes } from "../acoes/modulo.ts";
@@ -113,7 +114,7 @@ function ambiente(o: Opcoes = {}) {
       return empresaId === EMPRESA_A && codigo === "PREMIUM" ? { id: PREMIUM, nome: "Premium", minimo: 20, maximo: 100 } : null;
     },
     erroConvidados: (_c, p, n) => (n > (p.maximo ?? 150) ? `${p.nome} atende até ${p.maximo} convidados neste pacote.` : n < (p.minimo ?? 1) ? `${p.nome} possui mínimo de ${p.minimo} pagantes.` : null),
-    async horarios(_tx, _data, turno) {
+    async horarios(_tx, _empresa, _data, turno) {
       return { configuracaoId: AGENDA_NOITE, horarios: turno === "noite" ? [{ inicio: "19:00", fim: "23:00" }] : [{ inicio: "12:00", fim: "16:00" }] };
     },
     async precoTabela() { return o.preco === undefined ? 450000 : o.preco; },
@@ -132,7 +133,7 @@ function ambiente(o: Opcoes = {}) {
   const relogio = { agora: new Date("2026-09-30T15:00:00Z") };
   const gate = { repositorio, agora: () => relogio.agora, novoId: () => `${String(++seq).padStart(8, "0")}-1111-4111-8111-000000000000`, ttlConfirmacaoSegundos: 600 };
   const acoes = o.operacional === false ? [] : [criarAcaoContratacao(contratacao, () => "2026-09-30"), criarAcaoParametroConsumo(portaParametros)];
-  const modulo = criarModuloAcoes([...criarAcoesPacote(pacotes), ...acoesNegadas(), ...acoes], gate);
+  const modulo = criarModuloAcoes([...criarAcoesPacote(pacotes), ...acoesNegadas(), ...acoes, criarAcaoContaPagar({ categorias: async () => [{ id: PREMIUM, nome: 'Outros' }], criar: async () => { efeitos.pacotes.push('conta'); return PREMIUM; } })], gate);
   amb.deps.acoes = modulo;
   amb.deps.agora = () => relogio.agora;
 
@@ -1770,4 +1771,48 @@ test("Luna (lacuna 3): \"Não estime o consumo; quero somente a regra cadastrada
   const f = fatos(leitura(q.data));
   assert.ok(f.includes("FATO:Regra da empresa (versão 3): 400 mL por convidado, embalagem de 2 L."));
   assert.equal(f.some((x) => x.startsWith("ESTIMATIVA:")), false);
+});
+
+
+test('regressão: contratação → conta a pagar mensal → sim mantém o novo objetivo e só grava no clique', async () => {
+  const a = ambiente();
+  const inicial = await a.enviar('crie uma contratação de festa. Cliente felipe, 50 convidados pacote premium');
+  assert.equal(inicial.data?.tipo, 'rascunho');
+  const anterior = a.operacaoAtual()!;
+  const conta = await a.enviar('adicione conta a pagar todos mes dia 10 do Chat-gpt pro 550 rais.');
+  assert.equal(conta.data?.tipo, 'rascunho');
+  if (conta.data?.tipo !== 'rascunho') return;
+  assert.equal(conta.data.rascunho.capacidade, 'criar_conta_pagar');
+  assert.equal(a.linha(anterior).estado, 'CANCELADA');
+  assert.equal(a.linha(conta.data.rascunho.operacaoId).payload.valorCentavos, 55000);
+  assert.equal(a.linha(conta.data.rascunho.operacaoId).payload.recorrente, true);
+  const sim = await a.enviar('sim');
+  assert.equal(sim.data?.tipo, 'rascunho');
+  assert.equal(a.linha(a.operacaoAtual()!).capacidade, 'criar_conta_pagar');
+  await a.enviar('10/10/2026');
+  const preview = await a.enviar('Outros');
+  assert.equal(preview.data?.tipo, 'preview');
+  assert.deepEqual(a.efeitos.pacotes, []);
+  if (preview.data?.tipo !== 'preview') return;
+  const confirmado = await a.decidir(preview.data.rascunho, 'confirmar');
+  assert.equal(confirmado.status, 200);
+  assert.deepEqual(a.efeitos.pacotes, ['conta']);
+  await a.decidir(preview.data.rascunho, 'confirmar');
+  assert.deepEqual(a.efeitos.pacotes, ['conta']);
+});
+
+test('Luna: comando explícito de conta mensal troca o rascunho mesmo se o modelo tentaria responder outra coisa', async () => {
+  const a = ambiente();
+  const luna = comLuna(a, { entender: (d) => d.rascunho?.capacidade === 'criar_conta_pagar'
+    ? saida({ objetivo: 'ACAO', acao: 'criar_conta_pagar', relacaoRascunho: 'RESPONDE' })
+    : saida({ objetivo: 'PREPARAR_CONTRATACAO', contratacao: { cliente: 'Felipe', convidados: 50, pacote: 'premium' } }) });
+  await a.enviar('crie uma festa do cliente Felipe, 50 convidados pacote premium');
+  const antes = luna.chamadas.length;
+  const r = await a.enviar('adicione conta a pagar todos mes dia 10 do Chat-gpt pro 550 rais.');
+  assert.equal(r.data?.tipo, 'rascunho');
+  assert.equal(luna.chamadas.length, antes, 'comando explícito usa o Core');
+  const sim = await a.enviar('sim');
+  assert.equal(sim.data?.tipo, 'rascunho');
+  assert.equal(a.linha(a.operacaoAtual()!).capacidade, 'criar_conta_pagar');
+  assert.deepEqual(a.efeitos.pacotes, []);
 });

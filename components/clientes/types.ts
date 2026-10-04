@@ -56,7 +56,7 @@ export type ResponsavelAdicional = {
   observacoes: string | null;
 };
 
-export type OrigemFechamento = "CLIENTE" | "ATENDIMENTO_KIDMAIS";
+export type OrigemFechamento = "CLIENTE" | "ATENDIMENTO_KIDMAIS" | "IMPORTACAO_HISTORICA";
 
 export type FechamentoClienteResumo = {
   id: string;

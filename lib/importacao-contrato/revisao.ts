@@ -51,6 +51,7 @@ export type AcaoImportacao =
   | { tipo: "avancar" }
   | { tipo: "cancelar" }
   | { tipo: "alternarRevisado"; campoId: string }
+  | { tipo: "corrigir"; campoId: string; valor: string }
   | { tipo: "abrirConfirmacao" }
   | { tipo: "fecharConfirmacao" }
   | { tipo: "marcarPronto" }
@@ -122,6 +123,13 @@ export function criarFluxoImportacao(extrair: Extrator) {
           ? estado.revisados.filter((id) => id !== campo.id)
           : [...estado.revisados, campo.id];
         return { ...estado, revisados };
+      }
+      case "corrigir": {
+        if (estado.etapa !== "revisao" || estado.confirmando) return estado;
+        const existe = todosCampos(estado.extracao).some(c => c.id === acao.campoId);
+        if (!existe || acao.valor.length > 4000) return estado;
+        const valor = acao.valor.trim() || null;
+        return { ...estado, extracao: { ...estado.extracao, secoes: estado.extracao.secoes.map(s => ({ ...s, campos: s.campos.map(c => c.id === acao.campoId ? { ...c, valor, estado: valor ? "ENCONTRADO" : "NAO_ENCONTRADO", origem: undefined, motivo: valor ? "Informado manualmente na demonstração." : undefined } : c) })) }, revisados: estado.revisados.filter(id => id !== acao.campoId) };
       }
       case "abrirConfirmacao":
         if (estado.etapa !== "revisao" || !podeConfirmar(estado.extracao, estado.revisados)) return estado;

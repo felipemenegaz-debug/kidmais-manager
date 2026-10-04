@@ -139,3 +139,27 @@ test("A1: sem cancelamento, o leitor isolado lê o mesmo texto que o leitor em p
   const d = dados(await a.enviar(pdf(LINHAS)));
   assert.equal(campo(d.extracao!, "contratante.cpf").estado, "ENCONTRADO");
 });
+
+test('falha do Worker é erro explícito, sem guardar revisão vazia; novo envio pode tentar de novo', async () => {
+  const a = ambiente();
+  a.deps.lerPdf = async () => ({ paginas: [], avisos: ['WORKER_FALHOU'], interrompido: null });
+  const falha = await a.enviar(pdf(LINHAS));
+  assert.equal(falha.status, 503);
+  assert.equal((falha.corpo as { codigo: string }).codigo, 'LEITURA_PDF_INDISPONIVEL');
+  assert.equal(a.documentos.extracoes.length, 0);
+  a.deps.lerPdf = undefined;
+  const recuperada = dados(await a.enviar(pdf(LINHAS)));
+  assert.equal(campo(recuperada.extracao!, 'contratante.cpf').estado, 'ENCONTRADO');
+});
+
+test('extração antiga sem nenhum campo não é reutilizada no reenvio', async () => {
+  const a = ambiente();
+  const original = dados(await a.enviar(pdf(LINHAS)));
+  const vazia = a.documentos.extracoes[0].resultado as unknown as ExtracaoContrato;
+  for (const s of vazia.secoes) for (const c of s.campos) { c.valor = null; c.estado = 'NAO_ENCONTRADO'; }
+  const recuperada = dados(await a.enviar(pdf(LINHAS)));
+  assert.equal(recuperada.documentoId, original.documentoId);
+  assert.equal(recuperada.reaproveitado, false);
+  assert.equal(a.documentos.extracoes.length, 2);
+  assert.equal(campo(recuperada.extracao!, 'contratante.cpf').estado, 'ENCONTRADO');
+});

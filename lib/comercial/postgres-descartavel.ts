@@ -1,29 +1,38 @@
 import pg from "pg";
-import { portaDescartavel } from "./alvo-descartavel.ts";
+import { exigirAmbienteSemConexaoHerdada, exigirOptInDescartavel, PAPEL_DESCARTAVEL, portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
 
 const PERMITIDOS = new Set(["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"]);
 const TRAVA_TESTE = 8742036;
 // Guarda da porta num módulo puro (testável sem driver); reexportada para as suítes.
-export { portaDescartavel } from "./alvo-descartavel.ts";
+export { portaDescartavel, senhaRecusada } from "./alvo-descartavel.ts";
 
-/** Conecta só no cluster descartável e confirma o banco antes de qualquer outro SQL. */
+/**
+ * Conecta só no cluster descartável: opt-in, porta e autorização explícitas ANTES de abrir socket; depois confere a
+ * identidade do servidor (banco, endereço, porta, papel e cluster_name) antes de qualquer outro SQL.
+ */
 export async function conectarDescartavel(opcoes?: { travar?: boolean; database?: string }) {
+  exigirOptInDescartavel();
   const database = opcoes?.database ?? "kidmais_pacotes_v1_descartavel";
   if (!PERMITIDOS.has(database)) throw new Error("banco recusado");
+  exigirAmbienteSemConexaoHerdada();
   const portaAutorizada = portaDescartavel();
+  // Tudo explícito; nenhuma senha é carregada (pgpass/PGPASSWORD) e nenhuma variável PG* participa.
   const client = new pg.Client({
     host: "127.0.0.1",
     port: portaAutorizada,
     user: "kidmais_descartavel",
     database,
+    password: senhaRecusada,
+    application_name: "kidmais-descartavel",
   });
   await client.connect();
-  const ident = await client.query<{ db: string; port: number }>(
-    "SELECT current_database() AS db, inet_server_port() AS port",
+  const ident = await client.query<{ db: string; port: number; addr: string | null; papel: string; cluster: string }>(
+    "SELECT current_database() AS db, inet_server_port() AS port, host(inet_server_addr()) AS addr, current_user AS papel, current_setting('cluster_name') AS cluster",
   );
   const db = ident.rows[0]?.db;
   const port = Number(ident.rows[0]?.port);
-  if (!PERMITIDOS.has(String(db)) || port !== portaAutorizada) {
+  const { addr, papel, cluster } = ident.rows[0] ?? {};
+  if (!PERMITIDOS.has(String(db)) || port !== portaAutorizada || addr !== "127.0.0.1" || papel !== PAPEL_DESCARTAVEL || cluster !== PAPEL_DESCARTAVEL) {
     await client.end();
     throw new Error("destino recusado");
   }

@@ -84,7 +84,7 @@ export async function aplicarRevisaoInicial(tx: DbExecutor, v: ContratoVersaoRec
         recusar('O fechamento mudou durante a preparação. Revise a proposta antes de formalizar.');
     for (const dia of [...new Set([atual.dataEvento, proposta.fechamento.dataEvento])].sort()) await adquirirLockConfirmacaoAgenda(dia, tx);
     const f = proposta.fechamento;
-    const disponibilidade = await consultarDisponibilidadeData(f.dataEvento, tx);
+    const disponibilidade = await consultarDisponibilidadeData(f.dataEvento, tx, undefined, { fechamentoId: f.id });
     if (!disponibilidade.periodos.find(p => p.configuracaoId === f.configuracaoAgendaId)?.horarios.some(h =>
         h.status === 'DISPONIVEL' && h.inicio === f.horarioInicio.slice(0, 5) && h.fim === f.horarioFim.slice(0, 5)))
         recusar('Data/horário da proposta indisponível. Nenhuma alteração foi aplicada.');

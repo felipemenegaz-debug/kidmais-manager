@@ -61,9 +61,18 @@ async function buscarDisponibilidadeMes(ano: number, mes: number) {
     cache: "no-store",
   });
 
-  if (!resposta.ok) throw new Error("Falha ao consultar disponibilidade");
-  const json = await resposta.json();
+  const json = await resposta.json().catch(() => null);
+  // Agenda pública sem contexto configurado no servidor (062): mensagem do servidor, sem horário de ninguém.
+  if (!resposta.ok) throw new AgendaPublicaIndisponivel(String(json?.codigo ?? "").startsWith("AGENDA_PUBLICA_") ? String(json.erro) : null);
   return (Array.isArray(json.data) ? json.data : []) as DisponibilidadeDataPublica[];
+}
+
+class AgendaPublicaIndisponivel extends Error {
+  readonly mensagem: string | null;
+  constructor(mensagem: string | null) {
+    super("Falha ao consultar disponibilidade");
+    this.mensagem = mensagem;
+  }
 }
 
 export default function DisponibilidadePublica() {
@@ -93,10 +102,10 @@ export default function DisponibilidadePublica() {
         if (cancelado) return;
         setPorData(Object.fromEntries(dias.map((item) => [item.data, item])));
         setErro("");
-      } catch {
+      } catch (falha) {
         if (cancelado) return;
         setPorData({});
-        setErro("Não foi possível consultar a disponibilidade agora. Tente novamente.");
+        setErro((falha instanceof AgendaPublicaIndisponivel && falha.mensagem) || "Não foi possível consultar a disponibilidade agora. Tente novamente.");
       } finally {
         if (!cancelado) setCarregando(false);
       }

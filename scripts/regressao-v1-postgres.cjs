@@ -16,12 +16,16 @@ const {
   exigirOptInDescartavel,
   exigirListaPostgres,
   estadoDaSuite,
+  ambienteDaSuite,
+  filtrarSuites,
+  variavelDeConexaoHerdada,
 } = require("./regressao-v1-selecao.cjs");
+
+// Antes de qualquer conexão (inclusive a da receita, neste processo): nenhuma configuração herdada do driver.
+for (const nome of Object.keys(process.env)) if (variavelDeConexaoHerdada(nome)) delete process.env[nome];
 
 const raiz = path.resolve(__dirname, "..");
 const LIMITE_POR_SUITE_MS = 15 * 60 * 1000;
-const GENERICAS = ["DATABASE_URL", "PGHOST", "PGHOSTADDR", "PGPORT", "PGDATABASE", "PGUSER", "PGSERVICE", "PGSERVICEFILE", "PGPASSWORD"];
-const VARIAVEIS_054 = ["KIDMAIS_054_PG_HOST", "KIDMAIS_054_PG_PORT", "KIDMAIS_054_PG_DATABASE", "KIDMAIS_054_PG_USER", "KIDMAIS_054_AUTORIZACAO"];
 
 function recusar(erro) {
   console.error(erro instanceof Error ? erro.message : String(erro));
@@ -31,25 +35,18 @@ function recusar(erro) {
 let planos;
 try {
   exigirOptInDescartavel(process.env);
-  planos = exigirListaPostgres(listarTestesPostgres(raiz)).map((arquivo) => ({ arquivo, estado: estadoDaSuite(raiz, arquivo) }));
+  // Uma execução por estado: o declarado e, quando houver, os de `tambem` (mesma suíte em outra etapa do schema).
+  planos = filtrarSuites(exigirListaPostgres(listarTestesPostgres(raiz)).flatMap((arquivo) => {
+    const estado = estadoDaSuite(raiz, arquivo);
+    return [estado, ...(estado.tambem ?? []).map((modelo) => ({ ...estado, descartavel: modelo }))].map((e) => ({ arquivo, estado: e }));
+  }), process.env);
 } catch (erro) {
   recusar(erro);
 }
 
-/** Ambiente da suíte: sem destino genérico; o alvo da 054 só para a suíte que o declara. */
+/** Ambiente da suíte: explícito (ambienteDaSuite); o alvo da 054 só para a suíte que o declara. */
 function ambiente(estado, porta, banco) {
-  const env = { ...process.env, NEXT_TELEMETRY_DISABLED: "1" };
-  for (const nome of [...GENERICAS, ...VARIAVEIS_054]) delete env[nome];
-  if (estado.alvo054) {
-    Object.assign(env, {
-      KIDMAIS_054_PG_HOST: "127.0.0.1",
-      KIDMAIS_054_PG_PORT: String(porta),
-      KIDMAIS_054_PG_DATABASE: banco,
-      KIDMAIS_054_PG_USER: "kidmais_descartavel",
-      KIDMAIS_054_AUTORIZACAO: `127.0.0.1:${porta}/${banco}`,
-    });
-  }
-  return env;
+  return ambienteDaSuite(process.env, estado, porta, banco);
 }
 
 async function conexoesDeTrabalho(admin, bancos) {

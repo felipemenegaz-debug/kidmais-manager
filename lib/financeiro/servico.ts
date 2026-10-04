@@ -1,5 +1,6 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
+import { contarEventosImportadosAIntegrar } from "../contratos/importados.ts";
 import {
   CATEGORIAS_DESPESA,
   FORMAS,
@@ -44,6 +45,14 @@ export async function garantirCategorias(tx: DbExecutor, empresaId: string) {
   }
 }
 
+/** Consulta sem criar categorias: usada para revisar uma conta antes da confirmação. */
+export async function listarCategoriasDespesa(tx: DbExecutor, empresaId: string) {
+  return (await tx.query<{ id: string; nome: string }>(
+    "SELECT id::text AS id, nome FROM financeiro_categorias WHERE empresa_id = $1::uuid AND tipo = 'DESPESA' AND ativo ORDER BY nome",
+    [empresaId],
+  )).rows;
+}
+
 const RECEBER_SQL = `
   SELECT parcela.id::text AS id,
          pag.id::text AS pagamento_id,
@@ -52,8 +61,9 @@ const RECEBER_SQL = `
          parcela.vencimento::text AS vencimento,
          parcela.status AS status_gravado,
          COALESCE(cliente.nome_completo, 'Cliente') AS cliente,
+         cliente.id::text AS cliente_id,
          festa.id::text AS festa_id,
-         pac.nome AS pacote,
+         COALESCE(NULLIF(ver.snapshot #>> '{evento,pacote,nome}', ''), pac.nome) AS pacote,
          fech.data_evento::text AS data_evento,
          COALESCE(SUM(aloc.valor_alocado) FILTER (WHERE rec.status = 'CONFIRMADO'), 0)::text AS recebido,
          plano.meio_pagamento AS forma
@@ -64,12 +74,12 @@ const RECEBER_SQL = `
     JOIN contratos contrato ON contrato.id = ver.contrato_id
     JOIN fechamentos fech ON fech.id = contrato.fechamento_id
     JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
-    LEFT JOIN clientes cliente ON cliente.id = fech.cliente_id
+    LEFT JOIN clientes cliente ON cliente.id = fech.cliente_id AND cliente.empresa_id = $1::uuid
     LEFT JOIN festas festa ON festa.contrato_id = contrato.id AND festa.invalidada_em IS NULL
     LEFT JOIN pagamento_recebimento_alocacoes aloc ON aloc.parcela_id = parcela.id
     LEFT JOIN pagamento_recebimentos rec ON rec.id = aloc.recebimento_id
    GROUP BY parcela.id, pag.id, parcela.numero, parcela.valor_previsto, parcela.vencimento, parcela.status,
-            cliente.nome_completo, festa.id, pac.nome, fech.data_evento, plano.meio_pagamento
+            cliente.id, cliente.nome_completo, festa.id, ver.id, pac.nome, fech.data_evento, plano.meio_pagamento
 `;
 
 type LinhaReceber = {
@@ -80,6 +90,7 @@ type LinhaReceber = {
   vencimento: string;
   status_gravado: string;
   cliente: string;
+  cliente_id: string | null;
   festa_id: string | null;
   pacote: string;
   data_evento: string;
@@ -92,6 +103,7 @@ export type Recebivel = {
   origem?: "CONTRATO" | "ENTRADA_MANUAL";
   pagamentoId: string;
   cliente: string;
+  clienteId?: string | null;
   festaId: string | null;
   pacote: string;
   data: string;
@@ -124,6 +136,7 @@ function mapearRecebivel(linha: LinhaReceber, hoje: string): Recebivel {
     origem: "CONTRATO",
     pagamentoId: linha.pagamento_id,
     cliente: linha.cliente,
+    clienteId: linha.cliente_id,
     festaId: linha.festa_id,
     pacote: linha.pacote,
     data: linha.data_evento,
@@ -838,10 +851,11 @@ export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: strin
   const numeros = resumo(recebiveis, contas, recebido, hoje);
   const festas = await tx.query<{ id: string; contratoId: string; versaoId: string | null; data: string; cliente: string; pacote: string; convidados: number; status: string; hora: string }>(
     `SELECT festa.id::text AS id, contrato.id::text AS "contratoId", fluxo.versao_vigente_id::text AS "versaoId", fech.data_evento::text AS data, COALESCE(cliente.nome_completo, 'Cliente') AS cliente,
-            pac.nome AS pacote, fech.convidados, contrato.status AS status, fech.horario_inicio::text AS hora
+            COALESCE(NULLIF(vigente.snapshot #>> '{evento,pacote,nome}', ''), pac.nome) AS pacote, fech.convidados, contrato.status AS status, fech.horario_inicio::text AS hora
        FROM festas festa
        JOIN contratos contrato ON contrato.id = festa.contrato_id
        LEFT JOIN contrato_fluxos fluxo ON fluxo.contrato_id = contrato.id
+       LEFT JOIN contrato_versoes vigente ON vigente.id = fluxo.versao_vigente_id AND vigente.contrato_id = contrato.id
        JOIN fechamentos fech ON fech.id = contrato.fechamento_id
        JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $1::uuid
        LEFT JOIN clientes cliente ON cliente.id = fech.cliente_id
@@ -890,12 +904,15 @@ export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: strin
     [empresaId, mes.inicio, hoje, mes.fim],
   );
   const linhaMes = mesResumo.rows[0];
+  // Eventos de contratos importados com data futura: só um aviso com link; nunca entram em `proximas` nem nos contadores.
+  const importadosAIntegrar = await contarEventosImportadosAIntegrar(tx, empresaId, hoje);
   return {
     empresa: empresa.rows[0]?.nome ?? "Empresa",
     hoje,
     numeros,
     agenda: festas.rows.filter((festa) => festa.data === hoje),
     proximas: festas.rows,
+    importadosAIntegrar,
     atencao: [
       ...recebiveis.filter((item) => item.status === "Vencido").slice(0, 3).map((item) => ({
         tom: "alerta" as const, titulo: `Pagamento vencido — ${item.cliente}`, detalhe: item.vencimento, href: "/admin/financeiro/contas-receber",

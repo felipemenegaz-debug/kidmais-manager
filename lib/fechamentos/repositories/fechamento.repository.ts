@@ -319,7 +319,7 @@ export async function criarFechamento(
        buffet_doces,
        buffet_bolo,
        buffet_outros,
-       condicao_pagamento ${escolhas ? ",buffet_lembrancinha,buffet_empratado,buffet_bombom" : ""}
+       condicao_pagamento ${escolhas ? ",buffet_lembrancinha,buffet_empratado,buffet_bombom" : ""}${input.estabelecimentoId ? ",estabelecimento_id" : ""}
      ) VALUES (
        (SELECT empresa_id FROM public.pacotes WHERE id = $7::uuid),
        $1::uuid,
@@ -363,7 +363,7 @@ export async function criarFechamento(
        $39,
        $40,
        $41,
-       $42::jsonb ${escolhas ? ",$43,$44,$45" : ""}
+       $42::jsonb ${escolhas ? ",$43,$44,$45" : ""}${input.estabelecimentoId ? `,$${escolhas ? 46 : 43}::uuid` : ""}
      )
      RETURNING ${fechamentoColumns}`,
     [
@@ -410,6 +410,7 @@ export async function criarFechamento(
       input.buffetOutros ?? null,
       input.condicaoPagamento ? JSON.stringify(input.condicaoPagamento) : null,
       ...(escolhas ? [input.buffetLembrancinha ?? null,input.buffetEmpratado ?? null,input.buffetBombom ?? null] : []),
+      ...(input.estabelecimentoId ? [input.estabelecimentoId] : []),
     ],
   );
 

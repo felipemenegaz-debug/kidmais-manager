@@ -96,6 +96,9 @@ function ambiente(o: Opcoes = {}) {
       }
       if (s.startsWith("SELECT * FROM festa_membership_capacidades WHERE membership_id=$1 AND capacidade=$2")) return r([]);
       if (s.startsWith("SELECT capacidade FROM festa_membership_capacidades")) return r([]);
+      if (s.startsWith("SELECT * FROM festa_areas WHERE empresa_id=$1::uuid ORDER BY nome")) return r([]);
+      if (s.startsWith("SELECT f.*,(SELECT a.data_nascimento")) return r([]);
+      if (s.startsWith("SELECT c.id,cf.versao_vigente_id")) return r([]);
       if (s.startsWith("SELECT id FROM festa_areas WHERE id=$1 AND empresa_id=$2::uuid AND ativo")) return r(areas[String(v[0])]?.empresa === v[1] ? [{ id: v[0] }] : []);
       if (s.startsWith("SELECT * FROM festa_areas WHERE id=$1 AND empresa_id=$2::uuid FOR UPDATE")) {
         const a = areas[String(v[0])];
@@ -109,6 +112,10 @@ function ambiente(o: Opcoes = {}) {
   const tenant = { empresaComprovada: A, membershipId: MEMBERSHIP_ATOR_A, usuarioId: ATOR, papelAtual: o.papelAtual ?? "REPRESENTANTE_AUTORIZADO" };
   const recusa = Object.assign(new Error("Tenant não comprovado."), { code: "TENANT_NAO_COMPROVADO", httpStatus: 403 });
   const svc = carregar("lib/festas/service.ts", {
+    "./importadas": { listarFestasImportadas: async (_tx: unknown, empresaId: string, _cliente: unknown, id: string) => {
+      assert.equal(_tx, tx);log.push(`importada(${empresaId},${id})`);
+      return empresaId === A && (!id || id === FESTA_A) ? [{ id: FESTA_A, origem: 'IMPORTACAO' }] : [];
+    } },
     "./ambiente": { validarAmbienteFesta: async () => undefined }, "./buffet": { escolhasBuffet: [] }, "./perfis": { perfis, nomePerfil }, zod: { z },
     "./politica": { politicaOperacao: () => ({ corrigir: false, motivoObrigatorio: false }) },
     "node:crypto": { createHash, randomUUID }, "./domain": domain, "./schema": schema,
@@ -131,6 +138,23 @@ function ambiente(o: Opcoes = {}) {
 }
 
 const ctx = { token: "t", requestId: "r", userAgent: null, empresaSolicitada: null };
+test('festa importada: prova tenant e capacidade antes da leitura, revalida e não escreve', async () => {
+  const a = ambiente();
+  assert.deepEqual(await a.svc.consultarFestaImportada(ctx, FESTA_A), { importada: { id: FESTA_A, origem: 'IMPORTACAO' } });
+  const leitura = a.log.findIndex(l => l.startsWith('importada('));
+  assert(leitura > a.log.findIndex(l => l.startsWith('SELECT id FROM festa_membership_capacidades')));
+  assert(a.log.lastIndexOf('revalidarTenant') > leitura);
+  assert.deepEqual(a.escritas, []);
+  const lista = await a.svc.consultarFestas(ctx) as { importadas: unknown[]; festas: unknown[] };
+  assert.deepEqual(lista.importadas, [{ id: FESTA_A, origem: 'IMPORTACAO' }]);
+  assert.deepEqual(lista.festas, []);
+  for (const id of [FESTA_B, randomUUID()]) await assert.rejects(ambiente().svc.consultarFestaImportada(ctx, id), { status: 404 });
+  for (const o of [{ tenant: 'recusa' as const }, { capacidades: false }]) {
+    const negada = ambiente(o);
+    await assert.rejects(negada.svc.consultarFestaImportada(ctx, FESTA_A));
+    assert(!negada.log.some(l => l.startsWith('importada(')));
+  }
+});
 const tarefa = (extra: Record<string, unknown> = {}) => ({ acao: "tarefa", chave: randomUUID(), revisao: 1, versaoId: VERSAO, titulo: "Balões", descricao: "", prioridade: "NORMAL", estado: "PENDENTE", areaId: null, responsavelId: null, prazo: null, ...extra });
 const nao404 = (e: unknown) => (e as { status?: number }).status === 404 && /Festa não encontrada/.test((e as Error).message);
 const st = (e: unknown) => (e as { status?: number; httpStatus?: number }).status ?? (e as { httpStatus?: number }).httpStatus;

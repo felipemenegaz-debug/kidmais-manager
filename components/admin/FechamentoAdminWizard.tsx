@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
@@ -9,7 +9,7 @@ import type { FechamentoAdministrativoInput } from '@/lib/fechamentos/administra
 import { fechamentoAdministrativoSchema } from '@/lib/fechamentos/administrativo-schema';
 import { erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import type { DisponibilidadeDataPublica } from '@/lib/disponibilidade/services/models';
-import CalendarioDisponibilidade from '@/components/fechamento/CalendarioDisponibilidade';
+import CalendarioDisponibilidade, { type ConsultaAgendaMes } from '@/components/fechamento/CalendarioDisponibilidade';
 import { PACOTES_FECHAMENTO_V1 } from '@/components/fechamento/data';
 import { ENDPOINT_PREPARACOES, enviarPreparado, formularioPreparado, preparacaoValida, reconciliar, type Buscador, type DesfechoEnvio, type PreparacaoAplicada } from './fechamento-preparacao';
 import styles from './revisao-fechamento.module.css';
@@ -34,6 +34,9 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     const [form, setForm] = useState(inicial);
     const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
     const [horarios, setHorarios] = useState<Horario[]>([]);
+    // Agenda da empresa comprovada pela sessão (062): unidades vêm do servidor; a escolhida é o recurso consultado.
+    const [unidades, setUnidades] = useState<Array<{ id: string; nome: string }>>([]);
+    const unidadeId = form.estabelecimentoId ?? '';
     const [erro, setErro] = useState('');
     const [enviando, setEnviando] = useState(false);
     const [revisando, setRevisando] = useState(false);
@@ -106,16 +109,26 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         setHorarios([]);
         setForm(atual => ({ ...atual, dataFesta: '', horarioInicio: '', horarioFim: '' }));
     }
+    const agendaAdmin = useCallback(async (parametros: Record<string, string>) => {
+        const query = new URLSearchParams(unidadeId ? { ...parametros, unidadeId } : parametros);
+        const response = await adminFetch(`/api/admin/disponibilidade?${query}`, { cache: 'no-store' });
+        const body = await response.json();
+        if (!response.ok) throw Error(body.erro ?? 'Falha ao consultar disponibilidade.');
+        setUnidades(body.unidades ?? []);
+        return body as { dias: DisponibilidadeDataPublica[] | null; pacoteOverrides?: []; descontos?: [] };
+    }, [unidadeId]);
+    const consultarMes = useCallback<ConsultaAgendaMes>(async (inicio, fim) => {
+        const body = await agendaAdmin({ inicio, fim });
+        return { dias: body.dias ?? [], comercial: { pacoteOverrides: body.pacoteOverrides ?? [], descontos: body.descontos ?? [] } };
+    }, [agendaAdmin]);
     async function selecionarData(data: string, base: FechamentoAdministrativoInput['horarioBase'] = form.horarioBase, preferido: string | null = null) {
         const sequencia = ++consultando.current;
         setHorarios([]);
         setErro('');
         setForm(atual => ({ ...atual, dataFesta: data, horarioInicio: '', horarioFim: '' }));
         try {
-            const response = await fetch(`/api/disponibilidade?data=${encodeURIComponent(data)}`, { cache: 'no-store' });
-            const body = await response.json();
-            if (!response.ok || !body.ok) throw Error(body.erro ?? 'Falha ao consultar disponibilidade.');
-            const dia = body.data as DisponibilidadeDataPublica;
+            const dia = (await agendaAdmin({ data })).dias?.[0];
+            if (!dia) throw Error('Falha ao consultar disponibilidade.');
             const opcoes = dia.periodos.find(p => p.codigo === (base === 'almoco' ? 'TURNO_1' : 'TURNO_2'))?.horarios.filter(h => h.status === 'DISPONIVEL') ?? [];
             if (sequencia !== consultando.current) return;
             setHorarios(opcoes);
@@ -231,7 +244,9 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 <label>Pacote<select aria-label="Pacote" value={form.pacote} onChange={e => { limparAgenda(); campo('pacote', e.target.value as typeof form.pacote); }}>
                     {PACOTES_FECHAMENTO_V1.map(p => <option key={p.id} value={p.id} disabled={p.sobConsulta}>{p.nome}{p.sobConsulta ? ' — sob consulta' : ''}</option>)}
                 </select></label>
-                {erroCampo('dataFesta')}<CalendarioDisponibilidade pacote={form.pacote} horario={form.horarioBase} dataSelecionada={form.dataFesta}
+                {unidades.length > 1 && <label>Unidade<select required value={unidadeId} onChange={e => { limparAgenda(); campo('estabelecimentoId', e.target.value || null); }}>
+                    <option value="">Selecione</option>{unidades.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>}
+                {erroCampo('dataFesta')}<CalendarioDisponibilidade pacote={form.pacote} horario={form.horarioBase} dataSelecionada={form.dataFesta} consultar={consultarMes}
                     onSelecionar={data => void selecionarData(data)} onTrocarHorario={horario => { limparAgenda(); if (horario) campo('horarioBase', horario); }} />
                 <label >Horário disponível<select {...acessibilidade('horarioInicio')} required value={form.horarioInicio} onChange={e => {
                     const h = horarios.find(h => h.inicio === e.target.value);

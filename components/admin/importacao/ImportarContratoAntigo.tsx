@@ -42,6 +42,7 @@ function Resumo({ linhas }: { linhas: ReadonlyArray<{ rotulo: string; valor: str
 export default function ImportarContratoAntigo() {
   const [fluxo, despachar] = useReducer(fluxoImportacao, FLUXO_INICIAL);
   const [arrastando, setArrastando] = useState(false);
+  const [editando, setEditando] = useState<{ id: string; valor: string } | null>(null);
   const tituloRef = useRef<HTMLHeadingElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const gatilhoModalRef = useRef<HTMLButtonElement>(null);
@@ -167,11 +168,13 @@ export default function ImportarContratoAntigo() {
                     return <div key={campo.id} className={styles.campo} data-estado={estadoVisual}>
                       <dt>{campo.rotulo}</dt>
                       <dd className={styles.valorCampo}>
-                        <span className={campo.valor ? styles.valor : styles.valorAusente}>{campo.valor ?? 'Não localizado no contrato'}</span>
+                        {editando?.id === campo.id ? <label>{campo.rotulo}<input aria-label={`Correção de ${campo.rotulo}`} maxLength={4000} value={editando.valor} onChange={e => setEditando({ id: campo.id, valor: e.target.value })} /><button type="button" className={styles.fantasma} onClick={() => { despachar({ tipo: 'corrigir', campoId: campo.id, valor: editando.valor }); setEditando(null); }}>Salvar correção</button><button type="button" className={styles.fantasma} onClick={() => setEditando(null)}>Voltar</button></label> : <span className={campo.valor ? styles.valor : styles.valorAusente}>{campo.valor ?? 'Não localizado no contrato'}</span>}
                         {campo.origem && <small>{campo.origem}</small>}
                         {campo.motivo && !revisado && <small className={styles.motivo}>{campo.motivo}</small>}
                       </dd>
                       <dd className={styles.estadoCampo}>
+                        <button type="button" className={styles.fantasma} onClick={() => setEditando({ id: campo.id, valor: campo.valor ?? '' })}>Editar</button>
+                        {campo.valor && <button type="button" className={styles.fantasma} onClick={() => despachar({ tipo: 'corrigir', campoId: campo.id, valor: '' })}>Não consta no documento</button>}
                         <span className={styles.selo} data-estado={estadoVisual}>{ROTULO_ESTADO[estadoVisual]}</span>
                         {campoRevisavel(campo) && <button type="button" className={styles.confirmarCampo} aria-pressed={revisado}
                           aria-label={`${revisado ? 'Desfazer confirmação de' : 'Confirmar leitura de'} ${campo.rotulo}`}
@@ -198,6 +201,7 @@ export default function ImportarContratoAntigo() {
 
           <aside className={styles.gate} aria-labelledby="gate-titulo">
             <h2 id="gate-titulo">Confirmação humana</h2>
+            <button type="button" className={styles.fantasma} onClick={() => { if (window.confirm('Descartar esta revisão? Nenhum dado será gravado.')) { despachar({ tipo: 'cancelar' }); setEditando(null); } }}>Cancelar importação</button>
             {extracao.fonte === 'DEMONSTRACAO' && <p className={styles.discreto}>Resumo dos dados de exemplo. O arquivo não foi processado.</p>}
             <Resumo linhas={resumo} />
             <div className={styles.pendencias}>
@@ -218,6 +222,7 @@ export default function ImportarContratoAntigo() {
           <div className={styles.cortina} aria-hidden="true" onClick={() => despachar({ tipo: 'fecharConfirmacao' })} />
           <div ref={modalRef} className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="confirmar-titulo" aria-describedby="confirmar-aviso">
             <h2 id="confirmar-titulo">Confirmar importação</h2>
+            <button type="button" className={styles.fantasma} onClick={() => { if (window.confirm('Descartar esta revisão? Nenhum dado será gravado.')) { despachar({ tipo: 'cancelar' }); setEditando(null); } }}>Cancelar importação</button>
             <Resumo linhas={resumo} />
             {naoEncontrados.length > 0 && <p className={styles.discreto}>{plural(naoEncontrados.length, 'campo não encontrado ficará', 'campos não encontrados ficarão')} em branco para completar depois.</p>}
             <p id="confirmar-aviso" className={styles.aviso}>Modo demonstração: o arquivo não foi processado e o resumo usa dados de exemplo. Nada é gravado: cliente, contrato, festa e pagamentos continuam como estão. A persistência definitiva será habilitada após validação do Import Engine.</p>

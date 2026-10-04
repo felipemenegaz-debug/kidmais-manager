@@ -16,6 +16,7 @@ import {
   pacoteTemDescontoDiaUtil,
 } from "@/lib/comercial/descontos";
 import type { BloqueioAgendaRecord } from "@/lib/disponibilidade/repositories";
+import type { UnidadeAgendaGestao } from "@/lib/disponibilidade/unidades-agenda";
 import type {
   DisponibilidadeDataPublica,
   PeriodoDisponibilidadePublica,
@@ -55,6 +56,10 @@ function intervalosSobrepoem(
 
 type AdminPayload = DisponibilidadeConfig & {
   bloqueios?: BloqueioAgendaRecord[];
+  dias?: DisponibilidadeDataPublica[] | null;
+  agendaPorEscopo?: boolean;
+  unidades?: Array<{ id: string; nome: string }>;
+  unidadeId?: string | null;
 };
 
 export default function AdminDisponibilidade() {
@@ -82,30 +87,70 @@ export default function AdminDisponibilidade() {
   const [fimBloqueio, setFimBloqueio] = useState("16:00");
   const [motivoBloqueio, setMotivoBloqueio] = useState("");
   const [observacoesBloqueio, setObservacoesBloqueio] = useState("");
+  // Agenda por empresa/unidade (062): a unidade escolhida é o recurso consultado; "" = a única ou a empresa inteira.
+  const [unidadeId, setUnidadeId] = useState("");
+  const [unidades, setUnidades] = useState<Array<{ id: string; nome: string }>>([]);
+  const [agendaPorEscopo, setAgendaPorEscopo] = useState(false);
+  // D6 (opção A): unidades da empresa e a habilitação explícita para agenda (Representante autorizado, com motivo).
+  const [gestaoUnidades, setGestaoUnidades] = useState<UnidadeAgendaGestao[]>([]);
+  const [motivoUnidade, setMotivoUnidade] = useState("");
+  const [mensagemUnidade, setMensagemUnidade] = useState("");
 
-  async function buscarDadosMes(anoAlvo: number, mesAlvo: number) {
+  async function carregarGestaoUnidades() {
+    const r = await adminFetch("/api/admin/disponibilidade/unidades", { cache: "no-store" });
+    const json = await r.json().catch(() => null);
+    setGestaoUnidades(r.ok && Array.isArray(json?.unidades) ? json.unidades : []);
+  }
+
+  async function decidirUnidade(acao: "habilitar" | "revogar", unidade: UnidadeAgendaGestao) {
+    setMensagemUnidade("");
+    if (motivoUnidade.trim().length < 5) {
+      setMensagemUnidade("Informe o motivo (pelo menos 5 caracteres).");
+      return;
+    }
+    setSalvando(true);
+    try {
+      const r = await adminFetch("/api/admin/disponibilidade/unidades", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acao, unidadeId: unidade.id, motivo: motivoUnidade.trim() }),
+      });
+      const json = await r.json().catch(() => null);
+      if (!r.ok) {
+        setMensagemUnidade(json?.erro || "Não foi possível salvar.");
+        return;
+      }
+      setMotivoUnidade("");
+      setMensagemUnidade(acao === "habilitar"
+        ? `${unidade.nome} habilitada para a agenda.`
+        : `${unidade.nome} revogada. ${json?.data?.reservasFuturasPreservadas ?? 0} reserva(s) futura(s) mantida(s); novas contratações e remarcações nela ficam bloqueadas.`);
+      await Promise.all([carregarGestaoUnidades(), carregar()]);
+    } catch {
+      setMensagemUnidade("Não foi possível salvar.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function buscarDadosMes(anoAlvo: number, mesAlvo: number, unidadeAlvo = unidadeId) {
     const inicio = iso(anoAlvo, mesAlvo, 1);
     const ultimoDia = new Date(Date.UTC(anoAlvo, mesAlvo + 1, 0)).getUTCDate();
     const fim = iso(anoAlvo, mesAlvo, ultimoDia);
+    const parametros = new URLSearchParams({ inicio, fim });
+    if (unidadeAlvo) parametros.set("unidadeId", unidadeAlvo);
 
-    const [adminResponse, operacionalResponse] = await Promise.all([
-      adminFetch("/api/admin/disponibilidade", { cache: "no-store" }),
-      fetch(`/api/disponibilidade?inicio=${inicio}&fim=${fim}`, {
-        cache: "no-store",
-      }),
-    ]);
-
-    if (!adminResponse.ok || !operacionalResponse.ok) {
+    // Agenda da empresa comprovada pela sessão (não a API pública, que não conhece o tenant).
+    const adminResponse = await adminFetch(`/api/admin/disponibilidade?${parametros}`, { cache: "no-store" });
+    if (!adminResponse.ok) {
       throw new Error("Falha ao carregar disponibilidade.");
     }
 
     const admin = (await adminResponse.json()) as AdminPayload;
-    const operacional = await operacionalResponse.json();
-    const dias: DisponibilidadeDataPublica[] = Array.isArray(operacional.data)
-      ? operacional.data
-      : [operacional.data];
+    const dias: DisponibilidadeDataPublica[] = admin.dias ?? [];
 
     return {
+      unidades: admin.unidades ?? [],
+      agendaPorEscopo: admin.agendaPorEscopo === true,
       config: {
         agenda: [],
         pacoteOverrides: admin.pacoteOverrides ?? [],
@@ -147,6 +192,8 @@ export default function AdminDisponibilidade() {
       setConfig(dados.config);
       setBloqueios(dados.bloqueios);
       setOperacionalPorData(dados.operacionalPorData);
+      setUnidades(dados.unidades);
+      setAgendaPorEscopo(dados.agendaPorEscopo);
       sincronizarDescontoFormulario(
         dados.config,
         pacote,
@@ -173,6 +220,9 @@ export default function AdminDisponibilidade() {
         setConfig(dados.config);
         setBloqueios(dados.bloqueios);
         setOperacionalPorData(dados.operacionalPorData);
+        setUnidades(dados.unidades);
+        setAgendaPorEscopo(dados.agendaPorEscopo);
+        if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
       } catch {
         if (cancelado) return;
         setConfig(CONFIG_VAZIA);
@@ -187,7 +237,9 @@ export default function AdminDisponibilidade() {
     return () => {
       cancelado = true;
     };
-  }, [mes, ano]);
+    // buscarDadosMes lê a unidade do estado; a dependência explícita é unidadeId.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mes, ano, unidadeId]);
 
   const diasMes = useMemo(() => {
     const primeiro = new Date(Date.UTC(ano, mes, 1)).getUTCDay();
@@ -248,7 +300,7 @@ export default function AdminDisponibilidade() {
       const r = await adminFetch("/api/admin/disponibilidade", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(unidadeId ? { ...(payload as object), unidadeId } : payload),
       });
 
       if (!r.ok) {
@@ -392,7 +444,51 @@ export default function AdminDisponibilidade() {
               <option value="noite">17h às 21h</option>
             </select>
           </label>
+
+          {unidades.length > 1 && (
+            <label>
+              <span>Unidade</span>
+              <select
+                value={unidadeId}
+                onChange={(e) => {
+                  setUnidadeId(e.target.value);
+                  setSelecionada("");
+                  setMensagem("");
+                }}
+              >
+                <option value="">Todas as unidades da empresa</option>
+                {unidades.map((u) => <option value={u.id} key={u.id}>{u.nome}</option>)}
+              </select>
+            </label>
+          )}
         </section>
+
+        {agendaPorEscopo && gestaoUnidades.length > 0 && (
+          <section className={styles.blockList}>
+            <h3>Unidades na agenda</h3>
+            <p className={styles.helpText}>
+              Só unidades habilitadas recebem contratações próprias. Revogar mantém as reservas já feitas e bloqueia novas
+              contratações e remarcações na unidade. Somente o representante autorizado pode alterar.
+            </p>
+            <label className={styles.blockField}>
+              <span>Motivo</span>
+              <input value={motivoUnidade} maxLength={1000} onChange={(e) => setMotivoUnidade(e.target.value)} />
+            </label>
+            {gestaoUnidades.map((unidade) => (
+              <div className={styles.blockItem} key={unidade.id}>
+                <div>
+                  <strong>{unidade.nome}</strong>
+                  <span>{unidade.habilitada ? "Habilitada" : "Não habilitada"}</span>
+                  {unidade.reservasFuturas > 0 && <small>{unidade.reservasFuturas} reserva(s) futura(s)</small>}
+                </div>
+                <button type="button" disabled={salvando} onClick={() => decidirUnidade(unidade.habilitada ? "revogar" : "habilitar", unidade)}>
+                  {unidade.habilitada ? "Revogar" : "Habilitar"}
+                </button>
+              </div>
+            ))}
+            {mensagemUnidade && <small>{mensagemUnidade}</small>}
+          </section>
+        )}
 
         <div className={styles.contentActions}><a className={styles.clientView} href="/disponibilidade">Ver tela do cliente →</a></div>
 
@@ -561,17 +657,22 @@ export default function AdminDisponibilidade() {
                             </strong>
                             <span>{bloqueio.motivo}</span>
                             {bloqueio.observacoes && <small>{bloqueio.observacoes}</small>}
+                            {agendaPorEscopo && bloqueio.alcance === "GLOBAL" && (
+                              <small>Anterior à separação por empresa: vale para todas até a atribuição do dono.</small>
+                            )}
                           </div>
-                          <button
-                            type="button"
-                            disabled={salvando}
-                            onClick={() => enviar({
-                              tipo: "desativar_bloqueio",
-                              bloqueioId: bloqueio.id,
-                            })}
-                          >
-                            Desativar
-                          </button>
+                          {!(agendaPorEscopo && bloqueio.alcance === "GLOBAL") && (
+                            <button
+                              type="button"
+                              disabled={salvando}
+                              onClick={() => enviar({
+                                tipo: "desativar_bloqueio",
+                                bloqueioId: bloqueio.id,
+                              })}
+                            >
+                              Desativar
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -581,7 +682,11 @@ export default function AdminDisponibilidade() {
                 <div className={`${styles.actionGroup} ${styles.physicalBlockForm}`}>
                   <h3>Criar bloqueio físico</h3>
                   <p className={styles.helpText}>
-                    O bloqueio vale para toda a agenda, independentemente do pacote.
+                    {agendaPorEscopo
+                      ? unidadeId || unidades.length <= 1
+                        ? "O bloqueio vale para esta unidade, independentemente do pacote."
+                        : "Sem unidade escolhida, o bloqueio vale para todas as unidades da empresa."
+                      : "O bloqueio vale para toda a agenda, independentemente do pacote."}
                     O motivo é obrigatório e fica visível apenas para a equipe.
                   </p>
 

@@ -60,7 +60,9 @@ export async function registrarExtracao(tx: DbExecutor, e: RegistroExtracao) {
     );
   }
   await tx.query(
-    `UPDATE ia_documentos SET status = $3, atualizado_em = now() WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+    // O status do documento resume a primeira leitura e é final por contrato da 055c.
+    // Releituras são novas execuções em ia_extracoes; não alteram esse registro histórico.
+    `UPDATE ia_documentos SET status = $3, atualizado_em = now() WHERE id = $1::uuid AND empresa_id = $2::uuid AND status = 'RECEBIDO'`,
     [e.documentoId, e.empresaId, e.status === "FALHOU" ? "FALHOU" : e.status === "PARCIAL" ? "PRECISA_REVISAO" : "EXTRAIDO"],
   );
   return { extracaoId: id };

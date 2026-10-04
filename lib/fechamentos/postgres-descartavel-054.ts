@@ -1,5 +1,6 @@
 import pg from "pg";
 import { alvoAutorizado054, conferirIdentidade054, type Alvo054 } from "./alvo-054.ts";
+import { senhaRecusada } from "../comercial/alvo-descartavel.ts";
 
 /** Mesma trava consultiva da suíte descartável: os arquivos PostgreSQL rodam um de cada vez. */
 const TRAVA_SUITE = 8742036;
@@ -15,6 +16,7 @@ export async function conectar054(opcoes?: { travar?: boolean }) {
     port: alvo.port,
     database: alvo.database,
     user: alvo.user,
+    password: senhaRecusada,
     application_name: "kidmais-054-descartavel",
   });
   await client.connect();

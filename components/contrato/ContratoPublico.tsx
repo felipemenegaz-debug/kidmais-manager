@@ -46,6 +46,8 @@ type ContextoContrato = {
     aniversariante: string;
     valorFinalContrato: number;
   };
+  /** PAPEL: contrato histórico assinado em papel — sem aceite eletrônico, sem documento e sem comprovante. */
+  assinatura?: { tipo: "PAPEL" | "ELETRONICA"; texto: string | null };
   aceitePermitido: boolean;
 };
 
@@ -310,7 +312,9 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
         <section className={styles.hero}>
           <p className={styles.eyebrow}>Documentos Kidmais</p>
           <h1>Confira sua contratação e o Contrato Oficial</h1>
-          <p>Primeiro confira o resumo comercial. Depois leia o Contrato Oficial específico do seu pacote antes do aceite eletrônico.</p>
+          {contexto?.assinatura?.tipo === "PAPEL"
+            ? <p>Confira o resumo da sua contratação. Este contrato foi assinado em papel; não há aceite eletrônico.</p>
+            : <p>Primeiro confira o resumo comercial. Depois leia o Contrato Oficial específico do seu pacote antes do aceite eletrônico.</p>}
         </section>
 
         <div className={styles.progress}>
@@ -391,7 +395,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
               <div><span>Pacote</span><strong>{contexto.evento.pacote}</strong></div>
               <div><span>Valor</span><strong>{moeda(contexto.evento.valorFinalContrato)}</strong></div>
               <div><span>Versão</span><strong>V{contexto.versao.numero}</strong></div>
-              <div><span>Status</span><strong>{contexto.contrato.status === "ASSINADO" ? "Assinado" : "Aguardando assinatura"}</strong></div>
+              <div><span>Status</span><strong>{contexto.assinatura?.tipo === "PAPEL" ? "Assinado em papel" : contexto.contrato.status === "ASSINADO" ? "Assinado" : "Aguardando assinatura"}</strong></div>
             </section>
 
             {contexto.versao.contratoOficial.disponivel && !contexto.versao.contratoOficial.homologadoParaProducao && (
@@ -421,7 +425,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
                   }}
                 >
                   <strong>2. Contrato Oficial</strong>
-                  <span>{contexto.versao.contratoOficial.disponivel ? contexto.evento.pacote : "Modelo ainda não cadastrado"}</span>
+                  <span>{contexto.assinatura?.tipo === "PAPEL" ? "Assinado em papel" : contexto.versao.contratoOficial.disponivel ? contexto.evento.pacote : "Modelo ainda não cadastrado"}</span>
                 </button>
               </div>
 
@@ -440,11 +444,17 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
               ) : contratoPdfUrl ? (
                 <iframe title="Contrato Oficial Kidmais" src={contratoPdfUrl} className={styles.pdfFrame} />
               ) : (
-                <div className={styles.pdfLoading}>O Contrato Oficial deste pacote ainda não está cadastrado.</div>
+                <div className={styles.pdfLoading}>{contexto.assinatura?.tipo === "PAPEL" ? "Este contrato foi assinado em papel; o original fica com a Kidmais." : "O Contrato Oficial deste pacote ainda não está cadastrado."}</div>
               )}
             </section>
 
-            {assinaturaConcluida ? (
+            {contexto.assinatura?.tipo === "PAPEL" ? (
+              <section className={styles.successBox}>
+                <strong>Contrato assinado em papel</strong>
+                <span>{contexto.assinatura.texto}</span>
+                <span>Para obter uma cópia do documento original, solicite à Kidmais pelos canais de atendimento.</span>
+              </section>
+            ) : assinaturaConcluida ? (
               <section className={styles.successBox}>
                 <strong>✓ Aceite registrado com sucesso</strong>
                 <span>Seu aceite da versão V{contexto.versao.numero} foi registrado. O documento e os comprovantes desta versão estão preservados.</span>

@@ -12,6 +12,8 @@
  *   atual — 001→054 + 056 + 057: o estado corrente do produto (055a–d exigem autorização e ficam fora; as
  *           suítes da 055 instalam e removem a 055 em transação/limpeza própria).
  *   053   — 001→053: o estado imediatamente anterior à 054 (a suíte da migration 054 aplica a 054).
+ *   061   — inventário inteiro até a 061 (com 055a–d, 058 e 059): etapa da integração sem a agenda por unidade.
+ *   062   — inventário inteiro até a 062: etapa final (agenda por empresa e unidade).
  *
  * Segurança (fail-closed, antes de qualquer escrita):
  *   - host 127.0.0.1, usuário kidmais_descartavel, porta autorizada pela mesma regra de
@@ -33,7 +35,7 @@ const raiz = path.resolve(__dirname, "..");
 const HOST = "127.0.0.1";
 const USUARIO = "kidmais_descartavel";
 const CLUSTER = "kidmais_descartavel";
-const PORTA_PADRAO = 55498;
+// Sem porta padrão: a porta vem sempre de KIDMAIS_DESCARTAVEL_PORTA com a autorização literal (cluster autorizado: 55498).
 const BANCO_REAL = "kidmais_manager";
 
 const MODELOS = {
@@ -43,6 +45,10 @@ const MODELOS = {
   "039": { banco: "kidmais_v1_modelo_039", ate: "039", sem: [] },
   "042-sem-040": { banco: "kidmais_v1_modelo_042_sem_040", ate: "042", sem: ["040"] },
   "045-sem-040": { banco: "kidmais_v1_modelo_045_sem_040", ate: "045", sem: ["040"] },
+  // Etapas da publicação da integração/agenda (061 e 062), com todo o inventário anterior: provam os módulos nativos
+  // DEPOIS de cada migration (as suítes que declaram `tambem` rodam também nesses estados).
+  "061": { banco: "kidmais_v1_modelo_061", ate: "061", sem: [] },
+  "062": { banco: "kidmais_v1_modelo_062", ate: "062", sem: [] },
 };
 /** Bancos de trabalho que o runner pode restaurar. */
 const TRABALHO = ["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"];
@@ -50,8 +56,9 @@ const GERENCIAVEIS = new Set([...TRABALHO, ...Object.values(MODELOS).map((m) => 
 
 /** Mesma regra de lib/comercial/alvo-descartavel.ts (espelhada; um teste estático confere as duas). */
 function portaAutorizada(env = process.env) {
+  if (env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") throw new Error("suíte PostgreSQL sem opt-in explícito (KIDMAIS_POSTGRES_DESCARTAVEL): nenhuma conexão tentada.");
   const texto = env.KIDMAIS_DESCARTAVEL_PORTA;
-  if (texto === undefined || texto === "") return PORTA_PADRAO;
+  if (texto === undefined || texto === "") throw new Error("KIDMAIS_DESCARTAVEL_PORTA ausente: sem porta padrão");
   if (!/^[0-9]{4,5}$/.test(texto)) throw new Error("KIDMAIS_DESCARTAVEL_PORTA inválida");
   const porta = Number(texto);
   if (porta < 1024 || porta > 65535) throw new Error("KIDMAIS_DESCARTAVEL_PORTA fora do intervalo");
@@ -68,7 +75,14 @@ function exigirGerenciavel(banco) {
 /** Conecta e prova a identidade do servidor antes de qualquer outro SQL. */
 async function conectar(porta, banco) {
   const pg = require("pg");
-  const client = new pg.Client({ host: HOST, port: porta, user: USUARIO, database: banco, application_name: "kidmais-receita" });
+  const { variavelDeConexaoHerdada } = require("./regressao-v1-selecao.cjs");
+  const herdadas = Object.keys(process.env).filter(variavelDeConexaoHerdada);
+  if (herdadas.length) throw new Error(`receita recusada: configuração de conexão herdada (${herdadas.join(", ")})`);
+  // Tudo explícito; senha nunca é carregada (trust local: pedido de senha = destino divergente).
+  const client = new pg.Client({
+    host: HOST, port: porta, user: USUARIO, database: banco, application_name: "kidmais-receita",
+    password: () => Promise.reject(new Error("receita: o servidor pediu senha; nenhuma credencial é carregada")),
+  });
   await client.connect();
   try {
     const r = await client.query(

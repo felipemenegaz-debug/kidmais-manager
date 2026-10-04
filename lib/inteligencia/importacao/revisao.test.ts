@@ -1,3 +1,4 @@
+import { avaliarIntegracao, decisoesSchema, hashResumo } from "../../contratos/integracao-importados/modelo.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { executarImportacao } from "../../importacao-contrato/motor.ts";
@@ -42,6 +43,8 @@ function importacaoMemoria(documentos: ReturnType<typeof documentosMemoria>, nov
     async atualizarImportacao(_tx, empresaId, i, versao) {
       const atual = importacoes.get(i.id);
       if (!atual || atual.empresaId !== empresaId || atual.versao !== versao) return false;
+      if (atual.extracaoId !== i.extracaoId || atual.documentoId !== i.documentoId || atual.criadoPor !== i.criadoPor) throw new Error('Identidade da importação é imutável (055d).');
+      if (atual.status !== 'EM_REVISAO' || i.versao <= atual.versao) throw new Error('Transição recusada pela guarda 055d.');
       importacoes.set(i.id, { ...structuredClone(i), empresaId });
       return true;
     },
@@ -326,4 +329,78 @@ test("a conversa nunca abre a importação: ação só de tela", () => {
   assert.equal(a.deps.acao?.origem, "TELA");
   const modulo = criarModuloAcoes([a.deps.acao!], a.gate);
   assert.equal(modulo.descrever("importar_contrato")?.origem, "TELA");
+});
+
+test('reenvio recupera revisão vazia intocada e preserva revisão já editada', async () => {
+  for (const editada of [false, true]) {
+    const a = ambiente();
+    const documento = await a.enviar();
+    const aberta = dados(await a.importar({ acao: 'abrir', documentoId: documento.documentoId })).importacao;
+    const atual = a.importacao.importacoes.get(aberta.id)!;
+    const anteriores = atual.dados as unknown as { extracao: ImportacaoPublica['extracao']; revisados: string[] };
+    for (const s of anteriores.extracao.secoes) for (const c of s.campos) { c.valor = null; c.estado = 'NAO_ENCONTRADO'; }
+    if (editada) anteriores.revisados.push('contratante.nome');
+    const registro = a.documentos.extracoes[0];
+    a.documentos.extracoes.push({ ...structuredClone(registro), extracaoId: '99999999-1111-4111-8111-111111111111' });
+    const r = await a.importar({ acao: 'abrir', documentoId: documento.documentoId });
+    assert.equal(r.status, 200, JSON.stringify(r.corpo));
+    const recuperada = dados(r).importacao;
+    if (editada) assert.equal(recuperada.id, aberta.id);
+    else {
+      assert.notEqual(recuperada.id, aberta.id);
+      assert.equal(a.importacao.importacoes.get(aberta.id)!.status, 'DESCARTADA');
+      assert.equal(a.importacao.importacoes.get(aberta.id)!.extracaoId, atual.extracaoId);
+    }
+    assert.equal(recuperada.versao, editada ? aberta.versao : 1);
+    assert.equal(recuperada.extracao.secoes.some(s => s.campos.some(c => c.valor)), !editada);
+  }
+});
+
+
+test('conclusão única: preview sem cliente, mesma transação para CRM e Core, replay não duplica', async () => {
+  const a = ambiente();
+  let i = await a.abrir();
+  for (const c of i.extracao.secoes.flatMap(s => s.campos).filter(c => c.estado === 'PRECISA_REVISAO')) i = dados(await a.importar({ acao: 'revisar', importacaoId: i.id, versao: i.versao, campoId: c.id, confirmarDivergencia: true })).importacao;
+  let txCliente: unknown, txCore: unknown, concluidas = 0;
+  const anterior = a.importacao.porta.executar;
+  a.importacao.porta.executar = async (tx, e) => { txCliente = tx; return anterior(tx, e); };
+  a.importacao.porta.completa = {
+    async opcoes() { return { disponivel: true }; },
+    async simular(_tx, _tenant, imp, plano, d) {
+      const ref = { cliente: { id: 'cliente', nome: 'Mariana Souza Lima', status: 'ATIVO' }, estabelecimentos: [], pacote: { id: '77777777-7777-4777-8777-777777777777', codigo: 'STANDARD', nome: 'Standard', duracaoMinutos: 240 }, precoReferencia: { tabelaPrecoId: 't', precoPacoteId: 'p', categoria: 'PADRAO' as const }, configuracaoAgendaId: 'g' };
+      const v = avaliarIntegracao({ snapshot: plano.snapshot, decisoes: d, referencias: ref, hoje: '2026-09-28' });
+      return { integrada: false as const, pronto: true, bloqueios: [], avisos: [], resumo: v.resumo, resumoHash: hashResumo(imp.id, d, v.resumo) };
+    },
+    async confirmar(tx) { txCore = tx; concluidas++; return { contratoId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', destino: '/admin/contratos?contratoId=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }; },
+  };
+  const integracao = decisoesSchema.parse({ situacaoContrato: 'VIGENTE', estabelecimentoId: null, pacoteReferenciaId: '77777777-7777-4777-8777-777777777777', evento: { data: '2026-11-21', horarioInicio: '14:00', horarioFim: '18:00', convidados: 80 }, valorContratadoCentavos: 890000, financeiro: { situacao: 'NAO_CONFERIDO' }, conferenciaDeclarada: true });
+  const sim = await a.importar({ acao: 'simular-completa', importacaoId: i.id, versao: i.versao, integracao });
+  assert.equal(sim.status, 200, JSON.stringify(sim.corpo));
+  const simulacao = (sim.corpo as { data: { simulacao: { resumoHash: string; planoHash: string } } }).data.simulacao;
+  assert.equal(a.importacao.clientesCriados.length, 0);
+  const preparado = await a.importar({ acao: 'preparar', importacaoId: i.id, versao: i.versao, integracao, integracaoHash: simulacao.resumoHash, planoHash: simulacao.planoHash });
+  assert.equal(preparado.status, 200, JSON.stringify(preparado.corpo));
+  const preview = (dados(preparado).gate as { rascunho: RascunhoPublico }).rascunho;
+  assert.match(preview.campos.find(c => c.id === 'proximo')!.valor!, /concluídos juntos/);
+  assert.equal(a.importacao.clientesCriados.length, 0);
+  assert.equal((await a.decidir(preview)).status, 200);
+  assert.equal(a.importacao.clientesCriados.length, 1);
+  assert.equal(concluidas, 1);
+  assert.equal(txCliente, txCore, 'não abre transação separada para Core');
+  assert.equal((await a.decidir(preview)).status, 200);
+  assert.equal(concluidas, 1);
+  assert.equal(a.importacao.clientesCriados.length, 1);
+});
+
+test('conclusão única: resumo alterado, falta de declaração e outra empresa não cadastram cliente', async () => {
+  const a = ambiente(); let i = await a.abrir();
+  for (const c of i.extracao.secoes.flatMap(s => s.campos).filter(c => c.estado === 'PRECISA_REVISAO')) i = dados(await a.importar({ acao: 'revisar', importacaoId: i.id, versao: i.versao, campoId: c.id, confirmarDivergencia: true })).importacao;
+  const integracao = { situacaoContrato: 'VIGENTE', estabelecimentoId: null, pacoteReferenciaId: null, evento: { data: '2026-11-21', horarioInicio: '14:00', horarioFim: '18:00', convidados: 80 }, valorContratadoCentavos: 890000, financeiro: { situacao: 'NAO_CONFERIDO' }, conferenciaDeclarada: true };
+  const pedido = { acao: 'preparar', importacaoId: i.id, versao: i.versao, integracao, integracaoHash: '0'.repeat(64), planoHash: '0'.repeat(64) };
+  a.importacao.porta.completa = { async opcoes() { return {}; }, async simular() { throw Error('não deve simular hash de plano diferente'); }, async confirmar() { throw Error('não deve executar'); } };
+  const semDeclaracao = await a.deps.acao!.verificar({} as never, { empresaComprovada: empresaA } as never, { importacaoId: i.id, versaoImportacao: i.versao, decisaoCliente: null, integracao: { ...integracao, conferenciaDeclarada: false } } as never, {} as never).then(() => null, e => e);
+  assert.equal(semDeclaracao?.code, 'CONFERENCIA_NECESSARIA');
+  assert.equal((await a.importar(pedido)).status, 409);
+  assert.equal((await a.importar(pedido, empresaB)).status, 404);
+  assert.equal(a.importacao.clientesCriados.length, 0);
 });

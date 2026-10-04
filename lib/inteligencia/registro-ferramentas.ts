@@ -182,6 +182,7 @@ const LEITURAS: Readonly<Record<string, Meta>> = Object.freeze({
 /** Ações (CONFIRM/DENY) conhecidas. Ação sem entrada aqui não é oferecida. */
 const ACOES: Readonly<Record<string, Meta>> = Object.freeze({
   criar_pacote: { dominio: "COMERCIAL", prazoMs: 8000 },
+  criar_conta_pagar: { dominio: "FINANCEIRO", prazoMs: 8000 },
   editar_pacote: { dominio: "COMERCIAL", prazoMs: 8000 },
   ativar_pacote: { dominio: "COMERCIAL", prazoMs: 8000 },
   desativar_pacote: { dominio: "COMERCIAL", prazoMs: 8000 },

@@ -9,7 +9,7 @@ import ts from "typescript";
 import pg from "pg";
 import type { Client } from "pg";
 import { hashToken } from "../autenticacao/senha.ts";
-import { conectarDescartavel, encerrarDescartavel, portaDescartavel } from "../comercial/postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, portaDescartavel, senhaRecusada } from "../comercial/postgres-descartavel.ts";
 
 /**
  * Gates ambientais C1–C3 / Human Gate no PostgreSQL descartável REAL (nunca staging/produção).
@@ -181,8 +181,8 @@ test("gates C1–C3 + Human Gate em PostgreSQL real: concorrência, travas, roll
   const admCliente = await conectarDescartavel();
   const adm = admCliente as unknown as Client;
   const porta = portaDescartavel();
-  const pool = new pg.Pool({ host: "127.0.0.1", port: porta, user: "kidmais_descartavel", database: "kidmais_pacotes_v1_descartavel", max: 8, application_name: APP });
-  const c2 = new pg.Client({ host: "127.0.0.1", port: porta, user: "kidmais_descartavel", database: "kidmais_pacotes_v1_descartavel", application_name: "gates-c2-concorrente" });
+  const pool = new pg.Pool({ host: "127.0.0.1", port: porta, user: "kidmais_descartavel", database: "kidmais_pacotes_v1_descartavel", password: senhaRecusada, max: 8, application_name: APP });
+  const c2 = new pg.Client({ host: "127.0.0.1", port: porta, user: "kidmais_descartavel", database: "kidmais_pacotes_v1_descartavel", password: senhaRecusada, application_name: "gates-c2-concorrente" });
   await c2.connect();
   const g = globalThis as { __kidmaisPgPool?: unknown };
   const poolAnterior = g.__kidmaisPgPool;

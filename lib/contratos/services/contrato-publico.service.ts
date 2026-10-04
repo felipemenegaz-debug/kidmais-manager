@@ -1,3 +1,4 @@
+import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '../assinatura-papel';
 import { bloquearAgendaFormalizacao, garantirFestaFormalizada } from '../../festas/formalizacao';
 import { validarAmbienteFesta } from '../../festas/ambiente';
 import { normalizarCpf } from "../../clientes/repositories/normalizers";
@@ -253,6 +254,11 @@ export async function iniciarDesafioContrato(
   };
 }
 
+/** Contrato histórico assinado em papel: não há documento eletrônico nem aceite eletrônico a oferecer. */
+function contratoEmPapel(): never {
+  throw new ContratoServiceError('CONTRATO_ASSINADO_EM_PAPEL', 'Este contrato foi assinado em papel. Não há documento nem assinatura eletrônica; o original fica com a Kidmais.', 409);
+}
+
 export async function obterContextoContratoPublico(input: {
   contratoId: string;
   provaToken: string;
@@ -260,10 +266,26 @@ export async function obterContextoContratoPublico(input: {
 }) {
   const { contrato, versao } = await carregarContratoComVersao(input.contratoId,undefined,false,input.acessoToken);
   await validarProvaParaLeitura(input.provaToken, input.acessoToken, contrato, versao);
+  const comprovantes = (await db().query<{id:string;parte:string;nome:string;assinado_em:string}>(`SELECT a.comprovante_documento_id AS id,a.parte,a.identidade_snapshot->>'nome' AS nome,a.assinado_em::text FROM contrato_assinaturas a WHERE a.contrato_versao_id=$1 ORDER BY assinado_em`,[versao.id])).rows;
+  return montarContextoContratoPublico(contrato, versao, comprovantes);
+}
+
+/**
+ * Contexto da página pública a partir do contrato e da versão já carregados e provados. Contrato histórico (papel):
+ * sem documento eletrônico, sem aceite e sem comprovante; o resumo é gerado do snapshot como ele é.
+ */
+export async function montarContextoContratoPublico(
+  contrato: { id: string; status: string; assinadoEm: string | null },
+  versao: Awaited<ReturnType<typeof carregarContratoComVersao>>["versao"],
+  comprovantes: Array<{ id: string; parte: string; nome: string; assinado_em: string }>,
+  lerDocumento: typeof documentoParaLeitura = documentoParaLeitura,
+) {
   const resumo = gerarResumoContratacaoPdfDaVersao(versao);
-  const modeloOficial = contratoOficialDisponivelParaVersao(versao);
+  // Contrato histórico assinado em papel: sem documento eletrônico, sem aceite e sem comprovante (nada fictício).
+  const papel = versaoAssinadaEmPapel(versao);
+  const modeloOficial = papel ? { disponivel: false, modeloCodigo: null, templateVersao: null, homologadoParaProducao: false } : contratoOficialDisponivelParaVersao(versao);
   const contratoOficial = modeloOficial.disponivel
-    ? await documentoParaLeitura(versao)
+    ? await lerDocumento(versao)
     : null;
 
   return {
@@ -272,7 +294,7 @@ export async function obterContextoContratoPublico(input: {
       status: contrato.status,
       assinadoEm: contrato.assinadoEm,
     },
-    comprovantes: (await db().query<{id:string;parte:string;nome:string;assinado_em:string}>(`SELECT a.comprovante_documento_id AS id,a.parte,a.identidade_snapshot->>'nome' AS nome,a.assinado_em::text FROM contrato_assinaturas a WHERE a.contrato_versao_id=$1 ORDER BY assinado_em`,[versao.id])).rows,
+    comprovantes: papel ? [] : comprovantes,
     versao: {
       id: versao.id,
       numero: versao.numeroVersao,
@@ -303,7 +325,9 @@ export async function obterContextoContratoPublico(input: {
       aniversariante: versao.snapshot.aniversariante.nome,
       valorFinalContrato: versao.snapshot.comercial.valorFinalContrato,
     },
+    assinatura: papel ? { tipo: 'PAPEL' as const, texto: TEXTO_ASSINADO_EM_PAPEL } : { tipo: 'ELETRONICA' as const, texto: null },
     aceitePermitido:
+      !papel &&
       modeloOficial.disponivel &&
       aceiteDoTemplatePermitido({
         disponivel: modeloOficial.disponivel,
@@ -320,6 +344,7 @@ export async function gerarPdfContratoPublico(input: {
 }) {
   const { contrato, versao } = await carregarContratoComVersao(input.contratoId,undefined,false,input.acessoToken);
   await validarProvaParaLeitura(input.provaToken, input.acessoToken, contrato, versao);
+  if (versaoAssinadaEmPapel(versao)) contratoEmPapel();
   const documento = await documentoParaLeitura(versao);
 
   return {
@@ -405,6 +430,7 @@ export async function assinarContratoPublico(
       input.acessoToken,
     );
 
+    if (versaoAssinadaEmPapel(versao)) contratoEmPapel();
     if (
       versao.id !== input.versaoId ||
       versao.snapshotHash !== input.snapshotHash

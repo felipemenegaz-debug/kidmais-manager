@@ -7,6 +7,7 @@ import { repositorioOperacoesPostgres } from "@/lib/ia-persistencia/operacoes";
 import { buscarClientesCrm } from "@/lib/clientes/services";
 import { calcularResumoComercial } from "@/lib/comercial/services";
 import { consultarDisponibilidadeData } from "@/lib/disponibilidade/services";
+import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
 import { erroConvidadosFechamento } from "@/lib/fechamentos/convidados";
 import { clienteParaPreparacao, criarFechamentoAdministrativo, obterContextoFechamentoAdministrativo } from "@/lib/fechamentos/services/fechamento-administrativo.service";
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from "@/lib/http/admin-crm-api";
@@ -14,6 +15,8 @@ import type { DependenciasPreparacao } from "@/lib/inteligencia/acoes/preparacoe
 import { InteligenciaError } from "@/lib/inteligencia/politica";
 import { hojeBrasilia } from "@/lib/financeiro/calculos";
 import { criarAcaoContratacao, type PortaContratacao } from "@/lib/inteligencia/acoes/contratacao";
+import { criarAcaoContaPagar, type PortaContaPagar } from "@/lib/inteligencia/acoes/conta-pagar";
+import { criarContaPagar, listarCategoriasDespesa } from "@/lib/financeiro/servico";
 import { criarAcaoParametroConsumo, type PortaParametrosAcao } from "@/lib/inteligencia/acoes/parametros-consumo";
 import { operacionalAtivo } from "@/lib/inteligencia/flags";
 import { fonteParametrosDisponivel, parametroVigente, registrarParametroConsumo } from "@/lib/operacional/parametros-consumo";
@@ -61,9 +64,10 @@ export const portaContratacao: PortaContratacao = {
     return pacote ? { id: pacote.id, nome: pacote.nome, minimo: pacote.convidadosMinimos, maximo: pacote.convidadosMaximos } : null;
   },
   erroConvidados: (codigo, pacote, convidados) => erroConvidadosFechamento(convidados, { id: codigo, nome: pacote.nome, minPagantes: pacote.minimo ?? 1, maxPagantes: pacote.maximo ?? 150 }),
-  async horarios(tx, data, turno) {
+  async horarios(tx, empresaId, data, turno) {
     try {
-      const dia = await consultarDisponibilidadeData(data, tx);
+      // Agenda da empresa comprovada (062); várias unidades = visão conservadora da empresa inteira.
+      const dia = await consultarDisponibilidadeData(data, tx, undefined, await escopoDaEmpresa(tx, empresaId));
       const periodo = dia.periodos.find((p) => p.codigo === (turno === "almoco" ? "TURNO_1" : "TURNO_2"));
       return periodo ? { configuracaoId: periodo.configuracaoId, horarios: periodo.horarios.filter((h) => h.status === "DISPONIVEL").map((h) => ({ inicio: h.inicio, fim: h.fim })) } : null;
     } catch {
@@ -87,6 +91,11 @@ export const portaParametros: PortaParametrosAcao = {
   registrar: (tx, entrada) => registrarParametroConsumo(tx, entrada),
 };
 
+export const portaContaPagar: PortaContaPagar = {
+  categorias: listarCategoriasDespesa,
+  criar: criarContaPagar,
+};
+
 function ttlConfirmacao() {
   const n = Number(process.env.AI_CONFIRMACAO_TTL_SEGUNDOS);
   return Number.isInteger(n) && n >= 60 && n <= 3600 ? n : 600;
@@ -100,6 +109,7 @@ export function gateDoAmbiente(): DependenciasHumanGate {
 export function registrarAcoes(registro: RegistroExtensoes) {
   const lista = registro.lista(CHAVE_ACOES);
   lista.push(...criarAcoesPacote(portaPacotes), ...acoesNegadas());
+  lista.push(criarAcaoContaPagar(portaContaPagar));
   // IA operacional só com AI_OPERACIONAL_ENABLED=true: desligada, as ações nem existem (rollback por flag).
   if (operacionalAtivo(process.env)) lista.push(criarAcaoContratacao(portaContratacao, () => hojeBrasilia(new Date())), criarAcaoParametroConsumo(portaParametros));
   registro.definir(CHAVE_HUMAN_GATE, gateDoAmbiente);

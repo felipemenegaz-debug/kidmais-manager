@@ -1,7 +1,9 @@
 'use client';
 import { analisarRevisao } from '@/lib/contratos/services/alteracoes';
+import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '@/lib/contratos/assinatura-papel';
 import { configuracaoModeloOficial } from '../../lib/contratos/documento/oficial/configuracao';
 import { useCallback, useEffect, useState, useRef } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ContratoSnapshotV1 } from '@/lib/contratos/repositories/models';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { formatarFormaPagamento, formatarMoeda, formatarCondicaoPix } from '@/lib/contratos/documento/formatters';
@@ -14,6 +16,11 @@ import FinanceiroContrato from './FinanceiroContrato';
 import CriarPlanoFinanceiro from './CriarPlanoFinanceiro';
 import { contextoCriacao } from './criacao-financeira';
 import { contratoApresentacao, type ContextoContrato } from './financeiro-apresentacao';
+import { FalhaContrato, MENSAGEM_LINK_INVALIDO, PREFIXO_IMPORTADO, criarSequenciador, mensagemFalhaContrato, opcaoForaDaLista, pedidoDaUrl, urlDaSelecao, valorDaSelecao } from './contrato-url';
+import ContratoImportado from './ContratoImportado';
+import OrigemHistoricaContrato from './OrigemHistoricaContrato';
+import IntegracaoContrato from './importacao/IntegracaoContrato';
+import type { OrigemHistoricaContrato as OrigemHistorica } from '@/lib/contratos/importados';
 type Versao = {
     id: string;
     numero_versao: number;
@@ -38,6 +45,8 @@ type Doc = {
     revisao: number;
 };
 type Painel = {
+    /** Contrato integrado de importação histórica (061): conferência em papel, original e correções. */
+    origemHistorica?: OrigemHistorica | null;
     revisoesOperacionais:Array<{id:string;contrato_versao_id:string;estado:string;hold_destino_adquirido_em:string|null;status_fechamento:string;ocupa_vigente:boolean;data_evento:string;data_vigente:string;horario_inicio:string;horario_fim:string;slot_alterado:boolean}>;
     financeiro:Array<{id:string;contrato_versao_id:string;valor_total_contratado:string;status:string}>;
     pendencias:Array<{id:string;motivo:string;versao_nova_id:string}>;
@@ -72,12 +81,36 @@ export default function ContratoAdmin() {
     const operacaoEmCurso=useRef(false);
     const pedidoRevisao=useRef<{intencao:string;chave:string}|null>(null);
     useEffect(()=>{const atualizar=()=>{setDestino(window.location.hash);setRetorno(retornoFestaSeguro(new URLSearchParams(window.location.search).get('returnTo')));};atualizar();window.addEventListener('hashchange',atualizar);return()=>window.removeEventListener('hashchange',atualizar);},[]);
-    const [lista, setLista] = useState<ContextoContrato[]>([]), [mostrarCancelados,setMostrarCancelados]=useState(false), [cid, setCid] = useState(''), [data, setData] = useState<Painel | null>(null), [vid, setVid] = useState('');
+    const [lista, setLista] = useState<ContextoContrato[]>([]), [mostrarCancelados,setMostrarCancelados]=useState(false), [mostrarImportados,setMostrarImportados]=useState(true), [cid, setCid] = useState(''), [data, setData] = useState<Painel | null>(null), [vid, setVid] = useState('');
     const [note, setNote] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [senha, setSenha] = useState(''), [motivo, setMotivo] = useState(''), [tipo, setTipo] = useState('NOVA_VERSAO'), [key, setKey] = useState('');
-    const load = useCallback(async (id: string, selected?: string) => { const res = await adminFetch('/api/admin/contratos/painel?contratoId=' + id); const b = await res.json(); if (!b.ok)
-        throw Error(b.erro); const p = b.data as Painel; setData(p); const v = p.versoes.find(x => x.id === selected) || p.versoes.find(x => x.id === p.fluxo?.versao_em_preparacao_id) || p.versoes[0]; setVid(v.id); setNote(v.dados_fonte?.observacoesDocumentais ?? ''); }, []);
-    useEffect(() => { adminFetch('/api/admin/contratos/painel'+(mostrarCancelados?'?incluirCancelados=1':'')).then(r => r.json()).then(async b => { if (!b.ok)
-        throw Error(b.erro); setLista(b.data); const solicitado=new URLSearchParams(window.location.search).get('contratoId'); if(solicitado&&b.data.some((c:ContextoContrato)=>c.id===solicitado)){setCid(solicitado);await load(solicitado,new URLSearchParams(window.location.search).get('versaoId')??undefined);} }).catch(e => setError(e.message)); }, [load,mostrarCancelados]);
+    // A URL é a fonte da seleção (link do Dashboard/Financeiro/festa/assistente, seletor, voltar/avançar). Ver contrato-url.ts.
+    const params = useSearchParams(), pathname = usePathname(), router = useRouter();
+    const pedidoUrl = pedidoDaUrl(params);
+    const urlContrato = pedidoUrl.tipo === 'contrato' ? pedidoUrl.contratoId : '', urlVersao = pedidoUrl.tipo === 'contrato' ? pedidoUrl.versaoId ?? '' : '', urlInvalida = pedidoUrl.tipo === 'invalido';
+    // Contrato importado (`?importacaoId=`): registro somente leitura de `ia_importacoes`, nunca carregado como contrato do Core.
+    const urlImportacao = pedidoUrl.tipo === 'importado' ? pedidoUrl.importacaoId : '';
+    const sequencia = useRef(criarSequenciador());
+    // Só a resposta do último pedido é aplicada: um contrato clicado antes não substitui o atual quando responde atrasado.
+    const load = useCallback(async (id: string, selected?: string): Promise<boolean> => { const pedido = sequencia.current.iniciar(); let res: Response, b: { ok: boolean; data?: unknown; erro?: string };
+        try { res = await adminFetch('/api/admin/contratos/painel?contratoId=' + id); b = await res.json(); }
+        catch (e) { if (!sequencia.current.vigente(pedido)) return false; throw e; }
+        if (!sequencia.current.vigente(pedido)) return false;
+        if (!b.ok) throw new FalhaContrato(res.status, mensagemFalhaContrato(res.status, b.erro));
+        const p = b.data as Painel; setData(p); const v = p.versoes.find(x => x.id === selected) || p.versoes.find(x => x.id === p.fluxo?.versao_em_preparacao_id) || p.versoes[0]; setVid(v.id); setNote(v.dados_fonte?.observacoesDocumentais ?? ''); return true; }, []);
+    useEffect(() => { let ativo = true; const filtros = new URLSearchParams(); if (mostrarCancelados) filtros.set('incluirCancelados', '1'); if (!mostrarImportados) filtros.set('incluirImportados', '0'); const busca = filtros.toString();
+        adminFetch('/api/admin/contratos/painel'+(busca?`?${busca}`:'')).then(r => r.json()).then(b => { if (!b.ok)
+        throw Error(b.erro); if (ativo) setLista(b.data); }).catch(e => { if (ativo) setError(e.message); }); return () => { ativo = false; }; }, [mostrarCancelados, mostrarImportados, urlContrato, urlImportacao]);
+    // Nova URL ⇒ a seleção anterior sai na hora (ajuste de estado no render, sem efeito em cascata).
+    const chaveUrl = urlInvalida ? 'invalida' : `${urlContrato}|${urlVersao}|${urlImportacao}`;
+    const [chaveAplicada, setChaveAplicada] = useState<string | null>(null);
+    if (chaveAplicada !== chaveUrl) {
+        setChaveAplicada(chaveUrl); setCid(urlContrato); setData(null); setVid(''); setEditando(false); setError(urlInvalida ? MENSAGEM_LINK_INVALIDO : '');
+    }
+    // Contrato pedido pela URL: carregado pelo detalhe do tenant mesmo se os filtros da lista o ocultarem.
+    useEffect(() => {
+        if (!urlContrato) { sequencia.current.iniciar(); return; }
+        load(urlContrato, urlVersao || undefined).catch(e => { setCid(''); setData(null); setError(e instanceof FalhaContrato ? e.message : 'Não foi possível carregar o contrato. Tente novamente.'); });
+    }, [urlContrato, urlVersao, load]);
     const v = data?.versoes.find(x => x.id === vid), docs = data?.documentos.filter(d => d.contrato_versao_id === vid) ?? [], signatures = data?.assinaturas.filter(s => s.contrato_versao_id === vid) ?? [];
     const financeiroKey=cid+':'+data?.fluxo?.versao_vigente_id;
     const financeiroCarregado=useCallback(()=>setFinanceiroPronto(financeiroKey),[financeiroKey]);
@@ -141,6 +174,7 @@ export default function ContratoAdmin() {
             const response=await adminFetch('/api/admin/contratos/painel');
             const body=await response.json();if(body.ok)setLista(body.data);
             setCid('');setVid('');setData(null);
+            router.replace(urlDaSelecao(pathname, params, ''), { scroll: false });
         }
     }
     const revisaoOperacional=data?.revisoesOperacionais.find(r=>r.contrato_versao_id===vid);
@@ -169,17 +203,19 @@ export default function ContratoAdmin() {
     }
     const proximo = v?.estado_edicao === 'EM_ELABORACAO' ? (v.documento_revisado_id ? 'Assinar pela Kidmais' : docs.some(d => d.categoria === 'CONTRATO' && d.revisao === v.revisao) ? 'Revisar o PDF' : 'Preparar o documento') : v?.estado_edicao === 'ASSINADA_KIDMAIS' ? 'Liberar para o cliente' : v?.estado_edicao === 'AGUARDANDO_CLIENTE' ? 'Acompanhar assinatura do cliente' : 'Conferir documentos e assinaturas';
     const docUrl = (id: string) => `/api/admin/contratos/documentos/${id}`;
+    // Contrato aberto pelo link mas oculto pelos filtros da lista: aparece no seletor, identificado como tal.
+    const foraDaLista = opcaoForaDaLista(lista, cid, data);
+    const opcaoUrl = cid && !lista.some(c => c.id === cid) ? (foraDaLista ? `${contratoApresentacao(foraDaLista)} — fora dos filtros da lista` : 'Carregando contrato…') : null;
+    const selecaoImportada = urlImportacao ? `${PREFIXO_IMPORTADO}${urlImportacao}` : '';
+    const opcaoImportada = urlImportacao && !lista.some(c => c.origem === 'IMPORTACAO' && c.id === urlImportacao) ? 'Contrato importado — fora dos filtros da lista' : null;
     // Contrato aberto (carregado pela API do tenant) informa o drawer. É só dica: o servidor revalida no tenant comprovado.
     return <main className={styles.page}>{cid&&data&&<ContextoKidmais tela="contrato" entidadeId={cid}/>}{retorno&&<Link href={retorno}>Voltar à festa</Link>}<div className={styles.tituloContratos}><h1>Contratos</h1><Link className={styles.importarContrato} href="/admin/contratos/importar">Importar contrato antigo</Link></div>{error && <p role="alert">{error}</p>}{cid && !data && !error && <p role="status">Carregando contrato…</p>}
- <details><summary>Filtros da lista</summary><label><input type="checkbox" checked={mostrarCancelados} onChange={e=>setMostrarCancelados(e.target.checked)}/> Incluir contratos cancelados</label></details>
- <label>Contrato <select aria-label="Contrato" value={cid} onChange={async (e) => { setCid(e.target.value); setData(null); setError('');setEditando(false); if(!e.target.value){return;} try {
-        await load(e.target.value);
-    }
-    catch (e) {
-        setError(String(e));
-    } }}><option value="">Selecione</option>{lista.map(c => <option key={c.id} value={c.id}>{contratoApresentacao(c)}</option>)}</select></label>
+ <details><summary>Filtros da lista</summary><label><input type="checkbox" checked={mostrarCancelados} onChange={e=>setMostrarCancelados(e.target.checked)}/> Incluir contratos cancelados</label> <label><input type="checkbox" checked={mostrarImportados} onChange={e=>setMostrarImportados(e.target.checked)}/> Incluir contratos importados</label></details>
+ <label>Contrato <select aria-label="Contrato" value={selecaoImportada || cid} onChange={(e) => { router.push(urlDaSelecao(pathname, params, e.target.value), { scroll: false }); }}><option value="">Selecione</option>{lista.map(c => <option key={valorDaSelecao(c)} value={valorDaSelecao(c)}>{contratoApresentacao(c)}</option>)}{opcaoUrl && <option value={cid}>{opcaoUrl}</option>}{opcaoImportada && <option value={selecaoImportada}>{opcaoImportada}</option>}</select></label>
+ {urlImportacao && <ContratoImportado key={urlImportacao} importacaoId={urlImportacao} />}
  {v && data && <><header className={styles.overview}><div className={styles.hero}><div><span className={styles.badge}>{v.estado_edicao ?? v.status}</span><h2>{v.snapshot.contratante.nomeCompleto}</h2><p>{v.snapshot.evento.data.split('-').reverse().join('/')} · {v.snapshot.evento.pacote.nome} · {v.snapshot.evento.convidados} convidados</p></div><div className={styles.total}><span>Valor contratual · V{v.numero_versao}</span><strong>{formatarMoeda(v.snapshot.comercial.valorFinalContrato)}</strong></div></div><div className={styles.actions}>{v.estado_edicao==='EM_ELABORACAO' && <button disabled={busy} onClick={()=>{setEditando(!editando);window.location.hash='alteracoes';}}>Editar dados desta revisão</button>}{(podeRevisar||podeSubstituir)&&<a href="#alteracoes"><strong>{podeSubstituir?'Criar nova revisão':'Criar revisão / retificação'}</strong></a>}{data.contrato.status==='AGUARDANDO_ASSINATURA'&&!data.fluxo?.versao_vigente_id&&<details><summary>Mais ações</summary><button disabled={busy} onClick={cancelarContratacao}>Cancelar contratação</button></details>}</div></header>
- <div className={styles.next}><div><strong>Próximo passo</strong><p>{data.contrato.status === 'CANCELADO' ? 'Contratação cancelada. Consulte os registros preservados.' : proximo}</p></div>{v?.estado_edicao === 'AGUARDANDO_CLIENTE' && data.contrato.status !== 'CANCELADO' ? <a href={`/contrato/${cid}`} target="_blank" rel="noreferrer">Abrir acesso público do cliente ↗</a> : <a href="#documentacao">Ver documentos</a>}</div>
+ {data.origemHistorica && <OrigemHistoricaContrato origem={data.origemHistorica} />}
+ <div className={styles.next}><div><strong>Próximo passo</strong><p>{data.contrato.status === 'CANCELADO' ? 'Contratação cancelada. Consulte os registros preservados.' : data.origemHistorica && v?.estado_edicao === 'CONCLUIDA' ? (data.origemHistorica.caminhoFinanceiro === 'CONFERIR_HISTORICO' ? 'Conferir os pagamentos do contrato histórico.' : data.origemHistorica.caminhoFinanceiro === 'PLANO_NA_VERSAO_VIGENTE' ? 'Registrar os pagamentos no Financeiro: criar o plano na versão vigente e lançar os recebimentos com a data real.' : data.origemHistorica.caminhoFinanceiro === 'AGUARDAR_REVISAO' ? 'Concluir ou cancelar a revisão aberta antes de registrar os pagamentos.' : 'Contrato histórico conferido. Mudanças seguem uma nova revisão do contrato.') : proximo}</p></div>{v?.estado_edicao === 'AGUARDANDO_CLIENTE' && data.contrato.status !== 'CANCELADO' ? <a href={`/contrato/${cid}`} target="_blank" rel="noreferrer">Abrir acesso público do cliente ↗</a> : <a href="#documentacao">Ver documentos</a>}</div>
  <label className={styles.version}>Versão em consulta<select aria-label="Versão contratual" value={vid} onChange={e => { const n = data.versoes.find(x => x.id === e.target.value)!; setVid(n.id);setEditando(false); setNote(n.dados_fonte?.observacoesDocumentais ?? ''); setKey(''); }}>{data.versoes.map(x => <option key={x.id} value={x.id}>V{x.numero_versao} — {x.status==='ASSINADA'?'ASSINADA':x.estado_edicao ?? `LEGADO / ${x.status}`}</option>)}</select></label>
  <nav className={styles.tabs} role="tablist" aria-label="Conteúdo do contrato">{abas.map((item, indice) => <button key={item.id} type="button" role="tab" id={`aba-${item.id}`} aria-controls={`painel-${item.id}`} aria-selected={aba === item.id} tabIndex={aba === item.id ? 0 : -1} onClick={() => abrirAba(item.hash)} onKeyDown={e => { const alvo = e.key === 'ArrowRight' ? (indice + 1) % abas.length : e.key === 'ArrowLeft' ? (indice + abas.length - 1) % abas.length : e.key === 'Home' ? 0 : e.key === 'End' ? abas.length - 1 : null; if (alvo !== null) { e.preventDefault(); abrirAba(abas[alvo].hash); document.getElementById(`aba-${abas[alvo].id}`)?.focus(); } }}>{item.rotulo}</button>)}</nav>
  
@@ -225,9 +261,9 @@ export default function ContratoAdmin() {
             setError(String(e));
         } }}>Aprovar e assinar pela Kidmais</button></section>}
  {v.estado_edicao === 'ASSINADA_KIDMAIS' && <button disabled={busy} onClick={() => action({ acao: 'liberar', revisao: v.revisao })}>Liberar para o cliente</button>}
- <details className={styles.documentDetails}><summary>Assinaturas e comprovantes ({signatures.length})</summary>{signatures.length === 0 && <p>Nenhuma assinatura registrada nesta versão.</p>}{signatures.map(s => <p key={s.id}>{s.parte}: {s.identidade_snapshot.nome} · {new Date(s.assinado_em).toLocaleString('pt-BR')} · <a className={styles.documentButton} target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Ver comprovante</a></p>)}</details>
+ <details className={styles.documentDetails}><summary>Assinaturas e comprovantes ({signatures.length})</summary>{signatures.length === 0 && <p>{versaoAssinadaEmPapel(v) ? TEXTO_ASSINADO_EM_PAPEL : 'Nenhuma assinatura registrada nesta versão.'}</p>}{signatures.map(s => <p key={s.id}>{s.parte}: {s.identidade_snapshot.nome} · {new Date(s.assinado_em).toLocaleString('pt-BR')} · <a className={styles.documentButton} target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Ver comprovante</a></p>)}</details>
  {v.documento_revisado_id && <a className={styles.documentButton} target="_blank" rel="noreferrer" href={`/admin/contratos/imprimir?contratoId=${cid}&versaoId=${vid}`}>Imprimir contrato completo — V{v.numero_versao}</a>}
- </section><section id="painel-financeiro" role="tabpanel" aria-labelledby="aba-financeiro" className={styles.panel} hidden={aba !== 'financeiro'}><section id="financeiro" tabIndex={-1} aria-label="Financeiro" className={`${styles.anchor} ${destino==='#financeiro'?styles.financialAnchor:''}`}>{data.financeiro.length?<FinanceiroContrato key={`${cid}:${data.fluxo?.versao_vigente_id}`} contratoId={cid} onReady={financeiroCarregado}/>:<CriarPlanoFinanceiro key={financeiroKey} contexto={contextoCriacao(data)} onCreated={async()=>{await load(cid,vid);window.location.hash='financeiro';}}/>}</section></section>
+ </section><section id="painel-financeiro" role="tabpanel" aria-labelledby="aba-financeiro" className={styles.panel} hidden={aba !== 'financeiro'}><section id="financeiro" tabIndex={-1} aria-label="Financeiro" className={`${styles.anchor} ${destino==='#financeiro'?styles.financialAnchor:''}`}>{data.financeiro.length?<FinanceiroContrato key={`${cid}:${data.fluxo?.versao_vigente_id}`} contratoId={cid} onReady={financeiroCarregado}/>:data.origemHistorica?.caminhoFinanceiro==='AGUARDAR_REVISAO'?<p role="status">Há uma revisão do contrato em andamento. Conclua ou cancele a revisão para registrar os pagamentos.</p>:data.origemHistorica?.caminhoFinanceiro==='CONFERIR_HISTORICO'?<IntegracaoContrato key={`fin:${data.origemHistorica.importacaoId}`} importacaoId={data.origemHistorica.importacaoId} modoInicial="financeiro"/>:<CriarPlanoFinanceiro key={financeiroKey} contexto={contextoCriacao(data)} onCreated={async()=>{await load(cid,vid);window.location.hash='financeiro';}}/>}</section></section>
  
  </>}
  </main>;

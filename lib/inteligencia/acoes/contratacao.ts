@@ -52,7 +52,7 @@ export type PortaContratacao = {
   /** Regra OFICIAL de convidados do Fechamento (`erroConvidadosFechamento`): mensagem humana ou null. */
   erroConvidados(codigo: CodigoPacote, pacote: { nome: string; minimo: number | null; maximo: number | null }, convidados: number): string | null;
   /** Horários DISPONÍVEIS do turno na data (serviço oficial de disponibilidade). null ⇒ turno sem configuração. */
-  horarios(tx: DbExecutor, data: string, turno: "almoco" | "noite"): Promise<{ configuracaoId: string; horarios: ReadonlyArray<{ inicio: string; fim: string }> } | null>;
+  horarios(tx: DbExecutor, empresaId: string, data: string, turno: "almoco" | "noite"): Promise<{ configuracaoId: string; horarios: ReadonlyArray<{ inicio: string; fim: string }> } | null>;
   /** Valor de tabela do pacote (sem adicionais), em centavos, pelo serviço comercial oficial. null ⇒ sem tabela. */
   precoTabela(tx: DbExecutor, empresaId: string, entrada: { data: string; configuracaoAgendaId: string; pacoteId: string; convidados: number }): Promise<number | null>;
 };
@@ -316,7 +316,7 @@ export async function verificarContratacao(tx: DbExecutor, empresaId: string, p:
   if (erroConvidados) throw new ErroCampo(["convidados"], erroConvidados);
 
   if (p.data < hoje) throw new ErroCampo(["data"], `A data ${dataCurta(p.data)} já passou.`);
-  const agenda = await porta.horarios(tx, p.data, p.turno);
+  const agenda = await porta.horarios(tx, empresaId, p.data, p.turno);
   if (!agenda || !agenda.horarios.length) throw new ErroCampo(["data", "turno"], `Não há horário disponível em ${dataCurta(p.data)} no turno ${TURNO[p.turno].toLowerCase()}. Informe outra data ou turno.`);
   if (p.horario && !agenda.horarios.some((h) => h.inicio === p.horario)) pendencias.push(`${p.horario} não está entre os horários disponíveis do turno: escolha na revisão.`);
   if (p.horarioConflito) pendencias.push(`Você citou ${p.horarioConflito.length} horários (${p.horarioConflito.join(", ")}): escolha um na revisão.`);

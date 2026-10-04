@@ -1,3 +1,4 @@
+import { versaoAssinadaEmPapel } from "../assinatura-papel.ts";
 import type { DbExecutor } from "../../db/contracts.ts";
 
 /**
@@ -64,6 +65,8 @@ export type ResumoContratoTenant = {
   formaPagamento: string | null;
   buffetStatus: string | null;
   assinaturas: string[];
+  /** Versão vigente é a conferência de contrato assinado em papel (061): não há assinatura eletrônica a esperar. */
+  assinadoEmPapel?: boolean;
   canceladoEm: string | null;
 };
 
@@ -76,10 +79,10 @@ type Snapshot = {
 /** null quando o contrato não existe ou não pertence à empresa: as duas situações respondem igual. */
 export async function resumoContratoDoTenant(tx: DbExecutor, empresaId: string, contratoId: string): Promise<ResumoContratoTenant | null> {
   const linha = (await tx.query<{
-    id: string; status: string; cancelado_em: string | null; numero_versao: number | null; snapshot: Snapshot | null; em_preparacao: boolean; versao_id: string | null;
+    id: string; status: string; cancelado_em: string | null; numero_versao: number | null; snapshot: Snapshot | null; em_preparacao: boolean; versao_id: string | null; aceite_metodo: string | null;
   }>(
     `SELECT contrato.id::text AS id, contrato.status, contrato.cancelado_em::text AS cancelado_em,
-            ver.numero_versao, ver.snapshot, ver.id::text AS versao_id,
+            ver.numero_versao, ver.snapshot, ver.id::text AS versao_id, ver.aceite_metodo,
             (fluxo.versao_em_preparacao_id IS NOT NULL) AS em_preparacao
        FROM contratos contrato
        JOIN fechamentos fech ON fech.id = contrato.fechamento_id
@@ -112,6 +115,7 @@ export async function resumoContratoDoTenant(tx: DbExecutor, empresaId: string, 
     formaPagamento: s.comercial?.condicaoPagamento?.forma ?? s.comercial?.formaPagamentoPretendida ?? null,
     buffetStatus: s.contratacao?.buffet?.status ?? null,
     assinaturas,
+    assinadoEmPapel: versaoAssinadaEmPapel({ aceite_metodo: linha.aceite_metodo, snapshot: linha.snapshot }),
     canceladoEm: linha.cancelado_em,
   };
 }

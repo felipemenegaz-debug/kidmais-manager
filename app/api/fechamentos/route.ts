@@ -7,6 +7,8 @@ import {
   isAvailabilityServiceError,
   revalidarHorarioSelecionado,
 } from "@/lib/disponibilidade/services";
+import { escopoPublico } from "@/lib/disponibilidade/escopo";
+import { db } from "@/lib/db/postgres";
 import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
 import { buscarPacoteAtivoPorCodigo } from "@/lib/comercial/repositories";
 import { isPricingServiceError } from "@/lib/comercial/services";
@@ -115,7 +117,7 @@ export async function POST(request: NextRequest) {
       inicio: dados.data.horarioInicio,
       fim: dados.data.horarioFim,
       ajusteMinutos: Number(dados.data.ajusteHorario),
-    });
+    }, undefined, await escopoPublico(db));
   } catch (error) {
     if (isAvailabilityServiceError(error)) {
       return NextResponse.json(

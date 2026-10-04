@@ -42,5 +42,5 @@ export function rodarEmWorker(criar: (opcoes: WorkerOptions) => Worker, bytes: U
 
 export function extrairTextoPdfIsolado(bytes: Uint8Array, opcoes: Opcoes = {}): Promise<TextoPdf> {
   // O literal `new Worker(new URL(...), ...)` é o que o bundler reconhece para gerar o chunk do Worker.
-  return rodarEmWorker((o) => new Worker(new URL("./pdf-worker.ts", import.meta.url), o), bytes, opcoes);
+  return rodarEmWorker((o) => new Worker(new URL("./pdf-worker-runtime.cjs", import.meta.url), o), bytes, opcoes);
 }
