@@ -1,6 +1,6 @@
 # Integração local atendimento × painel — procedimento para autorização
 
-**Situação:** preparada; **nada executado**. Sem mescla, banco, push ou deploy até a autorização explícita do Felipe ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)). Plano e regras de resolução: [PLANO_INTEGRACAO_ATENDIMENTO.md](PLANO_INTEGRACAO_ATENDIMENTO.md). Recomendação aceita pelo Felipe: **o painel entra primeiro em `staging`**.
+**Situação:** I1–I2 executados (ok) e I3 executado até a O2 alvo (**4/13 falhas**, parado e encerrado); correções preparadas e repetição proposta ao final. Antes: preparada; nada executado. Sem mescla, banco, push ou deploy até a autorização explícita do Felipe ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)). Plano e regras de resolução: [PLANO_INTEGRACAO_ATENDIMENTO.md](PLANO_INTEGRACAO_ATENDIMENTO.md). Recomendação aceita pelo Felipe: **o painel entra primeiro em `staging`**.
 
 ## O que já está na candidata (`ba9f8c4`)
 
@@ -112,3 +112,79 @@ Hashes: seção "I3" do `.local-ux/integracao/MANIFESTO.txt`.
 - `teste-i1-offline.sh`: 12/12;
 - `pg/teste-o4.ps1`: 15/15;
 - `val-prontas/teste-offline.ps1`: 74/74.
+
+## Resultados (04/10/2026)
+
+**I1–I2 (autorizados), HEAD integrado `2442f37`:**
+- I1: 3 conflitos previstos; resolução idêntica à simulação; `production.test` 37/37; `check-migrations` PASS.
+- I2: unitários **1998/1998**, harness 103/103, lint sem erros, `tsc` e build ok.
+
+Evidências em `.local-ux/integracao/EVIDENCIAS-I1-I2.txt`.
+
+**I3 (autorizado), `2442f37`, 127.0.0.1:55500:**
+- retrato antes, O0 e O1 (identidade exata): ok.
+- **O2 alvo: 9/13 ok, 4 FALHAS**, sem correção nem retomada:
+
+| Suíte | Modelo | Resultado |
+| --- | --- | --- |
+| painel-063 (pela primeira vez com a 060 no modelo) | — | ok |
+| coexistência 060/063/064/065 | — | ok |
+| tenant-festa | atual/061/062/063 | ok |
+| hg8-tenant | atual/063 | ok |
+| concorrência | — | ok |
+| migration-060 | — | **falhou**: esperava a mensagem crua do tenant; a recusa chega como `ATENDIMENTO_SEM_ACESSO` |
+| migration-064 | — | **falhou**: idem |
+| migration-065 | — | **falhou**: idem |
+| empresa-ativa | — | **falhou** em E3 "configurar": a configuração de teste era inválida e o serviço validava o conteúdo antes do acesso. E4–E6 não rodaram |
+
+**Encerramento autorizado, 20:45:**
+- O4 removeu só `kidmais-pg-integracao\data`, com a identidade reconfirmada.
+- Retrato depois: listagens e hashes idênticos.
+- O `retrato.ps1` acusou divergência **só no motivo** da linha da demo: o PID antigo 45140 do `postmaster.pid` (inalterado, `87D6A8CA…`) passou a ser um `cmd.exe` desta sessão. Era um falso positivo da comparação.
+- Log bloqueado conferido depois do encerramento: `21e72415…7b9278`.
+- Evidências em `.local-ux/integracao/pg/rodada-2442f37/`.
+
+## Correções (candidata `e11d7a7`, só local)
+
+**Código:** `salvarConfiguracao` confere empresa ativa, vínculo e papel **antes** de validar a configuração.
+
+**Testes:**
+- Suítes 060/064/065: 4 asserções passam a esperar `ATENDIMENTO_SEM_ACESSO`, inclusive a do vínculo PENDENTE, que nem chegou a rodar.
+- Unitário: recusa com **configuração inválida**. As 4 situações de acesso (seleção pendente, divergência, sem vínculo, papel) vencem a validação, e nada é gravado; com acesso, a validação recusa.
+- Guarda estática: nenhuma suíte PostgreSQL do atendimento espera a mensagem antiga; roda no gate, sem banco.
+
+Os dois testes novos falham na versão anterior.
+
+**Pacote** (`arquivos/.../empresa-ativa.postgres.test.ts`): em E3–E6, configurar é recusado pelo acesso com configuração válida **e** inválida.
+
+**Retrato** (`val-prontas/guardas.ps1`, `vp.ps1`, `pg/retrato.ps1`):
+- antes/depois compara a **chave estável** (caminho, estado, itens, hash);
+- o motivo entre parênteses fica informativo e é listado quando muda;
+- `teste-offline.ps1`: **79/79**, incluindo o par real da rodada `2442f37` (2 diferenças brutas, 0 por chave).
+
+## Repetição proposta (cada pedido com autorização própria)
+
+**Pedido A — I1b + I2.**
+
+| Item | Valor |
+| --- | --- |
+| Base | A mesma worktree e branch de verificação (`2442f37`, sem upstream) |
+| I1b | `bash .local-ux/integracao/i1b-atualiza.sh` |
+| I2 | `bash .local-ux/integracao/i2-gate.sh` (inalterado) |
+| Fora | Banco, push e deploy |
+
+O I1b:
+- confere a candidata (HEAD pinado), o painel (`ad6b1b9`, sem nova mescla) e a worktree em `2442f37` limpa;
+- mescla a candidata, sem conflito esperado, e troca a suíte empresa-ativa pela do pacote;
+- aceita só os arquivos esperados e roda o `production.test`;
+- faz **1 commit local** e preserva `HEAD-integracao-2442f37.txt`;
+- em qualquer divergência, `merge --abort` e para.
+
+O teste offline `teste-i1b-offline.sh` usa `git merge-tree`, sem tocar em worktree.
+
+**Pedido B — I3 completo**, só depois do relato do I2: a mesma sequência e o mesmo alvo da rodada anterior.
+1. `retrato.ps1 antes` → `o0` → `o1` → `o2 alvo` → `o2 completa` → `o4` → `retrato.ps1 depois`.
+2. Alvo `C:\Users\Glass\AppData\Local\Temp\kidmais-pg-integracao\data` (removido; a pasta-mãe vazia fica), porta 55500.
+3. `o0`/`o1`/`o2`/`o4` inalterados; `retrato.ps1` e `guardas.ps1` com hashes novos.
+
+Hashes de A e B: `.local-ux/integracao/MANIFESTO.txt`.
