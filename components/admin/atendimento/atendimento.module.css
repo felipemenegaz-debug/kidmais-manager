@@ -8,3 +8,16 @@
 .voltar{display:none!important}
 @media(max-width:760px){.layout{grid-template-columns:1fr}.pagina{padding:16px}.painel{padding:16px}.acoes a,.acoes button{max-width:100%;white-space:normal}.voltar{display:inline-flex!important;align-items:center;margin-bottom:8px}}
 
+/* Mensagens prontas: biblioteca da equipe junto ao campo de resposta. Atalhos em destaque (violeta), sem laranja. */
+.prontas{margin:12px 0}.nota{font-size:13px;margin:6px 0!important}.oculto{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.painelProntas{margin-top:10px;padding:14px;border-radius:12px;border:1px solid var(--km-border);background:var(--km-card-2)}
+.atalhos{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:4px 0 8px}.pagina button.atalho{border-color:var(--km-violet);background:color-mix(in srgb,var(--km-violet) 22%,var(--km-card-2))}
+.filtros{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:0 12px;align-items:end}.pagina .filtros select{display:block;width:100%;min-height:44px;font:inherit;color:var(--km-text);background:var(--input-bg);border:1px solid var(--km-text-2);border-radius:8px;padding:8px}
+.listaProntas{list-style:none;margin:8px 0;padding:0;max-height:320px;overflow:auto}.listaProntas li{display:flex;gap:8px;align-items:stretch;margin:6px 0}
+.itemPronta{flex:1;display:flex!important;flex-direction:column;align-items:flex-start!important;gap:4px;text-align:left;overflow-wrap:anywhere;white-space:normal!important}.itemPronta span{font-size:12px;font-weight:400;color:var(--km-text-2)}
+.pagina button.favorita{min-width:44px;font-size:20px;line-height:1;padding:8px}.pagina button.favorita[aria-pressed=true]{color:var(--km-teal);border-color:var(--km-teal)}
+.previa{margin-top:12px;padding-top:12px;border-top:1px solid var(--km-border)}
+/* Confirmação de Encerrar: diálogo nativo (foco preso, Esc cancela). */
+.dialogo{max-width:min(440px,calc(100vw - 32px));border:1px solid var(--km-border);border-radius:14px;padding:20px;background:var(--km-card);color:var(--km-text)}.dialogo::backdrop{background:rgb(5 6 18 / 70%)}.dialogo h2{font-size:18px;margin:0 0 8px}.dialogo p{color:var(--km-text-2)}
+.pagina .dialogo button.perigo,.dialogo button.perigo{border-color:#ff8fa3;background:#5a2236;color:#fff}
+@media(max-width:760px){.filtros{grid-template-columns:1fr}.dialogo{padding:16px}}
