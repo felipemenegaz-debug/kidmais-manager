@@ -17,6 +17,23 @@ test('qualificação pede campos ausentes, rejeita data inválida e não reserva
   assert.match(responder(config,{...p,data:'2026-02-30'},{data:'2026-02-30',convidados:50}).texto!,/não existe/);
   const pronta=responder(config,p,{data:'2026-10-18',convidados:50});assert.equal(pronta.humano,true);assert.match(pronta.texto!,/não está reservada/);
 });
+test('data devolvida pelo modelo no formato do cliente é normalizada só na forma (caso "Dia 14/11/2027")',()=>{
+  // Antes: o JSON Schema aceitava qualquer string e o validador exigia AAAA-MM-DD → RESPOSTA_INVALIDA e encaminhamento.
+  const saida=(data:unknown)=>interpretacaoSchema.safeParse({intencao:'INTERESSE',perguntaId:null,data,convidados:null});
+  for (const [entrada,esperada] of [['14/11/2027','2027-11-14'],['4/1/2028','2028-01-04'],['14.11.2027','2027-11-14'],['14-11-2027','2027-11-14'],['2027/11/14','2027-11-14'],[' 2027-11-14 ','2027-11-14'],['2027-11-14','2027-11-14']] as const) {
+    const r=saida(entrada);assert.equal(r.success,true,entrada);assert.equal(r.success&&r.data.data,esperada,entrada);
+  }
+  const nula=saida(null);assert.equal(nula.success&&nula.data.data,null);
+  // Sem suposição: ano abreviado, texto livre ou mês por extenso continuam recusados.
+  for (const recusada of ['14/11/27','14/11','14 de novembro de 2027','amanhã','2027-11-14T00:00']) assert.equal(saida(recusada).success,false,recusada);
+  // Forma convertida, validade preservada: data impossível chega ao responder, que pede outra.
+  const impossivel=saida('30/02/2027');assert.equal(impossivel.success,true);
+  assert.match(responder(config,{intencao:'INTERESSE',perguntaId:null,data:impossivel.success?impossivel.data.data:null,convidados:null},{data:null,convidados:null},'2026-10-04').texto!,/não existe/);
+  // Fluxo da demonstração: data futura vira interesse e a próxima pergunta é a de convidados.
+  const p={intencao:'INTERESSE' as const,perguntaId:null,data:'2027-11-14',convidados:null};
+  assert.equal(dataDeInteresse(p.data,'2026-10-04'),'2027-11-14');
+  assert.match(responder(config,p,{data:'2027-11-14',convidados:null},'2026-10-04').texto!,/Quantas/);
+});
 test('opt out e atendente dispensam modelo; janela expira exatamente em 24h',()=>{
   assert.equal(comandoDireto('PARAR')?.intencao,'PARAR');assert.equal(comandoDireto('Quero um atendente')?.intencao,'HUMANO');
   assert.equal(responder(config,{...plano,intencao:'PARAR'},{data:null,convidados:null}).texto,null);

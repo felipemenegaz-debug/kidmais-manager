@@ -11,10 +11,24 @@ export const configuracaoSchema = z.object({
 export type ConfiguracaoAtendimento = z.infer<typeof configuracaoSchema>;
 /** Texto fixo quando a IA não pode responder (modelo, orçamento ou limite): encaminha sem inventar conteúdo. */
 export const MENSAGEM_ENCAMINHAMENTO = 'Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe; a resposta dependerá do horário de atendimento.';
+/**
+ * O JSON Schema enviado ao modelo só garante `string | null` em `data`; o modelo pode devolver a data como o cliente
+ * escreveu (14/11/2027). Normalização determinística, só de FORMA e sem suposição: DD/MM/AAAA (ou AAAA/MM/DD)
+ * com ano de 4 dígitos vira AAAA-MM-DD; ano abreviado ou outro texto segue como veio e é recusado pelo formato.
+ * A existência e o prazo da data continuam com dataValida/responder ("não existe", "já passou").
+ */
+export function normalizarDataModelo(valor: unknown) {
+  if (typeof valor !== 'string') return valor;
+  const t = valor.trim();
+  const br = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(t);
+  if (br) return `${br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`;
+  const iso = /^(\d{4})[/.](\d{2})[/.](\d{2})$/.exec(t);
+  return iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : t;
+}
 export const interpretacaoSchema = z.object({
   intencao: z.enum(['DUVIDA', 'INTERESSE', 'HUMANO', 'PARAR', 'OUTRO']),
   perguntaId: z.string().max(40).nullable(),
-  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  data: z.preprocess(normalizarDataModelo, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable()),
   convidados: z.number().int().min(1).max(10000).nullable(),
 }).strict();
 export type Interpretacao = z.infer<typeof interpretacaoSchema>;
