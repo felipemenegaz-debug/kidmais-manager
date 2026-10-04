@@ -22,7 +22,7 @@ const resumo = {
 };
 
 type Vinculo = { fechamentoId: string; contratoId: string | null; status: string; data?: string; alcance?: string; horario: string; comPagamento: boolean; importado: boolean; sinais: string[] };
-function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reautenticacao?: unknown; vinculos?: Vinculo[]; integracao?: unknown } = {}) {
+function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reautenticacao?: unknown; vinculos?: Vinculo[]; integracao?: unknown; onIntegrado?(r: unknown): void } = {}) {
   const chamadas: Array<{ fn: string; args: unknown[] }> = [];
   const Link = 'a';
   const tela = carregarComponente('components/admin/importacao/IntegracaoContrato.tsx', {
@@ -43,6 +43,8 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
       conferirFinanceiro: async () => { throw Error('não usado'); },
     },
   });
+  const renderOriginal = tela.render;
+  tela.render = (componente = 'default', props = {}) => renderOriginal(componente, { ...props, onIntegrado: opcoesTeste.onIntegrado });
   return { tela, chamadas };
 }
 
@@ -79,7 +81,8 @@ test('festa e agenda: situação começa em branco; cancelado não vira festa e 
 
 test('fluxo completo: pagamentos conferidos, revisão do servidor, declaração obrigatória e sucesso só após a resposta', async () => {
   let liberar!: (v: unknown) => void;
-  const { tela, chamadas } = montar(() => new Promise((r) => { liberar = r; }));
+  const integrados: unknown[] = [];
+  const { tela, chamadas } = montar(() => new Promise((r) => { liberar = r; }), { onIntegrado: r => integrados.push(r) });
   let a = await carregar(tela);
   const r = (rot: RegExp) => radio(tela.render('default', { importacaoId: IMP }), rot);
   (r(/Vigente/).props.onChange as (e: unknown) => void)(evento('on'));
@@ -119,6 +122,7 @@ test('fluxo completo: pagamentos conferidos, revisão do servidor, declaração 
   await tique(); await tique();
   a = ver(tela);
   assert.doesNotMatch(texto(a), /Contrato integrado ao sistema/, 'nada de sucesso antes da resposta');
+  assert.equal(integrados.length, 0, 'não navega antes da confirmação do servidor');
   // A senha vai só para a reautenticação nativa, antes da confirmação, e não fica na tela.
   const ordem = chamadas.map((c) => c.fn).filter((fn) => fn !== 'simular');
   assert.deepEqual(ordem, ['reautenticar', 'confirmar']);
@@ -132,6 +136,8 @@ test('fluxo completo: pagamentos conferidos, revisão do servidor, declaração 
   a = ver(tela);
   assert.match(texto(a), /Contrato integrado ao sistema/);
   assert.match(texto(a), /Festa criada e agenda ocupada/);
+  assert.equal(integrados.length, 1);
+  assert.equal((integrados[0] as { contratoId: string }).contratoId, 'k1', 'o pai recebe o contrato canônico para sair da projeção pendente');
   assert.match(texto(a), /R\$ 2\.550,00 recebidos e R\$ 5\.950,00 a receber/);
   assert(elementos(a).some((e) => e.type === 'a' && e.props.href === '/admin/contratos?contratoId=k1'));
 });
