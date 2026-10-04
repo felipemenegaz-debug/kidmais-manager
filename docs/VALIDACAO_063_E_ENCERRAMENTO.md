@@ -1,6 +1,6 @@
 # Validação PostgreSQL — 063 (mensagens prontas) e concorrência do Encerrar
 
-**Situação:** PREPARADA em 04/10/2026, **não executada**. Precisa de autorização explícita do Felipe para O1, O2 e O4 neste alvo (docs/OPERACAO_AGENTES.md). Nenhuma operação em staging, produção ou no banco local real `kidmais_manager`. A demonstração em andamento não é encerrada nem tocada.
+**Situação:** EXECUTADA em 04/10/2026 no HEAD `ba6d47c`, com autorização explícita do Felipe para O1, O2a, O2b e O4 no alvo `127.0.0.1:55500` (docs/OPERACAO_AGENTES.md). Resultado: **PASS** (ver "Resultado"). Nenhuma operação em staging, produção ou no banco local real `kidmais_manager`. A demonstração em 55498 não foi encerrada nem tocada.
 
 ## Objetivo
 
@@ -72,7 +72,7 @@ A fixture segue as validações diferidas da 013/054/057; só a execução autor
 
 ## Operações
 
-Scripts em `.local-ux/pg-063/` (fora do Git), com SHA-256 em `MANIFESTO.txt`. Nenhum foi executado contra banco: só O0 (leitura) e o teste offline do O4 (cópias redirecionadas para uma pasta temporária, sem PostgreSQL).
+Scripts em `.local-ux/pg-063/` (fora do Git), com SHA-256 em `MANIFESTO.txt`. Executados na rodada autorizada de 04/10/2026 (ver "Resultado"); antes dela, só O0 (leitura) e o teste offline do O4 (cópias redirecionadas para uma pasta temporária, sem PostgreSQL).
 
 | # | Comando | Efeito | Verificação | Parada |
 | --- | --- | --- | --- | --- |
@@ -99,3 +99,35 @@ Controle: os mesmos casos contra o O4 anterior (sem a verificação de ancestrai
 **Recuperação:** se O2 falhar no meio, O4 continua seguro. Se o servidor não parar, não remover nada e investigar.
 
 **Evidência:** logs de O1, O2 e O4 em `.local-ux/pg-063/`, com o HEAD no nome; o resultado é registrado aqui, ligado ao HEAD validado.
+
+## Resultado (04/10/2026, autorizado: O1, O2a, O2b, O4)
+
+**HEAD validado:** `ba6d47ccaccb354bc93ce723874f0a0dbb6ae4e5`, com árvore limpa. O código é o de `1e40264`; os dois commits seguintes são só docs. Os scripts foram conferidos contra `MANIFESTO.txt` antes da execução.
+
+| Etapa | Resultado |
+| --- | --- |
+| O0 (06:19) | ok: porta 55500 livre, diretório ausente, árvore limpa, sem `PG*`/`DATABASE_URL`; 55498 informado como da demonstração |
+| O1 | Identidade exatamente a exigida: `kidmais_descartavel`, `127.0.0.1`, `55500`, superusuário `kidmais_descartavel`, banco `postgres`, 0 bancos `kidmais_manager`, locale `C`, 60 conexões, diretório `C:/Users/Glass/AppData/Local/Temp/kidmais-pg-063/data` |
+| O2a (`alvo`) | **PASS, 3/3:** `encerrar-concorrencia` OK (3 s), `migration-060` OK (9 s), `migration-063` OK (3 s, incluindo a contratação completa do passo 6b) |
+| O2b (`completa`) | **PASS, 38/38** arquivos no estado declarado; nenhuma falha, nenhum ignorado |
+| O4 (06:23) | ok: servidor parado pelo próprio diretório; **somente** `kidmais-pg-063\data` removido; pasta-mãe preservada e vazia; porta 55500 livre |
+
+**Protegidos, antes de O1 e depois de O4:** idênticos, conferidos só em leitura.
+
+- `kidmais-pg-demo-atendimento`: 1001 itens, hash de listagem `337E7CC23995F1E2`, `data` alterado às 03:51:48, sem mudança.
+- Demonstração: base, `postmaster.pid` e portas 55498, 3040 e 3041 ativas; identidade `9920f640f6504baaa9e83e1fe9b3dd86` no diretório `kidmais-demo-atendimento-20261004-4b6271`.
+- `kidmais-pg-060`: 0 entradas.
+
+**Evidência:** arquivos em `.local-ux/pg-063/`, fora do Git. Os hashes SHA-256 também estão em `EVIDENCIAS-ba6d47c.txt`.
+
+| Arquivo | SHA-256 |
+| --- | --- |
+| `o0-pre-o1.log` | `604f9ee6229b7267d7279afe6a4100b8662633d688e5dd8302e54ad54136318e` |
+| `identidade-o1.txt` (= `o1.out`) | `dcc44803036bb68fa92a7d6bc9eddda8e70cb7820379ab524e8765d0a7ff837f` |
+| `check-v1-postgres-alvo-ba6d47c.log` | `f4ca078061b5c19a62f1816a3805dc0246306f520daa1c1739d54caa0f935ec6` |
+| `check-v1-postgres-completa-ba6d47c.log` | `de1a290fc4ceaa7184f91cf191763b7fee2f1bcde9837a29652c896e6a1e6437` |
+| `o4-ba6d47c.log` | `94842a3c44abce63f47a66dde140d2e5b5b3f73260e550072c1f325d9043b185` |
+| `protegidos-antes.txt` | `414d26e6a70a6dd1a0eeeafdfaab551331051e6b54b19f795d2869b07cd2d30a` |
+| `protegidos-depois.txt` | `529144de64e8992a830bd9a983504add15215bf3cd2f0dd7b586bfa175079f0f` |
+
+**Fora desta autorização:** push, merge, staging, produção, deploy e ativação. A 063 continua **não aplicada** fora deste cluster descartável, que já foi removido.
