@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { Client } from "pg";
+import type { SessaoParaTenant } from "../../saas/provar-tenant.ts";
 import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from "../../comercial/postgres-descartavel.ts";
 import { carregarAtendimento, cod } from "./harness-postgres.ts";
 
