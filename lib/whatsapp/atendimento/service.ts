@@ -2,12 +2,26 @@ import { withTransaction, db } from '../../db/postgres.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant } from '../../saas/provar-tenant.ts';
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
-import { configuracaoSchema, comandoDireto, janelaAberta, type Entrada } from './core.ts';
+import { configuracaoSchema, comandoDireto, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 
 export type Conversa = { id: string; empresa_id: string; ambiente: string; contato: string; estado: 'IA' | 'HUMANO' | 'AGUARDANDO_HUMANO' | 'ENCERRADA'; responsavel_id: string | null; nao_contatar: boolean; versao: number; ultima_entrada_em: string; atualizada_em?: string; interesse: { data: string | null; convidados: number | null } };
 export type Mensagem = { id: string; conversa_id: string; empresa_id: string; ambiente: string; origem_id: string | null; autor_usuario_id: string | null; texto: string | null; direcao: string; estado: string; versao_conversa: number; criada_em: string };
-/** Linha da tela: só o necessário. O telefone completo não sai do servidor: só os 4 últimos dígitos. */
-export type ConversaLista = Omit<Conversa, 'contato'> & { contato_final: string; responsavel_nome: string | null };
+/**
+ * Linha da tela de Atendimento (só para quem passa por acessoAtendimento: ADMINISTRATIVO ou REPRESENTANTE da empresa
+ * piloto comprovada). Leva o número completo, o vínculo com o cadastro DA EMPRESA (sem escolher entre vários) e o nome
+ * de perfil do WhatsApp, que NÃO é verificado. Nada disso vai ao modelo nem a logs.
+ */
+export type ConversaLista = Conversa & { contato_final: string; responsavel_nome: string | null; nome_perfil: string | null; cadastro: CadastroContato };
+type LinhaConversa = Omit<ConversaLista, 'cadastro'> & { clientes: number; cliente_nome: string | null };
+
+/**
+ * A coluna nome_perfil chega com a migration 064; sem ela (ou depois do rollback), o atendimento segue sem o nome de
+ * perfil. Consulta de catálogo a cada uso, sem cache: aplicar ou reverter a 064 não exige reiniciar a aplicação.
+ */
+async function temNomePerfil(tx: DbExecutor) {
+  const r = await tx.query<{ existe: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.whatsapp_atendimento_conversas') AND attname='nome_perfil' AND NOT attisdropped) AS existe`);
+  return !!r.rows[0]?.existe;
+}
 export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean };
 /** Situação do canal neste ambiente, em partes separadas: receber, responder e a configuração da empresa. */
 export type EstadoCanal = { ambiente: string; receptor: boolean; recepcao: boolean; envio: boolean };
@@ -41,6 +55,11 @@ export async function receberEntrada(entrada: Entrada) {
     const conversa = (await tx.query<Conversa>(`INSERT INTO whatsapp_atendimento_conversas(empresa_id,ambiente,contato,ultima_entrada_em) VALUES($1,$2,$3,$4)
       ON CONFLICT(empresa_id,ambiente,contato) DO UPDATE SET ultima_entrada_em=GREATEST(whatsapp_atendimento_conversas.ultima_entrada_em,EXCLUDED.ultima_entrada_em),versao=whatsapp_atendimento_conversas.versao+1,atualizada_em=clock_timestamp()
       RETURNING *`, [empresa, ambiente, entrada.source, em])).rows[0];
+    // Nome de perfil (não verificado): o mais recente vence; replay antigo não sobrescreve. Não muda versão nem estado.
+    const nomePerfil = nomePerfilSeguro(entrada.nomePerfil);
+    if (nomePerfil && await temNomePerfil(tx)) {
+      await tx.query('UPDATE whatsapp_atendimento_conversas SET nome_perfil=$2,nome_perfil_em=$3 WHERE id=$1 AND (nome_perfil_em IS NULL OR nome_perfil_em<$3)', [conversa.id, nomePerfil, em]);
+    }
     // Encerrada pela equipe (sem pedido de PARAR): nova mensagem do cliente reabre como um contato novo.
     const reaberta = conversa.estado === 'ENCERRADA' && !conversa.nao_contatar;
     const estadoAtual = reaberta ? 'IA' : conversa.estado;
@@ -86,13 +105,21 @@ export async function acessoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: 
 export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: string) {
   return acessoAtendimento(sessao, async (tx, empresa, papel) => {
     const ambiente = ambienteAtendimento();
+    const nomePerfil = await temNomePerfil(tx);
     // Nome do responsável só quando ele tem vínculo ativo com a mesma empresa (o mesmo critério do envio humano).
-    const conversas = (await tx.query<ConversaLista>(`SELECT c.id,c.empresa_id,c.ambiente,right(c.contato,4) AS contato_final,c.estado,c.responsavel_id,c.nao_contatar,c.versao,c.ultima_entrada_em,c.atualizada_em,c.interesse,u.nome AS responsavel_nome FROM whatsapp_atendimento_conversas c
+    // Cadastro: clientes DESTA empresa, não mesclados, com o número no telefone ou no WhatsApp, com e sem o 55 (mesma
+    // regra de buscarClientesPorContatoExato + variantesTelefone). Com mais de um, só a quantidade: nenhum é escolhido.
+    const conversas = (await tx.query<LinhaConversa>(`SELECT c.id,c.empresa_id,c.ambiente,c.contato,right(c.contato,4) AS contato_final,c.estado,c.responsavel_id,c.nao_contatar,c.versao,c.ultima_entrada_em,c.atualizada_em,c.interesse,u.nome AS responsavel_nome,
+        ${nomePerfil ? 'c.nome_perfil' : 'NULL::text'} AS nome_perfil,cad.clientes,cad.cliente_nome FROM whatsapp_atendimento_conversas c
       LEFT JOIN usuarios_administrativos u ON u.id=c.responsavel_id AND EXISTS(SELECT 1 FROM memberships m WHERE m.usuario_id=u.id AND m.empresa_id=c.empresa_id AND m.status='ATIVA')
+      CROSS JOIN LATERAL (SELECT CASE WHEN c.contato LIKE '55%' AND length(c.contato) IN (12,13) THEN substr(c.contato,3) END AS sem55) v
+      CROSS JOIN LATERAL (SELECT count(*)::int AS clientes, CASE WHEN count(*)=1 THEN max(cl.nome_completo) END AS cliente_nome FROM clientes cl
+        WHERE cl.empresa_id=c.empresa_id AND cl.status<>'MESCLADO' AND (cl.telefone IN (c.contato,v.sem55) OR cl.whatsapp IN (c.contato,v.sem55))) cad
       WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY c.atualizada_em DESC LIMIT 100`, [empresa, ambiente])).rows;
     const mensagens = conversaId ? (await tx.query<MensagemLista>('SELECT id,conversa_id,direcao,texto,estado,criada_em,autor_usuario_id IS NOT NULL AS humana FROM whatsapp_atendimento_mensagens WHERE empresa_id=$1 AND ambiente=$2 AND conversa_id=$3 ORDER BY criada_em DESC,id DESC LIMIT 100', [empresa, ambiente, conversaId])).rows.reverse() : [];
     const canal: EstadoCanal = { ambiente, receptor: receptorDoNumero(), recepcao: recepcaoAtiva(), envio: atendimentoAtivo() };
-    return { conversas: conversas.map(c => ({ ...c, versao: Number(c.versao) })), mensagens, usuarioId: sessao.usuario_id, configuracao: await configuracao(tx, empresa), automacaoDisponivel: atendimentoAtivo(), canal, podeConfigurar: papel === 'REPRESENTANTE_AUTORIZADO' };
+    const lista: ConversaLista[] = conversas.map(({ clientes, cliente_nome, ...c }) => ({ ...c, versao: Number(c.versao), cadastro: situacaoCadastro(Number(clientes ?? 0), cliente_nome) }));
+    return { conversas: lista, mensagens, usuarioId: sessao.usuario_id, configuracao: await configuracao(tx, empresa), automacaoDisponivel: atendimentoAtivo(), canal, podeConfigurar: papel === 'REPRESENTANTE_AUTORIZADO' };
   });
 }
 export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { acao: 'assumir' | 'retomar' | 'encerrar' | 'enviar'; conversaId: string; texto?: string; versao: number }) {

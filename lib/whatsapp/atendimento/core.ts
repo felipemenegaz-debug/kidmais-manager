@@ -76,14 +76,35 @@ export function responder(config: ConfiguracaoAtendimento, plano: Interpretacao,
   return { texto: 'Sou o atendimento virtual da ' + config.nome + '. Posso ajudar com as informações publicadas e encaminhar sua festa para a equipe. Para falar com uma pessoa, escreva “atendente”.', humano: plano.intencao === 'DUVIDA', encerrada: false };
 }
 
-export type Entrada = { id: string; app: string; source: string; texto: string | null; timestamp: number };
+/** `nomePerfil`: nome que a própria pessoa pôs no perfil do WhatsApp (Gupshup `payload.sender.name`). NÃO é verificado. */
+export type Entrada = { id: string; app: string; source: string; texto: string | null; timestamp: number; nomePerfil?: string | null };
+export const NOME_PERFIL_MAX = 80;
+/**
+ * Nome de perfil apresentável: sem caracteres de controle/formatação, espaços colapsados, até 80 caracteres.
+ * Qualquer outra coisa (vazio, não texto) vira null. Nunca vai ao modelo nem identifica cliente.
+ */
+export function nomePerfilSeguro(valor: unknown): string | null {
+  if (typeof valor !== 'string') return null;
+  const limpo = valor.normalize('NFKC').replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ').replace(/\s+/gu, ' ').trim();
+  const cortado = Array.from(limpo).slice(0, NOME_PERFIL_MAX).join('').trim();
+  return cortado || null;
+}
 /** Chamado somente após o receptor existente comprovar origem. Mídia não é enviada ao modelo. */
 export function entradaGupshup(valor: unknown): Entrada | null {
-  const schema = z.object({ app: z.literal('KidmaisManager'), version: z.literal(2), type: z.literal('message'), timestamp: z.number().int().nonnegative(), payload: z.object({ id: z.string().min(1).max(512), source: z.string().regex(/^\+?\d{8,15}$/), type: z.string(), payload: z.unknown() }) });
+  const schema = z.object({ app: z.literal('KidmaisManager'), version: z.literal(2), type: z.literal('message'), timestamp: z.number().int().nonnegative(), payload: z.object({ id: z.string().min(1).max(512), source: z.string().regex(/^\+?\d{8,15}$/), type: z.string(), payload: z.unknown(), sender: z.object({ name: z.unknown() }).partial().optional().catch(undefined) }) });
   const lido = schema.safeParse(valor);
   if (!lido.success) return null;
   const v = lido.data;
   // Texto vazio ou acima do limite vira conteúdo sem texto: vai para a equipe, sem modelo e sem repetir o webhook.
   const texto = v.payload.type === 'text' ? z.object({ text: z.string().trim().min(1).max(4000) }).safeParse(v.payload.payload) : null;
-  return { id: v.payload.id, app: v.app, source: v.payload.source.replace(/^\+/, ''), texto: texto?.success ? texto.data.text : null, timestamp: v.timestamp };
+  // `sender` malformado não derruba o evento: só fica sem nome de perfil.
+  return { id: v.payload.id, app: v.app, source: v.payload.source.replace(/^\+/, ''), texto: texto?.success ? texto.data.text : null, timestamp: v.timestamp, nomePerfil: nomePerfilSeguro(v.payload.sender?.name) };
+}
+
+/** Vínculo da conversa com o cadastro de clientes DA EMPRESA pelo número: um, vários (nenhum escolhido) ou nenhum. */
+export type CadastroContato = { situacao: 'UNICO'; nome: string } | { situacao: 'AMBIGUO'; quantidade: number } | { situacao: 'SEM_CADASTRO' };
+export function situacaoCadastro(clientes: number, nome: string | null): CadastroContato {
+  if (clientes > 1) return { situacao: 'AMBIGUO', quantidade: clientes };
+  if (clientes === 1 && nome?.trim()) return { situacao: 'UNICO', nome: nome.trim() };
+  return { situacao: 'SEM_CADASTRO' };
 }

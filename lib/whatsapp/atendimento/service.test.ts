@@ -8,12 +8,14 @@ import type { Conversa } from './service.ts';
 const agora = new Date();
 const base: Conversa = { id: 'c', empresa_id: 'e', ambiente: 'staging', contato: '5561999999999', estado: 'IA', responsavel_id: null, nao_contatar: false, versao: 1, ultima_entrada_em: agora.toISOString(), interesse: { data: null, convidados: null } };
 const entrada = (texto: string | null, id = 'evento-1') => ({ id, app: 'KidmaisManager', source: '5561999999999', texto, timestamp: agora.getTime() });
-type Opcoes = { permitido?: boolean; ativo?: boolean; config?: unknown; conversa?: Partial<Conversa>; duplicada?: boolean; enviando?: boolean; papel?: string; empresaAtiva?: boolean; canceladas?: { entradas: number; saidas: number } };
+type Opcoes = { permitido?: boolean; ativo?: boolean; config?: unknown; conversa?: Partial<Conversa>; duplicada?: boolean; enviando?: boolean; papel?: string; empresaAtiva?: boolean; canceladas?: { entradas: number; saidas: number }; nomePerfil?: boolean; linhas?: Record<string, unknown>[] };
 function carregar(op: Opcoes = {}) {
   const comandos: { sql: string; args: unknown[] }[] = [];
   const conversa = { ...base, ...op.conversa };
   const query = async (sql: string, args: unknown[] = []) => {
     comandos.push({ sql, args });
+    if (sql.includes('FROM pg_attribute')) return { rows: [{ existe: op.nomePerfil ?? false }] };
+    if (sql.includes('FROM whatsapp_atendimento_conversas c')) return { rows: op.linhas ?? [] };
     if (sql.includes('FROM empresas')) return { rows: op.empresaAtiva === false ? [] : [{ id: 'e' }] };
     if (sql.includes('SELECT configuracao')) return { rows: [{ configuracao: op.config ?? { ativo: true, nome: 'Kidmais', perguntas: [] } }] };
     if (sql.includes('AND externa_id=$3')) return { rows: op.duplicada ? [{ id: 'm' }] : [] };
@@ -143,9 +145,69 @@ test('lista mostra o responsável só com vínculo ativo na mesma empresa e a si
   const lista = sqls('FROM whatsapp_atendimento_conversas c')[0];
   assert.match(lista.sql, /LEFT JOIN usuarios_administrativos u ON u\.id=c\.responsavel_id AND EXISTS\(SELECT 1 FROM memberships m WHERE m\.usuario_id=u\.id AND m\.empresa_id=c\.empresa_id AND m\.status='ATIVA'\)/);
   assert.deepEqual(lista.args, ['e', 'staging']);
-  assert.match(lista.sql, /right\(c\.contato,4\) AS contato_final/); assert.doesNotMatch(lista.sql, /c\.\*|,c\.contato,/, 'telefone completo não sai do servidor');
+  assert.doesNotMatch(lista.sql, /c\.\*/, 'só as colunas da tela, nunca a linha inteira');
   assert.match(sqls('autor_usuario_id IS NOT NULL AS humana')[0].sql, /empresa_id=\$1 AND ambiente=\$2 AND conversa_id=\$3/);
   assert.deepEqual(dados.canal, { ambiente: 'staging', receptor: true, recepcao: true, envio: true });
+});
+
+test('tela autorizada: número completo, cadastro só da empresa (sem mesclados, com e sem 55) e vários cadastros sem escolha', async () => {
+  const linhas = [
+    { id: 'c1', contato: '5561900000101', contato_final: '0101', versao: '3', estado: 'IA', nome_perfil: null, clientes: 1, cliente_nome: 'Ana Souza' },
+    { id: 'c2', contato: '5561900000105', contato_final: '0105', versao: '1', estado: 'IA', nome_perfil: null, clientes: 2, cliente_nome: null },
+    { id: 'c3', contato: '5561900000102', contato_final: '0102', versao: '1', estado: 'IA', nome_perfil: null, clientes: 0, cliente_nome: null },
+  ];
+  const { modulo, sqls } = carregar({ linhas });
+  const dados = await modulo.listarAtendimento(sessao);
+  const sql = sqls('FROM whatsapp_atendimento_conversas c')[0].sql;
+  assert.match(sql, /c\.contato,right\(c\.contato,4\) AS contato_final/, 'número completo só nesta listagem, que passa por acessoAtendimento');
+  assert.match(sql, /WHERE cl\.empresa_id=c\.empresa_id AND cl\.status<>'MESCLADO' AND \(cl\.telefone IN \(c\.contato,v\.sem55\) OR cl\.whatsapp IN \(c\.contato,v\.sem55\)\)/, 'cadastro só da mesma empresa, sem mesclados');
+  assert.match(sql, /CASE WHEN c\.contato LIKE '55%' AND length\(c\.contato\) IN \(12,13\) THEN substr\(c\.contato,3\) END AS sem55/, 'mesma variante sem 55 de variantesTelefone');
+  assert.match(sql, /CASE WHEN count\(\*\)=1 THEN max\(cl\.nome_completo\) END AS cliente_nome/, 'com vários clientes nenhum nome sai do banco');
+  assert.match(sql, /WHERE c\.empresa_id=\$1 AND c\.ambiente=\$2/, 'conversas da empresa e do ambiente');
+  assert.match(sql, /NULL::text AS nome_perfil/, 'sem a 064, sem nome de perfil (e sem erro)');
+  assert.deepEqual(dados.conversas.map(c => [c.contato, c.versao, c.cadastro]), [
+    ['5561900000101', 3, { situacao: 'UNICO', nome: 'Ana Souza' }],
+    ['5561900000105', 1, { situacao: 'AMBIGUO', quantidade: 2 }],
+    ['5561900000102', 1, { situacao: 'SEM_CADASTRO' }],
+  ]);
+  assert.ok(dados.conversas.every(c => !('clientes' in c) && !('cliente_nome' in c)), 'colunas auxiliares não vão para a tela');
+  const com064 = carregar({ nomePerfil: true });
+  await com064.modulo.listarAtendimento(sessao);
+  assert.match(com064.sqls('FROM whatsapp_atendimento_conversas c')[0].sql, /c\.nome_perfil AS nome_perfil/);
+  // Papel sem atendimento não vê nada disso.
+  await assert.rejects(carregar({ papel: 'OPERACIONAL' }).modulo.listarAtendimento(sessao), /ATENDIMENTO_ACESSO_NEGADO/);
+});
+
+test('nome de perfil: gravado só com a 064 aplicada, saneado, sem mudar versão/estado, e replay antigo não sobrescreve', async () => {
+  const sem = carregar();
+  await sem.modulo.receberEntrada({ ...entrada('Olá'), nomePerfil: 'Ana' });
+  assert.equal(sem.sqls('SET nome_perfil').length, 0, 'sem a coluna, nada é gravado e a mensagem segue');
+  assert.equal(sem.sqls('INSERT INTO whatsapp_atendimento_mensagens').length, 1);
+
+  const com = carregar({ nomePerfil: true });
+  await com.modulo.receberEntrada({ ...entrada('Olá'), nomePerfil: '  Ana​  Souza ' });
+  const upd = com.sqls('SET nome_perfil')[0];
+  assert.match(upd.sql, /SET nome_perfil=\$2,nome_perfil_em=\$3 WHERE id=\$1 AND \(nome_perfil_em IS NULL OR nome_perfil_em<\$3\)/);
+  assert.doesNotMatch(upd.sql, /versao|estado/, 'não muda versão nem estado da conversa');
+  assert.deepEqual(upd.args.slice(0, 2), ['c', 'Ana Souza']);
+
+  const vazio = carregar({ nomePerfil: true });
+  await vazio.modulo.receberEntrada({ ...entrada('Olá'), nomePerfil: '​ ' });
+  await vazio.modulo.receberEntrada({ ...entrada('Olá', 'evento-2') });
+  assert.equal(vazio.sqls('SET nome_perfil').length, 0, 'nome vazio ou ausente não apaga o anterior');
+
+  const fora = carregar({ nomePerfil: true, permitido: false });
+  await fora.modulo.receberEntrada({ ...entrada('Olá'), nomePerfil: 'Ana' });
+  assert.equal(fora.comandos.length, 0, 'contato fora da lista: nem o nome é gravado');
+});
+
+test('nome de perfil e cadastro nunca vão ao modelo: o worker só envia mensagens e interesse', async () => {
+  const { readFileSync } = await import('node:fs');
+  const worker = readFileSync('lib/whatsapp/atendimento/worker.ts', 'utf8');
+  const chamada = worker.match(/deps\.interpretar\(empresa, JSON\.stringify\(\{([^}]*)\}\)/);
+  assert.ok(chamada, 'chamada ao modelo encontrada');
+  assert.equal(chamada![1].replace(/\s+/g, ''), 'mensagens:historico.map(m=>m.texto),mensagemAtual:atual,interesseAnterior:conversa.interesse');
+  assert.doesNotMatch(worker, /nome_perfil|cliente_nome|cadastro/);
 });
 test('depois do PARAR, "atendente" fica registrado mas não reabre a conversa nem libera ações', async () => {
   const bloqueada = carregar({ conversa: { estado: 'ENCERRADA', nao_contatar: true } });

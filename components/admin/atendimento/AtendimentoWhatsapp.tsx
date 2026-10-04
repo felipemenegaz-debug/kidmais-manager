@@ -7,6 +7,7 @@ import type { ConversaLista, EstadoCanal, MensagemLista } from '@/lib/whatsapp/a
 import styles from './atendimento.module.css';
 import { GerenciarMensagensProntas, MensagensProntas } from './MensagensProntas';
 import { resumoEncerramento } from '@/lib/whatsapp/atendimento/encerramento';
+import { identificar } from '@/lib/whatsapp/atendimento/identificacao';
 
 type Dados = { usuarioId: string; conversas: ConversaLista[]; mensagens: MensagemLista[]; configuracao: ConfiguracaoAtendimento | null; automacaoDisponivel: boolean; canal: EstadoCanal; ia: { ia: boolean; orcamento: boolean }; podeConfigurar: boolean };
 type Estado = ConversaLista['estado'];
@@ -71,9 +72,9 @@ export default function AtendimentoWhatsapp() {
   function escolher(id: string) {focarConversa.current=true;setSelecionada(id);setTexto('');setStatusAcao('');setQuadro(false);}
   // Volta à lista com o foco no cartão da conversa aberta (no celular a lista fica acima do histórico).
   function voltarALista() { const atual = selecionada ? cartoes.current.get(selecionada) : undefined; atual?.focus(); atual?.scrollIntoView({ block: 'center' }); }
-  const cartao = (c: ConversaLista, detalhe: string) => <button className={styles.cardConversa} key={c.id} ref={el => { if (el) cartoes.current.set(c.id, el); else cartoes.current.delete(c.id); }} aria-pressed={quadro ? undefined : c.id===selecionada} onClick={()=>escolher(c.id)}>
-    <strong>Contato · final {c.contato_final}</strong><span>{detalhe}</span><span>{responsavel(c, dados?.usuarioId ?? '')}{c.atualizada_em ? ' · ' + horario(c.atualizada_em) : ''}</span>
-  </button>;
+  const cartao = (c: ConversaLista, detalhe: string) => { const id = identificar(c); return <button className={styles.cardConversa} key={c.id} ref={el => { if (el) cartoes.current.set(c.id, el); else cartoes.current.delete(c.id); }} aria-pressed={quadro ? undefined : c.id===selecionada} onClick={()=>escolher(c.id)}>
+    <strong>{id.titulo}</strong>{id.origemTitulo !== 'NUMERO' && <span>{id.telefone}</span>}{id.ambiguo && <span className={styles.fila}>Vários cadastros com este número</span>}<span>{detalhe}</span><span>{responsavel(c, dados?.usuarioId ?? '')}{c.atualizada_em ? ' · ' + horario(c.atualizada_em) : ''}</span>
+  </button>; };
   // Horário da última leitura (atualizada a cada 10 s): a janela é conferida de novo no servidor ao enviar.
   // Só as mensagens da conversa aberta: ao trocar de conversa, o histórico anterior não aparece sob o novo contato.
   const historico = dados?.mensagens.filter(m => m.conversa_id === selecionada) ?? [];
@@ -115,7 +116,15 @@ export default function AtendimentoWhatsapp() {
         <aside className={styles.painel} aria-label="Lista de conversas"><h2>Conversas</h2>{!dados.conversas.length&&<p>Nenhuma conversa recebida.</p>}{aguardando > 0 && <p className={styles.fila}>{aguardando === 1 ? '1 aguardando atendente' : `${aguardando} aguardando atendente`} entre as {dados.conversas.length} conversas carregadas</p>}{dados.conversas.map(c=>cartao(c,estados[c.estado]))}</aside>
         <section className={styles.painel} aria-label="Conversa selecionada">{!conversa ? <p>Selecione uma conversa para atender.</p> : <>
           <button type="button" className={styles.voltar} onClick={voltarALista}>Voltar às conversas</button>
-          <h2 ref={tituloConversa} tabIndex={-1}>Contato · final {conversa.contato_final} · {estados[conversa.estado]}</h2>
+          {(() => { const id = identificar(conversa); return <>
+            <h2 ref={tituloConversa} tabIndex={-1}>{id.titulo} · {estados[conversa.estado]}</h2>
+            {/* Três fontes sempre rotuladas: número do canal, cadastro da empresa e perfil do WhatsApp (não verificado). */}
+            <dl className={styles.identificacao} aria-label="Identificação do contato">
+              <dt>Número</dt><dd>{id.telefone}</dd>
+              <dt>Cadastro</dt><dd className={id.ambiguo ? styles.fila : undefined}>{id.cadastro}</dd>
+              <dt>Perfil no WhatsApp</dt><dd className={styles.naoVerificado}>{id.perfil}</dd>
+            </dl>
+          </>; })()}
           <p>Responsável: {responsavel(conversa, dados.usuarioId)} · Interesse: {dataBr(conversa.interesse.data) || 'data pendente'} · {conversa.interesse.convidados || 'quantidade pendente'} convidados</p>
           {conversa.nao_contatar && <p role="status">Este contato pediu para não receber mensagens. Novos envios estão bloqueados.</p>}
           <div className={styles.acoes}><button disabled={ocupado||conversa.nao_contatar||(conversa.estado==='HUMANO'&&conversa.responsavel_id===dados.usuarioId)} onClick={()=>void agir('assumir')}>Assumir e pausar IA</button><button className={styles.retomarIa} disabled={ocupado||conversa.nao_contatar||!dados.automacaoDisponivel||!dados.ia.ia||!dados.configuracao?.ativo||conversa.estado==='ENCERRADA'||conversa.estado==='IA'} onClick={()=>void agir('retomar')}>Retomar IA</button><button ref={botaoEncerrar} aria-haspopup="dialog" disabled={ocupado||conversa.estado==='ENCERRADA'} onClick={abrirConfirmacaoEncerrar}>Encerrar</button><Link className={styles.primario} href="/clientes">Preparar contratação</Link></div>{motivoRetomar && <p>{motivoRetomar}</p>}

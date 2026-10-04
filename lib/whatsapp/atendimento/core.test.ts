@@ -88,11 +88,14 @@ test('receptor único: só o ambiente nomeado grava e envia; ausente ou divergen
   assert.equal(atendimentoAtivo({ ...env('staging', 'staging'), WHATSAPP_ATENDIMENTO_ENABLED: '1' }), false);
 });
 test('entrada: timestamp em milissegundos (formato v2 do Gupshup) e origem sem "+"', () => {
-  const evento = { app: 'KidmaisManager', version: 2, type: 'message', timestamp: 1718007189549, payload: { id: 'wamid.sintetico', type: 'text', source: '5561999990000', payload: { text: 'Olá' }, sender: { phone: '5561999990000', name: 'Nome não usado' } } };
+  const evento = { app: 'KidmaisManager', version: 2, type: 'message', timestamp: 1718007189549, payload: { id: 'wamid.sintetico', type: 'text', source: '5561999990000', payload: { text: 'Olá' }, sender: { phone: '5561999990000', name: 'Nome do perfil' } } };
   const lida = entradaGupshup(evento)!;
   assert.equal(new Date(lida.timestamp).toISOString(), '2024-06-10T08:13:09.549Z');
   assert.equal(lida.source, '5561999990000');
-  assert.equal(JSON.stringify(lida).includes('Nome não usado'), false, 'nome do remetente não é guardado');
+  // Desde 04/10/2026 (pedido do Felipe) o nome de PERFIL é lido para a tela, num campo próprio e rotulado como não
+  // verificado; ele nunca entra no texto da mensagem (que é o que vai ao modelo) — ver identificacao.test.ts e service.test.ts.
+  assert.equal(lida.nomePerfil, 'Nome do perfil');
+  assert.equal(lida.texto, 'Olá', 'o nome não se mistura ao texto');
 });
 test('minimização antes do modelo: CPF, e-mail e telefone saem; data e quantidade ficam', () => {
   const texto = 'Sou Ana, CPF 123.456.789-09, ana.silva@example.test, fone (61) 99999-0000 ou +55 61 3333-4444 ou 5561988887777. Festa em 14/11/2027 para 60 pessoas, ou 14 11 2027.';

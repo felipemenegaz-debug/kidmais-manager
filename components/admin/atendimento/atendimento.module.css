@@ -23,3 +23,5 @@
 @media(max-width:760px){.filtros{grid-template-columns:1fr}.dialogo{padding:16px}}
 /* Até 800px o menu do admin fica fixo no topo (shell.module.css: top 10px + 44px). Título e alvos de foco param abaixo dele. */
 @media(max-width:800px){.pagina h2,.pagina h2:focus,.pagina :is(input,select,textarea,button,summary):focus{scroll-margin-top:72px}}
+.identificacao{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 12px;margin:8px 0 12px}.identificacao dt{color:var(--km-text-2);font-size:13px}.identificacao dd{margin:0;overflow-wrap:anywhere}.naoVerificado{color:var(--km-text-2);font-style:italic}
+@media(max-width:480px){.identificacao{grid-template-columns:1fr}.identificacao dd{margin-bottom:6px}}
