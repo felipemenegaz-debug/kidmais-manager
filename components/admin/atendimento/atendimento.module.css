@@ -18,6 +18,6 @@
 .pagina button.favorita{min-width:44px;font-size:20px;line-height:1;padding:8px}.pagina button.favorita[aria-pressed=true]{color:var(--km-teal);border-color:var(--km-teal)}
 .previa{margin-top:12px;padding-top:12px;border-top:1px solid var(--km-border)}
 /* Confirmação de Encerrar: diálogo nativo (foco preso, Esc cancela). */
-.dialogo{max-width:min(440px,calc(100vw - 32px));border:1px solid var(--km-border);border-radius:14px;padding:20px;background:var(--km-card);color:var(--km-text)}.dialogo::backdrop{background:rgb(5 6 18 / 70%)}.dialogo h2{font-size:18px;margin:0 0 8px}.dialogo p{color:var(--km-text-2)}
+.dialogo{margin:auto;max-height:calc(100dvh - 32px);overflow:auto;max-width:min(440px,calc(100vw - 32px));border:1px solid var(--km-border);border-radius:14px;padding:20px;background:var(--km-card);color:var(--km-text)}.dialogo::backdrop{background:rgb(5 6 18 / 70%)}.dialogo h2{font-size:18px;margin:0 0 8px}.dialogo p{color:var(--km-text-2)}
 .pagina .dialogo button.perigo,.dialogo button.perigo{border-color:#ff8fa3;background:#5a2236;color:#fff}
 @media(max-width:760px){.filtros{grid-template-columns:1fr}.dialogo{padding:16px}}
