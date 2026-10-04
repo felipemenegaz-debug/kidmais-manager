@@ -25,3 +25,6 @@
 @media(max-width:800px){.pagina h2,.pagina h2:focus,.pagina :is(input,select,textarea,button,summary):focus{scroll-margin-top:72px}}
 .identificacao{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 12px;margin:8px 0 12px}.identificacao dt{color:var(--km-text-2);font-size:13px}.identificacao dd{margin:0;overflow-wrap:anywhere}.naoVerificado{color:var(--km-text-2);font-style:italic}
 @media(max-width:480px){.identificacao{grid-template-columns:1fr}.identificacao dd{margin-bottom:6px}}
+/* Até 760px o botão "Voltar às conversas" (44px + 8px de margem) fica logo acima do título da conversa: o título para
+   mais abaixo para que o botão também fique abaixo do menu fixo (54px). 120 = 54 + 14 de folga + 44 + 8. */
+@media(max-width:760px){.pagina .voltar~h2,.pagina .voltar~h2:focus{scroll-margin-top:120px}}
