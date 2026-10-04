@@ -44,7 +44,10 @@ test('numeração coordenada: 063 reservada ao painel; 064 (prontas) e 065 (nome
   const nums = readdirSync('database/migrations').map(f => f.split('_')[1]).filter(n => /^\d{3}$/.test(n ?? ''));
   assert.equal(nums.filter(n => n === '064').length, 1); assert.equal(nums.filter(n => n === '065').length, 1);
   assert.ok(nums.includes('060'));
-  // A 063 é da candidata feat/painel-desenvolvedor-20261004 (já publicada): esta branch não pode usá-la.
-  assert.ok(!nums.includes('063'), '063 reservada ao painel');
-  for (const pasta of ['database/checks', 'database/rollback']) assert.ok(!readdirSync(pasta).some(f => f.startsWith('20261004_063_')), `sem arquivo 063 em ${pasta}`);
+  // A 063 é da candidata feat/painel-desenvolvedor-20261004 (já publicada). Antes ou depois da mescla com ela, nenhum
+  // arquivo 063 pode ser do atendimento; se existir 063, é só a do painel (e as checagens/rollback dela).
+  const do063 = ['database/migrations', 'database/checks', 'database/rollback'].flatMap(p => readdirSync(p).filter(f => f.startsWith('20261004_063_')));
+  assert.deepEqual(do063.filter(f => /whatsapp|atendimento|prontas|perfil/.test(f)), [], '063 não é do atendimento');
+  assert.ok(nums.filter(n => n === '063').length <= 1, 'no máximo uma 063 (a do painel)');
+  if (nums.includes('063')) assert.ok(readdirSync('database/migrations').includes('20261004_063_painel_desenvolvedor.sql'), 'a 063 presente é a do painel');
 });

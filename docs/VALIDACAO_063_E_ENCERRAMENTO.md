@@ -1,5 +1,7 @@
 # Validação PostgreSQL — 063 (mensagens prontas) e concorrência do Encerrar
 
+> **Renumeração (04/10/2026, commit `090e7df`):** a migration de mensagens prontas citada aqui como **063** passou a ser a **064** (`20261004_064_whatsapp_mensagens_prontas.sql`, rollback e checks `064`, variável `kidmais.rollback_064_descartar_prontas`, suíte `migration-064.postgres.test.ts`). A 063 ficou com a candidata `feat/painel-desenvolvedor-20261004`. O conteúdo da migration não mudou; os resultados abaixo valem para o HEAD indicado e citam o nome da época. Ver [IDENTIFICACAO_CONTATO_ATENDIMENTO.md](IDENTIFICACAO_CONTATO_ATENDIMENTO.md), "Numeração".
+
 **Situação:** EXECUTADA em 04/10/2026 no HEAD `ba6d47c`, com autorização explícita do Felipe para O1, O2a, O2b e O4 no alvo `127.0.0.1:55500` (docs/OPERACAO_AGENTES.md). Resultado: **PASS** (ver "Resultado"). Nenhuma operação em staging, produção ou no banco local real `kidmais_manager`. A demonstração em 55498 não foi encerrada nem tocada.
 
 ## Objetivo

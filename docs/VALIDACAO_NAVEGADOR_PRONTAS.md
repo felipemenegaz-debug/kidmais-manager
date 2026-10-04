@@ -1,5 +1,7 @@
 # Validação no navegador — biblioteca de mensagens prontas (063)
 
+> **Renumeração (04/10/2026, commit `090e7df`):** a migration de mensagens prontas citada aqui como **063** passou a ser a **064** (`20261004_064_whatsapp_mensagens_prontas.sql`, rollback e checks `064`, variável `kidmais.rollback_064_descartar_prontas`, suíte `migration-064.postgres.test.ts`). A 063 ficou com a candidata `feat/painel-desenvolvedor-20261004`. O conteúdo da migration não mudou; os resultados abaixo valem para o HEAD indicado e citam o nome da época. Ver [IDENTIFICACAO_CONTATO_ATENDIMENTO.md](IDENTIFICACAO_CONTATO_ATENDIMENTO.md), "Numeração".
+
 **Situação:** EXECUTADA em 04/10/2026 no HEAD `930121d`, com autorização do Felipe para V1, V2, V3, V3c, V3H e V4 (docs/OPERACAO_AGENTES.md). Resultado em "Resultado". Nada em staging, produção, Render, Gupshup ou no banco local real `kidmais_manager`. A demonstração (55498/3040/3041) não foi usada, parada nem alterada.
 
 ## Objetivo
