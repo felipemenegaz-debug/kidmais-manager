@@ -64,6 +64,9 @@ const ESTADO_POSTGRES = {
   "lib/inteligencia/inteligencia.postgres.test.ts": { descartavel: "atual" },
   "lib/operacional/migration-059.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/migration-060.postgres.test.ts": { descartavel: "atual" },
+  // 063 e concorrência do encerrar: cada suíte aplica a 060 (e a 063) sobre o modelo atual, como a da 060.
+  "lib/whatsapp/atendimento/migration-063.postgres.test.ts": { descartavel: "atual" },
+  "lib/whatsapp/atendimento/encerrar-concorrencia.postgres.test.ts": { descartavel: "atual" },
   "lib/pagamentos/estorno-completo.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062"] },
   "lib/pagamentos/gates-c2.postgres.test.ts": { descartavel: "atual" },
   "lib/saas/hg6-kidmais.postgres.test.ts": { descartavel: "045-sem-040" },

@@ -38,3 +38,9 @@ test('postcheck da 063 é somente leitura', () => {
   assert.match(sql, /postcheck 063: favoritas sem chave composta/);
   assert.match(sql, /SELECT '063 postcheck OK'/);
 });
+
+test('pós-rollback da 063 é somente leitura e confere a 060 intacta', () => {
+  const sql = semComentarios(readFileSync('database/checks/20261004_063_rollback_postcheck.sql', 'utf8'));
+  assert.doesNotMatch(sql, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE|GRANT)\b/i);
+  assert.match(sql, /a 060 foi afetada/);
+});

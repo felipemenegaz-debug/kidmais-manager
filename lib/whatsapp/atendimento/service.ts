@@ -103,14 +103,18 @@ export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { a
     if (Number(conversa.versao) !== pedido.versao) throw new Error('ATENDIMENTO_DESATUALIZADO');
     if (conversa.nao_contatar && pedido.acao !== 'encerrar') throw new Error('ATENDIMENTO_CONTATO_BLOQUEADO');
     if ((await tx.query("SELECT id FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND estado='ENVIANDO'", [conversa.id])).rows.length) throw new Error('ATENDIMENTO_ENVIO_EM_ANDAMENTO');
-    let canceladas = 0;
+    const canceladas = { entradas: 0, saidas: 0 };
     if (pedido.acao === 'encerrar') {
-      // Na MESMA transação do encerramento, sob a trava da conversa: entradas ainda sem resposta e saídas na fila
-      // (automáticas ou do atendente) viram CANCELADA; o histórico fica. ENVIANDO já recusou acima (não há cancelamento
-      // de envio iniciado). SKIP LOCKED evita espera cruzada com o worker, que trava a mensagem antes da conversa: a
-      // linha que ele segura é pulada aqui e cancelada por ele mesmo, ao revalidar sob a trava e ver ENCERRADA.
-      canceladas = (await tx.query(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id IN (
-        SELECT id FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado IN ('PENDENTE','PROCESSANDO') FOR UPDATE SKIP LOCKED) RETURNING id`, [conversa.id, empresa, ambiente])).rows.length;
+      // Na MESMA transação do encerramento, sob a trava da conversa: entradas ainda sem resposta automática e saídas na
+      // fila (automáticas ou do atendente) viram CANCELADA; o histórico fica. ENVIANDO já recusou acima (envio iniciado
+      // não é cancelado). SKIP LOCKED evita espera cruzada com o worker, que trava a mensagem ANTES da conversa:
+      // a linha que ele segura neste instante é PULADA aqui (não entra no contador) e é cancelada DEPOIS pelo próprio
+      // worker, que espera esta transação terminar, revalida sob a trava da conversa, vê ENCERRADA e grava CANCELADA
+      // (worker.ts: reserva, interpretação e envio). Evidência: encerrar-concorrencia.postgres.test.ts.
+      for (const { direcao } of (await tx.query<{ direcao: string }>(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id IN (
+        SELECT id FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado IN ('PENDENTE','PROCESSANDO') FOR UPDATE SKIP LOCKED) RETURNING direcao`, [conversa.id, empresa, ambiente])).rows) {
+        if (direcao === 'ENTRADA') canceladas.entradas++; else canceladas.saidas++;
+      }
     }
     if (pedido.acao === 'enviar') {
       if (!atendimentoAtivo() || !(await configuracao(tx,empresa))?.ativo) throw new Error('ATENDIMENTO_AUTOMACAO_DESLIGADA');

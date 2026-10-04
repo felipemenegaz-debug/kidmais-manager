@@ -8,7 +8,7 @@ import type { Conversa } from './service.ts';
 const agora = new Date();
 const base: Conversa = { id: 'c', empresa_id: 'e', ambiente: 'staging', contato: '5561999999999', estado: 'IA', responsavel_id: null, nao_contatar: false, versao: 1, ultima_entrada_em: agora.toISOString(), interesse: { data: null, convidados: null } };
 const entrada = (texto: string | null, id = 'evento-1') => ({ id, app: 'KidmaisManager', source: '5561999999999', texto, timestamp: agora.getTime() });
-type Opcoes = { permitido?: boolean; ativo?: boolean; config?: unknown; conversa?: Partial<Conversa>; duplicada?: boolean; enviando?: boolean; papel?: string; empresaAtiva?: boolean; canceladas?: number };
+type Opcoes = { permitido?: boolean; ativo?: boolean; config?: unknown; conversa?: Partial<Conversa>; duplicada?: boolean; enviando?: boolean; papel?: string; empresaAtiva?: boolean; canceladas?: { entradas: number; saidas: number } };
 function carregar(op: Opcoes = {}) {
   const comandos: { sql: string; args: unknown[] }[] = [];
   const conversa = { ...base, ...op.conversa };
@@ -20,7 +20,7 @@ function carregar(op: Opcoes = {}) {
     if (sql.includes('INSERT INTO whatsapp_atendimento_conversas')) return { rows: [conversa] };
     if (sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return { rows: [conversa] };
     if (sql.includes("estado='ENVIANDO'")) return { rows: op.enviando ? [{ id: 'x' }] : [] };
-    if (sql.includes("SET estado='CANCELADA' WHERE id IN")) return { rows: Array.from({ length: op.canceladas ?? 0 }, (_, i) => ({ id: 'p' + i })) };
+    if (sql.includes("SET estado='CANCELADA' WHERE id IN")) return { rows: [...Array.from({ length: op.canceladas?.entradas ?? 0 }, () => ({ direcao: 'ENTRADA' })), ...Array.from({ length: op.canceladas?.saidas ?? 0 }, () => ({ direcao: 'SAIDA' }))] };
     return { rows: [] };
   };
   const tenants: string[] = [];
@@ -157,16 +157,17 @@ test('depois do PARAR, "atendente" fica registrado mas não reabre a conversa ne
 });
 
 test('encerrar cancela as pendentes na mesma transação, antes de encerrar, sem esperar o worker; histórico fica', async () => {
-  const { modulo, comandos } = carregar({ conversa: { estado: 'AGUARDANDO_HUMANO' }, canceladas: 2 });
+  const { modulo, comandos } = carregar({ conversa: { estado: 'AGUARDANDO_HUMANO' }, canceladas: { entradas: 1, saidas: 2 } });
   const r = await modulo.controlarAtendimento(sessao, { acao: 'encerrar', conversaId: 'c', versao: 1 });
-  assert.deepEqual(r, { canceladas: 2 });
+  assert.deepEqual(r, { canceladas: { entradas: 1, saidas: 2 } }, "contador separa entradas de saídas");
   const i = (trecho: string) => comandos.findIndex(c => c.sql.includes(trecho));
-  const cancelar = comandos[i("SET estado='CANCELADA' WHERE id IN")];
-  assert.ok(cancelar, 'cancelamento executado');
-  assert.ok(cancelar.sql.includes("estado IN ('PENDENTE','PROCESSANDO')"));
-  assert.match(cancelar.sql, /FOR UPDATE SKIP LOCKED/, 'não espera a mensagem que o worker segura (ele mesmo cancela ao revalidar)');
-  assert.ok(cancelar.sql.includes('conversa_id=$1 AND empresa_id=$2 AND ambiente=$3'));
-  assert.deepEqual(cancelar.args, ['c', 'e', 'staging'], 'só a conversa da empresa/ambiente comprovados');
+  const cancelar = () => comandos[i("SET estado='CANCELADA' WHERE id IN")];
+  assert.ok(cancelar(), 'cancelamento executado');
+  assert.match(cancelar().sql, /RETURNING direcao/);
+  assert.ok(cancelar().sql.includes("estado IN ('PENDENTE','PROCESSANDO')"));
+  assert.match(cancelar().sql, /FOR UPDATE SKIP LOCKED/, 'não espera a mensagem que o worker segura (ele mesmo cancela ao revalidar)');
+  assert.ok(cancelar().sql.includes('conversa_id=$1 AND empresa_id=$2 AND ambiente=$3'));
+  assert.deepEqual(cancelar().args, ['c', 'e', 'staging'], 'só a conversa da empresa/ambiente comprovados');
   assert.ok(i('FOR UPDATE') < i("SET estado='CANCELADA' WHERE id IN"), 'conversa travada antes');
   assert.ok(i("SET estado='CANCELADA' WHERE id IN") < i('UPDATE whatsapp_atendimento_conversas SET estado'), 'cancela antes de marcar ENCERRADA');
   assert.deepEqual(comandos.find(c => c.sql.includes('UPDATE whatsapp_atendimento_conversas SET estado'))!.args.slice(1), ['ENCERRADA', null]);
@@ -175,14 +176,22 @@ test('encerrar cancela as pendentes na mesma transação, antes de encerrar, sem
 });
 
 test('encerrar com envio em andamento é recusado e não cancela nem encerra nada; outras ações não cancelam', async () => {
-  const bloqueado = carregar({ enviando: true, canceladas: 3 });
+  const bloqueado = carregar({ enviando: true, canceladas: { entradas: 1, saidas: 2 } });
   await assert.rejects(bloqueado.modulo.controlarAtendimento(sessao, { acao: 'encerrar', conversaId: 'c', versao: 1 }), /ATENDIMENTO_ENVIO_EM_ANDAMENTO/);
   assert.equal(bloqueado.sqls("SET estado='CANCELADA' WHERE id IN").length, 0);
   assert.equal(bloqueado.sqls('UPDATE whatsapp_atendimento_conversas SET estado').length, 0);
-  const assumir = carregar({ canceladas: 3 });
-  assert.deepEqual(await assumir.modulo.controlarAtendimento(sessao, { acao: 'assumir', conversaId: 'c', versao: 1 }), { canceladas: 0 });
+  const assumir = carregar({ canceladas: { entradas: 1, saidas: 2 } });
+  assert.deepEqual(await assumir.modulo.controlarAtendimento(sessao, { acao: 'assumir', conversaId: 'c', versao: 1 }), { canceladas: { entradas: 0, saidas: 0 } });
   assert.equal(assumir.sqls("SET estado='CANCELADA' WHERE id IN").length, 0);
-  const desatualizado = carregar({ canceladas: 3 });
+  const desatualizado = carregar({ canceladas: { entradas: 1, saidas: 2 } });
   await assert.rejects(desatualizado.modulo.controlarAtendimento(sessao, { acao: 'encerrar', conversaId: 'c', versao: 7 }), /ATENDIMENTO_DESATUALIZADO/);
   assert.equal(desatualizado.sqls("SET estado='CANCELADA' WHERE id IN").length, 0);
+});
+
+test('resumo do encerramento separa respostas na fila de mensagens do cliente sem resposta automática', async () => {
+  const { resumoEncerramento } = await import('./encerramento.ts');
+  assert.equal(resumoEncerramento({ entradas: 0, saidas: 0 }), 'Atendimento encerrado. O histórico foi mantido.');
+  assert.equal(resumoEncerramento({ entradas: 0, saidas: 1 }), 'Atendimento encerrado. 1 resposta na fila foi cancelada. O histórico foi mantido.');
+  assert.equal(resumoEncerramento({ entradas: 2, saidas: 3 }), 'Atendimento encerrado. 3 respostas na fila foram canceladas; 2 mensagens do cliente ficaram sem resposta automática. O histórico foi mantido.');
+  assert.equal(resumoEncerramento(undefined), 'Atendimento encerrado. O histórico foi mantido.');
 });
