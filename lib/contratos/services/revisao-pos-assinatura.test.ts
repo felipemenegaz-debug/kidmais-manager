@@ -189,3 +189,12 @@ test('promoção atualiza ponteiro no mesmo fluxo; Festa lê versão vigente e c
     assert(fluxo.indexOf('await concluirPreparacao(tx,preparacao') < fluxo.indexOf('SET versao_vigente_id=$2'));
     assert.match(readFileSync('lib/festas/service.ts','utf8'), /JOIN contrato_versoes v ON v.id=cf.versao_vigente_id/);
 });
+
+test('base histórica (061): metadados do papel não viram alteração; mudança real continua material', () => {
+    const nativo = { schemaVersao: 1, fechamento: { id: 'f', status: 'CONFIRMADO' }, evento: { data: '2026-11-14', horarioInicio: '14:00' }, comercial: { valorFinalContrato: 8500, formaPagamentoPretendida: null } };
+    const historico = { ...nativo, origem: { tipo: 'IMPORTACAO_HISTORICA' }, historico: { campos: [] }, comercial: { ...nativo.comercial, condicaoDocumento: '30% de entrada' } };
+    const igual = analisarRevisao(historico as unknown as ContratoSnapshotV1, nativo as unknown as ContratoSnapshotV1);
+    assert.deepEqual([igual.natureza, igual.impactoFinanceiro, igual.campos.length], ['SEM_ALTERACOES', false, 0]);
+    const mudou = analisarRevisao(historico as unknown as ContratoSnapshotV1, { ...nativo, evento: { ...nativo.evento, data: '2026-11-21' } } as unknown as ContratoSnapshotV1);
+    assert.deepEqual([mudou.natureza, mudou.alteraAgenda, mudou.campos.map((c) => c.campo)], ['MATERIAL', true, ['evento.data']]);
+});

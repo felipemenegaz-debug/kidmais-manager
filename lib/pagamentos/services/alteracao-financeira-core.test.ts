@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { centavosInteiros, reaisCentavos, posicaoEconomica, distribuirCentavos, validarCronogramaConsolidado, situacaoAlteracao } from './alteracao-financeira-core.ts';
+import { readFileSync } from 'node:fs';
+import { centavosInteiros, reaisCentavos, posicaoEconomica, distribuirCentavos, validarCronogramaConsolidado, situacaoAlteracao, chaveExcecaoHistorica } from './alteracao-financeira-core.ts';
 for (const [nome,original,delta,recebido,saldo,credito] of [
   ['aumento sem recebimento',899000n,414100n,0n,1313100n,0n],
   ['aumento parcial',899000n,414100n,500000n,813100n,0n],
@@ -29,3 +30,26 @@ for (const vencimento of ['2027-06-14', '2027-06-15', '2027-06-16']) test(`alter
   else assert.throws(validar, { code: 'PIX_APOS_DATA_FESTA', status: 422 });
 });
 test('saldo zero aceita cronograma vazio; parcela parcial programa só saldo',()=>{validarCronogramaConsolidado([],0n,'2026-12-01',true);validarCronogramaConsolidado([{valorCentavos:'130000',vencimento:'2026-12-01'}],130000n,'2026-12-01',true);});
+
+test('vencimento histórico confirmado (061) é preservado sem mudança forçada; parcela nova ou alterada segue a regra vigente', () => {
+  const historicas = new Set([chaveExcecaoHistorica('ABCD-1', '2026-12-15')]);
+  // Parcela preservada: mesmo id (sem diferenciar caixa) e mesmo vencimento confirmado.
+  validarCronogramaConsolidado([{ parcelaId: 'abcd-1', valorCentavos: '100', vencimento: '2026-12-15' }], 100n, '2026-12-01', true, historicas);
+  // Mesmo id com vencimento alterado: regra da versão vigente (PIX até a festa).
+  assert.throws(() => validarCronogramaConsolidado([{ parcelaId: 'abcd-1', valorCentavos: '100', vencimento: '2026-12-20' }], 100n, '2026-12-01', true, historicas), /até a data da festa/);
+  // Parcela nova depois da festa: regra vigente.
+  assert.throws(() => validarCronogramaConsolidado([{ valorCentavos: '100', vencimento: '2026-12-15' }], 100n, '2026-12-01', true, historicas), /até a data da festa/);
+  // Sem exceções registradas, nada muda para contratos nativos.
+  assert.throws(() => validarCronogramaConsolidado([{ parcelaId: 'abcd-1', valorCentavos: '100', vencimento: '2026-12-15' }], 100n, '2026-12-01', true));
+});
+
+test('posição financeira e detecção de pendência usam as exceções históricas só para parcela preservada', () => {
+  const repo = readFileSync('lib/pagamentos/repositories/alteracao-financeira.repository.ts', 'utf8');
+  for (const trecho of [
+    "->>'aposFestaConfirmada' = 'true'",
+    "->>'vencimento' = pp.vencimento::text",
+    'i.vencimento>vigente.snapshot.evento.data&&!excecoesHistoricas.has(chaveExcecaoHistorica(i.parcelaId,i.vencimento))',
+  ]) assert.ok(repo.includes(trecho), trecho);
+  assert.ok(readFileSync('lib/pagamentos/services/pendencias-financeiras.service.ts', 'utf8').includes('!p.excecoesHistoricas?.has(chaveExcecaoHistorica(i.parcelaId,i.vencimento))'));
+  assert.ok(readFileSync('lib/pagamentos/services/alteracao-financeira.service.ts', 'utf8').includes("==='PIX_PARCELADO',p.excecoesHistoricas);"));
+});

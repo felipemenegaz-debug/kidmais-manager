@@ -77,6 +77,7 @@ import { pagamentoPertenceAoTenant } from "../../contratos/services/contrato-ten
 import type { TenantComprovado } from "../../saas/provar-tenant";
 import { sugerirParcelamentoPix } from './sugestao-pix';
 import { validarCondicaoContratual } from './condicao-contratual';
+import { fluxoInicialDoPagamento } from './pagamento-historico';
 import { validarRepeticaoEstorno, validarRepeticaoRecebimento } from "./idempotencia";
 import type {
   CriarPagamentoInput,
@@ -305,6 +306,18 @@ export async function criarPagamentoDoFechamento(
     if (obrigacaoAnterior && obrigacaoAnterior.contratoVersaoId !== versao.id) {
       throw new PagamentoServiceError('PAGAMENTO_JA_EXISTE','Este contrato já possui obrigação financeira em outra versão. Trate a pendência explicitamente.',409,{pagamentoId:obrigacaoAnterior.id});
     }
+    // Contrato histórico (061): versão conferida em papel registrada no vínculo da integração (se a 061 existe).
+    const versaoConferidaId = fechamento.origemFechamento === "IMPORTACAO_HISTORICA"
+      ? (await tx.query<{ v: string | null }>(
+        `SELECT CASE WHEN to_regclass('public.contrato_importacoes') IS NULL THEN NULL
+                 ELSE (SELECT contrato_versao_id::text FROM public.contrato_importacoes WHERE contrato_id = $1::uuid) END AS v`,
+        [contrato.id],
+      )).rows[0]?.v ?? null
+      : null;
+    // Histórico na versão conferida: o caminho é "Conferir pagamentos" (decidido antes de validar qualquer plano).
+    if (fechamento.origemFechamento === "IMPORTACAO_HISTORICA" && !existente) {
+      fluxoInicialDoPagamento({ fechamentoStatus: fechamento.status, origemFechamento: fechamento.origemFechamento, versaoId: versao.id, versaoConferidaId });
+    }
     let plano: PlanoPagamentoInput;
     let aprovacaoSugestao: Record<string, unknown> | null = null;
     if ('parcelas' in input.plano) plano = input.plano;
@@ -347,14 +360,7 @@ export async function criarPagamentoDoFechamento(
       return { detalhe, reutilizado: true };
     }
 
-    if (fechamento.status !== "CONTRATO_ASSINADO") {
-      throw new PagamentoServiceError(
-        "STATUS_FECHAMENTO_NAO_PERMITE_PAGAMENTO",
-        "O Pagamento só pode ser iniciado quando o Fechamento está com contrato assinado.",
-        409,
-        { statusAtual: fechamento.status },
-      );
-    }
+    const fluxo = fluxoInicialDoPagamento({ fechamentoStatus: fechamento.status, origemFechamento: fechamento.origemFechamento, versaoId: versao.id, versaoConferidaId });
 
     const valorTotal = valorContratoDaVersao(versao.snapshot);
     const planoValidado = validarPlanoPagamento(valorTotal, plano, versao.snapshot.evento.data);
@@ -368,7 +374,9 @@ export async function criarPagamentoDoFechamento(
     );
     await criarPlanoEParcelas(pagamento, 1, planoValidado, context, tx);
 
-    const fechamentoAtualizado = await marcarFechamentoAguardandoPagamento(fechamento.id, tx);
+    // Histórico revisado: a reserva já está confirmada desde a conferência; o fechamento continua CONFIRMADO.
+    if (fluxo === "HISTORICO_REVISADO") await marcarReservaPagamento(pagamento.id, "CONFIRMADA", tx);
+    const fechamentoAtualizado = fluxo === "HISTORICO_REVISADO" ? fechamento : await marcarFechamentoAguardandoPagamento(fechamento.id, tx);
     if (!fechamentoAtualizado) {
       throw new PagamentoServiceError(
         "STATUS_FECHAMENTO_NAO_PERMITE_PAGAMENTO",
@@ -412,6 +420,7 @@ export async function criarPagamentoDoFechamento(
         dadosDepois: {
           fechamentoStatus: fechamentoAtualizado.status,
           contratoVersaoId: versao.id,
+          ...(fluxo === "HISTORICO_REVISADO" ? { origem: "CONTRATO_HISTORICO_REVISADO", versaoConferidaId } : {}),
           valorTotalContratado: valorTotal,
           ...(aprovacaoSugestao ? { aprovacaoSugestao } : {}),
         },

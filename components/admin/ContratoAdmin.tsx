@@ -1,5 +1,6 @@
 'use client';
 import { analisarRevisao } from '@/lib/contratos/services/alteracoes';
+import { TEXTO_ASSINADO_EM_PAPEL, versaoAssinadaEmPapel } from '@/lib/contratos/assinatura-papel';
 import { configuracaoModeloOficial } from '../../lib/contratos/documento/oficial/configuracao';
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -17,6 +18,9 @@ import { contextoCriacao } from './criacao-financeira';
 import { contratoApresentacao, type ContextoContrato } from './financeiro-apresentacao';
 import { FalhaContrato, MENSAGEM_LINK_INVALIDO, PREFIXO_IMPORTADO, criarSequenciador, mensagemFalhaContrato, opcaoForaDaLista, pedidoDaUrl, urlDaSelecao, valorDaSelecao } from './contrato-url';
 import ContratoImportado from './ContratoImportado';
+import OrigemHistoricaContrato from './OrigemHistoricaContrato';
+import IntegracaoContrato from './importacao/IntegracaoContrato';
+import type { OrigemHistoricaContrato as OrigemHistorica } from '@/lib/contratos/importados';
 type Versao = {
     id: string;
     numero_versao: number;
@@ -41,6 +45,8 @@ type Doc = {
     revisao: number;
 };
 type Painel = {
+    /** Contrato integrado de importação histórica (061): conferência em papel, original e correções. */
+    origemHistorica?: OrigemHistorica | null;
     revisoesOperacionais:Array<{id:string;contrato_versao_id:string;estado:string;hold_destino_adquirido_em:string|null;status_fechamento:string;ocupa_vigente:boolean;data_evento:string;data_vigente:string;horario_inicio:string;horario_fim:string;slot_alterado:boolean}>;
     financeiro:Array<{id:string;contrato_versao_id:string;valor_total_contratado:string;status:string}>;
     pendencias:Array<{id:string;motivo:string;versao_nova_id:string}>;
@@ -208,7 +214,8 @@ export default function ContratoAdmin() {
  <label>Contrato <select aria-label="Contrato" value={selecaoImportada || cid} onChange={(e) => { router.push(urlDaSelecao(pathname, params, e.target.value), { scroll: false }); }}><option value="">Selecione</option>{lista.map(c => <option key={valorDaSelecao(c)} value={valorDaSelecao(c)}>{contratoApresentacao(c)}</option>)}{opcaoUrl && <option value={cid}>{opcaoUrl}</option>}{opcaoImportada && <option value={selecaoImportada}>{opcaoImportada}</option>}</select></label>
  {urlImportacao && <ContratoImportado key={urlImportacao} importacaoId={urlImportacao} />}
  {v && data && <><header className={styles.overview}><div className={styles.hero}><div><span className={styles.badge}>{v.estado_edicao ?? v.status}</span><h2>{v.snapshot.contratante.nomeCompleto}</h2><p>{v.snapshot.evento.data.split('-').reverse().join('/')} · {v.snapshot.evento.pacote.nome} · {v.snapshot.evento.convidados} convidados</p></div><div className={styles.total}><span>Valor contratual · V{v.numero_versao}</span><strong>{formatarMoeda(v.snapshot.comercial.valorFinalContrato)}</strong></div></div><div className={styles.actions}>{v.estado_edicao==='EM_ELABORACAO' && <button disabled={busy} onClick={()=>{setEditando(!editando);window.location.hash='alteracoes';}}>Editar dados desta revisão</button>}{(podeRevisar||podeSubstituir)&&<a href="#alteracoes"><strong>{podeSubstituir?'Criar nova revisão':'Criar revisão / retificação'}</strong></a>}{data.contrato.status==='AGUARDANDO_ASSINATURA'&&!data.fluxo?.versao_vigente_id&&<details><summary>Mais ações</summary><button disabled={busy} onClick={cancelarContratacao}>Cancelar contratação</button></details>}</div></header>
- <div className={styles.next}><div><strong>Próximo passo</strong><p>{data.contrato.status === 'CANCELADO' ? 'Contratação cancelada. Consulte os registros preservados.' : proximo}</p></div>{v?.estado_edicao === 'AGUARDANDO_CLIENTE' && data.contrato.status !== 'CANCELADO' ? <a href={`/contrato/${cid}`} target="_blank" rel="noreferrer">Abrir acesso público do cliente ↗</a> : <a href="#documentacao">Ver documentos</a>}</div>
+ {data.origemHistorica && <OrigemHistoricaContrato origem={data.origemHistorica} />}
+ <div className={styles.next}><div><strong>Próximo passo</strong><p>{data.contrato.status === 'CANCELADO' ? 'Contratação cancelada. Consulte os registros preservados.' : data.origemHistorica && v?.estado_edicao === 'CONCLUIDA' ? (data.origemHistorica.caminhoFinanceiro === 'CONFERIR_HISTORICO' ? 'Conferir os pagamentos do contrato histórico.' : data.origemHistorica.caminhoFinanceiro === 'PLANO_NA_VERSAO_VIGENTE' ? 'Registrar os pagamentos no Financeiro: criar o plano na versão vigente e lançar os recebimentos com a data real.' : data.origemHistorica.caminhoFinanceiro === 'AGUARDAR_REVISAO' ? 'Concluir ou cancelar a revisão aberta antes de registrar os pagamentos.' : 'Contrato histórico conferido. Mudanças seguem uma nova revisão do contrato.') : proximo}</p></div>{v?.estado_edicao === 'AGUARDANDO_CLIENTE' && data.contrato.status !== 'CANCELADO' ? <a href={`/contrato/${cid}`} target="_blank" rel="noreferrer">Abrir acesso público do cliente ↗</a> : <a href="#documentacao">Ver documentos</a>}</div>
  <label className={styles.version}>Versão em consulta<select aria-label="Versão contratual" value={vid} onChange={e => { const n = data.versoes.find(x => x.id === e.target.value)!; setVid(n.id);setEditando(false); setNote(n.dados_fonte?.observacoesDocumentais ?? ''); setKey(''); }}>{data.versoes.map(x => <option key={x.id} value={x.id}>V{x.numero_versao} — {x.status==='ASSINADA'?'ASSINADA':x.estado_edicao ?? `LEGADO / ${x.status}`}</option>)}</select></label>
  <nav className={styles.tabs} role="tablist" aria-label="Conteúdo do contrato">{abas.map((item, indice) => <button key={item.id} type="button" role="tab" id={`aba-${item.id}`} aria-controls={`painel-${item.id}`} aria-selected={aba === item.id} tabIndex={aba === item.id ? 0 : -1} onClick={() => abrirAba(item.hash)} onKeyDown={e => { const alvo = e.key === 'ArrowRight' ? (indice + 1) % abas.length : e.key === 'ArrowLeft' ? (indice + abas.length - 1) % abas.length : e.key === 'Home' ? 0 : e.key === 'End' ? abas.length - 1 : null; if (alvo !== null) { e.preventDefault(); abrirAba(abas[alvo].hash); document.getElementById(`aba-${abas[alvo].id}`)?.focus(); } }}>{item.rotulo}</button>)}</nav>
  
@@ -254,9 +261,9 @@ export default function ContratoAdmin() {
             setError(String(e));
         } }}>Aprovar e assinar pela Kidmais</button></section>}
  {v.estado_edicao === 'ASSINADA_KIDMAIS' && <button disabled={busy} onClick={() => action({ acao: 'liberar', revisao: v.revisao })}>Liberar para o cliente</button>}
- <details className={styles.documentDetails}><summary>Assinaturas e comprovantes ({signatures.length})</summary>{signatures.length === 0 && <p>Nenhuma assinatura registrada nesta versão.</p>}{signatures.map(s => <p key={s.id}>{s.parte}: {s.identidade_snapshot.nome} · {new Date(s.assinado_em).toLocaleString('pt-BR')} · <a className={styles.documentButton} target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Ver comprovante</a></p>)}</details>
+ <details className={styles.documentDetails}><summary>Assinaturas e comprovantes ({signatures.length})</summary>{signatures.length === 0 && <p>{versaoAssinadaEmPapel(v) ? TEXTO_ASSINADO_EM_PAPEL : 'Nenhuma assinatura registrada nesta versão.'}</p>}{signatures.map(s => <p key={s.id}>{s.parte}: {s.identidade_snapshot.nome} · {new Date(s.assinado_em).toLocaleString('pt-BR')} · <a className={styles.documentButton} target="_blank" rel="noreferrer" href={docUrl(s.comprovante_documento_id)}>Ver comprovante</a></p>)}</details>
  {v.documento_revisado_id && <a className={styles.documentButton} target="_blank" rel="noreferrer" href={`/admin/contratos/imprimir?contratoId=${cid}&versaoId=${vid}`}>Imprimir contrato completo — V{v.numero_versao}</a>}
- </section><section id="painel-financeiro" role="tabpanel" aria-labelledby="aba-financeiro" className={styles.panel} hidden={aba !== 'financeiro'}><section id="financeiro" tabIndex={-1} aria-label="Financeiro" className={`${styles.anchor} ${destino==='#financeiro'?styles.financialAnchor:''}`}>{data.financeiro.length?<FinanceiroContrato key={`${cid}:${data.fluxo?.versao_vigente_id}`} contratoId={cid} onReady={financeiroCarregado}/>:<CriarPlanoFinanceiro key={financeiroKey} contexto={contextoCriacao(data)} onCreated={async()=>{await load(cid,vid);window.location.hash='financeiro';}}/>}</section></section>
+ </section><section id="painel-financeiro" role="tabpanel" aria-labelledby="aba-financeiro" className={styles.panel} hidden={aba !== 'financeiro'}><section id="financeiro" tabIndex={-1} aria-label="Financeiro" className={`${styles.anchor} ${destino==='#financeiro'?styles.financialAnchor:''}`}>{data.financeiro.length?<FinanceiroContrato key={`${cid}:${data.fluxo?.versao_vigente_id}`} contratoId={cid} onReady={financeiroCarregado}/>:data.origemHistorica?.caminhoFinanceiro==='AGUARDAR_REVISAO'?<p role="status">Há uma revisão do contrato em andamento. Conclua ou cancele a revisão para registrar os pagamentos.</p>:data.origemHistorica?.caminhoFinanceiro==='CONFERIR_HISTORICO'?<IntegracaoContrato key={`fin:${data.origemHistorica.importacaoId}`} importacaoId={data.origemHistorica.importacaoId} modoInicial="financeiro"/>:<CriarPlanoFinanceiro key={financeiroKey} contexto={contextoCriacao(data)} onCreated={async()=>{await load(cid,vid);window.location.hash='financeiro';}}/>}</section></section>
  
  </>}
  </main>;

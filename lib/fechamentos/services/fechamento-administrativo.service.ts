@@ -7,6 +7,7 @@ import { buscarClienteCanonicoPorId, buscarClientePorId, listarAniversariantesDo
 import { executarNoTenant, type TenantComprovado } from '../../saas/provar-tenant';
 import { validarCadastroBasicoCliente, camposFaltantesParaContrato } from '../../clientes/services/validators';
 import { revalidarHorarioSelecionado } from '../../disponibilidade/services';
+import { escopoDaEmpresa } from '../../disponibilidade/escopo';
 import { buscarPacoteVigenteDaEmpresaPorCodigo } from '../../comercial/repositories';
 import { pacoteIdContratavelV1 } from '../../comercial/pacotes-v1';
 import { PACOTE_CODIGO_BANCO, FORMA_PAGAMENTO_BANCO, moedaParaNumeroServidor, traduzirAdicionais } from '../comercial-input';
@@ -144,9 +145,11 @@ async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessa
             id: input.pacote, nome: pacote.nome, minPagantes: pacote.convidadosMinimos ?? 1, maxPagantes: pacote.convidadosMaximos ?? 150,
         });
         if (erroConvidados) throw new FechamentoServiceError('DADOS_INVALIDOS', erroConvidados);
+        // Recurso de agenda (062): unidade da empresa comprovada; com mais de uma, a escolha é obrigatória.
+        const escopo = await escopoDaEmpresa(tx, empresaId, input.estabelecimentoId, { exigirUnidade: true });
         const horario = await revalidarHorarioSelecionado({ data: input.dataFesta,
             codigoPeriodo: input.horarioBase === 'almoco' ? 'TURNO_1' : 'TURNO_2',
-            inicio: input.horarioInicio, fim: input.horarioFim, ajusteMinutos: Number(input.ajusteHorario) }, tx);
+            inicio: input.horarioInicio, fim: input.horarioFim, ajusteMinutos: Number(input.ajusteHorario) }, tx, escopo);
         const valorProposto = moedaParaNumeroServidor(input.valorCombinado);
         if (valorProposto === null) throw new FechamentoServiceError('VALOR_PROPOSTO_INVALIDO', 'Informe um valor combinado válido.');
         const adicionais = traduzirAdicionais(input.adicionaisSelecionados, input.adicionaisQuantidades);
@@ -157,6 +160,7 @@ async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessa
             origemFechamento: 'ATENDIMENTO_KIDMAIS', iniciadoPorUsuarioId: sessao.usuario_id, usuarioResponsavelId: sessao.usuario_id,
             dataEvento: input.dataFesta, horarioInicio: horario.candidato.inicio, horarioFim: horario.candidato.fim,
             configuracaoAgendaId: horario.periodo.configuracaoId, pacoteId: pacote.id,
+            estabelecimentoId: escopo.estabelecimentoId,
             convidados: input.convidadosPagantes, valorProposto,
             adicionais: adicionais.itens,
             idadeAniversarianteEvento: input.idadeAniversariante === '' ? null : input.idadeAniversariante,

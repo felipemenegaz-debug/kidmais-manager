@@ -15,6 +15,8 @@ export type CriarFechamentoComercialInput = {
   horarioFim: string;
   configuracaoAgendaId: string;
   pacoteId: string;
+  /** Unidade (062), já conferida contra a empresa comprovada. Ausente: o banco preenche se a empresa tiver uma só. */
+  estabelecimentoId?: string | null;
   convidados: number;
   adicionais?: AdicionalSelecionadoInput[];
 

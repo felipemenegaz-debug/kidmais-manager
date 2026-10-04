@@ -40,6 +40,8 @@ function exigir(env: Record<string, string | undefined>, nome: string) {
 /** Lê e valida o alvo autorizado. Qualquer divergência recusa antes de abrir conexão. */
 export function alvoAutorizado054(env: Record<string, string | undefined>): Alvo054 {
   for (const nome of GENERICAS_RECUSADAS) if (env[nome] !== undefined) falhar(`${nome} definida; o ciclo não usa destino genérico.`);
+  // Qualquer outra configuração herdada do driver (PGOPTIONS, PGPASSFILE, PGSSL*...) também recusa.
+  for (const nome of Object.keys(env)) if (/^PG/i.test(nome) && env[nome] !== undefined) falhar(`${nome} definida; o ciclo não usa configuração de conexão herdada.`);
   const host = exigir(env, VARIAVEIS_054.host);
   const portaTexto = exigir(env, VARIAVEIS_054.port);
   const database = exigir(env, VARIAVEIS_054.database);

@@ -50,14 +50,14 @@ export const contratoNoTenant: ProvaDePosse = contratoPertenceAoTenant;
 export const fechamentoNoTenant: ProvaDePosse = fechamentoPertenceAoTenant;
 export const pagamentoNoTenant: ProvaDePosse = pagamentoPertenceAoTenant;
 
-export type LinhaPainelContrato = { id: string; fechamento_id: string; status: string; nome: string | null; data_evento: string | null; pacote: string | null; convidados: string | null };
+export type LinhaPainelContrato = { id: string; fechamento_id: string; status: string; nome: string | null; data_evento: string | null; pacote: string | null; convidados: string | null; origem_fechamento: string };
 
 /** Lista do painel de contratos já filtrada pela empresa comprovada (nunca lista global filtrada depois). */
 export async function listarContratosDoTenant(tx: DbExecutor, empresaId: string, incluirCancelados: boolean) {
   return (await tx.query<LinhaPainelContrato>(
     `SELECT c.id,c.fechamento_id,CASE WHEN c.status<>'ASSINADO' AND e.estado='CANCELADA' THEN 'PREPARACAO_CANCELADA' ELSE c.status END AS status,
             v.snapshot->'contratante'->>'nomeCompleto' AS nome,v.snapshot->'evento'->>'data' AS data_evento,
-            v.snapshot->'evento'->'pacote'->>'nome' AS pacote,v.snapshot->'evento'->>'convidados' AS convidados
+            v.snapshot->'evento'->'pacote'->>'nome' AS pacote,v.snapshot->'evento'->>'convidados' AS convidados,fech.origem_fechamento
        FROM contratos c
        JOIN fechamentos fech ON fech.id = c.fechamento_id AND fech.empresa_id = $2::uuid
        JOIN pacotes pac ON pac.id = fech.pacote_id AND pac.empresa_id = $2::uuid

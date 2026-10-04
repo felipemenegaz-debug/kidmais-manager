@@ -30,7 +30,7 @@ export async function GET(request: NextRequest, context: {
             const configuracaoAgendaId = z.string().uuid().parse(q.get('periodo') || fonte.fechamento.configuracaoAgendaId);
             const pacoteId = z.string().uuid().parse(q.get('pacote') || fonte.fechamento.pacoteId);
             const adicionais = q.has('adicionais') ? z.array(z.object({ codigo: z.string().max(80), quantidade: z.number().positive() }).strict()).max(60).parse(JSON.parse(q.get('adicionais')!)) : fonte.adicionais;
-            const disponibilidade = await consultarDisponibilidadeData(dataEvento, tx, preparada ? fonte.fechamento.id : undefined);
+            const disponibilidade = await consultarDisponibilidadeData(dataEvento, tx, preparada ? fonte.fechamento.id : undefined, { fechamentoId: fonte.fechamento.id });
             // Opções de troca de vínculo: só da empresa já comprovada (= empresa do fechamento).
             const vinculos = preparada ? {
                 clientes: (await tx.query("SELECT id,nome_completo FROM clientes WHERE empresa_id=$1::uuid AND status<>'MESCLADO' ORDER BY nome_completo", [empresaId])).rows,

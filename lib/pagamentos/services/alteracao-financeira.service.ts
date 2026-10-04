@@ -87,7 +87,7 @@ export function simularPosicao(p:PosicaoFinanceira,input:PedidoResolucao,reprogr
  if(!input.justificativa.trim())recusarFinanceiro('DADOS_INVALIDOS','Informe a justificativa.',400);
  if((depois.saldo===0n)!==(input.modo==='SEM_SALDO'))recusarFinanceiro('CRONOGRAMA_INCONSISTENTE','Tratamento incompatível com saldo.',422);
  const versao=reprogramacao?p.reconhecida:p.vigente;
- validarCronogramaConsolidado(input.parcelas,depois.saldo,versao.snapshot.evento.data,(versao.snapshot.comercial.condicaoPagamento?.forma??versao.snapshot.comercial.formaPagamentoPretendida)==='PIX_PARCELADO');
+ validarCronogramaConsolidado(input.parcelas,depois.saldo,versao.snapshot.evento.data,(versao.snapshot.comercial.condicaoPagamento?.forma??versao.snapshot.comercial.formaPagamentoPretendida)==='PIX_PARCELADO',p.excecoesHistoricas);
  for(const parcela of input.parcelas.filter(i=>i.parcelaId)){
   const antiga=p.futuro.find(i=>i.parcelaId===parcela.parcelaId?.toLowerCase());
   if(!antiga||antiga.vencimento!==parcela.vencimento||BigInt(antiga.valorCentavos)!==centavosInteiros(parcela.valorCentavos))recusarFinanceiro('PARCELA_NAO_PRESERVAVEL','Parcela preservada deve manter seu saldo e vencimento.');

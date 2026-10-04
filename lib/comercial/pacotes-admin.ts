@@ -605,9 +605,12 @@ export async function definirDisponibilidadePacoteAdmin(
   const paresHorarios = pares.map((par) => par.horarioId);
   const horarios = [...new Set(paresHorarios)];
   if (horarios.length > 0) {
+    // 062: turnos de outra empresa não valem; os modelos globais e os da própria empresa, sim. to_jsonb lê a coluna
+    // quando ela existe (com a 062) e devolve nulo sem ela, com a mesma consulta antes e depois da migration.
     const existentes = await tx.query<{ id: string }>(
-      `SELECT id FROM configuracao_agenda WHERE ativo AND id = ANY($1::uuid[])`,
-      [horarios],
+      `SELECT id FROM configuracao_agenda c WHERE ativo AND id = ANY($1::uuid[])
+          AND (to_jsonb(c)->>'empresa_id' IS NULL OR to_jsonb(c)->>'empresa_id' = $2::text)`,
+      [horarios, ctx.empresaId],
     );
     if (existentes.rows.length !== horarios.length) {
       recusar("DADOS_INVALIDOS", "Escolha apenas horários que o calendário já usa.", 409);

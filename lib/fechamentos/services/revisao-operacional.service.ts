@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
 import { buscarFechamentoPorId, buscarFechamentoPorIdParaAtualizacao, empresaDoFechamentoComTrava, empresaDoFechamentoSemTrava } from '../repositories';
-import type { FechamentoAdicionalRecord } from '../repositories';
+import type { FechamentoAdicionalRecord, FechamentoRecord } from '../repositories';
 import { buscarRevisaoDaVersao, criarRevisaoOperacionalRegistro, listarItensRevisao, salvarOperacaoPreparada, aplicarOperacaoPreparada, type RevisaoOperacional } from '../repositories/revisao.repository';
 import { registrarAuditoria, buscarClientePorId, buscarAniversariantePorId, buscarResponsavelPorId } from '../../clientes/repositories';
 import { atualizarClienteInterno } from '../../clientes/services';
@@ -11,7 +11,7 @@ import { calcularResumoComercial } from '../../comercial/services';
 import { validarPretensaoPix, centavosComerciais } from '../../comercial/condicao-pagamento';
 import { listarCodigosInclusos } from '../../comercial/composicao';
 import type { EdicaoFestaInput } from './edicao-administrativa-schema';
-import { consultarDisponibilidadeData } from '../../disponibilidade/services';
+import { consultarDisponibilidadeData, intervaloSemConflito } from '../../disponibilidade/services';
 import { FechamentoServiceError } from './errors';
 import { carregarSnapshot } from '../../contratos/services/contrato.service';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
@@ -28,13 +28,34 @@ type Contexto = {
 function recusar(message: string): never { throw new FechamentoServiceError('DADOS_INVALIDOS', message, 409); }
 async function auditar(tx: DbExecutor, r: RevisaoOperacional, c: Contexto, acao: string, antes: unknown, depois: unknown) { await registrarAuditoria({ atorTipo: c.usuarioId ? 'USUARIO' : c.validacaoIdentidadeId ? 'CLIENTE' : 'SISTEMA', usuarioId: c.usuarioId, clienteId: r.operacao.clienteId, entidadeTipo: 'FECHAMENTO_REVISAO', entidadeId: r.id, origem: 'FECHAMENTO_ADMIN', acao, requestId: c.requestId ?? null, ip: c.ip ?? null, userAgent: c.userAgent ?? null, dadosAntes: antes === null ? null : { estado: antes }, dadosDepois: { resultado: depois, validacaoIdentidadeId: c.validacaoIdentidadeId ?? null } }, tx); }
 export async function bloquearDatasRevisao(tx: DbExecutor, r: RevisaoOperacional, destino?: string) { const f = (await buscarFechamentoPorIdParaAtualizacao(r.fechamento_id, tx))!; await tx.query('SELECT kidmais_lock_datas_revisao($1::date[])', [[f.dataEvento, r.operacao.dataEvento, ...(destino ? [destino] : [])]]); return f; }
+/**
+ * Horário histórico preservado: contrato integrado da importação (origem IMPORTACAO_HISTORICA) cuja revisão mantém
+ * EXATAMENTE o destino da reserva vigente — mesma data, início, fim (logo, mesma duração) e turno. Empresa e unidade
+ * não mudam na revisão. Nada é recalculado nem deslocado: só deixa de exigir que o horário esteja entre os candidatos
+ * atuais do turno. Qualquer mudança de destino (data, início, fim ou turno) segue as validações oficiais.
+ */
+export function horarioHistoricoPreservado(
+    vigente: Pick<FechamentoRecord, 'origemFechamento' | 'dataEvento' | 'horarioInicio' | 'horarioFim' | 'configuracaoAgendaId'>,
+    destino: Pick<FechamentoRecord, 'dataEvento' | 'horarioInicio' | 'horarioFim' | 'configuracaoAgendaId'>,
+) {
+    return vigente.origemFechamento === 'IMPORTACAO_HISTORICA'
+        && vigente.dataEvento === destino.dataEvento
+        && vigente.horarioInicio.slice(0, 5) === destino.horarioInicio.slice(0, 5)
+        && vigente.horarioFim.slice(0, 5) === destino.horarioFim.slice(0, 5)
+        && vigente.configuracaoAgendaId === destino.configuracaoAgendaId;
+}
 export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacional, c: Contexto, options: {
     naoFalharPorConflito?: boolean;
     mudouDestino?: boolean;
 } = {}) {
     const f = await bloquearDatasRevisao(tx, r), op = r.operacao;
     const disponibilidade = await consultarDisponibilidadeData(op.dataEvento, tx, r.fechamento_id);
-    const livre = disponibilidade.periodos.find(p => p.configuracaoId === op.configuracaoAgendaId)?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === op.horarioInicio.slice(0, 5) && h.fim === op.horarioFim.slice(0, 5)) === true;
+    const candidatoOficial = disponibilidade.periodos.find(p => p.configuracaoId === op.configuracaoAgendaId)?.horarios.some(h => h.status === 'DISPONIVEL' && h.inicio === op.horarioInicio.slice(0, 5) && h.fim === op.horarioFim.slice(0, 5)) === true;
+    // Contrato histórico no próprio horário original (fora dos turnos atuais): o mesmo intervalo, sem conflito com outras
+    // reservas e bloqueios do recurso. Não vale para destino novo.
+    const historicoPreservado = !candidatoOficial && horarioHistoricoPreservado(f, op)
+        && await intervaloSemConflito(op.dataEvento, op.horarioInicio, op.horarioFim, tx, r.fechamento_id);
+    const livre = candidatoOficial || historicoPreservado;
     if (!livre) {
         if (options.naoFalharPorConflito) {
             await auditar(tx, r, c, 'REVISAO_DESTINO_EM_CONFLITO', null, { data: op.dataEvento, horarioInicio: op.horarioInicio, horarioFim: op.horarioFim, reservaVigente: f.status });
@@ -44,7 +65,7 @@ export async function revalidarAgendaRevisao(tx: DbExecutor, r: RevisaoOperacion
     }
     if ((await tx.query<{ ocupa: boolean }>('SELECT public.kidmais019_ocupa($1::uuid) AS ocupa', [f.id])).rows[0].ocupa && (!r.hold_destino_adquirido_em || options.mudouDestino)) {
         await tx.query('UPDATE fechamento_revisoes SET hold_destino_adquirido_em=clock_timestamp() WHERE id=$1', [r.id]);
-        await auditar(tx, r, c, options.mudouDestino ? 'RESERVA_REVISAO_MOVIDA' : 'RESERVA_REVISAO_ADQUIRIDA', { hold: r.hold_destino_adquirido_em }, { data: op.dataEvento, inicio: op.horarioInicio, fim: op.horarioFim });
+        await auditar(tx, r, c, options.mudouDestino ? 'RESERVA_REVISAO_MOVIDA' : 'RESERVA_REVISAO_ADQUIRIDA', { hold: r.hold_destino_adquirido_em }, { data: op.dataEvento, inicio: op.horarioInicio, fim: op.horarioFim, horarioHistoricoPreservado: historicoPreservado });
     }
     return true;
 }

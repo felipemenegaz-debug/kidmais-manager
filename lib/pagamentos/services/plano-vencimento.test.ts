@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as core from './financeiro-core.ts';
 import * as condicao from './condicao-contratual.ts';
+import * as historico from './pagamento-historico.ts';
 import { distribuirCentavos } from './alteracao-financeira-core.ts';
 import { sugerirParcelamentoPix } from './sugestao-pix.ts';
 import { PagamentoServiceError } from './errors.ts';
@@ -28,6 +29,7 @@ function servico(existente = false, forma = 'PIX_PARCELADO') {
   const deps: Record<string, unknown> = {
     './financeiro-core': core,
     './condicao-contratual': condicao,
+    './pagamento-historico': historico,
     './sugestao-pix': { sugerirParcelamentoPix },
     './errors': { PagamentoServiceError },
     '../../contratos/services/snapshot-core': { hashSnapshotContrato },

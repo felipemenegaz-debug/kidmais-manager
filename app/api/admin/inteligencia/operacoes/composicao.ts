@@ -7,6 +7,7 @@ import { repositorioOperacoesPostgres } from "@/lib/ia-persistencia/operacoes";
 import { buscarClientesCrm } from "@/lib/clientes/services";
 import { calcularResumoComercial } from "@/lib/comercial/services";
 import { consultarDisponibilidadeData } from "@/lib/disponibilidade/services";
+import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
 import { erroConvidadosFechamento } from "@/lib/fechamentos/convidados";
 import { clienteParaPreparacao, criarFechamentoAdministrativo, obterContextoFechamentoAdministrativo } from "@/lib/fechamentos/services/fechamento-administrativo.service";
 import { exigirApiAdminCrmDisponivel, tokenAdmin } from "@/lib/http/admin-crm-api";
@@ -63,9 +64,10 @@ export const portaContratacao: PortaContratacao = {
     return pacote ? { id: pacote.id, nome: pacote.nome, minimo: pacote.convidadosMinimos, maximo: pacote.convidadosMaximos } : null;
   },
   erroConvidados: (codigo, pacote, convidados) => erroConvidadosFechamento(convidados, { id: codigo, nome: pacote.nome, minPagantes: pacote.minimo ?? 1, maxPagantes: pacote.maximo ?? 150 }),
-  async horarios(tx, data, turno) {
+  async horarios(tx, empresaId, data, turno) {
     try {
-      const dia = await consultarDisponibilidadeData(data, tx);
+      // Agenda da empresa comprovada (062); várias unidades = visão conservadora da empresa inteira.
+      const dia = await consultarDisponibilidadeData(data, tx, undefined, await escopoDaEmpresa(tx, empresaId));
       const periodo = dia.periodos.find((p) => p.codigo === (turno === "almoco" ? "TURNO_1" : "TURNO_2"));
       return periodo ? { configuracaoId: periodo.configuracaoId, horarios: periodo.horarios.filter((h) => h.status === "DISPONIVEL").map((h) => ({ inicio: h.inicio, fim: h.fim })) } : null;
     } catch {

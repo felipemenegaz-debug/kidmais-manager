@@ -123,7 +123,7 @@ export function criarVinculo(
       const mesmo = ctx.input.pacote === payload.pacote && ctx.input.convidadosPagantes === payload.convidados && ctx.input.dataFesta === payload.data && ctx.input.horarioBase === payload.turno;
       if (mesmo && payload.precoTabelaCentavos !== null) {
         const pacote = await porta.pacote(tx, ctx.empresaId, CODIGO_BANCO[payload.pacote]);
-        const agenda = await porta.horarios(tx, payload.data, payload.turno);
+        const agenda = await porta.horarios(tx, ctx.empresaId, payload.data, payload.turno);
         const atual = pacote && agenda ? await porta.precoTabela(tx, ctx.empresaId, { data: payload.data, configuracaoAgendaId: agenda.configuracaoId, pacoteId: pacote.id, convidados: payload.convidados }) : null;
         if (atual !== payload.precoTabelaCentavos) {
           throw new InteligenciaError("PREPARACAO_PRECO_ALTERADO", "O valor de tabela mudou desde a preparação. Confira o valor e envie sem a preparação, ou peça uma nova ao Kidmais.", 409);

@@ -96,6 +96,8 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/fechamentos/services/fechamento-administrativo.service": ["clienteParaPreparacao", "criarFechamentoAdministrativo", "obterContextoFechamentoAdministrativo"],
   "lib/fechamentos/convidados": ["erroConvidadosFechamento"],
   "lib/disponibilidade/services": ["consultarDisponibilidadeData"],
+  // Agenda por empresa/unidade (062): escopo da empresa comprovada para a consulta oficial de horários.
+  "lib/disponibilidade/escopo": ["escopoDaEmpresa"],
   "lib/comercial/services": ["calcularResumoComercial"],
   "lib/financeiro/calculos": ["hojeBrasilia"],
   "lib/operacional/parametros-consumo": ["fonteParametrosDisponivel", "parametroVigente", "registrarParametroConsumo"],

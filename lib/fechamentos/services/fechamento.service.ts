@@ -118,6 +118,7 @@ async function criarFechamentoComercialNaTransacao(
       horarioInicio: input.horarioInicio,
       horarioFim: input.horarioFim,
       configuracaoAgendaId: input.configuracaoAgendaId,
+      estabelecimentoId: input.estabelecimentoId ?? null,
       pacoteId: resumoComercial.pacote.pacote.id,
       tabelaPrecoId: resumoComercial.pacote.tabelaPreco.id,
       precoPacoteId: resumoComercial.pacote.precoRegra.id,

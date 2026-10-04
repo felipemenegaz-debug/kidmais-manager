@@ -3,7 +3,7 @@ import type { DbExecutor } from '../../db/contracts';
 import type { ContratoVersaoRecord } from '../../contratos/repositories';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
 import { lerPosicaoFinanceira } from '../repositories/alteracao-financeira.repository';
-import { reaisCentavos } from './alteracao-financeira-core';
+import { chaveExcecaoHistorica, reaisCentavos } from './alteracao-financeira-core';
 
 /** Chamado na promoção contratual, sob o lock de Fechamento/Contrato já adquirido. */
 export async function detectarPendenciasFinanceiras(tx:DbExecutor,v:ContratoVersaoRecord,anterior:string|null){
@@ -15,7 +15,7 @@ export async function detectarPendenciasFinanceiras(tx:DbExecutor,v:ContratoVers
  if(reaisCentavos(v.snapshot.comercial.valorFinalContrato)!==p.posicao.obrigacao)motivos.push('VALOR');
  if(hashSnapshotContrato(comercial(v.snapshot.comercial))!==hashSnapshotContrato(comercial(p.reconhecida.snapshot.comercial)))motivos.push('CONDICAO');
  if(v.snapshot.contratante.clienteId!==p.reconhecida.snapshot.contratante?.clienteId)motivos.push('CONTRATANTE');
- if(comercial(v.snapshot.comercial).forma==='PIX_PARCELADO'&&p.futuro.some(i=>BigInt(i.valorCentavos)>0n&&i.vencimento>v.snapshot.evento.data))motivos.push('CRONOGRAMA_DATA');
+ if(comercial(v.snapshot.comercial).forma==='PIX_PARCELADO'&&p.futuro.some(i=>BigInt(i.valorCentavos)>0n&&i.vencimento>v.snapshot.evento.data&&!p.excecoesHistoricas?.has(chaveExcecaoHistorica(i.parcelaId,i.vencimento))))motivos.push('CRONOGRAMA_DATA');
  if(motivos.length)await tx.query(`INSERT INTO contrato_pendencias_financeiras(contrato_id,versao_anterior_id,versao_nova_id,pagamento_id,motivo,diferencas) VALUES($1,$2,$3,$4,'Alteração contratual exige tratamento financeiro explícito',$5) ON CONFLICT(pagamento_id,versao_nova_id) DO NOTHING`,[v.contratoId,anterior,v.id,p.pagamento.id,{motivos,versaoFinanceiraReconhecidaId:p.reconhecida.id,obrigacaoReconhecidaCentavos:p.posicao.obrigacao.toString(),novaVersao:v.snapshot.comercial,clienteAnteriorId:p.reconhecida.snapshot.contratante?.clienteId,clienteNovoId:v.snapshot.contratante.clienteId}]);
  for(const pend of p.pendencias.filter(pend=>pend.versao_nova_id!==v.id&&!p.ajustes.some(a=>a.versao_reconhecida_id===pend.versao_nova_id))){
   if((await tx.query("SELECT id FROM pagamento_eventos WHERE pendencia_id=$1 AND tipo='PENDENCIA_SUPERADA'",[pend.id])).rows.length)continue;

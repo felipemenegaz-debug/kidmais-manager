@@ -51,16 +51,19 @@ const ESTADO_POSTGRES = {
   "lib/comercial/round5-remediacao.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/supersessao-048.postgres.test.ts": { descartavel: "atual" },
   "lib/contratos/migration-057.postgres.test.ts": { descartavel: "atual" },
+  "lib/contratos/integracao-importados/integracao.postgres.test.ts": { descartavel: "atual" },
+  "lib/disponibilidade/agenda-062.postgres.test.ts": { descartavel: "atual" },
   "lib/fechamentos/migration-054.postgres.test.ts": { descartavel: "053", alvo054: true },
   "lib/financeiro/baixa.postgres.test.ts": { descartavel: "atual" },
   "lib/financeiro/financeiro.postgres.test.ts": { descartavel: "atual" },
-  "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual" },
+  // Também depois da 061 e da 062: módulo Festa, formalização e agenda nativos (código novo em cada etapa).
+  "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062"] },
   "lib/ia-persistencia/migration-055.postgres.test.ts": { descartavel: "atual" },
   "lib/ia-persistencia/uso-custos.postgres.test.ts": { descartavel: "atual" },
   "lib/ia-persistencia/migration-058.postgres.test.ts": { descartavel: "atual" },
   "lib/inteligencia/inteligencia.postgres.test.ts": { descartavel: "atual" },
   "lib/operacional/migration-059.postgres.test.ts": { descartavel: "atual" },
-  "lib/pagamentos/estorno-completo.postgres.test.ts": { descartavel: "atual" },
+  "lib/pagamentos/estorno-completo.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062"] },
   "lib/pagamentos/gates-c2.postgres.test.ts": { descartavel: "atual" },
   "lib/saas/hg6-kidmais.postgres.test.ts": { descartavel: "045-sem-040" },
   "lib/saas/hg8-catalogo.postgres.test.ts": { descartavel: "atual" },
@@ -106,7 +109,50 @@ function exigirListaPostgres(arquivos) {
   return arquivos;
 }
 
+/** Configuração de conexão herdada (DATABASE_URL e qualquer PG*): nunca chega a uma suíte nem ao runner. */
+function variavelDeConexaoHerdada(nome) {
+  return nome === "DATABASE_URL" || /^PG/i.test(nome);
+}
+
+const VARIAVEIS_054 = ["KIDMAIS_054_PG_HOST", "KIDMAIS_054_PG_PORT", "KIDMAIS_054_PG_DATABASE", "KIDMAIS_054_PG_USER", "KIDMAIS_054_AUTORIZACAO"];
+
+/**
+ * Ambiente EXPLÍCITO de cada suíte: remove DATABASE_URL e toda variável PG* (PGPORT, PGOPTIONS, PGSERVICEFILE,
+ * PGPASSFILE...), remove o alvo da 054 de quem não o declara e repassa a porta autorizada com a autorização literal —
+ * a porta não depende de PGPORT nem de padrão implícito. Pura (testada sem processo).
+ */
+function ambienteDaSuite(base, estado, porta, banco) {
+  const env = { ...base, NEXT_TELEMETRY_DISABLED: "1" };
+  for (const nome of Object.keys(env)) if (variavelDeConexaoHerdada(nome) || VARIAVEIS_054.includes(nome)) delete env[nome];
+  env[OPT_IN] = BANCO;
+  env.KIDMAIS_DESCARTAVEL_PORTA = String(porta);
+  env.KIDMAIS_DESCARTAVEL_AUTORIZACAO = `127.0.0.1:${porta}/${BANCO}`;
+  if (estado.alvo054) {
+    Object.assign(env, {
+      KIDMAIS_054_PG_HOST: "127.0.0.1",
+      KIDMAIS_054_PG_PORT: String(porta),
+      KIDMAIS_054_PG_DATABASE: banco,
+      KIDMAIS_054_PG_USER: "kidmais_descartavel",
+      KIDMAIS_054_AUTORIZACAO: `127.0.0.1:${porta}/${banco}`,
+    });
+  }
+  return env;
+}
+
+/** Repetição de suítes pertinentes: KIDMAIS_POSTGRES_SOMENTE="lib/a.postgres.test.ts,lib/b.postgres.test.ts" (caminhos exatos). */
+function filtrarSuites(planos, env) {
+  const texto = env.KIDMAIS_POSTGRES_SOMENTE;
+  if (!texto) return planos;
+  const pedidas = texto.split(",").map((s) => s.trim()).filter(Boolean);
+  const desconhecidas = pedidas.filter((p) => !Object.hasOwn(ESTADO_POSTGRES, p));
+  if (desconhecidas.length) throw new Error(`KIDMAIS_POSTGRES_SOMENTE com suíte desconhecida: ${desconhecidas.join(", ")}`);
+  return planos.filter((p) => pedidas.includes(p.estado.relativo));
+}
+
 module.exports = {
+  variavelDeConexaoHerdada,
+  ambienteDaSuite,
+  filtrarSuites,
   OPT_IN,
   BANCO,
   PASTAS,

@@ -1,14 +1,17 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { ContratoImportadoDetalhe } from '@/lib/contratos/importados';
 import { MENSAGEM_SEM_ACESSO } from './contrato-url';
+import IntegracaoContrato from './importacao/IntegracaoContrato';
 import styles from './contratos-ux.module.css';
 
 /**
- * Detalhe do contrato importado (etapa 1, somente leitura): snapshot como está no documento, cliente, original protegido
- * e pagamentos previstos. Nenhuma Festa, reserva, cobrança ou pagamento é criado a partir desta tela.
+ * Detalhe do contrato importado ainda não integrado: snapshot como está no documento, cliente, original protegido e
+ * pagamentos previstos. "Integrar ao sistema" abre o assistente (festa, agenda, pagamentos) sem reenviar o arquivo.
+ * Importação já integrada: o link antigo leva ao contrato do Core.
  */
 const reais = (centavos: number | null | undefined) => (centavos == null ? 'Não informado' : (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 const dataBr = (iso: string | null | undefined) => (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('/') : 'Não informada');
@@ -22,16 +25,19 @@ export const TEXTO_EVENTO_FUTURO = 'Evento importado — ainda não integrado à
 export default function ContratoImportado({ importacaoId }: { importacaoId: string }) {
   const [dados, setDados] = useState<ContratoImportadoDetalhe | null>(null);
   const [erro, setErro] = useState('');
+  const [integrando, setIntegrando] = useState(false);
+  const router = useRouter();
   // Montado com `key={importacaoId}` pelo pai: trocar de contrato recria o estado, sem setState síncrono no efeito.
   useEffect(() => {
     let ativo = true;
     adminFetch(`/api/admin/contratos/painel?importacaoId=${encodeURIComponent(importacaoId)}`).then(async (r) => ({ status: r.status, corpo: await r.json() })).then(({ status, corpo }) => {
       if (!ativo) return;
+      if (corpo.ok && corpo.data?.integrado === true && typeof corpo.data.contratoId === 'string') { router.replace(`/admin/contratos?contratoId=${encodeURIComponent(corpo.data.contratoId)}`, { scroll: false }); return; }
       if (corpo.ok) setDados(corpo.data as ContratoImportadoDetalhe);
       else setErro(status === 404 || status === 403 ? MENSAGEM_SEM_ACESSO : corpo.erro || 'Não foi possível carregar o contrato importado.');
     }).catch(() => { if (ativo) setErro('Não foi possível carregar o contrato importado.'); });
     return () => { ativo = false; };
-  }, [importacaoId]);
+  }, [importacaoId, router]);
   if (erro) return <p role="alert">{erro}</p>;
   if (!dados) return <p role="status">Carregando contrato importado…</p>;
   const c = dados.contrato, e = c.evento, p = c.pacote, v = c.valores, pg = c.pagamentosPrevistos;
@@ -46,10 +52,14 @@ export default function ContratoImportado({ importacaoId }: { importacaoId: stri
           <h2>{dados.cliente.nome}</h2>
           <p>{dataBr(e.data)} · {ou(p.nome, 'Pacote não informado')} · {e.convidados == null ? 'convidados não informados' : `${e.convidados} convidados`}</p>
           <p className={styles.origemImportado}>Contrato histórico importado de documento em {instante(dados.importadoEm)}{dados.importadoPor ? ` por ${dados.importadoPor}` : ''}. Os dados abaixo são os do documento original; nada foi recalculado com o catálogo ou a tabela de preços atual.</p>
+          <p className={styles.notice} data-integracao="pendente"><strong>Ainda não integrado ao sistema.</strong> Sem integração, não há festa, reserva de agenda, conta a receber nem recebimento.</p>
+          {dados.podeIntegrar && !integrando && <div className={styles.actions}><button type="button" onClick={() => setIntegrando(true)}>Integrar ao sistema</button></div>}
         </div>
         <div className={styles.total}><span>Valor contratado no documento</span><strong>{reais(v.total)}</strong></div>
       </div>
     </header>
+
+    {integrando && <IntegracaoContrato importacaoId={dados.id} />}
 
     <section className={styles.card} aria-labelledby="importado-evento">
       <h2 id="importado-evento">Evento</h2>

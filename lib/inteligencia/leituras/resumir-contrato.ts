@@ -18,13 +18,15 @@ function reais(valor: number) {
 
 export function montarResumoContrato(r: ResumoContratoTenant, contexto: ContextoFerramenta): RespostaLeitura {
   const destino = "/admin/contratos";
-  const faltaAssinar = ["KIDMAIS", "CLIENTE"].filter((parte) => !r.assinaturas.includes(parte));
+  // Contrato histórico assinado em papel: não há assinatura eletrônica a esperar (nem a apontar como pendente).
+  const faltaAssinar = r.assinadoEmPapel ? [] : ["KIDMAIS", "CLIENTE"].filter((parte) => !r.assinaturas.includes(parte));
   const fatos = [
     fato(`Contrato ${STATUS[r.status] ?? r.status}${r.versaoVigente ? `, versão vigente V${r.versaoVigente}` : ""}.`, FONTE),
     r.dataEvento ? fato(`Festa em ${dataCurta(r.dataEvento)}${r.horarioInicio ? `, das ${r.horarioInicio}${r.horarioFim ? ` às ${r.horarioFim}` : ""}` : ""}.`, FONTE) : ausencia("Data da festa não registrada no snapshot.", FONTE),
     r.pacote ? fato(`Pacote contratado: ${r.pacote}${r.convidados ? `, ${r.convidados} convidados` : ""}.`, FONTE) : ausencia("Pacote não registrado no snapshot.", FONTE),
     r.valorFinalContrato != null ? fato(`Valor contratado (snapshot, sem recálculo): ${reais(r.valorFinalContrato)}.`, FONTE) : ausencia("Valor final não registrado no snapshot.", FONTE),
     ...(r.formaPagamento ? [fato(`Forma de pagamento: ${FORMAS[r.formaPagamento] ?? r.formaPagamento}.`, FONTE)] : []),
+    ...(r.assinadoEmPapel ? [fato("Contrato histórico assinado em papel, conferido na importação; sem assinatura eletrônica.", FONTE)] : []),
     ...(r.buffetStatus ? [fato(`Buffet ${r.buffetStatus === "DEFINIDO" ? "definido" : "pendente"} na versão vigente.`, FONTE)] : []),
     ...(r.status !== "CANCELADO" && faltaAssinar.length ? [fato(`Falta assinatura: ${faltaAssinar.map((p) => (p === "KIDMAIS" ? "Kidmais" : "cliente")).join(" e ")}.`, FONTE)] : []),
     ...(r.versaoEmPreparacao ? [fato("Existe uma nova versão em preparação, ainda não vigente.", FONTE)] : []),
