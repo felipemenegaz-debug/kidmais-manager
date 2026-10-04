@@ -61,8 +61,7 @@ export function validarNovaSenha(nova: string, confirmacao: string, atual?: stri
 export async function trocarPropriaSenha(token: string, raw: unknown, ctx: ContextoRequisicao, deps: SenhaPropriaDeps = padrao) {
     const input = trocaSenhaSchema.parse(raw);
     validarNovaSenha(input.novaSenha, input.confirmacao, input.senhaAtual);
-    // O hash novo (scrypt) é calculado antes da transação para não segurar o lock da conta.
-    const novoHash = await deps.criarHashSenha(input.novaSenha);
+    // O hash novo (scrypt) só é calculado depois de sessão válida, limite e senha atual conferida.
     const resultado = await deps.withTransaction(async (tx: DbExecutor) => {
         const sessao = await deps.consultarSessao(token, tx, true);
         if (!await deps.consumirLimite(tx, 'IDENTIFICADOR', sessao.usuario_id, REGRA_TROCA))
@@ -75,6 +74,7 @@ export async function trocarPropriaSenha(token: string, raw: unknown, ctx: Conte
             }, tx);
             return { tipo: 'senha-atual' as const };
         }
+        const novoHash = await deps.criarHashSenha(input.novaSenha);
         await tx.query('UPDATE usuarios_administrativos SET senha_hash=$2, senha_alterada_em=clock_timestamp() WHERE id=$1', [sessao.usuario_id, novoHash]);
         const encerradas = await deps.revogarSessoesDoUsuario(tx, sessao.usuario_id);
         await deps.limparLimite(tx, 'IDENTIFICADOR', sessao.usuario_id, REGRA_TROCA.namespace);

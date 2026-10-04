@@ -25,6 +25,7 @@
 .identidade small { color:var(--secondary-text); font-size:10px; }
 .perfilLink { display:flex; align-items:center; min-height:44px; margin:-8px 0 12px; color:var(--lilac-accent); font-size:12px; font-weight:700; text-decoration:none; }
 .perfilLink:hover, .perfilLink[aria-current=page] { text-decoration:underline; text-underline-offset:4px; }
+.avisoEmpresa { margin:-4px 0 12px; color:var(--secondary-text); font-size:11px; line-height:1.4; }
 .conta button { background:rgba(127,29,29,.35); border:1px solid rgba(248,113,113,.28); border-radius:10px; padding:10px 14px; min-height:44px; color:#fecdd3; text-transform:uppercase; font-weight:600; letter-spacing:.08em; font-size:11px; cursor:pointer; }
 .conteudo { flex:1; min-width:0; background:var(--main-bg); }
 .menu { display:none; }

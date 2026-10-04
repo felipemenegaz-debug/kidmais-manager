@@ -135,8 +135,9 @@ export async function redefinirSenhaComToken(raw: unknown, ctx: ContextoRequisic
     const parsed = redefinirSchema.safeParse(raw);
     if (!parsed.success)
         throw erroAcesso('LINK_INVALIDO', 'Este link é inválido ou expirou. Peça uma nova recuperação.', 410);
+    // Só regras baratas antes do limite. O scrypt (N=131072, ~128 MB) roda DEPOIS do limite por IP e só para token
+    // válido e aberto: requisições com token falso ou acima do limite nunca chegam a calcular hash.
     validarNovaSenha(parsed.data.novaSenha, parsed.data.confirmacao);
-    const novoHash = await deps.criarHashSenha(parsed.data.novaSenha);
     const resultado = await deps.withTransaction(async (tx) => {
         if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_REDEFINIR_IP))
             return { tipo: 'limite' as const };
@@ -146,6 +147,7 @@ export async function redefinirSenhaComToken(raw: unknown, ctx: ContextoRequisic
               FOR UPDATE OF r, u`, [hashToken(parsed.data.token)])).rows[0];
         if (!pedido)
             return { tipo: 'link' as const };
+        const novoHash = await deps.criarHashSenha(parsed.data.novaSenha);
         await tx.query('UPDATE usuarios_administrativos SET senha_hash = $2, senha_alterada_em = clock_timestamp() WHERE id = $1', [pedido.usuario_id, novoHash]);
         await tx.query('UPDATE recuperacoes_senha SET usado_em = clock_timestamp() WHERE id = $1', [pedido.id]);
         const encerradas = await revogarSessoesDoUsuario(tx, pedido.usuario_id);

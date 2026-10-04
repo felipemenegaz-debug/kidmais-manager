@@ -223,3 +223,58 @@ test('redefinição: token malformado responde "link inválido" sem tocar no ban
     await assert.rejects(redefinir({ token: 'curto', novaSenha: 'nova-senha-1', confirmacao: 'nova-senha-1' }, ctx, deps), (e: { code?: string; httpStatus?: number }) => e.code === 'LINK_INVALIDO' && e.httpStatus === 410);
     assert.equal(hash, 0);
 });
+
+// ---------------------------------------------------------------- custo do hash antes do limite
+
+test('custo do hash: troca de senha só calcula scrypt depois de sessão, limite e senha atual conferidos', async () => {
+    let hashes = 0;
+    for (const opcoes of [{ limiteOk: false }, { senhaConfere: false }]) {
+        const { deps } = depsTroca(opcoes);
+        await assert.rejects(trocar('t', { senhaAtual: 'atual-123', novaSenha: 'nova-senha-1', confirmacao: 'nova-senha-1' }, ctx, { ...deps, criarHashSenha: async () => { hashes += 1; return 'h'; } }));
+    }
+    assert.equal(hashes, 0);
+});
+
+function depsRedefinir(opcoes: { limiteOk: boolean; pedido: boolean }) {
+    let hashes = 0;
+    const tx = executorFalso([
+        [/SELECT tentativas/, () => [{ tentativas: opcoes.limiteOk ? 0 : 99, bloqueado: !opcoes.limiteOk, reiniciar: false }]],
+        [/FROM recuperacoes_senha r JOIN usuarios_administrativos/, () => (opcoes.pedido ? [{ id: 'p1', usuario_id: '00000000-0000-4000-8000-000000000001', origem: 'PUBLICA' }] : [])],
+        [/UPDATE sessoes_administrativas/, () => [{ id: 's' }]],
+    ]);
+    return {
+        tx, contar: () => hashes,
+        deps: { withTransaction: async (w: (t: typeof tx) => Promise<unknown>) => w(tx), criarHashSenha: async () => { hashes += 1; return 'hash-novo'; }, registrarAuditoria: async () => undefined, enviarEmail: async () => undefined, gerarToken: () => 'x' },
+    };
+}
+
+test('custo do hash: redefinição pública não calcula scrypt acima do limite nem para token inexistente; calcula uma vez para token válido', async () => {
+    process.env.ADMIN_AUTH_SECRET = 'segredo-sintetico-de-teste-unitario-0123456789';
+    const redefinir = recuperacao.redefinirSenhaComToken as (raw: unknown, ctx: unknown, deps: unknown) => Promise<{ redefinida: boolean }>;
+    const corpo = { token: 'A'.repeat(43), novaSenha: 'nova-senha-1', confirmacao: 'nova-senha-1' };
+    const limite = depsRedefinir({ limiteOk: false, pedido: true });
+    await assert.rejects(redefinir(corpo, ctx, limite.deps), (e: { httpStatus?: number }) => e.httpStatus === 429);
+    assert.equal(limite.contar(), 0);
+    assert.ok(!limite.tx.executados.some((q) => /recuperacoes_senha/.test(q.sql)), 'acima do limite nem consulta o token');
+    const falso = depsRedefinir({ limiteOk: true, pedido: false });
+    await assert.rejects(redefinir(corpo, ctx, falso.deps), (e: { code?: string }) => e.code === 'LINK_INVALIDO');
+    assert.equal(falso.contar(), 0);
+    const valido = depsRedefinir({ limiteOk: true, pedido: true });
+    assert.equal((await redefinir(corpo, ctx, valido.deps)).redefinida, true);
+    assert.equal(valido.contar(), 1);
+    const ordem = valido.tx.executados.map((q) => q.sql);
+    assert.ok(ordem.findIndex((s) => /SELECT tentativas/.test(s)) < ordem.findIndex((s) => /FROM recuperacoes_senha r/.test(s)), 'limite antes do token');
+});
+
+test('custo do hash: aceite de convite com token inexistente ou acima do limite não calcula scrypt', async () => {
+    process.env.ADMIN_AUTH_SECRET = 'segredo-sintetico-de-teste-unitario-0123456789';
+    const convites = carregarModulo('lib/acessos/convites.ts', { ...dubleBanco }) as Mod;
+    const aceitar = convites.aceitarConvite as (raw: unknown, ctx: unknown, deps: unknown) => Promise<unknown>;
+    for (const limiteOk of [false, true]) {
+        let hashes = 0;
+        const tx = executorFalso([[/SELECT tentativas/, () => [{ tentativas: limiteOk ? 0 : 99, bloqueado: !limiteOk, reiniciar: false }]]]);
+        const deps = { withTransaction: async (w: (t: typeof tx) => Promise<unknown>) => w(tx), criarHashSenha: async () => { hashes += 1; return 'h'; }, conferirSenha: async () => false, registrarAuditoria: async () => undefined, enviarEmail: async () => undefined, gerarToken: () => 'x' };
+        await assert.rejects(aceitar({ token: 'B'.repeat(43), nome: 'Pessoa Nova', senha: 'nova-senha-1', confirmacao: 'nova-senha-1' }, ctx, deps));
+        assert.equal(hashes, 0, `limite ${limiteOk ? 'ok' : 'estourado'}`);
+    }
+});

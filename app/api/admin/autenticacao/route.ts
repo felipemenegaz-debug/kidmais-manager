@@ -5,6 +5,8 @@ import { authError, loginAdmin, logoutAdmin, reautenticarAdmin } from '@/lib/aut
 import { hashToken } from '@/lib/autenticacao/senha';
 import { exigirApiAdminCrmDisponivel, politicaAdmin, tokenAdmin, verificarOrigem } from '@/lib/http/admin-crm-api';
 import { isClienteServiceError } from '@/lib/clientes/services/errors';
+import { db } from '@/lib/db/postgres';
+import { contextoDaSessao } from '@/lib/autenticacao/contexto';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 const schema = z.discriminatedUnion('acao', [
@@ -22,7 +24,9 @@ export async function GET(request: NextRequest) {
             const csrf = request.cookies.get(policy.csrfCookie)?.value ?? '';
             if (hashToken(csrf) !== session.csrf_hash)
                 throw authError();
-            return response({ ok: true, data: { usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf } });
+            // D7: o menu segue o papel NA EMPRESA selecionada (mesma regra de provarTenant), não o papel global.
+            const contexto = await contextoDaSessao(db(), session, request.nextUrl.searchParams.get('empresaId'));
+            return response({ ok: true, data: { usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf, contexto } });
         }
         catch (error) {
             if (!isClienteServiceError(error) || error.httpStatus !== 401)

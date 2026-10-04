@@ -177,6 +177,18 @@ test('operações de efeito exigem senha confirmada há no máximo 5 minutos, an
         await assert.rejects(caso(), (e: { code?: string; httpStatus?: number }) => e.code === 'REAUTENTICACAO' && e.httpStatus === 403);
 });
 
+test('reautenticação: até 5 min vale; carimbo do banco levemente à frente (≤ 2 min) vale; além disso ou antigo recusa', () => {
+    const { exigirReautenticacaoRecente } = carregarModulo('lib/desenvolvedor/autorizacao.ts', {}) as { exigirReautenticacaoRecente: (s: { autenticado_em: string }, agora: number) => void };
+    const t0 = Date.parse('2026-10-04T12:00:00.000Z');
+    const em = (ms: number) => ({ autenticado_em: new Date(t0 + ms).toISOString() });
+    assert.doesNotThrow(() => exigirReautenticacaoRecente(em(-4 * 60_000), t0));
+    assert.doesNotThrow(() => exigirReautenticacaoRecente(em(15), t0), 'relógio do banco 15 ms à frente');
+    assert.doesNotThrow(() => exigirReautenticacaoRecente(em(90_000), t0));
+    assert.throws(() => exigirReautenticacaoRecente(em(3 * 60_000), t0), /Confirme sua senha/);
+    assert.throws(() => exigirReautenticacaoRecente(em(-6 * 60_000), t0), /Confirme sua senha/);
+    assert.throws(() => exigirReautenticacaoRecente({ autenticado_em: 'invalido' }, t0), /Confirme sua senha/);
+});
+
 test('auditoria do painel: remove senha, token, hash, link/URL e cookies em qualquer nível e mascara documento', () => {
     const { sanitizarAuditoria } = carregarModulo('lib/desenvolvedor/auditoria.ts', {}) as { sanitizarAuditoria: (v: unknown) => unknown };
     const saida = sanitizarAuditoria({

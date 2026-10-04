@@ -6,7 +6,9 @@ import styles from './shell.module.css';
 import tokens from './tokens.module.css';
 import Link from 'next/link';
 import { AdminIcon, type AdminIconName } from './AdminIcon';
-import { itemAtivo, itensNavegacao } from '@/lib/admin/navegacao';
+import { itemAtivo, itensNavegacao, type PermissoesNavegacao } from '@/lib/admin/navegacao';
+
+type ContextoSessaoCliente = { empresaAtual: { nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
 import LogoEmpresa from './LogoEmpresa';
 
@@ -17,7 +19,9 @@ export default function AdminShell({ children, vitrine }: {
     const pathReal = usePathname();
     const path = vitrine?.caminho ?? pathReal;
     const [name, setName] = useState<string | null>(vitrine?.nome ?? null);
-    const [configurar, setConfigurar] = useState(Boolean(vitrine));
+    // D7: Configurações da empresa seguem o papel NA EMPRESA selecionada; as da instalação, a autoridade de plataforma.
+    const [permissoes, setPermissoes] = useState<PermissoesNavegacao>({ gestaoEmpresa: Boolean(vitrine), plataforma: Boolean(vitrine) });
+    const [empresa, setEmpresa] = useState<{ nome: string; selecaoNecessaria: boolean; desenvolvedor: boolean } | null>(null);
     const [aberto, setAberto] = useState(false);
     const menuRef = useRef<HTMLButtonElement>(null);
     const painelRef = useRef<HTMLElement>(null);
@@ -31,7 +35,9 @@ export default function AdminShell({ children, vitrine }: {
                 router.replace('/admin/login');
             else if (alive) {
                 setName(b.data.nome);
-                setConfigurar(b.data.papel === 'REPRESENTANTE_AUTORIZADO');
+                const c = b.data.contexto as ContextoSessaoCliente | undefined;
+                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma) });
+                setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
         }).catch(() => router.replace('/admin/login'));
         return () => { alive = false; };
@@ -71,7 +77,7 @@ export default function AdminShell({ children, vitrine }: {
         return <div className={`${tokens.tema} ${styles.shell}`}>{children}</div>;
     if (!name)
         return <div className={tokens.tema}><p className={styles.carregando}>Verificando sessão…</p></div>;
-    const itens = itensNavegacao(configurar);
+    const itens = itensNavegacao(permissoes);
     const grupos = ['Principal', 'Operação', 'Financeiro', 'Configurações'] as const;
     function fechar() {
         setAberto(false);
@@ -91,7 +97,9 @@ export default function AdminShell({ children, vitrine }: {
             </nav>
             <BotaoPerguntarKidmais className={styles.perguntar} aoAbrir={() => setAberto(false)}><span className={styles.navIcon} aria-hidden="true">✦</span>Perguntar ao Kidmais</BotaoPerguntarKidmais>
             <footer className={styles.conta}>
-                <div className={styles.identidade}><span className={styles.avatar} aria-hidden="true">{name.slice(0,1).toUpperCase()}</span><div><p>{name}</p><small>{configurar ? 'Proprietário' : 'Equipe'}</small></div></div>
+                <div className={styles.identidade}><span className={styles.avatar} aria-hidden="true">{name.slice(0,1).toUpperCase()}</span><div><p>{name}</p><small>{permissoes.gestaoEmpresa ? 'Gestão' : 'Equipe'}{empresa?.nome ? ` · ${empresa.nome}` : ''}</small></div></div>
+                {empresa?.selecaoNecessaria && <p className={styles.avisoEmpresa} role="status">Você tem acesso a mais de uma empresa. A escolha de empresa no menu ainda não está disponível; as configurações de empresa ficam ocultas.</p>}
+                {empresa?.desenvolvedor && <Link className={styles.perfilLink} href="/desenvolvedor" onClick={() => setAberto(false)}>Painel do desenvolvedor</Link>}
                 <Link className={styles.perfilLink} href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}>Meu perfil e senha</Link>
                 <button type="button" onClick={async () => {
                     const res = await adminFetch('/api/admin/autenticacao', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'logout' }) });

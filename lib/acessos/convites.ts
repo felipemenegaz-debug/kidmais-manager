@@ -203,8 +203,10 @@ export async function aceitarConvite(raw: unknown, ctx: ContextoRequisicao, deps
     if (!parsed.success)
         throw erroAcesso('DADOS_INVALIDOS', 'Dados inválidos.', 400);
     const input = parsed.data;
-    // Conta nova: valida e calcula o hash antes de travar qualquer linha.
-    const hashNovo = input.confirmacao !== undefined ? (validarNovaSenha(input.senha, input.confirmacao), await deps.criarHashSenha(input.senha)) : null;
+    // Conta nova: só a validação barata aqui. O hash (scrypt) é calculado depois do limite por origem e só para
+    // convite válido de e-mail sem conta — token falso ou excesso de tentativas nunca custa um scrypt.
+    if (input.confirmacao !== undefined)
+        validarNovaSenha(input.senha, input.confirmacao);
     const resultado = await deps.withTransaction(async (tx) => {
         if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE))
             return { tipo: 'limite' as const };
@@ -229,9 +231,9 @@ export async function aceitarConvite(raw: unknown, ctx: ContextoRequisicao, deps
             usuarioId = conta.id;
         }
         else {
-            if (!hashNovo || !input.nome)
+            if (input.confirmacao === undefined || !input.nome)
                 return { tipo: 'conta-nova-incompleta' as const };
-            usuarioId = await inserirIdentidadeNeutra(tx, c.email, { nome: input.nome }, hashNovo);
+            usuarioId = await inserirIdentidadeNeutra(tx, c.email, { nome: input.nome }, await deps.criarHashSenha(input.senha));
             contaNova = true;
         }
         await marcarAtor(tx, usuarioId);

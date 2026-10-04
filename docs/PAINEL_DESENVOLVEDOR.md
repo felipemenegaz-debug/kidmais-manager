@@ -1,7 +1,7 @@
-# Painel do desenvolvedor — proposta (04/10/2026)
+# Painel do desenvolvedor (04/10/2026)
 
-Branch `feat/painel-desenvolvedor-20261004`, worktree `kidmais-manager-painel-dev`, base `origin/staging` 904b451.
-Sem commit, push, banco ou e-mail real até autorização.
+Branch `feat/painel-desenvolvedor-20261004` (base `origin/staging` 904b451), PR #95 para `staging`.
+Migration 063 **não aplicada em staging nem em production**; validada só em cluster descartável sintético. Envio real de e-mail desligado (D1 pendente): convites e recuperação **não são declarados operacionais** sem validação de entrega.
 
 ## Estado atual (investigado)
 
@@ -49,21 +49,29 @@ Guarda única `exigirDesenvolvedor` (sessão válida + concessão ativa + identi
 - **Recuperação**: token de uso único, 30 min, novo pedido invalida os anteriores, intervalo mínimo entre pedidos, limite por IP e por e-mail, resposta pública idêntica exista ou não a conta. O desenvolvedor só dispara o pedido; não vê link nem senha.
 - **Troca de senha**: senha atual + nova + confirmação, política do projeto, mesmo hash; revoga todas as sessões (inclusive de outros dispositivos) e emite sessão nova para o dispositivo atual.
 - **Auditoria**: ator, horário, empresa, ação, resultado e campos alterados (lista branca). Nunca senha, hash, token, link ou documento. Recusas de autorização do painel também são auditadas.
-- **E-mail**: porta `lib/email` com provedores `desativado` (padrão), `arquivo` (somente local/teste, grava em pasta temporária, nunca envia) e um provedor HTTP real configurável. Sem provedor configurado, convite e recuperação respondem "envio não configurado" e não ficam pendentes.
+- **E-mail**: porta `lib/acessos/email.ts` com provedores `desativado` (padrão), `arquivo` (somente local/teste, grava em pasta, nunca envia; recusado em deploy) e um provedor HTTP real (D1). Sem envio, o convite fica registrado como "não enviado" (reenvio possível) e o pedido de recuperação é invalidado; a tela mostra o resultado real.
+- **Custo do hash (revisado)**: redefinição pública, aceite de convite e troca de senha só calculam o scrypt (N=131072, ~128 MB) DEPOIS do limite de tentativas e de token/senha válidos. Token falso, excesso de tentativas ou senha atual errada nunca custam um scrypt de senha nova (testado).
+- **Reautenticação**: janela de 5 min; carimbo do banco até 2 min à frente do relógio da aplicação é aceito (diferença de relógio/resolução não derruba a confirmação recém-feita).
 
-## Decisões pendentes (Felipe)
+## Decisões (Felipe, 04/10/2026)
 
-- **D1** Provedor real de e-mail e remetente (proposta: Resend via HTTP, `EMAIL_PROVIDER=resend`, `EMAIL_REMETENTE`). Até lá fica `desativado` em staging.
-- **D2** Abrir reativação (empresa SUSPENSA→ATIVA e vínculo SUSPENSA) muda a decisão "sem reativação" das 044/045.
-- **D3** Concessão de desenvolvedor só por CLI; primeira concessão (conta do Felipe) em staging exige autorização própria.
-- **D4** Políticas de sessão acima (troca de senha e suspensão).
-- **D5** "Em implantação" = empresa ATIVA com implantação não concluída (o responsável consegue entrar e configurar), e não PROVISIONAMENTO.
-- **D6** Autorização para rodar a 063 e os testes Postgres/E2E no cluster descartável 127.0.0.1:55498.
-- **D7** O menu Configurações do Admin decide pela identidade global, não pela membership: o responsável de uma empresa nova (identidade neutra) teria as APIs de Gestão mas não veria o menu. Corrigir nesta entrega?
+| | Decisão | Situação |
+|---|---|---|
+| D1 | Provedor real de e-mail e remetente | **Pendente.** Envio real desligado; convites e recuperação não operacionais sem validação de entrega |
+| D2 | Reativação | Adotada: empresa SUSPENSA→ATIVA e vínculo SUSPENSA→ATIVA, só pelo painel (concessão de desenvolvedor). Empresa DESATIVADA e vínculo REVOGADO continuam terminais (guard + serviço; testado). Sem concessão, nem as rotas novas nem as legadas reativam (testado) |
+| D3 | Concessão de desenvolvedor | Adotada: somente por CLI |
+| D4 | Sessões | Adotada: troca de senha encerra as outras sessões (o dispositivo da troca recebe sessão nova); suspensão preserva os acessos válidos a outras empresas |
+| D5 | Implantação | Adotada: estado separado da situação da empresa (`plataforma_empresas_cadastro.implantacao`) |
+| D6 | Testes em cluster descartável | Executados em cluster sintético próprio (a porta 55498 estava ocupada por outro PostgreSQL, não tocado; ver Evidências) |
+| D7 | Menu Configurações | Adotada nesta PR (ver abaixo) |
+
+### D7 — menu pelo papel na empresa
+
+`GET /api/admin/autenticacao` devolve `contexto` (`lib/autenticacao/contexto.ts`): empresa selecionada pela MESMA regra de `provarTenant` (`empresaId` pedido entre as memberships ativas, ou a única ativa), papel da membership nessa empresa, autoridade de plataforma da identidade e concessão de desenvolvedor. O `AdminShell` mostra as configurações de empresa (Perfil, Pacotes, Itens do Buffet, Usuários e acessos) só com Gestão na empresa e as da instalação (WhatsApp, PDF de Pacotes) só com autoridade de plataforma; o rodapé mostra "Gestão/Equipe · empresa" e, para desenvolvedor, o link do painel. Servidor: cada item corresponde à API que já exige a mesma autoridade (`exigirGestaoNoTenant`, papel da membership no Perfil e em Usuários; `temAutoridadeDePlataforma` em WhatsApp/PDF) — teste amarra menu e API. Limitação conhecida (anterior a esta PR): não há seletor de empresa; quem tem duas ou mais empresas ativas fica sem empresa selecionada e o menu esconde as configurações de empresa (o servidor também recusa operar sem escolha).
 
 ---
 
-## Implementação (padrões adotados enquanto D1–D7 não forem decididas)
+## Implementação
 
 ### Arquivos
 
@@ -94,6 +102,30 @@ Links de convite e recuperação usam `ADMIN_AUTH_ORIGIN` e levam o token no fra
 - SQL de vínculo/convite/recuperação sempre filtrado pela empresa informada; ids de outra empresa → 404.
 - Auditoria sanitizada (lista branca + remoção de chaves sensíveis + documento mascarado); varredura no Postgres sem senha, token, hash nem link.
 
+## Evidências (04/10/2026)
+
+**Destino.** A porta 127.0.0.1:55498 estava ocupada por outro PostgreSQL (PID 45140, dados em `%TEMP%kidmais-demo-atendimento-20261004-4b6271`), que não foi conectado, reutilizado nem parado. Com autorização do Felipe, um cluster sintético exclusivo foi criado em **127.0.0.1:55499**, diretório `D:glassKidMais Managerambientes-locaispg-descartavel-painel-063` (orquestrador da tarefa derivado de `scripts/pg-descartavel-061.cjs`, fora do repositório). Antes da primeira conexão foram conferidos e registrados porta, diretório, `cluster_name` e processo (PID 56092, `postgres.exe -D …pg-descartavel-painel-063 -p 55499`); a prova de identidade confirmou endereço, porta, papel, diretório, PostgreSQL 18 e ausência de `kidmais_manager`. Ao final o cluster foi parado (`pg_ctl status` 3) e o diretório removido; os relatórios ficaram em `ambientes-locaispg-descartavel-painel-063-relatorios`. As travas de destino das suítes foram mantidas (opt-in, porta e autorização literal `127.0.0.1:55499/kidmais_pacotes_v1_descartavel`, identidade do servidor). Nenhum banco real acessado; nenhum e-mail enviado (provedor `arquivo` em pasta local).
+
+**PostgreSQL.**
+- `lib/desenvolvedor/painel-063.postgres.test.ts` (modelo 063 recriado do schema vazio): **18/18** — rollback em banco sem uso + precheck + reaplicação + postcheck; CLI de concessão; autorização (proprietário sem concessão = 404 em todo serviço); interessada sem efeitos; provisionamento; convites (conta nova e existente, uso único, senha errada auditada); isolamento entre empresas; desativação/reativação de vínculo com sessões; suspensão/reativação com sessões; troca de senha; recuperação (resposta neutra, intervalo, uso único, expiração); envio indisponível; varredura de segredos na auditoria; D2 (sem concessão não reativa por rota nova nem legada; DESATIVADA e REVOGADA terminais); D7; rollback recusado após uso.
+- Regressão PostgreSQL completa (`check:v1:postgres`, todos os modelos, incluindo `hg8-tenant` e `tenant-festa` também no estado 063): **PASS — 38 execuções de suíte, 255/255 testes**.
+
+**E2E** (`next dev` local apontando só para `kidmais_e2e_painel` no mesmo cluster, criado do modelo 063; duas empresas: "Buffet Alfa E2E" pré-existente e "Festa Beta E2E" provisionada pela tela):
+1. Proprietário da Alfa (Gestão por membership, identidade neutra) sem concessão: `/desenvolvedor` → 404; `/api/desenvolvedor/resumo` e reativar empresa/vínculo pela rota nova → 404; recusas auditadas. Menu (D7): Configurações da empresa visíveis, sem WhatsApp/PDF; rodapé "Gestão · Buffet Alfa E2E".
+2. Desenvolvedor: resumo; interessada cadastrada pela tela (sem empresa/usuário/acesso); situação "Em contato"; provisionamento com prévia dos efeitos e confirmação; convite gravado pelo provedor local.
+3. Convite (conta nova) pela página pública: token removido da barra; conta criada com papel global neutro e Gestão só na Beta; reuso do link → 410; implantação passou a "Em configuração". Responsável da Beta: contexto Gestão na Beta; usuários da Alfa → 403; painel → 404.
+4. Troca de senha em `/admin/perfil` com uma segunda sessão aberta: senha atual errada recusada; com a correta, a outra sessão foi encerrada e o navegador seguiu logado; senha antiga → 401, nova → 200.
+5. Convite para conta existente (proprietário da Alfa na Beta como Equipe): senha errada → recusa genérica; correta → vínculo criado sem conta nova. Com duas empresas e sem escolha, `selecaoNecessaria`; na Beta, Equipe (usuários → 403, dashboard → 200).
+6. Desativar vínculo do proprietário só na Beta: continua logado, Beta → 403, Alfa → 200, menu volta a "Gestão · Buffet Alfa E2E". D2 pelas rotas legadas (Gestão da Beta): reabrir → 409, papel/assinatura → 404, rota nova → 404.
+7. Suspender a Beta (motivo + código): 1 pessoa desconectada (a responsável, sem outra empresa); o proprietário segue com a Alfa; a responsável ainda autentica mas não acessa a empresa (403). Reativar empresa e vínculo pela ficha.
+8. Recuperação pública: mesma resposta (202) para e-mail inexistente, existente e repetido; uma única mensagem gerada; redefinição pela página pública encerrou a sessão aberta; senha antiga → 401, nova → 200; reuso → 410. Pelo painel: o desenvolvedor não vê link nem senha (destino mascarado); repetição imediata → "aguarde N segundos".
+9. Reautenticação após 5 min: diálogo exigido; senha errada → "Senha incorreta." no diálogo; correta → operação concluída.
+10. Auditoria do banco E2E: 62 registros, 9 segredos procurados (senhas e tokens) → **0 ocorrências**; nenhum registro do painel sem ator ou resultado.
+
+**Defeitos achados e corrigidos nesta rodada.** (a) Reautenticação recusada com carimbo do banco milissegundos à frente do relógio da aplicação → tolerância de 2 min (testado). (b) Senha errada no diálogo de reautenticação levava ao login (401 tratado como sessão encerrada no cliente) → o diálogo agora mostra "Senha incorreta" e a sessão segue (E2E). (c) Custo do hash antes do limite na redefinição pública, no aceite de convite e na troca de senha → scrypt só depois do limite e de token/senha válidos (testado).
+
+**Limitações conhecidas.** D1 pendente (sem validação de entrega real); não há seletor de empresa para quem tem duas ou mais (anterior a esta PR); o módulo Festas responde 503 no ambiente E2E (trava de ambiente pré-existente, sem relação com esta PR).
+
 ## Roteiro de homologação (staging, após autorização da 063 e do deploy)
 
 Pré-requisitos: 063 aplicada com precheck/postcheck; código publicado; `EMAIL_PROVIDER` definido conforme D1 (com `desativado`, conferir os avisos de "não enviado"); concessão de desenvolvedor para a conta de teste via `node scripts/admin-provision.cjs desenvolvedor`.
@@ -110,6 +142,9 @@ Pré-requisitos: 063 aplicada com precheck/postcheck; código publicado; `EMAIL_
 10. **Troca de senha**: em `/admin/perfil`, com duas sessões abertas, trocar a senha → a outra sessão cai, a atual continua; senha atual errada recusada.
 11. **Recuperação**: em `/acesso/recuperar` com e-mail inexistente e existente (mesma resposta); usar o link (uso único, 30 min); pedir pelo painel (o desenvolvedor não vê link nem senha); repetição em menos de 2 min recusada.
 12. **Auditoria**: conferir os registros das etapas acima (ator, empresa, ação, resultado) sem senha, token ou link.
+13. **Menu por empresa (D7)**: o responsável da empresa nova (conta criada pelo convite) vê "Gestão · <empresa>" e as configurações da empresa; uma conta Equipe não vê; WhatsApp e PDF de Pacotes só aparecem para a autoridade de plataforma. Chamar diretamente uma API de configuração sem Gestão na empresa → 403.
+14. **Reativação restrita (D2)**: com conta sem concessão, tentar reativar vínculo/empresa pelas rotas do painel → 404; pela tela Usuários e acessos da empresa, um vínculo desativado não é reaberto (mensagem de bloqueio). Empresa desativada e vínculo removido não voltam.
+15. **E-mail (D1 pendente)**: com `EMAIL_PROVIDER` desativado, convites aparecem como "não enviado" e a recuperação pelo painel informa a falha. Não declarar convite/recuperação operacionais até validar a entrega com o provedor escolhido.
 
 ## Rollback
 

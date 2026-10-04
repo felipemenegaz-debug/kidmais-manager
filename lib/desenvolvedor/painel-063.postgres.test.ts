@@ -333,7 +333,7 @@ test('recuperação: resposta neutra sem conta; pedido aberto, intervalo mínimo
     assert.equal(await codigoErro(svc.recuperacao.redefinirSenhaComToken({ token: novoToken, novaSenha: 'expirada-063!', confirmacao: 'expirada-063!' } as never, ctx() as never, depsRec as never)), 'LINK_INVALIDO');
 });
 
-test('envio indisponível: o convite fica registrado como não enviado e a recuperação pelo painel é invalidada', async () => {
+test('envio indisponível: o convite fica registrado como não enviado, com a falha auditada', async () => {
     const dev = (await sessaoDe(ids.dev)).sessao;
     falharEnvio = true;
     try {
@@ -360,6 +360,51 @@ test('auditoria: nenhuma senha, token, hash ou link nos registros produzidos; at
     }
     const painel = (await client.query<{ n: number }>(`SELECT count(*)::int AS n FROM auditoria WHERE origem = 'PAINEL_DESENVOLVEDOR' AND (usuario_id IS NULL OR dados_depois->>'resultado' IS NULL)`)).rows[0].n;
     assert.equal(painel, 0, 'todo registro do painel tem ator e resultado');
+});
+
+test('D2: sem concessão ninguém reativa — nem pelo painel (404) nem pelas rotas legadas da empresa; DESATIVADA e REVOGADA são terminais', async () => {
+    const dev = (await sessaoDe(ids.dev)).sessao;
+    const resp = (await sessaoDe(ids.resp)).sessao;
+    const dono = (await sessaoDe(ids.dono)).sessao;
+    // Garante o vínculo do dono nesta empresa SUSPENSO para a prova.
+    const status = (await client.query<{ status: string }>('SELECT status FROM memberships WHERE empresa_id = $1 AND usuario_id = $2', [ids.empresa, ids.dono])).rows[0].status;
+    if (status === 'ATIVA')
+        await svc.vinculos.alterarSituacaoVinculo(dev as never, ids.empresa as never, ids.dono as never, 'desativar' as never, { motivo: 'Prova D2' } as never, ctx() as never, deps() as never);
+    for (const s of [resp, dono]) {
+        assert.equal(await codigoErro(svc.vinculos.alterarSituacaoVinculo(s as never, ids.empresa as never, ids.dono as never, 'reativar' as never, { motivo: 'tentativa' } as never, ctx() as never, deps() as never)), 'NAO_ENCONTRADO');
+        assert.equal(await codigoErro(svc.empresas.alterarSituacaoEmpresa(s as never, ids.empresa as never, 'suspender' as never, { motivo: 'tentativa', confirmacaoCodigo: `p063-alegria-${sufixo}` } as never, ctx() as never, deps() as never)), 'NAO_ENCONTRADO');
+    }
+    // Rotas legadas de Usuários e acessos, como Gestão da empresa: não reabrem, não mudam papel nem assinatura de vínculo suspenso.
+    const legado = (fn: string, raw: Record<string, unknown>) => codigoErro((svc.usuarios[fn] as unknown as (...a: unknown[]) => Promise<unknown>)(resp, raw, randomUUID(), undefined, ids.empresa));
+    assert.equal(await legado('criarUsuarioAdministrativo', { acao: 'criar', nome: 'Dono', email: email('dono'), nivel: 'GESTAO', senha: 'qualquer-senha-1', confirmacao: 'qualquer-senha-1' }), 'AUTENTICACAO_ADMINISTRATIVA');
+    assert.equal(await legado('alterarPapelNaEmpresa', { acao: 'papel', usuarioId: ids.dono, nivel: 'GESTAO' }), 'AUTENTICACAO_ADMINISTRATIVA');
+    assert.equal(await legado('alterarAssinaturaNaEmpresa', { acao: 'assinatura', usuarioId: ids.dono, conceder: true }), 'AUTENTICACAO_ADMINISTRATIVA');
+    assert.equal((await client.query('SELECT status FROM memberships WHERE empresa_id = $1 AND usuario_id = $2', [ids.empresa, ids.dono])).rows[0].status, 'SUSPENSA');
+    // Terminais: o guard da 063 recusa sair de REVOGADA e de DESATIVADA, e o painel também.
+    const terminal = (await client.query<{ id: string }>(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Empresa Terminal 063', 'PROVISIONAMENTO') RETURNING id`, [`p063-terminal-${sufixo}`])).rows[0].id;
+    await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [terminal]);
+    const m = (await client.query<{ id: string }>(`INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1, $2, 'PENDENTE', clock_timestamp(), 'ADMINISTRATIVO') RETURNING id`, [terminal, ids.resp])).rows[0].id;
+    await client.query("UPDATE memberships SET status = 'ATIVA' WHERE id = $1", [m]);
+    await client.query("UPDATE memberships SET status = 'REVOGADA' WHERE id = $1", [m]);
+    await assert.rejects(client.query("UPDATE memberships SET status = 'ATIVA' WHERE id = $1", [m]), /transição de membership recusada/);
+    await assert.rejects(client.query("UPDATE memberships SET status = 'SUSPENSA' WHERE id = $1", [m]), /transição de membership recusada/);
+    assert.equal(await codigoErro(svc.vinculos.alterarSituacaoVinculo(dev as never, terminal as never, ids.resp as never, 'reativar' as never, { motivo: 'terminal' } as never, ctx() as never, deps() as never)), 'CONFLITO');
+    await client.query("UPDATE empresas SET status = 'DESATIVADA' WHERE id = $1", [terminal]);
+    await assert.rejects(client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [terminal]), /transição de empresa recusada/);
+    assert.equal(await codigoErro(svc.empresas.alterarSituacaoEmpresa(dev as never, terminal as never, 'reativar' as never, { motivo: 'terminal', confirmacaoCodigo: `p063-terminal-${sufixo}` } as never, ctx() as never, deps() as never)), 'CONFLITO');
+    await svc.vinculos.alterarSituacaoVinculo(dev as never, ids.empresa as never, ids.dono as never, 'reativar' as never, { motivo: 'Fim da prova D2' } as never, ctx() as never, deps() as never);
+});
+
+test('D7: o contexto da sessão segue o papel NA empresa (Gestão por membership, plataforma pela identidade)', async () => {
+    const contexto = carregar('lib/autenticacao/contexto.ts') as unknown as { contextoDaSessao: (tx: Client, s: unknown, e?: string | null) => Promise<Record<string, unknown>> };
+    const resp = await contexto.contextoDaSessao(client, { usuario_id: ids.resp, papel: 'ADMINISTRATIVO' });
+    assert.deepEqual([(resp.empresaAtual as { id: string }).id, resp.gestaoNaEmpresa, resp.plataforma, resp.desenvolvedor], [ids.empresa, true, false, false], 'responsável de empresa nova vê as configurações da empresa');
+    const dono = await contexto.contextoDaSessao(client, { usuario_id: ids.dono, papel: 'REPRESENTANTE_AUTORIZADO' });
+    assert.deepEqual([dono.empresaAtual, dono.selecaoNecessaria, dono.plataforma], [null, true, true]);
+    const donoNaNova = await contexto.contextoDaSessao(client, { usuario_id: ids.dono, papel: 'REPRESENTANTE_AUTORIZADO' }, ids.empresa);
+    assert.equal(donoNaNova.gestaoNaEmpresa, false, 'Equipe na empresa nova, mesmo com papel global legado');
+    const dev = await contexto.contextoDaSessao(client, { usuario_id: ids.dev, papel: 'ADMINISTRATIVO' });
+    assert.deepEqual([dev.desenvolvedor, dev.empresaAtual], [true, null]);
 });
 
 test('rollback da 063 recusa depois do uso (vínculo suspenso ou registros), sem apagar nada', async () => {

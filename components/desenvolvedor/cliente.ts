@@ -26,9 +26,21 @@ export async function chamar<T>(url: string, metodo: 'GET' | 'POST' | 'PATCH' = 
     }
 }
 
+/**
+ * Reautenticação: 401 aqui é "senha incorreta" (a sessão continua válida), então não passa pelo `chamar`,
+ * que trata 401 como sessão encerrada e leva ao login.
+ */
 export async function confirmarSenha(senha: string): Promise<string | null> {
-    const r = await chamar<unknown>('/api/admin/autenticacao', 'POST', { acao: 'reautenticar', senha });
-    return r.ok ? null : (r.status === 401 ? 'Senha incorreta.' : r.erro);
+    try {
+        const res = await adminFetch('/api/admin/autenticacao', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'reautenticar', senha }) });
+        if (res.ok)
+            return null;
+        const json = await res.json().catch(() => null) as { erro?: string } | null;
+        return res.status === 401 ? 'Senha incorreta.' : (json?.erro ?? `Não foi possível confirmar a senha (HTTP ${res.status}).`);
+    }
+    catch {
+        return 'Falha de conexão. Tente novamente.';
+    }
 }
 
 export function formatarData(iso: string | null | undefined, comHora = true) {
