@@ -1,6 +1,6 @@
 # Validação no navegador — biblioteca de mensagens prontas (063)
 
-**Situação:** PREPARADA em 04/10/2026, **não executada**. Precisa de autorização explícita do Felipe para as operações V1–V4 abaixo (docs/OPERACAO_AGENTES.md). Nada em staging, produção, Render, Gupshup ou no banco local real `kidmais_manager`. A demonstração em andamento (55498/3040/3041) não é usada, parada nem alterada.
+**Situação:** EXECUTADA em 04/10/2026 no HEAD `930121d`, com autorização do Felipe para V1, V2, V3, V3c, V3H e V4 (docs/OPERACAO_AGENTES.md). Resultado em "Resultado". Nada em staging, produção, Render, Gupshup ou no banco local real `kidmais_manager`. A demonstração (55498/3040/3041) não foi usada, parada nem alterada.
 
 ## Objetivo
 
@@ -123,3 +123,49 @@ Credenciais lidas do arquivo local e digitadas só no login de `localhost:3050` 
 - `verificar` real sem efeito.
 
 As importações do preparo foram conferidas sem conexão (`teste-importacoes.log`).
+
+## Resultado (04/10/2026, HEAD `930121d`)
+
+O detalhe por caso, com textos, ARIA, respostas da rota e registros do atraso, está em `.local-ux/val-prontas/estado/resultado-930121d.md` (fora do Git). Os hashes estão em `EVIDENCIAS-930121d.txt`.
+
+| Caso | Desktop | Celular | Teclado |
+| --- | --- | --- | --- |
+| B1 abertura | ok | ok | ok |
+| B2 cadastrar + recusas (http, atalho, título) | ok | ok (1 cadastro) | ok (cadastro só pelo teclado) |
+| B3 editar + conflito de versão (2 abas) | ok | — | — |
+| B4 favoritar (persiste) | ok | ok | ok (Espaço → `aria-pressed`) |
+| B5 arquivar + atalho liberado | ok | — | ok |
+| B6 link individual (http: 5 avisos certos; sem telefone nem `/contrato/`) | ok | ok (0101, 0102) | — |
+| B6 em https (V3H) | **na tela: não executado** (o navegador embutido não abre o certificado autoassinado). Pela rota real em https, com TLS verificado contra o certificado da execução: **0101 PREENCHIDO** com o contrato de A, nunca o de B; 0102–0105 com os avisos | | |
+| B7 colocar na resposta | ok | — | ok |
+| B8 retorno atrasado A→B e A→B→A (contato aberto lido na entrega + captura) | ok | ok (A→B) | — |
+| B9 atendente (sem gerenciar; 403 em salvar/arquivar; favoritas próprias) | ok | — | — |
+| B10 isolamento (B e `production` nunca aparecem) | ok | ok | — |
+
+**Celular:** nenhuma rolagem horizontal; nenhum controle fora da tela; alvos com 24 px ou mais.
+
+**Teclado:** ordem lógica e contorno de foco de 2 px em todos os controles. Ao abrir uma conversa, o foco vai ao título.
+
+**Achados de teclado** (para correção futura, fora desta entrega):
+1. ao preparar uma prévia, o foco cai no `BODY`, porque o botão fica desabilitado durante o pedido;
+2. depois de "Nova mensagem pronta", o Tab pula o formulário;
+3. depois de salvar ou arquivar, o foco volta ao `BODY`.
+
+**Desvio durante a execução.** No modo teclado, o foco estava em "Colocar na resposta", e não na prévia. O texto digitado foi para o campo de resposta e o Enter seguinte caiu em "Enviar resposta". Resultado: **uma** saída `PENDENTE` na conversa sintética 0102, sem `provedor_id`.
+
+Não havia worker, simulador, credencial de Gupshup nem segredo de cron, e os logs dos dois Next têm 0 chamadas a `processar`/`gupshup`. **Nada foi transmitido.** A linha foi apagada junto com a base em V4. Na retomada, o teclado foi exercitado só sem conversa aberta, ou seja, sem campo de resposta na tela.
+
+**V4 e a guarda.** A primeira tentativa parou sem remover nada: a marca acentuada do `postgresql.conf` tinha sido gravada em ANSI pelo `Add-Content` do PS 5.1, e a guarda procurava em UTF-8. Correção:
+- a guarda passou a aceitar a marca **exata** em ANSI ou em UTF-8;
+- o `subir` passou a gravar em UTF-8;
+- o teste offline ganhou 2 casos.
+
+Com isso, `guardas.ps1`, `vp.ps1` e `teste-offline.ps1` mudaram em relação ao manifesto autorizado; os hashes antigos e os novos estão no `MANIFESTO.txt`. A segunda tentativa removeu **somente** a base `kidmais-val-prontas-20261004-7c3e91`.
+
+**Limpeza:**
+- portas 55502 e 3050 livres;
+- base e build ausentes;
+- worktree limpa;
+- nenhum processo da validação;
+- credenciais, dados sintéticos e chave/certificado apagados;
+- protegidos e demonstração idênticos antes e depois.
