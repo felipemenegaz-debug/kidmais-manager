@@ -8,6 +8,7 @@ import styles from './atendimento.module.css';
 import { GerenciarMensagensProntas, MensagensProntas } from './MensagensProntas';
 import { resumoEncerramento } from '@/lib/whatsapp/atendimento/encerramento';
 import { identificar } from '@/lib/whatsapp/atendimento/identificacao';
+import { bloqueioDoCodigo, type BloqueioAtendimento } from '@/lib/whatsapp/atendimento/acesso-tela';
 
 type Dados = { usuarioId: string; conversas: ConversaLista[]; mensagens: MensagemLista[]; configuracao: ConfiguracaoAtendimento | null; automacaoDisponivel: boolean; canal: EstadoCanal; ia: { ia: boolean; orcamento: boolean }; podeConfigurar: boolean };
 type Estado = ConversaLista['estado'];
@@ -33,11 +34,15 @@ function responsavel(c: ConversaLista, usuarioId: string) {
 }
 
 export default function AtendimentoWhatsapp() {
-  const [dados,setDados] = useState<Dados | null>(null), [selecionada,setSelecionada] = useState<string | null>(null), [erro,setErro] = useState(''), [ocupado,setOcupado] = useState(false), [texto,setTexto] = useState(''), [quadro,setQuadro] = useState(false), [config,setConfig] = useState<ConfiguracaoAtendimento | null>(null), [lidoEm,setLidoEm] = useState(0), [statusAcao,setStatusAcao] = useState('');
+  const [dados,setDados] = useState<Dados | null>(null), [selecionada,setSelecionada] = useState<string | null>(null), [erro,setErro] = useState(''), [bloqueio,setBloqueio] = useState<BloqueioAtendimento | null>(null), [ocupado,setOcupado] = useState(false), [texto,setTexto] = useState(''), [quadro,setQuadro] = useState(false), [config,setConfig] = useState<ConfiguracaoAtendimento | null>(null), [lidoEm,setLidoEm] = useState(0), [statusAcao,setStatusAcao] = useState('');
   const pedidoAtual = useRef(0), tituloConversa = useRef<HTMLHeadingElement>(null), focarConversa = useRef(false), cartoes = useRef(new Map<string, HTMLButtonElement>()), dialogoEncerrar = useRef<HTMLDialogElement>(null), botaoEncerrar = useRef<HTMLButtonElement>(null), campoResposta = useRef<HTMLTextAreaElement>(null), selecionadaAtual = useRef<string | null>(null);
   const carregar = useCallback(async () => {
     const pedido = ++pedidoAtual.current;
-    try { const r = await adminFetch('/api/admin/atendimento' + (selecionada ? '?conversaId=' + selecionada : '')); const json = await r.json(); if (!r.ok || !json.ok) throw Error(json.erro || 'Não foi possível carregar o atendimento.'); if (pedido === pedidoAtual.current) { setDados(json.data); setLidoEm(Date.now()); setErro(''); } }
+    try { const r = await adminFetch('/api/admin/atendimento' + (selecionada ? '?conversaId=' + selecionada : '')); const json = await r.json();
+      // Recusa de acesso (empresa ativa divergente, seleção pendente, sem acesso): some com os dados já carregados e diz o que fazer.
+      const recusa = r.ok ? null : bloqueioDoCodigo(json?.codigo);
+      if (recusa) { if (pedido === pedidoAtual.current) { setDados(null); setBloqueio(recusa); setErro(''); } return; }
+      if (!r.ok || !json.ok) throw Error(json.erro || 'Não foi possível carregar o atendimento.'); if (pedido === pedidoAtual.current) { setDados(json.data); setLidoEm(Date.now()); setErro(''); setBloqueio(null); } }
     catch(e) { if (pedido === pedidoAtual.current) setErro(e instanceof Error ? e.message : 'Não foi possível carregar o atendimento.'); }
   },[selecionada]);
   useEffect(() => { const contador = pedidoAtual; const inicio = window.setTimeout(() => void carregar(),0); const timer = window.setInterval(() => { if (!document.hidden) void carregar(); },10000); return () => { ++contador.current; window.clearTimeout(inicio); window.clearInterval(timer); }; },[carregar]);
@@ -86,9 +91,10 @@ export default function AtendimentoWhatsapp() {
   const motivoSemResposta = !conversa || !dados ? '' : conversa.nao_contatar ? 'Este contato pediu para não receber mensagens.' : !dados.automacaoDisponivel ? 'O envio está desligado no servidor deste ambiente.' : !dados.ia.ia ? 'A chave da IA está desligada neste ambiente: a fila não envia respostas agora.' : !dados.configuracao?.ativo ? 'O atendimento da empresa está desligado na configuração: respostas pela fila não saem.' : conversa.estado !== 'HUMANO' || conversa.responsavel_id !== dados.usuarioId ? 'Assuma a conversa para responder.' : !janelaAberta ? 'A janela de 24 horas expirou. Aguarde nova mensagem do cliente.' : '';
   return <main className={styles.pagina}>
     <header className={styles.topo}><div><h1>Atendimento WhatsApp</h1><p>Conversas, interessados e passagem para a equipe.</p></div><div className={styles.acoes}><button aria-pressed={!quadro} onClick={()=>setQuadro(false)}>Conversas</button><button aria-pressed={quadro} onClick={()=>setQuadro(true)}>Quadro</button><button onClick={()=>void carregar()} disabled={ocupado}>Atualizar</button></div></header>
+    {bloqueio && <section className={styles.bloqueio} role="alert" aria-labelledby="bloqueio-atendimento" data-bloqueio={bloqueio.tipo}><h2 id="bloqueio-atendimento">{bloqueio.titulo}</h2><p>{bloqueio.orientacao}</p></section>}
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
     {statusAcao && <p role="status" className={styles.aviso}>{statusAcao}</p>}
-    {!dados && !erro && <p aria-live="polite">Carregando atendimento…</p>}
+    {!dados && !erro && !bloqueio && <p aria-live="polite">Carregando atendimento…</p>}
     {dados && <>
       <section className={styles.canal} aria-labelledby="situacao-canal">
         <h2 id="situacao-canal">Situação do canal</h2>

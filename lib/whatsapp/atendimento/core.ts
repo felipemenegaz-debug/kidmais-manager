@@ -108,3 +108,17 @@ export function situacaoCadastro(clientes: number, nome: string | null): Cadastr
   if (clientes === 1 && nome?.trim()) return { situacao: 'UNICO', nome: nome.trim() };
   return { situacao: 'SEM_CADASTRO' };
 }
+
+/**
+ * Empresa ativa da sessão × empresa piloto do atendimento. Com a 063 do painel a sessão traz `empresa_ativa_id`
+ * (texto ou nulo) e a empresa precisa ter sido SELECIONADA explicitamente e ser a piloto: nula = seleção pendente,
+ * outra = divergência (falha fechada, antes de qualquer leitura). Sem a 063 o campo não existe e vale o comportamento
+ * anterior: a piloto, provada no banco pelo vínculo ativo.
+ */
+export function conferirEmpresaAtiva(sessao: object, piloto: string): void {
+  if (!Object.prototype.hasOwnProperty.call(sessao, 'empresa_ativa_id')) return;
+  const ativa = (sessao as { empresa_ativa_id?: unknown }).empresa_ativa_id;
+  if (ativa === undefined) return;
+  if (ativa === null || ativa === '') throw new Error('ATENDIMENTO_EMPRESA_NAO_SELECIONADA');
+  if (typeof ativa !== 'string' || ativa.toLowerCase() !== piloto.toLowerCase()) throw new Error('ATENDIMENTO_EMPRESA_DIVERGENTE');
+}

@@ -8,7 +8,7 @@ import type { Conversa } from './service.ts';
 const agora = new Date();
 const base: Conversa = { id: 'c', empresa_id: 'e', ambiente: 'staging', contato: '5561999999999', estado: 'IA', responsavel_id: null, nao_contatar: false, versao: 1, ultima_entrada_em: agora.toISOString(), interesse: { data: null, convidados: null } };
 const entrada = (texto: string | null, id = 'evento-1') => ({ id, app: 'KidmaisManager', source: '5561999999999', texto, timestamp: agora.getTime() });
-type Opcoes = { permitido?: boolean; ativo?: boolean; config?: unknown; conversa?: Partial<Conversa>; duplicada?: boolean; enviando?: boolean; papel?: string; empresaAtiva?: boolean; canceladas?: { entradas: number; saidas: number }; nomePerfil?: boolean; linhas?: Record<string, unknown>[] };
+type Opcoes = { tenantRecusado?: boolean; permitido?: boolean; ativo?: boolean; config?: unknown; conversa?: Partial<Conversa>; duplicada?: boolean; enviando?: boolean; papel?: string; empresaAtiva?: boolean; canceladas?: { entradas: number; saidas: number }; nomePerfil?: boolean; linhas?: Record<string, unknown>[] };
 function carregar(op: Opcoes = {}) {
   const comandos: { sql: string; args: unknown[] }[] = [];
   const conversa = { ...base, ...op.conversa };
@@ -28,7 +28,7 @@ function carregar(op: Opcoes = {}) {
   const tenants: string[] = [];
   const modulo = carregarComponente('lib/whatsapp/atendimento/service.ts', {
     '../../db/postgres.ts': { db: () => ({ query }), withTransaction: async (fn: (tx: unknown) => unknown) => fn({ query }) },
-    '../../saas/provar-tenant.ts': { withTenantTransaction: async (_s: unknown, empresa: string, fn: (tx: unknown, t: unknown) => unknown) => { tenants.push(empresa); return fn({ query }, { empresaComprovada: empresa, papelAtual: op.papel ?? 'ADMINISTRATIVO' }); } },
+    '../../saas/provar-tenant.ts': { withTenantTransaction: async (_s: unknown, empresa: string, fn: (tx: unknown, t: unknown) => unknown) => { if (op.tenantRecusado) throw Object.assign(new Error('A sessão administrativa não comprova a empresa autorizada.'), { code: 'TENANT_NAO_COMPROVADO' }); tenants.push(empresa); return fn({ query }, { empresaComprovada: empresa, papelAtual: op.papel ?? 'ADMINISTRATIVO' }); } },
     './configuracao.ts': { ambienteAtendimento: () => 'staging', empresaPiloto: () => 'e', atendimentoAtivo: () => op.ativo ?? true, contatoPermitido: () => op.permitido ?? true, recepcaoAtiva: () => true, receptorDoNumero: () => true },
     './core.ts': core,
   }).modulo as typeof import('./service.ts');
@@ -256,4 +256,40 @@ test('resumo do encerramento separa respostas na fila de mensagens do cliente se
   assert.equal(resumoEncerramento({ entradas: 0, saidas: 1 }), 'Atendimento encerrado. 1 resposta na fila foi cancelada. O histórico foi mantido.');
   assert.equal(resumoEncerramento({ entradas: 2, saidas: 3 }), 'Atendimento encerrado. 3 respostas na fila foram canceladas; 2 mensagens do cliente ficaram sem resposta automática. O histórico foi mantido.');
   assert.equal(resumoEncerramento(undefined), 'Atendimento encerrado. O histórico foi mantido.');
+});
+
+// Empresa ativa (063 do painel): o campo só existe na sessão quando a 063 está aplicada. A piloto deste harness é 'e'.
+test('empresa ativa: sem o campo (sem a 063) vale o comportamento anterior — abre na piloto provada no banco', async () => {
+  const { modulo, tenants } = carregar();
+  await modulo.listarAtendimento({ usuario_id: 'u', papel: 'ADMINISTRATIVO' } as never);
+  assert.deepEqual(tenants, ['e']);
+});
+test('empresa ativa: com a 063, a piloto selecionada abre; maiúsculas não importam', async () => {
+  const { modulo, tenants } = carregar();
+  await modulo.listarAtendimento({ usuario_id: 'u', papel: 'ADMINISTRATIVO', id: 's', empresa_ativa_id: 'E' } as never);
+  assert.deepEqual(tenants, ['e']);
+});
+test('empresa ativa: seleção pendente (nula) é recusada antes de abrir qualquer transação, na leitura, nas ações e na configuração', async () => {
+  const { modulo, tenants, comandos } = carregar({ papel: 'REPRESENTANTE_AUTORIZADO' });
+  const pendente = { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: null } as never;
+  await assert.rejects(modulo.listarAtendimento(pendente), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
+  await assert.rejects(modulo.controlarAtendimento(pendente, { acao: 'assumir', conversaId: 'c', versao: 1 }), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
+  await assert.rejects(modulo.salvarConfiguracao(pendente, { ativo: false, nome: 'Kidmais', perguntas: [], limites: { respostasPor24h: 20 } }), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
+  assert.deepEqual(tenants, []);
+  assert.equal(comandos.length, 0, 'nenhuma consulta ao banco');
+});
+test('empresa ativa: outra empresa ativa é divergência — recusada antes de ler ou gravar', async () => {
+  const { modulo, tenants, comandos } = carregar({ papel: 'REPRESENTANTE_AUTORIZADO' });
+  const outra = { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: 'b' } as never;
+  await assert.rejects(modulo.listarAtendimento(outra), /ATENDIMENTO_EMPRESA_DIVERGENTE/);
+  await assert.rejects(modulo.controlarAtendimento(outra, { acao: 'assumir', conversaId: 'c', versao: 1 }), /ATENDIMENTO_EMPRESA_DIVERGENTE/);
+  await assert.rejects(modulo.salvarConfiguracao(outra, { ativo: false, nome: 'Kidmais', perguntas: [], limites: { respostasPor24h: 20 } }), /ATENDIMENTO_EMPRESA_DIVERGENTE/);
+  assert.deepEqual(tenants, []);
+  assert.equal(comandos.length, 0, 'nenhuma consulta ao banco');
+});
+test('falta de acesso: sem vínculo ativo na piloto (tenant não comprovado) vira ATENDIMENTO_SEM_ACESSO; papel sem acesso segue ACESSO_NEGADO', async () => {
+  const semVinculo = carregar({ tenantRecusado: true });
+  await assert.rejects(semVinculo.modulo.listarAtendimento(sessao), /ATENDIMENTO_SEM_ACESSO/);
+  const papel = carregar({ papel: 'OPERACIONAL' });
+  await assert.rejects(papel.modulo.listarAtendimento(sessao), /ATENDIMENTO_ACESSO_NEGADO/);
 });

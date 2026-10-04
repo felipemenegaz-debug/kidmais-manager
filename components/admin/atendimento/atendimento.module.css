@@ -28,3 +28,5 @@
 /* Até 760px o botão "Voltar às conversas" (44px + 8px de margem) fica logo acima do título da conversa: o título para
    mais abaixo para que o botão também fique abaixo do menu fixo (54px). 120 = 54 + 14 de folga + 44 + 8. */
 @media(max-width:760px){.pagina .voltar~h2,.pagina .voltar~h2:focus{scroll-margin-top:120px}}
+/* Recusa de acesso à tela (empresa ativa divergente, seleção pendente, sem acesso): o que fazer, sem dados da piloto. */
+.bloqueio{margin:16px 0;padding:16px 20px;border-radius:12px;border:1px solid var(--km-border);border-left:4px solid #FF7A3D;background:var(--km-card-2)}.bloqueio h2{font-size:18px;margin:0 0 6px}.bloqueio p{margin:0}

@@ -1,8 +1,8 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
-import { withTenantTransaction, type SessaoParaTenant } from '../../saas/provar-tenant.ts';
+import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } from '../../saas/provar-tenant.ts';
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
-import { configuracaoSchema, comandoDireto, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
+import { configuracaoSchema, comandoDireto, conferirEmpresaAtiva, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 
 export type Conversa = { id: string; empresa_id: string; ambiente: string; contato: string; estado: 'IA' | 'HUMANO' | 'AGUARDANDO_HUMANO' | 'ENCERRADA'; responsavel_id: string | null; nao_contatar: boolean; versao: number; ultima_entrada_em: string; atualizada_em?: string; interesse: { data: string | null; convidados: number | null } };
 export type Mensagem = { id: string; conversa_id: string; empresa_id: string; ambiente: string; origem_id: string | null; autor_usuario_id: string | null; texto: string | null; direcao: string; estado: string; versao_conversa: number; criada_em: string };
@@ -96,8 +96,18 @@ export async function correlacionarStatus(tx: DbExecutor, empresa: string, ambie
   await tx.query("UPDATE whatsapp_atendimento_mensagens m SET estado=s.estado FROM whatsapp_atendimento_status s WHERE m.empresa_id=s.empresa_id AND m.ambiente=s.ambiente AND m.provedor_id=s.provedor_id AND m.empresa_id=$1 AND m.ambiente=$2 AND m.provedor_id=$3 AND m.estado IN ('SUBMETIDA','INCERTO','FALHOU')", [empresa, ambiente, provedorId]);
   await tx.query('DELETE FROM whatsapp_atendimento_status s USING whatsapp_atendimento_mensagens m WHERE s.empresa_id=$1 AND s.ambiente=$2 AND s.provedor_id=$3 AND m.empresa_id=s.empresa_id AND m.ambiente=s.ambiente AND m.provedor_id=s.provedor_id', [empresa, ambiente, provedorId]);
 }
+/**
+ * Toda entrada da tela passa por aqui: primeiro a empresa ativa da sessão (só existe com a 063 do painel; sem ela,
+ * comportamento anterior), depois a prova do tenant no banco. Sem vínculo ativo na piloto = sem acesso (403).
+ */
+async function naEmpresaDoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: DbExecutor, tenant: TenantComprovado) => Promise<T>) {
+  const piloto = empresaPiloto();
+  conferirEmpresaAtiva(sessao, piloto);
+  try { return await withTenantTransaction(sessao, piloto, work); }
+  catch (erro) { if ((erro as { code?: unknown })?.code === 'TENANT_NAO_COMPROVADO') throw new Error('ATENDIMENTO_SEM_ACESSO'); throw erro; }
+}
 export async function acessoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: DbExecutor, empresaId: string, papel: string) => Promise<T>) {
-  return withTenantTransaction(sessao, empresaPiloto(), async (tx, tenant) => {
+  return naEmpresaDoAtendimento(sessao, async (tx, tenant) => {
     if (!['ADMINISTRATIVO','REPRESENTANTE_AUTORIZADO'].includes(tenant.papelAtual)) throw new Error('ATENDIMENTO_ACESSO_NEGADO');
     return work(tx, tenant.empresaComprovada, tenant.papelAtual);
   });
@@ -158,7 +168,7 @@ export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { a
 }
 export async function salvarConfiguracao(sessao: SessaoParaTenant, valor: unknown) {
   const config = configuracaoSchema.parse(valor);
-  return withTenantTransaction(sessao, empresaPiloto(), async (tx, tenant) => {
+  return naEmpresaDoAtendimento(sessao, async (tx, tenant) => {
     if (tenant.papelAtual !== 'REPRESENTANTE_AUTORIZADO') throw new Error('ATENDIMENTO_ACESSO_NEGADO');
     if (config.ativo && !atendimentoAtivo()) throw new Error('ATENDIMENTO_AUTOMACAO_DESLIGADA');
     await tx.query(`INSERT INTO whatsapp_atendimento_config(empresa_id,ambiente,configuracao) VALUES($1,$2,$3::jsonb) ON CONFLICT(empresa_id,ambiente) DO UPDATE SET configuracao=EXCLUDED.configuracao,atualizada_em=clock_timestamp()`, [tenant.empresaComprovada, ambienteAtendimento(), JSON.stringify(config)]);

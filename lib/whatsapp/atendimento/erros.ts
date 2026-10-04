@@ -9,6 +9,9 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR: 'Assuma a conversa antes de responder.',
   ATENDIMENTO_AUTOMACAO_DESLIGADA: 'O piloto ainda não foi ativado no servidor.',
   ATENDIMENTO_ACESSO_NEGADO: 'Seu perfil não tem acesso a esta ação do atendimento.',
+  ATENDIMENTO_SEM_ACESSO: 'Seu acesso não inclui o Atendimento WhatsApp desta empresa.',
+  ATENDIMENTO_EMPRESA_DIVERGENTE: 'A empresa ativa não é a do Atendimento WhatsApp. Troque a empresa ativa no menu para usá-lo.',
+  ATENDIMENTO_EMPRESA_NAO_SELECIONADA: 'Selecione a empresa ativa no menu para abrir o Atendimento WhatsApp.',
   ATENDIMENTO_IA_DESLIGADA: 'A chave da IA está desligada neste ambiente: a fila não envia respostas agora.',
   ATENDIMENTO_NAO_ENCONTRADO: 'Conversa não encontrada. Atualize a lista.',
   ATENDIMENTO_PRONTAS_INDISPONIVEL: 'Mensagens prontas indisponíveis neste ambiente: a estrutura da biblioteca (migration 064) ainda não foi aplicada.',
@@ -21,6 +24,8 @@ const MENSAGEM: Record<string, string> = {
 const CONFLITO = ['ATENDIMENTO_DESATUALIZADO', 'ATENDIMENTO_ENVIO_EM_ANDAMENTO', 'ATENDIMENTO_CONTATO_BLOQUEADO', 'ATENDIMENTO_JANELA_EXPIRADA', 'ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR', 'ATENDIMENTO_AUTOMACAO_DESLIGADA', 'ATENDIMENTO_IA_DESLIGADA',
   'ATENDIMENTO_PRONTA_ATALHO_EM_USO', 'ATENDIMENTO_PRONTA_TITULO_EM_USO', 'ATENDIMENTO_PRONTA_DESATUALIZADA'];
 const NAO_ENCONTRADO = ['ATENDIMENTO_NAO_ENCONTRADO', 'ATENDIMENTO_PRONTA_NAO_ENCONTRADA'];
+// Recusas de acesso (antes de ler ou gravar qualquer coisa): papel, vínculo e empresa ativa (063 do painel).
+const ACESSO = ['ATENDIMENTO_ACESSO_NEGADO', 'ATENDIMENTO_SEM_ACESSO', 'ATENDIMENTO_EMPRESA_DIVERGENTE', 'ATENDIMENTO_EMPRESA_NAO_SELECIONADA'];
 
 export function respostaDeErroAtendimento(error: unknown): { status: number; corpo: { ok: false; erro: string; codigo: string } } {
   if (error instanceof SyntaxError) return { status: 400, corpo: { ok: false, erro: 'Confira os campos.', codigo: 'DADOS_INVALIDOS' } };
@@ -30,6 +35,6 @@ export function respostaDeErroAtendimento(error: unknown): { status: number; cor
     return { status: 400, corpo: { ok: false, erro: propria ?? 'Confira os campos.', codigo: 'DADOS_INVALIDOS' } };
   }
   const code = error instanceof Error && /^ATENDIMENTO_[A-Z_]+$/.test(error.message) ? error.message : 'ATENDIMENTO_INDISPONIVEL';
-  const status = CONFLITO.includes(code) ? 409 : code === 'ATENDIMENTO_ACESSO_NEGADO' ? 403 : NAO_ENCONTRADO.includes(code) ? 404 : 503;
+  const status = CONFLITO.includes(code) ? 409 : ACESSO.includes(code) ? 403 : NAO_ENCONTRADO.includes(code) ? 404 : 503;
   return { status, corpo: { ok: false, erro: MENSAGEM[code] ?? 'Atendimento indisponível ou acesso não autorizado. Confira a configuração do piloto.', codigo: code } };
 }

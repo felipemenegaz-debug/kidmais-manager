@@ -10,7 +10,7 @@ const CONTRATO = '2b6f0f9e-6c1d-4a8e-9a55-3f0a5b1c2d3e';
 const PRONTA = '7f1d2c3b-4a5e-4f60-8a71-b2c3d4e5f601';
 const CONVERSA = '0e9d8c7b-6a5f-4e3d-9c2b-1a0f9e8d7c6b';
 const linha = (x: Partial<Pronta> = {}): Pronta => ({ id: PRONTA, titulo: 'Fechamento', categoria: 'Comercial', tipo: 'TEXTO', texto: 'Olá!', link: null, atalho: null, versao: 2, atualizada_em: '', ...x });
-type Op = { papel?: string; pronta?: Pronta | null; conversa?: { contato: string } | null; erro?: { code: string; constraint?: string }; atualizadas?: number; clientes?: { id: string; empresaId: string | null }[]; contratacoes?: { contratoId: string | null; acessoPublico: string | null }[]; origem?: string };
+type Op = { recusa?: string; papel?: string; pronta?: Pronta | null; conversa?: { contato: string } | null; erro?: { code: string; constraint?: string }; atualizadas?: number; clientes?: { id: string; empresaId: string | null }[]; contratacoes?: { contratoId: string | null; acessoPublico: string | null }[]; origem?: string };
 function carregar(op: Op = {}) {
   const comandos: { sql: string; args: unknown[] }[] = [];
   const chamadas: string[] = [];
@@ -30,7 +30,7 @@ function carregar(op: Op = {}) {
     '../../clientes/repositories/cliente.repository.ts': { buscarClientesPorContatoExato: async (tel: string, empresa: string) => { chamadas.push(`cliente:${tel}:${empresa}`); return op.clientes ?? []; } },
     '../../fechamentos/contratacoes.ts': { listarContratacoes: async (_tx: unknown, empresa: string, cliente: string) => { chamadas.push(`contratacoes:${empresa}:${cliente}`); return op.contratacoes ?? []; } },
     './configuracao.ts': { ambienteAtendimento: () => 'staging' },
-    './service.ts': { acessoAtendimento: async (_s: unknown, work: (tx: unknown, e: string, p: string) => unknown) => work({ query }, 'e1', op.papel ?? 'ADMINISTRATIVO') },
+    './service.ts': { acessoAtendimento: async (_s: unknown, work: (tx: unknown, e: string, p: string) => unknown) => { if (op.recusa) throw new Error(op.recusa); return work({ query }, 'e1', op.papel ?? 'ADMINISTRATIVO'); } },
     './prontas.ts': prontas,
     './prontas-link.ts': prontasLink,
   }).modulo as typeof import('./prontas-servico.ts');
@@ -105,4 +105,14 @@ test('link individual: preenchido só com vínculo inequívoco na empresa compro
   const http = carregar({ pronta: ind, clientes: [{ id: 'c1', empresaId: 'e1' }], contratacoes: [{ contratoId: CONTRATO, acessoPublico: 'x' }], origem: 'http://localhost:3040' });
   const h = await http.modulo.prepararRascunho(sessao, { conversaId: CONVERSA, id: PRONTA }); http.restaurar();
   assert.equal(h.linkIndividual, 'NAO_PREENCHIDO'); assert.doesNotMatch(h.texto, /contrato\//);
+});
+
+test('recusas de acesso (empresa divergente, seleção pendente, sem acesso) chegam às rotas da biblioteca sem tradução e sem consulta', async () => {
+  for (const recusa of ['ATENDIMENTO_EMPRESA_DIVERGENTE', 'ATENDIMENTO_EMPRESA_NAO_SELECIONADA', 'ATENDIMENTO_SEM_ACESSO']) {
+    const { modulo, comandos, restaurar } = carregar({ recusa });
+    try {
+      await assert.rejects(modulo.listarProntas({ usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO' } as never), new RegExp(recusa));
+      assert.equal(comandos.length, 0);
+    } finally { restaurar(); }
+  }
 });

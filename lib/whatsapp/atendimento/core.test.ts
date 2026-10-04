@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { comandoDireto, configuracaoSchema, ocultarDadosPessoais, dataDeInteresse, dataValida, entradaGupshup, hojeOperacao, interpretacaoSchema, janelaAberta, responder } from './core.ts';
+import { comandoDireto, conferirEmpresaAtiva, configuracaoSchema, ocultarDadosPessoais, dataDeInteresse, dataValida, entradaGupshup, hojeOperacao, interpretacaoSchema, janelaAberta, responder } from './core.ts';
 const config = {ativo:true,nome:'Empresa sintética',perguntas:[{id:'endereco',pergunta:'Onde fica?',resposta:'Endereço aprovado pelo responsável.'}],limites:{respostasPor24h:20}};
 const plano = {intencao:'DUVIDA' as const,perguntaId:'endereco',data:null,convidados:null};
 test('FAQ só responde com fonte publicada; id desconhecido encaminha para humano',()=>{
@@ -103,4 +103,15 @@ test('minimização antes do modelo: CPF, e-mail e telefone saem; data e quantid
   for (const dado of ['123.456.789-09', 'ana.silva@example.test', '99999-0000', '3333-4444', '5561988887777']) assert.equal(limpo.includes(dado), false, dado);
   for (const fica of ['14/11/2027', '60 pessoas', '14 11 2027', 'Ana']) assert.ok(limpo.includes(fica), fica);
   assert.equal(limpo.match(/\[telefone omitido\]/g)?.length, 3);
+});
+
+test('empresa ativa × piloto: sem o campo ou indefinido = compatível; nulo/vazio = seleção pendente; outra = divergência', () => {
+  const piloto = '11111111-1111-4111-8111-111111111111';
+  assert.doesNotThrow(() => conferirEmpresaAtiva({ usuario_id: 'u' }, piloto));
+  assert.doesNotThrow(() => conferirEmpresaAtiva({ usuario_id: 'u', empresa_ativa_id: undefined }, piloto));
+  assert.doesNotThrow(() => conferirEmpresaAtiva({ empresa_ativa_id: piloto.toUpperCase() }, piloto));
+  assert.throws(() => conferirEmpresaAtiva({ empresa_ativa_id: null }, piloto), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
+  assert.throws(() => conferirEmpresaAtiva({ empresa_ativa_id: '' }, piloto), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
+  assert.throws(() => conferirEmpresaAtiva({ empresa_ativa_id: '22222222-2222-4222-8222-222222222222' }, piloto), /ATENDIMENTO_EMPRESA_DIVERGENTE/);
+  assert.throws(() => conferirEmpresaAtiva({ empresa_ativa_id: 42 }, piloto), /ATENDIMENTO_EMPRESA_DIVERGENTE/);
 });
