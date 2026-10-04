@@ -1,12 +1,12 @@
 # Atendimento IA WhatsApp V1 — estado consolidado e passagem
 
-Atualizado em 02/10/2026. Documento único de estado da V1. Substitui os registros por rodada anteriores, que ficam no histórico do Git. Planos de origem: [ATENDIMENTO_IA_WHATSAPP_PLANO.md](ATENDIMENTO_IA_WHATSAPP_PLANO.md) e [PROXIMA_ENTREGA_UX_WHATSAPP.md](PROXIMA_ENTREGA_UX_WHATSAPP.md) (escopo histórico). Ativação: [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md). Banco descartável: [VALIDACAO_060_E_HOMOLOGACAO_GUPSHUP.md](VALIDACAO_060_E_HOMOLOGACAO_GUPSHUP.md). Autorizações: [OPERACAO_AGENTES.md](OPERACAO_AGENTES.md).
+Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "Preparação de 04/10/2026"). Documento único de estado da V1. Substitui os registros por rodada anteriores, que ficam no histórico do Git. Planos de origem: [ATENDIMENTO_IA_WHATSAPP_PLANO.md](ATENDIMENTO_IA_WHATSAPP_PLANO.md) e [PROXIMA_ENTREGA_UX_WHATSAPP.md](PROXIMA_ENTREGA_UX_WHATSAPP.md) (escopo histórico). Ativação: [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md). Banco descartável: [VALIDACAO_060_E_HOMOLOGACAO_GUPSHUP.md](VALIDACAO_060_E_HOMOLOGACAO_GUPSHUP.md). Autorizações: [OPERACAO_AGENTES.md](OPERACAO_AGENTES.md).
 
 ## Estado em quatro níveis
 
 | Nível | Estado |
 | --- | --- |
-| Implementado e validado localmente | **Sim.** PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O código foi validado em `a55aed8`. Commits posteriores só mudam documentação e comentário de teste |
+| Implementado e validado localmente | **Sim.** PR #80 (`whatsapp/atendimento-ia-v1` → `staging`). O remoto está em `b7db96a` (código validado em `a55aed8`). A preparação de 04/10/2026 está só no checkout local, sem push: integração local de `origin/staging` (`e099edd`) e melhorias de tela, validadas no commit local seguinte |
 | Integrado em staging | **Não.** PR aberta, sem merge. Migration 060 não aplicada no banco de staging. Nenhuma variável configurada |
 | Homologado com Gupshup real | **Não.** Bloqueado até comprovar três condições: autenticação do webhook pelo mecanismo do Gupshup (chamado #277630, acesso ao app `KidmaisManager`), receptor exclusivo do número entre ambientes (E0) e preservação do OTP |
 | Ativo em produção | **Estado não verificado; não ativado por esta entrega.** Produção não foi lida nem alterada. Não presumir seu estado; exige etapa e autorização próprias |
@@ -20,6 +20,30 @@ Atualizado em 02/10/2026. Documento único de estado da V1. Substitui os registr
   - nenhuma migration ou SQL em banco de staging ou produção;
   - nada no Gupshup (assinaturas, callback) e nenhuma mensagem real.
 - **Local, autorizado pelo Felipe:** o PostgreSQL descartável (127.0.0.1:55498), criado e removido em cada rodada.
+
+## Preparação de 04/10/2026 (local, sem push)
+
+Pedido do Felipe: preparar o módulo sem depender do Gupshup. Não autorizou merge, deploy, migration, mudança remota nem mensagem real.
+
+- **Base atualizada:** `origin/staging` avançou para `35a2bd9` (contratos históricos 061 e agenda por empresa 062), e a PR #80 ficou em conflito (`dirty`).
+  - Integração **local**: `e099edd`, merge de `origin/staging` na branch.
+  - Conflitos só nos inventários: 060 ao lado de 061/062 em `check-migrations`, `production.test`, seleção das suítes PostgreSQL e `PERMITIDOS_ROTAS`.
+  - Não há colisão de número: staging não tem 060.
+  - Os modelos PostgreSQL `061`/`062` passam a incluir a 060, com tabelas independentes.
+  - A suíte da 060 continua no estado `atual`.
+- **Tela (lacunas comprovadas na revisão de fila humana, pendentes, incertos e motivos):**
+  - **Fila humana:** contagem "N conversas aguardando atendente" na lista e contagem em cada coluna do quadro.
+  - **Saídas que não chegaram:** a explicação aparece abaixo da mensagem, para os estados Na fila, Não enviada e Entrega não confirmada.
+    - Na fila: prazo de 15 min.
+    - Cancelada: os motivos possíveis.
+    - Falha: não entregue.
+    - Incerta: pode ter chegado; conferir antes de repetir; sem reenvio automático.
+  - **"Retomar IA" desabilitado** mostra o motivo: envio, chave da IA ou configuração da empresa desligados.
+- **Documentos novos:**
+  - [WHATSAPP_RESPOSTAS_INICIAIS.md](WHATSAPP_RESPOSTAS_INICIAIS.md): textos para aprovação. Nenhum texto foi trocado no código.
+  - [WHATSAPP_CUSTOS_ESTIMATIVA.md](WHATSAPP_CUSTOS_ESTIMATIVA.md): a Meta voltou a cobrar respostas de serviço em 01/10/2026, com 1.000 grátis por número por mês.
+  - [WHATSAPP_ROTEIRO_HOMOLOGACAO.md](WHATSAPP_ROTEIRO_HOMOLOGACAO.md): evidência local × verificação real.
+- **PostgreSQL:** não foi executado nesta rodada (sem autorização). A integração não mudou nenhum código do WhatsApp nem a 060; mudou só inventários e seleção. Recomendado repetir o `check:v1:postgres` na base nova antes do merge, com autorização (ver pendências).
 
 ## Checkout e branches
 
@@ -63,13 +87,20 @@ Evidências locais em `.local-ux/` (fora do Git), vinculadas ao commit.
 | 7 | Resposta publicada revogada | Ao gravar, a saída usa a configuração vigente (`FOR SHARE`). Saída pendente criada antes da última alteração é cancelada. Com a IA conduzindo, a conversa vai para AGUARDANDO_HUMANO; estados humanos, responsável e versão são preservados | PostgreSQL 8f: corrigida durante a geração, removida com saída pendente, estado após o cancelamento; `worker.test.ts` (`a55aed8`) | Validado localmente | — |
 | 8 | Limite explícito da revogação | A trava termina no COMMIT que marca ENVIANDO; o POST vem depois. Alteração posterior não retém o envio: sai o texto lido ou INCERTO. Não há promessa de cancelamento nem recolhimento | Comentário em `worker.ts`; teste "envio iniciado não retido" (`a55aed8`) | Validado localmente | — |
 | 9 | Migration 060, postchecks e recuperação | Pré-condição inline, postcheck, down fail-closed, rollback precheck/postcheck, inventário | `check:v1:postgres` 30/30 em `a55aed8` (`.local-ux/pg-060/check-v1-postgres-r7-escalonamento.log`). Ensaio de exportação/restauração, também com usuário restrito sem superusuário, em 02/10, com a 060 idêntica (não mudou desde `a7ac6bd`). `production:test` 37/37 em `a55aed8` | Validado no descartável | Aplicação em staging exige backup e autorização (E2) |
-| 10 | UX desktop, celular e teclado; motivos e estados reais | Situação do canal em partes; responsável; autor e estado por direção; motivo de bloqueio da resposta; "Voltar às conversas" no celular; só 4 dígitos do contato | QA Playwright com APIs simuladas em 390×844 e 1280×900 (`.local-ux/qa-whatsapp-ui-v2.cjs`, `.local-ux/whatsapp-qa-v2/`), rodado em `2395935`; a tela não mudou até `a55aed8` | Validado localmente | Conferência visual do Felipe em staging após o deploy |
+| 10 | UX desktop, celular e teclado; motivos e estados reais | Situação do canal em partes; responsável; autor e estado por direção; motivo de bloqueio da resposta e do "Retomar IA"; fila humana contada; explicação das saídas na fila, não enviadas e incertas; "Voltar às conversas" no celular; só 4 dígitos do contato | QA Playwright com APIs simuladas em 390×844 e 1280×900 (`.local-ux/qa-whatsapp-ui-v2.cjs`, `.local-ux/whatsapp-qa-v2/`), rodado na preparação de 04/10 (commit local seguinte a `e099edd`) | Validado localmente | Conferência visual do Felipe em staging após o deploy |
 
-**Gates do código validado (`a55aed8`):**
+**Gates do código validado (`a55aed8`, remoto):**
 - `check:v1:static`: 1.724 testes unitários e 103 do harness com mocks, lint, TypeScript e build (`.local-ux/whatsapp-static-node22-v5.log`);
 - `check:v1:postgres`: 30/30 no descartável;
 - `production:test`: 37/37;
 - CI do GitHub: verde.
+
+**Gates da preparação de 04/10/2026 (local, base `35a2bd9` integrada):**
+- `check:v1:static`: 1.878 testes unitários e 103 do harness, lint, TypeScript, build e leitura de PDF no asset, no merge `e099edd` (`.local-ux/whatsapp-static-node22-v6-merge.log`) e de novo com a tela final (`.local-ux/whatsapp-static-node22-v7-ux.log`);
+- `production:test`: 37/37 com 060, 061 e 062;
+- QA da tela: passou em celular e desktop;
+- `check:v1:postgres` **não executado** na base nova (sem autorização nesta rodada);
+- CI não se aplica, porque não houve push.
 
 ## Configuração (só nomes; nunca imprimir valores)
 
@@ -114,7 +145,11 @@ O OTP usa o endpoint de template e não passa pelo transporte do atendimento. O 
 | --- | --- | --- |
 | P0 | Resposta do Gupshup ao chamado #277630: mecanismo de autenticação e acesso Partner ao app `KidmaisManager` | Felipe / Gupshup |
 | P0 | Antes da homologação real, comprovar as três condições: autenticação Gupshup, receptor exclusivo (E0) e OTP preservado. O webhook continua 204 para os status de OTP, e o OTP de login segue funcionando em staging depois do deploy (E3) | Felipe autoriza; Claude verifica |
-| P1 | Revisão independente do HEAD final da PR #80 | Codex |
+| P1 | Revisão independente da preparação local de 04/10/2026 (merge com staging, tela e documentos) | Codex |
+| P1 | Push da preparação local para a PR #80, para remover o conflito com `staging` e rodar o CI. É mudança remota (GitHub) e precisa de autorização | Felipe autoriza |
+| P1 | `check:v1:postgres` no descartável com a base nova (061/062 e 060 juntas) antes do merge | Felipe autoriza; Claude executa |
+| P1 | Aprovação dos textos iniciais ([WHATSAPP_RESPOSTAS_INICIAIS.md](WHATSAPP_RESPOSTAS_INICIAIS.md)). O texto 2 corrige uma lacuna real: dúvida sem resposta publicada é encaminhada sem avisar o cliente | Felipe |
+| P2 | Confirmar a tarifa de serviço do Brasil na tabela da Meta e a taxa do Gupshup no painel ou contrato ([WHATSAPP_CUSTOS_ESTIMATIVA.md](WHATSAPP_CUSTOS_ESTIMATIVA.md)) | Felipe |
 | P1 | Merge em `staging`, com autorização e revalidação de HEAD/base, CI e Render (branch e auto-deploy) | Felipe autoriza; Claude executa |
 | P1 | Etapas E0–E8 de staging ([WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md)), cada uma com autorização própria, depois do P0 | Felipe autoriza; Claude executa |
 | P2 | Produção: etapa e autorização próprias, depois da homologação em staging | Felipe |

@@ -2,6 +2,9 @@
 /* Situação do canal: cada parte com texto próprio (ligado/desligado não depende só da cor). */
 .canal{composes:glass from '../visual.module.css';padding:16px 20px;margin:16px 0}.canal h2{font-size:16px;margin:0 0 10px}.canal dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:0}.canal dl>div{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:10px;background:var(--km-card-2);border:1px solid var(--km-border)}.canal dt{font-size:12px;color:var(--km-text-2)}.canal dd{margin:0;font-weight:600;display:flex;align-items:center;gap:8px}.canal dd::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;background:var(--km-text-2)}.canal [data-ligado=true] dd::before{background:var(--km-teal);box-shadow:0 0 8px color-mix(in srgb,var(--km-teal) 70%,transparent)}
 .pagina label.opcao{display:flex;align-items:center;gap:10px;min-height:44px}.pagina label.opcao input{width:20px;height:20px}
+/* Fila humana e explicação de saídas que não chegaram: laranja só para alerta; o texto basta sem a cor. */
+.fila{font-size:13px;font-weight:600;color:var(--km-text)!important;padding:8px 12px;border-radius:8px;border-left:3px solid var(--km-orange);background:var(--km-card-2)}
+.explicacao{font-size:13px;margin:4px 0 0!important;padding-top:6px;border-top:1px solid var(--km-border);white-space:normal!important}.explicacao[data-estado=INCERTO]{border-top-color:var(--km-orange)}
 .voltar{display:none!important}
 @media(max-width:760px){.layout{grid-template-columns:1fr}.pagina{padding:16px}.painel{padding:16px}.acoes a,.acoes button{max-width:100%;white-space:normal}.voltar{display:inline-flex!important;align-items:center;margin-bottom:8px}}
 
