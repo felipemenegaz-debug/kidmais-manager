@@ -4,10 +4,10 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 
 ## Candidata local consolidada — 04/10/2026, fim do dia
 
-**HEAD do código:** `48034b5d1add421c133f50c6fd8efe6a043a6f25` na worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`. O commit de docs que traz esta seção vem logo depois.
+**HEAD do código:** `ccb8b48c3591b535c069b6e8364cc134d33a5088` na worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`. Os commits de docs que trazem esta seção vêm logo depois.
 - Remoto `origin/whatsapp/atendimento-ia-v1`: `bdb1e75`.
-- 23 commits locais até `48034b5`, mais o de docs, **sem push**: 44 arquivos, +2760/−49 até `48034b5`.
-- `git merge-tree` contra `origin/staging` `904b451` (leitura, depois de `git fetch`): **sem conflito**.
+- 26 commits locais até `ccb8b48`, mais os de docs, **sem push**.
+- `git merge-tree` (leitura, depois de `git fetch`): contra `origin/staging` `904b451` **sem conflito**; contra as candidatas do painel (`origin/feat/painel-desenvolvedor-20261004` `2b6702a` e `codex/painel-multi-20261004` `c0158d4`) conflito **só** nos inventários `check-migrations.mjs` e `production.test.mjs` (união de listas; ver o doc de identificação).
 
 **O que entrou desde `bdb1e75`:**
 
@@ -17,18 +17,20 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
 | Encerrar cancela pendentes na mesma transação (SKIP LOCKED); diálogo de confirmação; contador por direção | `c091b02`, `e44eb63`, `ba14dc0`, `f88a84e`, `25f1efd`, `fd7b131` | [VALIDACAO_063_E_ENCERRAMENTO.md](VALIDACAO_063_E_ENCERRAMENTO.md) |
 | Mensagens prontas (fase A) + migration 063; prévia vinculada à conversa | `e44eb63`, `62f2e10` | idem |
 | Foco da biblioteca e título sob o menu no celular | `730ba89` | [VALIDACAO_NAVEGADOR_PRONTAS.md](VALIDACAO_NAVEGADOR_PRONTAS.md) |
-| **Nome e número completo** na tela autorizada; migration **064** (nome de perfil, preparada) | `48034b5` | [IDENTIFICACAO_CONTATO_ATENDIMENTO.md](IDENTIFICACAO_CONTATO_ATENDIMENTO.md) |
+| **Nome e número completo** na tela autorizada; migration do nome de perfil (preparada) | `48034b5` | [IDENTIFICACAO_CONTATO_ATENDIMENTO.md](IDENTIFICACAO_CONTATO_ATENDIMENTO.md) |
+| **Numeração coordenada** com o painel: prontas **064**, nome de perfil **065** (063 = painel); recusa obrigatória na suíte 065 | `090e7df`, `ccb8b48` | idem, "Numeração" |
 
 **Evidências por HEAD:**
 
 | Verificação | HEAD | Resultado |
 | --- | --- | --- |
-| Regressão estática (unitários, harness, lint, TypeScript, build) | `48034b5` | **PASS**: 1919/1919 + 103/103; lint sem erros (1 aviso antigo em `catalogo.ts`) |
-| Checagem de produção (`production.test.mjs`) | `48034b5` | 37/37, com a 064 no inventário |
-| PostgreSQL descartável: 060, 063, concorrência + suíte completa | `ba6d47c` (código de `1e40264`) | PASS 3/3 e 38/38. **Não refeita** depois de `730ba89` (só tela) e de `48034b5`, que mudou a SQL da listagem, a suíte da 060 e criou a suíte da 064 |
+| Regressão estática (unitários, harness, lint, TypeScript, build) | `48034b5` | PASS 1919/1919 + 103/103. Log `.local-ux/check-v1-static-identificacao.log` (SHA-256 `f424bb95…e4bea1a`), gerado com a árvore igual a `48034b5`, antes do commit |
+| Regressão estática, idem | **`ccb8b48`** | **PASS** 1919/1919 + 103/103; lint sem erros (1 aviso antigo em `catalogo.ts`). Log `.local-ux/check-v1-static-ccb8b48.log`, que registra HEAD e árvore limpa na 1ª linha |
+| Checagem de produção (`production.test.mjs`) | `ccb8b48` | 37/37 com 064/065; simulação da mescla com o painel: 37/37 |
+| PostgreSQL descartável: 060, 063 (hoje 064), concorrência + suíte completa | `ba6d47c` (código de `1e40264`) | PASS 3/3 e 38/38. **Não refeita** depois da tela (`730ba89`), da identificação (`48034b5`) e da renumeração (`090e7df`) — procedimento em [VALIDACAO_IDENTIFICACAO.md](VALIDACAO_IDENTIFICACAO.md) |
 | Navegador, biblioteca (B1–B10, desktop/celular/teclado) | `930121d` | ok. Ocorrências registradas no doc |
 | Navegador, regressão de foco (F1–F9) | `4b58b08` | ok; zero saídas |
-| Navegador, identificação do contato | — | **não executada** |
+| Navegador, identificação do contato | — | **não executada** (procedimento preparado) |
 
 **Lacunas explícitas (nenhuma resolvida por esta candidata):**
 1. **HTTPS visual:** o link individual **preenchido** nunca foi visto na tela. O navegador embutido não abre `https://localhost` com certificado autoassinado. Foi validado só pela rota real em https, com TLS verificado contra o certificado da execução, e pela suíte PostgreSQL (passo 6b).
@@ -38,8 +40,8 @@ Atualizado em 04/10/2026 (preparação local enquanto o Gupshup responde; ver "P
    - preservação do OTP.
 
    Nenhuma mensagem real foi enviada nem recebida; tudo foi simulado ou sintético. O nome de perfil (`payload.sender.name`) segue a documentação oficial v2, mas não foi visto num evento real.
-3. **Numeração de migrations:** a 063 desta candidata colide com `origin/feat/painel-desenvolvedor-20261004` (063 `painel_desenvolvedor`). Quem entrar depois renumera (ver o doc de identificação, "Numeração").
-4. **PostgreSQL** a refazer no HEAD atual (060, 063, 064, concorrência e completa) e **validação visual** da identificação: as duas dependem de autorização.
+3. **Numeração de migrations:** **resolvida localmente** — 063 = painel (publicada), 064/065 = atendimento. Na segunda mescla, seja qual for, ainda é preciso unir as listas dos inventários. Nada foi alterado na branch do painel.
+4. **PostgreSQL** a refazer no HEAD atual (060, 064, 065, concorrência e completa) e **validação no navegador** da identificação: preparadas, dependem de autorização.
 5. **Demo local** parada desde o desligamento do Windows (13:10 de 04/10); não reiniciada.
 
 ## Estado em quatro níveis
