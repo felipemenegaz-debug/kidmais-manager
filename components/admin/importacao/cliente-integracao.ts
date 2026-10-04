@@ -1,3 +1,4 @@
+import { decidirOperacao, type RascunhoPublico } from '../inteligencia/cliente-inteligencia.ts';
 import type { Sugestao } from './integracao-form.ts';
 
 /**
@@ -22,7 +23,7 @@ export type OpcoesIntegracao = {
   disponivel: boolean;
   hoje: string;
   integracao: { contratoId: string; financeiroPendente: boolean; caminhoFinanceiro?: 'CONFERIR_HISTORICO' | 'PLANO_NA_VERSAO_VIGENTE' | 'AGUARDAR_REVISAO' | 'CONCLUIDO'; valorContratadoCentavos: number } | null;
-  cliente: { id: string; nome: string; ativo: boolean } | null;
+  cliente: { id: string | null; nome: string; ativo: boolean } | null;
   documento: { pacote: string | null; aniversariante: string | null; tema: string | null };
   sugestao: Sugestao;
   estabelecimentos: Array<{ id: string; nome: string }>;
@@ -32,7 +33,7 @@ export type OpcoesIntegracao = {
 };
 export type Simulacao =
   | { integrada: true; contratoId: string }
-  | { integrada: false; pronto: boolean; bloqueios: string[]; avisos: string[]; resumo: ResumoIntegracao; resumoHash: string; possiveisVinculos: PossivelVinculo[] };
+  | { integrada: false; pronto: boolean; bloqueios: string[]; avisos: string[]; resumo: ResumoIntegracao; resumoHash: string; planoHash?: string; possiveisVinculos: PossivelVinculo[] };
 export type SinalDuplicidade = 'MESMO_CLIENTE' | 'MESMO_CONTATO' | 'MESMO_ANIVERSARIANTE' | 'MESMO_VALOR' | 'MESMO_DOCUMENTO'
   | 'DATA_DO_DOCUMENTO' | 'DATA_INVERTIDA' | 'DATA_PROXIMA';
 export type PossivelVinculo = { fechamentoId: string; contratoId: string | null; status: string; data: string; alcance: 'MESMO_DIA' | 'OUTRA_DATA'; horario: string;
@@ -69,6 +70,30 @@ async function ler<T>(resposta: Promise<Response>): Promise<Resposta<T>> {
 
 const postar = (buscar: Buscador, id: string, corpo: object) =>
   buscar(endpointIntegracao(id), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
+
+const postarRascunho = (buscar: Buscador, id: string, versao: number, acao: string, campos: object = {}) =>
+  buscar('/api/admin/inteligencia/importacoes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ acao, importacaoId: id, versao, ...campos }) });
+
+export async function lerOpcoesRascunho(buscar: Buscador, id: string, versao: number): Promise<Resposta<OpcoesIntegracao>> {
+  const r = await ler<{ opcoes?: OpcoesIntegracao }>(postarRascunho(buscar, id, versao, 'opcoes-completas'));
+  return r.ok && r.dados.opcoes ? { ok: true, dados: r.dados.opcoes } : r.ok ? { ok: false, mensagem: 'Confira os dados do cliente e do contrato antes de continuar.', codigo: 'IMPORTACAO_BLOQUEADA', detalhes: null } : r;
+}
+export async function simularRascunho(buscar: Buscador, id: string, versao: number, decisoes: object): Promise<Resposta<Simulacao>> {
+  const r = await ler<{ simulacao?: Simulacao }>(postarRascunho(buscar, id, versao, 'simular-completa', { integracao: decisoes }));
+  return r.ok && r.dados.simulacao ? { ok: true, dados: r.dados.simulacao } : r.ok ? { ok: false, mensagem: 'Confira os dados do contrato antes de continuar.', codigo: 'IMPORTACAO_BLOQUEADA', detalhes: null } : r;
+}
+/** Um clique humano, preview já visto e hashes iguais: prepara o Gate e conclui pela rota nativa de confirmação. */
+export async function confirmarRascunho(buscar: Buscador, id: string, versao: number, decisoes: object, resumoHash: string, planoHash: string): Promise<Resposta<ResultadoIntegracao>> {
+  const r = await ler<{ gate?: { tipo: string; rascunho?: RascunhoPublico } }>(postarRascunho(buscar, id, versao, 'preparar', { integracao: decisoes, integracaoHash: resumoHash, planoHash }));
+  if (!r.ok) return r;
+  if (r.dados.gate?.tipo !== 'preview' || !r.dados.gate.rascunho) return { ok: false, mensagem: 'A revisão mudou. Confira os dados novamente.', codigo: 'RESUMO_DESATUALIZADO', detalhes: null };
+  const resultado = await decidirOperacao(buscar, r.dados.gate.rascunho, 'confirmar');
+  if (resultado.tipo !== 'ok') return { ok: false, mensagem: resultado.mensagem + ' Confira o contrato na lista antes de repetir a confirmação.', codigo: 'CONFIRMACAO_RECUSADA', detalhes: null };
+  const resposta = resultado.resposta;
+  const contratoId = resposta.tipo === 'resultado_acao' && resposta.destino ? /^\/admin\/contratos\?contratoId=([0-9a-f-]{36})$/.exec(resposta.destino)?.[1] : null;
+  if (!contratoId) return { ok: false, mensagem: 'Confira o contrato pela lista de Contratos antes de repetir.', codigo: 'RESULTADO_INESPERADO', detalhes: null };
+  return { ok: true, dados: { contratoId, destino: '/admin/contratos?contratoId=' + contratoId, reutilizado: false } };
+}
 
 export const lerOpcoes = (buscar: Buscador, id: string) => ler<OpcoesIntegracao>(buscar(endpointIntegracao(id), { method: 'GET' }));
 export const simular = (buscar: Buscador, id: string, decisoes: object) => ler<Simulacao>(postar(buscar, id, { acao: 'simular', decisoes }));

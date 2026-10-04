@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import {
-  confirmar, conferirFinanceiro, lerOpcoes, novaChave, reautenticar, simular, simularFinanceiro,
+  confirmar, confirmarRascunho, conferirFinanceiro, lerOpcoes, lerOpcoesRascunho, simularRascunho, novaChave, reautenticar, simular, simularFinanceiro,
   type OpcoesIntegracao, type SinalDuplicidade, type ResultadoIntegracao, type ResumoFinanceiro, type Simulacao, type SimulacaoFinanceira,
 } from './cliente-integracao';
 import {
@@ -38,7 +38,7 @@ const ROTULO_SINAL: Record<SinalDuplicidade, string> = { MESMO_CLIENTE: 'mesmo c
 
 const ROTULO_CAMPO: Record<CampoDoc, string> = { data: 'data', horarioInicio: 'início', horarioFim: 'término', convidados: 'convidados', valorContratado: 'valor contratado' };
 
-export default function IntegracaoContrato({ importacaoId, modoInicial = 'completo', onPasso, onIntegrado }: { importacaoId: string; modoInicial?: Modo; onPasso?(passo: PassoIntegracao): void; onIntegrado?(resultado: ResultadoIntegracao): void }) {
+export default function IntegracaoContrato({ importacaoId, modoInicial = 'completo', onPasso, onIntegrado, versaoRascunho, onOcupado }: { importacaoId: string; versaoRascunho?: number; onOcupado?(ocupado: boolean): void; modoInicial?: Modo; onPasso?(passo: PassoIntegracao): void; onIntegrado?(resultado: ResultadoIntegracao): void }) {
   const [carga, setCarga] = useState<Carga>({ tipo: 'carregando' });
   const [modo, setModo] = useState<Modo>(modoInicial);
   const [form, setForm] = useState<FormIntegracao | null>(null);
@@ -57,19 +57,20 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
     if (!r.ok) { setCarga({ tipo: 'erro', mensagem: r.mensagem }); return; }
     setCarga({ tipo: 'pronto', opcoes: r.dados });
     const f = formInicial(r.dados);
+    if (versaoRascunho !== undefined && !f.situacaoFinanceira && !f.parcelas.length && !r.dados.sugestao.recebimentosDocumento?.recebimentos.length && !r.dados.sugestao.recebimentosDocumento?.pendencias.length) f.situacaoFinanceira = 'NAO_CONFERIDO';
     if (r.dados.integracao) { f.valorContratado = textoDeCentavos(r.dados.integracao.valorContratadoCentavos); f.situacaoContrato = 'VIGENTE'; }
     setForm(f);
-  }, []);
+  }, [versaoRascunho]);
   // Carga inicial: o estado só muda na resposta (sem setState síncrono no efeito).
   useEffect(() => {
     let ativo = true;
-    void lerOpcoes(adminFetch, importacaoId).then((r) => { if (ativo) aplicar(r); });
+    void (versaoRascunho !== undefined ? lerOpcoesRascunho(adminFetch, importacaoId, versaoRascunho) : lerOpcoes(adminFetch, importacaoId)).then((r) => { if (ativo) aplicar(r); });
     return () => { ativo = false; };
-  }, [importacaoId, aplicar]);
+  }, [importacaoId, aplicar, versaoRascunho]);
   const carregar = useCallback(async () => {
     setCarga({ tipo: 'carregando' });
-    aplicar(await lerOpcoes(adminFetch, importacaoId));
-  }, [importacaoId, aplicar]);
+    aplicar(await (versaoRascunho !== undefined ? lerOpcoesRascunho(adminFetch, importacaoId, versaoRascunho) : lerOpcoes(adminFetch, importacaoId)));
+  }, [importacaoId, aplicar, versaoRascunho]);
 
   if (carga.tipo === 'carregando' || (carga.tipo === 'pronto' && !form)) return <section className={styles.painel} aria-busy="true"><h2 className={styles.titulo}>Preparando a integração</h2><p className={styles.texto}>Carregando unidades, pacotes e os dados do contrato…</p></section>;
   if (carga.tipo === 'erro') return <section className={styles.painel} role="alert"><h2 className={styles.titulo}>Não foi possível abrir a integração</h2><p className={styles.texto}>{carga.mensagem}</p><button type="button" className={styles.primario} onClick={() => void carregar()}>Tentar novamente</button></section>;
@@ -95,7 +96,10 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
     </div>
   </section>;
 
-  const avancarFesta = () => { const e = errosFesta(f, o.sugestao, o.estabelecimentos.length); setErros(e); if (!e.length) setPasso('pagamentos'); };
+  const avancarFesta = () => { const e = errosFesta(f, o.sugestao, o.estabelecimentos.length); setErros(e); if (!e.length) {
+    if (versaoRascunho !== undefined && (f.situacaoFinanceira === 'PAGO' || f.situacaoFinanceira === 'NAO_CONFERIDO') && !errosPagamentos(f, o.sugestao, o.hoje).length) void revisar(f);
+    else setPasso('pagamentos');
+  } };
 
   /** `manterErro`: recálculo depois de uma recusa do servidor mantém o motivo visível. */
   async function revisar(formAtual: FormIntegracao = f, manterErro = false) {
@@ -110,7 +114,8 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
       setRevisao({ tipo: 'financeiro', sim: r.dados, chave: novaChave() });
       return;
     }
-    const r = await simular(adminFetch, importacaoId, decisoesDoForm(formAtual, o.sugestao));
+    const d = decisoesDoForm(formAtual, o.sugestao);
+    const r = versaoRascunho !== undefined ? await simularRascunho(adminFetch, importacaoId, versaoRascunho, d) : await simular(adminFetch, importacaoId, d);
     if (!r.ok) { setRevisao({ tipo: 'nenhuma' }); setErro(r.mensagem); return; }
     if (r.dados.integrada) { void carregar(); return; }
     setRevisao({ tipo: 'integracao', sim: r.dados, chave: novaChave() });
@@ -118,7 +123,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
 
   async function confirmarAgora() {
     if (enviando || !senha || (revisao.tipo !== 'integracao' && revisao.tipo !== 'financeiro')) return;
-    setEnviando(true); setErro(null);
+    setEnviando(true); onOcupado?.(true); setErro(null);
     try {
       // Autenticação recente primeiro (mesma rota da assinatura Kidmais); a senha não fica guardada na tela.
       const auth = await reautenticar(adminFetch, senha);
@@ -130,10 +135,12 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
         tratarFalha(r.codigo, r.mensagem, r.detalhes);
         return;
       }
-      const r = await confirmar(adminFetch, importacaoId, decisoesDoForm(f, o.sugestao), revisao.sim.resumoHash, revisao.chave);
+      const r = versaoRascunho !== undefined
+        ? await confirmarRascunho(adminFetch, importacaoId, versaoRascunho, decisoesDoForm(f, o.sugestao), revisao.sim.resumoHash, revisao.sim.planoHash ?? "")
+        : await confirmar(adminFetch, importacaoId, decisoesDoForm(f, o.sugestao), revisao.sim.resumoHash, revisao.chave);
       if (r.ok) { setResultado(r.dados); setPasso('concluida'); onIntegrado?.(r.dados); return; }
       tratarFalha(r.codigo, r.mensagem, r.detalhes);
-    } finally { setEnviando(false); }
+    } finally { setEnviando(false); onOcupado?.(false); }
   }
 
   function tratarFalha(codigo: string | null, mensagem: string, detalhes: Record<string, unknown> | null) {
@@ -188,11 +195,13 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
         {(o.documento.aniversariante || o.documento.tema) && <p className={styles.discreto}>Do documento: {[o.documento.aniversariante && `aniversariante ${o.documento.aniversariante}`, o.documento.tema && `tema “${o.documento.tema}”`].filter(Boolean).join(' · ')}.</p>}
       </>}
       <Erros erros={erros} erro={erro} />
-      <div className={styles.acoesFinais}><button type="button" className={styles.primario} disabled={bloqueadoPelaSituacao || !f.situacaoContrato} onClick={avancarFesta}>Continuar para pagamentos</button></div>
+      <div className={styles.acoesFinais}><button type="button" className={styles.primario} disabled={bloqueadoPelaSituacao || !f.situacaoContrato} onClick={avancarFesta}>{versaoRascunho !== undefined && (f.situacaoFinanceira === 'PAGO' || f.situacaoFinanceira === 'NAO_CONFERIDO') ? 'Revisar e concluir' : 'Continuar para pagamentos'}</button></div>
     </section>}
 
     {passo === 'pagamentos' && <section className={styles.painel} aria-labelledby="int-pag">
       <h2 id="int-pag" className={styles.titulo}>{modo === 'financeiro' ? 'Conferir pagamentos' : 'Pagamentos'}</h2>
+      {!!o.sugestao.recebimentosDocumento?.recebimentos.length && <p className={styles.aviso}>O documento traz recebimentos explícitos. Quando eles somam o valor contratado, os pagamentos são preenchidos para sua conferência. Confira valores, datas e formas antes de concluir; os vencimentos usam a data recebida como complemento operacional.</p>}
+      {o.sugestao.recebimentosDocumento?.pendencias.map(p => <p key={p} className={styles.aviso}>{p}</p>)}
       <p className={styles.texto}>Registre só o que foi efetivamente recebido, com a data real e a forma. O restante entra em Contas a receber.</p>
       <div className={ui.grade}>
         <label className={ui.campo}><span>Valor contratado</span>

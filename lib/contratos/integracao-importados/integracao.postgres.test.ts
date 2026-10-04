@@ -845,6 +845,54 @@ test("061: integração real — formalização em papel, festa, agenda, recebí
       await a.query("ROLLBACK");
     });
 
+    for (const falhar of [false, true]) await t.test('confirmação única: cliente novo e Core ' + (falhar ? 'revertidos após falha do financeiro' : 'confirmados juntos com constraints no commit'), async () => {
+      await a.query('BEGIN');
+      const c = await cenario(a);
+      const ev = { data: dia(falhar ? 151 : 150), inicio: '14:00', fim: '18:00' };
+      const imp = await importacao(a, c, ev, true);
+      const ri = carregar<typeof import('../../importacao-contrato/repositorio-importacao.ts')>('lib/importacao-contrato/repositorio-importacao.ts');
+      const crm = carregar<typeof import('../../clientes/services/index.ts')>('lib/clientes/services/index.ts');
+      const motor = carregar<typeof import('../../importacao-contrato/motor.ts')>('lib/importacao-contrato/motor.ts');
+      const fonte = carregar<typeof import('./rascunho.ts')>('lib/contratos/integracao-importados/rascunho.ts');
+      const tx = executor(a);
+      const i = (await ri.lerImportacao(tx, c.empresa, imp.id, false))!;
+      const plano: import('../../importacao-contrato/plano.ts').PlanoImportacao = { pronto: true, bloqueios: [], avisos: [],
+        match: { estado: 'NOVO_CLIENTE', clienteId: null, candidatos: [], motivo: 'Sintético' },
+        passos: [{ tipo: 'CLIENTE', acao: 'CRIAR', dados: { nomeCompleto: 'Novo cliente confirmação única', cpf: null, telefone: '11999990000', whatsapp: null, email: null } }, { tipo: 'CONTRATO_HISTORICO', acao: 'REGISTRAR_SNAPSHOT' }], snapshot: imp.snapshot };
+      const d = decisoes(c, ev, { situacao: 'PAGO', parcelas: [
+        { valorCentavos: 250000, vencimento: dia(-60), recebimento: { data: dia(-60), forma: 'PIX' } },
+        { valorCentavos: 250000, vencimento: dia(-30), recebimento: { data: dia(-30), forma: 'PIX' } },
+      ] });
+      const sim = await s.simularIntegracao(tx, c.tenant as never, imp.id, d, dia(0), await fonte.fonteDoRascunho(tx, c.tenant as never, i, plano));
+      assert.ok(!sim.integrada && sim.pronto, JSON.stringify(sim));
+      if (sim.integrada) throw Error('preview inesperado');
+      assert.equal((await a.query('SELECT count(*)::int n FROM clientes WHERE empresa_id=$1',[c.empresa])).rows[0].n,0,'preview não cria cliente');
+      await a.query('SAVEPOINT confirmar_tudo');
+      const executar = async () => {
+        await motor.executarImportacao(tx, { empresaId:c.empresa,usuarioId:c.usuario,requestId:randomUUID(),importacao:i,plano,agora:new Date().toISOString() }, {
+          cadastrarCliente: async (t, empresaId, dados, ctx) => ({ clienteId:(await crm.cadastrarClienteInterno({...dados,empresaId},{...ctx,origem:'CRM_INTERNO',ip:null,userAgent:'sintetico'},t)).cliente.id }),
+          conferirCliente: async () => { throw Error('cliente novo não vincula existente'); }, atualizarImportacao:ri.atualizarImportacao,
+        });
+        return s.confirmarIntegracao(tx,c.tenant as never,ctxIntegracao(c),imp.id,{decisoes:d,resumoHash:sim.resumoHash,chave:randomUUID()},dia(0),
+          falhar ? {...coreNativo,registrarRecebimento:async()=>{throw Error('falha sintética após cadastrar cliente');}} : coreNativo);
+      };
+      if (falhar) {
+        await assert.rejects(executar(),/falha sintética após cadastrar cliente/);
+        await a.query('ROLLBACK TO SAVEPOINT confirmar_tudo');
+        assert.equal((await ri.lerImportacao(tx,c.empresa,imp.id,false))!.status,'EM_REVISAO');
+        assert.equal((await a.query('SELECT count(*)::int n FROM clientes WHERE empresa_id=$1',[c.empresa])).rows[0].n,0);
+        assert.equal((await a.query('SELECT count(*)::int n FROM contratos c JOIN fechamentos f ON f.id=c.fechamento_id WHERE f.empresa_id=$1',[c.empresa])).rows[0].n,0);
+        await a.query('ROLLBACK');
+      } else {
+        const r = await executar(); await validarAgora(a); await a.query('COMMIT');
+        const l=(await a.query('SELECT i.cliente_id::text cliente, ci.contrato_id::text contrato FROM ia_importacoes i JOIN contrato_importacoes ci ON ci.importacao_id=i.id WHERE i.id=$1',[imp.id])).rows[0];
+        assert.equal(l.contrato,r.contratoId);
+        assert.equal((await a.query('SELECT count(*)::int n FROM clientes WHERE empresa_id=$1 AND id=$2',[c.empresa,l.cliente])).rows[0].n,1);
+        assert.equal((await a.query('SELECT count(*)::int n FROM festas WHERE contrato_id=$1',[r.contratoId])).rows[0].n,1);
+        assert.equal((await a.query('SELECT count(*)::int n FROM pagamento_recebimentos r JOIN pagamentos p ON p.id=r.pagamento_id JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE v.contrato_id=$1',[r.contratoId])).rows[0].n,2);
+      }
+    });
+
     await t.test("concorrência: duas confirmações para o mesmo horário — a segunda espera o lock e encontra o conflito", async () => {
       await a.query("BEGIN");
       const c = await cenario(a);

@@ -5,6 +5,8 @@
  * converte o que o operador digitou. Nada é presumido: situação do contrato e dos pagamentos começam em branco e
  * nenhuma parcela vem marcada como recebida, mesmo quando o documento fala em "à vista", "entrada" ou "30%".
  */
+import { recebimentosIntegrais, type LeituraRecebimentos } from '../../../lib/importacao-contrato/recebimentos.ts';
+
 export const FORMAS_ROTULO = {
   PIX: 'Pix', CARTAO_CREDITO: 'Cartão de crédito', CARTAO_DEBITO: 'Cartão de débito', BOLETO: 'Boleto',
   DINHEIRO: 'Dinheiro', TRANSFERENCIA: 'Transferência', OUTRO: 'Outro',
@@ -42,6 +44,7 @@ export type FormIntegracao = {
 };
 
 export type Sugestao = {
+  recebimentosDocumento?: LeituraRecebimentos;
   evento: { data: string | null; horarioInicio: string | null; horarioFim: string | null; convidados: number | null };
   valorContratadoCentavos: number | null;
   condicaoDocumento: string | null;
@@ -65,8 +68,9 @@ export const dataBr = (iso: string) => /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.
 let seq = 0;
 export const novaParcela = (p: Partial<ParcelaForm> = {}): ParcelaForm => ({ chave: `p${++seq}`, valor: '', vencimento: '', recebida: false, recebidaEm: '', forma: '', aposFestaConfirmada: false, ...p });
 
-export function formInicial(o: { sugestao: Sugestao; estabelecimentos: Array<{ id: string }> }): FormIntegracao {
+export function formInicial(o: { sugestao: Sugestao; estabelecimentos: Array<{ id: string }>; hoje?: string }): FormIntegracao {
   const s = o.sugestao;
+  const recebidos = o.hoje && s.recebimentosDocumento ? recebimentosIntegrais(s.recebimentosDocumento, s.valorContratadoCentavos, o.hoje) : null;
   return {
     situacaoContrato: '',
     estabelecimentoId: o.estabelecimentos.length === 1 ? o.estabelecimentos[0].id : '',
@@ -75,9 +79,11 @@ export function formInicial(o: { sugestao: Sugestao; estabelecimentos: Array<{ i
     convidados: s.evento.convidados != null ? String(s.evento.convidados) : '',
     valorContratado: s.valorContratadoCentavos != null ? textoDeCentavos(s.valorContratadoCentavos) : '',
     motivos: {},
-    situacaoFinanceira: '',
-    // Parcelas previstas no documento: ponto de partida, nunca marcadas como recebidas.
-    parcelas: s.parcelasPrevistas.map((p) => novaParcela({ valor: textoDeCentavos(p.valorCentavos), vencimento: p.vencimento ?? '' })),
+    situacaoFinanceira: recebidos ? 'PAGO' : '',
+    // Data do recebimento como complemento operacional quando não há vencimento identificado.
+    // A revisão final continua obrigatória; o catálogo e a condição à vista não provam pagamento.
+    parcelas: recebidos ? recebidos.map(r => novaParcela({ valor: textoDeCentavos(r.valorCentavos), vencimento: r.data, recebida: true, recebidaEm: r.data, forma: r.forma }))
+      : s.parcelasPrevistas.map((p) => novaParcela({ valor: textoDeCentavos(p.valorCentavos), vencimento: p.vencimento ?? '' })),
     outroContratoConfirmado: false,
     motivoOutroContrato: '',
     conferenciaDeclarada: false,

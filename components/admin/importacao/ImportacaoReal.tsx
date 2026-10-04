@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { CampoExtraido, EstadoCampo } from '@/lib/importacao-contrato/modelo';
 import { decidirOperacao, type RascunhoPublico } from '@/components/admin/inteligencia/cliente-inteligencia';
@@ -14,7 +15,7 @@ import real from './importacao-real.module.css';
 /**
  * Importação de contrato histórico — modo real.
  * O arquivo é enviado ao servidor, fica privado e é lido lá. Etapas: Dados do contrato e cliente (revisão + Human
- * Gate: registra o snapshot e o cliente) → Festa e agenda → Pagamentos → Revisão final (integração ao Core).
+ * Gate na revisão final) → Festa e agenda → Pagamentos → Revisão final (cliente e Core na mesma transação).
  * Sucesso só é anunciado quando a integração termina; até lá a tela diz o que falta.
  */
 type Etapa =
@@ -22,6 +23,7 @@ type Etapa =
   | { etapa: 'lendo'; nome: string }
   | { etapa: 'revisao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; avisos: string[]; ocupado: boolean; erro: string | null }
   | { etapa: 'confirmacao'; importacao: ImportacaoPublica; plano: PlanoPublico | null; rascunho: RascunhoPublico; decidindo: boolean; erro: string | null }
+  | { etapa: 'operacional'; importacao: ImportacaoPublica; plano: PlanoPublico | null }
   | { etapa: 'cancelada' }
   /** Dados do contrato e cliente registrados; segue o assistente de integração (festa, agenda, pagamentos). */
   | { etapa: 'integracao'; importacaoId: string; destino?: string; acabouDeRegistrar: boolean };
@@ -55,10 +57,12 @@ function etapaDaResposta(dados: RespostaImportacao): Etapa {
 
 /** `vitrine`: estado inicial estático para /preview-ux (sem sessão e sem rede). */
 export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
+  const router = useRouter();
   const [estado, setEstado] = useState<Etapa>(vitrine ?? { etapa: 'upload', erro: null });
   const [editando, setEditando] = useState<{ id: string; valor: string } | null>(null);
   const [arrastando, setArrastando] = useState(false);
   const [cancelando, setCancelando] = useState(false);
+  const [integracaoOcupada, setIntegracaoOcupada] = useState(false);
   const [passoIntegracao, setPassoIntegracao] = useState<PassoIntegracao>('festa');
   const dialogo = useRef<HTMLDialogElement>(null);
   const decidindoCancelamento = (estado.etapa === 'confirmacao' && estado.decidindo) || (estado.etapa === 'revisao' && estado.ocupado);
@@ -118,7 +122,7 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
     else setEstado({ ...estado, decidindo: false, erro: 'Resposta inesperada. Confira de novo: repetir a confirmação não duplica a importação.' });
   }
 
-  const passo = estado.etapa === 'upload' || estado.etapa === 'lendo' ? 0 : estado.etapa === 'integracao' ? PASSO_INTEGRACAO[passoIntegracao] : 1;
+  const passo = estado.etapa === 'upload' || estado.etapa === 'lendo' ? 0 : estado.etapa === 'integracao' || estado.etapa === 'operacional' ? PASSO_INTEGRACAO[passoIntegracao] : 1;
 
   return <main className={styles.pagina}>
     <Link className={styles.voltar} href="/admin/contratos">← Contratos</Link>
@@ -208,13 +212,18 @@ export default function ImportacaoReal({ vitrine }: { vitrine?: Etapa } = {}) {
             {estado.plano.avisos.length > 0 && <ul className={styles.discreto}>{estado.plano.avisos.map((a) => <li key={a}>{a}</li>)}</ul>}
           </div>}
           {estado.erro && <p className={styles.erro} role="alert">{estado.erro}</p>}
-          <button type="button" className={styles.primario} disabled={estado.ocupado || !estado.plano?.pronto} onClick={() => void agir({ acao: 'preparar' })}>{estado.ocupado ? 'Aguarde…' : 'Revisar dados do contrato'}</button>
+          <button type="button" className={styles.primario} disabled={estado.ocupado || !estado.plano?.pronto} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'operacional', importacao: estado.importacao, plano: estado.plano }); }}>{estado.ocupado ? 'Aguarde…' : 'Continuar para festa e pagamentos'}</button>
           <p className={styles.garantia}>Nenhum cadastro é criado ou alterado sem a sua confirmação. Recebimentos só entram quando você informar data e forma de cada um.</p>
           <button type="button" className={styles.fantasma} disabled={estado.ocupado} onClick={() => setCancelando(true)}>Cancelar importação</button>
         </aside>
       </div>;
     })()}
 
+    {estado.etapa === 'operacional' && <>
+      <IntegracaoContrato importacaoId={estado.importacao.id} versaoRascunho={estado.importacao.versao} onPasso={setPassoIntegracao} onOcupado={setIntegracaoOcupada}
+        onIntegrado={r => router.replace('/admin/contratos?contratoId=' + encodeURIComponent(r.contratoId))} />
+      <div className={styles.acoesFinais}><button type="button" className={styles.fantasma} disabled={integracaoOcupada} onClick={() => { setPassoIntegracao('festa'); setEstado({ etapa: 'revisao', importacao: estado.importacao, plano: estado.plano, avisos: [], ocupado: false, erro: null }); }}>Voltar aos dados do contrato</button></div>
+    </>}
     {estado.etapa === 'confirmacao' && <section className={styles.painel} aria-labelledby="confirmar-real">
       <h2 id="confirmar-real" className={styles.titulo}>Registrar dados do contrato e cliente</h2>
       <p className={styles.texto}>Este passo guarda o contrato como está no documento e o cliente. Festa, agenda e pagamentos são confirmados nas próximas etapas.</p>
