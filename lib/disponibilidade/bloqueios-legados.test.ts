@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { DbExecutor } from '../db/contracts.ts';
-import { podeResolverBloqueioLegado, resolverEDesativarBloqueioLegado } from './bloqueios-legados.ts';
+import { bloqueioLegadoSemDono, liberarBloqueioLegadoPelaEmpresa, MOTIVO_LIBERACAO_PADRAO, podeResolverBloqueioLegado, resolverEDesativarBloqueioLegado } from './bloqueios-legados.ts';
 import { AvailabilityServiceError } from './services/errors.ts';
 
 const sessao = { usuario_id: 'operador', autenticado_em: '2026-10-05T15:00:00Z', consultado_em: '2026-10-05T15:02:00Z' };
@@ -65,4 +65,79 @@ test('disputa de resolução falha para a transação reverter, sem alterar reso
   assert.ok(!b.sql.some(q => q.text.startsWith('UPDATE')));
   const corrida = banco({ alterado: false });
   await assert.rejects(resolverEDesativarBloqueioLegado(corrida.db, escopo, sessao, 'g', 'Importação histórica'), recusa('BLOQUEIO_ALTERADO'));
+});
+
+// Liberação pela própria empresa (sem autoridade da plataforma).
+function bancoEmpresa(op: { unidade?: boolean; bloqueio?: boolean; autor?: string | null; autorDaEmpresa?: boolean; unica?: boolean; resolucaoDe?: string | null; alterado?: boolean } = {}) {
+  const sql: Array<{ text: string; values: readonly unknown[] }> = [];
+  let resolucaoDe: string | null | undefined = op.resolucaoDe;
+  const db: DbExecutor = { async query<Row extends object>(text: string, values: readonly unknown[] = []) {
+    sql.push({ text, values });
+    let rows: object[] = [];
+    if (text.includes('AS valida')) rows = [{ valida: op.unidade ?? true }];
+    else if (text.startsWith('SELECT data')) rows = op.bloqueio === false ? [] : [{ data: '2026-12-05', criado_por_usuario_id: op.autor === undefined ? 'autor' : op.autor }];
+    else if (text.includes('AS autor_da_empresa')) rows = [{ autor_da_empresa: op.autorDaEmpresa ?? true, unica_empresa: op.unica ?? false }];
+    else if (text.startsWith('INSERT')) { if (resolucaoDe === undefined) resolucaoDe = String(values[1]); }
+    else if (text.startsWith('SELECT empresa_id')) rows = resolucaoDe ? [{ empresa_id: resolucaoDe }] : [];
+    else if (text.startsWith('UPDATE')) rows = op.alterado === false ? [] : [{ id: 'bloqueio' }];
+    else if (text.startsWith('SELECT id FROM bloqueios_agenda')) rows = op.bloqueio === false ? [] : [{ id: 'bloqueio' }];
+    return { rows: rows as Row[], rowCount: rows.length };
+  } };
+  return { db, sql };
+}
+const semEscrita = (sql: Array<{ text: string }>) => sql.every(q => !/^(INSERT|UPDATE)/.test(q.text));
+test('bloqueioLegadoSemDono só reconhece bloqueio ativo e sem empresa', async () => {
+  const b = bancoEmpresa();
+  assert.equal(await bloqueioLegadoSemDono(b.db, 'g'), true);
+  assert.match(b.sql[0].text, /empresa_id IS NULL AND ativo/);
+  assert.equal(await bloqueioLegadoSemDono(bancoEmpresa({ bloqueio: false }).db, 'g'), false);
+});
+test('empresa libera bloqueio antigo criado por quem tem vínculo com ela: resolução gravada, registro inativo e atribuído', async () => {
+  const b = bancoEmpresa({ autorDaEmpresa: true, unica: false });
+  await liberarBloqueioLegadoPelaEmpresa(b.db, escopo, 'operador', 'g');
+  const registro = b.sql.find(q => q.text.startsWith('INSERT'))!;
+  assert.deepEqual(registro.values, ['g', 'empresa-A', 'unidade-A', 'operador', MOTIVO_LIBERACAO_PADRAO]);
+  assert.match(registro.text, /ON CONFLICT \(bloqueio_id\) DO NOTHING/);
+  const alteracao = b.sql.at(-1)!;
+  assert.match(alteracao.text, /ativo=false/);
+  assert.match(alteracao.text, /empresa_id IS NULL AND ativo/);
+  assert.deepEqual(alteracao.values, ['g', 'empresa-A', 'unidade-A']);
+  assert.ok(b.sql.findIndex(q => q.text.includes('travar_habilitacao')) < b.sql.findIndex(q => q.text.includes('pg_advisory')));
+  assert.ok(b.sql.findIndex(q => q.text.includes('pg_advisory')) < b.sql.findIndex(q => q.text.includes('AS autor_da_empresa')), 'propriedade conferida com a data travada');
+  assert.ok(!b.sql.some(q => q.text.includes('plataforma_desenvolvedores')), 'não exige autoridade da plataforma');
+});
+test('sem autor conhecido, a única empresa com agenda libera; motivo informado é preservado', async () => {
+  const b = bancoEmpresa({ autor: null, autorDaEmpresa: false, unica: true });
+  await liberarBloqueioLegadoPelaEmpresa(b.db, { empresaId: 'empresa-A', estabelecimentoId: null }, 'operador', 'g', '  Festa fechada antes do sistema, já cadastrada como contrato  ');
+  const registro = b.sql.find(q => q.text.startsWith('INSERT'))!;
+  assert.deepEqual(registro.values, ['g', 'empresa-A', null, 'operador', 'Festa fechada antes do sistema, já cadastrada como contrato']);
+  assert.ok(!b.sql.some(q => q.text.includes('travar_habilitacao')), 'sem unidade não há habilitação a travar');
+  assert.match(b.sql.at(-1)!.text, /ativo=false/);
+});
+test('bloqueio que pode ser de outra empresa continua com a plataforma: nada é escrito', async () => {
+  const b = bancoEmpresa({ autorDaEmpresa: false, unica: false });
+  await assert.rejects(liberarBloqueioLegadoPelaEmpresa(b.db, escopo, 'operador', 'g'), recusa('BLOQUEIO_SEM_DONO'));
+  assert.ok(semEscrita(b.sql));
+});
+test('motivo curto, empresa ausente, unidade inválida e bloqueio inexistente recusam antes de escrever', async () => {
+  for (const [op, alvo, motivo, codigo] of [
+    [{}, escopo, 'abc', 'RESOLUCAO_INVALIDA'],
+    [{}, { empresaId: null, estabelecimentoId: null }, undefined, 'RESOLUCAO_INVALIDA'],
+    [{ unidade: false }, escopo, undefined, 'UNIDADE_INVALIDA'],
+    [{ bloqueio: false }, escopo, undefined, 'BLOQUEIO_NAO_ENCONTRADO'],
+  ] as const) {
+    const b = bancoEmpresa(op);
+    await assert.rejects(liberarBloqueioLegadoPelaEmpresa(b.db, alvo, 'operador', 'g', motivo), recusa(codigo));
+    assert.ok(semEscrita(b.sql), codigo);
+  }
+});
+test('resolução já registrada para outra empresa é recusada; para a própria empresa, a liberação segue', async () => {
+  const outra = bancoEmpresa({ resolucaoDe: 'empresa-B' });
+  await assert.rejects(liberarBloqueioLegadoPelaEmpresa(outra.db, escopo, 'operador', 'g'), recusa('RESOLUCAO_EXISTENTE'));
+  assert.ok(!outra.sql.some(q => q.text.startsWith('UPDATE')));
+  const propria = bancoEmpresa({ resolucaoDe: 'empresa-A' });
+  await liberarBloqueioLegadoPelaEmpresa(propria.db, escopo, 'operador', 'g');
+  assert.match(propria.sql.at(-1)!.text, /ativo=false/);
+  const corrida = bancoEmpresa({ alterado: false });
+  await assert.rejects(liberarBloqueioLegadoPelaEmpresa(corrida.db, escopo, 'operador', 'g'), recusa('BLOQUEIO_ALTERADO'));
 });
