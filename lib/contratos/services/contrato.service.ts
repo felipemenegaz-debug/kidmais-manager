@@ -1,3 +1,4 @@
+import { contratanteSnapshot, formularioCadastro } from '../../clientes/cadastro-contratual';
 import {
   buscarAniversariantePorId,
   buscarClienteCanonicoPorId,
@@ -73,24 +74,7 @@ export function montarSnapshotContratoV1(input: {
       status: fechamento.status,
       origem: fechamento.origemFechamento,
     },
-    contratante: {
-      clienteId: cliente.id,
-      nomeCompleto: cliente.nomeCompleto,
-      cpf: cliente.cpf,
-      rg: cliente.rg,
-      telefone: cliente.telefone,
-      whatsapp: cliente.whatsapp,
-      email: cliente.email,
-      endereco: {
-        cep: cliente.cep,
-        logradouro: cliente.logradouro,
-        numero: cliente.numero,
-        complemento: cliente.complemento,
-        bairro: cliente.bairro,
-        cidade: cliente.cidade,
-        uf: cliente.uf,
-      },
-    },
+    contratante: contratanteSnapshot({ ...formularioCadastro(cliente), id: cliente.id }),
     responsavelAdicional: responsavelAdicional
       ? {
           id: responsavelAdicional.id,

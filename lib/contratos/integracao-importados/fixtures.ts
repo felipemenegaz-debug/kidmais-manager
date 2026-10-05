@@ -32,3 +32,5 @@ export const decisoesBase = (mudar: Partial<DecisoesIntegracao> = {}): DecisoesI
   conferenciaDeclarada: true,
   ...mudar,
 });
+
+export const cadastroBase = () => ({ nomeCompleto: 'Ana Souza', cpf: '52998224725', rg: '', telefone: '11999990000', whatsapp: '', email: 'ana@example.invalid', cep: '01001000', logradouro: 'Rua Teste', numero: '1', complemento: '', bairro: 'Centro', cidade: 'São Paulo', uf: 'SP' });

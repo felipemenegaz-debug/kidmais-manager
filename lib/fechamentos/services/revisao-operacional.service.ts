@@ -1,3 +1,4 @@
+import { preservarPrecoHistorico } from '../revisao-preco';
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
 import { db } from '../../db/postgres';
@@ -6,7 +7,7 @@ import type { FechamentoAdicionalRecord, FechamentoRecord } from '../repositorie
 import { buscarRevisaoDaVersao, criarRevisaoOperacionalRegistro, listarItensRevisao, salvarOperacaoPreparada, aplicarOperacaoPreparada, type RevisaoOperacional } from '../repositories/revisao.repository';
 import { registrarAuditoria, buscarClientePorId, buscarAniversariantePorId, buscarResponsavelPorId } from '../../clientes/repositories';
 import { atualizarClienteInterno } from '../../clientes/services';
-import { atualizarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
+import { atualizarAniversarianteInterno, cadastrarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
 import { calcularResumoComercial } from '../../comercial/services';
 import { validarPretensaoPix, centavosComerciais } from '../../comercial/condicao-pagamento';
 import { listarCodigosInclusos } from '../../comercial/composicao';
@@ -169,17 +170,21 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
     await tx.query('SELECT id FROM aniversariantes WHERE id=$1 FOR UPDATE', [f.aniversarianteId]);
     if (input.cliente)
         await atualizarClienteInterno(f.clienteId!, empresaAutorizada!, input.cliente, { ...c, usuarioId: c.usuarioId, origem: 'CRM_INTERNO' }, tx);
-    if (input.aniversariante)
+    if (input.aniversariante && !f.aniversarianteId) {
+        const criado = await cadastrarAniversarianteInterno(f.clienteId!, empresaAutorizada, input.aniversariante, { ...c, usuarioId: c.usuarioId, origem: 'CRM_INTERNO' }, tx);
+        f.aniversarianteId = criado.id;
+    } else if (input.aniversariante)
         await atualizarAniversarianteInterno(f.aniversarianteId!, f.clienteId!, empresaAutorizada!, input.aniversariante, { ...c, usuarioId: c.usuarioId, origem: 'CRM_INTERNO' }, tx);
     // A empresa vem do fechamento gravado; o pacote do pedido não pode trocá-la.
     const empresaEsperada = await empresaDoFechamentoComTrava(r.fechamento_id, tx);
     if (empresaEsperada === undefined)
         recusar('Fechamento não encontrado.');
-    const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx);
-    if (input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
+    const preservarHistorico = preservarPrecoHistorico(f, input, fonte.adicionais, input.adicionais, !!input.comercial);
+    const resumo = preservarHistorico ? null : await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx);
+    if (resumo && input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
         recusar('Quantidade abaixo do mínimo do pacote.');
-    const inclusos = await listarCodigosInclusos(tx, resumo.pacote.pacote.id, empresaEsperada);
-    if (resumo.adicionais.itens.some(a => inclusos.includes(a.codigo)))
+    const inclusos = resumo ? await listarCodigosInclusos(tx, resumo.pacote.pacote.id, empresaEsperada) : [];
+    if (resumo && resumo.adicionais.itens.some(a => inclusos.includes(a.codigo)))
         recusar('Remova adicionais/combos que já estão incluídos no pacote.');
     const pacoteMudou = f.pacoteId !== input.pacoteId;
     if (pacoteMudou && input.buffetStatus !== 'PENDENTE')
@@ -188,7 +193,7 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
         recusar('Nascimento posterior à data do evento.');
     for (const k of ['dataEvento', 'horarioInicio', 'horarioFim', 'configuracaoAgendaId', 'pacoteId', 'convidados', 'idadeAniversarianteEvento', 'temaFesta', 'buffetStatus', 'buffetSalgados', 'buffetBebidas', 'buffetDoces', 'buffetBolo', 'buffetOutros', 'buffetLembrancinha', 'buffetEmpratado', 'buffetBombom', 'observacoesEquipe'] as const)
         if(input[k] !== undefined) Object.assign(f, { [k]: input[k] });
-    Object.assign(f, { tabelaPrecoId: resumo.pacote.tabelaPreco.id, precoPacoteId: resumo.pacote.precoRegra.id, regraDescontoPacoteId: resumo.pacote.desconto.regraId, categoriaHorario: resumo.pacote.categoriaHorario, categoriaPrecoAplicada: resumo.pacote.precoRegra.categoriaHorario, convidadosFaturados: resumo.pacote.convidadosFaturados, valorPacoteBase: resumo.valorTabelaPacoteBase, descontoPercentual: resumo.pacote.desconto.percentual, valorDescontoPacote: resumo.valorDescontoPacote, valorPacoteAplicado: resumo.valorTabelaPacoteAplicado, valorAdicionais: resumo.valorAdicionais, valorTabela: resumo.valorTotalTabela });
+    if (resumo) Object.assign(f, { tabelaPrecoId: resumo.pacote.tabelaPreco.id, precoPacoteId: resumo.pacote.precoRegra.id, regraDescontoPacoteId: resumo.pacote.desconto.regraId, categoriaHorario: resumo.pacote.categoriaHorario, categoriaPrecoAplicada: resumo.pacote.precoRegra.categoriaHorario, convidadosFaturados: resumo.pacote.convidadosFaturados, valorPacoteBase: resumo.valorTabelaPacoteBase, descontoPercentual: resumo.pacote.desconto.percentual, valorDescontoPacote: resumo.valorDescontoPacote, valorPacoteAplicado: resumo.valorTabelaPacoteAplicado, valorAdicionais: resumo.valorAdicionais, valorTabela: resumo.valorTotalTabela });
     if (pacoteMudou)
         for (const k of ['buffetSalgados', 'buffetBebidas', 'buffetDoces', 'buffetBolo', 'buffetOutros', 'buffetLembrancinha', 'buffetEmpratado', 'buffetBombom'] as const)
             f[k] = null;
@@ -206,7 +211,7 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
     else if (f.valorTabela !== r.operacao.valorTabela && (r.operacao.valorNegociado !== null || r.operacao.formaPagamentoPretendida === 'PIX_PARCELADO'))
         recusar('O novo preço exige revisão comercial explícita nesta edição.');
     const previousItems = await listarItensRevisao(r.id, tx);
-    const itens = resumo.adicionais.itens.map(a => ({ adicionalId: a.adicionalId, precoAdicionalId: a.precoRegraId, nomeAplicado: a.nome, unidadeCobrancaAplicada: a.unidadeCobranca, quantidade: a.quantidade, valorUnitarioAplicado: a.valorUnitarioAplicado, valorTotal: a.valorTotal, observacoes: previousItems.find(x => x.adicionalId === a.adicionalId)?.observacoes ?? null } as FechamentoAdicionalRecord));
+    const itens = resumo ? resumo.adicionais.itens.map(a => ({ adicionalId: a.adicionalId, precoAdicionalId: a.precoRegraId, nomeAplicado: a.nome, unidadeCobrancaAplicada: a.unidadeCobranca, quantidade: a.quantidade, valorUnitarioAplicado: a.valorUnitarioAplicado, valorTotal: a.valorTotal, observacoes: previousItems.find(x => x.adicionalId === a.adicionalId)?.observacoes ?? null } as FechamentoAdicionalRecord)) : previousItems;
     const mudouDestino = f.dataEvento !== r.operacao.dataEvento || f.horarioInicio.slice(0, 5) !== r.operacao.horarioInicio.slice(0, 5) || f.horarioFim.slice(0, 5) !== r.operacao.horarioFim.slice(0, 5);
     await bloquearDatasRevisao(tx, r, f.dataEvento);
     const novo = (await salvarOperacaoPreparada(tx, r, f, itens, c.usuarioId, input.motivo))!;

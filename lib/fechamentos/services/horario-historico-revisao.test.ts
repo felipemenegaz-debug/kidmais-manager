@@ -105,12 +105,12 @@ test('intervalo exato: mesmas fontes da disponibilidade (reservas e bloqueios do
   }
 });
 
-test('a exceção só existe na revalidação da agenda: preço, elegibilidade e limite de convidados do pacote continuam antes, sem exceção', () => {
+test('alteração comercial continua validando preço, elegibilidade e convidados antes da agenda; correção cadastral preserva o histórico', () => {
   const fonte = readFileSync('lib/fechamentos/services/revisao-operacional.service.ts', 'utf8');
   const editar = fonte.slice(fonte.indexOf('export async function editarPreparacao('), fonte.indexOf('export async function congelarPreparacao('));
   const iPreco = editar.indexOf('await calcularResumoComercial(');
   assert.ok(iPreco > 0 && iPreco < editar.indexOf('await revalidarAgendaRevisao(tx, novo, c, { mudouDestino })'), 'preço/elegibilidade/capacidade do pacote antes da agenda');
   assert.ok(editar.includes("recusar('Quantidade abaixo do mínimo do pacote.')"));
   assert.equal(fonte.split('horarioHistoricoPreservado(f, op)').length, 2, 'um único ponto de uso, na revalidação da agenda');
-  assert.ok(!editar.includes('horarioHistoricoPreservado'));
+  assert.ok(editar.includes('const resumo = preservarHistorico ? null : await calcularResumoComercial'));
 });

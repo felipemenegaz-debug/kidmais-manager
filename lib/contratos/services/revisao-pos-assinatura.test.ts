@@ -1,3 +1,4 @@
+import { ContratoServiceError } from './errors.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -42,8 +43,9 @@ test('troca de identidade com mesmo nome é material; metadados de preparação 
 });
 
 const chave = '11111111-1111-4111-8111-111111111111';
-function ambiente() {
+function ambiente(opcoes: { historico?: boolean; cadastroIncompleto?: boolean } = {}) {
     const origem = { id: 'v1', contratoId: 'c', numeroVersao: 1, status: 'ASSINADA', snapshot: structuredClone(base), snapshotHash: hashSnapshotContrato(base) };
+    if (opcoes.historico) { origem.snapshot.fechamento.origem = 'IMPORTACAO_HISTORICA'; origem.snapshotHash = hashSnapshotContrato(origem.snapshot); }
     const versoes = [origem];
     const fluxo = { versao_vigente_id: 'v1', versao_em_preparacao_id: null as string | null };
     const edicoes: Record<string, { estado: string; revisao: number }> = { v1: { estado: 'CONCLUIDA', revisao: 1 } };
@@ -73,8 +75,8 @@ function ambiente() {
         '../../db/postgres': { withTransaction: async (fn: (t: typeof tx) => unknown) => fn(tx) },
         '../../autenticacao/service': { consultarSessao: async () => ({ usuario_id: 'u' }) },
         '../../fechamentos/services/edicao-administrativa-schema': schema,
-        './revisao-inicial': carregar('lib/contratos/services/revisao-inicial.ts', { './errors': { ContratoServiceError: class extends Error { constructor(_code: string, message: string) { super(message); } } } }),
-        './snapshot-core': { hashSnapshotContrato }, './errors': { ContratoServiceError: class extends Error { constructor(_code: string, message: string) { super(message); } } },
+        './revisao-inicial': carregar('lib/contratos/services/revisao-inicial.ts', { './errors': { ContratoServiceError } }),
+        './snapshot-core': { hashSnapshotContrato }, './errors': { ContratoServiceError },
         '../repositories': {
             buscarVersaoPorId: async (id: string) => versoes.find(v => v.id === id),
             criarContratoVersao: async (input: typeof origem) => { const v = { ...input, id: 'v2', status: 'ATIVA' }; versoes.push(v); return v; },
@@ -84,7 +86,7 @@ function ambiente() {
         '../../saas/provar-tenant': { provarTenant: async () => ({ empresaComprovada: 'empresa-a', membershipId: 'm', usuarioId: 'u', papelAtual: 'REPRESENTANTE_AUTORIZADO' }) },
         '../../fechamentos/repositories': { empresaDoFechamentoSemTrava: async () => 'empresa-a' },
         '../../fechamentos/services/revisao-operacional.service': {
-            iniciarPreparacao: async () => ({ id: 'r' }), snapshotPreparacao: async (_tx: unknown, _r: unknown, v: typeof origem) => v.snapshot,
+            iniciarPreparacao: async () => ({ id: 'r' }), snapshotPreparacao: async (_tx: unknown, _r: unknown, v: typeof origem) => { if (opcoes.cadastroIncompleto) throw new ContratoServiceError("CADASTRO_CONTRATUAL_INCOMPLETO", "Complete o cadastro."); return v.snapshot; },
         },
         '../../clientes/repositories': {
             registrarAuditoria: async (r: { acao: string; dadosDepois: { motivo: string; tipo: string } }) => {
@@ -197,4 +199,15 @@ test('base histórica (061): metadados do papel não viram alteração; mudança
     assert.deepEqual([igual.natureza, igual.impactoFinanceiro, igual.campos.length], ['SEM_ALTERACOES', false, 0]);
     const mudou = analisarRevisao(historico as unknown as ContratoSnapshotV1, { ...nativo, evento: { ...nativo.evento, data: '2026-11-21' } } as unknown as ContratoSnapshotV1);
     assert.deepEqual([mudou.natureza, mudou.alteraAgenda, mudou.campos.map((c) => c.campo)], ['MATERIAL', true, ['evento.data']]);
+});
+
+test('importação antiga com cadastro parcial abre revisão editável e preserva a V1 assinada', async () => {
+  const a = ambiente({ historico: true, cadastroIncompleto: true }), antes = JSON.stringify(a.versoes[0]);
+  assert.equal((await a.criar()).versaoId, 'v2');
+  assert.equal(a.edicoes.v2.estado, 'EM_ELABORACAO');
+  assert.equal(JSON.stringify(a.versoes[0]), antes);
+  assert.equal(a.fluxo.versao_vigente_id, 'v1');
+});
+test('cadastro incompleto no caminho nativo continua recusando a criação', async () => {
+  await assert.rejects(ambiente({ cadastroIncompleto: true }).criar(), /Complete o cadastro/);
 });

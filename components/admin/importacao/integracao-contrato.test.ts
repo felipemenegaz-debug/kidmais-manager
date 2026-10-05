@@ -1,3 +1,5 @@
+import { cadastroBase } from '../../../lib/contratos/integracao-importados/fixtures.ts';
+import * as cadastro from '../../../lib/clientes/cadastro-contratual.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as form from './integracao-form.ts';
@@ -6,7 +8,7 @@ import { achar, carregarComponente, cssFalso, elementos, texto, tique, type Elem
 const IMP = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const opcoes = {
   disponivel: true, hoje: '2026-10-02', integracao: null,
-  cliente: { id: 'c1', nome: 'Ana Souza', ativo: true },
+  cliente: { id: 'c1', nome: 'Ana Souza', ativo: true, cadastro: cadastroBase() },
   documento: { pacote: 'Festa Completa 2019', aniversariante: 'Lia', tema: 'Fundo do mar' },
   sugestao: { evento: { data: '2026-11-14', horarioInicio: '14:00', horarioFim: '18:00', convidados: 80 }, valorContratadoCentavos: 850000, condicaoDocumento: 'Entrada de 30% e saldo à vista', parcelasPrevistas: [{ valorCentavos: 255000, vencimento: '2026-08-01' }, { valorCentavos: 595000, vencimento: '2026-11-14' }] },
   estabelecimentos: [{ id: 'u1', nome: 'Unidade Centro' }],
@@ -27,6 +29,8 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
   const Link = 'a';
   const tela = carregarComponente('components/admin/importacao/IntegracaoContrato.tsx', {
     'next/link': { default: Link },
+    '../CamposCadastroContratual': { default: 'fieldset' },
+    '@/lib/clientes/cadastro-contratual': cadastro,
     '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
     './integracao-form': form,
     './importacao.module.css': cssFalso, './integracao.module.css': cssFalso,
@@ -112,7 +116,7 @@ test('fluxo completo: pagamentos conferidos, revisão do servidor, declaração 
   assert.match(texto(a), /Parcela 1: R\$ 2\.550,00 em 03\/08\/2026 · Pix/);
   assert.match(texto(a), /Parcela 2: R\$ 5\.950,00, vence 14\/11\/2026/);
   const decisoes = chamadas.find((c) => c.fn === 'simular')!.args[2] as Record<string, unknown>;
-  assert.deepEqual(Object.keys(decisoes).sort(), ['conferenciaDeclarada', 'estabelecimentoId', 'evento', 'financeiro', 'motivoOutroContrato', 'motivos', 'outroContratoConfirmado', 'pacoteReferenciaId', 'situacaoContrato', 'valorContratadoCentavos']);
+  assert.deepEqual(Object.keys(decisoes).sort(), ['aniversariante', 'cadastro', 'conferenciaDeclarada', 'estabelecimentoId', 'evento', 'financeiro', 'formaPagamento', 'motivoOutroContrato', 'motivos', 'outroContratoConfirmado', 'pacoteReferenciaId', 'situacaoContrato', 'valorContratadoCentavos']);
   assert.equal(achar(a, 'button', 'Confirmar integração').props.disabled, true, 'sem declaração não confirma');
   const declaracao = elementos(a).find((e) => e.type === 'label' && /Conferi o documento original/.test(texto(e)))!;
   (elementos(declaracao.props.children).find((e) => e.type === 'input')!.props.onChange as (e: unknown) => void)(evento('on', true));

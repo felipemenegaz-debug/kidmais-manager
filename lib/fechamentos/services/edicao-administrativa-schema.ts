@@ -13,7 +13,7 @@ export const edicaoFestaSchema = z.object({
     buffetStatus: z.enum(['PENDENTE', 'DEFINIDO']), buffetSalgados: texto, buffetBebidas: texto, buffetDoces: texto, buffetBolo: texto, buffetOutros: texto, buffetLembrancinha: texto.optional(), buffetEmpratado: texto.optional(), buffetBombom: texto.optional(),
     observacoesEquipe: texto,
     vinculos: z.object({ clienteId: uuid, aniversarianteId: uuid, responsavelAdicionalId: uuid.nullable() }).strict().optional(),
-    cliente: z.object({ nomeCompleto: contato.min(3), rg: contato, telefone: contato, whatsapp: contato, email: z.email(), cep: contato, logradouro: contato, numero: contato, complemento: contato, bairro: contato, cidade: contato, uf: z.string().length(2) }).strict().optional(),
+    cliente: z.object({ cpf: contato.optional(), nomeCompleto: contato.min(3), rg: contato, telefone: contato, whatsapp: contato, email: z.email(), cep: contato, logradouro: contato, numero: contato, complemento: contato, bairro: contato, cidade: contato, uf: z.string().length(2) }).strict().optional(),
     aniversariante: z.object({ nome: contato.min(2), dataNascimento: z.string().date().nullable() }).strict().optional(),
     comercial: z.object({ confirmarAprovacao: z.literal(true), forma: z.enum(['PIX_AVISTA', 'PIX_PARCELADO', 'CARTAO_CIELO']), baseNegociada: z.union([z.string(), z.number()]).nullable(), condicaoPix: z.object({ entrada: z.union([z.number(), z.string()]).nullable().optional(), valorParcela: z.union([z.number(), z.string()]).nullable().optional(), quantidadeParcelas: z.number().int().positive().nullable().optional() }).strict().nullable() }).strict().optional(),
 }).strict();
