@@ -5,8 +5,8 @@ import {
   normalizarEmail,
   normalizarTelefone,
   normalizarUf,
-} from "../repositories/normalizers";
-import { ClienteServiceError } from "./errors";
+} from "../repositories/normalizers.ts";
+import { ClienteServiceError } from "./errors.ts";
 
 export function cpfValidoServico(valor: string | null | undefined) {
   const cpf = normalizarCpf(valor);

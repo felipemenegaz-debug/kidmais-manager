@@ -1,3 +1,4 @@
+import { cadastroContratualSchema, formularioCadastro, type CadastroContratual } from '../../clientes/cadastro-contratual.ts';
 import { leituraRecebimentosGuardada } from '../../importacao-contrato/recebimentos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -45,6 +46,8 @@ type Auditoria = { clienteId?: string | null; atorTipo: 'USUARIO'; usuarioId: st
 type Historico = { clienteId: string; tipoEvento: string; origem: string; entidadeTipo?: string | null; entidadeId?: string | null; usuarioId?: string | null; detalhe?: string | null; metadata?: Record<string, unknown>; critico?: boolean };
 
 export type Core = {
+  snapshotFechamento(tx: DbExecutor, fechamentoId: string): Promise<Record<string, unknown>>;
+  atualizarCliente(tx: DbExecutor, clienteId: string, empresaId: string, cadastro: CadastroContratual, ctx: ContextoIntegracao): Promise<void>;
   criarFechamento(tx: DbExecutor, input: Record<string, unknown>): Promise<{ id: string }>;
   registrarAuditoria(tx: DbExecutor, input: Auditoria): Promise<unknown>;
   registrarEventoHistorico(tx: DbExecutor, input: Historico): Promise<unknown>;
@@ -142,8 +145,10 @@ function mensagemDuplicidade(vinculos: Array<{ alcance: repo.AlcanceDuplicidade 
 async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: string, decisoes: DecisoesIntegracao, hoje: string, travar: boolean, fonte?: FonteIntegracaoRascunho) {
   const empresaId = tenant.empresaComprovada;
   const importacao = fonte?.importacao ?? await importacaoConfirmada(tx, empresaId, importacaoId, travar);
-  const cliente = fonte?.cliente ?? await repo.clienteDaEmpresa(tx, empresaId, importacao.clienteId, travar);
-  if (!cliente) throw new IntegracaoImportadoError('IMPORTACAO_NAO_ENCONTRADA', 'Contrato importado não encontrado.', 404);
+  const clienteAtual = fonte?.cliente ?? await repo.clienteDaEmpresa(tx, empresaId, importacao.clienteId, travar);
+  if (!clienteAtual) throw new IntegracaoImportadoError('IMPORTACAO_NAO_ENCONTRADA', 'Contrato importado não encontrado.', 404);
+  const cliente = { ...clienteAtual, ...decisoes.cadastro };
+  const cadastro = cadastroContratualSchema.safeParse(formularioCadastro(cliente));
   const documento = await repo.documentoOriginal(tx, empresaId, importacao.documentoId);
   if (!documento) throw new IntegracaoImportadoError('DOCUMENTO_ORIGINAL_AUSENTE', 'O documento original desta importação não foi encontrado. Ele é obrigatório para a conferência.', 409);
   const estabelecimentos = await repo.estabelecimentosAtivos(tx, empresaId);
@@ -155,14 +160,20 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
     estabelecimentos, pacote, precoReferencia, configuracaoAgendaId,
   };
   const avaliacao = avaliarIntegracao({ snapshot: importacao.snapshot, decisoes, referencias, hoje });
+  avaliacao.resumo.cadastro = formularioCadastro(cliente);
+  // O cadastro lido também integra a revisão: não sobrescrever uma edição concorrente do CRM.
+  avaliacao.resumo.cadastroFonteHash = hashCanonico(formularioCadastro(clienteAtual));
+  if (!cadastro.success) avaliacao.bloqueios.push('Complete os dados do contratante: CPF, contato, e-mail e endereço são obrigatórios, como no fechamento.');
+  if (clienteAtual.cpf && decisoes.cadastro && clienteAtual.cpf.replace(/\D/g, '') !== decisoes.cadastro.cpf) avaliacao.bloqueios.push('O CPF do cliente vinculado não pode ser substituído. Confira o vínculo na etapa do cliente.');
   // Aniversariante do documento: vinculado ao cadastro do cliente (mesmo nome) ou criado nele. As revisões nativas
   // do contrato reconstroem o snapshot a partir do fechamento e exigem aniversariante vinculado.
-  const nomeAniversariante = importacao.snapshot.evento?.aniversariante?.trim() || null;
+  const nomeAniversariante = decisoes.aniversariante ?? (importacao.snapshot.evento?.aniversariante?.trim() || null);
+  avaliacao.resumo.festa.aniversariante = nomeAniversariante;
   const aniversarianteExistente = !fonte?.clienteNovo && nomeAniversariante && nomeAniversariante.length >= 2 ? await repo.aniversarianteDoCliente(tx, cliente.id, nomeAniversariante) : null;
   avaliacao.resumo.festa.aniversarianteCadastro = !nomeAniversariante || nomeAniversariante.length < 2 ? null : aniversarianteExistente ? 'EXISTENTE' : 'NOVO';
   const recusaPlano = recusaDoPlanoNativo(decisoes.financeiro, avaliacao.resumo.financeiro.contratadoCentavos, decisoes.evento.data);
   if (recusaPlano) avaliacao.bloqueios.push(recusaPlano);
-  if (avaliacao.resumo.festa.aniversarianteCadastro === null) avaliacao.avisos.push('O documento não traz o nome do aniversariante: a festa fica sem aniversariante vinculado. Revisões futuras do contrato pedirão esse cadastro.');
+  if (avaliacao.resumo.festa.aniversarianteCadastro === null) avaliacao.bloqueios.push('Informe o nome do aniversariante para criar o cadastro e vinculá-lo à festa.');
   // Possível duplicidade (reescaneamento, outro cliente cadastrado para a mesma festa, data lida ou corrigida de forma
   // divergente): nunca unida nem recusada sozinha; exige decisão auditada do operador ("É outro contrato" + motivo).
   const criterio = criterioDuplicidade({ cliente, documento, decisoes, nomeAniversariante, snapshot: importacao.snapshot, valorCentavos: avaliacao.resumo.contrato.valorContratadoCentavos });
@@ -200,7 +211,7 @@ export async function opcoesIntegracao(tx: DbExecutor, tenant: TenantComprovado,
       const caminho = repo.caminhoFinanceiro({ conferido: vinculo.financeiro !== null, ...estado });
       return { contratoId: vinculo.contratoId, financeiroPendente: caminho !== 'CONCLUIDO', caminhoFinanceiro: caminho, valorContratadoCentavos: vinculo.valorContratadoCentavos };
     })() : null,
-    cliente: cliente ? { id: cliente.id, nome: cliente.nomeCompleto, ativo: cliente.status === 'ATIVO' } : null,
+    cliente: cliente ? { id: cliente.id, nome: cliente.nomeCompleto, ativo: cliente.status === 'ATIVO', cadastro: formularioCadastro(cliente) } : null,
     documento: {
       pacote: importacao.snapshot.pacote?.nome ?? null,
       aniversariante: importacao.snapshot.evento?.aniversariante ?? null,
@@ -241,7 +252,7 @@ export async function opcoesIntegracaoRascunho(tx: DbExecutor, tenant: TenantCom
   const empresaId = tenant.empresaComprovada, snapshot = fonte.importacao.snapshot;
   return {
     disponivel: true, hoje, integracao: null,
-    cliente: { id: fonte.clienteNovo ? null : fonte.cliente.id, nome: fonte.cliente.nomeCompleto, ativo: fonte.cliente.status === 'ATIVO' },
+    cliente: { id: fonte.clienteNovo ? null : fonte.cliente.id, nome: fonte.cliente.nomeCompleto, ativo: fonte.cliente.status === 'ATIVO', cadastro: formularioCadastro(fonte.cliente) },
     documento: { pacote: snapshot.pacote?.nome ?? null, aniversariante: snapshot.evento?.aniversariante ?? null, tema: snapshot.evento?.tema ?? null },
     sugestao: { ...sugestaoInicial(snapshot), recebimentosDocumento: leituraRecebimentosGuardada(fonte.importacao.recebimentosDocumento) },
     estabelecimentos: await repo.estabelecimentosAtivos(tx, empresaId), pacotes: await repo.pacotesDaEmpresa(tx, empresaId),
@@ -397,6 +408,7 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     if (motivo) throw new IntegracaoImportadoError('CONFLITO_AGENDA', motivo, 409);
   }
 
+  if (decisoes.cadastro) await core.atualizarCliente(tx, p.cliente.id, empresaId, decisoes.cadastro, ctx);
   const { snapshot } = p.importacao;
   const totais = p.avaliacao.resumo.contrato.valorContratadoCentavos;
   const adicionais = snapshot.valores?.adicionais != null && snapshot.valores.adicionais < totais ? snapshot.valores.adicionais : 0;
@@ -417,13 +429,16 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     valorNegociado: null, valorAprovado: null, motivoNegociacao: null, observacoesNegociacao: null,
     status: 'CONFIRMADO', origemFechamento: 'IMPORTACAO_HISTORICA', iniciadoPorUsuarioId: ctx.usuarioId, usuarioResponsavelId: ctx.usuarioId,
     responsavelAdicionalId: null, idadeAniversarianteEvento: typeof idade === 'number' && idade >= 0 && idade <= 120 ? idade : null,
-    temaFesta: snapshot.evento?.tema ?? null, formaPagamentoPretendida: null, alteracoesPacote: null, observacoesCliente: null,
+    temaFesta: snapshot.evento?.tema ?? null, formaPagamentoPretendida: decisoes.formaPagamento ?? null, alteracoesPacote: snapshot.pacote?.itens ?? null, observacoesCliente: snapshot.observacoes ?? null,
     observacoesEquipe: 'Contrato histórico importado (assinado em papel). Itens, valores e condições conforme o documento original.',
-    buffetStatus: 'PENDENTE', condicaoPagamento: null,
+    buffetStatus: snapshot.buffet?.itens ? 'DEFINIDO' : 'PENDENTE', buffetOutros: [snapshot.buffet?.itens, snapshot.buffet?.observacoes, snapshot.buffet?.restricoes].filter(Boolean).join('\n') || null,
+    // Não aplicar o desconto atual a um preço já contratado no documento. Parcelas históricas seguem no plano nativo.
+    condicaoPagamento: null,
   });
 
   const unidade = decisoes.estabelecimentoId ? p.referencias.estabelecimentos.find((x) => x.id === decisoes.estabelecimentoId) ?? null : null;
   const snap = montarSnapshotVersao({
+    nativo: await core.snapshotFechamento(tx, fechamento.id),
     importacaoId, documento: p.documento, fechamentoId: fechamento.id, snapshot, decisoes, resumo: p.avaliacao.resumo,
     cliente: p.cliente, aniversarianteId, pacote: p.pacote!, unidade, conferente: { usuarioId: ctx.usuarioId, papel: tenant.papelAtual! },
   });

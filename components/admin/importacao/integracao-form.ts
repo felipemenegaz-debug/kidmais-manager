@@ -1,3 +1,4 @@
+import { formularioCadastro, type CadastroContratual } from '../../../lib/clientes/cadastro-contratual.ts';
 /**
  * Formulário do assistente "Integrar ao sistema" — regras puras do lado da tela (sem rede, sem React).
  *
@@ -29,6 +30,9 @@ export type CampoDoc = 'data' | 'horarioInicio' | 'horarioFim' | 'convidados' | 
 /** `aposFestaConfirmada`: exceção histórica — o operador confirma que a parcela vence depois da festa conforme o contrato. */
 export type ParcelaForm = { chave: string; valor: string; vencimento: string; recebida: boolean; recebidaEm: string; forma: Forma | ''; aposFestaConfirmada: boolean };
 export type FormIntegracao = {
+  cadastro: CadastroContratual;
+  aniversariante: string;
+  formaPagamento: "" | "PIX_AVISTA" | "PIX_PARCELADO" | "CARTAO_CIELO";
   situacaoContrato: keyof typeof SITUACAO_CONTRATO_ROTULO | '';
   estabelecimentoId: string;
   pacoteReferenciaId: string;
@@ -68,10 +72,13 @@ export const dataBr = (iso: string) => /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.
 let seq = 0;
 export const novaParcela = (p: Partial<ParcelaForm> = {}): ParcelaForm => ({ chave: `p${++seq}`, valor: '', vencimento: '', recebida: false, recebidaEm: '', forma: '', aposFestaConfirmada: false, ...p });
 
-export function formInicial(o: { sugestao: Sugestao; estabelecimentos: Array<{ id: string }>; hoje?: string }): FormIntegracao {
+export function formInicial(o: { sugestao: Sugestao; estabelecimentos: Array<{ id: string }>; hoje?: string; cliente?: { cadastro?: CadastroContratual } | null; documento?: { aniversariante: string | null } }): FormIntegracao {
   const s = o.sugestao;
   const recebidos = o.hoje && s.recebimentosDocumento ? recebimentosIntegrais(s.recebimentosDocumento, s.valorContratadoCentavos, o.hoje) : null;
   return {
+    cadastro: formularioCadastro(o.cliente?.cadastro),
+    aniversariante: o.documento?.aniversariante ?? '',
+    formaPagamento: '',
     situacaoContrato: '',
     estabelecimentoId: o.estabelecimentos.length === 1 ? o.estabelecimentos[0].id : '',
     pacoteReferenciaId: '',
@@ -171,6 +178,9 @@ export function decisoesDoForm(f: FormIntegracao, s: Sugestao) {
   const corrigidos = new Set(camposCorrigidos(f, s));
   const motivos = Object.fromEntries(Object.entries(f.motivos).filter(([k, v]) => corrigidos.has(k as CampoDoc) && v?.trim()).map(([k, v]) => [k, v!.trim()]));
   return {
+    cadastro: f.cadastro,
+    aniversariante: f.aniversariante,
+    formaPagamento: f.formaPagamento || null,
     situacaoContrato: f.situacaoContrato,
     estabelecimentoId: f.estabelecimentoId || null,
     pacoteReferenciaId: f.pacoteReferenciaId || null,

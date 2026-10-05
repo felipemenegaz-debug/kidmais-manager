@@ -223,7 +223,14 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             const next = await criarContratoVersao({ contratoId: c.id, numeroVersao: n, snapshot, snapshotHash: hashSnapshotContrato(snapshot), motivoNovaVersao: input.motivo, geradoPorUsuarioId: s.usuario_id }, tx);
             await iniciarEdicao(tx, next, s.usuario_id, v.id, input.tipo);
             const preparacao=await iniciarPreparacao(tx,v,next,input.motivo,input.chaveCriacao??context.requestId,rc);
-            const preparado=await snapshotPreparacao(tx,preparacao,next);
+            // Contratos antigos podem ter cadastro parcial. A elaboração deve abrir para corrigi-lo.
+            // Gerar/revisar o PDF e assinar continuam exigindo snapshotPreparacao validado.
+            let preparado;
+            try { preparado = await snapshotPreparacao(tx,preparacao,next); }
+            catch (erro) {
+                if (v.snapshot.fechamento.origem !== 'IMPORTACAO_HISTORICA' || !(erro instanceof ContratoServiceError) || !['CADASTRO_CONTRATUAL_INCOMPLETO', 'ANIVERSARIANTE_NAO_VINCULADO'].includes(erro.code)) throw erro;
+                preparado = snapshot;
+            }
             await tx.query('UPDATE contrato_versoes SET snapshot=$2,snapshot_hash=$3 WHERE id=$1',[next.id,preparado,hashSnapshotContrato(preparado)]);
             await evento(tx, next, s, 'CONTRATO_NOVA_VERSAO', { origem: v.id, tipo: input.tipo, motivo: input.motivo });
             return { versaoId: next.id };

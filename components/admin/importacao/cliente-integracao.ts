@@ -1,3 +1,4 @@
+import type { CadastroContratual } from '../../../lib/clientes/cadastro-contratual.ts';
 import { decidirOperacao, type RascunhoPublico } from '../inteligencia/cliente-inteligencia.ts';
 import type { Sugestao } from './integracao-form.ts';
 
@@ -13,6 +14,7 @@ export type ResumoFinanceiro =
   | { situacao: 'NAO_PAGO' | 'PARCIALMENTE_PAGO' | 'PAGO'; contratadoCentavos: number; recebidoCentavos: number; saldoCentavos: number; parcelas: ParcelaResumo[]; recebimentos: Array<{ numero: number; valorCentavos: number; data: string; forma: string }>; aReceber: ParcelaResumo[] };
 export type CampoConferido = { campo: string; rotulo: string; documento: string | null; efetivo: string; origem: 'DOCUMENTO' | 'CORRECAO_LEITURA' | 'COMPLEMENTO'; motivo: string | null };
 export type ResumoIntegracao = {
+  cadastro?: CadastroContratual;
   contrato: { cliente: string; pacoteDocumento: string | null; pacoteReferencia: string | null; unidade: string | null; valorContratadoCentavos: number; conferencia: string };
   festa: { data: string; horarioInicio: string; horarioFim: string; convidados: number; aniversariante: string | null; tema: string | null; aniversarianteCadastro: 'NOVO' | 'EXISTENTE' | null };
   agenda: { ocupa: boolean; descricao: string };
@@ -23,7 +25,7 @@ export type OpcoesIntegracao = {
   disponivel: boolean;
   hoje: string;
   integracao: { contratoId: string; financeiroPendente: boolean; caminhoFinanceiro?: 'CONFERIR_HISTORICO' | 'PLANO_NA_VERSAO_VIGENTE' | 'AGUARDAR_REVISAO' | 'CONCLUIDO'; valorContratadoCentavos: number } | null;
-  cliente: { id: string | null; nome: string; ativo: boolean } | null;
+  cliente: { id: string | null; nome: string; ativo: boolean; cadastro?: CadastroContratual } | null;
   documento: { pacote: string | null; aniversariante: string | null; tema: string | null };
   sugestao: Sugestao;
   estabelecimentos: Array<{ id: string; nome: string }>;

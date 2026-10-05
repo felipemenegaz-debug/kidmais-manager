@@ -1,6 +1,8 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import CamposCadastroContratual from '../CamposCadastroContratual';
+import { cadastroContratualSchema, CAMPOS_CADASTRO, type CadastroContratual } from '@/lib/clientes/cadastro-contratual';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import {
   confirmar, confirmarRascunho, conferirFinanceiro, lerOpcoes, lerOpcoesRascunho, simularRascunho, novaChave, reautenticar, simular, simularFinanceiro,
@@ -96,7 +98,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
     </div>
   </section>;
 
-  const avancarFesta = () => { const e = errosFesta(f, o.sugestao, o.estabelecimentos.length); setErros(e); if (!e.length) {
+  const avancarFesta = () => { const e = errosFesta(f, o.sugestao, o.estabelecimentos.length); if (!cadastroContratualSchema.safeParse(f.cadastro).success) e.push("Complete o cadastro do contratante com CPF válido, contato, e-mail e endereço."); if (f.aniversariante.trim().length < 2) e.push("Informe o aniversariante."); setErros(e); if (!e.length) {
     if (versaoRascunho !== undefined && (f.situacaoFinanceira === 'PAGO' || f.situacaoFinanceira === 'NAO_CONFERIDO') && !errosPagamentos(f, o.sugestao, o.hoje).length) void revisar(f);
     else setPasso('pagamentos');
   } };
@@ -172,6 +174,9 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
         {bloqueadoPelaSituacao && <p className={styles.aviso}>Contrato cancelado ou não confirmado não vira festa e não ocupa agenda. Ele continua consultável como contrato importado, com o documento original.</p>}
       </fieldset>
       {!bloqueadoPelaSituacao && <>
+        <CamposCadastroContratual value={f.cadastro} cpfProtegido={!!o.cliente?.cadastro?.cpf} onChange={cadastro => atualizar({ cadastro })} />
+        <label className={ui.campo}>Aniversariante<input value={f.aniversariante} onChange={e => atualizar({ aniversariante: e.target.value })} /></label>
+        <label className={ui.campo}>Forma contratada<select value={f.formaPagamento} onChange={e => atualizar({ formaPagamento: e.target.value as FormIntegracao["formaPagamento"] })}><option value="">Outra / conforme documento original</option><option value="PIX_AVISTA">Pix à vista</option><option value="PIX_PARCELADO">Pix parcelado</option><option value="CARTAO_CIELO">Cartão / Cielo</option></select><small>O valor contratado é mantido. Nenhum desconto atual será aplicado à importação.</small></label>
         <div className={ui.grade}>
           <label className={ui.campo}><span>Unidade</span>
             {o.estabelecimentos.length ? <select value={f.estabelecimentoId} onChange={(e) => atualizar({ estabelecimentoId: e.target.value })}>
@@ -258,6 +263,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
           <div><dt>Festa</dt><dd>{dataBr(revisao.sim.resumo.festa.data)}, {revisao.sim.resumo.festa.horarioInicio}–{revisao.sim.resumo.festa.horarioFim} · {revisao.sim.resumo.festa.convidados} convidados<small>{[revisao.sim.resumo.festa.aniversariante, revisao.sim.resumo.festa.tema].filter(Boolean).join(' · ')}</small>{revisao.sim.resumo.festa.aniversarianteCadastro && <small>{revisao.sim.resumo.festa.aniversarianteCadastro === 'NOVO' ? `Aniversariante será cadastrado no cliente ${revisao.sim.resumo.contrato.cliente}.` : 'Aniversariante vinculado ao cadastro existente do cliente.'}</small>}</dd></div>
           <div><dt>Agenda</dt><dd data-ocupa={revisao.sim.resumo.agenda.ocupa}>{revisao.sim.resumo.agenda.descricao}{revisao.sim.resumo.contrato.unidade && <small>Unidade: {revisao.sim.resumo.contrato.unidade}</small>}</dd></div>
         </dl>
+        <details><summary>Cadastro que será salvo</summary><dl className={ui.resumo}>{Object.entries(revisao.sim.resumo.cadastro ?? f.cadastro).map(([campo, valor]) => <div key={campo}><dt>{CAMPOS_CADASTRO[campo as keyof CadastroContratual]}</dt><dd>{valor || "Não informado"}</dd></div>)}</dl></details>
         <ResumoPagamentos financeiro={revisao.sim.resumo.financeiro} />
         {revisao.sim.resumo.campos.some((c) => c.origem !== 'DOCUMENTO') && <div className={ui.correcoes}>
           <h3>Diferenças em relação ao documento</h3>

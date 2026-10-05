@@ -175,13 +175,13 @@ class Falha extends Error {
     code: string; httpStatus: number; details?: unknown;
     constructor(code: string, message: string, httpStatus = 400, details?: unknown) { super(message); this.code = code; this.httpStatus = httpStatus; this.details = details; }
 }
-function servico(estado: { clientes: Record<string, any>; canonico?: Record<string, string>; violacaoCpf?: boolean }) {
+function servico(estado: { clientes: Record<string, any>; canonico?: Record<string, string>; violacaoCpf?: boolean; cpfExistente?: unknown }) {
     const chamadas: { fn: string; args: unknown[] }[] = [];
     const reg = (fn: string, retorno: (...a: any[]) => unknown) => async (...args: unknown[]) => { chamadas.push({ fn, args }); return retorno(...args); };
     const repos = {
         buscarClientePorId: reg('buscarClientePorId', (id: string) => estado.clientes[id] ?? null),
         buscarClienteCanonicoPorId: reg('buscarClienteCanonicoPorId', (id: string) => estado.clientes[estado.canonico?.[id] ?? id] ?? null),
-        buscarClienteCanonicoPorCpf: reg('buscarClienteCanonicoPorCpf', () => null),
+        buscarClienteCanonicoPorCpf: reg('buscarClienteCanonicoPorCpf', () => estado.cpfExistente ?? null),
         buscarClientesPorContatoExato: reg('buscarClientesPorContatoExato', () => []),
         buscarClientesPorNomeSemelhante: reg('buscarClientesPorNomeSemelhante', () => []),
         buscarClientesPorEmail: reg('buscarClientesPorEmail', () => []),
@@ -428,3 +428,16 @@ for (const [caso, payload] of [['apenas data', soData], ['apenas pacote', soPaco
         await assert.rejects(r.editar(payload, empresaA), /PARADA_DO_TESTE/);
     });
 }
+
+test('completar CPF ausente usa validação, deduplicação no tenant e auditoria; substituir CPF continua protegido', async () => {
+  const vazio = servico({ clientes: { c1: cliente('c1', empresaA, { cpf: null }) } });
+  await vazio.mod.atualizarClienteInterno('c1', empresaA, { cpf: '529.982.247-25' }, { usuarioId: 'u', origem: 'CRM_INTERNO' });
+  assert(vazio.chamadas.some(c => c.fn === 'atualizarCliente'));
+  assert(vazio.chamadas.some(c => c.fn === 'registrarAuditoria'));
+  const existente = servico({ clientes: { c1: cliente('c1', empresaA) } });
+  await assert.rejects(existente.mod.atualizarClienteInterno('c1', empresaA, { cpf: '11144477735' }, { usuarioId: 'u', origem: 'CRM_INTERNO' }), (e: any) => e.code === 'ALTERACAO_CPF_REQUER_PERMISSAO');
+  assert(!existente.chamadas.some(c => c.fn === 'atualizarCliente'));
+  const duplicado = servico({ clientes: { c1: cliente('c1', empresaA, { cpf: null }) }, cpfExistente: cliente('c2', empresaA) });
+  await assert.rejects(duplicado.mod.atualizarClienteInterno('c1', empresaA, { cpf: '52998224725' }, { usuarioId: 'u', origem: 'CRM_INTERNO' }), (e: any) => e.code === 'CPF_EXISTENTE');
+  assert(!duplicado.chamadas.some(c => c.fn === 'atualizarCliente'));
+});

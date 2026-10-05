@@ -27,7 +27,9 @@ function versaoHistorica(snapshotDocumento: SnapshotHistorico, cliente: { email:
     aniversarianteId: null, pacote: referenciasBase().pacote!, unidade: { id: '22222222-2222-4222-8222-222222222222', nome: 'Unidade Centro' },
     conferente: { usuarioId: '99999999-9999-4999-8999-999999999999', papel: 'ADMINISTRATIVO' },
   });
-  // O snapshot da importação não tem endereço nem RG: é esse o caso que precisa funcionar.
+  // Simula uma V1 anterior à unificação: os snapshots assinados antigos não serão reescritos.
+  delete (snapshot.contratante as Record<string, unknown>).endereco;
+  delete (snapshot.contratante as Record<string, unknown>).rg;
   assert.equal((snapshot.contratante as Record<string, unknown>).endereco, undefined);
   return {
     id: 'v1', contratoId: 'k1', numeroVersao: 1, status: 'ASSINADA', snapshotSchemaVersao: 1, snapshot: snapshot as never,

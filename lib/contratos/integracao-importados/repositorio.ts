@@ -1,3 +1,4 @@
+import type { CadastroContratual } from '../../clientes/cadastro-contratual.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import type { SnapshotHistorico } from '../../importacao-contrato/plano.ts';
 
@@ -36,16 +37,16 @@ export async function documentoOriginal(tx: DbExecutor, empresaId: string, docum
   return r.rows[0] ?? null;
 }
 
-export type ClienteIntegracao = { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string };
+export type ClienteIntegracao = { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>>;
 
 export async function clienteDaEmpresa(tx: DbExecutor, empresaId: string, clienteId: string, travar: boolean): Promise<ClienteIntegracao | null> {
-  const r = await tx.query<{ id: string; nome_completo: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string }>(
-    `SELECT id::text, nome_completo, cpf, telefone, whatsapp, email, status FROM clientes
+  const r = await tx.query<{ id: string; nome_completo: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>>>(
+    `SELECT id::text, nome_completo, cpf, rg, telefone, whatsapp, email, cep, logradouro, numero, complemento, bairro, cidade, uf, status FROM clientes
       WHERE id = $1::uuid AND empresa_id = $2::uuid${travar ? ' FOR SHARE' : ''}`,
     [clienteId, empresaId],
   );
   const l = r.rows[0];
-  return l ? { id: l.id, nomeCompleto: l.nome_completo, cpf: l.cpf, telefone: l.telefone, whatsapp: l.whatsapp, email: l.email, status: l.status } : null;
+  return l ? { ...l, id: l.id, nomeCompleto: l.nome_completo, cpf: l.cpf, telefone: l.telefone, whatsapp: l.whatsapp, email: l.email, status: l.status } : null;
 }
 
 /** Unidades elegíveis para agenda (regra única da 062: kidmais062_unidade_agendavel; D6). A integração exige a 062. */
