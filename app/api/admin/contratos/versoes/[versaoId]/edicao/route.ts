@@ -8,6 +8,8 @@ import { fonteDaRevisaoInicial } from '@/lib/contratos/services/revisao-inicial'
 import { calcularResumoComercial, listarPacotesComerciais, listarCatalogoAdicionais } from '@/lib/comercial/services';
 import { consultarDisponibilidadeData } from '@/lib/disponibilidade/services';
 import { listarCodigosInclusos } from '@/lib/comercial/composicao';
+import { isPricingServiceError } from '@/lib/comercial/services/errors';
+import type { CatalogoAdicionais } from '@/lib/comercial/services/models';
 import { withTenantTransaction } from '@/lib/saas/provar-tenant';
 export async function GET(request: NextRequest, context: {
     params: Promise<{
@@ -39,15 +41,23 @@ export async function GET(request: NextRequest, context: {
             } : null;
             // Catálogo e prévia só da empresa comprovada; `?pacote=` não escolhe outra empresa.
             const pacotes = await listarPacotesComerciais({ data: dataEvento, configuracaoAgendaId, empresaId });
-            const catalogo = await listarCatalogoAdicionais({ data: dataEvento, convidados, empresaId });
-            const incluidos = await listarCodigosInclusos(tx, pacoteId, empresaId);
+            let catalogo: CatalogoAdicionais | null = null;
             let resumo = null, erroPreco = null;
+            try {
+                catalogo = await listarCatalogoAdicionais({ data: dataEvento, convidados, empresaId });
+            } catch (e) {
+                // A falta de preço não impede corrigir o cadastro de um contrato histórico.
+                // Falhas de banco/autorização continuam interrompendo a leitura.
+                if (!isPricingServiceError(e)) throw e;
+                erroPreco = e.message;
+            }
+            const incluidos = await listarCodigosInclusos(tx, pacoteId, empresaId);
             try {
                 // Fora da transação do tenant: um erro de preço aqui não pode abortar a prova de tenant.
                 resumo = await calcularResumoComercial({ data: dataEvento, configuracaoAgendaId, pacoteId, convidados, adicionais, empresaEsperada: empresaId });
             }
             catch (e) {
-                if (e instanceof Error)
+                if (isPricingServiceError(e))
                     erroPreco = e.message;
                 else
                     throw e;
