@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import styles from '@/components/admin/admin.module.css';
 export default function LoginAdmin() {
@@ -33,5 +34,6 @@ export default function LoginAdmin() {
  <label style={{ display: 'block', marginBottom: 16 }}>Email<input name="email" type="email" autoComplete="username" required style={{ display: 'block', width: '100%', padding: 10 }}/></label>
  <label style={{ display: 'block', marginBottom: 16 }}>Senha<input name="senha" type="password" autoComplete="current-password" required style={{ display: 'block', width: '100%', padding: 10 }}/></label>
  <button disabled={busy} type="submit">{busy ? 'Entrando…' : 'Entrar'}</button><p role="alert">{error}</p></form>
+ <p><Link href="/acesso/recuperar">Esqueci minha senha</Link></p>
  <p>Contas são criadas pelo operador autorizado. Não há cadastro público.</p></main>;
 }
