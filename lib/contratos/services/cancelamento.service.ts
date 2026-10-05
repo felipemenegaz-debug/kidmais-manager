@@ -1,5 +1,3 @@
-import { buscarRevisaoDaVersao } from '../../fechamentos/repositories/revisao.repository';
-import { cancelarPreparacao } from '../../fechamentos/services/revisao-operacional.service';
 import type {DbExecutor} from '../../db/contracts';
 import type {SessaoAdmin} from '../../autenticacao/service';
 import {registrarEventoHistorico} from '../../clientes/repositories/historico.repository';
@@ -18,8 +16,11 @@ export async function cancelarContratacaoDaFesta(tx:DbExecutor,id:string,s:Sessa
  if(c.status==='CANCELADO'){exigir(anterior&&anterior.metadata.chave===chave&&anterior.metadata.usuarioId===s.usuario_id&&anterior.metadata.motivo===motivo,'A contratação já foi cancelada. Consulte o histórico.');return anterior.metadata;}
  exigir(c.status==='ASSINADO'&&!c.cancelado_em,'A contratação precisa estar ativa e assinada para este cancelamento.');
  await tx.query('SELECT public.kidmais019_bloquear_contrato($1::uuid)',[id]);
- const abertas=(await tx.query<{contrato_versao_id:string}>("SELECT contrato_versao_id FROM fechamento_revisoes WHERE contrato_id=$1 AND estado IN ('EM_ELABORACAO','CONGELADA') ORDER BY data_evento FOR UPDATE",[id])).rows;
- for(const aberta of abertas){const r=await buscarRevisaoDaVersao(aberta.contrato_versao_id,tx,true);if(r)await cancelarPreparacao(tx,r,{usuarioId:s.usuario_id,...ctx},motivo);}
+ // Revisão aberta: encerrá-la e cancelar o contrato na MESMA transação é recusado pelo banco. A regra de fluxo da 013
+ // (mantida na 057/061) roda no commit e exige contrato ASSINADO ao tocar versão/edição/fluxo; no commit o contrato já
+ // está CANCELADO ("Ponteiro lógico diverge da vigência"). A revisão precisa ser cancelada antes, em operação própria.
+ const aberta=(await tx.query<{numero_versao:number}>("SELECT v.numero_versao FROM fechamento_revisoes r JOIN contrato_versoes v ON v.id=r.contrato_versao_id WHERE r.contrato_id=$1 AND r.estado IN ('EM_ELABORACAO','CONGELADA') ORDER BY r.data_evento LIMIT 1",[id])).rows[0];
+ exigir(!aberta,aberta?`Há uma revisão em andamento (V${aberta.numero_versao}). Cancele a revisão antes de cancelar o contrato.`:'');
  await cancelarFinanceiroDaContratacao(tx,id,c.cliente_id,s,motivo,chave,ctx);
  const cancelado=(await tx.query<{cancelado_em:string}>("UPDATE contratos SET status='CANCELADO',cancelado_em=clock_timestamp() WHERE id=$1 RETURNING cancelado_em::text",[id])).rows[0];
  const detail={contratoId:id,motivo,usuarioId:s.usuario_id,nome:s.nome,papel:autoridade.papel,canceladoEm:cancelado.cancelado_em,chave};
