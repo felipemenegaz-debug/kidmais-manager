@@ -2,8 +2,7 @@ import { after, type NextRequest } from 'next/server';
 import { verificarOrigem } from '@/lib/http/admin-crm-api';
 import { contextoDaRequisicao, falhar, lerJson, responder } from '@/lib/acessos/http';
 import { MENSAGEM_PEDIDO_PUBLICO, processarPedidoPublico, validarPedidoPublico } from '@/lib/acessos/recuperacao';
-import { situacaoEmail } from '@/lib/acessos/email';
-import { erroAcesso } from '@/lib/acessos/erros';
+import { exigirRecuperacaoPublicaAtiva } from '@/lib/acessos/disponibilidade';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,8 +15,7 @@ export async function POST(request: NextRequest) {
     try {
         verificarOrigem(request);
         const input = validarPedidoPublico(await lerJson(request));
-        if (!situacaoEmail().configurado)
-            throw erroAcesso('EMAIL_NAO_CONFIGURADO', 'A recuperação de senha está temporariamente indisponível. Entre em contato com o responsável pelo sistema.', 503);
+        exigirRecuperacaoPublicaAtiva();
         const ctx = contextoDaRequisicao(request);
         after(async () => {
             try {

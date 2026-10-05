@@ -2,6 +2,37 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { carregarModulo } from './teste-carregador.ts';
 
+test('envio configurado não libera recuperação nem redefinição sem ativação explícita', async () => {
+    const anterior = process.env.RECUPERACAO_SENHA_ATIVA;
+    delete process.env.RECUPERACAO_SENHA_ATIVA;
+    try {
+        for (const caminho of ['recuperacao', 'redefinir']) {
+            let agendados = 0;
+            const route = carregarModulo(`app/api/acesso/${caminho}/route.ts`, {
+                'next/server': {
+                    after: () => { agendados += 1; },
+                    NextResponse: { json: (body: unknown, init?: ResponseInit) => new Response(JSON.stringify(body), init) },
+                },
+                'lib/http/admin-crm-api': { verificarOrigem: () => undefined },
+                'lib/acessos/email': { situacaoEmail: () => ({ configurado: true }) },
+                'lib/acessos/recuperacao': {
+                    validarPedidoPublico: (input: unknown) => input,
+                    processarPedidoPublico: () => { throw Error('não processar pedido'); },
+                    redefinirSenhaComToken: () => { throw Error('não trocar senha'); },
+                },
+            });
+            const req = new Request(`https://admin.exemplo.test/api/acesso/${caminho}`, { method: 'POST', body: '{}' });
+            const response = await (route.POST as (request: Request) => Promise<Response>)(req);
+            assert.equal(response.status, 503);
+            assert.equal(agendados, 0);
+        }
+    }
+    finally {
+        if (anterior === undefined) delete process.env.RECUPERACAO_SENHA_ATIVA;
+        else process.env.RECUPERACAO_SENHA_ATIVA = anterior;
+    }
+});
+
 test('recuperação sem envio configurado retorna 503 para qualquer conta, sem processar pedido nem anunciar envio', async () => {
     for (const email of ['existente@exemplo.test', 'inexistente@exemplo.test']) {
         let agendados = 0;
