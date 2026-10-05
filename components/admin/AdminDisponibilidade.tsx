@@ -42,18 +42,6 @@ function horaParaMinutos(hora: string) {
   return h * 60 + m;
 }
 
-function intervalosSobrepoem(
-  inicioA: string,
-  fimA: string,
-  inicioB: string,
-  fimB: string,
-) {
-  return (
-    horaParaMinutos(inicioA) < horaParaMinutos(fimB) &&
-    horaParaMinutos(fimA) > horaParaMinutos(inicioB)
-  );
-}
-
 type AdminPayload = DisponibilidadeConfig & {
   bloqueios?: BloqueioAgendaRecord[];
   dias?: DisponibilidadeDataPublica[] | null;
@@ -271,26 +259,6 @@ export default function AdminDisponibilidade() {
     );
   }
 
-  function bloqueiosDoTurno(data: string, periodo: HorarioBase) {
-    const turno = periodoOperacional(data, periodo);
-    if (!turno) return [];
-
-    return bloqueios.filter((bloqueio) => {
-      if (bloqueio.data !== data) return false;
-      if (bloqueio.diaInteiro) return true;
-      if (!bloqueio.horarioInicio || !bloqueio.horarioFim) return true;
-
-      return turno.horarios.some((candidato) =>
-        intervalosSobrepoem(
-          candidato.inicio,
-          candidato.fim,
-          bloqueio.horarioInicio!,
-          bloqueio.horarioFim!,
-        ),
-      );
-    });
-  }
-
   async function enviar(payload: unknown): Promise<boolean> {
     if (!selecionada) return false;
     setSalvando(true);
@@ -370,7 +338,7 @@ export default function AdminDisponibilidade() {
     : undefined;
 
   const bloqueiosSelecionados = selecionada
-    ? bloqueiosDoTurno(selecionada, horario)
+    ? bloqueios.filter((bloqueio) => bloqueio.data === selecionada && bloqueio.ativo)
     : [];
 
   const descontoSelecionado = selecionada
@@ -646,7 +614,8 @@ export default function AdminDisponibilidade() {
 
                   {bloqueiosSelecionados.length > 0 && (
                     <div className={styles.blockList}>
-                      <h3>Bloqueios físicos que afetam este período</h3>
+                      <h3>Bloqueios físicos desta data</h3>
+                      <p className={styles.helpText}>Confira o horário de cada bloqueio antes de excluir. O histórico será preservado.</p>
                       {bloqueiosSelecionados.map((bloqueio) => (
                         <div className={styles.blockItem} key={bloqueio.id}>
                           <div>
@@ -658,19 +627,22 @@ export default function AdminDisponibilidade() {
                             <span>{bloqueio.motivo}</span>
                             {bloqueio.observacoes && <small>{bloqueio.observacoes}</small>}
                             {agendaPorEscopo && bloqueio.alcance === "GLOBAL" && (
-                              <small>Anterior à separação por empresa: vale para todas até a atribuição do dono.</small>
+                              <small>Bloqueio compartilhado entre empresas. A exclusão exige identificar a empresa responsável.</small>
                             )}
                           </div>
                           {!(agendaPorEscopo && bloqueio.alcance === "GLOBAL") && (
                             <button
                               type="button"
-                              disabled={salvando}
-                              onClick={() => enviar({
-                                tipo: "desativar_bloqueio",
-                                bloqueioId: bloqueio.id,
-                              })}
+                              disabled={salvando || carregando}
+                              onClick={() => {
+                                if (!window.confirm(`Excluir o bloqueio de ${new Date(`${bloqueio.data}T12:00:00`).toLocaleDateString("pt-BR")} (${bloqueio.diaInteiro ? "dia inteiro" : `${horaCurta(bloqueio.horarioInicio)}–${horaCurta(bloqueio.horarioFim)}`})? Motivo registrado: ${bloqueio.motivo}.`)) return;
+                                void enviar({
+                                  tipo: "desativar_bloqueio",
+                                  bloqueioId: bloqueio.id,
+                                });
+                              }}
                             >
-                              Desativar
+                              Excluir bloqueio
                             </button>
                           )}
                         </div>
