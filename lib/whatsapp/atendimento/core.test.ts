@@ -105,13 +105,13 @@ test('minimização antes do modelo: CPF, e-mail e telefone saem; data e quantid
   assert.equal(limpo.match(/\[telefone omitido\]/g)?.length, 3);
 });
 
-test('empresa ativa × piloto: sem o campo ou indefinido = compatível; nulo/vazio = seleção pendente; outra = divergência', () => {
+test('empresa ativa × piloto: sem o campo ou indefinido = SEM_063; piloto = PILOTO; nulo/vazio = SEM_ESCOLHA (decidido pelos vínculos); outra = divergência', () => {
   const piloto = '11111111-1111-4111-8111-111111111111';
-  assert.doesNotThrow(() => conferirEmpresaAtiva({ usuario_id: 'u' }, piloto));
-  assert.doesNotThrow(() => conferirEmpresaAtiva({ usuario_id: 'u', empresa_ativa_id: undefined }, piloto));
-  assert.doesNotThrow(() => conferirEmpresaAtiva({ empresa_ativa_id: piloto.toUpperCase() }, piloto));
-  assert.throws(() => conferirEmpresaAtiva({ empresa_ativa_id: null }, piloto), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
-  assert.throws(() => conferirEmpresaAtiva({ empresa_ativa_id: '' }, piloto), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
+  assert.equal(conferirEmpresaAtiva({ usuario_id: 'u' }, piloto), 'SEM_063');
+  assert.equal(conferirEmpresaAtiva({ usuario_id: 'u', empresa_ativa_id: undefined }, piloto), 'SEM_063');
+  assert.equal(conferirEmpresaAtiva({ empresa_ativa_id: piloto.toUpperCase() }, piloto), 'PILOTO');
+  assert.equal(conferirEmpresaAtiva({ empresa_ativa_id: null }, piloto), 'SEM_ESCOLHA');
+  assert.equal(conferirEmpresaAtiva({ empresa_ativa_id: '' }, piloto), 'SEM_ESCOLHA');
   assert.throws(() => conferirEmpresaAtiva({ empresa_ativa_id: '22222222-2222-4222-8222-222222222222' }, piloto), /ATENDIMENTO_EMPRESA_DIVERGENTE/);
   assert.throws(() => conferirEmpresaAtiva({ empresa_ativa_id: 42 }, piloto), /ATENDIMENTO_EMPRESA_DIVERGENTE/);
 });

@@ -111,14 +111,17 @@ export function situacaoCadastro(clientes: number, nome: string | null): Cadastr
 
 /**
  * Empresa ativa da sessão × empresa piloto do atendimento. Com a 063 do painel a sessão traz `empresa_ativa_id`
- * (texto ou nulo) e a empresa precisa ter sido SELECIONADA explicitamente e ser a piloto: nula = seleção pendente,
- * outra = divergência (falha fechada, antes de qualquer leitura). Sem a 063 o campo não existe e vale o comportamento
- * anterior: a piloto, provada no banco pelo vínculo ativo.
+ * (texto ou nulo). Outra empresa = divergência (falha fechada, antes de qualquer leitura). Nula = sem escolha
+ * explícita: vale a MESMA regra do painel (lib/autenticacao/contexto.ts) — com uma única empresa ativa ela é a atual;
+ * com mais de uma, a seleção está pendente. Isso depende dos vínculos, então quem chama confere dentro da transação
+ * do tenant ('SEM_ESCOLHA'). Sem a 063 o campo não existe e vale o comportamento anterior ('SEM_063').
  */
-export function conferirEmpresaAtiva(sessao: object, piloto: string): void {
-  if (!Object.prototype.hasOwnProperty.call(sessao, 'empresa_ativa_id')) return;
+export type EmpresaAtivaSessao = 'SEM_063' | 'PILOTO' | 'SEM_ESCOLHA';
+export function conferirEmpresaAtiva(sessao: object, piloto: string): EmpresaAtivaSessao {
+  if (!Object.prototype.hasOwnProperty.call(sessao, 'empresa_ativa_id')) return 'SEM_063';
   const ativa = (sessao as { empresa_ativa_id?: unknown }).empresa_ativa_id;
-  if (ativa === undefined) return;
-  if (ativa === null || ativa === '') throw new Error('ATENDIMENTO_EMPRESA_NAO_SELECIONADA');
+  if (ativa === undefined) return 'SEM_063';
+  if (ativa === null || ativa === '') return 'SEM_ESCOLHA';
   if (typeof ativa !== 'string' || ativa.toLowerCase() !== piloto.toLowerCase()) throw new Error('ATENDIMENTO_EMPRESA_DIVERGENTE');
+  return 'PILOTO';
 }

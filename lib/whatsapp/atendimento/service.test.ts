@@ -8,7 +8,7 @@ import type { Conversa } from './service.ts';
 const agora = new Date();
 const base: Conversa = { id: 'c', empresa_id: 'e', ambiente: 'staging', contato: '5561999999999', estado: 'IA', responsavel_id: null, nao_contatar: false, versao: 1, ultima_entrada_em: agora.toISOString(), interesse: { data: null, convidados: null } };
 const entrada = (texto: string | null, id = 'evento-1') => ({ id, app: 'KidmaisManager', source: '5561999999999', texto, timestamp: agora.getTime() });
-type Opcoes = { tenantRecusado?: boolean; permitido?: boolean; ativo?: boolean; config?: unknown; conversa?: Partial<Conversa>; duplicada?: boolean; enviando?: boolean; papel?: string; empresaAtiva?: boolean; canceladas?: { entradas: number; saidas: number }; nomePerfil?: boolean; linhas?: Record<string, unknown>[] };
+type Opcoes = { empresasAtivas?: number; tenantRecusado?: boolean; permitido?: boolean; ativo?: boolean; config?: unknown; conversa?: Partial<Conversa>; duplicada?: boolean; enviando?: boolean; papel?: string; empresaAtiva?: boolean; canceladas?: { entradas: number; saidas: number }; nomePerfil?: boolean; linhas?: Record<string, unknown>[] };
 function carregar(op: Opcoes = {}) {
   const comandos: { sql: string; args: unknown[] }[] = [];
   const conversa = { ...base, ...op.conversa };
@@ -16,6 +16,7 @@ function carregar(op: Opcoes = {}) {
     comandos.push({ sql, args });
     if (sql.includes('FROM pg_attribute')) return { rows: [{ existe: op.nomePerfil ?? false }] };
     if (sql.includes('FROM whatsapp_atendimento_conversas c')) return { rows: op.linhas ?? [] };
+    if (sql.includes('FROM memberships m JOIN empresas')) return { rows: [{ n: String(op.empresasAtivas ?? 1) }] };
     if (sql.includes('FROM empresas')) return { rows: op.empresaAtiva === false ? [] : [{ id: 'e' }] };
     if (sql.includes('SELECT configuracao')) return { rows: [{ configuracao: op.config ?? { ativo: true, nome: 'Kidmais', perguntas: [] } }] };
     if (sql.includes('AND externa_id=$3')) return { rows: op.duplicada ? [{ id: 'm' }] : [] };
@@ -269,14 +270,21 @@ test('empresa ativa: com a 063, a piloto selecionada abre; maiúsculas não impo
   await modulo.listarAtendimento({ usuario_id: 'u', papel: 'ADMINISTRATIVO', id: 's', empresa_ativa_id: 'E' } as never);
   assert.deepEqual(tenants, ['e']);
 });
-test('empresa ativa: seleção pendente (nula) é recusada antes de abrir qualquer transação, na leitura, nas ações e na configuração', async () => {
-  const { modulo, tenants, comandos } = carregar({ papel: 'REPRESENTANTE_AUTORIZADO' });
+test('empresa ativa: sem escolha explícita e MAIS de uma empresa ativa = seleção pendente — só a contagem de vínculos é consultada, nada lido para a tela nem gravado', async () => {
+  const { modulo, tenants, comandos } = carregar({ papel: 'REPRESENTANTE_AUTORIZADO', empresasAtivas: 2 });
   const pendente = { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: null } as never;
   await assert.rejects(modulo.listarAtendimento(pendente), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
   await assert.rejects(modulo.controlarAtendimento(pendente, { acao: 'assumir', conversaId: 'c', versao: 1 }), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
   await assert.rejects(modulo.salvarConfiguracao(pendente, { ativo: false, nome: 'Kidmais', perguntas: [], limites: { respostasPor24h: 20 } }), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
-  assert.deepEqual(tenants, []);
-  assert.equal(comandos.length, 0, 'nenhuma consulta ao banco');
+  assert.deepEqual(tenants, ['e', 'e', 'e'], 'a piloto é provada antes da contagem');
+  assert.ok(comandos.every(c => c.sql.includes('FROM memberships m JOIN empresas')), 'só a contagem de vínculos');
+});
+test('empresa ativa: sem escolha explícita e UMA única empresa ativa (a piloto) = abre, como no painel (usuário de empresa única)', async () => {
+  const { modulo, tenants, sqls } = carregar({ papel: 'REPRESENTANTE_AUTORIZADO', empresasAtivas: 1 });
+  const unica = { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: null } as never;
+  await modulo.listarAtendimento(unica);
+  assert.deepEqual(tenants, ['e']);
+  assert.equal(sqls('FROM whatsapp_atendimento_conversas c').length, 1, 'a tela foi lida');
 });
 test('empresa ativa: outra empresa ativa é divergência — recusada antes de ler ou gravar', async () => {
   const { modulo, tenants, comandos } = carregar({ papel: 'REPRESENTANTE_AUTORIZADO' });
@@ -297,7 +305,7 @@ test('falta de acesso: sem vínculo ativo na piloto (tenant não comprovado) vir
 test('configuração inválida: a recusa de acesso vem antes da validação do conteúdo (empresa ativa, vínculo, papel)', async () => {
   const invalida = { ativo: false, nome: 'X', perguntas: [] };
   const casos: [Opcoes, Record<string, unknown>, RegExp][] = [
-    [{ papel: 'REPRESENTANTE_AUTORIZADO' }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: null }, /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/],
+    [{ papel: 'REPRESENTANTE_AUTORIZADO', empresasAtivas: 2 }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: null }, /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/],
     [{ papel: 'REPRESENTANTE_AUTORIZADO' }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: 'b' }, /ATENDIMENTO_EMPRESA_DIVERGENTE/],
     [{ tenantRecusado: true }, { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO' }, /ATENDIMENTO_SEM_ACESSO/],
     [{ papel: 'ADMINISTRATIVO' }, { usuario_id: 'u', papel: 'ADMINISTRATIVO' }, /ATENDIMENTO_ACESSO_NEGADO/],

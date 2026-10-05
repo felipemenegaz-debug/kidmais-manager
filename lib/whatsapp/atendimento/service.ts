@@ -99,11 +99,21 @@ export async function correlacionarStatus(tx: DbExecutor, empresa: string, ambie
 /**
  * Toda entrada da tela passa por aqui: primeiro a empresa ativa da sessão (só existe com a 063 do painel; sem ela,
  * comportamento anterior), depois a prova do tenant no banco. Sem vínculo ativo na piloto = sem acesso (403).
+ * Sem escolha explícita, como no painel: uma única empresa ativa vale como a atual; mais de uma = seleção pendente.
  */
 async function naEmpresaDoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: DbExecutor, tenant: TenantComprovado) => Promise<T>) {
   const piloto = empresaPiloto();
-  conferirEmpresaAtiva(sessao, piloto);
-  try { return await withTenantTransaction(sessao, piloto, work); }
+  const situacao = conferirEmpresaAtiva(sessao, piloto);
+  try {
+    return await withTenantTransaction(sessao, piloto, async (tx, tenant) => {
+      if (situacao === 'SEM_ESCOLHA') {
+        const ativas = Number((await tx.query<{ n: string }>(`SELECT count(*) AS n FROM memberships m JOIN empresas e ON e.id = m.empresa_id
+          WHERE m.usuario_id = $1::uuid AND m.status = 'ATIVA' AND e.status = 'ATIVA'`, [sessao.usuario_id])).rows[0]?.n ?? 0);
+        if (ativas !== 1) throw new Error('ATENDIMENTO_EMPRESA_NAO_SELECIONADA');
+      }
+      return work(tx, tenant);
+    });
+  }
   catch (erro) { if ((erro as { code?: unknown })?.code === 'TENANT_NAO_COMPROVADO') throw new Error('ATENDIMENTO_SEM_ACESSO'); throw erro; }
 }
 export async function acessoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: DbExecutor, empresaId: string, papel: string) => Promise<T>) {
