@@ -1,0 +1,135 @@
+# Validação PostgreSQL — 063 (mensagens prontas) e concorrência do Encerrar
+
+> **Renumeração (04/10/2026, commit `090e7df`):** a migration de mensagens prontas citada aqui como **063** passou a ser a **064** (`20261004_064_whatsapp_mensagens_prontas.sql`, rollback e checks `064`, variável `kidmais.rollback_064_descartar_prontas`, suíte `migration-064.postgres.test.ts`). A 063 ficou com a candidata `feat/painel-desenvolvedor-20261004`. O conteúdo da migration não mudou; os resultados abaixo valem para o HEAD indicado e citam o nome da época. Ver [IDENTIFICACAO_CONTATO_ATENDIMENTO.md](IDENTIFICACAO_CONTATO_ATENDIMENTO.md), "Numeração".
+
+**Situação:** EXECUTADA em 04/10/2026 no HEAD `ba6d47c`, com autorização explícita do Felipe para O1, O2a, O2b e O4 no alvo `127.0.0.1:55500` (docs/OPERACAO_AGENTES.md). Resultado: **PASS** (ver "Resultado"). Nenhuma operação em staging, produção ou no banco local real `kidmais_manager`. A demonstração em 55498 não foi encerrada nem tocada.
+
+## Objetivo
+
+Provar no PostgreSQL descartável, com o código da candidata:
+
+- a 063 aplica, passa no postcheck e falha fechada (sem a 060, ou já aplicada);
+- cadastro, favoritas, conflitos, isolamento e rascunho funcionam com o serviço real e o repositório real de clientes, inclusive o link individual **preenchido** a partir de uma contratação completa;
+- o rollback da 063 recusa descartar dados sem decisão explícita, remove só a 063 e deixa a 060 intacta;
+- o Encerrar cancela as pendentes na mesma transação, não entra em deadlock com o worker e as linhas puladas por `SKIP LOCKED` são canceladas depois pelo próprio worker.
+
+## Encerrar e `SKIP LOCKED` (comportamento documentado)
+
+`controlarAtendimento('encerrar')` trava a conversa (`FOR UPDATE`), recusa se houver mensagem `ENVIANDO` e, na mesma transação, marca `CANCELADA` as mensagens `PENDENTE`/`PROCESSANDO` da conversa com `FOR UPDATE SKIP LOCKED`. O contador devolvido separa **saídas** (respostas na fila) de **entradas** (mensagens do cliente ainda sem resposta automática).
+
+Por que `SKIP LOCKED`:
+
+- o worker trava a **mensagem** antes da **conversa** (reserva da fila);
+- o Encerrar trava a **conversa** antes das **mensagens**;
+- sem `SKIP LOCKED`, essa ordem inversa gera deadlock (40P01). A suíte de concorrência reproduz o deadlock como controle.
+
+O que acontece com a linha pulada:
+
+- ela não entra no contador e continua `PENDENTE` por um instante;
+- o worker que a segura espera o Encerrar terminar, revalida sob a trava da conversa, vê `ENCERRADA` e grava `CANCELADA`;
+- isso vale para a reserva, para a volta do modelo e para a marcação de envio (`worker.ts`). Nada é enviado.
+
+Envio já iniciado (`ENVIANDO`) não é cancelado: o Encerrar é recusado até o resultado do provedor.
+
+## Suítes
+
+| Suíte | O que prova |
+| --- | --- |
+| `lib/whatsapp/atendimento/migration-063.postgres.test.ts` | Ordem (sem 060 → recusa), aplicação + postcheck, reaplicação recusada; cadastro só do representante; atalhos primeiro; conflitos de atalho e título ativos, versão desatualizada, regras do banco (link por tipo, https, limite de 4000); remover libera atalho/título (remoção lógica); favoritas por usuário e idempotentes; isolamento (usuário de outra empresa recusado, linha de outra empresa/ambiente invisível, favorita cruzada recusada pela chave composta); rascunho de texto e link fixo; link individual com o repositório real (sem cliente; cliente de outra empresa não conta; telefone sem 55 achado pela variante; dois clientes = ambíguo); **contratação sintética completa** (ver abaixo); nada gravado nem enviado; telefone não volta; rollback recusado com dados, com descarte remove só a 063, pós-rollback, 060 intacta, biblioteca "indisponível" e atendimento funcionando; reaplicável depois |
+| `lib/whatsapp/atendimento/encerrar-concorrencia.postgres.test.ts` | Controle: sem `SKIP LOCKED` a ordem inversa de travas dá deadlock real; com a mensagem travada pelo "worker", o Encerrar termina no prazo, cancela a saída livre e pula a travada; o worker real cancela a pulada depois, sem modelo nem envio; Encerrar durante a interpretação cancela a entrada e o worker não cria resposta; `ENVIANDO` recusa e nada é cancelado; histórico preservado e auditado |
+| `lib/whatsapp/atendimento/migration-060.postgres.test.ts` | Regressão da 060 com o Encerrar novo (mesma suíte já validada em `af14865`) |
+
+**Contratação sintética completa (passo 6b da suíte 063).** Montada pelas regras do banco, sem contorná-las:
+
+1. fechamento do cliente (`AGUARDANDO_PAGAMENTO`) → contrato → versão `ATIVA` → documento revisado e comprovante;
+2. edição com aprovação comercial gravada **antes** da assinatura (depois dela a edição fica congelada);
+3. assinatura da empresa (`KIDMAIS`) por representante com a capability `CONTRATO_ASSINAR_EMPRESA` e sessão recente;
+4. `EM_ELABORACAO → ASSINADA_KIDMAIS → AGUARDANDO_CLIENTE`, com liberação registrada.
+
+Casos cobertos:
+
+- contrato liberado → link individual **preenchido** com o contrato DESTE cliente pela origem https;
+- contrato ainda em elaboração → não conta;
+- contratação liberada de outra empresa com o mesmo telefone → não conta;
+- origem http → não preenche;
+- dois contratos aguardando o mesmo cliente → ambíguo, sem link.
+
+A fixture segue as validações diferidas da 013/054/057; só a execução autorizada comprova que o banco a aceita. Se o banco recusar a fixture, a suíte falha naquele passo (não há falso positivo).
+
+**Limitação conhecida:** a unicidade de título usa `lower(titulo)`, que segue o `LC_CTYPE` do banco. No cluster descartável (locale C) letras acentuadas não são convertidas ("ENDEREÇO" e "Endereço" não colidem); em banco com locale UTF-8 colidem. A suíte usa título ASCII para não depender do locale.
+
+## Alvo
+
+| Item | Valor |
+| --- | --- |
+| Binários | `C:\Program Files\PostgreSQL\18\bin` |
+| Diretório de dados | `C:\Users\Glass\AppData\Local\Temp\kidmais-pg-063\data` — exclusivo desta validação; precisa **não existir** antes de O1 |
+| Endereço e porta | `127.0.0.1:55500`, só loopback — porta própria, diferente da demonstração |
+| Autorização da porta | `KIDMAIS_DESCARTAVEL_PORTA=55500` e `KIDMAIS_DESCARTAVEL_AUTORIZACAO=127.0.0.1:55500/kidmais_pacotes_v1_descartavel` (regra literal de `lib/comercial/alvo-descartavel.ts`; sem mudança de código) |
+| Identidade exigida | `cluster_name = kidmais_descartavel`, superusuário `kidmais_descartavel`, locale C, 60 conexões, nenhum banco `kidmais_manager`, porta 55500 |
+| Código | worktree `C:\Users\Glass\.codex\worktrees\0997\kidmais-candidata-whatsapp`, HEAD anotado em O0, árvore limpa |
+| Dados | Exclusivamente sintéticos, criados e removidos pelas suítes |
+
+**Demonstração preservada:** a demonstração usa 55498 (cluster `...\kidmais-demo-atendimento-20261004-4b6271`) e **continua rodando**. Esta validação usa 55500 e outro diretório. O0 só informa o uso de 55498; O4 recusa o diretório da demonstração e o preservado (`kidmais-pg-demo-atendimento`) mesmo se configurado por engano. `kidmais-pg-060` também não é tocado.
+
+## Operações
+
+Scripts em `.local-ux/pg-063/` (fora do Git), com SHA-256 em `MANIFESTO.txt`. Executados na rodada autorizada de 04/10/2026 (ver "Resultado"); antes dela, só O0 (leitura) e o teste offline do O4 (cópias redirecionadas para uma pasta temporária, sem PostgreSQL).
+
+| # | Comando | Efeito | Verificação | Parada |
+| --- | --- | --- | --- | --- |
+| O0 | `bash .local-ux/pg-063/o0.sh` | Nenhum (só leitura) | Porta 55500 livre, diretório ausente, árvore limpa, sem `PG*`/`DATABASE_URL`; 55498 só informado | Qualquer divergência |
+| O1 | `bash .local-ux/pg-063/o1.sh` | `initdb` (locale C, UTF8, trust só em 127.0.0.1), configuração (porta 55500, marca "Validação 063") e `pg_ctl start` | `identidade-o1.txt` igual à identidade exigida | Diretório existente, porta ocupada ou identidade divergente |
+| O2a | `bash .local-ux/pg-063/o2.sh alvo` | Receita monta os modelos; roda 060, 063 e concorrência | `PASS` sem falhas em `check-v1-postgres-alvo-<HEAD>.log` | Falha: registrar e seguir para O4 |
+| O2b | `bash .local-ux/pg-063/o2.sh completa` (opcional, recomendado) | Todas as suítes PostgreSQL | `PASS` em `check-v1-postgres-completa-<HEAD>.log` | Idem |
+| O4 | `powershell -NoProfile -ExecutionPolicy Bypass -File .local-ux\pg-063\o4.ps1` | Ver abaixo | Porta 55500 livre; diretório ausente; pasta-mãe e protegidos intactos | Qualquer divergência: para sem remover |
+
+**O4 (PowerShell), em ordem, parando sem remover diante de qualquer divergência:**
+
+1. o caminho absoluto **resolvido** precisa ser exatamente `C:\Users\Glass\AppData\Local\Temp\kidmais-pg-063\data` (constante; não vem de parâmetro nem de ambiente);
+2. o alvo não pode coincidir com a demonstração nem com o diretório preservado, não pode ser link/junção nem conter link/junção, e **nenhum diretório ancestral** (do pai do alvo até a raiz do volume) pode ser link/junção. Resolve-Path não segue junções: um ancestral junção faria o caminho conferido apontar para outra árvore;
+3. o `postgresql.conf` precisa ter a marca "Validação 063", `port = 55500` e `cluster_name = 'kidmais_descartavel'`;
+4. se a porta responde, o servidor precisa devolver o mesmo `data_directory`, `cluster_name` e porta (`psql` com `connect_timeout=5`: algo que aceita a conexão e não responde não prende o O4);
+5. `pg_ctl -D <alvo> stop` sem pipe, conferindo o código de saída;
+6. espera porta livre e ausência de `postmaster.pid`;
+7. remove **somente** o alvo com `Remove-Item -LiteralPath`; a pasta-mãe fica.
+
+**Teste offline do O4** (`teste-o4.ps1`, log `teste-o4.log`): 14/14 — alvo ausente; caminho com `..`; alvo protegido; alvo junção (destino intacto); junção dentro do alvo; **pasta-mãe junção** (PARAR; destino com `data`, `postgresql.conf` e vizinho intactos; a junção continua lá); **avô junção** (PARAR; destino intacto); sem a marca; `postmaster.pid`; porta ocupada por algo que não é o cluster; remoção só do alvo (vizinho e pasta-mãe intactos); alvo real não criado.
+
+Controle: os mesmos casos contra o O4 anterior (sem a verificação de ancestrais), só na árvore falsa, falham — com a pasta-mãe junção, o O4 anterior removia o `data` do destino da junção. A verificação de ancestrais é o que impede isso. Os ancestrais do alvo real (`C:\Users\Glass\AppData\Local\Temp` até `C:\`) foram conferidos em leitura: nenhum é link/junção.
+
+**Recuperação:** se O2 falhar no meio, O4 continua seguro. Se o servidor não parar, não remover nada e investigar.
+
+**Evidência:** logs de O1, O2 e O4 em `.local-ux/pg-063/`, com o HEAD no nome; o resultado é registrado aqui, ligado ao HEAD validado.
+
+## Resultado (04/10/2026, autorizado: O1, O2a, O2b, O4)
+
+**HEAD validado:** `ba6d47ccaccb354bc93ce723874f0a0dbb6ae4e5`, com árvore limpa. O código é o de `1e40264`; os dois commits seguintes são só docs. Os scripts foram conferidos contra `MANIFESTO.txt` antes da execução.
+
+| Etapa | Resultado |
+| --- | --- |
+| O0 (06:19) | ok: porta 55500 livre, diretório ausente, árvore limpa, sem `PG*`/`DATABASE_URL`; 55498 informado como da demonstração |
+| O1 | Identidade exatamente a exigida: `kidmais_descartavel`, `127.0.0.1`, `55500`, superusuário `kidmais_descartavel`, banco `postgres`, 0 bancos `kidmais_manager`, locale `C`, 60 conexões, diretório `C:/Users/Glass/AppData/Local/Temp/kidmais-pg-063/data` |
+| O2a (`alvo`) | **PASS, 3/3:** `encerrar-concorrencia` OK (3 s), `migration-060` OK (9 s), `migration-063` OK (3 s, incluindo a contratação completa do passo 6b) |
+| O2b (`completa`) | **PASS, 38/38** arquivos no estado declarado; nenhuma falha, nenhum ignorado |
+| O4 (06:23) | ok: servidor parado pelo próprio diretório; **somente** `kidmais-pg-063\data` removido; pasta-mãe preservada e vazia; porta 55500 livre |
+
+**Protegidos, antes de O1 e depois de O4:** idênticos, conferidos só em leitura.
+
+- `kidmais-pg-demo-atendimento`: 1001 itens, hash de listagem `337E7CC23995F1E2`, `data` alterado às 03:51:48, sem mudança.
+- Demonstração: base, `postmaster.pid` e portas 55498, 3040 e 3041 ativas; identidade `9920f640f6504baaa9e83e1fe9b3dd86` no diretório `kidmais-demo-atendimento-20261004-4b6271`.
+- `kidmais-pg-060`: 0 entradas.
+
+**Evidência:** arquivos em `.local-ux/pg-063/`, fora do Git. Os hashes SHA-256 também estão em `EVIDENCIAS-ba6d47c.txt`.
+
+| Arquivo | SHA-256 |
+| --- | --- |
+| `o0-pre-o1.log` | `604f9ee6229b7267d7279afe6a4100b8662633d688e5dd8302e54ad54136318e` |
+| `identidade-o1.txt` (= `o1.out`) | `dcc44803036bb68fa92a7d6bc9eddda8e70cb7820379ab524e8765d0a7ff837f` |
+| `check-v1-postgres-alvo-ba6d47c.log` | `f4ca078061b5c19a62f1816a3805dc0246306f520daa1c1739d54caa0f935ec6` |
+| `check-v1-postgres-completa-ba6d47c.log` | `de1a290fc4ceaa7184f91cf191763b7fee2f1bcde9837a29652c896e6a1e6437` |
+| `o4-ba6d47c.log` | `94842a3c44abce63f47a66dde140d2e5b5b3f73260e550072c1f325d9043b185` |
+| `protegidos-antes.txt` | `414d26e6a70a6dd1a0eeeafdfaab551331051e6b54b19f795d2869b07cd2d30a` |
+| `protegidos-depois.txt` | `529144de64e8992a830bd9a983504add15215bf3cd2f0dd7b586bfa175079f0f` |
+
+**Fora desta autorização:** push, merge, staging, produção, deploy e ativação. Esta rodada aplicou a 063 (hoje 064) só neste cluster descartável, já removido. O estado dos bancos de staging e de produção **não foi verificado**.

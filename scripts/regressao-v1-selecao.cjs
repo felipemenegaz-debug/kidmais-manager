@@ -63,6 +63,12 @@ const ESTADO_POSTGRES = {
   "lib/ia-persistencia/migration-058.postgres.test.ts": { descartavel: "atual" },
   "lib/inteligencia/inteligencia.postgres.test.ts": { descartavel: "atual" },
   "lib/operacional/migration-059.postgres.test.ts": { descartavel: "atual" },
+  "lib/whatsapp/atendimento/migration-060.postgres.test.ts": { descartavel: "atual" },
+  // 064 e concorrência do encerrar: cada suíte aplica a 060 (e a 064) sobre o modelo atual, como a da 060.
+  "lib/whatsapp/atendimento/migration-064.postgres.test.ts": { descartavel: "atual" },
+  "lib/whatsapp/atendimento/encerrar-concorrencia.postgres.test.ts": { descartavel: "atual" },
+  // 065 (nome de perfil) e identificação do contato: aplica a 060 e a 065 sobre o modelo atual; independe da 064.
+  "lib/whatsapp/atendimento/migration-065.postgres.test.ts": { descartavel: "atual" },
   "lib/pagamentos/estorno-completo.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062"] },
   "lib/pagamentos/gates-c2.postgres.test.ts": { descartavel: "atual" },
   "lib/saas/hg6-kidmais.postgres.test.ts": { descartavel: "045-sem-040" },
@@ -76,6 +82,9 @@ const ESTADO_POSTGRES = {
   "lib/saas/hg8-tenant.postgres.test.ts": { descartavel: "atual", tambem: ["063"] },
   // Painel do desenvolvedor (063): concessão, interessadas, provisionamento, convites, vínculos, suspensão, senhas.
   "lib/desenvolvedor/painel-063.postgres.test.ts": { descartavel: "063" },
+  // Integração atendimento × painel: empresa ativa × piloto e coexistência 060/063/064/065 (modelo 063, com a 060).
+  "lib/whatsapp/atendimento/empresa-ativa.postgres.test.ts": { descartavel: "063" },
+  "lib/whatsapp/atendimento/coexistencia-060-065.postgres.test.ts": { descartavel: "063" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
