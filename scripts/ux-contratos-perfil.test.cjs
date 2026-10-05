@@ -52,7 +52,7 @@ async function main() {
             const fail = (status, codigo, erro) => route.fulfill({ status, json: { ok: false, codigo, erro } });
             const body = request.method() === 'POST' && request.headers()['content-type']?.includes('application/json') ? request.postDataJSON() : null;
             if (body) posts.push({ url: url.pathname, body });
-            if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: id(9), nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico' });
+            if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: id(9), nome: 'Revisão visual', papel:'REPRESENTANTE_AUTORIZADO',contexto:{empresaAtual:{id:'e',nome:'Empresa visual',papel:'REPRESENTANTE_AUTORIZADO'},empresas:[],gestaoNaEmpresa:true,plataforma:true,desenvolvedor:false,selecaoNecessaria:false}, csrf: 'csrf-sintetico' });
             if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') return ok({logoDataUrl:request.method()==='POST'?logo:logoAplicada});
             if (url.pathname === '/api/admin/disponibilidade') return route.fulfill({json:{agenda:[],pacoteOverrides:[],descontos:[],bloqueios:[]}});
             if (url.pathname === '/api/admin/clientes') return ok([{cliente:{id:clienteId,nomeCompleto:'Cliente de Exemplo',status:'ATIVO',whatsapp:'11999999999'},cadastroCompleto:true,camposFaltantes:[]}]);

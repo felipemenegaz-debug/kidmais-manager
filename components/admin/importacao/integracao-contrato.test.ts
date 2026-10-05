@@ -22,7 +22,7 @@ const resumo = {
 };
 
 type Vinculo = { fechamentoId: string; contratoId: string | null; status: string; data?: string; alcance?: string; horario: string; comPagamento: boolean; importado: boolean; sinais: string[] };
-function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reautenticacao?: unknown; vinculos?: Vinculo[]; integracao?: unknown; onIntegrado?(r: unknown): void } = {}) {
+function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reautenticacao?: unknown; vinculos?: Vinculo[]; integracao?: unknown; onIntegrado?(r: unknown): void; rascunho?: Record<string, unknown>; onOcupado?(v: boolean): void } = {}) {
   const chamadas: Array<{ fn: string; args: unknown[] }> = [];
   const Link = 'a';
   const tela = carregarComponente('components/admin/importacao/IntegracaoContrato.tsx', {
@@ -32,6 +32,9 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
     './importacao.module.css': cssFalso, './integracao.module.css': cssFalso,
     './cliente-integracao': {
       lerOpcoes: async () => ({ ok: true, dados: { ...structuredClone(opcoes), ...(opcoesTeste.integracao ? { integracao: opcoesTeste.integracao } : {}) } }),
+      lerOpcoesRascunho: async () => { chamadas.push({ fn: 'lerOpcoesRascunho', args: [] }); return { ok: true, dados: opcoesTeste.rascunho }; },
+      simularRascunho: async (...args: unknown[]) => { chamadas.push({ fn: 'simularRascunho', args }); return { ok: true, dados: { integrada: false, pronto: true, bloqueios: [], avisos: [], resumo, resumoHash: 'b'.repeat(64), planoHash: 'd'.repeat(64), possiveisVinculos: [] } }; },
+      confirmarRascunho: async (...args: unknown[]) => { chamadas.push({ fn: 'confirmarRascunho', args }); return confirmarResposta(); },
       novaChave: () => '88888888-8888-4888-8888-888888888888',
       simular: async (...args: unknown[]) => { chamadas.push({ fn: 'simular', args }); const d = args[2] as { conferenciaDeclarada: boolean; outroContratoConfirmado: boolean; motivoOutroContrato: string };
         const vinculos = opcoesTeste.vinculos ?? [];
@@ -44,7 +47,7 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
     },
   });
   const renderOriginal = tela.render;
-  tela.render = (componente = 'default', props = {}) => renderOriginal(componente, { ...props, onIntegrado: opcoesTeste.onIntegrado });
+  tela.render = (componente = 'default', props = {}) => renderOriginal(componente, { ...props, onIntegrado: opcoesTeste.onIntegrado, onOcupado: opcoesTeste.onOcupado, ...(opcoesTeste.rascunho ? { versaoRascunho: 7 } : {}) });
   return { tela, chamadas };
 }
 
@@ -272,4 +275,39 @@ test('contrato já integrado: o caminho financeiro correto aparece; "Conferir pa
     const financeiro = elementos(a).some((e) => e.type === 'a' && e.props.href === '/admin/contratos?contratoId=k1#financeiro');
     assert.equal(financeiro, caminho === 'CONCLUIDO' || caminho === 'PLANO_NA_VERSAO_VIGENTE', caminho);
   }
+});
+
+test('rascunho com dois PIX completos: vai à revisão sem cadastrar e confirma uma única vez após autenticar', async () => {
+  let liberar!: (v: unknown) => void;
+  const ocupada: boolean[] = [];
+  const rascunho = structuredClone(opcoes) as Record<string, unknown>;
+  rascunho.estabelecimentos = [];
+  rascunho.sugestao = { ...opcoes.sugestao, parcelasPrevistas: [], recebimentosDocumento: { pendencias: [], recebimentos: [
+    { valorCentavos: 425000, data: '2026-08-01', forma: 'PIX', pagina: 1, trecho: 'Recebido R$ 4.250,00 em 01/08/2026 via PIX' },
+    { valorCentavos: 425000, data: '2026-09-01', forma: 'PIX', pagina: 1, trecho: 'Recebido R$ 4.250,00 em 01/09/2026 via PIX' },
+  ] } };
+  const { tela, chamadas } = montar(() => new Promise(r => { liberar = r; }), { rascunho, onOcupado: v => ocupada.push(v) });
+  let a = await carregar(tela);
+  assert.deepEqual(chamadas.map(c => c.fn), ['lerOpcoesRascunho'], 'carregar não confirma nem cadastra');
+  (radio(a, /Vigente/).props.onChange as (e: unknown) => void)(evento('on'));
+  a = ver(tela);
+  const pacote = elementos(a).find(e => e.type === 'select' && elementos(e.props.children).some(o => o.props?.value === 'p1'))!;
+  (pacote.props.onChange as (e: unknown) => void)(evento('p1'));
+  a = ver(tela);
+  (achar(a, 'button', 'Revisar e concluir').props.onClick as () => void)();
+  await tique(); a = ver(tela);
+  const d = chamadas.find(c => c.fn === 'simularRascunho')!.args[3] as { financeiro: { situacao: string; parcelas: Array<{ valorCentavos: number; recebimento: { data: string; forma: string } }> } };
+  assert.equal(d.financeiro.situacao, 'PAGO');
+  assert.deepEqual(d.financeiro.parcelas.map(p => [p.valorCentavos, p.recebimento.data, p.recebimento.forma]), [[425000,'2026-08-01','PIX'],[425000,'2026-09-01','PIX']]);
+  assert.equal(chamadas.some(c => c.fn === 'confirmarRascunho'), false);
+  const label = elementos(a).find(e => e.type === 'label' && /Conferi o documento original/.test(texto(e)))!;
+  (elementos(label.props.children).find(e => e.type === 'input')!.props.onChange as (e: unknown) => void)(evento('on',true));
+  await tique(); a=ver(tela);
+  (achar(a,'input','Senha para confirmar').props.onChange as (e: unknown)=>void)(evento('senha-sintetica'));
+  a=ver(tela); (achar(a,'button','Confirmar integração').props.onClick as ()=>void)();
+  await tique(); await tique();
+  assert.deepEqual(ocupada,[true]);
+  assert.deepEqual(chamadas.filter(c => /reautenticar|confirmar/.test(c.fn)).map(c=>c.fn),['reautenticar','confirmarRascunho']);
+  liberar({ok:true,dados:{contratoId:'k1',reutilizado:false}});
+  await tique(); await tique(); assert.deepEqual(ocupada,[true,false]);
 });

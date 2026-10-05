@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { ZodError, z } from 'zod';
 import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
-import { withTransaction } from '@/lib/db/postgres';
 import { registrarAuditoria } from '@/lib/clientes/repositories/auditoria.repository';
 import { isClienteServiceError } from '@/lib/clientes/services/errors';
+import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
 import { aplicarCadastroPerfil, lerCadastroPerfil, salvarRascunhoPerfil } from '@/lib/perfil/cadastro-service';
 import { LOGO_MAX_DATA_URL } from '@/lib/perfil/logo-limites';
+import { withTenantTransaction } from '@/lib/saas/provar-tenant';
+import { perfilDoTenant } from '@/lib/perfil/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -67,7 +69,7 @@ function json(data: unknown, status = 200) {
 function fail(error: unknown) {
     if (error instanceof ZodError || error instanceof SyntaxError)
         return json({ ok: false, erro: 'Confira os dados do perfil.' }, 400);
-    if (isClienteServiceError(error))
+    if (isClienteServiceError(error) || error instanceof PacoteAdminError)
         return json({ ok: false, erro: error.message, codigo: error.code, detalhes: error.details ?? null }, error.httpStatus);
     const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
     if (['23505', '40001', '40P01'].includes(code))
@@ -79,7 +81,7 @@ function fail(error: unknown) {
 export async function GET(request: NextRequest) {
     try {
         const sessao = await exigirApiAdminCrmDisponivel(request);
-        const data = await withTransaction((tx) => lerCadastroPerfil(tx, sessao.usuario_id));
+        const data = await withTenantTransaction(sessao, null, async (tx, tenant) => lerCadastroPerfil(tx, sessao.usuario_id, await perfilDoTenant(tx, tenant.empresaComprovada)));
         return json({ ok: true, data });
     } catch (error) {
         return fail(error);
@@ -91,9 +93,11 @@ export async function POST(request: NextRequest) {
         const sessao = await exigirApiAdminCrmDisponivel(request);
         const body = corpo.parse(await request.json());
         const requestId = randomUUID();
-        const data = await withTransaction(async (tx) => {
+        const data = await withTenantTransaction(sessao, null, async (tx, tenant) => {
+            const perfilDoServidor = await perfilDoTenant(tx, tenant.empresaComprovada);
             if (body.acao === 'salvar-rascunho') {
                 return salvarRascunhoPerfil(tx, {
+                    perfilDoServidor,
                     usuarioId: sessao.usuario_id,
                     empresaIdCliente: body.empresaId ?? null,
                     numero: body.numero,
@@ -104,6 +108,7 @@ export async function POST(request: NextRequest) {
                 }, registrarAuditoria);
             }
             return aplicarCadastroPerfil(tx, {
+                perfilDoServidor,
                 usuarioId: sessao.usuario_id,
                 empresaIdCliente: body.empresaId ?? null,
                 numero: body.numero,
@@ -112,6 +117,7 @@ export async function POST(request: NextRequest) {
                 confirmar: true,
                 motivo: body.motivo,
                 autenticadoEm: sessao.autenticado_em,
+                agora: Date.parse(sessao.consultado_em ?? ''),
                 requestId,
             }, registrarAuditoria);
         });

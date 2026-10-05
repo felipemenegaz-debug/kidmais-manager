@@ -61,6 +61,8 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/repositorio-documentos": ["ExtracaoRegistrada", "RegistroExtracao"], // @pr:DOCUMENT
   // Importação: plano puro e só TIPOS do repositório SQL.
   "lib/importacao-contrato/plano": ["AnaliseDuplicidade", "PlanoImportacao", "DecisaoCliente", "classificarMatch", "montarPlano"], // @pr:IMPORT
+  // Conclusão única: schema e tipos puros; a IA continua sem acesso ao executor do Core.
+  "lib/contratos/integracao-importados/modelo": ["decisoesSchema", "DecisoesIntegracao", "ResumoIntegracao"],
   "lib/importacao-contrato/repositorio-importacao": ["ImportacaoLida"], // @pr:IMPORT
 };
 
@@ -109,6 +111,10 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/pdf-isolado": ["extrairTextoPdfIsolado"], // @pr:DOCUMENT
   "lib/importacao-contrato/multipart": ["TEMPO_PADRAO", "criarSemaforo", "lerMultipartLimitado", "limitesUpload", "CodigoMultipart"], // @pr:DOCUMENT
   "lib/importacao-contrato/repositorio-documentos": ["documentosDisponiveis", "registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
+  // Composition root explícito: preview e conclusão nativa no mesmo Tenant Context/Human Gate.
+  "lib/contratos/integracao-importados/rascunho": ["fonteDoRascunho"],
+  "lib/contratos/integracao-importados/composicao": ["coreNativo"],
+  "lib/contratos/integracao-importados/servico": ["confirmarIntegracao", "opcoesIntegracaoRascunho", "simularIntegracao", "IntegracaoImportadoError"],
   "lib/importacao-contrato/motor": ["executarImportacao"], // @pr:IMPORT
   "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorDocumento", "lerImportacao"], // @pr:IMPORT
 };
@@ -118,7 +124,7 @@ const SERVICOS_POR_COMPOSICAO: Readonly<Record<string, readonly string[]>> = {
   "dependencias.ts": ["provarEstabelecimento(", "consultarFestas(", "obterClienteBase(", "criarRegistroUsoPostgres(", "withTransaction", "listarPacotesAdmin(", "contratoNoTenant(", "detalheAdministrativo(", "buscarClientesCrm(", "lerPosicaoFinanceira("],
   "operacoes/composicao.ts": ["listarPacotesAdmin(", "painelPacoteAdmin(", "salvarPacoteComercial(", "editarPacoteNaoUtilizado(", "criarRevisaoPacoteAdmin(", "preservarSituacao: true", "gravarFaixasPacote(", "alterarSituacaoPacoteAdmin(", "clienteParaPreparacao(", "consultarDisponibilidadeData(", "calcularResumoComercial(", "erroConvidadosFechamento(", "criarFechamentoAdministrativo(", "obterContextoFechamentoAdministrativo(", "registrarParametroConsumo("], // @pr:ACTIONS
   "documentos/composicao.ts": ["registrarDocumento", "registrarExtracao", "ultimaExtracao"], // @pr:DOCUMENT
-  "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao"], // @pr:IMPORT
+  "importacoes/composicao.ts": ["analisarCadastroCliente(", "cadastrarClienteInterno(", "executarImportacao(", "abrirImportacao", "fonteDoRascunho(", "confirmarIntegracao(", "tokenAdmin(request)", "autenticadoEm: sessao.autenticado_em"], // @pr:IMPORT
 };
 
 /** SQL em qualquer caixa, só em literais de string/template: comentários não executam. */

@@ -63,6 +63,8 @@ export type ArquivoSelecionado = { nome: string; tipo: string; tamanhoBytes: num
 export type FonteExtracao = "DEMONSTRACAO" | "DOCUMENTO";
 
 export type ExtracaoContrato = {
+  /** Leitura de recebimentos explícitos no texto original, sem baixa automática. */
+  recebimentosDocumento?: import('./recebimentos.ts').LeituraRecebimentos;
   fonte: FonteExtracao;
   arquivo: ArquivoSelecionado;
   secoes: SecaoRevisao[];

@@ -130,6 +130,12 @@ test("E1/056 real: identidade global, membership por empresa, papel e capacidade
     const ctxDe = (u: { token: string }, empresaSolicitada: string | null = null) => ({ token: u.token, requestId: randomUUID(), userAgent: null, empresaSolicitada });
     const status = (e: unknown) => (e as { status?: number; httpStatus?: number }).status ?? (e as { httpStatus?: number }).httpStatus;
     const q = async <R>(sql: string, v: unknown[] = []) => (await db.query(sql, v)).rows as R[];
+    // 063: sessão de quem tem mais de uma empresa opera na empresa SELECIONADA (seletor "Empresa ativa"); antes da
+    // 063 a seleção não existe e o empresaId pedido escolhe entre as memberships (regra legada).
+    const selecionar = async (u: { token: string }, empresaId: string) => {
+      const instalada = (await db.query("SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sessoes_administrativas' AND column_name='empresa_ativa_id'")).rows.length > 0;
+      if (instalada) await db.query("UPDATE sessoes_administrativas SET empresa_ativa_id = $2::uuid WHERE token_hash = $1", [hashToken(u.token), empresaId]);
+    };
     const tenantOk = async (u: { sessao: unknown }, e: string) => { await db.query("SAVEPOINT prova"); try { return await provarTenant(db, u.sessao, e); } finally { await db.query("ROLLBACK TO SAVEPOINT prova"); } };
 
     await t.test("identidade global: o mesmo e-mail em A e B é UMA identidade com DUAS memberships; conta nova nasce administrável", async () => {
@@ -212,7 +218,9 @@ test("E1/056 real: identidade global, membership por empresa, papel e capacidade
       await svc.administrarCapacidade({ usuarioId: membroA.id, capacidade: "FESTA_CONSULTAR", conceder: true, motivo: "Equipe de A" }, ctxDe(gestaoA));
       const lista = await svc.consultarFestas(ctxDe(membroA)) as { festas: Array<{ id: string }> };
       assert.deepEqual(lista.festas.map((x) => x.id), [fA.festa]);
+      await selecionar(comp, A);
       await assert.rejects(svc.consultarFestas(ctxDe(comp, A)), (e: unknown) => status(e) === 403 && /FESTA_CONSULTAR/.test((e as Error).message), "capacidade de B não vale em A");
+      await selecionar(comp, B);
       const deB = await svc.consultarFestas(ctxDe(comp, B)) as { festas: Array<{ id: string }> };
       assert.deepEqual(deB.festas.map((x) => x.id), [fB.festa], "em B vale a capacidade de B e só a Festa de B");
     });

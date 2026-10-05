@@ -106,10 +106,75 @@ async function provisionar(client, input) {
         throw e;
     }
 }
+/**
+ * 063 — concessão do PAINEL DO DESENVOLVEDOR (plataforma_desenvolvedores). Só por este terminal: a aplicação não
+ * tem rota que conceda ou revogue. Não altera papel, senha, situação da conta nem memberships.
+ */
+async function alterarDesenvolvedor(client, input) {
+    const email = String(input.email ?? '').trim().toLowerCase();
+    const operador = String(input.operador ?? '').trim();
+    const motivo = String(input.motivo ?? '').trim();
+    if (!['conceder', 'revogar'].includes(input.operacao))
+        throw Error('Operação inválida.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        throw Error('Email inválido.');
+    if (operador.length < 1 || operador.length > 120 || motivo.length < 3 || motivo.length > 500)
+        throw Error('Operador (1–120) e motivo (3–500) obrigatórios.');
+    await client.query('BEGIN');
+    try {
+        const user = (await client.query('SELECT id, ativo FROM usuarios_administrativos WHERE email=$1 FOR UPDATE', [email])).rows[0];
+        if (!user)
+            throw Error('Usuário não encontrado.');
+        let concessao;
+        if (input.operacao === 'conceder') {
+            if (!user.ativo)
+                throw Error('Conta desativada não recebe a concessão.');
+            if ((await client.query('SELECT 1 FROM plataforma_desenvolvedores WHERE usuario_id=$1 AND revogado_em IS NULL', [user.id])).rows.length)
+                throw Error('A concessão já está ativa.');
+            concessao = (await client.query('INSERT INTO plataforma_desenvolvedores(usuario_id,concedido_por,motivo) VALUES($1,$2,$3) RETURNING id', [user.id, operador, motivo])).rows[0];
+        }
+        else {
+            concessao = (await client.query(`UPDATE plataforma_desenvolvedores SET revogado_em=clock_timestamp(),revogado_por=$2,motivo_revogacao=$3
+    WHERE usuario_id=$1 AND revogado_em IS NULL RETURNING id`, [user.id, operador, motivo])).rows[0];
+            if (!concessao)
+                throw Error('Não há concessão ativa.');
+        }
+        await client.query(`INSERT INTO auditoria(ator_tipo,acao,entidade_tipo,entidade_id,dados_depois,justificativa,origem,request_id)
+   VALUES('SISTEMA',$1,'USUARIO_ADMINISTRATIVO',$2,$3,$4,'CLI_PROVISIONAMENTO',$5)`, [input.operacao === 'conceder' ? 'PLATAFORMA_DESENVOLVEDOR_CONCEDIDO' : 'PLATAFORMA_DESENVOLVEDOR_REVOGADO', user.id, { concessaoId: concessao.id, operador, resultado: 'SUCESSO' }, motivo, randomUUID()]);
+        await client.query('COMMIT');
+        return { usuarioId: user.id, concessaoId: concessao.id, operacao: input.operacao };
+    }
+    catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    }
+}
+async function mainDesenvolvedor() {
+    const connection = process.env.KIDMAIS_PROVISION_DATABASE_URL || await segredo('Conexão PostgreSQL de provisionamento (oculta): ');
+    const c = new Client({ connectionString: connection });
+    await c.connect();
+    try {
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const operacao = (await rl.question('Operação (conceder ou revogar): ')).trim().toLowerCase();
+        const email = await rl.question('Email da conta: ');
+        const operador = await rl.question('Operador responsável (nome): ');
+        const motivo = await rl.question('Motivo: ');
+        const answer = await rl.question(`Confirmar ${operacao} do painel do desenvolvedor para ${email}? Digite CONFIRMAR: `);
+        rl.close();
+        if (answer !== 'CONFIRMAR')
+            throw Error('Operação cancelada.');
+        console.log(JSON.stringify(await alterarDesenvolvedor(c, { operacao, email, operador, motivo })));
+    }
+    finally {
+        await c.end();
+    }
+}
 async function main() {
     const action = process.argv[2];
+    if (action === 'desenvolvedor')
+        return mainDesenvolvedor();
     if (!['bootstrap', 'criar', 'atualizar'].includes(action))
-        throw Error('Uso: node scripts/admin-provision.cjs bootstrap|criar|atualizar');
+        throw Error('Uso: node scripts/admin-provision.cjs bootstrap|criar|atualizar|desenvolvedor');
     const connection = process.env.KIDMAIS_PROVISION_DATABASE_URL || await segredo('Conexão PostgreSQL de provisionamento (oculta): ');
     const c = new Client({ connectionString: connection });
     await c.connect();
@@ -139,6 +204,6 @@ async function main() {
         await c.end();
     }
 }
-module.exports = { provisionar };
+module.exports = { provisionar, alterarDesenvolvedor };
 if (require.main === module)
     main().catch(() => { console.error('Provisionamento não concluído. Confira conexão, permissões, dados e existência prévia de usuário. Nenhuma credencial foi registrada.'); process.exitCode = 1; });

@@ -24,7 +24,9 @@ function rota(opcoes: { authStatus?: number; semConcessao?: boolean; logo?: stri
             if (opcoes.authStatus) throw new ClienteServiceError('AUTENTICACAO_ADMINISTRATIVA', 'Sessão ou origem inválida.', opcoes.authStatus);
             return { usuario_id: 'usuario-sintetico' };
         } };
-        if (id === '@/lib/db/postgres') return { withTransaction: async (fn: (tx: object) => Promise<unknown>) => fn({}) };
+        if (id === '@/lib/saas/provar-tenant') return { withTenantTransaction: async (_s: unknown, _e: unknown, fn: (tx: object, tenant: object) => Promise<unknown>) => fn({}, { empresaComprovada: 'empresa-sintetica' }) };
+        if (id === '@/lib/perfil/tenant') return { perfilDoTenant: async () => 'perfil-sintetico' };
+        if (id === '@/lib/comercial/pacotes-admin') return { PacoteAdminError: class extends Error {} };
         if (id === '@/lib/clientes/services/errors') return { ClienteServiceError, isClienteServiceError };
         if (id === '@/lib/perfil/cadastro-service') return { consultarLogoPerfil: async (_tx: object, usuario: string, editar = false) => {
             permissoes++;

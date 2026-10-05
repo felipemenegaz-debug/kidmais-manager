@@ -151,12 +151,13 @@ test('inventory excludes rollback and never claims applied state', async () => {
     '20261001_060_whatsapp_atendimento.sql',
     '20261002_061_contratos_importados_integracao.sql',
     '20261002_062_agenda_empresa_unidade.sql',
+    '20261004_063_painel_desenvolvedor.sql',
     '20261004_064_whatsapp_mensagens_prontas.sql',
     '20261004_065_whatsapp_nome_perfil.sql',
   ]);
   assert.deepEqual(r.evidence[0].deliberatelyAbsent, [{ id: '020', reason: 'FOUNDATION_SAAS_SEPARATE_BRANCH_NOT_REQUIRED_BY_CATALOG' }]);
   // 055a–d são reconhecidas, mas o inventário nunca afirma aplicação e marca a autorização explícita.
-  assert.deepEqual(r.evidence[0].requiresExplicitAuthorization, ['20260928_055a_inteligencia_uso.sql', '20260928_055b_inteligencia_operacoes.sql', '20260928_055c_inteligencia_documentos.sql', '20260928_055d_inteligencia_importacoes.sql', '20260929_056_membership_papel_festa_tenant.sql', '20260929_057_assinatura_contrato_empresa.sql', '20260929_058_inteligencia_skills.sql', '20261001_059_operacional_parametros_consumo.sql', '20261001_060_whatsapp_atendimento.sql', '20261002_061_contratos_importados_integracao.sql', '20261002_062_agenda_empresa_unidade.sql', '20261004_064_whatsapp_mensagens_prontas.sql', '20261004_065_whatsapp_nome_perfil.sql']);
+  assert.deepEqual(r.evidence[0].requiresExplicitAuthorization, ['20260928_055a_inteligencia_uso.sql', '20260928_055b_inteligencia_operacoes.sql', '20260928_055c_inteligencia_documentos.sql', '20260928_055d_inteligencia_importacoes.sql', '20260929_056_membership_papel_festa_tenant.sql', '20260929_057_assinatura_contrato_empresa.sql', '20260929_058_inteligencia_skills.sql', '20261001_059_operacional_parametros_consumo.sql', '20261001_060_whatsapp_atendimento.sql', '20261002_061_contratos_importados_integracao.sql', '20261002_062_agenda_empresa_unidade.sql', '20261004_063_painel_desenvolvedor.sql', '20261004_064_whatsapp_mensagens_prontas.sql', '20261004_065_whatsapp_nome_perfil.sql']);
   assert.ok(r.pending.includes('055A_D_NOT_APPLIED_REQUIRE_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('056_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('057_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
@@ -165,6 +166,7 @@ test('inventory excludes rollback and never claims applied state', async () => {
   assert.ok(r.pending.includes('060_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('061_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('062_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
+  assert.ok(r.pending.includes('063_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('064_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('065_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
 });
@@ -205,6 +207,7 @@ test('D4: each migration requires its reviewed check files (inline-guarded 049�
     '20261001_060_whatsapp_atendimento.sql': ['20261001_060_postcheck.sql'],
     '20261002_061_contratos_importados_integracao.sql': ['20261002_061_precheck.sql', '20261002_061_postcheck.sql'],
     '20261002_062_agenda_empresa_unidade.sql': ['20261002_062_precheck.sql', '20261002_062_postcheck.sql'],
+    '20261004_063_painel_desenvolvedor.sql': ['20261004_063_precheck.sql', '20261004_063_postcheck.sql'],
     '20260925_026_perfil_empresa_estrutura.sql': ['20260925_026_precheck.sql', '20260925_026_postcheck.sql'],
   };
   for (const [file, checks] of Object.entries(expected)) assert.deepEqual(migrations.requiredChecks(file), checks, file);

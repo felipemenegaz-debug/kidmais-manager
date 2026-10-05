@@ -71,7 +71,7 @@ function conta(row: { id: string; nome: string; email: string; papel: SessaoAdmi
  */
 export type MembroDaEmpresa = ContaAdministrativa & {
     membershipId: string;
-    statusMembership: 'PENDENTE' | 'ATIVA' | 'REVOGADA';
+    statusMembership: 'PENDENTE' | 'ATIVA' | 'SUSPENSA' | 'REVOGADA';
     /** 057: capability CONTRATO_ASSINAR_EMPRESA ativa nesta membership. */
     podeAssinar: boolean;
 };
@@ -103,7 +103,7 @@ function exigirGestaoDaEmpresa(tenant: TenantComprovado) {
         throw authError('Somente a Gestão pode administrar usuários.', 403);
 }
 
-async function marcarAtor(tx: DbExecutor, usuarioId: string) {
+export async function marcarAtor(tx: DbExecutor, usuarioId: string) {
     await tx.query("SELECT set_config('kidmais.ator_usuario_id', $1, true)", [usuarioId]);
 }
 
@@ -113,7 +113,7 @@ async function membershipDaEmpresa(tx: DbExecutor, empresaId: string, usuarioId:
 }
 
 /** Protege a empresa de ficar sem Gestão: a última membership ATIVA de representante não sai nem é rebaixada. */
-async function exigirOutraGestao(tx: DbExecutor, empresaId: string, usuarioId: string) {
+export async function exigirOutraGestao(tx: DbExecutor, empresaId: string, usuarioId: string) {
     const outras = (await tx.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM memberships m JOIN usuarios_administrativos u ON u.id = m.usuario_id
           WHERE m.empresa_id = $1::uuid AND m.usuario_id <> $2::uuid AND m.status = 'ATIVA' AND m.papel = 'REPRESENTANTE_AUTORIZADO' AND u.ativo`,
@@ -124,7 +124,7 @@ async function exigirOutraGestao(tx: DbExecutor, empresaId: string, usuarioId: s
 }
 
 /** 057: revoga a assinatura pela empresa desta membership (rebaixamento ou saída da empresa). */
-async function revogarAssinaturaDaMembership(tx: DbExecutor, empresaId: string, membershipId: string, operadorId: string, motivo: string) {
+export async function revogarAssinaturaDaMembership(tx: DbExecutor, empresaId: string, membershipId: string, operadorId: string, motivo: string) {
     return (await tx.query<{ id: string }>(
         `UPDATE empresa_membership_capacidades SET revogado_por = $3, revogado_em = clock_timestamp(), motivo_revogacao = $4
           WHERE membership_id = $1::uuid AND empresa_id = $2::uuid AND capacidade = 'CONTRATO_ASSINAR_EMPRESA' AND revogado_em IS NULL RETURNING id`,
@@ -132,7 +132,7 @@ async function revogarAssinaturaDaMembership(tx: DbExecutor, empresaId: string, 
     )).rows.length;
 }
 
-async function concederPerfilFesta(tx: DbExecutor, empresaId: string, membershipId: string, nivel: NivelSistema, operadorId: string) {
+export async function concederPerfilFesta(tx: DbExecutor, empresaId: string, membershipId: string, nivel: NivelSistema, operadorId: string) {
     const motivo = 'Perfil de Festa: ' + (nivel === 'GESTAO' ? 'Gestão' : 'Equipe');
     for (const capacidade of perfis[nivel]) {
         await tx.query(
@@ -142,6 +142,17 @@ async function concederPerfilFesta(tx: DbExecutor, empresaId: string, membership
         );
     }
     return { capacidades: [...perfis[nivel]], motivo };
+}
+
+/**
+ * Única criação de identidade da aplicação (F1): sempre com o papel global NEUTRO, sem autoridade de plataforma.
+ * Usada pela criação na empresa e pelo aceite de convite (lib/acessos/convites.ts).
+ */
+export async function inserirIdentidadeNeutra(tx: DbExecutor, email: string, input: { nome: string }, senhaHash: string) {
+    return (await tx.query<{ id: string }>(
+        'INSERT INTO usuarios_administrativos(email,nome,senha_hash,papel) VALUES($1,$2,$3,$4) RETURNING id',
+        [email, input.nome, senhaHash, PAPEL_GLOBAL_NEUTRO],
+    )).rows[0].id;
 }
 
 export async function listarUsuariosAdministrativos(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, deps: UsuariosDeps = padrao) {
@@ -198,15 +209,15 @@ export async function criarUsuarioAdministrativo(sessao: SessaoAdmin, raw: unkno
             if (existente) {
                 usuarioId = existente.id;
             } else {
-                usuarioId = (await tx.query<{ id: string }>(
-                    'INSERT INTO usuarios_administrativos(email,nome,senha_hash,papel) VALUES($1,$2,$3,$4) RETURNING id',
-                    [email, input.nome, senhaHash, PAPEL_GLOBAL_NEUTRO],
-                )).rows[0].id;
+                usuarioId = await inserirIdentidadeNeutra(tx, email, input, senhaHash);
                 identidadeNova = true;
             }
             const atual = await membershipDaEmpresa(tx, empresaId, usuarioId);
             if (atual?.status === 'REVOGADA')
                 throw authError('O acesso desta conta a esta empresa foi removido e não é reaberto por aqui.', 409);
+            // 063: vínculo desativado pela administração da plataforma volta só por reativação explícita no painel.
+            if (atual?.status === 'SUSPENSA')
+                throw authError('O acesso desta conta a esta empresa está desativado e não é reaberto por aqui.', 409);
             if (atual?.status === 'ATIVA')
                 return resposta(atual.membership_id, true);
             let membershipId = atual?.membership_id;

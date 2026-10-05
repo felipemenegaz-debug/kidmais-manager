@@ -72,6 +72,7 @@ const approvedFiles = [
   '20261001_060_whatsapp_atendimento.sql',
   '20261002_061_contratos_importados_integracao.sql',
   '20261002_062_agenda_empresa_unidade.sql',
+  '20261004_063_painel_desenvolvedor.sql',
   '20261004_064_whatsapp_mensagens_prontas.sql',
   '20261004_065_whatsapp_nome_perfil.sql',
 ];
@@ -93,7 +94,7 @@ const checkFiles = {
   '064': ['20261004_064_postcheck.sql'],
   '065': ['20261004_065_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '064', '065'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -128,6 +129,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('060_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('061_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('062_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('063_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('064_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('065_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;

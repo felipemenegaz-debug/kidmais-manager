@@ -32,6 +32,9 @@ export async function exigirApiAdminCrmDisponivel(request: NextRequest) {
     if (sessions.has(request))
         return sessions.get(request)!;
     const session = await consultarSessao(tokenAdmin(request));
+    const contextoDaPagina = request.headers.get('x-kidmais-sessao');
+    if (contextoDaPagina && contextoDaPagina !== session.id)
+        throw authError('A empresa ou a sessão mudou. Atualize a página.', 409);
     if (!['GET', 'HEAD'].includes(request.method)) {
         verificarOrigem(request);
         if (hashToken(request.headers.get('x-csrf-token') ?? '') !== session.csrf_hash)

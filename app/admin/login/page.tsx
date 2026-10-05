@@ -2,12 +2,18 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import styles from '@/components/admin/admin.module.css';
+import AvisoContexto from '@/components/admin/AvisoContexto';
+/** Retorno após o login: só caminhos internos do Admin, do perfil ou do painel do desenvolvedor. */
+function destinoSeguro() {
+    const voltar = new URLSearchParams(window.location.search).get('voltar') ?? '';
+    return /^\/(admin|desenvolvedor)(\/[A-Za-z0-9_\-/]*)?$/.test(voltar) && !voltar.includes('//') && !voltar.startsWith('/admin/login') ? voltar : '/admin/contratos';
+}
 export default function LoginAdmin() {
     const router = useRouter();
     const [error, setError] = useState(''), [busy, setBusy] = useState(false);
     // Senha oculta por padrão; o botão só alterna a exibição (type="button": não envia o formulário).
     const [mostrarSenha, setMostrarSenha] = useState(false);
-    return <main className={`${styles.page} ${styles.login}`}><h1>Kidmais Manager</h1><h2>Acesso administrativo</h2>
+    return <main className={`${styles.page} ${styles.login}`}><h1>Kidmais Manager</h1><h2>Acesso administrativo</h2><AvisoContexto />
  <form onSubmit={async (event) => {
             event.preventDefault();
             setMostrarSenha(false);
@@ -23,7 +29,7 @@ export default function LoginAdmin() {
                 const body = await res.json();
                 if (!body.ok)
                     throw Error(body.erro);
-                router.replace('/admin/contratos');
+                router.replace(destinoSeguro());
                 router.refresh();
             }
             catch (e) {
@@ -40,5 +46,6 @@ export default function LoginAdmin() {
   <button type="button" aria-controls="senha-admin" onClick={() => setMostrarSenha(v => !v)} style={{ marginTop: 8 }}>{mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}</button>
  </div>
  <button disabled={busy} type="submit">{busy ? 'Entrando…' : 'Entrar'}</button><p role="alert">{error}</p></form>
- <p>Contas são criadas pelo operador autorizado. Não há cadastro público.</p></main>;
+ <p><a href="/acesso/recuperar">Esqueci minha senha</a></p>
+ <p>Contas são criadas pelo operador autorizado ou por convite. Não há cadastro público.</p></main>;
 }

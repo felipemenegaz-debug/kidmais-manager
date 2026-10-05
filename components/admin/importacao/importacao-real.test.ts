@@ -17,7 +17,7 @@ test('cancelar exige confirmação; continuar preserva revisão; falha no descar
   for (const sucesso of [true,false]) {
     const acoes:unknown[]=[];
     const tela=carregarComponente('components/admin/importacao/ImportacaoReal.tsx',{
-      'next/link':{default:'a'}, '@/lib/http/admin-fetch':{adminFetch:async()=>new Response()},
+      'next/navigation': { useRouter: () => ({ replace() {} }) }, 'next/link':{default:'a'}, '@/lib/http/admin-fetch':{adminFetch:async()=>new Response()},
       '@/components/admin/inteligencia/cliente-inteligencia':{decidirOperacao:async()=>{throw Error('gate não deve ser chamado na revisão');}},
       '@/components/admin/inteligencia/AcaoKidmais':{PreviewAcao:()=>null},
       '@/lib/importacao-contrato/revisao':revisao,
@@ -79,7 +79,7 @@ test('tela: falha explícita; demonstração exige escolha e liberação abre mo
     const Demo = function Demo() {};
     const Real = function Real() {};
     const tela = carregarComponente('components/admin/importacao/ImportacaoContrato.tsx', {
-      'next/link': { default: 'a' },
+      'next/navigation': { useRouter: () => ({ replace() {} }) }, 'next/link': { default: 'a' },
       '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
       './ImportarContratoAntigo': { default: Demo },
       './ImportacaoReal': { default: Real },
@@ -98,7 +98,7 @@ test('confirmar o registro não anuncia sucesso: segue para Festa e agenda; impo
   const Integracao = function IntegracaoContrato() { return null; };
   const rascunho = { operacaoId: 'op', versao: 1, payloadHash: 'h', campos: [], avisos: [] };
   const tela = carregarComponente('components/admin/importacao/ImportacaoReal.tsx', {
-    'next/link': { default: 'a' }, '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
+    'next/navigation': { useRouter: () => ({ replace() {} }) }, 'next/link': { default: 'a' }, '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
     '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => ({ tipo: 'ok', resposta: { tipo: 'resultado_acao', mensagem: 'Dados do contrato registrados e cliente criado.', destino: '/clientes/c1' } }) },
     '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null },
     '@/lib/importacao-contrato/revisao': revisao,
@@ -123,7 +123,7 @@ test('confirmar o registro não anuncia sucesso: segue para Festa e agenda; impo
   assert.match(texto(elementos(arvore).find((e) => e.type === 'li' && e.props['aria-current'] === 'step')), /Revisão final/);
 
   const reaberta = carregarComponente('components/admin/importacao/ImportacaoReal.tsx', {
-    'next/link': { default: 'a' }, '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
+    'next/navigation': { useRouter: () => ({ replace() {} }) }, 'next/link': { default: 'a' }, '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
     '@/components/admin/inteligencia/cliente-inteligencia': { decidirOperacao: async () => { throw Error('sem gate'); } },
     '@/components/admin/inteligencia/AcaoKidmais': { PreviewAcao: () => null }, '@/lib/importacao-contrato/revisao': revisao,
     './cliente-importacao': { agirNaImportacao: async () => ({ ok: true, dados: {} }) },

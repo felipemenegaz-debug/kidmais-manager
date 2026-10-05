@@ -5,6 +5,8 @@ import { PacoteAdminError } from "../comercial/pacotes-admin.ts";
 export type SessaoParaTenant = {
   usuario_id: string;
   papel: string;
+  id?: string;
+  empresa_ativa_id?: string | null;
 };
 
 export type TenantComprovado = {
@@ -88,6 +90,17 @@ export async function provarTenant(
   );
   if (!usuario.rows[0]?.ativo) recusar();
 
+  // Uma troca revoga a sessão antiga. Revalidar depois da trava do usuário impede que uma
+  // requisição já autenticada opere com o contexto anterior após o commit da troca.
+  if (sessao.id && sessao.empresa_ativa_id !== undefined) {
+    const atual = await tx.query<{ empresa_ativa_id: string | null }>(
+      `SELECT to_jsonb(s)->>'empresa_ativa_id' AS empresa_ativa_id FROM sessoes_administrativas s
+        WHERE s.id=$1::uuid AND s.usuario_id=$2::uuid AND s.revogado_em IS NULL AND s.expira_em>clock_timestamp()`,
+      [sessao.id, sessao.usuario_id],
+    );
+    if (!atual.rows[0] || atual.rows[0].empresa_ativa_id !== sessao.empresa_ativa_id) recusar();
+  }
+
   const empresasTravadas = await travarEmpresasDoUsuario(tx, sessao.usuario_id);
   if (empresasTravadas.length === 0) recusar();
   const memberships = await tx.query<LinhaMembership>(
@@ -102,8 +115,14 @@ export async function provarTenant(
       FOR UPDATE OF m`,
     [sessao.usuario_id, empresasTravadas],
   );
-  const pedida = selecao(empresaSolicitada);
+  const explicita = selecao(empresaSolicitada);
+  const selecionada = sessao.empresa_ativa_id ?? null;
+  // Parâmetros de uma página antiga não podem mudar a empresa da sessão.
+  if (selecionada && explicita && selecionada !== explicita) recusar();
+  const pedida = selecionada ?? explicita;
   const linhas = memberships.rows;
+  if (sessao.id && sessao.empresa_ativa_id === null && explicita &&
+      (linhas.length !== 1 || linhas[0].empresa_id !== explicita)) recusar();
   const escolhida = pedida == null
     ? (linhas.length === 1 ? linhas[0] : null)
     : linhas.find((linha) => linha.empresa_id === pedida) ?? null;
