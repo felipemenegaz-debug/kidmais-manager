@@ -22,6 +22,10 @@ export async function GET(request: NextRequest) {
             data = await executarComPosseNoTenant(sessao, empresaSolicitada, id, contratoNoTenant, { withTenantTransaction }, async (tx, tenant) => ({
                 ...await detalheAdministrativo(id, tx),
                 origemHistorica: await origemHistoricaDoContrato(tx, tenant.empresaComprovada, id.toLowerCase(), tenant.papelAtual),
+                festaId: (await tx.query<{ id: string }>(
+                    'SELECT f.id FROM festas f JOIN contratos c ON c.id=f.contrato_id JOIN fechamentos fe ON fe.id=c.fechamento_id WHERE f.contrato_id=$1 AND fe.empresa_id=$2::uuid AND f.invalidada_em IS NULL LIMIT 1',
+                    [id, tenant.empresaComprovada],
+                )).rows[0]?.id ?? null,
             }));
         }
         else if (importacaoId) {

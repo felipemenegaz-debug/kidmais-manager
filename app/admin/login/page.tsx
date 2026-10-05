@@ -10,6 +10,7 @@ function destinoSeguro() {
 }
 export default function LoginAdmin() {
     const router = useRouter();
+    const [mostrarSenha, setMostrarSenha] = useState(false);
     const [error, setError] = useState(''), [busy, setBusy] = useState(false);
     return <main className={`${styles.page} ${styles.login}`}><h1>Kidmais Manager</h1><h2>Acesso administrativo</h2><AvisoContexto />
  <form onSubmit={async (event) => {
@@ -37,7 +38,7 @@ export default function LoginAdmin() {
             }
         }}>
  <label style={{ display: 'block', marginBottom: 16 }}>Email<input name="email" type="email" autoComplete="username" required style={{ display: 'block', width: '100%', padding: 10 }}/></label>
- <label style={{ display: 'block', marginBottom: 16 }}>Senha<input name="senha" type="password" autoComplete="current-password" required style={{ display: 'block', width: '100%', padding: 10 }}/></label>
+ <label htmlFor="senha-login">Senha</label><div style={{ display: 'flex', gap: 8, marginBottom: 16 }}><input id="senha-login" name="senha" type={mostrarSenha ? 'text' : 'password'} autoComplete="current-password" required style={{ flex: 1, minWidth: 0, padding: 10 }}/><button type="button" aria-controls="senha-login" aria-pressed={mostrarSenha} aria-label={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setMostrarSenha(!mostrarSenha)} style={{ padding: '6px 10px', fontSize: 12 }}>{mostrarSenha ? 'Ocultar' : 'Mostrar'}</button></div>
  <button disabled={busy} type="submit">{busy ? 'Entrando…' : 'Entrar'}</button><p role="alert">{error}</p></form>
  <p><a href="/acesso/recuperar">Esqueci minha senha</a></p>
  <p>Contas são criadas pelo operador autorizado ou por convite. Não há cadastro público.</p></main>;
