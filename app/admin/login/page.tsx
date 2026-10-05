@@ -6,7 +6,7 @@ import AvisoContexto from '@/components/admin/AvisoContexto';
 /** Retorno após o login: só caminhos internos do Admin, do perfil ou do painel do desenvolvedor. */
 function destinoSeguro() {
     const voltar = new URLSearchParams(window.location.search).get('voltar') ?? '';
-    return /^\/(admin|desenvolvedor)(\/[A-Za-z0-9_\-/]*)?$/.test(voltar) && !voltar.includes('//') && !voltar.startsWith('/admin/login') ? voltar : '/admin/contratos';
+    return /^\/(admin|desenvolvedor)(\/[A-Za-z0-9_\-/]*)?$/.test(voltar) && !voltar.includes('//') && !voltar.startsWith('/admin/login') ? voltar : '/admin/dashboard';
 }
 export default function LoginAdmin() {
     const router = useRouter();
