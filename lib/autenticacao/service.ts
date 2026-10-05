@@ -101,3 +101,47 @@ export async function reautenticarAdmin(token: string, password: string) {
     }>('SELECT email FROM usuarios_administrativos WHERE id=$1', [current.usuario_id])).rows[0].email;
     return loginAdmin(email, password, randomUUID(), null, null, token);
 }
+
+function chaveLimite(type: 'IDENTIFICADOR' | 'ORIGEM', value: string, namespace?: string) {
+    return limitKey(namespace ? `${namespace}|${type}|${value}` : `${type}|${value}`);
+}
+/**
+ * Janela de tentativas em limites_autenticacao (só o HMAC da chave é guardado). `namespace` separa os fluxos
+ * (troca de senha, recuperação, convite) do login sem mudar a tabela; o tipo continua IDENTIFICADOR | ORIGEM.
+ * Devolve false quando a janela estourou (e bloqueia pelo mesmo período).
+ */
+export async function consumirLimite(tx: DbExecutor, type: 'IDENTIFICADOR' | 'ORIGEM', value: string, regra: { namespace?: string; janelaSegundos: number; limite: number }) {
+    const key = chaveLimite(type, value, regra.namespace), seconds = regra.janelaSegundos, limit = regra.limite;
+    await tx.query(`INSERT INTO limites_autenticacao(chave_hash,tipo,tentativas,janela_iniciada_em) VALUES($1,$2,0,now()) ON CONFLICT DO NOTHING`, [key, type]);
+    const row = (await tx.query<{
+        tentativas: number;
+        bloqueado: boolean;
+        reiniciar: boolean;
+    }>(`SELECT tentativas,
+    COALESCE(bloqueado_ate>clock_timestamp(),false) AS bloqueado,janela_iniciada_em<clock_timestamp()-($2::int*interval '1 second') AS reiniciar
+    FROM limites_autenticacao WHERE chave_hash=$1 FOR UPDATE`, [key, seconds])).rows[0];
+    if (row.bloqueado)
+        return false;
+    const attempts = row.reiniciar ? 1 : row.tentativas + 1;
+    await tx.query(`UPDATE limites_autenticacao SET tentativas=$2::int,janela_iniciada_em=CASE WHEN $3::boolean THEN now() ELSE janela_iniciada_em END,
+    bloqueado_ate=CASE WHEN $2::int>=$4::int THEN now()+($5::int*interval '1 second') ELSE NULL END WHERE chave_hash=$1`, [key, attempts, row.reiniciar, limit, seconds]);
+    return attempts <= limit;
+}
+/** Zera a janela de um identificador (ex.: após uma troca de senha bem-sucedida). */
+export async function limparLimite(tx: DbExecutor, type: 'IDENTIFICADOR' | 'ORIGEM', value: string, namespace?: string) {
+    await tx.query('DELETE FROM limites_autenticacao WHERE chave_hash=$1', [chaveLimite(type, value, namespace)]);
+}
+/** Sessão administrativa nova: 8 h absolutas (a inatividade de 30 min é conferida em consultarSessao). Só os hashes vão ao banco. */
+export async function criarSessaoAdministrativa(tx: DbExecutor, usuarioId: string, ip: string | null, userAgent: string | null) {
+    const token = randomBytes(32).toString('base64url'), csrf = randomBytes(32).toString('base64url');
+    const session = (await tx.query<{
+        id: string;
+        expira_em: Date;
+    }>(`INSERT INTO sessoes_administrativas(usuario_id,token_hash,csrf_hash,autenticado_em,ultima_atividade_em,expira_em,ip,user_agent)
+      VALUES($1,$2,$3,clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '8 hours',$4,$5) RETURNING id,expira_em`, [usuarioId, hashToken(token), hashToken(csrf), ip, userAgent])).rows[0];
+    return { id: session.id, token, csrf, expires: session.expira_em };
+}
+/** Encerra todas as sessões abertas da identidade; devolve quantas foram encerradas. */
+export async function revogarSessoesDoUsuario(tx: DbExecutor, usuarioId: string) {
+    return (await tx.query<{ id: string }>('UPDATE sessoes_administrativas SET revogado_em=clock_timestamp() WHERE usuario_id=$1 AND revogado_em IS NULL RETURNING id', [usuarioId])).rows.length;
+}
