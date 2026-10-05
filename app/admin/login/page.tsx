@@ -20,7 +20,7 @@ export default function LoginAdmin() {
                 const body = await res.json();
                 if (!body.ok)
                     throw Error(body.erro);
-                router.replace('/admin/contratos');
+                router.replace('/admin/dashboard');
                 router.refresh();
             }
             catch (e) {
