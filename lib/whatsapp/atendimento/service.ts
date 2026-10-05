@@ -101,20 +101,30 @@ export async function correlacionarStatus(tx: DbExecutor, empresa: string, ambie
  * comportamento anterior), depois a prova do tenant no banco. Sem vínculo ativo na piloto = sem acesso (403).
  * Sem escolha explícita, como no painel: uma única empresa ativa vale como a atual; mais de uma = seleção pendente.
  */
+const EMPRESAS_ATIVAS_DO_USUARIO = `SELECT count(*) AS n FROM memberships m JOIN empresas e ON e.id = m.empresa_id
+  WHERE m.usuario_id = $1::uuid AND m.status = 'ATIVA' AND e.status = 'ATIVA'`;
 async function naEmpresaDoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: DbExecutor, tenant: TenantComprovado) => Promise<T>) {
   const piloto = empresaPiloto();
   const situacao = conferirEmpresaAtiva(sessao, piloto);
   try {
     return await withTenantTransaction(sessao, piloto, async (tx, tenant) => {
       if (situacao === 'SEM_ESCOLHA') {
-        const ativas = Number((await tx.query<{ n: string }>(`SELECT count(*) AS n FROM memberships m JOIN empresas e ON e.id = m.empresa_id
-          WHERE m.usuario_id = $1::uuid AND m.status = 'ATIVA' AND e.status = 'ATIVA'`, [sessao.usuario_id])).rows[0]?.n ?? 0);
+        const ativas = Number((await tx.query<{ n: string }>(EMPRESAS_ATIVAS_DO_USUARIO, [sessao.usuario_id])).rows[0]?.n ?? 0);
         if (ativas !== 1) throw new Error('ATENDIMENTO_EMPRESA_NAO_SELECIONADA');
       }
       return work(tx, tenant);
     });
   }
-  catch (erro) { if ((erro as { code?: unknown })?.code === 'TENANT_NAO_COMPROVADO') throw new Error('ATENDIMENTO_SEM_ACESSO'); throw erro; }
+  catch (erro) {
+    if ((erro as { code?: unknown })?.code !== 'TENANT_NAO_COMPROVADO') throw erro;
+    // Com a 063 e sem escolha explícita, o provarTenant do painel já recusa quem tem mais de uma empresa ativa: isso é
+    // seleção pendente (a tela orienta a escolher), não falta de acesso. Só a contagem de vínculos é lida.
+    if (situacao === 'SEM_ESCOLHA') {
+      const ativas = Number((await db().query<{ n: string }>(EMPRESAS_ATIVAS_DO_USUARIO, [sessao.usuario_id])).rows[0]?.n ?? 0);
+      if (ativas > 1) throw new Error('ATENDIMENTO_EMPRESA_NAO_SELECIONADA');
+    }
+    throw new Error('ATENDIMENTO_SEM_ACESSO');
+  }
 }
 export async function acessoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: DbExecutor, empresaId: string, papel: string) => Promise<T>) {
   return naEmpresaDoAtendimento(sessao, async (tx, tenant) => {

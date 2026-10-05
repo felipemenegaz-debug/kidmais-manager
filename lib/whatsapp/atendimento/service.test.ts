@@ -320,3 +320,15 @@ test('configuração inválida: a recusa de acesso vem antes da validação do c
   await assert.rejects(modulo.salvarConfiguracao({ usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO' } as never, invalida), (e: unknown) => (e as Error).name === 'ZodError');
   assert.equal(sqls('whatsapp_atendimento_config').length, 0);
 });
+test('empresa ativa: sem escolha explícita, recusa do tenant (como faz o painel com mais de uma empresa) vira seleção pendente; com uma ou nenhuma, falta de acesso', async () => {
+  const pendente = { usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: null } as never;
+  const varias = carregar({ tenantRecusado: true, empresasAtivas: 2 });
+  await assert.rejects(varias.modulo.listarAtendimento(pendente), /ATENDIMENTO_EMPRESA_NAO_SELECIONADA/);
+  assert.ok(varias.comandos.every(c => c.sql.includes('FROM memberships m JOIN empresas')), 'só a contagem de vínculos é lida');
+  const uma = carregar({ tenantRecusado: true, empresasAtivas: 1 });
+  await assert.rejects(uma.modulo.listarAtendimento(pendente), /ATENDIMENTO_SEM_ACESSO/);
+  // Com escolha explícita (ou sem a 063), a recusa do tenant continua sendo falta de acesso, sem contagem.
+  const explicita = carregar({ tenantRecusado: true, empresasAtivas: 2 });
+  await assert.rejects(explicita.modulo.listarAtendimento({ usuario_id: 'u', papel: 'REPRESENTANTE_AUTORIZADO', id: 's', empresa_ativa_id: 'e' } as never), /ATENDIMENTO_SEM_ACESSO/);
+  assert.equal(explicita.comandos.length, 0);
+});
