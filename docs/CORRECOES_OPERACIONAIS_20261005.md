@@ -22,7 +22,7 @@ Preparar o PR do login a partir de `origin/production`: alterar somente `router.
 
 A limpeza de staging restaura somente os quatro arquivos alterados pelo PR #96 fora do login. Outras funcionalidades de staging, incluindo o retorno interno seguro após autenticação, permanecem preservadas.
 
-Depois da integração do PR isolado em production, sincronizar esse commit com staging antes da próxima promoção. Se o login conflitar, manter `destinoSeguro()` em staging e seu padrão Dashboard; não substituir a página de staging pela versão antiga de production. Conferir o diff final da promoção, além da ancestralidade, para não reintroduzir as alterações descartadas.
+A candidata de limpeza de staging também incorpora o commit isolado do login em sua ancestralidade. O conflito dessa sincronização foi resolvido mantendo `destinoSeguro()` e seu padrão Dashboard, sem alterar o conteúdo já validado. Integrar a limpeza usando merge, preservando essa ancestralidade, antes da próxima promoção. Conferir o diff final da promoção para não reintroduzir as alterações descartadas.
 
 ## Validação local
 
