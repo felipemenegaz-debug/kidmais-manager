@@ -74,6 +74,7 @@ const approvedFiles = [
   '20261004_063_painel_desenvolvedor.sql',
   '20261006_064_reimportacao_apos_cancelamento.sql',
   '20261006_066_pix_recebimento_empresa.sql',
+  '20261006_067_modelo_comercial_empresa.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
@@ -90,7 +91,7 @@ const checkFiles = {
   '058': ['20260929_058_postcheck.sql'],
   '059': ['20261001_059_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '061', '062', '063', '064', '066'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '061', '062', '063', '064', '066', '067'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -127,6 +128,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('063_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('064_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('066_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('067_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

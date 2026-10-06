@@ -57,6 +57,7 @@ const ESTADO_POSTGRES = {
   "lib/financeiro/baixa.postgres.test.ts": { descartavel: "atual" },
   "lib/financeiro/financeiro.postgres.test.ts": { descartavel: "atual" },
   "lib/pagamentos/pix/pix.postgres.test.ts": { descartavel: "atual" },
+  "lib/assinatura/assinatura.postgres.test.ts": { descartavel: "atual" },
   // Também depois da 061 e da 062: módulo Festa, formalização e agenda nativos (código novo em cada etapa).
   "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "063"] },
   "lib/ia-persistencia/migration-055.postgres.test.ts": { descartavel: "atual" },
