@@ -5,7 +5,7 @@ import { configuracaoModeloOficial } from '../../lib/contratos/documento/oficial
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ContratoSnapshotV1 } from '@/lib/contratos/repositories/models';
-import { adminFetch } from '@/lib/http/admin-fetch';
+import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
 import { formatarFormaPagamento, formatarMoeda, formatarCondicaoPix } from '@/lib/contratos/documento/formatters';
 import styles from './contratos-ux.module.css';
 import Link from 'next/link';
@@ -259,11 +259,11 @@ export default function ContratoAdmin() {
  </div>
  {v.estado_edicao === 'EM_ELABORACAO' && v.documento_revisado_id && <section><h2>Assinatura Kidmais</h2><label>Confirme sua senha <input type="password" value={senha} autoComplete="current-password" onChange={e => setSenha(e.target.value)}/></label><button disabled={busy || !senha} onClick={async () => { if (!window.confirm(`APROVAR E ASSINAR PELA KIDMAIS: versão ${v.numero_versao}, revisão ${v.revisao}, PDF ${v.documento_revisado_id}. O conteúdo será congelado.`))
             return; setError(''); try {
-            const res = await adminFetch('/api/admin/autenticacao', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'reautenticar', senha }) });
+            // Renovação anunciada: a reautenticação troca a sessão; sem o anúncio a página seria descartada antes de assinar.
+            const auth = await reautenticarSessao(senha);
             setSenha('');
-            const b = await res.json();
-            if (!b.ok)
-                throw Error(b.erro);
+            if (!auth.ok)
+                throw Error(auth.erro);
             const id = key || crypto.randomUUID();
             setKey(id);
             await action({ acao: 'assinar', revisao: v.revisao, documentoId: v.documento_revisado_id, chaveIdempotencia: id });
