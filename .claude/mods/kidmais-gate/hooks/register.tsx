@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Check } from '../types'
-import { areasOf, argvOf, scriptsFor } from './areas.ts'
+import { areasOf, argvOf, needsDocSync, scriptsFor } from './areas.ts'
 
 const PANE = 'kidmais-gate'
 const touched = atom({ plugin: 'kidmais-gate', key: 'touched' } as const, [])
@@ -88,6 +88,7 @@ export const register: Register = on => {
     const areas = areasOf(files)
     const names = areas.length > 0 ? areas.map(area => area.name).join(', ') : 'geral'
     const warns = areas.flatMap(area => (area.warn ? [area.warn] : []))
+    if (needsDocSync(files)) warns.push('código mudou sem docs/: se a regra mudou, rode a skill kidmais-doc-sync')
 
     return (
       <Box flexDirection="column">

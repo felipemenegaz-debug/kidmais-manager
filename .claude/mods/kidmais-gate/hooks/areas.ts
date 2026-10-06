@@ -37,5 +37,10 @@ export const scriptsFor = (paths: readonly string[]): string[] => [
   ...new Set(areasOf(paths).flatMap(area => area.scripts)),
 ]
 
-export const argvOf = (script: string): string[] =>
+// Código de módulo mudou e nenhum arquivo de docs/ acompanhou (skill kidmais-doc-sync).
+export const needsDocSync = (paths: readonly string[]): boolean =>
+  paths.some(path => /(^|\/)(lib|app|database)\//.test(path) && !/\.test\.tsx?$/.test(path)) &&
+  !paths.some(path => /(^|\/)docs\//.test(path))
+
+export const argvOf =(script: string): string[] =>
   script === 'typecheck' ? ['npx', 'tsc', '--noEmit'] : ['npm', 'run', '--silent', script]

@@ -7,11 +7,13 @@ export const isSecretFile = (path: string): boolean =>
 
 const BLOCKED: readonly { pattern: RegExp; reason: string }[] = [
   {
-    pattern: /\.env\.(production|prod)\b/,
+    // Carregar ou ler o arquivo; citá-lo num texto (commit, docs) é liberado.
+    pattern: /(--env-file[= ]|\bsource\s+|(^|[;&|]\s*)\.\s+|\b(cat|less|more|head|tail|cp|grep|dotenv|env-cmd)\b[^|;&]*\s)\S*\.env\.(production|prod)\b/,
     reason: 'usa credenciais de produção',
   },
   {
-    pattern: /migration-\d+\.apply/,
+    // Só a execução; ler, buscar ou versionar o script continua liberado.
+    pattern: /\b(node|npx|tsx|bun)\b[^|;&]*migration-\d+\.apply/,
     reason: 'aplica migration; migration remota nunca é automática',
   },
   {
@@ -19,11 +21,12 @@ const BLOCKED: readonly { pattern: RegExp; reason: string }[] = [
     reason: 'altera o schema do banco',
   },
   {
-    pattern: /\badmin-provision\b/,
+    pattern: /\b(node|npx|tsx|bun)\b[^|;&]*admin-provision\b/,
     reason: 'provisiona administradores',
   },
   {
-    pattern: /\b(DROP\s+(TABLE|SCHEMA|DATABASE)|TRUNCATE)\b/i,
+    // SQL executado num cliente de banco; buscar o texto nos arquivos é liberado.
+    pattern: /\b(psql|pgcli)\b[^|;&]*\b(DROP\s+(TABLE|SCHEMA|DATABASE)|TRUNCATE)\b/i,
     reason: 'apaga dados ou estrutura do banco',
   },
   {

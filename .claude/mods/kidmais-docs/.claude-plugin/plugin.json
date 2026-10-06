@@ -1,0 +1,1 @@
+{ "name": "kidmais-docs", "version": "0.1.0", "description": "Kidmais Manager: na primeira leitura ou edição de cada módulo, lembra o agente do documento oficial de regras (docs/modulos).", "types": "./types/index.d.ts" }

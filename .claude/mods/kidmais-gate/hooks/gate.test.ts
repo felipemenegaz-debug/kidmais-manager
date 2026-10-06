@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { areasOf, argvOf, scriptsFor } from './areas.ts'
+import { areasOf, argvOf, needsDocSync, scriptsFor } from './areas.ts'
 
 describe('kidmais-gate', () => {
   test('sempre roda o gate do CI', async () => {
@@ -20,6 +20,13 @@ describe('kidmais-gate', () => {
     const [area] = areasOf(['database/migrations/017_x.sql'])
     expect(area?.name).toBe('banco')
     expect(area?.warn).toBeDefined()
+  })
+
+  test('pede doc sync quando código muda sem docs', async () => {
+    expect(needsDocSync(['lib/pagamentos/services/financeiro-core.ts'])).toBe(true)
+    expect(needsDocSync(['lib/pagamentos/a.ts', 'docs/modulos/PAGAMENTOS.md'])).toBe(false)
+    expect(needsDocSync(['lib/pagamentos/a.test.ts'])).toBe(false)
+    expect(needsDocSync(['README.md'])).toBe(false)
   })
 
   test('typecheck usa tsc', async () => {

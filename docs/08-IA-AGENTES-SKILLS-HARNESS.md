@@ -186,6 +186,18 @@ Revisa correctness, segurança, regressão e cobertura antes do PR.
 ### kidmais-doc-sync
 Verifica se regras, ADRs, roadmap ou changelog precisam ser atualizados.
 
+### Implementação no Claude Code
+As skills acima estão em `.claude/skills/<nome>/SKILL.md`, junto com:
+- `kidmais-homologacao` — regressão/homologação V1 com as travas de ambiente;
+- `kidmais-relatorio` — relatório de entrega padronizado em `docs/relatorios/`;
+- `kidmais-run` — subir o app localmente sem tocar produção;
+- `kidmais-saas-fundacao` — roteiro da Fase 1 (multiempresa).
+
+Mods (hooks do Claude Code) em `.claude/mods/`, ver `.claude/mods/README.md`:
+- `kidmais-guard` — bloqueia `.env*`, produção, aplicação de migration e push na `main`;
+- `kidmais-gate` — `/kidmais-gate` roda o gate do CI e os testes das áreas alteradas;
+- `kidmais-docs` — lembra o documento oficial de cada módulo ao lê-lo ou editá-lo.
+
 ## Princípio das Skills
 Manter poucas skills, com escopo claro.
 Não criar skill para tarefas que o modelo executa bem apenas com documentação e AGENTS.md.

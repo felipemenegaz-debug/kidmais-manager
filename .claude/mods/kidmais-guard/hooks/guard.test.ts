@@ -12,6 +12,8 @@ describe('kidmais-guard', () => {
 
   test('bloqueia comandos perigosos', async () => {
     expect(blockedReason('node --env-file=.env.production scripts/x.cjs')).toBeDefined()
+    expect(blockedReason('cat .env.production')).toBeDefined()
+    expect(blockedReason('source ./.env.prod && npm start')).toBeDefined()
     expect(blockedReason('node scripts/migration-016.apply.cjs')).toBeDefined()
     expect(blockedReason('git push --force origin main')).toBeDefined()
     expect(blockedReason('git push origin main')).toBeDefined()
@@ -23,6 +25,10 @@ describe('kidmais-guard', () => {
     expect(blockedReason('npx tsc --noEmit')).toBeUndefined()
     expect(blockedReason('git push -u origin claude/minha-branch')).toBeUndefined()
     expect(blockedReason('node scripts/migration-016.integration.cjs')).toBeUndefined()
+    expect(blockedReason('git commit -m "bloqueia .env.production"')).toBeUndefined()
+    expect(blockedReason('head -40 scripts/migration-014.apply.cjs')).toBeUndefined()
+    expect(blockedReason('git add scripts/admin-provision.cjs')).toBeUndefined()
+    expect(blockedReason('grep -n "DROP TABLE" database/rollback/x.sql')).toBeUndefined()
   })
 
   test('nega Bash perigoso pela cadeia de hooks', async ($, on) => {
