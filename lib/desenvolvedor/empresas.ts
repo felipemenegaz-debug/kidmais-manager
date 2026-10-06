@@ -5,13 +5,14 @@ import type { SessaoAdmin } from '../autenticacao/service.ts';
 import { travarUsuariosNaOrdem } from '../saas/provar-tenant.ts';
 import { marcarAtor } from '../autenticacao/usuarios.ts';
 import { nomePapelSistema } from '../autenticacao/papeis.ts';
-import { erroAcesso, violacaoUnica } from '../acessos/erros.ts';
+import { erroAcesso, isAcessoServiceError, violacaoUnica } from '../acessos/erros.ts';
 import { CODIGO_EMPRESA, emailObrigatorio, mascararEmail, nomeObrigatorio, normalizarDocumentoFiscal, normalizarTelefone, observacoes, sugerirCodigoEmpresa, textoOpcional } from '../acessos/validacao.ts';
 import { criarConviteNaTransacao, enviarConvite, listarConvitesDaEmpresa, type ResultadoEnvioConvite } from '../acessos/convites.ts';
 import { criarEnviarEmail, situacaoEmail, type EnviarEmail } from '../acessos/email.ts';
 import { encerrarSessoesSemAcesso, exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
 import { auditarPainel, diferencas, type ContextoPainel } from './auditoria.ts';
 import { buscarSemelhantes, painelDepsPadrao, type PainelDeps } from './interessadas.ts';
+import { pendenciasImplantacao } from './implantacao.ts';
 
 /**
  * Contratantes: empresas provisionadas (tabela `empresas`, ciclo no guard) + cadastro administrativo (063).
@@ -150,6 +151,8 @@ export async function obterEmpresa(sessao: SessaoAdmin, id: string, deps: Painel
             membros: await membrosDaEmpresa(tx, uuid),
             convites: await listarConvitesDaEmpresa(tx, uuid),
             atividade: await atividadeDaEmpresa(tx, uuid),
+            // Pendências reais de implantação (D5): só para contratante ativa com cadastro administrativo.
+            implantacao: l.status === 'ATIVA' && l.cad_empresa ? await pendenciasImplantacao(tx, uuid) : null,
             envioEmail: { configurado: email.configurado, motivo: email.motivo },
         };
     });
@@ -372,6 +375,23 @@ const implantacaoSchema = z.object({ implantacao: z.enum(['AGUARDANDO_PRIMEIRO_A
 export async function alterarImplantacao(sessao: SessaoAdmin, id: string, raw: unknown, ctx: ContextoPainel, deps: PainelDeps = painelDepsPadrao) {
     const empresaId = z.string().uuid().parse(id);
     const input = implantacaoSchema.parse(raw);
+    try {
+        return await alterarImplantacaoNaTransacao(sessao, empresaId, input, ctx, deps);
+    }
+    catch (error) {
+        // A recusa por pendências é auditada FORA da transação recusada (que foi desfeita), como as recusas de acesso.
+        if (isAcessoServiceError(error) && error.code === 'IMPLANTACAO_PENDENTE') {
+            const detalhes = error.details as { pendencias?: Array<{ codigo: string }>; implantacaoAtual?: string | null } | undefined;
+            await auditarPainel(deps.registrarAuditoria, undefined, {
+                atorId: sessao.usuario_id, acao: 'EMPRESA_IMPLANTACAO_RECUSADA', entidadeTipo: 'EMPRESA', entidadeId: empresaId, empresaId, resultado: 'RECUSADO',
+                antes: { implantacao: detalhes?.implantacaoAtual ?? null }, depois: { implantacao: input.implantacao, pendencias: (detalhes?.pendencias ?? []).map((p) => p.codigo) }, ctx,
+            }).catch(() => undefined);
+        }
+        throw error;
+    }
+}
+
+async function alterarImplantacaoNaTransacao(sessao: SessaoAdmin, empresaId: string, input: z.infer<typeof implantacaoSchema>, ctx: ContextoPainel, deps: PainelDeps) {
     return deps.withTransaction(async (tx) => {
         await exigirDesenvolvedorNaTransacao(tx, sessao);
         const atual = await empresaTravada(tx, empresaId);
@@ -381,12 +401,21 @@ export async function alterarImplantacao(sessao: SessaoAdmin, id: string, raw: u
             throw erroAcesso('REVISAO_DESATUALIZADA', 'O cadastro foi alterado por outra pessoa. Recarregue antes de salvar.', 409);
         if (atual.implantacao === input.implantacao)
             return { implantacao: input.implantacao, alterado: false };
+        // CONCLUÍDA só com os requisitos reais atendidos (Gestão ativa, perfil criado e cadastro aplicado).
+        let pendencias: Awaited<ReturnType<typeof pendenciasImplantacao>> | null = null;
+        if (input.implantacao === 'CONCLUIDA') {
+            pendencias = await pendenciasImplantacao(tx, empresaId);
+            if (!pendencias.podeConcluir) {
+                const pendentes = pendencias.itens.filter((i) => i.obrigatoria && !i.atendida).map(({ codigo, titulo, detalhe }) => ({ codigo, titulo, detalhe }));
+                throw erroAcesso('IMPLANTACAO_PENDENTE', `Há pendência(s) obrigatória(s) antes de concluir a implantação: ${pendentes.map((p) => p.titulo).join('; ')}.`, 409, { pendencias: pendentes, implantacaoAtual: atual.implantacao });
+            }
+        }
         await tx.query(
             `UPDATE plataforma_empresas_cadastro SET implantacao = $2, implantacao_concluida_em = CASE WHEN $2 = 'CONCLUIDA' THEN clock_timestamp() ELSE NULL END, atualizado_por = $3 WHERE empresa_id = $1`,
             [empresaId, input.implantacao, sessao.usuario_id]);
         await auditarPainel(deps.registrarAuditoria, tx, {
             atorId: sessao.usuario_id, acao: 'EMPRESA_IMPLANTACAO_ALTERADA', entidadeTipo: 'EMPRESA', entidadeId: empresaId, empresaId, resultado: 'SUCESSO',
-            antes: { implantacao: atual.implantacao }, depois: { implantacao: input.implantacao }, ctx,
+            antes: { implantacao: atual.implantacao }, depois: { implantacao: input.implantacao, requisitosConferidos: pendencias ? pendencias.itens.filter((i) => i.obrigatoria).map((i) => i.codigo) : null }, ctx,
         });
         return { implantacao: input.implantacao, alterado: true };
     });

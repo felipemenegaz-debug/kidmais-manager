@@ -80,7 +80,20 @@ export function lerAvisoDeContexto() {
     }
 }
 
+let saidaDaSessao = false;
+
+/** Saída da sessão iniciada nesta página (components/admin/sair.ts): ela mesma navega ao login no prazo. */
+export function marcarSaidaDaSessao() {
+    saidaDaSessao = true;
+}
+
+/** true depois de a saída começar: respostas tardias não navegam nem deixam aviso por cima do resultado da saída. */
+export function saidaDaSessaoEmAndamento() {
+    return saidaDaSessao;
+}
+
 export function reiniciarContextoEmpresa(aviso?: string, destino?: string) {
+    if (saidaDaSessao) return;
     if (aviso) guardarAvisoDeContexto(aviso);
     // Navegação completa descarta o Router Cache, estados React, conversas/rascunhos e pedidos da página antiga.
     // Nenhum dado de negócio é guardado no sinal entre abas nem no aviso.

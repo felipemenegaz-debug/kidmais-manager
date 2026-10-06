@@ -45,3 +45,40 @@ test('a API usa sessão, origem e CSRF e não concede acesso', () => {
     assert.match(rota, /salvar-rascunho/);
     assert.match(rota, /aplicar/);
 });
+
+test('empresa nova sem perfil: a tela oferece a criação só à Gestão, com reautenticação exigida no servidor; a API delega ao serviço dentro do tenant', () => {
+    assert.match(tela, /perfilAusente/);
+    assert.match(tela, /Criar perfil da empresa/);
+    assert.match(tela, /PERFIL_REAUTENTICACAO/);
+    assert.match(tela, /Somente a Gestão desta empresa cria o perfil/);
+    assert.match(tela, /estruturarPerfil\('criar-perfil'\)/);
+    assert.match(tela, /JSON\.stringify\(\{ acao, confirmar: true \}\)/);
+    assert.match(rota, /perfilDoTenantOuNulo\(tx, tenant\.empresaComprovada\)/);
+    assert.match(rota, /podeCriar: tenant\.papelAtual === 'REPRESENTANTE_AUTORIZADO'/);
+    assert.match(rota, /criarPerfilDaEmpresa\(tx, tenant/);
+    const criacao = readFileSync('lib/perfil/criacao.ts', 'utf8');
+    assert.match(criacao, /exigirGestaoNoTenant\(tenant/);
+    assert.match(criacao, /exigirReautenticacaoPerfil\(\{ autenticado_em: input\.autenticadoEm \}, input\.agora\)/);
+    assert.match(criacao, /travarProvisionamentoInicial\(tx\)/);
+    assert.match(criacao, /FROM empresas WHERE id = \$1::uuid FOR UPDATE/);
+    assert.doesNotMatch(criacao, /kidmais/i, 'nada é copiado da Kidmais');
+});
+
+test('perfil existente sem administrador: o 403 traz só a elegibilidade; a tela oferece assumir a administração com confirmação e senha; o POST revalida na transação', () => {
+    assert.match(rota, /elegibilidadeConcessaoInicial\(tx, tenant\)/);
+    assert.match(rota, /new ClienteServiceError\('PERFIL_SEM_CONCESSAO', error\.message, 403, \{ concessaoInicial, empresa/);
+    assert.match(rota, /acao: z\.literal\('concessao-inicial'\)/);
+    assert.match(rota, /exigirExistente: body\.acao === 'concessao-inicial'/);
+    assert.match(tela, /concessaoInicial\?\.elegivel && blocoConcessao\('h3'\)/, '403: bloco dentro de "Acesso negado"');
+    // 200 (quem só consulta): o veredito vem com o cadastro e o mesmo bloco aparece acima do formulário, sem tirar nada.
+    assert.match(rota, /const leitura = await lerCadastroPerfil\(tx, sessao\.usuario_id, perfil\);\s*\n[^\n]*\n[^\n]*\n\s*const concessaoInicial = await elegibilidadeConcessaoInicial\(tx, tenant\);\s*\n\s*return \{ \.\.\.leitura, perfilAusente: false, concessaoInicial \};/);
+    assert.match(tela, /setConcessaoInicial\(\(corpo\.data as Resposta\)\.concessaoInicial \?\? null\);/);
+    assert.match(tela, /!carregando && !semPermissao && dados\?\.contexto && concessaoInicial\?\.elegivel && <section[^>]*data-concessao-parcial>\{blocoConcessao\('h2', 'perfil-assumir'\)\}<\/section>/);
+    assert.match(tela, /concessaoInicial\?\.motivo === 'ADMINISTRADOR_EXISTENTE' && !capacidades\?\.PERFIL_ADMINISTRAR_CONCESSOES && <p[^>]*data-concessao-administrada>Outra conta administra/, 'a dica não é mostrada a quem já administra as concessões');
+    assert.match(tela, /Assumir a administração do perfil/);
+    assert.match(tela, /Confirmo que quero assumir a administração do perfil desta empresa/);
+    assert.match(tela, /disabled=\{ocupado \|\| !confirmarConcessao \|\| \(pedirSenhaCriacao && !senhaCriacao\)\}/);
+    assert.match(tela, /estruturarPerfil\('concessao-inicial'\)/);
+    assert.match(tela, /if \(acao === 'concessao-inicial' && !confirmarConcessao\)/);
+    assert.match(tela, /Outra conta administra as concessões deste perfil/);
+});

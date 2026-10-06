@@ -210,7 +210,7 @@ export async function solicitarRecuperacaoPeloPainel(sessao: SessaoAdmin, empres
             throw erroAcesso('CONFLITO', 'A conta desta pessoa está desativada na plataforma; a recuperação não se aplica.', 409);
         const r = await abrirPedidoNaTransacao(tx, deps, { id: usuarioId, email: v.email }, 'PAINEL', sessao.usuario_id);
         if (r.tipo === 'recente')
-            throw erroAcesso('LIMITE_TENTATIVAS', `Já há um pedido recente para esta conta. Aguarde ${r.aguardar} segundos (intervalo mínimo de ${INTERVALO_PEDIDOS_SEGUNDOS / 60} minutos).`, 429);
+            throw erroAcesso('LIMITE_TENTATIVAS', `Já há um pedido recente para esta conta. Aguarde ${r.aguardar} segundos (intervalo mínimo de ${INTERVALO_PEDIDOS_SEGUNDOS / 60} minutos).`, 429, { retryAfterSegundos: r.aguardar });
         await auditarPainel(deps.registrarAuditoria, tx, {
             atorId: sessao.usuario_id, acao: 'RECUPERACAO_SOLICITADA', entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: usuarioId, empresaId, resultado: 'SUCESSO',
             depois: { origem: 'PAINEL', pedidoId: r.pedidoId, pedidosAnterioresInvalidados: r.invalidados }, ctx,

@@ -1,5 +1,6 @@
 'use client';
 import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
+import { saidaDaSessaoEmAndamento } from '@/lib/http/contexto-empresa-cliente';
 
 /** Chamada às APIs do painel com CSRF; devolve sempre o resultado real (sucesso ou erro com mensagem do servidor). */
 export type Falha = { ok: false; erro: string; codigo: string | null; detalhes: Record<string, unknown> | null; status: number };
@@ -11,9 +12,12 @@ export async function chamar<T>(url: string, metodo: 'GET' | 'POST' | 'PATCH' = 
             ? await fetch(url, { cache: 'no-store' })
             : await adminFetch(url, { method: metodo, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo ?? {}) });
         if (res.status === 401 || res.redirected) {
-            // Helper fora de React (mesmo padrão de admin-fetch): sessão expirada volta ao login.
-            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-            window.location.assign(`/admin/login?voltar=${encodeURIComponent(window.location.pathname)}`);
+            // Helper fora de React (mesmo padrão de admin-fetch): sessão expirada volta ao login — salvo durante a saída
+            // iniciada pela própria tela (components/admin/sair.ts), que já navega; uma resposta tardia não muda o destino.
+            if (!saidaDaSessaoEmAndamento()) {
+                // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+                window.location.assign(`/admin/login?voltar=${encodeURIComponent(window.location.pathname)}`);
+            }
             return { ok: false, erro: 'Sua sessão terminou. Entre novamente.', codigo: 'AUTENTICACAO', detalhes: null, status: 401 };
         }
         const json = await res.json().catch(() => null) as { ok?: boolean; data?: T; erro?: string; codigo?: string; detalhes?: Record<string, unknown> } | null;
@@ -69,6 +73,15 @@ const ACOES: Record<string, string> = {
     EMPRESA_CADASTRO_ATUALIZADO: 'Cadastro da empresa atualizado',
     EMPRESA_CADASTRO_CRIADO: 'Cadastro da empresa criado',
     EMPRESA_IMPLANTACAO_ALTERADA: 'Implantação atualizada',
+    EMPRESA_IMPLANTACAO_RECUSADA: 'Conclusão da implantação recusada',
+    PERFIL_ESTRUTURA_CRIADA: 'Perfil da empresa criado',
+    PERFIL_CONCESSAO_INICIAL: 'Concessão inicial do perfil',
+    PERFIL_RASCUNHO_SALVO: 'Rascunho do perfil salvo',
+    PERFIL_CADASTRO_APLICADO: 'Cadastro do perfil aplicado',
+    PERFIL_REVOGADO: 'Concessão do perfil revogada',
+    PERFIL_REVOGACAO_RECUSADA: 'Revogação do perfil recusada',
+    PLATAFORMA_DESENVOLVEDOR_CONCEDIDO: 'Concessão de desenvolvedor criada',
+    PLATAFORMA_DESENVOLVEDOR_REVOGADO: 'Concessão de desenvolvedor revogada',
     EMPRESA_SUSPENSA: 'Empresa suspensa',
     EMPRESA_REATIVADA: 'Empresa reativada',
     EMPRESA_TRANSICAO: 'Situação da empresa mudou',

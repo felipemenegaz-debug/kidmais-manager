@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { DbExecutor } from '../db/contracts';
 import { withTransaction as withTransactionPadrao } from '../db/postgres';
 import { registrarAuditoria as registrarAuditoriaPadrao } from '../clientes/repositories/auditoria.repository';
-import { consumirLimite, revogarSessoesDoUsuario } from '../autenticacao/service.ts';
+import { consumirLimite, prazoDoLimite, revogarSessoesDoUsuario } from '../autenticacao/service.ts';
 import { criarHashSenha as criarHashSenhaPadrao, hashToken } from '../autenticacao/senha.ts';
 import { erroAcesso, isAcessoServiceError } from './erros.ts';
 import { criarEnviarEmail, linkComToken, mensagemRecuperacao, type EnviarEmail } from './email.ts';
@@ -140,7 +140,7 @@ export async function redefinirSenhaComToken(raw: unknown, ctx: ContextoRequisic
     validarNovaSenha(parsed.data.novaSenha, parsed.data.confirmacao);
     const resultado = await deps.withTransaction(async (tx) => {
         if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_REDEFINIR_IP))
-            return { tipo: 'limite' as const };
+            return { tipo: 'limite' as const, aguardar: await prazoDoLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_REDEFINIR_IP.namespace) };
         const pedido = (await tx.query<{ id: string; usuario_id: string; origem: string }>(
             `SELECT r.id, r.usuario_id, r.origem FROM recuperacoes_senha r JOIN usuarios_administrativos u ON u.id = r.usuario_id
               WHERE r.token_hash = $1 AND r.usado_em IS NULL AND r.invalidado_em IS NULL AND r.expira_em > clock_timestamp() AND u.ativo
@@ -159,7 +159,7 @@ export async function redefinirSenhaComToken(raw: unknown, ctx: ContextoRequisic
         return { tipo: 'ok' as const, encerradas };
     });
     if (resultado.tipo === 'limite')
-        throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde alguns minutos.', 429);
+        throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde alguns minutos.', 429, resultado.aguardar ? { retryAfterSegundos: resultado.aguardar } : undefined);
     if (resultado.tipo === 'link')
         throw erroAcesso('LINK_INVALIDO', 'Este link é inválido, já foi usado ou expirou. Peça uma nova recuperação.', 410);
     return { redefinida: true as const, sessoesEncerradas: resultado.encerradas };

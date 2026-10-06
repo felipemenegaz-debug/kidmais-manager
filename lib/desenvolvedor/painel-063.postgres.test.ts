@@ -462,6 +462,368 @@ test('renovação comprovada: reautenticação devolve anterior→atual e preser
     assert.equal(login.renovacao, null, 'login comum não é renovação');
 });
 
+test('perfil da empresa nova (implantação): Equipe e conta sem vínculo recusadas; a Gestão cria perfil, unidade e capacidades; associação pelo código; idempotente', async () => {
+    const criacao = carregar('lib/perfil/criacao.ts') as unknown as { criarPerfilDaEmpresa: (tx: Client, tenant: unknown, input: Record<string, unknown>, auditoria: Fn) => Promise<{ criado: boolean; perfilId: string; unidadeId: string | null; motivo: string }> };
+    const tenantMod = carregar('lib/perfil/tenant.ts') as unknown as { perfilDoTenant: (tx: Client, e: string) => Promise<string>; perfilDoTenantOuNulo: (tx: Client, e: string) => Promise<string | null> };
+    const registrar = (carregar('lib/clientes/repositories/auditoria.repository.ts') as unknown as { registrarAuditoria: Fn }).registrarAuditoria;
+    const executarNoTenant = svc.tenant.executarNoTenant as unknown as (tx: Client, s: unknown, e: string, w: (t: Client, tenant: unknown) => Promise<unknown>) => Promise<unknown>;
+    const criarComo = (usuarioId: string, empresaId: string, autenticadoHaMs = 0) => withTransaction((tx) => executarNoTenant(tx, { usuario_id: usuarioId, papel: 'ADMINISTRATIVO' }, empresaId,
+        (t, tenant) => criacao.criarPerfilDaEmpresa(t, tenant, { autenticadoEm: new Date(Date.now() - autenticadoHaMs).toISOString(), agora: Date.now(), requestId: randomUUID() }, registrar)));
+    assert.equal(await tenantMod.perfilDoTenantOuNulo(client, ids.empresa), null, 'empresa provisionada pelo painel nasce sem perfil');
+    assert.equal(await codigoErro(criarComo(ids.dono, ids.empresa)), 'PAPEL_NAO_AUTORIZADO', 'Equipe nesta empresa não cria o perfil');
+    assert.equal(await codigoErro(criarComo(ids.dev, ids.empresa)), 'TENANT_NAO_COMPROVADO', 'concessão de desenvolvedor não dá acesso operacional à empresa');
+    assert.equal(await codigoErro(criarComo(ids.resp, ids.empresa, 6 * 60_000)), 'PERFIL_REAUTENTICACAO', 'senha confirmada há mais de 5 min');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM perfil_empresas'), 0, 'nenhuma recusa escreveu');
+    const r = await criarComo(ids.resp, ids.empresa) as { criado: boolean; perfilId: string; unidadeId: string | null; motivo: string };
+    assert.deepEqual([r.criado, r.motivo], [true, 'CRIADO']);
+    ids.perfil = r.perfilId;
+    const perfil = (await client.query<{ codigo: string; nome_comercial: string; razao_social: string | null; cnpj: string | null; versao: number }>('SELECT codigo, nome_comercial, razao_social, cnpj, versao FROM perfil_empresas WHERE id = $1', [r.perfilId])).rows[0];
+    assert.deepEqual(perfil, { codigo: `p063-alegria-${sufixo}`, nome_comercial: 'Buffet Alegria 063', razao_social: null, cnpj: '11222333000181', versao: 0 }, 'só nome e CNPJ válido do cadastro administrativo são pré-preenchidos');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM perfil_unidades WHERE empresa_id = $1', [r.perfilId]), 1);
+    assert.equal(await contar('SELECT count(*)::int AS n FROM perfil_empresa_concessoes WHERE empresa_id = $1 AND usuario_id = $2 AND revogado_em IS NULL', [r.perfilId, ids.resp]), 4);
+    assert.equal(await tenantMod.perfilDoTenant(client, ids.empresa), r.perfilId, 'associado pelo código da empresa');
+    const cadastro = carregar('lib/perfil/cadastro-service.ts') as unknown as { lerCadastroPerfil: (tx: Client, u: string, p: string) => Promise<{ contexto: { codigoEmpresa: string } | null; capacidades: Record<string, boolean> | null }> };
+    const lido = await cadastro.lerCadastroPerfil(client, ids.resp, r.perfilId);
+    assert.equal(lido.contexto?.codigoEmpresa, `p063-alegria-${sufixo}`);
+    assert.deepEqual(Object.values(lido.capacidades ?? {}), [true, true, true, true], 'a Gestão que criou administra o perfil');
+    const denovo = await criarComo(ids.resp, ids.empresa) as { criado: boolean; motivo: string };
+    assert.deepEqual([denovo.criado, denovo.motivo], [false, 'JA_EXISTE'], 'idempotente');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM perfil_empresas'), 1);
+    assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'PERFIL_ESTRUTURA_CRIADA' AND entidade_id = $1", [r.perfilId]), 1);
+    assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE origem = 'PERFIL_EMPRESA' AND (dados_depois::text ~ 'scrypt\\$' OR dados_depois::text ~ '#t=')"), 0);
+});
+
+test('perfil legado sem código correspondente continua da empresa kidmais mesmo com várias empresas; dois órfãos fecham o acesso', async () => {
+    const tenantMod = carregar('lib/perfil/tenant.ts') as unknown as { perfilDoTenant: (tx: Client, e: string) => Promise<string>; perfilDoTenantOuNulo: (tx: Client, e: string) => Promise<string | null> };
+    const kidmais = (await client.query<{ id: string }>("SELECT id FROM empresas WHERE codigo = 'kidmais' AND status = 'ATIVA'")).rows[0]?.id;
+    assert.ok(kidmais, 'empresa legada da 046 presente no modelo');
+    assert.ok(await contar('SELECT count(*)::int AS n FROM empresas') > 1, 'instalação com várias empresas (o atalho da instalação única não vale)');
+    const orfao = (await client.query<{ id: string }>('INSERT INTO perfil_empresas (codigo) VALUES ($1) RETURNING id', [`EMP-${sufixo}`])).rows[0].id;
+    assert.equal(await tenantMod.perfilDoTenant(client, kidmais), orfao, 'o único perfil órfão pertence à kidmais');
+    assert.equal(await tenantMod.perfilDoTenantOuNulo(client, ids.legado), null, 'o órfão não vaza para outra empresa sem perfil');
+    assert.equal(await tenantMod.perfilDoTenant(client, ids.empresa), ids.perfil, 'o perfil da contratante segue associado pelo código');
+    const segundo = (await client.query<{ id: string }>('INSERT INTO perfil_empresas (codigo) VALUES ($1) RETURNING id', [`EMP-2-${sufixo}`])).rows[0].id;
+    assert.equal(await codigoErro(tenantMod.perfilDoTenant(client, kidmais)), 'PERFIL_ESTRUTURA_AUSENTE', 'dois órfãos: ninguém é escolhido');
+    await client.query('DELETE FROM perfil_empresas WHERE id = $1', [segundo]);
+    assert.equal(await tenantMod.perfilDoTenant(client, kidmais), orfao);
+});
+
+test('implantação: CONCLUÍDA é recusada com pendências reais (auditada) e aceita depois do perfil aplicado; a ficha lista as pendências', async () => {
+    const dev = (await sessaoDe(ids.dev)).sessao;
+    const revisao = async () => (await client.query<{ revisao: number }>('SELECT revisao::int AS revisao FROM plataforma_empresas_cadastro WHERE empresa_id = $1', [ids.empresa])).rows[0].revisao;
+    const concluir = async () => svc.empresas.alterarImplantacao(dev as never, ids.empresa as never, { implantacao: 'CONCLUIDA', revisao: await revisao() } as never, ctx() as never, deps() as never);
+    const recusa = await concluir().then(() => null, (e) => e as { code?: string; httpStatus?: number; details?: { pendencias?: Array<{ codigo: string }> } });
+    assert.equal(recusa?.code, 'IMPLANTACAO_PENDENTE');
+    assert.equal(recusa?.httpStatus, 409);
+    assert.deepEqual(recusa?.details?.pendencias?.map((p) => p.codigo), ['PERFIL_APLICADO'], 'Gestão ativa e perfil criado já atendidos; falta aplicar o cadastro');
+    assert.equal((await client.query('SELECT implantacao FROM plataforma_empresas_cadastro WHERE empresa_id = $1', [ids.empresa])).rows[0].implantacao, 'EM_CONFIGURACAO', 'nada mudou');
+    assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'EMPRESA_IMPLANTACAO_RECUSADA' AND entidade_id = $1", [ids.empresa]), 1);
+    const antes = await svc.empresas.obterEmpresa(dev as never, ids.empresa as never) as unknown as { implantacao: { podeConcluir: boolean; itens: Array<{ codigo: string; atendida: boolean; obrigatoria: boolean }> } };
+    assert.equal(antes.implantacao.podeConcluir, false);
+    assert.deepEqual(antes.implantacao.itens.filter((i) => i.obrigatoria).map((i) => [i.codigo, i.atendida]), [['GESTAO_ATIVA', true], ['PERFIL_CRIADO', true], ['PERFIL_APLICADO', false]]);
+    const cadastro = carregar('lib/perfil/cadastro-service.ts') as unknown as { salvarRascunhoPerfil: (tx: Client, i: Record<string, unknown>, a: Fn) => Promise<{ numero: number; edicao: number; versaoBase: number }>; aplicarCadastroPerfil: (tx: Client, i: Record<string, unknown>, a: Fn) => Promise<unknown> };
+    const registrar = (carregar('lib/clientes/repositories/auditoria.repository.ts') as unknown as { registrarAuditoria: Fn }).registrarAuditoria;
+    const endereco = { cep: '01001000', logradouro: 'Praça da Sé', numero: '', semNumero: true, complemento: '', bairro: 'Sé', cidade: 'São Paulo', uf: 'SP', pais: 'BR' };
+    const dados = { nomeComercial: 'Buffet Alegria 063', razaoSocial: 'Alegria Festas Ltda', cnpj: '11222333000181', sede: endereco, unidadeNome: 'Sede', mesmoEnderecoSede: true, unidade: endereco, referenciaChegada: '', telefone: '11999990063', whatsapp: '', emailComercial: '', site: '', instagram: '' };
+    const rascunho = await withTransaction((tx) => cadastro.salvarRascunhoPerfil(tx, { usuarioId: ids.resp, perfilDoServidor: ids.perfil, empresaIdCliente: null, numero: null, edicao: null, versaoBase: 0, cadastro: dados, requestId: randomUUID() }, registrar));
+    await withTransaction((tx) => cadastro.aplicarCadastroPerfil(tx, { usuarioId: ids.resp, perfilDoServidor: ids.perfil, empresaIdCliente: null, ...rascunho, confirmar: true, motivo: 'Implantação da contratante', autenticadoEm: new Date().toISOString(), agora: Date.now(), requestId: randomUUID() }, registrar));
+    assert.equal((await client.query('SELECT versao FROM perfil_empresas WHERE id = $1', [ids.perfil])).rows[0].versao, 1);
+    const ok = await concluir() as { implantacao: string; alterado: boolean };
+    assert.deepEqual([ok.implantacao, ok.alterado], ['CONCLUIDA', true]);
+    const depois = await svc.empresas.obterEmpresa(dev as never, ids.empresa as never) as unknown as { empresa: { cadastro: { implantacao: string; implantacaoConcluidaEm: string | null } }; implantacao: { podeConcluir: boolean; itens: Array<{ codigo: string; atendida: boolean; obrigatoria: boolean }> } };
+    assert.equal(depois.empresa.cadastro.implantacao, 'CONCLUIDA');
+    assert.ok(depois.empresa.cadastro.implantacaoConcluidaEm);
+    assert.equal(depois.implantacao.podeConcluir, true);
+    assert.ok(depois.implantacao.itens.filter((i) => i.obrigatoria).every((i) => i.atendida));
+    assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'EMPRESA_IMPLANTACAO_ALTERADA' AND entidade_id = $1 AND dados_depois->>'implantacao' = 'CONCLUIDA'", [ids.empresa]), 1);
+});
+
+test('Retry-After: reenvio dentro do intervalo e recuperação repetida pelo painel devolvem o prazo restante calculável', async () => {
+    const dev = (await sessaoDe(ids.dev)).sessao;
+    const convite = await svc.vinculos.convidarUsuario(dev as never, ids.empresa as never, { email: email('retry'), nivel: 'EQUIPE' } as never, ctx() as never, deps() as never) as unknown as { conviteId: string; envio: { enviado: boolean } };
+    assert.equal(convite.envio.enviado, true);
+    const reenvio = await (svc.vinculos.reenviarConvite(dev as never, ids.empresa as never, convite.conviteId as never, ctx() as never, deps() as never) as unknown as Promise<unknown>)
+        .then(() => null, (e) => e as { code?: string; httpStatus?: number; details?: { retryAfterSegundos?: number } });
+    assert.deepEqual([reenvio?.code, reenvio?.httpStatus], ['LIMITE_TENTATIVAS', 429]);
+    const prazo = reenvio?.details?.retryAfterSegundos;
+    assert.ok(typeof prazo === 'number' && prazo >= 1 && prazo <= 60, `prazo do reenvio: ${prazo}`);
+    const depsRec = { ...deps(), criarHashSenha: svc.senha.criarHashSenha };
+    const primeira = await svc.vinculos.solicitarRecuperacaoPeloPainel(dev as never, ids.empresa as never, ids.dono as never, ctx() as never, depsRec as never) as unknown as { enviado: boolean };
+    assert.equal(primeira.enviado, true);
+    const repetida = await (svc.vinculos.solicitarRecuperacaoPeloPainel(dev as never, ids.empresa as never, ids.dono as never, ctx() as never, depsRec as never) as unknown as Promise<unknown>)
+        .then(() => null, (e) => e as { code?: string; details?: { retryAfterSegundos?: number } });
+    assert.equal(repetida?.code, 'LIMITE_TENTATIVAS');
+    const espera = repetida?.details?.retryAfterSegundos;
+    assert.ok(typeof espera === 'number' && espera >= 1 && espera <= 120, `prazo da recuperação: ${espera}`);
+});
+
+test('auditoria consultável: por empresa, por ação e por período, paginada; só origens administrativas; sem segredos; sem concessão → 404', async () => {
+    const consulta = carregar('lib/desenvolvedor/auditoria-consulta.ts') as unknown as {
+        ORIGENS_ADMINISTRATIVAS: readonly string[];
+        consultarAuditoria: (s: unknown, raw: unknown, d: unknown) => Promise<{ itens: Array<{ acao: string; origem: string; empresaId: string | null }>; total: number; porPagina: number; acoes: string[]; empresas: Array<{ id: string }> }>;
+    };
+    const dev = (await sessaoDe(ids.dev)).sessao;
+    const dono = (await sessaoDe(ids.dono)).sessao;
+    assert.equal(await codigoErro(consulta.consultarAuditoria(dono, {}, deps())), 'NAO_ENCONTRADO', 'Gestão sem concessão não consulta');
+    const porEmpresa = await consulta.consultarAuditoria(dev, { empresaId: ids.empresa }, deps());
+    assert.ok(porEmpresa.total >= 10, `registros da empresa: ${porEmpresa.total}`);
+    assert.ok(porEmpresa.itens.every((i) => i.empresaId === null || i.empresaId === ids.empresa), 'nenhum registro de outra empresa');
+    assert.ok(porEmpresa.itens.some((i) => i.acao === 'PERFIL_ESTRUTURA_CRIADA'), 'o perfil criado pela Gestão aparece na atividade da empresa');
+    assert.ok(porEmpresa.itens.every((i) => consulta.ORIGENS_ADMINISTRATIVAS.includes(i.origem)));
+    const porAcao = await consulta.consultarAuditoria(dev, { acao: 'CONVITE_CRIADO' }, deps());
+    assert.ok(porAcao.total >= 3 && porAcao.itens.every((i) => i.acao === 'CONVITE_CRIADO'));
+    const tudo = await consulta.consultarAuditoria(dev, {}, deps());
+    const dia = (deslocamento: number) => new Date(Date.now() + deslocamento * 86_400_000).toISOString().slice(0, 10);
+    assert.equal((await consulta.consultarAuditoria(dev, { de: dia(-1), ate: dia(1) }, deps())).total, tudo.total, 'tudo desta suíte está na janela');
+    assert.equal((await consulta.consultarAuditoria(dev, { de: '2000-01-01', ate: '2000-01-02' }, deps())).total, 0);
+    assert.equal(tudo.itens.length, Math.min(25, tudo.total));
+    const ultima = Math.ceil(tudo.total / 25);
+    assert.equal((await consulta.consultarAuditoria(dev, { pagina: ultima }, deps())).itens.length, tudo.total - (ultima - 1) * 25, 'última página');
+    const texto = JSON.stringify([...porEmpresa.itens, ...tudo.itens, ...porAcao.itens]);
+    for (const s of [...Object.values(senhas), 'senha-recuperada-063', ...enviados.map((e) => e.texto.match(/#t=([A-Za-z0-9_-]{43})/)?.[1]).filter(Boolean) as string[]])
+        assert.ok(!texto.includes(s), 'segredo na consulta');
+    assert.doesNotMatch(texto, /scrypt\$|#t=|"token"|"senha"|"hash"/i);
+    assert.ok(tudo.acoes.includes('EMPRESA_PROVISIONADA') && tudo.empresas.some((e) => e.id === ids.empresa));
+});
+
+/**
+ * Achado Astra (PR #104): perfil existente sem administrador elegível. A Gestão ativa da empresa pode assumir a
+ * administração pela interface; a elegibilidade é lida sem travas e sem nada do cadastro; a concessão revalida tudo
+ * na transação (Gestão, empresa ativa, associação única, reautenticação, ausência de administrador elegível), não
+ * eleva quem tem concessões parciais quando há administrador, não duplica e serializa a concorrência.
+ */
+type Elegibilidade = { elegivel: boolean; motivo: string | null; capacidadesFaltantes: string[] };
+type ResultadoConcessao = { criado: boolean; perfilId: string; capacidadesConcedidas: string[]; motivo: string };
+const TODAS = ['PERFIL_CONSULTAR', 'PERFIL_EDITAR_RASCUNHO', 'PERFIL_APLICAR', 'PERFIL_ADMINISTRAR_CONCESSOES'];
+function concessaoInicialApi() {
+    const criacao = carregar('lib/perfil/criacao.ts') as unknown as {
+        criarPerfilDaEmpresa: (tx: Client, tenant: unknown, input: Record<string, unknown>, auditoria: Fn, opcoes: { exigirExistente: boolean }) => Promise<ResultadoConcessao>;
+        elegibilidadeConcessaoInicial: (tx: Client, tenant: unknown) => Promise<Elegibilidade>;
+    };
+    const registrar = (carregar('lib/clientes/repositories/auditoria.repository.ts') as unknown as { registrarAuditoria: Fn }).registrarAuditoria;
+    const executarNoTenant = svc.tenant.executarNoTenant as unknown as (tx: Client, s: unknown, e: string, w: (t: Client, tenant: unknown) => Promise<unknown>) => Promise<unknown>;
+    const sessao = (usuarioId: string) => ({ usuario_id: usuarioId, papel: 'ADMINISTRATIVO' });
+    const elegibilidade = (usuarioId: string, empresaId = ids.concEmpresa) => withTransaction((tx) => executarNoTenant(tx, sessao(usuarioId), empresaId, (t, tenant) => criacao.elegibilidadeConcessaoInicial(t, tenant))) as Promise<Elegibilidade>;
+    const assumirEm = (tx: Client, usuarioId: string, empresaId = ids.concEmpresa, autenticadoHaMs = 0) => executarNoTenant(tx, sessao(usuarioId), empresaId,
+        (t, tenant) => criacao.criarPerfilDaEmpresa(t, tenant, { autenticadoEm: new Date(Date.now() - autenticadoHaMs).toISOString(), agora: Date.now(), requestId: randomUUID() }, registrar, { exigirExistente: true })) as Promise<ResultadoConcessao>;
+    const assumir = (usuarioId: string, empresaId = ids.concEmpresa, autenticadoHaMs = 0) => withTransaction((tx) => assumirEm(tx, usuarioId, empresaId, autenticadoHaMs));
+    const ativas = async (usuarioId?: string) => (await client.query<{ capacidade: string }>(
+        'SELECT capacidade FROM perfil_empresa_concessoes WHERE empresa_id = $1 AND revogado_em IS NULL AND ($2::uuid IS NULL OR usuario_id = $2::uuid)', [ids.concPerfil, usuarioId ?? null])).rows.map((l) => l.capacidade).sort((a, b) => TODAS.indexOf(a) - TODAS.indexOf(b));
+    const revogar = (usuarioId: string, capacidades: string[]) => client.query(
+        "UPDATE perfil_empresa_concessoes SET revogado_em = clock_timestamp(), revogado_por = $2, motivo_revogacao = 'fixture do teste' WHERE empresa_id = $1 AND usuario_id = $2 AND capacidade = ANY($3::text[]) AND revogado_em IS NULL",
+        [ids.concPerfil, usuarioId, capacidades]);
+    const conceder = (usuarioId: string, porQuem: string, capacidades: string[]) => Promise.all(capacidades.map((c) => client.query(
+        "INSERT INTO perfil_empresa_concessoes (empresa_id, usuario_id, capacidade, concedido_por, motivo, referencia_autorizacao) VALUES ($1, $2, $3, $4, 'fixture do teste', 'TESTE')", [ids.concPerfil, usuarioId, c, porQuem])));
+    return { elegibilidade, assumir, assumirEm, ativas, revogar, conceder };
+}
+
+test('concessão inicial — fixtures: empresa ativa com perfil existente sem concessões; duas Gestões, Equipe, vínculo suspenso e revogado', async () => {
+    const hash = await svc.senha.criarHashSenha(senhas.resp);
+    for (const chave of ['gestaoA', 'gestaoB', 'equipeC', 'suspensaD', 'revogadaE'])
+        ids[chave] = (await client.query<{ id: string }>('INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel) VALUES ($1, $2, $3, $4) RETURNING id', [email(chave.toLowerCase()), 'Pessoa ' + chave, hash, 'ADMINISTRATIVO'])).rows[0].id;
+    ids.concEmpresa = (await client.query<{ id: string }>("INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Contratante Concessão 063', 'PROVISIONAMENTO') RETURNING id", ['p063-conc-' + sufixo])).rows[0].id;
+    await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [ids.concEmpresa]);
+    const vinculo = async (usuario: string, papel: string, status: string) => {
+        const m = (await client.query<{ id: string }>("INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1, $2, 'PENDENTE', clock_timestamp(), $3) RETURNING id", [ids.concEmpresa, usuario, papel])).rows[0].id;
+        await client.query("UPDATE memberships SET status = 'ATIVA' WHERE id = $1", [m]);
+        if (status !== 'ATIVA')
+            await client.query('UPDATE memberships SET status = $2 WHERE id = $1', [m, status]);
+        return m;
+    };
+    await vinculo(ids.gestaoA, 'REPRESENTANTE_AUTORIZADO', 'ATIVA');
+    await vinculo(ids.gestaoB, 'REPRESENTANTE_AUTORIZADO', 'ATIVA');
+    await vinculo(ids.equipeC, 'ADMINISTRATIVO', 'ATIVA');
+    await vinculo(ids.suspensaD, 'REPRESENTANTE_AUTORIZADO', 'SUSPENSA');
+    await vinculo(ids.revogadaE, 'REPRESENTANTE_AUTORIZADO', 'REVOGADA');
+    // Perfil "legado": existe, associado pelo código, sem nenhuma concessão (ninguém administra).
+    ids.concPerfil = (await client.query<{ id: string }>('INSERT INTO perfil_empresas (codigo, nome_comercial) VALUES ($1, $2) RETURNING id', ['p063-conc-' + sufixo, 'Concessão Festas 063'])).rows[0].id;
+    await client.query("INSERT INTO perfil_unidades (empresa_id, codigo, nome, mesmo_endereco_sede) VALUES ($1::uuid, $2, 'Sede', true)", [ids.concPerfil, 'p063-conc-' + sufixo + '-principal']);
+    const tenantMod = carregar('lib/perfil/tenant.ts') as unknown as { perfilDoTenant: (tx: Client, e: string) => Promise<string> };
+    assert.equal(await tenantMod.perfilDoTenant(client, ids.concEmpresa), ids.concPerfil);
+    assert.equal(await contar('SELECT count(*)::int AS n FROM perfil_empresa_concessoes WHERE empresa_id = $1', [ids.concPerfil]), 0);
+});
+
+test('concessão inicial — elegibilidade: só a Gestão ativa da empresa ativa; Equipe, sem vínculo, suspenso, revogado e empresa suspensa recusados; o cadastro continua fechado', async () => {
+    const api = concessaoInicialApi();
+    assert.deepEqual(await api.elegibilidade(ids.gestaoA), { elegivel: true, motivo: null, capacidadesFaltantes: TODAS });
+    assert.deepEqual(await api.elegibilidade(ids.equipeC), { elegivel: false, motivo: 'SEM_GESTAO', capacidadesFaltantes: [] });
+    for (const [quem, rotulo] of [[ids.dev, 'desenvolvedor sem vínculo'], [ids.suspensaD, 'vínculo suspenso'], [ids.revogadaE, 'vínculo revogado'], [ids.dono, 'Gestão de outra empresa']] as const) {
+        assert.equal(await codigoErro(api.elegibilidade(quem)), 'TENANT_NAO_COMPROVADO', rotulo + ': nem a elegibilidade é lida');
+        assert.equal(await codigoErro(api.assumir(quem)), 'TENANT_NAO_COMPROVADO', rotulo + ': nada concedido');
+    }
+    assert.equal(await codigoErro(api.assumir(ids.equipeC)), 'PAPEL_NAO_AUTORIZADO', 'Equipe não assume');
+    await client.query("UPDATE empresas SET status = 'SUSPENSA' WHERE id = $1", [ids.concEmpresa]);
+    assert.equal(await codigoErro(api.elegibilidade(ids.gestaoA)), 'TENANT_NAO_COMPROVADO', 'empresa suspensa: Gestão sem tenant');
+    assert.equal(await codigoErro(api.assumir(ids.gestaoA)), 'TENANT_NAO_COMPROVADO');
+    await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [ids.concEmpresa]);
+    assert.deepEqual(await api.ativas(), [], 'nenhuma recusa escreveu');
+    const cadastro = carregar('lib/perfil/cadastro-service.ts') as unknown as { lerCadastroPerfil: (tx: Client, u: string, p: string) => Promise<unknown> };
+    assert.equal(await codigoErro(cadastro.lerCadastroPerfil(client, ids.gestaoA, ids.concPerfil)), 'PERFIL_SEM_CONCESSAO', 'antes da concessão o GET do cadastro continua 403: a tela só recebe a elegibilidade');
+});
+
+test('concessão inicial — reautenticação vencida não concede; a Gestão assume as quatro capacidades (auditado); repetição não duplica; a segunda Gestão fica bloqueada', async () => {
+    const api = concessaoInicialApi();
+    assert.equal(await codigoErro(api.assumir(ids.gestaoA, ids.concEmpresa, 6 * 60_000)), 'PERFIL_REAUTENTICACAO');
+    assert.deepEqual(await api.ativas(), []);
+    const r = await api.assumir(ids.gestaoA);
+    assert.deepEqual([r.criado, r.perfilId, r.motivo, r.capacidadesConcedidas], [false, ids.concPerfil, 'CONCESSAO_INICIAL', TODAS]);
+    assert.deepEqual(await api.ativas(ids.gestaoA), TODAS);
+    const auditoria = (await client.query<{ dados_depois: { capacidades: string[]; jaPossuia: string[]; origemConcessao: string } }>("SELECT dados_depois FROM auditoria WHERE acao = 'PERFIL_CONCESSAO_INICIAL' AND entidade_id = $1 ORDER BY criado_em", [ids.concPerfil])).rows;
+    assert.equal(auditoria.length, 1);
+    assert.deepEqual(auditoria[0].dados_depois.capacidades, TODAS);
+    assert.deepEqual([auditoria[0].dados_depois.jaPossuia, auditoria[0].dados_depois.origemConcessao], [[], 'IMPLANTACAO']);
+    const cadastro = carregar('lib/perfil/cadastro-service.ts') as unknown as { lerCadastroPerfil: (tx: Client, u: string, p: string) => Promise<{ capacidades: Record<string, boolean> | null }> };
+    assert.deepEqual(Object.values((await cadastro.lerCadastroPerfil(client, ids.gestaoA, ids.concPerfil)).capacidades ?? {}), [true, true, true, true], 'depois da concessão o cadastro abre');
+    const denovo = await api.assumir(ids.gestaoA);
+    assert.deepEqual([denovo.motivo, denovo.capacidadesConcedidas], ['JA_EXISTE', []], 'repetir não duplica');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM perfil_empresa_concessoes WHERE empresa_id = $1', [ids.concPerfil]), 4);
+    assert.deepEqual(await api.elegibilidade(ids.gestaoA), { elegivel: false, motivo: 'JA_ADMINISTRA', capacidadesFaltantes: [] });
+    assert.deepEqual(await api.elegibilidade(ids.gestaoB), { elegivel: false, motivo: 'ADMINISTRADOR_EXISTENTE', capacidadesFaltantes: [] });
+    const recusa = await api.assumir(ids.gestaoB).then(() => null, (e) => e as { code?: string; httpStatus?: number });
+    assert.deepEqual([recusa?.code, recusa?.httpStatus], ['PERFIL_SEM_CONCESSAO', 409]);
+    assert.deepEqual(await api.ativas(ids.gestaoB), []);
+    assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'PERFIL_CONCESSAO_INICIAL' AND entidade_id = $1", [ids.concPerfil]), 1);
+});
+
+test('concessão inicial — concessões parciais: com administrador elegível ninguém é elevado; sem administrador, só o que falta é concedido (sem duplicar); vínculo suspenso não conta como administrador', async () => {
+    const api = concessaoInicialApi();
+    await api.conceder(ids.gestaoB, ids.gestaoA, ['PERFIL_CONSULTAR']);
+    assert.deepEqual(await api.elegibilidade(ids.gestaoB), { elegivel: false, motivo: 'ADMINISTRADOR_EXISTENTE', capacidadesFaltantes: [] }, 'ter só PERFIL_CONSULTAR não dá direito a assumir enquanto há administrador');
+    assert.equal(await codigoErro(api.assumir(ids.gestaoB)), 'PERFIL_SEM_CONCESSAO');
+    assert.deepEqual(await api.ativas(ids.gestaoB), ['PERFIL_CONSULTAR'], 'nada elevado');
+    // A administração da Gestão A é suspensa com o vínculo: ela deixa de ser administradora elegível.
+    await client.query("UPDATE memberships SET status = 'SUSPENSA' WHERE empresa_id = $1 AND usuario_id = $2", [ids.concEmpresa, ids.gestaoA]);
+    assert.deepEqual(await api.elegibilidade(ids.gestaoB), { elegivel: true, motivo: null, capacidadesFaltantes: TODAS.slice(1) }, 'sem administrador elegível, faltam só as três');
+    await client.query("UPDATE memberships SET status = 'ATIVA' WHERE empresa_id = $1 AND usuario_id = $2", [ids.concEmpresa, ids.gestaoA]);
+    assert.deepEqual(await api.elegibilidade(ids.gestaoB), { elegivel: false, motivo: 'ADMINISTRADOR_EXISTENTE', capacidadesFaltantes: [] });
+    // Concessões parciais sem administrador: A perde ADMINISTRAR/APLICAR/EDITAR e fica só com CONSULTAR.
+    await api.revogar(ids.gestaoA, TODAS.slice(1));
+    assert.deepEqual(await api.ativas(ids.gestaoA), ['PERFIL_CONSULTAR']);
+    assert.deepEqual(await api.elegibilidade(ids.gestaoA), { elegivel: true, motivo: null, capacidadesFaltantes: TODAS.slice(1) });
+    const r = await api.assumir(ids.gestaoA);
+    assert.deepEqual([r.motivo, r.capacidadesConcedidas], ['CONCESSAO_INICIAL', TODAS.slice(1)]);
+    assert.deepEqual(await api.ativas(ids.gestaoA), TODAS, 'quatro capacidades ativas, nenhuma duplicada');
+    assert.equal(await contar("SELECT count(*)::int AS n FROM perfil_empresa_concessoes WHERE empresa_id = $1 AND usuario_id = $2 AND capacidade = 'PERFIL_CONSULTAR'", [ids.concPerfil, ids.gestaoA]), 1, 'a capacidade que já existia não foi inserida de novo');
+    const ultima = (await client.query<{ dados_depois: { capacidades: string[]; jaPossuia: string[] } }>("SELECT dados_depois FROM auditoria WHERE acao = 'PERFIL_CONCESSAO_INICIAL' AND entidade_id = $1 ORDER BY criado_em DESC LIMIT 1", [ids.concPerfil])).rows[0];
+    assert.deepEqual([ultima.dados_depois.capacidades, ultima.dados_depois.jaPossuia], [TODAS.slice(1), ['PERFIL_CONSULTAR']]);
+    assert.deepEqual(await api.elegibilidade(ids.gestaoB), { elegivel: false, motivo: 'ADMINISTRADOR_EXISTENTE', capacidadesFaltantes: [] });
+});
+
+test('concessão inicial — associação ambígua recusada; concorrência: a segunda Gestão espera a primeira e é recusada; nada duplicado', async () => {
+    const api = concessaoInicialApi();
+    // Dois perfis associados (um pelo código, outro pelo UUID): ninguém assume até a plataforma corrigir.
+    await client.query('INSERT INTO perfil_empresas (id, codigo) VALUES ($1::uuid, $2)', [ids.concEmpresa, 'p063-conc-uuid-' + sufixo]);
+    assert.deepEqual(await api.elegibilidade(ids.gestaoA), { elegivel: false, motivo: 'AMBIGUO', capacidadesFaltantes: [] });
+    assert.equal(await codigoErro(api.assumir(ids.gestaoA)), 'PERFIL_LIMITE_V1');
+    await client.query('DELETE FROM perfil_empresas WHERE id = $1::uuid', [ids.concEmpresa]);
+    // Estado "ninguém administra" para as duas Gestões.
+    await api.revogar(ids.gestaoA, TODAS);
+    await api.revogar(ids.gestaoB, TODAS);
+    assert.deepEqual(await api.ativas(), []);
+    assert.deepEqual(await api.elegibilidade(ids.gestaoA), { elegivel: true, motivo: null, capacidadesFaltantes: TODAS });
+    assert.deepEqual(await api.elegibilidade(ids.gestaoB), { elegivel: true, motivo: null, capacidadesFaltantes: TODAS });
+    // A assume numa transação ainda aberta; B tenta em outra conexão enquanto A não confirmou.
+    const outra = await conectarDescartavel({ travar: false });
+    try {
+        await client.query('BEGIN');
+        const deA = await api.assumirEm(client, ids.gestaoA);
+        assert.equal(deA.motivo, 'CONCESSAO_INICIAL');
+        const deB = (async () => {
+            await outra.query('BEGIN');
+            try {
+                const r = await api.assumirEm(outra, ids.gestaoB);
+                await outra.query('COMMIT');
+                return { ok: r };
+            }
+            catch (error) {
+                await outra.query('ROLLBACK');
+                return { erro: (error as { code?: string }).code };
+            }
+        })();
+        const corrida = await Promise.race([deB, new Promise<'pendente'>((resolve) => setTimeout(() => resolve('pendente'), 400))]);
+        assert.equal(corrida, 'pendente', 'B fica bloqueada enquanto a transação de A está aberta');
+        await client.query('COMMIT');
+        assert.deepEqual(await deB, { erro: 'PERFIL_SEM_CONCESSAO' }, 'depois do commit de A, B vê a administradora e é recusada');
+    }
+    finally {
+        await encerrarDescartavel(outra, false);
+    }
+    assert.deepEqual(await api.ativas(ids.gestaoA), TODAS);
+    assert.deepEqual(await api.ativas(ids.gestaoB), []);
+    assert.equal(await contar('SELECT count(*)::int AS n FROM perfil_empresa_concessoes WHERE empresa_id = $1 AND revogado_em IS NULL', [ids.concPerfil]), 4);
+    assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'PERFIL_CONCESSAO_INICIAL' AND entidade_id = $1", [ids.concPerfil]), 3);
+    assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE origem = 'PERFIL_EMPRESA' AND entidade_id = $1 AND (dados_depois::text ~ 'scrypt\\$' OR dados_depois::text ~ 'senha')", [ids.concPerfil]), 0, 'auditoria sem segredos');
+});
+
+test('H0 (database/checks/20261006_h0_perfil_legado_leitura.sql): mesma associação da aplicação; órfão único da kidmais com administrador; ambiguidades marcadas; inelegíveis por conta/vínculo não contam', async () => {
+    const h0 = readFileSync('database/checks/20261006_h0_perfil_legado_leitura.sql', 'utf8');
+    assert.match(h0, /^BEGIN READ ONLY;/m);
+    assert.match(h0, /^ROLLBACK;\s*$/m);
+    const semComentarios = h0.split(/\r?\n/).map((l) => l.replace(/--.*$/, '')).join('\n');
+    assert.doesNotMatch(semComentarios, /\b(INSERT|UPDATE|DELETE|MERGE|COPY|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE)\b|senha|token|password/i, 'somente leitura, sem segredos');
+    const kidmais = (await client.query<{ id: string }>("SELECT id FROM empresas WHERE codigo = 'kidmais'")).rows[0].id;
+    const orfao = (await client.query<{ id: string }>('SELECT id FROM perfil_empresas WHERE codigo = $1', ['EMP-' + sufixo])).rows[0].id;
+    const hash = await svc.senha.criarHashSenha(senhas.resp);
+    const pessoa = async (chave: string, ativo = true) => (await client.query<{ id: string }>('INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, $2, $3, $4, $5) RETURNING id', [email('h0-' + chave), 'H0 ' + chave, hash, 'ADMINISTRATIVO', ativo])).rows[0].id;
+    const vinculoNaKidmais = async (usuario: string, papel: string, status: string) => {
+        const m = (await client.query<{ id: string }>("INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1, $2, 'PENDENTE', clock_timestamp(), $3) RETURNING id", [kidmais, usuario, papel])).rows[0].id;
+        await client.query("UPDATE memberships SET status = 'ATIVA' WHERE id = $1", [m]);
+        if (status !== 'ATIVA')
+            await client.query('UPDATE memberships SET status = $2 WHERE id = $1', [m, status]);
+    };
+    const administrar = (usuario: string) => client.query("INSERT INTO perfil_empresa_concessoes (empresa_id, usuario_id, capacidade, concedido_por, motivo, referencia_autorizacao) VALUES ($1, $2, 'PERFIL_ADMINISTRAR_CONCESSOES', $2, 'fixture H0', 'TESTE')", [orfao, usuario]);
+    // Órfão único da kidmais: K administra (elegível); I (conta inativa), S (vínculo suspenso) e Q (Equipe) não contam.
+    const k = await pessoa('k');
+    await vinculoNaKidmais(k, 'REPRESENTANTE_AUTORIZADO', 'ATIVA');
+    await administrar(k);
+    const i = await pessoa('i', false);
+    await vinculoNaKidmais(i, 'REPRESENTANTE_AUTORIZADO', 'ATIVA');
+    await administrar(i);
+    const sus = await pessoa('s');
+    await vinculoNaKidmais(sus, 'REPRESENTANTE_AUTORIZADO', 'SUSPENSA');
+    await administrar(sus);
+    const q = await pessoa('q');
+    await vinculoNaKidmais(q, 'ADMINISTRATIVO', 'ATIVA');
+    await administrar(q);
+    // Ambiguidade perfil → várias empresas (UUID da empresa legado + código de uma empresa nova) e
+    // vários perfis → mesma empresa (segundo perfil apontando pelo UUID para a empresa da concessão).
+    const e2 = (await client.query<{ id: string }>("INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Empresa H0 063', 'PROVISIONAMENTO') RETURNING id", ['p063-h0-' + sufixo])).rows[0].id;
+    await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [e2]);
+    await client.query('INSERT INTO perfil_empresas (id, codigo) VALUES ($1::uuid, $2)', [ids.legado, 'p063-h0-' + sufixo]);
+    await client.query('INSERT INTO perfil_empresas (id, codigo) VALUES ($1::uuid, $2)', [ids.concEmpresa, 'p063-dup-' + sufixo]);
+    try {
+        const resultados = await client.query(h0) as unknown as Array<{ command: string; rows: Record<string, unknown>[] }>;
+        assert.ok(Array.isArray(resultados) && resultados.length === 7, 'BEGIN, (0)…(4), ROLLBACK');
+        assert.deepEqual([resultados[0].command, resultados[6].command], ['BEGIN', 'ROLLBACK']);
+        const [, geral, legada, orfaos, associacao, multiplos] = resultados;
+        assert.equal(geral.rows[0].perfil_empresas, 'perfil_empresas');
+        assert.deepEqual(legada.rows.map((l) => [l.id, l.status]), [[kidmais, 'ATIVA']]);
+        assert.deepEqual(orfaos.rows.map((l) => l.id), [orfao], 'o órfão continua único: os dois perfis novos casam por UUID');
+        const porPerfil = new Map(associacao.rows.map((l) => [String(l.perfil_id), l]));
+        const linha = (perfilId: string) => {
+            const l = porPerfil.get(perfilId);
+            assert.ok(l, 'perfil ' + perfilId + ' na leitura');
+            return l!;
+        };
+        const resumo = (l: Record<string, unknown>) => [l.situacao, Number(l.candidatas), l.empresa_id, l.perfis_na_mesma_empresa === null ? null : Number(l.perfis_na_mesma_empresa), Number(l.concessoes_ativas), l.administradores_elegiveis === null ? null : Number(l.administradores_elegiveis)];
+        assert.deepEqual(resumo(linha(ids.perfil)), ['OK', 1, ids.empresa, 1, 4, 1], 'associação direta pelo código, com administradora (resp)');
+        assert.deepEqual(resumo(linha(orfao)), ['OK', 1, kidmais, 1, 4, 1], 'órfão único → kidmais; só K conta como administrador');
+        assert.deepEqual(resumo(linha(ids.concPerfil)), ['OK', 1, ids.concEmpresa, 2, 4, 1], 'direta pelo código; a empresa tem dois perfis');
+        const dup = linha((await client.query<{ id: string }>('SELECT id FROM perfil_empresas WHERE codigo = $1', ['p063-dup-' + sufixo])).rows[0].id);
+        assert.deepEqual(resumo(dup), ['OK', 1, ids.concEmpresa, 2, 0, 0], 'perfil sem administrador, mesma empresa do anterior');
+        const amb = linha(ids.legado);
+        assert.deepEqual(resumo(amb), ['AMBIGUO_VARIAS_EMPRESAS', 2, null, null, 0, null], 'nenhuma empresa é escolhida quando há duas candidatas');
+        assert.equal(amb.candidatas_codigos, ['p063-h0-' + sufixo, 'p063-legado-' + sufixo].sort().join(', '));
+        assert.deepEqual(multiplos.rows.map((l) => [l.empresa_id, Number(l.perfis)]), [[ids.concEmpresa, 2]], 'vários perfis → mesma empresa');
+        for (const r of resultados)
+            assert.doesNotMatch(JSON.stringify(r.rows), /scrypt\$|senha|nome_comercial|cnpj|@exemplo\.test/, 'saída sem segredos nem dados de negócio');
+    }
+    finally {
+        await client.query('DELETE FROM perfil_empresa_concessoes WHERE empresa_id = $1 AND usuario_id = ANY($2::uuid[])', [orfao, [k, i, sus, q]]);
+        await client.query('DELETE FROM perfil_empresas WHERE id = ANY($1::uuid[])', [[ids.legado, ids.concEmpresa]]);
+    }
+});
+
 test('rollback da 063 recusa depois do uso (vínculo suspenso ou registros), sem apagar nada', async () => {
     const dev = (await sessaoDe(ids.dev)).sessao;
     await svc.vinculos.alterarSituacaoVinculo(dev as never, ids.empresa as never, ids.dono as never, 'desativar' as never, { motivo: 'Prova de rollback' } as never, ctx() as never, deps() as never);

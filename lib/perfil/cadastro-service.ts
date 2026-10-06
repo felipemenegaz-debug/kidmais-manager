@@ -37,7 +37,8 @@ export type ContextoCadastro = {
     rascunho: IdentidadeRascunho | null;
 };
 
-async function estruturaCadastroInstalada(tx: DbExecutor) {
+/** 026 + 027 + 028 instaladas (tabelas e colunas do ciclo de revisão). Exportada para a criação do perfil (criacao.ts). */
+export async function estruturaCadastroInstalada(tx: DbExecutor) {
     const result = await tx.query<{ empresas: string | null; unidades: string | null; revisoes: string | null; colunas_revisao: number }>(
         `SELECT to_regclass('public.perfil_empresas') AS empresas,
                 to_regclass('public.perfil_unidades') AS unidades,
