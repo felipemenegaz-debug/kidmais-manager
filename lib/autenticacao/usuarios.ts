@@ -10,11 +10,14 @@ import { ClienteServiceError } from '../clientes/services/errors.ts';
 import { avaliarPerdaDeElegibilidade, MENSAGEM_ULTIMA_ADMINISTRADORA, revogarConcessoesAtivasDoUsuario } from '../perfil/protecao-usuarios.ts';
 import { executarNoTenant, type TenantComprovado } from '../saas/provar-tenant.ts';
 import { PAPEL_GLOBAL_NEUTRO } from './plataforma.ts';
+import { erroAcesso } from '../acessos/erros.ts';
 
 export type UsuariosDeps = {
     withTransaction: typeof withTransactionPadrao;
     criarHashSenha: typeof criarHashSenhaPadrao;
     registrarAuditoria: typeof registrarAuditoriaPadrao;
+    /** E1: a criação direta (senha definida pela Gestão) ainda está permitida? Padrão: USUARIOS_CRIACAO_DIRETA. */
+    criacaoDireta?: () => boolean;
 };
 
 const padrao: UsuariosDeps = {
@@ -162,6 +165,16 @@ export async function listarUsuariosAdministrativos(sessao: SessaoAdmin, empresa
     });
 }
 
+/**
+ * E1 (venda por assinatura): a criação direta define a senha de outra pessoa e vincula conta já existente sem o
+ * aceite dela. Com cadastro público isso não pode existir; o caminho é o convite (lib/acessos/convites-empresa.ts).
+ * Enquanto o envio de e-mail não estiver configurado, a criação direta continua disponível para não interromper a
+ * operação; USUARIOS_CRIACAO_DIRETA=desativada a encerra. O cadastro público só pode ser ligado com ela desativada.
+ */
+export function criacaoDiretaDisponivel(env: Record<string, string | undefined> = process.env) {
+    return env.USUARIOS_CRIACAO_DIRETA?.trim().toLowerCase() !== 'desativada';
+}
+
 /** F2 — o que a criação devolve: só a membership recém-administrável desta empresa, igual para qualquer e-mail. */
 export type AssociacaoNaEmpresa = {
     associado: true;
@@ -185,6 +198,8 @@ export type AssociacaoNaEmpresa = {
  * custo); a resposta tem o mesmo formato nos dois casos e não leva id, nome, situação nem vínculos da identidade.
  */
 export async function criarUsuarioAdministrativo(sessao: SessaoAdmin, raw: unknown, requestId: string, deps: UsuariosDeps = padrao, empresaSolicitada?: string | null): Promise<AssociacaoNaEmpresa> {
+    if (!(deps.criacaoDireta ?? criacaoDiretaDisponivel)())
+        throw erroAcesso('CRIACAO_DIRETA_DESATIVADA', 'Adicione pessoas por convite: a própria pessoa define a senha ao aceitar.', 403);
     const input = criarSchema.parse(raw);
     const email = input.email.trim().toLowerCase();
     const papel = papelDeNivel(input.nivel as NivelSistema);
