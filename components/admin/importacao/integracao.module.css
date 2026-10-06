@@ -17,6 +17,14 @@
   background: var(--input-bg); color: var(--km-text); font: 400 14px var(--admin-font);
 }
 .campo input:focus, .campo select:focus, .motivo input:focus, .parcelas input:focus, .parcelas select:focus { background: var(--input-focus-bg); border-color: color-mix(in srgb, var(--km-violet) 55%, transparent); outline: none; }
+.campo input:disabled { opacity: .55; cursor: not-allowed; }
+.campo input[aria-invalid="true"] { border-color: color-mix(in srgb, var(--km-orange) 70%, transparent); }
+.campo .campoErro { color: #f6c9a1; }
+/* Lista nativa do select com a cor do card (não branca), como nas demais telas do Admin. */
+.assistente select option, .assistente select optgroup { background: var(--card-bg); color: var(--km-text); }
+.ajuda { margin: 0 0 12px; color: var(--km-text-2); font-size: 13px; line-height: 1.5; }
+.subtitulo { margin: 4px 0 10px; color: var(--km-lilac); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.subtitulo span { margin-left: 6px; color: var(--km-text-2); font-weight: 600; letter-spacing: 0; text-transform: none; }
 .motivo { display: grid; gap: 6px; margin: 0 0 12px; padding: 12px 14px; border-radius: 10px; background: rgba(227, 197, 90, 0.06); }
 .motivo span { color: #e9d38a; font-size: 13px; line-height: 1.4; }
 .parcelas { display: grid; gap: 10px; margin: 6px 0 4px; overflow-x: auto; }

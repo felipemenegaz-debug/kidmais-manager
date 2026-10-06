@@ -21,8 +21,10 @@ function linha(
 
 function endereco(snapshot: ContratoSnapshot) {
   const e = snapshot.contratante.endereco;
+  if (!e) return "Não informado";
   const complemento = e.complemento?.trim() ? `, ${e.complemento.trim()}` : "";
-  return `${e.logradouro}, ${e.numero}${complemento} - ${e.bairro}, ${e.cidade}/${e.uf} - CEP ${formatarCep(e.cep)}`;
+  const cep = e.cep ? ` - CEP ${formatarCep(e.cep)}` : "";
+  return `${e.logradouro}, ${e.numero}${complemento} - ${e.bairro}, ${e.cidade}/${e.uf}${cep}`;
 }
 
 function adicionais(snapshot: ContratoSnapshot) {
@@ -101,7 +103,7 @@ export function renderizarContratoTemplateV1(
     linha(`Nome: ${s.contratante.nomeCompleto}`),
     linha(`CPF: ${formatarCpf(s.contratante.cpf)}`),
     linha(`RG: ${textoOuNaoInformado(s.contratante.rg)}`),
-    linha(`E-mail: ${historico ? textoOuNaoInformado(s.contratante.email) : s.contratante.email}`),
+    linha(`E-mail: ${textoOuNaoInformado(s.contratante.email)}`),
     linha(`Endereço: ${historico ? enderecoHistorico(s) : endereco(s)}`, "corpo", 10),
 
     linha("2. DADOS DO EVENTO", "secao", 5),

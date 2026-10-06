@@ -1,4 +1,4 @@
-import { cadastroContratualSchema, formularioCadastro, type CadastroContratual } from '../../clientes/cadastro-contratual.ts';
+import { cadastroContratualSchema, formularioCadastro, type CadastroConferido } from '../../clientes/cadastro-contratual.ts';
 import { leituraRecebimentosGuardada } from '../../importacao-contrato/recebimentos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -47,7 +47,8 @@ type Historico = { clienteId: string; tipoEvento: string; origem: string; entida
 
 export type Core = {
   snapshotFechamento(tx: DbExecutor, fechamentoId: string): Promise<Record<string, unknown>>;
-  atualizarCliente(tx: DbExecutor, clienteId: string, empresaId: string, cadastro: CadastroContratual, ctx: ContextoIntegracao): Promise<void>;
+  /** Patch do CRM: sem a chave `telefone` (a tela não a envia), o telefone já gravado é preservado. */
+  atualizarCliente(tx: DbExecutor, clienteId: string, empresaId: string, cadastro: CadastroConferido, ctx: ContextoIntegracao): Promise<void>;
   criarFechamento(tx: DbExecutor, input: Record<string, unknown>): Promise<{ id: string }>;
   registrarAuditoria(tx: DbExecutor, input: Auditoria): Promise<unknown>;
   registrarEventoHistorico(tx: DbExecutor, input: Historico): Promise<unknown>;
@@ -163,7 +164,7 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   avaliacao.resumo.cadastro = formularioCadastro(cliente);
   // O cadastro lido também integra a revisão: não sobrescrever uma edição concorrente do CRM.
   avaliacao.resumo.cadastroFonteHash = hashCanonico(formularioCadastro(clienteAtual));
-  if (!cadastro.success) avaliacao.bloqueios.push('Complete os dados do contratante: CPF, contato, e-mail e endereço são obrigatórios, como no fechamento.');
+  if (!cadastro.success) avaliacao.bloqueios.push('Complete os dados do contratante: nome, CPF válido e WhatsApp (ou telefone já cadastrado) são obrigatórios; e-mail é opcional e o endereço, se informado, precisa estar completo.');
   if (clienteAtual.cpf && decisoes.cadastro && clienteAtual.cpf.replace(/\D/g, '') !== decisoes.cadastro.cpf) avaliacao.bloqueios.push('O CPF do cliente vinculado não pode ser substituído. Confira o vínculo na etapa do cliente.');
   // Aniversariante do documento: vinculado ao cadastro do cliente (mesmo nome) ou criado nele. As revisões nativas
   // do contrato reconstroem o snapshot a partir do fechamento e exigem aniversariante vinculado.

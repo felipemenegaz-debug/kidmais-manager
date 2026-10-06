@@ -444,7 +444,8 @@ test("061: integração real — formalização em papel, festa, agenda, recebí
       const contrato = (await repoContrato.buscarContratoPorId(r.contratoId, tx))!;
       const versao = (await repoContrato.buscarVersaoCorrente(r.contratoId, tx))!;
       assert.equal(versao.aceiteMetodo, "CONFERENCIA_PAPEL");
-      assert.equal((versao.snapshot.contratante as unknown as Record<string, unknown>).endereco, undefined, "snapshot persistido sem endereço (como a importação grava)");
+      // Cliente sem endereço: o snapshot grava `endereco: null` (nunca objeto vazio nem parcial) e `email: null`.
+      assert.equal((versao.snapshot.contratante as unknown as Record<string, unknown>).endereco, null, "snapshot persistido sem endereço (como a importação grava)");
       const gerado = documento.gerarResumoContratacaoPdfDaVersao(versao);
       assert.equal(Buffer.from(gerado.pdf).subarray(0, 5).toString(), "%PDF-");
       const linhas = gerado.documento.linhas.map((l) => l.texto).join("\n");

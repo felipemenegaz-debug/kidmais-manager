@@ -94,3 +94,18 @@ novo. Três regras do schema travavam juntas: a 055c guarda um documento por arq
 
 Ordem: código publicado antes (ele detecta a 064 pelo catálogo), depois a 064 no banco de staging com precheck e
 postcheck, depois homologação: reenviar o PDF do contrato cancelado, revisar, confirmar e integrar.
+
+# Importação: Dados do contratante (tela e obrigatoriedade)
+
+Pedido de Felipe na homologação: padronizar as cores da lista do select, organizar o bloco "Dados do contratante",
+tirar o campo Telefone (confundia com WhatsApp) e deixar e-mail e endereço opcionais.
+
+- Select: a página de importação não tinha a regra `select option { background: var(--card-bg) }` usada nas demais
+  telas; a lista nativa aparecia branca. Regra adicionada no assistente.
+- Bloco do contratante: o componente usava estilos inline e inputs sem classe, por isso ficavam "invisíveis" sobre o
+  vidro escuro (só o preflight do Tailwind os atingia). Agora usa as classes do assistente, em duas seções.
+- Telefone: fora da tela, dentro do cadastro (preservado, conta como contato, segue na dedupe e no contrato).
+- E-mail e endereço opcionais só na conferência histórica, com endereço completo ou vazio. O fechamento nativo não
+  muda. Detalhes em `docs/CONTRATOS_IMPORTADOS_UNIFICACAO_20261005.md` (seção "Ajuste — contratante na conferência").
+- Testes: `lib/clientes/cadastro-contratual.test.ts` (novo) e ajuste em `servico.test.ts` (cadastro incompleto agora
+  pelo CPF, que continua obrigatório).

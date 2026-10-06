@@ -67,6 +67,9 @@ test('pagamentos: soma, data futura de recebimento e forma obrigatória são con
 test('payload da tela é aceito pelo esquema do servidor e não carrega empresa, usuário nem valores calculados', () => {
   const d = decisoesDoForm(preenchido({ data: '2026-11-15', motivos: { data: 'Contrato diz dia 15', convidados: 'não alterado' } }), sugestao);
   const lido = decisoesSchema.parse(d);
+  assert.ok(!('telefone' in d.cadastro), 'telefone fixo não é exibido nem enviado: o valor do CRM é preservado');
+  assert.equal(lido.cadastro?.telefone, undefined);
+  assert.equal(lido.cadastro?.whatsapp, '');
   assert.deepEqual(lido.motivos, { data: 'Contrato diz dia 15' }, 'motivo só de campo corrigido');
   assert.equal(lido.valorContratadoCentavos, 850000);
   assert.deepEqual(lido.financeiro, { situacao: 'PARCIALMENTE_PAGO', parcelas: [

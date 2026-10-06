@@ -47,6 +47,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
   const [passo, setPassoInterno] = useState<PassoIntegracao>(modoInicial === 'financeiro' ? 'pagamentos' : 'festa');
   const [revisao, setRevisao] = useState<Revisao>({ tipo: 'nenhuma' });
   const [erros, setErros] = useState<string[]>([]);
+  const [cadastroInvalido, setCadastroInvalido] = useState<Partial<Record<keyof CadastroContratual, string>>>({});
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoIntegracao | null>(null);
@@ -78,7 +79,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
   if (carga.tipo === 'erro') return <section className={styles.painel} role="alert"><h2 className={styles.titulo}>Não foi possível abrir a integração</h2><p className={styles.texto}>{carga.mensagem}</p><button type="button" className={styles.primario} onClick={() => void carregar()}>Tentar novamente</button></section>;
   const o = carga.opcoes;
   const f = form!;
-  const atualizar = (mudar: Partial<FormIntegracao>) => { setForm({ ...f, ...mudar }); setErros([]); setErro(null); if (revisao.tipo !== 'nenhuma') setRevisao({ tipo: 'nenhuma' }); };
+  const atualizar = (mudar: Partial<FormIntegracao>) => { setForm({ ...f, ...mudar }); setErros([]); setCadastroInvalido({}); setErro(null); if (revisao.tipo !== 'nenhuma') setRevisao({ tipo: 'nenhuma' }); };
   const atualizarParcela = (chave: string, mudar: Partial<ParcelaForm>) => atualizar({ parcelas: f.parcelas.map((p) => p.chave === chave ? { ...p, ...mudar } : p) });
 
   if (!o.disponivel) return <section className={styles.painel} role="status"><h2 className={styles.titulo}>Integração ainda indisponível neste ambiente</h2><p className={styles.texto}>O contrato continua registrado como importado, com o documento original. A integração com festa, agenda e financeiro será liberada quando a atualização do banco for aplicada.</p></section>;
@@ -107,7 +108,12 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
     </div>
   </section>;
 
-  const avancarFesta = () => { const e = errosFesta(f, o.sugestao, o.estabelecimentos.length); if (!cadastroContratualSchema.safeParse(f.cadastro).success) e.push("Complete o cadastro do contratante com CPF válido, contato, e-mail e endereço."); if (f.aniversariante.trim().length < 2) e.push("Informe o aniversariante."); setErros(e); if (!e.length) {
+  const avancarFesta = () => { const e = errosFesta(f, o.sugestao, o.estabelecimentos.length);
+    // Mensagens por campo do schema (a mesma regra do servidor): o operador vê qual campo e por quê, e o input é marcado.
+    const cadastro = cadastroContratualSchema.safeParse(f.cadastro); const invalidos: Partial<Record<keyof CadastroContratual, string>> = {};
+    if (!cadastro.success) for (const issue of cadastro.error.issues) { const k = issue.path[0] as keyof CadastroContratual; const rotulo = CAMPOS_CADASTRO[k]; if (rotulo && !invalidos[k]) invalidos[k] = issue.message; e.push(rotulo ? `${rotulo}: ${issue.message}` : `Dados do contratante: ${issue.message}`); }
+    setCadastroInvalido(invalidos);
+    if (f.aniversariante.trim().length < 2) e.push("Informe o aniversariante."); setErros(e); if (!e.length) {
     if (versaoRascunho !== undefined && (f.situacaoFinanceira === 'PAGO' || f.situacaoFinanceira === 'NAO_CONFERIDO') && !errosPagamentos(f, o.sugestao, o.hoje).length) void revisar(f);
     else setPasso('pagamentos');
   } };
@@ -183,9 +189,9 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
         {bloqueadoPelaSituacao && <p className={styles.aviso}>Contrato cancelado ou não confirmado não vira festa e não ocupa agenda. Ele continua consultável como contrato importado, com o documento original.</p>}
       </fieldset>
       {!bloqueadoPelaSituacao && <>
-        <CamposCadastroContratual value={f.cadastro} cpfProtegido={!!o.cliente?.cadastro?.cpf} onChange={cadastro => atualizar({ cadastro })} />
-        <label className={ui.campo}>Aniversariante<input value={f.aniversariante} onChange={e => atualizar({ aniversariante: e.target.value })} /></label>
-        <label className={ui.campo}>Forma contratada<select value={f.formaPagamento} onChange={e => atualizar({ formaPagamento: e.target.value as FormIntegracao["formaPagamento"] })}><option value="">Outra / conforme documento original</option><option value="PIX_AVISTA">Pix à vista</option><option value="PIX_PARCELADO">Pix parcelado</option><option value="CARTAO_CIELO">Cartão / Cielo</option></select><small>O valor contratado é mantido. Nenhum desconto atual será aplicado à importação.</small></label>
+        <CamposCadastroContratual value={f.cadastro} cpfProtegido={!!o.cliente?.cadastro?.cpf} invalidos={cadastroInvalido} onChange={cadastro => atualizar({ cadastro })} />
+        <label className={ui.campo}><span>Aniversariante</span><input value={f.aniversariante} onChange={e => atualizar({ aniversariante: e.target.value })} /></label>
+        <label className={ui.campo}><span>Forma contratada</span><select value={f.formaPagamento} onChange={e => atualizar({ formaPagamento: e.target.value as FormIntegracao["formaPagamento"] })}><option value="">Outra / conforme documento original</option><option value="PIX_AVISTA">Pix à vista</option><option value="PIX_PARCELADO">Pix parcelado</option><option value="CARTAO_CIELO">Cartão / Cielo</option></select><small>O valor contratado é mantido. Nenhum desconto atual será aplicado à importação.</small></label>
         <div className={ui.grade}>
           <label className={ui.campo}><span>Unidade</span>
             {o.estabelecimentos.length ? <select value={f.estabelecimentoId} onChange={(e) => atualizar({ estabelecimentoId: e.target.value })}>
@@ -272,7 +278,7 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
           <div><dt>Festa</dt><dd>{dataBr(revisao.sim.resumo.festa.data)}, {revisao.sim.resumo.festa.horarioInicio}–{revisao.sim.resumo.festa.horarioFim} · {revisao.sim.resumo.festa.convidados} convidados<small>{[revisao.sim.resumo.festa.aniversariante, revisao.sim.resumo.festa.tema].filter(Boolean).join(' · ')}</small>{revisao.sim.resumo.festa.aniversarianteCadastro && <small>{revisao.sim.resumo.festa.aniversarianteCadastro === 'NOVO' ? `Aniversariante será cadastrado no cliente ${revisao.sim.resumo.contrato.cliente}.` : 'Aniversariante vinculado ao cadastro existente do cliente.'}</small>}</dd></div>
           <div><dt>Agenda</dt><dd data-ocupa={revisao.sim.resumo.agenda.ocupa}>{revisao.sim.resumo.agenda.descricao}{revisao.sim.resumo.contrato.unidade && <small>Unidade: {revisao.sim.resumo.contrato.unidade}</small>}</dd></div>
         </dl>
-        <details><summary>Cadastro que será salvo</summary><dl className={ui.resumo}>{Object.entries(revisao.sim.resumo.cadastro ?? f.cadastro).map(([campo, valor]) => <div key={campo}><dt>{CAMPOS_CADASTRO[campo as keyof CadastroContratual]}</dt><dd>{valor || "Não informado"}</dd></div>)}</dl></details>
+        <details><summary>Cadastro que será salvo</summary><dl className={ui.resumo}>{Object.entries(revisao.sim.resumo.cadastro ?? f.cadastro).filter(([campo, valor]) => campo !== 'telefone' || valor).map(([campo, valor]) => <div key={campo}><dt>{CAMPOS_CADASTRO[campo as keyof CadastroContratual]}</dt><dd>{valor || "Não informado"}</dd></div>)}</dl></details>
         <ResumoPagamentos financeiro={revisao.sim.resumo.financeiro} />
         {revisao.sim.resumo.campos.some((c) => c.origem !== 'DOCUMENTO') && <div className={ui.correcoes}>
           <h3>Diferenças em relação ao documento</h3>

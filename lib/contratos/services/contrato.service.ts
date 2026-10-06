@@ -49,8 +49,10 @@ export function montarSnapshotContratoV1(input: {
   responsavelAdicional: ResponsavelRecord | null;
   adicionais: FechamentoAdicionalRecord[];
   referencias: ReferenciasComerciaisContrato;
+  /** false só na conferência de contrato histórico (importação), cujo contratante vem do próprio cadastro conferido. */
+  exigirCadastroCompleto?: boolean;
 }): ContratoSnapshotV1 {
-  const { fechamento, cliente, aniversariante, responsavelAdicional, adicionais, referencias } = input;
+  const { fechamento, cliente, aniversariante, responsavelAdicional, adicionais, referencias, exigirCadastroCompleto = true } = input;
   if (fechamento.condicaoPagamento && (
     fechamento.condicaoPagamento.forma !== fechamento.formaPagamentoPretendida ||
     !["APROVADA", "DISPENSADA"].includes(fechamento.condicaoPagamento.revisaoStatus) ||
@@ -59,7 +61,7 @@ export function montarSnapshotContratoV1(input: {
     throw new ContratoServiceError("DADOS_CONTRATUAIS_INCONSISTENTES", "A condição comercial deve ser aprovada antes do Contrato.", 409);
   }
 
-  if (!cliente.cpf || !cliente.email || !cliente.cep || !cliente.logradouro || !cliente.numero || !cliente.bairro || !cliente.cidade || !cliente.uf) {
+  if (exigirCadastroCompleto && (!cliente.cpf || !cliente.email || !cliente.cep || !cliente.logradouro || !cliente.numero || !cliente.bairro || !cliente.cidade || !cliente.uf)) {
     throw new ContratoServiceError(
       "CADASTRO_CONTRATUAL_INCOMPLETO",
       "O cadastro do Cliente ainda não possui todos os dados obrigatórios para o Contrato.",
@@ -192,10 +194,12 @@ export async function carregarSnapshot(
   fechamento: FechamentoRecord,
   tx: DbExecutor,
   preparacao?: { id: string; adicionais: FechamentoAdicionalRecord[] },
+  opcoes: { exigirCadastroCompleto?: boolean } = {},
 ): Promise<{
   snapshot: ContratoSnapshot;
   cliente: ClienteRecord;
 }> {
+  const exigirCadastroCompleto = opcoes.exigirCadastroCompleto ?? true;
   if (!fechamento.clienteId) {
     throw new ContratoServiceError(
       "CLIENTE_NAO_VINCULADO",
@@ -220,7 +224,9 @@ export async function carregarSnapshot(
     );
   }
 
-  const faltantes = camposFaltantesParaContrato(cliente);
+  // Conferência histórica (importação): e-mail e endereço são opcionais e o contratante gravado vem do cadastro
+  // conferido (montarSnapshotVersao), não deste snapshot; por isso a exigência de cadastro completo é dispensável lá.
+  const faltantes = exigirCadastroCompleto ? camposFaltantesParaContrato(cliente) : [];
   if (faltantes.length > 0) {
     throw new ContratoServiceError(
       "CADASTRO_CONTRATUAL_INCOMPLETO",
@@ -274,6 +280,7 @@ export async function carregarSnapshot(
     responsavelAdicional,
     adicionais,
     referencias,
+    exigirCadastroCompleto,
   });
   return {
     cliente,

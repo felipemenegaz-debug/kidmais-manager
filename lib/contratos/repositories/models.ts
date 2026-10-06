@@ -62,16 +62,18 @@ export type ContratoSnapshotV1 = {
     rg: string | null;
     telefone: string | null;
     whatsapp: string | null;
-    email: string;
+    /** Nulo só em contrato histórico (importação) sem e-mail; o fechamento nativo exige e-mail. */
+    email: string | null;
+    /** Nulo só em contrato histórico (importação) sem endereço; nunca um endereço parcial. */
     endereco: {
-      cep: string;
+      cep: string | null;
       logradouro: string;
       numero: string;
       complemento: string | null;
       bairro: string;
       cidade: string;
       uf: string;
-    };
+    } | null;
   };
   responsavelAdicional: {
     id: string;
