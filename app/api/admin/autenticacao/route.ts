@@ -18,7 +18,17 @@ const schema = z.discriminatedUnion('acao', [
     z.object({ acao: z.literal('selecionar-empresa'), empresaId: z.string().uuid() }).strict(),
 ]);
 function response(data: unknown, status = 200) { return NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } }); }
-function fail(error: unknown) { return isClienteServiceError(error) || error instanceof PacoteAdminError ? response({ ok: false, erro: error.message, codigo: error.code }, error.httpStatus) : response({ ok: false, erro: 'Falha na autenticação.' }, 500); }
+function fail(error: unknown) {
+    if (!(isClienteServiceError(error) || error instanceof PacoteAdminError))
+        return response({ ok: false, erro: 'Falha na autenticação.' }, 500);
+    const res = response({ ok: false, erro: error.message, codigo: error.code }, error.httpStatus);
+    // Limite de tentativas com prazo calculável (janela do banco): Retry-After em segundos; sem prazo, nenhum cabeçalho.
+    const detalhes = error.details as { retryAfterSegundos?: unknown } | null | undefined;
+    const segundos = detalhes && typeof detalhes === 'object' ? detalhes.retryAfterSegundos : undefined;
+    if (error.httpStatus === 429 && typeof segundos === 'number' && Number.isFinite(segundos) && segundos > 0)
+        res.headers.set('Retry-After', String(Math.max(1, Math.ceil(segundos))));
+    return res;
+}
 export async function GET(request: NextRequest) {
     try {
         const policy = politicaAdmin(request);

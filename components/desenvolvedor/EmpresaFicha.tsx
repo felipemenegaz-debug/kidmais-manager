@@ -14,7 +14,9 @@ type Empresa = { id: string; codigo: string; nome: string; status: string; situa
 type Membro = { usuarioId: string; nome: string; email: string; papel: string; nivel: string; statusVinculo: 'PENDENTE' | 'ATIVA' | 'SUSPENSA' | 'REVOGADA'; contaAtiva: boolean; membershipId: string; vinculoDesde: string; atualizadoEm: string; outrasEmpresasAtivas: number };
 type Convite = { id: string; email: string; nomeSugerido: string | null; nivel: string; situacao: 'PENDENTE' | 'EXPIRADO' | 'ACEITO' | 'CANCELADO'; expiraEm: string; envios: number; ultimoEnvioEm: string | null; criadoEm: string; aceitoEm: string | null; canceladoEm: string | null };
 type Atividade = { id: string; acao: string; origem: string; criado_em: string; ator: string | null; resultado: string | null };
-type Ficha = { empresa: Empresa; membros: Membro[]; convites: Convite[]; atividade: Atividade[]; envioEmail: { configurado: boolean; motivo: string | null } };
+type Pendencia = { codigo: string; titulo: string; atendida: boolean; obrigatoria: boolean; detalhe: string; acao: 'CONVITES' | 'PERFIL' | 'PLATAFORMA' | null };
+type Implantacao = { itens: Pendencia[]; podeConcluir: boolean; pendentesObrigatorias: string[] };
+type Ficha = { empresa: Empresa; membros: Membro[]; convites: Convite[]; atividade: Atividade[]; implantacao: Implantacao | null; envioEmail: { configurado: boolean; motivo: string | null } };
 type Envio = { enviado: boolean; destino: string; motivo?: string };
 
 const VINCULO: Record<Membro['statusVinculo'], { rotulo: string; tom?: string }> = {
@@ -109,12 +111,22 @@ export default function EmpresaFicha({ id }: { id: string }) {
             {!editando && <div className={estilos.acoesLinha} style={{ marginTop: 12 }}><button type="button" onClick={() => setEditando(true)}>{e.cadastro ? 'Editar cadastro' : 'Completar cadastro'}</button></div>}
             {e.cadastro && e.status === 'ATIVA' && <>
                 <h3>Implantação</h3>
+                {ficha.implantacao && <ul className={estilos.lista} aria-label="Pendências de implantação">
+                    {ficha.implantacao.itens.map((p) => <li key={p.codigo}>
+                        <strong><span aria-hidden="true">{p.atendida ? '✓' : p.obrigatoria ? '✗' : '•'}</span> {p.titulo}{p.obrigatoria && !p.atendida ? ' (obrigatória)' : ''}</strong>
+                        <span>{p.detalhe}{!p.atendida && p.acao === 'CONVITES' && <> · <a href="#t-convites">Ver convites</a></>}{!p.atendida && p.acao === 'PERFIL' && ' · Ação da Gestão da empresa, no Admin.'}{!p.atendida && p.acao === 'PLATAFORMA' && ' · Ação da plataforma, fora deste painel.'}</span>
+                    </li>)}
+                </ul>}
                 <div className={estilos.filtros} role="group" aria-label="Etapa da implantação">
-                    {IMPLANTACAO.map((i) => <button key={i.valor} type="button" aria-pressed={e.cadastro?.implantacao === i.valor} disabled={ocupado || e.cadastro?.implantacao === i.valor} onClick={() => operar(
-                        () => chamar<{ implantacao: string }>(base, 'POST', { acao: 'implantacao', dados: { implantacao: i.valor, revisao: e.cadastro?.revisao } }),
-                        () => ({ tipo: 'ok', texto: `Implantação: ${i.rotulo}.` }),
-                    )}>{i.rotulo}</button>)}
+                    {IMPLANTACAO.map((i) => <button key={i.valor} type="button" aria-pressed={e.cadastro?.implantacao === i.valor}
+                        disabled={ocupado || e.cadastro?.implantacao === i.valor || (i.valor === 'CONCLUIDA' && ficha.implantacao !== null && !ficha.implantacao.podeConcluir)}
+                        title={i.valor === 'CONCLUIDA' && ficha.implantacao && !ficha.implantacao.podeConcluir ? 'Resolva as pendências obrigatórias antes de concluir.' : undefined}
+                        onClick={() => operar(
+                            () => chamar<{ implantacao: string }>(base, 'POST', { acao: 'implantacao', dados: { implantacao: i.valor, revisao: e.cadastro?.revisao } }),
+                            () => ({ tipo: 'ok', texto: `Implantação: ${i.rotulo}.` }),
+                        )}>{i.rotulo}</button>)}
                 </div>
+                {ficha.implantacao && !ficha.implantacao.podeConcluir && e.cadastro.implantacao !== 'CONCLUIDA' && <p className={workspace.muted}>“Implantação concluída” fica disponível quando as pendências obrigatórias acima forem atendidas. O servidor confere de novo ao marcar.</p>}
                 {e.cadastro.implantacaoConcluidaEm && <p className={workspace.muted}>Concluída em {formatarData(e.cadastro.implantacaoConcluidaEm)}.</p>}
             </>}
         </section>
@@ -210,6 +222,7 @@ export default function EmpresaFicha({ id }: { id: string }) {
 
         <section className={workspace.card} aria-labelledby="t-atividade">
             <h2 id="t-atividade">Atividade administrativa</h2>
+            <p className={workspace.muted}>Últimos registros. <Link href={`/desenvolvedor/atividade?empresaId=${e.id}`}>Ver toda a atividade desta empresa</Link>, com filtros por ação e período.</p>
             {ficha.atividade.length === 0 ? <p className={workspace.muted}>Sem registros.</p> : <div className={admin.tableWrap}><table>
                 <thead><tr><th>Quando</th><th>Ação</th><th>Quem</th><th>Resultado</th></tr></thead>
                 <tbody>{ficha.atividade.map((a) => <tr key={a.id}><td>{formatarData(a.criado_em)}</td><td>{rotuloAcao(a.acao)}</td><td>{a.ator ?? 'Sistema'}</td><td>{rotuloResultado(a.resultado)}</td></tr>)}</tbody>

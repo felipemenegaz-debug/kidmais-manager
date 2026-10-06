@@ -4,12 +4,19 @@ import { CAPACIDADES_PERFIL, capacidadePerfil, type CapacidadePerfil } from './c
 import { estruturaPerfilInstalada } from './estrutura.ts';
 
 // Legado V1: UUID e código EMP-* do perfil são independentes do cadastro SaaS.
-// Sem identidade/código comum, só o contexto com UMA empresa em CADA tabela é aceito.
-// Mais de um candidato fecha o acesso. Esta associação não concede capacidades.
+// Associação, nesta ordem: mesmo UUID; código do perfil igual ao código da empresa (perfis criados pela
+// implantação nascem assim); instalação com UMA empresa e UM perfil; e o perfil legado sem código correspondente
+// (o único perfil órfão da instalação) pertence à empresa legada `kidmais` (046), mesmo depois de o painel
+// provisionar outras empresas. Mais de um candidato fecha o acesso. Esta associação não concede capacidades.
 export const EMPRESA_SAAS_DO_PERFIL = `SELECT id, status, count(*) OVER () AS candidatos FROM empresas
   WHERE id = p.id OR codigo = lower(p.codigo) OR (
     (SELECT count(*) FROM empresas) = 1 AND
     (SELECT count(*) FROM public.perfil_empresas) = 1
+  ) OR (
+    codigo = 'kidmais'
+    AND NOT EXISTS (SELECT 1 FROM empresas x WHERE x.id = p.id OR x.codigo = lower(p.codigo))
+    AND (SELECT count(*) FROM public.perfil_empresas q
+          WHERE NOT EXISTS (SELECT 1 FROM empresas y WHERE y.id = q.id OR y.codigo = lower(q.codigo))) = 1
   )`;
 
 export type ConsultaCapacidadesPerfil = {

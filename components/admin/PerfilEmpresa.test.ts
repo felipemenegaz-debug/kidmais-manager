@@ -45,3 +45,20 @@ test('a API usa sessão, origem e CSRF e não concede acesso', () => {
     assert.match(rota, /salvar-rascunho/);
     assert.match(rota, /aplicar/);
 });
+
+test('empresa nova sem perfil: a tela oferece a criação só à Gestão, com reautenticação exigida no servidor; a API delega ao serviço dentro do tenant', () => {
+    assert.match(tela, /perfilAusente/);
+    assert.match(tela, /Criar perfil da empresa/);
+    assert.match(tela, /PERFIL_REAUTENTICACAO/);
+    assert.match(tela, /Somente a Gestão desta empresa cria o perfil/);
+    assert.match(tela, /acao: 'criar-perfil', confirmar: true/);
+    assert.match(rota, /perfilDoTenantOuNulo\(tx, tenant\.empresaComprovada\)/);
+    assert.match(rota, /podeCriar: tenant\.papelAtual === 'REPRESENTANTE_AUTORIZADO'/);
+    assert.match(rota, /criarPerfilDaEmpresa\(tx, tenant/);
+    const criacao = readFileSync('lib/perfil/criacao.ts', 'utf8');
+    assert.match(criacao, /exigirGestaoNoTenant\(tenant/);
+    assert.match(criacao, /exigirReautenticacaoPerfil\(\{ autenticado_em: input\.autenticadoEm \}, input\.agora\)/);
+    assert.match(criacao, /travarProvisionamentoInicial\(tx\)/);
+    assert.match(criacao, /FROM empresas WHERE id = \$1::uuid FOR UPDATE/);
+    assert.doesNotMatch(criacao, /kidmais/i, 'nada é copiado da Kidmais');
+});

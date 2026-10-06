@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { DbExecutor } from '../db/contracts';
 import { withTransaction as withTransactionPadrao } from '../db/postgres';
 import { registrarAuditoria as registrarAuditoriaPadrao } from '../clientes/repositories/auditoria.repository';
-import { consumirLimite } from '../autenticacao/service.ts';
+import { consumirLimite, prazoDoLimite } from '../autenticacao/service.ts';
 import { conferirSenha as conferirSenhaPadrao, criarHashSenha as criarHashSenhaPadrao, hashToken } from '../autenticacao/senha.ts';
 import { nomePapelSistema, type NivelSistema } from '../autenticacao/papeis.ts';
 import { concederPerfilFesta, inserirIdentidadeNeutra, marcarAtor } from '../autenticacao/usuarios.ts';
@@ -121,8 +121,10 @@ export async function renovarConviteNaTransacao(tx: DbExecutor, deps: Pick<Convi
         throw erroAcesso('NAO_ENCONTRADO', 'Convite não encontrado nesta empresa.', 404);
     if (c.status !== 'PENDENTE')
         throw erroAcesso('CONFLITO', c.status === 'ACEITO' ? 'Este convite já foi aceito.' : 'Este convite foi cancelado. Crie um novo.', 409);
-    if (c.segundos_desde_envio !== null && c.segundos_desde_envio < INTERVALO_REENVIO_SEGUNDOS)
-        throw erroAcesso('LIMITE_TENTATIVAS', `Aguarde ${INTERVALO_REENVIO_SEGUNDOS - c.segundos_desde_envio} segundos para reenviar.`, 429);
+    if (c.segundos_desde_envio !== null && c.segundos_desde_envio < INTERVALO_REENVIO_SEGUNDOS) {
+        const aguardar = INTERVALO_REENVIO_SEGUNDOS - c.segundos_desde_envio;
+        throw erroAcesso('LIMITE_TENTATIVAS', `Aguarde ${aguardar} segundos para reenviar.`, 429, { retryAfterSegundos: aguardar });
+    }
     if (c.envios >= MAXIMO_ENVIOS)
         throw erroAcesso('LIMITE_TENTATIVAS', 'Este convite atingiu o limite de envios. Cancele e crie um novo.', 429);
     const token = deps.gerarToken();
@@ -174,8 +176,10 @@ export type ConsultaConvite =
 export async function consultarConvite(raw: unknown, ctx: ContextoRequisicao, deps: Pick<ConvitesDeps, 'withTransaction'> = convitesDepsPadrao()): Promise<ConsultaConvite> {
     const token = tokenSchema.safeParse((raw as { token?: unknown } | null)?.token);
     return deps.withTransaction(async (tx) => {
-        if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE))
-            throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde alguns minutos.', 429);
+        if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE)) {
+            const aguardar = await prazoDoLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE.namespace);
+            throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde alguns minutos.', 429, aguardar ? { retryAfterSegundos: aguardar } : undefined);
+        }
         if (!token.success)
             return { situacao: 'INVALIDO' as const };
         const c = (await tx.query<LinhaConvite & { empresa_nome: string; empresa_status: string; conta: boolean }>(
@@ -209,7 +213,7 @@ export async function aceitarConvite(raw: unknown, ctx: ContextoRequisicao, deps
         validarNovaSenha(input.senha, input.confirmacao);
     const resultado = await deps.withTransaction(async (tx) => {
         if (!await consumirLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE))
-            return { tipo: 'limite' as const };
+            return { tipo: 'limite' as const, aguardar: await prazoDoLimite(tx, 'ORIGEM', ctx.ip ?? 'ORIGEM_NAO_VERIFICADA', REGRA_ORIGEM_CONVITE.namespace) };
         const c = (await tx.query<LinhaConvite>(`SELECT ${COLUNAS} FROM convites_acesso c WHERE c.token_hash = $1 FOR UPDATE`, [hashToken(input.token)])).rows[0];
         if (!c || c.status !== 'PENDENTE' || c.expirado)
             return { tipo: 'link' as const };
@@ -222,7 +226,7 @@ export async function aceitarConvite(raw: unknown, ctx: ContextoRequisicao, deps
         if (conta) {
             // Conta existente: prova de posse pela senha atual; a janela é a MESMA do login (5 por 15 min por e-mail).
             if (!await consumirLimite(tx, 'IDENTIFICADOR', c.email, { janelaSegundos: 900, limite: 5 }))
-                return { tipo: 'limite' as const };
+                return { tipo: 'limite' as const, aguardar: await prazoDoLimite(tx, 'IDENTIFICADOR', c.email) };
             if (!await deps.conferirSenha(input.senha, conta.senha_hash) || !conta.ativo) {
                 await deps.registrarAuditoria({ atorTipo: 'SISTEMA', acao: 'CONVITE_ACEITE_RECUSADO', entidadeTipo: 'CONVITE_ACESSO', entidadeId: c.id,
                     dadosDepois: { empresaId: c.empresa_id, resultado: 'RECUSADO', motivo: 'CREDENCIAL' }, origem: 'CONVITE_PUBLICO', requestId: ctx.requestId, ip: ctx.ip, userAgent: ctx.userAgent }, tx);
@@ -264,7 +268,7 @@ export async function aceitarConvite(raw: unknown, ctx: ContextoRequisicao, deps
     });
     switch (resultado.tipo) {
         case 'ok': return { aceito: true as const, empresa: resultado.empresa, contaNova: resultado.contaNova };
-        case 'limite': throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde 15 minutos e tente novamente.', 429);
+        case 'limite': throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde 15 minutos e tente novamente.', 429, resultado.aguardar ? { retryAfterSegundos: resultado.aguardar } : undefined);
         case 'link': throw erroAcesso('LINK_INVALIDO', 'Este convite é inválido, já foi usado ou expirou. Peça um novo convite.', 410);
         case 'empresa': throw erroAcesso('CONFLITO', 'O acesso a esta empresa está indisponível no momento.', 409);
         case 'conta-nova-incompleta': throw erroAcesso('DADOS_INVALIDOS', 'Informe seu nome, a senha e a confirmação para criar o acesso.', 400);

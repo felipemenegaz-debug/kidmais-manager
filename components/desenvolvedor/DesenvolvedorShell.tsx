@@ -1,27 +1,57 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import styles from '@/components/admin/shell.module.css';
 import tokens from '@/components/admin/tokens.module.css';
 import { AdminIcon } from '@/components/admin/AdminIcon';
-import { adminFetch } from '@/lib/http/admin-fetch';
 import AvisoContexto from '@/components/admin/AvisoContexto';
+import { sairDaSessao } from '@/components/admin/sair';
 
 const ITENS = [
     { href: '/desenvolvedor', rotulo: 'Resumo', icone: 'dashboard' as const },
     { href: '/desenvolvedor/interessadas', rotulo: 'Interessadas', icone: 'contact' as const },
     { href: '/desenvolvedor/empresas', rotulo: 'Contratantes', icone: 'users' as const },
+    { href: '/desenvolvedor/atividade', rotulo: 'Atividade', icone: 'history' as const },
 ];
 
-/** Shell do painel do desenvolvedor: área separada da administração das empresas, mesmo padrão visual do Admin. */
+type AcessosDaConta = { empresasAtivas: number; carregado: boolean };
+
+/**
+ * Shell do painel do desenvolvedor: área separada da administração das empresas, mesmo padrão visual do Admin.
+ * "Ir para o Admin" só aparece quando a conta tem alguma empresa com acesso ativo (a concessão de desenvolvedor não
+ * dá acesso operacional a empresa nenhuma); sem empresa, a conta ainda sai, acessa o perfil e usa o painel.
+ */
 export default function DesenvolvedorShell({ nome, children }: { nome: string; children: React.ReactNode }) {
     const path = usePathname();
-    const router = useRouter();
     const [aberto, setAberto] = useState(false);
+    const [saindo, setSaindo] = useState(false);
+    const [acessos, setAcessos] = useState<AcessosDaConta>({ empresasAtivas: 0, carregado: false });
+    const menuRef = useRef<HTMLButtonElement>(null);
     const ativo = (href: string) => href === '/desenvolvedor' ? path === href : path === href || path.startsWith(`${href}/`);
+    useEffect(() => {
+        let vivo = true;
+        fetch('/api/admin/autenticacao', { cache: 'no-store' }).then((r) => r.json()).then((b) => {
+            if (!vivo) return;
+            const empresas = (b?.data?.contexto?.empresas as unknown[] | undefined) ?? [];
+            setAcessos({ empresasAtivas: empresas.length, carregado: true });
+        }).catch(() => { if (vivo) setAcessos({ empresasAtivas: 0, carregado: true }); });
+        return () => { vivo = false; };
+    }, [path]);
+    useEffect(() => {
+        if (!aberto)
+            return;
+        function tecla(evento: KeyboardEvent) {
+            if (evento.key !== 'Escape')
+                return;
+            setAberto(false);
+            menuRef.current?.focus();
+        }
+        document.addEventListener('keydown', tecla);
+        return () => document.removeEventListener('keydown', tecla);
+    }, [aberto]);
     return <div className={`${tokens.tema} ${styles.shell}`}>
-        <button className={styles.menu} type="button" aria-expanded={aberto} aria-controls="menu-desenvolvedor" onClick={() => setAberto((v) => !v)}><span>{aberto ? 'Fechar menu' : 'Abrir menu'}</span><b aria-hidden="true">{aberto ? '×' : '☰'}</b></button>
+        <button ref={menuRef} className={styles.menu} type="button" aria-expanded={aberto} aria-controls="menu-desenvolvedor" onClick={() => setAberto((v) => !v)}><span>{aberto ? 'Fechar menu' : 'Abrir menu'}</span><b aria-hidden="true">{aberto ? '×' : '☰'}</b></button>
         {aberto && <button className={styles.cortina} type="button" aria-label="Fechar menu" onClick={() => setAberto(false)} />}
         <aside id="menu-desenvolvedor" className={styles.sidebar} data-aberto={aberto}>
             <Link className={styles.brand} href="/desenvolvedor" onClick={() => setAberto(false)}>
@@ -36,18 +66,13 @@ export default function DesenvolvedorShell({ nome, children }: { nome: string; c
                 </div>
                 <div><p className={styles.grupo}>Conta</p>
                     <Link href="/admin/perfil" onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="profile" /></span>Meu perfil e senha</Link>
-                    <Link href="/admin/dashboard" onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="settings" /></span>Ir para o Admin</Link>
+                    {acessos.carregado && acessos.empresasAtivas > 0 && <Link href="/admin/dashboard" onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="settings" /></span>Ir para o Admin</Link>}
                 </div>
             </nav>
             <footer className={styles.conta}>
                 <div className={styles.identidade}><span className={styles.avatar} aria-hidden="true">{nome.slice(0, 1).toUpperCase()}</span><div><p>{nome}</p><small>Desenvolvedor</small></div></div>
-                <button type="button" onClick={async () => {
-                    const res = await adminFetch('/api/admin/autenticacao', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'logout' }) });
-                    if (res.ok) {
-                        router.replace('/admin/login');
-                        router.refresh();
-                    }
-                }}><AdminIcon name="logout" size={12} /> Sair</button>
+                {acessos.carregado && acessos.empresasAtivas === 0 && <p className={styles.avisoEmpresa} role="status">Sem empresa com acesso ativo no Admin.</p>}
+                <button type="button" disabled={saindo} onClick={() => { setSaindo(true); void sairDaSessao(); }}><AdminIcon name="logout" size={12} /> {saindo ? 'Saindo…' : 'Sair'}</button>
             </footer>
         </aside>
         <div className={styles.conteudo}><AvisoContexto />{children}</div>

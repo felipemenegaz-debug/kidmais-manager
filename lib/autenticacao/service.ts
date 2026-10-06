@@ -18,8 +18,8 @@ export type SessaoAdmin = {
     consultado_em?: string;
     empresa_ativa_id?: string | null;
 };
-export function authError(message = 'Autenticação administrativa necessária.', status = 401) {
-    return new ClienteServiceError('AUTENTICACAO_ADMINISTRATIVA', message, status);
+export function authError(message = 'Autenticação administrativa necessária.', status = 401, details?: Record<string, unknown>) {
+    return new ClienteServiceError('AUTENTICACAO_ADMINISTRATIVA', message, status, details);
 }
 export async function consultarSessao(token: string, tx: DbExecutor = db(), lock = false): Promise<SessaoAdmin> {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token))
@@ -80,6 +80,19 @@ export async function consumirLimite(tx: DbExecutor, type: 'IDENTIFICADOR' | 'OR
 export async function limparLimite(tx: DbExecutor, type: 'IDENTIFICADOR' | 'ORIGEM', value: string, namespace?: string) {
     await tx.query('DELETE FROM limites_autenticacao WHERE chave_hash=$1', [chaveLimite(type, value, namespace)]);
 }
+/**
+ * Segundos até o bloqueio da janela acabar (para `Retry-After` em respostas 429), pelo relógio do banco.
+ * null quando não há bloqueio vigente ou a chave não existe — nesse caso nenhum prazo é informado.
+ */
+export async function prazoDoLimite(tx: DbExecutor, type: 'IDENTIFICADOR' | 'ORIGEM', value: string, namespace?: string): Promise<number | null> {
+    const row = (await tx.query<{ segundos: number | string | null }>(
+        `SELECT GREATEST(1, ceil(extract(epoch FROM (bloqueado_ate - clock_timestamp()))))::int AS segundos
+           FROM limites_autenticacao WHERE chave_hash=$1 AND bloqueado_ate > clock_timestamp()`,
+        [chaveLimite(type, value, namespace)],
+    )).rows[0];
+    const segundos = row?.segundos == null ? null : Number(row.segundos);
+    return segundos !== null && Number.isFinite(segundos) && segundos > 0 ? segundos : null;
+}
 /** Sessão administrativa nova: 8 h absolutas (a inatividade de 30 min é conferida em consultarSessao). Só os hashes vão ao banco. */
 export async function criarSessaoAdministrativa(tx: DbExecutor, usuarioId: string, ip: string | null, userAgent: string | null) {
     const token = randomBytes(32).toString('base64url'), csrf = randomBytes(32).toString('base64url');
@@ -96,8 +109,11 @@ export async function revogarSessoesDoUsuario(tx: DbExecutor, usuarioId: string)
 }
 export async function loginAdmin(email: string, password: string, requestId: string, ip: string | null, userAgent: string | null, oldToken?: string) {
     const result = await withTransaction(async (tx) => {
-        if (!await tentativa(tx, 'ORIGEM', ip ?? 'ORIGEM_NAO_VERIFICADA') || !await tentativa(tx, 'IDENTIFICADOR', email.trim().toLowerCase()))
-            return { error: 429 } as const;
+        if (!await tentativa(tx, 'ORIGEM', ip ?? 'ORIGEM_NAO_VERIFICADA') || !await tentativa(tx, 'IDENTIFICADOR', email.trim().toLowerCase())) {
+            // Prazo calculável da janela (o maior entre origem e identificador) para o Retry-After do 429.
+            const prazos = [await prazoDoLimite(tx, 'ORIGEM', ip ?? 'ORIGEM_NAO_VERIFICADA'), await prazoDoLimite(tx, 'IDENTIFICADOR', email.trim().toLowerCase())].filter((p): p is number => p !== null);
+            return { error: 429, aguardar: prazos.length ? Math.max(...prazos) : null } as const;
+        }
         const user = (await tx.query<{
             id: string;
             senha_hash: string;
@@ -126,8 +142,11 @@ export async function loginAdmin(email: string, password: string, requestId: str
         // sessão quando recebe esta renovação para a sessão que ele mesmo enviou.
         return { token: session.token, csrf: session.csrf, expires: session.expires, renovacao: sessaoAnterior ? { anterior: sessaoAnterior, atual: session.id } : null };
     });
-    if ('error' in result)
-        throw authError(result.error === 429 ? 'Aguarde antes de tentar novamente.' : 'Credenciais inválidas.', result.error);
+    if ('error' in result) {
+        if (result.error === 429)
+            throw authError('Aguarde antes de tentar novamente.', 429, result.aguardar ? { retryAfterSegundos: result.aguardar } : undefined);
+        throw authError('Credenciais inválidas.', result.error);
+    }
     return result;
 }
 export async function logoutAdmin(token: string) {

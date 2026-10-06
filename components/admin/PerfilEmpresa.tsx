@@ -23,6 +23,10 @@ type Rascunho = { numero: number; edicao: number; versaoBase: number; conteudo: 
 type Resposta = {
     estruturaInstalada: boolean;
     vazio: boolean;
+    /** Empresa provisionada pelo painel do desenvolvedor, ainda sem Perfil: a Gestão pode criá-lo aqui. */
+    perfilAusente?: boolean;
+    podeCriar?: boolean;
+    empresa?: { codigo: string | null; nome: string | null } | null;
     contexto: {
         codigoEmpresa: string;
         codigoUnidade: string;
@@ -78,6 +82,8 @@ export default function PerfilEmpresa() {
     const [logoPreparada, setLogoPreparada] = useState('');
     const [preparandoLogo, setPreparandoLogo] = useState(false);
     const [cepStatus, setCepStatus] = useState<{ sede: string; unidade: string }>({ sede: '', unidade: '' });
+    const [senhaCriacao, setSenhaCriacao] = useState('');
+    const [pedirSenhaCriacao, setPedirSenhaCriacao] = useState(false);
     const cepTicket = useRef({ sede: 0, unidade: 0 });
     const cargaTicket = useRef(0);
     const operacaoTicket = useRef(0);
@@ -152,6 +158,51 @@ export default function PerfilEmpresa() {
         const proximoForm = { ...formRef.current, ...parcial };
         publicar(aposDigitacao(fluxoRef.current, proximoForm));
         setSucesso('');
+    }
+
+    /**
+     * Empresa nova sem Perfil: a Gestão cria a estrutura mínima (perfil, uma unidade e as capacidades para si).
+     * O servidor exige Gestão nesta empresa e senha confirmada há no máximo 5 minutos; passado o prazo, pede a senha
+     * aqui (renovação comprovada) e repete a criação uma única vez. Nada é copiado de outra empresa.
+     */
+    async function criarPerfil() {
+        if (bloqueio.current)
+            return;
+        bloqueio.current = true;
+        setOcupado(true);
+        setErro('');
+        setSucesso('');
+        try {
+            if (pedirSenhaCriacao) {
+                const auth = await reautenticarSessao(senhaCriacao);
+                if (!auth.ok)
+                    throw new Error(auth.senhaIncorreta ? 'Senha incorreta. Nada foi criado.' : auth.erro);
+            }
+            const resposta = await adminFetch('/api/admin/configuracoes/perfil-empresa', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ acao: 'criar-perfil', confirmar: true }),
+            });
+            const corpo = await resposta.json() as { ok?: boolean; erro?: string; codigo?: string; data?: { criado: boolean; motivo: string } };
+            if (!resposta.ok || !corpo.ok) {
+                if (corpo.codigo === 'PERFIL_REAUTENTICACAO') {
+                    setPedirSenhaCriacao(true);
+                    setErro('Confirme sua senha para criar o perfil da empresa.');
+                    return;
+                }
+                throw new Error(corpo.erro ?? 'Não foi possível criar o perfil.');
+            }
+            setSenhaCriacao('');
+            setPedirSenhaCriacao(false);
+            setSucesso(corpo.data?.criado ? 'Perfil criado. Preencha os dados, salve o rascunho e aplique o cadastro.' : 'O perfil já existia; o acesso desta conta foi liberado.');
+            await carregar(true);
+            window.dispatchEvent(new Event('kidmais-logo-aplicada'));
+        } catch (error) {
+            setErro(error instanceof Error ? error.message : 'Não foi possível criar o perfil.');
+        } finally {
+            bloqueio.current = false;
+            setOcupado(false);
+        }
     }
 
     async function selecionarLogo(arquivo?: File) {
@@ -401,7 +452,16 @@ export default function PerfilEmpresa() {
         {ocupado && <p className={styles.estado} role="status">Operação em andamento.</p>}
         {!carregando && semPermissao && <section className={styles.acesso} aria-labelledby="perfil-acesso"><h2 id="perfil-acesso">Acesso negado</h2><p role="alert">{acessoMensagem}</p><p>A resposta do servidor não permite abrir este perfil.</p><div><a href="/admin/configuracoes">Voltar às configurações</a><button type="button" onClick={() => void carregar(devePreencherNaRetentativa(fluxoRef.current))}>Tentar novamente</button></div></section>}
         {!carregando && !semPermissao && dados && !dados.estruturaInstalada && <p className={styles.estado}>A estrutura do perfil ainda não está instalada. Nenhum acesso foi concedido.</p>}
-        {!carregando && !semPermissao && dados?.estruturaInstalada && dados.vazio && <p className={styles.estado}>Ainda não há empresa provisionada. O formulário não cria a primeira empresa.</p>}
+        {!carregando && !semPermissao && dados?.estruturaInstalada && dados.vazio && !dados.perfilAusente && <p className={styles.estado}>Ainda não há empresa provisionada. O formulário não cria a primeira empresa.</p>}
+        {!carregando && !semPermissao && dados?.estruturaInstalada && dados.perfilAusente && <section className={styles.acesso} aria-labelledby="perfil-criar" data-perfil-ausente>
+            <h2 id="perfil-criar">Perfil ainda não criado</h2>
+            <p>{dados.empresa?.nome ?? 'Esta empresa'}{dados.empresa?.codigo ? ` (código ${dados.empresa.codigo})` : ''} ainda não tem o Perfil da empresa: nome comercial, razão social, CNPJ, endereço da unidade e contatos usados nos documentos.</p>
+            {dados.podeCriar ? <>
+                <p>Ao criar o perfil, esta conta recebe as capacidades de consultar, editar, aplicar e administrar as concessões do perfil desta empresa. Nenhum dado de outra empresa é copiado; só o nome da empresa é pré-preenchido.</p>
+                {pedirSenhaCriacao && <label className={styles.campo}>Senha da sua conta<input type="password" value={senhaCriacao} autoComplete="current-password" onChange={(evento) => setSenhaCriacao(evento.target.value)} /></label>}
+                <div><button type="button" className={styles.primario} disabled={ocupado || (pedirSenhaCriacao && !senhaCriacao)} onClick={() => void criarPerfil()}>{ocupado ? 'Criando…' : pedirSenhaCriacao ? 'Confirmar senha e criar perfil' : 'Criar perfil da empresa'}</button></div>
+            </> : <p>Somente a Gestão desta empresa cria o perfil. Peça à Gestão para abrir Configurações → Perfil da empresa.</p>}
+        </section>}
         {erro && <p className={styles.erro} role="alert">{erro}</p>}
         {erro && <button type="button" onClick={() => void carregar(devePreencherNaRetentativa(fluxoRef.current))}>Tentar novamente</button>}
         {!carregando && !semPermissao && dados?.contexto && <form className={styles.conteudo} onSubmit={(evento) => { evento.preventDefault(); }}>

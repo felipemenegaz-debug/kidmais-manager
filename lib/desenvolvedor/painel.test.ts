@@ -196,6 +196,42 @@ test('reautenticação: mesmo relógio, 5 min inclusivos; futuro, expirado e car
     assert.throws(() => verifica({ autenticado_em: new Date(t0).toISOString() }), /Confirme sua senha/, 'sem fonte comum fecha o acesso');
 });
 
+test('auditoria consultável: concessão antes de ler, só origens administrativas, filtros parametrizados, paginação fixa e saída sanitizada', async () => {
+    const fonte = readFileSync('lib/desenvolvedor/auditoria-consulta.ts', 'utf8');
+    assert.doesNotMatch(fonte, /\$\{f\./, 'nenhum filtro entra no SQL por interpolação');
+    const { ORIGENS_ADMINISTRATIVAS, consultarAuditoria } = carregarModulo('lib/desenvolvedor/auditoria-consulta.ts', { 'db/postgres': { db: () => { throw new Error('sem banco'); }, withTransaction: () => { throw new Error('sem banco'); } } }) as unknown as {
+        ORIGENS_ADMINISTRATIVAS: readonly string[];
+        consultarAuditoria: (s: unknown, raw: unknown, deps: unknown) => Promise<{ itens: Array<{ depois: Record<string, unknown> | null }>; total: number; porPagina: number }>;
+    };
+    for (const operacional of ['CRM_INTERNO', 'CONTRATOS', 'PAGAMENTOS', 'FESTA', 'FINANCEIRO', 'INTELIGENCIA', 'IMPORTACAO', 'ADMIN_AUTENTICACAO'])
+        assert.ok(!ORIGENS_ADMINISTRATIVAS.includes(operacional), operacional);
+    const banco = executorFalso([
+        [/FROM plataforma_desenvolvedores/, () => [{ id: 'd' }]],
+        [/to_regclass\('public\.perfil_empresas'\)/, () => [{ t: 'perfil_empresas' }]],
+        [/SELECT count\(\*\)::int AS n FROM auditoria a/, () => [{ n: 1 }]],
+        [/FROM auditoria a\s+LEFT JOIN usuarios_administrativos/, () => [{ id: 'a1', acao: 'CONVITE_CRIADO', origem: 'PAINEL_DESENVOLVEDOR', criado_em: '2026-10-05', ator: 'Dev', ator_id: 'u', empresa_id: 'e1', empresa: 'Alfa', entidade_tipo: 'CONVITE_ACESSO', entidade_id: 'c1', resultado: 'SUCESSO', justificativa: null, dados_antes: null, dados_depois: { email: 'a@b.test', token: 'SEGREDO', linkConvite: 'https://x/#t=1', resultado: 'SUCESSO' } }]],
+        [/SELECT DISTINCT acao/, () => [{ acao: 'CONVITE_CRIADO' }]],
+        [/SELECT id::text AS id, nome FROM empresas/, () => [{ id: 'e1', nome: 'Alfa' }]],
+    ]);
+    const deps = { withTransaction: async (w: (t: typeof banco) => Promise<unknown>) => w(banco), registrarAuditoria: async () => undefined };
+    const r = await consultarAuditoria(sessao(), { empresaId: '00000000-0000-4000-8000-0000000000e1', acao: 'CONVITE_CRIADO', de: '2026-10-01', ate: '2026-10-05', pagina: 2 }, deps);
+    assert.match(banco.executados[0].sql, /FROM plataforma_desenvolvedores .* FOR SHARE OF d/s, 'a concessão é conferida antes de qualquer leitura');
+    const lista = banco.executados.find((q) => /LEFT JOIN usuarios_administrativos/.test(q.sql))!;
+    assert.deepEqual(lista.params, ['00000000-0000-4000-8000-0000000000e1', [...ORIGENS_ADMINISTRATIVAS], 'CONVITE_CRIADO', '2026-10-01', '2026-10-05', 25]);
+    assert.match(lista.sql, /a\.origem = ANY\(\$2::text\[\]\)/);
+    assert.match(lista.sql, /a\.acao = \$3/);
+    assert.match(lista.sql, /a\.criado_em >= \$4::date/);
+    assert.match(lista.sql, /a\.criado_em < \(\$5::date \+ interval '1 day'\)/);
+    assert.match(lista.sql, /LIMIT 25 OFFSET \$6/);
+    assert.match(lista.sql, /entidade_tipo = 'PERFIL_EMPRESA'/, 'registros do perfil entram pela associação com a empresa');
+    assert.deepEqual([r.total, r.porPagina], [1, 25]);
+    assert.deepEqual(r.itens[0].depois, { email: 'a@b.test', resultado: 'SUCESSO' }, 'token e link nunca saem');
+    await assert.rejects(consultarAuditoria(sessao(), { acao: "x'; DROP TABLE auditoria;--" }, deps), 'ação fora do formato é recusada antes do SQL');
+    await assert.rejects(consultarAuditoria(sessao(), { empresaId: 'nao-uuid' }, deps));
+    const invertido = await consultarAuditoria(sessao(), { de: '2026-10-05', ate: '2026-10-01' }, deps);
+    assert.deepEqual([invertido.total, invertido.itens.length], [0, 0], 'período invertido não consulta');
+});
+
 test('auditoria do painel: remove senha, token, hash, link/URL e cookies em qualquer nível e mascara documento', () => {
     const { sanitizarAuditoria } = carregarModulo('lib/desenvolvedor/auditoria.ts', {}) as { sanitizarAuditoria: (v: unknown) => unknown };
     const saida = sanitizarAuditoria({

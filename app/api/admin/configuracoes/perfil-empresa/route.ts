@@ -5,10 +5,11 @@ import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
 import { registrarAuditoria } from '@/lib/clientes/repositories/auditoria.repository';
 import { isClienteServiceError } from '@/lib/clientes/services/errors';
 import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
-import { aplicarCadastroPerfil, lerCadastroPerfil, salvarRascunhoPerfil } from '@/lib/perfil/cadastro-service';
+import { aplicarCadastroPerfil, estruturaCadastroInstalada, lerCadastroPerfil, salvarRascunhoPerfil } from '@/lib/perfil/cadastro-service';
+import { criarPerfilDaEmpresa } from '@/lib/perfil/criacao';
 import { LOGO_MAX_DATA_URL } from '@/lib/perfil/logo-limites';
 import { withTenantTransaction } from '@/lib/saas/provar-tenant';
-import { perfilDoTenant } from '@/lib/perfil/tenant';
+import { perfilDoTenant, perfilDoTenantOuNulo } from '@/lib/perfil/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -60,6 +61,11 @@ const corpo = z.discriminatedUnion('acao', [
         motivo: z.string().trim().min(3).max(500),
         empresaId: z.string().uuid().nullable().optional(),
     }).strict(),
+    // Empresa nova (implantação): a Gestão cria a estrutura mínima do perfil (lib/perfil/criacao.ts).
+    z.object({
+        acao: z.literal('criar-perfil'),
+        confirmar: z.literal(true),
+    }).strict(),
 ]);
 
 function json(data: unknown, status = 200) {
@@ -81,7 +87,20 @@ function fail(error: unknown) {
 export async function GET(request: NextRequest) {
     try {
         const sessao = await exigirApiAdminCrmDisponivel(request);
-        const data = await withTenantTransaction(sessao, null, async (tx, tenant) => lerCadastroPerfil(tx, sessao.usuario_id, await perfilDoTenant(tx, tenant.empresaComprovada)));
+        const data = await withTenantTransaction(sessao, null, async (tx, tenant) => {
+            const perfil = await perfilDoTenantOuNulo(tx, tenant.empresaComprovada);
+            if (!perfil) {
+                // Empresa sem perfil (provisionada pelo painel): a tela oferece a criação à Gestão; ninguém ganha acesso aqui.
+                const empresa = (await tx.query<{ codigo: string; nome: string }>('SELECT codigo, nome FROM empresas WHERE id = $1::uuid', [tenant.empresaComprovada])).rows[0];
+                return {
+                    estruturaInstalada: await estruturaCadastroInstalada(tx), vazio: true, perfilAusente: true,
+                    podeCriar: tenant.papelAtual === 'REPRESENTANTE_AUTORIZADO',
+                    empresa: { codigo: empresa?.codigo ?? null, nome: empresa?.nome ?? null },
+                    contexto: null, historico: [], capacidades: null,
+                };
+            }
+            return { ...(await lerCadastroPerfil(tx, sessao.usuario_id, perfil)), perfilAusente: false };
+        });
         return json({ ok: true, data });
     } catch (error) {
         return fail(error);
@@ -94,6 +113,13 @@ export async function POST(request: NextRequest) {
         const body = corpo.parse(await request.json());
         const requestId = randomUUID();
         const data = await withTenantTransaction(sessao, null, async (tx, tenant) => {
+            if (body.acao === 'criar-perfil') {
+                return criarPerfilDaEmpresa(tx, tenant, {
+                    autenticadoEm: sessao.autenticado_em,
+                    agora: Date.parse(sessao.consultado_em ?? ''),
+                    requestId,
+                }, registrarAuditoria);
+            }
             const perfilDoServidor = await perfilDoTenant(tx, tenant.empresaComprovada);
             if (body.acao === 'salvar-rascunho') {
                 return salvarRascunhoPerfil(tx, {
