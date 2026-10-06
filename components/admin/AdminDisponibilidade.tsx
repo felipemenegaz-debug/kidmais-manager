@@ -663,16 +663,31 @@ export default function AdminDisponibilidade() {
                             <span>{bloqueio.motivo}</span>
                             {bloqueio.observacoes && <small>{bloqueio.observacoes}</small>}
                             {agendaPorEscopo && bloqueio.alcance === "GLOBAL" && (
-                              <small>Bloqueio antigo sem empresa atribuída. A plataforma precisa confirmar a empresa e a unidade antes de desativá-lo.</small>
+                              <small>Bloqueio anterior à separação da agenda por empresa. Ao liberar, ele passa a pertencer a esta empresa e fica inativo; o registro e o motivo são preservados.</small>
                             )}
                           </div>
+                          {agendaPorEscopo && bloqueio.alcance === "GLOBAL" && (
+                            <button type="button" disabled={salvando} onClick={() => {
+                              const justificativa = window.prompt(
+                                "Motivo da liberação deste horário (mínimo 5 caracteres):",
+                                "Liberado pela empresa no painel da agenda.",
+                              );
+                              if (justificativa === null) return;
+                              if (justificativa.trim().length < 5) {
+                                setMensagem("Informe o motivo da liberação (mínimo 5 caracteres).");
+                                return;
+                              }
+                              if (!window.confirm("Liberar este horário? O bloqueio antigo passa a pertencer a esta empresa e fica inativo. Reservas de contratos não são afetadas.")) return;
+                              void enviar({ tipo: "desativar_bloqueio", bloqueioId: bloqueio.id, motivo: justificativa.trim() });
+                            }}>Liberar horário</button>
+                          )}
                           {agendaPorEscopo && bloqueio.alcance === "GLOBAL" && podeResolverLegado && (
                             <button type="button" disabled={salvando} onClick={() => {
                               const justificativa = window.prompt("Confirme que este bloqueio pertence à empresa e unidade selecionadas. Informe o motivo da atribuição e desativação (mínimo 5 caracteres):");
                               if (!justificativa) return;
                               if (!window.confirm("Atribuir este bloqueio antigo à empresa/unidade selecionadas e desativá-lo? A data poderá ficar disponível. O registro e o motivo serão preservados.")) return;
                               void enviar({ tipo: "resolver_bloqueio_legado", bloqueioId: bloqueio.id, motivo: justificativa });
-                            }}>Atribuir e desativar bloqueio antigo</button>
+                            }}>Atribuir pela plataforma</button>
                           )}
                           {!(agendaPorEscopo && bloqueio.alcance === "GLOBAL") && (
                             <button
