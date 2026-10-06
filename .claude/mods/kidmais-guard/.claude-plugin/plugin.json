@@ -1,0 +1,1 @@
+{ "name": "kidmais-guard", "version": "0.1.0", "description": "Kidmais Manager: bloqueia edição de .env e comandos que tocam produção, migrations remotas ou force-push na main." }

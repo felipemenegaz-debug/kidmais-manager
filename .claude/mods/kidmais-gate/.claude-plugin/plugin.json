@@ -1,0 +1,1 @@
+{ "name": "kidmais-gate", "version": "0.1.0", "description": "Kidmais Manager: mostra as áreas alteradas na sessão e roda o test gate (lint, tsc, regressão V1 e testes da área) com /kidmais-gate.", "types": "./types/index.d.ts" }
