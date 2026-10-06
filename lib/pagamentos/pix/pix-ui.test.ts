@@ -15,7 +15,7 @@ test('rotas: empresa sempre a comprovada da sessão; Pix da parcela é só leitu
     assert.doesNotMatch(parcela, /export async function (POST|PUT|PATCH|DELETE)/);
     const servico = ler('lib/pagamentos/pix/recebimento.ts');
     assert.match(servico, /exigirReautenticacaoPerfil\(sessao\)/);
-    assert.match(servico, /tenant\.papelAtual !== GESTAO/);
+    assert.match(servico, /tenant\.papelAtual !== 'REPRESENTANTE_AUTORIZADO'/);
     assert.doesNotMatch(servico, /input\.empresaId|raw\.empresaId/);
 });
 
@@ -29,10 +29,22 @@ test('telas: botão Pix só em parcela de contrato com saldo; QR como imagem, se
     assert.doesNotMatch(dialogo, /dangerouslySetInnerHTML/);
     assert.match(dialogo, /data:image\/svg\+xml;charset=utf-8,\$\{encodeURIComponent\(pix\.qrSvg\)\}/);
     assert.match(dialogo, /o sistema não confirma o Pix automaticamente/);
-    const config = ler('components/admin/PixRecebimento.tsx');
-    assert.match(config, /reautenticarSessao\(senha\)/);
-    assert.match(config, /a Kidmais não recebe nem repassa valores/);
-    assert.match(ler('app/admin/configuracoes/page.tsx'), /route:'pix', title:'Recebimento por Pix'/);
+    // Chave Pix no Perfil da empresa: só tipo e chave; senha num segundo passo (o navegador não preenche a chave com o
+    // e-mail); seletor escuro; nome e cidade do recebedor vêm do Perfil.
+    const secao = ler('components/admin/PerfilRecebimentoPix.tsx');
+    assert.match(secao, /reautenticarSessao\(senha\)/);
+    assert.match(secao, /etapa === 'confirmar'/);
+    assert.match(secao, /autoComplete="off"/);
+    assert.doesNotMatch(secao, /Cidade do recebedor|Nome do recebedor/);
+    assert.doesNotMatch(secao, /<form/);
+    assert.match(ler('components/admin/PerfilEmpresa.tsx'), /<PerfilRecebimentoPix \/>/);
+    assert.match(ler('components/admin/perfil-empresa.module.css'), /\.campo select option \{ background:/);
+    assert.match(ler('app/admin/configuracoes/pix/page.tsx'), /redirect\('\/admin\/configuracoes\/perfil-empresa#recebimento-pix'\)/);
+    assert.doesNotMatch(ler('app/admin/configuracoes/page.tsx'), /route:'pix'/);
+    assert.match(ler('lib/pagamentos/pix/recebimento.ts'), /const \{ nome, cidade \} = await recebedorDoPerfil\(tx, empresaId\);/);
+    // Menu: o título Configurações é o atalho; nenhum item novo.
+    assert.match(ler('components/admin/AdminShell.tsx'), /<Link className=\{styles\.grupoLink\} href="\/admin\/configuracoes"/);
+    assert.doesNotMatch(ler('lib/admin/navegacao.ts'), /configuracoes\/pix/);
 });
 
 test('migration 066: guardas, CHECKs por tipo de chave, rollback que recusa com dados e checks registrados', () => {

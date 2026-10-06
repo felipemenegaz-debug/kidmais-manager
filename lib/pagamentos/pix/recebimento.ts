@@ -6,6 +6,7 @@ import { PacoteAdminError } from '../../comercial/pacotes-admin.ts';
 import { listarRecebiveis } from '../../financeiro/servico.ts';
 import { exigirReautenticacaoPerfil } from '../../perfil/reautenticacao.ts';
 import type { TenantComprovado } from '../../saas/provar-tenant.ts';
+import { perfilDoTenantOuNulo } from '../../perfil/tenant.ts';
 import {
     mascararChavePix, montarBrCodeEstatico, normalizarChavePix, qrSvg, textoBrCode, TIPOS_CHAVE_PIX, txidDaParcela, type TipoChavePix,
 } from './brcode.ts';
@@ -56,17 +57,37 @@ function auditavel(l: Linha | null) {
     return l ? { tipoChave: l.tipo_chave, chave: mascararChavePix(l.tipo_chave, l.chave), nomeRecebedor: l.nome_recebedor, cidadeRecebedor: l.cidade_recebedor, versao: l.versao } : null;
 }
 
+/**
+ * Nome e cidade do recebedor no BR Code vêm do Perfil da empresa (nome comercial, senão razão social, senão o nome da
+ * empresa; cidade da sede), já no limite do padrão (25 e 15, sem acentos). O app do banco mostra o nome cadastrado no
+ * banco; estes campos são informativos e obrigatórios no padrão. Perfil ausente ou ambíguo: nome da empresa, sem cidade.
+ */
+export async function recebedorDoPerfil(tx: DbExecutor, empresaId: string) {
+    const empresa = (await tx.query<{ nome: string }>('SELECT nome FROM empresas WHERE id = $1::uuid', [empresaId])).rows[0];
+    let perfil: { nome_comercial: string | null; razao_social: string | null; sede_cidade: string | null } | undefined;
+    try {
+        const perfilId = await perfilDoTenantOuNulo(tx, empresaId);
+        if (perfilId)
+            perfil = (await tx.query<{ nome_comercial: string | null; razao_social: string | null; sede_cidade: string | null }>(
+                'SELECT nome_comercial, razao_social, sede_cidade FROM perfil_empresas WHERE id = $1::uuid', [perfilId])).rows[0];
+    } catch {
+        perfil = undefined;
+    }
+    const nome = textoBrCode(perfil?.nome_comercial || perfil?.razao_social || empresa?.nome || '', 25);
+    const cidade = textoBrCode(perfil?.sede_cidade ?? '', 15);
+    return { nome, cidade };
+}
+
 export async function consultarConfiguracaoPix(tx: DbExecutor, tenant: TenantComprovado) {
     const podeEditar = tenant.papelAtual === GESTAO;
     if (!await pixInstalado(tx))
-        return { instalado: false as const, configuracao: null, podeEditar, sugestao: null };
+        return { instalado: false as const, configuracao: null, podeEditar, recebedor: null };
     const linha = await linhaDaEmpresa(tx, tenant.empresaComprovada);
-    const empresa = (await tx.query<{ nome: string }>('SELECT nome FROM empresas WHERE id = $1::uuid', [tenant.empresaComprovada])).rows[0];
     return {
         instalado: true as const,
         configuracao: linha ? publica(linha) : null,
         podeEditar,
-        sugestao: { nomeRecebedor: textoBrCode(empresa?.nome ?? '', 25) },
+        recebedor: await recebedorDoPerfil(tx, tenant.empresaComprovada),
     };
 }
 
@@ -74,8 +95,9 @@ const salvarSchema = z.object({
     acao: z.literal('salvar'),
     tipoChave: z.enum(TIPOS_CHAVE_PIX),
     chave: z.string().max(120),
-    nomeRecebedor: z.string().max(120),
-    cidadeRecebedor: z.string().max(120),
+    // Legado da primeira tela: aceitos e ignorados; nome e cidade vêm sempre do Perfil.
+    nomeRecebedor: z.string().max(120).optional(),
+    cidadeRecebedor: z.string().max(120).optional(),
     versao: z.number().int().positive().nullable(),
 }).strict();
 
@@ -86,7 +108,7 @@ const removerSchema = z.object({
 }).strict();
 
 function exigirGestaoComReautenticacao(sessao: SessaoAdmin, tenant: TenantComprovado) {
-    if (tenant.papelAtual !== GESTAO)
+    if (tenant.papelAtual !== 'REPRESENTANTE_AUTORIZADO')
         erro('PIX_SEM_PERMISSAO', 'Somente a Gestão desta empresa altera a chave Pix de recebimento.', 403);
     exigirReautenticacaoPerfil(sessao);
 }
@@ -120,12 +142,11 @@ export async function alterarConfiguracaoPix(tx: DbExecutor, tenant: TenantCompr
     const chave = normalizarChavePix(input.tipoChave, input.chave);
     if (!chave)
         erro('PIX_CHAVE_INVALIDA', 'Confira a chave Pix: ela não corresponde ao tipo escolhido.', 400);
-    const nome = textoBrCode(input.nomeRecebedor, 25);
-    const cidade = textoBrCode(input.cidadeRecebedor, 15);
+    const { nome, cidade } = await recebedorDoPerfil(tx, empresaId);
     if (!nome)
-        erro('PIX_NOME_INVALIDO', 'Informe o nome do recebedor (como aparece no banco).', 400);
+        erro('PIX_NOME_PERFIL', 'Informe o nome comercial no Perfil da empresa e aplique antes de cadastrar a chave Pix.', 409);
     if (!cidade)
-        erro('PIX_CIDADE_INVALIDA', 'Informe a cidade do recebedor.', 400);
+        erro('PIX_CIDADE_PERFIL', 'Informe a cidade da sede no Perfil da empresa e aplique antes de cadastrar a chave Pix.', 409);
     if ((antes?.versao ?? null) !== input.versao)
         conflito();
     const depois = antes
@@ -153,7 +174,7 @@ export async function pixDaParcela(tx: DbExecutor, tenant: TenantComprovado, par
         erro('PIX_INDISPONIVEL', 'O recebimento por Pix ainda não está disponível neste ambiente.', 503);
     const config = await linhaDaEmpresa(tx, tenant.empresaComprovada);
     if (!config)
-        erro('PIX_NAO_CONFIGURADO', 'Cadastre a chave Pix da empresa em Configurações → Recebimento por Pix.', 409);
+        erro('PIX_NAO_CONFIGURADO', 'Cadastre a chave Pix da empresa em Configurações → Perfil da empresa → Recebimento por Pix.', 409);
     const parcela = (await listarRecebiveis(tx, tenant.empresaComprovada, hoje))
         .find((r) => r.id === parcelaId && r.origem === 'CONTRATO');
     // Parcela de outra empresa, entrada manual ou inexistente: mesma resposta.
@@ -162,6 +183,10 @@ export async function pixDaParcela(tx: DbExecutor, tenant: TenantComprovado, par
     if (parcela.saldoCentavos <= 0 || parcela.status === 'Cancelado' || parcela.status === 'Reembolsado' || parcela.status === 'Pago')
         erro('PARCELA_SEM_SALDO', 'Esta parcela não tem saldo em aberto.', 409);
     const txid = txidDaParcela(parcela.id);
+    // Perfil atual tem prioridade (nome ou cidade alterados depois); o gravado na chave é a reserva.
+    const atual = await recebedorDoPerfil(tx, tenant.empresaComprovada);
+    config.nome_recebedor = atual.nome || config.nome_recebedor;
+    config.cidade_recebedor = atual.cidade || config.cidade_recebedor;
     const copiaECola = montarBrCodeEstatico({
         chave: config.chave, nomeRecebedor: config.nome_recebedor, cidadeRecebedor: config.cidade_recebedor,
         valorCentavos: parcela.saldoCentavos, txid,

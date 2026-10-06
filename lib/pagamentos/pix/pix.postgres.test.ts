@@ -33,6 +33,13 @@ async function erroDe(p: Promise<unknown>) {
     }
 }
 
+/** Perfil associado à empresa pelo código (mesma regra da aplicação), com nome comercial e cidade da sede. */
+async function perfil(empresaId: string, nomeComercial: string, cidade: string) {
+    const codigoEmpresa = (await client.query<{ codigo: string }>('SELECT codigo FROM empresas WHERE id = $1', [empresaId])).rows[0].codigo;
+    const id = (await client.query<{ id: string }>('INSERT INTO perfil_empresas (codigo, nome_comercial, sede_cidade) VALUES ($1, $2, $3) RETURNING id', [codigoEmpresa, nomeComercial, cidade])).rows[0].id;
+    await client.query("INSERT INTO perfil_unidades (empresa_id, codigo, nome, mesmo_endereco_sede) VALUES ($1::uuid, $2, 'Sede', true)", [id, codigoEmpresa + '-principal']);
+}
+
 async function empresa(nome: string) {
     const id = (await client.query<{ id: string }>("INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id", [codigo(), nome])).rows[0].id;
     await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1::uuid", [id]);
@@ -115,6 +122,7 @@ test('fixtures: duas empresas, Gestão e Equipe em A, Gestão em B, parcela em a
     await client.query('BEGIN');
     ids.a = await empresa('Buffet Pix A');
     ids.b = await empresa('Buffet Pix B');
+    await perfil(ids.a, 'Buffet Alegria Comércio de Festas Ltda', 'São José dos Campos');
     ids.gestaoA = await usuario();
     ids.equipeA = await usuario();
     ids.gestaoB = await usuario();
@@ -124,7 +132,9 @@ test('fixtures: duas empresas, Gestão e Equipe em A, Gestão em B, parcela em a
 
 test('configuração: Equipe recusada; reautenticação vencida recusada; Gestão salva normalizada; versão protege; auditoria mascarada', async () => {
     const salvar = (s: unknown, t: unknown, corpo: Record<string, unknown>) => pix.alterarConfiguracaoPix(client as never, t as never, s as never, { acao: 'salvar', ...corpo } as never, ctx as never);
-    const corpo = { tipoChave: 'EMAIL', chave: ' Financeiro@BuffetA.com.br ', nomeRecebedor: 'Buffet Alegria Comércio de Festas Ltda', cidadeRecebedor: 'São José dos Campos', versao: null };
+    // Nome e cidade enviados pela tela antiga são ignorados: o recebedor vem do Perfil.
+    const corpo = { tipoChave: 'EMAIL', chave: ' Financeiro@BuffetA.com.br ', nomeRecebedor: 'Digitado e ignorado', cidadeRecebedor: 'Ignorada', versao: null };
+    assert.equal(await erroDe(salvar(sessao(ids.gestaoB), tenant(ids.b, ids.gestaoB, 'REPRESENTANTE_AUTORIZADO'), corpo)), 'PIX_CIDADE_PERFIL', 'empresa sem Perfil: sem cidade da sede');
     assert.equal(await erroDe(salvar(sessao(ids.equipeA), tenant(ids.a, ids.equipeA, 'ADMINISTRATIVO'), corpo)), 'PIX_SEM_PERMISSAO');
     assert.equal(await erroDe(salvar(sessao(ids.gestaoA, new Date(Date.now() - 10 * 60_000).toISOString()), tenant(ids.a, ids.gestaoA, 'REPRESENTANTE_AUTORIZADO'), corpo)), 'PERFIL_REAUTENTICACAO');
     assert.equal(await erroDe(salvar(sessao(ids.gestaoA), tenant(ids.a, ids.gestaoA, 'REPRESENTANTE_AUTORIZADO'), { ...corpo, tipoChave: 'CPF' })), 'PIX_CHAVE_INVALIDA');
