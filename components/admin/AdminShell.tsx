@@ -159,7 +159,11 @@ export default function AdminShell({ children, vitrine }: {
                 {grupos.map((grupo) => {
                     const links = itens.filter((item) => item.grupo === grupo);
                     if (links.length === 0) return null;
-                    return <div key={grupo}><p className={styles.grupo}>{grupo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}</Link>)}</div>;
+                    // O título do grupo Configurações é o atalho para a página das configurações (sem item de menu redundante).
+                    const titulo = grupo === 'Configurações'
+                        ? <Link className={styles.grupoLink} href="/admin/configuracoes" aria-current={path === '/admin/configuracoes' ? 'page' : undefined} onClick={() => setAberto(false)}>{grupo}</Link>
+                        : grupo;
+                    return <div key={grupo}><p className={styles.grupo}>{titulo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}</Link>)}</div>;
                 })}
                 {semEmpresa && <div><p className={styles.grupo}>Conta</p><Link href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="profile" /></span>Meu perfil e senha</Link>
                     {empresa?.desenvolvedor && <Link href="/desenvolvedor" onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="settings" /></span>Painel do desenvolvedor</Link>}</div>}

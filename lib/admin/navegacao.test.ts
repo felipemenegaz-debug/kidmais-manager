@@ -27,7 +27,6 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
         'Pacotes',
         'Itens do Buffet',
         'Usuários e acessos',
-        'Recebimento por Pix',
         'WhatsApp',
         'PDF de Pacotes',
     ]);
