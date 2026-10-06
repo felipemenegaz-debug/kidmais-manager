@@ -69,7 +69,12 @@ test('perfil existente sem administrador: o 403 traz só a elegibilidade; a tela
     assert.match(rota, /new ClienteServiceError\('PERFIL_SEM_CONCESSAO', error\.message, 403, \{ concessaoInicial, empresa/);
     assert.match(rota, /acao: z\.literal\('concessao-inicial'\)/);
     assert.match(rota, /exigirExistente: body\.acao === 'concessao-inicial'/);
-    assert.match(tela, /concessaoInicial\?\.elegivel && <div data-concessao-inicial>/);
+    assert.match(tela, /concessaoInicial\?\.elegivel && blocoConcessao\('h3'\)/, '403: bloco dentro de "Acesso negado"');
+    // 200 (quem só consulta): o veredito vem com o cadastro e o mesmo bloco aparece acima do formulário, sem tirar nada.
+    assert.match(rota, /const leitura = await lerCadastroPerfil\(tx, sessao\.usuario_id, perfil\);\s*\n[^\n]*\n[^\n]*\n\s*const concessaoInicial = await elegibilidadeConcessaoInicial\(tx, tenant\);\s*\n\s*return \{ \.\.\.leitura, perfilAusente: false, concessaoInicial \};/);
+    assert.match(tela, /setConcessaoInicial\(\(corpo\.data as Resposta\)\.concessaoInicial \?\? null\);/);
+    assert.match(tela, /!carregando && !semPermissao && dados\?\.contexto && concessaoInicial\?\.elegivel && <section[^>]*data-concessao-parcial>\{blocoConcessao\('h2', 'perfil-assumir'\)\}<\/section>/);
+    assert.match(tela, /concessaoInicial\?\.motivo === 'ADMINISTRADOR_EXISTENTE' && !capacidades\?\.PERFIL_ADMINISTRAR_CONCESSOES && <p[^>]*data-concessao-administrada>Outra conta administra/, 'a dica não é mostrada a quem já administra as concessões');
     assert.match(tela, /Assumir a administração do perfil/);
     assert.match(tela, /Confirmo que quero assumir a administração do perfil desta empresa/);
     assert.match(tela, /disabled=\{ocupado \|\| !confirmarConcessao \|\| \(pedirSenhaCriacao && !senhaCriacao\)\}/);

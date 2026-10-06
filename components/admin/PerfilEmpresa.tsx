@@ -36,7 +36,10 @@ type Resposta = {
     } | null;
     historico: Historico[];
     capacidades: CapacidadesTela | null;
+    /** Veredito do servidor sobre assumir a administração do Perfil (também no 200: quem só consulta precisa dele). */
+    concessaoInicial?: ConcessaoInicial | null;
 };
+type ConcessaoInicial = { elegivel: boolean; motivo: string | null; capacidadesFaltantes: string[] };
 
 function Ajuda({ texto }: { texto: string }) {
     const id = useId();
@@ -94,8 +97,8 @@ export default function PerfilEmpresa() {
     const [cepStatus, setCepStatus] = useState<{ sede: string; unidade: string }>({ sede: '', unidade: '' });
     const [senhaCriacao, setSenhaCriacao] = useState('');
     const [pedirSenhaCriacao, setPedirSenhaCriacao] = useState(false);
-    // Perfil existente sem administrador elegível: resposta mínima do servidor (403) que permite à Gestão assumir a administração.
-    const [concessaoInicial, setConcessaoInicial] = useState<{ elegivel: boolean; motivo: string | null; capacidadesFaltantes: string[] } | null>(null);
+    // Perfil existente sem administrador elegível: veredito do servidor (no 403 e no 200) que permite à Gestão assumir a administração.
+    const [concessaoInicial, setConcessaoInicial] = useState<ConcessaoInicial | null>(null);
     const [empresaSemAcesso, setEmpresaSemAcesso] = useState<{ codigo: string | null; nome: string | null } | null>(null);
     const [confirmarConcessao, setConfirmarConcessao] = useState(false);
     const cepTicket = useRef({ sede: 0, unidade: 0 });
@@ -143,15 +146,16 @@ export default function PerfilEmpresa() {
             if (resposta.status === 403) {
                 setSemPermissao(true);
                 setAcessoMensagem(corpo.codigo === 'PERFIL_SEM_CONCESSAO' ? (corpo.erro || 'Sem concessão ativa para consultar o perfil.') : (corpo.erro || 'A API negou o acesso ao perfil.'));
-                const detalhes = (corpo.detalhes ?? null) as { concessaoInicial?: { elegivel: boolean; motivo: string | null; capacidadesFaltantes: string[] }; empresa?: { codigo: string | null; nome: string | null } } | null;
+                const detalhes = (corpo.detalhes ?? null) as { concessaoInicial?: ConcessaoInicial; empresa?: { codigo: string | null; nome: string | null } } | null;
                 setConcessaoInicial(corpo.codigo === 'PERFIL_SEM_CONCESSAO' && detalhes?.concessaoInicial ? detalhes.concessaoInicial : null);
                 setEmpresaSemAcesso(detalhes?.empresa ?? null);
                 return;
             }
-            setConcessaoInicial(null);
             setEmpresaSemAcesso(null);
             if (!resposta.ok || !corpo.ok)
                 throw new Error(corpo.erro ?? 'Não foi possível carregar o perfil.');
+            // No 200 o veredito vem junto com o cadastro: quem só consulta vê a ação de assumir a administração quando elegível.
+            setConcessaoInicial((corpo.data as Resposta).concessaoInicial ?? null);
             aplicarCorpo(corpo.data, substituirForm);
         } catch (error) {
             if (meu !== cargaTicket.current)
@@ -470,6 +474,16 @@ export default function PerfilEmpresa() {
         conflito, confirmacaoConfere: revisaoAindaConfere(fluxo),
     });
 
+    // Mesmo bloco nos dois caminhos: dentro de "Acesso negado" (403, sem nenhuma capacidade) e acima do formulário
+    // (200, Gestão que já consulta mas não administra). O servidor revalida tudo no POST; aqui só confirmação e senha.
+    const blocoConcessao = (Titulo: 'h2' | 'h3', tituloId?: string) => <div data-concessao-inicial>
+        <Titulo id={tituloId}>Assumir a administração do perfil</Titulo>
+        <p>{empresaSemAcesso?.nome ? `O perfil de ${empresaSemAcesso.nome} existe` : 'O perfil desta empresa existe'}, mas nenhuma conta com Gestão ativa administra as concessões dele. Como Gestão desta empresa, você pode assumir a administração: esta conta recebe as capacidades que faltam ({(concessaoInicial?.capacidadesFaltantes ?? []).map(rotuloCapacidade).join(', ')}). {semPermissao ? 'Nenhum dado do cadastro é mostrado antes disso.' : 'O que esta conta já pode fazer continua valendo.'}</p>
+        <label className={styles.confirmacao}><input type="checkbox" checked={confirmarConcessao} onChange={(evento) => setConfirmarConcessao(evento.target.checked)} /><span>Confirmo que quero assumir a administração do perfil desta empresa</span></label>
+        {pedirSenhaCriacao && <label className={styles.campo}>Senha da sua conta<input type="password" value={senhaCriacao} autoComplete="current-password" onChange={(evento) => setSenhaCriacao(evento.target.value)} /></label>}
+        <div><button type="button" className={styles.primario} disabled={ocupado || !confirmarConcessao || (pedirSenhaCriacao && !senhaCriacao)} onClick={() => void estruturarPerfil('concessao-inicial')}>{ocupado ? 'Assumindo…' : pedirSenhaCriacao ? 'Confirmar senha e assumir a administração' : 'Assumir a administração do perfil'}</button></div>
+    </div>;
+
     return <main className={styles.page} data-profile-page aria-busy={ocupado || carregando}>
         <header className={styles.header}>
             <div className={styles.heading}><h1>Perfil da Empresa</h1><div className={styles.unidadeAtual}><span>Unidade atual</span><strong>{form.unidadeNome || dados?.contexto?.codigoUnidade || '—'}</strong></div>{dados?.contexto && <span className={styles.badge} data-draft={Boolean(dados.contexto.rascunho || sujo)}>{dados.contexto.rascunho || sujo ? 'Rascunho' : 'Publicado'}</span>}</div>
@@ -481,13 +495,7 @@ export default function PerfilEmpresa() {
         {carregando && <p className={styles.estado} role="status">Carregando perfil.</p>}
         {ocupado && <p className={styles.estado} role="status">Operação em andamento.</p>}
         {!carregando && semPermissao && <section className={styles.acesso} aria-labelledby="perfil-acesso"><h2 id="perfil-acesso">Acesso negado</h2><p role="alert">{acessoMensagem}</p><p>A resposta do servidor não permite abrir este perfil.</p>
-            {concessaoInicial?.elegivel && <div data-concessao-inicial>
-                <h3>Assumir a administração do perfil</h3>
-                <p>O perfil de {empresaSemAcesso?.nome ?? 'esta empresa'} existe, mas nenhuma conta com Gestão ativa administra as concessões dele. Como Gestão desta empresa, você pode assumir a administração: esta conta recebe as capacidades que faltam ({concessaoInicial.capacidadesFaltantes.map(rotuloCapacidade).join(', ')}). Nenhum dado do cadastro é mostrado antes disso.</p>
-                <label className={styles.confirmacao}><input type="checkbox" checked={confirmarConcessao} onChange={(evento) => setConfirmarConcessao(evento.target.checked)} /><span>Confirmo que quero assumir a administração do perfil desta empresa</span></label>
-                {pedirSenhaCriacao && <label className={styles.campo}>Senha da sua conta<input type="password" value={senhaCriacao} autoComplete="current-password" onChange={(evento) => setSenhaCriacao(evento.target.value)} /></label>}
-                <div><button type="button" className={styles.primario} disabled={ocupado || !confirmarConcessao || (pedirSenhaCriacao && !senhaCriacao)} onClick={() => void estruturarPerfil('concessao-inicial')}>{ocupado ? 'Assumindo…' : pedirSenhaCriacao ? 'Confirmar senha e assumir a administração' : 'Assumir a administração do perfil'}</button></div>
-            </div>}
+            {concessaoInicial?.elegivel && blocoConcessao('h3')}
             {concessaoInicial && !concessaoInicial.elegivel && concessaoInicial.motivo === 'ADMINISTRADOR_EXISTENTE' && <p>Outra conta administra as concessões deste perfil. Peça a ela a concessão de acesso.</p>}
             <div><a href="/admin/configuracoes">Voltar às configurações</a><button type="button" onClick={() => void carregar(devePreencherNaRetentativa(fluxoRef.current))}>Tentar novamente</button></div></section>}
         {!carregando && !semPermissao && dados && !dados.estruturaInstalada && <p className={styles.estado}>A estrutura do perfil ainda não está instalada. Nenhum acesso foi concedido.</p>}
@@ -503,6 +511,8 @@ export default function PerfilEmpresa() {
         </section>}
         {erro && <p className={styles.erro} role="alert">{erro}</p>}
         {erro && <button type="button" onClick={() => void carregar(devePreencherNaRetentativa(fluxoRef.current))}>Tentar novamente</button>}
+        {!carregando && !semPermissao && dados?.contexto && concessaoInicial?.elegivel && <section className={styles.acesso} aria-labelledby="perfil-assumir" data-concessao-parcial>{blocoConcessao('h2', 'perfil-assumir')}</section>}
+        {!carregando && !semPermissao && dados?.contexto && concessaoInicial?.motivo === 'ADMINISTRADOR_EXISTENTE' && !capacidades?.PERFIL_ADMINISTRAR_CONCESSOES && <p className={styles.estado} data-concessao-administrada>Outra conta administra as concessões deste perfil. Peça a ela a concessão de acesso.</p>}
         {!carregando && !semPermissao && dados?.contexto && <form className={styles.conteudo} onSubmit={(evento) => { evento.preventDefault(); }}>
 
             {sujo && <p>Há alterações ainda não salvas. Salve o rascunho antes de aplicar.</p>}

@@ -755,6 +755,75 @@ test('concessão inicial — associação ambígua recusada; concorrência: a se
     assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE origem = 'PERFIL_EMPRESA' AND entidade_id = $1 AND (dados_depois::text ~ 'scrypt\\$' OR dados_depois::text ~ 'senha')", [ids.concPerfil]), 0, 'auditoria sem segredos');
 });
 
+test('H0 (database/checks/20261006_h0_perfil_legado_leitura.sql): mesma associação da aplicação; órfão único da kidmais com administrador; ambiguidades marcadas; inelegíveis por conta/vínculo não contam', async () => {
+    const h0 = readFileSync('database/checks/20261006_h0_perfil_legado_leitura.sql', 'utf8');
+    assert.match(h0, /^BEGIN READ ONLY;/m);
+    assert.match(h0, /^ROLLBACK;\s*$/m);
+    const semComentarios = h0.split(/\r?\n/).map((l) => l.replace(/--.*$/, '')).join('\n');
+    assert.doesNotMatch(semComentarios, /\b(INSERT|UPDATE|DELETE|MERGE|COPY|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE)\b|senha|token|password/i, 'somente leitura, sem segredos');
+    const kidmais = (await client.query<{ id: string }>("SELECT id FROM empresas WHERE codigo = 'kidmais'")).rows[0].id;
+    const orfao = (await client.query<{ id: string }>('SELECT id FROM perfil_empresas WHERE codigo = $1', ['EMP-' + sufixo])).rows[0].id;
+    const hash = await svc.senha.criarHashSenha(senhas.resp);
+    const pessoa = async (chave: string, ativo = true) => (await client.query<{ id: string }>('INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, $2, $3, $4, $5) RETURNING id', [email('h0-' + chave), 'H0 ' + chave, hash, 'ADMINISTRATIVO', ativo])).rows[0].id;
+    const vinculoNaKidmais = async (usuario: string, papel: string, status: string) => {
+        const m = (await client.query<{ id: string }>("INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1, $2, 'PENDENTE', clock_timestamp(), $3) RETURNING id", [kidmais, usuario, papel])).rows[0].id;
+        await client.query("UPDATE memberships SET status = 'ATIVA' WHERE id = $1", [m]);
+        if (status !== 'ATIVA')
+            await client.query('UPDATE memberships SET status = $2 WHERE id = $1', [m, status]);
+    };
+    const administrar = (usuario: string) => client.query("INSERT INTO perfil_empresa_concessoes (empresa_id, usuario_id, capacidade, concedido_por, motivo, referencia_autorizacao) VALUES ($1, $2, 'PERFIL_ADMINISTRAR_CONCESSOES', $2, 'fixture H0', 'TESTE')", [orfao, usuario]);
+    // Órfão único da kidmais: K administra (elegível); I (conta inativa), S (vínculo suspenso) e Q (Equipe) não contam.
+    const k = await pessoa('k');
+    await vinculoNaKidmais(k, 'REPRESENTANTE_AUTORIZADO', 'ATIVA');
+    await administrar(k);
+    const i = await pessoa('i', false);
+    await vinculoNaKidmais(i, 'REPRESENTANTE_AUTORIZADO', 'ATIVA');
+    await administrar(i);
+    const sus = await pessoa('s');
+    await vinculoNaKidmais(sus, 'REPRESENTANTE_AUTORIZADO', 'SUSPENSA');
+    await administrar(sus);
+    const q = await pessoa('q');
+    await vinculoNaKidmais(q, 'ADMINISTRATIVO', 'ATIVA');
+    await administrar(q);
+    // Ambiguidade perfil → várias empresas (UUID da empresa legado + código de uma empresa nova) e
+    // vários perfis → mesma empresa (segundo perfil apontando pelo UUID para a empresa da concessão).
+    const e2 = (await client.query<{ id: string }>("INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Empresa H0 063', 'PROVISIONAMENTO') RETURNING id", ['p063-h0-' + sufixo])).rows[0].id;
+    await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [e2]);
+    await client.query('INSERT INTO perfil_empresas (id, codigo) VALUES ($1::uuid, $2)', [ids.legado, 'p063-h0-' + sufixo]);
+    await client.query('INSERT INTO perfil_empresas (id, codigo) VALUES ($1::uuid, $2)', [ids.concEmpresa, 'p063-dup-' + sufixo]);
+    try {
+        const resultados = await client.query(h0) as unknown as Array<{ command: string; rows: Record<string, unknown>[] }>;
+        assert.ok(Array.isArray(resultados) && resultados.length === 7, 'BEGIN, (0)…(4), ROLLBACK');
+        assert.deepEqual([resultados[0].command, resultados[6].command], ['BEGIN', 'ROLLBACK']);
+        const [, geral, legada, orfaos, associacao, multiplos] = resultados;
+        assert.equal(geral.rows[0].perfil_empresas, 'perfil_empresas');
+        assert.deepEqual(legada.rows.map((l) => [l.id, l.status]), [[kidmais, 'ATIVA']]);
+        assert.deepEqual(orfaos.rows.map((l) => l.id), [orfao], 'o órfão continua único: os dois perfis novos casam por UUID');
+        const porPerfil = new Map(associacao.rows.map((l) => [String(l.perfil_id), l]));
+        const linha = (perfilId: string) => {
+            const l = porPerfil.get(perfilId);
+            assert.ok(l, 'perfil ' + perfilId + ' na leitura');
+            return l!;
+        };
+        const resumo = (l: Record<string, unknown>) => [l.situacao, Number(l.candidatas), l.empresa_id, l.perfis_na_mesma_empresa === null ? null : Number(l.perfis_na_mesma_empresa), Number(l.concessoes_ativas), l.administradores_elegiveis === null ? null : Number(l.administradores_elegiveis)];
+        assert.deepEqual(resumo(linha(ids.perfil)), ['OK', 1, ids.empresa, 1, 4, 1], 'associação direta pelo código, com administradora (resp)');
+        assert.deepEqual(resumo(linha(orfao)), ['OK', 1, kidmais, 1, 4, 1], 'órfão único → kidmais; só K conta como administrador');
+        assert.deepEqual(resumo(linha(ids.concPerfil)), ['OK', 1, ids.concEmpresa, 2, 4, 1], 'direta pelo código; a empresa tem dois perfis');
+        const dup = linha((await client.query<{ id: string }>('SELECT id FROM perfil_empresas WHERE codigo = $1', ['p063-dup-' + sufixo])).rows[0].id);
+        assert.deepEqual(resumo(dup), ['OK', 1, ids.concEmpresa, 2, 0, 0], 'perfil sem administrador, mesma empresa do anterior');
+        const amb = linha(ids.legado);
+        assert.deepEqual(resumo(amb), ['AMBIGUO_VARIAS_EMPRESAS', 2, null, null, 0, null], 'nenhuma empresa é escolhida quando há duas candidatas');
+        assert.equal(amb.candidatas_codigos, ['p063-h0-' + sufixo, 'p063-legado-' + sufixo].sort().join(', '));
+        assert.deepEqual(multiplos.rows.map((l) => [l.empresa_id, Number(l.perfis)]), [[ids.concEmpresa, 2]], 'vários perfis → mesma empresa');
+        for (const r of resultados)
+            assert.doesNotMatch(JSON.stringify(r.rows), /scrypt\$|senha|nome_comercial|cnpj|@exemplo\.test/, 'saída sem segredos nem dados de negócio');
+    }
+    finally {
+        await client.query('DELETE FROM perfil_empresa_concessoes WHERE empresa_id = $1 AND usuario_id = ANY($2::uuid[])', [orfao, [k, i, sus, q]]);
+        await client.query('DELETE FROM perfil_empresas WHERE id = ANY($1::uuid[])', [[ids.legado, ids.concEmpresa]]);
+    }
+});
+
 test('rollback da 063 recusa depois do uso (vínculo suspenso ou registros), sem apagar nada', async () => {
     const dev = (await sessaoDe(ids.dev)).sessao;
     await svc.vinculos.alterarSituacaoVinculo(dev as never, ids.empresa as never, ids.dono as never, 'desativar' as never, { motivo: 'Prova de rollback' } as never, ctx() as never, deps() as never);

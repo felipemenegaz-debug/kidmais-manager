@@ -17,6 +17,10 @@
  *   6. Perfil existente sem administrador elegível (achado Astra, PR #104): o 403 traz só a elegibilidade (nada do
  *      cadastro); a segunda Gestão assume a administração com confirmação e senha (senha errada: nada concedido);
  *      com administradora elegível, a outra Gestão vê a explicação, sem botão, e o servidor recusa com 409.
+ *   7. Gestão com só PERFIL_CONSULTAR e nenhum administrador elegível (segunda revisão): o GET 200 traz a elegibilidade,
+ *      a tela mostra o formulário (consulta) E a ação de assumir; confirmação + senha (errada: nada); sucesso concede só
+ *      as três que faltam e a tela passa a editar; com administradora, quem só consulta não vê a ação e o POST recebe
+ *      409; Equipe continua em "Acesso negado" sem ação e com POST recusado.
  */
 const assert = require('node:assert/strict');
 const { randomBytes } = require('node:crypto');
@@ -57,13 +61,14 @@ async function principal() {
     const carregar = (f) => carregarModulo(f, { 'db/postgres': { db: () => client, withTransaction } }, new Map());
     const senhaMod = carregar('lib/autenticacao/senha.ts');
     const password = `sintetica-${randomBytes(12).toString('hex')}`;
-    const emailDev = 'dev-implantacao-ui@exemplo.test', emailResp = 'resp-implantacao-ui@exemplo.test', emailResp2 = 'resp2-implantacao-ui@exemplo.test';
+    const emailDev = 'dev-implantacao-ui@exemplo.test', emailResp = 'resp-implantacao-ui@exemplo.test', emailResp2 = 'resp2-implantacao-ui@exemplo.test', emailEquipe = 'equipe-implantacao-ui@exemplo.test';
     const usuario = async (e, nome) => (await client.query(`INSERT INTO usuarios_administrativos(email,nome,senha_hash,papel)
       VALUES($1,$2,$3,'ADMINISTRATIVO') RETURNING id`, [e, nome, await senhaMod.criarHashSenha(password)])).rows[0].id;
     const dev = await usuario(emailDev, 'Dev Implantação UI');
     const resp = await usuario(emailResp, 'Responsável Implantação UI');
     const resp2 = await usuario(emailResp2, 'Segunda Gestão Implantação UI');
-    await client.query("UPDATE usuarios_administrativos SET senha_alterada_em = clock_timestamp() - interval '1 hour' WHERE id = ANY($1::uuid[])", [[dev, resp, resp2]]);
+    const equipe = await usuario(emailEquipe, 'Equipe Implantação UI');
+    await client.query("UPDATE usuarios_administrativos SET senha_alterada_em = clock_timestamp() - interval '1 hour' WHERE id = ANY($1::uuid[])", [[dev, resp, resp2, equipe]]);
     await alterarDesenvolvedor(client, { operacao: 'conceder', email: emailDev, operador: 'E2E sintético', motivo: 'Teste da conclusão do painel' });
     // Contratante nova, já provisionada e com o responsável que aceitou o convite (estado "Em configuração").
     const codigo = `impl-ui-${randomBytes(3).toString('hex')}`;
@@ -77,6 +82,9 @@ async function principal() {
     const membership2 = (await client.query(`INSERT INTO memberships(empresa_id,usuario_id,status,vigente_desde,papel)
       VALUES($1,$2,'PENDENTE',clock_timestamp(),'REPRESENTANTE_AUTORIZADO') RETURNING id`, [empresa, resp2])).rows[0].id;
     await client.query("UPDATE memberships SET status='ATIVA' WHERE id=$1", [membership2]);
+    const membershipEquipe = (await client.query(`INSERT INTO memberships(empresa_id,usuario_id,status,vigente_desde,papel)
+      VALUES($1,$2,'PENDENTE',clock_timestamp(),'ADMINISTRATIVO') RETURNING id`, [empresa, equipe])).rows[0].id;
+    await client.query("UPDATE memberships SET status='ATIVA' WHERE id=$1", [membershipEquipe]);
     const contar = async (sql, params) => Number((await client.query(sql, params)).rows[0].n);
 
     const env = { ...process.env, DATABASE_URL: `postgresql://kidmais_descartavel@127.0.0.1:${porta}/${receita.TRABALHO[0]}`,
@@ -287,6 +295,88 @@ async function principal() {
     assert.equal(await ativasDoPerfil(), 4);
     resultados.push('Com administradora elegível: a outra Gestão vê a explicação sem botão e o POST direto recebe 409 PERFIL_SEM_CONCESSAO, nada concedido');
     console.log('E2E_CONCESSAO_BLOQUEADA_OK');
+    await sairPelo(page.getByRole('button', { name: /^Sair$/ }).first());
+
+    // 7. Gestão com só PERFIL_CONSULTAR e nenhum administrador elegível: o 200 traz a elegibilidade e a tela oferece a ação.
+    await client.query("UPDATE perfil_empresa_concessoes SET revogado_em = clock_timestamp(), revogado_por = $2, motivo_revogacao = 'Fixture E2E: só consultar' WHERE empresa_id = $1 AND usuario_id = $2 AND capacidade <> 'PERFIL_CONSULTAR' AND revogado_em IS NULL", [perfil[0].id, resp2]);
+    assert.equal(await ativasDoPerfil(), 1, 'só a consulta de resp2 continua ativa: ninguém administra');
+    await login(emailResp2);
+    await client.query("UPDATE sessoes_administrativas SET criado_em = criado_em - interval '6 minutes', autenticado_em = autenticado_em - interval '6 minutes' WHERE usuario_id=$1 AND revogado_em IS NULL", [resp2]);
+    const parcial = await contexto.request.get(`${base}/api/admin/configuracoes/perfil-empresa`);
+    assert.equal(parcial.status(), 200, 'quem consulta recebe 200');
+    const corpoParcial = await parcial.json();
+    assert.deepEqual(corpoParcial.data.capacidades, { PERFIL_CONSULTAR: true, PERFIL_EDITAR_RASCUNHO: false, PERFIL_APLICAR: false, PERFIL_ADMINISTRAR_CONCESSOES: false });
+    assert.deepEqual([corpoParcial.data.concessaoInicial.elegivel, corpoParcial.data.concessaoInicial.motivo, corpoParcial.data.concessaoInicial.capacidadesFaltantes],
+      [true, null, ['PERFIL_EDITAR_RASCUNHO', 'PERFIL_APLICAR', 'PERFIL_ADMINISTRAR_CONCESSOES']], 'o 200 informa a elegibilidade');
+    await page.goto(`${base}/admin/configuracoes/perfil-empresa`);
+    await page.getByRole('heading', { name: 'Perfil da Empresa', exact: true }).waitFor();
+    assert.equal(await page.getByRole('heading', { name: 'Acesso negado', exact: true }).count(), 0, 'quem consulta vê o formulário, não "Acesso negado"');
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('input')).some((e) => e.value === 'Nova Contratante Festas Ltda'), null, { timeout: 30000 });
+    assert.equal(await page.locator('input').evaluateAll((els) => els.filter((e) => e.value === 'Nova Contratante Festas Ltda').length), 1, 'o formulário de consulta continua visível');
+    assert.equal(await page.getByRole('button', { name: 'Salvar rascunho', exact: true }).count(), 0, 'sem capacidade de edição, sem botão de salvar');
+    const assumirParcial = page.getByRole('button', { name: 'Assumir a administração do perfil', exact: true });
+    await assumirParcial.waitFor();
+    await page.getByText('editar o rascunho, aplicar o cadastro, administrar as concessões', { exact: false }).waitFor();
+    assert.equal(await assumirParcial.isDisabled(), true, 'sem a confirmação o botão fica desabilitado');
+    await page.screenshot({ path: path.join(relatorios, 'perfil-consulta-elegivel.png'), fullPage: true });
+    await page.getByLabel('Confirmo que quero assumir a administração do perfil desta empresa').check();
+    await assumirParcial.click();
+    await page.getByText('Confirme sua senha para assumir a administração do perfil.', { exact: false }).waitFor();
+    assert.equal(await ativasDoPerfil(), 1, 'sessão antiga: nada concedido antes da senha');
+    await page.getByLabel('Senha da sua conta', { exact: true }).fill('senha-errada-ui');
+    await page.getByRole('button', { name: 'Confirmar senha e assumir a administração', exact: true }).click();
+    await page.getByText('Senha incorreta.', { exact: false }).waitFor();
+    assert.equal(await ativasDoPerfil(), 1, 'senha errada: nada concedido');
+    await page.getByLabel('Senha da sua conta', { exact: true }).fill(password);
+    await page.getByRole('button', { name: 'Confirmar senha e assumir a administração', exact: true }).click();
+    await page.getByText('Administração do perfil assumida: 3 capacidade(s)', { exact: false }).first().waitFor();
+    await page.getByRole('button', { name: 'Salvar rascunho', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /Assumir a administração/ }).count(), 0, 'a ação some depois de assumir');
+    assert.equal(await ativasDoPerfil(resp2), 4);
+    assert.equal(await ativasDoPerfil(), 4, 'nenhuma concessão para outra conta');
+    assert.equal(await contar("SELECT count(*)::int AS n FROM perfil_empresa_concessoes WHERE empresa_id=$1 AND usuario_id=$2 AND capacidade='PERFIL_CONSULTAR'", [perfil[0].id, resp2]), 1, 'a consulta que já existia não foi duplicada');
+    const ultimaAuditoria = (await client.query("SELECT dados_depois FROM auditoria WHERE acao='PERFIL_CONCESSAO_INICIAL' AND entidade_id=$1 ORDER BY criado_em DESC LIMIT 1", [perfil[0].id])).rows[0].dados_depois;
+    assert.deepEqual([ultimaAuditoria.capacidades, ultimaAuditoria.jaPossuia], [['PERFIL_EDITAR_RASCUNHO', 'PERFIL_APLICAR', 'PERFIL_ADMINISTRAR_CONCESSOES'], ['PERFIL_CONSULTAR']]);
+    assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao='PERFIL_CONCESSAO_INICIAL' AND entidade_id=$1", [perfil[0].id]), 2);
+    await page.screenshot({ path: path.join(relatorios, 'perfil-consulta-assumido.png'), fullPage: true });
+    resultados.push('Gestão com só PERFIL_CONSULTAR e sem administrador: GET 200 com elegibilidade; formulário de consulta + ação de assumir; confirmação e senha (errada: nada); sucesso concedeu só as 3 que faltavam (auditoria com jaPossuia) e a tela passou a editar');
+    console.log('E2E_CONCESSAO_PARCIAL_OK');
+    await sairPelo(page.getByRole('button', { name: /^Sair$/ }).first());
+    // Com administradora elegível (resp2), quem só consulta (resp) não vê a ação; o POST direto é recusado sem elevar.
+    await client.query("INSERT INTO perfil_empresa_concessoes (empresa_id, usuario_id, capacidade, concedido_por, motivo, referencia_autorizacao) VALUES ($1, $2, 'PERFIL_CONSULTAR', $3, 'Fixture E2E: consulta concedida pela administradora', 'TESTE')", [perfil[0].id, resp, resp2]);
+    await login(emailResp);
+    const consultaComAdmin = await contexto.request.get(`${base}/api/admin/configuracoes/perfil-empresa`);
+    assert.equal(consultaComAdmin.status(), 200);
+    assert.deepEqual([(await consultaComAdmin.json()).data.concessaoInicial.elegivel, (await consultaComAdmin.json()).data.concessaoInicial.motivo], [false, 'ADMINISTRADOR_EXISTENTE']);
+    await page.goto(`${base}/admin/configuracoes/perfil-empresa`);
+    await page.getByRole('heading', { name: 'Perfil da Empresa', exact: true }).waitFor();
+    await page.getByText('Outra conta administra as concessões deste perfil', { exact: false }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /Assumir a administração/ }).count(), 0, 'com administradora, sem ação');
+    const sessaoRespConsulta = await sessaoAtual();
+    const recusaParcial = await contexto.request.post(`${base}/api/admin/configuracoes/perfil-empresa`, { headers: { origin: base, 'x-csrf-token': sessaoRespConsulta.data.csrf, 'x-kidmais-sessao': sessaoRespConsulta.data.sessaoId },
+      data: { acao: 'concessao-inicial', confirmar: true } });
+    assert.equal(recusaParcial.status(), 409);
+    assert.equal((await recusaParcial.json()).codigo, 'PERFIL_SEM_CONCESSAO');
+    assert.equal(await ativasDoPerfil(resp), 1, 'nada elevado: continua só com a consulta');
+    resultados.push('Com administradora elegível, quem só consulta recebe 200 sem elegibilidade, vê a explicação sem botão e o POST direto recebe 409 sem elevar');
+    console.log('E2E_CONCESSAO_PARCIAL_BLOQUEADA_OK');
+    await sairPelo(page.getByRole('button', { name: /^Sair$/ }).first());
+    // Equipe: continua em "Acesso negado", sem ação, e o POST é recusado.
+    await login(emailEquipe);
+    const equipeGet = await contexto.request.get(`${base}/api/admin/configuracoes/perfil-empresa`);
+    assert.equal(equipeGet.status(), 403);
+    assert.equal((await equipeGet.json()).detalhes.concessaoInicial.motivo, 'SEM_GESTAO');
+    await page.goto(`${base}/admin/configuracoes/perfil-empresa`);
+    await page.getByRole('heading', { name: 'Acesso negado', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /Assumir a administração/ }).count(), 0, 'Equipe não vê a ação');
+    const sessaoEquipe = await sessaoAtual();
+    const recusaEquipe = await contexto.request.post(`${base}/api/admin/configuracoes/perfil-empresa`, { headers: { origin: base, 'x-csrf-token': sessaoEquipe.data.csrf, 'x-kidmais-sessao': sessaoEquipe.data.sessaoId },
+      data: { acao: 'concessao-inicial', confirmar: true } });
+    assert.equal(recusaEquipe.status(), 403);
+    assert.equal((await recusaEquipe.json()).codigo, 'PAPEL_NAO_AUTORIZADO');
+    assert.equal(await ativasDoPerfil(equipe), 0);
+    resultados.push('Equipe: 403 com motivo SEM_GESTAO, "Acesso negado" sem ação, POST recusado (PAPEL_NAO_AUTORIZADO), nada concedido');
+    console.log('E2E_CONCESSAO_EQUIPE_OK');
     await sairPelo(page.getByRole('button', { name: /^Sair$/ }).first());
 
     fs.writeFileSync(path.join(relatorios, 'resultado.json'), JSON.stringify({ ok: true, emailReal: 'desativado', resultados }, null, 2));

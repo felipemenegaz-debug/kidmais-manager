@@ -228,17 +228,26 @@ async function principal() {
     await client.query('UPDATE sessoes_administrativas SET revogado_em = clock_timestamp() WHERE usuario_id=$1 AND revogado_em IS NULL', [gestao]);
     await contexto.clearCookies();
 
-    // 5. Sessão já encerrada no servidor (outro dispositivo saiu, ou expirou).
+    // 5. Sessão já encerrada no servidor (outro dispositivo saiu, ou expirou). O shell relê a sessão a cada 15 s e ao
+    //    ganhar foco; para o clique acontecer antes de a página ir ao login sozinha (corrida do roteiro, não do produto),
+    //    as leituras em segundo plano recebem a última resposta válida. O POST de saída vai ao servidor real (401).
     await login(emailGestao);
     await page.goto(`${base}/admin/dashboard`);
     await page.getByRole('navigation', { name: 'Menu administrativo', exact: true }).waitFor();
+    await page.getByText('Gestão Saída UI', { exact: false }).first().waitFor(); // contexto lido: CSRF lembrado
+    const ultimaValida = JSON.stringify(await sessaoAtual());
+    await page.route('**/api/admin/autenticacao', async (route) => {
+      if (route.request().method() === 'GET') await route.fulfill({ status: 200, contentType: 'application/json', body: ultimaValida });
+      else await route.continue();
+    });
     await client.query('UPDATE sessoes_administrativas SET revogado_em = clock_timestamp() WHERE usuario_id=$1 AND revogado_em IS NULL', [gestao]);
     zerar();
     await botaoSair().click();
     const aviso5 = await avisoNoLogin();
     assert.ok(semAviso(aviso5), `sessão já encerrada não gera aviso enganoso: ${aviso5}`);
-    assert.equal(logoutsEnviados(), 1);
+    assert.equal(logoutsEnviados(), 1, 'o POST foi enviado e respondido com 401');
     assert.equal(await sessoesAbertas(gestao), 0);
+    await page.unroute('**/api/admin/autenticacao');
     resultados.push('Sessão já encerrada: login sem aviso enganoso');
     console.log('E2E_SAIDA_JA_ENCERRADA_OK');
     await contexto.clearCookies();

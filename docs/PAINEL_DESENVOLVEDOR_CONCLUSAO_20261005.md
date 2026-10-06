@@ -37,7 +37,7 @@ Estado: **I** implementado nesta entrega · **J** já existia (revalidado) · **
 | A | Gestão configura empresa nova sem Perfil | **I V** | `lib/perfil/criacao.ts` + ação `criar-perfil` da API + tela | unit `lib/perfil/criacao.test.ts` (4), PG "perfil da empresa nova…", UI cenário 3 |
 | A | Só registros mínimos, validados, idempotentes, sem copiar a Kidmais | **I V** | perfil com o código da empresa, 1 unidade, 4 capacidades; pré-preenche só nome/razão social/CNPJ válidos | unit + PG + `PerfilEmpresa.test.ts` ("nada é copiado da Kidmais") |
 | A | Pendências reais com ações claras | **I V** | `lib/desenvolvedor/implantacao.ts`; ficha lista ✓/✗ com ação | unit `implantacao.test.ts` (3), PG "implantação…", UI cenário 4 |
-| A | Perfil existente sem administrador elegível: a Gestão assume a administração pela tela (revisão Astra) | **I V** | `elegibilidadeConcessaoInicial` (403 mínimo, sem cadastro) + ação `concessao-inicial` revalidada na transação + tela com confirmação e senha | unit `criacao.test.ts` (4 novos), PG 5 testes "concessão inicial — …", UI implantação cenário 6 |
+| A | Perfil existente sem administrador elegível: a Gestão assume a administração pela tela — sem nenhuma capacidade (403) **ou** só com `PERFIL_CONSULTAR` (200) (revisões Astra 1 e 2) | **I V** | `elegibilidadeConcessaoInicial` no 403 (mínimo, sem cadastro) e no 200 (junto com o cadastro); ação `concessao-inicial` revalidada na transação; tela com confirmação e senha, acima do formulário quando já consulta | unit `criacao.test.ts`, PG 5 testes "concessão inicial — …", UI implantação cenários 6 e 7 |
 | A | Requisitos para CONCLUÍDA validados no servidor | **I V** | Gestão ativa + perfil criado + cadastro aplicado; 409 `IMPLANTACAO_PENDENTE` auditado | PG + UI (409 via API e botão bloqueado) |
 | B | Busca, filtros, paginação | J V | 25/página, contagens | código revisado; PG |
 | B | Validação e-mail/telefone/CPF-CNPJ | J V | `lib/acessos/validacao.ts` | `acessos.test.ts` |
@@ -94,8 +94,8 @@ Estado: **I** implementado nesta entrega · **J** já existia (revalidado) · **
 | `npx tsc --noEmit` | sem erros |
 | ESLint (áreas alteradas e arquivo inteiro na regressão) | sem erros |
 | Unitários novos: `lib/perfil/criacao.test.ts`, `lib/perfil/associacao.test.ts`, `lib/desenvolvedor/implantacao.test.ts`, `lib/acessos/retry-after.test.ts`, `components/admin/navegacao-saida.test.ts` + extensões em `painel.test.ts` e `PerfilEmpresa.test.ts` | ver §4.1 |
-| PostgreSQL descartável (modelo 063 recriado do schema vazio) — `lib/desenvolvedor/painel-063.postgres.test.ts` | 31/31 em 06/10/2026 (20 anteriores + 6 da conclusão + 5 da revisão Astra); 26/26 na entrega de 05/10 |
-| Interface (Playwright + Chrome, Next local, banco sintético) — `scripts/painel-implantacao-ui.cjs` (6 cenários) e `scripts/painel-saida-ui.cjs` (6 cenários de saída com rede controlada) | ver §4.1 e §10 |
+| PostgreSQL descartável (modelo 063 recriado do schema vazio) — `lib/desenvolvedor/painel-063.postgres.test.ts` | 32/32 em 06/10/2026 (20 anteriores + 6 da conclusão + 5 da revisão Astra + 1 do H0); 26/26 na entrega de 05/10 |
+| Interface (Playwright + Chrome, Next local, banco sintético) — `scripts/painel-implantacao-ui.cjs` (7 cenários, 10 marcos) e `scripts/painel-saida-ui.cjs` (6 cenários de saída com rede controlada) | ver §4.1, §10 e §11 |
 | `npm run check:v1:static` (testes, lint, TypeScript, build), `production:test`, `otp-staging` | ver §4.1 |
 
 ### 4.1 Evidências
@@ -165,7 +165,7 @@ Sem essas variáveis o sistema mostra "não enviado" e a recuperação pública 
 
 - Entrega real de convites e de recuperação (D1): configuração acima + homologação da entrega com conta sintética.
 - Merge, deploy e homologação em staging (§6); promoção para production é tarefa separada.
-- Leitura H0 em staging para confirmar o estado do perfil legado (a regra de código cobre o caso de um único órfão). Procedimento pronto e **não executado**: `database/checks/20261006_h0_perfil_legado_leitura.sql` (transação READ ONLY, só ids/códigos/status/contagens, termina em ROLLBACK), a executar por quem tem credencial própria antes do deploy; o resultado deve ser registrado no documento de homologação, não aqui.
+- Leitura H0 em staging para confirmar o estado do perfil legado (a regra de código cobre o caso de um único órfão). Procedimento pronto e **não executado**: `database/checks/20261006_h0_perfil_legado_leitura.sql` (transação READ ONLY, só ids/códigos/status/contagens, termina em ROLLBACK; usa a mesma regra de associação da aplicação e marca ambiguidades — ver §11.2), validado em PostgreSQL descartável com dados sintéticos, a executar em staging por quem tem credencial própria antes do deploy; o resultado deve ser registrado no documento de homologação, não aqui.
 - S11 e E1–E6 da homologação 063 devem ser reconferidos contra o SHA que for implantado (os scripts conferem o alvo).
 
 ## 9. Roteiro de revisão para o Astra
@@ -177,7 +177,8 @@ Sem essas variáveis o sistema mostra "não enviado" e a recuperação pública 
 5. **Auditoria.** `EMPRESA_IMPLANTACAO_RECUSADA` fora da transação; `PERFIL_ESTRUTURA_CRIADA`/`PERFIL_CONCESSAO_INICIAL`; leitura sanitizada.
 6. **Recuperação.** `Retry-After` em `lib/acessos/http.ts`, `lib/autenticacao/service.ts` (`prazoDoLimite`) e rota de autenticação; nada muda nos limites em si.
 7. **Testes.** Rodar `check:v1:static`; para o PostgreSQL, criar um cluster sintético e `KIDMAIS_POSTGRES_SOMENTE=lib/desenvolvedor/painel-063.postgres.test.ts`; para a interface, `node --experimental-strip-types scripts/painel-implantacao-ui.cjs` e `scripts/painel-saida-ui.cjs` com `KIDMAIS_PLAYWRIGHT_MODULE` e Chrome.
-8. **Concessão inicial (revisão Astra).** `lib/perfil/criacao.ts` (`elegibilidadeConcessaoInicial` sem travas e sem cadastro; `criarPerfilDaEmpresa` com `exigirExistente`, trava das concessões de administração `FOR UPDATE`, concessão só do que falta, 409 com administrador elegível); rota GET (403 com `detalhes.concessaoInicial` + `empresa`) e POST `concessao-inicial`; `components/admin/PerfilEmpresa.tsx` (bloco "Assumir a administração do perfil").
+8. **Concessão inicial (revisão Astra).** `lib/perfil/criacao.ts` (`elegibilidadeConcessaoInicial` sem travas e sem cadastro; `criarPerfilDaEmpresa` com `exigirExistente`, trava das concessões de administração `FOR UPDATE`, concessão só do que falta, 409 com administrador elegível); rota GET (403 com `detalhes.concessaoInicial` + `empresa`; 200 com `concessaoInicial` junto do cadastro) e POST `concessao-inicial`; `components/admin/PerfilEmpresa.tsx` (`blocoConcessao` dentro de "Acesso negado" e acima do formulário de quem só consulta).
+9. **H0.** `database/checks/20261006_h0_perfil_legado_leitura.sql` contra `EMPRESA_SAAS_DO_PERFIL` e `administradoresElegiveis`; teste "H0 (database/checks/…)" no PostgreSQL descartável.
 
 ## 10. Correções da revisão Astra (06/10/2026)
 
@@ -275,3 +276,76 @@ leitura responder `PERFIL_LIMITE_V1` antes da concessão — o estado real sempr
 **Limitações.** Mesmas de §4.1 (e-mail dublado, só Chrome headless). O prazo de 8 s é fixo; a interface mostra "Saindo…"
 durante a espera. O aviso de saída não confirmada depende do `sessionStorage` do navegador (sem ele, a tela de login
 abre sem o aviso; nada mais muda).
+
+## 11. Correções da segunda revisão Astra (06/10/2026)
+
+Revisão feita sobre `bbc0fc2`. Dois achados.
+
+### 11.1 Concessão inicial com permissões parciais (caminho HTTP 200)
+
+**Problema.** Para a Gestão que já tinha só `PERFIL_CONSULTAR` (perfil existente, associado sem ambiguidade, nenhum
+administrador elegível), `lerCadastroPerfil` respondia e o GET devolvia 200 sem consultar a elegibilidade; a tela
+limpava `concessaoInicial` e só mostrava "Assumir a administração do perfil" dentro de "Acesso negado" (403). Quem
+consultava continuava sem caminho para recuperar a administração.
+
+**Comportamento agora.**
+
+- `GET /api/admin/configuracoes/perfil-empresa` (200) devolve `concessaoInicial` junto com o cadastro, pelo mesmo
+  `elegibilidadeConcessaoInicial` (leitura sem travas; o veredito e as capacidades que faltam, nada mais). O 403
+  continua como em §10.2 (só elegibilidade + código/nome da empresa; nada do cadastro nem do histórico).
+- A tela consome o veredito nos dois caminhos: o mesmo bloco (`blocoConcessao`) aparece dentro de "Acesso negado"
+  (403) e, no 200, numa seção acima do formulário — o formulário de consulta e o que a conta já pode fazer continuam
+  iguais. Confirmação obrigatória e senha quando o servidor exige reautenticação. Depois de assumir, a tela recarrega
+  e passa a editar (a ação some: `JA_ADMINISTRA`). Com administrador elegível, quem só consulta vê "Outra conta
+  administra as concessões deste perfil", sem botão.
+- O POST não mudou: `criarPerfilDaEmpresa(..., { exigirExistente: true })` revalida tudo na transação, concede só as
+  capacidades que faltam (sem duplicar), recusa 409 com administrador elegível (nenhuma elevação) e audita
+  `PERFIL_CONCESSAO_INICIAL` com `jaPossuia`.
+
+**Testes.** Estáticos em `PerfilEmpresa.test.ts` (rota 200 com o veredito; bloco nos dois caminhos). Interface
+`scripts/painel-implantacao-ui.cjs` cenário 7 (Playwright + Chrome, banco sintético): Gestão com só
+`PERFIL_CONSULTAR` e sem administrador → GET 200 com `elegivel: true` e as três faltantes, tela com o formulário de
+consulta (sem "Salvar rascunho") e a ação; botão desabilitado sem confirmação; sessão com 6 min → senha exigida, nada
+concedido; senha errada → nada concedido; senha correta → "3 capacidade(s)", 4 ativas para a conta, consulta não
+duplicada, auditoria com `jaPossuia: ['PERFIL_CONSULTAR']`, "Salvar rascunho" presente e ação ausente; depois, com
+administradora elegível, quem só consulta recebe 200 com `ADMINISTRADOR_EXISTENTE`, vê a explicação sem botão e o POST
+direto recebe 409 sem elevar; Equipe: 403 `SEM_GESTAO`, "Acesso negado" sem ação, POST 403 `PAPEL_NAO_AUTORIZADO`.
+Cenário 6 (caminho 403 sem nenhuma capacidade) continua passando. Serviço e concorrência: §10.2 (PG).
+
+### 11.2 H0 consistente com a associação da aplicação
+
+**Problema.** A contagem de administradores elegíveis do H0 associava Perfil e empresa só por UUID ou código,
+ignorando a instalação única e o órfão único da Kidmais: podia mostrar zero administradores quando existe um.
+
+**Agora** (`database/checks/20261006_h0_perfil_legado_leitura.sql`): os blocos (3) e (4) usam a mesma regra de
+`EMPRESA_SAAS_DO_PERFIL` (UUID ou código; instalação única; órfão único → `kidmais`), calculam as candidatas por perfil
+e **nunca escolhem** uma empresa quando há mais de uma (`AMBIGUO_VARIAS_EMPRESAS`, empresa e administradores nulos,
+candidatas listadas); diferenciam "um perfil → várias empresas" (situação por perfil) de "vários perfis → mesma
+empresa" (`perfis_na_mesma_empresa` e o bloco (4)); contam administradores elegíveis como `administradoresElegiveis`
+(concessão ativa de `PERFIL_ADMINISTRAR_CONCESSOES`, identidade ativa, vínculo ATIVA de Gestão NA empresa associada).
+Continua `BEGIN READ ONLY … ROLLBACK`, só ids/códigos/status/contagens.
+
+**Validação** (teste "H0 (database/checks/…)" em `painel-063.postgres.test.ts`, PostgreSQL descartável, 32/32): o
+script inteiro é executado como está (7 resultados: BEGIN, (0)–(4), ROLLBACK) sobre fixtures sintéticas — associação
+direta com administradora (`resp`), órfão único da Kidmais com administrador (`K`) e três concessões inelegíveis
+(conta inativa, vínculo suspenso, Equipe) que não contam, perfil sem administrador, associação ambígua (UUID de uma
+empresa + código de outra) marcada sem escolher empresa, dois perfis para a mesma empresa listados no bloco (4);
+saída sem segredos nem dados de negócio; nenhum comando de escrita fora de comentários. **Não executado em staging**
+(pendência §8).
+
+### 11.3 Validação da rodada (06/10/2026)
+
+| Verificação | Resultado |
+|---|---|
+| `npx tsc --noEmit`; ESLint nos arquivos alterados | sem erros |
+| Unitários/estáticos pertinentes (`PerfilEmpresa.test.ts`, `navegacao-saida.test.ts`, `sair.test.ts`, `criacao.test.ts`) | 30/30 |
+| PostgreSQL descartável `painel-063.postgres.test.ts` (cluster recriado do schema vazio, encerrado ao final) | 32/32 |
+| `scripts/painel-implantacao-ui.cjs` (7 cenários) | 10/10 marcos |
+| `scripts/painel-saida-ui.cjs` (regressão do logout) | 6/6 |
+| `npm run check:v1:static`, `production:test`, `otp-staging` | PASS em 06/10/2026 (árvore com todas as mudanças de produto desta rodada exceto dois ajustes de texto/dica na tela feitos depois e reconferidos com tsc, ESLint e os 30 testes pertinentes): unitários 1960/1960, harness 103/103, ESLint 0 erros (1 aviso pré-existente), TypeScript, build, worker do PDF; production:test 37/37; otp-staging 3/3. A repetição do check:v1:static sobre o SHA final ficou para a CI da PR. |
+
+**Ajustes de roteiro durante a validação** (sem mudança de produto): o cenário "sessão já encerrada" do roteiro de
+saída corria contra a releitura periódica do shell (a cada 15 s e ao focar), que podia levar ao login antes do clique;
+o roteiro passou a responder às leituras em segundo plano com a última resposta válida (o POST de saída continua
+indo ao servidor real e recebe 401). `getByDisplayValue` não existe no Playwright usado; a conferência do formulário
+de consulta lê os `input` diretamente.

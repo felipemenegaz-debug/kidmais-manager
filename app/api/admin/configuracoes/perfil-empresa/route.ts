@@ -105,7 +105,11 @@ export async function GET(request: NextRequest) {
                 };
             }
             try {
-                return { ...(await lerCadastroPerfil(tx, sessao.usuario_id, perfil)), perfilAusente: false };
+                const leitura = await lerCadastroPerfil(tx, sessao.usuario_id, perfil);
+                // Quem consulta mas não administra (ex.: só PERFIL_CONSULTAR) também precisa do veredito de elegibilidade
+                // para assumir a administração quando não há administrador elegível: leitura sem travas, só o veredito.
+                const concessaoInicial = await elegibilidadeConcessaoInicial(tx, tenant);
+                return { ...leitura, perfilAusente: false, concessaoInicial };
             }
             catch (error) {
                 // Sem capacidade de consulta: 403 continua, com a resposta mínima de elegibilidade para a concessão inicial
