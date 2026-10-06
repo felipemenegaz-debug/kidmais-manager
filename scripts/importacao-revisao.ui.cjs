@@ -152,7 +152,9 @@ async function main() {
           const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo: { acao: corpo.acao, senhaInformada: typeof corpo.senha === 'string' && corpo.senha.length > 0 } });
           return ok({ csrf: 'csrf-sintetico' });
         }
-        if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: '00000000-0000-4000-8000-000000000009', nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico' });
+        if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: '00000000-0000-4000-8000-000000000009', sessaoId: '00000000-0000-4000-8000-0000000000e9', nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico',
+          // Shell multiempresa (PR #95): a sessão simulada já tem a empresa ativa escolhida.
+          contexto: { empresas: [{ id: '00000000-0000-4000-8000-0000000000c1', nome: 'Empresa Sintética', papel: 'REPRESENTANTE_AUTORIZADO' }], empresaAtual: { id: '00000000-0000-4000-8000-0000000000c1', nome: 'Empresa Sintética' }, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false } });
         if (url.pathname === '/api/admin/festas' && p.request.method === 'GET') return ok(url.searchParams.has('importacaoId') ? { importada: festaImportada } : { festas: [], importadas: [festaImportada], elegiveis: [], capacidades: ['FESTA_CONSULTAR'], areas: [], usuarios: [] });
         if (url.pathname === '/api/admin/contratos/painel' && p.request.method === 'GET') {
           if (url.searchParams.has('importacaoId')) return ok(integrado ? { integrado: true, contratoId: CONTRATO } : contratoImportado);

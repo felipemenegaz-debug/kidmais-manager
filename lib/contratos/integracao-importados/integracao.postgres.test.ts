@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { conectarDescartavel, encerrarDescartavel } from "../../comercial/postgres-descartavel.ts";
 import { estruturaFesta019Sql } from "../../festas/estrutura-019.ts";
 import {
-  ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, catalogoNoTurno, cenario, completarCliente, congelarEAssinarKidmais, ctxIntegracao, decisoes, dia, executor, id, importacao,
+  ambienteAssinatura, assinarComoCliente, cpfValido, carregar, catalogoNativo, catalogoNoTurno, cenario, completarCliente, congelarEAssinarKidmais, ctxIntegracao, decisoes, dia, executor, id, importacao,
   instalar055, instalar061, instalar062, integrar, ler, PARCIAL, poolNaTransacao, validarAgora, type Servico,
 } from "../../../scripts/integracao-importados-test-support.ts";
 
@@ -859,7 +859,7 @@ test("061: integração real — formalização em papel, festa, agenda, recebí
       const i = (await ri.lerImportacao(tx, c.empresa, imp.id, false))!;
       const plano: import('../../importacao-contrato/plano.ts').PlanoImportacao = { pronto: true, bloqueios: [], avisos: [],
         match: { estado: 'NOVO_CLIENTE', clienteId: null, candidatos: [], motivo: 'Sintético' },
-        passos: [{ tipo: 'CLIENTE', acao: 'CRIAR', dados: { nomeCompleto: 'Novo cliente confirmação única', cpf: null, telefone: '11999990000', whatsapp: null, email: null } }, { tipo: 'CONTRATO_HISTORICO', acao: 'REGISTRAR_SNAPSHOT' }], snapshot: imp.snapshot };
+        passos: [{ tipo: 'CLIENTE', acao: 'CRIAR', dados: { nomeCompleto: 'Novo cliente confirmação única', cpf: cpfValido(), telefone: '11999990000', whatsapp: null, email: null } }, { tipo: 'CONTRATO_HISTORICO', acao: 'REGISTRAR_SNAPSHOT' }], snapshot: imp.snapshot };
       const d = decisoes(c, ev, { situacao: 'PAGO', parcelas: [
         { valorCentavos: 250000, vencimento: dia(-60), recebimento: { data: dia(-60), forma: 'PIX' } },
         { valorCentavos: 250000, vencimento: dia(-30), recebimento: { data: dia(-30), forma: 'PIX' } },
