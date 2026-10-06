@@ -3,9 +3,9 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import CamposCadastroContratual from '../CamposCadastroContratual';
 import { cadastroContratualSchema, CAMPOS_CADASTRO, type CadastroContratual } from '@/lib/clientes/cadastro-contratual';
-import { adminFetch } from '@/lib/http/admin-fetch';
+import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
 import {
-  confirmar, confirmarRascunho, conferirFinanceiro, lerOpcoes, lerOpcoesRascunho, simularRascunho, novaChave, reautenticar, simular, simularFinanceiro,
+  confirmar, confirmarRascunho, conferirFinanceiro, lerOpcoes, lerOpcoesRascunho, simularRascunho, novaChave, simular, simularFinanceiro,
   type OpcoesIntegracao, type SinalDuplicidade, type ResultadoIntegracao, type ResumoFinanceiro, type Simulacao, type SimulacaoFinanceira,
 } from './cliente-integracao';
 import {
@@ -142,10 +142,11 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
     if (enviando || !senha || (revisao.tipo !== 'integracao' && revisao.tipo !== 'financeiro')) return;
     setEnviando(true); onOcupado?.(true); setErro(null);
     try {
-      // Autenticação recente primeiro (mesma rota da assinatura Kidmais); a senha não fica guardada na tela.
-      const auth = await reautenticar(adminFetch, senha);
+      // Autenticação recente primeiro, com a renovação de sessão anunciada pela página: a reautenticação troca a
+      // sessão e, sem o anúncio, o adminFetch seguinte descartaria a página antes de confirmar. A senha não fica na tela.
+      const auth = await reautenticarSessao(senha);
       setSenha('');
-      if (!auth.ok) { setErro(auth.mensagem); return; }
+      if (!auth.ok) { setErro(auth.erro); return; }
       if (revisao.tipo === 'financeiro') {
         const r = await conferirFinanceiro(adminFetch, importacaoId, financeiroDoFormulario(f), revisao.sim.resumoHash, revisao.chave);
         if (r.ok) { setFinanceiroConcluido(revisao.sim.resumo); setPasso('concluida'); return; }
