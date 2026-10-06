@@ -694,7 +694,8 @@ test('cadastro incompleto bloqueia antes de criar contrato, festa ou financeiro'
   const estado = estadoInicial(), original = banco(estado);
   const tx: DbExecutor = { query: async <Row extends object>(sql: string, params?: readonly unknown[]) => {
     const r = await original.query<Row>(sql, params);
-    if (sql.includes('FROM clientes')) for (const c of r.rows as Record<string, unknown>[]) c.cep = null;
+    // CPF continua obrigatório (e-mail e endereço passaram a ser opcionais na conferência histórica).
+    if (sql.includes('FROM clientes')) for (const c of r.rows as Record<string, unknown>[]) c.cpf = null;
     return r;
   } };
   const sim = await simularIntegracao(tx, tenant(), IMP, decisoesBase(), HOJE);

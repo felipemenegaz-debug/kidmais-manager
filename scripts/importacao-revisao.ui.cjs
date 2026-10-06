@@ -47,7 +47,10 @@ const contratoImportado = {
 const CONTRATO = '00000000-0000-4000-8000-0000000000c1', VERSAO = '00000000-0000-4000-8000-0000000000e1';
 const opcoesIntegracao = (integrado) => ({
   disponivel: true, hoje: new Date().toISOString().slice(0, 10), integracao: integrado ? { contratoId: CONTRATO, financeiroPendente: false, valorContratadoCentavos: 500000 } : null,
-  cliente: { id: DOCUMENTO, nome: 'Pessoa Exemplo', ativo: true }, documento: { pacote: 'Original 2025', aniversariante: 'Aniversariante Exemplo', tema: 'Carros' },
+  // Cadastro mínimo aceito pela conferência: nome, CPF válido e WhatsApp (e-mail e endereço opcionais).
+  cliente: { id: DOCUMENTO, nome: 'Pessoa Exemplo', ativo: true, cadastro: { nomeCompleto: 'Pessoa Exemplo', cpf: '52998224725', rg: '', telefone: '', whatsapp: '11999990000', email: '',
+    cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', uf: '' } },
+  documento: { pacote: 'Original 2025', aniversariante: 'Aniversariante Exemplo', tema: 'Carros' },
   sugestao: { evento: { data: '2099-10-10', horarioInicio: '10:00', horarioFim: '14:00', convidados: 50 }, valorContratadoCentavos: 500000, condicaoDocumento: 'Entrada e 2 parcelas',
     parcelasPrevistas: [{ valorCentavos: 100000, vencimento: '2099-01-10' }, { valorCentavos: 200000, vencimento: '2099-05-10' }, { valorCentavos: 200000, vencimento: '2099-09-10' }] },
   estabelecimentos: [{ id: '00000000-0000-4000-8000-0000000000f1', nome: 'Unidade Exemplo' }],

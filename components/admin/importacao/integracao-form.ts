@@ -177,8 +177,12 @@ function financeiroDoForm(f: FormIntegracao) {
 export function decisoesDoForm(f: FormIntegracao, s: Sugestao) {
   const corrigidos = new Set(camposCorrigidos(f, s));
   const motivos = Object.fromEntries(Object.entries(f.motivos).filter(([k, v]) => corrigidos.has(k as CampoDoc) && v?.trim()).map(([k, v]) => [k, v!.trim()]));
+  // O telefone fixo não é exibido nem enviado: assim o valor já gravado no CRM nunca é sobrescrito por um valor
+  // desatualizado da tela. O servidor valida o cadastro mesclado com o CRM (o telefone de lá conta como contato).
+  const { telefone: _telefoneOculto, ...cadastro } = f.cadastro;
+  void _telefoneOculto;
   return {
-    cadastro: f.cadastro,
+    cadastro,
     aniversariante: f.aniversariante,
     formaPagamento: f.formaPagamento || null,
     situacaoContrato: f.situacaoContrato,

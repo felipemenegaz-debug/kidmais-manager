@@ -36,3 +36,32 @@ Felipe encontrou o erro “Não existe tabela de preço vigente para a data sele
 - Validação local: `npm run check:v1:static` aprovado, com 1.908 testes unitários e 103 testes do harness com mocks, lint (aviso preexistente de `FinalidadeSkill`), TypeScript, build e verificação do PDF.
 
 Branch local: `codex/corrigir-editor-importados-sem-tabela-20261005`. Sem push, merge, deploy, migration ou operação em banco real. Staging permanece congelado para S11/E1–E6; este ajuste exige liberação e publicação coordenada antes de novo teste na interface de staging. O recorte enviado não mostra o cabeçalho e não comprova ausência de vínculo Festa no contrato real; esse cenário não foi consultado no banco.
+
+## Ajuste — contratante na conferência (decisão de Felipe, 05/10/2026)
+
+Na homologação em staging, Felipe pediu que o passo "Festa e agenda" fosse simplificado:
+
+- **Telefone sai da tela.** Confundia com o WhatsApp. O campo continua no cadastro do cliente: o valor já gravado é
+  preservado, segue contando como contato e segue na detecção de duplicidade e no contrato oficial (`whatsapp ?? telefone`).
+- **E-mail e endereço passam a ser opcionais na conferência histórica.** Obrigatórios: nome, CPF válido e um contato
+  (WhatsApp, ou telefone já cadastrado). O endereço, se informado, precisa estar completo (logradouro, número, bairro,
+  cidade e UF; CEP opcional) — nada parcial vai para o contrato. Isso substitui a regra registrada acima ("cadastro
+  contratual completo") **apenas para a importação**: o fechamento nativo continua exigindo e-mail e endereço
+  (`camposFaltantesParaContrato`), e gerar/revisar/assinar um novo documento a partir de uma revisão também.
+- Para isso, o snapshot nativo montado na confirmação (`carregarSnapshot`) recebe `exigirCadastroCompleto: false`
+  só nessa chamada; o contratante gravado vem do cadastro conferido (`montarSnapshotVersao`), como já era.
+- `ContratoSnapshotV1.contratante.email` e `.endereco` passam a admitir `null` (só em contrato histórico); os
+  documentos mostram "Não informado" nesses casos, e o endereço sem CEP omite o CEP.
+- Visual: o bloco usa as mesmas classes dos demais campos do assistente (tokens do Admin), com seções "Identificação e
+  contato" e "Endereço (opcional)"; a lista nativa dos selects usa a cor do card, como nas outras telas.
+- Revisão adversarial da mudança: o telefone fixo também **não vai no payload** da conferência (`decisoesDoForm`),
+  para um valor desatualizado da tela nunca sobrescrever o CRM; o servidor valida o cadastro já mesclado com o CRM
+  (`telefone` opcional no schema). A tela mostra a mensagem do schema por campo, marca o input (`aria-invalid`) e só
+  rotula como "(opcional)" o que de fato é opcional naquele estado (com endereço informado, logradouro, número,
+  bairro, cidade e UF deixam de ser opcionais). A suíte PostgreSQL da integração foi alinhada à semântica
+  `endereco: null`, mas não foi executada nesta entrega; seu cenário cria cliente sem CPF e já era bloqueado pela
+  regra de CPF do PR #102 — pendência registrada para a próxima rodada autorizada do cluster descartável.
+- Cliente novo (rascunho "criar cliente"): a fonte da simulação passa a ter a mesma forma que o repositório grava
+  (CPF e telefones só dígitos, e-mail minúsculo, nome sem espaços nas pontas). Antes, a simulação usava os valores
+  formatados do PDF e a confirmação relia o cliente já criado, o hash do resumo divergia e a confirmação caía em
+  "dados mudaram" sem saída. Teste: `lib/contratos/integracao-importados/rascunho.test.ts`.

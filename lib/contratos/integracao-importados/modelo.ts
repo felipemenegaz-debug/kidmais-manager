@@ -1,4 +1,4 @@
-import { cadastroContratualSchema, contratanteSnapshot, formularioCadastro, type CadastroContratual } from '../../clientes/cadastro-contratual.ts';
+import { cadastroPayloadSchema, contratanteSnapshot, formularioCadastro, type CadastroContratual } from '../../clientes/cadastro-contratual.ts';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -44,7 +44,8 @@ export const financeiroSchema = z.discriminatedUnion('situacao', [
 ]);
 
 export const decisoesSchema = z.object({
-  cadastro: cadastroContratualSchema.optional(),
+  // Payload sem o telefone fixo (a tela não o envia); a regra de contato é aplicada ao cadastro mesclado com o CRM, em preparar().
+  cadastro: cadastroPayloadSchema.optional(),
   formaPagamento: z.enum(["PIX_AVISTA", "PIX_PARCELADO", "CARTAO_CIELO"]).nullable().optional(),
   aniversariante: z.string().trim().min(2).max(200).optional(),
   situacaoContrato: z.enum(SITUACOES_CONTRATO),
