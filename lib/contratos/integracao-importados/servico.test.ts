@@ -262,7 +262,7 @@ test('pagamento não conferido: integra sem financeiro; a pendência é concluí
   assert.equal(chamadas.filter((c) => c.metodo === 'criarPagamento').length, 0);
   assert.equal(estado.vinculos[0].financeiro_declarado, 'NAO_CONFERIDO');
   const opcoes = await emTransacao(estado, (tx) => opcoesIntegracao(tx, tenant(), IMP, HOJE));
-  assert.deepEqual(opcoes.integracao, { contratoId: estado.vinculos[0].contrato_id, financeiroPendente: true, caminhoFinanceiro: 'CONFERIR_HISTORICO', valorContratadoCentavos: 850000 });
+  assert.deepEqual(opcoes.integracao, { contratoId: estado.vinculos[0].contrato_id, financeiroPendente: true, caminhoFinanceiro: 'CONFERIR_HISTORICO', valorContratadoCentavos: 850000, contratoCancelado: false });
 
   const financeiro = { situacao: 'PARCIALMENTE_PAGO', parcelas: [{ valorCentavos: 300000, vencimento: '2026-09-01', recebimento: { data: '2026-09-01', forma: 'BOLETO' } }, { valorCentavos: 550000, vencimento: '2026-11-14', recebimento: null }] };
   const sim = await emTransacao(estado, (tx) => simularFinanceiro(tx, tenant(), IMP, financeiro, HOJE));

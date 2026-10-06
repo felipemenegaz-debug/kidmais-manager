@@ -67,6 +67,32 @@ export async function importacaoPorDocumento(tx: DbExecutor, empresaId: string, 
   return r.rows[0] ? mapear(r.rows[0]) : null;
 }
 
+/** 064 instalada? Lida do catálogo a cada chamada: o mesmo código roda antes e depois da migration. */
+export async function reimportacaoInstalada(tx: DbExecutor) {
+  const r = await tx.query<{ ok: boolean }>("SELECT to_regprocedure('public.kidmais064_contrato_cancelado(uuid)') IS NOT NULL AS ok");
+  return r.rows[0]?.ok === true;
+}
+
+/**
+ * 064: importação concluída cujo contrato integrado foi CANCELADO deixa de ocupar o documento (passa a DESCARTADA)
+ * para o mesmo arquivo poder ser importado de novo. Identidade e versão seguem a guarda; cliente_id e resultado ficam
+ * nulos (055d) e o que havia é preservado em dados->'substituicao'. O vínculo histórico (061) e o contrato cancelado
+ * não mudam. Sem a 064, sem contrato cancelado ou com versão diferente: nada muda e devolve false.
+ */
+export async function substituirImportacaoCancelada(tx: DbExecutor, empresaId: string, i: ImportacaoLida, usuarioId: string) {
+  if (i.status !== "IMPORTADA" || !(await reimportacaoInstalada(tx))) return false;
+  const r = await tx.query(
+    `UPDATE ia_importacoes SET status = 'DESCARTADA', versao = $3 + 1, cliente_id = NULL, resultado = NULL, atualizado_em = now(),
+            dados = dados || jsonb_build_object('substituicao', jsonb_build_object(
+              'em', now(), 'por', $4::text, 'clienteId', cliente_id::text, 'resultado', resultado,
+              'contratoId', (SELECT ci.contrato_id::text FROM contrato_importacoes ci WHERE ci.importacao_id = ia_importacoes.id)))
+      WHERE id = $1::uuid AND empresa_id = $2::uuid AND status = 'IMPORTADA' AND versao = $3
+        AND kidmais064_contrato_cancelado(id) RETURNING id`,
+    [i.id, empresaId, i.versao, usuarioId],
+  );
+  return r.rowCount === 1;
+}
+
 export async function lerImportacao(tx: DbExecutor, empresaId: string, id: string, travar: boolean) {
   const r = await tx.query<LinhaImportacao>(`SELECT ${COLUNAS} FROM ia_importacoes WHERE id = $1::uuid AND empresa_id = $2::uuid${travar ? " FOR UPDATE" : ""}`, [id, empresaId]);
   return r.rows[0] ? mapear(r.rows[0]) : null;

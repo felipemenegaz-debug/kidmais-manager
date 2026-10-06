@@ -24,7 +24,7 @@ export type ResumoIntegracao = {
 export type OpcoesIntegracao = {
   disponivel: boolean;
   hoje: string;
-  integracao: { contratoId: string; financeiroPendente: boolean; caminhoFinanceiro?: 'CONFERIR_HISTORICO' | 'PLANO_NA_VERSAO_VIGENTE' | 'AGUARDAR_REVISAO' | 'CONCLUIDO'; valorContratadoCentavos: number } | null;
+  integracao: { contratoId: string; financeiroPendente: boolean; caminhoFinanceiro?: 'CONFERIR_HISTORICO' | 'PLANO_NA_VERSAO_VIGENTE' | 'AGUARDAR_REVISAO' | 'CONCLUIDO'; valorContratadoCentavos: number; contratoCancelado?: boolean } | null;
   cliente: { id: string | null; nome: string; ativo: boolean; cadastro?: CadastroContratual } | null;
   documento: { pacote: string | null; aniversariante: string | null; tema: string | null };
   sugestao: Sugestao;

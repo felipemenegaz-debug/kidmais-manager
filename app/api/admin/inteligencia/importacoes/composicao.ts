@@ -8,7 +8,7 @@ import type { NextRequest } from "next/server";
 import { analisarCadastroCliente, cadastrarClienteInterno, obterClienteBase } from "@/lib/clientes/services";
 import { executarImportacao } from "@/lib/importacao-contrato/motor";
 import { documentosDisponiveis, ultimaExtracao } from "@/lib/importacao-contrato/repositorio-documentos";
-import { abrirImportacao, atualizarImportacao, importacaoDisponivel, importacaoPorDocumento, lerImportacao } from "@/lib/importacao-contrato/repositorio-importacao";
+import { abrirImportacao, atualizarImportacao, importacaoDisponivel, importacaoPorDocumento, lerImportacao, substituirImportacaoCancelada } from "@/lib/importacao-contrato/repositorio-importacao";
 import { CHAVE_ACOES, CHAVE_HUMAN_GATE } from "@/lib/inteligencia/acoes/modulo";
 import type { RegistroExtensoes } from "@/lib/inteligencia/extensoes";
 import { criarAcaoImportacao, type PortaImportacao } from "@/lib/inteligencia/importacao/acao";
@@ -47,6 +47,7 @@ export function portaImportacao(request: NextRequest): PortaImportacao {
     lerImportacao,
     importacaoPorDocumento,
     atualizarImportacao,
+    substituirImportacaoCancelada,
     analisarCliente: (tx, empresaId, dados) => analisarCadastroCliente(dados, empresaId, {}, tx),
     executar: (tx, entrada) => executarImportacao(tx, entrada, {
       // Cliente novo pelo mesmo serviço do CRM: dedup no tenant, índice de CPF, histórico e auditoria.
