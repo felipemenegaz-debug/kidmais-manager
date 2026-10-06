@@ -15,7 +15,7 @@ test('rotas: empresa sempre a comprovada da sessão; Pix da parcela é só leitu
     assert.doesNotMatch(parcela, /export async function (POST|PUT|PATCH|DELETE)/);
     const servico = ler('lib/pagamentos/pix/recebimento.ts');
     assert.match(servico, /exigirReautenticacaoPerfil\(sessao\)/);
-    assert.match(servico, /tenant\.papelAtual !== GESTAO/);
+    assert.match(servico, /tenant\.papelAtual !== 'REPRESENTANTE_AUTORIZADO'/);
     assert.doesNotMatch(servico, /input\.empresaId|raw\.empresaId/);
 });
 

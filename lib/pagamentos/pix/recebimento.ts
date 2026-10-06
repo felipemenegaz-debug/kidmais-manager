@@ -86,7 +86,7 @@ const removerSchema = z.object({
 }).strict();
 
 function exigirGestaoComReautenticacao(sessao: SessaoAdmin, tenant: TenantComprovado) {
-    if (tenant.papelAtual !== GESTAO)
+    if (tenant.papelAtual !== 'REPRESENTANTE_AUTORIZADO')
         erro('PIX_SEM_PERMISSAO', 'Somente a Gestão desta empresa altera a chave Pix de recebimento.', 403);
     exigirReautenticacaoPerfil(sessao);
 }

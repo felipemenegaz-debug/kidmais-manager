@@ -52,7 +52,7 @@ test('sessão escolhida prevalece sobre URL; perda de acesso não seleciona outr
 test('menu: Configurações de empresa só com Gestão na empresa; WhatsApp e PDF só com autoridade de plataforma', () => {
     const conf = (p: { gestaoEmpresa: boolean; plataforma: boolean }) => itensNavegacao(p).filter((i) => i.grupo === 'Configurações').map((i) => i.href);
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: false }), []);
-    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos']);
+    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/pix']);
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: true }), ['/admin/configuracoes/whatsapp', '/admin/configuracoes/tabela-pacotes']);
 });
 
@@ -62,6 +62,7 @@ test('cada item do menu tem a autorização correspondente na API do servidor; o
         '/admin/configuracoes/catalogo': ['app/api/admin/configuracoes/catalogo/route.ts'],
         '/admin/configuracoes/acessos': ['lib/autenticacao/usuarios.ts'],
         '/admin/configuracoes/perfil-empresa': ['lib/perfil/autorizacao.ts'],
+        '/admin/configuracoes/pix': ['lib/pagamentos/pix/recebimento.ts'],
     };
     for (const [href, arquivos] of Object.entries(empresa)) {
         assert.equal(autoridadeDaConfiguracao(href), 'empresa', href);
