@@ -1,10 +1,12 @@
 # Painel do desenvolvedor — conclusão da implantação (05/10/2026)
 
-Branch `feat/painel-desenvolvedor-conclusao-20261005`, base `origin/staging` em `8e32c7e548f215f42f61bed2a40280752e4ff9a5`
-(já inclui a migration 064 da reimportação; o SHA `d6a7cf6` informado como último deploy foi substituído por `73e44e4`,
-deploy `dep-db23qp3tqb8s73buu7m0`, live desde 06/10/2026 00:19:34Z, e depois pela 064 ainda não implantada). Nenhuma
-migration nova nesta entrega: tudo roda sobre o schema da 063 (aplicada em staging em 05/10/2026, conforme
-`homologacao-painel-063/leituras/estado-pos-063-ff095cf-*.txt`) e sobre a estrutura do Perfil (026–028).
+Branch `feat/painel-desenvolvedor-conclusao-20261005`, PR [#104](https://github.com/felipemenegaz-debug/kidmais-manager/pull/104)
+para `staging`, base `origin/staging` em `8e32c7e548f215f42f61bed2a40280752e4ff9a5` (já inclui a migration 064 da
+reimportação). O SHA `d6a7cf6` informado como último deploy foi substituído por `73e44e4` (live 06/10/2026 00:19Z) e
+depois por `8e32c7e` (deploy `dep-db24d3gm7kps73deftbg`, live desde 06/10/2026 00:58:40Z) — a base desta PR é
+exatamente o código em staging. Nenhuma migration nova nesta entrega: tudo roda sobre o schema da 063 (aplicada em
+staging em 05/10/2026, conforme `homologacao-painel-063/leituras/estado-pos-063-ff095cf-*.txt`) e sobre a estrutura
+do Perfil (026–028); a 064 do inventário segue "não aplicada" e fora deste escopo.
 
 Esta entrega **não** faz merge, deploy, migration, escrita em staging, alteração de env/secret nem envio de e-mail. Tudo
 foi validado localmente com dados sintéticos; o que depende de staging ou de configuração está listado como pendente.
