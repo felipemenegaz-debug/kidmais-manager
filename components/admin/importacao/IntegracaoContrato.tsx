@@ -86,6 +86,15 @@ export default function IntegracaoContrato({ importacaoId, modoInicial = 'comple
   if (resultado) return <Concluida resultado={resultado} />;
   if (financeiroConcluido && o.integracao) return <section className={styles.painel} role="status"><span className={styles.seloPronto}>Pagamentos conferidos</span><h2 className={styles.titulo}>Financeiro do contrato atualizado</h2><ResumoPagamentos financeiro={financeiroConcluido} /><div className={styles.acoesFinais}><Link className={styles.primario} href={`/admin/contratos?contratoId=${o.integracao.contratoId}`}>Abrir contrato</Link><Link className={styles.fantasma} href="/admin/financeiro/contas-receber">Contas a receber</Link></div></section>;
 
+  if (o.integracao?.contratoCancelado) return <section className={styles.painel} role="status">
+    <span className={styles.seloPronto}>Contrato cancelado</span>
+    <h2 className={styles.titulo}>O contrato integrado a partir desta importação foi cancelado</h2>
+    <p className={styles.texto}>O registro desta importação e o contrato cancelado ficam preservados para consulta. Para importar este contrato novamente, envie o mesmo arquivo de novo pela importação de contratos antigos: ele abre uma nova revisão e gera um novo contrato.</p>
+    <div className={styles.acoesFinais}>
+      <Link className={styles.primario} href={`/admin/contratos?contratoId=${o.integracao.contratoId}`}>Abrir contrato cancelado</Link>
+    </div>
+  </section>;
+
   if (o.integracao && modo === 'completo') return <section className={styles.painel} role="status">
     <span className={styles.seloPronto}>Integrado</span>
     <h2 className={styles.titulo}>Este contrato já faz parte do sistema</h2>

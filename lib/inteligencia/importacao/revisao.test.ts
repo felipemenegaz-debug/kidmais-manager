@@ -20,6 +20,8 @@ const ENV = { INTELIGENCIA_ENABLED: "true", AI_CONTRACT_IMPORT_ENABLED: "true" }
 /** Importação em memória sobre o repositório de documentos, com o Import Engine real e CRM falso. */
 function importacaoMemoria(documentos: ReturnType<typeof documentosMemoria>, novoId: () => string) {
   const importacoes = new Map<string, ImportacaoLida & { empresaId: string }>();
+  /** Importações cujo contrato integrado foi cancelado (simula contrato_importacoes → contratos.status = CANCELADO). */
+  const contratosCancelados = new Set<string>();
   const clientesCriados: Array<{ empresaId: string; dados: object }> = [];
   const executados: PlanoImportacao[] = [];
   const porta: PortaImportacao = {
@@ -48,6 +50,14 @@ function importacaoMemoria(documentos: ReturnType<typeof documentosMemoria>, nov
       importacoes.set(i.id, { ...structuredClone(i), empresaId });
       return true;
     },
+    // Mesmo contrato da guarda 064: só IMPORTADA, só com contrato cancelado, versão conferida; resultado vai para dados.
+    async substituirImportacaoCancelada(_tx, empresaId, i, usuarioId) {
+      const atual = importacoes.get(i.id);
+      if (!atual || atual.empresaId !== empresaId || atual.status !== "IMPORTADA" || atual.versao !== i.versao || !contratosCancelados.has(i.id)) return false;
+      importacoes.set(i.id, { ...atual, status: "DESCARTADA", versao: atual.versao + 1, clienteId: null, resultado: null,
+        dados: { ...atual.dados, substituicao: { por: usuarioId, clienteId: atual.clienteId, resultado: atual.resultado } } });
+      return true;
+    },
     async analisarCliente() { return { cpfExistente: null, possiveisDuplicidades: [] }; },
     async executar(tx, e) {
       executados.push(e.plano);
@@ -58,7 +68,7 @@ function importacaoMemoria(documentos: ReturnType<typeof documentosMemoria>, nov
       });
     },
   };
-  return { porta, importacoes, clientesCriados, executados };
+  return { porta, importacoes, clientesCriados, executados, contratosCancelados };
 }
 
 function ambiente(opcoes: { env?: Record<string, string>; papel?: string } = {}) {
@@ -403,4 +413,44 @@ test('conclusão única: resumo alterado, falta de declaração e outra empresa 
   assert.equal((await a.importar(pedido)).status, 409);
   assert.equal((await a.importar(pedido, empresaB)).status, 404);
   assert.equal(a.importacao.clientesCriados.length, 0);
+});
+
+test("064: contrato integrado cancelado libera o documento; o mesmo arquivo abre nova revisão e a antiga vira histórico", async () => {
+  const a = ambiente();
+  let importacao = await a.abrir();
+  for (const c of importacao.extracao.secoes.flatMap((s) => s.campos).filter((x) => x.estado === "PRECISA_REVISAO")) {
+    importacao = dados(await a.importar({ acao: "revisar", importacaoId: importacao.id, versao: importacao.versao, campoId: c.id, confirmarDivergencia: true })).importacao;
+  }
+  const preview = (dados(await a.importar({ acao: "preparar", importacaoId: importacao.id, versao: importacao.versao })).gate as { rascunho: RascunhoPublico }).rascunho;
+  assert.equal((await a.decidir(preview)).status, 200);
+  const integrada = a.importacao.importacoes.get(importacao.id)!;
+  assert.equal(integrada.status, "IMPORTADA");
+
+  // Contrato ativo: reabrir devolve a mesma importação concluída (nada é substituído).
+  const mesma = await a.abrir();
+  assert.equal(mesma.id, importacao.id);
+  assert.equal(mesma.status, "IMPORTADA");
+
+  // Contrato cancelado: reenviar o mesmo arquivo substitui a antiga e abre uma nova revisão limpa.
+  a.importacao.contratosCancelados.add(importacao.id);
+  const nova = await a.abrir();
+  assert.notEqual(nova.id, importacao.id);
+  assert.equal(nova.status, "EM_REVISAO");
+  assert.equal(nova.versao, 1);
+  assert.equal(nova.documentoId, importacao.documentoId);
+  assert.deepEqual(nova.revisados, [], "não herda a revisão anterior");
+  const antiga = a.importacao.importacoes.get(importacao.id)!;
+  assert.equal(antiga.status, "DESCARTADA");
+  assert.equal(antiga.versao, integrada.versao + 1);
+  assert.equal(antiga.clienteId, null);
+  assert.equal(antiga.resultado, null);
+  assert.deepEqual((antiga.dados as { substituicao: { clienteId: string | null } }).substituicao.clienteId, integrada.clienteId, "resultado anterior preservado em dados");
+  // Depois, a nova é a ativa do documento e a antiga não é reaberta.
+  const deNovo = await a.abrir();
+  assert.equal(deNovo.id, nova.id);
+  type Consulta = { situacao: string; importacao: ImportacaoPublica | null };
+  const consulta = (await a.importar({ acao: "consultar", documentoId: importacao.documentoId })).corpo as { data: Consulta };
+  assert.equal(consulta.data.importacao?.id, nova.id);
+  assert.equal(consulta.data.situacao, "EM_ANDAMENTO");
+  assert.equal(a.importacao.clientesCriados.length, 1, "nenhum cliente novo até a nova confirmação");
 });

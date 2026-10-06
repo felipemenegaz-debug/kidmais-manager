@@ -112,7 +112,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/contratos/integracao-importados/composicao": ["coreNativo"],
   "lib/contratos/integracao-importados/servico": ["confirmarIntegracao", "opcoesIntegracaoRascunho", "simularIntegracao", "IntegracaoImportadoError"],
   "lib/importacao-contrato/motor": ["executarImportacao"], // @pr:IMPORT
-  "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorDocumento", "lerImportacao"], // @pr:IMPORT
+  "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorDocumento", "lerImportacao", "substituirImportacaoCancelada"], // @pr:IMPORT
 };
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */

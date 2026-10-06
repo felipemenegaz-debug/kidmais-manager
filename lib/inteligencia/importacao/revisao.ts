@@ -130,6 +130,12 @@ export async function atenderImportacao(pedido: { lerCorpo(): Promise<unknown>; 
         if (!registro || !extracao) throw new InteligenciaError("NAO_ENCONTRADO", "Documento não encontrado.", 404);
         const dados: DadosImportacao = { extracao, revisados: [], decisaoCliente: null };
         let aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+        // 064: importação concluída cujo contrato integrado foi CANCELADO deixa de ocupar o documento (passa a
+        // DESCARTADA, resultado preservado em dados) e o mesmo arquivo abre uma nova revisão. Contrato ativo: nada muda.
+        if (aberta.status === "IMPORTADA" && p.substituirImportacaoCancelada
+          && await p.substituirImportacaoCancelada(tx, tenant.empresaComprovada, aberta, sessao.usuario_id)) {
+          aberta = await p.abrirImportacao(tx, { empresaId: tenant.empresaComprovada, documentoId: entrada.documentoId, extracaoId: registro.extracaoId, usuarioId: sessao.usuario_id, dados: dados as unknown as Record<string, unknown> });
+        }
         const anterior = dadosDaImportacao(aberta);
         // Recupera só revisão vazia e intocada. Edições, decisões e importações concluídas são preservadas.
         if (aberta.status === "EM_REVISAO" && aberta.extracaoId !== registro.extracaoId && anterior.revisados.length === 0 && anterior.decisaoCliente === null && !extracaoTemDados(anterior.extracao) && extracaoTemDados(extracao)) {

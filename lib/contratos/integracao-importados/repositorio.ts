@@ -268,14 +268,17 @@ export type VinculoExistente = {
   financeiroDeclarado: 'CONFERIDO' | 'NAO_CONFERIDO'; financeiro: { id: string; pagamentoId: string; payloadHash: string; chave: string } | null;
   /** Valor contratado da versão conferida (centavos): a pendência de pagamentos nunca muda o contratado. */
   valorContratadoCentavos: number;
+  /** Contrato integrado cancelado: o vínculo é histórico; reimportar exige enviar o arquivo de novo (064). */
+  contratoCancelado: boolean;
 };
 
 export async function vinculoDaImportacao(tx: DbExecutor, empresaId: string, importacaoId: string): Promise<VinculoExistente | null> {
-  const r = await tx.query<{ id: string; contrato_id: string; fechamento_id: string; versao_id: string; payload_hash: string; chave: string; declarado: 'CONFERIDO' | 'NAO_CONFERIDO'; fin_id: string | null; pagamento_id: string | null; fin_hash: string | null; fin_chave: string | null; valor_contratado: string | null }>(
+  const r = await tx.query<{ id: string; contrato_id: string; fechamento_id: string; versao_id: string; payload_hash: string; chave: string; declarado: 'CONFERIDO' | 'NAO_CONFERIDO'; fin_id: string | null; pagamento_id: string | null; fin_hash: string | null; fin_chave: string | null; valor_contratado: string | null; contrato_status: string | null }>(
     `SELECT ci.id::text, ci.contrato_id::text, ci.fechamento_id::text, ci.contrato_versao_id::text AS versao_id, ci.payload_hash,
             ci.chave_idempotencia::text AS chave, ci.financeiro_declarado AS declarado,
             f.id::text AS fin_id, f.pagamento_id::text, f.payload_hash AS fin_hash, f.chave_idempotencia::text AS fin_chave,
-            (SELECT v.snapshot->'comercial'->>'valorFinalContrato' FROM contrato_versoes v WHERE v.id = ci.contrato_versao_id) AS valor_contratado
+            (SELECT v.snapshot->'comercial'->>'valorFinalContrato' FROM contrato_versoes v WHERE v.id = ci.contrato_versao_id) AS valor_contratado,
+            (SELECT c.status FROM contratos c WHERE c.id = ci.contrato_id) AS contrato_status
        FROM contrato_importacoes ci LEFT JOIN contrato_importacao_financeiro f ON f.contrato_importacao_id = ci.id
       WHERE ci.importacao_id = $1::uuid AND ci.empresa_id = $2::uuid`,
     [importacaoId, empresaId],
@@ -284,6 +287,7 @@ export async function vinculoDaImportacao(tx: DbExecutor, empresaId: string, imp
   if (!l) return null;
   return {
     id: l.id, contratoId: l.contrato_id, fechamentoId: l.fechamento_id, versaoId: l.versao_id, payloadHash: l.payload_hash.trim(), chave: l.chave,
+    contratoCancelado: l.contrato_status === 'CANCELADO',
     financeiroDeclarado: l.declarado,
     financeiro: l.fin_id ? { id: l.fin_id, pagamentoId: l.pagamento_id!, payloadHash: (l.fin_hash ?? '').trim(), chave: l.fin_chave! } : null,
     valorContratadoCentavos: Math.round(Number(l.valor_contratado ?? 0) * 100),

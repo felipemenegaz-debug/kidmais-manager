@@ -209,7 +209,7 @@ export async function opcoesIntegracao(tx: DbExecutor, tenant: TenantComprovado,
       // Com obrigação já criada (aqui ou no Financeiro), o caminho é o Financeiro do contrato, nunca "Conferir pagamentos".
       const estado = await repo.estadoFinanceiroDoContrato(tx, vinculo.contratoId, vinculo.versaoId);
       const caminho = repo.caminhoFinanceiro({ conferido: vinculo.financeiro !== null, ...estado });
-      return { contratoId: vinculo.contratoId, financeiroPendente: caminho !== 'CONCLUIDO', caminhoFinanceiro: caminho, valorContratadoCentavos: vinculo.valorContratadoCentavos };
+      return { contratoId: vinculo.contratoId, financeiroPendente: caminho !== 'CONCLUIDO', caminhoFinanceiro: caminho, valorContratadoCentavos: vinculo.valorContratadoCentavos, contratoCancelado: vinculo.contratoCancelado };
     })() : null,
     cliente: cliente ? { id: cliente.id, nome: cliente.nomeCompleto, ativo: cliente.status === 'ATIVO', cadastro: formularioCadastro(cliente) } : null,
     documento: {

@@ -64,3 +64,33 @@ tocado e o cancelamento funciona.
 - Teste: `lib/contratos/services/cancelamento-revisao-aberta.test.ts`.
 
 Relaxar a regra do banco para aceitar contrato cancelado exigiria migration e autorização separada; não foi feito.
+
+# Importação: reimportar o mesmo contrato depois do cancelamento (migration 064)
+
+## Problema
+
+Depois de cancelar um contrato integrado a partir de uma importação, o mesmo arquivo não podia ser importado de
+novo. Três regras do schema travavam juntas: a 055c guarda um documento por arquivo (sha256 único por empresa); a
+055d permite uma importação ativa (em revisão ou importada) por documento e trata IMPORTADA como estado terminal; a
+061 liga a importação ao contrato e é imutável. O reenvio do arquivo caía na importação concluída e a tela mostrava
+"Este contrato já faz parte do sistema", apontando para o contrato cancelado.
+
+## Correção
+
+- Migration `database/migrations/20261006_064_reimportacao_apos_cancelamento.sql` (NÃO APLICADA; exige autorização):
+  nova guarda `kidmais_064_importacao_guarda` com uma única transição a mais: importação IMPORTADA cujo contrato
+  integrado está CANCELADO pode passar a DESCARTADA (versão avançando, identidade imutável). Nenhuma linha é alterada
+  pela migration; a guarda da 055d permanece para o rollback (`database/rollback/..._064_..._down.sql`). Checks de
+  leitura em `database/checks/20261006_064_*.sql`.
+- Código: ao reenviar o arquivo (ação `abrir`), se a importação ativa do documento está IMPORTADA e o contrato foi
+  cancelado, ela é substituída (DESCARTADA, com cliente e resultado anteriores preservados em `dados.substituicao`) e
+  uma nova revisão abre a partir da última extração. Sem a 064 instalada, nada muda. Com contrato ativo, nada muda.
+- Tela de integração da importação antiga: mostra "Contrato cancelado" com link para o contrato e orienta a reenviar o
+  arquivo, em vez de "já faz parte do sistema".
+- Testes: `lib/ia-persistencia/migration-064.test.ts`, `lib/importacao-contrato/reimportacao.test.ts` e cenário novo em
+  `lib/inteligencia/importacao/revisao.test.ts`.
+
+## Aplicação
+
+Ordem: código publicado antes (ele detecta a 064 pelo catálogo), depois a 064 no banco de staging com precheck e
+postcheck, depois homologação: reenviar o PDF do contrato cancelado, revisar, confirmar e integrar.

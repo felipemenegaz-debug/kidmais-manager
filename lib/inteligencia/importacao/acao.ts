@@ -77,6 +77,11 @@ export type PortaImportacao = {
   /** Somente leitura: ativa do documento ou, sem ativa, a última descartada. */
   importacaoPorDocumento(tx: DbExecutor, empresaId: string, documentoId: string): Promise<ImportacaoLida | null>;
   atualizarImportacao(tx: DbExecutor, empresaId: string, i: ImportacaoLida, versaoEsperada: number): Promise<boolean>;
+  /**
+   * 064 (opcional): importação IMPORTADA cujo contrato integrado foi cancelado deixa de ocupar o documento
+   * (DESCARTADA, com o resultado anterior preservado em dados). true = substituída; false = nada mudou.
+   */
+  substituirImportacaoCancelada?(tx: DbExecutor, empresaId: string, i: ImportacaoLida, usuarioId: string): Promise<boolean>;
   analisarCliente(tx: DbExecutor, empresaId: string, dados: { nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null }): Promise<AnaliseDuplicidade>;
   executar(tx: DbExecutor, entrada: { empresaId: string; usuarioId: string; requestId: string; importacao: ImportacaoLida; plano: PlanoImportacao; agora: string }): Promise<{ clienteId: string; clienteAcao: "VINCULAR" | "CRIAR"; pendencias: string[] }>;
 };
