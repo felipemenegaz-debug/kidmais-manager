@@ -2,7 +2,7 @@
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import { VoltarConfiguracoes } from './VoltarConfiguracoes';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { adminFetch } from '@/lib/http/admin-fetch';
+import { adminFetch, reautenticarSessao } from '@/lib/http/admin-fetch';
 import styles from './admin.module.css';
 import whatsapp from './WhatsappConfiguracao.module.css';
 
@@ -70,8 +70,8 @@ export default function WhatsappConfiguracao() {
   async function conectar() {
     setErro(''); setAviso(''); setOcupado(true); codigo.current = null; sessaoMeta.current = null;
     try {
-      const reauth = await adminFetch('/api/admin/autenticacao', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'reautenticar', senha }) });
-      const reauthBody = await reauth.json(); setSenha(''); if (!reauthBody.ok) throw new Error(reauthBody.erro);
+      // Renovação anunciada: a reautenticação troca a sessão; sem o anúncio a página seria descartada antes de iniciar.
+      const reauth = await reautenticarSessao(senha); setSenha(''); if (!reauth.ok) throw new Error(reauth.erro);
       const response = await adminFetch('/api/admin/configuracoes/whatsapp/onboarding/iniciar', { method: 'POST' });
       const body = await response.json(); if (!body.ok) throw new Error(body.erro); inicio.current = body.data;
       const meta = inicio.current!.meta;
