@@ -51,7 +51,8 @@ test('empresa nova sem perfil: a tela oferece a criação só à Gestão, com re
     assert.match(tela, /Criar perfil da empresa/);
     assert.match(tela, /PERFIL_REAUTENTICACAO/);
     assert.match(tela, /Somente a Gestão desta empresa cria o perfil/);
-    assert.match(tela, /acao: 'criar-perfil', confirmar: true/);
+    assert.match(tela, /estruturarPerfil\('criar-perfil'\)/);
+    assert.match(tela, /JSON\.stringify\(\{ acao, confirmar: true \}\)/);
     assert.match(rota, /perfilDoTenantOuNulo\(tx, tenant\.empresaComprovada\)/);
     assert.match(rota, /podeCriar: tenant\.papelAtual === 'REPRESENTANTE_AUTORIZADO'/);
     assert.match(rota, /criarPerfilDaEmpresa\(tx, tenant/);
@@ -61,4 +62,18 @@ test('empresa nova sem perfil: a tela oferece a criação só à Gestão, com re
     assert.match(criacao, /travarProvisionamentoInicial\(tx\)/);
     assert.match(criacao, /FROM empresas WHERE id = \$1::uuid FOR UPDATE/);
     assert.doesNotMatch(criacao, /kidmais/i, 'nada é copiado da Kidmais');
+});
+
+test('perfil existente sem administrador: o 403 traz só a elegibilidade; a tela oferece assumir a administração com confirmação e senha; o POST revalida na transação', () => {
+    assert.match(rota, /elegibilidadeConcessaoInicial\(tx, tenant\)/);
+    assert.match(rota, /new ClienteServiceError\('PERFIL_SEM_CONCESSAO', error\.message, 403, \{ concessaoInicial, empresa/);
+    assert.match(rota, /acao: z\.literal\('concessao-inicial'\)/);
+    assert.match(rota, /exigirExistente: body\.acao === 'concessao-inicial'/);
+    assert.match(tela, /concessaoInicial\?\.elegivel && <div data-concessao-inicial>/);
+    assert.match(tela, /Assumir a administração do perfil/);
+    assert.match(tela, /Confirmo que quero assumir a administração do perfil desta empresa/);
+    assert.match(tela, /disabled=\{ocupado \|\| !confirmarConcessao \|\| \(pedirSenhaCriacao && !senhaCriacao\)\}/);
+    assert.match(tela, /estruturarPerfil\('concessao-inicial'\)/);
+    assert.match(tela, /if \(acao === 'concessao-inicial' && !confirmarConcessao\)/);
+    assert.match(tela, /Outra conta administra as concessões deste perfil/);
 });

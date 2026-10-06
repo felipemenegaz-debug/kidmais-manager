@@ -9,7 +9,7 @@ import admin from './admin.module.css';
 import Link from 'next/link';
 import { AdminIcon, type AdminIconName } from './AdminIcon';
 import { itemAtivo, itensNavegacao, type PermissoesNavegacao } from '@/lib/admin/navegacao';
-import { sairDaSessao } from './sair';
+import { lembrarCsrf, sairDaSessao } from './sair';
 
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
@@ -49,6 +49,7 @@ export default function AdminShell({ children, vitrine }: {
             }
             else if (alive) {
                 const c = b.data.contexto as ContextoSessaoCliente | undefined;
+                lembrarCsrf(b.data.csrf);
                 if (!registrarContextoEmpresa(b.data.sessaoId, c?.empresaAtual?.id ?? null)) return;
                 setName(b.data.nome);
                 setContexto(c ?? null);
@@ -105,7 +106,8 @@ export default function AdminShell({ children, vitrine }: {
     function sair() {
         if (saindo) return;
         setSaindo(true);
-        void sairDaSessao();
+        // A saída tem prazo: ao terminar (confirmada ou não) a navegação já aconteceu; se não acontecer, o botão volta.
+        void sairDaSessao().finally(() => setSaindo(false));
     }
     if (path === '/admin/login')
         return <div className={`${tokens.tema} ${styles.shell}`}>{children}</div>;

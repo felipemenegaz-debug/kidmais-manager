@@ -3,10 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { ZodError, z } from 'zod';
 import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
 import { registrarAuditoria } from '@/lib/clientes/repositories/auditoria.repository';
-import { isClienteServiceError } from '@/lib/clientes/services/errors';
+import { ClienteServiceError, isClienteServiceError } from '@/lib/clientes/services/errors';
 import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
 import { aplicarCadastroPerfil, estruturaCadastroInstalada, lerCadastroPerfil, salvarRascunhoPerfil } from '@/lib/perfil/cadastro-service';
-import { criarPerfilDaEmpresa } from '@/lib/perfil/criacao';
+import { criarPerfilDaEmpresa, elegibilidadeConcessaoInicial } from '@/lib/perfil/criacao';
 import { LOGO_MAX_DATA_URL } from '@/lib/perfil/logo-limites';
 import { withTenantTransaction } from '@/lib/saas/provar-tenant';
 import { perfilDoTenant, perfilDoTenantOuNulo } from '@/lib/perfil/tenant';
@@ -66,6 +66,11 @@ const corpo = z.discriminatedUnion('acao', [
         acao: z.literal('criar-perfil'),
         confirmar: z.literal(true),
     }).strict(),
+    // Perfil existente sem administrador elegível: a Gestão assume a administração (concessão inicial).
+    z.object({
+        acao: z.literal('concessao-inicial'),
+        confirmar: z.literal(true),
+    }).strict(),
 ]);
 
 function json(data: unknown, status = 200) {
@@ -99,7 +104,18 @@ export async function GET(request: NextRequest) {
                     contexto: null, historico: [], capacidades: null,
                 };
             }
-            return { ...(await lerCadastroPerfil(tx, sessao.usuario_id, perfil)), perfilAusente: false };
+            try {
+                return { ...(await lerCadastroPerfil(tx, sessao.usuario_id, perfil)), perfilAusente: false };
+            }
+            catch (error) {
+                // Sem capacidade de consulta: 403 continua, com a resposta mínima de elegibilidade para a concessão inicial
+                // (nada do cadastro nem do histórico do perfil). A autorização real é refeita no POST, na transação.
+                if (!(isClienteServiceError(error) && error.code === 'PERFIL_SEM_CONCESSAO'))
+                    throw error;
+                const empresa = (await tx.query<{ codigo: string; nome: string }>('SELECT codigo, nome FROM empresas WHERE id = $1::uuid', [tenant.empresaComprovada])).rows[0];
+                const concessaoInicial = await elegibilidadeConcessaoInicial(tx, tenant);
+                throw new ClienteServiceError('PERFIL_SEM_CONCESSAO', error.message, 403, { concessaoInicial, empresa: { codigo: empresa?.codigo ?? null, nome: empresa?.nome ?? null } });
+            }
         });
         return json({ ok: true, data });
     } catch (error) {
@@ -113,12 +129,12 @@ export async function POST(request: NextRequest) {
         const body = corpo.parse(await request.json());
         const requestId = randomUUID();
         const data = await withTenantTransaction(sessao, null, async (tx, tenant) => {
-            if (body.acao === 'criar-perfil') {
+            if (body.acao === 'criar-perfil' || body.acao === 'concessao-inicial') {
                 return criarPerfilDaEmpresa(tx, tenant, {
                     autenticadoEm: sessao.autenticado_em,
                     agora: Date.parse(sessao.consultado_em ?? ''),
                     requestId,
-                }, registrarAuditoria);
+                }, registrarAuditoria, { exigirExistente: body.acao === 'concessao-inicial' });
             }
             const perfilDoServidor = await perfilDoTenant(tx, tenant.empresaComprovada);
             if (body.acao === 'salvar-rascunho') {

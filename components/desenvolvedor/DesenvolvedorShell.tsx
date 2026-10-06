@@ -6,7 +6,7 @@ import styles from '@/components/admin/shell.module.css';
 import tokens from '@/components/admin/tokens.module.css';
 import { AdminIcon } from '@/components/admin/AdminIcon';
 import AvisoContexto from '@/components/admin/AvisoContexto';
-import { sairDaSessao } from '@/components/admin/sair';
+import { lembrarCsrf, sairDaSessao } from '@/components/admin/sair';
 
 const ITENS = [
     { href: '/desenvolvedor', rotulo: 'Resumo', icone: 'dashboard' as const },
@@ -33,6 +33,7 @@ export default function DesenvolvedorShell({ nome, children }: { nome: string; c
         let vivo = true;
         fetch('/api/admin/autenticacao', { cache: 'no-store' }).then((r) => r.json()).then((b) => {
             if (!vivo) return;
+            lembrarCsrf(b?.data?.csrf);
             const empresas = (b?.data?.contexto?.empresas as unknown[] | undefined) ?? [];
             setAcessos({ empresasAtivas: empresas.length, carregado: true });
         }).catch(() => { if (vivo) setAcessos({ empresasAtivas: 0, carregado: true }); });
@@ -72,7 +73,7 @@ export default function DesenvolvedorShell({ nome, children }: { nome: string; c
             <footer className={styles.conta}>
                 <div className={styles.identidade}><span className={styles.avatar} aria-hidden="true">{nome.slice(0, 1).toUpperCase()}</span><div><p>{nome}</p><small>Desenvolvedor</small></div></div>
                 {acessos.carregado && acessos.empresasAtivas === 0 && <p className={styles.avisoEmpresa} role="status">Sem empresa com acesso ativo no Admin.</p>}
-                <button type="button" disabled={saindo} onClick={() => { setSaindo(true); void sairDaSessao(); }}><AdminIcon name="logout" size={12} /> {saindo ? 'Saindo…' : 'Sair'}</button>
+                <button type="button" disabled={saindo} onClick={() => { if (saindo) return; setSaindo(true); void sairDaSessao().finally(() => setSaindo(false)); }}><AdminIcon name="logout" size={12} /> {saindo ? 'Saindo…' : 'Sair'}</button>
             </footer>
         </aside>
         <div className={styles.conteudo}><AvisoContexto />{children}</div>

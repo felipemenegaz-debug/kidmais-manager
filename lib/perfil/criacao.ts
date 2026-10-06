@@ -5,27 +5,32 @@ import { cnpjRaizPlaceholder, cnpjValido, normalizarCnpj } from '../cadastro/cnp
 import { exigirGestaoNoTenant, type TenantComprovado } from '../saas/provar-tenant.ts';
 import { EMPRESA_SAAS_DO_PERFIL } from './autorizacao.ts';
 import { estruturaCadastroInstalada } from './cadastro-service.ts';
-import { CAPACIDADES_PERFIL } from './capacidades.ts';
+import { CAPACIDADES_PERFIL, type CapacidadePerfil } from './capacidades.ts';
 import { travarEmpresasPerfil, travarProvisionamentoInicial } from './protecao-usuarios.ts';
 import { exigirReautenticacaoPerfil } from './reautenticacao.ts';
 
 /**
- * Criação do Perfil da empresa pela própria Gestão (implantação de uma contratante nova).
+ * Perfil da empresa na implantação de uma contratante nova — duas operações da Gestão da empresa comprovada pelo
+ * Tenant Context, ambas com reautenticação recente (mesma janela e mesmo relógio do restante do Perfil):
  *
- * Antes desta entrega, uma empresa provisionada pelo painel do desenvolvedor não tinha Perfil (026/027): a tela
- * respondia 409 e ninguém conseguia criá-lo pela aplicação (só o CLI legado, para a instalação de uma empresa).
- * Aqui a Gestão da empresa comprovada pelo Tenant Context cria SOMENTE a estrutura mínima:
- *   - `perfil_empresas` com o MESMO código da empresa SaaS (é isso que associa os dois cadastros) e, como
- *     pré-preenchimento, apenas o nome da empresa e, quando o painel registrou, razão social e CNPJ válidos;
- *   - uma `perfil_unidades` (a V1 opera com uma unidade), herdando o endereço da sede;
- *   - as quatro capacidades do perfil para quem criou (bootstrap: sem isso ninguém administraria o perfil novo).
- * Nada é copiado de outra empresa. Idempotente: perfil já associado → nada é criado; sem administrador elegível,
- * a Gestão recebe a concessão inicial; com administrador, pede-se a concessão a ele (409).
- * Exige reautenticação recente (mesma janela e mesmo relógio do restante do Perfil) e Gestão NESTA empresa.
+ *   1. CRIAÇÃO (`criar-perfil`): a empresa ainda não tem Perfil (026/027). Cria SOMENTE a estrutura mínima:
+ *      `perfil_empresas` com o MESMO código da empresa SaaS (é isso que associa os dois cadastros) e, como
+ *      pré-preenchimento, apenas o nome da empresa e, quando o painel registrou, razão social e CNPJ válidos;
+ *      uma `perfil_unidades` (a V1 opera com uma unidade), herdando o endereço da sede; e as quatro capacidades do
+ *      perfil para quem criou (bootstrap: sem isso ninguém administraria o perfil novo). Nada é copiado de outra empresa.
+ *   2. CONCESSÃO INICIAL (`concessao-inicial`): o Perfil já existe, mas nenhuma conta elegível o administra (ninguém
+ *      com PERFIL_ADMINISTRAR_CONCESSOES ativa que seja Gestão ATIVA nesta empresa com conta ativa). A Gestão recebe
+ *      as capacidades que lhe faltam — só as que faltam, sem duplicar — e passa a administrar. Com administrador
+ *      elegível existente, nada é concedido (409: peça a concessão a quem administra). Capacidade parcial (ex.: só
+ *      PERFIL_CONSULTAR) não comprova administrador: a regra olha os administradores elegíveis, não o pedinte.
+ *
+ * A elegibilidade (`elegibilidadeConcessaoInicial`) é uma leitura sem travas, para a tela oferecer a ação; a
+ * autorização real é refeita dentro da transação de escrita, com as mesmas regras e com as travas.
  */
 type Auditoria = (input: AppendAuditoriaInput, tx?: DbExecutor) => Promise<unknown>;
 
 export const MOTIVO_CRIACAO_PERFIL = 'Criação do perfil da empresa na implantação';
+export const MOTIVO_CONCESSAO_INICIAL = 'Concessão inicial do perfil: nenhum administrador elegível';
 export const SUFIXO_UNIDADE_INICIAL = '-principal';
 
 export type ResultadoCriacaoPerfil = {
@@ -34,6 +39,14 @@ export type ResultadoCriacaoPerfil = {
     unidadeId: string | null;
     capacidadesConcedidas: string[];
     motivo: 'CRIADO' | 'JA_EXISTE' | 'CONCESSAO_INICIAL';
+};
+
+export type MotivoInelegibilidade = 'SEM_GESTAO' | 'ESTRUTURA_AUSENTE' | 'SEM_PERFIL' | 'AMBIGUO' | 'ADMINISTRADOR_EXISTENTE' | 'JA_ADMINISTRA';
+export type ElegibilidadeConcessaoInicial = {
+    elegivel: boolean;
+    motivo: MotivoInelegibilidade | null;
+    /** Capacidades que a conta receberia (só as que faltam). Vazio quando inelegível. */
+    capacidadesFaltantes: CapacidadePerfil[];
 };
 
 export function codigoUnidadeInicial(codigoEmpresa: string) {
@@ -65,27 +78,76 @@ async function cadastroAdministrativo(tx: DbExecutor, empresaSaasId: string) {
     )).rows[0] ?? null;
 }
 
-async function concederCapacidadesIniciais(tx: DbExecutor, perfilId: string, usuarioId: string, referencia: string) {
-    for (const capacidade of CAPACIDADES_PERFIL) {
+/** Capacidades ATIVAS desta conta no perfil (lista branca das quatro conhecidas). */
+async function capacidadesDaConta(tx: DbExecutor, perfilId: string, usuarioId: string): Promise<CapacidadePerfil[]> {
+    const linhas = (await tx.query<{ capacidade: string }>(
+        'SELECT capacidade FROM public.perfil_empresa_concessoes WHERE empresa_id = $1::uuid AND usuario_id = $2::uuid AND revogado_em IS NULL',
+        [perfilId, usuarioId],
+    )).rows.map((l) => l.capacidade);
+    return CAPACIDADES_PERFIL.filter((c) => linhas.includes(c));
+}
+
+/**
+ * Administradores ELEGÍVEIS do perfil: concessão PERFIL_ADMINISTRAR_CONCESSOES ativa, conta ativa e vínculo ATIVO de
+ * Gestão NESTA empresa (uma concessão de quem perdeu a Gestão ou o vínculo não conta).
+ */
+async function administradoresElegiveis(tx: DbExecutor, perfilId: string, empresaSaasId: string) {
+    return (await tx.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM public.perfil_empresa_concessoes c
+           JOIN usuarios_administrativos u ON u.id = c.usuario_id
+           JOIN memberships m ON m.usuario_id = c.usuario_id AND m.empresa_id = $2::uuid
+          WHERE c.empresa_id = $1::uuid AND c.revogado_em IS NULL AND c.capacidade = 'PERFIL_ADMINISTRAR_CONCESSOES'
+            AND u.ativo AND m.status = 'ATIVA' AND m.papel = 'REPRESENTANTE_AUTORIZADO'`,
+        [perfilId, empresaSaasId],
+    )).rows[0]?.n ?? 0;
+}
+
+/**
+ * Leitura sem travas, para a tela: a Gestão desta empresa pode assumir a administração de um perfil existente?
+ * Não devolve nada do cadastro do perfil (nem versão, nem histórico): só o veredito e as capacidades que faltam.
+ */
+export async function elegibilidadeConcessaoInicial(tx: DbExecutor, tenant: TenantComprovado): Promise<ElegibilidadeConcessaoInicial> {
+    const inelegivel = (motivo: MotivoInelegibilidade): ElegibilidadeConcessaoInicial => ({ elegivel: false, motivo, capacidadesFaltantes: [] });
+    if (tenant.papelAtual !== 'REPRESENTANTE_AUTORIZADO')
+        return inelegivel('SEM_GESTAO');
+    if (!await estruturaCadastroInstalada(tx))
+        return inelegivel('ESTRUTURA_AUSENTE');
+    const perfis = await perfisAssociados(tx, tenant.empresaComprovada);
+    if (perfis.length === 0)
+        return inelegivel('SEM_PERFIL');
+    if (perfis.length > 1)
+        return inelegivel('AMBIGUO');
+    const perfilId = perfis[0]!;
+    const minhas = await capacidadesDaConta(tx, perfilId, tenant.usuarioId);
+    const faltantes = CAPACIDADES_PERFIL.filter((c) => !minhas.includes(c));
+    if (await administradoresElegiveis(tx, perfilId, tenant.empresaComprovada) > 0)
+        return inelegivel(faltantes.length === 0 ? 'JA_ADMINISTRA' : 'ADMINISTRADOR_EXISTENTE');
+    if (faltantes.length === 0)
+        return inelegivel('JA_ADMINISTRA');
+    return { elegivel: true, motivo: null, capacidadesFaltantes: faltantes };
+}
+
+async function concederCapacidades(tx: DbExecutor, perfilId: string, usuarioId: string, capacidades: readonly CapacidadePerfil[], motivo: string, referencia: string) {
+    for (const capacidade of capacidades) {
         await tx.query(
             `INSERT INTO public.perfil_empresa_concessoes (empresa_id, usuario_id, capacidade, concedido_por, motivo, referencia_autorizacao)
              VALUES ($1::uuid, $2::uuid, $3, $2::uuid, $4, $5)`,
-            [perfilId, usuarioId, capacidade, MOTIVO_CRIACAO_PERFIL, referencia],
+            [perfilId, usuarioId, capacidade, motivo, referencia],
         );
     }
-    return [...CAPACIDADES_PERFIL];
+    return [...capacidades];
 }
 
 export async function criarPerfilDaEmpresa(tx: DbExecutor, tenant: TenantComprovado, input: {
     autenticadoEm: string;
     agora?: number;
     requestId: string;
-}, auditoria: Auditoria): Promise<ResultadoCriacaoPerfil> {
+}, auditoria: Auditoria, opcoes: { exigirExistente?: boolean } = {}): Promise<ResultadoCriacaoPerfil> {
     exigirGestaoNoTenant(tenant, 'Somente a Gestão desta empresa cria o perfil da empresa.');
     exigirReautenticacaoPerfil({ autenticado_em: input.autenticadoEm }, input.agora);
     if (!await estruturaCadastroInstalada(tx))
         throw new ClienteServiceError('PERFIL_ESTRUTURA_AUSENTE', 'A estrutura do perfil ainda não está instalada neste ambiente.', 409);
-    // Mesma trava do provisionamento legado do perfil: criações concorrentes (duplo clique, duas abas) serializam.
+    // Mesma trava do provisionamento legado do perfil: criações e concessões concorrentes (duplo clique, duas abas) serializam.
     await travarProvisionamentoInicial(tx);
     const empresa = (await tx.query<{ id: string; codigo: string; nome: string; status: string }>(
         'SELECT id::text AS id, codigo, nome, status FROM empresas WHERE id = $1::uuid FOR UPDATE', [tenant.empresaComprovada],
@@ -99,30 +161,28 @@ export async function criarPerfilDaEmpresa(tx: DbExecutor, tenant: TenantComprov
     if (existentes.length === 1) {
         const perfilId = existentes[0]!;
         await travarEmpresasPerfil(tx, [perfilId]);
-        const minhas = (await tx.query<{ capacidade: string }>(
-            'SELECT capacidade FROM public.perfil_empresa_concessoes WHERE empresa_id = $1::uuid AND usuario_id = $2::uuid AND revogado_em IS NULL',
-            [perfilId, tenant.usuarioId],
-        )).rows;
-        if (minhas.length > 0)
+        // Travada a linha de cada concessão de administração: duas Gestões ao mesmo tempo não assumem as duas.
+        await tx.query("SELECT 1 FROM public.perfil_empresa_concessoes WHERE empresa_id = $1::uuid AND capacidade = 'PERFIL_ADMINISTRAR_CONCESSOES' AND revogado_em IS NULL FOR UPDATE", [perfilId]);
+        const minhas = await capacidadesDaConta(tx, perfilId, tenant.usuarioId);
+        const faltantes = CAPACIDADES_PERFIL.filter((c) => !minhas.includes(c));
+        const administradores = await administradoresElegiveis(tx, perfilId, empresa.id);
+        if (administradores > 0) {
+            if (faltantes.length === 0)
+                return { criado: false, perfilId, unidadeId: null, capacidadesConcedidas: [], motivo: 'JA_EXISTE' };
+            throw new ClienteServiceError('PERFIL_SEM_CONCESSAO', 'O perfil desta empresa já é administrado por outra conta. Peça a concessão a quem administra o perfil.', 409);
+        }
+        if (faltantes.length === 0)
             return { criado: false, perfilId, unidadeId: null, capacidadesConcedidas: [], motivo: 'JA_EXISTE' };
-        const administradores = (await tx.query<{ n: number }>(
-            `SELECT count(*)::int AS n FROM public.perfil_empresa_concessoes c
-               JOIN usuarios_administrativos u ON u.id = c.usuario_id
-               JOIN memberships m ON m.usuario_id = c.usuario_id AND m.empresa_id = $2::uuid
-              WHERE c.empresa_id = $1::uuid AND c.revogado_em IS NULL AND c.capacidade = 'PERFIL_ADMINISTRAR_CONCESSOES'
-                AND u.ativo AND m.status = 'ATIVA' AND m.papel = 'REPRESENTANTE_AUTORIZADO'`,
-            [perfilId, empresa.id],
-        )).rows[0]?.n ?? 0;
-        if (administradores > 0)
-            throw new ClienteServiceError('PERFIL_SEM_CONCESSAO', 'O perfil desta empresa já existe e é administrado por outra conta. Peça a concessão a quem administra o perfil.', 409);
-        const capacidades = await concederCapacidadesIniciais(tx, perfilId, tenant.usuarioId, referencia);
+        const capacidades = await concederCapacidades(tx, perfilId, tenant.usuarioId, faltantes, MOTIVO_CONCESSAO_INICIAL, referencia);
         await auditoria({
             atorTipo: 'USUARIO', usuarioId: tenant.usuarioId, acao: 'PERFIL_CONCESSAO_INICIAL', entidadeTipo: 'PERFIL_EMPRESA', entidadeId: perfilId,
-            dadosDepois: { empresaId: empresa.id, usuarioId: tenant.usuarioId, capacidades, origemConcessao: 'IMPLANTACAO', resultado: 'SUCESSO' },
-            justificativa: MOTIVO_CRIACAO_PERFIL, origem: 'PERFIL_EMPRESA', requestId: input.requestId,
+            dadosDepois: { empresaId: empresa.id, usuarioId: tenant.usuarioId, capacidades, jaPossuia: minhas, origemConcessao: 'IMPLANTACAO', resultado: 'SUCESSO' },
+            justificativa: MOTIVO_CONCESSAO_INICIAL, origem: 'PERFIL_EMPRESA', requestId: input.requestId,
         }, tx);
         return { criado: false, perfilId, unidadeId: null, capacidadesConcedidas: capacidades, motivo: 'CONCESSAO_INICIAL' };
     }
+    if (opcoes.exigirExistente)
+        throw new ClienteServiceError('PERFIL_ESTRUTURA_AUSENTE', 'Esta empresa ainda não tem perfil; use a criação do perfil.', 409);
     const cadastro = await cadastroAdministrativo(tx, empresa.id);
     const razaoSocial = cadastro?.nome_empresarial?.trim().slice(0, 160) || null;
     const cnpj = cnpjParaPerfil(cadastro?.documento_fiscal);
@@ -135,7 +195,7 @@ export async function criarPerfilDaEmpresa(tx: DbExecutor, tenant: TenantComprov
         `INSERT INTO public.perfil_unidades (empresa_id, codigo, nome, mesmo_endereco_sede) VALUES ($1::uuid, $2, $3, true) RETURNING id::text AS id`,
         [perfilId, codigoUnidadeInicial(empresa.codigo), empresa.nome.trim().slice(0, 160)],
     )).rows[0].id;
-    const capacidades = await concederCapacidadesIniciais(tx, perfilId, tenant.usuarioId, referencia);
+    const capacidades = await concederCapacidades(tx, perfilId, tenant.usuarioId, CAPACIDADES_PERFIL, MOTIVO_CRIACAO_PERFIL, referencia);
     await auditoria({
         atorTipo: 'USUARIO', usuarioId: tenant.usuarioId, acao: 'PERFIL_ESTRUTURA_CRIADA', entidadeTipo: 'PERFIL_EMPRESA', entidadeId: perfilId,
         dadosDepois: {

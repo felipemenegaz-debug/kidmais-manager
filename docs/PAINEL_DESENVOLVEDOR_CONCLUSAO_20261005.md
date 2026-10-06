@@ -37,6 +37,7 @@ Estado: **I** implementado nesta entrega · **J** já existia (revalidado) · **
 | A | Gestão configura empresa nova sem Perfil | **I V** | `lib/perfil/criacao.ts` + ação `criar-perfil` da API + tela | unit `lib/perfil/criacao.test.ts` (4), PG "perfil da empresa nova…", UI cenário 3 |
 | A | Só registros mínimos, validados, idempotentes, sem copiar a Kidmais | **I V** | perfil com o código da empresa, 1 unidade, 4 capacidades; pré-preenche só nome/razão social/CNPJ válidos | unit + PG + `PerfilEmpresa.test.ts` ("nada é copiado da Kidmais") |
 | A | Pendências reais com ações claras | **I V** | `lib/desenvolvedor/implantacao.ts`; ficha lista ✓/✗ com ação | unit `implantacao.test.ts` (3), PG "implantação…", UI cenário 4 |
+| A | Perfil existente sem administrador elegível: a Gestão assume a administração pela tela (revisão Astra) | **I V** | `elegibilidadeConcessaoInicial` (403 mínimo, sem cadastro) + ação `concessao-inicial` revalidada na transação + tela com confirmação e senha | unit `criacao.test.ts` (4 novos), PG 5 testes "concessão inicial — …", UI implantação cenário 6 |
 | A | Requisitos para CONCLUÍDA validados no servidor | **I V** | Gestão ativa + perfil criado + cadastro aplicado; 409 `IMPLANTACAO_PENDENTE` auditado | PG + UI (409 via API e botão bloqueado) |
 | B | Busca, filtros, paginação | J V | 25/página, contagens | código revisado; PG |
 | B | Validação e-mail/telefone/CPF-CNPJ | J V | `lib/acessos/validacao.ts` | `acessos.test.ts` |
@@ -63,7 +64,7 @@ Estado: **I** implementado nesta entrega · **J** já existia (revalidado) · **
 | E | Não ficar preso em 404/seleção vazia/"Verificando sessão…" | **I V** | `app/not-found.tsx` com saídas; prazo de 8 s na verificação | UI cenários 1–2; unit |
 | E | Ocultação de rotas + navegação segura | **I V** | 404 neutro (mesma página para rota inexistente e área oculta) | UI cenário 2 |
 | E | "Ir para o Admin" reflete acessos | **I V** | só com empresa ativa | UI cenário 1 |
-| E | Logout do painel, perfil, seleção e erro | **I V** | `components/admin/sair.ts` (navegação completa mesmo sem confirmação) | UI cenários 1, 3, 5 |
+| E | Logout do painel, perfil, seleção e erro | **I V** (refeito na revisão Astra) | `components/admin/sair.ts`: prazo de 8 s, CSRF da tela sem leitura prévia, resultado explícito, aviso verdadeiro quando o servidor não confirma, respostas tardias ignoradas | `sair.test.ts` (13, rede controlada), `scripts/painel-saida-ui.cjs` (6 cenários), UI implantação 1, 3, 5 |
 | E | Desktop e celular, foco, teclado, labels | **I** parcial V | menu do painel com Escape; checklist com `aria-label`; botões com `title` | UI cenário 5 (390×844) |
 | F | Troca de senha, revogação de sessões | J V | — | PG |
 | F | Reautenticação 5 min, mesmo relógio, limites exatos e futuro | J V (estendido à criação do perfil) | `exigirReautenticacaoPerfil` com `consultado_em` | `painel.test.ts`; PG; UI cenário 3 |
@@ -84,7 +85,7 @@ Estado: **I** implementado nesta entrega · **J** já existia (revalidado) · **
 3. **Pendências de implantação** na ficha da contratante (ativa, com cadastro): Gestão ativa, perfil criado, cadastro aplicado (obrigatórias) e convites pendentes com problema (informativa). "Implantação concluída" só é aceita pelo servidor com as obrigatórias atendidas; recusa 409 `IMPLANTACAO_PENDENTE` com a lista, auditada como `EMPRESA_IMPLANTACAO_RECUSADA` (fora da transação recusada). A aceitação registra os requisitos conferidos.
 4. **Atividade administrativa** (`/desenvolvedor/atividade`, `GET /api/desenvolvedor/auditoria`): filtros por empresa, ação e período, 25 por página; só origens administrativas (painel, convites, recuperação, senha, ciclo de empresa/vínculo, Usuários e acessos, CLI, Perfil da empresa); cada linha sai pela mesma sanitização da escrita. Link "Ver toda a atividade desta empresa" na ficha.
 5. **`Retry-After`** em todas as respostas 429 com prazo calculável: reenvio de convite (intervalo de 60 s), recuperação pelo painel (120 s), limites de tentativas de convite/aceite/redefinição/troca de senha/login (fim do bloqueio pelo relógio do banco).
-6. **Navegação e saída.** Admin sem empresa ativa mostra "Sem empresa ativa" com perfil, painel (se concedido) e sair, sem itens de negócio no menu; "Verificando sessão…" oferece tentar de novo/ir ao login após 8 s; 404 único e neutro com saídas seguras; "Ir para o Admin" só com empresa ativa; "Sair" único (`components/admin/sair.ts`) leva ao login com navegação completa mesmo quando o servidor não confirma, deixando o aviso real; menu do painel fecha com Escape; item "Atividade".
+6. **Navegação e saída (saída refeita em 06/10/2026, ver §10).** Admin sem empresa ativa mostra "Sem empresa ativa" com perfil, painel (se concedido) e sair, sem itens de negócio no menu; "Verificando sessão…" oferece tentar de novo/ir ao login após 8 s; 404 único e neutro com saídas seguras; "Ir para o Admin" só com empresa ativa; "Sair" único (`components/admin/sair.ts`) leva ao login com navegação completa mesmo quando o servidor não confirma, deixando o aviso real; menu do painel fecha com Escape; item "Atividade".
 
 ## 4. Validação executada (05–06/10/2026, dados sintéticos)
 
@@ -93,8 +94,8 @@ Estado: **I** implementado nesta entrega · **J** já existia (revalidado) · **
 | `npx tsc --noEmit` | sem erros |
 | ESLint (áreas alteradas e arquivo inteiro na regressão) | sem erros |
 | Unitários novos: `lib/perfil/criacao.test.ts`, `lib/perfil/associacao.test.ts`, `lib/desenvolvedor/implantacao.test.ts`, `lib/acessos/retry-after.test.ts`, `components/admin/navegacao-saida.test.ts` + extensões em `painel.test.ts` e `PerfilEmpresa.test.ts` | ver §4.1 |
-| PostgreSQL descartável (modelo 063 recriado do schema vazio) — `lib/desenvolvedor/painel-063.postgres.test.ts` | 26/26 (20 anteriores + 6 novos) |
-| Interface (Playwright + Chrome, Next local, banco sintético) — `scripts/painel-implantacao-ui.cjs` | ver §4.1 |
+| PostgreSQL descartável (modelo 063 recriado do schema vazio) — `lib/desenvolvedor/painel-063.postgres.test.ts` | 31/31 em 06/10/2026 (20 anteriores + 6 da conclusão + 5 da revisão Astra); 26/26 na entrega de 05/10 |
+| Interface (Playwright + Chrome, Next local, banco sintético) — `scripts/painel-implantacao-ui.cjs` (6 cenários) e `scripts/painel-saida-ui.cjs` (6 cenários de saída com rede controlada) | ver §4.1 e §10 |
 | `npm run check:v1:static` (testes, lint, TypeScript, build), `production:test`, `otp-staging` | ver §4.1 |
 
 ### 4.1 Evidências
@@ -164,7 +165,7 @@ Sem essas variáveis o sistema mostra "não enviado" e a recuperação pública 
 
 - Entrega real de convites e de recuperação (D1): configuração acima + homologação da entrega com conta sintética.
 - Merge, deploy e homologação em staging (§6); promoção para production é tarefa separada.
-- Leitura H0 em staging para confirmar o estado do perfil legado (a regra de código cobre o caso de um único órfão).
+- Leitura H0 em staging para confirmar o estado do perfil legado (a regra de código cobre o caso de um único órfão). Procedimento pronto e **não executado**: `database/checks/20261006_h0_perfil_legado_leitura.sql` (transação READ ONLY, só ids/códigos/status/contagens, termina em ROLLBACK), a executar por quem tem credencial própria antes do deploy; o resultado deve ser registrado no documento de homologação, não aqui.
 - S11 e E1–E6 da homologação 063 devem ser reconferidos contra o SHA que for implantado (os scripts conferem o alvo).
 
 ## 9. Roteiro de revisão para o Astra
@@ -172,7 +173,105 @@ Sem essas variáveis o sistema mostra "não enviado" e a recuperação pública 
 1. **Permissões.** `lib/perfil/criacao.ts`: Gestão pelo Tenant Context, reautenticação no servidor, bootstrap de capacidades só sem administrador elegível. `lib/desenvolvedor/http.ts` continua a única guarda das rotas (`painel.test.ts` cobre a rota nova).
 2. **Isolamento.** `EMPRESA_SAAS_DO_PERFIL` (regra do órfão único + `candidatos`); `lib/desenvolvedor/auditoria-consulta.ts` (filtro por empresa inclui vínculos e perfil associados; origens fechadas).
 3. **Concorrência.** Criação do perfil sob `travarProvisionamentoInicial` + `FOR UPDATE` da empresa; conclusão da implantação sob `FOR UPDATE` do cadastro e revisão.
-4. **Sessões.** `components/admin/sair.ts` e os dois shells; `DEMORA_VERIFICACAO_MS`; nenhuma mudança em `admin-fetch.ts`.
+4. **Sessões.** `components/admin/sair.ts` (prazo, CSRF, resultado, avisos, saída única) e `lembrarCsrf` nos dois shells; `marcarSaidaDaSessao`/`saidaDaSessaoEmAndamento` em `lib/http/contexto-empresa-cliente.ts`, consultados em `admin-fetch.ts` (um `if`) e `components/desenvolvedor/cliente.ts`; `DEMORA_VERIFICACAO_MS`. Comportamento: `components/admin/sair.test.ts` e `scripts/painel-saida-ui.cjs`.
 5. **Auditoria.** `EMPRESA_IMPLANTACAO_RECUSADA` fora da transação; `PERFIL_ESTRUTURA_CRIADA`/`PERFIL_CONCESSAO_INICIAL`; leitura sanitizada.
 6. **Recuperação.** `Retry-After` em `lib/acessos/http.ts`, `lib/autenticacao/service.ts` (`prazoDoLimite`) e rota de autenticação; nada muda nos limites em si.
-7. **Testes.** Rodar `check:v1:static`; para o PostgreSQL, criar um cluster sintético e `KIDMAIS_POSTGRES_SOMENTE=lib/desenvolvedor/painel-063.postgres.test.ts`; para a interface, `node --experimental-strip-types scripts/painel-implantacao-ui.cjs` com `KIDMAIS_PLAYWRIGHT_MODULE` e Chrome.
+7. **Testes.** Rodar `check:v1:static`; para o PostgreSQL, criar um cluster sintético e `KIDMAIS_POSTGRES_SOMENTE=lib/desenvolvedor/painel-063.postgres.test.ts`; para a interface, `node --experimental-strip-types scripts/painel-implantacao-ui.cjs` e `scripts/painel-saida-ui.cjs` com `KIDMAIS_PLAYWRIGHT_MODULE` e Chrome.
+8. **Concessão inicial (revisão Astra).** `lib/perfil/criacao.ts` (`elegibilidadeConcessaoInicial` sem travas e sem cadastro; `criarPerfilDaEmpresa` com `exigirExistente`, trava das concessões de administração `FOR UPDATE`, concessão só do que falta, 409 com administrador elegível); rota GET (403 com `detalhes.concessaoInicial` + `empresa`) e POST `concessao-inicial`; `components/admin/PerfilEmpresa.tsx` (bloco "Assumir a administração do perfil").
+
+## 10. Correções da revisão Astra (06/10/2026)
+
+Revisão feita sobre `941e09e`. Dois achados, ambos reproduzidos antes da correção.
+
+### 10.1 Saída da sessão com rede pendente
+
+**Problema.** `sairDaSessao` esperava `adminFetch` sem prazo (botão preso em "Saindo…") e, se a consulta prévia da
+sessão respondesse 503, nenhum POST de logout era enviado; a navegação ao login era apresentada como se a sessão
+tivesse terminado.
+
+**Comportamento agora** (`components/admin/sair.ts`):
+
+- prazo total de 8 s (`PRAZO_SAIDA_MS`) para toda a saída; o pedido pendente é abortado e a resposta tardia ignorada;
+- não depende da confirmação de contexto das operações de negócio: sair precisa só do cookie da sessão e do CSRF;
+  os shells registram o CSRF recebido (`lembrarCsrf`) e a saída normal é **um único POST**, sem leitura prévia;
+- sem CSRF lembrado, ou com 403 (rotação após reautenticação), **uma** leitura da sessão e no máximo mais um POST;
+  consulta prévia com 503/falha de rede → nenhum POST "no escuro";
+- resultado explícito (`CONFIRMADA`, `SESSAO_JA_ENCERRADA`, `NAO_CONFIRMADA`, `PRAZO_ESGOTADO`); a tela de login
+  recebe um aviso **somente** quando o servidor não confirmou (prazo ou recusa) dizendo que a sessão pode continuar
+  aberta — o cookie HttpOnly não é apagável pelo cliente e isso não é prometido; sessão já encerrada (401 ou leitura
+  sem usuário) não gera aviso falso;
+- cliques repetidos compartilham a mesma saída (um POST); nenhuma repetição automática, nenhum login automático;
+- respostas tardias de outras requisições da página (401 do painel, contexto mudado em `admin-fetch`) não navegam
+  nem deixam aviso por cima da saída (`marcarSaidaDaSessao` em `lib/http/contexto-empresa-cliente.ts`; um `if` em
+  `admin-fetch.ts` e em `components/desenvolvedor/cliente.ts`) — o 401 tardio do resumo levava a
+  `/admin/login?voltar=/desenvolvedor` depois do logout;
+- os shells liberam o botão com `.finally(() => setSaindo(false))`: a interface se recupera dentro do prazo.
+
+**Testes (código real, rede controlada).** `components/admin/sair.test.ts` (13): confirmada; sem CSRF; 503/falha de
+rede na leitura com e sem CSRF lembrado; pedido que nunca responde (prazo, abort, resposta tardia ignorada); POST
+500/rede; 403 com uma renovação e recusa repetida; sessão já encerrada (401 e leitura sem usuário); clique repetido;
+prazo total consumido pela leitura; respostas tardias ignoradas. `scripts/painel-saida-ui.cjs` (Playwright + Chrome,
+interceptando só a rota de autenticação, `next dev` 3141): 6/6 cenários: saída confirmada no painel (com o 401 tardio do resumo chegando depois do logout, sem `?voltar=`, uma única carga do login) e no Admin — um POST com o CSRF da tela, sem consulta prévia, login sem aviso, sessão encerrada no servidor; POST que nunca responde — botão "Saindo…" desabilitado, login em 8,2 s com o aviso de prazo, sessão ainda válida no servidor (o aviso é verdadeiro), um só POST; POST 500 — aviso "não confirmou", um só POST, sessão válida; CSRF 403 + consulta 503 — uma consulta, nenhum segundo POST, aviso; sessão já encerrada — login sem aviso enganoso; clique repetido — um só POST, uma só carga do login, sessão encerrada. Capturas em `.local-painel-saida-ui/` (local, não versionado).
+
+### 10.2 Concessão inicial de um Perfil existente
+
+**Problema.** O servidor implementava a concessão inicial para Perfil existente sem administrador elegível, mas o
+GET exigia concessão prévia (403 "Acesso negado") e a tela só oferecia a ação quando o Perfil não existia: ninguém
+conseguia pedir a recuperação. Além disso, `minhas.length > 0` encerrava a decisão cedo demais (ter só
+`PERFIL_CONSULTAR` não prova que existe administrador elegível).
+
+**Comportamento agora.**
+
+- `GET /api/admin/configuracoes/perfil-empresa` continua 403 sem capacidade de consulta, mas com
+  `detalhes.concessaoInicial = { elegivel, motivo, capacidadesFaltantes }` e `detalhes.empresa = { codigo, nome }`
+  (`elegibilidadeConcessaoInicial`: leitura sem travas; nada do cadastro, versão ou histórico — o teste unitário
+  confere o SQL executado). Motivos: `SEM_GESTAO`, `ESTRUTURA_AUSENTE`, `SEM_PERFIL`, `AMBIGUO`,
+  `ADMINISTRADOR_EXISTENTE`, `JA_ADMINISTRA`.
+- A tela mostra "Assumir a administração do perfil" só quando elegível, com a lista das capacidades que faltam,
+  caixa de confirmação obrigatória e senha quando o servidor exige reautenticação; com administrador elegível,
+  explica e não oferece o botão.
+- `POST { acao: 'concessao-inicial', confirmar: true }` → `criarPerfilDaEmpresa(..., { exigirExistente: true })`
+  revalida tudo na transação: Gestão pelo Tenant Context (membership ATIVA em empresa ATIVA), reautenticação de
+  5 min pelo relógio do banco, estrutura instalada, `travarProvisionamentoInicial`, empresa `FOR UPDATE`, associação
+  única (ambígua → `PERFIL_LIMITE_V1`), trava `FOR UPDATE` das concessões de administração do perfil, e então: com
+  administrador elegível → 409 `PERFIL_SEM_CONCESSAO` (nada é elevado, nem para quem já tem `PERFIL_CONSULTAR`);
+  sem administrador → concede **só as capacidades que faltam** (sem duplicar), auditoria `PERFIL_CONCESSAO_INICIAL`
+  com `capacidades`, `jaPossuia` e `origemConcessao: 'IMPLANTACAO'`. A elegibilidade do GET não autoriza o POST.
+- Administrador elegível = Gestão ATIVA desta empresa, identidade ativa, com `PERFIL_ADMINISTRAR_CONCESSOES` ativa
+  (vínculo suspenso ou revogado não conta).
+
+**Testes.** Unitários `lib/perfil/criacao.test.ts`: parciais sem administrador (concede só o que falta; auditoria
+`jaPossuia`), parciais com administrador (409, nada escrito), quatro capacidades (nada muda), `exigirExistente`
+sem perfil (409), elegibilidade por motivo e sem leitura do cadastro. PostgreSQL `painel-063.postgres.test.ts`
+(5 novos, 31/31): fixtures (perfil "legado" associado pelo código, sem concessões; duas Gestões, Equipe, vínculos
+suspenso e revogado); elegibilidade só para Gestão ativa de empresa ativa (Equipe → `SEM_GESTAO`; dev sem vínculo,
+suspenso, revogado, Gestão de outra empresa e empresa suspensa → `TENANT_NAO_COMPROVADO`; Equipe no POST →
+`PAPEL_NAO_AUTORIZADO`; GET do cadastro continua 403 antes da concessão); reautenticação vencida → nada; concessão
+das quatro (auditada); repetição → `JA_EXISTE` sem duplicar; segunda Gestão bloqueada (409); parciais com e sem
+administrador; vínculo suspenso deixa de contar como administrador; associação ambígua recusada; **concorrência
+real** (segunda conexão fica bloqueada enquanto a transação da primeira está aberta e, após o commit, é recusada;
+4 concessões ativas, nenhuma duplicada; auditoria sem segredos). Interface `scripts/painel-implantacao-ui.cjs`
+cenário 6: 403 só com elegibilidade (corpo sem `nome_comercial`/CNPJ/histórico/contexto; tela sem dados do
+cadastro), botão desabilitado sem confirmação, senha exigida (sessão com 6 min), senha errada → nada concedido,
+senha correta → 4 capacidades + auditoria, formulário aberto; depois, com administradora elegível, a outra Gestão vê
+a explicação sem botão e o POST direto recebe 409 sem conceder nada.
+
+### 10.3 Validação da rodada (06/10/2026, dados sintéticos, cluster descartável recriado)
+
+| Verificação | Resultado |
+|---|---|
+| `npx tsc --noEmit`; ESLint nos arquivos alterados | sem erros |
+| Unitários da rodada (`sair.test.ts`, `navegacao-saida.test.ts`, `criacao.test.ts`, `PerfilEmpresa.test.ts`, `contexto-empresa.test.ts`) | 46/46 |
+| PostgreSQL descartável `painel-063.postgres.test.ts` (modelo 063 recriado do schema vazio, 127.0.0.1:55511) | 31/31 |
+| `scripts/painel-implantacao-ui.cjs` (6 cenários, 8 marcos) | 8/8, repetido após a marca de saída |
+| `scripts/painel-saida-ui.cjs` | ver 10.1 |
+| `npm run check:v1:static`, `production:test`, `otp-staging` | PASS em 06/10/2026 sobre a árvore desta rodada: unitários 1960/1960 (1935 + 25 novos), harness 103/103, ESLint 0 erros (1 aviso pré-existente `FinalidadeSkill`), TypeScript, `next build`, worker do PDF; `production:test` 37/37; `otp-staging` 3/3. |
+
+**Falhas encontradas e corrigidas durante a validação.** (a) Fixture do perfil "legado" sem `perfil_unidades` fazia a
+leitura responder `PERFIL_LIMITE_V1` antes da concessão — o estado real sempre tem a unidade; fixture corrigida.
+(b) O 401 tardio de `/api/desenvolvedor/resumo` chegando depois do logout redirecionava para
+`/admin/login?voltar=/desenvolvedor` (reproduzido pelo roteiro de interface) → marca de saída (acima).
+
+**Limitações.** Mesmas de §4.1 (e-mail dublado, só Chrome headless). O prazo de 8 s é fixo; a interface mostra "Saindo…"
+durante a espera. O aviso de saída não confirmada depende do `sessionStorage` do navegador (sem ele, a tela de login
+abre sem o aviso; nada mais muda).

@@ -29,15 +29,24 @@ test('"Verificando sessão…" tem prazo: depois dele a tela oferece tentar de n
     assert.match(adminShell, /href="\/admin\/login"[^>]*>Ir para o login/);
 });
 
-test('sair: um único caminho para Admin e painel, com navegação completa ao login mesmo se o servidor não confirmar', () => {
-    assert.match(adminShell, /import \{ sairDaSessao \} from '\.\/sair'/);
-    assert.match(devShell, /import \{ sairDaSessao \} from '@\/components\/admin\/sair'/);
+test('sair: um único caminho para Admin e painel; as telas lembram o CSRF e liberam o botão quando a saída termina (comportamento em sair.test.ts)', () => {
+    assert.match(adminShell, /import \{ lembrarCsrf, sairDaSessao \} from '\.\/sair'/);
+    assert.match(devShell, /import \{ lembrarCsrf, sairDaSessao \} from '@\/components\/admin\/sair'/);
+    assert.match(adminShell, /lembrarCsrf\(b\.data\.csrf\)/);
+    assert.match(devShell, /lembrarCsrf\(b\?\.data\?\.csrf\)/);
+    assert.match(adminShell, /sairDaSessao\(\)\.finally\(\(\) => setSaindo\(false\)\)/);
+    assert.match(devShell, /sairDaSessao\(\)\.finally\(\(\) => setSaindo\(false\)\)/);
     assert.doesNotMatch(adminShell, /acao: 'logout'/, 'o shell não monta o logout por conta própria');
     assert.doesNotMatch(devShell, /acao: 'logout'/);
-    assert.match(sair, /acao: 'logout'/);
-    assert.match(sair, /window\.location\.assign\('\/admin\/login'\)/);
-    assert.match(sair, /guardarAvisoDeContexto\(AVISO_SAIDA_NAO_CONFIRMADA\)/);
-    assert.match(sair, /login para continuar/i, 'sessão já encerrada não gera aviso falso');
+    assert.doesNotMatch(sair, /adminFetch/, 'sair não depende da confirmação de contexto das operações de negócio');
+    // Respostas tardias (401 / contexto mudado) não sobrepõem a saída: os dois caminhos de redirecionamento consultam a marca.
+    assert.match(sair, /marcarSaidaDaSessao\(\)/);
+    const cliente = readFileSync('components/desenvolvedor/cliente.ts', 'utf8');
+    const adminFetch = readFileSync('lib/http/admin-fetch.ts', 'utf8');
+    const contexto = readFileSync('lib/http/contexto-empresa-cliente.ts', 'utf8');
+    assert.match(cliente, /if \(!saidaDaSessaoEmAndamento\(\)\) \{\s*\n\s*\/\/ eslint-disable-next-line[^\n]*\n\s*window\.location\.assign\(`\/admin\/login\?voltar=/);
+    assert.match(adminFetch, /if \(!saidaDaSessaoEmAndamento\(\)\) \{/);
+    assert.match(contexto, /export function reiniciarContextoEmpresa\(aviso\?: string, destino\?: string\) \{\r?\n\s*if \(saidaDaSessao\) return;/);
 });
 
 test('painel do desenvolvedor: "Ir para o Admin" só com empresa ativa; Atividade no menu; Escape fecha o menu', () => {

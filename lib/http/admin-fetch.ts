@@ -1,7 +1,7 @@
 'use client';
 import {
     cancelarRenovacaoDeSessao, concluirRenovacaoDeSessao, contextoMudou, guardarAvisoDeContexto, iniciarRenovacaoDeSessao,
-    registrarContextoEmpresa, reiniciarContextoEmpresa,
+    registrarContextoEmpresa, reiniciarContextoEmpresa, saidaDaSessaoEmAndamento,
 } from './contexto-empresa-cliente';
 
 type InfoSessao = { ok?: boolean; data?: { usuarioId?: string | null; sessaoId?: string; csrf?: string; contexto?: { empresaAtual?: { id: string } | null } } };
@@ -48,10 +48,13 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
         throw Error(escrita ? 'Não foi possível confirmar a sessão antes do envio. Nada foi enviado.' : 'Não foi possível confirmar a sessão. Tente novamente.');
     const info: InfoSessao = previa.estado === 'valida' ? previa.info : {};
     if (previa.estado === 'encerrada' || !info.data?.usuarioId) {
-        if (escrita) guardarAvisoDeContexto('Sua sessão terminou antes do envio. Nada foi enviado.');
-        // Limpa a página administrativa em memória quando a sessão expira; helper fora de React.
-        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-        window.location.assign('/admin/login');
+        // Durante a saída iniciada pela própria tela (components/admin/sair.ts) nada é sobreposto: ela já navega.
+        if (!saidaDaSessaoEmAndamento()) {
+            if (escrita) guardarAvisoDeContexto('Sua sessão terminou antes do envio. Nada foi enviado.');
+            // Limpa a página administrativa em memória quando a sessão expira; helper fora de React.
+            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+            window.location.assign('/admin/login');
+        }
         throw Error('Faça login para continuar.');
     }
     if (!registrarContextoEmpresa(info.data.sessaoId!, empresaDe(info), escrita ? 'A empresa ativa ou a sessão mudou antes do envio. Nada foi enviado.' : undefined))
