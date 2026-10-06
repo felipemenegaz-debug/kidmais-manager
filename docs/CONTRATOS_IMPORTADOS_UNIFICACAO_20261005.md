@@ -61,3 +61,7 @@ Na homologação em staging, Felipe pediu que o passo "Festa e agenda" fosse sim
   bairro, cidade e UF deixam de ser opcionais). A suíte PostgreSQL da integração foi alinhada à semântica
   `endereco: null`, mas não foi executada nesta entrega; seu cenário cria cliente sem CPF e já era bloqueado pela
   regra de CPF do PR #102 — pendência registrada para a próxima rodada autorizada do cluster descartável.
+- Cliente novo (rascunho "criar cliente"): a fonte da simulação passa a ter a mesma forma que o repositório grava
+  (CPF e telefones só dígitos, e-mail minúsculo, nome sem espaços nas pontas). Antes, a simulação usava os valores
+  formatados do PDF e a confirmação relia o cliente já criado, o hash do resumo divergia e a confirmação caía em
+  "dados mudaram" sem saída. Teste: `lib/contratos/integracao-importados/rascunho.test.ts`.
