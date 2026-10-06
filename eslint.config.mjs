@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Mods do Claude Code: rodam no engine do Claude, não no Next.
+    ".claude/**",
   ]),
 ]);
 
