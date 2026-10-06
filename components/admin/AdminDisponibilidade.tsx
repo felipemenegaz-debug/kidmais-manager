@@ -59,6 +59,8 @@ type AdminPayload = DisponibilidadeConfig & {
   dias?: DisponibilidadeDataPublica[] | null;
   agendaPorEscopo?: boolean;
   podeResolverLegado?: boolean;
+  /** E2: regras e descontos do arquivo da instalação só para a empresa dona da agenda pública. */
+  configuracaoComercial?: boolean;
   unidades?: Array<{ id: string; nome: string }>;
   unidadeId?: string | null;
 };
@@ -93,6 +95,7 @@ export default function AdminDisponibilidade() {
   const [unidades, setUnidades] = useState<Array<{ id: string; nome: string }>>([]);
   const [agendaPorEscopo, setAgendaPorEscopo] = useState(false);
   const [podeResolverLegado, setPodeResolverLegado] = useState(false);
+  const [configuracaoComercial, setConfiguracaoComercial] = useState(true);
   // D6 (opção A): unidades da empresa e a habilitação explícita para agenda (Representante autorizado, com motivo).
   const [gestaoUnidades, setGestaoUnidades] = useState<UnidadeAgendaGestao[]>([]);
   const [motivoUnidade, setMotivoUnidade] = useState("");
@@ -154,6 +157,7 @@ export default function AdminDisponibilidade() {
       unidades: admin.unidades ?? [],
       agendaPorEscopo: admin.agendaPorEscopo === true,
       podeResolverLegado: admin.podeResolverLegado === true,
+      configuracaoComercial: admin.configuracaoComercial !== false,
       config: {
         agenda: [],
         pacoteOverrides: admin.pacoteOverrides ?? [],
@@ -198,6 +202,7 @@ export default function AdminDisponibilidade() {
       setUnidades(dados.unidades);
       setAgendaPorEscopo(dados.agendaPorEscopo);
       setPodeResolverLegado(dados.podeResolverLegado);
+      setConfiguracaoComercial(dados.configuracaoComercial);
       sincronizarDescontoFormulario(
         dados.config,
         pacote,
@@ -227,6 +232,7 @@ export default function AdminDisponibilidade() {
         setUnidades(dados.unidades);
         setAgendaPorEscopo(dados.agendaPorEscopo);
         setPodeResolverLegado(dados.podeResolverLegado);
+        setConfiguracaoComercial(dados.configuracaoComercial);
         if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
       } catch {
         if (cancelado) return;
@@ -825,6 +831,7 @@ export default function AdminDisponibilidade() {
                   </small>
                 </div>
 
+                {configuracaoComercial ? (<>
                 <label className={styles.motivo}>
                   <span>Observação interna opcional</span>
                   <input
@@ -930,6 +937,12 @@ export default function AdminDisponibilidade() {
                   </p>
                 </div>
 
+                </>) : (
+                  <p className={styles.helpText}>
+                    Regras comerciais e descontos por data desta agenda valem para a agenda pública da instalação
+                    e não estão disponíveis para esta empresa. Os bloqueios físicos continuam funcionando.
+                  </p>
+                )}
                 {mensagem && <p className={styles.message}>{mensagem}</p>}
               </>
             )}
