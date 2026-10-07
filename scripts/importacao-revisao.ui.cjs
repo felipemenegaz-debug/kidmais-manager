@@ -10,6 +10,8 @@ const { spawn } = require('node:child_process');
 
 const PORTA_APP = 3043, PORTA_CDP = 9235, origin = `http://127.0.0.1:${PORTA_APP}`;
 const IMPORTACAO = '00000000-0000-4000-8000-0000000000a1', DOCUMENTO = '00000000-0000-4000-8000-0000000000d1';
+// Sessão sintética: muda a cada reautenticação, como a sessão real renovada.
+let sessaoSimulada = '00000000-0000-4000-8000-0000000000e9', renovacoesSimuladas = 0;
 
 function extracaoInicial() {
   return {
@@ -147,12 +149,18 @@ async function main() {
       const json = (status, corpo) => cliente.enviar('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: status, responseHeaders: [{ name: 'content-type', value: 'application/json' }], body: Buffer.from(JSON.stringify(corpo)).toString('base64') });
       const ok = (data) => json(200, { ok: true, data });
       try {
-        // Reautenticação (senha antes de confirmar): registrada sem a senha; a sessão sintética responde ok.
+        // Reautenticação (senha antes de confirmar): registrada sem a senha. Como a rota real, devolve a renovação da sessão
+        // (anterior → atual); a leitura seguinte da sessão já vê a sessão nova.
         if (url.pathname === '/api/admin/autenticacao' && p.request.method === 'POST') {
           const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo: { acao: corpo.acao, senhaInformada: typeof corpo.senha === 'string' && corpo.senha.length > 0 } });
-          return ok({ csrf: 'csrf-sintetico' });
+          if (corpo.acao !== 'reautenticar') return ok({ csrf: 'csrf-sintetico', renovacao: null });
+          const anterior = sessaoSimulada;
+          sessaoSimulada = `00000000-0000-4000-8000-0000000001${String(++renovacoesSimuladas).padStart(2, '0')}`;
+          return ok({ csrf: 'csrf-sintetico', renovacao: { anterior, atual: sessaoSimulada } });
         }
-        if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: '00000000-0000-4000-8000-000000000009', nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico' });
+        if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: '00000000-0000-4000-8000-000000000009', sessaoId: sessaoSimulada, nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico',
+          // Shell multiempresa (PR #95): a sessão simulada já tem a empresa ativa escolhida.
+          contexto: { empresas: [{ id: '00000000-0000-4000-8000-0000000000c1', nome: 'Empresa Sintética', papel: 'REPRESENTANTE_AUTORIZADO' }], empresaAtual: { id: '00000000-0000-4000-8000-0000000000c1', nome: 'Empresa Sintética' }, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false } });
         if (url.pathname === '/api/admin/festas' && p.request.method === 'GET') return ok(url.searchParams.has('importacaoId') ? { importada: festaImportada } : { festas: [], importadas: [festaImportada], elegiveis: [], capacidades: ['FESTA_CONSULTAR'], areas: [], usuarios: [] });
         if (url.pathname === '/api/admin/contratos/painel' && p.request.method === 'GET') {
           if (url.searchParams.has('importacaoId')) return ok(integrado ? { integrado: true, contratoId: CONTRATO } : contratoImportado);
