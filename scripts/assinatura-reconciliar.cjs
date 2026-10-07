@@ -52,6 +52,22 @@ function validarAlvo(env) {
     return { connectionString: bruto, database, host, port, local: hostLocal(host) };
 }
 
+/**
+ * Na SIMULAÇÃO o banco volta atrás (ROLLBACK), mas uma chamada ao provedor não volta: a remoção de duplicatas (compensação
+ * das pendências de contratação) é só contada, nunca executada. Leituras continuam reais para o relatório ser fiel.
+ */
+function provedorDaExecucao(provedor, aplicar, relatorio) {
+    if (aplicar)
+        return provedor;
+    return {
+        ...provedor,
+        removerAssinatura: async () => {
+            relatorio.removeriaNoProvedor = (relatorio.removeriaNoProvedor ?? 0) + 1;
+            return { removida: false };
+        },
+    };
+}
+
 function argumentos(argv) {
     const extras = argv.filter((a) => a !== '--aplicar');
     if (extras.length)
@@ -97,9 +113,10 @@ async function main() {
             }
         };
         const relatorio = { modo, banco: alvo.database, eventos: {}, empresas: {} };
+        const provedorUsado = provedorDaExecucao(provedor, aplicar, relatorio);
         const conta = (grupo, chave) => { grupo[chave] = (grupo[chave] ?? 0) + 1; };
         for (const eventoId of await sinc.eventosPendentes(client, 500)) {
-            const r = await item(() => sinc.processarEvento(client, eventoId, { provedor }));
+            const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado }));
             conta(relatorio.eventos, r.erro ? `ERRO_${r.erro}` : r.situacao);
         }
         for (const empresaId of await sinc.empresasComProvedor(client)) {
@@ -123,4 +140,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { validarAlvo, argumentos, BANCOS_PROIBIDOS };
+module.exports = { validarAlvo, argumentos, provedorDaExecucao, BANCOS_PROIBIDOS };
