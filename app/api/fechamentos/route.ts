@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const adicionais = traduzirAdicionais(dados.data.adicionaisSelecionados, dados.data.adicionaisQuantidades);
+  const adicionais = traduzirAdicionais(dados.data.adicionaisSelecionados, dados.data.adicionaisQuantidades, dados.data.adicionaisEscolhas);
   if (!adicionais.ok) {
     return NextResponse.json(
       { ok: false, erro: adicionais.erro, codigo: adicionais.codigo },

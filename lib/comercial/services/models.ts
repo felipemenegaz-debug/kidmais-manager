@@ -52,6 +52,8 @@ export type ResultadoPrecoPacote = {
 export type AdicionalSelecionadoInput = {
   codigo: string;
   quantidade?: number;
+  /** Itens do buffet escolhidos no adicional de categoria (070). */
+  escolhas?: string[];
 };
 
 export type PrecificarAdicionaisInput = {

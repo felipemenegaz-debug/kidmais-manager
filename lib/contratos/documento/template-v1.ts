@@ -32,11 +32,13 @@ function adicionais(snapshot: ContratoSnapshot) {
     return [linha("Nenhum adicional registrado nesta versão.")];
   }
 
-  return snapshot.contratacao.adicionais.map((item, index) =>
+  return snapshot.contratacao.adicionais.flatMap((item, index) => [
     linha(
       `${index + 1}. ${item.nome} - quantidade ${item.quantidade} - ${formatarMoeda(item.valorTotal)}`,
     ),
-  );
+    // Só as escolhas do adicional de categoria (070); outras observações internas não vão para o contrato.
+    ...(item.observacoes?.startsWith("Escolhas: ") ? [linha(`   ${item.observacoes}`)] : []),
+  ]);
 }
 
 /**

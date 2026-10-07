@@ -38,6 +38,8 @@ export type FechamentoForm = {
 
   adicionaisSelecionados: string[];
   adicionaisQuantidades: Record<string, number>;
+  /** Itens do buffet escolhidos em cada adicional de categoria (id do adicional → ids dos itens). */
+  adicionaisEscolhas: Record<string, string[]>;
   alteracoesPacote: string;
   observacoesCliente: string;
 

@@ -39,7 +39,7 @@ import {
   statusDataPacote,
 } from "@/lib/agenda/disponibilidade";
 import { calcularIdade, cpfValido } from "@/lib/clientes/utils";
-import { agruparPorCategoria, lerAdicionaisDisponiveis, type EstadoAdicionais } from "./adicionais-etapa";
+import { aceitaQuantidade, agruparPorCategoria, lerAdicionaisDisponiveis, mensagemFalhaAdicionais, pendenciaEscolhas, rotuloUnidade, totalDoAdicional, type AdicionalDaEtapa, type EstadoAdicionais } from "./adicionais-etapa";
 
 const ETAPAS = [
   "Pacote",
@@ -95,7 +95,7 @@ type ClienteContextoValidado = {
 };
 
 type CategoriaBuffet = { codigo:string; nome:string; max:number; itens:{id:string;nome:string}[] };
-type AdicionalDisponivel = { id:string;nome:string;categoria:string;preco:number;unidadeCobranca:string };
+type AdicionalDisponivel = AdicionalDaEtapa;
 const CODIGO_PACOTE:Record<string,string> = {pocket:'POCKET',mini:'MINI_FESTA',compacta:'COMPACTA',essencial:'ESSENCIAL',completa:'COMPLETA',premium:'PREMIUM',pizza_party_scienza:'PIZZA_PARTY'};
 const CAMPO_CATEGORIA:Record<string,'buffetSalgados'|'buffetDoces'|'buffetBolo'|'buffetLembrancinha'|'buffetEmpratado'|'buffetBombom'> = {
   SALGADOS:'buffetSalgados',DOCES:'buffetDoces',MASSA_BOLO:'buffetBolo',RECHEIO_BOLO:'buffetBolo',
@@ -123,6 +123,7 @@ const FORM_INICIAL: FechamentoForm = {
 
   adicionaisSelecionados: [],
   adicionaisQuantidades: {},
+  adicionaisEscolhas: {},
   alteracoesPacote: "",
   observacoesCliente: "",
 
@@ -223,7 +224,7 @@ export default function FechamentoWizard() {
   const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
   const [tentativaAdicionais,setTentativaAdicionais]=useState(0);
   // Resultado da última consulta, preso à chave (pacote, data, convidados, tentativa) que o gerou.
-  const [consultaAdicionais,setConsultaAdicionais]=useState<{chave:string;estado:'ok'|'erro'}|null>(null);
+  const [consultaAdicionais,setConsultaAdicionais]=useState<{chave:string;estado:'ok'|'erro';codigo?:string}|null>(null);
   const [configDisponibilidade, setConfigDisponibilidade] =
     useState<DisponibilidadeConfig>(CONFIG_VAZIA);
   const [ajustesDisponiveis, setAjustesDisponiveis] =
@@ -298,14 +299,14 @@ export default function FechamentoWizard() {
     const controller=new AbortController();
     const url=`/api/fechamentos/adicionais?pacote=${encodeURIComponent(form.pacote)}&data=${encodeURIComponent(form.dataFesta)}&convidados=${encodeURIComponent(form.convidadosPagantes)}`;
     void fetch(url,{signal:controller.signal,cache:'no-store'})
-      .then(async r=>{if(!r.ok)throw Error('Não foi possível consultar adicionais.');return r.json();})
+      .then(async r=>{if(!r.ok){const corpo=await r.json().catch(()=>null) as {codigo?:string}|null;throw Object.assign(Error('Não foi possível consultar adicionais.'),{codigo:corpo?.codigo});}return r.json();})
       .then(body=>{
         const disponiveis=lerAdicionaisDisponiveis(body);
         if(!disponiveis)throw Error('Resposta de adicionais inválida.');
         setAdicionaisDisponiveis(disponiveis);
         setConsultaAdicionais({chave:chaveAdicionais,estado:'ok'});
         setForm(atual=>({...atual,adicionaisSelecionados:atual.adicionaisSelecionados.filter(id=>disponiveis.some(item=>item.id===id))}));
-      }).catch(()=>{ if(controller.signal.aborted)return; setAdicionaisDisponiveis(null); setConsultaAdicionais({chave:chaveAdicionais,estado:'erro'}); });
+      }).catch((falha:{codigo?:string})=>{ if(controller.signal.aborted)return; setAdicionaisDisponiveis(null); setConsultaAdicionais({chave:chaveAdicionais,estado:'erro',codigo:falha?.codigo}); });
     return ()=>controller.abort();
   },[chaveAdicionais,form.pacote,form.dataFesta,form.convidadosPagantes]);
   const convidados = Number(form.convidadosPagantes || 0);
@@ -495,9 +496,9 @@ export default function FechamentoWizard() {
     () =>
       form.adicionaisSelecionados.reduce((total, id) => {
         const adicional = adicionaisDisponiveis?.find((item) => item.id === id);
-        return total + (adicional?.preco ?? 0) * (form.adicionaisQuantidades[id] ?? 1);
+        return total + (adicional ? totalDoAdicional(adicional, form.adicionaisQuantidades[id] ?? 1, convidados) : 0);
       }, 0),
-    [form.adicionaisSelecionados, form.adicionaisQuantidades, adicionaisDisponiveis]
+    [form.adicionaisSelecionados, form.adicionaisQuantidades, adicionaisDisponiveis, convidados]
   );
 
   const descontoAtual = descontoEfetivo(
@@ -849,7 +850,18 @@ export default function FechamentoWizard() {
       adicionaisSelecionados: anterior.adicionaisSelecionados.includes(id)
         ? anterior.adicionaisSelecionados.filter((item) => item !== id)
         : [...anterior.adicionaisSelecionados, id],
+      adicionaisEscolhas: anterior.adicionaisSelecionados.includes(id)
+        ? Object.fromEntries(Object.entries(anterior.adicionaisEscolhas ?? {}).filter(([chave]) => chave !== id))
+        : anterior.adicionaisEscolhas ?? {},
     }));
+  }
+
+  function alternarEscolha(adicionalId: string, itemId: string) {
+    setForm((anterior) => {
+      const atuais = anterior.adicionaisEscolhas?.[adicionalId] ?? [];
+      const proximos = atuais.includes(itemId) ? atuais.filter((x) => x !== itemId) : [...atuais, itemId];
+      return { ...anterior, adicionaisEscolhas: { ...(anterior.adicionaisEscolhas ?? {}), [adicionalId]: proximos } };
+    });
   }
 
   async function revalidarHorarioAtual() {
@@ -962,6 +974,13 @@ export default function FechamentoWizard() {
     if (etapa === 4 && form.adicionaisSelecionados.some(id => !Number.isSafeInteger(form.adicionaisQuantidades[id] ?? 1) || (form.adicionaisQuantidades[id] ?? 1) < 1)) {
       setErro('Informe quantidades inteiras maiores que zero para os extras selecionados.');
       return false;
+    }
+
+    if (etapa === 4) {
+      const pendencia = form.adicionaisSelecionados
+        .map((id) => { const item = adicionaisDisponiveis?.find((a) => a.id === id); return item ? pendenciaEscolhas(item, form.adicionaisEscolhas?.[id] ?? []) : null; })
+        .find(Boolean);
+      if (pendencia) { setErro(pendencia); return false; }
     }
 
     if (etapa === 5) {
@@ -1856,7 +1875,7 @@ export default function FechamentoWizard() {
               {adicionaisEstado === "carregando" && <p role="status">Consultando os adicionais deste pacote…</p>}
               {adicionaisEstado === "erro" && (
                 <div className={styles.infoBox} role="alert">
-                  <strong>Não foi possível consultar os adicionais deste pacote.</strong>
+                  <strong>{mensagemFalhaAdicionais(consultaAdicionais?.codigo)}</strong>
                   <p>Nenhum adicional foi selecionado. Tente novamente para continuar.</p>
                   <button type="button" onClick={() => setTentativaAdicionais((n) => n + 1)}>Tentar novamente</button>
                 </div>
@@ -1882,12 +1901,27 @@ export default function FechamentoWizard() {
                               >
                                 <span className={styles.checkBox}>{selected ? "✓" : ""}</span>
                                 <strong>{item.nome}</strong>
-                                <b>{numeroParaMoeda(preco)}{item.unidadeCobranca === "UNIDADE" ? " / unidade extra" : ""}</b>
+                                <b>{numeroParaMoeda(preco)}{rotuloUnidade(item.unidadeCobranca)}</b>
                               </button>
-                              {selected && item.unidadeCobranca === "UNIDADE" && <label className={styles.field}>Quantidade extra de {item.nome}
+                              {selected && aceitaQuantidade(item.unidadeCobranca) && <label className={styles.field}>{item.unidadeCobranca === "CENTO" ? `Quantos centos de ${item.nome}` : `Quantidade extra de ${item.nome}`}
                                 <input type="number" min={1} step={1} value={form.adicionaisQuantidades[item.id] ?? 1} onChange={e => atualizar("adicionaisQuantidades", { ...form.adicionaisQuantidades, [item.id]: Number(e.target.value) })} />
-                                <span>Total: {numeroParaMoeda(preco * (form.adicionaisQuantidades[item.id] ?? 1))}</span>
+                                <span>Total: {numeroParaMoeda(totalDoAdicional(item, form.adicionaisQuantidades[item.id] ?? 1, convidados))}</span>
                               </label>}
+                              {selected && item.escolhas && (
+                                <fieldset className={styles.field}>
+                                  <legend>{item.escolhas.max ? `Escolha até ${item.escolhas.max} opções` : "Escolha as opções"}</legend>
+                                  {item.escolhas.itens.map((opcao) => {
+                                    const marcada = (form.adicionaisEscolhas?.[item.id] ?? []).includes(opcao.id);
+                                    const cheio = !marcada && item.escolhas!.max !== null && (form.adicionaisEscolhas?.[item.id] ?? []).length >= item.escolhas!.max;
+                                    return (
+                                      <label key={opcao.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                        <input type="checkbox" checked={marcada} disabled={cheio} onChange={() => alternarEscolha(item.id, opcao.id)} />
+                                        {opcao.nome}
+                                      </label>
+                                    );
+                                  })}
+                                </fieldset>
+                              )}
                             </div>
                           );
                         })}

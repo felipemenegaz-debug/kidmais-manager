@@ -427,3 +427,13 @@ test('busca de pacote pela empresa comprovada: vigente, ativo, não arquivado e 
     await assert.rejects(repositorio.buscarPacoteAtivoPorCodigo('POCKET'), (e: any) => e.code === 'CATALOGO_PUBLICO_INDETERMINADO');
     await assert.rejects(repositorio.buscarPacoteVigenteDaEmpresaPorCodigo('', 'POCKET', { query: async () => { throw Error('não deveria consultar'); } }), (e: any) => e.code === 'CATALOGO_PUBLICO_INDETERMINADO');
 });
+test('adicional novo do banco usa o próprio código; id antigo segue mapeado; escolhas acompanham o item', () => {
+    const traduzir = ambiente().load('lib/fechamentos/comercial-input').traduzirAdicionais;
+    assert.deepEqual(traduzir(['CATEGORIA_SALGADOS'], { CATEGORIA_SALGADOS: 2 }, { CATEGORIA_SALGADOS: ['i1', 'i2', 'i1'] }).itens,
+        [{ codigo: 'CATEGORIA_SALGADOS', quantidade: 2, escolhas: ['i1', 'i2'] }]);
+    assert.deepEqual(traduzir(['mesa-cafe-p']).itens, [{ codigo: 'MESA_CAFE', quantidade: 1 }]);
+    assert.equal(traduzir(['codigo minúsculo; drop']).ok, false);
+    const id = ambiente().load('lib/fechamentos/comercial-input').idDoAdicionalNaTela;
+    assert.equal(id('MESA_CAFE'), 'mesa-cafe-p');
+    assert.equal(id('COXINHA_AB12CD34'), 'COXINHA_AB12CD34');
+});
