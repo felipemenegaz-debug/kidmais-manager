@@ -68,6 +68,12 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
 
 /** Composition roots: além da IA, ligam guard, tenant, pool e os serviços de domínio reais às portas. */
 const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
+  // Composition root do WhatsApp: domínio independente recebe classificação e transporte como portas.
+  "lib/whatsapp/atendimento/core": ["interpretacaoSchema", "ESQUEMA_INTERPRETACAO", "ConfiguracaoAtendimento", "ocultarDadosPessoais"],
+  "lib/whatsapp/atendimento/worker": ["processarLote"],
+  "lib/whatsapp/atendimento/transporte": ["enviarMensagem"],
+  // Wall-e (075): a porta é montada no domínio; a rota só entrega o entendimento pelo roteador (ou null = regras).
+  "lib/whatsapp/atendimento/walle/porta": ["criarPortaWallE", "modoEntendimentoWallE", "pedidoEntendimentoWallE"],
   "lib/financeiro/servico": ["criarContaPagar", "listarCategoriasDespesa"],
   "next/server": ["NextRequest"],
   "node:crypto": ["randomUUID"],

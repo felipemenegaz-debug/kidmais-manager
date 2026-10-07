@@ -38,3 +38,6 @@ tsconfig.tsbuildinfo
 Thumbs.db
 .vscode/
 .idea/
+
+# Resultados das avaliações do Wall-e: volumosos; ficam na branch de evidências (whatsapp/walle-evidencias-20261007).
+scripts/walle-avaliacao/resultados/

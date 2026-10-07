@@ -1,0 +1,417 @@
+{
+  "criadoEm": "2026-10-05",
+  "autor": "escritor independente de estresse",
+  "categoria": "parar",
+  "itens": [
+    {
+      "id": "pa01",
+      "texto": "Solicito a exclusão do meu número da lista de transmissão de vocês.",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Formal por substantivo (exclusão do número da lista); pedido inequívoco de parar, sem outro pedido."
+    },
+    {
+      "id": "pa02",
+      "texto": "Para de encher meu zap, pelo amor de Deus, todo santo dia a mesma coisa",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Gíria com irritação; a irritação é sobre as próprias mensagens, não há reclamação separada nem outro pedido."
+    },
+    {
+      "id": "pa03",
+      "texto": "Quero cancelar a festa do meu filho marcada pro dia 14 de novembro, como eu faço?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATO_PROPRIO"],
+      "entidades": { "data": "2026-11-14", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido, não é PARAR: cancelar festa já contratada é CONTRATO_PROPRIO (regra EQUIPE); o cliente não pede para deixar de receber mensagens."
+    },
+    {
+      "id": "pa04",
+      "texto": "STOP",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Palavra-chave de opt-out em inglês, sozinha; leitura mais provável no WhatsApp é deixar de receber mensagens."
+    },
+    {
+      "id": "pa05",
+      "texto": "me tira da lista de transmissão, mas antes me passa o endereço da unidade da Asa Sul",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": "ASA_SUL", "tema": null },
+      "nota": "Pedido de remoção da lista junto com pergunta de endereço (respondível: link de mapa da Asa Sul)."
+    },
+    {
+      "id": "pa06",
+      "texto": "oi tudo bem então eu queria pedir pra vocês não mandarem mais mensagem pra esse número tá porque eu não tenho interesse não tá bom obrigada",
+      "decisao": "PARAR",
+      "intencoes": ["SAUDACAO", "PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Áudio transcrito sem pontuação; saudação e agradecimento não são outro pedido, então segue PARAR."
+    },
+    {
+      "id": "pa07",
+      "texto": "Tem lugar pra parar o carro aí na unidade de Águas Claras?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": "AGUAS_CLARAS", "tema": null },
+      "nota": "Parecido, não é PARAR: 'parar o carro' é pergunta de estacionamento, respondida pela FAQ publicada (estacionamento no local)."
+    },
+    {
+      "id": "pa08",
+      "texto": "Gostaria de cancelar minha inscrição nas mensagens de vocês.",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Cancelamento da inscrição nas mensagens: o verbo cancelar aqui se refere às mensagens, não a uma festa."
+    },
+    {
+      "id": "pa09",
+      "texto": "nossa, que delícia receber promoção de festa infantil toda semana sendo que nem filho eu tenho 🙃 me tira dessa lista aí",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Ironia seguida de pedido explícito de remoção; o comentário sobre não ter filho é só justificativa."
+    },
+    {
+      "id": "pa10",
+      "texto": "Não quero mais receber propaganda. Só me confirma uma coisa: vocês atendem até que horas?",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parar junto com pergunta respondível pela FAQ (horário de atendimento: terça a domingo, 9h às 18h)."
+    },
+    {
+      "id": "pa11",
+      "texto": "Pare de me cobrar!!! Já paguei a parcela de setembro e mandei o comprovante semana passada.",
+      "decisao": "EQUIPE",
+      "intencoes": ["PAGAMENTO", "RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido, não é PARAR: contesta cobrança já paga (PAGAMENTO, comprovante) com tom de reclamação; regra EQUIPE."
+    },
+    {
+      "id": "pa12",
+      "texto": "para d manda mensagen pra mim pf",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Erros de digitação; leitura inequívoca: parar de mandar mensagem."
+    },
+    {
+      "id": "pa13",
+      "texto": "Peço, por gentileza, a remoção do meu contato da base de envios do buffet.",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Formal por substantivo (remoção do contato), exemplo direto da regra de PARAR."
+    },
+    {
+      "id": "pa14",
+      "texto": "ô sô, para de mandar esses trem pra mim não, uai",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Regional mineiro; 'esses trem' são as mensagens enviadas."
+    },
+    {
+      "id": "pa15",
+      "texto": "chega de enrolação, qual o preço?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido, não é PARAR: 'chega' expressa impaciência, a intenção real é preço; pedido genérico de valores é RESPONDER com a tabela publicada."
+    },
+    {
+      "id": "pa16",
+      "texto": "Parem de me mandar mensagem. E eu quero falar com um responsável, isso já passou do limite.",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "HUMANO", "RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parar junto com pedido de falar com um responsável (HUMANO) e reclamação; há outro pedido além de parar."
+    },
+    {
+      "id": "pa17",
+      "texto": "please stop texting me, já falei que não tenho interesse",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Inglês misturado com português; pedido inequívoco de parar."
+    },
+    {
+      "id": "pa18",
+      "texto": "Não me mande mais nada: nem áudio, nem foto, nem PDF, nem promoção. Nada.",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Negação total; diferente de 'não mande o PDF de novo', aqui o cliente recusa qualquer envio."
+    },
+    {
+      "id": "pa19",
+      "texto": "pode parar de mandar áudio? to no serviço e não consigo ouvir, prefiro tudo escrito",
+      "decisao": "EQUIPE",
+      "intencoes": ["INSTRUCAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido, não é PARAR: quer continuar o contato, só por texto. É instrução sobre a forma de responder ('a partir de agora só escrito'), que a regra manda para a EQUIPE."
+    },
+    {
+      "id": "pa20",
+      "texto": "é que assim esse número aqui não é mais da Patrícia viu eu peguei esse chip faz pouco tempo e fica chegando mensagem de festa de vocês pode tirar esse número daí por favor",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Áudio transcrito: número reciclado pedindo para ser retirado; único pedido é parar."
+    },
+    {
+      "id": "pa21",
+      "texto": "quero cancelar a festa do dia 28/11 e depois disso não quero receber mais nada de vocês",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "CONTRATO_PROPRIO"],
+      "entidades": { "data": "2026-11-28", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parar junto com cancelamento de festa contratada (CONTRATO_PROPRIO); outro pedido junto, logo PARAR_MISTO."
+    },
+    {
+      "id": "pa22",
+      "texto": "Venho por meio desta solicitar o descadastramento do meu telefone de todas as comunicações de marketing.",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Formal por substantivo (descadastramento)."
+    },
+    {
+      "id": "pa23",
+      "texto": "adoro ser acordada às 7h da manhã com propaganda de buffet, sério, amo demais... SQN. me remove daí",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Ironia (SQN = só que não) seguida de pedido de remoção; '7h' não é período de festa."
+    },
+    {
+      "id": "pa24",
+      "texto": "Cancela aquele orçamento que eu pedi. Faz outro: Completa, 70 convidados, 21/11, das 17h às 21h.",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-11-21", "convidados": 70, "turno": "NOITE", "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Parecido, não é PARAR: 'cancela' descarta um orçamento antigo; o novo traz pacote, data, período e convidados, então o valor exato é calculável."
+    },
+    {
+      "id": "pa25",
+      "texto": "Oxe, deixe de mandar mensagem pra mim, visse? Num quero mais não.",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Regional nordestino; pedido inequívoco de parar."
+    },
+    {
+      "id": "pa26",
+      "texto": "quero fazer opt-out, não quero mais receber esses disparos",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Opt-out explícito."
+    },
+    {
+      "id": "pa27",
+      "texto": "stop the messages please. mas antes: quanto fica o Essencial pra 40 pessoas?",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "PRECOS"],
+      "entidades": { "data": null, "convidados": 40, "turno": null, "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "Parar em inglês junto com pergunta de preço (pacote para N pessoas sem data seria tabela); outro pedido junto, logo PARAR_MISTO."
+    },
+    {
+      "id": "pa28",
+      "texto": "🚫📲 chega de mensagem pfvr 🙏🙏",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Com emojis; 'chega de mensagem' é pedido de parar."
+    },
+    {
+      "id": "pa29",
+      "texto": "PARA TUDO! O horário que saiu no contrato da festa da Manu tá errado, a gente fechou o segundo horário.",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATO_PROPRIO"],
+      "entidades": { "data": null, "convidados": null, "turno": "NOITE", "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido, não é PARAR: 'para tudo' é expressão de alerta; trata de correção de festa já contratada (CONTRATO_PROPRIO). Turno citado é o segundo horário (NOITE)."
+    },
+    {
+      "id": "pa30",
+      "texto": "nunca mais me escreve, entendeu? NUNCA MAIS",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Negação com irritação; pedido inequívoco de parar."
+    },
+    {
+      "id": "pa31",
+      "texto": "Requeiro a retirada deste número de qualquer cadastro de divulgação. Grato.",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Formal por substantivo (retirada do número)."
+    },
+    {
+      "id": "pa32",
+      "texto": "Me descadastra das promoções, mas continua me mandando os lembretes das parcelas da festa do Bento",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "PAGAMENTO", "CONTRATO_PROPRIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parar as promoções junto com pedido sobre cobrança de festa já contratada (parcelas); há outro pedido além de parar."
+    },
+    {
+      "id": "pa33",
+      "texto": "me tira dessa lsita d trasmisao pfv",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Erros de digitação (lista de transmissão); pedido de remoção."
+    },
+    {
+      "id": "pa34",
+      "texto": "me tira uma dúvida, qual o endereço de vocês?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido, não é PARAR: 'me tira uma dúvida' é pedido de informação; endereço sem unidade e há duas unidades, então PERGUNTAR."
+    },
+    {
+      "id": "pa35",
+      "texto": "bah tchê, para de me mandar essas propaganda, não quero mais saber",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Regional gaúcho; pedido inequívoco de parar."
+    },
+    {
+      "id": "pa36",
+      "texto": "unsubscribe pfv 🙏",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Inglês misturado com abreviação; descadastro."
+    },
+    {
+      "id": "pa37",
+      "texto": "meu filho cresceu, não quero mais receber mensagem de festa infantil. aliás, vocês fazem festa de 15 anos?",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parar junto com pergunta sobre outro tipo de evento (sem fonte publicada); outro pedido junto, logo PARAR_MISTO."
+    },
+    {
+      "id": "pa38",
+      "texto": "Essas mensagens insistentes, repetitivas e completamente inconvenientes precisam parar imediatamente.",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Com adjetivos; os adjetivos qualificam as mensagens, o único pedido é que parem."
+    },
+    {
+      "id": "pa39",
+      "texto": "Com base na LGPD, não autorizo mais o uso do meu número para envio de mensagens. Removam meu contato.",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Formal citando LGPD; retira a autorização de envio e pede remoção do contato. Citar a lei não acrescenta outro pedido."
+    },
+    {
+      "id": "pa40",
+      "texto": "Remove o kibe e coloca brigadeiro no lugar, dá?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido, não é PARAR: 'remove' se refere a item do buffet; brigadeiro não está cadastrado no buffet (FORA_DO_ESCOPO), regra EQUIPE."
+    },
+    {
+      "id": "pa41",
+      "texto": "Obrigada pelo atendimento, mas não tenho mais interesse. Por gentileza, não me enviem mais mensagens.",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Educado; agradecimento não é outro pedido."
+    },
+    {
+      "id": "pa42",
+      "texto": "tira meu número dessa lista. só queria saber se o sábado 7 de novembro à noite tá livre",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "DISPONIBILIDADE"],
+      "entidades": { "data": "2026-11-07", "convidados": null, "turno": "NOITE", "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parar junto com pergunta de disponibilidade com data e período (respondível); outro pedido junto, logo PARAR_MISTO."
+    },
+    {
+      "id": "pa43",
+      "texto": "mano, para de mandar essas parada aí, tô de boa, valeu",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Gíria paulista; 'tô de boa' = não tenho interesse. Pedido de parar."
+    },
+    {
+      "id": "pa44",
+      "texto": "pode parar com as mensagens, já fiz a festa da minha filha em outro lugar",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido de parar com justificativa; a festa em outro lugar não é festa contratada aqui nem outro pedido."
+    },
+    {
+      "id": "pa45",
+      "texto": "SAIR",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Palavra-chave usual de descadastro em listas de WhatsApp, sozinha; leitura mais provável é sair da lista."
+    },
+    {
+      "id": "pa46",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "Boa noite. Por favor, retirem meu número da lista de vocês, não quero mais receber mensagens.",
+      "decisao": "PARAR",
+      "intencoes": ["SAUDACAO", "PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Saudação mais pedido de retirada do número; saudação não é outro pedido."
+    },
+    {
+      "id": "pa47",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "ah, pensando bem, só me fala quanto fica o Completa pra 80 pessoas",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 80, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Mensagem da mesma conversa depois de PARAR: SEM_RESPOSTA, mesmo sendo pergunta de preço respondível."
+    },
+    {
+      "id": "pa48",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "não precisa mandar o PDF de novo não, já salvei aqui. só me diz quantas horas dura o Completa",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Parecido, não é PARAR: dispensa só o reenvio do PDF; a pergunta (Completa = 4 horas) é respondível."
+    },
+    {
+      "id": "pa49",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "na verdade deixa pra lá, não quero receber mais nada de vocês, pode me remover",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido inequívoco de parar e de remoção, sem outro pedido."
+    },
+    {
+      "id": "pa50",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "tiraram mesmo? não quero mais nada",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Mensagem da mesma conversa depois de PARAR: SEM_RESPOSTA."
+    }
+  ]
+}

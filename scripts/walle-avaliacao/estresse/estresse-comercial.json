@@ -1,0 +1,447 @@
+{
+  "criadoEm": "2026-10-05",
+  "autor": "escritor independente de estresse",
+  "categoria": "comercial",
+  "itens": [
+    {
+      "id": "cm01",
+      "texto": "Bom dia! Tudo bem?",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Saudação pura; responder cumprimentando e oferecendo ajuda."
+    },
+    {
+      "id": "cm02",
+      "texto": "oi boa tarde queria saber os valores de vcs",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO", "PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido genérico de valores, sem pedir orçamento ou valor exato: RESPONDER com a tabela de preços publicada (PDF)."
+    },
+    {
+      "id": "cm03",
+      "texto": "Acho que vou cancelar a festa que ia fazer no salão do prédio, tá dando muito trabalho. Vocês me passam a tabela de preços pra eu comparar?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Cancelar' se refere a um plano do cliente fora do buffet, não a festa contratada aqui (não é CONTRATO_PROPRIO nem PARAR). Pedido de tabela: RESPONDER com o PDF."
+    },
+    {
+      "id": "cm04",
+      "texto": "Minha filha faz 6 anos no dia 14/11. Vocês têm esse dia livre?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": "2026-11-14", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Minha filha' é só contexto, sem alergia nem festa contratada. Data informada; todas as datas futuras estão livres nos dois períodos."
+    },
+    {
+      "id": "cm05",
+      "texto": "Ainda dá pra reservar o dia 28 de novembro ou já tá tomado?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": "2026-11-28", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Leitura mais provável: pergunta se a data está livre ('ou já tá tomado?'), não pede para reservar. Responde disponibilidade (livre nos dois períodos) sem reservar nem confirmar data."
+    },
+    {
+      "id": "cm06",
+      "texto": "Tem onde parar o carro aí no buffet? E vocês atendem em quais dias?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Parar o carro' = estacionar (não é PARAR). Duas FAQs publicadas com outras palavras: estacionamento no local; atendimento de terça a domingo, 9h às 18h."
+    },
+    {
+      "id": "cm07",
+      "texto": "até quantas pessoas chega o pacote completa?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "'Chega' = capacidade máxima, não pedido de parar. Completa: 50 a 100 convidados."
+    },
+    {
+      "id": "cm08",
+      "texto": "Quais horários ainda estão disponíveis no sábado, 7/11?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": "2026-11-07", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Data informada (07/11/2026 é sábado). Os dois períodos estão livres: 11h às 15h e 17h às 21h."
+    },
+    {
+      "id": "cm09",
+      "texto": "Vou pagar quanto numa Premium pra 120 pessoas no dia 19/12 à noite?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-12-19", "convidados": 120, "turno": "NOITE", "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "'Pagar quanto' é pergunta de preço antes de contratar, não pagamento de festa. Tem pacote, data, período e convidados (120 cabe no Premium, 80 a 150): o sistema calcula o valor exato."
+    },
+    {
+      "id": "cm10",
+      "texto": "Sou dona de casa e confesso que não entendo nada de festa. Pode me explicar a diferença entre os pacotes?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Dona' é só contexto pessoal. Explicar os pacotes: Essencial 30 a 60 e 4h, Completa 50 a 100 e 4h, Premium 80 a 150 e 5h."
+    },
+    {
+      "id": "cm11",
+      "texto": "O sistema de vocês já calcula o valor certinho? Se sim: Essencial, 40 convidados, 24/10, das 11h às 15h.",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-10-24", "convidados": 40, "turno": "ALMOCO", "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "'Sistema' aqui é curiosidade do cliente, não instrução nem teste. Os quatro dados estão presentes (11h às 15h = primeiro horário): valor exato calculado."
+    },
+    {
+      "id": "cm12",
+      "texto": "Antes de fechar qualquer coisa quero entender as regras: se eu tiver que cancelar, tem multa? E se for vocês que não puderem fazer a festa, devolvem o dinheiro?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pergunta hipotética sobre as condições gerais ('antes de fechar'), sem festa contratada. Citável: desistência sem aviso de 60 dias tem multa de 20%; devolução se o buffet não puder realizar."
+    },
+    {
+      "id": "cm13",
+      "texto": "Oxe, somos uma família enorme, devem vir uns 170 convidados. Algum pacote de vocês comporta?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": 170, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pergunta de capacidade, sem pedir exceção. Resposta pela fonte: nenhum pacote comporta mais de 150 (Premium vai até 150)."
+    },
+    {
+      "id": "cm14",
+      "texto": "Me faz um orçamento fechado da Completa pra 80?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 80, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Pede orçamento ou valor fechado: faltam a data e o período para o cálculo exato."
+    },
+    {
+      "id": "cm15",
+      "texto": "Quanto custa o Premium pra 100 pessoas?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 100, "turno": null, "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "Valor de um pacote para N pessoas sem data e sem pedir orçamento: pela regra, RESPONDER com a tabela publicada."
+    },
+    {
+      "id": "cm16",
+      "texto": "Posso levar cerveja pros adultos? E chuva de prata na hora do parabéns, vocês deixam?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parece 'trazer de fora', mas as duas coisas estão nas condições gerais: bebida alcoólica não inclusa, com taxa de R$ 180 se o cliente trouxer; confete ou chuva de prata com taxa de R$ 150."
+    },
+    {
+      "id": "cm17",
+      "texto": "Ô meu rei, duas dúvidas: se a festa passar do horário, quanto é a hora a mais? E se alguma criança quebrar alguma coisa, quem paga?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Quem paga' não é pagamento de festa; é cláusula geral. Prorrogação R$ 700/h (permanência R$ 175 a cada 15 min); danos por conta do contratante."
+    },
+    {
+      "id": "cm18",
+      "texto": "Criança pequena paga? Minha filha tem 3 anos e os priminhos têm 4, eles entram na conta dos convidados?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Paga' é pergunta sobre contagem de convidados, não pagamento. Condição geral: crianças de 0 a 5 anos e 11 meses não contam, até 1/3 dos pagantes."
+    },
+    {
+      "id": "cm19",
+      "texto": "Qual o endereço?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Há duas unidades (Asa Sul e Águas Claras); falta saber qual."
+    },
+    {
+      "id": "cm20",
+      "texto": "me manda a localização da unidade da asa sul pfv",
+      "decisao": "RESPONDER",
+      "intencoes": ["LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": "ASA_SUL", "tema": null },
+      "nota": "Unidade informada: enviar o link de mapa da Asa Sul."
+    },
+    {
+      "id": "cm21",
+      "texto": "O dono da festa é o Davi, vai fazer 4 aninhos e é apaixonado por dinossauro. Vocês fazem decoração de dinossauro?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DECORACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": "dinossauro" },
+      "nota": "'Dono da festa' = aniversariante, não o dono do buffet nem pedido de humano. Texto publicado: 'fazemos qualquer decoração'."
+    },
+    {
+      "id": "cm22",
+      "texto": "Manda o cardápio",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "O cardápio em PDF é publicado por pacote; falta o pacote."
+    },
+    {
+      "id": "cm23",
+      "texto": "Quais salgados vêm no pacote Essencial?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "Buffet cadastrado: salgados, escolha até 4, entre Coxinha e Kibe; pode acompanhar o PDF do Essencial."
+    },
+    {
+      "id": "cm24",
+      "texto": "uai, vou parar de pesquisar outros buffets se vcs tiverem o dia 5/12 livre. tem?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": "2026-12-05", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Parar' se refere à pesquisa do cliente, não a deixar de receber mensagens. Data informada: livre nos dois períodos. Não pede reserva."
+    },
+    {
+      "id": "cm25",
+      "texto": "Não precisa mandar o PDF de novo, já salvei. Só confirma: o Premium dura 5 horas mesmo?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "'Não mande o PDF de novo' não é PARAR (regra explícita). Premium: 5 horas."
+    },
+    {
+      "id": "cm26",
+      "texto": "Se depois de contratar eu quiser trocar a data ou o horário, como funciona?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Hipótese futura ('depois de contratar'), sem festa contratada: é condição geral, não remarcação. Taxa de R$ 600 e conforme agenda."
+    },
+    {
+      "id": "cm27",
+      "texto": "Até quando dá pra aumentar o número de convidados? E se chegar mais gente no dia, como fica?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Condições gerais: aumento até 8 dias antes; excedente no dia R$ 130 por pessoa."
+    },
+    {
+      "id": "cm28",
+      "texto": "Quantos balões vêm na mesa temática? E quantas atrações vocês têm? Minha filha é doida por balão kkk",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO", "DECORACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Condições gerais: até 350 balões comuns na mesa temática (mais balões R$ 180/metro) e 20 atrações. DECORACAO porque a pergunta é sobre a mesa temática."
+    },
+    {
+      "id": "cm29",
+      "texto": "Se eu mudar pra 50 convidados fica mais barato?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 50, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Comparar preço com outro número de convidados é pergunta de PREÇO, não negociação. Mensagem avulsa sem pacote, data e período de referência: perguntar os dados para o sistema calcular."
+    },
+    {
+      "id": "cm30",
+      "texto": "Obrigada pela atenção! Por enquanto é só, vou conversar com meu marido e depois eu volto a falar com vocês.",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Agradecimento e despedida; 'por enquanto é só' não pede para parar o contato (ela diz que volta). Não é PARAR."
+    },
+    {
+      "id": "cm31",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "Boa noite! Quanto fica a Completa pra 70 convidados no sábado 21/11, no primeiro horário?",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO", "PRECOS"],
+      "entidades": { "data": "2026-11-21", "convidados": 70, "turno": "ALMOCO", "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Pacote, data, período e convidados completos (70 cabe na Completa): valor exato calculado."
+    },
+    {
+      "id": "cm32",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "e no outro horário?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Continuação: há só dois períodos, então 'o outro' é o segundo horário (17h às 21h). Recalcula com os demais dados da conversa. Turno não citado literalmente na mensagem: entidade nula."
+    },
+    {
+      "id": "cm33",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "e pra 90?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 90, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Continuação: Completa, 21/11, segundo horário, agora 90 convidados (cabe na Completa, 50 a 100). Mudar o número é pergunta de preço; o sistema recalcula."
+    },
+    {
+      "id": "cm34",
+      "conversa": "c1",
+      "ordem": 4,
+      "texto": "e o premium?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "Continuação: mesmo cálculo trocando para Premium (90 cabe no Premium, 80 a 150)."
+    },
+    {
+      "id": "cm35",
+      "conversa": "c1",
+      "ordem": 5,
+      "texto": "e num domingo?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Compara o preço com outra data sem dizer qual domingo; o assistente não sabe se domingo é mais barato sem calcular uma data. Perguntar a data."
+    },
+    {
+      "id": "cm36",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "Oi! Vocês têm data livre pro dia 12 de dezembro?",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO", "DISPONIBILIDADE"],
+      "entidades": { "data": "2026-12-12", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Data informada: livre nos dois períodos (agenda única)."
+    },
+    {
+      "id": "cm37",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "minha filha quer à noite, o segundo horário também tá livre?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": null, "convidados": null, "turno": "NOITE", "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Minha filha' é só contexto. Continuação de 12/12: o segundo horário (17h às 21h) está livre."
+    },
+    {
+      "id": "cm38",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "e se fosse num domingo?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Domingo sem data definida: a disponibilidade precisa de uma data, então perguntar qual domingo."
+    },
+    {
+      "id": "cm39",
+      "conversa": "c2",
+      "ordem": 4,
+      "texto": "domingo 13/12 então",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": "2026-12-13", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Data completa (13/12/2026 é domingo): livre nos dois períodos. Não pede reserva."
+    },
+    {
+      "id": "cm40",
+      "conversa": "c2",
+      "ordem": 5,
+      "texto": "Show, obrigada! E qual o endereço da unidade de Águas Claras?",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO", "LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": "AGUAS_CLARAS", "tema": null },
+      "nota": "Agradecimento e endereço com unidade informada: link de mapa de Águas Claras."
+    },
+    {
+      "id": "cm41",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "Quais pacotes vocês têm e pra quantas pessoas cada um?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Essencial 30 a 60, Completa 50 a 100, Premium 80 a 150."
+    },
+    {
+      "id": "cm42",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "e o premium dura quanto tempo?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "Premium: 5 horas."
+    },
+    {
+      "id": "cm43",
+      "conversa": "c3",
+      "ordem": 3,
+      "texto": "me manda o cardápio dele",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Dele' = Premium, pela mensagem anterior; o pacote vem do contexto, então manda o PDF do Premium. Pacote não citado literalmente: entidade vazia."
+    },
+    {
+      "id": "cm44",
+      "conversa": "c3",
+      "ordem": 4,
+      "texto": "e pra 90 serve?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": 90, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Capacidade do Premium (contexto): 80 a 150, então 90 cabe."
+    },
+    {
+      "id": "cm45",
+      "conversa": "c3",
+      "ordem": 5,
+      "texto": "Beleza. Quanto sai então o premium pra 90 no dia 9 de janeiro, no segundo horário?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2027-01-09", "convidados": 90, "turno": "NOITE", "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "Dados completos; 9 de janeiro sem ano = próxima ocorrência, 2027. Valor exato calculado."
+    },
+    {
+      "id": "cm46",
+      "conversa": "c4",
+      "ordem": 1,
+      "texto": "Quero um orçamento pra festa do meu filho",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido de orçamento: faltam pacote, data, período e convidados. Pedir orçamento não é contratar."
+    },
+    {
+      "id": "cm47",
+      "conversa": "c4",
+      "ordem": 2,
+      "texto": "Essencial, umas 50 pessoas",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 50, "turno": null, "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "Continua o orçamento: ainda faltam a data e o período."
+    },
+    {
+      "id": "cm48",
+      "conversa": "c4",
+      "ordem": 3,
+      "texto": "sábado 17 de outubro",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-10-17", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Continua o orçamento: falta só o período (primeiro ou segundo horário)."
+    },
+    {
+      "id": "cm49",
+      "conversa": "c4",
+      "ordem": 4,
+      "texto": "primeiro horário",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": "ALMOCO", "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Com o contexto, o orçamento está completo: Essencial, 50, 17/10, 11h às 15h. Valor exato calculado."
+    },
+    {
+      "id": "cm50",
+      "conversa": "c4",
+      "ordem": 5,
+      "texto": "Fechou! Pode reservar esse dia pra mim?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Contraste com cm05: aqui é pedido explícito de reserva. O assistente nunca reserva nem confirma data, então a equipe assume e a conversa termina."
+    }
+  ]
+}

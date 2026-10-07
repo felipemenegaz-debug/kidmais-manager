@@ -51,6 +51,7 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
     },
     useEffect: (fn: () => void | (() => void), dependencias?: readonly unknown[]) => { pendentes.push({ indice: cursor++, fn, deps: dependencias }); },
     useCallback: (fn: unknown) => { cursor++; return fn; },
+    useId: () => { const i = cursor++; if (!(i in slots)) slots[i] = `:r${i}:`; return slots[i]; },
     useMemo: (fn: () => unknown) => { cursor++; return fn(); },
     createContext: (padrao: unknown) => ({ padrao, Provider: function Provider(props: { children?: unknown }) { return props.children; } }),
     useContext: (ctx: { padrao: unknown }) => ctx.padrao,

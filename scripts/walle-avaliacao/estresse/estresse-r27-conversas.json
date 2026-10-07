@@ -1,0 +1,435 @@
+{
+  "criadoEm": "2026-10-07",
+  "autor": "rodada 27 (desenvolvimento; rótulos pelas regras dos holdouts; não é medição)",
+  "categoria": "r27-conversas",
+  "itens": [
+    {
+      "id": "rc01",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "quanto fica o completa pra 80 dia 21/11 à noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor em 21/11."
+    },
+    {
+      "id": "rc02",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "ah, e a festa da minha irmã já tá fechada com vcs, ela quer trocar o tema pra Wandinha",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "Wandinha"
+      },
+      "nota": "Festa de outra pessoa já contratada: troca de tema com a equipe; nada anotado."
+    },
+    {
+      "id": "rc03",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "qual o valor do Premium pra 100 pessoas em 19/12 no primeiro horário?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-19",
+        "convidados": 100,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor em 19/12."
+    },
+    {
+      "id": "rc04",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "e em janeiro quanto ficaria pra mesma quantidade?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Mês novo: pede o dia, sem recalcular 19/12."
+    },
+    {
+      "id": "rc05",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "dia 9",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2027-01-09",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor em 09/01 (mês herdado)."
+    },
+    {
+      "id": "rc06",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "tem vaga dia 21/11?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Agenda em 21/11."
+    },
+    {
+      "id": "rc07",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "e em dezembro?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Mês novo sem dia: pede a data (uma vez), sem consultar 21/11 de novo."
+    },
+    {
+      "id": "rc08",
+      "conversa": "c4",
+      "ordem": 1,
+      "texto": "quanto fica o essencial pra 40 dia 5 de dezembro no almoço?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-05",
+        "convidados": 40,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor em 05/12."
+    },
+    {
+      "id": "rc09",
+      "conversa": "c4",
+      "ordem": 2,
+      "texto": "sim",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Sem proposta pendente: só um \"combinado\"."
+    },
+    {
+      "id": "rc10",
+      "conversa": "c4",
+      "ordem": 3,
+      "texto": "quero fechar",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Data sem ano: confirma 05/12/2026."
+    },
+    {
+      "id": "rc11",
+      "conversa": "c4",
+      "ordem": 4,
+      "texto": "na verdade prefiro dia 12",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Data trocada: nova confirmação (12/12/2026)."
+    },
+    {
+      "id": "rc12",
+      "conversa": "c4",
+      "ordem": 5,
+      "texto": "isso, pode seguir",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Confirmada a nova data: equipe."
+    },
+    {
+      "id": "rc13",
+      "conversa": "c5",
+      "ordem": 1,
+      "texto": "a festa vai ser Frozen ou Moana, ainda tô decidindo",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Indecisão: confirma o tema."
+    },
+    {
+      "id": "rc14",
+      "conversa": "c5",
+      "ordem": 2,
+      "texto": "vai ser a Moana então",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "Moana"
+      },
+      "nota": "Tema Moana."
+    },
+    {
+      "id": "rc15",
+      "texto": "chega de me mandar essas promoções, vcs são insistentes demais, não quero mais nada de vcs",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR",
+        "RECLAMACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Bloqueia; reclamação registrada (interna)."
+    },
+    {
+      "id": "rc16",
+      "texto": "para de me mandar msg pfv",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: parar educado, sem reclamação."
+    },
+    {
+      "id": "rc17",
+      "texto": "e se a gente quiser estender a festa mais uma hora?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 8."
+    },
+    {
+      "id": "rc18",
+      "texto": "dá pra ficar uma hora a mais?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 8."
+    },
+    {
+      "id": "rc19",
+      "texto": "o que acontece se o boleto vencer e eu nao pagar no dia?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 7."
+    },
+    {
+      "id": "rc20",
+      "texto": "me manda o boleto que vence amanhã",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: pedido de boleto (equipe), sem cláusula."
+    },
+    {
+      "id": "rc21",
+      "texto": "quantas pessoas cabem no premium? vão ser umas 170",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 170,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Premium até 150; nenhum pacote comporta 170 (cadastro)."
+    },
+    {
+      "id": "rc22",
+      "texto": "minha festa já tá contratada, quero mudar o tema pra Frozen",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "Frozen"
+      },
+      "nota": "Festa própria contratada: equipe."
+    },
+    {
+      "id": "rc23",
+      "texto": "quero trocar o tema da festa pra Frozen",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "Frozen"
+      },
+      "nota": "Contraexemplo: sem festa contratada, é decoração."
+    }
+  ]
+}

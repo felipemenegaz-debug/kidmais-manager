@@ -1,0 +1,474 @@
+{
+  "criadoEm": "2026-10-07",
+  "autor": "rodada 21 (desenvolvimento; rótulos pelas regras dos holdouts; não é medição)",
+  "categoria": "r21-conversas",
+  "itens": [
+    {
+      "id": "rw01",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "quero um orçamento",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Tabela + data e período."
+    },
+    {
+      "id": "rw02",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "completa, 80 pessoas, dia 21/11",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 80,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Falta o período."
+    },
+    {
+      "id": "rw03",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "pode ser à tarde",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Só os dois períodos, sem menu genérico."
+    },
+    {
+      "id": "rw04",
+      "conversa": "c1",
+      "ordem": 4,
+      "texto": "a noite então",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": "NOITE",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "rw05",
+      "conversa": "c1",
+      "ordem": 5,
+      "texto": "vou pensar. queria falar com o gerente sobre isso",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "HUMANO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Só a passagem, sem repetir o valor."
+    },
+    {
+      "id": "rw06",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "vcs fazem decoração de qualquer tema? queria Pokémon",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "Pokémon"
+      },
+      "nota": "Texto de decoração + tema anotado."
+    },
+    {
+      "id": "rw07",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "e quantos balões vêm na mesa? se quiser mais cobra?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO",
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula dos balões, sem repetir o texto de decoração."
+    },
+    {
+      "id": "rw08",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "quanto fica o completa pra 80 dia 21/11 a noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "rw09",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "pode mandar o contrato pra eu assinar?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contratação com a equipe (dados herdados), sem \"qual ponto?\"."
+    },
+    {
+      "id": "rw10",
+      "conversa": "c4",
+      "ordem": 1,
+      "texto": "quantas pessoas cabem no essencial?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Faixa do pacote + convite opcional."
+    },
+    {
+      "id": "rw11",
+      "conversa": "c4",
+      "ordem": 2,
+      "texto": "e no completa?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Faixa do pacote, sem repetir o convite."
+    },
+    {
+      "id": "rw12",
+      "conversa": "c5",
+      "ordem": 1,
+      "texto": "quanto fica o premium pra 120 dia 30/01 a noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2027-01-30",
+        "convidados": 120,
+        "turno": "NOITE",
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "rw13",
+      "conversa": "c5",
+      "ordem": 2,
+      "texto": "se for num domingo fica mais barato?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pede a data para comparar, uma vez."
+    },
+    {
+      "id": "rw14",
+      "texto": "vou fazer o niver do Davi com tema dinossauro 🦖 qual a diferença entre os pacotes?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO",
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "dinossauro"
+      },
+      "nota": "Holdout 20, j56: tema \"dinossauro\"."
+    },
+    {
+      "id": "rw15",
+      "texto": "tema stitch 💙 como faço pra fechar?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DECORACAO",
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "stitch"
+      },
+      "nota": "Tema \"stitch\" e coleta para contratar."
+    },
+    {
+      "id": "rw16",
+      "texto": "o tema vai ser princesa ou sereia, ainda não decidi",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Ambíguo: confirma o tema, nada anotado."
+    },
+    {
+      "id": "rw17",
+      "texto": "dá pra trocar o tema da festa da Lara pra Wandinha? já tá tudo fechado com vcs",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "Wandinha"
+      },
+      "nota": "Festa contratada: equipe, sem anotar tema."
+    },
+    {
+      "id": "rw18",
+      "texto": "quero assinar o contrato, como faço?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contratação: coleta, sem \"qual ponto?\"."
+    },
+    {
+      "id": "rw19",
+      "texto": "Prezados, gostaria de reservar o dia 28/11 a noite para 80 convidados no Completa. Aguardo as instruções para assinatura do contrato.",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-11-28",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contratação com a equipe."
+    },
+    {
+      "id": "rw20",
+      "texto": "fiz a festa em setembro, me manda o contrato de novo?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Identidade: contrato da festa feita só com a equipe."
+    },
+    {
+      "id": "rw21",
+      "texto": "quais as condições do contrato?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: pergunta geral pede o ponto."
+    },
+    {
+      "id": "rw22",
+      "texto": "quero falar com um atendente e saber o endereço da asa sul",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "HUMANO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": "ASA_SUL",
+        "tema": null
+      },
+      "nota": "Pedido de pessoa: só a passagem (a equipe responde o endereço)."
+    },
+    {
+      "id": "rw23",
+      "texto": "Fui numa festa em outro buffet esse fim de semana e foi um desastre: comida fria. Quais pacotes vocês oferecem?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Relato de outro buffet: lista de pacotes, sem cardápio nem cláusulas."
+    },
+    {
+      "id": "rw24",
+      "texto": "fiz a festa da minha filha com vcs e foi uma decepção, salgado frio e a equipe chegou atrasada 😡",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO",
+        "RECLAMACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Reclamação: equipe, sem \"qual ponto?\"."
+    },
+    {
+      "id": "rw25",
+      "texto": "o que tem de comida no buffet?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CARDAPIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: pergunta de comida é cardápio (pede o pacote)."
+    }
+  ]
+}

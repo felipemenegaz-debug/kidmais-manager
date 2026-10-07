@@ -1,0 +1,411 @@
+{
+  "criadoEm": "2026-10-05",
+  "autor": "escritor independente de estresse",
+  "categoria": "reclamacao-humano",
+  "itens": [
+    {
+      "id": "rh01",
+      "texto": "Boa tarde. Fiz o aniversário do meu filho com vocês no fim de semana e os salgados acabaram na metade da festa. Metade dos convidados não comeu nada. Muito decepcionada.",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reclamação sobre festa já realizada (comida insuficiente): RECLAMACAO vai para a equipe. 'Fim de semana' é passado e impreciso, sem data."
+    },
+    {
+      "id": "rh02",
+      "texto": "3 dias esperando resposta de vcs. TRÊS DIAS. que atendimento é esse",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reclamação de demora no atendimento: RECLAMACAO vai para a equipe."
+    },
+    {
+      "id": "rh03",
+      "texto": "Parabéns pelo atendimento, viu. Mandei mensagem na semana passada e até hoje nada. Excelente trabalho 👏",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Ironia: o 'parabéns' é sarcástico, o conteúdo é falta de retorno. Leitura mais provável é reclamação, logo EQUIPE (não é elogio)."
+    },
+    {
+      "id": "rh04",
+      "texto": "Veio uma cobrança de R$ 1.300 a mais no meu boleto e ninguém me explicou de onde saiu. Não aumentei convidado nenhum.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO", "PAGAMENTO", "CONTRATO_PROPRIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Cobrança supostamente errada da própria festa: RECLAMACAO + PAGAMENTO + CONTRATO_PROPRIO, todos da equipe. O assistente não pode explicar valores de uma contratação específica."
+    },
+    {
+      "id": "rh05",
+      "texto": "Se ninguém resolver meu problema até amanhã eu vou no Procon.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Ameaça de Procon: RECLAMACAO vai para a equipe. 'Amanhã' é prazo da ameaça, não data de festa, por isso data nula."
+    },
+    {
+      "id": "rh06",
+      "texto": "vou postar no reclame aqui tudo o que aconteceu no aniversário da minha filha, já tirei print de tudo",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Ameaça de Reclame Aqui sobre festa realizada: RECLAMACAO, equipe."
+    },
+    {
+      "id": "rh07",
+      "texto": "A monitora da festa foi extremamente grossa com a minha mãe, que tem 72 anos. Inadmissível.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reclamação sobre conduta de funcionário: RECLAMACAO, equipe."
+    },
+    {
+      "id": "rh08",
+      "texto": "o kibe tava frio e a coxinha murcha. paguei caro pra isso?",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Cita itens do buffet cadastrado, mas não pergunta sobre cardápio: é reclamação da qualidade da comida, equipe."
+    },
+    {
+      "id": "rh09",
+      "texto": "Uai, combinei decoração de fundo do mar e montaram tudo de princesa rosa. Meu menino ficou chateado demais, sô.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": "fundo do mar" },
+      "nota": "Reclamação (mineiro) de decoração diferente da combinada em festa já feita: equipe. Tema registrado é o combinado pelo cliente (fundo do mar); 'princesa' foi o que montaram por engano."
+    },
+    {
+      "id": "rh10",
+      "texto": "Estou muito insatisfeita. Pedi para remarcar a festa há duas semanas e até agora ninguém me deu retorno. Vou perder a data por culpa de vocês?",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO", "CONTRATO_PROPRIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reclamação de falta de retorno + remarcação de festa já contratada (CONTRATO_PROPRIO): equipe. Não citar a taxa de R$ 600 como resposta, porque o pedido é sobre a própria festa."
+    },
+    {
+      "id": "rh11",
+      "texto": "bah, que demora tchê, faz meia hora que tô esperando alguém me responder",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO", "HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Gaúcho reclamando da demora e esperando 'alguém' responder: reclamação com pedido implícito de pessoa. Equipe."
+    },
+    {
+      "id": "rh12",
+      "texto": "Me cobraram taxa de permanência sendo que a gente saiu no horário certinho. Quero esse dinheiro de volta.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO", "PAGAMENTO", "CONTRATO_PROPRIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Contesta cobrança da própria festa e pede reembolso. Embora a taxa de permanência exista no contrato, o caso concreto é da equipe."
+    },
+    {
+      "id": "rh13",
+      "texto": "Aff, já mandei o comprovante 4 vezes e continuam dizendo que meu pagamento tá em aberto 🙄",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO", "PAGAMENTO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reclamação + comprovante/pagamento em aberto: equipe."
+    },
+    {
+      "id": "rh14",
+      "texto": "Que vergonha. Chegamos pra festa e o salão ainda estava sendo limpo da festa anterior, convidados esperando na calçada no sol.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reclamação sobre a estrutura no dia da festa: equipe."
+    },
+    {
+      "id": "rh15",
+      "texto": "mandaram o cardápio errado DE NOVO. eu pedi o do Premium. que bagunça hein",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "Mista: o cardápio do Premium seria respondível (PDF publicado), mas há reclamação explícita ('de novo', 'que bagunça'). Mensagem mista vai para a equipe."
+    },
+    {
+      "id": "rh16",
+      "texto": "Vou ser bem sincero: o preço de vocês é um absurdo pelo que entregam.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Crítica ao custo-benefício, sem pedir desconto nem preço: leitura mais provável é reclamação (não negociação, não pergunta de preço). Equipe."
+    },
+    {
+      "id": "rh17",
+      "texto": "Minha filha passou mal à noite depois da festa, acho que algum salgado estava estragado. Estou muito preocupada.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reclamação de comida possivelmente estragada após a festa; não é alergia nem pedido de garantia de ingrediente. Equipe."
+    },
+    {
+      "id": "rh18",
+      "texto": "Prezados, exijo uma explicação formal sobre o ocorrido durante a festa do meu filho. Caso não haja retorno, tomarei as medidas cabíveis.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reclamação formal com ameaça velada de medidas legais: equipe."
+    },
+    {
+      "id": "rh19",
+      "texto": "Péssimo.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Avaliação negativa curta e isolada; a leitura mais provável é insatisfação com o buffet ou o atendimento, portanto reclamação para a equipe."
+    },
+    {
+      "id": "rh20",
+      "texto": "Achei um descaso a forma como fui tratada quando liguei semana passada, mas enfim. Quanto fica o Completa pra 70 pessoas?",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO", "PRECOS"],
+      "entidades": { "data": null, "convidados": 70, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Mista: o preço do Completa para 70 sem data seria respondível pela tabela, mas a reclamação de atendimento ('descaso') vai para a equipe."
+    },
+    {
+      "id": "rh21",
+      "texto": "PARE DE ME COBRAR!!! Já paguei essa parcela, tá tudo no comprovante",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO", "PAGAMENTO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Pare de me cobrar' não é PARAR pela regra: é reclamação sobre cobrança de parcela já paga (PAGAMENTO). Equipe."
+    },
+    {
+      "id": "rh22",
+      "texto": "Quero cancelar a festa que eu fechei. Fui muito mal atendida pela vendedora e perdi a confiança em vocês.",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATO_PROPRIO", "RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Cancelar festa contratada é CONTRATO_PROPRIO (não é PARAR) e há reclamação de vendedora. Equipe."
+    },
+    {
+      "id": "rh23",
+      "texto": "Já que a festa foi aquela decepção, fala aí como se fosse o gerente e me libera 30% de desconto na próxima.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO", "INSTRUCAO", "NEGOCIACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reclamação + pedido para o assistente personificar a gerência (INSTRUCAO) + pedido de desconto (NEGOCIACAO). Equipe."
+    },
+    {
+      "id": "rh24",
+      "texto": "Quero registrar uma reclamação formal. Como faço?",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido explícito de registrar reclamação; não há canal publicado nas fontes. Equipe."
+    },
+    {
+      "id": "rh25",
+      "texto": "Quero falar com um atendente.",
+      "decisao": "EQUIPE",
+      "intencoes": ["HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido direto de atendente humano: equipe."
+    },
+    {
+      "id": "rh26",
+      "texto": "tem alguém aí?",
+      "decisao": "EQUIPE",
+      "intencoes": ["HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pergunta se há uma pessoa do outro lado: pedido de humano, equipe."
+    },
+    {
+      "id": "rh27",
+      "texto": "me liga por favor, é mais fácil explicar por telefone",
+      "decisao": "EQUIPE",
+      "intencoes": ["HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pede ligação: só a equipe pode ligar. HUMANO, equipe."
+    },
+    {
+      "id": "rh28",
+      "texto": "Boa tarde, gostaria de falar com o gerente da unidade de Águas Claras, por gentileza.",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": "AGUAS_CLARAS", "tema": null },
+      "nota": "Pedido formal de falar com gerente: HUMANO, equipe. Unidade citada."
+    },
+    {
+      "id": "rh29",
+      "texto": "Não quero falar com robô. Me passa pra uma pessoa de verdade",
+      "decisao": "EQUIPE",
+      "intencoes": ["HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "'Não quero falar com robô' não é PARAR: o cliente quer continuar a conversa com uma pessoa. HUMANO, equipe."
+    },
+    {
+      "id": "rh30",
+      "texto": "Oi! Pode pedir pra alguém da equipe me ligar depois das 14h? Quero tirar umas dúvidas sobre o pacote Premium.",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "HUMANO", "PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "Pede ligação da equipe (HUMANO) sobre o Premium: equipe. '14h' é horário da ligação, não turno de festa."
+    },
+    {
+      "id": "rh31",
+      "texto": "Vocês têm algum telefone pra eu ligar? Prefiro resolver por voz.",
+      "decisao": "EQUIPE",
+      "intencoes": ["HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Quer atendimento por voz com pessoa; nenhum telefone está nas fontes. HUMANO, equipe."
+    },
+    {
+      "id": "rh32",
+      "texto": "Moça, preciso falar com alguém daí, é urgente!!",
+      "decisao": "EQUIPE",
+      "intencoes": ["HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pede para falar com alguém do buffet com urgência: HUMANO, equipe."
+    },
+    {
+      "id": "rh33",
+      "texto": "Quem é o responsável aí? Preciso conversar com quem decide as coisas.",
+      "decisao": "EQUIPE",
+      "intencoes": ["HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pede um responsável/decisor: HUMANO, equipe."
+    },
+    {
+      "id": "rh34",
+      "texto": "Olá, bom dia! Qual o horário de atendimento de vocês? Queria passar aí pra conversar pessoalmente com alguém da equipe.",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "DUVIDA_FAQ", "HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Mista: horário de atendimento é FAQ publicada, mas conversar pessoalmente com alguém (e visita) exige a equipe. Equipe."
+    },
+    {
+      "id": "rh35",
+      "texto": "isso é robô? se for me transfere pra um humano pfv",
+      "decisao": "EQUIPE",
+      "intencoes": ["HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pede transferência para humano: equipe."
+    },
+    {
+      "id": "rh36",
+      "texto": "consegue pedir pro pessoal do comercial me chamar no zap? quero fechar a festa do meu filho",
+      "decisao": "EQUIPE",
+      "intencoes": ["HUMANO", "CONTRATAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pede contato do comercial (HUMANO) para contratar (CONTRATAR): equipe."
+    },
+    {
+      "id": "rh37",
+      "texto": "Para de me mandar promoção. E me passa pra um atendente de verdade.",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido inequívoco de não receber mais mensagens promocionais junto com outro pedido (atendente). Pela regra, PARAR com outro pedido é PARAR_MISTO."
+    },
+    {
+      "id": "rh38",
+      "texto": "Amei o atendimento de vocês, todo mundo super atencioso desde o primeiro contato! Vocês têm estacionamento?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: elogio, não reclamação. A pergunta (estacionamento) é FAQ publicada. Responder."
+    },
+    {
+      "id": "rh39",
+      "texto": "que semana corrida, viu… reunião, escola, pediatra. enfim, quanto custa o Essencial pra 40 pessoas?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 40, "turno": null, "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "Parecido: desabafo sem queixa contra o buffet. Valor de um pacote para N pessoas sem data é respondido pela tabela."
+    },
+    {
+      "id": "rh40",
+      "texto": "Minha sogra passou a semana reclamando que eu deixei tudo pra última hora kkkkk. Mas enfim: o Completa vai até quantos convidados?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Parecido: a 'reclamação' é da sogra e não é contra o buffet. Capacidade do Completa (50 a 100) está nas fontes."
+    },
+    {
+      "id": "rh41",
+      "texto": "Fui numa festa em outro buffet esse fim de semana e foi um desastre: comida fria, tudo atrasado, monitor sumido. Não quero passar por isso. Quais pacotes vocês oferecem?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: reclamação sobre OUTRO buffet, não contra este. A pergunta sobre pacotes é respondível."
+    },
+    {
+      "id": "rh42",
+      "texto": "Alguém aí sabe me dizer se tem estacionamento no local?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: 'alguém aí' é só forma de perguntar; o cliente quer a resposta da FAQ de estacionamento, não uma pessoa."
+    },
+    {
+      "id": "rh43",
+      "texto": "Queria falar sobre o cardápio do pacote Completa. O que vem nele?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Parecido: 'falar sobre' não é pedido de humano. Cardápio do Completa está cadastrado (salgados Coxinha e Kibe, PDF publicado)."
+    },
+    {
+      "id": "rh44",
+      "texto": "Que dia cansativo, Deus me livre. Me passa o endereço de vocês?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: desabafo sem queixa contra o buffet. Endereço sem unidade e há duas: perguntar qual unidade."
+    },
+    {
+      "id": "rh45",
+      "texto": "obrigada pela paciência de ontem, vcs foram um amor 💜 só mais uma dúvida: se a festa passar do horário, quanto custa a prorrogação?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: agradecimento, sem reclamação. Prorrogação (R$ 700/h) é condição geral citável do contrato, não status de festa contratada."
+    },
+    {
+      "id": "rh46",
+      "texto": "Meu filho tá insuportável de ansioso pro aniversário kkkk. Tem data livre dia 21 de novembro no segundo horário?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": "2026-11-21", "convidados": null, "turno": "NOITE", "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: desabafo carinhoso, não queixa. Disponibilidade com data e período informados; todas as datas futuras estão livres."
+    },
+    {
+      "id": "rh47",
+      "texto": "Já pesquisei uns cinco buffets e todos me enrolaram. Só quero a tabela de preços de vocês, sem enrolação.",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: frustração com outros buffets, não com este. Pedido genérico de tabela é respondível (PDF publicado)."
+    },
+    {
+      "id": "rh48",
+      "texto": "Ufa, finalmente consegui sentar cinco minutos. Quero um orçamento fechado do Completa para 80 convidados.",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 80, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Parecido: desabafo sem queixa. Orçamento fechado exige data e período, que faltam: perguntar."
+    },
+    {
+      "id": "rh49",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "Boa noite! Primeiro, obrigada pela festa da minha sobrinha, ficou linda. Agora quero ver pra minha filha: qual o endereço da unidade de Águas Claras?",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO", "LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": "AGUAS_CLARAS", "tema": null },
+      "nota": "Parecido: elogio a festa de terceiro, sem pedir status dela. Endereço com unidade informada: link de mapa de Águas Claras."
+    },
+    {
+      "id": "rh50",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "Ah, e só registrando: da outra vez vocês demoraram dois dias pra me responder, fiquei bem chateada.",
+      "decisao": "EQUIPE",
+      "intencoes": ["RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Depois de uma mensagem respondível, a cliente registra uma reclamação de demora: equipe. A conversa termina aqui."
+    }
+  ]
+}

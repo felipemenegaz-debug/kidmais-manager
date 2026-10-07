@@ -54,6 +54,7 @@ export async function receiveGupshupWebhook(
     request: Request,
     env: Environment,
     scheduleLog: (event: EventoSanitizado) => void,
+    persistEvent?: (raw: unknown, event: EventoSanitizado) => Promise<void>,
 ): Promise<Response> {
     if (request.method !== 'POST') return response(405);
     const secret = env.GUPSHUP_WEBHOOK_SECRET;
@@ -72,8 +73,10 @@ export async function receiveGupshupWebhook(
     if (contentType !== 'application/json' && contentType !== 'application/x-www-form-urlencoded') return response(415);
     if (request.headers.has('content-encoding') && request.headers.get('content-encoding') !== 'identity') return response(415);
     let event: EventoSanitizado | null;
+    let raw: unknown;
     try {
-        event = parseGupshupV2(decodeGupshupBody(await readLimitedBody(request), contentType), [secret]);
+        raw = decodeGupshupBody(await readLimitedBody(request), contentType);
+        event = parseGupshupV2(raw, [secret]);
     } catch (error) {
         return response(error instanceof BodyError ? error.status : 400);
     }
@@ -82,6 +85,9 @@ export async function receiveGupshupWebhook(
     // validated handshake may omit the header in either explicitly allowed environment.
     if (receivedSecret === null && !(event.eventType === 'user-event' && event.status === 'sandbox-start')) {
         return response(401);
+    }
+    if (persistEvent && receivedSecret !== null && (event.eventType === 'message' || event.eventType === 'message-event')) {
+        try { await persistEvent(raw, event); } catch { return response(503); }
     }
     // Only a small sanitized projection crosses into after-response logging.
     scheduleLog(event);

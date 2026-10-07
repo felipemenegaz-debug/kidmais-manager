@@ -1,0 +1,429 @@
+{
+  "criadoEm": "2026-10-05",
+  "autor": "escritor independente de estresse",
+  "categoria": "contratar",
+  "itens": [
+    {
+      "id": "ct01",
+      "texto": "Quero fechar o Completa pro dia 14/11 no segundo horário, 80 convidados, na Asa Sul.",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-11-14", "convidados": 80, "turno": "NOITE", "pacotes": ["COMPLETA"], "unidade": "ASA_SUL", "tema": null },
+      "nota": "Pedido explícito de fechar com todos os dados; o assistente nunca reserva nem confirma data, então vai para a equipe."
+    },
+    {
+      "id": "ct02",
+      "texto": "pode marcar sabado dia 17 pra mim",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-10-17", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Pode marcar\" com data: pedido de reserva (CONTRATAR). Sábado dia 17 = próxima ocorrência, 17/10/2026."
+    },
+    {
+      "id": "ct03",
+      "texto": "Tem vaga dia 14 de novembro no segundo horário? Só quero saber, ainda não vou fechar nada",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": "2026-11-14", "convidados": null, "turno": "NOITE", "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: só disponibilidade, e o cliente diz que não vai fechar. Data e período informados; todas as datas futuras estão livres, então é respondível."
+    },
+    {
+      "id": "ct04",
+      "texto": "como faço pra fexar a festa??",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"fexar\" = fechar. \"Como faço pra fechar\" é intenção de contratar; não há fonte sobre o processo de contratação e reserva é da equipe."
+    },
+    {
+      "id": "ct05",
+      "texto": "quero rezervar o dia 28 de novembro",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-11-28", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"rezervar\" = reservar. Pedido de reserva de data: CONTRATAR, equipe."
+    },
+    {
+      "id": "ct06",
+      "texto": "consegue resevar o premium dia 12/12 a noite? umas 120 pessoas",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-12-12", "convidados": 120, "turno": "NOITE", "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "\"resevar\" = reservar. Pedido de reserva com pacote, data, período (noite = segundo horário) e convidados: CONTRATAR, equipe."
+    },
+    {
+      "id": "ct07",
+      "texto": "Só pra eu ter uma ideia: quanto fica o Essencial pra 40 convidados dia 24/10 no segundo horário?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-10-24", "convidados": 40, "turno": "NOITE", "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "Parecido: só preço. Tem pacote, data, período e convidados, então o sistema calcula o valor exato; não há pedido de reserva."
+    },
+    {
+      "id": "ct08",
+      "texto": "se tiver vaga dia 7/11 no primeiro horario ja reserva pra mim",
+      "decisao": "EQUIPE",
+      "intencoes": ["DISPONIBILIDADE", "CONTRATAR"],
+      "entidades": { "data": "2026-11-07", "convidados": null, "turno": "ALMOCO", "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reserva condicional: a parte de disponibilidade é respondível, mas o pedido de reservar exige a equipe (misto = EQUIPE)."
+    },
+    {
+      "id": "ct09",
+      "texto": "bora fechar entao",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Bora fechar\" sem dados: decisão de contratar; o assistente não fecha, vai para a equipe."
+    },
+    {
+      "id": "ct10",
+      "texto": "tô dentro! pode separar a data pra gente",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Tô dentro\" + \"separar a data\": pedido de reserva sem dados. CONTRATAR é sempre da equipe, mesmo faltando a data."
+    },
+    {
+      "id": "ct11",
+      "texto": "depois eu fecho, tá? agora só me diz qual o horário de atendimento de vocês",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: \"depois eu fecho\" adia a contratação, não pede reserva. A única pergunta (horário de atendimento) está nas perguntas frequentes publicadas."
+    },
+    {
+      "id": "ct12",
+      "texto": "fechado então, me manda o contrato pra eu assinar",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Fechado então\" + pedir o contrato para assinar é fechar negócio (CONTRATAR), não dúvida sobre cláusula; equipe."
+    },
+    {
+      "id": "ct13",
+      "texto": "Boa tarde! Gostaria de garantir a data de 22 de novembro para o aniversário de 5 anos do meu filho. Tema Patrulha Canina, pacote Essencial, aproximadamente 45 convidados, unidade Águas Claras, segundo horário.",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "CONTRATAR"],
+      "entidades": { "data": "2026-11-22", "convidados": 45, "turno": "NOITE", "pacotes": ["ESSENCIAL"], "unidade": "AGUAS_CLARAS", "tema": "Patrulha Canina" },
+      "nota": "\"Garantir a data\" com todos os dados: CONTRATAR, equipe. Saudação inicial também presente."
+    },
+    {
+      "id": "ct14",
+      "texto": "segura o dia 31/10 pra mim até sexta que eu te confirmo",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-10-31", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido de segurar (pré-reserva) a data: o assistente não bloqueia agenda, é CONTRATAR para a equipe."
+    },
+    {
+      "id": "ct15",
+      "texto": "Me passa o valor fechado do Premium pra 120 convidados dia 21/11",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-11-21", "convidados": 120, "turno": null, "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "Parecido: \"fechado\" aqui qualifica o valor, não é contratar. Valor exato exige pacote, data, período e convidados; falta o período, então PERGUNTAR."
+    },
+    {
+      "id": "ct16",
+      "texto": "dá pra bloquear o 05/12 enquanto eu converso com meu marido?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-12-05", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Bloquear a data provisoriamente é um pedido de reserva (CONTRATAR); equipe."
+    },
+    {
+      "id": "ct17",
+      "texto": "quero fechar, me passa o pix",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR", "PAGAMENTO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Fechar + pedir pix: CONTRATAR e PAGAMENTO, ambos da equipe."
+    },
+    {
+      "id": "ct18",
+      "texto": "Quero o pacote Premium dia 21 de novembro",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-11-21", "convidados": null, "turno": null, "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "\"Quero o pacote X dia Y\": leitura mais provável é escolha para contratar, não pedido de informação; equipe."
+    },
+    {
+      "id": "ct19",
+      "texto": "Se eu fechar e depois precisar mudar a data, como fica?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: \"se eu fechar\" é hipotético. Pergunta sobre condição geral do contrato (mudança de data: taxa de R$ 600 e conforme agenda), citável."
+    },
+    {
+      "id": "ct20",
+      "texto": "Bom dia, quero contratar a festa do meu filho. Como prosseguimos?",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "CONTRATAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido formal de contratar sem dados; contratação é sempre da equipe."
+    },
+    {
+      "id": "ct21",
+      "texto": "ja pode reservar o essencial pra 50 pessoas dia 10 de outubro no horario do almoço",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-10-10", "convidados": 50, "turno": "ALMOCO", "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "Reserva com pacote, convidados, data e primeiro horário (almoço): CONTRATAR, equipe."
+    },
+    {
+      "id": "ct22",
+      "texto": "ô meu rei, bota meu nome aí no dia 24 de outubro, visse",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-10-24", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Regional (baiano/nordestino): \"bota meu nome aí no dia\" = reserve a data para mim. CONTRATAR, equipe."
+    },
+    {
+      "id": "ct23",
+      "texto": "qnto ta o completa pra 70 pessoas?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 70, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Parecido: só preço de um pacote para N pessoas sem data, então RESPONDER com a tabela publicada."
+    },
+    {
+      "id": "ct24",
+      "texto": "Bah, quero fechar contigo o Completa pro dia 7, tchê",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-10-07", "convidados": null, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Regional (gaúcho). Fechar o Completa: CONTRATAR. \"Dia 7\" sem mês = próxima ocorrência a partir de 05/10/2026, ou seja, 07/10/2026."
+    },
+    {
+      "id": "ct25",
+      "texto": "uai, como que faz pra garantir a data? queria o 14/11 sô",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-11-14", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Regional (mineiro). Como garantir a data + a data desejada: intenção de reservar, equipe."
+    },
+    {
+      "id": "ct26",
+      "texto": "se tiver o dia 28/11 a noite livre pro Completa com 70 pessoas, me fala o valor que eu já fecho",
+      "decisao": "EQUIPE",
+      "intencoes": ["DISPONIBILIDADE", "PRECOS", "CONTRATAR"],
+      "entidades": { "data": "2026-11-28", "convidados": 70, "turno": "NOITE", "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Disponibilidade e valor seriam respondíveis, mas \"já fecho\" é intenção de contratar declarada agora; misto = EQUIPE."
+    },
+    {
+      "id": "ct27",
+      "texto": "Tô pensando em fechar com vocês. Quais pacotes vocês têm?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: \"tô pensando em fechar\" é intenção futura, não pedido de reserva; a pergunta real (pacotes) está cadastrada."
+    },
+    {
+      "id": "ct28",
+      "texto": "Qual o endereço da Asa Sul? já quero deixar reservado o dia 5 de dezembro",
+      "decisao": "EQUIPE",
+      "intencoes": ["LOCALIZACAO", "CONTRATAR"],
+      "entidades": { "data": "2026-12-05", "convidados": null, "turno": null, "pacotes": [], "unidade": "ASA_SUL", "tema": null },
+      "nota": "Endereço da unidade é respondível (link de mapa), mas deixar a data reservada é CONTRATAR; misto = EQUIPE."
+    },
+    {
+      "id": "ct29",
+      "texto": "Reservaaaa pra mim pfv 19/12 kkkkk",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-12-19", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Informal com letras repetidas e risada: pedido de reserva da data, equipe."
+    },
+    {
+      "id": "ct30",
+      "texto": "eu quero fechar, mas antes preciso saber se dá pra fazer a coxinha sem glúten, minha filha é celíaca",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR", "ALERGIA"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Declara que quer fechar (CONTRATAR) e pede garantia sem glúten por doença celíaca (ALERGIA); ambos da equipe."
+    },
+    {
+      "id": "ct31",
+      "texto": "Já fechei com vocês semana passada, só falta me mandarem o contrato pra assinar",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATO_PROPRIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: diz que já contratou e cobra o contrato da própria festa; é status de festa já contratada (CONTRATO_PROPRIO), não nova contratação. Equipe."
+    },
+    {
+      "id": "ct32",
+      "texto": "Fecho hoje se vocês fizerem o Premium pelo preço do Completa",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR", "NEGOCIACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["PREMIUM", "COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Fechamento condicionado a negociação (\"pelo preço do\" outro pacote); CONTRATAR e NEGOCIACAO, equipe."
+    },
+    {
+      "id": "ct33",
+      "texto": "Quero marcar a festa de 7 anos da Sofia, tema Frozen, dia 03/04/2027",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2027-04-03", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": "Frozen" },
+      "nota": "Marcar a festa com data e tema: pedido de reserva, equipe. Ano explícito na mensagem."
+    },
+    {
+      "id": "ct34",
+      "texto": "Prezados, venho por meio desta solicitar a reserva da unidade Águas Claras para o dia 28/11/2026, período noturno, 75 convidados, pacote Completa. Aguardo as instruções para assinatura do contrato.",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-11-28", "convidados": 75, "turno": "NOITE", "pacotes": ["COMPLETA"], "unidade": "AGUAS_CLARAS", "tema": null },
+      "nota": "Formal: solicitação de reserva com todos os dados e pedido de instruções para assinar; CONTRATAR, equipe. Período noturno = segundo horário."
+    },
+    {
+      "id": "ct35",
+      "texto": "quero o essencial dia 10/10 almoço 35 pessoas, como faço o pagamento?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR", "PAGAMENTO"],
+      "entidades": { "data": "2026-10-10", "convidados": 35, "turno": "ALMOCO", "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "Escolha de pacote/data para contratar + pergunta de como pagar (sem fonte de formas de pagamento); CONTRATAR e PAGAMENTO, equipe."
+    },
+    {
+      "id": "ct36",
+      "texto": "tem como reservar pra 160 pessoas no dia 5/12?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR", "NEGOCIACAO"],
+      "entidades": { "data": "2026-12-05", "convidados": 160, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido de reserva (CONTRATAR) para número acima da capacidade máxima de 150, o que seria exceção de capacidade (NEGOCIACAO). Equipe por qualquer das duas."
+    },
+    {
+      "id": "ct37",
+      "texto": "Quero fechar. Vocês precisam de quais dados meus? CPF, RG?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Quer fechar e pergunta dados para o cadastro do contrato; não há fonte e contratar é da equipe."
+    },
+    {
+      "id": "ct38",
+      "texto": "ok vamos de completa entao. 31/10, primeiro horario, 60 pessoas. pode confirmar?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-10-31", "convidados": 60, "turno": "ALMOCO", "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "\"Vamos de completa\" + \"pode confirmar?\" com dados: pedido de confirmação de reserva, que o assistente nunca dá; equipe."
+    },
+    {
+      "id": "ct39",
+      "texto": "Pode lançar na agenda: festa do Theo, tema dinossauros, 12/12, Premium, 100 convidados, segundo horário",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-12-12", "convidados": 100, "turno": "NOITE", "pacotes": ["PREMIUM"], "unidade": null, "tema": "dinossauros" },
+      "nota": "\"Lançar na agenda\" é pedido de reserva em forma de comando, não instrução de comportamento ao assistente; CONTRATAR, equipe."
+    },
+    {
+      "id": "ct40",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "Oi, boa tarde! Tem data livre dia 7 de novembro?",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO", "DISPONIBILIDADE"],
+      "entidades": { "data": "2026-11-07", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: só disponibilidade com data; todas as datas futuras estão livres nos dois períodos, respondível."
+    },
+    {
+      "id": "ct41",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "E o Completa pra 60 pessoas no dia 7/11 no segundo horário, quanto fica?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-11-07", "convidados": 60, "turno": "NOITE", "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Parecido: só preço, com pacote, data, período e convidados; o sistema calcula o valor exato."
+    },
+    {
+      "id": "ct42",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "fechou! pode reservar pra mim",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Depois de consultar preço e disponibilidade, o cliente decide reservar: CONTRATAR, equipe assume e a conversa termina aqui."
+    },
+    {
+      "id": "ct43",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "Boa noite, onde vocês ficam?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["SAUDACAO", "LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Endereço sem unidade; há duas unidades (Asa Sul e Águas Claras), então perguntar qual."
+    },
+    {
+      "id": "ct44",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "águas claras",
+      "decisao": "RESPONDER",
+      "intencoes": ["LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": "AGUAS_CLARAS", "tema": null },
+      "nota": "Resposta à pergunta da unidade; agora o link de mapa de Águas Claras pode ser enviado."
+    },
+    {
+      "id": "ct45",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "valeu! vou pensar com calma e te falo",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: \"vou pensar e te falo\" não é contratar nem pedido para parar; agradecimento e despedida, resposta cordial."
+    },
+    {
+      "id": "ct46",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "Quanto custa o Essencial pra 40 pessoas?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 40, "turno": null, "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "Valor de um pacote para N pessoas sem data: RESPONDER com a tabela publicada."
+    },
+    {
+      "id": "ct47",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "achei salgado, não vou fechar não. por favor não me mandem mais mensagens",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Achei salgado\" = achei caro (opinião, não reclamação nem pergunta sobre salgados); \"não vou fechar\" é declaração. O único pedido é não receber mais mensagens: PARAR."
+    },
+    {
+      "id": "ct48",
+      "conversa": "c3",
+      "ordem": 3,
+      "texto": "pensando melhor, quero reservar dia 14/11",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": ["CONTRATAR"],
+      "entidades": { "data": "2026-11-14", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido de reserva, mas na mesma conversa depois de um PARAR: pela regra, SEM_RESPOSTA."
+    },
+    {
+      "id": "ct49",
+      "conversa": "c4",
+      "ordem": 1,
+      "texto": "vcs tem estacionamento?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pergunta frequente publicada (estacionamento no local)."
+    },
+    {
+      "id": "ct50",
+      "conversa": "c4",
+      "ordem": 2,
+      "texto": "show. quero ver o espaço antes de fechar, dá pra marcar uma visita?",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: \"marcar\" aqui é visita, e \"antes de fechar\" adia a contratação. Visita ao espaço não tem fonte publicada: FORA_DO_ESCOPO, equipe."
+    }
+  ]
+}

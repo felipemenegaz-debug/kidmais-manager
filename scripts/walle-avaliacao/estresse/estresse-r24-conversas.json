@@ -1,0 +1,461 @@
+{
+  "criadoEm": "2026-10-07",
+  "autor": "rodada 24 (desenvolvimento; rótulos pelas regras dos holdouts; não é medição)",
+  "categoria": "r24-conversas",
+  "itens": [
+    {
+      "id": "rz01",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "oi, quanto fica a festa no pacote completa?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO",
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Tabela."
+    },
+    {
+      "id": "rz02",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "quero o valor certinho pra 28 de novembro, 70 pessoas, de noite",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-28",
+        "convidados": 70,
+        "turno": "NOITE",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "rz03",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "se eu fizer em outro mês o valor muda?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pede a nova data, sem recalcular a anterior."
+    },
+    {
+      "id": "rz04",
+      "conversa": "c1",
+      "ordem": 4,
+      "texto": "12 de dezembro",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor na nova data."
+    },
+    {
+      "id": "rz05",
+      "conversa": "c1",
+      "ordem": 5,
+      "texto": "o valor depende da data mesmo né?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pergunta geral: depende, sem recalcular."
+    },
+    {
+      "id": "rz06",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "to em duvida entre homem aranha ou batman pro tema",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Indecisão de tema."
+    },
+    {
+      "id": "rz07",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "qual o endereço de vcs?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Só a unidade (sem o tema pendente)."
+    },
+    {
+      "id": "rz08",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "qual o cardápio?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CARDAPIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pede o pacote."
+    },
+    {
+      "id": "rz09",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "seria 17 de janeiro umas 90 pessoas no completo a tarde quanto fica",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2027-01-17",
+        "convidados": 90,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Só o período (sem cardápio da pendência antiga)."
+    },
+    {
+      "id": "rz10",
+      "conversa": "c4",
+      "ordem": 1,
+      "texto": "tem data livre em dezembro?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pede a data."
+    },
+    {
+      "id": "rz11",
+      "conversa": "c4",
+      "ordem": 2,
+      "texto": "19 de dezembro de manhã. e cabem 45 pessoas no essencial?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DISPONIBILIDADE",
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": "2026-12-19",
+        "convidados": 45,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Agenda + capacidade, sem preço."
+    },
+    {
+      "id": "rz12",
+      "conversa": "c5",
+      "ordem": 1,
+      "texto": "quanto fica o essencial pra 40 dia 14/11 no almoço?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-14",
+        "convidados": 40,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "rz13",
+      "conversa": "c5",
+      "ordem": 2,
+      "texto": "fechou! me passa a chave pix pra eu pagar a entrada",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR",
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pagamento: equipe, sem dado bancário nem cláusula."
+    },
+    {
+      "id": "rz14",
+      "conversa": "c5",
+      "ordem": 3,
+      "texto": "e qual o endereço?",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Com a equipe: nada automático."
+    },
+    {
+      "id": "rz15",
+      "texto": "sai fora com essas propagandas mano",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Interrupção com vocativo."
+    },
+    {
+      "id": "rz16",
+      "texto": "vaza com essas msg pqp",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Interrupção com interjeição."
+    },
+    {
+      "id": "rz17",
+      "texto": "some com essas promoções eu nunca pedi isso",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Interrupção com comentário."
+    },
+    {
+      "id": "rz18",
+      "texto": "o kit sai com essas promoções mano?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "FORA_DO_ESCOPO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo de interrupção: pergunta de produto; \"kit\" não cadastrado (equipe)."
+    },
+    {
+      "id": "rz19",
+      "texto": "a gente fechou o pacote completa pro dia 7 de março. qual o endereço da unidade de águas claras? e dá pra aumentar pra 90 pessoas?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO",
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": "2027-03-07",
+        "convidados": 90,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": "AGUAS_CLARAS",
+        "tema": null
+      },
+      "nota": "Festa contratada: equipe, sem consultas."
+    },
+    {
+      "id": "rz20",
+      "texto": "meu marido já contratou a festa pro dia 12, que horas começa?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Festa contratada."
+    },
+    {
+      "id": "rz21",
+      "texto": "vamos fechar o completa pro dia 7 de março?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2027-03-07",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: contratação nova (coleta)."
+    },
+    {
+      "id": "rz22",
+      "texto": "a gente fechou a festa em outro buffet, mas me diz o endereço da asa sul",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": "ASA_SUL",
+        "tema": null
+      },
+      "nota": "Contraexemplo: festa em outro buffet."
+    },
+    {
+      "id": "rz23",
+      "texto": "quero reservar o dia 19/12 no segundo horário, qual o pix pro sinal?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR",
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": "2026-12-19",
+        "convidados": null,
+        "turno": "NOITE",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pagamento: equipe, sem cláusula de horários."
+    },
+    {
+      "id": "rz24",
+      "texto": "boleto atrasado tem juros?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO",
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo do pix: cláusula de inadimplência citada; cobrança da própria festa com a equipe (regra PAGAMENTO)."
+    }
+  ]
+}

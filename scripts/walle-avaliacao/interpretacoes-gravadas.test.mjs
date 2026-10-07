@@ -1,0 +1,105 @@
+// Rodada 32 — o caminho da IA SEM REDE com as interpretações do modelo GRAVADAS na avaliação real de 07/10 (r31 × h32,
+// execução muy6rqz2; r29 × h30, execução muy6vc62), no código atual: a política de combinação regras × modelo (consulta
+// comum afasta só o cuidado que explica) e o aviso de segurança pelo motivo real, com as leituras reais do modelo. Também
+// a marca persistente de pausa no simulador do avaliador (espelho de worker e service) e a régua da pausa.
+//   node --experimental-strip-types --test scripts/walle-avaliacao/interpretacoes-gravadas.test.mjs
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { register } from 'node:module';
+import { test } from 'node:test';
+import { AGORA, CATALOGOS, CONFIG, FONTES } from './fixture.mjs';
+import { lerGravadas, simularGravado } from './interpretacoes-gravadas.mjs';
+import { CATEGORIAS_CRITICAS, calcularMetricas } from './metricas.mjs';
+import { sequenciasDoCorpus, simularSequencia } from './simulacao.mjs';
+
+register('./alias-hooks.mjs', import.meta.url);
+globalThis.fetch = async () => { throw new Error('rede proibida no teste'); };
+const imp = (rel) => import(new URL(`../../${rel}`, import.meta.url).href);
+const revisados = JSON.parse(readFileSync(new URL('./rotulos-revisados.json', import.meta.url), 'utf8'));
+async function funcoes() {
+  const [ent, res, core, ctx, worker, modelo] = await Promise.all([
+    imp('lib/whatsapp/atendimento/walle/entendimento.ts'), imp('lib/whatsapp/atendimento/walle/resolver.ts'), imp('lib/whatsapp/atendimento/core.ts'),
+    imp('lib/whatsapp/atendimento/walle/contexto.ts'), imp('lib/whatsapp/atendimento/worker.ts'), imp('app/api/admin/inteligencia/whatsapp/modelo.ts'),
+  ]);
+  return { entenderPorRegras: ent.entenderPorRegras, revalidarEntendimento: ent.revalidarEntendimento, juntarSinais: ent.juntarSinais, resolverWallE: res.resolverWallE, comandoDireto: core.comandoDireto, lerContexto: ctx.lerContexto, mensagemAindaValida: worker.mensagemAindaValida, sinaisJev: modelo.sinaisJev, registroDoBloqueio: ent.registroDoBloqueio ?? null };
+}
+// h32 aa27: o desvio dependia do TRECHO do item de fora (o lugar, "salão"), que o resultado não grava: a leitura é refeita.
+const AJUSTES = { 'corpus-holdout-32-20261007.json': { aa27: [{ tipo: 'EXTERNO', trecho: 'posso levar pra enfeitar o salão', perguntaId: null, tema: null }, { tipo: 'CONTRATO', trecho: 'balões', perguntaId: null, tema: 'BALOES' }] } };
+async function reproduzir(arq) {
+  const m = await funcoes();
+  const corpus = JSON.parse(readFileSync(new URL(`./${arq}`, import.meta.url), 'utf8'));
+  const gravado = lerGravadas().corpora[arq];
+  const linhas = await simularGravado(m, { corpus, gravado, ajustes: AJUSTES[arq] ?? {}, catalogos: CATALOGOS, config: CONFIG, fontes: FONTES, agora: AGORA, rotulos: revisados[arq] ?? {}, sequenciasDoCorpus, simularSequencia });
+  return { linhas, metricas: calcularMetricas(linhas), porId: (id) => linhas.find((l) => l.id === id) };
+}
+
+test('gravadas r31 × h32 (muy6rqz2): nenhuma crítica; só as pendências comerciais; os três falsos encaminhamentos viram resposta pelas fontes', async () => {
+  const { metricas, porId, linhas } = await reproduzir('corpus-holdout-32-20261007.json');
+  for (const c of metricas.criticas) assert.deepEqual(c.falhas.map((f) => `${f.id}: ${f.motivo}`), [], c.nome);
+  assert.deepEqual(metricas.comercial.falhas.map((f) => f.id).sort(), ['aa37', 'aa67', 'aa68'], 'só as pendências registradas (aa64 resolvido na rodada 34; aa08, aa71 e aa72 na 35)');
+  assert.deepEqual(metricas.desnecessarios.map((d) => d.id), [], 'nenhum (o aa64 do boleto vencido foi resolvido na rodada 34)');
+  assert.deepEqual(linhas.filter((l) => l.cuidadosAfastados).map((l) => `${l.id}:${l.cuidadosAfastados.map((c) => `${c.tipo}/${c.criterio}`)}`),
+    ['aa08:CONTRATO_PROPRIO/VISITA_MARCADA', 'aa11:NEGOCIACAO/ORCAMENTO_INFORMADO', 'aa29:CONTRATO_PROPRIO/DISPONIBILIDADE_ATRIBUIDA']);
+  // aa11: valor pela tabela + a frase de proteção; aa29: agenda consultada agora com a unidade pedida; aa08: o mapa.
+  assert.match(porId('aa11').resposta, /R\$\s?9\.000,00[\s\S]*Os valores aqui são os de tabela/);
+  assert.ok(porId('aa11').consultas.includes('preco'));
+  assert.deepEqual(porId('aa29').consultasDetalhe.map((c) => `${c.fonte}(${c.args.join('|')})`), ['disponibilidade(2026-12-19|u-aguas-claras)']);
+  assert.match(porId('aa29').resposta, /O que vale é a agenda consultada agora/);
+  assert.match(porId('aa08').resposta, /maps\.example\.test\/aguas-claras[\s\S]*Agendamentos de visita/);
+  // Cuidados que continuam (as regras ou o modelo com âncora): negociação condicional, pessoa/contrato com reclamação.
+  assert.deepEqual(porId('aa13').motivos, ['NEGOCIACAO']);
+  assert.ok(porId('aa43').motivos.includes('NEGOCIACAO'));
+  // Aviso de segurança pelo motivo real (aa41 pagamento, aa40 reclamação): motivo registrado, sem o aviso de contrato.
+  assert.deepEqual(porId('aa41').motivos, ['PAGAMENTO', 'CONTRATO_PROPRIO']);
+  assert.doesNotMatch(porId('aa41').resposta, /dados de contratos/);
+  assert.doesNotMatch(porId('aa40').resposta, /dados de contratos/);
+  assert.match(porId('aa12').resposta, /dados de contratos/, 'aa12: festa contratada pelas regras mantém o aviso');
+  // aa27: o item do texto do cliente.
+  assert.match(porId('aa27').resposta, /Sobre balões de fora/);
+  assert.doesNotMatch(porId('aa27').resposta, /buffet de fora|Cláusula 17/);
+  // aa69 (pausa) grava a marca; aa70 fica com a equipe pela marca, sem nada automático.
+  assert.deepEqual([porId('aa69').motivos, porId('aa69').semAutomatico, porId('aa69').saidas.length], [['PARAR_A_CONFIRMAR'], true, 0]);
+  assert.deepEqual([porId('aa70').motivos, porId('aa70').semAutomatico, porId('aa70').saidas.length], [['COM_A_EQUIPE', 'PAUSA_PEDIDA'], true, 0]);
+});
+
+test('gravadas r29 × h30 (muy6vc62): nenhuma crítica; orçamento e visita respondidos pelas fontes; a conversa da visita segue no automático', async () => {
+  const { metricas, porId } = await reproduzir('corpus-holdout-30-20261007.json');
+  for (const c of metricas.criticas) assert.deepEqual(c.falhas.map((f) => `${f.id}: ${f.motivo}`), [], c.nome);
+  assert.deepEqual(metricas.desnecessarios, []);
+  assert.match(porId('aa02').resposta, /R\$\s?8\.000,00[\s\S]*Os valores aqui são os de tabela/);
+  assert.deepEqual(porId('aa02').motivos, []);
+  assert.match(porId('aa64').resposta, /das 9h às 18h[\s\S]*Agendamentos de visita/);
+  assert.deepEqual(porId('aa64').motivos, []);
+  assert.notDeepEqual(porId('aa65').motivos, ['COM_A_EQUIPE'], 'aa65: sem a cascata de equipe');
+});
+
+test('simulador: a pausa grava a marca; "Devolver ao Wall-e" é recusado; encerrada pela equipe, a nova mensagem não reabre o automático', async () => {
+  const m = await funcoes();
+  const vazio = { data: null, convidados: null, turno: null, pacotes: [], unidade: null, tema: null };
+  const item = (id, texto, equipe) => ({ id, conversa: 'c1', ordem: Number(id.slice(1)), texto, decisao: 'RESPONDER', intencoes: [], entidades: vazio, ...(equipe ? { equipe } : {}) });
+  const simular = (itens) => simularSequencia(m, itens, { catalogos: CATALOGOS, config: CONFIG, fontes: FONTES, agora: AGORA, entender: (t, c) => m.entenderPorRegras(t, CATALOGOS, c) });
+  const l = await simular([
+    item('p1', 'quanto fica o completa pra 80 pessoas no dia 7/11 a noite?'),
+    item('p2', 'por enquanto é só, nao precisa me mandar mais nada, mais pra frente eu procuro vcs'),
+    item('p3', 'tem estacionamento?', 'retomar'),
+    item('p4', 'e o essencial pra 40 no dia 7/11 no almoço?', 'encerrar'),
+    item('p5', 'oi?', 'assumir'),
+  ]);
+  assert.equal(l[0].saidas.length > 0, true, 'antes da pausa, automático');
+  assert.deepEqual([l[1].motivos, l[1].semAutomatico, l[1].bloqueada, l[1].saidas.length], [['PARAR_A_CONFIRMAR'], true, false, 0], 'pausa: marca, sem bloqueio definitivo, nada enviado');
+  assert.deepEqual([l[2].acaoEquipe, l[2].motivos, l[2].saidas.length, l[2].estadoDepois], ['RECUSADA_PAUSA_PEDIDA', ['COM_A_EQUIPE', 'PAUSA_PEDIDA'], 0, 'AGUARDANDO_HUMANO'], 'retomar recusado');
+  assert.deepEqual([l[3].acaoEquipe, l[3].motivos, l[3].saidas.length, l[3].estadoDepois, l[3].semAutomatico], ['ENCERRAR', ['COM_A_EQUIPE', 'PAUSA_PEDIDA'], 0, 'AGUARDANDO_HUMANO', true], 'encerrada + nova mensagem: equipe, marca continua');
+  assert.deepEqual([l[4].acaoEquipe, l[4].saidas.length, l[4].estadoDepois], ['ASSUMIR', 0, 'HUMANO'], 'a equipe ainda pode assumir (não é bloqueio)');
+  // Sem pausa, encerrar e escrever de novo reabre o automático (controle).
+  const c = await simular([item('q1', 'tem estacionamento?'), item('q2', 'e qual o endereço da asa sul?', 'encerrar')]);
+  assert.deepEqual([c[1].acaoEquipe, c[1].semAutomatico, c[1].saidas.length > 0], ['ENCERRAR', false, true]);
+});
+
+test('régua: pausa sem a marca persistente é falha crítica (só em resultado com o campo); resultados antigos não mudam', () => {
+  const base = { id: 'z1', conversa: null, ordem: null, texto: 'x', esperado: { decisao: 'PARAR_MISTO', intencoes: ['PARAR'], entidades: null }, decisao: 'EQUIPE', motivos: ['PARAR_A_CONFIRMAR'], bloqueada: false, saidas: [], resposta: '', consultas: [], consultasDetalhe: [], intencoes: [], entidades: null };
+  const categoria = CATEGORIAS_CRITICAS.find((c) => c.chave === 'PARAR_MISTO');
+  const falha = (l) => (categoria.aplica(l) ? categoria.falha(l, [l]) : 'não se aplica');
+  assert.equal(falha({ ...base, semAutomatico: false }), 'pausa sem a marca persistente');
+  assert.equal(falha({ ...base, semAutomatico: true }), null);
+  assert.equal(falha(base), null, 'resultado gravado antes da rodada 32 (sem o campo): igual');
+});
