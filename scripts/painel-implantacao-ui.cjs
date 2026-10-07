@@ -200,6 +200,16 @@ async function principal() {
     const concluir = page.getByRole('button', { name: 'Implantação concluída', exact: true });
     assert.equal(await concluir.isDisabled(), true, 'conclusão bloqueada com pendência obrigatória');
     await page.screenshot({ path: path.join(relatorios, 'ficha-pendencias.png'), fullPage: true });
+    // Resumo: a implantação incompleta aparece como alerta acionável que leva à seção da ficha.
+    await page.goto(`${base}/desenvolvedor`);
+    const alertas = page.getByRole('list', { name: 'Alertas acionáveis', exact: true });
+    await alertas.waitFor();
+    const incompleta = alertas.locator('li[data-alerta="IMPLANTACAO_INCOMPLETA"]').filter({ hasText: 'Nova Contratante UI' });
+    await incompleta.getByText('cadastro do perfil aplicado', { exact: false }).waitFor();
+    assert.equal(await incompleta.getByRole('link', { name: 'Abrir implantação', exact: true }).getAttribute('href'), `/desenvolvedor/empresas/${empresa}#t-cadastro`);
+    await page.screenshot({ path: path.join(relatorios, 'resumo-alertas.png'), fullPage: true });
+    await page.goto(`${base}/desenvolvedor/empresas/${empresa}`);
+    await pendencias.waitFor();
     // O servidor também recusa, independentemente da tela.
     const sessaoDev = await sessaoAtual();
     const revisao = Number((await client.query('SELECT revisao FROM plataforma_empresas_cadastro WHERE empresa_id=$1', [empresa])).rows[0].revisao);
@@ -223,11 +233,18 @@ async function principal() {
     await page.getByRole('cell', { name: /Implantação atualizada/ }).first().waitFor();
     await page.getByRole('cell', { name: /Implantação recusada|implantação/i }).first().waitFor().catch(() => undefined);
     await page.screenshot({ path: path.join(relatorios, 'atividade-empresa.png'), fullPage: true });
-    resultados.push('Ficha com pendências reais; CONCLUÍDA bloqueada na tela e recusada pelo servidor (409 IMPLANTACAO_PENDENTE, auditada); liberada após o perfil aplicado; Atividade filtrada pela empresa');
+    await page.goto(`${base}/desenvolvedor`);
+    await page.getByRole('heading', { name: /O que precisa de ação/ }).waitFor();
+    assert.equal(await page.locator('li[data-alerta="IMPLANTACAO_INCOMPLETA"]').filter({ hasText: 'Nova Contratante UI' }).count(), 0, 'alerta some depois da conclusão');
+    resultados.push('Ficha com pendências reais; CONCLUÍDA bloqueada na tela e recusada pelo servidor (409 IMPLANTACAO_PENDENTE, auditada); liberada após o perfil aplicado; Atividade filtrada pela empresa; alerta "Implantação incompleta" no resumo com link para a ficha, que some depois da conclusão');
     console.log('E2E_IMPLANTACAO_OK');
 
     // 5. Celular: menu, Escape e sair a partir da ficha.
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${base}/desenvolvedor`);
+    await page.getByRole('heading', { name: /O que precisa de ação/ }).waitFor();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'resumo sem rolagem horizontal no celular');
+    await page.screenshot({ path: path.join(relatorios, 'celular-resumo-alertas.png'), fullPage: true });
     await page.goto(`${base}/desenvolvedor/empresas/${empresa}`);
     const abrir = page.getByRole('button', { name: 'Abrir menu', exact: true });
     await abrir.click();
