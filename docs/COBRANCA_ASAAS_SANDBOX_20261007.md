@@ -104,15 +104,25 @@ de transação (fases A/B/C em `cobranca.ts`).
 
 - Antes de **cada** POST de criação, a contratação grava a intenção (`cobranca_eventos`, `evento_id` `kidmais:criacao:<empresa>:<uuid>`,
   `CRIACAO_EM_CURSO`). Sem conseguir gravá-la, não cria (503).
-- Resposta recebida → intenção `PROCESSADO` (`CRIACAO_CONFIRMADA`); recusa definitiva 4xx → `PROCESSADO` (`CRIACAO_RECUSADA`);
-  qualquer outro erro → relista; não confirmada → continua aberta (`CRIACAO_SEM_RESPOSTA`).
+- Resposta recebida (ou criação confirmada pela listagem) → o **id confirmado** é gravado num registro durável
+  (`kidmais:vinculo:<empresa>:<intenção>`, `CRIACAO_CONFIRMADA_SEM_VINCULO`) e a intenção **continua aberta**. Intenção e
+  registro do id só são encerrados na **mesma transação que grava o vínculo** (fase C): ou os dois, ou nenhum.
+- Recusa definitiva 4xx → intenção `PROCESSADO` (`CRIACAO_RECUSADA`); qualquer outro erro → relista; não confirmada →
+  continua aberta (`CRIACAO_SEM_RESPOSTA`).
+- Processo que cai entre a resposta e a fase C: a próxima tentativa (mesmo com a listagem vazia) reaproveita pelo id
+  durável, sem POST; a reconciliação desse registro também vincula. Falha tratada na fase C: a pendência do caso, com o
+  id, é registrada **antes** de encerrar os registros da operação.
 - Antes de criar, com a listagem vazia, a contratação lê as **pendências abertas** da empresa (qualquer motivo): com id
   conhecido, consulta pelo id e reaproveita se estiver ativa; havendo qualquer pendência aberta, **não faz POST** (503).
 - Reconciliação de uma intenção sem id e listagem vazia → `FALHOU` `AGUARDANDO_CONFIRMACAO: CRIACAO_NAO_CONFIRMADA` (continua
   aberta). Fecha só quando a assinatura aparece (vincula) ou quando a empresa já está vinculada.
-- **Sem liberação automática por tempo.** Se o POST realmente não criou nada, a empresa fica bloqueada até alguém
-  conferir no painel do Asaas e liberar. A liberação manual auditada **ainda não existe** (decisão pendente: ação no
-  painel do desenvolvedor ou no script de reconciliação; ou, alternativa, liberar após uma quarentena).
+- **Sem liberação automática por tempo.** Se o POST realmente não criou nada, a liberação é **manual e auditada**
+  (painel do desenvolvedor → ficha da empresa → "Pendências de cobrança"; `lib/assinatura/liberacao-intencao.ts`). Só
+  libera se, na mesma transação (concessão de desenvolvedor travada, trava da contratação da empresa, senha confirmada
+  há ≤ 5 min): é intenção de criação desta empresa, aberta e sem id; não há outra pendência aberta com id de assinatura;
+  o provedor, consultado na hora, não mostra assinatura não removida da empresa; a pessoa declara que conferiu no
+  painel do provedor (`CONFERI_NO_PROVEDOR_QUE_NAO_FOI_CRIADA`) e dá o motivo (10–500). Grava auditoria
+  `COBRANCA_INTENCAO_LIBERADA` com o motivo; recusas não mudam nada. Depois disso a empresa pode contratar de novo.
 
 ## Decisão central de compensação (`lib/assinatura/compensacao.ts`)
 
@@ -179,14 +189,16 @@ Render cron: não criado (custo do plano não levantado).
 - Unitários: `asaas.test.ts` 5/5, `provedor-estado.test.ts` 9/9, `webhook-asaas.test.ts` 7/7, `reconciliacao.test.ts` 2/2,
   `contratacao.test.ts` 4/4 (classificação de resultado incerto, tipo reservado recusado no webhook, toda exclusão automática
   passa pela decisão central, tabela da decisão com 15 casos).
-- `contratacao-e8.postgres.test.ts` 13/13, com **várias conexões reais** (trava de verdade) e provedor **falso**: duas contratações
+- `contratacao-e8.postgres.test.ts` 16/16, com **várias conexões reais** (trava de verdade) e provedor **falso**: duas contratações
   simultâneas; COMMIT confirmado + erro de comunicação; resposta perdida reencontrada; resposta perdida sem confirmação
   (pendência + retomada sem duplicar); queda antes do COMMIT (nada excluído); releitura impossível; falha na compensação
   (pendência e resolução posterior); duplicata paga (revisão humana); **compensação imediata com pagamento**, **recontratação
   após cancelamento com resposta perdida** e **retomada com várias ativas** (nenhuma exclusão; os três falham no código
   anterior `d043485`: excluía a paga, excluía a recontratação, escolhia a primeira); **POST com resposta perdida e listagem
   vazia** (nova tentativa não faz POST; o provedor recebe uma criação) e **processo que cai depois do POST** (intenção
-  prévia bloqueia) — os dois falham no código anterior `845ce4d`, que fazia um segundo POST.
+  prévia bloqueia) — os dois falham no código anterior `845ce4d`, que fazia um segundo POST; **POST com sucesso e queda
+  antes da fase C com a listagem vazia** (uma criação; no código anterior `9d82e79` eram duas), a mesma queda resolvida
+  pela reconciliação, e a **liberação manual** (recusas e auditoria).
 - PostgreSQL 18 descartável (cluster próprio, porta 55532, modelo `atual` + 067 + 068): `cobranca-e8.postgres.test.ts` 6/6 e
   `cobranca-068.postgres.test.ts` 7/7.
 - `npx tsc --noEmit`, ESLint dos arquivos alterados, `npm run check:v1:static` (2031 testes, lint, TypeScript, build) e
