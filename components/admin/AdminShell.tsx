@@ -153,6 +153,7 @@ export default function AdminShell({ children, vitrine }: {
     // oferecido; a pessoa ainda acessa o perfil, o painel do desenvolvedor (se tiver a concessão) e sai.
     const semEmpresaConteudo = <main className={admin.page}><section aria-labelledby="t-sem-empresa"><h1 id="t-sem-empresa">Sem empresa ativa</h1>
         <p>Sua conta não tem acesso ativo a nenhuma empresa no momento. Se isso for inesperado, fale com a Gestão da empresa ou com quem administra a plataforma.</p>
+        {cadastroAberto && <p data-retomar-cadastro>Começou o cadastro e não terminou? <Link href="/cadastro/empresa">Cadastrar sua empresa</Link></p>}
         <ul>
             <li><Link href="/admin/perfil">Meu perfil e senha</Link></li>
             {empresa?.desenvolvedor && <li><Link href="/desenvolvedor">Painel do desenvolvedor</Link></li>}

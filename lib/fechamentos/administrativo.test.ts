@@ -281,6 +281,43 @@ test('POST público continua recusando cliente existente sem prova mesmo com par
     assert.equal(res.status, 401); assert.equal((await res.json()).codigo, 'IDENTIDADE_OBRIGATORIA'); assert.equal(criacoes, 0);
 });
 
+test('POST público usa pacote e unidade do servidor e ignora empresa/unidade forjadas', async () => {
+    for (const pacoteDeOutraEmpresa of [false, true]) {
+        const a = ambiente(); let recebido: any = null;
+        if (pacoteDeOutraEmpresa) a.state.pacote.empresaId = empresaB;
+        a.mock('lib/comercial/catalogo-publico', { escopoCatalogoPublico: async () => ({ empresaId: empresaA, estabelecimentoId: 'unidade-publica' }) });
+        a.mock('lib/disponibilidade/services', {
+            revalidarHorarioSelecionado: async (i: any, _tx: any, escopo: any) => {
+                assert.deepEqual(escopo, { empresaId: empresaA, estabelecimentoId: 'unidade-publica' });
+                return { candidato: { inicio: i.inicio, fim: i.fim }, periodo: { configuracaoId: 'agenda-confiavel' } };
+            }, isAvailabilityServiceError: () => false,
+        });
+        a.mock('lib/identidade/services', { isIdentityServiceError: () => false });
+        a.mock('lib/fechamentos/services', {
+            criarFechamentoPublicoComIdentidade: async (input: any) => {
+                recebido = input;
+                return { fechamento: { id: 'fechamento-publico', status: 'RASCUNHO' },
+                    cliente: { novo: true, camposFaltantesParaContrato: [] }, aniversariante: { novo: true },
+                    resumoComercial: { pacote: { pacote: a.state.pacote, tabelaPreco: {} }, adicionais: { itens: [] } } };
+            }, isFechamentoServiceError: () => false,
+        });
+        const route = a.load('app/api/fechamentos/route.ts');
+        const { NextRequest } = req('next/server');
+        const body = { ...payload, identidadeTipo: 'NOVO_CLIENTE', nomeCliente: 'Cliente fictício', cpf: '52998224725',
+            email: 'unitario@example.invalid', cep: '00000000', logradouro: 'Rua Fictícia', numero: '1', bairro: 'Teste', cidade: 'Teste', uf: 'SP', nomeAniversariante: 'Fictício',
+            empresaId: empresaB, estabelecimentoId: 'unidade-forjada' };
+        const res = await route.POST(new NextRequest(origin + '/api/fechamentos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
+        assert.equal(res.status, pacoteDeOutraEmpresa ? 404 : 201);
+        if (pacoteDeOutraEmpresa) assert.equal(recebido, null);
+        else {
+            assert.equal(recebido.pacoteId, a.state.pacote.id);
+            assert.equal(recebido.estabelecimentoId, 'unidade-publica');
+            assert.equal(recebido.configuracaoAgendaId, 'agenda-confiavel');
+        }
+        assert.deepEqual(a.state.consultasPacote, [{ empresaId: empresaA, codigo: 'POCKET' }]);
+    }
+});
+
 /** Executa os handlers reais do formulário com hooks e HTTP em memória. */
 async function formulario() {
     const a = ambiente(), states: any[] = [], refs: any[] = [], deps: any[] = [], effects: any[] = [], redirects: string[] = [];
@@ -389,4 +426,14 @@ test('busca de pacote pela empresa comprovada: vigente, ativo, não arquivado e 
     const repositorio = ok.load('lib/comercial/repositories/comercial.repository.ts');
     await assert.rejects(repositorio.buscarPacoteAtivoPorCodigo('POCKET'), (e: any) => e.code === 'CATALOGO_PUBLICO_INDETERMINADO');
     await assert.rejects(repositorio.buscarPacoteVigenteDaEmpresaPorCodigo('', 'POCKET', { query: async () => { throw Error('não deveria consultar'); } }), (e: any) => e.code === 'CATALOGO_PUBLICO_INDETERMINADO');
+});
+test('adicional novo do banco usa o próprio código; id antigo segue mapeado; escolhas acompanham o item', () => {
+    const traduzir = ambiente().load('lib/fechamentos/comercial-input').traduzirAdicionais;
+    assert.deepEqual(traduzir(['CATEGORIA_SALGADOS'], { CATEGORIA_SALGADOS: 2 }, { CATEGORIA_SALGADOS: ['i1', 'i2', 'i1'] }).itens,
+        [{ codigo: 'CATEGORIA_SALGADOS', quantidade: 2, escolhas: ['i1', 'i2'] }]);
+    assert.deepEqual(traduzir(['mesa-cafe-p']).itens, [{ codigo: 'MESA_CAFE', quantidade: 1 }]);
+    assert.equal(traduzir(['codigo minúsculo; drop']).ok, false);
+    const id = ambiente().load('lib/fechamentos/comercial-input').idDoAdicionalNaTela;
+    assert.equal(id('MESA_CAFE'), 'mesa-cafe-p');
+    assert.equal(id('COXINHA_AB12CD34'), 'COXINHA_AB12CD34');
 });

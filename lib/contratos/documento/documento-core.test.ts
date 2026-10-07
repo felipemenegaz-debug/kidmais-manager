@@ -378,3 +378,21 @@ test("schema 2 usa o nome congelado e não o nome do modelo oficial", () => {
   assert.equal(documento.clausulas[0].texto.includes("Festa Completa"), false);
   assert.equal(documento.modeloCodigo, "FESTA_COMPLETA_V4");
 });
+
+test("Resumo lista as escolhas do adicional de categoria; outras observações do adicional não aparecem", () => {
+  const comEscolhas: ContratoSnapshotV1 = {
+    ...snapshot,
+    contratacao: {
+      ...snapshot.contratacao,
+      adicionais: [
+        { ...snapshot.contratacao.adicionais[0], nome: "Cento de salgados extra", observacoes: "Escolhas: Coxinha, Kibe" },
+        { ...snapshot.contratacao.adicionais[0], adicionalId: "66666666-6666-4666-8666-666666666666", observacoes: "nota interna do adicional" },
+      ],
+    },
+  };
+  const texto = renderizarDocumentoContrato({ snapshot: comEscolhas, numeroVersao: 1, snapshotHash }).linhas.map((l) => l.texto).join("\n");
+  assert.match(texto, /1\. Cento de salgados extra - quantidade 1/);
+  assert.match(texto, /Escolhas: Coxinha, Kibe/);
+  assert.match(texto, /2\. Penne/);
+  assert.doesNotMatch(texto, /nota interna do adicional/);
+});

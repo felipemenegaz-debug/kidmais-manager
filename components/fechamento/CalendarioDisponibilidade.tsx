@@ -280,7 +280,7 @@ export default function CalendarioDisponibilidade({
     pacoteTemDescontoDiaUtil(pacote);
 
   return (
-    <div className={styles.calendarWrap}>
+    <div className={styles.calendarWrap} data-calendario-disponibilidade>
       <div className={styles.calendarToolbar}>
         <button
           type="button"

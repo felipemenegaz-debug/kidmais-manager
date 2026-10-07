@@ -86,6 +86,12 @@ const ESTADO_POSTGRES = {
   "lib/desenvolvedor/comercial.postgres.test.ts": { descartavel: "063" },
   // Cadastro público (E6): 063 + 067 + 068 + 069 aplicadas pela própria suíte.
   "lib/cadastro/cadastro-069.postgres.test.ts": { descartavel: "063" },
+  // Adicionais do buffet: 063 + 070 aplicada pela própria suíte.
+  "lib/comercial/adicionais-070.postgres.test.ts": { descartavel: "063" },
+  // Importação da tabela de preços: 063 + 070 + 071 aplicadas pela própria suíte.
+  "lib/comercial/importacao-tabela/importacao-071.postgres.test.ts": { descartavel: "063" },
+  // Modelo de contrato da empresa: 063 + 070 + 071 + 072 aplicadas pela própria suíte.
+  "lib/contratos/modelo-empresa/modelo-072.postgres.test.ts": { descartavel: "063" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

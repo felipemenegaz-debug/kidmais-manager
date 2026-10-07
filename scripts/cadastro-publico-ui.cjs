@@ -6,7 +6,9 @@
  *   1. Planos: duração do teste vinda da configuração, "Preço a definir" sem preço configurado, botão para o cadastro.
  *   2. Cadastro: pessoa + aceites → mensagem neutra; o link chega no e-mail (arquivo); confirmar cria a conta e abre a
  *      sessão; dados da empresa → empresa em teste, Gestão da pessoa, início guiado e aviso de teste no Admin.
- *   3. Mesmo CNPJ por outra pessoa: mensagem neutra, nenhum dado da empresa existente, pedido de acesso registrado.
+ *   3. Mesmo CNPJ por outra pessoa: mensagem neutra, nenhum dado da empresa existente, pedido de acesso registrado;
+ *      essa pessoa (sem empresa) vê no Admin o link para retomar o cadastro. Resposta perdida depois da criação: botão
+ *      liberado com aviso; recarregar e reenviar retoma a mesma empresa.
  *   4. Mesmo e-mail de novo: mesma resposta; o e-mail enviado é o aviso de conta existente (sem link de confirmação).
  *   5. Celular: planos, cadastro e dados da empresa sem rolagem horizontal.
  */
@@ -138,7 +140,43 @@ async function principal() {
     await p2.screenshot({ path: path.join(relatorios, 'cnpj-existente.png'), fullPage: true });
     resultados.push('CNPJ já cadastrado: mensagem neutra sem nenhum dado da empresa existente; pedido de acesso registrado; nenhum vínculo criado');
     console.log('E2E_CNPJ_EXISTENTE_OK');
+    // Conta confirmada sem empresa volta ao Admin: a tela "Sem empresa ativa" oferece retomar o cadastro.
+    await p2.goto(`${base}/admin/dashboard`);
+    await p2.locator('[data-retomar-cadastro]').getByRole('link', { name: 'Cadastrar sua empresa' }).waitFor();
+    resultados.push('Conta confirmada sem empresa: o Admin mostra "Sem empresa ativa" com o link para retomar o cadastro');
+    console.log('E2E_RETOMAR_SEM_EMPRESA_OK');
     await ctx2.close();
+
+    // 3b. Resposta perdida depois da criação: o servidor cria, a página não recebe a resposta. O botão não fica preso;
+    // recarregar a página (chave nova) e enviar o mesmo CNPJ retoma a mesma empresa, sem "CNPJ já cadastrado".
+    const ctxR = await novoContexto();
+    const pR = await ctxR.newPage();
+    const emailCaio = 'caio-cadastro-ui@exemplo.test';
+    await pedirConta(pR, 'Caio Cadastro UI', emailCaio);
+    let perdidas = 0;
+    await pR.route('**/api/cadastro/empresa', async (route) => {
+      await route.fetch();
+      perdidas++;
+      await route.abort('connectionreset');
+    });
+    await confirmarEEmpresa(pR, emailCaio, '81567891000164', 'Buffet Retomada UI');
+    await pR.getByText('A conexão falhou antes da resposta', { exact: false }).waitFor();
+    assert.equal(await pR.getByRole('button', { name: 'Cadastrar empresa e começar o teste', exact: true }).isEnabled(), true, 'botão liberado');
+    assert.equal(perdidas, 1);
+    await pR.unroute('**/api/cadastro/empresa');
+    await pR.reload();
+    await pR.getByLabel('CNPJ').fill('81567891000164');
+    await pR.getByLabel('Razão social').fill('Buffet Retomada UI Festas Ltda');
+    await pR.getByLabel('Nome fantasia (como aparece para seus clientes)').fill('Buffet Retomada UI');
+    await pR.getByRole('checkbox').check();
+    await pR.getByRole('button', { name: 'Cadastrar empresa e começar o teste', exact: true }).click();
+    await pR.waitForURL(`${base}/admin/inicio`);
+    const retomada = (await client.query(`SELECT (SELECT count(*)::int FROM plataforma_empresas_cadastro WHERE documento_fiscal = '81567891000164') AS empresas,
+      (SELECT count(*)::int FROM solicitacoes_acesso_empresa s JOIN usuarios_administrativos u ON u.id = s.usuario_id WHERE u.email = $1) AS pedidos`, [emailCaio])).rows[0];
+    assert.deepEqual(retomada, { empresas: 1, pedidos: 0 });
+    resultados.push('Resposta perdida após a criação: aviso de conexão com o botão liberado; recarregar e reenviar o mesmo CNPJ retoma a mesma empresa (uma empresa, nenhum pedido de acesso a si mesmo)');
+    console.log('E2E_RETOMADA_OK');
+    await ctxR.close();
 
     // 4. Mesmo e-mail de novo: resposta idêntica, e-mail de conta existente.
     const ctx3 = await novoContexto();

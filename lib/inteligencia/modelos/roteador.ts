@@ -254,7 +254,7 @@ export class RoteadorModelos {
       const modelo = adaptador.modeloPara(tier);
       if (!adaptador.disponivel()) { if (!tentouAlgum) causa = "SEM_CHAVE"; continue; }
       if (!modelo) { if (!tentouAlgum) causa = "SEM_MODELO"; continue; }
-      if (pedido.imagens?.length && !adaptador.aceitaImagens()) { if (!tentouAlgum) causa = "SEM_MODELO"; continue; }
+      if ((pedido.imagens?.length || pedido.arquivos?.length) && !adaptador.aceitaImagens()) { if (!tentouAlgum) causa = "SEM_MODELO"; continue; }
       const base = { alvo, workload: pedido.workload, tier, provedor: adaptador.id, modelo, fallback: indice > 0 };
       // H2: circuito por provedor + modelo + workload (falhas do JEV não fecham o Copiloto).
       const chave = chaveCircuito(adaptador.id, modelo, pedido.workload);
@@ -267,7 +267,7 @@ export class RoteadorModelos {
         tentouAlgum = true;
         const inicio = relogio();
         const controle = new AbortController();
-        const timer = setTimeout(() => controle.abort(), politica.timeoutMs);
+        const timer = setTimeout(() => controle.abort(), pedido.prazoMs ? Math.min(Math.max(pedido.prazoMs, 1_000), 180_000) : politica.timeoutMs);
         try {
           const bruta = await adaptador.gerar(pedido as PedidoModelo<unknown>, modelo, controle.signal, { tier });
           const duracaoMs = Math.max(0, Math.round(relogio() - inicio));

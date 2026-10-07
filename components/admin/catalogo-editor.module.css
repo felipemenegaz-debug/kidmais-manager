@@ -111,3 +111,57 @@
     max-height: calc(100svh - 24px);
   }
 }
+
+.painelAdicional {
+  width: min(480px, 100%);
+  max-height: min(88vh, 760px);
+  display: grid;
+  gap: 10px;
+}
+
+.painelAdicional h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.ajuda {
+  margin: 0;
+  font-size: 13px;
+  color: var(--secondary-text);
+}
+
+.aviso {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--alert-orange, #f59e0b);
+  border-radius: 8px;
+  background: var(--input-bg);
+  font-size: 13px;
+}
+
+.linhaCheck {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+}
+
+.linhaCheck input {
+  width: auto;
+}
+
+.pacotes {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border-navy);
+  border-radius: 10px;
+}
+
+.modo { display: flex; gap: 6px; }
+.modo button[aria-pressed='true'] { background: var(--primary-violet) !important; color: #fff !important; border-color: var(--primary-violet) !important; }
+.faixas { display: grid; gap: 8px; }
+.faixaLinha { display: grid; grid-template-columns: 70px 70px minmax(0, 1fr) minmax(0, 1fr) 40px; gap: 6px; align-items: end; }
+.faixaLinha label { margin: 0 !important; }
+.faixaLinha input { margin-top: 4px !important; padding: 8px !important; }

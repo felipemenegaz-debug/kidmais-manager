@@ -75,9 +75,9 @@ const empresa = (cnpj: string, o: Record<string, unknown> = {}) => ({
     socios: [{ nome: 'Sócia Fundadora', qualificacao: 'SOCIO_ADMINISTRADOR' }], aceiteTermos: true, aceitePrivacidade: true,
     termosVersao: svc.docs.versaoVigente('TERMOS_USO').versao, privacidadeVersao: svc.docs.versaoVigente('PRIVACIDADE').versao, ...o,
 });
-async function contaConfirmada(n: string) {
+async function contaConfirmada(n: string, o: Record<string, unknown> = {}) {
     // Cada pessoa sintética vem de um IP próprio: o limite por origem (10/h) é coberto no teste do pedido.
-    await svc.cadastro.processarPedidoCadastro(svc.cadastro.validarPedidoCadastro(pedido(n) as never) as never, ctx(`198.51.100.${ipSeguinte++}`) as never, deps() as never);
+    await svc.cadastro.processarPedidoCadastro(svc.cadastro.validarPedidoCadastro(pedido(n, o) as never) as never, ctx(`198.51.100.${ipSeguinte++}`) as never, deps() as never);
     const r = await svc.cadastro.confirmarCadastro({ token: tokenPara(email(n)) } as never, ctx() as never, deps() as never) as unknown as { usuarioId: string; sessao: { token: string } };
     const sessao = await (svc.auth.consultarSessao as unknown as (t: string) => Promise<Record<string, string>>)(r.sessao.token);
     return { usuarioId: r.usuarioId, sessao };
@@ -182,6 +182,12 @@ test('empresa: criação transacional com Gestão só da pessoa, teste do CNPJ, 
     const de_novo = await cadastrar(sessao, dados);
     assert.deepEqual([de_novo.situacao, de_novo.empresaId, de_novo.repetido], ['CRIADA', r.empresaId, true]);
     assert.equal(await contar('SELECT count(*)::int AS n FROM empresas WHERE id IN (SELECT empresa_id FROM cadastros_empresas WHERE usuario_id = $1)', [usuarioId]), 1);
+    // Resposta perdida e página recarregada (chave nova, mesmo CNPJ, mesma pessoa com Gestão ativa): retoma a mesma
+    // empresa em vez de tratar a própria empresa como "CNPJ já cadastrado" e abrir pedido de acesso para ela mesma.
+    const recarregada = await cadastrar(sessao, empresa('80123456000188'));
+    assert.deepEqual([recarregada.situacao, recarregada.empresaId, recarregada.repetido], ['CRIADA', r.empresaId, true]);
+    assert.equal(await contar('SELECT count(*)::int AS n FROM solicitacoes_acesso_empresa WHERE usuario_id = $1', [usuarioId]), 0, 'sem pedido de acesso à própria empresa');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM cadastros_empresas WHERE usuario_id = $1', [usuarioId]), 1);
     // A Gestão acessa a empresa nova pela prova de tenant (só ela).
     const prova = await (svc.tenant.provarTenant as unknown as (tx: Client, s: unknown, e: string) => Promise<{ empresaComprovada: string; papelAtual: string }>)(client, { usuario_id: usuarioId, papel: 'ADMINISTRATIVO' }, r.empresaId!);
     assert.deepEqual([prova.empresaComprovada, prova.papelAtual], [r.empresaId, 'REPRESENTANTE_AUTORIZADO']);
@@ -201,6 +207,33 @@ test('CNPJ já cadastrado (outra chave, outra pessoa ou perfil legado): resposta
     assert.deepEqual(await cadastrar(sessao, empresa('80234567000161')), { situacao: 'CNPJ_EXISTENTE' });
     assert.equal(await erro(cadastrar(sessao, empresa('11.111.111/1111-11'))), 'DADOS_INVALIDOS', 'raiz repetida recusada');
     assert.equal(await erro(cadastrar(sessao, empresa('80123456000189'))), 'DADOS_INVALIDOS', 'dígito errado');
+});
+
+test('retomada só para quem criou e mantém a Gestão: vínculo encerrado → resposta neutra e pedido de acesso', async () => {
+    const { usuarioId, sessao } = await contaConfirmada('hana');
+    const r = await cadastrar(sessao, empresa('81234567000124'));
+    assert.equal(r.situacao, 'CRIADA');
+    await client.query("UPDATE memberships SET status = 'REVOGADA' WHERE usuario_id = $1 AND empresa_id = $2", [usuarioId, r.empresaId]);
+    assert.deepEqual(await cadastrar(sessao, empresa('81234567000124')), { situacao: 'CNPJ_EXISTENTE' });
+    assert.equal(await contar("SELECT count(*)::int AS n FROM solicitacoes_acesso_empresa WHERE usuario_id = $1 AND situacao = 'PENDENTE'", [usuarioId]), 1);
+});
+
+test('mesma pessoa, mesmo CNPJ, duas abas ao mesmo tempo (chaves diferentes): a trava da conta serializa → uma empresa, as duas respostas a retomam, nenhum pedido de acesso', async () => {
+    const { usuarioId, sessao } = await contaConfirmada('kai');
+    const [ra, rb] = await Promise.all([cadastrar(sessao, empresa('81678912000119')), cadastrar(sessao, empresa('81678912000119'), () => client2)]);
+    assert.deepEqual([ra.situacao, rb.situacao], ['CRIADA', 'CRIADA']);
+    assert.equal(ra.empresaId, rb.empresaId);
+    assert.deepEqual([ra.repetido, rb.repetido].sort(), [false, true]);
+    assert.equal(await contar("SELECT count(*)::int AS n FROM plataforma_empresas_cadastro WHERE documento_fiscal = '81678912000119'"), 1);
+    assert.equal(await contar('SELECT count(*)::int AS n FROM solicitacoes_acesso_empresa WHERE usuario_id = $1', [usuarioId]), 0);
+});
+
+test('nome da pessoa não é único: duas contas com o mesmo nome cadastram empresas diferentes', async () => {
+    const a = await contaConfirmada('ivo', { nome: 'Maria Silva' });
+    const b = await contaConfirmada('jon', { nome: 'Maria Silva' });
+    const [ra, rb] = [await cadastrar(a.sessao, empresa('81345678000108')), await cadastrar(b.sessao, empresa('81456789000191'))];
+    assert.deepEqual([ra.situacao, rb.situacao], ['CRIADA', 'CRIADA']);
+    assert.deepEqual((await client.query('SELECT DISTINCT responsavel_nome FROM plataforma_empresas_cadastro WHERE empresa_id = ANY($1::uuid[])', [[ra.empresaId, rb.empresaId]])).rows, [{ responsavel_nome: 'Maria Silva' }]);
 });
 
 test('concorrência: duas pessoas cadastram o mesmo CNPJ ao mesmo tempo → uma empresa, o outro recebe a resposta neutra', async () => {

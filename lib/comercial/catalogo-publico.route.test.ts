@@ -17,7 +17,7 @@ function caminhoTs(base: string) {
   return base;
 }
 
-function carregar(arquivo: string) {
+function carregar(arquivo: string, opcoes: { empresa?: string; ativa?: boolean; instalada?: boolean; ambigua?: boolean } = {}) {
   const cache = new Map<string, Record<string, unknown>>();
   const consultas: string[] = [];
   const linhas = [
@@ -27,9 +27,35 @@ function carregar(arquivo: string) {
   const postgres = {
     db() {
       return {
-        query: async (sql: string) => {
+        query: async (sql: string, valores: unknown[] = []) => {
           consultas.push(sql);
-          return { rows: linhas, rowCount: linhas.length };
+          const resultado = (rows: object[]) => ({ rows, rowCount: rows.length });
+          if (sql.includes("to_regprocedure")) return resultado([{ instalada: opcoes.instalada !== false }]);
+          if (sql.includes("information_schema.columns")) return resultado([{ ok: false }]);
+          if (sql.includes("FROM public.empresas")) return resultado([{ ok: opcoes.ativa !== false }]);
+          if (sql.includes("FROM public.estabelecimentos")) return resultado([]);
+          if (sql.includes("FROM pacotes")) {
+            assert.match(sql, /empresa_id = \$1::uuid/);
+            assert.match(sql, /vigente/);
+            assert.match(sql, /arquivado_em IS NULL/);
+            const filtradas = linhas.filter(l => l.empresa_id === valores[0] && l.codigo === valores[1]);
+            return resultado(opcoes.ambigua ? [...filtradas, ...filtradas] : filtradas);
+          }
+          if (sql.includes("FROM tabelas_preco")) {
+            assert.equal(valores[0], opcoes.empresa);
+            return resultado([{ id: "tabela-a" }]);
+          }
+          if (sql.includes("FROM pacote_adicionais")) {
+            assert.equal(valores[0], opcoes.empresa);
+            assert.equal(valores[1], linhas[0].id);
+            return resultado([{ codigo: "BOMBOM", nome: "Bombom A", categoria: "BUFFET", unidade_cobranca: "UNIDADE", modalidade: "EXTRA", valor: "5.00" }]);
+          }
+          if (sql.includes("SELECT DISTINCT i.codigo")) return resultado([]);
+          if (sql.includes("FROM pacote_buffet_categorias")) {
+            assert.equal(valores[0], linhas[0].id);
+            return resultado([{ categoria_id: "c", codigo: "DOCES", nome: "Doces A", escolhas_max: 2, item_id: "i", item_nome: "Doce A" }]);
+          }
+          throw Error("Consulta inesperada: " + sql);
         },
       };
     },
@@ -51,7 +77,7 @@ function carregar(arquivo: string) {
       if (chave.endsWith("lib/db/postgres.ts")) return postgres;
       return load(alvo);
     };
-    new Function("require", "exports", code)(localRequire, exports);
+    new Function("require", "exports", "process", code)(localRequire, exports, { ...process, env: { AGENDA_PUBLICA_EMPRESA_ID: opcoes.empresa } });
     return exports;
   }
   return { modulo: load(resolve(arquivo)), consultas, linhas };
@@ -97,4 +123,45 @@ test("buscar por código não devolve a primeira linha quando o código existe n
     (error: unknown) => error instanceof Error && "code" in error && error.code === "CATALOGO_PUBLICO_INDETERMINADO",
   );
   assert.equal(consultas.length, 0);
+});
+
+type GetPublico = (request: { nextUrl: URL }) => Promise<Response>;
+const rotas = ["pacotes", "adicionais", "catalogo"];
+const pedido = (rota: string) => ({ nextUrl: new URL(`http://localhost/api/fechamentos/${rota}?pacote=${rota === "adicionais" ? "completa" : "COMPLETA"}&data=2026-10-24&convidados=50&empresaId=${empresaB}&contexto=ADMIN`) });
+
+test("catálogo configurado: pacote, adicionais e buffet só de A, mesmo com B/ADMIN na URL", async () => {
+  for (const rota of rotas) {
+    const { modulo } = carregar(`app/api/fechamentos/${rota}/route.ts`, { empresa: empresaA });
+    const resposta = await (modulo.GET as GetPublico)(pedido(rota));
+    assert.equal(resposta.status, 200, rota);
+    assert.equal(resposta.headers.get("Cache-Control"), "no-store");
+    const corpo = await resposta.json();
+    if (rota === "pacotes") {
+      assert.equal(corpo.pacotes.length, 1);
+      assert.equal(corpo.pacotes[0].nome, "Completa A");
+    } else if (rota === "adicionais") {
+      assert.deepEqual(corpo.adicionais.map((a: { id: string; preco: number }) => [a.id, a.preco]), [["bombom", 5]]);
+    } else {
+      assert.equal(corpo.categorias[0].itens[0].nome, "Doce A");
+    }
+    assert.doesNotMatch(JSON.stringify(corpo), /Completa B/);
+  }
+});
+
+test("empresa inválida/inativa ou schema sem escopo nunca abre catálogo global", async () => {
+  for (const opcoes of [{ empresa: "invalida" }, { empresa: empresaA, ativa: false }, { empresa: empresaA, instalada: false }]) {
+    for (const rota of rotas) {
+      const { modulo, consultas } = carregar(`app/api/fechamentos/${rota}/route.ts`, opcoes);
+      const resposta = await (modulo.GET as GetPublico)(pedido(rota));
+      assert.ok([403, 503].includes(resposta.status));
+      assert.ok(consultas.every(sql => !sql.includes("FROM pacotes")), "não consulta pacote sem escopo");
+    }
+  }
+});
+
+test("revisões ambíguas são recusadas, sem juntar o buffet de dois pacotes", async () => {
+  const { modulo, consultas } = carregar("app/api/fechamentos/catalogo/route.ts", { empresa: empresaA, ambigua: true });
+  const resposta = await (modulo.GET as GetPublico)(pedido("catalogo"));
+  assert.equal(resposta.status, 404);
+  assert.ok(consultas.every(sql => !sql.includes("FROM pacote_buffet_categorias")));
 });

@@ -4,6 +4,9 @@ export type MensagemModelo = { papel: "system" | "user"; conteudo: string };
 
 export type ImagemModelo = { mime: "image/png" | "image/jpeg"; base64: string };
 
+/** PDF inteiro para provedor que lê arquivos (texto e imagem de cada página). `paginas` só estima o custo. */
+export type ArquivoModelo = { mime: "application/pdf"; nome: string; base64: string; paginas: number };
+
 /**
  * Pedido ao modelo. Não carrega DbExecutor, tenant, sessão, segredo nem ferramenta executável:
  * o modelo só pode devolver texto (JSON) que o chamador valida contra um schema fechado.
@@ -12,8 +15,12 @@ export type PedidoModelo<T> = {
   workload: Workload;
   mensagens: MensagemModelo[];
   imagens?: ImagemModelo[];
+  /** Exige provedor que aceita imagens (os mesmos que leem PDF). */
+  arquivos?: ArquivoModelo[];
   esquema: { nome: string; schema: Record<string, unknown> };
   maxTokensSaida: number;
+  /** Prazo deste pedido (ms), para leituras longas de documento. Sem ele vale AI_MODEL_TIMEOUT_MS. Teto de 180 s. */
+  prazoMs?: number;
   /** Validação determinística da saída. Lança se inválida; o roteador trata como RESPOSTA_INVALIDA. */
   validar(texto: string): T;
 };

@@ -1,5 +1,6 @@
 import { buscarClientePorId } from "../../clientes/repositories";
 import { calcularResumoComercial } from "../../comercial/services";
+import { observacoesDasEscolhas } from "../../comercial/adicionais-escolhas";
 import { centavosComerciais, validarPretensaoPix, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
 import type { DbExecutor } from "../../db/contracts";
 import { withTransaction } from "../../db/postgres";
@@ -169,6 +170,7 @@ async function criarFechamentoComercialNaTransacao(
   );
 
   const adicionais: FechamentoAdicionalRecord[] = [];
+  const escolhas = await observacoesDasEscolhas(tx, resumoComercial.adicionais.itens, input.adicionais ?? []);
 
   for (const item of resumoComercial.adicionais.itens) {
     adicionais.push(
@@ -182,6 +184,7 @@ async function criarFechamentoComercialNaTransacao(
           quantidade: item.quantidade,
           valorUnitarioAplicado: item.valorUnitarioAplicado,
           valorTotal: item.valorTotal,
+          observacoes: escolhas.get(item.adicionalId) ?? null,
         },
         tx,
       ),
