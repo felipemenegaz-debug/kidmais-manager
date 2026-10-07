@@ -83,8 +83,11 @@ que o provedor diz no momento da reconsulta. Entrega repetida não grava segundo
 | Falha | Efeito | Recuperação |
 |---|---|---|
 | Provedor fora no checkout | 502 `COBRANCA_FALHOU`, nada gravado | Tentar de novo |
-| Provedor criou cliente/assinatura e o commit local falhou | Ids não gravados | A próxima tentativa reencontra cliente e assinatura ativa pela referência externa (sem duplicar); se a falha foi só no commit, a assinatura recém-criada é removida na hora (compensação) |
-| Duas contratações simultâneas | A segunda vê ids diferentes na fase C | 409 e remove a assinatura que ela criou |
+| Duas contratações simultâneas da mesma empresa | Trava exclusiva por empresa (`pg_try_advisory_xact_lock`, conexão própria, solta sozinha se o processo cair) | A segunda recebe 409 `CONTRATACAO_EM_ANDAMENTO`; o provedor recebe **uma** criação |
+| Criação no provedor sem resposta (tempo esgotado, rede, 5xx, 408/409/429, resposta ilegível) | Pode ter sido criada | Reconsulta pela referência externa: achou uma → vincula; não deu para saber → pendência `CRIACAO_SEM_RESPOSTA` + 503 `COBRANCA_RESULTADO_INCERTO`. **Nunca cria outra às cegas** |
+| Erro depois do COMMIT da gravação (resposta perdida) | O vínculo pode estar gravado | Releitura por transação nova: vínculo desta assinatura → **sucesso**, nada desfeito |
+| Falha antes do COMMIT ou releitura impossível | Vínculo não confirmado | **Nada é excluído**; pendência `COMMIT_INCERTO`/`VINCULO_DUVIDOSO` + 503 incerto; a retomada vincula a mesma assinatura (sem duplicar) |
+| Banco confirma OUTRA assinatura vinculada (outro escritor) | A recém-criada é duplicata | Compensação: removida no provedor; se a remoção falhar → pendência `COMPENSACAO_FALHOU` (nunca ignorada) e 409 |
 | Provedor fora no cancelamento | `DELETE` não confirmado → 502, nada muda | Tentar de novo |
 | `DELETE` feito e confirmação local falhou | Provedor removido, banco ainda `ATIVA` | Webhook `SUBSCRIPTION_DELETED`, sincronização do painel ou reconciliação aplicam |
 | Provedor fora no processamento do webhook | Evento `FALHOU` (o 200 já saiu) | Reentrega do mesmo evento, novo evento da mesma assinatura, painel ou reconciliação |
@@ -95,10 +98,28 @@ A sincronização consulta o provedor **com a linha da empresa travada** (até 2
 mesma empresa nunca aplicam uma leitura antiga depois de uma nova. Checkout e cancelamento chamam o provedor **fora**
 de transação (fases A/B/C em `cobranca.ts`).
 
+## Pendências de reconciliação da contratação
+
+Sem migration nova: linhas em `cobranca_eventos` (068) com tipo `KIDMAIS_RECONCILIAR_CONTRATACAO`, `evento_id`
+`kidmais:contratacao:<empresa>:<uuid>`, `empresa_id` e motivo em `ultimo_erro`. O webhook recusa esse tipo e esse
+prefixo (não podem vir de fora). Processamento (`lib/assinatura/reconciliacao-contratacao.ts`, pela reentrega, painel
+ou script), com a linha da empresa travada:
+
+| Banco | Provedor (mesma referência externa) | Ação |
+|---|---|---|
+| sem vínculo | nenhuma ativa | nada (PROCESSADO) |
+| sem vínculo | exatamente uma ativa | vincula e sincroniza |
+| sem vínculo | várias ativas | FALHOU `REVISAO_HUMANA: VARIAS_ASSINATURAS_SEM_VINCULO` (não escolhe, não exclui) |
+| vinculada a S | outras ativas sem cobrança paga | remove as outras (compensação confirmada pelo banco) |
+| vinculada a S | outra ativa **com** cobrança paga | FALHOU `REVISAO_HUMANA: DUPLICATA_COM_PAGAMENTO` (não exclui) |
+
+Provedor fora → FALHOU com o motivo, reprocessável. Nenhuma pendência vira IGNORADO.
+
 ## Reconciliação
 
 `scripts/assinatura-reconciliar.cjs`: reprocessa eventos `PENDENTE`/`FALHOU` e ressincroniza todas as empresas com
-assinatura vinculada. **Simulação por padrão** (cada item em `BEGIN … ROLLBACK`); `--aplicar` grava (COMMIT por item).
+assinatura vinculada. **Simulação por padrão** (cada item em `BEGIN … ROLLBACK`; a remoção no provedor é só contada em
+`removeriaNoProvedor`, **nunca executada**, porque o ROLLBACK não desfaz o provedor); `--aplicar` grava (COMMIT por item).
 Alvo sempre explícito: `KIDMAIS_RECONCILIAR_DATABASE_URL` + confirmação literal `KIDMAIS_RECONCILIAR_ALVO="<banco>@<host>:<porta>"`,
 conferida também com `current_database()` depois de conectar. Recusa `DATABASE_URL`, `kidmais_manager` e bancos de
 produção. Rodar em staging exige autorização (grava em `empresa_assinaturas`, `cobranca_eventos` e `auditoria`).
@@ -124,7 +145,12 @@ Render cron: não criado (custo do plano não levantado).
 
 ## Validação (07/10/2026)
 
-- Unitários: `asaas.test.ts` 5/5, `provedor-estado.test.ts` 9/9, `webhook-asaas.test.ts` 7/7, `reconciliacao.test.ts` 1/1.
+- Unitários: `asaas.test.ts` 5/5, `provedor-estado.test.ts` 9/9, `webhook-asaas.test.ts` 7/7, `reconciliacao.test.ts` 2/2,
+  `contratacao.test.ts` 3/3 (classificação de resultado incerto, tipo reservado recusado no webhook, sem compensação silenciosa).
+- `contratacao-e8.postgres.test.ts` 8/8, com **várias conexões reais** (trava de verdade) e provedor **falso**: duas contratações
+  simultâneas; COMMIT confirmado + erro de comunicação; resposta perdida reencontrada; resposta perdida sem confirmação
+  (pendência + retomada sem duplicar); queda antes do COMMIT (nada excluído); releitura impossível; falha na compensação
+  (pendência e resolução posterior); duplicata paga (revisão humana).
 - PostgreSQL 18 descartável (cluster próprio, porta 55532, modelo `atual` + 067 + 068): `cobranca-e8.postgres.test.ts` 6/6 e
   `cobranca-068.postgres.test.ts` 7/7.
 - `npx tsc --noEmit`, ESLint dos arquivos alterados, `npm run check:v1:static` (2031 testes, lint, TypeScript, build) e
@@ -138,6 +164,7 @@ Render cron: não criado (custo do plano não levantado).
 | Mapeamento de estados | **Simulada** (função pura) — `lib/assinatura/provedor-estado.test.ts` |
 | Webhook (401/413/503/429, duplicado, fora de ordem, tipo desconhecido, provedor fora, checkout sem webhook) | **Simulada** (banco em memória + provedor falso) — `lib/assinatura/webhook-asaas.test.ts` |
 | SQL real, guarda da 068, savepoint, limite por IP real, paywall após cada passo, isolamento entre empresas | **Real no PostgreSQL 18 descartável**, provedor **falso** — `lib/assinatura/cobranca-e8.postgres.test.ts` |
+| Concorrência, resultados incertos, compensação e pendências | **Real no PostgreSQL 18 descartável (várias conexões)**, provedor **falso** — `lib/assinatura/contratacao-e8.postgres.test.ts` |
 | Guarda de alvo da reconciliação | **Simulada** (sem conexão) — `lib/assinatura/reconciliacao.test.ts` |
 | Comunicação com o Asaas sandbox, formato real das respostas, entrega real do webhook, página de pagamento | **Não verificada** (sem credenciais; proibido nesta tarefa) |
 | Execução do script de reconciliação contra um banco | **Não verificada** |

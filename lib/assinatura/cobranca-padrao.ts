@@ -4,12 +4,12 @@ import { isAcessoServiceError } from '../acessos/erros.ts';
 import { withTransaction } from '../db/postgres.ts';
 import { withTenantTransaction } from '../saas/provar-tenant.ts';
 import { clienteAsaasDoAmbiente } from './asaas.ts';
-import type { DepsCobranca } from './cobranca.ts';
+import { travaPorEmpresa, type DepsCobranca } from './cobranca.ts';
 import { processarEvento } from './sincronizacao.ts';
 
 /** Dependências reais das rotas de cobrança (banco do serviço e provedor do ambiente). */
 export function depsCobrancaPadrao(env: Record<string, string | undefined> = process.env): DepsCobranca {
-    return { withTenantTransaction, provedor: () => clienteAsaasDoAmbiente(env).cliente, env };
+    return { withTenantTransaction, withTransaction, travarContratacao: travaPorEmpresa(withTransaction), provedor: () => clienteAsaasDoAmbiente(env).cliente, env };
 }
 
 /** Erros do serviço de cobrança (AcessoServiceError) e das guardas administrativas, sem detalhe interno. */

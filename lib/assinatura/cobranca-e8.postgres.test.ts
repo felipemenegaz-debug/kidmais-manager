@@ -88,6 +88,9 @@ function deps(): DepsCobranca {
     return {
         withTenantTransaction: (_sessao, _empresa, trabalho) => emTx(() => trabalho(client as never, { empresaComprovada: ids.atual, membershipId: 'm', usuarioId: ids.usuario, papelAtual: 'REPRESENTANTE_AUTORIZADO' })),
         provedor: () => provedor, env: ENV,
+        withTransaction: (t) => emTx(() => t(client as never)),
+        // Uma conexão só: sem trava real aqui (a trava por empresa é coberta em contratacao-e8.postgres.test.ts).
+        travarContratacao: async (_empresa, t) => t(),
     };
 }
 async function sessao(reautenticadaHaSegundos = 10) {
@@ -162,19 +165,18 @@ test('checkout: grava só os ids do provedor; voltar da página sem webhook não
     provedor.vencimentoInicial.set(ids.c, dia(-45));
     let fases = 0;
     const base = deps();
-    // Fase C falha (commit perdido) e a compensação também (provedor fora naquele instante): a assinatura fica no provedor.
+    // Fase C (3ª transação de tenant: empresa, fase A, fase C) falha por comunicação sem COMMIT: o vínculo relido está
+    // vazio, então é DÚVIDA — nada é excluído no provedor, a pendência fica registrada e a resposta é "incerta".
     const perdido: DepsCobranca = { ...base, withTenantTransaction: (s, e, t) => {
         fases += 1;
-        if (fases === 2) {
-            provedor.fora = true;
-            return Promise.reject(new Error('commit perdido (simulado)'));
-        }
+        if (fases === 3)
+            return Promise.reject(Object.assign(new Error('commit perdido (simulado)'), { code: 'ECONNRESET' }));
         return base.withTenantTransaction(s, e, t);
     } };
-    await assert.rejects(iniciarAssinatura(await sessao(), null, { ciclo: 'MENSAL' }, ctx(), perdido), /commit perdido/);
-    provedor.fora = false;
+    await assert.rejects(iniciarAssinatura(await sessao(), null, { ciclo: 'MENSAL' }, ctx(), perdido), (e: { code?: string }) => e.code === 'COBRANCA_RESULTADO_INCERTO');
     assert.equal(provedor.criadas, 2);
     assert.equal((await linha(ids.c)).provedor_assinatura_id, null, 'nada gravado na falha');
+    assert.equal((await q("SELECT count(*)::int AS n FROM cobranca_eventos WHERE empresa_id = $1 AND tipo = 'KIDMAIS_RECONCILIAR_CONTRATACAO' AND ultimo_erro = 'COMMIT_INCERTO'", [ids.c])).rows[0].n, 1, 'pendência registrada');
     const retomada = await iniciarAssinatura(await sessao(), null, { ciclo: 'MENSAL' }, ctx(), deps());
     assert.equal(retomada.reaproveitada, true);
     assert.equal(provedor.criadas, 2, 'a assinatura criada antes do commit perdido foi reaproveitada');

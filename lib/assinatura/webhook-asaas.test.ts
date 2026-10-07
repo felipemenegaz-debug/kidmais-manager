@@ -280,6 +280,9 @@ test('retorno do checkout sem webhook: iniciar a assinatura grava só os ids do 
         withTenantTransaction: async (_s, _e, t) => t(banco, { empresaComprovada: EMP_A, membershipId: 'm', usuarioId: 'u', papelAtual: papel }),
         provedor: () => provedor,
         env: { ...ENV, ASSINATURA_PRECO_MENSAL_CENTAVOS: '9990' },
+        withTransaction: async (t) => t(banco),
+        // Uma conexão só: sem trava real aqui (a trava por empresa é coberta em contratacao-e8.postgres.test.ts).
+        travarContratacao: async (_empresa, t) => t(),
     };
     const sessao = { id: 's', usuario_id: '44444444-4444-4444-8444-444444444444', nome: 'G', cargo: null, papel: 'REPRESENTANTE_AUTORIZADO', autenticado_em: '', expira_em: '', csrf_hash: '' } as const;
     const ctx = { requestId: '55555555-5555-4555-8555-555555555555' };

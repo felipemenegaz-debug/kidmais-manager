@@ -12,19 +12,20 @@
  *                       FALHOU (nova tentativa por reentrega do provedor ou pela reconciliação).
  * Auditoria em `auditoria` (origem COBRANCA): situações e datas, sem valores nem dados pessoais.
  */
-import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import type { SituacaoAssinatura } from './acesso.ts';
 import type { Ciclo } from './configuracao.ts';
 import { AsaasFalhou, type ClienteAsaas } from './asaas.ts';
 import { estadoDoProvedor, type EstadoAlvo, type EstadoLocal } from './provedor-estado.ts';
+import { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao } from './sincronizacao-auditoria.ts';
+import { ehPendencia, PREFIXO_PENDENCIA, reconciliarContratacao, TIPO_PENDENCIA, type ProvedorReconciliacao } from './reconciliacao-contratacao.ts';
 
-export const ORIGEM_COBRANCA = 'COBRANCA';
+export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
+
 const ISO = (coluna: string) => `to_char((${coluna}) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type ProvedorLeitura = Pick<ClienteAsaas, 'obterAssinatura' | 'listarCobrancasDaAssinatura'>;
-export type OrigemSincronizacao = { tipo: 'WEBHOOK' | 'RECONCILIACAO' | 'GESTAO' | 'DESENVOLVEDOR'; usuarioId?: string | null; requestId?: string | null; eventoId?: string | null };
 
 type Linha = {
     situacao: SituacaoAssinatura; ciclo: Ciclo | null; periodo_atual_fim: string | null; em_atraso_desde: string | null;
@@ -47,19 +48,6 @@ export async function agoraDoBanco(tx: DbExecutor) {
 const local = (l: Linha): EstadoLocal => ({
     situacao: l.situacao, ciclo: l.ciclo, periodoAtualFim: l.periodo_atual_fim, emAtrasoDesde: l.em_atraso_desde, canceladaEm: l.cancelada_em, encerradaEm: l.encerrada_em,
 });
-
-/** Auditoria da cobrança: ator SISTEMA (webhook/reconciliação) ou a pessoa que pediu; nunca valores ou dados pessoais. */
-export async function auditarCobranca(tx: DbExecutor, input: {
-    acao: string; empresaId: string; origem: OrigemSincronizacao; antes?: Record<string, unknown> | null; depois?: Record<string, unknown> | null; justificativa?: string | null; ip?: string | null;
-}) {
-    const usuarioId = input.origem.usuarioId ?? null;
-    await tx.query(
-        `INSERT INTO auditoria (ator_tipo, usuario_id, acao, entidade_tipo, entidade_id, dados_antes, dados_depois, justificativa, origem, request_id, ip)
-         VALUES ($1, $2::uuid, $3, 'EMPRESA_ASSINATURA', $4::uuid, $5::jsonb, $6::jsonb, $7, $8, $9::uuid, $10::inet)`,
-        [usuarioId ? 'USUARIO' : 'SISTEMA', usuarioId, input.acao, input.empresaId, input.antes ? JSON.stringify(input.antes) : null,
-            JSON.stringify({ ...(input.depois ?? {}), empresaId: input.empresaId, via: input.origem.tipo, eventoId: input.origem.eventoId ?? null }),
-            input.justificativa ?? null, ORIGEM_COBRANCA, input.origem.requestId ?? randomUUID(), input.ip ?? null]);
-}
 
 export type ResultadoSincronizacao =
     | { resultado: 'SEM_ASSINATURA' | 'SEM_PROVEDOR' }
@@ -127,6 +115,9 @@ export function extrairEvento(corpo: unknown): EventoRecebido | null {
     const o = objeto(corpo);
     if (!o || typeof o.id !== 'string' || !ID_EVENTO.test(o.id) || typeof o.event !== 'string' || !TIPO.test(o.event))
         return null;
+    // Pendências internas de reconciliação nunca vêm de fora: o webhook não aceita o tipo nem o prefixo reservados.
+    if (o.event === TIPO_PENDENCIA || o.event.startsWith('KIDMAIS_') || o.id.toLowerCase().startsWith(PREFIXO_PENDENCIA))
+        return null;
     const pagamento = objeto(o.payment), assinatura = objeto(o.subscription), checkout = objeto(o.checkout);
     const referencia = opcional(pagamento?.externalReference, /^.{1,200}$/s) ?? opcional(assinatura?.externalReference, /^.{1,200}$/s);
     return {
@@ -184,7 +175,7 @@ export type ResultadoEvento = { situacao: 'PROCESSADO' | 'IGNORADO' | 'FALHOU' |
  * Processa um evento gravado (transação do chamador). A sincronização roda num SAVEPOINT: se o provedor falhar,
  * a transação continua válida e o evento fica FALHOU com a tentativa contada.
  */
-export async function processarEvento(tx: DbExecutor, eventoInternoId: string, deps: { provedor: ProvedorLeitura }): Promise<ResultadoEvento> {
+export async function processarEvento(tx: DbExecutor, eventoInternoId: string, deps: { provedor: ProvedorLeitura & Partial<ProvedorReconciliacao> }): Promise<ResultadoEvento> {
     const ev = (await tx.query<LinhaEvento>(
         `SELECT id, evento_id, tipo, situacao, assinatura_provedor_id, referencia_externa, empresa_id FROM cobranca_eventos WHERE id = $1::uuid FOR UPDATE`, [eventoInternoId])).rows[0];
     if (!ev || ev.situacao === 'PROCESSADO' || ev.situacao === 'IGNORADO')
@@ -195,6 +186,8 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
               WHERE id = $1::uuid`, [ev.id, situacao, empresaId, motivo]);
         return { situacao, empresaId, ...(motivo ? { motivo } : {}) };
     };
+    if (ehPendencia(ev))
+        return processarPendencia(tx, ev, deps.provedor, concluir);
     if (!EVENTOS_SUPORTADOS.has(ev.tipo))
         return concluir('IGNORADO', null, 'TIPO_NAO_TRATADO');
     const empresaId = await resolverEmpresa(tx, ev);
@@ -215,6 +208,36 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
             `UPDATE cobranca_eventos SET situacao = 'FALHOU', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3 WHERE id = $1::uuid`,
             [ev.id, empresaId, motivo]);
         return { situacao: 'FALHOU', empresaId, motivo };
+    }
+}
+
+/**
+ * Pendência de reconciliação da contratação (lib/assinatura/reconciliacao-contratacao.ts). Resolvida → PROCESSADO (e a
+ * empresa é sincronizada se ficou vinculada). Precisa de pessoa (várias assinaturas sem vínculo, duplicata paga) ou
+ * provedor fora → FALHOU com o motivo, visível e reprocessável. Nunca IGNORADO: não some em silêncio.
+ */
+async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: ProvedorLeitura & Partial<ProvedorReconciliacao>,
+    concluir: (situacao: 'PROCESSADO' | 'IGNORADO', empresaId: string | null, motivo: string | null) => Promise<ResultadoEvento>): Promise<ResultadoEvento> {
+    const empresaId = ev.empresa_id!;
+    const falhar = async (motivo: string) => {
+        await tx.query(`UPDATE cobranca_eventos SET situacao = 'FALHOU', tentativas = tentativas + 1, ultimo_erro = $2 WHERE id = $1::uuid`, [ev.id, motivo.slice(0, 500)]);
+        return { situacao: 'FALHOU' as const, empresaId, motivo };
+    };
+    if (!provedor.listarAssinaturasPorReferencia || !provedor.removerAssinatura)
+        return falhar('PROVEDOR_SEM_ESCRITA');
+    await tx.query('SAVEPOINT kidmais_pendencia_contratacao');
+    try {
+        const r = await reconciliarContratacao(tx, empresaId, provedor as ProvedorReconciliacao, null);
+        if (r.resultado === 'VINCULADA' || r.resultado === 'CONCILIADA')
+            await sincronizarEmpresa(tx, empresaId, { provedor }, { tipo: 'RECONCILIACAO', eventoId: ev.evento_id });
+        await tx.query('RELEASE SAVEPOINT kidmais_pendencia_contratacao');
+        if (r.resultado === 'REVISAO_HUMANA')
+            return falhar(`REVISAO_HUMANA: ${r.motivo}`);
+        return concluir('PROCESSADO', empresaId, r.resultado);
+    }
+    catch (error) {
+        await tx.query('ROLLBACK TO SAVEPOINT kidmais_pendencia_contratacao');
+        return falhar(codigoErro(error));
     }
 }
 
