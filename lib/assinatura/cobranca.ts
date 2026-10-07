@@ -27,6 +27,7 @@ import { AsaasFalhou, cicloDoProvedor, type AssinaturaProvedor, type ClienteAsaa
 import { cobrancaEmAberto } from './provedor-estado.ts';
 import { auditarCobranca, sincronizarEmpresa } from './sincronizacao.ts';
 import { registrarPendencia } from './reconciliacao-contratacao.ts';
+import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 
 const GESTAO = 'REPRESENTANTE_AUTORIZADO';
 const CNPJ = /^[0-9A-Z]{12}[0-9]{2}$/;
@@ -96,6 +97,15 @@ async function dadosDoCliente(tx: DbExecutor, empresaId: string, linha: Linha) {
 }
 
 const ativa = (a: AssinaturaProvedor | null) => Boolean(a && !a.deleted && a.status === 'ACTIVE');
+/** Retomada só com UMA candidata inequívoca (única ativa da referência, do mesmo cliente). Várias → nunca escolhe a primeira. */
+function unicaCandidata(lista: readonly AssinaturaProvedor[], clienteId: string | null) {
+    const ativas = lista.filter(ativa);
+    if (ativas.length === 0)
+        return { tipo: 'NENHUMA' as const };
+    if (ativas.length === 1 && (!ativas[0].customer || ativas[0].customer === clienteId))
+        return { tipo: 'UNICA' as const, assinatura: ativas[0] };
+    return { tipo: 'AMBIGUA' as const };
+}
 
 async function noProvedor<T>(acao: () => Promise<T>): Promise<T> {
     try {
@@ -165,9 +175,14 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             }
         }
         // Retomada: assinatura ativa criada antes e não gravada (resposta perdida, COMMIT incerto) é reaproveitada.
-        const pendente = (await provedor.listarAssinaturasPorReferencia(empresaId)).find((x) => ativa(x) && (!x.customer || x.customer === clienteId));
-        if (pendente)
-            return { assinatura: pendente, clienteId, aberta: await cobrancaAberta(provedor, pendente.id), criada: false, reaproveitada: true };
+        const retomada = unicaCandidata(await provedor.listarAssinaturasPorReferencia(empresaId), clienteId);
+        if (retomada.tipo === 'UNICA')
+            return { assinatura: retomada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, retomada.assinatura.id), criada: false, reaproveitada: true };
+        if (retomada.tipo === 'AMBIGUA') {
+            // Várias assinaturas (ou de outro cliente) para a empresa: não escolhe, não cria outra, não exclui.
+            await registrarPendenciaSegura(deps, { empresaId, assinaturaId: null, motivo: 'ASSINATURAS_AMBIGUAS' });
+            throw incerto();
+        }
         let assinatura: AssinaturaProvedor;
         try {
             assinatura = await provedor.criarAssinatura({
@@ -180,9 +195,9 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
                 throw error;
             // Resposta perdida: o provedor pode ter criado. Nunca cria outra às cegas; procura pela referência.
             const achadas = await provedor.listarAssinaturasPorReferencia(empresaId).catch(() => null);
-            const ativas = achadas?.filter(ativa) ?? null;
-            if (ativas?.length === 1)
-                return { assinatura: ativas[0], clienteId, aberta: await cobrancaAberta(provedor, ativas[0].id), criada: true, reaproveitada: false };
+            const confirmada = achadas ? unicaCandidata(achadas, clienteId) : null;
+            if (confirmada?.tipo === 'UNICA')
+                return { assinatura: confirmada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, confirmada.assinatura.id), criada: true, reaproveitada: false };
             await registrarPendenciaSegura(deps, { empresaId, assinaturaId: null, motivo: 'CRIACAO_SEM_RESPOSTA' });
             throw incerto();
         }
@@ -225,7 +240,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         });
     }
     catch (error) {
-        await resolverFalhaNoVinculo(error, empresaId, b, provedor, deps);
+        await resolverFalhaNoVinculo(error, empresaId, a.linha.provedor_assinatura_id, b, provedor, deps);
     }
     return {
         ciclo: cicloDoProvedor(b.assinatura.cycle) ?? ciclo,
@@ -272,11 +287,12 @@ async function registrarPendenciaSegura(deps: DepsCobranca, input: Parameters<ty
  * Falha na fase C (gravação do vínculo). O COMMIT pode ter acontecido mesmo com erro de comunicação, então o banco é
  * relido por uma transação nova:
  *   - vinculada a ESTA assinatura → COMMIT confirmado: segue como sucesso (nada é desfeito);
- *   - vinculada a OUTRA assinatura (estado confirmado) e esta foi criada agora → é duplicata: compensação (excluir no
- *     provedor); se a compensação falhar, pendência COMPENSACAO_FALHOU — nunca ignorada;
- *   - qualquer dúvida (releitura falhou, ou nenhuma vinculada) → NADA é excluído; pendência e resposta "incerta".
+ *   - esta foi criada agora e o banco mostra OUTRO vínculo → a decisão central (compensacao.ts) confere a assinatura
+ *     vigente e os pagamentos; só com justificativa segura exclui (falha ao excluir → pendência COMPENSACAO_FALHOU);
+ *     preservada → pendência com o motivo (vínculo que não mudou = COMMIT_INCERTO, ex.: recontratação após cancelamento);
+ *   - qualquer outra dúvida (releitura falhou, nenhuma vinculada) → NADA é excluído; pendência e resposta "incerta".
  */
-async function resolverFalhaNoVinculo(error: unknown, empresaId: string, b: { assinatura: AssinaturaProvedor; criada: boolean }, provedor: ClienteAsaas, deps: DepsCobranca) {
+async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculoAnterior: string | null, b: { assinatura: AssinaturaProvedor; criada: boolean }, provedor: ClienteAsaas, deps: DepsCobranca) {
     // Só o tipo do erro (sem mensagem, ids ou dados): permite investigar sem expor nada.
     console.warn('[cobrança] falha ao gravar o vínculo da assinatura', error instanceof Error ? ((error as { code?: string }).code ?? error.name) : typeof error);
     let vinculo: string | null | undefined;
@@ -289,14 +305,29 @@ async function resolverFalhaNoVinculo(error: unknown, empresaId: string, b: { as
     }
     if (vinculo === b.assinatura.id)
         return;
+    const responder = () => { throw error instanceof AcessoServiceError ? error : incerto(); };
     if (typeof vinculo === 'string' && b.criada) {
+        let decisao: DecisaoCompensacao | null;
         try {
-            await provedor.removerAssinatura(b.assinatura.id);
+            decisao = await decidirCompensacao(provedor, { empresaId, vinculo, vinculoAnterior, candidataId: b.assinatura.id });
         }
         catch {
-            await registrarPendenciaSegura(deps, { empresaId, assinaturaId: b.assinatura.id, motivo: 'COMPENSACAO_FALHOU' });
+            decisao = null; // provedor indisponível para confirmar: preserva
         }
-        throw error;
+        if (decisao?.excluir) {
+            try {
+                await provedor.removerAssinatura(b.assinatura.id);
+            }
+            catch {
+                await registrarPendenciaSegura(deps, { empresaId, assinaturaId: b.assinatura.id, motivo: 'COMPENSACAO_FALHOU' });
+            }
+            throw error;
+        }
+        if (decisao?.motivo === 'VINCULO_NAO_MUDOU')
+            await registrarPendenciaSegura(deps, { empresaId, assinaturaId: b.assinatura.id, motivo: 'COMMIT_INCERTO' });
+        else
+            await registrarPendenciaSegura(deps, { empresaId, assinaturaId: b.assinatura.id, motivo: decisao ? 'COMPENSACAO_PRESERVADA' : 'VINCULO_DUVIDOSO', detalhe: decisao?.motivo });
+        return responder();
     }
     if (typeof vinculo === 'string')
         throw error;

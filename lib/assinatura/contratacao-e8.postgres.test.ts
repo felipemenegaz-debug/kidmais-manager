@@ -19,7 +19,8 @@ import { AsaasFalhou, type AssinaturaProvedor, type ClienteAsaas, type CobrancaP
  *     pendência e resposta "incerta";
  *   - falha na compensação → pendência registrada (não ignorada) e resolvida depois pela reconciliação;
  *   - dúvida sobre o vínculo → nada é excluído;
- *   - retomada sem duplicidade.
+ *   - retomada sem duplicidade;
+ *   - compensação imediata com pagamento, recontratação após cancelamento e várias ativas → nenhuma exclusão.
  */
 const M067 = 'database/migrations/20261006_067_modelo_comercial_empresa.sql';
 const M068 = 'database/migrations/20261007_068_cobranca_assinatura.sql';
@@ -309,4 +310,79 @@ test('duplicata com cobrança paga nunca é removida automaticamente: revisão h
     const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor }));
     assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: DUPLICATA_COM_PAGAMENTO']);
     assert.deepEqual(provedor.removidas, []);
+});
+
+test('compensação imediata com pagamento: duplicata confirmada pelo banco mas já paga → NÃO é excluída; pendência COMPENSACAO_PRESERVADA; reconciliação pede revisão', async () => {
+    const empresa = await novaEmpresa();
+    const provedor = new AsaasFalso();
+    const cliente = (await provedor.criarCliente({ referencia: empresa })).id;
+    let nossa = '';
+    // Outro escritor vincula OUTRA assinatura vigente; a nossa já recebeu um pagamento antes da gravação.
+    provedor.depoisDeCriar = async (id) => {
+        provedor.depoisDeCriar = null;
+        nossa = id;
+        provedor.cobrancas.get(id)![0].status = 'CONFIRMED';
+        const outra = provedor.criarDireto(cliente, empresa);
+        await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3 WHERE empresa_id = $1", [empresa, cliente, outra]);
+    };
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'CONFLITO');
+    assert.deepEqual(provedor.removidas, [], 'nenhuma exclusão: a candidata tem pagamento');
+    assert.equal(provedor.ativasDe(empresa).length, 2);
+    const [pend] = await pendencias(empresa);
+    assert.deepEqual([pend.situacao, pend.ultimo_erro, pend.assinatura_provedor_id], ['PENDENTE', 'COMPENSACAO_PRESERVADA: CANDIDATA_COM_PAGAMENTO', nossa]);
+    const vinculada = await vinculo(empresa);
+    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: DUPLICATA_COM_PAGAMENTO']);
+    assert.deepEqual([provedor.removidas, await vinculo(empresa)], [[], vinculada]);
+});
+
+test('recontratação após cancelamento com resposta perdida: a referência antiga cancelada nunca justifica excluir a nova; a reconciliação vincula sem excluir', async () => {
+    const empresa = await novaEmpresa();
+    const provedor = new AsaasFalso();
+    const cliente = (await provedor.criarCliente({ referencia: empresa })).id;
+    const antiga = provedor.criarDireto(cliente, empresa);
+    await provedor.removerAssinatura(antiga);
+    provedor.removidas = [];
+    await q(`UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3, provedor_situacao = 'DELETED',
+                    situacao = 'ENCERRADA', encerrada_em = clock_timestamp() WHERE empresa_id = $1`, [empresa, cliente, antiga]);
+    // Recontratação: a resposta da criação se perde (reencontrada pela referência) e a gravação cai antes do COMMIT.
+    provedor.perderRespostaDaCriacao = true;
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor, withTenant: quedaAntesDoCommit(empresa, 3) }))), 'COBRANCA_RESULTADO_INCERTO');
+    const [nova] = provedor.ativasDe(empresa);
+    assert.ok(nova && nova !== antiga);
+    assert.deepEqual([provedor.removidas, await vinculo(empresa)], [[], antiga], 'a nova continua no provedor; o banco ainda aponta a antiga');
+    const [pend] = await pendencias(empresa);
+    assert.deepEqual([pend.ultimo_erro, pend.assinatura_provedor_id], ['COMMIT_INCERTO', nova]);
+    // Reconciliação: vínculo antigo não vigente + uma única ativa → vincula a nova; nada excluído.
+    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    assert.deepEqual([r.situacao, r.motivo], ['PROCESSADO', 'VINCULADA']);
+    assert.deepEqual([provedor.removidas, await vinculo(empresa), provedor.ativasDe(empresa)], [[], nova, [nova]]);
+    // Retomada: reaproveita a nova, sem criar outra.
+    provedor.perderRespostaDaCriacao = false;
+    const retomada = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean };
+    assert.deepEqual([retomada.reaproveitada, provedor.criadas, provedor.removidas], [true, 2, []]);
+});
+
+test('retomada com várias ativas: não escolhe a primeira, não cria nem exclui; pendência e revisão humana (inclusive com vínculo antigo cancelado)', async () => {
+    const empresa = await novaEmpresa();
+    const provedor = new AsaasFalso();
+    const cliente = (await provedor.criarCliente({ referencia: empresa })).id;
+    const s1 = provedor.criarDireto(cliente, empresa);
+    const s2 = provedor.criarDireto(cliente, empresa);
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+    assert.deepEqual([provedor.criadas, provedor.removidas, await vinculo(empresa)], [2, [], null], 'nada criado, nada excluído, nada vinculado');
+    const [pend] = await pendencias(empresa);
+    assert.deepEqual([pend.situacao, pend.ultimo_erro], ['PENDENTE', 'ASSINATURAS_AMBIGUAS']);
+    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: VARIAS_ASSINATURAS_SEM_VINCULO']);
+    // O banco aponta uma assinatura antiga já cancelada: as duas ativas NÃO viram "duplicatas" dela.
+    const antiga = provedor.criarDireto(cliente, empresa);
+    await provedor.removerAssinatura(antiga);
+    provedor.removidas = [];
+    await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3, provedor_situacao = 'DELETED' WHERE empresa_id = $1", [empresa, cliente, antiga]);
+    const r2 = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    assert.deepEqual([r2.situacao, r2.motivo], ['FALHOU', 'REVISAO_HUMANA: VARIAS_ASSINATURAS_SEM_VINCULO']);
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+    assert.deepEqual([provedor.criadas, provedor.removidas, provedor.ativasDe(empresa).sort()], [3, [], [s1, s2].sort()]);
+    assert.equal(await vinculo(empresa), antiga);
 });

@@ -84,10 +84,11 @@ que o provedor diz no momento da reconsulta. Entrega repetida não grava segundo
 |---|---|---|
 | Provedor fora no checkout | 502 `COBRANCA_FALHOU`, nada gravado | Tentar de novo |
 | Duas contratações simultâneas da mesma empresa | Trava exclusiva por empresa (`pg_try_advisory_xact_lock`, conexão própria, solta sozinha se o processo cair) | A segunda recebe 409 `CONTRATACAO_EM_ANDAMENTO`; o provedor recebe **uma** criação |
-| Criação no provedor sem resposta (tempo esgotado, rede, 5xx, 408/409/429, resposta ilegível) | Pode ter sido criada | Reconsulta pela referência externa: achou uma → vincula; não deu para saber → pendência `CRIACAO_SEM_RESPOSTA` + 503 `COBRANCA_RESULTADO_INCERTO`. **Nunca cria outra às cegas** |
+| Criação no provedor sem resposta (tempo esgotado, rede, 5xx, 408/409/429, resposta ilegível) | Pode ter sido criada | Reconsulta pela referência externa: exatamente uma ativa do mesmo cliente → vincula; não deu para saber → pendência `CRIACAO_SEM_RESPOSTA` + 503 `COBRANCA_RESULTADO_INCERTO`. **Nunca cria outra às cegas** |
 | Erro depois do COMMIT da gravação (resposta perdida) | O vínculo pode estar gravado | Releitura por transação nova: vínculo desta assinatura → **sucesso**, nada desfeito |
 | Falha antes do COMMIT ou releitura impossível | Vínculo não confirmado | **Nada é excluído**; pendência `COMMIT_INCERTO`/`VINCULO_DUVIDOSO` + 503 incerto; a retomada vincula a mesma assinatura (sem duplicar) |
-| Banco confirma OUTRA assinatura vinculada (outro escritor) | A recém-criada é duplicata | Compensação: removida no provedor; se a remoção falhar → pendência `COMPENSACAO_FALHOU` (nunca ignorada) e 409 |
+| Retomada encontra várias ativas (ou uma de outro cliente) | Ambíguo | **Não escolhe a primeira**, não cria, não exclui: pendência `ASSINATURAS_AMBIGUAS` + 503 incerto |
+| Banco mostra outro vínculo depois da criação | Talvez duplicata | **Decisão central** (`compensacao.ts`, abaixo). Exclui só com justificativa segura; falha ao excluir → pendência `COMPENSACAO_FALHOU`. Preservada → pendência `COMPENSACAO_PRESERVADA: <motivo>` (ou `COMMIT_INCERTO` quando o vínculo é o mesmo que a contratação viu — ex.: recontratação após cancelamento) |
 | Provedor fora no cancelamento | `DELETE` não confirmado → 502, nada muda | Tentar de novo |
 | `DELETE` feito e confirmação local falhou | Provedor removido, banco ainda `ATIVA` | Webhook `SUBSCRIPTION_DELETED`, sincronização do painel ou reconciliação aplicam |
 | Provedor fora no processamento do webhook | Evento `FALHOU` (o 200 já saiu) | Reentrega do mesmo evento, novo evento da mesma assinatura, painel ou reconciliação |
@@ -97,6 +98,21 @@ que o provedor diz no momento da reconsulta. Entrega repetida não grava segundo
 A sincronização consulta o provedor **com a linha da empresa travada** (até 2 chamadas de 10 s): duas sincronizações da
 mesma empresa nunca aplicam uma leitura antiga depois de uma nova. Checkout e cancelamento chamam o provedor **fora**
 de transação (fases A/B/C em `cobranca.ts`).
+
+## Decisão central de compensação (`lib/assinatura/compensacao.ts`)
+
+Único ponto que autoriza excluir uma assinatura no provedor como duplicata; usado pela compensação imediata e pela
+reconciliação. Exclui **somente** se, conferido agora:
+
+1. o banco mostra vínculo confirmado (lido de fato), diferente da candidata;
+2. o vínculo **mudou** desde o que a contratação viu (na compensação imediata) — senão `VINCULO_NAO_MUDOU`;
+3. a assinatura vinculada está **vigente** no provedor (ativa, não removida) e é da mesma empresa — senão
+   `VINCULADA_NAO_VIGENTE`/`VINCULADA_DE_OUTRA_EMPRESA`: uma referência antiga cancelada nunca justifica excluir;
+4. a candidata existe, é da mesma empresa e **todas** as cobranças estão em aberto (`PENDING`/`OVERDUE`) — pagamento →
+   `CANDIDATA_COM_PAGAMENTO`; estorno, análise ou status desconhecido → `CANDIDATA_COM_COBRANCA_INDEFINIDA`.
+
+Falha do provedor durante a decisão → preserva (pendência `VINCULO_DUVIDOSO` na contratação; FALHOU reprocessável na
+reconciliação).
 
 ## Pendências de reconciliação da contratação
 
@@ -109,9 +125,9 @@ ou script), com a linha da empresa travada:
 |---|---|---|
 | sem vínculo | nenhuma ativa | nada (PROCESSADO) |
 | sem vínculo | exatamente uma ativa | vincula e sincroniza |
-| sem vínculo | várias ativas | FALHOU `REVISAO_HUMANA: VARIAS_ASSINATURAS_SEM_VINCULO` (não escolhe, não exclui) |
-| vinculada a S | outras ativas sem cobrança paga | remove as outras (compensação confirmada pelo banco) |
-| vinculada a S | outra ativa **com** cobrança paga | FALHOU `REVISAO_HUMANA: DUPLICATA_COM_PAGAMENTO` (não exclui) |
+| sem vínculo **ou** vínculo a assinatura não ativa (antiga, cancelada) | várias ativas | FALHOU `REVISAO_HUMANA: VARIAS_ASSINATURAS_SEM_VINCULO` (não escolhe, não exclui) |
+| vínculo antigo não ativo | exatamente uma ativa | vincula se a 068 permite a troca (TESTE, CANCELADA_FIM_PERIODO, ENCERRADA); senão `REVISAO_HUMANA: VINCULO_INATIVO_COM_ACESSO` |
+| vinculada a S **ativa** | outras ativas | cada uma pela decisão central: aprovada → removida; todas preservadas por pagamento → `REVISAO_HUMANA: DUPLICATA_COM_PAGAMENTO`; outro motivo → `REVISAO_HUMANA: DUPLICATA_PRESERVADA` |
 
 Provedor fora → FALHOU com o motivo, reprocessável. Nenhuma pendência vira IGNORADO.
 
@@ -146,11 +162,14 @@ Render cron: não criado (custo do plano não levantado).
 ## Validação (07/10/2026)
 
 - Unitários: `asaas.test.ts` 5/5, `provedor-estado.test.ts` 9/9, `webhook-asaas.test.ts` 7/7, `reconciliacao.test.ts` 2/2,
-  `contratacao.test.ts` 3/3 (classificação de resultado incerto, tipo reservado recusado no webhook, sem compensação silenciosa).
-- `contratacao-e8.postgres.test.ts` 8/8, com **várias conexões reais** (trava de verdade) e provedor **falso**: duas contratações
+  `contratacao.test.ts` 4/4 (classificação de resultado incerto, tipo reservado recusado no webhook, toda exclusão automática
+  passa pela decisão central, tabela da decisão com 15 casos).
+- `contratacao-e8.postgres.test.ts` 11/11, com **várias conexões reais** (trava de verdade) e provedor **falso**: duas contratações
   simultâneas; COMMIT confirmado + erro de comunicação; resposta perdida reencontrada; resposta perdida sem confirmação
   (pendência + retomada sem duplicar); queda antes do COMMIT (nada excluído); releitura impossível; falha na compensação
-  (pendência e resolução posterior); duplicata paga (revisão humana).
+  (pendência e resolução posterior); duplicata paga (revisão humana); **compensação imediata com pagamento**, **recontratação
+  após cancelamento com resposta perdida** e **retomada com várias ativas** (nenhuma exclusão; os três falham no código
+  anterior `d043485`: excluía a paga, excluía a recontratação, escolhia a primeira).
 - PostgreSQL 18 descartável (cluster próprio, porta 55532, modelo `atual` + 067 + 068): `cobranca-e8.postgres.test.ts` 6/6 e
   `cobranca-068.postgres.test.ts` 7/7.
 - `npx tsc --noEmit`, ESLint dos arquivos alterados, `npm run check:v1:static` (2031 testes, lint, TypeScript, build) e
