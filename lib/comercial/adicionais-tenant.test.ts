@@ -97,6 +97,6 @@ test("rota admin prova o tenant; a tela admin usa a rota com Tenant Context, nã
   const tela = readFileSync("components/admin/FechamentoAdminWizard.tsx", "utf8");
   assert.match(tela, /\/api\/admin\/fechamentos\/adicionais\?/);
   assert.doesNotMatch(tela, /['`]\/api\/fechamentos\/adicionais/);
-  // A rota pública continua fechada até existir Tenant Context público (PR-C).
-  assert.match(readFileSync("app/api/fechamentos/adicionais/route.ts", "utf8"), /catalogoPublicoIndeterminado/);
+  // O catálogo público usa exclusivamente o escopo configurado no servidor.
+  assert.match(readFileSync("app/api/fechamentos/adicionais/route.ts", "utf8"), /escopoCatalogoPublico\(db\)/);
 });

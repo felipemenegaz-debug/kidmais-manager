@@ -281,6 +281,43 @@ test('POST público continua recusando cliente existente sem prova mesmo com par
     assert.equal(res.status, 401); assert.equal((await res.json()).codigo, 'IDENTIDADE_OBRIGATORIA'); assert.equal(criacoes, 0);
 });
 
+test('POST público usa pacote e unidade do servidor e ignora empresa/unidade forjadas', async () => {
+    for (const pacoteDeOutraEmpresa of [false, true]) {
+        const a = ambiente(); let recebido: any = null;
+        if (pacoteDeOutraEmpresa) a.state.pacote.empresaId = empresaB;
+        a.mock('lib/comercial/catalogo-publico', { escopoCatalogoPublico: async () => ({ empresaId: empresaA, estabelecimentoId: 'unidade-publica' }) });
+        a.mock('lib/disponibilidade/services', {
+            revalidarHorarioSelecionado: async (i: any, _tx: any, escopo: any) => {
+                assert.deepEqual(escopo, { empresaId: empresaA, estabelecimentoId: 'unidade-publica' });
+                return { candidato: { inicio: i.inicio, fim: i.fim }, periodo: { configuracaoId: 'agenda-confiavel' } };
+            }, isAvailabilityServiceError: () => false,
+        });
+        a.mock('lib/identidade/services', { isIdentityServiceError: () => false });
+        a.mock('lib/fechamentos/services', {
+            criarFechamentoPublicoComIdentidade: async (input: any) => {
+                recebido = input;
+                return { fechamento: { id: 'fechamento-publico', status: 'RASCUNHO' },
+                    cliente: { novo: true, camposFaltantesParaContrato: [] }, aniversariante: { novo: true },
+                    resumoComercial: { pacote: { pacote: a.state.pacote, tabelaPreco: {} }, adicionais: { itens: [] } } };
+            }, isFechamentoServiceError: () => false,
+        });
+        const route = a.load('app/api/fechamentos/route.ts');
+        const { NextRequest } = req('next/server');
+        const body = { ...payload, identidadeTipo: 'NOVO_CLIENTE', nomeCliente: 'Cliente fictício', cpf: '52998224725',
+            email: 'unitario@example.invalid', cep: '00000000', logradouro: 'Rua Fictícia', numero: '1', bairro: 'Teste', cidade: 'Teste', uf: 'SP', nomeAniversariante: 'Fictício',
+            empresaId: empresaB, estabelecimentoId: 'unidade-forjada' };
+        const res = await route.POST(new NextRequest(origin + '/api/fechamentos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
+        assert.equal(res.status, pacoteDeOutraEmpresa ? 404 : 201);
+        if (pacoteDeOutraEmpresa) assert.equal(recebido, null);
+        else {
+            assert.equal(recebido.pacoteId, a.state.pacote.id);
+            assert.equal(recebido.estabelecimentoId, 'unidade-publica');
+            assert.equal(recebido.configuracaoAgendaId, 'agenda-confiavel');
+        }
+        assert.deepEqual(a.state.consultasPacote, [{ empresaId: empresaA, codigo: 'POCKET' }]);
+    }
+});
+
 /** Executa os handlers reais do formulário com hooks e HTTP em memória. */
 async function formulario() {
     const a = ambiente(), states: any[] = [], refs: any[] = [], deps: any[] = [], effects: any[] = [], redirects: string[] = [];
