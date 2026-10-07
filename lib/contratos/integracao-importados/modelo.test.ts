@@ -101,6 +101,12 @@ test('unidade, pacote de referência, preço âncora e cliente ativo são exigid
   assert.match(avaliar(decisoesBase({ estabelecimentoId: null }), snapshotBase(), r).bloqueios.join(' '), /Escolha a unidade/);
   assert.match(avaliar(decisoesBase(), snapshotBase(), { ...r, pacote: null }).bloqueios.join(' '), /pacote do sistema/);
   assert.match(avaliar(decisoesBase(), snapshotBase(), { ...r, precoReferencia: null }).bloqueios.join(' '), /linha de preço/);
+  // Preço GERAL sem regra de categoria para o dia e o turno: mensagem clara, não integra.
+  assert.match(avaliar(decisoesBase(), snapshotBase(), { ...r, precoReferencia: { ...r.precoReferencia!, categoria: 'GERAL' }, categoriaHorario: null }).bloqueios.join(' '), /preço Geral e não existe categoria comercial \(Padrão ou Nobre\)/);
+  // Sem linha de preço: só o bloqueio da linha (sem mensagem de categoria duplicada).
+  assert.doesNotMatch(avaliar(decisoesBase(), snapshotBase(), { ...r, precoReferencia: null, categoriaHorario: null }).bloqueios.join(' '), /categoria comercial/);
+  // Preço GERAL é válido como categoria do preço aplicado: não bloqueia.
+  assert.deepEqual(avaliar(decisoesBase(), snapshotBase(), { ...r, precoReferencia: { ...r.precoReferencia!, categoria: 'GERAL' } }).bloqueios, []);
   assert.match(avaliar(decisoesBase(), snapshotBase(), { ...r, cliente: { ...r.cliente, status: 'MESCLADO' } }).bloqueios.join(' '), /não está ativo/);
   // Sem unidades cadastradas: a empresa é a unidade única.
   assert.deepEqual(avaliar(decisoesBase({ estabelecimentoId: null }), snapshotBase(), { ...r, estabelecimentos: [] }).bloqueios, []);
