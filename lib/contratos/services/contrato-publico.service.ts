@@ -283,10 +283,17 @@ export async function montarContextoContratoPublico(
   const resumo = gerarResumoContratacaoPdfDaVersao(versao);
   // Contrato histórico assinado em papel: sem documento eletrônico, sem aceite e sem comprovante (nada fictício).
   const papel = versaoAssinadaEmPapel(versao);
-  const modeloOficial = papel ? { disponivel: false, modeloCodigo: null, templateVersao: null, homologadoParaProducao: false } : contratoOficialDisponivelParaVersao(versao);
-  const contratoOficial = modeloOficial.disponivel
+  const oficial = papel ? { disponivel: false, modeloCodigo: null, templateVersao: null, homologadoParaProducao: false } : contratoOficialDisponivelParaVersao(versao);
+  let contratoOficial = oficial.disponivel
     ? await lerDocumento(versao)
     : null;
+  // 072: contrato no padrão da empresa — o PDF revisado fica guardado na versão; vale mesmo sem modelo oficial Kidmais
+  // para o pacote. Sem documento guardado, segue indisponível como antes.
+  if (!papel && !contratoOficial) contratoOficial = await lerDocumento(versao).catch(() => null);
+  const modeloOficial: { disponivel: boolean; modeloCodigo: string | null; templateVersao: number | null; homologadoParaProducao: boolean } =
+    !oficial.disponivel && contratoOficial
+      ? { disponivel: true, modeloCodigo: contratoOficial.modeloCodigo, templateVersao: contratoOficial.templateVersao, homologadoParaProducao: contratoOficial.documento.homologadoParaProducao }
+      : oficial;
 
   return {
     contrato: {

@@ -314,9 +314,10 @@ function latin1(value: string) {
   return Buffer.from(value, "latin1");
 }
 
-export function gerarPdfContratoOficial(documento: ContratoOficialRenderizado): Buffer {
+/** `logo: false`: contrato no padrão de outra empresa (072) não leva a logo da Kidmais. */
+export function gerarPdfContratoOficial(documento: ContratoOficialRenderizado, opcoes: { logo?: boolean } = {}): Buffer {
   const bodies = buildBodies(documento);
-  const logo = carregarLogo();
+  const logo = opcoes.logo === false ? null : carregarLogo();
   const regularId = 3;
   const boldId = 4;
   const monoId = 5;

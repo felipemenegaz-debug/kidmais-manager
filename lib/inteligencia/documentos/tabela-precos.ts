@@ -65,23 +65,26 @@ export class EnvioRecusado extends Error {
  * Envio (ou releitura) da tabela pela tela. Portas injetadas pela rota (composition root): Tenant Context real e os
  * serviços do Core que guardam o PDF e a revisão. Só quem gere a empresa; a empresa não pode mudar entre as etapas.
  */
-export async function atenderLeituraTabela<Tx>(
+export async function atenderLeituraTabela<Tx, R = LeituraTabelaResultado>(
   entrada: { importacaoId: string | null; lerArquivo: () => Promise<ArquivoRecebido> },
   deps: {
     emTenant: <T>(trabalho: (tx: Tx, tenant: Tenant) => Promise<T>) => Promise<T>;
     registrar: (tx: Tx, ctx: Ctx, arquivo: ArquivoValidado) => Promise<string>;
     arquivoDe: (tx: Tx, empresaId: string, id: string) => Promise<ArquivoValidado>;
-    gravar: (tx: Tx, ctx: Ctx, id: string, leitura: LeituraTabelaResultado) => Promise<unknown>;
+    gravar: (tx: Tx, ctx: Ctx, id: string, leitura: R) => Promise<unknown>;
     usuarioId: string;
     requestId: string;
     limiteBytes: number;
     hoje: string;
     roteador: RoteadorModelos | null;
     envioExterno: boolean;
+    /** Leitura pelo modelo (padrão: tabela de preços). O modelo de contrato passa a sua. */
+    ler?: (entrada: { roteador: RoteadorModelos | null; envioExterno: boolean; alvo: AlvoRoteamento; arquivo: ArquivoValidado }) => Promise<R>;
+    mensagemPapel?: string;
   },
 ): Promise<{ status: number; corpo: Record<string, unknown> }> {
   const gestao = (t: Tenant) => {
-    if (t.papelAtual !== "REPRESENTANTE_AUTORIZADO") throw new PacoteAdminError("PAPEL_NAO_AUTORIZADO", "Apenas o proprietário pode importar a tabela de preços.", 403);
+    if (t.papelAtual !== "REPRESENTANTE_AUTORIZADO") throw new PacoteAdminError("PAPEL_NAO_AUTORIZADO", deps.mensagemPapel ?? "Apenas o proprietário pode importar a tabela de preços.", 403);
   };
   try {
     const empresaId = await deps.emTenant(async (_tx, t) => { gestao(t); return t.empresaComprovada; });
@@ -103,7 +106,8 @@ export async function atenderLeituraTabela<Tx>(
       arquivo = novo;
       id = await deps.emTenant(async (tx, t) => { mesmaEmpresa(t); return deps.registrar(tx, ctx, novo); });
     }
-    const leitura = await lerTabelaComModelo({
+    const ler = deps.ler ?? (lerTabelaComModelo as unknown as NonNullable<typeof deps.ler>);
+    const leitura = await ler({
       roteador: deps.roteador, envioExterno: deps.envioExterno, arquivo,
       alvo: { empresaId, capacidade: "extrair_documento", correlationId: deps.requestId, hoje: deps.hoje },
     });
