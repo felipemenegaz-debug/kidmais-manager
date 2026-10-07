@@ -18,7 +18,7 @@ import type { Ciclo } from './configuracao.ts';
 import { AsaasFalhou, type ClienteAsaas } from './asaas.ts';
 import { estadoDoProvedor, type EstadoAlvo, type EstadoLocal } from './provedor-estado.ts';
 import { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao } from './sincronizacao-auditoria.ts';
-import { ehPendencia, PREFIXO_PENDENCIA, reconciliarContratacao, TIPO_PENDENCIA, type ProvedorReconciliacao } from './reconciliacao-contratacao.ts';
+import { ehPendencia, PREFIXO_CRIACAO, PREFIXO_PENDENCIA, reconciliarContratacao, TIPO_PENDENCIA, type ProvedorReconciliacao } from './reconciliacao-contratacao.ts';
 
 export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
 
@@ -227,12 +227,15 @@ async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: Pro
         return falhar('PROVEDOR_SEM_ESCRITA');
     await tx.query('SAVEPOINT kidmais_pendencia_contratacao');
     try {
-        const r = await reconciliarContratacao(tx, empresaId, provedor as ProvedorReconciliacao, null);
+        const r = await reconciliarContratacao(tx, empresaId, provedor as ProvedorReconciliacao, null,
+            { criacao: ev.evento_id.startsWith(PREFIXO_CRIACAO), assinaturaId: ev.assinatura_provedor_id });
         if (r.resultado === 'VINCULADA' || r.resultado === 'CONCILIADA')
             await sincronizarEmpresa(tx, empresaId, { provedor }, { tipo: 'RECONCILIACAO', eventoId: ev.evento_id });
         await tx.query('RELEASE SAVEPOINT kidmais_pendencia_contratacao');
         if (r.resultado === 'REVISAO_HUMANA')
             return falhar(`REVISAO_HUMANA: ${r.motivo}`);
+        if (r.resultado === 'AGUARDANDO')
+            return falhar(`AGUARDANDO_CONFIRMACAO: ${r.motivo}`);
         return concluir('PROCESSADO', empresaId, r.resultado);
     }
     catch (error) {

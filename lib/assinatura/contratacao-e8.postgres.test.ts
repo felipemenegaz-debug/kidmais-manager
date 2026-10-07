@@ -20,6 +20,7 @@ import { AsaasFalhou, type AssinaturaProvedor, type ClienteAsaas, type CobrancaP
  *   - falha na compensação → pendência registrada (não ignorada) e resolvida depois pela reconciliação;
  *   - dúvida sobre o vínculo → nada é excluído;
  *   - retomada sem duplicidade;
+ *   - POST com resposta perdida e listagem vazia → nenhum outro POST até a assinatura aparecer (registro prévio);
  *   - compensação imediata com pagamento, recontratação após cancelamento e várias ativas → nenhuma exclusão.
  */
 const M067 = 'database/migrations/20261006_067_modelo_comercial_empresa.sql';
@@ -66,6 +67,10 @@ class AsaasFalso implements ClienteAsaas {
     falharListagensRestantes = 0;
     falharRemocao = false;
     depoisDeCriar: ((id: string) => Promise<void>) | null = null;
+    /** POSTs de criação de assinatura recebidos (inclusive os que "perderam" a resposta). */
+    postsCriacao = 0;
+    /** Assinaturas que já existem mas ainda não aparecem na listagem (atraso de consistência do provedor). */
+    ocultasNaListagem = new Set<string>();
     private seq = 0;
     /** Ids únicos por instância: as empresas de testes diferentes nunca compartilham ids do provedor. */
     private readonly prefixo = randomBytes(3).toString('hex');
@@ -77,7 +82,7 @@ class AsaasFalso implements ClienteAsaas {
             this.falharListagensRestantes -= 1;
             throw new AsaasFalhou('listar assinaturas', null, 'TEMPO_ESGOTADO');
         }
-        return [...this.assinaturas.values()].filter((a) => a.externalReference === ref && !a.deleted).map((a) => ({ ...a }));
+        return [...this.assinaturas.values()].filter((a) => a.externalReference === ref && !a.deleted && !this.ocultasNaListagem.has(a.id)).map((a) => ({ ...a }));
     }
     criarDireto(cliente: string, ref: string) {
         this.criadas += 1;
@@ -87,6 +92,7 @@ class AsaasFalso implements ClienteAsaas {
         return id;
     }
     async criarAssinatura(i: { cliente: string; referencia: string }) {
+        this.postsCriacao += 1;
         if (this.atrasoCriacaoMs) await new Promise((ok) => setTimeout(ok, this.atrasoCriacaoMs));
         const id = this.criarDireto(i.cliente, i.referencia);
         if (this.depoisDeCriar) await this.depoisDeCriar(id);
@@ -130,7 +136,9 @@ function deps(empresa: string, o: Opcoes): DepsCobranca {
 const sessao = () => ({ id: 's', usuario_id: usuario, nome: 'Gestão', cargo: null, papel: 'REPRESENTANTE_AUTORIZADO' as const, autenticado_em: '', expira_em: '', csrf_hash: '' });
 const contratar = (empresa: string, d: DepsCobranca) => iniciarAssinatura(sessao(), null, { ciclo: 'MENSAL' }, { requestId: randomUUID() }, d);
 const vinculo = async (empresa: string) => (await q('SELECT provedor_assinatura_id AS id FROM empresa_assinaturas WHERE empresa_id = $1', [empresa])).rows[0].id as string | null;
-const pendencias = async (empresa: string) => (await q('SELECT id, situacao, ultimo_erro, assinatura_provedor_id FROM cobranca_eventos WHERE empresa_id = $1 AND tipo = $2 ORDER BY recebido_em', [empresa, TIPO_PENDENCIA])).rows;
+/** Pendências ABERTAS (PENDENTE/FALHOU); intenções de criação já confirmadas ficam PROCESSADO e não aparecem aqui. */
+const pendencias = async (empresa: string) => (await q("SELECT id, evento_id, situacao, ultimo_erro, assinatura_provedor_id FROM cobranca_eventos WHERE empresa_id = $1 AND tipo = $2 AND situacao IN ('PENDENTE', 'FALHOU') ORDER BY recebido_em", [empresa, TIPO_PENDENCIA])).rows;
+const intencoes = async (empresa: string) => (await q("SELECT situacao, ultimo_erro FROM cobranca_eventos WHERE empresa_id = $1 AND evento_id LIKE 'kidmais:criacao:%' ORDER BY recebido_em", [empresa])).rows.map((r) => [r.situacao, r.ultimo_erro]);
 async function codigo(p: Promise<unknown>) {
     try { await p; return 'OK'; } catch (e) { return (e as { code?: string }).code ?? (e as Error).message; }
 }
@@ -193,6 +201,7 @@ test('duas contratações simultâneas da mesma empresa: uma assinatura no prove
     assert.deepEqual([terceira.reaproveitada, provedor.criadas], [true, 1]);
     assert.ok(terceira.urlPagamento);
     assert.deepEqual(await pendencias(empresa), []);
+    assert.deepEqual(await intencoes(empresa), [['PROCESSADO', 'CRIACAO_CONFIRMADA']], 'uma intenção, gravada antes do POST e fechada');
 });
 
 test('COMMIT confirmado no banco seguido de erro de comunicação: releitura confirma o vínculo, resposta normal, nada desfeito', async () => {
@@ -259,9 +268,10 @@ test('queda antes do COMMIT com vínculo não confirmado: NADA é excluído; pen
 test('releitura do vínculo impossível: dúvida total → nada excluído, pendência registrada pela conexão que funcionar', async () => {
     const empresa = await novaEmpresa();
     const provedor = new AsaasFalso();
-    let primeira = true;
+    // Transações comuns: 1 = pendências abertas, 2 = intenção, 3 = intenção confirmada, 4 = releitura do vínculo (falha).
+    let n = 0;
     const withTx: DepsCobranca['withTransaction'] = (t) => {
-        if (primeira) { primeira = false; return Promise.reject(Object.assign(new Error('Connection terminated'), { code: 'ECONNRESET' })); }
+        if (++n === 4) { return Promise.reject(Object.assign(new Error('Connection terminated'), { code: 'ECONNRESET' })); }
         return withTransaction(t);
     };
     assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor, withTenant: quedaAntesDoCommit(empresa, 3), withTx }))), 'COBRANCA_RESULTADO_INCERTO');
@@ -385,4 +395,57 @@ test('retomada com várias ativas: não escolhe a primeira, não cria nem exclui
     assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
     assert.deepEqual([provedor.criadas, provedor.removidas, provedor.ativasDe(empresa).sort()], [3, [], [s1, s2].sort()]);
     assert.equal(await vinculo(empresa), antiga);
+});
+
+test('POST com resposta perdida e listagem vazia: nova tentativa NÃO cria outra; a pendência fica aberta até a primeira aparecer; o provedor recebe UMA criação', async () => {
+    const empresa = await novaEmpresa();
+    const provedor = new AsaasFalso();
+    let primeira = '';
+    // 1º POST: o provedor cria, a resposta se perde e a assinatura ainda não aparece na listagem.
+    provedor.perderRespostaDaCriacao = true;
+    provedor.depoisDeCriar = async (id) => { primeira = id; provedor.ocultasNaListagem.add(id); };
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+    assert.deepEqual([provedor.postsCriacao, await vinculo(empresa)], [1, null]);
+    const [pend] = await pendencias(empresa);
+    assert.deepEqual([pend.situacao, pend.ultimo_erro, pend.evento_id.startsWith('kidmais:criacao:')], ['PENDENTE', 'CRIACAO_SEM_RESPOSTA', true]);
+    // Nova tentativa com a listagem ainda vazia: o provedor responderia normalmente, mas NÃO há outro POST.
+    provedor.perderRespostaDaCriacao = false;
+    provedor.depoisDeCriar = null;
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+    assert.equal(provedor.postsCriacao, 1, 'listagem vazia não libera outro POST');
+    // A reconciliação também não fecha a pendência com listagem vazia.
+    const aguardando = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    assert.deepEqual([aguardando.situacao, aguardando.motivo], ['FALHOU', 'AGUARDANDO_CONFIRMACAO: CRIACAO_NAO_CONFIRMADA']);
+    assert.deepEqual((await pendencias(empresa)).map((x) => x.id), [pend.id], 'a mesma pendência continua aberta');
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+    assert.equal(provedor.postsCriacao, 1);
+    // Só agora a primeira assinatura aparece: a retomada a reaproveita, sem criar outra.
+    provedor.ocultasNaListagem.clear();
+    const r = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean; urlPagamento: string | null };
+    assert.deepEqual([r.reaproveitada, Boolean(r.urlPagamento), await vinculo(empresa)], [true, true, primeira]);
+    const fechada = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    assert.deepEqual([fechada.situacao, fechada.motivo], ['PROCESSADO', 'NADA_A_FAZER']);
+    assert.deepEqual([provedor.postsCriacao, provedor.criadas, provedor.ativasDe(empresa), provedor.removidas, await pendencias(empresa)], [1, 1, [primeira], [], []],
+        'o provedor recebeu UMA criação; nada excluído; nenhuma pendência aberta');
+});
+
+test('processo cai logo depois do POST: a intenção prévia (CRIACAO_EM_CURSO) continua aberta e bloqueia outro POST enquanto a listagem estiver vazia', async () => {
+    const empresa = await novaEmpresa();
+    const provedor = new AsaasFalso();
+    const cliente = (await provedor.criarCliente({ referencia: empresa })).id;
+    // Estado deixado por um processo que gravou a intenção, fez o POST (o provedor criou) e morreu antes de anotar.
+    const { registrarPendencia } = await import('./reconciliacao-contratacao.ts');
+    await withTransaction((tx) => registrarPendencia(tx, { empresaId: empresa, assinaturaId: null, motivo: 'CRIACAO_EM_CURSO', operacao: 'criacao' }));
+    const orfa = provedor.criarDireto(cliente, empresa);
+    provedor.ocultasNaListagem.add(orfa);
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+    assert.deepEqual([provedor.postsCriacao, await intencoes(empresa)], [0, [['PENDENTE', 'CRIACAO_EM_CURSO']]], 'nenhum POST: a operação anterior não foi resolvida');
+    const [pend] = await pendencias(empresa);
+    const espera = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    assert.equal(espera.situacao, 'FALHOU');
+    provedor.ocultasNaListagem.clear();
+    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    assert.deepEqual([r.situacao, r.motivo, await vinculo(empresa)], ['PROCESSADO', 'VINCULADA', orfa]);
+    const retomada = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean };
+    assert.deepEqual([retomada.reaproveitada, provedor.postsCriacao, provedor.removidas, (await pendencias(empresa)).length], [true, 0, [], 0]);
 });

@@ -71,6 +71,17 @@ class BancoFalso {
             return rows([]);
         }
         // iniciarAssinatura
+        if (s.startsWith('SELECT id, evento_id, assinatura_provedor_id FROM cobranca_eventos WHERE empresa_id = $1::uuid'))
+            return rows(this.eventos.filter((e) => e.evento_id.startsWith('kidmais:') && e.evento_id.includes(String(p[0])) && ['PENDENTE', 'FALHOU'].includes(e.situacao))
+                .map((e) => ({ id: e.id, evento_id: e.evento_id, assinatura_provedor_id: null })));
+        if (s.startsWith("UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $2")) {
+            Object.assign(this.eventos.find((x) => x.id === p[0])!, { situacao: 'PROCESSADO', processado_em: this.agora, ultimo_erro: p[1] });
+            return rows([]);
+        }
+        if (s.startsWith('UPDATE cobranca_eventos SET ultimo_erro = $2')) {
+            Object.assign(this.eventos.find((x) => x.id === p[0])!, { ultimo_erro: p[1] });
+            return rows([]);
+        }
         if (s.startsWith('SELECT a.situacao, a.ciclo')) {
             const a = this.assinaturas.get(String(p[0]));
             return rows(a ? [{ ...a, documento_teste: '11222333000181', nome: 'Buffet', hoje: '2026-10-20' }] : []);
@@ -294,9 +305,11 @@ test('retorno do checkout sem webhook: iniciar a assinatura grava só os ids do 
     const r = await iniciarAssinatura(sessao, null, { ciclo: 'MENSAL' }, ctx, deps);
     assert.deepEqual(r, { ciclo: 'MENSAL', reaproveitada: false, urlPagamento: 'https://sandbox.asaas.com/i/pay_1', vencimento: '2026-10-20' });
     assert.deepEqual(chamadas, ['buscarCliente', `criarCliente:${EMP_A}`, 'listarAssinaturas', 'criarAssinatura:MENSAL:9990:2026-10-20']);
+    assert.deepEqual(banco.eventos.filter((e) => e.evento_id.startsWith('kidmais:criacao:')).map((e) => [e.situacao, e.ultimo_erro]), [['PROCESSADO', 'CRIACAO_CONFIRMADA']],
+        'intenção gravada antes do POST e fechada depois da resposta');
     const depois = banco.assinaturas.get(EMP_A)!;
     assert.deepEqual([depois.situacao, depois.periodo_atual_fim, depois.provedor_assinatura_id, depois.provedor_cliente_id], [antes.situacao, null, 'sub_novo', 'cus_novo']);
-    assert.ok(!banco.sql.some((s) => /SET situacao/.test(s)), 'nenhuma escrita de situação ao iniciar');
+    assert.ok(!banco.sql.some((s) => /empresa_assinaturas SET situacao/.test(s)), 'nenhuma escrita de situação da assinatura ao iniciar');
     // Voltar da página de pagamento é só leitura (a tela de retorno faz GET /api/admin/assinatura).
     const retorno = readFileSync('components/admin/AssinaturaRetorno.tsx', 'utf8');
     assert.match(retorno, /adminFetch\('\/api\/admin\/assinatura'\)/);
