@@ -183,7 +183,9 @@ A 062 não atribui escopo a nada existente (sem backfill). Depois dela, **contin
    - Depois, rodar `database/repairs/20261002_062_bloqueios_propriedade.sql`, que trava se faltar decisão para
      qualquer bloqueio.
    - O levantamento mostra as empresas do autor do bloqueio só como **indício**.
-   - Pelo painel, uma empresa não consegue desativar um bloqueio sem dono, porque isso liberaria todas.
+   - Pelo painel, a própria empresa libera um bloqueio sem dono quando é a dona plausível (autor com vínculo nela, ou
+     nenhuma outra empresa ATIVA/SUSPENSA): a decisão vai para `agenda_062_bloqueios_resolucao` e o registro fica
+     atribuído e inativo. Quando o bloqueio pode ser de outra empresa, a decisão continua com a plataforma.
 
 3. **Unidade de contratação existente (D2):** decisão por contratação em `agenda_062_fechamentos_resolucao`
    (unidade, quem decidiu, motivo); aplicada por `database/repairs/20261002_062_fechamentos_unidade.sql`, que trava
@@ -581,7 +583,8 @@ Para repetir suítes específicas, use `KIDMAIS_POSTGRES_SOMENTE` com os caminho
    - o levantamento lista o que ainda é global.
 2. **Painel de Disponibilidade:**
    - administradores com membership acessam;
-   - bloqueio sem dono aparece como "vale para todas" e não pode ser desativado;
+   - bloqueio sem dono aparece como anterior à separação por empresa e pode ser liberado pela empresa dona plausível
+     (ver item 2 acima); quando pode ser de outra empresa, só a plataforma decide;
    - bloqueio novo pertence à empresa.
 3. **Importação nova (evento futuro, parte paga):**
    - "Falta integrar" aparece depois do registro;

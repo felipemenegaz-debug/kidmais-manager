@@ -27,7 +27,7 @@ async function main(){
   await context.route('**/api/**',async route=>{
    const req=route.request(),u=new URL(req.url());if(req.method()!=='GET'){blocked.push(req.method()+' '+u.pathname);return route.abort();}
    let data;
-   if(u.pathname==='/api/admin/autenticacao')data={usuarioId:'sessao-somente-visual',nome:'Validação sem gravação',papel:'REPRESENTANTE_AUTORIZADO',csrf:'visual'};
+   if(u.pathname==='/api/admin/autenticacao')data={usuarioId:'sessao-somente-visual',nome:'Validação sem gravação',papel:'REPRESENTANTE_AUTORIZADO',contexto:{empresaAtual:{id:'e',nome:'Empresa visual',papel:'REPRESENTANTE_AUTORIZADO'},empresas:[],gestaoNaEmpresa:true,plataforma:true,desenvolvedor:false,selecaoNecessaria:false},csrf:'visual'};
    else if(u.pathname==='/api/admin/festas')data=festaData;
    else if(u.pathname==='/api/admin/contratos/painel'){if(u.searchParams.has('contratoId')){assert.equal(u.searchParams.get('contratoId'),cid);data=painel;}else data=[{id:cid,nome:contrato.snapshot.contratante.nomeCompleto}];}
    else if(u.pathname===`/api/admin/contratos/${cid}/financeiro`){await new Promise(r=>setTimeout(r,600));data={painel:financeiro,papel:'REPRESENTANTE_AUTORIZADO'};}

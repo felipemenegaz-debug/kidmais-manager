@@ -117,7 +117,7 @@ test('respostas de erro: tabela ausente vira 503 explícito; erro desconhecido n
     const falhar = http.falhar as (e: unknown) => Response;
     const r503 = falhar(Object.assign(new Error('relation "convites_acesso" does not exist'), { code: '42P01' }));
     assert.equal(r503.status, 503);
-    assert.match(JSON.stringify(await r503.json()), /estrutura de recuperação de senha/);
+    assert.match(JSON.stringify(await r503.json()), /migration 063/);
     const original = console.error;
     console.error = () => undefined;
     try {
@@ -264,4 +264,17 @@ test('custo do hash: redefinição pública não calcula scrypt acima do limite 
     assert.equal(valido.contar(), 1);
     const ordem = valido.tx.executados.map((q) => q.sql);
     assert.ok(ordem.findIndex((s) => /SELECT tentativas/.test(s)) < ordem.findIndex((s) => /FROM recuperacoes_senha r/.test(s)), 'limite antes do token');
+});
+
+test('custo do hash: aceite de convite com token inexistente ou acima do limite não calcula scrypt', async () => {
+    process.env.ADMIN_AUTH_SECRET = 'segredo-sintetico-de-teste-unitario-0123456789';
+    const convites = carregarModulo('lib/acessos/convites.ts', { ...dubleBanco }) as Mod;
+    const aceitar = convites.aceitarConvite as (raw: unknown, ctx: unknown, deps: unknown) => Promise<unknown>;
+    for (const limiteOk of [false, true]) {
+        let hashes = 0;
+        const tx = executorFalso([[/SELECT tentativas/, () => [{ tentativas: limiteOk ? 0 : 99, bloqueado: !limiteOk, reiniciar: false }]]]);
+        const deps = { withTransaction: async (w: (t: typeof tx) => Promise<unknown>) => w(tx), criarHashSenha: async () => { hashes += 1; return 'h'; }, conferirSenha: async () => false, registrarAuditoria: async () => undefined, enviarEmail: async () => undefined, gerarToken: () => 'x' };
+        await assert.rejects(aceitar({ token: 'B'.repeat(43), nome: 'Pessoa Nova', senha: 'nova-senha-1', confirmacao: 'nova-senha-1' }, ctx, deps));
+        assert.equal(hashes, 0, `limite ${limiteOk ? 'ok' : 'estourado'}`);
+    }
 });

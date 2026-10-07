@@ -24,6 +24,12 @@ import {
   consultarDisponibilidadePeriodo,
 } from "@/lib/disponibilidade/services";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import {
+  bloqueioLegadoSemDono,
+  liberarBloqueioLegadoPelaEmpresa,
+  podeResolverBloqueioLegado,
+  resolverEDesativarBloqueioLegado,
+} from "@/lib/disponibilidade/bloqueios-legados";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import {
   contextoCrmDaRequest,
@@ -51,6 +57,7 @@ const unidadeSchema = z.string().uuid().nullable().optional();
 const horaSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 
 const operacaoSchema = z.discriminatedUnion("tipo", [
+  z.object({ tipo: z.literal("resolver_bloqueio_legado"), bloqueioId: z.string().uuid(), motivo: z.string().trim().min(5).max(1000) }),
   z.object({
     tipo: z.literal("agenda"),
     data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -70,6 +77,8 @@ const operacaoSchema = z.discriminatedUnion("tipo", [
   z.object({
     tipo: z.literal("desativar_bloqueio"),
     bloqueioId: z.string().uuid(),
+    // Só usado quando o bloqueio é anterior à separação por empresa (fica registrado na resolução).
+    motivo: z.string().trim().min(5).max(1000).optional(),
   }),
   z.object({
     tipo: z.literal("pacote"),
@@ -175,7 +184,7 @@ export async function GET(request: NextRequest) {
         : inicio && fim
           ? await consultarDisponibilidadePeriodo(dataSchema.parse(inicio), dataSchema.parse(fim), tx, undefined, escopo)
           : null;
-      return { ...(await montarConfigAdmin(tx, escopo)), dias };
+      return { ...(await montarConfigAdmin(tx, escopo)), dias, podeResolverLegado: await agendaPorEscopoInstalada(tx) && await podeResolverBloqueioLegado(tx, sessao.usuario_id) };
     });
     return NextResponse.json(resposta, {
       headers: { "Cache-Control": "no-store" },
@@ -351,10 +360,16 @@ export async function POST(request: NextRequest) {
           },
           tx,
         );
+      } else if (op.tipo === "resolver_bloqueio_legado") {
+        if (!await agendaPorEscopoInstalada(tx)) throw new AvailabilityServiceError("AGENDA_SEM_ESCOPO", "Use a desativação normal nesta agenda.", 409);
+        await resolverEDesativarBloqueioLegado(tx, escopo, sessao, op.bloqueioId, op.motivo);
       } else if (op.tipo === "desativar_bloqueio") {
-        const desativado = await desativarBloqueioAgendaPorId(op.bloqueioId, tx, escopo);
-
-        if (!desativado) {
+        // Bloqueio anterior à separação por empresa (sem dono): a própria empresa libera, com a decisão registrada;
+        // bloqueio de agenda nunca pertence a contrato, então nenhuma reserva é afetada por esta liberação.
+        const legado = (await agendaPorEscopoInstalada(tx)) && (await bloqueioLegadoSemDono(tx, op.bloqueioId));
+        if (legado) {
+          await liberarBloqueioLegadoPelaEmpresa(tx, escopo, sessao.usuario_id, op.bloqueioId, op.motivo);
+        } else if (!(await desativarBloqueioAgendaPorId(op.bloqueioId, tx, escopo))) {
           return NextResponse.json(
             {
               ok: false,

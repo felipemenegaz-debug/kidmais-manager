@@ -129,7 +129,7 @@ export type Evento = { data: string; inicio: string; fim: string };
 
 /** Importação CONFIRMADA (IMPORTADA) com original real e o snapshot como o motor grava. */
 export async function importacao(db: Client, c: Cenario, evento: Evento, apenasRascunho = false) {
-  const cliente = apenasRascunho ? randomUUID() : await id(db, `INSERT INTO clientes (nome_completo, empresa_id, telefone) VALUES ('Cliente 061', $1::uuid, '11999990000') RETURNING id`, [c.empresa]);
+  const cliente = apenasRascunho ? randomUUID() : await id(db, `INSERT INTO clientes (nome_completo, empresa_id, telefone, whatsapp, cpf) VALUES ('Cliente 061', $1::uuid, '11999990000', '11999990000', $2) RETURNING id`, [c.empresa, cpfValido()]);
   const documento = await id(db, `INSERT INTO ia_documentos (empresa_id, tipo, status, enviado_por) VALUES ($1::uuid, 'CONTRATO_HISTORICO', 'RECEBIDO', $2::uuid) RETURNING id`, [c.empresa, c.usuario]);
   const pdf = Buffer.from(`%PDF-1.4\n% contrato em papel ${randomUUID()}\n%%EOF\n`);
   const sha = createHash("sha256").update(pdf).digest("hex");

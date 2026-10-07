@@ -1,3 +1,6 @@
+import { carregarSnapshot } from '../services/contrato.service';
+import { buscarFechamentoPorId } from '../../fechamentos/repositories';
+import { atualizarClienteInterno } from '../../clientes/services/cliente.service';
 import { registrarAuditoria } from '../../clientes/repositories/auditoria.repository';
 import { registrarEventoHistorico } from '../../clientes/repositories/historico.repository';
 import { cadastrarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
@@ -12,6 +15,10 @@ import type { Core } from './servico';
 
 /** Porta `Core` ligada aos repositórios e serviços nativos, sempre no executor da transação do tenant. */
 export const coreNativo: Core = {
+  // Conferência histórica: e-mail e endereço são opcionais; o contratante gravado vem do cadastro conferido
+  // (montarSnapshotVersao), então o snapshot nativo não exige o cadastro completo aqui.
+  snapshotFechamento: async (tx, fechamentoId) => { const f = await buscarFechamentoPorId(fechamentoId, tx); if (!f) throw Error("Fechamento da integração não encontrado."); return { ...(await carregarSnapshot(f, tx, undefined, { exigirCadastroCompleto: false })).snapshot }; },
+  atualizarCliente: async (tx, clienteId, empresaId, cadastro, ctx) => { await atualizarClienteInterno(clienteId, empresaId, cadastro, { ...ctx, origem: "CRM_INTERNO" }, tx); },
   criarFechamento: async (tx, input) => criarFechamento(input as unknown as CreateFechamentoInput, tx),
   registrarAuditoria: (tx, input) => registrarAuditoria(input, tx),
   registrarEventoHistorico: (tx, input) => registrarEventoHistorico(input, tx),

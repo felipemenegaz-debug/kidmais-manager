@@ -17,6 +17,7 @@ export type AcessoErroCodigo =
     | 'EMAIL_FALHOU'
     | 'ULTIMA_GESTAO'
     | 'ULTIMA_ADMINISTRADORA'
+    | 'IMPLANTACAO_PENDENTE'
     | 'PAINEL_INDISPONIVEL';
 
 export class AcessoServiceError extends Error {

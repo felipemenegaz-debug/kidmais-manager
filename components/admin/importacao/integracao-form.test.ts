@@ -1,3 +1,4 @@
+import { cadastroBase } from '../../../lib/contratos/integracao-importados/fixtures.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decisoesSchema, financeiroSchema } from '../../../lib/contratos/integracao-importados/modelo.ts';
@@ -18,7 +19,7 @@ const PACOTE = '33333333-3333-4333-8333-333333333333';
 
 function preenchido(mudar: Partial<FormIntegracao> = {}): FormIntegracao {
   const f = formInicial({ sugestao, estabelecimentos: [{ id: UNIDADE }] });
-  return { ...f, situacaoContrato: 'VIGENTE', pacoteReferenciaId: PACOTE, situacaoFinanceira: 'PARCIALMENTE_PAGO',
+  return { ...f, cadastro: cadastroBase(), aniversariante: 'Lia', situacaoContrato: 'VIGENTE', pacoteReferenciaId: PACOTE, situacaoFinanceira: 'PARCIALMENTE_PAGO',
     parcelas: [novaParcela({ valor: '2.550,00', vencimento: '2026-08-01', recebida: true, recebidaEm: '2026-08-03', forma: 'PIX' }), novaParcela({ valor: '5.950,00', vencimento: '2026-11-14' })],
     conferenciaDeclarada: true, ...mudar };
 }
@@ -66,6 +67,9 @@ test('pagamentos: soma, data futura de recebimento e forma obrigatória são con
 test('payload da tela é aceito pelo esquema do servidor e não carrega empresa, usuário nem valores calculados', () => {
   const d = decisoesDoForm(preenchido({ data: '2026-11-15', motivos: { data: 'Contrato diz dia 15', convidados: 'não alterado' } }), sugestao);
   const lido = decisoesSchema.parse(d);
+  assert.ok(!('telefone' in d.cadastro), 'telefone fixo não é exibido nem enviado: o valor do CRM é preservado');
+  assert.equal(lido.cadastro?.telefone, undefined);
+  assert.equal(lido.cadastro?.whatsapp, '');
   assert.deepEqual(lido.motivos, { data: 'Contrato diz dia 15' }, 'motivo só de campo corrigido');
   assert.equal(lido.valorContratadoCentavos, 850000);
   assert.deepEqual(lido.financeiro, { situacao: 'PARCIALMENTE_PAGO', parcelas: [

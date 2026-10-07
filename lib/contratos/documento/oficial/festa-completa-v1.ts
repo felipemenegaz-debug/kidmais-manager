@@ -22,8 +22,10 @@ const CPF_REPRESENTANTE = "226.945.441-34";
 
 function enderecoContratante(snapshot: ContratoSnapshot) {
   const e = snapshot.contratante.endereco;
+  if (!e) return "Não informado";
   const complemento = e.complemento?.trim() ? `, ${e.complemento.trim()}` : "";
-  return `${e.logradouro}, ${e.numero}${complemento}, ${e.bairro}, ${e.cidade}/${e.uf}, CEP ${formatarCep(e.cep)}`;
+  const cep = e.cep ? `, CEP ${formatarCep(e.cep)}` : "";
+  return `${e.logradouro}, ${e.numero}${complemento}, ${e.bairro}, ${e.cidade}/${e.uf}${cep}`;
 }
 
 function telefoneContratante(snapshot: ContratoSnapshot) {
@@ -108,7 +110,7 @@ export function renderizarContratoOficialFestaCompletaV1(
   ];
 
   const contratante = [
-    `CONTRATANTE: ${s.contratante.nomeCompleto}, CPF ${formatarCpf(s.contratante.cpf)}, RG ${textoOuNaoInformado(s.contratante.rg)}, telefone ${telefoneContratante(s)}, e-mail ${s.contratante.email}, endereço ${enderecoContratante(s)}.`,
+    `CONTRATANTE: ${s.contratante.nomeCompleto}, CPF ${formatarCpf(s.contratante.cpf)}, RG ${textoOuNaoInformado(s.contratante.rg)}, telefone ${telefoneContratante(s)}, e-mail ${textoOuNaoInformado(s.contratante.email)}, endereço ${enderecoContratante(s)}.`,
     responsavelAdicional(s),
     `Aniversariante: ${s.aniversariante.nome}, ${idadeAniversariante(s)}. Tema: ${textoOuNaoInformado(s.aniversariante.temaFesta)}.`,
   ];

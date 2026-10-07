@@ -58,6 +58,7 @@ type AdminPayload = DisponibilidadeConfig & {
   bloqueios?: BloqueioAgendaRecord[];
   dias?: DisponibilidadeDataPublica[] | null;
   agendaPorEscopo?: boolean;
+  podeResolverLegado?: boolean;
   unidades?: Array<{ id: string; nome: string }>;
   unidadeId?: string | null;
 };
@@ -91,6 +92,7 @@ export default function AdminDisponibilidade() {
   const [unidadeId, setUnidadeId] = useState("");
   const [unidades, setUnidades] = useState<Array<{ id: string; nome: string }>>([]);
   const [agendaPorEscopo, setAgendaPorEscopo] = useState(false);
+  const [podeResolverLegado, setPodeResolverLegado] = useState(false);
   // D6 (opção A): unidades da empresa e a habilitação explícita para agenda (Representante autorizado, com motivo).
   const [gestaoUnidades, setGestaoUnidades] = useState<UnidadeAgendaGestao[]>([]);
   const [motivoUnidade, setMotivoUnidade] = useState("");
@@ -151,6 +153,7 @@ export default function AdminDisponibilidade() {
     return {
       unidades: admin.unidades ?? [],
       agendaPorEscopo: admin.agendaPorEscopo === true,
+      podeResolverLegado: admin.podeResolverLegado === true,
       config: {
         agenda: [],
         pacoteOverrides: admin.pacoteOverrides ?? [],
@@ -194,6 +197,7 @@ export default function AdminDisponibilidade() {
       setOperacionalPorData(dados.operacionalPorData);
       setUnidades(dados.unidades);
       setAgendaPorEscopo(dados.agendaPorEscopo);
+      setPodeResolverLegado(dados.podeResolverLegado);
       sincronizarDescontoFormulario(
         dados.config,
         pacote,
@@ -222,6 +226,7 @@ export default function AdminDisponibilidade() {
         setOperacionalPorData(dados.operacionalPorData);
         setUnidades(dados.unidades);
         setAgendaPorEscopo(dados.agendaPorEscopo);
+        setPodeResolverLegado(dados.podeResolverLegado);
         if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
       } catch {
         if (cancelado) return;
@@ -658,9 +663,32 @@ export default function AdminDisponibilidade() {
                             <span>{bloqueio.motivo}</span>
                             {bloqueio.observacoes && <small>{bloqueio.observacoes}</small>}
                             {agendaPorEscopo && bloqueio.alcance === "GLOBAL" && (
-                              <small>Anterior à separação por empresa: vale para todas até a atribuição do dono.</small>
+                              <small>Bloqueio anterior à separação da agenda por empresa. Ao liberar, ele passa a pertencer a esta empresa e fica inativo; o registro e o motivo são preservados.</small>
                             )}
                           </div>
+                          {agendaPorEscopo && bloqueio.alcance === "GLOBAL" && (
+                            <button type="button" disabled={salvando} onClick={() => {
+                              const justificativa = window.prompt(
+                                "Motivo da liberação deste horário (mínimo 5 caracteres):",
+                                "Liberado pela empresa no painel da agenda.",
+                              );
+                              if (justificativa === null) return;
+                              if (justificativa.trim().length < 5) {
+                                setMensagem("Informe o motivo da liberação (mínimo 5 caracteres).");
+                                return;
+                              }
+                              if (!window.confirm("Liberar este horário? O bloqueio antigo passa a pertencer a esta empresa e fica inativo. Reservas de contratos não são afetadas.")) return;
+                              void enviar({ tipo: "desativar_bloqueio", bloqueioId: bloqueio.id, motivo: justificativa.trim() });
+                            }}>Liberar horário</button>
+                          )}
+                          {agendaPorEscopo && bloqueio.alcance === "GLOBAL" && podeResolverLegado && (
+                            <button type="button" disabled={salvando} onClick={() => {
+                              const justificativa = window.prompt("Confirme que este bloqueio pertence à empresa e unidade selecionadas. Informe o motivo da atribuição e desativação (mínimo 5 caracteres):");
+                              if (!justificativa) return;
+                              if (!window.confirm("Atribuir este bloqueio antigo à empresa/unidade selecionadas e desativá-lo? A data poderá ficar disponível. O registro e o motivo serão preservados.")) return;
+                              void enviar({ tipo: "resolver_bloqueio_legado", bloqueioId: bloqueio.id, motivo: justificativa });
+                            }}>Atribuir pela plataforma</button>
+                          )}
                           {!(agendaPorEscopo && bloqueio.alcance === "GLOBAL") && (
                             <button
                               type="button"

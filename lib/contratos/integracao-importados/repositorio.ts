@@ -1,4 +1,6 @@
+import type { CadastroContratual } from '../../clientes/cadastro-contratual.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
+import { buscarCategoriaHorarioAplicavel } from '../../comercial/repositories/comercial.repository.ts';
 import type { SnapshotHistorico } from '../../importacao-contrato/plano.ts';
 
 /**
@@ -36,16 +38,16 @@ export async function documentoOriginal(tx: DbExecutor, empresaId: string, docum
   return r.rows[0] ?? null;
 }
 
-export type ClienteIntegracao = { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string };
+export type ClienteIntegracao = { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>>;
 
 export async function clienteDaEmpresa(tx: DbExecutor, empresaId: string, clienteId: string, travar: boolean): Promise<ClienteIntegracao | null> {
-  const r = await tx.query<{ id: string; nome_completo: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string }>(
-    `SELECT id::text, nome_completo, cpf, telefone, whatsapp, email, status FROM clientes
+  const r = await tx.query<{ id: string; nome_completo: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null; status: string } & Partial<Record<keyof CadastroContratual, string | null>>>(
+    `SELECT id::text, nome_completo, cpf, rg, telefone, whatsapp, email, cep, logradouro, numero, complemento, bairro, cidade, uf, status FROM clientes
       WHERE id = $1::uuid AND empresa_id = $2::uuid${travar ? ' FOR SHARE' : ''}`,
     [clienteId, empresaId],
   );
   const l = r.rows[0];
-  return l ? { id: l.id, nomeCompleto: l.nome_completo, cpf: l.cpf, telefone: l.telefone, whatsapp: l.whatsapp, email: l.email, status: l.status } : null;
+  return l ? { ...l, id: l.id, nomeCompleto: l.nome_completo, cpf: l.cpf, telefone: l.telefone, whatsapp: l.whatsapp, email: l.email, status: l.status } : null;
 }
 
 /** Unidades elegíveis para agenda (regra única da 062: kidmais062_unidade_agendavel; D6). A integração exige a 062. */
@@ -85,22 +87,41 @@ export async function pacoteDaEmpresa(tx: DbExecutor, empresaId: string, pacoteI
  * o contratado é o do documento. Preferência: tabela vigente na data do evento, depois ativa, categoria do dia,
  * faixa de convidados, tabela mais recente.
  */
-export async function precoReferencia(tx: DbExecutor, empresaId: string, pacoteId: string, data: string, convidados: number) {
-  const r = await tx.query<{ tabela_preco_id: string; preco_pacote_id: string; categoria: 'PADRAO' | 'NOBRE' }>(
+export async function precoReferencia(tx: DbExecutor, empresaId: string, pacoteId: string, data: string, convidados: number, regraHorario: 'PADRAO' | 'NOBRE' | null) {
+  // Com regra de categoria para a data e o turno: a linha da categoria da regra vem primeiro, depois a GERAL (vale para
+  // todos os horários). Sem regra: a MESMA ordem de antes (palpite pelo fim de semana), para não mudar importações que já
+  // funcionavam. A categoria da linha é devolvida como está: é a categoria do PREÇO aplicado.
+  const r = await tx.query<{ tabela_preco_id: string; preco_pacote_id: string; categoria: 'GERAL' | 'PADRAO' | 'NOBRE' }>(
     `SELECT t.id::text AS tabela_preco_id, pp.id::text AS preco_pacote_id, pp.categoria_horario AS categoria
        FROM precos_pacote pp JOIN tabelas_preco t ON t.id = pp.tabela_preco_id
       WHERE pp.pacote_id = $1::uuid AND t.empresa_id = $2::uuid
       ORDER BY (t.vigencia_inicio <= $3::date AND (t.vigencia_fim IS NULL OR t.vigencia_fim >= $3::date)) DESC,
                t.ativa DESC,
-               (pp.categoria_horario = CASE WHEN extract(isodow FROM $3::date) IN (6, 7) THEN 'NOBRE' ELSE 'PADRAO' END) DESC,
+               (CASE WHEN $5::text IS NOT NULL THEN pp.categoria_horario = $5::text
+                     ELSE pp.categoria_horario = CASE WHEN extract(isodow FROM $3::date) IN (6, 7) THEN 'NOBRE' ELSE 'PADRAO' END END) DESC,
+               ($5::text IS NOT NULL AND pp.categoria_horario = 'GERAL') DESC,
                ($4::int BETWEEN pp.convidados_min AND coalesce(pp.convidados_max, 32767)) DESC,
                pp.ativo DESC, t.vigencia_inicio DESC, pp.id
       LIMIT 1
       FOR SHARE OF pp, t`,
-    [pacoteId, empresaId, data, convidados],
+    [pacoteId, empresaId, data, convidados, regraHorario],
   );
   const l = r.rows[0];
   return l ? { tabelaPrecoId: l.tabela_preco_id, precoPacoteId: l.preco_pacote_id, categoria: l.categoria } : null;
+}
+
+/**
+ * Regra de categoria do horário (PADRAO/NOBRE) pela MESMA consulta do fechamento comum (obterContextoComercial): a regra
+ * ativa e vigente de `regras_categoria_horario` para o dia da semana da data e o turno. null SÓ quando a consulta
+ * comprova que não há regra (ou não há turno); erros de banco propagam e nunca viram "sem regra".
+ */
+export async function regraCategoriaHorario(tx: DbExecutor, data: string, configuracaoAgendaId: string | null): Promise<'PADRAO' | 'NOBRE' | null> {
+  if (!configuracaoAgendaId) return null;
+  const regra = await buscarCategoriaHorarioAplicavel(data, configuracaoAgendaId, tx);
+  if (!regra) return null;
+  // Configuração inválida não é "sem regra": falha alto em vez de cair no fallback.
+  if (regra.categoriaHorario !== 'PADRAO' && regra.categoriaHorario !== 'NOBRE') throw new Error('Regra de categoria de horário com valor inválido.');
+  return regra.categoriaHorario;
 }
 
 /**
@@ -267,14 +288,17 @@ export type VinculoExistente = {
   financeiroDeclarado: 'CONFERIDO' | 'NAO_CONFERIDO'; financeiro: { id: string; pagamentoId: string; payloadHash: string; chave: string } | null;
   /** Valor contratado da versão conferida (centavos): a pendência de pagamentos nunca muda o contratado. */
   valorContratadoCentavos: number;
+  /** Contrato integrado cancelado: o vínculo é histórico; reimportar exige enviar o arquivo de novo (064). */
+  contratoCancelado: boolean;
 };
 
 export async function vinculoDaImportacao(tx: DbExecutor, empresaId: string, importacaoId: string): Promise<VinculoExistente | null> {
-  const r = await tx.query<{ id: string; contrato_id: string; fechamento_id: string; versao_id: string; payload_hash: string; chave: string; declarado: 'CONFERIDO' | 'NAO_CONFERIDO'; fin_id: string | null; pagamento_id: string | null; fin_hash: string | null; fin_chave: string | null; valor_contratado: string | null }>(
+  const r = await tx.query<{ id: string; contrato_id: string; fechamento_id: string; versao_id: string; payload_hash: string; chave: string; declarado: 'CONFERIDO' | 'NAO_CONFERIDO'; fin_id: string | null; pagamento_id: string | null; fin_hash: string | null; fin_chave: string | null; valor_contratado: string | null; contrato_status: string | null }>(
     `SELECT ci.id::text, ci.contrato_id::text, ci.fechamento_id::text, ci.contrato_versao_id::text AS versao_id, ci.payload_hash,
             ci.chave_idempotencia::text AS chave, ci.financeiro_declarado AS declarado,
             f.id::text AS fin_id, f.pagamento_id::text, f.payload_hash AS fin_hash, f.chave_idempotencia::text AS fin_chave,
-            (SELECT v.snapshot->'comercial'->>'valorFinalContrato' FROM contrato_versoes v WHERE v.id = ci.contrato_versao_id) AS valor_contratado
+            (SELECT v.snapshot->'comercial'->>'valorFinalContrato' FROM contrato_versoes v WHERE v.id = ci.contrato_versao_id) AS valor_contratado,
+            (SELECT c.status FROM contratos c WHERE c.id = ci.contrato_id) AS contrato_status
        FROM contrato_importacoes ci LEFT JOIN contrato_importacao_financeiro f ON f.contrato_importacao_id = ci.id
       WHERE ci.importacao_id = $1::uuid AND ci.empresa_id = $2::uuid`,
     [importacaoId, empresaId],
@@ -283,6 +307,7 @@ export async function vinculoDaImportacao(tx: DbExecutor, empresaId: string, imp
   if (!l) return null;
   return {
     id: l.id, contratoId: l.contrato_id, fechamentoId: l.fechamento_id, versaoId: l.versao_id, payloadHash: l.payload_hash.trim(), chave: l.chave,
+    contratoCancelado: l.contrato_status === 'CANCELADO',
     financeiroDeclarado: l.declarado,
     financeiro: l.fin_id ? { id: l.fin_id, pagamentoId: l.pagamento_id!, payloadHash: (l.fin_hash ?? '').trim(), chave: l.fin_chave! } : null,
     valorContratadoCentavos: Math.round(Number(l.valor_contratado ?? 0) * 100),

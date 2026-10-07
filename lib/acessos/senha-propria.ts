@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { DbExecutor } from '../db/contracts';
 import { withTransaction as withTransactionPadrao } from '../db/postgres';
 import { registrarAuditoria as registrarAuditoriaPadrao } from '../clientes/repositories/auditoria.repository';
-import { consultarSessao, consumirLimite, criarSessaoAdministrativa, limparLimite, revogarSessoesDoUsuario } from '../autenticacao/service.ts';
+import { consultarSessao, consumirLimite, criarSessaoAdministrativa, limparLimite, prazoDoLimite, revogarSessoesDoUsuario } from '../autenticacao/service.ts';
 import { conferirSenha as conferirSenhaPadrao, criarHashSenha as criarHashSenhaPadrao, senhaValida } from '../autenticacao/senha.ts';
 import { erroAcesso } from './erros.ts';
 
@@ -25,6 +25,8 @@ export type SenhaPropriaDeps = {
     limparLimite: typeof limparLimite;
     criarSessaoAdministrativa: typeof criarSessaoAdministrativa;
     revogarSessoesDoUsuario: typeof revogarSessoesDoUsuario;
+    /** Prazo da janela para o Retry-After do 429 (opcional nos dublês de teste). */
+    prazoDoLimite?: typeof prazoDoLimite;
 };
 
 const padrao: SenhaPropriaDeps = {
@@ -37,6 +39,7 @@ const padrao: SenhaPropriaDeps = {
     limparLimite,
     criarSessaoAdministrativa,
     revogarSessoesDoUsuario,
+    prazoDoLimite,
 };
 
 export const trocaSenhaSchema = z.object({
@@ -65,7 +68,7 @@ export async function trocarPropriaSenha(token: string, raw: unknown, ctx: Conte
     const resultado = await deps.withTransaction(async (tx: DbExecutor) => {
         const sessao = await deps.consultarSessao(token, tx, true);
         if (!await deps.consumirLimite(tx, 'IDENTIFICADOR', sessao.usuario_id, REGRA_TROCA))
-            return { tipo: 'limite' as const };
+            return { tipo: 'limite' as const, aguardar: deps.prazoDoLimite ? await deps.prazoDoLimite(tx, 'IDENTIFICADOR', sessao.usuario_id, REGRA_TROCA.namespace) : null };
         const atual = (await tx.query<{ senha_hash: string }>('SELECT senha_hash FROM usuarios_administrativos WHERE id=$1 AND ativo FOR UPDATE', [sessao.usuario_id])).rows[0];
         if (!atual || !await deps.conferirSenha(input.senhaAtual, atual.senha_hash)) {
             await deps.registrarAuditoria({
@@ -79,6 +82,7 @@ export async function trocarPropriaSenha(token: string, raw: unknown, ctx: Conte
         const encerradas = await deps.revogarSessoesDoUsuario(tx, sessao.usuario_id);
         await deps.limparLimite(tx, 'IDENTIFICADOR', sessao.usuario_id, REGRA_TROCA.namespace);
         const nova = await deps.criarSessaoAdministrativa(tx, sessao.usuario_id, ctx.ip, ctx.userAgent);
+        if (sessao.empresa_ativa_id) await tx.query('UPDATE sessoes_administrativas SET empresa_ativa_id=$2::uuid WHERE id=$1', [nova.id, sessao.empresa_ativa_id]);
         await deps.registrarAuditoria({
             atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'SENHA_ALTERADA', entidadeTipo: 'USUARIO_ADMINISTRATIVO', entidadeId: sessao.usuario_id,
             dadosDepois: { resultado: 'SUCESSO', sessoesEncerradas: encerradas, novaSessaoNesteDispositivo: true }, origem: 'PERFIL_SENHA',
@@ -87,7 +91,7 @@ export async function trocarPropriaSenha(token: string, raw: unknown, ctx: Conte
         return { tipo: 'ok' as const, sessao: nova, encerradas, anterior: sessao.id };
     });
     if (resultado.tipo === 'limite')
-        throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde 15 minutos e tente novamente.', 429);
+        throw erroAcesso('LIMITE_TENTATIVAS', 'Muitas tentativas. Aguarde 15 minutos e tente novamente.', 429, resultado.aguardar ? { retryAfterSegundos: resultado.aguardar } : undefined);
     if (resultado.tipo === 'senha-atual')
         throw erroAcesso('SENHA_ATUAL_INCORRETA', 'A senha atual não confere.', 400);
     return { token: resultado.sessao.token, csrf: resultado.sessao.csrf, expires: resultado.sessao.expires, sessoesEncerradas: resultado.encerradas, renovacao: { anterior: resultado.anterior, atual: resultado.sessao.id } };

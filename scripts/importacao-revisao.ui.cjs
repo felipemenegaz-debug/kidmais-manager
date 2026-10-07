@@ -47,7 +47,10 @@ const contratoImportado = {
 const CONTRATO = '00000000-0000-4000-8000-0000000000c1', VERSAO = '00000000-0000-4000-8000-0000000000e1';
 const opcoesIntegracao = (integrado) => ({
   disponivel: true, hoje: new Date().toISOString().slice(0, 10), integracao: integrado ? { contratoId: CONTRATO, financeiroPendente: false, valorContratadoCentavos: 500000 } : null,
-  cliente: { id: DOCUMENTO, nome: 'Pessoa Exemplo', ativo: true }, documento: { pacote: 'Original 2025', aniversariante: 'Aniversariante Exemplo', tema: 'Carros' },
+  // Cadastro mínimo aceito pela conferência: nome, CPF válido e WhatsApp (e-mail e endereço opcionais).
+  cliente: { id: DOCUMENTO, nome: 'Pessoa Exemplo', ativo: true, cadastro: { nomeCompleto: 'Pessoa Exemplo', cpf: '52998224725', rg: '', telefone: '', whatsapp: '11999990000', email: '',
+    cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', uf: '' } },
+  documento: { pacote: 'Original 2025', aniversariante: 'Aniversariante Exemplo', tema: 'Carros' },
   sugestao: { evento: { data: '2099-10-10', horarioInicio: '10:00', horarioFim: '14:00', convidados: 50 }, valorContratadoCentavos: 500000, condicaoDocumento: 'Entrada e 2 parcelas',
     parcelasPrevistas: [{ valorCentavos: 100000, vencimento: '2099-01-10' }, { valorCentavos: 200000, vencimento: '2099-05-10' }, { valorCentavos: 200000, vencimento: '2099-09-10' }] },
   estabelecimentos: [{ id: '00000000-0000-4000-8000-0000000000f1', nome: 'Unidade Exemplo' }],
@@ -149,7 +152,9 @@ async function main() {
           const corpo = JSON.parse(p.request.postData ?? '{}'); posts.push({ url: url.pathname, corpo: { acao: corpo.acao, senhaInformada: typeof corpo.senha === 'string' && corpo.senha.length > 0 } });
           return ok({ csrf: 'csrf-sintetico' });
         }
-        if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: '00000000-0000-4000-8000-000000000009', nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico' });
+        if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: '00000000-0000-4000-8000-000000000009', sessaoId: '00000000-0000-4000-8000-0000000000e9', nome: 'Revisão visual', papel: 'REPRESENTANTE_AUTORIZADO', csrf: 'csrf-sintetico',
+          // Shell multiempresa (PR #95): a sessão simulada já tem a empresa ativa escolhida.
+          contexto: { empresas: [{ id: '00000000-0000-4000-8000-0000000000c1', nome: 'Empresa Sintética', papel: 'REPRESENTANTE_AUTORIZADO' }], empresaAtual: { id: '00000000-0000-4000-8000-0000000000c1', nome: 'Empresa Sintética' }, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false } });
         if (url.pathname === '/api/admin/festas' && p.request.method === 'GET') return ok(url.searchParams.has('importacaoId') ? { importada: festaImportada } : { festas: [], importadas: [festaImportada], elegiveis: [], capacidades: ['FESTA_CONSULTAR'], areas: [], usuarios: [] });
         if (url.pathname === '/api/admin/contratos/painel' && p.request.method === 'GET') {
           if (url.searchParams.has('importacaoId')) return ok(integrado ? { integrado: true, contratoId: CONTRATO } : contratoImportado);

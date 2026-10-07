@@ -1,3 +1,4 @@
+import { cadastroContratualSchema, formularioCadastro, type CadastroConferido } from '../../clientes/cadastro-contratual.ts';
 import { leituraRecebimentosGuardada } from '../../importacao-contrato/recebimentos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -45,6 +46,9 @@ type Auditoria = { clienteId?: string | null; atorTipo: 'USUARIO'; usuarioId: st
 type Historico = { clienteId: string; tipoEvento: string; origem: string; entidadeTipo?: string | null; entidadeId?: string | null; usuarioId?: string | null; detalhe?: string | null; metadata?: Record<string, unknown>; critico?: boolean };
 
 export type Core = {
+  snapshotFechamento(tx: DbExecutor, fechamentoId: string): Promise<Record<string, unknown>>;
+  /** Patch do CRM: sem a chave `telefone` (a tela não a envia), o telefone já gravado é preservado. */
+  atualizarCliente(tx: DbExecutor, clienteId: string, empresaId: string, cadastro: CadastroConferido, ctx: ContextoIntegracao): Promise<void>;
   criarFechamento(tx: DbExecutor, input: Record<string, unknown>): Promise<{ id: string }>;
   registrarAuditoria(tx: DbExecutor, input: Auditoria): Promise<unknown>;
   registrarEventoHistorico(tx: DbExecutor, input: Historico): Promise<unknown>;
@@ -142,27 +146,41 @@ function mensagemDuplicidade(vinculos: Array<{ alcance: repo.AlcanceDuplicidade 
 async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: string, decisoes: DecisoesIntegracao, hoje: string, travar: boolean, fonte?: FonteIntegracaoRascunho) {
   const empresaId = tenant.empresaComprovada;
   const importacao = fonte?.importacao ?? await importacaoConfirmada(tx, empresaId, importacaoId, travar);
-  const cliente = fonte?.cliente ?? await repo.clienteDaEmpresa(tx, empresaId, importacao.clienteId, travar);
-  if (!cliente) throw new IntegracaoImportadoError('IMPORTACAO_NAO_ENCONTRADA', 'Contrato importado não encontrado.', 404);
+  const clienteAtual = fonte?.cliente ?? await repo.clienteDaEmpresa(tx, empresaId, importacao.clienteId, travar);
+  if (!clienteAtual) throw new IntegracaoImportadoError('IMPORTACAO_NAO_ENCONTRADA', 'Contrato importado não encontrado.', 404);
+  const cliente = { ...clienteAtual, ...decisoes.cadastro };
+  const cadastro = cadastroContratualSchema.safeParse(formularioCadastro(cliente));
   const documento = await repo.documentoOriginal(tx, empresaId, importacao.documentoId);
   if (!documento) throw new IntegracaoImportadoError('DOCUMENTO_ORIGINAL_AUSENTE', 'O documento original desta importação não foi encontrado. Ele é obrigatório para a conferência.', 409);
   const estabelecimentos = await repo.estabelecimentosAtivos(tx, empresaId);
   const pacote = decisoes.pacoteReferenciaId ? await repo.pacoteDaEmpresa(tx, empresaId, decisoes.pacoteReferenciaId) : null;
-  const precoReferencia = pacote ? await repo.precoReferencia(tx, empresaId, pacote.id, decisoes.evento.data, decisoes.evento.convidados) : null;
   const configuracaoAgendaId = await repo.configuracaoAgenda(tx, decisoes.evento.horarioInicio, empresaId, decisoes.estabelecimentoId);
+  // Categoria do HORÁRIO: a regra do fechamento comum para a data e o turno, quando existe. Só a ausência COMPROVADA de
+  // regra cai no comportamento anterior (a categoria da linha de preço, se for PADRAO ou NOBRE). GERAL sem regra fica
+  // null e bloqueia antes de gravar. A categoria do PREÇO continua a da linha escolhida (pode ser GERAL).
+  const regraHorario = await repo.regraCategoriaHorario(tx, decisoes.evento.data, configuracaoAgendaId);
+  const precoReferencia = pacote ? await repo.precoReferencia(tx, empresaId, pacote.id, decisoes.evento.data, decisoes.evento.convidados, regraHorario) : null;
+  const categoriaDoPreco = precoReferencia?.categoria;
+  const categoriaHorario = regraHorario ?? (categoriaDoPreco === 'PADRAO' || categoriaDoPreco === 'NOBRE' ? categoriaDoPreco : null);
   const referencias: Referencias = {
     cliente: { id: cliente.id, nome: cliente.nomeCompleto, status: cliente.status },
-    estabelecimentos, pacote, precoReferencia, configuracaoAgendaId,
+    estabelecimentos, pacote, precoReferencia, configuracaoAgendaId, categoriaHorario,
   };
   const avaliacao = avaliarIntegracao({ snapshot: importacao.snapshot, decisoes, referencias, hoje });
+  avaliacao.resumo.cadastro = formularioCadastro(cliente);
+  // O cadastro lido também integra a revisão: não sobrescrever uma edição concorrente do CRM.
+  avaliacao.resumo.cadastroFonteHash = hashCanonico(formularioCadastro(clienteAtual));
+  if (!cadastro.success) avaliacao.bloqueios.push('Complete os dados do contratante: nome, CPF válido e WhatsApp (ou telefone já cadastrado) são obrigatórios; e-mail é opcional e o endereço, se informado, precisa estar completo.');
+  if (clienteAtual.cpf && decisoes.cadastro && clienteAtual.cpf.replace(/\D/g, '') !== decisoes.cadastro.cpf) avaliacao.bloqueios.push('O CPF do cliente vinculado não pode ser substituído. Confira o vínculo na etapa do cliente.');
   // Aniversariante do documento: vinculado ao cadastro do cliente (mesmo nome) ou criado nele. As revisões nativas
   // do contrato reconstroem o snapshot a partir do fechamento e exigem aniversariante vinculado.
-  const nomeAniversariante = importacao.snapshot.evento?.aniversariante?.trim() || null;
+  const nomeAniversariante = decisoes.aniversariante ?? (importacao.snapshot.evento?.aniversariante?.trim() || null);
+  avaliacao.resumo.festa.aniversariante = nomeAniversariante;
   const aniversarianteExistente = !fonte?.clienteNovo && nomeAniversariante && nomeAniversariante.length >= 2 ? await repo.aniversarianteDoCliente(tx, cliente.id, nomeAniversariante) : null;
   avaliacao.resumo.festa.aniversarianteCadastro = !nomeAniversariante || nomeAniversariante.length < 2 ? null : aniversarianteExistente ? 'EXISTENTE' : 'NOVO';
   const recusaPlano = recusaDoPlanoNativo(decisoes.financeiro, avaliacao.resumo.financeiro.contratadoCentavos, decisoes.evento.data);
   if (recusaPlano) avaliacao.bloqueios.push(recusaPlano);
-  if (avaliacao.resumo.festa.aniversarianteCadastro === null) avaliacao.avisos.push('O documento não traz o nome do aniversariante: a festa fica sem aniversariante vinculado. Revisões futuras do contrato pedirão esse cadastro.');
+  if (avaliacao.resumo.festa.aniversarianteCadastro === null) avaliacao.bloqueios.push('Informe o nome do aniversariante para criar o cadastro e vinculá-lo à festa.');
   // Possível duplicidade (reescaneamento, outro cliente cadastrado para a mesma festa, data lida ou corrigida de forma
   // divergente): nunca unida nem recusada sozinha; exige decisão auditada do operador ("É outro contrato" + motivo).
   const criterio = criterioDuplicidade({ cliente, documento, decisoes, nomeAniversariante, snapshot: importacao.snapshot, valorCentavos: avaliacao.resumo.contrato.valorContratadoCentavos });
@@ -198,9 +216,9 @@ export async function opcoesIntegracao(tx: DbExecutor, tenant: TenantComprovado,
       // Com obrigação já criada (aqui ou no Financeiro), o caminho é o Financeiro do contrato, nunca "Conferir pagamentos".
       const estado = await repo.estadoFinanceiroDoContrato(tx, vinculo.contratoId, vinculo.versaoId);
       const caminho = repo.caminhoFinanceiro({ conferido: vinculo.financeiro !== null, ...estado });
-      return { contratoId: vinculo.contratoId, financeiroPendente: caminho !== 'CONCLUIDO', caminhoFinanceiro: caminho, valorContratadoCentavos: vinculo.valorContratadoCentavos };
+      return { contratoId: vinculo.contratoId, financeiroPendente: caminho !== 'CONCLUIDO', caminhoFinanceiro: caminho, valorContratadoCentavos: vinculo.valorContratadoCentavos, contratoCancelado: vinculo.contratoCancelado };
     })() : null,
-    cliente: cliente ? { id: cliente.id, nome: cliente.nomeCompleto, ativo: cliente.status === 'ATIVO' } : null,
+    cliente: cliente ? { id: cliente.id, nome: cliente.nomeCompleto, ativo: cliente.status === 'ATIVO', cadastro: formularioCadastro(cliente) } : null,
     documento: {
       pacote: importacao.snapshot.pacote?.nome ?? null,
       aniversariante: importacao.snapshot.evento?.aniversariante ?? null,
@@ -241,7 +259,7 @@ export async function opcoesIntegracaoRascunho(tx: DbExecutor, tenant: TenantCom
   const empresaId = tenant.empresaComprovada, snapshot = fonte.importacao.snapshot;
   return {
     disponivel: true, hoje, integracao: null,
-    cliente: { id: fonte.clienteNovo ? null : fonte.cliente.id, nome: fonte.cliente.nomeCompleto, ativo: fonte.cliente.status === 'ATIVO' },
+    cliente: { id: fonte.clienteNovo ? null : fonte.cliente.id, nome: fonte.cliente.nomeCompleto, ativo: fonte.cliente.status === 'ATIVO', cadastro: formularioCadastro(fonte.cliente) },
     documento: { pacote: snapshot.pacote?.nome ?? null, aniversariante: snapshot.evento?.aniversariante ?? null, tema: snapshot.evento?.tema ?? null },
     sugestao: { ...sugestaoInicial(snapshot), recebimentosDocumento: leituraRecebimentosGuardada(fonte.importacao.recebimentosDocumento) },
     estabelecimentos: await repo.estabelecimentosAtivos(tx, empresaId), pacotes: await repo.pacotesDaEmpresa(tx, empresaId),
@@ -397,6 +415,7 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     if (motivo) throw new IntegracaoImportadoError('CONFLITO_AGENDA', motivo, 409);
   }
 
+  if (decisoes.cadastro) await core.atualizarCliente(tx, p.cliente.id, empresaId, decisoes.cadastro, ctx);
   const { snapshot } = p.importacao;
   const totais = p.avaliacao.resumo.contrato.valorContratadoCentavos;
   const adicionais = snapshot.valores?.adicionais != null && snapshot.valores.adicionais < totais ? snapshot.valores.adicionais : 0;
@@ -409,7 +428,7 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     clienteId: p.cliente.id, aniversarianteId,
     dataEvento: decisoes.evento.data, horarioInicio: decisoes.evento.horarioInicio, horarioFim: decisoes.evento.horarioFim,
     configuracaoAgendaId: p.configuracaoAgendaId, estabelecimentoId: decisoes.estabelecimentoId, pacoteId: p.pacote!.id, tabelaPrecoId: p.precoReferencia!.tabelaPrecoId, precoPacoteId: p.precoReferencia!.precoPacoteId,
-    regraDescontoPacoteId: null, categoriaHorario: p.precoReferencia!.categoria, categoriaPrecoAplicada: p.precoReferencia!.categoria,
+    regraDescontoPacoteId: null, categoriaHorario: p.referencias.categoriaHorario!, categoriaPrecoAplicada: p.precoReferencia!.categoria,
     convidados: decisoes.evento.convidados, convidadosFaturados: decisoes.evento.convidados,
     // Valores do documento (não do catálogo): a linha de preço é só âncora exigida pelo Core.
     valorPacoteBase: centavosParaReais(totais - adicionais), descontoPercentual: 0, valorDescontoPacote: 0,
@@ -417,13 +436,16 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     valorNegociado: null, valorAprovado: null, motivoNegociacao: null, observacoesNegociacao: null,
     status: 'CONFIRMADO', origemFechamento: 'IMPORTACAO_HISTORICA', iniciadoPorUsuarioId: ctx.usuarioId, usuarioResponsavelId: ctx.usuarioId,
     responsavelAdicionalId: null, idadeAniversarianteEvento: typeof idade === 'number' && idade >= 0 && idade <= 120 ? idade : null,
-    temaFesta: snapshot.evento?.tema ?? null, formaPagamentoPretendida: null, alteracoesPacote: null, observacoesCliente: null,
+    temaFesta: snapshot.evento?.tema ?? null, formaPagamentoPretendida: decisoes.formaPagamento ?? null, alteracoesPacote: snapshot.pacote?.itens ?? null, observacoesCliente: snapshot.observacoes ?? null,
     observacoesEquipe: 'Contrato histórico importado (assinado em papel). Itens, valores e condições conforme o documento original.',
-    buffetStatus: 'PENDENTE', condicaoPagamento: null,
+    buffetStatus: snapshot.buffet?.itens ? 'DEFINIDO' : 'PENDENTE', buffetOutros: [snapshot.buffet?.itens, snapshot.buffet?.observacoes, snapshot.buffet?.restricoes].filter(Boolean).join('\n') || null,
+    // Não aplicar o desconto atual a um preço já contratado no documento. Parcelas históricas seguem no plano nativo.
+    condicaoPagamento: null,
   });
 
   const unidade = decisoes.estabelecimentoId ? p.referencias.estabelecimentos.find((x) => x.id === decisoes.estabelecimentoId) ?? null : null;
   const snap = montarSnapshotVersao({
+    nativo: await core.snapshotFechamento(tx, fechamento.id),
     importacaoId, documento: p.documento, fechamentoId: fechamento.id, snapshot, decisoes, resumo: p.avaliacao.resumo,
     cliente: p.cliente, aniversarianteId, pacote: p.pacote!, unidade, conferente: { usuarioId: ctx.usuarioId, papel: tenant.papelAtual! },
   });

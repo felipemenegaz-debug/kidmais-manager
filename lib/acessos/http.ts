@@ -30,11 +30,22 @@ export function contextoDaRequisicao(request: NextRequest) {
     return { requestId: randomUUID(), ip: ipDaRequisicao(request), userAgent: request.headers.get('user-agent')?.slice(0, 1000) ?? null };
 }
 
+/**
+ * 429 com prazo calculável leva `Retry-After` (segundos, inteiro ≥ 1), lido de `details.retryAfterSegundos`.
+ * Sem prazo conhecido, nenhum cabeçalho é inventado.
+ */
+export function comRetryAfter(res: NextResponse, status: number, details: Record<string, unknown> | null | undefined) {
+    const segundos = details?.retryAfterSegundos;
+    if (status === 429 && typeof segundos === 'number' && Number.isFinite(segundos) && segundos > 0)
+        res.headers.set('Retry-After', String(Math.max(1, Math.ceil(segundos))));
+    return res;
+}
+
 export function falhar(error: unknown) {
     if (isAcessoServiceError(error))
-        return responder({ ok: false, erro: error.message, codigo: error.code, detalhes: error.details ?? null }, error.httpStatus);
+        return comRetryAfter(responder({ ok: false, erro: error.message, codigo: error.code, detalhes: error.details ?? null }, error.httpStatus), error.httpStatus, error.details);
     if (isClienteServiceError(error))
-        return responder({ ok: false, erro: error.message, codigo: error.code }, error.httpStatus);
+        return comRetryAfter(responder({ ok: false, erro: error.message, codigo: error.code, detalhes: error.details ?? null }, error.httpStatus), error.httpStatus, error.details);
     if (error instanceof ZodError) {
         const primeiro = error.issues[0];
         return responder({ ok: false, erro: primeiro?.message && !/^Invalid|^Expected/.test(primeiro.message) ? primeiro.message : 'Dados inválidos.', codigo: 'DADOS_INVALIDOS', detalhes: { campo: primeiro?.path.join('.') ?? null } }, 400);
@@ -42,7 +53,7 @@ export function falhar(error: unknown) {
     if (error instanceof SyntaxError)
         return responder({ ok: false, erro: 'Dados inválidos.', codigo: 'DADOS_INVALIDOS' }, 400);
     if (tabelaAusente(error))
-        return responder({ ok: false, erro: 'Recurso indisponível neste ambiente: a estrutura de recuperação de senha ainda não foi instalada.', codigo: 'PAINEL_INDISPONIVEL' }, 503);
+        return responder({ ok: false, erro: 'Recurso indisponível neste ambiente: a migration 063 ainda não foi aplicada.', codigo: 'PAINEL_INDISPONIVEL' }, 503);
     console.error('[acessos] erro não tratado', error instanceof Error ? error.name : typeof error);
     return responder({ ok: false, erro: 'Não foi possível concluir a operação. Nada foi alterado além do que a tela mostrar.', codigo: 'ERRO_INTERNO' }, 500);
 }

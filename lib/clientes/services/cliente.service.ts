@@ -433,7 +433,7 @@ export async function atualizarClienteInterno(
       );
     }
 
-    if (patch.cpf !== undefined && normalizarCpf(patch.cpf) !== normalizarCpf(atual.cpf)) {
+    if (normalizarCpf(atual.cpf) && patch.cpf !== undefined && normalizarCpf(patch.cpf) !== normalizarCpf(atual.cpf)) {
       throw new ClienteServiceError(
         "ALTERACAO_CPF_REQUER_PERMISSAO",
         "Alteração de CPF é uma ação crítica e será habilitada na etapa de autenticação/permissões.",
@@ -444,7 +444,7 @@ export async function atualizarClienteInterno(
     validarCadastroBasicoCliente({
       empresaId: atual.empresaId,
       nomeCompleto: patch.nomeCompleto ?? atual.nomeCompleto,
-      cpf: atual.cpf,
+      cpf: patch.cpf ?? atual.cpf,
       telefone: patch.telefone ?? atual.telefone,
       whatsapp: patch.whatsapp ?? atual.whatsapp,
       email: patch.email ?? atual.email,
@@ -461,7 +461,7 @@ export async function atualizarClienteInterno(
     const analise = await analisarCadastroCliente(
       {
         nomeCompleto: patch.nomeCompleto ?? atual.nomeCompleto,
-        cpf: atual.cpf,
+        cpf: patch.cpf ?? atual.cpf,
         telefone: patch.telefone ?? atual.telefone,
         whatsapp: patch.whatsapp ?? atual.whatsapp,
       },
@@ -469,6 +469,10 @@ export async function atualizarClienteInterno(
       { excluirClienteId: clienteId },
       tx,
     );
+
+    if (!analise.podeCadastrar) {
+      throw new ClienteServiceError("CPF_EXISTENTE", "Este CPF já está cadastrado. Confira o cliente vinculado.", 409);
+    }
 
     const atualizado = await atualizarCliente(
       clienteId,

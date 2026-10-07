@@ -1,3 +1,4 @@
+import { cadastroPayloadSchema, contratanteSnapshot, formularioCadastro, type CadastroContratual } from '../../clientes/cadastro-contratual.ts';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { FORMAS, type FormaFinanceira } from '../../financeiro/calculos.ts';
@@ -43,6 +44,10 @@ export const financeiroSchema = z.discriminatedUnion('situacao', [
 ]);
 
 export const decisoesSchema = z.object({
+  // Payload sem o telefone fixo (a tela não o envia); a regra de contato é aplicada ao cadastro mesclado com o CRM, em preparar().
+  cadastro: cadastroPayloadSchema.optional(),
+  formaPagamento: z.enum(["PIX_AVISTA", "PIX_PARCELADO", "CARTAO_CIELO"]).nullable().optional(),
+  aniversariante: z.string().trim().min(2).max(200).optional(),
   situacaoContrato: z.enum(SITUACOES_CONTRATO),
   estabelecimentoId: z.string().uuid().nullable(),
   pacoteReferenciaId: z.string().uuid().nullable(),
@@ -78,9 +83,17 @@ export type Referencias = {
   cliente: { id: string; nome: string; status: string };
   estabelecimentos: Array<{ id: string; nome: string }>;
   pacote: { id: string; codigo: string; nome: string; duracaoMinutos: number | null } | null;
-  /** Linha de preço só como âncora do fechamento (o Core exige); o valor contratado é o do documento. */
-  precoReferencia: { tabelaPrecoId: string; precoPacoteId: string; categoria: 'PADRAO' | 'NOBRE' } | null;
+  /**
+   * Linha de preço só como âncora do fechamento (o Core exige); o valor contratado é o do documento. A categoria é a
+   * da LINHA DE PREÇO (GERAL vale para todos os horários) e vira só `categoria_preco_aplicada`.
+   */
+  precoReferencia: { tabelaPrecoId: string; precoPacoteId: string; categoria: 'GERAL' | 'PADRAO' | 'NOBRE' } | null;
   configuracaoAgendaId: string | null;
+  /**
+   * Categoria do HORÁRIO: a regra do fechamento comum (regras_categoria_horario por dia e turno) quando existe; sem regra,
+   * a categoria da linha de preço se for PADRAO/NOBRE; null quando a linha é GERAL e não há regra (bloqueia).
+   */
+  categoriaHorario: 'PADRAO' | 'NOBRE' | null;
 };
 
 export type ParcelaResumo = { numero: number; valorCentavos: number; vencimento: string; situacao: 'RECEBIDA' | 'A_RECEBER' | 'VENCIDA'; recebidaEm: string | null; forma: FormaFinanceira | null };
@@ -90,6 +103,8 @@ export type ResumoFinanceiro =
   | { situacao: 'NAO_PAGO' | 'PARCIALMENTE_PAGO' | 'PAGO'; contratadoCentavos: number; recebidoCentavos: number; saldoCentavos: number; parcelas: ParcelaResumo[]; recebimentos: Array<{ numero: number; valorCentavos: number; data: string; forma: FormaFinanceira }>; aReceber: ParcelaResumo[] };
 
 export type ResumoIntegracao = {
+  cadastro?: CadastroContratual;
+  cadastroFonteHash?: string;
   contrato: { cliente: string; pacoteDocumento: string | null; pacoteReferencia: string | null; unidade: string | null; valorContratadoCentavos: number; conferencia: string };
   /** `aniversarianteCadastro`: o aniversariante do documento será vinculado ao cadastro existente do cliente ou criado nele. */
   festa: { data: string; horarioInicio: string; horarioFim: string; convidados: number; aniversariante: string | null; tema: string | null; aniversarianteCadastro: 'NOVO' | 'EXISTENTE' | null };
@@ -223,6 +238,7 @@ export function avaliarIntegracao(e: { snapshot: SnapshotHistorico; decisoes: De
   if (!d.pacoteReferenciaId || !r.pacote) bloqueios.push('Escolha o pacote do sistema usado como referência operacional.');
   else if (!r.precoReferencia) bloqueios.push('O pacote de referência não tem linha de preço em nenhuma tabela desta empresa.');
   if (!r.configuracaoAgendaId) bloqueios.push('Agenda sem turno configurado.');
+  else if (r.precoReferencia && !r.categoriaHorario) bloqueios.push('O pacote de referência tem preço Geral e não existe categoria comercial (Padrão ou Nobre) configurada para a data e o turno desta festa. Escolha um pacote com preço Padrão ou Nobre, ou peça a configuração da categoria do horário.');
 
   const doc = valoresDoDocumento(s);
   const campos: CampoConferido[] = [
@@ -271,9 +287,10 @@ export const hashResumo = (importacaoId: string, d: DecisoesIntegracao, resumo: 
 
 /** Snapshot da versão 1 (conferência em papel): forma do snapshot nativo + o contrato histórico intacto ao lado. */
 export function montarSnapshotVersao(e: {
+  nativo?: Record<string, unknown>;
   importacaoId: string; documento: { id: string; sha256: string };
   fechamentoId: string; snapshot: SnapshotHistorico; decisoes: DecisoesIntegracao; resumo: ResumoIntegracao;
-  cliente: { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null };
+  cliente: { id: string; nomeCompleto: string; cpf: string | null; telefone: string | null; whatsapp: string | null; email: string | null } & Partial<Record<keyof CadastroContratual, string | null>>;
   aniversarianteId: string | null;
   pacote: { id: string; codigo: string; nome: string; duracaoMinutos: number | null };
   unidade: { id: string; nome: string } | null;
@@ -283,12 +300,13 @@ export function montarSnapshotVersao(e: {
   const valor = centavosParaReais(d.valorContratadoCentavos);
   const adicionais = s.valores?.adicionais != null && s.valores.adicionais < d.valorContratadoCentavos ? s.valores.adicionais : 0;
   return {
+    ...e.nativo,
     schemaVersao: 1,
     origem: { tipo: 'IMPORTACAO_HISTORICA', importacaoId: e.importacaoId, documentoOriginalId: e.documento.id, documentoSha256: e.documento.sha256, aceite: 'CONTRATO_ASSINADO_EM_PAPEL' },
     fechamento: { id: e.fechamentoId, status: 'CONFIRMADO', origem: 'IMPORTACAO_HISTORICA' },
-    contratante: { clienteId: e.cliente.id, nomeCompleto: e.cliente.nomeCompleto, cpf: e.cliente.cpf, telefone: e.cliente.telefone, whatsapp: e.cliente.whatsapp, email: e.cliente.email },
+    contratante: contratanteSnapshot({ ...formularioCadastro(e.cliente), id: e.cliente.id }),
     responsavelAdicional: null,
-    aniversariante: { id: e.aniversarianteId, nome: s.evento?.aniversariante ?? null, dataNascimento: null, idadeNoEvento: s.evento?.idade ?? null, temaFesta: s.evento?.tema ?? null },
+    aniversariante: { id: e.aniversarianteId, nome: d.aniversariante ?? s.evento?.aniversariante ?? null, dataNascimento: null, idadeNoEvento: s.evento?.idade ?? null, temaFesta: s.evento?.tema ?? null },
     evento: {
       data: d.evento.data, horarioInicio: d.evento.horarioInicio, horarioFim: d.evento.horarioFim,
       pacote: { id: e.pacote.id, codigo: e.pacote.codigo, nome: s.pacote?.nome ?? e.pacote.nome, duracaoMinutos: s.pacote?.duracaoMinutos ?? e.pacote.duracaoMinutos, referenciaSistema: { id: e.pacote.id, codigo: e.pacote.codigo, nome: e.pacote.nome } },
@@ -296,17 +314,19 @@ export function montarSnapshotVersao(e: {
       unidade: e.unidade,
     },
     contratacao: {
-      adicionais: [], alteracoesPacote: null, observacoesCliente: null, observacoesEquipe: null,
+      ...(e.nativo?.contratacao as object ?? {}),
+      adicionais: [], alteracoesPacote: s.pacote?.itens ?? null, observacoesCliente: s.observacoes ?? null, observacoesEquipe: (e.nativo?.contratacao as { observacoesEquipe?: string } | undefined)?.observacoesEquipe ?? null,
       itensPacote: s.pacote?.itens ?? null,
-      buffet: { status: s.buffet?.itens ? 'DEFINIDO' : 'PENDENTE', itens: s.buffet?.itens ?? null, observacoes: s.buffet?.observacoes ?? null, restricoes: s.buffet?.restricoes ?? null },
+      buffet: { ...((e.nativo?.contratacao as { buffet?: object } | undefined)?.buffet ?? {}), status: s.buffet?.itens ? 'DEFINIDO' : 'PENDENTE', itens: s.buffet?.itens ?? null, observacoes: s.buffet?.observacoes ?? null, restricoes: s.buffet?.restricoes ?? null },
       observacoes: s.observacoes ?? null,
     },
     comercial: {
+      ...(e.nativo?.comercial as object ?? {}),
       valorFinalContrato: valor,
       valorTabela: valor,
       valorPacoteAplicado: centavosParaReais(d.valorContratadoCentavos - adicionais),
       valorAdicionais: centavosParaReais(adicionais),
-      formaPagamentoPretendida: null,
+      formaPagamentoPretendida: d.formaPagamento ?? null,
       condicaoDocumento: s.pagamentosPrevistos?.condicao ?? null,
     },
     historico: {

@@ -37,7 +37,8 @@ export type ContextoCadastro = {
     rascunho: IdentidadeRascunho | null;
 };
 
-async function estruturaCadastroInstalada(tx: DbExecutor) {
+/** 026 + 027 + 028 instaladas (tabelas e colunas do ciclo de revisão). Exportada para a criação do perfil (criacao.ts). */
+export async function estruturaCadastroInstalada(tx: DbExecutor) {
     const result = await tx.query<{ empresas: string | null; unidades: string | null; revisoes: string | null; colunas_revisao: number }>(
         `SELECT to_regclass('public.perfil_empresas') AS empresas,
                 to_regclass('public.perfil_unidades') AS unidades,
@@ -152,14 +153,15 @@ const COLUNAS_EMPRESA = `id, codigo, versao, nome_comercial, razao_social, cnpj,
                 sede_cep, sede_logradouro, sede_numero, sede_sem_numero, sede_complemento,
                 sede_bairro, sede_cidade, sede_uf, sede_pais`;
 
-async function contextoUnico(tx: DbExecutor, empresaIdCliente: string | null, travar: boolean) {
+async function contextoUnico(tx: DbExecutor, empresaIdCliente: string | null, travar: boolean, perfilDoServidor?: string) {
     if (travar) {
-        const ids = (await tx.query<{ id: string }>('SELECT id FROM public.perfil_empresas ORDER BY id')).rows.map((linha) => linha.id);
+        const ids = (await tx.query<{ id: string }>(`SELECT id FROM public.perfil_empresas ${perfilDoServidor ? 'WHERE id=$1::uuid' : ''} ORDER BY id`, perfilDoServidor ? [perfilDoServidor] : [])).rows.map((linha) => linha.id);
         await travarEmpresasPerfil(tx, ids);
     }
     const empresas = (await tx.query<EmpresaRow>(
         `SELECT ${COLUNAS_EMPRESA}
-         FROM public.perfil_empresas ORDER BY id${travar ? ' FOR UPDATE' : ''}`,
+         FROM public.perfil_empresas ${perfilDoServidor ? 'WHERE id=$1::uuid' : ''} ORDER BY id${travar ? ' FOR UPDATE' : ''}`,
+        perfilDoServidor ? [perfilDoServidor] : [],
     )).rows;
     if (empresas.length > 1)
         throw new ClienteServiceError('PERFIL_LIMITE_V1', 'A V1 opera com uma empresa. Há mais de uma empresa cadastrada.', 409);
@@ -191,20 +193,20 @@ async function logoAplicada(tx: DbExecutor, empresaId: string): Promise<string |
     return linha?.logo ?? null;
 }
 
-export async function consultarLogoPerfil(tx: DbExecutor, usuarioId: string, editar = false) {
+export async function consultarLogoPerfil(tx: DbExecutor, usuarioId: string, editar = false, perfilDoServidor?: string) {
     if (!await estruturaCadastroInstalada(tx))
         throw new ClienteServiceError('PERFIL_ESTRUTURA_AUSENTE', 'O perfil ainda não está disponível.', 409);
-    const unico = await contextoUnico(tx, null, false);
+    const unico = await contextoUnico(tx, null, false, perfilDoServidor);
     if (!unico) throw new ClienteServiceError('PERFIL_ESTRUTURA_AUSENTE', 'Ainda não há empresa provisionada.', 409);
     await exigirCapacidadePerfil(tx, unico.empresa.id, usuarioId, editar ? 'PERFIL_EDITAR_RASCUNHO' : 'PERFIL_CONSULTAR');
     return editar ? null : logoAplicada(tx, unico.empresa.id);
 }
 
-export async function consultarCadastroPerfil(tx: DbExecutor, usuarioId: string, empresaIdCliente: string | null = null) {
+export async function consultarCadastroPerfil(tx: DbExecutor, usuarioId: string, empresaIdCliente: string | null = null, perfilDoServidor?: string) {
     const instalada = await estruturaCadastroInstalada(tx);
     if (!instalada)
         return { estruturaInstalada: false as const, vazio: true, contexto: null as ContextoCadastro | null };
-    const unico = await contextoUnico(tx, empresaIdCliente, false);
+    const unico = await contextoUnico(tx, empresaIdCliente, false, perfilDoServidor);
     if (!unico)
         return { estruturaInstalada: true as const, vazio: true, contexto: null as ContextoCadastro | null };
     await exigirCapacidadePerfil(tx, unico.empresa.id, usuarioId, 'PERFIL_CONSULTAR');
@@ -234,6 +236,7 @@ export async function consultarCadastroPerfil(tx: DbExecutor, usuarioId: string,
 
 export async function salvarRascunhoPerfil(tx: DbExecutor, input: {
     usuarioId: string;
+    perfilDoServidor?: string;
     empresaIdCliente: string | null;
     numero: number | null;
     edicao: number | null;
@@ -247,7 +250,7 @@ export async function salvarRascunhoPerfil(tx: DbExecutor, input: {
     const validacao = validarRascunho(input.cadastro);
     if (validacao.falhas.length)
         throw new ClienteServiceError('PERFIL_CADASTRO_INVALIDO', validacao.falhas[0]!.mensagem, 400, { falhas: validacao.falhas });
-    const unico = await contextoUnico(tx, input.empresaIdCliente, true);
+    const unico = await contextoUnico(tx, input.empresaIdCliente, true, input.perfilDoServidor);
     if (!unico)
         throw new ClienteServiceError('PERFIL_ESTRUTURA_AUSENTE', 'Ainda não há empresa provisionada.', 409);
     await exigirCapacidadePerfil(tx, unico.empresa.id, input.usuarioId, 'PERFIL_EDITAR_RASCUNHO');
@@ -311,6 +314,7 @@ export async function salvarRascunhoPerfil(tx: DbExecutor, input: {
 
 export async function aplicarCadastroPerfil(tx: DbExecutor, input: {
     usuarioId: string;
+    perfilDoServidor?: string;
     empresaIdCliente: string | null;
     numero: number;
     edicao: number;
@@ -327,7 +331,7 @@ export async function aplicarCadastroPerfil(tx: DbExecutor, input: {
     const instalada = await estruturaCadastroInstalada(tx);
     if (!instalada)
         throw new ClienteServiceError('PERFIL_ESTRUTURA_AUSENTE', 'A estrutura do cadastro ainda não está instalada.', 409);
-    const unico = await contextoUnico(tx, input.empresaIdCliente, true);
+    const unico = await contextoUnico(tx, input.empresaIdCliente, true, input.perfilDoServidor);
     if (!unico)
         throw new ClienteServiceError('PERFIL_ESTRUTURA_AUSENTE', 'Ainda não há empresa provisionada.', 409);
     await exigirCapacidadePerfil(tx, unico.empresa.id, input.usuarioId, 'PERFIL_APLICAR');
@@ -395,8 +399,8 @@ export async function aplicarCadastroPerfil(tx: DbExecutor, input: {
     return { versao: input.versaoBase + 1 };
 }
 
-export async function listarHistoricoPerfil(tx: DbExecutor, usuarioId: string, empresaIdCliente: string | null = null): Promise<HistoricoPerfil[]> {
-    const consulta = await consultarCadastroPerfil(tx, usuarioId, empresaIdCliente);
+export async function listarHistoricoPerfil(tx: DbExecutor, usuarioId: string, empresaIdCliente: string | null = null, perfilDoServidor?: string): Promise<HistoricoPerfil[]> {
+    const consulta = await consultarCadastroPerfil(tx, usuarioId, empresaIdCliente, perfilDoServidor);
     if (!consulta.estruturaInstalada || !consulta.contexto)
         return [];
     const linhas = (await tx.query<{
@@ -431,11 +435,11 @@ export async function listarHistoricoPerfil(tx: DbExecutor, usuarioId: string, e
     }));
 }
 
-export async function lerCadastroPerfil(tx: DbExecutor, usuarioId: string) {
-    await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-    const consulta = await consultarCadastroPerfil(tx, usuarioId, null);
+export async function lerCadastroPerfil(tx: DbExecutor, usuarioId: string, perfilDoServidor?: string) {
+    if (!perfilDoServidor) await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    const consulta = await consultarCadastroPerfil(tx, usuarioId, null, perfilDoServidor);
     const historico = consulta.estruturaInstalada && consulta.contexto
-        ? await listarHistoricoPerfil(tx, usuarioId, null)
+        ? await listarHistoricoPerfil(tx, usuarioId, null, perfilDoServidor)
         : [];
     const capacidades = consulta.contexto
         ? (await consultarCapacidadesPerfil(tx, consulta.contexto.empresaId!, usuarioId)).capacidades

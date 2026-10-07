@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { ZodError, z } from 'zod';
 import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
-import { withTransaction } from '@/lib/db/postgres';
 import { registrarAuditoria } from '@/lib/clientes/repositories/auditoria.repository';
-import { isClienteServiceError } from '@/lib/clientes/services/errors';
-import { aplicarCadastroPerfil, lerCadastroPerfil, salvarRascunhoPerfil } from '@/lib/perfil/cadastro-service';
+import { ClienteServiceError, isClienteServiceError } from '@/lib/clientes/services/errors';
+import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
+import { aplicarCadastroPerfil, estruturaCadastroInstalada, lerCadastroPerfil, salvarRascunhoPerfil } from '@/lib/perfil/cadastro-service';
+import { criarPerfilDaEmpresa, elegibilidadeConcessaoInicial } from '@/lib/perfil/criacao';
 import { LOGO_MAX_DATA_URL } from '@/lib/perfil/logo-limites';
+import { withTenantTransaction } from '@/lib/saas/provar-tenant';
+import { perfilDoTenant, perfilDoTenantOuNulo } from '@/lib/perfil/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,6 +61,16 @@ const corpo = z.discriminatedUnion('acao', [
         motivo: z.string().trim().min(3).max(500),
         empresaId: z.string().uuid().nullable().optional(),
     }).strict(),
+    // Empresa nova (implantação): a Gestão cria a estrutura mínima do perfil (lib/perfil/criacao.ts).
+    z.object({
+        acao: z.literal('criar-perfil'),
+        confirmar: z.literal(true),
+    }).strict(),
+    // Perfil existente sem administrador elegível: a Gestão assume a administração (concessão inicial).
+    z.object({
+        acao: z.literal('concessao-inicial'),
+        confirmar: z.literal(true),
+    }).strict(),
 ]);
 
 function json(data: unknown, status = 200) {
@@ -67,7 +80,7 @@ function json(data: unknown, status = 200) {
 function fail(error: unknown) {
     if (error instanceof ZodError || error instanceof SyntaxError)
         return json({ ok: false, erro: 'Confira os dados do perfil.' }, 400);
-    if (isClienteServiceError(error))
+    if (isClienteServiceError(error) || error instanceof PacoteAdminError)
         return json({ ok: false, erro: error.message, codigo: error.code, detalhes: error.details ?? null }, error.httpStatus);
     const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
     if (['23505', '40001', '40P01'].includes(code))
@@ -79,7 +92,35 @@ function fail(error: unknown) {
 export async function GET(request: NextRequest) {
     try {
         const sessao = await exigirApiAdminCrmDisponivel(request);
-        const data = await withTransaction((tx) => lerCadastroPerfil(tx, sessao.usuario_id));
+        const data = await withTenantTransaction(sessao, null, async (tx, tenant) => {
+            const perfil = await perfilDoTenantOuNulo(tx, tenant.empresaComprovada);
+            if (!perfil) {
+                // Empresa sem perfil (provisionada pelo painel): a tela oferece a criação à Gestão; ninguém ganha acesso aqui.
+                const empresa = (await tx.query<{ codigo: string; nome: string }>('SELECT codigo, nome FROM empresas WHERE id = $1::uuid', [tenant.empresaComprovada])).rows[0];
+                return {
+                    estruturaInstalada: await estruturaCadastroInstalada(tx), vazio: true, perfilAusente: true,
+                    podeCriar: tenant.papelAtual === 'REPRESENTANTE_AUTORIZADO',
+                    empresa: { codigo: empresa?.codigo ?? null, nome: empresa?.nome ?? null },
+                    contexto: null, historico: [], capacidades: null,
+                };
+            }
+            try {
+                const leitura = await lerCadastroPerfil(tx, sessao.usuario_id, perfil);
+                // Quem consulta mas não administra (ex.: só PERFIL_CONSULTAR) também precisa do veredito de elegibilidade
+                // para assumir a administração quando não há administrador elegível: leitura sem travas, só o veredito.
+                const concessaoInicial = await elegibilidadeConcessaoInicial(tx, tenant);
+                return { ...leitura, perfilAusente: false, concessaoInicial };
+            }
+            catch (error) {
+                // Sem capacidade de consulta: 403 continua, com a resposta mínima de elegibilidade para a concessão inicial
+                // (nada do cadastro nem do histórico do perfil). A autorização real é refeita no POST, na transação.
+                if (!(isClienteServiceError(error) && error.code === 'PERFIL_SEM_CONCESSAO'))
+                    throw error;
+                const empresa = (await tx.query<{ codigo: string; nome: string }>('SELECT codigo, nome FROM empresas WHERE id = $1::uuid', [tenant.empresaComprovada])).rows[0];
+                const concessaoInicial = await elegibilidadeConcessaoInicial(tx, tenant);
+                throw new ClienteServiceError('PERFIL_SEM_CONCESSAO', error.message, 403, { concessaoInicial, empresa: { codigo: empresa?.codigo ?? null, nome: empresa?.nome ?? null } });
+            }
+        });
         return json({ ok: true, data });
     } catch (error) {
         return fail(error);
@@ -91,9 +132,18 @@ export async function POST(request: NextRequest) {
         const sessao = await exigirApiAdminCrmDisponivel(request);
         const body = corpo.parse(await request.json());
         const requestId = randomUUID();
-        const data = await withTransaction(async (tx) => {
+        const data = await withTenantTransaction(sessao, null, async (tx, tenant) => {
+            if (body.acao === 'criar-perfil' || body.acao === 'concessao-inicial') {
+                return criarPerfilDaEmpresa(tx, tenant, {
+                    autenticadoEm: sessao.autenticado_em,
+                    agora: Date.parse(sessao.consultado_em ?? ''),
+                    requestId,
+                }, registrarAuditoria, { exigirExistente: body.acao === 'concessao-inicial' });
+            }
+            const perfilDoServidor = await perfilDoTenant(tx, tenant.empresaComprovada);
             if (body.acao === 'salvar-rascunho') {
                 return salvarRascunhoPerfil(tx, {
+                    perfilDoServidor,
                     usuarioId: sessao.usuario_id,
                     empresaIdCliente: body.empresaId ?? null,
                     numero: body.numero,
@@ -104,6 +154,7 @@ export async function POST(request: NextRequest) {
                 }, registrarAuditoria);
             }
             return aplicarCadastroPerfil(tx, {
+                perfilDoServidor,
                 usuarioId: sessao.usuario_id,
                 empresaIdCliente: body.empresaId ?? null,
                 numero: body.numero,
@@ -112,6 +163,7 @@ export async function POST(request: NextRequest) {
                 confirmar: true,
                 motivo: body.motivo,
                 autenticadoEm: sessao.autenticado_em,
+                agora: Date.parse(sessao.consultado_em ?? ''),
                 requestId,
             }, registrarAuditoria);
         });

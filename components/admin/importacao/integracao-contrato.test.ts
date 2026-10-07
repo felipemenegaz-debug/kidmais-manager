@@ -1,3 +1,5 @@
+import { cadastroBase } from '../../../lib/contratos/integracao-importados/fixtures.ts';
+import * as cadastro from '../../../lib/clientes/cadastro-contratual.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as form from './integracao-form.ts';
@@ -6,7 +8,7 @@ import { achar, carregarComponente, cssFalso, elementos, texto, tique, type Elem
 const IMP = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const opcoes = {
   disponivel: true, hoje: '2026-10-02', integracao: null,
-  cliente: { id: 'c1', nome: 'Ana Souza', ativo: true },
+  cliente: { id: 'c1', nome: 'Ana Souza', ativo: true, cadastro: cadastroBase() },
   documento: { pacote: 'Festa Completa 2019', aniversariante: 'Lia', tema: 'Fundo do mar' },
   sugestao: { evento: { data: '2026-11-14', horarioInicio: '14:00', horarioFim: '18:00', convidados: 80 }, valorContratadoCentavos: 850000, condicaoDocumento: 'Entrada de 30% e saldo à vista', parcelasPrevistas: [{ valorCentavos: 255000, vencimento: '2026-08-01' }, { valorCentavos: 595000, vencimento: '2026-11-14' }] },
   estabelecimentos: [{ id: 'u1', nome: 'Unidade Centro' }],
@@ -27,7 +29,13 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
   const Link = 'a';
   const tela = carregarComponente('components/admin/importacao/IntegracaoContrato.tsx', {
     'next/link': { default: Link },
-    '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
+    '../CamposCadastroContratual': { default: 'fieldset' },
+    '@/lib/clientes/cadastro-contratual': cadastro,
+    '@/lib/http/admin-fetch': {
+      adminFetch: async () => new Response(),
+      // A reautenticação com renovação anunciada (a mesma do Perfil da empresa): sem ela a troca de sessão descarta a página.
+      reautenticarSessao: async (...args: unknown[]) => { chamadas.push({ fn: 'reautenticar', args }); return opcoesTeste.reautenticacao ?? { ok: true }; },
+    },
     './integracao-form': form,
     './importacao.module.css': cssFalso, './integracao.module.css': cssFalso,
     './cliente-integracao': {
@@ -40,9 +48,7 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
         const vinculos = opcoesTeste.vinculos ?? [];
         const decidido = !vinculos.length || (d.outroContratoConfirmado && d.motivoOutroContrato.length >= 5);
         return { ok: true, dados: { integrada: false, pronto: decidido, bloqueios: decidido ? [] : ['Há uma contratação parecida nesta empresa neste dia.'], avisos: d.conferenciaDeclarada ? [] : ['Para confirmar, declare a conferência do documento original.'], resumo, resumoHash: d.conferenciaDeclarada ? 'b'.repeat(64) : 'a'.repeat(64), possiveisVinculos: vinculos } }; },
-      confirmar: async (...args: unknown[]) => { chamadas.push({ fn: 'confirmar', args }); return confirmarResposta(); },
-      reautenticar: async (...args: unknown[]) => { chamadas.push({ fn: 'reautenticar', args }); return opcoesTeste.reautenticacao ?? { ok: true, dados: { csrf: 'x' } }; },
-      simularFinanceiro: async () => { throw Error('não usado'); },
+      confirmar: async (...args: unknown[]) => { chamadas.push({ fn: 'confirmar', args }); return confirmarResposta(); },      simularFinanceiro: async () => { throw Error('não usado'); },
       conferirFinanceiro: async () => { throw Error('não usado'); },
     },
   });
@@ -112,7 +118,7 @@ test('fluxo completo: pagamentos conferidos, revisão do servidor, declaração 
   assert.match(texto(a), /Parcela 1: R\$ 2\.550,00 em 03\/08\/2026 · Pix/);
   assert.match(texto(a), /Parcela 2: R\$ 5\.950,00, vence 14\/11\/2026/);
   const decisoes = chamadas.find((c) => c.fn === 'simular')!.args[2] as Record<string, unknown>;
-  assert.deepEqual(Object.keys(decisoes).sort(), ['conferenciaDeclarada', 'estabelecimentoId', 'evento', 'financeiro', 'motivoOutroContrato', 'motivos', 'outroContratoConfirmado', 'pacoteReferenciaId', 'situacaoContrato', 'valorContratadoCentavos']);
+  assert.deepEqual(Object.keys(decisoes).sort(), ['aniversariante', 'cadastro', 'conferenciaDeclarada', 'estabelecimentoId', 'evento', 'financeiro', 'formaPagamento', 'motivoOutroContrato', 'motivos', 'outroContratoConfirmado', 'pacoteReferenciaId', 'situacaoContrato', 'valorContratadoCentavos']);
   assert.equal(achar(a, 'button', 'Confirmar integração').props.disabled, true, 'sem declaração não confirma');
   const declaracao = elementos(a).find((e) => e.type === 'label' && /Conferi o documento original/.test(texto(e)))!;
   (elementos(declaracao.props.children).find((e) => e.type === 'input')!.props.onChange as (e: unknown) => void)(evento('on', true));
@@ -129,7 +135,7 @@ test('fluxo completo: pagamentos conferidos, revisão do servidor, declaração 
   // A senha vai só para a reautenticação nativa, antes da confirmação, e não fica na tela.
   const ordem = chamadas.map((c) => c.fn).filter((fn) => fn !== 'simular');
   assert.deepEqual(ordem, ['reautenticar', 'confirmar']);
-  assert.equal(chamadas.find((c) => c.fn === 'reautenticar')!.args[1], 'senha-do-operador');
+  assert.equal(chamadas.find((c) => c.fn === 'reautenticar')!.args[0], 'senha-do-operador');
   assert.ok(!JSON.stringify(chamadas.find((c) => c.fn === 'confirmar')!.args).includes('senha-do-operador'));
   assert.equal(achar(a, 'input', 'Senha para confirmar').props.value, '');
   const conf = chamadas.find((c) => c.fn === 'confirmar')!;
@@ -189,7 +195,7 @@ async function ateRevisao(tela: ReturnType<typeof montar>['tela']) {
 }
 
 test('autenticação recente: senha recusada não confirma nada e mostra o motivo', async () => {
-  const { tela, chamadas } = montar(async () => ({ ok: true, dados: {} }), { reautenticacao: { ok: false, mensagem: 'Senha inválida.', codigo: null, detalhes: null } });
+  const { tela, chamadas } = montar(async () => ({ ok: true, dados: {} }), { reautenticacao: { ok: false, erro: 'Senha inválida.', senhaIncorreta: true } });
   let a = await ateRevisao(tela);
   (achar(a, 'input', 'Senha para confirmar').props.onChange as (e: unknown) => void)(evento('errada'));
   (achar(ver(tela), 'button', 'Confirmar integração').props.onClick as () => void)();

@@ -60,12 +60,14 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
       return linhas(estado.importacoes.filter((i) => i.id === v[0] && i.empresa === v[1]).map((i) => ({ id: i.id, cliente_id: i.cliente, documento_id: i.documento, status: i.status, snapshot: structuredClone(i.snapshot) })));
     }
     if (sql.includes('FROM ia_documento_originais')) return linhas(v[1] === EMPRESA ? [{ id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', sha256: 'f'.repeat(64) }] : []);
-    if (sql.includes('FROM clientes')) return linhas(v[0] === CLIENTE && v[1] === EMPRESA ? [{ id: CLIENTE, nome_completo: 'Ana Souza', cpf: null, telefone: '11999990000', whatsapp: null, email: null, status: 'ATIVO' }] : []);
+    if (sql.includes('FROM clientes')) return linhas(v[0] === CLIENTE && v[1] === EMPRESA ? [{ id: CLIENTE, nome_completo: 'Ana Souza', cpf: '52998224725', telefone: '11999990000', whatsapp: null, email: 'ana@example.invalid', cep: '01001000', logradouro: 'Rua Teste', numero: '1', bairro: 'Centro', cidade: 'São Paulo', uf: 'SP', status: 'ATIVO' }] : []);
     if (sql.includes('FROM estabelecimentos')) return linhas(v[0] === EMPRESA ? [{ id: '22222222-2222-4222-8222-222222222222', nome: 'Unidade Centro' }] : []);
     if (sql.includes('FROM pacotes p')) return linhas([{ id: '33333333-3333-4333-8333-333333333333', codigo: 'COMPLETA', nome: 'Festa Completa', duracao_minutos: 240, ativo: true }]);
     if (sql.includes('FROM pacotes WHERE id')) return linhas(v[0] === '33333333-3333-4333-8333-333333333333' && v[1] === EMPRESA ? [{ id: v[0], codigo: 'COMPLETA', nome: 'Festa Completa', duracao_minutos: 240 }] : []);
-    if (sql.includes('FROM precos_pacote pp')) return linhas([{ tabela_preco_id: '44444444-4444-4444-8444-444444444444', preco_pacote_id: '55555555-5555-4555-8555-555555555555', categoria: 'NOBRE' }]);
+    if (sql.includes('FROM precos_pacote pp')) return linhas([{ tabela_preco_id: '44444444-4444-4444-8444-444444444444', preco_pacote_id: '55555555-5555-4555-8555-555555555555', categoria: 'GERAL' }]);
     if (sql.includes('FROM configuracao_agenda')) return linhas([{ id: '66666666-6666-4666-8666-666666666666' }]);
+    // Regra de categoria do horário (mesma consulta do fechamento comum).
+    if (sql.includes('FROM regras_categoria_horario')) return linhas(v[1] !== '66666666-6666-4666-8666-666666666666' ? [] : [{ id: '99999999-9999-4999-8999-999999999999', dia_semana: 6, configuracao_agenda_id: '66666666-6666-4666-8666-666666666666', categoria_horario: 'NOBRE', vigencia_inicio: '2020-01-01', vigencia_fim: null }]);
     if (sql.includes('kidmais_lock_datas_revisao')) { estado.locks.push(`data:${v[0]}`); return linhas([]); }
     if (sql.includes('AS com_pagamento') && sql.includes('AS vigente_conferida')) {
       return linhas([{ com_pagamento: estado.comPagamento, revisao_aberta: estado.revisaoAberta, vigente_conferida: estado.versaoVigente }]);
@@ -153,6 +155,8 @@ function coreFalso(chamadas: Chamada[], falharNoRecebimento = false): Core {
   let n = 0;
   const reg = (metodo: string, args: unknown) => { chamadas.push({ metodo, args }); return { id: `${metodo}-${++n}` }; };
   return {
+    snapshotFechamento: async () => ({ comercial: { tabelaPreco: { id: "tabela-nativa" } } }),
+    atualizarCliente: async (_tx, clienteId, empresaId, cadastro) => { reg("atualizarCliente", { clienteId, empresaId, cadastro }); },
     criarFechamento: async (_tx, input) => reg('criarFechamento', input),
     registrarAuditoria: async (_tx, input) => reg('auditoria', input),
     registrarEventoHistorico: async (_tx, input) => reg('historico', input),
@@ -205,6 +209,8 @@ test('parcialmente pago, evento futuro: Core completo, agenda travada e revalida
   assert.ok(estado.locks.includes('bloquear_contrato') && estado.locks.includes('validar_destino'));
   const fech = chamadas.find((c) => c.metodo === 'criarFechamento')!.args as Record<string, unknown>;
   assert.deepEqual([fech.status, fech.origemFechamento, fech.valorTabela, fech.valorAdicionais, fech.dataEvento, fech.convidados], ['CONFIRMADO', 'IMPORTACAO_HISTORICA', 8500, 500, '2026-11-14', 80]);
+  // Linha de preço GERAL: o horário vem da regra do dia e do turno (NOBRE); GERAL fica só como categoria do preço.
+  assert.deepEqual([fech.categoriaHorario, fech.categoriaPrecoAplicada, fech.configuracaoAgendaId], ['NOBRE', 'GERAL', '66666666-6666-4666-8666-666666666666']);
   // A contratação nasce na unidade conferida (recurso de agenda da 062), a mesma gravada no vínculo.
   assert.equal(fech.estabelecimentoId, '22222222-2222-4222-8222-222222222222');
   // Versão: conferência em papel com o sha256 do original — sem assinatura, OTP ou documento gerado.
@@ -260,7 +266,7 @@ test('pagamento não conferido: integra sem financeiro; a pendência é concluí
   assert.equal(chamadas.filter((c) => c.metodo === 'criarPagamento').length, 0);
   assert.equal(estado.vinculos[0].financeiro_declarado, 'NAO_CONFERIDO');
   const opcoes = await emTransacao(estado, (tx) => opcoesIntegracao(tx, tenant(), IMP, HOJE));
-  assert.deepEqual(opcoes.integracao, { contratoId: estado.vinculos[0].contrato_id, financeiroPendente: true, caminhoFinanceiro: 'CONFERIR_HISTORICO', valorContratadoCentavos: 850000 });
+  assert.deepEqual(opcoes.integracao, { contratoId: estado.vinculos[0].contrato_id, financeiroPendente: true, caminhoFinanceiro: 'CONFERIR_HISTORICO', valorContratadoCentavos: 850000, contratoCancelado: false });
 
   const financeiro = { situacao: 'PARCIALMENTE_PAGO', parcelas: [{ valorCentavos: 300000, vencimento: '2026-09-01', recebimento: { data: '2026-09-01', forma: 'BOLETO' } }, { valorCentavos: 550000, vencimento: '2026-11-14', recebimento: null }] };
   const sim = await emTransacao(estado, (tx) => simularFinanceiro(tx, tenant(), IMP, financeiro, HOJE));
@@ -421,7 +427,7 @@ test('busca complementar: candidato em OUTRA data (mesmo documento, data lida, d
   assert.ok(sim.bloqueios.some((b) => /neste dia ou em data próxima/.test(b)));
   // Critério: data decidida, data lida no documento, dia/mês trocados, contato só com dígitos, janela de 90 dias.
   const p = estado.paramsVinculos[0];
-  assert.deepEqual([p[0], p[2], p[6], p[7], p[8], p[9], p[10]], [EMPRESA, '2026-11-21', '2026-11-14', null, null, ['11999990000'], 90]);
+  assert.deepEqual([p[0], p[2], p[6], p[7], p[8], p[9], p[10]], [EMPRESA, '2026-11-21', '2026-11-14', null, '52998224725', ['11999990000'], 90]);
   // Nunca une nem descarta sozinho: com "é outro contrato" + motivo integra e audita data e alcance do candidato.
   const d = { ...d0, outroContratoConfirmado: true, motivoOutroContrato: 'Festa do irmão, contrato separado' };
   const chamadas: Chamada[] = [];
@@ -685,4 +691,60 @@ test('decisão "é outro contrato" vale só para os candidatos revisados: candid
   assert.equal(r.reutilizado, false);
   const auditoria = chamadas.find((c) => c.metodo === 'auditoria' && (c.args as { acao: string }).acao === 'POSSIVEL_DUPLICIDADE_DESCARTADA')!.args as { justificativa: string; dadosDepois: { candidatos: Array<{ fechamentoId: string }> } };
   assert.deepEqual([auditoria.justificativa, auditoria.dadosDepois.candidatos.map((c) => c.fechamentoId)], ['Festa da irmã, contrato separado', ['f-a']]);
+});
+
+
+test('cadastro incompleto bloqueia antes de criar contrato, festa ou financeiro', async () => {
+  const estado = estadoInicial(), original = banco(estado);
+  const tx: DbExecutor = { query: async <Row extends object>(sql: string, params?: readonly unknown[]) => {
+    const r = await original.query<Row>(sql, params);
+    // CPF continua obrigatório (e-mail e endereço passaram a ser opcionais na conferência histórica).
+    if (sql.includes('FROM clientes')) for (const c of r.rows as Record<string, unknown>[]) c.cpf = null;
+    return r;
+  } };
+  const sim = await simularIntegracao(tx, tenant(), IMP, decisoesBase(), HOJE);
+  assert(!sim.integrada); assert.equal(sim.pronto, false); assert.match(sim.bloqueios.join(' '), /Complete os dados do contratante/);
+  await assert.rejects(confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes: decisoesBase(), resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso([])), /Complete os dados do contratante/);
+  assert.equal(estado.inserts.length, 0);
+});
+
+test('cadastro conferido vai ao CRM e ao snapshot nativo sem recalcular preço nem fabricar recebimentos', async () => {
+  const { cadastroBase } = await import('./fixtures.ts');
+  const estado = estadoInicial(), chamadas: Chamada[] = [];
+  await simularEConfirmar(estado, decisoesBase({ cadastro: { ...cadastroBase(), numero: '42' }, formaPagamento: 'PIX_AVISTA', financeiro: { situacao: 'NAO_CONFERIDO' } }), chamadas);
+  const cadastro = chamadas.find(c => c.metodo === 'atualizarCliente')!.args as { empresaId: string; cadastro: { numero: string } };
+  assert.equal(cadastro.empresaId, EMPRESA); assert.equal(cadastro.cadastro.numero, '42');
+  const snap = JSON.parse(String(estado.inserts.find(i => i.tabela === 'contrato_versoes')!.valores[1]));
+  assert.equal(snap.contratante.endereco.numero, '42');
+  assert.equal(snap.comercial.tabelaPreco.id, 'tabela-nativa');
+  assert.equal(snap.comercial.valorFinalContrato, 8500);
+  assert.equal(snap.comercial.formaPagamentoPretendida, 'PIX_AVISTA');
+  assert.deepEqual(snap.historico.contratoHistorico, snapshotBase());
+  assert(!chamadas.some(c => c.metodo === 'registrarRecebimento'));
+});
+
+test('nome ausente do aniversariante bloqueia até o operador complementar', async () => {
+  const estado = estadoInicial(); (estado.importacoes[0].snapshot as ReturnType<typeof snapshotBase>).evento.aniversariante = null;
+  const sim = await simularIntegracao(banco(estado), tenant(), IMP, decisoesBase(), HOJE);
+  assert(!sim.integrada); assert.equal(sim.pronto, false);
+  assert.match(sim.bloqueios.join(' '), /nome do aniversariante/);
+  const corrigido = await simularIntegracao(banco(estado), tenant(), IMP, decisoesBase({ aniversariante: 'Lia Souza' }), HOJE);
+  assert(!corrigido.integrada); assert.equal(corrigido.pronto, true); assert.equal(corrigido.resumo.festa.aniversariante, 'Lia Souza');
+});
+
+
+test('edição concorrente no cadastro invalida a conferência antes de sobrescrever o CRM', async () => {
+  const { cadastroBase } = await import('./fixtures.ts');
+  const estado = estadoInicial(), original = banco(estado); let mudou = false;
+  const tx: DbExecutor = { query: async <Row extends object>(sql: string, params?: readonly unknown[]) => {
+    const r = await original.query<Row>(sql, params);
+    if (mudou && sql.includes('FROM clientes')) for (const c of r.rows as Record<string, unknown>[]) c.email = 'novo@example.invalid';
+    return r;
+  } };
+  const decisoes = decisoesBase({ cadastro: cadastroBase() });
+  const sim = await simularIntegracao(tx, tenant(), IMP, decisoes, HOJE); assert(!sim.integrada); assert(sim.pronto);
+  mudou = true;
+  const chamadas: Chamada[] = [];
+  await assert.rejects(confirmarIntegracao(tx, tenant(), ctx, IMP, { decisoes, resumoHash: sim.resumoHash, chave: CHAVE }, HOJE, coreFalso(chamadas)), (e: unknown) => e instanceof IntegracaoImportadoError && e.code === 'RESUMO_DESATUALIZADO');
+  assert.equal(chamadas.length, 0); assert.equal(estado.inserts.length, 0);
 });
