@@ -20,7 +20,8 @@ function loader(mocks: Record<string, any>) {
     if (cache[file]) return cache[file];
     const exports = cache[file] = {};
     const code = ts.transpileModule(readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
-    new Function('require', 'exports', code)((id: string) => id.startsWith('@/') ? load(id.slice(2)) : id.startsWith('.') ? load(resolve(dirname(file), id.replace(/\.ts$/, ''))) : req(id), exports);
+    // Testes usam configuração sintética, inclusive quando executados no build do Render.
+    new Function('require', 'exports', 'process', code)((id: string) => id.startsWith('@/') ? load(id.slice(2)) : id.startsWith('.') ? load(resolve(dirname(file), id.replace(/\.ts$/, ''))) : req(id), exports, { env: {} });
     return exports;
   }
   return load;
