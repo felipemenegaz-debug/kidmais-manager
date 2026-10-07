@@ -1,6 +1,7 @@
 import type { SessaoAdmin } from '../autenticacao/service.ts';
 import { situacaoEmail } from '../acessos/email.ts';
 import { exigirDesenvolvedorNaTransacao } from './autorizacao.ts';
+import { alertasPainel } from './alertas.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
 
 /**
@@ -45,6 +46,7 @@ export async function resumoPainel(sessao: SessaoAdmin, deps: PainelDeps = paine
               WHERE ${ACOES_ADMINISTRATIVAS}
               ORDER BY a.criado_em DESC LIMIT 15`)).rows;
         const email = situacaoEmail();
+        const alertas = await alertasPainel(tx, { configurado: email.configurado, motivo: email.motivo });
         return {
             interessadas: Object.fromEntries(interessadas.map((i) => [i.status, i.n])) as Record<string, number>,
             empresas: {
@@ -56,6 +58,7 @@ export async function resumoPainel(sessao: SessaoAdmin, deps: PainelDeps = paine
             convitesPendentes,
             atividades,
             envioEmail: { configurado: email.configurado, motivo: email.motivo },
+            alertas,
         };
     });
 }
