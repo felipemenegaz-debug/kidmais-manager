@@ -218,6 +218,16 @@ test('retomada só para quem criou e mantém a Gestão: vínculo encerrado → r
     assert.equal(await contar("SELECT count(*)::int AS n FROM solicitacoes_acesso_empresa WHERE usuario_id = $1 AND situacao = 'PENDENTE'", [usuarioId]), 1);
 });
 
+test('mesma pessoa, mesmo CNPJ, duas abas ao mesmo tempo (chaves diferentes): a trava da conta serializa → uma empresa, as duas respostas a retomam, nenhum pedido de acesso', async () => {
+    const { usuarioId, sessao } = await contaConfirmada('kai');
+    const [ra, rb] = await Promise.all([cadastrar(sessao, empresa('81678912000119')), cadastrar(sessao, empresa('81678912000119'), () => client2)]);
+    assert.deepEqual([ra.situacao, rb.situacao], ['CRIADA', 'CRIADA']);
+    assert.equal(ra.empresaId, rb.empresaId);
+    assert.deepEqual([ra.repetido, rb.repetido].sort(), [false, true]);
+    assert.equal(await contar("SELECT count(*)::int AS n FROM plataforma_empresas_cadastro WHERE documento_fiscal = '81678912000119'"), 1);
+    assert.equal(await contar('SELECT count(*)::int AS n FROM solicitacoes_acesso_empresa WHERE usuario_id = $1', [usuarioId]), 0);
+});
+
 test('nome da pessoa não é único: duas contas com o mesmo nome cadastram empresas diferentes', async () => {
     const a = await contaConfirmada('ivo', { nome: 'Maria Silva' });
     const b = await contaConfirmada('jon', { nome: 'Maria Silva' });

@@ -77,6 +77,21 @@ Felipe (item A1 da §9).
    empresa**. Correção (`lib/cadastro/publico.ts`): antes do limite diário e da trava, se a mesma pessoa já criou a
    empresa desse CNPJ pelo cadastro **e mantém a Gestão ativa numa empresa ATIVA**, devolve a mesma empresa
    (`repetido: true`). Sem vínculo ativo, continua a resposta neutra (teste "retomada só para quem criou e mantém a Gestão").
+   **Por que a retomada só devolve empresa da própria conta com Gestão ativa** — a consulta exige, na mesma linha:
+   - `cadastros_empresas.usuario_id = <usuário da sessão>` e `documento = <CNPJ normalizado e com dígitos válidos>`: a
+     linha só é gravada pelo próprio `cadastrarEmpresa`, na transação que cria a empresa, com o usuário **da sessão do
+     servidor** (nunca do corpo da requisição); a tabela é só-inserção (gatilho da 069) e `empresa_id` é único — cada
+     empresa tem exatamente um registro de quem a criou;
+   - `memberships` da **mesma** pessoa e **mesma** empresa com `status = 'ATIVA'` e `papel = 'REPRESENTANTE_AUTORIZADO'`
+     (Gestão) e `empresas.status = 'ATIVA'` — as mesmas condições de vínculo e empresa que `provarTenant` aplica a cada
+     requisição do Admin. Vínculo revogado ou empresa suspensa → nada é devolvido e segue a resposta neutra.
+   - Empresa criada por outra via (painel do desenvolvedor, perfil legado) não tem linha em `cadastros_empresas` → nunca
+     é "retomada", mesmo que a pessoa tenha vínculo nela.
+   - Concorrência da mesma conta (duas abas, chaves diferentes): a transação começa travando a linha da conta
+     (`travarUsuariosNaOrdem`, `FOR UPDATE`); a segunda espera a primeira terminar e, em READ COMMITTED, a consulta já vê
+     a empresa criada → as duas respostas devolvem a mesma empresa, nenhum pedido de acesso. Teste com duas conexões
+     reais; falha no código de `staging`.
+   - O que volta é só o id da própria empresa e o fim do teste; nada de terceiros.
 2. **Botão preso em "Cadastrando…" quando a conexão cai.** O `fetch` rejeitado não era tratado. Agora mostra "A conexão
    falhou antes da resposta. Tente de novo…" e libera o botão; a mesma chave (ou a retomada do item 1) evita duplicidade.
 3. **Conta confirmada sem empresa não tinha caminho claro de volta.** A tela "Sem empresa ativa" agora oferece
@@ -109,6 +124,11 @@ Felipe (item A1 da §9).
 | `ASAAS_API_KEY` | **segredo** `$aact_hmlg_…` da conta sandbox | idem | — | apagar e revogar no sandbox |
 | `ASAAS_WEBHOOK_TOKEN` | **segredo** aleatório 32–255 caracteres (gerado no terminal de Felipe, ex. `openssl rand -base64 48`) | webhook aceita só com esse token | — | apagar; desativar o webhook no sandbox |
 | `RECUPERACAO_SENHA_ATIVA` | `true` (opcional) | "Esqueci minha senha" público em staging | — | apagar |
+
+Os valores **não secretos** do ensaio estão em [homologacao/staging-venda-sintetica.env.exemplo](homologacao/staging-venda-sintetica.env.exemplo),
+marcado como sintético e só de staging; `lib/assinatura/configuracao-homologacao.test.ts` confere que ele passa pelos
+validadores da aplicação, que não contém segredo e que os valores diferem dos padrões propostos (que também não são
+política aprovada).
 
 ### Recursos externos (feitos por Felipe nos painéis; esta sessão não cria contas)
 
