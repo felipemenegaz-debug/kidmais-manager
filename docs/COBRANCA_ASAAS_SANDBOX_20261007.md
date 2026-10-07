@@ -84,7 +84,8 @@ que o provedor diz no momento da reconsulta. Entrega repetida não grava segundo
 |---|---|---|
 | Provedor fora no checkout | 502 `COBRANCA_FALHOU`, nada gravado | Tentar de novo |
 | Duas contratações simultâneas da mesma empresa | Trava exclusiva por empresa (`pg_try_advisory_xact_lock`, conexão própria, solta sozinha se o processo cair) | A segunda recebe 409 `CONTRATACAO_EM_ANDAMENTO`; o provedor recebe **uma** criação |
-| Criação no provedor sem resposta (tempo esgotado, rede, 5xx, 408/409/429, resposta ilegível) | Pode ter sido criada | Reconsulta pela referência externa: exatamente uma ativa do mesmo cliente → vincula; não deu para saber → pendência `CRIACAO_SEM_RESPOSTA` + 503 `COBRANCA_RESULTADO_INCERTO`. **Nunca cria outra às cegas** |
+| Criação no provedor sem resposta (tempo esgotado, rede, 5xx, 408/409/429, resposta ilegível) | Pode ter sido criada | Reconsulta pela referência externa: exatamente uma ativa do mesmo cliente → vincula; não deu para saber (inclusive **listagem vazia**) → a intenção fica aberta como `CRIACAO_SEM_RESPOSTA` + 503 `COBRANCA_RESULTADO_INCERTO`. **Nenhum outro POST** enquanto ela estiver aberta |
+| Processo cai durante o POST | Intenção prévia `CRIACAO_EM_CURSO` fica aberta | Bloqueia novos POSTs; a reconciliação vincula quando a assinatura aparecer |
 | Erro depois do COMMIT da gravação (resposta perdida) | O vínculo pode estar gravado | Releitura por transação nova: vínculo desta assinatura → **sucesso**, nada desfeito |
 | Falha antes do COMMIT ou releitura impossível | Vínculo não confirmado | **Nada é excluído**; pendência `COMMIT_INCERTO`/`VINCULO_DUVIDOSO` + 503 incerto; a retomada vincula a mesma assinatura (sem duplicar) |
 | Retomada encontra várias ativas (ou uma de outro cliente) | Ambíguo | **Não escolhe a primeira**, não cria, não exclui: pendência `ASSINATURAS_AMBIGUAS` + 503 incerto |
@@ -98,6 +99,20 @@ que o provedor diz no momento da reconsulta. Entrega repetida não grava segundo
 A sincronização consulta o provedor **com a linha da empresa travada** (até 2 chamadas de 10 s): duas sincronizações da
 mesma empresa nunca aplicam uma leitura antiga depois de uma nova. Checkout e cancelamento chamam o provedor **fora**
 de transação (fases A/B/C em `cobranca.ts`).
+
+## Registro prévio da criação e bloqueio de POST
+
+- Antes de **cada** POST de criação, a contratação grava a intenção (`cobranca_eventos`, `evento_id` `kidmais:criacao:<empresa>:<uuid>`,
+  `CRIACAO_EM_CURSO`). Sem conseguir gravá-la, não cria (503).
+- Resposta recebida → intenção `PROCESSADO` (`CRIACAO_CONFIRMADA`); recusa definitiva 4xx → `PROCESSADO` (`CRIACAO_RECUSADA`);
+  qualquer outro erro → relista; não confirmada → continua aberta (`CRIACAO_SEM_RESPOSTA`).
+- Antes de criar, com a listagem vazia, a contratação lê as **pendências abertas** da empresa (qualquer motivo): com id
+  conhecido, consulta pelo id e reaproveita se estiver ativa; havendo qualquer pendência aberta, **não faz POST** (503).
+- Reconciliação de uma intenção sem id e listagem vazia → `FALHOU` `AGUARDANDO_CONFIRMACAO: CRIACAO_NAO_CONFIRMADA` (continua
+  aberta). Fecha só quando a assinatura aparece (vincula) ou quando a empresa já está vinculada.
+- **Sem liberação automática por tempo.** Se o POST realmente não criou nada, a empresa fica bloqueada até alguém
+  conferir no painel do Asaas e liberar. A liberação manual auditada **ainda não existe** (decisão pendente: ação no
+  painel do desenvolvedor ou no script de reconciliação; ou, alternativa, liberar após uma quarentena).
 
 ## Decisão central de compensação (`lib/assinatura/compensacao.ts`)
 
@@ -164,12 +179,14 @@ Render cron: não criado (custo do plano não levantado).
 - Unitários: `asaas.test.ts` 5/5, `provedor-estado.test.ts` 9/9, `webhook-asaas.test.ts` 7/7, `reconciliacao.test.ts` 2/2,
   `contratacao.test.ts` 4/4 (classificação de resultado incerto, tipo reservado recusado no webhook, toda exclusão automática
   passa pela decisão central, tabela da decisão com 15 casos).
-- `contratacao-e8.postgres.test.ts` 11/11, com **várias conexões reais** (trava de verdade) e provedor **falso**: duas contratações
+- `contratacao-e8.postgres.test.ts` 13/13, com **várias conexões reais** (trava de verdade) e provedor **falso**: duas contratações
   simultâneas; COMMIT confirmado + erro de comunicação; resposta perdida reencontrada; resposta perdida sem confirmação
   (pendência + retomada sem duplicar); queda antes do COMMIT (nada excluído); releitura impossível; falha na compensação
   (pendência e resolução posterior); duplicata paga (revisão humana); **compensação imediata com pagamento**, **recontratação
   após cancelamento com resposta perdida** e **retomada com várias ativas** (nenhuma exclusão; os três falham no código
-  anterior `d043485`: excluía a paga, excluía a recontratação, escolhia a primeira).
+  anterior `d043485`: excluía a paga, excluía a recontratação, escolhia a primeira); **POST com resposta perdida e listagem
+  vazia** (nova tentativa não faz POST; o provedor recebe uma criação) e **processo que cai depois do POST** (intenção
+  prévia bloqueia) — os dois falham no código anterior `845ce4d`, que fazia um segundo POST.
 - PostgreSQL 18 descartável (cluster próprio, porta 55532, modelo `atual` + 067 + 068): `cobranca-e8.postgres.test.ts` 6/6 e
   `cobranca-068.postgres.test.ts` 7/7.
 - `npx tsc --noEmit`, ESLint dos arquivos alterados, `npm run check:v1:static` (2031 testes, lint, TypeScript, build) e

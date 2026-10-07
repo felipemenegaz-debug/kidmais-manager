@@ -13,6 +13,8 @@
  *   A. transação curta do tenant: Gestão, situação e ids gravados;
  *   B. provedor, sem transação aberta (10 s por chamada);
  *   C. transação curta do tenant: trava a linha, confere que nada mudou e grava ids/estado; audita.
+ * Registro prévio: antes de cada POST de criação grava-se a intenção (pendência `kidmais:criacao:`); enquanto houver
+ * pendência aberta da empresa não há outro POST (listagem vazia depois de tempo esgotado não prova falha).
  * Falhas: provedor criou e o commit da fase C falhou → a próxima tentativa reencontra cliente e assinatura pela
  * referência externa; o webhook e a reconciliação (scripts/assinatura-reconciliar.cjs) corrigem o resto. Provedor fora
  * do ar → COBRANCA_FALHOU (502) e nada é gravado.
@@ -26,7 +28,7 @@ import { precoDoCiclo, ConfiguracaoComercialInvalida, type Ciclo } from './confi
 import { AsaasFalhou, cicloDoProvedor, type AssinaturaProvedor, type ClienteAsaas } from './asaas.ts';
 import { cobrancaEmAberto } from './provedor-estado.ts';
 import { auditarCobranca, sincronizarEmpresa } from './sincronizacao.ts';
-import { registrarPendencia } from './reconciliacao-contratacao.ts';
+import { concluirIntencao, marcarIntencao, pendenciasAbertas, registrarPendencia } from './reconciliacao-contratacao.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 
 const GESTAO = 'REPRESENTANTE_AUTORIZADO';
@@ -183,6 +185,34 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             await registrarPendenciaSegura(deps, { empresaId, assinaturaId: null, motivo: 'ASSINATURAS_AMBIGUAS' });
             throw incerto();
         }
+        // Operações anteriores com resultado incerto (POST sem resposta, COMMIT incerto, processo que caiu no meio):
+        // listagem vazia NÃO prova que falharam. Com pendência aberta não há outro POST: só reaproveita uma assinatura
+        // conhecida e confirmada pelo id; senão preserva a pendência e responde "incerto".
+        let abertas: Awaited<ReturnType<typeof pendenciasAbertas>>;
+        try {
+            abertas = await deps.withTransaction((tx) => pendenciasAbertas(tx, empresaId));
+        }
+        catch {
+            throw incerto();
+        }
+        for (const pend of abertas) {
+            if (!pend.assinatura_provedor_id)
+                continue;
+            const conhecida = await provedor.obterAssinatura(pend.assinatura_provedor_id);
+            if (conhecida && ativa(conhecida) && conhecida.externalReference === empresaId && (!conhecida.customer || conhecida.customer === clienteId))
+                return { assinatura: conhecida, clienteId, aberta: await cobrancaAberta(provedor, conhecida.id), criada: false, reaproveitada: true };
+        }
+        if (abertas.length)
+            throw incerto();
+        // Registro prévio: a intenção é gravada ANTES do POST. Se o processo cair ou a resposta se perder, ela continua
+        // aberta e bloqueia novos POSTs. Sem conseguir gravá-la, não cria.
+        let intencao: string;
+        try {
+            intencao = await deps.withTransaction((tx) => registrarPendencia(tx, { empresaId, assinaturaId: null, motivo: 'CRIACAO_EM_CURSO', operacao: 'criacao' }));
+        }
+        catch {
+            throw incerto();
+        }
         let assinatura: AssinaturaProvedor;
         try {
             assinatura = await provedor.criarAssinatura({
@@ -191,16 +221,23 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             });
         }
         catch (error) {
-            if (!resultadoIncerto(error))
+            // Só recusa definitiva do provedor (4xx) fecha a intenção; qualquer outro erro pode ter criado.
+            if (error instanceof AsaasFalhou && !resultadoIncerto(error)) {
+                await atualizarIntencao(deps, intencao, 'CRIACAO_RECUSADA');
                 throw error;
+            }
             // Resposta perdida: o provedor pode ter criado. Nunca cria outra às cegas; procura pela referência.
             const achadas = await provedor.listarAssinaturasPorReferencia(empresaId).catch(() => null);
             const confirmada = achadas ? unicaCandidata(achadas, clienteId) : null;
-            if (confirmada?.tipo === 'UNICA')
+            if (confirmada?.tipo === 'UNICA') {
+                await atualizarIntencao(deps, intencao, 'CRIACAO_CONFIRMADA');
                 return { assinatura: confirmada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, confirmada.assinatura.id), criada: true, reaproveitada: false };
-            await registrarPendenciaSegura(deps, { empresaId, assinaturaId: null, motivo: 'CRIACAO_SEM_RESPOSTA' });
+            }
+            // Não confirmada (inclusive listagem vazia): a intenção fica ABERTA — nada de novo POST até resolver.
+            await atualizarIntencao(deps, intencao, 'CRIACAO_SEM_RESPOSTA');
             throw incerto();
         }
+        await atualizarIntencao(deps, intencao, 'CRIACAO_CONFIRMADA');
         return { assinatura, clienteId, aberta: await cobrancaAberta(provedor, assinatura.id), criada: true, reaproveitada: false };
     });
 
@@ -268,6 +305,19 @@ async function cobrancaAberta(provedor: ClienteAsaas, assinaturaId: string) {
         if (error instanceof AsaasFalhou)
             return null;
         throw error;
+    }
+}
+
+/**
+ * Fecha (confirmada/recusada) ou anota (sem resposta) a intenção de criação. Falhar aqui não desfaz nada: a intenção só
+ * fica aberta a mais, o que bloqueia novos POSTs até a reconciliação ou a retomada encontrarem a assinatura.
+ */
+async function atualizarIntencao(deps: DepsCobranca, id: string, motivo: 'CRIACAO_CONFIRMADA' | 'CRIACAO_RECUSADA' | 'CRIACAO_SEM_RESPOSTA') {
+    try {
+        await deps.withTransaction((tx) => motivo === 'CRIACAO_SEM_RESPOSTA' ? marcarIntencao(tx, id, motivo) : concluirIntencao(tx, id, motivo));
+    }
+    catch (error) {
+        console.error('[cobrança] intenção de criação não atualizada (continua aberta)', motivo, error instanceof Error ? error.name : typeof error);
     }
 }
 

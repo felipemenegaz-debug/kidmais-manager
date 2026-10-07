@@ -17,17 +17,38 @@ import { decidirCompensacao, type MotivoPreservacao } from './compensacao.ts';
  */
 export const TIPO_PENDENCIA = 'KIDMAIS_RECONCILIAR_CONTRATACAO';
 export const PREFIXO_PENDENCIA = 'kidmais:';
+/** Intenção de criação gravada ANTES do POST de criação no provedor (registro prévio da operação). */
+export const PREFIXO_CRIACAO = 'kidmais:criacao:';
 const TROCA_PERMITIDA = new Set(['TESTE', 'CANCELADA_FIM_PERIODO', 'ENCERRADA']);
 
-export type MotivoPendencia = 'CRIACAO_SEM_RESPOSTA' | 'COMMIT_INCERTO' | 'COMPENSACAO_FALHOU' | 'VINCULO_DUVIDOSO' | 'COMPENSACAO_PRESERVADA' | 'ASSINATURAS_AMBIGUAS';
+export type MotivoPendencia = 'CRIACAO_EM_CURSO' | 'CRIACAO_SEM_RESPOSTA' | 'COMMIT_INCERTO' | 'COMPENSACAO_FALHOU' | 'VINCULO_DUVIDOSO' | 'COMPENSACAO_PRESERVADA' | 'ASSINATURAS_AMBIGUAS';
 export type ProvedorReconciliacao = Pick<ClienteAsaas, 'obterAssinatura' | 'listarAssinaturasPorReferencia' | 'listarCobrancasDaAssinatura' | 'removerAssinatura'>;
 
 /** Registra a pendência (só identificadores e o motivo). Devolve o id interno. */
-export async function registrarPendencia(tx: DbExecutor, input: { empresaId: string; assinaturaId: string | null; motivo: MotivoPendencia; detalhe?: MotivoPreservacao }) {
+export async function registrarPendencia(tx: DbExecutor, input: { empresaId: string; assinaturaId: string | null; motivo: MotivoPendencia; detalhe?: MotivoPreservacao; operacao?: 'criacao' }) {
     return (await tx.query<{ id: string }>(
         `INSERT INTO cobranca_eventos (provedor, evento_id, tipo, assinatura_provedor_id, referencia_externa, empresa_id, situacao, ultimo_erro)
          VALUES ('ASAAS', $1, $2, $3, $4, $5::uuid, 'PENDENTE', $6) RETURNING id`,
-        [`${PREFIXO_PENDENCIA}contratacao:${input.empresaId}:${randomUUID()}`, TIPO_PENDENCIA, input.assinaturaId, input.empresaId, input.empresaId, input.detalhe ? `${input.motivo}: ${input.detalhe}` : input.motivo])).rows[0].id;
+        [`${input.operacao === 'criacao' ? PREFIXO_CRIACAO : `${PREFIXO_PENDENCIA}contratacao:`}${input.empresaId}:${randomUUID()}`, TIPO_PENDENCIA, input.assinaturaId, input.empresaId, input.empresaId, input.detalhe ? `${input.motivo}: ${input.detalhe}` : input.motivo])).rows[0].id;
+}
+
+/** Pendências ainda abertas da empresa (PENDENTE/FALHOU): operações anteriores cujo resultado não foi resolvido. */
+export async function pendenciasAbertas(tx: DbExecutor, empresaId: string) {
+    return (await tx.query<{ id: string; evento_id: string; assinatura_provedor_id: string | null }>(
+        `SELECT id, evento_id, assinatura_provedor_id FROM cobranca_eventos
+          WHERE empresa_id = $1::uuid AND provedor = 'ASAAS' AND tipo = $2 AND situacao IN ('PENDENTE', 'FALHOU') ORDER BY recebido_em`,
+        [empresaId, TIPO_PENDENCIA])).rows;
+}
+
+/** Fecha a intenção de criação (resultado conhecido). A identidade do evento é imutável (068): só situação e motivo mudam. */
+export async function concluirIntencao(tx: DbExecutor, id: string, motivo: 'CRIACAO_CONFIRMADA' | 'CRIACAO_RECUSADA') {
+    await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $2
+                     WHERE id = $1::uuid AND situacao IN ('PENDENTE', 'FALHOU')`, [id, motivo]);
+}
+
+/** Mantém a intenção aberta e registra por quê (resposta da criação perdida e não confirmada). */
+export async function marcarIntencao(tx: DbExecutor, id: string, motivo: 'CRIACAO_SEM_RESPOSTA') {
+    await tx.query(`UPDATE cobranca_eventos SET ultimo_erro = $2 WHERE id = $1::uuid AND situacao IN ('PENDENTE', 'FALHOU')`, [id, motivo]);
 }
 
 export function ehPendencia(ev: { tipo: string; evento_id: string; empresa_id: string | null }) {
@@ -36,6 +57,7 @@ export function ehPendencia(ev: { tipo: string; evento_id: string; empresa_id: s
 
 export type ResultadoReconciliacao =
     | { resultado: 'NADA_A_FAZER' | 'CONCILIADA'; removidas: string[] }
+    | { resultado: 'AGUARDANDO'; motivo: 'CRIACAO_NAO_CONFIRMADA' }
     | { resultado: 'VINCULADA'; assinaturaId: string }
     | { resultado: 'REVISAO_HUMANA'; motivo: 'VARIAS_ASSINATURAS_SEM_VINCULO' | 'DUPLICATA_COM_PAGAMENTO' | 'DUPLICATA_PRESERVADA' | 'VINCULO_INATIVO_COM_ACESSO' | 'SEM_ASSINATURA_NO_BANCO'; ids: string[] };
 
@@ -48,19 +70,28 @@ const ativa = (s: { status: string; deleted: boolean }) => !s.deleted && s.statu
  *       várias → revisão humana (não escolhe a primeira, não exclui);
  *   - vínculo a assinatura ativa → as outras ativas são candidatas a duplicata; cada uma passa pela decisão central
  *     (compensacao.ts): exclui só com justificativa segura; preservada → revisão humana com o motivo.
+ * Pendência com assinatura conhecida e listagem vazia → consulta pelo id (a listagem pode atrasar). Intenção de criação
+ * sem id e listagem vazia → AGUARDANDO: listagem vazia não prova que o POST falhou; a pendência fica aberta (e a
+ * contratação não faz outro POST) até a assinatura aparecer. Não há liberação automática por tempo.
  * Falha do provedor propaga (o evento fica FALHOU e volta a ser tentado).
  */
-export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, provedor: ProvedorReconciliacao, requestId: string | null = null): Promise<ResultadoReconciliacao> {
+export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, provedor: ProvedorReconciliacao, requestId: string | null = null,
+    pendencia: { criacao: boolean; assinaturaId: string | null } | null = null): Promise<ResultadoReconciliacao> {
     const linha = (await tx.query<{ situacao: string; provedor_assinatura_id: string | null; provedor_cliente_id: string | null }>(
         'SELECT situacao, provedor_assinatura_id, provedor_cliente_id FROM empresa_assinaturas WHERE empresa_id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
     if (!linha)
         return { resultado: 'REVISAO_HUMANA', motivo: 'SEM_ASSINATURA_NO_BANCO', ids: [] };
     const ativas = (await provedor.listarAssinaturasPorReferencia(empresaId)).filter(ativa);
+    if (pendencia?.assinaturaId && !ativas.some((s) => s.id === pendencia.assinaturaId)) {
+        const conhecida = await provedor.obterAssinatura(pendencia.assinaturaId);
+        if (conhecida && ativa(conhecida) && conhecida.externalReference === empresaId)
+            ativas.push(conhecida);
+    }
     const origem = { tipo: 'RECONCILIACAO' as const, requestId };
     const vinculada = linha.provedor_assinatura_id ? ativas.find((s) => s.id === linha.provedor_assinatura_id) ?? null : null;
     if (!vinculada) {
         if (ativas.length === 0)
-            return { resultado: 'NADA_A_FAZER', removidas: [] };
+            return pendencia?.criacao && !pendencia.assinaturaId ? { resultado: 'AGUARDANDO', motivo: 'CRIACAO_NAO_CONFIRMADA' } : { resultado: 'NADA_A_FAZER', removidas: [] };
         if (ativas.length > 1)
             return { resultado: 'REVISAO_HUMANA', motivo: 'VARIAS_ASSINATURAS_SEM_VINCULO', ids: ativas.map((s) => s.id) };
         const s = ativas[0];
