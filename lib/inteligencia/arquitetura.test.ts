@@ -66,6 +66,8 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/repositorio-importacao": ["ImportacaoLida"], // @pr:IMPORT
   // Importação da tabela de preços (071): só o esquema puro da leitura; a escrita segue no Core.
   "lib/comercial/importacao-tabela/esquema": ["INSTRUCAO_LEITURA_TABELA", "LEITURA_JSON_SCHEMA", "leituraSchema", "LeituraTabela"],
+  // Modelo de contrato da empresa (072): só o esquema puro da leitura; publicar e gerar contrato seguem no Core.
+  "lib/contratos/modelo-empresa/leitura": ["INSTRUCAO_LEITURA_CONTRATO", "LEITURA_CONTRATO_JSON_SCHEMA", "leituraContratoSchema", "LeituraContrato"],
 };
 
 /** Composition roots: além da IA, ligam guard, tenant, pool e os serviços de domínio reais às portas. */
@@ -117,6 +119,7 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/importacao-contrato/repositorio-importacao": ["abrirImportacao", "atualizarImportacao", "importacaoDisponivel", "importacaoPorDocumento", "lerImportacao", "substituirImportacaoCancelada"], // @pr:IMPORT
   // Importação da tabela de preços (071): guarda do PDF e da leitura pelos serviços do Core, no Tenant Context.
   "lib/comercial/importacao-tabela/servico": ["arquivoDaImportacao", "gravarLeitura", "registrarImportacao"],
+  "lib/contratos/modelo-empresa/servico": ["arquivoDaImportacaoContrato", "gravarLeituraContrato", "registrarImportacaoContrato"],
 };
 
 /** Cada composition root liga os serviços de domínio reais da própria feature, nunca SQL próprio. */

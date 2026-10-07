@@ -11,7 +11,8 @@ export type ContratoOficialClausula = {
 };
 
 export type ContratoOficialRenderizado = {
-  templateVersao: ContratoOficialTemplateVersao;
+  /** Modelos oficiais Kidmais: 1 a 4. Modelo da empresa (072): a versão do modelo publicado. */
+  templateVersao: number;
   modeloCodigo: string;
   pacoteCodigo: string;
   pacoteNome: string;

@@ -90,6 +90,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/adicionais-070.postgres.test.ts": { descartavel: "063" },
   // Importação da tabela de preços: 063 + 070 + 071 aplicadas pela própria suíte.
   "lib/comercial/importacao-tabela/importacao-071.postgres.test.ts": { descartavel: "063" },
+  // Modelo de contrato da empresa: 063 + 070 + 071 + 072 aplicadas pela própria suíte.
+  "lib/contratos/modelo-empresa/modelo-072.postgres.test.ts": { descartavel: "063" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
