@@ -34,3 +34,27 @@ test("etapa 4: em erro/carregando não aparecem títulos, totais nem campos de p
   assert.match(etapa, /aria-checked=\{selected\}/);
   assert.match(tela, /etapa === 4 && adicionaisEstado !== 'ok'/, "não avança sem adicionais consultados");
 });
+
+test("unidade de cobrança: rótulo, quantidade e total iguais ao cálculo do servidor", async () => {
+  const { aceitaQuantidade, rotuloUnidade, totalDoAdicional } = await import("./adicionais-etapa.ts");
+  assert.equal(rotuloUnidade("CENTO"), " / cento");
+  assert.equal(rotuloUnidade("PACOTE"), "");
+  assert.equal(aceitaQuantidade("CENTO"), true);
+  assert.equal(aceitaQuantidade("PACOTE"), false);
+  assert.equal(totalDoAdicional({ preco: 120, unidadeCobranca: "CENTO" }, 3, 50), 360);
+  assert.equal(totalDoAdicional({ preco: 4.5, unidadeCobranca: "CONVIDADO" }, 1, 40), 180);
+  assert.equal(totalDoAdicional({ preco: 350, unidadeCobranca: "PACOTE" }, 1, 40), 350);
+});
+
+test("adicional de categoria: escolhas validadas na resposta e exigidas na seleção, respeitando o máximo", async () => {
+  const { pendenciaEscolhas, mensagemFalhaAdicionais } = await import("./adicionais-etapa.ts");
+  const cento = { id: "CATEGORIA_SALGADOS", nome: "Cento de salgados extra", categoria: "BUFFET", preco: 120, unidadeCobranca: "CENTO", escolhas: { max: 2, itens: [{ id: "a", nome: "Coxinha" }, { id: "b", nome: "Kibe" }, { id: "c", nome: "Esfiha" }] } };
+  assert.deepEqual(lerAdicionaisDisponiveis({ adicionais: [cento] }), [cento]);
+  assert.equal(lerAdicionaisDisponiveis({ adicionais: [{ ...cento, escolhas: { max: 0, itens: [] } }] }), null);
+  assert.match(pendenciaEscolhas(cento, []) ?? "", /Escolha as opções/);
+  assert.match(pendenciaEscolhas(cento, ["a", "b", "c"]) ?? "", /no máximo 2/);
+  assert.equal(pendenciaEscolhas(cento, ["a"]), null);
+  assert.equal(pendenciaEscolhas({ ...cento, escolhas: undefined }, []), null);
+  assert.match(mensagemFalhaAdicionais("PRECO_INDISPONIVEL", true), /Tabelas de preço/);
+  assert.doesNotMatch(mensagemFalhaAdicionais("PRECO_INDISPONIVEL"), /Configurações/);
+});

@@ -31,6 +31,7 @@ function carregar(arquivo: string, opcoes: { empresa?: string; ativa?: boolean; 
           consultas.push(sql);
           const resultado = (rows: object[]) => ({ rows, rowCount: rows.length });
           if (sql.includes("to_regprocedure")) return resultado([{ instalada: opcoes.instalada !== false }]);
+          if (sql.includes("information_schema.columns")) return resultado([{ ok: false }]);
           if (sql.includes("FROM public.empresas")) return resultado([{ ok: opcoes.ativa !== false }]);
           if (sql.includes("FROM public.estabelecimentos")) return resultado([]);
           if (sql.includes("FROM pacotes")) {

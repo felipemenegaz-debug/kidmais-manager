@@ -29,12 +29,20 @@ test("regras oficiais: incluso ou indisponível no pacote e item de buffet inclu
 });
 
 /** Banco com dois tenants: o mesmo código de pacote em A e em B, cada um com seus adicionais e preços. */
-function banco() {
+function banco(tem070 = false) {
   const consultas: Array<{ sql: string; values: readonly unknown[] }> = [];
   const tx: DbExecutor = {
     async query<Row extends object>(sql: string, values: readonly unknown[] = []) {
       consultas.push({ sql, values });
       const r = (rows: object[]) => ({ rows: rows as Row[], rowCount: rows.length });
+      if (sql.includes("information_schema.columns")) return r([{ ok: tem070 }]);
+      if (sql.includes("FROM buffet_itens")) {
+        assert.match(sql, /WHERE ativo AND categoria_id = ANY/);
+        return r((values[0] as string[]).includes("cat-salgados") ? [
+          { id: "i-coxinha", nome: "Coxinha", categoria_id: "cat-salgados" },
+          { id: "i-kibe", nome: "Kibe", categoria_id: "cat-salgados" },
+        ] : []);
+      }
       if (sql.includes("FROM pacotes")) {
         assert.match(sql, /empresa_id = \$1::uuid AND codigo = \$2 AND vigente AND ativo AND arquivado_em IS NULL/);
         return r(values[0] === A && values[1] === "COMPLETA" ? [{ id: "pacote-a" }] : values[0] === B && values[1] === "COMPLETA" ? [{ id: "pacote-b" }] : []);
@@ -46,7 +54,12 @@ function banco() {
       if (sql.includes("FROM pacote_adicionais")) {
         assert.match(sql, /a\.empresa_id = \$1::uuid/);
         if (values[1] === "pacote-a") {
+          const deCategoria = tem070 ? [
+            { codigo: "CATEGORIA_SALGADOS", nome: "Cento de salgados extra", categoria: "BUFFET", unidade_cobranca: "CENTO", modalidade: "EXTRA", valor: "120.00", origem_categoria: "cat-salgados", escolhas_max: 4 },
+            { codigo: "CATEGORIA_VAZIA", nome: "Categoria sem itens ativos", categoria: "BUFFET", unidade_cobranca: "CENTO", modalidade: "EXTRA", valor: "90.00", origem_categoria: "cat-vazia", escolhas_max: null },
+          ] : [];
           return r([
+            ...deCategoria,
             { codigo: "MESA_CAFE", nome: "Mesa de café", categoria: "MESA", unidade_cobranca: "FIXO", modalidade: "EXTRA", valor: "350.00" },
             { codigo: "LEMBRANCINHA_COPO", nome: "Lembrancinha copo", categoria: "EXTRA", unidade_cobranca: "UNIDADE", modalidade: "EXTRA", valor: "9.00" },
             { codigo: "SORVETE", nome: "Sorvete", categoria: "BUFFET", unidade_cobranca: "FIXO", modalidade: "EXTRA", valor: "200.00" },
@@ -83,7 +96,7 @@ test("tenant B nunca vê adicional de A (mesmo código de pacote) e empresa sem 
 test("toda consulta leva a empresa comprovada; dados inválidos são recusados antes do banco", async () => {
   const { tx, consultas } = banco();
   await adicionaisDoPacoteNoTenant(tx, { empresaId: A, pacoteCodigo: "COMPLETA", data: "2026-11-21", convidados: 80 });
-  for (const c of consultas.filter((x) => !x.sql.includes("pacote_buffet_itens"))) assert.equal(c.values[0], A, c.sql.slice(0, 40));
+  for (const c of consultas.filter((x) => !x.sql.includes("pacote_buffet_itens") && !x.sql.includes("information_schema"))) assert.equal(c.values[0], A, c.sql.slice(0, 40));
   const vazio = banco();
   await assert.rejects(adicionaisDoPacoteNoTenant(vazio.tx, { empresaId: A, pacoteCodigo: "COMPLETA", data: "21/11/2026", convidados: 80 }), /válidos/);
   assert.equal(vazio.consultas.length, 0);
@@ -99,4 +112,20 @@ test("rota admin prova o tenant; a tela admin usa a rota com Tenant Context, nã
   assert.doesNotMatch(tela, /['`]\/api\/fechamentos\/adicionais/);
   // O catálogo público usa exclusivamente o escopo configurado no servidor.
   assert.match(readFileSync("app/api/fechamentos/adicionais/route.ts", "utf8"), /escopoCatalogoPublico\(db\)/);
+});
+
+test("070: adicional de categoria traz as opções ativas para escolher; categoria sem item ativo não é oferecida", async () => {
+  const { tx } = banco(true);
+  const r = await adicionaisDoPacoteNoTenant(tx, { empresaId: A, pacoteCodigo: "COMPLETA", data: "2026-11-21", convidados: 80 });
+  assert.deepEqual(r.map((a) => a.codigo), ["CATEGORIA_SALGADOS", "MESA_CAFE"]);
+  assert.deepEqual(r[0].escolhas, { max: 4, itens: [{ id: "i-coxinha", nome: "Coxinha" }, { id: "i-kibe", nome: "Kibe" }] });
+  assert.equal(r[1].escolhas, undefined);
+});
+
+test("rotas de fechamento devolvem todos os adicionais da empresa: id antigo quando existe, senão o código", () => {
+  for (const arquivo of ["app/api/fechamentos/adicionais/route.ts", "app/api/admin/fechamentos/adicionais/route.ts"]) {
+    const rota = readFileSync(arquivo, "utf8");
+    assert.match(rota, /idDoAdicionalNaTela\(a\.codigo\)/, arquivo);
+    assert.doesNotMatch(rota, /\.filter\(\(?a\)? => idPorCodigo/, arquivo);
+  }
 });

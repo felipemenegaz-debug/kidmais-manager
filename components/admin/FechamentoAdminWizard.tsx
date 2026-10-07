@@ -11,12 +11,13 @@ import { erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import type { DisponibilidadeDataPublica } from '@/lib/disponibilidade/services/models';
 import CalendarioDisponibilidade, { type ConsultaAgendaMes } from '@/components/fechamento/CalendarioDisponibilidade';
 import { PACOTES_FECHAMENTO_V1 } from '@/components/fechamento/data';
+import { aceitaQuantidade, mensagemFalhaAdicionais, pendenciaEscolhas, rotuloUnidade, totalDoAdicional, type AdicionalDaEtapa } from '@/components/fechamento/adicionais-etapa';
 import { ENDPOINT_PREPARACOES, enviarPreparado, formularioPreparado, preparacaoValida, reconciliar, type Buscador, type DesfechoEnvio, type PreparacaoAplicada } from './fechamento-preparacao';
 import styles from './revisao-fechamento.module.css';
 
 type Contexto = Awaited<ReturnType<typeof obterContextoFechamentoAdministrativo>>;
 type Horario = DisponibilidadeDataPublica['periodos'][number]['horarios'][number];
-type AdicionalDisponivel = {id:string;nome:string;preco:number;unidadeCobranca:string};
+type AdicionalDisponivel = AdicionalDaEtapa;
 const inicial: FechamentoAdministrativoInput = {
     pacote: 'pocket', dataFesta: '', horarioBase: 'almoco', ajusteHorario: '0', horarioInicio: '', horarioFim: '',
     statusDisponibilidade: 'disponivel', convidadosPagantes: 20, buffetDefinicao: 'depois',
@@ -33,6 +34,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     const [contexto, setContexto] = useState<Contexto | null>(null);
     const [form, setForm] = useState(inicial);
     const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
+    const [falhaAdicionais,setFalhaAdicionais]=useState<string|undefined>(undefined);
     const [horarios, setHorarios] = useState<Horario[]>([]);
     // Agenda da empresa comprovada pela sessão (062): unidades vêm do servidor; a escolhida é o recurso consultado.
     const [unidades, setUnidades] = useState<Array<{ id: string; nome: string }>>([]);
@@ -92,12 +94,13 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         // Rota com Tenant Context: pacote, preços e adicionais da empresa comprovada pela sessão.
         const url=`/api/admin/fechamentos/adicionais?pacote=${encodeURIComponent(form.pacote)}&data=${encodeURIComponent(form.dataFesta)}&convidados=${form.convidadosPagantes}`;
         void adminFetch(url,{signal:controller.signal})
-          .then(async r=>{if(!r.ok)throw Error();return r.json();})
+          .then(async r=>{if(!r.ok){const corpo=await r.json().catch(()=>null) as {codigo?:string}|null;throw Object.assign(Error(),{codigo:corpo?.codigo});}return r.json();})
           .then(body=>{
             const disponiveis=body.adicionais as AdicionalDisponivel[];
             setAdicionaisDisponiveis(disponiveis);
+            setFalhaAdicionais(undefined);
             setForm(atual=>({...atual,adicionaisSelecionados:atual.adicionaisSelecionados.filter(id=>disponiveis.some(a=>a.id===id))}));
-          }).catch(()=>setAdicionaisDisponiveis(null));
+          }).catch((falha:{codigo?:string})=>{if(controller.signal.aborted)return;setAdicionaisDisponiveis(null);setFalhaAdicionais(mensagemFalhaAdicionais(falha?.codigo,true));});
         return ()=>controller.abort();
     },[form.pacote,form.dataFesta,form.convidadosPagantes]);
 
@@ -159,7 +162,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
         setEnviando(true);
         setErro('');
         try {
-            if(adicionaisDisponiveis===null)throw Error('Não foi possível consultar os adicionais deste pacote.');
+            if(adicionaisDisponiveis===null)throw Error(falhaAdicionais ?? 'Não foi possível consultar os adicionais deste pacote.');
             const pacote = PACOTES_FECHAMENTO_V1.find(p => p.id === form.pacote);
             const mensagem = erroConvidadosFechamento(form.convidadosPagantes, pacote);
             if (mensagem) throw Error(mensagem);
@@ -206,7 +209,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
     const pacoteAtual = PACOTES_FECHAMENTO_V1.find(p => p.id === form.pacote);
     const convidadosErro = erroConvidadosFechamento(form.convidadosPagantes, pacoteAtual);
     if (convidadosErro) errosCampos.convidadosPagantes = convidadosErro;
-    const pendencias = [...new Set(Object.values(errosCampos)), ...(adicionaisDisponiveis === null ? ['Aguardando consulta dos adicionais.'] : [])];
+    const pendencias = [...new Set(Object.values(errosCampos)), ...(adicionaisDisponiveis === null ? [falhaAdicionais ?? 'Aguardando consulta dos adicionais.'] : form.adicionaisSelecionados.map(id => { const a = adicionaisDisponiveis.find(x => x.id === id); return a ? pendenciaEscolhas(a, form.adicionaisEscolhas?.[id] ?? []) : null; }).filter((p): p is string => Boolean(p)))];
     const nomeAniversariante = contexto?.aniversariantes.find(a => a.id === form.aniversarianteId)?.nome;
     const pagamentoNome = form.formaPagamento === 'pix_avista' ? 'PIX à vista' : form.formaPagamento === 'pix_parcelado' ? 'PIX parcelado' : 'Cartão Cielo';
     function erroCampo(campo: string) { return tentouRevisar && errosCampos[campo] ? <small id={`pendencia-${campo}`} className={styles.error}>{errosCampos[campo]}</small> : null; }
@@ -260,7 +263,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
                 <label >Tema<input {...acessibilidade('temaFesta')} maxLength={200} value={form.temaFesta ?? ''} onChange={e => campo('temaFesta', e.target.value)} />{erroCampo('temaFesta')}</label>
                 <label >Buffet<select {...acessibilidade('buffetDefinicao')} value={form.buffetDefinicao} onChange={e => campo('buffetDefinicao', e.target.value as 'agora' | 'depois')}><option value="depois">Definir depois</option><option value="agora">Definir agora</option></select>{erroCampo('buffetDefinicao')}</label>
                 {form.buffetDefinicao === 'agora' && buffet.map(([key, label]) => <label  key={key}>{label}<textarea maxLength={2000} value={form[key] ?? ''} onChange={e => campo(key, e.target.value)} /></label>)}
-                <fieldset><legend>Adicionais</legend>{form.pacote === 'premium' && <p>Premium inclui 4 bombons. As quantidades abaixo são somente extras, sem compra mínima.</p>}{adicionaisDisponiveis===null?<p>Selecione data, pacote e convidados para consultar os adicionais.</p>:adicionaisDisponiveis.map(a => <label key={a.id} style={{ display: 'block' }}><input type="checkbox" checked={form.adicionaisSelecionados.includes(a.id)} onChange={e => campo('adicionaisSelecionados', e.target.checked ? [...form.adicionaisSelecionados, a.id] : form.adicionaisSelecionados.filter(id => id !== a.id))} />{a.nome} · {a.preco.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}{a.unidadeCobranca === 'UNIDADE' && <> / unidade extra{form.adicionaisSelecionados.includes(a.id) && <input aria-label={`Quantidade extra de ${a.nome}`} type="number" min={1} step={1} value={form.adicionaisQuantidades?.[a.id] ?? 1} onChange={e => campo('adicionaisQuantidades', {...form.adicionaisQuantidades, [a.id]: Number(e.target.value)})}/>}</>}</label>)}</fieldset>
+                <fieldset><legend>Adicionais</legend>{form.pacote === 'premium' && <p>Premium inclui 4 bombons. As quantidades abaixo são somente extras, sem compra mínima.</p>}{adicionaisDisponiveis===null?<p>{falhaAdicionais ?? 'Selecione data, pacote e convidados para consultar os adicionais.'}</p>:adicionaisDisponiveis.length===0?<p>Nenhum adicional oferecido para este pacote.</p>:adicionaisDisponiveis.map(a => { const marcado = form.adicionaisSelecionados.includes(a.id); const escolhidos = form.adicionaisEscolhas?.[a.id] ?? []; return <div key={a.id}><label style={{ display: 'block' }}><input type="checkbox" checked={marcado} onChange={e => { campo('adicionaisSelecionados', e.target.checked ? [...form.adicionaisSelecionados, a.id] : form.adicionaisSelecionados.filter(id => id !== a.id)); if (!e.target.checked) campo('adicionaisEscolhas', Object.fromEntries(Object.entries(form.adicionaisEscolhas ?? {}).filter(([k]) => k !== a.id))); }} />{a.nome} · {a.preco.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}{rotuloUnidade(a.unidadeCobranca)}{marcado && aceitaQuantidade(a.unidadeCobranca) && <input aria-label={`Quantidade de ${a.nome}`} type="number" min={1} step={1} value={form.adicionaisQuantidades?.[a.id] ?? 1} onChange={e => campo('adicionaisQuantidades', {...form.adicionaisQuantidades, [a.id]: Number(e.target.value)})}/>}{marcado && <> = {totalDoAdicional(a, form.adicionaisQuantidades?.[a.id] ?? 1, Number(form.convidadosPagantes) || 0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</>}</label>{marcado && a.escolhas && <div role="group" aria-label={`Opções de ${a.nome}`} style={{ paddingLeft: 24 }}><small>{a.escolhas.max ? `Escolha até ${a.escolhas.max} opções` : 'Escolha as opções'}</small>{a.escolhas.itens.map(op => { const ok = escolhidos.includes(op.id); return <label key={op.id} style={{ display: 'block' }}><input type="checkbox" checked={ok} disabled={!ok && a.escolhas!.max !== null && escolhidos.length >= a.escolhas!.max} onChange={() => campo('adicionaisEscolhas', { ...(form.adicionaisEscolhas ?? {}), [a.id]: ok ? escolhidos.filter(x => x !== op.id) : [...escolhidos, op.id] })} />{op.nome}</label>; })}</div>}</div>; })}</fieldset>
                 <label >Alterações pretendidas do pacote<textarea value={form.alteracoesPacote ?? ''} onChange={e => campo('alteracoesPacote', e.target.value)} /></label>
                 <label >Observações do cliente<textarea value={form.observacoesCliente ?? ''} onChange={e => campo('observacoesCliente', e.target.value)} /></label>
                 <label >Observações da equipe<textarea maxLength={2000} value={form.observacoesEquipe ?? ''} onChange={e => campo('observacoesEquipe', e.target.value)} /></label>
@@ -273,7 +276,7 @@ export default function FechamentoAdminWizard({ clienteId, rascunho }: { cliente
             <div ref={revisaoRef} tabIndex={-1} hidden={!revisando} className={styles.review}>
                 <section className={styles.card}><h2>Cliente e festa</h2>{resumo}</section>
                 <section className={styles.card}><h2>Condições comerciais e pagamento</h2><p>Valor comercial proposto: <strong>R$ {form.valorCombinado}</strong></p><p>{pagamentoNome}</p>{form.formaPagamento === 'pix_parcelado' && <p>Entrada pretendida: {form.condicaoPixPretendida?.entrada ?? 'Não informada'} · Parcela pretendida: {form.condicaoPixPretendida?.valorParcela ?? 'Não informada'} · Quantidade: {form.condicaoPixPretendida?.quantidadeParcelas ?? 'Não informada'}</p>}<p>Preço oficial e disponibilidade são validados pelo servidor ao criar o fechamento.</p></section>
-                <section className={styles.card}><h2>Detalhes da contratação</h2><p>Buffet: {form.buffetDefinicao === 'agora' ? 'Definido nesta proposta' : 'Definir depois'}</p>{form.buffetDefinicao === 'agora' && buffet.map(([key, label]) => form[key] ? <p key={key}>{label}: {form[key]}</p> : null)}<p>Adicionais: {form.adicionaisSelecionados.length ? form.adicionaisSelecionados.map(id => { const a = adicionaisDisponiveis?.find(a => a.id === id); return `${a?.nome ?? id}${a?.unidadeCobranca === 'UNIDADE' ? ` × ${form.adicionaisQuantidades?.[id] ?? 1}` : ''}`; }).join(', ') : 'Nenhum'}</p><p>Responsável adicional: {contexto.responsaveis.find(r => r.id === form.responsavelAdicionalId)?.nome ?? 'Nenhum'}</p>{form.alteracoesPacote && <p>Alterações do pacote: {form.alteracoesPacote}</p>}{form.observacoesCliente && <p>Observações do cliente: {form.observacoesCliente}</p>}{form.observacoesEquipe && <p>Observações da equipe: {form.observacoesEquipe}</p>}</section>
+                <section className={styles.card}><h2>Detalhes da contratação</h2><p>Buffet: {form.buffetDefinicao === 'agora' ? 'Definido nesta proposta' : 'Definir depois'}</p>{form.buffetDefinicao === 'agora' && buffet.map(([key, label]) => form[key] ? <p key={key}>{label}: {form[key]}</p> : null)}<p>Adicionais: {form.adicionaisSelecionados.length ? form.adicionaisSelecionados.map(id => { const a = adicionaisDisponiveis?.find(a => a.id === id); const ops = (form.adicionaisEscolhas?.[id] ?? []).map(op => a?.escolhas?.itens.find(i => i.id === op)?.nome).filter(Boolean); return `${a?.nome ?? id}${a && aceitaQuantidade(a.unidadeCobranca) ? ` × ${form.adicionaisQuantidades?.[id] ?? 1}` : ''}${ops.length ? ` (${ops.join(', ')})` : ''}`; }).join(', ') : 'Nenhum'}</p><p>Responsável adicional: {contexto.responsaveis.find(r => r.id === form.responsavelAdicionalId)?.nome ?? 'Nenhum'}</p>{form.alteracoesPacote && <p>Alterações do pacote: {form.alteracoesPacote}</p>}{form.observacoesCliente && <p>Observações do cliente: {form.observacoesCliente}</p>}{form.observacoesEquipe && <p>Observações da equipe: {form.observacoesEquipe}</p>}</section>
             </div>
             <div className={styles.actions}>{revisando && <button type="button" disabled={enviando} onClick={() => { setRevisando(false); requestAnimationFrame(() => edicaoRef.current?.querySelector<HTMLElement>('select, input')?.focus()); }}>Voltar e corrigir</button>}<button type="submit" disabled={enviando || incerto}>{enviando ? 'Criando fechamento…' : revisando ? 'Confirmar e criar fechamento' : 'Revisar contratação'}</button></div>
         </form><aside className={styles.summary} aria-label="Resumo atualizado"><h2>Resumo da contratação</h2>{resumo}<hr/><p>Valor comercial proposto</p><strong>{form.valorCombinado ? `R$ ${form.valorCombinado}` : 'Valor pendente'}</strong><p>Preço oficial calculado pelo servidor ao concluir.</p>{pendencias.length > 0 && <div className={styles.pending}><strong>Antes de continuar</strong><ul>{pendencias.map(item => <li key={item}>{item}</li>)}</ul></div>}<p>Criar o fechamento inicia a contratação. Revisão comercial, geração do contrato e assinaturas seguem nas etapas próprias.</p></aside></div>

@@ -306,6 +306,7 @@ async function concluirTabela(
   tabelaId: string,
   ctx: Contexto,
   auditoria: { antes: Record<string, unknown> | null; depois: Record<string, unknown> },
+  acao = "PRECO_PACOTE_INCLUIDO",
 ) {
   await validarCompleta(tx, tabelaId);
   if (origemId) await ligarSupersessao(tx, empresaId, origemId, tabelaId);
@@ -315,7 +316,7 @@ async function concluirTabela(
     usuarioId: ctx.usuarioId,
     requestId: ctx.requestId,
     motivo: ctx.motivo ?? "PACOTE_EDITADO",
-    acao: "PRECO_PACOTE_INCLUIDO",
+    acao,
     entidadeTipo: "TABELA_PRECO",
     entidadeId: tabelaId,
     empresaId,
@@ -459,4 +460,71 @@ export async function copiarPrecosPacote(
     antes: { pacoteOrigemId: origemId, tabelaCorrenteId: origemTabelaId },
     depois: { pacoteId: destinoId, sucessoraDe: origemTabelaId },
   });
+}
+
+export type PrecoAdicionalAtual = { valor: string | null; faixas: number };
+
+/** Preço de cada adicional da empresa na tabela publicada de hoje. Sem tabela corrente: `tabelaCorrente` falso. */
+export async function lerPrecosAdicionais(tx: DbExecutor, empresaId: string) {
+  const tabela = await tabelaDeHoje(tx, empresaId);
+  const precos = new Map<string, PrecoAdicionalAtual>();
+  if (!tabela) return { tabelaCorrente: false, precos };
+  const linhas = await tx.query<{ adicional_id: string; faixas: number; valor: string | null }>(
+    `SELECT pa.adicional_id::text AS adicional_id, count(*)::int AS faixas,
+            CASE WHEN count(*) = 1 AND min(pa.convidados_min) = 1 AND bool_and(pa.convidados_max IS NULL)
+                 THEN min(pa.valor)::text END AS valor
+       FROM precos_adicional pa
+       JOIN adicionais a ON a.id = pa.adicional_id AND a.empresa_id = $2::uuid
+      WHERE pa.tabela_preco_id = $1::uuid AND pa.ativo
+      GROUP BY pa.adicional_id`,
+    [tabela.id, empresaId],
+  );
+  for (const linha of linhas.rows) precos.set(linha.adicional_id, { valor: linha.valor, faixas: Number(linha.faixas) });
+  return { tabelaCorrente: true, precos };
+}
+
+/**
+ * Preço único do adicional (qualquer número de convidados) pela mesma sucessão das faixas de pacote: nova tabela
+ * copiada da corrente, troca só as linhas deste adicional, publica e substitui a anterior. `null` tira o preço (o
+ * adicional deixa de ser oferecido). Sem tabela publicada não há de onde copiar os pacotes: recusa.
+ */
+export async function gravarPrecoAdicional(
+  tx: DbExecutor,
+  empresaId: string,
+  adicionalId: string,
+  valor: string | null,
+  ctx: Contexto,
+) {
+  if (valor !== null && (!/^\d{1,8}(\.\d{1,2})?$/.test(valor) || !Number.isFinite(Number(valor)))) {
+    recusar("DADOS_INVALIDOS", "Informe um valor válido para o adicional.", 400);
+  }
+  await travarEmpresa(tx, empresaId);
+  const origemId = await travarCorrente(tx, empresaId);
+  if (!origemId) {
+    recusar("TABELA_NAO_PUBLICADA", "Publique a tabela de preços dos pacotes antes de definir o valor do adicional.", 409);
+  }
+  const atuais = await tx.query<{ convidados_min: number; convidados_max: number | null; valor: string }>(
+    `SELECT convidados_min, convidados_max, valor::text AS valor
+       FROM precos_adicional
+      WHERE tabela_preco_id = $1::uuid AND adicional_id = $2::uuid AND ativo`,
+    [origemId, adicionalId],
+  );
+  const unica = atuais.rows.length === 1 && Number(atuais.rows[0].convidados_min) === 1 && atuais.rows[0].convidados_max == null
+    ? atuais.rows[0].valor : null;
+  if (valor === null ? atuais.rows.length === 0 : unica !== null && Number(unica) === Number(valor)) return { aplicado: false };
+  const tabelaId = await criarNaoPublicada(tx, empresaId, origemId);
+  await copiarAgregado(tx, empresaId, origemId, tabelaId);
+  await tx.query(`DELETE FROM precos_adicional WHERE tabela_preco_id = $1::uuid AND adicional_id = $2::uuid`, [tabelaId, adicionalId]);
+  if (valor !== null) {
+    await tx.query(
+      `INSERT INTO precos_adicional (tabela_preco_id, adicional_id, convidados_min, convidados_max, valor)
+       VALUES ($1::uuid, $2::uuid, 1, NULL, $3)`,
+      [tabelaId, adicionalId, valor],
+    );
+  }
+  await concluirTabela(tx, empresaId, origemId, tabelaId, ctx, {
+    antes: { adicionalId, faixas: atuais.rows, tabelaCorrenteId: origemId },
+    depois: { adicionalId, valor, sucessoraDe: origemId },
+  }, "PRECO_ADICIONAL_ALTERADO");
+  return { aplicado: true };
 }

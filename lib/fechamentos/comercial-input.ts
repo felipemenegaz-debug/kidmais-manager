@@ -70,9 +70,24 @@ export function moedaParaNumeroServidor(valor: string): number | null {
   try { return centavosComerciais(decimal) / 100; } catch { return null; }
 }
 
-export function traduzirAdicionais(ids: string[], quantidades: Record<string, number> = {}) {
+/** Ids antigos da tela (rascunhos e regras da tela usam) para os códigos que já tinham; os demais usam o código. */
+const ID_ANTIGO_POR_CODIGO = Object.entries(ADICIONAL_CODIGO_BANCO).reduce<Record<string, string>>((acc, [id, codigo]) => {
+  acc[codigo] ??= id;
+  return acc;
+}, {});
+
+export function idDoAdicionalNaTela(codigo: string) {
+  return ID_ANTIGO_POR_CODIGO[codigo] ?? codigo;
+}
+
+/** Código do banco a partir do id da tela: o mapa antigo ou o próprio código (A–Z, 0–9 e _). Quem confere é o servidor. */
+function codigoDoAdicional(id: string) {
+  return ADICIONAL_CODIGO_BANCO[id] ?? (/^[A-Z0-9_]{1,80}$/.test(id) ? id : undefined);
+}
+
+export function traduzirAdicionais(ids: string[], quantidades: Record<string, number> = {}, escolhas: Record<string, string[]> = {}) {
   const codigos: string[] = [];
-  const itens: { codigo: string; quantidade: number }[] = [];
+  const itens: { codigo: string; quantidade: number; escolhas?: string[] }[] = [];
   const vistos = new Set<string>();
 
   for (const id of ids) {
@@ -84,7 +99,7 @@ export function traduzirAdicionais(ids: string[], quantidades: Record<string, nu
       };
     }
 
-    const codigo = ADICIONAL_CODIGO_BANCO[id];
+    const codigo = codigoDoAdicional(id);
     if (!codigo) {
       return {
         ok: false as const,
@@ -107,7 +122,8 @@ export function traduzirAdicionais(ids: string[], quantidades: Record<string, nu
     if (!Number.isSafeInteger(quantidade) || quantidade < 1) {
       return { ok: false as const, erro: "Informe uma quantidade inteira maior que zero para cada adicional selecionado.", codigo: "QUANTIDADE_ADICIONAL_INVALIDA" };
     }
-    itens.push({ codigo, quantidade });
+    const escolhidos = [...new Set(escolhas[id] ?? [])];
+    itens.push(escolhidos.length ? { codigo, quantidade, escolhas: escolhidos } : { codigo, quantidade });
   }
 
   return { ok: true as const, codigos, itens };
