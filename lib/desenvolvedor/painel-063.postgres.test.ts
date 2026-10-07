@@ -538,6 +538,33 @@ test('implantação: CONCLUÍDA é recusada com pendências reais (auditada) e a
     assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'EMPRESA_IMPLANTACAO_ALTERADA' AND entidade_id = $1 AND dados_depois->>'implantacao' = 'CONCLUIDA'", [ids.empresa]), 1);
 });
 
+test('alertas e checklist: responsável do cadastro com Gestão atende; e-mail trocado vira "responsável sem acesso"; empresa sem cadastro é próximo passo', async () => {
+    const dev = (await sessaoDe(ids.dev)).sessao;
+    type Resumo = { alertas: { itens: Array<{ codigo: string; empresaId: string | null; acao: { href: string } | null }>; total: number } };
+    const doResumo = async () => ((await svc.resumo.resumoPainel(dev as never)) as unknown as Resumo).alertas.itens;
+    const deEmpresa = (itens: Awaited<ReturnType<typeof doResumo>>, id: string) => itens.filter((a) => a.empresaId === id).map((a) => a.codigo);
+    const antes = await doResumo();
+    // Só o que o banco sustenta: um convite nunca enviado (teste "envio indisponível") continua sendo alerta real.
+    const naoEnviados = await contar("SELECT count(*)::int AS n FROM convites_acesso WHERE empresa_id = $1 AND status = 'PENDENTE' AND envios = 0 AND expira_em > clock_timestamp()", [ids.empresa]);
+    assert.deepEqual(deEmpresa(antes, ids.empresa), naoEnviados > 0 ? ['CONVITE_NAO_ENVIADO'] : [], 'implantação concluída, responsável com Gestão: só o convite não enviado');
+    assert.ok(deEmpresa(antes, ids.legado).includes('SEM_CADASTRO'));
+    const ficha = await svc.empresas.obterEmpresa(dev as never, ids.empresa as never) as unknown as { implantacao: { itens: Array<{ codigo: string; atendida: boolean }> } };
+    assert.deepEqual(ficha.implantacao.itens.filter((i) => ['RESPONSAVEL_COM_ACESSO', 'GESTAO_SEM_ACESSO'].includes(i.codigo)).map((i) => [i.codigo, i.atendida]),
+        [['RESPONSAVEL_COM_ACESSO', true], ['GESTAO_SEM_ACESSO', true]]);
+    // Cadastro aponta para outro e-mail, sem conta nem convite: o alerta aparece e nenhuma permissão muda.
+    const vinculos = await contar('SELECT count(*)::int AS n FROM memberships');
+    await client.query('UPDATE plataforma_empresas_cadastro SET email = $2 WHERE empresa_id = $1', [ids.empresa, email('responsavel-novo')]);
+    try {
+        const depois = await doResumo();
+        const alerta = depois.find((a) => a.empresaId === ids.empresa && a.codigo === 'RESPONSAVEL_SEM_ACESSO');
+        assert.equal(alerta?.acao?.href, `/desenvolvedor/empresas/${ids.empresa}#t-convites`);
+        assert.equal(await contar('SELECT count(*)::int AS n FROM memberships'), vinculos);
+    }
+    finally {
+        await client.query('UPDATE plataforma_empresas_cadastro SET email = $2 WHERE empresa_id = $1', [ids.empresa, email('resp')]);
+    }
+});
+
 test('Retry-After: reenvio dentro do intervalo e recuperação repetida pelo painel devolvem o prazo restante calculável', async () => {
     const dev = (await sessaoDe(ids.dev)).sessao;
     const convite = await svc.vinculos.convidarUsuario(dev as never, ids.empresa as never, { email: email('retry'), nivel: 'EQUIPE' } as never, ctx() as never, deps() as never) as unknown as { conviteId: string; envio: { enviado: boolean } };
