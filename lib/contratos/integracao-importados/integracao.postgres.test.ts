@@ -822,6 +822,138 @@ test("061: integração real — formalização em papel, festa, agenda, recebí
       await a.query("ROLLBACK");
     });
 
+    // Preço GERAL (o que o editor de pacotes grava): a categoria do HORÁRIO vem da regra do fechamento comum
+    // (regras_categoria_horario por dia e turno) e a GERAL fica só como categoria do PREÇO aplicado.
+    const repo = carregar<typeof import("./repositorio.ts")>("lib/contratos/integracao-importados/repositorio.ts");
+    const proximo = (isodow: number, minimo: number) => { for (let d = minimo; ; d++) { const x = dia(d); if (((new Date(`${x}T12:00:00Z`).getUTCDay() + 6) % 7) + 1 === isodow) return x; } };
+    async function regraDoDia(turno: string, isodow: number, categoria: "PADRAO" | "NOBRE") {
+      const inicio = (await a.query<{ d: string }>(`SELECT greatest(DATE '2020-01-01', max(vigencia_inicio) + 1)::text d FROM regras_categoria_horario WHERE dia_semana = $1 AND configuracao_agenda_id = $2::uuid`, [isodow, turno])).rows[0].d;
+      await a.query(`UPDATE regras_categoria_horario SET vigencia_fim = $3::date - 1 WHERE dia_semana = $1 AND configuracao_agenda_id = $2::uuid AND ativo
+        AND vigencia_inicio < $3::date AND (vigencia_fim IS NULL OR vigencia_fim >= $3::date)`, [isodow, turno, inicio]);
+      await a.query(`INSERT INTO regras_categoria_horario (dia_semana, configuracao_agenda_id, categoria_horario, vigencia_inicio) VALUES ($1, $2::uuid, $3, $4::date)`, [isodow, turno, categoria, inicio]);
+    }
+    async function cenarioGeral() {
+      const c = await cenario(a);
+      const linha = (await a.query<{ id: string }>(`UPDATE precos_pacote SET categoria_horario = 'GERAL' WHERE pacote_id = $1::uuid RETURNING id::text`, [c.pacote])).rows;
+      assert.equal(linha.length, 1, "o cenário tem uma única linha de preço, agora GERAL");
+      const turno = await repo.configuracaoAgenda(executor(a), "14:00", c.empresa, null);
+      assert.ok(turno, "turno da festa");
+      return { c, turno: turno!, linhaGeral: linha[0].id };
+    }
+
+    for (const [categoria, isodow] of [["PADRAO", 2], ["NOBRE", 6]] as const) await t.test(`[categoria] preço GERAL em horário ${categoria}: horário pela regra do dia, preço GERAL e valor do documento preservados`, async () => {
+      await a.query("BEGIN");
+      const { c, turno, linhaGeral } = await cenarioGeral();
+      await regraDoDia(turno, isodow, categoria);
+      const ev = { data: proximo(isodow, 60), inicio: "14:00", fim: "18:00" };
+      const imp = await importacao(a, c, ev);
+      const r = await integrar(s, coreNativo, a, c, imp.id, decisoes(c, ev, { situacao: "NAO_CONFERIDO" }));
+      await validarAgora(a);
+      const f = (await a.query(`SELECT f.categoria_horario, f.categoria_preco_aplicada, f.preco_pacote_id::text preco, f.configuracao_agenda_id::text turno,
+          f.valor_tabela::text tabela, f.valor_pacote_aplicado::text aplicado FROM contratos ct JOIN fechamentos f ON f.id = ct.fechamento_id WHERE ct.id = $1`, [r.contratoId])).rows[0];
+      assert.deepEqual({ ...f }, { categoria_horario: categoria, categoria_preco_aplicada: "GERAL", preco: linhaGeral, turno, tabela: "5000.00", aplicado: "5000.00" });
+      assert.equal((await a.query(`SELECT categoria_horario FROM precos_pacote WHERE id = $1::uuid`, [linhaGeral])).rows[0].categoria_horario, "GERAL", "a linha de preço não é convertida");
+      await a.query("ROLLBACK");
+    });
+
+    await t.test("[categoria] preço GERAL com falha no meio: nada fica gravado (fechamento, vínculo, contrato)", async () => {
+      await a.query("BEGIN");
+      const { c, turno } = await cenarioGeral();
+      await regraDoDia(turno, 6, "NOBRE");
+      const ev = { data: proximo(6, 70), inicio: "14:00", fim: "18:00" };
+      const imp = await importacao(a, c, ev);
+      await a.query("SAVEPOINT cat");
+      const quebrado = { ...coreNativo, registrarRecebimento: async () => { throw new Error("falha simulada no recebimento"); } };
+      await assert.rejects(integrar(s, quebrado, a, c, imp.id, decisoes(c, ev, PARCIAL())), /falha simulada/);
+      await a.query("ROLLBACK TO SAVEPOINT cat");
+      assert.equal((await a.query(`SELECT count(*)::int n FROM contrato_importacoes WHERE importacao_id = $1`, [imp.id])).rows[0].n, 0);
+      assert.equal((await a.query(`SELECT count(*)::int n FROM fechamentos WHERE empresa_id = $1 AND origem_fechamento = 'IMPORTACAO_HISTORICA'`, [c.empresa])).rows[0].n, 0);
+      assert.equal((await a.query(`SELECT count(*)::int n FROM contratos ct JOIN fechamentos f ON f.id = ct.fechamento_id WHERE f.empresa_id = $1`, [c.empresa])).rows[0].n, 0);
+      await a.query("ROLLBACK");
+    });
+
+    const fechamentoDo = async (contratoId: string) => (await a.query(`SELECT f.categoria_horario, f.categoria_preco_aplicada, f.configuracao_agenda_id::text turno, f.valor_tabela::text tabela
+        FROM contratos ct JOIN fechamentos f ON f.id = ct.fechamento_id WHERE ct.id = $1`, [contratoId])).rows[0];
+
+    await t.test("[categoria] precedência: a regra do dia (NOBRE) vale sobre a categoria da linha de preço (PADRAO), que fica como preço aplicado", async () => {
+      await a.query("BEGIN");
+      const c = await cenario(a);
+      const turno = (await repo.configuracaoAgenda(executor(a), "14:00", c.empresa, null))!;
+      await regraDoDia(turno, 2, "NOBRE");
+      const ev = { data: proximo(2, 90), inicio: "14:00", fim: "18:00" };
+      const imp = await importacao(a, c, ev);
+      const r = await integrar(s, coreNativo, a, c, imp.id, decisoes(c, ev, { situacao: "NAO_CONFERIDO" }));
+      await validarAgora(a);
+      assert.deepEqual({ ...(await fechamentoDo(r.contratoId)) }, { categoria_horario: "NOBRE", categoria_preco_aplicada: "PADRAO", turno, tabela: "5000.00" });
+      await a.query("ROLLBACK");
+    });
+
+    await t.test("[categoria] data antiga sem regra vigente: mantém a categoria da linha (PADRAO), sem usar a regra de hoje (NOBRE)", async () => {
+      await a.query("BEGIN");
+      const c = await cenario(a);
+      const turno = (await repo.configuracaoAgenda(executor(a), "14:00", c.empresa, null))!;
+      // Regra ATUAL do sábado no turno é NOBRE (vigência a partir de 2026); a festa é de 2025, antes de qualquer regra.
+      const existentes = (await a.query<{ n: number }>(`SELECT count(*)::int n FROM regras_categoria_horario WHERE dia_semana = 6 AND configuracao_agenda_id = $1::uuid`, [turno])).rows[0].n;
+      if (existentes) await regraDoDia(turno, 6, "NOBRE");
+      else await a.query(`INSERT INTO regras_categoria_horario (dia_semana, configuracao_agenda_id, categoria_horario, vigencia_inicio) VALUES (6, $1::uuid, 'NOBRE', DATE '2026-01-01')`, [turno]);
+      assert.equal(await repo.regraCategoriaHorario(executor(a), proximo(6, 1), turno), "NOBRE", "a regra de hoje é NOBRE");
+      assert.equal(await repo.regraCategoriaHorario(executor(a), "2025-11-15", turno), null, "não há regra vigente em 15/11/2025");
+      const ev = { data: "2025-11-15", inicio: "14:00", fim: "18:00" };
+      const imp = await importacao(a, c, ev);
+      const r = await integrar(s, coreNativo, a, c, imp.id, decisoes(c, ev, { situacao: "NAO_CONFERIDO" }));
+      await validarAgora(a);
+      assert.deepEqual({ ...(await fechamentoDo(r.contratoId)) }, { categoria_horario: "PADRAO", categoria_preco_aplicada: "PADRAO", turno, tabela: "5000.00" });
+      await a.query("ROLLBACK");
+    });
+
+    await t.test("[categoria] turno próprio da empresa sem regra: mantém a categoria da linha (PADRAO), como antes", async () => {
+      await a.query("BEGIN");
+      const c = await cenario(a);
+      const proprio = await id(a, `INSERT INTO configuracao_agenda (codigo, nome, horario_inicio_padrao, horario_fim_padrao, ordem_exibicao, empresa_id) VALUES ($1, 'Turno próprio', '13:00', '19:00', 97, $2::uuid) RETURNING id`, [`TP_${randomUUID().slice(0, 8).toUpperCase()}`, c.empresa]);
+      assert.equal(await repo.configuracaoAgenda(executor(a), "14:00", c.empresa, null), proprio, "a festa cai no turno próprio da empresa");
+      const ev = { data: proximo(6, 100), inicio: "14:00", fim: "18:00" };
+      assert.equal(await repo.regraCategoriaHorario(executor(a), ev.data, proprio), null, "turno próprio sem regra");
+      const imp = await importacao(a, c, ev);
+      const r = await integrar(s, coreNativo, a, c, imp.id, decisoes(c, ev, { situacao: "NAO_CONFERIDO" }));
+      await validarAgora(a);
+      assert.deepEqual({ ...(await fechamentoDo(r.contratoId)) }, { categoria_horario: "PADRAO", categoria_preco_aplicada: "PADRAO", turno: proprio, tabela: "5000.00" });
+      await a.query("ROLLBACK");
+    });
+
+    for (const caso of ["data antiga", "turno próprio"] as const) await t.test(`[categoria] preço GERAL sem regra (${caso}): mensagem clara antes de gravar; nada é gravado`, async () => {
+      await a.query("BEGIN");
+      const { c } = await cenarioGeral();
+      let ev = { data: "2025-11-15", inicio: "14:00", fim: "18:00" };
+      if (caso === "turno próprio") {
+        await a.query(`INSERT INTO configuracao_agenda (codigo, nome, horario_inicio_padrao, horario_fim_padrao, ordem_exibicao, empresa_id) VALUES ($1, 'Turno próprio', '13:00', '19:00', 97, $2::uuid)`, [`TP_${randomUUID().slice(0, 8).toUpperCase()}`, c.empresa]);
+        ev = { data: proximo(6, 110), inicio: "14:00", fim: "18:00" };
+      }
+      const imp = await importacao(a, c, ev);
+      const sim = await s.simularIntegracao(executor(a), c.tenant as never, imp.id, decisoes(c, ev, { situacao: "NAO_CONFERIDO" }), dia(0));
+      assert.equal(sim.pronto, false);
+      assert.match(sim.bloqueios.join(" "), /preço Geral e não existe categoria comercial \(Padrão ou Nobre\)/);
+      await assert.rejects(s.confirmarIntegracao(executor(a), c.tenant as never, ctxIntegracao(c), imp.id,
+        { decisoes: decisoes(c, ev, { situacao: "NAO_CONFERIDO" }), resumoHash: sim.resumoHash, chave: randomUUID() }, dia(0), coreNativo as never),
+        (e: { code?: string }) => e.code === "INTEGRACAO_BLOQUEADA");
+      assert.equal((await a.query(`SELECT count(*)::int n FROM fechamentos WHERE empresa_id = $1`, [c.empresa])).rows[0].n, 0);
+      assert.equal((await a.query(`SELECT count(*)::int n FROM contrato_importacoes WHERE importacao_id = $1`, [imp.id])).rows[0].n, 0);
+      await a.query("ROLLBACK");
+    });
+
+    await t.test("[categoria] erro de banco na consulta da regra não vira \"sem regra\": propaga", async () => {
+      await a.query("BEGIN");
+      const c = await cenario(a);
+      const turno = (await repo.configuracaoAgenda(executor(a), "14:00", c.empresa, null))!;
+      await a.query("SAVEPOINT erro");
+      await a.query("LOCK TABLE regras_categoria_horario IN ACCESS EXCLUSIVE MODE");
+      await b.query("BEGIN");
+      await b.query("SET LOCAL lock_timeout = '200ms'");
+      await assert.rejects(repo.regraCategoriaHorario(executor(b), proximo(6, 120), turno), (e: { code?: string }) => e.code === "55P03");
+      await b.query("ROLLBACK");
+      await a.query("ROLLBACK TO SAVEPOINT erro");
+      await a.query("ROLLBACK");
+    });
+
     await t.test("isolamento: outra empresa não vê nem integra a importação", async () => {
       await a.query("BEGIN");
       const c = await cenario(a);
