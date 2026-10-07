@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { conectarDescartavel, encerrarDescartavel } from "../../comercial/postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from "../../comercial/postgres-descartavel.ts";
 import { estruturaFesta019Sql } from "../../festas/estrutura-019.ts";
 import {
   ambienteAssinatura, assinarComoCliente, cpfValido, carregar, catalogoNativo, catalogoNoTurno, cenario, completarCliente, congelarEAssinarKidmais, ctxIntegracao, decisoes, dia, executor, id, importacao,
@@ -677,7 +677,47 @@ test("061: integração real — formalização em papel, festa, agenda, recebí
       return { c, nativo, r, f, abrirRevisao, destino };
     };
     const indisponivel = /Destino da revisão indisponível|Conflito de agenda da revisão/;
+    const operarContratoDaSuite = () => carregar<typeof import("../services/administrativo.service.ts")>("lib/contratos/services/administrativo.service.ts").operarContrato as unknown as Parameters<typeof congelarEAssinarKidmais>[1];
     const COMERCIAL = { confirmarAprovacao: true, forma: "PIX_PARCELADO", baseNegociada: 6000, condicaoPix: { quantidadeParcelas: 2 } };
+
+    await t.test("[072] contrato no padrão da empresa: modelo publicado gera o PDF guardado sem texto nem logo da Kidmais; sem modelo, a geração é recusada", async () => {
+      await a.query("BEGIN");
+      const restaurarPool = poolNaTransacao(a);
+      const restaurarAmbiente = ambienteAssinatura();
+      try {
+        for (const m of ["20261007_070_adicionais_do_buffet", "20261007_071_importacoes_comerciais", "20261007_072_modelos_contrato_empresa"]) {
+          await a.query(semTransacaoExplicita(ler(`database/migrations/${m}.sql`)));
+        }
+        const h = await historicoForaDoTurno(dia(44));
+        const conteudo = {
+          titulo: "Contrato de Festa Buffet Teste 072",
+          contratada: { nome: "Buffet Teste 072 Ltda", documento: "11.222.333/0001-81", endereco: "Rua Teste, 72", representante: "Pessoa Teste" },
+          preambulo: [],
+          clausulas: [{ titulo: "Objeto", texto: "Festa em {{festa.data}} para {{contratante.nome}}, CPF {{contratante.cpf}}, no valor de {{valor.total}}." }],
+          observacoes: [],
+          cidadeAssinatura: "Cidade Teste",
+        };
+        // Sem modelo (072 aplicada, empresa que não é a Kidmais): recusa com orientação, nada guardado.
+        const semModelo = await h.abrirRevisao("Mais convidados, mesmo horário");
+        await semModelo.editar({ convidados: 60, comercial: { confirmarAprovacao: true, forma: "PIX_PARCELADO", baseNegociada: 6000, condicaoPix: { quantidadeParcelas: 2 } } });
+        await assert.rejects(congelarEAssinarKidmais(a, operarContratoDaSuite(), semModelo.v2, h.c.empresa, h.c.token, h.nativo.tokenRepresentante), /ainda não tem modelo de contrato/);
+        await a.query(`INSERT INTO modelos_contrato_empresa (empresa_id, versao, conteudo, conteudo_sha256, aprovado_por) VALUES ($1::uuid, 1, $2::jsonb, $3, $4::uuid)`,
+          [h.c.empresa, JSON.stringify(conteudo), "a".repeat(64), h.c.usuario]);
+        await congelarEAssinarKidmais(a, operarContratoDaSuite(), semModelo.v2, h.c.empresa, h.c.token, h.nativo.tokenRepresentante);
+        const doc = (await a.query<{ template_codigo: string; template_versao: number; conteudo_pdf: Buffer }>(
+          `SELECT d.template_codigo, d.template_versao, d.conteudo_pdf FROM contrato_edicoes e JOIN contrato_documentos d ON d.id = e.documento_revisado_id WHERE e.contrato_versao_id = $1`, [semModelo.v2])).rows[0];
+        assert.match(doc.template_codigo, /^EMPRESA_[0-9A-F]{12}_V1$/);
+        assert.equal(doc.template_versao, 1);
+        const texto = doc.conteudo_pdf.toString("latin1");
+        assert.ok(texto.includes("Buffet Teste 072 Ltda"), "contratada da empresa no PDF");
+        assert.ok(!texto.includes("KIDMAIS FESTAS") && !texto.includes("20.119.900/0001-60"), "nada da Kidmais no PDF");
+        assert.equal(texto.includes("/Subtype /Image"), false, "sem a logo da Kidmais");
+      } finally {
+        restaurarAmbiente();
+        restaurarPool();
+        await a.query("ROLLBACK");
+      }
+    });
 
     await t.test("[R6] horário histórico fora dos turnos: revisão sem mudança de destino e correção sem mudança de horário, pelas assinaturas nativas; duração nova recusada", async () => {
       await a.query("BEGIN");

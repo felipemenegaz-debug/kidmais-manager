@@ -7,6 +7,7 @@ const cards: { route: string; title: string; text: string; icon: AdminIconName }
   { route:'perfil-empresa', title:'Perfil da empresa', text:'Cadastro da empresa, endereço da unidade, contatos e chave Pix de recebimento.', icon:'profile' },
   { route:'pacotes', title:'Pacotes', text:'Nome, duração, dias, preços e o que está incluído. O histórico das festas já contratadas permanece.', icon:'packages' },
   { route:'importar-tabela', title:'Importar tabela de preços', text:'Envie o PDF da tabela: pacotes, preços e adicionais são lidos para você revisar antes de publicar.', icon:'pdf' },
+  { route:'modelo-contrato', title:'Modelo de contrato', text:'Envie o contrato da loja em PDF: os contratos passam a sair no padrão da empresa, com os dados de cada festa.', icon:'pdf' },
   { route:'catalogo', title:'Itens do Buffet', text:'Categorias e itens do buffet usados na composição dos pacotes.', icon:'buffet' },
   { route:'acessos', title:'Usuários e acessos', text:'Gerencie contas e os acessos disponíveis no sistema e na operação das festas.', icon:'users' },
   { route:'whatsapp', title:'WhatsApp', text:'Consulte o estado da configuração e as opções de conexão disponíveis.', icon:'contact' },
