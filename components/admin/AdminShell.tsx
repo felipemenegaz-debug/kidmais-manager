@@ -18,7 +18,7 @@ import AvisoContexto from './AvisoContexto';
 import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
-const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura'];
+const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/inicio'];
 
 /** Depois deste tempo sem resposta da verificação da sessão, a tela oferece saídas em vez de ficar só "Verificando sessão…". */
 const DEMORA_VERIFICACAO_MS = 8000;
@@ -35,6 +35,7 @@ export default function AdminShell({ children, vitrine }: {
     const [empresa, setEmpresa] = useState<{ nome: string; selecaoNecessaria: boolean; desenvolvedor: boolean } | null>(null);
     const [contexto, setContexto] = useState<ContextoSessaoCliente | null>(null);
     const [comercial, setComercial] = useState<ComercialCliente | null>(null);
+    const [cadastroAberto, setCadastroAberto] = useState(false);
     const [trocando, setTrocando] = useState(false);
     const [saindo, setSaindo] = useState(false);
     const [demorou, setDemorou] = useState(false);
@@ -59,6 +60,7 @@ export default function AdminShell({ children, vitrine }: {
                 setName(b.data.nome);
                 setContexto(c ?? null);
                 setComercial((b.data.comercial as ComercialCliente | null | undefined) ?? null);
+                setCadastroAberto(b.data.cadastroAberto === true);
                 setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma) });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
@@ -180,6 +182,8 @@ export default function AdminShell({ children, vitrine }: {
                 {seletor}
                 {empresa?.selecaoNecessaria && <p className={styles.avisoEmpresa} role="status">Selecione uma empresa para continuar.</p>}
                 {empresa?.desenvolvedor && <Link className={styles.perfilLink} href="/desenvolvedor" onClick={() => setAberto(false)}>Painel do desenvolvedor</Link>}
+                {comercial?.cobrado && permissoes.gestaoEmpresa && <Link className={styles.perfilLink} href="/admin/inicio" aria-current={path === '/admin/inicio' ? 'page' : undefined} onClick={() => setAberto(false)}>Primeiros passos</Link>}
+                {cadastroAberto && <Link className={styles.perfilLink} href="/cadastro/empresa">Cadastrar empresa</Link>}
                 {comercial?.cobrado && <Link className={styles.perfilLink} href="/admin/assinatura" aria-current={path === '/admin/assinatura' ? 'page' : undefined} onClick={() => setAberto(false)}>Assinatura</Link>}
                 <Link className={styles.perfilLink} href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}>Meu perfil e senha</Link>
                 <button type="button" disabled={saindo} onClick={sair}><AdminIcon name="logout" size={12} /> {saindo ? 'Saindo…' : 'Sair'}</button>
