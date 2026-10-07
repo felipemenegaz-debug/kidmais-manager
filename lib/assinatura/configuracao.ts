@@ -1,7 +1,7 @@
 /**
  * Configuração comercial lida do ambiente. Nenhum preço, desconto ou prazo comercial é decidido no código:
  *   - ASSINATURA_TESTE_DIAS: duração do teste grátis gravada em teste_fim quando a empresa nasce no cadastro público.
- *     Padrão 15 (pedido de 07/10/2026; a proposta de 06/10 registrou 30 — decisão comercial final pendente). 1–90.
+ *     PADRÃO PROPOSTO: 15 dias (pedido de 07/10/2026; a proposta de 06/10 citava 30). Não é decisão comercial final. 1–90.
  *   - ASSINATURA_PRECO_MENSAL_CENTAVOS / ASSINATURA_PRECO_ANUAL_CENTAVOS: preço por ciclo, em centavos. Sem preço o
  *     checkout daquele ciclo fica indisponível (nada é cobrado com valor inventado).
  * Valor inválido é erro de configuração visível (não cai silenciosamente no padrão).
