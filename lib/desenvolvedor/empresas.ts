@@ -13,6 +13,7 @@ import { encerrarSessoesSemAcesso, exigirDesenvolvedorNaTransacao, exigirReauten
 import { auditarPainel, diferencas, type ContextoPainel } from './auditoria.ts';
 import { buscarSemelhantes, painelDepsPadrao, type PainelDeps } from './interessadas.ts';
 import { pendenciasImplantacao } from './implantacao.ts';
+import { comercialDaEmpresa, comercialResumo } from './comercial.ts';
 
 /**
  * Contratantes: empresas provisionadas (tabela `empresas`, ciclo no guard) + cadastro administrativo (063).
@@ -94,7 +95,11 @@ export async function listarEmpresas(sessao: SessaoAdmin, raw: unknown, deps: Pa
         const params = [termo, filtros.situacao];
         const total = (await tx.query<{ n: number }>(`SELECT count(*)::int AS n ${FROM} WHERE ${condicoes}`, params)).rows[0].n;
         const linhas = (await tx.query<LinhaEmpresa>(`SELECT ${COLUNAS} ${FROM} WHERE ${condicoes} ORDER BY e.atualizado_em DESC LIMIT ${porPagina} OFFSET $3`, [...params, (filtros.pagina - 1) * porPagina])).rows;
-        return { itens: linhas.map(resumo), total, pagina: filtros.pagina, porPagina };
+        // E5: plano e situação comercial por empresa (sem a 067, "sem cobrança").
+        const itens = [];
+        for (const l of linhas)
+            itens.push({ ...resumo(l), comercial: await comercialResumo(tx, l.id) });
+        return { itens, total, pagina: filtros.pagina, porPagina };
     });
 }
 
@@ -154,6 +159,7 @@ export async function obterEmpresa(sessao: SessaoAdmin, id: string, deps: Painel
             // Pendências reais de implantação (D5): só para contratante ativa com cadastro administrativo.
             implantacao: l.status === 'ATIVA' && l.cad_empresa ? await pendenciasImplantacao(tx, uuid) : null,
             envioEmail: { configurado: email.configurado, motivo: email.motivo },
+            comercial: await comercialDaEmpresa(tx, uuid),
         };
     });
 }

@@ -6,6 +6,7 @@ import workspace from '@/components/admin/workspace.module.css';
 import estilos from './desenvolvedor.module.css';
 import { chamar, formatarData, formatarDocumento, formatarTelefone, rotuloAcao, type Resposta } from './cliente';
 import { useReautenticacao } from './Reautenticacao';
+import ComercialEmpresa, { type Comercial } from './ComercialEmpresa';
 import { tomSituacao } from './Empresas';
 import { rotuloResultado } from './PainelResumo';
 
@@ -16,7 +17,7 @@ type Convite = { id: string; email: string; nomeSugerido: string | null; nivel: 
 type Atividade = { id: string; acao: string; origem: string; criado_em: string; ator: string | null; resultado: string | null };
 type Pendencia = { codigo: string; titulo: string; atendida: boolean; obrigatoria: boolean; detalhe: string; acao: 'CONVITES' | 'PERFIL' | 'PLATAFORMA' | null };
 type Implantacao = { itens: Pendencia[]; podeConcluir: boolean; pendentesObrigatorias: string[] };
-type Ficha = { empresa: Empresa; membros: Membro[]; convites: Convite[]; atividade: Atividade[]; implantacao: Implantacao | null; envioEmail: { configurado: boolean; motivo: string | null } };
+type Ficha = { empresa: Empresa; membros: Membro[]; convites: Convite[]; atividade: Atividade[]; implantacao: Implantacao | null; envioEmail: { configurado: boolean; motivo: string | null }; comercial: Comercial };
 type Envio = { enviado: boolean; destino: string; motivo?: string };
 
 const VINCULO: Record<Membro['statusVinculo'], { rotulo: string; tom?: string }> = {
@@ -199,6 +200,8 @@ export default function EmpresaFicha({ id }: { id: string }) {
                 </tr>)}</tbody>
             </table></div>}
         </section>
+
+        <ComercialEmpresa empresaId={e.id} comercial={ficha.comercial} ocupado={ocupado} operar={operar} />
 
         {(e.status === 'ATIVA' || e.status === 'SUSPENSA') && <section className={workspace.card} aria-labelledby="t-situacao">
             <h2 id="t-situacao">{e.status === 'ATIVA' ? 'Suspender acesso da empresa' : 'Reativar acesso da empresa'}</h2>
