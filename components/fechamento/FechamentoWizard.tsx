@@ -20,8 +20,7 @@ import {
   horarioExibicao,
   intervaloHorario,
   moedaParaNumero,
-  numeroParaMoeda,
-  precoReferenciaPacote,
+  numeroParaMoeda,
 } from "./calculos";
 import {
   AjusteHorario,
@@ -96,6 +95,17 @@ type ClienteContextoValidado = {
 
 type CategoriaBuffet = { codigo:string; nome:string; max:number; itens:{id:string;nome:string}[] };
 type AdicionalDisponivel = AdicionalDaEtapa;
+type Cotacao = { valorTabela: number; valor: number; desconto: { percentual: number; valor: number; titulo: string | null }; categoria: string; categoriaNome: string; convidadosFaturados: number; minimoFaturavelAplicado: boolean; faixa: { min: number; max: number | null } };
+function mensagemCotacao(codigo: string | undefined, erro?: string) {
+  if (codigo === 'TABELA_PRECO_NAO_CONFIGURADA' || codigo === 'PRECO_PACOTE_NAO_CONFIGURADO' || codigo === 'PRECO_AMBIGUO') return 'Este pacote ainda não tem preço publicado para essa data e horário. Fale com a equipe Kidmais.';
+  if (codigo === 'PACOTE_INDISPONIVEL' || codigo === 'PACOTE_SOB_CONSULTA') return erro ?? 'Este pacote não está disponível nessa data e horário.';
+  return erro && codigo ? erro : 'Não foi possível calcular o preço agora. Tente novamente em instantes.';
+}
+function descricaoCotacao(c: Cotacao, convidados: number) {
+  const faixa = c.faixa.max == null ? `a partir de ${c.faixa.min}` : c.faixa.min === c.faixa.max ? `${c.faixa.min}` : `${c.faixa.min} a ${c.faixa.max}`;
+  const faturados = c.minimoFaturavelAplicado ? ` · cobrança mínima de ${c.convidadosFaturados} convidados` : '';
+  return `${convidados} convidados (faixa ${faixa}) · ${c.categoriaNome.toLocaleLowerCase('pt-BR')}${faturados}`;
+}
 const CODIGO_PACOTE:Record<string,string> = {pocket:'POCKET',mini:'MINI_FESTA',compacta:'COMPACTA',essencial:'ESSENCIAL',completa:'COMPLETA',premium:'PREMIUM',pizza_party_scienza:'PIZZA_PARTY'};
 const CAMPO_CATEGORIA:Record<string,'buffetSalgados'|'buffetDoces'|'buffetBolo'|'buffetLembrancinha'|'buffetEmpratado'|'buffetBombom'> = {
   SALGADOS:'buffetSalgados',DOCES:'buffetDoces',MASSA_BOLO:'buffetBolo',RECHEIO_BOLO:'buffetBolo',
@@ -481,16 +491,32 @@ export default function FechamentoWizard() {
   const numeroEtapaVisivel = (indiceReal: number) =>
     String(Math.max(0, indicesEtapasVisiveis.indexOf(indiceReal)) + 1);
 
-  const referenciaTabela = useMemo(
-    () =>
-      precoReferenciaPacote(
-        form.pacote,
-        convidados,
-        form.dataFesta,
-        form.horarioBase,
-      ),
-    [form.pacote, convidados, form.dataFesta, form.horarioBase],
-  );
+  // Preço do pacote: cotação do servidor, o mesmo cálculo do envio (tabela publicada, horário, faixa e desconto).
+  const inicioCotacao = intervaloSelecionado?.inicio ?? '';
+  const fimCotacao = intervaloSelecionado?.fim ?? '';
+  const chaveCotacao = form.pacote && form.dataFesta && form.horarioBase && inicioCotacao && convidados >= 1
+    ? [form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados].join('|')
+    : null;
+  const [cotacao, setCotacao] = useState<{ chave: string; estado: 'ok' | 'erro'; dados?: Cotacao; erro?: string } | null>(null);
+  useEffect(() => {
+    if (!chaveCotacao) return;
+    const controller = new AbortController();
+    const temporizador = setTimeout(() => {
+      void fetch('/api/fechamentos/cotacao', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal: controller.signal,
+        body: JSON.stringify({ pacote: form.pacote, dataFesta: form.dataFesta, horarioBase: form.horarioBase, ajusteHorario: form.ajusteHorario, horarioInicio: inicioCotacao, horarioFim: fimCotacao, convidados }),
+      }).then(async (r) => {
+        const corpo = await r.json().catch(() => null) as { ok?: boolean; data?: Cotacao; erro?: string; codigo?: string } | null;
+        if (controller.signal.aborted) return;
+        if (r.ok && corpo?.data) setCotacao({ chave: chaveCotacao, estado: 'ok', dados: corpo.data });
+        else setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(corpo?.codigo, corpo?.erro) });
+      }).catch(() => { if (!controller.signal.aborted) setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(undefined) }); });
+    }, 250);
+    return () => { clearTimeout(temporizador); controller.abort(); };
+  }, [chaveCotacao, form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados]);
+  const cotacaoAtual = cotacao && cotacao.chave === chaveCotacao ? cotacao : null;
+  const cotacaoEstado: 'sem' | 'carregando' | 'ok' | 'erro' = !chaveCotacao ? 'sem' : !cotacaoAtual ? 'carregando' : cotacaoAtual.estado;
+  const referenciaTabela = cotacaoAtual?.estado === 'ok' && cotacaoAtual.dados ? cotacaoAtual.dados.valorTabela : null;
 
   const adicionaisValor = useMemo(
     () =>
@@ -509,11 +535,12 @@ export default function FechamentoWizard() {
   );
 
   const calculoDesconto =
-    referenciaTabela != null
-      ? aplicarDesconto(
-          referenciaTabela,
-          descontoAtual.percentual
-        )
+    referenciaTabela != null && cotacaoAtual?.dados
+      ? {
+          percentual: cotacaoAtual.dados.desconto.percentual,
+          valorDesconto: cotacaoAtual.dados.desconto.valor,
+          valorPacoteComDesconto: cotacaoAtual.dados.valor,
+        }
       : {
           percentual: 0,
           valorDesconto: 0,
@@ -964,6 +991,8 @@ export default function FechamentoWizard() {
     if (etapa === 2) {
       const mensagem = erroConvidadosFechamento(convidados, pacote);
       if (mensagem) { setErro(mensagem); return false; }
+      if (cotacaoEstado === 'carregando') { setErro('Aguarde o cálculo do preço.'); return false; }
+      if (cotacaoEstado === 'erro') { setErro(cotacaoAtual?.erro ?? mensagemCotacao(undefined)); return false; }
     }
 
     if (etapa === 4 && adicionaisEstado !== 'ok') {
@@ -1671,15 +1700,17 @@ export default function FechamentoWizard() {
                   ))}
               </div>
 
-              {referenciaTabela != null && (
+              {cotacaoEstado === 'carregando' && <p role="status">Calculando o preço da sua festa…</p>}
+              {cotacaoEstado === 'erro' && <div className={styles.infoBox} role="alert"><strong>{cotacaoAtual?.erro}</strong></div>}
+              {referenciaTabela != null && cotacaoAtual?.dados && (
                 <div className={styles.priceReference}>
-                  <span>Referência encontrada na tabela</span>
+                  <span>Preço da tabela para sua festa</span>
 
-                  {descontoAtual.ativo ? (
+                  {calculoDesconto.valorDesconto > 0 ? (
                     <>
                       <div className={styles.discountPriceLine}>
                         <del>{numeroParaMoeda(referenciaTabela)}</del>
-                        <span>-15% de segunda a quinta</span>
+                        <span>{cotacaoAtual.dados.desconto.titulo ?? `-${Math.round(calculoDesconto.percentual * 100)}%`}</span>
                       </div>
                       <strong>
                         {numeroParaMoeda(calculoDesconto.valorPacoteComDesconto)}
@@ -1694,8 +1725,8 @@ export default function FechamentoWizard() {
                     <>
                       <strong>{numeroParaMoeda(referenciaTabela)}</strong>
                       <small>
-                        Valor de referência. O preço final será conferido pela
-                        Kidmais conforme data, pacote e condições negociadas.
+                        {descricaoCotacao(cotacaoAtual.dados, convidados)}. Calculado com a tabela publicada; o
+                        valor final é conferido pela Kidmais conforme as condições combinadas.
                       </small>
                     </>
                   )}

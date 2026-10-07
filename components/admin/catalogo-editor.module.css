@@ -158,3 +158,10 @@
   border: 1px solid var(--border-navy);
   border-radius: 10px;
 }
+
+.modo { display: flex; gap: 6px; }
+.modo button[aria-pressed='true'] { background: var(--primary-violet) !important; color: #fff !important; border-color: var(--primary-violet) !important; }
+.faixas { display: grid; gap: 8px; }
+.faixaLinha { display: grid; grid-template-columns: 70px 70px minmax(0, 1fr) minmax(0, 1fr) 40px; gap: 6px; align-items: end; }
+.faixaLinha label { margin: 0 !important; }
+.faixaLinha input { margin-top: 4px !important; padding: 8px !important; }
