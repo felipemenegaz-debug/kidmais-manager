@@ -93,6 +93,8 @@ test('teste grátis: nasce em TESTE com a duração configurada, pelo relógio d
     const r = await emTx(() => iniciarTeste(client as never, { empresaId: ids.a, documento: '11222333000181' }));
     assert.equal(r.dias, 15, 'padrão sem ASSINATURA_TESTE_DIAS');
     assert.equal(Date.parse(r.testeFim) - Date.parse(r.testeInicio), 15 * 86_400_000);
+    // Início e fim saem do MESMO instante: a diferença é exata também nos microssegundos que o ISO acima trunca.
+    assert.equal((await q("SELECT (teste_fim - teste_inicio) = interval '15 days' AS exato FROM empresa_assinaturas WHERE empresa_id = $1", [ids.a])).rows[0].exato, true);
     const lido = await estado.lerEstadoComercial(client, ids.a);
     assert.deepEqual([lido.assinatura?.situacao, lido.acesso.nivel, lido.acesso.motivo, lido.acesso.ate], ['TESTE', 'COMPLETO', 'TESTE', r.testeFim]);
     ids.b = await novaEmpresa();

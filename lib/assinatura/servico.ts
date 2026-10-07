@@ -22,7 +22,8 @@ export async function iniciarTeste(tx: DbExecutor, input: { empresaId: string; d
     try {
         const r = (await tx.query<{ teste_inicio: string; teste_fim: string }>(
             `INSERT INTO empresa_assinaturas (empresa_id, situacao, teste_inicio, teste_fim, documento_teste)
-             VALUES ($1::uuid, 'TESTE', clock_timestamp(), clock_timestamp() + make_interval(days => $3::int), $2)
+             SELECT $1::uuid, 'TESTE', agora.t, agora.t + make_interval(days => $3::int), $2
+               FROM (SELECT clock_timestamp() AS t) agora
              RETURNING ${ISO('teste_inicio')} AS teste_inicio, ${ISO('teste_fim')} AS teste_fim`,
             [input.empresaId, input.documento, dias])).rows[0];
         await tx.query('RELEASE SAVEPOINT kidmais_iniciar_teste');
