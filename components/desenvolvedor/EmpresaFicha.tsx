@@ -7,6 +7,7 @@ import estilos from './desenvolvedor.module.css';
 import { chamar, formatarData, formatarDocumento, formatarTelefone, rotuloAcao, type Resposta } from './cliente';
 import { useReautenticacao } from './Reautenticacao';
 import SincronizarCobranca from './SincronizarCobranca';
+import PendenciasCobranca from './PendenciasCobranca';
 import { tomSituacao } from './Empresas';
 import { rotuloResultado } from './PainelResumo';
 
@@ -222,6 +223,7 @@ export default function EmpresaFicha({ id }: { id: string }) {
         </section>}
 
         <SincronizarCobranca empresaId={e.id} />
+        <PendenciasCobranca empresaId={e.id} />
 
         <section className={workspace.card} aria-labelledby="t-atividade">
             <h2 id="t-atividade">Atividade administrativa</h2>
