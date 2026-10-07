@@ -2,12 +2,12 @@
  * Acesso comercial da empresa (venda por assinatura, E3) — função PURA, calculada só a partir das datas gravadas na 067.
  * Nenhuma tarefa agendada é necessária: o teste "vence" porque a data passou, na próxima requisição.
  *
- * Prazos (proposta §4.2 e D8; revisão comercial pendente antes da publicação):
- *   - teste sem cartão com a duração gravada em teste_fim na criação (padrão configurável em
- *     lib/assinatura/configuracao.ts — 15 dias por padrão desde 07/10/2026; a 06/10 registrou 30);
- *   - falha de cobrança: 7 dias de regularização com acesso completo;
- *   - depois do teste, da regularização ou do fim do período cancelado: 60 dias SOMENTE_LEITURA (consulta e exportação);
- *   - depois disso: BLOQUEADO (dados retidos; nada é apagado aqui).
+ * Prazos — NENHUM é política aprovada; são parâmetros propostos para homologação (decisão comercial/jurídica pendente):
+ *   - teste sem cartão: duração gravada em teste_fim na criação; PADRÃO PROPOSTO 15 dias, configurável
+ *     (lib/assinatura/configuracao.ts). A proposta de 06/10/2026 citava 30;
+ *   - falha de cobrança: 7 dias de regularização com acesso completo (HIPÓTESE);
+ *   - depois do teste, da regularização ou do fim do período cancelado: 60 dias SOMENTE_LEITURA (HIPÓTESE);
+ *   - depois disso: BLOQUEADO (dados retidos; nada é apagado aqui; retenção a definir com advogado).
  * Empresa sem assinatura (Kidmais e empresas atuais) = sem cobrança: COMPLETO.
  * Exceção comercial vigente (cortesia ou acesso temporário) = COMPLETO até o prazo dela.
  * A situação ADMINISTRATIVA da empresa (empresas.status) é outro eixo e continua sendo aplicada por provarTenant.
