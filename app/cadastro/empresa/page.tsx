@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import admin from '@/components/admin/admin.module.css';
+import { lembrarCsrf } from '@/components/admin/sair';
+import { reautenticarSessao } from '@/lib/http/admin-fetch';
 
 type Socio = { nome: string; qualificacao: 'SOCIO' | 'ADMINISTRADOR' | 'SOCIO_ADMINISTRADOR' };
 type Sessao = { nome: string; termos: string; privacidade: string };
@@ -36,6 +38,7 @@ export default function CadastroEmpresa() {
         Promise.all([fetch('/api/admin/autenticacao', { cache: 'no-store' }).then((r) => r.json()), fetch('/api/cadastro', { cache: 'no-store' }).then((r) => r.json())]).then(([a, c]) => {
             if (!a?.ok || !a.data?.usuarioId) { setSemSessao(true); return; }
             csrf.current = a.data.csrf;
+            lembrarCsrf(a.data.csrf);
             setSessao({ nome: a.data.nome, termos: c?.data?.termos ?? '', privacidade: c?.data?.privacidade ?? '' });
         }).catch(() => setErro('Falha de conexão. Tente novamente.'));
     }, []);
@@ -48,9 +51,11 @@ export default function CadastroEmpresa() {
         setErro('');
         setAviso('');
         if (pedirSenha) {
-            const re = await postar('/api/admin/autenticacao', { acao: 'reautenticar', senha });
-            if (re.status !== 200 || !re.corpo?.ok) { setOcupado(false); setErro(re.corpo?.erro ?? 'Senha não confirmada.'); return; }
-            if (re.corpo.data?.csrf) csrf.current = re.corpo.data.csrf;
+            // Reautenticação com a renovação anunciada (mesmo fluxo das telas do Admin); depois relê o CSRF da sessão nova.
+            const re = await reautenticarSessao(senha);
+            if (!re.ok) { setOcupado(false); setErro(re.erro); return; }
+            const atual = await fetch('/api/admin/autenticacao', { cache: 'no-store' }).then((r) => r.json()).catch(() => null) as { data?: { csrf?: string } } | null;
+            if (atual?.data?.csrf) { csrf.current = atual.data.csrf; lembrarCsrf(atual.data.csrf); }
             setSenha('');
             setPedirSenha(false);
         }
