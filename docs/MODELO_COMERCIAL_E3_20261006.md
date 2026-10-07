@@ -15,12 +15,12 @@ Só o modelo e o cálculo do acesso; nada é aplicado às rotas ainda (isso é a
 
 ## Acesso comercial (`lib/assinatura/acesso.ts`)
 
-Calculado a cada requisição a partir das datas gravadas, sem tarefa agendada. Prazos aprovados (D8):
+Calculado a cada requisição a partir das datas gravadas, sem tarefa agendada. **Prazos propostos — hipóteses, não políticas aprovadas** (D5/D8 pendentes; atualizado em 07/10/2026 pela #116):
 
 | Situação | COMPLETO | SOMENTE_LEITURA | BLOQUEADO |
 |---|---|---|---|
 | Sem assinatura | sempre | — | — |
-| `TESTE` (30 dias) | até `teste_fim` | 60 dias depois | depois |
+| `TESTE` (padrão proposto 15 dias, configurável; a proposta de 06/10 citava 30) | até `teste_fim` | 60 dias depois | depois |
 | `ATIVA` | até `periodo_atual_fim`; depois, 7 dias de regularização | 60 dias após a regularização | depois |
 | `EM_ATRASO` | 7 dias desde `em_atraso_desde` | 60 dias | depois |
 | `CANCELADA_FIM_PERIODO` | até o fim do período pago | 60 dias | depois |
@@ -30,7 +30,7 @@ Exceção `CORTESIA` ou `ACESSO_TEMPORARIO` vigente → COMPLETO até o prazo de
 plataforma registra a exceção e avança `teste_fim` na mesma transação (E5). Dados inconsistentes falham fechado.
 `lib/assinatura/estado.ts` lê o estado da empresa comprovada com o relógio do banco; sem a 067, acesso completo.
 
-Regras D6/D7 (aprovadas) entram na E4: envio ao cliente final exige representação aprovada; contratos já enviados
+Regras D6/D7 (propostas, ainda não decididas) entrariam na E4: envio ao cliente final exige representação aprovada; contratos já enviados
 continuam assináveis pelo cliente final quando o teste vence ou a cobrança falha.
 
 ## Migration 067 (NÃO APLICADA)
