@@ -10,9 +10,9 @@
 .page input:focus,.page select:focus,.page textarea:focus { border-color:var(--primary-violet); outline:none; background:var(--input-focus-bg); }
 .page select option { background:var(--card-bg); }
 .page input[type=checkbox],.page input[type=radio] { display:inline-block; width:18px; height:18px; accent-color:var(--primary-violet); margin:0 10px 0 0; vertical-align:middle; }
-.page button:not([data-km-primario]) { border:1px solid color-mix(in srgb,var(--secondary-text) 45%,var(--input-border)); border-radius:10px; padding:10px 16px; min-height:44px; background:linear-gradient(var(--input-bg),var(--card-bg)); color:var(--main-text); cursor:pointer; font:600 13px/1.5 var(--admin-font); transition:filter .2s,box-shadow .2s,border-color .2s; }
-.page button:not([data-km-primario]):hover:not(:disabled) { border-color:var(--emerald-accent); filter:brightness(1.1); box-shadow:0 0 15px color-mix(in srgb,var(--emerald-accent) 22%,transparent); }
-.page button:not([data-km-primario]):disabled { opacity:.45; cursor:not-allowed; }
+.page button:not([data-km-primario]):not(:where([data-calendario-disponibilidade] *)) { border:1px solid color-mix(in srgb,var(--secondary-text) 45%,var(--input-border)); border-radius:10px; padding:10px 16px; min-height:44px; background:linear-gradient(var(--input-bg),var(--card-bg)); color:var(--main-text); cursor:pointer; font:600 13px/1.5 var(--admin-font); transition:filter .2s,box-shadow .2s,border-color .2s; }
+.page button:not([data-km-primario]):not(:where([data-calendario-disponibilidade] *)):hover:not(:disabled) { border-color:var(--emerald-accent); filter:brightness(1.1); box-shadow:0 0 15px color-mix(in srgb,var(--emerald-accent) 22%,transparent); }
+.page button:not([data-km-primario]):not(:where([data-calendario-disponibilidade] *)):disabled { opacity:.45; cursor:not-allowed; }
 .page button.danger { color:#fda4af; }
 .page :focus-visible { outline:2px solid var(--lilac-accent); outline-offset:3px; }
 .page [role=alert]:not(:empty),.error { border:1px solid rgba(251,113,133,.2); border-radius:12px; padding:16px; background:rgba(251,113,133,.08); color:#fda4af; }
