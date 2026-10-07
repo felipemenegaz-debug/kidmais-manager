@@ -17,7 +17,8 @@ export type ClienteServiceErrorCode =
   | "PERFIL_CONFLITO"
   | "PERFIL_CADASTRO_INVALIDO"
   | "PERFIL_LOGO_INVALIDA"
-  | "PERFIL_LIMITE_V1";
+  | "PERFIL_LIMITE_V1"
+  | "ASSINATURA_NECESSARIA";
 
 export class ClienteServiceError extends Error {
   readonly code: ClienteServiceErrorCode;

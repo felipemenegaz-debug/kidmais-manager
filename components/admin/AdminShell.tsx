@@ -15,6 +15,10 @@ type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: stri
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
 import LogoEmpresa from './LogoEmpresa';
 import AvisoContexto from './AvisoContexto';
+import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
+
+/** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
+const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/inicio'];
 
 /** Depois deste tempo sem resposta da verificação da sessão, a tela oferece saídas em vez de ficar só "Verificando sessão…". */
 const DEMORA_VERIFICACAO_MS = 8000;
@@ -30,6 +34,8 @@ export default function AdminShell({ children, vitrine }: {
     const [permissoes, setPermissoes] = useState<PermissoesNavegacao>({ gestaoEmpresa: Boolean(vitrine), plataforma: Boolean(vitrine) });
     const [empresa, setEmpresa] = useState<{ nome: string; selecaoNecessaria: boolean; desenvolvedor: boolean } | null>(null);
     const [contexto, setContexto] = useState<ContextoSessaoCliente | null>(null);
+    const [comercial, setComercial] = useState<ComercialCliente | null>(null);
+    const [cadastroAberto, setCadastroAberto] = useState(false);
     const [trocando, setTrocando] = useState(false);
     const [saindo, setSaindo] = useState(false);
     const [demorou, setDemorou] = useState(false);
@@ -53,6 +59,8 @@ export default function AdminShell({ children, vitrine }: {
                 if (!registrarContextoEmpresa(b.data.sessaoId, c?.empresaAtual?.id ?? null)) return;
                 setName(b.data.nome);
                 setContexto(c ?? null);
+                setComercial((b.data.comercial as ComercialCliente | null | undefined) ?? null);
+                setCadastroAberto(b.data.cadastroAberto === true);
                 setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma) });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
@@ -159,7 +167,11 @@ export default function AdminShell({ children, vitrine }: {
                 {grupos.map((grupo) => {
                     const links = itens.filter((item) => item.grupo === grupo);
                     if (links.length === 0) return null;
-                    return <div key={grupo}><p className={styles.grupo}>{grupo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}</Link>)}</div>;
+                    // O título do grupo Configurações é o atalho para a página das configurações (sem item de menu redundante).
+                    const titulo = grupo === 'Configurações'
+                        ? <Link className={styles.grupoLink} href="/admin/configuracoes" aria-current={path === '/admin/configuracoes' ? 'page' : undefined} onClick={() => setAberto(false)}>{grupo}</Link>
+                        : grupo;
+                    return <div key={grupo}><p className={styles.grupo}>{titulo}</p>{links.map((item) => <Link key={item.href} href={item.href} aria-current={itemAtivo(path, item.href, itens) ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name={iconeDaRota(item.href)} /></span>{item.rotulo}</Link>)}</div>;
                 })}
                 {semEmpresa && <div><p className={styles.grupo}>Conta</p><Link href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="profile" /></span>Meu perfil e senha</Link>
                     {empresa?.desenvolvedor && <Link href="/desenvolvedor" onClick={() => setAberto(false)}><span className={styles.navIcon}><AdminIcon name="settings" /></span>Painel do desenvolvedor</Link>}</div>}
@@ -170,13 +182,22 @@ export default function AdminShell({ children, vitrine }: {
                 {seletor}
                 {empresa?.selecaoNecessaria && <p className={styles.avisoEmpresa} role="status">Selecione uma empresa para continuar.</p>}
                 {empresa?.desenvolvedor && <Link className={styles.perfilLink} href="/desenvolvedor" onClick={() => setAberto(false)}>Painel do desenvolvedor</Link>}
+                {comercial?.cobrado && permissoes.gestaoEmpresa && <Link className={styles.perfilLink} href="/admin/inicio" aria-current={path === '/admin/inicio' ? 'page' : undefined} onClick={() => setAberto(false)}>Primeiros passos</Link>}
+                {cadastroAberto && <Link className={styles.perfilLink} href="/cadastro/empresa">Cadastrar empresa</Link>}
+                {comercial?.cobrado && <Link className={styles.perfilLink} href="/admin/assinatura" aria-current={path === '/admin/assinatura' ? 'page' : undefined} onClick={() => setAberto(false)}>Assinatura</Link>}
                 <Link className={styles.perfilLink} href="/admin/perfil" aria-current={path === '/admin/perfil' ? 'page' : undefined} onClick={() => setAberto(false)}>Meu perfil e senha</Link>
                 <button type="button" disabled={saindo} onClick={sair}><AdminIcon name="logout" size={12} /> {saindo ? 'Saindo…' : 'Sair'}</button>
             </footer>
         </aside>
-        <div className={styles.conteudo}><AvisoContexto />{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && path !== '/admin/perfil'
+        <div className={styles.conteudo}><AvisoContexto />{!vitrine && <AvisoComercial comercial={comercial} />}{erroEmpresa && <p role="alert">{erroEmpresa}</p>}{trocando ? <p role="status">Trocando de empresa…</p> : !vitrine && !contexto?.empresaAtual && path !== '/admin/perfil'
             ? (semEmpresa ? semEmpresaConteudo : <main className={admin.page}><section><h1>Empresa ativa</h1><p>Escolha a empresa que deseja acessar.</p>{seletor}</section></main>)
-            : children}</div>
+            : !vitrine && comercial?.nivel === 'BLOQUEADO' && !ROTAS_ABERTAS_BLOQUEADO.includes(path)
+                ? <main className={admin.page}><section aria-labelledby="t-bloqueado"><h1 id="t-bloqueado">Acesso suspenso até a assinatura</h1>
+                    <p>Os dados de {contexto?.empresaAtual?.nome ?? 'sua empresa'} continuam guardados. Nada foi apagado.</p>
+                    <ul><li><Link href="/admin/assinatura">Ver assinatura e regularizar</Link></li><li><Link href="/admin/perfil">Meu perfil e senha</Link></li>
+                        {empresa?.desenvolvedor && <li><Link href="/desenvolvedor">Painel do desenvolvedor</Link></li>}
+                        <li><button type="button" disabled={saindo} onClick={sair}>{saindo ? 'Saindo…' : 'Sair'}</button></li></ul></section></main>
+                : children}</div>
     </PerguntarKidmaisProvider></div>;
 }
 

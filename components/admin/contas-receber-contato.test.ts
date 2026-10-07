@@ -13,6 +13,7 @@ test('contato abre o cadastro em desktop e mobile, sem acionar a baixa; entrada 
     '@/lib/financeiro/submissao': submissao,
     './AdminPrimaryButton': { AdminPrimaryButton: 'button' },
     './financeiro.module.css': cssFalso,
+    './PixParcela': { PixParcela: 'div' },
   });
   const clienteId = '11111111-1111-4111-8111-111111111111';
   const arvore = tela.render('default', { tela: 'receber', amostra: { recebiveis: [
@@ -30,4 +31,7 @@ test('contato abre o cadastro em desktop e mobile, sem acionar a baixa; entrada 
     (link.props.onClick as (e: { stopPropagation(): void }) => void)({ stopPropagation: () => { parou = true; } });
     assert(parou, 'não propaga para registrar recebimento');
   }
+  // 066: Pix só na parcela de contrato com saldo (desktop e mobile); entrada avulsa não tem Pix.
+  const pix = elementos(renderizada).filter((e) => e.type === 'button' && (e.props.children === 'Pix'));
+  assert.equal(pix.length, 2, 'um botão Pix por apresentação, só da parcela de contrato');
 });

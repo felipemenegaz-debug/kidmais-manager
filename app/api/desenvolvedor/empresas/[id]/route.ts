@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { rotaDesenvolvedor } from '@/lib/desenvolvedor/http';
 import { lerJson } from '@/lib/acessos/http';
 import { alterarImplantacao, alterarSituacaoEmpresa, atualizarCadastroEmpresa, obterEmpresa } from '@/lib/desenvolvedor/empresas';
+import { operarComercial } from '@/lib/desenvolvedor/comercial';
+import { decidirRepresentacaoOuPedido } from '@/lib/desenvolvedor/representacao';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,7 +21,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return rotaDesenvolvedor(request, async (sessao, ctx) => atualizarCadastroEmpresa(sessao, id, await lerJson(request), ctx));
 }
 
-const corpoSchema = z.object({ acao: z.enum(['implantacao', 'suspender', 'reativar']), dados: z.unknown() }).strict();
+const corpoSchema = z.object({ acao: z.enum(['implantacao', 'suspender', 'reativar', 'comercial', 'representacao']), dados: z.unknown() }).strict();
 
 export async function POST(request: NextRequest, context: RouteContext) {
     const { id } = await context.params;
@@ -27,6 +29,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
         const corpo = corpoSchema.parse(await lerJson(request));
         if (corpo.acao === 'implantacao')
             return alterarImplantacao(sessao, id, corpo.dados, ctx);
+        if (corpo.acao === 'comercial')
+            return operarComercial(sessao, id, corpo.dados, ctx);
+        if (corpo.acao === 'representacao')
+            return decidirRepresentacaoOuPedido(sessao, id, corpo.dados, ctx);
         return alterarSituacaoEmpresa(sessao, id, corpo.acao, corpo.dados, ctx);
     });
 }

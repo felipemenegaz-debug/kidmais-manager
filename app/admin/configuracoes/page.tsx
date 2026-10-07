@@ -4,7 +4,7 @@ import styles from '@/components/admin/workspace.module.css';
 import hub from '@/components/admin/configuracoes.module.css';
 
 const cards: { route: string; title: string; text: string; icon: AdminIconName }[] = [
-  { route:'perfil-empresa', title:'Perfil da empresa', text:'Cadastro da empresa, endereço da unidade e contatos.', icon:'profile' },
+  { route:'perfil-empresa', title:'Perfil da empresa', text:'Cadastro da empresa, endereço da unidade, contatos e chave Pix de recebimento.', icon:'profile' },
   { route:'pacotes', title:'Pacotes', text:'Nome, duração, dias, preços e o que está incluído. O histórico das festas já contratadas permanece.', icon:'packages' },
   { route:'catalogo', title:'Itens do Buffet', text:'Categorias e itens do buffet usados na composição dos pacotes.', icon:'buffet' },
   { route:'acessos', title:'Usuários e acessos', text:'Gerencie contas e os acessos disponíveis no sistema e na operação das festas.', icon:'users' },

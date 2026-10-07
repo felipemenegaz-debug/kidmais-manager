@@ -4,6 +4,7 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import { escolherParcelaAberta, reaisDe } from '@/lib/financeiro/calculos';
 import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, type AcaoFinanceira } from '@/lib/financeiro/submissao';
 import styles from './festa.module.css';
+import { PixParcela } from '@/components/admin/PixParcela';
 
 type Resumo = {
   valorContratadoCentavos: number;
@@ -21,6 +22,7 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
   const [erro, setErro] = useState('');
   const [aberto, setAberto] = useState<'receber' | 'despesa' | null>(null);
   const [aviso, setAviso] = useState('');
+  const [pixParcela, setPixParcela] = useState<string | null>(null);
   const [categorias, setCategorias] = useState<Array<{ id: string; nome: string }>>([]);
   const [parcelaId, setParcelaId] = useState('');
   const acaoRef = useRef<AcaoFinanceira>(acaoInicial());
@@ -114,7 +116,8 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
     <p className={dados.resultadoCaixaCentavos >= 0 ? styles.caixaPositivo : undefined}>Resultado de caixa {reaisDe(dados.resultadoCaixaCentavos)}</p>
     <h3>Recebimentos</h3>
     {dados.recebimentos.length === 0 && <p>Nenhuma parcela nesta festa.</p>}
-    {dados.recebimentos.map((item) => <p key={item.id}>Parcela {item.parcela} · {item.vencimento} · {reaisDe(item.valorCentavos)} · {item.status}</p>)}
+    {dados.recebimentos.map((item) => <p key={item.id}>Parcela {item.parcela} · {item.vencimento} · {reaisDe(item.valorCentavos)} · {item.status}{!['Pago', 'Cancelado', 'Reembolsado'].includes(item.status) && <> <button type="button" aria-label={'Pix da parcela ' + item.parcela} onClick={() => setPixParcela(item.id)}>Pix</button></>}</p>)}
+    {pixParcela && <PixParcela parcelaId={pixParcela} aoFechar={() => setPixParcela(null)} />}
     <h3>Despesas da festa</h3>
     {dados.despesas.length === 0 && <p>Nenhuma despesa vinculada.</p>}
     {dados.despesas.map((item) => <p key={item.id}>{item.categoria} · {item.favorecido || 'Sem favorecido'} · {reaisDe(item.valorCentavos)} · {item.status}</p>)}
