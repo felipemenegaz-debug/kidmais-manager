@@ -42,7 +42,7 @@ o cadastro responde indisponível.
 
 | Variável | Para | Padrão |
 |---|---|---|
-| `ASSINATURA_TESTE_DIAS` | duração do teste | 15 |
+| `ASSINATURA_TESTE_DIAS` | duração do teste | 15 (padrão proposto) |
 | `ASSINATURA_PRECO_MENSAL_CENTAVOS`, `ASSINATURA_PRECO_ANUAL_CENTAVOS` | preço por ciclo | ausente = "a definir", sem checkout |
 | `CADASTRO_PUBLICO_ATIVO` | abrir o cadastro | desligado |
 | `USUARIOS_CRIACAO_DIRETA=desativada` | pré-requisito do cadastro (E1) | criação direta ligada |
@@ -83,9 +83,9 @@ Scripts locais de evidência: `scripts/painel-implantacao-ui.cjs`, `scripts/assi
 | D2 | entidade vendedora, regime, NFS-e | nada implementado |
 | D3 | provedor de cobrança | Asaas (sandbox) |
 | D4 | teste por CNPJ completo ou raiz | completo |
-| D5 | duração e início do teste | 15 dias configurável (proposta de 06/10 dizia 30), início na criação |
+| D5 | duração e início do teste | **padrão proposto 15 dias**, configurável (a proposta de 06/10 citava 30); início na criação. Não é decisão final |
 | D6/D7 | o que exige representação aprovada; contratos já enviados | representação registrada e decidida; nenhuma ação ainda depende dela; contrato público fora do paywall |
-| D8 | regularização / somente leitura / retenção | 7 / 60 dias (hipótese); retenção a definir |
+| D8 | regularização / somente leitura / retenção | 7 / 60 dias são **hipóteses**, não políticas aprovadas; retenção a definir |
 | — | preços, descontos, impostos, inadimplência | nada definido; preço só por configuração |
 | D11 | termos, privacidade, DPA | minutas versionadas com `[A DEFINIR]` |
 
