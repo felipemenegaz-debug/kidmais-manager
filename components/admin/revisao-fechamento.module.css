@@ -6,6 +6,8 @@
 .layout { display:grid; grid-template-columns:minmax(0,1fr) 290px; gap:24px; align-items:start; }
 .card { composes: glass secao from './visual.module.css'; border:1px solid var(--input-border); background:var(--km-card-surface); border-radius:12px; padding:22px; margin:0 0 18px; min-width:0; }
 .card legend { padding:0 8px; }
+/* O fieldset desenha sua borda em torno da legend; o pseudo-elemento não acompanha esse recorte. */
+fieldset.card::before { content:none; }
 .page.page label { display:flex; flex-direction:column; gap:6px; margin:16px 0; color:var(--secondary-text); font-size:13px; }
 .page.page label:has(input[type=checkbox]) { display:block; }
 .page.page input:not([type=checkbox]),.page.page select,.page.page textarea { width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--input-border); border-radius:8px; background:var(--input-bg); color:var(--main-text); font:inherit; font-size:14px; }
@@ -13,10 +15,10 @@
 .page.page textarea { min-height:85px; }
 .page.page fieldset fieldset { border:1px solid var(--input-border); padding:16px; border-radius:8px; }
 .page.page :focus-visible { outline:2px solid var(--emerald-accent); outline-offset:3px; }
-.page.page button { font:inherit; min-height:44px; padding:10px 15px; border:1px solid color-mix(in srgb,var(--secondary-text) 45%,var(--input-border)); border-radius:8px; cursor:pointer; background:var(--input-bg); color:var(--main-text); transition:filter .2s ease,box-shadow .2s ease,border-color .2s ease; }
-.page.page button:hover:not(:disabled) { border-color:var(--emerald-accent); filter:brightness(1.1); box-shadow:0 0 16px color-mix(in srgb,var(--emerald-accent) 22%,transparent); }
-.page.page button[type=submit] { background:var(--emerald-accent); color:var(--main-bg); border-color:transparent; font-weight:600; }
-.page.page button:disabled { opacity:.5; cursor:not-allowed; }
+.page.page button:not(:where([data-calendario-disponibilidade] *)) { font:inherit; min-height:44px; padding:10px 15px; border:1px solid color-mix(in srgb,var(--secondary-text) 45%,var(--input-border)); border-radius:8px; cursor:pointer; background:var(--input-bg); color:var(--main-text); transition:filter .2s ease,box-shadow .2s ease,border-color .2s ease; }
+.page.page button:not(:where([data-calendario-disponibilidade] *)):hover:not(:disabled) { border-color:var(--emerald-accent); filter:brightness(1.1); box-shadow:0 0 16px color-mix(in srgb,var(--emerald-accent) 22%,transparent); }
+.page.page button:not(:where([data-calendario-disponibilidade] *))[type=submit] { background:var(--emerald-accent); color:var(--main-bg); border-color:transparent; font-weight:600; }
+.page.page button:not(:where([data-calendario-disponibilidade] *)):disabled { opacity:.5; cursor:not-allowed; }
 .summary { composes: card; position:sticky; top:24px; }
 .summary h2 { margin:0 0 14px; }
 .summary dl { display:grid; gap:12px; margin:0; }

@@ -289,6 +289,12 @@
 }
 
 .calendarWrap {
+  /* O calendário também é usado fora da página pública, no tema escuro do admin. */
+  --ink: #111a3a;
+  --muted: #657290;
+  --border: #e3e7f0;
+  --lilac: #955be1;
+  color: var(--ink);
   margin-bottom: 22px;
   border: 1px solid var(--border);
   border-radius: 18px;
