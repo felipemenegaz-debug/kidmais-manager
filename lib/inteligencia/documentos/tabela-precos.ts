@@ -3,6 +3,7 @@ import { validarArquivoEnviado, type ArquivoValidado } from "../../importacao-co
 import { INSTRUCAO_LEITURA_TABELA, LEITURA_JSON_SCHEMA, leituraSchema, type LeituraTabela } from "../../comercial/importacao-tabela/esquema.ts";
 import { PacoteAdminError } from "../../comercial/pacotes-admin.ts";
 import type { AlvoRoteamento, RoteadorModelos } from "../modelos/roteador.ts";
+import { validarLeitura } from "./validar-leitura.ts";
 
 /**
  * Leitura da tabela de preços em PDF pelo modelo com visão. O PDF inteiro vai como arquivo (texto e imagem de cada
@@ -38,9 +39,10 @@ export async function lerTabelaComModelo(entrada: {
     ],
     arquivos: [{ mime: "application/pdf", nome: arquivo.nomeSeguro, base64: Buffer.from(arquivo.bytes).toString("base64"), paginas: contarPaginas(arquivo.bytes) }],
     esquema: { nome: "tabela_precos", schema: LEITURA_JSON_SCHEMA as unknown as Record<string, unknown> },
-    maxTokensSaida: 16000,
+    // Raciocínio + JSON de várias páginas: 16k cortava a resposta (texto vazio ou JSON incompleto).
+    maxTokensSaida: 32000,
     prazoMs: 150_000,
-    validar: (texto) => leituraSchema.parse(JSON.parse(texto)),
+    validar: (texto) => validarLeitura(leituraSchema, texto, "tabela de preços"),
   }, alvo);
   if (!r.ok) return { ok: false, aviso: `MODELO_${r.causa}` };
   return { ok: true, leitura: r.valor, modelo: r.modelo, provedor: r.provedor };

@@ -2,6 +2,7 @@ import type { ArquivoValidado } from "../../importacao-contrato/arquivo.ts";
 import { INSTRUCAO_LEITURA_CONTRATO, LEITURA_CONTRATO_JSON_SCHEMA, leituraContratoSchema, type LeituraContrato } from "../../contratos/modelo-empresa/leitura.ts";
 import type { AlvoRoteamento, RoteadorModelos } from "../modelos/roteador.ts";
 import { contarPaginas } from "./tabela-precos.ts";
+import { validarLeitura } from "./validar-leitura.ts";
 
 /**
  * Leitura do contrato em PDF da loja pelo modelo com visão: devolve o TEXTO do contrato com {{campos}} da lista
@@ -27,9 +28,9 @@ export async function lerContratoComModelo(entrada: {
     ],
     arquivos: [{ mime: "application/pdf", nome: arquivo.nomeSeguro, base64: Buffer.from(arquivo.bytes).toString("base64"), paginas: contarPaginas(arquivo.bytes) }],
     esquema: { nome: "modelo_contrato", schema: LEITURA_CONTRATO_JSON_SCHEMA as unknown as Record<string, unknown> },
-    maxTokensSaida: 16000,
+    maxTokensSaida: 32000,
     prazoMs: 150_000,
-    validar: (texto) => leituraContratoSchema.parse(JSON.parse(texto)),
+    validar: (texto) => validarLeitura(leituraContratoSchema, texto, "modelo de contrato"),
   }, alvo);
   if (!r.ok) return { ok: false, aviso: `MODELO_${r.causa}` };
   return { ok: true, leitura: r.valor, modelo: r.modelo, provedor: r.provedor };

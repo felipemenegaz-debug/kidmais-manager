@@ -226,7 +226,12 @@ export function criarAdaptadorOpenAICompativel(perfil: Perfil, env: Ambiente, bu
       };
       const texto = dados.choices?.[0]?.message?.content;
       // H4: o provedor processou (ex.: raciocínio consumiu o teto e não sobrou texto). O uso informado é real.
-      if (typeof texto !== "string" || texto.length === 0) throw new ErroModelo("RESPOSTA_INVALIDA", false, { uso: medida });
+      if (typeof texto !== "string" || texto.length === 0) {
+        // Sem dado do pedido: só o motivo de parada e os tokens (ex.: "length" = o teto de saída acabou no raciocínio).
+        const motivo = (dados.choices?.[0] as { finish_reason?: unknown } | undefined)?.finish_reason;
+        console.warn("[Kidmais IA] resposta sem texto", JSON.stringify({ motivo: typeof motivo === "string" ? motivo.slice(0, 40) : null, tokensSaida: medida.tokensSaida }));
+        throw new ErroModelo("RESPOSTA_INVALIDA", false, { uso: medida });
+      }
       return { texto, ...medida };
     },
   };
