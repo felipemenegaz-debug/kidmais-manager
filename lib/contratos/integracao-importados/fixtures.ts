@@ -17,6 +17,7 @@ export const referenciasBase = (): Referencias => ({
   pacote: { id: '33333333-3333-4333-8333-333333333333', codigo: 'COMPLETA', nome: 'Festa Completa', duracaoMinutos: 240 },
   precoReferencia: { tabelaPrecoId: '44444444-4444-4444-8444-444444444444', precoPacoteId: '55555555-5555-4555-8555-555555555555', categoria: 'NOBRE' },
   configuracaoAgendaId: '66666666-6666-4666-8666-666666666666',
+  categoriaHorario: 'NOBRE',
 });
 
 export const decisoesBase = (mudar: Partial<DecisoesIntegracao> = {}): DecisoesIntegracao => decisoesSchema.parse({

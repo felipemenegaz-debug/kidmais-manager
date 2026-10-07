@@ -377,7 +377,7 @@ test('conclusão única: preview sem cliente, mesma transação para CRM e Core,
   a.importacao.porta.completa = {
     async opcoes() { return { disponivel: true }; },
     async simular(_tx, _tenant, imp, plano, d) {
-      const ref = { cliente: { id: 'cliente', nome: 'Mariana Souza Lima', status: 'ATIVO' }, estabelecimentos: [], pacote: { id: '77777777-7777-4777-8777-777777777777', codigo: 'STANDARD', nome: 'Standard', duracaoMinutos: 240 }, precoReferencia: { tabelaPrecoId: 't', precoPacoteId: 'p', categoria: 'PADRAO' as const }, configuracaoAgendaId: 'g' };
+      const ref = { cliente: { id: 'cliente', nome: 'Mariana Souza Lima', status: 'ATIVO' }, estabelecimentos: [], pacote: { id: '77777777-7777-4777-8777-777777777777', codigo: 'STANDARD', nome: 'Standard', duracaoMinutos: 240 }, precoReferencia: { tabelaPrecoId: 't', precoPacoteId: 'p', categoria: 'PADRAO' as const }, configuracaoAgendaId: 'g', categoriaHorario: 'PADRAO' as const };
       const v = avaliarIntegracao({ snapshot: plano.snapshot, decisoes: d, referencias: ref, hoje: '2026-09-28' });
       return { integrada: false as const, pronto: true, bloqueios: [], avisos: [], resumo: v.resumo, resumoHash: hashResumo(imp.id, d, v.resumo) };
     },
