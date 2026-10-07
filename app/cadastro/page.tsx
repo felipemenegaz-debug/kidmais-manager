@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import admin from '@/components/admin/admin.module.css';
 import { postarPublico } from '@/components/acesso/token';
+import { dias } from '@/lib/assinatura/texto';
 
 type Situacao = { ativo: boolean; testeDias: number | null; termos: string; privacidade: string };
 
@@ -47,7 +48,7 @@ export default function Cadastro() {
             if (r.ok) { setEnviado(r.data.mensagem); setSenha(''); setConfirmacao(''); }
             else setErro(r.erro);
         }}>
-            <p>{situacao.testeDias ? `Teste grátis de ${situacao.testeDias} dias, sem cartão e sem cobrança automática.` : 'Teste grátis sem cartão e sem cobrança automática.'} Primeiro seus dados; depois de confirmar o e-mail, os dados da empresa.</p>
+            <p>{situacao.testeDias ? `Teste grátis de ${dias(situacao.testeDias)}, sem cartão e sem cobrança automática.` : 'Teste grátis sem cartão e sem cobrança automática.'} Primeiro seus dados; depois de confirmar o e-mail, os dados da empresa.</p>
             <label>Seu nome<input value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={120} autoComplete="name" /></label>
             <label>E-mail<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={254} autoComplete="email" /></label>
             <label>Crie uma senha<input type="password" autoComplete="new-password" value={senha} onChange={(e) => setSenha(e.target.value)} required minLength={8} maxLength={128} /></label>
