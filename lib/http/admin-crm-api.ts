@@ -4,6 +4,7 @@ import { authError, consultarSessao, type SessaoAdmin } from '../autenticacao/se
 import { hashToken } from '../autenticacao/senha';
 import { db } from '../db/postgres';
 import type { ClienteServiceContext } from '../clientes/services/context';
+import { exigirAcessoComercial } from '../assinatura/paywall.ts';
 import { ambientePoliticaAdminAtual, diagnosticarOrigemRequest, linhaDiagnosticoRecusaOrigemAdmin, origemMutacaoValida, type AmbientePoliticaAdmin } from './admin-origin.ts';
 const sessions = new WeakMap<NextRequest, SessaoAdmin>();
 export function politicaAdmin(request: NextRequest, env: AmbientePoliticaAdmin = ambientePoliticaAdminAtual()) {
@@ -41,6 +42,8 @@ export async function exigirApiAdminCrmDisponivel(request: NextRequest) {
             throw authError('Verificação CSRF recusada.', 403);
     }
     await db().query('UPDATE sessoes_administrativas SET ultima_atividade_em=clock_timestamp() WHERE id=$1 AND revogado_em IS NULL', [session.id]);
+    // E4: situação comercial da empresa (402 ASSINATURA_NECESSARIA); nunca derruba a sessão.
+    await exigirAcessoComercial(db(), session, request.method, request.nextUrl?.pathname ?? new URL(request.url).pathname);
     sessions.set(request, session);
     return session;
 }
