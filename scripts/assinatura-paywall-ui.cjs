@@ -189,6 +189,49 @@ async function principal() {
     resultados.push('Celular (390 px): tela Assinatura e aviso sem rolagem horizontal');
     console.log('E2E_PAYWALL_CELULAR_OK');
 
+    // E5 (painel comercial), quando presente nesta árvore: o desenvolvedor concede acesso excepcional pela ficha.
+    if (fs.existsSync('components/desenvolvedor/ComercialEmpresa.tsx')) {
+      const { alterarDesenvolvedor } = require('./admin-provision.cjs');
+      const emailDev = 'dev-paywall-ui@exemplo.test';
+      const dev = (await client.query(`INSERT INTO usuarios_administrativos(email,nome,senha_hash,papel) VALUES($1,'Dev Paywall UI',$2,'ADMINISTRATIVO') RETURNING id`, [emailDev, await senhaMod.criarHashSenha(password)])).rows[0].id;
+      await client.query("UPDATE usuarios_administrativos SET senha_alterada_em = clock_timestamp() - interval '1 hour' WHERE id = $1", [dev]);
+      await alterarDesenvolvedor(client, { operacao: 'conceder', email: emailDev, operador: 'E2E sintético', motivo: 'Teste do painel comercial' });
+      const ctxDev = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+      ctxDev.setDefaultTimeout(60000);
+      const p = await ctxDev.newPage();
+      await p.goto(`${base}/admin/login`);
+      await p.getByLabel('Email', { exact: true }).fill(emailDev);
+      await p.getByLabel('Senha', { exact: true }).fill(password);
+      await p.getByRole('button', { name: 'Entrar', exact: true }).click();
+      await p.waitForURL(url => !url.pathname.includes('/login'));
+      await p.goto(`${base}/desenvolvedor/empresas`);
+      await p.getByRole('cell', { name: /Teste grátis · Somente leitura/ }).first().waitFor();
+      await p.goto(`${base}/desenvolvedor/empresas/${empresas.L.id}`);
+      await p.getByRole('heading', { name: 'Situação comercial', exact: true }).waitFor();
+      await p.getByRole('button', { name: 'Conceder acesso excepcional', exact: true }).click();
+      const form = p.getByRole('form', { name: 'Intervenção comercial' });
+      await form.getByLabel('Prazo em dias').fill('10');
+      await form.getByLabel('Motivo (fica na auditoria)').fill('Cortesia de lançamento (E2E)');
+      await form.getByRole('button', { name: 'Confirmar', exact: true }).click();
+      const dialogo = p.getByRole('dialog', { name: 'Confirme sua senha' });
+      if (await dialogo.isVisible().catch(() => false)) {
+        await dialogo.getByLabel('Senha').fill(password);
+        await dialogo.getByRole('button', { name: 'Confirmar e continuar' }).click();
+      }
+      await p.getByText('Exceção concedida: Cortesia por 10 dia(s).', { exact: false }).waitFor();
+      await p.getByRole('list', { name: 'Histórico comercial' }).getByText('Acesso comercial excepcional concedido').waitFor();
+      await p.screenshot({ path: path.join(relatorios, 'painel-comercial.png'), fullPage: true });
+      const auditada = (await client.query("SELECT justificativa, usuario_id FROM auditoria WHERE acao='COMERCIAL_EXCECAO_CONCEDIDA' AND entidade_id=$1", [empresas.L.id])).rows;
+      assert.deepEqual([auditada.length, auditada[0].justificativa, auditada[0].usuario_id], [1, 'Cortesia de lançamento (E2E)', dev]);
+      s = await selecionar('L');
+      assert.deepEqual([s.data.comercial.nivel, s.data.comercial.motivo], ['COMPLETO', 'EXCECAO_COMERCIAL'], 'a Gestão de L volta a escrever');
+      assert.notEqual((await api('POST', '/api/admin/clientes', s)).status, 402);
+      assert.equal(Number((await client.query('SELECT count(*)::int AS n FROM memberships WHERE usuario_id=$1', [dev])).rows[0].n), 0, 'intervenção comercial não dá vínculo ao desenvolvedor');
+      await ctxDev.close();
+      resultados.push('Painel comercial: lista mostra a situação comercial; o desenvolvedor concede cortesia com prazo e motivo pela ficha (auditada, sem vínculo novo) e a empresa volta a escrever');
+      console.log('E2E_PAINEL_COMERCIAL_OK');
+    }
+
     fs.writeFileSync(path.join(relatorios, 'resultado.json'), JSON.stringify({ ok: true, emailReal: 'desativado', provedorCobranca: 'ausente', resultados }, null, 2));
     console.log(JSON.stringify({ ok: true, resultados }));
   } finally {
