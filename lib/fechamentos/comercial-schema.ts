@@ -33,6 +33,7 @@ export const camposComerciaisFechamento = {
 
   adicionaisSelecionados: z.array(z.string()).default([]),
   adicionaisQuantidades: z.record(z.string(), z.number().int().positive().safe()).optional(),
+  adicionaisEscolhas: z.record(z.string().max(80), z.array(z.uuid()).max(30)).optional(),
   alteracoesPacote: z.string().optional(),
   observacoesCliente: z.string().optional(),
 

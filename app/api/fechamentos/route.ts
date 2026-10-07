@@ -7,10 +7,12 @@ import {
   isAvailabilityServiceError,
   revalidarHorarioSelecionado,
 } from "@/lib/disponibilidade/services";
-import { escopoPublico } from "@/lib/disponibilidade/escopo";
+import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
+import { escopoCatalogoPublico } from "@/lib/comercial/catalogo-publico";
 import { db } from "@/lib/db/postgres";
 import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
-import { buscarPacoteAtivoPorCodigo } from "@/lib/comercial/repositories";
+import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
+import { apiErrorResponse } from "@/lib/http/api-response";
 import { isPricingServiceError } from "@/lib/comercial/services";
 import {
   criarFechamentoPublicoComIdentidade,
@@ -110,14 +112,18 @@ export async function POST(request: NextRequest) {
   }
 
   let horarioRevalidado: Awaited<ReturnType<typeof revalidarHorarioSelecionado>>;
+  let escopo: Awaited<ReturnType<typeof escopoCatalogoPublico>>;
   try {
+    escopo = await escopoCatalogoPublico(db);
+    const unidade = await escopoDaEmpresa(db(), escopo.empresaId, escopo.estabelecimentoId, { exigirUnidade: true });
+    escopo.estabelecimentoId = unidade.estabelecimentoId;
     horarioRevalidado = await revalidarHorarioSelecionado({
       data: dados.data.dataFesta,
       codigoPeriodo: dados.data.horarioBase === "almoco" ? "TURNO_1" : "TURNO_2",
       inicio: dados.data.horarioInicio,
       fim: dados.data.horarioFim,
       ajusteMinutos: Number(dados.data.ajusteHorario),
-    }, undefined, await escopoPublico(db));
+    }, undefined, escopo);
   } catch (error) {
     if (isAvailabilityServiceError(error)) {
       return NextResponse.json(
@@ -125,7 +131,7 @@ export async function POST(request: NextRequest) {
         { status: error.httpStatus },
       );
     }
-    throw error;
+    return apiErrorResponse(error);
   }
 
   const valorProposto = moedaParaNumeroServidor(dados.data.valorCombinado);
@@ -136,7 +142,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const adicionais = traduzirAdicionais(dados.data.adicionaisSelecionados, dados.data.adicionaisQuantidades);
+  const adicionais = traduzirAdicionais(dados.data.adicionaisSelecionados, dados.data.adicionaisQuantidades, dados.data.adicionaisEscolhas);
   if (!adicionais.ok) {
     return NextResponse.json(
       { ok: false, erro: adicionais.erro, codigo: adicionais.codigo },
@@ -147,7 +153,7 @@ export async function POST(request: NextRequest) {
   const codigoPacote = PACOTE_CODIGO_BANCO[dados.data.pacote];
   let pacote;
   try {
-    pacote = await buscarPacoteAtivoPorCodigo(codigoPacote);
+    pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigoPacote, db());
   } catch (error) {
     if (error instanceof PacoteAdminError) {
       return NextResponse.json(
@@ -184,6 +190,7 @@ export async function POST(request: NextRequest) {
       horarioFim: horarioRevalidado.candidato.fim,
       configuracaoAgendaId: horarioRevalidado.periodo.configuracaoId,
       pacoteId: pacote.id,
+      estabelecimentoId: escopo.estabelecimentoId,
       convidados: dados.data.convidadosPagantes,
       adicionais: adicionais.itens,
       valorProposto,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adicionaisDoPacoteNoTenant } from "@/lib/comercial/adicionais-tenant";
-import { ADICIONAL_CODIGO_BANCO, PACOTE_CODIGO_BANCO } from "@/lib/fechamentos/comercial-input";
+import { PACOTE_CODIGO_BANCO, idDoAdicionalNaTela } from "@/lib/fechamentos/comercial-input";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
@@ -9,11 +9,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const noStore = { "Cache-Control": "no-store" };
-/** Código do banco → id da UI (primeira opção de cada código, como na tela). */
-const idPorCodigo = Object.entries(ADICIONAL_CODIGO_BANCO).reduce<Record<string, string>>((acc, [id, codigo]) => {
-  acc[codigo] ??= id;
-  return acc;
-}, {});
 
 /**
  * Adicionais do fechamento administrativo com Tenant Context: sessão → provarTenant → pacote, tabela de
@@ -33,7 +28,7 @@ export async function GET(request: NextRequest) {
       convidados: Number(parametros.get("convidados")),
     }));
     return NextResponse.json({
-      adicionais: adicionais.filter((a) => idPorCodigo[a.codigo]).map((a) => ({ id: idPorCodigo[a.codigo], ...a })),
+      adicionais: adicionais.map((a) => ({ id: idDoAdicionalNaTela(a.codigo), ...a })),
     }, { headers: noStore });
   } catch (error) {
     return apiErrorResponse(error);

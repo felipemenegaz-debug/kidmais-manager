@@ -1,5 +1,6 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import { filtrarAdicionaisElegiveis } from "./adicionais-elegiveis.ts";
+import { migration070Aplicada } from "./migration-070.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
 
 /**
@@ -12,8 +13,17 @@ import { PacoteAdminError } from "./pacotes-admin.ts";
  *
  * Somente leitura. Aplica as regras oficiais (`adicionais-elegiveis.ts`): incluso no pacote nunca aparece
  * como pago; lembrancinha/empratado conforme o pacote; item de buffet incluso não vira adicional.
+ * Adicional de categoria do buffet (070) traz os itens ativos que o cliente escolhe; sem item ativo, não é oferecido.
  */
-export type AdicionalOferecido = { codigo: string; nome: string; categoria: string; unidadeCobranca: string; preco: number };
+export type EscolhasDoAdicional = { max: number | null; itens: Array<{ id: string; nome: string }> };
+export type AdicionalOferecido = {
+  codigo: string;
+  nome: string;
+  categoria: string;
+  unidadeCobranca: string;
+  preco: number;
+  escolhas?: EscolhasDoAdicional;
+};
 
 function recusar(codigo: string, mensagem: string, status: number): never {
   throw new PacoteAdminError(codigo, mensagem, status);
@@ -41,8 +51,13 @@ export async function adicionaisDoPacoteNoTenant(
   );
   if (tabelas.rows.length !== 1) recusar("PRECO_INDISPONIVEL", "Não há uma única tabela de preços valendo nesta data.", 409);
   const tabelaId = tabelas.rows[0].id;
-  const linhas = await tx.query<{ codigo: string; nome: string; categoria: string; unidade_cobranca: string; modalidade: "INCLUSO" | "EXTRA" | "INDISPONIVEL"; valor: string | null }>(
-    `SELECT a.codigo, a.nome, a.categoria, a.unidade_cobranca, pa.modalidade, preco.valor::text AS valor
+  const tem070 = await migration070Aplicada(tx);
+  const linhas = await tx.query<{
+    codigo: string; nome: string; categoria: string; unidade_cobranca: string; modalidade: "INCLUSO" | "EXTRA" | "INDISPONIVEL";
+    valor: string | null; origem_categoria: string | null; escolhas_max: number | null;
+  }>(
+    `SELECT a.codigo, a.nome, a.categoria, a.unidade_cobranca, pa.modalidade, preco.valor::text AS valor,
+            ${tem070 ? "a.origem_buffet_categoria_id::text AS origem_categoria, a.escolhas_max" : "NULL::text AS origem_categoria, NULL::smallint AS escolhas_max"}
        FROM pacote_adicionais pa
        JOIN adicionais a ON a.id = pa.adicional_id AND a.ativo AND a.empresa_id = $1::uuid
        LEFT JOIN LATERAL (
@@ -61,7 +76,27 @@ export async function adicionaisDoPacoteNoTenant(
   );
   const inclusos = new Set(itensDoBuffet.rows.map((l) => l.codigo));
   // Sem preço na tabela da empresa para esta faixa de convidados: não é oferecido (nunca preço inventado).
-  return filtrarAdicionaisElegiveis(entrada.pacoteCodigo, linhas.rows, inclusos)
-    .filter((l) => l.valor !== null && Number.isFinite(Number(l.valor)))
-    .map((l) => ({ codigo: l.codigo, nome: l.nome, categoria: l.categoria, unidadeCobranca: l.unidade_cobranca, preco: Number(l.valor) }));
+  const elegiveis = filtrarAdicionaisElegiveis(entrada.pacoteCodigo, linhas.rows, inclusos)
+    .filter((l) => l.valor !== null && Number.isFinite(Number(l.valor)));
+  const categorias = [...new Set(elegiveis.map((l) => l.origem_categoria).filter((c): c is string => Boolean(c)))];
+  const porCategoria = new Map<string, Array<{ id: string; nome: string }>>();
+  if (categorias.length) {
+    const itens = await tx.query<{ id: string; nome: string; categoria_id: string }>(
+      `SELECT id::text AS id, nome, categoria_id::text AS categoria_id FROM buffet_itens
+        WHERE ativo AND categoria_id = ANY($1::uuid[])
+        ORDER BY ordem_exibicao, nome`,
+      [categorias],
+    );
+    for (const item of itens.rows) porCategoria.set(item.categoria_id, [...(porCategoria.get(item.categoria_id) ?? []), { id: item.id, nome: item.nome }]);
+  }
+  return elegiveis
+    .filter((l) => !l.origem_categoria || (porCategoria.get(l.origem_categoria)?.length ?? 0) > 0)
+    .map((l) => ({
+      codigo: l.codigo,
+      nome: l.nome,
+      categoria: l.categoria,
+      unidadeCobranca: l.unidade_cobranca,
+      preco: Number(l.valor),
+      ...(l.origem_categoria ? { escolhas: { max: l.escolhas_max == null ? null : Number(l.escolhas_max), itens: porCategoria.get(l.origem_categoria)! } } : {}),
+    }));
 }

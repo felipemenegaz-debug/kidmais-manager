@@ -152,7 +152,7 @@ async function criarNoTenant(id: string, raw: unknown, contexto: Contexto, sessa
             inicio: input.horarioInicio, fim: input.horarioFim, ajusteMinutos: Number(input.ajusteHorario) }, tx, escopo);
         const valorProposto = moedaParaNumeroServidor(input.valorCombinado);
         if (valorProposto === null) throw new FechamentoServiceError('VALOR_PROPOSTO_INVALIDO', 'Informe um valor combinado válido.');
-        const adicionais = traduzirAdicionais(input.adicionaisSelecionados, input.adicionaisQuantidades);
+        const adicionais = traduzirAdicionais(input.adicionaisSelecionados, input.adicionaisQuantidades, input.adicionaisEscolhas);
         if (!adicionais.ok) throw new FechamentoServiceError('DADOS_INVALIDOS', adicionais.erro, 409);
         const resultado = await criarFechamentoComercial({
             clienteId: cliente.id, aniversarianteId: aniversariante.id,

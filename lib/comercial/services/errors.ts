@@ -10,7 +10,8 @@ export type PricingServiceErrorCode =
   | "PRECO_AMBIGUO"
   | "ADICIONAL_DUPLICADO"
   | "ADICIONAL_NAO_ENCONTRADO"
-  | "PRECO_ADICIONAL_NAO_CONFIGURADO";
+  | "PRECO_ADICIONAL_NAO_CONFIGURADO"
+  | "ESCOLHAS_INVALIDAS";
 
 export class PricingServiceError extends Error {
   readonly code: PricingServiceErrorCode;

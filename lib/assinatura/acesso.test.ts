@@ -72,3 +72,17 @@ test('exceção curta durante teste mais longo: o acesso completo vale até o ma
     assert.deepEqual(calcularAcessoComercial(teste, [{ tipo: 'CORTESIA', validaAte: em(5), revogadaEm: null }], T0), { nivel: 'COMPLETO', motivo: 'TESTE', ate: em(20) });
     assert.deepEqual(calcularAcessoComercial(teste, [{ tipo: 'CORTESIA', validaAte: em(40), revogadaEm: null }], T0), { nivel: 'COMPLETO', motivo: 'EXCECAO_COMERCIAL', ate: em(40) });
 });
+
+test('prazos configuráveis (hipóteses, não regras aprovadas): regularização e somente leitura vêm do parâmetro; padrão 7/60', () => {
+    const atraso = base({ situacao: 'EM_ATRASO', emAtrasoDesde: em(0) });
+    const prazos = { regularizacaoDias: 3, somenteLeituraDias: 10 };
+    assert.deepEqual(calcularAcessoComercial(atraso, [], T0 + 2 * DIA, prazos), { nivel: 'COMPLETO', motivo: 'REGULARIZACAO', ate: em(3) });
+    assert.deepEqual(calcularAcessoComercial(atraso, [], T0 + 3 * DIA, prazos), { nivel: 'SOMENTE_LEITURA', motivo: 'PAGAMENTO_PENDENTE', ate: em(13) });
+    assert.equal(calcularAcessoComercial(atraso, [], T0 + 13 * DIA, prazos).nivel, 'BLOQUEADO');
+    // Zero dias: sem regularização nem consulta — bloqueia logo depois do fim.
+    assert.equal(calcularAcessoComercial(atraso, [], T0 + 1, { regularizacaoDias: 0, somenteLeituraDias: 0 }).nivel, 'BLOQUEADO');
+    // Sem parâmetro, os valores propostos de sempre.
+    assert.deepEqual(calcularAcessoComercial(atraso, [], T0 + 2 * DIA), { nivel: 'COMPLETO', motivo: 'REGULARIZACAO', ate: em(7) });
+    // Sem assinatura (Kidmais), prazo nenhum se aplica.
+    assert.equal(calcularAcessoComercial(null, [], T0, { regularizacaoDias: 0, somenteLeituraDias: 0 }).nivel, 'COMPLETO');
+});

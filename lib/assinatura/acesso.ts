@@ -5,8 +5,9 @@
  * Prazos — NENHUM é política aprovada; são parâmetros propostos para homologação (decisão comercial/jurídica pendente):
  *   - teste sem cartão: duração gravada em teste_fim na criação; PADRÃO PROPOSTO 15 dias, configurável
  *     (lib/assinatura/configuracao.ts). A proposta de 06/10/2026 citava 30;
- *   - falha de cobrança: 7 dias de regularização com acesso completo (HIPÓTESE);
- *   - depois do teste, da regularização ou do fim do período cancelado: 60 dias SOMENTE_LEITURA (HIPÓTESE);
+ *   - falha de cobrança: 7 dias de regularização com acesso completo (HIPÓTESE; ASSINATURA_REGULARIZACAO_DIAS);
+ *   - depois do teste, da regularização ou do fim do período cancelado: 60 dias SOMENTE_LEITURA (HIPÓTESE;
+ *     ASSINATURA_SOMENTE_LEITURA_DIAS). Os dois são parâmetros (lib/assinatura/configuracao.ts), não regras aprovadas;
  *   - depois disso: BLOQUEADO (dados retidos; nada é apagado aqui; retenção a definir com advogado).
  * Empresa sem assinatura (Kidmais e empresas atuais) = sem cobrança: COMPLETO.
  * Exceção comercial vigente (cortesia ou acesso temporário) = COMPLETO até o prazo dela.
@@ -14,6 +15,9 @@
  */
 export const REGULARIZACAO_DIAS = 7;
 export const SOMENTE_LEITURA_DIAS = 60;
+export type PrazosAcesso = { regularizacaoDias: number; somenteLeituraDias: number };
+/** Valores propostos para homologação quando o ambiente não define outros. */
+export const PRAZOS_PROPOSTOS: PrazosAcesso = { regularizacaoDias: REGULARIZACAO_DIAS, somenteLeituraDias: SOMENTE_LEITURA_DIAS };
 const DIA_MS = 86_400_000;
 
 export type SituacaoAssinatura = 'TESTE' | 'ATIVA' | 'EM_ATRASO' | 'CANCELADA_FIM_PERIODO' | 'ENCERRADA';
@@ -43,9 +47,9 @@ export type AcessoComercial = {
 const ms = (iso: string | null) => (iso ? Date.parse(iso) : Number.NaN);
 const iso = (t: number) => new Date(t).toISOString();
 
-/** A partir de `inicio` (quando o acesso completo terminou): SOMENTE_LEITURA por 60 dias, depois BLOQUEADO. */
-function aposFim(inicio: number, agora: number, motivo: MotivoAcesso): AcessoComercial {
-    const fimLeitura = inicio + SOMENTE_LEITURA_DIAS * DIA_MS;
+/** A partir de `inicio` (quando o acesso completo terminou): SOMENTE_LEITURA pelo prazo configurado, depois BLOQUEADO. */
+function aposFim(inicio: number, agora: number, motivo: MotivoAcesso, prazos: PrazosAcesso): AcessoComercial {
+    const fimLeitura = inicio + prazos.somenteLeituraDias * DIA_MS;
     return agora < fimLeitura
         ? { nivel: 'SOMENTE_LEITURA', motivo, ate: iso(fimLeitura) }
         : { nivel: 'BLOQUEADO', motivo, ate: null };
@@ -57,10 +61,10 @@ export function excecaoVigente(excecoes: readonly ExcecaoGravada[], agora: numbe
         .sort((a, b) => ms(b.validaAte) - ms(a.validaAte))[0] ?? null;
 }
 
-export function calcularAcessoComercial(assinatura: AssinaturaGravada | null, excecoes: readonly ExcecaoGravada[] = [], agora = Date.now()): AcessoComercial {
+export function calcularAcessoComercial(assinatura: AssinaturaGravada | null, excecoes: readonly ExcecaoGravada[] = [], agora = Date.now(), prazos: PrazosAcesso = PRAZOS_PROPOSTOS): AcessoComercial {
     if (!assinatura)
         return { nivel: 'COMPLETO', motivo: 'SEM_COBRANCA', ate: null };
-    const base = acessoDaAssinatura(assinatura, agora);
+    const base = acessoDaAssinatura(assinatura, agora, prazos);
     const excecao = excecaoVigente(excecoes, agora);
     if (!excecao)
         return base;
@@ -71,14 +75,14 @@ export function calcularAcessoComercial(assinatura: AssinaturaGravada | null, ex
     return { nivel: 'COMPLETO', motivo: 'EXCECAO_COMERCIAL', ate: excecao.validaAte };
 }
 
-function acessoDaAssinatura(assinatura: AssinaturaGravada, agora: number): AcessoComercial {
+function acessoDaAssinatura(assinatura: AssinaturaGravada, agora: number, prazos: PrazosAcesso): AcessoComercial {
     const fimPeriodo = ms(assinatura.periodoAtualFim);
     switch (assinatura.situacao) {
         case 'TESTE': {
             const fim = ms(assinatura.testeFim);
             if (!Number.isFinite(fim))
                 return { nivel: 'BLOQUEADO', motivo: 'TESTE_ENCERRADO', ate: null };
-            return agora < fim ? { nivel: 'COMPLETO', motivo: 'TESTE', ate: assinatura.testeFim } : aposFim(fim, agora, 'TESTE_ENCERRADO');
+            return agora < fim ? { nivel: 'COMPLETO', motivo: 'TESTE', ate: assinatura.testeFim } : aposFim(fim, agora, 'TESTE_ENCERRADO', prazos);
         }
         case 'ATIVA': {
             if (!Number.isFinite(fimPeriodo))
@@ -86,34 +90,34 @@ function acessoDaAssinatura(assinatura: AssinaturaGravada, agora: number): Acess
             if (agora < fimPeriodo)
                 return { nivel: 'COMPLETO', motivo: 'ASSINATURA_ATIVA', ate: assinatura.periodoAtualFim };
             // Período acabou sem a renovação confirmada: mesma regra do atraso, contada do fim do período.
-            return emAtraso(fimPeriodo, agora);
+            return emAtraso(fimPeriodo, agora, prazos);
         }
         // Datas ausentes ou inválidas (só possíveis fora dos CHECKs da 067) falham FECHADO, nunca abrem acesso.
         case 'EM_ATRASO': {
             const desde = ms(assinatura.emAtrasoDesde);
-            return Number.isFinite(desde) ? emAtraso(desde, agora) : { nivel: 'BLOQUEADO', motivo: 'PAGAMENTO_PENDENTE', ate: null };
+            return Number.isFinite(desde) ? emAtraso(desde, agora, prazos) : { nivel: 'BLOQUEADO', motivo: 'PAGAMENTO_PENDENTE', ate: null };
         }
         case 'CANCELADA_FIM_PERIODO': {
             if (!Number.isFinite(fimPeriodo))
                 return { nivel: 'BLOQUEADO', motivo: 'CANCELADA', ate: null };
             if (agora < fimPeriodo)
                 return { nivel: 'COMPLETO', motivo: 'CANCELADA_NO_PERIODO', ate: assinatura.periodoAtualFim };
-            return aposFim(fimPeriodo, agora, 'CANCELADA');
+            return aposFim(fimPeriodo, agora, 'CANCELADA', prazos);
         }
         case 'ENCERRADA': {
             const fim = ms(assinatura.encerradaEm);
-            return Number.isFinite(fim) ? aposFim(fim, agora, 'ENCERRADA') : { nivel: 'BLOQUEADO', motivo: 'ENCERRADA', ate: null };
+            return Number.isFinite(fim) ? aposFim(fim, agora, 'ENCERRADA', prazos) : { nivel: 'BLOQUEADO', motivo: 'ENCERRADA', ate: null };
         }
         default:
             return { nivel: 'BLOQUEADO', motivo: 'ENCERRADA', ate: null };
     }
 }
 
-function emAtraso(desde: number, agora: number): AcessoComercial {
-    const fimRegularizacao = desde + REGULARIZACAO_DIAS * DIA_MS;
+function emAtraso(desde: number, agora: number, prazos: PrazosAcesso): AcessoComercial {
+    const fimRegularizacao = desde + prazos.regularizacaoDias * DIA_MS;
     if (agora < fimRegularizacao)
         return { nivel: 'COMPLETO', motivo: 'REGULARIZACAO', ate: iso(fimRegularizacao) };
-    return aposFim(fimRegularizacao, agora, 'PAGAMENTO_PENDENTE');
+    return aposFim(fimRegularizacao, agora, 'PAGAMENTO_PENDENTE', prazos);
 }
 
 /** Escrita permitida? (E4 usa isto nas rotas de mutação; leitura exige só nível diferente de BLOQUEADO.) */
