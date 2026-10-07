@@ -16,8 +16,11 @@ export type AdicionalAdmin = {
   escolhasMax: number | null;
   preco: string | null;
   faixasPreco: number;
+  faixas?: Array<{ min: number; max: number | null; valor: number; rotulo: string | null }>;
   pacotes: Record<string, Modalidade>;
 };
+
+export type FaixaForm = { min: string; max: string; rotulo: string; valor: string };
 
 export type AdicionaisAdmin = {
   migracaoPendente: boolean;
@@ -47,6 +50,9 @@ export type FormularioAdicional = {
   unidadeCobranca: Unidade;
   preco: string;
   precoInicial: string;
+  modo: 'UNICO' | 'FAIXAS';
+  faixas: FaixaForm[];
+  faixasIniciais: string;
   escolhasMax: string;
   faixasPreco: number;
   pacotes: Record<string, Modalidade>;
@@ -76,6 +82,7 @@ export function formularioAdicional(
 ): FormularioAdicional {
   const pacotes = Object.fromEntries(dados.pacotes.map((p) => [p.id, adicional?.pacotes[p.id] ?? 'INDISPONIVEL'])) as Record<string, Modalidade>;
   const preco = precoParaCampo(adicional?.preco ?? null);
+  const faixas: FaixaForm[] = (adicional?.faixas ?? []).map((f) => ({ min: String(f.min), max: f.max == null ? '' : String(f.max), rotulo: f.rotulo ?? '', valor: precoParaCampo(f.valor.toFixed(2)) }));
   const unidadePadrao: Unidade = origem?.tipo === 'CATEGORIA' ? 'CENTO' : origem?.tipo === 'ITEM' ? 'UNIDADE' : 'PACOTE';
   return {
     ...(adicional && !origem ? { id: adicional.id } : {}),
@@ -86,6 +93,9 @@ export function formularioAdicional(
     unidadeCobranca: (UNIDADES.some((u) => u.valor === adicional?.unidadeCobranca) ? adicional!.unidadeCobranca : unidadePadrao) as Unidade,
     preco,
     precoInicial: preco,
+    modo: faixas.length > 1 ? 'FAIXAS' : 'UNICO',
+    faixas: faixas.length > 1 ? faixas : [{ min: '1', max: '', rotulo: '', valor: '' }],
+    faixasIniciais: JSON.stringify(faixas.length > 1 ? faixas : [{ min: '1', max: '', rotulo: '', valor: '' }]),
     escolhasMax: adicional?.escolhasMax ? String(adicional.escolhasMax) : '',
     faixasPreco: adicional?.faixasPreco ?? 0,
     pacotes,
@@ -104,7 +114,24 @@ export function pedidoAdicional(form: FormularioAdicional): Record<string, unkno
     escolhasMax = Number(form.escolhasMax);
     if (!Number.isInteger(escolhasMax) || escolhasMax < 1 || escolhasMax > 30) return 'O máximo de opções vai de 1 a 30.';
   }
-  const mudouPreco = preco !== precoDoCampo(form.precoInicial);
+  let faixas: Array<{ min: number; max: number | null; valor: number; rotulo: string | null }> | undefined;
+  if (form.modo === 'FAIXAS' && JSON.stringify(form.faixas) !== form.faixasIniciais) {
+    faixas = [];
+    for (const f of form.faixas) {
+      const min = Number(f.min);
+      const max = f.max.trim() ? Number(f.max) : null;
+      const valor = precoDoCampo(f.valor);
+      if (!Number.isInteger(min) || min < 1 || (max !== null && (!Number.isInteger(max) || max < min))) return 'Confira o "De" e o "Até" de cada faixa.';
+      if (valor === undefined || valor === null) return 'Informe o preço de cada faixa.';
+      faixas.push({ min, max, valor: Number(valor), rotulo: f.rotulo.trim() || null });
+    }
+    faixas.sort((a, b) => a.min - b.min);
+    for (let i = 1; i < faixas.length; i++) {
+      const anterior = faixas[i - 1].max;
+      if (anterior === null || faixas[i].min !== anterior + 1) return 'As faixas precisam ser contínuas (o "De" de uma é o "Até" da anterior + 1).';
+    }
+  }
+  const mudouPreco = form.modo === 'UNICO' && preco !== precoDoCampo(form.precoInicial);
   const pacotes = Object.fromEntries(Object.entries(form.pacotes).filter(([id, m]) => form.pacotesIniciais[id] !== m));
   return {
     ...(form.id ? { id: form.id } : {}),
@@ -115,12 +142,17 @@ export function pedidoAdicional(form: FormularioAdicional): Record<string, unkno
     ativo: form.ativo,
     ...(form.origem?.tipo === 'CATEGORIA' ? { escolhasMax } : {}),
     ...(mudouPreco ? { preco } : {}),
+    ...(faixas ? { faixas } : {}),
     ...(Object.keys(pacotes).length ? { pacotes } : {}),
   };
 }
 
 /** Resumo da coluna "Adicional": preço e unidade, faixas ou sem preço. */
-export function precoNaLista(adicional: Pick<AdicionalAdmin, 'preco' | 'faixasPreco' | 'unidadeCobranca'>): string {
+export function precoNaLista(adicional: Pick<AdicionalAdmin, 'preco' | 'faixasPreco' | 'unidadeCobranca' | 'faixas'>): string {
+  if (adicional.faixas && adicional.faixas.length > 1) {
+    const valores = adicional.faixas.map((f) => f.valor);
+    return `R$ ${moeda(Math.min(...valores))} a R$ ${moeda(Math.max(...valores))} (${adicional.faixas.length} faixas)`;
+  }
   if (adicional.preco !== null) {
     const unidade = UNIDADES.find((u) => u.valor === adicional.unidadeCobranca);
     const sufixo = unidade && !['PACOTE', 'VALOR_FIXO'].includes(unidade.valor) ? ` ${unidade.rotulo.toLocaleLowerCase('pt-BR')}` : '';

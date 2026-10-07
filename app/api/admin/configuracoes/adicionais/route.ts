@@ -24,6 +24,12 @@ const entrada = z.object({
   ativo: z.boolean(),
   escolhasMax: z.number().int().min(1).max(30).nullable().optional(),
   preco: z.string().trim().regex(/^\d{1,8}(\.\d{1,2})?$/).nullable().optional(),
+  faixas: z.array(z.object({
+    min: z.number().int().min(1).max(10000),
+    max: z.number().int().min(1).max(10000).nullable(),
+    valor: z.number().min(0).max(99_999_999),
+    rotulo: z.string().trim().max(80).nullable(),
+  }).strict()).max(20).optional(),
   pacotes: z.record(uuid, modalidade).optional(),
 }).strict().refine((e) => !(e.id && e.origem), { message: "Informe o adicional ou a origem, não os dois." });
 

@@ -293,8 +293,23 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
           <label>Cobrança<select value={formAdicional.unidadeCobranca} onChange={(e) => setFormAdicional({ ...formAdicional, unidadeCobranca: e.target.value as FormularioAdicional['unidadeCobranca'] })}>
             {UNIDADES.map((u) => <option key={u.valor} value={u.valor}>{u.rotulo}</option>)}
           </select></label>
-          <label>Preço (R$)<input inputMode="decimal" placeholder="Sem preço: não é oferecido" value={formAdicional.preco} disabled={!adicionais.tabelaCorrente} onChange={(e) => setFormAdicional({ ...formAdicional, preco: e.target.value })} /></label>
-          {formAdicional.faixasPreco > 1 && <p className={editor.ajuda}>Hoje há {formAdicional.faixasPreco} faixas de preço por convidados. Ao salvar um valor, ele passa a valer para qualquer número de convidados.</p>}
+          <div className={editor.modo} role="group" aria-label="Forma de preço">
+            <button type="button" aria-pressed={formAdicional.modo === 'UNICO'} onClick={() => setFormAdicional({ ...formAdicional, modo: 'UNICO' })}>Preço único</button>
+            <button type="button" aria-pressed={formAdicional.modo === 'FAIXAS'} onClick={() => setFormAdicional({ ...formAdicional, modo: 'FAIXAS' })}>Por faixa de convidados</button>
+          </div>
+          {formAdicional.modo === 'UNICO' && <label>Preço (R$)<input inputMode="decimal" placeholder="Sem preço: não é oferecido" value={formAdicional.preco} disabled={!adicionais.tabelaCorrente} onChange={(e) => setFormAdicional({ ...formAdicional, preco: e.target.value })} /></label>}
+          {formAdicional.modo === 'UNICO' && formAdicional.faixasPreco > 1 && <p className={editor.ajuda}>Hoje há {formAdicional.faixasPreco} faixas de preço por convidados. Ao salvar um valor único, ele passa a valer para qualquer número de convidados.</p>}
+          {formAdicional.modo === 'FAIXAS' && <div className={editor.faixas}>
+            {formAdicional.faixas.map((f, i) => <div key={i} className={editor.faixaLinha}>
+              <label>De<input inputMode="numeric" value={f.min} onChange={(e) => setFormAdicional({ ...formAdicional, faixas: formAdicional.faixas.map((x, k) => k === i ? { ...x, min: e.target.value } : x) })} /></label>
+              <label>Até<input inputMode="numeric" placeholder="sem fim" value={f.max} onChange={(e) => setFormAdicional({ ...formAdicional, faixas: formAdicional.faixas.map((x, k) => k === i ? { ...x, max: e.target.value } : x) })} /></label>
+              <label>Rótulo<input placeholder="ex.: Pequena" value={f.rotulo} onChange={(e) => setFormAdicional({ ...formAdicional, faixas: formAdicional.faixas.map((x, k) => k === i ? { ...x, rotulo: e.target.value } : x) })} /></label>
+              <label>Preço<input inputMode="decimal" value={f.valor} disabled={!adicionais.tabelaCorrente} onChange={(e) => setFormAdicional({ ...formAdicional, faixas: formAdicional.faixas.map((x, k) => k === i ? { ...x, valor: e.target.value } : x) })} /></label>
+              <button type="button" aria-label="Remover faixa" onClick={() => setFormAdicional({ ...formAdicional, faixas: formAdicional.faixas.filter((_, k) => k !== i) })}>×</button>
+            </div>)}
+            <button type="button" onClick={() => { const u = formAdicional.faixas.at(-1); const proximo = u?.max ? String(Number(u.max) + 1) : ''; setFormAdicional({ ...formAdicional, faixas: [...formAdicional.faixas, { min: proximo, max: '', rotulo: '', valor: '' }] }); }}>+ Adicionar faixa</button>
+            <p className={editor.ajuda}>O cliente vê só o preço da faixa dos convidados dele.</p>
+          </div>}
           {formAdicional.origem?.tipo === 'CATEGORIA' && <label>Máximo de opções que o cliente escolhe<input type="number" min={1} max={30} step={1} placeholder="Sem limite" value={formAdicional.escolhasMax} onChange={(e) => setFormAdicional({ ...formAdicional, escolhasMax: e.target.value })} /></label>}
           <fieldset className={editor.pacotes}>
             <legend>Oferecer nos pacotes</legend>
