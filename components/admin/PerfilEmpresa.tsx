@@ -6,6 +6,7 @@ import { campoExigidoNaAplicacao, contatoExigidoNaAplicacao, type CadastroPerfil
 import { aplicarConsultaCep, cepCompleto, type PedidoCep } from '@/lib/perfil/consulta-cep';
 import { agruparComparacao, aposAplicar, aposCarga, aposConflito, aposDigitacao, aposOperacao, cadastrosIguais, confirmarRevisao, devePreencherNaRetentativa, estadoFluxoInicial, identidadeDoConflito, linhasAntesDepois, pedidoRascunho, podeAplicar, resolverCarregamento, revisaoAindaConfere, type CapacidadesTela, type EstadoFluxo } from '@/lib/perfil/tela-cadastro';
 import { AdminIcon } from './AdminIcon';
+import { PerfilRecebimentoPix } from './PerfilRecebimentoPix';
 import styles from './perfil-empresa.module.css';
 import { erroArquivoLogo, LOGO_MAX_UPLOAD_MB } from '@/lib/perfil/logo-limites';
 
@@ -578,6 +579,8 @@ export default function PerfilEmpresa() {
                 </div>
                 <p className={styles.avisoContato}>Estes campos são destinados à exibição pública e documentos. Eles não alteram o login dos usuários nem a recuperação de senha. {contatoExigidoNaAplicacao() ? 'Para aplicar, informe telefone ou WhatsApp.' : ''}</p>
             </fieldset>
+            {/* 066: salva na hora, com senha; não faz parte do rascunho do Perfil. */}
+            <PerfilRecebimentoPix />
             <p className={styles.regraCampos}>O rascunho pode ficar incompleto. O asterisco indica o que é exigido ao aplicar.</p>
             </div>
             <aside className={styles.lateral} aria-label="Marca e histórico">

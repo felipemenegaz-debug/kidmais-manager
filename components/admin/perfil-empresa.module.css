@@ -226,3 +226,13 @@
  .identificacao > :last-child { display:flex; }
  .acesso { margin:32px 16px; }
 }
+/* Recebimento por Pix (seção do Perfil). Seletor escuro: sem isto o Windows abre a lista com fundo branco. */
+.campo select { width:100%; min-width:0; color-scheme:dark; background:var(--input-bg); color:var(--main-text); border:1px solid var(--input-border); border-radius:var(--admin-input-radius); padding:12px 16px; font:400 14px/21px var(--admin-font); }
+.campo select:focus { outline:none; border-color:var(--primary-violet); background:var(--input-focus-bg); }
+.campo select option { background:var(--km-card, #111827); color:var(--main-text); }
+.pixResumo { margin:0 0 24px; color:var(--main-text); font-size:14px; line-height:21px; }
+.pixResumo strong { color:var(--lilac-accent); }
+.pixAcoes { display:flex; flex-wrap:wrap; gap:12px; margin-top:24px; }
+.pixAcoes button { padding:12px 24px; border-radius:var(--admin-input-radius); font:600 14px/20px var(--admin-font); cursor:pointer; }
+.pixAcoes button:disabled { opacity:.5; cursor:not-allowed; }
+@media(max-width:800px){ .campo select { font-size:16px; line-height:24px; } .pixAcoes button { width:100%; } }

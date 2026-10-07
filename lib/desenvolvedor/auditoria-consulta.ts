@@ -15,7 +15,7 @@ import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
  * sanitização da escrita (sanitizarAuditoria): nunca senha, token, hash ou link.
  */
 export const ORIGENS_ADMINISTRATIVAS = [
-    'PAINEL_DESENVOLVEDOR', 'CONVITE_PUBLICO', 'RECUPERACAO_PUBLICA', 'PERFIL_SENHA', 'HG8_CICLO_EMPRESA', 'HG8_CICLO_MEMBERSHIP',
+    'PAINEL_DESENVOLVEDOR', 'CONVITE_PUBLICO', 'RECUPERACAO_PUBLICA', 'PERFIL_SENHA', 'HG8_CICLO_EMPRESA', 'HG8_CICLO_MEMBERSHIP', 'CADASTRO_PUBLICO',
     'ADMIN_USUARIOS', 'CLI_PROVISIONAMENTO', 'PERFIL_EMPRESA',
 ] as const;
 export const POR_PAGINA_AUDITORIA = 25;

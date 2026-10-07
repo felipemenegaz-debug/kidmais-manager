@@ -1,0 +1,4 @@
+.aviso { margin:16px 32px 0; padding:12px 16px; border-radius:14px; color:var(--main-text, inherit); font-size:13px; display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+.aviso a { font-weight:700; white-space:nowrap; }
+/* No celular o botão do menu fica fixo no canto superior esquerdo (shell.module.css): o aviso desce abaixo dele. */
+@media(max-width:800px) { .aviso { margin:64px 16px 0; } }

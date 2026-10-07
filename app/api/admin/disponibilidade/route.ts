@@ -31,6 +31,7 @@ import {
   resolverEDesativarBloqueioLegado,
 } from "@/lib/disponibilidade/bloqueios-legados";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import { ehDonaDaConfigLegada, exigirDonaDaConfigLegada } from "@/lib/disponibilidade/config-legada";
 import {
   contextoCrmDaRequest,
   exigirApiAdminCrmDisponivel,
@@ -149,8 +150,10 @@ async function escopoDoPedido(tx: DbExecutor, empresaId: string, unidadeId: stri
   return escopoDaEmpresa(tx, empresaId, unidadeSchema.parse(unidadeId || null));
 }
 
-async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda) {
-  const comercial = await lerComercial();
+async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaComprovada: string) {
+  // E2: o arquivo é da instalação (agenda pública); só a empresa dona o vê. As demais recebem listas vazias.
+  const configuracaoComercial = await ehDonaDaConfigLegada(tx, empresaComprovada);
+  const comercial: ConfigLegada = configuracaoComercial ? await lerComercial() : { pacoteOverrides: [], descontos: [] };
   const bloqueios = await listarTodosBloqueiosAtivos(tx, escopo);
   const porEscopo = await agendaPorEscopoInstalada(tx);
   const unidades = porEscopo && escopo.empresaId ? await unidadesDaEmpresa(tx, escopo.empresaId) : [];
@@ -165,6 +168,7 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda) {
     agenda: [],
     pacoteOverrides: comercial.pacoteOverrides,
     descontos: comercial.descontos,
+    configuracaoComercial,
     bloqueios,
   };
 }
@@ -184,7 +188,7 @@ export async function GET(request: NextRequest) {
         : inicio && fim
           ? await consultarDisponibilidadePeriodo(dataSchema.parse(inicio), dataSchema.parse(fim), tx, undefined, escopo)
           : null;
-      return { ...(await montarConfigAdmin(tx, escopo)), dias, podeResolverLegado: await agendaPorEscopoInstalada(tx) && await podeResolverBloqueioLegado(tx, sessao.usuario_id) };
+      return { ...(await montarConfigAdmin(tx, escopo, tenant.empresaComprovada)), dias, podeResolverLegado: await agendaPorEscopoInstalada(tx) && await podeResolverBloqueioLegado(tx, sessao.usuario_id) };
     });
     return NextResponse.json(resposta, {
       headers: { "Cache-Control": "no-store" },
@@ -380,6 +384,7 @@ export async function POST(request: NextRequest) {
           );
         }
       } else {
+        await exigirDonaDaConfigLegada(tx, tenant.empresaComprovada);
         const config = await lerComercial();
 
         if (op.tipo === "pacote") {
@@ -435,7 +440,7 @@ export async function POST(request: NextRequest) {
         await salvarComercial(config);
       }
 
-      return NextResponse.json({ ok: true, config: await montarConfigAdmin(tx, escopo) });
+      return NextResponse.json({ ok: true, config: await montarConfigAdmin(tx, escopo, tenant.empresaComprovada) });
     });
   } catch (error) {
     return apiErrorResponse(error);

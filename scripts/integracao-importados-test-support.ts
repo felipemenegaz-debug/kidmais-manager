@@ -127,7 +127,11 @@ export async function representante(db: Client, c: { empresa: string }) {
 
 export type Evento = { data: string; inicio: string; fim: string };
 
-/** Importação CONFIRMADA (IMPORTADA) com original real e o snapshot como o motor grava. */
+/**
+ * Importação CONFIRMADA (IMPORTADA) com original real e o snapshot como o motor grava. O cliente nasce com o mínimo que
+ * a conferência exige (cadastroContratualSchema): nome, CPF válido (sintético) e um contato — e-mail e endereço ficam
+ * vazios, como num contrato em papel sem esses dados.
+ */
 export async function importacao(db: Client, c: Cenario, evento: Evento, apenasRascunho = false) {
   const cliente = apenasRascunho ? randomUUID() : await id(db, `INSERT INTO clientes (nome_completo, empresa_id, telefone, whatsapp, cpf) VALUES ('Cliente 061', $1::uuid, '11999990000', '11999990000', $2) RETURNING id`, [c.empresa, cpfValido()]);
   const documento = await id(db, `INSERT INTO ia_documentos (empresa_id, tipo, status, enviado_por) VALUES ($1::uuid, 'CONTRATO_HISTORICO', 'RECEBIDO', $2::uuid) RETURNING id`, [c.empresa, c.usuario]);

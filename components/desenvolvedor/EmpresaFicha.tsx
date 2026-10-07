@@ -6,6 +6,10 @@ import workspace from '@/components/admin/workspace.module.css';
 import estilos from './desenvolvedor.module.css';
 import { chamar, formatarData, formatarDocumento, formatarTelefone, rotuloAcao, type Resposta } from './cliente';
 import { useReautenticacao } from './Reautenticacao';
+import ComercialEmpresa, { type Comercial } from './ComercialEmpresa';
+import RepresentacaoEmpresa, { type Representacao } from './RepresentacaoEmpresa';
+import SincronizarCobranca from './SincronizarCobranca';
+import PendenciasCobranca from './PendenciasCobranca';
 import { tomSituacao } from './Empresas';
 import { rotuloResultado } from './PainelResumo';
 
@@ -14,9 +18,9 @@ type Empresa = { id: string; codigo: string; nome: string; status: string; situa
 type Membro = { usuarioId: string; nome: string; email: string; papel: string; nivel: string; statusVinculo: 'PENDENTE' | 'ATIVA' | 'SUSPENSA' | 'REVOGADA'; contaAtiva: boolean; membershipId: string; vinculoDesde: string; atualizadoEm: string; outrasEmpresasAtivas: number };
 type Convite = { id: string; email: string; nomeSugerido: string | null; nivel: string; situacao: 'PENDENTE' | 'EXPIRADO' | 'ACEITO' | 'CANCELADO'; expiraEm: string; envios: number; ultimoEnvioEm: string | null; criadoEm: string; aceitoEm: string | null; canceladoEm: string | null };
 type Atividade = { id: string; acao: string; origem: string; criado_em: string; ator: string | null; resultado: string | null };
-type Pendencia = { codigo: string; titulo: string; atendida: boolean; obrigatoria: boolean; detalhe: string; acao: 'CONVITES' | 'PERFIL' | 'PLATAFORMA' | null };
+type Pendencia = { codigo: string; titulo: string; atendida: boolean; obrigatoria: boolean; detalhe: string; acao: 'CONVITES' | 'VINCULOS' | 'CADASTRO' | 'PERFIL' | 'PLATAFORMA' | null };
 type Implantacao = { itens: Pendencia[]; podeConcluir: boolean; pendentesObrigatorias: string[] };
-type Ficha = { empresa: Empresa; membros: Membro[]; convites: Convite[]; atividade: Atividade[]; implantacao: Implantacao | null; envioEmail: { configurado: boolean; motivo: string | null } };
+type Ficha = { empresa: Empresa; membros: Membro[]; convites: Convite[]; atividade: Atividade[]; implantacao: Implantacao | null; envioEmail: { configurado: boolean; motivo: string | null }; comercial: Comercial; representacao: Representacao };
 type Envio = { enviado: boolean; destino: string; motivo?: string };
 
 const VINCULO: Record<Membro['statusVinculo'], { rotulo: string; tom?: string }> = {
@@ -114,7 +118,7 @@ export default function EmpresaFicha({ id }: { id: string }) {
                 {ficha.implantacao && <ul className={estilos.lista} aria-label="Pendências de implantação">
                     {ficha.implantacao.itens.map((p) => <li key={p.codigo}>
                         <strong><span aria-hidden="true">{p.atendida ? '✓' : p.obrigatoria ? '✗' : '•'}</span> {p.titulo}{p.obrigatoria && !p.atendida ? ' (obrigatória)' : ''}</strong>
-                        <span>{p.detalhe}{!p.atendida && p.acao === 'CONVITES' && <> · <a href="#t-convites">Ver convites</a></>}{!p.atendida && p.acao === 'PERFIL' && ' · Ação da Gestão da empresa, no Admin.'}{!p.atendida && p.acao === 'PLATAFORMA' && ' · Ação da plataforma, fora deste painel.'}</span>
+                        <span>{p.detalhe}{!p.atendida && p.acao === 'CONVITES' && <> · <a href="#t-convites">Ver convites</a></>}{!p.atendida && p.acao === 'VINCULOS' && <> · <a href="#t-usuarios">Ver pessoas</a></>}{!p.atendida && p.acao === 'CADASTRO' && ' · Corrija o cadastro acima.'}{!p.atendida && p.acao === 'PERFIL' && ' · Ação da Gestão da empresa, no Admin.'}{!p.atendida && p.acao === 'PLATAFORMA' && ' · Ação da plataforma, fora deste painel.'}</span>
                     </li>)}
                 </ul>}
                 <div className={estilos.filtros} role="group" aria-label="Etapa da implantação">
@@ -200,6 +204,10 @@ export default function EmpresaFicha({ id }: { id: string }) {
             </table></div>}
         </section>
 
+        <ComercialEmpresa empresaId={e.id} comercial={ficha.comercial} ocupado={ocupado} operar={operar} />
+
+        <RepresentacaoEmpresa empresaId={e.id} dados={ficha.representacao} ocupado={ocupado} operar={operar} />
+
         {(e.status === 'ATIVA' || e.status === 'SUSPENSA') && <section className={workspace.card} aria-labelledby="t-situacao">
             <h2 id="t-situacao">{e.status === 'ATIVA' ? 'Suspender acesso da empresa' : 'Reativar acesso da empresa'}</h2>
             <p className={workspace.muted}>{e.status === 'ATIVA'
@@ -219,6 +227,9 @@ export default function EmpresaFicha({ id }: { id: string }) {
                 </div>
             </form>}
         </section>}
+
+        <SincronizarCobranca empresaId={e.id} />
+        <PendenciasCobranca empresaId={e.id} />
 
         <section className={workspace.card} aria-labelledby="t-atividade">
             <h2 id="t-atividade">Atividade administrativa</h2>

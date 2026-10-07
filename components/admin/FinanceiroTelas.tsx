@@ -6,6 +6,7 @@ import { FORMAS, hojeBrasilia, periodoSelecionado, reaisDe, type FormaFinanceira
 import { abrirAcao, acaoInicial, confirmarAcao, finalizarAcao, type AcaoFinanceira } from '@/lib/financeiro/submissao';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import styles from './financeiro.module.css';
+import { PixParcela } from './PixParcela';
 
 type Resumo = { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; emAtrasoCentavos: number; saldoPrevistoCentavos: number; pagoMesCentavos: number };
 type Recebivel = { id: string; origem?: "CONTRATO" | "ENTRADA_MANUAL"; cliente: string; clienteId?: string | null; pacote: string; festaId: string | null; parcela: number; vencimento: string; valorCentavos: number; recebidoCentavos: number; saldoCentavos: number; forma: string; status: string; diasAtraso: number };
@@ -66,6 +67,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
   const [filtro, setFiltro] = useState('Todos');
   const [busca, setBusca] = useState('');
   const [periodo, setPeriodo] = useState('mes');
+  const [pixParcela, setPixParcela] = useState<string | null>(null);
   const [pagoMes, setPagoMes] = useState(0);
   const acaoRef = useRef<AcaoFinanceira>(acaoInicial());
   const [acao, setAcao] = useState<AcaoFinanceira>(acaoInicial);
@@ -199,6 +201,8 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
         celulas: [item.clienteId ? <Link href={`/clientes/${item.clienteId}`} onClick={(evento) => evento.stopPropagation()}>{item.cliente}</Link> : item.cliente, item.pacote, item.vencimento, reaisDe(item.valorCentavos), reaisDe(item.saldoCentavos), item.status],
         status: item.status,
         acao: item.origem !== 'ENTRADA_MANUAL' && item.saldoCentavos > 0 && item.status !== 'Cancelado' ? () => abrirDialogo('receber', item) : undefined,
+        // 066: Pix copia e cola / QR com a chave da própria empresa, no valor do saldo.
+        pix: item.origem !== 'ENTRADA_MANUAL' && item.saldoCentavos > 0 && !['Cancelado', 'Reembolsado', 'Pago'].includes(item.status) ? () => setPixParcela(item.id) : undefined,
       }))} />
     </>}
     {tela === 'pagar' && <>
@@ -277,6 +281,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       <label><input name="recorrente" type="checkbox" /> Recorrente mensal — gera 12 vencimentos</label>
       <Campo nome="observacao" rotulo="Observação" />
     </Dialogo>}
+    {pixParcela && <PixParcela parcelaId={pixParcela} aoFechar={() => setPixParcela(null)} />}
   </main>;
 }
 
@@ -300,15 +305,15 @@ function Filtros({ opcoes, valor, aoMudar }: { opcoes: string[]; valor: string; 
 function Lista({ titulo, vazio, itens }: { titulo: string; vazio: string; itens: Array<{ id: string; titulo: string; detalhe: string; valor: number }> }) {
   return <section className={styles.cartao}><h2>{titulo}</h2>{itens.length === 0 && <p className={styles.vazio}>{vazio}</p>}{itens.map((item) => <div className={styles.linha} key={item.id}><div><p>{item.titulo}</p><small>{item.detalhe}</small></div><strong>{reaisDe(item.valor)}</strong></div>)}</section>;
 }
-function Tabela({ colunas, linhas }: { colunas: string[]; linhas: Array<{ id: string; celulas: ReactNode[]; status: string; acao?: () => void }> }) {
+function Tabela({ colunas, linhas }: { colunas: string[]; linhas: Array<{ id: string; celulas: ReactNode[]; status: string; acao?: () => void; pix?: () => void }> }) {
   return <>
     <div className={styles.painel}>
       <table className={styles.tabela}>
         <thead><tr>{colunas.filter(Boolean).map((coluna) => <th key={coluna}>{coluna}</th>)}<th><span className={styles.srOnly}>Ações</span></th></tr></thead>
-        <tbody>{linhas.map((linha) => <tr key={linha.id} onClick={linha.acao}>{linha.celulas.map((celula, indice) => <td key={indice} className={indice === linha.celulas.length - 1 && ["Vencido", "Pago", "Reembolsado", "A receber", "Parcialmente pago", "A pagar", "Cancelado"].includes(linha.status) ? classe(linha.status) : undefined}>{celula}</td>)}<td>{linha.acao ? <button className={styles.acao} type="button" aria-label="Registrar" onClick={(evento) => { evento.stopPropagation(); linha.acao?.(); }}>Registrar</button> : null}</td></tr>)}</tbody>
+        <tbody>{linhas.map((linha) => <tr key={linha.id} onClick={linha.acao}>{linha.celulas.map((celula, indice) => <td key={indice} className={indice === linha.celulas.length - 1 && ["Vencido", "Pago", "Reembolsado", "A receber", "Parcialmente pago", "A pagar", "Cancelado"].includes(linha.status) ? classe(linha.status) : undefined}>{celula}</td>)}<td>{linha.pix ? <button className={styles.acao} type="button" aria-label="Pix da parcela" onClick={(evento) => { evento.stopPropagation(); linha.pix?.(); }}>Pix</button> : null}{linha.acao ? <button className={styles.acao} type="button" aria-label="Registrar" onClick={(evento) => { evento.stopPropagation(); linha.acao?.(); }}>Registrar</button> : null}</td></tr>)}</tbody>
       </table>
     </div>
-    <div className={styles.cards}>{linhas.map((linha) => <article className={styles.card} key={linha.id}><p>{linha.celulas[0]}</p><p>{linha.celulas[1]}</p><p className={classe(linha.status)}>{linha.status}</p>{linha.acao ? <button className={styles.acao} type="button" onClick={linha.acao}>Registrar</button> : null}</article>)}</div>
+    <div className={styles.cards}>{linhas.map((linha) => <article className={styles.card} key={linha.id}><p>{linha.celulas[0]}</p><p>{linha.celulas[1]}</p><p className={classe(linha.status)}>{linha.status}</p>{linha.pix ? <button className={styles.acao} type="button" onClick={linha.pix}>Pix</button> : null}{linha.acao ? <button className={styles.acao} type="button" onClick={linha.acao}>Registrar</button> : null}</article>)}</div>
   </>;
 }
 function intervalo(periodo: string) {
