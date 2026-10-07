@@ -13,13 +13,13 @@ de autorização de Felipe, etapa por etapa (docs/OPERACAO_AGENTES.md).
 | 4 | #117 E4 paywall, tela Assinatura, exportação | #116 | — | #116 |
 | 5 | #118 E5 painel comercial | #117 | — | #117 |
 | 6 | #119 E6/E7 cadastro público e início guiado | #118 | 069 | #118 |
-| 7 | PR da cobrança Asaas (sandbox) — ver lista de PRs | #117 | — (usa 068) | #117 |
+| 7 | #120 E8 cobrança Asaas (só sandbox) | #117 | — (usa 068) | #117 |
 | 8 | esta PR (documentação operacional) | `staging` | — | — |
 
 PRs empilhadas: o CI do GitHub roda só em PRs para `staging`/`main`; as evidências delas são os gates locais no SHA
 exato (descritos em cada PR). Ao fazer merge de uma base, mudar a base da seguinte para `staging` e o CI roda.
 
-Ordem de merge sugerida: #115 → #110 → #116 → #117 → #118 → #119 → cobrança. Depois de cada merge em `staging`,
+Ordem de merge sugerida: #115 → #110 → #116 → #117 → #118 → #119 → #120 (a #120 e a #118 são irmãs sobre a #117; a segunda a entrar precisa de rebase). Depois de cada merge em `staging`,
 aguardar CI verde no SHA de `staging`.
 
 ## Migrations por ambiente
@@ -59,7 +59,7 @@ o cadastro responde indisponível.
 5. E-mail: roteiro do `EMAIL_TRANSACIONAL_D1_20261007.md` com endereços `@resend.dev`.
 6. Cadastro: `CADASTRO_PUBLICO_ATIVO=true` em staging; conta sintética `+teste`, CNPJ fictício com DV válido; CNPJ
    repetido; e-mail repetido; início guiado; celular.
-7. Cobrança sandbox (PR de cobrança): checkout, webhook do sandbox, pagamento simulado, atraso, cancelamento.
+7. Cobrança sandbox (#120, com chave e webhook do sandbox criados por Felipe): checkout, webhook do sandbox, pagamento simulado, atraso, cancelamento.
 8. Kidmais real em staging: continua sem cobrança, nada muda; importação/IA da Kidmais como antes.
 9. Desfazer o que for sintético (suspender empresas sintéticas; nunca apagar).
 
