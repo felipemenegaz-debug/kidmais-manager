@@ -5,6 +5,7 @@ import workspace from '@/components/admin/workspace.module.css';
 import { fonteAdmin } from '@/components/admin/fonte';
 import tokens from '@/components/admin/tokens.module.css';
 import { duracaoTesteDias, precoDoCiclo } from '@/lib/assinatura/configuracao';
+import { dias } from '@/lib/assinatura/texto';
 import { situacaoCadastro } from '@/lib/cadastro/publico';
 
 export const metadata: Metadata = { title: 'Planos — Kidmais Manager', description: 'Gestão de buffet infantil: clientes, contratos, festas, agenda e financeiro.' };
@@ -41,7 +42,7 @@ export default function Planos() {
                         {mensal ? `${reais(mensal)}/mês` : 'Preço a definir'}
                     </p>
                     {anual && <p className={workspace.muted}>ou {reais(anual)}/ano</p>}
-                    <p>{testeDias ? `${testeDias} dias grátis` : 'Teste grátis'}, sem cartão e sem cobrança automática.</p>
+                    <p>{testeDias ? `${dias(testeDias)} grátis` : 'Teste grátis'}, sem cartão e sem cobrança automática.</p>
                     {aberto ? <Link href="/cadastro" style={{ display: 'inline-block', marginTop: 8, fontWeight: 800 }}>Começar o teste grátis</Link>
                         : <p className={workspace.muted}>O cadastro on-line abre em breve. Fale com a Kidmais para começar.</p>}
                 </section>
