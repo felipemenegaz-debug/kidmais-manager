@@ -59,7 +59,16 @@ test('exceção comercial vigente libera; revogada, vencida ou extensão de test
 test('dados inconsistentes falham fechado; escrita só no completo, leitura fora do bloqueado', () => {
     assert.equal(nivel(base({ testeFim: 'invalida' }), 0).nivel, 'BLOQUEADO');
     assert.equal(nivel(base({ situacao: 'ATIVA', periodoAtualFim: null }), 0).nivel, 'BLOQUEADO');
+    assert.equal(nivel(base({ situacao: 'EM_ATRASO', periodoAtualFim: em(0), emAtrasoDesde: null }), 0).nivel, 'BLOQUEADO', 'atraso sem data não vira regularização eterna');
+    assert.equal(nivel(base({ situacao: 'CANCELADA_FIM_PERIODO', periodoAtualFim: null }), 0).nivel, 'BLOQUEADO');
+    assert.equal(nivel(base({ situacao: 'ENCERRADA', encerradaEm: null }), 0).nivel, 'BLOQUEADO');
     assert.deepEqual([permiteEscrita(nivel(base({}), 0)), permiteLeitura(nivel(base({}), 0))], [true, true]);
     assert.deepEqual([permiteEscrita(nivel(base({}), 31)), permiteLeitura(nivel(base({}), 31))], [false, true]);
     assert.deepEqual([permiteEscrita(nivel(base({}), 91)), permiteLeitura(nivel(base({}), 91))], [false, false]);
+});
+
+test('exceção curta durante teste mais longo: o acesso completo vale até o maior prazo', () => {
+    const teste = base({ testeFim: em(20) });
+    assert.deepEqual(calcularAcessoComercial(teste, [{ tipo: 'CORTESIA', validaAte: em(5), revogadaEm: null }], T0), { nivel: 'COMPLETO', motivo: 'TESTE', ate: em(20) });
+    assert.deepEqual(calcularAcessoComercial(teste, [{ tipo: 'CORTESIA', validaAte: em(40), revogadaEm: null }], T0), { nivel: 'COMPLETO', motivo: 'EXCECAO_COMERCIAL', ate: em(40) });
 });
