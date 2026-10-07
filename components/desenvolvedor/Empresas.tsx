@@ -6,10 +6,12 @@ import admin from '@/components/admin/admin.module.css';
 import workspace from '@/components/admin/workspace.module.css';
 import estilos from './desenvolvedor.module.css';
 import { chamar, formatarData } from './cliente';
+import { rotuloComercial, type Comercial } from './ComercialEmpresa';
 
 type Item = {
     id: string; codigo: string; nome: string; situacao: string; situacaoRotulo: string; criadoEm: string; implantacaoRotulo: string | null;
     responsavelNome: string | null; email: string | null; membrosAtivos: number; convitesPendentes: number; temCadastro: boolean;
+    comercial: Pick<Comercial, 'instalado' | 'cobrado' | 'situacao' | 'nivel' | 'ate'>;
 };
 type Lista = { itens: Item[]; total: number; pagina: number; porPagina: number };
 const FILTROS = [
@@ -60,10 +62,11 @@ export default function Empresas() {
         {carregando && !lista && <p className={workspace.muted} aria-live="polite">Carregando…</p>}
         {lista && lista.itens.length === 0 && <div className={estilos.vazio}>{buscaAplicada ? 'Nenhuma empresa encontrada para esta busca.' : 'Nenhuma empresa nesta situação.'}</div>}
         {lista && lista.itens.length > 0 && <div className={admin.tableWrap} aria-busy={carregando}><table>
-            <thead><tr><th>Empresa</th><th>Situação</th><th>Responsável</th><th>Acessos</th><th>Desde</th></tr></thead>
+            <thead><tr><th>Empresa</th><th>Situação</th><th>Comercial</th><th>Responsável</th><th>Acessos</th><th>Desde</th></tr></thead>
             <tbody>{lista.itens.map((e) => <tr key={e.id}>
                 <td><Link href={`/desenvolvedor/empresas/${e.id}`}>{e.nome}</Link><small className={workspace.muted}>{e.codigo}{!e.temCadastro ? ' · sem cadastro administrativo' : ''}</small></td>
                 <td><span className={estilos.selo} data-tom={tomSituacao(e.situacao)}>{e.situacaoRotulo}</span>{e.implantacaoRotulo && e.situacao === 'EM_IMPLANTACAO' && <small className={workspace.muted}>{e.implantacaoRotulo}</small>}</td>
+                <td>{rotuloComercial(e.comercial)}{e.comercial.ate && <small className={workspace.muted}>até {formatarData(e.comercial.ate, false)}</small>}</td>
                 <td>{e.responsavelNome ?? '—'}{e.email && <small className={workspace.muted}>{e.email}</small>}</td>
                 <td>{e.membrosAtivos} ativo(s){e.convitesPendentes > 0 && <small className={workspace.muted}>{e.convitesPendentes} convite(s) pendente(s)</small>}</td>
                 <td>{formatarData(e.criadoEm, false)}</td>

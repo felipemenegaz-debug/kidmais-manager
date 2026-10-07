@@ -25,7 +25,7 @@ async function processar(request:NextRequest,write:boolean){try{
  if(error instanceof ZodError||error instanceof SyntaxError)return json({ok:false,erro:'Dados inválidos. Confira os campos.'},400);
  if(error instanceof FestaError)return json({ok:false,erro:error.message},error.status);
  const e=error as {httpStatus?:number;message?:string;code?:string};
- if(e.httpStatus)return json({ok:false,erro:e.message},e.httpStatus);
+ if(e.httpStatus)return json({ok:false,erro:e.message,...(e.code?{codigo:e.code}:{})},e.httpStatus);
  if(['23505','40001','40P01'].includes(e.code??''))return json({ok:false,erro:'Outra operação alterou este registro. Atualize e tente novamente.'},409);
  if(['23514','23503'].includes(e.code??''))return json({ok:false,erro:'Operação recusada pelas proteções de integridade.'},409);
  console.error('[Festa]',e.code??'erro');return json({ok:false,erro:'Não foi possível concluir a operação.'},500);

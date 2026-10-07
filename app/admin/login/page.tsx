@@ -41,5 +41,5 @@ export default function LoginAdmin() {
  <label htmlFor="senha-login">Senha</label><div style={{ display: 'flex', gap: 8, marginBottom: 16 }}><input id="senha-login" name="senha" type={mostrarSenha ? 'text' : 'password'} autoComplete="current-password" required style={{ flex: 1, minWidth: 0, padding: 10 }}/><button type="button" aria-controls="senha-login" aria-pressed={mostrarSenha} aria-label={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setMostrarSenha(!mostrarSenha)} style={{ padding: '6px 10px', fontSize: 12 }}>{mostrarSenha ? 'Ocultar' : 'Mostrar'}</button></div>
  <button disabled={busy} type="submit">{busy ? 'Entrando…' : 'Entrar'}</button><p role="alert">{error}</p></form>
  <p><a href="/acesso/recuperar">Esqueci minha senha</a></p>
- <p>Contas são criadas pelo operador autorizado ou por convite. Não há cadastro público.</p></main>;
+ <p>Novo por aqui? <a href="/planos">Conheça o plano e crie a conta da sua empresa</a>. Pessoas da equipe entram por convite.</p></main>;
 }

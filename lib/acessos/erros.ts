@@ -19,7 +19,12 @@ export type AcessoErroCodigo =
     | 'ULTIMA_ADMINISTRADORA'
     | 'IMPLANTACAO_PENDENTE'
     | 'PAINEL_INDISPONIVEL'
-    | 'CRIACAO_DIRETA_DESATIVADA';
+    | 'CRIACAO_DIRETA_DESATIVADA'
+    | 'TESTE_JA_UTILIZADO'
+    | 'ASSINATURA_NECESSARIA'
+    | 'COBRANCA_NAO_CONFIGURADA'
+    | 'COBRANCA_FALHOU'
+    | 'CADASTRO_INDISPONIVEL';
 
 export class AcessoServiceError extends Error {
     readonly code: AcessoErroCodigo;
