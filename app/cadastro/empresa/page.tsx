@@ -47,6 +47,17 @@ export default function CadastroEmpresa() {
         return { status: r.status, corpo: await r.json().catch(() => null) as { ok?: boolean; data?: { empresaId?: string; csrf?: string }; erro?: string; codigo?: string } | null };
     }
     async function enviar() {
+        // Queda de conexão não pode deixar o botão preso em "Cadastrando…": a mesma chave reenviada devolve a mesma
+        // empresa (e o servidor também retoma pelo CNPJ de quem já a criou).
+        try {
+            await enviarDados();
+        }
+        catch {
+            setOcupado(false);
+            setErro('A conexão falhou antes da resposta. Tente de novo: se a empresa já tiver sido criada, você continua nela.');
+        }
+    }
+    async function enviarDados() {
         setOcupado(true);
         setErro('');
         setAviso('');

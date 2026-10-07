@@ -257,6 +257,18 @@ export async function cadastrarEmpresa(sessao: SessaoAdmin, raw: unknown, ctx: C
                    FROM cadastros_empresas c LEFT JOIN empresa_assinaturas a ON a.empresa_id = c.empresa_id WHERE c.usuario_id = $1::uuid AND c.chave = $2::uuid`, [sessao.usuario_id, d.chave])).rows[0];
             if (repetido)
                 return { situacao: 'CRIADA' as const, empresaId: repetido.empresa_id, testeFim: repetido.teste_fim, repetido: true };
+            // Retomada com chave nova (resposta perdida e página recarregada): a própria pessoa já criou esta empresa pelo
+            // cadastro e mantém a Gestão ativa → devolve a mesma empresa, sem pedido de acesso a si mesma. Sem vínculo
+            // ativo, segue a resposta neutra abaixo.
+            const propria = (await tx.query<{ empresa_id: string; teste_fim: string }>(
+                `SELECT c.empresa_id::text, to_char(a.teste_fim AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS teste_fim
+                   FROM cadastros_empresas c
+                   JOIN memberships m ON m.empresa_id = c.empresa_id AND m.usuario_id = c.usuario_id AND m.status = 'ATIVA' AND m.papel = 'REPRESENTANTE_AUTORIZADO'
+                   JOIN empresas e ON e.id = c.empresa_id AND e.status = 'ATIVA'
+                   LEFT JOIN empresa_assinaturas a ON a.empresa_id = c.empresa_id
+                  WHERE c.usuario_id = $1::uuid AND c.documento = $2`, [sessao.usuario_id, documento])).rows[0];
+            if (propria)
+                return { situacao: 'CRIADA' as const, empresaId: propria.empresa_id, testeFim: propria.teste_fim, repetido: true };
             if (!await consumirLimite(tx, 'IDENTIFICADOR', sessao.usuario_id, REGRA_EMPRESA))
                 throw erroAcesso('LIMITE_TENTATIVAS', 'Limite diário de cadastros de empresa atingido. Fale com a Kidmais.', 429);
             await tx.query("SELECT pg_advisory_xact_lock(hashtext('kidmais:cnpj:' || $1))", [documento]);
