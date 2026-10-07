@@ -6,6 +6,20 @@ import { useReautenticacao } from './Reautenticacao';
 
 type Pendencia = { id: string; tipo: 'INTENCAO_CRIACAO' | 'RECONCILIACAO'; situacao: string; motivo: string | null; temAssinatura: boolean; recebidoEm: string; tentativas: number; liberavel: boolean };
 const CONFIRMACAO = 'CONFERI_NO_PROVEDOR_QUE_NAO_FOI_CRIADA';
+const MOTIVO: Record<string, string> = {
+    CRIACAO_EM_CURSO: 'criação iniciada, sem confirmação',
+    CRIACAO_SEM_RESPOSTA: 'o provedor não respondeu à criação',
+    CRIACAO_CONFIRMADA_SEM_VINCULO: 'assinatura confirmada, aguardando vínculo',
+    COMMIT_INCERTO: 'gravação do vínculo não confirmada',
+    VINCULO_DUVIDOSO: 'vínculo não pôde ser conferido',
+    COMPENSACAO_FALHOU: 'remoção de duplicata falhou',
+    ASSINATURAS_AMBIGUAS: 'várias assinaturas no provedor',
+};
+const textoMotivo = (m: string | null, situacao: string) => {
+    if (!m) return situacao;
+    const [codigo, ...resto] = m.split(': ');
+    return MOTIVO[codigo] ? [MOTIVO[codigo], ...resto].join(': ') : m;
+};
 const quando = (iso: string) => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 
 /**
@@ -39,7 +53,7 @@ export default function PendenciasCobranca({ empresaId }: { empresaId: string })
         {lista && lista.length > 0 && <ul>
             {lista.map((p) => <li key={p.id}>
                 <strong>{p.tipo === 'INTENCAO_CRIACAO' ? 'Criação de assinatura não confirmada' : 'Reconciliação da contratação'}</strong>
-                {' '}— {p.motivo ?? p.situacao} · desde {quando(p.recebidoEm)}{p.tentativas ? ` · ${p.tentativas} tentativa(s)` : ''}
+                {' '}— {textoMotivo(p.motivo, p.situacao)} · desde {quando(p.recebidoEm)}{p.tentativas ? ` · ${p.tentativas} tentativa(s)` : ''}
                 {p.liberavel && aberta !== p.id && <div>
                     <button type="button" onClick={() => { setAberta(p.id); setMotivo(''); setConferi(false); setMensagem(''); }}>Liberar (não foi criada)</button>
                 </div>}
