@@ -10,15 +10,24 @@ import { estruturaCadastroInstalada } from '../perfil/cadastro-service.ts';
  *   - PERFIL_CRIADO: o Perfil da empresa (026/027) existe e está associado a esta empresa (criado pela Gestão em
  *     Configurações → Perfil da empresa; lib/perfil/criacao.ts);
  *   - PERFIL_APLICADO: o cadastro do perfil foi aplicado ao menos uma vez (nome, CNPJ, endereço e contato).
- * Informativa (não bloqueia): CONVITE_RESPONSAVEL — convites pendentes vencidos ou nunca enviados.
+ * Informativas (não bloqueiam, viram alertas acionáveis no resumo — lib/desenvolvedor/alertas.ts):
+ *   - CONVITE_RESPONSAVEL: convites pendentes vencidos ou nunca enviados;
+ *   - RESPONSAVEL_COM_ACESSO: o e-mail do responsável no cadastro administrativo tem Gestão ativa (ou convite válido
+ *     já enviado) nesta empresa. Ser responsável no cadastro NÃO concede acesso; o acesso só nasce do aceite;
+ *   - GESTAO_SEM_ACESSO: pessoas com papel Gestão cujo vínculo está desativado (SUSPENSA) ou cuja conta está inativa.
  * Onde a estrutura do perfil não está instalada, os itens de perfil deixam de ser obrigatórios (não há como atendê-los).
  * Nenhum dado operacional (clientes, contratos, documentos, pagamentos) entra aqui.
  */
-export type CodigoPendencia = 'GESTAO_ATIVA' | 'CONVITE_RESPONSAVEL' | 'PERFIL_CRIADO' | 'PERFIL_APLICADO';
-export type AcaoPendencia = 'CONVITES' | 'PERFIL' | 'PLATAFORMA' | null;
+export type CodigoPendencia = 'GESTAO_ATIVA' | 'RESPONSAVEL_COM_ACESSO' | 'GESTAO_SEM_ACESSO' | 'CONVITE_RESPONSAVEL' | 'PERFIL_CRIADO' | 'PERFIL_APLICADO';
+export type AcaoPendencia = 'CONVITES' | 'VINCULOS' | 'CADASTRO' | 'PERFIL' | 'PLATAFORMA' | null;
+/** Situação do e-mail do responsável do cadastro administrativo nesta empresa (null quando não há cadastro). */
+export type SituacaoResponsavel = 'GESTAO_ATIVA' | 'CONVITE_ENVIADO' | 'CONVITE_NAO_ENVIADO' | 'SEM_ACESSO';
 export type Pendencia = { codigo: CodigoPendencia; titulo: string; atendida: boolean; obrigatoria: boolean; detalhe: string; acao: AcaoPendencia };
 export type DadosImplantacao = {
     gestoesAtivas: number;
+    /** Gestão com vínculo SUSPENSA ou conta inativa (REVOGADA é remoção definitiva e não conta). */
+    gestoesSemAcesso: number;
+    responsavel: SituacaoResponsavel | null;
     convites: { pendentes: number; expirados: number; naoEnviados: number };
     perfil: { estruturaInstalada: boolean; existe: boolean; ambiguo: boolean; versao: number };
 };
@@ -31,6 +40,23 @@ export function classificarPendencias(d: DadosImplantacao): Implantacao {
         codigo: 'GESTAO_ATIVA', titulo: 'Responsável com acesso de Gestão', obrigatoria: true, atendida: gestao,
         detalhe: gestao ? `${d.gestoesAtivas} pessoa(s) com Gestão ativa nesta empresa.` : 'Ninguém com papel Gestão e vínculo ativo. O acesso nasce quando o responsável aceita o convite.',
         acao: gestao ? null : 'CONVITES',
+    });
+    if (d.responsavel !== null) {
+        const r = d.responsavel;
+        itens.push({
+            codigo: 'RESPONSAVEL_COM_ACESSO', titulo: 'Responsável do cadastro com acesso', obrigatoria: false, atendida: r === 'GESTAO_ATIVA',
+            detalhe: r === 'GESTAO_ATIVA' ? 'O e-mail do responsável tem Gestão ativa nesta empresa.'
+                : r === 'CONVITE_ENVIADO' ? 'Convite enviado ao e-mail do responsável, aguardando aceite.'
+                    : r === 'CONVITE_NAO_ENVIADO' ? 'Há convite para o e-mail do responsável, mas ele nunca foi enviado.'
+                        : 'O e-mail do responsável não tem Gestão ativa nem convite válido nesta empresa. Convide-o ou corrija o cadastro.',
+            acao: r === 'GESTAO_ATIVA' || r === 'CONVITE_ENVIADO' ? null : 'CONVITES',
+        });
+    }
+    itens.push({
+        codigo: 'GESTAO_SEM_ACESSO', titulo: 'Gestão sem acesso', obrigatoria: false, atendida: d.gestoesSemAcesso === 0,
+        detalhe: d.gestoesSemAcesso === 0 ? 'Nenhuma pessoa com Gestão está com vínculo desativado ou conta inativa.'
+            : `${d.gestoesSemAcesso} pessoa(s) com Gestão estão com vínculo desativado ou conta inativa. Reative ou remova o papel.`,
+        acao: d.gestoesSemAcesso === 0 ? null : 'VINCULOS',
     });
     const problemas = d.convites.expirados + d.convites.naoEnviados;
     itens.push({
@@ -62,10 +88,29 @@ export function classificarPendencias(d: DadosImplantacao): Implantacao {
     return { itens, podeConcluir: pendentesObrigatorias.length === 0, pendentesObrigatorias };
 }
 
+/**
+ * Situação do e-mail do responsável (plataforma_empresas_cadastro.email) por empresa, comparando com o e-mail normalizado
+ * da conta (lower(btrim)) e dos convites. Reaproveitada pelos alertas (uma linha por cadastro, sem dados de negócio).
+ */
+export const SQL_SITUACAO_RESPONSAVEL = `SELECT c.empresa_id::text AS empresa_id,
+    CASE WHEN EXISTS (SELECT 1 FROM memberships m JOIN usuarios_administrativos u ON u.id = m.usuario_id
+                       WHERE m.empresa_id = c.empresa_id AND m.status = 'ATIVA' AND m.papel = 'REPRESENTANTE_AUTORIZADO' AND u.ativo
+                         AND lower(btrim(u.email)) = c.email) THEN 'GESTAO_ATIVA'
+         WHEN EXISTS (SELECT 1 FROM convites_acesso v WHERE v.empresa_id = c.empresa_id AND v.status = 'PENDENTE'
+                         AND v.expira_em > clock_timestamp() AND v.email = c.email AND v.envios > 0) THEN 'CONVITE_ENVIADO'
+         WHEN EXISTS (SELECT 1 FROM convites_acesso v WHERE v.empresa_id = c.empresa_id AND v.status = 'PENDENTE'
+                         AND v.expira_em > clock_timestamp() AND v.email = c.email) THEN 'CONVITE_NAO_ENVIADO'
+         ELSE 'SEM_ACESSO' END AS situacao
+  FROM plataforma_empresas_cadastro c`;
+
 export async function lerDadosImplantacao(tx: DbExecutor, empresaId: string): Promise<DadosImplantacao> {
     const gestoes = (await tx.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM memberships m JOIN usuarios_administrativos u ON u.id = m.usuario_id
           WHERE m.empresa_id = $1::uuid AND m.status = 'ATIVA' AND m.papel = 'REPRESENTANTE_AUTORIZADO' AND u.ativo`, [empresaId])).rows[0]?.n ?? 0;
+    const semAcesso = (await tx.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM memberships m JOIN usuarios_administrativos u ON u.id = m.usuario_id
+          WHERE m.empresa_id = $1::uuid AND m.papel = 'REPRESENTANTE_AUTORIZADO' AND (m.status = 'SUSPENSA' OR (m.status = 'ATIVA' AND NOT u.ativo))`, [empresaId])).rows[0]?.n ?? 0;
+    const responsavel = (await tx.query<{ situacao: SituacaoResponsavel }>(`${SQL_SITUACAO_RESPONSAVEL} WHERE c.empresa_id = $1::uuid`, [empresaId])).rows[0]?.situacao ?? null;
     const convites = (await tx.query<{ pendentes: number; expirados: number; nao_enviados: number }>(
         `SELECT count(*) FILTER (WHERE status = 'PENDENTE' AND expira_em > clock_timestamp())::int AS pendentes,
                 count(*) FILTER (WHERE status = 'PENDENTE' AND expira_em <= clock_timestamp())::int AS expirados,
@@ -79,7 +124,7 @@ export async function lerDadosImplantacao(tx: DbExecutor, empresaId: string): Pr
             [empresaId])).rows;
         perfil = { estruturaInstalada, existe: perfis.length >= 1, ambiguo: perfis.length > 1, versao: perfis.length === 1 ? Number(perfis[0].versao) : 0 };
     }
-    return { gestoesAtivas: gestoes, convites: { pendentes: convites.pendentes, expirados: convites.expirados, naoEnviados: convites.nao_enviados }, perfil };
+    return { gestoesAtivas: gestoes, gestoesSemAcesso: semAcesso, responsavel, convites: { pendentes: convites.pendentes, expirados: convites.expirados, naoEnviados: convites.nao_enviados }, perfil };
 }
 
 export async function pendenciasImplantacao(tx: DbExecutor, empresaId: string): Promise<Implantacao> {

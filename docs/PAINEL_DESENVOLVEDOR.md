@@ -31,9 +31,13 @@ Guarda única `exigirDesenvolvedor` (sessão válida + concessão ativa + identi
 | `/admin/perfil` | Troca da própria senha (todo usuário autenticado). |
 | `/acesso/convite`, `/acesso/recuperar`, `/acesso/redefinir` | Públicas: aceitar convite, pedir recuperação (resposta neutra), definir nova senha. |
 
+## Checklist de implantação e alertas (07/10/2026)
+
+Ver [PAINEL_ALERTAS_IMPLANTACAO_20261007.md](PAINEL_ALERTAS_IMPLANTACAO_20261007.md).
+
 ## Modelo de dados — migration 063 (com rollback, pre/postcheck e inventário)
 
-1. `plataforma_desenvolvedores(usuario_id PK, concedido_em, concedido_por, motivo, revogado_em, revogado_por)` — sem DELETE.
+1. `plataforma_desenvolvedores(id PK, usuario_id, concedido_em, concedido_por, motivo, revogado_em, revogado_por, motivo_revogacao)` — no máximo uma concessão ativa por usuário (índice parcial `kidmais_063_dev_ativo_uk`); sem DELETE; nova concessão = nova linha. Concessão e revogação só por `node scripts/admin-provision.cjs desenvolvedor` (auditadas, `origem = CLI_PROVISIONAMENTO`).
 2. `plataforma_interessadas(id, nome, nome_empresarial, documento_fiscal (só dígitos, CPF/CNPJ), responsavel_nome, email, telefone, status NOVA|EM_CONTATO|PROPOSTA|CONVERTIDA|DESCARTADA, observacoes, empresa_id, criado_por, criado_em, atualizado_em, revisao)` — únicos parciais por documento e por e-mail entre as não descartadas; conversão só por provisionamento.
 3. `plataforma_empresas_cadastro(empresa_id PK, nome_empresarial, documento_fiscal, responsavel_nome, email, telefone, observacoes, interessada_id, implantacao AGUARDANDO_PRIMEIRO_ACESSO|EM_CONFIGURACAO|CONCLUIDA, ...)` — dados comerciais fora de `empresas` (cujo guard fica intacto, exceto o item 6).
 4. `convites_acesso(id, empresa_id, email, papel, token_hash UNIQUE, status PENDENTE|ACEITO|CANCELADO, expira_em, envios, ultimo_envio_em, criado_por, aceito_em, aceito_usuario_id, cancelado_em, cancelado_por)` — um pendente por (empresa, e-mail); "expirado" é derivado de `expira_em`.
