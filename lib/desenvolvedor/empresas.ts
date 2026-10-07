@@ -14,6 +14,7 @@ import { auditarPainel, diferencas, type ContextoPainel } from './auditoria.ts';
 import { buscarSemelhantes, painelDepsPadrao, type PainelDeps } from './interessadas.ts';
 import { pendenciasImplantacao } from './implantacao.ts';
 import { comercialDaEmpresa, comercialResumo } from './comercial.ts';
+import { representacaoDaEmpresa } from './representacao.ts';
 
 /**
  * Contratantes: empresas provisionadas (tabela `empresas`, ciclo no guard) + cadastro administrativo (063).
@@ -160,6 +161,7 @@ export async function obterEmpresa(sessao: SessaoAdmin, id: string, deps: Painel
             implantacao: l.status === 'ATIVA' && l.cad_empresa ? await pendenciasImplantacao(tx, uuid) : null,
             envioEmail: { configurado: email.configurado, motivo: email.motivo },
             comercial: await comercialDaEmpresa(tx, uuid),
+            representacao: await representacaoDaEmpresa(tx, uuid),
         };
     });
 }
