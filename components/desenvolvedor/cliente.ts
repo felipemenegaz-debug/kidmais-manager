@@ -107,6 +107,7 @@ const ACOES: Record<string, string> = {
     SENHA_TROCA_RECUSADA: 'Troca de senha recusada',
     PAINEL_ACESSO_RECUSADO: 'Acesso ao painel recusado',
     FESTA_PERFIL_APLICADO: 'Perfil de Festa aplicado',
+    COBRANCA_SINCRONIZADA: 'Cobrança sincronizada com o provedor',
 };
 export function rotuloAcao(acao: string) {
     return ACOES[acao] ?? acao.toLowerCase().replace(/_/g, ' ');
