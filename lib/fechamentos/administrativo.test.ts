@@ -64,6 +64,10 @@ function ambiente() {
             return { rows: params[0] === hash(token) && !s.revogada && s.ativo && !s.expirada && !s.ociosa && !s.senhaAlterada ? [s] : [] };
         }
         if (sql.startsWith('UPDATE sessoes_administrativas') || /^SELECT id FROM (clientes|aniversariantes|responsaveis_adicionais) WHERE/.test(sql)) return { rows: [] };
+        // E4 (paywall na guarda): empresa efetiva da sessão, relógio e 067 ausente = sem cobrança, como hoje.
+        if (sql.includes('FROM memberships m JOIN empresas e ON e.id = m.empresa_id') && sql.includes('LIMIT 2')) return { rows: state.tenantRecusado ? [] : [{ id: state.tenant }] };
+        if (sql.includes('to_char(clock_timestamp() AT TIME ZONE')) return { rows: [{ agora: '2026-10-07T12:00:00.000Z' }] };
+        if (sql.includes("to_regclass('public.empresa_assinaturas')")) return { rows: [{ ok: false }] };
         if (sql.includes('FROM pacotes') && sql.includes('WHERE empresa_id = $1::uuid')) {
             // Mesmos predicados do SELECT real: empresa comprovada, código, vigente, ativo e não arquivado.
             for (const predicate of ['codigo = $2', 'AND vigente', 'AND ativo', 'arquivado_em IS NULL']) assert(sql.includes(predicate));

@@ -57,6 +57,8 @@ const ESTADO_POSTGRES = {
   "lib/financeiro/baixa.postgres.test.ts": { descartavel: "atual" },
   "lib/financeiro/financeiro.postgres.test.ts": { descartavel: "atual" },
   "lib/pagamentos/pix/pix.postgres.test.ts": { descartavel: "atual" },
+  "lib/assinatura/assinatura.postgres.test.ts": { descartavel: "atual" },
+  "lib/assinatura/cobranca-068.postgres.test.ts": { descartavel: "atual" },
   // Também depois da 061 e da 062: módulo Festa, formalização e agenda nativos (código novo em cada etapa).
   "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "063"] },
   "lib/ia-persistencia/migration-055.postgres.test.ts": { descartavel: "atual" },
@@ -77,6 +79,10 @@ const ESTADO_POSTGRES = {
   "lib/saas/hg8-tenant.postgres.test.ts": { descartavel: "atual", tambem: ["063"] },
   // Painel do desenvolvedor (063): concessão, interessadas, provisionamento, convites, vínculos, suspensão, senhas.
   "lib/desenvolvedor/painel-063.postgres.test.ts": { descartavel: "063" },
+  // Painel comercial (E5): 063 + 067 + 068 aplicadas pela própria suíte.
+  "lib/desenvolvedor/comercial.postgres.test.ts": { descartavel: "063" },
+  // Cadastro público (E6): 063 + 067 + 068 + 069 aplicadas pela própria suíte.
+  "lib/cadastro/cadastro-069.postgres.test.ts": { descartavel: "063" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

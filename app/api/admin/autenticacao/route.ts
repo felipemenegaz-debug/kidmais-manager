@@ -8,6 +8,8 @@ import { isClienteServiceError } from '@/lib/clientes/services/errors';
 import { db } from '@/lib/db/postgres';
 import { contextoDaSessao } from '@/lib/autenticacao/contexto';
 import { selecionarEmpresaAtiva } from '@/lib/autenticacao/empresa-ativa';
+import { resumoComercialDaEmpresa } from '@/lib/assinatura/paywall';
+import { situacaoCadastro } from '@/lib/cadastro/publico';
 import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,7 +41,9 @@ export async function GET(request: NextRequest) {
                 throw authError();
             // D7: o menu segue o papel NA EMPRESA selecionada (mesma regra de provarTenant), não o papel global.
             const contexto = await contextoDaSessao(db(), session);
-            return response({ ok: true, data: { sessaoId: session.id, usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf, contexto } });
+            // E4: situação comercial da empresa selecionada, só para a tela (a barreira está na guarda das APIs).
+            const comercial = contexto.empresaAtual ? await resumoComercialDaEmpresa(db(), contexto.empresaAtual.id) : null;
+            return response({ ok: true, data: { sessaoId: session.id, usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf, contexto, comercial, cadastroAberto: situacaoCadastro().ativo } });
         }
         catch (error) {
             if (!isClienteServiceError(error) || error.httpStatus !== 401)
