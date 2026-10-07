@@ -14,7 +14,10 @@ type Resumo = {
     convitesPendentes: { id: string; empresa_id: string; empresa: string; email: string; expira_em: string; expirado: boolean; envios: number }[];
     atividades: { id: string; acao: string; origem: string; criado_em: string; ator: string | null; empresa_id: string | null; empresa: string | null; resultado: string | null }[];
     envioEmail: { configurado: boolean; motivo: string | null };
+    alertas: { itens: Alerta[]; total: number };
 };
+type Alerta = { codigo: string; severidade: 'ALTA' | 'MEDIA' | 'INFO'; empresaId: string | null; empresa: string | null; titulo: string; detalhe: string; desde: string | null; acao: { rotulo: string; href: string } | null };
+const SEVERIDADE: Record<Alerta['severidade'], string> = { ALTA: 'Urgente', MEDIA: 'Atenção', INFO: 'Próximo passo' };
 
 export default function PainelResumo() {
     const [dados, setDados] = useState<Resumo | null>(null);
@@ -40,7 +43,16 @@ export default function PainelResumo() {
         {erro && <p role="alert">{erro}</p>}
         {!dados && !erro && <p className={workspace.muted} aria-live="polite">Carregando resumo…</p>}
         {dados && <>
-            {!dados.envioEmail.configurado && <div className={estilos.alerta} role="status"><strong>Envio de e-mail indisponível.</strong> {dados.envioEmail.motivo} Convites e recuperações ficam registrados como “não enviados”.</div>}
+            <section className={workspace.card} aria-labelledby="t-alertas">
+                <h2 id="t-alertas">O que precisa de ação{dados.alertas.total > 0 ? ` (${dados.alertas.total})` : ''}</h2>
+                {dados.alertas.itens.length === 0 ? <p className={workspace.muted}>Nenhum alerta: convites enviados, responsáveis com acesso e implantações em dia.</p> : <ul className={estilos.lista} aria-label="Alertas acionáveis">
+                    {dados.alertas.itens.map((a, i) => <li key={`${a.codigo}-${a.empresaId ?? 'global'}-${i}`} data-alerta={a.codigo}>
+                        <strong><span className={a.severidade === 'INFO' ? undefined : estilos.textoAlerta}>{SEVERIDADE[a.severidade]}</span> · {a.titulo}{a.empresa ? <> — {a.empresaId ? <Link href={`/desenvolvedor/empresas/${a.empresaId}`}>{a.empresa}</Link> : a.empresa}</> : null}</strong>
+                        <span>{a.detalhe}{a.desde ? ` Desde ${formatarData(a.desde, false)}.` : ''}{a.acao && <> · <Link href={a.acao.href}>{a.acao.rotulo}</Link></>}</span>
+                    </li>)}
+                </ul>}
+                {dados.alertas.total > dados.alertas.itens.length && <p className={workspace.muted}>Mostrando {dados.alertas.itens.length} de {dados.alertas.total}. Os demais aparecem na lista de contratantes.</p>}
+            </section>
             <section className={estilos.metricas} aria-label="Indicadores">
                 <Metrica rotulo="Interessadas em aberto" valor={abertas} href="/desenvolvedor/interessadas" detalhe={`${dados.interessadas.PROPOSTA ?? 0} com proposta`} />
                 <Metrica rotulo="Em implantação" valor={dados.empresas.emImplantacao} href="/desenvolvedor/empresas?situacao=EM_IMPLANTACAO" detalhe={`${dados.empresas.aguardandoPrimeiroAcesso} aguardando primeiro acesso`} />
