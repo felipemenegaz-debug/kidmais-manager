@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { conectarDescartavel, encerrarDescartavel } from "../../comercial/postgres-descartavel.ts";
 import { estruturaFesta019Sql } from "../../festas/estrutura-019.ts";
 import {
-  ambienteAssinatura, assinarComoCliente, carregar, catalogoNativo, catalogoNoTurno, cenario, completarCliente, cpfValido, congelarEAssinarKidmais, ctxIntegracao, decisoes, dia, executor, id, importacao,
+  ambienteAssinatura, assinarComoCliente, cpfValido, carregar, catalogoNativo, catalogoNoTurno, cenario, completarCliente, congelarEAssinarKidmais, ctxIntegracao, decisoes, dia, executor, id, importacao,
   instalar055, instalar061, instalar062, integrar, ler, PARCIAL, poolNaTransacao, validarAgora, type Servico,
 } from "../../../scripts/integracao-importados-test-support.ts";
 
