@@ -43,6 +43,7 @@ o cadastro responde indisponível.
 | Variável | Para | Padrão |
 |---|---|---|
 | `ASSINATURA_TESTE_DIAS` | duração do teste | 15 (padrão proposto) |
+| `ASSINATURA_REGULARIZACAO_DIAS`, `ASSINATURA_SOMENTE_LEITURA_DIAS` | prazos depois de falha de pagamento / do fim do acesso completo (hipóteses) | 7 / 60 (propostos) |
 | `ASSINATURA_PRECO_MENSAL_CENTAVOS`, `ASSINATURA_PRECO_ANUAL_CENTAVOS` | preço por ciclo | ausente = "a definir", sem checkout |
 | `CADASTRO_PUBLICO_ATIVO` | abrir o cadastro | desligado |
 | `USUARIOS_CRIACAO_DIRETA=desativada` | pré-requisito do cadastro (E1) | criação direta ligada |

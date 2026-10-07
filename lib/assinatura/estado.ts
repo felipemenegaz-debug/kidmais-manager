@@ -1,5 +1,6 @@
 import type { DbExecutor } from '../db/contracts';
 import { calcularAcessoComercial, type AcessoComercial, type AssinaturaGravada, type ExcecaoGravada } from './acesso.ts';
+import { prazosDeAcesso } from './configuracao.ts';
 
 /**
  * Estado comercial da empresa COMPROVADA (067), lido na transação do tenant. Sem a 067 instalada, ou sem linha de
@@ -51,5 +52,6 @@ export async function lerEstadoComercial(tx: DbExecutor, empresaId: string, inst
         situacao: a.situacao, ciclo: a.ciclo, testeInicio: a.teste_inicio, testeFim: a.teste_fim, periodoAtualFim: a.periodo_atual_fim,
         emAtrasoDesde: a.em_atraso_desde, encerradaEm: a.encerrada_em, versao: a.versao,
     } : null;
-    return { instalado: true, assinatura, excecoes, agora, acesso: calcularAcessoComercial(assinatura, excecoes, agoraMs) };
+    // Prazos lidos só quando há assinatura: empresa sem cobrança (Kidmais) nunca depende dessa configuração.
+    return { instalado: true, assinatura, excecoes, agora, acesso: calcularAcessoComercial(assinatura, excecoes, agoraMs, assinatura ? prazosDeAcesso() : undefined) };
 }
