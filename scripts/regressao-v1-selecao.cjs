@@ -81,6 +81,8 @@ const ESTADO_POSTGRES = {
   "lib/desenvolvedor/painel-063.postgres.test.ts": { descartavel: "063" },
   // Painel comercial (E5): 063 + 067 + 068 aplicadas pela própria suíte.
   "lib/desenvolvedor/comercial.postgres.test.ts": { descartavel: "063" },
+  // Cadastro público (E6): 063 + 067 + 068 + 069 aplicadas pela própria suíte.
+  "lib/cadastro/cadastro-069.postgres.test.ts": { descartavel: "063" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

@@ -111,6 +111,13 @@ const ACOES: Record<string, string> = {
     COMERCIAL_EXCECAO_CONCEDIDA: 'Acesso comercial excepcional concedido',
     COMERCIAL_EXCECAO_REVOGADA: 'Acesso comercial excepcional revogado',
     EXPORTACAO_DADOS: 'Dados exportados',
+    REPRESENTACAO_APROVADA: 'Representação aprovada',
+    REPRESENTACAO_RECUSADA: 'Representação recusada',
+    REPRESENTACAO_REVOGADA: 'Representação revogada',
+    PEDIDO_ACESSO_ATENDIDA: 'Pedido de acesso atendido',
+    PEDIDO_ACESSO_RECUSADA: 'Pedido de acesso recusado',
+    EMPRESA_CADASTRADA_PUBLICO: 'Empresa cadastrada pelo cadastro público',
+    CADASTRO_CONFIRMADO: 'Conta confirmada pelo e-mail',
 };
 export function rotuloAcao(acao: string) {
     return ACOES[acao] ?? acao.toLowerCase().replace(/_/g, ' ');

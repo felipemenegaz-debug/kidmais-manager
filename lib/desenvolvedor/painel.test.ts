@@ -103,7 +103,7 @@ test('toda página de /desenvolvedor confere a concessão no servidor (cada page
 });
 
 test('todo serviço exportado do painel confere a concessão DENTRO da transação antes de ler ou escrever', () => {
-    for (const f of ['lib/desenvolvedor/interessadas.ts', 'lib/desenvolvedor/empresas.ts', 'lib/desenvolvedor/vinculos.ts', 'lib/desenvolvedor/resumo.ts', 'lib/desenvolvedor/comercial.ts']) {
+    for (const f of ['lib/desenvolvedor/interessadas.ts', 'lib/desenvolvedor/empresas.ts', 'lib/desenvolvedor/vinculos.ts', 'lib/desenvolvedor/resumo.ts', 'lib/desenvolvedor/comercial.ts', 'lib/desenvolvedor/representacao.ts']) {
         const texto = readFileSync(f, 'utf8');
         const funcoes = [...texto.matchAll(/export async function (\w+)\(sessao: SessaoAdmin/g)].map((m) => m[1]);
         assert.ok(funcoes.length > 0, f);

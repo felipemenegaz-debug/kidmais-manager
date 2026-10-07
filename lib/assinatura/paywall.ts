@@ -12,14 +12,15 @@ import { lerEstadoComercial } from './estado.ts';
  *   BLOQUEADO        → tudo recusado com 402, exceto as rotas sempre permitidas.
  * Sempre permitidas (conta, cobrança e recuperação): autenticação (login, sair, reautenticar, trocar de empresa),
  * troca da própria senha, assinatura/cobrança e exportação. O painel do desenvolvedor (/api/desenvolvedor) é autoridade de
- * plataforma, não dado da empresa: a situação comercial da empresa de quem o opera não se aplica a ele.
+ * plataforma, não dado da empresa: a situação comercial da empresa de quem o opera não se aplica a ele. O cadastro de
+ * outra empresa (/api/cadastro) também não depende da situação da empresa atual.
  *
  * Situação comercial NUNCA derruba sessão nem suspende a empresa: empresas.status continua sendo só administrativo.
  * A empresa considerada é a mesma que provarTenant aceitaria: a selecionada na sessão ou, sem seleção, a única
  * empresa ativa da pessoa. Sem empresa determinável não há o que cobrar aqui (provarTenant recusa sozinho).
  * Empresa sem linha de assinatura (Kidmais e todas as atuais) = sem cobrança, nada muda. Sem a 067 instalada, idem.
  */
-export const ROTAS_SEMPRE_PERMITIDAS = ['/api/admin/autenticacao', '/api/admin/perfil/senha', '/api/admin/assinatura', '/api/admin/exportacao', '/api/desenvolvedor'] as const;
+export const ROTAS_SEMPRE_PERMITIDAS = ['/api/admin/autenticacao', '/api/admin/perfil/senha', '/api/admin/assinatura', '/api/admin/exportacao', '/api/desenvolvedor', '/api/cadastro'] as const;
 const LEITURA = new Set(['GET', 'HEAD']);
 
 export function rotaSemprePermitida(caminho: string) {
