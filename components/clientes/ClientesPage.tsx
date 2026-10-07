@@ -6,7 +6,7 @@ import { listarClientesApi, type ClienteListaApiItem } from "@/lib/clientes/api-
 import { formatTelefone } from "@/lib/clientes/utils";
 import styles from "./Clientes.module.css";
 
-export default function ClientesPage() {
+export default function ClientesPage({ selecionarParaFechamento = false }: { selecionarParaFechamento?: boolean }) {
   const [incluirInativos,setIncluirInativos]=useState(false);
   const [busca, setBusca] = useState("");
   const [clientes, setClientes] = useState<ClienteListaApiItem[]>([]);
@@ -38,6 +38,9 @@ export default function ClientesPage() {
   }, [busca,incluirInativos]);
 
   const resultados = useMemo(() => clientes, [clientes]);
+  const destinoCliente = (id: string) => selecionarParaFechamento
+    ? `/admin/clientes/${encodeURIComponent(id)}/fechamento`
+    : `/clientes/${encodeURIComponent(id)}`;
 
   return (
     <main className={styles.page}>
@@ -47,11 +50,11 @@ export default function ClientesPage() {
         <section className={styles.pageHeader}>
           <div>
             <p className={styles.eyebrow}>Relacionamento</p>
-            <h1>Clientes</h1>
-            <p>Encontre famílias, acompanhe festas e inicie novos fechamentos.</p>
+            <h1>{selecionarParaFechamento ? "Selecione o cliente para o fechamento" : "Clientes"}</h1>
+            <p>{selecionarParaFechamento ? "Busque e selecione a família para iniciar o fechamento. Se ainda não estiver cadastrada, cadastre um novo cliente." : "Encontre famílias, acompanhe festas e inicie novos fechamentos."}</p>
           </div>
           <div className={styles.headerActions}>
-            <Link className={styles.secondaryButton} href="/fechamento?origem=ATENDIMENTO_KIDMAIS&contexto=ADMIN">Fechamento</Link>
+            <Link className={styles.secondaryButton} href={selecionarParaFechamento ? "/clientes" : "/clientes?acao=fechamento"}>{selecionarParaFechamento ? "Voltar aos clientes" : "Fechamento"}</Link>
             <Link className={styles.secondaryButton} href="/clientes/lixeira">Lixeira / Arquivados</Link>
             <Link className={styles.cta} href="/clientes/novo">+ Novo cliente</Link>
           </div>
@@ -98,7 +101,7 @@ export default function ClientesPage() {
                 <span />
               </div>
               {resultados.map(({ cliente, cadastroCompleto }) => (
-                <Link className={styles.tableRow} key={cliente.id} href={`/clientes/${cliente.id}`}>
+                <Link className={styles.tableRow} key={cliente.id} href={destinoCliente(cliente.id)}>
                   <span className={styles.clientCell}>
                     <strong>{cliente.nomeCompleto}</strong>
                     {!cadastroCompleto && <small>Cadastro incompleto</small>}
@@ -112,7 +115,7 @@ export default function ClientesPage() {
 
             <section className={styles.mobileList}>
               {resultados.map(({ cliente, cadastroCompleto }) => (
-                <Link className={styles.mobileCard} key={cliente.id} href={`/clientes/${cliente.id}`}>
+                <Link className={styles.mobileCard} key={cliente.id} href={destinoCliente(cliente.id)}>
                   <div className={styles.mobileCardTop}>
                     <div>
                       <strong>{cliente.nomeCompleto}</strong>

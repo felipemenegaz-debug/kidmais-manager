@@ -625,6 +625,7 @@ export async function criarFechamentoPublicoComIdentidade(
         horarioFim: input.horarioFim,
         configuracaoAgendaId: input.configuracaoAgendaId,
         pacoteId: input.pacoteId,
+        estabelecimentoId: input.estabelecimentoId,
         convidados: input.convidados,
         adicionais: input.adicionais,
         valorProposto: input.valorProposto,
