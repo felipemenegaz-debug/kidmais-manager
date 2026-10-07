@@ -18,7 +18,7 @@ import AvisoContexto from './AvisoContexto';
 import AvisoComercial, { type ComercialCliente } from './AvisoComercial';
 
 /** Telas que continuam abertas com o acesso comercial BLOQUEADO: conta e cobrança (as APIs seguem a mesma lista). */
-const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/inicio'];
+const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/assinatura/retorno', '/admin/inicio'];
 
 /** Depois deste tempo sem resposta da verificação da sessão, a tela oferece saídas em vez de ficar só "Verificando sessão…". */
 const DEMORA_VERIFICACAO_MS = 8000;

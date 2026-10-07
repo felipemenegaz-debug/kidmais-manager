@@ -118,6 +118,7 @@ const ACOES: Record<string, string> = {
     PEDIDO_ACESSO_RECUSADA: 'Pedido de acesso recusado',
     EMPRESA_CADASTRADA_PUBLICO: 'Empresa cadastrada pelo cadastro público',
     CADASTRO_CONFIRMADO: 'Conta confirmada pelo e-mail',
+    COBRANCA_SINCRONIZADA: 'Cobrança sincronizada com o provedor',
 };
 export function rotuloAcao(acao: string) {
     return ACOES[acao] ?? acao.toLowerCase().replace(/_/g, ' ');

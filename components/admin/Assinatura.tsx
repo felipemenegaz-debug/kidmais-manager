@@ -11,6 +11,8 @@ export type DadosAssinatura = {
     assinatura: { situacao: string; ciclo: 'MENSAL' | 'ANUAL' | null; testeInicio: string; testeFim: string; periodoAtualFim: string | null; emAtrasoDesde: string | null; encerradaEm: string | null } | null;
     excecoes: { tipo: string; validaAte: string }[];
     precos: { MENSAL: number | null; ANUAL: number | null } | null;
+    /** E8: contratação on-line disponível neste ambiente e se já há assinatura vinculada no provedor. */
+    cobranca?: { disponivel: boolean; vinculada: boolean; provedorSituacao: string | null; sincronizadoEm: string | null };
 };
 
 const SITUACAO: Record<string, string> = {

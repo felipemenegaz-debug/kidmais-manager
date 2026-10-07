@@ -24,7 +24,8 @@ export type AcessoErroCodigo =
     | 'ASSINATURA_NECESSARIA'
     | 'COBRANCA_NAO_CONFIGURADA'
     | 'COBRANCA_FALHOU'
-    | 'CADASTRO_INDISPONIVEL';
+    | 'CADASTRO_INDISPONIVEL'
+    | 'COBRANCA_SEM_PERMISSAO';
 
 export class AcessoServiceError extends Error {
     readonly code: AcessoErroCodigo;

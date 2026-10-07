@@ -8,6 +8,7 @@ import { chamar, formatarData, formatarDocumento, formatarTelefone, rotuloAcao, 
 import { useReautenticacao } from './Reautenticacao';
 import ComercialEmpresa, { type Comercial } from './ComercialEmpresa';
 import RepresentacaoEmpresa, { type Representacao } from './RepresentacaoEmpresa';
+import SincronizarCobranca from './SincronizarCobranca';
 import { tomSituacao } from './Empresas';
 import { rotuloResultado } from './PainelResumo';
 
@@ -225,6 +226,8 @@ export default function EmpresaFicha({ id }: { id: string }) {
                 </div>
             </form>}
         </section>}
+
+        <SincronizarCobranca empresaId={e.id} />
 
         <section className={workspace.card} aria-labelledby="t-atividade">
             <h2 id="t-atividade">Atividade administrativa</h2>
