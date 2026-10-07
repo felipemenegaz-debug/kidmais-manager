@@ -17,7 +17,7 @@ const PRE = 'database/checks/20261006_067_precheck.sql';
 const POS = 'database/checks/20261006_067_postcheck.sql';
 
 let client: Client;
-let estado: { lerEstadoComercial: (tx: unknown, empresaId: string) => Promise<{ instalado: boolean; acesso: { nivel: string; motivo: string } }> };
+let estado: { lerEstadoComercial: (tx: unknown, empresaId: string, instante?: string) => Promise<{ instalado: boolean; agora: string; excecoes: Array<{ id: string }>; acesso: { nivel: string; motivo: string } }> };
 const ids: Record<string, string> = {};
 const codigo = () => `c067${randomBytes(3).toString('hex')}`;
 
@@ -84,6 +84,26 @@ test('estado comercial lido do banco: teste vigente completo; vencido há 10 dia
     await q("INSERT INTO empresa_excecoes_comerciais (empresa_id, tipo, valida_ate, motivo, criado_por) VALUES ($1, 'CORTESIA', clock_timestamp() + interval '15 days', 'Parceiro de lançamento', $2)", [ids.empresa, ids.usuario]);
     const cortesia = await estado.lerEstadoComercial(client, ids.empresa);
     assert.deepEqual([cortesia.acesso.nivel, cortesia.acesso.motivo], ['COMPLETO', 'EXCECAO_COMERCIAL']);
+    await q('ROLLBACK');
+});
+
+test('fronteira de expiração da exceção: UM instante decide a lista e o acesso — vigente até 1 ms antes do prazo, vencida exatamente no prazo', async () => {
+    await q('BEGIN');
+    await q("INSERT INTO empresa_assinaturas (empresa_id, situacao, teste_inicio, teste_fim) VALUES ($1, 'TESTE', clock_timestamp() - interval '40 days', clock_timestamp() - interval '10 days')", [ids.empresa]);
+    // Prazo com precisão de milissegundos (a mesma dos horários devolvidos pelo estado).
+    const prazo = (await q(`SELECT to_char(date_trunc('milliseconds', clock_timestamp() + interval '2 days') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS t`)).rows[0].t as string;
+    await q("INSERT INTO empresa_excecoes_comerciais (empresa_id, tipo, valida_ate, motivo, criado_por) VALUES ($1, 'CORTESIA', $2::timestamptz, 'Cortesia de fronteira', $3)", [ids.empresa, prazo, ids.usuario]);
+    const em = (deltaMs: number) => new Date(Date.parse(prazo) + deltaMs).toISOString();
+    const antes = await estado.lerEstadoComercial(client, ids.empresa, em(-1));
+    assert.equal(antes.agora, em(-1), 'o instante informado é o instante usado');
+    assert.deepEqual([antes.excecoes.length, antes.acesso.nivel, antes.acesso.motivo], [1, 'COMPLETO', 'EXCECAO_COMERCIAL'], '1 ms antes: listada e vigente');
+    for (const delta of [0, 1, 60_000]) {
+        const depois = await estado.lerEstadoComercial(client, ids.empresa, em(delta));
+        // Antes da correção, o filtro do SQL usava outra leitura do relógio: no prazo, a exceção podia vir listada sem valer.
+        assert.deepEqual([depois.excecoes.length, depois.acesso.nivel, depois.acesso.motivo], [0, 'SOMENTE_LEITURA', 'TESTE_ENCERRADO'], `prazo + ${delta} ms: nem listada nem vigente`);
+    }
+    // Sem instante: relógio do banco (hoje, 2 dias antes do prazo) — vigente.
+    assert.equal((await estado.lerEstadoComercial(client, ids.empresa)).acesso.motivo, 'EXCECAO_COMERCIAL');
     await q('ROLLBACK');
 });
 

@@ -4,7 +4,7 @@ import { calcularAcessoComercial, type AcessoComercial, type AssinaturaGravada, 
 /**
  * Estado comercial da empresa COMPROVADA (067), lido na transação do tenant. Sem a 067 instalada, ou sem linha de
  * assinatura, o acesso é COMPLETO (sem cobrança) — exatamente o comportamento de hoje.
- * O instante de referência é o relógio do banco (clock_timestamp), o mesmo de todas as gravações.
+ * O instante de referência é o relógio do banco (clock_timestamp), lido UMA vez por leitura do estado.
  */
 export type EstadoComercial = {
     instalado: boolean;
@@ -18,10 +18,18 @@ export async function comercialInstalado(tx: DbExecutor) {
     return (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.empresa_assinaturas') IS NOT NULL AS ok")).rows[0]?.ok === true;
 }
 
-export async function lerEstadoComercial(tx: DbExecutor, empresaId: string): Promise<EstadoComercial> {
+/**
+ * UM ÚNICO instante de referência (\`agora\`, lido uma vez do relógio do banco) decide tudo: o filtro das exceções no SQL e
+ * o cálculo do acesso usam o mesmo valor, com a mesma precisão (milissegundos, como os horários devolvidos). Assim uma
+ * exceção que vence entre duas leituras do relógio nunca fica "listada mas não vigente" (ou o contrário).
+ * \`instante\` (ISO UTC com milissegundos) permite fixar a referência — testes de fronteira; padrão: relógio do banco.
+ */
+export async function lerEstadoComercial(tx: DbExecutor, empresaId: string, instante?: string): Promise<EstadoComercial> {
     // ISO UTC com milissegundos: Date.parse não aceita o fuso '-03' sem minutos que o PostgreSQL devolve em ::text.
-    const agora = (await tx.query<{ agora: string }>(`SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS agora`)).rows[0].agora;
+    const agora = instante ?? (await tx.query<{ agora: string }>(`SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS agora`)).rows[0].agora;
     const agoraMs = Date.parse(agora);
+    if (!Number.isFinite(agoraMs))
+        throw new Error('Instante de referência inválido.');
     if (!await comercialInstalado(tx))
         return { instalado: false, assinatura: null, excecoes: [], agora, acesso: calcularAcessoComercial(null) };
     const a = (await tx.query<{
@@ -37,8 +45,8 @@ export async function lerEstadoComercial(tx: DbExecutor, empresaId: string): Pro
     const excecoes = (await tx.query<{ id: string; tipo: ExcecaoGravada['tipo']; valida_ate: string; revogada_em: string | null }>(
         `SELECT id, tipo, to_char(valida_ate AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS valida_ate,
                 to_char(revogada_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS revogada_em
-           FROM empresa_excecoes_comerciais WHERE empresa_id = $1::uuid AND revogada_em IS NULL AND valida_ate > clock_timestamp()
-          ORDER BY valida_ate DESC`, [empresaId])).rows.map((e) => ({ id: e.id, tipo: e.tipo, validaAte: e.valida_ate, revogadaEm: e.revogada_em }));
+           FROM empresa_excecoes_comerciais WHERE empresa_id = $1::uuid AND revogada_em IS NULL AND date_trunc('milliseconds', valida_ate) > $2::timestamptz
+          ORDER BY valida_ate DESC`, [empresaId, agora])).rows.map((e) => ({ id: e.id, tipo: e.tipo, validaAte: e.valida_ate, revogadaEm: e.revogada_em }));
     const assinatura = a ? {
         situacao: a.situacao, ciclo: a.ciclo, testeInicio: a.teste_inicio, testeFim: a.teste_fim, periodoAtualFim: a.periodo_atual_fim,
         emAtrasoDesde: a.em_atraso_desde, encerradaEm: a.encerrada_em, versao: a.versao,
