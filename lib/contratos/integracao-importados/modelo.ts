@@ -83,9 +83,17 @@ export type Referencias = {
   cliente: { id: string; nome: string; status: string };
   estabelecimentos: Array<{ id: string; nome: string }>;
   pacote: { id: string; codigo: string; nome: string; duracaoMinutos: number | null } | null;
-  /** Linha de preço só como âncora do fechamento (o Core exige); o valor contratado é o do documento. */
-  precoReferencia: { tabelaPrecoId: string; precoPacoteId: string; categoria: 'PADRAO' | 'NOBRE' } | null;
+  /**
+   * Linha de preço só como âncora do fechamento (o Core exige); o valor contratado é o do documento. A categoria é a
+   * da LINHA DE PREÇO (GERAL vale para todos os horários) e vira só `categoria_preco_aplicada`.
+   */
+  precoReferencia: { tabelaPrecoId: string; precoPacoteId: string; categoria: 'GERAL' | 'PADRAO' | 'NOBRE' } | null;
   configuracaoAgendaId: string | null;
+  /**
+   * Categoria do HORÁRIO: a regra do fechamento comum (regras_categoria_horario por dia e turno) quando existe; sem regra,
+   * a categoria da linha de preço se for PADRAO/NOBRE; null quando a linha é GERAL e não há regra (bloqueia).
+   */
+  categoriaHorario: 'PADRAO' | 'NOBRE' | null;
 };
 
 export type ParcelaResumo = { numero: number; valorCentavos: number; vencimento: string; situacao: 'RECEBIDA' | 'A_RECEBER' | 'VENCIDA'; recebidaEm: string | null; forma: FormaFinanceira | null };
@@ -230,6 +238,7 @@ export function avaliarIntegracao(e: { snapshot: SnapshotHistorico; decisoes: De
   if (!d.pacoteReferenciaId || !r.pacote) bloqueios.push('Escolha o pacote do sistema usado como referência operacional.');
   else if (!r.precoReferencia) bloqueios.push('O pacote de referência não tem linha de preço em nenhuma tabela desta empresa.');
   if (!r.configuracaoAgendaId) bloqueios.push('Agenda sem turno configurado.');
+  else if (r.precoReferencia && !r.categoriaHorario) bloqueios.push('O pacote de referência tem preço Geral e não existe categoria comercial (Padrão ou Nobre) configurada para a data e o turno desta festa. Escolha um pacote com preço Padrão ou Nobre, ou peça a configuração da categoria do horário.');
 
   const doc = valoresDoDocumento(s);
   const campos: CampoConferido[] = [

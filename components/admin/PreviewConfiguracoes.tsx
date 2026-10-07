@@ -60,6 +60,7 @@ const respostas: Record<string, unknown> = {
       ],
     },
   },
+  '/api/admin/configuracoes/pix': { ok: true, data: { instalado: true, podeEditar: true, configuracao: { tipoChave: 'CNPJ', chaveMascarada: '**********0181', versao: 1 }, recebedor: { nome: 'Buffet Exemplo', cidade: 'Brasilia' } } },
   '/api/admin/configuracoes/whatsapp': { ok: true, data: { estado: 'NAO_CONFIGURADA', metaConfigurada: false, conexao: null, tentativa: null } },
   '/api/admin/configuracoes/tabela-pacotes': { ok: true, data: { id: 'd1', nome: 'pacotes-2026.pdf', tamanho: 120000, publicadoEm: '2026-09-18T15:00:00Z' } },
 };

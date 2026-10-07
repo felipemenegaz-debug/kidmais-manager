@@ -31,7 +31,11 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
     'next/link': { default: Link },
     '../CamposCadastroContratual': { default: 'fieldset' },
     '@/lib/clientes/cadastro-contratual': cadastro,
-    '@/lib/http/admin-fetch': { adminFetch: async () => new Response() },
+    '@/lib/http/admin-fetch': {
+      adminFetch: async () => new Response(),
+      // A reautenticação com renovação anunciada (a mesma do Perfil da empresa): sem ela a troca de sessão descarta a página.
+      reautenticarSessao: async (...args: unknown[]) => { chamadas.push({ fn: 'reautenticar', args }); return opcoesTeste.reautenticacao ?? { ok: true }; },
+    },
     './integracao-form': form,
     './importacao.module.css': cssFalso, './integracao.module.css': cssFalso,
     './cliente-integracao': {
@@ -44,9 +48,7 @@ function montar(confirmarResposta: () => Promise<unknown>, opcoesTeste: { reaute
         const vinculos = opcoesTeste.vinculos ?? [];
         const decidido = !vinculos.length || (d.outroContratoConfirmado && d.motivoOutroContrato.length >= 5);
         return { ok: true, dados: { integrada: false, pronto: decidido, bloqueios: decidido ? [] : ['Há uma contratação parecida nesta empresa neste dia.'], avisos: d.conferenciaDeclarada ? [] : ['Para confirmar, declare a conferência do documento original.'], resumo, resumoHash: d.conferenciaDeclarada ? 'b'.repeat(64) : 'a'.repeat(64), possiveisVinculos: vinculos } }; },
-      confirmar: async (...args: unknown[]) => { chamadas.push({ fn: 'confirmar', args }); return confirmarResposta(); },
-      reautenticar: async (...args: unknown[]) => { chamadas.push({ fn: 'reautenticar', args }); return opcoesTeste.reautenticacao ?? { ok: true, dados: { csrf: 'x' } }; },
-      simularFinanceiro: async () => { throw Error('não usado'); },
+      confirmar: async (...args: unknown[]) => { chamadas.push({ fn: 'confirmar', args }); return confirmarResposta(); },      simularFinanceiro: async () => { throw Error('não usado'); },
       conferirFinanceiro: async () => { throw Error('não usado'); },
     },
   });
@@ -133,7 +135,7 @@ test('fluxo completo: pagamentos conferidos, revisão do servidor, declaração 
   // A senha vai só para a reautenticação nativa, antes da confirmação, e não fica na tela.
   const ordem = chamadas.map((c) => c.fn).filter((fn) => fn !== 'simular');
   assert.deepEqual(ordem, ['reautenticar', 'confirmar']);
-  assert.equal(chamadas.find((c) => c.fn === 'reautenticar')!.args[1], 'senha-do-operador');
+  assert.equal(chamadas.find((c) => c.fn === 'reautenticar')!.args[0], 'senha-do-operador');
   assert.ok(!JSON.stringify(chamadas.find((c) => c.fn === 'confirmar')!.args).includes('senha-do-operador'));
   assert.equal(achar(a, 'input', 'Senha para confirmar').props.value, '');
   const conf = chamadas.find((c) => c.fn === 'confirmar')!;
@@ -193,7 +195,7 @@ async function ateRevisao(tela: ReturnType<typeof montar>['tela']) {
 }
 
 test('autenticação recente: senha recusada não confirma nada e mostra o motivo', async () => {
-  const { tela, chamadas } = montar(async () => ({ ok: true, dados: {} }), { reautenticacao: { ok: false, mensagem: 'Senha inválida.', codigo: null, detalhes: null } });
+  const { tela, chamadas } = montar(async () => ({ ok: true, dados: {} }), { reautenticacao: { ok: false, erro: 'Senha inválida.', senhaIncorreta: true } });
   let a = await ateRevisao(tela);
   (achar(a, 'input', 'Senha para confirmar').props.onChange as (e: unknown) => void)(evento('errada'));
   (achar(ver(tela), 'button', 'Confirmar integração').props.onClick as () => void)();

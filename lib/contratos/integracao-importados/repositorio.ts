@@ -1,5 +1,6 @@
 import type { CadastroContratual } from '../../clientes/cadastro-contratual.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
+import { buscarCategoriaHorarioAplicavel } from '../../comercial/repositories/comercial.repository.ts';
 import type { SnapshotHistorico } from '../../importacao-contrato/plano.ts';
 
 /**
@@ -86,22 +87,41 @@ export async function pacoteDaEmpresa(tx: DbExecutor, empresaId: string, pacoteI
  * o contratado é o do documento. Preferência: tabela vigente na data do evento, depois ativa, categoria do dia,
  * faixa de convidados, tabela mais recente.
  */
-export async function precoReferencia(tx: DbExecutor, empresaId: string, pacoteId: string, data: string, convidados: number) {
-  const r = await tx.query<{ tabela_preco_id: string; preco_pacote_id: string; categoria: 'PADRAO' | 'NOBRE' }>(
+export async function precoReferencia(tx: DbExecutor, empresaId: string, pacoteId: string, data: string, convidados: number, regraHorario: 'PADRAO' | 'NOBRE' | null) {
+  // Com regra de categoria para a data e o turno: a linha da categoria da regra vem primeiro, depois a GERAL (vale para
+  // todos os horários). Sem regra: a MESMA ordem de antes (palpite pelo fim de semana), para não mudar importações que já
+  // funcionavam. A categoria da linha é devolvida como está: é a categoria do PREÇO aplicado.
+  const r = await tx.query<{ tabela_preco_id: string; preco_pacote_id: string; categoria: 'GERAL' | 'PADRAO' | 'NOBRE' }>(
     `SELECT t.id::text AS tabela_preco_id, pp.id::text AS preco_pacote_id, pp.categoria_horario AS categoria
        FROM precos_pacote pp JOIN tabelas_preco t ON t.id = pp.tabela_preco_id
       WHERE pp.pacote_id = $1::uuid AND t.empresa_id = $2::uuid
       ORDER BY (t.vigencia_inicio <= $3::date AND (t.vigencia_fim IS NULL OR t.vigencia_fim >= $3::date)) DESC,
                t.ativa DESC,
-               (pp.categoria_horario = CASE WHEN extract(isodow FROM $3::date) IN (6, 7) THEN 'NOBRE' ELSE 'PADRAO' END) DESC,
+               (CASE WHEN $5::text IS NOT NULL THEN pp.categoria_horario = $5::text
+                     ELSE pp.categoria_horario = CASE WHEN extract(isodow FROM $3::date) IN (6, 7) THEN 'NOBRE' ELSE 'PADRAO' END END) DESC,
+               ($5::text IS NOT NULL AND pp.categoria_horario = 'GERAL') DESC,
                ($4::int BETWEEN pp.convidados_min AND coalesce(pp.convidados_max, 32767)) DESC,
                pp.ativo DESC, t.vigencia_inicio DESC, pp.id
       LIMIT 1
       FOR SHARE OF pp, t`,
-    [pacoteId, empresaId, data, convidados],
+    [pacoteId, empresaId, data, convidados, regraHorario],
   );
   const l = r.rows[0];
   return l ? { tabelaPrecoId: l.tabela_preco_id, precoPacoteId: l.preco_pacote_id, categoria: l.categoria } : null;
+}
+
+/**
+ * Regra de categoria do horário (PADRAO/NOBRE) pela MESMA consulta do fechamento comum (obterContextoComercial): a regra
+ * ativa e vigente de `regras_categoria_horario` para o dia da semana da data e o turno. null SÓ quando a consulta
+ * comprova que não há regra (ou não há turno); erros de banco propagam e nunca viram "sem regra".
+ */
+export async function regraCategoriaHorario(tx: DbExecutor, data: string, configuracaoAgendaId: string | null): Promise<'PADRAO' | 'NOBRE' | null> {
+  if (!configuracaoAgendaId) return null;
+  const regra = await buscarCategoriaHorarioAplicavel(data, configuracaoAgendaId, tx);
+  if (!regra) return null;
+  // Configuração inválida não é "sem regra": falha alto em vez de cair no fallback.
+  if (regra.categoriaHorario !== 'PADRAO' && regra.categoriaHorario !== 'NOBRE') throw new Error('Regra de categoria de horário com valor inválido.');
+  return regra.categoriaHorario;
 }
 
 /**

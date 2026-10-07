@@ -59,7 +59,7 @@ export function PixParcela({ parcelaId, aoFechar }: { parcelaId: string; aoFecha
     <form aria-label="Pix da parcela" aria-busy={!pix && !erro} onSubmit={(evento) => { evento.preventDefault(); void copiar(); }}>
       <h2>Pix da parcela</h2>
       {!pix && !erro && <p>Gerando o Pix…</p>}
-      {erro && <p className={styles.erro} role="alert">{erro.mensagem}{erro.codigo === 'PIX_NAO_CONFIGURADO' && <> <Link href="/admin/configuracoes/pix">Cadastrar chave Pix</Link></>}</p>}
+      {erro && <p className={styles.erro} role="alert">{erro.mensagem}{erro.codigo === 'PIX_NAO_CONFIGURADO' && <> <Link href="/admin/configuracoes/perfil-empresa#recebimento-pix">Cadastrar chave Pix no Perfil da empresa</Link></>}</p>}
       {pix && <>
         <p><strong>{reaisDe(pix.valorCentavos)}</strong> — parcela {pix.parcela.numero} de {pix.parcela.cliente}, vencimento {pix.parcela.vencimento}</p>
         {/* eslint-disable-next-line @next/next/no-img-element -- SVG gerado no servidor a partir do BR Code; nada externo é carregado. */}

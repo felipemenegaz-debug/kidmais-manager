@@ -64,8 +64,10 @@ function banco(estado: Estado): DbExecutor & { estado: Estado } {
     if (sql.includes('FROM estabelecimentos')) return linhas(v[0] === EMPRESA ? [{ id: '22222222-2222-4222-8222-222222222222', nome: 'Unidade Centro' }] : []);
     if (sql.includes('FROM pacotes p')) return linhas([{ id: '33333333-3333-4333-8333-333333333333', codigo: 'COMPLETA', nome: 'Festa Completa', duracao_minutos: 240, ativo: true }]);
     if (sql.includes('FROM pacotes WHERE id')) return linhas(v[0] === '33333333-3333-4333-8333-333333333333' && v[1] === EMPRESA ? [{ id: v[0], codigo: 'COMPLETA', nome: 'Festa Completa', duracao_minutos: 240 }] : []);
-    if (sql.includes('FROM precos_pacote pp')) return linhas([{ tabela_preco_id: '44444444-4444-4444-8444-444444444444', preco_pacote_id: '55555555-5555-4555-8555-555555555555', categoria: 'NOBRE' }]);
+    if (sql.includes('FROM precos_pacote pp')) return linhas([{ tabela_preco_id: '44444444-4444-4444-8444-444444444444', preco_pacote_id: '55555555-5555-4555-8555-555555555555', categoria: 'GERAL' }]);
     if (sql.includes('FROM configuracao_agenda')) return linhas([{ id: '66666666-6666-4666-8666-666666666666' }]);
+    // Regra de categoria do horário (mesma consulta do fechamento comum).
+    if (sql.includes('FROM regras_categoria_horario')) return linhas(v[1] !== '66666666-6666-4666-8666-666666666666' ? [] : [{ id: '99999999-9999-4999-8999-999999999999', dia_semana: 6, configuracao_agenda_id: '66666666-6666-4666-8666-666666666666', categoria_horario: 'NOBRE', vigencia_inicio: '2020-01-01', vigencia_fim: null }]);
     if (sql.includes('kidmais_lock_datas_revisao')) { estado.locks.push(`data:${v[0]}`); return linhas([]); }
     if (sql.includes('AS com_pagamento') && sql.includes('AS vigente_conferida')) {
       return linhas([{ com_pagamento: estado.comPagamento, revisao_aberta: estado.revisaoAberta, vigente_conferida: estado.versaoVigente }]);
@@ -207,6 +209,8 @@ test('parcialmente pago, evento futuro: Core completo, agenda travada e revalida
   assert.ok(estado.locks.includes('bloquear_contrato') && estado.locks.includes('validar_destino'));
   const fech = chamadas.find((c) => c.metodo === 'criarFechamento')!.args as Record<string, unknown>;
   assert.deepEqual([fech.status, fech.origemFechamento, fech.valorTabela, fech.valorAdicionais, fech.dataEvento, fech.convidados], ['CONFIRMADO', 'IMPORTACAO_HISTORICA', 8500, 500, '2026-11-14', 80]);
+  // Linha de preço GERAL: o horário vem da regra do dia e do turno (NOBRE); GERAL fica só como categoria do preço.
+  assert.deepEqual([fech.categoriaHorario, fech.categoriaPrecoAplicada, fech.configuracaoAgendaId], ['NOBRE', 'GERAL', '66666666-6666-4666-8666-666666666666']);
   // A contratação nasce na unidade conferida (recurso de agenda da 062), a mesma gravada no vínculo.
   assert.equal(fech.estabelecimentoId, '22222222-2222-4222-8222-222222222222');
   // Versão: conferência em papel com o sha256 do original — sem assinatura, OTP ou documento gerado.

@@ -154,11 +154,17 @@ async function preparar(tx: DbExecutor, tenant: TenantComprovado, importacaoId: 
   if (!documento) throw new IntegracaoImportadoError('DOCUMENTO_ORIGINAL_AUSENTE', 'O documento original desta importação não foi encontrado. Ele é obrigatório para a conferência.', 409);
   const estabelecimentos = await repo.estabelecimentosAtivos(tx, empresaId);
   const pacote = decisoes.pacoteReferenciaId ? await repo.pacoteDaEmpresa(tx, empresaId, decisoes.pacoteReferenciaId) : null;
-  const precoReferencia = pacote ? await repo.precoReferencia(tx, empresaId, pacote.id, decisoes.evento.data, decisoes.evento.convidados) : null;
   const configuracaoAgendaId = await repo.configuracaoAgenda(tx, decisoes.evento.horarioInicio, empresaId, decisoes.estabelecimentoId);
+  // Categoria do HORÁRIO: a regra do fechamento comum para a data e o turno, quando existe. Só a ausência COMPROVADA de
+  // regra cai no comportamento anterior (a categoria da linha de preço, se for PADRAO ou NOBRE). GERAL sem regra fica
+  // null e bloqueia antes de gravar. A categoria do PREÇO continua a da linha escolhida (pode ser GERAL).
+  const regraHorario = await repo.regraCategoriaHorario(tx, decisoes.evento.data, configuracaoAgendaId);
+  const precoReferencia = pacote ? await repo.precoReferencia(tx, empresaId, pacote.id, decisoes.evento.data, decisoes.evento.convidados, regraHorario) : null;
+  const categoriaDoPreco = precoReferencia?.categoria;
+  const categoriaHorario = regraHorario ?? (categoriaDoPreco === 'PADRAO' || categoriaDoPreco === 'NOBRE' ? categoriaDoPreco : null);
   const referencias: Referencias = {
     cliente: { id: cliente.id, nome: cliente.nomeCompleto, status: cliente.status },
-    estabelecimentos, pacote, precoReferencia, configuracaoAgendaId,
+    estabelecimentos, pacote, precoReferencia, configuracaoAgendaId, categoriaHorario,
   };
   const avaliacao = avaliarIntegracao({ snapshot: importacao.snapshot, decisoes, referencias, hoje });
   avaliacao.resumo.cadastro = formularioCadastro(cliente);
@@ -422,7 +428,7 @@ export async function confirmarIntegracao(tx: DbExecutor, tenant: TenantComprova
     clienteId: p.cliente.id, aniversarianteId,
     dataEvento: decisoes.evento.data, horarioInicio: decisoes.evento.horarioInicio, horarioFim: decisoes.evento.horarioFim,
     configuracaoAgendaId: p.configuracaoAgendaId, estabelecimentoId: decisoes.estabelecimentoId, pacoteId: p.pacote!.id, tabelaPrecoId: p.precoReferencia!.tabelaPrecoId, precoPacoteId: p.precoReferencia!.precoPacoteId,
-    regraDescontoPacoteId: null, categoriaHorario: p.precoReferencia!.categoria, categoriaPrecoAplicada: p.precoReferencia!.categoria,
+    regraDescontoPacoteId: null, categoriaHorario: p.referencias.categoriaHorario!, categoriaPrecoAplicada: p.precoReferencia!.categoria,
     convidados: decisoes.evento.convidados, convidadosFaturados: decisoes.evento.convidados,
     // Valores do documento (não do catálogo): a linha de preço é só âncora exigida pelo Core.
     valorPacoteBase: centavosParaReais(totais - adicionais), descontoPercentual: 0, valorDescontoPacote: 0,

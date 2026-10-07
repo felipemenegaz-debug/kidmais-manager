@@ -42,7 +42,15 @@ test('layout unifica lista, busca, abas e painel Adicionar pessoa', () => {
     assert.doesNotMatch(ui, /unsplash|avatar\.png|pravatar/i);
     assert.doesNotMatch(ui, /Mostrando \d+ de \d+/);
     assert.doesNotMatch(ui, /Ver mais pessoas/);
-    assert.doesNotMatch(ui, /convite por e-mail|redefinir senha|password reset/i);
+    assert.doesNotMatch(ui, /redefinir senha|password reset/i);
+    // E1: convite por e-mail é o caminho padrão; a senha definida pela Gestão só aparece se a criação direta estiver permitida.
+    assert.match(ui, /acao:'convidar'/);
+    assert.match(ui, /Convidar por e-mail/);
+    assert.match(ui, /setModo\(convitesDisponiveis\?'convite':'senha'\)/);
+    assert.match(ui, /convitesDisponiveis&&criacaoDireta&&<fieldset/);
+    assert.match(ui, /Convites pendentes/);
+    assert.match(ui, /acao,conviteId:convite\.id/);
+    assert.match(ui, /Convite criado, mas o e-mail não foi enviado/);
     assert.match(css, /max-width:800px/);
     assert.match(css, /\.drawer\{width:100%\}/);
     assert.doesNotMatch(ui, /festa\.module\.css/);

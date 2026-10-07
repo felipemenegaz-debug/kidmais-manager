@@ -105,13 +105,6 @@ export const simularFinanceiro = (buscar: Buscador, id: string, financeiro: obje
 export const conferirFinanceiro = (buscar: Buscador, id: string, financeiro: object, resumoHash: string, chave: string) =>
   ler<{ reutilizado: boolean; contratoId: string; pagamentoId?: string; situacao?: string }>(postar(buscar, id, { acao: 'conferir-financeiro', financeiro, resumoHash, chave }));
 
-/**
- * Autenticação recente exigida para confirmar (mesmo mecanismo nativo da assinatura Kidmais): a senha vai só para a
- * rota de autenticação, nunca para a integração.
- */
-export const reautenticar = (buscar: Buscador, senha: string) =>
-  ler<unknown>(buscar('/api/admin/autenticacao', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ acao: 'reautenticar', senha }) }));
-
 /** Uma chave por resumo exibido: repetir o clique (ou a rede) não duplica; resumo novo ⇒ chave nova. */
 export function novaChave() {
   return globalThis.crypto.randomUUID();

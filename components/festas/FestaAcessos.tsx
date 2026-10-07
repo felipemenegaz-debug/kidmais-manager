@@ -8,7 +8,22 @@ import {VoltarConfiguracoes} from '@/components/admin/VoltarConfiguracoes';
 
 type Conta={id:string;nome:string;email:string;nivelSistema:string;ativo:boolean;podeAssinar?:boolean};
 type PerfilFesta={id:string;nome:string;nivelSistema:string;perfil:string};
-type ContasData={usuarioId:string;usuarios:Conta[]};
+type Convite={id:string;email:string;nomeSugerido:string|null;nivel:string;situacao:'PENDENTE'|'EXPIRADO'|'ACEITO'|'CANCELADO';expiraEm:string};
+// E1: convites == null quando o ambiente ainda não tem convites (063); criacaoDireta = senha definida pela Gestão ainda permitida.
+type ContasData={usuarioId:string;usuarios:Conta[];convites?:Convite[]|null;criacaoDireta?:boolean};
+type Envio={enviado:boolean;destino:string;motivo?:string};
+type Modo='convite'|'senha';
+
+function avisoEnvio(envio:Envio){
+ return envio.enviado
+  ?'Convite enviado para '+envio.destino+'. Ele vale por 7 dias; a pessoa define a própria senha ao aceitar.'
+  :'Convite criado, mas o e-mail não foi enviado: '+(envio.motivo??'motivo desconhecido')+' Use “Reenviar” quando o envio estiver disponível.';
+}
+
+function dataCurta(iso:string){
+ const d=new Date(iso);
+ return Number.isNaN(d.getTime())?'':d.toLocaleDateString('pt-BR');
+}
 type PerfissData={usuarioId:string;usuarios:PerfilFesta[]};
 type Aba='ativas'|'desativadas';
 
@@ -36,6 +51,7 @@ export default function FestaAcessos(){
  const [menuId,setMenuId]=useState<string|null>(null);
  const [perfil,setPerfil]=useState('EQUIPE');
  const [nivel,setNivel]=useState<'GESTAO'|'EQUIPE'>('EQUIPE');
+ const [modo,setModo]=useState<Modo>('convite');
  const [emailErro,setEmailErro]=useState('');
  const [senhaErro,setSenhaErro]=useState('');
  const [verSenha,setVerSenha]=useState(false);
@@ -148,6 +164,7 @@ export default function FestaAcessos(){
  }
 
  function abrirCriar(){
+  setModo(convitesDisponiveis?'convite':'senha');
   setCriarAberto(true);
   setUser(null);
   setAlvoDesativar(null);
@@ -208,6 +225,48 @@ export default function FestaAcessos(){
   finally{setBusy(false);}
  }
 
+ // E1: convite por e-mail. A pessoa define a própria senha (conta nova) ou confirma com a senha que já tem.
+ async function convidar(e:React.FormEvent<HTMLFormElement>){
+  e.preventDefault();
+  const form=e.currentTarget;
+  const fd=new FormData(form);
+  const nome=String(fd.get('nome')??'').trim();
+  setEmailErro('');
+  setBusy(true);setErro('');
+  try{
+   const r=await adminFetch('/api/admin/configuracoes/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    acao:'convidar',
+    email:String(fd.get('email')??''),
+    nome:nome||null,
+    nivel,
+   })});
+   const j=await r.json();
+   if(!j.ok){
+    const humano=erroHumano(j.erro);
+    if(r.status===409){setEmailErro(humano);return;}
+    setErro(humano);
+    return;
+   }
+   setNotice(avisoEnvio(j.data.envio));
+   form.reset();
+   fecharCriar();
+   await carregar();
+  }catch{setErro('Não foi possível criar o convite. Confira os dados e tente novamente.');}
+  finally{setBusy(false);}
+ }
+
+ async function alterarConvite(convite:Convite,acao:'reenviar-convite'|'cancelar-convite'){
+  setBusy(true);setErro('');setNotice('');
+  try{
+   const r=await adminFetch('/api/admin/configuracoes/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao,conviteId:convite.id})});
+   const j=await r.json();
+   if(!j.ok){setErro(erroHumano(j.erro));return;}
+   setNotice(acao==='cancelar-convite'?'Convite cancelado. O link enviado deixou de valer.':avisoEnvio(j.data.envio));
+   await carregar();
+  }catch{setErro('Não foi possível atualizar o convite. Atualize a lista e tente novamente.');}
+  finally{setBusy(false);}
+ }
+
  // 057: assinar contratos em nome DESTA empresa (capability da membership). Não é acesso de plataforma.
  async function alternarAssinatura(conta:Conta){
   setMenuId(null);setBusy(true);setErro('');setNotice('');
@@ -237,6 +296,9 @@ export default function FestaAcessos(){
   finally{setBusy(false);}
  }
 
+ const convitesDisponiveis=Array.isArray(contas?.convites);
+ const criacaoDireta=contas?.criacaoDireta!==false;
+ const pendentes=(contas?.convites??[]).filter(c=>c.situacao==='PENDENTE'||c.situacao==='EXPIRADO');
  const lista=contas?.usuarios??[];
  const termo=busca.trim().toLowerCase();
  const daAba=lista.filter(u=>aba==='ativas'?u.ativo:!u.ativo);
@@ -290,7 +352,7 @@ export default function FestaAcessos(){
     <h1>Usuários e acessos</h1>
     <p className={layout.intro}>Aqui aparecem só as pessoas desta empresa. O papel nesta empresa é separado do acesso às Festas, e o acesso a outras empresas não muda por aqui.</p>
    </div>
-   <AdminPrimaryButton className={layout.cta} disabled={busy||!contas} onClick={abrirCriar}>+ Adicionar pessoa</AdminPrimaryButton>
+   <AdminPrimaryButton className={layout.cta} disabled={busy||!contas||(!convitesDisponiveis&&!criacaoDireta)} onClick={abrirCriar}>+ Adicionar pessoa</AdminPrimaryButton>
   </div>
   {erro&&<p role="alert" className={layout.alerta}>{erro}</p>}
   {notice&&<p role="status" className={layout.sucesso}><span><span className={layout.check} aria-hidden="true">✓</span>{notice}</span><button type="button" className={layout.fecharNotice} aria-label="Dispensar aviso" onClick={()=>setNotice('')}>×</button></p>}
@@ -340,6 +402,29 @@ export default function FestaAcessos(){
        </table>
       </div>}
    </section>
+   {pendentes.length>0&&<section className={layout.painel} aria-labelledby="convites-titulo">
+    <h2 id="convites-titulo">Convites pendentes</h2>
+    <p className={layout.muted}>A pessoa só entra nesta empresa quando aceita o convite. Reenviar gera um link novo e invalida o anterior.</p>
+    <ul className={layout.cards}>{pendentes.map(c=><li key={c.id}>
+     <article className={layout.card}>
+      <div className={layout.cardHead}>
+       <span className={layout.avatar} aria-hidden="true">{iniciais(c.nomeSugerido??c.email)}</span>
+       <div className={layout.identidade}>
+        <p className={layout.nome}>{c.nomeSugerido??c.email}</p>
+        <p className={layout.email}>{c.email}</p>
+       </div>
+      </div>
+      <dl className={layout.tiles}>
+       <div className={layout.tile}><dt>Papel nesta empresa</dt><dd>{c.nivel}</dd></div>
+       <div className={layout.tile}><dt>Situação</dt><dd>{c.situacao==='EXPIRADO'?'Expirado':'Aguardando aceite até '+dataCurta(c.expiraEm)}</dd></div>
+      </dl>
+      <div className={layout.modalActions}>
+       <button type="button" className={layout.ghost} disabled={busy} aria-label={'Reenviar convite para '+c.email} onClick={()=>{void alterarConvite(c,'reenviar-convite');}}>Reenviar</button>
+       <button type="button" className={layout.perigo} disabled={busy} aria-label={'Cancelar convite para '+c.email} onClick={()=>{void alterarConvite(c,'cancelar-convite');}}>Cancelar convite</button>
+      </div>
+     </article>
+    </li>)}</ul>
+   </section>}
   </>}
 
   {criarAberto&&<div className={layout.overlay} onMouseDown={e=>{if(e.target===e.currentTarget)fecharCriar();}}>
@@ -348,10 +433,21 @@ export default function FestaAcessos(){
      <h2 id="criar-titulo">Adicionar pessoa</h2>
      <button type="button" className={layout.iconBtn} aria-label="Fechar" disabled={busy} onClick={fecharCriar}>×</button>
     </header>
-    <form className={layout.drawerForm} onSubmit={criar}>
+    <form className={layout.drawerForm} onSubmit={modo==='convite'?convidar:criar}>
      <div className={layout.drawerBody}>
       <fieldset disabled={busy}>
-       <label>Nome completo<input ref={nomeRef} name="nome" autoComplete="name" required maxLength={120} placeholder="Ex: Maria Souza"/></label>
+       {convitesDisponiveis&&criacaoDireta&&<fieldset className={layout.niveis}>
+        <legend>Como adicionar</legend>
+        <label className={modo==='convite'?layout.nivelAtivo:layout.nivel}>
+         <span><strong>Convidar por e-mail</strong><small>Recomendado. A pessoa aceita e define a própria senha; quem já usa o Kidmais confirma com a senha que tem.</small></span>
+         <input name="modo" type="radio" checked={modo==='convite'} onChange={()=>{setModo('convite');setSenhaErro('');}} aria-label="Como adicionar: convidar por e-mail"/>
+        </label>
+        <label className={modo==='senha'?layout.nivelAtivo:layout.nivel}>
+         <span><strong>Definir senha agora</strong><small>Use só enquanto o envio de e-mail não estiver disponível.</small></span>
+         <input name="modo" type="radio" checked={modo==='senha'} onChange={()=>setModo('senha')} aria-label="Como adicionar: definir senha agora"/>
+        </label>
+       </fieldset>}
+       <label>{modo==='convite'?'Nome (opcional)':'Nome completo'}<input ref={nomeRef} name="nome" autoComplete="name" required={modo==='senha'} maxLength={120} placeholder="Ex: Maria Souza"/></label>
        <label className={emailErro?layout.campoErro:undefined}>E-mail
         <input name="email" type="email" autoComplete="username" required maxLength={254} placeholder="maria.souza@exemplo.com" aria-invalid={Boolean(emailErro)} aria-describedby={emailErro?'email-erro':undefined} onChange={()=>setEmailErro('')}/>
         {emailErro&&<span id="email-erro" role="alert">{emailErro}</span>}
@@ -368,6 +464,7 @@ export default function FestaAcessos(){
         </label>
        </fieldset>
        <p className={layout.muted}>O nível escolhido também define o acesso inicial às Festas. Depois, alterar o acesso às Festas não muda o papel.</p>
+       {modo==='senha'&&<>
        <label className={layout.senha}>Senha inicial
         <span className={layout.senhaCampo}>
          <input name="senha" type={verSenha?'text':'password'} autoComplete="new-password" required minLength={8} maxLength={128}/>
@@ -379,10 +476,11 @@ export default function FestaAcessos(){
         {senhaErro&&<span id="senha-erro" role="alert">{senhaErro}</span>}
        </label>
        <p className={layout.dica}><span className={layout.infoIcon} aria-hidden="true">i</span>Você define a senha inicial para quem ainda não usa o Kidmais. Quem já usa continua com a própria senha.</p>
+       </>}
       </fieldset>
      </div>
      <div className={layout.drawerActions}>
-      <AdminPrimaryButton type="submit" className={layout.cta} carregando={busy}>Adicionar pessoa</AdminPrimaryButton>
+      <AdminPrimaryButton type="submit" className={layout.cta} carregando={busy}>{modo==='convite'?'Enviar convite':'Adicionar pessoa'}</AdminPrimaryButton>
       <button type="button" className={layout.ghost} disabled={busy} onClick={fecharCriar}>Cancelar</button>
      </div>
     </form>

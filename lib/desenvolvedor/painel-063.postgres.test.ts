@@ -824,6 +824,73 @@ test('H0 (database/checks/20261006_h0_perfil_legado_leitura.sql): mesma associa�
     }
 });
 
+test('E1 (venda por assinatura): a Gestão convida só na própria empresa; conta existente só entra pelo aceite com a própria senha; nada duplica; criação direta desativada não cria identidade', async () => {
+    const hash = await svc.senha.criarHashSenha(senhas.resp);
+    for (const chave of ['e1GestaoA', 'e1GestaoB', 'e1EquipeA', 'e1Existente'])
+        ids[chave] = (await client.query<{ id: string }>('INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel) VALUES ($1, $2, $3, $4) RETURNING id', [email(chave.toLowerCase()), 'Pessoa ' + chave, hash, 'ADMINISTRATIVO'])).rows[0].id;
+    for (const chave of ['e1EmpA', 'e1EmpB']) {
+        ids[chave] = (await client.query<{ id: string }>("INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id", ['p063-' + chave.toLowerCase() + '-' + sufixo, 'Buffet ' + chave])).rows[0].id;
+        await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [ids[chave]]);
+    }
+    const vinculo = async (empresa: string, usuario: string, papel: string) => {
+        const m = (await client.query<{ id: string }>("INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1, $2, 'PENDENTE', clock_timestamp(), $3) RETURNING id", [empresa, usuario, papel])).rows[0].id;
+        await client.query("UPDATE memberships SET status = 'ATIVA' WHERE id = $1", [m]);
+    };
+    await vinculo(ids.e1EmpA, ids.e1GestaoA, 'REPRESENTANTE_AUTORIZADO');
+    await vinculo(ids.e1EmpA, ids.e1EquipeA, 'ADMINISTRATIVO');
+    await vinculo(ids.e1EmpB, ids.e1GestaoB, 'REPRESENTANTE_AUTORIZADO');
+    await vinculo(ids.e1EmpB, ids.e1Existente, 'ADMINISTRATIVO');
+
+    const conviteEmpresa = carregar('lib/acessos/convites-empresa.ts');
+    const conferirSenha = (carregar('lib/autenticacao/senha.ts') as unknown as { conferirSenha: Fn }).conferirSenha;
+    const gestaoA = (await sessaoDe(ids.e1GestaoA)).sessao, gestaoB = (await sessaoDe(ids.e1GestaoB)).sessao, equipeA = (await sessaoDe(ids.e1EquipeA)).sessao;
+    const convidar = (s: unknown, corpo: Record<string, unknown>, empresa?: string) => conviteEmpresa.convidarNaEmpresa(s as never, { acao: 'convidar', ...corpo } as never, ctx() as never, deps() as never, (empresa ?? null) as never);
+    const senhaAntes = (await client.query('SELECT senha_hash FROM usuarios_administrativos WHERE id = $1', [ids.e1Existente])).rows[0].senha_hash;
+
+    // Equipe não convida; a Gestão de A não age em B nem pedindo empresaId; nada é gravado.
+    await assert.rejects(convidar(equipeA, { email: email('e1existente'), nivel: 'EQUIPE' }), (e: { httpStatus?: number }) => e.httpStatus === 403);
+    assert.notEqual(await codigoErro(convidar(gestaoA, { email: email('e1existente'), nivel: 'EQUIPE' }, ids.e1EmpB)), 'OK');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM convites_acesso WHERE empresa_id = ANY($1::uuid[])', [[ids.e1EmpA, ids.e1EmpB]]), 0);
+
+    // Convite da Gestão de A para conta existente (Equipe de B): nenhum vínculo antes do aceite.
+    const criado = await convidar(gestaoA, { email: email('e1existente').toUpperCase(), nivel: 'EQUIPE' }) as unknown as { conviteId: string; envio: { enviado: boolean } };
+    assert.equal(criado.envio.enviado, true);
+    assert.equal((await client.query('SELECT empresa_id FROM convites_acesso WHERE id = $1', [criado.conviteId])).rows[0].empresa_id, ids.e1EmpA);
+    assert.equal(await contar('SELECT count(*)::int AS n FROM memberships WHERE empresa_id = $1 AND usuario_id = $2', [ids.e1EmpA, ids.e1Existente]), 0, 'sem vínculo sem aceite');
+    assert.equal(await codigoErro(convidar(gestaoA, { email: email('e1existente'), nivel: 'EQUIPE' })), 'CONFLITO', 'pendente válido não duplica');
+    // A Gestão de B não alcança o convite de A.
+    assert.equal(await codigoErro(conviteEmpresa.alterarConviteNaEmpresa(gestaoB as never, { acao: 'cancelar-convite', conviteId: criado.conviteId } as never, ctx() as never, deps() as never)), 'NAO_ENCONTRADO');
+
+    // Aceite: senha errada recusada; a própria senha cria só o vínculo de A; senha e vínculo de B intactos.
+    const token = tokenDoUltimoEnvio(email('e1existente'));
+    assert.equal(await codigoErro(svc.convites.aceitarConvite({ token, senha: 'senha-errada-e1' } as never, ctx() as never, { ...deps(), conferirSenha } as never)), 'DADOS_INVALIDOS');
+    await svc.convites.aceitarConvite({ token, senha: senhas.resp } as never, ctx() as never, { ...deps(), conferirSenha } as never);
+    const vinculos = (await client.query<{ empresa_id: string; papel: string; status: string }>('SELECT empresa_id, papel, status FROM memberships WHERE usuario_id = $1 ORDER BY criado_em', [ids.e1Existente])).rows;
+    assert.deepEqual(vinculos.map((v) => [v.empresa_id, v.papel, v.status]), [[ids.e1EmpB, 'ADMINISTRATIVO', 'ATIVA'], [ids.e1EmpA, 'ADMINISTRATIVO', 'ATIVA']]);
+    assert.equal((await client.query('SELECT senha_hash FROM usuarios_administrativos WHERE id = $1', [ids.e1Existente])).rows[0].senha_hash, senhaAntes);
+    assert.equal(await codigoErro(svc.convites.aceitarConvite({ token, senha: senhas.resp } as never, ctx() as never, { ...deps(), conferirSenha } as never)), 'LINK_INVALIDO');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM memberships WHERE empresa_id = $1 AND usuario_id = $2', [ids.e1EmpA, ids.e1Existente]), 1);
+
+    // Cancelar invalida o link; reenviar convite cancelado é recusado; a conta não chega a existir.
+    const novo = await convidar(gestaoA, { email: email('e1novo'), nome: 'Pessoa Nova', nivel: 'GESTAO' }) as unknown as { conviteId: string };
+    const tokenNovo = tokenDoUltimoEnvio(email('e1novo'));
+    await conviteEmpresa.alterarConviteNaEmpresa(gestaoA as never, { acao: 'cancelar-convite', conviteId: novo.conviteId } as never, ctx() as never, deps() as never);
+    assert.equal(await codigoErro(svc.convites.aceitarConvite({ token: tokenNovo, nome: 'Pessoa Nova', senha: senhas.nova, confirmacao: senhas.nova } as never, ctx() as never, deps() as never)), 'LINK_INVALIDO');
+    assert.equal(await codigoErro(conviteEmpresa.alterarConviteNaEmpresa(gestaoA as never, { acao: 'reenviar-convite', conviteId: novo.conviteId } as never, ctx() as never, deps() as never)), 'CONFLITO');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM usuarios_administrativos WHERE email = $1', [email('e1novo')]), 0);
+
+    // Criação direta desativada: recusa sem criar identidade nem vínculo.
+    const usuariosDeps = { withTransaction, criarHashSenha: svc.senha.criarHashSenha, registrarAuditoria: deps().registrarAuditoria, criacaoDireta: () => false };
+    assert.equal(await codigoErro(svc.usuarios.criarUsuarioAdministrativo(gestaoA as never, { acao: 'criar', nome: 'Direta', email: email('e1direta'), nivel: 'EQUIPE', senha: senhas.nova, confirmacao: senhas.nova } as never, 'r' as never, usuariosDeps as never)), 'CRIACAO_DIRETA_DESATIVADA');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM usuarios_administrativos WHERE email = $1', [email('e1direta')]), 0);
+
+    // Auditoria da Gestão: origem própria, empresa comprovada, sem token nem link.
+    const audit = (await client.query<{ acao: string; dados: string }>(
+        "SELECT acao, dados_depois::text AS dados FROM auditoria WHERE origem = 'ADMIN_USUARIOS' AND dados_depois->>'empresaId' = $1 AND acao LIKE 'CONVITE_%'", [ids.e1EmpA])).rows;
+    assert.deepEqual([...new Set(audit.map((a) => a.acao))].sort(), ['CONVITE_CANCELADO', 'CONVITE_CRIADO', 'CONVITE_ENVIADO']);
+    assert.ok(audit.every((a) => !/#t=|[A-Za-z0-9_-]{43}/.test(a.dados)));
+});
+
 test('rollback da 063 recusa depois do uso (vínculo suspenso ou registros), sem apagar nada', async () => {
     const dev = (await sessaoDe(ids.dev)).sessao;
     await svc.vinculos.alterarSituacaoVinculo(dev as never, ids.empresa as never, ids.dono as never, 'desativar' as never, { motivo: 'Prova de rollback' } as never, ctx() as never, deps() as never);
