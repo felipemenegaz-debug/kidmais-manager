@@ -19,9 +19,11 @@ export const TIPO_PENDENCIA = 'KIDMAIS_RECONCILIAR_CONTRATACAO';
 export const PREFIXO_PENDENCIA = 'kidmais:';
 /** Intenção de criação gravada ANTES do POST de criação no provedor (registro prévio da operação). */
 export const PREFIXO_CRIACAO = 'kidmais:criacao:';
+/** Registro durável do id CONFIRMADO pelo provedor, gravado logo após a resposta e antes do vínculo (fase C). */
+export const PREFIXO_ID_CONFIRMADO = 'kidmais:vinculo:';
 const TROCA_PERMITIDA = new Set(['TESTE', 'CANCELADA_FIM_PERIODO', 'ENCERRADA']);
 
-export type MotivoPendencia = 'CRIACAO_EM_CURSO' | 'CRIACAO_SEM_RESPOSTA' | 'COMMIT_INCERTO' | 'COMPENSACAO_FALHOU' | 'VINCULO_DUVIDOSO' | 'COMPENSACAO_PRESERVADA' | 'ASSINATURAS_AMBIGUAS';
+export type MotivoPendencia = 'CRIACAO_EM_CURSO' | 'CRIACAO_CONFIRMADA_SEM_VINCULO' | 'CRIACAO_SEM_RESPOSTA' | 'COMMIT_INCERTO' | 'COMPENSACAO_FALHOU' | 'VINCULO_DUVIDOSO' | 'COMPENSACAO_PRESERVADA' | 'ASSINATURAS_AMBIGUAS';
 export type ProvedorReconciliacao = Pick<ClienteAsaas, 'obterAssinatura' | 'listarAssinaturasPorReferencia' | 'listarCobrancasDaAssinatura' | 'removerAssinatura'>;
 
 /** Registra a pendência (só identificadores e o motivo). Devolve o id interno. */
@@ -40,8 +42,35 @@ export async function pendenciasAbertas(tx: DbExecutor, empresaId: string) {
         [empresaId, TIPO_PENDENCIA])).rows;
 }
 
+/**
+ * Grava o id confirmado pelo provedor (evento `kidmais:vinculo:<empresa>:<intenção>`, aberto). Fica aberto até o vínculo:
+ * se o processo cair antes da fase C, a próxima tentativa reaproveita a assinatura por este id — sem novo POST.
+ */
+export async function registrarIdConfirmado(tx: DbExecutor, input: { empresaId: string; assinaturaId: string; intencaoId: string }) {
+    return (await tx.query<{ id: string }>(
+        `INSERT INTO cobranca_eventos (provedor, evento_id, tipo, assinatura_provedor_id, referencia_externa, empresa_id, situacao, ultimo_erro)
+         VALUES ('ASAAS', $1, $2, $3, $4, $5::uuid, 'PENDENTE', 'CRIACAO_CONFIRMADA_SEM_VINCULO') RETURNING id`,
+        [`${PREFIXO_ID_CONFIRMADO}${input.empresaId}:${input.intencaoId}`, TIPO_PENDENCIA, input.assinaturaId, input.empresaId, input.empresaId])).rows[0].id;
+}
+
+/** Intenção à qual um registro de id confirmado pertence (último segmento do evento_id). */
+export function intencaoDoIdConfirmado(eventoId: string) {
+    return eventoId.startsWith(PREFIXO_ID_CONFIRMADO) ? eventoId.slice(eventoId.lastIndexOf(':') + 1) : null;
+}
+
+/**
+ * Encerra pendências abertas da empresa (intenção e id confirmado). Chamada DENTRO da transação que grava o vínculo
+ * (fase C): vínculo e encerramento são atômicos — ou os dois, ou nenhum.
+ */
+export async function encerrarPendencias(tx: DbExecutor, empresaId: string, ids: readonly string[], motivo: 'VINCULADA' | 'COMPENSADA' | 'SUBSTITUIDA_POR_PENDENCIA') {
+    if (!ids.length)
+        return;
+    await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $3
+                     WHERE id = ANY($2::uuid[]) AND empresa_id = $1::uuid AND tipo = $4 AND situacao IN ('PENDENTE', 'FALHOU')`, [empresaId, ids, motivo, TIPO_PENDENCIA]);
+}
+
 /** Fecha a intenção de criação (resultado conhecido). A identidade do evento é imutável (068): só situação e motivo mudam. */
-export async function concluirIntencao(tx: DbExecutor, id: string, motivo: 'CRIACAO_CONFIRMADA' | 'CRIACAO_RECUSADA') {
+export async function concluirIntencao(tx: DbExecutor, id: string, motivo: 'CRIACAO_RECUSADA' | 'LIBERADA_MANUALMENTE: CRIACAO_NAO_EXECUTADA') {
     await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $2
                      WHERE id = $1::uuid AND situacao IN ('PENDENTE', 'FALHOU')`, [id, motivo]);
 }
@@ -82,8 +111,11 @@ export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, 
     if (!linha)
         return { resultado: 'REVISAO_HUMANA', motivo: 'SEM_ASSINATURA_NO_BANCO', ids: [] };
     const ativas = (await provedor.listarAssinaturasPorReferencia(empresaId)).filter(ativa);
-    if (pendencia?.assinaturaId && !ativas.some((s) => s.id === pendencia.assinaturaId)) {
-        const conhecida = await provedor.obterAssinatura(pendencia.assinaturaId);
+    // A listagem pode atrasar: ids conhecidos (vínculo gravado, pendência) são confirmados um a um pelo id.
+    for (const id of new Set([linha.provedor_assinatura_id, pendencia?.assinaturaId ?? null])) {
+        if (!id || ativas.some((s) => s.id === id))
+            continue;
+        const conhecida = await provedor.obterAssinatura(id);
         if (conhecida && ativa(conhecida) && conhecida.externalReference === empresaId)
             ativas.push(conhecida);
     }

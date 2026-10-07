@@ -3,6 +3,7 @@ import type { SessaoAdmin } from '../autenticacao/service.ts';
 import { erroAcesso } from '../acessos/erros.ts';
 import { AsaasFalhou, clienteAsaasDoAmbiente, type ClienteAsaas } from '../assinatura/asaas.ts';
 import { sincronizarEmpresa } from '../assinatura/sincronizacao.ts';
+import { liberarIntencaoCriacao, pendenciasDaEmpresa } from '../assinatura/liberacao-intencao.ts';
 import { exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
 import { auditarPainel, type ContextoPainel } from './auditoria.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
@@ -41,4 +42,30 @@ export async function sincronizarCobrancaEmpresa(sessao: SessaoAdmin, id: string
         });
         return r;
     });
+}
+
+/** Pendências de cobrança abertas da empresa (painel; sem ids do provedor). */
+export async function pendenciasCobrancaEmpresa(sessao: SessaoAdmin, id: string, deps: CobrancaPainelDeps = cobrancaPainelDepsPadrao()) {
+    const empresaId = z.string().uuid().parse(id);
+    return deps.withTransaction((tx) => pendenciasDaEmpresa(tx, sessao, empresaId));
+}
+
+/**
+ * Libera, manualmente e com auditoria, uma intenção de criação comprovadamente não executada (ver
+ * lib/assinatura/liberacao-intencao.ts). Senha confirmada há ≤ 5 min; nunca por prazo.
+ */
+export async function liberarIntencaoCobranca(sessao: SessaoAdmin, id: string, raw: unknown, ctx: ContextoPainel, deps: CobrancaPainelDeps = cobrancaPainelDepsPadrao()) {
+    exigirReautenticacaoRecente(sessao);
+    const empresaId = z.string().uuid().parse(id);
+    const provedor = deps.provedor();
+    if (!provedor)
+        throw erroAcesso('COBRANCA_NAO_CONFIGURADA', 'A cobrança não está configurada neste ambiente.', 503);
+    try {
+        return await deps.withTransaction((tx) => liberarIntencaoCriacao(tx, sessao, empresaId, raw, provedor, ctx));
+    }
+    catch (error) {
+        if (error instanceof AsaasFalhou)
+            throw erroAcesso('COBRANCA_FALHOU', 'O provedor de pagamento não respondeu. Nada foi liberado.', 502);
+        throw error;
+    }
 }

@@ -78,6 +78,11 @@ class BancoFalso {
             Object.assign(this.eventos.find((x) => x.id === p[0])!, { situacao: 'PROCESSADO', processado_em: this.agora, ultimo_erro: p[1] });
             return rows([]);
         }
+        if (s.startsWith("UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $3")) {
+            for (const e of this.eventos.filter((x) => (p[1] as string[]).includes(x.id) && ['PENDENTE', 'FALHOU'].includes(x.situacao)))
+                Object.assign(e, { situacao: 'PROCESSADO', processado_em: this.agora, ultimo_erro: p[2] });
+            return rows([]);
+        }
         if (s.startsWith('UPDATE cobranca_eventos SET ultimo_erro = $2')) {
             Object.assign(this.eventos.find((x) => x.id === p[0])!, { ultimo_erro: p[1] });
             return rows([]);
@@ -305,8 +310,9 @@ test('retorno do checkout sem webhook: iniciar a assinatura grava só os ids do 
     const r = await iniciarAssinatura(sessao, null, { ciclo: 'MENSAL' }, ctx, deps);
     assert.deepEqual(r, { ciclo: 'MENSAL', reaproveitada: false, urlPagamento: 'https://sandbox.asaas.com/i/pay_1', vencimento: '2026-10-20' });
     assert.deepEqual(chamadas, ['buscarCliente', `criarCliente:${EMP_A}`, 'listarAssinaturas', 'criarAssinatura:MENSAL:9990:2026-10-20']);
-    assert.deepEqual(banco.eventos.filter((e) => e.evento_id.startsWith('kidmais:criacao:')).map((e) => [e.situacao, e.ultimo_erro]), [['PROCESSADO', 'CRIACAO_CONFIRMADA']],
-        'intenção gravada antes do POST e fechada depois da resposta');
+    assert.deepEqual(banco.eventos.filter((e) => e.evento_id.startsWith('kidmais:criacao:')).map((e) => [e.situacao, e.ultimo_erro]), [['PROCESSADO', 'VINCULADA']],
+        'intenção gravada antes do POST e encerrada junto com o vínculo');
+    assert.deepEqual(banco.eventos.filter((e) => e.evento_id.startsWith('kidmais:vinculo:')).map((e) => [e.situacao, e.ultimo_erro]), [['PROCESSADO', 'VINCULADA']], 'id confirmado gravado e encerrado com o vínculo');
     const depois = banco.assinaturas.get(EMP_A)!;
     assert.deepEqual([depois.situacao, depois.periodo_atual_fim, depois.provedor_assinatura_id, depois.provedor_cliente_id], [antes.situacao, null, 'sub_novo', 'cus_novo']);
     assert.ok(!banco.sql.some((s) => /empresa_assinaturas SET situacao/.test(s)), 'nenhuma escrita de situação da assinatura ao iniciar');

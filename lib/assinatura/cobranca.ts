@@ -28,7 +28,7 @@ import { precoDoCiclo, ConfiguracaoComercialInvalida, type Ciclo } from './confi
 import { AsaasFalhou, cicloDoProvedor, type AssinaturaProvedor, type ClienteAsaas } from './asaas.ts';
 import { cobrancaEmAberto } from './provedor-estado.ts';
 import { auditarCobranca, sincronizarEmpresa } from './sincronizacao.ts';
-import { concluirIntencao, marcarIntencao, pendenciasAbertas, registrarPendencia } from './reconciliacao-contratacao.ts';
+import { concluirIntencao, encerrarPendencias, intencaoDoIdConfirmado, marcarIntencao, pendenciasAbertas, registrarIdConfirmado, registrarPendencia } from './reconciliacao-contratacao.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 
 const GESTAO = 'REPRESENTANTE_AUTORIZADO';
@@ -163,7 +163,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         const anterior = a.linha.provedor_assinatura_id ? await provedor.obterAssinatura(a.linha.provedor_assinatura_id) : null;
         if (anterior && ativa(anterior)) {
             const aberta = cobrancaEmAberto(await provedor.listarCobrancasDaAssinatura(anterior.id));
-            return { assinatura: anterior, clienteId: a.linha.provedor_cliente_id ?? anterior.customer, aberta, criada: false, reaproveitada: true };
+            return { assinatura: anterior, clienteId: a.linha.provedor_cliente_id ?? anterior.customer, aberta, criada: false, reaproveitada: true, encerrar: [] as string[] };
         }
         let clienteId = a.linha.provedor_cliente_id;
         if (!clienteId) {
@@ -179,7 +179,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         // Retomada: assinatura ativa criada antes e não gravada (resposta perdida, COMMIT incerto) é reaproveitada.
         const retomada = unicaCandidata(await provedor.listarAssinaturasPorReferencia(empresaId), clienteId);
         if (retomada.tipo === 'UNICA')
-            return { assinatura: retomada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, retomada.assinatura.id), criada: false, reaproveitada: true };
+            return { assinatura: retomada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, retomada.assinatura.id), criada: false, reaproveitada: true, encerrar: [] as string[] };
         if (retomada.tipo === 'AMBIGUA') {
             // Várias assinaturas (ou de outro cliente) para a empresa: não escolhe, não cria outra, não exclui.
             await registrarPendenciaSegura(deps, { empresaId, assinaturaId: null, motivo: 'ASSINATURAS_AMBIGUAS' });
@@ -199,8 +199,12 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             if (!pend.assinatura_provedor_id)
                 continue;
             const conhecida = await provedor.obterAssinatura(pend.assinatura_provedor_id);
-            if (conhecida && ativa(conhecida) && conhecida.externalReference === empresaId && (!conhecida.customer || conhecida.customer === clienteId))
-                return { assinatura: conhecida, clienteId, aberta: await cobrancaAberta(provedor, conhecida.id), criada: false, reaproveitada: true };
+            if (conhecida && ativa(conhecida) && conhecida.externalReference === empresaId && (!conhecida.customer || conhecida.customer === clienteId)) {
+                // Id durável de uma operação anterior: vincula por ele e encerra (na fase C) o registro e a intenção dele.
+                const intencaoAnterior = intencaoDoIdConfirmado(pend.evento_id);
+                const encerrar = [pend.id, ...abertas.filter((x) => x.id === intencaoAnterior).map((x) => x.id)];
+                return { assinatura: conhecida, clienteId, aberta: await cobrancaAberta(provedor, conhecida.id), criada: false, reaproveitada: true, encerrar };
+            }
         }
         if (abertas.length)
             throw incerto();
@@ -230,15 +234,16 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             const achadas = await provedor.listarAssinaturasPorReferencia(empresaId).catch(() => null);
             const confirmada = achadas ? unicaCandidata(achadas, clienteId) : null;
             if (confirmada?.tipo === 'UNICA') {
-                await atualizarIntencao(deps, intencao, 'CRIACAO_CONFIRMADA');
-                return { assinatura: confirmada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, confirmada.assinatura.id), criada: true, reaproveitada: false };
+                const encerrar = await persistirIdConfirmado(deps, empresaId, confirmada.assinatura.id, intencao);
+                return { assinatura: confirmada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, confirmada.assinatura.id), criada: true, reaproveitada: false, encerrar };
             }
             // Não confirmada (inclusive listagem vazia): a intenção fica ABERTA — nada de novo POST até resolver.
             await atualizarIntencao(deps, intencao, 'CRIACAO_SEM_RESPOSTA');
             throw incerto();
         }
-        await atualizarIntencao(deps, intencao, 'CRIACAO_CONFIRMADA');
-        return { assinatura, clienteId, aberta: await cobrancaAberta(provedor, assinatura.id), criada: true, reaproveitada: false };
+        // A intenção continua ABERTA: só é encerrada junto com o vínculo (fase C). Até lá, o id confirmado fica gravado.
+        const encerrar = await persistirIdConfirmado(deps, empresaId, assinatura.id, intencao);
+        return { assinatura, clienteId, aberta: await cobrancaAberta(provedor, assinatura.id), criada: true, reaproveitada: false, encerrar };
     });
 
     // C. grava os ids (nunca a situação) com a linha travada
@@ -269,6 +274,8 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
                         ciclo = CASE WHEN situacao IN ('TESTE', 'ENCERRADA') THEN $4 ELSE ciclo END, provedor_situacao = $5
                   WHERE empresa_id = $1::uuid`,
                 [empresaId, b.clienteId, b.assinatura.id, cicloDoProvedor(b.assinatura.cycle) ?? ciclo, b.assinatura.status.slice(0, 40)]);
+            // Mesma transação do vínculo: intenção e id confirmado só se encerram se o vínculo for gravado.
+            await encerrarPendencias(tx, empresaId, b.encerrar, 'VINCULADA');
             await auditarCobranca(tx, {
                 acao: b.reaproveitada ? 'ASSINATURA_CHECKOUT_RETOMADO' : 'ASSINATURA_CHECKOUT_INICIADO', empresaId,
                 origem: { tipo: 'GESTAO', usuarioId: sessao.usuario_id, requestId: ctx.requestId }, ip: ctx.ip ?? null,
@@ -312,13 +319,47 @@ async function cobrancaAberta(provedor: ClienteAsaas, assinaturaId: string) {
  * Fecha (confirmada/recusada) ou anota (sem resposta) a intenção de criação. Falhar aqui não desfaz nada: a intenção só
  * fica aberta a mais, o que bloqueia novos POSTs até a reconciliação ou a retomada encontrarem a assinatura.
  */
-async function atualizarIntencao(deps: DepsCobranca, id: string, motivo: 'CRIACAO_CONFIRMADA' | 'CRIACAO_RECUSADA' | 'CRIACAO_SEM_RESPOSTA') {
+async function atualizarIntencao(deps: DepsCobranca, id: string, motivo: 'CRIACAO_RECUSADA' | 'CRIACAO_SEM_RESPOSTA') {
     try {
         await deps.withTransaction((tx) => motivo === 'CRIACAO_SEM_RESPOSTA' ? marcarIntencao(tx, id, motivo) : concluirIntencao(tx, id, motivo));
     }
     catch (error) {
         console.error('[cobrança] intenção de criação não atualizada (continua aberta)', motivo, error instanceof Error ? error.name : typeof error);
     }
+}
+
+/**
+ * Grava, numa transação própria, o id confirmado pelo provedor (antes da fase C). Devolve o que a fase C deve encerrar
+ * junto com o vínculo: a intenção e, se gravado, o registro do id. Falhar aqui não impede o vínculo; a intenção segue
+ * aberta (bloqueia novos POSTs) e a assinatura é reencontrada pela listagem ou pela reconciliação.
+ */
+async function persistirIdConfirmado(deps: DepsCobranca, empresaId: string, assinaturaId: string, intencao: string) {
+    try {
+        return [intencao, await deps.withTransaction((tx) => registrarIdConfirmado(tx, { empresaId, assinaturaId, intencaoId: intencao }))];
+    }
+    catch (error) {
+        console.error('[cobrança] id confirmado NÃO gravado (a intenção continua aberta)', error instanceof Error ? error.name : typeof error);
+        return [intencao];
+    }
+}
+
+/** Encerra (fora da fase C) as pendências desta operação depois que outro registro durável assumiu o caso. */
+async function encerrarSeguro(deps: DepsCobranca, empresaId: string, ids: readonly string[], motivo: 'COMPENSADA' | 'SUBSTITUIDA_POR_PENDENCIA') {
+    try {
+        await deps.withTransaction((tx) => encerrarPendencias(tx, empresaId, ids, motivo));
+    }
+    catch (error) {
+        console.error('[cobrança] pendências da operação não encerradas (continuam abertas)', motivo, error instanceof Error ? error.name : typeof error);
+    }
+}
+
+/**
+ * Registra a pendência do caso (com o id da assinatura) e SÓ ENTÃO encerra a intenção e o id confirmado desta operação:
+ * sempre resta um registro aberto e durável com o id. Se o registro falhar, os da operação continuam abertos.
+ */
+async function substituirPorPendencia(deps: DepsCobranca, empresaId: string, encerrar: readonly string[], input: Parameters<typeof registrarPendencia>[1]) {
+    if (await registrarPendenciaSegura(deps, input))
+        await encerrarSeguro(deps, empresaId, encerrar, 'SUBSTITUIDA_POR_PENDENCIA');
 }
 
 /** Registra a pendência sem mascarar o erro original; se nem isso for possível, o log diz (sem dados) e o vínculo pela referência externa ainda permite retomar. */
@@ -342,7 +383,7 @@ async function registrarPendenciaSegura(deps: DepsCobranca, input: Parameters<ty
  *     preservada → pendência com o motivo (vínculo que não mudou = COMMIT_INCERTO, ex.: recontratação após cancelamento);
  *   - qualquer outra dúvida (releitura falhou, nenhuma vinculada) → NADA é excluído; pendência e resposta "incerta".
  */
-async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculoAnterior: string | null, b: { assinatura: AssinaturaProvedor; criada: boolean }, provedor: ClienteAsaas, deps: DepsCobranca) {
+async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculoAnterior: string | null, b: { assinatura: AssinaturaProvedor; criada: boolean; encerrar: string[] }, provedor: ClienteAsaas, deps: DepsCobranca) {
     // Só o tipo do erro (sem mensagem, ids ou dados): permite investigar sem expor nada.
     console.warn('[cobrança] falha ao gravar o vínculo da assinatura', error instanceof Error ? ((error as { code?: string }).code ?? error.name) : typeof error);
     let vinculo: string | null | undefined;
@@ -367,21 +408,22 @@ async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculo
         if (decisao?.excluir) {
             try {
                 await provedor.removerAssinatura(b.assinatura.id);
+                await encerrarSeguro(deps, empresaId, b.encerrar, 'COMPENSADA');
             }
             catch {
-                await registrarPendenciaSegura(deps, { empresaId, assinaturaId: b.assinatura.id, motivo: 'COMPENSACAO_FALHOU' });
+                await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId: b.assinatura.id, motivo: 'COMPENSACAO_FALHOU' });
             }
             throw error;
         }
         if (decisao?.motivo === 'VINCULO_NAO_MUDOU')
-            await registrarPendenciaSegura(deps, { empresaId, assinaturaId: b.assinatura.id, motivo: 'COMMIT_INCERTO' });
+            await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId: b.assinatura.id, motivo: 'COMMIT_INCERTO' });
         else
-            await registrarPendenciaSegura(deps, { empresaId, assinaturaId: b.assinatura.id, motivo: decisao ? 'COMPENSACAO_PRESERVADA' : 'VINCULO_DUVIDOSO', detalhe: decisao?.motivo });
+            await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId: b.assinatura.id, motivo: decisao ? 'COMPENSACAO_PRESERVADA' : 'VINCULO_DUVIDOSO', detalhe: decisao?.motivo });
         return responder();
     }
     if (typeof vinculo === 'string')
         throw error;
-    await registrarPendenciaSegura(deps, { empresaId, assinaturaId: b.assinatura.id, motivo: vinculo === undefined || error instanceof AcessoServiceError ? 'VINCULO_DUVIDOSO' : 'COMMIT_INCERTO' });
+    await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId: b.assinatura.id, motivo: vinculo === undefined || error instanceof AcessoServiceError ? 'VINCULO_DUVIDOSO' : 'COMMIT_INCERTO' });
     if (error instanceof AcessoServiceError && vinculo === null)
         throw error;
     throw incerto();

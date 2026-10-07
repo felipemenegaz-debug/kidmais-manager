@@ -119,6 +119,7 @@ const ACOES: Record<string, string> = {
     EMPRESA_CADASTRADA_PUBLICO: 'Empresa cadastrada pelo cadastro público',
     CADASTRO_CONFIRMADO: 'Conta confirmada pelo e-mail',
     COBRANCA_SINCRONIZADA: 'Cobrança sincronizada com o provedor',
+    COBRANCA_INTENCAO_LIBERADA: 'Intenção de cobrança liberada manualmente',
 };
 export function rotuloAcao(acao: string) {
     return ACOES[acao] ?? acao.toLowerCase().replace(/_/g, ' ');

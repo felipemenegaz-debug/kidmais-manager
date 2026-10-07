@@ -8,6 +8,7 @@ import { iniciarTeste } from './servico.ts';
 import { iniciarAssinatura, travaPorEmpresa, type DepsCobranca } from './cobranca.ts';
 import { processarEvento } from './sincronizacao.ts';
 import { TIPO_PENDENCIA } from './reconciliacao-contratacao.ts';
+import { CONFIRMACAO_LIBERACAO, liberarIntencaoCriacao } from './liberacao-intencao.ts';
 import { AsaasFalhou, type AssinaturaProvedor, type ClienteAsaas, type CobrancaProvedor } from './asaas.ts';
 
 /**
@@ -25,6 +26,7 @@ import { AsaasFalhou, type AssinaturaProvedor, type ClienteAsaas, type CobrancaP
  */
 const M067 = 'database/migrations/20261006_067_modelo_comercial_empresa.sql';
 const M068 = 'database/migrations/20261007_068_cobranca_assinatura.sql';
+const M063 = 'database/migrations/20261004_063_painel_desenvolvedor.sql';
 const ENV = { ASAAS_AMBIENTE: 'sandbox', ASAAS_API_KEY: '$aact_hmlg_chave_sintetica_de_teste_sem_valor', ASAAS_WEBHOOK_TOKEN: 'token-webhook-sintetico-de-teste-32+caracteres', ASSINATURA_PRECO_MENSAL_CENTAVOS: '9990' };
 const PAGAS = ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'];
 
@@ -66,6 +68,8 @@ class AsaasFalso implements ClienteAsaas {
     perderRespostaDaCriacao = false;
     falharListagensRestantes = 0;
     falharRemocao = false;
+    /** O POST de criação falha por tempo esgotado SEM criar nada (operação comprovadamente não executada). */
+    falharAntesDeCriar = false;
     depoisDeCriar: ((id: string) => Promise<void>) | null = null;
     /** POSTs de criação de assinatura recebidos (inclusive os que "perderam" a resposta). */
     postsCriacao = 0;
@@ -93,6 +97,8 @@ class AsaasFalso implements ClienteAsaas {
     }
     async criarAssinatura(i: { cliente: string; referencia: string }) {
         this.postsCriacao += 1;
+        if (this.falharAntesDeCriar)
+            throw new AsaasFalhou('criar assinatura', null, 'TEMPO_ESGOTADO');
         if (this.atrasoCriacaoMs) await new Promise((ok) => setTimeout(ok, this.atrasoCriacaoMs));
         const id = this.criarDireto(i.cliente, i.referencia);
         if (this.depoisDeCriar) await this.depoisDeCriar(id);
@@ -112,6 +118,7 @@ class AsaasFalso implements ClienteAsaas {
 }
 
 let usuario = '';
+let dev = '';
 async function novaEmpresa() {
     const id = (await q("INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Buffet Contratação', 'PROVISIONAMENTO') RETURNING id", [`ct${randomBytes(4).toString('hex')}`])).rows[0].id as string;
     await q("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [id]);
@@ -138,6 +145,23 @@ const contratar = (empresa: string, d: DepsCobranca) => iniciarAssinatura(sessao
 const vinculo = async (empresa: string) => (await q('SELECT provedor_assinatura_id AS id FROM empresa_assinaturas WHERE empresa_id = $1', [empresa])).rows[0].id as string | null;
 /** Pendências ABERTAS (PENDENTE/FALHOU); intenções de criação já confirmadas ficam PROCESSADO e não aparecem aqui. */
 const pendencias = async (empresa: string) => (await q("SELECT id, evento_id, situacao, ultimo_erro, assinatura_provedor_id FROM cobranca_eventos WHERE empresa_id = $1 AND tipo = $2 AND situacao IN ('PENDENTE', 'FALHOU') ORDER BY recebido_em", [empresa, TIPO_PENDENCIA])).rows;
+const idsConfirmados = async (empresa: string) => (await q("SELECT situacao, ultimo_erro FROM cobranca_eventos WHERE empresa_id = $1 AND evento_id LIKE 'kidmais:vinculo:%' ORDER BY recebido_em", [empresa])).rows.map((r) => [r.situacao, r.ultimo_erro]);
+/**
+ * Processo que MORRE ao entrar na fase C: a chamada de tenant de número `chamadaAlvo` falha e, a partir daí, nada mais
+ * deste processo chega ao banco (nem releitura, nem pendência, nem encerramento).
+ */
+function processoQueMorre(empresa: string, chamadaAlvo: number) {
+    let n = 0, morto = false;
+    const tenant = { empresaComprovada: empresa, membershipId: 'm', usuarioId: usuario, papelAtual: 'REPRESENTANTE_AUTORIZADO' };
+    const queda = () => Object.assign(new Error('processo encerrado (simulado)'), { code: 'ECONNRESET' });
+    const withTenant = ((_s: unknown, _e: unknown, t: (tx: never, tn: typeof tenant) => Promise<unknown>) => {
+        n += 1;
+        if (morto || n === chamadaAlvo) { morto = true; return Promise.reject(queda()); }
+        return withTransaction((tx) => t(tx, tenant));
+    }) as DepsCobranca['withTenantTransaction'];
+    const withTx: DepsCobranca['withTransaction'] = (t) => morto ? Promise.reject(queda()) : withTransaction(t);
+    return { withTenant, withTx };
+}
 const intencoes = async (empresa: string) => (await q("SELECT situacao, ultimo_erro FROM cobranca_eventos WHERE empresa_id = $1 AND evento_id LIKE 'kidmais:criacao:%' ORDER BY recebido_em", [empresa])).rows.map((r) => [r.situacao, r.ultimo_erro]);
 async function codigo(p: Promise<unknown>) {
     try { await p; return 'OK'; } catch (e) { return (e as { code?: string }).code ?? (e as Error).message; }
@@ -178,8 +202,13 @@ test.before(async () => {
     }
     await q(readFileSync(M067, 'utf8'));
     await q(readFileSync(M068, 'utf8'));
+    if (!(await q("SELECT to_regclass('public.plataforma_desenvolvedores') IS NOT NULL AS ok")).rows[0].ok)
+        await q(readFileSync(M063, 'utf8'));
     usuario = (await q("INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Gestão Contratação', $2, 'ADMINISTRATIVO', true) RETURNING id",
         [`ct-${randomBytes(3).toString('hex')}@example.test`, `scrypt$v=1$N=131072$r=8$p=1$${'A'.repeat(22)}==$${'B'.repeat(86)}==`])).rows[0].id;
+    dev = (await q("INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Dev Contratação', $2, 'ADMINISTRATIVO', true) RETURNING id",
+        [`dev-${randomBytes(3).toString('hex')}@example.test`, `scrypt$v=1$N=131072$r=8$p=1$${'A'.repeat(22)}==$${'B'.repeat(86)}==`])).rows[0].id;
+    await q("INSERT INTO plataforma_desenvolvedores (usuario_id, concedido_por, motivo) VALUES ($1, 'teste-sintetico', 'concessão sintética de teste')", [dev]);
 });
 test.after(async () => {
     for (const c of conexoes) await encerrarDescartavel(c, false);
@@ -201,7 +230,8 @@ test('duas contratações simultâneas da mesma empresa: uma assinatura no prove
     assert.deepEqual([terceira.reaproveitada, provedor.criadas], [true, 1]);
     assert.ok(terceira.urlPagamento);
     assert.deepEqual(await pendencias(empresa), []);
-    assert.deepEqual(await intencoes(empresa), [['PROCESSADO', 'CRIACAO_CONFIRMADA']], 'uma intenção, gravada antes do POST e fechada');
+    assert.deepEqual(await intencoes(empresa), [['PROCESSADO', 'VINCULADA']], 'uma intenção, gravada antes do POST e encerrada junto com o vínculo');
+    assert.deepEqual(await idsConfirmados(empresa), [['PROCESSADO', 'VINCULADA']], 'o id confirmado também, na mesma transação do vínculo');
 });
 
 test('COMMIT confirmado no banco seguido de erro de comunicação: releitura confirma o vínculo, resposta normal, nada desfeito', async () => {
@@ -448,4 +478,83 @@ test('processo cai logo depois do POST: a intenção prévia (CRIACAO_EM_CURSO) 
     assert.deepEqual([r.situacao, r.motivo, await vinculo(empresa)], ['PROCESSADO', 'VINCULADA', orfa]);
     const retomada = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean };
     assert.deepEqual([retomada.reaproveitada, provedor.postsCriacao, provedor.removidas, (await pendencias(empresa)).length], [true, 0, [], 0]);
+});
+
+test('POST com sucesso e processo que cai ANTES da fase C, listagem vazia: a nova tentativa vincula pelo id durável — UM POST, intenção encerrada só com o vínculo', async () => {
+    const empresa = await novaEmpresa();
+    const provedor = new AsaasFalso();
+    let criada = '';
+    provedor.depoisDeCriar = async (id) => { criada = id; provedor.ocultasNaListagem.add(id); };
+    // Chamadas de tenant: 1 = empresa comprovada, 2 = fase A, 3 = fase C (o processo morre aqui).
+    const morre = processoQueMorre(empresa, 3);
+    assert.notEqual(await codigo(contratar(empresa, deps(empresa, { provedor, withTenant: morre.withTenant, withTx: morre.withTx }))), 'OK');
+    provedor.depoisDeCriar = null;
+    assert.deepEqual([provedor.postsCriacao, await vinculo(empresa)], [1, null], 'POST respondido, vínculo não gravado');
+    // Recuperável: a intenção continua aberta e o id confirmado ficou gravado de forma durável.
+    assert.deepEqual(await intencoes(empresa), [['PENDENTE', 'CRIACAO_EM_CURSO']]);
+    const abertas = await pendencias(empresa);
+    assert.deepEqual(abertas.map((x) => [x.ultimo_erro, x.assinatura_provedor_id]), [['CRIACAO_EM_CURSO', null], ['CRIACAO_CONFIRMADA_SEM_VINCULO', criada]]);
+    // A liberação manual é recusada: há assinatura confirmada.
+    assert.equal(await codigo(withTransaction((tx) => liberarIntencaoCriacao(tx, { usuario_id: dev }, empresa, { pendenciaId: abertas[0].id, motivo: 'tentativa indevida de liberar', confirmacao: CONFIRMACAO_LIBERACAO }, provedor, { requestId: randomUUID() }))), 'CONFLITO');
+    // Nova tentativa com a listagem AINDA vazia: reaproveita pelo id, sem POST.
+    assert.deepEqual(provedor.ativasDe(empresa), [criada]);
+    assert.deepEqual(await provedor.listarAssinaturasPorReferencia(empresa), [], 'listagem vazia');
+    const r = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean; urlPagamento: string | null };
+    assert.deepEqual([r.reaproveitada, Boolean(r.urlPagamento), await vinculo(empresa)], [true, true, criada]);
+    assert.deepEqual([provedor.postsCriacao, provedor.criadas, provedor.removidas], [1, 1, []], 'UM POST; nada excluído');
+    assert.deepEqual([await intencoes(empresa), await idsConfirmados(empresa), await pendencias(empresa)], [[['PROCESSADO', 'VINCULADA']], [['PROCESSADO', 'VINCULADA']], []],
+        'intenção e id encerrados junto com o vínculo');
+});
+
+test('mesma queda antes da fase C, recuperada pela reconciliação do id durável (sem nova contratação): vincula, sem POST', async () => {
+    const empresa = await novaEmpresa();
+    const provedor = new AsaasFalso();
+    let criada = '';
+    provedor.depoisDeCriar = async (id) => { criada = id; provedor.ocultasNaListagem.add(id); };
+    const morre = processoQueMorre(empresa, 3);
+    assert.notEqual(await codigo(contratar(empresa, deps(empresa, { provedor, withTenant: morre.withTenant, withTx: morre.withTx }))), 'OK');
+    provedor.depoisDeCriar = null;
+    const [intencao, idDuravel] = await pendencias(empresa);
+    const r = await withTransaction((tx) => processarEvento(tx, idDuravel.id, { provedor }));
+    assert.deepEqual([r.situacao, r.motivo, await vinculo(empresa)], ['PROCESSADO', 'VINCULADA', criada]);
+    const ri = await withTransaction((tx) => processarEvento(tx, intencao.id, { provedor }));
+    assert.deepEqual([ri.situacao, ri.motivo], ['PROCESSADO', 'NADA_A_FAZER'], 'empresa vinculada: a intenção fecha');
+    assert.deepEqual([provedor.postsCriacao, provedor.removidas, await pendencias(empresa)], [1, [], []]);
+});
+
+test('liberação manual auditada: só para intenção comprovadamente não executada; recusas não mudam nada; nunca por prazo; depois, uma nova criação', async () => {
+    const empresa = await novaEmpresa();
+    const provedor = new AsaasFalso();
+    provedor.falharAntesDeCriar = true;
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+    provedor.falharAntesDeCriar = false;
+    const [intencao] = await pendencias(empresa);
+    assert.deepEqual([intencao.ultimo_erro, provedor.postsCriacao, provedor.criadas], ['CRIACAO_SEM_RESPOSTA', 1, 0]);
+    // Bloqueada: nem a contratação nem a reconciliação liberam com a listagem vazia (sem prazo nenhum).
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+    for (let i = 0; i < 3; i++)
+        assert.equal((await withTransaction((tx) => processarEvento(tx, intencao.id, { provedor }))).motivo, 'AGUARDANDO_CONFIRMACAO: CRIACAO_NAO_CONFIRMADA');
+    assert.equal(provedor.postsCriacao, 1);
+    const liberar = (raw: unknown, quem = dev, prov: Pick<ClienteAsaas, 'listarAssinaturasPorReferencia'> = provedor) =>
+        codigo(withTransaction((tx) => liberarIntencaoCriacao(tx, { usuario_id: quem }, empresa, raw, prov, { requestId: randomUUID() })));
+    const valido = { pendenciaId: intencao.id, motivo: 'Conferido no painel do Asaas: nenhuma assinatura criada', confirmacao: CONFIRMACAO_LIBERACAO };
+    assert.equal(await liberar({ ...valido, confirmacao: 'sim' }), 'DADOS_INVALIDOS', 'declaração literal obrigatória');
+    assert.equal(await liberar({ ...valido, motivo: 'curto' }), 'DADOS_INVALIDOS', 'motivo obrigatório');
+    assert.equal(await liberar(valido, usuario), 'NAO_ENCONTRADO', 'sem concessão de desenvolvedor');
+    assert.equal(await liberar({ ...valido, pendenciaId: randomUUID() }), 'CONFLITO', 'pendência inexistente');
+    const visivel = { listarAssinaturasPorReferencia: async () => [{ id: 'sub_x', status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: null, externalReference: empresa }] };
+    assert.equal(await liberar(valido, dev, visivel), 'CONFLITO', 'provedor mostra assinatura: foi executada');
+    const fora = { listarAssinaturasPorReferencia: async () => { throw new AsaasFalhou('listar assinaturas', null, 'REDE'); } };
+    assert.notEqual(await liberar(valido, dev, fora), 'OK', 'provedor indisponível: nada liberado');
+    assert.deepEqual((await pendencias(empresa)).map((x) => x.id), [intencao.id], 'recusas não mudaram nada');
+    // Liberação válida: auditada com o motivo; a intenção fecha; a próxima contratação cria UMA assinatura.
+    assert.equal(await liberar(valido), 'OK');
+    const ev = (await q('SELECT situacao, ultimo_erro FROM cobranca_eventos WHERE id = $1', [intencao.id])).rows[0];
+    assert.deepEqual([ev.situacao, ev.ultimo_erro], ['PROCESSADO', 'LIBERADA_MANUALMENTE: CRIACAO_NAO_EXECUTADA']);
+    const aud = (await q("SELECT usuario_id, justificativa, dados_depois FROM auditoria WHERE acao = 'COBRANCA_INTENCAO_LIBERADA' AND dados_depois::text LIKE $1", [`%${intencao.id}%`])).rows;
+    assert.equal(aud.length, 1);
+    assert.deepEqual([aud[0].usuario_id, aud[0].justificativa], [dev, valido.motivo]);
+    assert.equal(await liberar(valido), 'CONFLITO', 'já resolvida');
+    const r = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean };
+    assert.deepEqual([r.reaproveitada, provedor.postsCriacao, provedor.criadas, await vinculo(empresa)], [false, 2, 1, provedor.ativasDe(empresa)[0]]);
 });
