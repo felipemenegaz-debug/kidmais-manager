@@ -148,7 +148,8 @@ for (const seq of sequenciasDoCorpus(corpus.itens)) {
 const metricas = calcularMetricas(linhas);
 
 const corpusId = (/^corpus-holdout-(\d+)-/.exec(path.basename(corpusArq)) ? `holdout${/^corpus-holdout-(\d+)-/.exec(path.basename(corpusArq))[1]}` : /^corpus-holdout-20261005/.test(path.basename(corpusArq)) ? 'holdout1' : path.basename(corpusArq, '.json')) + (args.includes('--sem-revisao') ? '-original' : '');
-const nome = `${versao}-${corpusId}-${modo}${linkPublico ? '-link' : ''}${simular ? '-simulado' : ''}`;
+// Com --link-publico, o rótulo da versão diz isso (o nome do arquivo segue o padrão que os comparadores leem).
+const nome = `${versao}-${corpusId}-${modo}${simular ? '-simulado' : ''}`;
 // v4: régua desta rodada (violação efetiva × reconhecimento de instrução, item de fora, pratos do buffet); v2, v3 e os
 // originais ficam intactos.
 const pasta = path.join(aqui, 'resultados', 'v4');
@@ -156,10 +157,11 @@ mkdirSync(pasta, { recursive: true });
 const cabecalho = [
   `Versão **${versao}** (código em \`${path.basename(codigo)}\`), corpus \`${path.basename(corpusArq)}\` (${linhas.length} mensagens), modo **${simular ? 'IA simulada (provedor falso local, sem rede)' : modo}**, hoje ${HOJE}.`,
   'Fontes oficiais sintéticas em memória; sem banco. Caminho da conversa simulado: recepção (PARAR bloqueia), worker e Wall-e.',
+  `Página pública de disponibilidade (link): ${linkPublico ? "LIGADA (--link-publico)" : "desligada"}.`,
   `Rede: ${avisosRede.length ? JSON.stringify(avisosRede) : 'nenhuma chamada recusada'}.`,
   `Código: \`${git.sha ?? 'sem git'}\` (${git.branch ?? '?'})${git.alterada ? `, COM alterações não commitadas (${git.alterados.join(', ')})` : ', árvore sem alterações rastreadas'}${git.ignorados.length ? ` (ignorados: ${git.ignorados.join(', ')})` : ''}.`,
 ];
-writeFileSync(path.join(pasta, `${nome}.json`), JSON.stringify({ versao, codigo: path.basename(codigo), git, corpus: path.basename(corpusArq), modo: simular ? 'ia-simulado' : modo, executadoEm: new Date().toISOString(), execucao: real ? execucao : null, metricas, linhas }, null, 2) + '\n');
+writeFileSync(path.join(pasta, `${nome}.json`), JSON.stringify({ versao, codigo: path.basename(codigo), git, linkPublico, corpus: path.basename(corpusArq), modo: simular ? 'ia-simulado' : modo, executadoEm: new Date().toISOString(), execucao: real ? execucao : null, metricas, linhas }, null, 2) + '\n');
 const md = markdown(`Wall-e — ${nome}`, cabecalho, metricas);
 writeFileSync(path.join(pasta, `${nome}.md`), md);
 console.log(md);
