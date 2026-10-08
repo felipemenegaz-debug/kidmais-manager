@@ -138,8 +138,8 @@ test('pacotes: compara pelos cadastros e mostra o buffet de cada um, sem inventa
   const t = texto(ultima);
   assert.match(t, /• Essencial: de 30 a 60 convidados; 4 horas de festa; buffet com salgados/);
   assert.match(t, /• Completa: de 50 a 100 convidados/);
-  assert.match(t, /Buffet do Essencial:\n• Salgados \(escolha até 4\): Coxinha, Kibe, Esfirra/);
-  assert.match(t, /Buffet do Completa:[\s\S]*Doces \(escolha de 2 a 3\): Brigadeiro, Beijinho/);
+  assert.match(t, /Buffet do pacote Essencial:\n• Salgados \(escolha até 4\): Coxinha, Kibe, Esfirra/);
+  assert.match(t, /Buffet do pacote Completa:[\s\S]*Doces \(escolha de 2 a 3\): Brigadeiro, Beijinho/);
   assert.deepEqual(anexos(ultima), ['p-cardapio-completa']);
   assert.match(t, /Os valores dependem do pacote, da data, do período e do número de convidados/);
 });
@@ -158,7 +158,7 @@ test('decoração: frase aprovada, pergunta o tema, registra e diz o que é adic
   assert.match(texto(rodadas[0]), /o tema da festa/);
   assert.match(texto(rodadas[1]), /Anotei o tema “Frozen”/);
   assert.doesNotMatch(texto(rodadas[1]), /qualquer decoração/);
-  assert.match(texto(rodadas[2]), /No Completa, a decoração inclui Mesa decorada/);
+  assert.match(texto(rodadas[2]), /No pacote Completa, a decoração inclui Mesa decorada/);
   assert.match(texto(rodadas[2]), /Painel temático é adicional, com custo à parte/);
   assert.equal(contexto.tema, 'Frozen');
 });
@@ -195,7 +195,7 @@ test('contrato de alguém: nunca informa; link protegido só quando o cadastro r
 test('alergia e negociação vão para a equipe depois de responder o que dá', async () => {
   const alergia = await conversa(['Meu filho tem alergia a amendoim, o buffet do Completa serve?']);
   assert.equal(alergia.ultima.passagem?.motivo, 'RESTRICAO_ALIMENTAR');
-  assert.doesNotMatch(texto(alergia.ultima), /Buffet do Completa/);
+  assert.doesNotMatch(texto(alergia.ultima), /Buffet do pacote Completa/);
   const negocia = await conversa(['Me manda a tabela de preços e faz um desconto?']);
   assert.deepEqual(anexos(negocia.ultima), ['p-tabela']);
   assert.equal(negocia.ultima.passagem?.motivo, 'NEGOCIACAO');
@@ -577,8 +577,8 @@ test('rodada 4 — continuidade ("e no segundo?"), saudação com letra repetida
 
 test('rodada 4 — comparação com o pacote da conversa (sem trocar o escolhido) e capacidade direta', async () => {
   const c = await conversa(['Olá! O pacote premiun cabe 150 pessoas?', 'e qual a diferença dele pro completa? alem da qtd de gente']);
-  assert.match(texto(c.rodadas[0]), /Sim: o Premium é para 60 a 150 convidados\./);
-  assert.match(texto(c.ultima), /Diferenças entre o Premium e o Completa: convidados \(Premium: 60 a 150; Completa: 50 a 100\); duração \(Premium: 5 horas; Completa: 4 horas\)\. O buffet cadastrado é o mesmo nos dois\./);
+  assert.match(texto(c.rodadas[0]), /Sim: o pacote Premium é para 60 a 150 convidados\./);
+  assert.match(texto(c.ultima), /Diferenças entre o pacote Premium e o pacote Completa: convidados \(Premium: 60 a 150; Completa: 50 a 100\); duração \(Premium: 5 horas; Completa: 4 horas\)\. O buffet cadastrado é o mesmo nos dois\./);
   assert.equal(c.contexto.pacote, 'PREMIUM', 'comparar não troca o pacote escolhido');
 });
 
@@ -607,8 +607,8 @@ test('rodada 4 — orçamento pede o que falta; "não manda o PDF" sem material;
   const cat = { ...catalogos, itensBuffet: ['Coxinha', 'Kibe', 'Esfirra', 'Pão de queijo', 'Brigadeiro', 'Beijinho'] };
   const prato = await conversaCom(cat, config, ['o que vem no buffet do pacote completa?', 'tem coxinha?', 'e pão de queijo no essencial?']);
   // Rodada 40: dúvida resolvida fecha com "Posso ajudar com mais alguma coisa?".
-  assert.equal(texto(prato.rodadas[1]), 'Coxinha: sim, faz parte do buffet do Completa (salgados, escolha até 6).\n\nPosso ajudar com mais alguma coisa?');
-  assert.equal(texto(prato.ultima), 'Pão de queijo não está no buffet cadastrado do Essencial.');
+  assert.equal(texto(prato.rodadas[1]), 'Coxinha: sim, faz parte do buffet do pacote Completa (salgados, escolha até 6).\n\nPosso ajudar com mais alguma coisa? Se preferir falar com uma pessoa da equipe, é só pedir.');
+  assert.equal(texto(prato.ultima), 'Pão de queijo não está no buffet cadastrado do pacote Essencial.');
   const marcada = await conversa(['oi tudo bem é a mãe do Miguel então a gente vai ter que mudar o aniversário dele que tava marcado pra 14 de novembro consegue passar pro dia 21/11 no mesmo horário']);
   assert.equal(marcada.ultima.passagem?.motivo, 'CONTRATO_PROPRIO');
   assert.ok(!marcada.chamadas.some((x) => x.startsWith('agenda:')), 'festa marcada não recebe agenda');
@@ -623,7 +623,7 @@ test('rodada 4 — orçamento pede o que falta; "não manda o PDF" sem material;
   assert.match(texto(painel), /Painel temático é adicional, com custo à parte/);
   assert.equal(painel.passagem, null);
   const totem = (await conversa(['o totem e o painel são cobrados à parte no completa?'])).ultima;
-  assert.match(texto(totem), /Não tenho cadastrado se totem é cobrado à parte no Completa/);
+  assert.match(texto(totem), /Não tenho cadastrado se totem é cobrado à parte no pacote Completa/);
   assert.equal(totem.passagem?.motivo, 'INFORMACAO_INDISPONIVEL');
 });
 
@@ -671,8 +671,8 @@ test('rodada 5 — contratação por "já reserva pra mim", "efetuar a reserva",
 
 test('rodada 5 — "quanto que fica", capacidade sem "pacote", "pra 90" sem "pessoas", "e no outro horário?", prato com variações e fora do catálogo, festa passada e de terceiro', async () => {
   assert.match(texto((await conversa(['quanto que fica o completa dia 21/11/2026 a noite pra 90?'])).ultima), /Completa em 21\/11\/2026, noite \(17h às 21h\), 90 convidados: R\$\s?7\.800,00/);
-  assert.match(texto((await conversa(['o Premium cabe 150 pessoas?'])).ultima), /Sim: o Premium é para 60 a 150 convidados\./);
-  assert.match(texto((await conversa(['cabe 160 pessoas em algum pacote de vcs?'])).ultima), /Para 160 convidados, nenhum pacote cadastrado comporta: o maior, o Premium, vai até 150\./);
+  assert.match(texto((await conversa(['o Premium cabe 150 pessoas?'])).ultima), /Sim: o pacote Premium é para 60 a 150 convidados\./);
+  assert.match(texto((await conversa(['cabe 160 pessoas em algum pacote de vcs?'])).ultima), /Para 160 convidados, nenhum pacote cadastrado comporta: o maior, o pacote Premium, vai até 150\./);
   const outro = await conversa(['tem horário livre dia 19/12/2026 à noite?', 'e no outro horário?']);
   assert.match(texto(outro.ultima), /19\/12\/2026 \(sábado\), almoço \(11h às 15h\), está disponível/);
   assert.deepEqual(itensCitados('tem coxinha?', ['Coxinha com catupiry', 'Coxinha sem catupiry', 'Kibe']), ['Coxinha com catupiry', 'Coxinha sem catupiry']);
@@ -779,7 +779,7 @@ test('rodada 7 — continuação de preço depois de "valor do pacote X", "e num
 });
 
 test('rodada 7 — capacidade ("fazem festa pra 300 pessoas?"), duração ("dura 4 horas?"), cerveja (cláusula), "pacotes disponíveis" sem agenda, bolo e doces fora do buffet', async () => {
-  assert.match(texto((await conversa(['vcs fazem festa pra trezentas pessoas?'])).ultima), /Para 300 convidados, nenhum pacote cadastrado comporta: o maior, o Premium, vai até 150\./);
+  assert.match(texto((await conversa(['vcs fazem festa pra trezentas pessoas?'])).ultima), /Para 300 convidados, nenhum pacote cadastrado comporta: o maior, o pacote Premium, vai até 150\./);
   assert.match(texto((await conversa(['o essencial dura 4 horas mesmo?'])).ultima), /Essencial: de 30 a 60 convidados; 4 horas de festa/);
   const cerveja = (await conversa(['dá pra levar chopp pros adultos?'])).ultima;
   assert.equal(cerveja.passagem, null);
@@ -856,7 +856,7 @@ test('rodada 9 — modelo divergindo: capacidade, decoração/balões, cerveja e
   assert.match(texto(cer.r), /Cláusula 11/);
   // "e no premiun muda alguma coisa?" no meio do cardápio: o buffet do Premium, não a ficha do pacote.
   const car = await viaModelo('e no premiun muda alguma coisa?', [intencao('PACOTES', 'e no premiun muda alguma coisa')], { assuntos: ['CARDAPIO'], pacote: 'COMPLETA' }, { pacotes: ['PREMIUM'] });
-  assert.match(texto(car.r), /Buffet do Premium/);
+  assert.match(texto(car.r), /Buffet do pacote Premium/);
 });
 
 test('rodada 9 — o modelo ainda acrescenta assunto que as regras não acham, e nunca apaga cuidado', async () => {
@@ -889,9 +889,9 @@ test('rodada 9 — horário em outras palavras, "pode parar de mandar o pdf" com
 // ---------------------------------------------------------------- rodada 10
 test('rodada 10 — duração pelo cadastro (sim/não com a fonte do pacote); atributo sem regra vai para a equipe, nunca fato inventado nem silêncio', async () => {
   const sim = (await conversa(['o premium é de cinco horas mesmo?'], {}, { apresentado: true })).ultima;
-  assert.match(texto(sim), /^(Sim|Não): o Premium tem \d+ horas de festa\./);
+  assert.match(texto(sim), /^(Sim|Não): o pacote Premium tem \d+ horas de festa\./);
   assert.ok(sim.saidas.some((s) => s.fontes.some((f) => f.tipo === 'PACOTE')));
-  assert.match(texto((await conversa(['a essencial dura 9 horas né?'], {}, { apresentado: true })).ultima), /^Não: o Essencial tem \d+ horas de festa\./);
+  assert.match(texto((await conversa(['a essencial dura 9 horas né?'], {}, { apresentado: true })).ultima), /^Não: o pacote Essencial tem \d+ horas de festa\./);
   // Atributo que nenhuma regra responde: a equipe responde essa parte (nada é afirmado sem fonte).
   const terreo = (await conversa(['o salão da asa sul é térreo?'])).ultima;
   assert.ok(terreo.passagem?.motivos.includes('INFORMACAO_INDISPONIVEL'), `${terreo.passagem?.motivos}`);
@@ -900,10 +900,10 @@ test('rodada 10 — duração pelo cadastro (sim/não com a fonte do pacote); at
 
 test('rodada 10 — preço com a capacidade oficial dos pacotes (sem pacote escolhido)', async () => {
   const acima = (await conversa(['quanto sai uma festa pra 220 pessoas?'])).ultima;
-  assert.match(texto(acima), /Para 220 convidados, nenhum pacote cadastrado comporta: o maior, o Premium, vai até 150\./);
+  assert.match(texto(acima), /Para 220 convidados, nenhum pacote cadastrado comporta: o maior, o pacote Premium, vai até 150\./);
   assert.equal(acima.passagem, null);
   const dentro = (await conversa(['quanto fica pra 120 convidados?'])).ultima;
-  assert.match(texto(dentro), /Para 120 convidados: o Premium \(/);
+  assert.match(texto(dentro), /Para 120 convidados: o pacote Premium \(/);
   assert.ok(dentro.saidas.some((s) => s.fontes.some((f) => f.tipo === 'PACOTE')));
 });
 
@@ -927,7 +927,7 @@ test('rodada 10 — decoração especial: "mesa do bolo"/"parede de balões" é 
 test('rodada 10 — "o pdf não abriu, manda de novo?" junto de outra pergunta reenvia o material do assunto anterior e responde a outra', async () => {
   const c = await conversa(['quanto custa uma festa aí?', 'o pdf não abriu, manda de novo? e a premium é 5 horas mesmo?']);
   assert.ok(c.ultima.saidas.some((s) => s.anexo), 'tabela reenviada');
-  assert.match(texto(c.ultima), /o Premium tem \d+ horas de festa/);
+  assert.match(texto(c.ultima), /o pacote Premium tem \d+ horas de festa/);
 });
 
 // ---------------------------------------------------------------- rodada 11
@@ -976,7 +976,7 @@ test('rodada 11 — "manda o endereço das duas unidades" manda os dois sem perg
 
 test('rodada 11 — capacidade com o pacote herdado da conversa: acima de todos responde sem passar à equipe; pacote dito na mensagem mantém a exceção', async () => {
   const c = (await conversa(['me fala do premium', 'quanto sai uma festa pra 220 pessoas?'])).ultima;
-  assert.match(texto(c), /Para 220 convidados, nenhum pacote cadastrado comporta: o maior, o Premium, vai até 150\./);
+  assert.match(texto(c), /Para 220 convidados, nenhum pacote cadastrado comporta: o maior, o pacote Premium, vai até 150\./);
   assert.equal(c.passagem, null);
   const dito = (await conversa(['quanto sai o premium pra 220 pessoas?'])).ultima;
   assert.match(texto(dito), /nenhum pacote cadastrado comporta: a equipe avalia/);
@@ -1049,11 +1049,11 @@ test('rodada 12 — "qualquer tema" não é tema nem promessa de decoração inc
 // ---------------------------------------------------------------- rodada 13
 test('rodada 13 — "fazem festa pra umas 70 pessoas?" informa os pacotes compatíveis pela faixa cadastrada, não só anota os convidados', async () => {
   const r = (await conversa(['eae, vcs fazem festa pra umas 70 pessoas?'])).ultima;
-  assert.match(texto(r), /Para 70 convidados: o Completa \(\d+ a 100\)/);
+  assert.match(texto(r), /Para 70 convidados: o pacote Completa \(\d+ a 100\)/);
   assert.doesNotMatch(texto(r), /^Anotei: 70 convidados\.$/);
   assert.ok(r.saidas.some((s) => s.fontes.some((f) => f.tipo === 'PACOTE')));
-  assert.match(texto((await conversa(['vcs fazem festa para cerca de 200 convidados?'])).ultima), /Para 200 convidados, nenhum pacote cadastrado comporta: o maior, o Premium, vai até 150\./);
-  assert.match(texto((await conversa(['fazem aniversário com uns 40 convidados?'])).ultima), /Para 40 convidados: o Essencial/);
+  assert.match(texto((await conversa(['vcs fazem festa para cerca de 200 convidados?'])).ultima), /Para 200 convidados, nenhum pacote cadastrado comporta: o maior, o pacote Premium, vai até 150\./);
+  assert.match(texto((await conversa(['fazem aniversário com uns 40 convidados?'])).ultima), /Para 40 convidados: o pacote Essencial/);
   // Contratar com o número continua contratação (coleta), não consulta de capacidade.
   assert.ok(entenderPorRegras('quero fechar uma festa pra 70 pessoas', catalogos).intencoes.some((i) => i.tipo === 'CONTRATAR'));
 });
@@ -1128,7 +1128,7 @@ test('rodada 14 — unidades pelo cadastro oficial: "tem unidade em Águas Clara
   // Conversa do holdout 13 (s61–s64): nada fica em silêncio; "das duas" manda as duas mesmo com uma unidade anotada.
   const c = await conversa(['oi td bem? vcs tem unidade em aguas claras?', 'manda a localização das duas pf', 'pra 120 pessoas qual pacote serve']);
   assert.ok(c.rodadas.every((r) => r.passagem === null));
-  assert.match(texto(c.rodadas[2]), /Para 120 convidados: o Premium/);
+  assert.match(texto(c.rodadas[2]), /Para 120 convidados: o pacote Premium/);
 });
 
 test('rodada 14 — "vinte e um de novembro" é 21/11 (antes virava "dia 20" de outro mês)', () => {
@@ -1151,7 +1151,7 @@ test('rodada 14 — "tem coxinha no buffet?" responde o item sem pedir o pacote;
 });
 // ---------------------------------------------------------------- rodada 15
 test('rodada 15 — passar da capacidade pagando a diferença é exceção da equipe (o pagamento não libera o limite); dentro da faixa não', async () => {
-  for (const [t, limite] of [['consegue fazer a premium pra 170 pessoas? a gente paga a diferença', /O Premium é para até 150 convidados/], ['se eu pagar a diferença dá pra 200 convidados no completa?', /O Completa é para até 100 convidados/], ['fecha o essencial pra 80 que eu pago o extra', /O Essencial é para até 60 convidados/]] as const) {
+  for (const [t, limite] of [['consegue fazer a premium pra 170 pessoas? a gente paga a diferença', /O pacote Premium é para até 150 convidados/], ['se eu pagar a diferença dá pra 200 convidados no completa?', /O pacote Completa é para até 100 convidados/], ['fecha o essencial pra 80 que eu pago o extra', /O pacote Essencial é para até 60 convidados/]] as const) {
     const r = (await conversa([t])).ultima;
     assert.equal(r.passagem?.motivo, 'NEGOCIACAO', t);
     assert.match(texto(r), limite, t);
@@ -1160,13 +1160,13 @@ test('rodada 15 — passar da capacidade pagando a diferença é exceção da eq
   }
   // Dentro da faixa, "pago a diferença" é comparação de pacote, não exceção; sem pagar, a capacidade é informada.
   assert.equal((await conversa(['premium pra 120, pago a diferença do completa'])).ultima.passagem, null);
-  assert.match(texto((await conversa(['consegue fazer a premium pra 170 pessoas?'])).ultima), /Não: o Premium é para \d+ a 150 convidados/);
+  assert.match(texto((await conversa(['consegue fazer a premium pra 170 pessoas?'])).ultima), /Não: o pacote Premium é para \d+ a 150 convidados/);
 });
 
 test('rodada 15 — "para 120 convidados, qual seria o indicado?" consulta os pacotes compatíveis pela faixa cadastrada', async () => {
-  assert.match(texto((await conversa(['Para 120 convidados, qual seria o indicado?'])).ultima), /Para 120 convidados: o Premium/);
-  assert.match(texto((await conversa(['qual o pacote ideal pra 45 pessoas?'])).ultima), /Para 45 convidados: o Essencial/);
-  assert.match(texto((await conversa(['pra 200 convidados qual vcs indicam?'])).ultima), /Para 200 convidados, nenhum pacote cadastrado comporta: o maior, o Premium, vai até 150/);
+  assert.match(texto((await conversa(['Para 120 convidados, qual seria o indicado?'])).ultima), /Para 120 convidados: o pacote Premium/);
+  assert.match(texto((await conversa(['qual o pacote ideal pra 45 pessoas?'])).ultima), /Para 45 convidados: o pacote Essencial/);
+  assert.match(texto((await conversa(['pra 200 convidados qual vcs indicam?'])).ultima), /Para 200 convidados, nenhum pacote cadastrado comporta: o maior, o pacote Premium, vai até 150/);
   // Sem número de convidados não há faixa a consultar: nada de "Para N convidados".
   assert.doesNotMatch(texto((await conversa(['qual seria o indicado pra uma festa de dinossauro?'])).ultima), /Para \d+ convidados/);
 });
@@ -1320,16 +1320,16 @@ test('rodada 18 — pacote escolhido retoma o cálculo com o que já foi coletad
 test('rodada 18 — duração e PDF do cardápio: cada assunto pela fonte aprovada', async () => {
   const { ultima } = await conversa(['quantas pessoas cabem no completa?', 'e qnto tempo dura? manda o pdf do cardápio dele tbm']);
   assert.equal(ultima.passagem, null);
-  assert.match(texto(ultima), /O Completa tem 4 horas de festa\./);
-  assert.match(texto(ultima), /Buffet do Completa:/);
+  assert.match(texto(ultima), /O pacote Completa tem 4 horas de festa\./);
+  assert.match(texto(ultima), /Buffet do pacote Completa:/);
   assert.deepEqual(anexos(ultima), ['p-cardapio-completa']);
   const fontes = ultima.saidas.flatMap((s) => s.fontes);
   assert.ok(fontes.some((f) => f.tipo === 'PACOTE' && f.codigo === 'COMPLETA'));
   assert.ok(fontes.some((f) => f.tipo === 'CATALOGO_BUFFET'));
-  for (const [t, esperado] of [['quanto tempo dura a festa?', /Essencial, 4 horas; Completa, 4 horas; Premium, 5 horas/], ['qual a duração do premium?', /O Premium tem 5 horas de festa\./], ['quantas horas tem o essencial?', /O Essencial tem 4 horas de festa\./]] as const)
+  for (const [t, esperado] of [['quanto tempo dura a festa?', /Essencial, 4 horas; Completa, 4 horas; Premium, 5 horas/], ['qual a duração do premium?', /O pacote Premium tem 5 horas de festa\./], ['quantas horas tem o essencial?', /O pacote Essencial tem 4 horas de festa\./]] as const)
     assert.match(texto((await conversa([t])).ultima), esperado, t);
   // Contraexemplo: "é 4 horas mesmo?" confirma pela duração cadastrada, como antes.
-  assert.match(texto((await conversa(['o essencial é 4 horas mesmo?'], {}, { apresentado: true })).ultima), /^Sim: o Essencial tem 4 horas de festa\./);
+  assert.match(texto((await conversa(['o essencial é 4 horas mesmo?'], {}, { apresentado: true })).ultima), /^Sim: o pacote Essencial tem 4 horas de festa\./);
 });
 
 test('rodada 18 — oferta de valor é negociação, mesmo com intenção de fechar; preço perguntado e número de pessoas não', async () => {
@@ -1634,7 +1634,7 @@ test('rodada 22 — orçamento com data, convidados e pacote seguido de "à tard
   }
   // Contraexemplo: pergunta sobre pacotes no meio do orçamento continua sendo pergunta de pacotes.
   const p = (await conversa(['quero um orçamento', 'qual a diferença do completa pro premium?'])).ultima;
-  assert.match(texto(p), /Diferenças entre o Completa e o Premium|Nossos pacotes/);
+  assert.match(texto(p), /Diferenças entre o pacote Completa e o pacote Premium|Nossos pacotes/);
 });
 
 test('rodada 22 — indecisão de tema sem a palavra "tema": tema a confirmar, nada anotado; datas, pacotes e períodos não são temas', async () => {
@@ -1717,7 +1717,7 @@ test('rodada 23 — ficha de pacote só quando o pacote é perguntado (capacidad
   for (const t of ['Bom dia! Gostaria de saber o valor do pacote Essencial para 45 convidados no sábado, 7 de novembro, no primeiro horário.', 'queria um orçamento do pacote completo pro domingo dia 22/11, umas 70 pessoas'])
     assert.doesNotMatch(texto((await conversa([t])).ultima), /O pacote:|Nossos pacotes:/, t);
   assert.match(texto((await conversa(['quanto custa o pacote essencial e quantas pessoas cabem nele?'])).ultima), /Essencial: de 30 a 60 convidados/);
-  assert.match(texto((await conversa(['quanto custa uma festa aí?', 'o pdf não abriu, manda de novo? e a premium é 5 horas mesmo?'])).ultima), /o Premium tem \d+ horas de festa/);
+  assert.match(texto((await conversa(['quanto custa uma festa aí?', 'o pdf não abriu, manda de novo? e a premium é 5 horas mesmo?'])).ultima), /o pacote Premium tem \d+ horas de festa/);
 });
 
 test('rodada 24 — interrupção com vocativo, emoji ou comentário depois; contraexemplos de produto continuam', () => {
@@ -2015,7 +2015,7 @@ test('rodada 27 — extensão de horário (cláusula 8), vencimento do boleto (c
   assert.equal(entenderPorRegras('sábado ou domingo, ainda to decidindo', catalogos).temaAmbiguo, false);
   // Capacidade acima de todos os pacotes, pelo cadastro (sem passagem nem exceção prometida).
   const cap = (await conversa(['quantas pessoas cabem no premium? vão ser umas 170'])).ultima;
-  assert.match(texto(cap), /Não: o Premium é para 60 a 150 convidados; para 170, nenhum pacote cadastrado comporta\./);
+  assert.match(texto(cap), /Não: o pacote Premium é para 60 a 150 convidados; para 170, nenhum pacote cadastrado comporta\./);
   assert.ok(cap.saidas.some((s) => s.fontes.some((f) => f.tipo === 'PACOTE')));
   assert.equal(cap.passagem, null);
   assert.match(texto((await conversa(['cabem 170 no premium?'])).ultima), /para 170, nenhum pacote cadastrado comporta/);
@@ -2695,7 +2695,7 @@ test('rodada 36 — mensagem longa vai partida entre parágrafos ou frases, nunc
   const textos = r.saidas.filter((s) => s.texto).map((s) => s.texto!);
   assert.ok(textos.length > 1 && textos.every((t) => t.length <= LIMITE_MENSAGEM));
   // Rodada 40: a resposta inteira, e o fechamento cordial por último.
-  assert.equal(textos.join(' '), `${longa}\n\nPosso ajudar com mais alguma coisa?`);
+  assert.equal(textos.join(' '), `${longa}\n\nPosso ajudar com mais alguma coisa? Se preferir falar com uma pessoa da equipe, é só pedir.`);
 });
 
 // ---------------------------------------------------------------- rodada 37 (seleção de assunto e fonte por significado)
@@ -2939,7 +2939,7 @@ test('rodada 39 — valor condicionado ao fechamento é negociação; orçamento
 test('rodada 40 — cumprimento devolvido, apresentação só na primeira resposta e fechamento só com a dúvida resolvida', async () => {
   const c = await conversa(['boa tarde, tudo bem? quantas horas dura o premium?', 'e quantas horas dura o essencial?', 'quanto custa o completa pra 70?']);
   const [r1, r2, r3] = c.rodadas.map(texto);
-  assert.match(r1, /^Boa tarde! Tudo bem, e você\? Sou o Wall-e, agente inteligente da Kidmais Demo\.\n/);
+  assert.match(r1, /^Boa tarde! Tudo bem, e você\? Sou o Wall-e, agente inteligente da Kidmais Demo\. Se preferir falar com uma pessoa da equipe, é só pedir\.\n/);
   assert.match(r1, /Posso ajudar com mais alguma coisa\?$/, r1);
   assert.ok(c.rodadas[0].contexto.apresentado);
   assert.doesNotMatch(r2, /Sou o Wall-e/, 'não se apresenta de novo');
@@ -3006,4 +3006,41 @@ test('rodada 40 — link público só da empresa configurada no servidor, sem pa
   assert.deepEqual(linkDisponibilidadePublica(E, { AGENDA_PUBLICA_EMPRESA_ID: E, ADMIN_AUTH_ORIGIN: 'http://localhost:3170' }), { ok: true, link: 'http://localhost:3170/disponibilidade' });
   assert.equal(linkDisponibilidadePublica(E, { AGENDA_PUBLICA_EMPRESA_ID: E, ADMIN_AUTH_ORIGIN: 'http://192.168.0.10:3170' }).ok, false);
   assert.deepEqual(linkDisponibilidadePublica(E, { AGENDA_PUBLICA_EMPRESA_ID: E, AGENDA_PUBLICA_ORIGEM: 'https://festas.exemplo.test', ADMIN_AUTH_ORIGIN: 'https://admin.exemplo.test' }), { ok: true, link: 'https://festas.exemplo.test/disponibilidade' });
+});
+
+// ---------------------------------------------------------------- rodada 41: "o pacote <nome>" e oferta de atendente
+test('rodada 41 — pacotes sempre como "o pacote <nome>" (o artigo concorda com qualquer nome cadastrado)', async () => {
+  // A frase do print de 08/10 ("Para 50 convidados: o Essencial (30 a 60) e o Completa (50 a 100).").
+  const c = await conversa(['fazem festa pra 50 convidados?'], {}, { apresentado: true });
+  assert.match(texto(c.ultima), /Para 50 convidados: o pacote Essencial \(30 a 60\) e o pacote Completa \(50 a 100\)\./);
+  // Nenhuma resposta usa o artigo direto antes do nome ("o Completa", "do Premium", "No Essencial").
+  const perguntas = ['qual a diferença do completa pro premium?', 'quantas horas dura o premium?', 'o premium cabe 150 pessoas?', 'fazem festa pra 170 pessoas?',
+    'o que vem no buffet do essencial?', 'tem coxinha no completa?', 'quero o premium pra 200 pessoas', 'qual pacote serve pra 70 pessoas?', 'o essencial inclui decoração?'];
+  for (const t of perguntas) {
+    const r = texto((await conversa([t], {}, { apresentado: true })).ultima);
+    assert.doesNotMatch(r, /\b(?:o|O|do|Do|no|No|ao) (?:Essencial|Completa|Premium)\b/, `${t} → ${r}`);
+  }
+});
+
+test('rodada 41 — o Wall-e oferece falar com uma pessoa: na apresentação e no fechamento, sem repetir e sem oferecer o que já aconteceu', async () => {
+  const OFERTA = 'Se preferir falar com uma pessoa da equipe, é só pedir.';
+  const primeira = texto((await conversa(['quantas horas dura o premium?'])).ultima);
+  assert.match(primeira, /^Olá! Sou o Wall-e, agente inteligente da Kidmais Demo\. Se preferir falar com uma pessoa da equipe, é só pedir\.\n/);
+  assert.equal(primeira.split(OFERTA).length - 1, 1, 'a oferta aparece uma vez (o fechamento não a repete na mesma resposta)');
+  // Já apresentado: o fechamento traz a oferta.
+  assert.match(texto((await conversa(['quantas horas dura o premium?'], {}, { apresentado: true })).ultima), /Posso ajudar com mais alguma coisa\? Se preferir falar com uma pessoa da equipe, é só pedir\.$/);
+  // Só a saudação: a oferta entra antes de "Como posso ajudar?".
+  assert.match(texto((await conversa(['oi, boa noite'])).ultima), /é só pedir\. Como posso ajudar\?$/);
+  // Mensagem que já vai para a equipe (pedido de pessoa, alergia): nada de oferecer o que já está acontecendo.
+  for (const t of ['quero falar com uma pessoa', 'meu filho tem alergia a amendoim, o buffet serve?']) {
+    const r = await conversa([t]);
+    assert.ok(r.ultima.passagem, t);
+    assert.ok(!texto(r.ultima).includes(OFERTA), t);
+  }
+  // Pedir uma pessoa depois da oferta passa à equipe.
+  const depois = await conversa(['quantas horas dura o premium?', 'prefiro falar com uma pessoa']);
+  assert.equal(depois.ultima.passagem?.motivo, 'PEDIDO_CLIENTE');
+  // Menu (nada a dizer): já diz como falar com uma pessoa; a oferta não se repete.
+  const menu = texto((await conversa(['hmm'])).ultima);
+  if (/escreva “atendente”/.test(menu)) assert.ok(!menu.includes(OFERTA));
 });

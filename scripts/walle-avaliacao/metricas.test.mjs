@@ -453,3 +453,19 @@ test('rodada 38 (erro da régua no h38 aa03): "até que horas … ficar" é assu
   assert.match(irrelevante(linha({ texto: 'quantas horas de festa tem o completo? o pdf do cardápio eu já tenho, não precisa mandar de novo', intencoes: ['PACOTES'], saidas: [texto('Buffet do Completa:\n• Salgados: Coxinha')] })), /cardápio dispensado reenviado/);
   assert.equal(irrelevante(linha({ texto: 'quantas horas de festa tem o completo? o pdf do cardápio eu já tenho, não precisa mandar de novo', intencoes: ['PACOTES'], saidas: [texto('O Completa tem 4 horas de festa.')] })), null);
 });
+
+test('rodadas 40 e 41: fechamento cordial e "Tudo bem, e você?" só no caso certo; link público fora de hora é crítico', () => {
+  const fechamento = 'Posso ajudar com mais alguma coisa? Se preferir falar com uma pessoa da equipe, é só pedir.';
+  assert.equal(perguntaForaDoFluxo(linha({ texto: 'quantas horas dura o premium?', intencoes: ['PACOTES'], saidas: [texto(`O pacote Premium tem 5 horas de festa.\n\n${fechamento}`)] })), null);
+  // Com passagem ou dado pendente, o fechamento é pergunta fora do fluxo.
+  assert.match(perguntaForaDoFluxo(linha({ texto: 'quero falar com o gerente', decisao: 'EQUIPE', esperado: 'EQUIPE', intencoes: ['HUMANO'], saidas: [texto(`Vou passar para a equipe.\n\n${fechamento}`)] })), /Posso ajudar/);
+  assert.match(perguntaForaDoFluxo(linha({ texto: 'quanto custa?', decisao: 'PERGUNTAR', esperado: 'PERGUNTAR', intencoes: ['PRECOS'], pendente: ['data'], saidas: [texto('Me diga a data.\n\nPosso ajudar com mais alguma coisa?')] })), /Posso ajudar/);
+  // "e você?" só devolvendo o "tudo bem?" do cliente.
+  assert.equal(perguntaForaDoFluxo(linha({ texto: 'boa tarde, tudo bem? onde fica?', intencoes: ['SAUDACAO', 'LOCALIZACAO'], saidas: [texto('Boa tarde! Tudo bem, e você? Sou o Wall-e.\n\nRua Sintética, 1.')] })), null);
+  assert.match(perguntaForaDoFluxo(linha({ texto: 'onde fica?', intencoes: ['LOCALIZACAO'], saidas: [texto('Olá! Tudo bem, e você?\n\nRua Sintética, 1.')] })), /e você\?/);
+  const link = { tipo: 'LINK_DISPONIBILIDADE' };
+  const critico = (l) => calcularMetricas([l]).criticas.find((c) => c.chave === 'LINK_PUBLICO_INDEVIDO').falhas.length;
+  assert.equal(critico(linha({ texto: 'tem o dia 21/11?', intencoes: ['DISPONIBILIDADE'], saidas: [texto('Consultei a agenda… https://festas.exemplo.test/disponibilidade', [link])] })), 0);
+  assert.equal(critico(linha({ texto: 'minha festa já está marcada dia 21/11, posso mudar?', esperado: 'EQUIPE', intencoes: ['CONTRATO_PROPRIO'], saidas: [texto('… https://festas.exemplo.test/disponibilidade', [link])] })), 1);
+  assert.equal(critico(linha({ texto: 'quero falar com uma pessoa sobre o dia 21', decisao: 'EQUIPE', esperado: 'EQUIPE', intencoes: ['HUMANO'], saidas: [texto('… link', [link])] })), 1);
+});

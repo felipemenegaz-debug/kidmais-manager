@@ -111,14 +111,14 @@ async function capacidade(e: Estado) {
     const cabem = todos.filter((x) => (!x.convidadosMaximos || x.convidadosMaximos >= n) && (!x.convidadosMinimos || x.convidadosMinimos <= n));
     const maior = [...todos].filter((x) => x.convidadosMaximos).sort((a, b) => b.convidadosMaximos! - a.convidadosMaximos!)[0];
     if (!cabem.length && !maior) return;
-    dizer(e, cabem.length ? `Para ${n} convidados: ${lista(cabem.map((x) => `o ${x.nome} (${x.convidadosMinimos ? `${x.convidadosMinimos} a ` : 'até '}${x.convidadosMaximos})`))}.`
-      : `Para ${n} convidados, nenhum pacote cadastrado comporta: o maior, o ${maior.nome}, vai até ${maior.convidadosMaximos}.`, (cabem.length ? cabem : [maior]).map((x) => ({ tipo: 'PACOTE', codigo: x.codigo, id: x.id } as Fonte)));
+    dizer(e, cabem.length ? `Para ${n} convidados: ${lista(cabem.map((x) => `o pacote ${x.nome} (${x.convidadosMinimos ? `${x.convidadosMinimos} a ` : 'até '}${x.convidadosMaximos})`))}.`
+      : `Para ${n} convidados, nenhum pacote cadastrado comporta: o maior, o pacote ${maior.nome}, vai até ${maior.convidadosMaximos}.`, (cabem.length ? cabem : [maior]).map((x) => ({ tipo: 'PACOTE', codigo: x.codigo, id: x.id } as Fonte)));
     return;
   }
   const p = todos.find((x) => x.codigo === codigo);
   if (!p?.convidadosMaximos || n <= p.convidadosMaximos) return;
   const cabem = todos.filter((x) => (!x.convidadosMaximos || x.convidadosMaximos >= n) && (!x.convidadosMinimos || x.convidadosMinimos <= n));
-  dizer(e, `O ${p.nome} atende até ${p.convidadosMaximos} convidados${cabem.length ? `; para ${n}, ${lista(cabem.map((x) => `o ${x.nome}`))} ${cabem.length > 1 ? 'comportam' : 'comporta'}` : `; para ${n}, nenhum pacote cadastrado comporta: a equipe avalia`}.`,
+  dizer(e, `O pacote ${p.nome} atende até ${p.convidadosMaximos} convidados${cabem.length ? `; para ${n}, ${lista(cabem.map((x) => `o pacote ${x.nome}`))} ${cabem.length > 1 ? 'comportam' : 'comporta'}` : `; para ${n}, nenhum pacote cadastrado comporta: a equipe avalia`}.`,
     [p, ...cabem].map((x) => ({ tipo: 'PACOTE', codigo: x.codigo, id: x.id } as Fonte)));
   // Acima de todos os pacotes cadastrados é exceção (a equipe avalia), não uma pergunta que o Wall-e resolve.
   if (!cabem.length) passar(e, 'NEGOCIACAO');
@@ -239,13 +239,13 @@ async function precoCalculado(e: Estado, perguntarFaltantes: boolean, pacotes?: 
         const cabem = sugeriu ? [] : todos.filter((x) => !fila.includes(x.codigo) && (!x.convidadosMaximos || x.convidadosMaximos >= n) && (!x.convidadosMinimos || x.convidadosMinimos <= n)).slice(0, 1);
         // Nenhum pacote cadastrado comporta: é exceção (a equipe avalia), não "veja os pacotes maiores".
         const nenhum = !todos.some((x) => !x.convidadosMaximos || x.convidadosMaximos >= n);
-        dizer(e, `O ${nome} comporta até ${r.maximo} convidados; para ${n}, ${cabem.length ? `o ${cabem[0].nome} comporta` : nenhum ? 'nenhum pacote cadastrado comporta: a equipe avalia' : 'veja os pacotes maiores'}.`, [{ tipo: 'PACOTE', codigo, id: codigo }]);
+        dizer(e, `O pacote ${nome} comporta até ${r.maximo} convidados; para ${n}, ${cabem.length ? `o pacote ${cabem[0].nome} comporta` : nenhum ? 'nenhum pacote cadastrado comporta: a equipe avalia' : 'veja os pacotes maiores'}.`, [{ tipo: 'PACOTE', codigo, id: codigo }]);
         if (nenhum) passar(e, 'NEGOCIACAO');
         sugeriu = true;
         fila.push(...cabem.map((x) => x.codigo));
       }
-      else if (r.erro === 'INDISPONIVEL') dizer(e, `O ${nome} não é oferecido nesse dia e período.`, [{ tipo: 'PACOTE', codigo, id: codigo }]);
-      else { dizer(e, r.erro === 'SOB_CONSULTA' ? `O ${nome} nessa data e período é sob consulta: a equipe confirma o valor.` : `Não consegui calcular o valor do ${nome} para essa data e período pelo sistema.`); passar(e, r.erro === 'SOB_CONSULTA' ? 'NEGOCIACAO' : 'INFORMACAO_INDISPONIVEL'); }
+      else if (r.erro === 'INDISPONIVEL') dizer(e, `O pacote ${nome} não é oferecido nesse dia e período.`, [{ tipo: 'PACOTE', codigo, id: codigo }]);
+      else { dizer(e, r.erro === 'SOB_CONSULTA' ? `O pacote ${nome} nessa data e período é sob consulta: a equipe confirma o valor.` : `Não consegui calcular o valor do pacote ${nome} para essa data e período pelo sistema.`); passar(e, r.erro === 'SOB_CONSULTA' ? 'NEGOCIACAO' : 'INFORMACAO_INDISPONIVEL'); }
       continue;
     }
     dizer(e, `${nome} em ${dataBr(e.ctx.data!)}${turnoTexto(e.catalogos, e.ctx.turno) ? `, ${turnoTexto(e.catalogos, e.ctx.turno)!.toLowerCase()}` : ""}, ${e.ctx.convidados} convidados: ${moeda(r.valor)}${r.minimoAplicado ? ` (o pacote cobra no mínimo ${r.convidadosFaturados} convidados)` : ''}${r.desconto ? ` com o desconto “${r.desconto.titulo ?? `${r.desconto.percentual}%`}” já aplicado` : ''}, pela tabela “${r.tabela.nome}”. Valor de tabela, calculado agora; condições finais na contratação.`,
@@ -348,14 +348,14 @@ async function pacotes(e: Estado) {
     const cabe = n <= unico.convidadosMaximos && (!unico.convidadosMinimos || n >= unico.convidadosMinimos);
     // O pacote da conversa não comporta ("e pra 90 serve?" com o Essencial): diz também quais comportam, pelo cadastro.
     const outros = !cabe && doContexto ? todos.filter((p) => p.codigo !== unico.codigo && (!p.convidadosMaximos || n <= p.convidadosMaximos) && (!p.convidadosMinimos || n >= p.convidadosMinimos)) : [];
-    dizer(e, `${cabe ? 'Sim' : 'Não'}: o ${unico.nome} é para ${unico.convidadosMinimos ? `${unico.convidadosMinimos} a ${unico.convidadosMaximos}` : `até ${unico.convidadosMaximos}`} convidados${outros.length ? `; para ${n}, ${lista(outros.map((p) => `o ${p.nome}`))} ${outros.length > 1 ? 'comportam' : 'comporta'}` : !cabe && (doContexto || !todos.some((p) => !p.convidadosMaximos || n <= p.convidadosMaximos)) ? `; para ${n}, nenhum pacote cadastrado comporta` : ''}.`,
+    dizer(e, `${cabe ? 'Sim' : 'Não'}: o pacote ${unico.nome} é para ${unico.convidadosMinimos ? `${unico.convidadosMinimos} a ${unico.convidadosMaximos}` : `até ${unico.convidadosMaximos}`} convidados${outros.length ? `; para ${n}, ${lista(outros.map((p) => `o pacote ${p.nome}`))} ${outros.length > 1 ? 'comportam' : 'comporta'}` : !cabe && (doContexto || !todos.some((p) => !p.convidadosMaximos || n <= p.convidadosMaximos)) ? `; para ${n}, nenhum pacote cadastrado comporta` : ''}.`,
       [unico, ...outros].map((p) => ({ tipo: 'PACOTE', codigo: p.codigo, id: p.id } as Fonte)));
   } else if (n && !unico && CABE.test(semAcento(e.texto))) {
     // "Cabe 160 em algum pacote?": quais comportam, pela faixa cadastrada (nenhum: diz o maior, sem prometer exceção).
     const cabem = todos.filter((p) => (!p.convidadosMaximos || n <= p.convidadosMaximos) && (!p.convidadosMinimos || n >= p.convidadosMinimos));
     const maior = [...todos].filter((p) => p.convidadosMaximos).sort((a, b) => b.convidadosMaximos! - a.convidadosMaximos!)[0];
-    dizer(e, cabem.length ? `Para ${n} convidados: ${lista(cabem.map((p) => `o ${p.nome} (${p.convidadosMinimos ? `${p.convidadosMinimos} a ` : 'até '}${p.convidadosMaximos})`))}.`
-      : `Para ${n} convidados, nenhum pacote cadastrado comporta${maior ? `: o maior, o ${maior.nome}, vai até ${maior.convidadosMaximos}` : ''}.`, (cabem.length ? cabem : maior ? [maior] : []).map((p) => ({ tipo: 'PACOTE', codigo: p.codigo, id: p.id } as Fonte)));
+    dizer(e, cabem.length ? `Para ${n} convidados: ${lista(cabem.map((p) => `o pacote ${p.nome} (${p.convidadosMinimos ? `${p.convidadosMinimos} a ` : 'até '}${p.convidadosMaximos})`))}.`
+      : `Para ${n} convidados, nenhum pacote cadastrado comporta${maior ? `: o maior, o pacote ${maior.nome}, vai até ${maior.convidadosMaximos}` : ''}.`, (cabem.length ? cabem : maior ? [maior] : []).map((p) => ({ tipo: 'PACOTE', codigo: p.codigo, id: p.id } as Fonte)));
   }
   const horasPedidas = /\b(\d+|uma|duas|tres|quatro|cinco|seis) horas\b/.exec(semAcento(e.texto));
   // Rodada 18: "e quanto tempo dura?" (pacote da conversa ou citado): a duração cadastrada, sem repetir a lista inteira.
@@ -369,7 +369,7 @@ async function pacotes(e: Estado) {
     if (com.length) {
       const capacidade = pedeCapacidade ? com.filter((p) => faixa(p)) : [];
       dizer(e, com.length === 1
-        ? `O ${com[0].nome}${capacidade.length ? ` é para ${faixa(com[0])} convidados e` : ''} tem ${dur(com[0])} de festa.`
+        ? `O pacote ${com[0].nome}${capacidade.length ? ` é para ${faixa(com[0])} convidados e` : ''} tem ${dur(com[0])} de festa.`
         : `${capacidade.length ? 'Convidados e duração' : 'Duração'} de cada pacote: ${com.map((p) => `${p.nome}, ${capacidade.includes(p) ? `${faixa(p)} convidados e ` : ''}${dur(p)}`).join('; ')}.`, com.map((p) => ({ tipo: 'PACOTE', codigo: p.codigo, id: p.id } as Fonte)));
       return;
     }
@@ -377,7 +377,7 @@ async function pacotes(e: Estado) {
   if (unico?.duracaoMinutos && horasPedidas && !CABE.test(semAcento(e.texto))) {
     const pedidas = Number(horasPedidas[1]) || ({ uma: 1, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6 } as Record<string, number>)[horasPedidas[1]];
     const reais = unico.duracaoMinutos / 60;
-    dizer(e, `${pedidas === reais ? 'Sim' : 'Não'}: o ${unico.nome} tem ${reais % 1 === 0 ? reais : unico.duracaoMinutos + ' minutos'}${reais % 1 === 0 ? ' horas' : ''} de festa.`, [{ tipo: 'PACOTE', codigo: unico.codigo, id: unico.id }]);
+    dizer(e, `${pedidas === reais ? 'Sim' : 'Não'}: o pacote ${unico.nome} tem ${reais % 1 === 0 ? reais : unico.duracaoMinutos + ' minutos'}${reais % 1 === 0 ? ' horas' : ''} de festa.`, [{ tipo: 'PACOTE', codigo: unico.codigo, id: unico.id }]);
   }
   const linhas: string[] = [];
   const fontes: Fonte[] = [];
@@ -430,7 +430,7 @@ async function excecaoDeCapacidadePaga(e: Estado) {
   const limite = p?.convidadosMaximos ? p : maior;
   if (!limite?.convidadosMaximos || n <= limite.convidadosMaximos) return false;
   const cabem = todos.filter((x) => x !== limite && (!x.convidadosMaximos || x.convidadosMaximos >= n) && (!x.convidadosMinimos || x.convidadosMinimos <= n));
-  dizer(e, `O ${limite.nome} é para até ${limite.convidadosMaximos} convidados (cadastro)${cabem.length ? `; para ${n}, ${lista(cabem.map((x) => `o ${x.nome}`))} ${cabem.length > 1 ? 'comportam' : 'comporta'}` : ''}. Passar do limite é exceção que só a equipe pode avaliar${paga ? ', mesmo pagando a diferença' : ''}.`,
+  dizer(e, `O pacote ${limite.nome} é para até ${limite.convidadosMaximos} convidados (cadastro)${cabem.length ? `; para ${n}, ${lista(cabem.map((x) => `o pacote ${x.nome}`))} ${cabem.length > 1 ? 'comportam' : 'comporta'}` : ''}. Passar do limite é exceção que só a equipe pode avaliar${paga ? ', mesmo pagando a diferença' : ''}.`,
     [limite, ...cabem].map((x) => ({ tipo: 'PACOTE', codigo: x.codigo, id: x.id } as Fonte)));
   passar(e, 'NEGOCIACAO');
   return true;
@@ -445,8 +445,8 @@ function diferencas(a: PacoteResumo, b: PacoteResumo, ca: Composicao | null, cb:
   const cats = (c: Composicao | null) => new Map((c?.categorias ?? []).map((x) => [x.nome, x] as const));
   const [ma, mb] = [cats(ca), cats(cb)];
   const soA = [...ma.keys()].filter((k) => !mb.has(k)), soB = [...mb.keys()].filter((k) => !ma.has(k));
-  if (soA.length) partes.push(`só o ${a.nome} tem ${lista(soA.map((x) => x.toLowerCase()))} no buffet`);
-  if (soB.length) partes.push(`só o ${b.nome} tem ${lista(soB.map((x) => x.toLowerCase()))} no buffet`);
+  if (soA.length) partes.push(`só o pacote ${a.nome} tem ${lista(soA.map((x) => x.toLowerCase()))} no buffet`);
+  if (soB.length) partes.push(`só o pacote ${b.nome} tem ${lista(soB.map((x) => x.toLowerCase()))} no buffet`);
   let buffetIgual = !!ma.size && !soA.length && !soB.length;
   for (const [nome, x] of ma) {
     const y = mb.get(nome);
@@ -454,16 +454,16 @@ function diferencas(a: PacoteResumo, b: PacoteResumo, ca: Composicao | null, cb:
   }
   const inc = (c: Composicao | null) => (c?.inclusos ?? []).map((i) => i.nome);
   const iA = inc(ca).filter((x) => !inc(cb).includes(x)), iB = inc(cb).filter((x) => !inc(ca).includes(x));
-  if (iA.length) partes.push(`só o ${a.nome} inclui ${lista(iA)}`);
-  if (iB.length) partes.push(`só o ${b.nome} inclui ${lista(iB)}`);
-  if (!partes.length) return `Pelo cadastro, o ${a.nome} e o ${b.nome} têm a mesma faixa de convidados, a mesma duração e o mesmo buffet.`;
-  return `Diferenças entre o ${a.nome} e o ${b.nome}: ${partes.join('; ')}.${buffetIgual ? ' O buffet cadastrado é o mesmo nos dois.' : ''}`;
+  if (iA.length) partes.push(`só o pacote ${a.nome} inclui ${lista(iA)}`);
+  if (iB.length) partes.push(`só o pacote ${b.nome} inclui ${lista(iB)}`);
+  if (!partes.length) return `Pelo cadastro, o pacote ${a.nome} e o pacote ${b.nome} têm a mesma faixa de convidados, a mesma duração e o mesmo buffet.`;
+  return `Diferenças entre o pacote ${a.nome} e o pacote ${b.nome}: ${partes.join('; ')}.${buffetIgual ? ' O buffet cadastrado é o mesmo nos dois.' : ''}`;
 }
 /** "Tem coxinha?": pelo buffet cadastrado do pacote da conversa (ou de todos), sem mandar o cardápio inteiro de novo. */
 async function itensDoBuffet(e: Estado, itens: string[]) {
   const alvo = e.entendimento.entidades.pacotes.length ? e.entendimento.entidades.pacotes : e.ctx.pacote ? [e.ctx.pacote] : e.catalogos.pacotes.map((p) => p.codigo);
   const mesmo = (a: string, b: string) => semAcento(a).trim() === semAcento(b).trim();
-  const nomes = (cods: string[]) => lista(cods.map((c) => `do ${nomePacote(e.catalogos, c) ?? c}`));
+  const nomes = (cods: string[]) => lista(cods.map((c) => `do pacote ${nomePacote(e.catalogos, c) ?? c}`));
   const comps = new Map<string, Composicao | null>();
   for (const pacote of alvo) comps.set(pacote, await e.fontes.composicao(pacote));
   const linhas: string[] = [];
@@ -538,8 +538,8 @@ async function cardapio(e: Estado) {
   for (const pacote of alvo) {
     const comp = comps.get(pacote) ?? null;
     const nome = nomePacote(e.catalogos, pacote) ?? pacote;
-    if (!comp || !comp.categorias.length) { dizer(e, `Ainda não tenho o buffet do ${nome} cadastrado para detalhar por aqui.`); continue; }
-    dizer(e, `Buffet do ${nome}:\n${comp.categorias.map((c) => `• ${c.nome}${escolha(c)}${opcoes(c)}`).join('\n')}`, [{ tipo: 'CATALOGO_BUFFET', pacote }]);
+    if (!comp || !comp.categorias.length) { dizer(e, `Ainda não tenho o buffet do pacote ${nome} cadastrado para detalhar por aqui.`); continue; }
+    dizer(e, `Buffet do pacote ${nome}:\n${comp.categorias.map((c) => `• ${c.nome}${escolha(c)}${opcoes(c)}`).join('\n')}`, [{ tipo: 'CATALOGO_BUFFET', pacote }]);
   }
   itens.filter((p) => !p.pacoteCodigo || alvo.includes(p.pacoteCodigo)).slice(0, 2).forEach((p) => usarMaterial(e, p));
 }
@@ -558,7 +558,7 @@ async function decoracao(e: Estado) {
     const inclusos = comp?.inclusos.filter((i) => semAcento(i.categoria).includes('decor')) ?? [];
     const extras = comp?.extras.filter((i) => semAcento(i.categoria).includes('decor')) ?? [];
     const nome = nomePacote(e.catalogos, pacote) ?? pacote;
-    if (inclusos.length) dizer(e, `No ${nome}, a decoração inclui ${lista(inclusos.map((i) => i.nome))}.`, [{ tipo: 'PACOTE', codigo: pacote, id: pacote }]);
+    if (inclusos.length) dizer(e, `No pacote ${nome}, a decoração inclui ${lista(inclusos.map((i) => i.nome))}.`, [{ tipo: 'PACOTE', codigo: pacote, id: pacote }]);
     if (extras.length) dizer(e, `${lista(extras.slice(0, 5).map((i) => i.nome))} ${extras.length === 1 ? 'é adicional' : 'são adicionais'}, com custo à parte.`, [{ tipo: 'PACOTE', codigo: pacote, id: pacote }]);
   }
   itens.filter((p) => p.tipo === 'IMAGEM' || p.tipo === 'VIDEO' || p.tipo === 'DOCUMENTO').slice(0, 1).forEach((p) => usarMaterial(e, p));
@@ -570,7 +570,7 @@ async function decoracao(e: Estado) {
     const registrados = [...(comp?.inclusos ?? []), ...(comp?.extras ?? [])].map((i) => semAcento(i.nome));
     const citados = [...new Set([...t.matchAll(ITENS_DECORACAO)].map((m) => m[1]))].filter((x) => !/\b(balao|baloes|bexigas?)$/.test(x)); // balões: cláusula do contrato (tema BALOES)
     const semCadastro = citados.filter((x) => !registrados.some((r) => r.includes(x.slice(0, 5))));
-    if (semCadastro.length) { dizer(e, `Não tenho cadastrado se ${lista(semCadastro)} ${semCadastro.length > 1 ? 'são cobrados' : 'é cobrado'} à parte${pacote ? ` no ${nomePacote(e.catalogos, pacote) ?? pacote}` : ''}: a equipe confirma essa parte.`); passar(e, 'INFORMACAO_INDISPONIVEL'); }
+    if (semCadastro.length) { dizer(e, `Não tenho cadastrado se ${lista(semCadastro)} ${semCadastro.length > 1 ? 'são cobrados' : 'é cobrado'} à parte${pacote ? ` no pacote ${nomePacote(e.catalogos, pacote) ?? pacote}` : ''}: a equipe confirma essa parte.`); passar(e, 'INFORMACAO_INDISPONIVEL'); }
   }
   // Cláusula do assunto na mesma mensagem ("quantos balões vêm?" → cláusula dos balões) também é resposta.
   const clausula = e.entendimento.intencoes.some((i) => i.tipo === 'CONTRATO' && !!i.tema && i.tema !== 'GERAL');
@@ -684,8 +684,8 @@ async function contratar(e: Estado) {
     const maior = [...todos].filter((p) => p.convidadosMaximos).sort((a, b) => b.convidadosMaximos! - a.convidadosMaximos!)[0];
     const nenhum = todos.length > 0 && !todos.some((p) => !p.convidadosMaximos || p.convidadosMaximos >= n);
     if (nenhum || (escolhido?.convidadosMaximos && n > escolhido.convidadosMaximos)) {
-      const limite = escolhido?.convidadosMaximos && n > escolhido.convidadosMaximos ? `O ${escolhido.nome} atende até ${escolhido.convidadosMaximos} convidados` : null;
-      const resto = cabem.length ? `para ${n} convidados, ${lista(cabem.map((p) => `o ${p.nome}`))} ${cabem.length > 1 ? 'comportam' : 'comporta'}` : `para ${n} convidados, nenhum pacote cadastrado comporta${maior && maior !== escolhido ? ` (o maior, o ${maior.nome}, vai até ${maior.convidadosMaximos})` : ''}`;
+      const limite = escolhido?.convidadosMaximos && n > escolhido.convidadosMaximos ? `O pacote ${escolhido.nome} atende até ${escolhido.convidadosMaximos} convidados` : null;
+      const resto = cabem.length ? `para ${n} convidados, ${lista(cabem.map((p) => `o pacote ${p.nome}`))} ${cabem.length > 1 ? 'comportam' : 'comporta'}` : `para ${n} convidados, nenhum pacote cadastrado comporta${maior && maior !== escolhido ? ` (o maior, o pacote ${maior.nome}, vai até ${maior.convidadosMaximos})` : ''}`;
       dizer(e, `${limite ? `${limite}; ${resto}` : `${resto.charAt(0).toUpperCase()}${resto.slice(1)}`}. A equipe vê com você.`, [...new Set([escolhido, ...cabem, ...(cabem.length ? [] : [maior])].filter((p): p is PacoteResumo => !!p))].map((p) => ({ tipo: 'PACOTE', codigo: p.codigo, id: p.id } as Fonte)));
       passar(e, 'CONTRATACAO');
       if (nenhum) passar(e, 'NEGOCIACAO');
@@ -731,6 +731,8 @@ const ATRIBUTO_DE_PACOTE = /\b(?:diferen\w*|compar\w*|cabe\w*|comporta\w*|dura\w
 const TABELA_EXPLICITA = /\b(?:tabela|orcamento)\b/;
 /** Rodada 40: fechamento cordial, só com a dúvida resolvida. */
 const FECHAMENTO = 'Posso ajudar com mais alguma coisa?';
+/** Rodada 41: o cliente sabe que pode falar com uma pessoa (na apresentação e no fechamento; "quero falar com uma pessoa" passa à equipe). */
+const OFERTA_PESSOA = 'Se preferir falar com uma pessoa da equipe, é só pedir.';
 /** Menu do último recurso (nada a dizer). */
 const MENU = 'Posso ajudar com preços, datas disponíveis, pacotes, buffet, decoração, endereço e condições do contrato. Para falar com uma pessoa, escreva “atendente”.';
 /** Aviso fixo da agenda: consultar (ou receber o link público) não reserva a data. */
@@ -1023,7 +1025,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
       case 'EXTERNO': await externo(e, i, intencoes); break;
       case 'HUMANO': passar(e, 'PEDIDO_CLIENTE'); break;
       case 'CONFIRMACAO': if (intencoes.length === 1) dizer(e, `${/\b(obrigad|brigad|valeu|vlw|agradec|obg|gratid|grat[ao]\b)/.test(semAcento(entrada.texto)) ? 'Por nada!' : 'Combinado!'} Se precisar de mais alguma informação, é só falar.`); break;
-      case 'SAUDACAO': if (intencoes.length === 1) { const s = cumprimentoDoCliente(entrada.texto); dizer(e, `${s.periodo ?? 'Olá'}!${s.comoVai ? ' Tudo bem, e você?' : ''} ${jaApresentado ? 'Em que posso ajudar?' : `Sou o Wall-e, agente inteligente da ${e.config.nome}. Posso enviar a tabela de preços, consultar datas, explicar pacotes, buffet, decoração, endereço e as condições do contrato. Como posso ajudar?`}`); } break;
+      case 'SAUDACAO': if (intencoes.length === 1) { const s = cumprimentoDoCliente(entrada.texto); dizer(e, `${s.periodo ?? 'Olá'}!${s.comoVai ? ' Tudo bem, e você?' : ''} ${jaApresentado ? 'Em que posso ajudar?' : `Sou o Wall-e, agente inteligente da ${e.config.nome}. Posso enviar a tabela de preços, consultar datas, explicar pacotes, buffet, decoração, endereço e as condições do contrato. ${OFERTA_PESSOA} Como posso ajudar?`}`); } break;
       // Rodada 21: o menu genérico não entra aqui ("à tarde" no meio do orçamento recebia o menu antes da pergunta): sem
       // nada a dizer, o fim da rodada pergunta o que falta ou, como último recurso, mostra o menu.
       case 'OUTRO': break;
@@ -1115,14 +1117,16 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   e.paragrafos = e.paragrafos.filter((p, i) => e.paragrafos.findIndex((q) => q.texto === p.texto) === i);
   // Rodada 40 (humanização): responde ao cumprimento no mesmo tom ("Boa tarde! Tudo bem, e você?") e se apresenta só na
   // primeira resposta. Com reclamação, nada de cordialidade automática; a sugestão para o atendente sai sem apresentação.
+  // Rodada 41: a apresentação oferece falar com uma pessoa, exceto quando a mensagem já vai para a equipe.
   const soSaudacao = intencoes.length === 1 && intencoes[0].tipo === 'SAUDACAO';
   // Agradecimento ou "combinado" sozinhos não abrem com apresentação ("Por nada!" basta).
   const apresentar = !jaApresentado && !intencoes.every((i) => ['CONFIRMACAO', 'SAUDACAO'].includes(i.tipo));
   if (!opcoes.sugestao && !s?.reclamacao && !soSaudacao && e.paragrafos.length) {
     const c = cumprimentoDoCliente(entrada.texto);
-    const abertura = [c.periodo || c.comoVai ? `${c.periodo ?? 'Olá'}!${c.comoVai ? ' Tudo bem, e você?' : ''}` : apresentar ? 'Olá!' : '', apresentar ? `Sou o Wall-e, agente inteligente da ${e.config.nome}.` : ''].filter(Boolean).join(' ');
+    const abertura = [c.periodo || c.comoVai ? `${c.periodo ?? 'Olá'}!${c.comoVai ? ' Tudo bem, e você?' : ''}` : apresentar ? 'Olá!' : '', apresentar ? `Sou o Wall-e, agente inteligente da ${e.config.nome}.${e.encaminhar.length ? '' : ` ${OFERTA_PESSOA}`}` : ''].filter(Boolean).join(' ');
     // O menu (nada a dizer) fica na mesma frase da abertura: um parágrafo só, como a resposta à saudação.
-    if (abertura && e.paragrafos[0].texto === MENU) e.paragrafos[0] = { ...e.paragrafos[0], texto: `${abertura} ${MENU}` };
+    // (o menu já diz como falar com uma pessoa: a oferta da apresentação não se repete)
+    if (abertura && e.paragrafos[0].texto === MENU) e.paragrafos[0] = { ...e.paragrafos[0], texto: `${abertura.replace(` ${OFERTA_PESSOA}`, '')} ${MENU}` };
     else if (abertura) e.paragrafos.unshift({ texto: abertura, fontes: [] });
   }
   // Fechamento só com a dúvida resolvida: sem passagem, sem dado pendente, sem pergunta no fim, fora do menu, da
@@ -1132,7 +1136,8 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   const resolvido = !passagem && !opcoes.sugestao && !s?.reclamacao && !e.ctx.pendente?.campos.length && !linkPublico && e.paragrafos.length
     && intencoes.some((i) => !['SAUDACAO', 'CONFIRMACAO', 'OUTRO'].includes(i.tipo)) && !/\?\s*$/.test(ultimoParagrafo) && !ultimoParagrafo.endsWith(MENU);
   const fechouHaPouco = !!entrada.contexto.fechamentoEm && Date.parse(e.agora) - Date.parse(entrada.contexto.fechamentoEm) < 30 * 60_000;
-  if (resolvido && !fechouHaPouco) { dizer(e, FECHAMENTO); e.ctx = { ...e.ctx, fechamentoEm: e.agora }; }
+  // Rodada 41: o fechamento lembra que dá para falar com uma pessoa (sem repetir a oferta da apresentação na mesma resposta).
+  if (resolvido && !fechouHaPouco) { dizer(e, e.paragrafos.some((p) => p.texto.includes(OFERTA_PESSOA)) ? FECHAMENTO : `${FECHAMENTO} ${OFERTA_PESSOA}`); e.ctx = { ...e.ctx, fechamentoEm: e.agora }; }
   // Rodada 36: acima do limite de uma mensagem, a resposta vai em mais de uma, partida entre parágrafos (ou frases) —
   // nunca cortada no meio de uma frase ou informação.
   const saidas: Saida[] = partirMensagem(e.paragrafos).map((p) => ({ texto: p.texto, anexo: null, fontes: p.fontes }));

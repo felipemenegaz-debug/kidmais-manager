@@ -54,7 +54,7 @@ export default function ConfiguracaoAtendimento() {
       <section className={styles.painel} aria-labelledby="config-identidade"><h2 id="config-identidade">Identidade e boas-vindas</h2>
         <label>Nome da empresa (como o Wall-e se apresenta)<input value={config.nome} required minLength={2} maxLength={100} onChange={e => setConfig({ ...config, nome: e.target.value })} /></label>
         <p className={styles.nota}>Assim o cliente é recebido na primeira mensagem (o cumprimento acompanha o dele):</p>
-        <p className={styles.previaSaudacao} aria-label="Prévia da saudação">{`Boa tarde! Tudo bem, e você? Sou o Wall-e, agente inteligente da ${nome}.`}</p>
+        <p className={styles.previaSaudacao} aria-label="Prévia da saudação">{`Boa tarde! Tudo bem, e você? Sou o Wall-e, agente inteligente da ${nome}. Se preferir falar com uma pessoa da equipe, é só pedir.`}</p>
         <label className={styles.opcao}><input type="checkbox" disabled={!dados.automacaoDisponivel} checked={config.ativo} onChange={e => setConfig({ ...config, ativo: e.target.checked })} />Responder os clientes automaticamente</label>
         {!dados.automacaoDisponivel && <p className={styles.nota}>Só pode ser ligado depois da ativação no servidor deste ambiente.</p>}
         {dados.wallE?.disponivel

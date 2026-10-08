@@ -15,6 +15,9 @@ const teste = fs.readFileSync(path.join(raiz, 'scripts/walle-avaliacao/metricas.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'walle-mutacao-regua-'));
 fs.writeFileSync(path.join(dir, 'metricas.test.mjs'), teste);
 const mutacoes = {
+  // Rodadas 40 e 41.
+  'fechamento cordial aceito mesmo com passagem': (t) => t.replace("(l) => l.decisao !== 'EQUIPE' && !l.pendente?.length],", '() => true],'),
+  'link público fora de hora nunca falha': (t) => t.replace("? 'enviou o link público' : null) },", '? null : null) },'),
   'fonteErrada sempre null': (t) => t.replace('export function fonteErrada(l) {', 'export function fonteErrada(l) { return null;'),
   'fonteErrada sem filtro de assunto (acusa tudo)': (t) => t.replace("const erradas = citadas.filter((n) => ASSUNTO_CLAUSULA[n] && !perguntados.includes(ASSUNTO_CLAUSULA[n]));", 'const erradas = citadas;'),
   'semSuporte sempre null': (t) => t.replace('export function semSuporte(l) {', 'export function semSuporte(l) { return null;'),

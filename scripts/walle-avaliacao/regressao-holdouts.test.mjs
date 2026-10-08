@@ -135,7 +135,7 @@ test('holdout 6 (regressão): festa de terceiro e paga com a equipe sem agenda; 
   assert.match(l('x55').resposta, /Completa em 14\/11\/2026, primeiro horário \(11h às 15h\), 80 convidados: R\$/);
   assert.match(l('x56').resposta, /Completa em 14\/11\/2026, primeiro horário \(11h às 15h\), 100 convidados: R\$/);
   assert.deepEqual([l('x75').decisao, l('x75').pendente], ['PERGUNTAR', ['data']]);
-  assert.match(l('x12').resposta, /nenhum pacote cadastrado comporta: o maior, o Premium, vai até 150/);
+  assert.match(l('x12').resposta, /nenhum pacote cadastrado comporta: o maior, o pacote Premium, vai até 150/);
   assert.match(l('x26').resposta, /Cláusula/);
   assert.equal(l('x77').decisao, 'RESPONDER');
 });
@@ -169,7 +169,7 @@ test('holdout 9 (regressão): contratação condicional coleta (nunca confirma);
   assert.match(l('k19').resposta, /nenhum pacote cadastrado comporta/);
   assert.deepEqual([l('k34').decisao, l('k34').motivos], ['RESPONDER', []]);
   assert.match(l('k34').resposta, /Cláusula 17/);
-  assert.match(l('k73').resposta, /Sim: o Premium tem 5 horas de festa/);
+  assert.match(l('k73').resposta, /Sim: o pacote Premium tem 5 horas de festa/);
   assert.ok(l('k73').saidas.some((s) => s.anexo), 'k73: PDF reenviado');
 });test('holdout 10 (regressão): "sou do financeiro… está liberado" e prato servido fora do cadastro com a equipe; outro domingo pergunta a data; capacidade sem tabela; endereço das duas unidades', async () => {
   const linhas = await simular('corpus-holdout-10-20261006.json');
@@ -197,7 +197,7 @@ test('holdout 9 (regressão): contratação condicional coleta (nunca confirma);
 });test('holdout 12 (regressão): "fazem festa pra umas 70 pessoas?" informa os pacotes compatíveis; festa da irmã com a equipe sem agenda', async () => {
   const linhas = await simular('corpus-holdout-12-20261006.json');
   const l = (id) => linhas.find((x) => x.id === id);
-  assert.match(l('q76').resposta, /Para 70 convidados: o Completa \(50 a 100\)/);
+  assert.match(l('q76').resposta, /Para 70 convidados: o pacote Completa \(50 a 100\)/);
   assert.ok(l('q34').motivos.includes('CONTRATO_PROPRIO'), `q34: ${l('q34').motivos}`);
   assert.doesNotMatch(l('q34').resposta, /dispon[ií]vel/);
 });test('holdout 13 (regressão): festa do Theo remarcada com a equipe sem agenda; "formalizar a contratação" é contratação; unidade em Águas Claras e a conversa seguinte respondidas', async () => {
@@ -210,7 +210,7 @@ test('holdout 9 (regressão): contratação condicional coleta (nunca confirma);
   for (const id of ['s61', 's62', 's63', 's64']) assert.equal(l(id).decisao, 'RESPONDER', id);
   assert.match(l('s61').resposta, /Águas Claras/);
   assert.match(l('s63').resposta, /21\/11\/2026/);
-  assert.match(l('s64').resposta, /Para 120 convidados: o Premium/);
+  assert.match(l('s64').resposta, /Para 120 convidados: o pacote Premium/);
 });test('holdout 14 (regressão): pedido de parar com "não me mandarem mais nada" bloqueia; premium pra 170 pagando a diferença com a equipe; 120 convidados com o pacote indicado', async () => {
   const linhas = await simular('corpus-holdout-14-20261006.json');
   const l = (id) => linhas.find((x) => x.id === id);
@@ -218,7 +218,7 @@ test('holdout 9 (regressão): contratação condicional coleta (nunca confirma);
   for (const p of linhas.filter((x) => x.conversa && x.conversa === l('g50').conversa && x.ordem > l('g50').ordem)) assert.deepEqual(p.saidas, [], p.id);
   assert.ok(l('g65').motivos.includes('NEGOCIACAO'), `g65: ${l('g65').motivos}`);
   assert.doesNotMatch(l('g65').resposta, /Pagamentos e cobranças/);
-  assert.match(l('g78').resposta, /Para 120 convidados: o Premium \(80 a 150\)/);
+  assert.match(l('g78').resposta, /Para 120 convidados: o pacote Premium \(80 a 150\)/);
 });
 
 test('conversas com pedido de parar (desenvolvimento, rodada 15): bloqueia, cancela e silencia as mensagens seguintes; contraexemplos respondidos', async () => {
@@ -286,7 +286,7 @@ test('holdout 17 (regressão): fluxo comercial completo, oferta de valor, PARAR 
   assert.ok(l('e07').pendente.includes('data'));
   // Duração e PDF do cardápio, cada um pela fonte.
   assert.equal(l('e68').decisao, 'RESPONDER');
-  assert.match(l('e68').resposta, /O Essencial tem 4 horas de festa\./);
+  assert.match(l('e68').resposta, /O pacote Essencial tem 4 horas de festa\./);
   assert.ok(l('e68').saidas.some((s) => s.anexo === 'p-cardapio-ESSENCIAL'));
   // "À tarde" pergunta o período; "premium" é anotado e o período segue pedido (rótulo revisado).
   assert.match(l('e73').resposta, /Sobre “à tarde”: os períodos são primeiro horário \(11h às 15h\) e segundo horário \(17h às 21h\)/);
@@ -320,7 +320,7 @@ test('conversas da rodada 18 (desenvolvimento): conversas completas — resposta
   assert.deepEqual(l('rt04').pendente, ['pacote']);
   assert.match(l('rt05').resposta, /^Essencial em 28\/11\/2026, segundo horário \(17h às 21h\), 50 convidados: R\$\s?5\.000,00/);
   assert.ok(fontes('rt05').includes('TABELA_PRECO') && fontes('rt05').includes('PACOTE'));
-  assert.equal(l('rt06').resposta, 'O Essencial tem 4 horas de festa.');
+  assert.equal(l('rt06').resposta, 'O pacote Essencial tem 4 horas de festa.');
   assert.deepEqual(fontes('rt06'), ['PACOTE']);
   assert.ok(fontes('rt07').includes('CATALOGO_BUFFET') && l('rt07').saidas.some((s) => s.anexo === 'p-cardapio-ESSENCIAL'));
   assert.deepEqual([l('rt08').estadoDepois, l('rt08').motivos[0]], ['AGUARDANDO_HUMANO', 'NEGOCIACAO']);

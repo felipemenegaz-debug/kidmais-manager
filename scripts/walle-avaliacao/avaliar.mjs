@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { criarFetchProtegido } from './guarda-rede.mjs';
-import { AGORA, CATALOGOS, CONFIG, EMPRESA, FONTES, HOJE } from './fixture.mjs';
+import { AGORA, CATALOGOS, CONFIG, EMPRESA, FONTES, FONTES_COM_LINK, HOJE } from './fixture.mjs';
 import { caminhoLivro, consumoDoDia, exigirLivro, registroComLivro, TETO } from './livro-uso-ia.mjs';
 import { calcularMetricas, markdown } from './metricas.mjs';
 import { sequenciasDoCorpus, simularSequencia } from './simulacao.mjs';
@@ -31,6 +31,8 @@ const args = process.argv.slice(2);
 const opcao = (nome, padrao = null) => { const i = args.indexOf(nome); return i >= 0 ? args[i + 1] : padrao; };
 const modo = args[0];
 const simular = args.includes('--simular');
+// Rodada 41: --link-publico liga a página pública sintética (o Wall-e pode enviar o link); sem ela, como antes.
+const linkPublico = args.includes('--link-publico');
 const corpusArq = path.resolve(opcao('--corpus', path.join(aqui, 'corpus-holdout-20261005.json')));
 const codigo = path.resolve(opcao('--codigo', raizPadrao));
 const versao = opcao('--versao', codigo === raizPadrao ? 'depois' : 'antes');
@@ -138,7 +140,7 @@ if (modo === 'ia') {
 const linhas = [];
 let feitas = 0;
 for (const seq of sequenciasDoCorpus(corpus.itens)) {
-  linhas.push(...await simularSequencia(m, seq, { catalogos: CATALOGOS, config: CONFIG, fontes: FONTES, agora: AGORA, entender, usos: () => registro.usos, rotulos }));
+  linhas.push(...await simularSequencia(m, seq, { catalogos: CATALOGOS, config: CONFIG, fontes: linkPublico ? FONTES_COM_LINK : FONTES, agora: AGORA, entender, usos: () => registro.usos, rotulos }));
   // Progresso (stderr, aparece na hora): uma rodada em IA real leva 2–3 minutos.
   const antes = feitas; feitas += seq.length;
   if (modo === 'ia' && (Math.floor(feitas / 10) > Math.floor(antes / 10) || feitas === corpus.itens.length)) process.stderr.write(`  ${feitas}/${corpus.itens.length} mensagens` + '\n');
@@ -146,7 +148,7 @@ for (const seq of sequenciasDoCorpus(corpus.itens)) {
 const metricas = calcularMetricas(linhas);
 
 const corpusId = (/^corpus-holdout-(\d+)-/.exec(path.basename(corpusArq)) ? `holdout${/^corpus-holdout-(\d+)-/.exec(path.basename(corpusArq))[1]}` : /^corpus-holdout-20261005/.test(path.basename(corpusArq)) ? 'holdout1' : path.basename(corpusArq, '.json')) + (args.includes('--sem-revisao') ? '-original' : '');
-const nome = `${versao}-${corpusId}-${modo}${simular ? '-simulado' : ''}`;
+const nome = `${versao}-${corpusId}-${modo}${linkPublico ? '-link' : ''}${simular ? '-simulado' : ''}`;
 // v4: régua desta rodada (violação efetiva × reconhecimento de instrução, item de fora, pratos do buffet); v2, v3 e os
 // originais ficam intactos.
 const pasta = path.join(aqui, 'resultados', 'v4');

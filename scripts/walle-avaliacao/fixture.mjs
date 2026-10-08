@@ -55,3 +55,6 @@ export const FONTES = {
   async alternativas() { return []; },
   async linkContratoProprio() { return null; },
 };
+/** Rodada 41: página pública de disponibilidade sintética (só com --link-publico; sem ela, como as medições anteriores). */
+export const LINK_PUBLICO = 'https://festas.exemplo.test/disponibilidade';
+export const FONTES_COM_LINK = { ...FONTES, linkDisponibilidade: () => LINK_PUBLICO };
