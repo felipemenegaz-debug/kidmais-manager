@@ -112,16 +112,120 @@
   }
 }
 
+/* Gaveta do adicional: do topo ao rodapé da tela; título e botões fixos, só o meio rola. */
+.overlayGaveta {
+  align-items: stretch;
+}
+
 .painelAdicional {
   width: min(480px, 100%);
-  max-height: min(88vh, 760px);
+  height: calc(100svh - 32px);
+  max-height: none;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: 0;
+  overflow: hidden;
+}
+
+.painelTopo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-navy);
+}
+
+.painelTopo h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.fechar {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0 !important;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.painelCorpo {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.painelRodape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-navy);
+  background: var(--card-bg);
+}
+
+.rodapeAcoes {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.duasColunas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.perigo {
+  color: #fb7185 !important;
+  border-color: rgba(251, 113, 133, .45) !important;
+  background: transparent !important;
+}
+
+.overlayCentro {
+  align-items: center;
+  justify-items: center;
+}
+
+.confirmacao {
+  width: min(440px, 100%);
   display: grid;
   gap: 10px;
 }
 
-.painelAdicional h2 {
+.confirmacao h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 17px;
+}
+
+.confirmacao p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.avisoArquivo {
+  padding: 10px 12px;
+  border: 1px solid rgba(249, 115, 22, .35);
+  border-radius: 10px;
+  background: rgba(249, 115, 22, .10);
+  color: var(--alert-orange, #fdba74);
+  font-size: 13px !important;
+}
+
+.botaoExcluir {
+  background: #e11d48 !important;
+  border-color: #e11d48 !important;
+  color: #fff !important;
+}
+
+@media (max-width: 720px) {
+  .painelAdicional {
+    height: calc(100svh - 16px);
+  }
 }
 
 .ajuda {
