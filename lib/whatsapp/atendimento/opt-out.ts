@@ -179,9 +179,29 @@ const SOCIAL = /\b(?:(?:nao|n) (?:to|tou|estou|estamos|sou) (?:mais )?interessad
 // Rodada 28 (h28 aa11): interjeição de irritação com "?" ("afff de novo isso??", "aff de novo?") é desabafo, não
 // outra pergunta; pergunta real junto ("de novo? onde fica?") segue acionável (ACIONAVEL vem antes).
 /** `mesmaOracao`: sobra da oração do próprio pedido de parar (sem as palavras que só embrulham a recusa). */
+/**
+ * Rodada 39 (h39 aa04 — o h38 aa21 em outra paráfrase): DESABAFO e pergunta RETÓRICA sobre a insistência saem do resto
+ * antes de procurar outro pedido, por estrutura e não por lista de palavras soltas:
+ *  - "até quando?" no fim da oração (não "até quando vocês abrem?");
+ *  - "de novo", "sério", "não cansam", "toda semana/dia/hora/vez", "a mesma coisa", "mais uma (vez)", "outra (vez/
+ *    mensagem) (hoje)", "quantas vezes (vou ter que pedir/repetir)", "por que (vocês) insistem/continuam/mandam", "pra que
+ *    isso", "que saco", "que coisa", "já pedi (isso) (antes)";
+ *  - "(vocês) são/estão/ficam (muito/tão/bem/super) <adjetivo de queixa> (demais/tanto)".
+ * O que sobra só é outro pedido com conteúdo: assunto acionável, ou uma pergunta com ao menos duas palavras de conteúdo.
+ */
+const ATE_QUANDO_RETORICO = /\bate quando\b(?=\s*(?:[?!.,;]|$))/g;
+const DESABAFO = new RegExp([
+  String.raw`\b(?:de novo|denovo|serio|nao cans\w*|(?:toda|todo|todos|todas) (?:santo |santa )?(?:semana|semanas|dia|dias|hora|horas|vez|vezes|mes)|(?:a |essa |sempre a )?mesma coisa|mais uma(?: vez| msg| mensagem)?|outra (?:vez|msg|mensagem)(?: hoje)?|quantas vezes(?: (?:eu )?(?:vou ter que|tenho que|preciso|vou precisar) (?:pedir|falar|repetir|dizer))?|vou ter que repetir|por que (?:voces |vcs |ces )?(?:insist\w*|continu\w*|mand\w*|nao param)(?: tanto)?|pra que (?:isso|tanta \w+)|que saco|que coisa|ja pedi(?: isso)?(?: antes)?)\b`,
+  String.raw`\b(?:(?:voces|vcs|ces|vc|voce) )?(?:sao|e|eh|estao|esta|ficam|fica) (?:muito |mt |tao |bem |super |mega |uns |umas )?(?:insistent\w*|inconvenient\w*|irritant\w*|invasiv\w*|chat\w*|incomod\w*|cansativ\w*|insuportave\w*|abusad\w*|pesad\w*|grudent\w*|pegajos\w*)(?: demais| tanto)?\b`,
+].join('|'), 'g');
+/** Rodada 39: a mensagem traz desabafo sobre a insistência (a reclamação que acompanha a recusa é registrada). */
+export function desabafoSobreInsistencia(texto: string) {
+  const t = normal(texto);
+  return new RegExp(ATE_QUANDO_RETORICO.source).test(t) || new RegExp(DESABAFO.source).test(limpo(t));
+}
 export function temOutroPedido(resto: string, mesmaOracao = false) {
   // Negação não é pedido: "não me manda mais nada" é a própria recusa.
-  let r = limpo(resto).replace(/\b(?:nao|nem|nunca)\b(?:\s+(?:me|mais|quero|desejo|precisa|precisam|vou))*\s+\S+/g, ' ');
+  let r = limpo(normal(resto).replace(ATE_QUANDO_RETORICO, ' ')).replace(DESABAFO, ' ').replace(/\b(?:nao|nem|nunca)\b(?:\s+(?:me|mais|quero|desejo|precisa|precisam|vou))*\s+\S+/g, ' ');
   if (mesmaOracao) r = r.replace(EMBRULHO, ' ');
   r = r.replace(/\b(?:por favor|porfavor|pfv|pf|ok|ta|mas|e|entao|ai|aí|na verdade|nao)\b/g, ' ').replace(/\s+/g, ' ').trim();
   if (!r) return false;
@@ -191,7 +211,9 @@ export function temOutroPedido(resto: string, mesmaOracao = false) {
   if (r.split(' ').every((p) => RETORICA.test(p))) return false;
   if (ACIONAVEL.test(r)) return true;
   if (SOCIAL.test(r)) return false;
-  return !mesmaOracao && /\?/.test(resto) && r.split(' ').length >= 3;
+  // Pergunta de verdade sem palavra acionável ("vocês fazem festa de casamento?"): ao menos duas palavras de conteúdo
+  // depois do desabafo (até a rodada 38 bastavam três palavras quaisquer, e o desabafo virava pergunta).
+  return !mesmaOracao && /\?/.test(resto) && r.split(' ').filter((p) => p && !RETORICA.test(p)).length >= 2;
 }
 
 /**

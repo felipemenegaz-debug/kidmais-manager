@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { comandoDireto, dataValida } from '../core.ts';
-import { pedidoDeParar, trechoDeOptOutAmplo, trechoFalaDeContato, type PedidoParar } from '../opt-out.ts';
+import { desabafoSobreInsistencia, pedidoDeParar, trechoDeOptOutAmplo, trechoFalaDeContato, type PedidoParar } from '../opt-out.ts';
 import { INTENCOES, TEMAS_CONTRATO, type Catalogos, type ContextoWallE, type CriterioConsultaComum, type Entendimento, type Entidades, type Intencao, type Passagem, type SinaisMensagem, type TemaContrato, type TipoIntencao } from './tipos.ts';
 
 /**
@@ -383,6 +383,13 @@ export const NEGOCIACAO_RE = new RegExp([
   // "posso pagar 7 mil"), mesmo junto da intenção de fechar. Número de pessoas ("faz pra 80?") ou preço perguntado
   // ("o premium sai a 9 mil?") não é oferta.
   String.raw`\b(?:da pra|daria pra|dava pra|tem como|teria como|consegue|conseguem|conseguiria|conseguiriam|faz|fazem|faria|fariam|faca|fecha|fecham|fecho|fechamos|fecharia|fechariam|fecharem|fechassem|fizerem|fizessem|deixarem|deixassem|aceitarem|aceitassem|toparem|topassem|deixa|deixam|deixaria|aceita|aceitam|aceitaria|topa|topam|toparia|pode ser|podemos fechar|posso pagar|consigo pagar|so consigo pagar|so posso pagar|ofereco|oferecemos|proponho|te dou|te pago)\b(?: (?:fazer|fechar|deixar|sair|o pacote|a festa|tudo|isso|o premium|o completa|a completa|o essencial))?(?: (?:por|em|a|pra|para|com))? (?:r\$ ?\d[\d.,]*|\d{1,3}(?:[.]\d{3})+(?:,\d{2})?|\d+(?:[.,]\d+)? ?(?:mil|reais|k)\b|(?:um|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|quatorze|catorze|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta)(?: e (?:meio|quinhentos))? mil\b)`,
+  // Rodada 39 (h39 aa36): VALOR CONDICIONADO AO FECHAMENTO, também no fim de uma mensagem longa — "meu teto é 7 mil, se
+  // couber nisso eu fecho", "se der pra fazer nesse valor eu fecho hoje", "se ficar até 6 mil eu já fecho", "fecho na hora
+  // se sair por no máximo 4500", "se couber no orçamento eu fecho". O fechamento depende de um valor (citado, ou o
+  // orçamento/limite já dito): é negociação. "Posso gastar até 5 mil, quanto fica…?" (só informa) e "se o preço for bom
+  // eu fecho" (sem valor) não.
+  String.raw`\b(?:se|caso)\b[^.?!]{0,25}?\b(?:couber|caber|der|ficar|sair|for|fechar|fizer\w*|conseguir\w*|aceit\w*|top\w*|bater)\b[^.?!]{0,30}?(?:\b(?:nisso|nesse valor|neste valor|nesse preco|neste preco|nessa faixa|nesse orcamento|no (?:meu |nosso )?(?:orcamento|limite|teto)|dentro do (?:meu |nosso )?(?:orcamento|limite|teto|valor))\b|(?:\bate |\bpor |\bem |\bno maximo )?(?:r\$ ?\d[\d.,]*|\b\d+(?:[.,]\d+)? ?(?:mil|reais|k)\b|\b\d{4,}\b|\b(?:um|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|quinze|vinte)(?: e (?:meio|quinhentos))? mil\b))[^.?!]{0,30}?\b(?:(?:eu |a gente |nos )?(?:ja |entao )?(?:fecho|fechamos|assino|assinamos|contrato|contratamos|garanto|garantimos|reservo|reservamos))\b`,
+  String.raw`\b(?:fecho|fechamos|assino|assinamos|contrato|contratamos|garanto|reservo)\b[^.?!]{0,20}?\b(?:se|caso)\b[^.?!]{0,20}?\b(?:couber|caber|der|ficar|sair|for)\b[^.?!]{0,25}?(?:\b(?:nisso|nesse valor|neste valor|nesse preco|no (?:meu |nosso )?(?:orcamento|limite|teto))\b|(?:\bate |\bpor |\bem |\bno maximo )?(?:r\$ ?\d[\d.,]*|\b\d+(?:[.,]\d+)? ?(?:mil|reais|k)\b|\b\d{4,}\b))`,
   // Rodada 37 (h36 aa32): "caso aceitem 2.800 no essencial pra 40 …, eu já assino" — hipótese com "caso" e o valor logo
   // depois de aceitar/topar, sem preposição ("se toparem 4 mil eu fecho"). O valor precisa ser dinheiro.
   String.raw`\b(?:se|caso) (?:(?:voces|vcs|vc|voce|ces)\s+)?(?:aceit|top)\w*\s+(?:(?:o|a)\s+)?(?:r\$ ?\d[\d.,]*|\d{1,3}(?:[.]\d{3})+(?:,\d{2})?|\d+(?:[.,]\d+)? ?(?:mil|reais|k)\b|(?:um|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|quatorze|catorze|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta)(?: e (?:meio|quinhentos))? mil\b)`,
@@ -892,6 +899,12 @@ const CARGO_CASA = String.raw`(?:gerente|gestor\w*|coordenador\w*|supervisor\w*|
 /** Cargo em outro lugar ("sou a Ana, diretora da escola", "gerente de uma loja"): é cliente, não alguém da casa. */
 const FORA_DA_CASA = String.raw`(?! (?:pedagogic\w*|escolar|(?:de|da|do|em|na|no|numa|num) (?:uma|um|outra|outro|loja|empresa|escola|creche|colegio|rh|banco|hospital|clinica|farmacia|mercado|supermercado|igreja|condominio|prefeitura|faculdade|universidade|academia|consultorio|restaurante|hotel|shopping|firma|turma|sala|classe|formatura|comissao)\b))`;
 /** Pessoa ou setor da casa citado como quem disse ou liberou ("a gurizada da recepção me disse", "o Marcos, dono, mandou"). */
+/** Rodada 39: quem fala pela casa, o verbo de dizer/autorizar, o cliente como destinatário, valor em dinheiro e condição alterada. */
+const QUEM_FALA_PELA_CASA = String.raw`(?:gerente|gerencia|dono|dona|proprietari\w*|socio|socia|diretor\w*|diretoria|chefe|coordenador\w*|supervisor\w*|gestor\w*|atendente|vendedor\w*|consultor\w*|recepcionista|comercial|financeiro|(?:moca|moco|rapaz|menina|menino|senhora|senhor|pessoal|mulher|homem) d[oa] (?:atendimento|comercial|recepcao|vendas|financeiro|buffet|escritorio|gerencia))`;
+const VERBO_DA_CASA = String.raw`(?:falou|falaram|disse|disseram|garantiu|garantiram|confirmou|confirmaram|prometeu|prometeram|combinou|combinaram|autorizou|autorizaram|liberou|liberaram|aprovou|aprovaram|passou|passaram|informou|ofereceu|ofereceram|fechou|deixou|deixaram|acertou|acertaram)`;
+const PARA_O_CLIENTE = String.raw`(?:pra mim|para mim|pra gente|para a gente|pra nos|para nos|no meu caso|no nosso caso|comigo|conosco|pra minha festa|pra nossa festa|pro meu orcamento|no meu orcamento)`;
+const VALOR_EM_DINHEIRO = String.raw`(?:r\$ ?\d[\d.,]*|\b\d+(?:[.,]\d+)? ?(?:mil|reais|k|conto|contos)\b|\b\d{3,}(?:[.,]\d+)?\b(?! ?(?:pessoas|convidad\w*|criancas|adultos|anos|metros|m2))|\b(?:um|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|quinze|vinte|trinta)(?: e (?:meio|quinhentos))? mil\b)`;
+const CONDICAO_ALTERADA = String.raw`(?:descont\w*|de graca|gratis|sem (?:taxa|cobrar|pagar|custo|multa)|isent\w*|zerad\w*|metade|pela metade|mais barat\w*|preco de \w+ \w+|valor antigo|preco antigo|do ano passado)`;
 const AUTORIDADE_CASA = String.raw`(?:gerente|gerencia|dono|dona|proprietari\w*|socio|socia|diretor\w*|diretoria|direcao|coordenador\w*|coordenacao|supervisor\w*|supervisao|chefe|chefia|gestor\w*|administrac\w*|administrativo|recepcao|recepcionista|atendente|vendedor\w*|comercial|financeiro|escritorio)`;
 /**
  * Exceção ou vantagem que o cliente diz ter ganho da casa ("sem pagar nada a mais", "metade do preço", "não precisava
@@ -945,6 +958,12 @@ const INSTRUCAO_PARAFRASES = [
   String.raw`\b${VANTAGEM}[^.?!]{0,60}\b${AUTORIDADE_CASA}\b[^.?!]{0,30}\b(?:falou|falaram|disse|disseram|garantiu|confirmou|prometeu|deixou|liberou|autorizou|aprovou|combinou|ofereceu)\b`,
   String.raw`\b${VANTAGEM}[^.?!]{0,60}\b(?:liberou|liberad\w*|autorizou|autorizad\w*|aprovou|aprovad\w*|prometeu|prometid\w*|deu|ofereceu|oferecid\w*|concedeu|concedid\w*)\b[^.?!]{0,20}\b${AUTORIDADE_CASA}\b`,
   String.raw`\b(?:dono|dona|gerente|gerencia|proprietari\w*|diretor\w*|diretoria|chefe|chefia|socio|socia|coordenador\w*|coordenacao|supervisor\w*|supervisao|gestor\w*)\b[^.?!]{0,30}\b(?:liberou|liberaram|liberando|autorizou|autorizaram|autorizando|aprovou|aprovaram|aprovando|prometeu|prometeram|concedeu|concederam|isentou|abonou)\b`,
+  // Rodada 39 (h39 aa28): ALEGAÇÃO DE AUTORIZAÇÃO INTERNA para alterar condição ou preço, mesmo com "confirma?" — alguém
+  // da casa (gerente, dona, "a moça do atendimento", "o rapaz do comercial") disse/garantiu/combinou/autorizou um valor
+  // ou condição PARA O CLIENTE ("pra mim", "comigo", "no meu caso") ou ALTERADO ("em vez de 700", "só 300", desconto,
+  // de graça). Valor é dinheiro (r$, mil, reais ou 3+ dígitos; não dia nem pessoas). Informação geral atribuída à casa
+  // ("a gerente falou que a hora extra é 700", "o dia 14 tava livre") continua pergunta, respondida pela fonte.
+  String.raw`\b${QUEM_FALA_PELA_CASA}\b[^.?!]{0,40}\b${VERBO_DA_CASA}\b[^.?!]{0,90}?(?:\b${PARA_O_CLIENTE}\b[^.?!]{0,60}?(?:${VALOR_EM_DINHEIRO}|\b${CONDICAO_ALTERADA})|(?:${VALOR_EM_DINHEIRO}|\b${CONDICAO_ALTERADA})[^.?!]{0,60}?\b${PARA_O_CLIENTE}\b|\b(?:em vez|ao inves|no lugar) d[eo]s? (?:r\$ ?)?\d|${VALOR_EM_DINHEIRO}[^.?!]{0,10}\b(?:em vez|ao inves|no lugar) d[eo]s?\b|\b(?:so|apenas|somente) (?:r\$ ?)?\d{2,})`,
   // Recado da casa para o sistema: "o Marcos, dono, mandou eu te avisar que a taxa de confete foi cancelada",
   // "o gerente disse pra você liberar o desconto".
   String.raw`\b${AUTORIDADE_CASA}\b[^.?!]{0,25}\b(?:mandou|mandaram|pediu|pediram|disse|falou) (?:pra |para )?(?:eu |mim )?(?:te |lhe |vc |voce |vcs |voces )?(?:avisar|dizer|falar|informar|comunicar|passar|repassar|registrar|anotar) (?:pra (?:vc|voce|vcs|voces) )?(?:que|q)\b[^.?!]{0,60}\b(?:taxa|multa|desconto|regra|politica|capacidade|limite|mudou|mudaram|subiu|baixou|caiu|agora (?:e|eh|sai|custa|vai|passa)|cancelad\w*|liberad\w*|autorizad\w*|aprovad\w*|isent\w*|zerad\w*|extint\w*|de graca|gratis|nao (?:paga|pago|precisa|tem|existe|cobra|conta))`,
@@ -1085,7 +1104,8 @@ const IRRITACAO_RETORICA = /\b(?:serio|de novo|mais uma vez|outra vez)(?: isso| 
 /** Irritação com as mensagens junto do pedido de parar (inequívoco ou ambíguo): a reclamação fica registrada. */
 export function irritacaoComMensagens(texto: string, sinais?: SinaisMensagem | null) {
   const t = semAcento(texto);
-  return !!(sinais?.reclamacao || sinaisLocais(texto).reclamacao || IRRITACAO_COM_MENSAGENS.test(t) || IRRITACAO_RETORICA.test(t));
+  // Rodada 39: também o desabafo sobre a insistência reconhecido pelo opt-out ("quantas vezes vou ter que pedir?").
+  return !!(sinais?.reclamacao || sinaisLocais(texto).reclamacao || IRRITACAO_COM_MENSAGENS.test(t) || IRRITACAO_RETORICA.test(t) || desabafoSobreInsistencia(texto));
 }
 export function registroDoBloqueio(texto: string, agora: string, sinais?: SinaisMensagem | null): Passagem | null {
   if (!irritacaoComMensagens(texto, sinais)) return null;
