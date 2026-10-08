@@ -177,6 +177,45 @@ export async function vincularAdicionalAoPacote(tx: DbExecutor, ctx: Contexto, a
   await alterarComposicaoPacoteAdmin(tx, pacoteId, { tipo: "vinculo", adicionalId, modalidade }, { ...ctx, motivo: MOTIVOS_PACOTE.composicao });
 }
 
+export type ResultadoExclusaoAdicional = { resultado: "EXCLUIDO" | "ARQUIVADO"; festas: number; pacotes: number };
+
+/**
+ * Exclusão pedida pela tela. Sem nenhum histórico, a linha é apagada. Com histórico (preço em tabela publicada,
+ * vínculo com pacote, festa ou contrato, todos ON DELETE RESTRICT), o adicional é ARQUIVADO (ativo = false): some
+ * do fechamento, continua no que já existe e pode ser reativado. A decisão é do próprio banco (FK), não de uma lista.
+ */
+export async function excluirAdicionalAdmin(tx: DbExecutor, ctx: Contexto, adicionalId: string): Promise<ResultadoExclusaoAdicional> {
+  const r = await tx.query<{ nome: string; ativo: boolean }>(
+    `SELECT nome, ativo FROM adicionais WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
+    [adicionalId, ctx.empresaId],
+  );
+  const atual = r.rows[0] ?? recusar("NAO_ENCONTRADO", "Adicional não encontrado nesta empresa.", 404);
+  const uso = (await tx.query<{ festas: number; pacotes: number }>(
+    `SELECT (SELECT count(DISTINCT fechamento_id)::int FROM fechamento_adicionais WHERE adicional_id = $1::uuid) AS festas,
+            (SELECT count(*)::int FROM pacote_adicionais WHERE adicional_id = $1::uuid AND ativo) AS pacotes`,
+    [adicionalId],
+  )).rows[0];
+  const auditar = (acao: string, depois: Record<string, unknown> | null) => auditarMutacaoComercial(tx, {
+    usuarioId: ctx.usuarioId, requestId: ctx.requestId, motivo: acao, acao, entidadeTipo: "ADICIONAL", entidadeId: adicionalId,
+    empresaId: ctx.empresaId, antes: { nome: atual.nome, ativo: atual.ativo }, depois,
+  });
+  await tx.query("SAVEPOINT excluir_adicional");
+  try {
+    await tx.query(`DELETE FROM adicionais WHERE id = $1::uuid AND empresa_id = $2::uuid`, [adicionalId, ctx.empresaId]);
+    await tx.query("RELEASE SAVEPOINT excluir_adicional");
+    await auditar("ADICIONAL_EXCLUIDO", null);
+    return { resultado: "EXCLUIDO", ...uso };
+  } catch (error) {
+    // 23001 = ON DELETE RESTRICT; 23503 = NO ACTION: alguma tabela ainda referencia o adicional.
+    const codigo = (error as { code?: unknown }).code;
+    if (codigo !== "23001" && codigo !== "23503") throw error;
+    await tx.query("ROLLBACK TO SAVEPOINT excluir_adicional");
+  }
+  if (atual.ativo) await tx.query(`UPDATE adicionais SET ativo = false WHERE id = $1::uuid AND empresa_id = $2::uuid`, [adicionalId, ctx.empresaId]);
+  await auditar("ADICIONAL_ARQUIVADO", { nome: atual.nome, ativo: false });
+  return { resultado: "ARQUIVADO", ...uso };
+}
+
 /** Cadastro e preço do adicional (no máximo uma tabela sucessora). Pacotes: `salvarAdicionalEmEtapas`. */
 export async function salvarAdicionalAdmin(tx: DbExecutor, ctx: Contexto, entrada: Omit<EntradaAdicional, "pacotes">) {
   if (!(await migration070Aplicada(tx))) {

@@ -1167,3 +1167,62 @@
   .page *, .page *::before, .page *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
   .page :is(.calendarDay, .choiceCard, .packageCard, .paymentCard, .additionalCard, .buffetDecisionCard, .birthdayCard):hover { transform: none; }
 }
+
+/* Preferências do buffet: opções compactas em grade, contador por categoria e "Ver mais". */
+.buffetCategoria { margin: 16px 0 0; padding: 16px 18px; border: 1px solid #e1e5f0; border-radius: 16px; background: rgba(255, 255, 255, .88); min-width: 0; }
+.buffetCategoriaTitulo { float: left; display: flex; align-items: center; gap: 8px; padding: 0; margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--ink); }
+.buffetContador { float: right; margin: 0 0 12px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--blue); background: #eef1ff; }
+.buffetContadorCheio { color: #b45309; background: #fff4e5; }
+.buffetOpcoes { clear: both; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.buffetOpcao { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 8px 12px; border: 1px solid #e3e6f0; border-radius: 11px; background: #fbfbfe; font-size: 13px; line-height: 1.3; color: #2b2f4c; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+.buffetOpcao input[type="checkbox"] { flex: 0 0 18px; width: 18px; height: 18px; margin: 0; accent-color: var(--purple); cursor: pointer; }
+.buffetOpcao:hover { border-color: #cfd4e6; }
+.buffetOpcaoMarcada { border-color: #a58ae0; background: #f5f2ff; color: #3b2a8a; font-weight: 600; }
+.buffetOpcaoBloqueada { opacity: .45; cursor: not-allowed; }
+.buffetOpcaoBloqueada input[type="checkbox"] { cursor: not-allowed; }
+.buffetVerMais { margin-top: 10px; padding: 4px 0; border: 0; background: none; color: var(--blue); font-weight: 700; font-size: 13px; cursor: pointer; }
+
+/* Adicionais: título do grupo com contagem; nome e preço empilhados; quantidade com − / +. */
+.additionalSectionTopo { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid #eceef6; padding-bottom: 8px; margin-bottom: 12px; }
+.additionalSectionTopo h3 { margin: 0; }
+.additionalSectionTopo span { font-size: 12px; color: var(--muted); }
+.additionalGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.additionalCard { min-height: 74px; padding: 12px 14px; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; text-align: left; width: 100%; }
+.additionalCard .checkBox { width: 22px; height: 22px; border-radius: 6px; }
+.additionalTexto { display: grid; gap: 4px; min-width: 0; }
+.additionalTexto strong { font-size: 13.5px; font-weight: 600; line-height: 1.3; color: var(--ink); }
+.additionalTexto b { font-size: 13px; color: var(--purple); white-space: nowrap; }
+.additionalTexto b small { margin-left: 2px; font-weight: 500; color: var(--muted); }
+.quantidadeLinha { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 2px 0; font-size: 12.5px; color: #4b5070; }
+.stepper { display: inline-flex; align-items: stretch; border: 1px solid #d9dcea; border-radius: 9px; overflow: hidden; background: #fff; }
+.stepper button { width: 30px; height: 30px; border: 0; background: #fff; color: var(--blue); font-size: 16px; font-weight: 700; cursor: pointer; }
+.stepper button:disabled { color: #c3c7d6; cursor: not-allowed; }
+.stepper input { width: 44px; height: 30px; border: 0; border-left: 1px solid #e6e8f2; border-right: 1px solid #e6e8f2; text-align: center; font-size: 14px; font-weight: 700; color: var(--ink); -moz-appearance: textfield; appearance: textfield; }
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.escolhasAdicional { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 8px 0 0; padding: 10px; border: 1px solid #e1e5f0; border-radius: 12px; min-width: 0; }
+.escolhasAdicional legend { padding: 0 4px; font-size: 12.5px; font-weight: 700; color: var(--ink); }
+
+@media (max-width: 900px) {
+  .additionalGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .buffetOpcoes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .additionalGrid { grid-template-columns: 1fr; }
+  .additionalCard { grid-template-columns: 22px minmax(0, 1fr); }
+  .escolhasAdicional { grid-template-columns: 1fr; }
+}
+@media (max-width: 380px) {
+  .buffetOpcoes { grid-template-columns: 1fr; }
+}
+
+/* Adicional com opções marcado: ocupa a linha inteira para a lista de opções respirar. */
+.additionalItemAberto { grid-column: 1 / -1; }
+.additionalItemAberto .additionalCard { max-width: calc((100% - 20px) / 3); }
+.additionalItemAberto .escolhasAdicional { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 900px) {
+  .additionalItemAberto .additionalCard { max-width: calc((100% - 10px) / 2); }
+}
+@media (max-width: 760px) {
+  .additionalItemAberto .additionalCard { max-width: none; }
+  .additionalItemAberto .escolhasAdicional { grid-template-columns: 1fr; }
+}
