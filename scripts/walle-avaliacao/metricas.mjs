@@ -223,6 +223,8 @@ export function repeticaoDesnecessaria(l, todas = []) {
 /** CONTEÚDO IRRELEVANTE (não crítico): material ou resposta de assunto que a mensagem não pediu. */
 /** Sinal ou entrada no sentido de pagamento ("qual o valor da entrada?", "dou uma entrada de 2 mil"). */
 const SINAL_PEDIDO = /\bsinal\b|\b(valor|pagar|pago|paguei|pagamos|pix|quanto|dar|dou|de)\s+(d[ao]\s+|uma\s+|a\s+)?entrada\b|\bentrada\s+(de\s+(r\$|\d)|e\s+(o resto|parcel))/;
+/** Rodada 37: dispensa de um material ("não precisa mandar o cardápio de novo", "já salvei a tabela"). */
+const DISPENSA_REGUA = /\b(?:(?:nao|n|nem) (?:precisa|precisam)[^.!?]{0,15}\b(?:mandar|enviar|reenviar|mande|manda)\b[^.!?]{0,20}?|ja (?:salvei|baixei|tenho|recebi) )(?:o |a )?(cardapio|pdf da tabela|tabela)\b/;
 export function irrelevante(l) {
   const pediu = (...xs) => xs.some((x) => l.esperado.intencoes.includes(x));
   const fontes = fontesDe(l);
@@ -234,6 +236,13 @@ export function irrelevante(l) {
   if (/parte da sua mensagem eu n[aã]o tenho cadastrada|perguntas da sua mensagem eu n[aã]o tenho cadastradas/.test(textos) && !pediu('FORA_DO_ESCOPO')) achados.push('"parte não cadastrada" sem assunto fora do cadastro');
   // Pendência do holdout 27 (aa30): a frase da cláusula de sinal sem sinal/entrada de pagamento na mensagem.
   if (/cl[aá]usula de sinal/.test(textos) && !SINAL_PEDIDO.test(semAc(l.texto))) achados.push('cláusula de sinal sem sinal pedido');
+  // Rodada 37 (IA × h37 aa57, IA × h36 aa49): as cláusulas de convidados (3: aumento e excedente; 4: crianças e cortesia)
+  // numa pergunta de capacidade ou duração que o rótulo não marca como condição do contrato.
+  if (fontes.some((f) => f.tipo === 'CONTRATO_MODELO' && (f.clausula === 3 || f.clausula === 4)) && !pediu('CONTRATO', 'CONTRATO_PROPRIO')) achados.push('cláusula de convidados sem condição pedida');
+  // Rodada 37 (h37 aa79): o material que o cliente dispensou ("não precisa mandar o cardápio de novo") mandado de novo.
+  const dispensa = DISPENSA_REGUA.exec(semAc(l.texto))?.[1];
+  if (dispensa === 'cardapio' && (fontes.some((f) => prontaDe(f, 'CARDAPIO')) || /^Buffet d[oa] /m.test(textos))) achados.push('cardápio dispensado reenviado');
+  if ((dispensa === 'tabela' || dispensa === 'pdf da tabela') && fontes.some((f) => prontaDe(f, 'PRECOS'))) achados.push('tabela dispensada reenviada');
   return achados.length ? achados.join(', ') : null;
 }
 export function violacao(l) {

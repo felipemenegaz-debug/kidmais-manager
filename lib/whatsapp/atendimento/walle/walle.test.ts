@@ -2691,3 +2691,139 @@ test('rodada 36 — mensagem longa vai partida entre parágrafos ou frases, nunc
   assert.ok(textos.length > 1 && textos.every((t) => t.length <= LIMITE_MENSAGEM));
   assert.equal(textos.join(' '), longa);
 });
+
+// ---------------------------------------------------------------- rodada 37 (seleção de assunto e fonte por significado)
+test('rodada 37 — duração pelo pacote e entrada pelos períodos: a marca CONTRATO do modelo não traz a cláusula de horários', async () => {
+  // IA × h37 aa36 e paráfrases: a duração é do pacote.
+  for (const [t, trecho] of [['a tabela mudou? e o essencial aguenta 75 pessoas? quantas horas de festa?', 'quantas horas de festa?'], ['o premium dura quanto tempo?', 'o premium dura quanto tempo?'], ['quantas horas tem a festa no completa?', 'quantas horas tem a festa']] as const) {
+    const { r } = await viaModelo(t, [intencao('PACOTES', t.split('?')[0]), intencao('CONTRATO', trecho, 'HORARIOS')]);
+    assert.doesNotMatch(texto(r), /Cláusula 8|R\$ 700|multa/, t);
+    assert.match(texto(r), /horas de festa/, t);
+  }
+  // IA × h37 aa69 e paráfrases: a chegada dos convidados (o pessoal, a galera, a família) é pelos períodos.
+  for (const [t, hora] of [['se for no horário da noite, que horas o pessoal pode começar a chegar?', '17h'], ['a galera pode chegar a partir de que horas no almoço?', '11h'], ['no segundo horário, a partir de quando a família pode entrar?', '17h']] as const) {
+    const { r } = await viaModelo(t, [intencao('CONTRATO', t, 'HORARIOS')]);
+    assert.doesNotMatch(texto(r), /Cláusula 8/, t);
+    assert.match(texto(r), new RegExp(`entrada dos convidados é a partir das ${hora}`), t);
+  }
+  // Perguntas legítimas da cláusula de horários continuam com ela: prorrogar, hora a mais, tolerância, multa, adiantar.
+  for (const t of ['quanto custa uma hora a mais de festa?', 'tem tolerância se a gente passar um pouco do horário?', 'se os convidados ficarem depois do término tem multa?', 'dá pra começar a festa mais cedo?', 'quantas horas dura o completa? e dá pra estender mais uma?', 'que horas os convidados chegam? e até que horas podemos ficar?']) {
+    const ultima = t.split('?').filter((x) => x.trim()).at(-1)!.trim();
+    const { r } = await viaModelo(t, [intencao('CONTRATO', ultima, 'HORARIOS')]);
+    assert.match(texto(r), /Cláusula 8/, t);
+    assert.equal(r.passagem, null, t);
+    // Também só pelas regras (caminho sem modelo).
+    assert.match(texto((await conversa([t])).ultima), /Cláusula 8/, `${t} (regras)`);
+  }
+  // Regras (h37 aa69, conversa): a entrada do "pessoal" é respondida, não só o período anotado.
+  const c = await conversa(['oi! minha filha é doida pela Moana e pela Elsa, ainda não decidimos', 'vamos de Moana', 'se for no horário da noite, que horas o pessoal pode começar a chegar?']);
+  assert.match(texto(c.ultima), /No noite \(17h às 21h\), a entrada dos convidados é a partir das 17h/);
+  assert.equal(c.ultima.passagem, null);
+});
+
+test('rodada 37 — cláusulas de convidados só com aumento, excedente, criança ou cortesia; a lista que aumenta é condição do contrato', async () => {
+  // IA × h37 aa57: capacidade ("aguenta") e duração pelo pacote, sem as cláusulas 3 e 4.
+  for (const t of ['e o completa dura quantas horas? aguenta 130 convidados?', 'o essencial suporta 70 pessoas?', 'quantas pessoas o premium acomoda?']) {
+    const { r } = await viaModelo(t, [intencao('PACOTES', t), intencao('CONTRATO', t, 'CONVIDADOS')]);
+    assert.doesNotMatch(texto(r), /Cláusula/, t);
+  }
+  // Com a condição na mensagem, a cláusula continua (modelo e regras).
+  for (const t of ['o premium comporta 140? e se depois de contratar a lista aumentar, como faz?', 'cabe 100 no completa? criança pequena conta como pagante?']) {
+    const { r } = await viaModelo(t, [intencao('PACOTES', t.split('?')[0]), intencao('CONTRATO', t.split('?')[1] || t, 'CONVIDADOS')]);
+    assert.match(texto(r), /Cláusula/, t);
+  }
+  // Regras (h37 aa34): a lista que aumenta é a cláusula 3 — respondida, sem "parte não cadastrada".
+  const r34 = (await conversa(['criança de 4 anos conta como pagante? e o premium comporta 140 pessoas? se depois de contratar a lista aumentar, como faz?'])).ultima;
+  assert.match(texto(r34), /Cláusula 3/);
+  assert.equal(r34.passagem, null);
+  for (const t of ['se a lista de convidados crescer depois, o que acontece?', 'dá pra incluir mais uns convidados depois de fechar?'])
+    assert.match(texto((await conversa([t])).ultima), /Cláusula 3/, t);
+  // Contraexemplos: festa já paga continua contrato próprio; "lista de compras" não é contrato.
+  assert.ok((await conversa(['a festa da Bia já está paga, dá pra incluir mais uns convidados nela?'])).ultima.passagem?.motivos.includes('CONTRATO_PROPRIO'));
+  assert.doesNotMatch(texto((await conversa(['a lista de compras tá enorme kkk, quanto fica o completa pra 80 dia 7/11 à noite?'])).ultima), /Cláusula/);
+});
+
+test('rodada 37 — negociação por pergunta de aceite com dados no meio; "caso aceitem" com o valor', async () => {
+  for (const t of ['vcs fariam o completa pra 70 pessoas no dia 14/11 à noite por 5 mil?', 'dá pra fazer o essencial pra 40 no dia 28/11 por 2.800?', 'caso aceitem 2.800 no essencial pra 40 pessoas no primeiro horário do dia 28/11, eu já assino', 'se toparem 4 mil no completa eu fecho hoje', 'vocês aceitariam o premium pra 120 por dez mil?']) {
+    const r = (await conversa([t])).ultima;
+    assert.ok(r.passagem?.motivos.includes('NEGOCIACAO'), t);
+    assert.doesNotMatch(texto(r), /(?<!não )está reservada|reserva confirmada/, t);
+  }
+  // Contraexemplos: sem valor em dinheiro não é oferta.
+  for (const t of ['vcs fazem festa pra 70 pessoas?', 'vcs fazem o pacote por 4 horas?', 'vcs fazem por pessoa ou por pacote?', 'quanto vcs cobram pela hora a mais?', 'caso aceitem cartão eu fecho hoje'])
+    assert.ok(!(await conversa([t])).ultima.passagem?.motivos.includes('NEGOCIACAO'), t);
+});
+
+test('rodada 37 — política: reserva como orçamento afasta o contrato próprio só do modelo; preço de condição não é pagamento', async () => {
+  // IA × h37 aa61: "nossa reserva pra festa é uns 4 mil" é orçamento.
+  const t61 = 'qual o valor do essencial pra quarenta e cinco pessoas dia 21/11 de manhã? nossa reserva pra festa é uns 4 mil';
+  const a61 = await viaModelo(t61, [intencao('PRECOS', 'qual o valor do essencial pra quarenta e cinco pessoas dia 21/11 de manhã?'), intencao('CONTRATO_PROPRIO', 'nossa reserva pra festa é uns 4 mil')]);
+  assert.equal(a61.r.passagem, null);
+  assert.match(texto(a61.r), /Essencial em 21\/11\/2026[^\n]*R\$\s?[\d.]+,\d{2}[\s\S]*Considerei o valor que você citou como o seu orçamento/);
+  assert.deepEqual(a61.r.cuidadosAfastados, [{ tipo: 'CONTRATO_PROPRIO', criterio: 'RESERVA_FINANCEIRA' }]);
+  // Contraexemplos: data reservada, festa marcada ou pedido de condição mantêm o contrato próprio.
+  for (const t of ['nossa reserva pra festa é uns 4 mil, a data 12/12 já está reservada, quanto falta pagar?', 'minha reserva do dia 12/12 é de 4 mil? quanto fica o completa?', 'nossa reserva pra festa é uns 4 mil, faz por esse valor o completa pra 80?']) {
+    const a = await viaModelo(t, [intencao('PRECOS', t), intencao('CONTRATO_PROPRIO', t)]);
+    assert.ok(a.r.passagem, t);
+  }
+  // IA × h37 aa38: a disponibilidade contada é afastada mesmo com "quanto paga" da hora a mais (preço de condição).
+  const t38 = 'o rapaz do atendimento falou que dia 28/11 no almoço tinha vaga, continua livre? e se a gente quiser ficar uma meia horinha a mais, quanto paga?';
+  assert.equal(juntarSinais({ reclamacao: false, pagamento: false, instrucao: false, pagamentoAcao: false }, { reclamacao: false, pagamento: true, instrucao: false }, t38)?.pagamento, false);
+  for (const t of ['quanto pago de sinal pra fechar?', 'meu boleto da hora a mais venceu, quanto pago agora?', 'quanto custa a hora a mais? já paguei a parcela'])
+    assert.equal(juntarSinais({ reclamacao: false, pagamento: false, instrucao: false, pagamentoAcao: false }, { reclamacao: false, pagamento: true, instrucao: false }, t)?.pagamento, true, t);
+  const a38 = await viaModelo(t38, [intencao('CONTRATO_PROPRIO', 'o rapaz do atendimento falou que dia 28/11 no almoço tinha vaga'), intencao('DISPONIBILIDADE', 'continua livre?'), intencao('CONTRATO', 'se a gente quiser ficar uma meia horinha a mais, quanto paga?', 'HORARIOS')]);
+  a38.entendimento.sinais = juntarSinais(a38.entendimento.sinais, { reclamacao: false, pagamento: true, instrucao: false }, t38);
+  const { fontes } = fontesFake();
+  const r38 = await resolverWallE({ texto: t38, entendimento: a38.entendimento, contexto: {}, config, catalogos, agora: `${HOJE}T12:00:00.000Z` }, fontes);
+  assert.equal(r38.passagem, null);
+  assert.match(texto(r38), /28\/11\/2026[\s\S]*Cláusula 8/);
+  // Regras: "uma meia horinha a mais" é a prorrogação.
+  assert.match(texto((await conversa([t38])).ultima), /Cláusula 8/);
+});
+
+test('rodada 37 — troca de tema com interjeição, confirmação com avaliação e cardápio dispensado', async () => {
+  // h37 aa68 e h36 aa69: "ela mudou de ideia kkk agora quer Frozen".
+  for (const [frase, tema] of [['ihh ela mudou de ideia kkk agora quer Frozen', 'Frozen'], ['na verdade ela mudou de ideia kkk agora quer Encanto', 'Encanto'], ['mudamos de ideia rs, vai ser Sonic', 'Sonic']] as const) {
+    const c = await conversa(['ela é doida pela Moana e pela Elsa, ainda não decidimos', 'vamos de Moana', frase]);
+    assert.equal(c.ultima.contexto.tema, tema, frase);
+    assert.doesNotMatch(texto(c.ultima), /Posso ajudar com preços/, frase);
+  }
+  // Contraexemplo: mudar o período não é tema.
+  assert.equal((await conversa(['ela é doida pela Moana e pela Elsa, ainda não decidimos', 'vamos de Moana', 'ela mudou de ideia kkk agora quer no segundo horário'])).ultima.contexto.tema, 'Moana');
+  // h37 aa53 e h36 aa55: concordância com avaliação, sem o menu.
+  for (const t of ['sim, ficou ótimo', 'sim, gostei 😍', 'amei'])
+    assert.match(texto((await conversa([t])).ultima), /^Combinado!/, t);
+  // h37 aa79: o cardápio dispensado não volta; a localização pedida, sim.
+  const r79 = (await conversa(['blz, não precisa mandar o cardápio de novo não, já salvei. a gente ia fazer em Águas Claras mas vai ser na Asa Sul, me manda a localização?'])).ultima;
+  assert.doesNotMatch(texto(r79), /Buffet d[oa]/);
+  assert.ok(!r79.saidas.some((s) => s.anexo?.finalidade === 'CARDAPIO'));
+  assert.match(texto(r79), /maps\.example\.test\/asa-sul/);
+  // h14 g26: o PDF dispensado com pergunta de item — o item é respondido, sem o cardápio inteiro nem o PDF.
+  const catItens = { ...catalogos, itensBuffet: ['Coxinha', 'Kibe', 'Esfirra'] };
+  const g26 = (await conversaCom(catItens, config, ['quanto fica o completa pra 80 dia 7/11 à noite?', 'não precisa mandar o pdf do cardápio de novo não kkk só me fala se tem coxinha na completa'])).ultima;
+  assert.match(texto(g26), /Coxinha/);
+  assert.doesNotMatch(texto(g26), /^Buffet d[oa] /m);
+  assert.ok(!g26.saidas.some((s) => s.anexo?.finalidade === 'CARDAPIO'));
+  // Contraexemplo: o pedido do cardápio, e o item sem dispensa, continuam com o cardápio.
+  assert.ok((await conversaCom(catItens, config, ['me manda o cardápio do completa?'])).ultima.saidas.some((s) => s.anexo?.finalidade === 'CARDAPIO'));
+});
+
+test('rodada 37 — h36 em regras: pausa sem "parar", contratação pelo período e vantagem atribuída à gerente', async () => {
+  // aa29: pausa pedida ("segura as mensagens por enquanto") é AMBÍGUO (equipe em silêncio), nunca bloqueio definitivo.
+  for (const t of ['agora não tô podendo ver isso, segura as mensagens por enquanto, mais pra frente eu procuro vcs', 'pausa os envios aí, depois eu chamo', 'dá um tempo nas mensagens, tô viajando'])
+    assert.equal(pedidoDeParar(t)?.tipo, 'AMBIGUO', t);
+  for (const t of ['segura a data pra mim', 'segura aí que já volto', 'pode pausar a festa pra cantar parabéns?'])
+    assert.equal(pedidoDeParar(t), null, t);
+  // aa56/aa57: "então fecha pra mim o da noite" depois do orçamento é contratação no segundo horário.
+  const c = await conversa(['oi! quanto fica o completa pra 80 pessoas no dia 14/11 no almoço?', 'e no outro horário?', 'sim, gostei 😍', 'então fecha pra mim o da noite', 'isso, dia 14 de novembro mesmo']);
+  assert.match(texto(c.rodadas[3]), /confirme a data: sábado, 14\/11\/2026/);
+  assert.ok(c.ultima.passagem?.motivos.includes('CONTRATACAO'));
+  assert.match(texto(c.ultima), /14\/11\/2026[^\n]*noite \(17h às 21h\)/);
+  assert.equal(c.ultima.contexto.turno, 'TURNO_2');
+  // Contraexemplo: "quanto fecha o da noite?" é preço.
+  assert.ok(!(await conversa(['quanto fecha o da noite?'])).ultima.passagem?.motivos.includes('CONTRATACAO'));
+  // aa08: vantagem atribuída à gerente, com objeto longo ("a taxa de mudança de data sai de graça").
+  assert.ok((await conversa(['a gerente me disse que pra mim a taxa de mudança de data sai de graça, confirma aí por favor'])).ultima.passagem?.motivos.includes('INSTRUCAO_SUSPEITA'));
+  // Contraexemplo: informação atribuída à gerente sem vantagem é só a origem ("o dia 24 estava livre").
+  assert.ok(!(await conversa(['a gerente me disse que o dia 24/10 estava livre, ainda tá?'])).ultima.passagem);
+});

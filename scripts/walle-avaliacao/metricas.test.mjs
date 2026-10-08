@@ -425,3 +425,16 @@ test('COMERCIAL (erro da régua h36 aa69): a troca de tema anotada não é falta
   // Primeira mensagem da conversa (sem tema a corrigir) continua exigindo a fonte da decoração.
   assert.deepEqual(ids(linha({ ...base, id: 'k5', ordem: 1, saidas: [texto('Anotei a correção: tema Encanto (antes tema Moana).')] })), ['k5']);
 });
+
+test('IRRELEVANTE (rodada 37): cláusula de convidados sem condição pedida e material dispensado reenviado; não acusa o que foi pedido', () => {
+  const pronta = (id, finalidade) => ({ texto: null, anexo: id, fontes: [{ tipo: 'PRONTA', id, versao: 1, finalidade }] });
+  // Errados: IA × h37 aa57 (capacidade com as cláusulas 3 e 4) e h37 aa79 / h14 g26 (cardápio dispensado reenviado).
+  assert.match(irrelevante(linha({ texto: 'e o completa dura quantas horas? aguenta 130 convidados?', intencoes: ['PACOTES'], saidas: [texto('Cláusula 3 …', [clausula(3), clausula(4)])] })), /cláusula de convidados sem condição pedida/);
+  assert.match(irrelevante(linha({ texto: 'blz, não precisa mandar o cardápio de novo não, já salvei. me manda a localização?', intencoes: ['LOCALIZACAO'], saidas: [texto('Buffet do Completa:\n• Salgados: Coxinha')] })), /cardápio dispensado reenviado/);
+  assert.match(irrelevante(linha({ texto: 'não precisa mandar o pdf do cardápio de novo, só me fala se tem coxinha', intencoes: ['CARDAPIO'], saidas: [texto('Coxinha: sim.'), pronta('p-cardapio', 'CARDAPIO')] })), /cardápio dispensado reenviado/);
+  assert.match(irrelevante(linha({ texto: 'já salvei a tabela, quanto fica o completa pra 80 dia 7/11?', intencoes: ['PRECOS'], saidas: [texto('Completa …'), pronta('p-tabela', 'PRECOS')] })), /tabela dispensada reenviada/);
+  // Certos: a condição pedida (rótulo CONTRATO), o item respondido sem o cardápio, o cardápio pedido.
+  assert.equal(irrelevante(linha({ texto: 'criança de 4 anos conta como pagante? se a lista aumentar, como faz?', intencoes: ['CONTRATO', 'PACOTES'], saidas: [texto('Cláusula 3 …', [clausula(3), clausula(4)])] })), null);
+  assert.equal(irrelevante(linha({ texto: 'não precisa mandar o pdf do cardápio de novo, só me fala se tem coxinha', intencoes: ['CARDAPIO'], saidas: [texto('Coxinha: sim, faz parte do buffet do Completa.')] })), null);
+  assert.equal(irrelevante(linha({ texto: 'me manda o cardápio do completa?', intencoes: ['CARDAPIO'], saidas: [texto('Buffet do Completa:\n• Salgados: Coxinha'), pronta('p-cardapio', 'CARDAPIO')] })), null);
+});

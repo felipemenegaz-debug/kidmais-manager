@@ -340,7 +340,7 @@ function extrairTemaBruto(texto: string): string | null {
   // "mudamos de ideia, vai ser Frozen"). Só nome próprio (maiúscula) e nunca data, período, pacote ou lugar ("mudei
   // pro segundo horário", "mudamos pra Águas Claras").
   // Rodada 30 (h30 aa77): "ih mudei de ideia, ele quer o Homem-Aranha msm" — quem escolhe é a criança.
-  const mudanca = /\b(?:mudamos|mudei|mudou|trocamos|troquei|decidimos|resolvemos)(?: de ideia)?[, ]+(?:(?:pra|para|por)\s+(?:o |a )?|(?:vai ser|sera|será|agora [eé]|[eé])\s+(?:o |a )?|(?:(?:ele|ela|eles|elas|a gente|n[oó]s|o \p{L}+|a \p{L}+)\s+)?(?:agora\s+)?(?:quer|querem|prefere|preferem|escolheu|escolheram|vai querer|pediu|pediram)\s+(?:o |a |os |as )?)(\p{Lu}[^,.;!?\n]{1,39})/u.exec(t)?.[1];
+  const mudanca = /\b(?:mudamos|mudei|mudou|trocamos|troquei|decidimos|resolvemos)(?: de ideia)?(?:[, ]+(?:kkk\w*|rs+|haha\w*|n[eé]|enfim|ent[aã]o|gente|viu|af+|aff+))*[, ]+(?:(?:pra|para|por)\s+(?:o |a )?|(?:vai ser|sera|será|agora [eé]|[eé])\s+(?:o |a )?|(?:(?:ele|ela|eles|elas|a gente|n[oó]s|o \p{L}+|a \p{L}+)\s+)?(?:agora\s+)?(?:quer|querem|prefere|preferem|escolheu|escolheram|vai querer|pediu|pediram)\s+(?:o |a |os |as )?)(\p{Lu}[^,.;!?\n]{1,39})/u.exec(t)?.[1];
   if (mudanca && !/^(?:segund|primeir|almo[cç]|noite|manh|tarde|dia\b|s[aá]bado|domingo|janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|essencial|complet|premium|asa sul|[aá]guas claras|unidade|outr)/i.test(mudanca)) return mudanca.trim();
   const padroes = [
     /\btema\s*(?::\s*|\s+(?:de\s+|do\s+|da\s+|dos\s+|das\s+|e\s+|é\s+|eh\s+|sera\s+|será\s+|vai ser\s+)?)(?!(?:festa|aniversario|aniversário|niver)\b)([^,.;!?\n]{2,40})/i,
@@ -379,6 +379,13 @@ export const NEGOCIACAO_RE = new RegExp([
   // "posso pagar 7 mil"), mesmo junto da intenção de fechar. Número de pessoas ("faz pra 80?") ou preço perguntado
   // ("o premium sai a 9 mil?") não é oferta.
   String.raw`\b(?:da pra|daria pra|dava pra|tem como|teria como|consegue|conseguem|conseguiria|conseguiriam|faz|fazem|faria|fariam|faca|fecha|fecham|fecho|fechamos|fecharia|fechariam|fecharem|fechassem|fizerem|fizessem|deixarem|deixassem|aceitarem|aceitassem|toparem|topassem|deixa|deixam|deixaria|aceita|aceitam|aceitaria|topa|topam|toparia|pode ser|podemos fechar|posso pagar|consigo pagar|so consigo pagar|so posso pagar|ofereco|oferecemos|proponho|te dou|te pago)\b(?: (?:fazer|fechar|deixar|sair|o pacote|a festa|tudo|isso|o premium|o completa|a completa|o essencial))?(?: (?:por|em|a|pra|para|com))? (?:r\$ ?\d[\d.,]*|\d{1,3}(?:[.]\d{3})+(?:,\d{2})?|\d+(?:[.,]\d+)? ?(?:mil|reais|k)\b|(?:um|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|quatorze|catorze|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta)(?: e (?:meio|quinhentos))? mil\b)`,
+  // Rodada 37 (h36 aa32): "caso aceitem 2.800 no essencial pra 40 …, eu já assino" — hipótese com "caso" e o valor logo
+  // depois de aceitar/topar, sem preposição ("se toparem 4 mil eu fecho"). O valor precisa ser dinheiro.
+  String.raw`\b(?:se|caso) (?:(?:voces|vcs|vc|voce|ces)\s+)?(?:aceit|top)\w*\s+(?:(?:o|a)\s+)?(?:r\$ ?\d[\d.,]*|\d{1,3}(?:[.]\d{3})+(?:,\d{2})?|\d+(?:[.,]\d+)? ?(?:mil|reais|k)\b|(?:um|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|quatorze|catorze|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta)(?: e (?:meio|quinhentos))? mil\b)`,
+  // Rodada 37 (h37 aa39): pergunta de aceite ao valor do cliente com dados no meio ("vcs fariam o completa pra 70 pessoas no
+  // dia 14/11 à noite por 5 mil?", "dá pra fazer o essencial pra 40 no dia 28 por 2.800?"). Sujeito do buffet ou verbo de
+  // aceite; o valor precisa ser dinheiro ("por 4 horas", "por pessoa" e "por quanto?" não são oferta).
+  String.raw`\b(?:(?:voces|vcs|vc|voce|ces|o buffet|a casa)\s+(?:fazem|faz|faria|fariam|fecham|fecha|fecharia|fechariam|topam|topa|toparia|topariam|aceitam|aceita|aceitaria|aceitariam|deixam|deixa|deixaria|deixariam|conseguem|consegue|conseguiria|conseguiriam)|fariam|fechariam|topariam|aceitariam|deixariam|conseguiriam|(?:da|daria|dava) pra (?:fazer|fechar|deixar|sair))\b[^.?!]{0,80}?\b(?:por|a|em)\s+(?:r\$ ?\d[\d.,]*|\d{1,3}(?:[.]\d{3})+(?:,\d{2})?|\d+(?:[.,]\d+)? ?(?:mil|reais|k)\b|(?:um|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|quatorze|catorze|quinze|dezesseis|dezessete|dezoito|dezenove|vinte|trinta)(?: e (?:meio|quinhentos))? mil\b)`,
   String.raw`\b(descontos?|descontinhos?|descontao|negocia\w*|condicao especial|abatimento|faz por menos|faria por menos|fazer por menos|cobrir (a )?oferta|excecao|excecoes|brindes?|parcelar em \d+|\d+ ?x sem juros|sem juros|(passou|passa|acima|alem) (so )?(\d+ )?do limite|liberar (o )?(preco|valor)|preco de (segunda|terca|quarta|quinta|sexta|dia de semana)|valor especial|(?<!\b(receber|recebendo|recebo|mandar|mandem|manda|mande|enviar|enviem|envia|envie|dessas|destas|essas|estas|suas|chega de|para de|pare de|parem de)( mais)? )promoc\w*|cupom|cupons|black ?friday|liquidacao|voucher|codigo (promocional|de desconto)|pechinch\w*|barganh\w*|permuta|preco melhor|melhorar o preco|abat\w*|descontar|tirar do valor|pelo mesmo (preco|valor)|pelo (preco|valor) d[oa] (?!tabela)[a-z]+|precinho|(consegue\w*|da pra|daria pra|dava pra|tem como|teria como|faz|fazem|faria|fariam|pode\w*|poderia\w*) (fazer |deixar )?(um )?(preco |valor )?(mais barat\w*|mais em conta|mais acessive\w*))\b`,
   // Preço "de amigo" ou feito para a pessoa: "um preço de amigo", "valor camarada", "condição comercial diferenciada",
   // "faz um preço bom", "faz um precinho pra gente".
@@ -527,6 +534,8 @@ const PERGUNTA_ATRACOES = /\b(?:(?:quantas|qntas) atrac(?:ao|oes)(?! (?:tinha|ti
 const QUEM_CONTA = comoCondicao(String.raw`\b(?:entra|entram|entraria|entrariam|conta|contam|contaria|contariam) (?:na|no|como) (?:conta|contagem|numero|total|lista) d(?:e|os|as) (?:convidados|pagantes|pessoas)|\b(?:paga|pagam|pagaria|pagariam|conta|contam|contaria|contariam) como (?:convidad|pagante|adult)\w*|\b(?:bebe|bebes|nenem|nenens|criancinhas?|de colo)(?: \w+){0,3}? (?:paga|pagam|pagaria|conta|contam|entra|entram)\b|\b\d+ (?:anos?|aninhos?|meses) (?:paga|pagam|conta|contam|entra|entram)(?= ?[?.!,]|$)|\b(?:quantos|qtos) anos(?: \w+)? (?:paga|pagam|conta|contam|entra|entram)\b|\b(?:pai|mae|pais|irmaos?|irmas?) d[oa] aniversariante(?: \w+){0,2}? (?:paga|pagam|conta|contam|entra|entram)\b`);
 /** Gente a mais no dia: "e se chegar mais gente?", "se aparecerem uns 10 a mais?" (não "chegaram 10 a mais", que já foi). */
 const GENTE_A_MAIS = comoCondicao(String.raw`\b(?:chegar|chegarem|vier|vierem|aparecer|aparecerem|tiver|tiverem) (?:mais (?:gente|pessoas|convidados|criancas|adultos)|(?:uns |umas )?(?:\d+ |algumas |alguns )?(?:gente|pessoas|convidados|criancas|adultos) (?:a mais|extras?|excedentes?)|(?:uns |umas )?\d+ a mais)\b|\b(?:cada|por) (?:pessoa|convidado|crianca|adulto) (?:a mais|extra|excedente)\b`);
+/** Rodada 37 (h37 aa34): a lista de convidados que aumenta ("se depois de contratar a lista aumentar"), incluir mais gente. */
+const LISTA_AUMENTA = String.raw`\b(?:a |minha |nossa )?lista(?: de convidados)?\b[^.?!]{0,20}\b(?:aument\w*|cresc\w*)|\b(?:aument\w*|cresc\w*)\b[^.?!]{0,15}\ba lista\b|\b(?:incluir|acrescentar|colocar|adicionar) mais (?:uns |umas |alguns |algumas |\d+ )?(?:convidados|pessoas|nomes|criancas|adultos)\b`;
 /** Exceção pedida "no aperto" ("a gente se aperta", "dá um jeitinho de caber"): negociação, não pergunta de capacidade. */
 const APERTO = /\b((a gente|nos|eu|todo mundo|a galera) (se )?aperta\w*|apertad\w*|apertando|espremid\w*|jeitinho|(da|dar|de|der) um jeit\w* (de|pra|para) (caber|colocar|encaixar|por))\b/;
 const REGRAS: Array<[TipoIntencao, RegExp]> = [
@@ -666,7 +675,7 @@ const REGRAS: Array<[TipoIntencao, RegExp]> = [
   ['DECORACAO', /\b(decoracao|decoracoes|decorar|decorada|decoram|temas?|enfeites?|baloes|balao|mesa tematica|painel|paineis|clima|tematic\w*|personage\w*|cenario)\b/],
   // Também as paráfrases acima: devolução, festa que o buffet não consegue fazer, quantas atrações, quem entra na conta e
   // gente a mais no dia.
-  ['CONTRATO', new RegExp(String.raw`${DEVOLUCAO}|${PERGUNTA_IMPOSSIBILIDADE.source}|${comoCondicao(PERGUNTA_ATRACOES.source)}|${QUEM_CONTA}|${GENTE_A_MAIS}|\batras\w*\s+(?:o |a |os |as |um |uma )?(?:pagamento|parcela\w*|boleto\w*|mensalidade|prestac\w*)\b|\b(?:parcela|boleto|prestac\w*|mensalidade)s?\b[^.?!]{0,30}\b(?:vencid\w*|vencer|venceu|vencimento)\b|\b(ate (que|qual) idade|contrato|clausulas?|cancelar|cancelamento|desistencia|desistir|remarcar|remarcacao|mudar a data|trocar a data|multa|reembolso|devolucao|inadimplencia|atraso no pagamento|juros|sinal|entrada(?![^.?!]{0,20}\b(?:d[oa] (?:salao|festa|buffet|espaco|casa|predio|unidade)|principal)\b)(?<!\b(?:enfeit\w*|decor\w*|arrum\w*|na|pela|perto da|porta da)\s+(?:a\s+)?entrada)|danos?|quebrar|prorrogar|hora extra|bebidas? alcoolicas?|cervejas?|chop+e?s?|vinhos?|espumantes?|drinks?|whisky|vodka|caipirinhas?|confete|crianca\w*( \w+){0,3}? (paga\w*|conta\w*|entra\w*)|idade (paga|conta)|contagem( de convidados)?|conta como convidado|cerveja|vinho|levar bebida|rolha|chuva de prata|serpentina|limpeza|passar do horario|(?:sair|sairmos|ficar|ficarmos|passar|passarmos|estourar) (?:fora|depois|alem) do horario|(?:vazar|vazou|estourar|estourou|ultrapassar|ultrapassou|extrapolar) (?:do|o) horario|(?:estender|prolongar|esticar|aumentar|passar)\b[^.?!]{0,25}\b(?:mais )?(?:uma|1|meia|duas|2) hor(?:as?|inhas?)\b|ficar (?:mais )?(?:uma|1|meia|duas|2) hor(?:as?|inhas?) a mais|atrasa\w*|\b(?:se|caso|quando)\s+(?:o |a |os |as )?(?:boleto|parcela|prestac\w*|mensalidade)s?\b[^.?!]{0,20}\bvenc(?:er|e|a|am|endo)\b|que horas (a gente |a gnt |gnt |nos )?(tem|temos|tenho) (q|que) sair|sair do salao|horario de (saida|termino)|aumentar (o numero de |os |a quantidade de )?convidados|mais convidados|convidados a mais|excedentes?|pessoas? (?:a mais|excedentes?)|convidado (?:a mais|excedente)|cortesia|baloes|balao|bexigas?|lembrancinhas?)\b`)],
+  ['CONTRATO', new RegExp(String.raw`${DEVOLUCAO}|${PERGUNTA_IMPOSSIBILIDADE.source}|${comoCondicao(PERGUNTA_ATRACOES.source)}|${QUEM_CONTA}|${GENTE_A_MAIS}|${LISTA_AUMENTA}|\batras\w*\s+(?:o |a |os |as |um |uma )?(?:pagamento|parcela\w*|boleto\w*|mensalidade|prestac\w*)\b|\b(?:parcela|boleto|prestac\w*|mensalidade)s?\b[^.?!]{0,30}\b(?:vencid\w*|vencer|venceu|vencimento)\b|\b(ate (que|qual) idade|contrato|clausulas?|cancelar|cancelamento|desistencia|desistir|remarcar|remarcacao|mudar a data|trocar a data|multa|reembolso|devolucao|inadimplencia|atraso no pagamento|juros|sinal|entrada(?![^.?!]{0,20}\b(?:d[oa] (?:salao|festa|buffet|espaco|casa|predio|unidade)|principal)\b)(?<!\b(?:enfeit\w*|decor\w*|arrum\w*|na|pela|perto da|porta da)\s+(?:a\s+)?entrada)|danos?|quebrar|prorrogar|hora extra|bebidas? alcoolicas?|cervejas?|chop+e?s?|vinhos?|espumantes?|drinks?|whisky|vodka|caipirinhas?|confete|crianca\w*( \w+){0,3}? (paga\w*|conta\w*|entra\w*)|idade (paga|conta)|contagem( de convidados)?|conta como convidado|cerveja|vinho|levar bebida|rolha|chuva de prata|serpentina|limpeza|passar do horario|(?:sair|sairmos|ficar|ficarmos|passar|passarmos|estourar) (?:fora|depois|alem) do horario|(?:vazar|vazou|estourar|estourou|ultrapassar|ultrapassou|extrapolar) (?:do|o) horario|(?:estender|prolongar|esticar|aumentar|passar)\b[^.?!]{0,25}\b(?:mais )?(?:uma|1|meia|duas|2) hor(?:as?|inhas?)\b|ficar (?:mais )?(?:uma |1 )?(?:uma|1|meia|duas|2) hor(?:as?|inhas?) a mais|\b(?:uma |1 )?meia hor(?:a|inha) (?:a mais|extra)|\b(?:a |uma |cada )?(?:hora|horas|horinha|horinhas)(?: e meia)? (?:a mais|extras?)\b(?![^.?!]{0,15}\b(?:que|do que) (?:o|a) (?:essencial|completa|completo|premium|pacote|outro|outra)\b)|\btoleranc\w*|\bpassar d[oa] (?:horario|hora)\b|\bate que horas?\b[^.?!]{0,20}\b(?:ficar|ficamos|fica|podemos ficar|a festa|termina\w*|acaba\w*|vai a festa)\b|\b(?:estender|estende|prolongar|prolonga|esticar|estica)\b(?![^.?!]{0,25}\b(?:prazo|pagamento|parcela\w*|boleto\w*|contrato|data|lista|vencimento)\b)|\b(?:comecar|iniciar|abrir|entrar|chegar|fazer)\b[^.?!]{0,20}\bmais cedo\b|\bantecip\w* (?:a festa|o inicio|o horario|a entrada|o comeco)\b|atrasa\w*|\b(?:se|caso|quando)\s+(?:o |a |os |as )?(?:boleto|parcela|prestac\w*|mensalidade)s?\b[^.?!]{0,20}\bvenc(?:er|e|a|am|endo)\b|que horas (a gente |a gnt |gnt |nos )?(tem|temos|tenho) (q|que) sair|sair do salao|horario de (saida|termino)|aumentar (o numero de |os |a quantidade de )?convidados|mais convidados|convidados a mais|excedentes?|pessoas? (?:a mais|excedentes?)|convidado (?:a mais|excedente)|cortesia|baloes|balao|bexigas?|lembrancinhas?)\b`)],
   // Contratação. Reservar também com erro de digitação ("rezervar", "resevar", "reservaaa"). Hipótese, negação, adiamento
   // e consulta de agenda ("se a gente fechar...", "não vou fechar", "depois eu fecho", "ainda dá pra reservar?") saem em
   // entenderPorRegras ([contratar]).
@@ -675,7 +684,7 @@ const REGRAS: Array<[TipoIntencao, RegExp]> = [
     // referência ("segura ele pra mim", "guarda essa data"), o pacote, o dia ou "pra mim" —, mesmo com outros dados na
     // mensagem ("reserva o premium pra 100 convidados dia 5 de dezembro"). "A reserva", "minha reserva" (substantivo),
     // "segura aí que já volto", "guarda o pdf" e hipótese/pergunta ("se reservar…", "quanto pra reservar") não.
-    String.raw`(?<!\b(?:a|da|na|minha|sua|nossa|essa|uma|tua|se|quanto|qto|nao|como|pra|para|de)\s+)\b(?:reserva|reserve|reservem|segura|segure|segurem|garante|garanta|garantam|bloqueia|bloqueie|bloqueiem|separa|separe|separem|guarda|guarde|guardem)(?: (?:ai|la|ja|entao|logo))*(?: (?:pra|para) (?:mim|gente|nos|a gente))?(?: (?:o|a|esse|essa|este|esta|aquele|aquela))? (?:ele|ela|pra mim|para mim|pra gente|pacote|essencial|completa|completo|premium|festa|data|dia|sabado|domingo|sexta|feriado|horario|\d{1,2}(?:[/.]\d{1,2})?)\b(?! (?:que|q) )`,
+    String.raw`(?<!\b(?:a|da|na|minha|sua|nossa|essa|uma|tua|se|quanto|qto|nao|como|pra|para|de)\s+)\b(?:reserva|reserve|reservem|segura|segure|segurem|garante|garanta|garantam|bloqueia|bloqueie|bloqueiem|separa|separe|separem|guarda|guarde|guardem)(?: (?:ai|la|ja|entao|logo))*(?: (?:pra|para) (?:mim|gente|nos|a gente))?(?: (?:o|a|esse|essa|este|esta|aquele|aquela))? (?:ele|ela|pra mim|para mim|pra gente|pacote|essencial|completa|completo|premium|festa|data|dia|sabado|domingo|sexta|feriado|horario|\d{1,2}(?:[/.]\d{1,2})?|d[ao] (?:noite|almoco|tarde|manha|primeiro horario|segundo horario))\b(?! (?:que|q) )`,
     // rodada 20: pedido educado com qualquer objeto ou sozinho no fim ("pode garantir o premium pra 130", "fechado! pode
     // garantir"), e "deixa (o dia 28) reservado"; garantia de algo ("garantir que") e antecedência não
     String.raw`\b(?:pode|podem|poderia|poderiam|ja pode)(?: ja)? (?:garantir|segurar|bloquear|separar|fechar|marcar)\b(?! (?:que|q|se|com (?:quanto|qnto|qto)|quantos|quantas)\b)(?![^.?!]{0,30}\b(?:antecedencia|visita\w*|degustac\w*|reuniao)\b)`,
@@ -685,8 +694,9 @@ const REGRAS: Array<[TipoIntencao, RegExp]> = [
     String.raw`(?<!\b(?:como (?:funciona|e|eh|faz|faco|se faz|fica|sera|vai ser)|qual(?: e| eh)?|quais(?: sao)?) (?:a |o )?)\b(formaliz\w*|efetiv\w*|oficializ\w*|concretiz\w*|firmar|seguir com|dar andamento (a|na|no|ao))\b(?![^.?!]{0,10}\b(funciona|e feita|e feito|como))[^.?!]{0,15}\b(a |o |na |no )?(contratac\w*|contrato|reserva|fechamento|pacote|festa)\b`,
     String.raw`\b(desejo|desejamos|gostaria de|gostariamos de|queria|quero|queremos|vou|vamos) (ja )?(contratar|reservar|fechar)\b`,
     // Rodada 29 (achado na sonda): imperativo com o objeto — "então fecha pra mim o completa dia 21/11", "fecha o premium
-    // pra 120"; "quanto fecha o premium?" é preço.
-    String.raw`(?<!\b(?:quanto|qto|qnto|por quanto|em quanto) )\b(?:ja )?(?:fecha|feche|fechem)(?: ai| la| entao)?(?: (?:pra|para) (?:mim|gente|nos|a gente))?(?: (?:o|a|esse|essa|este|esta))? (?:pacote|essencial|completa|completo|premium|festa|data|dia|sabado|domingo|sexta|reserva)\b`,
+    // pra 120"; "quanto fecha o premium?" é preço. Rodada 37 (h36 aa56): o período por referência ("fecha pra mim o da
+    // noite", "fecha o segundo horário").
+    String.raw`(?<!\b(?:quanto|qto|qnto|por quanto|em quanto) )\b(?:ja )?(?:fecha|feche|fechem)(?: ai| la| entao)?(?: (?:pra|para) (?:mim|gente|nos|a gente))?(?: (?:o|a|esse|essa|este|esta))? (?:pacote|essencial|completa|completo|premium|festa|data|dia|sabado|domingo|sexta|reserva)\b|(?<!\b(?:quanto|qto|qnto|por quanto|em quanto) )\b(?:ja )?(?:fecha|feche|fechem)(?: ai| la| entao)?(?: (?:pra|para) (?:mim|gente|nos|a gente))? (?:(?:o|a) d[ao] (?:noite|almoco|tarde|manha|primeiro horario|segundo horario)|(?:o )?(?:primeiro|segundo) horario|esse horario|este horario)\b`,
     // rodada 16: condição sobre o valor ("se for bom ja garanto o dia 28/11", "se couber no orçamento eu fecho")
     String.raw`\bse (?:for|ficar|sair|estiver|couber|der certo|valer a pena|compensar|for em conta|ficar em conta|for barato|ficar barato|o preco (?:for|estiver|ficar)|o valor (?:for|estiver|ficar)|der)\b[^.?!]{0,35}\b(?:ja |eu |a gente |entao )*(?:garanto|garantimos|reservo|reservamos|fecho|fechamos|seguro|seguramos|marco|marcamos|contrato|contratamos|bloqueio|ja quero (?:garantir|reservar|fechar|segurar|marcar))\b`,
     // condicional à vaga ("o dia 14 ainda tá livre? se tiver já quero garantir"); "quero garantir" no fim da frase
@@ -815,10 +825,10 @@ const TEMAS_POR_REGRA: Array<[TemaContrato, RegExp]> = [
   // atraso, mora ou vencimento; "pagar depois do vencimento" é atraso.
   ['INADIMPLENCIA', /\b(?:atraso|juros (?:de |por |pelo |pela )?(?:mora|atraso)|inadimplencia|inadimplent\w*|inadimplemento)\b|\batras\w*\b[^.?!]{0,30}\b(?:pagamento|parcela\w*|boleto\w*|prestac\w*|mensalidade|pagar)\b|\b(?:pagamento|parcela\w*|boleto\w*|prestac\w*)\b[^.?!]{0,30}\b(?:atrasad\w*|atras\w*|vencid\w*)\b|\bpagar (?:com |em )?atras\w*|\b(?:nao|n) (?:pagar|pague|conseguir pagar) (?:a |uma |o )?(?:parcela|boleto)|\bjuros\b[^.?!]{0,30}\b(?:atras\w*|vencid\w*|vencimento|venc(?:er|eu)|mora)\b|\b(?:atras\w*|vencid\w*|vencimento|venc(?:er|eu))\b[^.?!]{0,30}\bjuros\b|\b(?:depois|apos|passar|passou|passa|passando|alem) (?:d?o )?(?:dia d?o )?vencimento\b|\b(?:se|caso|quando)\s+(?:o |a |os |as )?(?:boleto|parcela|pagamento|prestac\w*|mensalidade)s?\b[^.?!]{0,20}\bvenc(?:er|e|a|am|endo)\b/],
   // "E se chegar mais gente no dia?": convidado excedente.
-  ['CONVIDADOS', new RegExp(String.raw`${GENTE_A_MAIS}|\b(aumentar (os |o numero de |a quantidade de )?convidados|mais convidados|convidados a mais|excedentes?)\b`)],
+  ['CONVIDADOS', new RegExp(String.raw`${GENTE_A_MAIS}|\b(aumentar (os |o numero de |a quantidade de )?convidados|mais convidados|convidados a mais|excedentes?)\b|${LISTA_AUMENTA}`)],
   // "Eles entram na conta dos convidados?", "bebê de colo paga?": quem conta como convidado.
   ['CORTESIA', new RegExp(String.raw`${QUEM_CONTA}|\b((?:crianc\w*|bebe\w*|convidad\w*|pais|irmaos|idade|anos)\b[^.?!]{0,30}\bcortesia|cortesia\b[^.?!]{0,30}\b(?:crianc\w*|bebe\w*|convidad\w*|idade|anos|pais|irmaos)|crianca nao paga|criancas pagam|nao contam|crianca\w*( \w+){0,3}? (paga\w*|conta\w*|entra\w*)|idade (paga|conta)|contagem|conta como convidado)\b`)],
-  ['HORARIOS', /\b((?:estender|prolongar|esticar|aumentar|passar)\b[^.?!]{0,25}\b(?:mais )?(?:uma|1|meia|duas|2) hor(?:as?|inhas?)|ficar (?:mais )?(?:uma|1|meia|duas|2) hor(?:as?|inhas?) a mais|horario|prorrogar|prorrogac\w*|hora extra|horas extras|atras\w*\b[^.?!]{0,25}\b(?:sair|saida|termin\w*|horario|ir embora|fim da festa)|(?:sair|saida|termin\w*|ir embora)\b[^.?!]{0,25}\batras\w*|passar do horario|sair do salao|que horas .{0,25}sair|termin\w*|(?:\d+|cinco|dez|quinze|vinte|trinta|quarenta|meia)\s*(?:min\w*|hora\w*)\s+(?:a mais|extras?|adiciona\w*|alem|depois do horario)|(?:passar|passa|ultrapass\w*|exced\w*|estour\w*|estender|esticar|prolongar)\b[^.?!]{0,20}\b(?:\d+|cinco|dez|quinze|vinte|trinta|quarenta|meia)\s*(?:min\w*|hora\w*)|(?:hora|horas|tempo|minutos) (?:a mais|extras?|adiciona\w*))\b/],
+  ['HORARIOS', /\b((?:estender|prolongar|esticar|aumentar|passar)\b[^.?!]{0,25}\b(?:mais )?(?:uma|1|meia|duas|2) hor(?:as?|inhas?)|ficar (?:mais )?(?:uma |1 )?(?:uma|1|meia|duas|2) hor(?:as?|inhas?) a mais|\b(?:uma |1 )?meia hor(?:a|inha) (?:a mais|extra)|\b(?:a |uma |cada )?(?:hora|horas|horinha|horinhas)(?: e meia)? (?:a mais|extras?)\b(?![^.?!]{0,15}\b(?:que|do que) (?:o|a) (?:essencial|completa|completo|premium|pacote|outro|outra)\b)|\btoleranc\w*|\bpassar d[oa] (?:horario|hora)\b|\bate que horas?\b[^.?!]{0,20}\b(?:ficar|ficamos|fica|podemos ficar|a festa|termina\w*|acaba\w*|vai a festa)\b|\b(?:estender|estende|prolongar|prolonga|esticar|estica)\b(?![^.?!]{0,25}\b(?:prazo|pagamento|parcela\w*|boleto\w*|contrato|data|lista|vencimento)\b)|\b(?:comecar|iniciar|abrir|entrar|chegar|fazer)\b[^.?!]{0,20}\bmais cedo\b|\bantecip\w* (?:a festa|o inicio|o horario|a entrada|o comeco)\b|horario|prorrogar|prorrogac\w*|hora extra|horas extras|atras\w*\b[^.?!]{0,25}\b(?:sair|saida|termin\w*|horario|ir embora|fim da festa)|(?:sair|saida|termin\w*|ir embora)\b[^.?!]{0,25}\batras\w*|passar do horario|sair do salao|que horas .{0,25}sair|termin\w*|(?:\d+|cinco|dez|quinze|vinte|trinta|quarenta|meia)\s*(?:min\w*|hora\w*)\s+(?:a mais|extras?|adiciona\w*|alem|depois do horario)|(?:passar|passa|ultrapass\w*|exced\w*|estour\w*|estender|esticar|prolongar)\b[^.?!]{0,20}\b(?:\d+|cinco|dez|quinze|vinte|trinta|quarenta|meia)\s*(?:min\w*|hora\w*)|(?:hora|horas|tempo|minutos) (?:a mais|extras?|adiciona\w*))\b/],
   ['DANOS', /\b(danos?|quebrar|estragar)\b/],
   ['BEBIDAS', /\b(bebidas? alcoolicas?|cervejas?|chop+e?s?|vinhos?|espumantes?|drinks?|whisky|vodka|caipirinhas?|rolha|levar bebida)\b/],
   ['LIMPEZA', /\b(confete|chuva de prata|serpentina|limpeza)\b/],
@@ -827,7 +837,7 @@ const TEMAS_POR_REGRA: Array<[TemaContrato, RegExp]> = [
 ];
 const SAUDACAO = /^(?:(?:o+i+e?|o+l+a+|opa+|e ai|eai|hello|bom dia|boa tarde|boa noite|tudo bem|td bem|tudo bom|td bom|tudo certo|td certo|tudo joia|tudo tranquilo|como vai|como vao|como voces estao|com (voces|vcs|voce|vc))\s*)+$/;
 const SAUDACAO_INICIO = /^(?:o+i+e?|o+l+a+|opa+|e ai|eai|bom dia|boa tarde|boa noite)\b/;
-const CONFIRMACAO = /^(?:(?:sim|isso|isso mesmo|pode ser|pode|o+k+|okay|beleza|blz|perfeito|fechado|confirmo|certo|claro|quero sim|sim por favor|bora|valeu|vlw|obrigad[oa]+|brigad[oa]+|muito obrigad[oa]+|show|top|otimo|entendi|ta bom|ta otimo|combinado|maravilha|massa|tranquilo|a+h+|h+m+|ta|certinho|entao)\s*)+$/;
+const CONFIRMACAO = /^(?:(?:sim|isso|isso mesmo|pode ser|pode|o+k+|okay|beleza|blz|perfeito|fechado|confirmo|certo|claro|quero sim|sim por favor|bora|valeu|vlw|obrigad[oa]+|brigad[oa]+|muito obrigad[oa]+|show|top|otimo|entendi|ta bom|ta otimo|combinado|maravilha|massa|tranquilo|a+h+|h+m+|ta|certinho|entao|ficou (?:otimo|bom|show|perfeito|top|lindo|excelente)|gostei|amei|adorei|curti)\s*)+$/;
 /** Letras repetidas viram uma ("Boa noitee", "brigadaaa", "oiii"): só para reconhecer saudação e agradecimento. */
 const colapsar = (t: string) => t.replace(/(\p{L})\1+/gu, '$1');
 const [SAUDACAO_C, SAUDACAO_INICIO_C, CONFIRMACAO_C] = [SAUDACAO, SAUDACAO_INICIO, CONFIRMACAO].map((re) => new RegExp(colapsar(re.source)));
@@ -839,6 +849,12 @@ export const AGRADECIMENTO = /\b(?:obrigad\w*|brigad\w*|obg\w*|obgd\w*|valeu|vlw
 const REENVIAR = /\b(de novo|novamente|reenviar|reenvia|manda outra vez|nao recebi|nao chegou)\b/;
 /** "Não manda o PDF de novo": a negação desfaz o reenvio, e o material não é mandado (só a resposta). */
 const NAO_REENVIAR = /\b(nao|n|nem) (precisa (de )?)?(me )?(manda|mande|mandar|mandem|envia|envie|enviar|enviem|reenvia|reenvie|reenviar)\b[^.!?]{0,30}\b(de novo|novamente|outra vez)\b/;
+/** Rodada 37 (h37 aa79): o cardápio dispensado ("não precisa mandar o cardápio de novo", "já salvei o cardápio"). */
+const DISPENSA_CARDAPIO = String.raw`\b(?:nao|n|nem) (?:precisa (?:de )?|precisam )?(?:me )?(?:manda|mande|mandar|mandem|envia|envie|enviar|enviem|reenvia|reenvie|reenviar)\b[^.!?]{0,20}?\b(?:o |esse |este )?cardapio\b|\bja (?:baixei|recebi|tenho|salvei|vi) (?:o )?cardapio\b`;
+/** O cardápio só aparece na dispensa: sem ele, a mensagem não pede cardápio. */
+export function cardapioDispensado(t: string) {
+  return new RegExp(DISPENSA_CARDAPIO).test(t) && !pedeIntencao(t.replace(new RegExp(DISPENSA_CARDAPIO, 'g'), ' '), 'CARDAPIO');
+}
 const SEM_MATERIAL = /\b(nao|n|nem) (precisa (de )?|precisam )?(me )?(manda|mande|mandar|mandem|envia|envie|enviar|enviem|reenvia|reenvie|reenviar)\b[^.!?]{0,20}?\b(o |a |os |as |esse |essa |este |esta )?(pdf|tabela|arquivo|material|documento|cardapio|foto|fotos|link)\b|\b(pode |podem )?(para|pare|parem|parar) de (me )?(mandar|enviar|mandando|enviando) (o |a |os |as |esse |essa )?(pdf|pdfs|tabela|arquivo|material|documento|cardapio|foto|fotos|link)\b|\bja (baixei|recebi|tenho|salvei|vi) (o |a |os |as )?(pdf|tabela|arquivo|material|cardapio)\b/;
 /**
  * Alergia, intolerância, restrição alimentar e GARANTIA de ingrediente: nunca respondidas sem a equipe. Sintoma vago só
@@ -877,7 +893,7 @@ const AUTORIDADE_CASA = String.raw`(?:gerente|gerencia|dono|dona|proprietari\w*|
  * Exceção ou vantagem que o cliente diz ter ganho da casa ("sem pagar nada a mais", "metade do preço", "não precisava
  * pagar"). Só vale junto de quem teria dito: "a gerente me disse que o dia 24 estava livre" é só a origem da informação.
  */
-const VANTAGEM = String.raw`(?:descont\w*|\d+ ?% ?(?:off|a menos)|\boff\b|metade d[oa] (?:preco|valor)|pela metade|meio preco|sem (?:taxa|multa|sinal|entrada)\b|sem (?:pagar|cobrar|custo) (?:nada|a mais|extra|adicional|nenhum|taxa|hora)|nao (?:precis\w*|tem que|tenho que|teria que|vou ter que|ia ter que|vou precisar) (?:pagar|dar|depositar) (?:nada|agora|ainda|(?:o |a )?(?:sinal|entrada|taxa|multa|restante|resto|saldo|parcela|hora|excedente))|nao (?:vai|vao|ia|iam|iria|iriam) (?:me |nos )?(?:cobrar|ter (?:taxa|multa|cobranca))|isent\w* (?:pra mim|pra gente|no meu caso|d[ao] (?:taxa|multa|sinal|entrada|excedente|hora)|de (?:taxa|multa|pagar))|(?:de |como )brinde|brinde (?:pra|para) (?:mim|nos|a gente)|pra mim (?:(?:o|a) [a-z]+ )?(?:sai|sairia|fica|ficaria|faz|faria|custa|custaria|cobra|cobraria|vai sair|vai ficar|vai custar) (?:por|pela|pelo|mais barat|menos|de graca|gratis|r\$|\d)|(?:preco|valor) (?:especial|de amigo|diferenciado|camarada|de funcionario|antigo)|tabela antiga|condic\w* especia\w*|congel\w* (?:o |a )?(?:preco|valor|tabela|data)|(?:de graca|gratis) (?:pra|para) (?:mim|nos|a gente)|(?:reservad|garantid|bloquead|separad)\w* (?:pra mim|no meu nome|pra gente|pra nos|sem sinal)`
+const VANTAGEM = String.raw`(?:descont\w*|\d+ ?% ?(?:off|a menos)|\boff\b|metade d[oa] (?:preco|valor)|pela metade|meio preco|sem (?:taxa|multa|sinal|entrada)\b|sem (?:pagar|cobrar|custo) (?:nada|a mais|extra|adicional|nenhum|taxa|hora)|nao (?:precis\w*|tem que|tenho que|teria que|vou ter que|ia ter que|vou precisar) (?:pagar|dar|depositar) (?:nada|agora|ainda|(?:o |a )?(?:sinal|entrada|taxa|multa|restante|resto|saldo|parcela|hora|excedente))|nao (?:vai|vao|ia|iam|iria|iriam) (?:me |nos )?(?:cobrar|ter (?:taxa|multa|cobranca))|isent\w* (?:pra mim|pra gente|no meu caso|d[ao] (?:taxa|multa|sinal|entrada|excedente|hora)|de (?:taxa|multa|pagar))|(?:de |como )brinde|brinde (?:pra|para) (?:mim|nos|a gente)|pra mim (?:(?:o|a|os|as) [a-z]+(?: (?:de|do|da|dos|das) [a-z]+){0,3} )?(?:sai|sairia|fica|ficaria|faz|faria|custa|custaria|cobra|cobraria|vai sair|vai ficar|vai custar) (?:por|pela|pelo|mais barat|menos|de graca|gratis|r\$|\d)|(?:preco|valor) (?:especial|de amigo|diferenciado|camarada|de funcionario|antigo)|tabela antiga|condic\w* especia\w*|congel\w* (?:o |a )?(?:preco|valor|tabela|data)|(?:de graca|gratis) (?:pra|para) (?:mim|nos|a gente)|(?:reservad|garantid|bloquead|separad)\w* (?:pra mim|no meu nome|pra gente|pra nos|sem sinal)`
   // Rodada 30 (h30 aa08): taxa, multa ou cobrança dita como zerada, cancelada ou extinta ("a gerente me disse que a taxa
   // pra mudar a data foi zerada esse mês"); "acabou a taxa", "não tem mais taxa".
   + String.raw`|(?:taxa|taxas|multa|multas|cobranca|excedente|adicional)\b[^.?!]{0,40}\b(?:foi |foram |esta |estao |ta |tao |ficou |ficaram )?(?:zerad|cancelad|extint|suspens|isentad|retirad|abolid|liberad|perdoad)\w*|(?:acabou|acabaram|nao tem mais|nao existe mais|sem mais) (?:a |as |o |os |com a |com as )?(?:taxa|taxas|multa|multas|cobranca)\b)`;
@@ -1107,9 +1123,18 @@ export function combinarIntencoes(intencoes: Intencao[], texto: string): Intenca
 export function juntarSinais(a?: SinaisMensagem | null, b?: SinaisMensagem | null, texto?: string): SinaisMensagem | undefined {
   if (!a && !b) return undefined;
   const preventiva = !a?.reclamacao && texto !== undefined && PROBLEMA_PREVENTIVO.test(semAcento(texto)) && !PROBLEMA_ACONTECIDO.test(semAcento(texto));
-  return { reclamacao: !!(a?.reclamacao || (b?.reclamacao && !preventiva)), pagamento: !!(a?.pagamento || b?.pagamento), instrucao: !!(a?.instrucao || b?.instrucao), pagamentoAcao: !!(a?.pagamentoAcao || b?.pagamentoAcao) };
+  // Rodada 37 (IA × h37 aa38): "se a gente quiser ficar uma meia horinha a mais, quanto paga?" é o PREÇO de uma condição
+  // do contrato (prorrogação, pessoa a mais), não o pagamento de uma festa: o "pagamento" da triagem do JEV não vale ali.
+  // Só sem pagamento nas regras locais e sem nada do próprio pagamento (boleto, parcela, sinal, pix, "minha festa"…).
+  const t = texto === undefined ? '' : semAcento(texto);
+  const precoDeCondicao = !a?.pagamento && !a?.pagamentoAcao && PRECO_DE_CONDICAO.test(t) && (HORARIO_DO_CONTRATO.test(t) || PESSOA_A_MAIS.test(t)) && !PAGAMENTO_PROPRIO.test(t);
+  return { reclamacao: !!(a?.reclamacao || (b?.reclamacao && !preventiva)), pagamento: !!(a?.pagamento || (b?.pagamento && !precoDeCondicao)), instrucao: !!(a?.instrucao || b?.instrucao), pagamentoAcao: !!(a?.pagamentoAcao || b?.pagamentoAcao) };
 }
 
+/** Rodada 37: pergunta de quanto custa ou quanto se paga por algo; pessoa a mais; e o que é do próprio pagamento. */
+const PRECO_DE_CONDICAO = /\bquanto (?:eu |a gente |nos |que )?(?:paga|pago|pagamos|pagaria|pagariamos|custa|custaria|cobra|cobram|cobrariam|sai|fica|ficaria)\b/;
+const PESSOA_A_MAIS = /\b(?:pessoa|convidado|crianca|adulto)s? (?:a mais|extras?|excedentes?)\b/;
+const PAGAMENTO_PROPRIO = /\b(?:boletos?|parcelas?|sinal|pix|comprovante|paguei|pagamos|minha festa|nossa festa|meu contrato|segunda via|mensalidad\w*|fatura|cobranca)\b/;
 const PROBLEMA_PREVENTIVO = /\b(?:tem|teria|tera|haveria|ha|vai ter|vai dar|da|daria|algum|nenhum|sem|e|seria|eh) problemas?\b[^.!]{0,60}\?|\bproblemas? (?:se|caso)\b|\b(?:tem|teria|ha|algum) problema\s*$/;
 const PROBLEMA_ACONTECIDO = /\b(?:deu|deram|teve|tive|tivemos|tiveram|houve|aconteceu|rolou|foi um|tivemos um|tive um) (?:um |uns |algum |muito |varios )?problemas?\b|\bproblemas? (?:na|com a|durante a|no dia da) festa\b/;
 /** Palavras significativas de uma pergunta frequente (sem as genéricas). */
@@ -1415,12 +1440,14 @@ function coberta(segmento: string, catalogos: Catalogos, mensagem = segmento) {
  * convidados podem entrar?", "a entrada dos convidados começa que horas?", "a partir de que horas as crianças chegam?".
  * Respondido pelos períodos cadastrados da agenda. "A entrada é quanto?" (pagamento) e "a entrada do salão" (lugar) não.
  */
-export const ENTRADA_CONVIDADOS = /\b(?:(?:a )?entrada d[oa]s? (?:convidad\w*|crianc\w*|pessoas|familia\w*|amigos)\b(?![^.?!]{0,20}\b(?:quanto|valor|pix)\b)|(?:convidad\w*|pessoas|criancas|familia) (?:pode[mr]?|podem|vao|comecam a|comeca a|chegam|entram|entra)\b[^.?!]{0,25}?\b(?:entrar|chegar|que horas|a partir)|(?:que horas|a partir de que horas|qual (?:o )?horario(?: de entrada)?|ate que horas antes) (?:os |as )?(?:convidad\w*|crianc\w*|pessoas)\b[^.?!]{0,15}\b(?:entra\w*|cheg\w*|pode\w*)|(?:que horas|a partir de que horas) (?:comeca|abre|inicia) (?:a festa|o salao para os convidados|a entrada))/;
+export const ENTRADA_CONVIDADOS = /\b(?:(?:a )?entrada d[oa]s? (?:convidad\w*|crianc\w*|pessoas|familia\w*|amigos)\b(?![^.?!]{0,20}\b(?:quanto|valor|pix)\b)|(?:convidad\w*|pessoas|criancas|familia|pessoal|galera|povo|turma|visitas|parentes|amigos) (?:pode[mr]?|podem|vao|vai|consegue[m]?|comecam a|comeca a|chegam|chega|entram|entra)\b[^.?!]{0,25}?\b(?:entrar|chegar|que horas|a partir)|(?:que horas|a partir de que horas|a partir de quando|qual (?:o )?horario(?: de entrada| de chegada)?|ate que horas antes) (?:os |as |o |a )?(?:convidad\w*|crianc\w*|pessoas|pessoal|galera|povo|turma|visitas|familia|parentes|amigos)\b[^.?!]{0,15}\b(?:entra\w*|cheg\w*|pode\w*|comec\w*)|horario de (?:chegada|entrada) d[oa]s? (?:convidad\w*|crianc\w*|pessoas|pessoal|galera|familia|visitas)|(?:que horas|a partir de que horas) (?:comeca|abre|inicia) (?:a festa|o salao para os convidados|a entrada))/;
 /** Rodada 36: pergunta de capacidade do pacote; e o assunto das cláusulas de convidados (aumento, excedente, cortesia). */
-const CAPACIDADE_PACOTE = /\b(?:cabe[mr]?|comporta[mr]?|capacidade|quantas pessoas|quantos convidados|ate quantos?|maximo de|no maximo)\b/;
-const CLAUSULA_DE_CONVIDADOS = /\b(?:aument\w*|acrescent\w*|a mais|exced\w*|excedentes?|pagantes?|crianc\w*|bebes?|cortesia\w*|isent\w*|gratis|de graca|colo|idade|anos|cobr\w*|taxa|multa|depois de contratar|depois de fechar)\b/;
+const CAPACIDADE_PACOTE = /\b(?:cabe[mr]?|comporta[mr]?|aguenta[mr]?|suporta[mr]?|acomoda[mr]?|capacidade|quantas pessoas|quantos convidados|ate quantos?|maximo de|no maximo)\b/;
+/** Rodada 37 (IA × h37 aa36, aa57): duração da festa é do pacote ("quantas horas de festa?", "dura quanto tempo?"). */
+const DURACAO_FESTA = /\b(?:quantas horas|qtas horas|quanto tempo(?! (?:antes|depois|de tolerancia))|dura(?:cao|m|ria)?|durar)\b/;
+const CLAUSULA_DE_CONVIDADOS = /\b(?:aument\w*|acrescent\w*|a mais|exced\w*|excedentes?|pagantes?|crianc\w*|bebes?|cortesia\w*|isent\w*|gratis|de graca|colo|idade|anos|cobr\w*|taxa|multa|depois de contratar|depois de fechar|lista|irmaos?|irmas?|pais|aniversariante|conta como|contam|entra\w* na conta)\b/;
 /** Rodada 36: assunto da cláusula de horários além da entrada (prorrogar, terminar, sair, multa, até que horas…). */
-const HORARIO_DO_CONTRATO = /\b(?:prorrog\w*|estend\w*|estic\w*|prolong\w*|horas? extras?|a mais|mais tarde|ate que horas|sai[rd]\w*|termin\w*|multa\w*|passa[rd]? do horario|depois do horario|atras\w*|fim da festa|ir embora|parabens|tolerancia)\b/;
+const HORARIO_DO_CONTRATO = /\b(?:prorrog\w*|estend\w*|estic\w*|prolong\w*|horas? extras?|a mais|mais tarde|ate que horas|sai[rd]\w*|termin\w*|multa\w*|passa[rd]? do horario|depois do horario|atras\w*|fim da festa|ir embora|parabens|tolerancia|mais cedo|antecip\w*|adiant\w*|antes do horario|horarios? (?:da|de|do) (?:festa|contrato)|regras? d[eo]s? horarios?)\b/;
 export function perguntasSemFonte(texto: string, catalogos: Catalogos, cobertas: string[] = []) {
   const compacto = (s: string) => limpo(s);
   return perguntasDaMensagem(texto)
@@ -1625,7 +1652,7 @@ export function entenderPorRegras(texto: string, catalogos: Catalogos, contexto:
   if (!intencoes.length && ehSaudacao(c)) intencoes.push({ tipo: 'SAUDACAO', trecho: texto.trim() });
   if (!intencoes.length) intencoes.push({ tipo: 'OUTRO', trecho: texto.trim().slice(0, 300), perguntaId: null });
   return {
-    intencoes: limitar(combinarIntencoes(intencoes, texto)), entidades, reenviar: REENVIAR.test(t) && !NAO_REENVIAR.test(t), alergia: ALERGIA.test(t), origem: 'REGRAS',
+    intencoes: limitar(combinarIntencoes(cardapioDispensado(t) && !itens.length && !semCadastro ? intencoes.filter((i) => i.tipo !== 'CARDAPIO') : intencoes, texto)), entidades, reenviar: REENVIAR.test(t) && !NAO_REENVIAR.test(t), alergia: ALERGIA.test(t), origem: 'REGRAS',
     // A continuação ("e num dia de semana?") é coberta pelo assunto que ela segue.
     sinais, semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, intencoes.filter((i) => i.continuacao).map((i) => i.trecho))), parar: pedidoDeParar(texto),
     itens, comparar: entidades.pacotes.length >= 1 && COMPARA.test(t), semMaterial: SEM_MATERIAL.test(t), comparaPreco, outraData, pratoSemCadastro: semCadastro,
@@ -1693,9 +1720,13 @@ function coberturaComercial(intencoes: Intencao[], regras: Intencao[], texto: st
  *    reconhecem — visita, não festa contratada;
  *  - DISPONIBILIDADE_ATRIBUIDA: o cliente conta o que alguém da casa disse da agenda e pergunta se a data continua livre
  *    ("a gerente comentou que o 19 tava livre… continua livre?"), com a data reconhecida pelas regras — consulta de
- *    disponibilidade, não pedido para manter, reservar ou alterar condição.
- * NÃO é exceção genérica: cada critério só afasta o cuidado que ele explica (orçamento → negociação; visita e
- * disponibilidade contada → contrato próprio), e só sem nenhuma âncora contrária no texto (oferta, desconto, condição,
+ *    disponibilidade, não pedido para manter, reservar ou alterar condição;
+ *  - RESERVA_FINANCEIRA (rodada 37, IA × h37 aa61): "reserva" no sentido de dinheiro guardado para a festa ("nossa reserva
+ *    pra festa é uns 4 mil"), com um valor em dinheiro logo depois e uma pergunta de preço que as regras reconhecem —
+ *    orçamento, não festa reservada. Afasta só o contrato próprio, e só sem nenhuma âncora de festa contratada no resto
+ *    do texto (data reservada, festa marcada, contrato, pagamento…).
+ * NÃO é exceção genérica: cada critério só afasta o cuidado que ele explica (orçamento → negociação; visita,
+ * disponibilidade contada e reserva como orçamento → contrato próprio), e só sem nenhuma âncora contrária no texto (oferta, desconto, condição,
  * "cabe no orçamento", reserva, contrato, sinal, pagamento, "minha festa", confirmação, combinação…). Com alergia,
  * reclamação, pagamento, instrução ou parar (regras), com outro cuidado na mensagem (contratação ou pessoa, mesmo só do
  * modelo) ou com cuidado confirmado pelas regras, nada é marcado: o conflito não resolvido mantém a passagem. O
@@ -1707,7 +1738,11 @@ const ORCAMENTO_INFORMADO = new RegExp([
   String.raw`\b(?:meu|nosso|o) (?:limite|orcamento|teto|budget)(?: (?:total|disponivel|pra festa|para a festa|pra gastar))?,? (?:e|eh|ta|esta|fica|seria|vai ate|gira em torno de)(?: (?:de|em|uns|umas|ate|no maximo|por volta de|em torno de|mais ou menos|aproximadamente|cerca de))* ${VALOR_INFORMADO}`,
   String.raw`\b(?:posso|consigo|pretendo|quero|queria|so posso|so consigo) gastar(?: (?:ate|uns|umas|no maximo|por volta de|em torno de|mais ou menos|cerca de))* ${VALOR_INFORMADO}`,
   String.raw`\btenho(?: (?:ate|uns|umas|no maximo|por volta de|cerca de))* ${VALOR_INFORMADO} (?:de orcamento|pra gastar|para gastar)\b`,
+  // Rodada 37: "nossa reserva pra festa é uns 4 mil" (dinheiro guardado).
+  String.raw`\b(?:minha|nossa|a) reserva(?: (?:pra|para) (?:a )?festa| financeira| em dinheiro)?,? (?:e|eh|ta|esta|fica|seria|gira em torno de|vai ate|de)(?: (?:de|em|uns|umas|ate|no maximo|por volta de|em torno de|mais ou menos|aproximadamente|cerca de))* ${VALOR_INFORMADO}`,
 ].join('|'));
+/** Rodada 37: a reserva no sentido de dinheiro para a festa, seguida do valor. */
+const RESERVA_FINANCEIRA = new RegExp(String.raw`\b(?:minha|nossa|a) reserva(?: (?:pra|para) (?:a )?festa| financeira| em dinheiro)?,? (?:e|eh|ta|esta|fica|seria|gira em torno de|vai ate|de)(?: (?:de|em|uns|umas|ate|no maximo|por volta de|em torno de|mais ou menos|aproximadamente|cerca de))* ${VALOR_INFORMADO}`);
 /** Âncoras de proposta de desconto ou pedido de condição: com qualquer uma, o orçamento NÃO afasta a negociação. */
 const PROPOSTA_DE_DESCONTO = /\b(?:descont\w*|abat\w*|abaix\w*|baix\w*|reduz\w*|negoci\w*|parcel\w*|condic\w*|promoc\w*|propost\w*|ofert\w*|mais barat\w*|mais em conta|melhor (?:preco|valor)|cab\w*|dentro d[oe]|(?:nesse|neste|esse|este|desse|deste|com esse|com este|por esse|por este) (?:valor|preco|orcamento|limite)|com isso|por isso|nisso|faz\w* por|fech\w*|aceit\w*|top\w*|rola\w*|consegu\w*|da pra|daria pra|tem como|teria como|ajust\w*|adapt\w*|encaix\w*|chorinho|cortesia|brinde|gratis|de graca|menos|apert\w*|jeitinho|mesmo valor|mesmo preco|pago|pagaria|dou|daria|ofereco|pagar em|pago em|\d+ ?x|\d+ vezes|vezes|a vista|entrada|sinal|cartao|pix|boleto)\b/;
 const VISITA_MARCADA = new RegExp([
@@ -1726,7 +1761,7 @@ const DISPONIBILIDADE_ATRIBUIDA = [
 /** Âncoras de pedido para manter, reservar ou alterar condição: com qualquer uma, a disponibilidade contada NÃO afasta nada. */
 const ALTERAR_CONDICAO = /\b(?:preco\w*|valor\w*|r\$|\d+ ?mil|descont\w*|condic\w*|taxa\w*|multa\w*|parcel\w*|promoc\w*|segur\w*|guard\w*|reserv\w*|bloque\w*|garant\w*|mant\w*|prometeu|prometid\w*|combin\w*|aplic\w*|vale (?:pra|para) mim|por escrito|confirm\w*|fech\w*|contrat\w*|separ\w*|anot\w*|meu nome|nosso nome|minha festa|nossa festa|liber\w*|autoriz\w*|aprov\w*|deixou|deixar)\b/;
 /** Cuidados que o critério de cada consulta comum explica (nenhum outro é afastado). */
-const AFASTA: Record<CriterioConsultaComum, TipoIntencao> = { ORCAMENTO_INFORMADO: 'NEGOCIACAO', VISITA_MARCADA: 'CONTRATO_PROPRIO', DISPONIBILIDADE_ATRIBUIDA: 'CONTRATO_PROPRIO' };
+const AFASTA: Record<CriterioConsultaComum, TipoIntencao> = { ORCAMENTO_INFORMADO: 'NEGOCIACAO', VISITA_MARCADA: 'CONTRATO_PROPRIO', DISPONIBILIDADE_ATRIBUIDA: 'CONTRATO_PROPRIO', RESERVA_FINANCEIRA: 'CONTRATO_PROPRIO' };
 const CUIDADOS: readonly TipoIntencao[] = ['CONTRATO_PROPRIO', 'CONTRATAR', 'NEGOCIACAO', 'HUMANO'];
 /** Critério de consulta comum que o texto do cliente satisfaz para o cuidado `tipo` (null se nenhum, ou com âncora contrária). */
 export function criterioConsultaComum(texto: string, tipo: TipoIntencao, regras: Entendimento): CriterioConsultaComum | null {
@@ -1737,6 +1772,8 @@ export function criterioConsultaComum(texto: string, tipo: TipoIntencao, regras:
   if (VISITA_MARCADA.test(t) && !FESTA_CONTRATADA.test(t) && regras.intencoes.some((r) => COMERCIAIS.includes(r.tipo))) return 'VISITA_MARCADA';
   if (DISPONIBILIDADE_ATRIBUIDA.every((re) => re.test(t)) && !ALTERAR_CONDICAO.test(t) && !FESTA_CONTRATADA.test(t)
     && !!regras.entidades.data && regras.intencoes.some((r) => r.tipo === 'DISPONIBILIDADE')) return 'DISPONIBILIDADE_ATRIBUIDA';
+  if (RESERVA_FINANCEIRA.test(t) && !FESTA_CONTRATADA.test(t.replace(RESERVA_FINANCEIRA, ' ')) && !PROPOSTA_DE_DESCONTO.test(t.replace(RESERVA_FINANCEIRA, ' '))
+    && regras.intencoes.some((r) => r.tipo === 'PRECOS' || r.tipo === 'PACOTES')) return 'RESERVA_FINANCEIRA';
   return null;
 }
 /**
@@ -1762,7 +1799,12 @@ export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalog
   let duvidaSemId = false;
   const externoRegras = regras.intencoes.find((r) => r.tipo === 'EXTERNO');
   const soEntrada = ENTRADA_CONVIDADOS.test(t) && !HORARIO_DO_CONTRATO.test(t.replace(ENTRADA_CONVIDADOS, ' '));
-  const soCapacidade = CAPACIDADE_PACOTE.test(t) && !CLAUSULA_DE_CONVIDADOS.test(t) && regras.intencoes.some((r) => r.tipo === 'PACOTES');
+  // Rodada 37: o pacote responde capacidade e duração (das regras ou do modelo); os períodos, a entrada.
+  const temPacotes = regras.intencoes.some((r) => r.tipo === 'PACOTES') || bruto.intencoes.some((i) => i.tipo === 'PACOTES');
+  const soCapacidade = CAPACIDADE_PACOTE.test(t) && !CLAUSULA_DE_CONVIDADOS.test(t) && temPacotes;
+  const pedeHorarioDoContrato = HORARIO_DO_CONTRATO.test(t.replace(ENTRADA_CONVIDADOS, ' ').replace(DURACAO_FESTA, ' '));
+  const soDuracao = DURACAO_FESTA.test(t) && !pedeHorarioDoContrato && temPacotes;
+  const pedeCondicao = /\b(?:contrato|condic\w*|clausul\w*|regras?|multas?)\b/.test(t);
   for (const i of bruto.intencoes) {
     const trecho = literal(i.trecho);
     // "Bolo" dentro de "levar o bolo da minha tia": é o item de fora (regras), não pergunta do cardápio.
@@ -1787,8 +1829,15 @@ export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalog
     // Também (aa49): "o premium cabe quantas pessoas? cabem 180?" é respondida pelo pacote; as cláusulas de aumento de
     // convidados e de cortesia vistas só pelo modelo não entram sem aumento, excedente, criança ou cortesia na mensagem.
     const doModelo = !regras.intencoes.some((r) => r.tipo === 'CONTRATO' && r.tema === (i.tema ?? 'GERAL'));
-    if (i.tipo === 'CONTRATO' && doModelo && soEntrada && ['HORARIOS', 'GERAL'].includes(i.tema ?? 'GERAL')) continue;
-    if (i.tipo === 'CONTRATO' && doModelo && soCapacidade && ['CONVIDADOS', 'CORTESIA', 'GERAL'].includes(i.tema ?? 'GERAL')) continue;
+    // Rodada 37 (IA × h37 aa36, aa69, aa57): a marca CONTRATO do modelo não basta. A cláusula de horários (prorrogação,
+    // multa) só entra quando a pergunta trata de prorrogar, terminar, sair, tolerância, multa ou adiantar; duração vem do
+    // pacote e entrada, dos períodos. As de convidados e cortesia, só com aumento, excedente, criança, cortesia ou quem
+    // conta; a lista geral, só quando a pergunta pede condição, contrato ou regra.
+    if (i.tipo === 'CONTRATO' && doModelo && (i.tema ?? 'GERAL') === 'HORARIOS' && !pedeHorarioDoContrato && (soEntrada || soDuracao)) continue;
+    if (i.tipo === 'CONTRATO' && doModelo && ['CONVIDADOS', 'CORTESIA'].includes(i.tema ?? 'GERAL') && !CLAUSULA_DE_CONVIDADOS.test(t) && temPacotes) continue;
+    if (i.tipo === 'CONTRATO' && doModelo && (i.tema ?? 'GERAL') === 'GERAL' && (soEntrada || soCapacidade || soDuracao) && !pedeCondicao) continue;
+    // Rodada 37 (h37 aa79): cardápio dispensado pelo cliente ("não precisa mandar o cardápio de novo") não é pedido.
+    if (i.tipo === 'CARDAPIO' && cardapioDispensado(t) && !regras.itens.length && !regras.pratoSemCadastro) continue;
     // Também (aa33): a pergunta da entrada lida como pergunta frequente sem cadastro não é "informação não cadastrada".
     if (i.tipo === 'DUVIDA' && !i.perguntaId && catalogos.turnos.length && ENTRADA_CONVIDADOS.test(semAcento(i.trecho)) && !perguntasSemFonte(i.trecho, catalogos).length) continue;
     if (intencoes.some((x) => x.tipo === i.tipo && (i.tipo === 'DUVIDA' ? x.perguntaId === i.perguntaId : i.tipo === 'CONTRATO' ? x.tema === (i.tema ?? 'GERAL') : true))) continue;

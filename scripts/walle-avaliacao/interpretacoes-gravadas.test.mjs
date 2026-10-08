@@ -40,6 +40,18 @@ const AJUSTES = {
     aa49: [leitura('PACOTES', 'o premium cabe quantas pessoas e dura quanto tempo?'), leitura('CONTRATO', 'cabem 180 lá?', 'CONVIDADOS')],
     aa63: [leitura('SAUDACAO', 'oii tudo bem?'), leitura('CONTRATO', 'no horário do almoço', 'HORARIOS')],
   },
+  // Rodada 37 (h37, muzac1wv): o tema da cláusula (aa36, aa69: horários; aa57, aa34: convidados/cortesia) e o trecho do
+  // contrato próprio (aa38: o que o rapaz disse da agenda; aa61: "nossa reserva pra festa é uns 4 mil"). Com essas
+  // leituras, o código da r36 reproduz o resultado gravado (aa36 e aa69 críticas; aa38, aa61→aa64 desnecessários; aa57
+  // com as cláusulas 3 e 4).
+  'corpus-holdout-37-20261008.json': {
+    aa34: [leitura('CONTRATO', 'criança de 4 anos conta como pagante?', 'CORTESIA'), leitura('PACOTES', 'o premium comporta 140 pessoas?'), leitura('CONTRATO', 'se depois de contratar a lista aumentar, como faz?', 'CONVIDADOS')],
+    aa36: [leitura('PRECOS', 'a tabela de preços mudou ou ainda vale a do PDF?'), leitura('PACOTES', 'o essencial aguenta 75 pessoas?'), leitura('CONTRATO', 'quantas horas de festa?', 'HORARIOS')],
+    aa38: [leitura('CONTRATO_PROPRIO', 'o rapaz do atendimento falou que dia 28/11 no almoço tinha vaga'), leitura('DISPONIBILIDADE', 'continua livre?'), leitura('CONTRATO', 'se a gente quiser ficar uma meia horinha a mais, quanto paga?', 'HORARIOS')],
+    aa57: [leitura('PACOTES', 'e o completa dura quantas horas?'), leitura('CONTRATO', 'aguenta 130 convidados?', 'CONVIDADOS')],
+    aa61: [leitura('PRECOS', 'qual o valor do essencial pra quarenta e cinco pessoas dia 21/11 de manhã?'), leitura('CONTRATO_PROPRIO', 'nossa reserva pra festa é uns 4 mil')],
+    aa69: [leitura('CONTRATO', 'que horas o pessoal pode começar a chegar?', 'HORARIOS')],
+  },
 };
 async function reproduzir(arq) {
   const m = await funcoes();
@@ -76,6 +88,29 @@ test('gravadas r31 × h32 (muy6rqz2): nenhuma crítica; só as pendências comer
   // aa69 (pausa) grava a marca; aa70 fica com a equipe pela marca, sem nada automático.
   assert.deepEqual([porId('aa69').motivos, porId('aa69').semAutomatico, porId('aa69').saidas.length], [['PARAR_A_CONFIRMAR'], true, 0]);
   assert.deepEqual([porId('aa70').motivos, porId('aa70').semAutomatico, porId('aa70').saidas.length], [['COM_A_EQUIPE', 'PAUSA_PEDIDA'], true, 0]);
+});
+
+test('gravadas candidata r36 × h37 (muzac1wv): cláusula só quando a pergunta pede condição; reserva como orçamento e disponibilidade contada respondidas; sem cascata', async () => {
+  const { metricas, porId } = await reproduzir('corpus-holdout-37-20261008.json');
+  for (const c of metricas.criticas) assert.deepEqual(c.falhas.map((f) => `${f.id}: ${f.motivo}`), [], c.nome);
+  assert.deepEqual(metricas.comercial.falhas.map((f) => f.id), []);
+  assert.deepEqual(metricas.desnecessarios.map((d) => d.id), []);
+  assert.deepEqual(metricas.irrelevantes.map((x) => x.id), [], 'sem cláusula de convidados a mais nem cardápio dispensado');
+  // aa36: duração pelo pacote, sem a cláusula 8; aa69: entrada pelos períodos, sem a cláusula 8.
+  assert.doesNotMatch(porId('aa36').resposta, /Cláusula/);
+  assert.match(porId('aa36').resposta, /4 horas de festa/);
+  assert.doesNotMatch(porId('aa69').resposta, /Cláusula/);
+  assert.match(porId('aa69').resposta, /a entrada dos convidados é a partir das 17h/);
+  // aa38: a prorrogação (meia hora a mais) continua com a cláusula 8; a disponibilidade contada é respondida pela agenda.
+  assert.match(porId('aa38').resposta, /Cláusula 8[\s\S]*R\$ 700,00/);
+  assert.deepEqual([porId('aa38').decisao, porId('aa38').motivos], ['RESPONDER', []]);
+  assert.match(porId('aa38').resposta, /O que vale é a agenda consultada agora/);
+  // aa61: reserva como orçamento — preço pela tabela, com a frase de proteção; a conversa segue no automático.
+  assert.match(porId('aa61').resposta, /R\$\s?4\.500,00[\s\S]*Considerei o valor que você citou como o seu orçamento/);
+  assert.deepEqual(['aa62', 'aa63', 'aa64', 'aa65'].map((id) => porId(id).decisao), ['PERGUNTAR', 'RESPONDER', 'PERGUNTAR', 'EQUIPE']);
+  // aa57: capacidade e duração pelo pacote, sem as cláusulas 3 e 4; aa34: a lista que aumenta e a criança pedem as cláusulas.
+  assert.doesNotMatch(porId('aa57').resposta, /Cláusula/);
+  assert.match(porId('aa34').resposta, /Cláusula 3[\s\S]*Cláusula 4|Cláusula 4[\s\S]*Cláusula 3/);
 });
 
 test('gravadas candidata r35 × h36 (muz4tbsa): nenhuma crítica nem encaminhamento desnecessário; negociação mantida; entrada pelos períodos, sem cláusula a mais', async () => {

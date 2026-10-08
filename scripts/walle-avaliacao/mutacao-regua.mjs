@@ -77,6 +77,12 @@ const mutacoes = {
   // Rodada 36: troca de tema anotada (h36 aa69).
   'comercial acusa a troca de tema anotada': (t) => t.replace('|a correção: tema [^(.\\n]+ \\(antes tema [^)\\n]+\\)\\.)/', ')/'),
   'comercial aceita qualquer "Anotei a correção"': (t) => t.replace('|a correção: tema [^(.\\n]+ \\(antes tema [^)\\n]+\\)\\.)/', '|a correção)/'),
+  // Rodada 37: cláusula de convidados sem condição pedida e material dispensado reenviado.
+  'irrelevante ignora a cláusula de convidados': (t) => t.replace("&& !pediu('CONTRATO', 'CONTRATO_PROPRIO')) achados.push('cláusula de convidados sem condição pedida');", "&& false) achados.push('');"),
+  'irrelevante acusa a cláusula de convidados pedida': (t) => t.replace("&& !pediu('CONTRATO', 'CONTRATO_PROPRIO')) achados.push('cláusula de convidados sem condição pedida');", ") achados.push('cláusula de convidados sem condição pedida');"),
+  'irrelevante ignora o cardápio dispensado': (t) => t.replace("if (dispensa === 'cardapio' &&", 'if (false &&'),
+  'irrelevante acusa o item sem o cardápio': (t) => t.replace("|| /^Buffet d[oa] /m.test(textos))) achados.push('cardápio dispensado reenviado');", "|| true)) achados.push('cardápio dispensado reenviado');"),
+  'irrelevante ignora a tabela dispensada': (t) => t.replace("if ((dispensa === 'tabela' || dispensa === 'pdf da tabela') &&", 'if (false &&'),
 };
 let ok = true;
 for (const [nome, mut] of Object.entries(mutacoes)) {

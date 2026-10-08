@@ -203,6 +203,12 @@ const DISPENSA = /\b(?:nao|num) (?:precisa|precisam|carece)(?: mais)?(?: (?:me|n
  * Pedido de parar na mensagem (regras, nível estrito): INEQUIVOCO bloqueia; AMBIGUO (com outro pedido, ou parar só a
  * forma) vai para a equipe em silêncio; null se não houver pedido.
  */
+/**
+ * Rodada 37 (h36 aa29): pausa pedida sem "parar" nem "não precisa mandar" — "segura as mensagens por enquanto", "pausa
+ * os envios", "suspende as mensagens", "dá um tempo nas mensagens". Nunca bloqueio definitivo: AMBÍGUO (equipe em
+ * silêncio, marca persistente). "Segura a data pra mim" (contratação) não entra: o objeto é a mensagem ou o envio.
+ */
+const PAUSA = /\b(?:segura|segure|segurem|segurar|pausa|pause|pausem|pausar|suspende|suspenda|suspendam|suspender|interrompe|interrompa|interrompam|interromper|(?:da|de|deem|dar) um tempo (?:com|nas|nos|de))(?: (?:as|os|o|a|essas|esses|suas|seus|mais|um pouco|ai|ja))* (?:mensage\w*|msgs?|envios?|disparos?|contatos?|comunicac\w*|notificac\w*|lembretes?)\b/;
 export function pedidoDeParar(texto: string): PedidoParar | null {
   const bruto = String(texto ?? '');
   const t = limpo(bruto);
@@ -216,6 +222,6 @@ export function pedidoDeParar(texto: string): PedidoParar | null {
     const achado = ESTRITO.map((re) => casa(c, re)).find(Boolean);
     if (achado) { trecho ??= o.slice(0, 120); sobras.push(c.replace(achado, ' ')); } else outras.push(o);
   }
-  if (!trecho) return FORMA.test(t) || DISPENSA.test(t) ? { tipo: 'AMBIGUO', trecho: bruto.trim().slice(0, 120) } : null;
+  if (!trecho) return FORMA.test(t) || DISPENSA.test(t) || PAUSA.test(t) ? { tipo: 'AMBIGUO', trecho: bruto.trim().slice(0, 120) } : null;
   return { tipo: temOutroPedido(outras.join(' ')) || temOutroPedido(sobras.join(' '), true) ? 'AMBIGUO' : 'INEQUIVOCO', trecho };
 }

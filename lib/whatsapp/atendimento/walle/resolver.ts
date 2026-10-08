@@ -2,7 +2,7 @@ import type { ConfiguracaoAtendimento } from '../core.ts';
 import type { Finalidade } from '../prontas.ts';
 import { comPendente, jaEnviado, mesclarContexto, registrarEnviado } from './contexto.ts';
 import { clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
-import { CONTRATO_PARA_ASSINAR, ENTRADA_CONVIDADOS, cumprimentoDoCliente, dataCitadaInvalida, irritacaoComMensagens, itemExternoDoCliente, pedeIntencao, registroDoBloqueio, semAcento, unidadesDeDestino } from './entendimento.ts';
+import { CONTRATO_PARA_ASSINAR, ENTRADA_CONVIDADOS, cardapioDispensado, cumprimentoDoCliente, dataCitadaInvalida, irritacaoComMensagens, itemExternoDoCliente, pedeIntencao, registroDoBloqueio, semAcento, unidadesDeDestino } from './entendimento.ts';
 import { PASSAGEM_AO_CLIENTE, type EscopoAgendaConsultado, type Anexo, type CampoPendente, type Catalogos, type ContextoWallE, type CriterioConsultaComum, type Entendimento, type Fonte, type Intencao, type MotivoPassagem, type Passagem, type ResultadoWallE, type Saida, type TipoIntencao } from './tipos.ts';
 
 /**
@@ -507,7 +507,9 @@ async function cardapio(e: Estado) {
   // "Vcs tem coxinha no buffet? e kibe tb?" (rodada 14): pergunta do item, respondida pelo cadastro — não pede o pacote
   // para mandar o cardápio inteiro.
   const soItem = /\b(tem|teria|vem|vai ter|servem|serve|inclui|incluem)\s+(?:o |a |um |uma |os |as )?[a-z]+(?: [a-z]+)?\s+(no|na) (buffet|cardapio|pacote|festa|menu)\b/.test(t) && !/\b(cardapio (completo|inteiro|todo)|manda\w* o cardapio|quais (sao )?(os |as )?(itens|opcoes))\b/.test(t);
-  if (pratos.length && (!troca || pratos.length >= 2)) { await itensDoBuffet(e, pratos); if (troca || soItem || !pedeIntencao(e.texto, 'CARDAPIO')) return; }
+  // Rodada 37 (h14 g26): "não precisa mandar o pdf do cardápio de novo, só me fala se tem coxinha": responde o item, sem o
+  // cardápio inteiro nem o PDF dispensado.
+  if (pratos.length && (!troca || pratos.length >= 2)) { await itensDoBuffet(e, pratos); if (troca || soItem || !pedeIntencao(e.texto, 'CARDAPIO') || cardapioDispensado(semAcento(e.texto))) return; }
   const { itens } = await materiais(e, 'CARDAPIO', 'CARDAPIO');
   const escolha = (c: Composicao['categorias'][number]) => (c.escolhasMin && c.escolhasMin !== c.escolhasMax ? ` (escolha de ${c.escolhasMin} a ${c.escolhasMax})` : ` (escolha até ${c.escolhasMax})`);
   const opcoes = (c: Composicao['categorias'][number]) => (!c.itens.length ? '' : `: ${c.itens.length > 8 ? `${c.itens.slice(0, 8).join(', ')} e mais ${c.itens.length - 8}` : c.itens.join(', ')}`);
@@ -755,6 +757,7 @@ const PROTECAO_CONSULTA_COMUM: Record<CriterioConsultaComum, string> = {
   ORCAMENTO_INFORMADO: 'Os valores aqui são os de tabela; descontos e condições especiais são decididos pela equipe.',
   VISITA_MARCADA: 'Agendamentos de visita eu não consulto nem altero por aqui.',
   DISPONIBILIDADE_ATRIBUIDA: 'O que vale é a agenda consultada agora; o que foi conversado antes com a equipe eu não confirmo por aqui.',
+  RESERVA_FINANCEIRA: 'Considerei o valor que você citou como o seu orçamento: nenhuma data fica reservada por aqui; a reserva só acontece com a contratação.',
 };
 
 /** Tamanho máximo de uma mensagem de texto do Wall-e (o WhatsApp aceita 4.096 caracteres). */
