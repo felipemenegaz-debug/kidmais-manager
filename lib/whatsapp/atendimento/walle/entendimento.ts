@@ -1168,12 +1168,20 @@ function semContratoGeral(intencoes: Intencao[], texto = '') {
   intencoes.splice(0, intencoes.length, ...intencoes.filter((i) => !['CONTRATO', 'DISPONIBILIDADE', 'CONTRATAR'].includes(i.tipo) && !(i.tipo === 'PRECOS' && /^valor/.test(semAcento(i.trecho).trim()))
     && !(i.tipo === 'PACOTES' && (daFesta || /quant|cabe|comporta|capacidade/.test(semAcento(i.trecho))))));
 }
-/** Até o limite, sem perder assunto por causa de saudação ou confirmação. */
-function limitar(intencoes: Intencao[]) {
+/**
+ * Rodada 36 (IA candidata r35 × h36 aa04): proteções nunca saem pelo limite. O modelo leu [agenda, pacotes, preço,
+ * negociação], as regras acrescentaram a contratação e o corte em 4 tirou justamente a negociação. Pessoa, contrato
+ * particular, contratação, negociação e item de fora ficam todos (mesmo acima do limite); o limite corta só assunto comercial.
+ */
+const PROTECOES: readonly TipoIntencao[] = ['HUMANO', 'CONTRATO_PROPRIO', 'CONTRATAR', 'NEGOCIACAO', 'EXTERNO'];
+/** Até o limite, sem perder assunto por causa de saudação ou confirmação, nem proteção por causa de assunto comercial. */
+export function limitar(intencoes: Intencao[]) {
   if (intencoes.length <= LIMITE_INTENCOES) return intencoes;
   const sociais = (i: Intencao) => i.tipo === 'SAUDACAO' || i.tipo === 'CONFIRMACAO';
-  const assuntos = intencoes.filter((i) => !sociais(i));
-  return assuntos.length >= LIMITE_INTENCOES ? assuntos.slice(0, LIMITE_INTENCOES) : [...intencoes.filter(sociais).slice(0, LIMITE_INTENCOES - assuntos.length), ...assuntos];
+  const protegida = (i: Intencao) => PROTECOES.includes(i.tipo);
+  let vagas = Math.max(0, LIMITE_INTENCOES - intencoes.filter(protegida).length);
+  const assuntos = intencoes.filter((i) => !sociais(i) && (protegida(i) || vagas-- > 0));
+  return assuntos.length >= LIMITE_INTENCOES ? assuntos : [...intencoes.filter(sociais).slice(0, LIMITE_INTENCOES - assuntos.length), ...assuntos];
 }
 /** O texto pede este assunto pelas regras (usado para não repetir material numa simples retomada). */
 export function pedeIntencao(texto: string, tipo: TipoIntencao) {
@@ -1408,6 +1416,11 @@ function coberta(segmento: string, catalogos: Catalogos, mensagem = segmento) {
  * Respondido pelos períodos cadastrados da agenda. "A entrada é quanto?" (pagamento) e "a entrada do salão" (lugar) não.
  */
 export const ENTRADA_CONVIDADOS = /\b(?:(?:a )?entrada d[oa]s? (?:convidad\w*|crianc\w*|pessoas|familia\w*|amigos)\b(?![^.?!]{0,20}\b(?:quanto|valor|pix)\b)|(?:convidad\w*|pessoas|criancas|familia) (?:pode[mr]?|podem|vao|comecam a|comeca a|chegam|entram|entra)\b[^.?!]{0,25}?\b(?:entrar|chegar|que horas|a partir)|(?:que horas|a partir de que horas|qual (?:o )?horario(?: de entrada)?|ate que horas antes) (?:os |as )?(?:convidad\w*|crianc\w*|pessoas)\b[^.?!]{0,15}\b(?:entra\w*|cheg\w*|pode\w*)|(?:que horas|a partir de que horas) (?:comeca|abre|inicia) (?:a festa|o salao para os convidados|a entrada))/;
+/** Rodada 36: pergunta de capacidade do pacote; e o assunto das cláusulas de convidados (aumento, excedente, cortesia). */
+const CAPACIDADE_PACOTE = /\b(?:cabe[mr]?|comporta[mr]?|capacidade|quantas pessoas|quantos convidados|ate quantos?|maximo de|no maximo)\b/;
+const CLAUSULA_DE_CONVIDADOS = /\b(?:aument\w*|acrescent\w*|a mais|exced\w*|excedentes?|pagantes?|crianc\w*|bebes?|cortesia\w*|isent\w*|gratis|de graca|colo|idade|anos|cobr\w*|taxa|multa|depois de contratar|depois de fechar)\b/;
+/** Rodada 36: assunto da cláusula de horários além da entrada (prorrogar, terminar, sair, multa, até que horas…). */
+const HORARIO_DO_CONTRATO = /\b(?:prorrog\w*|estend\w*|estic\w*|prolong\w*|horas? extras?|a mais|mais tarde|ate que horas|sai[rd]\w*|termin\w*|multa\w*|passa[rd]? do horario|depois do horario|atras\w*|fim da festa|ir embora|parabens|tolerancia)\b/;
 export function perguntasSemFonte(texto: string, catalogos: Catalogos, cobertas: string[] = []) {
   const compacto = (s: string) => limpo(s);
   return perguntasDaMensagem(texto)
@@ -1748,6 +1761,8 @@ export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalog
   const intencoes: Intencao[] = [];
   let duvidaSemId = false;
   const externoRegras = regras.intencoes.find((r) => r.tipo === 'EXTERNO');
+  const soEntrada = ENTRADA_CONVIDADOS.test(t) && !HORARIO_DO_CONTRATO.test(t.replace(ENTRADA_CONVIDADOS, ' '));
+  const soCapacidade = CAPACIDADE_PACOTE.test(t) && !CLAUSULA_DE_CONVIDADOS.test(t) && regras.intencoes.some((r) => r.tipo === 'PACOTES');
   for (const i of bruto.intencoes) {
     const trecho = literal(i.trecho);
     // "Bolo" dentro de "levar o bolo da minha tia": é o item de fora (regras), não pergunta do cardápio.
@@ -1766,6 +1781,16 @@ export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalog
     if (i.tipo === 'CONTRATAR' && !CONTRATAR_TRECHO.test(semAcento(i.trecho)) && !regras.intencoes.some((r) => r.tipo === 'CONTRATAR')) continue;
     // "Fica mais barato se mudar a data?" é comparação de preço (as regras recalculam), não pedido de desconto.
     if (i.tipo === 'NEGOCIACAO' && regras.comparaPreco && !NEGOCIACAO_RE.test(semAcento(i.trecho)) && !regras.intencoes.some((r) => r.tipo === 'NEGOCIACAO')) continue;
+    // Rodada 36 (IA × h36 aa63): "que horas os convidados podem chegar?" é respondida pelos períodos cadastrados; a
+    // cláusula de horários inteira (ou a lista de condições) vista só pelo modelo não entra quando a mensagem pergunta só
+    // a entrada. Com prorrogação, término, saída ou multa na mesma mensagem, a cláusula continua.
+    // Também (aa49): "o premium cabe quantas pessoas? cabem 180?" é respondida pelo pacote; as cláusulas de aumento de
+    // convidados e de cortesia vistas só pelo modelo não entram sem aumento, excedente, criança ou cortesia na mensagem.
+    const doModelo = !regras.intencoes.some((r) => r.tipo === 'CONTRATO' && r.tema === (i.tema ?? 'GERAL'));
+    if (i.tipo === 'CONTRATO' && doModelo && soEntrada && ['HORARIOS', 'GERAL'].includes(i.tema ?? 'GERAL')) continue;
+    if (i.tipo === 'CONTRATO' && doModelo && soCapacidade && ['CONVIDADOS', 'CORTESIA', 'GERAL'].includes(i.tema ?? 'GERAL')) continue;
+    // Também (aa33): a pergunta da entrada lida como pergunta frequente sem cadastro não é "informação não cadastrada".
+    if (i.tipo === 'DUVIDA' && !i.perguntaId && catalogos.turnos.length && ENTRADA_CONVIDADOS.test(semAcento(i.trecho)) && !perguntasSemFonte(i.trecho, catalogos).length) continue;
     if (intencoes.some((x) => x.tipo === i.tipo && (i.tipo === 'DUVIDA' ? x.perguntaId === i.perguntaId : i.tipo === 'CONTRATO' ? x.tema === (i.tema ?? 'GERAL') : true))) continue;
     // "Contratar fotógrafo/DJ por fora" não é contratação da festa.
     if (i.tipo === 'CONTRATAR' && FORNECEDOR_EXTERNO.test(t) && !regras.intencoes.some((r) => r.tipo === 'CONTRATAR')) continue;

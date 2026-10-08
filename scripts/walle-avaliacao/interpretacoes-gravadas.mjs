@@ -12,8 +12,11 @@ const SINAIS = ['RECLAMACAO', 'PAGAMENTO', 'INSTRUCAO', 'ALERGIA'];
 const TURNO = { ALMOCO: 'TURNO_1', NOITE: 'TURNO_2' };
 const UNIDADE = { ASA_SUL: 'u-asa-sul', AGUAS_CLARAS: 'u-aguas-claras' };
 
+/** Rodada 36: mais de um arquivo gravado (07/10: r31 × h32 e r29 × h30; 08/10: candidata r35 × h36), um por avaliação. */
+const ARQUIVOS = ['interpretacoes-ia-gravadas-20261007.json', 'interpretacoes-ia-gravadas-20261008.json'];
 export function lerGravadas() {
-  return JSON.parse(readFileSync(new URL('./interpretacoes-ia-gravadas-20261007.json', import.meta.url), 'utf8'));
+  const lidos = ARQUIVOS.map((a) => JSON.parse(readFileSync(new URL(`./${a}`, import.meta.url), 'utf8')));
+  return { descricao: lidos.map((l) => l.descricao).join(' | '), corpora: Object.assign({}, ...lidos.map((l) => l.corpora)) };
 }
 /** Saída do modelo (formato SaidaModelo) reconstruída de uma linha gravada. `ajustes[id]` troca intenções específicas. */
 export function saidaGravada(texto, g, ajuste = null) {

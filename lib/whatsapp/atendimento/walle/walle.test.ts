@@ -4,9 +4,9 @@ import type { ConfiguracaoAtendimento } from '../core.ts';
 import { pedidoDeParar } from '../opt-out.ts';
 import { mesclarContexto, lerContexto } from './contexto.ts';
 import { CLAUSULAS_POR_TEMA, clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
-import { entenderPorRegras, extrairConvidados, itensCitados, juntarSinais, limparTema, pratoSemCadastro, registroDoBloqueio, revalidarEntendimento, type SaidaModelo } from './entendimento.ts';
-import { resolverWallE, type FontesWallE, type PeriodoAgenda, type ProntaAutorizada } from './resolver.ts';
-import type { Catalogos, ContextoWallE, EscopoAgendaConsultado, ResultadoWallE } from './tipos.ts';
+import { entenderPorRegras, extrairConvidados, itensCitados, juntarSinais, limitar, limparTema, pratoSemCadastro, registroDoBloqueio, revalidarEntendimento, type SaidaModelo } from './entendimento.ts';
+import { LIMITE_MENSAGEM, partirMensagem, resolverWallE, type FontesWallE, type PeriodoAgenda, type ProntaAutorizada } from './resolver.ts';
+import type { Catalogos, ContextoWallE, EscopoAgendaConsultado, Intencao, ResultadoWallE } from './tipos.ts';
 
 // Tudo sintético e em memória: nenhum banco, modelo ou provedor é acessado.
 const HOJE = '2026-10-05';
@@ -2576,4 +2576,118 @@ test('rodada 35 — PARAR com irritação retórica registra a reclamação; tem
   assert.equal(r24.passagem, null);
   assert.match(texto(r24), /Cláusula 7/);
   assert.ok((await conversa(['atrasei o pagamento da parcela, como faço pra pagar agora?'])).ultima.passagem?.motivos.includes('PAGAMENTO'));
+});
+
+// ---------------------------------------------------------------- rodada 36 (correção localizada da IA × h36)
+/** Todas as ordens de uma lista (a ordem das intenções do modelo decidia o corte no limite). */
+const ordens = <T,>(xs: T[]): T[][] => (xs.length <= 1 ? [xs] : xs.flatMap((x, i) => ordens([...xs.slice(0, i), ...xs.slice(i + 1)]).map((r) => [x, ...r])));
+
+test('rodada 36 — proteção reconhecida pelas regras nunca sai pelo limite de intenções (IA × h36 aa04, todas as ordens)', async () => {
+  // A leitura gravada: o modelo viu agenda, pacotes, preço e negociação; as regras, negociação e contratação. Em qualquer
+  // ordem, a negociação (e a contratação) ficam e a conversa vai para a equipe, sem preço "fechado" nem reserva.
+  const aa04 = 'se vcs fizerem o completa pra 70 pessoas no dia 14/11 à noite por 4 mil, eu fecho hoje';
+  const dados = { data: '2026-11-14', turno: 'TURNO_2', convidados: 70, pacotes: ['COMPLETA'] };
+  for (const ordem of ordens<SaidaModelo['intencoes'][number]['tipo']>(['DISPONIBILIDADE', 'PACOTES', 'PRECOS', 'NEGOCIACAO'])) {
+    const { entendimento, r } = await viaModelo(aa04, ordem.map((t) => intencao(t, aa04)), {}, dados);
+    const tipos = entendimento.intencoes.map((i) => i.tipo);
+    assert.ok(tipos.includes('NEGOCIACAO') && tipos.includes('CONTRATAR'), `${ordem}: ${tipos}`);
+    assert.ok(r.passagem?.motivos.includes('NEGOCIACAO'), `${ordem}: passa para a equipe`);
+    assert.match(texto(r), /Descontos e condições especiais são decididos pela equipe/, `${ordem}`);
+    assert.doesNotMatch(texto(r), /(?<!não )está reservada|reserva confirmada|fechado!/i, `${ordem}`);
+  }
+  // Paráfrases com a mesma estrutura (oferta condicional + valor + "fecho"), lidas pelo modelo com quatro assuntos.
+  for (const t of ['caso vcs façam o premium pra 100 pessoas no dia 12/12 no almoço por 6 mil, eu fecho agora',
+    'se fizerem o essencial pra 40 no dia 28/11 no primeiro horário por 2.800 eu fecho hoje mesmo']) {
+    const { entendimento, r } = await viaModelo(t, ['PRECOS', 'DISPONIBILIDADE', 'PACOTES', 'NEGOCIACAO'].map((x) => intencao(x as 'PRECOS', t)));
+    assert.ok(entendimento.intencoes.some((i) => i.tipo === 'NEGOCIACAO'), t);
+    assert.ok(r.passagem?.motivos.includes('NEGOCIACAO'), t);
+  }
+  // Pessoa e contrato particular das regras também passam do limite (o modelo leu quatro assuntos comerciais).
+  const pessoa = 'quero falar com um atendente: quanto fica o completa, tem o dia 12/12 livre, qual o cardápio e o endereço da asa sul?';
+  const p = await viaModelo(pessoa, [intencao('PRECOS', 'quanto fica o completa'), intencao('DISPONIBILIDADE', 'tem o dia 12/12 livre'), intencao('CARDAPIO', 'qual o cardápio'), intencao('LOCALIZACAO', 'o endereço da asa sul')]);
+  assert.ok(p.entendimento.intencoes.some((i) => i.tipo === 'HUMANO'));
+  assert.ok(p.r.passagem?.motivos.includes('PEDIDO_CLIENTE'));
+  // Contraexemplos: sem proteção, o limite continua cortando só assunto comercial; saudação não toma o lugar de assunto.
+  const mk = (tipo: string): Intencao => ({ tipo: tipo as Intencao['tipo'], trecho: 'x' });
+  assert.deepEqual(limitar(['PRECOS', 'DISPONIBILIDADE', 'PACOTES', 'CARDAPIO', 'LOCALIZACAO'].map((t) => mk(t))).map((i) => i.tipo), ['PRECOS', 'DISPONIBILIDADE', 'PACOTES', 'CARDAPIO']);
+  assert.deepEqual(limitar(['SAUDACAO', 'PRECOS', 'DISPONIBILIDADE', 'PACOTES', 'CARDAPIO'].map((t) => mk(t))).map((i) => i.tipo), ['PRECOS', 'DISPONIBILIDADE', 'PACOTES', 'CARDAPIO']);
+  assert.deepEqual(limitar(['SAUDACAO', 'PRECOS', 'NEGOCIACAO'].map((t) => mk(t))).map((i) => i.tipo), ['SAUDACAO', 'PRECOS', 'NEGOCIACAO']);
+  assert.deepEqual(limitar(['PRECOS', 'DISPONIBILIDADE', 'PACOTES', 'PRECOS', 'NEGOCIACAO', 'CONTRATAR'].map((t) => mk(t))).map((i) => i.tipo), ['PRECOS', 'DISPONIBILIDADE', 'NEGOCIACAO', 'CONTRATAR']);
+  // Mais proteções que o limite: todas ficam, nenhum assunto comercial.
+  assert.deepEqual(limitar(['PRECOS', 'HUMANO', 'CONTRATO_PROPRIO', 'CONTRATAR', 'NEGOCIACAO', 'EXTERNO'].map((t) => mk(t))).map((i) => i.tipo), ['HUMANO', 'CONTRATO_PROPRIO', 'CONTRATAR', 'NEGOCIACAO', 'EXTERNO']);
+});
+
+test('rodada 36 — horário de entrada pelos períodos cadastrados, sem a cláusula inteira quando ela não é pedida (IA × h36 aa63, aa33, aa49)', async () => {
+  // aa63 (leitura gravada): saudação + "horário do almoço" lido como cláusula de horários. Resposta: só a entrada.
+  const aa63 = 'oii tudo bem? se a festa for no horário do almoço, que horas os convidados podem chegar?';
+  for (const tema of ['HORARIOS', 'GERAL'] as const) {
+    const { r } = await viaModelo(aa63, [intencao('SAUDACAO', 'oii tudo bem?'), intencao('CONTRATO', 'no horário do almoço', tema)], {}, { turno: 'TURNO_1' });
+    assert.doesNotMatch(texto(r), /Cláusula|modelo de contrato/, tema);
+    assert.ok(!r.saidas.some((s) => s.fontes.some((f) => f.tipo === 'CONTRATO_MODELO')), `${tema}: sem a fonte do contrato`);
+    assert.match(texto(r), /a entrada dos convidados é a partir das 11h/, tema);
+    assert.ok(r.saidas.some((s) => s.fontes.some((f) => f.tipo === 'PERIODOS_AGENDA')), `${tema}: fonte dos períodos`);
+    assert.equal(r.passagem, null, tema);
+  }
+  for (const t of ['no segundo horário, a partir de que horas as crianças podem chegar?', 'a entrada dos convidados começa que horas na festa da noite?']) {
+    const { r } = await viaModelo(t, [intencao('CONTRATO', t, 'HORARIOS')]);
+    assert.doesNotMatch(texto(r), /Cláusula 8/, t);
+    assert.match(texto(r), /entrada dos convidados/, t);
+  }
+  // aa33: prorrogação + entrada — a cláusula 8 continua; a entrada lida como pergunta frequente sem cadastro não vira
+  // "informação não cadastrada" nem passagem para a equipe.
+  const aa33 = 'dá pra esticar mais uma horinha a festa? e no segundo horário, que horas é a entrada dos convidados?';
+  const r33 = (await viaModelo(aa33, [intencao('CONTRATO', 'dá pra esticar mais uma horinha a festa?', 'HORARIOS'), intencao('DUVIDA', 'que horas é a entrada dos convidados?')])).r;
+  assert.match(texto(r33), /Cláusula 8[\s\S]*a entrada dos convidados é a partir das 17h/);
+  assert.doesNotMatch(texto(r33), /não tenho cadastrada/);
+  assert.equal(r33.passagem, null);
+  // Contraexemplos: término, multa ou "até que horas" junto com a entrada mantêm a cláusula; outra pergunta sem cadastro
+  // na mesma mensagem continua indo para a equipe.
+  for (const t of ['até que horas a festa pode ir? e que horas os convidados chegam?', 'se passar do horário tem multa? e que horas os convidados podem entrar?']) {
+    const { r } = await viaModelo(t, [intencao('CONTRATO', t, 'HORARIOS')]);
+    assert.match(texto(r), /Cláusula 8/, t);
+  }
+  const wifi = await viaModelo('que horas os convidados podem chegar? e tem wi-fi?', [intencao('DUVIDA', 'tem wi-fi?')]);
+  assert.ok(wifi.r.passagem?.motivos.includes('INFORMACAO_INDISPONIVEL'));
+  assert.match(texto(wifi.r), /entrada dos convidados/);
+  // aa49: capacidade do pacote respondida pelo pacote; sem as cláusulas de aumento de convidados e de cortesia.
+  const aa49 = 'o premium cabe quantas pessoas e dura quanto tempo? e cabem 180 lá?';
+  const r49 = (await viaModelo(aa49, [intencao('PACOTES', 'o premium cabe quantas pessoas e dura quanto tempo?'), intencao('CONTRATO', 'cabem 180 lá?', 'CONVIDADOS')], {}, { convidados: 180, pacotes: ['PREMIUM'] })).r;
+  assert.match(texto(r49), /nenhum pacote cadastrado comporta/);
+  assert.doesNotMatch(texto(r49), /Cláusula/);
+  // Contraexemplos: aumento depois de contratar e criança pequena continuam com a cláusula.
+  for (const [t, trecho, tema] of [['o premium cabe quantas pessoas? e se depois eu precisar aumentar o número de convidados?', 'se depois eu precisar aumentar o número de convidados', 'CONVIDADOS'], ['cabe quantas pessoas no completa? criança pequena conta como convidado?', 'criança pequena conta como convidado', 'CORTESIA']] as const) {
+    const { r } = await viaModelo(t, [intencao('PACOTES', t.split('?')[0]), intencao('CONTRATO', trecho, tema)]);
+    assert.match(texto(r), /Cláusula/, t);
+  }
+});
+
+test('rodada 36 — mensagem longa vai partida entre parágrafos ou frases, nunca cortada', async () => {
+  const f = (n: number) => ({ tipo: 'CONTRATO_MODELO' as const, modelo: 'FESTA_COMPLETA_V4', versao: 4, clausula: n, sha256: 'x' });
+  // Curta: igual a antes (uma mensagem, parágrafos separados por linha em branco, fontes na ordem).
+  const curtas = partirMensagem([{ texto: 'Um.', fontes: [f(1)] }, { texto: 'Dois.', fontes: [f(2)] }]);
+  assert.deepEqual(curtas, [{ texto: 'Um.\n\nDois.', fontes: [f(1), f(2)] }]);
+  // Parágrafos que somam mais que o limite: partidos entre parágrafos, nada perdido.
+  const paragrafos = Array.from({ length: 6 }, (_, k) => ({ texto: `Parágrafo ${k}: ${'frase completa. '.repeat(60).trim()}`, fontes: [f(k)] }));
+  const partes = partirMensagem(paragrafos);
+  assert.ok(partes.length > 1);
+  assert.ok(partes.every((p) => p.texto.length <= LIMITE_MENSAGEM));
+  assert.equal(partes.map((p) => p.texto).join('\n\n'), paragrafos.map((p) => p.texto).join('\n\n'));
+  assert.deepEqual(partes.flatMap((p) => p.fontes), paragrafos.map((p) => p.fontes[0]));
+  // Um parágrafo só, maior que o limite: partido no fim de uma frase.
+  const enorme = Array.from({ length: 300 }, (_, k) => `Frase número ${k} do texto.`).join(' ');
+  const pe = partirMensagem([{ texto: enorme, fontes: [] }]);
+  assert.ok(pe.length > 1 && pe.every((p) => p.texto.length <= LIMITE_MENSAGEM && /\.$/.test(p.texto)));
+  assert.equal(pe.map((p) => p.texto).join(' '), enorme);
+  // Sem pontuação: no último espaço (nenhuma palavra partida).
+  const semPonto = Array.from({ length: 900 }, (_, k) => `palavra${k}`).join(' ');
+  const ps = partirMensagem([{ texto: semPonto, fontes: [] }]);
+  assert.ok(ps.every((p) => p.texto.length <= LIMITE_MENSAGEM));
+  assert.equal(ps.map((p) => p.texto).join(' '), semPonto);
+  // No resolvedor: resposta cadastrada longa sai inteira, em mais de uma mensagem.
+  const longa = Array.from({ length: 260 }, (_, k) => `Regra ${k} do estacionamento.`).join(' ');
+  const cfg = { ...config, perguntas: [{ id: 'estacionamento', pergunta: 'Vocês têm estacionamento próprio?', resposta: longa }] };
+  const { r } = await viaModelo('vcs tem estacionamento?', [{ tipo: 'DUVIDA', trecho: 'vcs tem estacionamento', perguntaId: 'estacionamento', tema: null }], {}, {}, cfg);
+  const textos = r.saidas.filter((s) => s.texto).map((s) => s.texto!);
+  assert.ok(textos.length > 1 && textos.every((t) => t.length <= LIMITE_MENSAGEM));
+  assert.equal(textos.join(' '), longa);
 });

@@ -117,7 +117,7 @@ export async function simularSequencia(m, itens, { catalogos, config, fontes, ag
       semAutomatico: pausada(conversa), ...(acaoEquipe ? { acaoEquipe } : {}), ...(r.cuidadosAfastados?.length ? { cuidadosAfastados: r.cuidadosAfastados } : {}),
       pendente: r.pendente, pendentePara: r.pendentePara, contextoAntes: r.contextoAntes ?? null, contextoDepois: r.contextoDepois ?? null, consultas: r.consultas ?? [], consultasDetalhe: r.consultasDetalhe ?? [], opcional: !!contexto.pendente?.opcional && r.decisao === 'RESPONDER',
       saidas: r.saidas.map((s) => ({ texto: s.texto, anexo: s.anexo?.prontaId ?? null, fontes: s.fontes })),
-      resposta: r.saidas.map((s) => (s.anexo ? `[anexo ${s.anexo.prontaId}]` : s.texto)).join(' | ').slice(0, 700),
+      resposta: r.saidas.map((s) => (s.anexo ? `[anexo ${s.anexo.prontaId}]` : s.texto)).join(' | '), // Rodada 36: a resposta inteira (o corte em 700 escondia o fim da resposta da régua e do relatório).
       intencoes: intencoesPrevistas(r.entendimento, r.sinais, parar), entidades: entidadesPrevistas(r.entendimento?.entidades),
       semFonte: r.entendimento?.semFonte ?? [], falha: r.falha,
       ms: { entender: +r.msEntender.toFixed(2), total: +(performance.now() - t0).toFixed(2) },

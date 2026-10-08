@@ -4,7 +4,7 @@
 //   node --test scripts/walle-avaliacao/metricas.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CATEGORIAS_CRITICAS, alteracaoFestaContratada, numeroTrocado, calcularMetricas, dataDivergente, enderecoDivergente, unidadesDosEnderecos, mesIgnorado, mesSemDiaCitado, dadoExtraidoErrado, fonteErrada, irrelevante, menuIndevido, perguntaDesnecessaria, perguntaForaDoFluxo, repeticaoDesnecessaria, semSuporte } from './metricas.mjs';
+import { CATEGORIAS_CRITICAS, alteracaoFestaContratada, numeroTrocado, respostaCortada, calcularMetricas, dataDivergente, enderecoDivergente, unidadesDosEnderecos, mesIgnorado, mesSemDiaCitado, dadoExtraidoErrado, fonteErrada, irrelevante, menuIndevido, perguntaDesnecessaria, perguntaForaDoFluxo, repeticaoDesnecessaria, semSuporte } from './metricas.mjs';
 
 const clausula = (n) => ({ tipo: 'CONTRATO_MODELO', modelo: 'FESTA_COMPLETA_V4', versao: 4, clausula: n, sha256: 'x' });
 const texto = (t, fontes = []) => ({ texto: t, anexo: null, fontes });
@@ -399,4 +399,29 @@ test('COMERCIAL (rodada 35, erro da régua no h35 aa54): horário de entrada rot
   // Pergunta de data livre (não de entrada) continua exigindo a agenda.
   const d = { ...linha({ texto: 'tem data livre dia 7/11?', intencoes: ['DISPONIBILIDADE'], saidas: [texto('A entrada é às 11h.', [{ tipo: 'PERIODOS_AGENDA' }])] }) };
   assert.deepEqual(falhas(d), ['sem fonte para DISPONIBILIDADE']);
+});
+
+test('RESPOSTA_CORTADA: alerta mensagem acima do limite e a cortada no limite; não acusa a inteira nem a partida em duas', () => {
+  const clausula8 = 'Cláusula 8: “Os horários deverão ser obedecidos.” São as condições gerais do modelo atual.';
+  // Errado: o corte antigo (texto inteiro fatiado em 4.000, terminando no meio de uma palavra) e o texto acima do limite.
+  const longo = `Início. ${'Uma frase completa. '.repeat(210)}${clausula8}`;
+  assert.match(respostaCortada(linha({ texto: 'x', saidas: [texto(longo.slice(0, 4000))] })), /cortada no limite/);
+  assert.match(respostaCortada(linha({ texto: 'x', saidas: [texto(longo)] })), /4\d{3} caracteres \(limite 4000\)/);
+  // Certo: a mesma resposta em duas mensagens, cada uma inteira; mensagem curta; a que fecha exatamente no limite com ponto.
+  assert.equal(respostaCortada(linha({ texto: 'x', saidas: [texto('Uma frase completa. '.repeat(199).trim()), texto(clausula8)] })), null);
+  assert.equal(respostaCortada(linha({ texto: 'x', saidas: [texto(clausula8), anexo('p-tabela', 'PRECOS')] })), null);
+  assert.equal(respostaCortada(linha({ texto: 'x', saidas: [texto(`${'a'.repeat(3999)}.`)] })), null);
+  assert.ok(CATEGORIAS_CRITICAS.some((c) => c.chave === 'RESPOSTA_CORTADA'));
+});
+
+test('COMERCIAL (erro da régua h36 aa69): a troca de tema anotada não é falta de fonte; resposta sem o anotado continua cobrada', () => {
+  const ids = (l) => calcularMetricas([l]).comercial.falhas.map((f) => f.id);
+  const base = { texto: 'na verdade ela mudou de ideia kkk agora quer Encanto', esperado: 'RESPONDER', intencoes: ['DECORACAO'], conversa: 'c4', ordem: 3 };
+  assert.deepEqual(ids(linha({ ...base, id: 'k1', saidas: [texto('Anotei a correção: tema Encanto (antes tema Moana).')] })), []);
+  assert.deepEqual(ids(linha({ ...base, id: 'k2', saidas: [texto('Anotei o tema “Encanto”.')] })), []);
+  // Errado: o menu genérico, ou a "correção" sem o tema anterior entre parênteses.
+  assert.deepEqual(ids(linha({ ...base, id: 'k3', saidas: [texto('Posso ajudar com preços, datas disponíveis, pacotes e decoração.')] })), ['k3']);
+  assert.deepEqual(ids(linha({ ...base, id: 'k4', saidas: [texto('Anotei a correção: a decoração é a mais bonita.')] })), ['k4']);
+  // Primeira mensagem da conversa (sem tema a corrigir) continua exigindo a fonte da decoração.
+  assert.deepEqual(ids(linha({ ...base, id: 'k5', ordem: 1, saidas: [texto('Anotei a correção: tema Encanto (antes tema Moana).')] })), ['k5']);
 });

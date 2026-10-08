@@ -24,7 +24,23 @@ async function funcoes() {
   return { entenderPorRegras: ent.entenderPorRegras, revalidarEntendimento: ent.revalidarEntendimento, juntarSinais: ent.juntarSinais, resolverWallE: res.resolverWallE, comandoDireto: core.comandoDireto, lerContexto: ctx.lerContexto, mensagemAindaValida: worker.mensagemAindaValida, sinaisJev: modelo.sinaisJev, registroDoBloqueio: ent.registroDoBloqueio ?? null };
 }
 // h32 aa27: o desvio dependia do TRECHO do item de fora (o lugar, "salão"), que o resultado não grava: a leitura é refeita.
-const AJUSTES = { 'corpus-holdout-32-20261007.json': { aa27: [{ tipo: 'EXTERNO', trecho: 'posso levar pra enfeitar o salão', perguntaId: null, tema: null }, { tipo: 'CONTRATO', trecho: 'balões', perguntaId: null, tema: 'BALOES' }] } };
+// Rodada 36 (h36, muz4tbsa): o desvio dependia da ORDEM (aa04: a negociação por último, cortada no limite depois que as
+// regras acrescentaram a contratação), do tema da cláusula (aa63: horários; aa49: convidados), do trecho da pergunta
+// frequente (aa33: a entrada) e do pedido de pausa (aa29), que o resultado não grava. Com essas leituras refeitas, o
+// código da candidata r35 reproduz exatamente o resultado gravado (aa04 e aa63 críticas; aa33 desnecessário; aa49 com as
+// cláusulas 3 e 4).
+const AA04 = 'se vcs fizerem o completa pra 70 pessoas no dia 14/11 à noite por 4 mil, eu fecho hoje';
+const leitura = (tipo, trecho, tema = null) => ({ tipo, trecho, perguntaId: null, tema });
+const AJUSTES = {
+  'corpus-holdout-32-20261007.json': { aa27: [{ tipo: 'EXTERNO', trecho: 'posso levar pra enfeitar o salão', perguntaId: null, tema: null }, { tipo: 'CONTRATO', trecho: 'balões', perguntaId: null, tema: 'BALOES' }] },
+  'corpus-holdout-36-20261007.json': {
+    aa04: ['DISPONIBILIDADE', 'PACOTES', 'PRECOS', 'NEGOCIACAO'].map((tipo) => leitura(tipo, AA04)),
+    aa29: [leitura('PARAR', 'segura as mensagens por enquanto')],
+    aa33: [leitura('CONTRATO', 'dá pra esticar mais uma horinha a festa?', 'HORARIOS'), leitura('DUVIDA', 'que horas é a entrada dos convidados?')],
+    aa49: [leitura('PACOTES', 'o premium cabe quantas pessoas e dura quanto tempo?'), leitura('CONTRATO', 'cabem 180 lá?', 'CONVIDADOS')],
+    aa63: [leitura('SAUDACAO', 'oii tudo bem?'), leitura('CONTRATO', 'no horário do almoço', 'HORARIOS')],
+  },
+};
 async function reproduzir(arq) {
   const m = await funcoes();
   const corpus = JSON.parse(readFileSync(new URL(`./${arq}`, import.meta.url), 'utf8'));
@@ -60,6 +76,30 @@ test('gravadas r31 × h32 (muy6rqz2): nenhuma crítica; só as pendências comer
   // aa69 (pausa) grava a marca; aa70 fica com a equipe pela marca, sem nada automático.
   assert.deepEqual([porId('aa69').motivos, porId('aa69').semAutomatico, porId('aa69').saidas.length], [['PARAR_A_CONFIRMAR'], true, 0]);
   assert.deepEqual([porId('aa70').motivos, porId('aa70').semAutomatico, porId('aa70').saidas.length], [['COM_A_EQUIPE', 'PAUSA_PEDIDA'], true, 0]);
+});
+
+test('gravadas candidata r35 × h36 (muz4tbsa): nenhuma crítica nem encaminhamento desnecessário; negociação mantida; entrada pelos períodos, sem cláusula a mais', async () => {
+  const { metricas, porId, linhas } = await reproduzir('corpus-holdout-36-20261007.json');
+  for (const c of metricas.criticas) assert.deepEqual(c.falhas.map((f) => `${f.id}: ${f.motivo}`), [], c.nome);
+  assert.deepEqual(metricas.comercial.falhas.map((f) => f.id), [], 'aa33 resolvido; aa69 era erro da régua');
+  assert.deepEqual(metricas.desnecessarios.map((d) => d.id), []);
+  // aa04: negociação e contratação, para a equipe, sem preço calculado como proposta aceita.
+  assert.deepEqual(porId('aa04').motivos, ['CONTRATACAO', 'NEGOCIACAO']);
+  assert.match(porId('aa04').resposta, /Descontos e condições especiais são decididos pela equipe/);
+  // aa63: só a entrada, pelos períodos cadastrados.
+  assert.doesNotMatch(porId('aa63').resposta, /Cláusula/);
+  assert.deepEqual(porId('aa63').saidas.flatMap((s) => s.fontes.map((f) => f.tipo)), ['PERIODOS_AGENDA']);
+  assert.match(porId('aa63').resposta, /a entrada dos convidados é a partir das 11h/);
+  // aa33: prorrogação (cláusula 8) e entrada, sem "informação não cadastrada" nem equipe.
+  assert.match(porId('aa33').resposta, /Cláusula 8[\s\S]*a partir das 17h/);
+  assert.deepEqual([porId('aa33').decisao, porId('aa33').motivos], ['RESPONDER', []]);
+  // aa49: a capacidade pelo pacote, sem as cláusulas 3 e 4.
+  assert.doesNotMatch(porId('aa49').resposta, /Cláusula/);
+  // aa29: a pausa vista pelo modelo grava a marca e nada é enviado.
+  assert.deepEqual([porId('aa29').motivos, porId('aa29').semAutomatico, porId('aa29').saidas.length], [['PARAR_A_CONFIRMAR'], true, 0]);
+  // Nenhuma mensagem acima do limite; a resposta gravada é a inteira.
+  assert.ok(linhas.every((l) => l.saidas.every((s) => !s.texto || s.texto.length <= 4000)));
+  assert.ok(linhas.every((l) => l.resposta === l.saidas.map((s) => (s.anexo ? `[anexo ${s.anexo}]` : s.texto)).join(' | ')));
 });
 
 test('gravadas r29 × h30 (muy6vc62): nenhuma crítica; orçamento e visita respondidos pelas fontes; a conversa da visita segue no automático', async () => {

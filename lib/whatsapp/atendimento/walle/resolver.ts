@@ -757,6 +757,38 @@ const PROTECAO_CONSULTA_COMUM: Record<CriterioConsultaComum, string> = {
   DISPONIBILIDADE_ATRIBUIDA: 'O que vale é a agenda consultada agora; o que foi conversado antes com a equipe eu não confirmo por aqui.',
 };
 
+/** Tamanho máximo de uma mensagem de texto do Wall-e (o WhatsApp aceita 4.096 caracteres). */
+export const LIMITE_MENSAGEM = 4000;
+/**
+ * Rodada 36: parágrafos → mensagens de até `limite` caracteres. Junta parágrafos enquanto cabem; um parágrafo maior que o
+ * limite é partido no fim de uma frase (ou, sem frase que caiba, no último espaço). Nenhum texto é descartado.
+ */
+export function partirMensagem(paragrafos: { texto: string; fontes: Fonte[] }[], limite = LIMITE_MENSAGEM): { texto: string; fontes: Fonte[] }[] {
+  const pedacos = (texto: string) => {
+    const r: string[] = [];
+    let resto = texto;
+    while (resto.length > limite) {
+      const janela = resto.slice(0, limite + 1);
+      const frases = [...janela.matchAll(/[.!?…:]["”’)]*(?=\s)|\n/g)].map((m) => (m.index ?? 0) + m[0].length).filter((i) => i <= limite);
+      const espaco = janela.lastIndexOf(' ', limite);
+      const corte = frases.length ? frases[frases.length - 1] : espaco > 0 ? espaco : limite;
+      r.push(resto.slice(0, corte).trimEnd());
+      resto = resto.slice(corte).trimStart();
+    }
+    if (resto) r.push(resto);
+    return r;
+  };
+  const saidas: { texto: string; fontes: Fonte[] }[] = [];
+  for (const p of paragrafos) {
+    for (const t of pedacos(p.texto)) {
+      const atual = saidas[saidas.length - 1];
+      if (atual && atual.texto.length + 2 + t.length <= limite) { atual.texto += `\n\n${t}`; atual.fontes.push(...p.fontes); }
+      else saidas.push({ texto: t, fontes: [...p.fontes] });
+    }
+  }
+  return saidas;
+}
+
 /**
  * Uma rodada do Wall-e para a mensagem do cliente. `contexto` é a memória anterior; o resultado traz as mensagens a
  * enviar (texto + anexos autorizados, cada uma com as fontes), a memória nova e, se for o caso, o resumo da passagem.
@@ -1053,9 +1085,9 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   if (e.paragrafos.some((p) => p.texto === VARIA_POR_DATA)) e.paragrafos = e.paragrafos.filter((p) => p.texto !== VALORES_DEPENDEM);
   // O mesmo parágrafo duas vezes (o assunto retomado refaz o que a mensagem já respondeu) sai uma vez só (rodada 18).
   e.paragrafos = e.paragrafos.filter((p, i) => e.paragrafos.findIndex((q) => q.texto === p.texto) === i);
-  const texto = e.paragrafos.map((p) => p.texto).join('\n\n').slice(0, 4000);
-  const saidas: Saida[] = [];
-  if (texto) saidas.push({ texto, anexo: null, fontes: e.paragrafos.flatMap((p) => p.fontes) });
+  // Rodada 36: acima do limite de uma mensagem, a resposta vai em mais de uma, partida entre parágrafos (ou frases) —
+  // nunca cortada no meio de uma frase ou informação.
+  const saidas: Saida[] = partirMensagem(e.paragrafos).map((p) => ({ texto: p.texto, anexo: null, fontes: p.fontes }));
   for (const a of e.anexos.slice(0, 3)) saidas.push({ texto: null, anexo: a, fontes: [{ tipo: 'PRONTA', id: a.prontaId, versao: a.versao, finalidade: a.finalidade }] });
   // Rodada 27: mensagem protegida (festa contratada, alergia, reclamação, pedido de pagamento) não altera o contexto
   // comercial da conversa: o que ela cita (a data da festa já marcada, os convidados dela) vai à equipe no resumo da

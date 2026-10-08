@@ -61,6 +61,10 @@ const mutacoes = {
   // Rodada 32: a pausa precisa deixar a marca persistente na conversa.
   'PARAR_MISTO ignora a marca da pausa': (t) => t.replace("l.motivos.includes('PARAR_A_CONFIRMAR') && l.semAutomatico === false ? 'pausa sem a marca persistente' : null", 'null'),
   // Rodada 33: número com o sentido trocado.
+  // Rodada 36: resposta cortada.
+  'respostaCortada sempre null': (t) => t.replace('export function respostaCortada(l) {', 'export function respostaCortada(l) { return null;'),
+  'respostaCortada aceita acima do limite': (t) => t.replace('if (s.texto.length > LIMITE_MENSAGEM_REGUA) return', 'if (false) return'),
+  'respostaCortada acusa mensagem inteira no limite': (t) => t.replace("&& !/[.!?…:”)]\\s*$/.test(s.texto)) return", ') return'),
   'numeroTrocado sempre null': (t) => t.replace('export function numeroTrocado(l) {', 'export function numeroTrocado(l) { return null;'),
   'numeroTrocado ignora valor depois do número': (t) => t.replace(' || DEPOIS_VALOR_REGUA.test(depois)) return', ') return'),
   'numeroTrocado ignora a data': (t) => t.replace("if (ANTES_DATA_REGUA.test(antes) || DEPOIS_DATA_REGUA.test(depois) || /\\d{1,2}\\s*[/.-]\\s*$/.test(antes)) return 'data';", ''),
@@ -70,6 +74,9 @@ const mutacoes = {
   // Rodada 35: a exceção do horário de entrada vale só com a fonte dos períodos.
   'comercial aceita o horário de entrada sem a fonte dos períodos': (t) => t.replace("&& fontes.some((f) => f.tipo === 'PERIODOS_AGENDA')));", '));'),
   'semSuporte ignora o horário de entrada': (t) => t.replace("return 'horário de entrada sem os períodos cadastrados';", 'return null;'),
+  // Rodada 36: troca de tema anotada (h36 aa69).
+  'comercial acusa a troca de tema anotada': (t) => t.replace('|a correção: tema [^(.\\n]+ \\(antes tema [^)\\n]+\\)\\.)/', ')/'),
+  'comercial aceita qualquer "Anotei a correção"': (t) => t.replace('|a correção: tema [^(.\\n]+ \\(antes tema [^)\\n]+\\)\\.)/', '|a correção)/'),
 };
 let ok = true;
 for (const [nome, mut] of Object.entries(mutacoes)) {
