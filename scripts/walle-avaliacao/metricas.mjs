@@ -185,6 +185,10 @@ export function menuIndevido(l) {
 /** Perguntas que o Wall-e pode fazer fora dos campos pendentes, e quando. */
 const PERGUNTAS_DO_FLUXO = [
   [/Como posso ajudar\?$/, (l) => l.esperado.intencoes.includes('SAUDACAO')],
+  // Rodada 40 (humanização; mudança de régua justificada em separado): o fechamento cordial só com a dúvida resolvida
+  // (sem passagem para a equipe e sem dado pendente) e o "e você?" só devolvendo o "tudo bem?" do cliente.
+  [/^Posso ajudar com mais alguma coisa\?$/, (l) => l.decisao !== 'EQUIPE' && !l.pendente?.length],
+  [/^Tudo bem, e voc[eê]\?$/, (l) => /\b(tudo bem|td bem|tudo bom|td bom|tudo certo|como vai|como vao|como voces estao)\b/.test(semAc(l.texto).replace(/(\p{L})\1+/gu, '$1'))],
   [/Qual voc[eê] prefere\?$/, (l) => /tarde/i.test(l.texto)],
   // Rodada 26: confirmação da data completa antes de seguir com a contratação.
   [/^Est[aá] certa\?$/, (l) => /confirme a data:/.test(textoDe(l)) && (l.esperado.intencoes.includes('CONTRATAR') || l.pendentePara === 'CONTRATAR')],

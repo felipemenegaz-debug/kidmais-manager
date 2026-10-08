@@ -59,3 +59,29 @@
 .anexo{margin:8px 0;padding:8px 12px;border-radius:8px;border-left:3px solid var(--km-teal);background:var(--km-card-2);font-size:13px}div.anexo{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}.anexo p{margin:0}.anexo a{color:inherit;text-decoration:underline}
 /* Lista aberta dos selects (opções nativas): o fundo translúcido do campo deixava a lista branca com texto claro; fundo opaco do tema e esquema escuro. */
 .pagina,.gaveta,.painel{color-scheme:dark}.pagina select option,.pagina select optgroup,.gaveta select option,.painel select option{background:var(--km-card-2);color:var(--km-text)}.pagina select option:disabled,.gaveta select option:disabled,.painel select option:disabled{color:var(--km-text-2)}
+/* Rodada 40 — cadastro da biblioteca: o que adicionar em cartões (rádio nativo: setas do teclado), área de arquivo
+   evidente (arrastar ou clicar, formatos e limites visíveis), arquivo escolhido com prévia, nome, tamanho e ações, e
+   opções avançadas recolhidas. Teal = arquivo/informação; violeta = escolha; laranja só alerta. */
+.escolhas{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;padding:8px 14px 14px}.escolhas legend{font-weight:600;padding:0 6px}
+.pagina label.escolha{position:relative;display:flex;flex-direction:column;gap:4px;margin:0;padding:12px 14px;min-height:64px;border:1px solid var(--km-border);border-radius:12px;background:var(--km-card-2);cursor:pointer}
+.escolha input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}.escolha span{font-size:13px;color:var(--km-text-2)}
+.escolha:has(input:checked){border-color:var(--km-violet);background:color-mix(in srgb,var(--km-violet) 18%,var(--km-card-2));box-shadow:inset 0 0 0 1px var(--km-violet)}
+.escolha:has(input:focus-visible){outline:2px solid var(--km-lilac);outline-offset:3px}.escolha:has(input:disabled){opacity:.5;cursor:not-allowed}
+.pagina button.soltar{width:100%;display:flex;flex-direction:column;align-items:center;gap:6px;padding:28px 16px;border:2px dashed color-mix(in srgb,var(--km-teal) 65%,var(--km-border));border-radius:14px;background:color-mix(in srgb,var(--km-teal) 7%,var(--km-card-2));text-align:center;white-space:normal;cursor:pointer}
+.pagina button.soltar[data-arrastando=true]{border-style:solid;border-color:var(--km-teal);background:color-mix(in srgb,var(--km-teal) 18%,var(--km-card-2))}
+.soltar strong{font-size:17px}.soltar>span:last-child{font-size:13px;font-weight:400;color:var(--km-text-2)}.iconeSoltar{font-size:28px;line-height:1;color:var(--km-teal)}
+.arquivoEscolhido{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px;border-radius:12px;border:1px solid var(--km-border);border-left:3px solid var(--km-teal);background:var(--km-card-2)}
+.miniatura{width:72px;height:72px;border-radius:10px;display:grid;place-items:center;overflow:hidden;background:var(--km-card);font-weight:700;color:var(--km-teal)}.miniatura img{width:100%;height:100%;object-fit:cover}
+.dadosArquivo{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}.dadosArquivo span{font-size:13px;color:var(--km-text-2)}
+.acoesArquivo{display:flex;flex-wrap:wrap;gap:8px}.acoesArquivo a{display:inline-flex;align-items:center;min-height:44px;padding:10px 14px;border-radius:10px;border:1px solid var(--km-text-2);color:var(--km-text);text-decoration:none;font-weight:600}
+.maisOpcoes{margin:16px 0;padding:4px 14px;border:1px solid var(--km-border);border-radius:10px}.pagina .maisOpcoes summary{display:flex;align-items:center;min-height:44px;margin:0;cursor:pointer;font-weight:600}
+.secoesConfig{display:grid;gap:4px}.previaSaudacao{white-space:pre-wrap;padding:12px 14px;border-radius:12px;border-left:3px solid var(--km-violet);background:var(--km-card-2);color:var(--km-text)!important}
+.linkPublico{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:12px 14px;border-radius:12px;border-left:3px solid var(--km-teal);background:var(--km-card-2)}.linkPublico code{overflow-wrap:anywhere;color:var(--km-text)}
+@media(max-width:760px){.arquivoEscolhido{grid-template-columns:56px minmax(0,1fr)}.miniatura{width:56px;height:56px}.acoesArquivo{grid-column:1/-1}.escolhas{grid-template-columns:1fr 1fr;padding:8px 10px 12px}}
+@media(max-width:420px){.escolhas{grid-template-columns:1fr}}
+/* Rodada 40 — resposta: anexar e mensagens prontas como botões compactos ao lado do campo (mesma linha), o aviso da
+   biblioteca e a dica logo abaixo. A gaveta continua fixa à direita (fora do fluxo). */
+.composer{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"anexo anexo" "ferr form" "aviso aviso" "nota nota";gap:0 8px;align-items:end}
+.composer>.anexo{grid-area:anexo}.composer>.formResposta{grid-area:form}.composer>.ferramentas,.composer .prontas{display:contents}.composer .botoesProntas{grid-area:ferr;flex-wrap:nowrap;gap:6px}.composer .prontas>.nota{grid-area:aviso}.composer>p{grid-area:nota}
+.pagina button.ferramenta,.pagina .botoesProntas button.ferramenta{display:inline-grid;place-items:center;width:44px;min-height:44px;padding:0;border-color:var(--km-border)}.pagina button.ferramenta[aria-expanded=true]{border-color:var(--km-violet);background:color-mix(in srgb,var(--km-violet) 22%,var(--km-card-2))}
+@media(max-width:760px){.pagina .botoesProntas button.ferramenta{width:40px;min-height:44px;padding:0}}

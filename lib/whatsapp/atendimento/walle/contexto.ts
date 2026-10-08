@@ -27,6 +27,9 @@ export function lerContexto(bruto: unknown): ContextoWallE {
     clausulas: Array.isArray(c.clausulas) ? c.clausulas.filter((t): t is TemaContrato => typeof t === 'string' && t !== 'GERAL' && (TEMAS_CONTRATO as readonly string[]).includes(t)).slice(0, 3) : [],
     correcoes: Array.isArray(c.correcoes) ? (c.correcoes as ContextoWallE['correcoes'])!.slice(-LIMITE_CORRECOES) : [],
     ultimoEntendimento: (c.ultimoEntendimento as ContextoWallE['ultimoEntendimento']) ?? null,
+    ...(c.apresentado === true ? { apresentado: true } : {}),
+    ...(c.linkDisponibilidade === true ? { linkDisponibilidade: true } : {}),
+    ...(texto(c.fechamentoEm, 40) ? { fechamentoEm: texto(c.fechamentoEm, 40) } : {}),
   };
 }
 

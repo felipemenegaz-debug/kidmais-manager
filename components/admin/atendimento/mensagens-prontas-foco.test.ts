@@ -134,13 +134,13 @@ test('cadastro: Nova → Título; Cancelar → Nova; Editar → Título; Salvar 
   (achar(t, 'details').props.onToggle as (e: unknown) => void)({ target: { open: true } });
   t = await m.render();
 
-  await clicar(achar(t, 'button', 'Nova mensagem pronta'));
+  await clicar(achar(t, 'button', 'Adicionar mensagem ou arquivo'));
   t = await m.render();
   assert.ok(titulo(m.focos), `abrir o cadastro foca o Título (foco: ${m.focos.at(-1)})`);
 
   await clicar(achar(t, 'button', 'Cancelar'));
   t = await m.render();
-  assert.equal(m.focos.at(-1), 'button:Nova mensagem pronta', 'cancelar volta a "Nova mensagem pronta"');
+  assert.equal(m.focos.at(-1), 'button:Adicionar mensagem ou arquivo', 'cancelar volta a "Adicionar mensagem ou arquivo"');
 
   await clicar(achar(t, 'button', /^Editar Como chegar$/));
   t = await m.render();
@@ -155,7 +155,7 @@ test('cadastro: Nova → Título; Cancelar → Nova; Editar → Título; Salvar 
   await clicar(achar(t, 'button', /^Remover Como chegar$/));
   await tique(); await new Promise(r => setTimeout(r, 5));
   t = await m.render();
-  assert.equal(m.focos.at(-1), 'button:Nova mensagem pronta', 'arquivar volta a "Nova mensagem pronta"');
+  assert.equal(m.focos.at(-1), 'button:Adicionar mensagem ou arquivo', 'arquivar volta a "Adicionar mensagem ou arquivo"');
   assert.ok(!elementos(t).some(e => /Editar Como chegar/.test(texto(e))), 'o item arquivado saiu da lista');
   assert.deepEqual(m.chamadas, ['salvar', 'arquivar']);
 });

@@ -4,6 +4,7 @@ import type { ConfiguracaoAtendimento } from '../core.ts';
 import { pedidoDeParar } from '../opt-out.ts';
 import { mesclarContexto, lerContexto } from './contexto.ts';
 import { CLAUSULAS_POR_TEMA, clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
+import { linkDisponibilidadePublica } from './link-disponibilidade.ts';
 import { entenderPorRegras, extrairConvidados, itensCitados, juntarSinais, limitar, limparTema, pratoSemCadastro, registroDoBloqueio, revalidarEntendimento, type SaidaModelo } from './entendimento.ts';
 import { LIMITE_MENSAGEM, partirMensagem, resolverWallE, type FontesWallE, type PeriodoAgenda, type ProntaAutorizada } from './resolver.ts';
 import type { Catalogos, ContextoWallE, EscopoAgendaConsultado, Intencao, ResultadoWallE } from './tipos.ts';
@@ -30,7 +31,7 @@ const PRONTAS: Record<string, ProntaAutorizada[]> = {
   CARDAPIO: [pronta({ id: 'p-cardapio-completa', titulo: 'Cardápio Completa', tipo: 'DOCUMENTO', finalidade: 'CARDAPIO', arquivoId: 'a-card', arquivoNome: 'cardapio-completa.pdf', pacoteCodigo: 'COMPLETA' })],
 };
 const periodo = (codigo: string, disponivel: boolean): PeriodoAgenda => (codigo === 'TURNO_1' ? { codigo, nome: 'Almoço', inicio: '11:00', fim: '15:00', disponivel } : { codigo, nome: 'Noite', inicio: '17:00', fim: '21:00', disponivel });
-type OpFontes = { link?: string | null; agendaFalha?: boolean; precoErro?: 'ACIMA_CAPACIDADE' | 'SOB_CONSULTA'; escopo?: (unidade: string | null) => EscopoAgendaConsultado };
+type OpFontes = { link?: string | null; linkPublico?: string | null; agendaFalha?: boolean; precoErro?: 'ACIMA_CAPACIDADE' | 'SOB_CONSULTA'; escopo?: (unidade: string | null) => EscopoAgendaConsultado };
 function fontesFake(op: OpFontes = {}) {
   const chamadas: string[] = [];
   const fontes: FontesWallE = {
@@ -56,6 +57,7 @@ function fontesFake(op: OpFontes = {}) {
     },
     async alternativas(data, _u, turno) { chamadas.push(`alternativas:${data}:${turno}`); return [{ data: '2026-11-15', periodos: [periodo('TURNO_2', true)] }, { data: '2026-11-21', periodos: [periodo('TURNO_2', true)] }]; },
     async linkContratoProprio() { chamadas.push('link-contrato'); return op.link ?? null; },
+    ...(op.linkPublico !== undefined ? { linkDisponibilidade: () => { chamadas.push('link-disponibilidade'); return op.linkPublico ?? null; } } : {}),
   };
   return { fontes, chamadas };
 }
@@ -567,7 +569,8 @@ test('rodada 4 — continuidade ("e no segundo?"), saudação com letra repetida
   assert.doesNotMatch(texto(c.ultima), /Anotei a correção/);
   assert.equal(c.ultima.passagem, null);
   const s = (await conversa(['Boa noitee, tudo bem? 😊'])).ultima;
-  assert.match(texto(s), /^Boa noite! Tudo bem por aqui, obrigado\. Sou o Wall-e/);
+  // Rodada 40: devolve o "tudo bem?" e se apresenta como agente inteligente da empresa.
+  assert.match(texto(s), /^Boa noite! Tudo bem, e você\? Sou o Wall-e, agente inteligente da Kidmais Demo\./);
   assert.equal(s.passagem, null);
   assert.match(texto((await conversa(['ahh entendi, brigadaaa 🥰'])).ultima), /^Por nada!/);
 });
@@ -603,7 +606,8 @@ test('rodada 4 — orçamento pede o que falta; "não manda o PDF" sem material;
   assert.match(texto(p), /Premium em 21\/11\/2026, noite \(17h às 21h\), 120 convidados: R\$\s?5\.200,00/);
   const cat = { ...catalogos, itensBuffet: ['Coxinha', 'Kibe', 'Esfirra', 'Pão de queijo', 'Brigadeiro', 'Beijinho'] };
   const prato = await conversaCom(cat, config, ['o que vem no buffet do pacote completa?', 'tem coxinha?', 'e pão de queijo no essencial?']);
-  assert.equal(texto(prato.rodadas[1]), 'Coxinha: sim, faz parte do buffet do Completa (salgados, escolha até 6).');
+  // Rodada 40: dúvida resolvida fecha com "Posso ajudar com mais alguma coisa?".
+  assert.equal(texto(prato.rodadas[1]), 'Coxinha: sim, faz parte do buffet do Completa (salgados, escolha até 6).\n\nPosso ajudar com mais alguma coisa?');
   assert.equal(texto(prato.ultima), 'Pão de queijo não está no buffet cadastrado do Essencial.');
   const marcada = await conversa(['oi tudo bem é a mãe do Miguel então a gente vai ter que mudar o aniversário dele que tava marcado pra 14 de novembro consegue passar pro dia 21/11 no mesmo horário']);
   assert.equal(marcada.ultima.passagem?.motivo, 'CONTRATO_PROPRIO');
@@ -884,10 +888,10 @@ test('rodada 9 — horário em outras palavras, "pode parar de mandar o pdf" com
 
 // ---------------------------------------------------------------- rodada 10
 test('rodada 10 — duração pelo cadastro (sim/não com a fonte do pacote); atributo sem regra vai para a equipe, nunca fato inventado nem silêncio', async () => {
-  const sim = (await conversa(['o premium é de cinco horas mesmo?'])).ultima;
+  const sim = (await conversa(['o premium é de cinco horas mesmo?'], {}, { apresentado: true })).ultima;
   assert.match(texto(sim), /^(Sim|Não): o Premium tem \d+ horas de festa\./);
   assert.ok(sim.saidas.some((s) => s.fontes.some((f) => f.tipo === 'PACOTE')));
-  assert.match(texto((await conversa(['a essencial dura 9 horas né?'])).ultima), /^Não: o Essencial tem \d+ horas de festa\./);
+  assert.match(texto((await conversa(['a essencial dura 9 horas né?'], {}, { apresentado: true })).ultima), /^Não: o Essencial tem \d+ horas de festa\./);
   // Atributo que nenhuma regra responde: a equipe responde essa parte (nada é afirmado sem fonte).
   const terreo = (await conversa(['o salão da asa sul é térreo?'])).ultima;
   assert.ok(terreo.passagem?.motivos.includes('INFORMACAO_INDISPONIVEL'), `${terreo.passagem?.motivos}`);
@@ -1325,7 +1329,7 @@ test('rodada 18 — duração e PDF do cardápio: cada assunto pela fonte aprova
   for (const [t, esperado] of [['quanto tempo dura a festa?', /Essencial, 4 horas; Completa, 4 horas; Premium, 5 horas/], ['qual a duração do premium?', /O Premium tem 5 horas de festa\./], ['quantas horas tem o essencial?', /O Essencial tem 4 horas de festa\./]] as const)
     assert.match(texto((await conversa([t])).ultima), esperado, t);
   // Contraexemplo: "é 4 horas mesmo?" confirma pela duração cadastrada, como antes.
-  assert.match(texto((await conversa(['o essencial é 4 horas mesmo?'])).ultima), /^Sim: o Essencial tem 4 horas de festa\./);
+  assert.match(texto((await conversa(['o essencial é 4 horas mesmo?'], {}, { apresentado: true })).ultima), /^Sim: o Essencial tem 4 horas de festa\./);
 });
 
 test('rodada 18 — oferta de valor é negociação, mesmo com intenção de fechar; preço perguntado e número de pessoas não', async () => {
@@ -1655,7 +1659,8 @@ test('rodada 22 — "fazem festa da Frozen?" é decoração (tema anotado); outr
 
 test('rodada 22 — agradecimentos coloquiais: "Por nada!", sem menu; com pergunta junto, a pergunta é respondida', async () => {
   for (const t of ['Oiiiii boa noiteee 😊 obrigadaaa pelas informações, vcs são demais 🥰', 'valeuuu 🙏', 'brigadão, ajudou muito!', 'mto obg!!', 'show, obrigado pela atenção', 'gratidão ❤️'])
-    assert.equal(texto((await conversa([t])).ultima), 'Por nada! Se precisar de mais alguma informação, é só falar.', t);
+    // Rodada 40: o "boa noite" do cliente é devolvido antes do "Por nada!" (sem apresentação num agradecimento).
+    assert.equal(texto((await conversa([t])).ultima), `${/boa noite/i.test(t) ? 'Boa noite!\n\n' : ''}Por nada! Se precisar de mais alguma informação, é só falar.`, t);
   const q = (await conversa(['obrigada! e quanto fica o essencial pra 40 dia 14/11 a noite?'])).ultima;
   assert.match(texto(q), /R\$/);
 });
@@ -1897,7 +1902,7 @@ test('rodada 26 — tema sem "mesmo", "então", "vai ser" ("Moana mesmo 💙" �
 test('rodada 26 — data sem ano é PROPOSTA: a contratação mostra a data completa e só segue com a confirmação', async () => {
   const RESERVADA = /(?<!n[aã]o )(est[aá]|ficou|foi) (reservad|confirmad|garantid)/i;
   // Sem ano: pede a confirmação da data completa (dia da semana e ano), sem passar nem consultar a agenda ainda.
-  const p = await conversa(['quero fechar o completa pra 80 dia 21 de novembro à noite']);
+  const p = await conversa(['quero fechar o completa pra 80 dia 21 de novembro à noite'], {}, { apresentado: true });
   assert.equal(texto(p.ultima), 'Antes de seguir com a contratação, confirme a data: sábado, 21/11/2026. Está certa? Se for outra, me diga o dia, o mês e o ano.');
   assert.equal(p.ultima.passagem, null);
   assert.equal(p.ultima.contexto.pendente?.para, 'CONTRATAR');
@@ -2686,10 +2691,11 @@ test('rodada 36 — mensagem longa vai partida entre parágrafos ou frases, nunc
   // No resolvedor: resposta cadastrada longa sai inteira, em mais de uma mensagem.
   const longa = Array.from({ length: 260 }, (_, k) => `Regra ${k} do estacionamento.`).join(' ');
   const cfg = { ...config, perguntas: [{ id: 'estacionamento', pergunta: 'Vocês têm estacionamento próprio?', resposta: longa }] };
-  const { r } = await viaModelo('vcs tem estacionamento?', [{ tipo: 'DUVIDA', trecho: 'vcs tem estacionamento', perguntaId: 'estacionamento', tema: null }], {}, {}, cfg);
+  const { r } = await viaModelo('vcs tem estacionamento?', [{ tipo: 'DUVIDA', trecho: 'vcs tem estacionamento', perguntaId: 'estacionamento', tema: null }], { apresentado: true }, {}, cfg);
   const textos = r.saidas.filter((s) => s.texto).map((s) => s.texto!);
   assert.ok(textos.length > 1 && textos.every((t) => t.length <= LIMITE_MENSAGEM));
-  assert.equal(textos.join(' '), longa);
+  // Rodada 40: a resposta inteira, e o fechamento cordial por último.
+  assert.equal(textos.join(' '), `${longa}\n\nPosso ajudar com mais alguma coisa?`);
 });
 
 // ---------------------------------------------------------------- rodada 37 (seleção de assunto e fonte por significado)
@@ -2926,4 +2932,78 @@ test('rodada 39 — valor condicionado ao fechamento é negociação; orçamento
   const tm = 'meu teto é 7 mil, quanto fica o completa pra 90 dia 28/11 de manhã? se couber nisso eu fecho';
   const { r: rm } = await viaModelo(tm, [intencao('PRECOS', 'quanto fica o completa pra 90 dia 28/11 de manhã?'), intencao('CONTRATAR', 'se couber nisso eu fecho')]);
   assert.ok(rm.passagem?.motivos.includes('NEGOCIACAO'));
+});
+
+
+// ---------------------------------------------------------------- rodada 40: humanização e link público
+test('rodada 40 — cumprimento devolvido, apresentação só na primeira resposta e fechamento só com a dúvida resolvida', async () => {
+  const c = await conversa(['boa tarde, tudo bem? quantas horas dura o premium?', 'e quantas horas dura o essencial?', 'quanto custa o completa pra 70?']);
+  const [r1, r2, r3] = c.rodadas.map(texto);
+  assert.match(r1, /^Boa tarde! Tudo bem, e você\? Sou o Wall-e, agente inteligente da Kidmais Demo\.\n/);
+  assert.match(r1, /Posso ajudar com mais alguma coisa\?$/, r1);
+  assert.ok(c.rodadas[0].contexto.apresentado);
+  assert.doesNotMatch(r2, /Sou o Wall-e/, 'não se apresenta de novo');
+  assert.doesNotMatch(r2, /Posso ajudar com mais alguma coisa/, 'não repete o fechamento logo em seguida');
+  // Pergunta do que falta (data/período): sem fechamento.
+  assert.doesNotMatch(r3, /Posso ajudar com mais alguma coisa/);
+  assert.doesNotMatch(r3, /Sou o Wall-e/);
+  // Só a saudação: devolve e apresenta; depois de apresentado, sem o menu inteiro.
+  const s = (await conversa(['oi, boa noite'])).ultima;
+  assert.match(texto(s), /^Boa noite! Sou o Wall-e, agente inteligente da Kidmais Demo\. Posso enviar/);
+  const s2 = (await conversa(['oi', 'bom dia'])).rodadas[1];
+  assert.equal(texto(s2), 'Bom dia! Em que posso ajudar?');
+  // Passagem para a equipe: sem fechamento; reclamação: sem cordialidade automática.
+  const h = (await conversa(['boa tarde! quero falar com uma pessoa'])).ultima;
+  assert.ok(h.passagem);
+  assert.doesNotMatch(texto(h), /Posso ajudar com mais alguma coisa/);
+  // Conversa já em andamento antes da marca (memória com assuntos): não se apresenta.
+  const andamento = (await conversa(['quantas horas dura o premium?'], {}, { assuntos: ['PRECOS'] })).ultima;
+  assert.doesNotMatch(texto(andamento), /Sou o Wall-e/);
+  // A marca é lida da memória gravada; valor estranho é ignorado.
+  assert.equal(lerContexto({ apresentado: true, fechamentoEm: '2026-10-08T12:00:00.000Z' }).apresentado, true);
+  assert.equal(lerContexto({ apresentado: 'sim' }).apresentado, undefined);
+});
+
+test('rodada 40 — link público de disponibilidade: agenda e contratação, uma vez por conversa na agenda, nunca reserva', async () => {
+  const LINK = 'https://festa.exemplo.test/disponibilidade';
+  const d = await conversa(['tem o dia 21/11 à noite?', 'e o dia 28/11?'], { linkPublico: LINK }, { apresentado: true });
+  const [d1, d2] = d.rodadas.map(texto);
+  assert.match(d1, /Consultei a agenda agora/);
+  assert.ok(d1.includes(LINK));
+  assert.match(d1, /A data só fica reservada com a contratação\. Se precisar de ajuda durante o preenchimento, estou por aqui\.$/);
+  assert.ok(d.rodadas[0].saidas.some((s) => s.fontes.some((f) => f.tipo === 'LINK_DISPONIBILIDADE')));
+  assert.ok(!d2.includes(LINK), 'na agenda, o link não volta a cada consulta');
+  assert.doesNotMatch(d1 + d2, /(está|ficou|foi) (reservad|confirmad|garantid)/);
+  // "quero reservar"/"quero fechar": o link vem como caminho do próprio cliente, a coleta continua por aqui.
+  for (const t of ['quero reservar uma festa', 'quero fechar a festa']) {
+    const r = (await conversa([t], { linkPublico: LINK }, { apresentado: true })).ultima;
+    assert.ok(texto(r).includes(LINK), t);
+    assert.match(texto(r), /continuar a contratação por aqui/, t);
+    assert.match(texto(r), /Enviar este link não reserva a data/, t);
+    assert.equal(r.passagem, null, t);
+  }
+  // Sem página pública para a empresa (null) ou fonte ausente: nada muda.
+  const sem = (await conversa(['tem o dia 21/11 à noite?'], { linkPublico: null }, { apresentado: true })).ultima;
+  assert.doesNotMatch(texto(sem), /https?:/);
+  // Proteção, pedido de pessoa, reclamação e contratação passada à equipe: sem link.
+  for (const t of ['quero falar com uma pessoa sobre o dia 21/11', 'minha festa já está marcada dia 21/11, posso mudar o horário?', 'fecha pra mim o completa dia 21/11/2026 à noite, 70 pessoas']) {
+    const r = await conversa([t, 'sim'], { linkPublico: LINK }, { apresentado: true });
+    assert.ok(r.rodadas.every((x) => !texto(x).includes(LINK)), t);
+  }
+  // O link público é diferente do link individual de contrato (/contrato/{id}).
+  const proprio = (await conversa(['quero ver o meu contrato'], { linkPublico: LINK, link: 'https://festa.exemplo.test/contrato/c-1' }, { apresentado: true })).ultima;
+  assert.ok(!texto(proprio).includes(LINK));
+});
+
+test('rodada 40 — link público só da empresa configurada no servidor, sem parâmetros e com origem segura', () => {
+  const E = '11111111-1111-4111-8111-111111111111', OUTRA = '22222222-2222-4222-8222-222222222222';
+  assert.deepEqual(linkDisponibilidadePublica(E, { AGENDA_PUBLICA_EMPRESA_ID: E, ADMIN_AUTH_ORIGIN: 'https://festa.exemplo.test' }), { ok: true, link: 'https://festa.exemplo.test/disponibilidade' });
+  assert.deepEqual(linkDisponibilidadePublica(E, { AGENDA_PUBLICA_EMPRESA_ID: OUTRA, ADMIN_AUTH_ORIGIN: 'https://festa.exemplo.test' }), { ok: false, motivo: 'OUTRA_EMPRESA' });
+  assert.deepEqual(linkDisponibilidadePublica(E, { ADMIN_AUTH_ORIGIN: 'https://festa.exemplo.test' }), { ok: false, motivo: 'NAO_CONFIGURADO' });
+  for (const origem of ['http://festa.exemplo.test', 'https://festa.exemplo.test/admin', 'https://festa.exemplo.test/?x=1', 'https://u:s@festa.exemplo.test', 'nada', undefined])
+    assert.equal(linkDisponibilidadePublica(E, { AGENDA_PUBLICA_EMPRESA_ID: E, ADMIN_AUTH_ORIGIN: origem }).ok, false, String(origem));
+  // http só no endereço local da máquina (demo); a página pública pode ter endereço próprio (AGENDA_PUBLICA_ORIGEM).
+  assert.deepEqual(linkDisponibilidadePublica(E, { AGENDA_PUBLICA_EMPRESA_ID: E, ADMIN_AUTH_ORIGIN: 'http://localhost:3170' }), { ok: true, link: 'http://localhost:3170/disponibilidade' });
+  assert.equal(linkDisponibilidadePublica(E, { AGENDA_PUBLICA_EMPRESA_ID: E, ADMIN_AUTH_ORIGIN: 'http://192.168.0.10:3170' }).ok, false);
+  assert.deepEqual(linkDisponibilidadePublica(E, { AGENDA_PUBLICA_EMPRESA_ID: E, AGENDA_PUBLICA_ORIGEM: 'https://festas.exemplo.test', ADMIN_AUTH_ORIGIN: 'https://admin.exemplo.test' }), { ok: true, link: 'https://festas.exemplo.test/disponibilidade' });
 });

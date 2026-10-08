@@ -471,7 +471,7 @@ test('holdout 21 (regressão): "sai fora" bloqueia, pausa sem nada automático, 
   // a07/a24: indecisão de tema; a18: "festa da Frozen" é decoração; a01: agradecimento.
   for (const id of ['a07', 'a24']) assert.match(l(id).resposta, /Quando decidir o tema/, id);
   assert.match(l('a18').resposta, /Anotei o tema “Frozen”/);
-  assert.match(l('a01').resposta, /^Por nada!/);
+  assert.match(l('a01').resposta, /^(?:Boa noite!\n\n)?Por nada!/);
   const m = calcularMetricas(linhas);
   for (const k of ['dadosExtraidosErrados', 'menusIndevidos', 'perguntasForaDoFluxo', 'repeticoes']) assert.deepEqual(m[k].map((x) => `${x.id}: ${x.motivo}`), [], k);
 });

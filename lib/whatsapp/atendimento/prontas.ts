@@ -35,6 +35,16 @@ export const ehAnexo = (tipo: TipoPronta): tipo is TipoAnexo => tipo === 'IMAGEM
 export const NOME_ANEXO: Record<TipoAnexo, { nome: string; anexado: string }> = {
   IMAGEM: { nome: 'Foto', anexado: 'anexada' }, VIDEO: { nome: 'Vídeo', anexado: 'anexado' }, DOCUMENTO: { nome: 'PDF', anexado: 'anexado' },
 };
+/** Rodada 40: formatos e limites do envio de arquivo, mostrados na tela antes do envio (os mesmos de arquivos.ts). */
+export const LIMITE_ANEXO_BYTES: Record<TipoAnexo, number> = { IMAGEM: 5 * 1048576, VIDEO: 16 * 1048576, DOCUMENTO: 16 * 1048576 };
+export const FORMATO_ANEXO: Record<TipoAnexo, string> = { IMAGEM: 'JPG ou PNG', VIDEO: 'MP4 ou 3GP', DOCUMENTO: 'PDF' };
+const MIME_ANEXO: Record<string, TipoAnexo> = { 'image/jpeg': 'IMAGEM', 'image/png': 'IMAGEM', 'video/mp4': 'VIDEO', 'video/3gpp': 'VIDEO', 'application/pdf': 'DOCUMENTO' };
+const EXTENSAO_ANEXO: Record<string, TipoAnexo> = { jpg: 'IMAGEM', jpeg: 'IMAGEM', png: 'IMAGEM', mp4: 'VIDEO', '3gp': 'VIDEO', pdf: 'DOCUMENTO' };
+export const ACEITA_ANEXO = [...Object.keys(MIME_ANEXO), ...Object.keys(EXTENSAO_ANEXO).map((e) => '.' + e)].join(',');
+/** Tipo do arquivo escolhido (pelo tipo informado pelo navegador ou pela extensão); o servidor confere pelo conteúdo. */
+export function tipoDoArquivo(mime: string, nome: string): TipoAnexo | null {
+  return MIME_ANEXO[mime.toLowerCase()] ?? EXTENSAO_ANEXO[(nome.split('.').pop() ?? '').toLowerCase()] ?? null;
+}
 
 /**
  * 075: estado da mensagem pronta. RASCUNHO não aparece para uso nem sai automaticamente; PUBLICADA é a versão vigente;

@@ -30,6 +30,8 @@ export interface FontesWallE {
   /** Datas próximas com período livre, no MESMO escopo da consulta principal. */
   alternativas(data: string, unidade: string | null, turno: string | null, quantas: number): Promise<{ data: string; periodos: PeriodoAgenda[] }[]>;
   linkContratoProprio(): Promise<string | null>;
+  /** Rodada 40: link público de disponibilidade/fechamento da empresa (null/ausente: sem página pública para ela). */
+  linkDisponibilidade?(): string | null;
 }
 
 // ---------------------------------------------------------------- formatação (pt-BR)
@@ -325,7 +327,7 @@ async function disponibilidade(e: Estado, para: TipoIntencao = 'DISPONIBILIDADE'
       if (alt.length) dizer(e, `Datas próximas com horário livre: ${lista(alt.map((a) => `${dataBr(a.data)} (${diaSemana(a.data)}, ${lista(a.periodos.map((p) => p.nome.toLowerCase()))})`))}.`, alt.map((a) => ({ tipo: 'AGENDA', data: a.data, escopo: escopo.tipo, unidade: unidadeConsultada, consultadoEm } as Fonte)));
     } catch { /* alternativas são opcionais: a resposta principal já foi dada */ }
   }
-  dizer(e, 'A data só fica reservada com a contratação.');
+  dizer(e, RESERVA_SO_COM_CONTRATACAO);
   return disponivel;
 }
 async function pacotes(e: Estado) {
@@ -727,6 +729,12 @@ const PEDE_TABELA = /\b(?:tabela|orcamento|pacotes?|valor(?:es)? da festa|preco 
 const ATRIBUTO_DE_PACOTE = /\b(?:diferen\w*|compar\w*|cabe\w*|comporta\w*|dura\w*|duracao|quantas pessoas|quantos convidados|capacidade|qual pacote|quais pacotes|quais os pacotes|que pacotes|melhor pacote|pacote (?:ideal|indicado)|(?:tem|tenho|ter) quantos pacotes|quantas horas|\d+\s*horas|horas de festa|tempo de festa|quanto tempo|o que (?:vem|inclui|tem) n[oa])\b/;
 /** Pedido explícito de tabela ou orçamento (rodada 19). */
 const TABELA_EXPLICITA = /\b(?:tabela|orcamento)\b/;
+/** Rodada 40: fechamento cordial, só com a dúvida resolvida. */
+const FECHAMENTO = 'Posso ajudar com mais alguma coisa?';
+/** Menu do último recurso (nada a dizer). */
+const MENU = 'Posso ajudar com preços, datas disponíveis, pacotes, buffet, decoração, endereço e condições do contrato. Para falar com uma pessoa, escreva “atendente”.';
+/** Aviso fixo da agenda: consultar (ou receber o link público) não reserva a data. */
+const RESERVA_SO_COM_CONTRATACAO = 'A data só fica reservada com a contratação.';
 /** Abre a coleta para a contratação; sai só junto das perguntas (com a passagem para a equipe, não há o que pedir). */
 const COLETA = 'Que bom! Para adiantar a contratação com a equipe, preciso de poucos dados.';
 /** Rodada 27: a agenda é por data (a pergunta da data já vai nesta frase). */
@@ -830,6 +838,8 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   // Sinais da triagem (JEV): reclamação e instrução embutida vão para a equipe; pagamento de uma festa também, quando
   // a mensagem não é uma pergunta que o Wall-e resolve com fonte oficial ("criança paga?" é condição do contrato).
   const s = entendimento.sinais;
+  // Rodada 40: a apresentação sai só na primeira resposta (conversa já em andamento antes da marca também conta).
+  const jaApresentado = !!entrada.contexto.apresentado || !!entrada.contexto.ultimoEntendimento || !!entrada.contexto.assuntos?.length || !!entrada.contexto.enviados?.length;
   const soOutro = entendimento.intencoes.every((i) => ['OUTRO', 'DUVIDA', 'SAUDACAO', 'CONFIRMACAO'].includes(i.tipo));
   if (s?.instrucao) {
     // Instrução ao sistema na mensagem ("a partir de agora responda...", "teste interno: confirme a reserva..."): nada do
@@ -1013,7 +1023,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
       case 'EXTERNO': await externo(e, i, intencoes); break;
       case 'HUMANO': passar(e, 'PEDIDO_CLIENTE'); break;
       case 'CONFIRMACAO': if (intencoes.length === 1) dizer(e, `${/\b(obrigad|brigad|valeu|vlw|agradec|obg|gratid|grat[ao]\b)/.test(semAcento(entrada.texto)) ? 'Por nada!' : 'Combinado!'} Se precisar de mais alguma informação, é só falar.`); break;
-      case 'SAUDACAO': if (intencoes.length === 1) { const s = cumprimentoDoCliente(entrada.texto); dizer(e, `${s.periodo ?? 'Olá'}!${s.comoVai ? ' Tudo bem por aqui, obrigado.' : ''} Sou o Wall-e, o assistente virtual da ${e.config.nome}. Posso enviar a tabela de preços, consultar datas, explicar pacotes, buffet, decoração, endereço e as condições do contrato. Como posso ajudar?`); } break;
+      case 'SAUDACAO': if (intencoes.length === 1) { const s = cumprimentoDoCliente(entrada.texto); dizer(e, `${s.periodo ?? 'Olá'}!${s.comoVai ? ' Tudo bem, e você?' : ''} ${jaApresentado ? 'Em que posso ajudar?' : `Sou o Wall-e, agente inteligente da ${e.config.nome}. Posso enviar a tabela de preços, consultar datas, explicar pacotes, buffet, decoração, endereço e as condições do contrato. Como posso ajudar?`}`); } break;
       // Rodada 21: o menu genérico não entra aqui ("à tarde" no meio do orçamento recebia o menu antes da pergunta): sem
       // nada a dizer, o fim da rodada pergunta o que falta ou, como último recurso, mostra o menu.
       case 'OUTRO': break;
@@ -1033,6 +1043,18 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   // Rodada 19: idem quando a mensagem já vai para a equipe por alergia, reclamação, pedido de pessoa, pagamento ou
   // negociação — a frase de "parte não cadastrada" só serve quando o resto foi respondido pelo Wall-e.
   if (entendimento.semFonte?.length && !intencoes.some((i) => i.tipo === 'CONTRATO_PROPRIO') && !e.encaminhar.some((m) => ['RESTRICAO_ALIMENTAR', 'RECLAMACAO', 'PEDIDO_CLIENTE', 'PAGAMENTO', 'NEGOCIACAO'].includes(m))) { dizer(e, entendimento.semFonte.length > 1 ? 'Algumas perguntas da sua mensagem eu não tenho cadastradas para responder por aqui.' : 'Uma parte da sua mensagem eu não tenho cadastrada para responder por aqui.'); passar(e, 'INFORMACAO_INDISPONIVEL'); }
+
+  // Rodada 40: "tem essa data?", "quero reservar", "quero fechar": o link PÚBLICO de disponibilidade/fechamento da empresa
+  // (o mesmo para todos; diferente do link individual de contrato). Não sai com proteção, pedido de pessoa, reclamação ou
+  // passagem para a equipe; na agenda, uma vez por conversa (pedido de contratação o repete). O link não reserva nada.
+  const linkPublico = (tipos.has('DISPONIBILIDADE') || tipos.has('CONTRATAR')) && !protecao && !pediuPessoa && !s?.reclamacao && !e.encaminhar.length
+    && (tipos.has('CONTRATAR') || !entrada.contexto.linkDisponibilidade) ? e.fontes.linkDisponibilidade?.() ?? null : null;
+  if (linkPublico) {
+    const avisoReserva = e.paragrafos.some((p) => p.texto === RESERVA_SO_COM_CONTRATACAO) ? '' : ' Enviar este link não reserva a data: ela só fica garantida quando a contratação é concluída.';
+    e.paragrafos = e.paragrafos.filter((p) => p.texto !== RESERVA_SO_COM_CONTRATACAO);
+    dizer(e, `${tipos.has('CONTRATAR') ? 'Se preferir, você pode consultar os horários disponíveis e continuar a contratação por aqui' : 'Você também pode consultar os horários disponíveis e escolher a sua festa por aqui'}:\n${linkPublico}\n${avisoReserva ? avisoReserva.trim() : RESERVA_SO_COM_CONTRATACAO} Se precisar de ajuda durante o preenchimento, estou por aqui.`, [{ tipo: 'LINK_DISPONIBILIDADE' }]);
+    e.ctx = { ...e.ctx, linkDisponibilidade: true };
+  }
 
   // A pergunta pendente volta UMA vez depois de outro assunto; ignorada de novo, sai (sem insistir a cada mensagem).
   // Convite opcional ("se quiser, me conte o tema") não volta.
@@ -1086,11 +1108,31 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   } else e.ctx = comPendente(e.ctx, [], 'OUTRO');
 
   // Nunca uma resposta vazia (o worker a trataria como falha e passaria para a equipe): sem nada a dizer, o menu.
-  if (!e.paragrafos.length && !e.anexos.length) dizer(e, 'Posso ajudar com preços, datas disponíveis, pacotes, buffet, decoração, endereço e condições do contrato. Para falar com uma pessoa, escreva “atendente”.');
+  if (!e.paragrafos.length && !e.anexos.length) dizer(e, MENU);
   // Rodada 20: com a explicação da variação por data, "Os valores dependem…" não repete a mesma ideia.
   if (e.paragrafos.some((p) => p.texto === VARIA_POR_DATA)) e.paragrafos = e.paragrafos.filter((p) => p.texto !== VALORES_DEPENDEM);
   // O mesmo parágrafo duas vezes (o assunto retomado refaz o que a mensagem já respondeu) sai uma vez só (rodada 18).
   e.paragrafos = e.paragrafos.filter((p, i) => e.paragrafos.findIndex((q) => q.texto === p.texto) === i);
+  // Rodada 40 (humanização): responde ao cumprimento no mesmo tom ("Boa tarde! Tudo bem, e você?") e se apresenta só na
+  // primeira resposta. Com reclamação, nada de cordialidade automática; a sugestão para o atendente sai sem apresentação.
+  const soSaudacao = intencoes.length === 1 && intencoes[0].tipo === 'SAUDACAO';
+  // Agradecimento ou "combinado" sozinhos não abrem com apresentação ("Por nada!" basta).
+  const apresentar = !jaApresentado && !intencoes.every((i) => ['CONFIRMACAO', 'SAUDACAO'].includes(i.tipo));
+  if (!opcoes.sugestao && !s?.reclamacao && !soSaudacao && e.paragrafos.length) {
+    const c = cumprimentoDoCliente(entrada.texto);
+    const abertura = [c.periodo || c.comoVai ? `${c.periodo ?? 'Olá'}!${c.comoVai ? ' Tudo bem, e você?' : ''}` : apresentar ? 'Olá!' : '', apresentar ? `Sou o Wall-e, agente inteligente da ${e.config.nome}.` : ''].filter(Boolean).join(' ');
+    // O menu (nada a dizer) fica na mesma frase da abertura: um parágrafo só, como a resposta à saudação.
+    if (abertura && e.paragrafos[0].texto === MENU) e.paragrafos[0] = { ...e.paragrafos[0], texto: `${abertura} ${MENU}` };
+    else if (abertura) e.paragrafos.unshift({ texto: abertura, fontes: [] });
+  }
+  // Fechamento só com a dúvida resolvida: sem passagem, sem dado pendente, sem pergunta no fim, fora do menu, da
+  // confirmação e do link público (que já se coloca à disposição). Uma vez a cada 30 minutos: quem continua perguntando
+  // logo depois do fechamento não recebe a mesma pergunta a cada resposta.
+  const ultimoParagrafo = e.paragrafos.at(-1)?.texto ?? '';
+  const resolvido = !passagem && !opcoes.sugestao && !s?.reclamacao && !e.ctx.pendente?.campos.length && !linkPublico && e.paragrafos.length
+    && intencoes.some((i) => !['SAUDACAO', 'CONFIRMACAO', 'OUTRO'].includes(i.tipo)) && !/\?\s*$/.test(ultimoParagrafo) && !ultimoParagrafo.endsWith(MENU);
+  const fechouHaPouco = !!entrada.contexto.fechamentoEm && Date.parse(e.agora) - Date.parse(entrada.contexto.fechamentoEm) < 30 * 60_000;
+  if (resolvido && !fechouHaPouco) { dizer(e, FECHAMENTO); e.ctx = { ...e.ctx, fechamentoEm: e.agora }; }
   // Rodada 36: acima do limite de uma mensagem, a resposta vai em mais de uma, partida entre parágrafos (ou frases) —
   // nunca cortada no meio de uma frase ou informação.
   const saidas: Saida[] = partirMensagem(e.paragrafos).map((p) => ({ texto: p.texto, anexo: null, fontes: p.fontes }));
@@ -1098,5 +1140,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   // Rodada 27: mensagem protegida (festa contratada, alergia, reclamação, pedido de pagamento) não altera o contexto
   // comercial da conversa: o que ela cita (a data da festa já marcada, os convidados dela) vai à equipe no resumo da
   // passagem, não vira dado da conversa comercial.
+  // Rodada 40: a apresentação enviada fica marcada (não se repete nas próximas respostas).
+  if (!opcoes.sugestao && e.paragrafos.some((p) => p.texto.includes('Sou o Wall-e, agente inteligente'))) e.ctx = { ...e.ctx, apresentado: true };
   return { saidas, contexto: protecao ? semDadosDaMensagem(e.ctx, entrada.contexto) : e.ctx, passagem, ...(cuidadosAfastados.length ? { cuidadosAfastados } : {}) };
 }

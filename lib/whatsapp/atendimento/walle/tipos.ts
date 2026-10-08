@@ -122,6 +122,12 @@ export type ContextoWallE = {
   pendente?: { campos: CampoPendente[]; para: TipoIntencao; reperguntas?: number; opcional?: boolean; confirmarData?: string } | null;
   correcoes?: { campo: string; de: unknown; para: unknown; em: string }[];
   ultimoEntendimento?: Entendimento | null;
+  /** Rodada 40: o Wall-e já se apresentou nesta conversa (a apresentação sai só na primeira resposta). */
+  apresentado?: boolean;
+  /** Rodada 40: o link público de disponibilidade já foi enviado (não volta a cada consulta de agenda). */
+  linkDisponibilidade?: boolean;
+  /** Rodada 40: quando o Wall-e fechou a última dúvida com "Posso ajudar com mais alguma coisa?" (não repete logo em seguida). */
+  fechamentoEm?: string | null;
 };
 
 /**
@@ -141,7 +147,9 @@ export type Fonte =
   | { tipo: 'CONFIGURACAO'; perguntaId: string }
   /** Rodada 34: os períodos cadastrados na configuração da agenda (início e fim de cada horário). */
   | { tipo: 'PERIODOS_AGENDA' }
-  | { tipo: 'LINK_CONTRATO' };
+  | { tipo: 'LINK_CONTRATO' }
+  /** Rodada 40: link público da página de disponibilidade/fechamento (o mesmo para todos; não reserva nada). */
+  | { tipo: 'LINK_DISPONIBILIDADE' };
 
 export type Anexo = { prontaId: string; versao: number; finalidade: string; tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO'; titulo: string; legenda: string | null; midiaUrl: string | null; arquivoId: string | null; nome: string | null };
 /** Uma mensagem a enviar: texto, ou anexo com legenda. */

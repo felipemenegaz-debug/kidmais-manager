@@ -80,7 +80,7 @@ const ERRO_PRECO: Record<string, Extract<PrecoCalculado, { erro: string }>['erro
 };
 
 /** `linkContratoProprio`: porta do link protegido (resolverLinkFechamento com os repositórios reais), montada por quem chama. */
-export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambiente: string; hoje: string; linkContratoProprio: () => Promise<string | null> }): FontesWallE {
+export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambiente: string; hoje: string; linkContratoProprio: () => Promise<string | null>; linkDisponibilidade?: string | null }): FontesWallE {
   const { empresaId, ambiente } = alvo;
   const periodos = (d: Awaited<ReturnType<typeof consultarDisponibilidadePeriodo>>[number]): PeriodoAgenda[] =>
     d.periodos.map((p) => ({ codigo: p.codigo, nome: p.nome, inicio: p.horarioInicioPadrao, fim: p.horarioFimPadrao, disponivel: p.status === 'DISPONIVEL' }));
@@ -154,5 +154,6 @@ export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambien
         .sort((a, b) => a.data.localeCompare(b.data));
     },
     linkContratoProprio: alvo.linkContratoProprio,
+    linkDisponibilidade: () => alvo.linkDisponibilidade ?? null,
   };
 }
