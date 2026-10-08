@@ -13,6 +13,11 @@ import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
  * estado atual (mesma função do webhook). Exige concessão de desenvolvedor travada na transação e senha confirmada há
  * ≤ 5 min; auditado. Altera SOMENTE a situação comercial da empresa alvo; nenhuma concessão, papel ou vínculo.
  */
+/** Lista incompleta não é indisponibilidade: tentar de novo não resolve; a conferência é no painel do provedor. */
+const falhaDoProvedor = (error: AsaasFalhou, efeito: string) => error.motivo === 'LISTA_INCOMPLETA'
+    ? `O provedor tem mais registros desta empresa do que o limite conferido. ${efeito} Confira no painel do Asaas.`
+    : `O provedor de pagamento não respondeu. ${efeito}`;
+
 export type CobrancaPainelDeps = PainelDeps & { provedor: () => ClienteAsaas | null };
 export const cobrancaPainelDepsPadrao = (): CobrancaPainelDeps => ({ ...painelDepsPadrao, provedor: () => clienteAsaasDoAmbiente().cliente });
 
@@ -32,7 +37,7 @@ export async function sincronizarCobrancaEmpresa(sessao: SessaoAdmin, id: string
         }
         catch (error) {
             if (error instanceof AsaasFalhou)
-                throw erroAcesso('COBRANCA_FALHOU', 'O provedor de pagamento não respondeu. Nada foi alterado.', 502);
+                throw erroAcesso('COBRANCA_FALHOU', falhaDoProvedor(error, 'Nada foi alterado.'), 502);
             throw error;
         }
         await auditarPainel(deps.registrarAuditoria, tx, {
@@ -65,7 +70,7 @@ export async function liberarIntencaoCobranca(sessao: SessaoAdmin, id: string, r
     }
     catch (error) {
         if (error instanceof AsaasFalhou)
-            throw erroAcesso('COBRANCA_FALHOU', 'O provedor de pagamento não respondeu. Nada foi liberado.', 502);
+            throw erroAcesso('COBRANCA_FALHOU', falhaDoProvedor(error, 'Nada foi liberado.'), 502);
         throw error;
     }
 }

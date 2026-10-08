@@ -165,7 +165,9 @@ async function resolverEmpresa(tx: DbExecutor, ev: LinhaEvento) {
     return null;
 }
 
-const codigoErro = (error: unknown) => error instanceof AsaasFalhou
+const codigoErro = (error: unknown) => error instanceof AsaasFalhou && error.motivo === 'LISTA_INCOMPLETA'
+    ? `LISTA_INCOMPLETA: ${error.operacao} (mais registros que o limite conferido; revisão humana)`.slice(0, 500)
+    : error instanceof AsaasFalhou
     ? `PROVEDOR_INDISPONIVEL: ${error.operacao}${error.status ? ` (${error.status})` : ''}`.slice(0, 500)
     : `ERRO_INTERNO: ${error instanceof Error ? error.name : typeof error}`.slice(0, 500);
 

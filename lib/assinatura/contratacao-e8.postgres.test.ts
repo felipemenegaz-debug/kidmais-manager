@@ -67,6 +67,8 @@ class AsaasFalso implements ClienteAsaas {
     atrasoCriacaoMs = 0;
     perderRespostaDaCriacao = false;
     falharListagensRestantes = 0;
+    /** Listagem por referência maior que o limite conferido pelo cliente real (LISTA_INCOMPLETA). */
+    listagemIncompleta = false;
     falharRemocao = false;
     /** O POST de criação falha por tempo esgotado SEM criar nada (operação comprovadamente não executada). */
     falharAntesDeCriar = false;
@@ -86,6 +88,8 @@ class AsaasFalso implements ClienteAsaas {
             this.falharListagensRestantes -= 1;
             throw new AsaasFalhou('listar assinaturas', null, 'TEMPO_ESGOTADO');
         }
+        if (this.listagemIncompleta)
+            throw new AsaasFalhou('listar assinaturas', null, 'LISTA_INCOMPLETA');
         return [...this.assinaturas.values()].filter((a) => a.externalReference === ref && !a.deleted && !this.ocultasNaListagem.has(a.id)).map((a) => ({ ...a }));
     }
     criarDireto(cliente: string, ref: string) {
@@ -457,6 +461,43 @@ test('POST com resposta perdida e listagem vazia: nova tentativa NÃO cria outra
     assert.deepEqual([fechada.situacao, fechada.motivo], ['PROCESSADO', 'NADA_A_FAZER']);
     assert.deepEqual([provedor.postsCriacao, provedor.criadas, provedor.ativasDe(empresa), provedor.removidas, await pendencias(empresa)], [1, 1, [primeira], [], []],
         'o provedor recebeu UMA criação; nada excluído; nenhuma pendência aberta');
+});
+
+test('listagem incompleta (LISTA_INCOMPLETA): a retomada não cria; resposta perdida deixa a intenção aberta; reconciliação e liberação não resolvem; lista completa vincula a mesma', async () => {
+    const empresa = await novaEmpresa();
+    const provedor = new AsaasFalso();
+    // 1. Retomada sem vínculo: a listagem não prova ausência → nenhum POST, nenhuma intenção gravada.
+    provedor.listagemIncompleta = true;
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_FALHOU');
+    assert.deepEqual([provedor.postsCriacao, await vinculo(empresa), (await pendencias(empresa)).length], [0, null, 0]);
+    // 2. POST com resposta perdida e a releitura incompleta → intenção aberta CRIACAO_SEM_RESPOSTA, resposta incerta.
+    provedor.listagemIncompleta = false;
+    provedor.perderRespostaDaCriacao = true;
+    let criada = '';
+    provedor.depoisDeCriar = async (id) => { criada = id; provedor.listagemIncompleta = true; };
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+    const [pend] = await pendencias(empresa);
+    assert.deepEqual([provedor.postsCriacao, pend.situacao, pend.ultimo_erro, await vinculo(empresa)], [1, 'PENDENTE', 'CRIACAO_SEM_RESPOSTA', null]);
+    // 3. Nova tentativa ainda incompleta: nenhum POST.
+    provedor.perderRespostaDaCriacao = false;
+    provedor.depoisDeCriar = null;
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_FALHOU');
+    assert.equal(provedor.postsCriacao, 1);
+    // 4. Reconciliação da intenção: FALHOU com o motivo real; nada removido.
+    const rec = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    assert.equal(rec.situacao, 'FALHOU');
+    assert.match(rec.motivo ?? '', /^LISTA_INCOMPLETA: listar assinaturas/);
+    assert.deepEqual(provedor.removidas, []);
+    // 5. Liberação manual: a conferência não prova ausência → nada liberado; a intenção continua aberta.
+    const liberacao = await codigo(withTransaction((tx) => liberarIntencaoCriacao(tx, { usuario_id: dev }, empresa,
+        { pendenciaId: pend.id, motivo: 'Conferido no painel do Asaas: nenhuma assinatura criada', confirmacao: CONFIRMACAO_LIBERACAO }, provedor, { requestId: randomUUID() })));
+    assert.notEqual(liberacao, 'OK');
+    assert.deepEqual((await pendencias(empresa)).map((x) => x.id), [pend.id], 'a intenção continua aberta');
+    assert.equal((await q("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'COBRANCA_INTENCAO_LIBERADA' AND dados_depois::text LIKE $1", [`%${pend.id}%`])).rows[0].n, 0);
+    // 6. Lista completa de novo: a retomada vincula a assinatura já criada, sem outro POST.
+    provedor.listagemIncompleta = false;
+    const r = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean };
+    assert.deepEqual([r.reaproveitada, provedor.postsCriacao, provedor.criadas, await vinculo(empresa)], [true, 1, 1, criada]);
 });
 
 test('processo cai logo depois do POST: a intenção prévia (CRIACAO_EM_CURSO) continua aberta e bloqueia outro POST enquanto a listagem estiver vazia', async () => {

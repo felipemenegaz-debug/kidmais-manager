@@ -109,6 +109,8 @@ class ProvedorFalso implements ProvedorLeitura {
     assinaturas = new Map<string, AssinaturaProvedor | null>();
     cobrancas = new Map<string, CobrancaProvedor[]>();
     fora = false;
+    /** Lista de cobranças maior que o limite conferido pelo cliente (LISTA_INCOMPLETA). */
+    cobrancasIncompletas = false;
     consultas = 0;
     async obterAssinatura(id: string) {
         this.consultas += 1;
@@ -117,6 +119,7 @@ class ProvedorFalso implements ProvedorLeitura {
     }
     async listarCobrancasDaAssinatura(id: string) {
         if (this.fora) throw new AsaasFalhou('listar cobranças', 503, 'HTTP');
+        if (this.cobrancasIncompletas) throw new AsaasFalhou('listar cobranças', null, 'LISTA_INCOMPLETA');
         return this.cobrancas.get(id) ?? [];
     }
 }
@@ -276,6 +279,20 @@ test('provedor fora do ar → FALHOU com tentativa contada; nova tentativa depoi
     assert.equal(agendados.length, 2);
     assert.equal((await processarEvento(banco, agendados[1], { provedor })).situacao, 'PROCESSADO');
     assert.deepEqual([banco.eventos[0].situacao, banco.eventos[0].tentativas, banco.assinaturas.get(EMP_A)!.situacao], ['PROCESSADO', 2, 'ATIVA']);
+});
+
+test('lista de cobranças incompleta → FALHOU com LISTA_INCOMPLETA (revisão humana, não "indisponível"); nada aplicado', async () => {
+    const { banco, agendados, deps } = ambiente();
+    banco.assinaturas.set(EMP_A, novaAssinatura(EMP_A));
+    const provedor = new ProvedorFalso();
+    provedor.assinaturas.set('sub_1111', sub('sub_1111', EMP_A));
+    provedor.cobrancas.set('sub_1111', [pago('p1', '2026-10-20')]);
+    provedor.cobrancasIncompletas = true;
+    await receberWebhookAsaas(req(evento('evt_1', 'PAYMENT_RECEIVED', 'sub_1111', EMP_A)), deps);
+    const falha = await processarEvento(banco, agendados[0], { provedor });
+    assert.equal(falha.situacao, 'FALHOU');
+    assert.match(banco.eventos[0].ultimo_erro ?? '', /^LISTA_INCOMPLETA: listar cobranças \(mais registros que o limite conferido; revisão humana\)$/);
+    assert.equal(banco.assinaturas.get(EMP_A)!.situacao, 'TESTE', 'nada aplicado com pagamentos parciais');
 });
 
 test('retorno do checkout sem webhook: iniciar a assinatura grava só os ids do provedor; situação e acesso não mudam', async () => {

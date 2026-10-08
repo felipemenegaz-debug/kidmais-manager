@@ -82,7 +82,12 @@ test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ci
 test('listagem com mais páginas que o limite falha (LISTA_INCOMPLETA) em vez de devolver lista parcial', async () => {
     const pagina = (n: number, hasMore: boolean) => json({ object: 'list', hasMore, data: [{ id: `sub_00000${n}`, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: 'cus_000001', externalReference: 'emp-1' }] });
     const cheia = fetchFalso([pagina(1, true), pagina(2, true)]);
-    await assert.rejects(criarClienteAsaas(config, { fetch: cheia.f }).listarAssinaturasPorReferencia('emp-1'), (e: unknown) => e instanceof AsaasFalhou && /LISTA_INCOMPLETA/.test(e.message) && e.status === null);
+    await assert.rejects(criarClienteAsaas(config, { fetch: cheia.f }).listarAssinaturasPorReferencia('emp-1'), (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'LISTA_INCOMPLETA' && e.status === null);
+    // Cobranças: limite de 5 páginas (500 itens), mesma regra.
+    const cobranca = (n: number) => json({ object: 'list', hasMore: true, data: [{ id: `pay_00000${n}`, status: 'PENDING', dueDate: '2026-10-07', invoiceUrl: null }] });
+    const cinco = fetchFalso([cobranca(1), cobranca(2), cobranca(3), cobranca(4), cobranca(5)]);
+    await assert.rejects(criarClienteAsaas(config, { fetch: cinco.f }).listarCobrancasDaAssinatura('sub_000001'), (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'LISTA_INCOMPLETA');
+    assert.equal(cinco.chamadas.length, 5);
     assert.equal(cheia.chamadas.length, 2);
     assert.match(cheia.chamadas[1].url, /offset=100&limit=100$/);
     const fim = fetchFalso([pagina(1, true), pagina(2, false)]);

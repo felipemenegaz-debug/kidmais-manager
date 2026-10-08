@@ -58,14 +58,19 @@ export function configuracaoAsaas(env: Ambiente = process.env): EstadoConfigurac
 }
 
 /** Falha de comunicação ou resposta inesperada. A mensagem nunca leva corpo da resposta, chave ou dado do pagador. */
+/** LISTA_INCOMPLETA: o provedor tem mais páginas que o limite conferido. Não é indisponibilidade: repetir não resolve. */
+export type MotivoFalhaAsaas = 'HTTP' | 'TEMPO_ESGOTADO' | 'REDE' | 'RESPOSTA_INVALIDA' | 'LISTA_INCOMPLETA';
+
 export class AsaasFalhou extends Error {
     readonly operacao: string;
     readonly status: number | null;
-    constructor(operacao: string, status: number | null, motivo: 'HTTP' | 'TEMPO_ESGOTADO' | 'REDE' | 'RESPOSTA_INVALIDA' | 'LISTA_INCOMPLETA') {
+    readonly motivo: MotivoFalhaAsaas;
+    constructor(operacao: string, status: number | null, motivo: MotivoFalhaAsaas) {
         super(`Asaas: ${operacao} falhou (${motivo}${status ? ` ${status}` : ''}).`);
         this.name = 'AsaasFalhou';
         this.operacao = operacao;
         this.status = status;
+        this.motivo = motivo;
     }
 }
 

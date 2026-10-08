@@ -70,4 +70,7 @@ test('decisão central de compensação: exclui só com vínculo confirmado, vig
     await d('vigente', 'cand');
     assert.deepEqual(leituras, ['assinatura:vigente', 'assinatura:cand', 'cobrancas:cand'], 'confirma a vigente, a candidata e os pagamentos');
     await assert.rejects(decidirCompensacao({ ...provedor, listarCobrancasDaAssinatura: async () => { throw new AsaasFalhou('listar cobranças', null, 'REDE'); } }, { empresaId: E, vinculo: 'vigente', candidataId: 'cand' }), AsaasFalhou);
+    // Lista de cobranças incompleta: um pagamento além do limite poderia existir → nunca decide excluir.
+    await assert.rejects(decidirCompensacao({ ...provedor, listarCobrancasDaAssinatura: async () => { throw new AsaasFalhou('listar cobranças', null, 'LISTA_INCOMPLETA'); } }, { empresaId: E, vinculo: 'vigente', candidataId: 'cand' }), (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'LISTA_INCOMPLETA');
+    assert.equal(resultadoIncerto(new AsaasFalhou('listar assinaturas', null, 'LISTA_INCOMPLETA')), true, 'lista incompleta é resultado incerto');
 });

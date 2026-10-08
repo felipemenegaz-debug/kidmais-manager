@@ -72,6 +72,8 @@ test('cobrança no painel: falha do provedor vira 502 "nada foi alterado/liberad
     await assert.rejects(proprio.mod.sincronizarCobrancaEmpresa(sessao() as never, EMPRESA as never, ctx as never, proprio.deps() as never), (e: unknown) => codigo('COBRANCA_FALHOU', 502)(e) && /Nada foi alterado/.test((e as Error).message));
     await assert.rejects(proprio.mod.liberarIntencaoCobranca(sessao() as never, EMPRESA as never, {} as never, ctx as never, proprio.deps() as never), (e: unknown) => codigo('COBRANCA_FALHOU', 502)(e) && /Nada foi liberado/.test((e as Error).message));
     assert.equal(proprio.auditorias.length, 0);
+    // Lista incompleta não é "não respondeu": a mensagem manda conferir no provedor.
+    await assert.rejects(proprio.mod.liberarIntencaoCobranca(sessao() as never, EMPRESA as never, {} as never, ctx as never, proprio.deps() as never), (e: unknown) => /mais registros desta empresa do que o limite conferido\. Nada foi liberado\. Confira no painel do Asaas/.test((e as Error).message));
 });
 
 test('cobrança no painel: sincronização auditada na MESMA transação, com o ator e a empresa alvo', async () => {
