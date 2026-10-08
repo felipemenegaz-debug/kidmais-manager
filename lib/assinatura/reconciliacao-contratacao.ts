@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
-import { cicloDoProvedor, type ClienteAsaas } from './asaas.ts';
-import { auditarCobranca } from './sincronizacao-auditoria.ts';
+import { AsaasFalhou, cicloDoProvedor, type ClienteAsaas } from './asaas.ts';
+import { auditarCobranca, type OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type MotivoPreservacao } from './compensacao.ts';
 
 /**
@@ -21,6 +21,12 @@ export const PREFIXO_PENDENCIA = 'kidmais:';
 export const PREFIXO_CRIACAO = 'kidmais:criacao:';
 /** Registro durável do id CONFIRMADO pelo provedor, gravado logo após a resposta e antes do vínculo (fase C). */
 export const PREFIXO_ID_CONFIRMADO = 'kidmais:vinculo:';
+/**
+ * Exclusão pedida ao provedor sem confirmação (resposta perdida, 5xx, resposta sem `deleted`). Marcador durável, com o id
+ * da assinatura: enquanto aberto, a assinatura NUNCA é excluída de novo automaticamente; a reconciliação só relê pelo id.
+ * Removida ou inexistente na releitura → exclusão confirmada (auditada) e o marcador fecha; ainda existe → revisão humana.
+ */
+export const PREFIXO_REMOCAO_SEM_CONFIRMACAO = 'kidmais:remocao:';
 const TROCA_PERMITIDA = new Set(['TESTE', 'CANCELADA_FIM_PERIODO', 'ENCERRADA']);
 
 export type MotivoPendencia = 'CRIACAO_EM_CURSO' | 'CRIACAO_CONFIRMADA_SEM_VINCULO' | 'CRIACAO_SEM_RESPOSTA' | 'COMMIT_INCERTO' | 'COMPENSACAO_FALHOU' | 'VINCULO_DUVIDOSO' | 'COMPENSACAO_PRESERVADA' | 'ASSINATURAS_AMBIGUAS';
@@ -88,7 +94,65 @@ export type ResultadoReconciliacao =
     | { resultado: 'NADA_A_FAZER' | 'CONCILIADA'; removidas: string[] }
     | { resultado: 'AGUARDANDO'; motivo: 'CRIACAO_NAO_CONFIRMADA' }
     | { resultado: 'VINCULADA'; assinaturaId: string }
-    | { resultado: 'REVISAO_HUMANA'; motivo: 'VARIAS_ASSINATURAS_SEM_VINCULO' | 'DUPLICATA_COM_PAGAMENTO' | 'DUPLICATA_PRESERVADA' | 'VINCULO_INATIVO_COM_ACESSO' | 'SEM_ASSINATURA_NO_BANCO'; ids: string[] };
+    | { resultado: 'REVISAO_HUMANA'; motivo: 'VARIAS_ASSINATURAS_SEM_VINCULO' | 'DUPLICATA_COM_PAGAMENTO' | 'DUPLICATA_PRESERVADA' | 'VINCULO_INATIVO_COM_ACESSO' | 'SEM_ASSINATURA_NO_BANCO' | 'REMOCAO_SEM_CONFIRMACAO'; ids: string[] };
+
+/**
+ * Exclusões no provedor durante uma reconciliação, anotadas à medida que acontecem. Quem chama grava o registro DEPOIS
+ * do SAVEPOINT (liberado ou desfeito): uma exclusão concluída no provedor nunca perde a auditoria porque a operação
+ * seguinte falhou. Confirmada e sem confirmação ficam separadas; sem confirmação nunca conta como removida.
+ */
+export type RegistroRemocoes = {
+    /** O provedor confirmou (resposta com `deleted`, ou 404 = já removida). */
+    confirmadas: string[];
+    /** Pedido enviado sem confirmação: pode ou não ter sido executado. */
+    semConfirmacao: string[];
+    /** Marcadores de exclusão sem confirmação cuja assinatura, relida agora pelo id, não existe mais ou está removida. */
+    confirmadasNaReleitura: Array<{ marcadorId: string }>;
+};
+export const novoRegistroRemocoes = (): RegistroRemocoes => ({ confirmadas: [], semConfirmacao: [], confirmadasNaReleitura: [] });
+
+/** A exclusão pode ter sido executada? Mesma regra de `resultadoIncerto` (cobranca.ts); erro desconhecido → pode. */
+function remocaoPodeTerOcorrido(error: unknown) {
+    if (!(error instanceof AsaasFalhou))
+        return true;
+    const s = error.status;
+    return s === null || s >= 500 || s === 408 || s === 409 || s === 429 || s < 400;
+}
+
+async function marcadoresDeRemocao(tx: DbExecutor, empresaId: string) {
+    return (await tx.query<{ id: string; assinatura_provedor_id: string }>(
+        `SELECT id, assinatura_provedor_id FROM cobranca_eventos
+          WHERE empresa_id = $1::uuid AND provedor = 'ASAAS' AND tipo = $2 AND evento_id LIKE $3 AND assinatura_provedor_id IS NOT NULL
+            AND situacao IN ('PENDENTE', 'FALHOU') ORDER BY recebido_em`,
+        [empresaId, TIPO_PENDENCIA, `${PREFIXO_REMOCAO_SEM_CONFIRMACAO}%`])).rows;
+}
+
+/**
+ * Grava o registro das exclusões (chamar fora do SAVEPOINT). Confirmadas → ASSINATURA_DUPLICADA_REMOVIDA (resposta do
+ * provedor). Sem confirmação → marcador + ASSINATURA_REMOCAO_SEM_CONFIRMACAO. Confirmadas na releitura →
+ * ASSINATURA_DUPLICADA_REMOVIDA (releitura) e o marcador fecha; o marcador do evento em processamento só conta quando
+ * esse evento é concluído agora (senão é relido e registrado na próxima vez, sem nova chamada de exclusão).
+ */
+export async function registrarRemocoes(tx: DbExecutor, empresaId: string, registro: RegistroRemocoes, origem: OrigemSincronizacao,
+    eventoAtual: { id: string; concluido: boolean }) {
+    if (registro.confirmadas.length)
+        await auditarCobranca(tx, { acao: 'ASSINATURA_DUPLICADA_REMOVIDA', empresaId, origem, ip: null, depois: { removidas: registro.confirmadas.length, confirmacao: 'RESPOSTA_DO_PROVEDOR' } });
+    const releitura = registro.confirmadasNaReleitura.filter((m) => m.marcadorId !== eventoAtual.id || eventoAtual.concluido);
+    if (releitura.length) {
+        await auditarCobranca(tx, { acao: 'ASSINATURA_DUPLICADA_REMOVIDA', empresaId, origem, ip: null, depois: { removidas: releitura.length, confirmacao: 'RELEITURA' } });
+        const fechar = releitura.map((m) => m.marcadorId).filter((id) => id !== eventoAtual.id);
+        if (fechar.length)
+            await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = 'REMOCAO_CONFIRMADA_NA_RELEITURA'
+                             WHERE id = ANY($1::uuid[]) AND empresa_id = $2::uuid AND tipo = $3 AND situacao IN ('PENDENTE', 'FALHOU')`, [fechar, empresaId, TIPO_PENDENCIA]);
+    }
+    for (const assinaturaId of registro.semConfirmacao) {
+        const pendenciaId = (await tx.query<{ id: string }>(
+            `INSERT INTO cobranca_eventos (provedor, evento_id, tipo, assinatura_provedor_id, referencia_externa, empresa_id, situacao, ultimo_erro)
+             VALUES ('ASAAS', $1, $2, $3, $4, $5::uuid, 'PENDENTE', 'REMOCAO_SEM_CONFIRMACAO') RETURNING id`,
+            [`${PREFIXO_REMOCAO_SEM_CONFIRMACAO}${empresaId}:${randomUUID()}`, TIPO_PENDENCIA, assinaturaId, empresaId, empresaId])).rows[0].id;
+        await auditarCobranca(tx, { acao: 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO', empresaId, origem, ip: null, depois: { pendenciaId } });
+    }
+}
 
 const ativa = (s: { status: string; deleted: boolean }) => !s.deleted && s.status === 'ACTIVE';
 
@@ -105,11 +169,20 @@ const ativa = (s: { status: string; deleted: boolean }) => !s.deleted && s.statu
  * Falha do provedor propaga (o evento fica FALHOU e volta a ser tentado).
  */
 export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, provedor: ProvedorReconciliacao, requestId: string | null = null,
-    pendencia: { criacao: boolean; assinaturaId: string | null } | null = null): Promise<ResultadoReconciliacao> {
+    pendencia: { criacao: boolean; assinaturaId: string | null } | null = null, registro: RegistroRemocoes = novoRegistroRemocoes()): Promise<ResultadoReconciliacao> {
     const linha = (await tx.query<{ situacao: string; provedor_assinatura_id: string | null; provedor_cliente_id: string | null }>(
         'SELECT situacao, provedor_assinatura_id, provedor_cliente_id FROM empresa_assinaturas WHERE empresa_id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
     if (!linha)
         return { resultado: 'REVISAO_HUMANA', motivo: 'SEM_ASSINATURA_NO_BANCO', ids: [] };
+    // Exclusões anteriores sem confirmação: só relidas pelo id, nunca repetidas.
+    const semConfirmacao = new Set<string>();
+    for (const m of await marcadoresDeRemocao(tx, empresaId)) {
+        const s = await provedor.obterAssinatura(m.assinatura_provedor_id);
+        if (!s || s.deleted)
+            registro.confirmadasNaReleitura.push({ marcadorId: m.id });
+        else
+            semConfirmacao.add(m.assinatura_provedor_id);
+    }
     const ativas = (await provedor.listarAssinaturasPorReferencia(empresaId)).filter(ativa);
     // A listagem pode atrasar: ids conhecidos (vínculo gravado, pendência) são confirmados um a um pelo id.
     for (const id of new Set([linha.provedor_assinatura_id, pendencia?.assinaturaId ?? null])) {
@@ -137,26 +210,44 @@ export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, 
         await auditarCobranca(tx, { acao: 'ASSINATURA_VINCULADA_RECONCILIACAO', empresaId, origem, ip: null, depois: { vinculada: true } });
         return { resultado: 'VINCULADA', assinaturaId: s.id };
     }
-    const removidas: string[] = [];
-    const preservadas: Array<{ id: string; motivo: MotivoPreservacao }> = [];
+    const preservadas: Array<{ id: string; motivo: MotivoPreservacao | 'REMOCAO_SEM_CONFIRMACAO' }> = [];
+    const revisao = () => ({
+        resultado: 'REVISAO_HUMANA' as const, ids: preservadas.map((p) => p.id),
+        motivo: preservadas.some((p) => p.motivo === 'REMOCAO_SEM_CONFIRMACAO') ? 'REMOCAO_SEM_CONFIRMACAO' as const
+            : preservadas.every((p) => p.motivo === 'CANDIDATA_COM_PAGAMENTO') ? 'DUPLICATA_COM_PAGAMENTO' as const : 'DUPLICATA_PRESERVADA' as const,
+    });
     for (const d of ativas) {
         if (d.id === vinculada.id)
             continue;
+        if (semConfirmacao.has(d.id)) {
+            preservadas.push({ id: d.id, motivo: 'REMOCAO_SEM_CONFIRMACAO' });
+            continue;
+        }
         const decisao = await decidirCompensacao(provedor, { empresaId, vinculo: vinculada.id, candidataId: d.id });
         if (!decisao.excluir) {
             if (decisao.motivo !== 'CANDIDATA_INEXISTENTE')
                 preservadas.push({ id: d.id, motivo: decisao.motivo });
             continue;
         }
-        await provedor.removerAssinatura(d.id);
-        removidas.push(d.id);
+        let confirmada: boolean;
+        try {
+            confirmada = (await provedor.removerAssinatura(d.id)).removida;
+        }
+        catch (error) {
+            // Recusa definitiva (4xx): nada foi excluído; a pendência volta a ser tentada. O que já foi excluído fica no registro.
+            if (!remocaoPodeTerOcorrido(error))
+                throw error;
+            confirmada = false;
+        }
+        if (!confirmada) {
+            // Resultado desconhecido: não conta como removida, não é repetida; para aqui e vai para revisão.
+            registro.semConfirmacao.push(d.id);
+            preservadas.push({ id: d.id, motivo: 'REMOCAO_SEM_CONFIRMACAO' });
+            return revisao();
+        }
+        registro.confirmadas.push(d.id);
     }
-    if (removidas.length)
-        await auditarCobranca(tx, { acao: 'ASSINATURA_DUPLICADA_REMOVIDA', empresaId, origem, ip: null, depois: { removidas: removidas.length } });
     if (preservadas.length)
-        return {
-            resultado: 'REVISAO_HUMANA', ids: preservadas.map((p) => p.id),
-            motivo: preservadas.every((p) => p.motivo === 'CANDIDATA_COM_PAGAMENTO') ? 'DUPLICATA_COM_PAGAMENTO' : 'DUPLICATA_PRESERVADA',
-        };
-    return { resultado: removidas.length ? 'CONCILIADA' : 'NADA_A_FAZER', removidas };
+        return revisao();
+    return { resultado: registro.confirmadas.length ? 'CONCILIADA' : 'NADA_A_FAZER', removidas: [...registro.confirmadas] };
 }
