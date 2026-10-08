@@ -121,7 +121,7 @@ export function MensagensProntas({ conversaId, podeUsar, motivoBloqueio, textoAt
 
   return <div className={styles.prontas}>
     <div className={styles.botoesProntas}>
-      {/* Rodada 40: botões compactos ao lado do campo de resposta (ícone + nome acessível; a dica aparece ao passar o mouse). */}
+      {/* Rodada 40: botões compactos numa barra logo acima do campo de resposta (ícone + nome acessível; a dica aparece ao passar o mouse). */}
       <button ref={botaoAnexar} type="button" className={styles.ferramenta} title="Anexar arquivo da biblioteca" aria-expanded={aberta && soAnexos} aria-controls={painel} onClick={() => abrir('anexos')}><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 01-7.8-7.8l8.6-8.6a3.7 3.7 0 015.2 5.2l-8.6 8.6a1.8 1.8 0 01-2.6-2.6l7.9-7.9" /></svg><span className={styles.oculto}>Anexar arquivo</span></button>
       <button ref={botaoAbrir} type="button" className={styles.ferramenta} title={aberta ? 'Fechar mensagens prontas' : 'Mensagens prontas'} aria-expanded={aberta} aria-controls={painel} onClick={() => abrir('prontas')}><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h16v11H8l-4 4z" /><path d="M8 9h8M8 12h5" /></svg><span className={styles.oculto}>{aberta ? 'Fechar mensagens prontas' : 'Mensagens prontas'}</span></button>
     </div>

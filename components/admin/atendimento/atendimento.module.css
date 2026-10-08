@@ -79,9 +79,9 @@
 .linkPublico{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:12px 14px;border-radius:12px;border-left:3px solid var(--km-teal);background:var(--km-card-2)}.linkPublico code{overflow-wrap:anywhere;color:var(--km-text)}
 @media(max-width:760px){.arquivoEscolhido{grid-template-columns:56px minmax(0,1fr)}.miniatura{width:56px;height:56px}.acoesArquivo{grid-column:1/-1}.escolhas{grid-template-columns:1fr 1fr;padding:8px 10px 12px}}
 @media(max-width:420px){.escolhas{grid-template-columns:1fr}}
-/* Rodada 40 — resposta: anexar e mensagens prontas como botões compactos ao lado do campo (mesma linha), o aviso da
-   biblioteca e a dica logo abaixo. A gaveta continua fixa à direita (fora do fluxo). */
-.composer{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"anexo anexo" "ferr form" "aviso aviso" "nota nota";gap:0 8px;align-items:end}
+/* Rodada 40 — resposta: anexar e mensagens prontas como botões compactos numa barra logo acima do campo (com a dica ao
+   lado), na mesma ordem do Tab; o campo ocupa a largura toda e o aviso da biblioteca fica logo abaixo. A gaveta continua fixa à direita (fora do fluxo). */
+.composer{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"anexo anexo" "ferr nota" "form form" "aviso aviso";gap:6px 10px;align-items:center}
 .composer>.anexo{grid-area:anexo}.composer>.formResposta{grid-area:form}.composer>.ferramentas,.composer .prontas{display:contents}.composer .botoesProntas{grid-area:ferr;flex-wrap:nowrap;gap:6px}.composer .prontas>.nota{grid-area:aviso}.composer>p{grid-area:nota}
 .pagina button.ferramenta,.pagina .botoesProntas button.ferramenta{display:inline-grid;place-items:center;width:44px;min-height:44px;padding:0;border-color:var(--km-border)}.pagina button.ferramenta[aria-expanded=true]{border-color:var(--km-violet);background:color-mix(in srgb,var(--km-violet) 22%,var(--km-card-2))}
 @media(max-width:760px){.pagina .botoesProntas button.ferramenta{width:40px;min-height:44px;padding:0}}
