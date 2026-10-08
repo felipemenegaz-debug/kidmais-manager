@@ -182,9 +182,10 @@ async function principal() {
     await cliente.getByRole('button', { name: /Kidmais Pocket/ }).click().catch((e) => falharCliente('cliente-pacote', e));
     await cliente.getByRole('button', { name: /Continuar/ }).click();
     await cliente.getByRole('heading', { name: /Quantos convidados pagantes/ }).waitFor().catch((e) => falharCliente('cliente-convidados', e));
+    // Clica sem esperar o preço: o botão vira "Calculando preço…" e a tela avança sozinha quando a cotação chega.
     await cliente.getByRole('spinbutton').fill('25');
-    await cliente.getByText('R$ 1.500,00').waitFor().catch((e) => falharCliente('cliente-preco', e));
     await cliente.getByRole('button', { name: /Continuar/ }).click();
+    assert.equal(await cliente.getByText('Aguarde o cálculo do preço.').count(), 0, 'sem a mensagem de espera');
     await cliente.getByRole('heading', { name: /Preferências do buffet/ }).waitFor().catch((e) => falharCliente('cliente-buffet', e));
     await cliente.getByText('Quero informar agora').click();
     const salg = cliente.getByRole('group', { name: /Salgados/ });

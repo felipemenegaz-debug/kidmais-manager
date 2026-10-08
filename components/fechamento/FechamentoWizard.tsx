@@ -3,7 +3,7 @@
 import AdicionaisPizzaConsulta from './AdicionaisPizzaConsulta';
 import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ATALHOS_CONVIDADOS, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import { centavosComerciais, validarPretensaoPix } from "@/lib/comercial/condicao-pagamento";
@@ -523,6 +523,8 @@ export default function FechamentoWizard() {
   }, [chaveCotacao, form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados]);
   const cotacaoAtual = cotacao && cotacao.chave === chaveCotacao ? cotacao : null;
   const cotacaoEstado: 'sem' | 'carregando' | 'ok' | 'erro' = !chaveCotacao ? 'sem' : !cotacaoAtual ? 'carregando' : cotacaoAtual.estado;
+  // "Continuar" clicado enquanto o preço é calculado: avança sozinho quando a cotação chega (ou mostra o erro dela).
+  const [avancarAposCotacao, setAvancarAposCotacao] = useState(false);
   const referenciaTabela = cotacaoAtual?.estado === 'ok' && cotacaoAtual.dados ? cotacaoAtual.dados.valorTabela : null;
 
   const adicionaisValor = useMemo(
@@ -998,7 +1000,7 @@ export default function FechamentoWizard() {
     if (etapa === 2) {
       const mensagem = erroConvidadosFechamento(convidados, pacote);
       if (mensagem) { setErro(mensagem); return false; }
-      if (cotacaoEstado === 'carregando') { setErro('Aguarde o cálculo do preço.'); return false; }
+      if (cotacaoEstado === 'carregando') { setErro(''); setAvancarAposCotacao(true); return false; }
       if (cotacaoEstado === 'erro') { setErro(cotacaoAtual?.erro ?? mensagemCotacao(undefined)); return false; }
     }
 
@@ -1099,6 +1101,7 @@ export default function FechamentoWizard() {
   }
 
   async function continuar() {
+    setAvancarAposCotacao(false);
     if (!validarEtapaAtual()) return;
 
     if (etapa === 0 && preselecaoDisponibilidade) {
@@ -1112,7 +1115,15 @@ export default function FechamentoWizard() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  const continuarAposCotacao = useEffectEvent(() => { void continuar(); });
+  useEffect(() => {
+    if (!avancarAposCotacao || etapa !== 2 || (cotacaoEstado !== 'ok' && cotacaoEstado !== 'erro')) return;
+    const t = setTimeout(continuarAposCotacao, 0);
+    return () => clearTimeout(t);
+  }, [avancarAposCotacao, etapa, cotacaoEstado]);
+
   function voltar() {
+    setAvancarAposCotacao(false);
     setErro("");
     setEtapa((atual) =>
       preselecaoDisponibilidade && atual === 2 ? 0 : Math.max(atual - 1, 0),
@@ -2914,10 +2925,11 @@ export default function FechamentoWizard() {
                   type="button"
                   className={styles.primaryButton}
                   onClick={continuar}
-                  disabled={validandoDisponibilidade}
+                  disabled={validandoDisponibilidade || avancarAposCotacao}
+                  aria-busy={avancarAposCotacao || undefined}
                 >
-                  {validandoDisponibilidade ? "Revalidando horário..." : "Continuar"}
-                  {!validandoDisponibilidade && <span>→</span>}
+                  {validandoDisponibilidade ? "Revalidando horário..." : avancarAposCotacao ? "Calculando preço…" : "Continuar"}
+                  {!validandoDisponibilidade && !avancarAposCotacao && <span>→</span>}
                 </button>
               )
             ) : (
