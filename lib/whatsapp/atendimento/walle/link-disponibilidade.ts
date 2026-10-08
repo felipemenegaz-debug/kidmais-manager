@@ -28,3 +28,8 @@ export function linkDisponibilidadePublica(empresaId: string, env: AmbienteLinkD
   if (!seguro) return { ok: false, motivo: 'ORIGEM_NAO_SEGURA' };
   return { ok: true, link: `${u.origin}/disponibilidade` };
 }
+
+/** Só as três variáveis do link, lidas do ambiente do processo (nada além delas). */
+export const ambienteDoLink = (): AmbienteLinkDisponibilidade => ({
+  AGENDA_PUBLICA_EMPRESA_ID: process.env.AGENDA_PUBLICA_EMPRESA_ID, AGENDA_PUBLICA_ORIGEM: process.env.AGENDA_PUBLICA_ORIGEM, ADMIN_AUTH_ORIGIN: process.env.ADMIN_AUTH_ORIGIN,
+});

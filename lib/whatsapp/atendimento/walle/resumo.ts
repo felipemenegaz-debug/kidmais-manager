@@ -4,7 +4,7 @@ import { ambienteAtendimento } from '../configuracao.ts';
 import { acessoAtendimento, tem075 } from '../service.ts';
 import { lerContexto } from './contexto.ts';
 import { NOME_MOTIVO, type MotivoPassagem, type Passagem, type TipoIntencao } from './tipos.ts';
-import { linkDisponibilidadePublica } from './link-disponibilidade.ts';
+import { ambienteDoLink, linkDisponibilidadePublica } from './link-disponibilidade.ts';
 
 /**
  * Resumo da conversa para a equipe (painel lateral): o que o cliente informou ao Wall-e (memória da 075), com os nomes
@@ -47,7 +47,7 @@ export async function resumoDaConversa(tx: DbExecutor, empresa: string, ambiente
 export async function estadoWallE(sessao: SessaoParaTenant, conversaId: string | null) {
   return acessoAtendimento(sessao, async (tx, empresa) => {
     // Rodada 40: o link público de disponibilidade desta empresa (o mesmo que o Wall-e envia), para a Configuração.
-    const linkPublico = linkDisponibilidadePublica(empresa, process.env);
+    const linkPublico = linkDisponibilidadePublica(empresa, ambienteDoLink());
     if (!(await tem075(tx))) return { disponivel: false, conversaId, resumo: null, linkPublico };
     return { disponivel: true, conversaId, resumo: conversaId ? await resumoDaConversa(tx, empresa, ambienteAtendimento(), conversaId) : null, linkPublico };
   });

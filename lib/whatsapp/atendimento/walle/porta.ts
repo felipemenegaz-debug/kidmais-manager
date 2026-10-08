@@ -7,7 +7,7 @@ import type { PortaWallE } from '../worker.ts';
 import { lerContexto } from './contexto.ts';
 import { ESQUEMA_JSON_MODELO, entenderPorRegras, esquemaModelo, juntarSinais, revalidarEntendimento, type SaidaModelo } from './entendimento.ts';
 import { catalogosWallE, fontesPostgres } from './fontes-postgres.ts';
-import { linkDisponibilidadePublica } from './link-disponibilidade.ts';
+import { ambienteDoLink, linkDisponibilidadePublica } from './link-disponibilidade.ts';
 import { resolverWallE } from './resolver.ts';
 import type { Catalogos, ContextoWallE, SinaisMensagem } from './tipos.ts';
 
@@ -65,6 +65,6 @@ export function criarPortaWallE(entender: EntenderWallE | null, opcoes: { sinais
     return resolverWallE({ texto: e.texto, entendimento, contexto, config: e.config, catalogos, agora: e.agora },
       fontesPostgres(db(), { empresaId: e.empresa, ambiente: e.ambiente, hoje: e.hoje, linkContratoProprio,
         // Rodada 40: a página pública só atende a empresa configurada no servidor; para outra empresa, sem link.
-        linkDisponibilidade: (() => { const r = linkDisponibilidadePublica(e.empresa, process.env); return r.ok ? r.link : null; })() }));
+        linkDisponibilidade: (() => { const r = linkDisponibilidadePublica(e.empresa, ambienteDoLink()); return r.ok ? r.link : null; })() }));
   } };
 }
