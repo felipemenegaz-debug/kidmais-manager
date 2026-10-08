@@ -71,6 +71,10 @@ export type Entendimento = {
   outraData?: boolean;
   /** Rodada 42: o cliente escolheu um pacote sem pedir a contratação ("vamos de Completa"): o código do pacote. */
   escolhaPacote?: string;
+  /** Rodada 43: o cliente pediu o link público (de novo). */
+  pedeLink?: boolean;
+  /** Rodada 43: o cliente pergunta se a data já ficou reservada (sem festa contratada ou pagamento na mensagem). */
+  perguntaReserva?: boolean;
   /** Prato pedido pelo nome que não está no catálogo da empresa ("tem cachorro-quente no cardápio?"). */
   pratoSemCadastro?: string | null;
   /** "À tarde", "de tarde" (rodada 18): a tarde cobre o fim do primeiro horário e o começo do segundo — o período é
@@ -130,6 +134,8 @@ export type ContextoWallE = {
   linkDisponibilidade?: boolean;
   /** Rodada 40: quando o Wall-e fechou a última dúvida com "Posso ajudar com mais alguma coisa?" (não repete logo em seguida). */
   fechamentoEm?: string | null;
+  /** Rodada 43: o aviso "a data só fica reservada com a contratação" já foi dado nesta conversa. */
+  avisoReserva?: boolean;
 };
 
 /**

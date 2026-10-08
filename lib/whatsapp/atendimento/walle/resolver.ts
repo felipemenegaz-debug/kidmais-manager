@@ -318,7 +318,9 @@ async function disponibilidade(e: Estado, para: TipoIntencao = 'DISPONIBILIDADE'
     disponivel = false; dizer(e, `Consultei a agenda agora: não há horários de festa em ${dia}.`, [fonte]);
   } else {
     disponivel = livres.length > 0;
-    dizer(e, livres.length ? `Consultei a agenda agora: em ${dia}, temos ${lista(livres.map((p) => `${p.nome.toLowerCase()} (${hora(p.inicio)} às ${hora(p.fim)})`))} disponível.` : `Consultei a agenda agora: ${dia} está sem horários livres.`, [fonte]);
+    // Rodada 43: horários claros e concordância com qualquer nome cadastrado ("estão livres os períodos almoço (11h às 15h) e
+    // noite (17h às 21h)", "está livre o período noite (17h às 21h)").
+    dizer(e, livres.length ? `Consultei a agenda agora: em ${dia}, ${livres.length > 1 ? 'estão livres os períodos' : 'está livre o período'} ${lista(livres.map((p) => `${p.nome.toLowerCase()} (${hora(p.inicio)} às ${hora(p.fim)})`))}.` : `Consultei a agenda agora: ${dia} está sem horários livres.`, [fonte]);
     if (livres.length > 1 && !e.ctx.turno && para === 'CONTRATAR') perguntar(e, 'turno', para);
   }
   if (!disponivel && !mesmoDia) {
@@ -327,7 +329,8 @@ async function disponibilidade(e: Estado, para: TipoIntencao = 'DISPONIBILIDADE'
       if (alt.length) dizer(e, `Datas próximas com horário livre: ${lista(alt.map((a) => `${dataBr(a.data)} (${diaSemana(a.data)}, ${lista(a.periodos.map((p) => p.nome.toLowerCase()))})`))}.`, alt.map((a) => ({ tipo: 'AGENDA', data: a.data, escopo: escopo.tipo, unidade: unidadeConsultada, consultadoEm } as Fonte)));
     } catch { /* alternativas são opcionais: a resposta principal já foi dada */ }
   }
-  dizer(e, RESERVA_SO_COM_CONTRATACAO);
+  // Rodada 43: o aviso de reserva uma vez por conversa (não a cada consulta da agenda).
+  if (!e.ctx.avisoReserva) { dizer(e, RESERVA_SO_COM_CONTRATACAO); e.ctx = { ...e.ctx, avisoReserva: true }; }
   return disponivel;
 }
 async function pacotes(e: Estado) {
@@ -738,6 +741,8 @@ const FECHAMENTO = 'Posso ajudar com mais alguma coisa?';
 const OFERTA_PESSOA = 'Se preferir falar com uma pessoa da equipe, é só pedir.';
 /** Menu do último recurso (nada a dizer). */
 const MENU = 'Posso ajudar com preços, datas disponíveis, pacotes, buffet, decoração, endereço e condições do contrato. Para falar com uma pessoa, escreva “atendente”.';
+/** Rodada 43: resposta a "já ficou reservado?" sem festa contratada nem pagamento na mensagem. */
+const RESERVA_STATUS = 'Consultar a disponibilidade ou conversar por aqui não reserva a data: ela só fica reservada quando a contratação é concluída. Se você já concluiu a contratação, me diga que eu passo para a equipe confirmar.';
 /** Aviso fixo da agenda: consultar (ou receber o link público) não reserva a data. */
 const RESERVA_SO_COM_CONTRATACAO = 'A data só fica reservada com a contratação.';
 /** Abre a coleta para a contratação; sai só junto das perguntas (com a passagem para a equipe, não há o que pedir). */
@@ -1062,7 +1067,17 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   // (o mesmo para todos; diferente do link individual de contrato). Não sai com proteção, pedido de pessoa, reclamação ou
   // passagem para a equipe. Rodada 42: uma vez por conversa (já enviado, não volta a cada consulta nem a cada passo da
   // contratação). O link não reserva nada.
-  const linkPublico = (tipos.has('DISPONIBILIDADE') || tipos.has('CONTRATAR')) && !protecao && !pediuPessoa && !s?.reclamacao && !e.encaminhar.length
+  // Rodada 43: "já ficou reservado?" — consultar ou conversar não reserva (quem já tem festa contratada ou paga segue o
+  // tratamento protegido); "manda o link de novo" — o link pedido sai, mesmo já enviado antes.
+  const semCuidado = !protecao && !pediuPessoa && !s?.reclamacao && !e.encaminhar.length;
+  if (entendimento.perguntaReserva && semCuidado) {
+    e.paragrafos = e.paragrafos.filter((p) => p.texto !== RESERVA_SO_COM_CONTRATACAO);
+    dizer(e, RESERVA_STATUS); e.ctx = { ...e.ctx, avisoReserva: true };
+  }
+  const linkPedido = entendimento.pedeLink && semCuidado ? e.fontes.linkDisponibilidade?.() ?? null : null;
+  if (entendimento.pedeLink && semCuidado && !linkPedido) dizer(e, 'Não tenho um link de disponibilidade para enviar por aqui, mas consulto a data para você: é só me dizer o dia.');
+  if (linkPedido) { dizer(e, `${entrada.contexto.linkDisponibilidade ? 'Aqui está o link de novo' : 'Aqui está o link'} para consultar os horários e continuar a contratação:\n${linkPedido}`, [{ tipo: 'LINK_DISPONIBILIDADE' }]); e.ctx = { ...e.ctx, linkDisponibilidade: true }; }
+  const linkPublico = !linkPedido && (tipos.has('DISPONIBILIDADE') || tipos.has('CONTRATAR')) && !protecao && !pediuPessoa && !s?.reclamacao && !e.encaminhar.length
     && !entrada.contexto.linkDisponibilidade ? e.fontes.linkDisponibilidade?.() ?? null : null;
   if (linkPublico) {
     const avisoReserva = e.paragrafos.some((p) => p.texto === RESERVA_SO_COM_CONTRATACAO) ? '' : ' Enviar este link não reserva a data: ela só fica garantida quando a contratação é concluída.';

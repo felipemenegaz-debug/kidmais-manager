@@ -118,7 +118,7 @@ test('disponibilidade: data ocupada oferece alternativas verificadas e nunca res
 });
 
 test('disponibilidade: data livre, data inexistente e data passada', async () => {
-  assert.match(texto((await conversa(['dia 21/11/2026 tem vaga?'])).ultima), /temos almoço \(11h às 15h\) e noite \(17h às 21h\) disponível/);
+  assert.match(texto((await conversa(['dia 21/11/2026 tem vaga?'])).ultima), /estão livres os períodos almoço \(11h às 15h\) e noite \(17h às 21h\)\./);
   const invalida = await conversa(['tem vaga dia 31/02/2027?']);
   assert.match(texto(invalida.ultima), /Essa data não existe/);
   assert.ok(!invalida.chamadas.some((c) => c.startsWith('agenda:')));
@@ -318,7 +318,7 @@ test('disponibilidade diz o escopo REAL da agenda: nunca atribui à unidade o qu
   assert.equal((fonteAgenda(geral.ultima) as { escopo: string }).escopo, 'GERAL');
   // Unidade com agenda própria: aí sim "na unidade Asa Sul", sem o aviso.
   const unidade = await conversa(['tem vaga dia 21/11/2026?'], { escopo: (u) => ({ tipo: 'UNIDADE', unidadeId: u! }) }, comUnidades);
-  assert.match(texto(unidade.ultima), /21\/11\/2026 \(sábado\), na unidade Asa Sul, temos/);
+  assert.match(texto(unidade.ultima), /21\/11\/2026 \(sábado\), na unidade Asa Sul, estão livres/);
   assert.doesNotMatch(texto(unidade.ultima), /não é separada por unidade/);
   assert.deepEqual([(fonteAgenda(unidade.ultima) as { escopo: string; unidade: string }).escopo, (fonteAgenda(unidade.ultima) as { unidade: string }).unidade], ['UNIDADE', 'u-asa-sul']);
   // A única unidade com agenda é usada quando o cliente não disse a unidade: a resposta nomeia a unidade consultada.
@@ -3143,4 +3143,102 @@ test('rodada 42 — rótulo do ambiente: só com a variável do servidor, curto 
   assert.equal(rotuloAmbiente('Demo r42 · modo regras locais'), 'Demo r42 · modo regras locais');
   assert.equal(rotuloAmbiente('Demo\nr42\t· modo IA'), 'Demo r42 · modo IA');
   assert.equal(rotuloAmbiente('x'.repeat(200))?.length, 80);
+});
+
+// ---------------------------------------------------------------- rodada 43: link pedido, "já ficou reservado?", agenda curta
+test('rodada 43 — "manda o link de novo. já ficou reservado?": reenvia o link e explica que conversar não reserva, sem passar à equipe', async () => {
+  const LINK = 'https://festa.exemplo.test/disponibilidade';
+  const c = await conversa(['tem vaga dia 21/11?', 'e no dia 28?', 'manda o link de novo. já ficou reservado?'], { linkPublico: LINK }, { apresentado: true });
+  const r = c.ultima;
+  assert.equal(r.passagem, null);
+  assert.ok(texto(r).includes(LINK));
+  assert.match(texto(r), /Aqui está o link de novo/);
+  assert.match(texto(r), /^Consultar a disponibilidade ou conversar por aqui não reserva a data: ela só fica reservada quando a contratação é concluída\./);
+  assert.doesNotMatch(texto(r), /não tenho cadastrad|Segue a nossa tabela|R\$/);
+  assert.doesNotMatch(texto(r), RESERVA_FEITA);
+  // Depois de um valor: o valor não volta; só o aviso e o link.
+  const v = await conversa(['quanto fica o completa pra 70 dia 28/11 à noite?', 'manda o link de novo. já ficou reservado?'], { linkPublico: LINK }, { apresentado: true });
+  assert.doesNotMatch(texto(v.ultima), /R\$|Segue a nossa tabela/);
+  assert.equal(v.ultima.saidas.filter((s) => s.anexo).length, 0, 'a tabela não é reenviada');
+  // Paráfrases do pedido do link e da pergunta.
+  for (const t of ['qual é o link mesmo?', 'me passa o link de novo', 'não achei o link', 'reenvia o link pfv', 'perdi o link']) {
+    const x = (await conversa(['tem vaga dia 21/11?', t], { linkPublico: LINK }, { apresentado: true })).ultima;
+    assert.ok(texto(x).includes(LINK), t); assert.equal(x.passagem, null, t);
+  }
+  for (const t of ['já ficou reservado?', 'tá reservada então?', 'ficou garantido?', 'já reservou pra mim?']) {
+    const x = (await conversa(['tem vaga dia 21/11?', t], { linkPublico: LINK }, { apresentado: true })).ultima;
+    assert.match(texto(x), /não reserva a data/, t); assert.equal(x.passagem, null, t);
+    assert.doesNotMatch(texto(x), RESERVA_FEITA, t);
+  }
+});
+
+test('rodada 43 — contraexemplos: festa contratada ou paga continua protegida; link do contrato, mapa ou tabela não é o link público', async () => {
+  const LINK = 'https://festa.exemplo.test/disponibilidade';
+  for (const t of ['minha festa do dia 28/11 já tá paga, ficou reservado? manda o link de novo', 'a festa do meu filho já está fechada pro dia 5/12, ficou reservado mesmo?', 'paguei a entrada ontem, já ficou reservado?']) {
+    const x = (await conversa([t], { linkPublico: LINK }, { apresentado: true })).ultima;
+    assert.ok(x.passagem, t);
+    assert.ok(!texto(x).includes(LINK), t);
+    assert.doesNotMatch(texto(x), /não reserva a data/, t);
+  }
+  assert.ok(!entenderPorRegras('me manda o link do contrato pra assinar', catalogos).pedeLink);
+  assert.ok(!entenderPorRegras('manda o link do mapa de águas claras', catalogos).pedeLink);
+  assert.ok(!entenderPorRegras('manda o link da tabela', catalogos).pedeLink);
+  // "manda a tabela de novo" continua reenviando a tabela.
+  const tab = await conversa(['quanto custa a festa?', 'manda a tabela de novo'], {}, { apresentado: true });
+  assert.ok(tab.ultima.saidas.some((s) => s.anexo), 'a tabela pedida de novo sai');
+  // Sem página pública: não promete link, oferece consultar a data; sem passagem.
+  const sem = (await conversa(['qual é o link?'], {}, { apresentado: true })).ultima;
+  assert.match(texto(sem), /Não tenho um link de disponibilidade/);
+  assert.equal(sem.passagem, null);
+});
+
+test('rodada 43 — h42 aa36: valor dito antes e "se fizerem … por isso eu fico" é negociação; contraexemplos não', async () => {
+  for (const t of ['tenho dois mil e oitocentos reais, se vcs fizerem a essencial pra cinquenta pessoas por isso eu fico', 'meu orçamento é 4 mil: se fecharem o completa com esse valor eu assino', 'só tenho 3500, se vcs toparem fazer a festa por esse valor eu fecho hoje', 'tenho R$ 5.000. se fizerem o premium pra 90 por isso, fechado']) {
+    const e = entenderPorRegras(t, catalogos);
+    assert.ok(e.intencoes.some((i) => i.tipo === 'NEGOCIACAO'), t);
+    const r = (await conversa([t], {}, { apresentado: true })).ultima;
+    assert.equal(r.passagem?.motivo, 'NEGOCIACAO', t);
+  }
+  for (const t of ['o premium tem 5 horas, por isso eu fico com ele', 'tenho dois filhos, se vcs fizerem festa de irmãos por isso eu fico', 'posso gastar até 5 mil, quanto fica o completa pra 50 dia 7/11 à noite?']) assert.ok(!entenderPorRegras(t, catalogos).intencoes.some((i) => i.tipo === 'NEGOCIACAO'), t);
+});
+
+test('rodada 43 — agenda mais curta: concordância, aviso de reserva uma vez, horário de entrada sem refazer a agenda nem o valor', async () => {
+  const c = await conversa(['tem vaga dia 21/11?', 'e no dia 28?', 'tem vaga dia 5/12 à noite?', 'e no almoço?', 'no almoço a galera pode chegar a partir de que horas?'], {}, { apresentado: true });
+  const t = c.rodadas.map(texto);
+  assert.match(t[0], /estão livres os períodos almoço \(11h às 15h\) e noite \(17h às 21h\)\./);
+  assert.equal(t.filter((x) => /A data só fica reservada com a contratação/.test(x)).length, 1, 'o aviso sai uma vez');
+  assert.doesNotMatch(t[4], /Consultei a agenda/);
+  assert.match(t[4], /^No almoço \(11h às 15h\), a entrada dos convidados é a partir das 11h/);
+  // Depois de um valor, a pergunta do horário de entrada não repete o valor (h41 aa77).
+  const v = await conversa(['quanto fica o premium pra 100 dia 28/11 à noite?', 'e no outro horário?', 'no almoço a galera pode chegar a partir de que horas?'], {}, { apresentado: true });
+  assert.doesNotMatch(texto(v.ultima), /R\$/);
+  assert.match(texto(v.ultima), /a entrada dos convidados é a partir das 11h/);
+  // Sem apresentação nem valor repetidos na agenda.
+  for (const x of t.slice(1)) assert.doesNotMatch(x, /Sou o Wall-e|R\$/);
+});
+
+test('rodada 43 — caminho do modelo: pedido do link e pergunta de reserva valem; o reenvio de material não', async () => {
+  const ctx = (await conversa(['quanto fica o completa pra 70 dia 28/11 à noite?'])).ultima.contexto;
+  const e = revalidarEntendimento({ ...saidaModelo([intencao('OUTRO', 'manda o link de novo. já ficou reservado?')]), reenviar: true }, 'manda o link de novo. já ficou reservado?', catalogos, ctx);
+  assert.ok(e.pedeLink && e.perguntaReserva);
+  assert.equal(e.reenviar, false);
+});
+
+test('rodada 43 — "o dia 14 já tá reservado?" com data é consulta da agenda daquela data, não a reserva do cliente', async () => {
+  for (const t of ['o dia 14/11 já tá reservado?', 'o sábado 21 de novembro tá reservado à noite?']) {
+    const e = entenderPorRegras(t, catalogos);
+    assert.ok(!e.perguntaReserva, t);
+    assert.ok(e.intencoes.some((i) => i.tipo === 'DISPONIBILIDADE'), t);
+    const r = (await conversa([t], {}, { apresentado: true })).ultima;
+    assert.match(texto(r), /^Consultei a agenda agora/, t);
+    assert.equal(r.passagem, null, t);
+  }
+});
+
+test('rodada 43 — h42 aa42: "quanto daria?" com os dados completos dá o valor; "quanto dá pra colocar de convidados" não é preço', async () => {
+  for (const t of ['Quanto daria?', 'quanto daria o completa pra 60 dia 17/10 no almoço?', 'quanto dá tudo?', 'quanto vai dar pra 60 pessoas?']) assert.ok(entenderPorRegras(t, catalogos).intencoes.some((i) => i.tipo === 'PRECOS'), t);
+  for (const t of ['quanto dá pra colocar de convidados no premium?', 'quanto dá de convidados?']) assert.ok(!entenderPorRegras(t, catalogos).intencoes.some((i) => i.tipo === 'PRECOS'), t);
+  const r = (await conversa(['Oie, tudo bem? o tema vai ser dinossauro. Seriam 60 pessoas no sábado 21 de novembro, à noite, pacote completa. Quanto daria? Nossa reserva pra festa é de uns 4 mil'], {}, { apresentado: true })).ultima;
+  assert.match(texto(r), /Completa em 21\/11\/2026, noite \(17h às 21h\), 60 convidados: R\$/);
+  assert.equal(r.passagem, null);
 });

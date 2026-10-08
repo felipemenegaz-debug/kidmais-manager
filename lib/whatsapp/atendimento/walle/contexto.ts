@@ -30,6 +30,7 @@ export function lerContexto(bruto: unknown): ContextoWallE {
     ...(c.apresentado === true ? { apresentado: true } : {}),
     ...(c.linkDisponibilidade === true ? { linkDisponibilidade: true } : {}),
     ...(texto(c.fechamentoEm, 40) ? { fechamentoEm: texto(c.fechamentoEm, 40) } : {}),
+    ...(c.avisoReserva === true ? { avisoReserva: true } : {}),
   };
 }
 

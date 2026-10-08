@@ -90,4 +90,6 @@
 .listaProntas .itemPronta{flex:1 1 240px;min-width:0}
 /* Rodada 42: rótulo do ambiente (demonstração/homologação) no topo das telas do atendimento; teal = informação. */
 .seloAmbiente{position:sticky;top:0;z-index:60;margin:0 auto;max-width:1600px;padding:8px 16px;font-weight:700;font-size:14px;letter-spacing:.02em;color:var(--km-text)!important;background:color-mix(in srgb,var(--km-teal) 22%,var(--km-card));border-bottom:2px solid var(--km-teal);text-align:center}
-@media(max-width:800px){.seloAmbiente{top:64px;font-size:13px;padding:6px 12px}}
+/* Rodada 43 (demo r42 no celular): abaixo de 800px o menu do admin é fixo; a faixa não fica presa ao topo (cobria a conversa
+   ao rolar) e ocupa o espaço dela no fluxo, logo abaixo do menu. */
+@media(max-width:800px){.seloAmbiente{position:static;margin-top:64px;font-size:13px;padding:6px 12px}}
