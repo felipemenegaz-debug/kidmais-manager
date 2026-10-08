@@ -32,7 +32,11 @@ test('nenhuma exclusão automática sem vínculo confirmado; falha de compensaç
     assert.match(resolver, /motivo: 'COMPENSACAO_FALHOU'/);
     const rec = readFileSync('lib/assinatura/reconciliacao-contratacao.ts', 'utf8');
     assert.equal(rec.match(/removerAssinatura\(/g)?.length, 1);
-    assert.match(rec, /const decisao = await decidirCompensacao\([\s\S]*if \(!decisao\.excluir\) \{[\s\S]*continue;\s*\}\s*await provedor\.removerAssinatura\(d\.id\)/);
+    // Exclusão só depois da decisão central; assinatura com exclusão sem confirmação nem chega à decisão (nunca repetida).
+    assert.match(rec, /if \(semConfirmacao\.has\(d\.id\)\) \{[\s\S]*?continue;\s*\}\s*const decisao = await decidirCompensacao\([\s\S]*if \(!decisao\.excluir\) \{[\s\S]*continue;\s*\}\s*let confirmada: boolean;\s*try \{\s*confirmada = \(await provedor\.removerAssinatura\(d\.id\)\)\.removida;/);
+    // Sem confirmação nunca conta como removida: a única anotação de confirmada vem depois de sair com revisão.
+    assert.equal(rec.match(/registro\.confirmadas\.push\(/g)?.length, 1);
+    assert.match(rec, /if \(!confirmada\) \{[\s\S]*?registro\.semConfirmacao\.push\(d\.id\);[\s\S]*?return revisao\(\);\s*\}\s*registro\.confirmadas\.push\(d\.id\);/);
     assert.match(fonte, /pg_try_advisory_xact_lock\(hashtext\('kidmais:contratacao'\), hashtext\(\$1\)\)/);
 });
 
