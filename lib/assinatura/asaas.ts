@@ -61,7 +61,7 @@ export function configuracaoAsaas(env: Ambiente = process.env): EstadoConfigurac
 export class AsaasFalhou extends Error {
     readonly operacao: string;
     readonly status: number | null;
-    constructor(operacao: string, status: number | null, motivo: 'HTTP' | 'TEMPO_ESGOTADO' | 'REDE' | 'RESPOSTA_INVALIDA') {
+    constructor(operacao: string, status: number | null, motivo: 'HTTP' | 'TEMPO_ESGOTADO' | 'REDE' | 'RESPOSTA_INVALIDA' | 'LISTA_INCOMPLETA') {
         super(`Asaas: ${operacao} falhou (${motivo}${status ? ` ${status}` : ''}).`);
         this.name = 'AsaasFalhou';
         this.operacao = operacao;
@@ -179,7 +179,8 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
             if (r?.hasMore !== true)
                 return itens;
         }
-        return itens;
+        // Ainda há páginas além do limite: lista parcial não prova ausência (retomada, liberação). Falha fechada.
+        throw new AsaasFalhou(operacao, null, 'LISTA_INCOMPLETA');
     }
     const ref = (v: string) => encodeURIComponent(v);
     const idPath = (v: string, operacao: string) => encodeURIComponent(idValido(v, operacao));

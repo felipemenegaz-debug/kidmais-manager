@@ -79,6 +79,16 @@ test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ci
     await assert.rejects(c.obterAssinatura('../customers'), AsaasFalhou, 'id fora do formato nunca vira caminho');
 });
 
+test('listagem com mais páginas que o limite falha (LISTA_INCOMPLETA) em vez de devolver lista parcial', async () => {
+    const pagina = (n: number, hasMore: boolean) => json({ object: 'list', hasMore, data: [{ id: `sub_00000${n}`, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: 'cus_000001', externalReference: 'emp-1' }] });
+    const cheia = fetchFalso([pagina(1, true), pagina(2, true)]);
+    await assert.rejects(criarClienteAsaas(config, { fetch: cheia.f }).listarAssinaturasPorReferencia('emp-1'), (e: unknown) => e instanceof AsaasFalhou && /LISTA_INCOMPLETA/.test(e.message) && e.status === null);
+    assert.equal(cheia.chamadas.length, 2);
+    assert.match(cheia.chamadas[1].url, /offset=100&limit=100$/);
+    const fim = fetchFalso([pagina(1, true), pagina(2, false)]);
+    assert.deepEqual((await criarClienteAsaas(config, { fetch: fim.f }).listarAssinaturasPorReferencia('emp-1')).map((a) => a.id), ['sub_000001', 'sub_000002']);
+});
+
 test('tempo-limite: chamada que não responde é abortada e vira AsaasFalhou (TEMPO_ESGOTADO)', async () => {
     const f = (_url: string, init: RequestInit) => new Promise<Response>((_, rejeitar) => {
         init.signal?.addEventListener('abort', () => rejeitar(new DOMException('abortado', 'AbortError')));
