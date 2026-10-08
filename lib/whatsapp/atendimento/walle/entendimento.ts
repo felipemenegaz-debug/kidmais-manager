@@ -549,6 +549,23 @@ const GENTE_A_MAIS = comoCondicao(String.raw`\b(?:chegar|chegarem|vier|vierem|ap
 const LISTA_AUMENTA = String.raw`\b(?:a |minha |nossa )?lista(?: de convidados)?\b[^.?!]{0,20}\b(?:aument\w*|cresc\w*)|\b(?:aument\w*|cresc\w*)\b[^.?!]{0,15}\ba lista\b|\b(?:incluir|acrescentar|colocar|adicionar) mais (?:uns |umas |alguns |algumas |\d+ )?(?:convidados|pessoas|nomes|criancas|adultos)\b`;
 /** Exceção pedida "no aperto" ("a gente se aperta", "dá um jeitinho de caber"): negociação, não pergunta de capacidade. */
 const APERTO = /\b((a gente|nos|eu|todo mundo|a galera) (se )?aperta\w*|apertad\w*|apertando|espremid\w*|jeitinho|(da|dar|de|der) um jeit\w* (de|pra|para) (caber|colocar|encaixar|por))\b/;
+/**
+ * Rodada 42: uma opção já apresentada na conversa, citada por referência — "a do dia 21", "o da noite", "a do almoço",
+ * "a do segundo horário", "a primeira", "essa", "aquela" (sem substantivo, ou com opção/data/dia/horário).
+ */
+export const REFERENCIA_OPCAO = String.raw`(?:a|o|aquela|aquele) (?:do dia \d{1,2}(?:[/.-]\d{1,2})?|de \d{1,2}(?:[/.-]\d{1,2})|da noite|do almoco|da manha|da tarde|do (?:primeiro|segundo) turno|das? \d{1,2}(?:h|:\d{2})?|primeira|segunda|ultima|de (?:sabado|domingo|sexta))\b|(?:essa|esse|esta|este|aquela|aquele)(?: (?:opcao|data|dia|horario|turno|periodo|ai|mesmo|mesma|ultima|proposta))?\b(?! (?:pacote|plano|cardapio|tema|decoracao|cor|bolo|salgado|doce|item|material|pdf|tabela|link|foto|video|informacao|duvida|pergunta|regra|clausula|taxa|multa)\b)`;
+/**
+ * Rodada 42: "quero essa", "quero essa opção", "vou querer essa", "fico com a do dia 21", "pode ser essa então" — vale como
+ * pedido de contratação SÓ com uma opção já apresentada (data ou pacote na conversa e um assunto comercial antes).
+ * Pergunta ("essa tem bolo?", "a do dia 21 é mais barata?") não.
+ */
+const QUERO_REFERENCIA = new RegExp(String.raw`(?:^|[.!,] *)(?:(?:ok|beleza|blz|perfeito|otimo|show|top|entao|ah|hmm|gostei|amei)[!.,]* *)*(?:eu )?(?:quero|queremos|vou querer|vamos querer|fico com|ficamos com|pode ser|vai ser|sera|quero ficar com|vamos de|vou de|bora de|escolho|escolhemos)(?: entao)? (?:${REFERENCIA_OPCAO})(?: (?:entao|mesmo|mesma|ai|pra mim|por favor|pfv|pf))* *[.!]* *$`);
+/**
+ * Rodada 42: escolha de pacote SEM pedido de contratação — "vamos de Completa", "decidi pelo Premium", "fico com o
+ * Essencial", "pode ser o Completa", "vou querer o premium". O pacote fica anotado; contratação só com fechar/reservar.
+ * "vou de Completa ou Premium?" é dúvida (comparação).
+ */
+const ESCOLHA_PACOTE = /\b(?:vamos|vamo|vou|bora|ficamos|ficaremos|fico|decidi|decidimos|optei|optamos|fiquei|escolhi|escolhemos|escolho|pode ser|vai ser|vou querer|vamos querer)(?: (?:de|com|pelo|pela|com o|com a|o|a))?(?: o| a)?(?: pacote| plano)? (?:essencial|completa|completo|premium|premiun)\b(?![^.?!]{0,15}\bou\b)(?![^.?!]*\?)/;
 const REGRAS: Array<[TipoIntencao, RegExp]> = [
   ['CONTRATO_PROPRIO', new RegExp([
     'meu contrato', 'minha festa contratada', 'minhas parcelas', 'minha parcela', 'quanto (eu )?(ja )?paguei', 'o que eu paguei', 'meu saldo',
@@ -713,7 +730,7 @@ const REGRAS: Array<[TipoIntencao, RegExp]> = [
     // condicional à vaga ("o dia 14 ainda tá livre? se tiver já quero garantir"); "quero garantir" no fim da frase
     String.raw`\bse (tiver|estiver|der|houver|tiver vaga|estiver livre|tiver disponivel|estiver disponivel)\b[^.?!]{0,30}\b(ja )?(quero|vou|vamos|queremos|pode|podem|ja pode) (ja )?(garantir|reservar|re[sz]ervar|fechar|segurar|marcar|bloquear|separar)\b`,
     String.raw`\b(ja )?(quero|vou|vamos|queremos) (ja )?(garantir|segurar|bloquear)\s*([.!?,]|$)`,
-    String.raw`\b(quero fechar|vou fechar|fechar a festa|fechar o (pacote|essencial|completa|completo|premium)|bora fechar|vamos fechar|quero contratar|contratar (a festa|o pacote|com voces|com vcs)|quero reservar|reservar (a data|o dia|a festa|esse dia|essa data)|pode reservar|como reservo|garantir a data|garanto a data|como (faco|eu faco|faz) (pra|para) (fechar|reservar|contratar|garantir)|quero agendar(?![^.?!]{0,25}\b(visita\w*|conhecer|degustac\w*|reuniao|ligacao|conversa\w*))|fico com (o|a|esse|essa)|vou querer (esse|essa|o|a)|(bloquear|segurar|separar|guardar) (o dia|a data|esse dia|essa data|o sabado|o domingo|dia \d+|pra mim)|reservar (pra mim|o sabado|o domingo)|vai ser com (voces|vcs)|ja decidi|fechado com (voces|vcs)|quero (essa|esta) data|confirm(e|a|ar|em) (a |essa |esta )?reserva|(ja )?(reserva|reserve|reservem|segura|segure|bloqueia|bloqueie|garante|garanta|separa|separe) (pra mim|para mim|a data|o dia|essa data|esse dia)|(eu )?(fecho|fechamos|fecharia|fechava|assino|assinaria) (agora|hoje|hj|ja|na hora|o pacote|a festa|com voces|com vcs|o |a )|(efetuar|fazer|realizar)( a| uma)? reserva|(gostaria de|queria|desejo|preciso) (reservar|fechar|contratar)|(quero|queria|vou|vamos|preciso|gostaria de) (garantir|segurar|bloquear|separar|guardar) ((o |a |esse |essa |este |esta |(a |o )?(minha|nossa|meu|nosso) )(dia|data|sabado|domingo|sexta|feriado|horario|almoco|noite|turno|periodo|fim de semana|proxim\w*|mes|unidade|salao|espaco|festa|pacote|vaga|reserva|essencial|completa|completo|premium|\d+)|dia|data|\d+)|(segurar|segura|segure|bloquear|bloqueia|bloqueie|separar|separa|separe|guardar|guarda|guarde|reservar|reserva|reserve)( pra mim| para mim)? (esse|este|essa|esta|aquele|aquela|o proximo|a proxima) (sabado|domingo|sexta|dia|data|horario|feriado|fim de semana))\b`,
+    String.raw`\b(quero fechar|vou fechar|fechar a festa|fechar o (pacote|essencial|completa|completo|premium)|bora fechar|vamos fechar|quero contratar|contratar (a festa|o pacote|com voces|com vcs)|quero reservar|reservar (a data|o dia|a festa|esse dia|essa data)|pode reservar|como reservo|garantir a data|garanto a data|como (faco|eu faco|faz) (pra|para) (fechar|reservar|contratar|garantir)|quero agendar(?![^.?!]{0,25}\b(visita\w*|conhecer|degustac\w*|reuniao|ligacao|conversa\w*))|(bloquear|segurar|separar|guardar) (o dia|a data|esse dia|essa data|o sabado|o domingo|dia \d+|pra mim)|reservar (pra mim|o sabado|o domingo)|vai ser com (voces|vcs)|ja decidi|fechado com (voces|vcs)|quero (essa|esta) data|confirm(e|a|ar|em) (a |essa |esta )?reserva|(ja )?(reserva|reserve|reservem|segura|segure|bloqueia|bloqueie|garante|garanta|separa|separe) (pra mim|para mim|a data|o dia|essa data|esse dia)|(eu )?(fecho|fechamos|fecharia|fechava|assino|assinaria) (agora|hoje|hj|ja|na hora|o pacote|a festa|com voces|com vcs|o |a )|(efetuar|fazer|realizar)( a| uma)? reserva|(gostaria de|queria|desejo|preciso) (reservar|fechar|contratar)|(quero|queria|vou|vamos|preciso|gostaria de) (garantir|segurar|bloquear|separar|guardar) ((o |a |esse |essa |este |esta |(a |o )?(minha|nossa|meu|nosso) )(dia|data|sabado|domingo|sexta|feriado|horario|almoco|noite|turno|periodo|fim de semana|proxim\w*|mes|unidade|salao|espaco|festa|pacote|vaga|reserva|essencial|completa|completo|premium|\d+)|dia|data|\d+)|(segurar|segura|segure|bloquear|bloqueia|bloqueie|separar|separa|separe|guardar|guarda|guarde|reservar|reserva|reserve)( pra mim| para mim)? (esse|este|essa|esta|aquele|aquela|o proximo|a proxima) (sabado|domingo|sexta|dia|data|horario|feriado|fim de semana))\b`,
     // pedido de reservar, com ou sem erro de digitação ("consegue resevar o premium?", "quero rezervar o dia 28");
     // "com quanto tempo de antecedência dá pra reservar?" é dúvida de prazo
     String.raw`(?<!\b(?:antecedencia|quanto tempo antes)\b[^.?!]{0,30})\b(quero|queria|queremos|gostaria de|gostariamos de|desejo|preciso|precisamos|vou|vamos|bora|vamo|pode|podem|poderia|poderiam|consegue|conseguem|conseguiria|consigo|da pra|daria pra|tem como|teria como|posso|podemos)( ja)?( deixar)? re[sz]er?var\b(?![^.?!]{0,30}\b(antecedencia|quanto tempo antes))`,
@@ -733,9 +750,13 @@ const REGRAS: Array<[TipoIntencao, RegExp]> = [
     String.raw`\b(deixar|deixa|deixe|deixem|deixo|deixamos)( ja)? (re[sz]er?vad|marcad|garantid|agendad|bloquead|separad|segurad)\w*`,
     // pedido formal da reserva ("venho solicitar a reserva", "gostaria de uma pré-reserva")
     String.raw`\b(solicitar|solicito|solicitamos|pedir|peco|pedimos|quero|queria|queremos|gostaria de|gostariamos de|preciso de|precisamos de|fazer|faco|fazemos|efetuar|realizar)( a| uma| minha| nossa)? (pre[ -]?)?re[sz]er?va\b`,
-    // escolha do pacote ("ok, vamos de Completa então", "decidi pelo Premium"); "vou de Completa ou Premium?" é dúvida
-    String.raw`\b(vamos|vamo|vou|bora|ficamos|ficaremos|fecho|fechamos|fechado)( de| com)( o| a)?( pacote| plano)? (essencial|completa|completo|premium|premiun)\b(?![^.?!]{0,15}\bou\b)`,
-    String.raw`\b(decidi|decidimos|resolvi|resolvemos) (fechar|re[sz]er?var|contratar)\b`, String.raw`\b(decidi|decidimos|optei|optamos|fiquei|ficamos)( pelo| pela| com o| com a)( pacote| plano)? (essencial|completa|completo|premium|premiun)\b`,
+    // Fechar COM o pacote ("fecho com o Premium", "fechado com a Completa") é contratação. Rodada 42: só escolher o pacote
+    // ("vamos de Completa", "decidi pelo Premium", "fico com o Essencial") não é: vira escolhaPacote (ESCOLHA_PACOTE).
+    String.raw`\b(fecho|fechamos|fechado)( de| com)( o| a)?( pacote| plano)? (essencial|completa|completo|premium|premiun)\b(?![^.?!]{0,15}\bou\b)`,
+    String.raw`\b(decidi|decidimos|resolvi|resolvemos) (fechar|re[sz]er?var|contratar)\b`,
+    // Rodada 42 (h41 aa54): fechar/reservar uma opção por referência ao que já foi apresentado — "fecha pra mim a do dia 21",
+    // "reserva a da noite", "pode fechar o do almoço", "fecha essa", "garante aquela".
+    String.raw`(?<!\b(?:quanto|qto|qnto|por quanto|em quanto) )\b(?:ja )?(?:fecha|feche|fechem|reserva|reserve|reservem|garante|garanta|segura|segure|marca|marque)(?: ai| la| entao| logo| ja)?(?: (?:pra|para) (?:mim|gente|nos|a gente))?(?: entao)? (?:${REFERENCIA_OPCAO})`,
     // pacote escolhido para uma data ("Quero o pacote Premium dia 21 de novembro"); com pergunta de valor é consulta
     String.raw`\b(quero|queremos|ja quero)( o| a)( pacote| plano)? (essencial|completa|completo|premium|premiun)\b(?=[^.?!]{0,30}\b(dia \d|\d{1,2}[/.-]\d|\d{1,2} de [a-z]|sabado|domingo|pro dia|para o dia))(?![^.?!]*\b(quanto|qto|qnto|valor|preco|orcamento|custa|sai por)\b)`,
     // compromisso de fechar ("me fala o valor que eu já fecho", "faz por 6 mil que a gente fecha"); "depois eu fecho" é
@@ -1500,6 +1521,11 @@ export function entenderPorRegras(texto: string, catalogos: Catalogos, contexto:
   const achadas = intencoesPorRegras(t).filter((x) => !intencoes.some((i) => i.tipo === x.i.tipo));
   intencoes.push(...achadas.sort((a, b) => a.pos - b.pos).map((x) => x.i));
   semContratoGeral(intencoes, texto);
+  // Rodada 42: "quero essa (opção)", "fico com a do dia 21" com uma opção já apresentada na conversa é pedido de contratação.
+  const opcaoApresentada = !!(contexto.data || contexto.pacote) && (contexto.assuntos ?? []).some((a) => ['PRECOS', 'DISPONIBILIDADE', 'PACOTES', 'CONTRATAR'].includes(a));
+  let referencia: string | null = null;
+  if (opcaoApresentada && !intencoes.some((i) => i.tipo === 'CONTRATAR') && !/\?/.test(texto) && QUERO_REFERENCIA.test(semAcento(texto).trim().replace(/\bsegundo horario\b/g, 'segundo turno').replace(/\bprimeiro horario\b/g, 'primeiro turno')))
+    { referencia = texto.trim().slice(0, 300); intencoes.push({ tipo: 'CONTRATAR', trecho: referencia }); }
   // [contrato-proprio] Festa citada pelo nome ("a festa do Pedrinho", "o niver da Isadora") ou de um parente que não é o
   // filho ("a festa da minha cunhada"): é festa contratada quando a mensagem muda algo nela ("trocar o tema da festa da
   // Lara") ou pergunta algo DELA — horário, unidade, endereço da festa, confirmação ("é no Premium mesmo?"). Não quando
@@ -1680,10 +1706,17 @@ export function entenderPorRegras(texto: string, catalogos: Catalogos, contexto:
   if (!intencoes.length && (entidades.data || dataBruta === 'INVALIDA') && semCuidado) intencoes.push({ tipo: 'DISPONIBILIDADE', trecho: texto.trim().slice(0, 300) });
   if (!intencoes.length && ehSaudacao(c)) intencoes.push({ tipo: 'SAUDACAO', trecho: texto.trim() });
   if (!intencoes.length) intencoes.push({ tipo: 'OUTRO', trecho: texto.trim().slice(0, 300), perguntaId: null });
+  // Rodada 42: escolha de pacote sem pedido de contratação. A do MESMO pacote já cotado não é continuação do preço (o valor
+  // não se repete); a de outro pacote continua recalculando ("decidi pelo premium" depois do Completa).
+  const escolhaDoMesmo = ESCOLHA_PACOTE.test(t) && entidades.pacotes.length === 1 && entidades.pacotes[0] === contexto.pacote
+    && intencoes.length > 0 && intencoes.every((i) => (i.tipo === 'PRECOS' && i.continuacao) || ['SAUDACAO', 'CONFIRMACAO'].includes(i.tipo));
+  if (escolhaDoMesmo) intencoes.splice(0, intencoes.length, ...intencoes.filter((i) => i.tipo !== 'PRECOS'));
+  if (escolhaDoMesmo && !intencoes.length) intencoes.push({ tipo: 'OUTRO', trecho: texto.trim().slice(0, 300), perguntaId: null });
+  const escolha = ESCOLHA_PACOTE.test(t) && entidades.pacotes.length === 1 && !intencoes.some((i) => ['CONTRATAR', 'PRECOS', 'PACOTES', 'NEGOCIACAO'].includes(i.tipo)) ? entidades.pacotes[0] : null;
   return {
     intencoes: limitar(combinarIntencoes(cardapioDispensado(t) && !itens.length && !semCadastro ? intencoes.filter((i) => i.tipo !== 'CARDAPIO') : intencoes, texto)), entidades, reenviar: REENVIAR.test(t) && !NAO_REENVIAR.test(t), alergia: ALERGIA.test(t), origem: 'REGRAS',
     // A continuação ("e num dia de semana?") é coberta pelo assunto que ela segue.
-    sinais, semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, intencoes.filter((i) => i.continuacao).map((i) => i.trecho))), parar: pedidoDeParar(texto),
+    sinais, semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, [...intencoes.filter((i) => i.continuacao).map((i) => i.trecho), ...(referencia ? [referencia] : [])])), parar: pedidoDeParar(texto),
     itens, comparar: entidades.pacotes.length >= 1 && COMPARA.test(t), semMaterial: SEM_MATERIAL.test(t), comparaPreco, outraData, pratoSemCadastro: semCadastro,
     periodoAmbiguo: periodoAmbiguo(texto, catalogos.turnos),
     temaAmbiguo: extrairTemaDetalhe(texto).ambiguo || indecisao,
@@ -1691,6 +1724,8 @@ export function entenderPorRegras(texto: string, catalogos: Catalogos, contexto:
     dataAmbigua: dataAmbigua(texto),
     anoCitado: !!entidades.data && ANO_EXPLICITO.test(texto),
     concorda: CONCORDA.test(c),
+    // Rodada 42: escolha de pacote sem pedido de contratação (o pacote fica anotado; nada é contratado).
+    ...(escolha ? { escolhaPacote: escolha } : {}),
   };
 }
 /**
@@ -1818,7 +1853,7 @@ function marcarConsultasComuns(intencoes: Intencao[], regras: Entendimento, text
   if (criterios.some((c, k) => !c || AFASTA[c] !== cuidados[k].tipo)) return;
   cuidados.forEach((i, k) => { i.consultaComum = criterios[k]; });
 }
-const CONTRATAR_TRECHO = /(?<!\b(?:se|caso|quando|nao|nem|depois de|antes de|apos)\s+(?:(?:eu|a gente|nos)\s+)?(?:(?:vou|vamos|quero|for)\s+)?)\b(fech\w*|re[sz]er?v\w*|contrat\w*|garant\w*|bloque\w*|segur\w*|separ\w*|guard\w*|agend\w*|marc\w*|fico com|ficar com|vou querer|vamos querer|quero (essa|esta|esse|este)|bora|vamos nessa|vamos de|vamo de|vou de|assin\w*|sinal|vai ser com|decidi|confirm\w*|na agenda|(meu|nosso) nome)\b/;
+const CONTRATAR_TRECHO = /(?<!\b(?:se|caso|quando|nao|nem|depois de|antes de|apos)\s+(?:(?:eu|a gente|nos)\s+)?(?:(?:vou|vamos|quero|for)\s+)?)\b(fech\w*|re[sz]er?v\w*|contrat\w*|garant\w*|bloque\w*|segur\w*|separ\w*|guard\w*|agend\w*|marc\w*|(?:fico com|ficar com|vou querer|vamos querer|quero|queremos|pode ser|vamos de|vou de|escolho) (?:essa|esta|esse|este|aquela|aquele|a do|o do|a da|o da)|vamos nessa|assin\w*|sinal|vai ser com|decidi (?:fechar|reservar|contratar)|confirm\w*|na agenda|(meu|nosso) nome)\b/;
 export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalogos: Catalogos, contexto: ContextoWallE = {}): Entendimento {
   const t = semAcento(texto);
   // Trecho literal: as mesmas palavras da mensagem (acento, pontuação, emoji e número por extenso não contam).
@@ -1927,7 +1962,7 @@ export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalog
     sinais: regras.sinais,
     semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, especificas)),
     parar: pararPeloModelo(bruto, texto, regras.parar ?? null, intencoes),
-    itens: regras.itens, comparar: regras.comparar, semMaterial: regras.semMaterial, comparaPreco: regras.comparaPreco, outraData: !!regras.outraData && !data, pratoSemCadastro: regras.pratoSemCadastro,
+    itens: regras.itens, comparar: regras.comparar, semMaterial: regras.semMaterial, comparaPreco: regras.comparaPreco, outraData: !!regras.outraData && !data, ...(regras.escolhaPacote && !intencoes.some((i) => ['CONTRATAR', 'PRECOS', 'PACOTES', 'NEGOCIACAO'].includes(i.tipo)) ? { escolhaPacote: regras.escolhaPacote } : {}), pratoSemCadastro: regras.pratoSemCadastro,
     periodoAmbiguo: !!regras.periodoAmbiguo && !turno,
     temaAmbiguo: !!regras.temaAmbiguo && !tema,
     mesCitado: regras.mesCitado, dataAmbigua: regras.dataAmbigua,

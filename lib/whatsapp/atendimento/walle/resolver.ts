@@ -700,7 +700,10 @@ async function contratar(e: Estado) {
   if (!e.ctx.pacote && e.catalogos.pacotes.length > 1) faltam.push('pacote');
   // Rodada 21: o contrato para assinar é preparado e enviado pela equipe (com a verificação de sempre), depois dos dados.
   if (CONTRATO_PARA_ASSINAR.test(semAcento(e.texto))) dizer(e, CONTRATO_PELA_EQUIPE);
-  if (faltam.length) { dizer(e, COLETA); faltam.forEach((f) => perguntar(e, f, 'CONTRATAR')); if (e.ctx.data) await disponibilidade(e, 'CONTRATAR'); return; }
+  // Rodada 42: com a coleta já em andamento (a mensagem anterior era a contratação) e a data igual, só o que falta:
+  // sem repetir "Que bom!…" nem a consulta da agenda já feita ("sim" ou um dado só).
+  const jaColetando = e.ultimo === 'CONTRATAR' && !e.correcoesNovas.some((c) => c.campo === 'data');
+  if (faltam.length) { if (!jaColetando) dizer(e, COLETA); faltam.forEach((f) => perguntar(e, f, 'CONTRATAR')); if (e.ctx.data && !jaColetando) await disponibilidade(e, 'CONTRATAR'); else if (jaColetando && !e.ctx.turno && e.catalogos.turnos.length > 1) perguntar(e, 'turno', 'CONTRATAR'); return; }
   // Rodada 26: data sem ano é PROPOSTA (próxima ocorrência). Antes de seguir com a contratação, a data completa é
   // mostrada e o cliente confirma (o ano escrito já confirma); nada segue para a contratação com uma data suposta.
   if (e.ctx.dataConfirmada !== e.ctx.data) {
@@ -1032,6 +1035,15 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
     }
   }
 
+  // Rodada 42: escolha de pacote sem pedido de contratação ("vamos de Completa", "decidi pelo Premium"): o pacote fica
+  // anotado e o resto vira convite (nada de coleta de contratação nem de reserva); fechar continua sendo pedido do cliente.
+  if (entendimento.escolhaPacote && !tipos.has('CONTRATAR') && !protecao && !pediuPessoa && !s?.reclamacao && !e.encaminhar.length) {
+    const codigo = entendimento.escolhaPacote;
+    dizer(e, `Anotei: pacote ${nomePacote(catalogos, codigo) ?? codigo}.`, [{ tipo: 'PACOTE', codigo, id: codigo }]);
+    const faltam = (['data', 'turno', 'convidados'] as const).filter((c) => !e.ctx[c]);
+    if (faltam.length) for (const c of faltam) perguntar(e, c, 'PRECOS', true);
+    else dizer(e, 'Quando quiser seguir com a contratação, é só me dizer.');
+  }
   // Rodada 34: horário de entrada dos convidados pelos períodos cadastrados (o período da conversa, se houver).
   if (ENTRADA_CONVIDADOS.test(semAcento(entrada.texto)) && !protecao && !pediuPessoa && !s?.reclamacao && catalogos.turnos.length) {
     const t = catalogos.turnos.find((x) => x.codigo === e.ctx.turno);
@@ -1048,9 +1060,10 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
 
   // Rodada 40: "tem essa data?", "quero reservar", "quero fechar": o link PÚBLICO de disponibilidade/fechamento da empresa
   // (o mesmo para todos; diferente do link individual de contrato). Não sai com proteção, pedido de pessoa, reclamação ou
-  // passagem para a equipe; na agenda, uma vez por conversa (pedido de contratação o repete). O link não reserva nada.
+  // passagem para a equipe. Rodada 42: uma vez por conversa (já enviado, não volta a cada consulta nem a cada passo da
+  // contratação). O link não reserva nada.
   const linkPublico = (tipos.has('DISPONIBILIDADE') || tipos.has('CONTRATAR')) && !protecao && !pediuPessoa && !s?.reclamacao && !e.encaminhar.length
-    && (tipos.has('CONTRATAR') || !entrada.contexto.linkDisponibilidade) ? e.fontes.linkDisponibilidade?.() ?? null : null;
+    && !entrada.contexto.linkDisponibilidade ? e.fontes.linkDisponibilidade?.() ?? null : null;
   if (linkPublico) {
     const avisoReserva = e.paragrafos.some((p) => p.texto === RESERVA_SO_COM_CONTRATACAO) ? '' : ' Enviar este link não reserva a data: ela só fica garantida quando a contratação é concluída.';
     e.paragrafos = e.paragrafos.filter((p) => p.texto !== RESERVA_SO_COM_CONTRATACAO);

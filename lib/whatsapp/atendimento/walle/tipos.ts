@@ -69,6 +69,8 @@ export type Entendimento = {
   comparaPreco?: boolean;
   /** "E num dia de semana sai mais barato?": comparação por OUTRA data sem dizer qual (o valor é por data). */
   outraData?: boolean;
+  /** Rodada 42: o cliente escolheu um pacote sem pedir a contratação ("vamos de Completa"): o código do pacote. */
+  escolhaPacote?: string;
   /** Prato pedido pelo nome que não está no catálogo da empresa ("tem cachorro-quente no cardápio?"). */
   pratoSemCadastro?: string | null;
   /** "À tarde", "de tarde" (rodada 18): a tarde cobre o fim do primeiro horário e o começo do segundo — o período é

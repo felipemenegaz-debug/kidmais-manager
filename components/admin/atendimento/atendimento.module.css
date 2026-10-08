@@ -88,3 +88,6 @@
 .maisOpcoes summary{list-style:none}.maisOpcoes summary::-webkit-details-marker{display:none}.maisOpcoes summary::before{content:"";width:8px;height:8px;margin:0 12px 0 2px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s}.maisOpcoes[open] summary::before{transform:rotate(45deg)}
 /* Rodada 40 (validação no celular): o título do item nunca é espremido pelos botões — abaixo de ~240px ele ocupa a linha e os botões descem. */
 .listaProntas .itemPronta{flex:1 1 240px;min-width:0}
+/* Rodada 42: rótulo do ambiente (demonstração/homologação) no topo das telas do atendimento; teal = informação. */
+.seloAmbiente{position:sticky;top:0;z-index:60;margin:0 auto;max-width:1600px;padding:8px 16px;font-weight:700;font-size:14px;letter-spacing:.02em;color:var(--km-text)!important;background:color-mix(in srgb,var(--km-teal) 22%,var(--km-card));border-bottom:2px solid var(--km-teal);text-align:center}
+@media(max-width:800px){.seloAmbiente{top:64px;font-size:13px;padding:6px 12px}}

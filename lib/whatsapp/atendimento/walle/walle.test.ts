@@ -3044,3 +3044,103 @@ test('rodada 41 — o Wall-e oferece falar com uma pessoa: na apresentação e n
   const menu = texto((await conversa(['hmm'])).ultima);
   if (/escreva “atendente”/.test(menu)) assert.ok(!menu.includes(OFERTA));
 });
+
+// ---------------------------------------------------------------- rodada 42: contratação por referência e escolha de pacote
+/** Reserva dada por feita (a mesma ideia da régua): "está reservada", sem "não/só fica/ainda" antes na frase. */
+const RESERVA_FEITA = /(?:^|[.!?\n] *)(?![^.!?\n]*\b(?:n[aã]o|s[oó] fica|ainda|depois|quando|se)\b)[^.!?\n]*\b(?:est[aá]|ficou|foi|t[aá]) (?:reservad|confirmad|garantid)/;
+test('rodada 42 — "fecha a do dia 21", "a da noite", "fecha essa", "quero essa opção": contratação pelo que já foi apresentado', async () => {
+  const valor = ['quanto fica o completa pra 70 dia 14/11 à noite?', 'e no dia 21?'];
+  for (const t of ['fecha pra mim a do dia 21 então', 'fecha a do dia 21', 'pode fechar a do dia 21', 'reserva a do dia 21 pra mim', 'fecha essa', 'fecha essa então', 'garante essa data pra mim', 'quero essa', 'quero essa opção', 'vou querer essa', 'fico com essa', 'pode ser essa então', 'ok, quero essa mesmo']) {
+    const c = await conversa([...valor, t], {}, { apresentado: true });
+    assert.ok(entenderPorRegras(t, catalogos, c.rodadas[1].contexto).intencoes.some((i) => i.tipo === 'CONTRATAR'), t);
+    // Data, pacote, período e convidados preservados; só a confirmação da data completa (nada reservado).
+    assert.match(texto(c.ultima), /^Antes de seguir com a contratação, confirme a data: sábado, 21\/11\/2026\./, t);
+    assert.equal(c.ultima.contexto.pacote, 'COMPLETA', t); assert.equal(c.ultima.contexto.convidados, 70, t); assert.equal(c.ultima.contexto.turno, 'TURNO_2', t);
+    assert.equal(c.ultima.passagem, null, t);
+    assert.doesNotMatch(texto(c.ultima), RESERVA_FEITA, t);
+  }
+  // Período por referência: "a da noite" escolhe; "fecha a da noite" contrata.
+  const p = await conversa(['quanto fica o completa pra 70 dia 21/11?', 'a da noite', 'fecha a da noite'], {}, { apresentado: true });
+  assert.equal(p.rodadas[1].contexto.turno, 'TURNO_2');
+  assert.ok(!p.rodadas[1].passagem && !/confirme a data/.test(texto(p.rodadas[1])), '"a da noite" sozinho não é contratação');
+  assert.match(texto(p.ultima), /confirme a data: sábado, 21\/11\/2026/);
+});
+
+test('rodada 42 — contraexemplos: pergunta sobre a opção, "essa" de outro assunto e referência sem opção apresentada não contratam', async () => {
+  const valor = ['quanto fica o completa pra 70 dia 14/11 à noite?', 'e no dia 21?'];
+  for (const t of ['a do dia 21 é mais barata?', 'essa tem bolo?', 'quero essa cor de balão', 'essa opção inclui decoração?', 'quanto fecha a do dia 21?', 'quero essa informação por escrito', 'gostei dessa', 'fecha a conta de quanto deu?']) {
+    const c = await conversa([...valor, t], {}, { apresentado: true });
+    assert.ok(!entenderPorRegras(t, catalogos, c.rodadas[1].contexto).intencoes.some((i) => i.tipo === 'CONTRATAR'), t);
+    assert.doesNotMatch(texto(c.ultima), /confirme a data|preciso de poucos dados/, t);
+  }
+  // Sem opção apresentada na conversa, "quero essa" não vira contratação.
+  assert.ok(!entenderPorRegras('quero essa', catalogos, {}).intencoes.some((i) => i.tipo === 'CONTRATAR'));
+});
+
+test('rodada 42 — escolher o pacote não é pedir a contratação; fechar continua sendo', async () => {
+  for (const t of ['vamos de completa', 'ok, vamos de Completa então', 'decidi pelo premium', 'fico com o essencial', 'pode ser o completa', 'vou querer o premium', 'optamos pela completa']) {
+    const e = entenderPorRegras(t, catalogos);
+    assert.ok(!e.intencoes.some((i) => i.tipo === 'CONTRATAR'), t);
+    const r = (await conversa([t], {}, { apresentado: true })).ultima;
+    assert.match(texto(r), /^Anotei: pacote (Completa|Premium|Essencial)\./, t);
+    assert.equal(r.passagem, null, t);
+    assert.doesNotMatch(texto(r), /contratação com a equipe|confirme a data/, t);
+  }
+  // Com os dados já na conversa: anota e diz como seguir, sem iniciar a contratação.
+  const comDados = (await conversa(['quanto fica o completa pra 70 dia 21/11 à noite?', 'vamos de completa'], {}, { apresentado: true })).ultima;
+  assert.match(texto(comDados), /Anotei: pacote Completa\.\n\nQuando quiser seguir com a contratação, é só me dizer\./);
+  // Dúvida entre pacotes não é escolha; fechar com o pacote é contratação.
+  assert.equal(entenderPorRegras('vou de completa ou premium?', catalogos).escolhaPacote, undefined);
+  for (const t of ['fecho com o premium', 'fechado com a completa', 'quero fechar o completa', 'pode reservar o premium pra mim dia 21/11']) assert.ok(entenderPorRegras(t, catalogos).intencoes.some((i) => i.tipo === 'CONTRATAR'), t);
+});
+
+test('rodada 42 — a conversa inteira do h41 conv1 (aa51–aa55): valor, outro dia, "gostei", "fecha a do dia 21" e a confirmação, sem cascata', async () => {
+  const c = await conversa(['Oi! quanto fica a completa pra 70 pessoas no dia 14 de novembro à noite?', 'e no dia 21?', 'simmm, gostei', 'fecha pra mim a do dia 21 então', 'isso, 21/11 mesmo'], { linkPublico: 'https://festa.exemplo.test/disponibilidade' });
+  const [, , gostei, fecha, confirma] = c.rodadas;
+  assert.equal(gostei.passagem, null);
+  assert.match(texto(fecha), /confirme a data: sábado, 21\/11\/2026/);
+  assert.ok(texto(fecha).includes('https://festa.exemplo.test/disponibilidade'), 'o link público vai junto da contratação');
+  assert.match(texto(fecha), /não reserva a data/);
+  assert.equal(confirma.passagem?.motivo, 'CONTRATACAO');
+  assert.equal(confirma.passagem?.coletado.data, '2026-11-21');
+  assert.equal(confirma.passagem?.coletado.convidados, 70);
+  assert.equal(confirma.passagem?.coletado.pacote, 'Completa');
+  assert.match(String(confirma.passagem?.coletado.turno), /17h às 21h/);
+  assert.doesNotMatch(texto(confirma), RESERVA_FEITA);
+  assert.ok(!texto(confirma).includes('https://'), 'o link não volta na passagem');
+});
+
+test('rodada 42 — coleta sem repetição: "sim" ou um dado só pedem o que falta; o link sai uma vez por conversa', async () => {
+  const LINK = 'https://festa.exemplo.test/disponibilidade';
+  const c = await conversa(['tem vaga dia 12/12?', 'quero essa opção', 'sim', 'a da noite', '80 pessoas, premium', 'isso, 12/12/2026'], { linkPublico: LINK }, { apresentado: true });
+  const t = c.rodadas.map(texto);
+  assert.equal(t.filter((x) => x.includes(LINK)).length, 1, 'o link sai só na primeira vez');
+  assert.match(t[1], /^Que bom! Para adiantar a contratação/);
+  assert.doesNotMatch(t[2], /Que bom!|Consultei a agenda/, '"sim" não repete a abertura nem a agenda');
+  assert.match(t[2], /período .* e quantos convidados/);
+  assert.match(t[3], /quantos convidados e qual pacote/);
+  assert.match(t[4], /confirme a data: sábado, 12\/12\/2026/);
+  assert.equal(c.ultima.passagem?.motivo, 'CONTRATACAO');
+  assert.equal(c.ultima.passagem?.coletado.convidados, 80);
+});
+
+test('rodada 42 — caminho do modelo: a referência das regras vale mesmo se o modelo não marcar contratação', async () => {
+  const ctx = (await conversa(['quanto fica o completa pra 70 dia 14/11 à noite?', 'e no dia 21?'])).ultima.contexto;
+  const e = revalidarEntendimento(saidaModelo([intencao('OUTRO', 'fecha pra mim a do dia 21 então')]), 'fecha pra mim a do dia 21 então', catalogos, ctx);
+  assert.ok(e.intencoes.some((i) => i.tipo === 'CONTRATAR'));
+  const eq = revalidarEntendimento(saidaModelo([intencao('OUTRO', 'quero essa opção')]), 'quero essa opção', catalogos, ctx);
+  assert.ok(eq.intencoes.some((i) => i.tipo === 'CONTRATAR'));
+  // Escolha de pacote marcada pelo modelo como contratação: sem verbo de fechar, não vale.
+  const ev = revalidarEntendimento(saidaModelo([intencao('CONTRATAR', 'vamos de completa')]), 'vamos de completa', catalogos, {});
+  assert.ok(!ev.intencoes.some((i) => i.tipo === 'CONTRATAR'));
+  assert.equal(ev.escolhaPacote, 'COMPLETA');
+});
+
+test('rodada 42 — rótulo do ambiente: só com a variável do servidor, curto e sem controle', async () => {
+  const { rotuloAmbiente } = await import('../rotulo-ambiente.ts');
+  assert.equal(rotuloAmbiente(undefined), null);
+  assert.equal(rotuloAmbiente('   '), null);
+  assert.equal(rotuloAmbiente('Demo r42 · modo regras locais'), 'Demo r42 · modo regras locais');
+  assert.equal(rotuloAmbiente('Demo\nr42\t· modo IA'), 'Demo r42 · modo IA');
+  assert.equal(rotuloAmbiente('x'.repeat(200))?.length, 80);
+});
