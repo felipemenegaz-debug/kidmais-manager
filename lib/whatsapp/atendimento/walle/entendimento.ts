@@ -1837,7 +1837,7 @@ export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalog
     if (i.tipo === 'CONTRATO' && doModelo && ['CONVIDADOS', 'CORTESIA'].includes(i.tema ?? 'GERAL') && !CLAUSULA_DE_CONVIDADOS.test(t) && temPacotes) continue;
     if (i.tipo === 'CONTRATO' && doModelo && (i.tema ?? 'GERAL') === 'GERAL' && (soEntrada || soCapacidade || soDuracao) && !pedeCondicao) continue;
     // Rodada 37 (h37 aa79): cardápio dispensado pelo cliente ("não precisa mandar o cardápio de novo") não é pedido.
-    if (i.tipo === 'CARDAPIO' && cardapioDispensado(t) && !regras.itens.length && !regras.pratoSemCadastro) continue;
+    if (i.tipo === 'CARDAPIO' && cardapioDispensado(t) && !regras.itens?.length && !regras.pratoSemCadastro) continue;
     // Também (aa33): a pergunta da entrada lida como pergunta frequente sem cadastro não é "informação não cadastrada".
     if (i.tipo === 'DUVIDA' && !i.perguntaId && catalogos.turnos.length && ENTRADA_CONVIDADOS.test(semAcento(i.trecho)) && !perguntasSemFonte(i.trecho, catalogos).length) continue;
     if (intencoes.some((x) => x.tipo === i.tipo && (i.tipo === 'DUVIDA' ? x.perguntaId === i.perguntaId : i.tipo === 'CONTRATO' ? x.tema === (i.tema ?? 'GERAL') : true))) continue;
