@@ -438,3 +438,18 @@ test('IRRELEVANTE (rodada 37): cláusula de convidados sem condição pedida e m
   assert.equal(irrelevante(linha({ texto: 'não precisa mandar o pdf do cardápio de novo, só me fala se tem coxinha', intencoes: ['CARDAPIO'], saidas: [texto('Coxinha: sim, faz parte do buffet do Completa.')] })), null);
   assert.equal(irrelevante(linha({ texto: 'me manda o cardápio do completa?', intencoes: ['CARDAPIO'], saidas: [texto('Buffet do Completa:\n• Salgados: Coxinha'), pronta('p-cardapio', 'CARDAPIO')] })), null);
 });
+
+test('rodada 38 (erro da régua no h38 aa03): "até que horas … ficar" é assunto de horários; "o pessoal" chega pela entrada; dispensa invertida', () => {
+  const periodos = { tipo: 'PERIODOS_AGENDA' };
+  const t03 = 'no horário do almoço o pessoal pode entrar a partir de que horas? e até que horas dá pra ficar?';
+  // Certo: cláusula 8 pela pergunta do término; a entrada pelos períodos.
+  assert.equal(fonteErrada(linha({ texto: t03, intencoes: ['CONTRATO', 'DISPONIBILIDADE'], saidas: [texto('Cláusula 8 …', [clausula(8)]), texto('No primeiro horário (11h às 15h), a entrada…', [periodos])] })), null);
+  assert.deepEqual(calcularMetricas([linha({ id: 'p1', texto: t03, intencoes: ['CONTRATO', 'DISPONIBILIDADE'], saidas: [texto('Cláusula 8 …', [clausula(8)]), texto('No primeiro horário (11h às 15h), a entrada…', [periodos])] })]).comercial.falhas.map((f) => f.id), []);
+  // Errado continua errado: só o período nomeado (sem pergunta de término) com a cláusula 8; a galera sem a fonte dos períodos.
+  assert.match(fonteErrada(linha({ texto: 'no horário do almoço o pessoal pode entrar a partir de que horas?', saidas: [texto('Cláusula 8 …', [clausula(8)])] })), /cláusula sem assunto de contrato na mensagem: 8/);
+  assert.deepEqual(calcularMetricas([linha({ id: 'p2', texto: 'que horas a galera pode chegar?', intencoes: ['DISPONIBILIDADE'], saidas: [texto('Consultei a agenda…', [{ tipo: 'AGENDA' }])] })]).comercial.falhas.map((f) => f.id), []);
+  assert.deepEqual(calcularMetricas([linha({ id: 'p3', texto: 'que horas a galera pode chegar?', intencoes: ['DISPONIBILIDADE'], saidas: [texto('Anotei.')] })]).comercial.falhas.map((f) => f.id), ['p3']);
+  // h38 aa02: o cardápio dispensado com o material antes, reenviado.
+  assert.match(irrelevante(linha({ texto: 'quantas horas de festa tem o completo? o pdf do cardápio eu já tenho, não precisa mandar de novo', intencoes: ['PACOTES'], saidas: [texto('Buffet do Completa:\n• Salgados: Coxinha')] })), /cardápio dispensado reenviado/);
+  assert.equal(irrelevante(linha({ texto: 'quantas horas de festa tem o completo? o pdf do cardápio eu já tenho, não precisa mandar de novo', intencoes: ['PACOTES'], saidas: [texto('O Completa tem 4 horas de festa.')] })), null);
+});

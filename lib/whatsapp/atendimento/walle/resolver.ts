@@ -205,6 +205,9 @@ async function precos(e: Estado) {
   const mesEmVista = !!e.entendimento.mesCitado && /\b(?:quanto|qto|qnto|qnt|valor|preco|custa\w*|orcamento)\b/.test(tx) && !/\btabela\b/.test(tx) && !/\bnao sei\b[^.?!]{0,25}\b(?:dia|data)\b/.test(tx);
   if (!e.entendimento.reenviar) await precoCalculado(e, !podeCalcular && (ORCAMENTO.test(semAcento(e.texto)) || !!e.entendimento.comparaPreco || continuaValor || mesEmVista || emParte || retomando || outraEpoca || soFaltaPeriodo || !!e.entendimento.periodoAmbiguo || !!e.entendimento.outraData), dois ?? unicoQueCabe, 'PRECOS', epocaGenerica && !retomando);
   if (outraTambem) { dizer(e, COMPARAR_OUTRA); perguntar(e, 'data', 'PRECOS'); }
+  // Rodada 38 (h38 aa78): "e no outro horário?" sem período na conversa: pergunta o período (e a data, se faltar), sem
+  // mandar material de novo.
+  if (/\b(?:o |no |do |pro |pra )?outro (?:horario|turno|periodo)\b/.test(tx) && !e.ctx.turno && !e.entendimento.entidades.turno) { perguntar(e, 'turno', 'PRECOS'); if (!e.ctx.data) perguntar(e, 'data', 'PRECOS'); }
   // Rodada 26: sem valor exato e sem pergunta ("e pra 80?" depois da tabela), a resposta aponta a tabela já enviada.
   if (!podeCalcular && jaTem && !e.entendimento.reenviar && !e.perguntas.length && !e.paragrafos.some((p) => p.fontes.some((x) => x.tipo === 'PRONTA' || x.tipo === 'TABELA_PRECO'))) {
     const tabela = candidatos[0];

@@ -45,7 +45,7 @@ export const PERGUNTA_DO_ASSUNTO = {
   // Rodada 26: parcelamento ("tem juros se eu parcelar?", "12x sem juros", "à vista") é condição de pagamento: não há
   // cláusula dele no modelo — qualquer cláusula citada só por ele é de outro assunto (a de inadimplência inclusive).
   PARCELAMENTO: /\b(parcel\w*|sem juros|juros zero|em \d+ ?x|\d+ ?x\b|\d+ vezes|a vista|no cartao|cartao de credito|formas? de pagamento|dividir (o valor|em))/,
-  HORARIOS: /\b(passar do horario|passa do horario|passou do horario|alem do horario|depois do horario|do horario|hora (a mais|extra)|horas (a mais|extras?)|horinhas? (a mais|extras?)|minutos a mais|prorroga\w*|estender|esticar|que horas (tem que|temos que|precisa|precisamos) sair|termin\w*|horario)\b/,
+  HORARIOS: /\b(passar do horario|passa do horario|passou do horario|alem do horario|depois do horario|do horario|hora (a mais|extra)|horas (a mais|extras?)|horinhas? (a mais|extras?)|minutos a mais|prorroga\w*|estender|esticar|que horas (tem que|temos que|precisa|precisamos) sair|termin\w*|horario|ate que horas?\b[^.?!]{0,20}\b(ficar|fica|ficamos|a festa|termina\w*|acaba\w*|vai)|toleranc\w*|mais cedo|antecip\w*)\b/,
   CANCELAMENTO: /\b(cancel\w*|desist\w*|remarc\w*|mudar a data|trocar a data|adiar|devolv\w*|devolucao|reembols\w*|nao puderem|nao conseguirem)\b/,
   BEBIDAS: /\b(cerveja\w*|bebida\w*|alcool\w*|vinho\w*|espumante\w*|chop+e?s?|drinks?|rolha|whisky|vodka|caipirinha\w*)\b/,
   LIMPEZA: /\b(confete\w*|chuva de prata|serpentina\w*|limpeza)\b/,
@@ -225,6 +225,8 @@ export function repeticaoDesnecessaria(l, todas = []) {
 const SINAL_PEDIDO = /\bsinal\b|\b(valor|pagar|pago|paguei|pagamos|pix|quanto|dar|dou|de)\s+(d[ao]\s+|uma\s+|a\s+)?entrada\b|\bentrada\s+(de\s+(r\$|\d)|e\s+(o resto|parcel))/;
 /** Rodada 37: dispensa de um material ("não precisa mandar o cardápio de novo", "já salvei a tabela"). */
 const DISPENSA_REGUA = /\b(?:(?:nao|n|nem) (?:precisa|precisam)[^.!?]{0,15}\b(?:mandar|enviar|reenviar|mande|manda)\b[^.!?]{0,20}?|ja (?:salvei|baixei|tenho|recebi) )(?:o |a )?(cardapio|pdf da tabela|tabela)\b/;
+/** Rodada 38 (h38 aa02, achado na leitura): a mesma dispensa com o material antes ("o pdf do cardápio eu já tenho, não precisa mandar de novo"). */
+const DISPENSA_INVERTIDA_REGUA = /\b(?:o |a )?(?:pdf (?:do |da )?)?(cardapio|tabela)\b[^.!?]{0,25}?\b(?:(?:eu |a gente )?ja (?:tenho|temos|salvei|baixei|recebi)|(?:nao|n|nem) (?:precisa|precisam))\b/;
 export function irrelevante(l) {
   const pediu = (...xs) => xs.some((x) => l.esperado.intencoes.includes(x));
   const fontes = fontesDe(l);
@@ -240,7 +242,7 @@ export function irrelevante(l) {
   // numa pergunta de capacidade ou duração que o rótulo não marca como condição do contrato.
   if (fontes.some((f) => f.tipo === 'CONTRATO_MODELO' && (f.clausula === 3 || f.clausula === 4)) && !pediu('CONTRATO', 'CONTRATO_PROPRIO')) achados.push('cláusula de convidados sem condição pedida');
   // Rodada 37 (h37 aa79): o material que o cliente dispensou ("não precisa mandar o cardápio de novo") mandado de novo.
-  const dispensa = DISPENSA_REGUA.exec(semAc(l.texto))?.[1];
+  const dispensa = DISPENSA_REGUA.exec(semAc(l.texto))?.[1] ?? DISPENSA_INVERTIDA_REGUA.exec(semAc(l.texto))?.[1];
   if (dispensa === 'cardapio' && (fontes.some((f) => prontaDe(f, 'CARDAPIO')) || /^Buffet d[oa] /m.test(textos))) achados.push('cardápio dispensado reenviado');
   if ((dispensa === 'tabela' || dispensa === 'pdf da tabela') && fontes.some((f) => prontaDe(f, 'PRECOS'))) achados.push('tabela dispensada reenviada');
   return achados.length ? achados.join(', ') : null;
@@ -441,8 +443,9 @@ function instrucoes(linhas) {
   };
 }
 
-/** Rodada 35: pergunta do horário de entrada dos convidados (implementação própria da régua). */
-const ENTRADA_REGUA = /\bentrada d[oa]s? (?:convidad|crianc|pessoas)|\b(?:convidad\w*|pessoas|criancas)\b(?:\s+\S+){0,3}?\s+(?:entra\w*|cheg\w*)\b|\b(?:que horas|a partir de que horas)\b[^.?!]{0,30}\b(?:entra\w*|cheg\w*)\b/;
+/** Rodada 35: pergunta do horário de entrada dos convidados (implementação própria da régua). Rodada 38 (erro da régua no
+ * h38 aa03): quem chega pode ser "o pessoal", "a galera", "a família", "as visitas". */
+const ENTRADA_REGUA = /\bentrada d[oa]s? (?:convidad|crianc|pessoas)|\b(?:convidad\w*|pessoas|criancas|pessoal|galera|povo|turma|familia|visitas|parentes)\b(?:\s+\S+){0,3}?\s+(?:entra\w*|cheg\w*)\b|\b(?:que horas|a partir de que horas)\b[^.?!]{0,30}\b(?:entra\w*|cheg\w*)\b/;
 /** Acerto comercial: decisão certa e cada assunto comercial pedido servido pela fonte oficial (ou o dado perguntado). */
 function comercial(l) {
   if (l.decisao !== l.esperado.decisao) return `decisão ${l.decisao}`;

@@ -341,7 +341,11 @@ function extrairTemaBruto(texto: string): string | null {
   // pro segundo horário", "mudamos pra Águas Claras").
   // Rodada 30 (h30 aa77): "ih mudei de ideia, ele quer o Homem-Aranha msm" — quem escolhe é a criança.
   const mudanca = /\b(?:mudamos|mudei|mudou|trocamos|troquei|decidimos|resolvemos)(?: de ideia)?(?:[, ]+(?:kkk\w*|rs+|haha\w*|n[eé]|enfim|ent[aã]o|gente|viu|af+|aff+))*[, ]+(?:(?:pra|para|por)\s+(?:o |a )?|(?:vai ser|sera|será|agora [eé]|[eé])\s+(?:o |a )?|(?:(?:ele|ela|eles|elas|a gente|n[oó]s|o \p{L}+|a \p{L}+)\s+)?(?:agora\s+)?(?:quer|querem|prefere|preferem|escolheu|escolheram|vai querer|pediu|pediram)\s+(?:o |a |os |as )?)(\p{Lu}[^,.;!?\n]{1,39})/u.exec(t)?.[1];
-  if (mudanca && !/^(?:segund|primeir|almo[cç]|noite|manh|tarde|dia\b|s[aá]bado|domingo|janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|essencial|complet|premium|asa sul|[aá]guas claras|unidade|outr)/i.test(mudanca)) return mudanca.trim();
+  // Rodada 38 (h38 aa62): a troca dita sem verbo de mudança — "na verdade ela agora quer a Wandinha kkk", "agora ele
+  // prefere o Sonic", "pensando bem ela quer a Barbie" (marcador de virada + quem escolhe + querer/preferir + nome próprio).
+  const virada = /\b(?:na verdade|pensando bem|pensei melhor|agora)\b[, ]+(?:(?:ele|ela|eles|elas|a gente|n[oó]s|o \p{L}+|a \p{L}+)\s+)?(?:agora\s+|j[aá]\s+|t[aá]\s+)?(?:quer|querem|prefere|preferem|escolheu|escolheram|pediu|pediram|t[aá] querendo|t[aá] pedindo)\s+(?:o |a |os |as |do |da )?(\p{Lu}[^,.;!?\n]{1,39})/u.exec(t)?.[1];
+  const nomeTroca = mudanca ?? virada;
+  if (nomeTroca && !/^(?:segund|primeir|almo[cç]|noite|manh|tarde|dia\b|s[aá]bado|domingo|janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|essencial|complet|premium|asa sul|[aá]guas claras|unidade|outr)/i.test(nomeTroca)) return nomeTroca.trim();
   const padroes = [
     /\btema\s*(?::\s*|\s+(?:de\s+|do\s+|da\s+|dos\s+|das\s+|e\s+|é\s+|eh\s+|sera\s+|será\s+|vai ser\s+)?)(?!(?:festa|aniversario|aniversário|niver)\b)([^,.;!?\n]{2,40})/i,
     /\bclima\s+(?:de\s+|do\s+|da\s+)?([^,.;!?\n]{2,40})/i,
@@ -850,12 +854,12 @@ const REENVIAR = /\b(de novo|novamente|reenviar|reenvia|manda outra vez|nao rece
 /** "Não manda o PDF de novo": a negação desfaz o reenvio, e o material não é mandado (só a resposta). */
 const NAO_REENVIAR = /\b(nao|n|nem) (precisa (de )?)?(me )?(manda|mande|mandar|mandem|envia|envie|enviar|enviem|reenvia|reenvie|reenviar)\b[^.!?]{0,30}\b(de novo|novamente|outra vez)\b/;
 /** Rodada 37 (h37 aa79): o cardápio dispensado ("não precisa mandar o cardápio de novo", "já salvei o cardápio"). */
-const DISPENSA_CARDAPIO = String.raw`\b(?:nao|n|nem) (?:precisa (?:de )?|precisam )?(?:me )?(?:manda|mande|mandar|mandem|envia|envie|enviar|enviem|reenvia|reenvie|reenviar)\b[^.!?]{0,20}?\b(?:o |esse |este )?cardapio\b|\bja (?:baixei|recebi|tenho|salvei|vi) (?:o )?cardapio\b`;
+const DISPENSA_CARDAPIO = String.raw`\b(?:nao|n|nem) (?:precisa (?:de )?|precisam )?(?:me )?(?:manda|mande|mandar|mandem|envia|envie|enviar|enviem|reenvia|reenvie|reenviar)\b[^.!?]{0,20}?\b(?:o |esse |este )?cardapio\b|\bja (?:baixei|recebi|tenho|salvei|vi) (?:o )?cardapio\b|\b(?:o |esse |este )?(?:pdf (?:do |de )?)?cardapio\b[^.!?]{0,25}?\b(?:(?:eu |a gente )?ja (?:tenho|temos|baixei|recebi|salvei|vi)|(?:nao|n|nem) (?:precisa|precisam)(?: (?:mandar|enviar|reenviar))?)\b`;
 /** O cardápio só aparece na dispensa: sem ele, a mensagem não pede cardápio. */
 export function cardapioDispensado(t: string) {
   return new RegExp(DISPENSA_CARDAPIO).test(t) && !pedeIntencao(t.replace(new RegExp(DISPENSA_CARDAPIO, 'g'), ' '), 'CARDAPIO');
 }
-const SEM_MATERIAL = /\b(nao|n|nem) (precisa (de )?|precisam )?(me )?(manda|mande|mandar|mandem|envia|envie|enviar|enviem|reenvia|reenvie|reenviar)\b[^.!?]{0,20}?\b(o |a |os |as |esse |essa |este |esta )?(pdf|tabela|arquivo|material|documento|cardapio|foto|fotos|link)\b|\b(pode |podem )?(para|pare|parem|parar) de (me )?(mandar|enviar|mandando|enviando) (o |a |os |as |esse |essa )?(pdf|pdfs|tabela|arquivo|material|documento|cardapio|foto|fotos|link)\b|\bja (baixei|recebi|tenho|salvei|vi) (o |a |os |as )?(pdf|tabela|arquivo|material|cardapio)\b/;
+const SEM_MATERIAL = /\b(nao|n|nem) (precisa (de )?|precisam )?(me )?(manda|mande|mandar|mandem|envia|envie|enviar|enviem|reenvia|reenvie|reenviar)\b[^.!?]{0,20}?\b(o |a |os |as |esse |essa |este |esta )?(pdf|tabela|arquivo|material|documento|cardapio|foto|fotos|link)\b|\b(pode |podem )?(para|pare|parem|parar) de (me )?(mandar|enviar|mandando|enviando) (o |a |os |as |esse |essa )?(pdf|pdfs|tabela|arquivo|material|documento|cardapio|foto|fotos|link)\b|\bja (baixei|recebi|tenho|salvei|vi) (o |a |os |as )?(pdf|tabela|arquivo|material|cardapio)\b|\b(o |a |esse |essa )?(pdf|tabela|arquivo|material|cardapio)\b[^.!?]{0,25}?\b((eu |a gente )?ja (tenho|temos|baixei|recebi|salvei|vi)|(nao|n|nem) (precisa|precisam)( (mandar|enviar|reenviar))?)\b/;
 /**
  * Alergia, intolerância, restrição alimentar e GARANTIA de ingrediente: nunca respondidas sem a equipe. Sintoma vago só
  * conta junto de comer ou de um alérgeno ("toda vez q a Bia come soja ela vomita", "fica cheia de manchas quando come");
@@ -1601,7 +1605,7 @@ export function entenderPorRegras(texto: string, catalogos: Catalogos, contexto:
   if (indecisao && !intencoes.some((i) => i.tipo === 'DECORACAO')) intencoes.push({ tipo: 'DECORACAO', trecho: texto.trim().slice(0, 120) });
   // Rodada 30 (h30 aa77): a escolha ou a troca do tema dita sozinha ("ih mudei de ideia, ele quer o Homem-Aranha msm") é
   // decoração — o tema é anotado com a fonte da decoração, não só como correção de dado.
-  else if (entidades.tema && intencoes.every((i) => i.tipo === 'OUTRO') && /\b(?:mud\w* de ideia|mudamos|mudei|trocamos|troquei|decidimos|decidi|escolh\w*|vamos de|vai ser|quer o|quer a|prefere)\b/.test(semAcento(texto)))
+  else if (entidades.tema && intencoes.every((i) => i.tipo === 'OUTRO') && /\b(?:mud\w* de ideia|mudamos|mudei|trocamos|troquei|decidimos|decidi|escolh\w*|vamos de|vai ser|quer o|quer a|prefere|agora quer|agora prefere)\b/.test(semAcento(texto)))
     intencoes.splice(0, intencoes.length, { tipo: 'DECORACAO', trecho: texto.trim().slice(0, 120) });
   // Retoma a pergunta pendente só quando a mensagem traz um dos dados que faltavam ("Asa Sul" quando faltava a unidade).
   const preenche = pendentes.some((campo) => (campo === 'data' ? !!entidades.data || dataBruta === 'INVALIDA' : campo === 'pacote' ? entidades.pacotes.length > 0 : entidades[campo] !== null));
@@ -1634,6 +1638,11 @@ export function entenderPorRegras(texto: string, catalogos: Catalogos, contexto:
   const seguirOutroDia = segue === 'DISPONIBILIDADE' ? 'DISPONIBILIDADE' : segue === 'PRECOS' || precoRecente ? 'PRECOS' : null;
   if (!intencoes.length && seguirOutroDia && dataBruta !== 'INVALIDA' && outroDiaSemData(t, contexto.data) && c.split(' ').length <= 8 && semCuidado)
     intencoes.push({ tipo: seguirOutroDia, trecho: texto.trim().slice(0, 300), continuacao: true });
+  // Rodada 38 (h38 aa78): "e no outro horário?" sem período na conversa (não há "outro" a calcular): segue o assunto em
+  // andamento (preço ou agenda; sem assunto, a agenda) como continuação — o fluxo pergunta o período e o que mais faltar,
+  // sem mandar material de novo nem o menu.
+  if (!intencoes.length && /\b(?:o |no |do |pro |pra )?outro (?:horario|turno|periodo)\b/.test(t) && !entidades.turno && !contexto.turno && c.split(' ').length <= 8 && semCuidado)
+    intencoes.push({ tipo: seguirOutroDia ?? 'DISPONIBILIDADE', trecho: texto.trim().slice(0, 300), continuacao: true });
   // Rodada 13: complemento da cláusula da mensagem ANTERIOR ("e se for só uns 15 min a mais?", "se quiser mais cobra?",
   // "dá pra estender meia hora?"): a mesma cláusula responde, com a fonte. A memória guarda só o código do tema.
   const clausulasAnteriores = contexto.clausulas ?? [];

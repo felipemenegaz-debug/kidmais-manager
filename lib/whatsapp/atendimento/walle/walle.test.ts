@@ -2827,3 +2827,52 @@ test('rodada 37 — h36 em regras: pausa sem "parar", contratação pelo períod
   // Contraexemplo: informação atribuída à gerente sem vantagem é só a origem ("o dia 24 estava livre").
   assert.ok(!(await conversa(['a gerente me disse que o dia 24/10 estava livre, ainda tá?'])).ultima.passagem);
 });
+
+// ---------------------------------------------------------------- rodada 38
+test('rodada 38 — recusa inequívoca com reclamação ou pergunta retórica antes é bloqueio definitivo, com a reclamação registrada', () => {
+  // h38 aa21 e variações: a reclamação sobre a insistência não é outro pedido.
+  for (const t of ['gente vcs são muito insistentes, toda semana isso, até quando? não quero receber mais nada de vcs', 'vcs são tão invasivos, todo dia isso?? para de me mandar mensagem', 'nossa, vcs são irritantes demais, até quando? me tira dessa lista']) {
+    assert.equal(pedidoDeParar(t)?.tipo, 'INEQUIVOCO', t);
+    assert.ok(registroDoBloqueio(t, `${HOJE}T12:00:00.000Z`)?.motivos.includes('RECLAMACAO'), `${t}: reclamação registrada`);
+  }
+  // Pausa temporária continua pausa; pergunta de verdade junto continua com a equipe (sem bloqueio definitivo).
+  for (const t of ['por ora não me mandem mais nada, mais pra frente eu procuro vcs', 'obrigada! segura as mensagens por enquanto, quando eu decidir a data eu chamo vcs', 'não precisam mandar mais mensagem por enquanto', 'chega de mensagem, não quero receber mais nada! só antes me fala qual o endereço da unidade Asa Sul', 'vcs são muito insistentes, até quando? me tira dessa lista mas antes me diz se o dia 14 tá livre', 'vcs são muito caros, até quando? não quero receber mais nada'])
+    assert.equal(pedidoDeParar(t)?.tipo, 'AMBIGUO', t);
+  // Reclamação sem pedido de parar não é pedido de parar.
+  assert.equal(pedidoDeParar('vcs são muito insistentes, até quando? quanto fica o premium?'), null);
+});
+
+test('rodada 38 — troca de tema sem verbo de mudança, material dispensado em ordem invertida e "outro horário" sem período', async () => {
+  // h38 aa62 e h35 aa67: "na verdade (pensando bem) ela (agora) quer a X" depois de um tema anotado.
+  for (const [frase, tema] of [['na verdade ela agora quer a Wandinha kkk', 'Wandinha'], ['na verdade, pensando bem, ela quer a Wandinha', 'Wandinha'], ['agora ele prefere o Sonic', 'Sonic']] as const) {
+    const c = await conversa(['ela tá doida pela Wandinha e pela Barbie, ainda não decidimos', 'vamos de Barbie', frase]);
+    assert.equal(c.ultima.contexto.tema, tema, frase);
+    assert.doesNotMatch(texto(c.ultima), /Posso ajudar com preços/, frase);
+  }
+  // Contraexemplos: período ou pacote no lugar do nome não é tema.
+  for (const frase of ['na verdade agora ela quer o segundo horário', 'pensando bem ela prefere a Completa']) {
+    const c = await conversa(['ela tá doida pela Wandinha e pela Barbie, ainda não decidimos', 'vamos de Barbie', frase]);
+    assert.equal(c.ultima.contexto.tema, 'Barbie', frase);
+  }
+  // h38 aa02: dispensa com o material antes ("o pdf do cardápio eu já tenho, não precisa mandar de novo").
+  for (const t of ['quantas horas de festa tem o completo? o pdf do cardápio eu já tenho, não precisa mandar de novo', 'o cardápio eu já salvei, só me diz quantas horas dura o premium']) {
+    const r = (await conversa([t])).ultima;
+    assert.match(texto(r), /horas de festa/, t);
+    assert.doesNotMatch(texto(r), /^Buffet d[oa] /m, t);
+    assert.ok(!r.saidas.some((s) => s.anexo?.finalidade === 'CARDAPIO'), t);
+  }
+  // Contraexemplos: o PDF que não abriu é reenviado; o cardápio pedido é mandado.
+  const c2 = await conversa(['me manda o cardápio do completa?', 'o pdf do cardápio não abriu, manda de novo?']);
+  assert.ok(c2.ultima.saidas.some((s) => s.anexo?.finalidade === 'CARDAPIO'));
+  // h38 aa78: "e no outro horário?" sem período na conversa — pergunta o período (e a data), sem material nem menu.
+  const c = await conversa(['quanto fica o essencial pra 40 pessoas? ainda nao sei o dia', 'e pra 60?', 'e no outro horário?']);
+  assert.deepEqual([...(c.ultima.contexto.pendente?.campos ?? [])].sort(), ['data', 'turno']);
+  assert.match(texto(c.ultima), /me diga a data da festa \(dia, mês e ano\) e o período \(/);
+  assert.ok(!c.ultima.saidas.some((s) => s.anexo), 'sem material');
+  assert.doesNotMatch(texto(c.ultima), /Posso ajudar com preços|Buffet d[oa]/);
+  // Sem nenhum assunto antes, a agenda pede a data (sem o menu).
+  assert.doesNotMatch(texto((await conversa(['e no outro horário?'])).ultima), /Posso ajudar com preços/);
+  // Contraexemplo: com o período na conversa, o outro horário é calculado (rodada 34).
+  const k = await conversa(['quanto fica o completa pra 70 pessoas no dia 21 de novembro no segundo horário?', 'e no outro horário?']);
+  assert.match(texto(k.ultima), /Completa em 21\/11\/2026, almoço \(11h às 15h\), 70 convidados: R\$/);
+});

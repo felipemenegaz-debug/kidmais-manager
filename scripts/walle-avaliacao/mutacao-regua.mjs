@@ -83,6 +83,10 @@ const mutacoes = {
   'irrelevante ignora o cardápio dispensado': (t) => t.replace("if (dispensa === 'cardapio' &&", 'if (false &&'),
   'irrelevante acusa o item sem o cardápio': (t) => t.replace("|| /^Buffet d[oa] /m.test(textos))) achados.push('cardápio dispensado reenviado');", "|| true)) achados.push('cardápio dispensado reenviado');"),
   'irrelevante ignora a tabela dispensada': (t) => t.replace("if ((dispensa === 'tabela' || dispensa === 'pdf da tabela') &&", 'if (false &&'),
+  // Rodada 38: "até que horas … ficar" (assunto de horários), "o pessoal" na entrada e a dispensa invertida.
+  'fonteErrada sem "até que horas … ficar"': (t) => t.replace('|ate que horas?\\b[^.?!]{0,20}\\b(ficar|fica|ficamos|a festa|termina\\w*|acaba\\w*|vai)', ''),
+  'comercial sem "o pessoal" na entrada': (t) => t.replace('|pessoal|galera|povo|turma|familia|visitas|parentes)\\b(?:\\s+\\S+){0,3}?', ')\\b(?:\\s+\\S+){0,3}?'),
+  'irrelevante ignora a dispensa invertida': (t) => t.replace(' ?? DISPENSA_INVERTIDA_REGUA.exec(semAc(l.texto))?.[1];', ';'),
 };
 let ok = true;
 for (const [nome, mut] of Object.entries(mutacoes)) {
