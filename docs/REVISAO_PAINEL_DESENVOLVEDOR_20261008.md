@@ -6,6 +6,7 @@ Entregas:
 
 - **PR #145** (`codex/painel-revisao-20261008`): cinco problemas comprovados em staging (tela e consulta do painel).
 - **PR #146** (`codex/correcoes-comerciais-20261008`): dois defeitos de regra comprovados em código (exceção vencida, listagem do provedor truncada) e testes da cobrança no painel. Escopo independente: nenhum arquivo em comum com a #145.
+- **PR #147** (`codex/reconciliacao-auditoria-remocao-20261008`): a exclusão no Asaas feita pela reconciliação fica auditada mesmo quando a operação seguinte falha; resultado desconhecido registrado à parte e nunca repetido automaticamente (autorizada por Felipe em 08/10). Nenhum arquivo em comum com a #145; dois com a #146, em trechos diferentes (merge automático).
 
 ## 1. Rastreabilidade
 
@@ -25,7 +26,8 @@ Fontes: `PROPOSTA_VENDA_ASSINATURA_20261006.md` §3 e §6, `PAINEL_DESENVOLVEDOR
 | Origem "Cadastro direto" em empresa do cadastro público | defeito | **Corrigido na #145** |
 | Tabelas quebrando palavras e datas a 390 px | defeito | **Corrigido na #145** |
 | Revogar exceção já vencida era aceito | defeito | **Corrigido na #146** |
-| Listagem do Asaas truncada em silêncio além do limite de páginas | defeito | **Corrigido na #146** |
+| Listagem do Asaas truncada em silêncio além do limite de páginas (o risco depende da quantidade de registros, de qualquer situação; lista de cobranças truncada podia esconder pagamento e permitir exclusão indevida de duplicata) | defeito | **Corrigido na #146** |
+| Reconciliação: exclusão concluída no Asaas sem auditoria quando a operação seguinte falha; resposta perdida tratada como "indisponível" e exclusão repetida | defeito | **Corrigido na #147** |
 | Uso por empresa (custo de IA do 055a, usuários, documentos) | §6 | Fora desta entrega (§6.2) |
 | Link para o provedor nos eventos | §6 | Avaliar depois dos eventos reais de A2–A12 (§6.3) |
 | Métricas de funil | §3 **P** | Não é requisito de lançamento (no lançamento: consulta SQL de leitura). Fora desta entrega (§6.2) |
@@ -91,7 +93,8 @@ Tudo somente leitura, em staging, com a sessão de desenvolvedor de Felipe, salv
 | 4 | Origem | Ficha do Buffet 1 | Origem "Cadastro público (pela própria empresa)". A Kidmais continua com a origem anterior | "Cadastro direto" no Buffet 1 |
 | 5 | Celular | Largura de 390 px: Resumo, Atividade, ficha | Cabeçalhos inteiros; data em uma linha; sem rolagem horizontal da página | "Quan/do" ou data partida; página rolando para o lado |
 | 6 | Exceção vencida (#146) | Ficha do Buffet 1, bloco comercial | "Revogar" só em exceção vigente. **Não executar** revogação: a regra está coberta por teste | Botão em exceção vencida |
-| 7 | Lista incompleta (#146) | Ficha do Buffet 1, cobrança e pendências | Página carrega como antes. Não há como reproduzir mais de 200 assinaturas no sandbox: a regra está coberta por teste. Se uma pendência mostrar `LISTA_INCOMPLETA: …`, é revisão humana no painel do Asaas, não indisponibilidade | Erro ao abrir a ficha |
+| 7 | Lista incompleta (#146) | Ficha do Buffet 1, cobrança e pendências | Página carrega como antes. Não há como reproduzir no sandbox listas acima do limite (200 assinaturas ou 500 cobranças, de qualquer situação): a regra está coberta por teste. Se uma pendência mostrar `LISTA_INCOMPLETA: …`, é revisão humana no painel do Asaas, não indisponibilidade | Erro ao abrir a ficha |
+| 7b | Exclusão na reconciliação (#147) | Ficha do Buffet 1, pendências e Atividade | Nenhuma pendência `REMOCAO_SEM_CONFIRMACAO` sem motivo. **Não provocar** exclusão: a regra está coberta por teste. Se A2–A12 gerar duplicata, cada exclusão aparece como `ASSINATURA_DUPLICADA_REMOVIDA` (resposta do provedor ou releitura) ou como `ASSINATURA_REMOCAO_SEM_CONFIRMACAO` com marcador aberto | Exclusão no Asaas sem registro correspondente na Atividade |
 | 8 | Permissões | Sessão de A (Gestão, sem concessão): `/desenvolvedor` e `/api/desenvolvedor/auditoria` | 404 nos dois | Qualquer conteúdo do painel |
 | 9 | Regressão | Resumo | Mesmo número de alertas de antes do deploy; a Kidmais continua sem cobrança | Contagem diferente sem explicação |
 
@@ -139,11 +142,11 @@ Rótulos em português e link para o Asaas serão avaliados com os eventos reais
 **Sequência:**
 
 1. Se `staging` andou, atualizar as duas branches com `staging` e esperar o CI verde.
-2. Mergear a #146 e a #145 em `staging`, em qualquer ordem (não há arquivos em comum). Anotar o SHA de cada merge.
+2. Mergear a #145, a #146 e a #147 em `staging`, em qualquer ordem. A #145 não tem arquivos em comum com as outras; a #146 e a #147 compartilham `sincronizacao.ts` e `contratacao-e8.postgres.test.ts` em trechos diferentes (merge automático validado). Anotar o SHA de cada merge e conferir a árvore final com a da validação integrada (descrição da #147).
 3. Deploy manual do serviço de staging (`srv-daif418ae00c73e8k2gg`) no último merge. Confirmar live = SHA.
 4. Executar o checklist do §5 e registrar o resultado.
 5. Promover para production pelo padrão já usado (branch `promote/…` que integra `staging` em `production`, como `27f6902`):
-   - **Diff esperado:** só a #145, a #146 e o teste da #143.
+   - **Diff esperado:** só a #145, a #146, a #147 e o teste da #143.
    - **Sem** migration nem variável. `production` hoje difere de `staging` apenas pelo teste da #143.
 6. **Em production**, manter como estão: cadastro público, e-mail real e cobrança **desligados**, sem nenhuma variável `ASAAS_*`. Conferir o inventário de variáveis antes e depois, sem ler valores.
 7. Deploy de production com autorização própria. Fazer só leituras:
@@ -162,4 +165,5 @@ Em nenhum dos dois é preciso mexer no banco ou nas variáveis.
 
 - As correções não foram testadas em staging: dependem do deploy, que não está autorizado agora.
 - Nenhuma correção está homologada.
-- As correções da #146 (6 e 7) não são reproduzíveis em staging sem gravar dados ou sem volume artificial no provedor; a evidência é o teste automatizado.
+- As correções da #146 (6 e 7) e da #147 (7b) não são reproduzíveis em staging sem gravar dados, excluir no provedor ou criar volume artificial; a evidência é o teste automatizado.
+- A compensação imediata na contratação (`resolverFalhaNoVinculo`) ainda trata resposta perdida na exclusão como `COMPENSACAO_FALHOU`, e a reconciliação pode decidir excluir de novo: fora do escopo da #147, para decisão.
