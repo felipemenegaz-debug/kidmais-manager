@@ -6,7 +6,7 @@ Entregas:
 
 - **PR #145** (`codex/painel-revisao-20261008`): cinco problemas comprovados em staging (tela e consulta do painel).
 - **PR #146** (`codex/correcoes-comerciais-20261008`): dois defeitos de regra comprovados em código (exceção vencida, listagem do provedor truncada) e testes da cobrança no painel. Escopo independente: nenhum arquivo em comum com a #145.
-- **PR #147** (`codex/reconciliacao-auditoria-remocao-20261008`): a exclusão no Asaas feita pela reconciliação fica auditada mesmo quando a operação seguinte falha; resultado desconhecido registrado à parte e nunca repetido automaticamente (autorizada por Felipe em 08/10). Nenhum arquivo em comum com a #145; dois com a #146, em trechos diferentes (merge automático).
+- **PR #147** (`codex/reconciliacao-auditoria-remocao-20261008`): a exclusão no Asaas feita pela reconciliação fica auditada mesmo quando a operação seguinte falha; resultado desconhecido registrado à parte e nunca repetido automaticamente (autorizada por Felipe em 08/10). Nenhum arquivo em comum com a #145; três com a #146 (`sincronizacao.ts`, `contratacao-e8.postgres.test.ts`, `contratacao.test.ts`), em trechos diferentes (merge automático).
 
 ## 1. Rastreabilidade
 
@@ -142,7 +142,7 @@ Rótulos em português e link para o Asaas serão avaliados com os eventos reais
 **Sequência:**
 
 1. Se `staging` andou, atualizar as duas branches com `staging` e esperar o CI verde.
-2. Mergear a #145, a #146 e a #147 em `staging`, em qualquer ordem. A #145 não tem arquivos em comum com as outras; a #146 e a #147 compartilham `sincronizacao.ts` e `contratacao-e8.postgres.test.ts` em trechos diferentes (merge automático validado). Anotar o SHA de cada merge e conferir a árvore final com a da validação integrada (descrição da #147).
+2. Mergear a #145, a #146 e a #147 em `staging`, em qualquer ordem. A #145 não tem arquivos em comum com as outras; a #146 e a #147 compartilham `sincronizacao.ts`, `contratacao-e8.postgres.test.ts` e `contratacao.test.ts` em trechos diferentes (merge automático validado). Anotar o SHA de cada merge e conferir a árvore final com a da validação integrada (descrição da #147).
 3. Deploy manual do serviço de staging (`srv-daif418ae00c73e8k2gg`) no último merge. Confirmar live = SHA.
 4. Executar o checklist do §5 e registrar o resultado.
 5. Promover para production pelo padrão já usado (branch `promote/…` que integra `staging` em `production`, como `27f6902`):
