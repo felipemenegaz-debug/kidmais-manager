@@ -6,7 +6,7 @@ Entregas:
 
 - **PR #145** (`codex/painel-revisao-20261008`): cinco problemas comprovados em staging (tela e consulta do painel).
 - **PR #146** (`codex/correcoes-comerciais-20261008`): dois defeitos de regra comprovados em código (exceção vencida, listagem do provedor truncada) e testes da cobrança no painel. Escopo independente: nenhum arquivo em comum com a #145.
-- **PR #147** (`codex/reconciliacao-auditoria-remocao-20261008`): a exclusão no Asaas feita pela reconciliação fica auditada mesmo quando a operação seguinte falha; resultado desconhecido registrado à parte e nunca repetido automaticamente (autorizada por Felipe em 08/10). Nenhum arquivo em comum com a #145; três com a #146 (`sincronizacao.ts`, `contratacao-e8.postgres.test.ts`, `contratacao.test.ts`), em trechos diferentes (merge automático).
+- **PR #147** (`codex/reconciliacao-auditoria-remocao-20261008`): exclusão no Asaas com resultado desconhecido nunca repetida automaticamente, na reconciliação e na compensação imediata da contratação (marcador durável, gravado antes do DELETE na contratação); exclusão confirmada sempre auditada; liberação manual bloqueada com mensagem explícita enquanto houver marcador; rótulo e textos no painel (autorizada por Felipe em 08/10). Em comum com a #145: `components/desenvolvedor/cliente.ts`; com a #146: `sincronizacao.ts`, `contratacao-e8.postgres.test.ts`, `contratacao.test.ts`. Trechos diferentes; merge automático em qualquer ordem.
 
 ## 1. Rastreabilidade
 
@@ -28,6 +28,8 @@ Fontes: `PROPOSTA_VENDA_ASSINATURA_20261006.md` §3 e §6, `PAINEL_DESENVOLVEDOR
 | Revogar exceção já vencida era aceito | defeito | **Corrigido na #146** |
 | Listagem do Asaas truncada em silêncio além do limite de páginas (o risco depende da quantidade de registros, de qualquer situação; lista de cobranças truncada podia esconder pagamento e permitir exclusão indevida de duplicata) | defeito | **Corrigido na #146** |
 | Reconciliação: exclusão concluída no Asaas sem auditoria quando a operação seguinte falha; resposta perdida tratada como "indisponível" e exclusão repetida | defeito | **Corrigido na #147** |
+| Contratação: compensação imediata tratava resposta perdida na exclusão como falha comum (a reconciliação podia excluir de novo) e não auditava a exclusão confirmada | defeito | **Corrigido na #147** |
+| Liberação manual recusada pelo marcador com mensagem genérica; ação nova sem rótulo | usabilidade | **Corrigido na #147** |
 | Uso por empresa (custo de IA do 055a, usuários, documentos) | §6 | Fora desta entrega (§6.2) |
 | Link para o provedor nos eventos | §6 | Avaliar depois dos eventos reais de A2–A12 (§6.3) |
 | Métricas de funil | §3 **P** | Não é requisito de lançamento (no lançamento: consulta SQL de leitura). Fora desta entrega (§6.2) |
@@ -94,7 +96,7 @@ Tudo somente leitura, em staging, com a sessão de desenvolvedor de Felipe, salv
 | 5 | Celular | Largura de 390 px: Resumo, Atividade, ficha | Cabeçalhos inteiros; data em uma linha; sem rolagem horizontal da página | "Quan/do" ou data partida; página rolando para o lado |
 | 6 | Exceção vencida (#146) | Ficha do Buffet 1, bloco comercial | "Revogar" só em exceção vigente. **Não executar** revogação: a regra está coberta por teste | Botão em exceção vencida |
 | 7 | Lista incompleta (#146) | Ficha do Buffet 1, cobrança e pendências | Página carrega como antes. Não há como reproduzir no sandbox listas acima do limite (200 assinaturas ou 500 cobranças, de qualquer situação): a regra está coberta por teste. Se uma pendência mostrar `LISTA_INCOMPLETA: …`, é revisão humana no painel do Asaas, não indisponibilidade | Erro ao abrir a ficha |
-| 7b | Exclusão na reconciliação (#147) | Ficha do Buffet 1, pendências e Atividade | Nenhuma pendência `REMOCAO_SEM_CONFIRMACAO` sem motivo. **Não provocar** exclusão: a regra está coberta por teste. Se A2–A12 gerar duplicata, cada exclusão aparece como `ASSINATURA_DUPLICADA_REMOVIDA` (resposta do provedor ou releitura) ou como `ASSINATURA_REMOCAO_SEM_CONFIRMACAO` com marcador aberto | Exclusão no Asaas sem registro correspondente na Atividade |
+| 7b | Exclusão com resultado desconhecido (#147) | Ficha do Buffet 1 (pendências) e Atividade | Nenhuma pendência "Exclusão no provedor sem confirmação" sem motivo. **Não provocar** exclusão: as regras estão cobertas por teste. Se A2–A12 gerar duplicata, cada exclusão aparece na Atividade como "Assinatura duplicada removida no provedor" ou "Exclusão de assinatura no provedor sem confirmação (revisão)"; com marcador aberto, a intenção de criação mostra "Liberação bloqueada: …" e não oferece liberar | Exclusão no Asaas sem registro na Atividade; código cru na lista de pendências; botão de liberar com marcador aberto |
 | 8 | Permissões | Sessão de A (Gestão, sem concessão): `/desenvolvedor` e `/api/desenvolvedor/auditoria` | 404 nos dois | Qualquer conteúdo do painel |
 | 9 | Regressão | Resumo | Mesmo número de alertas de antes do deploy; a Kidmais continua sem cobrança | Contagem diferente sem explicação |
 
@@ -142,7 +144,7 @@ Rótulos em português e link para o Asaas serão avaliados com os eventos reais
 **Sequência:**
 
 1. Se `staging` andou, atualizar as duas branches com `staging` e esperar o CI verde.
-2. Mergear a #145, a #146 e a #147 em `staging`, em qualquer ordem. A #145 não tem arquivos em comum com as outras; a #146 e a #147 compartilham `sincronizacao.ts`, `contratacao-e8.postgres.test.ts` e `contratacao.test.ts` em trechos diferentes (merge automático validado). Anotar o SHA de cada merge e conferir a árvore final com a da validação integrada (descrição da #147).
+2. Mergear a #145, a #146 e a #147 em `staging`, em qualquer ordem. A #145 e a #147 compartilham `components/desenvolvedor/cliente.ts`; a #146 e a #147, `sincronizacao.ts`, `contratacao-e8.postgres.test.ts` e `contratacao.test.ts`; todos em trechos diferentes (merge automático validado nas quatro ordens testadas). Anotar o SHA de cada merge e conferir a árvore final com a da validação integrada (descrição da #147).
 3. Deploy manual do serviço de staging (`srv-daif418ae00c73e8k2gg`) no último merge. Confirmar live = SHA.
 4. Executar o checklist do §5 e registrar o resultado.
 5. Promover para production pelo padrão já usado (branch `promote/…` que integra `staging` em `production`, como `27f6902`):
@@ -166,4 +168,4 @@ Em nenhum dos dois é preciso mexer no banco ou nas variáveis.
 - As correções não foram testadas em staging: dependem do deploy, que não está autorizado agora.
 - Nenhuma correção está homologada.
 - As correções da #146 (6 e 7) e da #147 (7b) não são reproduzíveis em staging sem gravar dados, excluir no provedor ou criar volume artificial; a evidência é o teste automatizado.
-- A compensação imediata na contratação (`resolverFalhaNoVinculo`) ainda trata resposta perdida na exclusão como `COMPENSACAO_FALHOU`, e a reconciliação pode decidir excluir de novo: fora do escopo da #147, para decisão.
+- Janela residual documentada na #147: na **reconciliação**, a exclusão e a gravação do registro acontecem na mesma transação do processamento; se o processo cair depois do DELETE e antes do COMMIT (ou se a própria gravação falhar), nada fica gravado: se o DELETE foi executado, a assinatura some da listagem e a exclusão fica **sem auditoria**; se não foi, a próxima reconciliação pode **excluir de novo** pelos critérios da compensação. Fechar essa janela exige gravar o marcador numa transação própria antes do DELETE também na reconciliação (hoje `processarEvento` recebe só a transação de quem chama): para decisão. Na **contratação** a janela não existe: o marcador é gravado e confirmado antes do DELETE.
