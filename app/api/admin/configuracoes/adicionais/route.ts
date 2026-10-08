@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { UNIDADES_ADICIONAL, lerAdicionaisAdmin, salvarAdicionalEmEtapas, type EmTransacao } from "@/lib/comercial/adicionais-admin";
+import { UNIDADES_ADICIONAL, excluirAdicionalAdmin, lerAdicionaisAdmin, salvarAdicionalEmEtapas, type EmTransacao } from "@/lib/comercial/adicionais-admin";
 import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
@@ -63,6 +63,21 @@ export async function PATCH(request: NextRequest) {
       requestId: crypto.randomUUID(),
     }, dados);
     return jsonNoStore({ ok: true, data: salvo });
+  } catch (error) {
+    return apiErrorResponse(error);
+  }
+}
+
+/** Exclui (sem histórico) ou arquiva (com histórico) um adicional da empresa. Só quem gere a empresa. */
+export async function DELETE(request: NextRequest) {
+  try {
+    const sessao = await exigirApiAdminCrmDisponivel(request);
+    const id = uuid.parse(request.nextUrl.searchParams.get("id"));
+    const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), (tx, tenant) => {
+      exigirGestaoNoTenant(tenant, "Apenas o proprietário pode excluir adicionais.");
+      return excluirAdicionalAdmin(tx, { empresaId: tenant.empresaComprovada, usuarioId: sessao.usuario_id, requestId: crypto.randomUUID() }, id);
+    });
+    return jsonNoStore({ ok: true, data });
   } catch (error) {
     return apiErrorResponse(error);
   }
