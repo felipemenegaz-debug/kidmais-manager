@@ -27,16 +27,27 @@ test('nenhuma exclusão automática sem vínculo confirmado; falha de compensaç
     assert.doesNotMatch(fonte, /removerAssinatura\([^)]*\)\.catch\(\(\) => undefined\)/, 'compensação silenciosa removida');
     const resolver = fonte.slice(fonte.indexOf('async function resolverFalhaNoVinculo('), fonte.indexOf('export async function cancelarAssinatura'));
     // Toda exclusão automática passa pela decisão central: só depois de decidirCompensacao(...) devolver excluir.
-    assert.match(resolver, /decidirCompensacao\(provedor, \{ empresaId, vinculo, vinculoAnterior, candidataId: b\.assinatura\.id \}\)[\s\S]*if \(decisao\?\.excluir\) \{\s*try \{\s*await provedor\.removerAssinatura/);
-    assert.equal(resolver.match(/removerAssinatura\(/g)?.length, 1);
-    assert.match(resolver, /motivo: 'COMPENSACAO_FALHOU'/);
+    assert.match(resolver, /decidirCompensacao\(provedor, \{ empresaId, vinculo, vinculoAnterior, candidataId: b\.assinatura\.id \}\)[\s\S]*if \(decisao\?\.excluir\) \{\s*await compensarComMarcador\(deps, provedor, empresaId, b, origem\);\s*throw error;/);
+    // Na contratação, nenhuma chamada direta: a exclusão passa por removerComResultado, uma vez, DEPOIS do marcador gravado.
+    assert.equal(resolver.match(/removerAssinatura\(/g), null);
+    assert.equal(resolver.match(/removerComResultado\(/g)?.length, 1);
+    const compensar = resolver.slice(resolver.indexOf('async function compensarComMarcador('));
+    assert.match(compensar, /abrirMarcadorRemocao\(tx, empresaId, assinaturaId, 'REMOCAO_EM_CURSO'\)[\s\S]*catch \{\s*await substituirPorPendencia\([^;]*motivo: 'COMPENSACAO_FALHOU' \}\);\s*return;\s*\}\s*const remocao = await removerComResultado\(provedor, assinaturaId\);/,
+        'marcador não gravado → não exclui');
+    // Sucesso só com resposta confirmada; sem confirmação o marcador fica aberto e nada é auditado como removido.
+    assert.equal(compensar.match(/ASSINATURA_DUPLICADA_REMOVIDA/g)?.length, 1);
+    assert.match(compensar, /if \(remocao\.resultado === 'CONFIRMADA'\) \{[^}]*ASSINATURA_DUPLICADA_REMOVIDA/);
+    assert.match(compensar, /else \{\s*await manterMarcadorRemocao\(tx, empresaId, marcador\);\s*await auditarCobranca\(tx, \{ acao: 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO'/);
     const rec = readFileSync('lib/assinatura/reconciliacao-contratacao.ts', 'utf8');
+    // Único ponto que chama o provedor para excluir; sem confirmação só com `removida` verdadeiro, 4xx = recusa, o resto = desconhecido.
     assert.equal(rec.match(/removerAssinatura\(/g)?.length, 1);
+    assert.match(rec, /return \(await provedor\.removerAssinatura\(assinaturaId\)\)\.removida \? \{ resultado: 'CONFIRMADA' \} : \{ resultado: 'DESCONHECIDA' \};/);
+    assert.match(rec, /return remocaoPodeTerOcorrido\(error\) \? \{ resultado: 'DESCONHECIDA' \} : \{ resultado: 'RECUSADA', erro: error \};/);
     // Exclusão só depois da decisão central; assinatura com exclusão sem confirmação nem chega à decisão (nunca repetida).
-    assert.match(rec, /if \(semConfirmacao\.has\(d\.id\)\) \{[\s\S]*?continue;\s*\}\s*const decisao = await decidirCompensacao\([\s\S]*if \(!decisao\.excluir\) \{[\s\S]*continue;\s*\}\s*let confirmada: boolean;\s*try \{\s*confirmada = \(await provedor\.removerAssinatura\(d\.id\)\)\.removida;/);
+    assert.match(rec, /if \(semConfirmacao\.has\(d\.id\)\) \{[\s\S]*?continue;\s*\}\s*const decisao = await decidirCompensacao\([\s\S]*if \(!decisao\.excluir\) \{[\s\S]*continue;\s*\}\s*const remocao = await removerComResultado\(provedor, d\.id\);/);
     // Sem confirmação nunca conta como removida: a única anotação de confirmada vem depois de sair com revisão.
     assert.equal(rec.match(/registro\.confirmadas\.push\(/g)?.length, 1);
-    assert.match(rec, /if \(!confirmada\) \{[\s\S]*?registro\.semConfirmacao\.push\(d\.id\);[\s\S]*?return revisao\(\);\s*\}\s*registro\.confirmadas\.push\(d\.id\);/);
+    assert.match(rec, /if \(remocao\.resultado === 'DESCONHECIDA'\) \{[\s\S]*?registro\.semConfirmacao\.push\(d\.id\);[\s\S]*?return revisao\(\);\s*\}\s*registro\.confirmadas\.push\(d\.id\);/);
     assert.match(fonte, /pg_try_advisory_xact_lock\(hashtext\('kidmais:contratacao'\), hashtext\(\$1\)\)/);
 });
 

@@ -5,7 +5,7 @@ import { erroAcesso } from '../acessos/erros.ts';
 import { exigirDesenvolvedorNaTransacao } from '../desenvolvedor/autorizacao.ts';
 import type { ClienteAsaas } from './asaas.ts';
 import { auditarCobranca } from './sincronizacao-auditoria.ts';
-import { concluirIntencao, PREFIXO_CRIACAO, TIPO_PENDENCIA } from './reconciliacao-contratacao.ts';
+import { concluirIntencao, marcadoresDeRemocao, PREFIXO_CRIACAO, PREFIXO_REMOCAO_SEM_CONFIRMACAO, TIPO_PENDENCIA } from './reconciliacao-contratacao.ts';
 
 /**
  * Liberação MANUAL e auditada de uma intenção de criação comprovadamente NÃO executada (painel do desenvolvedor).
@@ -27,6 +27,8 @@ const Entrada = z.object({
 
 const ABERTAS = "('PENDENTE', 'FALHOU')";
 const recusa = (mensagem: string, status = 409) => erroAcesso('CONFLITO', mensagem, status);
+/** Sem atalho para ignorar: o marcador só fecha quando a releitura no provedor confirma a exclusão. */
+export const MENSAGEM_BLOQUEIO_REMOCAO = 'Liberação bloqueada: há uma exclusão de assinatura no provedor com resultado desconhecido nesta empresa. Confira no painel do Asaas; a liberação volta a ser possível quando a reconciliação confirmar a exclusão.';
 
 export async function liberarIntencaoCriacao(tx: DbExecutor, sessao: Pick<SessaoAdmin, 'usuario_id'>, empresaId: string, raw: unknown,
     provedor: Pick<ClienteAsaas, 'listarAssinaturasPorReferencia'>, ctx: { requestId: string; ip?: string | null }) {
@@ -51,6 +53,9 @@ export async function liberarIntencaoCriacao(tx: DbExecutor, sessao: Pick<Sessao
         'SELECT provedor_assinatura_id FROM empresa_assinaturas WHERE empresa_id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
     if (!linha)
         throw recusa('Esta empresa não tem cobrança registrada.', 404);
+    // Exclusão no provedor com resultado desconhecido nesta empresa: a liberação fica bloqueada até a releitura resolver.
+    if ((await marcadoresDeRemocao(tx, empresaId)).length > 0)
+        throw recusa(MENSAGEM_BLOQUEIO_REMOCAO);
     const comId = (await tx.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM cobranca_eventos WHERE empresa_id = $1::uuid AND tipo = $2 AND situacao IN ${ABERTAS} AND assinatura_provedor_id IS NOT NULL`,
         [empresaId, TIPO_PENDENCIA])).rows[0].n;
@@ -70,11 +75,14 @@ export async function liberarIntencaoCriacao(tx: DbExecutor, sessao: Pick<Sessao
     return { resultado: 'LIBERADA' as const, pendenciaId };
 }
 
+const bloqueioPorRemocao = (marcadores: readonly unknown[]) => (marcadores.length ? 'REMOCAO_SEM_CONFIRMACAO' as const : null);
+
 /** Pendências abertas da empresa para o painel (sem ids do provedor). */
 export async function pendenciasDaEmpresa(tx: DbExecutor, sessao: Pick<SessaoAdmin, 'usuario_id'>, empresaId: string) {
     await exigirDesenvolvedorNaTransacao(tx, sessao);
     if (!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.cobranca_eventos') IS NOT NULL AS ok")).rows[0]?.ok)
         return [];
+    const bloqueio = bloqueioPorRemocao(await marcadoresDeRemocao(tx, empresaId));
     const rows = (await tx.query<{ id: string; evento_id: string; situacao: string; ultimo_erro: string | null; tem_assinatura: boolean; recebido_em: string; tentativas: number }>(
         `SELECT id, evento_id, situacao, ultimo_erro, assinatura_provedor_id IS NOT NULL AS tem_assinatura,
                 to_char(recebido_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recebido_em, tentativas
@@ -82,9 +90,11 @@ export async function pendenciasDaEmpresa(tx: DbExecutor, sessao: Pick<SessaoAdm
         [empresaId, TIPO_PENDENCIA])).rows;
     return rows.map((r) => {
         const criacao = r.evento_id.startsWith(PREFIXO_CRIACAO);
+        const tipo = criacao ? 'INTENCAO_CRIACAO' as const : r.evento_id.startsWith(PREFIXO_REMOCAO_SEM_CONFIRMACAO) ? 'REMOCAO_SEM_CONFIRMACAO' as const : 'RECONCILIACAO' as const;
         return {
-            id: r.id, tipo: criacao ? 'INTENCAO_CRIACAO' as const : 'RECONCILIACAO' as const, situacao: r.situacao, motivo: r.ultimo_erro,
-            temAssinatura: r.tem_assinatura, recebidoEm: r.recebido_em, tentativas: r.tentativas, liberavel: criacao && !r.tem_assinatura,
+            id: r.id, tipo, situacao: r.situacao, motivo: r.ultimo_erro,
+            temAssinatura: r.tem_assinatura, recebidoEm: r.recebido_em, tentativas: r.tentativas, liberavel: criacao && !r.tem_assinatura && !bloqueio,
+            bloqueadaPor: criacao && !r.tem_assinatura && bloqueio ? bloqueio : null,
         };
     });
 }

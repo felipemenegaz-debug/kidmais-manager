@@ -110,6 +110,7 @@ const ACOES: Record<string, string> = {
     COMERCIAL_TESTE_ESTENDIDO: 'Teste grátis estendido',
     COMERCIAL_EXCECAO_CONCEDIDA: 'Acesso comercial excepcional concedido',
     COMERCIAL_EXCECAO_REVOGADA: 'Acesso comercial excepcional revogado',
+    ASSINATURA_REMOCAO_SEM_CONFIRMACAO: 'Exclusão de assinatura no provedor sem confirmação (revisão)',
     EXPORTACAO_DADOS: 'Dados exportados',
     REPRESENTACAO_APROVADA: 'Representação aprovada',
     REPRESENTACAO_RECUSADA: 'Representação recusada',

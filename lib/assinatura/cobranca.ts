@@ -28,7 +28,9 @@ import { precoDoCiclo, ConfiguracaoComercialInvalida, type Ciclo } from './confi
 import { AsaasFalhou, cicloDoProvedor, type AssinaturaProvedor, type ClienteAsaas } from './asaas.ts';
 import { cobrancaEmAberto } from './provedor-estado.ts';
 import { auditarCobranca, sincronizarEmpresa } from './sincronizacao.ts';
-import { concluirIntencao, encerrarPendencias, intencaoDoIdConfirmado, marcarIntencao, pendenciasAbertas, registrarIdConfirmado, registrarPendencia } from './reconciliacao-contratacao.ts';
+import { abrirMarcadorRemocao, concluirIntencao, encerrarPendencias, fecharMarcadorRemocao, intencaoDoIdConfirmado, manterMarcadorRemocao, marcarIntencao, pendenciasAbertas,
+    registrarIdConfirmado, registrarPendencia, removerComResultado } from './reconciliacao-contratacao.ts';
+import type { OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 
 const GESTAO = 'REPRESENTANTE_AUTORIZADO';
@@ -284,7 +286,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         });
     }
     catch (error) {
-        await resolverFalhaNoVinculo(error, empresaId, a.linha.provedor_assinatura_id, b, provedor, deps);
+        await resolverFalhaNoVinculo(error, empresaId, a.linha.provedor_assinatura_id, b, provedor, deps, { tipo: 'GESTAO', usuarioId: sessao.usuario_id, requestId: ctx.requestId });
     }
     return {
         ciclo: cicloDoProvedor(b.assinatura.cycle) ?? ciclo,
@@ -379,11 +381,12 @@ async function registrarPendenciaSegura(deps: DepsCobranca, input: Parameters<ty
  * relido por uma transação nova:
  *   - vinculada a ESTA assinatura → COMMIT confirmado: segue como sucesso (nada é desfeito);
  *   - esta foi criada agora e o banco mostra OUTRO vínculo → a decisão central (compensacao.ts) confere a assinatura
- *     vigente e os pagamentos; só com justificativa segura exclui (falha ao excluir → pendência COMPENSACAO_FALHOU);
+ *     vigente e os pagamentos; só com justificativa segura exclui, com registro prévio (compensarComMarcador);
  *     preservada → pendência com o motivo (vínculo que não mudou = COMMIT_INCERTO, ex.: recontratação após cancelamento);
  *   - qualquer outra dúvida (releitura falhou, nenhuma vinculada) → NADA é excluído; pendência e resposta "incerta".
  */
-async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculoAnterior: string | null, b: { assinatura: AssinaturaProvedor; criada: boolean; encerrar: string[] }, provedor: ClienteAsaas, deps: DepsCobranca) {
+async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculoAnterior: string | null, b: { assinatura: AssinaturaProvedor; criada: boolean; encerrar: string[] }, provedor: ClienteAsaas, deps: DepsCobranca,
+    origem: OrigemSincronizacao) {
     // Só o tipo do erro (sem mensagem, ids ou dados): permite investigar sem expor nada.
     console.warn('[cobrança] falha ao gravar o vínculo da assinatura', error instanceof Error ? ((error as { code?: string }).code ?? error.name) : typeof error);
     let vinculo: string | null | undefined;
@@ -406,13 +409,7 @@ async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculo
             decisao = null; // provedor indisponível para confirmar: preserva
         }
         if (decisao?.excluir) {
-            try {
-                await provedor.removerAssinatura(b.assinatura.id);
-                await encerrarSeguro(deps, empresaId, b.encerrar, 'COMPENSADA');
-            }
-            catch {
-                await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId: b.assinatura.id, motivo: 'COMPENSACAO_FALHOU' });
-            }
+            await compensarComMarcador(deps, provedor, empresaId, b, origem);
             throw error;
         }
         if (decisao?.motivo === 'VINCULO_NAO_MUDOU')
@@ -427,6 +424,54 @@ async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculo
     if (error instanceof AcessoServiceError && vinculo === null)
         throw error;
     throw incerto();
+}
+
+/**
+ * Exclusão da duplicata na compensação imediata, com REGISTRO PRÉVIO: o marcador durável (kidmais:remocao:, o mesmo da
+ * reconciliação) é gravado ANTES do DELETE. Enquanto ele estiver aberto, a assinatura nunca é excluída de novo
+ * automaticamente; a reconciliação só relê pelo id (removida → exclusão auditada pela releitura; existe → revisão humana).
+ *   - marcador não gravado → NÃO exclui; pendência COMPENSACAO_FALHOU (nada executado: a reconciliação decide de novo);
+ *   - confirmada → marcador fecha (REMOCAO_CONFIRMADA) + ASSINATURA_DUPLICADA_REMOVIDA; as pendências da operação encerram;
+ *   - recusa definitiva (4xx) → marcador fecha (REMOCAO_RECUSADA) e pendência COMPENSACAO_FALHOU;
+ *   - sem confirmação (resposta perdida, 5xx, resposta sem `deleted`) → marcador aberto (REMOCAO_SEM_CONFIRMACAO) +
+ *     ASSINATURA_REMOCAO_SEM_CONFIRMACAO; nada é registrado como sucesso.
+ * Processo interrompido entre o DELETE e a gravação do resultado, ou gravação do resultado falhando: o marcador continua
+ * aberto (REMOCAO_EM_CURSO) e vale a mesma regra — releitura, nunca outro DELETE.
+ */
+async function compensarComMarcador(deps: DepsCobranca, provedor: ClienteAsaas, empresaId: string, b: { assinatura: AssinaturaProvedor; encerrar: string[] }, origem: OrigemSincronizacao) {
+    const assinaturaId = b.assinatura.id;
+    let marcador: string;
+    try {
+        marcador = await deps.withTransaction((tx) => abrirMarcadorRemocao(tx, empresaId, assinaturaId, 'REMOCAO_EM_CURSO'));
+    }
+    catch {
+        await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId, motivo: 'COMPENSACAO_FALHOU' });
+        return;
+    }
+    const remocao = await removerComResultado(provedor, assinaturaId);
+    try {
+        await deps.withTransaction(async (tx) => {
+            if (remocao.resultado === 'CONFIRMADA') {
+                await fecharMarcadorRemocao(tx, empresaId, marcador, 'REMOCAO_CONFIRMADA');
+                await auditarCobranca(tx, { acao: 'ASSINATURA_DUPLICADA_REMOVIDA', empresaId, origem, ip: null, depois: { removidas: 1, confirmacao: 'RESPOSTA_DO_PROVEDOR' } });
+                await encerrarPendencias(tx, empresaId, b.encerrar, 'COMPENSADA');
+            }
+            else if (remocao.resultado === 'RECUSADA') {
+                await fecharMarcadorRemocao(tx, empresaId, marcador, 'REMOCAO_RECUSADA');
+                await registrarPendencia(tx, { empresaId, assinaturaId, motivo: 'COMPENSACAO_FALHOU' });
+                await encerrarPendencias(tx, empresaId, b.encerrar, 'SUBSTITUIDA_POR_PENDENCIA');
+            }
+            else {
+                await manterMarcadorRemocao(tx, empresaId, marcador);
+                await auditarCobranca(tx, { acao: 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO', empresaId, origem, ip: null, depois: { pendenciaId: marcador } });
+                await encerrarPendencias(tx, empresaId, b.encerrar, 'SUBSTITUIDA_POR_PENDENCIA');
+            }
+        });
+    }
+    catch (erro) {
+        // O marcador já gravado (REMOCAO_EM_CURSO) continua aberto: a reconciliação relê; nada é excluído de novo.
+        console.error('[cobrança] resultado da exclusão não gravado (marcador continua aberto)', remocao.resultado, erro instanceof Error ? erro.name : typeof erro);
+    }
 }
 
 export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, raw: unknown, ctx: Contexto, deps: DepsCobranca) {

@@ -119,7 +119,39 @@ function remocaoPodeTerOcorrido(error: unknown) {
     return s === null || s >= 500 || s === 408 || s === 409 || s === 429 || s < 400;
 }
 
-async function marcadoresDeRemocao(tx: DbExecutor, empresaId: string) {
+/** Resultado classificado de uma exclusão no provedor. Único ponto que chama `removerAssinatura` na contratação e na reconciliação. */
+export type ResultadoRemocao = { resultado: 'CONFIRMADA' } | { resultado: 'RECUSADA'; erro: unknown } | { resultado: 'DESCONHECIDA' };
+export async function removerComResultado(provedor: Pick<ClienteAsaas, 'removerAssinatura'>, assinaturaId: string): Promise<ResultadoRemocao> {
+    try {
+        return (await provedor.removerAssinatura(assinaturaId)).removida ? { resultado: 'CONFIRMADA' } : { resultado: 'DESCONHECIDA' };
+    }
+    catch (error) {
+        return remocaoPodeTerOcorrido(error) ? { resultado: 'DESCONHECIDA' } : { resultado: 'RECUSADA', erro: error };
+    }
+}
+
+/** Abre o marcador durável de exclusão (antes do DELETE: REMOCAO_EM_CURSO; depois, sem confirmação: REMOCAO_SEM_CONFIRMACAO). */
+export async function abrirMarcadorRemocao(tx: DbExecutor, empresaId: string, assinaturaId: string, motivo: 'REMOCAO_EM_CURSO' | 'REMOCAO_SEM_CONFIRMACAO') {
+    return (await tx.query<{ id: string }>(
+        `INSERT INTO cobranca_eventos (provedor, evento_id, tipo, assinatura_provedor_id, referencia_externa, empresa_id, situacao, ultimo_erro)
+         VALUES ('ASAAS', $1, $2, $3, $4, $5::uuid, 'PENDENTE', $6) RETURNING id`,
+        [`${PREFIXO_REMOCAO_SEM_CONFIRMACAO}${empresaId}:${randomUUID()}`, TIPO_PENDENCIA, assinaturaId, empresaId, empresaId, motivo])).rows[0].id;
+}
+
+/** Resultado conhecido: o marcador fecha (a identidade do evento é imutável na 068; só situação e motivo mudam). */
+export async function fecharMarcadorRemocao(tx: DbExecutor, empresaId: string, id: string, motivo: 'REMOCAO_CONFIRMADA' | 'REMOCAO_RECUSADA') {
+    await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $3
+                     WHERE id = $1::uuid AND empresa_id = $2::uuid AND tipo = $4 AND situacao IN ('PENDENTE', 'FALHOU')`, [id, empresaId, motivo, TIPO_PENDENCIA]);
+}
+
+/** Resultado desconhecido: o marcador continua aberto e diz por quê. */
+export async function manterMarcadorRemocao(tx: DbExecutor, empresaId: string, id: string) {
+    await tx.query(`UPDATE cobranca_eventos SET ultimo_erro = 'REMOCAO_SEM_CONFIRMACAO'
+                     WHERE id = $1::uuid AND empresa_id = $2::uuid AND tipo = $3 AND situacao IN ('PENDENTE', 'FALHOU')`, [id, empresaId, TIPO_PENDENCIA]);
+}
+
+/** Marcadores de exclusão abertos da empresa (qualquer motivo): enquanto existir um, nada é excluído de novo nem liberado. */
+export async function marcadoresDeRemocao(tx: DbExecutor, empresaId: string) {
     return (await tx.query<{ id: string; assinatura_provedor_id: string }>(
         `SELECT id, assinatura_provedor_id FROM cobranca_eventos
           WHERE empresa_id = $1::uuid AND provedor = 'ASAAS' AND tipo = $2 AND evento_id LIKE $3 AND assinatura_provedor_id IS NOT NULL
@@ -146,10 +178,7 @@ export async function registrarRemocoes(tx: DbExecutor, empresaId: string, regis
                              WHERE id = ANY($1::uuid[]) AND empresa_id = $2::uuid AND tipo = $3 AND situacao IN ('PENDENTE', 'FALHOU')`, [fechar, empresaId, TIPO_PENDENCIA]);
     }
     for (const assinaturaId of registro.semConfirmacao) {
-        const pendenciaId = (await tx.query<{ id: string }>(
-            `INSERT INTO cobranca_eventos (provedor, evento_id, tipo, assinatura_provedor_id, referencia_externa, empresa_id, situacao, ultimo_erro)
-             VALUES ('ASAAS', $1, $2, $3, $4, $5::uuid, 'PENDENTE', 'REMOCAO_SEM_CONFIRMACAO') RETURNING id`,
-            [`${PREFIXO_REMOCAO_SEM_CONFIRMACAO}${empresaId}:${randomUUID()}`, TIPO_PENDENCIA, assinaturaId, empresaId, empresaId])).rows[0].id;
+        const pendenciaId = await abrirMarcadorRemocao(tx, empresaId, assinaturaId, 'REMOCAO_SEM_CONFIRMACAO');
         await auditarCobranca(tx, { acao: 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO', empresaId, origem, ip: null, depois: { pendenciaId } });
     }
 }
@@ -229,17 +258,11 @@ export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, 
                 preservadas.push({ id: d.id, motivo: decisao.motivo });
             continue;
         }
-        let confirmada: boolean;
-        try {
-            confirmada = (await provedor.removerAssinatura(d.id)).removida;
-        }
-        catch (error) {
-            // Recusa definitiva (4xx): nada foi excluído; a pendência volta a ser tentada. O que já foi excluído fica no registro.
-            if (!remocaoPodeTerOcorrido(error))
-                throw error;
-            confirmada = false;
-        }
-        if (!confirmada) {
+        const remocao = await removerComResultado(provedor, d.id);
+        // Recusa definitiva (4xx): nada foi excluído; a pendência volta a ser tentada. O que já foi excluído fica no registro.
+        if (remocao.resultado === 'RECUSADA')
+            throw remocao.erro;
+        if (remocao.resultado === 'DESCONHECIDA') {
             // Resultado desconhecido: não conta como removida, não é repetida; para aqui e vai para revisão.
             registro.semConfirmacao.push(d.id);
             preservadas.push({ id: d.id, motivo: 'REMOCAO_SEM_CONFIRMACAO' });
