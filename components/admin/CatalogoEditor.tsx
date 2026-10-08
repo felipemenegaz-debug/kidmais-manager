@@ -29,6 +29,8 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
   const [salvandoAdicional, setSalvandoAdicional] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);
   const [excluindo, setExcluindo] = useState<Registro | null>(null);
+  const [excluindoAdicional, setExcluindoAdicional] = useState<{ id: string; nome: string; pacotes: number } | null>(null);
+  const [excluindoEmCurso, setExcluindoEmCurso] = useState(false);
 
   async function carregar() {
     const resposta = await adminFetch('/api/admin/configuracoes/catalogo');
@@ -186,12 +188,39 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
     await carregar();
   }
 
+  /** Exclui (sem histórico) ou arquiva (com histórico): quem decide é o servidor, que devolve o que aconteceu. */
+  async function excluirAdicional() {
+    if (!excluindoAdicional) return;
+    setExcluindoEmCurso(true);
+    setErro('');
+    try {
+      const resposta = await adminFetch(`/api/admin/configuracoes/adicionais?id=${encodeURIComponent(excluindoAdicional.id)}`, { method: 'DELETE' });
+      const body = await resposta.json();
+      if (!resposta.ok || body.ok === false) { setErro(body.erro || 'Não foi possível excluir o adicional.'); return; }
+      const r = body.data as { resultado: 'EXCLUIDO' | 'ARQUIVADO'; festas: number };
+      setAviso(r.resultado === 'EXCLUIDO'
+        ? `“${excluindoAdicional.nome}” foi excluído.`
+        : `“${excluindoAdicional.nome}” foi arquivado${r.festas ? `: já aparece em ${r.festas} ${r.festas === 1 ? 'festa' : 'festas'}` : ': já tem preço publicado ou histórico'}. Ele não aparece mais no fechamento.`);
+      setExcluindoAdicional(null);
+      setFormAdicional(null);
+      await carregarAdicionais();
+    } catch {
+      setErro('Não foi possível excluir o adicional.');
+    } finally {
+      setExcluindoEmCurso(false);
+    }
+  }
+
   const comAdicionais = Boolean(adicionais);
   const rotuloAdicional = (linha: Registro) => {
     const adicional = adicionalDaLinha(linha);
     return adicional && adicional.ativo ? precoNaLista(adicional) : '—';
   };
-  const textoNovo = secao === 'categorias' ? '+ Nova categoria' : secao === 'itens' ? '+ Novo item' : '+ Novo adicional';
+  const paraExcluir = (linha: Registro) => ({
+    id: linha.id, nome: linha.nome,
+    pacotes: Object.values(adicionalDaLinha(linha)?.pacotes ?? {}).filter((m) => m === 'EXTRA').length,
+  });
+  const textoNovo =secao === 'categorias' ? '+ Nova categoria' : secao === 'itens' ? '+ Novo item' : '+ Novo adicional';
 
   return <main className={styles.page} data-admin-workspace>
     <header className={styles.header}>
@@ -242,6 +271,7 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
                   {secao !== 'outros' && <button type="button" role="menuitem" onClick={() => { setMenu(null); setFormulario({ id: linha.id, nome: linha.nome, ativo: linha.ativo, categoriaId: linha.categoria_id ?? '' }); }}>Editar</button>}
                   {comAdicionais && <button type="button" role="menuitem" onClick={() => abrirAdicional(linha)}>{secao === 'outros' ? 'Editar' : 'Vender como adicional'}</button>}
                   {secao !== 'outros' && <button type="button" role="menuitem" onClick={() => { setMenu(null); setExcluindo(linha); }}>Excluir</button>}
+                  {secao === 'outros' && <button type="button" role="menuitem" onClick={() => { setMenu(null); setExcluindoAdicional(paraExcluir(linha)); }}>Excluir</button>}
                 </div>}
               </td>
             </tr>)}
@@ -256,6 +286,7 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
             {secao !== 'outros' && <button type="button" onClick={() => setFormulario({ id: linha.id, nome: linha.nome, ativo: linha.ativo, categoriaId: linha.categoria_id ?? '' })}>Editar</button>}
             {comAdicionais && <button type="button" onClick={() => abrirAdicional(linha)}>{secao === 'outros' ? 'Editar' : 'Vender como adicional'}</button>}
             {secao !== 'outros' && <button type="button" onClick={() => setExcluindo(linha)}>Excluir</button>}
+            {secao === 'outros' && <button type="button" onClick={() => setExcluindoAdicional(paraExcluir(linha))}>Excluir</button>}
           </article>)}
         </div>
         {dados && !linhas.length && <p>Nenhum resultado.</p>}
@@ -281,18 +312,24 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
           </div>
         </form>
       </div>}
-      {formAdicional && adicionais && <div className={editor.overlay} role="dialog" aria-label="Adicional">
+      {formAdicional && adicionais && <div className={`${editor.overlay} ${editor.overlayGaveta}`} role="dialog" aria-label="Adicional">
         <form className={`${editor.painel} ${editor.painelAdicional}`} onSubmit={gravarAdicional}>
-          <h2>{formAdicional.origem ? `${formAdicional.origem.nome} como adicional` : formAdicional.id ? 'Editar adicional' : 'Novo adicional'}</h2>
+          <header className={editor.painelTopo}>
+            <h2>{formAdicional.origem ? `${formAdicional.origem.nome} como adicional` : formAdicional.id ? 'Editar adicional' : 'Novo adicional'}</h2>
+            <button type="button" className={editor.fechar} aria-label="Fechar" onClick={() => { setFormAdicional(null); setErro(''); }}>×</button>
+          </header>
+          <div className={editor.painelCorpo}>
           {formAdicional.origem?.tipo === 'CATEGORIA' && <p className={editor.ajuda}>Um adicional único da categoria: o cliente escolhe as opções entre os itens ativos dela.</p>}
-          <label className={editor.linhaCheck}><input type="checkbox" checked={formAdicional.ativo} onChange={(e) => setFormAdicional({ ...formAdicional, ativo: e.target.checked })} />{formAdicional.origem ? 'Vender como adicional' : 'Ativo'}</label>
+          <label className={editor.linhaCheck}><input type="checkbox" checked={formAdicional.ativo} onChange={(e) => setFormAdicional({ ...formAdicional, ativo: e.target.checked })} />{formAdicional.origem ? 'Vender como adicional' : 'Ativo (aparece no fechamento)'}</label>
           <label>Nome no fechamento *<input required maxLength={160} value={formAdicional.nome} onChange={(e) => setFormAdicional({ ...formAdicional, nome: e.target.value })} /></label>
-          {!formAdicional.origem && <label>Grupo<select value={formAdicional.categoria} onChange={(e) => setFormAdicional({ ...formAdicional, categoria: e.target.value })}>
-            {adicionais.categorias.map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
-          </select></label>}
-          <label>Cobrança<select value={formAdicional.unidadeCobranca} onChange={(e) => setFormAdicional({ ...formAdicional, unidadeCobranca: e.target.value as FormularioAdicional['unidadeCobranca'] })}>
-            {UNIDADES.map((u) => <option key={u.valor} value={u.valor}>{u.rotulo}</option>)}
-          </select></label>
+          <div className={editor.duasColunas}>
+            {!formAdicional.origem && <label>Grupo<select value={formAdicional.categoria} onChange={(e) => setFormAdicional({ ...formAdicional, categoria: e.target.value })}>
+              {adicionais.categorias.map((c) => <option key={c.codigo} value={c.codigo}>{c.nome}</option>)}
+            </select></label>}
+            <label>Cobrança<select value={formAdicional.unidadeCobranca} onChange={(e) => setFormAdicional({ ...formAdicional, unidadeCobranca: e.target.value as FormularioAdicional['unidadeCobranca'] })}>
+              {UNIDADES.map((u) => <option key={u.valor} value={u.valor}>{u.rotulo}</option>)}
+            </select></label>
+          </div>
           <div className={editor.modo} role="group" aria-label="Forma de preço">
             <button type="button" aria-pressed={formAdicional.modo === 'UNICO'} onClick={() => setFormAdicional({ ...formAdicional, modo: 'UNICO' })}>Preço único</button>
             <button type="button" aria-pressed={formAdicional.modo === 'FAIXAS'} onClick={() => setFormAdicional({ ...formAdicional, modo: 'FAIXAS' })}>Por faixa de convidados</button>
@@ -324,11 +361,27 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
             })}
           </fieldset>
           {erro && <p role="alert">{erro}</p>}
-          <div className={styles.actions}>
-            <AdminPrimaryButton type="submit" disabled={salvandoAdicional || adicionais.migracaoPendente}>{salvandoAdicional ? 'Salvando…' : 'Salvar adicional'}</AdminPrimaryButton>
-            <button type="button" onClick={() => { setFormAdicional(null); setErro(''); }}>Cancelar</button>
           </div>
+          <footer className={editor.painelRodape}>
+            {formAdicional.id ? <button type="button" className={editor.perigo} onClick={() => setExcluindoAdicional({ id: formAdicional.id!, nome: formAdicional.nome, pacotes: Object.values(formAdicional.pacotes).filter((m) => m === 'EXTRA').length })}>Excluir adicional</button> : <span />}
+            <div className={editor.rodapeAcoes}>
+              <button type="button" onClick={() => { setFormAdicional(null); setErro(''); }}>Cancelar</button>
+              <AdminPrimaryButton type="submit" disabled={salvandoAdicional || adicionais.migracaoPendente}>{salvandoAdicional ? 'Salvando…' : 'Salvar'}</AdminPrimaryButton>
+            </div>
+          </footer>
         </form>
+      </div>}
+      {excluindoAdicional && <div className={`${editor.overlay} ${editor.overlayCentro}`} role="dialog" aria-label="Confirmar exclusão do adicional">
+        <div className={`${editor.painel} ${editor.confirmacao}`}>
+          <h2>Excluir “{excluindoAdicional.nome}”?</h2>
+          <p>Ele sai do fechamento{excluindoAdicional.pacotes === 1 ? ' e do pacote que o oferece' : excluindoAdicional.pacotes > 1 ? ` e dos ${excluindoAdicional.pacotes} pacotes que o oferecem` : ''}.</p>
+          <p className={editor.avisoArquivo}>Se ele já tiver histórico (preço publicado, festa ou contrato), será <b>arquivado</b>: some das novas festas, mas continua nas festas e contratos que já o têm. Dá para reativá-lo depois em Outros adicionais.</p>
+          {erro && <p role="alert">{erro}</p>}
+          <div className={editor.rodapeAcoes}>
+            <button type="button" onClick={() => setExcluindoAdicional(null)}>Cancelar</button>
+            <button type="button" className={editor.botaoExcluir} disabled={excluindoEmCurso} onClick={() => void excluirAdicional()}>{excluindoEmCurso ? 'Excluindo…' : 'Excluir'}</button>
+          </div>
+        </div>
       </div>}
       {excluindo && <div className={editor.overlay} role="dialog" aria-label="Confirmar exclusão">
         <div className={editor.painel}>
