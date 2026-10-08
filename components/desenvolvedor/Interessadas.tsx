@@ -71,7 +71,7 @@ export default function Interessadas() {
         {erro && <p role="alert">{erro}</p>}
         {carregando && !lista && <p className={workspace.muted} aria-live="polite">Carregando…</p>}
         {lista && lista.itens.length === 0 && <div className={estilos.vazio}>{buscaAplicada ? 'Nenhuma interessada encontrada para esta busca.' : 'Nenhuma interessada nesta situação.'}</div>}
-        {lista && lista.itens.length > 0 && <div className={admin.tableWrap} aria-busy={carregando}><table>
+        {lista && lista.itens.length > 0 && <div className={`${admin.tableWrap} ${estilos.tabela}`} aria-busy={carregando}><table>
             <thead><tr><th>Empresa</th><th>Responsável</th><th>Contato</th><th>Situação</th><th>Atualizada</th></tr></thead>
             <tbody>{lista.itens.map((i) => <tr key={i.id}>
                 <td><Link href={`/desenvolvedor/interessadas/${i.id}`}>{i.nome}</Link>{i.nomeEmpresarial && <small className={workspace.muted}>{i.nomeEmpresarial}</small>}</td>

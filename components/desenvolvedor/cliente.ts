@@ -120,6 +120,17 @@ const ACOES: Record<string, string> = {
     CADASTRO_CONFIRMADO: 'Conta confirmada pelo e-mail',
     COBRANCA_SINCRONIZADA: 'Cobrança sincronizada com o provedor',
     COBRANCA_INTENCAO_LIBERADA: 'Intenção de cobrança liberada manualmente',
+    CADASTRO_SOLICITADO: 'Cadastro solicitado (link de confirmação enviado)',
+    CADASTRO_CONTA_EXISTENTE: 'Cadastro pedido com e-mail que já tem conta',
+    CADASTRO_ENVIO_FALHOU: 'Cadastro: falha no envio do e-mail de confirmação',
+    CADASTRO_CNPJ_EXISTENTE: 'Cadastro com CNPJ já existente (pedido de acesso)',
+    COBRANCA_WEBHOOK_RECUSADO: 'Webhook do provedor recusado',
+    ASSINATURA_SINCRONIZADA: 'Assinatura sincronizada com o provedor',
+    ASSINATURA_SINCRONIZACAO_SEM_TRANSICAO: 'Sincronização sem mudança de situação',
+    ASSINATURA_SINCRONIZACAO_RECUSADA: 'Sincronização recusada',
+    ASSINATURA_CANCELADA: 'Assinatura cancelada pela Gestão',
+    ASSINATURA_VINCULADA_RECONCILIACAO: 'Assinatura vinculada pela reconciliação',
+    ASSINATURA_DUPLICADA_REMOVIDA: 'Assinatura duplicada removida no provedor',
 };
 export function rotuloAcao(acao: string) {
     return ACOES[acao] ?? acao.toLowerCase().replace(/_/g, ' ');

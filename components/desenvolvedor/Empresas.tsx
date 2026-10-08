@@ -61,7 +61,7 @@ export default function Empresas() {
         {erro && <p role="alert">{erro}</p>}
         {carregando && !lista && <p className={workspace.muted} aria-live="polite">Carregando…</p>}
         {lista && lista.itens.length === 0 && <div className={estilos.vazio}>{buscaAplicada ? 'Nenhuma empresa encontrada para esta busca.' : 'Nenhuma empresa nesta situação.'}</div>}
-        {lista && lista.itens.length > 0 && <div className={admin.tableWrap} aria-busy={carregando}><table>
+        {lista && lista.itens.length > 0 && <div className={`${admin.tableWrap} ${estilos.tabela}`} aria-busy={carregando}><table>
             <thead><tr><th>Empresa</th><th>Situação</th><th>Comercial</th><th>Responsável</th><th>Acessos</th><th>Desde</th></tr></thead>
             <tbody>{lista.itens.map((e) => <tr key={e.id}>
                 <td><Link href={`/desenvolvedor/empresas/${e.id}`}>{e.nome}</Link><small className={workspace.muted}>{e.codigo}{!e.temCadastro ? ' · sem cadastro administrativo' : ''}</small></td>

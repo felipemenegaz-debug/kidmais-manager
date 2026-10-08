@@ -15,7 +15,7 @@ type Registro = {
 type Consulta = { itens: Registro[]; total: number; pagina: number; porPagina: number; acoes: string[]; empresas: Array<{ id: string; nome: string }> };
 
 const UUID = /^[0-9a-f-]{36}$/i;
-const ROTULO_STATUS: Record<string, string> = { NOVA: 'Nova', EM_CONTATO: 'Em contato', PROPOSTA: 'Proposta enviada', CONVERTIDA: 'Contratante', DESCARTADA: 'Descartada', ATIVA: 'Ativa', SUSPENSA: 'Suspensa', REVOGADA: 'Removida', DESATIVADA: 'Desativada', PROVISIONAMENTO: 'Em provisionamento' };
+const ROTULO_STATUS: Record<string, string> = { PENDENTE: 'Pendente', NOVA: 'Nova', EM_CONTATO: 'Em contato', PROPOSTA: 'Proposta enviada', CONVERTIDA: 'Contratante', DESCARTADA: 'Descartada', ATIVA: 'Ativa', SUSPENSA: 'Suspensa', REVOGADA: 'Removida', DESATIVADA: 'Desativada', PROVISIONAMENTO: 'Em provisionamento' };
 
 /** Resumo legível dos dados do registro (já sanitizados no servidor): situação antes → depois, campos alterados, e-mail, papel. */
 export function detalhesDoRegistro(r: Registro) {
@@ -99,7 +99,7 @@ export default function Atividade() {
         {erro && <p role="alert">{erro}</p>}
         {carregando && !dados && <p className={workspace.muted} aria-live="polite">Carregando…</p>}
         {dados && dados.itens.length === 0 && <div className={estilos.vazio}>Nenhum registro para estes filtros.</div>}
-        {dados && dados.itens.length > 0 && <div className={admin.tableWrap} aria-busy={carregando}><table>
+        {dados && dados.itens.length > 0 && <div className={`${admin.tableWrap} ${estilos.tabela}`} aria-busy={carregando}><table>
             <thead><tr><th>Quando</th><th>Ação</th><th>Empresa</th><th>Quem</th><th>Resultado</th><th>Detalhes</th></tr></thead>
             <tbody>{dados.itens.map((r) => <tr key={r.id}>
                 <td>{formatarData(r.criadoEm)}</td>

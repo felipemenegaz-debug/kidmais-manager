@@ -10,13 +10,14 @@ import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
  * Auditoria ADMINISTRATIVA consultável pelo painel do desenvolvedor: por empresa, ação e período, paginada.
  *
  * Só as origens administrativas da plataforma entram (painel, convites, recuperação, senha, ciclo de empresa e de
- * vínculo, Usuários e acessos da empresa, CLI de provisionamento e Perfil da empresa). Nenhuma origem operacional
+ * vínculo, Usuários e acessos da empresa, CLI de provisionamento, Perfil da empresa e a cobrança da assinatura da
+ * plataforma — webhook recusado, sincronização, cancelamento; a mesma lista do Resumo). Nenhuma origem operacional
  * (clientes, contratos, documentos, festas, pagamentos, IA) é consultável por aqui. Cada linha sai pela mesma
  * sanitização da escrita (sanitizarAuditoria): nunca senha, token, hash ou link.
  */
 export const ORIGENS_ADMINISTRATIVAS = [
     'PAINEL_DESENVOLVEDOR', 'CONVITE_PUBLICO', 'RECUPERACAO_PUBLICA', 'PERFIL_SENHA', 'HG8_CICLO_EMPRESA', 'HG8_CICLO_MEMBERSHIP', 'CADASTRO_PUBLICO',
-    'ADMIN_USUARIOS', 'CLI_PROVISIONAMENTO', 'PERFIL_EMPRESA',
+    'ADMIN_USUARIOS', 'CLI_PROVISIONAMENTO', 'PERFIL_EMPRESA', 'COBRANCA',
 ] as const;
 export const POR_PAGINA_AUDITORIA = 25;
 

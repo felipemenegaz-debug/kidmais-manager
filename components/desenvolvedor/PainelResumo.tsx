@@ -78,7 +78,7 @@ export default function PainelResumo() {
             </div>
             <section className={workspace.card} aria-labelledby="t-atividade">
                 <h2 id="t-atividade">Atividades administrativas recentes</h2>
-                {dados.atividades.length === 0 ? <p className={workspace.muted}>Nenhuma atividade registrada.</p> : <div className={admin.tableWrap}><table>
+                {dados.atividades.length === 0 ? <p className={workspace.muted}>Nenhuma atividade registrada.</p> : <div className={`${admin.tableWrap} ${estilos.tabela}`}><table>
                     <thead><tr><th>Quando</th><th>Ação</th><th>Empresa</th><th>Quem</th><th>Resultado</th></tr></thead>
                     <tbody>{dados.atividades.map((a) => <tr key={a.id}>
                         <td>{formatarData(a.criado_em)}</td><td>{rotuloAcao(a.acao)}</td>

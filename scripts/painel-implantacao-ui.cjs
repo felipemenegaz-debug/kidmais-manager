@@ -245,6 +245,19 @@ async function principal() {
     await page.getByRole('heading', { name: /O que precisa de ação/ }).waitFor();
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'resumo sem rolagem horizontal no celular');
     await page.screenshot({ path: path.join(relatorios, 'celular-resumo-alertas.png'), fullPage: true });
+    // Tabelas do painel no celular: o contêiner rola na horizontal; células sem quebrar palavras e data numa linha.
+    const tabelaLegivel = () => page.evaluate(() => {
+        const tabelas = [...document.querySelectorAll('main table')];
+        // A coluna "Detalhes" da Atividade quebra de propósito (texto livre e identificadores longos; estilo inline).
+        return tabelas.length > 0 && tabelas.every((t) => [...t.querySelectorAll('th, td')].filter((c) => c.style.overflowWrap !== 'anywhere').every((c) => getComputedStyle(c).overflowWrap !== 'anywhere')
+            && [...t.querySelectorAll('th, tbody td:first-child')].every((c) => getComputedStyle(c).whiteSpace === 'nowrap'));
+    });
+    assert.ok(await tabelaLegivel(), 'resumo: tabela legível no celular');
+    await page.goto(`${base}/desenvolvedor/atividade`);
+    await page.locator('main table').first().waitFor();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'atividade sem rolagem horizontal da página');
+    assert.ok(await tabelaLegivel(), 'atividade: tabela legível no celular');
+    await page.screenshot({ path: path.join(relatorios, 'celular-atividade.png'), fullPage: true });
     await page.goto(`${base}/desenvolvedor/empresas/${empresa}`);
     const abrir = page.getByRole('button', { name: 'Abrir menu', exact: true });
     await abrir.click();

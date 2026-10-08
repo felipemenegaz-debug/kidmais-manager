@@ -44,3 +44,8 @@ a.metrica:hover { border-color:color-mix(in srgb,var(--km-teal) 40%,transparent)
 .vazio { text-align:center; padding:40px 16px; color:var(--secondary-text); border:1px dashed var(--input-border); border-radius:20px; }
 @media(max-width:900px) { .duasColunas { grid-template-columns:1fr; } }
 @media(max-width:700px) { .formGrid { grid-template-columns:1fr; } .cabecalho { align-items:flex-start; } }
+
+/* Tabelas do painel: o contêiner (admin .tableWrap) já rola na horizontal; no celular, quebrar palavras no meio
+   ("Quan-do", "08/1 0/2 026") prejudica a leitura. Mantém palavras inteiras e a data numa linha. */
+.tabela.tabela th, .tabela.tabela td { overflow-wrap: normal; word-break: normal; }
+.tabela.tabela th, .tabela.tabela td:first-child { white-space: nowrap; }
