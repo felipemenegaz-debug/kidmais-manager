@@ -250,7 +250,8 @@ async function principal() {
         const tabelas = [...document.querySelectorAll('main table')];
         // A coluna "Detalhes" da Atividade quebra de propósito (texto livre e identificadores longos; estilo inline).
         return tabelas.length > 0 && tabelas.every((t) => [...t.querySelectorAll('th, td')].filter((c) => c.style.overflowWrap !== 'anywhere').every((c) => getComputedStyle(c).overflowWrap !== 'anywhere')
-            && [...t.querySelectorAll('th, tbody td:first-child')].every((c) => getComputedStyle(c).whiteSpace === 'nowrap'));
+            && [...t.querySelectorAll('th')].every((c) => getComputedStyle(c).whiteSpace === 'nowrap')
+            && (t.querySelector('th')?.textContent !== 'Quando' || [...t.querySelectorAll('tbody td:first-child')].every((c) => getComputedStyle(c).whiteSpace === 'nowrap')));
     });
     assert.ok(await tabelaLegivel(), 'resumo: tabela legível no celular');
     await page.goto(`${base}/desenvolvedor/atividade`);

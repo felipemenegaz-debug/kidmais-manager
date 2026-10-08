@@ -17,6 +17,9 @@ type Consulta = { itens: Registro[]; total: number; pagina: number; porPagina: n
 const UUID = /^[0-9a-f-]{36}$/i;
 const ROTULO_STATUS: Record<string, string> = { PENDENTE: 'Pendente', NOVA: 'Nova', EM_CONTATO: 'Em contato', PROPOSTA: 'Proposta enviada', CONVERTIDA: 'Contratante', DESCARTADA: 'Descartada', ATIVA: 'Ativa', SUSPENSA: 'Suspensa', REVOGADA: 'Removida', DESATIVADA: 'Desativada', PROVISIONAMENTO: 'Em provisionamento' };
 
+/** Motivos codificados gravados pelo servidor (ex.: recusa do webhook do provedor). */
+const MOTIVOS: Record<string, string> = { TOKEN_AUSENTE: 'sem token de autenticação', TOKEN_INVALIDO: 'token de autenticação inválido' };
+
 /** Resumo legível dos dados do registro (já sanitizados no servidor): situação antes → depois, campos alterados, e-mail, papel. */
 export function detalhesDoRegistro(r: Registro) {
     const partes: string[] = [];
@@ -34,7 +37,7 @@ export function detalhesDoRegistro(r: Registro) {
     if (typeof d.papel === 'string')
         partes.push(d.papel === 'REPRESENTANTE_AUTORIZADO' ? 'Gestão' : 'Equipe');
     if (typeof d.motivo === 'string' && d.motivo)
-        partes.push(String(d.motivo));
+        partes.push(MOTIVOS[d.motivo] ?? String(d.motivo));
     if (Array.isArray(d.pendencias) && d.pendencias.length)
         partes.push(`pendências: ${(d.pendencias as unknown[]).map(String).join(', ')}`);
     if (typeof d.sessoesEncerradas === 'number' && d.sessoesEncerradas > 0)
@@ -99,7 +102,7 @@ export default function Atividade() {
         {erro && <p role="alert">{erro}</p>}
         {carregando && !dados && <p className={workspace.muted} aria-live="polite">Carregando…</p>}
         {dados && dados.itens.length === 0 && <div className={estilos.vazio}>Nenhum registro para estes filtros.</div>}
-        {dados && dados.itens.length > 0 && <div className={`${admin.tableWrap} ${estilos.tabela}`} aria-busy={carregando}><table>
+        {dados && dados.itens.length > 0 && <div className={`${admin.tableWrap} ${estilos.tabela} ${estilos.tabelaData}`} aria-busy={carregando}><table>
             <thead><tr><th>Quando</th><th>Ação</th><th>Empresa</th><th>Quem</th><th>Resultado</th><th>Detalhes</th></tr></thead>
             <tbody>{dados.itens.map((r) => <tr key={r.id}>
                 <td>{formatarData(r.criadoEm)}</td>

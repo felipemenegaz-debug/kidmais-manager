@@ -234,7 +234,7 @@ export default function EmpresaFicha({ id }: { id: string }) {
         <section className={workspace.card} aria-labelledby="t-atividade">
             <h2 id="t-atividade">Atividade administrativa</h2>
             <p className={workspace.muted}>Últimos registros. <Link href={`/desenvolvedor/atividade?empresaId=${e.id}`}>Ver toda a atividade desta empresa</Link>, com filtros por ação e período.</p>
-            {ficha.atividade.length === 0 ? <p className={workspace.muted}>Sem registros.</p> : <div className={`${admin.tableWrap} ${estilos.tabela}`}><table>
+            {ficha.atividade.length === 0 ? <p className={workspace.muted}>Sem registros.</p> : <div className={`${admin.tableWrap} ${estilos.tabela} ${estilos.tabelaData}`}><table>
                 <thead><tr><th>Quando</th><th>Ação</th><th>Quem</th><th>Resultado</th></tr></thead>
                 <tbody>{ficha.atividade.map((a) => <tr key={a.id}><td>{formatarData(a.criado_em)}</td><td>{rotuloAcao(a.acao)}</td><td>{a.ator ?? 'Sistema'}</td><td>{rotuloResultado(a.resultado)}</td></tr>)}</tbody>
             </table></div>}

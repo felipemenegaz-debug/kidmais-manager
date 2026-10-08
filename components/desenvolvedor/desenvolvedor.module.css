@@ -46,6 +46,7 @@ a.metrica:hover { border-color:color-mix(in srgb,var(--km-teal) 40%,transparent)
 @media(max-width:700px) { .formGrid { grid-template-columns:1fr; } .cabecalho { align-items:flex-start; } }
 
 /* Tabelas do painel: o contêiner (admin .tableWrap) já rola na horizontal; no celular, quebrar palavras no meio
-   ("Quan-do", "08/1 0/2 026") prejudica a leitura. Mantém palavras inteiras e a data numa linha. */
+   ("Quan-do", "08/1 0/2 026") prejudica a leitura. Mantém palavras inteiras, cabeçalhos numa linha e, nas tabelas
+   cuja primeira coluna é a data (tabelaData), a data numa linha. Nomes e e-mails continuam quebrando entre palavras. */
 .tabela.tabela th, .tabela.tabela td { overflow-wrap: normal; word-break: normal; }
-.tabela.tabela th, .tabela.tabela td:first-child { white-space: nowrap; }
+.tabela.tabela th, .tabelaData.tabelaData td:first-child { white-space: nowrap; }
