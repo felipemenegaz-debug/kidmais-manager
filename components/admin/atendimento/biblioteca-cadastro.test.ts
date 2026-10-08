@@ -40,7 +40,7 @@ test('biblioteca: adicionar arquivo por arrastar — formatos e limites visívei
   (radio(t, 'ARQUIVO').props.onChange as () => void)();
   t = await m.render();
   const area = achar(t, 'button', /Arraste seu arquivo ou clique para escolher/);
-  assert.match(texto(area), /Foto JPG ou PNG até 5 MB · Vídeo MP4 ou 3GP até 16 MB · PDF PDF até 16 MB/);
+  assert.match(texto(area), /Foto JPG ou PNG até 5 MB · Vídeo MP4 ou 3GP até 16 MB · PDF até 16 MB/);
   // Formato não aceito e arquivo grande: mensagem clara, nada é enviado.
   await soltar(area, new File(['x'], 'planilha.xlsx', { type: 'application/vnd.ms-excel' }));
   t = await m.render();

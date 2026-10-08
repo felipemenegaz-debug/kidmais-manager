@@ -186,7 +186,7 @@ const NOME_ESCOLHA: Record<Escolha, { titulo: string; ajuda: string }> = {
   LINK_FECHAMENTO_INDIVIDUAL: { titulo: 'Link do contrato do cliente', ajuda: 'Preenchido para cada cliente na hora do uso' },
 };
 const escolhaDo = (tipo: TipoPronta): Escolha => (ehAnexo(tipo) ? 'ARQUIVO' : tipo);
-const LIMITES_VISIVEIS = (['IMAGEM', 'VIDEO', 'DOCUMENTO'] as const).map(t => `${NOME_TIPO[t]} ${FORMATO_ANEXO[t]} até ${tamanho(LIMITE_ANEXO_BYTES[t])}`).join(' · ');
+const LIMITES_VISIVEIS = (['IMAGEM', 'VIDEO', 'DOCUMENTO'] as const).map(t => `${NOME_TIPO[t]}${FORMATO_ANEXO[t] === NOME_TIPO[t] ? '' : ' ' + FORMATO_ANEXO[t]} até ${tamanho(LIMITE_ANEXO_BYTES[t])}`).join(' · ');
 
 /**
  * Cadastro da biblioteca (representante): textos, links, fotos, vídeos e PDFs; rascunho, publicada e arquivada; quem pode
@@ -285,7 +285,10 @@ export function GerenciarMensagensProntas({ pagina = false }: { pagina?: boolean
       {escolha === 'ARQUIVO' && r075 && <div className={styles.campoArquivo}>
         <input ref={entradaArquivo} id={`${id}-arquivo`} type="file" accept={ACEITA_ANEXO} hidden tabIndex={-1} onChange={e => void enviarArquivo(e.target.files?.[0])} />
         {edicao.arquivo ? <div className={styles.arquivoEscolhido}>
-          <span className={styles.miniatura} aria-hidden="true">{edicao.arquivo.tipo === 'IMAGEM' ? <img src={edicao.arquivo.caminho} alt="" /> : edicao.arquivo.tipo === 'VIDEO' ? '▶' : 'PDF'}</span>
+          <span className={styles.miniatura} aria-hidden="true">{edicao.arquivo.tipo === 'IMAGEM'
+            // Miniatura do arquivo da própria biblioteca (rota autenticada do admin): sem otimização de imagem do Next.
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={edicao.arquivo.caminho} alt="" /> : edicao.arquivo.tipo === 'VIDEO' ? '▶' : 'PDF'}</span>
           <span className={styles.dadosArquivo}><strong>{edicao.arquivo.nome}</strong><span>{NOME_TIPO[edicao.arquivo.tipo]} · {tamanho(edicao.arquivo.tamanho)}</span></span>
           <span className={styles.acoesArquivo}>
             <a href={edicao.arquivo.caminho} target="_blank" rel="noopener noreferrer">Visualizar<span className={styles.oculto}> {edicao.arquivo.nome} (abre em nova aba)</span></a>

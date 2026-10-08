@@ -148,7 +148,7 @@ export default function AtendimentoWhatsapp() {
   const sugestaoAtual = sugestao && sugestao.conversaId === selecionada ? sugestao : null;
   const comEquipe = !!conversa && (conversa.estado === 'HUMANO' || conversa.estado === 'AGUARDANDO_HUMANO');
   return <main className={styles.pagina}>
-    <header className={styles.topo}><div><h1>Atendimento</h1><p>Conversas do WhatsApp com o Wall-e e a equipe.</p></div><div className={styles.acoes}><Link href="/admin/atendimento/biblioteca">Biblioteca</Link>{dados?.podeConfigurar && <Link href="/admin/atendimento/configuracao">Configuração</Link>}<button onClick={()=>void carregar()} disabled={ocupado}>Atualizar</button></div></header>
+    <header className={styles.topo}><div><h1>Atendimento</h1><p>Conversas do WhatsApp com o Wall-e e a equipe.</p></div><div className={styles.acoes}><Link href="/admin/atendimento/biblioteca">Biblioteca</Link>{dados?.podeConfigurar && <Link href="/admin/atendimento/configuracao">Configurações</Link>}<button onClick={()=>void carregar()} disabled={ocupado}>Atualizar</button></div></header>
     {bloqueio && <section className={styles.bloqueio} role="alert" aria-labelledby="bloqueio-atendimento" data-bloqueio={bloqueio.tipo}><h2 id="bloqueio-atendimento">{bloqueio.titulo}</h2><p>{bloqueio.orientacao}</p></section>}
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
     {statusAcao && <p role="status" className={styles.aviso}>{statusAcao}</p>}
