@@ -86,3 +86,5 @@
 .pagina button.ferramenta,.pagina .botoesProntas button.ferramenta{display:inline-grid;place-items:center;width:44px;min-height:44px;padding:0;border-color:var(--km-border)}.pagina button.ferramenta[aria-expanded=true]{border-color:var(--km-violet);background:color-mix(in srgb,var(--km-violet) 22%,var(--km-card-2))}
 @media(max-width:760px){.pagina .botoesProntas button.ferramenta{width:40px;min-height:44px;padding:0}}
 .maisOpcoes summary{list-style:none}.maisOpcoes summary::-webkit-details-marker{display:none}.maisOpcoes summary::before{content:"";width:8px;height:8px;margin:0 12px 0 2px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s}.maisOpcoes[open] summary::before{transform:rotate(45deg)}
+/* Rodada 40 (validação no celular): o título do item nunca é espremido pelos botões — abaixo de ~240px ele ocupa a linha e os botões descem. */
+.listaProntas .itemPronta{flex:1 1 240px;min-width:0}
