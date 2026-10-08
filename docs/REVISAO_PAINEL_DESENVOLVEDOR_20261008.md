@@ -18,7 +18,7 @@ Fontes: `PROPOSTA_VENDA_ASSINATURA_20261006.md` §3 e §6, `PAINEL_DESENVOLVEDOR
 | Plano, situação, datas, extensão de teste auditada, exceção com prazo, histórico | §3 L, E5 | Feito; ficha do Buffet 1 verificada (prazo, nível) |
 | Representação declarada e aprovação/recusa/revogação auditadas; pedidos de acesso | §3 L, E6 | Feito; representação `DECLARADA` e pedido de C `RECUSADA` com motivo verificados |
 | Eventos do provedor, sincronização, pendências, liberação manual | §6, E8 | Código feito; execução real pendente dos testes A2–A12 (10/10) |
-| Transferência de responsável pelo painel | §3 L | Possível por composição: convite como Gestão → aceite → rebaixar a pessoa anterior (guarda de última Gestão). A representação continua em nome de quem declarou: **decisão** (§6.3) |
+| Transferência de responsável pelo painel | §3 L | Feito por composição: convite como Gestão → aceite → rebaixar a pessoa anterior (guarda de última Gestão). Trocar a Gestão **não** transfere a representação (decisão de Felipe, 08/10); código conforme. Sem fluxo de nova declaração para empresa existente (§6.1) |
 | Atividade sem as origens de cobrança | defeito | **Corrigido na #145** |
 | Códigos crus nos rótulos (cadastro público, cobrança, `PENDENTE`) | defeito | **Corrigido na #145** |
 | Busca de contratantes por CNPJ formatado | defeito | **Corrigido na #145** |
@@ -26,11 +26,11 @@ Fontes: `PROPOSTA_VENDA_ASSINATURA_20261006.md` §3 e §6, `PAINEL_DESENVOLVEDOR
 | Tabelas quebrando palavras e datas a 390 px | defeito | **Corrigido na #145** |
 | Revogar exceção já vencida era aceito | defeito | **Corrigido na #146** |
 | Listagem do Asaas truncada em silêncio além do limite de páginas | defeito | **Corrigido na #146** |
-| Uso por empresa (custo de IA do 055a, usuários, documentos) | §6 | Pendente; fora do §3 L. Proposta §6.1 |
-| Link para o provedor nos eventos | §6 | Pendente. Proposta §6.2 |
-| Métricas de funil | §3 **P** | Não é requisito de lançamento (no lançamento: consulta SQL de leitura). Proposta §6.1 |
-| Avisar a Gestão da empresa existente sobre pedido de acesso | E6 | Pendente; depende de e-mail real (desligado). Proposta §6.4 |
-| Rótulos dos eventos do provedor (`PAYMENT_CONFIRMED` cru) | melhoria | Ainda não visto na tela (nenhum evento até A2). Proposta §6.2 |
+| Uso por empresa (custo de IA do 055a, usuários, documentos) | §6 | Fora desta entrega (§6.2) |
+| Link para o provedor nos eventos | §6 | Avaliar depois dos eventos reais de A2–A12 (§6.3) |
+| Métricas de funil | §3 **P** | Não é requisito de lançamento (no lançamento: consulta SQL de leitura). Fora desta entrega (§6.2) |
+| Avisar a Gestão da empresa existente sobre pedido de acesso | E6 | Pendente; depende de e-mail real (desligado). Fora desta entrega (§6.2) |
+| Rótulos dos eventos do provedor (`PAYMENT_CONFIRMED` cru) | melhoria | Ainda não visto na tela (nenhum evento até A2). Avaliar depois de A2–A12 (§6.3) |
 
 ## 2. PR #145 — revisão
 
@@ -91,32 +91,42 @@ Tudo somente leitura, em staging, com a sessão de desenvolvedor de Felipe, salv
 | 4 | Origem | Ficha do Buffet 1 | Origem "Cadastro público (pela própria empresa)". A Kidmais continua com a origem anterior | "Cadastro direto" no Buffet 1 |
 | 5 | Celular | Largura de 390 px: Resumo, Atividade, ficha | Cabeçalhos inteiros; data em uma linha; sem rolagem horizontal da página | "Quan/do" ou data partida; página rolando para o lado |
 | 6 | Exceção vencida (#146) | Ficha do Buffet 1, bloco comercial | "Revogar" só em exceção vigente. **Não executar** revogação: a regra está coberta por teste | Botão em exceção vencida |
-| 7 | Lista incompleta (#146) | Ficha do Buffet 1, cobrança e pendências | Página carrega como antes. Não há como reproduzir mais de 200 assinaturas no sandbox: a regra está coberta por teste | Erro ao abrir a ficha |
+| 7 | Lista incompleta (#146) | Ficha do Buffet 1, cobrança e pendências | Página carrega como antes. Não há como reproduzir mais de 200 assinaturas no sandbox: a regra está coberta por teste. Se uma pendência mostrar `LISTA_INCOMPLETA: …`, é revisão humana no painel do Asaas, não indisponibilidade | Erro ao abrir a ficha |
 | 8 | Permissões | Sessão de A (Gestão, sem concessão): `/desenvolvedor` e `/api/desenvolvedor/auditoria` | 404 nos dois | Qualquer conteúdo do painel |
 | 9 | Regressão | Resumo | Mesmo número de alertas de antes do deploy; a Kidmais continua sem cobrança | Contagem diferente sem explicação |
 
-## 6. Propostas para aprovação
+## 6. Decisões e itens fora desta entrega
 
-Nada abaixo foi implementado.
+### 6.1 Transferência de responsável (decisão de Felipe, 08/10)
 
-1. **Uso e funil (§6, §3 P).**
-   - Bloco "Uso" na ficha, só com leitura e contagens: custo de IA do mês (055a), usuários ativos, contratos e documentos.
-   - Para o funil, uma consulta de leitura documentada (cadastros → confirmados → em teste → pagantes) antes de qualquer tela.
-   - Sem dado de cliente da empresa.
-2. **Eventos do provedor.**
-   - Rótulos em português para os 17 eventos suportados.
-   - Link para a cobrança no painel do Asaas, montado pelo id e só no ambiente correspondente.
-   - Avaliar depois de ver os eventos reais de A2–A12.
-3. **Transferência de responsável.** Decidir se a representação aprovada passa para a nova Gestão, com nova declaração e aprovação, ou se fica registrada em nome de quem declarou. Até lá, a transferência funciona por convite e mudança de papel.
-4. **Aviso à Gestão sobre pedido de acesso.** Depende de e-mail real; propor junto com a ativação do e-mail.
-5. **Reforços opcionais** (nenhum é defeito; todos mudam regra):
-   - senha recente também para convite, reenvio e recuperação pelo painel;
-   - exigir evidência descrita para aprovar representação;
-   - manter o motivo digitado quando a decisão de representação falha;
-   - teto acumulado de extensões de teste;
-   - auditar falhas de sincronização e liberação;
-   - 404 na sincronização de empresa inexistente;
-   - impedir no banco que o papel da aplicação escreva em `plataforma_desenvolvedores`.
+Regra: trocar a Gestão não transfere automaticamente uma representação aprovada. O registro anterior é preservado, e qualquer nova representação passa pelo fluxo próprio de declaração e aprovação.
+
+Conferido no código:
+
+- **Quem grava representação:** só o cadastro público cria (`lib/cadastro/publico.ts`, `INSERT` com situação `DECLARADA`), e só a decisão do painel muda a situação (`lib/desenvolvedor/representacao.ts`, com motivo, senha recente e auditoria). Mudar papel, desativar vínculo, convidar ou aceitar convite não toca em `empresa_representacoes`.
+- **Banco (067):** a representação não é apagada; empresa, pessoa, qualificação e data da declaração são imutáveis; pode haver só uma em aberto ou aprovada por pessoa e empresa. A representação de quem deixou a Gestão continua como estava, até uma revogação explícita no painel.
+- **O que a representação aprovada libera hoje:** nada. A D6 (o que exige representação aprovada) ainda não foi decidida (`MODELO_COMERCIAL_E3_20261006.md`), e nenhum código consulta `APROVADA` para permitir uma ação.
+
+**Pendente, não implementado:** a única forma de declarar representação é o cadastro público, na criação da empresa. A nova Gestão de uma empresa já existente não tem onde declarar. Esse fluxo de declaração depois do cadastro é necessário antes de a D6 passar a exigir representação aprovada.
+
+### 6.2 Fora desta entrega (por decisão de Felipe)
+
+Nenhum destes itens será implementado agora:
+
+- uso por empresa e métricas de funil;
+- aviso à Gestão sobre pedido de acesso (depende de e-mail real);
+- reforços opcionais de regra:
+  - senha recente para convite, reenvio e recuperação pelo painel;
+  - evidência obrigatória para aprovar representação;
+  - manter o motivo digitado quando a decisão falha;
+  - teto acumulado de extensões;
+  - auditar falhas de sincronização e liberação;
+  - 404 na sincronização de empresa inexistente;
+  - impedir no banco que o papel da aplicação escreva em `plataforma_desenvolvedores`.
+
+### 6.3 Eventos do provedor
+
+Rótulos em português e link para o Asaas serão avaliados com os eventos reais de A2–A12. Até lá, a ficha mostra o tipo do provedor como ele chega (ex.: `PAYMENT_CONFIRMED`).
 
 ## 7. Merge, deploy, homologação e rollback
 
