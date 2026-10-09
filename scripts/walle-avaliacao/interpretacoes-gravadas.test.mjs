@@ -205,9 +205,9 @@ test('gravadas r44 × h44 (mv0mgkwp, página pública): aa60–aa62 seguem a con
   assert.deepEqual(porId('aa17').motivos, ['INSTRUCAO_SUSPEITA']);
   // aa80 (festa contratada da irmã): contrato próprio, agora que aa79 não leva a conversa para a equipe.
   assert.deepEqual(porId('aa80').motivos, ['CONTRATO_PROPRIO']);
-  // Críticas: só a da régua em aa08 (cláusula 8, de prorrogação, julgada "de outro assunto" porque a régua não reconhece
-  // "mais meia horinha"), corrigida à parte no commit seguinte, com calibração.
-  assert.deepEqual(metricas.criticas.flatMap((c) => c.falhas.map((f) => `${c.chave}:${f.id}`)), ['FONTE_ERRADA:aa08']);
+  // Nenhuma crítica (a de aa08 era da régua: a cláusula 8, de prorrogação, julgada "de outro assunto"; corrigida na régua
+  // da rodada 45, commit próprio, com calibração).
+  for (const c of metricas.criticas) assert.deepEqual(c.falhas.map((f) => `${f.id}: ${f.motivo}`), [], c.nome);
   assert.deepEqual(metricas.comercial.falhas.map((f) => f.id).sort(), ['aa02', 'aa07']);
   assert.deepEqual(metricas.desnecessarios.map((d) => d.id), ['aa02']);
 });

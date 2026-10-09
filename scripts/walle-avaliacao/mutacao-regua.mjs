@@ -15,6 +15,8 @@ const teste = fs.readFileSync(path.join(raiz, 'scripts/walle-avaliacao/metricas.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'walle-mutacao-regua-'));
 fs.writeFileSync(path.join(dir, 'metricas.test.mjs'), teste);
 const mutacoes = {
+  // Rodada 45.
+  'horários sem "mais meia horinha"': (t) => t.replace('HORARIOS: /\\b(mais (?:uma |duas |1 |2 )?(?:meia )?hor(?:a|as|inha|inhas)\\b(?![^.?!]{0,15}\\b(?:que|do que) (?:o|a)\\b)|', 'HORARIOS: /\\b('),
   // Rodada 44.
   'comercial aceita o link sem o link enviado': (t) => t.replace("LINK_DATAS_REGUA.test(semAc(l.texto)) && fontes.some((f) => f.tipo === 'LINK_DISPONIBILIDADE')", 'LINK_DATAS_REGUA.test(semAc(l.texto))'),
   'comercial aceita a pergunta de reserva sem o aviso': (t) => t.replace('RESERVA_REGUA.test(semAc(l.texto)) && NAO_RESERVA_RESPOSTA.test(l.resposta ?? \'\')', 'RESERVA_REGUA.test(semAc(l.texto))'),

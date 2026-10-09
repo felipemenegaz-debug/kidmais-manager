@@ -483,3 +483,13 @@ test('rodada 44 (régua): o pedido do link é servido pelo link público e "já 
   assert.deepEqual(ids(linha({ id: 'l5', texto: 'manda o link do mapa', intencoes: ['DISPONIBILIDADE'], saidas: [texto('…', [link])] })), ['l5']);
   assert.deepEqual(ids(linha({ id: 'l6', texto: 'tem vaga dia 21/11?', intencoes: ['DISPONIBILIDADE'], saidas: [texto('…', [link])] })), ['l6']);
 });
+
+
+test('rodada 45 (régua): "mais meia horinha" é assunto de horários — a cláusula 8 não é "de outro assunto"; comparação de duração não', () => {
+  const c8 = { tipo: 'CONTRATO_MODELO', clausula: 8 };
+  const linha8 = (t) => linha({ id: 'x', texto: t, intencoes: ['CONTRATO'], saidas: [texto('Cláusula 8: …', [c8])] });
+  for (const t of ['vcs atendem ate que horas? e se a festa precisar de mais meia horinha quanto é?', 'e se precisar de mais uma hora, quanto custa?', 'dá pra pegar mais meia hora?'])
+    assert.equal(fonteErrada(linha8(t)), null, t);
+  // Sem pedido de prorrogação, a cláusula 8 continua de outro assunto.
+  assert.match(fonteErrada(linha8('o premium tem mais uma hora que o completa? e criança paga?')) ?? '', /outro assunto|sem assunto/);
+});

@@ -45,7 +45,9 @@ export const PERGUNTA_DO_ASSUNTO = {
   // Rodada 26: parcelamento ("tem juros se eu parcelar?", "12x sem juros", "à vista") é condição de pagamento: não há
   // cláusula dele no modelo — qualquer cláusula citada só por ele é de outro assunto (a de inadimplência inclusive).
   PARCELAMENTO: /\b(parcel\w*|sem juros|juros zero|em \d+ ?x|\d+ ?x\b|\d+ vezes|a vista|no cartao|cartao de credito|formas? de pagamento|dividir (o valor|em))/,
-  HORARIOS: /\b(passar do horario|passa do horario|passou do horario|alem do horario|depois do horario|do horario|hora (a mais|extra)|horas (a mais|extras?)|horinhas? (a mais|extras?)|minutos a mais|prorroga\w*|estender|esticar|que horas (tem que|temos que|precisa|precisamos) sair|termin\w*|horario|ate que horas?\b[^.?!]{0,20}\b(ficar|fica|ficamos|a festa|termina\w*|acaba\w*|vai)|toleranc\w*|mais cedo|antecip\w*)\b/,
+  // Rodada 45 (erro da régua no h44 aa08): "se a festa precisar de mais meia horinha, quanto é?", "mais uma hora" — pedido de
+  // prorrogação; comparação de duração entre pacotes ("tem mais uma hora que o completa") não.
+  HORARIOS: /\b(mais (?:uma |duas |1 |2 )?(?:meia )?hor(?:a|as|inha|inhas)\b(?![^.?!]{0,15}\b(?:que|do que) (?:o|a)\b)|passar do horario|passa do horario|passou do horario|alem do horario|depois do horario|do horario|hora (a mais|extra)|horas (a mais|extras?)|horinhas? (a mais|extras?)|minutos a mais|prorroga\w*|estender|esticar|que horas (tem que|temos que|precisa|precisamos) sair|termin\w*|horario|ate que horas?\b[^.?!]{0,20}\b(ficar|fica|ficamos|a festa|termina\w*|acaba\w*|vai)|toleranc\w*|mais cedo|antecip\w*)\b/,
   CANCELAMENTO: /\b(cancel\w*|desist\w*|remarc\w*|mudar a data|trocar a data|adiar|devolv\w*|devolucao|reembols\w*|nao puderem|nao conseguirem)\b/,
   BEBIDAS: /\b(cerveja\w*|bebida\w*|alcool\w*|vinho\w*|espumante\w*|chop+e?s?|drinks?|rolha|whisky|vodka|caipirinha\w*)\b/,
   LIMPEZA: /\b(confete\w*|chuva de prata|serpentina\w*|limpeza)\b/,
