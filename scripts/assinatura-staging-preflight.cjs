@@ -1,5 +1,6 @@
 // Diagnóstico remoto somente leitura, sem importar pg, acessar banco ou imprimir secrets/respostas.
-const REFERENCIA = '63304a1f-78c5-4aa6-99ad-2ca8778e4648';
+// Referência reservada à retomada; a primeira rodada não chegou ao checkout.
+const REFERENCIA = '764067e5-c512-4dcb-bc52-601cfdf0de36';
 const SERVICOS = new Set(['crn-db493i142hec73ahmoe0', 'srv-daif418ae00c73e8k2gg']);
 async function verificar(env, requisitar = fetch) {
     if (env.RENDER !== 'true' || !SERVICOS.has(env.RENDER_SERVICE_ID)

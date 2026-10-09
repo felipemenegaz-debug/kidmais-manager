@@ -21,3 +21,11 @@ test('jar aplica rotação e remoção de cookies sem incluir atributos',()=>{
     const jar=new Map([['old','synthetic']]);cookies({getSetCookie:()=>['old=; Path=/; Max-Age=0','sid=one; HttpOnly; Secure','csrf=two; Path=/']},jar);
     assert.deepEqual([...jar],[['sid','one'],['csrf','two']]);cookies({getSetCookie:()=>['sid=rotated; HttpOnly']},jar);assert.equal(jar.get('sid'),'rotated');
 });
+test('com janela de staging de 1 dia, trial encerrado há 1 hora fica em leitura; 1 dia já bloqueia',async()=>{
+    const {calcularAcessoComercial}=await import('../lib/assinatura/acesso.ts');
+    const agora=Date.parse('2026-10-09T09:00:00Z');
+    const fixture={situacao:'TESTE',testeFim:'2026-10-09T08:00:00Z',periodoAtualFim:null,emAtrasoDesde:null,encerradaEm:null};
+    const prazos={regularizacaoDias:7,somenteLeituraDias:1};
+    assert.equal(calcularAcessoComercial(fixture,[],agora,prazos).nivel,'SOMENTE_LEITURA');
+    assert.equal(calcularAcessoComercial({...fixture,testeFim:'2026-10-08T09:00:00Z'},[],agora,prazos).nivel,'BLOQUEADO');
+});

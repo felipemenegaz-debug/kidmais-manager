@@ -3,10 +3,12 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {randomBytes, createHash} = require('node:crypto');
-const EMPRESA = '63304a1f-78c5-4aa6-99ad-2ca8778e4648';
-const USUARIO = '7963c744-d8f6-41e4-a6fc-62ab94ff44a2';
+// Segunda rodada preparada; execução depende da autorização do plano de retomada.
+const EMPRESA = '764067e5-c512-4dcb-bc52-601cfdf0de36';
+const USUARIO = '7cfaa928-7ee1-40c4-8d20-43d022169b27';
+const EMAIL = 'assinatura-staging-7cfaa928@example.invalid';
 const BASE = 'https://kidmais-manager-staging.onrender.com';
-const DIR = '/opt/render/project/src/data/ensaio-assinatura-20261009';
+const DIR = '/opt/render/project/src/data/ensaio-assinatura-20261009-2';
 const ROTA = '/api/integracoes/asaas/webhook';
 const pausa = ms => new Promise(ok => setTimeout(ok, ms));
 function alvo(env) {
@@ -45,7 +47,7 @@ async function main() {
     const arquivo=DIR+'/rodada.json'; assert.ok(!fs.existsSync(arquivo),'RODADA_EXISTENTE_REVISAR');
     const r={empresa:EMPRESA,usuario:USUARIO,inicio:new Date().toISOString(),documento:documento()};
     const salvar=()=>fs.writeFileSync(arquivo,JSON.stringify(r,null,2),{mode:0o600}); salvar();
-    const db=new Client(opts); let erro, conectado=false; const jar=new Map();
+    const db=new Client(opts); let erro, conectado=false, etapa='PRECHECK'; const jar=new Map();
     const senha='Sintetica-'+randomBytes(24).toString('hex');
     const api=async(caminho,method='GET',body)=>{
         assert.ok(/^\/(webhooks|sandbox\/payment)(\/|\?|$)/.test(caminho));
@@ -85,26 +87,26 @@ async function main() {
         const schema=(await db.query("SELECT to_regclass('public.assinatura_contratacoes') IS NOT NULL AND to_regclass('public.assinatura_renovacoes') IS NOT NULL AS ok")).rows[0];
         assert.equal(schema.ok,true,'SCHEMA_RECUSADO');
         assert.equal((await db.query('SELECT 1 FROM empresas WHERE id=$1',[EMPRESA])).rowCount,0,'EMPRESA_PREEXISTENTE');
-        assert.equal((await db.query('SELECT 1 FROM usuarios_administrativos WHERE id=$1 OR email=$2',[USUARIO,'assinatura-staging-7963c744@example.invalid'])).rowCount,0,'USUARIO_PREEXISTENTE');
+        assert.equal((await db.query('SELECT 1 FROM usuarios_administrativos WHERE id=$1 OR email=$2',[USUARIO,EMAIL])).rowCount,0,'USUARIO_PREEXISTENTE');
         assert.equal((await db.query('SELECT 1 FROM empresa_assinaturas WHERE documento_teste=$1',[r.documento])).rowCount,0);
         r.antes=await agregado(); salvar();
-        await db.query('BEGIN');
+        etapa='FIXTURE'; await db.query('BEGIN');
         await db.query("INSERT INTO empresas(id,codigo,nome,status) VALUES($1,$2,'TESTE Kidmais — assinatura staging 20261009','PROVISIONAMENTO')",[EMPRESA,'ensaio-'+EMPRESA]);
         await db.query("UPDATE empresas SET status='ATIVA' WHERE id=$1",[EMPRESA]);
-        await db.query("INSERT INTO usuarios_administrativos(id,email,nome,senha_hash,papel,ativo) VALUES($1,'assinatura-staging-7963c744@example.invalid','Gestão Sintética Staging',$2,'REPRESENTANTE_AUTORIZADO',true)",[USUARIO,await criarHashSenha(senha)]);
+        await db.query("INSERT INTO usuarios_administrativos(id,email,nome,senha_hash,papel,ativo) VALUES($1,$2,'Gestão Sintética Staging',$3,'REPRESENTANTE_AUTORIZADO',true)",[USUARIO,EMAIL,await criarHashSenha(senha)]);
         await db.query("INSERT INTO memberships(empresa_id,usuario_id,papel,status,vigente_desde) VALUES($1,$2,'REPRESENTANTE_AUTORIZADO','PENDENTE',clock_timestamp())",[EMPRESA,USUARIO]);
         await db.query("UPDATE memberships SET status='ATIVA' WHERE empresa_id=$1 AND usuario_id=$2",[EMPRESA,USUARIO]);
-        await db.query("INSERT INTO empresa_assinaturas(empresa_id,situacao,teste_inicio,teste_fim,documento_teste) VALUES($1,'TESTE',clock_timestamp()-interval '16 days',clock_timestamp()-interval '1 day',$2)",[EMPRESA,r.documento]);
+        await db.query("INSERT INTO empresa_assinaturas(empresa_id,situacao,teste_inicio,teste_fim,documento_teste) VALUES($1,'TESTE',clock_timestamp()-interval '16 days',clock_timestamp()-interval '1 hour',$2)",[EMPRESA,r.documento]);
         await db.query("UPDATE usuarios_administrativos SET senha_alterada_em=clock_timestamp()-interval '1 hour' WHERE id=$1",[USUARIO]);
         await db.query('COMMIT');r.fixture=true;salvar();
-        await post('/api/admin/autenticacao',{acao:'login',email:'assinatura-staging-7963c744@example.invalid',senha});
+        etapa='LOGIN'; await post('/api/admin/autenticacao',{acao:'login',email:EMAIL,senha});
         await post('/api/admin/autenticacao',{acao:'selecionar-empresa',empresaId:EMPRESA});
-        const antes=await requisicao('/api/admin/assinatura');assert.equal(antes.acesso.nivel,'SOMENTE_LEITURA');
+        etapa='OFERTA'; const antes=await requisicao('/api/admin/assinatura');assert.equal(antes.acesso.nivel,'SOMENTE_LEITURA');
         assert.equal(antes.ofertas.habilitado,true);const oferta=antes.ofertas.planos.find(x=>x.id==='essencial');
         assert.equal(oferta.mensalRegular,19700);r.valor=antes.ofertas.fundador?11820:19700;
         assert.equal(oferta.mensal,r.valor);assert.equal(antes.ofertas.aguardandoVaga,false);r.fundador=antes.ofertas.fundador;salvar();
         assert.equal((await fetch(BASE+ROTA,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);
-        const lista=await api('/webhooks?limit=100');assert.ok(!lista.hasMore,'WEBHOOKS_PAGINADOS');
+        etapa='WEBHOOK'; const lista=await api('/webhooks?limit=100');assert.ok(!lista.hasMore,'WEBHOOKS_PAGINADOS');
         const correspondentes=lista.data.filter(w=>w.url===BASE+ROTA);assert.ok(correspondentes.length<=1,'WEBHOOK_AMBIGUO');
         if(correspondentes.length){const w=await api('/webhooks/'+encodeURIComponent(correspondentes[0].id));
             assert.equal(w.authToken,cfg.config.webhookToken,'WEBHOOK_TOKEN_DIVERGE');assert.equal(w.enabled,true);
@@ -113,12 +115,12 @@ async function main() {
         }else{assert.ok(lista.totalCount<10,'LIMITE_WEBHOOKS');r.intencaoWebhook=true;r.webhookNome='Kidmais staging ensaio '+EMPRESA;salvar();
             const w=await api('/webhooks','POST',{name:r.webhookNome,url:BASE+ROTA,email:'felipemenegaz@gmail.com',enabled:true,interrupted:false,
                 authToken:cfg.config.webhookToken,events:['PAYMENT_CONFIRMED','PAYMENT_RECEIVED'],sendType:'SEQUENTIALLY',apiVersion:3});r.webhookId=w.id;salvar();}
-        r.intencaoCheckout=true;salvar();
+        etapa='CHECKOUT'; r.intencaoCheckout=true;salvar();
         await post('/api/admin/assinatura/checkout',{plano:'essencial',ciclo:'MENSAL',valorEsperadoCentavos:r.valor,versao:antes.ofertas.versao});
         const linha=(await db.query('SELECT provedor_cliente_id,provedor_assinatura_id FROM empresa_assinaturas WHERE empresa_id=$1',[EMPRESA])).rows[0];
         r.clienteId=linha.provedor_cliente_id;r.assinaturaId=linha.provedor_assinatura_id;salvar();
         subConfere(await p.obterAssinatura(r.assinaturaId));
-        console.log(JSON.stringify({etapa:'AGUARDANDO_CONFERENCIA_CRON',clienteCriado:true,assinaturaFicticia:true,valorCentavos:r.valor}));
+        etapa='CONFERENCIA_CRON'; console.log(JSON.stringify({etapa:'AGUARDANDO_CONFERENCIA_CRON',clienteCriado:true,assinaturaFicticia:true,valorCentavos:r.valor}));
         // Operador libera somente após preflight do cron encontrar a referência. Senha permanece só em memória.
         for(let i=0;!fs.existsSync(DIR+'/cron-conferido');i++){assert.ok(i<900,'CONFERENCIA_CRON_EXPIRADA');await pausa(1000);}
         assert.equal((await requisicao('/api/admin/assinatura')).acesso.nivel,'SOMENTE_LEITURA');
@@ -126,25 +128,25 @@ async function main() {
         const pagamento=pagamentos.filter(x=>!x.deleted).sort((a,b)=>a.dueDate.localeCompare(b.dueDate))[0];
         assert.ok(pagamento);assert.equal(pagamento.valorCentavos,r.valor);assert.equal(pagamento.clienteId,r.clienteId);
         assert.equal(pagamento.assinaturaId,r.assinaturaId);r.pagamentoId=pagamento.id;r.intencaoConfirmacao=true;salvar();
-        await api('/sandbox/payment/'+encodeURIComponent(r.pagamentoId)+'/confirm','POST');
-        let eventos=[];
+        etapa='PAGAMENTO'; await api('/sandbox/payment/'+encodeURIComponent(r.pagamentoId)+'/confirm','POST');
+        etapa='CALLBACK'; let eventos=[];
         for(let i=0;i<180;i++){eventos=(await db.query("SELECT evento_id,tipo,situacao FROM cobranca_eventos WHERE empresa_id=$1 AND tipo IN ('PAYMENT_RECEIVED','PAYMENT_CONFIRMED')",[EMPRESA])).rows;
             if(eventos.some(e=>e.situacao==='PROCESSADO'))break;assert.ok(i<179,'CALLBACK_NAO_PROCESSADO');await pausa(1000);}
         r.acessoDepois=(await requisicao('/api/admin/assinatura')).acesso.nivel;assert.equal(r.acessoDepois,'COMPLETO');
         const s=await snapshot();assert.equal(s.assinatura[0].situacao,'ATIVA');assert.equal(s.contratos.length,1);
         assert.equal(s.contratos[0].estado,'CONFIRMADA');assert.equal(s.contratos[0].pagamento_confirmacao_id,r.pagamentoId);
         assert.equal(s.fundadores.length,r.fundador?1:0);if(r.fundador)assert.equal(s.fundadores[0].estado,'CONFIRMADA');
-        const ev=eventos.find(e=>e.situacao==='PROCESSADO');
+        etapa='REPLAY'; const ev=eventos.find(e=>e.situacao==='PROCESSADO');
         const replay=await fetch(BASE+ROTA,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json','asaas-access-token':cfg.config.webhookToken},
             body:JSON.stringify({id:ev.evento_id,event:ev.tipo,payment:{id:r.pagamentoId,subscription:r.assinaturaId,externalReference:EMPRESA}})});
         assert.equal(replay.status,200);await pausa(2000);assert.deepEqual(await snapshot(),s);r.replay=true;salvar();
         console.log(JSON.stringify({etapa:'PAGAMENTO_E_CALLBACK_APROVADOS',acesso:r.acessoDepois,replayIdempotente:true,aguardandoCron:true}));
         // Uma janela de 6 minutos cobre a rodada agendada de 5 minutos e inicialização do container.
-        await pausa(360000);assert.deepEqual(await snapshot(),s);r.cronSemDuplicacao=true;salvar();
-        await post('/api/admin/autenticacao',{acao:'reautenticar',senha});
+        etapa='CRON_IDEMPOTENCIA'; await pausa(360000);assert.deepEqual(await snapshot(),s);r.cronSemDuplicacao=true;salvar();
+        etapa='CANCELAMENTO'; await post('/api/admin/autenticacao',{acao:'reautenticar',senha});
         await post('/api/admin/assinatura/cancelamento',{confirmar:true});r.cancelamentoAplicacao=true;
         assert.equal((await requisicao('/api/admin/assinatura')).acesso.nivel,'COMPLETO');r.periodoPagoPreservado=true;salvar();
-    }catch(e){erro=e;r.falha={etapa:e.message==='APP_HTTP'?'APP_HTTP':'ENSAIO_RECUSADO',http:e.status??null,codigo:e.codigo??null};salvar();
+    }catch(e){erro=e;r.falha={etapa,http:e.status??null,codigo:e.codigo??null};salvar();
         console.error(JSON.stringify(r.falha));
     }finally{
         if(conectado)await db.query('ROLLBACK').catch(()=>{});
@@ -172,5 +174,8 @@ async function main() {
         cancelada:r.cancelada??false,webhookRemovido:r.webhookRemovido??false,existentesPreservados:r.existentesPreservados??false,
         acessoFicticioDesativado:r.acessoFicticioDesativado??false,cronSemDuplicacao:r.cronSemDuplicacao??false}));if(erro)process.exitCode=2;
 }
-if(require.main===module)main().catch(()=>{console.error('ENSAIO_RECUSADO_ANTES_DAS_MUTACOES');process.exitCode=1;});
+if(require.main===module){
+    if(!process.argv.includes('--rodada-2-autorizada')){console.error('RETOMADA_AGUARDANDO_AUTORIZACAO');process.exitCode=1;}
+    else main().catch(()=>{console.error('ENSAIO_RECUSADO_ANTES_DAS_MUTACOES');process.exitCode=1;});
+}
 module.exports={alvo,documento,cookies};
