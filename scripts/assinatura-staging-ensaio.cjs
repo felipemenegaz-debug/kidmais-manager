@@ -42,12 +42,16 @@ async function prepararWebhook(api, cfg, r, salvar) {
     const conhecidos=[];
     for(const candidato of lista.data.filter(w=>w.url===BASE+ROTA)){
         const w=await api('/webhooks/'+encodeURIComponent(candidato.id));
-        // Ausência do token na consulta não prova divergência. Não alterar webhook alheio.
-        if(w?.authToken===cfg.webhookToken&&w.enabled===true&&w.interrupted===false
-            &&w.events.includes('PAYMENT_RECEIVED')&&w.events.includes('PAYMENT_CONFIRMED'))conhecidos.push(w);
+        assert.equal(w?.url,BASE+ROTA,'WEBHOOK_URL_DIVERGE');
+        assert.equal(w.enabled,true,'WEBHOOK_DESABILITADO');assert.equal(w.interrupted,false,'WEBHOOK_INTERROMPIDO');
+        assert.ok(w.events.includes('PAYMENT_RECEIVED')&&w.events.includes('PAYMENT_CONFIRMED'),'WEBHOOK_EVENTOS_DIVERGEM');
+        // GET omite o token por desenho do Asaas. A entrega real comprova a autenticação;
+        // não criar duplicata nem alterar a configuração existente para consultar o segredo.
+        assert.ok(w.authToken===undefined||w.authToken===null||w.authToken===cfg.webhookToken,'WEBHOOK_TOKEN_DIVERGE');
+        conhecidos.push(w);
     }
     assert.ok(conhecidos.length<=1,'WEBHOOK_AMBIGUO');
-    if(conhecidos.length){r.webhookReutilizado=true;salvar();return;}
+    if(conhecidos.length){r.webhookReutilizado=true;r.tokenVerificadoNaConsulta=conhecidos[0].authToken===cfg.webhookToken;salvar();return;}
     assert.ok(lista.totalCount<10,'LIMITE_WEBHOOKS');
     r.webhookNome='Kidmais staging ensaio '+r.empresa;
     assert.ok(!lista.data.some(w=>w.name===r.webhookNome),'WEBHOOK_NOME_PREEXISTENTE');
@@ -60,6 +64,14 @@ async function prepararWebhook(api, cfg, r, salvar) {
     assert.equal(salvo.enabled,true);assert.equal(salvo.interrupted,false);
     assert.ok(salvo.events.includes('PAYMENT_CONFIRMED')&&salvo.events.includes('PAYMENT_RECEIVED'));
 }
+function validarRetomadaPrecheck(r) {
+    assert.equal(r.empresa,EMPRESA);assert.equal(r.usuario,USUARIO);
+    assert.equal(r.concluido,false);assert.equal(r.falha?.etapa,'WEBHOOK_PRECHECK');assert.equal(r.falha.http,400);
+    for(const campo of ['fixture','intencaoCheckout','clienteId','assinaturaId','pagamentoId','webhookId','intencaoConfirmacao'])
+        assert.ok(!r[campo],'RETOMADA_COM_RECURSOS_RECUSADA');
+    assert.equal(r.webhookRemovido,true);
+    assert.ok(!r.limpezaWebhookPendente&&!r.limpezaBancoPendente&&!r.limpezaAssinaturaPendente);
+}
 async function main() {
     const opts=alvo(process.env);
     const {Client}=require('pg');
@@ -67,7 +79,22 @@ async function main() {
     const {criarHashSenha}=await import('../lib/autenticacao/senha.ts');
     const cfg=configuracaoAsaas(); assert.ok(cfg.ligado,'ASAAS_DESLIGADO'); const p=criarClienteAsaas(cfg.config);
     fs.mkdirSync(DIR,{recursive:true,mode:0o700});
-    const arquivo=DIR+'/rodada.json'; assert.ok(!fs.existsSync(arquivo),'RODADA_EXISTENTE_REVISAR');
+    const arquivo=DIR+'/rodada.json';
+    if(fs.existsSync(arquivo)){
+        assert.ok(process.argv.includes('--retomar-precheck-sem-recursos'),'RODADA_EXISTENTE_REVISAR');
+        const anterior=JSON.parse(fs.readFileSync(arquivo,'utf8'));validarRetomadaPrecheck(anterior);
+        assert.equal(await p.buscarClientePorReferencia(EMPRESA),null,'CLIENTE_PREEXISTENTE');
+        const pre=new Client(opts);
+        try{await pre.connect();await pre.query('BEGIN READ ONLY');
+            const q=await pre.query('SELECT EXISTS(SELECT 1 FROM empresas WHERE id=$1) OR EXISTS(SELECT 1 FROM usuarios_administrativos WHERE id=$2 OR email=$3) OR EXISTS(SELECT 1 FROM memberships WHERE empresa_id=$1) OR EXISTS(SELECT 1 FROM empresa_assinaturas WHERE empresa_id=$1) AS ocupado',[EMPRESA,USUARIO,EMAIL]);
+            assert.equal(q.rows[0].ocupado,false,'FIXTURE_PREEXISTENTE');await pre.query('ROLLBACK');
+        }finally{await pre.end();}
+        const res=await fetch('https://api-sandbox.asaas.com/v3/webhooks?limit=100',{redirect:'error',signal:AbortSignal.timeout(15000),headers:{access_token:cfg.config.apiKey}});
+        assert.equal(res.status,200);const lista=await res.json();assert.ok(!lista.hasMore);
+        assert.ok(!lista.data.some(w=>w.name===anterior.webhookNome),'WEBHOOK_DA_TENTATIVA_PREEXISTENTE');
+        const historico=DIR+'/precheck-anterior.json';assert.ok(!fs.existsSync(historico),'RETOMADA_JA_USADA');
+        fs.renameSync(arquivo,historico); // Conserva a tentativa anterior; nenhum histórico é apagado.
+    }
     const r={empresa:EMPRESA,usuario:USUARIO,inicio:new Date().toISOString(),documento:documento()};
     const salvar=()=>fs.writeFileSync(arquivo,JSON.stringify(r,null,2),{mode:0o600}); salvar();
     const db=new Client(opts); let erro, conectado=false, etapa='PRECHECK'; const jar=new Map();
@@ -147,7 +174,7 @@ async function main() {
         etapa='CALLBACK'; let eventos=[];
         for(let i=0;i<180;i++){eventos=(await db.query("SELECT evento_id,tipo,situacao FROM cobranca_eventos WHERE empresa_id=$1 AND tipo IN ('PAYMENT_RECEIVED','PAYMENT_CONFIRMED')",[EMPRESA])).rows;
             if(eventos.some(e=>e.situacao==='PROCESSADO'))break;assert.ok(i<179,'CALLBACK_NAO_PROCESSADO');await pausa(1000);}
-        r.acessoDepois=(await requisicao('/api/admin/assinatura')).acesso.nivel;assert.equal(r.acessoDepois,'COMPLETO');
+        r.callbackAutenticado=true;r.acessoDepois=(await requisicao('/api/admin/assinatura')).acesso.nivel;assert.equal(r.acessoDepois,'COMPLETO');
         const s=await snapshot();assert.equal(s.assinatura[0].situacao,'ATIVA');assert.equal(s.contratos.length,1);
         assert.equal(s.contratos[0].estado,'CONFIRMADA');assert.equal(s.contratos[0].pagamento_confirmacao_id,r.pagamentoId);
         assert.equal(s.fundadores.length,r.fundador?1:0);if(r.fundador)assert.equal(s.fundadores[0].estado,'CONFIRMADA');
@@ -193,4 +220,4 @@ if(require.main===module){
     if(!process.argv.includes('--rodada-3-autorizada')){console.error('RETOMADA_AGUARDANDO_AUTORIZACAO');process.exitCode=1;}
     else main().catch(()=>{console.error('ENSAIO_RECUSADO_ANTES_DAS_MUTACOES');process.exitCode=1;});
 }
-module.exports={alvo,documento,cookies,prepararWebhook};
+module.exports={alvo,documento,cookies,prepararWebhook,validarRetomadaPrecheck};

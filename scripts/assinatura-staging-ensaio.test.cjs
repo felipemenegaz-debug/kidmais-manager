@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {alvo,documento,cookies,prepararWebhook}=require('./assinatura-staging-ensaio.cjs');
+const {alvo,documento,cookies,prepararWebhook,validarRetomadaPrecheck}=require('./assinatura-staging-ensaio.cjs');
 const valido={RENDER:'true',RENDER_SERVICE_ID:'srv-daif418ae00c73e8k2gg',KIDMAIS_DEPLOY_ENV:'staging',ASAAS_AMBIENTE:'sandbox',
     ASSINATURA_PLANOS_ATIVOS:'true',DATABASE_SSL:'true',DATABASE_URL:'postgresql://synthetic@dpg-daidko3m8hqs73ce4jt0-a/kidmais_staging_1z91'};
 test('bloqueia produção, outro banco, host, serviço e flag antes de conectar',()=>{
@@ -29,22 +29,36 @@ test('com janela de staging de 1 dia, trial encerrado há 1 hora fica em leitura
     assert.equal(calcularAcessoComercial(fixture,[],agora,prazos).nivel,'SOMENTE_LEITURA');
     assert.equal(calcularAcessoComercial({...fixture,testeFim:'2026-10-08T09:00:00Z'},[],agora,prazos).nivel,'BLOQUEADO');
 });
-test('token omitido na consulta cria callback temporário conhecido e preserva o existente',async()=>{
+test('token omitido reutiliza metadata compatível sem criar webhook duplicado nem alterar o existente',async()=>{
     const cfg={webhookToken:'s'.repeat(32)}, r={empresa:'fixture'}, chamadas=[];
     const original={id:'hook_original',url:'https://kidmais-manager-staging.onrender.com/api/integracoes/asaas/webhook',enabled:true,
         interrupted:false,events:['PAYMENT_CONFIRMED','PAYMENT_RECEIVED']};
-    let criado;
-    await prepararWebhook(async(path,method='GET',body)=>{
+    await prepararWebhook(async(path,method='GET')=>{
         chamadas.push({path,method});
         if(path==='/webhooks?limit=100')return {totalCount:1,hasMore:false,data:[original]};
         if(path==='/webhooks/hook_original')return original;
-        if(path==='/webhooks'&&method==='POST'){assert.equal(body.authToken,cfg.webhookToken);criado={...body,id:'hook_temporario'};return criado;}
-        if(path==='/webhooks/hook_temporario')return {...criado,authToken:undefined};
         assert.fail('CHAMADA_NAO_PERMITIDA');
     },cfg,r,()=>{});
-    assert.equal(r.webhookId,'hook_temporario');assert.equal(r.intencaoWebhook,true);
-    assert.deepEqual(chamadas.filter(c=>c.method!=='GET'),[{path:'/webhooks',method:'POST'}]);
+    assert.equal(r.webhookReutilizado,true);assert.equal(r.intencaoWebhook,undefined);assert.equal(r.tokenVerificadoNaConsulta,false);
+    assert.deepEqual(chamadas.filter(c=>c.method!=='GET'),[]);
     assert.equal(original.authToken,undefined);assert.equal(original.enabled,true);
+});
+test('callback incompatível ou ambíguo interrompe antes de mutações',async()=>{
+    const cfg={webhookToken:'s'.repeat(32)};
+    const valido={id:'hook',url:'https://kidmais-manager-staging.onrender.com/api/integracoes/asaas/webhook',enabled:true,interrupted:false,events:['PAYMENT_CONFIRMED','PAYMENT_RECEIVED']};
+    for(const w of [{...valido,enabled:false},{...valido,interrupted:true},{...valido,events:[]},{...valido,authToken:'outro-token'}, {...valido,url:'https://other.invalid'}]){
+        await assert.rejects(prepararWebhook(async(path,method='GET')=>{assert.equal(method,'GET');
+            return path==='/webhooks?limit=100'?{hasMore:false,data:[valido]}:w;},cfg,{empresa:'fixture'},()=>{}));
+    }
+    await assert.rejects(prepararWebhook(async(path,method='GET')=>{assert.equal(method,'GET');
+        return path==='/webhooks?limit=100'?{hasMore:false,data:[valido,valido]}:valido;},cfg,{empresa:'fixture'},()=>{}));
+});
+test('retomada só aceita a rodada 3 interrompida antes de qualquer recurso, sem limpeza pendente',()=>{
+    const r={empresa:'e4b274ca-3a51-40c5-bef6-39012a96cfbc',usuario:'067a7b63-7588-4897-b66b-a93f9fdbd56e',concluido:false,falha:{etapa:'WEBHOOK_PRECHECK',http:400},webhookRemovido:true};
+    validarRetomadaPrecheck(r);
+    for(const mudanca of [{empresa:'outro'},{usuario:'outro'},{concluido:true},{falha:{etapa:'CHECKOUT',http:400}},{falha:{etapa:'WEBHOOK_PRECHECK',http:500}},{webhookRemovido:false},
+        ...['fixture','intencaoCheckout','clienteId','assinaturaId','pagamentoId','webhookId','intencaoConfirmacao','limpezaWebhookPendente','limpezaBancoPendente','limpezaAssinaturaPendente'].map(campo=>({[campo]:true}))])
+        assert.throws(()=>validarRetomadaPrecheck({...r,...mudanca}));
 });
 test('callback com token conhecido compatível é reutilizado sem mutação',async()=>{
     const cfg={webhookToken:'s'.repeat(32)},r={empresa:'fixture'};
