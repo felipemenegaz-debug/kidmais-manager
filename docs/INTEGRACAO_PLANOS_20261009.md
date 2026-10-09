@@ -183,3 +183,20 @@ Alvos exclusivos: web staging `srv-daif418ae00c73e8k2gg`, cron staging `crn-db49
 6. Recuperação mesmo em falha: cancelar somente assinatura fictícia após conferir referência/cliente/valor; desativar empresa/usuário e revogar vínculo da fixture; preservar webhook existente. Remover somente webhook temporário se criado pela rodada e comprovado pelo ID/nome/URL. Comparar hashes comerciais das outras empresas; remover flag temporária e deployar recuperação; conferir cron normal, ausência da flag e health.
 
 O harness e preflight foram preparados com IDs novos e recusa de flags ambíguas. Este plano não autoriza sua execução: conforme `OPERACAO_AGENTES.md`, env, deploy e SQL de escrita exigem aprovação explícita para estes alvos/ações.
+
+## Auditoria do goal após preparação — 09/10/2026
+
+Conferência atual: código local/branch em `3111f5a`; último deploy web `dep-db4j4n0nilcs73abfesg`, commit `08aa54d`, LIVE. Cron confirmado com comando normal, auto-deploy desligado e execução bem-sucedida às 18:45:22 UTC. Não há ensaio de pagamento confirmado como processo em andamento. A rodada 3 é terminal e foi recuperada; o registro não autoriza reutilizar os IDs.
+
+| Requisito da integração | Evidência conferida | Resultado |
+| --- | --- | --- |
+| Diagnosticar conflito de webhook e preservar o existente | Harness com precheck antes de DML, reuso compatível e testes; registro da recuperação | Correção preparada; autenticação da entrega externa ainda depende de pagamento sandbox |
+| Checkout, pagamento, callback, acesso completo e Fundador | Rodada 3 interrompida antes da confirmação; `naoComprovadoNestaRodada` no JSON de recuperação | Ensaio não concluído |
+| Reentrega e cron sem duplicação após pagamento | Harness da rodada 4 contém verificações; cron normal teve sucesso operacional | Sucesso do cron isolado não comprova o fluxo pago; pendente |
+| Cancelamento pela aplicação preserva período pago | Harness preparado; recuperação cancelou assinatura fictícia diretamente no provedor | Cancelamento pela aplicação após pagamento não comprovado |
+| Preservar empresas existentes e recuperar teste | Cancelamento da assinatura própria, desativação da fixture, hashes comerciais iguais, flag removida, deploy LIVE e smoke PASS | Recuperação da rodada 3 comprovada |
+| Contar Gestão/ativos/convites; preservar acesso acima da cota | Código de vagas, testes de convite/aceite, TypeScript, ESLint e build | Preparado na branch; não publicado nem homologado em PostgreSQL para concorrência |
+| Renovar Fundador com aviso de 30 dias por email e sistema | Rotina/repository/075 e testes existentes; CLI aplicar exige alvo local e email em arquivo | Cron remoto atual só reconcilia assinatura; envio e renovação remotos não entregues |
+| Isenção permanente da Kidmais real | Estrutura por ID no código; nenhuma consulta/escrita ao buffet real nesta rodada | Vínculo real ainda exige operação autorizada específica |
+
+Próxima ação executável para comprovar o fluxo publicado: aprovação da quarta rodada acima. A mesma aprovação pendente foi registrada em três turnos consecutivos; as correções locais independentes de vagas/aceite e a preparação do harness foram concluídas nesse intervalo. Continuação automática não é aprovação para uma fixture nova. O goal não está concluído e deve aguardar a resposta antes de env/deploy/DML de teste. Avisos/renovação remotos, isenção real e liberação comercial exigem seus próprios planos e autorizações após a homologação do fluxo pago.
