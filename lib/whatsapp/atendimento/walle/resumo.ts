@@ -5,6 +5,8 @@ import { acessoAtendimento, tem078 } from '../service.ts';
 import { lerContexto } from './contexto.ts';
 import { NOME_MOTIVO, type MotivoPassagem, type Passagem, type TipoIntencao } from './tipos.ts';
 import { ambienteDoLink, linkDisponibilidadePublica } from './link-disponibilidade.ts';
+import { listarConfiguracoesAgendaAtivas } from '../../../disponibilidade/repositories/disponibilidade.repository.ts';
+import { escopoDaConsulta } from './fontes-postgres.ts';
 
 /**
  * Resumo da conversa para a equipe (painel lateral): o que o cliente informou ao Wall-e (memória da 078), com os nomes
@@ -27,7 +29,9 @@ export async function resumoDaConversa(tx: DbExecutor, empresa: string, ambiente
   const linha = (await tx.query<{ contexto: unknown; passagem: Passagem | null }>('SELECT contexto,passagem FROM whatsapp_atendimento_conversas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3', [conversaId, empresa, ambiente])).rows[0];
   if (!linha) return null;
   const c = lerContexto(linha.contexto);
-  const turno = c.turno ? (await tx.query<{ nome: string; horario_inicio_padrao: string; horario_fim_padrao: string }>('SELECT nome,horario_inicio_padrao::text,horario_fim_padrao::text FROM configuracao_agenda WHERE codigo=$1 AND ativo ORDER BY ordem_exibicao LIMIT 1', [c.turno])).rows[0] : null;
+  // Revisão final (M2): o turno vem do MESMO escopo que o Wall-e usa com o cliente (empresa e, quando houver agenda
+  // própria, a unidade da conversa; o nível mais específico vence). Nunca o turno de mesmo código de outra empresa.
+  const turno = c.turno ? (await listarConfiguracoesAgendaAtivas(tx, (await escopoDaConsulta(tx, empresa, c.unidade ?? null)).escopo)).find((t) => t.codigo === c.turno) ?? null : null;
   const pacote = c.pacote ? (await tx.query<{ nome: string }>('SELECT nome FROM pacotes WHERE empresa_id=$1 AND codigo=$2 AND vigente LIMIT 1', [empresa, c.pacote])).rows[0] : null;
   const unidade = c.unidade ? (await tx.query<{ nome: string }>('SELECT nome FROM estabelecimentos WHERE empresa_id=$1 AND id=$2', [empresa, c.unidade])).rows[0] : null;
   const ids = [...new Set((c.enviados ?? []).map((x) => x.prontaId))];
@@ -36,7 +40,7 @@ export async function resumoDaConversa(tx: DbExecutor, empresa: string, ambiente
   const p = linha.passagem;
   return {
     interesse: (c.assuntos ?? []).map((a) => NOME_ASSUNTO[a]),
-    data: c.data ?? null, horario: turno ? `${turno.nome} (${hora(turno.horario_inicio_padrao)} às ${hora(turno.horario_fim_padrao)})` : null,
+    data: c.data ?? null, horario: turno ? `${turno.nome} (${hora(turno.horarioInicioPadrao)} às ${hora(turno.horarioFimPadrao)})` : null,
     convidados: c.convidados ?? null, pacote: pacote?.nome ?? null, unidade: unidade?.nome ?? null, tema: c.tema ?? null,
     enviados, correcoes: (c.correcoes ?? []).length,
     passagem: p && p.motivo ? { ...p, motivoTexto: NOME_MOTIVO[p.motivo as MotivoPassagem] ?? p.motivo, motivosTexto: (p.motivos ?? [p.motivo]).map((m) => NOME_MOTIVO[m as MotivoPassagem] ?? m) } : null,

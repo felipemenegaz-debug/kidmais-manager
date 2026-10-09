@@ -113,6 +113,7 @@ const ESTADO_POSTGRES = {
   // Revisão final da integração r47: ordem dos rollbacks (H1/M1, recusa de dependentes com e sem dados), turno do resumo
   // pelo escopo da empresa/unidade (M2, precisa da 062) e validade da fila + automação global desligada (M3/M4).
   "lib/whatsapp/atendimento/rollback-ordem.postgres.test.ts": { descartavel: "063" },
+  "lib/whatsapp/atendimento/walle/resumo-turno.postgres.test.ts": { descartavel: "063" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
