@@ -40,4 +40,10 @@ Não ativar novas credenciais por inferência. Se credencial existente for invá
 
 [OPERACAO_AGENTES.md](OPERACAO_AGENTES.md) exige aprovação explícita para alterações de env/deploy e para SQL de escrita, inclusive staging. A aprovação do cron cobria reconciliação de itens existentes, não habilitação da contratação no web nem criação/cancelamento desta fixture. Solicitar aprovação deste plano antes das ações operacionais.
 
-`n## Autorização recebida`nFelipe respondeu "autorizo" ao plano acima em 09/10/2026. Executar apenas nesses alvos, preservando condições existentes e os limites de recuperação.
+## Autorização recebida
+
+Felipe respondeu "autorizo" ao plano acima em 09/10/2026. Executar apenas nesses alvos, preservando condições existentes e os limites de recuperação.
+
+## Diagnóstico executado
+
+Web e cron autenticaram suas próprias chaves contra o sandbox. Referência fictícia não encontrada nos dois; zero dados/cobranças criados. Cron diagnóstico no commit `113bab9`, deploy `dep-db4a6acs728c73a48v8g`, resposta aprovada às 08:19:07 UTC. Comando normal restaurado; rebuild `dep-db4a79vlot8c738bt54g` iniciado. Ainda é necessário conferir o cliente pelo cron depois do checkout, antes da confirmação.
