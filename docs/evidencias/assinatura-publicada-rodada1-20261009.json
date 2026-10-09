@@ -20,5 +20,20 @@
   "usuarioInativado": true,
   "membershipRevogada": true,
   "empresaDesativada": true,
-  "condicoesComerciaisPreexistentesPreservadas": true
+  "condicoesComerciaisPreexistentesPreservadas": true,
+  "flagTemporariaRemovida": true,
+  "flagAusenteNoRuntimeRecuperado": true,
+  "deployRecuperacaoWeb": "dep-db4ajim7bikc73e4mc4g",
+  "commitRecuperacaoWeb": "c502711afd66d1eedab4c3668138a4609cab63a9",
+  "healthDepois": "PASS",
+  "cronComandoRestaurado": "node scripts/assinatura-cron.cjs",
+  "cronModoRestaurado": "APLICAR",
+  "deployRecuperacaoCron": "dep-db4ahk7lk1mc73fdlfpg",
+  "cronRecuperacaoManualFimUtc": "2026-10-09T08:45:41.672Z",
+  "cronRecuperacaoAgendadaFimUtc": "2026-10-09T08:50:28.590Z",
+  "cronIncompletoDepois": false,
+  "execucaoAgendadaInterrompidaDuranteRecuperacaoUtc": "2026-10-09T08:45:18.371Z",
+  "diagnosticoDessaInterrupcao": "Render registrou falha sem logs de aplicacao; rodadas seguintes aprovadas",
+  "screenshotCron": "assinatura-publicada-cron-recuperado-20261009.png",
+  "retomadaExecutada": false
 }

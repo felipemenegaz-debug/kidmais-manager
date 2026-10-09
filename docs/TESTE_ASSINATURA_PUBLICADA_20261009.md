@@ -47,3 +47,7 @@ Felipe respondeu "autorizo" ao plano acima em 09/10/2026. Executar apenas nesses
 ## Diagnóstico executado
 
 Web e cron autenticaram suas próprias chaves contra o sandbox. Referência fictícia não encontrada nos dois; zero dados/cobranças criados. Cron diagnóstico no commit `113bab9`, deploy `dep-db4a6acs728c73a48v8g`, resposta aprovada às 08:19:07 UTC. Comando normal restaurado; rebuild `dep-db4a79vlot8c738bt54g` iniciado. Ainda é necessário conferir o cliente pelo cron depois do checkout, antes da confirmação.
+
+## Resultado da execução autorizada
+
+Ensaio no web `d1f02f1`: fixture criada, login/seleção aprovados, mas a validação anterior ao checkout interrompeu a rodada. Trial fictício encerrou há 1 dia, atingindo a fronteira da janela de leitura configurada de 1 dia em staging; acesso correto BLOQUEADO, enquanto o script esperava SOMENTE_LEITURA. Nenhum checkout/webhook/cliente/assinatura/pagamento criado no Asaas. Recuperação automática desativou a fixture e preservou o agregado comercial preexistente. Flag temporária removida, health PASS e cron normal recuperado. [Resultado e nova proposta](RETOMADA_ASSINATURA_STAGING_20261009.md); novos IDs ainda precisam de aprovação antes de SQL de escrita.

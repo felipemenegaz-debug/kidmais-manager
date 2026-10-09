@@ -19,3 +19,9 @@ Repetir as ações e a recuperação do [plano original](TESTE_ASSINATURA_PUBLIC
 - Desativar somente esta fixture, remover somente webhook temporário da rodada, preservar condições preexistentes e restaurar flag/comando.
 
 O adaptador agora informa a etapa sanitizada em caso de falha e exige a opção `--rodada-2-autorizada`. Não executar essa opção sem aprovação deste plano. Script/diagnóstico preparados; publicar código não autoriza execução.
+
+## Recuperação concluída
+
+Flag ASSINATURA_PLANOS_ATIVOS removida e ausência confirmada no runtime após deploy `dep-db4ajim7bikc73e4mc4g`, commit `c502711`. Health final PASS. Cron com comando normal e modo APLICAR, deploy `dep-db4ahk7lk1mc73fdlfpg`: manual concluída às 08:45:41 UTC e agendada às 08:50:28 UTC, incompleto=false. Houve falha agendada às 08:45:18 UTC sem logs de aplicação, durante a janela de recuperação; as rodadas seguintes confirmam a recuperação. Não inferir a causa dessa interrupção.
+
+Sete testes pertinentes, ESLint, TypeScript e build isolado sem credenciais aprovados. Rodada 2 não executada. [Evidência sanitizada](evidencias/assinatura-publicada-rodada1-20261009.json) e [cron recuperado](evidencias/assinatura-publicada-cron-recuperado-20261009.png).
