@@ -1,4 +1,4 @@
-# Rodada 3 preparada — autorização pendente
+# Rodada 3 aprovada — ensaio em staging
 
 A rodada 2 aprovada por Felipe parou antes do checkout, na validação do webhook existente. A listagem e a consulta individual retornaram HTTP 200 e não incluíram authToken; o script comparou esse campo ausente ao token do site e interrompeu indevidamente. Isso não prova que o token existente seja incorreto. Oferta confirmada: SOMENTE_LEITURA, Essencial mensal 19700 centavos, Fundador elegível 11820. Nenhum cliente, assinatura, pagamento ou webhook foi criado no Asaas pela rodada 2. A fixture foi encerrada e o agregado comercial anterior preservado.
 
@@ -19,6 +19,18 @@ As duas fixtures anteriores permanecerão encerradas, com seu histórico. Não h
 
 A autorização anterior limitava SQL de escrita aos IDs da rodada 2. [OPERACAO_AGENTES.md](OPERACAO_AGENTES.md) exige aprovação explícita para novos dados; por isso a execução dessa terceira fixture aguarda Felipe.
 
+## Aprovação recebida
+
+Felipe respondeu “aprovo” em 09/10/2026 à proposta desta rodada 3. Executar somente nos IDs e alvos acima, incluindo verificações, cancelamento fictício e recuperação autorizados. As referências a autorização pendente acima registram o estado anterior à aprovação.
+
 ## Prontidão da candidata
 
 Nove testes pertinentes, ESLint, TypeScript e build isolado sem credenciais aprovados. Web recuperado com health PASS e flag temporária ausente no runtime. Cron normal APLICAR concluído às 09:10:31 UTC, incompleto=false. [Evidência da recuperação](evidencias/assinatura-publicada-rodada2-20261009.json). A correção está preparada para publicação em staging, sem deploy automático; esta proposta não foi executada.
+
+## Resultado da execução aprovada
+
+Web e cron publicados no commit `5800ff4`, chaves próprias autenticadas, referência nova ausente no sandbox, health PASS. Ensaio interrompido em WEBHOOK_PRECHECK com HTTP 400. Após conferir que não havia fixture/checkout/webhook criado, uma tentativa diagnóstica do mesmo POST autorizado classificou a recusa como duplicidade, sem registrar resposta bruta, token ou PII. O tamanho do token atende 32–255 caracteres; isso não prova correspondência com o webhook existente.
+
+Nenhuma conexão ou escrita de fixture executada pelo ensaio; consulta posterior nos IDs reservados retornou vazia. Nenhum cliente, assinatura ou pagamento foi criado. O webhook existente foi preservado. O script informou existentesPreservados=false e acessoFicticioDesativado=false porque as etapas de banco não ocorreram; não significa mudança comercial. Não repetir checkout nem alterar webhook existente por inferência. A próxima retomada depende de resolver a compatibilidade do callback respeitando o alvo aprovado.
+
+Recuperação concluída: flag temporária removida via Save only e ausência confirmada no runtime; health final PASS. Web `dep-db4bb9cs728c73a7k36g` LIVE às 09:42:25 UTC. Cron `dep-db4bb8rtqb8s73enm4mg` LIVE às 09:37:10 UTC, comando normal restaurado, modo APLICAR e execução agendada concluída às 09:40:31 UTC, incompleto=false. Contagem independente nos IDs reservados: empresas=0, usuários=0, memberships=0, assinaturas=0. [Evidência sanitizada](evidencias/assinatura-publicada-rodada3-20261009.json) e [captura do cron](evidencias/assinatura-publicada-rodada3-cron-recuperado-20261009.png).
