@@ -56,7 +56,35 @@ const dados = { conteudo, revisao: 1, publicado: false, desatualizado: false, li
     assert.equal(comandos.at(-1).chave, chave, 'Atualiza a mesma resposta neste dispositivo');
     await page.screenshot({ path: path.join(out, 'publico-mobile.png'), fullPage: true });
     assert.equal(await page.getByText('Família Souza', { exact: true }).count(), 0, 'Lista de convidados não é pública');
+    for (const [tema, fundo, tinta] of [['celebrar', '#fff3df', '#703b29'], ['jardim', '#eef3e5', '#334f3b'], ['espaco', '#182849', '#ffffff']]) {
+      dados.conteudo = { ...dados.conteudo, tema };
+      await page.setViewportSize({ width: 1365, height: 1100 });
+      await page.reload();
+      await page.locator(`main[data-tema="${tema}"]`).waitFor();
+      const cores = await page.locator('main').evaluate(el => {
+        const css = getComputedStyle(el), botao = getComputedStyle(el.querySelector('button[type="submit"]'));
+        return { fundo: css.getPropertyValue('--convite-fundo'), tinta: css.getPropertyValue('--convite-tinta'), botao: botao.backgroundColor, texto: botao.color };
+      });
+      assert.equal(cores.fundo.trim(), fundo); assert.equal(cores.tinta.trim(), tinta);
+      const rgb = hex => `rgb(${hex.slice(1).match(/../g).map(h => parseInt(h, 16)).join(', ')})`;
+      assert.equal(cores.botao, rgb(tinta)); assert.equal(cores.texto, rgb(fundo));
+      const lum = hex => hex.slice(1).match(/../g).map(h => parseInt(h, 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s,v,i) => s + v * [.2126,.7152,.0722][i], 0);
+      assert((Math.max(lum(fundo), lum(tinta)) + .05) / (Math.min(lum(fundo), lum(tinta)) + .05) >= 4.5, 'Texto e botão têm contraste AA');
+      await page.screenshot({ path: path.join(out, `publico-${tema}-desktop.png`), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({ path: path.join(out, `publico-${tema}-mobile.png`), fullPage: true });
+      await page.getByRole('link', { name: 'Confirmar presença ↓' }).click();
+      assert(await page.locator('#confirmar-presenca').evaluate(el => el.getBoundingClientRect().top >= 0 && el.getBoundingClientRect().top < innerHeight), 'Atalho chega ao formulário');
+      await page.setViewportSize({ width: 320, height: 750 });
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Sem overflow a 320 px: ${tema}`);
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    assert(await page.locator('main [aria-hidden="true"] span').evaluateAll(els => els.every(el => getComputedStyle(el).animationName === 'none')), 'Movimento reduzido respeitado');
+    dados.conteudo = { ...dados.conteudo, confirmarPresenca: false };
+    await page.reload(); await page.getByRole('heading', { name: 'Alice Sofia' }).waitFor();
+    assert.equal(await page.getByRole('form').count(), 0, 'RSVP desativado não mostra formulário');
+    assert.equal(await page.getByRole('link', { name: 'Confirmar presença ↓' }).count(), 0);
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ ok: true, cenarios: ['editor cliente', 'troca de tema sem IA', 'salvar', 'download sem geração', 'publicar', 'mobile sem overflow', 'RSVP e atualização'], screenshots: out }));
+    console.log(JSON.stringify({ ok: true, cenarios: ['editor cliente', 'troca de tema sem IA', 'salvar', 'download sem geração', 'publicar', 'mobile sem overflow', 'RSVP e atualização', '3 temas publicados', 'cores e contraste AA', 'atalho RSVP', 'movimento reduzido', 'RSVP desligado'], screenshots: out }));
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

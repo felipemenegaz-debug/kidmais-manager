@@ -1,0 +1,80 @@
+.publico {
+  --convite-fundo: #f7f7f3;
+  --convite-tinta: #334f3b;
+  --convite-destaque: #788d58;
+  --superficie: color-mix(in srgb, var(--convite-fundo) 96%, var(--convite-tinta));
+  --borda: color-mix(in srgb, var(--convite-tinta) 22%, var(--convite-fundo));
+  --secundario: color-mix(in srgb, var(--convite-tinta) 82%, var(--convite-fundo));
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 100vh;
+  padding: 48px 28px 24px;
+  background: var(--convite-fundo);
+  color: var(--convite-tinta);
+  font-family: Arial, sans-serif;
+  color-scheme: light;
+}
+.publico[data-tema=espaco] { color-scheme: dark; }
+.publico::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 3% 8%, color-mix(in srgb, var(--convite-destaque) 22%, transparent), transparent 40%), radial-gradient(ellipse at 100% 95%, color-mix(in srgb, var(--convite-destaque) 18%, transparent), transparent 45%);
+}
+.cabecalho { position: relative; max-width: 980px; margin: 0 auto 34px; text-align: center; }
+.sobretitulo { margin: 0; font-size: 10px; font-weight: 700; letter-spacing: 2.4px; }
+.cabecalho h1 { margin: 12px 0; font: 42px/1.15 Georgia, serif; letter-spacing: -.8px; }
+.cabecalho > p:last-of-type { color: var(--secundario); font-size: 14px; }
+.atalho { display: inline-block; margin-top: 18px; padding: 12px 20px; border: 1px solid var(--borda); border-radius: 999px; font-size: 13px; font-weight: 600; text-decoration: none; color: inherit; background: var(--superficie); }
+.colunas { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; max-width: 980px; margin: auto; align-items: start; }
+.colunas[data-com-rsvp=false] { grid-template-columns: minmax(0, 440px); justify-content: center; }
+.arte { min-width: 0; width: 100%; max-width: 440px; margin: 0 auto; }
+.mapa { display: block; margin-top: 20px; padding: 16px; text-align: center; text-decoration: none; border: 1px solid var(--borda); border-radius: 12px; background: var(--superficie); color: var(--convite-tinta); font-size: 14px; font-weight: 600; }
+.painel { position: relative; min-width: 0; margin: 0; padding: 32px; border: 1px solid var(--borda); border-radius: 24px; background: var(--superficie); box-shadow: 0 20px 60px #0000000a; scroll-margin-top: 24px; }
+.selo { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 28px; border: 1px solid var(--borda); border-radius: 50%; color: var(--convite-tinta); background: color-mix(in srgb, var(--convite-destaque) 16%, var(--convite-fundo)); font: 32px Georgia, serif; }
+.painel h2 { margin: 12px 0; font: 32px/1.2 Georgia, serif; letter-spacing: -.5px; }
+.painel > p:not(.sobretitulo):not(.erro):not(.aviso) { margin: 0 0 22px; color: var(--secundario); font-size: 14px; line-height: 1.7; }
+.formulario { border: 0; margin: 0; padding: 0; min-width: 0; }
+.formulario label { display: grid; gap: 9px; margin: 18px 0; font-size: 13px; font-weight: 600; }
+.formulario input, .formulario select { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--convite-tinta) 60%, var(--convite-fundo)); border-radius: 10px; padding: 13px 12px; background: var(--convite-fundo); color: var(--convite-tinta); font: 16px Arial, sans-serif; }
+.campos { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.publico :is(a, input, select, button):focus-visible { outline: 2px solid var(--convite-tinta); outline-offset: 4px; }
+.primario { width: 100%; min-height: 50px; margin-top: 6px; padding: 14px 20px; border: 1px solid var(--convite-tinta); border-radius: 12px; font: 600 14px Arial, sans-serif; color: var(--convite-fundo); background: var(--convite-tinta); cursor: pointer; transition: transform .15s; }
+.primario:hover:not(:disabled) { transform: translateY(-2px); }
+.formulario:disabled { opacity: .65; }
+.formulario:disabled button { cursor: wait; }
+.painel small { display: block; margin-top: 18px; font-size: 11px; line-height: 1.7; color: var(--secundario); }
+.aviso, .erro { padding: 15px; border-radius: 12px; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.aviso { border: 1px solid var(--borda); background: color-mix(in srgb, var(--convite-destaque) 12%, var(--convite-fundo)); color: var(--convite-tinta); }
+.erro { background: #fff0e9; color: #813e2a; border: 1px solid #efd3c4; }
+.estado { max-width: 440px; margin: 60px auto; text-align: center; }
+.rodape { position: relative; text-align: center; padding: 36px 12px 12px; font-size: 11px; color: var(--secundario); }
+.isca { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.enfeites { position: absolute; inset: 0; pointer-events: none; z-index: -1; overflow: hidden; color: var(--convite-destaque); }
+.enfeites span { position: absolute; opacity: .28; font: 48px Georgia, serif; animation: flutuar 4.5s ease-in-out 1; }
+.enfeites span:nth-child(1) { left: 5%; top: 8%; }
+.enfeites span:nth-child(2) { right: 8%; top: 18%; font-size: 28px; }
+.enfeites span:nth-child(3) { left: 2%; top: 52%; font-size: 24px; }
+.enfeites span:nth-child(4) { right: 3%; top: 65%; }
+.enfeites span:nth-child(5) { left: 12%; top: 87%; font-size: 32px; }
+.enfeites span:nth-child(6) { right: 15%; top: 94%; font-size: 20px; }
+.publico[data-tema=jardim] .enfeites span { rotate: -20deg; }
+.publico[data-tema=espaco] .enfeites span { animation-name: cintilar; }
+@keyframes flutuar { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-14px) rotate(12deg); } }
+@keyframes cintilar { 0%, 100% { opacity: .28; } 50% { opacity: .6; } }
+@media (max-width: 760px) {
+  .publico { padding: 32px 18px 20px; }
+  .cabecalho { margin-bottom: 28px; }
+  .cabecalho h1 { font-size: 34px; }
+  .colunas { grid-template-columns: minmax(0, 440px); justify-content: center; gap: 28px; }
+  .painel { padding: 26px 22px; }
+  .painel h2 { font-size: 29px; }
+  .selo { margin-bottom: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .publico *, .publico *::before, .publico *::after { animation: none !important; transition: none !important; }
+  .primario:hover:not(:disabled) { transform: none; }
+}
