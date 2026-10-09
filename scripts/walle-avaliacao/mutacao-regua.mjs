@@ -15,6 +15,13 @@ const teste = fs.readFileSync(path.join(raiz, 'scripts/walle-avaliacao/metricas.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'walle-mutacao-regua-'));
 fs.writeFileSync(path.join(dir, 'metricas.test.mjs'), teste);
 const mutacoes = {
+  // Rodada 47.
+  'tabela indevida nunca falha': (t) => t.replace("? 'enviou a tabela de preços' : null) },", '? null : null) },'),
+  'motivo: instrução aceita qualquer motivo': (t) => t.replace("if (esp.includes('INSTRUCAO')) return principal === 'INSTRUCAO_SUSPEITA' ? null :", "if (esp.includes('INSTRUCAO')) return true ? null :"),
+  'motivo: proteção aceita qualquer motivo': (t) => t.replace('if (cuidados.length) return protege ? null :', 'if (cuidados.length) return true ? null :'),
+  'motivo: aviso de contrato sem cuidado aceito': (t) => t.replace("if (principal === 'CONTRATO_PROPRIO' || principal === 'RESTRICAO_ALIMENTAR') return", 'if (false) return'),
+  'pausa perdida nunca falha': (t) => t.replace("falha: (l) => (l.semAutomatico === false ? 'pausa sem a marca persistente' : null) },", 'falha: () => null },'),
+  'pausa perdida não olha as mensagens seguintes': (t) => t.replace("(l.esperado.decisao === 'SEM_RESPOSTA' && anteriores(todas, l).some((x) => x.esperado.decisao === 'PARAR_MISTO'))", 'false'),
   // Rodada 45.
   'horários sem "mais meia horinha"': (t) => t.replace('HORARIOS: /\\b(mais (?:uma |duas |1 |2 )?(?:meia )?hor(?:a|as|inha|inhas)\\b(?![^.?!]{0,15}\\b(?:que|do que) (?:o|a)\\b)|', 'HORARIOS: /\\b('),
   // Rodada 44.

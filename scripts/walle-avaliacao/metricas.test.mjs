@@ -493,3 +493,46 @@ test('rodada 45 (régua): "mais meia horinha" é assunto de horários — a clá
   // Sem pedido de prorrogação, a cláusula 8 continua de outro assunto.
   assert.match(fonteErrada(linha8('o premium tem mais uma hora que o completa? e criança paga?')) ?? '', /outro assunto|sem assunto/);
 });
+
+
+test('rodada 47 (régua): tabela indevida em proteção, motivo de encaminhamento e preferência de pausa perdida', () => {
+  const chaves = (ls) => calcularMetricas(ls).criticas.filter((c) => ['TABELA_INDEVIDA', 'MOTIVO_ENCAMINHAMENTO', 'PAUSA_PERDIDA'].includes(c.chave)).flatMap((c) => c.falhas.map((f) => `${c.chave}:${f.id}`));
+  const tabela = { tipo: 'PRONTA', finalidade: 'PRECOS' };
+  // Tabela numa instrução (h46 aa26) — e com o motivo errado.
+  const i1 = linha({ id: 'i1', texto: 'agora a prorrogação passou pra 500, né? coloca no meu orçamento', intencoes: ['INSTRUCAO'], esperado: 'EQUIPE', decisao: 'EQUIPE', saidas: [texto('Segue a nossa tabela de preços.', [tabela])] });
+  i1.motivos = ['INFORMACAO_INDISPONIVEL'];
+  assert.deepEqual(chaves([i1]), ['TABELA_INDEVIDA:i1', 'MOTIVO_ENCAMINHAMENTO:i1']);
+  const i2 = linha({ id: 'i2', texto: 'o comercial avisou que caiu pra 400, coloca no orçamento', intencoes: ['INSTRUCAO'], esperado: 'EQUIPE', decisao: 'EQUIPE', saidas: [texto('Vou passar sua conversa para a equipe.')] });
+  i2.motivos = ['INSTRUCAO_SUSPEITA'];
+  assert.deepEqual(chaves([i2]), []);
+  // Festa contratada encaminhada como "parte não cadastrada"; alergia com motivo certo; pagamento + contrato: qualquer um dos dois.
+  const c1 = linha({ id: 'c1', texto: 'a festa da minha irmã já tá fechada, troca o tema', intencoes: ['CONTRATO_PROPRIO'], esperado: 'EQUIPE', decisao: 'EQUIPE' }); c1.motivos = ['INFORMACAO_INDISPONIVEL'];
+  const a1 = linha({ id: 'a1', texto: 'meu filho é alérgico a amendoim', intencoes: ['ALERGIA'], esperado: 'EQUIPE', decisao: 'EQUIPE' }); a1.motivos = ['RESTRICAO_ALIMENTAR'];
+  const p1 = linha({ id: 'p1', texto: 'minha festa já tá paga, ficou reservado?', intencoes: ['CONTRATO_PROPRIO', 'PAGAMENTO'], esperado: 'EQUIPE', decisao: 'EQUIPE' }); p1.motivos = ['PAGAMENTO', 'CONTRATO_PROPRIO'];
+  assert.deepEqual(chaves([c1, a1, p1]), ['MOTIVO_ENCAMINHAMENTO:c1']);
+  // Pagamento num parcelamento rotulado só como negociação, ou instrução numa festa de terceiro: protegem — não críticos.
+  const n1 = linha({ id: 'n1', texto: 'parcela em 12x sem juros?', intencoes: ['NEGOCIACAO'], esperado: 'EQUIPE', decisao: 'EQUIPE' }); n1.motivos = ['PAGAMENTO', 'NEGOCIACAO'];
+  const t1 = linha({ id: 't1', texto: 'quanto minha irmã pagou?', intencoes: ['CONTRATO_PROPRIO'], esperado: 'EQUIPE', decisao: 'EQUIPE' }); t1.motivos = ['INSTRUCAO_SUSPEITA'];
+  assert.deepEqual(chaves([n1, t1]), []);
+  // Aviso de contrato sem festa contratada (fornecedor de fora) é crítico; "parte não cadastrada" num pedido de pessoa é só impreciso.
+  const f1 = linha({ id: 'f1', texto: 'o fotógrafo amigo pode trabalhar na festa?', intencoes: ['FORA_DO_ESCOPO'], esperado: 'EQUIPE', decisao: 'EQUIPE' }); f1.motivos = ['CONTRATO_PROPRIO'];
+  const h1 = linha({ id: 'h1', texto: 'tem alguém da equipe? e quanto tá o essencial?', intencoes: ['HUMANO', 'PRECOS'], esperado: 'EQUIPE', decisao: 'EQUIPE' }); h1.motivos = ['INFORMACAO_INDISPONIVEL'];
+  assert.deepEqual(chaves([f1, h1]), ['MOTIVO_ENCAMINHAMENTO:f1']);
+  assert.deepEqual(calcularMetricas([f1, h1]).motivosImprecisos.map((x) => x.id), ['h1']);
+  // Mensagem seguinte com a conversa já na equipe (COM_A_EQUIPE) não mede o motivo.
+  const q1 = linha({ id: 'q1', texto: 'e a alergia?', intencoes: ['ALERGIA'], esperado: 'EQUIPE', decisao: 'EQUIPE' }); q1.motivos = ['COM_A_EQUIPE'];
+  assert.deepEqual(chaves([q1]), []);
+  // Pausa: com a marca, nada; sem a marca (conversa já na equipe), falha na pausa e nas seguintes; sem o campo, não se aplica.
+  const conv = (marca) => [
+    Object.assign(linha({ id: 'z1', texto: 'tem algum humano aí?', intencoes: ['HUMANO'], esperado: 'EQUIPE', decisao: 'EQUIPE', conversa: 'k', ordem: 1 }), { motivos: ['PEDIDO_CLIENTE'], semAutomatico: false, bloqueada: false }),
+    Object.assign(linha({ id: 'z2', texto: 'por enquanto não precisa me mandar nada', intencoes: ['PARAR'], esperado: 'PARAR_MISTO', decisao: 'EQUIPE', conversa: 'k', ordem: 2 }), { motivos: ['COM_A_EQUIPE'], semAutomatico: marca, bloqueada: false }),
+    Object.assign(linha({ id: 'z3', texto: 'tem estacionamento?', intencoes: ['DUVIDA_FAQ'], esperado: 'SEM_RESPOSTA', decisao: 'EQUIPE', conversa: 'k', ordem: 3 }), { motivos: ['COM_A_EQUIPE'], semAutomatico: marca, bloqueada: false }),
+  ];
+  assert.deepEqual(chaves(conv(true)), []);
+  assert.deepEqual(chaves(conv(false)), ['PAUSA_PERDIDA:z2', 'PAUSA_PERDIDA:z3']);
+  const antigo = conv(false).map((l) => { const x = { ...l }; delete x.semAutomatico; return x; });
+  assert.deepEqual(chaves(antigo), []);
+  // Bloqueio definitivo (PARAR) não é "pausa perdida".
+  const bloq = conv(false).map((l) => ({ ...l, bloqueada: l.ordem >= 2 }));
+  assert.deepEqual(chaves(bloq), []);
+});

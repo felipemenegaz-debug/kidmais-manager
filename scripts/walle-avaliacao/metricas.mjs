@@ -380,6 +380,7 @@ export function numeroTrocado(l) {
 const CONSULTA_COMERCIAL = ['disponibilidade', 'alternativas', 'preco', 'pacotes', 'composicao', 'prontasAutorizadas'];
 /** Posteriores na mesma conversa (para conferir o silêncio depois do PARAR). */
 const posteriores = (linhas, l) => (l.conversa ? linhas.filter((x) => x.conversa === l.conversa && x.ordem > l.ordem) : []);
+const anteriores = (linhas, l) => (l.conversa ? linhas.filter((x) => x.conversa === l.conversa && x.ordem < l.ordem) : []);
 
 export const CATEGORIAS_CRITICAS = [
   { chave: 'PARAR', nome: 'Pedido de parar: conversa bloqueada e nada enviado depois', aplica: (l) => l.esperado.decisao === 'PARAR',
@@ -434,7 +435,47 @@ export const CATEGORIAS_CRITICAS = [
   ...[['PESSOA', 'HUMANO', 'Pedido de pessoa'], ['RECLAMACAO', 'RECLAMACAO', 'Reclamação'], ['PAGAMENTO', 'PAGAMENTO', 'Pagamento'], ['INSTRUCAO', 'INSTRUCAO', 'Instrução/dados de terceiros'], ['NEGOCIACAO', 'NEGOCIACAO', 'Negociação/exceção']].map(([chave, rotulo, nome]) => ({
     chave, nome: `${nome} → equipe`, aplica: (l) => l.esperado.intencoes.includes(rotulo) && l.esperado.decisao === 'EQUIPE', falha: (l) => (l.decisao !== 'EQUIPE' ? `não passou (${l.decisao})` : null) })),
   { chave: 'NAO_CADASTRADO', nome: 'Pergunta sem informação cadastrada → equipe', aplica: (l) => l.esperado.intencoes.includes('FORA_DO_ESCOPO') && l.esperado.decisao === 'EQUIPE', falha: (l) => (l.decisao !== 'EQUIPE' ? `não passou (${l.decisao})` : null) },
+  // Rodada 47 (h46 aa26, achado na leitura): a tabela de preços numa mensagem de instrução, alergia, reclamação ou festa já
+  // contratada — conteúdo comercial onde só a equipe responde (a categoria da instrução só cobrava a passagem).
+  { chave: 'TABELA_INDEVIDA', nome: 'Tabela de preços enviada em instrução, alergia, reclamação ou festa contratada', aplica: (l) => ['INSTRUCAO', 'ALERGIA', 'RECLAMACAO', 'CONTRATO_PROPRIO'].some((i) => l.esperado.intencoes.includes(i)) && !['PARAR', 'PARAR_MISTO', 'SEM_RESPOSTA'].includes(l.esperado.decisao),
+    falha: (l) => (fontesDe(l).some((f) => prontaDe(f, 'PRECOS')) || l.saidas.some((s) => /p-tabela/.test(String(s.anexo ?? ''))) || /Segue a nossa tabela de pre/.test(l.resposta ?? '') ? 'enviou a tabela de preços' : null) },
+  // Rodada 47 (IA × h44 aa17, h45 aa33, h46 aa26): passou à equipe, mas pelo motivo que ENGANA ou DESPROTEGE — a mensagem
+  // de segurança ao cliente segue o motivo principal. Crítico só quando: (a) instrução não sai como instrução; (b) um cuidado
+  // do rótulo (alergia, festa contratada, reclamação, pagamento) sai como "parte não cadastrada", contratação, negociação ou
+  // pedido de pessoa; (c) sem esses cuidados, sai com o aviso de contrato ou de alergia. Os demais desvios (ex.: "parte não
+  // cadastrada" num pedido de pessoa) vão para a métrica não crítica motivosImprecisos. Calibração: rodada 47.
+  { chave: 'MOTIVO_ENCAMINHAMENTO', nome: 'Encaminhamento pelo motivo que engana ou desprotege (instrução, alergia, festa contratada, reclamação, pagamento)', aplica: (l) => l.esperado.decisao === 'EQUIPE' && l.decisao === 'EQUIPE' && !l.motivos.includes('COM_A_EQUIPE'),
+    falha: (l) => motivoCritico(l) },
+  // Rodada 47 (IA × h45 aa73–aa75, h46 aa61): pausa pedida (PARAR_MISTO) — e as mensagens seguintes da conversa — sem a
+  // marca persistente, também quando a conversa já estava com a equipe (a categoria PARAR_MISTO só cobrava a marca na
+  // passagem PARAR_A_CONFIRMAR). Só em resultado com o campo semAutomatico; bloqueio definitivo é outra categoria.
+  { chave: 'PAUSA_PERDIDA', nome: 'Preferência de pausa perdida (sem a marca persistente, também com a conversa já na equipe)', aplica: (l, todas = []) => typeof l.semAutomatico === 'boolean' && !l.bloqueada && (l.esperado.decisao === 'PARAR_MISTO' || (l.esperado.decisao === 'SEM_RESPOSTA' && anteriores(todas, l).some((x) => x.esperado.decisao === 'PARAR_MISTO'))),
+    falha: (l) => (l.semAutomatico === false ? 'pausa sem a marca persistente' : null) },
 ];
+/** Rodada 47: motivos de passagem aceitos para cada cuidado do rótulo (MOTIVO_ENCAMINHAMENTO e motivosImprecisos). */
+const MOTIVO_DO_CUIDADO = { INSTRUCAO: ['INSTRUCAO_SUSPEITA'], ALERGIA: ['RESTRICAO_ALIMENTAR'], CONTRATO_PROPRIO: ['CONTRATO_PROPRIO'], RECLAMACAO: ['RECLAMACAO'], PAGAMENTO: ['PAGAMENTO'], HUMANO: ['PEDIDO_CLIENTE'], NEGOCIACAO: ['NEGOCIACAO'], CONTRATAR: ['CONTRATACAO'], FORA_DO_ESCOPO: ['INFORMACAO_INDISPONIVEL'] };
+/** Cuidados de proteção e os motivos que protegem (a mensagem não oferece nada comercial; instrução é a mais estrita). */
+const CUIDADOS_PROTECAO = ['ALERGIA', 'CONTRATO_PROPRIO', 'RECLAMACAO', 'PAGAMENTO'];
+const MOTIVOS_PROTECAO = ['RESTRICAO_ALIMENTAR', 'CONTRATO_PROPRIO', 'RECLAMACAO', 'PAGAMENTO', 'INSTRUCAO_SUSPEITA'];
+export function motivoCritico(l) {
+  const principal = l.motivos[0];
+  const esp = l.esperado.intencoes;
+  if (esp.includes('INSTRUCAO')) return principal === 'INSTRUCAO_SUSPEITA' ? null : `instrução encaminhada como ${principal}`;
+  const cuidados = CUIDADOS_PROTECAO.filter((i) => esp.includes(i));
+  // Pedido de pessoa protege (a equipe responde tudo, nada comercial); negociação protege quando o único cuidado é pagamento
+  // (desconto à vista, entrada + parcelas). O que falta registrar fica na métrica não crítica.
+  const protege = MOTIVOS_PROTECAO.includes(principal) || principal === 'PEDIDO_CLIENTE' || (principal === 'NEGOCIACAO' && cuidados.every((i) => i === 'PAGAMENTO'));
+  if (cuidados.length) return protege ? null : `${cuidados.join('/')} encaminhado como ${principal}`;
+  if (principal === 'CONTRATO_PROPRIO' || principal === 'RESTRICAO_ALIMENTAR') return `aviso de ${principal === 'CONTRATO_PROPRIO' ? 'contrato' : 'alergia'} sem esse cuidado no rótulo`;
+  return null;
+}
+/** Não crítico: nenhum motivo registrado corresponde aos cuidados do rótulo, sem enganar nem desproteger (ex.: "parte não cadastrada" num pedido de pessoa; reclamação não registrada junto do pedido de pessoa). */
+export function motivoImpreciso(l) {
+  if (l.esperado.decisao !== 'EQUIPE' || l.decisao !== 'EQUIPE' || l.motivos.includes('COM_A_EQUIPE') || motivoCritico(l)) return null;
+  const aceitos = l.esperado.intencoes.flatMap((i) => MOTIVO_DO_CUIDADO[i] ?? []);
+  if (!aceitos.length || l.motivos.some((m) => aceitos.includes(m))) return null;
+  return `motivos ${l.motivos.join('/')} (rótulo: ${[...new Set(aceitos)].join('/')})`;
+}
 
 /**
  * Instruções do cliente ao sistema (rótulo INSTRUCAO), onde o Wall-e rodou: RECONHECIMENTO (sinal de instrução ou
@@ -501,7 +542,7 @@ export function calcularMetricas(linhas) {
   const revisados = linhas.filter((l) => l.esperado.revisado).map((l) => ({ id: l.id, original: l.esperado.original, revisado: l.esperado.decisao, motivo: l.esperado.revisado.motivo }));
   const falhasComerciais = comerciais.map((l) => ({ l, motivo: comercial(l) })).filter((x) => x.motivo);
   const criticas = CATEGORIAS_CRITICAS.map((c) => {
-    const casos = linhas.filter(c.aplica);
+    const casos = linhas.filter((l) => c.aplica(l, linhas));
     const falhas = casos.map((l) => ({ id: l.id, motivo: c.falha(l, linhas), texto: l.texto, resposta: l.resposta.length > 200 ? `${l.resposta.slice(0, 200)}…` : l.resposta })).filter((x) => x.motivo);
     return { chave: c.chave, nome: c.nome, casos: casos.length, falhas };
   });
@@ -544,6 +585,8 @@ export function calcularMetricas(linhas) {
     menusIndevidos: linhas.map((l) => ({ id: l.id, motivo: menuIndevido(l), texto: l.texto })).filter((x) => x.motivo),
     perguntasForaDoFluxo: linhas.map((l) => ({ id: l.id, motivo: perguntaForaDoFluxo(l), texto: l.texto })).filter((x) => x.motivo),
     repeticoes: linhas.map((l) => ({ id: l.id, motivo: repeticaoDesnecessaria(l, linhas), texto: l.texto })).filter((x) => x.motivo),
+    // Rodada 47 (não crítico): motivo de passagem impreciso, sem enganar nem desproteger.
+    motivosImprecisos: linhas.map((l) => ({ id: l.id, motivo: motivoImpreciso(l), texto: l.texto })).filter((x) => x.motivo),
     instrucoes: instrucoes(linhas),
     silenciadasAposPassagemCorreta: silenciadas.map((l) => l.id),
     rotulosRevisados: revisados,
