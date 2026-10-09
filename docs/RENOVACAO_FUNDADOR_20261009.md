@@ -1,5 +1,7 @@
 # Renovação Fundador — implementação local e homologação proposta
 
+Atualização de 09/10/2026: preparado e validado localmente um [diagnóstico remoto de configuração/schema](RENOVACAO_PREFLIGHT_STAGING_20261009.md). Ainda aguarda autorização operacional; não habilita aplicação da renovação ou envio real. A quinta rodada de contratação/cancelamento foi aprovada conforme [evidência própria](ENSAIO_ASSINATURA_RODADA5_20261009.md).
+
 Decisão de Felipe em 09/10/2026: após 12 meses, renovar pelo preço normal, avisando **30 dias antes por e-mail e no sistema**. Este documento descreve código local; não declara rotina agendada, banco migrado, envio real ou cobrança em produção.
 
 ## Comportamento implementado
