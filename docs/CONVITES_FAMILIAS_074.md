@@ -1,6 +1,6 @@
 # Convites: famílias e links individuais — 09/10/2026
 
-Status em 09/10/2026 às 02:27 BRT: **migration 074 homologada e aplicada em staging; publicação do código em andamento**. A simplificação visual do editor é independente e já está em staging no commit `45f8336`.
+Status em 09/10/2026 às 02:34 BRT: **migration 074 homologada e aplicada; famílias e links individuais ativos em staging**. Deploy `dep-db47mqjncjis73c3j180`, commit `4d764030556ab42fcb5787bf56458aeab9dcbca3`. A simplificação visual do editor permanece ativa.
 
 ## Comportamento
 
@@ -35,7 +35,7 @@ Executado localmente em 09/10/2026: `check:v1:static` aprovado (2.106 testes ger
 - Testes de domínio: campos estritos, limites, UUID e revisão.
 - Serviço real com banco/provedor simulados: idempotência, isolamento entre festas/empresas, permissão, link revogado, renovação, arquivo/restauração, resposta única entre dispositivos, não sobrescrever resposta de outra família, legado e ausência de consumo de IA.
 - Navegador com APIs simuladas: buffet e cliente, cadastro/cópia, preenchimento e atualização em outro contexto, mudança de link na mesma aba, filtros, revogação, arquivo/restauração, edição pendente preservada, 320/390/1365 px. Script `scripts/convites-familias-ui.cjs`. Regressões de editor, cores/PNG, exclusão de imagem e página pública também executadas.
-- Harness PostgreSQL preparado em `scripts/convites-postgres.cjs`, **não executado** para a 074. Exige `scripts/testar-convites-postgres.ps1 -Executar -Incluir074`, autorização específica e cluster novo. Valida migrations 073/074, preservação de resposta legada, FKs, unicidade concorrente, idempotência e revogação antes da transação do RSVP. Dependências anteriores usam schema sintético mínimo; não substitui ensaio no schema completo de staging.
+- Harness PostgreSQL em `scripts/convites-postgres.cjs`, executado para a 074 após autorização, com resultado aprovado registrado abaixo. Exige `scripts/testar-convites-postgres.ps1 -Executar -Incluir074`, autorização específica e cluster novo. Valida migrations 073/074, preservação de resposta legada, FKs, unicidade concorrente, idempotência e revogação antes da transação do RSVP. Dependências anteriores usam schema sintético mínimo; não substitui ensaio no schema completo de staging.
 
 ## Plano operacional para autorização
 
@@ -62,3 +62,15 @@ Felipe solicitou “próximo passo” em resposta à proposta concreta de execut
 - Ensaio no schema completo efetivo: precheck, trava/transação, migration, postcheck, 135 → 136 tabelas, comparação do conteúdo anterior de RSVPs, ROLLBACK e novo precheck. Aprovado às `2026-10-09T05:27:02.363Z`. Não é replay da cadeia histórica.
 - Aplicação definitiva aprovada às `2026-10-09T05:27:17.939Z`, com backup/hash/recenticidade reconferidos. Postcheck repetido em transação somente leitura após COMMIT. 136 tabelas; havia zero respostas existentes. Nenhuma família/RSVP de demonstração foi criada no banco de staging.
 - Hash SHA-256 da migration normalizada em LF: `5da23eab2c8a519014286596cc48147a3df2fd46ad3b297809c35a191cf0beee`; precheck `ae7b11a1143a1f678c08323847efd406d354caa4546e738841d02e7c2dffcb5f`; postcheck `78b34e38f19e767d0de19e6dd6424de1249bb62eee1c8689fc630b7558c0dcfe`.
+- Metadados Render revalidados antes da publicação: staging acompanha `staging`, produção acompanha `production`, ambos sem auto-deploy/prévias. Push somente em staging; nenhum deploy/SQL/env de produção.
+- Deploy `dep-db47mqjncjis73c3j180`, commit `4d764030556ab42fcb5787bf56458aeab9dcbca3`, live em `2026-10-09T05:33:54.659Z` (02:33:54 BRT), após regressão e build aprovados no Render.
+- Smoke HTTP somente GET aprovado às `2026-10-09T05:34:34.325Z`: health/database prontos, link geral sem lista privada, token individual inválido rejeitado com 404, administrativo sem sessão 401, editor cliente sem acesso 404; `no-store`/`noindex` mantidos. Evidência local `.local-convites-qa/staging074-http.json`.
+- Conferência autenticada em nova aba do Manager: “Famílias e links individuais”, cadastro, filtros e indicadores presentes; zero famílias/respostas, 50 convidados previstos no contrato. Nenhuma alteração pendente do usuário foi recarregada. Não houve cadastro real de família, envio de mensagem, resposta RSVP ou IA paga nessa conferência. Criação/atualização concorrente foi testada no PostgreSQL descartável e no navegador local com APIs simuladas; o ensaio interativo no staging fica para o usuário.
+
+## Teste manual no staging
+
+1. Abrir o editor de convite de uma festa e localizar **Famílias e links individuais**, abaixo da edição da arte.
+2. Cadastrar uma família de teste com previsão de adultos/crianças e copiar o link individual.
+3. Abrir o link em janela anônima ou outro celular e enviar uma confirmação.
+4. Voltar ao editor e clicar em **Atualizar confirmações**. Conferir a mudança de pendente para confirmada e as quantidades.
+5. Reabrir o mesmo link em outro dispositivo e alterar a resposta; deve continuar existindo uma única resposta para a família. Testar revogar/renovar se desejado. Ao terminar, arquivar a família para retirá-la dos totais.
