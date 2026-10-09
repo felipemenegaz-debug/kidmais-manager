@@ -2,7 +2,7 @@ import type { ConfiguracaoAtendimento } from '../core.ts';
 import type { Finalidade } from '../prontas.ts';
 import { comPendente, jaEnviado, mesclarContexto, registrarEnviado } from './contexto.ts';
 import { clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
-import { CONTRATO_PARA_ASSINAR, ENTRADA_CONVIDADOS, cardapioDispensado, cumprimentoDoCliente, dataCitadaInvalida, irritacaoComMensagens, itemExternoDoCliente, pedeIntencao, registroDoBloqueio, semAcento, unidadesDeDestino } from './entendimento.ts';
+import { CONTRATO_PARA_ASSINAR, DESISTE_CONTRATAR, ENTRADA_CONVIDADOS, cardapioDispensado, cumprimentoDoCliente, dataCitadaInvalida, irritacaoComMensagens, itemExternoDoCliente, pedeIntencao, registroDoBloqueio, semAcento, unidadesDeDestino } from './entendimento.ts';
 import { PASSAGEM_AO_CLIENTE, type EscopoAgendaConsultado, type Anexo, type CampoPendente, type Catalogos, type ContextoWallE, type CriterioConsultaComum, type Entendimento, type Fonte, type Intencao, type MotivoPassagem, type Passagem, type ResultadoWallE, type Saida, type TipoIntencao } from './tipos.ts';
 
 /**
@@ -65,7 +65,14 @@ type Estado = {
 };
 const dizer = (e: Estado, texto: string, fontes: Fonte[] = []) => { e.paragrafos.push({ texto, fontes }); };
 /** `opcional`: convite depois de uma resposta completa ("se quiser, me conte o tema"), não um dado que falta. */
-const perguntar = (e: Estado, campo: CampoPendente, para: TipoIntencao, opcional = false) => { if (!e.perguntas.some((p) => p.campo === campo)) e.perguntas.push({ campo, para, ...(opcional ? { opcional } : {}) }); };
+// Rodada 45 (IA × h44 aa60–aa62): o mesmo campo pedido pelo preço e pela contratação fica pendente para a contratação,
+// qualquer que seja a ordem das intenções (o modelo mandou PRECOS antes de CONTRATAR e a data ficou pendente para o preço:
+// a correção e a confirmação seguintes só recalculavam o valor e o pedido de segurar a data se perdia).
+const perguntar = (e: Estado, campo: CampoPendente, para: TipoIntencao, opcional = false) => {
+  const ja = e.perguntas.find((p) => p.campo === campo);
+  if (!ja) e.perguntas.push({ campo, para, ...(opcional ? { opcional } : {}) });
+  else if (para === 'CONTRATAR' && ja.para !== 'CONTRATAR') { ja.para = 'CONTRATAR'; if (!opcional) delete ja.opcional; }
+};
 const passar = (e: Estado, motivo: MotivoPassagem) => { if (!e.encaminhar.includes(motivo)) e.encaminhar.push(motivo); };
 
 /** Materiais autorizados: filtra por unidade/pacote; ambiguidade de unidade sem unidade escolhida ⇒ pergunta. */
@@ -784,6 +791,9 @@ const PROTECAO_CONSULTA_COMUM: Record<CriterioConsultaComum, string> = {
   VISITA_MARCADA: 'Agendamentos de visita eu não consulto nem altero por aqui.',
   DISPONIBILIDADE_ATRIBUIDA: 'O que vale é a agenda consultada agora; o que foi conversado antes com a equipe eu não confirmo por aqui.',
   RESERVA_FINANCEIRA: 'Considerei o valor que você citou como o seu orçamento: nenhuma data fica reservada por aqui; a reserva só acontece com a contratação.',
+  PRORROGACAO: 'Exceções ao horário e condições especiais são decididas pela equipe.',
+  // O aviso de que consultar não reserva (RESERVA_STATUS) já oferece a equipe a quem concluiu a contratação.
+  PERGUNTA_RESERVA: '',
 };
 
 /** Tamanho máximo de uma mensagem de texto do Wall-e (o WhatsApp aceita 4.096 caracteres). */
@@ -916,7 +926,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   const pendente = entrada.contexto.pendente ?? null;
   const ent = entendimento.entidades;
   const preenche = (campos: CampoPendente[]) => campos.some((c) => (c === 'pacote' ? ent.pacotes.length > 0 : ent[c] !== null && ent[c] !== undefined));
-  if (soDado && !continuacao && pendente && preenche(pendente.campos)) intencoes = [{ tipo: pendente.para, trecho: entrada.texto.slice(0, 300) }];
+  if (soDado && !continuacao && pendente && preenche(pendente.campos) && !(pendente.para === 'CONTRATAR' && DESISTE_CONTRATAR.test(semAcento(entrada.texto)))) intencoes = [{ tipo: pendente.para, trecho: entrada.texto.slice(0, 300) }];
   // Dados novos ou corrigidos nesta mensagem são confirmados em uma linha ("na verdade serão 80" → "Anotei: 80 convidados").
   // Pergunta de continuação ("e no segundo?", "e pra 80?") é consulta nova: não vira "correção" anotada.
   const novasCorrecoes = e.correcoesNovas;
@@ -957,8 +967,11 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   // endereço pendentes não se juntam a uma pergunta de outro assunto.
   // Qualificação em andamento: dados da festa (data, período, convidados, pacote) para preço, agenda, contratação ou
   // pacotes. Tema, pacote do cardápio e unidade do endereço são pendências de outro assunto.
-  const qualificacao = !!pendente && ['PRECOS', 'DISPONIBILIDADE', 'CONTRATAR', 'PACOTES'].includes(pendente.para) && pendente.campos.every((c) => ['data', 'turno', 'convidados', 'pacote'].includes(c));
-  const retomaAssunto = soDado || (preenche(pendente?.campos ?? []) && qualificacao);
+  // Rodada 45: desistência explícita da contratação pendente ("desisti de fechar agora, só quero saber quanto fica"): a
+  // contratação não é retomada nem repergunta o dado; o resto da mensagem (o valor) é respondido.
+  const desistiu = pendente?.para === 'CONTRATAR' && DESISTE_CONTRATAR.test(semAcento(entrada.texto));
+  const qualificacao = !!pendente && !desistiu && ['PRECOS', 'DISPONIBILIDADE', 'CONTRATAR', 'PACOTES'].includes(pendente.para) && pendente.campos.every((c) => ['data', 'turno', 'convidados', 'pacote'].includes(c));
+  const retomaAssunto = !desistiu && (soDado || (preenche(pendente?.campos ?? []) && qualificacao));
   if (pendente && retomaAssunto && !pediuPessoa && !(pendente.opcional && !soDado) && !intencoes.some((i) => i.tipo === pendente.para) && !faltando(pendente.campos).length && !['HUMANO', 'OUTRO', 'SAUDACAO'].includes(pendente.para)) intencoes = [...intencoes, { tipo: pendente.para, trecho: '' }];
   // Pedido explícito de pessoa: a equipe responde tudo; nenhum conteúdo comercial é acrescentado.
   if (pediuPessoa) intencoes = intencoes.filter((i) => !['PRECOS', 'PACOTES', 'CARDAPIO', 'DECORACAO', 'DISPONIBILIDADE', 'LOCALIZACAO', 'CONTRATAR', 'DUVIDA', 'CONTRATO', 'EXTERNO'].includes(i.tipo));
@@ -1061,7 +1074,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
       : `A entrada dos convidados é no início do período contratado: ${lista(catalogos.turnos.map((x) => `${x.nome.toLowerCase()} a partir das ${hora(x.inicio)}`))}.`, [{ tipo: 'PERIODOS_AGENDA' }]);
   }
   // Rodada 32: a frase de proteção de cada consulta comum que afastou um cuidado só do modelo.
-  for (const c of new Set(cuidadosAfastados.map((x) => x.criterio))) dizer(e, PROTECAO_CONSULTA_COMUM[c]);
+  for (const c of new Set(cuidadosAfastados.map((x) => x.criterio))) if (PROTECAO_CONSULTA_COMUM[c]) dizer(e, PROTECAO_CONSULTA_COMUM[c]);
   // Pergunta que nenhuma fonte responde ("tem wi-fi?"): respondido o resto, a equipe responde essa parte.
   // Rodada 19: com a festa já contratada, a equipe responde a mensagem inteira (sem a frase de "parte não cadastrada").
   // Rodada 19: idem quando a mensagem já vai para a equipe por alergia, reclamação, pedido de pessoa, pagamento ou

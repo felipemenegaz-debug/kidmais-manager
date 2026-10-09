@@ -33,7 +33,7 @@ export type TemaContrato = (typeof TEMAS_CONTRATO)[number];
  * visita marcada (não é festa contratada) e disponibilidade contada pela equipe (não é pedido para manter ou alterar
  * condição). O resolvedor só afasta o cuidado com todos os sinais finais conferidos.
  */
-export type CriterioConsultaComum = 'ORCAMENTO_INFORMADO' | 'VISITA_MARCADA' | 'DISPONIBILIDADE_ATRIBUIDA' | 'RESERVA_FINANCEIRA';
+export type CriterioConsultaComum = 'ORCAMENTO_INFORMADO' | 'VISITA_MARCADA' | 'DISPONIBILIDADE_ATRIBUIDA' | 'RESERVA_FINANCEIRA' | 'PRORROGACAO' | 'PERGUNTA_RESERVA';
 export type Intencao = { tipo: TipoIntencao; trecho: string; perguntaId?: string | null; tema?: TemaContrato | null; continuacao?: boolean; soModelo?: boolean; consultaComum?: CriterioConsultaComum | null };
 /** Dados citados pelo cliente NESTA mensagem (o que já foi dito antes fica na memória). */
 export type Entidades = {

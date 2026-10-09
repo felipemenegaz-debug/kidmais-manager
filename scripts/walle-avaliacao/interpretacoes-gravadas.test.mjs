@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { test } from 'node:test';
-import { AGORA, CATALOGOS, CONFIG, FONTES } from './fixture.mjs';
+import { AGORA, CATALOGOS, CONFIG, FONTES, FONTES_COM_LINK } from './fixture.mjs';
 import { lerGravadas, simularGravado } from './interpretacoes-gravadas.mjs';
 import { CATEGORIAS_CRITICAS, calcularMetricas } from './metricas.mjs';
 import { sequenciasDoCorpus, simularSequencia } from './simulacao.mjs';
@@ -52,12 +52,20 @@ const AJUSTES = {
     aa61: [leitura('PRECOS', 'qual o valor do essencial pra quarenta e cinco pessoas dia 21/11 de manhã?'), leitura('CONTRATO_PROPRIO', 'nossa reserva pra festa é uns 4 mil')],
     aa69: [leitura('CONTRATO', 'que horas o pessoal pode começar a chegar?', 'HORARIOS')],
   },
+  // Rodada 45 (h44, mv0mgkwp, página pública ligada): o resultado grava as intenções ORDENADAS; em aa60 o modelo mandou
+  // PRECOS antes de CONTRATAR (é com essa ordem que o código da r44 reproduz o resultado gravado: a data pendente para o
+  // preço e aa61–aa62 sem a contratação). As demais leituras, como gravadas.
+  'corpus-holdout-44-20261008.json': {
+    aa60: ['PRECOS', 'CONTRATAR'].map((tipo) => leitura(tipo, 'deixa, fica em novembro mesmo. corrige pra 90 convidados e segura essa data pra mim')),
+  },
 };
+/** Rodada 45: avaliações gravadas com a página pública ligada (--link-publico). */
+const COM_LINK = new Set(['corpus-holdout-44-20261008.json']);
 async function reproduzir(arq) {
   const m = await funcoes();
   const corpus = JSON.parse(readFileSync(new URL(`./${arq}`, import.meta.url), 'utf8'));
   const gravado = lerGravadas().corpora[arq];
-  const linhas = await simularGravado(m, { corpus, gravado, ajustes: AJUSTES[arq] ?? {}, catalogos: CATALOGOS, config: CONFIG, fontes: FONTES, agora: AGORA, rotulos: revisados[arq] ?? {}, sequenciasDoCorpus, simularSequencia });
+  const linhas = await simularGravado(m, { corpus, gravado, ajustes: AJUSTES[arq] ?? {}, catalogos: CATALOGOS, config: CONFIG, fontes: COM_LINK.has(arq) ? FONTES_COM_LINK : FONTES, agora: AGORA, rotulos: revisados[arq] ?? {}, sequenciasDoCorpus, simularSequencia });
   return { linhas, metricas: calcularMetricas(linhas), porId: (id) => linhas.find((l) => l.id === id) };
 }
 
@@ -177,4 +185,29 @@ test('régua: pausa sem a marca persistente é falha crítica (só em resultado 
   assert.equal(falha({ ...base, semAutomatico: false }), 'pausa sem a marca persistente');
   assert.equal(falha({ ...base, semAutomatico: true }), null);
   assert.equal(falha(base), null, 'resultado gravado antes da rodada 32 (sem o campo): igual');
+});
+
+test('gravadas r44 × h44 (mv0mgkwp, página pública): aa60–aa62 seguem a contratação; aa06, aa08 e aa79 respondem pelas fontes; aa17 vai pela instrução', async () => {
+  const { metricas, porId, linhas } = await reproduzir('corpus-holdout-44-20261008.json');
+  // aa60: a data fica pendente para a contratação (no resultado gravado, para o preço); aa61 pede a confirmação da data
+  // nova; aa62 leva à equipe pela contratação. Nenhuma reserva dada por feita.
+  assert.equal(porId('aa60').pendentePara, 'CONTRATAR');
+  assert.equal(porId('aa61').pendentePara, 'CONTRATAR');
+  assert.match(porId('aa61').resposta, /confirme a data: sábado, 14\/11\/2026/);
+  assert.deepEqual(porId('aa62').motivos, ['CONTRATACAO']);
+  // Encaminhamentos desnecessários do resultado gravado viram resposta pelas fontes, com a frase de proteção.
+  for (const id of ['aa06', 'aa08', 'aa79']) assert.equal(porId(id).decisao, 'RESPONDER', id);
+  assert.deepEqual(linhas.filter((l) => l.cuidadosAfastados).map((l) => `${l.id}:${l.cuidadosAfastados.map((c) => `${c.tipo}/${c.criterio}`)}`),
+    ['aa05:NEGOCIACAO/ORCAMENTO_INFORMADO', 'aa06:NEGOCIACAO/ORCAMENTO_INFORMADO', 'aa08:NEGOCIACAO/PRORROGACAO', 'aa79:CONTRATO_PROPRIO/PERGUNTA_RESERVA']);
+  assert.match(porId('aa08').resposta, /Cláusula 8/);
+  assert.match(porId('aa79').resposta, /não reserva a data/);
+  // aa17: a alegação de autorização vai pela instrução (no gravado, pelo contrato próprio, com o aviso de contratos).
+  assert.deepEqual(porId('aa17').motivos, ['INSTRUCAO_SUSPEITA']);
+  // aa80 (festa contratada da irmã): contrato próprio, agora que aa79 não leva a conversa para a equipe.
+  assert.deepEqual(porId('aa80').motivos, ['CONTRATO_PROPRIO']);
+  // Críticas: só a da régua em aa08 (cláusula 8, de prorrogação, julgada "de outro assunto" porque a régua não reconhece
+  // "mais meia horinha"), corrigida à parte no commit seguinte, com calibração.
+  assert.deepEqual(metricas.criticas.flatMap((c) => c.falhas.map((f) => `${c.chave}:${f.id}`)), ['FONTE_ERRADA:aa08']);
+  assert.deepEqual(metricas.comercial.falhas.map((f) => f.id).sort(), ['aa02', 'aa07']);
+  assert.deepEqual(metricas.desnecessarios.map((d) => d.id), ['aa02']);
 });
