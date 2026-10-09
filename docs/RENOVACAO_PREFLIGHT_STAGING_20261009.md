@@ -23,3 +23,13 @@ Workspace `tea-daidbj95efls73d2bcf0`; somente cron staging `crn-db493i142hec73ah
 5. Guardar evidência sanitizada do diagnóstico e da recuperação, revisar e publicar documentação em staging. Resultado não habilita renovação remota, envio real, cobrança, isenção ou produção. O próximo ensaio de aviso e preço precisa de fixture, destinatário e ações próprios preparados e aprovados.
 
 Solicita-se autorização específica para a troca temporária de comando, os dois deploys e essa leitura de catálogos. A política [OPERACAO_AGENTES.md](OPERACAO_AGENTES.md) exige aprovação explícita para configuração/deploy e exige banco dentro do escopo autorizado. A autorização da quinta rodada não abrangia essa nova operação.
+
+## Execução autorizada — 09/10/2026
+
+Felipe respondeu “autorizo” ao plano acima. Branch/auto-deploy/comando/schedule foram revalidados; última execução normal bem-sucedida às 21:40:20 UTC. Revisão local e remota confirmadas: `0b2dabfdf086fd6f80eb5bc0a841bd3d5d6c4d45`. Comando temporário salvo; deploy `dep-db4luu60tbcc73f6enrg` LIVE às 21:41:40 UTC. Relatório agendado e recuperação serão registrados abaixo após a confirmação.
+
+Execução agendada às 21:45:27 UTC: banco/TLS conferidos e schema estrutural aprovado, com as tabelas presentes e duas guardas 075 habilitadas. Resultado PENDENTE por `RESEND_NAO_CONFIGURADO` e `ORIGEM_STAGING_DIVERGENTE`; processo encerrou com código 2. Esse retorno é intencional para impedir confundir pendências com integração concluída; pode gerar o alerta já configurado no Render. Nenhum provedor chamado, e-mail enviado, cobrança alterada ou aplicação remota habilitada. Nenhum secret/env modificado. [Registro sanitizado](evidencias/renovacao-preflight-staging-20261009.json) e [relatório no painel](evidencias/renovacao-preflight-staging-20261009.png).
+
+Comando normal restaurado: `node scripts/assinatura-cron.cjs`. Deploy de recuperação `dep-db4m15om7kps73cbf65g` LIVE às 21:46:33 UTC, na mesma candidata. Restam configurar o Resend e a origem administrativa no cron sob autorização específica, antes do ensaio externo de avisos/renovação. A conferência estrutural deste diagnóstico não substitui esse ensaio funcional.
+
+Recuperação funcional confirmada: relatório normal às 21:50:20 UTC, eventos vazios, três empresas SEM_MUDANCA e incompleto=false; execução terminou com sucesso às 21:50:30 UTC. Horário, plano, secrets, env e TLS preservados. Branch staging e auto-deploy OFF revalidados no cron e no web antes do push das evidências. [Prova no painel](evidencias/renovacao-preflight-cron-recuperado-20261009.png).
