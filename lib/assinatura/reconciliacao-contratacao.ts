@@ -94,12 +94,13 @@ export type ResultadoReconciliacao =
     | { resultado: 'NADA_A_FAZER' | 'CONCILIADA'; removidas: string[] }
     | { resultado: 'AGUARDANDO'; motivo: 'CRIACAO_NAO_CONFIRMADA' }
     | { resultado: 'VINCULADA'; assinaturaId: string }
+    | { resultado: 'ADIADA'; motivo: 'MARCADOR_NAO_GRAVADO'; ids: string[] }
     | { resultado: 'REVISAO_HUMANA'; motivo: 'VARIAS_ASSINATURAS_SEM_VINCULO' | 'DUPLICATA_COM_PAGAMENTO' | 'DUPLICATA_PRESERVADA' | 'VINCULO_INATIVO_COM_ACESSO' | 'SEM_ASSINATURA_NO_BANCO' | 'REMOCAO_SEM_CONFIRMACAO'; ids: string[] };
 
 /**
- * Exclusões no provedor durante uma reconciliação, anotadas à medida que acontecem. Quem chama grava o registro DEPOIS
- * do SAVEPOINT (liberado ou desfeito): uma exclusão concluída no provedor nunca perde a auditoria porque a operação
- * seguinte falhou. Confirmada e sem confirmação ficam separadas; sem confirmação nunca conta como removida.
+ * Exclusões no provedor durante uma reconciliação. O marcador e o resultado de cada DELETE já são gravados (e
+ * confirmados) na transação independente; aqui ficam as listas para o retorno e as confirmações por RELEITURA, que
+ * quem chama grava depois do SAVEPOINT (liberado ou desfeito). Sem confirmação nunca conta como removida.
  */
 export type RegistroRemocoes = {
     /** O provedor confirmou (resposta com `deleted`, ou 404 = já removida). */
@@ -150,6 +151,76 @@ export async function manterMarcadorRemocao(tx: DbExecutor, empresaId: string, i
                      WHERE id = $1::uuid AND empresa_id = $2::uuid AND tipo = $3 AND situacao IN ('PENDENTE', 'FALHOU')`, [id, empresaId, TIPO_PENDENCIA]);
 }
 
+/**
+ * Transação INDEPENDENTE (outra conexão, COMMIT próprio) para o marcador de exclusão: ele tem de estar confirmado no
+ * banco ANTES do DELETE, mesmo com a transação de quem chama ainda aberta (travando linhas) ou desfeita depois.
+ */
+export type TransacaoIndependente = <T>(trabalho: (tx: DbExecutor) => Promise<T>) => Promise<T>;
+
+/**
+ * Quem chama está PARADO esperando esta transação, com locks próprios: se ela precisasse de um deles, o PostgreSQL não
+ * veria o ciclo (a espera do outro lado está na aplicação). Por isso nunca espera lock por muito tempo: falha fechada.
+ */
+async function limitesIndependente(tx: DbExecutor) {
+    await tx.query("SET LOCAL lock_timeout = '3s'");
+    await tx.query("SET LOCAL statement_timeout = '10s'");
+}
+
+/**
+ * Registro prévio: grava e CONFIRMA (COMMIT) o marcador REMOCAO_EM_CURSO antes do DELETE. Uma exclusão por assinatura de
+ * cada vez (trava consultiva pela assinatura: contratação e reconciliação concorrentes). Devolve o id; ou null quando não
+ * foi possível (sem transação independente, lock ocupado, banco fora, COMMIT sem confirmação) ou quando já há marcador
+ * aberto para a mesma assinatura. null → quem chama NÃO exclui.
+ */
+export async function persistirMarcadorPrevio(independente: TransacaoIndependente | undefined, empresaId: string, assinaturaId: string): Promise<string | null> {
+    if (!independente)
+        return null;
+    try {
+        return await independente(async (tx) => {
+            await limitesIndependente(tx);
+            await tx.query("SELECT pg_advisory_xact_lock(hashtext('kidmais:remocao'), hashtext($1))", [assinaturaId]);
+            const aberto = (await tx.query(
+                `SELECT 1 FROM cobranca_eventos WHERE provedor = 'ASAAS' AND tipo = $1 AND evento_id LIKE $2 AND assinatura_provedor_id = $3
+                    AND situacao IN ('PENDENTE', 'FALHOU') LIMIT 1`, [TIPO_PENDENCIA, `${PREFIXO_REMOCAO_SEM_CONFIRMACAO}%`, assinaturaId])).rows.length > 0;
+            return aberto ? null : abrirMarcadorRemocao(tx, empresaId, assinaturaId, 'REMOCAO_EM_CURSO');
+        });
+    }
+    catch {
+        return null;
+    }
+}
+
+/**
+ * Grava o resultado do DELETE na transação independente (sobrevive à de quem chama). Confirmada → marcador fecha +
+ * ASSINATURA_DUPLICADA_REMOVIDA; recusada (4xx) → marcador fecha; desconhecida → marcador aberto +
+ * ASSINATURA_REMOCAO_SEM_CONFIRMACAO. `extra` roda na mesma transação (contratação: pendências da operação).
+ * false → não gravou: o marcador continua REMOCAO_EM_CURSO e vale só a releitura.
+ */
+export async function registrarResultadoRemocao(independente: TransacaoIndependente, empresaId: string, marcadorId: string, remocao: ResultadoRemocao,
+    origem: OrigemSincronizacao, extra?: (tx: DbExecutor) => Promise<void>) {
+    try {
+        await independente(async (tx) => {
+            await limitesIndependente(tx);
+            if (remocao.resultado === 'CONFIRMADA') {
+                await fecharMarcadorRemocao(tx, empresaId, marcadorId, 'REMOCAO_CONFIRMADA');
+                await auditarCobranca(tx, { acao: 'ASSINATURA_DUPLICADA_REMOVIDA', empresaId, origem, ip: null, depois: { removidas: 1, confirmacao: 'RESPOSTA_DO_PROVEDOR' } });
+            }
+            else if (remocao.resultado === 'RECUSADA')
+                await fecharMarcadorRemocao(tx, empresaId, marcadorId, 'REMOCAO_RECUSADA');
+            else {
+                await manterMarcadorRemocao(tx, empresaId, marcadorId);
+                await auditarCobranca(tx, { acao: 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO', empresaId, origem, ip: null, depois: { pendenciaId: marcadorId } });
+            }
+            if (extra)
+                await extra(tx);
+        });
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+
 /** Marcadores de exclusão abertos da empresa (qualquer motivo): enquanto existir um, nada é excluído de novo nem liberado. */
 export async function marcadoresDeRemocao(tx: DbExecutor, empresaId: string) {
     return (await tx.query<{ id: string; assinatura_provedor_id: string }>(
@@ -160,15 +231,12 @@ export async function marcadoresDeRemocao(tx: DbExecutor, empresaId: string) {
 }
 
 /**
- * Grava o registro das exclusões (chamar fora do SAVEPOINT). Confirmadas → ASSINATURA_DUPLICADA_REMOVIDA (resposta do
- * provedor). Sem confirmação → marcador + ASSINATURA_REMOCAO_SEM_CONFIRMACAO. Confirmadas na releitura →
- * ASSINATURA_DUPLICADA_REMOVIDA (releitura) e o marcador fecha; o marcador do evento em processamento só conta quando
- * esse evento é concluído agora (senão é relido e registrado na próxima vez, sem nova chamada de exclusão).
+ * Grava as confirmações por RELEITURA (chamar fora do SAVEPOINT): ASSINATURA_DUPLICADA_REMOVIDA (releitura) e o marcador
+ * fecha. O marcador do evento em processamento só conta quando esse evento é concluído agora (senão é relido e registrado
+ * na próxima vez, sem nova chamada de exclusão). Exclusões feitas agora já foram gravadas na transação independente.
  */
 export async function registrarRemocoes(tx: DbExecutor, empresaId: string, registro: RegistroRemocoes, origem: OrigemSincronizacao,
     eventoAtual: { id: string; concluido: boolean }) {
-    if (registro.confirmadas.length)
-        await auditarCobranca(tx, { acao: 'ASSINATURA_DUPLICADA_REMOVIDA', empresaId, origem, ip: null, depois: { removidas: registro.confirmadas.length, confirmacao: 'RESPOSTA_DO_PROVEDOR' } });
     const releitura = registro.confirmadasNaReleitura.filter((m) => m.marcadorId !== eventoAtual.id || eventoAtual.concluido);
     if (releitura.length) {
         await auditarCobranca(tx, { acao: 'ASSINATURA_DUPLICADA_REMOVIDA', empresaId, origem, ip: null, depois: { removidas: releitura.length, confirmacao: 'RELEITURA' } });
@@ -176,10 +244,6 @@ export async function registrarRemocoes(tx: DbExecutor, empresaId: string, regis
         if (fechar.length)
             await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = 'REMOCAO_CONFIRMADA_NA_RELEITURA'
                              WHERE id = ANY($1::uuid[]) AND empresa_id = $2::uuid AND tipo = $3 AND situacao IN ('PENDENTE', 'FALHOU')`, [fechar, empresaId, TIPO_PENDENCIA]);
-    }
-    for (const assinaturaId of registro.semConfirmacao) {
-        const pendenciaId = await abrirMarcadorRemocao(tx, empresaId, assinaturaId, 'REMOCAO_SEM_CONFIRMACAO');
-        await auditarCobranca(tx, { acao: 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO', empresaId, origem, ip: null, depois: { pendenciaId } });
     }
 }
 
@@ -196,9 +260,12 @@ const ativa = (s: { status: string; deleted: boolean }) => !s.deleted && s.statu
  * sem id e listagem vazia → AGUARDANDO: listagem vazia não prova que o POST falhou; a pendência fica aberta (e a
  * contratação não faz outro POST) até a assinatura aparecer. Não há liberação automática por tempo.
  * Falha do provedor propaga (o evento fica FALHOU e volta a ser tentado).
+ * Exclusão: registro prévio na transação INDEPENDENTE (marcador confirmado antes do DELETE); sem ela, ou sem conseguir
+ * gravar, nada é excluído (ADIADA). O resultado do DELETE também é gravado nela.
  */
 export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, provedor: ProvedorReconciliacao, requestId: string | null = null,
-    pendencia: { criacao: boolean; assinaturaId: string | null } | null = null, registro: RegistroRemocoes = novoRegistroRemocoes()): Promise<ResultadoReconciliacao> {
+    pendencia: { criacao: boolean; assinaturaId: string | null } | null = null, registro: RegistroRemocoes = novoRegistroRemocoes(),
+    independente?: TransacaoIndependente): Promise<ResultadoReconciliacao> {
     const linha = (await tx.query<{ situacao: string; provedor_assinatura_id: string | null; provedor_cliente_id: string | null }>(
         'SELECT situacao, provedor_assinatura_id, provedor_cliente_id FROM empresa_assinaturas WHERE empresa_id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
     if (!linha)
@@ -258,12 +325,17 @@ export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, 
                 preservadas.push({ id: d.id, motivo: decisao.motivo });
             continue;
         }
+        // Registro prévio: o marcador está CONFIRMADO no banco antes do DELETE; sem ele, nada é excluído agora.
+        const marcadorId = await persistirMarcadorPrevio(independente, empresaId, d.id);
+        if (!marcadorId)
+            return { resultado: 'ADIADA', motivo: 'MARCADOR_NAO_GRAVADO', ids: [d.id] };
         const remocao = await removerComResultado(provedor, d.id);
-        // Recusa definitiva (4xx): nada foi excluído; a pendência volta a ser tentada. O que já foi excluído fica no registro.
-        if (remocao.resultado === 'RECUSADA')
+        const gravado = await registrarResultadoRemocao(independente!, empresaId, marcadorId, remocao, origem);
+        // Recusa definitiva (4xx) gravada: nada foi excluído; a pendência volta a ser tentada. O que já foi excluído está gravado.
+        if (remocao.resultado === 'RECUSADA' && gravado)
             throw remocao.erro;
-        if (remocao.resultado === 'DESCONHECIDA') {
-            // Resultado desconhecido: não conta como removida, não é repetida; para aqui e vai para revisão.
+        if (remocao.resultado !== 'CONFIRMADA' || !gravado) {
+            // Resultado desconhecido (ou não gravado): não conta como removida, não é repetida; para aqui e vai para revisão.
             registro.semConfirmacao.push(d.id);
             preservadas.push({ id: d.id, motivo: 'REMOCAO_SEM_CONFIRMACAO' });
             return revisao();

@@ -68,6 +68,41 @@ function provedorDaExecucao(provedor, aplicar, relatorio) {
     };
 }
 
+/**
+ * Transação independente para o marcador de exclusão (COMMIT próprio, ANTES do DELETE). Aplicando: a segunda conexão,
+ * com os mesmos limites e o mesmo alvo conferido. Simulação: SAVEPOINT da transação principal, que é desfeita no fim
+ * (nada persiste; a simulação nunca chama o DELETE de verdade).
+ */
+function transacaoIndependenteDaExecucao(aplicar, principal, segunda) {
+    if (!aplicar)
+        return async (trabalho) => {
+            await principal.query('SAVEPOINT kidmais_simulacao_marcador');
+            try {
+                const r = await trabalho(principal);
+                await principal.query('RELEASE SAVEPOINT kidmais_simulacao_marcador');
+                return r;
+            }
+            catch (error) {
+                await principal.query('ROLLBACK TO SAVEPOINT kidmais_simulacao_marcador');
+                throw error;
+            }
+        };
+    if (!segunda)
+        throw new Error('Aplicar exige a segunda conexão do marcador de exclusão.');
+    return async (trabalho) => {
+        await segunda.query('BEGIN');
+        try {
+            const r = await trabalho(segunda);
+            await segunda.query('COMMIT');
+            return r;
+        }
+        catch (error) {
+            await segunda.query('ROLLBACK').catch(() => undefined);
+            throw error;
+        }
+    };
+}
+
 function argumentos(argv) {
     const extras = argv.filter((a) => a !== '--aplicar');
     if (extras.length)
@@ -91,12 +126,23 @@ async function main() {
     });
     client.on('error', () => undefined);
     await client.connect();
+    // Aplicando: segunda conexão só para o marcador de exclusão (transação independente, COMMIT antes do DELETE).
+    const segunda = aplicar ? new Client({
+        connectionString: alvo.connectionString, ssl: alvo.local ? false : { rejectUnauthorized: true },
+        connectionTimeoutMillis: 10_000, application_name: 'kidmais-assinatura-reconciliar-marcador',
+    }) : null;
     try {
-        const id = (await client.query('SELECT current_database() AS db')).rows[0];
-        if (id.db !== alvo.database)
-            throw new Error('Alvo recusado: o banco conectado não é o confirmado.');
-        await client.query("SET statement_timeout = '60s'");
-        await client.query("SET lock_timeout = '5s'");
+        if (segunda) {
+            segunda.on('error', () => undefined);
+            await segunda.connect();
+        }
+        for (const c of [client, segunda].filter(Boolean)) {
+            const id = (await c.query('SELECT current_database() AS db')).rows[0];
+            if (id.db !== alvo.database)
+                throw new Error('Alvo recusado: o banco conectado não é o confirmado.');
+            await c.query("SET statement_timeout = '60s'");
+            await c.query("SET lock_timeout = '5s'");
+        }
         if (!(await client.query("SELECT to_regclass('public.cobranca_eventos') IS NOT NULL AS ok")).rows[0].ok)
             throw new Error('Banco sem a 068 (cobranca_eventos): nada a reconciliar.');
         const modo = aplicar ? 'APLICAR' : 'SIMULACAO';
@@ -116,7 +162,7 @@ async function main() {
         const provedorUsado = provedorDaExecucao(provedor, aplicar, relatorio);
         const conta = (grupo, chave) => { grupo[chave] = (grupo[chave] ?? 0) + 1; };
         for (const eventoId of await sinc.eventosPendentes(client, 500)) {
-            const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado }));
+            const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente: transacaoIndependenteDaExecucao(aplicar, client, segunda) }));
             conta(relatorio.eventos, r.erro ? `ERRO_${r.erro}` : r.situacao);
         }
         for (const empresaId of await sinc.empresasComProvedor(client)) {
@@ -130,6 +176,8 @@ async function main() {
     }
     finally {
         await client.end();
+        if (segunda)
+            await segunda.end().catch(() => undefined);
     }
 }
 
@@ -140,4 +188,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { validarAlvo, argumentos, provedorDaExecucao, BANCOS_PROIBIDOS };
+module.exports = { validarAlvo, argumentos, provedorDaExecucao, transacaoIndependenteDaExecucao, BANCOS_PROIBIDOS };

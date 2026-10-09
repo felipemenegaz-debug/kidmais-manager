@@ -120,8 +120,12 @@ class AsaasFalso implements ClienteAsaas {
      */
     modoRemocao: 'normal' | 'recusar' | 'perderResposta' | 'semConfirmar' = 'normal';
     chamadasRemocao = 0;
+    /** Ganchos em volta do DELETE (antes de chegar ao provedor; depois de o provedor executar), para quedas e observação. */
+    antesDeRemover: ((id: string) => Promise<void>) | null = null;
+    depoisDeRemover: ((id: string) => Promise<void>) | null = null;
     async removerAssinatura(id: string) {
         this.chamadasRemocao += 1;
+        if (this.antesDeRemover) await this.antesDeRemover(id);
         if (this.falharRemocao)
             throw new AsaasFalhou('remover assinatura', null, 'REDE');
         if (this.modoRemocao === 'recusar')
@@ -130,6 +134,7 @@ class AsaasFalso implements ClienteAsaas {
             return { removida: false };
         const a = this.assinaturas.get(id);
         if (a) { a.deleted = true; this.removidas.push(id); this.cobrancas.set(id, (this.cobrancas.get(id) ?? []).filter((c) => PAGAS.includes(c.status))); }
+        if (this.depoisDeRemover) await this.depoisDeRemover(id);
         if (this.modoRemocao === 'perderResposta')
             throw new AsaasFalhou('remover assinatura', null, 'TEMPO_ESGOTADO');
         return { removida: true };
@@ -297,7 +302,7 @@ test('resposta perdida SEM como confirmar: pendência e resposta incerta; a reto
     const r = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean };
     assert.deepEqual([r.reaproveitada, provedor.criadas], [true, 1], 'sem duplicidade');
     assert.equal(await vinculo(empresa), provedor.ativasDe(empresa)[0]);
-    const resultado = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const resultado = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([resultado.situacao, resultado.motivo], ['PROCESSADO', 'NADA_A_FAZER']);
     assert.deepEqual(provedor.removidas, []);
 });
@@ -311,7 +316,7 @@ test('queda antes do COMMIT com vínculo não confirmado: NADA é excluído; pen
     const [pend] = await pendencias(empresa);
     assert.deepEqual([pend.situacao, pend.ultimo_erro, pend.assinatura_provedor_id], ['PENDENTE', 'COMMIT_INCERTO', provedor.ativasDe(empresa)[0]]);
     // A reconciliação sozinha também resolve: sem vínculo e exatamente uma ativa → vincula.
-    const resultado = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const resultado = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([resultado.situacao, resultado.motivo], ['PROCESSADO', 'VINCULADA']);
     assert.equal(await vinculo(empresa), provedor.ativasDe(empresa)[0]);
     const r = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean };
@@ -353,12 +358,12 @@ test('falha na compensação (recusa 4xx, comprovadamente não executada): pend�
     assert.deepEqual([pend.situacao, pend.ultimo_erro, pend.assinatura_provedor_id], ['PENDENTE', 'COMPENSACAO_FALHOU', duplicata]);
     // Provedor recusando a exclusão (4xx: comprovadamente não executada): a pendência fica FALHOU (visível), não some,
     // e pode ser tentada de novo. (Resultado DESCONHECIDO nunca é repetido: ver os testes de exclusão sem confirmação.)
-    const tentativa = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const tentativa = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.equal(tentativa.situacao, 'FALHOU');
     assert.match(String(tentativa.motivo), /PROVEDOR_INDISPONIVEL: remover assinatura \(400\)/);
     assert.deepEqual(await remocoesAuditadas(empresa), [], 'recusa: nada registrado como excluído');
     provedor.modoRemocao = 'normal';
-    const resolvida = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const resolvida = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([resolvida.situacao, resolvida.motivo], ['PROCESSADO', 'CONCILIADA']);
     assert.deepEqual([provedor.removidas, provedor.ativasDe(empresa)], [[duplicata], [vinculada]]);
     assert.equal(await vinculo(empresa), vinculada, 'o vínculo confirmado nunca é tocado');
@@ -373,15 +378,14 @@ test('duplicata com cobrança paga nunca é removida automaticamente: revisão h
     provedor.cobrancas.get(paga)![0].status = 'RECEIVED';
     await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3 WHERE empresa_id = $1", [empresa, cliente, vinculada]);
     const pendId = await withTransaction(async (tx) => (await import('./reconciliacao-contratacao.ts')).registrarPendencia(tx, { empresaId: empresa, assinaturaId: paga, motivo: 'COMPENSACAO_FALHOU' }));
-    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: DUPLICATA_COM_PAGAMENTO']);
     assert.deepEqual(provedor.removidas, []);
 });
 
 /** Empresa com vínculo vigente e duplicatas só com cobrança em aberto (a decisão central manda excluir cada uma). */
-async function comDuplicatas(n: number) {
+async function comDuplicatas<P extends AsaasFalso = AsaasFalso>(n: number, provedor: P = new AsaasFalso() as P) {
     const empresa = await novaEmpresa();
-    const provedor = new AsaasFalso();
     const cliente = (await provedor.criarCliente({ referencia: empresa })).id;
     const vinculada = provedor.criarDireto(cliente, empresa);
     const duplicatas = Array.from({ length: n }, () => provedor.criarDireto(cliente, empresa));
@@ -394,14 +398,14 @@ const marcadores = async (empresa: string) => (await q("SELECT id, situacao, ult
 test('reconciliação: 1ª exclusão confirmada e a operação seguinte falha → a exclusão fica auditada; a nova tentativa não exclui de novo', async () => {
     const { empresa, provedor, vinculada, duplicatas: [d1, d2], pendId } = await comDuplicatas(2);
     provedor.falharCobrancasDe.add(d2);
-    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: withTransaction }));
     assert.equal(r.situacao, 'FALHOU');
     assert.match(String(r.motivo), /^PROVEDOR_INDISPONIVEL: listar cobranças/);
     assert.deepEqual([provedor.removidas, provedor.chamadasRemocao], [[d1], 1], 'o provedor excluiu d1 antes da falha');
     assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RESPOSTA_DO_PROVEDOR']], 'a exclusão confirmada sobrevive ao SAVEPOINT desfeito');
-    assert.deepEqual(await marcadores(empresa), [], 'confirmada não vira resultado desconhecido');
+    assert.deepEqual((await marcadores(empresa)).map((m) => [m.situacao, m.ultimo_erro]), [['PROCESSADO', 'REMOCAO_CONFIRMADA']], 'confirmada: o marcador prévio fecha; não vira resultado desconhecido');
     provedor.falharCobrancasDe.clear();
-    const depois = await withTransaction((tx) => processarEvento(tx, pendId, { provedor }));
+    const depois = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([depois.situacao, depois.motivo], ['PROCESSADO', 'CONCILIADA']);
     assert.deepEqual([provedor.removidas, provedor.chamadasRemocao, provedor.ativasDe(empresa)], [[d1, d2], 2, [vinculada]], 'd1 não recebeu outro DELETE');
     assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RESPOSTA_DO_PROVEDOR'], ['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RESPOSTA_DO_PROVEDOR']]);
@@ -410,14 +414,14 @@ test('reconciliação: 1ª exclusão confirmada e a operação seguinte falha �
 test('reconciliação: resposta perdida na exclusão → resultado desconhecido (não conta como excluída), marcador e auditoria próprios; a releitura confirma sem repetir o DELETE', async () => {
     const { empresa, provedor, vinculada, duplicatas: [d1], pendId } = await comDuplicatas(1);
     provedor.modoRemocao = 'perderResposta';
-    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO']);
     assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null]], 'sem ASSINATURA_DUPLICADA_REMOVIDA: não é sucesso confirmado');
     const [m] = await marcadores(empresa);
     assert.deepEqual([m.situacao, m.ultimo_erro, m.assinatura_provedor_id], ['PENDENTE', 'REMOCAO_SEM_CONFIRMACAO', d1]);
     // Provedor de volta ao normal: a reconciliação só RELÊ pelo id; d1 está removida → confirmada pela releitura.
     provedor.modoRemocao = 'normal';
-    const depois = await withTransaction((tx) => processarEvento(tx, pendId, { provedor }));
+    const depois = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([depois.situacao, depois.motivo], ['PROCESSADO', 'NADA_A_FAZER']);
     assert.equal(provedor.chamadasRemocao, 1, 'nenhum DELETE repetido');
     assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null], ['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']]);
@@ -428,21 +432,21 @@ test('reconciliação: resposta perdida na exclusão → resultado desconhecido 
 test('reconciliação: exclusão sem confirmação que NÃO aconteceu nunca é repetida; fica em revisão humana até a releitura mostrar a assinatura removida', async () => {
     const { empresa, provedor, vinculada, duplicatas: [d1], pendId } = await comDuplicatas(1);
     provedor.modoRemocao = 'semConfirmar';
-    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO']);
     assert.deepEqual([provedor.removidas, provedor.chamadasRemocao], [[], 1]);
     provedor.modoRemocao = 'normal';
     // Nem a pendência original nem o próprio marcador disparam outro DELETE: d1 continua ativa → revisão humana.
     const [m] = await marcadores(empresa);
     for (const id of [pendId, m.id]) {
-        const t = await withTransaction((tx) => processarEvento(tx, id, { provedor }));
+        const t = await withTransaction((tx) => processarEvento(tx, id, { provedor, transacaoIndependente: withTransaction }));
         assert.deepEqual([t.situacao, t.motivo], ['FALHOU', 'REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO']);
     }
     assert.deepEqual([provedor.chamadasRemocao, provedor.ativasDe(empresa)], [1, [vinculada, d1]]);
     assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null]]);
     // Uma pessoa exclui no painel do Asaas: o marcador fecha pela releitura, com a exclusão auditada uma única vez.
     provedor.assinaturas.get(d1)!.deleted = true;
-    const fechado = await withTransaction((tx) => processarEvento(tx, m.id, { provedor }));
+    const fechado = await withTransaction((tx) => processarEvento(tx, m.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([fechado.situacao, fechado.motivo], ['PROCESSADO', 'REMOCAO_CONFIRMADA_NA_RELEITURA']);
     assert.equal(provedor.chamadasRemocao, 1);
     assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null], ['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']]);
@@ -497,7 +501,7 @@ test('contratação, exclusão realizada com resposta perdida: sem sucesso regis
     assert.deepEqual((await pendencias(empresa)).map((p) => p.id), [m.id], 'só o marcador: nenhuma COMPENSACAO_FALHOU que levaria a outro DELETE');
     assert.ok(!(await encerradas(empresa)).includes('COMPENSADA'), 'a operação não foi encerrada como compensada');
     provedor.modoRemocao = 'normal';
-    const r = await withTransaction((tx) => processarEvento(tx, m.id, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, m.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo], ['PROCESSADO', 'REMOCAO_CONFIRMADA_NA_RELEITURA']);
     assert.equal(provedor.chamadasRemocao, 1, 'nenhum DELETE repetido');
     assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null], ['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']]);
@@ -517,7 +521,7 @@ test('contratação, resposta sem confirmação e assinatura ainda existente: na
     const [m] = await marcadores(empresa);
     assert.deepEqual([m.situacao, m.ultimo_erro, m.assinatura_provedor_id], ['PENDENTE', 'REMOCAO_SEM_CONFIRMACAO', duplicata]);
     provedor.modoRemocao = 'normal';
-    const r = await withTransaction((tx) => processarEvento(tx, m.id, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, m.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO']);
     assert.deepEqual([provedor.chamadasRemocao, provedor.ativasDe(empresa).sort()], [1, [vinculada, duplicata].sort()], 'nenhum DELETE repetido; a duplicata fica para revisão');
     assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null]]);
@@ -530,7 +534,7 @@ test('contratação, falha ao gravar o marcador: o DELETE não acontece; pendên
     assert.deepEqual([provedor.chamadasRemocao, provedor.ativasDe(empresa).length, await marcadores(empresa)], [0, 2, []], 'sem marcador, sem DELETE');
     const [pend] = await pendencias(empresa);
     assert.equal(pend.ultimo_erro, 'COMPENSACAO_FALHOU');
-    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo, provedor.chamadasRemocao, provedor.ativasDe(empresa)], ['PROCESSADO', 'CONCILIADA', 1, [vinculada]]);
     assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RESPOSTA_DO_PROVEDOR']]);
 });
@@ -546,7 +550,7 @@ test('contratação, interrupção entre o DELETE e a gravação do resultado: o
     assert.deepEqual([m.situacao, m.ultimo_erro], ['PENDENTE', 'REMOCAO_EM_CURSO']);
     // Todas as pendências abertas da empresa (marcador, intenção, id confirmado) são processadas: nenhuma repete o DELETE.
     for (const p of await pendencias(empresa))
-        await withTransaction((tx) => processarEvento(tx, p.id, { provedor }));
+        await withTransaction((tx) => processarEvento(tx, p.id, { provedor, transacaoIndependente: withTransaction }));
     assert.equal(provedor.chamadasRemocao, 1);
     assert.deepEqual((await marcadores(empresa)).map((x) => [x.situacao, x.ultimo_erro]), [['PROCESSADO', 'REMOCAO_CONFIRMADA_NA_RELEITURA']]);
     assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']], 'a exclusão fica registrada uma vez');
@@ -573,6 +577,183 @@ test('liberação manual bloqueada por marcador de exclusão: mensagem explícit
     assert.deepEqual([doMarcador.tipo, doMarcador.liberavel, doMarcador.motivo], ['REMOCAO_SEM_CONFIRMACAO', false, 'REMOCAO_SEM_CONFIRMACAO']);
 });
 
+// --- Marcador confirmado no banco ANTES do DELETE, também na reconciliação (transação independente, conexões reais) ---
+
+type Independente = NonNullable<Parameters<typeof processarEvento>[2]['transacaoIndependente']>;
+const independenteReal = withTransaction as unknown as Independente;
+/** Transação independente real (outra conexão) que deixa de existir quando o "processo cai". */
+function independenteQueCai() {
+    const estado = { caiu: false };
+    const tx = (<T,>(trabalho: (t: never) => Promise<T>) => (estado.caiu ? Promise.reject(new Error('processo encerrado (simulado)')) : withTransaction(trabalho))) as unknown as Independente;
+    return { estado, tx };
+}
+/**
+ * Processamento numa conexão PRÓPRIA (fora do "pool" de teste): pode ser encerrada pelo servidor (pg_terminate_backend)
+ * no meio, como uma queda real; a transação dela é desfeita pelo PostgreSQL.
+ */
+async function conexaoDeProcessamento() {
+    const c = await conectarDescartavel({ travar: false });
+    c.on('error', () => undefined);
+    const pid = (await c.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+    const processar = async (id: string, d: Parameters<typeof processarEvento>[2], antes?: string) => {
+        try {
+            await c.query('BEGIN');
+            if (antes) await c.query(antes);
+            const r = await processarEvento(c as never, id, d);
+            await c.query('COMMIT');
+            return { ok: true as const, r };
+        }
+        catch (erro) {
+            await c.query('ROLLBACK').catch(() => undefined);
+            return { ok: false as const, erro: erro as Error };
+        }
+        finally {
+            await c.end().catch(() => undefined);
+        }
+    };
+    return { pid, processar };
+}
+const encerrarProcesso = (pid: number) => q('SELECT pg_terminate_backend($1)', [pid]);
+const situacaoDo = async (id: string) => (await q('SELECT situacao, tentativas, ultimo_erro FROM cobranca_eventos WHERE id = $1', [id])).rows[0];
+
+test('reconciliação: o marcador está CONFIRMADO no banco (visível a outra conexão) antes do DELETE, com a transação do processamento ainda aberta e travando a linha', async () => {
+    const { empresa, provedor, vinculada, duplicatas: [d1], pendId } = await comDuplicatas(1);
+    const visto: Array<unknown> = [];
+    provedor.antesDeRemover = async (id) => {
+        visto.push((await marcadores(empresa)).map((m) => [m.situacao, m.ultimo_erro, m.assinatura_provedor_id]));
+        // A linha da assinatura continua travada pela transação do processamento (não confirmada ainda).
+        visto.push(await q('SELECT 1 FROM empresa_assinaturas WHERE empresa_id = $1 FOR UPDATE NOWAIT', [empresa]).then(() => 'livre', (e: { code?: string }) => e.code));
+        visto.push(id);
+    };
+    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: independenteReal }));
+    assert.deepEqual(visto, [[['PENDENTE', 'REMOCAO_EM_CURSO', d1]], '55P03', d1]);
+    assert.deepEqual([r.situacao, r.motivo, provedor.ativasDe(empresa)], ['PROCESSADO', 'CONCILIADA', [vinculada]]);
+    assert.deepEqual((await marcadores(empresa)).map((m) => [m.situacao, m.ultimo_erro]), [['PROCESSADO', 'REMOCAO_CONFIRMADA']]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RESPOSTA_DO_PROVEDOR']]);
+});
+
+test('reconciliação: lock real disputado com a transação do processamento → o marcador não é gravado (lock_timeout) e o DELETE não acontece; nada trava', async () => {
+    const { empresa, provedor, pendId } = await comDuplicatas(1);
+    const conexao = await conexaoDeProcessamento();
+    const inicio = Date.now();
+    // A própria transação do processamento segura um lock que impede o INSERT do marcador na outra conexão.
+    const fim = await conexao.processar(pendId, { provedor, transacaoIndependente: independenteReal }, 'LOCK TABLE cobranca_eventos IN SHARE MODE');
+    const ms = Date.now() - inicio;
+    assert.ok(fim.ok, String(!fim.ok && fim.erro));
+    assert.deepEqual([fim.ok && fim.r.situacao, fim.ok && fim.r.motivo], ['FALHOU', 'ADIADA: MARCADOR_NAO_GRAVADO']);
+    assert.ok(ms >= 2500 && ms < 9000, `esperou o lock_timeout (3 s) e não travou: ${ms} ms`);
+    assert.deepEqual([provedor.chamadasRemocao, await marcadores(empresa), await remocoesAuditadas(empresa)], [0, [], []]);
+    // Sem disputa, a nova tentativa grava o marcador e exclui.
+    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: independenteReal }));
+    assert.deepEqual([r.situacao, r.motivo, provedor.chamadasRemocao], ['PROCESSADO', 'CONCILIADA', 1]);
+});
+
+test('reconciliação: falha ao gravar o marcador (simulada) ou sem transação independente → ADIADA, nenhum DELETE', async () => {
+    const { empresa, provedor, pendId } = await comDuplicatas(1);
+    const quebrada = (() => Promise.reject(new Error('banco indisponível (simulado)'))) as unknown as Independente;
+    for (const d of [{ provedor, transacaoIndependente: quebrada }, { provedor }]) {
+        const r = await withTransaction((tx) => processarEvento(tx, pendId, d));
+        assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'ADIADA: MARCADOR_NAO_GRAVADO']);
+    }
+    assert.deepEqual([provedor.chamadasRemocao, await marcadores(empresa), (await situacaoDo(pendId)).situacao], [0, [], 'FALHOU']);
+});
+
+test('reconciliação: queda REAL depois de gravar o marcador e antes do DELETE → o marcador sobrevive; a recuperação só relê e mantém revisão (nenhum DELETE)', async () => {
+    const { empresa, provedor, duplicatas: [d1], pendId } = await comDuplicatas(1);
+    const antes = await situacaoDo(pendId);
+    const conexao = await conexaoDeProcessamento();
+    const queda = independenteQueCai();
+    provedor.antesDeRemover = async () => {
+        queda.estado.caiu = true;
+        await encerrarProcesso(conexao.pid);
+        throw new Error('processo encerrado antes do DELETE');
+    };
+    const fim = await conexao.processar(pendId, { provedor, transacaoIndependente: queda.tx });
+    assert.equal(fim.ok, false, 'o processamento não terminou');
+    provedor.antesDeRemover = null;
+    assert.deepEqual(await situacaoDo(pendId), antes, 'a transação do processamento foi desfeita pelo servidor');
+    assert.deepEqual((await marcadores(empresa)).map((m) => [m.situacao, m.ultimo_erro, m.assinatura_provedor_id]), [['PENDENTE', 'REMOCAO_EM_CURSO', d1]], 'o marcador confirmado antes sobreviveu');
+    assert.deepEqual([provedor.removidas, await remocoesAuditadas(empresa)], [[], []]);
+    for (const id of [pendId, (await marcadores(empresa))[0].id]) {
+        const r = await withTransaction((tx) => processarEvento(tx, id, { provedor, transacaoIndependente: independenteReal }));
+        assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO']);
+    }
+    assert.deepEqual([provedor.chamadasRemocao, provedor.removidas, provedor.ativasDe(empresa).includes(d1)], [1, [], true], 'nenhum DELETE depois da queda');
+});
+
+test('reconciliação: queda REAL depois do DELETE e antes de gravar a confirmação → nenhum novo DELETE; a releitura confirma a exclusão uma vez', async () => {
+    const { empresa, provedor, vinculada, duplicatas: [d1], pendId } = await comDuplicatas(1);
+    const conexao = await conexaoDeProcessamento();
+    const queda = independenteQueCai();
+    provedor.depoisDeRemover = async () => {
+        queda.estado.caiu = true;
+        await encerrarProcesso(conexao.pid);
+    };
+    const fim = await conexao.processar(pendId, { provedor, transacaoIndependente: queda.tx });
+    assert.equal(fim.ok, false);
+    provedor.depoisDeRemover = null;
+    assert.deepEqual([provedor.removidas, provedor.chamadasRemocao], [[d1], 1], 'o provedor excluiu');
+    assert.deepEqual((await marcadores(empresa)).map((m) => [m.situacao, m.ultimo_erro]), [['PENDENTE', 'REMOCAO_EM_CURSO']]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [], 'a confirmação não chegou ao banco');
+    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: independenteReal }));
+    assert.deepEqual([r.situacao, r.motivo], ['PROCESSADO', 'NADA_A_FAZER']);
+    assert.equal(provedor.chamadasRemocao, 1, 'nenhum DELETE repetido');
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']]);
+    assert.deepEqual([(await marcadores(empresa)).map((m) => m.situacao), provedor.ativasDe(empresa)], [['PROCESSADO'], [vinculada]]);
+});
+
+class AsaasLeituraFalhando extends AsaasFalso {
+    falharLeituraDe = new Set<string>();
+    override async obterAssinatura(id: string) {
+        if (this.falharLeituraDe.has(id))
+            throw new AsaasFalhou('consultar assinatura', null, 'REDE');
+        return super.obterAssinatura(id);
+    }
+}
+
+test('recuperação distingue ausência de erro de consulta: leitura falhando não confirma nada nem exclui; ausência confirma pela releitura', async () => {
+    const { empresa, provedor, duplicatas: [d1], pendId } = await comDuplicatas(1, new AsaasLeituraFalhando());
+    const recon = await import('./reconciliacao-contratacao.ts');
+    const marcador = await withTransaction((tx) => recon.abrirMarcadorRemocao(tx, empresa, d1, 'REMOCAO_EM_CURSO'));
+    provedor.assinaturas.get(d1)!.deleted = true;
+    provedor.falharLeituraDe.add(d1);
+    const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: independenteReal }));
+    assert.equal(r.situacao, 'FALHOU');
+    assert.match(String(r.motivo), /^PROVEDOR_INDISPONIVEL: consultar assinatura/);
+    assert.deepEqual([(await situacaoDo(marcador)).situacao, await remocoesAuditadas(empresa), provedor.chamadasRemocao], ['PENDENTE', [], 0], 'erro de consulta não é ausência');
+    provedor.falharLeituraDe.clear();
+    const depois = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: independenteReal }));
+    assert.deepEqual([depois.situacao, (await situacaoDo(marcador)).ultimo_erro, provedor.chamadasRemocao], ['PROCESSADO', 'REMOCAO_CONFIRMADA_NA_RELEITURA', 0]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']]);
+});
+
+test('concorrência real: duas reconciliações da mesma empresa ao mesmo tempo → a segunda espera a trava da linha; um único DELETE e uma única auditoria', async () => {
+    const { empresa, provedor, vinculada, duplicatas: [d1], pendId } = await comDuplicatas(1);
+    const recon = await import('./reconciliacao-contratacao.ts');
+    const pend2 = await withTransaction((tx) => recon.registrarPendencia(tx, { empresaId: empresa, assinaturaId: d1, motivo: 'COMPENSACAO_FALHOU' }));
+    let esperaVista = false;
+    provedor.antesDeRemover = async () => {
+        provedor.antesDeRemover = null;
+        for (let i = 0; i < 60 && !esperaVista; i++) {
+            esperaVista = (await q("SELECT count(*)::int AS n FROM pg_locks WHERE NOT granted")).rows[0].n > 0;
+            if (!esperaVista) await new Promise((ok) => setTimeout(ok, 50));
+        }
+    };
+    const [a, b] = await Promise.all([pendId, pend2].map((id) => withTransaction((tx) => processarEvento(tx, id, { provedor, transacaoIndependente: independenteReal }))));
+    assert.ok(esperaVista, 'a outra reconciliação estava esperando a trava durante o DELETE');
+    assert.deepEqual([a.situacao, b.situacao].sort(), ['PROCESSADO', 'PROCESSADO']);
+    assert.deepEqual([provedor.chamadasRemocao, provedor.removidas, provedor.ativasDe(empresa)], [1, [d1], [vinculada]]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RESPOSTA_DO_PROVEDOR']]);
+});
+
+test('concorrência real: dois marcadores prévios para a mesma assinatura ao mesmo tempo → só um é gravado (trava consultiva); o outro não exclui', async () => {
+    const empresa = await novaEmpresa();
+    const recon = await import('./reconciliacao-contratacao.ts');
+    const ids = await Promise.all([1, 2].map(() => recon.persistirMarcadorPrevio(independenteReal, empresa, 'sub_corrida_marcador')));
+    assert.equal(ids.filter(Boolean).length, 1);
+    assert.deepEqual((await marcadores(empresa)).map((m) => m.assinatura_provedor_id), ['sub_corrida_marcador']);
+});
+
 test('compensação imediata com pagamento: duplicata confirmada pelo banco mas já paga → NÃO é excluída; pendência COMPENSACAO_PRESERVADA; reconciliação pede revisão', async () => {
     const empresa = await novaEmpresa();
     const provedor = new AsaasFalso();
@@ -592,7 +773,7 @@ test('compensação imediata com pagamento: duplicata confirmada pelo banco mas 
     const [pend] = await pendencias(empresa);
     assert.deepEqual([pend.situacao, pend.ultimo_erro, pend.assinatura_provedor_id], ['PENDENTE', 'COMPENSACAO_PRESERVADA: CANDIDATA_COM_PAGAMENTO', nossa]);
     const vinculada = await vinculo(empresa);
-    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: DUPLICATA_COM_PAGAMENTO']);
     assert.deepEqual([provedor.removidas, await vinculo(empresa)], [[], vinculada]);
 });
@@ -615,7 +796,7 @@ test('recontratação após cancelamento com resposta perdida: a referência ant
     const [pend] = await pendencias(empresa);
     assert.deepEqual([pend.ultimo_erro, pend.assinatura_provedor_id], ['COMMIT_INCERTO', nova]);
     // Reconciliação: vínculo antigo não vigente + uma única ativa → vincula a nova; nada excluído.
-    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo], ['PROCESSADO', 'VINCULADA']);
     assert.deepEqual([provedor.removidas, await vinculo(empresa), provedor.ativasDe(empresa)], [[], nova, [nova]]);
     // Retomada: reaproveita a nova, sem criar outra.
@@ -634,14 +815,14 @@ test('retomada com várias ativas: não escolhe a primeira, não cria nem exclui
     assert.deepEqual([provedor.criadas, provedor.removidas, await vinculo(empresa)], [2, [], null], 'nada criado, nada excluído, nada vinculado');
     const [pend] = await pendencias(empresa);
     assert.deepEqual([pend.situacao, pend.ultimo_erro], ['PENDENTE', 'ASSINATURAS_AMBIGUAS']);
-    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: VARIAS_ASSINATURAS_SEM_VINCULO']);
     // O banco aponta uma assinatura antiga já cancelada: as duas ativas NÃO viram "duplicatas" dela.
     const antiga = provedor.criarDireto(cliente, empresa);
     await provedor.removerAssinatura(antiga);
     provedor.removidas = [];
     await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2, provedor_assinatura_id = $3, provedor_situacao = 'DELETED' WHERE empresa_id = $1", [empresa, cliente, antiga]);
-    const r2 = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const r2 = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r2.situacao, r2.motivo], ['FALHOU', 'REVISAO_HUMANA: VARIAS_ASSINATURAS_SEM_VINCULO']);
     assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
     assert.deepEqual([provedor.criadas, provedor.removidas, provedor.ativasDe(empresa).sort()], [3, [], [s1, s2].sort()]);
@@ -665,7 +846,7 @@ test('POST com resposta perdida e listagem vazia: nova tentativa NÃO cria outra
     assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
     assert.equal(provedor.postsCriacao, 1, 'listagem vazia não libera outro POST');
     // A reconciliação também não fecha a pendência com listagem vazia.
-    const aguardando = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const aguardando = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([aguardando.situacao, aguardando.motivo], ['FALHOU', 'AGUARDANDO_CONFIRMACAO: CRIACAO_NAO_CONFIRMADA']);
     assert.deepEqual((await pendencias(empresa)).map((x) => x.id), [pend.id], 'a mesma pendência continua aberta');
     assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
@@ -674,7 +855,7 @@ test('POST com resposta perdida e listagem vazia: nova tentativa NÃO cria outra
     provedor.ocultasNaListagem.clear();
     const r = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean; urlPagamento: string | null };
     assert.deepEqual([r.reaproveitada, Boolean(r.urlPagamento), await vinculo(empresa)], [true, true, primeira]);
-    const fechada = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const fechada = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([fechada.situacao, fechada.motivo], ['PROCESSADO', 'NADA_A_FAZER']);
     assert.deepEqual([provedor.postsCriacao, provedor.criadas, provedor.ativasDe(empresa), provedor.removidas, await pendencias(empresa)], [1, 1, [primeira], [], []],
         'o provedor recebeu UMA criação; nada excluído; nenhuma pendência aberta');
@@ -692,10 +873,10 @@ test('processo cai logo depois do POST: a intenção prévia (CRIACAO_EM_CURSO) 
     assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
     assert.deepEqual([provedor.postsCriacao, await intencoes(empresa)], [0, [['PENDENTE', 'CRIACAO_EM_CURSO']]], 'nenhum POST: a operação anterior não foi resolvida');
     const [pend] = await pendencias(empresa);
-    const espera = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const espera = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.equal(espera.situacao, 'FALHOU');
     provedor.ocultasNaListagem.clear();
-    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, pend.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo, await vinculo(empresa)], ['PROCESSADO', 'VINCULADA', orfa]);
     const retomada = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean };
     assert.deepEqual([retomada.reaproveitada, provedor.postsCriacao, provedor.removidas, (await pendencias(empresa)).length], [true, 0, [], 0]);
@@ -736,9 +917,9 @@ test('mesma queda antes da fase C, recuperada pela reconciliação do id duráve
     assert.notEqual(await codigo(contratar(empresa, deps(empresa, { provedor, withTenant: morre.withTenant, withTx: morre.withTx }))), 'OK');
     provedor.depoisDeCriar = null;
     const [intencao, idDuravel] = await pendencias(empresa);
-    const r = await withTransaction((tx) => processarEvento(tx, idDuravel.id, { provedor }));
+    const r = await withTransaction((tx) => processarEvento(tx, idDuravel.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo, await vinculo(empresa)], ['PROCESSADO', 'VINCULADA', criada]);
-    const ri = await withTransaction((tx) => processarEvento(tx, intencao.id, { provedor }));
+    const ri = await withTransaction((tx) => processarEvento(tx, intencao.id, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([ri.situacao, ri.motivo], ['PROCESSADO', 'NADA_A_FAZER'], 'empresa vinculada: a intenção fecha');
     assert.deepEqual([provedor.postsCriacao, provedor.removidas, await pendencias(empresa)], [1, [], []]);
 });
@@ -754,7 +935,7 @@ test('liberação manual auditada: só para intenção comprovadamente não exec
     // Bloqueada: nem a contratação nem a reconciliação liberam com a listagem vazia (sem prazo nenhum).
     assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
     for (let i = 0; i < 3; i++)
-        assert.equal((await withTransaction((tx) => processarEvento(tx, intencao.id, { provedor }))).motivo, 'AGUARDANDO_CONFIRMACAO: CRIACAO_NAO_CONFIRMADA');
+        assert.equal((await withTransaction((tx) => processarEvento(tx, intencao.id, { provedor, transacaoIndependente: withTransaction }))).motivo, 'AGUARDANDO_CONFIRMACAO: CRIACAO_NAO_CONFIRMADA');
     assert.equal(provedor.postsCriacao, 1);
     const liberar = (raw: unknown, quem = dev, prov: Pick<ClienteAsaas, 'listarAssinaturasPorReferencia'> = provedor) =>
         codigo(withTransaction((tx) => liberarIntencaoCriacao(tx, { usuario_id: quem }, empresa, raw, prov, { requestId: randomUUID() })));

@@ -19,7 +19,7 @@ import { AsaasFalhou, type ClienteAsaas } from './asaas.ts';
 import { estadoDoProvedor, type EstadoAlvo, type EstadoLocal } from './provedor-estado.ts';
 import { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { ehPendencia, novoRegistroRemocoes, PREFIXO_CRIACAO, PREFIXO_PENDENCIA, PREFIXO_REMOCAO_SEM_CONFIRMACAO, reconciliarContratacao, registrarRemocoes, TIPO_PENDENCIA,
-    type ProvedorReconciliacao, type ResultadoReconciliacao } from './reconciliacao-contratacao.ts';
+    type ProvedorReconciliacao, type ResultadoReconciliacao, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
 
 export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
 
@@ -176,7 +176,8 @@ export type ResultadoEvento = { situacao: 'PROCESSADO' | 'IGNORADO' | 'FALHOU' |
  * Processa um evento gravado (transação do chamador). A sincronização roda num SAVEPOINT: se o provedor falhar,
  * a transação continua válida e o evento fica FALHOU com a tentativa contada.
  */
-export async function processarEvento(tx: DbExecutor, eventoInternoId: string, deps: { provedor: ProvedorLeitura & Partial<ProvedorReconciliacao> }): Promise<ResultadoEvento> {
+/** `transacaoIndependente`: outra conexão com COMMIT próprio, para o marcador de exclusão (sem ela, nada é excluído). */
+export async function processarEvento(tx: DbExecutor, eventoInternoId: string, deps: { provedor: ProvedorLeitura & Partial<ProvedorReconciliacao>; transacaoIndependente?: TransacaoIndependente }): Promise<ResultadoEvento> {
     const ev = (await tx.query<LinhaEvento>(
         `SELECT id, evento_id, tipo, situacao, assinatura_provedor_id, referencia_externa, empresa_id FROM cobranca_eventos WHERE id = $1::uuid FOR UPDATE`, [eventoInternoId])).rows[0];
     if (!ev || ev.situacao === 'PROCESSADO' || ev.situacao === 'IGNORADO')
@@ -188,7 +189,7 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
         return { situacao, empresaId, ...(motivo ? { motivo } : {}) };
     };
     if (ehPendencia(ev))
-        return processarPendencia(tx, ev, deps.provedor, concluir);
+        return processarPendencia(tx, ev, deps.provedor, concluir, deps.transacaoIndependente);
     if (!EVENTOS_SUPORTADOS.has(ev.tipo))
         return concluir('IGNORADO', null, 'TIPO_NAO_TRATADO');
     const empresaId = await resolverEmpresa(tx, ev);
@@ -218,7 +219,8 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
  * provedor fora → FALHOU com o motivo, visível e reprocessável. Nunca IGNORADO: não some em silêncio.
  */
 async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: ProvedorLeitura & Partial<ProvedorReconciliacao>,
-    concluir: (situacao: 'PROCESSADO' | 'IGNORADO', empresaId: string | null, motivo: string | null) => Promise<ResultadoEvento>): Promise<ResultadoEvento> {
+    concluir: (situacao: 'PROCESSADO' | 'IGNORADO', empresaId: string | null, motivo: string | null) => Promise<ResultadoEvento>,
+    independente?: TransacaoIndependente): Promise<ResultadoEvento> {
     const empresaId = ev.empresa_id!;
     const falhar = async (motivo: string) => {
         await tx.query(`UPDATE cobranca_eventos SET situacao = 'FALHOU', tentativas = tentativas + 1, ultimo_erro = $2 WHERE id = $1::uuid`, [ev.id, motivo.slice(0, 500)]);
@@ -233,7 +235,7 @@ async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: Pro
     await tx.query('SAVEPOINT kidmais_pendencia_contratacao');
     try {
         r = await reconciliarContratacao(tx, empresaId, provedor as ProvedorReconciliacao, null,
-            { criacao: ev.evento_id.startsWith(PREFIXO_CRIACAO), assinaturaId: ev.assinatura_provedor_id }, registro);
+            { criacao: ev.evento_id.startsWith(PREFIXO_CRIACAO), assinaturaId: ev.assinatura_provedor_id }, registro, independente);
         if (r.resultado === 'VINCULADA' || r.resultado === 'CONCILIADA')
             await sincronizarEmpresa(tx, empresaId, { provedor }, { tipo: 'RECONCILIACAO', eventoId: ev.evento_id });
         await tx.query('RELEASE SAVEPOINT kidmais_pendencia_contratacao');
@@ -245,7 +247,7 @@ async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: Pro
     // Marcador de exclusão sem confirmação: só fecha quando a releitura confirma a exclusão.
     const marcador = ev.evento_id.startsWith(PREFIXO_REMOCAO_SEM_CONFIRMACAO);
     const marcadorConfirmado = registro.confirmadasNaReleitura.some((m) => m.marcadorId === ev.id);
-    const concluido = !erro && r !== null && r.resultado !== 'REVISAO_HUMANA' && r.resultado !== 'AGUARDANDO' && (!marcador || marcadorConfirmado);
+    const concluido = !erro && r !== null && r.resultado !== 'REVISAO_HUMANA' && r.resultado !== 'AGUARDANDO' && r.resultado !== 'ADIADA' && (!marcador || marcadorConfirmado);
     // Exclusões feitas no provedor ficam registradas mesmo quando a operação seguinte falhou (o SAVEPOINT desfeito não as leva).
     await registrarRemocoes(tx, empresaId, registro, origem, { id: ev.id, concluido });
     if (erro || !r)
@@ -254,6 +256,9 @@ async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: Pro
         return falhar(`REVISAO_HUMANA: ${r.motivo}`);
     if (r.resultado === 'AGUARDANDO')
         return falhar(`AGUARDANDO_CONFIRMACAO: ${r.motivo}`);
+    // Marcador não confirmado no banco: nada foi excluído; nova tentativa no reprocessamento.
+    if (r.resultado === 'ADIADA')
+        return falhar(`ADIADA: ${r.motivo}`);
     if (marcador && !marcadorConfirmado)
         return falhar('REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO');
     return concluir('PROCESSADO', empresaId, marcador ? 'REMOCAO_CONFIRMADA_NA_RELEITURA' : r.resultado);

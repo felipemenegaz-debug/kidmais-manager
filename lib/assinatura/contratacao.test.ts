@@ -32,22 +32,32 @@ test('nenhuma exclusão automática sem vínculo confirmado; falha de compensaç
     assert.equal(resolver.match(/removerAssinatura\(/g), null);
     assert.equal(resolver.match(/removerComResultado\(/g)?.length, 1);
     const compensar = resolver.slice(resolver.indexOf('async function compensarComMarcador('));
-    assert.match(compensar, /abrirMarcadorRemocao\(tx, empresaId, assinaturaId, 'REMOCAO_EM_CURSO'\)[\s\S]*catch \{\s*await substituirPorPendencia\([^;]*motivo: 'COMPENSACAO_FALHOU' \}\);\s*return;\s*\}\s*const remocao = await removerComResultado\(provedor, assinaturaId\);/,
+    // Registro prévio na transação independente (deps.withTransaction): sem marcador confirmado, não há DELETE.
+    assert.match(compensar, /const marcador = await persistirMarcadorPrevio\(deps\.withTransaction, empresaId, assinaturaId\);\s*if \(!marcador\) \{\s*await substituirPorPendencia\([^;]*motivo: 'COMPENSACAO_FALHOU' \}\);\s*return;\s*\}\s*const remocao = await removerComResultado\(provedor, assinaturaId\);/,
         'marcador não gravado → não exclui');
-    // Sucesso só com resposta confirmada; sem confirmação o marcador fica aberto e nada é auditado como removido.
-    assert.equal(compensar.match(/ASSINATURA_DUPLICADA_REMOVIDA/g)?.length, 1);
-    assert.match(compensar, /if \(remocao\.resultado === 'CONFIRMADA'\) \{[^}]*ASSINATURA_DUPLICADA_REMOVIDA/);
-    assert.match(compensar, /else \{\s*await manterMarcadorRemocao\(tx, empresaId, marcador\);\s*await auditarCobranca\(tx, \{ acao: 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO'/);
+    assert.match(compensar, /registrarResultadoRemocao\(deps\.withTransaction, empresaId, marcador, remocao, origem,/);
     const rec = readFileSync('lib/assinatura/reconciliacao-contratacao.ts', 'utf8');
     // Único ponto que chama o provedor para excluir; sem confirmação só com `removida` verdadeiro, 4xx = recusa, o resto = desconhecido.
     assert.equal(rec.match(/removerAssinatura\(/g)?.length, 1);
     assert.match(rec, /return \(await provedor\.removerAssinatura\(assinaturaId\)\)\.removida \? \{ resultado: 'CONFIRMADA' \} : \{ resultado: 'DESCONHECIDA' \};/);
     assert.match(rec, /return remocaoPodeTerOcorrido\(error\) \? \{ resultado: 'DESCONHECIDA' \} : \{ resultado: 'RECUSADA', erro: error \};/);
-    // Exclusão só depois da decisão central; assinatura com exclusão sem confirmação nem chega à decisão (nunca repetida).
-    assert.match(rec, /if \(semConfirmacao\.has\(d\.id\)\) \{[\s\S]*?continue;\s*\}\s*const decisao = await decidirCompensacao\([\s\S]*if \(!decisao\.excluir\) \{[\s\S]*continue;\s*\}\s*const remocao = await removerComResultado\(provedor, d\.id\);/);
-    // Sem confirmação nunca conta como removida: a única anotação de confirmada vem depois de sair com revisão.
+    // Marcador prévio: só na transação independente (COMMIT próprio), com limite de espera por lock e uma exclusão por assinatura.
+    const previo = rec.slice(rec.indexOf('export async function persistirMarcadorPrevio('), rec.indexOf('export async function registrarResultadoRemocao('));
+    assert.match(previo, /if \(!independente\)\s*return null;/);
+    assert.match(previo, /return await independente\(async \(tx\) => \{\s*await limitesIndependente\(tx\);\s*await tx\.query\("SELECT pg_advisory_xact_lock\(hashtext\('kidmais:remocao'\), hashtext\(\$1\)\)", \[assinaturaId\]\);/);
+    assert.match(previo, /catch \{\s*return null;\s*\}/);
+    assert.match(rec, /SET LOCAL lock_timeout = '3s'/);
+    // Resultado gravado na mesma transação independente: sucesso só em CONFIRMADA; sem confirmação o marcador fica aberto.
+    const resultado = rec.slice(rec.indexOf('export async function registrarResultadoRemocao('));
+    assert.equal(resultado.slice(0, resultado.indexOf('\nexport ')).match(/ASSINATURA_DUPLICADA_REMOVIDA/g)?.length, 1);
+    assert.match(resultado, /if \(remocao\.resultado === 'CONFIRMADA'\) \{\s*await fecharMarcadorRemocao\(tx, empresaId, marcadorId, 'REMOCAO_CONFIRMADA'\);\s*await auditarCobranca\(tx, \{ acao: 'ASSINATURA_DUPLICADA_REMOVIDA'/);
+    assert.match(resultado, /else \{\s*await manterMarcadorRemocao\(tx, empresaId, marcadorId\);\s*await auditarCobranca\(tx, \{ acao: 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO'/);
+    // Reconciliação: decisão central → marcador prévio confirmado → DELETE; sem marcador, ADIADA (nada excluído).
+    assert.match(rec, /if \(semConfirmacao\.has\(d\.id\)\) \{[\s\S]*?continue;\s*\}\s*const decisao = await decidirCompensacao\([\s\S]*if \(!decisao\.excluir\) \{[\s\S]*continue;\s*\}[\s\S]*?const marcadorId = await persistirMarcadorPrevio\(independente, empresaId, d\.id\);\s*if \(!marcadorId\)\s*return \{ resultado: 'ADIADA', motivo: 'MARCADOR_NAO_GRAVADO', ids: \[d\.id\] \};\s*const remocao = await removerComResultado\(provedor, d\.id\);/);
+    assert.equal(rec.match(/removerComResultado\(provedor,/g)?.length, 1);
+    // Sem confirmação (ou resultado não gravado) nunca conta como removida.
     assert.equal(rec.match(/registro\.confirmadas\.push\(/g)?.length, 1);
-    assert.match(rec, /if \(remocao\.resultado === 'DESCONHECIDA'\) \{[\s\S]*?registro\.semConfirmacao\.push\(d\.id\);[\s\S]*?return revisao\(\);\s*\}\s*registro\.confirmadas\.push\(d\.id\);/);
+    assert.match(rec, /if \(remocao\.resultado !== 'CONFIRMADA' \|\| !gravado\) \{[\s\S]*?registro\.semConfirmacao\.push\(d\.id\);[\s\S]*?return revisao\(\);\s*\}\s*registro\.confirmadas\.push\(d\.id\);/);
     assert.match(fonte, /pg_try_advisory_xact_lock\(hashtext\('kidmais:contratacao'\), hashtext\(\$1\)\)/);
 });
 

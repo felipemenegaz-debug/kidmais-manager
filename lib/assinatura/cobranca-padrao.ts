@@ -28,7 +28,8 @@ export async function processarEventoAgendado(eventoInternoId: string) {
         return;
     const provedor = p.cliente;
     try {
-        const r = await withTransaction((tx) => processarEvento(tx, eventoInternoId, { provedor }));
+        // O marcador de exclusão usa OUTRA conexão do pool (COMMIT próprio, antes do DELETE).
+        const r = await withTransaction((tx) => processarEvento(tx, eventoInternoId, { provedor, transacaoIndependente: withTransaction }));
         if (r.situacao === 'FALHOU')
             console.warn('[Asaas webhook] evento não processado agora; fica FALHOU para nova tentativa.');
     }
