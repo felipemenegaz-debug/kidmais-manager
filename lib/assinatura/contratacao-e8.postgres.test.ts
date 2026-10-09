@@ -153,13 +153,14 @@ async function novaEmpresa() {
     await withTransaction((tx) => iniciarTeste(tx, { empresaId: id, documento: cnpj }));
     return id;
 }
-type Opcoes = { provedor: AsaasFalso; withTenant?: DepsCobranca['withTenantTransaction']; withTx?: DepsCobranca['withTransaction'] };
+type Opcoes = { provedor: AsaasFalso; withTenant?: DepsCobranca['withTenantTransaction']; withTx?: DepsCobranca['withTransaction']; independente?: DepsCobranca['transacaoIndependente'] };
 function deps(empresa: string, o: Opcoes): DepsCobranca {
     const tenant = { empresaComprovada: empresa, membershipId: 'm', usuarioId: usuario, papelAtual: 'REPRESENTANTE_AUTORIZADO' };
     const wt = o.withTx ?? withTransaction;
     return {
         withTenantTransaction: o.withTenant ?? ((_s, _e, t) => withTransaction((tx) => t(tx, tenant))),
         withTransaction: wt,
+        transacaoIndependente: 'independente' in o ? o.independente : withTransaction,
         travarContratacao: travaPorEmpresa(withTransaction),
         provedor: () => o.provedor,
         env: ENV,
@@ -168,8 +169,8 @@ function deps(empresa: string, o: Opcoes): DepsCobranca {
 const sessao = () => ({ id: 's', usuario_id: usuario, nome: 'Gestão', cargo: null, papel: 'REPRESENTANTE_AUTORIZADO' as const, autenticado_em: '', expira_em: '', csrf_hash: '' });
 const contratar = (empresa: string, d: DepsCobranca) => iniciarAssinatura(sessao(), null, { ciclo: 'MENSAL' }, { requestId: randomUUID() }, d);
 /** Auditorias de exclusão de duplicata da empresa, em ordem: [ação, removidas, confirmação]. */
-const remocoesAuditadas = async (empresa: string) => (await q("SELECT acao, dados_depois FROM auditoria WHERE entidade_id = $1 AND acao IN ('ASSINATURA_DUPLICADA_REMOVIDA', 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO') ORDER BY criado_em, id", [empresa])).rows
-    .map((r) => [r.acao, r.dados_depois.removidas ?? null, r.dados_depois.confirmacao ?? null]);
+const remocoesAuditadas = async (empresa: string) => (await q("SELECT acao, dados_depois FROM auditoria WHERE entidade_id = $1 AND acao IN ('ASSINATURA_DUPLICADA_REMOVIDA', 'ASSINATURA_REMOCAO_SEM_CONFIRMACAO', 'ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA') ORDER BY criado_em, id", [empresa])).rows
+    .map((r) => [r.acao, r.dados_depois.removidas ?? r.dados_depois.ausentes ?? null, r.dados_depois.confirmacao ?? null]);
 const vinculo = async (empresa: string) => (await q('SELECT provedor_assinatura_id AS id FROM empresa_assinaturas WHERE empresa_id = $1', [empresa])).rows[0].id as string | null;
 /** Pendências ABERTAS (PENDENTE/FALHOU); intenções de criação já confirmadas ficam PROCESSADO e não aparecem aqui. */
 const pendencias = async (empresa: string) => (await q("SELECT id, evento_id, situacao, ultimo_erro, assinatura_provedor_id FROM cobranca_eventos WHERE empresa_id = $1 AND tipo = $2 AND situacao IN ('PENDENTE', 'FALHOU') ORDER BY recebido_em", [empresa, TIPO_PENDENCIA])).rows;
@@ -425,8 +426,8 @@ test('reconciliação: resposta perdida na exclusão → resultado desconhecido 
     const depois = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([depois.situacao, depois.motivo], ['PROCESSADO', 'NADA_A_FAZER']);
     assert.equal(provedor.chamadasRemocao, 1, 'nenhum DELETE repetido');
-    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null], ['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']]);
-    assert.deepEqual((await marcadores(empresa)).map((x) => [x.situacao, x.ultimo_erro]), [['PROCESSADO', 'REMOCAO_CONFIRMADA_NA_RELEITURA']]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null], ['ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA', 1, 'AUSENCIA_NA_RELEITURA']]);
+    assert.deepEqual((await marcadores(empresa)).map((x) => [x.situacao, x.ultimo_erro]), [['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_RELEITURA']]);
     assert.deepEqual([provedor.ativasDe(empresa), await vinculo(empresa), await pendencias(empresa)], [[vinculada], vinculada, []]);
 });
 
@@ -448,9 +449,9 @@ test('reconciliação: exclusão sem confirmação que NÃO aconteceu nunca é r
     // Uma pessoa exclui no painel do Asaas: o marcador fecha pela releitura, com a exclusão auditada uma única vez.
     provedor.assinaturas.get(d1)!.deleted = true;
     const fechado = await withTransaction((tx) => processarEvento(tx, m.id, { provedor, transacaoIndependente: withTransaction }));
-    assert.deepEqual([fechado.situacao, fechado.motivo], ['PROCESSADO', 'REMOCAO_CONFIRMADA_NA_RELEITURA']);
+    assert.deepEqual([fechado.situacao, fechado.motivo], ['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_RELEITURA']);
     assert.equal(provedor.chamadasRemocao, 1);
-    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null], ['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null], ['ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA', 1, 'AUSENCIA_NA_RELEITURA']]);
 });
 
 /** Contratação em que outro escritor vincula OUTRA assinatura entre a criação e a gravação: a criada vira duplicata e a decisão central manda excluí-la. */
@@ -503,9 +504,9 @@ test('contratação, exclusão realizada com resposta perdida: sem sucesso regis
     assert.ok(!(await encerradas(empresa)).includes('COMPENSADA'), 'a operação não foi encerrada como compensada');
     provedor.modoRemocao = 'normal';
     const r = await withTransaction((tx) => processarEvento(tx, m.id, { provedor, transacaoIndependente: withTransaction }));
-    assert.deepEqual([r.situacao, r.motivo], ['PROCESSADO', 'REMOCAO_CONFIRMADA_NA_RELEITURA']);
+    assert.deepEqual([r.situacao, r.motivo], ['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_RELEITURA']);
     assert.equal(provedor.chamadasRemocao, 1, 'nenhum DELETE repetido');
-    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null], ['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_REMOCAO_SEM_CONFIRMACAO', null, null], ['ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA', 1, 'AUSENCIA_NA_RELEITURA']]);
     assert.deepEqual(await pendencias(empresa), []);
 });
 
@@ -530,7 +531,7 @@ test('contratação, resposta sem confirmação e assinatura ainda existente: na
 
 test('contratação, falha ao gravar o marcador: o DELETE não acontece; pendência COMPENSACAO_FALHOU (nada executado) e a reconciliação decide depois', async () => {
     const { empresa, provedor } = await cenarioCompensacao();
-    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor, withTx: falhandoCom('REMOCAO_EM_CURSO') }))), 'CONFLITO');
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor, independente: falhandoCom('REMOCAO_EM_CURSO') }))), 'CONFLITO');
     const vinculada = await vinculo(empresa);
     assert.deepEqual([provedor.chamadasRemocao, provedor.ativasDe(empresa).length, await marcadores(empresa)], [0, 2, []], 'sem marcador, sem DELETE');
     const [pend] = await pendencias(empresa);
@@ -543,7 +544,7 @@ test('contratação, falha ao gravar o marcador: o DELETE não acontece; pendên
 test('contratação, interrupção entre o DELETE e a gravação do resultado: o marcador prévio continua aberto; a reconciliação relê e confirma, sem repetir o DELETE', async () => {
     const { empresa, provedor } = await cenarioCompensacao();
     // O DELETE é confirmado pelo provedor, mas a gravação do resultado não chega ao banco.
-    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor, withTx: falhandoCom('REMOCAO_CONFIRMADA') }))), 'CONFLITO');
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor, independente: falhandoCom('REMOCAO_CONFIRMADA') }))), 'CONFLITO');
     const vinculada = await vinculo(empresa);
     assert.deepEqual([provedor.chamadasRemocao, provedor.ativasDe(empresa)], [1, [vinculada]]);
     assert.deepEqual(await remocoesAuditadas(empresa), [], 'o resultado não foi gravado');
@@ -553,8 +554,8 @@ test('contratação, interrupção entre o DELETE e a gravação do resultado: o
     for (const p of await pendencias(empresa))
         await withTransaction((tx) => processarEvento(tx, p.id, { provedor, transacaoIndependente: withTransaction }));
     assert.equal(provedor.chamadasRemocao, 1);
-    assert.deepEqual((await marcadores(empresa)).map((x) => [x.situacao, x.ultimo_erro]), [['PROCESSADO', 'REMOCAO_CONFIRMADA_NA_RELEITURA']]);
-    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']], 'a exclusão fica registrada uma vez');
+    assert.deepEqual((await marcadores(empresa)).map((x) => [x.situacao, x.ultimo_erro]), [['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_RELEITURA']]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA', 1, 'AUSENCIA_NA_RELEITURA']], 'a exclusão fica registrada uma vez');
 });
 
 test('liberação manual bloqueada por marcador de exclusão: mensagem explícita, sem atalho; o painel mostra o motivo e não oferece liberar', async () => {
@@ -699,7 +700,7 @@ test('reconciliação: queda REAL depois do DELETE e antes de gravar a confirma�
     const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: independenteReal }));
     assert.deepEqual([r.situacao, r.motivo], ['PROCESSADO', 'NADA_A_FAZER']);
     assert.equal(provedor.chamadasRemocao, 1, 'nenhum DELETE repetido');
-    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA', 1, 'AUSENCIA_NA_RELEITURA']]);
     assert.deepEqual([(await marcadores(empresa)).map((m) => m.situacao), provedor.ativasDe(empresa)], [['PROCESSADO'], [vinculada]]);
 });
 
@@ -724,8 +725,8 @@ test('recuperação distingue ausência de erro de consulta: leitura falhando n�
     assert.deepEqual([(await situacaoDo(marcador)).situacao, await remocoesAuditadas(empresa), provedor.chamadasRemocao], ['PENDENTE', [], 0], 'erro de consulta não é ausência');
     provedor.falharLeituraDe.clear();
     const depois = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: independenteReal }));
-    assert.deepEqual([depois.situacao, (await situacaoDo(marcador)).ultimo_erro, provedor.chamadasRemocao], ['PROCESSADO', 'REMOCAO_CONFIRMADA_NA_RELEITURA', 0]);
-    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RELEITURA']]);
+    assert.deepEqual([depois.situacao, (await situacaoDo(marcador)).ultimo_erro, provedor.chamadasRemocao], ['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_RELEITURA', 0]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA', 1, 'AUSENCIA_NA_RELEITURA']]);
 });
 
 test('concorrência real: duas reconciliações da mesma empresa ao mesmo tempo → a segunda espera a trava da linha; um único DELETE e uma única auditoria', async () => {

@@ -261,7 +261,7 @@ async function processarPendencia(tx: DbExecutor, ev: LinhaEvento, provedor: Pro
         return falhar(`ADIADA: ${r.motivo}`);
     if (marcador && !marcadorConfirmado)
         return falhar('REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO');
-    return concluir('PROCESSADO', empresaId, marcador ? 'REMOCAO_CONFIRMADA_NA_RELEITURA' : r.resultado);
+    return concluir('PROCESSADO', empresaId, marcador ? 'AUSENCIA_CONFIRMADA_NA_RELEITURA' : r.resultado);
 }
 
 /** Eventos a reprocessar (PENDENTE/FALHOU), mais antigos primeiro. */

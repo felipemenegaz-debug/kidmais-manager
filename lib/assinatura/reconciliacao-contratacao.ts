@@ -27,6 +27,11 @@ export const PREFIXO_ID_CONFIRMADO = 'kidmais:vinculo:';
  * Removida ou inexistente na releitura → exclusão confirmada (auditada) e o marcador fecha; ainda existe → revisão humana.
  */
 export const PREFIXO_REMOCAO_SEM_CONFIRMACAO = 'kidmais:remocao:';
+/**
+ * Prazo do lado da APLICAÇÃO da transação independente (obter conexão, BEGIN, consultas, COMMIT): acima dos limites do
+ * servidor (lock 3 s, consulta 10 s). Vencido → conexão descartada, resultado desconhecido (ver lib/db/transacao-com-prazo.ts).
+ */
+export const PRAZO_TRANSACAO_INDEPENDENTE_MS = 15_000;
 const TROCA_PERMITIDA = new Set(['TESTE', 'CANCELADA_FIM_PERIODO', 'ENCERRADA']);
 
 export type MotivoPendencia = 'CRIACAO_EM_CURSO' | 'CRIACAO_CONFIRMADA_SEM_VINCULO' | 'CRIACAO_SEM_RESPOSTA' | 'COMMIT_INCERTO' | 'COMPENSACAO_FALHOU' | 'VINCULO_DUVIDOSO' | 'COMPENSACAO_PRESERVADA' | 'ASSINATURAS_AMBIGUAS';
@@ -116,7 +121,10 @@ export type RegistroRemocoes = {
     confirmadas: string[];
     /** Pedido enviado sem confirmação: pode ou não ter sido executado. */
     semConfirmacao: string[];
-    /** Marcadores de exclusão sem confirmação cuja assinatura, relida agora pelo id, não existe mais ou está removida. */
+    /**
+     * Marcadores cuja assinatura, relida agora pelo id, não existe mais ou está `deleted`. Prova AUSÊNCIA no provedor, não
+     * a autoria da remoção (nosso DELETE, cancelamento, exclusão manual no Asaas): auditada com ação neutra.
+     */
     confirmadasNaReleitura: Array<{ marcadorId: string }>;
 };
 export const novoRegistroRemocoes = (): RegistroRemocoes => ({ confirmadas: [], semConfirmacao: [], confirmadasNaReleitura: [] });
@@ -248,18 +256,20 @@ export async function marcadoresDeRemocao(tx: DbExecutor, empresaId: string) {
 }
 
 /**
- * Grava as confirmações por RELEITURA (chamar fora do SAVEPOINT): ASSINATURA_DUPLICADA_REMOVIDA (releitura) e o marcador
- * fecha. O marcador do evento em processamento só conta quando esse evento é concluído agora (senão é relido e registrado
- * na próxima vez, sem nova chamada de exclusão). Exclusões feitas agora já foram gravadas na transação independente.
+ * Grava as ausências confirmadas na RELEITURA (chamar fora do SAVEPOINT): ação neutra ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA
+ * (a releitura prova que a assinatura não existe mais, não quem a removeu) e o marcador fecha como
+ * AUSENCIA_CONFIRMADA_NA_RELEITURA. ASSINATURA_DUPLICADA_REMOVIDA fica só para a resposta do provedor ao nosso DELETE.
+ * O marcador do evento em processamento só conta quando esse evento é concluído agora (senão é relido e registrado na
+ * próxima vez, sem nova chamada de exclusão). Exclusões feitas agora já foram gravadas na transação independente.
  */
 export async function registrarRemocoes(tx: DbExecutor, empresaId: string, registro: RegistroRemocoes, origem: OrigemSincronizacao,
     eventoAtual: { id: string; concluido: boolean }) {
     const releitura = registro.confirmadasNaReleitura.filter((m) => m.marcadorId !== eventoAtual.id || eventoAtual.concluido);
     if (releitura.length) {
-        await auditarCobranca(tx, { acao: 'ASSINATURA_DUPLICADA_REMOVIDA', empresaId, origem, ip: null, depois: { removidas: releitura.length, confirmacao: 'RELEITURA' } });
+        await auditarCobranca(tx, { acao: 'ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA', empresaId, origem, ip: null, depois: { ausentes: releitura.length, confirmacao: 'AUSENCIA_NA_RELEITURA' } });
         const fechar = releitura.map((m) => m.marcadorId).filter((id) => id !== eventoAtual.id);
         if (fechar.length)
-            await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = 'REMOCAO_CONFIRMADA_NA_RELEITURA'
+            await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = 'AUSENCIA_CONFIRMADA_NA_RELEITURA'
                              WHERE id = ANY($1::uuid[]) AND empresa_id = $2::uuid AND tipo = $3 AND situacao IN ('PENDENTE', 'FALHOU')`, [fechar, empresaId, TIPO_PENDENCIA]);
     }
 }

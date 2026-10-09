@@ -69,11 +69,13 @@ function provedorDaExecucao(provedor, aplicar, relatorio) {
 }
 
 /**
- * Transação independente para o marcador de exclusão (COMMIT próprio, ANTES do DELETE). Aplicando: a segunda conexão,
- * com os mesmos limites e o mesmo alvo conferido. Simulação: SAVEPOINT da transação principal, que é desfeita no fim
- * (nada persiste; a simulação nunca chama o DELETE de verdade).
+ * Transação independente para o marcador de exclusão (COMMIT próprio, ANTES do DELETE).
+ * Aplicando: uma conexão NOVA por transação (`abrirMarcador`, mesmo alvo conferido), com prazo do lado da aplicação
+ * (`comPrazo`, lib/db/transacao-com-prazo.ts): vencido → a conexão é destruída e o resultado é desconhecido; a próxima
+ * transação abre outra conexão. Simulação: SAVEPOINT da transação principal, que é desfeita no fim (nada persiste; a
+ * simulação nunca chama o DELETE de verdade), sem prazo próprio (vale o statement_timeout da sessão).
  */
-function transacaoIndependenteDaExecucao(aplicar, principal, segunda) {
+function transacaoIndependenteDaExecucao(aplicar, principal, abrirMarcador, comPrazo, prazoMs) {
     if (!aplicar)
         return async (trabalho) => {
             await principal.query('SAVEPOINT kidmais_simulacao_marcador');
@@ -87,20 +89,30 @@ function transacaoIndependenteDaExecucao(aplicar, principal, segunda) {
                 throw error;
             }
         };
-    if (!segunda)
-        throw new Error('Aplicar exige a segunda conexão do marcador de exclusão.');
-    return async (trabalho) => {
-        await segunda.query('BEGIN');
-        try {
-            const r = await trabalho(segunda);
-            await segunda.query('COMMIT');
-            return r;
-        }
-        catch (error) {
-            await segunda.query('ROLLBACK').catch(() => undefined);
-            throw error;
-        }
-    };
+    if (typeof abrirMarcador !== 'function' || typeof comPrazo !== 'function' || !(prazoMs > 0))
+        throw new Error('Aplicar exige a conexão do marcador de exclusão com prazo.');
+    return comPrazo(abrirMarcador, prazoMs);
+}
+
+/** Conexão nova para UMA transação do marcador: confere o alvo; liberar/descartar a encerram (descartar destrói o soquete). */
+async function abrirConexaoDoMarcador(Client, alvo, conexaoDeClientePg) {
+    const c = new Client({
+        connectionString: alvo.connectionString, ssl: alvo.local ? false : { rejectUnauthorized: true },
+        connectionTimeoutMillis: 10_000, application_name: 'kidmais-assinatura-reconciliar-marcador',
+    });
+    c.on('error', () => undefined);
+    await c.connect();
+    const conexao = conexaoDeClientePg(c, { liberar: () => { c.end().catch(() => undefined); }, descartar: () => { c.end().catch(() => undefined); } });
+    try {
+        const id = (await c.query('SELECT current_database() AS db')).rows[0];
+        if (id.db !== alvo.database)
+            throw new Error('Alvo recusado: o banco conectado não é o confirmado.');
+    }
+    catch (error) {
+        conexao.descartar(error);
+        throw error;
+    }
+    return conexao;
 }
 
 function argumentos(argv) {
@@ -126,23 +138,16 @@ async function main() {
     });
     client.on('error', () => undefined);
     await client.connect();
-    // Aplicando: segunda conexão só para o marcador de exclusão (transação independente, COMMIT antes do DELETE).
-    const segunda = aplicar ? new Client({
-        connectionString: alvo.connectionString, ssl: alvo.local ? false : { rejectUnauthorized: true },
-        connectionTimeoutMillis: 10_000, application_name: 'kidmais-assinatura-reconciliar-marcador',
-    }) : null;
+    // Aplicando: o marcador de exclusão usa uma conexão nova por transação, com prazo do lado da aplicação.
+    const { transacaoComPrazo, conexaoDeClientePg } = await import('../lib/db/transacao-com-prazo.ts');
+    const { PRAZO_TRANSACAO_INDEPENDENTE_MS } = await import('../lib/assinatura/reconciliacao-contratacao.ts');
+    const abrirMarcador = () => abrirConexaoDoMarcador(Client, alvo, conexaoDeClientePg);
     try {
-        if (segunda) {
-            segunda.on('error', () => undefined);
-            await segunda.connect();
-        }
-        for (const c of [client, segunda].filter(Boolean)) {
-            const id = (await c.query('SELECT current_database() AS db')).rows[0];
-            if (id.db !== alvo.database)
-                throw new Error('Alvo recusado: o banco conectado não é o confirmado.');
-            await c.query("SET statement_timeout = '60s'");
-            await c.query("SET lock_timeout = '5s'");
-        }
+        const id = (await client.query('SELECT current_database() AS db')).rows[0];
+        if (id.db !== alvo.database)
+            throw new Error('Alvo recusado: o banco conectado não é o confirmado.');
+        await client.query("SET statement_timeout = '60s'");
+        await client.query("SET lock_timeout = '5s'");
         if (!(await client.query("SELECT to_regclass('public.cobranca_eventos') IS NOT NULL AS ok")).rows[0].ok)
             throw new Error('Banco sem a 068 (cobranca_eventos): nada a reconciliar.');
         const modo = aplicar ? 'APLICAR' : 'SIMULACAO';
@@ -162,7 +167,7 @@ async function main() {
         const provedorUsado = provedorDaExecucao(provedor, aplicar, relatorio);
         const conta = (grupo, chave) => { grupo[chave] = (grupo[chave] ?? 0) + 1; };
         for (const eventoId of await sinc.eventosPendentes(client, 500)) {
-            const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente: transacaoIndependenteDaExecucao(aplicar, client, segunda) }));
+            const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente: transacaoIndependenteDaExecucao(aplicar, client, abrirMarcador, transacaoComPrazo, PRAZO_TRANSACAO_INDEPENDENTE_MS) }));
             conta(relatorio.eventos, r.erro ? `ERRO_${r.erro}` : r.situacao);
         }
         for (const empresaId of await sinc.empresasComProvedor(client)) {
@@ -176,8 +181,6 @@ async function main() {
     }
     finally {
         await client.end();
-        if (segunda)
-            await segunda.end().catch(() => undefined);
     }
 }
 
@@ -188,4 +191,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { validarAlvo, argumentos, provedorDaExecucao, transacaoIndependenteDaExecucao, BANCOS_PROIBIDOS };
+module.exports = { validarAlvo, argumentos, provedorDaExecucao, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador, BANCOS_PROIBIDOS };

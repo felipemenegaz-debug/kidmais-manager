@@ -32,10 +32,10 @@ test('nenhuma exclusão automática sem vínculo confirmado; falha de compensaç
     assert.equal(resolver.match(/removerAssinatura\(/g), null);
     assert.equal(resolver.match(/removerComResultado\(/g)?.length, 1);
     const compensar = resolver.slice(resolver.indexOf('async function compensarComMarcador('));
-    // Registro prévio na transação independente (deps.withTransaction): sem marcador confirmado, não há DELETE.
-    assert.match(compensar, /const marcador = await persistirMarcadorPrevio\(deps\.withTransaction, empresaId, assinaturaId\);\s*if \(!marcador\) \{\s*await substituirPorPendencia\([^;]*motivo: 'COMPENSACAO_FALHOU' \}\);\s*return;\s*\}\s*const remocao = await removerComResultado\(provedor, assinaturaId\);/,
+    // Registro prévio na transação independente com prazo (deps.transacaoIndependente): sem marcador confirmado, não há DELETE.
+    assert.match(compensar, /const independente = deps\.transacaoIndependente;\s*const marcador = await persistirMarcadorPrevio\(independente, empresaId, assinaturaId\);\s*if \(!marcador\) \{\s*await substituirPorPendencia\([^;]*motivo: 'COMPENSACAO_FALHOU' \}\);\s*return;\s*\}\s*const remocao = await removerComResultado\(provedor, assinaturaId\);/,
         'marcador não gravado → não exclui');
-    assert.match(compensar, /registrarResultadoRemocao\(deps\.withTransaction, empresaId, marcador, remocao, origem,/);
+    assert.match(compensar, /registrarResultadoRemocao\(independente!, empresaId, marcador, remocao, origem,/);
     const rec = readFileSync('lib/assinatura/reconciliacao-contratacao.ts', 'utf8');
     // Único ponto que chama o provedor para excluir; sem confirmação só com `removida` verdadeiro, 4xx = recusa, o resto = desconhecido.
     assert.equal(rec.match(/removerAssinatura\(/g)?.length, 1);
@@ -95,4 +95,20 @@ test('decisão central de compensação: exclui só com vínculo confirmado, vig
     await d('vigente', 'cand');
     assert.deepEqual(leituras, ['assinatura:vigente', 'assinatura:cand', 'cobrancas:cand'], 'confirma a vigente, a candidata e os pagamentos');
     await assert.rejects(decidirCompensacao({ ...provedor, listarCobrancasDaAssinatura: async () => { throw new AsaasFalhou('listar cobranças', null, 'REDE'); } }, { empresaId: E, vinculo: 'vigente', candidataId: 'cand' }), AsaasFalhou);
+});
+
+test('D1: a transação independente da aplicação e do script tem prazo do lado da aplicação; a compensação sem ela não exclui', () => {
+    const padrao = readFileSync('lib/assinatura/cobranca-padrao.ts', 'utf8');
+    assert.match(padrao, /export const transacaoIndependenteDaAplicacao = transacaoComPrazo\(conexaoDescartavelDoPool, PRAZO_TRANSACAO_INDEPENDENTE_MS\);/);
+    assert.match(padrao, /transacaoIndependente: transacaoIndependenteDaAplicacao, travarContratacao/, 'contratação (rotas)');
+    assert.match(padrao, /processarEvento\(tx, eventoInternoId, \{ provedor, transacaoIndependente: transacaoIndependenteDaAplicacao \}\)/, 'webhook');
+    assert.doesNotMatch(padrao, /transacaoIndependente: withTransaction/, 'nunca a transação comum sem prazo');
+    const script = readFileSync('scripts/assinatura-reconciliar.cjs', 'utf8');
+    assert.match(script, /transacaoIndependenteDaExecucao\(aplicar, client, abrirMarcador, transacaoComPrazo, PRAZO_TRANSACAO_INDEPENDENTE_MS\)/);
+    assert.match(script, /return comPrazo\(abrirMarcador, prazoMs\);/);
+    const cobranca = readFileSync('lib/assinatura/cobranca.ts', 'utf8');
+    const compensar = cobranca.slice(cobranca.indexOf('async function compensarComMarcador('), cobranca.indexOf('export async function cancelarAssinatura'));
+    assert.doesNotMatch(compensar, /withTransaction/, 'o marcador e o resultado nunca vão pela transação comum');
+    const postgres = readFileSync('lib/db/postgres.ts', 'utf8');
+    assert.doesNotMatch(postgres, /query_timeout|statement_timeout/, 'o pool da aplicação não muda');
 });

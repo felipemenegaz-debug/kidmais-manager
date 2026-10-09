@@ -29,7 +29,7 @@ import { AsaasFalhou, cicloDoProvedor, type AssinaturaProvedor, type ClienteAsaa
 import { cobrancaEmAberto } from './provedor-estado.ts';
 import { auditarCobranca, sincronizarEmpresa } from './sincronizacao.ts';
 import { assinaturasComRemocaoIncerta, concluirIntencao, encerrarPendencias, intencaoDoIdConfirmado, marcarIntencao, pendenciasAbertas, persistirMarcadorPrevio, registrarIdConfirmado,
-    registrarPendencia, registrarResultadoRemocao, removerComResultado } from './reconciliacao-contratacao.ts';
+    registrarPendencia, registrarResultadoRemocao, removerComResultado, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
 import type { OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 
@@ -44,6 +44,11 @@ export type DepsCobranca = {
     env?: Record<string, string | undefined>;
     /** Transação comum (sem tenant): releitura do vínculo e registro de pendências. */
     withTransaction: <T>(trabalho: (tx: DbExecutor) => Promise<T>) => Promise<T>;
+    /**
+     * Transação INDEPENDENTE com prazo do lado da aplicação, para o marcador de exclusão e o resultado do DELETE da
+     * compensação. Ausente → a compensação não exclui (fail closed).
+     */
+    transacaoIndependente?: TransacaoIndependente;
     /** Executa a contratação com a trava exclusiva da empresa; ocupada → 409 CONTRATACAO_EM_ANDAMENTO. */
     travarContratacao: <T>(empresaId: string, trabalho: () => Promise<T>) => Promise<T>;
 };
@@ -455,14 +460,15 @@ async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculo
  */
 async function compensarComMarcador(deps: DepsCobranca, provedor: ClienteAsaas, empresaId: string, b: { assinatura: AssinaturaProvedor; encerrar: string[] }, origem: OrigemSincronizacao) {
     const assinaturaId = b.assinatura.id;
-    // Registro prévio na transação independente (a mesma regra da reconciliação): sem marcador confirmado, não exclui.
-    const marcador = await persistirMarcadorPrevio(deps.withTransaction, empresaId, assinaturaId);
+    // Registro prévio na transação independente com prazo (a mesma regra da reconciliação): sem marcador confirmado, não exclui.
+    const independente = deps.transacaoIndependente;
+    const marcador = await persistirMarcadorPrevio(independente, empresaId, assinaturaId);
     if (!marcador) {
         await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId, motivo: 'COMPENSACAO_FALHOU' });
         return;
     }
     const remocao = await removerComResultado(provedor, assinaturaId);
-    const gravado = await registrarResultadoRemocao(deps.withTransaction, empresaId, marcador, remocao, origem, async (tx) => {
+    const gravado = await registrarResultadoRemocao(independente!, empresaId, marcador, remocao, origem, async (tx) => {
         if (remocao.resultado === 'CONFIRMADA')
             await encerrarPendencias(tx, empresaId, b.encerrar, 'COMPENSADA');
         else {

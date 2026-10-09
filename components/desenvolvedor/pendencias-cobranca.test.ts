@@ -41,4 +41,7 @@ test('pendências: liberação bloqueada pelo marcador explica o motivo e não o
 test('rótulo legível para a auditoria da exclusão sem confirmação', () => {
     const { rotuloAcao } = carregarModulo('components/desenvolvedor/cliente.ts', {}) as unknown as { rotuloAcao: (a: string) => string };
     assert.equal(rotuloAcao('ASSINATURA_REMOCAO_SEM_CONFIRMACAO'), 'Exclusão de assinatura no provedor sem confirmação (revisão)');
+    // D2: a releitura prova ausência, não autoria; o histórico da resposta ao nosso DELETE mantém o rótulo próprio.
+    assert.equal(rotuloAcao('ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA'), 'Ausência da assinatura no provedor confirmada na releitura (autoria não comprovada)');
+    assert.notEqual(rotuloAcao('ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA'), rotuloAcao('ASSINATURA_DUPLICADA_REMOVIDA'), 'ausência e remoção confirmada não se confundem');
 });
