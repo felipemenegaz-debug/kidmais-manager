@@ -6,6 +6,7 @@ import styles from './publico.module.css';
 export default function ConvitePublico({ token }: { token: string }) {
   const [conteudo, setConteudo] = useState<Conteudo | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState('');
   const [busy, setBusy] = useState(false), [nome, setNome] = useState(''), [presenca, setPresenca] = useState(true), [adultos, setAdultos] = useState(1), [criancas, setCriancas] = useState(0);
+  const [efeitosPausados, setEfeitosPausados] = useState(false);
   const chave = useRef('');
   const endpoint = `/api/convites/publico/${encodeURIComponent(token)}`;
   useEffect(() => {
@@ -17,17 +18,18 @@ export default function ConvitePublico({ token }: { token: string }) {
   }, [endpoint, token]);
   const tema = conteudo ? temas[conteudo.tema] : null;
   const cores = tema ? { '--convite-fundo': tema.fundo, '--convite-tinta': tema.tinta, '--convite-destaque': tema.destaque } as CSSProperties : undefined;
-  return <main className={styles.publico} data-tema={conteudo?.tema} style={cores}>
+  return <main className={styles.publico} data-tema={conteudo?.tema} data-efeitos-pausados={efeitosPausados} style={cores}>
     {!conteudo && <div className={styles.estado}>{erro ? <p role="alert" className={styles.erro}>{erro}</p> : <p role="status">Preparando um convite especial…</p>}</div>}
     {conteudo && <>
       <div className={styles.enfeites} aria-hidden="true">{Array.from({ length: 6 }, (_, i) => <span key={i}>{tema?.simbolo}</span>)}</div>
       <header className={styles.cabecalho}><p className={styles.sobretitulo}>UM CONVITE ESPECIAL</p><h1>Vamos celebrar juntos.</h1><p>Um dia para criar boas memórias.</p>
         {conteudo.confirmarPresenca && <a className={styles.atalho} href="#confirmar-presenca">Confirmar presença ↓</a>}
+        <button type="button" className={styles.controleEfeitos} aria-pressed={efeitosPausados} onClick={() => setEfeitosPausados(v => !v)}>{efeitosPausados ? 'Ativar efeitos' : 'Pausar efeitos'}</button>
       </header>
       <div className={styles.colunas} data-com-rsvp={conteudo.confirmarPresenca}>
-      <section className={styles.arte} aria-label="Convite da festa"><ConviteArte conteudo={conteudo} arte={conteudo.arteId ? `${endpoint}?arte=1` : undefined} />
+      <section className={styles.arte} aria-label="Convite da festa"><div className={`${styles.moldura} ${styles.bordaAnimada}`}><ConviteArte conteudo={conteudo} arte={conteudo.arteId ? `${endpoint}?arte=1` : undefined} /></div>
       <a className={styles.mapa} href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${conteudo.local} ${conteudo.endereco}`)}`} target="_blank" rel="noreferrer">Como chegar ↗</a></section>
-      {conteudo.confirmarPresenca && <form id="confirmar-presenca" aria-labelledby="titulo-presenca" className={styles.painel} onSubmit={async e => {
+      {conteudo.confirmarPresenca && <form id="confirmar-presenca" aria-labelledby="titulo-presenca" className={`${styles.painel} ${styles.bordaAnimada}`} onSubmit={async e => {
         e.preventDefault(); const form = e.currentTarget; setBusy(true); setErro(''); setAviso('');
         try {
           const site = new FormData(form).get('site') || '';

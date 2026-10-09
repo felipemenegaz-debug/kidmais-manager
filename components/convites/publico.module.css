@@ -3,7 +3,8 @@
   --convite-tinta: #334f3b;
   --convite-destaque: #788d58;
   --superficie: color-mix(in srgb, var(--convite-fundo) 96%, var(--convite-tinta));
-  --borda: color-mix(in srgb, var(--convite-tinta) 22%, var(--convite-fundo));
+  --borda: color-mix(in srgb, var(--convite-destaque) 65%, var(--convite-fundo));
+  --borda-luz: #f2b74b;
   --secundario: color-mix(in srgb, var(--convite-tinta) 82%, var(--convite-fundo));
   position: relative;
   isolation: isolate;
@@ -15,7 +16,8 @@
   font-family: Arial, sans-serif;
   color-scheme: light;
 }
-.publico[data-tema=espaco] { color-scheme: dark; }
+.publico[data-tema=espaco] { --borda-luz: #75d9ef; color-scheme: dark; }
+.publico[data-tema=jardim] { --borda-luz: #c7a84e; }
 .publico::before {
   content: '';
   position: absolute;
@@ -32,8 +34,28 @@
 .colunas { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; max-width: 980px; margin: auto; align-items: start; }
 .colunas[data-com-rsvp=false] { grid-template-columns: minmax(0, 440px); justify-content: center; }
 .arte { min-width: 0; width: 100%; max-width: 440px; margin: 0 auto; }
+.moldura { position: relative; border: 3px solid var(--borda); border-radius: 21px; background: var(--convite-fundo); }
+.bordaAnimada { box-shadow: 0 0 0 1px color-mix(in srgb, var(--convite-destaque) 25%, transparent), 0 18px 48px color-mix(in srgb, var(--convite-tinta) 12%, transparent); }
+.bordaAnimada::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  z-index: 1;
+  padding: 3px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(120deg, var(--convite-destaque), var(--borda-luz), var(--convite-destaque), var(--borda-luz), var(--convite-destaque));
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: coresDaBorda 8s ease-in-out infinite;
+}
+.controleEfeitos { display: block; margin: 14px auto 0; padding: 6px 12px; border: 1px solid var(--borda); border-radius: 999px; background: var(--superficie); color: var(--convite-tinta); font: 12px Arial, sans-serif; cursor: pointer; }
+.publico[data-efeitos-pausados=true] .bordaAnimada::before, .publico[data-efeitos-pausados=true] .enfeites span { animation-play-state: paused; }
 .mapa { display: block; margin-top: 20px; padding: 16px; text-align: center; text-decoration: none; border: 1px solid var(--borda); border-radius: 12px; background: var(--superficie); color: var(--convite-tinta); font-size: 14px; font-weight: 600; }
-.painel { position: relative; min-width: 0; margin: 0; padding: 32px; border: 1px solid var(--borda); border-radius: 24px; background: var(--superficie); box-shadow: 0 20px 60px #0000000a; scroll-margin-top: 24px; }
+.painel { position: relative; min-width: 0; margin: 0; padding: 32px; border: 3px solid var(--borda); border-radius: 24px; background: var(--superficie); scroll-margin-top: 24px; }
 .selo { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 28px; border: 1px solid var(--borda); border-radius: 50%; color: var(--convite-tinta); background: color-mix(in srgb, var(--convite-destaque) 16%, var(--convite-fundo)); font: 32px Georgia, serif; }
 .painel h2 { margin: 12px 0; font: 32px/1.2 Georgia, serif; letter-spacing: -.5px; }
 .painel > p:not(.sobretitulo):not(.erro):not(.aviso) { margin: 0 0 22px; color: var(--secundario); font-size: 14px; line-height: 1.7; }
@@ -65,6 +87,7 @@
 .publico[data-tema=espaco] .enfeites span { animation-name: cintilar; }
 @keyframes flutuar { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-14px) rotate(12deg); } }
 @keyframes cintilar { 0%, 100% { opacity: .28; } 50% { opacity: .6; } }
+@keyframes coresDaBorda { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
 @media (max-width: 760px) {
   .publico { padding: 32px 18px 20px; }
   .cabecalho { margin-bottom: 28px; }
@@ -77,4 +100,5 @@
 @media (prefers-reduced-motion: reduce) {
   .publico *, .publico *::before, .publico *::after { animation: none !important; transition: none !important; }
   .primario:hover:not(:disabled) { transform: none; }
+  .controleEfeitos { display: none; }
 }

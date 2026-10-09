@@ -70,6 +70,22 @@ const dados = { conteudo, revisao: 1, publicado: false, desatualizado: false, li
       assert.equal(cores.botao, rgb(tinta)); assert.equal(cores.texto, rgb(fundo));
       const lum = hex => hex.slice(1).match(/../g).map(h => parseInt(h, 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s,v,i) => s + v * [.2126,.7152,.0722][i], 0);
       assert((Math.max(lum(fundo), lum(tinta)) + .05) / (Math.min(lum(fundo), lum(tinta)) + .05) >= 4.5, 'Texto e botão têm contraste AA');
+      const bordas = page.locator('section[aria-label="Convite da festa"] > div, #confirmar-presenca');
+      const lerBordas = () => bordas.evaluateAll(els => els.map(el => {
+        const css = getComputedStyle(el, '::before');
+        return { largura: getComputedStyle(el).borderTopWidth, animacao: css.animationName, estado: css.animationPlayState, posicao: css.backgroundPosition, cliques: css.pointerEvents };
+      }));
+      const inicial = await lerBordas();
+      assert.equal(inicial.length, 2);
+      assert(inicial.every(b => b.largura === '3px' && b.animacao !== 'none' && b.estado === 'running' && b.cliques === 'none'), 'Molduras visíveis e animadas sem bloquear interação');
+      await page.waitForTimeout(180);
+      assert((await lerBordas()).every((b, i) => b.posicao !== inicial[i].posicao), 'Cores das duas bordas se movimentam');
+      await page.getByRole('button', { name: 'Pausar efeitos' }).click();
+      const pausadas = await lerBordas();
+      await page.waitForTimeout(180);
+      assert((await lerBordas()).every((b, i) => b.estado === 'paused' && b.posicao === pausadas[i].posicao), 'Pausa mantém as bordas estáticas');
+      await page.getByRole('button', { name: 'Ativar efeitos' }).click();
+      assert((await lerBordas()).every(b => b.estado === 'running'), 'Efeitos podem ser retomados');
       await page.screenshot({ path: path.join(out, `publico-${tema}-desktop.png`), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       await page.screenshot({ path: path.join(out, `publico-${tema}-mobile.png`), fullPage: true });
@@ -80,11 +96,13 @@ const dados = { conteudo, revisao: 1, publicado: false, desatualizado: false, li
     }
     await page.emulateMedia({ reducedMotion: 'reduce' });
     assert(await page.locator('main [aria-hidden="true"] span').evaluateAll(els => els.every(el => getComputedStyle(el).animationName === 'none')), 'Movimento reduzido respeitado');
+    assert(await page.locator('section[aria-label="Convite da festa"] > div, #confirmar-presenca').evaluateAll(els => els.every(el => getComputedStyle(el, '::before').animationName === 'none')), 'Bordas estáticas com movimento reduzido');
+    assert.equal(await page.getByRole('button', { name: 'Pausar efeitos' }).count(), 0, 'Controle de animação oculto quando o sistema reduz movimento');
     dados.conteudo = { ...dados.conteudo, confirmarPresenca: false };
     await page.reload(); await page.getByRole('heading', { name: 'Alice Sofia' }).waitFor();
     assert.equal(await page.getByRole('form').count(), 0, 'RSVP desativado não mostra formulário');
     assert.equal(await page.getByRole('link', { name: 'Confirmar presença ↓' }).count(), 0);
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ ok: true, cenarios: ['editor cliente', 'troca de tema sem IA', 'salvar', 'download sem geração', 'publicar', 'mobile sem overflow', 'RSVP e atualização', '3 temas publicados', 'cores e contraste AA', 'atalho RSVP', 'movimento reduzido', 'RSVP desligado'], screenshots: out }));
+    console.log(JSON.stringify({ ok: true, cenarios: ['editor cliente', 'troca de tema sem IA', 'salvar', 'download sem geração', 'publicar', 'mobile sem overflow', 'RSVP e atualização', '3 temas publicados', 'cores e contraste AA', 'bordas em movimento', 'pausar e retomar efeitos', 'atalho RSVP', 'movimento reduzido', 'RSVP desligado'], screenshots: out }));
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
