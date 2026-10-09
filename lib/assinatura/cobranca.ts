@@ -28,7 +28,7 @@ import { precoDoCiclo, ConfiguracaoComercialInvalida, type Ciclo } from './confi
 import { AsaasFalhou, cicloDoProvedor, type AssinaturaProvedor, type ClienteAsaas } from './asaas.ts';
 import { cobrancaEmAberto } from './provedor-estado.ts';
 import { auditarCobranca, sincronizarEmpresa } from './sincronizacao.ts';
-import { concluirIntencao, encerrarPendencias, intencaoDoIdConfirmado, marcarIntencao, pendenciasAbertas, persistirMarcadorPrevio, registrarIdConfirmado,
+import { assinaturasComRemocaoIncerta, concluirIntencao, encerrarPendencias, intencaoDoIdConfirmado, marcarIntencao, pendenciasAbertas, persistirMarcadorPrevio, registrarIdConfirmado,
     registrarPendencia, registrarResultadoRemocao, removerComResultado } from './reconciliacao-contratacao.ts';
 import type { OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
@@ -162,8 +162,18 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
 
     // B. provedor, sem transação de tenant aberta
     const b = await noProvedor(async () => {
+        // Assinaturas com exclusão incerta (marcador aberto): nenhuma retomada abaixo as adota; com alguma, não há POST novo.
+        let marcadas: Set<string>;
+        try {
+            marcadas = await deps.withTransaction((tx) => assinaturasComRemocaoIncerta(tx, empresaId));
+        }
+        catch {
+            throw incerto();
+        }
         const anterior = a.linha.provedor_assinatura_id ? await provedor.obterAssinatura(a.linha.provedor_assinatura_id) : null;
         if (anterior && ativa(anterior)) {
+            if (marcadas.has(anterior.id))
+                throw incerto();
             const aberta = cobrancaEmAberto(await provedor.listarCobrancasDaAssinatura(anterior.id));
             return { assinatura: anterior, clienteId: a.linha.provedor_cliente_id ?? anterior.customer, aberta, criada: false, reaproveitada: true, encerrar: [] as string[] };
         }
@@ -180,8 +190,12 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         }
         // Retomada: assinatura ativa criada antes e não gravada (resposta perdida, COMMIT incerto) é reaproveitada.
         const retomada = unicaCandidata(await provedor.listarAssinaturasPorReferencia(empresaId), clienteId);
-        if (retomada.tipo === 'UNICA')
+        if (retomada.tipo === 'UNICA') {
+            // A única candidata com exclusão incerta não é adotada (a exclusão pode ter acontecido); também não cria outra.
+            if (marcadas.has(retomada.assinatura.id))
+                throw incerto();
             return { assinatura: retomada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, retomada.assinatura.id), criada: false, reaproveitada: true, encerrar: [] as string[] };
+        }
         if (retomada.tipo === 'AMBIGUA') {
             // Várias assinaturas (ou de outro cliente) para a empresa: não escolhe, não cria outra, não exclui.
             await registrarPendenciaSegura(deps, { empresaId, assinaturaId: null, motivo: 'ASSINATURAS_AMBIGUAS' });
@@ -198,7 +212,8 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             throw incerto();
         }
         for (const pend of abertas) {
-            if (!pend.assinatura_provedor_id)
+            // Só pendências de criação/vínculo (pendenciasAbertas já exclui marcadores); nunca uma assinatura marcada.
+            if (!pend.assinatura_provedor_id || marcadas.has(pend.assinatura_provedor_id))
                 continue;
             const conhecida = await provedor.obterAssinatura(pend.assinatura_provedor_id);
             if (conhecida && ativa(conhecida) && conhecida.externalReference === empresaId && (!conhecida.customer || conhecida.customer === clienteId)) {
@@ -208,7 +223,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
                 return { assinatura: conhecida, clienteId, aberta: await cobrancaAberta(provedor, conhecida.id), criada: false, reaproveitada: true, encerrar };
             }
         }
-        if (abertas.length)
+        if (abertas.length || marcadas.size)
             throw incerto();
         // Registro prévio: a intenção é gravada ANTES do POST. Se o processo cair ou a resposta se perder, ela continua
         // aberta e bloqueia novos POSTs. Sem conseguir gravá-la, não cria.
@@ -235,7 +250,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             // Resposta perdida: o provedor pode ter criado. Nunca cria outra às cegas; procura pela referência.
             const achadas = await provedor.listarAssinaturasPorReferencia(empresaId).catch(() => null);
             const confirmada = achadas ? unicaCandidata(achadas, clienteId) : null;
-            if (confirmada?.tipo === 'UNICA') {
+            if (confirmada?.tipo === 'UNICA' && !marcadas.has(confirmada.assinatura.id)) {
                 const encerrar = await persistirIdConfirmado(deps, empresaId, confirmada.assinatura.id, intencao);
                 return { assinatura: confirmada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, confirmada.assinatura.id), criada: true, reaproveitada: false, encerrar };
             }

@@ -40,12 +40,19 @@ export async function registrarPendencia(tx: DbExecutor, input: { empresaId: str
         [`${input.operacao === 'criacao' ? PREFIXO_CRIACAO : `${PREFIXO_PENDENCIA}contratacao:`}${input.empresaId}:${randomUUID()}`, TIPO_PENDENCIA, input.assinaturaId, input.empresaId, input.empresaId, input.detalhe ? `${input.motivo}: ${input.detalhe}` : input.motivo])).rows[0].id;
 }
 
-/** Pendências ainda abertas da empresa (PENDENTE/FALHOU): operações anteriores cujo resultado não foi resolvido. */
+/** Marcador de exclusão (`kidmais:remocao:`): NÃO é pendência de criação/vínculo e nunca é retomado nem encerrado por elas. */
+export const ehMarcadorRemocao = (eventoId: string) => eventoId.startsWith(PREFIXO_REMOCAO_SEM_CONFIRMACAO);
+
+/**
+ * Pendências de criação/vínculo ainda abertas da empresa (PENDENTE/FALHOU): operações anteriores cujo resultado não foi
+ * resolvido e que a retomada pode resolver. Marcadores de exclusão ficam de fora (ver assinaturasComRemocaoIncerta).
+ */
 export async function pendenciasAbertas(tx: DbExecutor, empresaId: string) {
     return (await tx.query<{ id: string; evento_id: string; assinatura_provedor_id: string | null }>(
         `SELECT id, evento_id, assinatura_provedor_id FROM cobranca_eventos
-          WHERE empresa_id = $1::uuid AND provedor = 'ASAAS' AND tipo = $2 AND situacao IN ('PENDENTE', 'FALHOU') ORDER BY recebido_em`,
-        [empresaId, TIPO_PENDENCIA])).rows;
+          WHERE empresa_id = $1::uuid AND provedor = 'ASAAS' AND tipo = $2 AND situacao IN ('PENDENTE', 'FALHOU') AND evento_id NOT LIKE $3
+          ORDER BY recebido_em`,
+        [empresaId, TIPO_PENDENCIA, `${PREFIXO_REMOCAO_SEM_CONFIRMACAO}%`])).rows.filter((p) => !ehMarcadorRemocao(p.evento_id));
 }
 
 /**
@@ -66,13 +73,15 @@ export function intencaoDoIdConfirmado(eventoId: string) {
 
 /**
  * Encerra pendências abertas da empresa (intenção e id confirmado). Chamada DENTRO da transação que grava o vínculo
- * (fase C): vínculo e encerramento são atômicos — ou os dois, ou nenhum.
+ * (fase C): vínculo e encerramento são atômicos — ou os dois, ou nenhum. NUNCA encerra marcador de exclusão: ele só fecha
+ * pelo resultado confirmado do próprio DELETE (fecharMarcadorRemocao) ou pela releitura (registrarRemocoes).
  */
 export async function encerrarPendencias(tx: DbExecutor, empresaId: string, ids: readonly string[], motivo: 'VINCULADA' | 'COMPENSADA' | 'SUBSTITUIDA_POR_PENDENCIA') {
     if (!ids.length)
         return;
     await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $3
-                     WHERE id = ANY($2::uuid[]) AND empresa_id = $1::uuid AND tipo = $4 AND situacao IN ('PENDENTE', 'FALHOU')`, [empresaId, ids, motivo, TIPO_PENDENCIA]);
+                     WHERE id = ANY($2::uuid[]) AND empresa_id = $1::uuid AND tipo = $4 AND situacao IN ('PENDENTE', 'FALHOU')
+                       AND evento_id NOT LIKE $5`, [empresaId, ids, motivo, TIPO_PENDENCIA, `${PREFIXO_REMOCAO_SEM_CONFIRMACAO}%`]);
 }
 
 /** Fecha a intenção de criação (resultado conhecido). A identidade do evento é imutável (068): só situação e motivo mudam. */
@@ -221,6 +230,14 @@ export async function registrarResultadoRemocao(independente: TransacaoIndepende
     }
 }
 
+/**
+ * Assinaturas da empresa com exclusão em curso ou sem confirmação (marcador aberto). Nenhuma retomada as adota (checkout,
+ * listagem com candidata única, id durável, reconciliação sem vínculo) e nenhuma é excluída de novo: só a releitura resolve.
+ */
+export async function assinaturasComRemocaoIncerta(tx: DbExecutor, empresaId: string) {
+    return new Set((await marcadoresDeRemocao(tx, empresaId)).map((m) => m.assinatura_provedor_id));
+}
+
 /** Marcadores de exclusão abertos da empresa (qualquer motivo): enquanto existir um, nada é excluído de novo nem liberado. */
 export async function marcadoresDeRemocao(tx: DbExecutor, empresaId: string) {
     return (await tx.query<{ id: string; assinatura_provedor_id: string }>(
@@ -291,6 +308,9 @@ export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, 
     const origem = { tipo: 'RECONCILIACAO' as const, requestId };
     const vinculada = linha.provedor_assinatura_id ? ativas.find((s) => s.id === linha.provedor_assinatura_id) ?? null : null;
     if (!vinculada) {
+        // Assinatura com exclusão incerta nunca é adotada como vínculo, nem sendo a única ativa (nem pelo próprio marcador).
+        if (ativas.length === 1 && semConfirmacao.has(ativas[0].id))
+            return { resultado: 'REVISAO_HUMANA', motivo: 'REMOCAO_SEM_CONFIRMACAO', ids: [ativas[0].id] };
         if (ativas.length === 0)
             return pendencia?.criacao && !pendencia.assinaturaId ? { resultado: 'AGUARDANDO', motivo: 'CRIACAO_NAO_CONFIRMADA' } : { resultado: 'NADA_A_FAZER', removidas: [] };
         if (ativas.length > 1)

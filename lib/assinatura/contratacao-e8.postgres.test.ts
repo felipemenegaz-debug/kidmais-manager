@@ -326,10 +326,11 @@ test('queda antes do COMMIT com vínculo não confirmado: NADA é excluído; pen
 test('releitura do vínculo impossível: dúvida total → nada excluído, pendência registrada pela conexão que funcionar', async () => {
     const empresa = await novaEmpresa();
     const provedor = new AsaasFalso();
-    // Transações comuns: 1 = pendências abertas, 2 = intenção, 3 = intenção confirmada, 4 = releitura do vínculo (falha).
+    // Transações comuns: 1 = marcadores de exclusão, 2 = pendências abertas, 3 = intenção, 4 = intenção confirmada,
+    // 5 = releitura do vínculo (falha).
     let n = 0;
     const withTx: DepsCobranca['withTransaction'] = (t) => {
-        if (++n === 4) { return Promise.reject(Object.assign(new Error('Connection terminated'), { code: 'ECONNRESET' })); }
+        if (++n === 5) { return Promise.reject(Object.assign(new Error('Connection terminated'), { code: 'ECONNRESET' })); }
         return withTransaction(t);
     };
     assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor, withTenant: quedaAntesDoCommit(empresa, 3), withTx }))), 'COBRANCA_RESULTADO_INCERTO');
@@ -752,6 +753,67 @@ test('concorrência real: dois marcadores prévios para a mesma assinatura ao me
     const ids = await Promise.all([1, 2].map(() => recon.persistirMarcadorPrevio(independenteReal, empresa, 'sub_corrida_marcador')));
     assert.equal(ids.filter(Boolean).length, 1);
     assert.deepEqual((await marcadores(empresa)).map((m) => m.assinatura_provedor_id), ['sub_corrida_marcador']);
+});
+
+// --- P1 da revisão independente: assinatura com exclusão incerta nunca é adotada pela retomada ---
+
+/** Empresa em TESTE, cliente conhecido, sem vínculo; assinatura ATIVA da empresa com marcador de exclusão aberto. */
+async function comAssinaturaMarcada(opcoes: { visivelNaListagem: boolean }) {
+    const empresa = await novaEmpresa();
+    const provedor = new AsaasFalso();
+    const cliente = (await provedor.criarCliente({ referencia: empresa })).id;
+    await q("UPDATE empresa_assinaturas SET provedor = 'ASAAS', provedor_cliente_id = $2 WHERE empresa_id = $1", [empresa, cliente]);
+    const marcada = provedor.criarDireto(cliente, empresa);
+    if (!opcoes.visivelNaListagem) provedor.ocultasNaListagem.add(marcada);
+    const recon = await import('./reconciliacao-contratacao.ts');
+    const marcador = await withTransaction((tx) => recon.abrirMarcadorRemocao(tx, empresa, marcada, 'REMOCAO_SEM_CONFIRMACAO'));
+    return { empresa, provedor, cliente, marcada, marcador, recon };
+}
+const estadoDoMarcador = async (id: string) => (await q('SELECT situacao, ultimo_erro FROM cobranca_eventos WHERE id = $1', [id])).rows.map((r) => [r.situacao, r.ultimo_erro])[0];
+
+for (const visivel of [false, true]) {
+    test(`checkout (P1): ${visivel ? 'listagem com uma única candidata, marcada' : 'listagem vazia + consulta direta ATIVA'} → não adota, não cria, marcador aberto; o processamento depois não vincula nem repete o DELETE`, async () => {
+        const { empresa, provedor, marcada, marcador } = await comAssinaturaMarcada({ visivelNaListagem: visivel });
+        assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+        assert.deepEqual([provedor.postsCriacao, await vinculo(empresa), await estadoDoMarcador(marcador)], [0, null, ['PENDENTE', 'REMOCAO_SEM_CONFIRMACAO']]);
+        // Nova tentativa: o mesmo resultado (nada de POST às cegas).
+        assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+        // Reconciliação do próprio marcador: a assinatura existe → revisão; nunca vira o vínculo, nunca outro DELETE.
+        const r = await withTransaction((tx) => processarEvento(tx, marcador, { provedor, transacaoIndependente: withTransaction }));
+        assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO']);
+        assert.deepEqual([await vinculo(empresa), await estadoDoMarcador(marcador), provedor.chamadasRemocao, provedor.postsCriacao, provedor.ativasDe(empresa)],
+            [null, ['FALHOU', 'REVISAO_HUMANA: REMOCAO_SEM_CONFIRMACAO'], 0, 0, [marcada]]);
+    });
+}
+
+test('checkout (P1): id durável de outra operação apontando para a assinatura marcada → não adota; nenhuma pendência é encerrada', async () => {
+    const { empresa, provedor, marcada, marcador, recon } = await comAssinaturaMarcada({ visivelNaListagem: false });
+    const outra = await withTransaction((tx) => recon.registrarPendencia(tx, { empresaId: empresa, assinaturaId: marcada, motivo: 'COMPENSACAO_FALHOU' }));
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'COBRANCA_RESULTADO_INCERTO');
+    assert.deepEqual([provedor.postsCriacao, await vinculo(empresa), await estadoDoMarcador(marcador), (await estadoDoMarcador(outra))[0]], [0, null, ['PENDENTE', 'REMOCAO_SEM_CONFIRMACAO'], 'PENDENTE']);
+});
+
+test('checkout (P1): retomada normal pelo id durável continua funcionando com um marcador ALHEIO aberto — vincula a confirmada, sem POST; o marcador fica intocado', async () => {
+    const { empresa, provedor, cliente, marcada, marcador, recon } = await comAssinaturaMarcada({ visivelNaListagem: false });
+    const confirmada = provedor.criarDireto(cliente, empresa);
+    provedor.ocultasNaListagem.add(confirmada);
+    const intencao = await withTransaction((tx) => recon.registrarPendencia(tx, { empresaId: empresa, assinaturaId: null, motivo: 'CRIACAO_EM_CURSO', operacao: 'criacao' }));
+    const idDuravel = await withTransaction((tx) => recon.registrarIdConfirmado(tx, { empresaId: empresa, assinaturaId: confirmada, intencaoId: intencao }));
+    const r = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean };
+    assert.deepEqual([r.reaproveitada, provedor.postsCriacao, await vinculo(empresa)], [true, 0, confirmada]);
+    assert.deepEqual([(await estadoDoMarcador(intencao))[0], (await estadoDoMarcador(idDuravel))[0]], ['PROCESSADO', 'PROCESSADO'], 'a intenção e o id durável da operação encerram');
+    assert.deepEqual(await estadoDoMarcador(marcador), ['PENDENTE', 'REMOCAO_SEM_CONFIRMACAO'], 'o marcador da exclusão incerta continua aberto');
+    assert.ok(provedor.ativasDe(empresa).includes(marcada));
+});
+
+test('encerrarPendencias nunca encerra marcador de exclusão (vínculo, compensação ou substituição), só as pendências de criação/vínculo', async () => {
+    const { empresa, marcador, recon } = await comAssinaturaMarcada({ visivelNaListagem: false });
+    const intencao = await withTransaction((tx) => recon.registrarPendencia(tx, { empresaId: empresa, assinaturaId: null, motivo: 'CRIACAO_EM_CURSO', operacao: 'criacao' }));
+    for (const motivo of ['VINCULADA', 'COMPENSADA', 'SUBSTITUIDA_POR_PENDENCIA'] as const)
+        await withTransaction((tx) => recon.encerrarPendencias(tx, empresa, [marcador, intencao], motivo));
+    assert.deepEqual([await estadoDoMarcador(marcador), (await estadoDoMarcador(intencao))[0]], [['PENDENTE', 'REMOCAO_SEM_CONFIRMACAO'], 'PROCESSADO']);
+    assert.deepEqual((await withTransaction((tx) => recon.pendenciasAbertas(tx, empresa))).map((p) => p.id), [], 'marcador não é pendência retomável');
+    assert.deepEqual([...(await withTransaction((tx) => recon.assinaturasComRemocaoIncerta(tx, empresa)))].length, 1);
 });
 
 test('compensação imediata com pagamento: duplicata confirmada pelo banco mas já paga → NÃO é excluída; pendência COMPENSACAO_PRESERVADA; reconciliação pede revisão', async () => {
