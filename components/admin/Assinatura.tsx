@@ -4,8 +4,12 @@ import admin from '@/components/admin/admin.module.css';
 import workspace from '@/components/admin/workspace.module.css';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { dataCurta, diasAte } from './AvisoComercial';
+import type { consultarOfertas } from '@/lib/assinatura/ofertas';
+import type { consultarRenovacao } from '@/lib/assinatura/renovacao-repositorio';
 
 export type DadosAssinatura = {
+    renovacao?: Awaited<ReturnType<typeof consultarRenovacao>>;
+    ofertas?: Awaited<ReturnType<typeof consultarOfertas>>;
     instalado: boolean; cobrado: boolean; gestao: boolean; agora: string;
     acesso: { nivel: 'COMPLETO' | 'SOMENTE_LEITURA' | 'BLOQUEADO'; motivo: string; ate: string | null };
     assinatura: { situacao: string; ciclo: 'MENSAL' | 'ANUAL' | null; testeInicio: string; testeFim: string; periodoAtualFim: string | null; emAtrasoDesde: string | null; encerradaEm: string | null } | null;

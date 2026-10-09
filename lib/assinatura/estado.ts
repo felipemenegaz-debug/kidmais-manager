@@ -1,6 +1,7 @@
 import type { DbExecutor } from '../db/contracts';
 import { calcularAcessoComercial, type AcessoComercial, type AssinaturaGravada, type ExcecaoGravada } from './acesso.ts';
 import { prazosDeAcesso } from './configuracao.ts';
+import { empresaIsenta } from './ofertas.ts';
 
 /**
  * Estado comercial da empresa COMPROVADA (067), lido na transação do tenant. Sem a 067 instalada, ou sem linha de
@@ -33,6 +34,8 @@ export async function lerEstadoComercial(tx: DbExecutor, empresaId: string, inst
         throw new Error('Instante de referência inválido.');
     if (!await comercialInstalado(tx))
         return { instalado: false, assinatura: null, excecoes: [], agora, acesso: calcularAcessoComercial(null) };
+    if (await empresaIsenta(tx, empresaId))
+        return { instalado: true, assinatura: null, excecoes: [], agora, acesso: calcularAcessoComercial(null) };
     const a = (await tx.query<{
         situacao: AssinaturaGravada['situacao']; ciclo: 'MENSAL' | 'ANUAL' | null; teste_inicio: string; teste_fim: string;
         periodo_atual_fim: string | null; em_atraso_desde: string | null; encerrada_em: string | null; versao: number;
