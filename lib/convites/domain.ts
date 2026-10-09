@@ -11,10 +11,13 @@ export const temas = {
   aquarela: { nome: 'Aquarela suave', fundo: '#fcf8f1', tinta: '#244744', destaque: '#7d9d8d', simbolo: '◌' },
   degrade: { nome: 'Degradê delicado', fundo: '#faf5fb', tinta: '#44324e', destaque: '#b392bf', simbolo: '○' },
   geometrica: { nome: 'Moldura geométrica', fundo: '#fcf9f2', tinta: '#494035', destaque: '#b18b5b', simbolo: '◇' },
+  foto_arco: { nome: 'Foto com arco', fundo: '#faf5eb', tinta: '#102e49', destaque: '#ad5d32', simbolo: '⌒' },
+  foto_aquarela: { nome: 'Foto com aquarela', fundo: '#fcf8f1', tinta: '#244744', destaque: '#7d9d8d', simbolo: '◌' },
+  foto_degrade: { nome: 'Foto com degradê', fundo: '#faf5fb', tinta: '#44324e', destaque: '#b392bf', simbolo: '○' },
 } as const;
 
 export const conteudoSchema = z.object({
-  tema: z.enum(['celebrar', 'jardim', 'espaco', 'planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica']),
+  tema: z.enum(['celebrar', 'jardim', 'espaco', 'planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica', 'foto_arco', 'foto_aquarela', 'foto_degrade']),
   nome: z.string().trim().min(1).max(80),
   idade: z.string().trim().max(20),
   mensagem: z.string().trim().max(400),

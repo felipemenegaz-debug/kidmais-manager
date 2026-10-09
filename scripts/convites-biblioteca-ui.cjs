@@ -22,7 +22,10 @@ const out = path.resolve('.local-convites-qa/biblioteca'); fs.mkdirSync(out, { r
         let data;
         if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null };
         else if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') data = { logoDataUrl: null };
-        else if (url.pathname === `/api/convites/publico/${'p'.repeat(43)}`) data = { conteudo: publicado };
+        else if (url.pathname === `/api/convites/publico/${'p'.repeat(43)}`) {
+          if (url.searchParams.has('arte')) return route.fulfill({ contentType: 'image/png', body: foto });
+          data = { conteudo: publicado };
+        }
         else if (['/api/admin/convites', '/api/convites/cliente'].includes(url.pathname)) {
           if (request.method() === 'POST') {
             const b = request.postDataJSON(); comandos.push(b);
@@ -51,6 +54,9 @@ const out = path.resolve('.local-convites-qa/biblioteca'); fs.mkdirSync(out, { r
       assert.equal(await page.getByRole('button', { name: /Base neutra · vários temas/ }).count(), 0);
       assert.equal(await page.getByLabel('Nome do aniversariante', { exact: true }).inputValue(), 'Rascunho preservado');
       assert.equal(comandos.length, 0, 'Filtrar não salva nem altera o convite');
+      await page.getByRole('button', { name: 'Com foto', exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: /Sua foto em destaque/ }).count(), 3);
+      assert.equal(await page.getByRole('button', { name: /Base neutra · vários temas/ }).count(), 0);
       await page.getByRole('button', { name: 'Todos', exact: true }).click();
       await page.getByLabel('Nome do aniversariante', { exact: true }).fill('Lucas');
       for (const [tema, nome] of [['planetas', 'Planetas'], ['arco', 'Arco clássico'], ['ondulada', 'Moldura ondulada'], ['aquarela', 'Aquarela suave'], ['degrade', 'Degradê delicado'], ['geometrica', 'Moldura geométrica']]) {
@@ -72,11 +78,35 @@ const out = path.resolve('.local-convites-qa/biblioteca'); fs.mkdirSync(out, { r
       }
       await page.locator('input[type="file"]').setInputFiles({ name: 'foto-teste.png', mimeType: 'image/png', buffer: foto });
       await page.getByRole('button', { name: 'Remover imagem do convite', exact: true }).waitFor();
+      for (const [tema, nome] of [['foto_arco', 'Foto com arco'], ['foto_aquarela', 'Foto com aquarela'], ['foto_degrade', 'Foto com degradê']]) {
+        await page.getByRole('button', { name: new RegExp(`^${nome}`) }).click();
+        const preview = page.getByRole('article', { name: 'Prévia do convite' });
+        assert.equal(await preview.locator('svg image').count(), 1, 'Trocar modelo mantém foto');
+        await page.getByRole('button', { name: 'Salvar rascunho', exact: true }).click();
+        await page.getByRole('status').filter({ hasText: 'Rascunho salvo' }).waitFor();
+        await page.reload(); await preview.locator('svg image').waitFor();
+        assert.equal(dados.conteudo.tema, tema); assert.equal(dados.conteudo.arteId, id(10));
+        const download = page.waitForEvent('download');
+        await page.getByRole('button', { name: 'Baixar imagem', exact: true }).click();
+        const png = path.join(out, `${admin ? 'buffet' : 'cliente'}-${tema}.png`);
+        await (await download).saveAs(png);
+        const meta = await sharp(png).metadata(); assert.equal(meta.width, 1080); assert.equal(meta.height, 1800);
+        const pixel = await sharp(png).extract({ left: 540, top: 520, width: 1, height: 1 }).removeAlpha().raw().toBuffer();
+        assert.deepEqual([...pixel], [230, 170, 148], 'PNG inclui a foto enviada');
+        await page.getByRole('button', { name: 'Publicar convite', exact: true }).click();
+        await page.getByRole('status').filter({ hasText: 'Convite publicado' }).waitFor();
+        const publicaFoto = await context.newPage(); await publicaFoto.goto(`${base}${dados.linkPublico}`);
+        await publicaFoto.getByRole('heading', { name: 'Confirme sua presença' }).waitFor();
+        assert.equal(await publicaFoto.locator('main').getAttribute('data-tema'), tema);
+        await publicaFoto.getByRole('article').locator('svg image').waitFor();
+        await publicaFoto.close();
+      }
       assert.equal(await page.getByRole('article', { name: 'Prévia do convite' }).locator('svg image').count(), 1);
       const comFoto = page.waitForEvent('download');
       await page.getByRole('button', { name: 'Baixar imagem', exact: true }).click();
       await (await comFoto).saveAs(path.join(out, `com-foto-${admin ? 'buffet' : 'cliente'}.png`));
       await page.getByRole('button', { name: 'Remover imagem do convite', exact: true }).click();
+      assert.equal(await page.getByRole('article', { name: 'Prévia do convite' }).locator('svg image').count(), 0);
       await page.getByLabel('Nome do aniversariante', { exact: true }).fill('Maria Eduarda Aparecida de Albuquerque e Vasconcelos');
       await page.getByRole('textbox', { name: /^Mensagem/ }).fill('Venha comemorar com a nossa família! '.repeat(11));
       for (const width of [390, 320]) {
@@ -88,7 +118,7 @@ const out = path.resolve('.local-convites-qa/biblioteca'); fs.mkdirSync(out, { r
       await page.getByRole('status').filter({ hasText: 'Convite publicado' }).waitFor();
       const publica = await context.newPage(); await publica.goto(`${base}${dados.linkPublico}`);
       await publica.getByRole('heading', { name: 'Confirme sua presença' }).waitFor();
-      assert.equal(await publica.locator('main').getAttribute('data-tema'), 'geometrica');
+      assert.equal(await publica.locator('main').getAttribute('data-tema'), 'foto_degrade');
       assert((await publica.getByRole('article', { name: 'Prévia do convite' }).textContent()).includes('Maria Eduarda'));
       await publica.setViewportSize({ width: 390, height: 844 });
       assert(await publica.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -96,6 +126,6 @@ const out = path.resolve('.local-convites-qa/biblioteca'); fs.mkdirSync(out, { r
       assert.equal(dados.disponiveis, 0); assert.deepEqual(erros, []);
       await context.close();
     }
-    console.log('PASS biblioteca: buffet/cliente, seis modelos, filtros preservam edição, salvar/reabrir, PNG, arte própria, textos longos, celular, publicação e RSVP; nenhum crédito consumido.');
+    console.log('PASS biblioteca: buffet/cliente, nove modelos, filtros preservam edição, salvar/reabrir, foto no PNG e na publicação, remoção, textos longos, celular e RSVP; nenhum crédito consumido.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

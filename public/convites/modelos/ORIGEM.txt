@@ -1,5 +1,6 @@
 Coleção KidMais — Planetas, Arco clássico, Moldura ondulada,
-Aquarela suave, Degradê delicado e Moldura geométrica
+Aquarela suave, Degradê delicado, Moldura geométrica,
+Foto com arco, Foto com aquarela e Foto com degradê
 Incluída em 09/10/2026.
 
 Fundos, molduras e composição tipográfica: implementação original KidMais,
