@@ -23,7 +23,8 @@
 -- Compatível com os postchecks da 060, 076 e 077: as restrições redefinidas (tipo, mídia por tipo, legenda, par de
 -- mídia) mantêm os NOMES da 077 e só ampliam as listas; nenhuma restrição da 060/076 é removida. Aditiva: as linhas
 -- existentes continuam válidas (prontas atuais viram PUBLICADA ou ARQUIVADA conforme `ativa`). Com a 078 aplicada, o
--- down da 077 falha fechado (a FK do arquivo depende de `midia_tipo`): desfazer a 078 antes.
+-- down da 077 recusa por guarda explícita (a FK do arquivo NÃO bastava: o DROP COLUMN a derrubaria junto): desfazer
+-- a 078 antes. Ordem: 078 → 077 → 076 → 065 → 060.
 -- Postcheck: database/checks/20261009_078_postcheck.sql. Rollback: database/rollback/20261009_078_wall_e_atendimento_down.sql.
 BEGIN;
 SET LOCAL lock_timeout = '5s';

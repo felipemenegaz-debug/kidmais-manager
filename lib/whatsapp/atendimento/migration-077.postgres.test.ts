@@ -29,7 +29,7 @@ import type { ConteudoSaida } from "./transporte.ts";
  *  8. PARAR e janela de 24 h: mídia na fila é cancelada antes do provedor; novo envio recusado;
  *  8b. ENTRE A PRÉVIA E O ENVIO: pronta editada → envio recusado, nada gravado; nova prévia → envio com a mídia nova;
  *     edição EM ANDAMENTO durante o envio: o envio espera a edição terminar e é recusado (não troca a mídia);
- *  9. rollback: a FK impede apagar pronta referenciada e o down da 076 (falha fechado com a 077); down da 077 recusa
+ *  9. rollback: a FK impede apagar pronta referenciada; o down da 076 recusa com a 077 (guarda explícita); down da 077 recusa
  *     com mídia na fila (mesmo com as decisões), sem a decisão sobre mídias enviadas e sem a decisão sobre as prontas;
  *     com as duas, remove só a 077 (prontas de mídia e favoritas delas; atalhos novos vazios); pós-rollback; o
  *     atendimento segue (sem cache); reaplicável.
@@ -257,9 +257,9 @@ test("077: fotos e vídeos — ordem, aplicação, cadastro, isolamento, envio p
     await entrar("5561900000605", "Oi"); await controlar("5561900000605", "assumir");
     await enviarMidia("5561900000605", await previa("5561900000605", foto));            // fica na fila
     await biblioteca.favoritarPronta(atendA, { id: foto, favorita: true });
-    // A FK protege a origem: a pronta referenciada não pode ser apagada; o down da 076 falha fechado com a 077.
+    // A FK protege a origem: a pronta referenciada não pode ser apagada; o down da 076 recusa com a 077 (guarda explícita).
     await recusa(c, "DELETE FROM whatsapp_atendimento_mensagens_prontas WHERE id = $1", [video], /whatsapp_mensagens_midia_pronta/);
-    await assert.rejects(c.query(comDecisoes(DOWN076, "kidmais.rollback_076_descartar_prontas")), /depend/); await c.query("ROLLBACK").catch(() => {});
+    await assert.rejects(c.query(comDecisoes(DOWN076, "kidmais.rollback_076_descartar_prontas")), /Rollback da 076 recusado: a 077 ou a 078 ainda estão aplicadas/); await c.query("ROLLBACK").catch(() => {});
     await c.query(POST); await c.query(POST076);
     assert.ok((await c.query("SELECT to_regclass('public.whatsapp_atendimento_mensagens_prontas') AS t")).rows[0].t, "prontas intactas depois da recusa da 076");
     // Down da 077: fila (mesmo com as duas decisões) → mídias enviadas → prontas de mídia.

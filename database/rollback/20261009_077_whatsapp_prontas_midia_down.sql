@@ -9,8 +9,8 @@
 --
 -- O rollback de código não exige este script: sem as colunas a tela só deixa de oferecer fotos e vídeos (o serviço
 -- confere o catálogo a cada uso). Este down remove a estrutura e devolve as restrições da 076 com os nomes originais.
--- Ordem entre migrations: este down vem ANTES do down da 076 (a FK da origem da mídia faz o down da 076 falhar
--- fechado enquanto a 077 existir).
+-- Ordem entre migrations: 078 → 077 → 076 → 065 → 060. Este down recusa enquanto qualquer objeto da 078 existir e vem
+-- ANTES do down da 076 (que recusa enquanto a 077 existir). A recusa acontece antes de travar ou alterar qualquer coisa.
 --
 -- Fail closed, numa transação só:
 --   1. lock_timeout curto; trava ACCESS EXCLUSIVE nas duas tabelas antes de conferir;
@@ -31,6 +31,14 @@ DO $$ BEGIN
   IF to_regclass('public.whatsapp_atendimento_mensagens_prontas') IS NULL
      OR NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.whatsapp_atendimento_mensagens_prontas'::regclass AND attname = 'midia_url' AND NOT attisdropped) THEN
     RAISE EXCEPTION '077 ausente: nada a remover.';
+  END IF;
+  -- Revisão final (09/10): com qualquer objeto da 078 ainda aplicado, recusa ANTES de travar ou alterar qualquer coisa.
+  -- Sem esta guarda o DROP COLUMN midia_tipo derrubaria junto a FK da 078 (restrição da mesma tabela) e deixaria a 078
+  -- pela metade (arquivos, estado/finalidade das prontas, grupos de saída). Ordem: 078 → 077 → 076 → 065 → 060.
+  IF to_regclass('public.whatsapp_atendimento_arquivos') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.whatsapp_atendimento_mensagens_prontas'::regclass AND attname IN ('estado', 'arquivo_id', 'finalidade', 'envio_automatico') AND NOT attisdropped)
+     OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.whatsapp_atendimento_mensagens') AND attname IN ('origem_grupo_id', 'midia_arquivo_id', 'fonte') AND NOT attisdropped) THEN
+    RAISE EXCEPTION 'Rollback da 077 recusado: a 078 ainda está aplicada (total ou parcialmente). Rode antes o down da 078. Ordem: 078 → 077 → 076 → 065 → 060.';
   END IF;
 END $$;
 

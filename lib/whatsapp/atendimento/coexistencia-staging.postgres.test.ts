@@ -70,7 +70,7 @@ test("coexistência e rollback cruzado do atendimento com 064/066/067/068/069/07
       UNION ALL SELECT 'i:' || ic.relname || ':' || md5(pg_get_indexdef(ix.indexrelid)) FROM pg_index ix JOIN pg_class cl ON cl.oid = ix.indrelid JOIN pg_class ic ON ic.oid = ix.indexrelid WHERE cl.relname = ANY($2)
     ) s`, [prefixoFuncao, tabelas])).rows.map((x) => `${x.n}:${x.h}`)[0];
   const FUNCOES_STAGING = "^kidmais_?(06[46789]|070)"; // 064, 066–070 de staging (a 065 é do atendimento)
-  const FUNCOES_ATENDIMENTO = "^kidmais_?(060|065|07[3-5])"; // 060, 065, 076–078 do atendimento
+  const FUNCOES_ATENDIMENTO = "^kidmais_?(060|065|07[6-8])"; // 060, 065, 076–078 do atendimento (a renumeração 073–075 → 076–078 não alcançou a classe)
   const retratoStaging = async () => ({ dados: await dados(TABELAS_STAGING), objetos: await objetos(FUNCOES_STAGING, TABELAS_STAGING) });
   const retratoAtendimento = async () => { const tb = await tabelasAtendimento(); return { tabelas: tb, dados: await dados(tb), objetos: await objetos(FUNCOES_ATENDIMENTO, tb) }; };
   const postStaging = async (rotulo: string) => { for (const s of STAGING) await assert.doesNotReject(q(s.post), `${rotulo}: postcheck ${s.n}`); };

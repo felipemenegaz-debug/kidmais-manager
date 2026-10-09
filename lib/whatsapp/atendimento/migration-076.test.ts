@@ -29,7 +29,13 @@ test('rollback da 076 só remove as tabelas dela e exige decisão explícita com
   assert.deepEqual([...sql.matchAll(/DROP TABLE (\w+)/g)].map(m => m[1]), ['whatsapp_atendimento_mensagens_prontas_favoritas', 'whatsapp_atendimento_mensagens_prontas']);
   assert.match(sql, /LOCK TABLE [\s\S]* IN ACCESS EXCLUSIVE MODE/);
   assert.match(sql, /kidmais\.rollback_076_descartar_prontas/);
-  assert.doesNotMatch(sql, /whatsapp_atendimento_(conversas|mensagens|config|status|auditoria)\b(?!_)/, 'não toca a 060');
+  // Revisão final (H1/M1): a guarda de dependentes LÊ o catálogo das tabelas da 060 (colunas da 077/078 em mensagens);
+  // nenhum comando que escreve ou trava toca a 060.
+  const comandos = sql.split(';').map((s) => s.trim()).filter((s) => /^(DROP|ALTER|LOCK|DELETE|UPDATE|INSERT|TRUNCATE|CREATE)\b/i.test(s));
+  assert.ok(comandos.length >= 3, String(comandos.length));
+  for (const c of comandos) assert.doesNotMatch(c, /whatsapp_atendimento_(conversas|mensagens|config|status|auditoria)\b(?!_)/, `não toca a 060: ${c.slice(0, 60)}`);
+  const recusa = sql.indexOf('a 077 ou a 078 ainda estão aplicadas');
+  assert.ok(recusa > 0 && recusa < sql.indexOf('LOCK TABLE'), 'recusa dependentes antes de travar ou alterar');
 });
 
 test('postcheck da 076 é somente leitura', () => {

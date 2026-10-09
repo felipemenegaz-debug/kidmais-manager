@@ -15,6 +15,13 @@ DO $$ BEGIN
   IF to_regclass('public.whatsapp_atendimento_mensagens_prontas') IS NULL THEN
     RAISE EXCEPTION '076 ausente: nada a remover.';
   END IF;
+  -- Revisão final (09/10): com a 077 ou a 078 ainda aplicadas (total ou parcialmente), recusa ANTES de travar ou alterar
+  -- qualquer coisa (antes, só a FK da origem da mídia fazia o DROP falhar, com erro genérico). Ordem: 078 → 077 → 076.
+  IF to_regclass('public.whatsapp_atendimento_arquivos') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.whatsapp_atendimento_mensagens_prontas'::regclass AND attname IN ('midia_url', 'estado', 'arquivo_id', 'finalidade', 'envio_automatico') AND NOT attisdropped)
+     OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.whatsapp_atendimento_mensagens') AND attname IN ('midia_tipo', 'midia_pronta_id', 'origem_grupo_id', 'midia_arquivo_id', 'fonte') AND NOT attisdropped) THEN
+    RAISE EXCEPTION 'Rollback da 076 recusado: a 077 ou a 078 ainda estão aplicadas (total ou parcialmente). Rode antes os downs delas. Ordem: 078 → 077 → 076 → 065 → 060.';
+  END IF;
 END $$;
 
 LOCK TABLE whatsapp_atendimento_mensagens_prontas_favoritas, whatsapp_atendimento_mensagens_prontas IN ACCESS EXCLUSIVE MODE;

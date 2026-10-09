@@ -17,7 +17,7 @@ import type { ConteudoSaida } from "./transporte.ts";
  *     saída com mídia enviada pelo worker (077, versão da prévia gravada);
  *  C4 rollback cruzado:
  *     a) a 065 sai com a 077 presente (e volta): mídia, origem e tela intactas;
- *     b) a 076 NÃO sai com a 077 presente (FK da origem: falha fechado, nada removido);
+ *     b) a 076 NÃO sai com a 077 presente (guarda explícita do down, antes de travar; nada removido);
  *     c) a 063 em uso recusa o próprio rollback (a 077 não interfere);
  *     d) a 077 sai (com as decisões explícitas) com a 065 presente; 060/063/076/065 e a sessão intactas; a tela segue;
  *     e) só então a 076 sai; reaplicação na ordem 076 → 065 já presente → 077 (a 077 depois da 065): postchecks ok.
@@ -108,9 +108,9 @@ test("coexistência da 077 com 060/063/076/065: as duas ordens, dados de todos o
     await servico.receberEntrada({ id: cod("evt-"), app: "KidmaisManager", source: contato, texto: "Oi de novo", timestamp: Date.now(), nomePerfil: "Perfil coexistência 077" });
     assert.equal((await tela()).perfil, "Perfil coexistência 077", "C4a: nome de perfil de volta com a 077 presente");
 
-    // C4b — a 076 NÃO sai com a 077 presente: a FK da origem faz o DROP TABLE falhar fechado; nada é removido.
+    // C4b — a 076 NÃO sai com a 077 presente: a guarda do down recusa antes de travar ou alterar; nada é removido.
     const prontas = Number((await c.query("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens_prontas")).rows[0].n);
-    await assert.rejects(c.query(comDecisoes(DOWN076, "kidmais.rollback_076_descartar_prontas")), /depend/); await c.query("ROLLBACK").catch(() => {});
+    await assert.rejects(c.query(comDecisoes(DOWN076, "kidmais.rollback_076_descartar_prontas")), /Rollback da 076 recusado: a 077 ou a 078 ainda estão aplicadas/); await c.query("ROLLBACK").catch(() => {});
     assert.equal(Number((await c.query("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens_prontas")).rows[0].n), prontas, "C4b: prontas intactas");
     assert.ok((await c.query("SELECT to_regclass('public.whatsapp_atendimento_mensagens_prontas_favoritas') AS t")).rows[0].t, "C4b: favoritas intactas");
     await cinco("C4b");

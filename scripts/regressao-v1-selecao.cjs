@@ -110,6 +110,9 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/coexistencia-077.postgres.test.ts": { descartavel: "063" },
   // Candidata: coexistência e rollback cruzado do atendimento (060/065/076/077/078) com 064/066/067/068/069/070 de staging.
   "lib/whatsapp/atendimento/coexistencia-staging.postgres.test.ts": { descartavel: "063" },
+  // Revisão final da integração r47: ordem dos rollbacks (H1/M1, recusa de dependentes com e sem dados), turno do resumo
+  // pelo escopo da empresa/unidade (M2, precisa da 062) e validade da fila + automação global desligada (M3/M4).
+  "lib/whatsapp/atendimento/rollback-ordem.postgres.test.ts": { descartavel: "063" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
