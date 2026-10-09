@@ -94,16 +94,21 @@ function transacaoIndependenteDaExecucao(aplicar, principal, abrirMarcador, comP
     return comPrazo(abrirMarcador, prazoMs);
 }
 
-/** Conexão nova para UMA transação do marcador: confere o alvo; liberar/descartar a encerram (descartar destrói o soquete). */
-async function abrirConexaoDoMarcador(Client, alvo, conexaoDeClientePg) {
+/**
+ * Conexão nova para UMA transação do marcador: confere o alvo antes de qualquer escrita; liberar/descartar a encerram
+ * (descartar destrói o soquete). O adaptador é REGISTRADO no prazo antes de conectar e de conferir o banco: se a conexão
+ * ou o `SELECT current_database()` nunca responderem, o prazo destrói o soquete (não fica conexão aberta para trás).
+ */
+async function abrirConexaoDoMarcador(Client, alvo, conexaoDeClientePg, registrar = () => undefined) {
     const c = new Client({
         connectionString: alvo.connectionString, ssl: alvo.local ? false : { rejectUnauthorized: true },
         connectionTimeoutMillis: 10_000, application_name: 'kidmais-assinatura-reconciliar-marcador',
     });
     c.on('error', () => undefined);
-    await c.connect();
     const conexao = conexaoDeClientePg(c, { liberar: () => { c.end().catch(() => undefined); }, descartar: () => { c.end().catch(() => undefined); } });
+    registrar(conexao);
     try {
+        await c.connect();
         const id = (await c.query('SELECT current_database() AS db')).rows[0];
         if (id.db !== alvo.database)
             throw new Error('Alvo recusado: o banco conectado não é o confirmado.');
@@ -141,7 +146,7 @@ async function main() {
     // Aplicando: o marcador de exclusão usa uma conexão nova por transação, com prazo do lado da aplicação.
     const { transacaoComPrazo, conexaoDeClientePg } = await import('../lib/db/transacao-com-prazo.ts');
     const { PRAZO_TRANSACAO_INDEPENDENTE_MS } = await import('../lib/assinatura/reconciliacao-contratacao.ts');
-    const abrirMarcador = () => abrirConexaoDoMarcador(Client, alvo, conexaoDeClientePg);
+    const abrirMarcador = (registrar) => abrirConexaoDoMarcador(Client, alvo, conexaoDeClientePg, registrar);
     try {
         const id = (await client.query('SELECT current_database() AS db')).rows[0];
         if (id.db !== alvo.database)

@@ -5,7 +5,8 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import pg, { type Client } from 'pg';
 import { conectarDescartavel, encerrarDescartavel, portaDescartavel, senhaRecusada } from '../comercial/postgres-descartavel.ts';
-import { conexaoDescartavelDoPoolPg, transacaoComPrazo } from '../db/transacao-com-prazo.ts';
+import { createRequire } from 'node:module';
+import { conexaoDeClientePg, conexaoDescartavelDoPoolPg, transacaoComPrazo } from '../db/transacao-com-prazo.ts';
 import { iniciarTeste } from './servico.ts';
 import { processarEvento } from './sincronizacao.ts';
 import { registrarPendencia, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
@@ -106,6 +107,7 @@ async function processar(pend: string, provedor: object, independente: Transacao
 }
 
 let proxy: ReturnType<typeof proxyTcp>;
+let portaProxy = 0;
 let pool: pg.Pool;
 let independenteComPrazo: TransacaoIndependente;
 test.before(async () => {
@@ -114,6 +116,7 @@ test.before(async () => {
     await q(readFileSync(M068, 'utf8'));
     proxy = proxyTcp(portaDescartavel());
     const porta = await proxy.abrir();
+    portaProxy = porta;
     pool = new pg.Pool({ host: '127.0.0.1', port: porta, user: 'kidmais_descartavel', database: 'kidmais_pacotes_v1_descartavel', password: senhaRecusada,
         max: 2, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000, application_name: APLICACAO });
     pool.on('error', () => undefined);
@@ -172,6 +175,30 @@ test('D1 + D2: DELETE confirmado e a gravação do resultado sem resposta → ma
     assert.equal(provedor.removerChamadas, 1, 'nenhum DELETE repetido');
     assert.deepEqual(await marcadores(empresa), [['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_RELEITURA']]);
     assert.deepEqual(await auditorias(empresa), [['ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA', 'AUSENCIA_NA_RELEITURA']], 'autoria não atribuída à aplicação');
+});
+
+const MARCADOR_DO_SCRIPT = 'kidmais-assinatura-reconciliar-marcador';
+const backendsDoScript = async () => (await q('SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = $1', [MARCADOR_DO_SCRIPT])).rows[0].n as number;
+
+test('D1, abertura do SCRIPT pelo proxy (pg.Client real): SELECT current_database() sem resposta → prazo finito, soquete destruído, sessão encerrada no servidor, ADIADA, nenhum DELETE; com a rede de volta, a mesma abertura confere o banco e exclui', async () => {
+    const { empresa, pend, provedor } = await cenario();
+    const script = createRequire(import.meta.url)('../../scripts/assinatura-reconciliar.cjs') as {
+        transacaoIndependenteDaExecucao: (aplicar: boolean, principal: unknown, abrir: unknown, comPrazo: unknown, prazoMs: number) => TransacaoIndependente;
+        abrirConexaoDoMarcador: (Client: unknown, alvo: unknown, adaptar: unknown, registrar?: unknown) => Promise<unknown>;
+    };
+    const alvo = { connectionString: `postgresql://kidmais_descartavel@127.0.0.1:${portaProxy}/kidmais_pacotes_v1_descartavel`, local: true, database: 'kidmais_pacotes_v1_descartavel' };
+    const independente = script.transacaoIndependenteDaExecucao(true, null, (registrar: unknown) => script.abrirConexaoDoMarcador(pg.Client, alvo, conexaoDeClientePg, registrar), transacaoComPrazo, PRAZO);
+    proxy.regras.engolirAoEnviar = 'current_database';
+    const { r, ms } = await processar(pend, provedor, independente);
+    assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'ADIADA: MARCADOR_NAO_GRAVADO']);
+    assert.ok(ms >= PRAZO - 50 && ms < PRAZO + 4000, `prazo finito: ${ms} ms`);
+    assert.deepEqual([provedor.removerChamadas, await marcadores(empresa)], [0, []], 'nenhuma escrita de negócio, nenhum DELETE');
+    assert.ok(await ate(async () => (await backendsDoScript()) === 0), 'o soquete foi destruído: o servidor encerrou a sessão aberta na conferência');
+    proxy.regras.engolirAoEnviar = null;
+    const depois = await processar(pend, provedor, independente);
+    assert.deepEqual([depois.r.situacao, depois.r.motivo, provedor.removerChamadas], ['PROCESSADO', 'CONCILIADA', 1]);
+    assert.deepEqual(await auditorias(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 'RESPOSTA_DO_PROVEDOR']]);
+    assert.ok(await ate(async () => (await backendsDoScript()) === 0), 'conexões do marcador encerradas ao fim de cada transação');
 });
 
 test('D2: resposta confirmada ao nosso DELETE grava "duplicata removida" uma vez; reprocessar não grava ausência por cima (sem auditoria duplicada)', async () => {

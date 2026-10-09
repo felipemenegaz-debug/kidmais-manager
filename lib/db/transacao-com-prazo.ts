@@ -11,7 +11,8 @@ import type { DbExecutor, DbQueryResult } from "./contracts";
  *     PrazoDaTransacaoVencido; o servidor desfaz o que estava aberto quando percebe a desconexão;
  *   - depois do prazo, nenhuma consulta nova é enviada; a resposta pendente, se vier, é ignorada;
  *   - COMMIT sem resposta é resultado DESCONHECIDO (pode ter sido aplicado): quem chama trata como falha;
- *   - conexão que chega depois do prazo é descartada, não fica presa.
+ *   - a conexão é registrada assim que existe (antes de conectar e de conferir o banco): o prazo a descarta em qualquer
+ *     ponto da abertura; conexão que chega depois do prazo também é descartada; cada conexão fecha uma só vez.
  * Não altera o pool nem as outras transações da aplicação.
  */
 export type ConexaoDescartavel = {
@@ -35,39 +36,61 @@ export class PrazoDaTransacaoVencido extends Error {
 
 export type TransacaoComPrazo = <T>(trabalho: (tx: DbExecutor) => Promise<T>) => Promise<T>;
 
+/**
+ * Abre a conexão. `registrar` deve ser chamado ASSIM QUE a conexão existir (antes de conectar ou de qualquer conferência
+ * que possa ficar sem resposta): a partir daí o prazo consegue descartá-la mesmo que a abertura nunca termine.
+ * Registrar depois do prazo descarta na hora. Quem não registra é coberto quando a abertura resolve (descartada se tarde).
+ */
+export type AbrirConexao = (registrar: (conexao: ConexaoDescartavel) => void) => Promise<ConexaoDescartavel>;
+
 const nomeDaEtapa = (sql: string) => sql.trim().split(/\s+/, 1)[0]?.toUpperCase() || "CONSULTA";
 
-export function transacaoComPrazo(abrir: () => Promise<ConexaoDescartavel>, prazoMs: number): TransacaoComPrazo {
+export function transacaoComPrazo(abrir: AbrirConexao, prazoMs: number): TransacaoComPrazo {
   return async <T>(trabalho: (tx: DbExecutor) => Promise<T>): Promise<T> => {
     let conexao: ConexaoDescartavel | null = null;
-    let encerrada = false;
+    let aberturaConcluida = false;
     let vencido: PrazoDaTransacaoVencido | null = null;
     let etapa = "OBTER_CONEXAO";
     let avisar: (erro: PrazoDaTransacaoVencido) => void = () => undefined;
     const prazo = new Promise<never>((_ok, falha) => { avisar = falha; });
     prazo.catch(() => undefined);
-    const descartar = (motivo: Error) => {
-      if (!conexao || encerrada) return;
-      encerrada = true;
-      try { conexao.descartar(motivo); } catch { /* já estava fechada */ }
+    /** Conexões conhecidas desta transação (registradas na abertura ou entregues por ela); cada uma fecha uma só vez. */
+    const conhecidas = new Set<ConexaoDescartavel>();
+    const fechadas = new Set<ConexaoDescartavel>();
+    const descartarUma = (c: ConexaoDescartavel, motivo: Error) => {
+      if (fechadas.has(c)) return;
+      fechadas.add(c);
+      try { c.descartar(motivo); } catch { /* já estava fechada */ }
+    };
+    const liberarUma = (c: ConexaoDescartavel) => {
+      if (fechadas.has(c)) return;
+      fechadas.add(c);
+      c.liberar();
+    };
+    const descartarTodas = (motivo: Error) => { for (const c of conhecidas) descartarUma(c, motivo); };
+    const registrar = (c: ConexaoDescartavel) => {
+      conhecidas.add(c);
+      if (vencido) descartarUma(c, vencido);
     };
     const timer = setTimeout(() => {
       vencido = new PrazoDaTransacaoVencido(etapa, prazoMs);
-      descartar(vencido);
+      descartarTodas(vencido);
       avisar(vencido);
     }, prazoMs);
     /** Espera no máximo até o prazo; a promessa abandonada nunca vira rejeição sem tratamento. */
     const ate = <R>(p: Promise<R>) => { p.catch(() => undefined); return Promise.race([p, prazo]); };
     try {
-      const aberta = abrir();
-      // Conexão que chega depois do prazo: descarta, não deixa presa.
-      aberta.then((c) => { if (vencido) { try { c.descartar(vencido); } catch { /* ignorado */ } } }, () => undefined);
+      const aberta = abrir(registrar);
+      // Conexão entregue depois do prazo (ou não registrada a tempo): descarta, não deixa presa.
+      aberta.then((c) => registrar(c), () => undefined);
       conexao = await ate(aberta);
+      registrar(conexao);
       if (vencido) throw vencido;
+      aberturaConcluida = true;
       const tx: DbExecutor = {
         query: (<Row extends object = Record<string, unknown>>(sql: string, valores: readonly unknown[] = []) => {
           if (vencido) return Promise.reject(vencido);
-          if (encerrada) return Promise.reject(new Error("Transação já encerrada."));
+          if (fechadas.has(conexao!)) return Promise.reject(new Error("Transação já encerrada."));
           etapa = nomeDaEtapa(sql);
           return ate(conexao!.query<Row>(sql, valores)) as Promise<DbQueryResult<Row>>;
         }) as DbExecutor["query"],
@@ -75,21 +98,24 @@ export function transacaoComPrazo(abrir: () => Promise<ConexaoDescartavel>, praz
       await tx.query("BEGIN");
       const resultado = await trabalho(tx);
       await tx.query("COMMIT");
-      encerrada = true;
-      conexao.liberar();
+      liberarUma(conexao);
       return resultado;
     }
     catch (erro) {
-      if (!vencido && conexao && !encerrada) {
+      const motivo = erro instanceof Error ? erro : new Error(String(erro));
+      if (!aberturaConcluida) {
+        // Abertura falhou ou não terminou (conferência sem resposta, banco recusado): nada de negócio foi enviado; descarta.
+        descartarTodas(motivo);
+      }
+      else if (!vencido && conexao && !fechadas.has(conexao)) {
         // Falha conhecida no meio: ROLLBACK ainda dentro do prazo; sem resposta ou com erro → descarta.
         try {
           etapa = "ROLLBACK";
           await ate(conexao.query("ROLLBACK"));
-          encerrada = true;
-          conexao.liberar();
+          liberarUma(conexao);
         }
         catch {
-          descartar(erro instanceof Error ? erro : new Error(String(erro)));
+          descartarUma(conexao, motivo);
         }
       }
       throw erro;
@@ -108,13 +134,21 @@ type ClientePg = {
 
 /** Adapta um cliente `pg`. `fechar` decide o que liberar/descartar significa (pool: release; cliente avulso: end). */
 export function conexaoDeClientePg(cliente: ClientePg, fechar: { liberar: () => void; descartar: (motivo: Error) => void }): ConexaoDescartavel {
+  let fechada = false;
   return {
     query: (async (texto: string, valores: readonly unknown[] = []) => {
       const r = await cliente.query(texto, [...valores]);
       return { rows: r.rows, rowCount: r.rowCount };
     }) as DbExecutor["query"],
-    liberar: fechar.liberar,
+    // Idempotentes: a conexão fecha uma só vez, mesmo se dois caminhos (prazo e abertura recusada) tentarem.
+    liberar: () => {
+      if (fechada) return;
+      fechada = true;
+      fechar.liberar();
+    },
     descartar: (motivo) => {
+      if (fechada) return;
+      fechada = true;
       try { cliente.connection?.stream?.destroy?.(); } catch { /* já destruído */ }
       fechar.descartar(motivo);
     },
@@ -124,7 +158,10 @@ export function conexaoDeClientePg(cliente: ClientePg, fechar: { liberar: () => 
 type PoolPg = { connect: () => Promise<ClientePg & { release: (erro?: Error | boolean) => void }> };
 
 /** Conexão de um pool `pg`: liberar devolve; descartar destrói o soquete e remove do pool (`release(erro)`). */
-export async function conexaoDescartavelDoPoolPg(pool: PoolPg): Promise<ConexaoDescartavel> {
+export async function conexaoDescartavelDoPoolPg(pool: PoolPg, registrar?: (conexao: ConexaoDescartavel) => void): Promise<ConexaoDescartavel> {
+  // pool.connect tem o próprio tempo-limite de obtenção; entregue tarde, é descartada por transacaoComPrazo.
   const cliente = await pool.connect();
-  return conexaoDeClientePg(cliente, { liberar: () => cliente.release(), descartar: (motivo) => cliente.release(motivo) });
+  const conexao = conexaoDeClientePg(cliente, { liberar: () => cliente.release(), descartar: (motivo) => cliente.release(motivo) });
+  registrar?.(conexao);
+  return conexao;
 }

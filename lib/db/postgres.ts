@@ -84,8 +84,8 @@ export async function withTransaction<T>(
  * Conexão do pool para uma transação com prazo do lado da aplicação (lib/db/transacao-com-prazo.ts): no prazo vencido,
  * é descartada (soquete destruído, removida do pool) em vez de voltar ao pool com estado incerto.
  */
-export async function conexaoDescartavelDoPool(): Promise<ConexaoDescartavel> {
-  return conexaoDescartavelDoPoolPg(getPool() as unknown as Parameters<typeof conexaoDescartavelDoPoolPg>[0]);
+export async function conexaoDescartavelDoPool(registrar?: (conexao: ConexaoDescartavel) => void): Promise<ConexaoDescartavel> {
+  return conexaoDescartavelDoPoolPg(getPool() as unknown as Parameters<typeof conexaoDescartavelDoPoolPg>[0], registrar);
 }
 
 export async function databaseHealthCheck() {
