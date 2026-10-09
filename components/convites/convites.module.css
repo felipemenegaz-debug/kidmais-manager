@@ -28,6 +28,9 @@
 .modelosBiblioteca small { margin-top: 4px; font-size: 10px; }
 .modelosAnteriores { margin: 18px 0 0; }
 .modelosAnteriores summary { margin-bottom: 12px; }
+.filtrosModelos { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+.filtrosModelos button { min-height: 44px; font-size: 12px!important; }
+.filtrosModelos button[aria-pressed=true] { border-color: #bba0e8!important; box-shadow: inset 0 -3px #bba0e8; font-weight: 700; }
 @media(max-width:380px) { .modelosBiblioteca { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .ajustesVisual { border-top: 1px solid #ccd7cb; margin-top: 24px; padding-top: 8px; }
 .ajustesVisual .acoes { justify-content: flex-start; margin: 12px 0; }

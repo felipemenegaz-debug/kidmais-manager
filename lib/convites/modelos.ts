@@ -1,7 +1,11 @@
 import type { Conteudo } from './domain.ts';
 import { temaVisual } from './visual.ts';
 
-export const modelosBiblioteca = ['planetas', 'arco', 'ondulada'] as const;
+export const modelosBiblioteca = ['planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica'] as const;
+export const basesNeutras = ['arco', 'ondulada', 'aquarela', 'degrade', 'geometrica'] as const;
+export function baseNeutra(tema: Conteudo['tema']) {
+  return (basesNeutras as readonly string[]).includes(tema);
+}
 export const planetasModelo = ['azul', 'rosa', 'laranja'].map(nome => `/convites/modelos/planeta-${nome}.webp`);
 export function modeloBiblioteca(tema: Conteudo['tema']) {
   return (modelosBiblioteca as readonly string[]).includes(tema);
@@ -46,9 +50,21 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
   molduraOndulada += ' Q55 235 115 205 Q100 105 180 115Z';
   const estrela = (x: number, y: number, r: number) => `<path d="M${x} ${y-r} Q${x+2} ${y-2} ${x+r} ${y} Q${x+2} ${y+2} ${x} ${y+r} Q${x-2} ${y+2} ${x-r} ${y} Q${x-2} ${y-2} ${x} ${y-r}Z" fill="${destaque}"/>`;
   const textura = `<defs><filter id="${id}-papel"><feTurbulence type="fractalNoise" baseFrequency=".65" numOctaves="3" seed="8"/><feColorMatrix type="saturate" values="0"/></filter><filter id="${id}-agua"><feTurbulence type="fractalNoise" baseFrequency=".016" numOctaves="3" seed="6"/><feDisplacementMap in="SourceGraphic" scale="65"/></filter></defs>`;
-  const borda = ondulada
+  let borda = ondulada
     ? `<rect width="1080" height="1800" fill="${destaque}" opacity=".16"/><path d="${molduraOndulada}" fill="${fundo}" stroke="${destaque}" stroke-width="45" opacity=".35" filter="url(#${id}-agua)"/><path d="${molduraOndulada}" fill="${fundo}" stroke="${destaque}" stroke-width="3"/><path d="${molduraOndulada}" fill="none" stroke="${destaque}" stroke-width="2" transform="translate(18 27) scale(.966 .97)"/>`
     : `<path d="${arco}" fill="none" stroke="${destaque}" stroke-width="3"/><path d="${arco}" fill="none" stroke="${destaque}" stroke-width="2" transform="translate(15 20) scale(.972 .978)"/>`;
+  if (c.tema === 'aquarela') {
+    borda = `<defs><filter id="${id}-lavagem" x="-30%" y="-30%" width="160%" height="160%"><feTurbulence type="fractalNoise" baseFrequency=".009" numOctaves="3" seed="12" result="ruido"/><feDisplacementMap in="SourceGraphic" in2="ruido" scale="85"/><feGaussianBlur stdDeviation="18"/></filter></defs>
+      <g filter="url(#${id}-lavagem)" fill="${destaque}"><ellipse cx="55" cy="180" rx="320" ry="240" opacity=".24"/><ellipse cx="960" cy="45" rx="300" ry="220" opacity=".16"/><ellipse cx="1040" cy="1500" rx="240" ry="375" opacity=".24"/><ellipse cx="80" cy="1780" rx="410" ry="230" opacity=".19"/></g>
+      <rect x="98" y="98" width="884" height="1604" rx="95" fill="${fundo}" fill-opacity=".55" stroke="${destaque}" stroke-opacity=".65" stroke-width="2"/>`;
+  } else if (c.tema === 'degrade') {
+    borda = `<defs><linearGradient id="${id}-degrade" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${destaque}" stop-opacity=".45"/><stop offset=".48" stop-color="${fundo}" stop-opacity="0"/><stop offset="1" stop-color="${destaque}" stop-opacity=".3"/></linearGradient><radialGradient id="${id}-luz"><stop stop-color="${fundo}" stop-opacity=".95"/><stop offset="1" stop-color="${fundo}" stop-opacity="0"/></radialGradient></defs>
+      <rect width="1080" height="1800" fill="url(#${id}-degrade)"/><ellipse cx="730" cy="420" rx="600" ry="650" fill="url(#${id}-luz)"/><rect x="85" y="85" width="910" height="1630" rx="210" fill="none" stroke="${destaque}" stroke-opacity=".55" stroke-width="2"/>`;
+  } else if (c.tema === 'geometrica') {
+    const geometric = 'M175 95 H905 L985 175 V1625 L905 1705 H175 L95 1625 V175Z';
+    borda = `<path d="${geometric}" fill="none" stroke="${destaque}" stroke-width="3"/><path d="${geometric}" fill="none" stroke="${destaque}" stroke-width="1.5" transform="translate(18 28) scale(.967 .968)"/>
+      <g fill="${fundo}" stroke="${destaque}" stroke-width="2"><path d="M540 65 L570 95 L540 125 L510 95Z"/><path d="M540 1675 L570 1705 L540 1735 L510 1705Z"/></g>`;
+  }
   const sprites = op.planetas ?? planetasModelo;
   const decoracao = planetas ? `${imagem(sprites[0], 795, 90, 295, 295)}${imagem(sprites[1], -145, 930, 340, 340)}${imagem(sprites[2], 850, 1460, 340, 340)}${[[95,110,25],[930,680,15],[90,1380,22],[780,1750,12]].map(([x,y,r])=>estrela(x,y,r)).join('')}<path d="M35 365 Q0 170 255 55 M795 1760 Q1070 1790 1050 1450" fill="none" stroke="${destaque}" stroke-dasharray="3 12" stroke-width="2"/>` : '';
   let conteudo = '';
@@ -64,5 +80,6 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
       ${texto(c.local || 'Local da festa', 1455, 95, 38, true, false, 660)}
       ${texto(c.endereco || 'Endereço do evento', 1570, 95, 29, false, false, 640)}`;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1800" width="1080" height="1800" role="img" aria-label="${xml(op.miniatura ? tema.nome : `Convite de ${c.nome || 'aniversário'}`)}">${textura}<rect width="1080" height="1800" fill="${fundo}"/>${borda}<rect width="1080" height="1800" filter="url(#${id}-papel)" opacity=".065"/>${decoracao}${conteudo}</svg>`;
+  const descricao = op.miniatura ? tema.nome : [`Convite de ${c.nome || 'aniversário'}`, c.idade, c.mensagem, c.data, c.horario, c.local, c.endereco].filter(Boolean).join('. ');
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1800" width="1080" height="1800" role="img" aria-label="${xml(descricao)}">${textura}<rect width="1080" height="1800" fill="${fundo}"/>${borda}<rect width="1080" height="1800" filter="url(#${id}-papel)" opacity=".065"/>${decoracao}${conteudo}</svg>`;
 }
