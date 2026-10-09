@@ -1,6 +1,6 @@
-# Agendamento da reconciliação — proposta pronta para aprovação
+# Agendamento da reconciliação — criado, aguardando habilitação
 
-Atualização de 09/10: pré-requisito de schema resolvido; 074a/075 aplicadas em staging com backup, pre/postchecks e health aprovados. Ver [execução](MIGRATIONS_ASSINATURA_STAGING_20261009.md). O diagnóstico anterior de schema ausente abaixo é histórico. Cron ainda não criado; falta publicar/revisar código compatível.
+Atualização de 09/10: pré-requisito de schema resolvido; 074a/075 aplicadas em staging com backup, pre/postchecks e health aprovados. Ver [execução](MIGRATIONS_ASSINATURA_STAGING_20261009.md). O diagnóstico anterior de schema ausente abaixo é histórico. Código validado e publicado em staging; cron criado em modo aguardando. Habilitação depende das credenciais exclusivas e conexão TLS verificada.
 
 ## Execução autorizada — bloqueio confirmado em 09/10/2026
 
@@ -10,7 +10,7 @@ O conector SQL Render falhou ao conectar. SSH local não estava configurado (sem
 
 Último deploy staging consultado: `dep-db488b3l550s73atio70`, live, commit `ef1d74a7046cf37df458828d1febfea5911302b0` (biblioteca de molduras de convites). Não publicado nem alterado nesta etapa.
 
-Conforme o item 2 do plano aprovado, execução interrompida antes de criar cron ou habilitar escritas. Não houve custo novo, migration, push ou deploy. A autorização do cron permanece válida; o pré-requisito é a [operação específica de migrations](MIGRATIONS_ASSINATURA_STAGING_20261009.md), ainda não autorizada.
+Conforme o item 2 do plano aprovado, execução interrompida antes de criar cron ou habilitar escritas. Não houve custo novo, migration, push ou deploy. A autorização do cron permanece válida; o pré-requisito é a [operação específica de migrations](MIGRATIONS_ASSINATURA_STAGING_20261009.md), posteriormente autorizada e concluída.
 
 ## Configuração preparada
 
@@ -46,8 +46,28 @@ Se houver divergência ou falha, retornar modo aguardando/suspender somente o no
 
 Três testes das guardas/ciclo e ESLint aprovados. Blueprint validado contra o schema oficial Render draft 2020-12, com AJV 8 instalado somente em `.local-assinatura-cron` (ignorado pelo Git). O AJV antigo do projeto não suporta esse draft; dependências do projeto não mudaram. Validação do schema comprova estrutura, não identidade do banco, credenciais ou notificações remotas. Nenhum deploy/agendamento foi criado.
 
-## Aprovação pendente
+## Autorização já recebida (histórico)
 
 Solicitar autorização para criar/configurar este cron e seu custo, inspecionar o schema do banco staging indicado e, somente se os pré-requisitos estiverem corretos, habilitar a reconciliação periódica com os efeitos descritos. A [política operacional](OPERACAO_AGENTES.md) exige: “Alterações de variáveis de ambiente, segredos, restart ou infraestrutura de staging exigem aprovação explícita”. Também exige autorização para SQL e troca de conexão, inclusive em staging. A exigência vem da política do projeto; as skills Render orientam a implementação.
 
 Fontes oficiais consultadas: [Cron Jobs](https://render.com/docs/cronjobs) (mínimo de US$ 1/mês, uso por segundo, single-run, UTC), [notificações](https://render.com/docs/notifications) (falhas de cron por e-mail/Slack e override por serviço), [Blueprint](https://render.com/docs/blueprint-spec) (schema e campos suportados).
+
+## Publicação e recurso criado em 09/10
+
+Candidata de integração: commit 2ad129c; incorporada com convites em 5cc471c. Branch staging atual cdae01f contém a candidata e acrescenta apenas documentação/harness de convites. Cron crn-db493i142hec73ahmoe0 criado em Virginia, 0.5c-512mb, auto-deploy OFF, a cada 5 minutos. Build live dep-db493i942hec73ahmpa0. Execuções 07:05 e 07:10 UTC emitiram AGUARDANDO_HABILITACAO, conectou:false. Estas rodadas não reconciliam pagamentos.
+
+Preferência do próprio cron definida como Only failure notifications; metadados confirmam notifyOnFail=notify. Canal Email confirmado no painel; conta autenticada felipemenegaz@gmail.com. Entrega efetiva ainda não testada. Nenhuma chave Asaas, conexão de banco ou token de webhook foi instalada neste cron; não copiar a chave dos ensaios locais por inferência.
+
+Validação da candidata: 2165 testes da aplicação, 103 do harness staging, TypeScript e lint sem erros, build isolado sem .env aprovado; 37 testes de inventário, 4 das guardas/ciclo e 2 da porta do webhook aprovados. Após nova entrega de convites, 45 testes de convites, lint pertinente e build novamente aprovados. Aviso preexistente de lint em catalogo.ts, sem erros. Testes do webhook local precisaram liberar apenas loopback. Nenhum banco ou provedor real acessado nestas validações.
+
+Inventário reconhece 074 convites, 074a planos e 075 renovação, com checks distintos e autorização operacional ainda obrigatória por ambiente. TLS remoto agora não aceita que parâmetros da URL desabilitem a verificação de certificado; CA própria opcional, com rejectUnauthorized:true. Conexão ativa do cron ainda precisa ser homologada.
+
+Configuração restante: [guia de habilitação](CONFIGURAR_CRON_STAGING_20261009.md).
+
+## Deploy web concluído
+
+Deploy dep-db497o942hec73ai4ut0 live às 07:18:58 UTC de 09/10/2026, commit cdae01f715105db4dfbb791d30184d5e12b9950d. Build remoto e regressão estática aprovados. Health HTTP 200, databaseReady/festaReady/otpReady true. Página /conheca carregou, aba Agenda selecionou, ciclo Anual selecionou e primeira FAQ abriu com a resposta esperada. Cadastro e preços permanecem fechados pelas flags atuais; dados legais/contato ainda aparecem a definir. Nenhuma alteração de flags do web foi feita.
+
+Avisos do cron: override Only failure notifications, notifyOnFail=notify, canal Email observado, conta autenticada de Felipe confirmada. Entrega efetiva e teste deliberado de falha ficam pendentes até configurar o cron.
+
+Produção não alterada. Não houve novas migrations nesta publicação.
