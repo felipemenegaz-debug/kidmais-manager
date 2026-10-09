@@ -95,7 +95,10 @@ async function run() {
     CREATE TABLE festas(id uuid PRIMARY KEY,contrato_id uuid REFERENCES contratos,invalidada_em timestamptz);
     CREATE TABLE festa_membership_capacidades(id uuid PRIMARY KEY,empresa_id uuid,membership_id uuid,capacidade text,revogado_em timestamptz);`);
   await check('migration 073 aplica integralmente no schema sintético', async () => {
+    await pool.query(fs.readFileSync(path.join(root, 'database/checks/20261008_073_precheck.sql'), 'utf8'));
     await pool.query(fs.readFileSync(path.join(root, 'database/migrations/20261008_073_convites.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.join(root, 'database/checks/20261008_073_postcheck.sql'), 'utf8'));
+    await assert.rejects(pool.query(fs.readFileSync(path.join(root, 'database/checks/20261008_073_precheck.sql'), 'utf8')), /já aplicada/);
     assert.equal(Number((await pool.query("SELECT count(*) n FROM pg_tables WHERE schemaname='public' AND (tablename LIKE 'convite_%' OR tablename='convites')")).rows[0].n), 9);
   });
   await check('trigger impede vínculo com outra empresa e mudança de dono', async () => {
@@ -173,6 +176,7 @@ async function run() {
     await assert.rejects(service.confirmar(f.publico, { chave: uuid(), nome: 'Convidado fictício', presenca: true, adultos: 1, criancas: 0 }), /encerradas/);
     assert.equal(Number((await pool.query('SELECT count(*) n FROM convite_respostas WHERE convite_id=$1', [f.id])).rows[0].n), 0);
   });
+  await pool.query(fs.readFileSync(path.join(root, 'database/checks/20261008_073_postcheck.sql'), 'utf8'));
   const report = { ok: true, checks, escopo: 'PostgreSQL real; schema anterior mínimo; tenant/paywall/IA simulados; sem rede externa' };
   fs.writeFileSync(path.join(cluster, 'resultado-convites.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
