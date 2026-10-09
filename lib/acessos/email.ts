@@ -1,6 +1,6 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { erroAcesso } from './erros.ts';
 
 /**
@@ -14,7 +14,7 @@ import { erroAcesso } from './erros.ts';
  *
  * Nunca registra corpo, link ou token em log; o erro devolvido é genérico.
  */
-export type MensagemEmail = { para: string; assunto: string; texto: string; html: string };
+export type MensagemEmail = { para: string; assunto: string; texto: string; html: string; idempotencia?: string };
 export type ResultadoEnvio = { provedor: 'arquivo' | 'resend'; idExterno: string | null };
 export type AmbienteEmail = {
     EMAIL_PROVIDER?: string;
@@ -67,21 +67,32 @@ const naoConfigurado = (motivo: string | null) => erroAcesso('EMAIL_NAO_CONFIGUR
 
 export function criarEnviarEmail(env: AmbienteEmail = ambienteAtual(), fetcher: typeof fetch = fetch): EnviarEmail {
     return async (mensagem) => {
+        if (mensagem.idempotencia !== undefined && !/^[A-Za-z0-9_:/-]{1,200}$/.test(mensagem.idempotencia))
+            throw new Error('Chave de envio inválida.');
         const situacao = situacaoEmail(env);
         if (!situacao.configurado)
             throw naoConfigurado(situacao.motivo);
         if (situacao.provedor === 'arquivo') {
             const dir = env.EMAIL_ARQUIVO_DIR!;
             await mkdir(dir, { recursive: true });
-            const id = randomUUID();
-            await writeFile(path.join(dir, `${Date.now()}-${id}.json`), JSON.stringify({ ...mensagem, criadoEm: new Date().toISOString() }, null, 2), { encoding: 'utf8', flag: 'wx' });
+            const id = mensagem.idempotencia ? createHash('sha256').update(mensagem.idempotencia).digest('hex') : randomUUID();
+            const destino = path.join(dir, mensagem.idempotencia ? `${id}.json` : `${Date.now()}-${id}.json`);
+            try {
+                await writeFile(destino, JSON.stringify({ ...mensagem, criadoEm: new Date().toISOString() }, null, 2), { encoding: 'utf8', flag: 'wx' });
+            } catch (error) {
+                if (!mensagem.idempotencia || (error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+                const anterior = JSON.parse(await readFile(destino, 'utf8')) as MensagemEmail;
+                for (const campo of ['para','assunto','texto','html','idempotencia'] as const)
+                    if (anterior[campo] !== mensagem[campo]) throw new Error('Chave de envio reutilizada com conteúdo diferente.');
+            }
             return { provedor: 'arquivo', idExterno: id };
         }
         let resposta: Response;
         try {
             resposta = await fetcher('https://api.resend.com/emails', {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+                headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json',
+                    ...(mensagem.idempotencia ? { 'Idempotency-Key': mensagem.idempotencia } : {}) },
                 body: JSON.stringify({ from: env.EMAIL_REMETENTE, to: [mensagem.para], subject: mensagem.assunto, text: mensagem.texto, html: mensagem.html }),
                 signal: AbortSignal.timeout(10_000),
             });

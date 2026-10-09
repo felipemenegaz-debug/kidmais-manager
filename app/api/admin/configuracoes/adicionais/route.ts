@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { UNIDADES_ADICIONAL, lerAdicionaisAdmin, salvarAdicionalEmEtapas, type EmTransacao } from "@/lib/comercial/adicionais-admin";
+import { UNIDADES_ADICIONAL, excluirAdicionalAdmin, lerAdicionaisAdmin, salvarAdicionalEmEtapas, type EmTransacao } from "@/lib/comercial/adicionais-admin";
 import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
@@ -24,6 +24,12 @@ const entrada = z.object({
   ativo: z.boolean(),
   escolhasMax: z.number().int().min(1).max(30).nullable().optional(),
   preco: z.string().trim().regex(/^\d{1,8}(\.\d{1,2})?$/).nullable().optional(),
+  faixas: z.array(z.object({
+    min: z.number().int().min(1).max(10000),
+    max: z.number().int().min(1).max(10000).nullable(),
+    valor: z.number().min(0).max(99_999_999),
+    rotulo: z.string().trim().max(80).nullable(),
+  }).strict()).max(20).optional(),
   pacotes: z.record(uuid, modalidade).optional(),
 }).strict().refine((e) => !(e.id && e.origem), { message: "Informe o adicional ou a origem, não os dois." });
 
@@ -57,6 +63,21 @@ export async function PATCH(request: NextRequest) {
       requestId: crypto.randomUUID(),
     }, dados);
     return jsonNoStore({ ok: true, data: salvo });
+  } catch (error) {
+    return apiErrorResponse(error);
+  }
+}
+
+/** Exclui (sem histórico) ou arquiva (com histórico) um adicional da empresa. Só quem gere a empresa. */
+export async function DELETE(request: NextRequest) {
+  try {
+    const sessao = await exigirApiAdminCrmDisponivel(request);
+    const id = uuid.parse(request.nextUrl.searchParams.get("id"));
+    const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), (tx, tenant) => {
+      exigirGestaoNoTenant(tenant, "Apenas o proprietário pode excluir adicionais.");
+      return excluirAdicionalAdmin(tx, { empresaId: tenant.empresaComprovada, usuarioId: sessao.usuario_id, requestId: crypto.randomUUID() }, id);
+    });
+    return jsonNoStore({ ok: true, data });
   } catch (error) {
     return apiErrorResponse(error);
   }

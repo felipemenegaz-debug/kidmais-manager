@@ -1,0 +1,17 @@
+Coleção KidMais — Planetas, Arco clássico, Moldura ondulada,
+Aquarela suave, Degradê delicado, Moldura geométrica,
+Foto com arco, Foto com aquarela e Foto com degradê
+Incluída em 09/10/2026.
+
+Fundos, molduras e composição tipográfica: implementação original KidMais,
+baseada na prévia conceitual aprovada. Os textos das festas são camadas editáveis.
+Renderização: lib/convites/modelos.ts. Miniaturas: scripts/gerar-miniaturas-convites.ts.
+
+Planetas: Kenney, Planets 1.0 (28/07/2022).
+Fonte: https://kenney.nl/assets/planets
+Licença: Creative Commons Zero (CC0 1.0).
+https://creativecommons.org/publicdomain/zero/1.0/
+Originais planet04.png, planet06.png e planet08.png; reduzidos para 480px e
+convertidos para WebP. Sem alteração do desenho.
+Uso pessoal, educacional e comercial permitido; atribuição não obrigatória.
+Licença original preservada em KENNEY-LICENSE.txt.

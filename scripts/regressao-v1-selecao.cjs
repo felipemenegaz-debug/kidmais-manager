@@ -99,6 +99,10 @@ const ESTADO_POSTGRES = {
   "lib/cadastro/cadastro-069.postgres.test.ts": { descartavel: "063" },
   // Adicionais do buffet: 063 + 070 aplicada pela própria suíte.
   "lib/comercial/adicionais-070.postgres.test.ts": { descartavel: "063" },
+  // Importação da tabela de preços: 063 + 070 + 071 aplicadas pela própria suíte.
+  "lib/comercial/importacao-tabela/importacao-071.postgres.test.ts": { descartavel: "063" },
+  // Modelo de contrato da empresa: 063 + 070 + 071 + 072 aplicadas pela própria suíte.
+  "lib/contratos/modelo-empresa/modelo-072.postgres.test.ts": { descartavel: "063" },
   // Integração atendimento × painel: empresa ativa × piloto e coexistência 060/063/065/076 (modelo 063, com a 060).
   "lib/whatsapp/atendimento/empresa-ativa.postgres.test.ts": { descartavel: "063" },
   "lib/whatsapp/atendimento/coexistencia-060-065.postgres.test.ts": { descartavel: "063" },

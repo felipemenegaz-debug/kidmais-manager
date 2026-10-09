@@ -167,13 +167,13 @@ export function planejarReserva(orcamento: OrcamentoConfigurado, alvo: { capacid
  * mais folga por mensagem, por imagem e overhead fixo (configuráveis em `estimativa`).
  */
 export function estimarTokensEntrada(
-  pedido: { mensagens: ReadonlyArray<{ conteudo: string }>; imagens?: readonly unknown[]; esquema?: { schema: unknown } },
+  pedido: { mensagens: ReadonlyArray<{ conteudo: string }>; imagens?: readonly unknown[]; arquivos?: ReadonlyArray<{ paginas: number }>; esquema?: { schema: unknown } },
   estimativa: Orcamento["estimativa"] = {},
 ) {
   const e = { ...ESTIMATIVA_PADRAO, ...estimativa };
   const bytes = pedido.mensagens.reduce((t, m) => t + Buffer.byteLength(m.conteudo, "utf8"), 0);
   const schema = pedido.esquema ? Buffer.byteLength(JSON.stringify(pedido.esquema.schema), "utf8") : 0;
-  return bytes + schema + pedido.mensagens.length * e.tokensPorMensagem + (pedido.imagens?.length ?? 0) * e.tokensPorImagem + e.overheadTokens;
+  return bytes + schema + pedido.mensagens.length * e.tokensPorMensagem + ((pedido.imagens?.length ?? 0) + (pedido.arquivos ?? []).reduce((t: number, a) => t + Math.max(1, a.paginas), 0)) * e.tokensPorImagem + e.overheadTokens;
 }
 
 /**

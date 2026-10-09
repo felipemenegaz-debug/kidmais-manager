@@ -3,6 +3,7 @@ import type { DbExecutor } from '../db/contracts';
 import { cicloDoProvedor, type ClienteAsaas } from './asaas.ts';
 import { auditarCobranca } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type MotivoPreservacao } from './compensacao.ts';
+import { travarEmpresaComercial, exigirEmpresaCobravel } from './ofertas.ts';
 
 /**
  * Pendências de reconciliação da CONTRATAÇÃO (E8), sem migration nova: uma linha em `cobranca_eventos` (068) com
@@ -106,6 +107,8 @@ const ativa = (s: { status: string; deleted: boolean }) => !s.deleted && s.statu
  */
 export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, provedor: ProvedorReconciliacao, requestId: string | null = null,
     pendencia: { criacao: boolean; assinaturaId: string | null } | null = null): Promise<ResultadoReconciliacao> {
+    await travarEmpresaComercial(tx, empresaId);
+    await exigirEmpresaCobravel(tx, empresaId);
     const linha = (await tx.query<{ situacao: string; provedor_assinatura_id: string | null; provedor_cliente_id: string | null }>(
         'SELECT situacao, provedor_assinatura_id, provedor_cliente_id FROM empresa_assinaturas WHERE empresa_id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
     if (!linha)

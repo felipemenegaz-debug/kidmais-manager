@@ -1,0 +1,43 @@
+{
+  "executadoEm": "2026-10-09T06:29:55.374Z",
+  "ambiente": "staging",
+  "postgresId": "dpg-daidko3m8hqs73ce4jt0-a",
+  "banco": "kidmais_staging_1z91",
+  "commitWeb": "1be816798603daa9a5af0126c62f47cff7a4cad9",
+  "backup": {
+    "provedor": "Render",
+    "concluido": true,
+    "criadoEm": "2026-10-09T06:23:00Z",
+    "retencaoExportDiasMinima": 7,
+    "pitrDias": 3,
+    "restoreExecutado": false
+  },
+  "migrations": [
+    {
+      "arquivo": "database/migrations/20261009_074a_planos_comerciais.sql",
+      "sha256": "ad160c57c10e745eb513c124f451f5b735dd3998b84aae0946b45a4e7ae98d4a",
+      "precheck": "PASS",
+      "aplicacao": "PASS",
+      "postcheck": "PASS"
+    },
+    {
+      "arquivo": "database/migrations/20261009_075_renovacao_fundador.sql",
+      "sha256": "453f4f33337d7c5baeb28e286ae3c1a747fa68255e5025d4fd6c7618fbd8c545",
+      "precheck": "PASS",
+      "aplicacao": "PASS",
+      "postcheck": "PASS"
+    }
+  ],
+  "tls": true,
+  "assinaturasLegadasPreservadas": true,
+  "totalAssinaturas": 1,
+  "health": {
+    "httpStatus": 200,
+    "databaseReady": true,
+    "festaReady": true,
+    "otpReady": true
+  },
+  "cronCriado": false,
+  "deployDisparadoNestaOperacao": false,
+  "producaoAlterada": false
+}

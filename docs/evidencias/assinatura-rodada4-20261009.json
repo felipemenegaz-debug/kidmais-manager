@@ -1,0 +1,83 @@
+{
+  "data": "2026-10-09",
+  "ambiente": "staging",
+  "commitPublicado": "850287bec9db8ca864d1bad47e536632d07e3e9b",
+  "empresaSintetica": "531f9c46-6026-4bfe-86aa-babce78b0cfd",
+  "usuarioSintetico": "a3f1de69-7ed9-47aa-9864-4b8f7fca8c65",
+  "autorizacao": "Felipe autorizou a quarta rodada preparada em INTEGRACAO_PLANOS_20261009.md",
+  "execucao": {
+    "processoIndependente": true,
+    "pidObservado": 161,
+    "terminoObservado": true,
+    "codigoSaida": 2,
+    "resultadoOriginal": "INCOMPLETO",
+    "registroOriginalPreservado": true,
+    "plano": "essencial",
+    "ciclo": "MENSAL",
+    "valorCentavos": 11820,
+    "fundador": true,
+    "callbackExternoAutenticado": true,
+    "acessoDepois": "COMPLETO",
+    "contratacaoEFundadorUnicos": true,
+    "vagas": {"limite": 3, "ativos": 1, "convitesPendentes": 0, "conferido": true},
+    "replayIdempotente": true,
+    "cronSemDuplicacao": true,
+    "cancelamentoPelaAplicacao": true,
+    "periodoPagoPreservado": true
+  },
+  "cron": {
+    "servico": "crn-db493i142hec73ahmoe0",
+    "preflight": {"horaUTC": "2026-10-09T20:15:20.85742911Z", "autenticacaoAprovada": true, "clienteReferenciaEncontrado": true},
+    "restauradoAntesDoPagamento": true,
+    "comandoNormal": "node scripts/assinatura-cron.cjs",
+    "deployNormal": "dep-db4kmsnlot8c73bdjfe0",
+    "liveUTC": "2026-10-09T20:16:22.524723Z",
+    "execucaoComPagamentoConfirmadoUTC": "2026-10-09T20:20:21.132022245Z",
+    "modo": "APLICAR",
+    "incompleto": false
+  },
+  "recuperacao": {
+    "assinaturaSandboxPropriaCancelada": true,
+    "empresa": "DESATIVADA",
+    "usuarioAtivo": false,
+    "vinculo": "REVOGADA",
+    "webhookExistenteReutilizadoEPreservado": true,
+    "webhookTemporarioCriado": false,
+    "flagTemporariaRemovida": true,
+    "flagAusenteNoRuntimeRestaurado": true,
+    "deployWeb": "dep-db4kr0flot8c73be3co0",
+    "liveUTC": "2026-10-09T20:30:22.669952Z",
+    "regressaoRender": "PASS testes, lint, TypeScript e build",
+    "health": {"http": 200, "database": "ready", "festa": "ready", "otp": "ready", "resultado": "PASS"}
+  },
+  "preservacaoOutrasEmpresas": {
+    "hashIntegralEmpresaAssinaturasIgual": false,
+    "hashIntegralContratacoesIgual": true,
+    "hashIntegralFundadoresIgual": true,
+    "hashIntegralIsencoesIgual": true,
+    "assinaturasSincronizadasDuranteJanela": 1,
+    "condicoesDeEmpresaAssinaturas": "NAO_COMPROVADAS_PELA_COMPARACAO_INTEGRAL",
+    "inferencia": "A reconciliação grava sincronizado_em; o trigger também mantém metadados. Isso pode explicar a diferença, mas o digest original não permite identificar colunas alteradas retrospectivamente.",
+    "limpezaBancoPendenteNoRegistroOriginal": true,
+    "significado": "O marcador veio da falha de comparação depois do COMMIT de desativação; consulta READ ONLY posterior confirmou empresa desativada, usuário inativo e vínculo revogado. Não há limpeza SQL repetida nem alteração da evidência original."
+  },
+  "correcaoLocalVerificador": {
+    "publicada": false,
+    "snapshotsIntegralEComercialSeparados": true,
+    "metadadosSeparadosSomenteEmEmpresaAssinaturas": ["sincronizado_em", "atualizado_em", "versao"],
+    "demaisColunasContinuamProtegidas": true,
+    "baselineAusenteRecusado": true,
+    "limpezaSeparadaDaVerificacao": true,
+    "testesPertinentes": "18/18 PASS",
+    "typescript": "PASS",
+    "eslint": "PASS",
+    "buildIsolado": "PASS"
+  },
+  "limitacoes": [
+    "Rodada não deve ser declarada integralmente PASS nem reutilizada.",
+    "A correção local não reclassifica retrospectivamente o resultado original.",
+    "Concorrência física de limites e tela autenticada não comprovadas por uma única vaga no DTO.",
+    "Avisos e renovação remotos, vínculo da isenção real e produção não homologados por este ensaio."
+  ],
+  "screenshot": "assinatura-rodada4-recuperada-20261009.png"
+}

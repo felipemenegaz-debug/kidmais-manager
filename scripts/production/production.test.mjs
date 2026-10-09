@@ -159,13 +159,19 @@ test('inventory excludes rollback and never claims applied state', async () => {
     '20261007_068_cobranca_assinatura.sql',
     '20261007_069_cadastro_publico.sql',
     '20261007_070_adicionais_do_buffet.sql',
+    '20261007_071_importacoes_comerciais.sql',
+    '20261007_072_modelos_contrato_empresa.sql',
+    '20261008_073_convites.sql',
+    '20261009_074_convite_familias.sql',
+    '20261009_074a_planos_comerciais.sql',
+    '20261009_075_renovacao_fundador.sql',
     '20261009_076_whatsapp_mensagens_prontas.sql',
     '20261009_077_whatsapp_prontas_midia.sql',
     '20261009_078_wall_e_atendimento.sql',
   ]);
   assert.deepEqual(r.evidence[0].deliberatelyAbsent, [{ id: '020', reason: 'FOUNDATION_SAAS_SEPARATE_BRANCH_NOT_REQUIRED_BY_CATALOG' }]);
   // 055a–d são reconhecidas, mas o inventário nunca afirma aplicação e marca a autorização explícita.
-  assert.deepEqual(r.evidence[0].requiresExplicitAuthorization, ['20260928_055a_inteligencia_uso.sql', '20260928_055b_inteligencia_operacoes.sql', '20260928_055c_inteligencia_documentos.sql', '20260928_055d_inteligencia_importacoes.sql', '20260929_056_membership_papel_festa_tenant.sql', '20260929_057_assinatura_contrato_empresa.sql', '20260929_058_inteligencia_skills.sql', '20261001_059_operacional_parametros_consumo.sql', '20261001_060_whatsapp_atendimento.sql', '20261002_061_contratos_importados_integracao.sql', '20261002_062_agenda_empresa_unidade.sql', '20261004_063_painel_desenvolvedor.sql', '20261004_065_whatsapp_nome_perfil.sql', '20261006_064_reimportacao_apos_cancelamento.sql', '20261006_066_pix_recebimento_empresa.sql', '20261006_067_modelo_comercial_empresa.sql', '20261007_068_cobranca_assinatura.sql', '20261007_069_cadastro_publico.sql', '20261007_070_adicionais_do_buffet.sql', '20261009_076_whatsapp_mensagens_prontas.sql', '20261009_077_whatsapp_prontas_midia.sql', '20261009_078_wall_e_atendimento.sql']);
+  assert.deepEqual(r.evidence[0].requiresExplicitAuthorization, ['20260928_055a_inteligencia_uso.sql', '20260928_055b_inteligencia_operacoes.sql', '20260928_055c_inteligencia_documentos.sql', '20260928_055d_inteligencia_importacoes.sql', '20260929_056_membership_papel_festa_tenant.sql', '20260929_057_assinatura_contrato_empresa.sql', '20260929_058_inteligencia_skills.sql', '20261001_059_operacional_parametros_consumo.sql', '20261001_060_whatsapp_atendimento.sql', '20261002_061_contratos_importados_integracao.sql', '20261002_062_agenda_empresa_unidade.sql', '20261004_063_painel_desenvolvedor.sql', '20261004_065_whatsapp_nome_perfil.sql', '20261006_064_reimportacao_apos_cancelamento.sql', '20261006_066_pix_recebimento_empresa.sql', '20261006_067_modelo_comercial_empresa.sql', '20261007_068_cobranca_assinatura.sql', '20261007_069_cadastro_publico.sql', '20261007_070_adicionais_do_buffet.sql', '20261007_071_importacoes_comerciais.sql', '20261007_072_modelos_contrato_empresa.sql', '20261008_073_convites.sql', '20261009_074_convite_familias.sql', '20261009_074a_planos_comerciais.sql', '20261009_075_renovacao_fundador.sql', '20261009_076_whatsapp_mensagens_prontas.sql', '20261009_077_whatsapp_prontas_midia.sql', '20261009_078_wall_e_atendimento.sql']);
   assert.ok(r.pending.includes('055A_D_NOT_APPLIED_REQUIRE_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('056_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('057_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
@@ -182,6 +188,9 @@ test('inventory excludes rollback and never claims applied state', async () => {
   assert.ok(r.pending.includes('068_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('069_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('070_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
+  assert.ok(r.pending.includes('071_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
+  assert.ok(r.pending.includes('072_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
+  assert.ok(r.pending.includes('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('076_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('077_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('078_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
@@ -211,6 +220,9 @@ test('D4: the inventory mirrors database/migrations exactly (only the 999 down e
 test('D4: each migration requires its reviewed check files (inline-guarded 049–051 need none; 052/054/055a–d use their real names)', () => {
   const repo = migrations.approvedFiles;
   const expected = {
+    '20261009_074_convite_familias.sql': ['20261009_074_precheck.sql', '20261009_074_postcheck.sql'],
+    '20261009_074a_planos_comerciais.sql': ['20261009_074a_precheck.sql', '20261009_074a_postcheck.sql'],
+    '20261009_075_renovacao_fundador.sql': ['20261009_075_precheck.sql', '20261009_075_postcheck.sql'],
     '20260927_049_publicacao_insert_e_trava.sql': [], '20260927_050_item_sem_categoria.sql': [], '20260927_051_snapshot_item_especifico.sql': [],
     '20260927_052_financeiro_gerencial.sql': ['20260927_052_financeiro_precheck.sql', '20260927_052_financeiro_postcheck.sql'],
     '20260928_053_integridade_tenant_fechamento.sql': ['20260928_053_precheck.sql', '20260928_053_postcheck.sql'],
@@ -230,6 +242,9 @@ test('D4: each migration requires its reviewed check files (inline-guarded 049�
     '20261007_068_cobranca_assinatura.sql': ['20261007_068_precheck.sql', '20261007_068_postcheck.sql'],
     '20261007_069_cadastro_publico.sql': ['20261007_069_precheck.sql', '20261007_069_postcheck.sql'],
     '20261007_070_adicionais_do_buffet.sql': ['20261007_070_precheck.sql', '20261007_070_postcheck.sql'],
+    '20261007_071_importacoes_comerciais.sql': ['20261007_071_precheck.sql', '20261007_071_postcheck.sql'],
+    '20261007_072_modelos_contrato_empresa.sql': ['20261007_072_precheck.sql', '20261007_072_postcheck.sql'],
+    '20261008_073_convites.sql': ['20261008_073_precheck.sql', '20261008_073_postcheck.sql'],
     '20260925_026_perfil_empresa_estrutura.sql': ['20260925_026_precheck.sql', '20260925_026_postcheck.sql'],
   };
   for (const [file, checks] of Object.entries(expected)) assert.deepEqual(migrations.requiredChecks(file), checks, file);

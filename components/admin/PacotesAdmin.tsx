@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import styles from './workspace.module.css';
+import visual from './visual.module.css';
 import overlay from './catalogo-editor.module.css';
 import { DurationField } from './DurationField';
 import { formatarDuracao, juntarDuracao, separarDuracao } from '@/lib/comercial/duracao';
@@ -32,13 +33,17 @@ type Horario = { id: string; nome: string; inicio: string; fim: string };
 type Categoria = { id: string; nome: string };
 type ItemBuffet = { id: string; nome: string; categoria_id: string | null };
 type FaixaForm = { convidadosMin: string; convidadosMax: string; valor: string };
+type GradeLeitura = { categoria: string; porConvidado: boolean; faixas: { convidadosMin: number; convidadosMax: number | null; valor: string }[] };
+const NOME_GRADE: Record<string, string> = { PADRAO: 'Horário promocional', NOBRE: 'Horário nobre', GERAL: 'Todos os horários' };
+const textoFaixa = (min: number, max: number | null) => max == null ? `a partir de ${min}` : min === max ? String(min) : `${min} a ${max}`;
+const reais = (v: string) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 type ParDisponibilidade = { dia: number; horarioId: string };
 type Painel = {
   pacote: Pacote;
   disponibilidade: ParDisponibilidade[];
   categorias: { categoriaId: string; escolhas: number; ativo: boolean }[];
   itens?: string[];
-  faixas: { editavel: boolean; faixas: { convidadosMin: number; convidadosMax: number | null; valor: string }[]; aviso: string | null };
+  faixas: { editavel: boolean; faixas: { convidadosMin: number; convidadosMax: number | null; valor: string }[]; aviso: string | null; grades?: GradeLeitura[] };
 };
 
 const DIAS = [
@@ -99,6 +104,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
   })) : [{ convidadosMin: '', convidadosMax: '', valor: '' }]);
   const [faixasEditaveis, setFaixasEditaveis] = useState(true);
   const [avisoFaixas, setAvisoFaixas] = useState('');
+  const [gradesLeitura, setGradesLeitura] = useState<GradeLeitura[]>([]);
   const [inclusos, setInclusos] = useState<Record<string, { incluso: boolean; escolhas: string }>>(() => {
     const proximo: Record<string, { incluso: boolean; escolhas: string }> = {};
     for (const categoria of vitrine?.categorias ?? []) {
@@ -189,6 +195,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
       setPares(painel.disponibilidade);
       setFaixasEditaveis(painel.faixas.editavel);
       setAvisoFaixas(painel.faixas.aviso ?? '');
+      setGradesLeitura(painel.faixas.grades ?? []);
       setFaixas(painel.faixas.faixas.length
         ? painel.faixas.faixas.map((faixa) => ({
           convidadosMin: String(faixa.convidadosMin),
@@ -344,6 +351,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
       <h1>Pacotes</h1>
       <div className={styles.actions}>
         <label className={styles.search}><span className={styles.srOnly}>Buscar pacote</span><input type="search" placeholder="Buscar pacote…" value={busca} onChange={(e) => setBusca(e.target.value)} /></label>
+        <a className={visual.secundario} href="/admin/configuracoes/importar-tabela"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}><path d="M12 15V3m0 12-4-4m4 4 4-4" /><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>Importar tabela</a>
         <AdminPrimaryButton onClick={limpar}>Novo pacote</AdminPrimaryButton>
       </div>
     </header>
@@ -379,6 +387,13 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
             <h2>3. Preços</h2>
             <p className={styles.intro}>Defina quanto custa este pacote para cada quantidade de convidados.</p>
             {avisoFaixas && <p>{avisoFaixas}</p>}
+            {!faixasEditaveis && gradesLeitura.length > 0 && <div className={styles.grid}>
+              {gradesLeitura.map((g) => <div key={g.categoria}>
+                <h3>{NOME_GRADE[g.categoria] ?? g.categoria}</h3>
+                <table><tbody>{g.faixas.map((f) => <tr key={f.convidadosMin}><td>{g.porConvidado ? `por convidado (mín. ${f.convidadosMin})` : `${textoFaixa(f.convidadosMin, f.convidadosMax)} convidados`}</td><td>{reais(f.valor)}</td></tr>)}</tbody></table>
+              </div>)}
+              <p>Para mudar estes preços, importe a tabela de novo em <a href="/admin/configuracoes/importar-tabela">Importar tabela</a>.</p>
+            </div>}
             {faixasEditaveis && faixas.map((faixa, indice) => <div className={styles.faixa} key={indice}>
               <label>De<input inputMode="numeric" value={faixa.convidadosMin} onChange={(e) => setFaixas(faixas.map((item, i) => i === indice ? { ...item, convidadosMin: e.target.value } : item))} /></label>
               <label>Até<input inputMode="numeric" value={faixa.convidadosMax} onChange={(e) => setFaixas(faixas.map((item, i) => i === indice ? { ...item, convidadosMax: e.target.value } : item))} /></label>

@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
 import type { DbExecutor } from "../db/contracts.ts";
-import { lerAdicionaisAdmin, salvarAdicionalEmEtapas } from "./adicionais-admin.ts";
+import { excluirAdicionalAdmin, lerAdicionaisAdmin, salvarAdicionalEmEtapas } from "./adicionais-admin.ts";
 import { observacoesDasEscolhas } from "./adicionais-escolhas.ts";
 import { adicionaisDoPacoteNoTenant } from "./adicionais-tenant.ts";
 import { gravarFaixasPacote } from "./pacote-precos.ts";
@@ -256,4 +256,27 @@ test("pacotes já usados: preço + dois pacotes num salvamento viram etapas; rev
   const leitura = await lerAdicionaisAdmin(tx, A);
   assert.equal(leitura.adicionais.find((a) => a.id === id)!.preco, "250.00");
   assert.equal(Object.values(leitura.adicionais.find((a) => a.id === id)!.pacotes).filter((m) => m === "EXTRA").length, 2);
+});
+
+test("excluir: sem histórico apaga; com preço publicado arquiva (some do fechamento); outra empresa não exclui", async () => {
+  const semUso = await salvar(tx, ctx(A), { nome: "Exclusão sem uso 070", categoria: "DECORACAO", unidadeCobranca: "PACOTE", ativo: true, preco: null, pacotes: {} });
+  await recusa(emTransacao(() => excluirAdicionalAdmin(tx, ctx(B), semUso.id)), /não encontrado/);
+  const apagado = await emTransacao(() => excluirAdicionalAdmin(tx, ctx(A), semUso.id));
+  assert.deepEqual(apagado, { resultado: "EXCLUIDO", festas: 0, pacotes: 0 });
+  assert.equal((await client.query("SELECT 1 FROM adicionais WHERE id = $1::uuid", [semUso.id])).rowCount, 0);
+
+  // pacoteA ganhou revisão no caso anterior: usa a revisão vigente do mesmo código.
+  const codigoPacote = (await client.query<{ codigo: string }>("SELECT codigo FROM pacotes WHERE id = $1::uuid", [pacoteA])).rows[0].codigo;
+  const vigente = (await client.query<{ id: string }>("SELECT id::text AS id FROM pacotes WHERE empresa_id = $1::uuid AND codigo = $2 AND vigente", [A, codigoPacote])).rows[0].id;
+  const oferecidos = () => adicionaisDoPacoteNoTenant(tx, { empresaId: A, pacoteCodigo: codigoPacote, data: new Date().toISOString().slice(0, 10), convidados: 25 });
+  const comPreco = await salvar(tx, ctx(A), { nome: "Exclusão com preço 070", categoria: "DECORACAO", unidadeCobranca: "PACOTE", ativo: true, preco: "120.00", pacotes: { [vigente]: "EXTRA" } });
+  assert.ok((await oferecidos()).some((a) => a.nome === "Exclusão com preço 070"), "oferecido antes");
+  const arquivado = await emTransacao(() => excluirAdicionalAdmin(tx, ctx(A), comPreco.id));
+  assert.equal(arquivado.resultado, "ARQUIVADO");
+  assert.equal(arquivado.pacotes, 1);
+  const linha = await client.query<{ ativo: boolean }>("SELECT ativo FROM adicionais WHERE id = $1::uuid", [comPreco.id]);
+  assert.equal(linha.rows[0].ativo, false, "continua no banco, inativo");
+  assert.ok(!(await oferecidos()).some((a) => a.nome === "Exclusão com preço 070"), "some do fechamento");
+  const auditoria = await client.query<{ acao: string }>("SELECT acao FROM auditoria WHERE entidade_id IN ($1::uuid, $2::uuid) AND acao LIKE 'ADICIONAL_%' ORDER BY criado_em", [semUso.id, comPreco.id]);
+  assert.deepEqual(auditoria.rows.map((r) => r.acao).filter((a) => a !== "ADICIONAL_EDITADO" && a !== "ADICIONAL_CRIADO"), ["ADICIONAL_EXCLUIDO", "ADICIONAL_ARQUIVADO"]);
 });

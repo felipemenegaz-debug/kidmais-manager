@@ -80,6 +80,12 @@ const approvedFiles = [
   '20261007_068_cobranca_assinatura.sql',
   '20261007_069_cadastro_publico.sql',
   '20261007_070_adicionais_do_buffet.sql',
+  '20261007_071_importacoes_comerciais.sql',
+  '20261007_072_modelos_contrato_empresa.sql',
+  '20261008_073_convites.sql',
+  '20261009_074_convite_familias.sql',
+  '20261009_074a_planos_comerciais.sql',
+  '20261009_075_renovacao_fundador.sql',
   '20261009_076_whatsapp_mensagens_prontas.sql',
   '20261009_077_whatsapp_prontas_midia.sql',
   '20261009_078_wall_e_atendimento.sql',
@@ -107,12 +113,12 @@ const checkFiles = {
   '077': ['20261009_077_postcheck.sql'],
   '078': ['20261009_078_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '076', '077', '078'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
   if (Object.hasOwn(checkFiles, id)) return checkFiles[id];
-  return Number.parseInt(id, 10) >= 13 ? ['precheck', 'postcheck'].map(kind => file.slice(0, 12) + '_' + kind + '.sql') : [];
+  return Number.parseInt(id, 10) >= 13 ? ['precheck', 'postcheck'].map(kind => file.split('_').slice(0, 2).join('_') + '_' + kind + '.sql') : [];
 };
 function inspectInventory(entries, hasCheck) {
   const r = result('migrations');
@@ -150,6 +156,10 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('068_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('069_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('070_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('071_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('072_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['074', '074A', '075']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('076_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('077_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('078_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');

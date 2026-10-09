@@ -169,13 +169,14 @@ export function criarAdaptadorOpenAICompativel(perfil: Perfil, env: Ambiente, bu
       if (!chave || !base) throw new ErroModelo("SEM_CHAVE", false);
       const mensagens = pedido.mensagens.map((mensagem, indice) => {
         const ultimaDoUsuario = mensagem.papel === "user" && indice === pedido.mensagens.length - 1;
-        if (!ultimaDoUsuario || !pedido.imagens?.length) return { role: mensagem.papel, content: mensagem.conteudo };
+        if (!ultimaDoUsuario || (!pedido.imagens?.length && !pedido.arquivos?.length)) return { role: mensagem.papel, content: mensagem.conteudo };
         if (!perfil.imagens) throw new ErroModelo("SEM_MODELO", false);
         return {
           role: mensagem.papel,
           content: [
             { type: "text", text: mensagem.conteudo },
-            ...pedido.imagens.map((imagem) => ({ type: "image_url", image_url: { url: `data:${imagem.mime};base64,${imagem.base64}` } })),
+            ...(pedido.imagens ?? []).map((imagem) => ({ type: "image_url", image_url: { url: `data:${imagem.mime};base64,${imagem.base64}` } })),
+            ...(pedido.arquivos ?? []).map((arquivo) => ({ type: "file", file: { filename: arquivo.nome, file_data: `data:${arquivo.mime};base64,${arquivo.base64}` } })),
           ],
         };
       });
@@ -225,7 +226,12 @@ export function criarAdaptadorOpenAICompativel(perfil: Perfil, env: Ambiente, bu
       };
       const texto = dados.choices?.[0]?.message?.content;
       // H4: o provedor processou (ex.: raciocínio consumiu o teto e não sobrou texto). O uso informado é real.
-      if (typeof texto !== "string" || texto.length === 0) throw new ErroModelo("RESPOSTA_INVALIDA", false, { uso: medida });
+      if (typeof texto !== "string" || texto.length === 0) {
+        // Sem dado do pedido: só o motivo de parada e os tokens (ex.: "length" = o teto de saída acabou no raciocínio).
+        const motivo = (dados.choices?.[0] as { finish_reason?: unknown } | undefined)?.finish_reason;
+        console.warn("[Kidmais IA] resposta sem texto", JSON.stringify({ motivo: typeof motivo === "string" ? motivo.slice(0, 40) : null, tokensSaida: medida.tokensSaida }));
+        throw new ErroModelo("RESPOSTA_INVALIDA", false, { uso: medida });
+      }
       return { texto, ...medida };
     },
   };

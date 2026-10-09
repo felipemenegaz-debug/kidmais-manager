@@ -47,3 +47,6 @@ jobs:
 
       - name: Testes unitários do bloqueio de OTP
         run: node --test scripts/otp-staging.test.cjs
+
+      - name: Serviço de convites — cotas, idempotência e acesso com dependências simuladas
+        run: node --test lib/convites/service.test.cjs

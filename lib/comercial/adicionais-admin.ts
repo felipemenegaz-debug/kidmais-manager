@@ -4,7 +4,7 @@ import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
 import { validarVinculoComposicao } from "./composicao.ts";
 import { MOTIVOS_PACOTE } from "./motivos-pacote.ts";
 import { migration070Aplicada } from "./migration-070.ts";
-import { gravarPrecoAdicional, lerPrecosAdicionais } from "./pacote-precos.ts";
+import { gravarPrecoAdicional, lerPrecosAdicionais, lerPrecosCorrentes, publicarTabelaSucessora, substituirPrecosAdicionalNaTabela } from "./pacote-precos.ts";
 import { PacoteAdminError, alterarComposicaoPacoteAdmin } from "./pacotes-admin.ts";
 
 /**
@@ -31,6 +31,8 @@ export type AdicionalAdmin = {
   escolhasMax: number | null;
   preco: string | null;
   faixasPreco: number;
+  /** Faixas atuais (tabela publicada de hoje), com rótulo (ex.: "Pequena"). */
+  faixas: FaixaAdicional[];
   pacotes: Record<string, ModalidadeAdicional>;
 };
 
@@ -44,6 +46,8 @@ export type EntradaAdicional = {
   escolhasMax?: number | null;
   /** undefined: não mexe no preço; null: tira o preço. */
   preco?: string | null;
+  /** Preço por faixa de convidados (substitui o preço único). undefined: não mexe. */
+  faixas?: FaixaAdicional[];
   /** Só os pacotes que mudam (gravados por `salvarAdicionalEmEtapas`, um pacote por transação). */
   pacotes?: Record<string, ModalidadeAdicional>;
 };
@@ -52,6 +56,7 @@ export type EntradaAdicional = {
 export type EmTransacao = <T>(trabalho: (tx: DbExecutor) => Promise<T>) => Promise<T>;
 
 type Contexto = { empresaId: string; usuarioId: string; requestId: string };
+export type FaixaAdicional = { min: number; max: number | null; valor: number; rotulo: string | null };
 
 function recusar(codigo: string, mensagem: string, status: number): never {
   throw new PacoteAdminError(codigo, mensagem, status);
@@ -90,9 +95,11 @@ export async function lerAdicionaisAdmin(tx: DbExecutor, empresaId: string) {
     `SELECT codigo, nome FROM adicional_categorias WHERE ativo ORDER BY ordem_exibicao, nome`,
   );
   let leitura: Awaited<ReturnType<typeof lerPrecosAdicionais>> = { tabelaCorrente: false, precos: new Map() };
+  let correntes: Awaited<ReturnType<typeof lerPrecosCorrentes>>["adicionais"] = [];
   let aviso: string | null = null;
   try {
     leitura = await lerPrecosAdicionais(tx, empresaId);
+    correntes = (await lerPrecosCorrentes(tx, empresaId)).adicionais;
   } catch (error) {
     if (!(error instanceof PacoteAdminError)) throw error;
     aviso = error.message;
@@ -114,6 +121,7 @@ export async function lerAdicionaisAdmin(tx: DbExecutor, empresaId: string) {
       escolhasMax: a.escolhas_max == null ? null : Number(a.escolhas_max),
       preco: leitura.precos.get(a.id)?.valor ?? null,
       faixasPreco: leitura.precos.get(a.id)?.faixas ?? 0,
+      faixas: correntes.filter((f) => f.adicionalId === a.id).map((f) => ({ min: f.min, max: f.max, valor: f.valor, rotulo: f.rotulo })),
       pacotes: Object.fromEntries(vinculos.rows.filter((v) => v.adicional_id === a.id).map((v) => [v.pacote_id, v.modalidade])),
     })),
   };
@@ -167,6 +175,45 @@ export async function vincularAdicionalAoPacote(tx: DbExecutor, ctx: Contexto, a
   if ((linha.modalidade ?? "INDISPONIVEL") === modalidade) return;
   validarVinculoComposicao({ pacoteCodigo: linha.pacote, adicionalCodigo: linha.adicional, modalidade, modalidadeAtual: linha.modalidade });
   await alterarComposicaoPacoteAdmin(tx, pacoteId, { tipo: "vinculo", adicionalId, modalidade }, { ...ctx, motivo: MOTIVOS_PACOTE.composicao });
+}
+
+export type ResultadoExclusaoAdicional = { resultado: "EXCLUIDO" | "ARQUIVADO"; festas: number; pacotes: number };
+
+/**
+ * Exclusão pedida pela tela. Sem nenhum histórico, a linha é apagada. Com histórico (preço em tabela publicada,
+ * vínculo com pacote, festa ou contrato, todos ON DELETE RESTRICT), o adicional é ARQUIVADO (ativo = false): some
+ * do fechamento, continua no que já existe e pode ser reativado. A decisão é do próprio banco (FK), não de uma lista.
+ */
+export async function excluirAdicionalAdmin(tx: DbExecutor, ctx: Contexto, adicionalId: string): Promise<ResultadoExclusaoAdicional> {
+  const r = await tx.query<{ nome: string; ativo: boolean }>(
+    `SELECT nome, ativo FROM adicionais WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`,
+    [adicionalId, ctx.empresaId],
+  );
+  const atual = r.rows[0] ?? recusar("NAO_ENCONTRADO", "Adicional não encontrado nesta empresa.", 404);
+  const uso = (await tx.query<{ festas: number; pacotes: number }>(
+    `SELECT (SELECT count(DISTINCT fechamento_id)::int FROM fechamento_adicionais WHERE adicional_id = $1::uuid) AS festas,
+            (SELECT count(*)::int FROM pacote_adicionais WHERE adicional_id = $1::uuid AND ativo) AS pacotes`,
+    [adicionalId],
+  )).rows[0];
+  const auditar = (acao: string, depois: Record<string, unknown> | null) => auditarMutacaoComercial(tx, {
+    usuarioId: ctx.usuarioId, requestId: ctx.requestId, motivo: acao, acao, entidadeTipo: "ADICIONAL", entidadeId: adicionalId,
+    empresaId: ctx.empresaId, antes: { nome: atual.nome, ativo: atual.ativo }, depois,
+  });
+  await tx.query("SAVEPOINT excluir_adicional");
+  try {
+    await tx.query(`DELETE FROM adicionais WHERE id = $1::uuid AND empresa_id = $2::uuid`, [adicionalId, ctx.empresaId]);
+    await tx.query("RELEASE SAVEPOINT excluir_adicional");
+    await auditar("ADICIONAL_EXCLUIDO", null);
+    return { resultado: "EXCLUIDO", ...uso };
+  } catch (error) {
+    // 23001 = ON DELETE RESTRICT; 23503 = NO ACTION: alguma tabela ainda referencia o adicional.
+    const codigo = (error as { code?: unknown }).code;
+    if (codigo !== "23001" && codigo !== "23503") throw error;
+    await tx.query("ROLLBACK TO SAVEPOINT excluir_adicional");
+  }
+  if (atual.ativo) await tx.query(`UPDATE adicionais SET ativo = false WHERE id = $1::uuid AND empresa_id = $2::uuid`, [adicionalId, ctx.empresaId]);
+  await auditar("ADICIONAL_ARQUIVADO", { nome: atual.nome, ativo: false });
+  return { resultado: "ARQUIVADO", ...uso };
 }
 
 /** Cadastro e preço do adicional (no máximo uma tabela sucessora). Pacotes: `salvarAdicionalEmEtapas`. */
@@ -243,7 +290,16 @@ export async function salvarAdicionalAdmin(tx: DbExecutor, ctx: Contexto, entrad
     });
   }
 
-  if (entrada.preco !== undefined) {
+  if (entrada.faixas !== undefined) {
+    const corrente = await tx.query(`SELECT 1 FROM tabelas_preco WHERE empresa_id = $1::uuid AND publicada_em IS NOT NULL AND substituida_em IS NULL
+      AND vigencia_inicio <= CURRENT_DATE AND (vigencia_fim IS NULL OR vigencia_fim >= CURRENT_DATE)`, [ctx.empresaId]);
+    if (!corrente.rowCount) recusar("TABELA_NAO_PUBLICADA", "Publique a tabela de preços dos pacotes antes de definir o valor do adicional.", 409);
+    const faixas = entrada.faixas;
+    await publicarTabelaSucessora(tx, ctx.empresaId, { ...ctx, motivo: "PRECO_ADICIONAL_ALTERADO" }, async (tabelaId) => {
+      await substituirPrecosAdicionalNaTabela(tx, tabelaId, adicionalId, faixas);
+      return { adicionalId, faixas };
+    }, "PRECO_ADICIONAL_ALTERADO");
+  } else if (entrada.preco !== undefined) {
     await gravarPrecoAdicional(tx, ctx.empresaId, adicionalId, entrada.preco, { ...ctx, motivo: "PRECO_ADICIONAL_ALTERADO" });
   }
 

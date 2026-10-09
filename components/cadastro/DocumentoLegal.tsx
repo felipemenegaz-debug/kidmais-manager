@@ -13,7 +13,7 @@ export default function DocumentoLegal({ documento }: { documento: TextoLegal })
                 <strong>Minuta para homologação.</strong> Este texto ainda passa por revisão jurídica e não é a versão definitiva.</p>}
             <h1>{documento.titulo}</h1>
             <p className={workspace.muted}>Versão {documento.versao} · impressão digital {hashDocumento(documento).slice(0, 12)}</p>
-            {documento.secoes.map((s) => <section key={s.titulo} className={workspace.card} style={{ marginTop: 16 }}>
+            {documento.secoes.map((s) => <section key={s.titulo} id={documento.documento === 'TERMOS_USO' && s.titulo === 'Contato' ? 'cancelamento' : documento.documento === 'PRIVACIDADE' && s.titulo === 'Dados dos clientes do buffet' ? 'tratamento-de-dados' : undefined} className={workspace.card} style={{ marginTop: 16 }}>
                 <h2>{s.titulo}</h2>
                 {s.paragrafos.map((p, i) => <p key={i}>{p}</p>)}
             </section>)}

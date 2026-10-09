@@ -481,3 +481,27 @@ test("PR 13: sucesso e falha do provedor não levam recusa (a chamada aconteceu)
 function usoBase() {
   return { correlationId: "c", empresaId: alvo.empresaId, estabelecimentoId: null, capacidade: "x", workload: "CLASSIFICAR_INTENCAO" as const, tier: "ECONOMY" as const, provedor: "OPENAI" as const, modelo: "m", tokensEntrada: 0, tokensSaida: 0, tokensCache: null, duracaoMs: 1, custoEstimadoMicros: null, moeda: null, sucesso: true, erro: null, fallback: false, em: "2026-09-28T13:00:00.000Z" };
 }
+
+test("PDF anexo vai como parte \"file\" só para provedor com visão; o prazo do pedido vale no lugar do padrão; custo conta as páginas", async () => {
+  const pedidos: Array<{ init: RequestInit }> = [];
+  const buscar = async (_url: string, init: RequestInit) => {
+    pedidos.push({ init });
+    return new Response(JSON.stringify({ model: "modelo-padrao", choices: [{ message: { content: '{"ok":true}' } }], usage: { prompt_tokens: 10, completion_tokens: 2 } }));
+  };
+  const comArquivo: PedidoModelo<{ ok: boolean }> = {
+    ...pedido("EXTRACAO_CONTRATO"),
+    arquivos: [{ mime: "application/pdf", nome: "tabela.pdf", base64: "JVBERi0=", paginas: 6 }],
+    prazoMs: 90_000,
+  };
+  const openai = criarAdaptadorOpenAICompativel(PERFIL_OPENAI, { OPENAI_API_KEY: CHAVE, AI_OPENAI_MODEL_STANDARD: "modelo-padrao" }, buscar);
+  const resultado = await openai.gerar(comArquivo, "modelo-padrao", new AbortController().signal);
+  assert.equal(resultado.texto, '{"ok":true}');
+  const corpo = JSON.parse(String(pedidos[0].init.body));
+  const partes = corpo.messages.at(-1).content;
+  assert.equal(partes[0].type, "text");
+  assert.deepEqual(partes[1], { type: "file", file: { filename: "tabela.pdf", file_data: "data:application/pdf;base64,JVBERi0=" } });
+  const deepseek = criarAdaptadorOpenAICompativel(PERFIL_DEEPSEEK, { DEEPSEEK_API_KEY: CHAVE, AI_DEEPSEEK_MODEL_STANDARD: "ds" }, buscar);
+  await assert.rejects(deepseek.gerar(comArquivo, "ds", new AbortController().signal));
+  const base = estimarTokensEntrada(pedido("EXTRACAO_CONTRATO"));
+  assert.equal(estimarTokensEntrada(comArquivo) - base, 6 * ESTIMATIVA_PADRAO.tokensPorImagem);
+});

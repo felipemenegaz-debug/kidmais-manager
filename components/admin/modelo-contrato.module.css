@@ -1,0 +1,10 @@
+.grade { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+.editor { min-width: 0; }
+.lateral { position: sticky; top: 16px; display: grid; gap: 0; }
+.clausula { border-top: 1px solid var(--border-navy); padding: 14px 0; }
+.clausulaTopo { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.botoes { display: flex; gap: 6px; }
+.botoes button { min-height: 36px !important; padding: 4px 10px !important; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { min-height: 32px !important; padding: 4px 10px !important; font-size: 12px !important; }
+@media (max-width: 1000px) { .grade { grid-template-columns: minmax(0, 1fr); } .lateral { position: static; } }

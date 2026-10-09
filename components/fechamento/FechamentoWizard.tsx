@@ -3,7 +3,7 @@
 import AdicionaisPizzaConsulta from './AdicionaisPizzaConsulta';
 import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ATALHOS_CONVIDADOS, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import { centavosComerciais, validarPretensaoPix } from "@/lib/comercial/condicao-pagamento";
@@ -21,7 +21,6 @@ import {
   intervaloHorario,
   moedaParaNumero,
   numeroParaMoeda,
-  precoReferenciaPacote,
 } from "./calculos";
 import {
   AjusteHorario,
@@ -96,11 +95,28 @@ type ClienteContextoValidado = {
 
 type CategoriaBuffet = { codigo:string; nome:string; max:number; itens:{id:string;nome:string}[] };
 type AdicionalDisponivel = AdicionalDaEtapa;
+type Cotacao = { valorTabela: number; valor: number; desconto: { percentual: number; valor: number; titulo: string | null }; categoria: string; categoriaNome: string; convidadosFaturados: number; minimoFaturavelAplicado: boolean; faixa: { min: number; max: number | null } };
+function mensagemCotacao(codigo: string | undefined, erro?: string) {
+  if (codigo === 'TABELA_PRECO_NAO_CONFIGURADA' || codigo === 'PRECO_PACOTE_NAO_CONFIGURADO' || codigo === 'PRECO_AMBIGUO') return 'Este pacote ainda não tem preço publicado para essa data e horário. Fale com a equipe Kidmais.';
+  if (codigo === 'PACOTE_INDISPONIVEL' || codigo === 'PACOTE_SOB_CONSULTA') return erro ?? 'Este pacote não está disponível nessa data e horário.';
+  return erro && codigo ? erro : 'Não foi possível calcular o preço agora. Tente novamente em instantes.';
+}
+function descricaoCotacao(c: Cotacao, convidados: number) {
+  const faixa = c.faixa.max == null ? `a partir de ${c.faixa.min}` : c.faixa.min === c.faixa.max ? `${c.faixa.min}` : `${c.faixa.min} a ${c.faixa.max}`;
+  const faturados = c.minimoFaturavelAplicado ? ` · cobrança mínima de ${c.convidadosFaturados} convidados` : '';
+  return `${convidados} convidados (faixa ${faixa}) · ${c.categoriaNome.toLocaleLowerCase('pt-BR')}${faturados}`;
+}
 const CODIGO_PACOTE:Record<string,string> = {pocket:'POCKET',mini:'MINI_FESTA',compacta:'COMPACTA',essencial:'ESSENCIAL',completa:'COMPLETA',premium:'PREMIUM',pizza_party_scienza:'PIZZA_PARTY'};
 const CAMPO_CATEGORIA:Record<string,'buffetSalgados'|'buffetDoces'|'buffetBolo'|'buffetLembrancinha'|'buffetEmpratado'|'buffetBombom'> = {
   SALGADOS:'buffetSalgados',DOCES:'buffetDoces',MASSA_BOLO:'buffetBolo',RECHEIO_BOLO:'buffetBolo',
   LEMBRANCINHAS:'buffetLembrancinha',EMPRATADOS:'buffetEmpratado',BOMBONS:'buffetBombom',
 };
+
+const ICONE_CATEGORIA:Record<string,string> = {
+  SALGADOS:'🥟',DOCES:'🍬',MASSA_BOLO:'🎂',RECHEIO_BOLO:'🎂',LEMBRANCINHAS:'🎁',EMPRATADOS:'🍽️',BOMBONS:'🍫',BEBIDAS:'🥤',
+};
+/** Opções do buffet visíveis antes do "Ver mais" (as já marcadas aparecem sempre). */
+const OPCOES_VISIVEIS_BUFFET = 12;
 
 const FORM_INICIAL: FechamentoForm = {
   dataFesta: "",
@@ -221,6 +237,7 @@ export default function FechamentoWizard() {
   const [concluido, setConcluido] = useState(false);
   const [categoriasBuffet,setCategoriasBuffet]=useState<CategoriaBuffet[]>([]);
   const [escolhasBuffet,setEscolhasBuffet]=useState<Record<string,string[]>>({});
+  const [categoriasAbertas,setCategoriasAbertas]=useState<string[]>([]);
   const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
   const [tentativaAdicionais,setTentativaAdicionais]=useState(0);
   // Resultado da última consulta, preso à chave (pacote, data, convidados, tentativa) que o gerou.
@@ -481,16 +498,34 @@ export default function FechamentoWizard() {
   const numeroEtapaVisivel = (indiceReal: number) =>
     String(Math.max(0, indicesEtapasVisiveis.indexOf(indiceReal)) + 1);
 
-  const referenciaTabela = useMemo(
-    () =>
-      precoReferenciaPacote(
-        form.pacote,
-        convidados,
-        form.dataFesta,
-        form.horarioBase,
-      ),
-    [form.pacote, convidados, form.dataFesta, form.horarioBase],
-  );
+  // Preço do pacote: cotação do servidor, o mesmo cálculo do envio (tabela publicada, horário, faixa e desconto).
+  const inicioCotacao = intervaloSelecionado?.inicio ?? '';
+  const fimCotacao = intervaloSelecionado?.fim ?? '';
+  const chaveCotacao = form.pacote && form.dataFesta && form.horarioBase && inicioCotacao && convidados >= 1
+    ? [form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados].join('|')
+    : null;
+  const [cotacao, setCotacao] = useState<{ chave: string; estado: 'ok' | 'erro'; dados?: Cotacao; erro?: string } | null>(null);
+  useEffect(() => {
+    if (!chaveCotacao) return;
+    const controller = new AbortController();
+    const temporizador = setTimeout(() => {
+      void fetch('/api/fechamentos/cotacao', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal: controller.signal,
+        body: JSON.stringify({ pacote: form.pacote, dataFesta: form.dataFesta, horarioBase: form.horarioBase, ajusteHorario: form.ajusteHorario, horarioInicio: inicioCotacao, horarioFim: fimCotacao, convidados }),
+      }).then(async (r) => {
+        const corpo = await r.json().catch(() => null) as { ok?: boolean; data?: Cotacao; erro?: string; codigo?: string } | null;
+        if (controller.signal.aborted) return;
+        if (r.ok && corpo?.data) setCotacao({ chave: chaveCotacao, estado: 'ok', dados: corpo.data });
+        else setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(corpo?.codigo, corpo?.erro) });
+      }).catch(() => { if (!controller.signal.aborted) setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(undefined) }); });
+    }, 250);
+    return () => { clearTimeout(temporizador); controller.abort(); };
+  }, [chaveCotacao, form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados]);
+  const cotacaoAtual = cotacao && cotacao.chave === chaveCotacao ? cotacao : null;
+  const cotacaoEstado: 'sem' | 'carregando' | 'ok' | 'erro' = !chaveCotacao ? 'sem' : !cotacaoAtual ? 'carregando' : cotacaoAtual.estado;
+  // "Continuar" clicado enquanto o preço é calculado: avança sozinho quando a cotação chega (ou mostra o erro dela).
+  const [avancarAposCotacao, setAvancarAposCotacao] = useState(false);
+  const referenciaTabela = cotacaoAtual?.estado === 'ok' && cotacaoAtual.dados ? cotacaoAtual.dados.valorTabela : null;
 
   const adicionaisValor = useMemo(
     () =>
@@ -509,11 +544,12 @@ export default function FechamentoWizard() {
   );
 
   const calculoDesconto =
-    referenciaTabela != null
-      ? aplicarDesconto(
-          referenciaTabela,
-          descontoAtual.percentual
-        )
+    referenciaTabela != null && cotacaoAtual?.dados
+      ? {
+          percentual: cotacaoAtual.dados.desconto.percentual,
+          valorDesconto: cotacaoAtual.dados.desconto.valor,
+          valorPacoteComDesconto: cotacaoAtual.dados.valor,
+        }
       : {
           percentual: 0,
           valorDesconto: 0,
@@ -964,6 +1000,8 @@ export default function FechamentoWizard() {
     if (etapa === 2) {
       const mensagem = erroConvidadosFechamento(convidados, pacote);
       if (mensagem) { setErro(mensagem); return false; }
+      if (cotacaoEstado === 'carregando') { setErro(''); setAvancarAposCotacao(true); return false; }
+      if (cotacaoEstado === 'erro') { setErro(cotacaoAtual?.erro ?? mensagemCotacao(undefined)); return false; }
     }
 
     if (etapa === 4 && adicionaisEstado !== 'ok') {
@@ -1063,6 +1101,7 @@ export default function FechamentoWizard() {
   }
 
   async function continuar() {
+    setAvancarAposCotacao(false);
     if (!validarEtapaAtual()) return;
 
     if (etapa === 0 && preselecaoDisponibilidade) {
@@ -1076,7 +1115,15 @@ export default function FechamentoWizard() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  const continuarAposCotacao = useEffectEvent(() => { void continuar(); });
+  useEffect(() => {
+    if (!avancarAposCotacao || etapa !== 2 || (cotacaoEstado !== 'ok' && cotacaoEstado !== 'erro')) return;
+    const t = setTimeout(continuarAposCotacao, 0);
+    return () => clearTimeout(t);
+  }, [avancarAposCotacao, etapa, cotacaoEstado]);
+
   function voltar() {
+    setAvancarAposCotacao(false);
     setErro("");
     setEtapa((atual) =>
       preselecaoDisponibilidade && atual === 2 ? 0 : Math.max(atual - 1, 0),
@@ -1671,15 +1718,17 @@ export default function FechamentoWizard() {
                   ))}
               </div>
 
-              {referenciaTabela != null && (
+              {cotacaoEstado === 'carregando' && <p role="status">Calculando o preço da sua festa…</p>}
+              {cotacaoEstado === 'erro' && <div className={styles.infoBox} role="alert"><strong>{cotacaoAtual?.erro}</strong></div>}
+              {referenciaTabela != null && cotacaoAtual?.dados && (
                 <div className={styles.priceReference}>
-                  <span>Referência encontrada na tabela</span>
+                  <span>Preço da tabela para sua festa</span>
 
-                  {descontoAtual.ativo ? (
+                  {calculoDesconto.valorDesconto > 0 ? (
                     <>
                       <div className={styles.discountPriceLine}>
                         <del>{numeroParaMoeda(referenciaTabela)}</del>
-                        <span>-15% de segunda a quinta</span>
+                        <span>{cotacaoAtual.dados.desconto.titulo ?? `-${Math.round(calculoDesconto.percentual * 100)}%`}</span>
                       </div>
                       <strong>
                         {numeroParaMoeda(calculoDesconto.valorPacoteComDesconto)}
@@ -1694,8 +1743,8 @@ export default function FechamentoWizard() {
                     <>
                       <strong>{numeroParaMoeda(referenciaTabela)}</strong>
                       <small>
-                        Valor de referência. O preço final será conferido pela
-                        Kidmais conforme data, pacote e condições negociadas.
+                        {descricaoCotacao(cotacaoAtual.dados, convidados)}. Calculado com a tabela publicada; o
+                        valor final é conferido pela Kidmais conforme as condições combinadas.
                       </small>
                     </>
                   )}
@@ -1761,12 +1810,19 @@ export default function FechamentoWizard() {
                     </p>
                   </div>
 
-                  {categoriasBuffet.map(categoria=><fieldset key={categoria.codigo} className={styles.buffetInfoBox}>
-                    <legend>{categoria.nome} · até {categoria.max}</legend>
-                    <div className={styles.buffetFormGrid}>{categoria.itens.map(item=>{
-                      const selecionado=(escolhasBuffet[categoria.codigo]??[]).includes(item.id);
-                      return <label key={item.id} className={styles.field}>
-                        <input type="checkbox" checked={selecionado} onChange={()=>{
+                  {categoriasBuffet.map(categoria=>{
+                    const escolhidos=escolhasBuffet[categoria.codigo]??[];
+                    const cheio=escolhidos.length>=categoria.max;
+                    const aberta=categoriasAbertas.includes(categoria.codigo);
+                    const visiveis=aberta?categoria.itens:categoria.itens.filter((item,i)=>i<OPCOES_VISIVEIS_BUFFET||escolhidos.includes(item.id));
+                    const ocultas=categoria.itens.length-visiveis.length;
+                    return <fieldset key={categoria.codigo} className={styles.buffetCategoria}>
+                    <legend className={styles.buffetCategoriaTitulo}>{ICONE_CATEGORIA[categoria.codigo]&&<span aria-hidden="true">{ICONE_CATEGORIA[categoria.codigo]}</span>}{categoria.nome}</legend>
+                    <span className={`${styles.buffetContador} ${cheio?styles.buffetContadorCheio:''}`} aria-live="polite">{escolhidos.length} de {categoria.max}{cheio?' · limite atingido':' escolhidos'}</span>
+                    <div className={styles.buffetOpcoes}>{visiveis.map(item=>{
+                      const selecionado=escolhidos.includes(item.id);
+                      return <label key={item.id} className={`${styles.buffetOpcao} ${selecionado?styles.buffetOpcaoMarcada:''} ${!selecionado&&cheio?styles.buffetOpcaoBloqueada:''}`}>
+                        <input type="checkbox" checked={selecionado} disabled={!selecionado&&cheio} onChange={()=>{
                           const atuais=escolhasBuffet[categoria.codigo]??[];
                           if(!selecionado&&atuais.length>=categoria.max){setErro(`Escolha até ${categoria.max} em ${categoria.nome}.`);return;}
                           setErro('');
@@ -1782,10 +1838,14 @@ export default function FechamentoWizard() {
                               setForm(f=>({...f,buffetBolo:categoria.codigo==='MASSA_BOLO'?`Massa: ${nomeEscolhas}; Recheio: ${textoOutra}`:`Massa: ${textoOutra}; Recheio: ${nomeEscolhas}`}));
                             }else setForm(f=>({...f,[campo]:nomeEscolhas}));
                           }
-                        }}/>{item.nome}
+                        }}/><span>{item.nome}</span>
                       </label>;
                     })}</div>
-                  </fieldset>)}
+                    {(ocultas>0||(aberta&&categoria.itens.length>OPCOES_VISIVEIS_BUFFET))&&<button type="button" className={styles.buffetVerMais} aria-expanded={aberta}
+                      onClick={()=>setCategoriasAbertas(aberta?categoriasAbertas.filter(c=>c!==categoria.codigo):[...categoriasAbertas,categoria.codigo])}>
+                      {aberta?'Mostrar menos ▴':`Ver mais ${ocultas} ${ocultas===1?'opção':'opções'} ▾`}
+                    </button>}
+                  </fieldset>;})}
 
                   <div className={styles.buffetFormGrid}>
                     {!categoriasBuffet.some(c=>c.codigo==='SALGADOS')&&<label className={styles.field}>
@@ -1885,13 +1945,13 @@ export default function FechamentoWizard() {
                   {agruparPorCategoria(adicionaisDisponiveis ?? []).length === 0 && <p>Nenhum adicional disponível para este pacote.</p>}
                   {agruparPorCategoria(adicionaisDisponiveis ?? []).map((grupo) => (
                     <div className={styles.additionalSection} key={grupo.categoria}>
-                      <h3>{grupo.titulo}</h3>
+                      <div className={styles.additionalSectionTopo}><h3>{grupo.titulo}</h3><span>{grupo.itens.length} {grupo.itens.length === 1 ? "opção" : "opções"}</span></div>
                       <div className={styles.additionalGrid}>
                         {grupo.itens.map((item) => {
                           const preco = item.preco;
                           const selected = form.adicionaisSelecionados.includes(item.id);
                           return (
-                            <div key={item.id}>
+                            <div key={item.id} className={selected && item.escolhas ? styles.additionalItemAberto : undefined}>
                               <button
                                 type="button"
                                 role="checkbox"
@@ -1900,23 +1960,34 @@ export default function FechamentoWizard() {
                                 onClick={() => alternarAdicional(item.id)}
                               >
                                 <span className={styles.checkBox}>{selected ? "✓" : ""}</span>
-                                <strong>{item.nome}</strong>
-                                <b>{numeroParaMoeda(preco)}{rotuloUnidade(item.unidadeCobranca)}</b>
+                                <span className={styles.additionalTexto}>
+                                  <strong>{item.nome}</strong>
+                                  <b>{numeroParaMoeda(preco)}<small>{rotuloUnidade(item.unidadeCobranca)}</small></b>
+                                </span>
                               </button>
-                              {selected && aceitaQuantidade(item.unidadeCobranca) && <label className={styles.field}>{item.unidadeCobranca === "CENTO" ? `Quantos centos de ${item.nome}` : `Quantidade extra de ${item.nome}`}
-                                <input type="number" min={1} step={1} value={form.adicionaisQuantidades[item.id] ?? 1} onChange={e => atualizar("adicionaisQuantidades", { ...form.adicionaisQuantidades, [item.id]: Number(e.target.value) })} />
-                                <span>Total: {numeroParaMoeda(totalDoAdicional(item, form.adicionaisQuantidades[item.id] ?? 1, convidados))}</span>
-                              </label>}
+                              {selected && aceitaQuantidade(item.unidadeCobranca) && (() => {
+                                const quantidade = form.adicionaisQuantidades[item.id] ?? 1;
+                                const definir = (valor: number) => atualizar("adicionaisQuantidades", { ...form.adicionaisQuantidades, [item.id]: Math.max(1, Math.round(valor) || 1) });
+                                return <div className={styles.quantidadeLinha}>
+                                  <span>{item.unidadeCobranca === "CENTO" ? "Centos" : "Quantidade extra"}</span>
+                                  <span className={styles.stepper}>
+                                    <button type="button" aria-label={`Diminuir ${item.nome}`} disabled={quantidade <= 1} onClick={() => definir(quantidade - 1)}>−</button>
+                                    <input type="number" min={1} step={1} aria-label={item.unidadeCobranca === "CENTO" ? `Quantos centos de ${item.nome}` : `Quantidade extra de ${item.nome}`} value={quantidade} onChange={e => definir(Number(e.target.value))} />
+                                    <button type="button" aria-label={`Aumentar ${item.nome}`} onClick={() => definir(quantidade + 1)}>+</button>
+                                  </span>
+                                  <span>= {numeroParaMoeda(totalDoAdicional(item, quantidade, convidados))}</span>
+                                </div>;
+                              })()}
                               {selected && item.escolhas && (
-                                <fieldset className={styles.field}>
+                                <fieldset className={styles.escolhasAdicional}>
                                   <legend>{item.escolhas.max ? `Escolha até ${item.escolhas.max} opções` : "Escolha as opções"}</legend>
                                   {item.escolhas.itens.map((opcao) => {
                                     const marcada = (form.adicionaisEscolhas?.[item.id] ?? []).includes(opcao.id);
                                     const cheio = !marcada && item.escolhas!.max !== null && (form.adicionaisEscolhas?.[item.id] ?? []).length >= item.escolhas!.max;
                                     return (
-                                      <label key={opcao.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                      <label key={opcao.id} className={`${styles.buffetOpcao} ${marcada ? styles.buffetOpcaoMarcada : ""} ${cheio ? styles.buffetOpcaoBloqueada : ""}`}>
                                         <input type="checkbox" checked={marcada} disabled={cheio} onChange={() => alternarEscolha(item.id, opcao.id)} />
-                                        {opcao.nome}
+                                        <span>{opcao.nome}</span>
                                       </label>
                                     );
                                   })}
@@ -2854,10 +2925,11 @@ export default function FechamentoWizard() {
                   type="button"
                   className={styles.primaryButton}
                   onClick={continuar}
-                  disabled={validandoDisponibilidade}
+                  disabled={validandoDisponibilidade || avancarAposCotacao}
+                  aria-busy={avancarAposCotacao || undefined}
                 >
-                  {validandoDisponibilidade ? "Revalidando horário..." : "Continuar"}
-                  {!validandoDisponibilidade && <span>→</span>}
+                  {validandoDisponibilidade ? "Revalidando horário..." : avancarAposCotacao ? "Calculando preço…" : "Continuar"}
+                  {!validandoDisponibilidade && !avancarAposCotacao && <span>→</span>}
                 </button>
               )
             ) : (

@@ -1,0 +1,34 @@
+{
+  "data": "2026-10-09",
+  "ambiente": "staging",
+  "autorizacaoRodada": "Felipe respondeu Autorizo ao plano da quinta rodada",
+  "candidataPreparada": "0365b776ec4d14543a2739d92a4ea700ccb2a8f0",
+  "estado": "PUBLICACAO_BLOQUEADA_ANTES_DO_ENSAIO",
+  "causaRender": "Workspace has run out of build pipeline minutes for the current billing period",
+  "deployWebBloqueado": "dep-db4l0u49v7es738dsufg",
+  "deployCronBloqueado": "dep-db4l11s9v7es73a7s1u0",
+  "idsRodada5Consumidos": false,
+  "fixtureCriada": false,
+  "checkoutExecutado": false,
+  "pagamentoSimulado": false,
+  "registroRodadaNoDisco": false,
+  "recuperacao": {
+    "flagRemovidaDaConfiguracao": true,
+    "flagAusenteNoRuntime": true,
+    "commitAtivoMantido": "850287bec9db8ca864d1bad47e536632d07e3e9b",
+    "cronComandoNormalRestaurado": "node scripts/assinatura-cron.cjs",
+    "cronExecucaoNormalUTC": "2026-10-09T20:40:08.601611561Z",
+    "cronModo": "APLICAR",
+    "cronIncompleto": false,
+    "health": "PASS HTTP200 database/festa/otp ready"
+  },
+  "revisaoFinanceiraSomentePreparada": {
+    "limiteAtualUSD": 0,
+    "gastoMensalInformadoPeloPainelUSD": 5,
+    "limiteMensalPropostoUSD": 10,
+    "alteracaoSalva": false,
+    "aprovacaoFinanceiraPendente": true,
+    "observacao": "Autorizar o ensaio sandbox não autoriza automaticamente custo adicional de builds. A quinta rodada mantém sua autorização; aguarda liberação dos builds.",
+    "screenshot": "assinatura-rodada5-limite-build-20261009.png"
+  }
+}

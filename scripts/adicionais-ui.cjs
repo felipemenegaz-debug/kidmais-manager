@@ -9,6 +9,8 @@
  *   - Outros adicionais › novo "Mesa de café" com preço e pacote.
  *   - Fechamento admin: a rota de adicionais devolve os dois, o de categoria com as opções ativas.
  *   - Empresa sem tabela publicada: aviso na tela e preço recusado com orientação.
+ *   - Fechamento do cliente (público): preferências do buffet compactas com contador e adicionais em cartões com − / +.
+ *   - Excluir adicional com histórico: arquivado (some do fechamento), confirmação explícita.
  *   - Celular sem rolagem horizontal com o painel aberto.
  */
 const assert = require('node:assert/strict');
@@ -68,11 +70,25 @@ async function principal() {
     await client.query('COMMIT');
     const salgados = (await client.query("SELECT id FROM buffet_categorias WHERE nome = 'Salgados'")).rows[0].id;
 
+    // Pocket elegível em todos os dias e horários da agenda (o fluxo do cliente exige a regra comercial).
+    const pacotesAdmin = await import('../lib/comercial/pacotes-admin.ts');
+    const horarios = (await client.query('SELECT id::text AS id FROM configuracao_agenda WHERE ativo')).rows.map((r) => r.id);
+    await client.query('BEGIN');
+    await pacotesAdmin.definirDisponibilidadePacoteAdmin(tx, empresas.A.pacote, { disponibilidade: [1, 2, 3, 4, 5, 6, 7].flatMap((dia) => horarios.map((horarioId) => ({ dia, horarioId }))) },
+      { empresaId: empresas.A.id, usuarioId: pessoa, requestId: require('node:crypto').randomUUID(), motivo: 'PACOTE_EDITADO' });
+    await client.query('COMMIT');
+    empresas.A.pacote = (await client.query("SELECT id FROM pacotes WHERE empresa_id = $1 AND codigo = 'POCKET' AND vigente", [empresas.A.id])).rows[0].id;
+    const doces = (await client.query("SELECT id FROM buffet_categorias WHERE nome = 'Doces'")).rows[0]?.id;
+    for (const [categoriaId, max] of [[salgados, 3], [doces, 2]].filter(([c]) => c)) {
+      await client.query("INSERT INTO pacote_buffet_categorias (pacote_id, categoria_id, modo_itens, escolhas_max) VALUES ($1, $2, 'TODOS_ATIVOS', $3)", [empresas.A.pacote, categoriaId, max]);
+    }
+
     const env = { ...process.env, DATABASE_URL: `postgresql://kidmais_descartavel@127.0.0.1:${porta}/${receita.TRABALHO[0]}`,
       DATABASE_SSL: 'false', ADMIN_AUTH_SECRET: randomBytes(32).toString('hex'), ADMIN_AUTH_ORIGIN: base,
       EMAIL_PROVIDER: 'desativado', NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1' };
     for (const k of ['RESEND_API_KEY', 'EMAIL_REMETENTE', 'EMAIL_ARQUIVO_DIR', 'OPENAI_API_KEY', 'KIDMAIS_DEPLOY_ENV', 'RENDER', 'RENDER_SERVICE_ID', 'RENDER_EXTERNAL_HOSTNAME',
       'RECUPERACAO_SENHA_ATIVA', 'ASAAS_API_KEY', 'ASAAS_WEBHOOK_TOKEN', 'AGENDA_PUBLICA_EMPRESA_ID']) delete env[k];
+    env.AGENDA_PUBLICA_EMPRESA_ID = empresas.A.id;
     servidor = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', String(PORTA_WEB)],
       { cwd: process.cwd(), env, stdio: ['ignore', logfile, logfile], windowsHide: true });
     for (let n = 0; n < 160; n++) {
@@ -115,7 +131,7 @@ async function principal() {
     await page.screenshot({ path: path.join(relatorios, 'categoria-painel.png'), fullPage: true });
     assert.equal(await painel.getByRole('checkbox', { name: 'Kidmais Pocket' }).isChecked(), false, 'nenhum pacote até marcar');
     await painel.getByRole('checkbox', { name: 'Kidmais Pocket' }).check();
-    await painel.getByRole('button', { name: 'Salvar adicional' }).click();
+    await painel.getByRole('button', { name: 'Salvar', exact: true }).click();
     await page.getByText('Adicional salvo.').waitFor().catch((e) => falhar('categoria', e));
     const linhaSalgados = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'Salgados', exact: true }) });
     await linhaSalgados.getByText('R$ 120,00 por cento').waitFor();
@@ -131,7 +147,7 @@ async function principal() {
     await painel.getByLabel('Grupo').selectOption('MESA');
     await painel.getByLabel('Preço (R$)').fill('350');
     await painel.getByRole('checkbox', { name: 'Kidmais Pocket' }).check();
-    await painel.getByRole('button', { name: 'Salvar adicional' }).click();
+    await painel.getByRole('button', { name: 'Salvar', exact: true }).click();
     await page.getByRole('row').filter({ hasText: 'Mesa de café' }).getByText('R$ 350,00').waitFor().catch((e) => falhar('outros', e));
     await page.screenshot({ path: path.join(relatorios, 'outros-adicionais.png'), fullPage: true });
     resultados.push('Outros adicionais: "Mesa de café" R$ 350,00 no grupo Mesas, oferecida no Pocket');
@@ -154,6 +170,67 @@ async function principal() {
     assert.equal(cento.id, cento.codigo, 'adicional novo usa o código como id na tela');
     resultados.push(`Fechamento admin: /api/admin/fechamentos/adicionais devolve os 2 adicionais; o cento traz ${ativos} opções ativas e máximo 3`);
     console.log('E2E_ADICIONAIS_FECHAMENTO_OK');
+
+    // 3a. Fechamento do cliente (público, agenda da empresa A): preferências do buffet e adicionais.
+    const cliente = await contexto.newPage();
+    const dispo = await (await cliente.request.get(`${base}/api/disponibilidade?data=${data}`)).json();
+    const periodo = (dispo.data?.periodos ?? []).find((p) => (p.horarios ?? []).some((h) => h.status === 'DISPONIVEL'));
+    assert.ok(periodo, 'há horário disponível na agenda sintética: ' + JSON.stringify(dispo).slice(0, 300));
+    const horario = periodo.horarios.find((h) => h.status === 'DISPONIVEL');
+    await cliente.goto(`${base}/fechamento?${new URLSearchParams({ origem: 'DISPONIBILIDADE', data, periodo: periodo.codigo === 'TURNO_1' ? 'almoco' : 'noite', codigoPeriodo: periodo.codigo, configuracaoId: periodo.configuracaoId ?? '', inicio: horario.inicio, fim: horario.fim, ajuste: String(horario.ajusteMinutos ?? 0) })}`);
+    const falharCliente = async (nome, e) => { await cliente.screenshot({ path: path.join(relatorios, `falha-${nome}.png`), fullPage: true }); fs.writeFileSync(path.join(relatorios, `falha-${nome}.txt`), await cliente.locator('body').innerText()); throw e; };
+    await cliente.getByRole('button', { name: /Kidmais Pocket/ }).click().catch((e) => falharCliente('cliente-pacote', e));
+    await cliente.getByRole('button', { name: /Continuar/ }).click();
+    await cliente.getByRole('heading', { name: /Quantos convidados pagantes/ }).waitFor().catch((e) => falharCliente('cliente-convidados', e));
+    // Clica sem esperar o preço: o botão vira "Calculando preço…" e a tela avança sozinha quando a cotação chega.
+    await cliente.getByRole('spinbutton').fill('25');
+    await cliente.getByRole('button', { name: /Continuar/ }).click();
+    assert.equal(await cliente.getByText('Aguarde o cálculo do preço.').count(), 0, 'sem a mensagem de espera');
+    await cliente.getByRole('heading', { name: /Preferências do buffet/ }).waitFor().catch((e) => falharCliente('cliente-buffet', e));
+    await cliente.getByText('Quero informar agora').click();
+    const salg = cliente.getByRole('group', { name: /Salgados/ });
+    await salg.getByText('0 de 3 escolhidos').waitFor().catch((e) => falharCliente('cliente-contador', e));
+    const opcoes = salg.getByRole('checkbox');
+    for (let i = 0; i < 3; i++) await opcoes.nth(i).check();
+    await salg.getByText('3 de 3 · limite atingido').waitFor();
+    assert.equal(await opcoes.nth(3).isDisabled(), true, 'acima do limite fica bloqueado');
+    const caixa = await opcoes.first().boundingBox();
+    assert.ok(caixa && caixa.width <= 20 && caixa.height <= 20, `caixa pequena: ${JSON.stringify(caixa)}`);
+    await cliente.screenshot({ path: path.join(relatorios, 'cliente-preferencias-buffet.png'), fullPage: true });
+    await cliente.getByRole('button', { name: /Continuar/ }).click();
+    await cliente.getByRole('heading', { name: /Quer adicionar algo/ }).waitFor().catch((e) => falharCliente('cliente-adicionais', e));
+    await cliente.getByRole('checkbox', { name: /Cento de salgados extra/ }).click();
+    await cliente.getByRole('button', { name: 'Aumentar Cento de salgados extra' }).click();
+    assert.equal(await cliente.getByLabel('Quantos centos de Cento de salgados extra').inputValue(), '2');
+    await cliente.getByText('= R$ 240,00').waitFor().catch((e) => falharCliente('cliente-quantidade', e));
+    await cliente.getByRole('checkbox', { name: /Mesa de café/ }).click();
+    await cliente.screenshot({ path: path.join(relatorios, 'cliente-adicionais.png'), fullPage: true });
+    await cliente.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await cliente.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true, 'celular sem rolagem horizontal');
+    await cliente.screenshot({ path: path.join(relatorios, 'cliente-adicionais-celular.png'), fullPage: true });
+    await cliente.close();
+    resultados.push('Fechamento do cliente: buffet com caixas pequenas e contador "3 de 3 · limite atingido" (excedente bloqueado); adicionais em cartões, cento 2 × R$ 120 = R$ 240 pelo +; celular sem rolagem');
+    console.log('E2E_ADICIONAIS_CLIENTE_OK');
+
+    // 3b. Excluir "Mesa de café" (tem preço publicado): confirmação → arquivado, some da oferta.
+    await page.getByRole('button', { name: 'Ações de Mesa de café' }).click();
+    await page.getByRole('menuitem', { name: 'Editar' }).click();
+    await painel.getByRole('heading', { name: 'Editar adicional' }).waitFor();
+    const altura = await painel.locator('form').boundingBox();
+    assert.ok(altura && altura.height >= 900, `painel do topo ao rodapé: ${JSON.stringify(altura)}`);
+    await page.screenshot({ path: path.join(relatorios, 'editar-adicional-painel.png'), fullPage: true });
+    await painel.getByRole('button', { name: 'Excluir adicional' }).click();
+    const confirmar = page.getByRole('dialog', { name: 'Confirmar exclusão do adicional' });
+    await confirmar.getByText('será arquivado', { exact: false }).waitFor();
+    await page.screenshot({ path: path.join(relatorios, 'excluir-adicional-confirmacao.png'), fullPage: true });
+    await confirmar.getByRole('button', { name: 'Excluir', exact: true }).click();
+    await page.getByText('“Mesa de café” foi arquivado', { exact: false }).waitFor().catch((e) => falhar('excluir', e));
+    const mesa = await client.query("SELECT ativo FROM adicionais WHERE empresa_id = $1 AND nome = 'Mesa de café'", [empresas.A.id]);
+    assert.equal(mesa.rows[0].ativo, false);
+    const depois = await (await contexto.request.get(`${base}/api/admin/fechamentos/adicionais?pacote=pocket&data=${data}&convidados=25`, { headers: { 'x-kidmais-sessao': (await sessaoAtual()).data.sessaoId } })).json();
+    assert.deepEqual(depois.adicionais.map((a) => a.nome), ['Cento de salgados extra'], 'arquivado some do fechamento');
+    resultados.push('Excluir adicional com preço publicado: confirmação explícita → arquivado (ativo = false), some do fechamento');
+    console.log('E2E_ADICIONAIS_EXCLUIR_OK');
 
     // 4. Empresa sem tabela publicada: aviso e preço recusado com orientação.
     await selecionar('S');

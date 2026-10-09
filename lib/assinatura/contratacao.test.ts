@@ -7,6 +7,16 @@ import { extrairEvento } from './sincronizacao.ts';
 import { decidirCompensacao } from './compensacao.ts';
 import type { AssinaturaProvedor, CobrancaProvedor } from './asaas.ts';
 
+test('webhook preserva o identificador opaco com & usado pelo Asaas, mantendo limites e recusas', () => {
+    // https://docs.asaas.com/docs/payment-events — formato oficial, valores sintéticos.
+    const id = 'evt_05b708f961d739ea7eba7e4db318f621&368604920';
+    const evento = { id, event: 'PAYMENT_RECEIVED', payment: { id: 'pay_teste', subscription: 'sub_teste' } };
+    assert.equal(extrairEvento(evento)?.eventoId, id);
+    assert.notEqual(extrairEvento({ ...evento, id: id.replace('&', '_') })?.eventoId, id);
+    for (const invalido of ['', 'x'.repeat(201), 'evt_teste\n', 'evt_teste?x=1', 'evt_<script>', 'kidmais:contratacao:x&1'])
+        assert.equal(extrairEvento({ ...evento, id: invalido }), null);
+});
+
 test('resultado da criação: só 4xx definitivo é "não criado"; tempo, rede, 5xx, 408/409/429 e resposta ilegível são incertos', () => {
     assert.equal(resultadoIncerto(new AsaasFalhou('criar assinatura', 400, 'HTTP')), false);
     assert.equal(resultadoIncerto(new AsaasFalhou('criar assinatura', 401, 'HTTP')), false);
