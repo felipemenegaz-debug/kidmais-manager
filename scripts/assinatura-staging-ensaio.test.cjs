@@ -1,9 +1,23 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
+const {spawnSync}=require('node:child_process');
 const {alvo,documento,cookies,prepararWebhook,validarRetomadaPrecheck}=require('./assinatura-staging-ensaio.cjs');
 const valido={RENDER:'true',RENDER_SERVICE_ID:'srv-daif418ae00c73e8k2gg',KIDMAIS_DEPLOY_ENV:'staging',ASAAS_AMBIENTE:'sandbox',
     ASSINATURA_PLANOS_ATIVOS:'true',DATABASE_SSL:'true',DATABASE_URL:'postgresql://synthetic@dpg-daidko3m8hqs73ce4jt0-a/kidmais_staging_1z91'};
+
+test('quarta rodada tem IDs e diretório novos; flags ambíguas ou retomada são recusadas sem conexão',()=>{
+    const args=['-e','console.log(JSON.stringify(require("./scripts/assinatura-staging-ensaio.cjs").fixture))','--','--rodada-4-autorizada'];
+    const r=spawnSync(process.execPath,args,{encoding:'utf8',env:{}});
+    assert.equal(r.status,0);
+    const f=JSON.parse(r.stdout);
+    assert.deepEqual(f,{empresa:'531f9c46-6026-4bfe-86aa-babce78b0cfd',usuario:'a3f1de69-7ed9-47aa-9864-4b8f7fca8c65',
+        email:'assinatura-staging-a3f1de69@example.invalid',dir:'/opt/render/project/src/data/ensaio-assinatura-20261009-4'});
+    for(const flags of [['--rodada-3-autorizada','--rodada-4-autorizada'],['--rodada-4-autorizada','--retomar-precheck-sem-recursos']]){
+        const rejeitado=spawnSync(process.execPath,['scripts/assinatura-staging-ensaio.cjs',...flags],{encoding:'utf8',env:{}});
+        assert.equal(rejeitado.status,1);assert.match(rejeitado.stderr,/RETOMADA_AGUARDANDO_AUTORIZACAO/);
+    }
+});
 test('bloqueia produção, outro banco, host, serviço e flag antes de conectar',()=>{
     for(const troca of [{KIDMAIS_DEPLOY_ENV:'production'},{ASAAS_AMBIENTE:'production'},{RENDER_SERVICE_ID:'srv-other'},
         {DATABASE_URL:'postgresql://synthetic@localhost/kidmais_manager'},{ASSINATURA_PLANOS_ATIVOS:'false'},
