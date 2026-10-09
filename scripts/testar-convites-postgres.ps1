@@ -1,0 +1,33 @@
+param([switch]$Executar)
+$ErrorActionPreference = 'Stop'
+$raizConvites = Split-Path $PSScriptRoot -Parent
+$binConvites = 'C:/Program Files/PostgreSQL/18/bin'
+$portaConvites = 55458
+$bancoConvites = 'kidmais_convites_v1_teste'
+if (-not $Executar) {
+  Write-Output "PREPARADO, NAO EXECUTADO: PostgreSQL 18 novo em 127.0.0.1:$portaConvites, banco $bancoConvites, apenas dados sinteticos. Exige autorizacao explicita antes de usar -Executar."
+  exit 0
+}
+# Não lê .env, não usa DATABASE_URL e não reaproveita nenhum cluster existente.
+# libpq também aceita PGSERVICE/PGHOSTADDR. Recusa herança para não redirecionar createdb.
+if (Get-ChildItem Env:PG* -ErrorAction SilentlyContinue) { throw 'Execute em processo sem variáveis PG*: conexão libpq deve usar apenas o alvo sintético explícito.' }
+$clusterConvites = Join-Path $raizConvites ('.local-convites-pg-073-' + [guid]::NewGuid().ToString('N'))
+if (Test-Path -LiteralPath $clusterConvites) { throw 'O diretório deve ser novo.' }
+if (Get-NetTCPConnection -LocalPort $portaConvites -State Listen -ErrorAction SilentlyContinue) { throw 'Porta ocupada; nenhum servidor existente será acessado.' }
+& "$binConvites/initdb.exe" -D $clusterConvites -U convites_teste -A trust --encoding=UTF8 --locale=C
+if ($LASTEXITCODE -ne 0) { throw 'initdb falhou.' }
+& "$binConvites/pg_ctl.exe" -D $clusterConvites -l "$clusterConvites/servidor.log" -o "-h 127.0.0.1 -p $portaConvites" -w start
+if ($LASTEXITCODE -ne 0) { throw 'O servidor descartável não iniciou.' }
+try {
+  & "$binConvites/createdb.exe" -h 127.0.0.1 -p $portaConvites -U convites_teste --no-password $bancoConvites
+  if ($LASTEXITCODE -ne 0) { throw 'Criação do banco descartável falhou.' }
+  Push-Location $raizConvites
+  try {
+    node scripts/convites-postgres.cjs --executar-autorizado $clusterConvites
+    if ($LASTEXITCODE -ne 0) { throw 'Validação de convites falhou; evidências preservadas no cluster.' }
+  } finally { Pop-Location }
+} finally {
+  & "$binConvites/pg_ctl.exe" -D $clusterConvites -m fast -w stop
+  if ($LASTEXITCODE -ne 0) { Write-Warning "Verificar parada do cluster descartável: $clusterConvites" }
+  Write-Output "Cluster de teste preservado e destinado somente a esta validação: $clusterConvites"
+}
