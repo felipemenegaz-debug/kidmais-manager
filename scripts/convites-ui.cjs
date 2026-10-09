@@ -30,6 +30,7 @@ const dados = { conteudo, revisao: 1, publicado: false, desatualizado: false, li
     await page.goto(`${base}/convites/criar#${token}`);
     await page.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
     await page.getByLabel('Nome do aniversariante', { exact: true }).fill('Alice Sofia');
+    await page.getByText('Mais modelos', { exact: true }).click();
     await page.getByRole('button', { name: 'Jardim encantado' }).click();
     await page.getByRole('button', { name: 'Salvar rascunho' }).click();
     await page.getByRole('status').filter({ hasText: 'Rascunho salvo' }).waitFor();
