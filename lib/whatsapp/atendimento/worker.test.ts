@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { carregarComponente } from '../../../components/admin/teste-componente.ts';
 import * as core from './core.ts';
 import * as transporte from './transporte.ts';
@@ -370,4 +371,62 @@ test('077: PARAR, janela de 24 h vencida e conversa fora do atendente cancelam a
     assert.equal(r,'CANCELADA',JSON.stringify({nao_contatar:conv.nao_contatar,estado:conv.estado,responsavel:conv.responsavel_id}));
     assert.equal(envios,0);
   }
+});
+
+// Revisão final (M4): validade explícita das entradas pendentes (15 min); vencida vai à equipe sem resposta automática.
+test('entrada pendente além de 15 min vence; saída usa o próprio prazo; o limite é exclusivo',async()=>{
+  const {entradaVencida,PRAZO_ENTRADA_MS}=carregar(async()=>({rows:[]})) as unknown as {entradaVencida(m:{direcao:string;criada_em:string},agora?:Date):boolean;PRAZO_ENTRADA_MS:number};
+  assert.equal(PRAZO_ENTRADA_MS,15*60000);
+  const em=(min:number)=>new Date(agora.getTime()-min*60000).toISOString();
+  assert.equal(entradaVencida({direcao:'ENTRADA',criada_em:em(14)},agora),false);
+  assert.equal(entradaVencida({direcao:'ENTRADA',criada_em:em(15)},agora),false);
+  assert.equal(entradaVencida({direcao:'ENTRADA',criada_em:em(16)},agora),true);
+  assert.equal(entradaVencida({direcao:'SAIDA',criada_em:em(60)},agora),false,'saída tem o próprio prazo (mensagemAindaValida)');
+});
+test('entrada vencida na reserva: equipe sem resposta, sem modelo, Wall-e nem provedor; nenhuma saída criada',async()=>{
+  const vencida={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'quanto custa?',criada_em:new Date(Date.now()-16*60000).toISOString()};
+  const comandos:{sql:string;args?:unknown[]}[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[vencida]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    return {rows:[]};
+  });
+  const r=await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{throw Error('envio proibido');}});
+  assert.equal(r,'VENCIDA');
+  assert.ok(comandos.some(c=>/SET estado='PROCESSADA' WHERE id=\$1 AND estado IN \('PENDENTE','PROCESSANDO'\)/.test(c.sql)&&c.args?.[0]==='m'),'entrada PROCESSADA');
+  assert.ok(comandos.some(c=>/SET estado='AGUARDANDO_HUMANO',versao=versao\+1/.test(c.sql)&&/estado='IA'/.test(c.sql)),'conversa para a equipe, versão nova');
+  assert.ok(comandos.some(c=>/SET estado='CANCELADA'[\s\S]*direcao='SAIDA' AND estado='PENDENTE' AND autor_usuario_id IS NULL/.test(c.sql)),'só saídas automáticas na fila são canceladas');
+  assert.ok(!comandos.some(c=>/INSERT INTO whatsapp_atendimento_mensagens/.test(c.sql)),'nenhuma saída criada (nem o texto fixo)');
+  assert.ok(!comandos.some(c=>/SET estado=\$2,iniciada_em/.test(c.sql)),'não vira PROCESSANDO');
+});
+// Revisão final (M3): automação global desligada esvazia a fila para a equipe, sem modelo nem envio.
+test('automação global desligada: fila vai para a equipe sem modelo nem envio; com o atendimento desligado não consulta o banco',async()=>{
+  type Lote={processarLote(d:unknown,o?:unknown):Promise<{estado:string;tarefas:number}>};
+  const proibido={interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{throw Error('envio proibido');}};
+  const desligado=carregar(async()=>{throw Error('banco proibido');},false) as unknown as Lote;
+  assert.deepEqual(await desligado.processarLote(proibido,{semAutomacao:true}),{estado:'DESLIGADO',tarefas:0});
+  const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'oi',criada_em:agora.toISOString()};
+  const automatica={...mensagem,id:'s1'}; // saída automática na fila, conversa com a IA
+  const humana={...mensagem,id:'s2',autor_usuario_id:'u'};
+  const fila=[entrada,automatica]; const comandos:{sql:string;args?:unknown[]}[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes('SELECT m.*')) { assert.match(sql,/m\.direcao='ENTRADA' OR m\.autor_usuario_id IS NULL/,'saída do atendente fica de fora'); return {rows:fila.length?[fila.shift()]:[]}; }
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    return {rows:[]};
+  }) as unknown as Lote;
+  const r=await worker.processarLote(proibido,{semAutomacao:true});
+  assert.deepEqual(r,{estado:'DESLIGADO',tarefas:2});
+  assert.ok(comandos.some(c=>/SET estado='PROCESSADA' WHERE id=\$1/.test(c.sql)&&c.args?.[0]==='m'),'entrada encaminhada');
+  assert.ok(comandos.some(c=>/SET estado='CANCELADA' WHERE id=\$1 AND estado='PENDENTE'/.test(c.sql)&&c.args?.[0]==='s1'),'saída automática cancelada');
+  assert.ok(!comandos.some(c=>c.args?.includes(humana.id)),'saída do atendente não é tocada');
+  assert.ok(!comandos.some(c=>/INSERT INTO whatsapp_atendimento_mensagens/.test(c.sql)),'nada criado');
+});
+test('composition root: a chave global da IA chega ao processador como semAutomacao (o Core não lê a chave)',()=>{
+  const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
+  assert.match(raiz,/semAutomacao: !inteligenciaAtiva\(process\.env\)/);
+  assert.doesNotMatch(raiz,/if \(!inteligenciaAtiva\(process\.env\)\) return \{ estado: 'DESLIGADO'/,'não devolve DESLIGADO deixando a fila esperando');
+  assert.doesNotMatch(readFileSync('lib/whatsapp/atendimento/worker.ts','utf8'),/INTELIGENCIA_ENABLED|process\.env/);
 });

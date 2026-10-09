@@ -1,6 +1,6 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, origemMidia } from './configuracao.ts';
-import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao } from './core.ts';
+import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao } from './core.ts';
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, tem078, type Conversa, type Mensagem } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { urlPublicaArquivo } from './arquivos.ts';
@@ -27,14 +27,89 @@ export function mensagemAindaValida(mensagem: Mensagem, conversa: Conversa, agor
   return Number(mensagem.versao_conversa) === Number(conversa.versao) && (mensagem.direcao === 'ENTRADA' ? conversa.estado === 'IA' : ['IA','AGUARDANDO_HUMANO'].includes(conversa.estado));
 }
 /**
+ * Revisão final (M4): entrada parada na fila além deste prazo (worker parado, automação religada depois, entrega
+ * atrasada do provedor) não recebe resposta automática: responder agora trataria uma mensagem antiga como atual. Ela
+ * vai para a equipe sem nada ser enviado ao cliente (encaminharSemResposta). PARAR inequívoco já foi aplicado na
+ * recepção; pedido de pausa é aplicado no encaminhamento.
+ */
+export const PRAZO_ENTRADA_MS = 15 * 60 * 1000;
+export function entradaVencida(mensagem: Pick<Mensagem, 'direcao' | 'criada_em'>, agora = new Date()) {
+  return mensagem.direcao === 'ENTRADA' && agora.getTime() - new Date(mensagem.criada_em).getTime() > PRAZO_ENTRADA_MS;
+}
+/** Origem do encaminhamento sem resposta automática, gravada na marca de pausa (quando houver). */
+export type OrigemSemResposta = 'ENTRADA_VENCIDA' | 'AUTOMACAO_DESLIGADA';
+/** Só os campos simples da memória do Wall-e (sem consultar catálogos): o resumo da tela completa o resto. */
+function coletadoDaMemoria(contexto: unknown): Passagem['coletado'] {
+  const c = (contexto && typeof contexto === 'object' ? contexto : {}) as Record<string, unknown>;
+  const texto = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max ? v : null);
+  return { data: texto(c.data, 10), turno: null, convidados: Number.isInteger(c.convidados) ? (c.convidados as number) : null, pacote: null, unidade: null, tema: texto(c.tema, 60) };
+}
+/**
+ * Entrada que não terá resposta automática (vencida ou automação desligada): fica PROCESSADA, a conversa vai para a
+ * equipe (AGUARDANDO_HUMANO, versão nova: saídas automáticas antigas não saem) com o motivo SEM_RESPOSTA_AUTOMATICA, e
+ * NADA é enviado ao cliente (nem o texto fixo). Pedido de pausa no texto grava a mesma marca persistente da recepção
+ * (contexto.semAutomatico, PARAR_A_CONFIRMAR). Roda dentro da transação que já trava a mensagem e a conversa.
+ */
+async function encaminharSemResposta(tx: DbExecutor, conversa: Conversa, entrada: Pick<Mensagem, 'id' | 'texto'> | null, origem: OrigemSemResposta) {
+  const empresa = empresaPiloto(), ambiente = ambienteAtendimento();
+  if (entrada) await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado IN ('PENDENTE','PROCESSANDO')", [entrada.id]);
+  if (await tem078(tx)) {
+    const em = new Date().toISOString();
+    const pausa = !!entrada && !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto);
+    const motivos: Passagem['motivos'] = pausa ? ['PARAR_A_CONFIRMAR', 'SEM_RESPOSTA_AUTOMATICA'] : ['SEM_RESPOSTA_AUTOMATICA'];
+    const passagem: Passagem = { motivo: motivos[0], motivos, em, coletado: coletadoDaMemoria(conversa.contexto), enviados: [], pendentes: [], ultimaMensagem: '' };
+    const marca = pausa ? { semAutomatico: { motivo: 'PARAR_A_CONFIRMAR', em, origem } } : {};
+    await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',passagem=$2::jsonb,contexto=COALESCE(contexto,'{}'::jsonb)||$3::jsonb,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'",
+      [conversa.id, JSON.stringify(passagem), JSON.stringify(marca)]);
+  } else await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [conversa.id]);
+  // Saídas automáticas ainda na fila desta conversa não saem mais (as do atendente não são tocadas).
+  await tx.query(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens
+    WHERE conversa_id=$1 AND empresa_id=$2 AND ambiente=$3 AND direcao='SAIDA' AND estado='PENDENTE' AND autor_usuario_id IS NULL FOR UPDATE SKIP LOCKED)`, [conversa.id, empresa, ambiente]);
+}
+/**
+ * Revisão final (M3): chave GLOBAL da IA desligada (lida só na composition root, que chama processarLote com
+ * `semAutomacao`; o Core não lê a chave). Nada automático sai,
+ * e nada fica esperando uma resposta automática para quando a IA voltar: cada entrada PENDENTE vai para a equipe sem
+ * resposta (encaminharSemResposta) e cada saída AUTOMÁTICA na fila é cancelada (a conversa que estava com a IA vai para a
+ * equipe). Saídas do atendente não são tocadas. Mesma ordem de travas da reserva (mensagem → conversa), SKIP LOCKED.
+ * Com o atendimento desligado (flag/receptor) não consulta o banco, como o processador normal.
+ */
+export async function encaminharFilaSemAutomacao(opcoes: { maxTarefas?: number } = {}) {
+  if (!atendimentoAtivo()) return { estado: 'DESLIGADO' as const, tarefas: 0 };
+  await recuperarTrabalhosInterrompidos();
+  const empresa = empresaPiloto(), ambiente = ambienteAtendimento(), max = opcoes.maxTarefas ?? 200;
+  let tarefas = 0;
+  while (tarefas < max) {
+    const tratou = await withTransaction(async tx => {
+      const mensagem = (await tx.query<Mensagem>(`SELECT m.* FROM whatsapp_atendimento_mensagens m
+        WHERE m.empresa_id=$1 AND m.ambiente=$2 AND m.estado='PENDENTE' AND (m.direcao='ENTRADA' OR m.autor_usuario_id IS NULL)
+        ORDER BY m.criada_em,m.id FOR UPDATE OF m SKIP LOCKED LIMIT 1`, [empresa, ambiente])).rows[0];
+      if (!mensagem) return false;
+      const conversa = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [mensagem.conversa_id])).rows[0];
+      const valida = !!conversa && mensagemAindaValida(mensagem, conversa);
+      // Entrada válida: equipe, sem resposta. Saída automática com a conversa ainda na IA: a conversa vai para a equipe
+      // (o cliente ficaria sem resposta) e a saída é cancelada junto. Demais casos (obsoletas): canceladas.
+      if (mensagem.direcao === 'ENTRADA' && valida) await encaminharSemResposta(tx, conversa, mensagem, 'AUTOMACAO_DESLIGADA');
+      else if (mensagem.direcao === 'SAIDA' && valida && conversa.estado === 'IA') await encaminharSemResposta(tx, conversa, null, 'AUTOMACAO_DESLIGADA');
+      await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1 AND estado='PENDENTE'", [mensagem.id]);
+      return true;
+    });
+    if (!tratou) break;
+    tarefas++;
+  }
+  return { estado: 'DESLIGADO' as const, tarefas };
+}
+/**
  * Uma resposta automática custa duas tarefas (interpretar a entrada e enviar a saída). Por isso cada chamada do
  * processador esvazia a fila em lote, até `maxTarefas` ou `prazoMs` (o prazo fica abaixo do timeout de 60 s do
  * worker externo, contando a pior tarefa: 15 s de modelo ou 10 s de envio). Vários workers podem rodar em paralelo:
  * a reserva usa SKIP LOCKED e cada conversa tem no máximo uma tarefa ativa.
  */
-export async function processarLote(deps: DependenciasWorker, opcoes: { maxTarefas?: number; prazoMs?: number; relogio?: () => number } = {}) {
+export async function processarLote(deps: DependenciasWorker, opcoes: { maxTarefas?: number; prazoMs?: number; relogio?: () => number; semAutomacao?: boolean } = {}) {
   const max = opcoes.maxTarefas ?? 20, prazo = opcoes.prazoMs ?? 30000, relogio = opcoes.relogio ?? Date.now;
   if (!atendimentoAtivo()) return { estado: 'DESLIGADO' as const, tarefas: 0 };
+  // Revisão final (M3): automação global desligada ⇒ esvazia a fila para a equipe, sem modelo, Wall-e nem envio.
+  if (opcoes.semAutomacao) return encaminharFilaSemAutomacao();
   await limparStatusExpirados();
   const inicio = relogio();
   let tarefas = 0;
@@ -63,12 +138,14 @@ export async function processarAtendimento(deps: DependenciasWorker) {
     // Perdeu a corrida para outro worker nesta conversa: não é fila vazia, o lote segue para as demais conversas.
     if ((await tx.query("SELECT id FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND estado IN ('PROCESSANDO','ENVIANDO')", [conversa.id])).rows.length) return 'OCUPADA' as const;
     const valido = mensagemAindaValida(mensagem,conversa);
+    // Revisão final (M4): entrada válida, mas parada na fila além do prazo: equipe, sem resposta automática.
+    if (valido && entradaVencida(mensagem)) { await encaminharSemResposta(tx, conversa, mensagem, 'ENTRADA_VENCIDA'); return 'VENCIDA' as const; }
     await tx.query('UPDATE whatsapp_atendimento_mensagens SET estado=$2,iniciada_em=clock_timestamp() WHERE id=$1', [mensagem.id, valido ? 'PROCESSANDO' : 'CANCELADA']);
     return valido ? { mensagem, conversa, config } : 'CANCELADA' as const;
   });
   if (!tarefa) return 'SEM_TAREFA';
-  // Mensagem obsoleta cancelada na reserva: conta como tarefa; o lote segue para a próxima da fila.
-  if (tarefa === 'CANCELADA' || tarefa === 'OCUPADA') return tarefa;
+  // Mensagem obsoleta cancelada (ou entrada vencida encaminhada) na reserva: conta como tarefa; o lote segue para a próxima.
+  if (tarefa === 'CANCELADA' || tarefa === 'OCUPADA' || tarefa === 'VENCIDA') return tarefa;
   const { mensagem, conversa, config } = tarefa;
   try {
     if (mensagem.direcao === 'ENTRADA') {

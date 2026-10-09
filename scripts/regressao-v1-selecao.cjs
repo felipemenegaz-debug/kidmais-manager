@@ -114,6 +114,7 @@ const ESTADO_POSTGRES = {
   // pelo escopo da empresa/unidade (M2, precisa da 062) e validade da fila + automação global desligada (M3/M4).
   "lib/whatsapp/atendimento/rollback-ordem.postgres.test.ts": { descartavel: "063" },
   "lib/whatsapp/atendimento/walle/resumo-turno.postgres.test.ts": { descartavel: "063" },
+  "lib/whatsapp/atendimento/fila-validade.postgres.test.ts": { descartavel: "atual" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

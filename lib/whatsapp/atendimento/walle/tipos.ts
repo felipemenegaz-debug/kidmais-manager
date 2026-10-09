@@ -163,7 +163,7 @@ export type Anexo = { prontaId: string; versao: number; finalidade: string; tipo
 /** Uma mensagem a enviar: texto, ou anexo com legenda. */
 export type Saida = { texto: string | null; anexo: Anexo | null; fontes: Fonte[] };
 
-export const MOTIVOS_PASSAGEM = ['PEDIDO_CLIENTE', 'NEGOCIACAO', 'INFORMACAO_INDISPONIVEL', 'CONTRATACAO', 'CONTRATO_PROPRIO', 'RESTRICAO_ALIMENTAR', 'RECLAMACAO', 'PAGAMENTO', 'INSTRUCAO_SUSPEITA', 'FALHA', 'PARAR_A_CONFIRMAR', 'BLOQUEADO_A_PEDIDO'] as const;
+export const MOTIVOS_PASSAGEM = ['PEDIDO_CLIENTE', 'NEGOCIACAO', 'INFORMACAO_INDISPONIVEL', 'CONTRATACAO', 'CONTRATO_PROPRIO', 'RESTRICAO_ALIMENTAR', 'RECLAMACAO', 'PAGAMENTO', 'INSTRUCAO_SUSPEITA', 'FALHA', 'PARAR_A_CONFIRMAR', 'BLOQUEADO_A_PEDIDO', 'SEM_RESPOSTA_AUTOMATICA'] as const;
 export type MotivoPassagem = (typeof MOTIVOS_PASSAGEM)[number];
 export const NOME_MOTIVO: Record<MotivoPassagem, string> = {
   PEDIDO_CLIENTE: 'Cliente pediu para falar com a equipe',
@@ -178,6 +178,7 @@ export const NOME_MOTIVO: Record<MotivoPassagem, string> = {
   FALHA: 'Falha ao consultar uma informação',
   PARAR_A_CONFIRMAR: 'Pedido para parar as mensagens, sem bloqueio definitivo (nada foi enviado; o Wall-e não responde mais esta conversa)',
   BLOQUEADO_A_PEDIDO: 'Contato pediu para não receber mensagens: bloqueado, nada será enviado',
+  SEM_RESPOSTA_AUTOMATICA: 'Mensagem não respondida automaticamente (fila atrasada ou automação desligada): nada foi enviado ao cliente',
 };
 /**
  * Frase de passagem ao CLIENTE (rodada 18): linguagem simples, sem motivo técnico ("instruções ao sistema",
@@ -196,6 +197,7 @@ export const PASSAGEM_AO_CLIENTE: Record<MotivoPassagem, string> = {
   FALHA: 'Vou passar sua conversa para a equipe.',
   PARAR_A_CONFIRMAR: 'Vou passar sua conversa para a equipe.',
   BLOQUEADO_A_PEDIDO: 'Vou passar sua conversa para a equipe.',
+  SEM_RESPOSTA_AUTOMATICA: 'Vou passar sua conversa para a equipe.',
 };
 /** Resumo para a equipe na passagem (078: whatsapp_atendimento_conversas.passagem). */
 export type Passagem = {

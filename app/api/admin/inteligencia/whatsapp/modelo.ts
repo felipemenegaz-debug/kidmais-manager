@@ -13,8 +13,10 @@ import { triagemMensagem } from '@/lib/inteligencia/jev/motor';
 
 /** Composition root do canal: o domínio recebe portas, sem depender dos modelos da IA. */
 export async function processarFilaAtendimento() {
-  if (!inteligenciaAtiva(process.env)) return { estado: 'DESLIGADO' as const, tarefas: 0 };
-  return processarLote({interpretar:interpretarMensagem,enviar:enviarMensagem,wallE:criarPortaWallE(modoEntendimentoWallE(process.env) === 'MODELO' ? entenderComModelo : null, { sinais: sinaisJev })});
+  // Revisão final (M3): chave global desligada não deixa a fila esperando a IA voltar. Entradas pendentes vão para a
+  // equipe sem resposta e saídas automáticas na fila são canceladas; nada é enviado nem interpretado.
+  return processarLote({interpretar:interpretarMensagem,enviar:enviarMensagem,wallE:criarPortaWallE(modoEntendimentoWallE(process.env) === 'MODELO' ? entenderComModelo : null, { sinais: sinaisJev })},
+    { semAutomacao: !inteligenciaAtiva(process.env) });
 }
 
 /**
