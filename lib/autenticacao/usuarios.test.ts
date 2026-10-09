@@ -134,6 +134,8 @@ function mundo() {
         query: async (sql: string, p: unknown[] = []) => {
             sqls.push(sql);
             const r = (rows: unknown[]) => ({ rows, rowCount: rows.length });
+            if (sql.startsWith('SELECT id FROM empresas WHERE id=$1::uuid FOR UPDATE')) return r([{ id: p[0] }]);
+            if (sql.includes('AS instalado074')) return r([{ instalado074: false }]);
             if (sql.includes('FROM memberships m JOIN usuarios_administrativos u ON u.id = m.usuario_id') && sql.includes('WHERE m.empresa_id = $1::uuid')) {
                 return r(vinculos.filter((m) => m.empresa === p[0] && (p[1] === undefined || m.usuario === p[1])).map(linha));
             }

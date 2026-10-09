@@ -150,3 +150,21 @@ A rotina precisa reconsultar a assinatura, preservar cancelamento/isencão e apl
 Tratar falhas de aviso, resposta perdida e aplicação parcial sem duplicar cobrança, aumentar preço silenciosamente ou renovar desconto indefinidamente. A simulação deve impedir tanto envio de mensagem quanto mutações no provedor. Nenhum cron ou trabalhador foi criado. Avisos, renovação no provedor e homologação PostgreSQL são **pendências impeditivas da venda real**, não funcionalidades entregues por este goal de checkout local.
 
 Também permanecem: confirmar e vincular a isenção ao ID real da Kidmais em operação autorizada; homologar up/down e concorrência da 074; aplicar limites/recursos por plano no servidor; definir upgrade/downgrade e liberar reservas abandonadas somente após comprovar que não há cobrança pagável. Não ativar em produção apenas porque os testes sintéticos passaram.
+
+## Limites de pessoas — decisão e implementação de 09/10/2026
+
+Felipe confirmou: Gestão, pessoas com conta ativa e vínculo ativo, e convites pendentes dentro da validade contam como vagas. Essencial permite 3, Profissional 10 e Premium não tem limite. Uma pessoa já ativa não conta novamente pelo mesmo email em convite. Convites vencidos, cancelados e aceitos não reservam vagas.
+
+`lib/assinatura/limites-usuarios.ts` calcula ocupação para a empresa comprovada e somente para contratação confirmada; trial, legado e isenção preservam o acesso atual. Criação de convite, renovação de convite vencido, criação direta e reativação de vínculo consultam vagas na mesma transação, com trava da empresa antes da contagem. A tela de assinatura informa ocupação e limite.
+
+Empresas acima da cota mantêm acessos. Convites ainda válidos podem ser reenviados/aceitos porque já reservaram vaga; novas reservas são recusadas, sem revogar acessos para adequar a cota. O aceite foi ajustado para adquirir as travas na ordem usuário → empresa → convite e revalidar o token após a trava. Esta mudança não concede recursos adicionais nem habilita upgrade/downgrade.
+
+Testes sintéticos cobrem limites, isenção, legado, recusa de nova reserva sem email/DML e reenvio válido versus vencido. TypeScript, ESLint e build Next.js aprovados em cópia sem credenciais. Concorrência física das vagas em PostgreSQL e teste autenticado da tela publicada permanecem pendentes; mocks não comprovam locks reais. As evidências anteriores neste documento são históricas, não substituem a validação da candidata atual.
+
+## Ensaio publicado — interrupção e recuperação da terceira rodada
+
+A retomada criou somente a fixture aprovada `e4b274ca-3a51-40c5-bef6-39012a96cfbc`, seu usuário sintético e assinatura sandbox. O cron de preflight encontrou o cliente. O terminal foi perdido antes da liberação para pagamento; não houve intenção de confirmar pagamento no registro persistido. Não reutilizar essa fixture para outra rodada.
+
+Em 09/10/2026, a recuperação conferiu identidade/ambiente/valor/referência no Asaas, cancelou somente a assinatura fictícia, desativou usuário/empresa e revogou seu vínculo. Comparou hashes dos registros comerciais de outras empresas ao snapshot anterior: preservados. O webhook existente foi reutilizado e preservado. A flag temporária `ASSINATURA_PLANOS_ATIVOS` foi removida com Save only; o deploy de recuperação mantém o commit `08aa54d`, sem publicar os limites ainda em validação local.
+
+Pagamento, callback externo, idempotência após pagamento e cancelamento pela aplicação **não foram homologados por esta rodada**. Próxima rodada exige fixture nova e autorização concreta. Evidência: [recuperação](evidencias/assinatura-rodada3-recuperada-20261009.png).

@@ -5,6 +5,7 @@ import { lerEstadoComercial } from './estado.ts';
 import { configuracaoAsaas } from './asaas.ts';
 import { consultarOfertas } from './ofertas.ts';
 import { consultarRenovacao } from './renovacao-repositorio.ts';
+import { consultarVagas } from './limites-usuarios.ts';
 
 /**
  * Tela "Assinatura" da empresa comprovada (E4/E8): situação, datas e exceções vigentes. Qualquer vínculo ativo
@@ -34,6 +35,7 @@ export async function consultarAssinatura(tx: DbExecutor, tenant: TenantComprova
         cobranca = { disponivel: configuracaoAsaas(env).ligado, vinculada: c?.vinculada === true, provedorSituacao: c?.provedor_situacao ?? null, sincronizadoEm: c?.sincronizado_em ?? null };
     }
     return {
+        vagas: await consultarVagas(tx, tenant.empresaComprovada),
         renovacao: await consultarRenovacao(tx, tenant.empresaComprovada),
         ofertas: await consultarOfertas(tx, tenant.empresaComprovada, env),
         cobranca,
