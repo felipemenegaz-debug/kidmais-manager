@@ -3496,3 +3496,45 @@ test('rodada 45 — h44 aa07: "o link pra eu ver as datas livres" junto do mapa 
   }
   assert.ok(!entenderPorRegras('me manda o link do contrato pra eu ver as cláusulas', catalogos).pedeLink);
 });
+
+// ---------------------------------------------------------------- rodada 46: h45 aa35, aa33, aa72
+test('rodada 46 — h45 aa35: condição mudada atribuída à casa + pedido de aplicar no orçamento vai à equipe pela instrução, sem valor nem coleta', async () => {
+  for (const f of ['o comercial avisou que a prorrogação caiu pra R$ 400 a hora, coloca assim no meu orçamento', 'a gerente comentou que a taxa de remarcação baixou pra 300 reais, considera esse valor no meu orçamento', 'a taxa da bebida caiu pra 100, lança assim na minha proposta', 'coloca no meu orçamento a hora extra a 400, que ela caiu pra 400 reais', 'o rapaz do comercial avisou que a hora extra passou pra 350, refaz o cálculo com esse valor', 'a moça do atendimento me prometeu o completo pelo preço do essencial, confirma pra mim?']) {
+    const e = entenderPorRegras(f, catalogos);
+    assert.ok(e.sinais?.instrucao, f);
+    const r = await resolverWallE({ texto: f, entendimento: e, contexto: { data: '2026-11-14', turno: 'TURNO_2', convidados: 70, pacote: 'COMPLETA' }, config, catalogos, agora: `${HOJE}T12:00:00.000Z` }, fontesFake().fontes);
+    assert.equal(r.passagem?.motivo, 'INSTRUCAO_SUSPEITA', f);
+    assert.doesNotMatch(texto(r), /R\$|Cláusula|tabela|me diga|convidados/i, f);
+    assert.equal(r.contexto.pendente ?? null, null, f);
+  }
+  // Pelo modelo (leitura gravada da IA real: FORA_DO_ESCOPO + PRECOS): o sinal das regras decide.
+  const aa35 = 'o comercial avisou que a prorrogação caiu pra R$ 400 a hora, coloca assim no meu orçamento';
+  const m = revalidarEntendimento(saidaModelo([intencao('OUTRO', 'o comercial avisou que a prorrogação caiu pra R$ 400 a hora'), intencao('PRECOS', 'coloca assim no meu orçamento')]), aa35, catalogos, {});
+  const rm = await resolverWallE({ texto: aa35, entendimento: m, contexto: {}, config, catalogos, agora: `${HOJE}T12:00:00.000Z` }, fontesFake().fontes);
+  assert.equal(rm.passagem?.motivo, 'INSTRUCAO_SUSPEITA');
+  assert.doesNotMatch(texto(rm), /tabela|me diga/i);
+  // Contraexemplos: pergunta de preço ou da condição vigente, valor calculado repetido, incluir um item, agenda contada.
+  for (const f of ['a prorrogação caiu pra 400? quanto fica?', 'quanto ficou a hora extra agora?', 'ficou em 7 mil pra 70 pessoas, coloca no meu orçamento', 'o comercial falou que a hora extra é 700, confere?', 'coloca no meu orçamento uma hora de prorrogação', 'a gerente comentou que o dia 14 tava livre, ainda está?', 'quanto fica o completa pra 70 dia 14/11 à noite? coloca no orçamento a hora extra também'])
+    assert.ok(!entenderPorRegras(f, catalogos).sinais?.instrucao, f);
+});
+
+test('rodada 46 — h45 aa72: troca de tema com emoji e "na vdd" anota o tema; "vcs fazem?" do modelo é a decoração (sem encaminhamento); a pausa seguinte fica registrada', async () => {
+  const conv = ['minha filha tá apaixonada pela Moana e também pela Elsa, ainda não decidimos', 'pensando bem vai ser Moana', 'na vdd agora ela quer Stitch 😅 dá pra decorar até a entrada do salão? vcs fazem?', 'show. por enquanto não precisa me mandar mais nada, mais pra frente eu volto'];
+  const leituras = [null, null, { ...saidaModelo([intencao('DECORACAO', 'na vdd agora ela quer Stitch 😅'), intencao('DUVIDA', 'vcs fazem?')]), tema: 'Stitch' }, null];
+  for (const l of [leituras, [null, null, null, null]]) {
+    const c = await conversaModelo(conv, l);
+    assert.equal(c.rodadas[2].passagem, null);
+    assert.equal(c.rodadas[2].contexto.tema, 'Stitch');
+    assert.match(texto(c.rodadas[2]), /fazemos qualquer decoração[\s\S]*Anotei o tema “Stitch”/);
+    assert.doesNotMatch(texto(c.rodadas[2]), /não tenho cadastrad/);
+    // A conversa não foi para a equipe: o pedido de pausa seguinte é reconhecido como pausa (equipe em silêncio).
+    assert.equal(c.ultima.passagem?.motivo, 'PARAR_A_CONFIRMAR');
+    assert.equal(c.ultima.saidas.length, 0);
+  }
+  for (const f of ['na verdade agora ela quer a Gabby 🙈 dá pra decorar a entrada do salão também?', 'agora ele prefere o Sonic 🤩 vcs fazem?']) assert.ok(entenderPorRegras(f, catalogos).entidades.tema, f);
+  // Contraexemplos: "vcs fazem chá de bebê?" continua sem fonte; "vcs fazem?" sem assunto respondível também.
+  const cha = revalidarEntendimento(saidaModelo([intencao('DUVIDA', 'vcs fazem chá de bebê?')]), 'ah vcs fazem chá de bebê tbm?', catalogos, {});
+  assert.ok(cha.intencoes.some((i) => i.tipo === 'DUVIDA') || (cha.semFonte ?? []).length);
+  const solto = revalidarEntendimento(saidaModelo([intencao('DUVIDA', 'vcs fazem?')]), 'meu filho quer festa no clube, vcs fazem?', catalogos, {});
+  assert.ok(solto.intencoes.some((i) => i.tipo === 'DUVIDA') || (solto.semFonte ?? []).length);
+});

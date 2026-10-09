@@ -323,7 +323,8 @@ export function limparTema(s: string): string {
 export function extrairTemaDetalhe(texto: string): { tema: string | null; ambiguo: boolean } {
   const bruto = extrairTemaBruto(texto);
   if (!bruto) return { tema: null, ambiguo: false };
-  const tema = limparTema(bruto.replace(FIM_DO_TEMA, '').trim());
+  // Rodada 46 (h45 aa72): o emoji ENCERRA o nome ("Stitch 😅 dá pra decorar…" → "Stitch"), também na troca de tema.
+  const tema = limparTema(bruto.split(/[\p{Extended_Pictographic}\u{FE0F}]/u)[0].replace(FIM_DO_TEMA, '').trim());
   if (!tema || tema.length < 2) return { tema: null, ambiguo: false };
   if (/\s(?:ou|\/)\s|\//i.test(tema) || tema.split(/\s+/).length > 4) return { tema: null, ambiguo: true };
   return { tema, ambiguo: false };
@@ -343,7 +344,7 @@ function extrairTemaBruto(texto: string): string | null {
   const mudanca = /\b(?:mudamos|mudei|mudou|trocamos|troquei|decidimos|resolvemos)(?: de ideia)?(?:[, ]+(?:kkk\w*|rs+|haha\w*|n[eé]|enfim|ent[aã]o|gente|viu|af+|aff+))*[, ]+(?:(?:pra|para|por)\s+(?:o |a )?|(?:vai ser|sera|será|agora [eé]|[eé])\s+(?:o |a )?|(?:(?:ele|ela|eles|elas|a gente|n[oó]s|o \p{L}+|a \p{L}+)\s+)?(?:agora\s+)?(?:quer|querem|prefere|preferem|escolheu|escolheram|vai querer|pediu|pediram)\s+(?:o |a |os |as )?)(\p{Lu}[^,.;!?\n]{1,39})/u.exec(t)?.[1];
   // Rodada 38 (h38 aa62): a troca dita sem verbo de mudança — "na verdade ela agora quer a Wandinha kkk", "agora ele
   // prefere o Sonic", "pensando bem ela quer a Barbie" (marcador de virada + quem escolhe + querer/preferir + nome próprio).
-  const virada = /\b(?:na verdade|pensando bem|pensei melhor|agora)\b[, ]+(?:(?:ele|ela|eles|elas|a gente|n[oó]s|o \p{L}+|a \p{L}+)\s+)?(?:agora\s+|j[aá]\s+|t[aá]\s+)?(?:quer|querem|prefere|preferem|escolheu|escolheram|pediu|pediram|t[aá] querendo|t[aá] pedindo)\s+(?:o |a |os |as |do |da )?(\p{Lu}[^,.;!?\n]{1,39})/u.exec(t)?.[1];
+  const virada = /\b(?:na verdade|na vdd|na vd|pensando bem|pensei melhor|agora)\b[, ]+(?:(?:ele|ela|eles|elas|a gente|n[oó]s|o \p{L}+|a \p{L}+)\s+)?(?:agora\s+|j[aá]\s+|t[aá]\s+)?(?:quer|querem|prefere|preferem|escolheu|escolheram|pediu|pediram|t[aá] querendo|t[aá] pedindo)\s+(?:o |a |os |as |do |da )?(\p{Lu}[^,.;!?\n]{1,39})/u.exec(t)?.[1];
   const nomeTroca = mudanca ?? virada;
   if (nomeTroca && !/^(?:segund|primeir|almo[cç]|noite|manh|tarde|dia\b|s[aá]bado|domingo|janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|essencial|complet|premium|asa sul|[aá]guas claras|unidade|outr)/i.test(nomeTroca)) return nomeTroca.trim();
   const padroes = [
@@ -950,11 +951,13 @@ const FORA_DA_CASA = String.raw`(?! (?:pedagogic\w*|escolar|(?:de|da|do|em|na|no
 /** Pessoa ou setor da casa citado como quem disse ou liberou ("a gurizada da recepção me disse", "o Marcos, dono, mandou"). */
 /** Rodada 39: quem fala pela casa, o verbo de dizer/autorizar, o cliente como destinatário, valor em dinheiro e condição alterada. */
 const QUEM_FALA_PELA_CASA = String.raw`(?:gerente|gerencia|dono|dona|proprietari\w*|socio|socia|diretor\w*|diretoria|chefe|coordenador\w*|supervisor\w*|gestor\w*|atendente|vendedor\w*|consultor\w*|recepcionista|comercial|financeiro|(?:moca|moco|rapaz|menina|menino|senhora|senhor|pessoal|mulher|homem) d[oa] (?:atendimento|comercial|recepcao|vendas|financeiro|buffet|escritorio|gerencia))`;
-const VERBO_DA_CASA = String.raw`(?:falou|falaram|disse|disseram|garantiu|garantiram|confirmou|confirmaram|prometeu|prometeram|combinou|combinaram|autorizou|autorizaram|liberou|liberaram|aprovou|aprovaram|passou|passaram|informou|ofereceu|ofereceram|fechou|deixou|deixaram|acertou|acertaram)`;
+// Rodada 46 (h45 aa35): "o comercial avisou que…", "a gerente comentou que…" também.
+const VERBO_DA_CASA = String.raw`(?:avisou|avisaram|comentou|comentaram|falou|falaram|disse|disseram|garantiu|garantiram|confirmou|confirmaram|prometeu|prometeram|combinou|combinaram|autorizou|autorizaram|liberou|liberaram|aprovou|aprovaram|passou|passaram|informou|ofereceu|ofereceram|fechou|deixou|deixaram|acertou|acertaram)`;
 const PARA_O_CLIENTE = String.raw`(?:pra mim|para mim|pra gente|para a gente|pra nos|para nos|no meu caso|no nosso caso|comigo|conosco|pra minha festa|pra nossa festa|pro meu orcamento|no meu orcamento)`;
 const VALOR_EM_DINHEIRO = String.raw`(?:r\$ ?\d[\d.,]*|\b\d+(?:[.,]\d+)? ?(?:mil|reais|k|conto|contos)\b|\b\d{3,}(?:[.,]\d+)?\b(?! ?(?:pessoas|convidad\w*|criancas|adultos|anos|metros|m2))|\b(?:um|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|quinze|vinte|trinta)(?: e (?:meio|quinhentos))? mil\b)`;
 // Rodada 45 (h44 aa17): a isenção dita como "(eu) não pago a taxa", "não precisa pagar", "não cobram" também.
-const CONDICAO_ALTERADA = String.raw`(?:(?:nao|n) (?:pago|pagamos|pagaria|pagariamos|vou pagar|vamos pagar|preciso pagar|precisaria pagar|precisa pagar|precisamos pagar|tenho que pagar|teria que pagar|seria cobrad\w*|sou cobrad\w*|serei cobrad\w*|cobra|cobram|cobraria|cobrariam)\b|descont\w*|de graca|gratis|sem (?:taxa|cobrar|pagar|custo|multa)|isent\w*|zerad\w*|metade|pela metade|mais barat\w*|preco de \w+ \w+|valor antigo|preco antigo|do ano passado)`;
+// Rodada 46 (h45 aa33): "o completo pelo preço do essencial" (pacote pelo preço de outro) também.
+const CONDICAO_ALTERADA = String.raw`(?:pel[oa] (?:mesmo )?(?:preco|valor) d[oa] (?:essencial|complet[oa]|premium|outro|outra|pacote|primeiro|segundo|\w+)\b|(?:nao|n) (?:pago|pagamos|pagaria|pagariamos|vou pagar|vamos pagar|preciso pagar|precisaria pagar|precisa pagar|precisamos pagar|tenho que pagar|teria que pagar|seria cobrad\w*|sou cobrad\w*|serei cobrad\w*|cobra|cobram|cobraria|cobrariam)\b|descont\w*|de graca|gratis|sem (?:taxa|cobrar|pagar|custo|multa)|isent\w*|zerad\w*|metade|pela metade|mais barat\w*|preco de \w+ \w+|valor antigo|preco antigo|do ano passado)`;
 const AUTORIDADE_CASA = String.raw`(?:gerente|gerencia|dono|dona|proprietari\w*|socio|socia|diretor\w*|diretoria|direcao|coordenador\w*|coordenacao|supervisor\w*|supervisao|chefe|chefia|gestor\w*|administrac\w*|administrativo|recepcao|recepcionista|atendente|vendedor\w*|comercial|financeiro|escritorio)`;
 /**
  * Exceção ou vantagem que o cliente diz ter ganho da casa ("sem pagar nada a mais", "metade do preço", "não precisava
@@ -969,7 +972,18 @@ const SO_DADOS = String.raw`(?![:,;]? (?:(?:que|q) )?(?:(?:sao|e|eh|vai ser|vao 
 /** Festa, reserva ou cadastro de OUTRA pessoa ("a festa da Helena"), não "da minha filha" nem "do dia 20". */
 const DE_TERCEIRO = String.raw`d[ao] (?!(?:minha|meu|minhas|meus|nossa|nosso|dia|mes|semana|ano|sabado|domingo|segunda|terca|quarta|quinta|sexta|feriado|noite|tarde|manha|filho|filha|crianca|aniversariante|pacote|primeiro|segundo|outro|outra|proximo|proxima|completa|premium|essencial|buffet|salao|unidade)\b)[a-z]+`;
 /** Paráfrases de instrução ao sistema e de pedido de dado de outro cliente (rodada 8), juntadas em INSTRUCAO. */
+/**
+ * Rodada 46 (h45 aa35): CONDIÇÃO MUDADA + PEDIDO DE APLICAR — "a prorrogação caiu pra R$ 400 a hora, coloca assim no meu
+ * orçamento", "baixou pra 500, considera esse valor", "lança no meu orçamento a taxa que passou pra 100". Verbo de mudança
+ * (caiu, baixou, reduziu, mudou, subiu, passou) + valor em dinheiro + pedido de aplicar/considerar/registrar no orçamento,
+ * na proposta ou "assim". Pergunta ("caiu pra 400?", "quanto ficou a hora extra?") e o valor calculado repetido ("ficou
+ * em 7 mil, coloca no orçamento") não.
+ */
+const MUDOU_PARA = String.raw`\b(?:caiu|cairam|baixou|baixaram|abaixou|abaixaram|reduziu|reduziram|diminuiu|diminuiram|desceu|desceram|mudou|mudaram|subiu|subiram|passou|passaram)\s+(?:pra|para|a|em)\s+(?:so\s+)?`;
+const APLICAR_NO_ORCAMENTO = String.raw`\b(?:coloca|coloque|colocar|considera|considere|considerar|aplica|aplique|aplicar|registra|registre|registrar|lanca|lance|lancar|poe|ponha|bota|bote|anota|anote|usa|use|atualiza|atualize|calcula|calcule|refaz|refaca|ajusta|ajuste|corrige|corrija)\b[^?!]{0,30}?\b(?:assim|desse jeito|dessa forma|esse valor|este valor|esse preco|por esse valor|com esse valor|no (?:meu |nosso )?(?:orcamento|contrato|pedido|calculo)|na (?:minha |nossa )?(?:conta|proposta|cotacao|reserva))\b`;
 const INSTRUCAO_PARAFRASES = [
+  String.raw`${MUDOU_PARA}${VALOR_EM_DINHEIRO}[^?!]{0,100}?${APLICAR_NO_ORCAMENTO}`,
+  String.raw`${APLICAR_NO_ORCAMENTO}[^?!]{0,40}?\b(?:que|pois|porque|ja que)\b[^?!]{0,40}?${MUDOU_PARA}${VALOR_EM_DINHEIRO}`,
   // Quem se apresenta como da casa: "aqui é a Patrícia, gerente da Asa Sul", "sou a Carla, nova recepcionista",
   // "sou o promotor de vendas de vcs", "sou do setor de TI de vocês", "eu já autorizei".
   String.raw`\baqui (?:e|eh|quem fala e|quem fala eh|fala) (?:a |o )?[a-z]+,? (?:nova |novo )?${CARGO_CASA}\b(?! (?:me|que|q|falou|disse|passou|indicou|pediu|mandou)\b)${FORA_DA_CASA}`,
@@ -1946,6 +1960,10 @@ export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalog
     if (i.tipo === 'EXTERNO' && !externoRegras && ITEM_COM_CLAUSULA.test(t)) continue;
     // Pergunta frequente sem id: as regras dizem qual é (sem nenhuma, fica: é informação não cadastrada).
     if (i.tipo === 'DUVIDA' && !i.perguntaId && regras.intencoes.some((r) => r.tipo === 'DUVIDA' && r.perguntaId)) { duvidaSemId = true; continue; }
+    // Rodada 46 (IA × h45 aa72): "vcs fazem?" solto do modelo, numa mensagem de decoração, cardápio ou pacotes, retoma esse
+    // assunto (respondido pelas fontes): não é pergunta frequente sem cadastro ("Essa informação eu não tenho cadastrada").
+    if (i.tipo === 'DUVIDA' && !i.perguntaId && FAZEM_SOLTO.test(semAcento(i.trecho).trim())
+      && [...regras.intencoes, ...bruto.intencoes].some((x) => ['DECORACAO', 'CARDAPIO', 'PACOTES'].includes(x.tipo))) continue;
     // Contratação só com o pedido no trecho (fechar, reservar, garantir...): "queria fazer o niver aí" é consulta.
     if (i.tipo === 'CONTRATAR' && !CONTRATAR_TRECHO.test(semAcento(i.trecho)) && !regras.intencoes.some((r) => r.tipo === 'CONTRATAR')) continue;
     // Rodada 45: "desisti de fechar" tem "fechar" mas é desistência: a contratação do modelo não vale sem as regras.

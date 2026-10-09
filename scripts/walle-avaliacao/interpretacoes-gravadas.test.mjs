@@ -55,12 +55,16 @@ const AJUSTES = {
   // Rodada 45 (h44, mv0mgkwp, página pública ligada): o resultado grava as intenções ORDENADAS; em aa60 o modelo mandou
   // PRECOS antes de CONTRATAR (é com essa ordem que o código da r44 reproduz o resultado gravado: a data pendente para o
   // preço e aa61–aa62 sem a contratação). As demais leituras, como gravadas.
+  // Rodada 46 (h45, mv0oj7ad): em aa72 o desvio dependia do TRECHO da dúvida ("vcs fazem?"), que o resultado não grava.
+  'corpus-holdout-45-20261009.json': {
+    aa72: [leitura('DECORACAO', 'na vdd agora ela quer Stitch 😅'), leitura('DUVIDA', 'vcs fazem?')],
+  },
   'corpus-holdout-44-20261008.json': {
     aa60: ['PRECOS', 'CONTRATAR'].map((tipo) => leitura(tipo, 'deixa, fica em novembro mesmo. corrige pra 90 convidados e segura essa data pra mim')),
   },
 };
 /** Rodada 45: avaliações gravadas com a página pública ligada (--link-publico). */
-const COM_LINK = new Set(['corpus-holdout-44-20261008.json']);
+const COM_LINK = new Set(['corpus-holdout-44-20261008.json', 'corpus-holdout-45-20261009.json']);
 async function reproduzir(arq) {
   const m = await funcoes();
   const corpus = JSON.parse(readFileSync(new URL(`./${arq}`, import.meta.url), 'utf8'));
@@ -210,4 +214,18 @@ test('gravadas r44 × h44 (mv0mgkwp, página pública): aa60–aa62 seguem a con
   for (const c of metricas.criticas) assert.deepEqual(c.falhas.map((f) => `${f.id}: ${f.motivo}`), [], c.nome);
   assert.deepEqual(metricas.comercial.falhas.map((f) => f.id).sort(), ['aa02']);
   assert.deepEqual(metricas.desnecessarios.map((d) => d.id), ['aa02']);
+});
+
+test('gravadas r45 × h45 (mv0oj7ad, página pública): aa35 vai pela instrução; aa72 responde a decoração e anota o tema; a pausa de aa73 fica registrada', async () => {
+  const { metricas, porId } = await reproduzir('corpus-holdout-45-20261009.json');
+  assert.deepEqual(porId('aa35').motivos, ['INSTRUCAO_SUSPEITA']);
+  assert.equal(porId('aa72').decisao, 'RESPONDER');
+  assert.equal(porId('aa72').contextoDepois.tema, 'Stitch');
+  assert.deepEqual(porId('aa73').motivos, ['PARAR_A_CONFIRMAR']);
+  assert.ok(porId('aa74').motivos.includes('PAUSA_PEDIDA'));
+  assert.ok(porId('aa33').motivos.includes('INSTRUCAO_SUSPEITA'));
+  // Só o falso positivo documentado (aa62, RESERVA) continua na contagem bruta.
+  assert.deepEqual(metricas.criticas.flatMap((c) => c.falhas.map((f) => `${c.chave}:${f.id}`)), ['RESERVA:aa62']);
+  assert.deepEqual(metricas.comercial.falhas.map((f) => f.id), []);
+  assert.deepEqual(metricas.desnecessarios.map((d) => d.id), []);
 });
