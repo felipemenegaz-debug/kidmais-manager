@@ -5,10 +5,13 @@ export const temas = {
   celebrar: { nome: 'Dia de celebrar', fundo: '#fff3df', tinta: '#703b29', destaque: '#d66045', simbolo: '✦' },
   jardim: { nome: 'Jardim encantado', fundo: '#eef3e5', tinta: '#334f3b', destaque: '#788d58', simbolo: '❀' },
   espaco: { nome: 'Uma aventura espacial', fundo: '#182849', tinta: '#ffffff', destaque: '#c5a6f5', simbolo: '✧' },
+  planetas: { nome: 'Planetas', fundo: '#faf5eb', tinta: '#102e49', destaque: '#ad5d32', simbolo: '✧' },
+  arco: { nome: 'Arco clássico', fundo: '#faf5eb', tinta: '#102e49', destaque: '#ad5d32', simbolo: '⌒' },
+  ondulada: { nome: 'Moldura ondulada', fundo: '#faf7ef', tinta: '#23465c', destaque: '#6c94ad', simbolo: '〰' },
 } as const;
 
 export const conteudoSchema = z.object({
-  tema: z.enum(['celebrar', 'jardim', 'espaco']),
+  tema: z.enum(['celebrar', 'jardim', 'espaco', 'planetas', 'arco', 'ondulada']),
   nome: z.string().trim().min(1).max(80),
   idade: z.string().trim().max(20),
   mensagem: z.string().trim().max(400),

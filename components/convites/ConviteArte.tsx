@@ -2,14 +2,18 @@
 // Artes já são reencodadas no servidor; URLs privadas não devem passar pelo cache do otimizador Next.
 /* eslint-disable @next/next/no-img-element */
 import { type Conteudo } from '@/lib/convites/domain';
+import { useId } from 'react';
+import { modeloBiblioteca, planetasModelo, svgModelo } from '@/lib/convites/modelos';
 import { enquadramento, temaVisual, visualPadrao } from '@/lib/convites/visual';
 import styles from './convites.module.css';
 export function dataBonita(data: string) {
   return data ? new Date(`${data}T12:00:00`).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) : 'Data da festa';
 }
 export default function ConviteArte({ conteudo: c, arte }: { conteudo: Conteudo; arte?: string }) {
+  const id = useId();
   const tema = temaVisual(c), visual = c.visual ?? visualPadrao;
   const completa = visual.modo === 'completa' && !!arte;
+  if (modeloBiblioteca(c.tema) && !completa) return <article className={`${styles.convite} ${styles.conviteBiblioteca}`} aria-label="Prévia do convite"><div dangerouslySetInnerHTML={{ __html: svgModelo(c, { arte, id }) }} /></article>;
   return <article className={styles.convite} style={{ background: tema.fundo, color: tema.tinta }} aria-label="Prévia do convite">
     <div className={completa ? styles.arteCompleta : styles.capa} style={{ color: tema.destaque }}>
       {arte ? <img src={arte} alt="Arte escolhida para o convite" style={{ objectFit: visual.ajuste === 'preencher' ? 'cover' : 'contain', objectPosition: `${visual.x}% ${visual.y}%` }} /> : <><span className={styles.orbita} /><span className={styles.simbolo}>{tema.simbolo}</span><span className={styles.estrela}>✦</span><span className={styles.estrela2}>✧</span><p>VOCÊ FAZ PARTE DESSA FESTA</p></>}
@@ -23,6 +27,7 @@ export default function ConviteArte({ conteudo: c, arte }: { conteudo: Conteudo;
 
 /** Exportação local, sem chamada à IA: textos ficam independentes da arte. */
 export async function baixarConvite(c: Conteudo, arte?: string) {
+  if (modeloBiblioteca(c.tema) && !(arte && c.visual?.modo === 'completa')) return baixarModelo(c, arte);
   const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1440;
   const ctx = canvas.getContext('2d'); if (!ctx) return;
   const tema = temaVisual(c), visual = c.visual ?? visualPadrao;
@@ -66,4 +71,33 @@ export async function baixarConvite(c: Conteudo, arte?: string) {
   const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
   if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a');
   a.href = url; a.download = 'convite.png'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** SVG exportado com imagens embutidas: navegador não descarta recursos externos. */
+async function baixarModelo(c: Conteudo, arte?: string) {
+  const embutir = async (url: string) => {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error('Não foi possível carregar a arte.');
+    const blob = await response.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('Não foi possível ler a arte.')); reader.readAsDataURL(blob);
+    });
+  };
+  const [imagens, imagem] = await Promise.all([
+    c.tema === 'planetas' ? Promise.all(planetasModelo.map(embutir)) : undefined,
+    arte ? embutir(arte) : undefined,
+  ]);
+  const svg = svgModelo(c, { arte: imagem, planetas: imagens });
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+  try {
+    const img = new Image(); img.src = url; await img.decode();
+    const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1800;
+    const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas indisponível.');
+    ctx.drawImage(img, 0, 0);
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('Não foi possível exportar.');
+    const png = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = png; a.download = 'convite.png'; a.click(); setTimeout(() => URL.revokeObjectURL(png), 1000);
+  } finally { URL.revokeObjectURL(url); }
 }
