@@ -14,7 +14,7 @@ const out = path.resolve('.local-convites-qa'); fs.mkdirSync(out, { recursive: t
   try {
     for (const admin of [true, false]) {
       const contexto = { empresas: [{ id: id(2), nome: 'Buffet Demonstração', papel: 'REPRESENTANTE_AUTORIZADO' }], empresaAtual: { id: id(2), nome: 'Buffet Demonstração' }, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false };
-      const dados = { conteudo: { tema: 'jardim', nome: 'Alice Sofia', idade: '5 anos', mensagem: 'Venha comemorar!', data: '2099-12-20', horario: '16:00', local: 'Jardim das Festas', endereco: 'Rua das Flores, 120', arteId: id(10), confirmarPresenca: true }, revisao: 1, publicado: true, desatualizado: false, linkPublico: `/convite/${'p'.repeat(43)}`, clienteHabilitado: true, disponiveis: 3, iaDisponivel: false, cotas: { festa: 3, festaUsado: 0, cliente: 3, clienteUsado: 0 }, artes: [{ id: id(10), origem: 'UPLOAD', url: `data:image/png;base64,${png.toString('base64')}` }], respostas: [{ nome: 'Família Souza', presenca: true, adultos: 2, criancas: 1 }, { nome: 'Família Lima', presenca: false, adultos: 0, criancas: 0 }], convidadosContratados: 2, historico: [] };
+      const dados = { conteudo: { tema: 'jardim', nome: 'Alice Sofia', idade: '5 anos', mensagem: 'Venha comemorar!', data: '2099-12-20', horario: '16:00', local: 'Jardim das Festas', endereco: 'Rua das Flores, 120', arteId: id(10), confirmarPresenca: true, visual: { modo: 'completa', ajuste: 'preencher', x: 100, y: 50 } }, revisao: 1, publicado: true, desatualizado: false, linkPublico: `/convite/${'p'.repeat(43)}`, clienteHabilitado: true, disponiveis: 3, iaDisponivel: false, cotas: { festa: 3, festaUsado: 0, cliente: 3, clienteUsado: 0 }, artes: [{ id: id(10), origem: 'UPLOAD', url: `data:image/png;base64,${png.toString('base64')}` }], respostas: [{ nome: 'Família Souza', presenca: true, adultos: 2, criancas: 1 }, { nome: 'Família Lima', presenca: false, adultos: 0, criancas: 0 }], convidadosContratados: 2, historico: [] };
       let publicado = structuredClone(dados.conteudo); const comandos = [], erros = [];
       const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
       await context.route('**/api/**', async route => {
@@ -36,11 +36,15 @@ const out = path.resolve('.local-convites-qa'); fs.mkdirSync(out, { recursive: t
       });
       const page = await context.newPage(); page.on('pageerror', e => erros.push(e.message));
       await page.goto(admin ? `${base}/admin/festas/${id(1)}/convite` : `${base}/convites/criar#${'a'.repeat(43)}`);
-      await page.getByRole('button', { name: 'Arte completa', exact: true }).click();
+      await page.getByText('Personalizar cores', { exact: true }).waitFor();
+      assert.equal(await page.getByText('Como usar esta imagem', { exact: true }).count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'Arte completa', exact: true }).count(), 0);
+      assert.equal(await page.getByRole('slider').count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'Usar cores da imagem', exact: true }).count(), 0, 'Cores recolhidas inicialmente');
+      await page.getByRole('group', { name: '01 · Escolha o visual', exact: true }).screenshot({ path: path.join(out, `editor-simplificado-${admin ? 'buffet' : 'cliente'}.png`) });
+      await page.getByText('Personalizar cores', { exact: true }).click();
       const quadro = page.getByRole('article', { name: 'Prévia do convite' });
       const tamanho = await quadro.boundingBox(); assert(Math.abs(tamanho.width / tamanho.height - .75) < .01, 'Arte completa ocupa 3:4 sem texto extra');
-      await page.getByRole('button', { name: 'Preencher e recortar', exact: true }).click();
-      await page.getByLabel(/Posição horizontal/).fill('100');
       await page.getByRole('button', { name: 'Usar cores da imagem', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Cores extraídas' }).waitFor();
       assert.equal(comandos.length, 0, 'Enquadrar e extrair cores não chama API');
@@ -49,10 +53,11 @@ const out = path.resolve('.local-convites-qa'); fs.mkdirSync(out, { recursive: t
       await page.getByText('O texto foi ajustado automaticamente', { exact: false }).waitFor();
       await page.getByRole('button', { name: 'Salvar rascunho', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Rascunho salvo' }).waitFor();
-      assert.equal(publicado.visual, undefined, 'Rascunho não altera público');
-      await page.reload(); await page.getByRole('button', { name: 'Arte completa', exact: true }).waitFor();
-      assert.equal(await page.getByRole('button', { name: 'Arte completa', exact: true }).getAttribute('aria-pressed'), 'true');
-      assert.equal(await page.getByLabel(/Posição horizontal/).inputValue(), '100');
+      assert.equal(publicado.visual.cores, undefined, 'Rascunho não altera público');
+      await page.reload(); await page.getByText('Personalizar cores', { exact: true }).waitFor();
+      await page.getByText('Personalizar cores', { exact: true }).click();
+      assert.equal(dados.conteudo.visual.modo, 'completa');
+      assert.equal(dados.conteudo.visual.x, 100, 'Preserva a aparência anteriormente salva');
       const downloadP = page.waitForEvent('download'); await page.getByRole('button', { name: 'Baixar imagem', exact: true }).click();
       const download = await downloadP, arquivo = path.join(out, `convite-completo-${admin ? 'buffet' : 'cliente'}.png`); await download.saveAs(arquivo);
       const pixel = await sharp(arquivo).extract({ left: 1000, top: 1000, width: 1, height: 1 }).removeAlpha().raw().toBuffer();
@@ -88,6 +93,6 @@ const out = path.resolve('.local-convites-qa'); fs.mkdirSync(out, { recursive: t
       await page.setViewportSize({ width: 1365, height: 1000 }); await page.screenshot({ path: path.join(out, 'melhorias-publico-desktop.png'), fullPage: true });
       assert.deepEqual(erros, []); await context.close();
     }
-    console.log(JSON.stringify({ ok: true, cenarios: ['arte completa sem texto repetido', 'recorte preservado no PNG', 'cores locais sem créditos', 'contraste automático', 'rascunho separado da publicação', 'persistência', 'comparação contratual', 'busca e CSV filtrado', 'atualização preserva edição', 'buffet e cliente em 320/390px', 'público com cores publicadas'] }));
+    console.log(JSON.stringify({ ok: true, cenarios: ['controles de modo e recorte removidos', 'cores recolhidas', 'aparência salva e PNG preservados', 'cores locais sem créditos', 'contraste automático', 'rascunho separado da publicação', 'persistência', 'comparação contratual', 'busca e CSV filtrado', 'atualização preserva edição', 'buffet e cliente em 320/390px', 'público com cores publicadas'] }));
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
