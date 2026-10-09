@@ -6,11 +6,12 @@ const {randomBytes, createHash} = require('node:crypto');
 const {snapshotPreservacao,compararPreservacao}=require('./assinatura-preservacao.cjs');
 // Rodadas têm IDs separados; cada execução depende da autorização do seu plano.
 const QUARTA = process.argv.includes('--rodada-4-autorizada');
-const EMPRESA = QUARTA ? '531f9c46-6026-4bfe-86aa-babce78b0cfd' : 'e4b274ca-3a51-40c5-bef6-39012a96cfbc';
-const USUARIO = QUARTA ? 'a3f1de69-7ed9-47aa-9864-4b8f7fca8c65' : '067a7b63-7588-4897-b66b-a93f9fdbd56e';
-const EMAIL = QUARTA ? 'assinatura-staging-a3f1de69@example.invalid' : 'assinatura-staging-067a7b63@example.invalid';
+const QUINTA = process.argv.includes('--rodada-5-autorizada');
+const EMPRESA = QUINTA ? 'cbfbdb83-09d8-46d9-a1d4-9aeb6dc2b9dd' : QUARTA ? '531f9c46-6026-4bfe-86aa-babce78b0cfd' : 'e4b274ca-3a51-40c5-bef6-39012a96cfbc';
+const USUARIO = QUINTA ? 'cc401acf-f43c-4f86-b22e-7440ee394acd' : QUARTA ? 'a3f1de69-7ed9-47aa-9864-4b8f7fca8c65' : '067a7b63-7588-4897-b66b-a93f9fdbd56e';
+const EMAIL = QUINTA ? 'assinatura-staging-cc401acf@example.invalid' : QUARTA ? 'assinatura-staging-a3f1de69@example.invalid' : 'assinatura-staging-067a7b63@example.invalid';
 const BASE = 'https://kidmais-manager-staging.onrender.com';
-const DIR = '/opt/render/project/src/data/ensaio-assinatura-20261009-' + (QUARTA ? '4' : '3');
+const DIR = '/opt/render/project/src/data/ensaio-assinatura-20261009-' + (QUINTA ? '5' : QUARTA ? '4' : '3');
 const ROTA = '/api/integracoes/asaas/webhook';
 const pausa = ms => new Promise(ok => setTimeout(ok, ms));
 function alvo(env) {
@@ -179,7 +180,7 @@ async function main() {
             if(eventos.some(e=>e.situacao==='PROCESSADO'))break;assert.ok(i<179,'CALLBACK_NAO_PROCESSADO');await pausa(1000);}
         r.callbackAutenticado=true;const depoisPagamento=await requisicao('/api/admin/assinatura');
         r.acessoDepois=depoisPagamento.acesso.nivel;assert.equal(r.acessoDepois,'COMPLETO');
-        if(QUARTA){assert.equal(depoisPagamento.vagas.plano,'essencial');assert.equal(depoisPagamento.vagas.limite,3);
+        if(QUARTA||QUINTA){assert.equal(depoisPagamento.vagas.plano,'essencial');assert.equal(depoisPagamento.vagas.limite,3);
             assert.equal(depoisPagamento.vagas.ativos,1);assert.equal(depoisPagamento.vagas.convitesPendentes,0);r.vagasConferidas=true;}
         const s=await snapshot();assert.equal(s.assinatura[0].situacao,'ATIVA');assert.equal(s.contratos.length,1);
         assert.equal(s.contratos[0].estado,'CONFIRMADA');assert.equal(s.contratos[0].pagamento_confirmacao_id,r.pagamentoId);
@@ -228,8 +229,8 @@ async function main() {
         acessoFicticioDesativado:r.acessoFicticioDesativado??false,cronSemDuplicacao:r.cronSemDuplicacao??false}));if(erro)process.exitCode=2;
 }
 if(require.main===module){
-    if(Number(process.argv.includes('--rodada-3-autorizada'))+Number(QUARTA)!==1
-        || (QUARTA&&process.argv.includes('--retomar-precheck-sem-recursos'))){console.error('RETOMADA_AGUARDANDO_AUTORIZACAO');process.exitCode=1;}
+    if(Number(process.argv.includes('--rodada-3-autorizada'))+Number(QUARTA)+Number(QUINTA)!==1
+        || ((QUARTA||QUINTA)&&process.argv.includes('--retomar-precheck-sem-recursos'))){console.error('RETOMADA_AGUARDANDO_AUTORIZACAO');process.exitCode=1;}
     else main().catch(()=>{console.error('ENSAIO_RECUSADO_ANTES_DAS_MUTACOES');process.exitCode=1;});
 }
 module.exports={alvo,documento,cookies,prepararWebhook,validarRetomadaPrecheck,

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const test = require('node:test'), assert = require('node:assert/strict');
-const {verificar, REFERENCIA, REFERENCIA_QUARTA} = require('./assinatura-staging-preflight.cjs');
+const {verificar, REFERENCIA, REFERENCIA_QUARTA, REFERENCIA_QUINTA, referenciaArgumentos} = require('./assinatura-staging-preflight.cjs');
 const env = {RENDER:'true', RENDER_SERVICE_ID:'crn-db493i142hec73ahmoe0', KIDMAIS_DEPLOY_ENV:'staging',
     ASAAS_AMBIENTE:'sandbox', ASAAS_API_KEY:'$aact_hmlg_fixture', ASAAS_WEBHOOK_TOKEN:'x'.repeat(32)};
 test('diagnóstico só faz GET de referência sintética em sandbox e não devolve secrets ou dados', async () => {
@@ -37,4 +37,13 @@ test('quarta rodada só consulta sua referência reservada; referência arbitrá
     assert.equal((await verificar(env, req, REFERENCIA_QUARTA)).clienteReferenciaEncontrado, false);
     await assert.rejects(verificar(env, req, 'empresa-real'), /REFERENCIA_RECUSADA/);
     assert.equal(chamadas, 1);
+});
+
+test('quinta rodada consulta somente a nova referência e seleção ambígua é recusada',async()=>{
+    assert.equal(referenciaArgumentos(['--rodada-5']),REFERENCIA_QUINTA);
+    for(const args of [['--rodada-4','--rodada-5'],['--rodada-99'],['--rodada-5','outro']])assert.throws(()=>referenciaArgumentos(args));
+    let chamadas=0;
+    await verificar(env,async(url,init)=>{chamadas++;assert.equal(new URL(url).searchParams.get('externalReference'),REFERENCIA_QUINTA);
+        assert.equal(init.method,'GET');return new Response(JSON.stringify({data:[]}),{status:200});},REFERENCIA_QUINTA);
+    assert.equal(chamadas,1);
 });

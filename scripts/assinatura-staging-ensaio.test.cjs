@@ -18,6 +18,17 @@ test('quarta rodada tem IDs e diretório novos; flags ambíguas ou retomada são
         assert.equal(rejeitado.status,1);assert.match(rejeitado.stderr,/RETOMADA_AGUARDANDO_AUTORIZACAO/);
     }
 });
+
+test('quinta rodada tem nova identidade e recusa seleção conjunta ou retomada antes de conectar',()=>{
+    const r=spawnSync(process.execPath,['-e','console.log(JSON.stringify(require("./scripts/assinatura-staging-ensaio.cjs").fixture))','--','--rodada-5-autorizada'],{encoding:'utf8',env:{}});
+    assert.equal(r.status,0);assert.deepEqual(JSON.parse(r.stdout),{
+        empresa:'cbfbdb83-09d8-46d9-a1d4-9aeb6dc2b9dd',usuario:'cc401acf-f43c-4f86-b22e-7440ee394acd',
+        email:'assinatura-staging-cc401acf@example.invalid',dir:'/opt/render/project/src/data/ensaio-assinatura-20261009-5'});
+    for(const adicional of ['--rodada-3-autorizada','--rodada-4-autorizada','--retomar-precheck-sem-recursos']){
+        const recusado=spawnSync(process.execPath,['scripts/assinatura-staging-ensaio.cjs','--rodada-5-autorizada',adicional],{encoding:'utf8',env:{}});
+        assert.equal(recusado.status,1);assert.match(recusado.stderr,/RETOMADA_AGUARDANDO_AUTORIZACAO/);
+    }
+});
 test('bloqueia produção, outro banco, host, serviço e flag antes de conectar',()=>{
     for(const troca of [{KIDMAIS_DEPLOY_ENV:'production'},{ASAAS_AMBIENTE:'production'},{RENDER_SERVICE_ID:'srv-other'},
         {DATABASE_URL:'postgresql://synthetic@localhost/kidmais_manager'},{ASSINATURA_PLANOS_ATIVOS:'false'},
