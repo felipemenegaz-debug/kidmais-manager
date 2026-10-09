@@ -645,6 +645,7 @@ test("Wall-e no worker: fontes reais, várias saídas, revogação, concorrênci
     assert.equal((await conversa(c36)).estado, "AGUARDANDO_HUMANO", "W25: com a equipe");
     await receber(c36, "qual o endereço da asa sul?");
     assert.equal((await conversa(c36)).contexto?.semAutomatico ?? null, null, "W25: mensagem comum não vira pausa");
+    const enviados36 = envios.filter((x) => x.contato === c36).length; // a passagem do pedido de pessoa
     await receber(c36, "por enquanto não precisa me mandar mais nada, depois eu chamo vcs");
     await worker.processarLote(deps, { maxTarefas: 10 });
     const cv36 = await conversa(c36);
@@ -657,16 +658,18 @@ test("Wall-e no worker: fontes reais, várias saídas, revogação, concorrênci
     const cv36b = await conversa(c36);
     assert.equal(cv36b.estado, "AGUARDANDO_HUMANO", "W25: a reabertura vai para a equipe");
     assert.equal(cv36b.contexto.semAutomatico?.motivo, "PARAR_A_CONFIRMAR", "W25: a marca continua");
-    assert.equal(envios.filter((x) => x.contato === c36).length, 0, "W25: nada automático");
+    assert.equal(envios.filter((x) => x.contato === c36).length, enviados36, "W25: nada automático depois da pausa");
     await servico.controlarAtendimento(A.sessao, { acao: "assumir", conversaId: cv36b.id, versao: Number(cv36b.versao) });
     assert.equal((await conversa(c36)).estado, "HUMANO", "W25: a equipe assume");
     const c37 = "5561900000737";
     await receber(c37, "tem algum humano aí? quero falar com uma pessoa");
     await worker.processarLote(deps, { maxTarefas: 10 });
+    const enviados37 = envios.filter((x) => x.contato === c37).length;
     await receber(c37, "não quero receber mais nada de vocês");
+    await worker.processarLote(deps, { maxTarefas: 10 });
     const cv37 = await conversa(c37);
     assert.equal(cv37.nao_contatar, true, "W25: PARAR inequívoco com a equipe continua bloqueio definitivo");
-    assert.equal(envios.filter((x) => x.contato === c37).length, 0, "W25: nada enviado");
+    assert.equal(envios.filter((x) => x.contato === c37).length, enviados37, "W25: nada enviado depois do PARAR");
   } finally {
     await c.end();
   }

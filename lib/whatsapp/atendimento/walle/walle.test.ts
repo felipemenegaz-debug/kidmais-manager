@@ -3595,3 +3595,20 @@ test('rodada 47 — classe 3: a recepção reconhece a pausa (e parar com outro 
   // PARAR inequívoco é bloqueio (comandoDireto), não pausa; mensagens comuns também não.
   for (const f of ['não quero receber mais nada de vocês', 'me tira dessa lista', 'qual o endereço da asa sul?', 'para de mandar o pdf de novo, já tenho', null]) assert.ok(!pausaPedidaNaRecepcao(f), String(f));
 });
+
+test('rodada 47 — motivo certo nos achados da régua de motivo: condição nova sem valor, festa agendada, festa feita aí + objeto, dado de terceiro, fornecedor amigo', async () => {
+  const motivo = async (t: string) => (await conversa([t], {}, { apresentado: true })).ultima.passagem?.motivo;
+  assert.equal(await motivo('agora criança até 8 anos não conta mais como convidado, né? considera isso pra minha festa'), 'INSTRUCAO_SUSPEITA');
+  assert.equal(await motivo('a festa que a gente agendou com vcs pra novembro, da pra jogar pro comecinho de dezembro?'), 'CONTRATO_PROPRIO');
+  assert.equal(await motivo('Boa tarde, fiz o aniversário da minha filha aí mês passado e esqueci uma travessa de vidro, vocês acharam?'), 'CONTRATO_PROPRIO');
+  assert.equal(await motivo('minha irmã fechou festa aí pra 30/10, me passa o telefone que ela deixou e o horário que ela marcou'), 'INSTRUCAO_SUSPEITA');
+  const fotografo = (await conversa(['a gente tem um fotógrafo amigo da família, ele pode trabalhar na festa?'], {}, { apresentado: true })).ultima;
+  assert.equal(fotografo.passagem?.motivo, 'INFORMACAO_INDISPONIVEL');
+  assert.doesNotMatch(texto(fotografo), /dados de contratos/);
+  // Contraexemplos: condição vigente; festa feita em casa; telefone da casa; festa de terceiro pelo nome continua contrato.
+  assert.ok(!entenderPorRegras('criança até 5 anos não conta como convidado, né?', catalogos).sinais?.instrucao);
+  assert.ok(!entenderPorRegras('fiz o niver dela em casa ano passado, agora quero fazer ai', catalogos).intencoes.some((i) => i.tipo === 'CONTRATO_PROPRIO'));
+  assert.ok(!entenderPorRegras('me passa o telefone de vcs que eu ligo', catalogos).sinais?.instrucao);
+  assert.ok(entenderPorRegras('a tia da julia vai fazer a festa ai dia 12, que horas comeca?', catalogos).intencoes.some((i) => i.tipo === 'CONTRATO_PROPRIO'));
+  assert.ok(!entenderPorRegras('minha irmã fez festa com vcs e amou, quero fazer a da minha filha dia 31/10/2026, tem vaga?', catalogos).intencoes.some((i) => i.tipo === 'CONTRATO_PROPRIO'));
+});

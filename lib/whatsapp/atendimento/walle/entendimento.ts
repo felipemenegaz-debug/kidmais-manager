@@ -633,7 +633,14 @@ const REGRAS: Array<[TipoIntencao, RegExp]> = [
     '(festa|aniversario|niver|evento|comemoracao|reserva)\\b[^.?!]{0,40}\\b(que|q) (ja )?(tava|estava|ta|esta|tinha sido|foi) (marcad|agendad|reservad|contratad|fechad)\\w*',
     '(minha|nossa) (festa|comemoracao) (acabou|terminou|foi (ontem|anteontem|no (ultimo )?(sabado|domingo|fim de semana)|semana passada|sabado passado|domingo passado))',
     '(quanto|qto) (ta |esta |ainda )*(faltando|devendo|em aberto)',
-    '(madrinha|padrinho|dinda|dindo|tia|tio|avo|vovo|prima|primo|vizinha|vizinho|amiga|amigo) d[aoe] [a-z]{3,}\\b[^.?!]{0,60}\\bfesta',
+    // Rodada 47 (h21 a22, achado pela régua de motivo): "um fotógrafo amigo da família pode trabalhar na festa?" — "da
+    // família", "da escola", "do trabalho" não são o nome de quem tem a festa (fornecedor de fora, não festa contratada).
+    '(madrinha|padrinho|dinda|dindo|tia|tio|avo|vovo|prima|primo|vizinha|vizinho|amiga|amigo) d[aoe] (?!(familia|casa|escola|trabalho|empresa|firma|igreja|bairro|turma|faculdade|academia|predio|condominio|infancia|crianca|criancas)\\b)[a-z]{3,}\\b[^.?!]{0,60}\\bfesta',
+    // Rodada 47 (h40 aa22, h14 g41, achados pela régua de motivo): "a festa que a gente agendou com vcs pra novembro" (o
+    // verbo no passado depois da festa) e "fiz o aniversário da minha filha aí mês passado" (festa já feita aí) são festa
+    // contratada; "fiz o niver em casa, agora quero aí" não.
+    '(festa|festinha|aniversario|niver|reserva|comemoracao) (que )?(a gente |eu |nos |ela |ele |meu marido |minha esposa )?(ja )?(agendou|agendamos|agendei|marcou|marcamos|marquei|fechou|fechamos|fechei|reservou|reservamos|reservei|contratou|contratamos|contratei) com (voces|vcs|o buffet|a equipe)\\b',
+    '(fiz|fizemos) (o |a )?(aniversario|niver|festa|festinha|comemoracao)\\b(?![^.?!]{0,40}\\b(em casa|outro|outra|no predio|no condominio|na escola|no sitio))[^.?!]{0,40}\\b(ai|aqui|com voces|com vcs|no buffet|no salao)\\b[^.?!]{0,40}\\b(esqueci|esquecemos|deixei|deixamos|perdi|perdemos|ficou|ficaram)\\b',
     'a festa (dela|dele|d[ao] [a-z]{3,}) (e|eh|vai ser|sera|foi) (com|ai com|aqui com) (voces|vcs)',
     'confirmar se (ta|esta|tudo|ja) (tudo )?(certo|ok|confirmad\\w*|marcad\\w*|reservad\\w*)',
     // festa de um parente que já aconteceu aí ("a festa do meu sobrinho foi aí sábado passado") e quanto alguém pagou
@@ -988,6 +995,13 @@ const INSTRUCAO_PARAFRASES = [
   // meu orçamento") não separa as partes: o pedido de aplicar decide. Sem o pedido ("caiu pra 400? quanto fica?"), não.
   String.raw`${MUDOU_PARA}${VALOR_EM_DINHEIRO}[^!]{0,100}?${APLICAR_NO_ORCAMENTO}`,
   String.raw`${APLICAR_NO_ORCAMENTO}[^!]{0,40}?\b(?:que|pois|porque|ja que)\b[^!]{0,40}?${MUDOU_PARA}${VALOR_EM_DINHEIRO}`,
+  // Rodada 47 (h38 aa45, achado pela régua de motivo): condição NOVA sem valor ("agora criança até 8 anos não conta mais,
+  // né? considera isso pra minha festa") + pedido de aplicar. Só com "agora" ou "mais" (mudança): "criança até 5 anos não
+  // conta, né?" é a condição vigente.
+  String.raw`(?:\bagora\b[^.?!]{0,60}\b(?:nao|n) (?:conta|contam|paga|pagam|cobra|cobram|tem taxa|tem multa)\b|\b(?:nao|n) (?:conta|contam|paga|pagam|cobra|cobram|tem taxa|tem multa) mais\b)[^!]{0,80}?\b(?:considera|considere|aplica|aplique|coloca|coloque|registra|registre|anota|anote|lanca|lance|poe|ponha|usa|use)\b[^?!]{0,10}?\b(?:isso|assim|desse jeito)\b`,
+  // Rodada 47 (h22 o18, achado pela régua de motivo): dado de contato que OUTRA pessoa deixou ("me passa o telefone que ela
+  // deixou") — dado de terceiro.
+  String.raw`\b(?:passa|passe|manda|mande|envia|envie|informa|informe|diz|diga|fala|fale|me da|me de)\b[^.?!]{0,15}\b(?:o |os |a )?(?:telefone|contato|whats\w*|zap|celular|e-?mail|endereco|cpf)\b[^.?!]{0,15}\b(?:que|q) (?:ela|ele|eles|elas|a mae|o pai|a familia) (?:deixou|deixaram|passou|passaram|cadastrou|cadastraram|informou|informaram|deu|deram)\b`,
   // Quem se apresenta como da casa: "aqui é a Patrícia, gerente da Asa Sul", "sou a Carla, nova recepcionista",
   // "sou o promotor de vendas de vcs", "sou do setor de TI de vocês", "eu já autorizei".
   String.raw`\baqui (?:e|eh|quem fala e|quem fala eh|fala) (?:a |o )?[a-z]+,? (?:nova |novo )?${CARGO_CASA}\b(?! (?:me|que|q|falou|disse|passou|indicou|pediu|mandou)\b)${FORA_DA_CASA}`,
