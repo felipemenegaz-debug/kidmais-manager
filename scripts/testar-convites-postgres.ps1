@@ -16,8 +16,10 @@ if (Test-Path -LiteralPath $clusterConvites) { throw 'O diretório deve ser novo
 if (Get-NetTCPConnection -LocalPort $portaConvites -State Listen -ErrorAction SilentlyContinue) { throw 'Porta ocupada; nenhum servidor existente será acessado.' }
 & "$binConvites/initdb.exe" -D $clusterConvites -U convites_teste -A trust --encoding=UTF8 --locale=C
 if ($LASTEXITCODE -ne 0) { throw 'initdb falhou.' }
-& "$binConvites/pg_ctl.exe" -D $clusterConvites -l "$clusterConvites/servidor.log" -o "-h 127.0.0.1 -p $portaConvites" -w start
-if ($LASTEXITCODE -ne 0) { throw 'O servidor descartável não iniciou.' }
+# No Windows, postgres pode herdar o pipe do PowerShell e bloquear a próxima linha
+# mesmo depois de pg_ctl terminar. Aguarda só pg_ctl, com saída em arquivos próprios.
+$inicioConvites = Start-Process -FilePath "$binConvites/pg_ctl.exe" -ArgumentList @('-D', ('"' + $clusterConvites + '"'), '-l', ('"' + "$clusterConvites/servidor.log" + '"'), '-o', ('"' + "-h 127.0.0.1 -p $portaConvites" + '"'), '-w', 'start') -PassThru -WindowStyle Hidden -RedirectStandardOutput "$clusterConvites/inicio.out" -RedirectStandardError "$clusterConvites/inicio.err"
+if (-not $inicioConvites.WaitForExit(30000) -or $inicioConvites.ExitCode -ne 0) { throw 'O servidor descartável não iniciou; verificar logs do cluster.' }
 try {
   & "$binConvites/createdb.exe" -h 127.0.0.1 -p $portaConvites -U convites_teste --no-password $bancoConvites
   if ($LASTEXITCODE -ne 0) { throw 'Criação do banco descartável falhou.' }
