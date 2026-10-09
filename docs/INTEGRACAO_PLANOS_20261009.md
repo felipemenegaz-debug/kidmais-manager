@@ -159,6 +159,8 @@ Felipe confirmou: Gestão, pessoas com conta ativa e vínculo ativo, e convites 
 
 Empresas acima da cota mantêm acessos. Convites ainda válidos podem ser reenviados/aceitos porque já reservaram vaga; novas reservas são recusadas, sem revogar acessos para adequar a cota. O aceite foi ajustado para adquirir as travas na ordem usuário → empresa → convite e revalidar o token após a trava. Esta mudança não concede recursos adicionais nem habilita upgrade/downgrade.
 
+Revisão posterior do aceite: a conclusão agora exige, na própria SQL, convite ainda pendente e `expira_em > clock_timestamp()`. Se a prova de senha atravessar a expiração, a atualização não retorna linha e o serviço lança `LINK_INVALIDO` dentro da transação, desfazendo os vínculos/identidade criados na tentativa. Testes sintéticos confirmam aceite de reserva válida no limite/acima dele, aborto transacional na expiração final e recusa de token cancelado/substituído/expirado após esperar a trava. A prova física do rollback em PostgreSQL continua pendente.
+
 Testes sintéticos cobrem limites, isenção, legado, recusa de nova reserva sem email/DML e reenvio válido versus vencido. TypeScript, ESLint e build Next.js aprovados em cópia sem credenciais. Concorrência física das vagas em PostgreSQL e teste autenticado da tela publicada permanecem pendentes; mocks não comprovam locks reais. As evidências anteriores neste documento são históricas, não substituem a validação da candidata atual.
 
 ## Ensaio publicado — interrupção e recuperação da terceira rodada

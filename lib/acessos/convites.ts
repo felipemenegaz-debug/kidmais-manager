@@ -265,7 +265,12 @@ export async function aceitarConvite(raw: unknown, ctx: ContextoRequisicao, deps
             await tx.query("UPDATE memberships SET status = 'ATIVA' WHERE id = $1 AND empresa_id = $2", [membershipId, c.empresa_id]);
             await concederPerfilFesta(tx, c.empresa_id, membershipId, (c.papel === 'REPRESENTANTE_AUTORIZADO' ? 'GESTAO' : 'EQUIPE') as NivelSistema, c.criado_por);
         }
-        await tx.query("UPDATE convites_acesso SET status = 'ACEITO', aceito_usuario_id = $2, membership_id = $3 WHERE id = $1", [c.id, usuarioId, membershipId]);
+        // O hash/prova de senha pode atravessar a expiração. Conferir no banco ao concluir;
+        // lançar dentro da transação desfaz também a identidade/vínculo criados nesta tentativa.
+        const aceito = await tx.query(`UPDATE convites_acesso SET status = 'ACEITO', aceito_usuario_id = $2, membership_id = $3
+            WHERE id = $1 AND status = 'PENDENTE' AND expira_em > clock_timestamp() RETURNING id`, [c.id, usuarioId, membershipId]);
+        if (aceito.rowCount !== 1)
+            throw erroAcesso('LINK_INVALIDO', 'Este convite é inválido, já foi usado ou expirou. Peça um novo convite.', 410);
         const implantacao = (await tx.query<{ implantacao: string }>(
             `UPDATE plataforma_empresas_cadastro SET implantacao = 'EM_CONFIGURACAO', atualizado_por = $2
               WHERE empresa_id = $1 AND implantacao = 'AGUARDANDO_PRIMEIRO_ACESSO' RETURNING implantacao`, [c.empresa_id, usuarioId])).rows[0];
