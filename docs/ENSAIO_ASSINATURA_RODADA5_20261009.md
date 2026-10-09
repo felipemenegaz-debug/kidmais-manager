@@ -14,3 +14,13 @@ Alvos exclusivos: web staging `srv-daif418ae00c73e8k2gg`, cron staging `crn-db49
 Este plano não autoriza execução. A [política operacional](OPERACAO_AGENTES.md) exige aprovação explícita para env/deploy/SQL de escrita em staging. A autorização anterior cobria exclusivamente a fixture da quarta rodada. Avisos/renovação remotos, isenção real e publicação comercial continuam sendo operações separadas.
 
 Preparação validada sem banco/provedor: 20/20 testes pertinentes aprovados, TypeScript, ESLint e build Next.js em cópia isolada sem credenciais aprovados. Os testes comprovam IDs/diretório novos, recusa de flags ambíguas/retomada e preflight restrito à referência da quinta rodada, além das garantias da comparação comercial. Execução física deste plano ainda não realizada.
+
+## Autorização recebida e impedimento externo — 09/10/2026
+
+Felipe respondeu “Autorizo” a este plano. A autorização da quinta rodada está vigente; a descrição anterior de espera permanece como histórico da preparação.
+
+A publicação de `0365b77` foi bloqueada pelo Render antes do build, tanto no web (`dep-db4l0u49v7es738dsufg`) quanto no cron (`dep-db4l11s9v7es73a7s1u0`): minutos de pipeline esgotados. Nenhuma fixture, checkout ou pagamento foi iniciado; os IDs desta rodada não foram consumidos. Não repetir deploy enquanto esse impedimento persistir.
+
+Recuperação confirmada: flag temporária removida com Save only e ausente no runtime; candidata ativa continua `850287b`; health PASS. Comando normal do cron restaurado e execução agendada às 20:40:08 UTC em APLICAR, incompleto=false, sem exigir um build novo.
+
+O painel de builds informa gasto mensal de US$ 5 e teto atual US$ 0. Foi preparada, sem salvar, a revisão de teto mensal US$ 10 (até US$ 5 adicionais no mês atual); aprovação financeira separada solicitada. Não trocar plano, retirar limite ou assumir autorização financeira a partir do ensaio sandbox. Evidências: [registro](evidencias/assinatura-rodada5-bloqueio-build-20261009.json) e [revisão não salva](evidencias/assinatura-rodada5-limite-build-20261009.png).
