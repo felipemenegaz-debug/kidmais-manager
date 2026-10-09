@@ -1,7 +1,11 @@
 import type { Conteudo } from './domain.ts';
 import { temaVisual } from './visual.ts';
 
-export const modelosBiblioteca = ['planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica'] as const;
+export const modelosComFoto = ['foto_arco', 'foto_aquarela', 'foto_degrade'] as const;
+export const modelosBiblioteca = ['planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica', ...modelosComFoto] as const;
+export function modeloComFoto(tema: Conteudo['tema']) {
+  return (modelosComFoto as readonly string[]).includes(tema);
+}
 export const basesNeutras = ['arco', 'ondulada', 'aquarela', 'degrade', 'geometrica'] as const;
 export function baseNeutra(tema: Conteudo['tema']) {
   return (basesNeutras as readonly string[]).includes(tema);
@@ -35,6 +39,7 @@ export function comporTexto(valor: string, largura: number, altura: number, tama
 export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[]; id?: string; miniatura?: boolean } = {}) {
   const tema = temaVisual(c), id = (op.id ?? 'modelo').replace(/[^a-zA-Z0-9_-]/g, '');
   const ondulada = c.tema === 'ondulada', planetas = c.tema === 'planetas';
+  const comFoto = modeloComFoto(c.tema);
   const fundo = xml(tema.fundo), tinta = xml(tema.tinta), destaque = xml(tema.destaque);
   const imagem = (src: string, x: number, y: number, w: number, h: number) => `<image href="${xml(src)}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet"/>`;
   const texto = (s: string, y: number, h: number, size: number, serif = false, bold = false, width = 740) => {
@@ -53,11 +58,11 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
   let borda = ondulada
     ? `<rect width="1080" height="1800" fill="${destaque}" opacity=".16"/><path d="${molduraOndulada}" fill="${fundo}" stroke="${destaque}" stroke-width="45" opacity=".35" filter="url(#${id}-agua)"/><path d="${molduraOndulada}" fill="${fundo}" stroke="${destaque}" stroke-width="3"/><path d="${molduraOndulada}" fill="none" stroke="${destaque}" stroke-width="2" transform="translate(18 27) scale(.966 .97)"/>`
     : `<path d="${arco}" fill="none" stroke="${destaque}" stroke-width="3"/><path d="${arco}" fill="none" stroke="${destaque}" stroke-width="2" transform="translate(15 20) scale(.972 .978)"/>`;
-  if (c.tema === 'aquarela') {
+  if (c.tema === 'aquarela' || c.tema === 'foto_aquarela') {
     borda = `<defs><filter id="${id}-lavagem" x="-30%" y="-30%" width="160%" height="160%"><feTurbulence type="fractalNoise" baseFrequency=".009" numOctaves="3" seed="12" result="ruido"/><feDisplacementMap in="SourceGraphic" in2="ruido" scale="85"/><feGaussianBlur stdDeviation="18"/></filter></defs>
       <g filter="url(#${id}-lavagem)" fill="${destaque}"><ellipse cx="55" cy="180" rx="320" ry="240" opacity=".24"/><ellipse cx="960" cy="45" rx="300" ry="220" opacity=".16"/><ellipse cx="1040" cy="1500" rx="240" ry="375" opacity=".24"/><ellipse cx="80" cy="1780" rx="410" ry="230" opacity=".19"/></g>
       <rect x="98" y="98" width="884" height="1604" rx="95" fill="${fundo}" fill-opacity=".55" stroke="${destaque}" stroke-opacity=".65" stroke-width="2"/>`;
-  } else if (c.tema === 'degrade') {
+  } else if (c.tema === 'degrade' || c.tema === 'foto_degrade') {
     borda = `<defs><linearGradient id="${id}-degrade" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${destaque}" stop-opacity=".45"/><stop offset=".48" stop-color="${fundo}" stop-opacity="0"/><stop offset="1" stop-color="${destaque}" stop-opacity=".3"/></linearGradient><radialGradient id="${id}-luz"><stop stop-color="${fundo}" stop-opacity=".95"/><stop offset="1" stop-color="${fundo}" stop-opacity="0"/></radialGradient></defs>
       <rect width="1080" height="1800" fill="url(#${id}-degrade)"/><ellipse cx="730" cy="420" rx="600" ry="650" fill="url(#${id}-luz)"/><rect x="85" y="85" width="910" height="1630" rx="210" fill="none" stroke="${destaque}" stroke-opacity=".55" stroke-width="2"/>`;
   } else if (c.tema === 'geometrica') {
@@ -68,9 +73,23 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
   const sprites = op.planetas ?? planetasModelo;
   const decoracao = planetas ? `${imagem(sprites[0], 795, 90, 295, 295)}${imagem(sprites[1], -145, 930, 340, 340)}${imagem(sprites[2], 850, 1460, 340, 340)}${[[95,110,25],[930,680,15],[90,1380,22],[780,1750,12]].map(([x,y,r])=>estrela(x,y,r)).join('')}<path d="M35 365 Q0 170 255 55 M795 1760 Q1070 1790 1050 1450" fill="none" stroke="${destaque}" stroke-dasharray="3 12" stroke-width="2"/>` : '';
   let conteudo = '';
-  if (!op.miniatura) {
+  if (!op.miniatura || comFoto) {
     const data = c.data ? new Date(`${c.data}T12:00:00`).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) : 'Data da festa';
-    conteudo = `${op.arte ? imagem(op.arte, 350, 180, 380, 280) : ''}
+    if (comFoto) {
+      // Foto inteira em um passe-partout: sem recortar rostos ou exigir controles extras.
+      const quadro = 'M240 310 H840 Q880 310 880 350 V750 Q880 790 840 790 H240 Q200 790 200 750 V350 Q200 310 240 310Z';
+      const retrato = op.arte ? imagem(op.arte, 220, 330, 640, 440)
+        : `<g fill="${destaque}" opacity=".45"><circle cx="540" cy="410" r="70"/><path d="M370 660 V615 A170 135 0 0 1 710 615 V660Z"/></g>${texto('Sua foto aqui', 690, 55, 26)}`;
+      conteudo = `<path d="${quadro}" fill="${fundo}" stroke="${destaque}" stroke-width="3"/>${retrato}
+        ${texto('VAMOS CELEBRAR', 835, 55, 27)}
+        ${texto(c.nome || 'Nome do aniversariante', 920, 155, 110, true, true)}
+        ${texto(c.idade || 'Um dia muito especial', 1090, 65, 48, true)}
+        <path d="M390 1180 H690" stroke="${destaque}" stroke-width="2"/>
+        ${texto(c.mensagem, 1205, 155, 33, true)}
+        ${texto(`${data} · ${c.horario || '00:00'}`, 1390, 75, 34, false, true)}
+        ${texto(c.local || 'Local da festa', 1480, 90, 36, true, false, 660)}
+        ${texto(c.endereco || 'Endereço do evento', 1590, 85, 28, false, false, 640)}`;
+    } else conteudo = `${op.arte ? imagem(op.arte, 350, 180, 380, 280) : ''}
       ${texto(planetas ? 'UMA AVENTURA ESPACIAL' : 'VAMOS CELEBRAR', op.arte ? 475 : 360, 85, 30)}
       ${texto(c.nome || 'Nome do aniversariante', 575, 295, 166, true, true)}
       ${texto(c.idade || 'Um dia muito especial', 885, 90, 65, true)}
