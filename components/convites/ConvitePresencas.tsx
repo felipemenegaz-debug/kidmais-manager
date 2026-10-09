@@ -33,6 +33,6 @@ export default function ConvitePresencas({ respostas, contratados, ui, busy, atu
     <div className={ui.acoes} role="group" aria-label="Filtrar confirmações">{[['todas', 'Todas'], ['sim', 'Confirmadas'], ['nao', 'Não vão']].map(([id, nome]) => <button type="button" key={id} aria-pressed={filtro === id} onClick={() => setFiltro(id)}>{nome}</button>)}</div>
     <p>{lista.length} de {respostas.length} respostas · {resumo.recusas} {resumo.recusas === 1 ? 'família não vai' : 'famílias não vão'}</p>
     {lista.length ? <div className={ui.tabela}><table><thead><tr><th>Família</th><th>Resposta</th><th>Adultos</th><th>Crianças</th><th>Total</th></tr></thead><tbody>{lista.map((r, n) => <tr key={n}><td>{r.nome}</td><td>{r.presenca ? 'Confirmada' : 'Não vai'}</td><td>{r.presenca ? r.adultos : 0}</td><td>{r.presenca ? r.criancas : 0}</td><td>{r.presenca ? r.adultos + r.criancas : 0}</td></tr>)}</tbody></table></div> : <p>{respostas.length ? 'Nenhuma resposta corresponde ao filtro.' : 'As confirmações aparecerão aqui depois de compartilhar o convite.'}</p>}
-    <small>Uma resposta por família e dispositivo, sem verificação de identidade. Esta lista mostra quem respondeu; ainda não acompanha famílias que não responderam.</small>
+    <small>Links individuais mantêm uma resposta por família, inclusive em outro dispositivo. No link geral, a identificação continua por dispositivo. Respostas de famílias arquivadas não entram nos totais.</small>
   </section>;
 }

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// PostgreSQL real para a migration 073 e serviço de convites. Dependências prévias
+// PostgreSQL real para as migrations 073/074 e serviço de convites. Dependências prévias
 // usam schema mínimo sintético; tenant/paywall/provedor são substituídos explicitamente.
 // Não substitui homologação sobre a cadeia completa de migrations do produto.
 const assert = require('node:assert/strict');
@@ -7,8 +7,8 @@ const fs = require('node:fs'), path = require('node:path'), vm = require('node:v
 const crypto = require('node:crypto'), ts = require('typescript');
 const { Pool } = require('pg');
 const root = path.resolve(__dirname, '..');
-if (process.argv[2] !== '--executar-autorizado' || !process.argv[3]) {
-  console.log('PREPARADO, NÃO EXECUTADO. Usar somente pelo runner autorizado testar-convites-postgres.ps1.');
+if (process.argv[2] !== '--executar-autorizado' || !process.argv[3] || process.argv[4] !== '--incluir-074-autorizado') {
+  console.log('PREPARADO, NÃO EXECUTADO. Migrations 073/074 exigem autorização própria; usar testar-convites-postgres.ps1 -Executar -Incluir074 somente após aprovação.');
   process.exit(0);
 }
 const cluster = path.resolve(process.argv[3]);
@@ -31,7 +31,8 @@ function load(relative, deps = {}) {
   }, m, m.exports);
   return m.exports;
 }
-const domain = load('lib/convites/domain.ts');
+const domain = load('lib/convites/domain.ts', { './familias-domain.ts': load('lib/convites/familias-domain.ts') });
+const familias = load('lib/convites/familias.ts', { './domain': domain });
 const repository = load('lib/festas/repository.ts');
 let providerCalls = 0, failProvider = false, beforeTransaction = null;
 async function transaction(fn) {
@@ -50,7 +51,7 @@ const service = load('lib/convites/service.ts', {
   '../saas/provar-estabelecimento': { provarEstabelecimento: async () => { throw Error('Fixture usa unidade nula'); } },
   '../festas/repository': repository,
   '../assinatura/estado': { lerEstadoComercial: async () => ({ acesso: { nivel: 'COMPLETO' } }) },
-  './domain': domain,
+  './domain': domain, './familias': familias,
   './imagem': { MODELO: 'provedor-sintetico-sem-rede', iaConfigurada: () => true,
     normalizarImagem: async () => Buffer.from('arte-sintetica'),
     gerarImagem: async () => { providerCalls++; if (failProvider) throw Error('timeout simulado'); return { imagem: Buffer.from('arte-sintetica'), uso: {} }; } },
@@ -100,6 +101,39 @@ async function run() {
     await pool.query(fs.readFileSync(path.join(root, 'database/checks/20261008_073_postcheck.sql'), 'utf8'));
     await assert.rejects(pool.query(fs.readFileSync(path.join(root, 'database/checks/20261008_073_precheck.sql'), 'utf8')), /já aplicada/);
     assert.equal(Number((await pool.query("SELECT count(*) n FROM pg_tables WHERE schemaname='public' AND (tablename LIKE 'convite_%' OR tablename='convites')")).rows[0].n), 9);
+  });
+  await check('migration 074 preserva RSVP anterior e recusa reaplicação', async () => {
+    const f = await festa(await empresa()), chave = uuid();
+    await pool.query('INSERT INTO convite_respostas(convite_id,chave,nome,presenca,adultos,criancas) VALUES($1,$2,$3,true,2,1)', [f.id, chave, 'Família anterior']);
+    await pool.query(fs.readFileSync(path.join(root, 'database/checks/20261009_074_precheck.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.join(root, 'database/migrations/20261009_074_convite_familias.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.join(root, 'database/checks/20261009_074_postcheck.sql'), 'utf8'));
+    await assert.rejects(pool.query(fs.readFileSync(path.join(root, 'database/checks/20261009_074_precheck.sql'), 'utf8')), /anterior ou parcial/);
+    const r = (await pool.query('SELECT nome,adultos,familia_id FROM convite_respostas WHERE convite_id=$1 AND chave=$2', [f.id, chave])).rows[0];
+    assert.equal(r.nome, 'Família anterior'); assert.equal(r.adultos, 2); assert.equal(r.familia_id, null);
+  });
+  await check('famílias: concorrência, isolamento SQL, revogação durante espera e arquivo', async () => {
+    const f = await festa(await empresa()), outra = await festa(await empresa());
+    await service.comandar(f.acesso, { acao: 'publicar', revisao: 1, conteudo });
+    const p = { acao: 'familia_adicionar', id: uuid(), nome: 'Família sintética', adultos: 2, criancas: 1 };
+    const resultados = await Promise.all([service.comandar(f.acesso, p), service.comandar(f.acesso, p)]);
+    assert.equal(resultados.filter(r => r.repetida).length, 1);
+    const token = resultados.find(r => r.linkFamilia).linkFamilia.split('#familia=')[1];
+    const resposta = { chave: uuid(), nome: 'Nome não confiável', presenca: true, adultos: 2, criancas: 1 };
+    await Promise.all([service.confirmar(f.publico, resposta, token), service.confirmar(f.publico, { ...resposta, chave: uuid() }, token)]);
+    assert.equal(Number((await pool.query('SELECT count(*) n FROM convite_respostas WHERE convite_id=$1', [f.id])).rows[0].n), 1);
+    assert.equal((await service.consultarPublico(f.publico, token)).familia.nome, p.nome);
+    await assert.rejects(pool.query('INSERT INTO convite_respostas(convite_id,chave,nome,presenca,adultos,criancas,familia_id) VALUES($1,$2,$3,true,1,0,$4)', [f.id, uuid(), 'Duplicada', p.id]), { code: '23505' });
+    await assert.rejects(pool.query('INSERT INTO convite_respostas(convite_id,chave,nome,presenca,adultos,criancas,familia_id) VALUES($1,$2,$3,true,1,0,$4)', [outra.id, uuid(), 'Outra festa', p.id]), { code: '23503' });
+    await assert.rejects(pool.query('INSERT INTO convite_familias(id,convite_id,empresa_id,nome,adultos_previstos,criancas_previstas) VALUES($1,$2,$3,$4,1,0)', [uuid(), f.id, outra.empresa, 'Empresa errada']), { code: '23503' });
+    await assert.rejects(service.confirmar(f.publico, { ...resposta, chave: p.id }), /link individual/);
+    beforeTransaction = () => service.comandar(f.acesso, { acao: 'familia_link', id: p.id, revisao: 1, habilitado: false });
+    await assert.rejects(service.confirmar(f.publico, resposta, token), /indisponível/);
+    await service.comandar(f.acesso, { acao: 'familia_status', id: p.id, revisao: 2, ativa: false });
+    assert.equal((await service.consultar(f.acesso)).respostas.length, 0);
+    await service.comandar(f.acesso, { acao: 'familia_status', id: p.id, revisao: 3, ativa: true });
+    assert.equal((await service.consultar(f.acesso)).respostas.length, 1);
+    await assert.rejects(service.consultarPublico(f.publico, token), /indisponível/);
   });
   await check('trigger impede vínculo com outra empresa e mudança de dono', async () => {
     const e = await empresa(), f = await festa(e), outra = await empresa();
@@ -177,7 +211,8 @@ async function run() {
     assert.equal(Number((await pool.query('SELECT count(*) n FROM convite_respostas WHERE convite_id=$1', [f.id])).rows[0].n), 0);
   });
   await pool.query(fs.readFileSync(path.join(root, 'database/checks/20261008_073_postcheck.sql'), 'utf8'));
-  const report = { ok: true, checks, escopo: 'PostgreSQL real; schema anterior mínimo; tenant/paywall/IA simulados; sem rede externa' };
+  await pool.query(fs.readFileSync(path.join(root, 'database/checks/20261009_074_postcheck.sql'), 'utf8'));
+  const report = { ok: true, checks, escopo: 'PostgreSQL real; 073/074; schema anterior mínimo; tenant/paywall/IA simulados; sem rede externa' };
   fs.writeFileSync(path.join(cluster, 'resultado-convites.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
 }

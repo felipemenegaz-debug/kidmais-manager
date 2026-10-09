@@ -8,6 +8,7 @@ import { contrato } from '../festas/repository';
 import { lerEstadoComercial } from '../assinatura/estado';
 import { comandoSchema, conteudoSchema, ConviteError, disponiveis, exigir, inicioConteudo, respostaSchema, validarCredito, type Conteudo, type Cotas } from './domain';
 import { gerarImagem, iaConfigurada, normalizarImagem, MODELO } from './imagem';
+import { dadosFamiliaPublica, listarFamilias, operarFamilia, validarFamilia } from './familias';
 
 export type Acesso = { tipo: 'admin'; sessao: SessaoAdmin; festaId: string } | { tipo: 'cliente'; token: string };
 type Convite = { id: string; empresa_id: string; festa_id: string; cliente_id: string; estabelecimento_id: string | null;
@@ -74,12 +75,15 @@ export async function consultar(a: Acesso, criar = false) {
   return comConvite(a, criar, async (tx, c, versao, convidadosContratados) => {
     const limite = await cotas(tx, c);
     const artes = (await tx.query<{ id: string; imagem: Buffer; origem: string }>('SELECT id,imagem,origem FROM convite_artes WHERE convite_id=$1 AND empresa_id=$2 ORDER BY criado_em DESC', [c.id, c.empresa_id])).rows.map(r => ({ id: r.id, origem: r.origem, url: `data:image/webp;base64,${r.imagem.toString('base64')}` }));
-    const respostas = (await tx.query<{ nome: string; presenca: boolean; adultos: number; criancas: number }>('SELECT nome,presenca,adultos,criancas FROM convite_respostas WHERE convite_id=$1 ORDER BY atualizado_em DESC LIMIT 2000', [c.id])).rows;
+    const familias = await listarFamilias(tx, c);
+    const respostas = (await tx.query<{ nome: string; presenca: boolean; adultos: number; criancas: number; familiaId: string | null }>(`SELECT r.nome,r.presenca,r.adultos,r.criancas,r.familia_id "familiaId" FROM convite_respostas r
+      LEFT JOIN convite_familias f ON f.id=r.familia_id AND f.convite_id=r.convite_id
+      WHERE r.convite_id=$1 AND (r.familia_id IS NULL OR f.ativa=true) ORDER BY r.atualizado_em DESC LIMIT 2000`, [c.id])).rows;
     const historico = (await tx.query<{ acao: string; ator: string; criado_em: string }>('SELECT acao,split_part(ator,\':\',1) ator,criado_em FROM convite_eventos WHERE convite_id=$1 ORDER BY id DESC LIMIT 20', [c.id])).rows;
     return { id: c.id, conteudo: c.rascunho, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },
-      disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), artes, respostas, historico };
+      disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), artes, respostas, familias, historico };
   });
 }
 
@@ -97,6 +101,11 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
   if (i.acao === 'upload') await comConvite(a, true, async () => undefined);
   const imagem = i.acao === 'upload' ? await normalizarImagem(i.imagem) : null;
   return comConvite(a, true, async (tx, c, versao) => {
+    if (i.acao === 'familia_adicionar' || i.acao === 'familia_editar' || i.acao === 'familia_link' || i.acao === 'familia_status') {
+      const resultado = await operarFamilia(tx, c, i);
+      if (!('repetida' in resultado && resultado.repetida)) await evento(tx, c, a, i.acao.toUpperCase(), { familiaId: i.id, ...('habilitado' in i ? { habilitado: i.habilitado } : {}), ...('ativa' in i ? { ativa: i.ativa } : {}) });
+      return resultado;
+    }
     if (i.acao === 'acesso') {
       exigir(a.tipo === 'admin', 'Somente o buffet pode liberar acesso.', 403);
       const novo = i.habilitado ? token() : null;
@@ -207,7 +216,11 @@ export async function artePublica(tokenPublico: string) {
   const arte = (await db().query<{ imagem: Buffer }>('SELECT imagem FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [conteudo.arteId, c.id, c.empresa_id])).rows[0];
   exigir(arte, 'Arte não encontrada.', 404); return arte.imagem;
 }
-export async function confirmar(tokenPublico: string, raw: unknown) {
+export async function consultarPublico(tokenPublico: string, tokenFamilia: string | null) {
+  const { c, conteudo } = await publico(tokenPublico);
+  return { conteudo, familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
+}
+export async function confirmar(tokenPublico: string, raw: unknown, tokenFamilia: string | null = null) {
   const i = respostaSchema.parse(raw);
   exigir(i.site === '', 'Não foi possível confirmar.', 400);
   const { c, conteudo } = await publico(tokenPublico);
@@ -226,10 +239,16 @@ export async function confirmar(tokenPublico: string, raw: unknown) {
     exigir(vigente.conteudo.data >= hojeVigente, 'As confirmações desta festa estão encerradas.');
     const atual = (await tx.query<Convite>('SELECT * FROM convites WHERE id=$1 FOR UPDATE', [c.id])).rows[0];
     exigir(atual.publicado?.confirmarPresenca, 'As confirmações estão encerradas.');
-    const repeticao = (await tx.query('SELECT chave FROM convite_respostas WHERE convite_id=$1 AND chave=$2', [c.id, i.chave])).rows.length;
+    // A chave de uma família vem do servidor; nunca confiamos no UUID enviado pelo visitante.
+    const familia = tokenFamilia == null ? null : await validarFamilia(tx, atual, tokenFamilia);
+    const chave = familia?.id ?? i.chave;
+    if (!familia) exigir(!(await tx.query('SELECT id FROM convite_familias WHERE convite_id=$1 AND id=$2', [c.id, chave])).rows.length, 'Esta resposta exige o link individual da família.', 403);
+    const repeticao = (await tx.query('SELECT chave FROM convite_respostas WHERE convite_id=$1 AND chave=$2', [c.id, chave])).rows.length;
     if (!repeticao) exigir(Number((await tx.query<{ n: string }>('SELECT count(*) n FROM convite_respostas WHERE convite_id=$1', [c.id])).rows[0].n) < 2000, 'Limite de respostas atingido. Contate o organizador.');
-    await tx.query(`INSERT INTO convite_respostas(convite_id,chave,nome,presenca,adultos,criancas) VALUES($1,$2,$3,$4,$5,$6)
-      ON CONFLICT(convite_id,chave) DO UPDATE SET nome=excluded.nome,presenca=excluded.presenca,adultos=excluded.adultos,criancas=excluded.criancas,atualizado_em=now()`, [c.id, i.chave, i.nome, i.presenca, i.presenca ? i.adultos : 0, i.presenca ? i.criancas : 0]);
+    const escrita = await tx.query(`INSERT INTO convite_respostas(convite_id,chave,nome,presenca,adultos,criancas,familia_id) VALUES($1,$2,$3,$4,$5,$6,$7)
+      ON CONFLICT(convite_id,chave) DO UPDATE SET nome=excluded.nome,presenca=excluded.presenca,adultos=excluded.adultos,criancas=excluded.criancas,atualizado_em=now()
+      WHERE convite_respostas.familia_id IS NOT DISTINCT FROM excluded.familia_id RETURNING chave`, [c.id, chave, familia?.nome ?? i.nome, i.presenca, i.presenca ? i.adultos : 0, i.presenca ? i.criancas : 0, familia?.id ?? null]);
+    exigir(escrita.rows.length, 'Esta resposta exige o link individual da família.', 403);
     return { confirmado: true };
   });
 }

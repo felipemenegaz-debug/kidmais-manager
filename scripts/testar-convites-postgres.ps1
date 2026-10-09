@@ -1,11 +1,11 @@
-param([switch]$Executar)
+param([switch]$Executar, [switch]$Incluir074)
 $ErrorActionPreference = 'Stop'
 $raizConvites = Split-Path $PSScriptRoot -Parent
 $binConvites = 'C:/Program Files/PostgreSQL/18/bin'
 $portaConvites = 55458
 $bancoConvites = 'kidmais_convites_v1_teste'
-if (-not $Executar) {
-  Write-Output "PREPARADO, NAO EXECUTADO: PostgreSQL 18 novo em 127.0.0.1:$portaConvites, banco $bancoConvites, apenas dados sinteticos. Exige autorizacao explicita antes de usar -Executar."
+if (-not $Executar -or -not $Incluir074) {
+  Write-Output "PREPARADO, NAO EXECUTADO: migrations 073 e 074 em PostgreSQL 18 novo em 127.0.0.1:$portaConvites, banco $bancoConvites, apenas dados sinteticos. Exige autorizacao explicita para a 074 antes de usar -Executar -Incluir074."
   exit 0
 }
 # Não lê .env, não usa DATABASE_URL e não reaproveita nenhum cluster existente.
@@ -23,7 +23,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Criação do banco descartável falhou.' }
   Push-Location $raizConvites
   try {
-    node scripts/convites-postgres.cjs --executar-autorizado $clusterConvites
+    node scripts/convites-postgres.cjs --executar-autorizado $clusterConvites --incluir-074-autorizado
     if ($LASTEXITCODE -ne 0) { throw 'Validação de convites falhou; evidências preservadas no cluster.' }
   } finally { Pop-Location }
 } finally {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { comandosFamilia } from './familias-domain.ts';
 
 export const temas = {
   celebrar: { nome: 'Dia de celebrar', fundo: '#fff3df', tinta: '#703b29', destaque: '#d66045', simbolo: '✦' },
@@ -31,6 +32,7 @@ export const rascunhoSchema = conteudoSchema.extend({
   local: z.string().trim().max(120), endereco: z.string().trim().max(240),
 });
 export const comandoSchema = z.discriminatedUnion('acao', [
+  ...comandosFamilia,
   z.object({ acao: z.literal('salvar'), revisao: z.int().positive(), conteudo: rascunhoSchema }).strict(),
   z.object({ acao: z.literal('publicar'), revisao: z.int().positive(), conteudo: conteudoSchema }).strict(),
   z.object({ acao: z.literal('despublicar'), revisao: z.int().positive() }).strict(),

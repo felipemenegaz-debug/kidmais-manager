@@ -32,4 +32,7 @@
 .indicadores strong { font-size: 28px; }
 .indicadores span { font-size: 12px; }
 .comparacao progress { width: 100%; height: 12px; accent-color: #284c40; }
+.editor .familiasLista, .familiasLista { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+.familiasLista li { min-width: 0; padding: 20px; border: 1px solid var(--input-border, #d8e0d7); border-radius: 16px; overflow-wrap: anywhere; }
+.familiasLista .acoes { justify-content: flex-start; }
 @media(max-width: 800px) { .indicadores { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

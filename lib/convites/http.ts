@@ -15,6 +15,13 @@ export function origemPublica(r: NextRequest) {
   exigir(configurada, 'Origem dos convites não configurada.', 503);
   exigir(r.headers.get('origin') === new URL(configurada).origin, 'Origem recusada.', 403);
 }
+export function tokenFamilia(r: Request): string | null {
+  const cabecalho = r.headers.get('authorization');
+  if (cabecalho == null) return null;
+  const token = /^Bearer ([\w-]{43})$/.exec(cabecalho)?.[1];
+  exigir(token, 'Link da família indisponível. Solicite um novo ao organizador.', 404);
+  return token;
+}
 export async function corpo(r: Request) {
   exigir(r.headers.get('content-type')?.startsWith('application/json'), 'Use JSON.', 415);
   const reader = r.body?.getReader(); exigir(reader, 'Requisição vazia.', 400);

@@ -8,11 +8,13 @@ import { temas, type Conteudo } from '@/lib/convites/domain';
 import ConviteArte, { baixarConvite } from './ConviteArte';
 import ConviteVisual from './ConviteVisual';
 import ConvitePresencas from './ConvitePresencas';
+import ConviteFamilias, { type ResultadoFamilia } from './ConviteFamilias';
+import type { ComandoFamilia, Familia } from '@/lib/convites/familias-domain';
 import { extrairPaleta, visualPadrao } from '@/lib/convites/visual';
 import styles from './convites.module.css';
 import adminStyles from './editor-admin.module.css';
 type Arte = { id: string; url: string; origem: string };
-type Dados = { conteudo: Conteudo; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null;
+type Dados = { conteudo: Conteudo; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
   disponiveis: number; iaDisponivel: boolean; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
   artes: Arte[]; respostas: { nome: string; presenca: boolean; adultos: number; criancas: number }[]; historico: { acao: string; ator: string; criado_em: string }[] };
 const campos = [['nome', 'Nome do aniversariante'], ['idade', 'Idade ou celebração'], ['data', 'Data'], ['horario', 'Horário'], ['local', 'Local da festa'], ['endereco', 'Endereço']] as const;
@@ -66,10 +68,19 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     try {
       const atual = await api() as Dados;
       // Não avança a revisão do rascunho: outra aba pode ter editado o convite.
-      setDados(d => d ? { ...d, respostas: atual.respostas, convidadosContratados: atual.convidadosContratados } : d);
+      setDados(d => d ? { ...d, respostas: atual.respostas, familias: atual.familias, convidadosContratados: atual.convidadosContratados } : d);
       setAviso('Confirmações atualizadas. Suas alterações no editor foram preservadas.');
     }
     catch (e) { setErro((e as Error).message); } finally { setBusy(false); }
+  }
+  async function executarFamilia(cmd: ComandoFamilia): Promise<ResultadoFamilia | null> {
+    setBusy(true); setErro(''); setAviso('');
+    try {
+      const r = await api(cmd) as ResultadoFamilia;
+      const atual = await api() as Dados;
+      setDados(d => d ? { ...d, familias: atual.familias, respostas: atual.respostas, historico: atual.historico, convidadosContratados: atual.convidadosContratados } : d);
+      return r;
+    } catch (e) { setErro((e as Error).message); return null; } finally { setBusy(false); }
   }
   async function upload(file?: File) {
     if (!file) return;
@@ -124,6 +135,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
       </div><aside className={ui.preview}><p className={ui.sobretitulo}>É ASSIM QUE SEU CONVITE VAI FICAR</p><ConviteArte conteudo={conteudo} arte={arte} /><div className={ui.acoes}><button disabled={busy} onClick={() => void executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')}>Salvar rascunho</button><button disabled={busy} className={ui.primario} onClick={() => void executar({ acao: 'publicar', revisao: dados.revisao, conteudo }, 'Convite publicado. Agora você pode compartilhar!')}>Publicar convite</button><button disabled={busy} onClick={() => void baixarConvite(conteudo, arte).catch(() => setErro('Não foi possível baixar. Tente novamente.'))}>Baixar imagem</button></div>
         {dados.publicado && <div className={ui.painel}><a href={dados.linkPublico} target="_blank" rel="noreferrer">Abrir convite publicado ↗</a><div className={ui.acoes}><button onClick={() => void copiar(dados.linkPublico)}>Copiar link público</button><button onClick={() => { const url = new URL(dados.linkPublico, window.location.origin).href; window.open(`https://wa.me/?text=${encodeURIComponent(`Você está convidado! ${url}`)}`, '_blank', 'noopener,noreferrer'); }}>Compartilhar no WhatsApp</button><button disabled={busy} onClick={() => void executar({ acao: 'despublicar', revisao: dados.revisao }, 'Convite despublicado.', true)}>Despublicar</button></div></div>}
       </aside></div>
+      <ConviteFamilias familias={dados.familias ?? []} publicado={dados.publicado && !dados.desatualizado} busy={busy} erro={erro} ui={ui} executar={executarFamilia} />
       <ConvitePresencas respostas={dados.respostas} contratados={dados.convidadosContratados ?? null} ui={ui} busy={busy} atualizar={() => void atualizarPresencas()} />
       <details className={ui.painel}><summary>Histórico do convite</summary><ul>{dados.historico.map((h, n) => <li key={n}>{new Date(h.criado_em).toLocaleString('pt-BR')} · {h.ator === 'CLIENTE' ? 'Cliente' : 'Buffet'} · {h.acao.toLowerCase().replaceAll('_', ' ')}</li>)}</ul></details>
     </>}
