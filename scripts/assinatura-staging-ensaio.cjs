@@ -17,9 +17,11 @@ function alvo(env) {
     assert.equal(u.hostname, 'dpg-daidko3m8hqs73ce4jt0-a'); assert.equal(u.pathname, '/kidmais_staging_1z91');
     assert.ok(!u.port || u.port === '5432');
     assert.ok(![...u.searchParams.keys()].some(k => /^ssl/i.test(k)), 'SSL_URL_RECUSADO');
-    assert.equal(env.DATABASE_SSL, 'true');
-    return {connectionString:u.toString(), ssl:{rejectUnauthorized:env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false',
-        minVersion:'TLSv1.2'}, connectionTimeoutMillis:10000};
+    // Reproduz lib/db/postgres.ts, sem mudar a configuração já existente do web.
+    assert.ok(['true','false'].includes(env.DATABASE_SSL), 'SSL_CONFIGURACAO_RECUSADA');
+    return {connectionString:u.toString(), ssl:env.DATABASE_SSL === 'true'
+        ? {rejectUnauthorized:env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false', minVersion:'TLSv1.2'}
+        : undefined, connectionTimeoutMillis:10000};
 }
 function documento() {
     let d = Array.from(randomBytes(8), n => n % 10).join('') + '0001';

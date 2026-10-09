@@ -7,9 +7,10 @@ const valido={RENDER:'true',RENDER_SERVICE_ID:'srv-daif418ae00c73e8k2gg',KIDMAIS
 test('bloqueia produção, outro banco, host, serviço e flag antes de conectar',()=>{
     for(const troca of [{KIDMAIS_DEPLOY_ENV:'production'},{ASAAS_AMBIENTE:'production'},{RENDER_SERVICE_ID:'srv-other'},
         {DATABASE_URL:'postgresql://synthetic@localhost/kidmais_manager'},{ASSINATURA_PLANOS_ATIVOS:'false'},
-        {DATABASE_URL:valido.DATABASE_URL+'?sslmode=disable'},{DATABASE_SSL:'false'}])assert.throws(()=>alvo({...valido,...troca}));
+        {DATABASE_URL:valido.DATABASE_URL+'?sslmode=disable'},{DATABASE_SSL:undefined}])assert.throws(()=>alvo({...valido,...troca}));
     assert.equal(alvo(valido).ssl.rejectUnauthorized,true);
     assert.equal(alvo({...valido,DATABASE_SSL_REJECT_UNAUTHORIZED:'false'}).ssl.minVersion,'TLSv1.2');
+    assert.equal(alvo({...valido,DATABASE_SSL:'false'}).ssl,undefined);
 });
 test('documento sintético tem dígitos verificadores válidos e nunca usa o buffet real',()=>{
     for(let i=0;i<20;i++){const d=documento();assert.match(d,/^\d{14}$/);assert.notEqual(d,'20119900000160');
