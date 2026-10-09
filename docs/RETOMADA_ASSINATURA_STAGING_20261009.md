@@ -1,4 +1,4 @@
-# Retomada preparada — autorização pendente
+# Retomada aprovada — ensaio staging
 
 A rodada autorizada com empresa `63304a1f-78c5-4aa6-99ad-2ca8778e4648` parou antes do checkout: o script esperava SOMENTE_LEITURA, mas a fixture tinha trial encerrado há 1 dia. Staging configura ASSINATURA_SOMENTE_LEITURA_DIAS=1; a fronteira já resulta BLOQUEADO. Não é falha de chave ou de pagamento.
 
@@ -25,3 +25,15 @@ O adaptador agora informa a etapa sanitizada em caso de falha e exige a opção 
 Flag ASSINATURA_PLANOS_ATIVOS removida e ausência confirmada no runtime após deploy `dep-db4ajim7bikc73e4mc4g`, commit `c502711`. Health final PASS. Cron com comando normal e modo APLICAR, deploy `dep-db4ahk7lk1mc73fdlfpg`: manual concluída às 08:45:41 UTC e agendada às 08:50:28 UTC, incompleto=false. Houve falha agendada às 08:45:18 UTC sem logs de aplicação, durante a janela de recuperação; as rodadas seguintes confirmam a recuperação. Não inferir a causa dessa interrupção.
 
 Sete testes pertinentes, ESLint, TypeScript e build isolado sem credenciais aprovados. Rodada 2 não executada. [Evidência sanitizada](evidencias/assinatura-publicada-rodada1-20261009.json) e [cron recuperado](evidencias/assinatura-publicada-cron-recuperado-20261009.png).
+
+## Aprovação da retomada
+
+Felipe respondeu “aprovo” em 09/10/2026 ao plano desta retomada. A aprovação autoriza somente a rodada 2 nos IDs e alvos descritos acima, com as mesmas verificações e recuperação. Nenhuma alteração de produção ou das condições comerciais de empresas preexistentes está incluída.
+
+## Resultado da rodada 2 e recuperação
+
+Executada em 09/10/2026 no commit `630a79522f34d5a9f96d4e06ec9811f24950d0e0`. Login, seleção, SOMENTE_LEITURA e oferta Fundador de 11820 centavos passaram. Interrompida antes do checkout por comparação indevida do campo authToken ausente no GET do webhook. Nenhum recurso Asaas foi criado. Encerramento conferido no banco: empresa DESATIVADA, usuário inativo, membership REVOGADA, sem IDs de provedor. Agregado comercial preexistente preservado.
+
+Flag temporária removida e ausência conferida no runtime; web recuperado pelo deploy `dep-db4aue3bc2fs73b7k6pg`, health PASS. Cron restaurado para comando normal e APLICAR pelo deploy `dep-db4audm7bikc73e5ipe0`; execução agendada concluída às 09:10:31 UTC, incompleto=false. [Evidência sanitizada](evidencias/assinatura-publicada-rodada2-20261009.json) e [captura do cron](evidencias/assinatura-publicada-rodada2-cron-recuperado-20261009.png).
+
+Correção local validada: nove testes, ESLint, TypeScript e build isolado sem credenciais aprovados. A [rodada 3](RETOMADA_ASSINATURA_STAGING_RODADA3_20261009.md) está preparada e aguarda autorização; não foi executada.

@@ -3,12 +3,12 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {randomBytes, createHash} = require('node:crypto');
-// Segunda rodada preparada; execução depende da autorização do plano de retomada.
-const EMPRESA = '764067e5-c512-4dcb-bc52-601cfdf0de36';
-const USUARIO = '7cfaa928-7ee1-40c4-8d20-43d022169b27';
-const EMAIL = 'assinatura-staging-7cfaa928@example.invalid';
+// Terceira rodada preparada; execução depende da autorização do plano de retomada.
+const EMPRESA = 'e4b274ca-3a51-40c5-bef6-39012a96cfbc';
+const USUARIO = '067a7b63-7588-4897-b66b-a93f9fdbd56e';
+const EMAIL = 'assinatura-staging-067a7b63@example.invalid';
 const BASE = 'https://kidmais-manager-staging.onrender.com';
-const DIR = '/opt/render/project/src/data/ensaio-assinatura-20261009-2';
+const DIR = '/opt/render/project/src/data/ensaio-assinatura-20261009-3';
 const ROTA = '/api/integracoes/asaas/webhook';
 const pausa = ms => new Promise(ok => setTimeout(ok, ms));
 function alvo(env) {
@@ -36,6 +36,29 @@ function documento() {
 function cookies(headers, jar) {
     for (const v of headers.getSetCookie()) { const [par] = v.split(';'); const i=par.indexOf('=');
         const nome=par.slice(0,i), valor=par.slice(i+1); if(valor) jar.set(nome,valor); else jar.delete(nome); }
+}
+async function prepararWebhook(api, cfg, r, salvar) {
+    const lista=await api('/webhooks?limit=100');assert.ok(!lista.hasMore,'WEBHOOKS_PAGINADOS');
+    const conhecidos=[];
+    for(const candidato of lista.data.filter(w=>w.url===BASE+ROTA)){
+        const w=await api('/webhooks/'+encodeURIComponent(candidato.id));
+        // Ausência do token na consulta não prova divergência. Não alterar webhook alheio.
+        if(w?.authToken===cfg.webhookToken&&w.enabled===true&&w.interrupted===false
+            &&w.events.includes('PAYMENT_RECEIVED')&&w.events.includes('PAYMENT_CONFIRMED'))conhecidos.push(w);
+    }
+    assert.ok(conhecidos.length<=1,'WEBHOOK_AMBIGUO');
+    if(conhecidos.length){r.webhookReutilizado=true;salvar();return;}
+    assert.ok(lista.totalCount<10,'LIMITE_WEBHOOKS');
+    r.webhookNome='Kidmais staging ensaio '+r.empresa;
+    assert.ok(!lista.data.some(w=>w.name===r.webhookNome),'WEBHOOK_NOME_PREEXISTENTE');
+    r.intencaoWebhook=true;salvar();
+    const w=await api('/webhooks','POST',{name:r.webhookNome,url:BASE+ROTA,email:'felipemenegaz@gmail.com',enabled:true,interrupted:false,
+        authToken:cfg.webhookToken,events:['PAYMENT_CONFIRMED','PAYMENT_RECEIVED'],sendType:'SEQUENTIALLY',apiVersion:3});
+    assert.ok(w&&typeof w.id==='string');r.webhookId=w.id;salvar();
+    const salvo=await api('/webhooks/'+encodeURIComponent(w.id));
+    assert.equal(salvo.name,r.webhookNome);assert.equal(salvo.url,BASE+ROTA);
+    assert.equal(salvo.enabled,true);assert.equal(salvo.interrupted,false);
+    assert.ok(salvo.events.includes('PAYMENT_CONFIRMED')&&salvo.events.includes('PAYMENT_RECEIVED'));
 }
 async function main() {
     const opts=alvo(process.env);
@@ -82,6 +105,7 @@ async function main() {
     const subConfere=s=>{assert.ok(s);assert.equal(s.externalReference,EMPRESA);assert.equal(s.customer,r.clienteId);assert.equal(s.valorCentavos,r.valor);};
     try {
         assert.equal(await p.buscarClientePorReferencia(EMPRESA),null,'CLIENTE_PREEXISTENTE');
+        etapa='WEBHOOK_PRECHECK'; await prepararWebhook(api,cfg.config,r,salvar);
         await db.connect(); conectado=true; await db.query("SET statement_timeout='15s'");
         assert.equal((await db.query('SELECT current_database() db')).rows[0].db,'kidmais_staging_1z91');
         const schema=(await db.query("SELECT to_regclass('public.assinatura_contratacoes') IS NOT NULL AND to_regclass('public.assinatura_renovacoes') IS NOT NULL AS ok")).rows[0];
@@ -106,15 +130,6 @@ async function main() {
         assert.equal(oferta.mensalRegular,19700);r.valor=antes.ofertas.fundador?11820:19700;
         assert.equal(oferta.mensal,r.valor);assert.equal(antes.ofertas.aguardandoVaga,false);r.fundador=antes.ofertas.fundador;salvar();
         assert.equal((await fetch(BASE+ROTA,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);
-        etapa='WEBHOOK'; const lista=await api('/webhooks?limit=100');assert.ok(!lista.hasMore,'WEBHOOKS_PAGINADOS');
-        const correspondentes=lista.data.filter(w=>w.url===BASE+ROTA);assert.ok(correspondentes.length<=1,'WEBHOOK_AMBIGUO');
-        if(correspondentes.length){const w=await api('/webhooks/'+encodeURIComponent(correspondentes[0].id));
-            assert.equal(w.authToken,cfg.config.webhookToken,'WEBHOOK_TOKEN_DIVERGE');assert.equal(w.enabled,true);
-            assert.equal(w.interrupted,false);assert.ok(w.events.includes('PAYMENT_RECEIVED')&&w.events.includes('PAYMENT_CONFIRMED'));
-            r.webhookReutilizado=true;
-        }else{assert.ok(lista.totalCount<10,'LIMITE_WEBHOOKS');r.intencaoWebhook=true;r.webhookNome='Kidmais staging ensaio '+EMPRESA;salvar();
-            const w=await api('/webhooks','POST',{name:r.webhookNome,url:BASE+ROTA,email:'felipemenegaz@gmail.com',enabled:true,interrupted:false,
-                authToken:cfg.config.webhookToken,events:['PAYMENT_CONFIRMED','PAYMENT_RECEIVED'],sendType:'SEQUENTIALLY',apiVersion:3});r.webhookId=w.id;salvar();}
         etapa='CHECKOUT'; r.intencaoCheckout=true;salvar();
         await post('/api/admin/assinatura/checkout',{plano:'essencial',ciclo:'MENSAL',valorEsperadoCentavos:r.valor,versao:antes.ofertas.versao});
         const linha=(await db.query('SELECT provedor_cliente_id,provedor_assinatura_id FROM empresa_assinaturas WHERE empresa_id=$1',[EMPRESA])).rows[0];
@@ -175,7 +190,7 @@ async function main() {
         acessoFicticioDesativado:r.acessoFicticioDesativado??false,cronSemDuplicacao:r.cronSemDuplicacao??false}));if(erro)process.exitCode=2;
 }
 if(require.main===module){
-    if(!process.argv.includes('--rodada-2-autorizada')){console.error('RETOMADA_AGUARDANDO_AUTORIZACAO');process.exitCode=1;}
+    if(!process.argv.includes('--rodada-3-autorizada')){console.error('RETOMADA_AGUARDANDO_AUTORIZACAO');process.exitCode=1;}
     else main().catch(()=>{console.error('ENSAIO_RECUSADO_ANTES_DAS_MUTACOES');process.exitCode=1;});
 }
-module.exports={alvo,documento,cookies};
+module.exports={alvo,documento,cookies,prepararWebhook};

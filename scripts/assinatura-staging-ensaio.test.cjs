@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {alvo,documento,cookies}=require('./assinatura-staging-ensaio.cjs');
+const {alvo,documento,cookies,prepararWebhook}=require('./assinatura-staging-ensaio.cjs');
 const valido={RENDER:'true',RENDER_SERVICE_ID:'srv-daif418ae00c73e8k2gg',KIDMAIS_DEPLOY_ENV:'staging',ASAAS_AMBIENTE:'sandbox',
     ASSINATURA_PLANOS_ATIVOS:'true',DATABASE_SSL:'true',DATABASE_URL:'postgresql://synthetic@dpg-daidko3m8hqs73ce4jt0-a/kidmais_staging_1z91'};
 test('bloqueia produção, outro banco, host, serviço e flag antes de conectar',()=>{
@@ -28,4 +28,29 @@ test('com janela de staging de 1 dia, trial encerrado há 1 hora fica em leitura
     const prazos={regularizacaoDias:7,somenteLeituraDias:1};
     assert.equal(calcularAcessoComercial(fixture,[],agora,prazos).nivel,'SOMENTE_LEITURA');
     assert.equal(calcularAcessoComercial({...fixture,testeFim:'2026-10-08T09:00:00Z'},[],agora,prazos).nivel,'BLOQUEADO');
+});
+test('token omitido na consulta cria callback temporário conhecido e preserva o existente',async()=>{
+    const cfg={webhookToken:'s'.repeat(32)}, r={empresa:'fixture'}, chamadas=[];
+    const original={id:'hook_original',url:'https://kidmais-manager-staging.onrender.com/api/integracoes/asaas/webhook',enabled:true,
+        interrupted:false,events:['PAYMENT_CONFIRMED','PAYMENT_RECEIVED']};
+    let criado;
+    await prepararWebhook(async(path,method='GET',body)=>{
+        chamadas.push({path,method});
+        if(path==='/webhooks?limit=100')return {totalCount:1,hasMore:false,data:[original]};
+        if(path==='/webhooks/hook_original')return original;
+        if(path==='/webhooks'&&method==='POST'){assert.equal(body.authToken,cfg.webhookToken);criado={...body,id:'hook_temporario'};return criado;}
+        if(path==='/webhooks/hook_temporario')return {...criado,authToken:undefined};
+        assert.fail('CHAMADA_NAO_PERMITIDA');
+    },cfg,r,()=>{});
+    assert.equal(r.webhookId,'hook_temporario');assert.equal(r.intencaoWebhook,true);
+    assert.deepEqual(chamadas.filter(c=>c.method!=='GET'),[{path:'/webhooks',method:'POST'}]);
+    assert.equal(original.authToken,undefined);assert.equal(original.enabled,true);
+});
+test('callback com token conhecido compatível é reutilizado sem mutação',async()=>{
+    const cfg={webhookToken:'s'.repeat(32)},r={empresa:'fixture'};
+    const original={id:'hook_original',url:'https://kidmais-manager-staging.onrender.com/api/integracoes/asaas/webhook',enabled:true,
+        interrupted:false,authToken:cfg.webhookToken,events:['PAYMENT_CONFIRMED','PAYMENT_RECEIVED']};
+    await prepararWebhook(async(path,method='GET')=>{assert.equal(method,'GET');
+        if(path==='/webhooks?limit=100')return {totalCount:1,hasMore:false,data:[original]};return original;
+    },cfg,r,()=>{});assert.equal(r.webhookReutilizado,true);assert.equal(r.intencaoWebhook,undefined);
 });
