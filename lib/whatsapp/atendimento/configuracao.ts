@@ -39,7 +39,7 @@ export function contatoPermitido(contato: string, env: NodeJS.ProcessEnv = proce
 }
 
 /**
- * Origem pública (https) das URLs de arquivos próprios da biblioteca (075), baixadas pelo provedor sem sessão:
+ * Origem pública (https) das URLs de arquivos próprios da biblioteca (078), baixadas pelo provedor sem sessão:
  * WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM ou, sem ela, ADMIN_AUTH_ORIGIN. Sem origem https o arquivo não é enviado.
  */
 export function origemMidia(env: NodeJS.ProcessEnv = process.env) {

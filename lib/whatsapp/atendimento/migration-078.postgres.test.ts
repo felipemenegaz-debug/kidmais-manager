@@ -7,32 +7,32 @@ import { conectarDescartavel, semTransacaoExplicita } from "../../comercial/post
 import { cod } from "./harness-postgres.ts";
 
 /**
- * Migration 075 (Wall-e) no PostgreSQL descartável: só pelo check:v1:postgres, com KIDMAIS_POSTGRES_DESCARTAVEL, no
+ * Migration 078 (Wall-e) no PostgreSQL descartável: só pelo check:v1:postgres, com KIDMAIS_POSTGRES_DESCARTAVEL, no
  * cluster descartável local (GOAL Wall-e: bancos descartáveis exclusivamente locais). Dados sintéticos.
  *
  * Roteiro:
- *  0. ordem: 075 sem a 074 é recusada;
- *  1. dados anteriores (pronta ativa e arquivada, saída com foto da 074) → 075 aplicada; postchecks da 060, 073, 074 e
- *     075 passam juntos; reaplicação recusada; prontas antigas viram PUBLICADA/ARQUIVADA;
+ *  0. ordem: 078 sem a 077 é recusada;
+ *  1. dados anteriores (pronta ativa e arquivada, saída com foto da 077) → 078 aplicada; postchecks da 060, 076, 077 e
+ *     078 passam juntos; reaplicação recusada; prontas antigas viram PUBLICADA/ARQUIVADA;
  *  2. arquivos: tipo×mime, tamanho por tipo, hash conferido pelo banco, token único, só inserção (UPDATE/DELETE recusados);
  *  3. prontas: PDF só com arquivo próprio; arquivo de OUTRA empresa ou de OUTRO tipo recusado pela FK; URL e arquivo
  *     juntos recusados; estado coerente com `ativa`; envio automático exige finalidade; unidade de outra empresa recusada;
  *  4. mensagens: várias saídas da mesma entrada (grupo + ordem) sem duplicar; a unicidade da 060 em origem_id continua;
  *     PDF exige arquivo e nome; arquivo com tipo diferente da mídia recusado;
- *  5. rollback: com arquivo na fila recusa sempre; sem a decisão recusa; com a decisão remove só a 075 (rascunho vira
- *     arquivado, PDF e arquivo próprio saem, foto por URL da 074 fica); postchecks 060/073/074 passam; reaplicável.
+ *  5. rollback: com arquivo na fila recusa sempre; sem a decisão recusa; com a decisão remove só a 078 (rascunho vira
+ *     arquivado, PDF e arquivo próprio saem, foto por URL da 077 fica); postchecks 060/076/077 passam; reaplicável.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const UP060 = ler("database/migrations/20261001_060_whatsapp_atendimento.sql");
 const POST060 = ler("database/checks/20261001_060_postcheck.sql");
-const UP073 = ler("database/migrations/20261007_073_whatsapp_mensagens_prontas.sql");
-const POST073 = ler("database/checks/20261007_073_postcheck.sql");
-const UP074 = ler("database/migrations/20261007_074_whatsapp_prontas_midia.sql");
-const POST074 = ler("database/checks/20261007_074_postcheck.sql");
-const UP = ler("database/migrations/20261007_075_wall_e_atendimento.sql");
-const POST = ler("database/checks/20261007_075_postcheck.sql");
-const DOWN = ler("database/rollback/20261007_075_wall_e_atendimento_down.sql");
-const comDecisao = (sql: string) => sql.replace("SET LOCAL statement_timeout = '60s';", "SET LOCAL statement_timeout = '60s';\nSET LOCAL kidmais.rollback_075_descartar = 'sim';");
+const UP076 = ler("database/migrations/20261009_076_whatsapp_mensagens_prontas.sql");
+const POST076 = ler("database/checks/20261009_076_postcheck.sql");
+const UP077 = ler("database/migrations/20261009_077_whatsapp_prontas_midia.sql");
+const POST077 = ler("database/checks/20261009_077_postcheck.sql");
+const UP = ler("database/migrations/20261009_078_wall_e_atendimento.sql");
+const POST = ler("database/checks/20261009_078_postcheck.sql");
+const DOWN = ler("database/rollback/20261009_078_wall_e_atendimento_down.sql");
+const comDecisao = (sql: string) => sql.replace("SET LOCAL statement_timeout = '60s';", "SET LOCAL statement_timeout = '60s';\nSET LOCAL kidmais.rollback_078_descartar = 'sim';");
 
 async function recusa(c: Client, sql: string, v: unknown[], motivo: RegExp) {
   await c.query("BEGIN");
@@ -45,7 +45,7 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 const token = () => randomBytes(32).toString("base64url");
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
-test("075: Wall-e — ordem, aplicação sobre dados da 074, arquivos, prontas, várias saídas e rollback", { timeout: 300_000 }, async (t) => {
+test("078: Wall-e — ordem, aplicação sobre dados da 077, arquivos, prontas, várias saídas e rollback", { timeout: 300_000 }, async (t) => {
   if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") {
     t.skip("opt-in ausente: harness PostgreSQL não executado");
     return;
@@ -55,14 +55,14 @@ test("075: Wall-e — ordem, aplicação sobre dados da 074, arquivos, prontas, 
     const id = async (sql: string, v: unknown[]) => (await c.query<{ id: string }>(sql, v)).rows[0].id;
     const n = async (sql: string, v: unknown[] = []) => Number((await c.query(sql, v)).rows[0].n);
     // 0. Ordem.
-    await c.query(UP060); await c.query(POST060); await c.query(UP073); await c.query(POST073);
-    await assert.rejects(c.query(UP), /075 exige a 060, a 073 e a 074/); await c.query("ROLLBACK").catch(() => {});
-    await c.query(UP074); await c.query(POST074);
+    await c.query(UP060); await c.query(POST060); await c.query(UP076); await c.query(POST076);
+    await assert.rejects(c.query(UP), /078 exige a 060, a 076 e a 077/); await c.query("ROLLBACK").catch(() => {});
+    await c.query(UP077); await c.query(POST077);
 
-    // 1. Dados anteriores à 075.
+    // 1. Dados anteriores à 078.
     const empresa = async (nome: string) => { const e = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [cod("we"), nome]); await c.query(`UPDATE empresas SET status = 'ATIVA' WHERE id = $1`, [e]); return e; };
-    const A = await empresa("Empresa sintética A (075)"), B = await empresa("Empresa sintética B (075)");
-    const u = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness 075', $2, 'REPRESENTANTE_AUTORIZADO', true) RETURNING id`, [`${cod("u")}@example.test`, SENHA]);
+    const A = await empresa("Empresa sintética A (078)"), B = await empresa("Empresa sintética B (078)");
+    const u = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness 078', $2, 'REPRESENTANTE_AUTORIZADO', true) RETURNING id`, [`${cod("u")}@example.test`, SENHA]);
     const insPronta = `INSERT INTO whatsapp_atendimento_mensagens_prontas (empresa_id, ambiente, titulo, categoria, tipo, texto, midia_url, ativa, criada_por, atualizada_por) VALUES ($1, 'staging', $2, 'Teste', $3, 'texto', $4, $5, $6, $6) RETURNING id`;
     const ativa = await id(insPronta, [A, "Ativa antiga", "TEXTO", null, true, u]);
     const arquivada = await id(insPronta, [A, "Arquivada antiga", "TEXTO", null, false, u]);
@@ -72,8 +72,8 @@ test("075: Wall-e — ordem, aplicação sobre dados da 074, arquivos, prontas, 
     await c.query(`INSERT INTO whatsapp_atendimento_mensagens (conversa_id, empresa_id, ambiente, direcao, texto, estado, versao_conversa, midia_tipo, midia_url, midia_pronta_id, midia_pronta_versao) VALUES ($1, $2, 'staging', 'SAIDA', 'legenda', 'ENTREGUE', 0, 'IMAGEM', 'https://midia.exemplo.test/f.jpg', $3, 0)`, [conversa, A, fotoUrl]);
 
     await c.query(UP);
-    for (const p of [POST060, POST073, POST074, POST]) await c.query(p);
-    await assert.rejects(c.query(semTransacaoExplicita(UP)), /075 já aplicada/); await c.query("ROLLBACK").catch(() => {});
+    for (const p of [POST060, POST076, POST077, POST]) await c.query(p);
+    await assert.rejects(c.query(semTransacaoExplicita(UP)), /078 já aplicada/); await c.query("ROLLBACK").catch(() => {});
     const estados = (await c.query("SELECT id, estado, ativa, envio_automatico FROM whatsapp_atendimento_mensagens_prontas")).rows;
     assert.deepEqual(Object.fromEntries(estados.map((r) => [r.id, [r.estado, r.ativa, r.envio_automatico]])), { [ativa]: ["PUBLICADA", true, false], [arquivada]: ["ARQUIVADA", false, false], [fotoUrl]: ["PUBLICADA", true, false] }, "nada passa a ser enviado automaticamente sem autorização");
 
@@ -129,13 +129,13 @@ test("075: Wall-e — ordem, aplicação sobre dados da 074, arquivos, prontas, 
     // 5. Rollback.
     await assert.rejects(c.query(comDecisao(DOWN)), /arquivo próprio ou PDF na fila de envio/, "fila bloqueia mesmo com a decisão"); await c.query("ROLLBACK").catch(() => {});
     await c.query("UPDATE whatsapp_atendimento_mensagens SET estado = 'ENTREGUE' WHERE origem_grupo_id = $1", [entrada]);
-    await assert.rejects(c.query(DOWN), /kidmais\.rollback_075_descartar/); await c.query("ROLLBACK").catch(() => {});
+    await assert.rejects(c.query(DOWN), /kidmais\.rollback_078_descartar/); await c.query("ROLLBACK").catch(() => {});
     await c.query(comDecisao(DOWN));
-    for (const p of [POST060, POST073, POST074]) await c.query(p);
+    for (const p of [POST060, POST076, POST077]) await c.query(p);
     assert.equal((await c.query("SELECT to_regclass('public.whatsapp_atendimento_arquivos') AS t")).rows[0].t, null);
     assert.deepEqual((await c.query("SELECT id, ativa FROM whatsapp_atendimento_mensagens_prontas ORDER BY titulo")).rows.map((r) => [r.id, r.ativa]).sort(),
       [[ativa, true], [arquivada, false], [fotoUrl, true], [rascunhoTexto, false]].sort(),
-      "PDF e prontas com arquivo próprio (inclusive o rascunho de foto) saíram; rascunho de texto ficou ARQUIVADO (no código anterior apareceria ativo); foto por URL da 074 ficou");
+      "PDF e prontas com arquivo próprio (inclusive o rascunho de foto) saíram; rascunho de texto ficou ARQUIVADO (no código anterior apareceria ativo); foto por URL da 077 ficou");
     assert.equal(await n("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens WHERE midia_tipo = 'IMAGEM' AND midia_url IS NOT NULL"), 1, "a foto por URL enviada antes continua");
     assert.equal(await n("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id = $1 AND direcao = 'SAIDA'", [conversa]), 3, "saídas continuam no histórico (o PDF fica só com a legenda)");
     await c.query(UP); await c.query(POST);

@@ -4,8 +4,8 @@ import { ambienteAtendimento } from './configuracao.ts';
 import { FORMATO_TOKEN_ARQUIVO, intervaloPedido } from './arquivos.ts';
 
 /**
- * Leitura pública de um arquivo da biblioteca (075) para o provedor baixar a mídia sem sessão: id + token aleatório de
- * 32 bytes (conferido em tempo constante), só no ambiente deste servidor. Sem a 075, id/token fora do formato ou token
+ * Leitura pública de um arquivo da biblioteca (078) para o provedor baixar a mídia sem sessão: id + token aleatório de
+ * 32 bytes (conferido em tempo constante), só no ambiente deste servidor. Sem a 078, id/token fora do formato ou token
  * divergente: "não encontrado" (nada revela se o id existe). Arquivar a mensagem pronta não apaga o arquivo: o que já
  * saiu continua no histórico; novos usos são barrados na biblioteca e no envio.
  */

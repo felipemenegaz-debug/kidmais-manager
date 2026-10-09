@@ -44,9 +44,9 @@ import { resolverWallE } from "./resolver.ts";
 const ler = (f: string) => readFileSync(f, "utf8");
 const MIGRATIONS = [
   ["database/migrations/20261001_060_whatsapp_atendimento.sql", "database/checks/20261001_060_postcheck.sql"],
-  ["database/migrations/20261007_073_whatsapp_mensagens_prontas.sql", "database/checks/20261007_073_postcheck.sql"],
-  ["database/migrations/20261007_074_whatsapp_prontas_midia.sql", "database/checks/20261007_074_postcheck.sql"],
-  ["database/migrations/20261007_075_wall_e_atendimento.sql", "database/checks/20261007_075_postcheck.sql"],
+  ["database/migrations/20261009_076_whatsapp_mensagens_prontas.sql", "database/checks/20261009_076_postcheck.sql"],
+  ["database/migrations/20261009_077_whatsapp_prontas_midia.sql", "database/checks/20261009_077_postcheck.sql"],
+  ["database/migrations/20261009_078_wall_e_atendimento.sql", "database/checks/20261009_078_postcheck.sql"],
 ].map(([up, post]) => [ler(up), ler(post)]);
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 const PDF = Buffer.from("%PDF-1.4\n% tabela de preços sintética\n%%EOF\n");

@@ -9,14 +9,14 @@ import { hashToken } from "../../autenticacao/senha.ts";
 import { carregarAtendimento, cod } from "./harness-postgres.ts";
 
 /**
- * Migration 073 (mensagens prontas) no PostgreSQL descartável. Só roda pelo check:v1:postgres, com
+ * Migration 076 (mensagens prontas) no PostgreSQL descartável. Só roda pelo check:v1:postgres, com
  * KIDMAIS_POSTGRES_DESCARTAVEL, no cluster descartável e com autorização explícita do Felipe (docs/OPERACAO_AGENTES.md).
- * PREPARADA: execução registrada em docs/@@DOC073@@.md. Dados sintéticos; nenhuma chamada de rede.
+ * PREPARADA: execução registrada em docs/@@DOC076@@.md. Dados sintéticos; nenhuma chamada de rede.
  * Serviço REAL da biblioteca, com o repositório REAL de clientes, numa conexão por transação.
  *
  * Roteiro:
- *  0. ordem: 073 sem a 060 é recusada;
- *  1. aplicação: 060 + postcheck, 073 + postcheck; reaplicação recusada;
+ *  0. ordem: 076 sem a 060 é recusada;
+ *  1. aplicação: 060 + postcheck, 076 + postcheck; reaplicação recusada;
  *  2. cadastro (representante) e recusa ao atendente; lista com atalhos primeiro;
  *  3. conflitos: atalho e título ativos únicos, versão desatualizada, regras do banco (link por tipo, https, limite);
  *     remover libera atalho e título;
@@ -29,16 +29,16 @@ import { carregarAtendimento, cod } from "./harness-postgres.ts";
  *     a capability, EM_ELABORACAO → ASSINADA_KIDMAIS → AGUARDANDO_CLIENTE com liberação): o link individual é
  *     PREENCHIDO pelo fluxo de contratações; contrato não liberado não conta; contratação de outra empresa com o
  *     mesmo telefone não conta; origem http não preenche; dois contratos aguardando = ambíguo;
- *  7. rollback: recusado com dados; com descarte explícito remove só a 073; pós-rollback; 060 intacta.
+ *  7. rollback: recusado com dados; com descarte explícito remove só a 076; pós-rollback; 060 intacta.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const UP060 = ler("database/migrations/20261001_060_whatsapp_atendimento.sql");
 const POST060 = ler("database/checks/20261001_060_postcheck.sql");
 const DOWN060 = ler("database/rollback/20261001_060_whatsapp_atendimento_down.sql");
-const UP = ler("database/migrations/20261007_073_whatsapp_mensagens_prontas.sql");
-const POST = ler("database/checks/20261007_073_postcheck.sql");
-const DOWN = ler("database/rollback/20261007_073_whatsapp_mensagens_prontas_down.sql");
-const POS_DOWN = ler("database/checks/20261007_073_rollback_postcheck.sql");
+const UP = ler("database/migrations/20261009_076_whatsapp_mensagens_prontas.sql");
+const POST = ler("database/checks/20261009_076_postcheck.sql");
+const DOWN = ler("database/rollback/20261009_076_whatsapp_mensagens_prontas_down.sql");
+const POS_DOWN = ler("database/checks/20261009_076_rollback_postcheck.sql");
 
 async function recusa(c: Client, sql: string, v: unknown[], motivo: RegExp) {
   await c.query("BEGIN");
@@ -76,14 +76,14 @@ async function contratacao(c: Client, empresaId: string, clienteId: string, libe
   const id = async (sql: string, v: unknown[]) => (await c.query<{ id: string }>(sql, v)).rows[0].id;
   await c.query("BEGIN");
   try {
-    const u = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Assinante 073', $2, 'ADMINISTRATIVO', true) RETURNING id`, [`${cod("ass")}@example.test`, SENHA]);
+    const u = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Assinante 076', $2, 'ADMINISTRATIVO', true) RETURNING id`, [`${cod("ass")}@example.test`, SENHA]);
     const m = await id(`INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1::uuid, $2::uuid, 'PENDENTE', clock_timestamp(), 'REPRESENTANTE_AUTORIZADO') RETURNING id`, [empresaId, u]);
     await c.query(`UPDATE memberships SET status = 'ATIVA' WHERE id = $1::uuid`, [m]);
-    await c.query(`INSERT INTO empresa_membership_capacidades (empresa_id, membership_id, capacidade, concedido_por, motivo) VALUES ($1::uuid, $2::uuid, 'CONTRATO_ASSINAR_EMPRESA', $3::uuid, 'Fixture 073')`, [empresaId, m, u]);
-    const pacote = await id(`INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente) VALUES ($1::uuid, $2, 'Festa 073', 1, true, true) RETURNING id`, [empresaId, cod("P").toUpperCase()]);
-    const tabela = await id(`INSERT INTO tabelas_preco (codigo, nome, vigencia_inicio, ativa, empresa_id) VALUES ($1, 'Tabela 073', '2026-01-01', false, $2::uuid) RETURNING id`, [cod("t"), empresaId]);
+    await c.query(`INSERT INTO empresa_membership_capacidades (empresa_id, membership_id, capacidade, concedido_por, motivo) VALUES ($1::uuid, $2::uuid, 'CONTRATO_ASSINAR_EMPRESA', $3::uuid, 'Fixture 076')`, [empresaId, m, u]);
+    const pacote = await id(`INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente) VALUES ($1::uuid, $2, 'Festa 076', 1, true, true) RETURNING id`, [empresaId, cod("P").toUpperCase()]);
+    const tabela = await id(`INSERT INTO tabelas_preco (codigo, nome, vigencia_inicio, ativa, empresa_id) VALUES ($1, 'Tabela 076', '2026-01-01', false, $2::uuid) RETURNING id`, [cod("t"), empresaId]);
     const preco = await id(`INSERT INTO precos_pacote (tabela_preco_id, pacote_id, convidados_min, tipo_calculo, valor, categoria_horario) VALUES ($1::uuid, $2::uuid, 1, 'FIXO', 100, 'PADRAO') RETURNING id`, [tabela, pacote]);
-    const agenda = await id(`INSERT INTO configuracao_agenda (codigo, nome, horario_inicio_padrao, horario_fim_padrao, ordem_exibicao) VALUES ($1, 'Agenda 073', '10:00', '18:00', 9) RETURNING id`, [cod("a")]);
+    const agenda = await id(`INSERT INTO configuracao_agenda (codigo, nome, horario_inicio_padrao, horario_fim_padrao, ordem_exibicao) VALUES ($1, 'Agenda 076', '10:00', '18:00', 9) RETURNING id`, [cod("a")]);
     const fechamento = await id(`INSERT INTO fechamentos (data_evento, horario_inicio, horario_fim, configuracao_agenda_id, empresa_id, pacote_id, tabela_preco_id, preco_pacote_id,
         categoria_horario, categoria_preco_aplicada, convidados, convidados_faturados, valor_pacote_base, valor_pacote_aplicado, valor_tabela, origem_fechamento, cliente_id, status)
       VALUES ('2027-11-14', '14:00', '18:00', $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'PADRAO', 'PADRAO', 60, 60, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', $6::uuid, 'AGUARDANDO_PAGAMENTO') RETURNING id`,
@@ -91,13 +91,13 @@ async function contratacao(c: Client, empresaId: string, clienteId: string, libe
     const contrato = await id(`INSERT INTO contratos (fechamento_id) VALUES ($1::uuid) RETURNING id`, [fechamento]);
     const snapshot = { comercial: { valorFinalContrato: 100 }, evento: { data: "2027-11-14", convidados: 60 } };
     const hash = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
-    const pdf = Buffer.from(`%PDF-1.4\n% 073 ${randomUUID()}\n%%EOF\n`);
+    const pdf = Buffer.from(`%PDF-1.4\n% 076 ${randomUUID()}\n%%EOF\n`);
     const pdfHash = createHash("sha256").update(pdf).digest("hex");
     const versao = await id(`INSERT INTO contrato_versoes (contrato_id, numero_versao, status, snapshot, snapshot_hash, documento_template_versao) VALUES ($1::uuid, 1, 'ATIVA', $2::jsonb, $3, 1) RETURNING id`, [contrato, JSON.stringify(snapshot), hash]);
     const doc = await id(`INSERT INTO contrato_documentos (contrato_versao_id, categoria, revisao, snapshot_hash, template_codigo, template_versao, pdf_hash, tamanho_bytes, conteudo_pdf, gerado_por_usuario_id)
-       VALUES ($1::uuid, 'CONTRATO', 1, $2, 'CONTRATO_073', 1, $3, $4, $5, $6::uuid) RETURNING id`, [versao, hash, pdfHash, pdf.length, pdf, u]);
+       VALUES ($1::uuid, 'CONTRATO', 1, $2, 'CONTRATO_076', 1, $3, $4, $5, $6::uuid) RETURNING id`, [versao, hash, pdfHash, pdf.length, pdf, u]);
     const comprovante = await id(`INSERT INTO contrato_documentos (contrato_versao_id, categoria, revisao, snapshot_hash, template_codigo, template_versao, pdf_hash, tamanho_bytes, conteudo_pdf)
-       VALUES ($1::uuid, 'COMPROVANTE_ASSINATURA', 1, $2, 'COMPROVANTE_073', 1, $3, $4, $5) RETURNING id`, [versao, hash, pdfHash, pdf.length, pdf]);
+       VALUES ($1::uuid, 'COMPROVANTE_ASSINATURA', 1, $2, 'COMPROVANTE_076', 1, $3, $4, $5) RETURNING id`, [versao, hash, pdfHash, pdf.length, pdf]);
     // Aprovação comercial e revisão gravadas ANTES da assinatura (depois dela a edição fica congelada).
     await c.query(`INSERT INTO contrato_edicoes (contrato_versao_id, contrato_id, tipo, estado, dados_fonte, alteracoes, criado_por_usuario_id, atualizado_por_usuario_id,
         documento_revisado_id, revisado_por_usuario_id, revisado_em, revisao_comercial_aprovada, aprovado_comercial_por_usuario_id, aprovado_comercial_em)
@@ -107,7 +107,7 @@ async function contratacao(c: Client, empresaId: string, clienteId: string, libe
       const sessao = await id(`INSERT INTO sessoes_administrativas (usuario_id, token_hash, csrf_hash, autenticado_em, ultima_atividade_em, expira_em)
          VALUES ($1::uuid, $2, $3, clock_timestamp(), clock_timestamp(), clock_timestamp() + interval '8 hours') RETURNING id`, [u, hashToken(randomBytes(32).toString("base64url")), hashToken(randomBytes(32).toString("base64url"))]);
       await c.query(`INSERT INTO contrato_assinaturas (contrato_versao_id, parte, documento_id, usuario_id, sessao_id, autenticacao_metodo, autenticado_em, identidade_snapshot, snapshot_hash, pdf_hash, metodo, provider, assinado_em, request_id, chave_idempotencia, comprovante_documento_id)
-         SELECT $1::uuid, 'KIDMAIS', $2::uuid, $3::uuid, s.id, 'SENHA', s.autenticado_em, jsonb_build_object('usuarioId', $3::text, 'papel', 'REPRESENTANTE_AUTORIZADO', 'nome', 'Assinante 073', 'cargo', null),
+         SELECT $1::uuid, 'KIDMAIS', $2::uuid, $3::uuid, s.id, 'SENHA', s.autenticado_em, jsonb_build_object('usuarioId', $3::text, 'papel', 'REPRESENTANTE_AUTORIZADO', 'nome', 'Assinante 076', 'cargo', null),
                 $4, $5, 'SESSAO_REAUTENTICADA', 'INTERNAL', clock_timestamp(), $6::uuid, $7::uuid, $8::uuid
            FROM sessoes_administrativas s WHERE s.id = $9::uuid`, [versao, doc, u, hash, pdfHash, randomUUID(), randomUUID(), comprovante, sessao]);
       await c.query(`UPDATE contrato_edicoes SET estado = 'ASSINADA_KIDMAIS', atualizado_em = clock_timestamp() WHERE contrato_versao_id = $1::uuid`, [versao]);
@@ -121,7 +121,7 @@ async function contratacao(c: Client, empresaId: string, clienteId: string, libe
   }
 }
 
-test("073: mensagens prontas — aplicação, postcheck, cadastro, favoritas, isolamento, conflitos, rascunho e rollback", { timeout: 300_000 }, async (t) => {
+test("076: mensagens prontas — aplicação, postcheck, cadastro, favoritas, isolamento, conflitos, rascunho e rollback", { timeout: 300_000 }, async (t) => {
   if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") {
     t.skip("opt-in ausente: harness PostgreSQL não executado");
     return;
@@ -130,15 +130,15 @@ test("073: mensagens prontas — aplicação, postcheck, cadastro, favoritas, is
   try {
     // 0. Ordem.
     assert.equal((await c.query("SELECT to_regclass('public.whatsapp_atendimento_conversas') AS t")).rows[0].t, null, "descartável começa sem a 060");
-    await assert.rejects(c.query(UP), /073 exige a 060/); await c.query("ROLLBACK").catch(() => {});
+    await assert.rejects(c.query(UP), /076 exige a 060/); await c.query("ROLLBACK").catch(() => {});
 
     // 1. Aplicação.
     await c.query(UP060); await c.query(POST060);
     await c.query(UP); await c.query(POST);
-    await assert.rejects(c.query(semTransacaoExplicita(UP)), /073 já aplicada/); await c.query("ROLLBACK").catch(() => {});
+    await assert.rejects(c.query(semTransacaoExplicita(UP)), /076 já aplicada/); await c.query("ROLLBACK").catch(() => {});
 
     const f = fixtures(c);
-    const A = await f.empresa("Empresa sintética A (073)"), B = await f.empresa("Empresa sintética B (073)");
+    const A = await f.empresa("Empresa sintética A (076)"), B = await f.empresa("Empresa sintética B (076)");
     const repA = await f.usuario("REPRESENTANTE_AUTORIZADO", A), atendA = await f.usuario("ADMINISTRATIVO", A), repB = await f.usuario("REPRESENTANTE_AUTORIZADO", B);
     const { servico, biblioteca } = carregarAtendimento(A);
     await servico.salvarConfiguracao(repA, { ativo: true, nome: "Empresa sintética A", perguntas: [] });
@@ -157,7 +157,7 @@ test("073: mensagens prontas — aplicação, postcheck, cadastro, favoritas, is
     // 3. Conflitos.
     await assert.rejects(salvar(repA, { titulo: "Outra tabela", tipo: "TEXTO", texto: "x", atalho: "TABELA_PRECOS" }), /ATENDIMENTO_PRONTA_ATALHO_EM_USO/);
     // ASCII de propósito: lower() segue o LC_CTYPE do banco; no cluster descartável (locale C) letras acentuadas não
-    // são convertidas (limitação documentada em docs/@@DOC073@@.md).
+    // são convertidas (limitação documentada em docs/@@DOC076@@.md).
     await assert.rejects(salvar(repA, { titulo: "CONTRATO PARA ASSINATURA", tipo: "TEXTO", texto: "y" }), /ATENDIMENTO_PRONTA_TITULO_EM_USO/, "título único sem diferenciar caixa");
     const pEnd = lista.prontas.find((p) => p.id === endereco)!;
     await biblioteca.salvarPronta(repA, { id: endereco, versao: pEnd.versao, titulo: "Endereço", categoria: "Informações", tipo: "TEXTO", texto: "Rua das Festas, 200.", link: null, atalho: null });
@@ -250,11 +250,11 @@ test("073: mensagens prontas — aplicação, postcheck, cadastro, favoritas, is
     // 7. Rollback.
     const conversasAntes = Number((await c.query("SELECT count(*) AS n FROM whatsapp_atendimento_conversas")).rows[0].n);
     await assert.rejects(c.query(DOWN), /há mensagens prontas gravadas/); await c.query("ROLLBACK").catch(() => {});
-    await c.query("BEGIN"); await c.query("SET LOCAL kidmais.rollback_073_descartar_prontas = 'sim'");
+    await c.query("BEGIN"); await c.query("SET LOCAL kidmais.rollback_076_descartar_prontas = 'sim'");
     await c.query(semTransacaoExplicita(DOWN)); await c.query("COMMIT");
     await c.query(POS_DOWN);
     assert.equal(Number((await c.query("SELECT count(*) AS n FROM whatsapp_atendimento_conversas")).rows[0].n), conversasAntes, "060 intacta");
-    await assert.rejects(biblioteca.listarProntas(atendA), /ATENDIMENTO_PRONTAS_INDISPONIVEL/, "sem a 073 a biblioteca fica indisponível");
+    await assert.rejects(biblioteca.listarProntas(atendA), /ATENDIMENTO_PRONTAS_INDISPONIVEL/, "sem a 076 a biblioteca fica indisponível");
     assert.ok((await servico.listarAtendimento(atendA)).conversas.length >= 1, "o atendimento segue funcionando");
     // Reaplicável depois do rollback (sem dados), e limpeza final.
     await c.query(UP); await c.query(POST);

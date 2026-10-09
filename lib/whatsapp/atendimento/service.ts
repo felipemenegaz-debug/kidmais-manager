@@ -6,7 +6,7 @@ import { configuracaoSchema, comandoDireto, conferirEmpresaAtiva, pausaPedidaNaR
 import { caminhoPublicoArquivo } from './arquivos.ts';
 import { registroDoBloqueio } from './walle/entendimento.ts';
 
-/** `contexto` e `passagem` (075): memória do Wall-e e resumo para a equipe (ausentes sem a 075). */
+/** `contexto` e `passagem` (078): memória do Wall-e e resumo para a equipe (ausentes sem a 078). */
 export type Conversa = { id: string; empresa_id: string; ambiente: string; contato: string; estado: 'IA' | 'HUMANO' | 'AGUARDANDO_HUMANO' | 'ENCERRADA'; responsavel_id: string | null; nao_contatar: boolean; versao: number; ultima_entrada_em: string; atualizada_em?: string; interesse: { data: string | null; convidados: number | null }; contexto?: Record<string, unknown>; passagem?: Record<string, unknown> | null };
 export type Mensagem = { id: string; conversa_id: string; empresa_id: string; ambiente: string; origem_id: string | null; autor_usuario_id: string | null; texto: string | null; direcao: string; estado: string; versao_conversa: number; criada_em: string; midia_tipo?: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO' | null; midia_url?: string | null; midia_arquivo_id?: string | null; midia_nome?: string | null; origem_grupo_id?: string | null; ordem?: number; fonte?: Record<string, unknown> | null };
 /**
@@ -26,7 +26,7 @@ async function temNomePerfil(tx: DbExecutor) {
   return !!r.rows[0]?.existe;
 }
 /**
- * Fotos e vídeos chegam com a migration 074 (colunas de mídia em mensagens e mensagens prontas). Sem ela o atendimento
+ * Fotos e vídeos chegam com a migration 077 (colunas de mídia em mensagens e mensagens prontas). Sem ela o atendimento
  * segue só com texto e a biblioteca oferece mídia como indisponível. Consulta de catálogo a cada uso, sem cache.
  */
 export async function temMidia(tx: DbExecutor) {
@@ -35,10 +35,10 @@ export async function temMidia(tx: DbExecutor) {
   return !!r.rows[0]?.existe;
 }
 /**
- * Wall-e (075): arquivos próprios, PDF, estados da biblioteca, várias saídas por entrada, fonte, memória e passagem.
- * Consulta de catálogo a cada uso, sem cache (aplicar ou reverter a 075 não exige reiniciar a aplicação).
+ * Wall-e (078): arquivos próprios, PDF, estados da biblioteca, várias saídas por entrada, fonte, memória e passagem.
+ * Consulta de catálogo a cada uso, sem cache (aplicar ou reverter a 078 não exige reiniciar a aplicação).
  */
-export async function tem075(tx: DbExecutor) {
+export async function tem078(tx: DbExecutor) {
   const r = await tx.query<{ existe: boolean }>(`SELECT to_regclass('public.whatsapp_atendimento_arquivos') IS NOT NULL
     AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.whatsapp_atendimento_mensagens') AND attname='origem_grupo_id' AND NOT attisdropped) AS existe`);
   return !!r.rows[0]?.existe;
@@ -46,25 +46,25 @@ export async function tem075(tx: DbExecutor) {
 export type MidiaDaPronta = { tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO'; midia_url: string | null; arquivo_id: string | null; nome: string | null; versao: number };
 /**
  * Anexo de uma mensagem pronta DESTA empresa e ambiente, na VERSÃO vista na prévia: a única origem de mídia no envio
- * (URL externa da 074 ou arquivo próprio da 075). Pronta alterada, arquivada ou de volta a rascunho depois da prévia:
+ * (URL externa da 077 ou arquivo próprio da 078). Pronta alterada, arquivada ou de volta a rascunho depois da prévia:
  * recusa (nada é gravado nem enviado; a pessoa revisa de novo) — o anexo nunca é trocado em silêncio. FOR SHARE: uma
  * alteração em andamento termina antes desta leitura (e é vista); a leitura e a cópia para a mensagem são da mesma versão.
  */
 export async function midiaDaPronta(tx: DbExecutor, empresa: string, ambiente: string, prontaId: string, versao: number): Promise<MidiaDaPronta> {
   if (!(await temMidia(tx))) throw new Error('ATENDIMENTO_MIDIA_INDISPONIVEL');
-  const r075 = await tem075(tx);
-  const r = (await tx.query<{ tipo: string; midia_url: string | null; versao: string; ativa: boolean; estado: string; arquivo_id: string | null; arquivo_nome: string | null }>(r075
+  const r078 = await tem078(tx);
+  const r = (await tx.query<{ tipo: string; midia_url: string | null; versao: string; ativa: boolean; estado: string; arquivo_id: string | null; arquivo_nome: string | null }>(r078
     ? `SELECT p.tipo,p.midia_url,p.versao,p.ativa,p.estado,p.arquivo_id,a.nome AS arquivo_nome FROM whatsapp_atendimento_mensagens_prontas p
        LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=p.arquivo_id AND a.empresa_id=p.empresa_id AND a.ambiente=p.ambiente
        WHERE p.id=$1 AND p.empresa_id=$2 AND p.ambiente=$3 FOR SHARE OF p`
     : `SELECT tipo,midia_url,versao,ativa,NULL::text AS estado,NULL::uuid AS arquivo_id,NULL::text AS arquivo_nome FROM whatsapp_atendimento_mensagens_prontas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 FOR SHARE`, [prontaId, empresa, ambiente])).rows[0];
   if (!r) throw new Error('ATENDIMENTO_PRONTA_NAO_ENCONTRADA');
-  if (Number(r.versao) !== versao || !r.ativa || (r075 && r.estado !== 'PUBLICADA')) throw new Error('ATENDIMENTO_PRONTA_MIDIA_ALTERADA');
+  if (Number(r.versao) !== versao || !r.ativa || (r078 && r.estado !== 'PUBLICADA')) throw new Error('ATENDIMENTO_PRONTA_MIDIA_ALTERADA');
   if (!['IMAGEM', 'VIDEO', 'DOCUMENTO'].includes(r.tipo) || (!r.midia_url && !r.arquivo_id)) throw new Error('ATENDIMENTO_PRONTA_NAO_ENCONTRADA');
   return { tipo: r.tipo as MidiaDaPronta['tipo'], midia_url: r.midia_url, arquivo_id: r.arquivo_id, nome: r.arquivo_nome, versao };
 }
 export const LIMITE_LEGENDA_ENVIO = 1024;
-/** `midia_nome` e `midia_caminho` (075): nome do arquivo próprio e o caminho público para conferir na tela. */
+/** `midia_nome` e `midia_caminho` (078): nome do arquivo próprio e o caminho público para conferir na tela. */
 export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean; midia_tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO' | null; midia_url: string | null; midia_nome?: string | null; midia_caminho?: string | null; ordem?: number };
 /** Situação do canal neste ambiente, em partes separadas: receber, responder e a configuração da empresa. */
 export type EstadoCanal = { ambiente: string; receptor: boolean; recepcao: boolean; envio: boolean };
@@ -112,8 +112,8 @@ export async function receberEntrada(entrada: Entrada) {
     else if (estadoAtual === 'IA' && !automatico) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO' WHERE id=$1", [conversa.id]);
     if (entrada.texto && comandoDireto(entrada.texto)?.intencao === 'PARAR') {
       // Rodada 18: com reclamação junto ("não quero mais propaganda… a festa foi péssima"), o mesmo bloqueio, e a reclamação
-      // fica na fila da equipe (AGUARDANDO_HUMANO + passagem, só com a 075), sem reabrir o contato.
-      const registro = (await tem075(tx)) ? registroDoBloqueio(entrada.texto, em) : null;
+      // fica na fila da equipe (AGUARDANDO_HUMANO + passagem, só com a 078), sem reabrir o contato.
+      const registro = (await tem078(tx)) ? registroDoBloqueio(entrada.texto, em) : null;
       if (registro) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',nao_contatar=true,passagem=$2::jsonb,versao=versao+1 WHERE id=$1", [conversa.id, JSON.stringify(registro)]);
       else await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='ENCERRADA',nao_contatar=true,versao=versao+1 WHERE id=$1", [conversa.id]);
       // Saídas ainda na fila não saem mais. SKIP LOCKED (como no encerramento): a que o worker segura neste instante é
@@ -125,8 +125,8 @@ export async function receberEntrada(entrada: Entrada) {
     // não processa — a conversa já está com a equipe, assumida, sem automação: grava a MESMA marca persistente que o worker
     // grava quando o Wall-e passa o pedido em silêncio (contexto.semAutomatico, PARAR_A_CONFIRMAR). Sem bloqueio definitivo
     // (a equipe continua respondendo); com a marca, "Devolver ao Wall-e" é recusado e nada automático sai depois, nem
-    // numa reabertura. PARAR inequívoco continua sendo o bloqueio acima. Só com a 075 (a marca vive no contexto).
-    else if (entrada.texto && !automatico && !conversa.nao_contatar && !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto) && await tem075(tx)) {
+    // numa reabertura. PARAR inequívoco continua sendo o bloqueio acima. Só com a 078 (a marca vive no contexto).
+    else if (entrada.texto && !automatico && !conversa.nao_contatar && !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto) && await tem078(tx)) {
       await tx.query("UPDATE whatsapp_atendimento_conversas SET contexto=COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$2::jsonb),versao=versao+1 WHERE id=$1",
         [conversa.id, JSON.stringify({ motivo: 'PARAR_A_CONFIRMAR', em, origem: 'RECEPCAO' })]);
     }
@@ -208,15 +208,15 @@ export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: s
       CROSS JOIN LATERAL (SELECT count(*)::int AS clientes, CASE WHEN count(*)=1 THEN max(cl.nome_completo) END AS cliente_nome FROM clientes cl
         WHERE cl.empresa_id=c.empresa_id AND cl.status<>'MESCLADO' AND (cl.telefone IN (c.contato,v.sem55) OR cl.whatsapp IN (c.contato,v.sem55))) cad
       WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY c.atualizada_em DESC LIMIT 100`, [empresa, ambiente])).rows;
-    const midia = await temMidia(tx), r075 = await tem075(tx);
-    // Com a 075: nome do arquivo próprio e o caminho público (token) para conferir; várias saídas da mesma entrada na ordem.
-    const colunasMidia = r075 ? 'm.midia_tipo,m.midia_url,m.midia_nome,m.ordem,a.id AS arquivo_id,a.token AS arquivo_token'
+    const midia = await temMidia(tx), r078 = await tem078(tx);
+    // Com a 078: nome do arquivo próprio e o caminho público (token) para conferir; várias saídas da mesma entrada na ordem.
+    const colunasMidia = r078 ? 'm.midia_tipo,m.midia_url,m.midia_nome,m.ordem,a.id AS arquivo_id,a.token AS arquivo_token'
       : midia ? 'm.midia_tipo,m.midia_url' : 'NULL::text AS midia_tipo,NULL::text AS midia_url';
-    const juntaArquivo = r075 ? ' LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=m.midia_arquivo_id AND a.empresa_id=m.empresa_id AND a.ambiente=m.ambiente' : '';
+    const juntaArquivo = r078 ? ' LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=m.midia_arquivo_id AND a.empresa_id=m.empresa_id AND a.ambiente=m.ambiente' : '';
     type LinhaMensagem = MensagemLista & { arquivo_id?: string | null; arquivo_token?: string | null };
     const mensagens = conversaId ? (await tx.query<LinhaMensagem>(`SELECT m.id,m.conversa_id,m.direcao,m.texto,m.estado,m.criada_em,m.autor_usuario_id IS NOT NULL AS humana,${colunasMidia} FROM whatsapp_atendimento_mensagens m${juntaArquivo}
-      WHERE m.empresa_id=$1 AND m.ambiente=$2 AND m.conversa_id=$3 ORDER BY m.criada_em DESC,${r075 ? 'm.ordem DESC,' : ''}m.id DESC LIMIT 100`, [empresa, ambiente, conversaId])).rows.reverse()
-      .map(({ arquivo_id, arquivo_token, ...m }): MensagemLista => (r075 ? { ...m, midia_caminho: arquivo_id && arquivo_token && m.midia_nome ? caminhoPublicoArquivo(arquivo_id, arquivo_token, m.midia_nome) : null } : m)) : [];
+      WHERE m.empresa_id=$1 AND m.ambiente=$2 AND m.conversa_id=$3 ORDER BY m.criada_em DESC,${r078 ? 'm.ordem DESC,' : ''}m.id DESC LIMIT 100`, [empresa, ambiente, conversaId])).rows.reverse()
+      .map(({ arquivo_id, arquivo_token, ...m }): MensagemLista => (r078 ? { ...m, midia_caminho: arquivo_id && arquivo_token && m.midia_nome ? caminhoPublicoArquivo(arquivo_id, arquivo_token, m.midia_nome) : null } : m)) : [];
     const canal: EstadoCanal = { ambiente, receptor: receptorDoNumero(), recepcao: recepcaoAtiva(), envio: atendimentoAtivo() };
     const lista: ConversaLista[] = conversas.map(({ clientes, cliente_nome, ...c }) => ({ ...c, versao: Number(c.versao), cadastro: situacaoCadastro(Number(clientes ?? 0), cliente_nome) }));
     return { conversas: lista, mensagens, usuarioId: sessao.usuario_id, configuracao: await configuracao(tx, empresa), automacaoDisponivel: atendimentoAtivo(), canal, podeConfigurar: papel === 'REPRESENTANTE_AUTORIZADO' };

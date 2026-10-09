@@ -9,11 +9,11 @@ const IND = { id: '1d1d1d1d-1d1d-4d1d-8d1d-1d1d1d1d1d1d', titulo: 'Contrato para
 const TXT = { id: '2e2e2e2e-2e2e-4e2e-8e2e-2e2e2e2e2e2e', titulo: 'Como chegar', categoria: 'Informações', tipo: 'TEXTO', texto: 'Rua das Festas, 100.', link: null, atalho: null, versao: 0, atualizada_em: '' };
 const LINK_A = 'https://admin.kidmais.com.br/contrato/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
-function montar(opcoes: { prontas?: unknown[]; recursos074?: boolean } = {}) {
+function montar(opcoes: { prontas?: unknown[]; recursos077?: boolean } = {}) {
   const pendentes: { conversaId: string; id: string; liberar: (d: unknown) => void }[] = [];
   const responder = (data: unknown) => ({ ok: true, json: async () => ({ ok: true, data }) });
   const adminFetch = async (_url: string, init?: { method?: string; body?: string }) => {
-    if (!init?.method) return responder({ prontas: opcoes.prontas ?? [IND, TXT], favoritas: [], podeGerenciar: false, recursos074: opcoes.recursos074 ?? false });
+    if (!init?.method) return responder({ prontas: opcoes.prontas ?? [IND, TXT], favoritas: [], podeGerenciar: false, recursos077: opcoes.recursos077 ?? false });
     const b = JSON.parse(init.body!);
     if (b.acao !== 'rascunho') return responder(null);
     return new Promise(res => pendentes.push({ conversaId: b.conversaId, id: b.id, liberar: d => res(responder(d)) }));
@@ -98,12 +98,12 @@ test('pedido anterior na MESMA conversa também é descartado quando outro foi p
   assert.equal(previa(t)!.props.value, TXT.texto, 'vale o último pedido; o retorno atrasado do anterior não sobrescreve');
 });
 
-// 074: foto/vídeo. A prévia mostra o tipo e um link para conferir (nova aba, sem referrer); só a legenda é editável;
+// 077: foto/vídeo. A prévia mostra o tipo e um link para conferir (nova aba, sem referrer); só a legenda é editável;
 // "Anexar à resposta" entrega texto + mídia (id da pronta) para a conversa de origem. Nada é enviado aqui.
 const FOTO = { id: '3f3f3f3f-3f3f-4f3f-8f3f-3f3f3f3f3f3f', titulo: 'Salgados da casa', categoria: 'Cardápio', tipo: 'IMAGEM', texto: 'Nossos salgados.', link: null, midia_url: 'https://cdn.exemplo.test/salgados.jpg', atalho: 'SALGADOS', versao: 3, atualizada_em: '' };
-test('074: prévia de foto com legenda editável e link de conferência; anexar entrega a mídia só para a conversa de origem', async () => {
+test('077: prévia de foto com legenda editável e link de conferência; anexar entrega a mídia só para a conversa de origem', async () => {
   globalThis.window = globalThis as never;
-  const m = montar({ prontas: [FOTO, TXT], recursos074: true });
+  const m = montar({ prontas: [FOTO, TXT], recursos077: true });
   let t = await m.render(A);
   await clicar(achar(t, 'button', 'Mensagens prontas'));
   t = await m.render(A);
@@ -127,14 +127,14 @@ test('074: prévia de foto com legenda editável e link de conferência; anexar 
   t = m.h.render('MensagensProntas', { ...m.props(A), cicloResposta: 1 });
   assert.equal(aviso(t), undefined, 'depois do envio aceito o aviso some');
 });
-test('074: atalhos sem mensagem num aviso por motivo (fora da linha de botões), ligado a cada botão desabilitado', async () => {
+test('077: atalhos sem mensagem num aviso por motivo (fora da linha de botões), ligado a cada botão desabilitado', async () => {
   globalThis.window = globalThis as never;
   const casos = [
     [false, { 'Ainda sem mensagem cadastrada: Tabela de preços.': ['Tabela de preços'], 'Indisponíveis neste ambiente: Salgados, Bolos, Endereço, Localização.': ['Salgados', 'Bolos', 'Endereço', 'Localização'] }],
     [true, { 'Ainda sem mensagem cadastrada: Tabela de preços, Salgados, Bolos, Endereço, Localização.': ['Tabela de preços', 'Salgados', 'Bolos', 'Endereço', 'Localização'] }],
   ] as const;
-  for (const [recursos074, avisos] of casos) {
-    const m = montar({ recursos074 });                                         // IND ocupa "Disponibilidade / fechamento"
+  for (const [recursos077, avisos] of casos) {
+    const m = montar({ recursos077 });                                         // IND ocupa "Disponibilidade / fechamento"
     let t = await m.render(A);
     await clicar(achar(t, 'button', 'Mensagens prontas'));
     t = await m.render(A);
@@ -142,7 +142,7 @@ test('074: atalhos sem mensagem num aviso por motivo (fora da linha de botões),
     assert.ok(!elementos(grupo).some(e => e.type === 'span' || e.type === 'p'), 'nenhum aviso entre os botões');
     assert.equal(achar(t, 'button', 'Disponibilidade / fechamento').props.disabled, false);
     const paragrafos = elementos(t).filter(e => e.type === 'p' && /^(Ainda sem mensagem|Indisponíve)/.test(texto(e)));
-    assert.deepEqual(paragrafos.map(texto), Object.keys(avisos), `074=${recursos074}`);
+    assert.deepEqual(paragrafos.map(texto), Object.keys(avisos), `077=${recursos077}`);
     for (const p of paragrafos) for (const nome of avisos[texto(p) as keyof typeof avisos] as readonly string[]) {
       const b = achar(t, 'button', nome);
       assert.equal(b.props.disabled, true, nome);

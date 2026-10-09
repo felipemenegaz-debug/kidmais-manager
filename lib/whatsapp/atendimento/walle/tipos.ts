@@ -110,7 +110,7 @@ export type Catalogos = {
 };
 
 export type CampoPendente = 'data' | 'turno' | 'convidados' | 'pacote' | 'unidade' | 'tema';
-/** Memória do Wall-e na conversa (075: whatsapp_atendimento_conversas.contexto). */
+/** Memória do Wall-e na conversa (078: whatsapp_atendimento_conversas.contexto). */
 export type ContextoWallE = {
   data?: string | null; turno?: string | null; convidados?: number | null; pacote?: string | null; unidade?: string | null; tema?: string | null;
   /** Rodada 25: mês citado sem dia, para o "dia N" seguinte. */
@@ -197,7 +197,7 @@ export const PASSAGEM_AO_CLIENTE: Record<MotivoPassagem, string> = {
   PARAR_A_CONFIRMAR: 'Vou passar sua conversa para a equipe.',
   BLOQUEADO_A_PEDIDO: 'Vou passar sua conversa para a equipe.',
 };
-/** Resumo para a equipe na passagem (075: whatsapp_atendimento_conversas.passagem). */
+/** Resumo para a equipe na passagem (078: whatsapp_atendimento_conversas.passagem). */
 export type Passagem = {
   motivo: MotivoPassagem; motivos: MotivoPassagem[]; em: string;
   coletado: { data: string | null; turno: string | null; convidados: number | null; pacote: string | null; unidade: string | null; tema: string | null };

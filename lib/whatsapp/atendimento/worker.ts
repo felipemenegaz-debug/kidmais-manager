@@ -1,14 +1,14 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, origemMidia } from './configuracao.ts';
 import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao } from './core.ts';
-import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, tem075, type Conversa, type Mensagem } from './service.ts';
+import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, tem078, type Conversa, type Mensagem } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 
 /**
- * Porta do Wall-e (075), montada na composition root: entende a mensagem (modelo revalidado ou regras locais) e
+ * Porta do Wall-e (078), montada na composition root: entende a mensagem (modelo revalidado ou regras locais) e
  * resolve com as fontes oficiais da empresa, só lendo. O worker grava o resultado sob a trava da conversa.
  */
 export type PortaWallE = { responder(entrada: { empresa: string; ambiente: string; contato: string; texto: string; historico: string[]; contexto: unknown; config: ConfiguracaoAtendimento; hoje: string; agora: string }): Promise<ResultadoWallE> };
@@ -83,12 +83,12 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       // Só a sessão atual (24 h antes da última entrada) vai ao modelo: conversas antigas do contato ficam de fora.
       const historico = (await db().query<{ texto: string }>("SELECT texto FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='ENTRADA' AND texto IS NOT NULL AND criada_em > $3::timestamptz - interval '24 hours' ORDER BY criada_em DESC,id DESC LIMIT 8", [conversa.id, empresa, conversa.ultima_entrada_em])).rows.reverse();
       const atual = historico.at(-1)?.texto ?? mensagem.texto ?? '';
-      // Com a 075 uma resposta pode ter várias saídas (texto + PDF): o limite conta respostas (grupos), não linhas.
-      const r075 = await tem075(db());
-      const respondidas = Number((await db().query<{ n: string }>(`SELECT count(${r075 ? 'DISTINCT COALESCE(origem_grupo_id,id)' : '*'}) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='SAIDA' AND autor_usuario_id IS NULL AND estado<>'CANCELADA' AND criada_em > clock_timestamp()-interval '24 hours'`, [conversa.id, empresa])).rows[0]?.n ?? 0);
+      // Com a 078 uma resposta pode ter várias saídas (texto + PDF): o limite conta respostas (grupos), não linhas.
+      const r078 = await tem078(db());
+      const respondidas = Number((await db().query<{ n: string }>(`SELECT count(${r078 ? 'DISTINCT COALESCE(origem_grupo_id,id)' : '*'}) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='SAIDA' AND autor_usuario_id IS NULL AND estado<>'CANCELADA' AND criada_em > clock_timestamp()-interval '24 hours'`, [conversa.id, empresa])).rows[0]?.n ?? 0);
       if (respondidas >= config.limites.respostasPor24h) return await encaminharSemModelo(mensagem, 'PROCESSADA');
-      // Wall-e: só com a 075, a porta montada e a configuração ligada. PARAR continua no caminho fixo (encerra e não contata).
-      if (deps.wallE && r075 && config.wallE?.ativo && comandoDireto(atual)?.intencao !== 'PARAR') return await responderWallE(deps.wallE, mensagem, conversa, atual, historico.map(m => m.texto));
+      // Wall-e: só com a 078, a porta montada e a configuração ligada. PARAR continua no caminho fixo (encerra e não contata).
+      if (deps.wallE && r078 && config.wallE?.ativo && comandoDireto(atual)?.intencao !== 'PARAR') return await responderWallE(deps.wallE, mensagem, conversa, atual, historico.map(m => m.texto));
       let plano: Interpretacao;
       try { plano = comandoDireto(atual) ?? await deps.interpretar(empresa, JSON.stringify({ mensagens: historico.map(m => m.texto), mensagemAtual: atual, interesseAnterior: conversa.interesse }), config); }
       catch { return await encaminharSemModelo(mensagem, 'FALHOU'); }
@@ -132,14 +132,14 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       // para a equipe. Estado humano (AGUARDANDO_HUMANO, HUMANO, ENCERRADA) e responsável não mudam.
       if (revogada && valida && atual.estado === 'IA') await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [atual.id]);
       if (!ok) return null;
-      // Arquivo próprio (075): URL pública com o token do arquivo, na origem https configurada; sem ela, nada sai (FALHOU).
+      // Arquivo próprio (078): URL pública com o token do arquivo, na origem https configurada; sem ela, nada sai (FALHOU).
       const arquivo = mensagem.midia_arquivo_id ? (await tx.query<{ token: string; nome: string }>('SELECT token,nome FROM whatsapp_atendimento_arquivos WHERE id=$1 AND empresa_id=$2 AND ambiente=$3', [mensagem.midia_arquivo_id, empresa, ambiente])).rows[0] : null;
       return { contato: atual.contato, urlArquivo: arquivo ? urlPublicaArquivo(origemMidia() ?? undefined, mensagem.midia_arquivo_id!, arquivo.token, arquivo.nome) : null };
     });
     if (!destino) return 'CANCELADA';
     // Daqui em diante não há transação nem trava abertas (rede). Assumir durante ENVIANDO é recusado pela API até o
     // resultado; alteração da configuração neste intervalo não cancela o envio já marcado.
-    // Foto/vídeo (074): tipo e URL vêm da própria linha (copiados da mensagem pronta no servidor); o texto é a legenda.
+    // Foto/vídeo (077): tipo e URL vêm da própria linha (copiados da mensagem pronta no servidor); o texto é a legenda.
     const provedorId = await deps.enviar(destino.contato, conteudoDaMensagem({ ...mensagem, url_arquivo: destino.urlArquivo }));
     await withTransaction(async tx => {
       await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='SUBMETIDA',provedor_id=$2 WHERE id=$1 AND estado='ENVIANDO'", [mensagem.id, provedorId]);
@@ -234,7 +234,7 @@ async function materialAindaAutorizado(tx: DbExecutor, mensagem: Mensagem, empre
 }
 
 /**
- * Wall-e (075). Entender e resolver (modelo e leituras) ficam FORA de transação; a gravação revalida tudo sob a trava
+ * Wall-e (078). Entender e resolver (modelo e leituras) ficam FORA de transação; a gravação revalida tudo sob a trava
  * da conversa: atendente assumiu, entrada nova, empresa/automação/Wall-e desligados ⇒ nada é criado (entrada cancelada).
  * Grava a memória e a passagem e cria as saídas da mesma entrada em ordem (texto, depois anexos), num grupo único
  * (origem_grupo_id + ordem): retry não duplica e uma entrada nova cancela as saídas ainda na fila (versão da conversa).

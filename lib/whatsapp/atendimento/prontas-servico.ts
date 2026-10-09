@@ -4,24 +4,24 @@ import type { SessaoParaTenant } from '../../saas/provar-tenant.ts';
 import { buscarClientesPorContatoExato } from '../../clientes/repositories/cliente.repository.ts';
 import { listarContratacoes } from '../../fechamentos/contratacoes.ts';
 import { ambienteAtendimento } from './configuracao.ts';
-import { acessoAtendimento, tem075, temMidia } from './service.ts';
-import { ATALHOS_074, comporRascunho, ehAnexo, ehMidia, linkSeguro, midiaSegura, prontaEntradaSchema, usaRecursos075, type ArquivoPronta, type Pronta, type TipoAnexo, type TipoMidia } from './prontas.ts';
+import { acessoAtendimento, tem078, temMidia } from './service.ts';
+import { ATALHOS_077, comporRascunho, ehAnexo, ehMidia, linkSeguro, midiaSegura, prontaEntradaSchema, usaRecursos078, type ArquivoPronta, type Pronta, type TipoAnexo, type TipoMidia } from './prontas.ts';
 import { EXPLICACAO_SEM_LINK, resolverLinkFechamento } from './prontas-link.ts';
 import { caminhoPublicoArquivo, validarArquivo, type TipoArquivo } from './arquivos.ts';
 
 /**
- * Serviço da biblioteca de mensagens prontas (073; fotos, vídeos e atalhos novos com a 074; PDF, arquivos próprios,
- * estados, finalidade, vínculos e envio automático autorizado com a 075). Mesma porta de acesso do atendimento: empresa
+ * Serviço da biblioteca de mensagens prontas (076; fotos, vídeos e atalhos novos com a 077; PDF, arquivos próprios,
+ * estados, finalidade, vínculos e envio automático autorizado com a 078). Mesma porta de acesso do atendimento: empresa
  * comprovada pela sessão e papel ADMINISTRATIVO ou REPRESENTANTE_AUTORIZADO; cadastrar, publicar, arquivar e enviar
  * arquivo só o representante. Nada aqui envia mensagem: o rascunho volta para a tela e o envio continua sendo a ação
  * "enviar" do atendente (ou o Wall-e, só com conteúdo PUBLICADO e autorizado, pelo worker).
  */
-const colunas = (midia: boolean, r075: boolean) => [
+const colunas = (midia: boolean, r078: boolean) => [
   'p.id,p.titulo,p.categoria,p.tipo,p.texto,p.link', midia ? 'p.midia_url' : 'NULL::text AS midia_url', 'p.atalho,p.versao,p.atualizada_em',
-  r075 ? `p.estado,p.envio_automatico,p.finalidade,p.pacote_codigo,p.estabelecimento_id,p.arquivo_id,a.tipo AS arquivo_tipo,a.nome AS arquivo_nome,a.tamanho_bytes AS arquivo_tamanho,a.token AS arquivo_token`
+  r078 ? `p.estado,p.envio_automatico,p.finalidade,p.pacote_codigo,p.estabelecimento_id,p.arquivo_id,a.tipo AS arquivo_tipo,a.nome AS arquivo_nome,a.tamanho_bytes AS arquivo_tamanho,a.token AS arquivo_token`
     : `'PUBLICADA'::text AS estado,false AS envio_automatico,NULL::text AS finalidade,NULL::text AS pacote_codigo,NULL::uuid AS estabelecimento_id,NULL::uuid AS arquivo_id`,
 ].join(',');
-const deProntas = (r075: boolean) => `whatsapp_atendimento_mensagens_prontas p${r075 ? ' LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=p.arquivo_id AND a.empresa_id=p.empresa_id AND a.ambiente=p.ambiente' : ''}`;
+const deProntas = (r078: boolean) => `whatsapp_atendimento_mensagens_prontas p${r078 ? ' LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=p.arquivo_id AND a.empresa_id=p.empresa_id AND a.ambiente=p.ambiente' : ''}`;
 type LinhaPronta = Pronta & { arquivo_id?: string | null; arquivo_tipo?: TipoAnexo | null; arquivo_nome?: string | null; arquivo_tamanho?: number | null; arquivo_token?: string | null };
 function paraPronta({ arquivo_id, arquivo_tipo, arquivo_nome, arquivo_tamanho, arquivo_token, ...p }: LinhaPronta): Pronta {
   const arquivo: ArquivoPronta | null = arquivo_id && arquivo_tipo && arquivo_nome && arquivo_token
@@ -29,7 +29,7 @@ function paraPronta({ arquivo_id, arquivo_tipo, arquivo_nome, arquivo_tamanho, a
   return { ...p, versao: Number(p.versao), arquivo };
 }
 
-/** Sem a 073 a biblioteca fica indisponível, sem derrubar o atendimento; conflitos e vínculos viram mensagens claras. */
+/** Sem a 076 a biblioteca fica indisponível, sem derrubar o atendimento; conflitos e vínculos viram mensagens claras. */
 function traduzir(erro: unknown) {
   const e = erro as { code?: string; constraint?: string };
   if (e?.code === '42P01') return new Error('ATENDIMENTO_PRONTAS_INDISPONIVEL');
@@ -51,17 +51,17 @@ const representante = (papel: string) => { if (papel !== 'REPRESENTANTE_AUTORIZA
  */
 export async function listarProntas(sessao: SessaoParaTenant, opcoes: { gerenciar?: boolean } = {}) {
   return comBiblioteca(sessao, async (tx, empresa, papel, ambiente) => {
-    const midia = await temMidia(tx), r075 = await tem075(tx);
-    const filtro = opcoes.gerenciar ? '' : r075 ? " AND p.ativa AND p.estado='PUBLICADA'" : ' AND p.ativa';
-    const prontas = (await tx.query<LinhaPronta>(`SELECT ${colunas(midia, r075)} FROM ${deProntas(r075)} WHERE p.empresa_id=$1 AND p.ambiente=$2${filtro}
+    const midia = await temMidia(tx), r078 = await tem078(tx);
+    const filtro = opcoes.gerenciar ? '' : r078 ? " AND p.ativa AND p.estado='PUBLICADA'" : ' AND p.ativa';
+    const prontas = (await tx.query<LinhaPronta>(`SELECT ${colunas(midia, r078)} FROM ${deProntas(r078)} WHERE p.empresa_id=$1 AND p.ambiente=$2${filtro}
       ORDER BY p.ativa DESC, p.atalho NULLS LAST, p.categoria, p.titulo LIMIT 500`, [empresa, ambiente])).rows.map(paraPronta);
-    const favoritas = (await tx.query<{ id: string }>(`SELECT f.mensagem_pronta_id AS id FROM whatsapp_atendimento_mensagens_prontas_favoritas f JOIN whatsapp_atendimento_mensagens_prontas p ON p.id=f.mensagem_pronta_id AND p.empresa_id=f.empresa_id AND p.ambiente=f.ambiente AND p.ativa${r075 ? " AND p.estado='PUBLICADA'" : ''} WHERE f.usuario_id=$1 AND f.empresa_id=$2 AND f.ambiente=$3`, [sessao.usuario_id, empresa, ambiente])).rows.map(r => r.id);
-    const vinculos = opcoes.gerenciar && r075 ? {
+    const favoritas = (await tx.query<{ id: string }>(`SELECT f.mensagem_pronta_id AS id FROM whatsapp_atendimento_mensagens_prontas_favoritas f JOIN whatsapp_atendimento_mensagens_prontas p ON p.id=f.mensagem_pronta_id AND p.empresa_id=f.empresa_id AND p.ambiente=f.ambiente AND p.ativa${r078 ? " AND p.estado='PUBLICADA'" : ''} WHERE f.usuario_id=$1 AND f.empresa_id=$2 AND f.ambiente=$3`, [sessao.usuario_id, empresa, ambiente])).rows.map(r => r.id);
+    const vinculos = opcoes.gerenciar && r078 ? {
       unidades: (await tx.query<{ id: string; nome: string }>("SELECT id,nome FROM estabelecimentos WHERE empresa_id=$1 AND status<>'DESATIVADO' ORDER BY nome", [empresa])).rows,
       pacotes: (await tx.query<{ codigo: string; nome: string }>('SELECT codigo,nome FROM pacotes WHERE empresa_id=$1 AND ativo AND vigente AND arquivado_em IS NULL ORDER BY ordem_exibicao,nome', [empresa])).rows,
     } : { unidades: [], pacotes: [] };
-    // recursos074: fotos, vídeos e atalhos novos; recursos075: PDF, arquivos próprios, estados e envio automático.
-    return { prontas, favoritas, podeGerenciar: papel === 'REPRESENTANTE_AUTORIZADO', recursos074: midia, recursos075: r075, ...vinculos };
+    // recursos077: fotos, vídeos e atalhos novos; recursos078: PDF, arquivos próprios, estados e envio automático.
+    return { prontas, favoritas, podeGerenciar: papel === 'REPRESENTANTE_AUTORIZADO', recursos077: midia, recursos078: r078, ...vinculos };
   });
 }
 
@@ -71,14 +71,14 @@ export async function salvarPronta(sessao: SessaoParaTenant, valor: unknown) {
   const midiaUrl = ehMidia(p.tipo) && !p.arquivoId ? midiaSegura(p.tipo as TipoMidia, p.midiaUrl ?? '') : null;
   return comBiblioteca(sessao, async (tx, empresa, papel, ambiente) => {
     representante(papel);
-    const midia = await temMidia(tx), r075 = await tem075(tx);
-    // Sem a 074/075 o banco recusaria; a mensagem diz o que falta em vez de um erro genérico.
-    if (!midia && (ehMidia(p.tipo) || (p.atalho && ATALHOS_074.includes(p.atalho)))) throw new Error('ATENDIMENTO_MIDIA_INDISPONIVEL');
-    if (!r075 && usaRecursos075(p)) throw new Error('ATENDIMENTO_RECURSO_075_INDISPONIVEL');
+    const midia = await temMidia(tx), r078 = await tem078(tx);
+    // Sem a 077/078 o banco recusaria; a mensagem diz o que falta em vez de um erro genérico.
+    if (!midia && (ehMidia(p.tipo) || (p.atalho && ATALHOS_077.includes(p.atalho)))) throw new Error('ATENDIMENTO_MIDIA_INDISPONIVEL');
+    if (!r078 && usaRecursos078(p)) throw new Error('ATENDIMENTO_RECURSO_078_INDISPONIVEL');
     // Pacote por CÓDIGO (estável entre revisões): precisa existir vigente nesta empresa.
     if (p.pacoteCodigo && !(await tx.query('SELECT 1 FROM pacotes WHERE empresa_id=$1 AND codigo=$2 AND ativo AND vigente AND arquivado_em IS NULL', [empresa, p.pacoteCodigo])).rows.length) throw new Error('ATENDIMENTO_PACOTE_NAO_ENCONTRADO');
     if (!p.id) {
-      const r = r075
+      const r = r078
         ? await tx.query<{ id: string }>(`INSERT INTO whatsapp_atendimento_mensagens_prontas(empresa_id,ambiente,titulo,categoria,tipo,texto,link,midia_url,atalho,estado,envio_automatico,finalidade,pacote_codigo,estabelecimento_id,arquivo_id,criada_por,atualizada_por)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16) RETURNING id`, [empresa, ambiente, p.titulo, p.categoria, p.tipo, p.texto, link, midiaUrl, p.atalho, p.estado, p.envioAutomatico, p.finalidade, p.pacoteCodigo, p.estabelecimentoId, p.arquivoId, sessao.usuario_id])
         : midia
@@ -89,7 +89,7 @@ export async function salvarPronta(sessao: SessaoParaTenant, valor: unknown) {
       return { id: r.rows[0].id };
     }
     // Editar cria nova versão: o envio preso à prévia recusa a versão antiga; o Wall-e passa a usar a vigente.
-    const r = r075
+    const r = r078
       ? await tx.query<{ id: string }>(`UPDATE whatsapp_atendimento_mensagens_prontas SET titulo=$5,categoria=$6,tipo=$7,texto=$8,link=$9,midia_url=$10,atalho=$11,estado=$12,envio_automatico=$13,finalidade=$14,pacote_codigo=$15,estabelecimento_id=$16,arquivo_id=$17,atualizada_por=$18,versao=versao+1,atualizada_em=clock_timestamp()
         WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND versao=$4 AND ativa RETURNING id`, [p.id, empresa, ambiente, p.versao ?? -1, p.titulo, p.categoria, p.tipo, p.texto, link, midiaUrl, p.atalho, p.estado, p.envioAutomatico, p.finalidade, p.pacoteCodigo, p.estabelecimentoId, p.arquivoId, sessao.usuario_id])
       : midia
@@ -106,7 +106,7 @@ export async function salvarPronta(sessao: SessaoParaTenant, valor: unknown) {
 export async function publicarPronta(sessao: SessaoParaTenant, pedido: { id: string; versao: number; publicar: boolean }) {
   return comBiblioteca(sessao, async (tx, empresa, papel, ambiente) => {
     representante(papel);
-    if (!(await tem075(tx))) throw new Error('ATENDIMENTO_RECURSO_075_INDISPONIVEL');
+    if (!(await tem078(tx))) throw new Error('ATENDIMENTO_RECURSO_078_INDISPONIVEL');
     const r = await tx.query(`UPDATE whatsapp_atendimento_mensagens_prontas SET estado=$5,atualizada_por=$6,versao=versao+1,atualizada_em=clock_timestamp()
       WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND versao=$4 AND ativa RETURNING id`, [pedido.id, empresa, ambiente, pedido.versao, pedido.publicar ? 'PUBLICADA' : 'RASCUNHO', sessao.usuario_id]);
     if (!r.rows.length) throw new Error('ATENDIMENTO_PRONTA_DESATUALIZADA');
@@ -118,7 +118,7 @@ export async function arquivarPronta(sessao: SessaoParaTenant, pedido: { id: str
     representante(papel);
     // Remoção lógica: conversas e histórico não dependem desta linha; favoritas deixam de aparecer; novos usos (pela
     // equipe e pelo Wall-e) param; o que já foi enviado continua no histórico.
-    const r = await tx.query(`UPDATE whatsapp_atendimento_mensagens_prontas SET ativa=false,atalho=NULL,${(await tem075(tx)) ? "estado='ARQUIVADA'," : ''}atualizada_por=$5,versao=versao+1,atualizada_em=clock_timestamp()
+    const r = await tx.query(`UPDATE whatsapp_atendimento_mensagens_prontas SET ativa=false,atalho=NULL,${(await tem078(tx)) ? "estado='ARQUIVADA'," : ''}atualizada_por=$5,versao=versao+1,atualizada_em=clock_timestamp()
       WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND versao=$4 AND ativa RETURNING id`, [pedido.id, empresa, ambiente, pedido.versao, sessao.usuario_id]);
     if (!r.rows.length) throw new Error('ATENDIMENTO_PRONTA_DESATUALIZADA');
   });
@@ -130,14 +130,14 @@ export async function favoritarPronta(sessao: SessaoParaTenant, pedido: { id: st
       await tx.query('DELETE FROM whatsapp_atendimento_mensagens_prontas_favoritas WHERE usuario_id=$1 AND mensagem_pronta_id=$2 AND empresa_id=$3 AND ambiente=$4', [sessao.usuario_id, pedido.id, empresa, ambiente]);
       return;
     }
-    const existe = (await tx.query(`SELECT id FROM whatsapp_atendimento_mensagens_prontas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND ativa${(await tem075(tx)) ? " AND estado='PUBLICADA'" : ''}`, [pedido.id, empresa, ambiente])).rows.length;
+    const existe = (await tx.query(`SELECT id FROM whatsapp_atendimento_mensagens_prontas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND ativa${(await tem078(tx)) ? " AND estado='PUBLICADA'" : ''}`, [pedido.id, empresa, ambiente])).rows.length;
     if (!existe) throw new Error('ATENDIMENTO_PRONTA_NAO_ENCONTRADA');
     await tx.query('INSERT INTO whatsapp_atendimento_mensagens_prontas_favoritas(usuario_id,mensagem_pronta_id,empresa_id,ambiente) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING', [sessao.usuario_id, pedido.id, empresa, ambiente]);
   });
 }
 
 /**
- * Arquivo próprio da biblioteca (075): validado pelos primeiros bytes (tipo real), limite por tipo, hash conferido pelo
+ * Arquivo próprio da biblioteca (078): validado pelos primeiros bytes (tipo real), limite por tipo, hash conferido pelo
  * banco, token aleatório para a URL pública. Só inserção. Fica disponível para ser usado numa pronta da mesma empresa.
  */
 /** Pré-conferência de papel (antes de ler um upload): só o representante gerencia a biblioteca e envia arquivos. */
@@ -148,7 +148,7 @@ export async function salvarArquivo(sessao: SessaoParaTenant, entrada: { nome: s
   const arquivo = validarArquivo(entrada.nome, entrada.bytes, entrada.tipoEsperado);
   return comBiblioteca(sessao, async (tx, empresa, papel, ambiente) => {
     representante(papel);
-    if (!(await tem075(tx))) throw new Error('ATENDIMENTO_RECURSO_075_INDISPONIVEL');
+    if (!(await tem078(tx))) throw new Error('ATENDIMENTO_RECURSO_078_INDISPONIVEL');
     const conteudo = Buffer.from(entrada.bytes.buffer, entrada.bytes.byteOffset, entrada.bytes.byteLength);
     const token = randomBytes(32).toString('base64url');
     const r = await tx.query<{ id: string }>(`INSERT INTO whatsapp_atendimento_arquivos(empresa_id,ambiente,tipo,mime,nome,tamanho_bytes,sha256,conteudo,token,criado_por)
@@ -167,8 +167,8 @@ export async function prepararRascunho(sessao: SessaoParaTenant, pedido: { conve
   return comBiblioteca(sessao, async (tx, empresa, _papel, ambiente) => {
     const conversa = (await tx.query<{ contato: string }>('SELECT contato FROM whatsapp_atendimento_conversas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3', [pedido.conversaId, empresa, ambiente])).rows[0];
     if (!conversa) throw new Error('ATENDIMENTO_NAO_ENCONTRADO');
-    const r075 = await tem075(tx);
-    const linha = (await tx.query<LinhaPronta>(`SELECT ${colunas(await temMidia(tx), r075)} FROM ${deProntas(r075)} WHERE p.id=$1 AND p.empresa_id=$2 AND p.ambiente=$3 AND p.ativa${r075 ? " AND p.estado='PUBLICADA'" : ''}`, [pedido.id, empresa, ambiente])).rows[0];
+    const r078 = await tem078(tx);
+    const linha = (await tx.query<LinhaPronta>(`SELECT ${colunas(await temMidia(tx), r078)} FROM ${deProntas(r078)} WHERE p.id=$1 AND p.empresa_id=$2 AND p.ambiente=$3 AND p.ativa${r078 ? " AND p.estado='PUBLICADA'" : ''}`, [pedido.id, empresa, ambiente])).rows[0];
     if (!linha) throw new Error('ATENDIMENTO_PRONTA_NAO_ENCONTRADA');
     const pronta = paraPronta(linha);
     // Foto, vídeo ou PDF: a prévia leva a legenda editável e o anexo para conferência; no envio vão o id e a VERSÃO desta

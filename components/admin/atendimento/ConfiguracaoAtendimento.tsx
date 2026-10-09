@@ -9,7 +9,7 @@ import styles from './atendimento.module.css';
 type LinkPublico = { ok: true; link: string } | { ok: false; motivo: 'OUTRA_EMPRESA' | 'NAO_CONFIGURADO' | 'ORIGEM_NAO_SEGURA' };
 type Dados = { configuracao: Configuracao | null; automacaoDisponivel: boolean; podeConfigurar: boolean; wallE?: { disponivel: boolean; linkPublico?: LinkPublico } };
 const nova = (): Configuracao => ({ ativo: false, nome: 'Kidmais', perguntas: [], limites: { respostasPor24h: 20 }, wallE: { ativo: false } });
-/** Sem a 075 o Wall-e não existe neste ambiente: a chave não é gravada (o atendimento da fase B segue igual). */
+/** Sem a 078 o Wall-e não existe neste ambiente: a chave não é gravada (o atendimento da fase B segue igual). */
 function semWallE(c: Configuracao): Configuracao { const copia = { ...c }; delete copia.wallE; return copia; }
 /** Por que o link público não sai, em linguagem de atendimento (o detalhe técnico fica com quem configura o servidor). */
 const SEM_LINK: Record<Extract<LinkPublico, { ok: false }>['motivo'], string> = {

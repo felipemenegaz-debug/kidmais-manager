@@ -17,7 +17,7 @@ function carregar(query: (sql: string, args?: unknown[]) => Promise<{rows: unkno
     './configuracao.ts':{ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido,origemMidia:()=>null},
     './arquivos.ts':arquivos,
     './core.ts':core,
-    './service.ts':{configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem075:async()=>false},
+    './service.ts':{configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem078:async()=>false},
     './modelo.ts':{interpretarMensagem:async()=>{throw Error('modelo real proibido no teste');}},
     // Funções puras reais (montagem do conteúdo); a rede continua proibida.
     './transporte.ts':{...transporte,enviarMensagem:async()=>{throw Error('rede real proibida no teste');}},
@@ -345,7 +345,7 @@ test('configuração alterada depois da marcação ENVIANDO não retém o envio 
   assert(comandos.some(sql=>sql.includes("SET estado='SUBMETIDA'")));
 });
 
-// 074: foto/vídeo do atendente saem pelo mesmo caminho (mesmas travas); o conteúdo vem da própria linha.
+// 077: foto/vídeo do atendente saem pelo mesmo caminho (mesmas travas); o conteúdo vem da própria linha.
 const midia = {...mensagem,origem_id:null,autor_usuario_id:'u',texto:'Salgados da casa',midia_tipo:'IMAGEM' as const,midia_url:'https://cdn.exemplo.test/salgados.jpg'};
 function workerMidia(conv: Conversa, m: Mensagem = midia) {
   return carregar(async(sql)=>{
@@ -356,13 +356,13 @@ function workerMidia(conv: Conversa, m: Mensagem = midia) {
     return {rows:[]};
   });
 }
-test('074: foto do atendente vai ao transporte como conteúdo IMAGEM (URL e legenda da linha), uma única vez',async()=>{
+test('077: foto do atendente vai ao transporte como conteúdo IMAGEM (URL e legenda da linha), uma única vez',async()=>{
   const enviados: transporte.ConteudoSaida[]=[];
   const r=await workerMidia({...conversa,estado:'HUMANO',responsavel_id:'u'}).processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async(_c:string,conteudo:transporte.ConteudoSaida)=>{enviados.push(conteudo);return 'gs-midia';}} as never);
   assert.equal(r,'SUBMETIDA');
   assert.deepEqual(enviados,[{tipo:'IMAGEM',url:'https://cdn.exemplo.test/salgados.jpg',legenda:'Salgados da casa'}]);
 });
-test('074: PARAR, janela de 24 h vencida e conversa fora do atendente cancelam a foto antes do provedor',async()=>{
+test('077: PARAR, janela de 24 h vencida e conversa fora do atendente cancelam a foto antes do provedor',async()=>{
   const vencida=new Date(agora.getTime()-25*60*60*1000).toISOString();
   for (const conv of [{...conversa,estado:'HUMANO' as const,responsavel_id:'u',nao_contatar:true},{...conversa,estado:'HUMANO' as const,responsavel_id:'u',ultima_entrada_em:vencida},{...conversa,estado:'HUMANO' as const,responsavel_id:'outro'},{...conversa,estado:'IA' as const}]) {
     let envios=0;

@@ -70,14 +70,14 @@ const ESTADO_POSTGRES = {
   "lib/inteligencia/inteligencia.postgres.test.ts": { descartavel: "atual" },
   "lib/operacional/migration-059.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/migration-060.postgres.test.ts": { descartavel: "atual" },
-  // 073 e concorrência do encerrar: cada suíte aplica a 060 (e a 073) sobre o modelo atual, como a da 060.
-  "lib/whatsapp/atendimento/migration-073.postgres.test.ts": { descartavel: "atual" },
+  // 076 e concorrência do encerrar: cada suíte aplica a 060 (e a 076) sobre o modelo atual, como a da 060.
+  "lib/whatsapp/atendimento/migration-076.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/encerrar-concorrencia.postgres.test.ts": { descartavel: "atual" },
-  // 065 (nome de perfil) e identificação do contato: aplica a 060 e a 065 sobre o modelo atual; independe da 073.
+  // 065 (nome de perfil) e identificação do contato: aplica a 060 e a 065 sobre o modelo atual; independe da 076.
   "lib/whatsapp/atendimento/migration-065.postgres.test.ts": { descartavel: "atual" },
-  // 074 (fotos/vídeos e atalhos novos): aplica a 060 e a 073 sobre o modelo atual; independe da 065.
-  "lib/whatsapp/atendimento/migration-074.postgres.test.ts": { descartavel: "atual" },
-  "lib/whatsapp/atendimento/migration-075.postgres.test.ts": { descartavel: "atual" },
+  // 077 (fotos/vídeos e atalhos novos): aplica a 060 e a 076 sobre o modelo atual; independe da 065.
+  "lib/whatsapp/atendimento/migration-077.postgres.test.ts": { descartavel: "atual" },
+  "lib/whatsapp/atendimento/migration-078.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/walle/walle-worker.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/walle/agenda-escopo.postgres.test.ts": { descartavel: "063" },
   "lib/pagamentos/estorno-completo.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062"] },
@@ -99,12 +99,12 @@ const ESTADO_POSTGRES = {
   "lib/cadastro/cadastro-069.postgres.test.ts": { descartavel: "063" },
   // Adicionais do buffet: 063 + 070 aplicada pela própria suíte.
   "lib/comercial/adicionais-070.postgres.test.ts": { descartavel: "063" },
-  // Integração atendimento × painel: empresa ativa × piloto e coexistência 060/063/065/073 (modelo 063, com a 060).
+  // Integração atendimento × painel: empresa ativa × piloto e coexistência 060/063/065/076 (modelo 063, com a 060).
   "lib/whatsapp/atendimento/empresa-ativa.postgres.test.ts": { descartavel: "063" },
   "lib/whatsapp/atendimento/coexistencia-060-065.postgres.test.ts": { descartavel: "063" },
-  // Coexistência da 074 com 060/063/065/073: as duas ordens e rollback cruzado (a 073 não sai com a 074 presente).
-  "lib/whatsapp/atendimento/coexistencia-074.postgres.test.ts": { descartavel: "063" },
-  // Candidata: coexistência e rollback cruzado do atendimento (060/065/073/074/075) com 064/066/067/068/069/070 de staging.
+  // Coexistência da 077 com 060/063/065/076: as duas ordens e rollback cruzado (a 076 não sai com a 077 presente).
+  "lib/whatsapp/atendimento/coexistencia-077.postgres.test.ts": { descartavel: "063" },
+  // Candidata: coexistência e rollback cruzado do atendimento (060/065/076/077/078) com 064/066/067/068/069/070 de staging.
   "lib/whatsapp/atendimento/coexistencia-staging.postgres.test.ts": { descartavel: "063" },
 };
 

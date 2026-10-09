@@ -1,16 +1,16 @@
 import { z } from 'zod';
 
 /**
- * Mensagens prontas do atendimento (073). Biblioteca da EQUIPE: o atendente escolhe, revisa e envia.
+ * Mensagens prontas do atendimento (076). Biblioteca da EQUIPE: o atendente escolhe, revisa e envia.
  *
  * Tipos da fase A: TEXTO, LINK fixo (https) e LINK individual de fechamento. O link individual nunca é digitado:
  * é resolvido na hora do rascunho pelo fluxo autorizado do sistema (contratação aguardando a assinatura do cliente),
  * e só quando empresa, cliente e conversa formam um vínculo inequívoco (prontas-link.ts, só no servidor).
- * Fase B (074): IMAGEM e VIDEO por URL https pública da EMPRESA; o texto é a legenda. A mídia nunca vem da tela de
+ * Fase B (077): IMAGEM e VIDEO por URL https pública da EMPRESA; o texto é a legenda. A mídia nunca vem da tela de
  * atendimento: no envio vão o id e a versão da mensagem pronta vistos na prévia; o servidor lê a URL do banco e recusa
  * se a pronta mudou depois (a mídia nunca é trocada em silêncio). Atalhos novos: salgados, bolos,
  * endereço e localização (texto/link; não há mensagem de localização nativa nesta entrega).
- * Wall-e (075): PDF; arquivo próprio enviado pela equipe (alternativa à URL externa); estados RASCUNHO / PUBLICADA /
+ * Wall-e (078): PDF; arquivo próprio enviado pela equipe (alternativa à URL externa); estados RASCUNHO / PUBLICADA /
  * ARQUIVADA; finalidade e vínculos opcionais com pacote e unidade; e a autorização EXPLÍCITA para o Wall-e enviar
  * sozinho. O Wall-e só usa conteúdo PUBLICADO com essa autorização; o resto continua sendo só da equipe.
  * Este módulo é usado também no navegador: nada de Node aqui.
@@ -18,14 +18,14 @@ import { z } from 'zod';
 export const ATALHOS = ['TABELA_PRECOS', 'DISPONIBILIDADE_FECHAMENTO', 'SALGADOS', 'BOLOS', 'ENDERECO', 'LOCALIZACAO'] as const;
 export type Atalho = (typeof ATALHOS)[number];
 export const NOME_ATALHO: Record<Atalho, string> = { TABELA_PRECOS: 'Tabela de preços', DISPONIBILIDADE_FECHAMENTO: 'Disponibilidade / fechamento', SALGADOS: 'Salgados', BOLOS: 'Bolos', ENDERECO: 'Endereço', LOCALIZACAO: 'Localização' };
-/** Atalhos que só existem com a 074 aplicada (sem ela o banco recusa; a tela os mostra como indisponíveis). */
-export const ATALHOS_074: readonly Atalho[] = ['SALGADOS', 'BOLOS', 'ENDERECO', 'LOCALIZACAO'];
+/** Atalhos que só existem com a 077 aplicada (sem ela o banco recusa; a tela os mostra como indisponíveis). */
+export const ATALHOS_077: readonly Atalho[] = ['SALGADOS', 'BOLOS', 'ENDERECO', 'LOCALIZACAO'];
 export const TIPOS = ['TEXTO', 'LINK', 'LINK_FECHAMENTO_INDIVIDUAL', 'IMAGEM', 'VIDEO', 'DOCUMENTO'] as const;
 export type TipoPronta = (typeof TIPOS)[number];
-/** Tipos que existiam antes da 075 (o PDF chega com a 075, só por arquivo próprio). */
-export const TIPOS_074: readonly TipoPronta[] = TIPOS.filter((t) => t !== 'DOCUMENTO');
+/** Tipos que existiam antes da 078 (o PDF chega com a 078, só por arquivo próprio). */
+export const TIPOS_077: readonly TipoPronta[] = TIPOS.filter((t) => t !== 'DOCUMENTO');
 export const NOME_TIPO: Record<TipoPronta, string> = { TEXTO: 'Texto', LINK: 'Link', LINK_FECHAMENTO_INDIVIDUAL: 'Link individual de fechamento', IMAGEM: 'Foto', VIDEO: 'Vídeo', DOCUMENTO: 'PDF' };
-/** Mídia que aceita URL externa (074). O PDF não: só arquivo próprio (075). */
+/** Mídia que aceita URL externa (077). O PDF não: só arquivo próprio (078). */
 export const TIPOS_MIDIA = ['IMAGEM', 'VIDEO'] as const;
 export type TipoMidia = (typeof TIPOS_MIDIA)[number];
 export const ehMidia = (tipo: TipoPronta): tipo is TipoMidia => tipo === 'IMAGEM' || tipo === 'VIDEO';
@@ -47,7 +47,7 @@ export function tipoDoArquivo(mime: string, nome: string): TipoAnexo | null {
 }
 
 /**
- * 075: estado da mensagem pronta. RASCUNHO não aparece para uso nem sai automaticamente; PUBLICADA é a versão vigente;
+ * 078: estado da mensagem pronta. RASCUNHO não aparece para uso nem sai automaticamente; PUBLICADA é a versão vigente;
  * ARQUIVADA impede novos usos (o que já foi enviado continua no histórico). Arquivar é ação própria.
  */
 export const ESTADOS_PRONTA = ['RASCUNHO', 'PUBLICADA', 'ARQUIVADA'] as const;
@@ -97,7 +97,7 @@ export function midiaSegura(tipo: TipoMidia, valor: string) {
 }
 
 /**
- * Cadastro. Os campos da 075 têm padrão compatível com a 073/074 (publicada, sem envio automático, sem vínculos, sem
+ * Cadastro. Os campos da 078 têm padrão compatível com a 076/077 (publicada, sem envio automático, sem vínculos, sem
  * arquivo): um cadastro antigo continua válido e com o mesmo efeito.
  */
 export const prontaEntradaSchema = z.object({
@@ -137,16 +137,16 @@ export const prontaEntradaSchema = z.object({
   if (v.envioAutomatico && v.tipo === 'LINK_FECHAMENTO_INDIVIDUAL') ctx.addIssue({ code: 'custom', path: ['envioAutomatico'], message: 'O link individual só é enviado pela equipe.' });
 });
 export type ProntaEntrada = z.infer<typeof prontaEntradaSchema>;
-/** Campos da 075 com valor diferente do padrão (sem a 075 o cadastro com eles é recusado com mensagem clara). */
-export function usaRecursos075(p: ProntaEntrada) {
+/** Campos da 078 com valor diferente do padrão (sem a 078 o cadastro com eles é recusado com mensagem clara). */
+export function usaRecursos078(p: ProntaEntrada) {
   return p.tipo === 'DOCUMENTO' || p.estado !== 'PUBLICADA' || p.envioAutomatico || p.finalidade !== null || p.pacoteCodigo !== null || p.estabelecimentoId !== null || p.arquivoId !== null;
 }
 
-/** Arquivo próprio de uma pronta (075), como a tela o vê: nome, tamanho e o caminho público para conferência. */
+/** Arquivo próprio de uma pronta (078), como a tela o vê: nome, tamanho e o caminho público para conferência. */
 export type ArquivoPronta = { id: string; tipo: TipoAnexo; nome: string; tamanho: number; caminho: string };
 export type Pronta = {
   id: string; titulo: string; categoria: string; tipo: TipoPronta; texto: string; link: string | null; midia_url: string | null; atalho: Atalho | null; versao: number; atualizada_em: string;
-  /** 075; sem a 075 vêm com os padrões (publicada, sem envio automático, sem vínculos, sem arquivo). */
+  /** 078; sem a 078 vêm com os padrões (publicada, sem envio automático, sem vínculos, sem arquivo). */
   estado?: EstadoPronta; envio_automatico?: boolean; finalidade?: Finalidade | null; pacote_codigo?: string | null; estabelecimento_id?: string | null; arquivo?: ArquivoPronta | null;
 };
 

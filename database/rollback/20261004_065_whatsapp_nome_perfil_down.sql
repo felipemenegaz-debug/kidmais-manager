@@ -1,6 +1,6 @@
 -- Rollback da 065. NÃO EXECUTAR sem autorização explícita (docs/OPERACAO_AGENTES.md).
 -- O rollback de código não exige este script: sem as colunas a tela só deixa de mostrar o nome de perfil (o serviço
--- confere o catálogo a cada uso). Este down remove a estrutura. Não toca o restante da 060 nem a 073.
+-- confere o catálogo a cada uso). Este down remove a estrutura. Não toca o restante da 060 nem a 076.
 --
 -- Fail closed, numa transação só:
 --   1. lock_timeout curto: se a aplicação ainda segura a tabela, aborta em vez de enfileirar;

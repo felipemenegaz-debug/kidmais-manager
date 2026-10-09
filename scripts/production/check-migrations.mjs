@@ -80,17 +80,18 @@ const approvedFiles = [
   '20261007_068_cobranca_assinatura.sql',
   '20261007_069_cadastro_publico.sql',
   '20261007_070_adicionais_do_buffet.sql',
-  '20261007_073_whatsapp_mensagens_prontas.sql',
-  '20261007_074_whatsapp_prontas_midia.sql',
-  '20261007_075_wall_e_atendimento.sql',
+  '20261009_076_whatsapp_mensagens_prontas.sql',
+  '20261009_077_whatsapp_prontas_midia.sql',
+  '20261009_078_wall_e_atendimento.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
 // - 049–051 carry their prechecks inline (DO $$ ... RAISE) and have no external check files;
 // - 052 names its checks with the "financeiro" suffix;
 // - 054 needs its immediate backfill between precheck and postcheck;
-// - 055a–d, 058, 059, 060, 065, 073, 074 and 075 (WhatsApp atendimento: 065 kept, reserved by staging; the original
-//   064/066/067 became 070/071/072 and, on 07/10, 073/074/075, because staging took 070 and another branch uses 071)
+// - 055a–d, 058, 059, 060, 065, 076, 077 and 078 (WhatsApp atendimento: 065 kept, reserved by staging; the original
+//   064/066/067 became 070/071/072, then 073/074/075 on 07/10 (staging took 070, another branch 071), and 076/077/078 on
+//   09/10 (staging took 073, 074, 074a and 075))
 //   carry the precheck inline and have an external postcheck.
 const checkFiles = {
   '049': [], '050': [], '051': [],
@@ -102,11 +103,11 @@ const checkFiles = {
   '059': ['20261001_059_postcheck.sql'],
   '060': ['20261001_060_postcheck.sql'],
   '065': ['20261004_065_postcheck.sql'],
-  '073': ['20261007_073_postcheck.sql'],
-  '074': ['20261007_074_postcheck.sql'],
-  '075': ['20261007_075_postcheck.sql'],
+  '076': ['20261009_076_postcheck.sql'],
+  '077': ['20261009_077_postcheck.sql'],
+  '078': ['20261009_078_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '073', '074', '075'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '076', '077', '078'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -149,9 +150,9 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('068_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('069_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('070_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  r.pending.push('074_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  r.pending.push('075_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('076_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('077_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('078_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

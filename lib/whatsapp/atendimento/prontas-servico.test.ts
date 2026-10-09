@@ -12,8 +12,8 @@ const CONTRATO = '2b6f0f9e-6c1d-4a8e-9a55-3f0a5b1c2d3e';
 const PRONTA = '7f1d2c3b-4a5e-4f60-8a71-b2c3d4e5f601';
 const CONVERSA = '0e9d8c7b-6a5f-4e3d-9c2b-1a0f9e8d7c6b';
 const linha = (x: Partial<Pronta> = {}): Pronta => ({ id: PRONTA, titulo: 'Fechamento', categoria: 'Comercial', tipo: 'TEXTO', texto: 'Olá!', link: null, midia_url: null, atalho: null, versao: 2, atualizada_em: '', ...x });
-// midia: a 074 está aplicada (colunas de mídia presentes). Padrão: ausente, o comportamento da 073.
-type Op = { recusa?: string; papel?: string; pronta?: Pronta | null; conversa?: { contato: string } | null; erro?: { code: string; constraint?: string }; atualizadas?: number; clientes?: { id: string; empresaId: string | null }[]; contratacoes?: { contratoId: string | null; acessoPublico: string | null }[]; origem?: string; midia?: boolean; r075?: boolean };
+// midia: a 077 está aplicada (colunas de mídia presentes). Padrão: ausente, o comportamento da 076.
+type Op = { recusa?: string; papel?: string; pronta?: Pronta | null; conversa?: { contato: string } | null; erro?: { code: string; constraint?: string }; atualizadas?: number; clientes?: { id: string; empresaId: string | null }[]; contratacoes?: { contratoId: string | null; acessoPublico: string | null }[]; origem?: string; midia?: boolean; r078?: boolean };
 function carregar(op: Op = {}) {
   const comandos: { sql: string; args: unknown[] }[] = [];
   const chamadas: string[] = [];
@@ -33,7 +33,7 @@ function carregar(op: Op = {}) {
     '../../clientes/repositories/cliente.repository.ts': { buscarClientesPorContatoExato: async (tel: string, empresa: string) => { chamadas.push(`cliente:${tel}:${empresa}`); return op.clientes ?? []; } },
     '../../fechamentos/contratacoes.ts': { listarContratacoes: async (_tx: unknown, empresa: string, cliente: string) => { chamadas.push(`contratacoes:${empresa}:${cliente}`); return op.contratacoes ?? []; } },
     './configuracao.ts': { ambienteAtendimento: () => 'staging' },
-    './service.ts': { acessoAtendimento: async (_s: unknown, work: (tx: unknown, e: string, p: string) => unknown) => { if (op.recusa) throw new Error(op.recusa); return work({ query }, 'e1', op.papel ?? 'ADMINISTRATIVO'); }, temMidia: async () => op.midia ?? false, tem075: async () => op.r075 ?? false },
+    './service.ts': { acessoAtendimento: async (_s: unknown, work: (tx: unknown, e: string, p: string) => unknown) => { if (op.recusa) throw new Error(op.recusa); return work({ query }, 'e1', op.papel ?? 'ADMINISTRATIVO'); }, temMidia: async () => op.midia ?? false, tem078: async () => op.r078 ?? false },
     './prontas.ts': prontas,
     './prontas-link.ts': prontasLink,
     './arquivos.ts': arquivos,
@@ -70,7 +70,7 @@ test('salvar valida, grava na empresa comprovada e controla versão; link indivi
   assert.match(velha.comandos[0].sql, /versao=\$4 AND ativa/);
 });
 
-test('sem a 073 a biblioteca fica indisponível; unicidade vira mensagem clara', async () => {
+test('sem a 076 a biblioteca fica indisponível; unicidade vira mensagem clara', async () => {
   await assert.rejects(carregar({ erro: { code: '42P01' } }).modulo.listarProntas(sessao), /ATENDIMENTO_PRONTAS_INDISPONIVEL/);
   await assert.rejects(carregar({ papel: 'REPRESENTANTE_AUTORIZADO', erro: { code: '23505', constraint: 'whatsapp_prontas_atalho_unico' } }).modulo.salvarPronta(sessao, nova), /ATENDIMENTO_PRONTA_ATALHO_EM_USO/);
   await assert.rejects(carregar({ papel: 'REPRESENTANTE_AUTORIZADO', erro: { code: '23505', constraint: 'whatsapp_prontas_titulo_unico' } }).modulo.salvarPronta(sessao, nova), /ATENDIMENTO_PRONTA_TITULO_EM_USO/);
@@ -113,26 +113,26 @@ test('link individual: preenchido só com vínculo inequívoco na empresa compro
 });
 
 const FOTO = { titulo: 'Salgados da casa', categoria: 'Cardápio', tipo: 'IMAGEM', texto: 'Nossos salgados.', link: null, midiaUrl: 'https://cdn.exemplo.test/salgados.jpg', atalho: 'SALGADOS' };
-test('074: foto/vídeo e atalhos novos só com a 074; com ela, a URL de mídia é gravada; sem ela, mensagem clara e nada gravado', async () => {
+test('077: foto/vídeo e atalhos novos só com a 077; com ela, a URL de mídia é gravada; sem ela, mensagem clara e nada gravado', async () => {
   const sem = carregar({ papel: 'REPRESENTANTE_AUTORIZADO' });
   await assert.rejects(sem.modulo.salvarPronta(sessao, FOTO), /ATENDIMENTO_MIDIA_INDISPONIVEL/);
   await assert.rejects(sem.modulo.salvarPronta(sessao, { ...nova, atalho: 'ENDERECO' }), /ATENDIMENTO_MIDIA_INDISPONIVEL/);
-  assert.ok(!sem.comandos.some(c => /^(INSERT|UPDATE)/.test(c.sql)), 'nada gravado sem a 074');
-  assert.equal((await sem.modulo.listarProntas(sessao)).recursos074, false);
+  assert.ok(!sem.comandos.some(c => /^(INSERT|UPDATE)/.test(c.sql)), 'nada gravado sem a 077');
+  assert.equal((await sem.modulo.listarProntas(sessao)).recursos077, false);
   assert.match(sem.comandos.find(c => c.sql.startsWith('SELECT p.id,p.titulo'))!.sql, /NULL::text AS midia_url/);
   const com = carregar({ papel: 'REPRESENTANTE_AUTORIZADO', midia: true });
   await com.modulo.salvarPronta(sessao, FOTO);
   const ins = com.comandos.find(c => c.sql.startsWith('INSERT'))!;
   assert.match(ins.sql, /midia_url/);
   assert.deepEqual(ins.args, ['e1', 'staging', 'Salgados da casa', 'Cardápio', 'IMAGEM', 'Nossos salgados.', null, 'https://cdn.exemplo.test/salgados.jpg', 'SALGADOS', 'u1']);
-  assert.equal((await com.modulo.listarProntas(sessao)).recursos074, true);
+  assert.equal((await com.modulo.listarProntas(sessao)).recursos077, true);
   // Validação antes do banco: http, IP, extensão errada, URL no tipo texto e legenda longa são recusados.
   for (const ruim of [{ ...FOTO, midiaUrl: 'http://cdn.exemplo.test/s.jpg' }, { ...FOTO, midiaUrl: 'https://192.168.0.1/s.jpg' }, { ...FOTO, midiaUrl: 'https://cdn.exemplo.test/s.gif' },
     { ...FOTO, tipo: 'VIDEO', midiaUrl: 'https://cdn.exemplo.test/s.jpg' }, { ...nova, midiaUrl: 'https://cdn.exemplo.test/s.jpg' }, { ...FOTO, texto: 'a'.repeat(1025) }])
     await assert.rejects(com.modulo.salvarPronta(sessao, ruim), (e: Error) => e.name === 'ZodError', JSON.stringify(ruim).slice(0, 80));
 });
 
-test('074: rascunho de foto/vídeo devolve legenda editável e a mídia só para conferência (id e versão da pronta); nada é enviado', async () => {
+test('077: rascunho de foto/vídeo devolve legenda editável e a mídia só para conferência (id e versão da pronta); nada é enviado', async () => {
   const t = carregar({ midia: true, pronta: linha({ tipo: 'VIDEO', texto: 'Tour pelo salão', midia_url: 'https://cdn.exemplo.test/tour.mp4' }) });
   const r = await t.modulo.prepararRascunho(sessao, { conversaId: CONVERSA, id: PRONTA }); t.restaurar();
   assert.deepEqual(r, { titulo: 'Fechamento', texto: 'Tour pelo salão', linkIndividual: null, aviso: null, midia: { tipo: 'VIDEO', url: 'https://cdn.exemplo.test/tour.mp4', prontaId: PRONTA, versao: 2 } }, 'a versão vista na prévia vai junto (o envio é preso a ela)');
