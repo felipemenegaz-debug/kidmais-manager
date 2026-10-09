@@ -102,6 +102,14 @@ export function comandoDireto(texto: string): Interpretacao | null {
  * Wall-e, nem o texto fixo de encaminhamento, nem reabertura automática, nem "Devolver ao Wall-e". Só a equipe responde.
  * A marca fica em `contexto.semAutomatico` (075); sem a 075 não há Wall-e nem a marca.
  */
+/**
+ * Rodada 47: pedido de PAUSA (ou de parar junto de outro pedido — AMBÍGUO no opt-out) que a recepção registra quando a
+ * mensagem não passa pelo Wall-e (conversa já com a equipe, assumida ou sem automação). PARAR inequívoco é bloqueio, não
+ * pausa (comandoDireto). Exportada para o simulador do avaliador espelhar a recepção do código avaliado.
+ */
+export function pausaPedidaNaRecepcao(texto: string | null | undefined) {
+  return !!texto && pedidoDeParar(texto)?.tipo === 'AMBIGUO';
+}
 export function semAutomatico(conversa: { contexto?: Record<string, unknown> } | null | undefined) {
   const m = (conversa?.contexto as { semAutomatico?: unknown } | undefined)?.semAutomatico;
   return !!m && typeof m === 'object';

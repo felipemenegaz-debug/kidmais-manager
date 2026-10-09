@@ -114,7 +114,7 @@ const [ent, res, core, ctx, worker, jev, orc, modelo] = await Promise.all([
 ]);
 m = {
   entenderPorRegras: ent.entenderPorRegras, revalidarEntendimento: ent.revalidarEntendimento, juntarSinais: ent.juntarSinais ?? null,
-  resolverWallE: res.resolverWallE, comandoDireto: core.comandoDireto, lerContexto: ctx.lerContexto, mensagemAindaValida: worker.mensagemAindaValida,
+  resolverWallE: res.resolverWallE, comandoDireto: core.comandoDireto, pausaPedidaNaRecepcao: core.pausaPedidaNaRecepcao ?? null, lerContexto: ctx.lerContexto, mensagemAindaValida: worker.mensagemAindaValida,
   sinaisJev: modelo.sinaisJev, triagemMensagem: jev.triagemMensagem, registroDoBloqueio: ent.registroDoBloqueio ?? null,
 };
 

@@ -62,6 +62,10 @@ export async function simularSequencia(m, itens, { catalogos, config, fontes, ag
     const parar = m.comandoDireto(item.texto)?.intencao === 'PARAR';
     const registroRecepcao = parar && m.registroDoBloqueio ? m.registroDoBloqueio(item.texto, agora) : null;
     if (parar) conversa = { ...conversa, estado: registroRecepcao ? 'AGUARDANDO_HUMANO' : 'ENCERRADA', nao_contatar: true, versao: conversa.versao + 1 };
+    // Rodada 47: espelho da recepção — pedido de pausa numa mensagem que o Wall-e não processa (conversa com a equipe)
+    // grava a marca persistente (só no código avaliado que tem m.pausaPedidaNaRecepcao; o antigo não registrava).
+    const pausaNaRecepcao = !automatico && !parar && !conversa.nao_contatar && !pausada(conversa) && !!m.pausaPedidaNaRecepcao?.(item.texto);
+    if (pausaNaRecepcao) conversa = { ...conversa, contexto: { ...conversa.contexto, semAutomatico: { motivo: 'PARAR_A_CONFIRMAR', em: agora, origem: 'RECEPCAO' } }, versao: conversa.versao + 1 };
     // Worker
     const valida = automatico && m.mensagemAindaValida(mensagem, conversa, new Date(agora));
     const r = { decisao: null, motivos: [], saidas: [], pendente: [], pendentePara: null, entendimento: null, sinais: null, falha: null, msEntender: 0 };

@@ -344,7 +344,8 @@ function extrairTemaBruto(texto: string): string | null {
   const mudanca = /\b(?:mudamos|mudei|mudou|trocamos|troquei|decidimos|resolvemos)(?: de ideia)?(?:[, ]+(?:kkk\w*|rs+|haha\w*|n[eé]|enfim|ent[aã]o|gente|viu|af+|aff+))*[, ]+(?:(?:pra|para|por)\s+(?:o |a )?|(?:vai ser|sera|será|agora [eé]|[eé])\s+(?:o |a )?|(?:(?:ele|ela|eles|elas|a gente|n[oó]s|o \p{L}+|a \p{L}+)\s+)?(?:agora\s+)?(?:quer|querem|prefere|preferem|escolheu|escolheram|vai querer|pediu|pediram)\s+(?:o |a |os |as )?)(\p{Lu}[^,.;!?\n]{1,39})/u.exec(t)?.[1];
   // Rodada 38 (h38 aa62): a troca dita sem verbo de mudança — "na verdade ela agora quer a Wandinha kkk", "agora ele
   // prefere o Sonic", "pensando bem ela quer a Barbie" (marcador de virada + quem escolhe + querer/preferir + nome próprio).
-  const virada = /\b(?:na verdade|na vdd|na vd|pensando bem|pensei melhor|agora)\b[, ]+(?:(?:ele|ela|eles|elas|a gente|n[oó]s|o \p{L}+|a \p{L}+)\s+)?(?:agora\s+|j[aá]\s+|t[aá]\s+)?(?:quer|querem|prefere|preferem|escolheu|escolheram|pediu|pediram|t[aá] querendo|t[aá] pedindo)\s+(?:o |a |os |as |do |da )?(\p{Lu}[^,.;!?\n]{1,39})/u.exec(t)?.[1];
+  // Rodada 47 (h46 aa60): abreviações ("na vdd agr ela quer…", "agr ele prefere…").
+  const virada = /\b(?:na verdade|na vdd|na vd|pensando bem|pensei melhor|agora|agr|agra|ag)\b[, ]+(?:(?:ele|ela|eles|elas|a gente|n[oó]s|o \p{L}+|a \p{L}+)\s+)?(?:agora\s+|agr\s+|j[aá]\s+|t[aá]\s+)?(?:quer|querem|prefere|preferem|escolheu|escolheram|pediu|pediram|t[aá] querendo|t[aá] pedindo)\s+(?:o |a |os |as |do |da )?(\p{Lu}[^,.;!?\n]{1,39})/u.exec(t)?.[1];
   const nomeTroca = mudanca ?? virada;
   if (nomeTroca && !/^(?:segund|primeir|almo[cç]|noite|manh|tarde|dia\b|s[aá]bado|domingo|janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|essencial|complet|premium|asa sul|[aá]guas claras|unidade|outr)/i.test(nomeTroca)) return nomeTroca.trim();
   const padroes = [
@@ -706,7 +707,7 @@ const REGRAS: Array<[TipoIntencao, RegExp]> = [
     '(ela|ele|eles|elas) (ainda )?(deve|devem|esta devendo|ta devendo|estao devendo)\\b',
   ].map((p) => `\\b${p}`).join('|'))],
   ['NEGOCIACAO', new RegExp(`${NEGOCIACAO_RE.source}|${APERTO.source}`)],
-  ['PRECOS', new RegExp(String.raw`${PRECO_EM_OUTRA_ORDEM}|\b(precos?|valor(es)?|quanto custa|quanto fica|quanto sai|quanto e|quanto (que|q) (fica|custa|sai|e|ta|esta|seria|ficaria)|quanto (ta|tah|esta|ficaria|sairia|seria|custaria|cobram|cobra)|quanto (?:daria|vai dar)\b(?! (?:pra|para|de) (?:colocar|por|caber|ter|convidad|pessoas))|quanto (?:da|dah)(?= ?(?:$|\?| tudo| isso| no total| ao todo))|qto (custa|fica|sai|e|ta|esta|ficaria|sairia)|qnto (custa|fica|sai|ta)|qnt (custa|fica|sai|ta|e|ficaria|sairia)|tabela( de precos)?|orcamento|investimento|cotacao|quanto (eu |a gente |nos )?(tenho|teria|vou ter|vamos ter|preciso|precisaria|temos|teriamos|precisamos)( que| de| q)? (pagar|investir|gastar))\b`)],
+  ['PRECOS', new RegExp(String.raw`${PRECO_EM_OUTRA_ORDEM}|\b(precos?|valor(es)?|quanto custa|quanto fica|quanto sai|quanto e|quanto (que|q) (fica|custa|sai|e|ta|esta|seria|ficaria)|quanto (ta|tah|esta|ficaria|sairia|seria|custaria|cobram|cobra)|quanto (?:daria|vai dar)\b(?! (?:pra|para|de) (?:colocar|por|caber|ter|convidad|pessoas))|quanto (?:da|dah)(?= ?(?:$|\?| tudo| isso| no total| ao todo))|(?:quanto|qto|qnto|qnt) (?:da|dah|daria|vai dar)\b(?= (?:o|a|os|as|um|uma|no|na|nesse|nessa|esse|essa|pra|para|com)\b)(?! (?:pra|para) (?:colocar|por|caber|ter|levar|fazer|trazer|chamar|convidar|ficar)\b)(?! (?:de|da|do) (?:convidad|pessoa|gente|crianc))|qto (custa|fica|sai|e|ta|esta|ficaria|sairia)|qnto (custa|fica|sai|ta)|qnt (custa|fica|sai|ta|e|ficaria|sairia)|tabela( de precos)?|orcamento|investimento|cotacao|quanto (eu |a gente |nos )?(tenho|teria|vou ter|vamos ter|preciso|precisaria|temos|teriamos|precisamos)( que| de| q)? (pagar|investir|gastar))\b`)],
   // "Vocês ficam em que bairro?", "como faço pra chegar aí?": o endereço em outras palavras.
   // Rodada 12: festa de criança pela idade ("vcs fazem festa de 6 anos?"): os pacotes de festa infantil cadastrados respondem.
   ['PACOTES', /\b(?:fazem|faz|realizam|atendem|trabalham com|da pra fazer|tem pacote pra)\s+(?:festa|festinha|aniversario|niver)s?\s+(?:infantil|infantis|de crianca|pra crianca|de (?:[1-9]|1[0-4]|um|dois|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|treze|quatorze|catorze) anos?|(?:pra|para|de|com) (?:umas |uns |cerca de |mais ou menos |aproximadamente |quase |ate )?(?:\d+|[a-z]+) (?:pessoas|convidados|criancas))\b/],
@@ -979,11 +980,14 @@ const DE_TERCEIRO = String.raw`d[ao] (?!(?:minha|meu|minhas|meus|nossa|nosso|dia
  * na proposta ou "assim". Pergunta ("caiu pra 400?", "quanto ficou a hora extra?") e o valor calculado repetido ("ficou
  * em 7 mil, coloca no orçamento") não.
  */
-const MUDOU_PARA = String.raw`\b(?:caiu|cairam|baixou|baixaram|abaixou|abaixaram|reduziu|reduziram|diminuiu|diminuiram|desceu|desceram|mudou|mudaram|subiu|subiram|passou|passaram)\s+(?:pra|para|a|em)\s+(?:so\s+)?`;
-const APLICAR_NO_ORCAMENTO = String.raw`\b(?:coloca|coloque|colocar|considera|considere|considerar|aplica|aplique|aplicar|registra|registre|registrar|lanca|lance|lancar|poe|ponha|bota|bote|anota|anote|usa|use|atualiza|atualize|calcula|calcule|refaz|refaca|ajusta|ajuste|corrige|corrija)\b[^?!]{0,30}?\b(?:assim|desse jeito|dessa forma|esse valor|este valor|esse preco|por esse valor|com esse valor|no (?:meu |nosso )?(?:orcamento|contrato|pedido|calculo)|na (?:minha |nossa )?(?:conta|proposta|cotacao|reserva))\b`;
+// Rodada 47 (h46 aa26): "agora é/sai/custa X" também anuncia a mudança.
+const MUDOU_PARA = String.raw`\b(?:agora\s+(?:e|eh|sai|custa|ta|esta)\s+(?:por\s+|de\s+|a\s+|so\s+)?|(?:caiu|cairam|baixou|baixaram|abaixou|abaixaram|reduziu|reduziram|diminuiu|diminuiram|desceu|desceram|mudou|mudaram|subiu|subiram|passou|passaram)\s+(?:pra|para|a|em)\s+(?:so\s+)?)`;
+const APLICAR_NO_ORCAMENTO = String.raw`\b(?:refazer|ajustar|atualizar|corrigir|calcular|recalcular|recalcula|recalcule|usar|botar|anotar|coloca|coloque|colocar|considera|considere|considerar|aplica|aplique|aplicar|registra|registre|registrar|lanca|lance|lancar|poe|ponha|bota|bote|anota|anote|usa|use|atualiza|atualize|calcula|calcule|refaz|refaca|ajusta|ajuste|corrige|corrija)\b[^?!]{0,30}?\b(?:assim|desse jeito|dessa forma|esse valor|este valor|esse preco|por esse valor|com esse valor|no (?:meu |nosso )?(?:orcamento|contrato|pedido|calculo)|na (?:minha |nossa )?(?:conta|proposta|cotacao|reserva)|(?:o |a )?(?:meu|minha|nosso|nossa) (?:orcamento|proposta|cotacao|calculo|conta))\b`;
 const INSTRUCAO_PARAFRASES = [
-  String.raw`${MUDOU_PARA}${VALOR_EM_DINHEIRO}[^?!]{0,100}?${APLICAR_NO_ORCAMENTO}`,
-  String.raw`${APLICAR_NO_ORCAMENTO}[^?!]{0,40}?\b(?:que|pois|porque|ja que)\b[^?!]{0,40}?${MUDOU_PARA}${VALOR_EM_DINHEIRO}`,
+  // Rodada 47 (h46 aa26): pergunta de confirmação ou pontuação entre a mudança e o pedido ("…500 a hora, né? coloca isso no
+  // meu orçamento") não separa as partes: o pedido de aplicar decide. Sem o pedido ("caiu pra 400? quanto fica?"), não.
+  String.raw`${MUDOU_PARA}${VALOR_EM_DINHEIRO}[^!]{0,100}?${APLICAR_NO_ORCAMENTO}`,
+  String.raw`${APLICAR_NO_ORCAMENTO}[^!]{0,40}?\b(?:que|pois|porque|ja que)\b[^!]{0,40}?${MUDOU_PARA}${VALOR_EM_DINHEIRO}`,
   // Quem se apresenta como da casa: "aqui é a Patrícia, gerente da Asa Sul", "sou a Carla, nova recepcionista",
   // "sou o promotor de vendas de vcs", "sou do setor de TI de vocês", "eu já autorizei".
   String.raw`\baqui (?:e|eh|quem fala e|quem fala eh|fala) (?:a |o )?[a-z]+,? (?:nova |novo )?${CARGO_CASA}\b(?! (?:me|que|q|falou|disse|passou|indicou|pediu|mandou)\b)${FORA_DA_CASA}`,
@@ -1188,6 +1192,13 @@ const BUFFET_EMPRESA = /\b(?:o |esse |este |seu |o seu )?(?:buffet|bufe)(?: (?:d
 /** Contrato para assinar (rodada 21): pedido de fechar pelo contrato, não pergunta sobre as condições gerais. */
 export const CONTRATO_PARA_ASSINAR = /\b(?:contrato|minuta)\b[^.?!]{0,25}\b(?:assinar|assinatura|assino|assinamos)\b|\b(?:instru\S*|orienta\S*|aguardo|envio|link|enviar|mandar|liberar|libera)\s+(?:para |pra |de |da )?(?:a )?assinatura (?:do|de|da) (?:contrato|minuta)\b|\bassinar (?:o |a )?(?:contrato|minuta)\b|\b(?:me |nos )?(?:manda|mande|mandem|envia|envie|enviem|passa|passe|pode mandar|pode enviar|podem mandar|podem enviar)\b(?: (?:ja|logo))? (?:o |a )?(?:contrato|minuta)\b(?! (?:da|de|do|dos|das) (?:festa|minha|meu|nossa|nosso)\b)(?![^.?!]{0,30}\b(?:de novo|novamente|que (?:eu )?(?:fiz|fechei|assinei)|modelo|pra (?:eu )?(?:ler|ver|conhecer|analisar)|para (?:eu )?(?:ler|ver|conhecer|analisar))\b)/;
 const PERGUNTA_DE_CARDAPIO = /\b(?:cardapio|menu|comida|comidas|salgad\w*|doces?|docinhos?|bolo|bebidas?|o que (?:vem|tem|serve|servem|inclui)|itens|servem|serve|opcoes)\b/;
+/** Rodada 47: o preço perguntado é o do item da cláusula, não o da festa (sem pacote, data, período nem a tabela pedida). */
+export function semPrecoDeItem(intencoes: Intencao[], texto: string, ent: { data?: string | null; turno?: string | null; pacotes?: string[] }) {
+  const temItem = intencoes.some((i) => i.tipo === 'CONTRATO' && i.tema && i.tema !== 'GERAL');
+  if (!temItem || !intencoes.some((i) => i.tipo === 'PRECOS')) return intencoes;
+  if (ent.data || ent.turno || (ent.pacotes ?? []).length || /\b(?:tabela|valores dos pacotes|preco dos pacotes)\b/.test(semAcento(texto))) return intencoes;
+  return intencoes.filter((i) => i.tipo !== 'PRECOS' && !(i.tipo === 'DECORACAO' && intencoes.some((x) => x.tipo === 'CONTRATO' && x.tema === 'BALOES') && !/\b(?:decora\w*|tema)\b/.test(semAcento(texto))));
+}
 export function combinarIntencoes(intencoes: Intencao[], texto: string): Intencao[] {
   const t = semAcento(texto);
   let r = intencoes;
@@ -1537,7 +1548,8 @@ const CLAUSULA_DE_CONVIDADOS = /\b(?:aument\w*|acrescent\w*|a mais|exced\w*|exce
 /** Rodada 36: assunto da cláusula de horários além da entrada (prorrogar, terminar, sair, multa, até que horas…). */
 const HORARIO_DO_CONTRATO = /\b(?:prorrog\w*|estend\w*|estic\w*|prolong\w*|horas? extras?|a mais|mais tarde|ate que horas|sai[rd]\w*|termin\w*|multa\w*|passa[rd]? do horario|depois do horario|atras\w*|fim da festa|ir embora|parabens|tolerancia|mais cedo|antecip\w*|adiant\w*|antes do horario|horarios? (?:da|de|do) (?:festa|contrato)|regras? d[eo]s? horarios?)\b/;
 /** Rodada 44 (h43 aa61): "vcs fazem?" solto (sem objeto) junto de um tema citado pergunta pelo tema: a decoração responde. */
-const FAZEM_SOLTO = /(?:^|[,.;!?]\s*)(?:e |mas |sera que )?(?:voces|vcs|vc|ces|o buffet)\s+(?:fazem|faz|fariam|faria|conseguem fazer|consegue fazer|fazem esse|fazem essa|fazem isso)\s*(?:\?|$)/;
+// Rodada 47 (h46 aa60): o emoji também separa ("…quer Stitch 😅 vcs fazem?").
+const FAZEM_SOLTO = /(?:^|[,.;!?\p{Extended_Pictographic}\u{FE0F}]\s*)(?:e |mas |sera que )?(?:voces|vcs|vc|ces|o buffet)\s+(?:fazem|faz|fariam|faria|conseguem fazer|consegue fazer|fazem esse|fazem essa|fazem isso)\s*(?:\?|$)/u;
 export const cobreFazemSolto = (texto: string, tema: string | null | undefined) => (tema && FAZEM_SOLTO.test(semAcento(texto).trim()) ? [tema] : []);
 export function perguntasSemFonte(texto: string, catalogos: Catalogos, cobertas: string[] = []) {
   const compacto = (s: string) => limpo(s);
@@ -1699,7 +1711,7 @@ export function entenderPorRegras(texto: string, catalogos: Catalogos, contexto:
   if (indecisao && !intencoes.some((i) => i.tipo === 'DECORACAO')) intencoes.push({ tipo: 'DECORACAO', trecho: texto.trim().slice(0, 120) });
   // Rodada 30 (h30 aa77): a escolha ou a troca do tema dita sozinha ("ih mudei de ideia, ele quer o Homem-Aranha msm") é
   // decoração — o tema é anotado com a fonte da decoração, não só como correção de dado.
-  else if (entidades.tema && intencoes.every((i) => i.tipo === 'OUTRO') && /\b(?:mud\w* de ideia|mudamos|mudei|trocamos|troquei|decidimos|decidi|escolh\w*|vamos de|vai ser|quer o|quer a|prefere|agora quer|agora prefere)\b/.test(semAcento(texto)))
+  else if (entidades.tema && intencoes.every((i) => i.tipo === 'OUTRO') && /\b(?:mud\w* de ideia|mudamos|mudei|trocamos|troquei|decidimos|decidi|escolh\w*|vamos de|vai ser|quer|querem|prefere|preferem)\b/.test(semAcento(texto)))
     intencoes.splice(0, intencoes.length, { tipo: 'DECORACAO', trecho: texto.trim().slice(0, 120) });
   // Retoma a pergunta pendente só quando a mensagem traz um dos dados que faltavam ("Asa Sul" quando faltava a unidade).
   const preenche = pendentes.some((campo) => (campo === 'data' ? !!entidades.data || dataBruta === 'INVALIDA' : campo === 'pacote' ? entidades.pacotes.length > 0 : entidades[campo] !== null));
@@ -1771,7 +1783,7 @@ export function entenderPorRegras(texto: string, catalogos: Catalogos, contexto:
   if (escolhaDoMesmo && !intencoes.length) intencoes.push({ tipo: 'OUTRO', trecho: texto.trim().slice(0, 300), perguntaId: null });
   const escolha = ESCOLHA_PACOTE.test(t) && entidades.pacotes.length === 1 && !intencoes.some((i) => ['CONTRATAR', 'PRECOS', 'PACOTES', 'NEGOCIACAO'].includes(i.tipo)) ? entidades.pacotes[0] : null;
   return {
-    intencoes: limitar(combinarIntencoes((cardapioDispensado(t) && !itens.length && !semCadastro ? intencoes.filter((i) => i.tipo !== 'CARDAPIO') : intencoes).filter((i) => !(i.tipo === 'PRECOS' && !i.continuacao && tabelaDispensada(t))), texto)), entidades, reenviar: REENVIAR.test(t) && !NAO_REENVIAR.test(t) && !(pedeLink && !/\b(?:tabela|pdf|cardapio|foto|fotos|video|material|arquivo)\b/.test(t)), alergia: ALERGIA.test(t), origem: 'REGRAS',
+    intencoes: limitar(combinarIntencoes(semPrecoDeItem((cardapioDispensado(t) && !itens.length && !semCadastro ? intencoes.filter((i) => i.tipo !== 'CARDAPIO') : intencoes).filter((i) => !(i.tipo === 'PRECOS' && !i.continuacao && tabelaDispensada(t))), texto, entidades), texto)), entidades, reenviar: REENVIAR.test(t) && !NAO_REENVIAR.test(t) && !(pedeLink && !/\b(?:tabela|pdf|cardapio|foto|fotos|video|material|arquivo)\b/.test(t)), alergia: ALERGIA.test(t), origem: 'REGRAS',
     // A continuação ("e num dia de semana?") é coberta pelo assunto que ela segue.
     sinais, semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, [...intencoes.filter((i) => i.continuacao).map((i) => i.trecho), ...(referencia ? [referencia] : []), ...cobreFazemSolto(texto, entidades.tema)])), parar: pedidoDeParar(texto),
     itens, comparar: entidades.pacotes.length >= 1 && COMPARA.test(t), semMaterial: SEM_MATERIAL.test(t), comparaPreco, outraData, pratoSemCadastro: semCadastro,
@@ -2039,7 +2051,7 @@ export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalog
   // Pergunta sem fonte: só a que NEM as regras NEM uma intenção específica aceita do modelo cobrem.
   const especificas = intencoes.filter((i) => !['OUTRO', 'SAUDACAO', 'CONFIRMACAO'].includes(i.tipo) && !(i.tipo === 'CONTRATO' && i.tema === 'GERAL')).map((i) => i.trecho);
   return {
-    intencoes: limitar(combinarIntencoes(intencoes, texto)),
+    intencoes: limitar(combinarIntencoes(semPrecoDeItem(intencoes, texto, { data, turno, pacotes: pacotes.length ? pacotes : regras.entidades.pacotes }), texto)),
     entidades: { data, turno, convidados, pacotes: pacotes.length ? [...new Set(pacotes)] : regras.entidades.pacotes, unidade, tema },
     reenviar: ((bruto.reenviar && !NAO_REENVIAR.test(t)) || regras.reenviar) && !(regras.pedeLink && !regras.reenviar),
     alergia: bruto.alergia || regras.alergia,

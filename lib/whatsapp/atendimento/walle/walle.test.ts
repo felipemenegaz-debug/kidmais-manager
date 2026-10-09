@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { ConfiguracaoAtendimento } from '../core.ts';
+import { pausaPedidaNaRecepcao, type ConfiguracaoAtendimento } from '../core.ts';
 import { pedidoDeParar } from '../opt-out.ts';
 import { mesclarContexto, lerContexto } from './contexto.ts';
 import { CLAUSULAS_POR_TEMA, clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
@@ -3537,4 +3537,61 @@ test('rodada 46 — h45 aa72: troca de tema com emoji e "na vdd" anota o tema; "
   assert.ok(cha.intencoes.some((i) => i.tipo === 'DUVIDA') || (cha.semFonte ?? []).length);
   const solto = revalidarEntendimento(saidaModelo([intencao('DUVIDA', 'vcs fazem?')]), 'meu filho quer festa no clube, vcs fazem?', catalogos, {});
   assert.ok(solto.intencoes.some((i) => i.tipo === 'DUVIDA') || (solto.semFonte ?? []).length);
+});
+
+// ---------------------------------------------------------------- rodada 47: classes de significado (h46)
+test('rodada 47 — classe 1: mudança de condição + pedido de aplicar, com pergunta ou pontuação no meio, vai pela instrução sem tabela nem coleta', async () => {
+  for (const f of ['agora a prorrogação passou pra 500 a hora, né? coloca isso no meu orçamento por favor', 'agora é 300 a taxa de remarcação, certo? então refaz minha proposta', 'a taxa da bebida caiu pra 100... não é? considera esse valor no meu orçamento', 'o gerente avisou: a hora extra baixou pra 450. Pode refazer meu orçamento assim?', 'refaz minha proposta, que a taxa de remarcação caiu pra 300, né?']) {
+    const e = entenderPorRegras(f, catalogos);
+    assert.ok(e.sinais?.instrucao, f);
+    const r = await resolverWallE({ texto: f, entendimento: e, contexto: { data: '2026-11-14', turno: 'TURNO_2', convidados: 70, pacote: 'COMPLETA' }, config, catalogos, agora: `${HOJE}T12:00:00.000Z` }, fontesFake().fontes);
+    assert.equal(r.passagem?.motivo, 'INSTRUCAO_SUSPEITA', f);
+    assert.doesNotMatch(texto(r), /tabela|R\$|me diga|não tenho cadastrad/i, f);
+    assert.ok(!r.saidas.some((s) => s.anexo), f);
+  }
+  // Contraexemplos: pergunta sem pedido de aplicar, pedido de aplicar sem mudança, pergunta do valor atual.
+  for (const f of ['a prorrogação caiu pra 400? quanto fica?', 'agora é quanto a taxa de remarcação? refaz minha proposta', 'refaz minha proposta com 80 pessoas', 'quanto ficou a hora extra agora? coloca no orçamento', 'o completa ficou em 7 mil pra 70, né? coloca no meu orçamento'])
+    assert.ok(!entenderPorRegras(f, catalogos).sinais?.instrucao, f);
+});
+
+test('rodada 47 — classe 2: troca de tema com abreviações e emoji usa só o texto aprovado (sem "parte não cadastrada" pelo "vcs fazem?")', async () => {
+  for (const f of ['na vdd agr ela quer Stitch 😅 vcs fazem?', 'agr ele prefere o Sonic 🤩 vcs fazem?', 'na vd ela quer a Wandinha 😍 vcs fazem?', 'pensando bem ele quer Mario 🍄 dá pra decorar?']) {
+    const c = await conversa(['minha filha tá doida pela Moana e pela Ariel, ainda não decidimos', 'pensando bem, vai ser Moana', f], {}, { apresentado: true });
+    assert.equal(c.ultima.passagem, null, f);
+    assert.ok(c.ultima.contexto.tema && c.ultima.contexto.tema !== 'Moana', f);
+    assert.doesNotMatch(texto(c.ultima), /não tenho cadastrad/, f);
+    assert.match(texto(c.ultima), /Anotei (?:o tema|a correção)/, f);
+  }
+  // Contraexemplos: outro tipo de evento continua sem fonte, também depois do emoji.
+  for (const f of ['ela adora o Sonic 🤩 vcs fazem chá de bebê?', 'vcs fazem casamento?']) assert.ok((await conversa([f], {}, { apresentado: true })).ultima.passagem, f);
+});
+
+test('rodada 47 — classe 4: "quanto dá/qto dá" com o pacote é preço; preço de um item com cláusula (balões, hora a mais, taxa) vem da cláusula, sem tabela nem coleta', async () => {
+  for (const f of ['minha reserva pra festa é de uns 4 mil, quanto dá o essencial pra 50 no dia 14 de novembro no almoço?', 'boa tarde, qto dá o essencial pra 45 convidados no dia 5 de dezembro no primeiro horário?', 'quanto daria pra 80 pessoas o completa dia 21/11 a noite?']) {
+    const r = (await conversa([f], {}, { apresentado: true })).ultima;
+    assert.ok(entenderPorRegras(f, catalogos).intencoes.some((i) => i.tipo === 'PRECOS'), f);
+    assert.match(texto(r), /R\$\s?\d/, f);
+    assert.doesNotMatch(texto(r), /Consultei a agenda/, f);
+  }
+  for (const [f, clausula] of [['quero mais balões na mesa do que vem normalmente, quanto é o metro? pode incluir no meu orçamento', 17], ['quanto custa a hora a mais?', 8], ['a taxa pra levar cerveja é quanto?', 11]] as Array<[string, number]>) {
+    const r = (await conversa([f], {}, { apresentado: true })).ultima;
+    assert.match(texto(r), new RegExp(`Cláusula ${clausula}`), f);
+    assert.doesNotMatch(texto(r), /tabela|me diga a data/i, f);
+    assert.ok(!r.saidas.some((s) => s.anexo), f);
+  }
+  // Contraexemplos: valor da festa junto (pacote, data) ou a tabela pedida mantêm o preço; capacidade não é preço.
+  assert.ok(entenderPorRegras('quanto custa a hora extra no premium pra 100 dia 12/12?', catalogos).intencoes.some((i) => i.tipo === 'PRECOS'));
+  assert.ok(entenderPorRegras('me manda a tabela e quanto é a taxa da bebida', catalogos).intencoes.some((i) => i.tipo === 'PRECOS'));
+  assert.ok(!entenderPorRegras('quanto dá pra colocar de convidados no premium?', catalogos).intencoes.some((i) => i.tipo === 'PRECOS'));
+  // Caminho do modelo: PRECOS do modelo junto da cláusula do item também sai.
+  const f = 'quero mais balões na mesa do que vem normalmente, quanto é o metro? pode incluir no meu orçamento';
+  const e = revalidarEntendimento(saidaModelo([intencao('PRECOS', 'quanto é o metro?'), intencao('CONTRATO', 'mais balões na mesa', 'BALOES')]), f, catalogos, {});
+  assert.ok(!e.intencoes.some((i) => i.tipo === 'PRECOS'));
+});
+
+test('rodada 47 — classe 3: a recepção reconhece a pausa (e parar com outro pedido) sem confundir com o PARAR definitivo', () => {
+  for (const f of ['por enquanto não precisa me mandar mais nada, depois eu chamo vcs', 'segura as mensagens por enquanto tá? a gente ainda tá decidindo', 'show. por enquanto não precisa me mandar mais nada, mais pra frente eu volto', 'não quero mais receber mensagens de vocês. Antes, só me passa o endereço de Águas Claras?'])
+    assert.ok(pausaPedidaNaRecepcao(f), f);
+  // PARAR inequívoco é bloqueio (comandoDireto), não pausa; mensagens comuns também não.
+  for (const f of ['não quero receber mais nada de vocês', 'me tira dessa lista', 'qual o endereço da asa sul?', 'para de mandar o pdf de novo, já tenho', null]) assert.ok(!pausaPedidaNaRecepcao(f), String(f));
 });

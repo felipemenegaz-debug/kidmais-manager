@@ -10,7 +10,7 @@ import { register } from 'node:module';
 import { test } from 'node:test';
 import { AGORA, CATALOGOS, CONFIG, FONTES, FONTES_COM_LINK } from './fixture.mjs';
 // Rodada 44: os holdouts escritos com a página pública entre as fontes (h41 em diante) rodam com ela ligada, como medidos.
-const COM_LINK = new Set(['corpus-holdout-41-20261008.json', 'corpus-holdout-42-20261008.json', 'corpus-holdout-43-20261008.json', 'corpus-holdout-44-20261008.json', 'corpus-holdout-45-20261009.json']);
+const COM_LINK = new Set(['corpus-holdout-41-20261008.json', 'corpus-holdout-42-20261008.json', 'corpus-holdout-43-20261008.json', 'corpus-holdout-44-20261008.json', 'corpus-holdout-45-20261009.json', 'corpus-holdout-46-20261009.json']);
 /**
  * Rodada 46: falsos positivos da régua DOCUMENTADOS à parte (falsos-positivos-regua.json, branch de ferramentas) — a régua
  * e as medições não mudam. Só o par id + categoria registrado sai da exigência de zero críticas, e ele precisa continuar
@@ -31,7 +31,7 @@ async function simular(arquivo) {
     imp('lib/whatsapp/atendimento/walle/entendimento.ts'), imp('lib/whatsapp/atendimento/walle/resolver.ts'), imp('lib/whatsapp/atendimento/core.ts'),
     imp('lib/whatsapp/atendimento/walle/contexto.ts'), imp('lib/whatsapp/atendimento/worker.ts'), imp('app/api/admin/inteligencia/whatsapp/modelo.ts'),
   ]);
-  const m = { entenderPorRegras: ent.entenderPorRegras, revalidarEntendimento: ent.revalidarEntendimento, juntarSinais: ent.juntarSinais, resolverWallE: res.resolverWallE, comandoDireto: core.comandoDireto, lerContexto: ctx.lerContexto, mensagemAindaValida: worker.mensagemAindaValida, sinaisJev: modelo.sinaisJev, registroDoBloqueio: ent.registroDoBloqueio ?? null };
+  const m = { entenderPorRegras: ent.entenderPorRegras, revalidarEntendimento: ent.revalidarEntendimento, juntarSinais: ent.juntarSinais, resolverWallE: res.resolverWallE, comandoDireto: core.comandoDireto, pausaPedidaNaRecepcao: core.pausaPedidaNaRecepcao ?? null, lerContexto: ctx.lerContexto, mensagemAindaValida: worker.mensagemAindaValida, sinaisJev: modelo.sinaisJev, registroDoBloqueio: ent.registroDoBloqueio ?? null };
   const linhas = [];
   for (const seq of sequenciasDoCorpus(corpus.itens)) {
     linhas.push(...await simularSequencia(m, seq, { catalogos: CATALOGOS, config: CONFIG, fontes: COM_LINK.has(arquivo) ? FONTES_COM_LINK : FONTES, agora: AGORA, rotulos: revisados[arquivo] ?? {}, entender: (texto, contexto) => ent.entenderPorRegras(texto, CATALOGOS, contexto) }));
@@ -77,6 +77,8 @@ function reperguntaHerdada(l) {
 // da régua da rodada 44 (commit próprio, com calibração).
 // Rodada 45: h44 entra (página pública ligada) com aa02 (pacote respondido e uma parte tida como sem fonte à equipe);
 // aa07 (o link das datas pedido junto do mapa), aa17 (alegação de autorização) e aa08 (régua) corrigidos.
+// Rodada 47: h46 entra (página pública ligada) sem pendências (aa26 mudança + "né?", aa60 "agr" + emoji, aa41/aa54 "quanto dá",
+// aa33 balões a mais: corrigidos).
 // Rodada 46: h45 entra (página pública ligada) sem pendências (aa35 instrução e aa72 tema corrigidos; aa62 é falso positivo
 // documentado à parte); h39 aa61 saiu (tema com emoji na troca).
 // Rodada 45: saíram h31 aa53 ("puxar mais uma horinha" é a cláusula 8) com aa54/aa55 (a contratação segue e a correção
@@ -85,7 +87,7 @@ function reperguntaHerdada(l) {
 // rodadas 34–35); h35 aa67 ("na verdade, pensando bem, ela quer a X" sem tema anotado) entra.
 const PENDENCIAS_NAO_CRITICAS = { 'corpus-holdout-44-20261008.json': ['aa02'], 'corpus-holdout-40-20261008.json': ['aa05', 'aa09', 'aa55', 'aa56', 'aa57'], 'corpus-holdout-30-20261007.json': ['aa50', 'aa59', 'aa61'], 'corpus-holdout-31-20261007.json': ['aa41', 'aa66', 'aa69', 'aa70'], 'corpus-holdout-32-20261007.json': ['aa37', 'aa67', 'aa68'], 'corpus-holdout-33-20261007.json': ['aa68', 'aa69', 'aa77', 'aa78'], 'corpus-holdout-34-20261007.json': ['aa51', 'aa67', 'aa68'], 'corpus-holdout-39-20261008.json': ['aa46', 'aa68'] };
 
-for (const [arquivo, total] of [['corpus-holdout-20261005.json', 70], ['corpus-holdout-2-20261005.json', 80], ['corpus-holdout-3-20261005.json', 80], ['corpus-holdout-4-20261005.json', 80], ['corpus-holdout-5-20261005.json', 80], ['corpus-holdout-6-20261005.json', 80], ['corpus-holdout-7-20261005.json', 80], ['corpus-holdout-8-20261005.json', 80], ['corpus-holdout-9-20261006.json', 80], ['corpus-holdout-10-20261006.json', 80], ['corpus-holdout-11-20261006.json', 80], ['corpus-holdout-12-20261006.json', 80], ['corpus-holdout-13-20261006.json', 80], ['corpus-holdout-14-20261006.json', 80], ['corpus-holdout-15-20261006.json', 80], ['corpus-holdout-16-20261006.json', 80], ['corpus-holdout-17-20261006.json', 80], ['corpus-holdout-18-20261006.json', 80], ['corpus-holdout-19-20261006.json', 80], ['corpus-holdout-20-20261007.json', 80], ['corpus-holdout-21-20261007.json', 80], ['corpus-holdout-22-20261007.json', 80], ['corpus-holdout-23-20261007.json', 80], ['corpus-holdout-24-20261007.json', 80], ['corpus-holdout-25-20261007.json', 80], ['corpus-holdout-26-20261007.json', 80], ['corpus-holdout-27-20261007.json', 80], ['corpus-holdout-28-20261007.json', 80], ['corpus-holdout-29-20261007.json', 80], ['corpus-holdout-30-20261007.json', 80], ['corpus-holdout-31-20261007.json', 80], ['corpus-holdout-32-20261007.json', 80], ['corpus-holdout-33-20261007.json', 80], ['corpus-holdout-34-20261007.json', 80], ['corpus-holdout-35-20261007.json', 80], ['corpus-holdout-36-20261007.json', 80], ['corpus-holdout-37-20261008.json', 80], ['corpus-holdout-38-20261008.json', 80], ['corpus-holdout-39-20261008.json', 80], ['corpus-holdout-40-20261008.json', 80], ['corpus-holdout-41-20261008.json', 80], ['corpus-holdout-42-20261008.json', 80], ['corpus-holdout-43-20261008.json', 80], ['corpus-holdout-44-20261008.json', 80], ['corpus-holdout-45-20261009.json', 80]]) {
+for (const [arquivo, total] of [['corpus-holdout-20261005.json', 70], ['corpus-holdout-2-20261005.json', 80], ['corpus-holdout-3-20261005.json', 80], ['corpus-holdout-4-20261005.json', 80], ['corpus-holdout-5-20261005.json', 80], ['corpus-holdout-6-20261005.json', 80], ['corpus-holdout-7-20261005.json', 80], ['corpus-holdout-8-20261005.json', 80], ['corpus-holdout-9-20261006.json', 80], ['corpus-holdout-10-20261006.json', 80], ['corpus-holdout-11-20261006.json', 80], ['corpus-holdout-12-20261006.json', 80], ['corpus-holdout-13-20261006.json', 80], ['corpus-holdout-14-20261006.json', 80], ['corpus-holdout-15-20261006.json', 80], ['corpus-holdout-16-20261006.json', 80], ['corpus-holdout-17-20261006.json', 80], ['corpus-holdout-18-20261006.json', 80], ['corpus-holdout-19-20261006.json', 80], ['corpus-holdout-20-20261007.json', 80], ['corpus-holdout-21-20261007.json', 80], ['corpus-holdout-22-20261007.json', 80], ['corpus-holdout-23-20261007.json', 80], ['corpus-holdout-24-20261007.json', 80], ['corpus-holdout-25-20261007.json', 80], ['corpus-holdout-26-20261007.json', 80], ['corpus-holdout-27-20261007.json', 80], ['corpus-holdout-28-20261007.json', 80], ['corpus-holdout-29-20261007.json', 80], ['corpus-holdout-30-20261007.json', 80], ['corpus-holdout-31-20261007.json', 80], ['corpus-holdout-32-20261007.json', 80], ['corpus-holdout-33-20261007.json', 80], ['corpus-holdout-34-20261007.json', 80], ['corpus-holdout-35-20261007.json', 80], ['corpus-holdout-36-20261007.json', 80], ['corpus-holdout-37-20261008.json', 80], ['corpus-holdout-38-20261008.json', 80], ['corpus-holdout-39-20261008.json', 80], ['corpus-holdout-40-20261008.json', 80], ['corpus-holdout-41-20261008.json', 80], ['corpus-holdout-42-20261008.json', 80], ['corpus-holdout-43-20261008.json', 80], ['corpus-holdout-44-20261008.json', 80], ['corpus-holdout-45-20261009.json', 80], ['corpus-holdout-46-20261009.json', 80]]) {
   test(`${arquivo} (regressão): nenhuma falha crítica — PARAR bloqueia e silencia, alergia, contrato, reserva, pessoa e demais vão para a equipe`, async () => {
     const linhas = await simular(arquivo);
     assert.equal(linhas.length, total);
@@ -779,4 +781,27 @@ test('holdout 31 (regressão): afirmação de condição nova + pedido de aplica
   const m = calcularMetricas(linhas);
   for (const c of m.criticas) assert.deepEqual(c.falhas.map((f) => `${f.id}: ${f.motivo}`), [], c.nome);
   assert.equal(m.instrucoes.reconhecidas, m.instrucoes.casos);
+});
+
+test('rodada 47 (simulador, espelho da recepção): pausa pedida com a conversa já na equipe fica registrada; retomar é recusado; PARAR definitivo continua bloqueando', async () => {
+  const [ent, res, core, ctx, worker, modelo] = await Promise.all([
+    imp('lib/whatsapp/atendimento/walle/entendimento.ts'), imp('lib/whatsapp/atendimento/walle/resolver.ts'), imp('lib/whatsapp/atendimento/core.ts'),
+    imp('lib/whatsapp/atendimento/walle/contexto.ts'), imp('lib/whatsapp/atendimento/worker.ts'), imp('app/api/admin/inteligencia/whatsapp/modelo.ts'),
+  ]);
+  const m = { entenderPorRegras: ent.entenderPorRegras, revalidarEntendimento: ent.revalidarEntendimento, juntarSinais: ent.juntarSinais, resolverWallE: res.resolverWallE, comandoDireto: core.comandoDireto, pausaPedidaNaRecepcao: core.pausaPedidaNaRecepcao, lerContexto: ctx.lerContexto, mensagemAindaValida: worker.mensagemAindaValida, sinaisJev: modelo.sinaisJev, registroDoBloqueio: ent.registroDoBloqueio ?? null };
+  const itens = (textos) => textos.map((texto, k) => ({ id: `p${k + 1}`, texto, conversa: 'cp', ordem: k + 1, intencoes: [], decisao: 'EQUIPE', entidades: {} }));
+  const simular = (lista) => simularSequencia(m, lista, { catalogos: CATALOGOS, config: CONFIG, fontes: FONTES, agora: AGORA, entender: (t, c) => m.entenderPorRegras(t, CATALOGOS, c) });
+  const pausa = await simular([...itens(['tem algum humano aí? quero falar com uma pessoa', 'por enquanto não precisa me mandar mais nada, depois eu chamo vcs', 'ah, vcs têm estacionamento?']), { id: 'p4', texto: 'oi?', conversa: 'cp', ordem: 4, intencoes: [], decisao: 'EQUIPE', entidades: {}, equipe: 'retomar' }]);
+  assert.deepEqual(pausa[0].motivos, ['PEDIDO_CLIENTE']);
+  assert.deepEqual(pausa[1].motivos, ['COM_A_EQUIPE', 'PAUSA_PEDIDA'], 'a pausa com a equipe vira a marca persistente');
+  assert.equal(pausa[1].semAutomatico, true);
+  assert.equal(pausa[1].bloqueada, false, 'pausa não é bloqueio');
+  assert.deepEqual(pausa[2].motivos, ['COM_A_EQUIPE', 'PAUSA_PEDIDA']);
+  assert.equal(pausa[3].acaoEquipe, 'RECUSADA_PAUSA_PEDIDA', 'a IA não é retomada');
+  assert.ok(pausa.slice(1).every((l) => !l.saidas.length), 'nada automático depois da pausa');
+  const parar = await simular(itens(['tem algum humano aí? quero falar com uma pessoa', 'não quero receber mais nada de vocês']));
+  assert.equal(parar[1].decisao, 'PARAR');
+  assert.equal(parar[1].bloqueada, true, 'PARAR definitivo continua bloqueando');
+  const comum = await simular(itens(['tem algum humano aí? quero falar com uma pessoa', 'qual o endereço da asa sul?']));
+  assert.equal(comum[1].semAutomatico, false, 'mensagem comum com a equipe não vira pausa');
 });

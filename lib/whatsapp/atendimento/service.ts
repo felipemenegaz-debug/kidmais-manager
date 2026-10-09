@@ -2,7 +2,7 @@ import { withTransaction, db } from '../../db/postgres.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } from '../../saas/provar-tenant.ts';
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
-import { configuracaoSchema, comandoDireto, conferirEmpresaAtiva, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
+import { configuracaoSchema, comandoDireto, conferirEmpresaAtiva, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { caminhoPublicoArquivo } from './arquivos.ts';
 import { registroDoBloqueio } from './walle/entendimento.ts';
 
@@ -120,6 +120,15 @@ export async function receberEntrada(entrada: Entrada) {
       // cancelada por ele mesmo ao revalidar sob a trava da conversa (nao_contatar).
       await tx.query(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens
         WHERE conversa_id=$1 AND empresa_id=$2 AND ambiente=$3 AND direcao='SAIDA' AND estado='PENDENTE' FOR UPDATE SKIP LOCKED)`, [conversa.id, empresa, ambiente]);
+    }
+    // Rodada 47 (IA × h45 aa73, h46 aa61): pedido de PAUSA (ou de parar junto de outro pedido) numa mensagem que o Wall-e
+    // não processa — a conversa já está com a equipe, assumida, sem automação: grava a MESMA marca persistente que o worker
+    // grava quando o Wall-e passa o pedido em silêncio (contexto.semAutomatico, PARAR_A_CONFIRMAR). Sem bloqueio definitivo
+    // (a equipe continua respondendo); com a marca, "Devolver ao Wall-e" é recusado e nada automático sai depois, nem
+    // numa reabertura. PARAR inequívoco continua sendo o bloqueio acima. Só com a 075 (a marca vive no contexto).
+    else if (entrada.texto && !automatico && !conversa.nao_contatar && !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto) && await tem075(tx)) {
+      await tx.query("UPDATE whatsapp_atendimento_conversas SET contexto=COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$2::jsonb),versao=versao+1 WHERE id=$1",
+        [conversa.id, JSON.stringify({ motivo: 'PARAR_A_CONFIRMAR', em, origem: 'RECEPCAO' })]);
     }
   });
 }

@@ -634,6 +634,39 @@ test("Wall-e no worker: fontes reais, várias saídas, revogação, concorrênci
     assert.equal(cv35.estado, "AGUARDANDO_HUMANO", "W24d: com a equipe");
     assert.ok(cv35.passagem?.motivos?.includes("NEGOCIACAO"), `W24d: encaminhamento interno por negociação (${JSON.stringify(cv35.passagem?.motivos)})`);
     assert.ok((await saidas(c35)).every((s) => !/(?<!não )está reservada|reserva confirmada/i.test(String(s.texto ?? ""))), "W24d: nada reservado");
+
+    // W25 (rodada 47) — pausa pedida com a conversa JÁ com a equipe (IA × h45 aa73, h46 aa61): a recepção grava a mesma
+    // marca persistente do worker (sem bloqueio); "Devolver ao Wall-e" é recusado; encerrada, a nova mensagem não reabre o
+    // automático; a equipe pode assumir. Mensagem comum com a equipe não vira pausa; PARAR inequívoco continua bloqueio.
+    envios.length = 0;
+    const c36 = "5561900000736";
+    await receber(c36, "tem algum humano aí? quero falar com uma pessoa");
+    await worker.processarLote(deps, { maxTarefas: 10 });
+    assert.equal((await conversa(c36)).estado, "AGUARDANDO_HUMANO", "W25: com a equipe");
+    await receber(c36, "qual o endereço da asa sul?");
+    assert.equal((await conversa(c36)).contexto?.semAutomatico ?? null, null, "W25: mensagem comum não vira pausa");
+    await receber(c36, "por enquanto não precisa me mandar mais nada, depois eu chamo vcs");
+    await worker.processarLote(deps, { maxTarefas: 10 });
+    const cv36 = await conversa(c36);
+    assert.deepEqual([cv36.estado, cv36.nao_contatar], ["AGUARDANDO_HUMANO", false], "W25: com a equipe, sem bloqueio");
+    assert.deepEqual([cv36.contexto.semAutomatico?.motivo, cv36.contexto.semAutomatico?.origem], ["PARAR_A_CONFIRMAR", "RECEPCAO"], "W25: marca gravada pela recepção");
+    await assert.rejects(servico.controlarAtendimento(A.sessao, { acao: "retomar", conversaId: cv36.id, versao: Number(cv36.versao) }), /ATENDIMENTO_PAUSA_PEDIDA/, "W25: o Wall-e não volta");
+    await servico.controlarAtendimento(A.sessao, { acao: "encerrar", conversaId: cv36.id, versao: Number(cv36.versao) });
+    await receber(c36, "oi, e o essencial pra 40 quanto fica?");
+    await worker.processarLote(deps, { maxTarefas: 10 });
+    const cv36b = await conversa(c36);
+    assert.equal(cv36b.estado, "AGUARDANDO_HUMANO", "W25: a reabertura vai para a equipe");
+    assert.equal(cv36b.contexto.semAutomatico?.motivo, "PARAR_A_CONFIRMAR", "W25: a marca continua");
+    assert.equal(envios.filter((x) => x.contato === c36).length, 0, "W25: nada automático");
+    await servico.controlarAtendimento(A.sessao, { acao: "assumir", conversaId: cv36b.id, versao: Number(cv36b.versao) });
+    assert.equal((await conversa(c36)).estado, "HUMANO", "W25: a equipe assume");
+    const c37 = "5561900000737";
+    await receber(c37, "tem algum humano aí? quero falar com uma pessoa");
+    await worker.processarLote(deps, { maxTarefas: 10 });
+    await receber(c37, "não quero receber mais nada de vocês");
+    const cv37 = await conversa(c37);
+    assert.equal(cv37.nao_contatar, true, "W25: PARAR inequívoco com a equipe continua bloqueio definitivo");
+    assert.equal(envios.filter((x) => x.contato === c37).length, 0, "W25: nada enviado");
   } finally {
     await c.end();
   }
