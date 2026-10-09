@@ -3242,3 +3242,67 @@ test('rodada 43 — h42 aa42: "quanto daria?" com os dados completos dá o valor
   assert.match(texto(r), /Completa em 21\/11\/2026, noite \(17h às 21h\), 60 convidados: R\$/);
   assert.equal(r.passagem, null);
 });
+
+// ---------------------------------------------------------------- rodada 44: pendências do h43
+test('rodada 44 — h43 conv6: agenda, outro horário sem período, "quero essa do dia 7, pacote completa", correção e confirmação', async () => {
+  const c = await conversa(['tem vaga dia 28 de novembro?', 'e no outro horário?', 'e no dia 7, no segundo horário?', 'quero essa do dia 7, pacote completa', 'seriam 60, não, corrigindo: 75 pessoas. segura ela pra mim', 'sim, sábado 07/11 mesmo'], {}, { apresentado: true });
+  const t = c.rodadas.map(texto);
+  // "e no outro horário?" sem período na conversa: pergunta o período, sem refazer a agenda.
+  assert.match(t[1], /me diga o período/); assert.doesNotMatch(t[1], /Consultei a agenda/);
+  // A referência com o pacote junto é contratação: pergunta só os convidados, sem refazer a agenda que acabou de sair.
+  assert.ok(entenderPorRegras('quero essa do dia 7, pacote completa', catalogos, c.rodadas[2].contexto).intencoes.some((i) => i.tipo === 'CONTRATAR'));
+  assert.match(t[3], /quantos convidados/); assert.doesNotMatch(t[3], /Consultei a agenda/);
+  assert.equal(c.rodadas[3].contexto.pacote, 'COMPLETA'); assert.equal(c.rodadas[3].contexto.data, '2026-11-07');
+  assert.match(t[4], /confirme a data: sábado, 07\/11\/2026/);
+  assert.equal(c.ultima.passagem?.motivo, 'CONTRATACAO');
+  assert.equal(c.ultima.passagem?.coletado.convidados, 75);
+  assert.equal(c.ultima.passagem?.coletado.pacote, 'Completa');
+  for (const x of t) assert.doesNotMatch(x, RESERVA_FEITA);
+  // Outras formas com pacote e data juntos, depois de uma opção apresentada.
+  const valor = ['quanto fica o completa pra 70 dia 14/11 à noite?', 'e no dia 21?'];
+  for (const f of ['quero a completa do dia 21 então', 'fico com essa do dia 21, no completa', 'quero essa do dia 21, pacote premium']) {
+    const r = await conversa([...valor, f], {}, { apresentado: true });
+    assert.ok(entenderPorRegras(f, catalogos, r.rodadas[1].contexto).intencoes.some((i) => i.tipo === 'CONTRATAR'), f);
+    assert.equal(r.ultima.passagem, null, f);
+  }
+  // Contraexemplos: pergunta sobre a opção com pacote e data não contrata.
+  for (const f of ['essa do dia 21 tem bolo?', 'quero essa do dia 21 no completa?', 'a completa do dia 21 é mais cara?']) {
+    const r = await conversa([...valor, f], {}, { apresentado: true });
+    assert.ok(!entenderPorRegras(f, catalogos, r.rodadas[1].contexto).intencoes.some((i) => i.tipo === 'CONTRATAR'), f);
+  }
+});
+
+test('rodada 44 — dois links na mesma mensagem: o mapa e o link público saem juntos; o do contrato continua protegido', async () => {
+  const LINK = 'https://festa.exemplo.test/disponibilidade';
+  for (const t of ['e aí, como vai? me manda o mapa da unidade asa sul e de novo aquele link pra ver as datas, não achei', 'manda o link do mapa da asa sul e o link pra ver as datas', 'me passa o endereço de águas claras e o link das datas de novo']) {
+    const r = (await conversa([t], { linkPublico: LINK }, { apresentado: true })).ultima;
+    assert.ok(entenderPorRegras(t, catalogos).pedeLink, t);
+    assert.ok(texto(r).includes(LINK), t);
+    assert.match(texto(r), /maps\.example\.test/, t);
+    assert.equal(r.passagem, null, t);
+  }
+  // O link do contrato de uma festa já marcada não é o link público.
+  const contrato = (await conversa(['me passa o link do contrato da minha reserva do dia 7 de novembro e o link das datas'], { linkPublico: LINK }, { apresentado: true })).ultima;
+  assert.ok(contrato.passagem);
+  assert.ok(!texto(contrato).includes(LINK));
+  assert.ok(!entenderPorRegras('manda o link do mapa', catalogos).pedeLink);
+});
+
+test('rodada 44 — troca de tema com "vcs fazem?" é a decoração (sem "parte não cadastrada" nem cascata); outro serviço continua sem fonte', async () => {
+  const c = await conversa(['minha filha quer tema Moana', 'na verdade ela agora quer a Barbie, vcs fazem?', 'o cardápio da essencial eu já tenho, não precisa mandar. qual a diferença dela pro premium?'], {}, { apresentado: true });
+  assert.equal(c.rodadas[1].passagem, null);
+  assert.doesNotMatch(texto(c.rodadas[1]), /não tenho cadastrad/);
+  assert.match(texto(c.rodadas[1]), /Anotei a correção: tema Barbie|Anotei o tema “Barbie”/);
+  assert.match(texto(c.ultima), /Diferenças entre o pacote Essencial e o pacote Premium/);
+  // "vcs fazem casamento?" (outro serviço) continua sem fonte; "vcs fazem?" sem tema na mensagem também.
+  assert.ok((await conversa(['vcs fazem casamento?'], {}, { apresentado: true })).ultima.passagem);
+  assert.deepEqual(entenderPorRegras('a festa vai ser da Barbie, vcs fazem casamento também?', catalogos).semFonte?.length ? true : false, true);
+});
+
+test('rodada 44 — caminho do modelo: referência com pacote e "vcs fazem?" com tema valem também', async () => {
+  const ctx = (await conversa(['tem vaga dia 28 de novembro?', 'e no dia 7, no segundo horário?'])).ultima.contexto;
+  const e = revalidarEntendimento(saidaModelo([intencao('PACOTES', 'pacote completa')]), 'quero essa do dia 7, pacote completa', catalogos, ctx);
+  assert.ok(e.intencoes.some((i) => i.tipo === 'CONTRATAR'));
+  const d = revalidarEntendimento({ ...saidaModelo([intencao('DECORACAO', 'quer a Barbie')]), tema: 'Barbie' }, 'na verdade ela agora quer a Barbie, vcs fazem?', catalogos, {});
+  assert.deepEqual(d.semFonte ?? [], []);
+});

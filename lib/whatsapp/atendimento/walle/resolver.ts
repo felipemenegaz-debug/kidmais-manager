@@ -290,6 +290,9 @@ async function localizacao(e: Estado) {
 }
 async function disponibilidade(e: Estado, para: TipoIntencao = 'DISPONIBILIDADE') {
   if (!e.ctx.data) { perguntar(e, 'data', para); return null; }
+  // Rodada 44 (h43 aa76): "e no outro horário?" sem período na conversa — "outro" de nenhum: pergunta o período (como no
+  // preço desde a rodada 38), sem repetir a consulta já feita.
+  if (para === 'DISPONIBILIDADE' && /\b(?:o |no |do |pro |pra )?outro (?:horario|turno|periodo)\b/.test(semAcento(e.texto)) && !e.ctx.turno && !e.entendimento.entidades.turno) { perguntar(e, 'turno', para); return null; }
   // "E se fosse num domingo?" depois de consultar uma data: outro dia sem dizer qual. Consultar a mesma data não responde;
   // pergunta qual (a data anterior fica na memória até a nova chegar).
   if (e.entendimento.outraData && para === 'DISPONIBILIDADE' && !e.entendimento.entidades.data) { dizer(e, AGENDA_POR_DATA); perguntar(e, 'data', para); return null; }
@@ -706,7 +709,9 @@ async function contratar(e: Estado) {
   // Rodada 42: com a coleta já em andamento (a mensagem anterior era a contratação) e a data igual, só o que falta:
   // sem repetir "Que bom!…" nem a consulta da agenda já feita ("sim" ou um dado só).
   const jaColetando = e.ultimo === 'CONTRATAR' && !e.correcoesNovas.some((c) => c.campo === 'data');
-  if (faltam.length) { if (!jaColetando) dizer(e, COLETA); faltam.forEach((f) => perguntar(e, f, 'CONTRATAR')); if (e.ctx.data && !jaColetando) await disponibilidade(e, 'CONTRATAR'); else if (jaColetando && !e.ctx.turno && e.catalogos.turnos.length > 1) perguntar(e, 'turno', 'CONTRATAR'); return; }
+  // Rodada 44 (h43 aa78): a agenda desta data acabou de ser mostrada (mensagem anterior) — não se repete na coleta.
+  const agendaRecente = e.ultimo === 'DISPONIBILIDADE' && !e.correcoesNovas.some((c) => c.campo === 'data' || c.campo === 'turno');
+  if (faltam.length) { if (!jaColetando) dizer(e, COLETA); faltam.forEach((f) => perguntar(e, f, 'CONTRATAR')); if (e.ctx.data && !jaColetando && !agendaRecente) await disponibilidade(e, 'CONTRATAR'); else if ((jaColetando || agendaRecente) && !e.ctx.turno && e.catalogos.turnos.length > 1) perguntar(e, 'turno', 'CONTRATAR'); return; }
   // Rodada 26: data sem ano é PROPOSTA (próxima ocorrência). Antes de seguir com a contratação, a data completa é
   // mostrada e o cliente confirma (o ano escrito já confirma); nada segue para a contratação com uma data suposta.
   if (e.ctx.dataConfirmada !== e.ctx.data) {

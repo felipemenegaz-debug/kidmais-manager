@@ -561,19 +561,19 @@ const APERTO = /\b((a gente|nos|eu|todo mundo|a galera) (se )?aperta\w*|apertad\
  * Rodada 43: pedido do link público de novo ("manda o link de novo", "qual é o link?", "não achei o link", "me passa o
  * site"). O link do contrato, do mapa ou de um material não é este.
  */
-export const PEDE_LINK = /\b(?:manda|mande|mandar|envia|envie|enviar|reenvia|reenvie|reenviar|passa|passe|passar|qual (?:e |eh )?o|cade o|onde (?:esta|ta|fica) o|nao (?:recebi|achei|chegou|abriu|abre|consigo abrir|encontrei|encontro)|perdi)\b(?: (?:ai|la|pra mim|para mim|me))?(?: (?:o|a|esse|essa|aquele|aquela))? (?:link|site|pagina)\b(?![^.?!]{0,25}\b(?:do contrato|de contrato|pra assinar|para assinar|da assinatura|do mapa|da localizacao|do endereco|da tabela|do cardapio|do pdf|da foto|do video)\b)|\b(?:o )?link\b[^.?!]{0,15}\b(?:de novo|novamente|outra vez|denovo)\b/;
+export const PEDE_LINK = /\b(?:manda|mande|mandar|envia|envie|enviar|reenvia|reenvie|reenviar|passa|passe|passar|qual (?:e |eh )?o|cade o|onde (?:esta|ta|fica) o|nao (?:recebi|achei|chegou|abriu|abre|consigo abrir|encontrei|encontro)|perdi)\b(?: (?:ai|la|pra mim|para mim|me))?(?: (?:o|a|esse|essa|aquele|aquela))? (?:link|site|pagina)\b(?![^.?!]{0,25}\b(?:do contrato|de contrato|pra assinar|para assinar|da assinatura|do mapa|da localizacao|do endereco|da tabela|do cardapio|do pdf|da foto|do video)\b)|\b(?:o )?link\b[^.?!]{0,15}\b(?:de novo|novamente|outra vez|denovo)\b|\b(?:de novo|novamente|outra vez|denovo) (?:o |a |aquele |aquela |esse |essa )?(?:link|site|pagina)\b(?! (?:do contrato|de contrato|pra assinar|para assinar|do mapa|da localizacao|do endereco|da tabela|do cardapio|do pdf)\b)|\b(?:o |aquele |esse )?(?:link|site|pagina) (?:pra|para|de|da|das|do) (?:ver |consultar |escolher )?(?:as |a |os )?(?:datas?|agenda|disponibilidade|horarios)\b/;
 /**
  * Rodada 43: pergunta se a data já ficou reservada ("já ficou reservado?", "tá reservada?", "já garantiu?"). Quem já tem
  * festa contratada ou paga continua com o tratamento protegido (contrato próprio, pagamento).
  */
 export const PERGUNTA_RESERVA = /\b(?:ja )?(?:ficou|fica|esta|ta|foi|ficaram|estao)\s+(?:mesmo |entao |tudo )?(?:reservad|garantid|confirmad|bloquead|separad|marcad)\w*\b[^.!]*(?:\?|$)|\bja (?:reservou|reservaram|garantiu|garantiram|confirmou|confirmaram|marcou|marcaram)\b|\b(?:ja )?(?:ficou|esta|ta) (?:reservad|garantid|confirmad)\w*\s*$/;
-export const REFERENCIA_OPCAO = String.raw`(?:a|o|aquela|aquele) (?:do dia \d{1,2}(?:[/.-]\d{1,2})?|de \d{1,2}(?:[/.-]\d{1,2})|da noite|do almoco|da manha|da tarde|do (?:primeiro|segundo) turno|das? \d{1,2}(?:h|:\d{2})?|primeira|segunda|ultima|de (?:sabado|domingo|sexta))\b|(?:essa|esse|esta|este|aquela|aquele)(?: (?:opcao|data|dia|horario|turno|periodo|ai|mesmo|mesma|ultima|proposta))?\b(?! (?:pacote|plano|cardapio|tema|decoracao|cor|bolo|salgado|doce|item|material|pdf|tabela|link|foto|video|informacao|duvida|pergunta|regra|clausula|taxa|multa)\b)`;
+export const REFERENCIA_OPCAO = String.raw`(?:a|o|aquela|aquele|essa|esse|esta|este) (?:do dia \d{1,2}(?:[/.-]\d{1,2})?|de \d{1,2}(?:[/.-]\d{1,2})|da noite|do almoco|da manha|da tarde|do (?:primeiro|segundo) turno|das? \d{1,2}(?:h|:\d{2})?|primeira|segunda|ultima|de (?:sabado|domingo|sexta))\b|(?:essa|esse|esta|este|aquela|aquele)(?: (?:opcao|data|dia|horario|turno|periodo|ai|mesmo|mesma|ultima|proposta))?\b(?! (?:pacote|plano|cardapio|tema|decoracao|cor|bolo|salgado|doce|item|material|pdf|tabela|link|foto|video|informacao|duvida|pergunta|regra|clausula|taxa|multa)\b)`;
 /**
  * Rodada 42: "quero essa", "quero essa opção", "vou querer essa", "fico com a do dia 21", "pode ser essa então" — vale como
  * pedido de contratação SÓ com uma opção já apresentada (data ou pacote na conversa e um assunto comercial antes).
  * Pergunta ("essa tem bolo?", "a do dia 21 é mais barata?") não.
  */
-const QUERO_REFERENCIA = new RegExp(String.raw`(?:^|[.!,] *)(?:(?:ok|beleza|blz|perfeito|otimo|show|top|entao|ah|hmm|gostei|amei)[!.,]* *)*(?:eu )?(?:quero|queremos|vou querer|vamos querer|fico com|ficamos com|pode ser|vai ser|sera|quero ficar com|vamos de|vou de|bora de|escolho|escolhemos)(?: entao)? (?:${REFERENCIA_OPCAO})(?: (?:entao|mesmo|mesma|ai|pra mim|por favor|pfv|pf))* *[.!]* *$`);
+const QUERO_REFERENCIA = new RegExp(String.raw`(?:^|[.!,] *)(?:(?:ok|beleza|blz|perfeito|otimo|show|top|entao|ah|hmm|gostei|amei)[!.,]* *)*(?:eu )?(?:quero|queremos|vou querer|vamos querer|fico com|ficamos com|pode ser|vai ser|sera|quero ficar com|vamos de|vou de|bora de|escolho|escolhemos)(?: entao)? (?:${REFERENCIA_OPCAO})(?:,? (?:(?:no|com|o|a|com o|com a|no pacote|pacote|plano) )*(?:essencial|completa|completo|premium|premiun))?(?: (?:entao|mesmo|mesma|ai|pra mim|por favor|pfv|pf))* *[.!]* *$|(?:^|[.!,] *)(?:(?:ok|beleza|blz|perfeito|otimo|show|top|entao|ah)[!.,]* *)*(?:eu )?(?:quero|queremos|vou querer|fico com|ficamos com|pode ser|escolho)(?: entao)? (?:o |a )?(?:pacote |plano )?(?:essencial|completa|completo|premium|premiun) (?:do|da|de|no|na|pro|para o) (?:dia \d{1,2}|\d{1,2}(?:[/.-]\d{1,2})?|sabado|domingo|sexta|noite|almoco|primeiro turno|segundo turno)\b[^.?!]*[.!]* *$`);
 /**
  * Rodada 42: escolha de pacote SEM pedido de contratação — "vamos de Completa", "decidi pelo Premium", "fico com o
  * Essencial", "pode ser o Completa", "vou querer o premium". O pacote fica anotado; contratação só com fechar/reservar.
@@ -1507,6 +1507,9 @@ const DURACAO_FESTA = /\b(?:quantas horas|qtas horas|quanto tempo(?! (?:antes|de
 const CLAUSULA_DE_CONVIDADOS = /\b(?:aument\w*|acrescent\w*|a mais|exced\w*|excedentes?|pagantes?|crianc\w*|bebes?|cortesia\w*|isent\w*|gratis|de graca|colo|idade|anos|cobr\w*|taxa|multa|depois de contratar|depois de fechar|lista|irmaos?|irmas?|pais|aniversariante|conta como|contam|entra\w* na conta)\b/;
 /** Rodada 36: assunto da cláusula de horários além da entrada (prorrogar, terminar, sair, multa, até que horas…). */
 const HORARIO_DO_CONTRATO = /\b(?:prorrog\w*|estend\w*|estic\w*|prolong\w*|horas? extras?|a mais|mais tarde|ate que horas|sai[rd]\w*|termin\w*|multa\w*|passa[rd]? do horario|depois do horario|atras\w*|fim da festa|ir embora|parabens|tolerancia|mais cedo|antecip\w*|adiant\w*|antes do horario|horarios? (?:da|de|do) (?:festa|contrato)|regras? d[eo]s? horarios?)\b/;
+/** Rodada 44 (h43 aa61): "vcs fazem?" solto (sem objeto) junto de um tema citado pergunta pelo tema: a decoração responde. */
+const FAZEM_SOLTO = /(?:^|[,.;!?]\s*)(?:e |mas |sera que )?(?:voces|vcs|vc|ces|o buffet)\s+(?:fazem|faz|fariam|faria|conseguem fazer|consegue fazer|fazem esse|fazem essa|fazem isso)\s*(?:\?|$)/;
+export const cobreFazemSolto = (texto: string, tema: string | null | undefined) => (tema && FAZEM_SOLTO.test(semAcento(texto).trim()) ? [tema] : []);
 export function perguntasSemFonte(texto: string, catalogos: Catalogos, cobertas: string[] = []) {
   const compacto = (s: string) => limpo(s);
   return perguntasDaMensagem(texto)
@@ -1741,7 +1744,7 @@ export function entenderPorRegras(texto: string, catalogos: Catalogos, contexto:
   return {
     intencoes: limitar(combinarIntencoes(cardapioDispensado(t) && !itens.length && !semCadastro ? intencoes.filter((i) => i.tipo !== 'CARDAPIO') : intencoes, texto)), entidades, reenviar: REENVIAR.test(t) && !NAO_REENVIAR.test(t) && !(pedeLink && !/\b(?:tabela|pdf|cardapio|foto|fotos|video|material|arquivo)\b/.test(t)), alergia: ALERGIA.test(t), origem: 'REGRAS',
     // A continuação ("e num dia de semana?") é coberta pelo assunto que ela segue.
-    sinais, semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, [...intencoes.filter((i) => i.continuacao).map((i) => i.trecho), ...(referencia ? [referencia] : [])])), parar: pedidoDeParar(texto),
+    sinais, semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, [...intencoes.filter((i) => i.continuacao).map((i) => i.trecho), ...(referencia ? [referencia] : []), ...cobreFazemSolto(texto, entidades.tema)])), parar: pedidoDeParar(texto),
     itens, comparar: entidades.pacotes.length >= 1 && COMPARA.test(t), semMaterial: SEM_MATERIAL.test(t), comparaPreco, outraData, pratoSemCadastro: semCadastro,
     periodoAmbiguo: periodoAmbiguo(texto, catalogos.turnos),
     temaAmbiguo: extrairTemaDetalhe(texto).ambiguo || indecisao,
@@ -1986,7 +1989,7 @@ export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalog
     alergia: bruto.alergia || regras.alergia,
     origem: 'MODELO',
     sinais: regras.sinais,
-    semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, especificas)),
+    semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, [...especificas, ...cobreFazemSolto(texto, tema ?? regras.entidades.tema)])),
     parar: pararPeloModelo(bruto, texto, regras.parar ?? null, intencoes),
     itens: regras.itens, comparar: regras.comparar, semMaterial: regras.semMaterial, comparaPreco: regras.comparaPreco, outraData: !!regras.outraData && !data, ...(regras.pedeLink ? { pedeLink: true } : {}), ...(regras.perguntaReserva && !intencoes.some((i) => ['CONTRATO_PROPRIO', 'PAGAMENTO', 'CONTRATAR'].includes(i.tipo)) ? { perguntaReserva: true } : {}), ...(regras.escolhaPacote && !intencoes.some((i) => ['CONTRATAR', 'PRECOS', 'PACOTES', 'NEGOCIACAO'].includes(i.tipo)) ? { escolhaPacote: regras.escolhaPacote } : {}), pratoSemCadastro: regras.pratoSemCadastro,
     periodoAmbiguo: !!regras.periodoAmbiguo && !turno,
