@@ -28,4 +28,26 @@ test('URL do banco não pode desabilitar verificação TLS remota',()=>{
     assert.equal(new URL(o.connectionString).searchParams.has('sslmode'),false);
     assert.throws(()=>opcoesConexao({...alvo,connectionString:alvo.connectionString.replace('require','no-verify')}),/TLS_MODO_RECUSADO/);
     assert.equal(opcoesConexao(alvo,{KIDMAIS_RECONCILIAR_CA_PEM:'certificado-fixture'}).ssl.ca,'certificado-fixture');
+    const tentativa=opcoesConexao({...alvo,connectionString:alvo.connectionString+'&ssl=false&uselibpqcompat=true'});
+    assert.equal(tentativa.ssl.rejectUnauthorized,true);
+    assert.equal(new URL(tentativa.connectionString).searchParams.has('ssl'),false);
+});
+
+test('TLS interno exige opt-in, identidade do cron Render e alvo literal exato',()=>{
+    const {validarAlvo,opcoesConexao}=require('./assinatura-reconciliar.cjs');
+    const env={RENDER:'true',RENDER_SERVICE_ID:'crn-db493i142hec73ahmoe0',KIDMAIS_DEPLOY_ENV:'staging',ASAAS_AMBIENTE:'sandbox',
+        KIDMAIS_RECONCILIAR_TLS:'render-interno-criptografado',
+        KIDMAIS_RECONCILIAR_DATABASE_URL:'postgresql://fixture@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91?sslmode=require',
+        KIDMAIS_RECONCILIAR_ALVO:'kidmais_staging_1z91@dpg-daidko3m8hqs73ce4jt0-a:5432'};
+    const alvo=validarAlvo(env);
+    assert.deepEqual(opcoesConexao(alvo,env).ssl,{rejectUnauthorized:false,minVersion:'TLSv1.2'});
+    assert.equal(opcoesConexao(alvo,{...env,KIDMAIS_RECONCILIAR_TLS:undefined}).ssl.rejectUnauthorized,true);
+    for(const mudanca of [{RENDER:undefined},{RENDER_SERVICE_ID:'outro'},{KIDMAIS_DEPLOY_ENV:'production'},{ASAAS_AMBIENTE:'producao'}])
+        assert.throws(()=>opcoesConexao(alvo,{...env,...mudanca}),/TLS_REDE_PRIVADA_RECUSADA/);
+    for(const [host,db,porta] of [['example.test','kidmais_staging_1z91',5432],['dpg-daidko3m8hqs73ce4jt0-a','outro',5432],['dpg-daidko3m8hqs73ce4jt0-a','kidmais_staging_1z91',6432]]) {
+        const alterado={...env,KIDMAIS_RECONCILIAR_DATABASE_URL:`postgresql://fixture@${host}:${porta}/${db}`,KIDMAIS_RECONCILIAR_ALVO:`${db}@${host}:${porta}`};
+        assert.throws(()=>opcoesConexao(validarAlvo(alterado),alterado),/TLS_REDE_PRIVADA_RECUSADA/);
+    }
+    assert.throws(()=>opcoesConexao({...alvo,connectionString:'postgresql://fixture@example.test/outro'},env),/TLS_REDE_PRIVADA_RECUSADA/);
+    assert.throws(()=>opcoesConexao(alvo,{...env,KIDMAIS_RECONCILIAR_TLS:'no-verify'}),/TLS_POLITICA_RECUSADA/);
 });

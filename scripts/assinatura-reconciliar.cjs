@@ -16,7 +16,7 @@
  * autorizada nesta versão). Executar em staging também exige autorização explícita (docs/OPERACAO_AGENTES.md):
  * --aplicar grava em empresa_assinaturas, cobranca_eventos e auditoria.
  *
- * Tarefa agendada (Render cron) para rodar isto periodicamente é CUSTO NOVO e NÃO foi criada.
+ * Cron de staging criado em modo aguardando; habilitação depende das validações operacionais.
  */
 const BANCOS_PROIBIDOS = new Set(['kidmais_manager', 'kidmais_production', 'kidmais-production']);
 
@@ -61,7 +61,21 @@ function opcoesConexao(alvo, env = {}) {
     const url = new URL(alvo.connectionString);
     const modo = url.searchParams.get('sslmode');
     if (!alvo.local && modo && !['require', 'verify-full', 'verify-ca'].includes(modo)) throw Error('TLS_MODO_RECUSADO');
-    for (const chave of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert', 'uselibpqcompat']) url.searchParams.delete(chave);
+    for (const chave of ['ssl', 'sslmode', 'sslcert', 'sslkey', 'sslrootcert', 'uselibpqcompat']) url.searchParams.delete(chave);
+    const politica = env.KIDMAIS_RECONCILIAR_TLS ?? 'verificado';
+    if (!['verificado', 'render-interno-criptografado'].includes(politica)) throw Error('TLS_POLITICA_RECUSADA');
+    if (politica === 'render-interno-criptografado') {
+        // Opt-in operacional: Render não fornece verify-full para seu Postgres interno.
+        // Limitado ao cron e banco exatos, dentro da rede privada. Nenhuma configuração global.
+        const confirmado = validarAlvo(env);
+        if (env.RENDER !== 'true' || env.RENDER_SERVICE_ID !== 'crn-db493i142hec73ahmoe0'
+            || env.KIDMAIS_DEPLOY_ENV !== 'staging' || env.ASAAS_AMBIENTE !== 'sandbox'
+            || confirmado.host !== 'dpg-daidko3m8hqs73ce4jt0-a' || confirmado.port !== 5432
+            || confirmado.database !== 'kidmais_staging_1z91' || alvo.connectionString !== confirmado.connectionString) {
+            throw Error('TLS_REDE_PRIVADA_RECUSADA');
+        }
+        return {connectionString: url.toString(), ssl: {rejectUnauthorized: false, minVersion: 'TLSv1.2'}};
+    }
     const ca = env.KIDMAIS_RECONCILIAR_CA_PEM;
     return {connectionString: url.toString(), ssl: alvo.local ? false : {rejectUnauthorized: true, ...(ca ? {ca} : {})}};
 }
