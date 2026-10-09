@@ -1,6 +1,6 @@
 # Convites: famílias e links individuais — 09/10/2026
 
-Status: implementação local preparada; **migration 074 não executada, recurso não publicado**. A simplificação visual do editor é independente e já está em staging no commit `45f8336`.
+Status em 09/10/2026 às 02:27 BRT: **migration 074 homologada e aplicada em staging; publicação do código em andamento**. A simplificação visual do editor é independente e já está em staging no commit `45f8336`.
 
 ## Comportamento
 
@@ -50,3 +50,15 @@ Alvos: workspace `tea-daidbj95efls73d2bcf0`; serviço `kidmais-manager-staging` 
 Recuperação: antes do COMMIT, rollback transacional. Se a migration foi aplicada mas o deploy não concluiu, manter o código anterior e a estrutura aditiva enquanto corrige. Após uso dos links individuais, priorizar correção adiante; código anterior pode incluir respostas de famílias arquivadas nos totais e não entende os links individuais. DROP, restore geral, desativação de módulo ou outras alterações de configuração exigem decisão específica; não são ações automáticas deste plano.
 
 A [política operacional](OPERACAO_AGENTES.md) exige: “Migrations, writes SQL, restore, delete e alteração de `DATABASE_URL` sempre exigem autorização explícita de Felipe. A mesma exigência vale em staging e em ambientes isolados; autorização para preparar arquivos não autoriza executá-los em um banco.” A autorização anterior para a 073 não foi usada para executar a nova 074.
+
+## Execução autorizada — 09/10/2026
+
+Felipe solicitou “próximo passo” em resposta à proposta concreta de executar a 074 em banco descartável, ensaiar no schema completo com backup e ativar somente em staging. Essa continuidade autorizou o plano acima.
+
+- PostgreSQL 18 descartável: 11 cenários aprovados, incluindo 073/074, preservação de RSVP legado, idempotência/concorrência, unicidade, isolamento de festa/empresa e revogação antes da gravação. Cluster novo `.local-convites-pg-073-7d5adfd628264bb7a9f73397507c31b1`, porta 55458, banco `kidmais_convites_v1_teste`; parado ao concluir. O primeiro cluster foi parado após diagnosticar herança de pipes do Windows; o runner foi corrigido no commit `e664d6d`. Nenhum banco local existente foi acessado.
+- Operação via Shell autenticado do serviço de staging. Identidade conferida: login `kidmais_staging_app_v2`, papel já configurado `kidmais_staging_1z91_user`, banco `kidmais_staging_1z91`, SSL ativo. A primeira guarda distinguiu incorretamente login e papel ativo e abortou antes de qualquer migration; corrigida após leitura da identidade, sem alterar permissões.
+- Código de aplicação validado: `cd6352ef62dbed2dc1f1f707cdc5d0a0a05bfe8c`. Serviço ainda em `45f8336bc54d9ca23a7533c0c5e2e2cf19189535` durante o ensaio/aplicação.
+- Backup custom de 3.657.740 bytes, inventário legível por `pg_restore --list`, SHA-256 `2acf682f4a246b7ba89b30e0f7902e3478a2df7f0a0736396bc9d3cccaecb826`. Não houve teste de restauração. Caminho remoto `/opt/render/project/src/data/backups/convites-074-cd6352ef62db/before.dump`, permissões restritas; sem cópia local. `operation.cjs`, `validation.json` e `applied.json` preservam os detalhes no mesmo diretório.
+- Ensaio no schema completo efetivo: precheck, trava/transação, migration, postcheck, 135 → 136 tabelas, comparação do conteúdo anterior de RSVPs, ROLLBACK e novo precheck. Aprovado às `2026-10-09T05:27:02.363Z`. Não é replay da cadeia histórica.
+- Aplicação definitiva aprovada às `2026-10-09T05:27:17.939Z`, com backup/hash/recenticidade reconferidos. Postcheck repetido em transação somente leitura após COMMIT. 136 tabelas; havia zero respostas existentes. Nenhuma família/RSVP de demonstração foi criada no banco de staging.
+- Hash SHA-256 da migration normalizada em LF: `5da23eab2c8a519014286596cc48147a3df2fd46ad3b297809c35a191cf0beee`; precheck `ae7b11a1143a1f678c08323847efd406d354caa4546e738841d02e7c2dffcb5f`; postcheck `78b34e38f19e767d0de19e6dd6424de1249bb62eee1c8689fc630b7558c0dcfe`.
