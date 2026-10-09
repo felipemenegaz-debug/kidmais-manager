@@ -3484,3 +3484,15 @@ test('rodada 45 — desistência pelo caminho do modelo: "desisti de fechar" lid
   assert.ok(!DESISTE_CONTRATAR.test('ops, na verdade é dia 14 de novembro, não 7'));
   assert.ok(!DESISTE_CONTRATAR.test('desisti da festa em casa, quero fazer aí'));
 });
+
+test('rodada 45 — h44 aa07: "o link pra eu ver as datas livres" junto do mapa é o pedido do link (sem perguntar a data); o do contrato não', async () => {
+  const LINK = 'https://festa.exemplo.test/disponibilidade';
+  for (const t of ['me manda a localização da unidade asa sul e o link pra eu ver as datas livres?', 'manda o link pra gente ver a agenda']) {
+    assert.ok(entenderPorRegras(t, catalogos).pedeLink, t);
+    const r = (await conversa([t], { linkPublico: LINK }, { apresentado: true })).ultima;
+    assert.ok(texto(r).includes(LINK), t);
+    assert.doesNotMatch(texto(r), /me diga a data/, t);
+    assert.equal(r.passagem, null, t);
+  }
+  assert.ok(!entenderPorRegras('me manda o link do contrato pra eu ver as cláusulas', catalogos).pedeLink);
+});

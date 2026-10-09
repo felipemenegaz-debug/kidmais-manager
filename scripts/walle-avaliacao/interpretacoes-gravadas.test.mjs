@@ -208,6 +208,6 @@ test('gravadas r44 × h44 (mv0mgkwp, página pública): aa60–aa62 seguem a con
   // Nenhuma crítica (a de aa08 era da régua: a cláusula 8, de prorrogação, julgada "de outro assunto"; corrigida na régua
   // da rodada 45, commit próprio, com calibração).
   for (const c of metricas.criticas) assert.deepEqual(c.falhas.map((f) => `${f.id}: ${f.motivo}`), [], c.nome);
-  assert.deepEqual(metricas.comercial.falhas.map((f) => f.id).sort(), ['aa02', 'aa07']);
+  assert.deepEqual(metricas.comercial.falhas.map((f) => f.id).sort(), ['aa02']);
   assert.deepEqual(metricas.desnecessarios.map((d) => d.id), ['aa02']);
 });

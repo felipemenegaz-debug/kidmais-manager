@@ -296,6 +296,9 @@ async function localizacao(e: Estado) {
   for (const p of itens.slice(0, 2)) usarMaterial(e, p);
 }
 async function disponibilidade(e: Estado, para: TipoIntencao = 'DISPONIBILIDADE') {
+  // Rodada 45 (h44 aa07): "o link pra eu ver as datas livres" sem data — o link pedido responde (sai mais abaixo); a data
+  // não é perguntada. Sem link configurado, a data continua sendo pedida.
+  if (!e.ctx.data && para === 'DISPONIBILIDADE' && e.entendimento.pedeLink && e.fontes.linkDisponibilidade?.()) return null;
   if (!e.ctx.data) { perguntar(e, 'data', para); return null; }
   // Rodada 44 (h43 aa76): "e no outro horário?" sem período na conversa — "outro" de nenhum: pergunta o período (como no
   // preço desde a rodada 38), sem repetir a consulta já feita.
