@@ -15,6 +15,9 @@ const teste = fs.readFileSync(path.join(raiz, 'scripts/walle-avaliacao/metricas.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'walle-mutacao-regua-'));
 fs.writeFileSync(path.join(dir, 'metricas.test.mjs'), teste);
 const mutacoes = {
+  // Rodada 44.
+  'comercial aceita o link sem o link enviado': (t) => t.replace("LINK_DATAS_REGUA.test(semAc(l.texto)) && fontes.some((f) => f.tipo === 'LINK_DISPONIBILIDADE')", 'LINK_DATAS_REGUA.test(semAc(l.texto))'),
+  'comercial aceita a pergunta de reserva sem o aviso': (t) => t.replace('RESERVA_REGUA.test(semAc(l.texto)) && NAO_RESERVA_RESPOSTA.test(l.resposta ?? \'\')', 'RESERVA_REGUA.test(semAc(l.texto))'),
   // Rodadas 40 e 41.
   'fechamento cordial aceito mesmo com passagem': (t) => t.replace("(l) => l.decisao !== 'EQUIPE' && !l.pendente?.length],", '() => true],'),
   'link público fora de hora nunca falha': (t) => t.replace("? 'enviou o link público' : null) },", '? null : null) },'),
@@ -75,7 +78,7 @@ const mutacoes = {
   'numeroTrocado acusa número herdado da conversa': (t) => t.replace('if (!oc.length) continue;', 'if (!oc.length) return `${n} lido como convidados`;'),
   // Rodada 34: o horário de entrada precisa da fonte dos períodos.
   // Rodada 35: a exceção do horário de entrada vale só com a fonte dos períodos.
-  'comercial aceita o horário de entrada sem a fonte dos períodos': (t) => t.replace("&& fontes.some((f) => f.tipo === 'PERIODOS_AGENDA')));", '));'),
+  'comercial aceita o horário de entrada sem a fonte dos períodos': (t) => t.replace("ENTRADA_REGUA.test(semAc(l.texto)) && fontes.some((f) => f.tipo === 'PERIODOS_AGENDA'))", 'ENTRADA_REGUA.test(semAc(l.texto)))'),
   'semSuporte ignora o horário de entrada': (t) => t.replace("return 'horário de entrada sem os períodos cadastrados';", 'return null;'),
   // Rodada 36: troca de tema anotada (h36 aa69).
   'comercial acusa a troca de tema anotada': (t) => t.replace('|a correção: tema [^(.\\n]+ \\(antes tema [^)\\n]+\\)\\.)/', ')/'),

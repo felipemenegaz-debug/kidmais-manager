@@ -469,3 +469,17 @@ test('rodadas 40 e 41: fechamento cordial e "Tudo bem, e você?" só no caso cer
   assert.equal(critico(linha({ texto: 'minha festa já está marcada dia 21/11, posso mudar?', esperado: 'EQUIPE', intencoes: ['CONTRATO_PROPRIO'], saidas: [texto('… https://festas.exemplo.test/disponibilidade', [link])] })), 1);
   assert.equal(critico(linha({ texto: 'quero falar com uma pessoa sobre o dia 21', decisao: 'EQUIPE', esperado: 'EQUIPE', intencoes: ['HUMANO'], saidas: [texto('… link', [link])] })), 1);
 });
+
+
+test('rodada 44 (régua): o pedido do link é servido pelo link público e "já ficou reservado?" pelo aviso — só com o que serve de fato', () => {
+  const link = { tipo: 'LINK_DISPONIBILIDADE' };
+  const ids = (l) => calcularMetricas([l]).comercial.falhas.map((f) => f.id);
+  // Servidos.
+  assert.deepEqual(ids(linha({ id: 'l1', texto: 'manda o link de novo pra eu ver as datas', intencoes: ['DISPONIBILIDADE'], saidas: [texto('Aqui está o link…', [link])] })), []);
+  assert.deepEqual(ids(linha({ id: 'l2', texto: 'entrei lá e escolhi uma data, já tá reservado então?', intencoes: ['DISPONIBILIDADE'], saidas: [texto('Consultar a disponibilidade ou conversar por aqui não reserva a data: ela só fica reservada quando a contratação é concluída.')] })), []);
+  // Não servidos: sem o link enviado; sem o aviso; link do mapa; data pedida sem agenda.
+  assert.deepEqual(ids(linha({ id: 'l3', texto: 'manda o link de novo pra eu ver as datas', intencoes: ['DISPONIBILIDADE'], saidas: [texto('Não tenho um link de disponibilidade para enviar por aqui.')] })), ['l3']);
+  assert.deepEqual(ids(linha({ id: 'l4', texto: 'já ficou reservado?', intencoes: ['DISPONIBILIDADE'], saidas: [texto('Posso ajudar com preços.')] })), ['l4']);
+  assert.deepEqual(ids(linha({ id: 'l5', texto: 'manda o link do mapa', intencoes: ['DISPONIBILIDADE'], saidas: [texto('…', [link])] })), ['l5']);
+  assert.deepEqual(ids(linha({ id: 'l6', texto: 'tem vaga dia 21/11?', intencoes: ['DISPONIBILIDADE'], saidas: [texto('…', [link])] })), ['l6']);
+});

@@ -453,6 +453,13 @@ function instrucoes(linhas) {
 
 /** Rodada 35: pergunta do horário de entrada dos convidados (implementação própria da régua). Rodada 38 (erro da régua no
  * h38 aa03): quem chega pode ser "o pessoal", "a galera", "a família", "as visitas". */
+/** Rodada 44 (erro da régua no h43 aa03, aa70): pedido do link da página de datas ("manda o link de novo", "aquele link pra
+ * ver as datas"); o link do contrato, do mapa ou de um material não. Implementação própria da régua. */
+const LINK_DATAS_REGUA = /\b(?:link|site|pagina)\b(?! (?:do|de|da) (?:contrato|mapa|localizacao|endereco|tabela|cardapio|pdf)\b)/;
+/** Rodada 44 (erro da régua no h43 aa71): "já ficou reservado?" sem festa contratada — servido pelo aviso de que consultar
+ * ou conversar não reserva a data. */
+const RESERVA_REGUA = /\b(?:ficou|fica|esta|ta|foi)\s+(?:\w+\s+)?(?:reservad|garantid|confirmad)\w*|\bja (?:reservou|reservaram|garantiu|confirmou)\b/;
+const NAO_RESERVA_RESPOSTA = /n[aã]o reserva a data/i;
 const ENTRADA_REGUA = /\bentrada d[oa]s? (?:convidad|crianc|pessoas)|\b(?:convidad\w*|pessoas|criancas|pessoal|galera|povo|turma|familia|visitas|parentes)\b(?:\s+\S+){0,3}?\s+(?:entra\w*|cheg\w*)\b|\b(?:que horas|a partir de que horas)\b[^.?!]{0,30}\b(?:entra\w*|cheg\w*)\b/;
 /** Acerto comercial: decisão certa e cada assunto comercial pedido servido pela fonte oficial (ou o dado perguntado). */
 function comercial(l) {
@@ -471,7 +478,11 @@ function comercial(l) {
     && !(i === 'DECORACAO' && l.conversa && l.ordem > 1 && /^Anotei (?:o tema “[^”]+”\.|a correção: tema [^(.\n]+ \(antes tema [^)\n]+\)\.)/.test(l.resposta ?? ''))
     // Rodada 35 (erro da régua no h35 aa54): o horário de ENTRADA dos convidados rotulado como DISPONIBILIDADE é servido
     // pelos períodos cadastrados (PERIODOS_AGENDA), não por uma consulta de data na agenda.
-    && !(i === 'DISPONIBILIDADE' && ENTRADA_REGUA.test(semAc(l.texto)) && fontes.some((f) => f.tipo === 'PERIODOS_AGENDA')));
+    && !(i === 'DISPONIBILIDADE' && ENTRADA_REGUA.test(semAc(l.texto)) && fontes.some((f) => f.tipo === 'PERIODOS_AGENDA'))
+    // Rodada 44 (erros da régua no h43 aa03/aa70/aa71): o pedido do link é servido pelo link público enviado; "já ficou
+    // reservado?" é servido pelo aviso de que consultar não reserva (não há data a consultar).
+    && !(i === 'DISPONIBILIDADE' && LINK_DATAS_REGUA.test(semAc(l.texto)) && fontes.some((f) => f.tipo === 'LINK_DISPONIBILIDADE'))
+    && !(i === 'DISPONIBILIDADE' && RESERVA_REGUA.test(semAc(l.texto)) && NAO_RESERVA_RESPOSTA.test(l.resposta ?? '')));
   return faltam.length ? `sem fonte para ${faltam.join(', ')}` : null;
 }
 
