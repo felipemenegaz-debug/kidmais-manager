@@ -21,7 +21,7 @@ export function habilitado() { exigir(process.env.CONVITES_ENABLED === 'true', '
 const ligacaoSql = `SELECT fe.empresa_id,fe.cliente_id,fe.estabelecimento_id,f.contrato_id,f.invalidada_em
  FROM festas f JOIN contratos co ON co.id=f.contrato_id JOIN fechamentos fe ON fe.id=co.fechamento_id`;
 
-async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, c: Convite, versao: string) => Promise<T>): Promise<T> {
+async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, c: Convite, versao: string, convidados: number | null) => Promise<T>): Promise<T> {
   habilitado();
   return withTransaction(async tx => {
     let empresa: string, festa: string;
@@ -55,7 +55,8 @@ async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, 
     }
     exigir(c, 'Crie o convite para começar.', 404);
     if (a.tipo === 'cliente') exigir(c.editor_hash === hash(a.token) && c.editor_expira_em && c.editor_expira_em > new Date(), 'Acesso ao convite indisponível.', 404);
-    const r = await fn(tx, c, co.versao_id);
+    const quantidade = co.snapshot?.evento?.convidados;
+    const r = await fn(tx, c, co.versao_id, Number.isSafeInteger(quantidade) && quantidade >= 0 ? quantidade : null);
     if (tenant) await revalidarTenant(tx, tenant);
     return r;
   });
@@ -70,12 +71,12 @@ async function cotas(tx: DbExecutor, c: Convite): Promise<Cotas> {
   return { empresa: w?.limite ?? 0, empresaUsado: w?.usado ?? 0, festa: c.limite_festa, festaUsado: c.usado_festa, cliente: c.limite_cliente, clienteUsado: c.usado_cliente };
 }
 export async function consultar(a: Acesso, criar = false) {
-  return comConvite(a, criar, async (tx, c, versao) => {
+  return comConvite(a, criar, async (tx, c, versao, convidadosContratados) => {
     const limite = await cotas(tx, c);
     const artes = (await tx.query<{ id: string; imagem: Buffer; origem: string }>('SELECT id,imagem,origem FROM convite_artes WHERE convite_id=$1 AND empresa_id=$2 ORDER BY criado_em DESC', [c.id, c.empresa_id])).rows.map(r => ({ id: r.id, origem: r.origem, url: `data:image/webp;base64,${r.imagem.toString('base64')}` }));
     const respostas = (await tx.query<{ nome: string; presenca: boolean; adultos: number; criancas: number }>('SELECT nome,presenca,adultos,criancas FROM convite_respostas WHERE convite_id=$1 ORDER BY atualizado_em DESC LIMIT 2000', [c.id])).rows;
     const historico = (await tx.query<{ acao: string; ator: string; criado_em: string }>('SELECT acao,split_part(ator,\':\',1) ator,criado_em FROM convite_eventos WHERE convite_id=$1 ORDER BY id DESC LIMIT 20', [c.id])).rows;
-    return { id: c.id, conteudo: c.rascunho, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao,
+    return { id: c.id, conteudo: c.rascunho, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },
       disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), artes, respostas, historico };

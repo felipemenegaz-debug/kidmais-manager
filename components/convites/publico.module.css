@@ -18,8 +18,11 @@
 }
 .publico[data-tema=espaco] { --borda-luz: #75d9ef; color-scheme: dark; }
 .publico[data-tema=jardim] { --borda-luz: #c7a84e; }
+.publico[data-cores-proprias=true] { --superficie: var(--convite-fundo); --secundario: var(--convite-tinta); --borda-luz: var(--convite-tinta); }
+.publico[data-cores-proprias=true] .primario { background: var(--convite-destaque); color: var(--botao-tinta); border-color: var(--convite-tinta); }
 .publico::before {
   content: '';
+  opacity: var(--brilho-fundo, 1);
   position: absolute;
   inset: 0;
   z-index: -1;

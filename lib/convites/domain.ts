@@ -17,6 +17,12 @@ export const conteudoSchema = z.object({
   endereco: z.string().trim().min(1).max(240),
   arteId: z.uuid().nullable(),
   confirmarPresenca: z.boolean(),
+  visual: z.object({
+    modo: z.enum(['modelo', 'completa']),
+    ajuste: z.enum(['conter', 'preencher']),
+    x: z.number().min(0).max(100), y: z.number().min(0).max(100),
+    cores: z.object({ fundo: z.string().regex(/^#[0-9a-f]{6}$/i), tinta: z.string().regex(/^#[0-9a-f]{6}$/i), destaque: z.string().regex(/^#[0-9a-f]{6}$/i) }).strict().optional(),
+  }).strict().optional(),
 }).strict();
 export type Conteudo = z.infer<typeof conteudoSchema>;
 export const rascunhoSchema = conteudoSchema.extend({

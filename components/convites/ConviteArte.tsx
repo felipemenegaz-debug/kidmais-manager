@@ -1,18 +1,20 @@
 'use client';
 // Artes já são reencodadas no servidor; URLs privadas não devem passar pelo cache do otimizador Next.
 /* eslint-disable @next/next/no-img-element */
-import { temas, type Conteudo } from '@/lib/convites/domain';
+import { type Conteudo } from '@/lib/convites/domain';
+import { enquadramento, temaVisual, visualPadrao } from '@/lib/convites/visual';
 import styles from './convites.module.css';
 export function dataBonita(data: string) {
   return data ? new Date(`${data}T12:00:00`).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) : 'Data da festa';
 }
 export default function ConviteArte({ conteudo: c, arte }: { conteudo: Conteudo; arte?: string }) {
-  const tema = temas[c.tema];
+  const tema = temaVisual(c), visual = c.visual ?? visualPadrao;
+  const completa = visual.modo === 'completa' && !!arte;
   return <article className={styles.convite} style={{ background: tema.fundo, color: tema.tinta }} aria-label="Prévia do convite">
-    <div className={styles.capa} style={{ color: tema.destaque }}>
-      {arte ? <img src={arte} alt="Arte escolhida para o convite" /> : <><span className={styles.orbita} /><span className={styles.simbolo}>{tema.simbolo}</span><span className={styles.estrela}>✦</span><span className={styles.estrela2}>✧</span><p>VOCÊ FAZ PARTE DESSA FESTA</p></>}
+    <div className={completa ? styles.arteCompleta : styles.capa} style={{ color: tema.destaque }}>
+      {arte ? <img src={arte} alt="Arte escolhida para o convite" style={{ objectFit: visual.ajuste === 'preencher' ? 'cover' : 'contain', objectPosition: `${visual.x}% ${visual.y}%` }} /> : <><span className={styles.orbita} /><span className={styles.simbolo}>{tema.simbolo}</span><span className={styles.estrela}>✦</span><span className={styles.estrela2}>✧</span><p>VOCÊ FAZ PARTE DESSA FESTA</p></>}
     </div>
-    <div className={styles.conviteTexto}><p className={styles.sobretitulo}>VAMOS COMEMORAR</p><h2>{c.nome || 'Nome do aniversariante'}</h2><p className={styles.idade}>{c.idade || 'Um dia muito especial'}</p><p className={styles.mensagem}>{c.mensagem}</p>
+    <div className={completa ? styles.somenteLeitor : styles.conviteTexto}><p className={styles.sobretitulo}>VAMOS COMEMORAR</p><h2>{c.nome || 'Nome do aniversariante'}</h2><p className={styles.idade}>{c.idade || 'Um dia muito especial'}</p><p className={styles.mensagem}>{c.mensagem}</p>
       <div className={styles.quando}><strong>{dataBonita(c.data)}</strong><span>às {c.horario || '00:00'}</span></div>
       <strong>{c.local || 'Local da festa'}</strong><p className={styles.endereco}>{c.endereco || 'Endereço do evento'}</p>
     </div>
@@ -23,17 +25,21 @@ export default function ConviteArte({ conteudo: c, arte }: { conteudo: Conteudo;
 export async function baixarConvite(c: Conteudo, arte?: string) {
   const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1440;
   const ctx = canvas.getContext('2d'); if (!ctx) return;
-  const tema = temas[c.tema]; ctx.fillStyle = tema.fundo; ctx.fillRect(0, 0, 1080, 1440);
+  const tema = temaVisual(c), visual = c.visual ?? visualPadrao;
+  const completa = visual.modo === 'completa' && !!arte;
+  ctx.fillStyle = tema.fundo; ctx.fillRect(0, 0, 1080, 1440);
   if (arte) {
     const img = new Image(); img.src = arte; await img.decode();
-    const scale = Math.min(1080 / img.width, 550 / img.height);
-    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 1080, 550); ctx.clip();
-    ctx.drawImage(img, (1080 - img.width * scale) / 2, (550 - img.height * scale) / 2, img.width * scale, img.height * scale); ctx.restore();
+    const altura = completa ? 1440 : 540;
+    const quadro = enquadramento(img.width, img.height, 1080, altura, visual);
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 1080, altura); ctx.clip();
+    ctx.drawImage(img, quadro.x, quadro.y, quadro.largura, quadro.altura); ctx.restore();
   } else {
     ctx.fillStyle = tema.destaque; ctx.globalAlpha = 0.13; ctx.beginPath(); ctx.arc(540, 225, 270, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
     ctx.fillStyle = tema.destaque; ctx.font = '220px Georgia'; ctx.textAlign = 'center'; ctx.fillText(tema.simbolo, 540, 310);
     ctx.font = '32px Arial'; ctx.fillText('VOCÊ FAZ PARTE DESSA FESTA', 540, 460);
   }
+  if (!completa) {
   ctx.textAlign = 'center'; ctx.fillStyle = tema.tinta;
   const texto = (value: string, y: number, size: number, bold = false) => {
     ctx.font = `${bold ? 'bold ' : ''}${size}px Arial`; ctx.fillText(value, 540, y, 930);
@@ -56,6 +62,7 @@ export async function baixarConvite(c: Conteudo, arte?: string) {
   };
   linhas(c.mensagem, 850, 30, 4); texto(`${dataBonita(c.data)} · ${c.horario}`, 1090, 40, true);
   texto(c.local, 1200, 38, true); linhas(c.endereco, 1260, 27, 3);
+  }
   const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
   if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a');
   a.href = url; a.download = 'convite.png'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);

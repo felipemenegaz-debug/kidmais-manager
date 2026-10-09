@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { temas, type Conteudo } from '@/lib/convites/domain';
+import { type Conteudo } from '@/lib/convites/domain';
+import { contraste, luminancia, temaVisual, tintaLegivel } from '@/lib/convites/visual';
 import ConviteArte from './ConviteArte';
 import styles from './publico.module.css';
 export default function ConvitePublico({ token }: { token: string }) {
@@ -16,9 +17,9 @@ export default function ConvitePublico({ token }: { token: string }) {
     void fetch(endpoint, { cache: 'no-store', signal: controller.signal }).then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.erro); setConteudo(j.data.conteudo); }).catch(e => { if (!controller.signal.aborted) setErro(e.message); });
     return () => controller.abort();
   }, [endpoint, token]);
-  const tema = conteudo ? temas[conteudo.tema] : null;
-  const cores = tema ? { '--convite-fundo': tema.fundo, '--convite-tinta': tema.tinta, '--convite-destaque': tema.destaque } as CSSProperties : undefined;
-  return <main className={styles.publico} data-tema={conteudo?.tema} data-efeitos-pausados={efeitosPausados} style={cores}>
+  const tema = conteudo ? temaVisual(conteudo) : null;
+  const cores = tema ? { '--convite-fundo': tema.fundo, '--convite-tinta': tema.tinta, '--convite-destaque': tema.destaque, '--botao-tinta': tintaLegivel(tema.destaque), '--brilho-fundo': contraste(tema.fundo, tema.tinta) < 10 ? 0 : 1, colorScheme: luminancia(tema.fundo) < .18 ? 'dark' : 'light' } as CSSProperties : undefined;
+  return <main className={styles.publico} data-tema={conteudo?.tema} data-cores-proprias={!!conteudo?.visual?.cores} data-efeitos-pausados={efeitosPausados} style={cores}>
     {!conteudo && <div className={styles.estado}>{erro ? <p role="alert" className={styles.erro}>{erro}</p> : <p role="status">Preparando um convite especial…</p>}</div>}
     {conteudo && <>
       <div className={styles.enfeites} aria-hidden="true">{Array.from({ length: 6 }, (_, i) => <span key={i}>{tema?.simbolo}</span>)}</div>
