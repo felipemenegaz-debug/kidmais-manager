@@ -31,6 +31,7 @@ export const comandoSchema = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('acesso'), habilitado: z.boolean() }).strict(),
   z.object({ acao: z.literal('cotas'), festa: z.int().min(0).max(100), cliente: z.int().min(0).max(100) }).strict(),
   z.object({ acao: z.literal('upload'), imagem: z.string().max(7_000_000) }).strict(),
+  z.object({ acao: z.literal('excluir_arte'), arteId: z.uuid(), revisao: z.int().positive() }).strict(),
   z.object({ acao: z.literal('gerar'), chave: z.uuid(), prompt: z.string().trim().min(5).max(3000), referencias: z.array(z.uuid()).max(2) }).strict(),
 ]);
 export const respostaSchema = z.object({

@@ -117,6 +117,17 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
       await evento(tx, c, a, 'ARTE_ENVIADA', { arteId }); return { arteId };
     } else {
       exigir(i.revisao === c.revisao, 'O convite foi alterado por outra pessoa. Recarregue antes de salvar.');
+      if (i.acao === 'excluir_arte') {
+        exigir((await tx.query('SELECT id FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [i.arteId, c.id, c.empresa_id])).rows.length, 'Imagem não encontrada neste convite.', 404);
+        exigir(c.publicado?.arteId !== i.arteId, 'Esta imagem está no convite publicado. Remova ou substitua a imagem e publique a alteração antes de excluí-la da galeria.');
+        // O histórico e o consumo permanecem; só desfazemos o vínculo com o arquivo excluído.
+        await tx.query('UPDATE convite_geracoes SET arte_id=NULL WHERE arte_id=$1 AND convite_id=$2 AND empresa_id=$3', [i.arteId, c.id, c.empresa_id]);
+        await tx.query('DELETE FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [i.arteId, c.id, c.empresa_id]);
+        const rascunho = c.rascunho.arteId === i.arteId ? { ...c.rascunho, arteId: null } : c.rascunho;
+        await tx.query('UPDATE convites SET rascunho=$2,revisao=revisao+1,atualizado_em=now() WHERE id=$1', [c.id, rascunho]);
+        await evento(tx, c, a, 'ARTE_EXCLUIDA', { arteId: i.arteId });
+        return { excluida: true };
+      }
       if (i.acao === 'despublicar') await tx.query('UPDATE convites SET publicado=NULL,revisao=revisao+1,atualizado_em=now() WHERE id=$1', [c.id]);
       else {
         if (i.conteudo.arteId) exigir((await tx.query('SELECT id FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [i.conteudo.arteId, c.id, c.empresa_id])).rows.length, 'Arte não pertence a este convite.', 400);
