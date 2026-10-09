@@ -1,6 +1,8 @@
-# Habilitação pendente da reconciliação
+# Configuração da reconciliação — cron habilitado em homologação
 
-Serviço já criado: [kidmais-assinatura-reconciliar-staging](https://dashboard.render.com/cron/crn-db493i142hec73ahmoe0/env). Está em aguardando e não conecta ao banco.
+Estado atual em 09/10/2026, 07:58 UTC: cron em aplicar, conexão interna com TLS criptografado e exceção de certificado restrita autorizada, simulação e duas rodadas vazias aprovadas. Alerta de falha recebido por Felipe e recuperação confirmada. [Execução e limites](TLS_CRON_STAGING_20261009.md). Falta um fluxo com dados sintéticos para validar a autenticação da nova chave Asaas e o processamento de eventos neste ambiente. As instruções pendentes abaixo registram a preparação histórica e foram executadas, exceto esse teste.
+
+Serviço: [kidmais-assinatura-reconciliar-staging](https://dashboard.render.com/cron/crn-db493i142hec73ahmoe0/env), a cada cinco minutos, somente staging/sandbox.
 
 ## Credencial a preparar
 

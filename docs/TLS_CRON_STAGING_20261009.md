@@ -35,3 +35,16 @@ Cinco testes aprovados: guardas de ambiente/alvo, rollback por item, bloqueio de
 Restauração para aguardando concluída: deploy `dep-db49noflot8c738abh5g` live às 07:47:15 UTC, ainda commit 88fee4b.
 
 A exigência de aprovação vem de [OPERACAO_AGENTES.md](OPERACAO_AGENTES.md): alterações operacionais de env e segredo exigem aprovação explícita. A autorização anterior não abrangia reduzir a verificação de certificado. A política do navegador também exige confirmação no momento de reduzir proteções de segurança, caso a ativação seja feita pela UI.
+
+## Execução autorizada
+
+Commit `5b4641160ecaf2b31ef9eec37b82c8ea094e924a` publicado em staging após revisão e validações. Nenhuma entrega concorrente nova no fetch anterior; auto-deploy OFF no cron e web. Publicação do cron pelo ajuste exclusivo das variáveis, sem deploy duplicado. Deploy `dep-db49psrbc2fs73b4a9ag` live às 07:51:46 UTC.
+
+- Simulação concluída às 07:52:35 UTC, banco exato confirmado e TLS ativo pela guarda do CLI. Eventos/empresas vazios, incompleto=false; execução terminou com sucesso às 07:52:43 UTC. Nenhuma gravação.
+- Modo aplicar, deploy `dep-db49qp5g1s2s738oh24g` live às 07:53:36 UTC. Rodada manual às 07:54:13 UTC e agendada às 07:55:25 UTC, ambas incompleto=false, eventos/empresas vazios e sucesso às 07:54:20 e 07:55:33 UTC. Não havia itens para modificar; isso não comprova idempotência com pagamentos nem autenticação da nova chave no Asaas.
+- Falha deliberada: modo `teste-alerta`, recusado antes de importar provedor/conectar banco; mensagem às 07:56:07 UTC, saída 1 confirmada pelo Render às 07:56:13 UTC. Felipe confirmou recebimento do alerta em felipemenegaz@gmail.com.
+- Modo aplicar restaurado após a falha, deploy `dep-db49se3l550s73b2r8dg` live às 07:57:14 UTC. Rodada de recuperação às 07:57:46 UTC: modo APLICAR, eventos/empresas vazios, incompleto=false, sucesso às 07:57:54 UTC.
+
+O valor da chave não foi revelado. O validador de formato passou; como não há assinaturas vinculadas ao Asaas nem eventos pendentes, estas rodadas não chamaram a API. Teste autenticado com a nova chave e um fluxo com dados sintéticos continua sendo próximo passo, sem declarar esse teste concluído. O painel One-Off Jobs do cron não oferece ação para iniciar um diagnóstico e o Web Shell permaneceu conectando; não foram copiados secrets para outro serviço por conveniência.
+
+Produção, serviço web, rede/allowlist e migrations não alterados nesta operação. A isenção permanente do buffet real ainda não foi vinculada a uma identidade validada; rodadas vazias não demonstram essa concessão.

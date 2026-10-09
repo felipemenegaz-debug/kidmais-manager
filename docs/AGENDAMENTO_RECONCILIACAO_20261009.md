@@ -1,4 +1,6 @@
-# Agendamento da reconciliação — criado, aguardando habilitação
+# Agendamento da reconciliação — habilitado em homologação
+
+Estado atual em 09/10/2026, 07:58 UTC: modo aplicar, commit 5b46411, conexão ao banco com TLS ativo e exceção de certificado privado autorizada por Felipe. Simulação, duas rodadas vazias e recuperação aprovadas; alerta de falha recebido. Autenticação da nova chave Asaas e processamento com eventos continuam pendentes porque as rodadas não tinham itens. [Evidências e limitação TLS](TLS_CRON_STAGING_20261009.md). Registros de aguardando e ausência de credenciais abaixo são históricos.
 
 Atualização de 09/10: pré-requisito de schema resolvido; 074a/075 aplicadas em staging com backup, pre/postchecks e health aprovados. Ver [execução](MIGRATIONS_ASSINATURA_STAGING_20261009.md). O diagnóstico anterior de schema ausente abaixo é histórico. Código validado e publicado em staging; cron criado em modo aguardando. Habilitação depende das credenciais exclusivas e conexão TLS verificada.
 
