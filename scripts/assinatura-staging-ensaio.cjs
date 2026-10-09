@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {randomBytes, createHash} = require('node:crypto');
+const {snapshotPreservacao,compararPreservacao}=require('./assinatura-preservacao.cjs');
 // Rodadas têm IDs separados; cada execução depende da autorização do seu plano.
 const QUARTA = process.argv.includes('--rodada-4-autorizada');
 const EMPRESA = QUARTA ? '531f9c46-6026-4bfe-86aa-babce78b0cfd' : 'e4b274ca-3a51-40c5-bef6-39012a96cfbc';
@@ -142,7 +143,7 @@ async function main() {
         assert.equal((await db.query('SELECT 1 FROM empresas WHERE id=$1',[EMPRESA])).rowCount,0,'EMPRESA_PREEXISTENTE');
         assert.equal((await db.query('SELECT 1 FROM usuarios_administrativos WHERE id=$1 OR email=$2',[USUARIO,EMAIL])).rowCount,0,'USUARIO_PREEXISTENTE');
         assert.equal((await db.query('SELECT 1 FROM empresa_assinaturas WHERE documento_teste=$1',[r.documento])).rowCount,0);
-        r.antes=await agregado(); salvar();
+        r.antes=await agregado();r.antesPreservacao=await snapshotPreservacao(db,EMPRESA);salvar();
         etapa='FIXTURE'; await db.query('BEGIN');
         await db.query("INSERT INTO empresas(id,codigo,nome,status) VALUES($1,$2,'TESTE Kidmais — assinatura staging 20261009','PROVISIONAMENTO')",[EMPRESA,'ensaio-'+EMPRESA]);
         await db.query("UPDATE empresas SET status='ATIVA' WHERE id=$1",[EMPRESA]);
@@ -213,8 +214,13 @@ async function main() {
             await db.query('UPDATE usuarios_administrativos SET ativo=false WHERE id=$1',[USUARIO]);
             await db.query("UPDATE memberships SET status='REVOGADA' WHERE empresa_id=$1 AND usuario_id=$2 AND status<>'REVOGADA'",[EMPRESA,USUARIO]);
             await db.query("UPDATE empresas SET status='DESATIVADA' WHERE id=$1 AND status<>'DESATIVADA'",[EMPRESA]);
-            await db.query('COMMIT');r.acessoFicticioDesativado=true;assert.deepEqual(await agregado(),r.antes);r.existentesPreservados=true;salvar();}}
+            await db.query('COMMIT');r.acessoFicticioDesativado=true;salvar();}}
         catch{await db.query('ROLLBACK').catch(()=>{});r.limpezaBancoPendente=true;erro??=Error('LIMPEZA_BANCO');salvar();}
+        try{if(conectado&&r.fixture){
+            r.preservacao=compararPreservacao(r.antesPreservacao,await snapshotPreservacao(db,EMPRESA));
+            assert.equal(r.preservacao.comercialPreservado,true,'CONDICOES_EXISTENTES_ALTERADAS');
+            r.existentesPreservados=true;salvar();}}
+        catch{r.preservacaoNaoComprovada=true;erro??=Error('PRESERVACAO_EXISTENTES');salvar();}
         await db.end().catch(()=>{});
     }
     r.concluido=!erro;salvar();console.log(JSON.stringify({resultado:erro?'INCOMPLETO':'PASS',acesso:r.acessoDepois,
