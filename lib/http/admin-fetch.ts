@@ -1,7 +1,7 @@
 'use client';
 import {
     cancelarRenovacaoDeSessao, concluirRenovacaoDeSessao, contextoMudou, guardarAvisoDeContexto, iniciarRenovacaoDeSessao,
-    registrarContextoEmpresa, reiniciarContextoEmpresa, saidaDaSessaoEmAndamento,
+    marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, saidaDaSessaoEmAndamento, sessaoObsoletaDesde,
 } from './contexto-empresa-cliente';
 
 type InfoSessao = { ok?: boolean; data?: { usuarioId?: string | null; sessaoId?: string; csrf?: string; contexto?: { empresaAtual?: { id: string } | null } } };
@@ -11,15 +11,19 @@ export const AVISO_RESULTADO_INCERTO = 'Resultado incerto: a operação pode ou 
 /**
  * Leitura da sessão para confirmar o contexto. Distingue sessão encerrada (resposta válida sem usuário) de FALHA
  * na própria confirmação (rede, HTTP não-2xx ou corpo inválido): na falha o contexto é desconhecido.
+ * "Encerrada" de uma leitura que saiu antes de uma troca de empresa desta página é OBSOLETA (sessão anterior, já
+ * revogada pela troca): não vale como fim da sessão nova (lib/http/contexto-empresa-cliente.ts, iniciarTrocaDeEmpresa).
  */
-type Confirmacao = { estado: 'valida'; info: InfoSessao } | { estado: 'encerrada' } | { estado: 'falha' };
+type Confirmacao = { estado: 'valida'; info: InfoSessao } | { estado: 'encerrada' } | { estado: 'obsoleta' } | { estado: 'falha' };
 async function confirmarSessao(): Promise<Confirmacao> {
+    const marca = marcaDaSessao();
     try {
         const r = await fetch('/api/admin/autenticacao', { cache: 'no-store' });
         if (!r.ok) return { estado: 'falha' };
         const info = await r.json() as InfoSessao;
         if (!info?.ok) return { estado: 'falha' };
-        return info.data?.usuarioId ? { estado: 'valida', info } : { estado: 'encerrada' };
+        if (info.data?.usuarioId) return { estado: 'valida', info };
+        return sessaoObsoletaDesde(marca) ? { estado: 'obsoleta' } : { estado: 'encerrada' };
     }
     catch {
         return { estado: 'falha' };
@@ -46,6 +50,9 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
     if (previa.estado === 'falha')
         // Nada foi pedido ao servidor e nada é entregue: o componente só recebe o erro.
         throw Error(escrita ? 'Não foi possível confirmar a sessão antes do envio. Nada foi enviado.' : 'Não foi possível confirmar a sessão. Tente novamente.');
+    if (previa.estado === 'obsoleta')
+        // A troca de empresa desta página começou: nada é enviado com a sessão anterior; a própria troca navega.
+        throw Error(escrita ? 'A empresa ativa ou a sessão mudou antes do envio. Nada foi enviado.' : 'A empresa ou a sessão mudou. Atualizando a página.');
     const info: InfoSessao = previa.estado === 'valida' ? previa.info : {};
     if (previa.estado === 'encerrada' || !info.data?.usuarioId) {
         // Durante a saída iniciada pela própria tela (components/admin/sair.ts) nada é sobreposto: ela já navega.
@@ -94,7 +101,8 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
         throw Error(aviso);
     }
     const encerrada = depois.estado === 'encerrada';
-    if (encerrada || contextoMudou(depois.info.data!.sessaoId!, empresaDe(depois.info))) {
+    // Obsoleta (troca de empresa desta página em curso) = contexto mudou, sem ir ao login: o resultado da escrita é avisado.
+    if (encerrada || depois.estado === 'obsoleta' || contextoMudou(depois.info.data!.sessaoId!, empresaDe(depois.info))) {
         const aviso = !escrita
             ? 'A empresa ativa ou a sessão mudou. Os dados da tela anterior foram descartados.'
             : resposta.ok
