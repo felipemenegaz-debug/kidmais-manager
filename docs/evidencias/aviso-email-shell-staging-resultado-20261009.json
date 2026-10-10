@@ -1,0 +1,17 @@
+{
+  "ambiente": "staging",
+  "cron": "crn-db493i142hec73ahmoe0",
+  "revisao": "27e072237442e2f249e1e93d85a74e62b6eb7695",
+  "inicioJanela": "2026-10-10T02:31:00.000Z",
+  "fimJanela": "2026-10-10T02:35:00.000Z",
+  "resultado": "ACEITO_REPLAY_MESMO_ID",
+  "requisicoes": 2,
+  "bancoConsultado": false,
+  "cobrancasAlteradas": 0,
+  "recebimento": "FELIPE_CONFIRMOU_UM_UNICO_EMAIL",
+  "avisoPersistidoNaTelaValidado": false,
+  "renovacaoRemotaHabilitada": false,
+  "abaShellFechada": true,
+  "desprovisionamentoVerificadoPelaApi": false,
+  "deploysExecutados": 0
+}
