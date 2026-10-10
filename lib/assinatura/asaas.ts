@@ -58,14 +58,19 @@ export function configuracaoAsaas(env: Ambiente = process.env): EstadoConfigurac
 }
 
 /** Falha de comunicação ou resposta inesperada. A mensagem nunca leva corpo da resposta, chave ou dado do pagador. */
+/** LISTA_INCOMPLETA: o provedor tem mais páginas que o limite conferido. Não é indisponibilidade: repetir não resolve. */
+export type MotivoFalhaAsaas = 'HTTP' | 'TEMPO_ESGOTADO' | 'REDE' | 'RESPOSTA_INVALIDA' | 'LISTA_INCOMPLETA';
+
 export class AsaasFalhou extends Error {
     readonly operacao: string;
     readonly status: number | null;
-    constructor(operacao: string, status: number | null, motivo: 'HTTP' | 'TEMPO_ESGOTADO' | 'REDE' | 'RESPOSTA_INVALIDA') {
+    readonly motivo: MotivoFalhaAsaas;
+    constructor(operacao: string, status: number | null, motivo: MotivoFalhaAsaas) {
         super(`Asaas: ${operacao} falhou (${motivo}${status ? ` ${status}` : ''}).`);
         this.name = 'AsaasFalhou';
         this.operacao = operacao;
         this.status = status;
+        this.motivo = motivo;
     }
 }
 
@@ -197,8 +202,9 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
             if (r?.hasMore !== true)
                 return itens;
         }
-        // Uma lista incompleta pode ocultar pagamento já realizado ou cobrança a corrigir.
-        throw new AsaasFalhou(operacao, null, 'RESPOSTA_INVALIDA');
+        // Ainda há páginas além do limite: uma lista parcial pode ocultar pagamento já realizado, assinatura vigente
+        // ou cobrança a corrigir, e nunca prova ausência (retomada, liberação, renovação). Falha fechada.
+        throw new AsaasFalhou(operacao, null, 'LISTA_INCOMPLETA');
     }
     const ref = (v: string) => encodeURIComponent(v);
     const idPath = (v: string, operacao: string) => encodeURIComponent(idValido(v, operacao));

@@ -93,8 +93,8 @@ export async function concederExcecao(tx: DbExecutor, input: { empresaId: string
 
 export async function revogarExcecao(tx: DbExecutor, input: { empresaId: string; excecaoId: string; motivo: string; usuarioId: string }) {
     const motivo = motivoValido(input.motivo);
-    const atual = (await tx.query<{ tipo: string; revogada_em: string | null; valida_ate: string }>(
-        `SELECT tipo, revogada_em::text, ${ISO('valida_ate')} AS valida_ate FROM empresa_excecoes_comerciais
+    const atual = (await tx.query<{ tipo: string; revogada_em: string | null; valida_ate: string; vencida: boolean }>(
+        `SELECT tipo, revogada_em::text, ${ISO('valida_ate')} AS valida_ate, valida_ate <= clock_timestamp() AS vencida FROM empresa_excecoes_comerciais
           WHERE id = $1::uuid AND empresa_id = $2::uuid FOR UPDATE`, [input.excecaoId, input.empresaId])).rows[0];
     if (!atual)
         throw erroAcesso('NAO_ENCONTRADO', 'Exceção não encontrada nesta empresa.', 404);
@@ -102,6 +102,9 @@ export async function revogarExcecao(tx: DbExecutor, input: { empresaId: string;
         throw erroAcesso('CONFLITO', 'A exceção já foi revogada.', 409);
     if (atual.tipo === 'EXTENSAO_TESTE')
         throw erroAcesso('CONFLITO', 'Extensão de teste não é revogada: o novo prazo já foi gravado no teste.', 409);
+    // Só exceção vigente: revogar uma já vencida gravaria na auditoria um efeito que não existiu.
+    if (atual.vencida)
+        throw erroAcesso('CONFLITO', 'A exceção já venceu; não há acesso a revogar.', 409);
     await tx.query(
         `UPDATE empresa_excecoes_comerciais SET revogada_em = clock_timestamp(), revogada_por = $3::uuid, motivo_revogacao = $4
           WHERE id = $1::uuid AND empresa_id = $2::uuid`, [input.excecaoId, input.empresaId, input.usuarioId, motivo]);
