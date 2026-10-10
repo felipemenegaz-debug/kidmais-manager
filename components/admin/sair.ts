@@ -62,7 +62,8 @@ export function sairDaSessao(deps: DependenciasSaida = {}): Promise<ResultadoSai
 async function executarSaida(deps: DependenciasSaida): Promise<ResultadoSaida> {
     const pedirRede: typeof fetch = deps.fetch ?? ((entrada, init) => fetch(entrada, init));
     const navegar = deps.navegar ?? ((destino: string) => { window.location.assign(destino); });
-    const avisar = deps.avisar ?? guardarAvisoDeContexto;
+    // O aviso da saída é o único que vale (origem 'saida': substitui qualquer outro desta página).
+    const avisar = deps.avisar ?? ((texto: string) => guardarAvisoDeContexto(texto, 'saida'));
     const agora = deps.agora ?? (() => Date.now());
     const limite = agora() + (deps.prazoMs ?? PRAZO_SAIDA_MS);
     let pedidos = 0;
