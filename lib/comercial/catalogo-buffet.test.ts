@@ -72,6 +72,25 @@ test("078: a unicidade por empresa substitui a global ANTES das cópias, numa ú
   assert.equal(sql.indexOf("buffet_itens_codigo_sem_categoria_uk", quedaGlobalSemCategoria + "DROP INDEX buffet_itens_codigo_sem_categoria_uk;".length), -1);
 });
 
+test("078: reaplicação recusa como “já aplicada” antes de exigir o índice da 050 (que a própria 078 remove)", () => {
+  const sql = readFileSync("database/migrations/20261010_078_catalogo_buffet_por_empresa.sql", "utf8");
+  const jaAplicada = sql.indexOf("RAISE EXCEPTION '078 já aplicada.'");
+  const exige050 = sql.indexOf("RAISE EXCEPTION '078 exige a 050");
+  const primeiraGuarda = sql.indexOf("RAISE EXCEPTION");
+  assert.ok(jaAplicada > 0 && exige050 > 0);
+  assert.equal(primeiraGuarda, jaAplicada, "“já aplicada” é a primeira guarda");
+  assert.equal(sql.split("078 já aplicada").length - 1, 1, "uma só guarda de reaplicação");
+});
+
+test("suíte PostgreSQL da 078: todo arquivo SQL com transação própria roda com ROLLBACK garantido", () => {
+  const fonte = readFileSync("lib/comercial/catalogo-buffet-078.postgres.test.ts", "utf8");
+  const execucoes = fonte.match(/client\.query\(arquivo\([^)]*\)\)/g) ?? [];
+  const protegidas = fonte.match(/semTransacaoPendente\(\(\) => (?:recusa\()?client\.query\(arquivo\([^)]*\)\)/g) ?? [];
+  assert.ok(execucoes.length >= 3);
+  assert.equal(protegidas.length, execucoes.length, "nenhum arquivo SQL fora de semTransacaoPendente");
+  assert.match(fonte, /finally \{\s*await client\.query\("ROLLBACK"\)\.catch\(\(\) => undefined\);/);
+});
+
 test("toda operação exige a empresa comprovada (UUID); sem ela, recusa antes de qualquer SQL", async () => {
   const { tx, consultas } = banco(A);
   for (const chamada of [

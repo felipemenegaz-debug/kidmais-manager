@@ -45,8 +45,20 @@ async function emTransacao<T>(trabalho: () => Promise<T>): Promise<T> {
     await client.query("COMMIT");
     return r;
   } catch (error) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => undefined); // o erro original prevalece
     throw error;
+  }
+}
+/**
+ * Executa um arquivo SQL com BEGIN/COMMIT próprio. Se ele (ou a asserção que o envolve) falhar no meio, a conexão
+ * ficaria em transação abortada e mascararia os testes seguintes: o ROLLBACK roda sempre, e só a falha do próprio
+ * ROLLBACK é descartada — o erro original continua sendo o lançado. Depois de um COMMIT, o ROLLBACK é inócuo.
+ */
+async function semTransacaoPendente<T>(trabalho: () => Promise<T>): Promise<T> {
+  try {
+    return await trabalho();
+  } finally {
+    await client.query("ROLLBACK").catch(() => undefined);
   }
 }
 async function recusa(promessa: Promise<unknown>, trecho: RegExp) {
@@ -101,7 +113,7 @@ test.before(async () => {
 test.after(async () => { if (client) await encerrarDescartavel(client); });
 
 test("antes da 078: 070 aplicada; catálogo global da 022 em uso pela Kidmais e por OUTRA (pacote, item solto, adicional e pedido)", async () => {
-  await client.query(arquivo(M070));
+  await semTransacaoPendente(() => client.query(arquivo(M070)));
   kidmais = (await client.query<{ id: string }>(`SELECT id::text AS id FROM empresas WHERE codigo = 'kidmais'`)).rows[0].id;
   const id = async (sql: string, p: unknown[] = []) => (await client.query<{ id: string }>(sql, p)).rows[0].id;
   salgadosGlobal = await id(`SELECT id::text AS id FROM buffet_categorias WHERE codigo = 'SALGADOS'`);
@@ -151,14 +163,16 @@ test("antes da 078: 070 aplicada; catálogo global da 022 em uso pela Kidmais e 
 });
 
 test("078: precheck lista só OUTRA; migration e postcheck; segunda aplicação recusada", async () => {
-  const pre = await client.query(arquivo("database/checks/20261010_078_precheck.sql")) as unknown as Array<{ rows: Array<Record<string, unknown>> }>;
+  const pre = await semTransacaoPendente(() => client.query(arquivo("database/checks/20261010_078_precheck.sql"))) as unknown as Array<{ rows: Array<Record<string, unknown>> }>;
   const copias = pre.flatMap((r) => r.rows ?? []).filter((l) => "empresa_que_recebe_copia" in l).map((l) => l.empresa_que_recebe_copia);
   assert.ok(copias.includes(`e78outra${sufixo}`.toLowerCase()), "OUTRA aparece na lista");
   assert.ok(!copias.includes(`e78nova${sufixo}`.toLowerCase()), "NOVA (sem uso) não aparece");
-  await client.query(arquivo(M078));
-  await client.query(arquivo("database/checks/20261010_078_postcheck.sql"));
-  await recusa(client.query(arquivo(M078)), /078 já aplicada/);
-  await client.query("ROLLBACK").catch(() => undefined);
+  await semTransacaoPendente(() => client.query(arquivo(M078)));
+  await semTransacaoPendente(() => client.query(arquivo("database/checks/20261010_078_postcheck.sql")));
+  // Reaplicação: recusada pela guarda própria (a 078 remove o índice da 050, então a mensagem precisa ser “já aplicada”).
+  await semTransacaoPendente(() => recusa(client.query(arquivo(M078)), /078 já aplicada/));
+  assert.equal((await client.query<{ n: number }>(`SELECT count(*)::int AS n FROM buffet_categorias WHERE empresa_id IS NULL`)).rows[0].n, 0,
+    "conexão utilizável depois da recusa; catálogo inteiro com dono");
 });
 
 test("Kidmais: cardápio, ids e composição idênticos, agora com empresa_id da Kidmais", async () => {

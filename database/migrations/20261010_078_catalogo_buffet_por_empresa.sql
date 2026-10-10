@@ -14,6 +14,10 @@ SET LOCAL lock_timeout = '5s';
 SET LOCAL search_path = public, pg_catalog;
 
 DO $$ BEGIN
+  -- Primeiro: a própria 078 remove o índice da 050 conferido abaixo; numa reaplicação, a mensagem certa é esta.
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'buffet_categorias' AND column_name = 'empresa_id') THEN
+    RAISE EXCEPTION '078 já aplicada.';
+  END IF;
   IF to_regclass('public.empresas') IS NULL OR to_regclass('public.buffet_categorias') IS NULL OR to_regclass('public.buffet_itens') IS NULL THEN
     RAISE EXCEPTION '078 exige empresas (031) e o catálogo do buffet (021).';
   END IF;
@@ -28,9 +32,6 @@ DO $$ BEGIN
   END IF;
   IF to_regprocedure('public.kidmais_034_recusar_empresa_distinta(uuid,uuid,text)') IS NULL THEN
     RAISE EXCEPTION '078 exige a 034 (integridade de tenant).';
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'buffet_categorias' AND column_name = 'empresa_id') THEN
-    RAISE EXCEPTION '078 já aplicada.';
   END IF;
   IF (SELECT count(*) FROM empresas WHERE codigo = 'kidmais') > 1 THEN
     RAISE EXCEPTION '078: mais de uma empresa kidmais.';

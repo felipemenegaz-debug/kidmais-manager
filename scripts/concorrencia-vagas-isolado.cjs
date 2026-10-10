@@ -26,7 +26,7 @@ const BANCOS_PROIBIDOS = Object.freeze(['kidmais_manager', 'kidmais_staging_1z91
 const HOSTS_ACEITOS = Object.freeze(['127.0.0.1', 'localhost']);
 const ULTIMA_MIGRATION = '20261010_078_catalogo_buffet_por_empresa.sql';
 /** Impressão (sha256, CRLF normalizado) de migrations + checks aplicados. Mudou → revisar o pacote e aprovar de novo. */
-const IMPRESSAO_SCHEMA = 'a543675ae56524dfc7bae8f7d815a79fac79f70bdabc2a733639c0db1f7c8510';
+const IMPRESSAO_SCHEMA = 'ba47d7bf35f49a7e934d01faba6e7678c04cccf45d405ca15895f38249ad22c1';
 const CODIGO_SOB_TESTE = Object.freeze(['lib/assinatura/limites-usuarios.ts', 'lib/acessos/convites.ts', 'lib/assinatura/ofertas.ts',
     'lib/assinatura/planos-comerciais.ts', 'database/migrations/20261009_074a_planos_comerciais.sql', 'scripts/homologacao-fundador-staging.cjs']);
 const VAGAS_FUNDADOR = 20;

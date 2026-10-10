@@ -33,7 +33,7 @@ const ARQUIVO_CREDENCIAIS = path.join(raiz, PASTA_LOCAL, 'credenciais.json');
 /** 076/077 entraram no inventário aprovado (aplicadas em staging em 10/10/2026); vêm dele com os próprios checks. */
 const ULTIMA_INVENTARIO = '20261010_078_catalogo_buffet_por_empresa.sql';
 /** Impressão (sha256, CRLF normalizado) de migrations + checks. Mudou → revisar o pacote e aprovar de novo. */
-const IMPRESSAO_SCHEMA = 'a543675ae56524dfc7bae8f7d815a79fac79f70bdabc2a733639c0db1f7c8510';
+const IMPRESSAO_SCHEMA = 'ba47d7bf35f49a7e934d01faba6e7678c04cccf45d405ca15895f38249ad22c1';
 const VARIAVEIS_COMERCIAIS = Object.freeze(['ASSINATURA_TESTE_DIAS', 'ASSINATURA_REGULARIZACAO_DIAS', 'ASSINATURA_SOMENTE_LEITURA_DIAS']);
 
 /** Empresas sintéticas: cada uma cobre um estado da matriz do navegador. */
