@@ -7,6 +7,7 @@ import { periodoSelecionado } from "@/lib/financeiro/calculos";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { exigirRecursoPlano } from "@/lib/assinatura/recursos-plano";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
       `SELECT id::text AS id, nome FROM financeiro_categorias WHERE empresa_id = $1::uuid AND ativo ORDER BY nome`,
       [tenant.empresaComprovada],
     )).rows,
-  }));
+  }), "FINANCEIRO_COMPLETO");
 }
 
 export async function POST(request: NextRequest) {
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
     const hoje = hojeIso();
     const data = await withTenantTransaction(sessao, null, async (tx, tenant) => {
       const empresaId = tenant.empresaComprovada;
+      await exigirRecursoPlano(tx, empresaId, "FINANCEIRO_COMPLETO");
       if (input.acao === "criar") return criarContaPagar(tx, empresaId, tenant.usuarioId, input);
       if (input.acao === "editar") return editarContaPagar(tx, empresaId, tenant.usuarioId, input.id, input);
       if (input.acao === "pagar") return pagarConta(tx, empresaId, tenant.usuarioId, input);

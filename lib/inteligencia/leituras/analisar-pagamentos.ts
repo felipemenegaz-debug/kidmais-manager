@@ -11,6 +11,8 @@ import { PAPEIS_ADMIN, ausencia, calculo, evidencia, fato, montarResposta, semPa
  */
 const FONTE = "financeiro.recebimentos";
 const DESTINO = "/admin/financeiro/fluxo-caixa";
+/** Plano sem fluxo de caixa (Essencial): a evidência aponta para Contas a receber, que é de todos os planos. */
+const DESTINO_SEM_FLUXO = "/admin/financeiro/contas-receber";
 
 export type Periodos = { atual: { inicio: string; fim: string }; anterior: { inicio: string; fim: string }; anteriorCheio: { inicio: string; fim: string } };
 
@@ -27,6 +29,7 @@ export function montarAnalisePagamentos(
   valores: { atualCentavos: number; anteriorCentavos: number; anteriorCheioCentavos: number },
   periodos: Periodos,
   contexto: ContextoFerramenta,
+  destino: string = DESTINO,
 ): RespostaLeitura {
   const { atualCentavos, anteriorCentavos, anteriorCheioCentavos } = valores;
   const intervalo = `${periodos.atual.inicio.slice(8)}–${periodos.atual.fim.slice(8)}`;
@@ -60,8 +63,8 @@ export function montarAnalisePagamentos(
     resumo,
     fatos,
     evidencias: [
-      evidencia(FONTE, `Recebido ${periodos.atual.inicio} a ${periodos.atual.fim}`, reaisDe(atualCentavos), DESTINO),
-      evidencia(FONTE, `Recebido ${periodos.anterior.inicio} a ${periodos.anterior.fim}`, reaisDe(anteriorCentavos), DESTINO),
+      evidencia(FONTE, `Recebido ${periodos.atual.inicio} a ${periodos.atual.fim}`, reaisDe(atualCentavos), destino),
+      evidencia(FONTE, `Recebido ${periodos.anterior.inicio} a ${periodos.anterior.fim}`, reaisDe(anteriorCentavos), destino),
     ],
     fontes: [FONTE],
   });
@@ -83,7 +86,8 @@ export const analisarPagamentos: Ferramenta<RespostaLeitura> = {
       const atualCentavos = await recebidoNoPeriodo(tx, empresa, periodos.atual.inicio, periodos.atual.fim);
       const anteriorCentavos = await recebidoNoPeriodo(tx, empresa, periodos.anterior.inicio, periodos.anterior.fim);
       const anteriorCheioCentavos = await recebidoNoPeriodo(tx, empresa, periodos.anteriorCheio.inicio, periodos.anteriorCheio.fim);
-      return montarAnalisePagamentos({ atualCentavos, anteriorCentavos, anteriorCheioCentavos }, periodos, contexto);
+      const fluxo = await contexto.portas.recursos?.financeiroCompleto(tx, empresa);
+      return montarAnalisePagamentos({ atualCentavos, anteriorCentavos, anteriorCheioCentavos }, periodos, contexto, fluxo === false ? DESTINO_SEM_FLUXO : DESTINO);
     };
   },
 };

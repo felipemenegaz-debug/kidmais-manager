@@ -61,7 +61,7 @@ export default function AdminShell({ children, vitrine }: {
                 setContexto(c ?? null);
                 setComercial((b.data.comercial as ComercialCliente | null | undefined) ?? null);
                 setCadastroAberto(b.data.cadastroAberto === true);
-                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma) });
+                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
         }).catch(() => router.replace('/admin/login'));

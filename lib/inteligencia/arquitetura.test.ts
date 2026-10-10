@@ -73,6 +73,8 @@ const PERMITIDOS_IA: Readonly<Record<string, readonly string[]>> = {
 /** Composition roots: além da IA, ligam guard, tenant, pool e os serviços de domínio reais às portas. */
 const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   "lib/financeiro/servico": ["criarContaPagar", "listarCategoriasDespesa"],
+  // Barreira de plano no servidor: a ação de conta a pagar respeita o mesmo plano das rotas de Contas a pagar.
+  "lib/assinatura/recursos-plano": ["exigirRecursoPlano", "recursoIncluido"],
   "next/server": ["NextRequest"],
   "node:crypto": ["randomUUID"],
   "lib/http/admin-crm-api": ["exigirApiAdminCrmDisponivel", "tokenAdmin"],

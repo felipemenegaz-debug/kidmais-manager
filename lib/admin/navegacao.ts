@@ -38,12 +38,19 @@ const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma'
     { href: '/admin/configuracoes/tabela-pacotes', rotulo: 'PDF de Pacotes', grupo: 'Configurações', autoridade: 'plataforma' },
 ];
 
-export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean };
+/** `financeiroCompleto: false` = plano sem contas a pagar (Essencial). Ausente = incluído (teste, legado, isenta). */
+export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean; financeiroCompleto?: boolean };
+
+/** Telas do financeiro completo; a mesma matriz de lib/assinatura/recursos-plano.ts recusa as APIs no servidor. */
+export const ROTAS_FINANCEIRO_COMPLETO = ['/admin/financeiro/contas-pagar', '/admin/financeiro/fluxo-caixa', '/admin/financeiro/relatorios'] as const;
 
 /** `true`/`false` mantém o comportamento antigo (as duas autoridades juntas); o shell passa as duas separadas. */
 export function itensNavegacao(permissoes: boolean | PermissoesNavegacao): ItemNavegacao[] {
-    const p = typeof permissoes === 'boolean' ? { gestaoEmpresa: permissoes, plataforma: permissoes } : permissoes;
-    const base = [...PRINCIPAL, ...OPERACAO, ...FINANCEIRO];
+    const p: PermissoesNavegacao = typeof permissoes === 'boolean' ? { gestaoEmpresa: permissoes, plataforma: permissoes } : permissoes;
+    const financeiro = p.financeiroCompleto === false
+        ? FINANCEIRO.filter((item) => !(ROTAS_FINANCEIRO_COMPLETO as readonly string[]).includes(item.href))
+        : FINANCEIRO;
+    const base = [...PRINCIPAL, ...OPERACAO, ...financeiro];
     const config = CONFIGURACAO
         .filter((item) => (item.autoridade === 'empresa' ? p.gestaoEmpresa : p.plataforma))
         .map(({ autoridade: _autoridade, ...item }) => { void _autoridade; return item; });

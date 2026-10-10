@@ -4,6 +4,7 @@ import { hojeBrasilia } from "./calculos.ts";
 import { exigirApiAdminCrmDisponivel } from "../http/admin-crm-api.ts";
 import { apiErrorResponse, jsonNoStore } from "../http/api-response.ts";
 import type { DbExecutor } from "../db/contracts.ts";
+import { exigirRecursoPlano, type RecursoPlano } from "../assinatura/recursos-plano.ts";
 import { withTenantTransaction, type TenantComprovado } from "../saas/provar-tenant.ts";
 
 export function hojeIso() {
@@ -27,10 +28,14 @@ function recusarPeriodo(): never {
 export async function consultarFinanceiro<T>(
   request: NextRequest,
   work: (tx: DbExecutor, tenant: TenantComprovado) => Promise<T>,
+  recurso?: RecursoPlano,
 ) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
-    const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), work);
+    const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), async (tx, tenant) => {
+      if (recurso) await exigirRecursoPlano(tx, tenant.empresaComprovada, recurso);
+      return work(tx, tenant);
+    });
     return jsonNoStore({ ok: true, data });
   } catch (error) {
     return apiErrorResponse(error);
