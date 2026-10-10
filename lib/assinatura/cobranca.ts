@@ -485,6 +485,8 @@ async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculo
  * automaticamente; a reconciliação só relê pelo id (removida → exclusão auditada pela releitura; existe → revisão humana).
  *   - marcador não gravado → NÃO exclui; pendência COMPENSACAO_FALHOU (nada executado: a reconciliação decide de novo);
  *   - confirmada → marcador fecha (REMOCAO_CONFIRMADA) + ASSINATURA_DUPLICADA_REMOVIDA; as pendências da operação encerram;
+ *   - ausente (404) → marcador fecha (AUSENCIA_CONFIRMADA_NA_EXCLUSAO) + ação neutra ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO;
+ *     as pendências encerram como DUPLICATA_AUSENTE_NO_PROVEDOR (ausência comprovada, autoria não);
  *   - recusa definitiva (4xx) → marcador fecha (REMOCAO_RECUSADA) e pendência COMPENSACAO_FALHOU;
  *   - sem confirmação (resposta perdida, 5xx, resposta sem `deleted`) → marcador aberto (REMOCAO_SEM_CONFIRMACAO) +
  *     ASSINATURA_REMOCAO_SEM_CONFIRMACAO; nada é registrado como sucesso.
@@ -504,6 +506,9 @@ async function compensarComMarcador(deps: DepsCobranca, provedor: ClienteAsaas, 
     const gravado = await registrarResultadoRemocao(independente!, empresaId, marcador, remocao, origem, async (tx) => {
         if (remocao.resultado === 'CONFIRMADA')
             await encerrarPendencias(tx, empresaId, b.encerrar, 'COMPENSADA');
+        else if (remocao.resultado === 'AUSENTE')
+            // 404: a duplicata não existe mais; as pendências fecham sem atribuir a remoção a este pedido.
+            await encerrarPendencias(tx, empresaId, b.encerrar, 'DUPLICATA_AUSENTE_NO_PROVEDOR');
         else {
             if (remocao.resultado === 'RECUSADA')
                 await registrarPendencia(tx, { empresaId, assinaturaId, motivo: 'COMPENSACAO_FALHOU' });

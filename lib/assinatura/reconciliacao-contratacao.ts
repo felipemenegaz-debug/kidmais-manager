@@ -82,7 +82,7 @@ export function intencaoDoIdConfirmado(eventoId: string) {
  * (fase C): vínculo e encerramento são atômicos — ou os dois, ou nenhum. NUNCA encerra marcador de exclusão: ele só fecha
  * pelo resultado confirmado do próprio DELETE (fecharMarcadorRemocao) ou pela releitura (registrarRemocoes).
  */
-export async function encerrarPendencias(tx: DbExecutor, empresaId: string, ids: readonly string[], motivo: 'VINCULADA' | 'COMPENSADA' | 'SUBSTITUIDA_POR_PENDENCIA') {
+export async function encerrarPendencias(tx: DbExecutor, empresaId: string, ids: readonly string[], motivo: 'VINCULADA' | 'COMPENSADA' | 'DUPLICATA_AUSENTE_NO_PROVEDOR' | 'SUBSTITUIDA_POR_PENDENCIA') {
     if (!ids.length)
         return;
     await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $3
@@ -118,8 +118,10 @@ export type ResultadoReconciliacao =
  * quem chama grava depois do SAVEPOINT (liberado ou desfeito). Sem confirmação nunca conta como removida.
  */
 export type RegistroRemocoes = {
-    /** O provedor confirmou (resposta com `deleted`, ou 404 = já removida). */
+    /** O provedor confirmou que ESTE DELETE removeu (resposta com `deleted`). */
     confirmadas: string[];
+    /** O DELETE respondeu 404: a assinatura já não existia. Prova ausência, não autoria (ação neutra). */
+    ausentes: string[];
     /** Pedido enviado sem confirmação: pode ou não ter sido executado. */
     semConfirmacao: string[];
     /**
@@ -128,7 +130,7 @@ export type RegistroRemocoes = {
      */
     confirmadasNaReleitura: Array<{ marcadorId: string }>;
 };
-export const novoRegistroRemocoes = (): RegistroRemocoes => ({ confirmadas: [], semConfirmacao: [], confirmadasNaReleitura: [] });
+export const novoRegistroRemocoes = (): RegistroRemocoes => ({ confirmadas: [], ausentes: [], semConfirmacao: [], confirmadasNaReleitura: [] });
 
 /** A exclusão pode ter sido executada? Mesma regra de `resultadoIncerto` (cobranca.ts); erro desconhecido → pode. */
 function remocaoPodeTerOcorrido(error: unknown) {
@@ -138,11 +140,18 @@ function remocaoPodeTerOcorrido(error: unknown) {
     return s === null || s >= 500 || s === 408 || s === 409 || s === 429 || s < 400;
 }
 
-/** Resultado classificado de uma exclusão no provedor. Único ponto que chama `removerAssinatura` na contratação e na reconciliação. */
-export type ResultadoRemocao = { resultado: 'CONFIRMADA' } | { resultado: 'RECUSADA'; erro: unknown } | { resultado: 'DESCONHECIDA' };
+/**
+ * Resultado classificado de uma exclusão no provedor. Único ponto que chama `removerAssinatura` na contratação e na reconciliação.
+ *   - CONFIRMADA: o provedor respondeu que ESTE DELETE removeu (`deleted`);
+ *   - AUSENTE: 404 — a assinatura já não existia; comprova ausência, não que este pedido a removeu;
+ *   - RECUSADA: 4xx definitivo — comprovadamente não executado;
+ *   - DESCONHECIDA: sem resposta, 5xx, 408/409/429 ou resposta sem `deleted` — pode ou não ter sido executado.
+ */
+export type ResultadoRemocao = { resultado: 'CONFIRMADA' } | { resultado: 'AUSENTE' } | { resultado: 'RECUSADA'; erro: unknown } | { resultado: 'DESCONHECIDA' };
 export async function removerComResultado(provedor: Pick<ClienteAsaas, 'removerAssinatura'>, assinaturaId: string): Promise<ResultadoRemocao> {
     try {
-        return (await provedor.removerAssinatura(assinaturaId)).removida ? { resultado: 'CONFIRMADA' } : { resultado: 'DESCONHECIDA' };
+        const r = await provedor.removerAssinatura(assinaturaId);
+        return r.ausente === true ? { resultado: 'AUSENTE' } : r.removida ? { resultado: 'CONFIRMADA' } : { resultado: 'DESCONHECIDA' };
     }
     catch (error) {
         return remocaoPodeTerOcorrido(error) ? { resultado: 'DESCONHECIDA' } : { resultado: 'RECUSADA', erro: error };
@@ -158,7 +167,7 @@ export async function abrirMarcadorRemocao(tx: DbExecutor, empresaId: string, as
 }
 
 /** Resultado conhecido: o marcador fecha (a identidade do evento é imutável na 068; só situação e motivo mudam). */
-export async function fecharMarcadorRemocao(tx: DbExecutor, empresaId: string, id: string, motivo: 'REMOCAO_CONFIRMADA' | 'REMOCAO_RECUSADA') {
+export async function fecharMarcadorRemocao(tx: DbExecutor, empresaId: string, id: string, motivo: 'REMOCAO_CONFIRMADA' | 'AUSENCIA_CONFIRMADA_NA_EXCLUSAO' | 'REMOCAO_RECUSADA') {
     await tx.query(`UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $3
                      WHERE id = $1::uuid AND empresa_id = $2::uuid AND tipo = $4 AND situacao IN ('PENDENTE', 'FALHOU')`, [id, empresaId, motivo, TIPO_PENDENCIA]);
 }
@@ -210,8 +219,10 @@ export async function persistirMarcadorPrevio(independente: TransacaoIndependent
 
 /**
  * Grava o resultado do DELETE na transação independente (sobrevive à de quem chama). Confirmada → marcador fecha +
- * ASSINATURA_DUPLICADA_REMOVIDA; recusada (4xx) → marcador fecha; desconhecida → marcador aberto +
- * ASSINATURA_REMOCAO_SEM_CONFIRMACAO. `extra` roda na mesma transação (contratação: pendências da operação).
+ * ASSINATURA_DUPLICADA_REMOVIDA; ausente (404) → marcador fecha (AUSENCIA_CONFIRMADA_NA_EXCLUSAO) + ação NEUTRA
+ * ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO (não atribui a remoção a este pedido); recusada (4xx) → marcador fecha;
+ * desconhecida → marcador aberto + ASSINATURA_REMOCAO_SEM_CONFIRMACAO. `extra` roda na mesma transação (contratação:
+ * pendências da operação).
  * false → não gravou: o marcador continua REMOCAO_EM_CURSO e vale só a releitura.
  */
 export async function registrarResultadoRemocao(independente: TransacaoIndependente, empresaId: string, marcadorId: string, remocao: ResultadoRemocao,
@@ -222,6 +233,10 @@ export async function registrarResultadoRemocao(independente: TransacaoIndepende
             if (remocao.resultado === 'CONFIRMADA') {
                 await fecharMarcadorRemocao(tx, empresaId, marcadorId, 'REMOCAO_CONFIRMADA');
                 await auditarCobranca(tx, { acao: 'ASSINATURA_DUPLICADA_REMOVIDA', empresaId, origem, ip: null, depois: { removidas: 1, confirmacao: 'RESPOSTA_DO_PROVEDOR' } });
+            }
+            else if (remocao.resultado === 'AUSENTE') {
+                await fecharMarcadorRemocao(tx, empresaId, marcadorId, 'AUSENCIA_CONFIRMADA_NA_EXCLUSAO');
+                await auditarCobranca(tx, { acao: 'ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO', empresaId, origem, ip: null, depois: { ausentes: 1, confirmacao: 'AUSENCIA_NA_RESPOSTA_DA_EXCLUSAO' } });
             }
             else if (remocao.resultado === 'RECUSADA')
                 await fecharMarcadorRemocao(tx, empresaId, marcadorId, 'REMOCAO_RECUSADA');
@@ -369,13 +384,17 @@ export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, 
         // Recusa definitiva (4xx) gravada: nada foi excluído; a pendência volta a ser tentada. O que já foi excluído está gravado.
         if (remocao.resultado === 'RECUSADA' && gravado)
             throw remocao.erro;
-        if (remocao.resultado !== 'CONFIRMADA' || !gravado) {
+        if ((remocao.resultado !== 'CONFIRMADA' && remocao.resultado !== 'AUSENTE') || !gravado) {
             // Resultado desconhecido (ou não gravado): não conta como removida, não é repetida; para aqui e vai para revisão.
             registro.semConfirmacao.push(d.id);
             preservadas.push({ id: d.id, motivo: 'REMOCAO_SEM_CONFIRMACAO' });
             return revisao();
         }
-        registro.confirmadas.push(d.id);
+        // Ausente (404): a duplicata não existe mais, mas não conta como removida por nós.
+        if (remocao.resultado === 'AUSENTE')
+            registro.ausentes.push(d.id);
+        else
+            registro.confirmadas.push(d.id);
     }
     if (preservadas.length)
         return revisao();

@@ -87,7 +87,8 @@ export type ClienteAsaas = {
     listarAssinaturasPorReferencia(referencia: string): Promise<AssinaturaProvedor[]>;
     criarAssinatura(input: { cliente: string; valorCentavos: number; ciclo: Ciclo; vencimento: string; referencia: string; descricao: string }): Promise<AssinaturaProvedor>;
     listarCobrancasDaAssinatura(id: string): Promise<CobrancaProvedor[]>;
-    removerAssinatura(id: string): Promise<{ removida: boolean }>;
+    /** `ausente`: o provedor respondeu 404 — a assinatura não existe mais, mas nada prova que ESTE pedido a removeu. */
+    removerAssinatura(id: string): Promise<{ removida: boolean; ausente?: boolean }>;
 };
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -268,11 +269,12 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
         async listarCobrancasDaAssinatura(id) {
             return listar('listar cobranças', `/subscriptions/${idPath(id, 'listar cobranças')}/payments`, (o) => cobranca(o, 'listar cobranças'));
         },
-        // DELETE /v3/subscriptions/{id} — remove cobranças pendentes/vencidas; pagas permanecem. 404 = já removida.
+        // DELETE /v3/subscriptions/{id} — remove cobranças pendentes/vencidas; pagas permanecem.
+        // 404 = já ausente: comprova a ausência, não a autoria da remoção (`ausente`, auditado com ação neutra).
         // https://docs.asaas.com/reference/remover-assinatura
         async removerAssinatura(id) {
             const r = await chamar('remover assinatura', 'DELETE', `/subscriptions/${idPath(id, 'remover assinatura')}`, undefined, true);
-            return { removida: r === null || r.deleted === true };
+            return r === null ? { removida: true, ausente: true } : { removida: r.deleted === true };
         },
     };
 }

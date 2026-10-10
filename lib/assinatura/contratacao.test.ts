@@ -47,9 +47,9 @@ test('nenhuma exclusão automática sem vínculo confirmado; falha de compensaç
         'marcador não gravado → não exclui');
     assert.match(compensar, /registrarResultadoRemocao\(independente!, empresaId, marcador, remocao, origem,/);
     const rec = readFileSync('lib/assinatura/reconciliacao-contratacao.ts', 'utf8');
-    // Único ponto que chama o provedor para excluir; sem confirmação só com `removida` verdadeiro, 4xx = recusa, o resto = desconhecido.
+    // Único ponto que chama o provedor para excluir: 404 = ausente (sem autoria), `removida` = confirmada, 4xx = recusa, o resto = desconhecido.
     assert.equal(rec.match(/removerAssinatura\(/g)?.length, 1);
-    assert.match(rec, /return \(await provedor\.removerAssinatura\(assinaturaId\)\)\.removida \? \{ resultado: 'CONFIRMADA' \} : \{ resultado: 'DESCONHECIDA' \};/);
+    assert.match(rec, /const r = await provedor\.removerAssinatura\(assinaturaId\);\s*return r\.ausente === true \? \{ resultado: 'AUSENTE' \} : r\.removida \? \{ resultado: 'CONFIRMADA' \} : \{ resultado: 'DESCONHECIDA' \};/);
     assert.match(rec, /return remocaoPodeTerOcorrido\(error\) \? \{ resultado: 'DESCONHECIDA' \} : \{ resultado: 'RECUSADA', erro: error \};/);
     // Marcador prévio: só na transação independente (COMMIT próprio), com limite de espera por lock e uma exclusão por assinatura.
     const previo = rec.slice(rec.indexOf('export async function persistirMarcadorPrevio('), rec.indexOf('export async function registrarResultadoRemocao('));
@@ -67,7 +67,7 @@ test('nenhuma exclusão automática sem vínculo confirmado; falha de compensaç
     assert.equal(rec.match(/removerComResultado\(provedor,/g)?.length, 1);
     // Sem confirmação (ou resultado não gravado) nunca conta como removida.
     assert.equal(rec.match(/registro\.confirmadas\.push\(/g)?.length, 1);
-    assert.match(rec, /if \(remocao\.resultado !== 'CONFIRMADA' \|\| !gravado\) \{[\s\S]*?registro\.semConfirmacao\.push\(d\.id\);[\s\S]*?return revisao\(\);\s*\}\s*registro\.confirmadas\.push\(d\.id\);/);
+    assert.match(rec, /if \(\(remocao\.resultado !== 'CONFIRMADA' && remocao\.resultado !== 'AUSENTE'\) \|\| !gravado\) \{[\s\S]*?registro\.semConfirmacao\.push\(d\.id\);[\s\S]*?return revisao\(\);\s*\}[\s\S]*?if \(remocao\.resultado === 'AUSENTE'\)\s*registro\.ausentes\.push\(d\.id\);\s*else\s*registro\.confirmadas\.push\(d\.id\);/);
     assert.match(fonte, /pg_try_advisory_xact_lock\(hashtext\('kidmais:contratacao'\), hashtext\(\$1\)\)/);
 });
 
