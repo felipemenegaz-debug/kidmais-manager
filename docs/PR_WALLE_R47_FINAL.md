@@ -2,7 +2,7 @@
 
 - **Base:** `staging`
 - **Head:** `whatsapp/walle-r47-renumera-20261010` (a partir de `c9213868`, que segue preservada; migrations do atendimento
-  renumeradas e staging `5a626ea` integrado)
+  renumeradas e staging `235b082` integrado)
 - **SHA candidato:** o SHA exato e os gates ficam no relatório de gates da correção (fora do diff: um documento não registra o
   próprio SHA); `aeedb19` e `5b428a7` preservados.
 
@@ -10,7 +10,7 @@
 >
 > **Numeração (10/10):** o staging criou `20261010_076_cpf_por_empresa` e `20261010_077_regras_pagamento_empresa`. As
 > migrations desta PR que colidiam foram renumeradas: **076 → 077a** (mensagens prontas) e **077 → 077b** (mídia das
-> prontas); a **078** (Wall-e) não colidia e foi mantida. Staging `5a626ea` integrado. Números livres não são reserva:
+> prontas); a **078** (Wall-e) não colidia e foi mantida. Staging `235b082` integrado. Números livres não são reserva:
 > reconferir imediatamente antes do push.
 >
 > Staging `138910a` foi integrado localmente sem conflitos. Gates anteriores abaixo são históricos; os gates novos usam o SHA final.
@@ -237,7 +237,7 @@ A integração local incorporou `staging` em `138910a8cc80a1d43a68e84f6c6e166a4f
   filtro de plano só esconde contas a pagar, fluxo e relatórios) e regras de arquitetura (composition roots do WhatsApp e
   barreira de plano convivem). O Atendimento não depende de plano nesta PR.
 - **Colisão de migrations resolvida (10/10):** 076 → 077a e 077 → 077b; 078 mantida. Staging `5a626ea` (relido às
-  09:03Z) integrado sem conflito; a 076/077 do staging registradas no inventário; coexistência com CPF por empresa e
+  09:03Z) e depois `235b082` (09:09Z; só homologação, sem migration) integrados sem conflito; a 076/077 do staging registradas no inventário; coexistência com CPF por empresa e
   regras de pagamento provada (`coexistencia-cpf-pagamento`). O atendimento não usa CPF nem regras de pagamento: a busca
   por contato (`buscarClientesPorContatoExato`) e o preço do Wall-e (`calcularResumoComercial`) não mudaram; desconto no
   Pix continua sendo negociação, passada à equipe.
