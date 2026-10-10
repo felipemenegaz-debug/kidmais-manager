@@ -36,7 +36,8 @@
 .painel { composes: glass from '../admin/visual.module.css'; min-width: 0; margin: 0 0 20px; padding: 24px; border-radius: 24px; }
 .configuracao .painel { margin-bottom: 0; }
 .painel > legend {
-  float: left;
+  display: block;
+  float: none;
   width: 100%;
   margin: 0 0 18px;
   padding: 0 0 12px;
@@ -45,7 +46,6 @@
   font-size: 14px;
   font-weight: 800;
 }
-.configuracao fieldset.painel::after { display: table; clear: both; content: ""; }
 .painel h2 { color: var(--lilac-accent); font-size: 18px; font-weight: 800; margin: 6px 0 16px; }
 .painel > p { color: var(--secondary-text); font-size: 14px; line-height: 1.6; }
 .painel summary { color: var(--lilac-accent); font-weight: 800; cursor: pointer; }
