@@ -1,7 +1,7 @@
 # Homologação consolidada de pagamento e renovação Fundador em staging — rodada 3 (pacote de 10/10/2026)
 
 
-> **Candidata fixada em 10/10/2026:** código `6acdb60375d43f50a51d169bfad73bc358954b03`. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o apresentado no pedido de aprovação e é o único que pode ser usado (`git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD` deve listar só `docs/`). Qualquer outra diferença: parar.
+> **Candidata fixada em 10/10/2026:** código `4337aa4510ea0a7ed876e44abdbd1f9df30527e1`. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o apresentado no pedido de aprovação e é o único que pode ser usado (`git diff --name-only 4337aa4510ea0a7ed876e44abdbd1f9df30527e1 HEAD` deve listar só `docs/`). Qualquer outra diferença: parar.
 
 **Status: PRONTO PARA APROVAÇÃO, NÃO EXECUTADO.** Exclusivamente staging (`srv-daif418ae00c73e8k2gg`, `kidmais_staging_1z91`) e Asaas sandbox. Produção não é tocada. Nenhum comando deste pacote foi executado contra banco, Render, Asaas ou serviço de e-mail; só os testes offline e o ESLint locais. Cada passo P1–P4 depende de aprovação explícita de Felipe para a candidata ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)).
 
@@ -20,7 +20,7 @@ Executor novo: `scripts/homologacao-pagamento-renovacao-staging.cjs`, flag únic
 
 ## Candidata
 
-- **Código: `6acdb60375d43f50a51d169bfad73bc358954b03`** (executor, teste e este pacote sobre a ponta de `origin/staging` vigente na aprovação). O SHA exato é o apresentado no pedido de aprovação e é o único que P1 envia.
+- **Código: `4337aa4510ea0a7ed876e44abdbd1f9df30527e1`** (executor, teste e este pacote sobre a ponta de `origin/staging` vigente na aprovação). O SHA exato é o apresentado no pedido de aprovação e é o único que P1 envia.
 - **Pré-requisito G1 na candidata:** `DepsRenovacao.relogioReal?: () => Date`, usado só na janela de 23 h da retentativa do aviso (`(deps.relogioReal?.() ?? deps.agora())`), com as datas de negócio em `agora`. Está sendo implementado em paralelo em `lib/assinatura/renovacao-fundador.ts` (presente na árvore local de 10/10, ainda não commitado). O executor confere G1 na fonte antes de qualquer conexão (`G1_AUSENTE_S1`).
 - Diferença para `origin/staging`: este executor, seu teste, este documento e G1 (mais o que a outra frente entregar na mesma candidata, a revisar no diff completo). Se `origin/staging` avançar antes de P1: **não enviar**; integrar sem force, revisar o diff completo, revalidar e reapresentar o SHA.
 
@@ -65,7 +65,7 @@ E-mails `hml-pr-<8 primeiros do usuário>@example.invalid`, senhas só em memór
 | # | Operação exata | Efeito | Duração |
 |---|---|---|---|
 | P1 | Revalidar branch e auto-deploy (Render MCP, leitura); `git push origin <SHA do commit do pacote, informado no pedido>:staging` (fast-forward, sem force). | só repositório | segundos |
-| P2 | Shell: `node scripts/configuracao-homologacao-staging.cjs --conferir-restauracao` → `RESTAURADA` (registro: **as duas chaves ausentes**). Render MCP merge de **exatamente duas** chaves: `ASSINATURA_PLANOS_ATIVOS=true` e `COTACAO_PUBLICA_POR_EMPRESA=true` (uma gravação, que dispara um deploy). Acompanhar esse deploy (sem disparar outro); conferir commit LIVE = `6acdb60375d43f50a51d169bfad73bc358954b03`, `/api/health` 200 e, no Shell, `RENDER_GIT_COMMIT` e as duas chaves `true`. | web com a candidata, planos e cotação pública por empresa ligados | ~6 min |
+| P2 | Shell: `node scripts/configuracao-homologacao-staging.cjs --conferir-restauracao` → `RESTAURADA` (registro: **as duas chaves ausentes**). Render MCP merge de **exatamente duas** chaves: `ASSINATURA_PLANOS_ATIVOS=true` e `COTACAO_PUBLICA_POR_EMPRESA=true` (uma gravação, que dispara um deploy). Acompanhar esse deploy (sem disparar outro); conferir commit LIVE = `4337aa4510ea0a7ed876e44abdbd1f9df30527e1`, `/api/health` 200 e, no Shell, `RENDER_GIT_COMMIT` e as duas chaves `true`. | web com a candidata, planos e cotação pública por empresa ligados | ~6 min |
 | P3 | Shell: `cd /opt/render/project/src && nohup node --experimental-strip-types scripts/homologacao-pagamento-renovacao-staging.cjs --pagamento-renovacao-rodada-3-autorizada > data/homologacao-planos-cotacao-20261010/pagamento-renovacao-saida.log 2>&1 < /dev/null &` **antes das 20h BRT** (registrar PID; não redeployar). Depois `cat` do log e registro sanitizado em `docs/evidencias/`. | ver [Efeitos](#efeitos-inclusive-permanentes) | ~15–30 min |
 | P4 | Painel: remover **as duas** chaves (`ASSINATURA_PLANOS_ATIVOS` e `COTACAO_PUBLICA_POR_EMPRESA`, "Save only"); `trigger_deploy` (ponta da branch conferida antes); `--conferir-restauracao` → `RESTAURADA` (ambas ausentes, como no registro); fechar o Shell. | configuração registrada restaurada | ~6 min |
 
@@ -178,7 +178,7 @@ Nunca lança; o erro original prevalece. Nunca apaga linha. Só atua sobre o que
 ## Decisões pedidas a Felipe
 
 - **D1** — aceitar 3 vagas permanentes (em vez de 6) e o mapeamento F1 Essencial mensal / F2 Profissional anual / F5 Premium mensal.
-- **D2** — janela de execução fora da atividade D+2 (S3) e "pode ir" explícito para P1–P4 da `6acdb60375d43f50a51d169bfad73bc358954b03`.
+- **D2** — janela de execução fora da atividade D+2 (S3) e "pode ir" explícito para P1–P4 da `4337aa4510ea0a7ed876e44abdbd1f9df30527e1`.
 - **D3** — salto do vencimento só nas assinaturas sandbox mensais da rodada (F1, F5), como descrito.
 - **D4** — F1 fica em `assinatura_renovacoes` como `REVISAO` permanente (empresa desativada, assinatura removida). Pela decisão de Felipe, o alerta do painel do desenvolvedor (G4) continua visível, marcado como INFO “(fixture de homologação, desativada)” e listado depois das empresas reais.
 

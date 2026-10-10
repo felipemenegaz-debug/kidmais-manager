@@ -4,7 +4,7 @@
 
 ## Candidata
 
-- **Código: `6acdb60375d43f50a51d169bfad73bc358954b03`**; este documento e os pacotes estão no commit seguinte (só `docs/`), cujo SHA é o do pedido de aprovação. `git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD` deve listar só `docs/`.
+- **Código: `4337aa4510ea0a7ed876e44abdbd1f9df30527e1`**; este documento e os pacotes estão no commit seguinte (só `docs/`), cujo SHA é o do pedido de aprovação. `git diff --name-only 4337aa4510ea0a7ed876e44abdbd1f9df30527e1 HEAD` deve listar só `docs/`.
 - Base: `origin/staging` `f88b39e` (fast-forward; nenhum commit externo integrado depois dele até o fechamento deste pacote — revalidar antes de P1).
 
 ## O que muda no produto (vai para staging no P1 da rodada; produção só por pacote próprio)
@@ -49,13 +49,17 @@ Os passos 1 e 2 são locais e independentes de staging; podem rodar durante a D+
 | Verificação | Resultado |
 |---|---|
 | Testes unitários sem banco (conjunto do `check:v1:static`) | 2247/2247 |
-| Testes de scripts afetados (rodadas, sonda, conexão, aplicador, restauração, ensaio, concorrência, cluster, navegador) | 169/169 |
+| Testes de scripts afetados (rodadas, sonda, conexão, aplicador, restauração, ensaio, concorrência, cluster, navegador) | 173/173 |
 | Verificação de produção (`scripts/production/production.test.mjs`) | 37/37 (076/077 pendentes de autorização explícita) |
 | Harness de staging (mocks) | 103/103 |
 | Planos offline de concorrência e seed do navegador | `confere: true`, 79 migrations, impressão `8a9a97477eac3d046dbd891bfd601df6e8f301f469247ef1e5e0f13403e03cfb` |
 | TypeScript, build de produção, worker de PDF | aprovados |
 | ESLint | 0 erros (1 aviso preexistente) |
 | `git diff --check` | limpo |
+
+## Execução local de 10/10/2026 (candidata `23a203a`)
+
+Concorrência C1–C5 e navegador A1–A2 executados; ambos pararam no gerador de documento sintético (`readUIntBE` de 7 bytes) antes de qualquer verificação, sem credenciais gravadas; A3/A4 não executados por causa da chamada a `fonts.googleapis.com`. Clusters parados e preservados. Ver [evidência](evidencias/pacotes-locais-concorrencia-navegador-20261010.md). Corrigido em `4337aa4` (gerador com 6 bytes; fontes por mock local, comprovado com `next build`). Na mesma revisão apareceu uma falha preexistente em `23a203a`: o teste de unicidade da rodada pagamento+renovação acusava o próprio pacote consolidado; corrigido.
 
 ## Pendências fora deste pacote
 

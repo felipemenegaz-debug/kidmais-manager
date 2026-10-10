@@ -1,10 +1,12 @@
 # Navegador local com contas sintéticas — 10/10/2026
 
+> **Execução de 10/10/2026 (candidata `23a203a`):** A1 ok; A2 parou em `fixtures` (gerador de documento sintético, `readUIntBE` de 7 bytes); A3/A4 não executados. Ver [evidência](evidencias/pacotes-locais-concorrencia-navegador-20261010.md). Corrigido na nova candidata; os clusters de 10/10 ficam preservados e a nova execução usa pastas novas.
 
-> **Candidata fixada em 10/10/2026:** código `6acdb60375d43f50a51d169bfad73bc358954b03`. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o apresentado no pedido de aprovação e é o único que pode ser usado (`git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD` deve listar só `docs/`). Qualquer outra diferença: parar.
+
+> **Candidata fixada em 10/10/2026:** código `4337aa4510ea0a7ed876e44abdbd1f9df30527e1`. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o apresentado no pedido de aprovação e é o único que pode ser usado (`git diff --name-only 4337aa4510ea0a7ed876e44abdbd1f9df30527e1 HEAD` deve listar só `docs/`). Qualquer outra diferença: parar.
 
 **Status: PRONTO PARA APROVAÇÃO, NÃO EXECUTADO.** Nenhum cluster, banco, servidor ou navegador foi iniciado na preparação.
-Candidata: `6acdb60375d43f50a51d169bfad73bc358954b03` (preparado sobre `0619755`, branch `claude/kidmais-manager-sales-site-9b9a2d`).
+Candidata: `4337aa4510ea0a7ed876e44abdbd1f9df30527e1` (preparado sobre `0619755`, branch `claude/kidmais-manager-sales-site-9b9a2d`).
 
 ## 1. Objetivo e limite
 
@@ -63,7 +65,7 @@ sem cópia. Se Felipe precisar manter um `.env.local` nesta worktree, o servidor
 
 ### Lista exata do ambiente do servidor (somente nomes)
 
-Explícitas (42): `ADMIN_AUTH_ORIGIN`, `ADMIN_AUTH_SECRET`, `AI_ADMIN_ACTIONS_ENABLED`, `AI_CONTRACT_IMPORT_ENABLED`,
+Explícitas (43): `NEXT_FONT_GOOGLE_MOCKED_RESPONSES` (caminho absoluto de `scripts/navegador-local-fontes-mock.cjs`; exigido pela autoverificação), `ADMIN_AUTH_ORIGIN`, `ADMIN_AUTH_SECRET`, `AI_ADMIN_ACTIONS_ENABLED`, `AI_CONTRACT_IMPORT_ENABLED`,
 `AI_COPILOTO_MODEL_ENABLED`, `AI_DEMERZEL_ENABLED`, `AI_DOCUMENT_EXTERNAL_PROVIDER_ALLOWED`, `AI_FALLBACK_ENABLED`, `AI_JEV_ENABLED`,
 `AI_JEV_MODEL_ENABLED`, `AI_OPERACIONAL_ENABLED`, `AI_READ_ENABLED`, `AI_SKILLS_EMPRESA_ENABLED`, `ASAAS_AMBIENTE`, `ASAAS_API_KEY`,
 `ASAAS_WEBHOOK_TOKEN`, `ASSINATURA_PLANOS_ATIVOS`, `CADASTRO_PUBLICO_ATIVO`, `CONTRACT_IMPORT_INTEGRATION_ENABLED`,
@@ -129,7 +131,7 @@ Credenciais: `.local-navegador/credenciais.json` (coberto pela regra `.local-*/`
 
 PowerShell, na raiz desta worktree. Nenhum passo usa rede além do indicado em §7.
 
-0. **Pré-condições (leitura):** `git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD` só com `docs/`; `git status` sem mudanças inesperadas; nenhum `.env*` na raiz;
+0. **Pré-condições (leitura):** `git diff --name-only 4337aa4510ea0a7ed876e44abdbd1f9df30527e1 HEAD` só com `docs/`; `git status` sem mudanças inesperadas; nenhum `.env*` na raiz;
    portas 55481 e 3481 livres; PostgreSQL 18 no PATH ou `KIDMAIS_PG_BIN`. Offline:
    `node --test scripts/navegador-local-seed.test.cjs scripts/navegador-local-servidor.test.cjs`,
    `node scripts/navegador-local-seed.cjs --plano` (`confere: true`), `node scripts/navegador-local-servidor.cjs --plano` (`resultado: OK`).
@@ -182,9 +184,9 @@ Registrar por item: PASS/FALHA, viewport, rota, e evidência sem dados sensívei
 - `.local-navegador/credenciais.json` e `.local-navegador/emails/` (e-mails eventuais gravados em arquivo; nada é enviado).
 - `.next/` (cache do `next dev`, ignorado pelo Git). Nenhum arquivo versionado é alterado pela execução.
 - Gravações no banco descartável durante o teste (sessões, auditoria de login, limites de tentativa).
-- Rede: Asaas, e-mail, OTP, WhatsApp, IA e telemetria desligados. Exceções conhecidas e sem credencial: o `next/font/google` baixa as
-  fontes do Google na primeira compilação do `next dev` (sem rede, cai no fallback com aviso); a busca de CEP chama ViaCEP só se alguém
-  usar o campo de CEP — não usar.
+- Rede: Asaas, e-mail, OTP, WhatsApp, IA e telemetria desligados. **Fontes sem rede:** o `next/font/google` usa o mock local
+  `scripts/navegador-local-fontes-mock.cjs` (5 URLs exatas, CSS sem fonte remota → fonte de reserva); comprovado com `next build` local.
+  Única chamada possível restante: a busca de CEP (ViaCEP) se alguém usar o campo de CEP — **não usar** (o checklist não usa).
 
 ## 8. Limpeza (aprovação L1)
 

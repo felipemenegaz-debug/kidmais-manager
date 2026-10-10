@@ -1,7 +1,9 @@
 # Etapa 4 — concorrência e reservas em PostgreSQL isolado (pacote de 10/10/2026)
 
+> **Execução de 10/10/2026 (candidata `23a203a`):** C1–C3 ok; C4 exit 2 no grupo `a` antes de qualquer verificação (gerador de documento sintético, `readUIntBE` de 7 bytes); C4b/C5 ok; C6 não executado (pasta preservada). Ver [evidência](evidencias/pacotes-locais-concorrencia-navegador-20261010.md). Corrigido na nova candidata; a nova execução usa pasta nova.
 
-> **Candidata fixada em 10/10/2026:** código `6acdb60375d43f50a51d169bfad73bc358954b03`. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o apresentado no pedido de aprovação e é o único que pode ser usado (`git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD` deve listar só `docs/`). Qualquer outra diferença: parar.
+
+> **Candidata fixada em 10/10/2026:** código `4337aa4510ea0a7ed876e44abdbd1f9df30527e1`. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o apresentado no pedido de aprovação e é o único que pode ser usado (`git diff --name-only 4337aa4510ea0a7ed876e44abdbd1f9df30527e1 HEAD` deve listar só `docs/`). Qualquer outra diferença: parar.
 
 **Status: PRONTO PARA APROVAÇÃO, NÃO EXECUTADO.** Só um cluster PostgreSQL 18 **novo, local e descartável**, criado para esta execução por `scripts/cluster-descartavel-postgres.cjs`. Não toca o banco local real, staging, produção, Render, Asaas, GitHub ou e-mail. A [política](OPERACAO_AGENTES.md) exige autorização explícita de Felipe também para escrita em banco isolado: preparar este pacote não autoriza executá-lo. Cada passo C1–C6 abaixo é uma ação distinta; a aprovação deve dizer quais passos estão autorizados e se C6 remove a pasta ou a mantém.
 
@@ -13,10 +15,10 @@ Comprovar com conexões reais disputando as mesmas travas que as vagas de pessoa
 
 | Item | Valor |
 |---|---|
-| Commit candidato | código `6acdb60375d43f50a51d169bfad73bc358954b03`; pacote no commit seguinte (só `docs/`), SHA no pedido de aprovação |
+| Commit candidato | código `4337aa4510ea0a7ed876e44abdbd1f9df30527e1`; pacote no commit seguinte (só `docs/`), SHA no pedido de aprovação |
 | Base atual | `0619755` (`claude/kidmais-manager-sales-site-9b9a2d`) |
 | Arquivos do pacote (novos) | `scripts/cluster-descartavel-postgres.cjs`, `scripts/cluster-descartavel-postgres.test.cjs`, `scripts/concorrencia-vagas-isolado.cjs`, `scripts/concorrencia-vagas-isolado.test.cjs` e este documento. Aplicação, migrations e scripts existentes não foram alterados |
-| Conferência dos arquivos | `git rev-parse 6acdb60375d43f50a51d169bfad73bc358954b03:scripts/concorrencia-vagas-isolado.cjs` (e idem para os outros) deve coincidir com o blob listado no pedido de aprovação |
+| Conferência dos arquivos | `git rev-parse 4337aa4510ea0a7ed876e44abdbd1f9df30527e1:scripts/concorrencia-vagas-isolado.cjs` (e idem para os outros) deve coincidir com o blob listado no pedido de aprovação |
 | Impressão do schema | `8a9a97477eac3d046dbd891bfd601df6e8f301f469247ef1e5e0f13403e03cfb`: 79 migrations do inventário aprovado (`scripts/production/check-migrations.mjs`, última `20261010_077_regras_pagamento_empresa.sql`) + prechecks/postchecks, 201 arquivos, sha256 com CRLF normalizado. **Recalculada em 10/10/2026 após a entrada de 076/077 no inventário: confere.** A impressão anterior (`ba653a17…0922`, 77 migrations, 195 arquivos, até a 075) deixou de valer. O executor recusa (`SCHEMA_DIVERGENTE_DO_PACOTE` / `INVENTARIO_MUDOU`) se ela mudar |
 | Impressão do código sob teste | `6dcd75ff4934d223eebcb3f254c6bf0e54cbafda6816cddcc5336a8a90ec2a6d` (vagas, convites, ofertas, planos, 074a e a regra de prova Fundador). Informativa: `--plano` imprime o valor atual; divergência = parar e revisar |
 
@@ -67,7 +69,7 @@ Windows PowerShell, na raiz da worktree, num único processo. Cada passo só rod
 ### Pré-condições (somente leitura; parar se alguma falhar)
 
 ```powershell
-git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD          # só docs/ (HEAD = commit do pacote)
+git diff --name-only 4337aa4510ea0a7ed876e44abdbd1f9df30527e1 HEAD          # só docs/ (HEAD = commit do pacote)
 git diff --quiet HEAD -- lib database scripts/production scripts/homologacao-fundador-staging.cjs scripts/concorrencia-vagas-isolado.cjs scripts/cluster-descartavel-postgres.cjs; $LASTEXITCODE   # 0: código sob teste sem alteração local
 Get-ChildItem Env: | Where-Object { $_.Name -eq 'DATABASE_URL' -or $_.Name -like 'PG*' }   # vazio
 $env:KIDMAIS_PG_BIN = 'C:/Program Files/PostgreSQL/18/bin'
@@ -156,7 +158,7 @@ Resultado aceito: `"resultado": "PASS"` com os 9 grupos em `resultado.json` e c�
 
 ## Critérios de parada
 
-- **S0 — pré-condição:** `git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD` com algo fora de `docs/`, alteração local no código sob teste, `DATABASE_URL`/`PG*` presente, binários ausentes ou ≠ 18, regra `.local-*/` ausente, impressão do schema ou do código divergente. Nada é criado.
+- **S0 — pré-condição:** `git diff --name-only 4337aa4510ea0a7ed876e44abdbd1f9df30527e1 HEAD` com algo fora de `docs/`, alteração local no código sob teste, `DATABASE_URL`/`PG*` presente, binários ausentes ou ≠ 18, regra `.local-*/` ausente, impressão do schema ou do código divergente. Nada é criado.
 - **S1 — cluster:** C1 ou C2 com falha (inclusive `PORTA_OCUPADA`), ou C3 diferente de `CONFERE` com `bancos: []`. Não seguir para C4.
 - **S2 — alvo do executor:** qualquer guarda anterior à conexão, identidade divergente, cluster com outro banco, servidor pedindo senha. Código 1; nada é escrito.
 - **S3 — matriz:** a primeira divergência interrompe os grupos seguintes. O resumo traz `falha.grupo`, código e mensagem sanitizada; código 2. O banco fica preservado para inspeção (C5 e opção A de C6), sem nova execução no mesmo cluster.
