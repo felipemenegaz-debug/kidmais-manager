@@ -4,8 +4,14 @@ import admin from '@/components/admin/admin.module.css';
 import workspace from '@/components/admin/workspace.module.css';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { dataCurta, diasAte } from './AvisoComercial';
+import type { consultarOfertas } from '@/lib/assinatura/ofertas';
+import type { consultarRenovacao } from '@/lib/assinatura/renovacao-repositorio';
+import type { consultarVagas } from '@/lib/assinatura/limites-usuarios';
 
 export type DadosAssinatura = {
+    vagas?: Awaited<ReturnType<typeof consultarVagas>>;
+    renovacao?: Awaited<ReturnType<typeof consultarRenovacao>>;
+    ofertas?: Awaited<ReturnType<typeof consultarOfertas>>;
     instalado: boolean; cobrado: boolean; gestao: boolean; agora: string;
     acesso: { nivel: 'COMPLETO' | 'SOMENTE_LEITURA' | 'BLOQUEADO'; motivo: string; ate: string | null };
     assinatura: { situacao: string; ciclo: 'MENSAL' | 'ANUAL' | null; testeInicio: string; testeFim: string; periodoAtualFim: string | null; emAtrasoDesde: string | null; encerradaEm: string | null } | null;
@@ -56,6 +62,12 @@ export default function Assinatura({ acoes }: { acoes?: (dados: DadosAssinatura,
                 {a.encerradaEm && <div><dt className={workspace.muted}>Encerrada em</dt><dd style={{ margin: 0 }}>{dataCurta(a.encerradaEm)}</dd></div>}
             </dl>
             {dados.excecoes.length > 0 && <p>{dados.excecoes.map((e) => `${EXCECAO[e.tipo] ?? e.tipo} até ${dataCurta(e.validaAte)}`).join(' · ')}</p>}
+            {dados.vagas && <div>
+                <h3>Pessoas no plano</h3>
+                <p>{dados.vagas.ativos} pessoa(s) com acesso e {dados.vagas.convitesPendentes} convite(s) pendente(s).
+                    {' '}{dados.vagas.limite===null ? 'Sem limite de usuários.' : `${dados.vagas.ocupadas} de ${dados.vagas.limite} vagas ocupadas. Gestão também conta como uma vaga.`}</p>
+                {dados.vagas.excedido && <p>Os acessos atuais estão preservados. Para adicionar outra pessoa, libere uma vaga.</p>}
+            </div>}
             <h3>O que acontece depois</h3>
             <ul className={workspace.muted}>
                 <li>Quando o acesso completo termina sem assinatura, a empresa entra em <strong>somente leitura</strong>: dá para consultar e exportar, mas não criar nem alterar.</li>

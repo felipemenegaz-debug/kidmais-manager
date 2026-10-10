@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import type { Client } from 'pg';
 import { conectarDescartavel, encerrarDescartavel } from '../comercial/postgres-descartavel.ts';
 import { iniciarTeste } from './servico.ts';
 import { iniciarAssinatura, travaPorEmpresa, type DepsCobranca } from './cobranca.ts';
 import { processarEvento } from './sincronizacao.ts';
-import { TIPO_PENDENCIA } from './reconciliacao-contratacao.ts';
+import { TIPO_PENDENCIA, type ProvedorReconciliacao } from './reconciliacao-contratacao.ts';
 import { CONFIRMACAO_LIBERACAO, liberarIntencaoCriacao, MENSAGEM_BLOQUEIO_REMOCAO, pendenciasDaEmpresa } from './liberacao-intencao.ts';
 import { AsaasFalhou, type AssinaturaProvedor, type ClienteAsaas, type CobrancaProvedor } from './asaas.ts';
 
@@ -1022,4 +1023,88 @@ test('liberação manual auditada: só para intenção comprovadamente não exec
     assert.equal(await liberar(valido), 'CONFLITO', 'já resolvida');
     const r = await contratar(empresa, deps(empresa, { provedor })) as { reaproveitada: boolean };
     assert.deepEqual([r.reaproveitada, provedor.postsCriacao, provedor.criadas, await vinculo(empresa)], [false, 2, 1, provedor.ativasDe(empresa)[0]]);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Atualização sobre staging 138910a: com a 074a instalada, a reconciliação passa a travar a empresa (travarEmpresaComercial,
+// `empresas ... FOR UPDATE`) na transação do processamento. O marcador de exclusão é gravado em OUTRA conexão e
+// `cobranca_eventos.empresa_id` referencia `empresas`: o INSERT precisa de `FOR KEY SHARE` na mesma linha, que conflita
+// com o `FOR UPDATE`. Estes testes rodam POR ÚLTIMO (instalam a 074a no banco da suíte) e provam, com locks reais, que a
+// disputa nunca vira exclusão sem confirmação: o marcador espera o lock_timeout, não é gravado e nada é excluído.
+// ---------------------------------------------------------------------------------------------------------------------
+const M074A = 'database/migrations/20261009_074a_planos_comerciais.sql';
+const scriptReconciliar = createRequire(import.meta.url)('../../scripts/assinatura-reconciliar.cjs') as {
+    provedorDaExecucao: (p: AsaasFalso, aplicar: boolean, relatorio: Record<string, number>) => ProvedorReconciliacao & ClienteAsaas;
+    transacaoIndependenteDaExecucao: (aplicar: boolean, principal: Client) => Independente;
+};
+
+/** O cliente real (criarClienteAsaas) é um objeto literal; o script espalha (...) o provedor, então o falso vira um. */
+function comoObjeto(p: AsaasFalso) {
+    const metodos = Object.getOwnPropertyNames(AsaasFalso.prototype).filter((n) => n !== 'constructor');
+    return Object.fromEntries(metodos.map((n) => [n, (p as unknown as Record<string, (...a: unknown[]) => unknown>)[n].bind(p)])) as unknown as AsaasFalso;
+}
+
+test('074a instalada: a trava comercial da empresa existe de fato (schema dos planos presente)', async () => {
+    await q(readFileSync(M074A, 'utf8'));
+    assert.equal((await q(`SELECT to_regclass('public.assinatura_contratacoes') IS NOT NULL AND to_regclass('public.assinatura_isencoes') IS NOT NULL
+        AND to_regclass('public.assinatura_fundadores') IS NOT NULL AS ok`)).rows[0].ok, true);
+});
+
+test('074a, reconciliação aplicando: trava da empresa x FK do marcador em outra conexão → lock_timeout, ADIADA, nenhum DELETE nem marcador', async () => {
+    const { empresa, provedor, vinculada, duplicatas: [d1], pendId } = await comDuplicatas(1);
+    const conexao = await conexaoDeProcessamento();
+    const inicio = Date.now();
+    const fim = await conexao.processar(pendId, { provedor, transacaoIndependente: independenteReal });
+    const ms = Date.now() - inicio;
+    assert.ok(fim.ok, String(!fim.ok && fim.erro));
+    assert.deepEqual([fim.ok && fim.r.situacao, fim.ok && fim.r.motivo], ['FALHOU', 'ADIADA: MARCADOR_NAO_GRAVADO']);
+    assert.ok(ms >= 2500 && ms < 9000, `o marcador esperou o lock_timeout (3 s) e desistiu; nada ficou preso: ${ms} ms`);
+    assert.deepEqual([provedor.chamadasRemocao, await marcadores(empresa), await remocoesAuditadas(empresa)], [0, [], []], 'sem marcador confirmado, sem DELETE');
+    assert.deepEqual(provedor.ativasDe(empresa).sort(), [vinculada, d1].sort(), 'as duas continuam no provedor (revisão posterior)');
+    assert.deepEqual([(await situacaoDo(pendId)).situacao, await vinculo(empresa)], ['FALHOU', vinculada], 'a pendência continua visível; o vínculo intacto');
+});
+
+test('074a, simulação: SAVEPOINT na própria transação (sem disputa de lock); o DELETE só é contado; nada persiste', async () => {
+    const { empresa, provedor, pendId } = await comDuplicatas(1);
+    const c = await conectarDescartavel({ travar: false });
+    const relatorio: Record<string, number> = {};
+    try {
+        await c.query('BEGIN');
+        const r = await processarEvento(c as never, pendId, {
+            provedor: scriptReconciliar.provedorDaExecucao(comoObjeto(provedor), false, relatorio),
+            transacaoIndependente: scriptReconciliar.transacaoIndependenteDaExecucao(false, c),
+        });
+        await c.query('ROLLBACK');
+        // O DELETE simulado não confirma nada: o item fica em revisão (FALHOU) e tudo é desfeito no ROLLBACK.
+        assert.equal(r.situacao, 'FALHOU');
+    }
+    finally {
+        await c.end().catch(() => undefined);
+    }
+    assert.deepEqual([relatorio.removeriaNoProvedor, provedor.chamadasRemocao], [1, 0], 'simulação nunca chama o DELETE');
+    assert.deepEqual([await marcadores(empresa), await remocoesAuditadas(empresa)], [[], []], 'ROLLBACK: nenhum marcador nem auditoria');
+    assert.equal((await situacaoDo(pendId)).situacao, 'PENDENTE');
+});
+
+test('074a, contratação: a compensação roda sem a trava comercial aberta → marcador confirmado antes do DELETE, exclusão auditada', async () => {
+    const { empresa, provedor } = await cenarioCompensacao();
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'CONFLITO');
+    const vinculada = await vinculo(empresa);
+    assert.deepEqual([provedor.chamadasRemocao, provedor.ativasDe(empresa)], [1, [vinculada]]);
+    assert.deepEqual((await marcadores(empresa)).map((m) => [m.situacao, m.ultimo_erro]), [['PROCESSADO', 'REMOCAO_CONFIRMADA']]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 1, 'RESPOSTA_DO_PROVEDOR']]);
+});
+
+test('074a, resultado desconhecido: marcador aberto bloqueia nova contratação e a reconciliação só relê (nenhum DELETE novo)', async () => {
+    const { empresa, provedor } = await cenarioCompensacao();
+    provedor.modoRemocao = 'semConfirmar';
+    assert.equal(await codigo(contratar(empresa, deps(empresa, { provedor }))), 'CONFLITO');
+    const [m] = await marcadores(empresa);
+    assert.deepEqual([m.situacao, provedor.chamadasRemocao], ['PENDENTE', 1], 'resultado desconhecido: marcador aberto');
+    const posts = provedor.postsCriacao;
+    await codigo(contratar(empresa, deps(empresa, { provedor })));
+    assert.equal(provedor.postsCriacao, posts, 'nenhum POST novo');
+    const r = await withTransaction((tx) => processarEvento(tx, m.id, { provedor, transacaoIndependente: independenteReal }));
+    assert.notEqual(r.situacao, 'PROCESSADO', 'a assinatura ainda existe: a releitura não fecha o marcador');
+    assert.equal(provedor.chamadasRemocao, 1, 'nenhum DELETE repetido');
 });

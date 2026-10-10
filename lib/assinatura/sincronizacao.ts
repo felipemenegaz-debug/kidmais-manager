@@ -20,6 +20,7 @@ import { estadoDoProvedor, type EstadoAlvo, type EstadoLocal } from './provedor-
 import { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { ehPendencia, novoRegistroRemocoes, PREFIXO_CRIACAO, PREFIXO_PENDENCIA, PREFIXO_REMOCAO_SEM_CONFIRMACAO, reconciliarContratacao, registrarRemocoes, TIPO_PENDENCIA,
     type ProvedorReconciliacao, type ResultadoReconciliacao, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
+import { confirmarOfertaPaga, travarEmpresaComercial } from './ofertas.ts';
 
 export { auditarCobranca, ORIGEM_COBRANCA, type OrigemSincronizacao };
 
@@ -35,6 +36,7 @@ type Linha = {
 };
 
 export async function assinaturaTravada(tx: DbExecutor, empresaId: string) {
+    await travarEmpresaComercial(tx, empresaId);
     return (await tx.query<Linha>(
         `SELECT situacao, ciclo, ${ISO('periodo_atual_fim')} AS periodo_atual_fim, ${ISO('em_atraso_desde')} AS em_atraso_desde,
                 ${ISO('cancelada_em')} AS cancelada_em, ${ISO('encerrada_em')} AS encerrada_em, provedor, provedor_cliente_id, provedor_assinatura_id
@@ -71,12 +73,15 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
     const pagamentos = assinatura ? await deps.provedor.listarCobrancasDaAssinatura(assinatura.id) : [];
     const agora = await agoraDoBanco(tx);
     const alvo: EstadoAlvo = estadoDoProvedor(local(linha), assinatura, pagamentos, agora);
-    if (alvo.mudou) {
+    const oferta = alvo.situacao === 'ATIVA' || pagamentos.some(p => !p.deleted && ['RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(p.status))
+        ? await confirmarOfertaPaga(tx, empresaId, assinatura, pagamentos, linha.provedor_cliente_id, alvo.situacao === 'ATIVA') : null;
+    if (alvo.mudou || oferta) {
         await tx.query(
             `UPDATE empresa_assinaturas SET situacao = $2, ciclo = $3, periodo_atual_fim = $4::timestamptz, em_atraso_desde = $5::timestamptz,
                     cancelada_em = $6::timestamptz, encerrada_em = $7::timestamptz, provedor_situacao = $8, sincronizado_em = clock_timestamp()
+                    ${oferta ? ', plano = $9, contratacao_atual_id = $10::uuid' : ''}
               WHERE empresa_id = $1::uuid`,
-            [empresaId, alvo.situacao, alvo.ciclo, alvo.periodoAtualFim, alvo.emAtrasoDesde, alvo.canceladaEm, alvo.encerradaEm, alvo.provedorSituacao]);
+            [empresaId, alvo.situacao, alvo.ciclo, alvo.periodoAtualFim, alvo.emAtrasoDesde, alvo.canceladaEm, alvo.encerradaEm, alvo.provedorSituacao, ...(oferta ? [oferta.plano,oferta.id] : [])]);
         await auditarCobranca(tx, {
             acao: 'ASSINATURA_SINCRONIZADA', empresaId, origem,
             antes: { situacao: linha.situacao, periodoAtualFim: linha.periodo_atual_fim, emAtrasoDesde: linha.em_atraso_desde },
@@ -105,7 +110,9 @@ export type EventoRecebido = {
     eventoId: string; tipo: string; criadoNoProvedor: string | null; assinaturaId: string | null; cobrancaId: string | null; checkoutId: string | null; referenciaExterna: string | null;
 };
 
-const ID_EVENTO = /^[A-Za-z0-9_.:-]{1,200}$/;
+// O identificador opaco do Asaas pode conter '&' (exemplo oficial de PAYMENT_RECEIVED).
+// Preservar integralmente para deduplicação; não interpretar como URL/query string.
+const ID_EVENTO = /^[A-Za-z0-9_.:&-]{1,200}$/;
 const ID_PROVEDOR = /^[A-Za-z0-9_-]{1,100}$/;
 const TIPO = /^[A-Z0-9_]{1,80}$/;
 const opcional = (v: unknown, re: RegExp) => (typeof v === 'string' && re.test(v) ? v : null);

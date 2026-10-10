@@ -1,0 +1,49 @@
+{
+  "workspace": "tea-daidbj95efls73d2bcf0",
+  "cron": "crn-db493i142hec73ahmoe0",
+  "candidate": "1bae5525b78875a11cb262fb8d63176719740a5e",
+  "deployDiagnostic": "dep-db4odp7lot8c73cec2k0",
+  "deployRecovery": "dep-db4oel0473hc738hppu0",
+  "diagnostic": [
+    {
+      "timestamp": "2026-10-10T00:30:33.438690571Z",
+      "resultado": {
+        "modo": "DIAGNOSTICO_OFFLINE",
+        "bloqueios": [],
+        "bancoConsultado": false,
+        "provedoresChamados": false,
+        "emailsEnviados": 0,
+        "cobrancasAlteradas": 0,
+        "rotinaAplicacaoRemotaHabilitada": false,
+        "resultado": "PREPARACAO_CONFERIDA"
+      }
+    }
+  ],
+  "recoveryLogs": [
+    {
+      "timestamp": "2026-10-10T00:35:18.006783929Z",
+      "message": "==> Running 'node scripts/assinatura-cron.cjs'"
+    },
+    {
+      "timestamp": "2026-10-10T00:35:20.389346881Z",
+      "message": "  \"modo\": \"APLICAR\","
+    },
+    {
+      "timestamp": "2026-10-10T00:35:20.389359071Z",
+      "message": "    \"SEM_MUDANCA\": 3"
+    },
+    {
+      "timestamp": "2026-10-10T00:35:20.389363901Z",
+      "message": "  \"incompleto\": false"
+    },
+    {
+      "timestamp": "2026-10-10T00:35:28.370243616Z",
+      "message": "==> Cron job run finished successfully"
+    }
+  ],
+  "scope": "STAGING_ONLY",
+  "secretValuesRead": false,
+  "remoteRenewalEnabled": false,
+  "resendAuthenticationTested": false,
+  "emailDeliveryTested": false
+}

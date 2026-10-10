@@ -1,0 +1,1401 @@
+{
+  "alvo": "127.0.0.1:55475/kidmais_renovacao_075_completa",
+  "cluster": "kidmais_renovacao_075",
+  "banco": "kidmais_renovacao_075_completa",
+  "versao": 1,
+  "etapas": [
+    {
+      "migration": "database/migrations/20260907_001_crm_extensions.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260907_002_crm_people.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260907_003_crm_history_audit.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260907_004_crm_duplicates_merge.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260907_005_disponibilidade_base.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260907_006_comercial_base.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260907_006a_comercial_precos_patch.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260908_007_fechamento_base.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260908_008_identidade_cliente.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260908_009_contrato_base.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260908_010_contrato_documento_aceite.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260908_011_pagamentos_base.sql",
+      "antes": [],
+      "depois": [
+        "database/checks/20260908_011_pagamentos_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260909_012_condicao_pagamento.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260909_013_autenticacao_contrato.sql",
+      "antes": [
+        "database/checks/20260909_013_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260909_013_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260909_014_revisao_operacional.sql",
+      "antes": [
+        "database/checks/20260909_014_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260909_014_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260910_015_tratamento_financeiro.sql",
+      "antes": [
+        "database/checks/20260910_015_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260910_015_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260911_016_festa.sql",
+      "antes": [
+        "database/checks/20260911_016_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260911_016_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260912_017_pocket_sexta.sql",
+      "antes": [
+        "database/checks/20260912_017_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260912_017_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260912_018_whatsapp_onboarding.sql",
+      "antes": [
+        "database/checks/20260912_018_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260912_018_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260915_019_festa_formalizacao.sql",
+      "antes": [
+        "database/checks/20260915_019_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260915_019_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260923_021_catalogo_configuravel_estrutura.sql",
+      "antes": [
+        "database/checks/20260923_021_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260923_021_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260923_022_catalogo_itens_iniciais.sql",
+      "antes": [
+        "database/checks/20260923_022_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260923_022_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260923_023_adicionais_por_pacote.sql",
+      "antes": [
+        "database/checks/20260923_023_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260923_023_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260923_024_taxa_rolha_versionada.sql",
+      "antes": [
+        "database/checks/20260923_024_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260923_024_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260923_025_extras_unitarios_pizza.sql",
+      "antes": [
+        "database/checks/20260923_025_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260923_025_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260925_026_perfil_empresa_estrutura.sql",
+      "antes": [
+        "database/checks/20260925_026_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260925_026_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260925_027_perfil_empresa_cadastro.sql",
+      "antes": [
+        "database/checks/20260925_027_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260925_027_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260925_028_perfil_empresa_revisao_aplicacao.sql",
+      "antes": [
+        "database/checks/20260925_028_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260925_028_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_029_fechamento_pacote_snapshot.sql",
+      "antes": [
+        "database/checks/20260926_029_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_029_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_030_preco_utilizado.sql",
+      "antes": [
+        "database/checks/20260926_030_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_030_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_031_empresas_comercial.sql",
+      "antes": [
+        "database/checks/20260926_031_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_031_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_032_pacote_revisao.sql",
+      "antes": [
+        "database/checks/20260926_032_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_032_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_033_tabela_preco_publicacao.sql",
+      "antes": [
+        "database/checks/20260926_033_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_033_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_034_integridade_tenant_comercial.sql",
+      "antes": [
+        "database/checks/20260926_034_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_034_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_035_publicacao_tabela_invariantes.sql",
+      "antes": [
+        "database/checks/20260926_035_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_035_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_036_empresa_pai_imutavel.sql",
+      "antes": [
+        "database/checks/20260926_036_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_036_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_037_publicacao_concorrencia.sql",
+      "antes": [
+        "database/checks/20260926_037_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_037_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_038_integridade_tenant_atomica.sql",
+      "antes": [
+        "database/checks/20260926_038_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_038_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_039_publicacao_serial_completa.sql",
+      "antes": [
+        "database/checks/20260926_039_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_039_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_040_integridade_sem_excecao_nominal.sql",
+      "antes": [
+        "database/checks/20260926_040_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_040_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_041_revisao_mesmo_tenant.sql",
+      "antes": [
+        "database/checks/20260926_041_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_041_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_042_reativacao_faixa_publicada.sql",
+      "antes": [
+        "database/checks/20260926_042_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_042_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_043_estrutura_tenant.sql",
+      "antes": [
+        "database/checks/20260926_043_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_043_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_044_ciclo_empresa.sql",
+      "antes": [
+        "database/checks/20260926_044_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_044_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_045_ciclo_membership.sql",
+      "antes": [
+        "database/checks/20260926_045_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_045_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_046_kidmais_legado_controlado.sql",
+      "antes": [
+        "database/checks/20260926_046_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_046_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260926_047_escopo_comercial_tabela.sql",
+      "antes": [
+        "database/checks/20260926_047_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260926_047_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260927_048_supersessao_tabela_publicada.sql",
+      "antes": [
+        "database/checks/20260927_048_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260927_048_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260927_049_publicacao_insert_e_trava.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260927_050_item_sem_categoria.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260927_051_snapshot_item_especifico.sql",
+      "antes": [],
+      "depois": []
+    },
+    {
+      "migration": "database/migrations/20260927_052_financeiro_gerencial.sql",
+      "antes": [
+        "database/checks/20260927_052_financeiro_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260927_052_financeiro_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260928_053_integridade_tenant_fechamento.sql",
+      "antes": [
+        "database/checks/20260928_053_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260928_053_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260928_054_empresa_id_clientes_fechamentos.sql",
+      "antes": [
+        "database/checks/20260928_054_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260928_054_backfill_imediato.sql",
+        "database/checks/20260928_054_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260928_055a_inteligencia_uso.sql",
+      "antes": [],
+      "depois": [
+        "database/checks/20260928_055a_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260928_055b_inteligencia_operacoes.sql",
+      "antes": [],
+      "depois": [
+        "database/checks/20260928_055b_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260928_055c_inteligencia_documentos.sql",
+      "antes": [],
+      "depois": [
+        "database/checks/20260928_055c_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260928_055d_inteligencia_importacoes.sql",
+      "antes": [],
+      "depois": [
+        "database/checks/20260928_055d_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260929_056_membership_papel_festa_tenant.sql",
+      "antes": [
+        "database/checks/20260929_056_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260929_056_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260929_057_assinatura_contrato_empresa.sql",
+      "antes": [
+        "database/checks/20260929_057_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20260929_057_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20260929_058_inteligencia_skills.sql",
+      "antes": [],
+      "depois": [
+        "database/checks/20260929_058_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261001_059_operacional_parametros_consumo.sql",
+      "antes": [],
+      "depois": [
+        "database/checks/20261001_059_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261002_061_contratos_importados_integracao.sql",
+      "antes": [
+        "database/checks/20261002_061_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261002_061_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261002_062_agenda_empresa_unidade.sql",
+      "antes": [
+        "database/checks/20261002_062_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261002_062_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261004_063_painel_desenvolvedor.sql",
+      "antes": [
+        "database/checks/20261004_063_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261004_063_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261006_064_reimportacao_apos_cancelamento.sql",
+      "antes": [
+        "database/checks/20261006_064_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261006_064_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261006_066_pix_recebimento_empresa.sql",
+      "antes": [
+        "database/checks/20261006_066_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261006_066_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261006_067_modelo_comercial_empresa.sql",
+      "antes": [
+        "database/checks/20261006_067_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261006_067_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261007_068_cobranca_assinatura.sql",
+      "antes": [
+        "database/checks/20261007_068_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261007_068_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261007_069_cadastro_publico.sql",
+      "antes": [
+        "database/checks/20261007_069_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261007_069_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261007_070_adicionais_do_buffet.sql",
+      "antes": [
+        "database/checks/20261007_070_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261007_070_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261007_071_importacoes_comerciais.sql",
+      "antes": [
+        "database/checks/20261007_071_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261007_071_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261007_072_modelos_contrato_empresa.sql",
+      "antes": [
+        "database/checks/20261007_072_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261007_072_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261008_073_convites.sql",
+      "antes": [
+        "database/checks/20261008_073_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261008_073_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261009_074a_planos_comerciais.sql",
+      "antes": [
+        "database/checks/20261009_074a_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261009_074a_postcheck.sql"
+      ]
+    },
+    {
+      "migration": "database/migrations/20261009_075_renovacao_fundador.sql",
+      "antes": [
+        "database/checks/20261009_075_precheck.sql"
+      ],
+      "depois": [
+        "database/checks/20261009_075_postcheck.sql"
+      ]
+    }
+  ],
+  "rollbacks": [
+    "database/rollback/20261009_075_renovacao_fundador_down.sql",
+    "database/rollback/20261009_074a_planos_comerciais_down.sql"
+  ],
+  "fontes": [
+    {
+      "arquivo": "database/migrations/20260907_001_crm_extensions.sql",
+      "sha256": "f87504af7fb520bc42b9e4d394bef31b956e5e1f525001475f12e34f9bc0641a"
+    },
+    {
+      "arquivo": "database/migrations/20260907_002_crm_people.sql",
+      "sha256": "b9737fe6c2aac35288f19a09740edb2fd8520cf29e8e1674bb5359b0050deeae"
+    },
+    {
+      "arquivo": "database/migrations/20260907_003_crm_history_audit.sql",
+      "sha256": "d3d270345c3fc04946309c5ec3166845dd902241656d561ca7b4b1f688e68d79"
+    },
+    {
+      "arquivo": "database/migrations/20260907_004_crm_duplicates_merge.sql",
+      "sha256": "02bae069412fa46d1e836596f05b0c3d9c1469d4f629be7b74c13d3d0c498b7c"
+    },
+    {
+      "arquivo": "database/migrations/20260907_005_disponibilidade_base.sql",
+      "sha256": "3995747e0aadaf8d9735cb24e6892957d74898ed44c9672e96a26e9cfaea2d8f"
+    },
+    {
+      "arquivo": "database/migrations/20260907_006_comercial_base.sql",
+      "sha256": "9d38b3d1d2ecdd63480a97c2d57966cb248b9d4c72a0e54a4f2da5edfe2d462a"
+    },
+    {
+      "arquivo": "database/migrations/20260907_006a_comercial_precos_patch.sql",
+      "sha256": "fa6497816120660df06ffd4481d65555f3f6aa2901b7b7d303de72863d07cd06"
+    },
+    {
+      "arquivo": "database/migrations/20260908_007_fechamento_base.sql",
+      "sha256": "573bde068cf3daef4b72a944a9c0b5ce6f3813c3f34958a673ae026f2face644"
+    },
+    {
+      "arquivo": "database/migrations/20260908_008_identidade_cliente.sql",
+      "sha256": "cf71b173d7530540c7c3bd97d7813bcb604fdbc3409fd2f9ca3d827f5dd06e11"
+    },
+    {
+      "arquivo": "database/migrations/20260908_009_contrato_base.sql",
+      "sha256": "3e841dea21fcfb8c7ff14738a55a02a326ac5adf5c39ee8e475f73cbae5d4acb"
+    },
+    {
+      "arquivo": "database/migrations/20260908_010_contrato_documento_aceite.sql",
+      "sha256": "ffee9fa888559eb09d6fdc98e9ffde435fb97dc50e9b4c23a7c767c5d713522c"
+    },
+    {
+      "arquivo": "database/migrations/20260908_011_pagamentos_base.sql",
+      "sha256": "c3a1b0fe51efefb7da64200e8a901513b7dddbae969caad2069966f53aa9c743"
+    },
+    {
+      "arquivo": "database/checks/20260908_011_pagamentos_postcheck.sql",
+      "sha256": "126d69ee23b74e8937af590af3a271faa2a400c9106a3a13c784828be9094aab"
+    },
+    {
+      "arquivo": "database/migrations/20260909_012_condicao_pagamento.sql",
+      "sha256": "a0259f7002e95a97710870819f1c16dbf7b7f59bd5c63fe6d3ea59c05709f4d5"
+    },
+    {
+      "arquivo": "database/checks/20260909_013_precheck.sql",
+      "sha256": "a442e64c62257d8c10edf9800efd6b349fd9042c5e43badfc22fc2ac4222c642"
+    },
+    {
+      "arquivo": "database/migrations/20260909_013_autenticacao_contrato.sql",
+      "sha256": "ea080df6adc724595bbef20b885452d1502dbafe0a4d86cb60aa7779fbc3d9a6"
+    },
+    {
+      "arquivo": "database/checks/20260909_013_postcheck.sql",
+      "sha256": "211e1ec4fb146bd93d5d487a6959d4d9ccfc962b962b32b4f51bed7ecc6e86ef"
+    },
+    {
+      "arquivo": "database/checks/20260909_014_precheck.sql",
+      "sha256": "29da79104ea879754f5dceb248f92ece2f43bd8b515722cf89be9e4387f003fe"
+    },
+    {
+      "arquivo": "database/migrations/20260909_014_revisao_operacional.sql",
+      "sha256": "8702126c6942aae666fa2bc0ba8cb2e2108633a5897145f3219295bd6abbd473"
+    },
+    {
+      "arquivo": "database/checks/20260909_014_postcheck.sql",
+      "sha256": "a0c97ad2e6bf8d12dc9194ac0a27dc9d2c607177163c7889201c790fa94ecf70"
+    },
+    {
+      "arquivo": "database/checks/20260910_015_precheck.sql",
+      "sha256": "ca945c08720ef3c89860a123dad2b50886a296ea8f9adbbb8f03dedc87f4bcf4"
+    },
+    {
+      "arquivo": "database/migrations/20260910_015_tratamento_financeiro.sql",
+      "sha256": "e08d913760c7f3a194ce0e405fc8057cb3a59f3268f514853fb8a8daaa8304fc"
+    },
+    {
+      "arquivo": "database/checks/20260910_015_postcheck.sql",
+      "sha256": "9be5777de02ef1b704a8e37d714115982a283308d7f63b7350ab0970be4d53de"
+    },
+    {
+      "arquivo": "database/checks/20260911_016_precheck.sql",
+      "sha256": "e1495971ba2249c076e6572318203e741eeafce953c5e74eb883c29bb87b15f8"
+    },
+    {
+      "arquivo": "database/migrations/20260911_016_festa.sql",
+      "sha256": "74a37c3f152d8f9bb587b09ccc9d2b07e61789013719b450eed839cdf747c02a"
+    },
+    {
+      "arquivo": "database/checks/20260911_016_postcheck.sql",
+      "sha256": "24764cb07d1b1b86dc3198aec98995536dde222013d44c90703df513856636b9"
+    },
+    {
+      "arquivo": "database/checks/20260912_017_precheck.sql",
+      "sha256": "c65aef1eb2de5b687aa3b0cbff39e58529148a4eed6d0a7ab0ec1de121ac4ebf"
+    },
+    {
+      "arquivo": "database/migrations/20260912_017_pocket_sexta.sql",
+      "sha256": "cac1ffc8b585c0c5cd1edf6755cfc96c69ebbdf3dd3a1b77607d7ec2266aa1cd"
+    },
+    {
+      "arquivo": "database/checks/20260912_017_postcheck.sql",
+      "sha256": "dae9080f5ab82622b67b3361ff335f1f22e677b5e7aa17d1a1b2dde01a3dc077"
+    },
+    {
+      "arquivo": "database/checks/20260912_018_precheck.sql",
+      "sha256": "5e53ba98bdf251d1326e86856d96f89095ce15414d2190e2dfee844dea6fbbf4"
+    },
+    {
+      "arquivo": "database/migrations/20260912_018_whatsapp_onboarding.sql",
+      "sha256": "eeb08dbdca6bfffcb90021489b52e2e0e4e81eb393d12a8a7f76b59a725e0d36"
+    },
+    {
+      "arquivo": "database/checks/20260912_018_postcheck.sql",
+      "sha256": "47265a75ae73ab6192580b64854ecacecd2de38ee47aae866f8eb8e84a9c835a"
+    },
+    {
+      "arquivo": "database/checks/20260915_019_precheck.sql",
+      "sha256": "bfd39a3692a8cdd61c0b4227083842f5db60bf4392a64779ef8e0efd2f31672b"
+    },
+    {
+      "arquivo": "database/migrations/20260915_019_festa_formalizacao.sql",
+      "sha256": "6666ce3e68054581abe034ea0c48552a07520d5fcb8783947aeaa6890adf6539"
+    },
+    {
+      "arquivo": "database/checks/20260915_019_postcheck.sql",
+      "sha256": "457d16f36ab557bfefe9d73a0696c3d3140f9905fffb28b1b56a308a275ed321"
+    },
+    {
+      "arquivo": "database/checks/20260923_021_precheck.sql",
+      "sha256": "27967da57510b1ed75459f92ff976585794848e88f618be182ee2db3fb264ed3"
+    },
+    {
+      "arquivo": "database/migrations/20260923_021_catalogo_configuravel_estrutura.sql",
+      "sha256": "c2d98f9ff1d7e62748627046e746e809e91e523470eeb4083b8421e4eb30f71a"
+    },
+    {
+      "arquivo": "database/checks/20260923_021_postcheck.sql",
+      "sha256": "abe584891d30b19ab736a2d0802b0ccffa11ef3e9dd0b5a758f7e11d01cf9469"
+    },
+    {
+      "arquivo": "database/checks/20260923_022_precheck.sql",
+      "sha256": "4ae97eb805ec3b414bbbbdc6ab01d4dfcc186080c7ae66a518d1cad91df84c6e"
+    },
+    {
+      "arquivo": "database/migrations/20260923_022_catalogo_itens_iniciais.sql",
+      "sha256": "b813cc2d20dcccf219bf7f13f52756aa5d0777c02483adbe3fc6a6a5fb6b351a"
+    },
+    {
+      "arquivo": "database/checks/20260923_022_postcheck.sql",
+      "sha256": "1502489c730855dedabeb6c15b89ef26713c5234e424cabfb842efdaf9903258"
+    },
+    {
+      "arquivo": "database/checks/20260923_023_precheck.sql",
+      "sha256": "5f72f6903b84ec65551e70ad8f9c263ca2f8a3ec74050ab38f95be665b366f48"
+    },
+    {
+      "arquivo": "database/migrations/20260923_023_adicionais_por_pacote.sql",
+      "sha256": "0b65feab2a5e13e2fa2d7ce88fd3dc2ed5d56e1839c2571bdbe5cf4da2191350"
+    },
+    {
+      "arquivo": "database/checks/20260923_023_postcheck.sql",
+      "sha256": "65b31d662a3d6058a157f47e2c3f97ada4afa9e056eb57a34d871badf2b03b29"
+    },
+    {
+      "arquivo": "database/checks/20260923_024_precheck.sql",
+      "sha256": "fad040c681caffe8ff9df4ce492754067e8866c6a8e5eddf37245c81d891a7e8"
+    },
+    {
+      "arquivo": "database/migrations/20260923_024_taxa_rolha_versionada.sql",
+      "sha256": "0a51bebe44561fc02f673cc9fcb5ea0c05adf94211ce48291f6e554bc86b2934"
+    },
+    {
+      "arquivo": "database/checks/20260923_024_postcheck.sql",
+      "sha256": "45be751e743503bd39523ebd25a549184a2e4f2a57b5e689c65e13ba31461ae2"
+    },
+    {
+      "arquivo": "database/checks/20260923_025_precheck.sql",
+      "sha256": "8dbbb81616eb62fe6b0327e339a017eb57ae45b9d7b82e4fd15aa8db1d243660"
+    },
+    {
+      "arquivo": "database/migrations/20260923_025_extras_unitarios_pizza.sql",
+      "sha256": "a363abba49b1962d00318c604c40aaec4841f425113c4c3dc79dcc9db10c2373"
+    },
+    {
+      "arquivo": "database/checks/20260923_025_postcheck.sql",
+      "sha256": "67cbd1f8537c07c473963581e0248dacf4107e012344256f9cd245aa9151a6e2"
+    },
+    {
+      "arquivo": "database/checks/20260925_026_precheck.sql",
+      "sha256": "7ddea6eb2bb60b1dd118aa28aa507d612a7d81bcc6c7cfc68fbd7871b3c1900d"
+    },
+    {
+      "arquivo": "database/migrations/20260925_026_perfil_empresa_estrutura.sql",
+      "sha256": "9a3d03b989ea995cdb6fb70ee0e0f988a24a2a9fc7b60e621d707718ecf76cbb"
+    },
+    {
+      "arquivo": "database/checks/20260925_026_postcheck.sql",
+      "sha256": "eb48519fa5541865aef94c03bbd30f0db1ad6e2c5f30ddbdb64e6de3c699415e"
+    },
+    {
+      "arquivo": "database/checks/20260925_027_precheck.sql",
+      "sha256": "2f2e32a0601ef090b82b82863d0f2fbc8cee1727a95896f966bf38269a5f20aa"
+    },
+    {
+      "arquivo": "database/migrations/20260925_027_perfil_empresa_cadastro.sql",
+      "sha256": "44bfa35691de76b9ff00ea0a1cf5d2686dc820ff12ceb2a4f77b3e38f75a2662"
+    },
+    {
+      "arquivo": "database/checks/20260925_027_postcheck.sql",
+      "sha256": "93c60873ec991846e0b1bce78914198f83759e9a63a8e912fd3935066e7a02a3"
+    },
+    {
+      "arquivo": "database/checks/20260925_028_precheck.sql",
+      "sha256": "9f0e4e177aee151422093c054258e28f0c129b64c842fd946c01cb0beff31f37"
+    },
+    {
+      "arquivo": "database/migrations/20260925_028_perfil_empresa_revisao_aplicacao.sql",
+      "sha256": "85201c04b2d439b02661fec12f160cfc2e4a45e66c00b941a5ee09a862b07719"
+    },
+    {
+      "arquivo": "database/checks/20260925_028_postcheck.sql",
+      "sha256": "41484ed0978e9b4b07a2ecb2672d39b70e8487843c18961ff736c188d8c8f0a6"
+    },
+    {
+      "arquivo": "database/checks/20260926_029_precheck.sql",
+      "sha256": "2e9c8a8fc1ff657ec45a20cfc540fd2a4f78d2226d99cfe22e8c087228b0fb6e"
+    },
+    {
+      "arquivo": "database/migrations/20260926_029_fechamento_pacote_snapshot.sql",
+      "sha256": "57a2cd0306069dfebf4004a6123724e5c5182e3dcf40e938d60e469cd24b448a"
+    },
+    {
+      "arquivo": "database/checks/20260926_029_postcheck.sql",
+      "sha256": "70d11cd92b592557f75166db7a7ba080587b28bb7546ac9388235ca02cbf95ec"
+    },
+    {
+      "arquivo": "database/checks/20260926_030_precheck.sql",
+      "sha256": "7ab851f042cc7b7ee0d2a4df64da10e8c811783207d326e68ad7eefaca7f157a"
+    },
+    {
+      "arquivo": "database/migrations/20260926_030_preco_utilizado.sql",
+      "sha256": "9a6c13af753e5d038bd6bbc7943bcf716a27dfd2e1e7feb3424a504d11ad43ab"
+    },
+    {
+      "arquivo": "database/checks/20260926_030_postcheck.sql",
+      "sha256": "de9601135fc03cfaa3f843d739c4c5c2756f27d883455cdeee0a45ae51e226d4"
+    },
+    {
+      "arquivo": "database/checks/20260926_031_precheck.sql",
+      "sha256": "44526746f56c6e12dacb47d4556851a11ac86d41031c4443f1ed7398ff2b2b8a"
+    },
+    {
+      "arquivo": "database/migrations/20260926_031_empresas_comercial.sql",
+      "sha256": "7edb8916a11d63d8da6723d46495732cdf57f077a3d56eba2799e534c23f13d6"
+    },
+    {
+      "arquivo": "database/checks/20260926_031_postcheck.sql",
+      "sha256": "552c6cbda99efd1a5fdc66965d853d2a05af380e24b0ebe10d900ea8727358a6"
+    },
+    {
+      "arquivo": "database/checks/20260926_032_precheck.sql",
+      "sha256": "ed7ff77d9fe4a911d83c48fc83bdefce0c3e892e4535223e24440b881fe88881"
+    },
+    {
+      "arquivo": "database/migrations/20260926_032_pacote_revisao.sql",
+      "sha256": "508114dcbbec5d8c66eead002dc8752dad5036953c0ff070bdf0a6eb6efb2524"
+    },
+    {
+      "arquivo": "database/checks/20260926_032_postcheck.sql",
+      "sha256": "04a34521b107daa6c56b819e3bf915fde8beefff07b386e90b59144ee42cb24c"
+    },
+    {
+      "arquivo": "database/checks/20260926_033_precheck.sql",
+      "sha256": "547ac1e297bc76fbf64ef8b9477a13d9eb3b31ce275317237809229ad014271c"
+    },
+    {
+      "arquivo": "database/migrations/20260926_033_tabela_preco_publicacao.sql",
+      "sha256": "c3cd769e5675759ddf2f1228db22f68fe6d8fa7bfc774d6d0ab2184daddbd757"
+    },
+    {
+      "arquivo": "database/checks/20260926_033_postcheck.sql",
+      "sha256": "c51e2ecbd26599104877cd2139152ddb99be002d24a0f302661e304c26a363c7"
+    },
+    {
+      "arquivo": "database/checks/20260926_034_precheck.sql",
+      "sha256": "c986b070bce56083fb36864ce062623da92f3e81f260dd74c19ed07aaa61d38e"
+    },
+    {
+      "arquivo": "database/migrations/20260926_034_integridade_tenant_comercial.sql",
+      "sha256": "03ff0399d49cef5912975bed43d8a359407f8905bed2b3c7453827c24530e528"
+    },
+    {
+      "arquivo": "database/checks/20260926_034_postcheck.sql",
+      "sha256": "13915ae35600906b268f38afe289b719ff2ff861c86674f29fc6946e1edec74b"
+    },
+    {
+      "arquivo": "database/checks/20260926_035_precheck.sql",
+      "sha256": "fa06aa7b2a3d60ee0cb80f806b39175df62b17e26966436854db14c746eaeba3"
+    },
+    {
+      "arquivo": "database/migrations/20260926_035_publicacao_tabela_invariantes.sql",
+      "sha256": "1752db1fb95a01086bd28b5eecad9f833ec8dbd6120fd1af9be31a311b236698"
+    },
+    {
+      "arquivo": "database/checks/20260926_035_postcheck.sql",
+      "sha256": "fa86e2f135ec42ea22eda91751df21c282e71f5454e532bbab8837cae786f68c"
+    },
+    {
+      "arquivo": "database/checks/20260926_036_precheck.sql",
+      "sha256": "02e24bde227079f4c1fa9ac8047b0ecaedefc1a5033e9f8b4b1e6daf15cd97c7"
+    },
+    {
+      "arquivo": "database/migrations/20260926_036_empresa_pai_imutavel.sql",
+      "sha256": "dfd95f7f66700824c3e6c002659b062256ac160a789c730e16be361a646f9491"
+    },
+    {
+      "arquivo": "database/checks/20260926_036_postcheck.sql",
+      "sha256": "46597b380364b10c51436818d76caa2ebab93bc94abaa8d291a5d3c0a1bb7065"
+    },
+    {
+      "arquivo": "database/checks/20260926_037_precheck.sql",
+      "sha256": "7381f14b510c3a9c27abe91891f53419921b3e2ff27ab459b1fa4241eea445d6"
+    },
+    {
+      "arquivo": "database/migrations/20260926_037_publicacao_concorrencia.sql",
+      "sha256": "9105a5bab243db6348fda4259af761faba77f701283216be87cf2b0c90305dbe"
+    },
+    {
+      "arquivo": "database/checks/20260926_037_postcheck.sql",
+      "sha256": "b3e70ddbfa72868b014af3958701563834fbc67c7082dc14eccc02af99c0214f"
+    },
+    {
+      "arquivo": "database/checks/20260926_038_precheck.sql",
+      "sha256": "4a845761344a4feac1ce051a374b7f4043140ba37031cb3ca3c6455810ecd207"
+    },
+    {
+      "arquivo": "database/migrations/20260926_038_integridade_tenant_atomica.sql",
+      "sha256": "d02e7470943ac2bcbfe90294334d9fd72ee2e05559a8658318a2bc3beecc42e7"
+    },
+    {
+      "arquivo": "database/checks/20260926_038_postcheck.sql",
+      "sha256": "12fed1b3ee3665264c17992f72f218f1c3477509dd215b9348197eef07ad722f"
+    },
+    {
+      "arquivo": "database/checks/20260926_039_precheck.sql",
+      "sha256": "661400af06955c435dbd11d13c12284a464950385834038a5aa60a3edb159dfc"
+    },
+    {
+      "arquivo": "database/migrations/20260926_039_publicacao_serial_completa.sql",
+      "sha256": "c46eec16793162fd14eeea014745e1bf28e8d97378b8efdb3731bd5427a14ac4"
+    },
+    {
+      "arquivo": "database/checks/20260926_039_postcheck.sql",
+      "sha256": "140594d2f725868bddaa2750012a7f0574dfee3da52e781d391c2ee05ec9b8a4"
+    },
+    {
+      "arquivo": "database/checks/20260926_040_precheck.sql",
+      "sha256": "e3a0d920263864c00ea0c9905eacbfba3fa55cc8f7458755d4b34b4fed6150b1"
+    },
+    {
+      "arquivo": "database/migrations/20260926_040_integridade_sem_excecao_nominal.sql",
+      "sha256": "427b62b00cedb1f0966bf22f3fd98767e996c4ee7a704473f58f2d9781db4b95"
+    },
+    {
+      "arquivo": "database/checks/20260926_040_postcheck.sql",
+      "sha256": "897a055dfd7e67b8f22a050ea50029b9963346dbf2b7c00a005f52857a9923fb"
+    },
+    {
+      "arquivo": "database/checks/20260926_041_precheck.sql",
+      "sha256": "71808c9aba42aa29fa676d1c9b50f58bb4b1d51a69b216337df6b009b5ba00aa"
+    },
+    {
+      "arquivo": "database/migrations/20260926_041_revisao_mesmo_tenant.sql",
+      "sha256": "c5de08da1146d02aac84062a278b9c097850a52cc19b8fe1375a8b0d7fa4917b"
+    },
+    {
+      "arquivo": "database/checks/20260926_041_postcheck.sql",
+      "sha256": "6da6a76a0bf39609fd2c2f57bb558d333195a381335ab561a79d3a730a647db9"
+    },
+    {
+      "arquivo": "database/checks/20260926_042_precheck.sql",
+      "sha256": "2c18143e61648e127ede04ac6551ba58524593054cb631bbe2a86b84225e7d93"
+    },
+    {
+      "arquivo": "database/migrations/20260926_042_reativacao_faixa_publicada.sql",
+      "sha256": "fc98e158e7ffa5c45e02ff0021cff9c23f56d0e4d2fb953454c1d434ff7b78f4"
+    },
+    {
+      "arquivo": "database/checks/20260926_042_postcheck.sql",
+      "sha256": "697d59f65a2477e01f539f849d8eb3b6713e7d9099ddd1c424eabb44517d48cc"
+    },
+    {
+      "arquivo": "database/checks/20260926_043_precheck.sql",
+      "sha256": "4eb4e46599fae4c0ce6508d4ac23ef37570ea554f31029b6aa563e04c9b89277"
+    },
+    {
+      "arquivo": "database/migrations/20260926_043_estrutura_tenant.sql",
+      "sha256": "071f230d7badbacabe067cad1834e14ad661af6d2cadc309fd9038fe56860bb2"
+    },
+    {
+      "arquivo": "database/checks/20260926_043_postcheck.sql",
+      "sha256": "79099c5fee0b5e8704ae78e8d2e85e9982672465161a90414124e31e3624eb05"
+    },
+    {
+      "arquivo": "database/checks/20260926_044_precheck.sql",
+      "sha256": "b6879dc6c94ebb7d4f7933b8c628bd455100444979fd6592e0c1b23a3fa6a769"
+    },
+    {
+      "arquivo": "database/migrations/20260926_044_ciclo_empresa.sql",
+      "sha256": "1f31a9a924d0479b97e33de711cfb4100e8372a1d23f8635af3de23b97e96530"
+    },
+    {
+      "arquivo": "database/checks/20260926_044_postcheck.sql",
+      "sha256": "149fedaf6df218b5cab1b85cd659fb61b73cb0020e2fc553038035449c1808d3"
+    },
+    {
+      "arquivo": "database/checks/20260926_045_precheck.sql",
+      "sha256": "853f219e8417e44be0b69d5af8b7eba5873e7fa7d1fe2ab4c5db64748231fdae"
+    },
+    {
+      "arquivo": "database/migrations/20260926_045_ciclo_membership.sql",
+      "sha256": "ce8f12539c0a07aad5c7e09453e90b70c5330d4470a0ac6fe3dfa8f03569fda1"
+    },
+    {
+      "arquivo": "database/checks/20260926_045_postcheck.sql",
+      "sha256": "88a06a97320f17f4d1ce9eb6d1f9059c8116c8fb747ae0fd3baf501e4084bd76"
+    },
+    {
+      "arquivo": "database/checks/20260926_046_precheck.sql",
+      "sha256": "2855ed0f52be4981090e66b11a753bf872fc01477e8d0f34e89f5063c0db9248"
+    },
+    {
+      "arquivo": "database/migrations/20260926_046_kidmais_legado_controlado.sql",
+      "sha256": "abdc40db563de0aaad36bb9aa16af0c8e88ec1b9ceb29cd2d06c1efa0aefd349"
+    },
+    {
+      "arquivo": "database/checks/20260926_046_postcheck.sql",
+      "sha256": "5118298f94e77e274bc18c833a767ce1a292bcca42605c12f9a8fb830b9ec7a0"
+    },
+    {
+      "arquivo": "database/checks/20260926_047_precheck.sql",
+      "sha256": "219b6706426992e0e37812332870083d056af34dbf1c6e99c986e71ce61a6477"
+    },
+    {
+      "arquivo": "database/migrations/20260926_047_escopo_comercial_tabela.sql",
+      "sha256": "eff18932703c29b87a3288b81afe251969d2d665ad446b3888fb314f072d05b9"
+    },
+    {
+      "arquivo": "database/checks/20260926_047_postcheck.sql",
+      "sha256": "9600c5ef613691503026e701adb9f73b009e964d1a4e70e5afc62bf2e87b110b"
+    },
+    {
+      "arquivo": "database/checks/20260927_048_precheck.sql",
+      "sha256": "d4adc169652d2c9ac0ff55f2625963acc7743a3bc62a8b04bd46570ab5c07925"
+    },
+    {
+      "arquivo": "database/migrations/20260927_048_supersessao_tabela_publicada.sql",
+      "sha256": "8f7cba3792ae5d97bc66f69472af676e67f7eadc89112691634f0777f08fad11"
+    },
+    {
+      "arquivo": "database/checks/20260927_048_postcheck.sql",
+      "sha256": "ff1b7e96a4cb77617df2f8c88c40e3c473174c5aed8e0aaef5fe3f8fd51557a0"
+    },
+    {
+      "arquivo": "database/migrations/20260927_049_publicacao_insert_e_trava.sql",
+      "sha256": "fa559e00debf6777a5adb527a5531cd62bc015174ec4888b4a2a5c8604ab71f7"
+    },
+    {
+      "arquivo": "database/migrations/20260927_050_item_sem_categoria.sql",
+      "sha256": "ecf02f7c02b9b2d116dfe084872397b0abc886b3369ab196c863dccf9590dfbe"
+    },
+    {
+      "arquivo": "database/migrations/20260927_051_snapshot_item_especifico.sql",
+      "sha256": "5eca3513c1dcc5743323151c9b62614d860771d5a93707e00f79ca83fc6f10a2"
+    },
+    {
+      "arquivo": "database/checks/20260927_052_financeiro_precheck.sql",
+      "sha256": "a014d9d5b11f804533cbbaf80555d5cf34b2c73a5eb008cc7d63922ae4848aff"
+    },
+    {
+      "arquivo": "database/migrations/20260927_052_financeiro_gerencial.sql",
+      "sha256": "58d97a0d2c89088f7b32e37d85c980f326a098e14950c3dc713a93db24b145f0"
+    },
+    {
+      "arquivo": "database/checks/20260927_052_financeiro_postcheck.sql",
+      "sha256": "221efafd24659ed80719d7b6b625bdb199dbc31101c9df635ba1eb64f3e0151b"
+    },
+    {
+      "arquivo": "database/checks/20260928_053_precheck.sql",
+      "sha256": "d9f6015542c7332a4ba87315d2316997cc0cdfc053c32ffedc52a71796f93cc3"
+    },
+    {
+      "arquivo": "database/migrations/20260928_053_integridade_tenant_fechamento.sql",
+      "sha256": "e967dce3f53668ebd9846d74052265b8cdbb2e58fd53a0524c32c21df7fd85b1"
+    },
+    {
+      "arquivo": "database/checks/20260928_053_postcheck.sql",
+      "sha256": "430e2547e04269f3bd40e5fc7e48f8d431531903e2dba754de469b230d884bd2"
+    },
+    {
+      "arquivo": "database/checks/20260928_054_precheck.sql",
+      "sha256": "2a1e8474b2661d1fb7e0d2c9fcfea6abb09096146d08c346377e88eca7afa4da"
+    },
+    {
+      "arquivo": "database/migrations/20260928_054_empresa_id_clientes_fechamentos.sql",
+      "sha256": "2f9b1f3eb918865758bd4380483b3c77211f195c04a38a16e8fb53b7c1306590"
+    },
+    {
+      "arquivo": "database/checks/20260928_054_backfill_imediato.sql",
+      "sha256": "cf59816ba1763e335b4771ad0b96c2d009023123a4b681a519ccdef87ebe061c"
+    },
+    {
+      "arquivo": "database/checks/20260928_054_postcheck.sql",
+      "sha256": "7a2a3fa506b2de14331b946c4848d826d22638f3996555fa70c0369c41400093"
+    },
+    {
+      "arquivo": "database/migrations/20260928_055a_inteligencia_uso.sql",
+      "sha256": "8812381be3ed3d2f5454d30398304e6f706ec0ccfe537d79bde537b3bd57322d"
+    },
+    {
+      "arquivo": "database/checks/20260928_055a_postcheck.sql",
+      "sha256": "bff5ab85e149daf3efca743fd58637e23d81965386cf0f99265dc02d701f547b"
+    },
+    {
+      "arquivo": "database/migrations/20260928_055b_inteligencia_operacoes.sql",
+      "sha256": "6a69b67b1672e2c0f43a680a50aa29762f683428ffe8b8fceb7aef2c46dbe31f"
+    },
+    {
+      "arquivo": "database/checks/20260928_055b_postcheck.sql",
+      "sha256": "ada0d5a7b829ca0c014d428246cb6b068cb309aaf8a2b4326d39e1f75ba6673d"
+    },
+    {
+      "arquivo": "database/migrations/20260928_055c_inteligencia_documentos.sql",
+      "sha256": "c32078281700e122252a983f69e0c48082c295f8e374f93e344d40a6e1877ee5"
+    },
+    {
+      "arquivo": "database/checks/20260928_055c_postcheck.sql",
+      "sha256": "6aaf9c5d734f8195589e1dd77254e5da0583fd575442c939fbf3d45bbecfc3ed"
+    },
+    {
+      "arquivo": "database/migrations/20260928_055d_inteligencia_importacoes.sql",
+      "sha256": "1e64cc3e1c7c81d1b9da2defb75775aa3f6388b1a3bf2fa2f3aff200dca165ab"
+    },
+    {
+      "arquivo": "database/checks/20260928_055d_postcheck.sql",
+      "sha256": "2f6085251d691a25f8e73acfade870c2acc74cd9ff8ce6045c26434c8cfaee07"
+    },
+    {
+      "arquivo": "database/checks/20260929_056_precheck.sql",
+      "sha256": "d22aa5529152336a7768ea592becadb8afc3918cf7e15311b5d3cc4a95bf8951"
+    },
+    {
+      "arquivo": "database/migrations/20260929_056_membership_papel_festa_tenant.sql",
+      "sha256": "4fabccc2f320b683f6af83ff5a6104acb4ccdacce71f5f9da7bda1b54c09f102"
+    },
+    {
+      "arquivo": "database/checks/20260929_056_postcheck.sql",
+      "sha256": "4bada618efa662c59b64a63734975cb339f9a79474336cec7b42592adf3ee7c4"
+    },
+    {
+      "arquivo": "database/checks/20260929_057_precheck.sql",
+      "sha256": "28c8821bf7888733cff46f7340be5bb009d56a79067ef2bc65eaaeb29003110a"
+    },
+    {
+      "arquivo": "database/migrations/20260929_057_assinatura_contrato_empresa.sql",
+      "sha256": "b69c64a22518e80f5ce4349f7b61cfd8c4147ebfcc80550759aa48ac34bc16bf"
+    },
+    {
+      "arquivo": "database/checks/20260929_057_postcheck.sql",
+      "sha256": "8fc55bf7d69d3242f21065325c433881bb6502b45dc56e0f5fc397da1e02ebe4"
+    },
+    {
+      "arquivo": "database/migrations/20260929_058_inteligencia_skills.sql",
+      "sha256": "ae7e7befbafdb1856bc9069a51787254c227783652bc1074bd6918453be16fd4"
+    },
+    {
+      "arquivo": "database/checks/20260929_058_postcheck.sql",
+      "sha256": "87878db9f34cc2dc21f800cc6f2314162d9f05588733d19bc93632da2db6edc2"
+    },
+    {
+      "arquivo": "database/migrations/20261001_059_operacional_parametros_consumo.sql",
+      "sha256": "4b95a5de6b81053be402d19b451366b5f6303096375d5e7d37e5cd827b0fdb8f"
+    },
+    {
+      "arquivo": "database/checks/20261001_059_postcheck.sql",
+      "sha256": "f2e160caf774b76e67dc15e9da74f17a4014a3b591c9fbb04bdfced38f4f0e34"
+    },
+    {
+      "arquivo": "database/checks/20261002_061_precheck.sql",
+      "sha256": "b141f82cf7e5084205f3510958ce87664d37ce8e160c719cf71f6449e5ec9db2"
+    },
+    {
+      "arquivo": "database/migrations/20261002_061_contratos_importados_integracao.sql",
+      "sha256": "bbcaba02951116ddbc155e2a9e658d1c9745450e37dbcd39dcd6576f28798099"
+    },
+    {
+      "arquivo": "database/checks/20261002_061_postcheck.sql",
+      "sha256": "4c39ab78f2f3bc568d96c6ff49345cde40225747c45a958309476c3214d13300"
+    },
+    {
+      "arquivo": "database/checks/20261002_062_precheck.sql",
+      "sha256": "2b822d3c5dff468cb15144c38ca516975f7fe516628573fba1b358676d3ef160"
+    },
+    {
+      "arquivo": "database/migrations/20261002_062_agenda_empresa_unidade.sql",
+      "sha256": "7de5bcf4ae99fc497ead970610be4cc0a034a7f9c5100907b3a50b0f563bef17"
+    },
+    {
+      "arquivo": "database/checks/20261002_062_postcheck.sql",
+      "sha256": "c5dd06f2dba912748f2d94f1117b07736857f3610bf94753d6ac04ea5b1b1673"
+    },
+    {
+      "arquivo": "database/checks/20261004_063_precheck.sql",
+      "sha256": "5df8461c36d921da8d3050da2a2cb3a09effe24edddac30eea27f6081a6477de"
+    },
+    {
+      "arquivo": "database/migrations/20261004_063_painel_desenvolvedor.sql",
+      "sha256": "fd7b38246fb2bea6a2e48a9a515fcf12daa33fb5ba4578c0de9c6157c51a9ac5"
+    },
+    {
+      "arquivo": "database/checks/20261004_063_postcheck.sql",
+      "sha256": "3c9463146991afdbf360fccf4d607e89230e279d64f22dcaec151299aac6d338"
+    },
+    {
+      "arquivo": "database/checks/20261006_064_precheck.sql",
+      "sha256": "663299afae509f35600872efde2020e87b735411ba4fba4f88cff56dbbc17043"
+    },
+    {
+      "arquivo": "database/migrations/20261006_064_reimportacao_apos_cancelamento.sql",
+      "sha256": "ad8c3ced139972531e5bf5e551094bd65c83826c44f48c9b7a472a0f1f200a44"
+    },
+    {
+      "arquivo": "database/checks/20261006_064_postcheck.sql",
+      "sha256": "f620f8f18b502ddff3a9c4513c4ec587550c2efae976daab3e34ca05cc0ac2d3"
+    },
+    {
+      "arquivo": "database/checks/20261006_066_precheck.sql",
+      "sha256": "760706ccc2eeaef3c2e862803c5a28c4aad4b1e881c5329d798742b279a6aa24"
+    },
+    {
+      "arquivo": "database/migrations/20261006_066_pix_recebimento_empresa.sql",
+      "sha256": "5a09647fc90c757aa41b9e5fc223deca9a14614515adee4496fd75f778fe136b"
+    },
+    {
+      "arquivo": "database/checks/20261006_066_postcheck.sql",
+      "sha256": "8fee7c79f11064cfd4cc77d7ac8c777f341159bf2380137d278ba23fbcbc970b"
+    },
+    {
+      "arquivo": "database/checks/20261006_067_precheck.sql",
+      "sha256": "1b424a79852beb044e1357c8c370a0b19ffaca39f9bbf43395535d64b63e3d59"
+    },
+    {
+      "arquivo": "database/migrations/20261006_067_modelo_comercial_empresa.sql",
+      "sha256": "074fea7ae48c66b1c68a9d96f6994c773439a3c449ec4c4ef3b8de2f7767d709"
+    },
+    {
+      "arquivo": "database/checks/20261006_067_postcheck.sql",
+      "sha256": "804a4d1e2cf8bfcf4ac9228f9792dc4086591307a9979a8f564cb800d0557ea9"
+    },
+    {
+      "arquivo": "database/checks/20261007_068_precheck.sql",
+      "sha256": "598803779e1a0090c68dc8754cc966e64eb5bbcb47da5770c3aaf520427e6813"
+    },
+    {
+      "arquivo": "database/migrations/20261007_068_cobranca_assinatura.sql",
+      "sha256": "61ef693e870f95dc7d251698dd2772bbfb645da795fdf7cfe4082dc0eaf55654"
+    },
+    {
+      "arquivo": "database/checks/20261007_068_postcheck.sql",
+      "sha256": "121b7584ecafbc57e147979c98ca49244496a59569c3a2bc919a3d647e9abc69"
+    },
+    {
+      "arquivo": "database/checks/20261007_069_precheck.sql",
+      "sha256": "f2181522bcc99fb84f865a638c83b07414779b71a293902f05918a358643a226"
+    },
+    {
+      "arquivo": "database/migrations/20261007_069_cadastro_publico.sql",
+      "sha256": "35798cafffaaf610070ea83d87b5fcd50dfa2cd9db00806a531e35e85b6686af"
+    },
+    {
+      "arquivo": "database/checks/20261007_069_postcheck.sql",
+      "sha256": "eac9d0db42846780f483b2c3e8005d198ee3ba4850195288103d270fa4f347dc"
+    },
+    {
+      "arquivo": "database/checks/20261007_070_precheck.sql",
+      "sha256": "418260f2844897b790d734febc38ba13900b3bd2de18ec26091369ed8c29d724"
+    },
+    {
+      "arquivo": "database/migrations/20261007_070_adicionais_do_buffet.sql",
+      "sha256": "b5db4436fe36f8c789e3f23b9346a305a9f9f057d5d86445b87b8ccd987e679e"
+    },
+    {
+      "arquivo": "database/checks/20261007_070_postcheck.sql",
+      "sha256": "a27d8609b28f944bfa781937616b667329bb3eff76ce7432ae71ef9bb820dcb1"
+    },
+    {
+      "arquivo": "database/checks/20261007_071_precheck.sql",
+      "sha256": "28b8e5e32049508f219185a9cc1298eddf4e8dbb5dbf1f82ed8023595dd712a8"
+    },
+    {
+      "arquivo": "database/migrations/20261007_071_importacoes_comerciais.sql",
+      "sha256": "e027fb791aae897ab9880f31f25b3d8fbad58ba4436b05a55d8bce35c0612d8f"
+    },
+    {
+      "arquivo": "database/checks/20261007_071_postcheck.sql",
+      "sha256": "91137001b6160c804a03f4e8226394de0ca6a53835700d8cf8203a1b440e56f3"
+    },
+    {
+      "arquivo": "database/checks/20261007_072_precheck.sql",
+      "sha256": "769949e333452addc7a038bb83b79388a3c649f4915d2c73229fa950888e2151"
+    },
+    {
+      "arquivo": "database/migrations/20261007_072_modelos_contrato_empresa.sql",
+      "sha256": "9b6688a44cb9fd6aa9f598875ab9561c89d7cafe8d86873997a79330b5d7c9ea"
+    },
+    {
+      "arquivo": "database/checks/20261007_072_postcheck.sql",
+      "sha256": "7cdd0590f8cb0301a2ea967c223418a4082a8266e19c6eeae389460279f01ea1"
+    },
+    {
+      "arquivo": "database/checks/20261008_073_precheck.sql",
+      "sha256": "ae829e1fa48e350c95ae06393edd14fe5066e230cf876605a49c02788ffc00a8"
+    },
+    {
+      "arquivo": "database/migrations/20261008_073_convites.sql",
+      "sha256": "59c33e20a373944129a69771fc2bb4fa501c94e92faadb12927da0c1d3a54896"
+    },
+    {
+      "arquivo": "database/checks/20261008_073_postcheck.sql",
+      "sha256": "3b1ffa7d0c680180717342b99d16e436f20b97a70bbdebfbe252a5ae69fc204a"
+    },
+    {
+      "arquivo": "database/checks/20261009_074a_precheck.sql",
+      "sha256": "d90bd9ec4a47a69de22480637842f70221f78507893009a7f1aca56becf746aa"
+    },
+    {
+      "arquivo": "database/migrations/20261009_074a_planos_comerciais.sql",
+      "sha256": "ad160c57c10e745eb513c124f451f5b735dd3998b84aae0946b45a4e7ae98d4a"
+    },
+    {
+      "arquivo": "database/checks/20261009_074a_postcheck.sql",
+      "sha256": "51dd5b59d8918890deee62fc1171d3b7f23f5fe866f711f29f2696cd121ff5ea"
+    },
+    {
+      "arquivo": "database/checks/20261009_075_precheck.sql",
+      "sha256": "87c6bb60ee6280eb3ba5a693bc1a47228ef68a30ef1ba210e0f69dfac03277e0"
+    },
+    {
+      "arquivo": "database/migrations/20261009_075_renovacao_fundador.sql",
+      "sha256": "453f4f33337d7c5baeb28e286ae3c1a747fa68255e5025d4fd6c7618fbd8c545"
+    },
+    {
+      "arquivo": "database/checks/20261009_075_postcheck.sql",
+      "sha256": "cdb6f800b888a7405b9e6729f69402caa5a16f087ce794347960a391a9eeaa81"
+    },
+    {
+      "arquivo": "database/rollback/20261009_075_renovacao_fundador_down.sql",
+      "sha256": "8143a5ed9c2586d7ef4d53704a23a4fc27a691726be0e0a1c6de1632425879b2"
+    },
+    {
+      "arquivo": "database/rollback/20261009_074a_planos_comerciais_down.sql",
+      "sha256": "2a4b0f24f84314f4f2a7dc09498b3ceb16085fac80e7f3082150dbea559b640a"
+    }
+  ]
+}

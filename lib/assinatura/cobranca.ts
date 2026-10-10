@@ -32,6 +32,7 @@ import { assinaturasComRemocaoIncerta, concluirIntencao, encerrarPendencias, int
     registrarPendencia, registrarResultadoRemocao, removerComResultado, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
 import type { OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
+import { novosPlanosLigados, validarPedidoOferta, prepararOferta, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
 
 const GESTAO = 'REPRESENTANTE_AUTORIZADO';
 const CNPJ = /^[0-9A-Z]{12}[0-9]{2}$/;
@@ -81,6 +82,7 @@ const incerto = () => erroAcesso('COBRANCA_RESULTADO_INCERTO', 'Não conseguimos
 const falhou = () => erroAcesso('COBRANCA_FALHOU', 'Não foi possível falar com o provedor de pagamento agora. Nada foi alterado; tente novamente em instantes.', 502);
 
 async function linhaDaEmpresa(tx: DbExecutor, empresaId: string, travar: boolean): Promise<Linha | null> {
+    if (travar) await travarEmpresaComercial(tx, empresaId);
     const instalada = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.cobranca_eventos') IS NOT NULL AS ok")).rows[0]?.ok === true;
     if (!instalada)
         throw desligada();
@@ -128,41 +130,64 @@ async function noProvedor<T>(acao: () => Promise<T>): Promise<T> {
 }
 
 export async function iniciarAssinatura(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, raw: unknown, ctx: Contexto, deps: DepsCobranca) {
+    const env = deps.env ?? process.env;
+    const pediuPlano = Boolean(raw && typeof raw === 'object' && 'plano' in raw);
+    if (pediuPlano) {
+        if (!novosPlanosLigados(env)) throw erroAcesso('PLANOS_NAO_DISPONIVEIS', 'Os novos planos ainda não estão disponíveis neste ambiente.', 503);
+        const pedido = validarPedidoOferta(raw);
+        const provedor = deps.provedor();
+        if (!provedor) throw desligada();
+        const empresaId = await deps.withTenantTransaction(sessao, empresaSolicitada, async (_tx, tenant) => {
+            exigirGestao(tenant); return tenant.empresaComprovada;
+        });
+        return deps.travarContratacao(empresaId, async () => {
+            const oferta = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+                exigirGestao(tenant);
+                if (tenant.empresaComprovada !== empresaId) throw erroAcesso('CONFLITO', 'A empresa da sessão mudou.', 409);
+                return prepararOferta(tx, empresaId, sessao.usuario_id, pedido);
+            });
+            return contratar(sessao, empresaSolicitada, empresaId, pedido.ciclo, oferta.valor_final_centavos, provedor, ctx, deps, oferta);
+        });
+    }
     const ciclo = (raw as { ciclo?: unknown } | null)?.ciclo;
     if (ciclo !== 'MENSAL' && ciclo !== 'ANUAL')
         throw erroAcesso('DADOS_INVALIDOS', 'Escolha o plano mensal ou anual.', 400, { campo: 'ciclo' });
-    let preco: number | null;
+    const contexto = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+        exigirGestao(tenant);
+        return { empresaId: tenant.empresaComprovada,
+            apenasRetomar: await conferirCheckoutLegado(tx, tenant.empresaComprovada, ciclo, env) };
+    });
+    let preco: number | null = null;
     try {
-        preco = precoDoCiclo(ciclo, deps.env ?? process.env);
+        if (!contexto.apenasRetomar) preco = precoDoCiclo(ciclo, env);
     }
     catch (error) {
         if (error instanceof ConfiguracaoComercialInvalida)
             throw desligada();
         throw error;
     }
-    if (!preco)
+    if (!preco && !contexto.apenasRetomar)
         throw erroAcesso('COBRANCA_NAO_CONFIGURADA', 'Este plano ainda não está publicado neste ambiente.', 503);
     const provedor = deps.provedor();
     if (!provedor)
         throw desligada();
     // Empresa comprovada primeiro (a trava é por empresa); depois TODA a contratação roda sob a trava.
-    const empresaId = await deps.withTenantTransaction(sessao, empresaSolicitada, async (_tx, tenant) => {
-        exigirGestao(tenant);
-        return tenant.empresaComprovada;
-    });
+    const empresaId = contexto.empresaId;
     return deps.travarContratacao(empresaId, () => contratar(sessao, empresaSolicitada, empresaId, ciclo, preco, provedor, ctx, deps));
 }
 
-async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, empresaId: string, ciclo: Ciclo, preco: number, provedor: ClienteAsaas, ctx: Contexto, deps: DepsCobranca) {
+async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, empresaId: string, ciclo: Ciclo, preco: number | null, provedor: ClienteAsaas, ctx: Contexto, deps: DepsCobranca, oferta?: Oferta) {
     // A. leitura curta (sob a trava: o que outra contratação já gravou aparece aqui)
     const a = await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
         exigirGestao(tenant);
         if (tenant.empresaComprovada !== empresaId)
             throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
+        await exigirEmpresaCobravel(tx, empresaId);
         const linha = await linhaDaEmpresa(tx, empresaId, false);
         if (!linha)
             throw erroAcesso('CONFLITO', 'Esta empresa não tem cobrança registrada no Kidmais Manager.', 409);
-        return { linha, cliente: await dadosDoCliente(tx, empresaId, linha) };
+        const apenasRetomar = !oferta && await conferirCheckoutLegado(tx, empresaId, ciclo, deps.env ?? process.env);
+        return { linha, apenasRetomar, cliente: await dadosDoCliente(tx, empresaId, linha) };
     });
 
     // B. provedor, sem transação de tenant aberta
@@ -182,6 +207,8 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             const aberta = cobrancaEmAberto(await provedor.listarCobrancasDaAssinatura(anterior.id));
             return { assinatura: anterior, clienteId: a.linha.provedor_cliente_id ?? anterior.customer, aberta, criada: false, reaproveitada: true, encerrar: [] as string[] };
         }
+        if (a.apenasRetomar || preco === null)
+            throw erroAcesso('TROCA_PLANO_NAO_DISPONIVEL', 'A assinatura encerrada precisa de atendimento para recontratação.', 409);
         let clienteId = a.linha.provedor_cliente_id;
         if (!clienteId) {
             const existente = await provedor.buscarClientePorReferencia(empresaId);
@@ -243,7 +270,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         try {
             assinatura = await provedor.criarAssinatura({
                 cliente: clienteId, valorCentavos: preco, ciclo, vencimento: a.linha.hoje, referencia: empresaId,
-                descricao: `Kidmais Manager — assinatura ${ciclo === 'MENSAL' ? 'mensal' : 'anual'}`,
+                descricao: `Kidmais Manager — ${oferta ? `${oferta.plano} · ` : ''}assinatura ${ciclo === 'MENSAL' ? 'mensal' : 'anual'}`,
             });
         }
         catch (error) {
@@ -268,6 +295,12 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         return { assinatura, clienteId, aberta: await cobrancaAberta(provedor, assinatura.id), criada: true, reaproveitada: false, encerrar };
     });
 
+    if (oferta && (b.assinatura.externalReference !== empresaId || b.assinatura.valorCentavos !== oferta.valor_final_centavos
+        || cicloDoProvedor(b.assinatura.cycle) !== oferta.ciclo || !b.clienteId || b.assinatura.customer !== b.clienteId))
+        throw erroAcesso('OFERTA_DIVERGENTE', 'Não foi possível confirmar as condições no provedor. Nenhum acesso foi liberado; contate o atendimento.', 409);
+    if (oferta && b.aberta && (b.aberta.valorCentavos !== oferta.valor_final_centavos
+        || b.aberta.assinaturaId !== b.assinatura.id || b.aberta.clienteId !== b.clienteId))
+        throw erroAcesso('OFERTA_DIVERGENTE', 'A cobrança não corresponde ao plano confirmado. Nenhum acesso foi liberado; contate o atendimento.', 409);
     // C. grava os ids (nunca a situação) com a linha travada
     try {
         await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {

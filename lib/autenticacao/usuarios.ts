@@ -11,6 +11,7 @@ import { avaliarPerdaDeElegibilidade, MENSAGEM_ULTIMA_ADMINISTRADORA, revogarCon
 import { executarNoTenant, type TenantComprovado } from '../saas/provar-tenant.ts';
 import { PAPEL_GLOBAL_NEUTRO } from './plataforma.ts';
 import { erroAcesso } from '../acessos/erros.ts';
+import { exigirVaga } from '../assinatura/limites-usuarios.ts';
 
 export type UsuariosDeps = {
     withTransaction: typeof withTransactionPadrao;
@@ -235,6 +236,7 @@ export async function criarUsuarioAdministrativo(sessao: SessaoAdmin, raw: unkno
                 throw authError('O acesso desta conta a esta empresa está desativado e não é reaberto por aqui.', 409);
             if (atual?.status === 'ATIVA')
                 return resposta(atual.membership_id, true);
+            await exigirVaga(tx, empresaId);
             let membershipId = atual?.membership_id;
             if (!membershipId) {
                 membershipId = (await tx.query<{ id: string }>(
