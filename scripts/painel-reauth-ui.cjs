@@ -284,37 +284,53 @@ async function principal() {
     resultados.push(`Troca depois da escrita: executada uma vez, tela descartada. Aviso: "${avisoDepois}"`);
     console.log('E2E_TROCA_DEPOIS_OK');
 
-    // 4b. G16 com a corrida FORÇADA: escrita concluída e troca antes da resposta, mais uma LEITURA concorrente (logo da
-    // empresa) cuja confirmação de sessão fica presa até depois da resposta da escrita e então falha. O aviso que fica
-    // tem de ser o da escrita, executada uma única vez. Ordem verificada pelo rastro de rede.
+    // 4b. G16 com a corrida FORÇADA, em ordem determinística (a da falha original):
+    //   (1) leitura concorrente real (logo da empresa) com a RESPOSTA presa; (2) escrita concluída, empresa trocada antes da
+    //   resposta → a página guarda "concluída" e inicia o descarte; (3) a navegação de descarte fica presa, a página antiga
+    //   continua viva; (4) a resposta do logo é liberada e a confirmação de sessão DESSA leitura falha (abortada);
+    //   (5) a navegação segue. O aviso que fica tem de ser o da escrita, executada uma única vez.
     await abrirPerfilNaAlfa();
     salvos = await contar('PERFIL_RASCUNHO_SALVO');
-    let logoRespondeu = false;
-    let confirmacaoDaLeitura = null;
-    let liberarEscrita;
-    const escritaLiberada = new Promise((r) => { liberarEscrita = r; });
-    const confirmacaoPresa = new Promise((r) => {
-      page.route('**/api/admin/autenticacao', async (route) => {
-        // Só a 1ª confirmação depois da resposta do logo (a da leitura); a da escrita ainda nem começou.
-        if (route.request().method() === 'GET' && logoRespondeu && !confirmacaoDaLeitura) { confirmacaoDaLeitura = route; r(); return; }
-        await route.continue();
-      });
+    const URL_LOGO = '**/api/admin/configuracoes/perfil-empresa/logo';
+    let liberarLogo; const logoLiberado = new Promise((r) => { liberarLogo = r; });
+    let logoPedido; const logoPreso = new Promise((r) => { logoPedido = r; });
+    await page.route(URL_LOGO, async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      logoPedido(); await logoLiberado; await route.continue();
     });
-    const aoTerminarLogo = (req) => { if (req.method() === 'GET' && new URL(req.url()).pathname === '/api/admin/configuracoes/perfil-empresa/logo') logoRespondeu = true; };
-    page.on('requestfinished', aoTerminarLogo);
+    let abortarConfirmacao = false; let abortou; const confirmacaoAbortada = new Promise((r) => { abortou = r; });
+    await page.route('**/api/admin/autenticacao', async (route) => {
+      if (abortarConfirmacao && route.request().method() === 'GET') { abortarConfirmacao = false; await route.abort('failed'); abortou(); return; }
+      await route.continue();
+    });
+    let liberarNavegacao; const navegacaoLiberada = new Promise((r) => { liberarNavegacao = r; });
+    let navegou; const navegacaoPresa = new Promise((r) => { navegou = r; });
+    await page.route('**/admin/dashboard', async (route) => {
+      if (route.request().resourceType() !== 'document') return route.continue();
+      navegou(); await navegacaoLiberada; await route.continue();
+    });
+    // (1) leitura concorrente: o LogoEmpresa recarrega neste evento (adminFetch GET .../logo); a resposta fica presa.
+    await page.evaluate(() => window.dispatchEvent(new Event('kidmais-logo-aplicada')));
+    await logoPreso;
+    // (2) escrita: o servidor executa; a empresa é trocada antes de a resposta chegar à página.
     teste = await salvarComInterceptacao(async (route) => {
       const resposta = await route.fetch();
       await trocarPorFora(empresas.beta.id);
-      await escritaLiberada;
       await route.fulfill({ response: resposta });
     });
-    // Leitura concorrente real da página: o LogoEmpresa recarrega neste evento (adminFetch GET .../logo).
-    await page.evaluate(() => window.dispatchEvent(new Event('kidmais-logo-aplicada')));
-    await confirmacaoPresa;
-    liberarEscrita();
-    // A escrita guarda o aviso e inicia o descarte; só então a confirmação da leitura falha.
-    await page.waitForURL(`${base}/admin/dashboard`).catch(() => undefined);
-    await confirmacaoDaLeitura.abort('failed').catch(() => undefined);
+    // (3) a escrita guardou o aviso e pediu a navegação de descarte, que fica presa.
+    await navegacaoPresa;
+    rastro.push({ ms: Date.now() - t0, evento: 'g16-escrita-descartou-navegacao-presa', caminho: '/admin/dashboard' });
+    // (4) a leitura recebe a resposta e a confirmação dela falha, ainda na página antiga.
+    abortarConfirmacao = true;
+    liberarLogo();
+    await confirmacaoAbortada;
+    rastro.push({ ms: Date.now() - t0, evento: 'g16-confirmacao-da-leitura-abortada', caminho: '/api/admin/autenticacao' });
+    await page.waitForTimeout(300);
+    // (5) a navegação segue; a próxima tela mostra o aviso guardado.
+    liberarNavegacao();
+    await page.waitForURL(`${base}/admin/dashboard`);
+    await page.unroute('**/admin/dashboard'); await page.unroute('**/api/admin/autenticacao'); await page.unroute(URL_LOGO);
     await aviso().waitFor();
     const avisoCorrida = (await aviso().innerText()).replace(/\s*×$/, '');
     assert.match(avisoCorrida, /concluída antes da mudança/, 'o descarte da leitura não apaga o resultado da escrita');
@@ -322,9 +338,7 @@ async function principal() {
     assert.equal(await contar('PERFIL_RASCUNHO_SALVO'), salvos + 1, 'executada exatamente uma vez');
     assert.equal((await sessaoAtual()).data.contexto.empresaAtual.id, empresas.beta.id);
     await teste.encerrar();
-    page.off('requestfinished', aoTerminarLogo);
-    await page.unroute('**/api/admin/autenticacao');
-    resultados.push(`G16, corrida forçada (leitura concorrente com confirmação falhando depois da escrita): executada uma vez; aviso "${avisoCorrida}"`);
+    resultados.push(`G16, corrida forçada (leitura com a confirmação falhando depois da escrita, navegação presa): executada uma vez; aviso "${avisoCorrida}"`);
     console.log('E2E_G16_CORRIDA_OK');
 
     // 6–7. Troca de empresa seguida de FALHA na consulta de confirmação da sessão (contexto desconhecido).
