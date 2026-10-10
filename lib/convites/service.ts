@@ -50,8 +50,10 @@ async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, 
     let c = (await tx.query<Convite>('SELECT * FROM convites WHERE festa_id=$1 AND empresa_id=$2 FOR UPDATE', [festa, empresa])).rows[0];
     // Abertura administrativa cria só o rascunho; nunca publica nem libera o cliente automaticamente.
     if (!c && a.tipo === 'admin' && escrever) {
-      c = (await tx.query<Convite>(`INSERT INTO convites(empresa_id,festa_id,cliente_id,estabelecimento_id,publico_token,rascunho,versao_contrato_id)
-        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [empresa, festa, l.cliente_id, l.estabelecimento_id, token(), inicioConteudo(co.snapshot), co.versao_id])).rows[0];
+      // O cliente pode consumir no máximo duas gerações; a terceira fica reservada
+      // para o buffet ajustar a arte final, se necessário.
+      c = (await tx.query<Convite>(`INSERT INTO convites(empresa_id,festa_id,cliente_id,estabelecimento_id,publico_token,rascunho,versao_contrato_id,limite_festa,limite_cliente)
+        VALUES($1,$2,$3,$4,$5,$6,$7,3,2) RETURNING *`, [empresa, festa, l.cliente_id, l.estabelecimento_id, token(), inicioConteudo(co.snapshot), co.versao_id])).rows[0];
       await evento(tx, c, a, 'CONVITE_CRIADO');
     }
     exigir(c, 'Crie o convite para começar.', 404);
