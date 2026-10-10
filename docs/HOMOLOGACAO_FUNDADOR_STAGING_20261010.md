@@ -10,9 +10,10 @@ A tentativa 2 da homologação de planos ([evidência](evidencias/homologacao-pl
 
 ## Candidata
 
-- **Código: `5f818f56291fb5ba67e1bc0506a46ac1db4db9b3`** sobre `origin/staging` `0123050` (inclui os deploys externos `bc95ca4` #151 e `0123050` #152).
+- **Código: `58696f1cdc06796caf43ffbe7036667c9a364631`** (executor Fundador de `5f818f5` + [sonda da cobrança removida](SONDA_COBRANCA_REMOVIDA_ASAAS_20261010.md)) sobre `origin/staging` `0123050` (inclui os deploys externos `bc95ca4` #151 e `0123050` #152).
 - **Candidata completa** = o commit seguinte, que traz só este documento; o SHA exato é o apresentado no pedido de aprovação e é o único que P1 envia.
-- Diferença para `0123050`: `scripts/homologacao-fundador-staging.cjs` e teste, e a evidência da tentativa 2. Aplicação web inalterada.
+- Diferença para `0123050`: `scripts/homologacao-fundador-staging.cjs`, `scripts/sonda-cobranca-removida-asaas.cjs` e testes, este pacote, o da sonda e a evidência da tentativa 2. Aplicação web inalterada.
+- **Portão:** a rodada só segue se a sonda retornar `REGRA_ATENDIDA`. P1 é o S1 da sonda (mesma candidata); depois dela, restam P2–P4.
 - Se `origin/staging` avançar antes de P1: **não enviar**. Integrar sem force, revisar o diff completo entre a nova ponta e a candidata, revalidar e apresentar o novo SHA para nova aprovação.
 - Pedido: não implantar staging por fora durante a janela (P2–P4, ~20 min). Na tentativa 2, um deploy externo trocou a instância no meio de N4.
 
@@ -88,7 +89,7 @@ Permanecem como histórico (nunca apagados): 3 empresas desativadas, 3 contrata�
 
 ### Risco declarado
 
-A documentação do Asaas não confirma que `GET /v3/payments/{id}` devolve a cobrança removida com `deleted=true` (pode responder 404). Pela regra fail-closed, 404 mantém a reserva: nesse caso a rodada termina `INCOMPLETO` com até 3 vagas de staging `RESERVADA` (contratações `EM_ABERTO`, fixtures desativadas, nada pago, assinaturas removidas) e a liberação exige decisão própria. Nenhuma vaga de terceiros é afetada.
+A [sonda](SONDA_COBRANCA_REMOVIDA_ASAAS_20261010.md) verifica este ponto antes da rodada. A documentação do Asaas não confirma que `GET /v3/payments/{id}` devolve a cobrança removida com `deleted=true` (pode responder 404). Pela regra fail-closed, 404 mantém a reserva: nesse caso a rodada termina `INCOMPLETO` com até 3 vagas de staging `RESERVADA` (contratações `EM_ABERTO`, fixtures desativadas, nada pago, assinaturas removidas) e a liberação exige decisão própria. Nenhuma vaga de terceiros é afetada.
 
 ## Critérios de parada
 
