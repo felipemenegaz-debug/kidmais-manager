@@ -1,0 +1,131 @@
+# PR nova — texto final (não publicada)
+
+- **Base:** `staging`
+- **Head:** `codex/walle-r47-pr-final`
+- **SHA candidato:** registrado no relatório final de gates desta branch; `aeedb19` foi preservado como base.
+
+> Push permanece fora do escopo. Leia os bloqueadores do relatório final de gates.
+>
+> Staging `138910a` foi integrado localmente sem conflitos. Gates anteriores abaixo são históricos; os gates novos usam o SHA final.
+
+## Título
+
+`feat(whatsapp): atendimento WhatsApp com Wall-e (r47) — migrations 060/065/076–078 não aplicadas, canal desligado`
+
+## Descrição
+
+### Resumo
+Atendimento WhatsApp pelo canal Gupshup, com o assistente **Wall-e** respondendo só pelas fontes oficiais da empresa.
+
+Inclui:
+- webhook durável com receptor único;
+- fila e worker sem reenvio automático;
+- tela Admin › Atendimento;
+- biblioteca de mensagens prontas com foto, vídeo e PDF;
+- passagem à equipe com motivo.
+
+**Nada é ativado por esta PR:**
+- canal desligado por padrão;
+- migrations não aplicadas;
+- nenhuma variável de ambiente alterada.
+
+**Propõe substituir o conteúdo da PR #80**. A #80 permanece intacta; seu fechamento exige decisão posterior. A 064 da #80 colide com a `064_reimportacao` do staging. Esta PR contém todo o conteúdo dela e o da fase B.
+
+### Cobertura da PR #80 e da fase B
+- **PR #80 (`a9e2d55`, 59 commits):**
+  - 84 arquivos: 31 idênticos, 51 evoluídos, 2 renomeados, 0 ausentes;
+  - todos os 191 nomes de teste e os 17 códigos de erro presentes.
+- **Login:** o "mostrar senha" do login fica na versão que o staging já tem.
+- **Fase B (`1f938d2`, não publicada):** os 30 arquivos estão incluídos como 077, com todos os 127 nomes de teste.
+
+### Migrations (todas exigem autorização explícita; nenhuma aplicada)
+
+| Migration | Conteúdo | Relação com a #80 / fase B |
+|---|---|---|
+| `20261001_060_whatsapp_atendimento` | conversas, mensagens, configuração, status, auditoria | idêntica à #80 |
+| `20261004_065_whatsapp_nome_perfil` | nome de perfil da conversa | igual à #80, exceto comentários |
+| `20261009_076_whatsapp_mensagens_prontas` | biblioteca de mensagens prontas e favoritas | era a 064 da #80; só o número mudou |
+| `20261009_077_whatsapp_prontas_midia` | foto e vídeo nas prontas e no envio | era a 066 da fase B; só o número mudou |
+| `20261009_078_wall_e_atendimento` | arquivos próprios e PDF, estados e finalidade das prontas, memória e passagem do Wall-e | nova |
+
+**Renumeração:** as migrations do atendimento passaram de 073–075 para 076–078 porque o staging ocupou 073, 074, 074a e 075.
+
+**Coexistência:**
+- nenhuma das cinco altera objeto ou dado do staging;
+- há 14 chaves estrangeiras das tabelas novas para `empresas`, `usuarios_administrativos` e `estabelecimentos`, sem cascata;
+- inventário em `scripts/production/check-migrations.mjs`.
+
+**Ordem de rollback:** 078 → 077 → 076 → 065 → 060. Os downs são destrutivos com dados e exigem `SET LOCAL kidmais.rollback_0xx_*`. Fora de ordem, eles recusam antes de alterar qualquer coisa.
+
+### Provas (locais, cluster PostgreSQL descartável, sem rede)
+
+| Prova | Resultado em `aeedb19` |
+|---|---|
+| Unitárias (atendimento, Wall-e, avaliação, produção, arquitetura, webhook) | 660/660 |
+| `check:v1:static` (também é o build do Render) | PASS (2.705 + 103) |
+| `check:v1:postgres` | 64 arquivos, 375 testes, 0 falhas |
+| Comportamento × candidata avaliada `f3c78bb` | 3.990 mensagens, 0 diferenças (inclui as leituras gravadas da IA real) |
+| IA real r47 × h47 (em `f3c78bb`, catálogo sintético) | 0 críticas, 29/29 |
+
+**Rollback:**
+- o código do staging roda com o schema novo: 48 suítes PASS, e o schema fora do atendimento é idêntico;
+- os downs na ordem devolvem o schema exato;
+- fora de ordem, os downs recusam sem alterar nada, com tabelas vazias, com uma 078 parcial e com dados sintéticos e todas as decisões de descarte ligadas (suíte `rollback-ordem`).
+
+**Isolamento:**
+- empresa vinda só do servidor;
+- Tenant Context e RBAC existentes, sem alteração;
+- FKs compostas por empresa e ambiente;
+- turno do resumo pelo escopo da empresa e da unidade (`resumo-turno`).
+
+**Fila:**
+- entrada vence em 15 min e vai à equipe sem resposta (`fila-validade`);
+- com a IA global desligada, a entrada nasce com a equipe e nada é respondido depois de religar, mesmo sem ciclo do worker;
+- a resposta manual é preservada;
+- PARAR e pausa continuam valendo (`protecoes-finais`).
+
+**Modo regras (`WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=regras`):** nenhum caminho chama o modelo (Wall-e, fase B, sem a 078), mesmo com orçamento válido (`protecoes-finais`, `porta-regras`, `composicao-ia`).
+
+**Limites das provas:**
+- dados sintéticos;
+- transporte e modelo simulados;
+- rollback provado só com tabelas vazias e dados sintéticos;
+- não mede lock em volume;
+- não prova restauração de backup;
+- a IA real não foi repetida neste SHA (vale por equivalência).
+
+### O que esta PR não faz
+- Não liga o canal: recepção, envio e receptor desligados; staging exige lista de contatos.
+- Não aplica migrations.
+- Não muda RBAC, Tenant Context, `lib/saas`, `lib/autenticacao`, `lib/http`, `lib/identidade`, nem o parser e a correlação da Gupshup.
+- Não muda o processo de start do Render.
+
+### Pendências fora desta PR
+- Homologação em staging: deploy manual autorizado; aplicação das migrations com E2a e backup; roteiro U1–U10 e P1–P8.
+- Canal real bloqueado:
+  - autenticação e Partner API da Gupshup (chamado #277630);
+  - E0 (receptor único) e E3 (OTP público funcional);
+  - dados reais da Kidmais.
+- Antes do modo IA (D1–D4):
+  - máscara de dados pessoais incompleta;
+  - sem retenção nem exclusão;
+  - arquivos públicos sem revogação;
+  - histórico enviado ao modelo na fase B.
+- Produção: só depois da homologação, por promoção separada.
+
+### Rollback
+1. Desligar: Wall-e na tela, chave global da IA, flags do canal, worker ou assinatura do webhook.
+2. Voltar o código mantendo as migrations (provado).
+3. Downs só como último recurso, na ordem e com autorização.
+
+
+
+## Atualização da entrega final
+
+A integração local incorporou `staging` em `138910a8cc80a1d43a68e84f6c6e166a4f790f09`, sem conflitos. O SHA exato e os gates desta entrega serão registrados em `.local-ux/final/RESUMO.md`, fora do diff, após congelar este documento. Os resultados acima pertencem à candidata anterior e não substituem os gates novos.
+
+- Migrations 076–078: conferência de disponibilidade não constitui reserva entre sessões. Reserva ainda pendente.
+- D2/D3 bloqueiam o uso de dados pessoais reais tanto em staging quanto em produção. Até sua correção, homologação somente com contatos e arquivos de teste controlados, sem dados de clientes ou imagens de crianças.
+- D1/D4 bloqueiam o modo IA com dados reais. O modo regras impede chamadas ao provedor em todos os caminhos.
+- Bloqueio do S11 mantido; status da sessão Painel não foi verificado nesta tarefa.
+- Sem push, merge remoto, deploy, migrations persistentes ou envio real.
