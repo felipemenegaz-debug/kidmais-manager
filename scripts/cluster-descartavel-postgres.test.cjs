@@ -85,8 +85,8 @@ test('argumentos: plano é o padrão; cada subcomando mutável exige a própria 
     for (const [argv, codigo] of casos) assert.equal(recusaDe(() => t.lerArgumentos(argv)), codigo, JSON.stringify(argv));
 });
 
-test('lista fechada: só kidmais_concorrencia:55480 e kidmais_navegador:55481; banco só no padrão do cluster', () => {
-    assert.deepEqual(Object.fromEntries(Object.entries(t.CLUSTERS).map(([k, v]) => [k, v.porta])), {kidmais_concorrencia:55480, kidmais_navegador:55481});
+test('lista fechada: só kidmais_concorrencia:55480, kidmais_navegador:55481 e kidmais_descartavel:55498; banco só no padrão do cluster', () => {
+    assert.deepEqual(Object.fromEntries(Object.entries(t.CLUSTERS).map(([k, v]) => [k, v.porta])), {kidmais_concorrencia:55480, kidmais_navegador:55481, kidmais_descartavel:55498});
     for (const nome of ['postgres', 'kidmais', 'kidmais_concorrencia2', 'KIDMAIS_CONCORRENCIA', 'kidmais_navegador ', '__proto__', 'constructor', 'toString'])
         assert.equal(recusaDe(() => t.lerArgumentos(['criar', '--cluster', nome, '--criar-autorizado'])), 'CLUSTER_FORA_DA_LISTA', nome);
     assert.equal(t.validarBanco('kidmais_concorrencia_vagas_20261010', 'kidmais_concorrencia'), 'kidmais_concorrencia_vagas_20261010');
@@ -311,7 +311,7 @@ test('processo real: plano não executa nada nem cria pasta; subcomando sem flag
     let r = rodar(['plano']);
     assert.equal(r.status, 0, r.stderr);
     const j = JSON.parse(r.stdout);
-    assert.deepEqual([j.modo, j.executa, j.gitignore.ignorada, j.clusters.length], ['PLANO', false, true, 2]);
+    assert.deepEqual([j.modo, j.executa, j.gitignore.ignorada, j.clusters.length], ['PLANO', false, true, 3]);
     assert.equal(rodar([]).status, 0);
     for (const args of [['criar', '--cluster', 'kidmais_concorrencia'], ['remover', '--pasta', `.local-concorrencia-pg-${GUID}`], ['iniciar']]) {
         r = rodar(args);

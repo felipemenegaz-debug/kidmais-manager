@@ -29,7 +29,40 @@ function resumir({pedidos, clientes, cpfEntreEmpresas, festasConfirmadas}) {
         cpfEmDuasEmpresas:cpfEntreEmpresas, festasConfirmadas};
 }
 
-async function executar(env) {
+/** Modo --catalogo (docs/HOMOLOGACAO_CATALOGO_BUFFET_20261010.md): catálogo do buffet por empresa, só contagens. */
+const CONSULTAS_CATALOGO = Object.freeze({
+    porEmpresa: `SELECT e.codigo, count(DISTINCT c.id)::int AS categorias, count(DISTINCT i.id)::int AS itens,
+        bool_or(c.codigo = 'SALGADOS') AS tem_salgados
+        FROM empresas e LEFT JOIN buffet_categorias c ON c.empresa_id = e.id LEFT JOIN buffet_itens i ON i.empresa_id = e.id
+        WHERE e.codigo = ANY($1::text[]) GROUP BY e.codigo ORDER BY e.codigo`,
+    cruzados: `SELECT
+        (SELECT count(*) FROM pacote_buffet_categorias x JOIN pacotes p ON p.id = x.pacote_id JOIN buffet_categorias c ON c.id = x.categoria_id
+          WHERE p.empresa_id IS DISTINCT FROM c.empresa_id)
+      + (SELECT count(*) FROM pacote_buffet_itens x JOIN pacotes p ON p.id = x.pacote_id JOIN buffet_itens i ON i.id = x.item_id
+          WHERE p.empresa_id IS DISTINCT FROM i.empresa_id)
+      + (SELECT count(*) FROM pacote_itens_especificos x JOIN pacotes p ON p.id = x.pacote_id JOIN buffet_itens i ON i.id = x.item_id
+          WHERE p.empresa_id IS DISTINCT FROM i.empresa_id)
+      + (SELECT count(*) FROM buffet_itens i JOIN buffet_categorias c ON c.id = i.categoria_id WHERE i.empresa_id IS DISTINCT FROM c.empresa_id)
+      + (SELECT count(*) FROM adicionais a JOIN buffet_itens i ON i.id = a.origem_buffet_item_id WHERE a.empresa_id IS DISTINCT FROM i.empresa_id)
+      + (SELECT count(*) FROM adicionais a JOIN buffet_categorias c ON c.id = a.origem_buffet_categoria_id WHERE a.empresa_id IS DISTINCT FROM c.empresa_id)
+      + (SELECT count(*) FROM fechamento_buffet_escolhas x JOIN fechamento_buffet_snapshots s ON s.id = x.snapshot_id
+          JOIN fechamentos f ON f.id = s.fechamento_id JOIN buffet_categorias c ON c.id = x.categoria_id WHERE f.empresa_id IS DISTINCT FROM c.empresa_id)
+      AS n`,
+    escolhas: `SELECT e.codigo, count(*)::int AS n FROM fechamento_buffet_escolhas x JOIN fechamento_buffet_snapshots s ON s.id = x.snapshot_id
+        JOIN fechamentos f ON f.id = s.fechamento_id JOIN empresas e ON e.id = f.empresa_id GROUP BY e.codigo ORDER BY e.codigo`,
+});
+
+function resumirCatalogo({porEmpresa, cruzados, escolhas}) {
+    const de = codigo => porEmpresa.find(x => x.codigo === codigo) ?? {categorias:0, itens:0, tem_salgados:false};
+    const confere = cruzados === 0 && de('kidmais').categorias >= 7
+        && ['nav-profissional', 'nav-premium'].every(c => de(c).tem_salgados === true && de(c).itens > 0)
+        && de('nav-essencial').categorias === 0;
+    return {resultado:confere ? 'CONFERE' : 'DIVERGE', vinculosEntreEmpresas:cruzados,
+        catalogo:Object.fromEntries(porEmpresa.map(x => [x.codigo, {categorias:x.categorias, itens:x.itens, salgados:x.tem_salgados === true}])),
+        escolhasDeBuffetPorEmpresa:Object.fromEntries(escolhas.map(x => [x.codigo, x.n]))};
+}
+
+async function executar(env, modoCatalogo = false) {
     const a = seed.alvo(env);
     seed.semConexaoHerdada(env, a);
     const {Client} = require('pg');
@@ -39,6 +72,11 @@ async function executar(env) {
     try {
         await c.query('BEGIN READ ONLY');
         seed.conferirIdentidade((await c.query(seed.SQL_IDENTIDADE)).rows[0], a, a.banco, [a.banco]);
+        if (modoCatalogo) return resumirCatalogo({
+            porEmpresa:(await c.query(CONSULTAS_CATALOGO.porEmpresa, [['kidmais', 'nav-profissional', 'nav-premium', 'nav-essencial']])).rows,
+            cruzados:Number((await c.query(CONSULTAS_CATALOGO.cruzados)).rows[0].n),
+            escolhas:(await c.query(CONSULTAS_CATALOGO.escolhas)).rows,
+        });
         const r = {
             pedidos:(await c.query(CONSULTAS.pedidos)).rows,
             clientes:(await c.query(CONSULTAS.clientes, [EMPRESAS_PEDIDO])).rows,
@@ -50,6 +88,6 @@ async function executar(env) {
 }
 
 if (require.main === module)
-    executar(process.env).then(r => { console.log(JSON.stringify(r, null, 2)); if (r.resultado !== 'CONFERE') process.exitCode = 2; })
+    executar(process.env, process.argv.slice(2).includes('--catalogo')).then(r => { console.log(JSON.stringify(r, null, 2)); if (r.resultado !== 'CONFERE') process.exitCode = 2; })
         .catch(e => { console.error('POSCONFERENCIA_RECUSADA ' + seed.sanitizar(e?.message ?? e?.codigo)); process.exitCode = 1; });
-module.exports = {EMPRESAS_PEDIDO, CONSULTAS, resumir};
+module.exports = {EMPRESAS_PEDIDO, CONSULTAS, resumir, CONSULTAS_CATALOGO, resumirCatalogo};

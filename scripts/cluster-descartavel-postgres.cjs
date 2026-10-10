@@ -21,6 +21,8 @@ const VAR_BIN = 'KIDMAIS_PG_BIN';
 const CLUSTERS = Object.freeze({
     kidmais_concorrencia: Object.freeze({porta:55480, prefixo:'concorrencia'}),
     kidmais_navegador: Object.freeze({porta:55481, prefixo:'navegador'}),
+    // Suítes *.postgres.test.ts (check:v1:postgres): a receita exige cluster_name = papel = kidmais_descartavel na 55498.
+    kidmais_descartavel: Object.freeze({porta:55498, prefixo:'descartavel'}),
 });
 const PADRAO_PASTA = /^\.local-([a-z]+)-pg-([0-9a-f]{32})$/;
 const BANCOS_DE_SISTEMA = Object.freeze(['postgres', 'template0', 'template1']);

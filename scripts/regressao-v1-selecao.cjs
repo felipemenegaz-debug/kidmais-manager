@@ -42,7 +42,10 @@ function listarTestesPostgres(raiz) {
  *   alvo054     — o banco de trabalho é também o alvo autorizado do harness da 054 (KIDMAIS_054_*).
  */
 const ESTADO_POSTGRES = {
-  "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "atual" },
+  // Catálogo do buffet: 063 + 070 + 078 aplicadas pela própria suíte (em transação).
+  "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "063" },
+  // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
+  "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
   "lib/comercial/hg4-escopo.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/pacote-empresa.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/integridade-fechamento-053.postgres.test.ts": { descartavel: "052" },

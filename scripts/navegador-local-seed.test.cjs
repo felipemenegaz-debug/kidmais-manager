@@ -122,14 +122,15 @@ test('credenciais: grava com 0600 e nunca sobrescreve', () => {
     } finally { fs.rmSync(dir, {recursive:true, force:true}); }
 });
 
-test('plano offline: inventário aprovado (076/077 incluídas) com checks, impressão fixada no pacote', async () => {
+test('plano offline: inventário aprovado (076/077/078 incluídas) com checks, impressão fixada no pacote', async () => {
     const p = await s.plano();
     assert.equal(p.impressao, s.IMPRESSAO_SCHEMA, 'migrations/checks mudaram: revisar o pacote');
-    assert.equal(p.ultima, '20261010_077_regras_pagamento_empresa.sql');
-    const fim = p.etapas.slice(-2);
+    assert.equal(p.ultima, '20261010_078_catalogo_buffet_por_empresa.sql');
+    const fim = p.etapas.slice(-3);
     assert.deepEqual(fim.map(e => [e.antes, e.migration, e.depois]), [
         [['database/checks/20261010_076_precheck.sql'], 'database/migrations/20261010_076_cpf_por_empresa.sql', ['database/checks/20261010_076_postcheck.sql']],
-        [['database/checks/20261010_077_precheck.sql'], 'database/migrations/20261010_077_regras_pagamento_empresa.sql', ['database/checks/20261010_077_postcheck.sql']]]);
+        [['database/checks/20261010_077_precheck.sql'], 'database/migrations/20261010_077_regras_pagamento_empresa.sql', ['database/checks/20261010_077_postcheck.sql']],
+        [['database/checks/20261010_078_precheck.sql'], 'database/migrations/20261010_078_catalogo_buffet_por_empresa.sql', ['database/checks/20261010_078_postcheck.sql']]]);
     assert.equal(new Set(p.etapas.map(e => e.migration)).size, p.etapas.length, 'nenhuma migration duplicada');
 });
 
@@ -158,8 +159,15 @@ test('clientes sintéticos: CPF válido pela regra do servidor, contatos não ro
 
 test('dados de isolamento: Profissional e Premium com preço, composição, adicional e regras diferentes', () => {
     assert.notEqual(s.PRECO_POCKET.profissional, s.PRECO_POCKET.premium);
+    // 078: a MESMA categoria (SALGADOS) nas duas empresas, com itens diferentes (catálogo próprio de cada uma).
     const categorias = chave => s.COMPOSICAO[chave].map(([codigo]) => codigo);
-    assert.deepEqual(categorias('profissional').filter(c => categorias('premium').includes(c)), [], 'composições disjuntas');
+    assert.ok(categorias('profissional').includes('SALGADOS') && categorias('premium').includes('SALGADOS'), 'mesma categoria nas duas');
+    const itens = chave => s.COMPOSICAO[chave].flatMap(([, , , lista]) => lista);
+    assert.deepEqual(itens('profissional').filter(i => itens('premium').includes(i)), [], 'itens diferentes');
+    for (const [, , escolhas, lista] of [...s.COMPOSICAO.profissional, ...s.COMPOSICAO.premium]) assert.ok(escolhas >= 1 && escolhas <= lista.length);
+    const fonte078 = fs.readFileSync(path.join(__dirname, 'navegador-local-seed.cjs'), 'utf8');
+    assert.match(fonte078, /s\.catalogoBuffet\.criarCategoriaBuffet\(tx, empresaId, nome, true, codigo\)/, 'catálogo pelo serviço com escopo');
+    assert.doesNotMatch(fonte078, /FROM buffet_categorias WHERE ativo AND codigo = ANY/, 'nunca pega as categorias da Kidmais');
     assert.notEqual(s.ADICIONAL_EMPRESA.profissional.nome, s.ADICIONAL_EMPRESA.premium.nome);
     assert.notEqual(s.ADICIONAL_EMPRESA.profissional.preco, s.ADICIONAL_EMPRESA.premium.preco);
     assert.ok(s.REGRAS_PROFISSIONAL.pixAvista > 0, 'Premium fica com regras neutras (0%)');

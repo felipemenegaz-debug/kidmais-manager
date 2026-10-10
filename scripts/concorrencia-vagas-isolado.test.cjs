@@ -77,7 +77,7 @@ test('saída sanitizada: sem e-mail, UUID, token ou hash; tamanho limitado', () 
 
 test('plano offline: inventário e impressão do schema conferem com o pacote aprovado; nenhuma conexão', async () => {
     const p = await x.plano();
-    assert.equal(p.ultima, '20261010_077_regras_pagamento_empresa.sql');
+    assert.equal(p.ultima, '20261010_078_catalogo_buffet_por_empresa.sql');
     assert.equal(p.impressao, x.IMPRESSAO_SCHEMA, 'migrations/checks mudaram: revisar o pacote e aprovar de novo');
     const r = rodar([]);
     assert.equal(r.status, 0, r.stderr);

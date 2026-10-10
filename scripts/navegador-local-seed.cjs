@@ -31,9 +31,9 @@ const ORIGEM_APP = `http://localhost:${PORTA_APP}`;
 const PASTA_LOCAL = '.local-navegador';
 const ARQUIVO_CREDENCIAIS = path.join(raiz, PASTA_LOCAL, 'credenciais.json');
 /** 076/077 entraram no inventário aprovado (aplicadas em staging em 10/10/2026); vêm dele com os próprios checks. */
-const ULTIMA_INVENTARIO = '20261010_077_regras_pagamento_empresa.sql';
+const ULTIMA_INVENTARIO = '20261010_078_catalogo_buffet_por_empresa.sql';
 /** Impressão (sha256, CRLF normalizado) de migrations + checks. Mudou → revisar o pacote e aprovar de novo. */
-const IMPRESSAO_SCHEMA = '8a9a97477eac3d046dbd891bfd601df6e8f301f469247ef1e5e0f13403e03cfb';
+const IMPRESSAO_SCHEMA = '99a0bade6e3aa91fc0c97316963d4edf0c8266dd94d9cbc23ddbbf541e2be847';
 const VARIAVEIS_COMERCIAIS = Object.freeze(['ASSINATURA_TESTE_DIAS', 'ASSINATURA_REGULARIZACAO_DIAS', 'ASSINATURA_SOMENTE_LEITURA_DIAS']);
 
 /** Empresas sintéticas: cada uma cobre um estado da matriz do navegador. */
@@ -65,8 +65,20 @@ const CONTATO_PROFISSIONAL = Object.freeze({whatsapp:'11900000001', email:'conta
 const FAIXA = Object.freeze({min:20, max:30, valor:'1500.00'});
 /** Preço do Pocket por empresa: valores diferentes provam na tela que cada endereço usa a tabela da própria empresa. */
 const PRECO_POCKET = Object.freeze({essencial:FAIXA.valor, profissional:FAIXA.valor, premium:'2300.00'});
-/** Composição do buffet (categorias globais da 021/022, escolhas) e adicional próprios de cada empresa com pedido online. */
-const COMPOSICAO = Object.freeze({profissional:Object.freeze([['SALGADOS', 3], ['DOCES', 2]]), premium:Object.freeze([['MASSA_BOLO', 1]])});
+/**
+ * Catálogo do buffet PRÓPRIO de cada empresa (078), criado pelo serviço com escopo: [código, nome, escolhas, itens].
+ * As duas usam a MESMA categoria SALGADOS com itens diferentes; nenhuma recebe o cardápio da Kidmais.
+ */
+const COMPOSICAO = Object.freeze({
+    profissional:Object.freeze([
+        ['SALGADOS', 'Salgados', 2, Object.freeze(['Coxinha Profissional sintética', 'Kibe Profissional sintético', 'Esfiha Profissional sintética'])],
+        ['DOCES', 'Doces', 1, Object.freeze(['Brigadeiro Profissional sintético', 'Beijinho Profissional sintético'])],
+    ]),
+    premium:Object.freeze([
+        ['SALGADOS', 'Salgados', 1, Object.freeze(['Empada Premium sintética', 'Pastel Premium sintético'])],
+        ['MASSA_BOLO', 'Massa do bolo', 1, Object.freeze(['Massa branca Premium sintética', 'Massa de chocolate Premium sintética'])],
+    ]),
+});
 const ADICIONAL_EMPRESA = Object.freeze({
     profissional:Object.freeze({nome:'Painel sintético Profissional', categoria:'DECORACAO', preco:'250.00'}),
     premium:Object.freeze({nome:'Pula-pula sintético Premium', categoria:'EXTRA', preco:'400.00'}),
@@ -279,7 +291,8 @@ async function popular(c, senhas) {
         pacotes:carregar('lib/comercial/pacotes-admin.ts'), renovacaoRepo:carregar('lib/assinatura/renovacao-repositorio.ts'),
         renovacao:carregar('lib/assinatura/renovacao-fundador.ts'), estado:carregar('lib/assinatura/estado.ts'), recursos:carregar('lib/assinatura/recursos-plano.ts'),
         cotacao:carregar('lib/comercial/cotacao-publica.ts'), contato:carregar('lib/perfil/contato-publico.ts'),
-        adicionais:carregar('lib/comercial/adicionais-admin.ts'), regras:carregar('lib/comercial/regras-pagamento.ts')};
+        adicionais:carregar('lib/comercial/adicionais-admin.ts'), regras:carregar('lib/comercial/regras-pagamento.ts'),
+        catalogoBuffet:carregar('lib/comercial/catalogo-buffet.ts')};
     const q = async (sql, params) => (await ex.query(sql, params)).rows;
     const documentos = new Set();
     const ids = Object.fromEntries(EMPRESAS.map(e => [e.chave, {empresa:randomUUID(), documento:documentoSintetico(documentos)}]));
@@ -361,10 +374,14 @@ async function popular(c, senhas) {
             {disponibilidade:[1, 2, 3, 4, 5, 6, 7].flatMap(dia => horarios.map(horarioId => ({dia, horarioId})))}, ctx()));
         // Etapas Buffet e Personalização: composição e adicional (com preço) só deste pacote/empresa.
         if (COMPOSICAO[e.chave]) {
-            const categorias = await q('SELECT id::text AS id, codigo FROM buffet_categorias WHERE ativo AND codigo = ANY($1::text[])', [COMPOSICAO[e.chave].map(([codigo]) => codigo)]);
-            assert.equal(categorias.length, COMPOSICAO[e.chave].length, 'CATEGORIAS_BUFFET_AUSENTES_' + e.chave);
+            const categorias = [];
+            for (const [codigo, nome, escolhas, itens] of COMPOSICAO[e.chave]) {
+                const categoriaId = await withTransaction(tx => s.catalogoBuffet.criarCategoriaBuffet(tx, empresaId, nome, true, codigo));
+                for (const item of itens) await withTransaction(tx => s.catalogoBuffet.criarItemBuffet(tx, empresaId, item, categoriaId));
+                categorias.push({codigo, id:categoriaId, escolhas});
+            }
             await withTransaction(tx => s.pacotes.definirCategoriasPacoteAdmin(tx, pacote,
-                COMPOSICAO[e.chave].map(([codigo, escolhas]) => ({categoriaId:categorias.find(x => x.codigo === codigo).id, escolhas})), ctx()));
+                categorias.map(c => ({categoriaId:c.id, escolhas:c.escolhas})), ctx()));
         }
         if (ADICIONAL_EMPRESA[e.chave]) {
             const a = ADICIONAL_EMPRESA[e.chave];
@@ -457,15 +474,27 @@ async function popular(c, senhas) {
         const regras = await withTransaction(tx => s.regras.lerRegrasPagamento(tx, empresaId));
         assert.deepEqual(precos.pacotes.map(x => x.valor), [Number(PRECO_POCKET[chave])], 'PRECO_' + chave);
         assert.deepEqual(categorias, COMPOSICAO[chave].map(([codigo]) => codigo).sort(), 'COMPOSICAO_' + chave);
+        // 078: catálogo próprio — só os itens desta empresa, com empresa_id dela; nenhum item da Kidmais; nada cruzado.
+        const itensCatalogo = (await q('SELECT nome FROM buffet_itens WHERE empresa_id = $1 ORDER BY nome', [empresaId])).map(x => x.nome);
+        assert.deepEqual(itensCatalogo.slice().sort(), COMPOSICAO[chave].flatMap(([, , , itens]) => itens).slice().sort(), 'CATALOGO_PROPRIO_' + chave);
+        const cruzados = (await q(`SELECT count(*)::int AS n FROM pacote_buffet_categorias pbc JOIN pacotes p ON p.id = pbc.pacote_id
+            JOIN buffet_categorias bc ON bc.id = pbc.categoria_id WHERE p.empresa_id = $1 AND bc.empresa_id IS DISTINCT FROM p.empresa_id`, [empresaId]))[0].n;
+        assert.equal(cruzados, 0, 'COMPOSICAO_CRUZADA_' + chave);
         assert.deepEqual(adicionais, [ADICIONAL_EMPRESA[chave].nome], 'ADICIONAIS_' + chave);
         assert.deepEqual(precos.adicionais.map(x => x.valor), [Number(ADICIONAL_EMPRESA[chave].preco)], 'PRECO_ADICIONAL_' + chave);
         assert.equal(regras?.pixAvistaPercentual, chave === 'profissional' ? REGRAS_PROFISSIONAL.pixAvista : 0, 'REGRAS_' + chave);
-        conferencia.isolamento[EMPRESAS.find(e => e.chave === chave).codigo] = {precoPocket:precos.pacotes[0].valor, categorias, adicionais,
+        conferencia.isolamento[EMPRESAS.find(e => e.chave === chave).codigo] = {precoPocket:precos.pacotes[0].valor, categorias, itensBuffet:itensCatalogo.length, adicionais,
             pix:`${regras.pixAvistaPercentual}/${regras.pixParceladoPercentual}`, cartao:regras.cartaoRotulo};
     }
+    const salgados = (await q(`SELECT count(DISTINCT empresa_id)::int AS n FROM buffet_categorias WHERE codigo = 'SALGADOS' AND empresa_id = ANY($1::uuid[])`,
+        [[ids.profissional.empresa, ids.premium.empresa]]))[0].n;
+    assert.equal(salgados, 2, 'MESMA_CATEGORIA_NAS_DUAS_EMPRESAS');
     const legado = await withTransaction(tx => s.precos.lerPrecosCorrentes(tx, kidmaisId));
     assert.equal(new Set(legado.pacotes.map(x => x.pacoteId)).size, 6, 'PRECOS_LEGADO');
-    conferencia.legado = {empresa:'kidmais', pacotesComPreco:new Set(legado.pacotes.map(x => x.pacoteId)).size, adicionaisComPreco:legado.adicionais.length};
+    const catalogoKidmais = (await q('SELECT (SELECT count(*)::int FROM buffet_categorias WHERE empresa_id = $1) AS categorias, (SELECT count(*)::int FROM buffet_itens WHERE empresa_id = $1) AS itens', [kidmaisId]))[0];
+    assert.ok(catalogoKidmais.categorias >= 7 && catalogoKidmais.itens > 0, 'CATALOGO_KIDMAIS_PRESERVADO');
+    conferencia.legado = {empresa:'kidmais', pacotesComPreco:new Set(legado.pacotes.map(x => x.pacoteId)).size, adicionaisComPreco:legado.adicionais.length,
+        catalogoBuffet:catalogoKidmais};
     const ofertas = await withTransaction(tx => s.ofertas.consultarOfertas(tx, ids.teste.empresa, {ASSINATURA_PLANOS_ATIVOS:'true', ASAAS_AMBIENTE:'sandbox'}));
     assert.ok(ofertas?.habilitado && ofertas.fundador && !ofertas.aguardandoVaga, 'OFERTA_FUNDADOR_TESTE');
     conferencia.ofertaTeste = {habilitado:true, fundador:true, essencialMensalCentavos:ofertas.planos.find(x => x.id === 'essencial')?.mensal};

@@ -15,11 +15,14 @@ import {
 } from "./catalogo-buffet.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
 import { definirCategoriasPacoteAdmin, definirItensEspecificosPacoteAdmin } from "./pacotes-admin.ts";
-import { conectarDescartavel, encerrarDescartavel, portaDescartavel } from "./postgres-descartavel.ts";
+import { conectarDescartavel, encerrarDescartavel, portaDescartavel, semTransacaoExplicita } from "./postgres-descartavel.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const migration050 = resolve(root, "database/migrations/20260927_050_item_sem_categoria.sql");
 const down050 = resolve(root, "database/rollback/20260927_050_item_sem_categoria_down.sql");
+// 078 (catálogo por empresa) exige a 070; as duas entram na transação desta parte e saem no ROLLBACK.
+const migration070 = resolve(root, "database/migrations/20261007_070_adicionais_do_buffet.sql");
+const migration078 = resolve(root, "database/migrations/20261010_078_catalogo_buffet_por_empresa.sql");
 
 function codigo(prefixo: string) {
   return `${prefixo}${randomBytes(4).toString("hex")}`.slice(0, 80);
@@ -55,6 +58,9 @@ test("catálogo do buffet no postgres descartável", { timeout: 120_000 }, async
       await db.query(readFileSync(migration050, "utf8"));
     }
     await db.query("BEGIN");
+    const tem070 = (await db.query("SELECT 1 FROM information_schema.columns WHERE table_name = 'adicionais' AND column_name = 'origem_buffet_item_id'")).rowCount;
+    if (!tem070) await db.query(semTransacaoExplicita(readFileSync(migration070, "utf8")));
+    await db.query(semTransacaoExplicita(readFileSync(migration078, "utf8")));
     const empresaId = (await db.query<{ id: string }>(
       `INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Empresa catalogo ux', 'PROVISIONAMENTO') RETURNING id`,
       [codigo("uxc")],
@@ -66,11 +72,11 @@ test("catálogo do buffet no postgres descartável", { timeout: 120_000 }, async
       [`${codigo("uxc")}@example.test`, senhaFalsa()],
     )).rows[0].id;
     const tx = executor(db);
-    const categoriaId = await criarCategoriaBuffet(tx, "Salgados UX");
-    const categoriaLivre = await criarCategoriaBuffet(tx, "Bolo UX");
-    const comCategoria = await criarItemBuffet(tx, "Coxinha UX", categoriaId);
-    const semCategoria = await criarItemBuffet(tx, "Taxa de rolha UX", null);
-    await editarItemBuffet(tx, semCategoria, "Taxa de rolha UX", null, true);
+    const categoriaId = await criarCategoriaBuffet(tx, empresaId, "Salgados UX");
+    const categoriaLivre = await criarCategoriaBuffet(tx, empresaId, "Bolo UX");
+    const comCategoria = await criarItemBuffet(tx, empresaId, "Coxinha UX", categoriaId);
+    const semCategoria = await criarItemBuffet(tx, empresaId, "Taxa de rolha UX", null);
+    await editarItemBuffet(tx, empresaId, semCategoria, "Taxa de rolha UX", null, true);
     const pacoteId = (await db.query<{ id: string }>(
       `INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente)
        VALUES ($1::uuid, $2, 'Pacote UX', 1, true, true) RETURNING id`,
@@ -78,14 +84,14 @@ test("catálogo do buffet no postgres descartável", { timeout: 120_000 }, async
     )).rows[0].id;
     const ctx = { empresaId, usuarioId, requestId: randomUUID(), motivo: "PACOTE_EDITADO" };
     await definirCategoriasPacoteAdmin(tx, pacoteId, [{ categoriaId, escolhas: 1 }], ctx);
-    await definirItensEspecificosPacoteAdmin(tx, pacoteId, [semCategoria, comCategoria]);
+    await definirItensEspecificosPacoteAdmin(tx, pacoteId, [semCategoria, comCategoria], empresaId);
     const ligados = await db.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM pacote_itens_especificos WHERE pacote_id = $1::uuid`,
       [pacoteId],
     );
     assert.equal(ligados.rows[0].n, 2);
     await definirCategoriasPacoteAdmin(tx, pacoteId, [], ctx);
-    await definirItensEspecificosPacoteAdmin(tx, pacoteId, []);
+    await definirItensEspecificosPacoteAdmin(tx, pacoteId, [], empresaId);
     assert.equal((await db.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM pacote_buffet_categorias WHERE pacote_id = $1::uuid AND ativo`,
       [pacoteId],
@@ -94,31 +100,31 @@ test("catálogo do buffet no postgres descartável", { timeout: 120_000 }, async
       `SELECT count(*)::int AS n FROM pacote_itens_especificos WHERE pacote_id = $1::uuid`,
       [pacoteId],
     )).rows[0].n, 0);
-    await definirItensEspecificosPacoteAdmin(tx, pacoteId, [semCategoria]);
+    await definirItensEspecificosPacoteAdmin(tx, pacoteId, [semCategoria], empresaId);
     await assert.rejects(
-      () => excluirItemBuffet(tx, semCategoria),
+      () => excluirItemBuffet(tx, empresaId, semCategoria),
       (error: unknown) => error instanceof PacoteAdminError && error.message === "Este item está sendo usado por um ou mais pacotes e não pode ser excluído ainda.",
     );
-    await definirItensEspecificosPacoteAdmin(tx, pacoteId, []);
-    await excluirItemBuffet(tx, semCategoria);
-    await excluirItemBuffet(tx, comCategoria);
+    await definirItensEspecificosPacoteAdmin(tx, pacoteId, [], empresaId);
+    await excluirItemBuffet(tx, empresaId, semCategoria);
+    await excluirItemBuffet(tx, empresaId, comCategoria);
     await assert.rejects(
-      () => excluirCategoriaBuffet(tx, categoriaId),
+      () => excluirCategoriaBuffet(tx, empresaId, categoriaId),
       (error: unknown) => error instanceof PacoteAdminError && /não pode ser excluída ainda/.test(error.message),
     );
-    await excluirCategoriaBuffet(tx, categoriaLivre);
-    const categoriaTodos = await criarCategoriaBuffet(tx, "Doces UX");
-    const itemTodos = await criarItemBuffet(tx, "Brigadeiro UX", categoriaTodos, true);
+    await excluirCategoriaBuffet(tx, empresaId, categoriaLivre);
+    const categoriaTodos = await criarCategoriaBuffet(tx, empresaId, "Doces UX");
+    const itemTodos = await criarItemBuffet(tx, empresaId, "Brigadeiro UX", categoriaTodos, true);
     await definirCategoriasPacoteAdmin(tx, pacoteId, [{ categoriaId: categoriaTodos, escolhas: 1 }], ctx);
     const bloqueia = (error: unknown) => error instanceof PacoteAdminError
       && error.message === "Este item está sendo usado por um ou mais pacotes e não pode ser excluído ainda.";
-    await assert.rejects(() => excluirItemBuffet(tx, itemTodos), bloqueia);
+    await assert.rejects(() => excluirItemBuffet(tx, empresaId, itemTodos), bloqueia);
     await db.query(`UPDATE pacotes SET ativo = false, arquivado_em = NULL WHERE id = $1::uuid`, [pacoteId]);
-    await assert.rejects(() => excluirItemBuffet(tx, itemTodos), bloqueia);
+    await assert.rejects(() => excluirItemBuffet(tx, empresaId, itemTodos), bloqueia);
     await db.query(`UPDATE pacotes SET ativo = true, arquivado_em = clock_timestamp() WHERE id = $1::uuid`, [pacoteId]);
-    await assert.rejects(() => excluirItemBuffet(tx, itemTodos), bloqueia);
+    await assert.rejects(() => excluirItemBuffet(tx, empresaId, itemTodos), bloqueia);
     await db.query(`UPDATE pacotes SET ativo = false, arquivado_em = clock_timestamp() WHERE id = $1::uuid`, [pacoteId]);
-    await assert.rejects(() => excluirItemBuffet(tx, itemTodos), bloqueia);
+    await assert.rejects(() => excluirItemBuffet(tx, empresaId, itemTodos), bloqueia);
     assert.equal((await db.query("SELECT id FROM buffet_itens WHERE id = $1::uuid", [itemTodos])).rowCount, 1);
     assert.equal((await db.query("SELECT id FROM buffet_itens WHERE id = $1::uuid", [semCategoria])).rowCount, 0);
     await db.query("ROLLBACK");

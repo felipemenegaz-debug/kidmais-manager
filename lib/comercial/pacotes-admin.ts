@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
 import { exigirVinculoNaEmpresa, sqlPacoteAdicionalMesmaEmpresa } from "./integridade-tenant.ts";
 import { filtroEmpresa } from "./tenant.ts";
+import { catalogoBuffetPorEmpresa } from "./catalogo-buffet-estrutura.ts";
 
 export class PacoteAdminError extends Error {
   readonly code: string;
@@ -479,6 +480,10 @@ export async function alterarComposicaoPacoteAdmin(
       sql: sqlPacoteAdicionalMesmaEmpresa(),
       params: [id, mudanca.adicionalId],
     });
+  } else if (await catalogoBuffetPorEmpresa(tx)) {
+    // 078: só categoria do catálogo da própria empresa (o gatilho do banco também recusa).
+    const dona = await tx.query(`SELECT 1 FROM buffet_categorias WHERE id = $1::uuid AND empresa_id = $2::uuid`, [mudanca.categoriaId, ctx.empresaId]);
+    if (!dona.rowCount) recusar("DADOS_INVALIDOS", "Escolha apenas categorias do buffet desta empresa.", 409);
   }
   const composicaoAntes = await lerComposicao(tx, id);
   const destino = atual.utilizado
@@ -669,9 +674,11 @@ export async function definirCategoriasPacoteAdmin(
   if (atual.arquivadoEm) recusar("ARQUIVADO", "Pacote arquivado não recebe composição por esta ação.", 409);
   const ids = [...new Set(categorias.map((categoria) => categoria.categoriaId))];
   if (ids.length > 0) {
+    // 078: só categorias do catálogo da própria empresa; antes dela, qualquer categoria cadastrada (catálogo global).
+    const porEmpresa = await catalogoBuffetPorEmpresa(tx);
     const existentes = await tx.query<{ id: string }>(
-      `SELECT id FROM buffet_categorias WHERE id = ANY($1::uuid[])`,
-      [ids],
+      `SELECT id FROM buffet_categorias WHERE id = ANY($1::uuid[]) ${porEmpresa ? "AND empresa_id = $2::uuid" : ""}`,
+      porEmpresa ? [ids, ctx.empresaId] : [ids],
     );
     if (existentes.rows.length !== ids.length) recusar("DADOS_INVALIDOS", "Escolha apenas categorias do buffet já cadastradas.", 409);
   }
@@ -728,7 +735,10 @@ export async function definirCategoriasPacoteAdmin(
   return (await buscar(tx, ctx.empresaId, destino.id))!;
 }
 
-export async function definirItensEspecificosPacoteAdmin(tx: DbExecutor, id: string, itemIds: string[]) {
+/** `empresaId`: empresa comprovada; o pacote e os itens precisam ser dela (com a 078, itens do catálogo da empresa). */
+export async function definirItensEspecificosPacoteAdmin(tx: DbExecutor, id: string, itemIds: string[], empresaId: string) {
+  const pacote = await tx.query(`SELECT 1 FROM pacotes WHERE id = $1::uuid AND empresa_id = $2::uuid`, [id, empresaId]);
+  if (!pacote.rowCount) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   const tabela = await tx.query<{ ok: boolean }>(
     `SELECT to_regclass('public.pacote_itens_especificos') IS NOT NULL AS ok`,
   );
@@ -738,9 +748,10 @@ export async function definirItensEspecificosPacoteAdmin(tx: DbExecutor, id: str
     recusar("DADOS_INVALIDOS", "Não foi possível guardar os itens deste pacote. Nenhuma alteração foi salva.", 409);
   }
   if (ids.length > 0) {
+    const porEmpresa = await catalogoBuffetPorEmpresa(tx);
     const existentes = await tx.query<{ id: string }>(
-      `SELECT id FROM buffet_itens WHERE id = ANY($1::uuid[])`,
-      [ids],
+      `SELECT id FROM buffet_itens WHERE id = ANY($1::uuid[]) ${porEmpresa ? "AND empresa_id = $2::uuid" : ""}`,
+      porEmpresa ? [ids, empresaId] : [ids],
     );
     if (existentes.rows.length !== ids.length) recusar("DADOS_INVALIDOS", "Escolha apenas itens do buffet já cadastrados.", 409);
   }

@@ -32,3 +32,21 @@ test('pós-conferência: CONFERE só com 1 pedido AGUARDANDO_CONTRATO por endere
     assert.equal(p.resumir({...base, pedidos:base.pedidos.map(x => ({...x, status:'AGUARDANDO_APROVACAO'}))}).resultado, 'DIVERGE');
     assert.equal(p.resumir({...base, pedidos:base.pedidos.slice(1)}).resultado, 'DIVERGE');
 });
+
+test('modo --catalogo: só SELECT de contagens; CONFERE sem vínculo entre empresas, Kidmais preservada e SALGADOS próprio nas duas', () => {
+    for (const sql of Object.values(p.CONSULTAS_CATALOGO)) {
+        assert.match(sql.trim(), /^SELECT\s/);
+        assert.doesNotMatch(sql, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|CREATE|GRANT)\b/i);
+        assert.doesNotMatch(sql, /\bnome\b|cpf|email|telefone/i);
+    }
+    const base = {
+        porEmpresa:[{codigo:'kidmais', categorias:7, itens:64, tem_salgados:true}, {codigo:'nav-essencial', categorias:0, itens:0, tem_salgados:null},
+            {codigo:'nav-premium', categorias:2, itens:4, tem_salgados:true}, {codigo:'nav-profissional', categorias:2, itens:5, tem_salgados:true}],
+        cruzados:0, escolhas:[{codigo:'nav-profissional', n:3}],
+    };
+    assert.equal(p.resumirCatalogo(base).resultado, 'CONFERE');
+    assert.equal(p.resumirCatalogo({...base, cruzados:1}).resultado, 'DIVERGE');
+    assert.equal(p.resumirCatalogo({...base, porEmpresa:base.porEmpresa.map(x => x.codigo === 'kidmais' ? {...x, categorias:6} : x)}).resultado, 'DIVERGE');
+    assert.equal(p.resumirCatalogo({...base, porEmpresa:base.porEmpresa.map(x => x.codigo === 'nav-essencial' ? {...x, categorias:7} : x)}).resultado, 'DIVERGE', 'empresa sem uso recebeu catálogo');
+    assert.equal(p.resumirCatalogo({...base, porEmpresa:base.porEmpresa.map(x => x.codigo === 'nav-premium' ? {...x, tem_salgados:false} : x)}).resultado, 'DIVERGE');
+});

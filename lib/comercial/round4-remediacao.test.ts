@@ -107,6 +107,7 @@ test("categoria nova sem itens usa todos os itens ativos", async () => {
   const tx: DbExecutor = { async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
     sqls.push(text);
     if (text.includes("AS utilizado")) return { rows: [livre as Row], rowCount: 1 };
+    if (text.includes("information_schema.columns")) return { rows: [{ ok: true } as Row], rowCount: 1 }; // 078 aplicada
     if (text.includes("FROM buffet_categorias")) return { rows: [{ id: categoria } as Row], rowCount: 1 };
     if (text.includes("FROM pacote_adicionais") || text.includes("FROM pacote_buffet_categorias") || text.includes("FROM pacote_buffet_itens")) {
       return { rows: [], rowCount: 0 };
@@ -118,6 +119,8 @@ test("categoria nova sem itens usa todos os itens ativos", async () => {
   const gravacao = sqls.find((sql) => sql.includes("INSERT INTO pacote_buffet_categorias"));
   assert.match(gravacao ?? "", /TODOS_ATIVOS/);
   assert.match(gravacao ?? "", /pacote_buffet_itens/);
+  // 078: a categoria só vale se for do catálogo da empresa do pacote.
+  assert.match(sqls.find((sql) => sql.includes("FROM buffet_categorias")) ?? "", /AND empresa_id = \$2::uuid/);
 });
 
 test("o down da 048 trava antes de apagar a supersessão", () => {
