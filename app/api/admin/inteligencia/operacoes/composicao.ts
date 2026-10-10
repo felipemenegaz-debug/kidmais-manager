@@ -17,6 +17,7 @@ import { hojeBrasilia } from "@/lib/financeiro/calculos";
 import { criarAcaoContratacao, type PortaContratacao } from "@/lib/inteligencia/acoes/contratacao";
 import { criarAcaoContaPagar, type PortaContaPagar } from "@/lib/inteligencia/acoes/conta-pagar";
 import { criarContaPagar, listarCategoriasDespesa } from "@/lib/financeiro/servico";
+import { exigirRecursoPlano } from "@/lib/assinatura/recursos-plano";
 import { criarAcaoParametroConsumo, type PortaParametrosAcao } from "@/lib/inteligencia/acoes/parametros-consumo";
 import { operacionalAtivo } from "@/lib/inteligencia/flags";
 import { fonteParametrosDisponivel, parametroVigente, registrarParametroConsumo } from "@/lib/operacional/parametros-consumo";
@@ -91,9 +92,16 @@ export const portaParametros: PortaParametrosAcao = {
   registrar: (tx, entrada) => registrarParametroConsumo(tx, entrada),
 };
 
+// Mesma barreira de plano das rotas de Contas a pagar: na revisão (categorias) e de novo na execução.
 export const portaContaPagar: PortaContaPagar = {
-  categorias: listarCategoriasDespesa,
-  criar: criarContaPagar,
+  categorias: async (tx, empresaId) => {
+    await exigirRecursoPlano(tx, empresaId, "FINANCEIRO_COMPLETO");
+    return listarCategoriasDespesa(tx, empresaId);
+  },
+  criar: async (tx, empresaId, usuarioId, input) => {
+    await exigirRecursoPlano(tx, empresaId, "FINANCEIRO_COMPLETO");
+    return criarContaPagar(tx, empresaId, usuarioId, input);
+  },
 };
 
 function ttlConfirmacao() {

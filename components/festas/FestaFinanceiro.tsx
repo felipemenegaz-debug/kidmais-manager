@@ -10,9 +10,11 @@ type Resumo = {
   valorContratadoCentavos: number;
   recebidoCentavos: number;
   aReceberCentavos: number;
-  custosCentavos: number;
-  margemEstimadaCentavos: number;
-  resultadoCaixaCentavos: number;
+  /** false quando o plano não inclui contas a pagar: sem despesas, custos, margem nem caixa. Ausente = incluído. */
+  despesasIncluidas?: boolean;
+  custosCentavos: number | null;
+  margemEstimadaCentavos: number | null;
+  resultadoCaixaCentavos: number | null;
   recebimentos: Array<{ id: string; parcela: number; vencimento: string; valorCentavos: number; status: string }>;
   despesas: Array<{ id: string; categoria: string; favorecido: string | null; valorCentavos: number; status: string }>;
 };
@@ -111,19 +113,21 @@ export default function FestaFinanceiro({ festaId, amostra }: { festaId: string;
     <p>Valor contratado {reaisDe(dados.valorContratadoCentavos)}</p>
     <p>Recebido {reaisDe(dados.recebidoCentavos)}</p>
     <p>A receber {reaisDe(dados.aReceberCentavos)}</p>
-    <p>Custos {reaisDe(dados.custosCentavos)}</p>
-    <p>Margem estimada {reaisDe(dados.margemEstimadaCentavos)}</p>
-    <p className={dados.resultadoCaixaCentavos >= 0 ? styles.caixaPositivo : undefined}>Resultado de caixa {reaisDe(dados.resultadoCaixaCentavos)}</p>
+    {dados.custosCentavos !== null && <p>Custos {reaisDe(dados.custosCentavos)}</p>}
+    {dados.margemEstimadaCentavos !== null && <p>Margem estimada {reaisDe(dados.margemEstimadaCentavos)}</p>}
+    {dados.resultadoCaixaCentavos !== null && <p className={dados.resultadoCaixaCentavos >= 0 ? styles.caixaPositivo : undefined}>Resultado de caixa {reaisDe(dados.resultadoCaixaCentavos)}</p>}
     <h3>Recebimentos</h3>
     {dados.recebimentos.length === 0 && <p>Nenhuma parcela nesta festa.</p>}
     {dados.recebimentos.map((item) => <p key={item.id}>Parcela {item.parcela} · {item.vencimento} · {reaisDe(item.valorCentavos)} · {item.status}{!['Pago', 'Cancelado', 'Reembolsado'].includes(item.status) && <> <button type="button" aria-label={'Pix da parcela ' + item.parcela} onClick={() => setPixParcela(item.id)}>Pix</button></>}</p>)}
     {pixParcela && <PixParcela parcelaId={pixParcela} aoFechar={() => setPixParcela(null)} />}
-    <h3>Despesas da festa</h3>
-    {dados.despesas.length === 0 && <p>Nenhuma despesa vinculada.</p>}
-    {dados.despesas.map((item) => <p key={item.id}>{item.categoria} · {item.favorecido || 'Sem favorecido'} · {reaisDe(item.valorCentavos)} · {item.status}</p>)}
+    {dados.despesasIncluidas !== false && <>
+      <h3>Despesas da festa</h3>
+      {dados.despesas.length === 0 && <p>Nenhuma despesa vinculada.</p>}
+      {dados.despesas.map((item) => <p key={item.id}>{item.categoria} · {item.favorecido || 'Sem favorecido'} · {reaisDe(item.valorCentavos)} · {item.status}</p>)}
+    </>}
     <div className={styles.actions}>
       <button className={styles.cta} type="button" disabled={acao.fase === 'submitting'} onClick={abrirReceber}>Registrar recebimento</button>
-      <button type="button" disabled={acao.fase === 'submitting'} onClick={() => { if (acaoRef.current.fase === 'submitting') return; void adminFetch('/api/admin/financeiro/contas-pagar').then((resposta) => resposta.json()).then((corpo) => { if (acaoRef.current.fase === 'submitting') return; if (corpo.ok) setCategorias(corpo.data.categorias); abrirDespesa(); }); }}>Adicionar despesa</button>
+      {dados.despesasIncluidas !== false && <button type="button" disabled={acao.fase === 'submitting'} onClick={() => { if (acaoRef.current.fase === 'submitting') return; void adminFetch('/api/admin/financeiro/contas-pagar').then((resposta) => resposta.json()).then((corpo) => { if (acaoRef.current.fase === 'submitting') return; if (corpo.ok) setCategorias(corpo.data.categorias); abrirDespesa(); }); }}>Adicionar despesa</button>}
     </div>
     {aberto === 'receber' && <form aria-busy={enviando} onSubmit={(evento) => { evento.preventDefault(); void receber(new FormData(evento.currentTarget)); }}>
       <label>Parcela<select name="parcelaId" required aria-label="Parcela" value={parcelaId} onChange={(evento) => setParcelaId(evento.target.value)}>{dados.recebimentos.filter((item) => item.status !== 'Pago' && item.status !== 'Cancelado' && item.status !== 'Reembolsado').length !== 1 && <option value="">Escolha a parcela</option>}{dados.recebimentos.filter((item) => item.status !== 'Pago' && item.status !== 'Cancelado' && item.status !== 'Reembolsado').map((item) => <option key={item.id} value={item.id}>Parcela {item.parcela} · {reaisDe(item.valorCentavos)}</option>)}</select></label>

@@ -1,0 +1,25 @@
+/* Cabeçalho neutro do endereço de outra empresa: mesma escala do cabeçalho do cliente, sem logo. */
+.marca {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  color: #111a3a;
+}
+
+.nome {
+  max-width: 260px;
+  overflow: hidden;
+  font-size: 20px;
+  line-height: 1.15;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitulo {
+  color: #71809f;
+  font-size: 11px;
+  line-height: 1.2;
+}

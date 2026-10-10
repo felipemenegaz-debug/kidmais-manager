@@ -29,6 +29,7 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
     onClose: () => void;
 }) {
     const [ctx, setCtx] = useState<Contexto | null>(null), [form, setForm] = useState<EdicaoFestaInput | null>(null), [erro, setErro] = useState(''), [busy, setBusy] = useState(false), [calculando, setCalculando] = useState(false);
+    const [descontoGravado, setDescontoGravado] = useState<{ forma: string; percentual?: number } | null>(null);
     const [comercial, setComercial] = useState(false), [forma, setForma] = useState<'PIX_AVISTA' | 'PIX_PARCELADO' | 'CARTAO_CIELO'>('CARTAO_CIELO'), [base, setBase] = useState(''), [entrada, setEntrada] = useState(''), [parcela, setParcela] = useState(''), [quantidade, setQuantidade] = useState('');
     const url = `/api/admin/contratos/versoes/${versaoId}/edicao`;
     useEffect(() => {
@@ -46,6 +47,8 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
                 aniversariante: aniversariante ? { nome: aniversariante.nome, dataNascimento: aniversariante.dataNascimento } : { nome: "", dataNascimento: null } });
             setForma(f.formaPagamentoPretendida ?? 'CARTAO_CIELO');
             setBase(f.valorNegociado === null ? '' : String(f.valorAprovado ?? f.valorNegociado));
+            // Prévia usa o desconto gravado na condição atual (regra da empresa); outra forma: legado até a aprovação.
+            setDescontoGravado(f.condicaoPagamento ? { forma: f.condicaoPagamento.forma, percentual: f.condicaoPagamento.descontoPercentual } : null);
             const pix = f.condicaoPagamento?.aprovada;
             setEntrada(pix?.entradaCentavos == null ? '' : String(pix.entradaCentavos / 100));
             setParcela(pix?.parcelaCentavos == null ? '' : String(pix.parcelaCentavos / 100));
@@ -105,7 +108,7 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
   <details><summary>Condições comerciais</summary><fieldset disabled={busy}><p>{preservarHistorico ? "Valor contratado preservado: " : "Valor calculado: "}<strong>{moeda(preco)}</strong>{calculando ? ' · recalculando…' : ''}</p><p>Valor anterior: {formatarMoeda(ctx.fonte.fechamento.valorTabela)} (base de tabela).</p>
   <label><input type="checkbox" checked={comercial} onChange={e => setComercial(e.target.checked)}/> Revisar e aprovar condição comercial nesta edição</label>
   {comercial && <><div className={styles.grid}><label>Forma de pagamento<select aria-label="Forma de pagamento" value={forma} onChange={e => setForma(e.target.value as typeof forma)}><option value="PIX_AVISTA">PIX à vista — 10%</option><option value="PIX_PARCELADO">PIX parcelado — 3%</option><option value="CARTAO_CIELO">Cartão</option></select></label><label>Base negociada (opcional)<input type="number" min="0.01" step="0.01" value={base} onChange={e => setBase(e.target.value)}/></label></div><p>Em branco, aplica a base calculada pela tabela oficial. O desconto da forma de pagamento incide depois.</p>{forma === 'PIX_PARCELADO' && <div className={styles.grid}><label>Entrada acordada<input type="number" min="0" step="0.01" value={entrada} onChange={e => setEntrada(e.target.value)}/></label><label>Valor de parcela acordado<input type="number" min="0.01" step="0.01" value={parcela} onChange={e => setParcela(e.target.value)}/></label><label>Quantidade de parcelas acordada<input type="number" min="1" step="1" value={quantidade} onChange={e => setQuantidade(e.target.value)}/></label></div>}
-  {preco !== undefined && !base && <p>Valor contratual após desconto: {formatarMoeda(calcularCondicaoComercial(preco, forma).valorFinalContrato)}</p>}<p>A aprovação comercial será registrada com seu usuário. Não cria cobrança nem recebimento.</p></>}
+  {preco !== undefined && !base && <p>Valor contratual após desconto: {formatarMoeda(calcularCondicaoComercial(preco, forma, descontoGravado?.forma === forma ? descontoGravado.percentual : undefined).valorFinalContrato)}</p>}<p>A aprovação comercial será registrada com seu usuário. Não cria cobrança nem recebimento.</p></>}
   </fieldset></details><label>Observações da equipe<textarea maxLength={2000} value={form.observacoesEquipe} onChange={e => patch({ observacoesEquipe: e.target.value })}/></label>
   <label>Motivo da alteração administrativa<input required minLength={3} maxLength={500} value={form.motivo} onChange={e => patch({ motivo: e.target.value })}/></label>
   <p role="alert">{erro || serverError || (!preservarHistorico && ctx.erroPreco)}</p>{preservarHistorico && ctx.erroPreco && <p>O preço e os itens do contrato importado serão mantidos. Para mudar pacote, convidados, data, horário ou condições comerciais, será necessária uma tabela de preços vigente.</p>}<button disabled={busy || calculando || !!erro || (!preservarHistorico && (!!ctx.erroPreco || duplicados.length > 0))} type="submit">Salvar alteração da festa</button><button disabled={busy} type="button" onClick={onClose}>Cancelar edição</button>

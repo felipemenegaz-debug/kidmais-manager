@@ -41,8 +41,16 @@ export const ondeEncontrar: Ferramenta<RespostaLeitura> = {
   descricao: "Onde fica cada assunto no Kidmais (tela e o que se faz nela).",
   preparar(bruto) {
     const { tema } = parametros.parse(bruto);
-    return async (_tx, _tenant, contexto) => {
+    return async (tx, tenant, contexto) => {
       const alvo = TEMAS_NAVEGACAO[tema];
+      // Plano sem contas a pagar (Essencial): não indica a tela, que o servidor recusaria.
+      if (tema === "contas_pagar" && (await contexto.portas.recursos?.financeiroCompleto(tx, tenant.empresaComprovada)) === false)
+        return montarResposta("onde_encontrar", contexto, {
+          estado: "informativo",
+          resumo: "Contas a pagar não faz parte do plano contratado.",
+          fatos: [fato("Contas a pagar, fluxo de caixa e relatórios não estão incluídos no plano atual; contas a receber e Pix continuam disponíveis.", FONTE)],
+          fontes: [FONTE],
+        });
       return montarResposta("onde_encontrar", contexto, {
         estado: "informativo",
         resumo: `Isso fica em ${alvo.tela}.`,

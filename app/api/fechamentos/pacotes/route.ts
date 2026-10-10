@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/postgres";
-import { escopoCatalogoPublico } from "@/lib/comercial/catalogo-publico";
+import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
 import { PACOTES_CONTRATAVEIS_V1 } from "@/lib/comercial/pacotes-v1";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import { limitarPublico } from "@/lib/http/limite-publico";
 import { lerPrecosCorrentes } from "@/lib/comercial/pacote-precos";
 
 export const runtime = "nodejs";
@@ -14,9 +15,11 @@ function precoMinimo(linhas: Array<{ porConvidado: boolean; min: number; valor: 
   return Math.min(...linhas.map((l) => (l.porConvidado ? l.valor * l.min : l.valor))).toFixed(2);
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const limite = limitarPublico(request, "LEITURA");
+  if (limite) return limite;
   try {
-    const escopo = await escopoCatalogoPublico(db);
+    const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
     // "A partir de": menor valor do pacote na tabela publicada HOJE (fixo pela faixa; por convidado × mínimo).
     // Tabela ambígua ou ilegível não derruba a lista: o preço só some (a cotação da etapa seguinte explica).
     const precos = await lerPrecosCorrentes(db(), escopo.empresaId).catch(() => ({ pacotes: [] as Array<{ pacoteId: string; porConvidado: boolean; min: number; valor: number }> }));

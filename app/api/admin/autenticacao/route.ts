@@ -9,6 +9,7 @@ import { db } from '@/lib/db/postgres';
 import { contextoDaSessao } from '@/lib/autenticacao/contexto';
 import { selecionarEmpresaAtiva } from '@/lib/autenticacao/empresa-ativa';
 import { resumoComercialDaEmpresa } from '@/lib/assinatura/paywall';
+import { recursoIncluido } from '@/lib/assinatura/recursos-plano';
 import { situacaoCadastro } from '@/lib/cadastro/publico';
 import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
 export const runtime = 'nodejs';
@@ -43,7 +44,11 @@ export async function GET(request: NextRequest) {
             const contexto = await contextoDaSessao(db(), session);
             // E4: situação comercial da empresa selecionada, só para a tela (a barreira está na guarda das APIs).
             const comercial = contexto.empresaAtual ? await resumoComercialDaEmpresa(db(), contexto.empresaAtual.id) : null;
-            return response({ ok: true, data: { sessaoId: session.id, usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf, contexto, comercial, cadastroAberto: situacaoCadastro().ativo } });
+            // Recursos do plano, só para o menu (a barreira está nas APIs). Falha de leitura esconde o item, não derruba a sessão.
+            const recursos = contexto.empresaAtual
+                ? { financeiroCompleto: await recursoIncluido(db(), contexto.empresaAtual.id, 'FINANCEIRO_COMPLETO').catch(() => false) }
+                : null;
+            return response({ ok: true, data: { sessaoId: session.id, usuarioId: session.usuario_id, nome: session.nome, papel: session.papel, csrf, contexto, comercial, recursos, cadastroAberto: situacaoCadastro().ativo } });
         }
         catch (error) {
             if (!isClienteServiceError(error) || error.httpStatus !== 401)

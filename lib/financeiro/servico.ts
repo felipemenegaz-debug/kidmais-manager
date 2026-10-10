@@ -822,8 +822,23 @@ export async function cancelarConta(tx: DbExecutor, empresaId: string, atorId: s
   await auditar(tx, empresaId, "CONTA_CANCELADA", "financeiro_contas_pagar", id, atorId, "Conta cancelada.");
 }
 
-export async function financeiroDaFesta(tx: DbExecutor, empresaId: string, festaId: string, hoje: string) {
+/** `despesasIncluidas` = o plano inclui contas a pagar; sem ele, custos/margem/caixa não são calculados (dados preservados). */
+export async function financeiroDaFesta(tx: DbExecutor, empresaId: string, festaId: string, hoje: string, despesasIncluidas = true) {
   const recebiveis = (await listarRecebiveis(tx, empresaId, hoje)).filter((item) => item.origem !== "ENTRADA_MANUAL" && item.festaId === festaId);
+  if (!despesasIncluidas) {
+    const ativos = recebiveis.filter((item) => item.status !== "Cancelado");
+    return {
+      despesasIncluidas,
+      valorContratadoCentavos: ativos.reduce((total, item) => total + item.valorCentavos, 0),
+      recebidoCentavos: ativos.reduce((total, item) => total + item.recebidoCentavos, 0),
+      aReceberCentavos: ativos.reduce((total, item) => total + item.saldoCentavos, 0),
+      custosCentavos: null,
+      margemEstimadaCentavos: null,
+      resultadoCaixaCentavos: null,
+      recebimentos: recebiveis,
+      despesas: [],
+    };
+  }
   const contas = (await listarContasPagar(tx, empresaId, hoje)).filter((item) => item.festaId === festaId);
   const ativos = recebiveis.filter((item) => item.status !== "Cancelado");
   const vinculadas = contas.filter((item) => item.status !== "Cancelado");
@@ -833,6 +848,7 @@ export async function financeiroDaFesta(tx: DbExecutor, empresaId: string, festa
   const custos = vinculadas.reduce((total, item) => total + item.valorCentavos, 0);
   const pagas = vinculadas.reduce((total, item) => total + item.pagoCentavos, 0);
   return {
+    despesasIncluidas,
     valorContratadoCentavos: contratado,
     recebidoCentavos: recebido,
     aReceberCentavos: ativos.reduce((total, item) => total + item.saldoCentavos, 0),
@@ -844,9 +860,10 @@ export async function financeiroDaFesta(tx: DbExecutor, empresaId: string, festa
   };
 }
 
-export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: string) {
+/** `financeiroCompleto` = o plano inclui contas a pagar; sem ele, os números do painel usam só recebíveis. */
+export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: string, financeiroCompleto = true) {
   const recebiveis = await listarRecebiveis(tx, empresaId, hoje);
-  const contas = await listarContasPagar(tx, empresaId, hoje);
+  const contas = financeiroCompleto ? await listarContasPagar(tx, empresaId, hoje) : [];
   const recebido = await recebidoNoMes(tx, empresaId, hoje);
   const numeros = resumo(recebiveis, contas, recebido, hoje);
   const festas = await tx.query<{ id: string; contratoId: string; versaoId: string | null; data: string; cliente: string; pacote: string; convidados: number; status: string; hora: string }>(
@@ -909,6 +926,7 @@ export async function painelGeral(tx: DbExecutor, empresaId: string, hoje: strin
   return {
     empresa: empresa.rows[0]?.nome ?? "Empresa",
     hoje,
+    financeiroCompleto,
     numeros,
     agenda: festas.rows.filter((festa) => festa.data === hoje),
     proximas: festas.rows,

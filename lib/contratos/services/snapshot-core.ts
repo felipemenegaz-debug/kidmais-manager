@@ -31,6 +31,6 @@ export function valorFinalContrato(input: {
   const base = input.valorAprovado ?? input.valorTabela;
   // NULL identifica registros anteriores à nova regra; não reinterpretar legado.
   return input.condicaoPagamento
-    ? calcularCondicaoComercial(base, input.condicaoPagamento.forma).valorFinalContrato
+    ? calcularCondicaoComercial(base, input.condicaoPagamento.forma, input.condicaoPagamento.descontoPercentual).valorFinalContrato
     : base;
 }

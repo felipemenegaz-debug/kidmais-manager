@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import KidmaisBrand from "@/components/layout/KidmaisBrand";
+import { MarcaPublicaCabecalho, useMarcaPublica } from "@/components/fechamento/MarcaPublica";
 import PacotesPdf from "@/components/fechamento/PacotesPdf";
+import { apiPublica, paginaPublica } from "@/lib/fechamentos/rota-publica";
 import FestaDecoracao from "@/components/fechamento/FestaDecoracao";
 import type {
   DisponibilidadeDataPublica,
@@ -53,11 +54,11 @@ function basePeriodo(codigo: string) {
   return codigo === "TURNO_1" ? "almoco" : "noite";
 }
 
-async function buscarDisponibilidadeMes(ano: number, mes: number) {
+async function buscarDisponibilidadeMes(ano: number, mes: number, empresa: string | null) {
   const inicio = iso(ano, mes, 1);
   const ultimo = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
   const fim = iso(ano, mes, ultimo);
-  const resposta = await fetch(`/api/disponibilidade?inicio=${inicio}&fim=${fim}`, {
+  const resposta = await fetch(apiPublica(`/api/disponibilidade?inicio=${inicio}&fim=${fim}`, empresa), {
     cache: "no-store",
   });
 
@@ -75,7 +76,8 @@ class AgendaPublicaIndisponivel extends Error {
   }
 }
 
-export default function DisponibilidadePublica() {
+export default function DisponibilidadePublica({ empresa = null }: { empresa?: string | null } = {}) {
+  const marca = useMarcaPublica();
   const router = useRouter();
   const agora = new Date();
   const [mes, setMes] = useState(agora.getMonth());
@@ -98,7 +100,7 @@ export default function DisponibilidadePublica() {
 
     void (async () => {
       try {
-        const dias = await buscarDisponibilidadeMes(ano, mes);
+        const dias = await buscarDisponibilidadeMes(ano, mes, empresa);
         if (cancelado) return;
         setPorData(Object.fromEntries(dias.map((item) => [item.data, item])));
         setErro("");
@@ -114,7 +116,7 @@ export default function DisponibilidadePublica() {
     return () => {
       cancelado = true;
     };
-  }, [ano, mes]);
+  }, [ano, mes, empresa]);
 
   function mudarMes(delta: number) {
     setCarregando(true);
@@ -157,7 +159,7 @@ export default function DisponibilidadePublica() {
       ajuste: String(horarioSelecionado.ajusteMinutos),
     });
 
-    router.push(`/fechamento?${params.toString()}`);
+    router.push(`${paginaPublica("/fechamento", empresa)}?${params.toString()}`);
   }
 
   return (
@@ -166,7 +168,7 @@ export default function DisponibilidadePublica() {
 
       <div className={styles.shell}>
         <header className={styles.header}>
-          <KidmaisBrand context="customer" subtitle="Consulte sua data" />
+          <MarcaPublicaCabecalho subtitle="Consulte sua data" />
           <span className={styles.publicBadge}>Consulta de disponibilidade</span>
         </header>
 
@@ -174,7 +176,7 @@ export default function DisponibilidadePublica() {
           <p className={styles.eyebrow}>Planeje sua comemoração</p>
           <h1>Escolha a melhor data e horário para sua festa.</h1>
           <p>
-            Consulte a agenda da Kidmais em tempo real. Primeiro escolha a data,
+            Consulte a agenda {marca.da} em tempo real. Primeiro escolha a data,
             depois o período e o horário exato de início.
           </p>
         </section>
@@ -347,12 +349,12 @@ export default function DisponibilidadePublica() {
 
                 <p className={styles.reservationNote}>
                   A escolha deste horário não garante a reserva da data. A confirmação
-                  acontece somente durante a contratação, após as etapas previstas pela Kidmais.
+                  acontece somente durante a contratação, após as etapas previstas {marca.pela}.
                 </p>
               </>
             )}
           </aside>
-          <PacotesPdf />
+          {!empresa && <PacotesPdf />}
           </div>
         </section>
       </div>

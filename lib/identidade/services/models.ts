@@ -2,6 +2,7 @@ import type {
   ValidacaoIdentidadeCanal,
   ValidacaoIdentidadeFinalidade,
 } from "../repositories";
+import type { EscopoIdentidade } from "../../clientes/repositories";
 
 export type CanalIdentidadePublico = {
   canal: ValidacaoIdentidadeCanal;
@@ -27,6 +28,8 @@ export type IniciarDesafioIdentidadeInput = {
   canal: ValidacaoIdentidadeCanal;
   /** Mantém FECHAMENTO_PUBLICO como padrão para compatibilidade. */
   finalidade?: ValidacaoIdentidadeFinalidade;
+  /** Obrigatório: empresa do endereço público (resolvida no servidor) ou cliente do contrato. */
+  escopo: EscopoIdentidade;
 };
 
 export type DesafioIdentidadePublico = {

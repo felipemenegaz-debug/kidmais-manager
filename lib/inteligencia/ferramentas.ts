@@ -102,7 +102,11 @@ export type PortaParametrosConsumo = { vigente(empresaId: string, categoria: Reg
 export type PortasDominio = {
   festas: PortaFestas | null; clientes: PortaClientes | null; pacotes?: PortaPacotes | null; contratos?: PortaContratos | null; financeiro?: PortaFinanceiro | null;
   parametrosConsumo?: PortaParametrosConsumo | null;
+  recursos?: PortaRecursosPlano | null;
 };
+
+/** Recursos do plano contratado da empresa comprovada (a barreira real fica nas APIs; aqui só destinos e textos). */
+export type PortaRecursosPlano = { financeiroCompleto(tx: DbExecutor, empresaId: string): Promise<boolean> };
 
 export const SEM_PORTAS: PortasDominio = Object.freeze({ festas: null, clientes: null, pacotes: null, contratos: null });
 

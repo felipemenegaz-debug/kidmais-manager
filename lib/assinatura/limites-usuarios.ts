@@ -3,15 +3,25 @@ import { erroAcesso } from '../acessos/erros.ts';
 import { empresaIsenta, schemaPlanosInstalado } from './ofertas.ts';
 import { planosComerciais, planoComercialValido } from './planos-comerciais.ts';
 
-/** Só contratos confirmados limitam vagas. Trial, legado e isenção preservam acesso. */
-export async function consultarVagas(tx: DbExecutor, empresaId: string) {
+/**
+ * Plano do contrato confirmado atual, ou null quando nada limita: sem schema 074, empresa isenta, teste ou legado.
+ * Plano desconhecido falha fechado (503); nunca vira um plano por inferência.
+ */
+export async function planoConfirmado(tx: DbExecutor, empresaId: string, falha = 'Não foi possível conferir o plano contratado.') {
     if (!await schemaPlanosInstalado(tx) || await empresaIsenta(tx, empresaId)) return null;
     const contrato = (await tx.query<{ plano: string }>(`SELECT c.plano FROM empresa_assinaturas a
         JOIN assinatura_contratacoes c ON c.id=a.contratacao_atual_id AND c.empresa_id=a.empresa_id AND c.estado='CONFIRMADA'
         WHERE a.empresa_id=$1::uuid`, [empresaId])).rows[0];
     if (!contrato) return null;
     const plano = contrato.plano.toLowerCase();
-    if (!planoComercialValido(plano)) throw erroAcesso('PLANOS_NAO_DISPONIVEIS', 'Não foi possível conferir as vagas do plano.', 503);
+    if (!planoComercialValido(plano)) throw erroAcesso('PLANOS_NAO_DISPONIVEIS', falha, 503);
+    return plano;
+}
+
+/** Só contratos confirmados limitam vagas. Trial, legado e isenção preservam acesso. */
+export async function consultarVagas(tx: DbExecutor, empresaId: string) {
+    const plano = await planoConfirmado(tx, empresaId, 'Não foi possível conferir as vagas do plano.');
+    if (!plano) return null;
     // Convites vencidos/cancelados/aceitos não reservam vaga. Pessoas já ativas não contam duas vezes.
     const contagem = (await tx.query<{ ativos: number; pendentes: number }>(`SELECT
         (SELECT count(*)::int FROM memberships m JOIN usuarios_administrativos u ON u.id=m.usuario_id

@@ -14,6 +14,8 @@ type Atencao = { tom: 'alerta' | 'aviso'; titulo: string; detalhe: string; href:
 export type PainelDashboard = {
   empresa: string;
   hoje: string;
+  /** false quando o plano não inclui contas a pagar; ausente nas amostras = incluído. */
+  financeiroCompleto?: boolean;
   numeros: { recebidoMesCentavos: number; aReceberCentavos: number; aPagarCentavos: number; emAtrasoCentavos: number; saldoPrevistoCentavos: number };
   agenda: Festa[];
   proximas: Festa[];
@@ -150,7 +152,7 @@ export default function DashboardGeral({ inicial }: { inicial?: PainelDashboard 
         <h2>Resumo financeiro</h2>
         <div className={styles.resumoLinha}><span>Recebido no mês</span><strong>{reaisDe(painel.numeros.recebidoMesCentavos)}</strong></div>
         <div className={styles.resumoLinha}><span>A receber total</span><strong>{reaisDe(painel.numeros.aReceberCentavos)}</strong></div>
-        <div className={styles.resumoLinha}><span>A pagar total</span><strong>{reaisDe(painel.numeros.aPagarCentavos)}</strong></div>
+        {painel.financeiroCompleto !== false && <div className={styles.resumoLinha}><span>A pagar total</span><strong>{reaisDe(painel.numeros.aPagarCentavos)}</strong></div>}
         <div className={`${styles.resumoLinha} ${styles.saldo}`}><span className={styles.verde}>Saldo previsto</span><strong>{reaisDe(painel.numeros.saldoPrevistoCentavos)}</strong></div>
         <Link className={styles.botao} href="/admin/financeiro">Ver financeiro</Link>
       </section>

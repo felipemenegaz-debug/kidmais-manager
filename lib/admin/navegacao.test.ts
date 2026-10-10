@@ -35,6 +35,16 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
     assert.equal(gestao.some((item) => item.href === '/admin/configuracoes'), false);
 });
 
+test('plano sem financeiro completo esconde contas a pagar, fluxo e relatórios; mantém visão e contas a receber', () => {
+    const financeiro = (financeiroCompleto?: boolean) => itensNavegacao({ gestaoEmpresa: true, plataforma: false, financeiroCompleto })
+        .filter((item) => item.grupo === 'Financeiro').map((item) => item.href);
+    assert.deepEqual(financeiro(false), ['/admin/financeiro', '/admin/financeiro/contas-receber']);
+    const completo = ['/admin/financeiro', '/admin/financeiro/contas-receber', '/admin/financeiro/contas-pagar', '/admin/financeiro/fluxo-caixa', '/admin/financeiro/relatorios'];
+    assert.deepEqual(financeiro(true), completo);
+    assert.deepEqual(financeiro(undefined), completo, 'sem informação do plano (teste, legado, isenta) nada é escondido');
+    assert.equal(itensNavegacao({ gestaoEmpresa: true, plataforma: false, financeiroCompleto: false }).some((i) => i.href === '/admin/configuracoes/perfil-empresa'), true);
+});
+
 test('o item ativo é o link mais específico', () => {
     const itens = itensNavegacao(true);
     assert.equal(itemAtivo('/admin/configuracoes/perfil-empresa', '/admin/configuracoes/perfil-empresa', itens), true);
