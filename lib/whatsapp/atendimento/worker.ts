@@ -1,7 +1,7 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, entendimentoSoRegras, origemMidia } from './configuracao.ts';
 import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao } from './core.ts';
-import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, tem078, type Conversa, type Mensagem } from './service.ts';
+import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, tem078, type Conversa, type Mensagem } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
@@ -159,6 +159,11 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       const atual = historico.at(-1)?.texto ?? mensagem.texto ?? '';
       // Com a 078 uma resposta pode ter várias saídas (texto + PDF): o limite conta respostas (grupos), não linhas.
       const r078 = await tem078(db());
+      // Correção da pausa (revisão da candidata final): pedido de PAUSA reconhecido pelas regras vem ANTES do limite diário
+      // e de qualquer caminho fixo (encaminhamento, fase B, falha do Wall-e). Nada é enviado — nem o texto fixo —, a conversa
+      // vai para a equipe com o resumo de pausa e a marca persistente; sem modelo nem Wall-e. A recepção já desvia esses
+      // pedidos da fila; esta barreira cobre entradas enfileiradas antes da correção ou com a pausa numa entrada anterior.
+      if (pausaPedidaNaRecepcao(atual)) return r078 ? await passarEmSilencio(mensagem, registroDaPausa(atual, new Date().toISOString(), conversa.contexto)) : await pausarSemMarca(mensagem);
       const respondidas = Number((await db().query<{ n: string }>(`SELECT count(${r078 ? 'DISTINCT COALESCE(origem_grupo_id,id)' : '*'}) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='SAIDA' AND autor_usuario_id IS NULL AND estado<>'CANCELADA' AND criada_em > clock_timestamp()-interval '24 hours'`, [conversa.id, empresa])).rows[0]?.n ?? 0);
       if (respondidas >= config.limites.respostasPor24h) return await encaminharSemModelo(mensagem, 'PROCESSADA');
       // Wall-e: só com a 078, a porta montada e a configuração ligada. PARAR continua no caminho fixo (encerra e não contata).
@@ -262,6 +267,22 @@ async function bloquearPorPedido(mensagem: Mensagem, registro: Passagem | null =
     else await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='ENCERRADA',nao_contatar=true,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2", [mensagem.conversa_id, empresa]);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
     await cancelarSaidasNaFila(tx, mensagem.conversa_id, empresa, ambiente);
+  });
+  return 'PROCESSADA' as const;
+}
+/**
+ * Pausa sem a 078 (não há onde gravar a marca nem o resumo): a conversa vai para a equipe e nada é enviado; as saídas
+ * automáticas na fila são canceladas. Revalida sob a trava da conversa, como os demais caminhos.
+ */
+async function pausarSemMarca(mensagem: Mensagem) {
+  const empresa = empresaPiloto(), ambiente = ambienteAtendimento();
+  await withTransaction(async tx => {
+    const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [mensagem.conversa_id])).rows[0];
+    if (!atual || !mensagemAindaValida(mensagem, atual)) { await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]); return; }
+    await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1", [atual.id]);
+    await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
+    await tx.query(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens
+      WHERE conversa_id=$1 AND empresa_id=$2 AND ambiente=$3 AND direcao='SAIDA' AND estado='PENDENTE' AND autor_usuario_id IS NULL FOR UPDATE SKIP LOCKED)`, [atual.id, empresa, ambiente]);
   });
   return 'PROCESSADA' as const;
 }

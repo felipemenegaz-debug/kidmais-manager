@@ -90,8 +90,11 @@ test("fila do atendimento: validade das entradas (15 min) e automação global d
     await worker.processarLote(deps, { maxTarefas: 10 });
     const cv3 = await conversa(v3);
     assert.equal(cv3.estado, "AGUARDANDO_HUMANO"); assert.equal(cv3.nao_contatar, false, "V3: pausa não é bloqueio definitivo");
-    assert.deepEqual(await motivos(v3), ["PARAR_A_CONFIRMAR", "SEM_RESPOSTA_AUTOMATICA"]);
-    assert.equal(cv3.contexto?.semAutomatico?.motivo, "PARAR_A_CONFIRMAR"); assert.equal(cv3.contexto?.semAutomatico?.origem, "ENTRADA_VENCIDA");
+    // Diferença intencional (correção da pausa): a pausa reconhecida pelas regras é capturada já na RECEPÇÃO (nunca entra
+    // na fila), então o resumo é o da pausa e a origem da marca é RECEPCAO — antes ela ficava na fila e o worker a tratava
+    // como vencida (PARAR_A_CONFIRMAR + SEM_RESPOSTA_AUTOMATICA, origem ENTRADA_VENCIDA). Garantias iguais: marca, nada enviado.
+    assert.deepEqual(await motivos(v3), ["PARAR_A_CONFIRMAR"]);
+    assert.equal(cv3.contexto?.semAutomatico?.motivo, "PARAR_A_CONFIRMAR"); assert.equal(cv3.contexto?.semAutomatico?.origem, "RECEPCAO");
     await assert.rejects(servico.controlarAtendimento(sessao, { acao: "retomar", conversaId: cv3.id, versao: Number(cv3.versao) }), /ATENDIMENTO_PAUSA_PEDIDA/, "V3: Devolver ao Wall-e recusado");
     assert.equal(enviadosPara(v3), 0);
     // V4 — vencida com PARAR inequívoco: bloqueio da recepção, nada enviado.
@@ -133,7 +136,8 @@ test("fila do atendimento: validade das entradas (15 min) e automação global d
     await receber(d12, PAUSA);
     await worker.processarLote(deps, { semAutomacao: true });
     const cv12 = await conversa(d12);
-    assert.equal(cv12.contexto?.semAutomatico?.origem, "AUTOMACAO_DESLIGADA"); assert.deepEqual(await motivos(d12), ["PARAR_A_CONFIRMAR", "SEM_RESPOSTA_AUTOMATICA"]);
+    // Diferença intencional (correção da pausa): capturada na recepção, antes do ciclo do processador desligado.
+    assert.equal(cv12.contexto?.semAutomatico?.origem, "RECEPCAO"); assert.deepEqual(await motivos(d12), ["PARAR_A_CONFIRMAR"]);
     assert.deepEqual(chamadas, antes); assert.equal(envios.length, enviosAntes);
 
     // D4 — religar.

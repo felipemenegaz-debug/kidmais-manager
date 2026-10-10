@@ -18,7 +18,7 @@ function carregar(query: (sql: string, args?: unknown[]) => Promise<{rows: unkno
     './configuracao.ts':{entendimentoSoRegras:()=>modoRegras.ativo,ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido,origemMidia:()=>null},
     './arquivos.ts':arquivos,
     './core.ts':core,
-    './service.ts':{configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem078:async()=>false},
+    './service.ts':{registroDaPausa:(texto:string,em:string)=>({motivo:'PARAR_A_CONFIRMAR',motivos:['PARAR_A_CONFIRMAR'],em,coletado:{data:null,turno:null,convidados:null,pacote:null,unidade:null,tema:null},enviados:[],pendentes:[],ultimaMensagem:texto.slice(0,500)}),configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem078:async()=>false},
     './modelo.ts':{interpretarMensagem:async()=>{throw Error('modelo real proibido no teste');}},
     // Funções puras reais (montagem do conteúdo); a rede continua proibida.
     './transporte.ts':{...transporte,enviarMensagem:async()=>{throw Error('rede real proibida no teste');}},
@@ -481,4 +481,24 @@ test('modo regras é conferido a cada uso: o worker lê a variável do canal (n�
   const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
   assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
   assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:enviarMensagem,wallE:criarPortaWallE\(portas\.entender/);
+});
+
+// Correção da pausa: a pausa reconhecida pelas regras vem antes do limite diário; nada sai, nem o texto fixo.
+test('pausa antes do limite diário esgotado: nenhuma saída, conversa à equipe, sem modelo',async()=>{
+  const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'por enquanto não precisa me mandar mais nada, depois eu chamo vocês'};
+  let modelo=0; const comandos:{sql:string;args?:unknown[]}[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    if(sql.includes('SELECT texto FROM')) return {rows:[{texto:entrada.texto}]};
+    if(sql.includes('SELECT count(*) AS n')) return {rows:[{n:'3'}]};
+    return {rows:[]};
+  },true,true,3);
+  assert.equal(await worker.processarAtendimento({interpretar:async()=>{modelo++;return {intencao:'OUTRO' as const,perguntaId:null,data:null,convidados:null};},enviar:async()=>{throw Error('envio proibido');}}),'PROCESSADA');
+  assert.equal(modelo,0,'sem modelo');
+  assert.ok(!comandos.some(c=>c.sql.includes('INSERT INTO whatsapp_atendimento_mensagens')),'nenhuma saída criada (nem o texto fixo)');
+  assert.ok(!comandos.some(c=>c.sql.includes('SELECT count(*) AS n')),'a pausa é tratada antes de contar o limite');
+  assert.ok(comandos.some(c=>/SET estado='AGUARDANDO_HUMANO',versao=versao\+1/.test(c.sql)),'conversa à equipe');
 });

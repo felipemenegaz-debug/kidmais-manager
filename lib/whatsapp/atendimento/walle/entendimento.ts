@@ -1194,6 +1194,21 @@ export function registroDoBloqueio(texto: string, agora: string, sinais?: Sinais
   return { motivo: 'RECLAMACAO', motivos: ['RECLAMACAO', 'BLOQUEADO_A_PEDIDO'], em: agora, coletado: { data: null, turno: null, convidados: null, pacote: null, unidade: null, tema: null }, enviados: [], pendentes: [], ultimaMensagem: String(texto ?? '').slice(0, 500) };
 }
 /**
+ * Correção da pausa (revisão da candidata final): pedido de PAUSA reconhecido pelas regras (opt-out AMBÍGUO) tratado FORA
+ * do Wall-e — na recepção, antes de a mensagem entrar na fila, ou no worker, antes do limite diário e de qualquer caminho
+ * fixo. O mesmo resumo que o resolvedor monta para o pedido ambíguo (PARAR_A_CONFIRMAR, com RECLAMACAO se houver
+ * irritação com as mensagens), sem consultar catálogos: da memória só os campos simples (data, convidados, tema).
+ */
+export function registroDaPausa(texto: string, agora: string, contexto?: unknown, sinais?: SinaisMensagem | null): Passagem {
+  const c = (contexto && typeof contexto === 'object' ? contexto : {}) as Record<string, unknown>;
+  const simples = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max ? v : null);
+  return {
+    motivo: 'PARAR_A_CONFIRMAR', motivos: irritacaoComMensagens(texto, sinais) ? ['PARAR_A_CONFIRMAR', 'RECLAMACAO'] : ['PARAR_A_CONFIRMAR'], em: agora,
+    coletado: { data: simples(c.data, 10), turno: null, convidados: Number.isInteger(c.convidados) ? (c.convidados as number) : null, pacote: null, unidade: null, tema: simples(c.tema, 60) },
+    enviados: [], pendentes: [], ultimaMensagem: String(texto ?? '').slice(0, 500),
+  };
+}
+/**
  * Rodada 20 — combinação de intenções, depois das regras de cada assunto (regras e caminho do modelo):
  *  - festa JÁ REALIZADA com valor final, saldo, pagamento ou devolução ("fizemos a festa em setembro, quanto ficou e se
  *    sobrou saldo?") é festa contratada: equipe, sem orçamento novo nem agenda;

@@ -399,3 +399,14 @@ test('077: PARAR, janela vencida, conversa não assumida e piloto desligado barr
     assert.equal(c.sqls('INSERT INTO whatsapp_atendimento_mensagens(').length, 0);
   }
 });
+
+// Correção da pausa (revisão da candidata final): pedido de PAUSA reconhecido pelas regras não entra na fila automática.
+test('pausa reconhecida pelas regras nasce fora da fila automática e vai à equipe; mensagem comum continua na fila', async () => {
+  const pausa = carregar({});
+  await pausa.modulo.receberEntrada(entrada('por enquanto não precisa me mandar mais nada, depois eu chamo vocês'));
+  assert.equal(pausa.sqls('INSERT INTO whatsapp_atendimento_mensagens')[0].args[5], 'PROCESSADA', 'pausa: não fica PENDENTE');
+  assert.equal(pausa.sqls("SET estado='AGUARDANDO_HUMANO'").length, 1, 'pausa: conversa com a equipe');
+  const comum = carregar({});
+  await comum.modulo.receberEntrada(entrada('quanto custa a festa?'));
+  assert.equal(comum.sqls('INSERT INTO whatsapp_atendimento_mensagens')[0].args[5], 'PENDENTE', 'mensagem comum: fila automática');
+});

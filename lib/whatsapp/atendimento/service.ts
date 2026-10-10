@@ -4,7 +4,9 @@ import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } f
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
 import { configuracaoSchema, comandoDireto, conferirEmpresaAtiva, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { caminhoPublicoArquivo } from './arquivos.ts';
-import { registroDoBloqueio } from './walle/entendimento.ts';
+import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
+// O worker usa o mesmo resumo de pausa (sem importar o entendimento do Wall-e).
+export { registroDaPausa };
 
 /** `contexto` e `passagem` (078): memória do Wall-e e resumo para a equipe (ausentes sem a 078). */
 export type Conversa = { id: string; empresa_id: string; ambiente: string; contato: string; estado: 'IA' | 'HUMANO' | 'AGUARDANDO_HUMANO' | 'ENCERRADA'; responsavel_id: string | null; nao_contatar: boolean; versao: number; ultima_entrada_em: string; atualizada_em?: string; interesse: { data: string | null; convidados: number | null }; contexto?: Record<string, unknown>; passagem?: Record<string, unknown> | null };
@@ -114,7 +116,11 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
     // Encerrada pela equipe (sem pedido de PARAR): nova mensagem do cliente reabre como um contato novo.
     const reaberta = conversa.estado === 'ENCERRADA' && !conversa.nao_contatar;
     const estadoAtual = reaberta ? 'IA' : conversa.estado;
-    const automatico = automacaoGlobal && atendimentoAtivo() && !!config?.ativo && !conversa.nao_contatar && !semAutomatico(conversa) && estadoAtual === 'IA' && entrada.texto !== null;
+    // Correção da pausa (revisão da candidata final): pedido de PAUSA reconhecido pelas regras (opt-out ambíguo) nunca
+    // entra na fila automática — o limite diário, a fase B, a falha do Wall-e e o encaminhamento fixo não chegam a vê-lo.
+    // A conversa vai para a equipe já com o resumo de pausa e a marca persistente (abaixo). PARAR inequívoco não é pausa.
+    const pausa = !!entrada.texto && !conversa.nao_contatar && pausaPedidaNaRecepcao(entrada.texto);
+    const automatico = automacaoGlobal && atendimentoAtivo() && !!config?.ativo && !conversa.nao_contatar && !semAutomatico(conversa) && estadoAtual === 'IA' && entrada.texto !== null && !pausa;
     await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,externa_id,direcao,texto,estado,versao_conversa,criada_em) VALUES($1,$2,$3,$4,'ENTRADA',$5,$6,$7,$8)`, [conversa.id, empresa, ambiente, entrada.id, entrada.texto, automatico ? 'PENDENTE' : 'PROCESSADA', conversa.versao, em]);
     if (reaberta) await tx.query('UPDATE whatsapp_atendimento_conversas SET estado=$2,responsavel_id=NULL WHERE id=$1', [conversa.id, automatico ? 'IA' : 'AGUARDANDO_HUMANO']);
     else if (estadoAtual === 'IA' && !automatico) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO' WHERE id=$1", [conversa.id]);
@@ -142,8 +148,11 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
     // (a equipe continua respondendo); com a marca, "Devolver ao Wall-e" é recusado e nada automático sai depois, nem
     // numa reabertura. PARAR inequívoco continua sendo o bloqueio acima. Só com a 078 (a marca vive no contexto).
     else if (entrada.texto && !automatico && !conversa.nao_contatar && !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto) && await tem078(tx)) {
-      await tx.query("UPDATE whatsapp_atendimento_conversas SET contexto=COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$2::jsonb),versao=versao+1 WHERE id=$1",
-        [conversa.id, JSON.stringify({ motivo: 'PARAR_A_CONFIRMAR', em, origem: 'RECEPCAO' })]);
+      // Conversa que saiu da IA por causa deste pedido: o resumo para a equipe é o da pausa (o mesmo do resolvedor). Com a
+      // automação global desligada o resumo já foi gravado acima (inclui a pausa); conversa já com a equipe: só a marca.
+      const resumo = estadoAtual === 'IA' && automacaoGlobal ? JSON.stringify(registroDaPausa(entrada.texto, em, conversa.contexto)) : null;
+      await tx.query("UPDATE whatsapp_atendimento_conversas SET contexto=COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$2::jsonb),passagem=COALESCE($3::jsonb,passagem),versao=versao+1 WHERE id=$1",
+        [conversa.id, JSON.stringify({ motivo: 'PARAR_A_CONFIRMAR', em, origem: 'RECEPCAO' }), resumo]);
     }
   });
 }

@@ -118,6 +118,8 @@ const ESTADO_POSTGRES = {
   // Proteções finais: modo regras em todos os caminhos (sem a 078, Wall-e desligado) e entrada recebida com a IA global
   // desligada nunca respondida depois de religar, sem ciclo intermediário (aplica a 060 e depois 076–078).
   "lib/whatsapp/atendimento/protecoes-finais.postgres.test.ts": { descartavel: "atual" },
+  // Correção P1 (revisão da candidata final): pausa reconhecida pelas regras vence o limite diário e os caminhos fixos.
+  "lib/whatsapp/atendimento/pausa-limite.postgres.test.ts": { descartavel: "atual" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
