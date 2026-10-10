@@ -230,7 +230,7 @@ async function main() {
 
       const canal = cliente.whatsapp ? "WHATSAPP" as const : "SMS" as const;
       const desafio = await identity.iniciarDesafio(
-        { cpf: cliente.cpf, canal },
+        { cpf: cliente.cpf, canal, escopo: { clienteId: cliente.id } },
         tx,
       );
       const prova = await identity.confirmarCodigo(

@@ -5,6 +5,7 @@ import {
 } from "./data.ts";
 import type { FormaPagamento, PacoteId } from "./types.ts";
 import { calcularCondicaoComercial } from "../../lib/comercial/condicao-pagamento.ts";
+import { REGRAS_LEGADAS, type RegrasPagamento } from "../../lib/comercial/regras-pagamento.ts";
 
 export function moedaParaNumero(valor: string): number {
   const limpo = valor.replace(/\D/g, "");
@@ -22,19 +23,21 @@ export function formatarMoedaDigitada(valor: string): string {
   return numeroParaMoeda(moedaParaNumero(valor));
 }
 
-export function descontoPagamento(forma: FormaPagamento | ""): number {
-  if (forma === "pix_avista") return 0.1;
-  if (forma === "pix_parcelado") return 0.03;
+/** Sem regras informadas: legado (PIX à vista 10%, parcelado 3%). Endereço de outra empresa: regras dela. */
+export function descontoPagamento(forma: FormaPagamento | "", regras: RegrasPagamento = REGRAS_LEGADAS): number {
+  if (forma === "pix_avista") return regras.pixAvistaPercentual / 100;
+  if (forma === "pix_parcelado") return regras.pixParceladoPercentual / 100;
   return 0;
 }
 
 export function calcularTotalPagamento(
   valorAprovado: number,
-  forma: FormaPagamento | ""
+  forma: FormaPagamento | "",
+  regras: RegrasPagamento = REGRAS_LEGADAS,
 ) {
-  const desconto = descontoPagamento(forma);
+  const desconto = descontoPagamento(forma, regras);
   const valores = calcularCondicaoComercial(valorAprovado,
-    forma === "pix_avista" ? "PIX_AVISTA" : forma === "pix_parcelado" ? "PIX_PARCELADO" : "CARTAO_CIELO");
+    forma === "pix_avista" ? "PIX_AVISTA" : forma === "pix_parcelado" ? "PIX_PARCELADO" : "CARTAO_CIELO", Math.round(desconto * 100));
   return {
     desconto,
     valorDesconto: valores.valorDescontoFormaPagamento,

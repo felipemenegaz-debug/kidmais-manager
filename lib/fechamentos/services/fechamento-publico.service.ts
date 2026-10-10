@@ -9,7 +9,8 @@ import {
   buscarClienteCanonicoPorCpf,
   buscarClienteCanonicoPorId,
   buscarResponsavelAtivoPorNome,
-  cpfCanonicoEmUso,
+  cpfBloqueadoPorOutraEmpresa,
+  INDICES_CPF_CANONICO,
   criarAniversariante,
   criarCliente,
   criarResponsavel,
@@ -89,8 +90,8 @@ export type CriarFechamentoPublicoInput = Omit<
   ip?: string | null;
   userAgent?: string | null;
   /**
-   * Endereço público de uma empresa (/b/<código>): CPF já usado em qualquer cadastro não é revelado nem bloqueia.
-   * O cliente novo é criado sem CPF, com nota interna neutra; a duplicidade na própria empresa segue para o CRM.
+   * Endereço público de uma empresa (/b/<código>): CPF usado em cadastro de OUTRA empresa não é revelado nem
+   * bloqueia; enquanto o índice global existir (antes da 076), o cliente novo nasce sem CPF, com nota interna neutra.
    */
   cpfSemRevelarCadastro?: boolean;
 };
@@ -242,9 +243,10 @@ export async function criarNovoCliente(
   tx: DbExecutor,
 ) {
   const cpf = normalizarCpf(dados.cpf);
-  // Endereço por empresa: a existência do CPF (nesta ou em outra empresa) não muda a resposta pública.
-  const cpfOmitido = Boolean(input.cpfSemRevelarCadastro && cpf && await cpfCanonicoEmUso(cpf, tx));
-  const existente = cpf && !input.cpfSemRevelarCadastro ? await buscarClienteCanonicoPorCpf(cpf, empresaId, tx) : null;
+  // CPF desta empresa: fluxo normal (validar a identidade, que é por empresa). Endereço por empresa: CPF de OUTRA
+  // empresa não muda a resposta nem é revelado; antes da 076 (índice global) o cadastro nasce sem CPF.
+  const existente = cpf ? await buscarClienteCanonicoPorCpf(cpf, empresaId, tx) : null;
+  const cpfOmitido = Boolean(!existente && input.cpfSemRevelarCadastro && cpf && await cpfBloqueadoPorOutraEmpresa(cpf, empresaId, tx));
   if (existente) {
     throw new FechamentoServiceError(
       "CPF_EXISTENTE_REQUER_VALIDACAO",
@@ -276,7 +278,7 @@ export async function criarNovoCliente(
       tx,
     );
   } catch (error) {
-    if (isUniqueViolation(error, "clientes_cpf_canonico_uk")) {
+    if (INDICES_CPF_CANONICO.some((indice) => isUniqueViolation(error, indice))) {
       // Concorrência rara entre a conferência e a gravação: no endereço por empresa, resposta neutra.
       if (input.cpfSemRevelarCadastro) {
         throw new FechamentoServiceError("PEDIDO_NAO_CONCLUIDO", "Não foi possível concluir agora. Tente novamente em instantes.", 409);

@@ -63,7 +63,8 @@ test('código-fonte: nunca apaga; toda escrita é das fixtures; encerramento des
     const inserts = fonte.match(/INSERT INTO [a-z_]+/g) ?? [];
     assert.deepEqual([...new Set(inserts)].sort(), ['INSERT INTO assinatura_isencoes', 'INSERT INTO empresa_assinaturas', 'INSERT INTO empresas',
         'INSERT INTO financeiro_categorias', 'INSERT INTO memberships', 'INSERT INTO pacotes', 'INSERT INTO usuarios_administrativos']);
-    assert.match(fonte, /finally \{[\s\S]*removerAssinatura[\s\S]*SET ativo=false WHERE id=ANY[\s\S]*status='REVOGADA'[\s\S]*status='DESATIVADA'/);
+    assert.match(fonte, /finally \{\s*\/\/[^\n]*\n\s*erro \?\?= await encerrar\(\{db, conectado, r, p, api, salvar\}\);/);
+    assert.match(fonte, /async function encerrar[\s\S]*removerAssinatura[\s\S]*SET ativo=false WHERE id=ANY[\s\S]*status='REVOGADA'[\s\S]*status='DESATIVADA'/);
     assert.match(fonte, /FUNDADOR_S4/); assert.match(fonte, /PRESERVACAO_S3/); assert.match(fonte, /RODADA_EXISTENTE_S1/);
     assert.doesNotMatch(fonte, /console\.log\([^)]*senha/i);
 });
@@ -78,4 +79,47 @@ test('auxiliares: CPF sintético com dígitos válidos; projeção da agenda ign
     const b = h.projecaoAgenda({data:[{data:'2026-11-01', periodos:[{codigo:'TURNO_1', configuracaoId:'y', horarios:[{inicio:'12:00', fim:'16:00', ajusteMinutos:0, status:'DISPONIVEL'}]}]}], comercial:null, geradoEm:'t2'});
     assert.deepEqual(a, b);
     assert.throws(() => h.conferir('x', 1, 2), e => e.parada === 'S2' && e.item === 'x');
+});
+
+test('recuperação: flag própria, mesma trava de alvo (sem exigir as chaves de O1) e recusa sem estado ou fora do staging', () => {
+    assert.equal(h.modo(['--encerrar-rodada-1-autorizada']), 'ENCERRAR');
+    assert.equal(h.modo(['--rodada-1-autorizada']), 'RODADA');
+    assert.equal(h.modo(['--rodada-1-autorizada', '--encerrar-rodada-1-autorizada']), null);
+    const semChaves = {...envStaging(), ASSINATURA_PLANOS_ATIVOS:undefined, COTACAO_PUBLICA_POR_EMPRESA:undefined};
+    assert.ok(h.alvoEncerramento(semChaves).connectionString.includes('kidmais_staging_1z91'));
+    for (const v of [{RENDER_SERVICE_ID:'srv-dak77m2d0e5s73b8rkkg'}, {DATABASE_URL:'postgresql://u:s@dpg-dak750gae00c73fudmg0-a:5432/kidmais_production'}, {ASAAS_AMBIENTE:'producao'}])
+        assert.throws(() => h.alvoEncerramento({...semChaves, ...v}));
+    const r = spawnSync(process.execPath, [__dirname + '/homologacao-planos-cotacao-staging.cjs', '--encerrar-rodada-1-autorizada'], {encoding:'utf8', env:{PATH:process.env.PATH}, timeout:20000});
+    assert.equal(r.status, 1); assert.doesNotMatch(r.stdout, /ENCERRADO/);
+});
+
+test('recuperação: nunca em paralelo com a rodada viva', () => {
+    assert.equal(h.processoVivo(process.pid), false, 'o próprio processo não conta');
+    assert.equal(h.processoVivo(0), false); assert.equal(h.processoVivo(undefined), false);
+    const filho = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 30000)']);
+    try { assert.equal(h.processoVivo(filho.pid), true); } finally { filho.kill(); }
+    assert.match(fonte, /assert\.ok\(!\(r\.concluido === undefined && processoVivo\(r\.pid\)\), 'RODADA_EM_EXECUCAO'\)/);
+    assert.match(fonte, /pid:process\.pid/);
+});
+
+test('encerramento idempotente: só fixtures, sem DELETE; acha o webhook pelo nome quando o id não foi salvo', async () => {
+    const consultas = [];
+    const db = {query: async (sql, params) => { consultas.push({sql, params}); return {rows:[], rowCount:0}; }};
+    const removidas = [];
+    const p = {listarAssinaturasPorReferencia: async (ref) => ref === h.FIXTURES[1].empresa ? [{id:'sub_1', externalReference:ref, deleted:removidas.includes('sub_1')}] : [],
+        removerAssinatura: async (id) => { removidas.push(id); return {removida:true}; }};
+    const apagados = [];
+    const api = async (caminho, method = 'GET') => {
+        if (caminho.startsWith('/webhooks?')) return {data:[{id:'wh_9', name:'Kidmais staging ensaio homologacao', url:h.BASE + '/api/integracoes/asaas/webhook'}]};
+        if (method === 'DELETE') { apagados.push(caminho); return {}; }
+        return apagados.length ? null : {id:'wh_9', name:'Kidmais staging ensaio homologacao'};
+    };
+    const r = {intencaoWebhook:true, webhookNome:'Kidmais staging ensaio homologacao'};
+    for (let i = 0; i < 2; i++) assert.equal(await h.encerrar({db, conectado:true, r, p, api, salvar:() => {}}), null);
+    assert.deepEqual(removidas, ['sub_1']); assert.deepEqual(apagados, ['/webhooks/wh_9']);
+    assert.ok(r.fixturesDesativadas && r.webhookEncerrado);
+    for (const c of consultas) {
+        assert.doesNotMatch(c.sql, /\bDELETE\b|\bDROP\b|\bTRUNCATE\b/i);
+        if (/^UPDATE/.test(c.sql)) for (const v of c.params.flat()) assert.ok(h.FIXTURES.some(f => f.empresa === v || f.usuario === v), String(v));
+    }
 });

@@ -7,5 +7,5 @@ export const metadata = metadataEmpresaPublica;
 
 export default async function FechamentoDaEmpresaPage({ params }: { params: Promise<{ empresa: string }> }) {
   const empresa = await exigirEmpresaPublica(params);
-  return <MarcaPublicaProvider nome={empresa.nome}><FechamentoWizard empresa={empresa.codigo} /></MarcaPublicaProvider>;
+  return <MarcaPublicaProvider nome={empresa.nome} pagamento={empresa.pagamento}><FechamentoWizard empresa={empresa.codigo} /></MarcaPublicaProvider>;
 }

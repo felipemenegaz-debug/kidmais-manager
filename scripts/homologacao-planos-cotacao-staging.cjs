@@ -10,6 +10,7 @@ const {alvo: alvoEnsaio, documento, cookies, prepararWebhook} = require('./assin
 const BASE = 'https://kidmais-manager-staging.onrender.com';
 const DIR = '/opt/render/project/src/data/homologacao-planos-cotacao-20261010';
 const FLAG = '--rodada-1-autorizada';
+const FLAG_ENCERRAR = '--encerrar-rodada-1-autorizada';
 const KIDMAIS_CNPJ = '20119900000160';
 const FIXTURES = Object.freeze([
     {chave:'F1', empresa:'878a2c39-19e5-4d2a-82a7-223b893352c9', usuario:'11e5006f-68d0-4182-9b12-da048b3f7db8', codigo:'hml-planos-essencial', tipo:'PLANO', plano:'essencial', catalogo:true},
@@ -41,7 +42,13 @@ function alvo(env) {
     return opcoes;
 }
 function autorizado(argv) {
-    return argv.filter(a => a.startsWith('--')).length === 1 && argv.includes(FLAG);
+    return modo(argv) === 'RODADA';
+}
+/** Exatamente uma flag: a da rodada (O3) ou a do encerramento de execução interrompida. */
+function modo(argv) {
+    const flags = argv.filter(a => a.startsWith('--'));
+    if (flags.length !== 1) return null;
+    return flags[0] === FLAG ? 'RODADA' : flags[0] === FLAG_ENCERRAR ? 'ENCERRAR' : null;
 }
 
 // Matriz de aceite (O4). `null` = qualquer status diferente de 403 RECURSO_FORA_DO_PLANO e < 500.
@@ -72,6 +79,94 @@ function cpfSintetico() {
     }
 }
 
+/**
+ * Encerramento idempotente, usado no `finally` da rodada e no modo de recuperação. Só toca as quatro fixtures:
+ * remove assinaturas sandbox com referência = empresa da fixture (não existiam antes: S1 confere), remove o webhook
+ * só se a rodada registrou a intenção de criá-lo (procura pelo nome se o id não chegou a ser salvo) e desativa
+ * usuários/memberships/empresas das fixtures. UPDATE em fixture ausente não afeta linha. Nunca apaga linha.
+ */
+async function encerrar({db, conectado, r, p, api, salvar}) {
+    let erro = null;
+    if (conectado) await db.query('ROLLBACK').catch(() => {});
+    r.encerramento = {inicio:new Date().toISOString()}; salvar();
+    for (const f of FIXTURES.filter(x => x.tipo === 'PLANO')) {
+        try {
+            const subs = await p.listarAssinaturasPorReferencia(f.empresa); assert.ok(subs.length <= 1, 'SUB_DUPLICADA');
+            for (const sub of subs) { assert.equal(sub.externalReference, f.empresa); if (!sub.deleted) assert.equal((await p.removerAssinatura(sub.id)).removida, true); }
+            r.encerramento[f.chave] = {assinaturasSandbox:subs.length, canceladas:true}; salvar();
+        } catch { r.limpezaAssinaturaPendente = true; erro ??= Error('LIMPEZA_ASSINATURA'); salvar(); }
+    }
+    try {
+        if (r.intencaoWebhook) {
+            if (!r.webhookId && r.webhookNome) {
+                const lista = await api('/webhooks?limit=100');
+                const candidatos = lista.data.filter(w => w.name === r.webhookNome && w.url === BASE + '/api/integracoes/asaas/webhook');
+                assert.ok(candidatos.length <= 1, 'WEBHOOK_AMBIGUO'); r.webhookId = candidatos[0]?.id; salvar();
+            }
+            if (r.webhookId) { const w = await api('/webhooks/' + encodeURIComponent(r.webhookId));
+                if (w) { assert.equal(w.name, r.webhookNome); await api('/webhooks/' + encodeURIComponent(r.webhookId), 'DELETE'); } }
+        }
+        r.encerramento.webhook = true; r.webhookEncerrado = true; salvar();
+    } catch { r.limpezaWebhookPendente = true; erro ??= Error('LIMPEZA_WEBHOOK'); salvar(); }
+    try {
+        if (conectado) { await db.query('BEGIN');
+            await db.query('UPDATE usuarios_administrativos SET ativo=false WHERE id=ANY($1::uuid[])', [FIXTURES.map(f => f.usuario)]);
+            await db.query("UPDATE memberships SET status='REVOGADA' WHERE empresa_id=ANY($1::uuid[]) AND usuario_id=ANY($2::uuid[]) AND status<>'REVOGADA'", [IDS_EMPRESAS, FIXTURES.map(f => f.usuario)]);
+            await db.query("UPDATE empresas SET status='DESATIVADA' WHERE id=ANY($1::uuid[]) AND status<>'DESATIVADA'", [IDS_EMPRESAS]);
+            await db.query('COMMIT'); r.fixturesDesativadas = true; r.encerramento.fixtures = true; salvar(); }
+    } catch { await db.query('ROLLBACK').catch(() => {}); r.limpezaBancoPendente = true; erro ??= Error('LIMPEZA_BANCO'); salvar(); }
+    r.encerramento.fim = new Date().toISOString(); salvar();
+    return erro;
+}
+
+/** Processo da rodada original ainda vivo? Recuperação nunca roda em paralelo com ela. */
+function processoVivo(pid) {
+    if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) return false;
+    try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+/** Guardas do modo de recuperação: mesmo alvo, sem exigir as chaves de O1 (O5 pode já tê-las desligado). */
+function alvoEncerramento(env) {
+    return alvoEnsaio({...env, ASSINATURA_PLANOS_ATIVOS:'true'});
+}
+
+/**
+ * Recuperação de execução interrompida (queda do Shell, deploy/restart, kill): exige o arquivo de estado da rodada,
+ * recusa se o processo original ainda estiver vivo e repete só o encerramento. Pode ser executada mais de uma vez.
+ */
+async function recuperar() {
+    const opts = alvoEncerramento(process.env);
+    const arquivo = DIR + '/rodada.json';
+    assert.ok(fs.existsSync(arquivo), 'SEM_RODADA_PARA_ENCERRAR');
+    const r = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+    assert.equal(r.empresa, 'homologacao-planos-cotacao-20261010', 'ESTADO_DE_OUTRA_RODADA');
+    assert.ok(!(r.concluido === undefined && processoVivo(r.pid)), 'RODADA_EM_EXECUCAO');
+    const salvar = () => fs.writeFileSync(arquivo, JSON.stringify(r, null, 2), {mode:0o600});
+    r.recuperacoes = [...(r.recuperacoes ?? []), new Date().toISOString()]; salvar();
+    const {Client} = require('pg');
+    const {configuracaoAsaas, criarClienteAsaas} = await import('../lib/assinatura/asaas.ts');
+    const cfg = configuracaoAsaas(); assert.ok(cfg.ligado, 'ASAAS_DESLIGADO'); const p = criarClienteAsaas(cfg.config);
+    const api = async (caminho, method = 'GET') => {
+        assert.ok(/^\/webhooks(\/|\?|$)/.test(caminho));
+        const res = await fetch('https://api-sandbox.asaas.com/v3' + caminho, {method, redirect:'error', signal:AbortSignal.timeout(15000),
+            headers:{access_token:cfg.config.apiKey, 'User-Agent':'kidmais-staging-homologacao', 'Content-Type':'application/json'}});
+        if (res.status === 404 && method === 'GET') return null;
+        if (!res.ok) throw Object.assign(Error('ASAAS_HTTP'), {status:res.status}); return res.json();
+    };
+    const db = new Client(opts); let conectado = false, erro = null;
+    try {
+        await db.connect(); conectado = true; await db.query("SET statement_timeout='15s'");
+        const id = (await db.query("SELECT current_database() AS db, (SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()) AS tls")).rows[0];
+        assert.equal(id.db, 'kidmais_staging_1z91', 'BANCO_S1'); assert.equal(id.tls, true, 'TLS_S1');
+    } catch (e) { conectado = false; erro = e; }
+    erro = (await encerrar({db, conectado, r, p, api, salvar})) ?? (conectado ? null : erro ?? Error('BANCO_INDISPONIVEL'));
+    await db.end().catch(() => {});
+    r.recuperado = !erro; salvar();
+    console.log(JSON.stringify({resultado:erro ? 'ENCERRAMENTO_INCOMPLETO' : 'ENCERRADO', fixturesDesativadas:r.fixturesDesativadas ?? false,
+        webhookEncerrado:r.webhookEncerrado ?? false, assinaturasSandbox:FIXTURES.filter(f => f.tipo === 'PLANO').map(f => ({[f.chave]:r.encerramento?.[f.chave] ?? null}))}));
+    if (erro) process.exitCode = 2;
+}
+
 async function main() {
     const opts = alvo(process.env);
     const {Client} = require('pg');
@@ -83,7 +178,7 @@ async function main() {
     fs.mkdirSync(DIR, {recursive:true, mode:0o700});
     const arquivo = DIR + '/rodada.json';
     assert.ok(!fs.existsSync(arquivo), 'RODADA_EXISTENTE_S1');
-    const r = {empresa:'homologacao-planos-cotacao-20261010', inicio:new Date().toISOString(), etapas:[], resultados:{}};
+    const r = {empresa:'homologacao-planos-cotacao-20261010', inicio:new Date().toISOString(), pid:process.pid, etapas:[], resultados:{}};
     const salvar = () => fs.writeFileSync(arquivo, JSON.stringify(r, null, 2), {mode:0o600}); salvar();
     const db = new Client(opts); let conectado = false, erro, etapa = 'PRECHECK';
     const tx = {query: async (t, v) => { const x = await db.query(t, v); return {rows:x.rows, rowCount:x.rowCount}; }};
@@ -113,7 +208,8 @@ async function main() {
         }};
     };
     const publico = async (caminho, method = 'GET', body) => {
-        assert.ok(caminho.startsWith('/api/fechamentos') || caminho.startsWith('/api/disponibilidade') || caminho.startsWith('/b/'));
+        assert.ok(caminho.startsWith('/api/fechamentos') || caminho.startsWith('/api/disponibilidade') || caminho.startsWith('/b/')
+            || caminho.startsWith('/api/identidade/consultar-cpf'));
         const res = await fetch(BASE + caminho, {method, redirect:'manual', signal:AbortSignal.timeout(60000),
             headers:{'Content-Type':'application/json'}, ...(body ? {body:JSON.stringify(body)} : {})});
         const texto = await res.text(); let j = null; try { j = JSON.parse(texto); } catch { /* página HTML */ }
@@ -140,8 +236,10 @@ async function main() {
         const id = (await db.query("SELECT current_database() AS db, (SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()) AS tls")).rows[0];
         assert.equal(id.db, 'kidmais_staging_1z91', 'BANCO_S1'); assert.equal(id.tls, true, 'TLS_S1');
         const schema = (await db.query(`SELECT to_regclass('public.assinatura_isencoes') IS NOT NULL AND to_regclass('public.financeiro_categorias') IS NOT NULL
-            AND to_regprocedure('public.kidmais062_ocupacoes_escopo(date,date)') IS NOT NULL AS ok`)).rows[0];
-        assert.equal(schema.ok, true, 'SCHEMA_S1');
+            AND to_regprocedure('public.kidmais062_ocupacoes_escopo(date,date)') IS NOT NULL
+            AND to_regclass('public.clientes_cpf_empresa_canonico_uk') IS NOT NULL AND to_regclass('public.clientes_cpf_canonico_uk') IS NULL
+            AND to_regclass('public.empresa_regras_pagamento') IS NOT NULL AS ok`)).rows[0];
+        assert.equal(schema.ok, true, 'SCHEMA_S1'); // 076 e 077 aplicadas em O3
         const ocupado = (await db.query(`SELECT EXISTS(SELECT 1 FROM empresas WHERE id=ANY($1::uuid[]) OR codigo=ANY($2::text[]))
             OR EXISTS(SELECT 1 FROM usuarios_administrativos WHERE id=ANY($3::uuid[]) OR email=ANY($4::text[])) AS ocupado`,
             [IDS_EMPRESAS, FIXTURES.map(f => f.codigo), FIXTURES.map(f => f.usuario), FIXTURES.map(f => f.email)])).rows[0];
@@ -265,14 +363,29 @@ async function main() {
             nomeAniversariante:'Aniversariante Sintético', idadeAniversariante:5, observacoesCliente:'Pedido sintético de homologação 20261010', ...extra});
         const p1 = await pedido(F2.codigo); c.pedidoF2 = p1.status; conferir('cotacao.pedidoF2', p1.status, 201);
         conferir('cotacao.pedidoF2.semCrm', p1.j.crm, undefined);
-        conferir('cotacao.pedidoF2.empresa', (await db.query('SELECT empresa_id::text e FROM fechamentos WHERE id=$1', [p1.j.fechamentoId])).rows[0]?.e, F2.empresa);
-        // Mesmo CPF em outra empresa (F4): mesma resposta pública; cadastro novo sem CPF.
+        const f1 = (await db.query("SELECT empresa_id::text e, condicao_pagamento->>'descontoPercentual' AS desconto FROM fechamentos WHERE id=$1", [p1.j.fechamentoId])).rows[0];
+        conferir('cotacao.pedidoF2.empresa', f1?.e, F2.empresa);
+        conferir('cotacao.pedidoF2.regraPagamentoNeutra', f1?.desconto, '0'); // 077: F2 sem linha de regras = sem desconto automático
+        // Identidade por empresa: o CPF do cliente de F2 é visto só em F2; nem F4 nem o endereço atual (Kidmais) o enxergam.
+        const consultaCpf = async codigo => (await publico('/api/identidade/consultar-cpf' + (codigo ? q(codigo) : ''), 'POST', {cpf})).j?.situacao;
+        c.identidadeF2 = await consultaCpf(F2.codigo); conferir('identidade.F2', c.identidadeF2, 'CLIENTE_EXISTENTE');
+        c.identidadeF4 = await consultaCpf(F4.codigo); conferir('identidade.F4', c.identidadeF4, 'NOVO_CLIENTE');
+        c.identidadeKidmais = await consultaCpf(null); conferir('identidade.enderecoAtual', c.identidadeKidmais, 'NOVO_CLIENTE');
+        // Mesmo CPF em outra empresa (F4): mesma resposta pública; com a 076, cadastro de F4 com o próprio CPF.
         const p2 = await pedido(F4.codigo); c.pedidoF4MesmoCpf = p2.status; conferir('cotacao.pedidoF4', p2.status, 201);
         conferir('cotacao.pedidoF4.chaves', JSON.stringify(Object.keys(p2.j).sort()), JSON.stringify(Object.keys(p1.j).sort()));
         const cli = (await db.query('SELECT c.empresa_id::text e, c.cpf FROM fechamentos f JOIN clientes c ON c.id=f.cliente_id WHERE f.id=$1', [p2.j.fechamentoId])).rows[0];
-        conferir('cotacao.pedidoF4.empresa', cli.e, F4.empresa); conferir('cotacao.pedidoF4.cpfOmitido', cli.cpf, null);
+        conferir('cotacao.pedidoF4.empresa', cli.e, F4.empresa); conferir('cotacao.pedidoF4.cpfPorEmpresa', cli.cpf, cpf);
+        // Cliente existente com prova inválida: recusado antes de gravar (4xx, ou 503 se o OTP estiver desligado em staging).
+        const antesF2 = (await db.query('SELECT count(*)::int n FROM fechamentos WHERE empresa_id=$1', [F2.empresa])).rows[0].n;
         const p3 = await pedido(F2.codigo, {identidadeTipo:'CLIENTE_EXISTENTE', provaIdentidade:'p'.repeat(40)});
-        c.clienteExistente = p3.status; conferir('cotacao.clienteExistente', p3.j.codigo, 'IDENTIDADE_NAO_DISPONIVEL');
+        c.clienteExistenteProvaInvalida = p3.status; conferir('cotacao.clienteExistente.recusado', p3.status >= 400 && p3.status !== 201, true);
+        conferir('cotacao.clienteExistente.semGravacao', (await db.query('SELECT count(*)::int n FROM fechamentos WHERE empresa_id=$1', [F2.empresa])).rows[0].n, antesF2);
+        // Cabeçalho da página por empresa: nome próprio, ícone neutro, sem logo da Kidmais no HTML renderizado.
+        const html = await fetch(BASE + '/b/' + F2.codigo + '/fechamento', {redirect:'manual', signal:AbortSignal.timeout(60000)}).then(x => x.text());
+        conferir('marca.semLogoKidmais', /kidmais-logo-horizontal/.test(html), false);
+        conferir('marca.iconeNeutro', html.includes('/icone-orcamento.svg'), true);
+        conferir('marca.titulo', /<title>Orçamento da festa<\/title>/.test(html), true);
 
         // ---- Endereço atual da Kidmais e demais empresas inalterados (S3).
         marcar('PRESERVACAO');
@@ -285,24 +398,8 @@ async function main() {
         erro = e; r.falha = {etapa, parada:e.parada ?? null, item:e.item ?? e.tabela ?? null, http:e.status ?? null, mensagem:String(e.message).slice(0, 120)}; salvar();
         console.error(JSON.stringify(r.falha));
     } finally {
-        // ---- Encerramento (O5): assinaturas sandbox, webhook só se criado pela rodada, fixtures desativadas.
-        if (conectado) await db.query('ROLLBACK').catch(() => {});
-        for (const f of FIXTURES.filter(x => x.tipo === 'PLANO')) {
-            try { if (r[f.chave]?.intencaoCheckout) { const subs = await p.listarAssinaturasPorReferencia(f.empresa); assert.ok(subs.length <= 1, 'SUB_DUPLICADA');
-                for (const sub of subs) { assert.equal(sub.externalReference, f.empresa); if (!sub.deleted) assert.equal((await p.removerAssinatura(sub.id)).removida, true); }
-                r[f.chave].cancelada = true; salvar(); } }
-            catch { r.limpezaAssinaturaPendente = true; erro ??= Error('LIMPEZA_ASSINATURA'); salvar(); }
-        }
-        try { if (r.intencaoWebhook && r.webhookId) { const w = await api('/webhooks/' + encodeURIComponent(r.webhookId));
-                if (w) { assert.equal(w.name, r.webhookNome); await api('/webhooks/' + encodeURIComponent(r.webhookId), 'DELETE'); } }
-            r.webhookEncerrado = true; salvar(); }
-        catch { r.limpezaWebhookPendente = true; erro ??= Error('LIMPEZA_WEBHOOK'); salvar(); }
-        try { if (conectado && r.fixture) { await db.query('BEGIN');
-                await db.query('UPDATE usuarios_administrativos SET ativo=false WHERE id=ANY($1::uuid[])', [FIXTURES.map(f => f.usuario)]);
-                await db.query("UPDATE memberships SET status='REVOGADA' WHERE empresa_id=ANY($1::uuid[]) AND usuario_id=ANY($2::uuid[]) AND status<>'REVOGADA'", [IDS_EMPRESAS, FIXTURES.map(f => f.usuario)]);
-                await db.query("UPDATE empresas SET status='DESATIVADA' WHERE id=ANY($1::uuid[]) AND status<>'DESATIVADA'", [IDS_EMPRESAS]);
-                await db.query('COMMIT'); r.fixturesDesativadas = true; salvar(); } }
-        catch { await db.query('ROLLBACK').catch(() => {}); r.limpezaBancoPendente = true; erro ??= Error('LIMPEZA_BANCO'); salvar(); }
+        // ---- Encerramento (O5): mesma rotina do modo de recuperação (--encerrar-rodada-1-autorizada).
+        erro ??= await encerrar({db, conectado, r, p, api, salvar});
         await db.end().catch(() => {});
     }
     r.concluido = !erro; salvar();
@@ -313,7 +410,10 @@ async function main() {
 }
 
 if (require.main === module) {
-    if (!autorizado(process.argv.slice(2))) { console.error('AGUARDANDO_AUTORIZACAO_O3'); process.exitCode = 1; }
-    else main().catch(() => { console.error('HOMOLOGACAO_RECUSADA_ANTES_DAS_MUTACOES'); process.exitCode = 1; });
+    const m = modo(process.argv.slice(2));
+    if (m === 'RODADA') main().catch(() => { console.error('HOMOLOGACAO_RECUSADA_ANTES_DAS_MUTACOES'); process.exitCode = 1; });
+    else if (m === 'ENCERRAR') recuperar().catch(e => { console.error(String(e?.message ?? 'RECUPERACAO_RECUSADA').slice(0, 80)); process.exitCode = 1; });
+    else { console.error('AGUARDANDO_AUTORIZACAO_O3'); process.exitCode = 1; }
 }
-module.exports = {FIXTURES, PRESERVADAS, FINANCEIRO, sqlPreservacao, alvo, autorizado, conferir, cpfSintetico, projecaoAgenda, BASE, DIR, FLAG};
+module.exports = {FIXTURES, PRESERVADAS, FINANCEIRO, sqlPreservacao, alvo, alvoEncerramento, autorizado, modo, processoVivo, encerrar,
+    conferir, cpfSintetico, projecaoAgenda, BASE, DIR, FLAG, FLAG_ENCERRAR};

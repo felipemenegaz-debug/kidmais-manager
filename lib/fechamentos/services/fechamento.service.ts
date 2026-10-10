@@ -2,6 +2,8 @@ import { buscarClientePorId } from "../../clientes/repositories";
 import { calcularResumoComercial } from "../../comercial/services";
 import { observacoesDasEscolhas } from "../../comercial/adicionais-escolhas";
 import { centavosComerciais, validarPretensaoPix, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
+import { regraNaCondicao } from "../../comercial/regras-pagamento";
+
 import type { DbExecutor } from "../../db/contracts";
 import { withTransaction } from "../../db/postgres";
 import {
@@ -108,6 +110,8 @@ async function criarFechamentoComercialNaTransacao(
   const revisaoNecessaria = negociacaoNecessaria || input.formaPagamentoPretendida === "PIX_PARCELADO";
   const condicaoPagamento: CondicaoPagamento | null = input.formaPagamentoPretendida ? {
     schemaVersao: 1, forma: input.formaPagamentoPretendida, pretendida, aprovada: null,
+    // Regra de pagamento da empresa do pacote (077); sem a 077, nenhum campo novo (legado inalterado).
+    ...(await regraNaCondicao(tx, resumoComercial.pacote.pacote.empresaId ?? null, input.formaPagamentoPretendida)),
     revisaoStatus: revisaoNecessaria ? "PENDENTE" : "DISPENSADA",
   } : null;
 

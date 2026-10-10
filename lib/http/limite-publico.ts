@@ -6,16 +6,18 @@ import { ipDaRequisicao } from "../acessos/http.ts";
  *
  *   LEITURA → catálogo, pacotes, adicionais, agenda e cotação: 120 por minuto por origem.
  *   PEDIDO  → envio do fechamento: 10 por hora por origem e 60 por hora por endereço de empresa.
+ *   IDENTIDADE → consulta de CPF, envio e recuperação de código: 20 por hora por origem (contra enumeração).
  *
  * Janela fixa em memória, por instância (o web roda com 1 instância; com mais, cada uma conta a sua parte).
  * Sem escrita em banco por pedido. Origem = último X-Forwarded-For no Render (lib/acessos/http.ts); sem origem
  * confiável, todos dividem o mesmo balde. Nunca registra IP em log nem devolve detalhe além do prazo.
  */
-export type GrupoLimite = "LEITURA" | "PEDIDO";
+export type GrupoLimite = "LEITURA" | "PEDIDO" | "IDENTIDADE";
 type Regra = { limite: number; janelaMs: number };
 const REGRAS: Record<GrupoLimite, Regra> = {
   LEITURA: { limite: 120, janelaMs: 60_000 },
   PEDIDO: { limite: 10, janelaMs: 3_600_000 },
+  IDENTIDADE: { limite: 20, janelaMs: 3_600_000 },
 };
 const PEDIDO_POR_EMPRESA: Regra = { limite: 60, janelaMs: 3_600_000 };
 const MAXIMO_CHAVES = 20_000;
@@ -66,5 +68,15 @@ export function limitarPublico(
   return NextResponse.json(
     { ok: false, erro: "Muitas tentativas em pouco tempo. Aguarde um pouco e tente novamente.", codigo: "LIMITE_REQUISICOES" },
     { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(espera) } },
+  );
+}
+
+/** Recusa do escopo público (endereço indisponível, catálogo sem empresa): mesmo status e código do resolvedor. */
+export function respostaRecusaPublica(error: unknown) {
+  const e = error as { httpStatus?: unknown; code?: unknown; message?: unknown };
+  const status = typeof e?.httpStatus === "number" && e.httpStatus >= 400 && e.httpStatus < 600 ? e.httpStatus : 503;
+  return NextResponse.json(
+    { ok: false, erro: status < 500 && typeof e?.message === "string" ? e.message : "Indisponível no momento.", codigo: typeof e?.code === "string" ? e.code : "INDISPONIVEL" },
+    { status, headers: { "Cache-Control": "no-store" } },
   );
 }

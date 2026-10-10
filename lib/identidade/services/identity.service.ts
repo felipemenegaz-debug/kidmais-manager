@@ -11,6 +11,7 @@ import {
   buscarClienteCanonicoPorCpfParaIdentidade,
   buscarClienteCanonicoPorId,
   type ClienteRecord,
+  type EscopoIdentidade,
 } from "../../clientes/repositories";
 import { normalizarCpf } from "../../clientes/repositories/normalizers";
 import { cpfValidoServico } from "../../clientes/services/validators";
@@ -226,12 +227,21 @@ function assertValidacaoPendente(record: ValidacaoIdentidadeRecord) {
   }
 }
 
+/** Escopo obrigatório: a busca por CPF nunca é global (empresa do endereço ou cliente do contrato). */
+function exigirEscopo(escopo: EscopoIdentidade | undefined): EscopoIdentidade {
+  if (!escopo || ("clienteId" in escopo ? !escopo.clienteId : !escopo.empresaId)) {
+    throw new IdentityServiceError("ESCOPO_IDENTIDADE_AUSENTE", "A validação de identidade está indisponível neste endereço.", 503);
+  }
+  return escopo;
+}
+
 export async function consultarCpfPublico(
   cpfInformado: string,
+  escopo: EscopoIdentidade,
   customDb?: DbExecutor,
 ): Promise<ConsultaCpfPublicaResult> {
   const cpf = validarCpfObrigatorio(cpfInformado);
-  const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, customDb);
+  const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, exigirEscopo(escopo), customDb);
 
   if (!cliente) {
     return { situacao: "NOVO_CLIENTE", canais: [] };
@@ -276,7 +286,7 @@ export function criarIdentityService(options: IdentityServiceOptions) {
     customDb?: DbExecutor,
   ): Promise<DesafioIdentidadePublico> {
     const cpf = validarCpfObrigatorio(input.cpf);
-    const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, customDb);
+    const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, exigirEscopo(input.escopo), customDb);
 
     if (!cliente) {
       throw new IdentityServiceError(
@@ -602,10 +612,11 @@ export function criarIdentityService(options: IdentityServiceOptions) {
 
   async function solicitarRecuperacao(
     cpfInformado: string,
+    escopo: EscopoIdentidade,
     customDb?: DbExecutor,
   ): Promise<RecuperacaoIdentidadePublica> {
     const cpf = validarCpfObrigatorio(cpfInformado);
-    const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, customDb);
+    const cliente = await buscarClienteCanonicoPorCpfParaIdentidade(cpf, exigirEscopo(escopo), customDb);
 
     if (!cliente) {
       throw new IdentityServiceError(

@@ -21,6 +21,7 @@ import {
   type ClienteStatus,
   type CreateClienteInput,
   type UpdateClienteInput,
+  INDICES_CPF_CANONICO,
 } from "../repositories";
 import {
   normalizarCpf,
@@ -211,7 +212,7 @@ export async function cadastrarClienteInterno(
       // O índice de CPF ainda é global (PR-B2). A análise acima já viu o CPF desta empresa, então
       // a violação aqui vem de outra empresa (ou de uma corrida). A transação está abortada:
       // nenhuma consulta nova, e a resposta não revela id, nome nem empresa do dono.
-      if (isUniqueViolation(error, "clientes_cpf_canonico_uk")) {
+      if (INDICES_CPF_CANONICO.some((indice) => isUniqueViolation(error, indice))) {
         throw new ClienteServiceError(
           "CPF_INDISPONIVEL",
           "Este CPF não pode ser cadastrado agora. Confira o documento ou fale com o suporte.",

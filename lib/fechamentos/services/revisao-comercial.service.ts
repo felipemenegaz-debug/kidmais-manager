@@ -95,7 +95,7 @@ export async function revisarComercial(id: string, empresaId: string, input: Rev
       valorAprovado: aprovada ? base : null, status: aprovada ? "APROVADO" : "RECUSADO",
       motivo: input.motivo.trim(), aprovadoPorUsuarioId: context.usuarioId,
       condicaoPagamento: { ...condicao, solicitacaoId: input.solicitacaoId.toLowerCase(), decisaoHash,
-        ...(aprovada ? { valores: calcularCondicaoComercial(base, condicao.forma) } : {}) },
+        ...(aprovada ? { valores: calcularCondicaoComercial(base, condicao.forma, condicao.descontoPercentual) } : {}) },
     }, tx);
     const fechamento = await registrarDecisaoNoFechamento(f, { aprovada, valorBase: aprovada ? base : null, condicao }, tx);
     await registrarAuditoria({ entidadeTipo: "FECHAMENTO", entidadeId: id,

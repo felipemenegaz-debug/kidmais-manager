@@ -233,7 +233,8 @@ export default function CalendarioDisponibilidade({
       config,
       pacote,
       data,
-      horario
+      horario,
+      marca.pagamento.descontoDiaUtil,
     );
 
     onSelecionar(
@@ -284,7 +285,7 @@ export default function CalendarioDisponibilidade({
   }
 
   const temAlgumBeneficioPadrao =
-    pacoteTemDescontoDiaUtil(pacote);
+    marca.pagamento.descontoDiaUtil && pacoteTemDescontoDiaUtil(pacote);
 
   return (
     <div className={styles.calendarWrap} data-calendario-disponibilidade>
@@ -398,7 +399,8 @@ export default function CalendarioDisponibilidade({
                   config,
                   pacote,
                   data,
-                  horario
+                  horario,
+                  marca.pagamento.descontoDiaUtil,
                 )
               : {
                   ativo: false,

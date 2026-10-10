@@ -10,6 +10,8 @@ import { atualizarClienteInterno } from '../../clientes/services';
 import { atualizarAniversarianteInterno, cadastrarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
 import { calcularResumoComercial } from '../../comercial/services';
 import { validarPretensaoPix, centavosComerciais } from '../../comercial/condicao-pagamento';
+import { regraNaCondicao } from '../../comercial/regras-pagamento';
+
 import { listarCodigosInclusos } from '../../comercial/composicao';
 import type { EdicaoFestaInput } from './edicao-administrativa-schema';
 import { consultarDisponibilidadeData, intervaloSemConflito } from '../../disponibilidade/services';
@@ -206,7 +208,7 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
         f.valorAprovado = f.valorNegociado;
         f.motivoNegociacao = input.motivo;
         f.formaPagamentoPretendida = com.forma;
-        f.condicaoPagamento = { schemaVersao: 1, forma: com.forma, pretendida: null, aprovada: condicao, revisaoStatus: 'APROVADA' };
+        f.condicaoPagamento = { schemaVersao: 1, forma: com.forma, pretendida: null, aprovada: condicao, revisaoStatus: 'APROVADA', ...(await regraNaCondicao(tx, empresaAutorizada, com.forma)) };
     }
     else if (f.valorTabela !== r.operacao.valorTabela && (r.operacao.valorNegociado !== null || r.operacao.formaPagamentoPretendida === 'PIX_PARCELADO'))
         recusar('O novo preço exige revisão comercial explícita nesta edição.');

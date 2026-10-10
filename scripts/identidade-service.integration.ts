@@ -156,6 +156,9 @@ async function contarDadosOperacionais(): Promise<ContagensOperacionais> {
 }
 
 // Pacote com empresa: desde a 054, cliente e fechamento novos precisam da mesma empresa comprovada.
+/** Identidade pública é sempre por empresa: a do catálogo sintético desta execução. */
+const escopoDe = (modelo: { empresaId: string | null }) => ({ empresaId: modelo.empresaId ?? "", incluirLegadoSemEmpresa: false });
+
 async function modeloDoCatalogo(tx: DbExecutor): Promise<FechamentoBaseFromCatalogoRow> {
   const fromCatalogo = await tx.query<FechamentoBaseFromCatalogoRow>(
     `SELECT
@@ -308,7 +311,7 @@ async function main() {
       // ---------------------------------------------------------
       // 1. CPF existente: resposta pública sem PII do CRM
       // ---------------------------------------------------------
-      const consulta = await service.consultarCpfPublico(cpf, tx);
+      const consulta = await service.consultarCpfPublico(cpf, escopoDe(modelo), tx);
 
       assert.equal(consulta.situacao, "CLIENTE_EXISTENTE");
       assert.ok(consulta.canais.length >= 1);
@@ -330,7 +333,7 @@ async function main() {
       let cpfNovo = gerarCpfValido();
       while (cpfNovo === cpf) cpfNovo = gerarCpfValido();
 
-      const consultaNovo = await service.consultarCpfPublico(cpfNovo, tx);
+      const consultaNovo = await service.consultarCpfPublico(cpfNovo, escopoDe(modelo), tx);
       assert.equal(consultaNovo.situacao, "NOVO_CLIENTE");
       assert.deepEqual(consultaNovo.canais, []);
 
@@ -340,7 +343,7 @@ async function main() {
       // 3. Iniciar desafio e capturar OTP somente no sender fake
       // ---------------------------------------------------------
       const desafio = await service.iniciarDesafio(
-        { cpf, canal: "WHATSAPP" },
+        { cpf, canal: "WHATSAPP", escopo: escopoDe(modelo) },
         tx,
       );
 
@@ -439,7 +442,7 @@ async function main() {
       // ---------------------------------------------------------
       // 8. Recuperação pendente
       // ---------------------------------------------------------
-      const recuperacao = await service.solicitarRecuperacao(cpf, tx);
+      const recuperacao = await service.solicitarRecuperacao(cpf, escopoDe(modelo), tx);
       assert.deepEqual(recuperacao, { situacao: "RECUPERACAO_PENDENTE" });
 
       console.log("✅ recuperação pendente sem criar Cliente duplicado");

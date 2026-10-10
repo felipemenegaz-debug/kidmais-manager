@@ -2,6 +2,8 @@ import type { DbExecutor } from '../../db/contracts';
 import type { FechamentoRecord } from '../repositories';
 import { calcularResumoComercial } from '../../comercial/services';
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix } from '../../comercial/condicao-pagamento';
+import { regraNaCondicao } from '../../comercial/regras-pagamento';
+
 import { consultarDisponibilidadeData } from '../../disponibilidade/services';
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
 import { buscarFechamentoPorIdParaAtualizacao, criarAprovacaoNegociacao, empresaDoFechamentoComTrava, listarAdicionaisDoFechamento } from '../repositories';
@@ -71,7 +73,7 @@ export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoF
         novo.valorNegociado = base === resumo.valorTotalTabela ? null : base;
         novo.valorAprovado = novo.valorNegociado;
         novo.status = 'AGUARDANDO_CONTRATO';
-        novo.condicaoPagamento = { schemaVersao: 1, forma: com.forma, pretendida: f.condicaoPagamento?.forma === com.forma ? f.condicaoPagamento.pretendida : null, aprovada: condicao, revisaoStatus: 'APROVADA' };
+        novo.condicaoPagamento = { schemaVersao: 1, forma: com.forma, pretendida: f.condicaoPagamento?.forma === com.forma ? f.condicaoPagamento.pretendida : null, aprovada: condicao, revisaoStatus: 'APROVADA', ...(await regraNaCondicao(tx, empresaEsperada, com.forma)) };
     }
     else if (resumo.valorTotalTabela !== f.valorTabela && (f.valorNegociado !== null || f.formaPagamentoPretendida === 'PIX_PARCELADO'))
         recusar('O novo preço exige confirmação explícita da negociação/condição comercial nesta edição.');
