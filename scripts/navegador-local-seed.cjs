@@ -218,7 +218,7 @@ async function construirSchema(a, p) {
 /** Documento sintético no formato aceito (14 posições), começando por 7 para não colidir com CNPJ real conhecido. */
 function documentoSintetico(usados) {
     let d;
-    do d = '7' + String(randomBytes(7).readUIntBE(0, 7)).padStart(13, '0').slice(-13); while (usados.has(d));
+    do d = '7' + String(randomBytes(6).readUIntBE(0, 6)).padStart(13, '0').slice(-13); while (usados.has(d));
     usados.add(d);
     return d;
 }
@@ -429,4 +429,4 @@ if (require.main === module)
     });
 module.exports = {FLAG, FLAG_PLANO, VAR_AUTORIZACAO, PAPEL, PORTA, PORTA_APP, ORIGEM_APP, PASTA_LOCAL, BANCO_SUGERIDO, NOMES_PROIBIDOS, IMPRESSAO_SCHEMA,
     EMPRESAS, CONTAS, EMAIL_CONVITE_ESSENCIAL, ARQUIVO_CREDENCIAIS, modo, validarBanco, alvo, semConexaoHerdada, semPrazoComercialHerdado,
-    conferirIdentidade, conferirGitignore, sanitizar, gerarSenha, montarCredenciais, escreverCredenciais, plano, SQL_IDENTIDADE};
+    conferirIdentidade, conferirGitignore, sanitizar, gerarSenha, documentoSintetico, montarCredenciais, escreverCredenciais, plano, SQL_IDENTIDADE};

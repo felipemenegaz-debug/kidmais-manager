@@ -132,3 +132,9 @@ test('plano offline: inventário aprovado (076/077 incluídas) com checks, impre
         [['database/checks/20261010_077_precheck.sql'], 'database/migrations/20261010_077_regras_pagamento_empresa.sql', ['database/checks/20261010_077_postcheck.sql']]]);
     assert.equal(new Set(p.etapas.map(e => e.migration)).size, p.etapas.length, 'nenhuma migration duplicada');
 });
+
+test('documento sintético: 14 dígitos iniciados por 7, sem repetição (A2 de 10/10 falhou com readUIntBE de 7 bytes)', () => {
+    const usados = new Set();
+    for (let i = 0; i < 1000; i++) assert.match(s.documentoSintetico(usados), /^7\d{13}$/);
+    assert.equal(usados.size, 1000);
+});

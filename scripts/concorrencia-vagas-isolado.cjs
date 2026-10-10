@@ -216,7 +216,7 @@ async function rodarGrupos({resumo, livres, fila, observador, definirGrupo}) {
     const depsConvite = {withTransaction, registrarAuditoria:s.auditoria.registrarAuditoria, criarHashSenha:s.senha.criarHashSenha,
         conferirSenha:s.senha.conferirSenha, enviarEmail:async () => { throw Error('ENVIO_PROIBIDO'); }, gerarToken};
     const documentos = new Set();
-    const documento = () => { let d; do d = '7' + String(randomBytes(7).readUIntBE(0, 7)).padStart(13, '0').slice(-13); while (documentos.has(d)); documentos.add(d); return d; };
+    const documento = () => { let d; do d = '7' + String(randomBytes(6).readUIntBE(0, 6)).padStart(13, '0').slice(-13); while (documentos.has(d)); documentos.add(d); return d; };
 
     // ---- Fixtures sintéticas (as mesmas transições que o banco aceita para empresas novas).
     async function novaEmpresa(rotulo, {assinatura = true} = {}) {

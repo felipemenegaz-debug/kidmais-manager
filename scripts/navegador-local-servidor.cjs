@@ -41,6 +41,8 @@ const EXCECOES_PROIBIDAS = Object.freeze(['ASAAS_API_KEY']); // presente de prop
 const ASAAS_CHAVE_DESLIGADA = 'local-desligado-sem-prefixo-sandbox';
 const HOSTS_LOCAIS = Object.freeze(['localhost', '127.0.0.1', '::1', '[::1]']);
 const PASTA_EMAILS = path.join(raiz, seed.PASTA_LOCAL, 'emails');
+/** next/font/google simulado (sem chamada a fonts.googleapis.com): ver scripts/navegador-local-fontes-mock.cjs. */
+const MOCK_FONTES = path.join(raiz, 'scripts', 'navegador-local-fontes-mock.cjs');
 
 const recusa = (codigo, detalhe) => Object.assign(Error(detalhe ? `${codigo} ${detalhe}` : codigo), {codigo});
 
@@ -56,7 +58,7 @@ const segredo = () => randomBytes(32).toString('hex'); // por execução; morre 
 function variaveisExplicitas(banco, gerar = segredo) {
     const origem = seed.ORIGEM_APP;
     return {
-        NODE_ENV:'development', NEXT_TELEMETRY_DISABLED:'1', KIDMAIS_DEPLOY_ENV:'local',
+        NODE_ENV:'development', NEXT_TELEMETRY_DISABLED:'1', KIDMAIS_DEPLOY_ENV:'local', NEXT_FONT_GOOGLE_MOCKED_RESPONSES:MOCK_FONTES,
         DATABASE_URL:`postgresql://${seed.PAPEL}@127.0.0.1:${seed.PORTA}/${banco}`, DATABASE_SSL:'false', DATABASE_SSL_REJECT_UNAUTHORIZED:'true',
         DATABASE_POOL_MAX:'5', DATABASE_IDLE_TIMEOUT_MS:'30000', DATABASE_CONNECTION_TIMEOUT_MS:'5000',
         ADMIN_AUTH_ORIGIN:origem, ADMIN_AUTH_SECRET:gerar(), SITE_URL:origem, CONVITES_PUBLIC_ORIGIN:origem,
@@ -99,6 +101,7 @@ function validarAmbiente(env) {
     }
     for (const nome of NOMES_EXPLICITOS) if (env[nome] === undefined) problemas.push('VARIAVEL_AUSENTE:' + nome);
     exigir('NODE_ENV', 'development'); exigir('KIDMAIS_DEPLOY_ENV', 'local'); exigir('NEXT_TELEMETRY_DISABLED', '1');
+    exigir('NEXT_FONT_GOOGLE_MOCKED_RESPONSES', MOCK_FONTES); // fontes sem rede externa
     exigir('DATABASE_SSL', 'false'); exigir('ADMIN_AUTH_ORIGIN', seed.ORIGEM_APP); exigir('SITE_URL', seed.ORIGEM_APP);
     exigir('ASAAS_AMBIENTE', 'sandbox'); exigir('ASAAS_API_KEY', ASAAS_CHAVE_DESLIGADA);
     exigir('EMAIL_PROVIDER', 'arquivo'); exigir('IDENTIDADE_OTP_PROVIDER', 'console');
@@ -242,5 +245,5 @@ if (require.main === module)
     principal(process.argv.slice(2), process.env).catch(e => {
         console.error('SERVIDOR_NAVEGADOR_RECUSADO ' + seed.sanitizar(e?.message ?? e?.codigo)); process.exitCode = 1;
     });
-module.exports = {FLAG, FLAG_PLANO, ARQUIVOS_ENV_NEXT, SISTEMA, PROIBIDAS, ASAAS_CHAVE_DESLIGADA, NOMES_EXPLICITOS, PASTA_EMAILS, CODIGO_RESOLVIDO,
+module.exports = {FLAG, FLAG_PLANO, MOCK_FONTES, ARQUIVOS_ENV_NEXT, SISTEMA, PROIBIDAS, ASAAS_CHAVE_DESLIGADA, NOMES_EXPLICITOS, PASTA_EMAILS, CODIGO_RESOLVIDO,
     modo, variaveisExplicitas, montarAmbiente, validarAmbiente, arquivosEnvPresentes, verificarResolvido, verificarCodigo, autoverificar};

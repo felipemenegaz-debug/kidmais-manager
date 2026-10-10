@@ -100,3 +100,30 @@ test('código real da aplicação: Asaas desligado, planos novos visíveis, e-ma
     const semPlanos = await v.verificarCodigo(ambiente({ASAAS_AMBIENTE:'producao'}));
     assert.ok(semPlanos.problemas.includes('PLANOS_NOVOS_DESLIGADOS'));
 });
+
+test('fontes sem rede: next/font/google simulado por arquivo local; CSS sem fonte remota; ambiente exige o mock', () => {
+    const env = v.montarAmbiente({}, 'kidmais_navegador_20261010', () => 'x'.repeat(64));
+    assert.equal(env.NEXT_FONT_GOOGLE_MOCKED_RESPONSES, v.MOCK_FONTES);
+    assert.ok(require('node:path').isAbsolute(v.MOCK_FONTES));
+    const mock = require(v.MOCK_FONTES);
+    const css = mock['https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap'];
+    assert.equal(typeof css, 'string'); assert.doesNotMatch(css, /url\(|https?:\/\//, 'nenhum arquivo de fonte a buscar');
+    assert.equal(mock['https://exemplo.invalid/qualquer'], undefined);
+    assert.ok(!v.validarAmbiente(env).some(p => p.includes('NEXT_FONT_GOOGLE_MOCKED_RESPONSES')));
+    assert.ok(v.validarAmbiente({...env, NEXT_FONT_GOOGLE_MOCKED_RESPONSES:undefined}).some(p => p.includes('NEXT_FONT_GOOGLE_MOCKED_RESPONSES')));
+    assert.ok(v.validarAmbiente({...env, NEXT_FONT_GOOGLE_MOCKED_RESPONSES:'/tmp/outro.cjs'}).some(p => p.includes('NEXT_FONT_GOOGLE_MOCKED_RESPONSES')));
+});
+
+test('mock de fontes: chaves = URLs que o Next gera para cada fonte declarada no app (fonte nova sem mock falha aqui)', () => {
+    const fs = require('node:fs'); const path = require('node:path');
+    const {getFontAxes} = require('next/dist/compiled/@next/font/dist/google/get-font-axes');
+    const {getGoogleFontsUrl} = require('next/dist/compiled/@next/font/dist/google/get-google-fonts-url');
+    const raiz = path.resolve(__dirname, '..');
+    const declaradas = ['app/layout.tsx', 'components/site/fonte.ts', 'components/admin/fonte.ts']
+        .flatMap(f => [...fs.readFileSync(path.join(raiz, f), 'utf8').matchAll(/import \{([^}]+)\} from ['"]next\/font\/google['"]/g)].flatMap(m => m[1].split(',').map(x => x.trim())));
+    assert.deepEqual(declaradas.sort(), ['Bricolage_Grotesque', 'Figtree', 'Geist', 'Geist_Mono', 'Inter']);
+    const esperadas = [['Geist', ['variable']], ['Geist Mono', ['variable']], ['Inter', ['variable']], ['Bricolage Grotesque', ['variable'], ['opsz']], ['Figtree', ['400', '500', '600']]]
+        .map(([familia, pesos, eixos]) => getGoogleFontsUrl(familia, getFontAxes(familia, pesos, ['normal'], eixos), 'swap'));
+    assert.deepEqual(Object.keys(require(v.MOCK_FONTES)).sort(), esperadas.sort());
+    assert.doesNotMatch(fs.readFileSync(v.MOCK_FONTES, 'utf8'), /require\(/, 'o Turbopack avalia o mock isolado');
+});

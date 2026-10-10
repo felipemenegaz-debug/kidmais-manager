@@ -119,3 +119,8 @@ test('fonte: nunca apaga banco/linhas, não desliga gatilhos, não lê .env e bl
     const ordem = ['alvo(env)', 'semConexaoHerdada(env)', 'EXECUTAR_NA_RAIZ_DO_REPOSITORIO', 'SCHEMA_DIVERGENTE_DO_PACOTE', 'construirSchema(a, p)'].map(t => corpo.indexOf(t));
     assert.ok(ordem.every(i => i >= 0) && ordem.every((i, k) => k === 0 || i > ordem[k - 1]), JSON.stringify(ordem));
 });
+
+test('documento sintético: leitura de no máximo 6 bytes (C4 de 10/10 falhou com readUIntBE de 7 bytes)', () => {
+    assert.doesNotMatch(fonte, /readUIntBE\(0,\s*7\)/);
+    for (const [, n] of fonte.matchAll(/readUIntBE\(0,\s*(\d+)\)/g)) assert.ok(Number(n) >= 1 && Number(n) <= 6, n);
+});
