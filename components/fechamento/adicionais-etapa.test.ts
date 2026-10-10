@@ -26,7 +26,7 @@ test("etapa 4: em erro/carregando não aparecem títulos, totais nem campos de p
   const etapa = tela.slice(inicio, fim);
   const blocoOk = etapa.indexOf('{adicionaisEstado === "ok" && (');
   assert.ok(blocoOk > 0);
-  for (const trecho of ["Referência de tamanho das mesas", "Alterações combinadas no pacote", "Observações para a equipe Kidmais", "Valor total da festa", "agruparPorCategoria("]) {
+  for (const trecho of ["Referência de tamanho das mesas", "Alterações combinadas no pacote", "Observações para a {marca.equipe}", "Valor total da festa", "agruparPorCategoria("]) {
     assert.ok(etapa.indexOf(trecho) > blocoOk, `${trecho} só dentro do estado pronto`);
   }
   assert.match(etapa.slice(0, blocoOk), /Tentar novamente/);

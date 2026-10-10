@@ -4,11 +4,14 @@ import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cot
 import { adicionaisDoPacoteNoTenant } from "@/lib/comercial/adicionais-tenant";
 import { PACOTE_CODIGO_BANCO, idDoAdicionalNaTela } from "@/lib/fechamentos/comercial-input";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import { limitarPublico } from "@/lib/http/limite-publico";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const limite = limitarPublico(request, "LEITURA");
+  if (limite) return limite;
   try {
     const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
     const parametros = request.nextUrl.searchParams;

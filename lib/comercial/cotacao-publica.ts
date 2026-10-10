@@ -52,7 +52,7 @@ const PADRAO: DependenciasCotacao = { recursoIncluido, lerEstadoComercial, escop
 export async function escopoCotacaoPublica(
   conexao: () => DbExecutor,
   codigo: string | null,
-  opcoes: { escrita?: boolean; exigirUnidade?: boolean } = {},
+  opcoes: { escrita?: boolean } = {},
   env: AmbienteCotacaoPublica = process.env as AmbienteCotacaoPublica,
   deps: DependenciasCotacao = PADRAO,
 ): Promise<EscopoCotacaoPublica> {
@@ -74,7 +74,9 @@ export async function escopoCotacaoPublica(
     if (!(await deps.recursoIncluido(db, empresaId, "ORCAMENTO_ONLINE"))) throw indisponivel();
     const { acesso } = await deps.lerEstadoComercial(db, empresaId);
     if (acesso.nivel === "BLOQUEADO" || (opcoes.escrita && acesso.nivel !== "COMPLETO")) throw indisponivel();
-    const unidade = await escopoDaEmpresa(db, empresaId, null, { exigirUnidade: opcoes.exigirUnidade });
+    // Escopo V1: uma unidade. Zero unidade = agenda da empresa; uma = ela; mais de uma = recusa (UNIDADE_OBRIGATORIA →
+    // 404). Nunca escolhe uma unidade por conta própria: a escolha pública de unidade ainda não existe.
+    const unidade = await escopoDaEmpresa(db, empresaId, null, { exigirUnidade: true });
     return { empresaId, estabelecimentoId: unidade.estabelecimentoId, porCodigo: true };
   } catch {
     // Plano ilegível, estado comercial ou unidade: mesma resposta, sem detalhe da empresa.

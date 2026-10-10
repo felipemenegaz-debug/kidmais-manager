@@ -9,6 +9,7 @@ import {
 } from "./types";
 import styles from "./FechamentoWizard.module.css";
 import { apiPublica } from "../../lib/fechamentos/rota-publica";
+import { useMarcaPublica } from "./MarcaPublica";
 import {
   CONFIG_VAZIA,
   DisponibilidadeConfig,
@@ -77,6 +78,7 @@ export default function CalendarioDisponibilidade({
   /** Código público da empresa (/b/<código>); ausente = endereço atual. */
   empresa?: string | null;
 }) {
+  const marca = useMarcaPublica();
   const consultarAgenda = useMemo<ConsultaAgendaMes>(() => consultar ?? ((inicio, fim) => consultaPublica(inicio, fim, empresa)), [consultar, empresa]);
   const agora = new Date();
   const [mes, setMes] = useState(agora.getMonth());
@@ -247,7 +249,7 @@ export default function CalendarioDisponibilidade({
         texto:
           (atual.motivo ||
             "Esta combinação não é realizada normalmente.") +
-          " Você pode continuar e solicitar uma análise especial da Kidmais.",
+          ` Você pode continuar e solicitar uma análise especial ${marca.da}.`,
       });
       return;
     }
@@ -255,7 +257,7 @@ export default function CalendarioDisponibilidade({
     if (atual.status === "consulta") {
       setAviso({
         tipo: "consulta",
-        titulo: "Data sujeita à avaliação da Kidmais.",
+        titulo: `Data sujeita à avaliação ${marca.da}.`,
         texto:
           (atual.motivo ||
             "Você pode continuar. A equipe avaliará essa data antes de liberar o contrato.") +
@@ -337,7 +339,7 @@ export default function CalendarioDisponibilidade({
           <i>✓</i> Disponível
         </span>
         <span className={styles.legendConsult}>
-          <i>?</i> Consultar Kidmais
+          <i>?</i> {marca.kidmais ? "Consultar Kidmais" : "Consultar o buffet"}
         </span>
         <span className={styles.legendException}>
           <i>!</i> Exceção

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import KidmaisBrand from "@/components/layout/KidmaisBrand";
+import { MarcaPublicaCabecalho, useMarcaPublica } from "@/components/fechamento/MarcaPublica";
 import PacotesPdf from "@/components/fechamento/PacotesPdf";
 import { apiPublica, paginaPublica } from "@/lib/fechamentos/rota-publica";
 import FestaDecoracao from "@/components/fechamento/FestaDecoracao";
@@ -77,6 +77,7 @@ class AgendaPublicaIndisponivel extends Error {
 }
 
 export default function DisponibilidadePublica({ empresa = null }: { empresa?: string | null } = {}) {
+  const marca = useMarcaPublica();
   const router = useRouter();
   const agora = new Date();
   const [mes, setMes] = useState(agora.getMonth());
@@ -167,7 +168,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
 
       <div className={styles.shell}>
         <header className={styles.header}>
-          <KidmaisBrand context="customer" subtitle="Consulte sua data" />
+          <MarcaPublicaCabecalho subtitle="Consulte sua data" />
           <span className={styles.publicBadge}>Consulta de disponibilidade</span>
         </header>
 
@@ -175,7 +176,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
           <p className={styles.eyebrow}>Planeje sua comemoração</p>
           <h1>Escolha a melhor data e horário para sua festa.</h1>
           <p>
-            Consulte a agenda da Kidmais em tempo real. Primeiro escolha a data,
+            Consulte a agenda {marca.da} em tempo real. Primeiro escolha a data,
             depois o período e o horário exato de início.
           </p>
         </section>
@@ -348,7 +349,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
 
                 <p className={styles.reservationNote}>
                   A escolha deste horário não garante a reserva da data. A confirmação
-                  acontece somente durante a contratação, após as etapas previstas pela Kidmais.
+                  acontece somente durante a contratação, após as etapas previstas {marca.pela}.
                 </p>
               </>
             )}

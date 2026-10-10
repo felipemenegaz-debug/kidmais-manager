@@ -1,0 +1,34 @@
+﻿# Testes de navegador/script: base a17e6d6 x candidata
+# Data: 2026-10-10T02:06:31 (America/Sao_Paulo) — Windows local, sem servidor, sem banco, sem DATABASE_URL
+# Base: git worktree add --detach <scratchpad>/base-a17e6d6 a17e6d6 (node_modules por junction da mesma instalação)
+# Candidata: worktree da sessão, HEAD 61519e2 + alterações locais desta etapa
+# Comando por teste, na raiz de cada checkout: node --experimental-strip-types --test <arquivo>
+
+scripts/credito-natural.service.test.cjs
+  base:      pass 0 fail 1 exit 1 | Error: Cannot read properties of undefined (reading 'status')
+  candidata: pass 0 fail 1 exit 1 | Error: Cannot read properties of undefined (reading 'status')
+
+scripts/credito-projetado-ui.test.cjs
+  base:      pass 0 fail 1 exit 1 | Error'
+  candidata: pass 0 fail 1 exit 1 | Error'
+
+scripts/festa-016-reparo-encoding.test.cjs
+  base:      pass 0 fail 1 exit 1 | 
+  candidata: pass 0 fail 1 exit 1 | 
+
+scripts/festa-navegacao-manual.test.cjs
+  base:      pass 0 fail 1 exit 1 | Error [ERR_ASSERTION]: Informe --festa-id=UUID existente no clone manual.
+  candidata: pass 0 fail 1 exit 1 | Error [ERR_ASSERTION]: Informe --festa-id=UUID existente no clone manual.
+
+scripts/festa-navegacao-ui.test.cjs
+  base:      pass 0 fail 1 exit 1 | Error: Cannot find module 'playwright'
+  candidata: pass 0 fail 1 exit 1 | Error: Cannot find module 'playwright'
+
+scripts/lixeira-interacao.test.mjs
+  base:      pass 0 fail 1 exit 1 | Error(message);
+  candidata: pass 0 fail 1 exit 1 | Error(message);
+
+scripts/ux-contratos-perfil.test.cjs
+  base:      pass 0 fail 1 exit 1 | Error: Cannot find module 'playwright'
+  candidata: pass 0 fail 1 exit 1 | Error: Cannot find module 'playwright'
+

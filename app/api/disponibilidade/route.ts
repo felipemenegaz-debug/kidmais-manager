@@ -9,6 +9,7 @@ import {
 import { escopoPublico } from "@/lib/disponibilidade/escopo";
 import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { db } from "@/lib/db/postgres";
+import { limitarPublico } from "@/lib/http/limite-publico";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,6 +64,8 @@ async function lerComercialPublico() {
 }
 
 export async function GET(request: NextRequest) {
+  const limite = limitarPublico(request, "LEITURA");
+  if (limite) return limite;
   try {
     const { searchParams } = new URL(request.url);
     const data = searchParams.get("data")?.trim();

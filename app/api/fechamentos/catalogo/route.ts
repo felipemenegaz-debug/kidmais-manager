@@ -5,11 +5,14 @@ import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositor
 import { pacoteCodigoContratavelV1 } from "@/lib/comercial/pacotes-v1";
 import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import { limitarPublico } from "@/lib/http/limite-publico";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const limite = limitarPublico(request, "LEITURA");
+  if (limite) return limite;
   try {
     const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
     const codigo = request.nextUrl.searchParams.get("pacote") ?? "";

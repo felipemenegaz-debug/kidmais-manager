@@ -10,6 +10,7 @@ const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const UNIDADE_A = 'aaaaaaaa-0000-4000-8000-00000000000a';
 const UNIDADE_B = 'bbbbbbbb-0000-4000-8000-00000000000b';
 const KIDMAIS = '7e990a2b-e64b-4630-9aae-4646fe936ede';
+const C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const LIGADO = { COTACAO_PUBLICA_POR_EMPRESA: 'true' };
 
 type Escopo = { empresaId: string; estabelecimentoId: string | null; porCodigo: boolean };
@@ -21,11 +22,12 @@ const mod = carregarModulo('lib/comercial/cotacao-publica.ts', {}) as Mod;
 
 type Cenario = { planos?: Record<string, boolean>; nivel?: Record<string, string>; instalada?: boolean; empresas?: Record<string, string> };
 function ambiente(c: Cenario = {}) {
-    const empresas = c.empresas ?? { 'buffet-a': A, 'buffet-b': B };
+    const empresas = c.empresas ?? { 'buffet-a': A, 'buffet-b': B, 'buffet-c': C };
     const tx = executorFalso([
         [/to_regprocedure/, () => [{ instalada: c.instalada ?? true }]],
         [/FROM public\.empresas WHERE codigo/, (p) => empresas[p[0] as string] ? [{ id: empresas[p[0] as string] }] : []],
-        [/kidmais062_unidade_agendavel/, (p) => p[0] === A ? [{ id: UNIDADE_A, codigo: 'a', nome: 'A' }] : p[0] === B ? [{ id: UNIDADE_B, codigo: 'b', nome: 'B' }] : []],
+        [/kidmais062_unidade_agendavel/, (p) => p[0] === A ? [{ id: UNIDADE_A, codigo: 'a', nome: 'A' }] : p[0] === B ? [{ id: UNIDADE_B, codigo: 'b', nome: 'B' }]
+            : p[0] === C ? [{ id: UNIDADE_A, codigo: 'c1', nome: 'C1' }, { id: UNIDADE_B, codigo: 'c2', nome: 'C2' }] : []],
     ]);
     const chamadas: string[] = [];
     const deps = {
@@ -126,5 +128,14 @@ test('rotas públicas: toda leitura/gravação de cotação passa pelo resolvedo
     assert.equal((pdf.match(/if \(deOutraEmpresa\(request\.url\)\)/g) ?? []).length, 2, 'HEAD e GET');
     for (const pagina of ['fechamento', 'disponibilidade'])
         assert.match(fonte(`app/b/[empresa]/${pagina}/page.tsx`), /await exigirEmpresaPublica\(params\)/, pagina);
-    assert.match(fonte('app/b/[empresa]/empresa-publica.ts'), /await escopoCotacaoPublica\(db, empresa\);\s*\} catch \{\s*notFound\(\);/);
+    assert.match(fonte('app/b/[empresa]/empresa-publica.ts'), /try \{\s*const escopo = await escopoCotacaoPublica\(db, empresa\);[\s\S]*?\} catch \{\s*notFound\(\);/);
+});
+
+test('escopo de uma unidade: zero ou uma unidade atende; mais de uma é recusada, sem escolher unidade arbitrária', async () => {
+    const { resolver } = ambiente();
+    assert.equal((await resolver('buffet-a')).estabelecimentoId, UNIDADE_A);
+    await assert.rejects(resolver('buffet-c'), recusa);
+    await assert.rejects(resolver('buffet-c', { escrita: true }), recusa);
+    const semUnidade = ambiente({ empresas: { 'buffet-z': 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' } });
+    assert.deepEqual(await semUnidade.resolver('buffet-z'), { empresaId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', estabelecimentoId: null, porCodigo: true });
 });

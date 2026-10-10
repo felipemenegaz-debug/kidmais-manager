@@ -9,7 +9,7 @@ import { ATALHOS_CONVIDADOS, erroConvidadosFechamento } from '@/lib/fechamentos/
 import { apiPublica, paginaPublica } from '@/lib/fechamentos/rota-publica';
 import { centavosComerciais, validarPretensaoPix } from "@/lib/comercial/condicao-pagamento";
 import CalendarioDisponibilidade from "./CalendarioDisponibilidade";
-import KidmaisBrand from "@/components/layout/KidmaisBrand";
+import { MarcaPublicaCabecalho, useMarcaPublica } from "./MarcaPublica";
 import styles from "./FechamentoWizard.module.css";
 import {
   CONTATO_KIDMAIS,
@@ -97,8 +97,8 @@ type ClienteContextoValidado = {
 type CategoriaBuffet = { codigo:string; nome:string; max:number; itens:{id:string;nome:string}[] };
 type AdicionalDisponivel = AdicionalDaEtapa;
 type Cotacao = { valorTabela: number; valor: number; desconto: { percentual: number; valor: number; titulo: string | null }; categoria: string; categoriaNome: string; convidadosFaturados: number; minimoFaturavelAplicado: boolean; faixa: { min: number; max: number | null } };
-function mensagemCotacao(codigo: string | undefined, erro?: string) {
-  if (codigo === 'TABELA_PRECO_NAO_CONFIGURADA' || codigo === 'PRECO_PACOTE_NAO_CONFIGURADO' || codigo === 'PRECO_AMBIGUO') return 'Este pacote ainda não tem preço publicado para essa data e horário. Fale com a equipe Kidmais.';
+function mensagemCotacao(codigo: string | undefined, erro?: string, equipe = 'equipe Kidmais') {
+  if (codigo === 'TABELA_PRECO_NAO_CONFIGURADA' || codigo === 'PRECO_PACOTE_NAO_CONFIGURADO' || codigo === 'PRECO_AMBIGUO') return `Este pacote ainda não tem preço publicado para essa data e horário. Fale com a ${equipe}.`;
   if (codigo === 'PACOTE_INDISPONIVEL' || codigo === 'PACOTE_SOB_CONSULTA') return erro ?? 'Este pacote não está disponível nessa data e horário.';
   return erro && codigo ? erro : 'Não foi possível calcular o preço agora. Tente novamente em instantes.';
 }
@@ -230,6 +230,7 @@ async function lerErroApi(resposta: Response, fallback: string) {
 
 
 export default function FechamentoWizard({ empresa = null }: { empresa?: string | null } = {}) {
+  const marca = useMarcaPublica();
   const router = useRouter();
   const [etapa, setEtapa] = useState(0);
   const [form, setForm] = useState<FechamentoForm>(FORM_INICIAL);
@@ -517,11 +518,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         const corpo = await r.json().catch(() => null) as { ok?: boolean; data?: Cotacao; erro?: string; codigo?: string } | null;
         if (controller.signal.aborted) return;
         if (r.ok && corpo?.data) setCotacao({ chave: chaveCotacao, estado: 'ok', dados: corpo.data });
-        else setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(corpo?.codigo, corpo?.erro) });
-      }).catch(() => { if (!controller.signal.aborted) setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(undefined) }); });
+        else setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(corpo?.codigo, corpo?.erro, marca.equipe) });
+      }).catch(() => { if (!controller.signal.aborted) setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(undefined, undefined, marca.equipe) }); });
     }, 250);
     return () => { clearTimeout(temporizador); controller.abort(); };
-  }, [chaveCotacao, form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados, empresa]);
+  }, [chaveCotacao, form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados, empresa, marca.equipe]);
   const cotacaoAtual = cotacao && cotacao.chave === chaveCotacao ? cotacao : null;
   const cotacaoEstado: 'sem' | 'carregando' | 'ok' | 'erro' = !chaveCotacao ? 'sem' : !cotacaoAtual ? 'carregando' : cotacaoAtual.estado;
   // "Continuar" clicado enquanto o preço é calculado: avança sozinho quando a cotação chega (ou mostra o erro dela).
@@ -974,7 +975,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     }
 
     if (etapa === 0 && pacote?.sobConsulta) {
-      setErro("O Pizza Party está sob consulta. Fale com a equipe Kidmais para confirmar disponibilidade e valor antes da formalização.");
+      setErro(`O Pizza Party está sob consulta. Fale com a ${marca.equipe} para confirmar disponibilidade e valor antes da formalização.`);
       return false;
     }
 
@@ -1012,7 +1013,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       const mensagem = erroConvidadosFechamento(convidados, pacote);
       if (mensagem) { setErro(mensagem); return false; }
       if (cotacaoEstado === 'carregando') { setErro(''); setAvancarAposCotacao(true); return false; }
-      if (cotacaoEstado === 'erro') { setErro(cotacaoAtual?.erro ?? mensagemCotacao(undefined)); return false; }
+      if (cotacaoEstado === 'erro') { setErro(cotacaoAtual?.erro ?? mensagemCotacao(undefined, undefined, marca.equipe)); return false; }
     }
 
     if (etapa === 4 && adicionaisEstado !== 'ok') {
@@ -1050,7 +1051,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
       if (identificacaoStatus === "RECUPERACAO") {
         setErro(
-          "A validação cadastral ficou pendente. A equipe Kidmais precisa confirmar sua identidade antes de continuar online.",
+          `A validação cadastral ficou pendente. A ${marca.equipe} precisa confirmar sua identidade antes de continuar online.`,
         );
         return false;
       }
@@ -1088,7 +1089,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       }
 
       if (dadosCadastraisAlterados && solicitarAtualizacaoCadastro === null) {
-        setErro("Escolha se deseja atualizar o cadastro da Kidmais com os dados revisados.");
+        setErro(`Escolha se deseja atualizar o cadastro ${marca.da} com os dados revisados.`);
         return false;
       }
     }
@@ -1229,7 +1230,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           <p className={styles.eyebrow}>Validando disponibilidade</p>
           <h1>Confirmando sua data e horário.</h1>
           <p className={styles.successText}>
-            Aguarde um instante enquanto conferimos a agenda da Kidmais.
+            Aguarde um instante enquanto conferimos a agenda {marca.da}.
           </p>
         </section>
       </main>
@@ -1259,10 +1260,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       <main className={styles.page}>
         <FestaDecoracao />
         <section className={styles.successCard}>
-          <div className={styles.confirmationBrand}><KidmaisBrand context="customer" /></div>
+          <div className={styles.confirmationBrand}><MarcaPublicaCabecalho /></div>
           <div className={styles.successIcon}>✓</div>
           <p className={styles.eyebrow}>Solicitação recebida</p>
-          <h1>Agora a Kidmais confere os últimos detalhes.</h1>
+          <h1>Agora {marca.a} confere os últimos detalhes.</h1>
           <p className={styles.successText}>
             A equipe vai revalidar a disponibilidade da agenda, o pacote,
             adicionais e o valor informado. Depois da aprovação, o contrato
@@ -1289,12 +1290,13 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           <div className={styles.warningBox}>
             <strong>A data ainda não está reservada.</strong>
             <p>
-              Conforme a regra comercial da Kidmais, o envio das informações
+              Conforme a regra comercial {marca.da}, o envio das informações
               não garante reserva. A confirmação depende de disponibilidade,
-              assinaturas da Kidmais e do cliente no contrato.
+              assinaturas {marca.da} e do cliente no contrato.
             </p>
           </div>
 
+          {marca.kidmais && <>
           <a
             className={styles.primaryButton}
             href={CONTATO_KIDMAIS.whatsappUrl}
@@ -1307,6 +1309,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           <p className={styles.smallMuted}>
             WhatsApp Kidmais: {CONTATO_KIDMAIS.whatsapp}
           </p>
+          </>}
         </section>
       </main>
     );
@@ -1318,7 +1321,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
       <div className={styles.shell}>
         <header className={styles.header}>
-          <KidmaisBrand context="customer" subtitle="Fechamento da sua festa" />
+          <MarcaPublicaCabecalho subtitle="Fechamento da sua festa" />
 
           <div className={styles.secureBadge}>
             <span>●</span> Ambiente seguro
@@ -1330,7 +1333,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           <h1>Sua festa, organizada de um jeito simples.</h1>
           <p>
             Confirme os detalhes abaixo. Você poderá revisar tudo antes de
-            enviar para conferência da equipe Kidmais.
+            enviar para conferência da {marca.equipe}.
           </p>
         </section>
 
@@ -1440,7 +1443,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   {pacote.sobConsulta && (
                     <div className={`${styles.detailWide} ${styles.consultNotice}`}>
                       <strong>Sob consulta</strong>
-                      <p>A equipe Kidmais precisa confirmar disponibilidade e valor antes do fechamento e do contrato.</p>
+                      <p>A {marca.equipe} precisa confirmar disponibilidade e valor antes do fechamento e do contrato.</p>
                       <AdicionaisPizzaConsulta empresa={empresa} />
                       {!empresa && <a href={CONTATO_KIDMAIS.whatsappUrl} target="_blank" rel="noreferrer">Falar com a Kidmais</a>}
                     </div>
@@ -1587,7 +1590,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       </strong>
                       <p>
                         As datas elegíveis recebem o selo <b>-15%</b>.
-                        A Kidmais também pode liberar promoções especiais em
+                        {marca.A} também pode liberar promoções especiais em
                         outras datas, que aparecem com o percentual definido
                         no calendário.
                       </p>
@@ -1664,7 +1667,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     <div className={styles.consultNotice}>
                       <strong>Esta data será enviada para avaliação.</strong>
                       <p>
-                        Você pode continuar o fechamento normalmente. A Kidmais
+                        Você pode continuar o fechamento normalmente. {marca.A}
                         decidirá se abre exceção para este pacote e horário.
                       </p>
                     </div>
@@ -1686,7 +1689,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           {etapa === 2 && (
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(2)} titulo="Quantos convidados pagantes?">
-                A Kidmais atende até 150 pessoas; alguns pacotes possuem limite menor.
+                {marca.kidmais ? "A Kidmais atende até 150 pessoas; alguns pacotes possuem limite menor." : "Cada pacote tem um limite próprio de convidados."}
               </StepTitle>
 
               <label className={styles.field}>
@@ -1756,7 +1759,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       <strong>{numeroParaMoeda(referenciaTabela)}</strong>
                       <small>
                         {descricaoCotacao(cotacaoAtual.dados, convidados)}. Calculado com a tabela publicada; o
-                        valor final é conferido pela Kidmais conforme as condições combinadas.
+                        valor final é conferido {marca.pela} conforme as condições combinadas.
                       </small>
                     </>
                   )}
@@ -1807,7 +1810,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   <strong>Prefiro definir depois</strong>
                   <p>
                     Você continua o fechamento normalmente e combina o buffet
-                    posteriormente com a equipe Kidmais.
+                    posteriormente com a {marca.equipe}.
                   </p>
                 </button>
               </div>
@@ -2072,7 +2075,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   </label>
 
                   <label className={styles.field}>
-                    <span>Observações para a equipe Kidmais</span>
+                    <span>Observações para a {marca.equipe}</span>
                     <textarea
                       rows={4}
                       placeholder="Inclua qualquer informação importante para o fechamento."
@@ -2090,7 +2093,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           {etapa === 5 && (
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(5)} titulo="Confirme o valor combinado">
-                O sistema mostra referências da tabela, mas a Kidmais continua
+                O sistema mostra referências da tabela, mas {marca.a} continua
                 responsável pela aprovação do valor final.
               </StepTitle>
 
@@ -2198,7 +2201,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <p>
                   Após aprovação: PIX à vista tem 10% de desconto. PIX parcelado
                   tem 3% de desconto; as condições são confirmadas
-                  pela equipe Kidmais. Cartão é processado pela Cielo.
+                  pela {marca.equipe}.{marca.kidmais ? " Cartão é processado pela Cielo." : null}
                 </p>
               </div>
             </section>
@@ -2215,7 +2218,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               {!origemInterna && identificacaoStatus === "AGUARDANDO_CPF" && (
                 <div className={styles.identificationPanel}>
                   <div className={styles.identificationIntro}>
-                    <strong>Já fez festa com a Kidmais?</strong>
+                    <strong>Já fez festa com {marca.a}?</strong>
                     <p>
                       Não precisa lembrar. Informe seu CPF e o sistema verifica
                       automaticamente se já existe um cadastro.
@@ -2274,7 +2277,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   ) : (
                     <div className={styles.warningBox}>
                       <strong>Não há contato disponível para envio automático.</strong>
-                      <p>A equipe Kidmais precisará validar seu cadastro manualmente.</p>
+                      <p>A {marca.equipe} precisará validar seu cadastro manualmente.</p>
                     </div>
                   )}
 
@@ -2365,10 +2368,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   <strong>Validação de identidade pendente</strong>
                   <p>
                     Sua solicitação foi registrada. Para proteger seus dados, o fechamento online
-                    ficará pausado até a confirmação da equipe Kidmais. Nenhum dado cadastral antigo
+                    ficará pausado até a confirmação da {marca.equipe}. Nenhum dado cadastral antigo
                     foi revelado e nenhum novo Cliente foi criado.
                   </p>
-                  <div className={styles.identificationActions}>
+                  {marca.kidmais && <div className={styles.identificationActions}>
                     <a
                       className={styles.primaryButton}
                       href={CONTATO_KIDMAIS.whatsappUrl}
@@ -2377,7 +2380,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     >
                       Falar com a Kidmais no WhatsApp
                     </a>
-                  </div>
+                  </div>}
                 </div>
               )}
 
@@ -2538,7 +2541,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     <div className={styles.updateDecision}>
                       <strong>Você alterou dados do cadastro.</strong>
                       <p>
-                        Escolha explicitamente se deseja gravar essas alterações no cadastro principal da Kidmais.
+                        Escolha explicitamente se deseja gravar essas alterações no cadastro principal {marca.da}.
                         Sem autorização, o CRM permanecerá como está.
                       </p>
                       <div className={styles.optionGridTwo}>
@@ -2673,7 +2676,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           {etapa === 7 && (
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(7)} titulo="Revise os detalhes">
-                Confira as informações antes de enviar para a Kidmais.
+                Confira as informações antes de enviar para {marca.a}.
               </StepTitle>
 
               <div className={styles.summaryGrid}>
@@ -2811,7 +2814,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <p>
                   O envio deste fechamento não garante a reserva da data. A
                   confirmação ocorre após conferência da disponibilidade,
-                  assinaturas da Kidmais e do cliente no contrato.
+                  assinaturas {marca.da} e do cliente no contrato.
                 </p>
               </div>
             </section>
@@ -2821,7 +2824,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(8)} titulo="Como pretende pagar?">
                 Esta é apenas a preferência. O pagamento será liberado depois
-                que a Kidmais aprovar o fechamento e disponibilizar o contrato.
+                que {marca.a} aprovar o fechamento e disponibilizar o contrato.
               </StepTitle>
 
               <div className={styles.paymentGrid}>
@@ -2842,7 +2845,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <PaymentCard
                   title="PIX parcelado"
                   subtitle="3% de desconto"
-                  detail="Parcelas e condições são confirmadas diretamente com a Kidmais."
+                  detail={`Parcelas e condições são confirmadas diretamente com ${marca.a}.`}
                   selected={form.formaPagamento === "pix_parcelado"}
                   total={
                     valorInformado
@@ -2871,7 +2874,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               {form.formaPagamento === "pix_parcelado" && (
                 <fieldset className={styles.warningBox}>
                   <legend>Condição pretendida</legend>
-                  <p>Informe como gostaria de parcelar. A condição será conferida e aprovada pela Kidmais antes da liberação do contrato.</p>
+                  <p>Informe como gostaria de parcelar. A condição será conferida e aprovada {marca.pela} antes da liberação do contrato.</p>
                   <div className={styles.paymentGrid}>
                     <label className={styles.field}>Entrada (R$)
                       <input inputMode="decimal" placeholder="Opcional, ex.: 1000,00" value={form.pixEntrada}
@@ -2893,7 +2896,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               <div className={styles.contractNotice}>
                 <div>1</div>
                 <span>
-                  <strong>Kidmais confere e aprova</strong>
+                  <strong>{marca.titulo} confere e aprova</strong>
                   <small>Agenda, valor e condições são revalidados.</small>
                 </span>
                 <div>2</div>
@@ -2904,7 +2907,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <div>3</div>
                 <span>
                   <strong>Confirmação da contratação</strong>
-                  <small>O envio não reserva a data. A confirmação depende da disponibilidade e das assinaturas da KIDMAIS e do CLIENTE.</small>
+                  <small>O envio não reserva a data. A confirmação depende da disponibilidade e das assinaturas {marca.daMaiusculo} e do CLIENTE.</small>
                 </span>
               </div>
             </section>
