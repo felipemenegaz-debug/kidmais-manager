@@ -7,7 +7,7 @@ import { provarEstabelecimento } from '../saas/provar-estabelecimento';
 import { contrato } from '../festas/repository';
 import { lerEstadoComercial } from '../assinatura/estado';
 import { comandoSchema, conteudoSchema, ConviteError, disponiveis, exigir, inicioConteudo, respostaSchema, validarCredito, type Conteudo, type Cotas } from './domain';
-import { gerarImagem, iaConfigurada, normalizarImagem, MODELO } from './imagem';
+import { FalhaProvedorImagem, gerarImagem, iaConfigurada, normalizarImagem, MODELO } from './imagem';
 import { dadosFamiliaPublica, listarFamilias, operarFamilia, validarFamilia } from './familias';
 
 export type Acesso = { tipo: 'admin'; sessao: SessaoAdmin; festaId: string } | { tipo: 'cliente'; token: string };
@@ -195,9 +195,13 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
       await evento(tx, reserva.c, a, 'IA_CONCLUIDA', { geracao: i.chave, arteId: id }); return id;
     });
     return { arteId, estado: 'CONCLUIDA' };
-  } catch {
+  } catch (erro) {
     // Timeout não comprova ausência de cobrança. Não reenvia nem devolve saldo automaticamente.
     await db().query("UPDATE convite_geracoes SET estado='INCERTA' WHERE id=$1 AND estado='RESERVADA'", [i.chave]);
+    const diagnostico = typeof FalhaProvedorImagem !== 'undefined' && erro instanceof FalhaProvedorImagem ? erro.diagnostico
+      : erro instanceof Error && erro.name === 'TimeoutError' ? 'timeout'
+        : erro instanceof Error && erro.name === 'AbortError' ? 'abortado' : 'falha_interna';
+    console.error('[convites] Geração de imagem inconclusiva:', diagnostico);
     throw new ConviteError('Não foi possível confirmar a geração. O crédito ficou reservado para conferência pelo buffet; não repetimos o pedido.', 502);
   }
 }
