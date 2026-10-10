@@ -5,6 +5,16 @@ Autorização de Felipe: E0–E6 do [pacote](../HOMOLOGACAO_COTACAO_ETAPAS_20261
 local; no celular, parar no Resumo; sem chamadas externas, banco real, Render, push ou deploy; preservar pastas; encerrar processos;
 registrar o catálogo global do buffet e o cliente existente com OTP como pendências para produção.
 
+## Conclusão (corrigida em 10/10/2026)
+
+**Isolamento PARCIAL.** Pacotes, preços, regras de pagamento, adicionais, contatos e clientes ficaram isolados por empresa em
+todas as etapas, nos dois tamanhos de tela. **O catálogo do buffet não**: categorias e itens são globais (sem `empresa_id`), e cada
+empresa só escolhe quais categorias usa. Na etapa Buffet, o Profissional exibiu itens do cardápio original da Kidmais (ex.:
+“Bombom de mandioca com carne seca”, “Coxinha com catupiry”) e o Premium as massas do bolo do mesmo catálogo. Os marcadores “PASS”
+de E-P3/E-R2/E-K3 abaixo valem para a **composição** (quais categorias), não para a origem dos itens. A versão anterior desta
+conclusão (“nenhum item de outra empresa”) estava incorreta. Correção preparada em
+[HOMOLOGACAO_CATALOGO_BUFFET_20261010.md](../HOMOLOGACAO_CATALOGO_BUFFET_20261010.md).
+
 ## Pré-condições e passos
 
 | Passo | Resultado |
@@ -36,7 +46,7 @@ linha de código exibida junto ao erro, nenhuma requisição). Nenhum `iniciar-d
 |---|---|---|---|
 | E-P1 Pacote | PASS | PASS | só “Pocket sintético · R$ 1.500,00” |
 | E-P2 Convidados | PASS | PASS | 25 → R$ 1.500,00 (faixa 20–30) |
-| E-P3 Buffet | PASS | PASS | só Salgados (3) e Doces (2); sem Massa do bolo; sem campos Lembrancinha/Empratado/Bombom. **Itens do catálogo global** (ex.: “Bombom de mandioca com carne seca”) — pendência registrada |
+| E-P3 Buffet | PASS (composição) / **FALHA (itens)** | idem | só Salgados (3) e Doces (2); sem Massa do bolo; sem campos Lembrancinha/Empratado/Bombom. **Itens do catálogo global** (ex.: “Bombom de mandioca com carne seca”) — pendência registrada |
 | E-P4 Personalização | PASS | PASS | só “Painel sintético Profissional” R$ 250; sem tabela de mesas; “Observações para a equipe do buffet” |
 | E-P5 Valor | PASS | PASS | 1500 + 250 = 1750; PIX 5%/2%; sem Cielo/−15% |
 | E-P6 Seus dados | PASS | PASS | A → “Nenhum cadastro encontrado”; CEP → “Preencha o endereço manualmente”. No celular, A já existia (envio 1): “Cadastro encontrado… nenhuma informação pessoal é exibida”, só WhatsApp mascarado; “Enviar código” **não** acionado; seguiu com B → novo |
