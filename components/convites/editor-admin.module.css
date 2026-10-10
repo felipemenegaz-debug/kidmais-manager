@@ -47,6 +47,7 @@
   font-weight: 800;
 }
 .painel h2 { color: var(--lilac-accent); font-size: 18px; font-weight: 800; margin: 6px 0 16px; }
+.painel h2.tituloEtapa { margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid color-mix(in srgb, var(--input-border) 65%, transparent); }
 .painel > p { color: var(--secondary-text); font-size: 14px; line-height: 1.6; }
 .painel summary { color: var(--lilac-accent); font-weight: 800; cursor: pointer; }
 .painel summary span { display: block; color: var(--secondary-text); font-size: 12px; font-weight: 400; margin-top: 4px; }
