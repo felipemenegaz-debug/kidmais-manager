@@ -35,3 +35,62 @@ Pasta preservada (cluster parado, `seed-resultado.json`, `seed-progresso.log`, l
 - Gerador de documento sintético com 6 bytes nos dois scripts (`scripts/concorrencia-vagas-isolado.cjs`, `scripts/navegador-local-seed.cjs`); testes de regressão.
 - Fontes sem rede: `scripts/navegador-local-fontes-mock.cjs` (objeto literal com as 5 URLs exatas das fontes do app, CSS sem fonte remota) e `NEXT_FONT_GOOGLE_MOCKED_RESPONSES` na lista fechada de variáveis do servidor, exigida pela autoverificação. Teste confere as chaves contra `getFontAxes`/`getGoogleFontsUrl` do próprio Next. Comprovado localmente: `next build` com o mock compila e gera as 61 páginas (uma URL ausente falha com `url not found`, o que aconteceu com a primeira versão do mock — nenhuma chamada externa ocorreu).
 - Para a nova execução: os clusters atuais têm banco parcial; o pacote exige cluster novo (sem bancos). Remover as pastas atuais depende de autorização (C6/limpeza) ou usar novas pastas, mantendo as atuais.
+
+---
+
+# Segunda execução — candidata `936ef67128d8ce9a85fc24cd262d8428606a73e5` (código `4337aa4`)
+
+Autorização de Felipe: C1–C5 e A1–A4, clusters novos, sem chamadas externas (inclusive ViaCEP), sem banco real, Render, push ou deploy; sem C6; preservar clusters anteriores; encerrar processos.
+
+Pré-condições: HEAD = candidata; só `docs/` após `4337aa4`; árvore limpa; sem `.env*`/`PG*`; portas livres; planos offline `confere: true` (79/201, `8a9a9747…3cfb`) e servidor `OK`; testes offline 46/46.
+
+## Concorrência — PASS (`.local-concorrencia-pg-a9e159a1388d44f8b836804aa04626de`)
+
+C1–C3 ok (bancos `[]`); **C4 exit 0, `resultado: PASS`** em 6 s; C4b só o banco da execução; C5 `PARADO`; C6 não executado.
+
+| Grupo | Resultado |
+|---|---|
+| a | duas conexões na última vaga do Essencial (3): uma reserva, a outra `LIMITE_USUARIOS_PLANO` após a trava; rajada de 6 |
+| b | aceite troca reserva por pessoa ativa sem aumentar a ocupação; aceite duplicado simultâneo não cria outro vínculo |
+| c | convite cancelado/vencido libera a vaga; reenvio de vencido disputa vaga nova (duas ordens); reenvio válido não ocupa outra |
+| d | falha após a reserva (criação e aceite) desfaz tudo por rollback |
+| e | empresa acima da cota mantém vínculos e sessões, mas não convida |
+| f | Profissional (10) com duas conexões na última vaga; Premium sem teto; isenta, teste e sem assinatura livres |
+| g | duas conexões na 20ª vaga Fundador: uma reserva, a outra `FUNDADOR_AGUARDANDO`; teto 20 nunca excedido |
+| h | liberação `RESERVADA → LIBERADA` só com contratação `CANCELADA` e cobrança comprovadamente removida; `CONFIRMADA` nunca volta |
+| z | consistência final: contagens, vínculos únicos, nenhum acesso perdido, teto Fundador, postchecks 074a/075 |
+
+## Navegador (`.local-navegador-pg-a7ebb11386c7402d989f6202af84ecff`)
+
+- A1 ok; **A2 seed PASS** (6 empresas, 8 contas; conferência: Essencial 3/3, financeiro completo só fora do Essencial, expirada `BLOQUEADO`, cotação 404/200/200, oferta Fundador 11820, renovação Premium `PENDENTE` 59700 em 10/10/2027). Nenhuma senha no resultado (conferido: 0 ocorrências).
+- A3: servidor em `127.0.0.1:3481`, Asaas `DESLIGADO(CHAVE_FORA_DO_SANDBOX)`, e-mail em arquivo, OTP console, fontes pelo mock local. **Recursos carregados só de `localhost:3481`** (conferido nas páginas administrativas e públicas). Campo de CEP não usado (sem ViaCEP).
+- A4: checklist desktop (1062–1020 px) e celular (375×812). Credenciais sintéticas digitadas só em `localhost:3481`; duas sessões abertas por Felipe no próprio painel (N01 e N12).
+
+| # | Desktop | Celular | Observação |
+|---|---|---|---|
+| N01 | PASS | PASS | painel sem seletor; menu móvel abre |
+| N02 | PASS | PASS | “Credenciais inválidas.”; 1 tentativa errada por viewport, contas diferentes |
+| N03 | PASS | PASS | “Escolha a empresa que deseja acessar.”; troca Profissional → Teste |
+| N04 | **PARCIAL** | **PARCIAL** | API: Fundador ativo, 11820/20820/35820 (regulares 19700/34700/59700). Tela não mostra a oferta porque a cobrança está indisponível (`cobranca.disponivel=false`, Asaas desligado de propósito) — comportamento do produto; expectativa do pacote não considerava isso |
+| N05 | PASS | PASS | “2 pessoa(s)… 1 convite(s)… 3 de 3 vagas ocupadas.”; sem oferta nem aviso |
+| N06 | PASS | PASS | “Após o Fundador, a partir de 10/10/2027, o valor será R$ 597,00/mês. O aviso será enviado por e-mail 30 dias antes.”; “Sem limite de usuários.” |
+| N07 | PASS | PASS | “Sem cobrança”; acesso completo; sem ação de assinar |
+| N08 | PASS | PASS | só “Contas a receber” no menu; APIs 403 `RECURSO_FORA_DO_PLANO` |
+| N09 | PASS | PASS | três páginas com a recusa do plano, sem dados |
+| N10 | PASS | PASS (Profissional) | Profissional, Premium e isenta: quatro itens e APIs 200 |
+| N11 | PASS | PASS | “O plano atingiu o limite de pessoas…”; nenhum e-mail gerado |
+| N12 | PASS | PASS | Equipe; sem ações de Gestão |
+| N13 | PASS | PASS | “Acesso suspenso até a assinatura… Nada foi apagado.” (texto difere do pacote); APIs 402 `ASSINATURA_NECESSARIA`; assinatura acessível |
+| N14 | **FALHA** | idem | título, ícone neutro e nome corretos, sem logo; calendário com horários (16/10, 10:30/11:00/11:30). **Na etapa de pacote aparecem os pacotes da Kidmais** (Mini Festa Kidmais R$ 5.100, Festa Compacta/Essencial/Completa/Premium, Pizza Party Scienza) além do “Pocket sintético”, selecionáveis, com textos “da Kidmais” |
+| N15 | dados PASS | PASS | Premium: título, ícone, nome; API com só o Pocket (a mesma tela de pacote é afetada pelo defeito do N14) |
+| N16 | PASS | PASS | três 404 com o mesmo texto visível e título |
+| N17 | PASS | PASS | sessão encerrada; API 401 |
+
+### Defeito de produto encontrado (bloqueia a cotação por empresa em produção)
+
+- `components/fechamento/FechamentoWizard.tsx` (≈ linha 1378) renderiza sempre `PACOTES_FECHAMENTO_V1` (`components/fechamento/data.ts`), o catálogo fixo da Kidmais, em qualquer `/b/<código>`. A API pública da empresa devolve só o pacote dela; o vazamento é da tela. As rodadas de staging conferiam a API, não a tela.
+- Mesmo arquivo: `CONTATO_KIDMAIS` (WhatsApp, site) usado em ≈ 1301, 2373 e 2965–2966 sem a guarda `!empresa` presente só em ≈ 1447 — provável exibição do contato da Kidmais a clientes de outro buffet nas etapas seguintes (achado de código; não exercitado na tela).
+
+## Encerramento
+
+Servidor parado (tarefa encerrada); cluster de navegador `PARADO`; portas 55480, 55481 e 3481 livres. Preservados: `.local-concorrencia-pg-5611…`, `.local-concorrencia-pg-a9e1…`, `.local-navegador-pg-5d5b…`, `.local-navegador-pg-a7eb…` e `.local-navegador/` (credenciais sintéticas e e-mails locais; nenhum e-mail gerado). Nenhuma remoção (C6) feita.
