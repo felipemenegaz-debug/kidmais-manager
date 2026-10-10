@@ -1,0 +1,18 @@
+{
+  "banco": "kidmais_production",
+  "recursoPostgres": "dpg-dak750gae00c73fudmg0-a",
+  "servicoWeb": "srv-dak77m2d0e5s73b8rkkg",
+  "tentativaMcp": "CONEXAO_EXTERNA_BLOQUEADA_ANTES_DE_EXECUTAR_SQL",
+  "alternativaAutorizada": "SHELL_WEB_UNICA_SESSAO_ATE_5_MINUTOS",
+  "modo": "IDENTIDADE_PRODUCTION_SOMENTE_LEITURA",
+  "bancoConsultado": true,
+  "tlsAtivoConferido": true,
+  "tabelaCadastroPresente": true,
+  "empresasEncontradasNoCadastroPeloDocumento": 0,
+  "isencaoConcedida": false,
+  "cobrancasAlteradas": 0,
+  "testesDeFuncionalidadeEmProducao": false,
+  "abaShellFechada": true,
+  "deploysExecutados": 0,
+  "redeOuCredenciaisAlteradas": false
+}
