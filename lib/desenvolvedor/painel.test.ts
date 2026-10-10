@@ -131,6 +131,26 @@ test('isolamento: todo SQL de vínculo, convite e recuperação do painel é fil
     }
 });
 
+test('rótulos: ações do cadastro público e da cobrança que aparecem no painel têm texto legível (sem código cru)', () => {
+    const fonte = readFileSync('components/desenvolvedor/cliente.ts', 'utf8');
+    const bloco = /const ACOES[^=]*=\s*\{([\s\S]*?)\n\};/.exec(fonte.split('\r\n').join('\n'))?.[1] ?? '';
+    for (const acao of ['CADASTRO_SOLICITADO', 'CADASTRO_CONTA_EXISTENTE', 'CADASTRO_ENVIO_FALHOU', 'CADASTRO_CNPJ_EXISTENTE', 'CADASTRO_CONFIRMADO',
+        'EMPRESA_CADASTRADA_PUBLICO', 'PEDIDO_ACESSO_RECUSADA', 'PEDIDO_ACESSO_ATENDIDA', 'COBRANCA_WEBHOOK_RECUSADO', 'COBRANCA_SINCRONIZADA',
+        'ASSINATURA_SINCRONIZADA', 'ASSINATURA_CANCELADA'])
+        assert.match(bloco, new RegExp(`\\b${acao}:\\s*'`), acao);
+});
+
+test('Atividade e Resumo mostram as mesmas origens administrativas (o Resumo nunca lista o que a Atividade esconde)', () => {
+    const resumo = readFileSync('lib/desenvolvedor/resumo.ts', 'utf8');
+    const lista = /a\.origem IN \(([^)]*)\)/.exec(resumo)?.[1] ?? '';
+    const doResumo = [...lista.matchAll(/'([A-Z0-9_]+)'/g)].map((m) => m[1]);
+    assert.ok(doResumo.length > 0);
+    const { ORIGENS_ADMINISTRATIVAS } = carregarModulo('lib/desenvolvedor/auditoria-consulta.ts', { 'db/postgres': { db: () => { throw new Error('sem banco'); }, withTransaction: () => { throw new Error('sem banco'); } } }) as unknown as { ORIGENS_ADMINISTRATIVAS: readonly string[] };
+    for (const origem of doResumo)
+        assert.ok(ORIGENS_ADMINISTRATIVAS.includes(origem), origem);
+    assert.ok(ORIGENS_ADMINISTRATIVAS.includes('COBRANCA'), 'recusas do webhook e sincronizações aparecem na Atividade');
+});
+
 test('a concessão de desenvolvedor só nasce e morre pelo CLI: nenhum código da aplicação escreve plataforma_desenvolvedores', () => {
     const codigo = [...arquivos('app', /\.(ts|tsx)$/), ...arquivos('lib', /\.(ts|tsx)$/)].filter((f) => !/\.test\.ts$/.test(f));
     for (const f of codigo)
