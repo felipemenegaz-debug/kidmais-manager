@@ -59,6 +59,8 @@ const CONTAS = Object.freeze([
 ].map(([rotulo, papel, empresas]) => Object.freeze({rotulo, papel, empresas:Object.freeze(empresas), email:`nav-${rotulo}@example.invalid`})));
 /** Convite pendente que completa 3/3 no Essencial (Gestão + Equipe + convite). */
 const EMAIL_CONVITE_ESSENCIAL = 'nav-essencial-convite@example.invalid';
+/** Contato público sintético (cadastro aplicado da unidade) só do Profissional; o Premium fica sem contato. */
+const CONTATO_PROFISSIONAL = Object.freeze({whatsapp:'11900000001', email:'contato-profissional@example.invalid', site:'https://profissional.example.invalid/'});
 /** Faixa única do pacote das empresas com catálogo: 20–30 convidados, valor fixo. */
 const FAIXA = Object.freeze({min:20, max:30, valor:'1500.00'});
 
@@ -241,7 +243,7 @@ async function popular(c, senhas) {
         convites:carregar('lib/acessos/convites.ts'), limites:carregar('lib/assinatura/limites-usuarios.ts'), precos:carregar('lib/comercial/pacote-precos.ts'),
         pacotes:carregar('lib/comercial/pacotes-admin.ts'), renovacaoRepo:carregar('lib/assinatura/renovacao-repositorio.ts'),
         renovacao:carregar('lib/assinatura/renovacao-fundador.ts'), estado:carregar('lib/assinatura/estado.ts'), recursos:carregar('lib/assinatura/recursos-plano.ts'),
-        cotacao:carregar('lib/comercial/cotacao-publica.ts')};
+        cotacao:carregar('lib/comercial/cotacao-publica.ts'), contato:carregar('lib/perfil/contato-publico.ts')};
     const q = async (sql, params) => (await ex.query(sql, params)).rows;
     const documentos = new Set();
     const ids = Object.fromEntries(EMPRESAS.map(e => [e.chave, {empresa:randomUUID(), documento:documentoSintetico(documentos)}]));
@@ -323,6 +325,14 @@ async function popular(c, senhas) {
             {disponibilidade:[1, 2, 3, 4, 5, 6, 7].flatMap(dia => horarios.map(horarioId => ({dia, horarioId})))}, ctx()));
     }
 
+    // ---- Perfil com a unidade e o contato público, só do Profissional (mesmo id/código da empresa, como a associação do perfil).
+    await withTransaction(async tx => {
+        const empresaId = ids.profissional.empresa, codigo = EMPRESAS.find(e => e.chave === 'profissional').codigo;
+        await tx.query('INSERT INTO public.perfil_empresas (id, codigo) VALUES ($1, $2)', [empresaId, codigo]);
+        await tx.query(`INSERT INTO public.perfil_unidades (empresa_id, codigo, whatsapp, email_comercial, site)
+            VALUES ($1, 'UNI-NAV', $2, $3, $4)`, [empresaId, CONTATO_PROFISSIONAL.whatsapp, CONTATO_PROFISSIONAL.email, CONTATO_PROFISSIONAL.site]);
+    });
+
     // ---- Renovação Fundador pendente (Premium), montada como processarRenovacao monta: repositório e mensagem do domínio.
     for (const e of EMPRESAS.filter(x => x.renovacao)) {
         const empresaId = ids[e.chave].empresa;
@@ -359,6 +369,12 @@ async function popular(c, senhas) {
         try { await s.cotacao.escopoCotacaoPublica(() => ex, e.codigo, {}, envCotacao); } catch (erro) { status = erro?.httpStatus ?? 'ERRO'; }
         assert.equal(status, e.plano === 'essencial' ? 404 : 200, 'COTACAO_' + e.chave);
         conferencia.cotacao[e.codigo] = status;
+    }
+    conferencia.contatoPublico = {};
+    for (const e of EMPRESAS.filter(x => x.catalogo && x.plano !== 'essencial')) {
+        const contato = await s.contato.contatoPublicoDaEmpresa(ex, ids[e.chave].empresa);
+        assert.equal(contato?.whatsapp?.url ?? null, e.chave === 'profissional' ? `https://wa.me/55${CONTATO_PROFISSIONAL.whatsapp}` : null, 'CONTATO_' + e.chave);
+        conferencia.contatoPublico[e.codigo] = contato ? Object.keys(contato).filter(k => contato[k]) : null;
     }
     const ofertas = await withTransaction(tx => s.ofertas.consultarOfertas(tx, ids.teste.empresa, {ASSINATURA_PLANOS_ATIVOS:'true', ASAAS_AMBIENTE:'sandbox'}));
     assert.ok(ofertas?.habilitado && ofertas.fundador && !ofertas.aguardandoVaga, 'OFERTA_FUNDADOR_TESTE');

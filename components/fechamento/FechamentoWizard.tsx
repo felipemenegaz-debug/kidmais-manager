@@ -3,9 +3,12 @@
 import AdicionaisPizzaConsulta from './AdicionaisPizzaConsulta';
 import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
+import EscolhaPacote from './EscolhaPacote';
+import ContatoEmpresa from './ContatoEmpresa';
+import { CODIGO_PACOTE, pacoteDaTela, pacotesExibidos, type FatosPacote } from './pacotes-tela';
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ATALHOS_CONVIDADOS, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
+import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
 import { apiPublica, paginaPublica } from '@/lib/fechamentos/rota-publica';
 import { centavosComerciais, validarPretensaoPix } from "@/lib/comercial/condicao-pagamento";
 import CalendarioDisponibilidade from "./CalendarioDisponibilidade";
@@ -109,7 +112,6 @@ function descricaoCotacao(c: Cotacao, convidados: number) {
   const faturados = c.minimoFaturavelAplicado ? ` · cobrança mínima de ${c.convidadosFaturados} convidados` : '';
   return `${convidados} convidados (faixa ${faixa}) · ${c.categoriaNome.toLocaleLowerCase('pt-BR')}${faturados}`;
 }
-const CODIGO_PACOTE:Record<string,string> = {pocket:'POCKET',mini:'MINI_FESTA',compacta:'COMPACTA',essencial:'ESSENCIAL',completa:'COMPLETA',premium:'PREMIUM',pizza_party_scienza:'PIZZA_PARTY'};
 const CAMPO_CATEGORIA:Record<string,'buffetSalgados'|'buffetDoces'|'buffetBolo'|'buffetLembrancinha'|'buffetEmpratado'|'buffetBombom'> = {
   SALGADOS:'buffetSalgados',DOCES:'buffetDoces',MASSA_BOLO:'buffetBolo',RECHEIO_BOLO:'buffetBolo',
   LEMBRANCINHAS:'buffetLembrancinha',EMPRATADOS:'buffetEmpratado',BOMBONS:'buffetBombom',
@@ -281,29 +283,26 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [erroCep, setErroCep] = useState("");
   const cepConsultaSeq = useRef(0);
 
-  const [fatosPacote, setFatosPacote] = useState<Record<string, { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null }> | null>(null);
+  const [fatosPacote, setFatosPacote] = useState<FatosPacote | null>(null);
+  // Falha da lista de pacotes: no endereço atual o catálogo continua; em outra empresa a etapa mostra o erro.
+  const [falhaPacotes, setFalhaPacotes] = useState(false);
+  const [tentativaPacotes, setTentativaPacotes] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     void fetch(apiPublica("/api/fechamentos/pacotes", empresa), { signal: controller.signal, cache: "no-store" })
       .then((response) => response.ok ? response.json() : null)
       .then((body) => {
-        if (!body?.pacotes) return;
+        if (!Array.isArray(body?.pacotes)) { setFalhaPacotes(true); return; }
+        setFalhaPacotes(false);
         setFatosPacote(Object.fromEntries(body.pacotes.map((item: { codigo: string }) => [item.codigo, item])));
         if (body.pagamento) setRegrasDoServidor(body.pagamento as RegrasPagamento);
       })
-      .catch(() => undefined);
+      .catch(() => { if (!controller.signal.aborted) setFalhaPacotes(true); });
     return () => controller.abort();
-  }, [empresa]);
-  const pacoteBase = PACOTES_FECHAMENTO_V1.find((item) => item.id === form.pacote);
-  const fato = pacoteBase ? fatosPacote?.[CODIGO_PACOTE[pacoteBase.id]] : undefined;
-  const pacote = pacoteBase && fato ? {
-    ...pacoteBase,
-    nome: fato.nome,
-    minPagantes: fato.convidadosMinimos ?? pacoteBase.minPagantes,
-    maxPagantes: fato.convidadosMaximos ?? pacoteBase.maxPagantes,
-    precoInicial: fato.precoMinimo == null ? null : Number(fato.precoMinimo),
-    duracao: fato.duracaoMinutos == null ? "" : `${fato.duracaoMinutos} minutos`,
-  } : pacoteBase;
+  }, [empresa, tentativaPacotes]);
+  const pacotesDaEtapa = pacotesExibidos(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote);
+  const fato = form.pacote ? fatosPacote?.[CODIGO_PACOTE[form.pacote]] : undefined;
+  const pacote = pacoteDaTela(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, form.pacote);
   useEffect(()=>{
     const codigo=CODIGO_PACOTE[form.pacote];
     if(!codigo)return;
@@ -968,7 +967,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   }
 
   function validarEtapaAtual() {
-    if (etapa === 0 && !form.pacote) {
+    // Outra empresa: só vale pacote que ela oferece (lista do servidor já carregada).
+    if (etapa === 0 && (!form.pacote || (!marca.kidmais && !pacote))) {
       setErro("Escolha um pacote para continuar.");
       return false;
     }
@@ -1009,7 +1009,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     }
 
     if (etapa === 2) {
-      const mensagem = erroConvidadosFechamento(convidados, pacote);
+      const mensagem = marca.kidmais ? erroConvidadosFechamento(convidados, pacote) : erroConvidadosEmpresa(convidados, pacote);
       if (mensagem) { setErro(mensagem); return false; }
       if (cotacaoEstado === 'carregando') { setErro(''); setAvancarAposCotacao(true); return false; }
       if (cotacaoEstado === 'erro') { setErro(cotacaoAtual?.erro ?? mensagemCotacao(undefined, undefined, marca.equipe)); return false; }
@@ -1309,6 +1309,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             WhatsApp Kidmais: {CONTATO_KIDMAIS.whatsapp}
           </p>
           </>}
+          {!marca.kidmais && <ContatoEmpresa nome={marca.nome} contato={marca.contato} titulo={`Fale com ${marca.nome}`} />}
         </section>
       </main>
     );
@@ -1374,18 +1375,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 {!empresa && <PacotesPdf />}
               </div>
 
-              <div className={styles.packageGrid}>
-                {PACOTES_FECHAMENTO_V1.map((item) => {
-                  const publicado = fatosPacote?.[CODIGO_PACOTE[item.id]];
-                  const preco = publicado ? (publicado.precoMinimo == null ? null : Number(publicado.precoMinimo)) : item.precoInicial;
-                  return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`${styles.packageCard} ${
-                      form.pacote === item.id ? styles.packageSelected : ""
-                    }`}
-                    onClick={() => {
+              <EscolhaPacote
+                itens={pacotesDaEtapa}
+                falha={falhaPacotes}
+                selecionado={form.pacote}
+                onTentarNovamente={() => { setFalhaPacotes(false); setTentativaPacotes((n) => n + 1); }}
+                onEscolher={(item) => {
                       const novoPacote = item.id as PacoteId;
                       atualizar("pacote", novoPacote);
 
@@ -1417,25 +1412,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       atualizar("horarioBase", "");
                       atualizar("statusDisponibilidade", "");
                       setAjustesDisponiveis([]);
-                    }}
-                  >
-                    {item.destaque && (
-                      <span className={styles.packageBadge}>{item.destaque}</span>
-                    )}
-                    <span className={styles.radioVisual}>
-                      {form.pacote === item.id ? "✓" : ""}
-                    </span>
-                    <strong>{publicado?.nome ?? item.nome}</strong>
-                    <b>{preco == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(preco)}`}</b>
-                    <p>{publicado ? (publicado.descricao || "Descrição não cadastrada.") : item.descricao}</p>
-                    <small>{item.disponibilidade}</small>
-                    <span className={styles.selectText}>
-                      {form.pacote === item.id ? "Selecionado" : "Selecionar"}
-                    </span>
-                  </button>
-                  );
-                })}
-              </div>
+                }}
+              />
+              {!marca.kidmais && pacotesDaEtapa?.length === 0 && <ContatoEmpresa nome={marca.nome} contato={marca.contato} />}
 
               {pacote && (
                 <div className={styles.packageDetails}>
@@ -1453,7 +1432,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   </div>
                   <div>
                     <span>Limite do pacote</span>
-                    <strong>{pacote.maxPagantes} convidados</strong>
+                    <strong>{pacote.limiteCadastrado ? `${pacote.maxPagantes} convidados` : "Não informado"}</strong>
                   </div>
                   <div className={styles.detailWide}>
                     <span>Buffet</span>
@@ -1710,7 +1689,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 />
                 {pacote && (
                   <small>
-                    Mínimo do {pacote.nome}: {pacote.minPagantes}. Máximo: {pacote.maxPagantes}.
+                    Mínimo do {pacote.nome}: {pacote.minPagantes}.{pacote.limiteCadastrado ? ` Máximo: ${pacote.maxPagantes}.` : ""}
                   </small>
                 )}
               </label>
@@ -2377,6 +2356,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       Falar com a Kidmais no WhatsApp
                     </a>
                   </div>}
+                  {!marca.kidmais && <ContatoEmpresa nome={marca.nome} contato={marca.contato} titulo={`Fale com ${marca.nome}`} />}
                 </div>
               )}
 
@@ -2964,6 +2944,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         {!empresa && <footer className={styles.pageFooter}>
           <span>Kidmais • {CONTATO_KIDMAIS.whatsapp}</span>
           <span>{CONTATO_KIDMAIS.site}</span>
+        </footer>}
+        {!marca.kidmais && marca.contato && <footer className={styles.pageFooter}>
+          <ContatoEmpresa nome={marca.nome} contato={marca.contato} titulo={marca.nome} />
         </footer>}
       </div>
     </main>

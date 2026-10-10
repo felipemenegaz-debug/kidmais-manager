@@ -4,6 +4,7 @@ import { db } from "@/lib/db/postgres";
 import { escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { lerRegrasPagamento, REGRAS_LEGADAS, type RegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import { nomePublicoDaEmpresa } from "@/lib/perfil/nome-publico";
+import { contatoPublicoDaEmpresa } from "@/lib/perfil/contato-publico";
 
 /**
  * Em breve até a homologação: fora dos buscadores. Título, descrição e ícone neutros (o layout raiz usa os da
@@ -25,18 +26,21 @@ const ANTES_DA_077: RegrasPagamento = Object.freeze({ ...REGRAS_LEGADAS, cartaoR
 /**
  * A página do endereço da empresa só abre se o servidor atenderia a cotação dela (mesma regra das APIs).
  * Qualquer recusa vira 404, sem dizer se a empresa existe, qual é o plano ou a situação da assinatura.
- * Devolve o código, o nome público e as regras de pagamento da própria empresa (nada da Kidmais nem de terceiros).
+ * Devolve o código, o nome público, as regras de pagamento e os contatos da própria empresa (nada da Kidmais nem de
+ * terceiros). Contato ilegível não derruba a página: ela abre sem contato.
  */
 export async function exigirEmpresaPublica(params: Promise<{ empresa: string }>) {
   const { empresa } = await params;
-  let nome: string | null, pagamento: RegrasPagamento;
+  let nome: string | null, pagamento: RegrasPagamento, empresaId: string;
   try {
     const escopo = await escopoCotacaoPublica(db, empresa);
+    empresaId = escopo.empresaId;
     nome = await nomePublicoDaEmpresa(db(), escopo.empresaId);
     if (!nome) throw new Error("EMPRESA_AUSENTE");
     pagamento = (await lerRegrasPagamento(db(), escopo.empresaId)) ?? ANTES_DA_077;
   } catch {
     notFound();
   }
-  return { codigo: empresa, nome, pagamento: { ...pagamento } };
+  const contato = await contatoPublicoDaEmpresa(db(), empresaId);
+  return { codigo: empresa, nome, pagamento: { ...pagamento }, contato };
 }

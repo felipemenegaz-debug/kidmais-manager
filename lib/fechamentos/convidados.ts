@@ -18,3 +18,14 @@ export function erroConvidadosFechamento(quantidade: number, pacote?: {
     if (pacote?.id === 'compacta' && quantidade !== 40) return 'A Festa Compacta possui valor automático somente para 40 convidados. Para outra quantidade, consulte a equipe Kidmais.';
     return null;
 }
+
+/**
+ * Endereço de outra empresa (/b/<código>): só o mínimo e o máximo do pacote dela, com redação neutra. As regras e
+ * textos do catálogo da Kidmais (teto de 150, Festa Compacta, Pizza Party) não se aplicam; o servidor confere a cotação.
+ */
+export function erroConvidadosEmpresa(quantidade: number, pacote?: { nome: string; minPagantes: number; maxPagantes: number; limiteCadastrado?: boolean }) {
+    if (!Number.isInteger(quantidade) || quantidade <= 0) return 'Informe a quantidade de convidados pagantes.';
+    if (pacote && pacote.limiteCadastrado !== false && quantidade > pacote.maxPagantes) return `${pacote.nome} atende até ${pacote.maxPagantes} convidados neste pacote.`;
+    if (pacote && quantidade < pacote.minPagantes) return `${pacote.nome} possui mínimo de ${pacote.minPagantes} pagantes.`;
+    return null;
+}
