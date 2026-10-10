@@ -29,6 +29,7 @@ async function consultar(erroCatalogo: Error = erroPreco) {
     '@/lib/disponibilidade/services': { consultarDisponibilidadeData: async () => ({ periodos: [] }) },
     '@/lib/comercial/composicao': { listarCodigosInclusos: async () => [] },
     '@/lib/comercial/services/errors': errosPreco,
+    '@/lib/comercial/regras-pagamento': { lerRegrasPagamento: async () => null },
     '@/lib/comercial/services': {
       listarPacotesComerciais: async () => [],
       listarCatalogoAdicionais: async (input: { empresaId: string }) => { chamadas.push(input.empresaId); throw erroCatalogo; },
@@ -61,6 +62,7 @@ test('editor abre sem catálogo, salva cadastro preservando adicionais e bloquei
     '@/lib/http/admin-fetch': { adminFetch: async () => Response.json(resposta) },
     '@/lib/fechamentos/convidados': { atalhosConvidados: () => [] },
     '@/lib/comercial/condicao-pagamento': { calcularCondicaoComercial: () => ({ valorFinalContrato: 7811.5 }) },
+    '@/lib/comercial/regras-pagamento': { percentualDaForma: () => 0 },
     '@/lib/contratos/documento/formatters': { formatarMoeda: String },
     '@/lib/fechamentos/revisao-preco': { preservarPrecoHistorico }, './admin.module.css': cssFalso,
   });

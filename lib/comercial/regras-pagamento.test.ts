@@ -76,9 +76,9 @@ test('tela pública: Kidmais com o texto e os rótulos de hoje; outra empresa co
     assert.equal(descontoEfetivo(config, 'completa', '2026-11-03', 'noite').ativo, true);
     assert.equal(descontoEfetivo(config, 'completa', '2026-11-03', 'noite', false).ativo, false);
     const wizard = ler('components/fechamento/FechamentoWizard.tsx');
-    assert.match(wizard, /calcularTotalPagamento\(valorInformado, "pix_avista", marca\.pagamento\)/);
-    assert.match(wizard, /subtitle=\{marca\.pagamento\.cartaoRotulo\}/);
-    assert.match(wizard, /\{marca\.pagamento\.descontoDiaUtil && pacoteTemDescontoDiaUtil\(form\.pacote\) && \(/);
+    assert.match(wizard, /calcularTotalPagamento\(valorInformado, "pix_avista", pagamento\)/);
+    assert.match(wizard, /subtitle=\{pagamento\.cartaoRotulo\}/);
+    assert.match(wizard, /\{pagamento\.descontoDiaUtil && pacoteTemDescontoDiaUtil\(form\.pacote\) && \(/);
     assert.doesNotMatch(wizard, /subtitle="(10|3)% de desconto"|subtitle="Cielo"/);
 });
 
@@ -120,4 +120,29 @@ test('migrations 076/077: preparadas com guardas, sem apagar ou alterar linhas; 
     assert.match(ler('database/rollback/20261010_077_regras_pagamento_empresa_down.sql'), /há regras configuradas além da legada da Kidmais/);
     for (const check of ['076_precheck', '076_postcheck', '077_precheck', '077_postcheck'])
         assert.match(ler(`database/checks/20261010_${check}.sql`), /BEGIN TRANSACTION READ ONLY;[\s\S]*ROLLBACK;/, check);
+});
+
+test('preço independente: valores calculados à mão para o legado e para regras da empresa', () => {
+    // [base, forma, percentual gravado, valor final esperado] — conta feita fora do código: floor((centavos × (100 − p) + 50) / 100).
+    const casos: Array<[number, FormaComercial, number | undefined, number]> = [
+        [1500, 'PIX_AVISTA', undefined, 1350], [1500, 'PIX_PARCELADO', undefined, 1455], [1500, 'CARTAO_CIELO', undefined, 1500],
+        [999.99, 'PIX_AVISTA', undefined, 899.99], [999.99, 'PIX_PARCELADO', undefined, 969.99],
+        [12345.67, 'PIX_AVISTA', undefined, 11111.10], [12345.67, 'PIX_PARCELADO', undefined, 11975.30],
+        [0.01, 'PIX_AVISTA', undefined, 0.01], [0.01, 'PIX_PARCELADO', undefined, 0.01],
+        [1500, 'PIX_AVISTA', 0, 1500], [1500, 'PIX_AVISTA', 7, 1395], [1500, 'CARTAO_CIELO', 5, 1425],
+    ];
+    for (const [base, forma, percentual, final] of casos)
+        assert.equal(calcularCondicaoComercial(base, forma, percentual).valorFinalContrato, final, `${base} ${forma} ${percentual}`);
+});
+
+test('regras do servidor chegam às telas: pacotes públicos, edição administrativa, assistente e calendário', () => {
+    assert.match(ler('app/api/fechamentos/pacotes/route.ts'), /const pagamento = await lerRegrasPagamento\(db\(\), escopo\.empresaId\)\.catch\(\(\) => null\);\s*return NextResponse\.json\(\{ pacotes, pagamento \}/);
+    assert.match(ler('app/api/admin/contratos/versoes/[versaoId]/edicao/route.ts'), /const regrasPagamento = await lerRegrasPagamento\(tx, empresaId\);/);
+    assert.match(ler('components/admin/EdicaoFesta.tsx'), /ctx\.regrasPagamento \? percentualDaForma\(ctx\.regrasPagamento, forma\) : undefined/);
+    const wizard = ler('components/fechamento/FechamentoWizard.tsx');
+    assert.match(wizard, /const pagamento = empresa \? marca\.pagamento : \(regrasDoServidor \?\? marca\.pagamento\);/);
+    assert.match(wizard, /if \(body\.pagamento\) setRegrasDoServidor\(body\.pagamento as RegrasPagamento\);/);
+    assert.match(wizard, /descontoDiaUtil=\{pagamento\.descontoDiaUtil\}/);
+    assert.doesNotMatch(wizard, /marca\.pagamento\.(pix|cartao|descontoDiaUtil)/);
+    assert.match(ler('components/fechamento/CalendarioDisponibilidade.tsx'), /const diaUtil = descontoDiaUtil \?\? marca\.pagamento\.descontoDiaUtil;/);
 });
