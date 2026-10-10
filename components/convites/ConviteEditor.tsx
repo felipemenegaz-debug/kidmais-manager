@@ -128,8 +128,8 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
           {dados.artes.length > 0 && <><p>Imagens da festa</p><div className={ui.galeria}>{dados.artes.map((a, n) => <div key={a.id} className={ui.arteItem}><button className={ui.arteSelecionar} type="button" aria-label={`Selecionar imagem ${n + 1}`} aria-pressed={conteudo.arteId === a.id} onClick={() => campo('arteId', a.id)}><img src={a.url} alt={`Imagem ${n + 1} da festa`} /><span>{conteudo.arteId === a.id ? 'Selecionada' : 'Usar imagem'}</span></button><button type="button" className={ui.excluir} aria-label={`Excluir imagem ${n + 1}`} onClick={() => { setErro(''); setArteExcluir(a); }}>Excluir imagem</button></div>)}</div>{conteudo.arteId && <button type="button" className={ui.linkBotao} onClick={() => { campo('arteId', null); setAviso('Imagem removida da composição. Salve o rascunho ou publique para aplicar.'); }}>Remover imagem do convite</button>}<small>Remover do convite mantém o arquivo na galeria. Excluir imagem apaga o arquivo desta festa.</small></>}
           <ConviteVisual conteudo={conteudo} arte={arte} ui={ui} busy={busy} mudar={v => campo('visual', v)} extrair={() => void extrairCores()} />
         </fieldset>
-        <fieldset disabled={busy} className={ui.painel}>
-          <legend>02 · Conte a sua festa</legend>
+        <fieldset disabled={busy} className={ui.painel} aria-label="02 · Conte a sua festa">
+          <h2 className={ui.tituloEtapa}>02 · Conte a sua festa</h2>
           <div className={ui.campos}>
             {campos.map(([k, label]) => (
               <label key={k}>
