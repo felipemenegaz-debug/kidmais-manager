@@ -28,4 +28,3 @@ test('adaptador usa origem fixa, chave no cabeçalho, limites fixos e não tenta
     assert.equal(chamadas, 1);
   } finally { for (const k of ['CONVITES_IA_ENABLED', 'CONVITES_GEMINI_API_KEY', 'CONVITES_IA_TETO_DIARIO_MICROUSD']) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } }
 });
-
