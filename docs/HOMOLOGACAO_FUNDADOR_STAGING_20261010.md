@@ -10,7 +10,7 @@ A tentativa 2 da homologação de planos ([evidência](evidencias/homologacao-pl
 
 ## Candidata
 
-- **Código: `58696f1cdc06796caf43ffbe7036667c9a364631`** (executor Fundador de `5f818f5` + [sonda da cobrança removida](SONDA_COBRANCA_REMOVIDA_ASAAS_20261010.md)) sobre `origin/staging` `0123050` (inclui os deploys externos `bc95ca4` #151 e `0123050` #152).
+- **Código: `e9e5f68f2e2f41d09b476cd65248e4b7f240c363`** (executor Fundador de `5f818f5` + [sonda da cobrança removida](SONDA_COBRANCA_REMOVIDA_ASAAS_20261010.md)) sobre `origin/staging` `0123050` (inclui os deploys externos `bc95ca4` #151 e `0123050` #152).
 - **Candidata completa** = o commit seguinte, que traz só este documento; o SHA exato é o apresentado no pedido de aprovação e é o único que P1 envia.
 - Diferença para `0123050`: `scripts/homologacao-fundador-staging.cjs`, `scripts/sonda-cobranca-removida-asaas.cjs` e testes, este pacote, o da sonda e a evidência da tentativa 2. Aplicação web inalterada.
 - **Portão:** a rodada só segue se a sonda retornar `REGRA_ATENDIDA`. P1 é o S1 da sonda (mesma candidata); depois dela, restam P2–P4.
