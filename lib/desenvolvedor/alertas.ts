@@ -9,7 +9,9 @@ import { pendenciasImplantacao, SQL_SITUACAO_RESPONSAVEL } from './implantacao.t
  */
 export type CodigoAlerta =
     | 'EMAIL_INDISPONIVEL' | 'SEM_GESTAO' | 'CONVITE_NAO_ENVIADO' | 'CONVITE_EXPIRADO' | 'RESPONSAVEL_SEM_ACESSO'
-    | 'GESTAO_SEM_ACESSO' | 'IMPLANTACAO_INCOMPLETA' | 'IMPLANTACAO_PRONTA' | 'SEM_CADASTRO';
+    | 'GESTAO_SEM_ACESSO' | 'IMPLANTACAO_INCOMPLETA' | 'IMPLANTACAO_PRONTA' | 'SEM_CADASTRO'
+    // Renovação Fundador em REVISAO ou parada (lib/assinatura/renovacao-operacao.ts), somada no resumo.
+    | 'RENOVACAO_REVISAO';
 export type Severidade = 'ALTA' | 'MEDIA' | 'INFO';
 export type Alerta = {
     codigo: CodigoAlerta; severidade: Severidade; empresaId: string | null; empresa: string | null;

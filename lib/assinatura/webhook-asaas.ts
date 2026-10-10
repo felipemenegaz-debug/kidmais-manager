@@ -39,7 +39,7 @@ export function tokenConfere(recebido: string | null, esperado: string) {
     return timingSafeEqual(h(recebido), h(esperado));
 }
 
-class CorpoInvalido extends Error {
+export class CorpoInvalido extends Error {
     readonly status: number;
     constructor(status: number) {
         super('corpo inválido');
@@ -47,7 +47,8 @@ class CorpoInvalido extends Error {
     }
 }
 
-async function lerCorpoLimitado(request: Request) {
+/** Corpo ≤ LIMITE_CORPO, lido em até 3 s, UTF-8 estrito. Reusado pelo webhook do Resend (renovacao-entrega.ts). */
+export async function lerCorpoLimitado(request: Request) {
     const tamanho = request.headers.get('content-length');
     if (tamanho !== null && (!/^\d+$/.test(tamanho) || Number(tamanho) > LIMITE_CORPO))
         throw new CorpoInvalido(413);
