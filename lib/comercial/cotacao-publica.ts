@@ -38,6 +38,15 @@ export function codigoEmpresaDoPedido(url: string | URL): string | null {
   return valor;
 }
 
+/**
+ * Escopo da identidade pública (CPF/OTP) pelo mesmo endereço da cotação: endereço atual = empresa configurada
+ * no servidor + legado sem empresa (anterior à 054, nascido na instalação); endereço por código = só a empresa.
+ */
+export async function escopoIdentidadePublica(conexao: () => DbExecutor, url: string | URL) {
+  const escopo = await escopoCotacaoPublica(conexao, codigoEmpresaDoPedido(url));
+  return { empresaId: escopo.empresaId, incluirLegadoSemEmpresa: !escopo.porCodigo };
+}
+
 export type DependenciasCotacao = {
   recursoIncluido: typeof recursoIncluido;
   lerEstadoComercial: typeof lerEstadoComercial;

@@ -22,6 +22,11 @@ export type CondicaoPagamento = {
   pretendida: CondicaoPix | null;
   aprovada: CondicaoPix | null;
   revisaoStatus: "PENDENTE" | "APROVADA" | "DISPENSADA" | "RECUSADA";
+  /**
+   * Desconto da forma de pagamento vigente quando a condição foi criada (regras da empresa, migration 077).
+   * Ausente = condição anterior à 077 ou sem ela instalada: vale o legado (PIX à vista 10%, parcelado 3%, cartão 0%).
+   */
+  descontoPercentual?: number;
 };
 export type DecisaoCondicaoPagamento = CondicaoPagamento & {
   solicitacaoId?: string;
@@ -65,12 +70,20 @@ export function validarPretensaoPix(input?: PretensaoPixInput | null): CondicaoP
   return { entradaCentavos: entrada, parcelaCentavos: parcela, quantidadeParcelas: quantidade };
 }
 
-export function calcularCondicaoComercial(base: number, forma: FormaComercial): ValoresPagamento {
+/** Percentual legado por forma: o que vale para toda condição gravada sem `descontoPercentual`. */
+export function percentualLegado(forma: FormaComercial) {
+  return forma === "PIX_AVISTA" ? 10 : forma === "PIX_PARCELADO" ? 3 : 0;
+}
+
+export function calcularCondicaoComercial(base: number, forma: FormaComercial, descontoPercentual?: number | null): ValoresPagamento {
   const centavos = centavosComerciais(base);
   if (!["PIX_AVISTA", "PIX_PARCELADO", "CARTAO_CIELO"].includes(forma)) {
     throw new CondicaoPagamentoError("Forma de pagamento inválida.");
   }
-  const percentual = forma === "PIX_AVISTA" ? 10 : forma === "PIX_PARCELADO" ? 3 : 0;
+  if (descontoPercentual != null && (!Number.isInteger(descontoPercentual) || descontoPercentual < 0 || descontoPercentual > 100)) {
+    throw new CondicaoPagamentoError("Desconto da forma de pagamento inválido.");
+  }
+  const percentual = descontoPercentual ?? percentualLegado(forma);
   // O produto inteiro permanece abaixo de Number.MAX_SAFE_INTEGER no domínio numeric(12,2).
   const final = Math.floor((centavos * (100 - percentual) + 50) / 100);
   return {

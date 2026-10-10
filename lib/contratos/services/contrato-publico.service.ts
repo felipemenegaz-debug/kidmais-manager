@@ -205,7 +205,9 @@ export async function consultarAcessoContrato(input: {
 
   if (!cpfInformado || !cpfSnapshot || cpfInformado !== cpfSnapshot) acessoNegado();
 
-  const consulta = await consultarCpfPublico(cpfInformado);
+  // Escopo = o cliente canônico do próprio contrato: o CPF nunca identifica cadastro de outra empresa.
+  const clienteContrato = await clienteCanonicoDaVersao(versao);
+  const consulta = await consultarCpfPublico(cpfInformado, { clienteId: clienteContrato.id });
   if (consulta.situacao === "NOVO_CLIENTE") acessoNegado();
 
   return {
@@ -242,6 +244,7 @@ export async function iniciarDesafioContrato(
     cpf: input.cpf,
     canal: input.canal,
     finalidade: "CONTRATO_ACEITE",
+    escopo: { clienteId: (await clienteCanonicoDaVersao(versao)).id },
   });
 
   return {

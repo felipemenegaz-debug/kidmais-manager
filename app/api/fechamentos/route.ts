@@ -117,14 +117,9 @@ export async function POST(request: NextRequest) {
   let horarioRevalidado: Awaited<ReturnType<typeof revalidarHorarioSelecionado>>;
   let escopo: EscopoCotacaoPublica;
   try {
+    // Cliente existente: a prova de identidade é emitida só para cliente desta empresa (escopo em /api/identidade)
+    // e o serviço confere de novo que o cliente comprovado é da empresa do pacote.
     escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl), { escrita: true });
-    // Pelo endereço da empresa só há cadastro novo: as rotas de identidade (/api/identidade) ainda não são por empresa.
-    if (escopo.porCodigo && dados.data.identidadeTipo !== "NOVO_CLIENTE") {
-      return NextResponse.json(
-        { ok: false, erro: "Neste endereço, o pedido é feito como novo cadastro. Fale com o buffet se já for cliente.", codigo: "IDENTIDADE_NAO_DISPONIVEL" },
-        { status: 409 },
-      );
-    }
     const unidade = await escopoDaEmpresa(db(), escopo.empresaId, escopo.estabelecimentoId, { exigirUnidade: true });
     escopo.estabelecimentoId = unidade.estabelecimentoId;
     horarioRevalidado = await revalidarHorarioSelecionado({

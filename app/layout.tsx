@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Kidmais Manager",
   description: "Gestão de clientes, festas e disponibilidade da Kidmais.",
+  // Mesmo <link rel="icon" href="/favicon.ico" sizes="any"> de antes (arquivo agora em public/), declarado aqui para
+  // que os endereços públicos de outras empresas (/b/<código>) possam substituí-lo por um ícone neutro.
+  icons: { icon: [{ url: "/favicon.ico", sizes: "any" }] },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -10,6 +10,8 @@ import { apiPublica, paginaPublica } from '@/lib/fechamentos/rota-publica';
 import { centavosComerciais, validarPretensaoPix } from "@/lib/comercial/condicao-pagamento";
 import CalendarioDisponibilidade from "./CalendarioDisponibilidade";
 import { MarcaPublicaCabecalho, useMarcaPublica } from "./MarcaPublica";
+import { rotuloDescontoPix, textoCondicoesPagamento } from "@/lib/fechamentos/marca-publica";
+import type { RegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import styles from "./FechamentoWizard.module.css";
 import {
   CONTATO_KIDMAIS,
@@ -231,6 +233,10 @@ async function lerErroApi(resposta: Response, fallback: string) {
 
 export default function FechamentoWizard({ empresa = null }: { empresa?: string | null } = {}) {
   const marca = useMarcaPublica();
+  // Endereço por empresa: regras entregues pela página (servidor). Endereço atual: regras da empresa configurada,
+  // lidas em /api/fechamentos/pacotes; até chegarem (ou antes da 077), o legado — o mesmo que o servidor aplica.
+  const [regrasDoServidor, setRegrasDoServidor] = useState<RegrasPagamento | null>(null);
+  const pagamento = empresa ? marca.pagamento : (regrasDoServidor ?? marca.pagamento);
   const router = useRouter();
   const [etapa, setEtapa] = useState(0);
   const [form, setForm] = useState<FechamentoForm>(FORM_INICIAL);
@@ -283,6 +289,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       .then((body) => {
         if (!body?.pacotes) return;
         setFatosPacote(Object.fromEntries(body.pacotes.map((item: { codigo: string }) => [item.codigo, item])));
+        if (body.pagamento) setRegrasDoServidor(body.pagamento as RegrasPagamento);
       })
       .catch(() => undefined);
     return () => controller.abort();
@@ -542,7 +549,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     configDisponibilidade,
     form.pacote,
     form.dataFesta,
-    form.horarioBase
+    form.horarioBase,
+    pagamento.descontoDiaUtil,
   );
 
   const calculoDesconto =
@@ -660,19 +668,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       return;
     }
 
-    // Endereço de outra empresa: a identificação de cliente existente ainda é da instalação, não por empresa.
-    // Segue como cadastro novo, sem consultar o CPF (o servidor também só aceita NOVO_CLIENTE nesse endereço).
-    if (empresa) {
-      setForm((anterior) => ({ ...anterior, cpf: formatarCPF(cpf) }));
-      setCanaisIdentidade([]);
-      setCanalSelecionado("");
-      setIdentificacaoStatus("NOVO_CLIENTE");
-      return;
-    }
-
+    // A consulta de CPF é sempre da empresa do endereço (o servidor resolve a empresa; nunca do corpo do pedido).
     setProcessandoIdentidade(true);
     try {
-      const resposta = await fetch("/api/identidade/consultar-cpf", {
+      const resposta = await fetch(apiPublica("/api/identidade/consultar-cpf", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cpf }),
@@ -731,7 +730,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     setErroIdentificacao("");
 
     try {
-      const resposta = await fetch("/api/identidade/iniciar-desafio", {
+      const resposta = await fetch(apiPublica("/api/identidade/iniciar-desafio", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cpf, canal }),
@@ -772,7 +771,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     setErroIdentificacao("");
 
     try {
-      const confirmacao = await fetch("/api/identidade/confirmar-codigo", {
+      const confirmacao = await fetch(apiPublica("/api/identidade/confirmar-codigo", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -787,7 +786,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       }
 
       const prova = await confirmacao.json();
-      const contextoResposta = await fetch("/api/identidade/contexto", {
+      const contextoResposta = await fetch(apiPublica("/api/identidade/contexto", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provaToken: prova.provaToken }),
@@ -831,7 +830,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     setErroIdentificacao("");
 
     try {
-      const resposta = await fetch("/api/identidade/solicitar-recuperacao", {
+      const resposta = await fetch(apiPublica("/api/identidade/solicitar-recuperacao", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cpf }),
@@ -1583,7 +1582,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <>
                   <span className={styles.calendarSectionLabel}>2. Escolha a data</span>
 
-                  {pacoteTemDescontoDiaUtil(form.pacote) && (
+                  {pagamento.descontoDiaUtil && pacoteTemDescontoDiaUtil(form.pacote) && (
                     <div className={styles.discountCallout}>
                       <strong>
                         Economize 15% escolhendo de segunda a quinta.
@@ -1599,6 +1598,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
                   <CalendarioDisponibilidade
                     empresa={empresa}
+                    descontoDiaUtil={pagamento.descontoDiaUtil}
                     pacote={form.pacote as PacoteId}
                     horario={form.horarioBase}
                     dataSelecionada={form.dataFesta}
@@ -2198,11 +2198,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
               <div className={styles.infoBox}>
                 <strong>Pagamento</strong>
-                <p>
-                  Após aprovação: PIX à vista tem 10% de desconto. PIX parcelado
-                  tem 3% de desconto; as condições são confirmadas
-                  pela {marca.equipe}.{marca.kidmais ? " Cartão é processado pela Cielo." : null}
-                </p>
+                <p>{textoCondicoesPagamento({ ...marca, pagamento })}</p>
               </div>
             </section>
           )}
@@ -2830,12 +2826,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               <div className={styles.paymentGrid}>
                 <PaymentCard
                   title="PIX à vista"
-                  subtitle="10% de desconto"
+                  subtitle={rotuloDescontoPix(pagamento.pixAvistaPercentual)}
                   selected={form.formaPagamento === "pix_avista"}
                   total={
                     valorInformado
                       ? numeroParaMoeda(
-                          calcularTotalPagamento(valorInformado, "pix_avista")
+                          calcularTotalPagamento(valorInformado, "pix_avista", pagamento)
                             .total
                         )
                       : undefined
@@ -2844,7 +2840,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 />
                 <PaymentCard
                   title="PIX parcelado"
-                  subtitle="3% de desconto"
+                  subtitle={rotuloDescontoPix(pagamento.pixParceladoPercentual)}
                   detail={`Parcelas e condições são confirmadas diretamente com ${marca.a}.`}
                   selected={form.formaPagamento === "pix_parcelado"}
                   total={
@@ -2852,7 +2848,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       ? numeroParaMoeda(
                           calcularTotalPagamento(
                             valorInformado,
-                            "pix_parcelado"
+                            "pix_parcelado",
+                            pagamento,
                           ).total
                         )
                       : undefined
@@ -2861,7 +2858,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 />
                 <PaymentCard
                   title="Cartão"
-                  subtitle="Cielo"
+                  subtitle={pagamento.cartaoRotulo}
                   detail="Condições liberadas depois da aprovação."
                   selected={form.formaPagamento === "cartao_cielo"}
                   total={

@@ -10,7 +10,19 @@ const {alvo: alvoEnsaio, documento, cookies, prepararWebhook} = require('./assin
 const BASE = 'https://kidmais-manager-staging.onrender.com';
 const DIR = '/opt/render/project/src/data/homologacao-planos-cotacao-20261010';
 const FLAG = '--rodada-1-autorizada';
+const FLAG_ENCERRAR = '--encerrar-rodada-1-autorizada';
 const KIDMAIS_CNPJ = '20119900000160';
+/** Faixa única do pacote das fixtures: 20–30 convidados, valor fixo (não por convidado). */
+const FAIXA_POCKET = Object.freeze({min:20, max:30, valor:'1500.00'});
+/**
+ * Valor esperado em centavos, calculado aqui de forma independente do sistema: faixa fixa da fixture e desconto da
+ * forma de pagamento com o mesmo arredondamento contratual (meio centavo para cima), em aritmética inteira.
+ */
+function precoEsperado(descontoPercentual) {
+    assert.ok(Number.isInteger(descontoPercentual) && descontoPercentual >= 0 && descontoPercentual <= 100);
+    const centavos = Number(FAIXA_POCKET.valor.replace('.', ''));
+    return Math.floor((centavos * (100 - descontoPercentual) + 50) / 100);
+}
 const FIXTURES = Object.freeze([
     {chave:'F1', empresa:'878a2c39-19e5-4d2a-82a7-223b893352c9', usuario:'11e5006f-68d0-4182-9b12-da048b3f7db8', codigo:'hml-planos-essencial', tipo:'PLANO', plano:'essencial', catalogo:true},
     {chave:'F2', empresa:'d1787a4c-aaeb-4eb6-99a1-9659feb3902f', usuario:'4aa233ad-6c4f-41bb-ae7f-62996c1b5018', codigo:'hml-planos-profissional', tipo:'PLANO', plano:'profissional', catalogo:true},
@@ -41,7 +53,13 @@ function alvo(env) {
     return opcoes;
 }
 function autorizado(argv) {
-    return argv.filter(a => a.startsWith('--')).length === 1 && argv.includes(FLAG);
+    return modo(argv) === 'RODADA';
+}
+/** Exatamente uma flag: a da rodada (O3) ou a do encerramento de execução interrompida. */
+function modo(argv) {
+    const flags = argv.filter(a => a.startsWith('--'));
+    if (flags.length !== 1) return null;
+    return flags[0] === FLAG ? 'RODADA' : flags[0] === FLAG_ENCERRAR ? 'ENCERRAR' : null;
 }
 
 // Matriz de aceite (O4). `null` = qualquer status diferente de 403 RECURSO_FORA_DO_PLANO e < 500.
@@ -72,6 +90,144 @@ function cpfSintetico() {
     }
 }
 
+const URL_WEBHOOK = BASE + '/api/integracoes/asaas/webhook';
+
+/**
+ * O que a rodada comprovadamente criou, só a partir do estado gravado ANTES de cada criação:
+ *  - fixtures do banco: S1 provou que IDs, códigos e e-mails não existiam (`precheck.fixturesLivres`) E a rodada
+ *    registrou a intenção de criá-las (`intencaoFixture`) — vale mesmo se a interrupção ocorreu antes de `fixture`;
+ *  - assinatura sandbox de F1/F2: S1 provou que não havia cliente Asaas com a referência da fixture
+ *    (`precheck.asaasLivre[F]`) E a rodada registrou `intencaoCheckout`; se o cliente já foi salvo, ele tem de conferir;
+ *  - webhook: só se a rodada registrou a intenção de CRIÁ-LO (nome inédito conferido antes); reutilizado nunca.
+ * Sem prova, nada é tocado (colisão, precheck incompleto, estado de outra rodada).
+ */
+function recursosComprovados(r) {
+    const livre = r?.precheck?.fixturesLivres === true;
+    return {
+        fixtures: livre && r.intencaoFixture === true,
+        assinaturas: Object.fromEntries(FIXTURES.filter(f => f.tipo === 'PLANO').map(f =>
+            [f.chave, r?.precheck?.asaasLivre?.[f.chave] === true && r[f.chave]?.intencaoCheckout === true])),
+        webhook: r?.intencaoWebhook === true && r?.webhookReutilizado !== true && typeof r?.webhookNome === 'string' && r.webhookNome.length > 0,
+    };
+}
+
+/**
+ * Encerramento idempotente, usado no `finally` da rodada e no modo de recuperação. Nunca lança: cada etapa registra a
+ * própria falha em `r.falhasEncerramento` e devolve a primeira; o chamador preserva o erro original da rodada.
+ * Só toca recursos de `recursosComprovados(r)`. Nunca apaga linha do banco.
+ */
+async function encerrar({db, conectado, r, p, api, salvar}) {
+    let erro = null;
+    const gravar = () => { try { salvar(); } catch { /* estado em disco indisponível não impede o encerramento */ } };
+    const falhar = (etapa, e) => { erro ??= Object.assign(Error('LIMPEZA_' + etapa), {etapa});
+        r.falhasEncerramento = [...(r.falhasEncerramento ?? []), {etapa, mensagem:String(e?.message ?? e).slice(0, 120)}]; gravar(); };
+    try {
+        if (conectado) await db.query('ROLLBACK').catch(() => {});
+        const prova = recursosComprovados(r);
+        r.encerramento = {inicio:new Date().toISOString(), prova}; gravar();
+        for (const f of FIXTURES.filter(x => x.tipo === 'PLANO')) {
+            if (!prova.assinaturas[f.chave]) { r.encerramento[f.chave] = {acao:'NADA_CRIADO_PELA_RODADA'}; gravar(); continue; }
+            try {
+                const subs = await p.listarAssinaturasPorReferencia(f.empresa); assert.ok(subs.length <= 1, 'SUB_DUPLICADA');
+                const removidas = [];
+                for (const sub of subs) {
+                    assert.equal(sub.externalReference, f.empresa, 'SUB_DE_OUTRA_REFERENCIA');
+                    if (r[f.chave]?.clienteId) assert.equal(sub.customer, r[f.chave].clienteId, 'SUB_DE_OUTRO_CLIENTE');
+                    if (r[f.chave]?.assinaturaId) assert.equal(sub.id, r[f.chave].assinaturaId, 'SUB_DIFERENTE_DA_REGISTRADA');
+                    if (!sub.deleted) { assert.equal((await p.removerAssinatura(sub.id)).removida, true, 'SUB_NAO_REMOVIDA'); removidas.push(sub.id); }
+                }
+                r.encerramento[f.chave] = {acao:'ASSINATURA_ENCERRADA', encontradas:subs.length, removidas:removidas.length}; gravar();
+            } catch (e) { r.limpezaAssinaturaPendente = true; falhar('ASSINATURA_' + f.chave, e); }
+        }
+        try {
+            if (prova.webhook) {
+                if (!r.webhookId) {
+                    const lista = await api('/webhooks?limit=100'); assert.ok(lista && !lista.hasMore, 'WEBHOOKS_PAGINADOS');
+                    const candidatos = lista.data.filter(w => w.name === r.webhookNome && w.url === URL_WEBHOOK);
+                    assert.ok(candidatos.length <= 1, 'WEBHOOK_AMBIGUO'); r.webhookId = candidatos[0]?.id; gravar();
+                }
+                if (r.webhookId) { const w = await api('/webhooks/' + encodeURIComponent(r.webhookId));
+                    if (w) { assert.equal(w.name, r.webhookNome, 'WEBHOOK_DE_OUTRO_NOME'); assert.equal(w.url, URL_WEBHOOK, 'WEBHOOK_DE_OUTRA_URL');
+                        await api('/webhooks/' + encodeURIComponent(r.webhookId), 'DELETE'); } }
+                r.encerramento.webhook = 'ENCERRADO';
+            } else r.encerramento.webhook = 'NADA_CRIADO_PELA_RODADA';
+            r.webhookEncerrado = true; gravar();
+        } catch (e) { r.limpezaWebhookPendente = true; falhar('WEBHOOK', e); }
+        try {
+            if (!prova.fixtures) r.encerramento.fixtures = 'NADA_CRIADO_PELA_RODADA';
+            else if (!conectado) throw Error('BANCO_INDISPONIVEL');
+            else {
+                // Além do ID reservado, cada UPDATE confere o marcador da fixture (nome/e-mail/código).
+                await db.query('BEGIN');
+                await db.query('UPDATE usuarios_administrativos SET ativo=false WHERE id=ANY($1::uuid[]) AND email=ANY($2::text[])', [FIXTURES.map(f => f.usuario), FIXTURES.map(f => f.email)]);
+                await db.query("UPDATE memberships SET status='REVOGADA' WHERE empresa_id=ANY($1::uuid[]) AND usuario_id=ANY($2::uuid[]) AND status<>'REVOGADA'", [IDS_EMPRESAS, FIXTURES.map(f => f.usuario)]);
+                await db.query("UPDATE empresas SET status='DESATIVADA' WHERE id=ANY($1::uuid[]) AND codigo=ANY($2::text[]) AND nome=ANY($3::text[]) AND status<>'DESATIVADA'", [IDS_EMPRESAS, FIXTURES.map(f => f.codigo), FIXTURES.map(f => f.nome)]);
+                await db.query('COMMIT'); r.fixturesDesativadas = true; r.encerramento.fixtures = 'DESATIVADAS';
+            }
+            gravar();
+        } catch (e) { if (conectado) await db.query('ROLLBACK').catch(() => {}); r.limpezaBancoPendente = true; falhar('BANCO', e); }
+    } catch (e) { falhar('ENCERRAMENTO', e); }
+    try { r.encerramento = {...(r.encerramento ?? {}), fim:new Date().toISOString()}; } catch { /* nada */ }
+    gravar();
+    return erro;
+}
+
+/** Erro final da execução: o original da rodada prevalece; falha de limpeza só vira erro se não houve outro. */
+function erroFinal(original, doEncerramento) {
+    return original ?? doEncerramento ?? null;
+}
+
+/** Processo da rodada original ainda vivo? Recuperação nunca roda em paralelo com ela. */
+function processoVivo(pid) {
+    if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) return false;
+    try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+/** Guardas do modo de recuperação: mesmo alvo, sem exigir as chaves de O1 (O5 pode já tê-las desligado). */
+function alvoEncerramento(env) {
+    return alvoEnsaio({...env, ASSINATURA_PLANOS_ATIVOS:'true'});
+}
+
+/**
+ * Recuperação de execução interrompida (queda do Shell, deploy/restart, kill): exige o arquivo de estado da rodada,
+ * recusa se o processo original ainda estiver vivo e repete só o encerramento. Pode ser executada mais de uma vez.
+ */
+async function recuperar() {
+    const opts = alvoEncerramento(process.env);
+    const arquivo = DIR + '/rodada.json';
+    assert.ok(fs.existsSync(arquivo), 'SEM_RODADA_PARA_ENCERRAR');
+    const r = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+    assert.equal(r.empresa, 'homologacao-planos-cotacao-20261010', 'ESTADO_DE_OUTRA_RODADA');
+    assert.ok(!(r.concluido === undefined && processoVivo(r.pid)), 'RODADA_EM_EXECUCAO');
+    const salvar = () => fs.writeFileSync(arquivo, JSON.stringify(r, null, 2), {mode:0o600});
+    r.recuperacoes = [...(r.recuperacoes ?? []), new Date().toISOString()]; salvar();
+    const {Client} = require('pg');
+    const {configuracaoAsaas, criarClienteAsaas} = await import('../lib/assinatura/asaas.ts');
+    const cfg = configuracaoAsaas(); assert.ok(cfg.ligado, 'ASAAS_DESLIGADO'); const p = criarClienteAsaas(cfg.config);
+    const api = async (caminho, method = 'GET') => {
+        assert.ok(/^\/webhooks(\/|\?|$)/.test(caminho));
+        const res = await fetch('https://api-sandbox.asaas.com/v3' + caminho, {method, redirect:'error', signal:AbortSignal.timeout(15000),
+            headers:{access_token:cfg.config.apiKey, 'User-Agent':'kidmais-staging-homologacao', 'Content-Type':'application/json'}});
+        if (res.status === 404 && method === 'GET') return null;
+        if (!res.ok) throw Object.assign(Error('ASAAS_HTTP'), {status:res.status}); return res.json();
+    };
+    const db = new Client(opts); let conectado = false, erro = null;
+    try {
+        await db.connect(); conectado = true; await db.query("SET statement_timeout='15s'");
+        const id = (await db.query("SELECT current_database() AS db, (SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()) AS tls")).rows[0];
+        assert.equal(id.db, 'kidmais_staging_1z91', 'BANCO_S1'); assert.equal(id.tls, true, 'TLS_S1');
+    } catch (e) { conectado = false; erro = e; }
+    // Mesmo sem banco, o encerramento do Asaas roda; o erro de conexão é o original e prevalece.
+    erro = erroFinal(erro, await encerrar({db, conectado, r, p, api, salvar}));
+    await db.end().catch(() => {});
+    r.recuperado = !erro; salvar();
+    console.log(JSON.stringify({resultado:erro ? 'ENCERRAMENTO_INCOMPLETO' : 'ENCERRADO', erro:erro ? String(erro.message).slice(0, 80) : null,
+        prova:r.encerramento?.prova ?? null, fixtures:r.encerramento?.fixtures ?? null, webhook:r.encerramento?.webhook ?? null,
+        assinaturasSandbox:FIXTURES.filter(f => f.tipo === 'PLANO').map(f => ({[f.chave]:r.encerramento?.[f.chave] ?? null})),
+        falhasEncerramento:r.falhasEncerramento ?? []}));
+    if (erro) process.exitCode = 2;
+}
+
 async function main() {
     const opts = alvo(process.env);
     const {Client} = require('pg');
@@ -83,7 +239,7 @@ async function main() {
     fs.mkdirSync(DIR, {recursive:true, mode:0o700});
     const arquivo = DIR + '/rodada.json';
     assert.ok(!fs.existsSync(arquivo), 'RODADA_EXISTENTE_S1');
-    const r = {empresa:'homologacao-planos-cotacao-20261010', inicio:new Date().toISOString(), etapas:[], resultados:{}};
+    const r = {empresa:'homologacao-planos-cotacao-20261010', inicio:new Date().toISOString(), pid:process.pid, etapas:[], resultados:{}};
     const salvar = () => fs.writeFileSync(arquivo, JSON.stringify(r, null, 2), {mode:0o600}); salvar();
     const db = new Client(opts); let conectado = false, erro, etapa = 'PRECHECK';
     const tx = {query: async (t, v) => { const x = await db.query(t, v); return {rows:x.rows, rowCount:x.rowCount}; }};
@@ -113,7 +269,8 @@ async function main() {
         }};
     };
     const publico = async (caminho, method = 'GET', body) => {
-        assert.ok(caminho.startsWith('/api/fechamentos') || caminho.startsWith('/api/disponibilidade') || caminho.startsWith('/b/'));
+        assert.ok(caminho.startsWith('/api/fechamentos') || caminho.startsWith('/api/disponibilidade') || caminho.startsWith('/b/')
+            || caminho.startsWith('/api/identidade/consultar-cpf'));
         const res = await fetch(BASE + caminho, {method, redirect:'manual', signal:AbortSignal.timeout(60000),
             headers:{'Content-Type':'application/json'}, ...(body ? {body:JSON.stringify(body)} : {})});
         const texto = await res.text(); let j = null; try { j = JSON.parse(texto); } catch { /* página HTML */ }
@@ -140,17 +297,25 @@ async function main() {
         const id = (await db.query("SELECT current_database() AS db, (SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()) AS tls")).rows[0];
         assert.equal(id.db, 'kidmais_staging_1z91', 'BANCO_S1'); assert.equal(id.tls, true, 'TLS_S1');
         const schema = (await db.query(`SELECT to_regclass('public.assinatura_isencoes') IS NOT NULL AND to_regclass('public.financeiro_categorias') IS NOT NULL
-            AND to_regprocedure('public.kidmais062_ocupacoes_escopo(date,date)') IS NOT NULL AS ok`)).rows[0];
-        assert.equal(schema.ok, true, 'SCHEMA_S1');
+            AND to_regprocedure('public.kidmais062_ocupacoes_escopo(date,date)') IS NOT NULL
+            AND to_regclass('public.clientes_cpf_empresa_canonico_uk') IS NOT NULL AND to_regclass('public.clientes_cpf_canonico_uk') IS NULL
+            AND to_regclass('public.empresa_regras_pagamento') IS NOT NULL AS ok`)).rows[0];
+        assert.equal(schema.ok, true, 'SCHEMA_S1'); // 076 e 077 aplicadas em O3
         const ocupado = (await db.query(`SELECT EXISTS(SELECT 1 FROM empresas WHERE id=ANY($1::uuid[]) OR codigo=ANY($2::text[]))
             OR EXISTS(SELECT 1 FROM usuarios_administrativos WHERE id=ANY($3::uuid[]) OR email=ANY($4::text[])) AS ocupado`,
             [IDS_EMPRESAS, FIXTURES.map(f => f.codigo), FIXTURES.map(f => f.usuario), FIXTURES.map(f => f.email)])).rows[0];
         assert.equal(ocupado.ocupado, false, 'FIXTURE_PREEXISTENTE_S1');
-        for (const f of FIXTURES.filter(x => x.tipo === 'PLANO')) assert.equal(await p.buscarClientePorReferencia(f.empresa), null, 'CLIENTE_ASAAS_PREEXISTENTE_S1');
+        // Prova de autoria para o encerramento: só depois de S1 aprovar, gravada ANTES de qualquer criação.
+        r.precheck = {fixturesLivres:true, asaasLivre:{}}; salvar();
+        for (const f of FIXTURES.filter(x => x.tipo === 'PLANO')) {
+            assert.equal(await p.buscarClientePorReferencia(f.empresa), null, 'CLIENTE_ASAAS_PREEXISTENTE_S1');
+            assert.equal((await p.listarAssinaturasPorReferencia(f.empresa)).length, 0, 'ASSINATURA_ASAAS_PREEXISTENTE_S1');
+            r.precheck.asaasLivre[f.chave] = true; salvar();
+        }
         r.antes = await preservacao(); r.kidmaisAntes = await kidmaisPublico(); salvar();
 
         // ---- Fixtures (uma transação). Nenhuma linha de outra empresa é tocada.
-        marcar('FIXTURES'); await db.query('BEGIN');
+        marcar('FIXTURES'); r.intencaoFixture = true; salvar(); await db.query('BEGIN');
         for (const f of FIXTURES) {
             const doc = documento(); assert.notEqual(doc, KIDMAIS_CNPJ);
             await db.query("INSERT INTO empresas(id,codigo,nome,status) VALUES($1,$2,$3,'PROVISIONAMENTO')", [f.empresa, f.codigo, f.nome]);
@@ -178,7 +343,7 @@ async function main() {
             const ctx = () => ({empresaId:f.empresa, usuarioId:f.usuario, requestId:randomUUID(), motivo:'PACOTE_EDITADO'});
             const pacote = (await db.query(`INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente, convidados_minimos, convidados_maximos)
                 VALUES ($1, 'POCKET', 'Pocket homologação', 1, true, true, 20, 30) RETURNING id`, [f.empresa])).rows[0].id;
-            await db.query('BEGIN'); await precos.gravarFaixasPacote(tx, f.empresa, pacote, [{convidadosMin:20, convidadosMax:30, valor:'1500.00'}], {minimo:20, maximo:30}, ctx()); await db.query('COMMIT');
+            await db.query('BEGIN'); await precos.gravarFaixasPacote(tx, f.empresa, pacote, [{convidadosMin:FAIXA_POCKET.min, convidadosMax:FAIXA_POCKET.max, valor:FAIXA_POCKET.valor}], {minimo:FAIXA_POCKET.min, maximo:FAIXA_POCKET.max}, ctx()); await db.query('COMMIT');
             await db.query('BEGIN'); await pacotesAdmin.definirDisponibilidadePacoteAdmin(tx, pacote, {disponibilidade:[1,2,3,4,5,6,7].flatMap(dia => horarios.map(horarioId => ({dia, horarioId})))}, ctx()); await db.query('COMMIT');
         }
         r.catalogo = true; salvar();
@@ -256,6 +421,9 @@ async function main() {
         const cotacao = await publico('/api/fechamentos/cotacao' + q(F2.codigo), 'POST', {pacote:'pocket', dataFesta:horario.data, horarioBase:horario.base, ajusteHorario:'0',
             horarioInicio:horario.inicio, horarioFim:horario.fim, convidados:20});
         conferir('cotacao.valor', cotacao.status, 200);
+        // Preço conferido de forma independente (faixa da fixture em centavos), sem usar o cálculo do sistema.
+        conferir('preco.cotacao.tabela', Math.round(Number(cotacao.j.data.valorTabela) * 100), precoEsperado(0));
+        conferir('preco.cotacao.aplicado', Math.round(Number(cotacao.j.data.valor) * 100), precoEsperado(0));
         const cpf = cpfSintetico();
         const pedido = (codigo, extra = {}) => publico('/api/fechamentos' + q(codigo), 'POST', {identidadeTipo:'NOVO_CLIENTE', dataFesta:horario.data, horarioBase:horario.base,
             ajusteHorario:'0', horarioInicio:horario.inicio, horarioFim:horario.fim, statusDisponibilidade:'disponivel', pacote:'pocket', convidadosPagantes:20,
@@ -265,14 +433,32 @@ async function main() {
             nomeAniversariante:'Aniversariante Sintético', idadeAniversariante:5, observacoesCliente:'Pedido sintético de homologação 20261010', ...extra});
         const p1 = await pedido(F2.codigo); c.pedidoF2 = p1.status; conferir('cotacao.pedidoF2', p1.status, 201);
         conferir('cotacao.pedidoF2.semCrm', p1.j.crm, undefined);
-        conferir('cotacao.pedidoF2.empresa', (await db.query('SELECT empresa_id::text e FROM fechamentos WHERE id=$1', [p1.j.fechamentoId])).rows[0]?.e, F2.empresa);
-        // Mesmo CPF em outra empresa (F4): mesma resposta pública; cadastro novo sem CPF.
+        const f1 = (await db.query("SELECT empresa_id::text e, condicao_pagamento->>'descontoPercentual' AS desconto FROM fechamentos WHERE id=$1", [p1.j.fechamentoId])).rows[0];
+        conferir('cotacao.pedidoF2.empresa', f1?.e, F2.empresa);
+        conferir('cotacao.pedidoF2.regraPagamentoNeutra', f1?.desconto, '0'); // 077: F2 sem linha de regras = sem desconto automático
+        const valoresF2 = (await db.query('SELECT valor_tabela::text AS tabela FROM fechamentos WHERE id=$1', [p1.j.fechamentoId])).rows[0];
+        conferir('preco.fechamentoF2.tabela', Math.round(Number(valoresF2?.tabela) * 100), precoEsperado(0));
+        conferir('preco.fechamentoF2.contratoPixAvista', precoEsperado(Number(f1?.desconto)), precoEsperado(0)); // sem desconto: 1.500,00
+        // Identidade por empresa: o CPF do cliente de F2 é visto só em F2; nem F4 nem o endereço atual (Kidmais) o enxergam.
+        const consultaCpf = async codigo => (await publico('/api/identidade/consultar-cpf' + (codigo ? q(codigo) : ''), 'POST', {cpf})).j?.situacao;
+        c.identidadeF2 = await consultaCpf(F2.codigo); conferir('identidade.F2', c.identidadeF2, 'CLIENTE_EXISTENTE');
+        c.identidadeF4 = await consultaCpf(F4.codigo); conferir('identidade.F4', c.identidadeF4, 'NOVO_CLIENTE');
+        c.identidadeKidmais = await consultaCpf(null); conferir('identidade.enderecoAtual', c.identidadeKidmais, 'NOVO_CLIENTE');
+        // Mesmo CPF em outra empresa (F4): mesma resposta pública; com a 076, cadastro de F4 com o próprio CPF.
         const p2 = await pedido(F4.codigo); c.pedidoF4MesmoCpf = p2.status; conferir('cotacao.pedidoF4', p2.status, 201);
         conferir('cotacao.pedidoF4.chaves', JSON.stringify(Object.keys(p2.j).sort()), JSON.stringify(Object.keys(p1.j).sort()));
         const cli = (await db.query('SELECT c.empresa_id::text e, c.cpf FROM fechamentos f JOIN clientes c ON c.id=f.cliente_id WHERE f.id=$1', [p2.j.fechamentoId])).rows[0];
-        conferir('cotacao.pedidoF4.empresa', cli.e, F4.empresa); conferir('cotacao.pedidoF4.cpfOmitido', cli.cpf, null);
+        conferir('cotacao.pedidoF4.empresa', cli.e, F4.empresa); conferir('cotacao.pedidoF4.cpfPorEmpresa', cli.cpf, cpf);
+        // Cliente existente com prova inválida: recusado antes de gravar (4xx, ou 503 se o OTP estiver desligado em staging).
+        const antesF2 = (await db.query('SELECT count(*)::int n FROM fechamentos WHERE empresa_id=$1', [F2.empresa])).rows[0].n;
         const p3 = await pedido(F2.codigo, {identidadeTipo:'CLIENTE_EXISTENTE', provaIdentidade:'p'.repeat(40)});
-        c.clienteExistente = p3.status; conferir('cotacao.clienteExistente', p3.j.codigo, 'IDENTIDADE_NAO_DISPONIVEL');
+        c.clienteExistenteProvaInvalida = p3.status; conferir('cotacao.clienteExistente.recusado', p3.status >= 400 && p3.status !== 201, true);
+        conferir('cotacao.clienteExistente.semGravacao', (await db.query('SELECT count(*)::int n FROM fechamentos WHERE empresa_id=$1', [F2.empresa])).rows[0].n, antesF2);
+        // Cabeçalho da página por empresa: nome próprio, ícone neutro, sem logo da Kidmais no HTML renderizado.
+        const html = await fetch(BASE + '/b/' + F2.codigo + '/fechamento', {redirect:'manual', signal:AbortSignal.timeout(60000)}).then(x => x.text());
+        conferir('marca.semLogoKidmais', /kidmais-logo-horizontal/.test(html), false);
+        conferir('marca.iconeNeutro', html.includes('/icone-orcamento.svg'), true);
+        conferir('marca.titulo', /<title>Orçamento da festa<\/title>/.test(html), true);
 
         // ---- Endereço atual da Kidmais e demais empresas inalterados (S3).
         marcar('PRESERVACAO');
@@ -282,38 +468,29 @@ async function main() {
         for (const [tabela] of PRESERVADAS) if (r.depois[tabela] !== r.antes[tabela]) throw Object.assign(Error('PRESERVACAO_S3'), {parada:'S3', tabela});
         r.aprovado = true; salvar();
     } catch (e) {
-        erro = e; r.falha = {etapa, parada:e.parada ?? null, item:e.item ?? e.tabela ?? null, http:e.status ?? null, mensagem:String(e.message).slice(0, 120)}; salvar();
+        // Erro original da rodada: registrado antes do encerramento e preservado como resultado final.
+        erro = e ?? Error('FALHA_DESCONHECIDA');
+        r.falha = {etapa, parada:e?.parada ?? null, item:e?.item ?? e?.tabela ?? null, http:e?.status ?? null, mensagem:String(e?.message ?? e).slice(0, 120)};
+        try { salvar(); } catch { /* o encerramento roda mesmo sem gravar o estado */ }
         console.error(JSON.stringify(r.falha));
     } finally {
-        // ---- Encerramento (O5): assinaturas sandbox, webhook só se criado pela rodada, fixtures desativadas.
-        if (conectado) await db.query('ROLLBACK').catch(() => {});
-        for (const f of FIXTURES.filter(x => x.tipo === 'PLANO')) {
-            try { if (r[f.chave]?.intencaoCheckout) { const subs = await p.listarAssinaturasPorReferencia(f.empresa); assert.ok(subs.length <= 1, 'SUB_DUPLICADA');
-                for (const sub of subs) { assert.equal(sub.externalReference, f.empresa); if (!sub.deleted) assert.equal((await p.removerAssinatura(sub.id)).removida, true); }
-                r[f.chave].cancelada = true; salvar(); } }
-            catch { r.limpezaAssinaturaPendente = true; erro ??= Error('LIMPEZA_ASSINATURA'); salvar(); }
-        }
-        try { if (r.intencaoWebhook && r.webhookId) { const w = await api('/webhooks/' + encodeURIComponent(r.webhookId));
-                if (w) { assert.equal(w.name, r.webhookNome); await api('/webhooks/' + encodeURIComponent(r.webhookId), 'DELETE'); } }
-            r.webhookEncerrado = true; salvar(); }
-        catch { r.limpezaWebhookPendente = true; erro ??= Error('LIMPEZA_WEBHOOK'); salvar(); }
-        try { if (conectado && r.fixture) { await db.query('BEGIN');
-                await db.query('UPDATE usuarios_administrativos SET ativo=false WHERE id=ANY($1::uuid[])', [FIXTURES.map(f => f.usuario)]);
-                await db.query("UPDATE memberships SET status='REVOGADA' WHERE empresa_id=ANY($1::uuid[]) AND usuario_id=ANY($2::uuid[]) AND status<>'REVOGADA'", [IDS_EMPRESAS, FIXTURES.map(f => f.usuario)]);
-                await db.query("UPDATE empresas SET status='DESATIVADA' WHERE id=ANY($1::uuid[]) AND status<>'DESATIVADA'", [IDS_EMPRESAS]);
-                await db.query('COMMIT'); r.fixturesDesativadas = true; salvar(); } }
-        catch { await db.query('ROLLBACK').catch(() => {}); r.limpezaBancoPendente = true; erro ??= Error('LIMPEZA_BANCO'); salvar(); }
+        // ---- Encerramento: SEMPRE roda (sucesso, falha ou parada), só sobre recursos comprovados; nunca lança.
+        erro = erroFinal(erro, await encerrar({db, conectado, r, p, api, salvar}));
         await db.end().catch(() => {});
     }
-    r.concluido = !erro; salvar();
+    r.concluido = !erro; try { salvar(); } catch { /* idem */ }
     console.log(JSON.stringify({resultado:erro ? 'INCOMPLETO' : 'PASS', falha:r.falha ?? null, resultados:r.resultados,
-        fixturesDesativadas:r.fixturesDesativadas ?? false, assinaturasCanceladas:FIXTURES.filter(f => r[f.chave]?.cancelada).map(f => f.chave),
-        webhookEncerrado:r.webhookEncerrado ?? false}));
+        prova:r.encerramento?.prova ?? null, fixtures:r.encerramento?.fixtures ?? null, webhook:r.encerramento?.webhook ?? null,
+        assinaturasSandbox:FIXTURES.filter(f => f.tipo === 'PLANO').map(f => ({[f.chave]:r.encerramento?.[f.chave] ?? null})),
+        falhasEncerramento:r.falhasEncerramento ?? []}));
     if (erro) process.exitCode = 2;
 }
 
 if (require.main === module) {
-    if (!autorizado(process.argv.slice(2))) { console.error('AGUARDANDO_AUTORIZACAO_O3'); process.exitCode = 1; }
-    else main().catch(() => { console.error('HOMOLOGACAO_RECUSADA_ANTES_DAS_MUTACOES'); process.exitCode = 1; });
+    const m = modo(process.argv.slice(2));
+    if (m === 'RODADA') main().catch(() => { console.error('HOMOLOGACAO_RECUSADA_ANTES_DAS_MUTACOES'); process.exitCode = 1; });
+    else if (m === 'ENCERRAR') recuperar().catch(e => { console.error(String(e?.message ?? 'RECUPERACAO_RECUSADA').slice(0, 80)); process.exitCode = 1; });
+    else { console.error('AGUARDANDO_AUTORIZACAO_O3'); process.exitCode = 1; }
 }
-module.exports = {FIXTURES, PRESERVADAS, FINANCEIRO, sqlPreservacao, alvo, autorizado, conferir, cpfSintetico, projecaoAgenda, BASE, DIR, FLAG};
+module.exports = {FIXTURES, PRESERVADAS, FINANCEIRO, sqlPreservacao, alvo, alvoEncerramento, autorizado, modo, processoVivo, encerrar,
+    recursosComprovados, erroFinal, conferir, cpfSintetico, projecaoAgenda, precoEsperado, BASE, DIR, FLAG, FLAG_ENCERRAR};

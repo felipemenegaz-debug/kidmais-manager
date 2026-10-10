@@ -63,6 +63,7 @@ export default function CalendarioDisponibilidade({
   onConfigChange,
   consultar,
   empresa = null,
+  descontoDiaUtil,
 }: {
   pacote: PacoteId;
   horario: HorarioBase;
@@ -77,8 +78,11 @@ export default function CalendarioDisponibilidade({
   consultar?: ConsultaAgendaMes;
   /** Código público da empresa (/b/<código>); ausente = endereço atual. */
   empresa?: string | null;
+  /** Regra do selo -15% vinda da tela (regras do servidor); ausente = a da marca. */
+  descontoDiaUtil?: boolean;
 }) {
   const marca = useMarcaPublica();
+  const diaUtil = descontoDiaUtil ?? marca.pagamento.descontoDiaUtil;
   const consultarAgenda = useMemo<ConsultaAgendaMes>(() => consultar ?? ((inicio, fim) => consultaPublica(inicio, fim, empresa)), [consultar, empresa]);
   const agora = new Date();
   const [mes, setMes] = useState(agora.getMonth());
@@ -233,7 +237,8 @@ export default function CalendarioDisponibilidade({
       config,
       pacote,
       data,
-      horario
+      horario,
+      diaUtil,
     );
 
     onSelecionar(
@@ -284,7 +289,7 @@ export default function CalendarioDisponibilidade({
   }
 
   const temAlgumBeneficioPadrao =
-    pacoteTemDescontoDiaUtil(pacote);
+    diaUtil && pacoteTemDescontoDiaUtil(pacote);
 
   return (
     <div className={styles.calendarWrap} data-calendario-disponibilidade>
@@ -398,7 +403,8 @@ export default function CalendarioDisponibilidade({
                   config,
                   pacote,
                   data,
-                  horario
+                  horario,
+                  diaUtil,
                 )
               : {
                   ativo: false,

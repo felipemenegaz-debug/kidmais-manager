@@ -42,11 +42,13 @@ export function descontoPersonalizadoDaData(
   );
 }
 
+/** `automatico = false`: empresa sem a regra de -15% de segunda a quinta (só descontos manuais da data). */
 export function descontoEfetivo(
   config: DisponibilidadeConfig,
   pacote: PacoteId | "",
   dataIso: string,
-  horario: "almoco" | "noite" | ""
+  horario: "almoco" | "noite" | "",
+  automatico = true,
 ) {
   const personalizado = descontoPersonalizadoDaData(
     config,
@@ -72,15 +74,16 @@ export function descontoEfetivo(
     };
   }
 
-  const automatico =
+  const diaUtil =
+    automatico &&
     pacoteTemDescontoDiaUtil(pacote) &&
     ehSegundaAQuinta(dataIso);
 
   return {
-    ativo: automatico,
-    percentual: automatico ? DESCONTO_DIA_UTIL : 0,
-    origem: automatico ? ("dia_util" as const) : ("nenhum" as const),
-    titulo: automatico
+    ativo: diaUtil,
+    percentual: diaUtil ? DESCONTO_DIA_UTIL : 0,
+    origem: diaUtil ? ("dia_util" as const) : ("nenhum" as const),
+    titulo: diaUtil
       ? "15% de desconto de segunda a quinta"
       : "",
   };

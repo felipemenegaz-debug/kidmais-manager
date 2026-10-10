@@ -120,7 +120,6 @@ test('rotas públicas: toda leitura/gravação de cotação passa pelo resolvedo
     }
     const post = fonte('app/api/fechamentos/route.ts');
     assert.match(post, /escopoCotacaoPublica\(db, codigoEmpresaDoPedido\(request\.nextUrl\), \{ escrita: true \}\)/);
-    assert.match(post, /escopo\.porCodigo && dados\.data\.identidadeTipo !== "NOVO_CLIENTE"/);
     const agenda = fonte('app/api/disponibilidade/route.ts');
     assert.match(agenda, /codigo === null\s*\?\s*await escopoPublico\(db\)\s*:\s*await escopoCotacaoPublica\(db, codigo\)/);
     assert.match(agenda, /codigo === null \? lerComercialPublico\(\) : Promise\.resolve\(\{ pacoteOverrides: \[\], descontos: \[\] \}\)/);

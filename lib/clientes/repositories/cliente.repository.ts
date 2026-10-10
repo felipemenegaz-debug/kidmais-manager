@@ -134,41 +134,68 @@ export async function buscarClienteCanonicoPorCpf(
 }
 
 /**
- * Busca global por CPF, só para a prova de identidade pública (lib/identidade), que ainda não
- * tem Tenant Context: enquanto o índice clientes_cpf_canonico_uk for global (até o PR-B2), o
- * CPF identifica no máximo um cliente canônico. Não usar em CRM, cadastro ou deduplicação.
+ * Escopo da identidade pública: a empresa do endereço (resolvida no servidor, nunca do corpo do pedido).
+ * `incluirLegadoSemEmpresa` só no endereço atual da instalação: clientes anteriores à 054 (sem empresa)
+ * nasceram nela. Endereço de outra empresa nunca enxerga legado nem cliente de terceiros.
+ */
+export type EscopoIdentidade =
+  | { empresaId: string; incluirLegadoSemEmpresa: boolean }
+  /** Aceite de contrato: só o cliente canônico do próprio contrato. */
+  | { clienteId: string };
+
+/**
+ * Busca por CPF só para a prova de identidade pública (lib/identidade), dentro da empresa do endereço.
+ * Antes e depois da 076 (CPF único por empresa) o resultado é no máximo um cliente da empresa; cadastro da
+ * própria empresa tem prioridade sobre legado. Não usar em CRM, cadastro ou deduplicação.
  */
 export async function buscarClienteCanonicoPorCpfParaIdentidade(
   cpf: string,
+  escopo: EscopoIdentidade,
   customDb?: DbExecutor,
 ): Promise<ClienteRecord | null> {
   const normalized = normalizarCpf(cpf);
   if (!normalized) return null;
+  if (escopo && "clienteId" in escopo) {
+    if (!escopo.clienteId) return null;
+    const porCliente = await executor(customDb).query<ClienteRow>(
+      `SELECT ${clienteColumns} FROM clientes WHERE cpf = $1 AND status <> 'MESCLADO' AND id = $2::uuid LIMIT 1`,
+      [normalized, escopo.clienteId],
+    );
+    return porCliente.rows[0] ? mapCliente(porCliente.rows[0]) : null;
+  }
+  if (!escopo?.empresaId) return null;
 
   const result = await executor(customDb).query<ClienteRow>(
     `SELECT ${clienteColumns}
        FROM clientes
       WHERE cpf = $1
         AND status <> 'MESCLADO'
+        AND (empresa_id = $2::uuid OR ($3::boolean AND empresa_id IS NULL))
+      ORDER BY (empresa_id IS NULL), id
       LIMIT 1`,
-    [normalized],
+    [normalized, escopo.empresaId, escopo.incluirLegadoSemEmpresa === true],
   );
   return result.rows[0] ? mapCliente(result.rows[0]) : null;
 }
 
 /**
- * Só existência, para o fechamento público por endereço de empresa decidir se grava o CPF sem violar o índice
- * global (PR-B2). O resultado nunca sai na resposta pública nem identifica a empresa dona do cadastro.
+ * Só existência, para o fechamento público por endereço de empresa decidir se grava o CPF: true apenas enquanto
+ * o índice global da 002 existir (antes da 076) E o CPF estiver em cadastro de OUTRA empresa ou legado.
+ * Depois da 076 é sempre false (o CPF de outra empresa não conflita). Nunca sai na resposta pública.
  */
-export async function cpfCanonicoEmUso(cpf: string, customDb?: DbExecutor): Promise<boolean> {
+export async function cpfBloqueadoPorOutraEmpresa(cpf: string, empresaId: string, customDb?: DbExecutor): Promise<boolean> {
   const normalized = normalizarCpf(cpf);
   if (!normalized) return false;
-  const result = await executor(customDb).query<{ em_uso: boolean }>(
-    `SELECT EXISTS(SELECT 1 FROM clientes WHERE cpf = $1 AND status <> 'MESCLADO') AS em_uso`,
-    [normalized],
+  const result = await executor(customDb).query<{ bloqueado: boolean }>(
+    `SELECT to_regclass('public.clientes_cpf_canonico_uk') IS NOT NULL
+        AND EXISTS(SELECT 1 FROM clientes WHERE cpf = $1 AND status <> 'MESCLADO' AND empresa_id IS DISTINCT FROM $2::uuid) AS bloqueado`,
+    [normalized, empresaId],
   );
-  return result.rows[0]?.em_uso === true;
+  return result.rows[0]?.bloqueado === true;
 }
+
+/** Nomes do índice de CPF canônico: global (002, até a 076) e por empresa (076). */
+export const INDICES_CPF_CANONICO = ["clientes_cpf_canonico_uk", "clientes_cpf_empresa_canonico_uk"] as const;
 
 export async function buscarClientesPorContatoExato(
   contato: string,

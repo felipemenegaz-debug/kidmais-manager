@@ -128,7 +128,31 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
           {dados.artes.length > 0 && <><p>Imagens da festa</p><div className={ui.galeria}>{dados.artes.map((a, n) => <div key={a.id} className={ui.arteItem}><button className={ui.arteSelecionar} type="button" aria-label={`Selecionar imagem ${n + 1}`} aria-pressed={conteudo.arteId === a.id} onClick={() => campo('arteId', a.id)}><img src={a.url} alt={`Imagem ${n + 1} da festa`} /><span>{conteudo.arteId === a.id ? 'Selecionada' : 'Usar imagem'}</span></button><button type="button" className={ui.excluir} aria-label={`Excluir imagem ${n + 1}`} onClick={() => { setErro(''); setArteExcluir(a); }}>Excluir imagem</button></div>)}</div>{conteudo.arteId && <button type="button" className={ui.linkBotao} onClick={() => { campo('arteId', null); setAviso('Imagem removida da composição. Salve o rascunho ou publique para aplicar.'); }}>Remover imagem do convite</button>}<small>Remover do convite mantém o arquivo na galeria. Excluir imagem apaga o arquivo desta festa.</small></>}
           <ConviteVisual conteudo={conteudo} arte={arte} ui={ui} busy={busy} mudar={v => campo('visual', v)} extrair={() => void extrairCores()} />
         </fieldset>
-        <fieldset disabled={busy} className={ui.painel}><legend>02 · Conte a sua festa</legend><div className={ui.campos}>{campos.map(([k, label]) => <label key={k}>{label}<input type={k === 'data' ? 'date' : k === 'horario' ? 'time' : 'text'} value={conteudo[k]} maxLength={k === 'endereco' ? 240 : k === 'local' ? 120 : k === 'idade' ? 20 : 80} onChange={e => campo(k, e.target.value)} /></label>)}</div><label>Mensagem<textarea rows={3} maxLength={400} value={conteudo.mensagem} onChange={e => campo('mensagem', e.target.value)} /></label><label className={ui.check}><input type="checkbox" checked={conteudo.confirmarPresenca} onChange={e => campo('confirmarPresenca', e.target.checked)} />Receber confirmações de presença</label><small>Alterar os textos não consome créditos.</small></fieldset>
+        <fieldset disabled={busy} className={ui.painel}>
+          <legend>02 · Conte a sua festa</legend>
+          <div className={ui.campos}>
+            {campos.map(([k, label]) => (
+              <label key={k}>
+                {label}
+                <input
+                  type={k === 'data' ? 'date' : k === 'horario' ? 'time' : 'text'}
+                  value={conteudo[k]}
+                  maxLength={k === 'endereco' ? 240 : k === 'local' ? 120 : k === 'idade' ? 20 : 80}
+                  onChange={e => campo(k, e.target.value)}
+                />
+              </label>
+            ))}
+          </div>
+          <label>
+            Mensagem
+            <textarea rows={3} maxLength={400} value={conteudo.mensagem} onChange={e => campo('mensagem', e.target.value)} />
+          </label>
+          <label className={ui.check}>
+            <input type="checkbox" checked={conteudo.confirmarPresenca} onChange={e => campo('confirmarPresenca', e.target.checked)} />
+            Receber confirmações de presença
+          </label>
+          <small>Alterar os textos não consome créditos.</small>
+        </fieldset>
         <details className={ui.painel}><summary>Crie uma arte com IA <span>Opcional · 1 crédito</span></summary><p>Descreva o visual. Nome, data e endereço serão colocados pelo editor.</p><textarea aria-label="Descreva a arte do convite" rows={4} maxLength={3000} value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Uma festa no espaço, com planetas em aquarela e tons de azul…" disabled={busy} />
           {!!dados.artes.length && <><p>Referências: escolha até duas artes anexadas.</p><div className={ui.artes}>{dados.artes.map(a => <button key={a.id} disabled={busy || (!referencias.includes(a.id) && referencias.length >= 2)} type="button" aria-label="Usar arte como referência" aria-pressed={referencias.includes(a.id)} onClick={() => setReferencias(refs => refs.includes(a.id) ? refs.filter(id => id !== a.id) : [...refs, a.id])}><img src={a.url} alt="Referência" /></button>)}</div></>}
           <button className={ui.primario} disabled={busy || !dados.iaDisponivel || dados.disponiveis < 1 || prompt.trim().length < 5} onClick={() => void gerar()}>{busy ? 'Processando…' : 'Gerar arte · 1 crédito'}</button>

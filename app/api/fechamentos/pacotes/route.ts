@@ -6,6 +6,7 @@ import { PACOTES_CONTRATAVEIS_V1 } from "@/lib/comercial/pacotes-v1";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { limitarPublico } from "@/lib/http/limite-publico";
 import { lerPrecosCorrentes } from "@/lib/comercial/pacote-precos";
+import { lerRegrasPagamento } from "@/lib/comercial/regras-pagamento";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +34,8 @@ export async function GET(request: NextRequest) {
         precoMinimo: precoMinimo(precos.pacotes.filter((p) => p.pacoteId === pacote.id)),
       });
     }
-    return NextResponse.json({ pacotes }, { headers: { "Cache-Control": "no-store" } });
+    // Regras de pagamento da empresa do endereço (077); null = antes da 077 (a tela usa o legado, como o servidor).
+    const pagamento = await lerRegrasPagamento(db(), escopo.empresaId).catch(() => null);
+    return NextResponse.json({ pacotes, pagamento }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return apiErrorResponse(error); }
 }
