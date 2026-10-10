@@ -89,7 +89,8 @@ C1–C3 ok (bancos `[]`); **C4 exit 0, `resultado: PASS`** em 6 s; C4b só o ban
 ### Defeito de produto encontrado (bloqueia a cotação por empresa em produção)
 
 - `components/fechamento/FechamentoWizard.tsx` (≈ linha 1378) renderiza sempre `PACOTES_FECHAMENTO_V1` (`components/fechamento/data.ts`), o catálogo fixo da Kidmais, em qualquer `/b/<código>`. A API pública da empresa devolve só o pacote dela; o vazamento é da tela. As rodadas de staging conferiam a API, não a tela.
-- Mesmo arquivo: `CONTATO_KIDMAIS` (WhatsApp, site) usado em ≈ 1301, 2373 e 2965–2966 sem a guarda `!empresa` presente só em ≈ 1447 — provável exibição do contato da Kidmais a clientes de outro buffet nas etapas seguintes (achado de código; não exercitado na tela).
+- ~~Contato da Kidmais sem guarda~~ — **revisado: incorreto.** Os usos de `CONTATO_KIDMAIS` já estavam atrás de `marca.kidmais` ou `!empresa`; o problema real era a empresa ficar sem contato próprio.
+- **Corrigido no código `412654a`**; repetição de N14–N16 em [pacote próprio](../NAVEGADOR_LOCAL_N14_N16_20261010.md), aguardando aprovação.
 
 ## Encerramento
 
