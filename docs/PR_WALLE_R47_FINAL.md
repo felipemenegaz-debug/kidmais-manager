@@ -1,12 +1,16 @@
 # PR nova — texto final (não publicada)
 
 - **Base:** `staging`
-- **Head:** `whatsapp/walle-r47-textos-limite-20261010` (a partir de `62497b1`, que segue preservada; contém `e66f727` e o
-  staging local `6de4442` integrado)
+- **Head:** `whatsapp/walle-r47-integra-cf1b9e7-20261010` (a partir de `1fed2e0`, que segue preservada, com o staging
+  `cf1b9e7` integrado)
 - **SHA candidato:** o SHA exato e os gates ficam no relatório de gates da correção (fora do diff: um documento não registra o
   próprio SHA); `aeedb19` e `5b428a7` preservados.
 
 > Push permanece fora do escopo. Leia os bloqueadores do relatório final de gates.
+>
+> **Bloqueio de numeração:** o staging remoto lido às 08:44Z de 10/10 (`57d0e71`, posterior ao `cf1b9e7` integrado) criou
+> `20261010_076_cpf_por_empresa` e `20261010_077_regras_pagamento_empresa`. As 076 e 077 desta PR colidem com elas: renumerar
+> as migrations do atendimento e integrar `57d0e71` antes de qualquer push.
 >
 > Staging `138910a` foi integrado localmente sem conflitos. Gates anteriores abaixo são históricos; os gates novos usam o SHA final.
 
@@ -49,8 +53,9 @@ Inclui:
   076, o staging andou e a lista mudou. Só um E2a novo e datado, contra o commit final, define o que falta.
 - **Migrations a aplicar:** somente as desta entrega (060, 065, 076, 077 e 078) que esse E2a novo mostrar ausentes —
   nunca um intervalo ("060–078" incluiria migrations que não são desta PR).
-- **Números livres não são reserva.** 076–078 estavam livres na última leitura local; isso não comprova reserva entre
-  sessões. Reconferir antes do push e antes de aplicar.
+- **Números livres não são reserva.** 076–078 estavam livres na leitura de 05:20Z (`cf1b9e7`); às 08:44Z o staging
+  (`57d0e71`) já usava 076 e 077 para outras migrations. Os números desta PR precisam ser renumerados e reconferidos antes
+  do push e antes de aplicar.
 
 | Migration | Conteúdo | Relação com a #80 / fase B |
 |---|---|---|
@@ -201,5 +206,11 @@ A integração local incorporou `staging` em `138910a8cc80a1d43a68e84f6c6e166a4f
 - Achado P1 (pausa × limite diário) e M1 (limite em silêncio) corrigidos nesta branch; B2 (comentário da barreira), B3
   (registro dos códigos de saída) e B5 (origem da marca) tratados; B1 documentado acima; demais achados LOW/INFO seguem
   registrados.
-- Staging local `6de4442` integrado sem conflito (sem fetch); o remoto pode ter andado — reler antes do push.
+- Staging `cf1b9e7` (lido no GitHub às 05:20Z) integrado sem conflito em `whatsapp/walle-r47-integra-cf1b9e7-20261010`;
+  conferidos AdminShell (permissão `financeiroCompleto` + ícone do Atendimento), navegação (Atendimento em Operação; o
+  filtro de plano só esconde contas a pagar, fluxo e relatórios) e regras de arquitetura (composition roots do WhatsApp e
+  barreira de plano convivem). O Atendimento não depende de plano nesta PR.
+- **Colisão de migrations:** o staging remoto avançou para `57d0e71` com 076 (`cpf_por_empresa`) e 077
+  (`regras_pagamento_empresa`). Antes do push: renumerar 076–078 do atendimento para números livres nessa leitura,
+  integrar `57d0e71`, repetir os gates. Números livres continuam não sendo reserva entre sessões.
 - Sem push, merge remoto, deploy, migrations persistentes ou envio real.
