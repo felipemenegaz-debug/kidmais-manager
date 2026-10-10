@@ -219,4 +219,11 @@ test('preço independente: faixa fixa da fixture em centavos e desconto com arre
     assert.throws(() => h.precoEsperado(2.5));
     assert.match(fonte, /conferir\('preco\.cotacao\.tabela', Math\.round\(Number\(cotacao\.j\.data\.valorTabela\) \* 100\), precoEsperado\(0\)\)/);
     assert.match(fonte, /conferir\('preco\.fechamentoF2\.tabela'/);
+    // Contrato: gerado pela API real e valor final GRAVADO na versão comparado ao esperado independente.
+    assert.match(fonte, /s\.F2\.post\('\/api\/admin\/contratos', \{fechamentoId:p1\.j\.fechamentoId\}\)/);
+    assert.match(fonte, /conferir\('contrato\.F2\.gerado', contratoF2\.status, 201\)/);
+    assert.match(fonte, /v\.snapshot->'comercial'->>'valorFinalContrato' AS final/);
+    assert.match(fonte, /conferir\('preco\.contratoF2\.valorFinal', Math\.round\(Number\(versaoF2\?\.final\) \* 100\), precoEsperado\(0\)\)/);
+    assert.doesNotMatch(fonte, /contratoPixAvista', precoEsperado\(Number/, 'sem comparação do esperado com ele mesmo');
+    assert.notEqual(h.precoEsperado(0), h.precoEsperado(10), 'o esperado distingue regra da empresa (0%) do legado (10%)');
 });

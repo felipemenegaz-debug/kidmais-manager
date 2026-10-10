@@ -438,7 +438,19 @@ async function main() {
         conferir('cotacao.pedidoF2.regraPagamentoNeutra', f1?.desconto, '0'); // 077: F2 sem linha de regras = sem desconto automático
         const valoresF2 = (await db.query('SELECT valor_tabela::text AS tabela FROM fechamentos WHERE id=$1', [p1.j.fechamentoId])).rows[0];
         conferir('preco.fechamentoF2.tabela', Math.round(Number(valoresF2?.tabela) * 100), precoEsperado(0));
-        conferir('preco.fechamentoF2.contratoPixAvista', precoEsperado(Number(f1?.desconto)), precoEsperado(0)); // sem desconto: 1.500,00
+        // Contrato EFETIVAMENTE gerado pelo sistema (sessão administrativa de F2, API real): o valor final gravado na
+        // versão é comparado ao esperado independente. F2 não tem regra (077) → 0% → 150000; o legado daria 135000.
+        const contratoF2 = await s.F2.post('/api/admin/contratos', {fechamentoId:p1.j.fechamentoId});
+        c.contratoF2 = contratoF2.status; conferir('contrato.F2.gerado', contratoF2.status, 201);
+        const versaoF2 = (await db.query(`SELECT v.snapshot->'comercial'->>'valorFinalContrato' AS final,
+                v.snapshot->'comercial'->>'descontoFormaPagamentoPercentual' AS desconto_forma,
+                v.snapshot->'comercial'->'condicaoPagamento'->>'descontoPercentual' AS desconto_gravado
+              FROM contrato_versoes v JOIN contratos k ON k.id = v.contrato_id
+             WHERE k.fechamento_id = $1 ORDER BY v.numero_versao DESC LIMIT 1`, [p1.j.fechamentoId])).rows[0];
+        conferir('preco.contratoF2.valorFinal', Math.round(Number(versaoF2?.final) * 100), precoEsperado(0));
+        conferir('preco.contratoF2.descontoForma', Number(versaoF2?.desconto_forma), 0);
+        conferir('preco.contratoF2.descontoGravado', versaoF2?.desconto_gravado, '0');
+        r.resultados.contrato = {status:contratoF2.status, valorFinalCentavos:Math.round(Number(versaoF2?.final) * 100), esperadoCentavos:precoEsperado(0)}; salvar();
         // Identidade por empresa: o CPF do cliente de F2 é visto só em F2; nem F4 nem o endereço atual (Kidmais) o enxergam.
         const consultaCpf = async codigo => (await publico('/api/identidade/consultar-cpf' + (codigo ? q(codigo) : ''), 'POST', {cpf})).j?.situacao;
         c.identidadeF2 = await consultaCpf(F2.codigo); conferir('identidade.F2', c.identidadeF2, 'CLIENTE_EXISTENTE');
