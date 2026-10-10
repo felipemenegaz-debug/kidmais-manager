@@ -9,7 +9,7 @@ import { MENSAGEM_ENCAMINHAMENTO } from "./core.ts";
 
 /**
  * Proteções finais do atendimento, worker e recepção REAIS no PostgreSQL descartável (modelo "atual"; a 060 primeiro e
- * depois 076/077/078), só pelo check:v1:postgres, com opt-in. Dados sintéticos; modelo e Wall-e por portas que contam as
+ * depois 077a/077b/078), só pelo check:v1:postgres, com opt-in. Dados sintéticos; modelo e Wall-e por portas que contam as
  * chamadas; transporte simulado (nenhuma rede). Um ORÇAMENTO VÁLIDO fica no ambiente durante o modo regras.
  *
  *  R1 sem a 078 (fase B), modo regras: o modelo não é chamado; só o texto fixo de encaminhamento sai;
@@ -27,8 +27,8 @@ const ler = (f: string) => readFileSync(f, "utf8");
 const MIG = (up: string, post: string) => [ler(up), ler(post)] as const;
 const M060 = MIG("database/migrations/20261001_060_whatsapp_atendimento.sql", "database/checks/20261001_060_postcheck.sql");
 const M07X = [
-  MIG("database/migrations/20261009_076_whatsapp_mensagens_prontas.sql", "database/checks/20261009_076_postcheck.sql"),
-  MIG("database/migrations/20261009_077_whatsapp_prontas_midia.sql", "database/checks/20261009_077_postcheck.sql"),
+  MIG("database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql", "database/checks/20261009_077a_postcheck.sql"),
+  MIG("database/migrations/20261009_077b_whatsapp_prontas_midia.sql", "database/checks/20261009_077b_postcheck.sql"),
   MIG("database/migrations/20261009_078_wall_e_atendimento.sql", "database/checks/20261009_078_postcheck.sql"),
 ];
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;

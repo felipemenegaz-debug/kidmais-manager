@@ -9,27 +9,27 @@ import type { ConteudoSaida } from "./transporte.ts";
 /**
  * Revisão final (H1/M1): os downs e os rollback prechecks do atendimento RECUSAM enquanto uma migration dependente
  * ainda está aplicada (total ou parcialmente), ANTES de travar ou alterar qualquer coisa — nada muda na recusa (catálogo
- * e dados idênticos). Ordem válida: 078 → 077 → 076 → 065 → 060. Modelo "063" (com a 060), só pelo check:v1:postgres,
+ * e dados idênticos). Ordem válida: 078 → 077b → 077a → 065 → 060. Modelo "063" (com a 060), só pelo check:v1:postgres,
  * com opt-in, no cluster descartável. Dados sintéticos; transporte simulado; nenhuma rede.
  *
- *  O1 tabelas vazias: 077 com a 078, 076 com 077/078, 060 com 065/076/077/078 recusam (down e precheck); a cada passo da
- *     ordem válida, os de baixo continuam recusando; 078 parcial (uma coluna sobrando) também recusa o down da 077;
+ *  O1 tabelas vazias: 077b com a 078, 077a com 077b/078, 060 com 065/077a/077b/078 recusam (down e precheck); a cada passo da
+ *     ordem válida, os de baixo continuam recusando; 078 parcial (uma coluna sobrando) também recusa o down da 077b;
  *  O2 com dados sintéticos (conversa, nome de perfil, prontas com foto e PDF, saídas com mídia e grupo) e TODAS as decisões
  *     de descarte ligadas: os mesmos downs fora de ordem recusam e nada é apagado; a ordem válida remove tudo.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const comDecisoes = (sql: string, ...chaves: string[]) => sql.replace("SET LOCAL statement_timeout = '60s';", ["SET LOCAL statement_timeout = '60s';", ...chaves.map((k) => `SET LOCAL ${k} = 'sim';`)].join("\n"));
-const TODAS = ["kidmais.rollback_060_descartar_atendimento", "kidmais.rollback_065_descartar_nomes", "kidmais.rollback_076_descartar_prontas", "kidmais.rollback_077_descartar_midias", "kidmais.rollback_077_descartar_prontas_midia", "kidmais.rollback_078_descartar"];
+const TODAS = ["kidmais.rollback_060_descartar_atendimento", "kidmais.rollback_065_descartar_nomes", "kidmais.rollback_077a_descartar_prontas", "kidmais.rollback_077b_descartar_midias", "kidmais.rollback_077b_descartar_prontas_midia", "kidmais.rollback_078_descartar"];
 const M = {
   "060": { up: ler("database/migrations/20261001_060_whatsapp_atendimento.sql"), post: ler("database/checks/20261001_060_postcheck.sql"), down: ler("database/rollback/20261001_060_whatsapp_atendimento_down.sql"), pre: ler("database/checks/20261001_060_rollback_precheck.sql"), posDown: ler("database/checks/20261001_060_rollback_postcheck.sql") },
   "065": { up: ler("database/migrations/20261004_065_whatsapp_nome_perfil.sql"), post: ler("database/checks/20261004_065_postcheck.sql"), down: ler("database/rollback/20261004_065_whatsapp_nome_perfil_down.sql"), pre: null, posDown: ler("database/checks/20261004_065_rollback_postcheck.sql") },
-  "076": { up: ler("database/migrations/20261009_076_whatsapp_mensagens_prontas.sql"), post: ler("database/checks/20261009_076_postcheck.sql"), down: ler("database/rollback/20261009_076_whatsapp_mensagens_prontas_down.sql"), pre: ler("database/checks/20261009_076_rollback_precheck.sql"), posDown: ler("database/checks/20261009_076_rollback_postcheck.sql") },
-  "077": { up: ler("database/migrations/20261009_077_whatsapp_prontas_midia.sql"), post: ler("database/checks/20261009_077_postcheck.sql"), down: ler("database/rollback/20261009_077_whatsapp_prontas_midia_down.sql"), pre: ler("database/checks/20261009_077_rollback_precheck.sql"), posDown: ler("database/checks/20261009_077_rollback_postcheck.sql") },
+  "077a": { up: ler("database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql"), post: ler("database/checks/20261009_077a_postcheck.sql"), down: ler("database/rollback/20261009_077a_whatsapp_mensagens_prontas_down.sql"), pre: ler("database/checks/20261009_077a_rollback_precheck.sql"), posDown: ler("database/checks/20261009_077a_rollback_postcheck.sql") },
+  "077b": { up: ler("database/migrations/20261009_077b_whatsapp_prontas_midia.sql"), post: ler("database/checks/20261009_077b_postcheck.sql"), down: ler("database/rollback/20261009_077b_whatsapp_prontas_midia_down.sql"), pre: ler("database/checks/20261009_077b_rollback_precheck.sql"), posDown: ler("database/checks/20261009_077b_rollback_postcheck.sql") },
   "078": { up: ler("database/migrations/20261009_078_wall_e_atendimento.sql"), post: ler("database/checks/20261009_078_postcheck.sql"), down: ler("database/rollback/20261009_078_wall_e_atendimento_down.sql"), pre: null, posDown: null },
 } as const;
 type Id = keyof typeof M;
-const RECUSA: Record<string, RegExp> = { "077": /Rollback da 077 recusado: a 078 ainda está aplicada/, "076": /Rollback da 076 recusado: a 077 ou a 078 ainda estão aplicadas/, "060": /Rollback da 060 recusado: 065, 076, 077 ou 078 ainda estão aplicadas/ };
-const RECUSA_PRE: Record<string, RegExp> = { "077": /077 rollback precheck: a 078 ainda está aplicada/, "076": /076 rollback precheck: a 077 ou a 078 ainda estão aplicadas/, "060": /060 rollback precheck: 065, 076, 077 ou 078 ainda estão aplicadas/ };
+const RECUSA: Record<string, RegExp> = { "077b": /Rollback da 077b recusado: a 078 ainda está aplicada/, "077a": /Rollback da 077a recusado: a 077b ou a 078 ainda estão aplicadas/, "060": /Rollback da 060 recusado: 065, 077a, 077b ou 078 ainda estão aplicadas/ };
+const RECUSA_PRE: Record<string, RegExp> = { "077b": /077b rollback precheck: a 078 ainda está aplicada/, "077a": /077a rollback precheck: a 077b ou a 078 ainda estão aplicadas/, "060": /060 rollback precheck: 065, 077a, 077b ou 078 ainda estão aplicadas/ };
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 const PDF = Buffer.from("%PDF-1.4\n% material sintético (ordem dos rollbacks)\n%%EOF\n");
 
@@ -57,7 +57,7 @@ test("rollbacks do atendimento recusam dependentes aplicados, sem alteração pa
   };
   const foto = async () => ({ esquema: await retrato(), dados: await dados() });
   // Tenta o down (com ou sem decisões) e o precheck: os dois recusam, e nada muda.
-  const recusa = async (rotulo: string, id: "060" | "076" | "077", decisoes: string[]) => {
+  const recusa = async (rotulo: string, id: "060" | "077a" | "077b", decisoes: string[]) => {
     const antes = await foto();
     await assert.rejects(q(comDecisoes(M[id].down, ...decisoes)), RECUSA[id], `${rotulo}: down da ${id} recusa`); await q("ROLLBACK").catch(() => {});
     await assert.rejects(q(M[id].pre!), RECUSA_PRE[id], `${rotulo}: rollback precheck da ${id} recusa`); await q("ROLLBACK").catch(() => {});
@@ -71,13 +71,13 @@ test("rollbacks do atendimento recusam dependentes aplicados, sem alteração pa
   const tabelasAtendimento = async () => (await q("SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'whatsapp\\_atendimento\\_%'")).rows[0].n as number;
   // Roteiro completo a partir de "tudo aplicado": fora de ordem recusa a cada passo; a ordem válida remove tudo.
   const roteiro = async (rotulo: string, decisoes: string[]) => {
-    for (const id of ["077", "076", "060"] as const) await recusa(`${rotulo} (tudo aplicado)`, id, decisoes);
+    for (const id of ["077b", "077a", "060"] as const) await recusa(`${rotulo} (tudo aplicado)`, id, decisoes);
     await desce("078", decisoes);
-    for (const id of ["076", "060"] as const) await recusa(`${rotulo} (sem a 078)`, id, decisoes);
-    await q(M["077"].pre!); // 077 já pode descer: o precheck passa
-    await desce("077", decisoes);
-    await recusa(`${rotulo} (sem 077/078)`, "060", decisoes);
-    await desce("076", decisoes);
+    for (const id of ["077a", "060"] as const) await recusa(`${rotulo} (sem a 078)`, id, decisoes);
+    await q(M["077b"].pre!); // 077b já pode descer: o precheck passa
+    await desce("077b", decisoes);
+    await recusa(`${rotulo} (sem 077b/078)`, "060", decisoes);
+    await desce("077a", decisoes);
     await recusa(`${rotulo} (só 060 + 065)`, "060", decisoes);
     await desce("065", decisoes);
     await desce("060", decisoes);
@@ -87,19 +87,19 @@ test("rollbacks do atendimento recusam dependentes aplicados, sem alteração pa
   try {
     assert.equal(await tabelasAtendimento() > 0, true, "modelo 063 com a 060");
     // O1 — tabelas vazias.
-    await aplicar(["065", "076", "077", "078"]);
-    // 078 PARCIAL: depois do down da 078, uma coluna dela sobrando (estado misto) ainda recusa o down da 077 e o da 076.
+    await aplicar(["065", "077a", "077b", "078"]);
+    // 078 PARCIAL: depois do down da 078, uma coluna dela sobrando (estado misto) ainda recusa o down da 077b e o da 077a.
     await desce("078", []);
     await q("ALTER TABLE whatsapp_atendimento_mensagens_prontas ADD COLUMN estado text");
-    await recusa("O1 (078 parcial)", "077", []);
-    await recusa("O1 (078 parcial)", "076", []);
+    await recusa("O1 (078 parcial)", "077b", []);
+    await recusa("O1 (078 parcial)", "077a", []);
     await q("ALTER TABLE whatsapp_atendimento_mensagens_prontas DROP COLUMN estado");
-    await q(M["077"].pre!);
+    await q(M["077b"].pre!);
     await aplicar(["078"]);
     await roteiro("O1 tabelas vazias", []);
 
     // O2 — dados sintéticos e TODAS as decisões de descarte ligadas.
-    await aplicar(["060", "065", "076", "077", "078"]);
+    await aplicar(["060", "065", "077a", "077b", "078"]);
     const id = async (sql: string, v: unknown[]) => (await q(sql, v)).rows[0].id as string;
     const A = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Empresa sintética (ordem dos rollbacks)', 'PROVISIONAMENTO') RETURNING id`, [cod("ro")]);
     await q(`UPDATE empresas SET status = 'ATIVA' WHERE id = $1::uuid`, [A]);

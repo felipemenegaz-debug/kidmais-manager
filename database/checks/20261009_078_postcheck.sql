@@ -1,4 +1,4 @@
--- Postcheck da 078 (Wall-e): somente leitura. Os postchecks da 060, 076 e 077 continuam válidos com a 078 aplicada.
+-- Postcheck da 078 (Wall-e): somente leitura. Os postchecks da 060, 077a e 077b continuam válidos com a 078 aplicada.
 DO $$
 DECLARE
   item text;

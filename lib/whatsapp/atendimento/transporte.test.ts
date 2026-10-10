@@ -34,7 +34,7 @@ test('recusa do provedor (4xx documentado) é definitiva; 5xx, 408 e corpo invá
   await assert.rejects(enviarMensagem('5561888888888',T('Texto'),(async()=>{throw new DOMException('timeout','TimeoutError');}) as typeof fetch),/timeout/);
 }));
 
-// 077: formato do `message` conforme a documentação da API de sessão do Gupshup (transporte simulado, nada sai).
+// 077b: formato do `message` conforme a documentação da API de sessão do Gupshup (transporte simulado, nada sai).
 test('foto: {type:image, originalUrl, previewUrl, caption}; vídeo: {type:video, url, caption}; legenda vazia não vai',()=>{
   assert.deepEqual(mensagemGupshup({tipo:'IMAGEM',url:'https://cdn.exemplo.test/s.jpg',legenda:'Salgados'}),{type:'image',originalUrl:'https://cdn.exemplo.test/s.jpg',previewUrl:'https://cdn.exemplo.test/s.jpg',caption:'Salgados'});
   assert.deepEqual(mensagemGupshup({tipo:'IMAGEM',url:'https://cdn.exemplo.test/s.jpg',legenda:'  '}),{type:'image',originalUrl:'https://cdn.exemplo.test/s.jpg',previewUrl:'https://cdn.exemplo.test/s.jpg'});
@@ -42,12 +42,12 @@ test('foto: {type:image, originalUrl, previewUrl, caption}; vídeo: {type:video,
   assert.deepEqual(mensagemGupshup({tipo:'VIDEO',url:'https://cdn.exemplo.test/t.mp4',legenda:null}),{type:'video',url:'https://cdn.exemplo.test/t.mp4'});
   assert.deepEqual(mensagemGupshup(T('Oi')),{type:'text',text:'Oi'});
 });
-test('conteúdo da linha: mídia só com tipo E URL (077); sem colunas de mídia, é texto; sem mídia e sem texto, recusa',()=>{
+test('conteúdo da linha: mídia só com tipo E URL (077b); sem colunas de mídia, é texto; sem mídia e sem texto, recusa',()=>{
   assert.deepEqual(conteudoDaMensagem({texto:'Legenda',midia_tipo:'IMAGEM',midia_url:'https://cdn.exemplo.test/s.jpg'}),{tipo:'IMAGEM',url:'https://cdn.exemplo.test/s.jpg',legenda:'Legenda'});
   assert.deepEqual(conteudoDaMensagem({texto:null,midia_tipo:'VIDEO',midia_url:'https://cdn.exemplo.test/t.mp4'}),{tipo:'VIDEO',url:'https://cdn.exemplo.test/t.mp4',legenda:null});
   assert.deepEqual(conteudoDaMensagem({texto:'Oi'}),T('Oi'));
   assert.deepEqual(conteudoDaMensagem({texto:'Oi',midia_tipo:'IMAGEM',midia_url:null}),T('Oi'));
-  // Foto lida sem as colunas da 077 (legenda vazia): nada vazio chega ao provedor; o worker grava FALHOU.
+  // Foto lida sem as colunas da 077b (legenda vazia): nada vazio chega ao provedor; o worker grava FALHOU.
   for (const texto of [null,'','   ']) assert.throws(()=>conteudoDaMensagem({texto}),/ATENDIMENTO_ENVIO_RECUSADO/);
 });
 test('envio de foto pelo transporte simulado leva o formulário oficial; URL não https nunca chega ao provedor',()=>comAmbiente(async()=>{

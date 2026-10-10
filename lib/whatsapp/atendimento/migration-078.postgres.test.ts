@@ -11,8 +11,8 @@ import { cod } from "./harness-postgres.ts";
  * cluster descartável local (GOAL Wall-e: bancos descartáveis exclusivamente locais). Dados sintéticos.
  *
  * Roteiro:
- *  0. ordem: 078 sem a 077 é recusada;
- *  1. dados anteriores (pronta ativa e arquivada, saída com foto da 077) → 078 aplicada; postchecks da 060, 076, 077 e
+ *  0. ordem: 078 sem a 077b é recusada;
+ *  1. dados anteriores (pronta ativa e arquivada, saída com foto da 077b) → 078 aplicada; postchecks da 060, 077a, 077b e
  *     078 passam juntos; reaplicação recusada; prontas antigas viram PUBLICADA/ARQUIVADA;
  *  2. arquivos: tipo×mime, tamanho por tipo, hash conferido pelo banco, token único, só inserção (UPDATE/DELETE recusados);
  *  3. prontas: PDF só com arquivo próprio; arquivo de OUTRA empresa ou de OUTRO tipo recusado pela FK; URL e arquivo
@@ -20,15 +20,15 @@ import { cod } from "./harness-postgres.ts";
  *  4. mensagens: várias saídas da mesma entrada (grupo + ordem) sem duplicar; a unicidade da 060 em origem_id continua;
  *     PDF exige arquivo e nome; arquivo com tipo diferente da mídia recusado;
  *  5. rollback: com arquivo na fila recusa sempre; sem a decisão recusa; com a decisão remove só a 078 (rascunho vira
- *     arquivado, PDF e arquivo próprio saem, foto por URL da 077 fica); postchecks 060/076/077 passam; reaplicável.
+ *     arquivado, PDF e arquivo próprio saem, foto por URL da 077b fica); postchecks 060/077a/077b passam; reaplicável.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const UP060 = ler("database/migrations/20261001_060_whatsapp_atendimento.sql");
 const POST060 = ler("database/checks/20261001_060_postcheck.sql");
-const UP076 = ler("database/migrations/20261009_076_whatsapp_mensagens_prontas.sql");
-const POST076 = ler("database/checks/20261009_076_postcheck.sql");
-const UP077 = ler("database/migrations/20261009_077_whatsapp_prontas_midia.sql");
-const POST077 = ler("database/checks/20261009_077_postcheck.sql");
+const UP077A = ler("database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql");
+const POST077A = ler("database/checks/20261009_077a_postcheck.sql");
+const UP077B = ler("database/migrations/20261009_077b_whatsapp_prontas_midia.sql");
+const POST077B = ler("database/checks/20261009_077b_postcheck.sql");
 const UP = ler("database/migrations/20261009_078_wall_e_atendimento.sql");
 const POST = ler("database/checks/20261009_078_postcheck.sql");
 const DOWN = ler("database/rollback/20261009_078_wall_e_atendimento_down.sql");
@@ -45,7 +45,7 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 const token = () => randomBytes(32).toString("base64url");
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
-test("078: Wall-e — ordem, aplicação sobre dados da 077, arquivos, prontas, várias saídas e rollback", { timeout: 300_000 }, async (t) => {
+test("078: Wall-e — ordem, aplicação sobre dados da 077b, arquivos, prontas, várias saídas e rollback", { timeout: 300_000 }, async (t) => {
   if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") {
     t.skip("opt-in ausente: harness PostgreSQL não executado");
     return;
@@ -55,9 +55,9 @@ test("078: Wall-e — ordem, aplicação sobre dados da 077, arquivos, prontas, 
     const id = async (sql: string, v: unknown[]) => (await c.query<{ id: string }>(sql, v)).rows[0].id;
     const n = async (sql: string, v: unknown[] = []) => Number((await c.query(sql, v)).rows[0].n);
     // 0. Ordem.
-    await c.query(UP060); await c.query(POST060); await c.query(UP076); await c.query(POST076);
-    await assert.rejects(c.query(UP), /078 exige a 060, a 076 e a 077/); await c.query("ROLLBACK").catch(() => {});
-    await c.query(UP077); await c.query(POST077);
+    await c.query(UP060); await c.query(POST060); await c.query(UP077A); await c.query(POST077A);
+    await assert.rejects(c.query(UP), /078 exige a 060, a 077a e a 077b/); await c.query("ROLLBACK").catch(() => {});
+    await c.query(UP077B); await c.query(POST077B);
 
     // 1. Dados anteriores à 078.
     const empresa = async (nome: string) => { const e = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [cod("we"), nome]); await c.query(`UPDATE empresas SET status = 'ATIVA' WHERE id = $1`, [e]); return e; };
@@ -72,7 +72,7 @@ test("078: Wall-e — ordem, aplicação sobre dados da 077, arquivos, prontas, 
     await c.query(`INSERT INTO whatsapp_atendimento_mensagens (conversa_id, empresa_id, ambiente, direcao, texto, estado, versao_conversa, midia_tipo, midia_url, midia_pronta_id, midia_pronta_versao) VALUES ($1, $2, 'staging', 'SAIDA', 'legenda', 'ENTREGUE', 0, 'IMAGEM', 'https://midia.exemplo.test/f.jpg', $3, 0)`, [conversa, A, fotoUrl]);
 
     await c.query(UP);
-    for (const p of [POST060, POST076, POST077, POST]) await c.query(p);
+    for (const p of [POST060, POST077A, POST077B, POST]) await c.query(p);
     await assert.rejects(c.query(semTransacaoExplicita(UP)), /078 já aplicada/); await c.query("ROLLBACK").catch(() => {});
     const estados = (await c.query("SELECT id, estado, ativa, envio_automatico FROM whatsapp_atendimento_mensagens_prontas")).rows;
     assert.deepEqual(Object.fromEntries(estados.map((r) => [r.id, [r.estado, r.ativa, r.envio_automatico]])), { [ativa]: ["PUBLICADA", true, false], [arquivada]: ["ARQUIVADA", false, false], [fotoUrl]: ["PUBLICADA", true, false] }, "nada passa a ser enviado automaticamente sem autorização");
@@ -131,11 +131,11 @@ test("078: Wall-e — ordem, aplicação sobre dados da 077, arquivos, prontas, 
     await c.query("UPDATE whatsapp_atendimento_mensagens SET estado = 'ENTREGUE' WHERE origem_grupo_id = $1", [entrada]);
     await assert.rejects(c.query(DOWN), /kidmais\.rollback_078_descartar/); await c.query("ROLLBACK").catch(() => {});
     await c.query(comDecisao(DOWN));
-    for (const p of [POST060, POST076, POST077]) await c.query(p);
+    for (const p of [POST060, POST077A, POST077B]) await c.query(p);
     assert.equal((await c.query("SELECT to_regclass('public.whatsapp_atendimento_arquivos') AS t")).rows[0].t, null);
     assert.deepEqual((await c.query("SELECT id, ativa FROM whatsapp_atendimento_mensagens_prontas ORDER BY titulo")).rows.map((r) => [r.id, r.ativa]).sort(),
       [[ativa, true], [arquivada, false], [fotoUrl, true], [rascunhoTexto, false]].sort(),
-      "PDF e prontas com arquivo próprio (inclusive o rascunho de foto) saíram; rascunho de texto ficou ARQUIVADO (no código anterior apareceria ativo); foto por URL da 077 ficou");
+      "PDF e prontas com arquivo próprio (inclusive o rascunho de foto) saíram; rascunho de texto ficou ARQUIVADO (no código anterior apareceria ativo); foto por URL da 077b ficou");
     assert.equal(await n("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens WHERE midia_tipo = 'IMAGEM' AND midia_url IS NOT NULL"), 1, "a foto por URL enviada antes continua");
     assert.equal(await n("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id = $1 AND direcao = 'SAIDA'", [conversa]), 3, "saídas continuam no histórico (o PDF fica só com a legenda)");
     await c.query(UP); await c.query(POST);

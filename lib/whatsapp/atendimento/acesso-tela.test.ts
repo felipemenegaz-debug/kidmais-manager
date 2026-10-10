@@ -32,7 +32,7 @@ test('a rota responde 403 com código próprio para cada recusa de acesso', () =
 });
 
 test('nenhuma suíte PostgreSQL do atendimento espera a mensagem crua do tenant: a recusa chega como ATENDIMENTO_SEM_ACESSO', () => {
-  // Guarda estática (roda no gate sem banco): a rodada PostgreSQL de 2442f37 falhou porque 060/076/065 ainda esperavam o texto antigo.
+  // Guarda estática (roda no gate sem banco): a rodada PostgreSQL de 2442f37 falhou porque 060/077a/065 ainda esperavam o texto antigo.
   const dir = 'lib/whatsapp/atendimento';
   const suites = readdirSync(dir).filter((f) => f.endsWith('.postgres.test.ts'));
   assert.ok(suites.length >= 4, 'suítes PostgreSQL do atendimento encontradas');

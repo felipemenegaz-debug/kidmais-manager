@@ -133,7 +133,7 @@ test("065: nome de perfil (não verificado), número completo e cadastro na tela
     await c.query(UP); await c.query(POST);
     assert.equal((await c.query("SELECT count(*)::int AS n FROM whatsapp_atendimento_conversas WHERE nome_perfil IS NOT NULL")).rows[0].n, 0, "reaplicada vazia");
 
-    // Limpeza do descartável, como a suíte da 076: tira a 065 (vazia) e a 060 (com descarte explícito).
+    // Limpeza do descartável, como a suíte da 077a: tira a 065 (vazia) e a 060 (com descarte explícito).
     await c.query(DOWN); await c.query(POS_DOWN);
     await c.query("BEGIN"); await c.query("SET LOCAL kidmais.rollback_060_descartar_atendimento = 'sim'");
     await c.query(semTransacaoExplicita(DOWN060)); await c.query("COMMIT");

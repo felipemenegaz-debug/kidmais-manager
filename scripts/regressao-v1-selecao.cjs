@@ -70,13 +70,13 @@ const ESTADO_POSTGRES = {
   "lib/inteligencia/inteligencia.postgres.test.ts": { descartavel: "atual" },
   "lib/operacional/migration-059.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/migration-060.postgres.test.ts": { descartavel: "atual" },
-  // 076 e concorrência do encerrar: cada suíte aplica a 060 (e a 076) sobre o modelo atual, como a da 060.
-  "lib/whatsapp/atendimento/migration-076.postgres.test.ts": { descartavel: "atual" },
+  // 077a e concorrência do encerrar: cada suíte aplica a 060 (e a 077a) sobre o modelo atual, como a da 060.
+  "lib/whatsapp/atendimento/migration-077a.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/encerrar-concorrencia.postgres.test.ts": { descartavel: "atual" },
-  // 065 (nome de perfil) e identificação do contato: aplica a 060 e a 065 sobre o modelo atual; independe da 076.
+  // 065 (nome de perfil) e identificação do contato: aplica a 060 e a 065 sobre o modelo atual; independe da 077a.
   "lib/whatsapp/atendimento/migration-065.postgres.test.ts": { descartavel: "atual" },
-  // 077 (fotos/vídeos e atalhos novos): aplica a 060 e a 076 sobre o modelo atual; independe da 065.
-  "lib/whatsapp/atendimento/migration-077.postgres.test.ts": { descartavel: "atual" },
+  // 077b (fotos/vídeos e atalhos novos): aplica a 060 e a 077a sobre o modelo atual; independe da 065.
+  "lib/whatsapp/atendimento/migration-077b.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/migration-078.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/walle/walle-worker.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/walle/agenda-escopo.postgres.test.ts": { descartavel: "063" },
@@ -103,12 +103,12 @@ const ESTADO_POSTGRES = {
   "lib/comercial/importacao-tabela/importacao-071.postgres.test.ts": { descartavel: "063" },
   // Modelo de contrato da empresa: 063 + 070 + 071 + 072 aplicadas pela própria suíte.
   "lib/contratos/modelo-empresa/modelo-072.postgres.test.ts": { descartavel: "063" },
-  // Integração atendimento × painel: empresa ativa × piloto e coexistência 060/063/065/076 (modelo 063, com a 060).
+  // Integração atendimento × painel: empresa ativa × piloto e coexistência 060/063/065/077a (modelo 063, com a 060).
   "lib/whatsapp/atendimento/empresa-ativa.postgres.test.ts": { descartavel: "063" },
   "lib/whatsapp/atendimento/coexistencia-060-065.postgres.test.ts": { descartavel: "063" },
-  // Coexistência da 077 com 060/063/065/076: as duas ordens e rollback cruzado (a 076 não sai com a 077 presente).
-  "lib/whatsapp/atendimento/coexistencia-077.postgres.test.ts": { descartavel: "063" },
-  // Candidata: coexistência e rollback cruzado do atendimento (060/065/076/077/078) com 064/066/067/068/069/070 de staging.
+  // Coexistência da 077b com 060/063/065/077a: as duas ordens e rollback cruzado (a 077a não sai com a 077b presente).
+  "lib/whatsapp/atendimento/coexistencia-077b.postgres.test.ts": { descartavel: "063" },
+  // Candidata: coexistência e rollback cruzado do atendimento (060/065/077a/077b/078) com 064/066/067/068/069/070 de staging.
   "lib/whatsapp/atendimento/coexistencia-staging.postgres.test.ts": { descartavel: "063" },
   // Revisão final da integração r47: ordem dos rollbacks (H1/M1, recusa de dependentes com e sem dados), turno do resumo
   // pelo escopo da empresa/unidade (M2, precisa da 062) e validade da fila + automação global desligada (M3/M4).
@@ -116,7 +116,7 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/walle/resumo-turno.postgres.test.ts": { descartavel: "063" },
   "lib/whatsapp/atendimento/fila-validade.postgres.test.ts": { descartavel: "atual" },
   // Proteções finais: modo regras em todos os caminhos (sem a 078, Wall-e desligado) e entrada recebida com a IA global
-  // desligada nunca respondida depois de religar, sem ciclo intermediário (aplica a 060 e depois 076–078).
+  // desligada nunca respondida depois de religar, sem ciclo intermediário (aplica a 060 e depois 077a–078).
   "lib/whatsapp/atendimento/protecoes-finais.postgres.test.ts": { descartavel: "atual" },
   // Correção P1 (revisão da candidata final): pausa reconhecida pelas regras vence o limite diário e os caminhos fixos.
   "lib/whatsapp/atendimento/pausa-limite.postgres.test.ts": { descartavel: "atual" },

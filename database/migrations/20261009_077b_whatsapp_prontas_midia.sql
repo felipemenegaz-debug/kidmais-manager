@@ -1,8 +1,8 @@
--- 077 — Atendimento WhatsApp: fotos e vídeos nas mensagens prontas e na resposta do atendente; atalhos de salgados,
+-- 077b — Atendimento WhatsApp: fotos e vídeos nas mensagens prontas e na resposta do atendente; atalhos de salgados,
 --       bolos, endereço e localização.
 --
 -- NÃO APLICADA. Exige autorização explícita (docs/OPERACAO_AGENTES.md) para qualquer banco, inclusive staging, clones e
--- o cluster descartável. Exige a 060 (mensagens) e a 076 (mensagens prontas); independe da 065.
+-- o cluster descartável. Exige a 060 (mensagens) e a 077a (mensagens prontas); independe da 065.
 --
 -- Mídia por URL https pública (requisito do Gupshup: a URL é baixada pelo provedor; IP não vale). A mídia é sempre a de
 -- uma mensagem pronta da EMPRESA: o atendente escolhe, revisa a legenda e envia; a URL nunca vem da tela.
@@ -12,33 +12,33 @@
 --
 -- Origem revisada: a saída com mídia guarda a mensagem pronta e a VERSÃO dela que o atendente viu na prévia (o envio é
 -- recusado se a pronta mudou). FK composta (id, empresa, ambiente): a origem é sempre da mesma empresa e ambiente da
--- mensagem. A FK também torna a 076 dependente da 077: o down da 076 (DROP TABLE sem CASCADE) falha fechado enquanto a
--- 077 existir — antes ele apagava as prontas e deixava as colunas de mídia órfãs (prova em .local-ux da fase B).
+-- mensagem. A FK também torna a 077a dependente da 077b: o down da 077a (DROP TABLE sem CASCADE) falha fechado enquanto a
+-- 077b existir — antes ele apagava as prontas e deixava as colunas de mídia órfãs (prova em .local-ux da fase B).
 --
--- Aditiva: troca as duas restrições CHECK da 076 (tipo e atalho) por versões ampliadas com nome próprio, e acrescenta
--- colunas anuláveis. Nenhuma linha existente muda. Falha fechada se já aplicada ou se as restrições da 076 divergirem.
--- Postcheck: database/checks/20261009_077_postcheck.sql. Rollback: database/rollback/20261009_077_whatsapp_prontas_midia_down.sql.
+-- Aditiva: troca as duas restrições CHECK da 077a (tipo e atalho) por versões ampliadas com nome próprio, e acrescenta
+-- colunas anuláveis. Nenhuma linha existente muda. Falha fechada se já aplicada ou se as restrições da 077a divergirem.
+-- Postcheck: database/checks/20261009_077b_postcheck.sql. Rollback: database/rollback/20261009_077b_whatsapp_prontas_midia_down.sql.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
 DO $$ BEGIN
   IF to_regclass('public.whatsapp_atendimento_mensagens') IS NULL OR to_regclass('public.whatsapp_atendimento_mensagens_prontas') IS NULL THEN
-    RAISE EXCEPTION '077 exige a 060 (atendimento WhatsApp) e a 076 (mensagens prontas).';
+    RAISE EXCEPTION '077b exige a 060 (atendimento WhatsApp) e a 077a (mensagens prontas).';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid IN ('public.whatsapp_atendimento_mensagens_prontas'::regclass, 'public.whatsapp_atendimento_mensagens'::regclass)
               AND attname IN ('midia_url', 'midia_tipo', 'midia_pronta_id', 'midia_pronta_versao') AND NOT attisdropped)
      OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.whatsapp_atendimento_mensagens_prontas'::regclass AND conname IN ('whatsapp_prontas_tipo', 'whatsapp_prontas_atalho')) THEN
-    RAISE EXCEPTION '077 já aplicada (total ou parcialmente).';
+    RAISE EXCEPTION '077b já aplicada (total ou parcialmente).';
   END IF;
-  -- As duas restrições substituídas precisam estar exatamente como a 076 as criou.
+  -- As duas restrições substituídas precisam estar exatamente como a 077a as criou.
   IF (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.whatsapp_atendimento_mensagens_prontas'::regclass
        AND conname = 'whatsapp_atendimento_mensagens_prontas_tipo_check')
      IS DISTINCT FROM 'CHECK ((tipo = ANY (ARRAY[''TEXTO''::text, ''LINK''::text, ''LINK_FECHAMENTO_INDIVIDUAL''::text])))'
      OR (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.whatsapp_atendimento_mensagens_prontas'::regclass
        AND conname = 'whatsapp_atendimento_mensagens_prontas_atalho_check')
      IS DISTINCT FROM 'CHECK ((atalho = ANY (ARRAY[''TABELA_PRECOS''::text, ''DISPONIBILIDADE_FECHAMENTO''::text])))' THEN
-    RAISE EXCEPTION '077 recusada: as restrições de tipo/atalho da 076 divergem do esperado.';
+    RAISE EXCEPTION '077b recusada: as restrições de tipo/atalho da 077a divergem do esperado.';
   END IF;
 END $$;
 

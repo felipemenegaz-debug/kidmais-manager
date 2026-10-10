@@ -18,15 +18,15 @@ DO $$ BEGIN
   IF to_regclass('public.whatsapp_atendimento_conversas') IS NULL THEN
     RAISE EXCEPTION '060 ausente: nada a remover.';
   END IF;
-  -- Revisão final (09/10): com 065, 076, 077 ou 078 ainda aplicadas (total ou parcialmente), recusa ANTES de travar ou
+  -- Revisão final (09/10): com 065, 077a, 077b ou 078 ainda aplicadas (total ou parcialmente), recusa ANTES de travar ou
   -- alterar qualquer coisa. Sem esta guarda o down apagava as tabelas da 060 e deixava prontas, arquivos e colunas das
-  -- outras órfãos (e o down delas passava a falhar). Ordem: 078 → 077 → 076 → 065 → 060.
+  -- outras órfãos (e o down delas passava a falhar). Ordem: 078 → 077b → 077a → 065 → 060.
   IF to_regclass('public.whatsapp_atendimento_mensagens_prontas') IS NOT NULL
      OR to_regclass('public.whatsapp_atendimento_mensagens_prontas_favoritas') IS NOT NULL
      OR to_regclass('public.whatsapp_atendimento_arquivos') IS NOT NULL
      OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.whatsapp_atendimento_conversas'::regclass AND attname IN ('nome_perfil', 'nome_perfil_em', 'contexto', 'passagem') AND NOT attisdropped)
      OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.whatsapp_atendimento_mensagens') AND attname IN ('midia_tipo', 'midia_pronta_id', 'origem_grupo_id', 'midia_arquivo_id', 'fonte') AND NOT attisdropped) THEN
-    RAISE EXCEPTION 'Rollback da 060 recusado: 065, 076, 077 ou 078 ainda estão aplicadas (total ou parcialmente). Rode antes os downs delas. Ordem: 078 → 077 → 076 → 065 → 060.';
+    RAISE EXCEPTION 'Rollback da 060 recusado: 065, 077a, 077b ou 078 ainda estão aplicadas (total ou parcialmente). Rode antes os downs delas. Ordem: 078 → 077b → 077a → 065 → 060.';
   END IF;
 END $$;
 

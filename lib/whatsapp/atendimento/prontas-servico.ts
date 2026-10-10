@@ -5,12 +5,12 @@ import { buscarClientesPorContatoExato } from '../../clientes/repositories/clien
 import { listarContratacoes } from '../../fechamentos/contratacoes.ts';
 import { ambienteAtendimento } from './configuracao.ts';
 import { acessoAtendimento, tem078, temMidia } from './service.ts';
-import { ATALHOS_077, comporRascunho, ehAnexo, ehMidia, linkSeguro, midiaSegura, prontaEntradaSchema, usaRecursos078, type ArquivoPronta, type Pronta, type TipoAnexo, type TipoMidia } from './prontas.ts';
+import { ATALHOS_077B, comporRascunho, ehAnexo, ehMidia, linkSeguro, midiaSegura, prontaEntradaSchema, usaRecursos078, type ArquivoPronta, type Pronta, type TipoAnexo, type TipoMidia } from './prontas.ts';
 import { EXPLICACAO_SEM_LINK, resolverLinkFechamento } from './prontas-link.ts';
 import { caminhoPublicoArquivo, validarArquivo, type TipoArquivo } from './arquivos.ts';
 
 /**
- * Serviço da biblioteca de mensagens prontas (076; fotos, vídeos e atalhos novos com a 077; PDF, arquivos próprios,
+ * Serviço da biblioteca de mensagens prontas (077a; fotos, vídeos e atalhos novos com a 077b; PDF, arquivos próprios,
  * estados, finalidade, vínculos e envio automático autorizado com a 078). Mesma porta de acesso do atendimento: empresa
  * comprovada pela sessão e papel ADMINISTRATIVO ou REPRESENTANTE_AUTORIZADO; cadastrar, publicar, arquivar e enviar
  * arquivo só o representante. Nada aqui envia mensagem: o rascunho volta para a tela e o envio continua sendo a ação
@@ -29,7 +29,7 @@ function paraPronta({ arquivo_id, arquivo_tipo, arquivo_nome, arquivo_tamanho, a
   return { ...p, versao: Number(p.versao), arquivo };
 }
 
-/** Sem a 076 a biblioteca fica indisponível, sem derrubar o atendimento; conflitos e vínculos viram mensagens claras. */
+/** Sem a 077a a biblioteca fica indisponível, sem derrubar o atendimento; conflitos e vínculos viram mensagens claras. */
 function traduzir(erro: unknown) {
   const e = erro as { code?: string; constraint?: string };
   if (e?.code === '42P01') return new Error('ATENDIMENTO_PRONTAS_INDISPONIVEL');
@@ -60,8 +60,8 @@ export async function listarProntas(sessao: SessaoParaTenant, opcoes: { gerencia
       unidades: (await tx.query<{ id: string; nome: string }>("SELECT id,nome FROM estabelecimentos WHERE empresa_id=$1 AND status<>'DESATIVADO' ORDER BY nome", [empresa])).rows,
       pacotes: (await tx.query<{ codigo: string; nome: string }>('SELECT codigo,nome FROM pacotes WHERE empresa_id=$1 AND ativo AND vigente AND arquivado_em IS NULL ORDER BY ordem_exibicao,nome', [empresa])).rows,
     } : { unidades: [], pacotes: [] };
-    // recursos077: fotos, vídeos e atalhos novos; recursos078: PDF, arquivos próprios, estados e envio automático.
-    return { prontas, favoritas, podeGerenciar: papel === 'REPRESENTANTE_AUTORIZADO', recursos077: midia, recursos078: r078, ...vinculos };
+    // recursos077b: fotos, vídeos e atalhos novos; recursos078: PDF, arquivos próprios, estados e envio automático.
+    return { prontas, favoritas, podeGerenciar: papel === 'REPRESENTANTE_AUTORIZADO', recursos077b: midia, recursos078: r078, ...vinculos };
   });
 }
 
@@ -72,8 +72,8 @@ export async function salvarPronta(sessao: SessaoParaTenant, valor: unknown) {
   return comBiblioteca(sessao, async (tx, empresa, papel, ambiente) => {
     representante(papel);
     const midia = await temMidia(tx), r078 = await tem078(tx);
-    // Sem a 077/078 o banco recusaria; a mensagem diz o que falta em vez de um erro genérico.
-    if (!midia && (ehMidia(p.tipo) || (p.atalho && ATALHOS_077.includes(p.atalho)))) throw new Error('ATENDIMENTO_MIDIA_INDISPONIVEL');
+    // Sem a 077b/078 o banco recusaria; a mensagem diz o que falta em vez de um erro genérico.
+    if (!midia && (ehMidia(p.tipo) || (p.atalho && ATALHOS_077B.includes(p.atalho)))) throw new Error('ATENDIMENTO_MIDIA_INDISPONIVEL');
     if (!r078 && usaRecursos078(p)) throw new Error('ATENDIMENTO_RECURSO_078_INDISPONIVEL');
     // Pacote por CÓDIGO (estável entre revisões): precisa existir vigente nesta empresa.
     if (p.pacoteCodigo && !(await tx.query('SELECT 1 FROM pacotes WHERE empresa_id=$1 AND codigo=$2 AND ativo AND vigente AND arquivado_em IS NULL', [empresa, p.pacoteCodigo])).rows.length) throw new Error('ATENDIMENTO_PACOTE_NAO_ENCONTRADO');

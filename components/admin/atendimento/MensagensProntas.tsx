@@ -1,10 +1,10 @@
 'use client';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { ACEITA_ANEXO, ATALHOS, ATALHOS_077, FINALIDADES, FORMATO_ANEXO, LIMITE_ANEXO_BYTES, LIMITE_LEGENDA, NOME_ANEXO, NOME_ATALHO, NOME_ESTADO_PRONTA, NOME_FINALIDADE, NOME_TIPO, REQUISITO_MIDIA, categorias, ehAnexo, ehMidia, filtrarProntas, tipoDoArquivo, type ArquivoPronta, type Atalho, type EstadoPronta, type Finalidade, type Pronta, type TipoAnexo, type TipoPronta } from '@/lib/whatsapp/atendimento/prontas';
+import { ACEITA_ANEXO, ATALHOS, ATALHOS_077B, FINALIDADES, FORMATO_ANEXO, LIMITE_ANEXO_BYTES, LIMITE_LEGENDA, NOME_ANEXO, NOME_ATALHO, NOME_ESTADO_PRONTA, NOME_FINALIDADE, NOME_TIPO, REQUISITO_MIDIA, categorias, ehAnexo, ehMidia, filtrarProntas, tipoDoArquivo, type ArquivoPronta, type Atalho, type EstadoPronta, type Finalidade, type Pronta, type TipoAnexo, type TipoPronta } from '@/lib/whatsapp/atendimento/prontas';
 import styles from './atendimento.module.css';
 
-type Biblioteca = { prontas: Pronta[]; favoritas: string[]; podeGerenciar: boolean; recursos077?: boolean; recursos078?: boolean; unidades?: { id: string; nome: string }[]; pacotes?: { codigo: string; nome: string }[] };
+type Biblioteca = { prontas: Pronta[]; favoritas: string[]; podeGerenciar: boolean; recursos077b?: boolean; recursos078?: boolean; unidades?: { id: string; nome: string }[]; pacotes?: { codigo: string; nome: string }[] };
 /**
  * Foto, vídeo ou PDF de uma mensagem pronta: a URL é só para conferência; no envio vão o id e a versão da pronta vistos
  * na prévia (o servidor lê a mídia e recusa se a pronta mudou depois).
@@ -112,10 +112,10 @@ export function MensagensProntas({ conversaId, podeUsar, motivoBloqueio, textoAt
     onUsar(r.texto, r.conversaId, midia); setRascunho(null); setAberta(false);
     setAviso(midia ? `${anexado(midia.tipo)} à resposta, com a legenda no campo. Revise e envie quando quiser.` : 'Rascunho colocado no campo de resposta. Revise e envie quando quiser.');
   }
-  const recursos077 = dados?.recursos077 ?? false;
+  const recursos077b = dados?.recursos077b ?? false;
   // Atalho sem mensagem: um aviso por motivo, abaixo dos botões (seis avisos soltos entre os botões poluíam a linha).
   // Cada botão desabilitado aponta (aria-describedby) para o aviso do seu motivo.
-  const motivoAtalho = (a: Atalho) => !recursos077 && ATALHOS_077.includes(a) ? 'indisponivel' : 'sem-cadastro';
+  const motivoAtalho = (a: Atalho) => !recursos077b && ATALHOS_077B.includes(a) ? 'indisponivel' : 'sem-cadastro';
   const semAtalho = (motivo: string) => ATALHOS.filter(a => !porAtalho(a) && motivoAtalho(a) === motivo).map(a => NOME_ATALHO[a]);
   const semCadastro = semAtalho('sem-cadastro'), indisponiveis = semAtalho('indisponivel');
 
@@ -214,12 +214,12 @@ export function GerenciarMensagensProntas({ pagina = false }: { pagina?: boolean
     focoPendente.current = null;
     el.focus();
   });
-  const r077 = dados?.recursos077 ?? false, r078 = dados?.recursos078 ?? false;
+  const r077b = dados?.recursos077b ?? false, r078 = dados?.recursos078 ?? false;
   function abrir(e: EdicaoPronta) { setErro(''); setAviso(''); setEdicao(e); focoPendente.current = { alvo: 'titulo' }; }
   function fechar() { const origem = edicao?.id; setEdicao(null); focoPendente.current = origem ? { alvo: 'editar', id: origem } : { alvo: 'nova' }; }
   function escolher(c: Escolha) {
     if (!edicao || escolhaDo(edicao.tipo) === c) return;
-    // Arquivo sem arquivo ainda: PDF com o envio de arquivos (078); sem ele, foto por link (077). O arquivo escolhido define o tipo.
+    // Arquivo sem arquivo ainda: PDF com o envio de arquivos (078); sem ele, foto por link (077b). O arquivo escolhido define o tipo.
     setEdicao({ ...edicao, tipo: c === 'ARQUIVO' ? (r078 ? 'DOCUMENTO' : 'IMAGEM') : c, link: '', midiaUrl: '', arquivo: null, ...(c === 'LINK_FECHAMENTO_INDIVIDUAL' ? { envioAutomatico: false } : {}) });
   }
   async function salvar() {
@@ -272,15 +272,15 @@ export function GerenciarMensagensProntas({ pagina = false }: { pagina?: boolean
   const conteudo = <>
     {pagina ? <p>Tudo o que a equipe usa nas conversas: mensagens, links, fotos, vídeos e PDFs. O Wall-e só envia sozinho o que estiver <strong>publicado</strong> e liberado para ele; rascunhos nunca saem.</p>
       : <p>Textos, links, fotos e vídeos que o atendente escolhe, revisa e envia. Não são respostas da IA nem automações. Links individuais de fechamento não são digitados: vêm do fluxo de contratação do cliente.</p>}
-    {dados && !r077 && <p className={styles.nota}>Fotos, vídeos e os atalhos de salgados, bolos, endereço e localização ficam disponíveis depois da atualização deste ambiente.</p>}
-    {dados && r077 && !r078 && pagina && <p className={styles.nota}>PDF, envio de arquivos, rascunho e envio pelo Wall-e ficam disponíveis depois da atualização deste ambiente (migration 078).</p>}
+    {dados && !r077b && <p className={styles.nota}>Fotos, vídeos e os atalhos de salgados, bolos, endereço e localização ficam disponíveis depois da atualização deste ambiente.</p>}
+    {dados && r077b && !r078 && pagina && <p className={styles.nota}>PDF, envio de arquivos, rascunho e envio pelo Wall-e ficam disponíveis depois da atualização deste ambiente (migration 078).</p>}
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
     {aviso && <p role="status">{aviso}</p>}
     {dados && !dados.podeGerenciar && <p>Só o representante autorizado cadastra mensagens prontas.</p>}
     {dados?.podeGerenciar && !edicao && <button ref={botaoNova} type="button" className={styles.primario} onClick={() => abrir(vazia())}>Adicionar mensagem ou arquivo</button>}
     {edicao && escolha && <form onSubmit={e => { e.preventDefault(); void salvar(); }} aria-label={edicao.id ? 'Editar mensagem pronta' : 'Adicionar mensagem ou arquivo'} aria-busy={ocupado || undefined} className={pagina ? styles.formBiblioteca : undefined}>
       <fieldset className={styles.escolhas}><legend>O que você quer adicionar?</legend>
-        {ESCOLHAS.map(c => { const off = c === 'ARQUIVO' && !r077; return <label key={c} className={styles.escolha}><input type="radio" name={`${id}-escolha`} value={c} checked={escolha === c} disabled={off} onChange={() => escolher(c)} /><strong>{NOME_ESCOLHA[c].titulo}</strong><span>{off ? 'Indisponível neste ambiente' : NOME_ESCOLHA[c].ajuda}</span></label>; })}
+        {ESCOLHAS.map(c => { const off = c === 'ARQUIVO' && !r077b; return <label key={c} className={styles.escolha}><input type="radio" name={`${id}-escolha`} value={c} checked={escolha === c} disabled={off} onChange={() => escolher(c)} /><strong>{NOME_ESCOLHA[c].titulo}</strong><span>{off ? 'Indisponível neste ambiente' : NOME_ESCOLHA[c].ajuda}</span></label>; })}
       </fieldset>
       {escolha === 'ARQUIVO' && r078 && <div className={styles.campoArquivo}>
         <input ref={entradaArquivo} id={`${id}-arquivo`} type="file" accept={ACEITA_ANEXO} hidden tabIndex={-1} onChange={e => void enviarArquivo(e.target.files?.[0])} />
@@ -328,7 +328,7 @@ export function GerenciarMensagensProntas({ pagina = false }: { pagina?: boolean
       <details className={styles.maisOpcoes}><summary>Mais opções</summary>
         <label>Categoria<input minLength={2} maxLength={40} list={`${id}-categorias`} value={edicao.categoria} placeholder="Geral" onChange={e => setEdicao({ ...edicao, categoria: e.target.value })} /></label>
         <datalist id={`${id}-categorias`}>{categorias(dados?.prontas ?? []).map(c => <option key={c} value={c} />)}</datalist>
-        <label>Atalho no atendimento<select value={edicao.atalho} onChange={e => setEdicao({ ...edicao, atalho: e.target.value as Atalho | '' })}><option value="">Nenhum</option>{ATALHOS.map(a => <option key={a} value={a} disabled={ATALHOS_077.includes(a) && !r077}>{NOME_ATALHO[a]}{ATALHOS_077.includes(a) && !r077 ? ' (indisponível neste ambiente)' : ''}</option>)}</select></label>
+        <label>Atalho no atendimento<select value={edicao.atalho} onChange={e => setEdicao({ ...edicao, atalho: e.target.value as Atalho | '' })}><option value="">Nenhum</option>{ATALHOS.map(a => <option key={a} value={a} disabled={ATALHOS_077B.includes(a) && !r077b}>{NOME_ATALHO[a]}{ATALHOS_077B.includes(a) && !r077b ? ' (indisponível neste ambiente)' : ''}</option>)}</select></label>
         {edicao.atalho === 'LOCALIZACAO' && escolha !== 'ARQUIVO' && <p className={styles.nota}>Localização: use Link com o endereço do mapa (https), ou Mensagem de texto com o endereço completo.</p>}
         {r078 && <label className={styles.opcao}><input type="checkbox" checked={edicao.estado === 'RASCUNHO'} onChange={e => setEdicao({ ...edicao, estado: e.target.checked ? 'RASCUNHO' : 'PUBLICADA' })} />Guardar como rascunho (ninguém usa ainda)</label>}
         {r078 && escolha === 'ARQUIVO' && !edicao.arquivo && <>

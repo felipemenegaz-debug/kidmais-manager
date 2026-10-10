@@ -9,13 +9,13 @@
 -- *** Antes: exportar whatsapp_atendimento_arquivos, as colunas novas de mensagens/prontas/conversas e ter backup com
 -- *** restauração comprovada. Reaplicar a 078 depois NÃO recupera esses dados.
 --
--- Ordem: 078 → 077 → 076 → 065 → 060. Este down vem ANTES do down da 077, que recusa enquanto qualquer objeto da 078
--- existir (guarda explícita; a FK do arquivo sozinha não impedia o down da 077).
+-- Ordem: 078 → 077b → 077a → 065 → 060. Este down vem ANTES do down da 077b, que recusa enquanto qualquer objeto da 078
+-- existir (guarda explícita; a FK do arquivo sozinha não impedia o down da 077b).
 -- Fail closed, numa transação só:
 --   1. lock_timeout curto; ACCESS EXCLUSIVE nas tabelas antes de conferir;
 --   2. resposta com arquivo próprio/PDF na fila (PENDENTE, PROCESSANDO ou ENVIANDO) impede o rollback sempre;
 --   3. qualquer dado dos recursos novos exige: SET LOCAL kidmais.rollback_078_descartar = 'sim';
---   4. as restrições da 077 voltam exatamente como eram (mesmos nomes e definições).
+--   4. as restrições da 077b voltam exatamente como eram (mesmos nomes e definições).
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';

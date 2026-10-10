@@ -9,7 +9,7 @@ import { pausaPedidaNaRecepcao, comandoDireto } from "./core.ts";
 
 /**
  * Revisão final (M3/M4): nenhuma entrada fica à espera de uma resposta automática "para depois". Worker REAL no
- * PostgreSQL descartável (modelo "atual" + 060/076/077/078), só pelo check:v1:postgres, com opt-in. Dados sintéticos;
+ * PostgreSQL descartável (modelo "atual" + 060/077a/077b/078), só pelo check:v1:postgres, com opt-in. Dados sintéticos;
  * Wall-e e modelo por portas simuladas que contam as chamadas; transporte simulado (nenhuma rede).
  *
  *  V1 entrada parada além de 15 min: equipe (SEM_RESPOSTA_AUTOMATICA), nada enviado, Wall-e e modelo não chamados;
@@ -27,8 +27,8 @@ import { pausaPedidaNaRecepcao, comandoDireto } from "./core.ts";
 const ler = (f: string) => readFileSync(f, "utf8");
 const MIGRATIONS = [
   ["database/migrations/20261001_060_whatsapp_atendimento.sql", "database/checks/20261001_060_postcheck.sql"],
-  ["database/migrations/20261009_076_whatsapp_mensagens_prontas.sql", "database/checks/20261009_076_postcheck.sql"],
-  ["database/migrations/20261009_077_whatsapp_prontas_midia.sql", "database/checks/20261009_077_postcheck.sql"],
+  ["database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql", "database/checks/20261009_077a_postcheck.sql"],
+  ["database/migrations/20261009_077b_whatsapp_prontas_midia.sql", "database/checks/20261009_077b_postcheck.sql"],
   ["database/migrations/20261009_078_wall_e_atendimento.sql", "database/checks/20261009_078_postcheck.sql"],
 ].map(([up, post]) => [ler(up), ler(post)]);
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;

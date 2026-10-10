@@ -8,16 +8,16 @@ import { carregarAtendimento, cod, noPrazo } from "./harness-postgres.ts";
 import type { ConteudoSaida } from "./transporte.ts";
 
 /**
- * Migration 077 (fotos e vídeos nas mensagens prontas e na resposta do atendente; atalhos de salgados, bolos, endereço
+ * Migration 077b (fotos e vídeos nas mensagens prontas e na resposta do atendente; atalhos de salgados, bolos, endereço
  * e localização) no PostgreSQL descartável. Só roda pelo check:v1:postgres, com KIDMAIS_POSTGRES_DESCARTAVEL, no
  * cluster descartável e com autorização explícita do Felipe (docs/OPERACAO_AGENTES.md). Dados sintéticos; URLs .test
  * (nunca resolvidas); Gupshup e modelo são portas simuladas: nenhuma chamada de rede.
  * Serviço, biblioteca e worker REAIS, numa conexão por transação.
  *
  * Roteiro:
- *  0. ordem: 077 sem a 060 e sem a 076 é recusada;
- *  1. só 060 + 076: biblioteca e envio de mídia indisponíveis (mensagem clara), texto segue funcionando;
- *  2. aplicação da 077 + postcheck; reaplicação recusada; regras do banco nas prontas (URL por tipo, https, legenda);
+ *  0. ordem: 077b sem a 060 e sem a 077a é recusada;
+ *  1. só 060 + 077a: biblioteca e envio de mídia indisponíveis (mensagem clara), texto segue funcionando;
+ *  2. aplicação da 077b + postcheck; reaplicação recusada; regras do banco nas prontas (URL por tipo, https, legenda);
  *  3. cadastro pela biblioteca: foto, vídeo e os atalhos novos; recusas do formulário (extensão, IP, URL em texto);
  *     regras do banco nas mensagens (só saída, par, legenda, origem obrigatória com a mídia);
  *  4. isolamento: foto de outra empresa e de outro ambiente invisíveis, sem rascunho e sem envio; a FK composta recusa
@@ -29,24 +29,24 @@ import type { ConteudoSaida } from "./transporte.ts";
  *  8. PARAR e janela de 24 h: mídia na fila é cancelada antes do provedor; novo envio recusado;
  *  8b. ENTRE A PRÉVIA E O ENVIO: pronta editada → envio recusado, nada gravado; nova prévia → envio com a mídia nova;
  *     edição EM ANDAMENTO durante o envio: o envio espera a edição terminar e é recusado (não troca a mídia);
- *  9. rollback: a FK impede apagar pronta referenciada; o down da 076 recusa com a 077 (guarda explícita); down da 077 recusa
+ *  9. rollback: a FK impede apagar pronta referenciada; o down da 077a recusa com a 077b (guarda explícita); down da 077b recusa
  *     com mídia na fila (mesmo com as decisões), sem a decisão sobre mídias enviadas e sem a decisão sobre as prontas;
- *     com as duas, remove só a 077 (prontas de mídia e favoritas delas; atalhos novos vazios); pós-rollback; o
+ *     com as duas, remove só a 077b (prontas de mídia e favoritas delas; atalhos novos vazios); pós-rollback; o
  *     atendimento segue (sem cache); reaplicável.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const UP060 = ler("database/migrations/20261001_060_whatsapp_atendimento.sql");
 const POST060 = ler("database/checks/20261001_060_postcheck.sql");
 const DOWN060 = ler("database/rollback/20261001_060_whatsapp_atendimento_down.sql");
-const UP076 = ler("database/migrations/20261009_076_whatsapp_mensagens_prontas.sql");
-const POST076 = ler("database/checks/20261009_076_postcheck.sql");
-const DOWN076 = ler("database/rollback/20261009_076_whatsapp_mensagens_prontas_down.sql");
-const UP = ler("database/migrations/20261009_077_whatsapp_prontas_midia.sql");
-const POST = ler("database/checks/20261009_077_postcheck.sql");
-const DOWN = ler("database/rollback/20261009_077_whatsapp_prontas_midia_down.sql");
-const POS_DOWN = ler("database/checks/20261009_077_rollback_postcheck.sql");
+const UP077A = ler("database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql");
+const POST077A = ler("database/checks/20261009_077a_postcheck.sql");
+const DOWN077A = ler("database/rollback/20261009_077a_whatsapp_mensagens_prontas_down.sql");
+const UP = ler("database/migrations/20261009_077b_whatsapp_prontas_midia.sql");
+const POST = ler("database/checks/20261009_077b_postcheck.sql");
+const DOWN = ler("database/rollback/20261009_077b_whatsapp_prontas_midia_down.sql");
+const POS_DOWN = ler("database/checks/20261009_077b_rollback_postcheck.sql");
 const comDecisoes = (sql: string, ...chaves: string[]) => sql.replace("SET LOCAL statement_timeout = '60s';", ["SET LOCAL statement_timeout = '60s';", ...chaves.map((k) => `SET LOCAL ${k} = 'sim';`)].join("\n"));
-const MIDIAS = "kidmais.rollback_077_descartar_midias", PRONTAS = "kidmais.rollback_077_descartar_prontas_midia";
+const MIDIAS = "kidmais.rollback_077b_descartar_midias", PRONTAS = "kidmais.rollback_077b_descartar_prontas_midia";
 
 async function recusa(c: Client, sql: string, v: unknown[], motivo: RegExp) {
   await c.query("BEGIN");
@@ -56,7 +56,7 @@ async function recusa(c: Client, sql: string, v: unknown[], motivo: RegExp) {
 const zod = (e: Error) => e.name === "ZodError";
 
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
-/** Empresas e usuários sintéticos (membership ATIVA), no mesmo padrão das suítes 060/076. */
+/** Empresas e usuários sintéticos (membership ATIVA), no mesmo padrão das suítes 060/077a. */
 function fixtures(c: Client) {
   const id = async (sql: string, v: unknown[]) => (await c.query<{ id: string }>(sql, v)).rows[0].id;
   const empresa = async (nome: string) => {
@@ -65,7 +65,7 @@ function fixtures(c: Client) {
     return e;
   };
   const usuario = async (papel: string, empresaId: string) => {
-    const u = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness 077', $2, $3, true) RETURNING id`, [`${cod("u")}@example.test`, SENHA, papel]);
+    const u = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness 077b', $2, $3, true) RETURNING id`, [`${cod("u")}@example.test`, SENHA, papel]);
     const m = await id(`INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1::uuid, $2::uuid, 'PENDENTE', clock_timestamp(), $3) RETURNING id`, [empresaId, u, papel]);
     await c.query(`UPDATE memberships SET status = 'ATIVA' WHERE id = $1::uuid`, [m]);
     return { usuario_id: u, papel } as SessaoParaTenant;
@@ -73,7 +73,7 @@ function fixtures(c: Client) {
   return { empresa, usuario };
 }
 
-test("077: fotos e vídeos — ordem, aplicação, cadastro, isolamento, envio preso à prévia, worker simulado, PARAR/janela e rollback", { timeout: 300_000 }, async (t) => {
+test("077b: fotos e vídeos — ordem, aplicação, cadastro, isolamento, envio preso à prévia, worker simulado, PARAR/janela e rollback", { timeout: 300_000 }, async (t) => {
   if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") {
     t.skip("opt-in ausente: harness PostgreSQL não executado");
     return;
@@ -82,13 +82,13 @@ test("077: fotos e vídeos — ordem, aplicação, cadastro, isolamento, envio p
   try {
     // 0. Ordem.
     assert.equal((await c.query("SELECT to_regclass('public.whatsapp_atendimento_conversas') AS t")).rows[0].t, null, "descartável começa sem a 060");
-    await assert.rejects(c.query(UP), /077 exige a 060/); await c.query("ROLLBACK").catch(() => {});
+    await assert.rejects(c.query(UP), /077b exige a 060/); await c.query("ROLLBACK").catch(() => {});
     await c.query(UP060); await c.query(POST060);
-    await assert.rejects(c.query(UP), /077 exige a 060 \(atendimento WhatsApp\) e a 076/, "com a 060 e sem a 076 também recusa"); await c.query("ROLLBACK").catch(() => {});
-    await c.query(UP076); await c.query(POST076);
+    await assert.rejects(c.query(UP), /077b exige a 060 \(atendimento WhatsApp\) e a 077a/, "com a 060 e sem a 077a também recusa"); await c.query("ROLLBACK").catch(() => {});
+    await c.query(UP077A); await c.query(POST077A);
 
     const f = fixtures(c);
-    const A = await f.empresa("Empresa sintética A (077)"), B = await f.empresa("Empresa sintética B (077)");
+    const A = await f.empresa("Empresa sintética A (077b)"), B = await f.empresa("Empresa sintética B (077b)");
     const repA = await f.usuario("REPRESENTANTE_AUTORIZADO", A), atendA = await f.usuario("ADMINISTRATIVO", A), repB = await f.usuario("REPRESENTANTE_AUTORIZADO", B);
     const { servico, worker, biblioteca } = carregarAtendimento(A);
     await servico.salvarConfiguracao(repA, { ativo: true, nome: "Empresa sintética A", perguntas: [] });
@@ -107,18 +107,18 @@ test("077: fotos e vídeos — ordem, aplicação, cadastro, isolamento, envio p
     const versaoDe = async (id: string) => Number((await c.query("SELECT versao FROM whatsapp_atendimento_mensagens_prontas WHERE id = $1", [id])).rows[0].versao);
     const FOTO = "https://midia.exemplo.test/salgados.jpg", VIDEO = "https://midia.exemplo.test/bolos.mp4";
 
-    // 1. Só 060 + 076: mídia e atalhos novos indisponíveis, com o motivo; texto segue funcionando.
-    assert.equal((await biblioteca.listarProntas(repA)).recursos077, false);
+    // 1. Só 060 + 077a: mídia e atalhos novos indisponíveis, com o motivo; texto segue funcionando.
+    assert.equal((await biblioteca.listarProntas(repA)).recursos077b, false);
     await assert.rejects(biblioteca.salvarPronta(repA, { titulo: "Salgados", categoria: "Cardápio", tipo: "IMAGEM", texto: "Nossos salgados.", link: null, atalho: "SALGADOS", midiaUrl: FOTO }), /ATENDIMENTO_MIDIA_INDISPONIVEL/);
-    await assert.rejects(biblioteca.salvarPronta(repA, { titulo: "Endereço", categoria: "Informações", tipo: "TEXTO", texto: "Rua sintética, 1.", link: null, atalho: "ENDERECO" }), /ATENDIMENTO_MIDIA_INDISPONIVEL/, "atalho novo também depende da 077");
+    await assert.rejects(biblioteca.salvarPronta(repA, { titulo: "Endereço", categoria: "Informações", tipo: "TEXTO", texto: "Rua sintética, 1.", link: null, atalho: "ENDERECO" }), /ATENDIMENTO_MIDIA_INDISPONIVEL/, "atalho novo também depende da 077b");
     const boasVindas = (await biblioteca.salvarPronta(repA, { titulo: "Boas-vindas", categoria: "Geral", tipo: "TEXTO", texto: "Olá! Como posso ajudar?", link: null, atalho: null })).id;
     await entrar("5561900000601", "Oi"); await controlar("5561900000601", "assumir");
-    await assert.rejects(controlar("5561900000601", "enviar", { prontaMidiaId: boasVindas, prontaVersao: 0, texto: "x" }), /ATENDIMENTO_MIDIA_INDISPONIVEL/, "sem a 077 o envio de mídia é recusado");
-    assert.deepEqual((await servico.listarAtendimento(atendA, (await conversa("5561900000601")).id)).mensagens.map((m) => [m.direcao, m.midia_tipo, m.midia_url]), [["ENTRADA", null, null]], "sem a 077 a tela lista sem mídia e sem erro");
+    await assert.rejects(controlar("5561900000601", "enviar", { prontaMidiaId: boasVindas, prontaVersao: 0, texto: "x" }), /ATENDIMENTO_MIDIA_INDISPONIVEL/, "sem a 077b o envio de mídia é recusado");
+    assert.deepEqual((await servico.listarAtendimento(atendA, (await conversa("5561900000601")).id)).mensagens.map((m) => [m.direcao, m.midia_tipo, m.midia_url]), [["ENTRADA", null, null]], "sem a 077b a tela lista sem mídia e sem erro");
 
     // 2. Aplicação + regras do banco nas prontas.
     await c.query(UP); await c.query(POST);
-    await assert.rejects(c.query(semTransacaoExplicita(UP)), /077 já aplicada/); await c.query("ROLLBACK").catch(() => {});
+    await assert.rejects(c.query(semTransacaoExplicita(UP)), /077b já aplicada/); await c.query("ROLLBACK").catch(() => {});
     const insP = `INSERT INTO whatsapp_atendimento_mensagens_prontas (empresa_id, ambiente, titulo, categoria, tipo, texto, atalho, midia_url, criada_por, atualizada_por) VALUES ($1, 'staging', $2, 'Teste', $3, $4, $5, $6, $7, $7)`;
     await recusa(c, insP, [A, cod("t"), "IMAGEM", "x", null, null, repA.usuario_id], /whatsapp_prontas_midia_por_tipo/);
     await recusa(c, insP, [A, cod("t"), "TEXTO", "x", null, FOTO, repA.usuario_id], /whatsapp_prontas_midia_por_tipo/);
@@ -139,11 +139,11 @@ test("077: fotos e vídeos — ordem, aplicação, cadastro, isolamento, envio p
     await assert.rejects(salvar(atendA, { titulo: "Do atendente", tipo: "IMAGEM", texto: "x", midiaUrl: FOTO }), /ATENDIMENTO_ACESSO_NEGADO/);
     await assert.rejects(salvar(repA, { titulo: "Outros salgados", tipo: "IMAGEM", texto: "x", atalho: "SALGADOS", midiaUrl: FOTO }), /ATENDIMENTO_PRONTA_ATALHO_EM_USO/);
     let lista = await biblioteca.listarProntas(atendA);
-    assert.equal(lista.recursos077, true);
+    assert.equal(lista.recursos077b, true);
     assert.deepEqual(lista.prontas.map((p) => [p.titulo, p.atalho, p.midia_url]), [["Bolos", "BOLOS", VIDEO], ["Endereço", "ENDERECO", null], ["Localização", "LOCALIZACAO", null], ["Salgados da casa", "SALGADOS", FOTO], ["Boas-vindas", null, null]], "atalhos primeiro; URL da mídia na lista");
     // Regras do banco nas mensagens: só saída, par tipo/URL, legenda, e a origem (pronta + versão) junto com a mídia.
     const insM = `INSERT INTO whatsapp_atendimento_mensagens (conversa_id, empresa_id, ambiente, externa_id, direcao, texto, estado, versao_conversa, autor_usuario_id, midia_tipo, midia_url, midia_pronta_id, midia_pronta_versao) VALUES ($1, $2, 'staging', $3, $4, $5, $6, 1, $7, $8, $9, $10, $11)`;
-    await recusa(c, insM, [c601, A, "ext-077", "ENTRADA", "x", "PROCESSADA", null, "IMAGEM", FOTO, foto, 0], /whatsapp_mensagens_midia_so_saida/);
+    await recusa(c, insM, [c601, A, "ext-077b", "ENTRADA", "x", "PROCESSADA", null, "IMAGEM", FOTO, foto, 0], /whatsapp_mensagens_midia_so_saida/);
     await recusa(c, insM, [c601, A, null, "SAIDA", "x", "PENDENTE", atendA.usuario_id, "VIDEO", null, video, 0], /whatsapp_mensagens_midia_par/);
     await recusa(c, insM, [c601, A, null, "SAIDA", "x".repeat(1025), "PENDENTE", atendA.usuario_id, "IMAGEM", FOTO, foto, 0], /whatsapp_mensagens_legenda_limite/);
     await recusa(c, insM, [c601, A, null, "SAIDA", "x", "PENDENTE", atendA.usuario_id, "IMAGEM", FOTO, null, null], /whatsapp_mensagens_midia_origem/);
@@ -257,12 +257,12 @@ test("077: fotos e vídeos — ordem, aplicação, cadastro, isolamento, envio p
     await entrar("5561900000605", "Oi"); await controlar("5561900000605", "assumir");
     await enviarMidia("5561900000605", await previa("5561900000605", foto));            // fica na fila
     await biblioteca.favoritarPronta(atendA, { id: foto, favorita: true });
-    // A FK protege a origem: a pronta referenciada não pode ser apagada; o down da 076 recusa com a 077 (guarda explícita).
+    // A FK protege a origem: a pronta referenciada não pode ser apagada; o down da 077a recusa com a 077b (guarda explícita).
     await recusa(c, "DELETE FROM whatsapp_atendimento_mensagens_prontas WHERE id = $1", [video], /whatsapp_mensagens_midia_pronta/);
-    await assert.rejects(c.query(comDecisoes(DOWN076, "kidmais.rollback_076_descartar_prontas")), /Rollback da 076 recusado: a 077 ou a 078 ainda estão aplicadas/); await c.query("ROLLBACK").catch(() => {});
-    await c.query(POST); await c.query(POST076);
-    assert.ok((await c.query("SELECT to_regclass('public.whatsapp_atendimento_mensagens_prontas') AS t")).rows[0].t, "prontas intactas depois da recusa da 076");
-    // Down da 077: fila (mesmo com as duas decisões) → mídias enviadas → prontas de mídia.
+    await assert.rejects(c.query(comDecisoes(DOWN077A, "kidmais.rollback_077a_descartar_prontas")), /Rollback da 077a recusado: a 077b ou a 078 ainda estão aplicadas/); await c.query("ROLLBACK").catch(() => {});
+    await c.query(POST); await c.query(POST077A);
+    assert.ok((await c.query("SELECT to_regclass('public.whatsapp_atendimento_mensagens_prontas') AS t")).rows[0].t, "prontas intactas depois da recusa da 077a");
+    // Down da 077b: fila (mesmo com as duas decisões) → mídias enviadas → prontas de mídia.
     await assert.rejects(c.query(DOWN), /na fila de envio/); await c.query("ROLLBACK").catch(() => {});
     await assert.rejects(c.query(comDecisoes(DOWN, MIDIAS, PRONTAS)), /na fila de envio/, "fila bloqueia mesmo com as decisões"); await c.query("ROLLBACK").catch(() => {});
     await controlar("5561900000605", "encerrar");                                          // cancela a saída da fila (caminho real)
@@ -272,7 +272,7 @@ test("077: fotos e vídeos — ordem, aplicação, cadastro, isolamento, envio p
     assert.equal(await contagem("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens_prontas WHERE tipo IN ('IMAGEM', 'VIDEO')"), 5, "recusas não removem nada");
     const conversasAntes = await contagem("SELECT count(*) AS n FROM whatsapp_atendimento_conversas");
     await c.query(comDecisoes(DOWN, MIDIAS, PRONTAS));
-    await c.query(POS_DOWN); await c.query(POST076); await c.query(POST060);
+    await c.query(POS_DOWN); await c.query(POST077A); await c.query(POST060);
     assert.equal(await contagem("SELECT count(*) AS n FROM whatsapp_atendimento_conversas"), conversasAntes, "060 intacta");
     assert.equal(await contagem("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens_prontas_favoritas WHERE mensagem_pronta_id = $1", [foto]), 0, "favoritas das prontas removidas saem junto");
     assert.deepEqual((await c.query("SELECT titulo, tipo, atalho FROM whatsapp_atendimento_mensagens_prontas WHERE empresa_id = $1 AND ambiente = 'staging' ORDER BY titulo", [A])).rows,
@@ -280,15 +280,15 @@ test("077: fotos e vídeos — ordem, aplicação, cadastro, isolamento, envio p
     assert.equal(await versaoDe(endereco), 1, "atalho tirado pelo down conta como alteração (versão)");
     assert.equal((await c.query("SELECT link FROM whatsapp_atendimento_mensagens_prontas WHERE id = $1", [localizacao])).rows[0].link, "https://mapa.exemplo.test/kidmais", "o link da localização fica");
     assert.deepEqual((await servico.listarAtendimento(atendA, c601)).mensagens.filter((m) => m.direcao === "SAIDA").map((m) => [m.texto, m.midia_tipo, m.midia_url]), [["Legenda revisada pelo atendente.", null, null]], "sem as colunas a tela segue (sem cache); fica a legenda");
-    assert.equal((await biblioteca.listarProntas(repA)).recursos077, false);
+    assert.equal((await biblioteca.listarProntas(repA)).recursos077b, false);
     await assert.rejects(salvar(repA, { titulo: "Nova foto", tipo: "IMAGEM", texto: "x", midiaUrl: FOTO }), /ATENDIMENTO_MIDIA_INDISPONIVEL/);
     await worker.processarLote(deps, { maxTarefas: 20 });
     assert.equal(envios.length, 3, "nada reenviado depois do rollback");
-    // Reaplicável, e limpeza do descartável (077 vazia; agora o down da 076 passa; 060 com descarte explícito).
+    // Reaplicável, e limpeza do descartável (077b vazia; agora o down da 077a passa; 060 com descarte explícito).
     await c.query(UP); await c.query(POST);
     await c.query(DOWN); await c.query(POS_DOWN);
-    await c.query("BEGIN"); await c.query("SET LOCAL kidmais.rollback_076_descartar_prontas = 'sim'");
-    await c.query(semTransacaoExplicita(DOWN076)); await c.query("COMMIT");
+    await c.query("BEGIN"); await c.query("SET LOCAL kidmais.rollback_077a_descartar_prontas = 'sim'");
+    await c.query(semTransacaoExplicita(DOWN077A)); await c.query("COMMIT");
     await c.query("BEGIN"); await c.query("SET LOCAL kidmais.rollback_060_descartar_atendimento = 'sim'");
     await c.query(semTransacaoExplicita(DOWN060)); await c.query("COMMIT");
   } finally {

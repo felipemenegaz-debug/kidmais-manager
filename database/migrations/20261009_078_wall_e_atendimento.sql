@@ -3,28 +3,28 @@
 --       da resposta; memória da conversa e resumo da passagem para a equipe.
 --
 -- NÃO APLICADA em banco persistente. Nesta entrega só em bancos descartáveis locais (autorização do GOAL Wall-e); staging
--- e produção exigem autorização própria (docs/OPERACAO_AGENTES.md). Exige a 060, a 076 e a 077; independe da 065.
+-- e produção exigem autorização própria (docs/OPERACAO_AGENTES.md). Exige a 060, a 077a e a 077b; independe da 065.
 --
 -- Arquivos: guardados no próprio banco (bytea, só inserção, hash conferido pelo banco), por empresa e ambiente, servidos
 -- por URL pública com token aleatório (o provedor baixa a mídia sem sessão). Limites da aplicação: foto JPEG/PNG 5 MB,
 -- vídeo MP4/3GPP 16 MB, PDF 16 MB (o provedor aceita até 100 MB; ver docs/WALL_E_ATENDIMENTO.md).
 --
 -- Mensagem pronta:
---   estado      RASCUNHO | PUBLICADA | ARQUIVADA (ativa = estado <> ARQUIVADA, mantida para os índices da 076);
+--   estado      RASCUNHO | PUBLICADA | ARQUIVADA (ativa = estado <> ARQUIVADA, mantida para os índices da 077a);
 --   envio_automatico  o Wall-e só envia sozinho conteúdo PUBLICADO com esta autorização (o serviço confere o estado);
 --   finalidade  PRECOS | LOCALIZACAO | PACOTES | CARDAPIO | DECORACAO | CONTRATO | GERAL;
 --   pacote_codigo (estável entre revisões do pacote) e estabelecimento_id (unidade), opcionais;
---   arquivo_id  arquivo próprio (alternativa à URL externa da 077). PDF só por arquivo próprio.
+--   arquivo_id  arquivo próprio (alternativa à URL externa da 077b). PDF só por arquivo próprio.
 -- Mensagem: `origem_grupo_id` + `ordem` permitem várias saídas da mesma entrada (texto + PDF + link) sem duplicar em
 --   retry; a unicidade da 060 em `origem_id` continua (só a primeira saída o preenche). `fonte` registra a origem e a
 --   versão dos dados usados (interno).
 -- Conversa: `contexto` (memória do Wall-e) e `passagem` (resumo para a equipe).
 --
--- Compatível com os postchecks da 060, 076 e 077: as restrições redefinidas (tipo, mídia por tipo, legenda, par de
--- mídia) mantêm os NOMES da 077 e só ampliam as listas; nenhuma restrição da 060/076 é removida. Aditiva: as linhas
+-- Compatível com os postchecks da 060, 077a e 077b: as restrições redefinidas (tipo, mídia por tipo, legenda, par de
+-- mídia) mantêm os NOMES da 077b e só ampliam as listas; nenhuma restrição da 060/077a é removida. Aditiva: as linhas
 -- existentes continuam válidas (prontas atuais viram PUBLICADA ou ARQUIVADA conforme `ativa`). Com a 078 aplicada, o
--- down da 077 recusa por guarda explícita (a FK do arquivo NÃO bastava: o DROP COLUMN a derrubaria junto): desfazer
--- a 078 antes. Ordem: 078 → 077 → 076 → 065 → 060.
+-- down da 077b recusa por guarda explícita (a FK do arquivo NÃO bastava: o DROP COLUMN a derrubaria junto): desfazer
+-- a 078 antes. Ordem: 078 → 077b → 077a → 065 → 060.
 -- Postcheck: database/checks/20261009_078_postcheck.sql. Rollback: database/rollback/20261009_078_wall_e_atendimento_down.sql.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -33,7 +33,7 @@ SET LOCAL statement_timeout = '60s';
 DO $$ BEGIN
   IF to_regclass('public.whatsapp_atendimento_mensagens_prontas') IS NULL
      OR NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.whatsapp_atendimento_mensagens'::regclass AND attname = 'midia_pronta_id' AND NOT attisdropped) THEN
-    RAISE EXCEPTION '078 exige a 060, a 076 e a 077.';
+    RAISE EXCEPTION '078 exige a 060, a 077a e a 077b.';
   END IF;
   IF to_regclass('public.whatsapp_atendimento_arquivos') IS NOT NULL
      OR EXISTS (SELECT 1 FROM pg_attribute WHERE NOT attisdropped AND (
@@ -42,13 +42,13 @@ DO $$ BEGIN
        OR (attrelid = 'public.whatsapp_atendimento_conversas'::regclass AND attname IN ('contexto', 'passagem')))) THEN
     RAISE EXCEPTION '078 já aplicada (total ou parcialmente).';
   END IF;
-  -- Restrições redefinidas: exatamente como a 077 as criou.
+  -- Restrições redefinidas: exatamente como a 077b as criou.
   IF (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.whatsapp_atendimento_mensagens_prontas'::regclass AND conname = 'whatsapp_prontas_tipo')
         IS DISTINCT FROM 'CHECK ((tipo = ANY (ARRAY[''TEXTO''::text, ''LINK''::text, ''LINK_FECHAMENTO_INDIVIDUAL''::text, ''IMAGEM''::text, ''VIDEO''::text])))'
      OR (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.whatsapp_atendimento_mensagens'::regclass AND conname = 'whatsapp_mensagens_midia_tipo')
         IS DISTINCT FROM 'CHECK ((midia_tipo = ANY (ARRAY[''IMAGEM''::text, ''VIDEO''::text])))'
      OR (SELECT count(*) FROM pg_constraint WHERE conname IN ('whatsapp_prontas_midia_por_tipo', 'whatsapp_prontas_legenda_limite', 'whatsapp_mensagens_midia_par', 'whatsapp_mensagens_legenda_limite')) <> 4 THEN
-    RAISE EXCEPTION '078 recusada: restrições da 077 divergem do esperado.';
+    RAISE EXCEPTION '078 recusada: restrições da 077b divergem do esperado.';
   END IF;
 END $$;
 
@@ -97,7 +97,7 @@ ALTER TABLE whatsapp_atendimento_mensagens_prontas
   DROP CONSTRAINT whatsapp_prontas_midia_por_tipo,
   DROP CONSTRAINT whatsapp_prontas_legenda_limite,
   ADD CONSTRAINT whatsapp_prontas_tipo CHECK (tipo IN ('TEXTO', 'LINK', 'LINK_FECHAMENTO_INDIVIDUAL', 'IMAGEM', 'VIDEO', 'DOCUMENTO')),
-  -- Mídia: URL externa (077) OU arquivo próprio, nunca os dois; PDF só por arquivo próprio.
+  -- Mídia: URL externa (077b) OU arquivo próprio, nunca os dois; PDF só por arquivo próprio.
   ADD CONSTRAINT whatsapp_prontas_midia_por_tipo CHECK ((tipo IN ('IMAGEM', 'VIDEO', 'DOCUMENTO')) = (midia_url IS NOT NULL OR arquivo_id IS NOT NULL)
     AND NOT (midia_url IS NOT NULL AND arquivo_id IS NOT NULL) AND (tipo <> 'DOCUMENTO' OR arquivo_id IS NOT NULL)),
   ADD CONSTRAINT whatsapp_prontas_legenda_limite CHECK (tipo NOT IN ('IMAGEM', 'VIDEO', 'DOCUMENTO') OR length(texto) <= 1024),

@@ -15,7 +15,7 @@ import { resolverWallE } from "./walle/resolver.ts";
 
 /**
  * Correção P1 da revisão da candidata final (pausa × limite diário). Worker e recepção REAIS no PostgreSQL descartável
- * (modelo "atual" + 060/076/077/078), só pelo check:v1:postgres, com opt-in. Dados e contatos sintéticos; transporte
+ * (modelo "atual" + 060/077a/077b/078), só pelo check:v1:postgres, com opt-in. Dados e contatos sintéticos; transporte
  * simulado (nenhuma rede); nenhum modelo. A porta do Wall-e usa as REGRAS e o RESOLVEDOR reais para os pedidos de parar
  * (o caminho que o Wall-e real segue) e uma resposta sintética fixa para o resto (para esgotar o limite).
  *
@@ -31,8 +31,8 @@ import { resolverWallE } from "./walle/resolver.ts";
 const ler = (f: string) => readFileSync(f, "utf8");
 const MIGRATIONS = [
   ["database/migrations/20261001_060_whatsapp_atendimento.sql", "database/checks/20261001_060_postcheck.sql"],
-  ["database/migrations/20261009_076_whatsapp_mensagens_prontas.sql", "database/checks/20261009_076_postcheck.sql"],
-  ["database/migrations/20261009_077_whatsapp_prontas_midia.sql", "database/checks/20261009_077_postcheck.sql"],
+  ["database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql", "database/checks/20261009_077a_postcheck.sql"],
+  ["database/migrations/20261009_077b_whatsapp_prontas_midia.sql", "database/checks/20261009_077b_postcheck.sql"],
   ["database/migrations/20261009_078_wall_e_atendimento.sql", "database/checks/20261009_078_postcheck.sql"],
 ].map(([up, post]) => [ler(up), ler(post)]);
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;

@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
 /**
- * Mensagens prontas do atendimento (076). Biblioteca da EQUIPE: o atendente escolhe, revisa e envia.
+ * Mensagens prontas do atendimento (077a). Biblioteca da EQUIPE: o atendente escolhe, revisa e envia.
  *
  * Tipos da fase A: TEXTO, LINK fixo (https) e LINK individual de fechamento. O link individual nunca é digitado:
  * é resolvido na hora do rascunho pelo fluxo autorizado do sistema (contratação aguardando a assinatura do cliente),
  * e só quando empresa, cliente e conversa formam um vínculo inequívoco (prontas-link.ts, só no servidor).
- * Fase B (077): IMAGEM e VIDEO por URL https pública da EMPRESA; o texto é a legenda. A mídia nunca vem da tela de
+ * Fase B (077b): IMAGEM e VIDEO por URL https pública da EMPRESA; o texto é a legenda. A mídia nunca vem da tela de
  * atendimento: no envio vão o id e a versão da mensagem pronta vistos na prévia; o servidor lê a URL do banco e recusa
  * se a pronta mudou depois (a mídia nunca é trocada em silêncio). Atalhos novos: salgados, bolos,
  * endereço e localização (texto/link; não há mensagem de localização nativa nesta entrega).
@@ -18,14 +18,14 @@ import { z } from 'zod';
 export const ATALHOS = ['TABELA_PRECOS', 'DISPONIBILIDADE_FECHAMENTO', 'SALGADOS', 'BOLOS', 'ENDERECO', 'LOCALIZACAO'] as const;
 export type Atalho = (typeof ATALHOS)[number];
 export const NOME_ATALHO: Record<Atalho, string> = { TABELA_PRECOS: 'Tabela de preços', DISPONIBILIDADE_FECHAMENTO: 'Disponibilidade / fechamento', SALGADOS: 'Salgados', BOLOS: 'Bolos', ENDERECO: 'Endereço', LOCALIZACAO: 'Localização' };
-/** Atalhos que só existem com a 077 aplicada (sem ela o banco recusa; a tela os mostra como indisponíveis). */
-export const ATALHOS_077: readonly Atalho[] = ['SALGADOS', 'BOLOS', 'ENDERECO', 'LOCALIZACAO'];
+/** Atalhos que só existem com a 077b aplicada (sem ela o banco recusa; a tela os mostra como indisponíveis). */
+export const ATALHOS_077B: readonly Atalho[] = ['SALGADOS', 'BOLOS', 'ENDERECO', 'LOCALIZACAO'];
 export const TIPOS = ['TEXTO', 'LINK', 'LINK_FECHAMENTO_INDIVIDUAL', 'IMAGEM', 'VIDEO', 'DOCUMENTO'] as const;
 export type TipoPronta = (typeof TIPOS)[number];
 /** Tipos que existiam antes da 078 (o PDF chega com a 078, só por arquivo próprio). */
-export const TIPOS_077: readonly TipoPronta[] = TIPOS.filter((t) => t !== 'DOCUMENTO');
+export const TIPOS_077B: readonly TipoPronta[] = TIPOS.filter((t) => t !== 'DOCUMENTO');
 export const NOME_TIPO: Record<TipoPronta, string> = { TEXTO: 'Texto', LINK: 'Link', LINK_FECHAMENTO_INDIVIDUAL: 'Link individual de fechamento', IMAGEM: 'Foto', VIDEO: 'Vídeo', DOCUMENTO: 'PDF' };
-/** Mídia que aceita URL externa (077). O PDF não: só arquivo próprio (078). */
+/** Mídia que aceita URL externa (077b). O PDF não: só arquivo próprio (078). */
 export const TIPOS_MIDIA = ['IMAGEM', 'VIDEO'] as const;
 export type TipoMidia = (typeof TIPOS_MIDIA)[number];
 export const ehMidia = (tipo: TipoPronta): tipo is TipoMidia => tipo === 'IMAGEM' || tipo === 'VIDEO';
@@ -97,7 +97,7 @@ export function midiaSegura(tipo: TipoMidia, valor: string) {
 }
 
 /**
- * Cadastro. Os campos da 078 têm padrão compatível com a 076/077 (publicada, sem envio automático, sem vínculos, sem
+ * Cadastro. Os campos da 078 têm padrão compatível com a 077a/077b (publicada, sem envio automático, sem vínculos, sem
  * arquivo): um cadastro antigo continua válido e com o mesmo efeito.
  */
 export const prontaEntradaSchema = z.object({

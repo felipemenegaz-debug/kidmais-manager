@@ -28,7 +28,7 @@ async function temNomePerfil(tx: DbExecutor) {
   return !!r.rows[0]?.existe;
 }
 /**
- * Fotos e vídeos chegam com a migration 077 (colunas de mídia em mensagens e mensagens prontas). Sem ela o atendimento
+ * Fotos e vídeos chegam com a migration 077b (colunas de mídia em mensagens e mensagens prontas). Sem ela o atendimento
  * segue só com texto e a biblioteca oferece mídia como indisponível. Consulta de catálogo a cada uso, sem cache.
  */
 export async function temMidia(tx: DbExecutor) {
@@ -48,7 +48,7 @@ export async function tem078(tx: DbExecutor) {
 export type MidiaDaPronta = { tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO'; midia_url: string | null; arquivo_id: string | null; nome: string | null; versao: number };
 /**
  * Anexo de uma mensagem pronta DESTA empresa e ambiente, na VERSÃO vista na prévia: a única origem de mídia no envio
- * (URL externa da 077 ou arquivo próprio da 078). Pronta alterada, arquivada ou de volta a rascunho depois da prévia:
+ * (URL externa da 077b ou arquivo próprio da 078). Pronta alterada, arquivada ou de volta a rascunho depois da prévia:
  * recusa (nada é gravado nem enviado; a pessoa revisa de novo) — o anexo nunca é trocado em silêncio. FOR SHARE: uma
  * alteração em andamento termina antes desta leitura (e é vista); a leitura e a cópia para a mensagem são da mesma versão.
  */

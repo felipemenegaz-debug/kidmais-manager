@@ -233,7 +233,7 @@ export async function processarAtendimento(deps: DependenciasWorker) {
     if (!destino) return 'CANCELADA';
     // Daqui em diante não há transação nem trava abertas (rede). Assumir durante ENVIANDO é recusado pela API até o
     // resultado; alteração da configuração neste intervalo não cancela o envio já marcado.
-    // Foto/vídeo (077): tipo e URL vêm da própria linha (copiados da mensagem pronta no servidor); o texto é a legenda.
+    // Foto/vídeo (077b): tipo e URL vêm da própria linha (copiados da mensagem pronta no servidor); o texto é a legenda.
     const provedorId = await deps.enviar(destino.contato, conteudoDaMensagem({ ...mensagem, url_arquivo: destino.urlArquivo }));
     await withTransaction(async tx => {
       await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='SUBMETIDA',provedor_id=$2 WHERE id=$1 AND estado='ENVIANDO'", [mensagem.id, provedorId]);

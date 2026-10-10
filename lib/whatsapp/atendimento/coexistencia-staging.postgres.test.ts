@@ -7,18 +7,18 @@ import { carregarAtendimento, cod } from "./harness-postgres.ts";
 import type { ConteudoSaida } from "./transporte.ts";
 
 /**
- * Candidata de integração (07/10/2026): coexistência e rollback cruzado do atendimento (060, 065, 076, 077, 078) com
+ * Candidata de integração (07/10/2026): coexistência e rollback cruzado do atendimento (060, 065, 077a, 077b, 078) com
  * as migrations novas de staging (064 reimportação, 066 Pix, 067 modelo comercial, 068 cobrança, 069 cadastro
  * público e, desde 07/10 à tarde, 070 adicionais do buffet — que só altera a tabela adicionais: entra na sequência de
  * staging com pré e postcheck e no rollback; a impressão digital continua nas tabelas novas de staging), no PostgreSQL descartável (modelo "063": 055…063, com a 060). Só pelo check:v1:postgres, com opt-in e
  * autorização explícita do Felipe. Dados sintéticos; transporte simulado; nenhuma rede.
  *
- *  X1 atendimento primeiro (065 → 076 → 077 → 078) e dados dele (sessão, nome de perfil, prontas, saída com mídia);
+ *  X1 atendimento primeiro (065 → 077a → 077b → 078) e dados dele (sessão, nome de perfil, prontas, saída com mídia);
  *  X2 staging por cima (064 → 066 → 067 → 068 → 069, com pré e postchecks): os postchecks dos dois lados passam;
  *  X3 rollback de TODO o staging (069 → 068 → 067 → 066 → 064) com o atendimento presente: os dados e os objetos do
  *     atendimento ficam idênticos (impressão digital) e os postchecks dele passam; staging reaplicado;
  *  X4 dados das funcionalidades de staging (chave Pix, exceção comercial, cadastro público pendente);
- *  X5 rollback de TODO o atendimento (078 → 077 → 065 → 076 → 060, com as decisões explícitas) com os dados de staging:
+ *  X5 rollback de TODO o atendimento (078 → 077b → 065 → 077a → 060, com as decisões explícitas) com os dados de staging:
  *     os dados e os objetos de staging ficam idênticos e os postchecks de staging passam; nenhuma tabela do atendimento
  *     sobra;
  *  X6 atendimento reaplicado depois de staging (a outra ordem): postchecks dos dois lados;
@@ -33,10 +33,10 @@ const A060 = { pre: null, up: ler("database/migrations/20261001_060_whatsapp_ate
   down: ler("database/rollback/20261001_060_whatsapp_atendimento_down.sql"), preDown: ler("database/checks/20261001_060_rollback_precheck.sql"), posDown: ler("database/checks/20261001_060_rollback_postcheck.sql") };
 const A065 = { up: ler("database/migrations/20261004_065_whatsapp_nome_perfil.sql"), post: ler("database/checks/20261004_065_postcheck.sql"),
   down: ler("database/rollback/20261004_065_whatsapp_nome_perfil_down.sql"), posDown: ler("database/checks/20261004_065_rollback_postcheck.sql") };
-const A076 = { up: ler("database/migrations/20261009_076_whatsapp_mensagens_prontas.sql"), post: ler("database/checks/20261009_076_postcheck.sql"),
-  down: ler("database/rollback/20261009_076_whatsapp_mensagens_prontas_down.sql"), posDown: ler("database/checks/20261009_076_rollback_postcheck.sql") };
-const A077 = { up: ler("database/migrations/20261009_077_whatsapp_prontas_midia.sql"), post: ler("database/checks/20261009_077_postcheck.sql"),
-  down: ler("database/rollback/20261009_077_whatsapp_prontas_midia_down.sql"), posDown: ler("database/checks/20261009_077_rollback_postcheck.sql") };
+const A077A = { up: ler("database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql"), post: ler("database/checks/20261009_077a_postcheck.sql"),
+  down: ler("database/rollback/20261009_077a_whatsapp_mensagens_prontas_down.sql"), posDown: ler("database/checks/20261009_077a_rollback_postcheck.sql") };
+const A077B = { up: ler("database/migrations/20261009_077b_whatsapp_prontas_midia.sql"), post: ler("database/checks/20261009_077b_postcheck.sql"),
+  down: ler("database/rollback/20261009_077b_whatsapp_prontas_midia_down.sql"), posDown: ler("database/checks/20261009_077b_rollback_postcheck.sql") };
 const A078 = { up: ler("database/migrations/20261009_078_wall_e_atendimento.sql"), post: ler("database/checks/20261009_078_postcheck.sql"),
   down: ler("database/rollback/20261009_078_wall_e_atendimento_down.sql") };
 // Staging.
@@ -70,15 +70,17 @@ test("coexistência e rollback cruzado do atendimento com 064/066/067/068/069/07
       UNION ALL SELECT 'i:' || ic.relname || ':' || md5(pg_get_indexdef(ix.indexrelid)) FROM pg_index ix JOIN pg_class cl ON cl.oid = ix.indrelid JOIN pg_class ic ON ic.oid = ix.indexrelid WHERE cl.relname = ANY($2)
     ) s`, [prefixoFuncao, tabelas])).rows.map((x) => `${x.n}:${x.h}`)[0];
   const FUNCOES_STAGING = "^kidmais_?(06[46789]|070)"; // 064, 066–070 de staging (a 065 é do atendimento)
-  const FUNCOES_ATENDIMENTO = "^kidmais_?(060|065|07[6-8])"; // 060, 065, 076–078 do atendimento (a renumeração 073–075 → 076–078 não alcançou a classe)
+  // 060, 065, 077a, 077b e 078 do atendimento. Sem 07[6-8]: desde 10/10 a 076 e a 077 são do staging (CPF e regras de
+  // pagamento por empresa) e uma função delas não pode ser contada como do atendimento.
+  const FUNCOES_ATENDIMENTO = "^kidmais_?(060|065|077[ab]|078)";
   const retratoStaging = async () => ({ dados: await dados(TABELAS_STAGING), objetos: await objetos(FUNCOES_STAGING, TABELAS_STAGING) });
   const retratoAtendimento = async () => { const tb = await tabelasAtendimento(); return { tabelas: tb, dados: await dados(tb), objetos: await objetos(FUNCOES_ATENDIMENTO, tb) }; };
   const postStaging = async (rotulo: string) => { for (const s of STAGING) await assert.doesNotReject(q(s.post), `${rotulo}: postcheck ${s.n}`); };
-  const postAtendimento = async (rotulo: string) => { for (const [n, sql] of [["060", A060.post], ["065", A065.post], ["076", A076.post], ["077", A077.post], ["078", A078.post]] as const) await assert.doesNotReject(q(sql), `${rotulo}: postcheck ${n}`); };
+  const postAtendimento = async (rotulo: string) => { for (const [n, sql] of [["060", A060.post], ["065", A065.post], ["077a", A077A.post], ["077b", A077B.post], ["078", A078.post]] as const) await assert.doesNotReject(q(sql), `${rotulo}: postcheck ${n}`); };
   try {
     // X1 — atendimento primeiro e os dados dele.
     await q(A060.post);
-    for (const m of [A065, A076, A077, A078]) { await q(m.up); await q(m.post); }
+    for (const m of [A065, A077A, A077B, A078]) { await q(m.up); await q(m.post); }
     await postAtendimento("X1");
     const id = async (sql: string, v: unknown[]) => (await q(sql, v)).rows[0].id as string;
     const A = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Empresa sintética (coexistência staging)', 'PROVISIONAMENTO') RETURNING id`, [cod("cs")]);
@@ -135,11 +137,11 @@ test("coexistência e rollback cruzado do atendimento com 064/066/067/068/069/07
     // X5 — rollback de todo o atendimento (decisões explícitas) com os dados de staging; staging idêntico.
     await q(comDecisoes(A078.down, "kidmais.rollback_078_descartar"));
     assert.deepEqual(await retratoStaging(), stagingComDados, "X5: down da 078 preserva staging"); await postStaging("X5 sem 078");
-    await q(comDecisoes(A077.down, "kidmais.rollback_077_descartar_midias", "kidmais.rollback_077_descartar_prontas_midia")); await q(A077.posDown);
-    assert.deepEqual(await retratoStaging(), stagingComDados, "X5: down da 077 preserva staging"); await postStaging("X5 sem 077");
+    await q(comDecisoes(A077B.down, "kidmais.rollback_077b_descartar_midias", "kidmais.rollback_077b_descartar_prontas_midia")); await q(A077B.posDown);
+    assert.deepEqual(await retratoStaging(), stagingComDados, "X5: down da 077b preserva staging"); await postStaging("X5 sem 077b");
     await q(comDecisoes(A065.down, "kidmais.rollback_065_descartar_nomes")); await q(A065.posDown);
-    await q(comDecisoes(A076.down, "kidmais.rollback_076_descartar_prontas")); await q(A076.posDown);
-    assert.deepEqual(await retratoStaging(), stagingComDados, "X5: down da 065 e da 076 preservam staging"); await postStaging("X5 sem 065/076");
+    await q(comDecisoes(A077A.down, "kidmais.rollback_077a_descartar_prontas")); await q(A077A.posDown);
+    assert.deepEqual(await retratoStaging(), stagingComDados, "X5: down da 065 e da 077a preservam staging"); await postStaging("X5 sem 065/077a");
     await q(A060.preDown); await q(comDecisoes(A060.down, "kidmais.rollback_060_descartar_atendimento")); await q(A060.posDown);
     assert.deepEqual(await tabelasAtendimento(), [], "X5: nenhuma tabela do atendimento sobra");
     assert.deepEqual(await retratoStaging(), stagingComDados, "X5: rollback completo do atendimento preserva staging (dados e objetos)");
@@ -148,7 +150,7 @@ test("coexistência e rollback cruzado do atendimento com 064/066/067/068/069/07
 
     // X6 — atendimento reaplicado DEPOIS de staging (a outra ordem).
     await q(A060.up); await q(A060.post);
-    for (const m3 of [A065, A076, A077, A078]) { await q(m3.up); await q(m3.post); }
+    for (const m3 of [A065, A077A, A077B, A078]) { await q(m3.up); await q(m3.post); }
     await postAtendimento("X6"); await postStaging("X6");
     assert.deepEqual(await retratoStaging(), stagingComDados, "X6: reaplicar o atendimento preserva staging");
 
