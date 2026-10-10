@@ -1,0 +1,20 @@
+{
+  "ambiente": "staging",
+  "banco": "kidmais_staging_1z91",
+  "recursoPostgres": "dpg-daidko3m8hqs73ce4jt0-a",
+  "tentativaMcp": "CONEXAO_FALHOU_ANTES_DE_EXECUTAR_SQL",
+  "alternativaAutorizada": "SHELL_CRON_UNICA_SESSAO_ATE_5_MINUTOS",
+  "sessaoAbertaAntesDe": "2026-10-10T02:41:52Z",
+  "sessaoFechadaAntesDe": "2026-10-10T02:44:27Z",
+  "modo": "IDENTIDADE_SOMENTE_LEITURA",
+  "bancoConsultado": true,
+  "tlsAtivoConferido": true,
+  "empresasEncontradasNoCadastroPeloDocumento": 0,
+  "isencaoConcedida": false,
+  "provedoresChamados": false,
+  "abaShellFechada": true,
+  "desprovisionamentoVerificadoPelaApi": false,
+  "deploysExecutados": 0,
+  "producaoAcessada": false,
+  "informacaoPosteriorFelipe": "DOCUMENTO_CADASTRADO_SOMENTE_EM_PRODUCAO"
+}
