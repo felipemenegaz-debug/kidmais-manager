@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { escopoCatalogoPublico } from "@/lib/comercial/catalogo-publico";
+import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
 import { calcularResumoComercial, isPricingServiceError } from "@/lib/comercial/services";
 import { db } from "@/lib/db/postgres";
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   const dados = entrada.safeParse(await request.json().catch(() => null));
   if (!dados.success) return NextResponse.json({ ok: false, erro: "Dados da cotação inválidos.", codigo: "DADOS_INVALIDOS" }, { status: 400, headers: semCache });
   try {
-    const escopo = await escopoCatalogoPublico(db);
+    const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
     const unidade = await escopoDaEmpresa(db(), escopo.empresaId, escopo.estabelecimentoId, { exigirUnidade: true });
     const horario = await revalidarHorarioSelecionado({
       data: dados.data.dataFesta,

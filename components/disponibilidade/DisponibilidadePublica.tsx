@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import KidmaisBrand from "@/components/layout/KidmaisBrand";
 import PacotesPdf from "@/components/fechamento/PacotesPdf";
+import { apiPublica, paginaPublica } from "@/lib/fechamentos/rota-publica";
 import FestaDecoracao from "@/components/fechamento/FestaDecoracao";
 import type {
   DisponibilidadeDataPublica,
@@ -53,11 +54,11 @@ function basePeriodo(codigo: string) {
   return codigo === "TURNO_1" ? "almoco" : "noite";
 }
 
-async function buscarDisponibilidadeMes(ano: number, mes: number) {
+async function buscarDisponibilidadeMes(ano: number, mes: number, empresa: string | null) {
   const inicio = iso(ano, mes, 1);
   const ultimo = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
   const fim = iso(ano, mes, ultimo);
-  const resposta = await fetch(`/api/disponibilidade?inicio=${inicio}&fim=${fim}`, {
+  const resposta = await fetch(apiPublica(`/api/disponibilidade?inicio=${inicio}&fim=${fim}`, empresa), {
     cache: "no-store",
   });
 
@@ -75,7 +76,7 @@ class AgendaPublicaIndisponivel extends Error {
   }
 }
 
-export default function DisponibilidadePublica() {
+export default function DisponibilidadePublica({ empresa = null }: { empresa?: string | null } = {}) {
   const router = useRouter();
   const agora = new Date();
   const [mes, setMes] = useState(agora.getMonth());
@@ -98,7 +99,7 @@ export default function DisponibilidadePublica() {
 
     void (async () => {
       try {
-        const dias = await buscarDisponibilidadeMes(ano, mes);
+        const dias = await buscarDisponibilidadeMes(ano, mes, empresa);
         if (cancelado) return;
         setPorData(Object.fromEntries(dias.map((item) => [item.data, item])));
         setErro("");
@@ -114,7 +115,7 @@ export default function DisponibilidadePublica() {
     return () => {
       cancelado = true;
     };
-  }, [ano, mes]);
+  }, [ano, mes, empresa]);
 
   function mudarMes(delta: number) {
     setCarregando(true);
@@ -157,7 +158,7 @@ export default function DisponibilidadePublica() {
       ajuste: String(horarioSelecionado.ajusteMinutos),
     });
 
-    router.push(`/fechamento?${params.toString()}`);
+    router.push(`${paginaPublica("/fechamento", empresa)}?${params.toString()}`);
   }
 
   return (
@@ -352,7 +353,7 @@ export default function DisponibilidadePublica() {
               </>
             )}
           </aside>
-          <PacotesPdf />
+          {!empresa && <PacotesPdf />}
           </div>
         </section>
       </div>

@@ -8,7 +8,7 @@ import {
   revalidarHorarioSelecionado,
 } from "@/lib/disponibilidade/services";
 import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
-import { escopoCatalogoPublico } from "@/lib/comercial/catalogo-publico";
+import { codigoEmpresaDoPedido, escopoCotacaoPublica, type EscopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { db } from "@/lib/db/postgres";
 import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
 import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
@@ -112,9 +112,16 @@ export async function POST(request: NextRequest) {
   }
 
   let horarioRevalidado: Awaited<ReturnType<typeof revalidarHorarioSelecionado>>;
-  let escopo: Awaited<ReturnType<typeof escopoCatalogoPublico>>;
+  let escopo: EscopoCotacaoPublica;
   try {
-    escopo = await escopoCatalogoPublico(db);
+    escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl), { escrita: true });
+    // Pelo endereço da empresa só há cadastro novo: as rotas de identidade (/api/identidade) ainda não são por empresa.
+    if (escopo.porCodigo && dados.data.identidadeTipo !== "NOVO_CLIENTE") {
+      return NextResponse.json(
+        { ok: false, erro: "Neste endereço, o pedido é feito como novo cadastro. Fale com o buffet se já for cliente.", codigo: "IDENTIDADE_NAO_DISPONIVEL" },
+        { status: 409 },
+      );
+    }
     const unidade = await escopoDaEmpresa(db(), escopo.empresaId, escopo.estabelecimentoId, { exigirUnidade: true });
     escopo.estabelecimentoId = unidade.estabelecimentoId;
     horarioRevalidado = await revalidarHorarioSelecionado({
@@ -123,7 +130,7 @@ export async function POST(request: NextRequest) {
       inicio: dados.data.horarioInicio,
       fim: dados.data.horarioFim,
       ajusteMinutos: Number(dados.data.ajusteHorario),
-    }, undefined, escopo);
+    }, undefined, { empresaId: escopo.empresaId, estabelecimentoId: escopo.estabelecimentoId });
   } catch (error) {
     if (isAvailabilityServiceError(error)) {
       return NextResponse.json(

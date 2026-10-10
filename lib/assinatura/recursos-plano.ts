@@ -10,13 +10,18 @@ import type { PlanoComercialId } from './planos-comerciais.ts';
  * disponível. A situação comercial (pagamento, leitura, suspensão) continua decidida pelo paywall, separadamente.
  *
  *   FINANCEIRO_COMPLETO → contas a pagar, fluxo de caixa e relatórios. Pix e contas a receber são de todos os planos.
+ *   ORCAMENTO_ONLINE    → cotação e fechamento públicos pelo endereço da empresa (/b/<código>).
  */
 export const RECURSOS_POR_PLANO = {
     FINANCEIRO_COMPLETO: ['profissional', 'premium'],
+    ORCAMENTO_ONLINE: ['profissional', 'premium'],
 } as const satisfies Record<string, readonly PlanoComercialId[]>;
 export type RecursoPlano = keyof typeof RECURSOS_POR_PLANO;
 
-const NOME: Record<RecursoPlano, string> = { FINANCEIRO_COMPLETO: 'Contas a pagar, fluxo de caixa e relatórios' };
+const RECUSA: Record<RecursoPlano, string> = {
+    FINANCEIRO_COMPLETO: 'Contas a pagar, fluxo de caixa e relatórios não fazem parte do plano contratado.',
+    ORCAMENTO_ONLINE: 'O orçamento online não faz parte do plano contratado.',
+};
 
 export function planoIncluiRecurso(plano: PlanoComercialId, recurso: RecursoPlano) {
     return (RECURSOS_POR_PLANO[recurso] as readonly PlanoComercialId[]).includes(plano);
@@ -38,5 +43,5 @@ export async function recursoIncluido(tx: DbExecutor, empresaId: string, recurso
 /** Recusa com 403 RECURSO_FORA_DO_PLANO. A empresa vem do tenant comprovado, nunca do navegador. */
 export async function exigirRecursoPlano(tx: DbExecutor, empresaId: string, recurso: RecursoPlano) {
     if (!await recursoIncluido(tx, empresaId, recurso))
-        throw new ClienteServiceError('RECURSO_FORA_DO_PLANO', `${NOME[recurso]} não fazem parte do plano contratado. Os dados já cadastrados continuam guardados.`, 403, { recurso });
+        throw new ClienteServiceError('RECURSO_FORA_DO_PLANO', `${RECUSA[recurso]} Os dados já cadastrados continuam guardados.`, 403, { recurso });
 }

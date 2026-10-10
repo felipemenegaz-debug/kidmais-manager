@@ -110,8 +110,8 @@ test("rota admin prova o tenant; a tela admin usa a rota com Tenant Context, nã
   const tela = readFileSync("components/admin/FechamentoAdminWizard.tsx", "utf8");
   assert.match(tela, /\/api\/admin\/fechamentos\/adicionais\?/);
   assert.doesNotMatch(tela, /['`]\/api\/fechamentos\/adicionais/);
-  // O catálogo público usa exclusivamente o escopo configurado no servidor.
-  assert.match(readFileSync("app/api/fechamentos/adicionais/route.ts", "utf8"), /escopoCatalogoPublico\(db\)/);
+  // O catálogo público usa o escopo do servidor; o endereço de outra empresa passa pelo mesmo resolvedor (cotacao-publica).
+  assert.match(readFileSync("app/api/fechamentos/adicionais/route.ts", "utf8"), /escopoCotacaoPublica\(db, codigoEmpresaDoPedido\(request\.nextUrl\)\)/);
 });
 
 test("070: adicional de categoria traz as opções ativas para escolher; categoria sem item ativo não é oferecida", async () => {

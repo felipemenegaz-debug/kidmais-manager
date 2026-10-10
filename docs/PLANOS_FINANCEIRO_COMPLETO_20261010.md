@@ -53,7 +53,7 @@ Push em `staging` não dispara deploy pela configuração lida. Nenhum deploy re
 
 ## Pendências
 
-- Homologação em staging com empresas sintéticas Essencial, Profissional e isenta (pacote a preparar junto da cotação por empresa).
+- Homologação em staging com empresas sintéticas Essencial, Profissional, isenta e em teste: [pacote preparado](HOMOLOGACAO_PLANOS_COTACAO_STAGING_20261010.md), não executado.
 - Horário nobre no Essencial e cotação pública por empresa seguem pendentes de definição/homologação.
 
 Recuperação: reverter o commit desta etapa restaura o comportamento anterior; não há migration nem dado alterado.
