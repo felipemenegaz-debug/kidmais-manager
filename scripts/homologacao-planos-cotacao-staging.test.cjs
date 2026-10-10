@@ -63,7 +63,7 @@ test('código-fonte: nunca apaga; toda escrita é das fixtures; encerramento des
     const inserts = fonte.match(/INSERT INTO [a-z_]+/g) ?? [];
     assert.deepEqual([...new Set(inserts)].sort(), ['INSERT INTO assinatura_isencoes', 'INSERT INTO empresa_assinaturas', 'INSERT INTO empresas',
         'INSERT INTO financeiro_categorias', 'INSERT INTO memberships', 'INSERT INTO pacotes', 'INSERT INTO usuarios_administrativos']);
-    assert.match(fonte, /finally \{\s*\/\/[^\n]*\n\s*erro \?\?= await encerrar\(\{db, conectado, r, p, api, salvar\}\);/);
+    assert.match(fonte, /finally \{\s*\/\/[^\n]*\n\s*erro = erroFinal\(erro, await encerrar\(\{db, conectado, r, p, api, salvar\}\)\);/);
     assert.match(fonte, /async function encerrar[\s\S]*removerAssinatura[\s\S]*SET ativo=false WHERE id=ANY[\s\S]*status='REVOGADA'[\s\S]*status='DESATIVADA'/);
     assert.match(fonte, /FUNDADOR_S4/); assert.match(fonte, /PRESERVACAO_S3/); assert.match(fonte, /RODADA_EXISTENTE_S1/);
     assert.doesNotMatch(fonte, /console\.log\([^)]*senha/i);
@@ -102,24 +102,121 @@ test('recuperação: nunca em paralelo com a rodada viva', () => {
     assert.match(fonte, /pid:process\.pid/);
 });
 
-test('encerramento idempotente: só fixtures, sem DELETE; acha o webhook pelo nome quando o id não foi salvo', async () => {
-    const consultas = [];
-    const db = {query: async (sql, params) => { consultas.push({sql, params}); return {rows:[], rowCount:0}; }};
-    const removidas = [];
-    const p = {listarAssinaturasPorReferencia: async (ref) => ref === h.FIXTURES[1].empresa ? [{id:'sub_1', externalReference:ref, deleted:removidas.includes('sub_1')}] : [],
-        removerAssinatura: async (id) => { removidas.push(id); return {removida:true}; }};
-    const apagados = [];
+// ---------------------------------------------------------------- encerramento: falha, colisão e interrupção
+const NOME_WEBHOOK = 'Kidmais staging ensaio homologacao-planos-cotacao-20261010';
+const [F1, F2] = h.FIXTURES;
+/** Ambiente falso do encerramento: banco, Asaas e webhooks em memória, com falhas injetáveis. */
+function falso({subs = {}, webhooks = [], falharRemocao = false, falharBanco = false, salvarLanca = false} = {}) {
+    const consultas = [], removidas = [], apagados = [];
+    const db = {query: async (sql, params) => { consultas.push({sql, params});
+        if (falharBanco && /^UPDATE/.test(sql)) throw new Error('lock_timeout'); return {rows:[], rowCount:0}; }};
+    const p = {listarAssinaturasPorReferencia: async ref => (subs[ref] ?? []).map(x => ({...x, deleted:removidas.includes(x.id)})),
+        removerAssinatura: async id => { if (falharRemocao) throw new Error('ASAAS 500'); removidas.push(id); return {removida:true}; }};
     const api = async (caminho, method = 'GET') => {
-        if (caminho.startsWith('/webhooks?')) return {data:[{id:'wh_9', name:'Kidmais staging ensaio homologacao', url:h.BASE + '/api/integracoes/asaas/webhook'}]};
-        if (method === 'DELETE') { apagados.push(caminho); return {}; }
-        return apagados.length ? null : {id:'wh_9', name:'Kidmais staging ensaio homologacao'};
+        if (caminho.startsWith('/webhooks?')) return {hasMore:false, data:webhooks};
+        const id = decodeURIComponent(caminho.split('/')[2] ?? '');
+        if (method === 'DELETE') { apagados.push(id); return {}; }
+        return apagados.includes(id) ? null : webhooks.find(w => w.id === id) ?? null;
     };
-    const r = {intencaoWebhook:true, webhookNome:'Kidmais staging ensaio homologacao'};
-    for (let i = 0; i < 2; i++) assert.equal(await h.encerrar({db, conectado:true, r, p, api, salvar:() => {}}), null);
-    assert.deepEqual(removidas, ['sub_1']); assert.deepEqual(apagados, ['/webhooks/wh_9']);
-    assert.ok(r.fixturesDesativadas && r.webhookEncerrado);
-    for (const c of consultas) {
-        assert.doesNotMatch(c.sql, /\bDELETE\b|\bDROP\b|\bTRUNCATE\b/i);
-        if (/^UPDATE/.test(c.sql)) for (const v of c.params.flat()) assert.ok(h.FIXTURES.some(f => f.empresa === v || f.usuario === v), String(v));
+    const salvar = () => { if (salvarLanca) throw new Error('disco cheio'); };
+    return {db, p, api, salvar, consultas, removidas, apagados, updates:() => consultas.filter(c => /^UPDATE/.test(c.sql))};
+}
+const provado = (extra = {}) => ({precheck:{fixturesLivres:true, asaasLivre:{F1:true, F2:true}}, intencaoFixture:true, fixture:true, ...extra});
+
+test('sucesso: encerra só o comprovado (assinatura da rodada, webhook criado, fixtures por ID + marcador); idempotente', async () => {
+    const x = falso({subs:{[F2.empresa]:[{id:'sub_2', externalReference:F2.empresa, customer:'cus_2'}]},
+        webhooks:[{id:'wh_9', name:NOME_WEBHOOK, url:h.BASE + '/api/integracoes/asaas/webhook'}]});
+    const r = provado({F2:{intencaoCheckout:true, clienteId:'cus_2', assinaturaId:'sub_2'}, intencaoWebhook:true, webhookNome:NOME_WEBHOOK});
+    for (let i = 0; i < 2; i++) assert.equal(await h.encerrar({...x, conectado:true, r}), null);
+    assert.deepEqual(x.removidas, ['sub_2']); assert.deepEqual(x.apagados, ['wh_9']);
+    assert.equal(r.encerramento.F1.acao, 'NADA_CRIADO_PELA_RODADA', 'F1 sem intenção de checkout não é tocada');
+    for (const u of x.updates()) {
+        assert.doesNotMatch(u.sql, /\bDELETE\b|\bDROP\b|\bTRUNCATE\b/i);
+        assert.match(u.sql, /email=ANY|usuario_id=ANY|codigo=ANY\(\$2::text\[\]\) AND nome=ANY/);
+        for (const v of u.params.flat()) assert.ok(h.FIXTURES.some(f => [f.empresa, f.usuario, f.email, f.codigo, f.nome].includes(v)), String(v));
     }
+});
+
+test('falha: o erro original da rodada prevalece; falhas de limpeza ficam registradas e as demais etapas continuam', async () => {
+    const x = falso({subs:{[F2.empresa]:[{id:'sub_2', externalReference:F2.empresa, customer:'cus_2'}]}, falharRemocao:true, falharBanco:true});
+    const r = provado({F2:{intencaoCheckout:true, clienteId:'cus_2'}});
+    const original = Object.assign(new Error('MATRIZ_DIVERGENTE'), {parada:'S2'});
+    const doEncerramento = await h.encerrar({...x, conectado:true, r});
+    assert.match(doEncerramento.message, /LIMPEZA_ASSINATURA_F2/);
+    assert.equal(h.erroFinal(original, doEncerramento), original);
+    assert.equal(h.erroFinal(null, doEncerramento), doEncerramento);
+    assert.deepEqual(r.falhasEncerramento.map(f => f.etapa), ['ASSINATURA_F2', 'BANCO']);
+    assert.ok(x.consultas.some(c => c.sql === 'ROLLBACK'), 'transação do banco desfeita após falha');
+    assert.equal(r.encerramento.webhook, 'NADA_CRIADO_PELA_RODADA');
+});
+
+test('falha: encerramento nunca lança, mesmo sem banco e com estado em disco indisponível', async () => {
+    const x = falso({salvarLanca:true});
+    const r = provado();
+    const erro = await h.encerrar({...x, conectado:false, r});
+    assert.match(erro.message, /LIMPEZA_BANCO/);
+    assert.equal(x.updates().length, 0);
+});
+
+test('colisão: sem prova de autoria nada é tocado (fixture ou cliente Asaas preexistente, webhook reutilizado)', async () => {
+    const subs = {[F1.empresa]:[{id:'sub_alheia', externalReference:F1.empresa, customer:'cus_x'}]};
+    const webhooks = [{id:'wh_alheio', name:NOME_WEBHOOK, url:h.BASE + '/api/integracoes/asaas/webhook'}];
+    for (const r of [
+        {precheck:{fixturesLivres:false}, intencaoFixture:true, F1:{intencaoCheckout:true}},             // S1 achou fixture ocupada
+        {intencaoFixture:true, F1:{intencaoCheckout:true}},                                                // precheck nunca concluído
+        {precheck:{fixturesLivres:true, asaasLivre:{F1:false}}, F1:{intencaoCheckout:true}},              // cliente Asaas já existia
+        {precheck:{fixturesLivres:true, asaasLivre:{F1:true}}, webhookReutilizado:true, webhookNome:NOME_WEBHOOK, intencaoWebhook:true},
+    ]) {
+        const x = falso({subs, webhooks});
+        await h.encerrar({...x, conectado:true, r});
+        assert.deepEqual(x.removidas, [], JSON.stringify(r)); assert.deepEqual(x.apagados, []); assert.equal(x.updates().length, 0);
+    }
+});
+
+test('colisão: assinatura com o mesmo referência mas de outro cliente ou outro id não é removida', async () => {
+    for (const registro of [{clienteId:'cus_da_rodada'}, {clienteId:'cus_x', assinaturaId:'sub_da_rodada'}]) {
+        const x = falso({subs:{[F1.empresa]:[{id:'sub_alheia', externalReference:F1.empresa, customer:'cus_x'}]}});
+        const r = provado({F1:{intencaoCheckout:true, ...registro}});
+        const erro = await h.encerrar({...x, conectado:true, r});
+        assert.deepEqual(x.removidas, []); assert.match(erro.message, /LIMPEZA_ASSINATURA_F1/);
+    }
+});
+
+test('interrupção: cada ponto de parada encerra exatamente o que já foi criado', async () => {
+    // (a) morto entre BEGIN e salvar `fixture`: intenção + precheck bastam; UPDATE confere ID e marcador.
+    let x = falso(); let r = {precheck:{fixturesLivres:true, asaasLivre:{F1:true, F2:true}}, intencaoFixture:true};
+    await h.encerrar({...x, conectado:true, r}); assert.equal(x.updates().length, 3); assert.equal(r.encerramento.fixtures, 'DESATIVADAS');
+    // (b) morto depois do checkout, antes de salvar ids: remove pela referência (S1 provou que não havia nenhuma).
+    x = falso({subs:{[F1.empresa]:[{id:'sub_1', externalReference:F1.empresa, customer:'cus_1'}]}});
+    r = provado({F1:{intencaoCheckout:true}}); await h.encerrar({...x, conectado:true, r}); assert.deepEqual(x.removidas, ['sub_1']);
+    // (c) morto entre criar o webhook e salvar o id: acha pelo nome inédito da rodada.
+    x = falso({webhooks:[{id:'wh_1', name:NOME_WEBHOOK, url:h.BASE + '/api/integracoes/asaas/webhook'}, {id:'wh_outro', name:'Outro', url:h.BASE + '/api/integracoes/asaas/webhook'}]});
+    r = provado({intencaoWebhook:true, webhookNome:NOME_WEBHOOK}); await h.encerrar({...x, conectado:true, r}); assert.deepEqual(x.apagados, ['wh_1']);
+    // (d) morto antes do precheck terminar: nada a encerrar.
+    x = falso({subs:{[F1.empresa]:[{id:'sub_1', externalReference:F1.empresa}]}}); r = {pid:123};
+    await h.encerrar({...x, conectado:true, r}); assert.deepEqual([x.removidas.length, x.updates().length], [0, 0]);
+    // (e) dois webhooks com o nome da rodada: ambíguo, não apaga nenhum.
+    x = falso({webhooks:[{id:'a', name:NOME_WEBHOOK, url:h.BASE + '/api/integracoes/asaas/webhook'}, {id:'b', name:NOME_WEBHOOK, url:h.BASE + '/api/integracoes/asaas/webhook'}]});
+    r = provado({intencaoWebhook:true, webhookNome:NOME_WEBHOOK}); const erro = await h.encerrar({...x, conectado:true, r});
+    assert.deepEqual(x.apagados, []); assert.match(erro.message, /LIMPEZA_WEBHOOK/);
+});
+
+test('ordem na rodada: prova de autoria gravada antes de cada criação', () => {
+    const ordem = ['r.precheck = {fixturesLivres:true', "r.precheck.asaasLivre[f.chave] = true", 'r.intencaoFixture = true; salvar(); await db.query(\'BEGIN\')',
+        "INSERT INTO empresas", 'r[f.chave] = {intencaoCheckout:true', "post('/api/admin/assinatura/checkout'"].map(t => fonte.indexOf(t));
+    assert.ok(ordem.every(i => i > 0), JSON.stringify(ordem));
+    assert.deepEqual([...ordem].sort((a, b) => a - b), ordem);
+    // prepararWebhook (ensaio de 09/10) confere nome inédito antes de registrar a intenção de criar.
+    const ensaio = fs.readFileSync(__dirname + '/assinatura-staging-ensaio.cjs', 'utf8');
+    assert.ok(ensaio.indexOf("'WEBHOOK_NOME_PREEXISTENTE'") < ensaio.indexOf('r.intencaoWebhook=true'));
+});
+
+test('preço independente: faixa fixa da fixture em centavos e desconto com arredondamento contratual', () => {
+    assert.equal(h.precoEsperado(0), 150000);
+    assert.equal(h.precoEsperado(10), 135000);
+    assert.equal(h.precoEsperado(3), 145500);
+    assert.equal(h.precoEsperado(7), 139500);
+    assert.throws(() => h.precoEsperado(2.5));
+    assert.match(fonte, /conferir\('preco\.cotacao\.tabela', Math\.round\(Number\(cotacao\.j\.data\.valorTabela\) \* 100\), precoEsperado\(0\)\)/);
+    assert.match(fonte, /conferir\('preco\.fechamentoF2\.tabela'/);
 });

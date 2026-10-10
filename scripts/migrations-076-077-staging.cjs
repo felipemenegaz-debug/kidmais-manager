@@ -58,8 +58,12 @@ async function main() {
             const linhas = (Array.isArray(resultado) ? resultado : [resultado]).flatMap(x => x.rows ?? []);
             Object.assign(r.etapas.at(-1), {ok:true, fim:new Date().toISOString(), info:linhas.at(-1) ?? null}); salvar();
         }
+        // Informativo (só leitura): a empresa do endereço público atual de staging tem regra de pagamento após a 077?
+        const empresaAtual = /^[0-9a-f-]{36}$/i.test(process.env.AGENDA_PUBLICA_EMPRESA_ID ?? '') ? process.env.AGENDA_PUBLICA_EMPRESA_ID : null;
+        r.enderecoAtual = empresaAtual ? (await db.query(`SELECT e.codigo = 'kidmais' AS codigo_kidmais,
+            EXISTS(SELECT 1 FROM empresa_regras_pagamento r WHERE r.empresa_id = e.id) AS tem_regra FROM empresas e WHERE e.id = $1::uuid`, [empresaAtual])).rows[0] ?? null : null;
         r.concluido = true; salvar();
-        console.log(JSON.stringify({resultado:'PASS', etapas:r.etapas.map(e => ({nome:e.nome, ok:e.ok, info:e.info}))}));
+        console.log(JSON.stringify({resultado:'PASS', etapas:r.etapas.map(e => ({nome:e.nome, ok:e.ok, info:e.info})), enderecoAtual:r.enderecoAtual}));
     } catch (e) {
         await db.query('ROLLBACK').catch(() => {});
         r.falha = {etapa:r.etapas.at(-1)?.nome ?? 'CONEXAO', mensagem:String(e.message).slice(0, 160)}; r.concluido = false; salvar();
