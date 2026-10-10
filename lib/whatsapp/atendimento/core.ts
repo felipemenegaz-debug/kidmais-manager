@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { pedidoDeParar } from './opt-out.ts';
+import type { Passagem } from './walle/tipos.ts';
 
 export const LIMITE_PADRAO_RESPOSTAS = 20;
 export const configuracaoSchema = z.object({
@@ -113,6 +114,18 @@ export function pausaPedidaNaRecepcao(texto: string | null | undefined) {
 export function semAutomatico(conversa: { contexto?: Record<string, unknown> } | null | undefined) {
   const m = (conversa?.contexto as { semAutomatico?: unknown } | undefined)?.semAutomatico;
   return !!m && typeof m === 'object';
+}
+/**
+ * Resumo de passagem de uma entrada que NÃO terá resposta automática (vencida na fila, automação global desligada na
+ * recepção ou no processador): motivo SEM_RESPOSTA_AUTOMATICA (antes dele PARAR_A_CONFIRMAR, se o texto pediu pausa).
+ * Só os campos simples da memória do Wall-e (sem catálogos); o resumo da tela completa o resto. Sem o texto do cliente.
+ */
+export function passagemSemRespostaAutomatica(contexto: unknown, em: string, pausa: boolean): Passagem {
+  const c = (contexto && typeof contexto === 'object' ? contexto : {}) as Record<string, unknown>;
+  const texto = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max ? v : null);
+  const motivos: Passagem['motivos'] = pausa ? ['PARAR_A_CONFIRMAR', 'SEM_RESPOSTA_AUTOMATICA'] : ['SEM_RESPOSTA_AUTOMATICA'];
+  return { motivo: motivos[0], motivos, em, enviados: [], pendentes: [], ultimaMensagem: '',
+    coletado: { data: texto(c.data, 10), turno: null, convidados: Number.isInteger(c.convidados) ? (c.convidados as number) : null, pacote: null, unidade: null, tema: texto(c.tema, 60) } };
 }
 /** O modelo escolhe uma resposta publicada; nunca escreve preço, promessa ou cláusula. */
 export function responder(config: ConfiguracaoAtendimento, plano: Interpretacao, interesse: { data: string | null; convidados: number | null }, hoje = hojeOperacao()) {

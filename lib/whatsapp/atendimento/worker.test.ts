@@ -10,12 +10,12 @@ import type { Conversa, Mensagem } from './service.ts';
 const agora = new Date();
 const conversa: Conversa = {id:'c',empresa_id:'e',ambiente:'staging',contato:'5561999999999',estado:'IA',responsavel_id:null,nao_contatar:false,versao:3,ultima_entrada_em:agora.toISOString(),interesse:{data:null,convidados:null}};
 const mensagem: Mensagem = {id:'m',conversa_id:'c',empresa_id:'e',ambiente:'staging',direcao:'SAIDA',origem_id:'entrada',autor_usuario_id:null,texto:'Resposta aprovada',estado:'PENDENTE',versao_conversa:3,criada_em:agora.toISOString()};
-let limpezas=0; const correlacoes:string[]=[];
+const modoRegras={ativo:false}; let limpezas=0; const correlacoes:string[]=[];
 type Cfg = {ativo:boolean;nome:string;perguntas:{id:string;pergunta:string;resposta:string}[];limites:{respostasPor24h:number}};
 function carregar(query: (sql: string, args?: unknown[]) => Promise<{rows: unknown[]}>, ativo=true, permitido=true, limite=20, cfg?: (travar:boolean)=>Cfg|null) {
   return carregarComponente('lib/whatsapp/atendimento/worker.ts', {
     '../../db/postgres.ts':{db:()=>({query}),withTransaction:async(fn:(tx:unknown)=>unknown)=>fn({query})},
-    './configuracao.ts':{ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido,origemMidia:()=>null},
+    './configuracao.ts':{entendimentoSoRegras:()=>modoRegras.ativo,ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido,origemMidia:()=>null},
     './arquivos.ts':arquivos,
     './core.ts':core,
     './service.ts':{configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem078:async()=>false},
@@ -429,4 +429,56 @@ test('composition root: a chave global da IA chega ao processador como semAutoma
   assert.match(raiz,/semAutomacao: !inteligenciaAtiva\(process\.env\)/);
   assert.doesNotMatch(raiz,/if \(!inteligenciaAtiva\(process\.env\)\) return \{ estado: 'DESLIGADO'/,'não devolve DESLIGADO deixando a fila esperando');
   assert.doesNotMatch(readFileSync('lib/whatsapp/atendimento/worker.ts','utf8'),/INTELIGENCIA_ENABLED|process\.env/);
+});
+
+// Proteção final: modo regras impede o modelo em TODOS os caminhos do atendimento. Neste stub a 078 está ausente
+// (tem078=false): a fase B é o caminho exercido — o mesmo de "Wall-e desligado na tela".
+test('modo regras: a fase B nunca chama o modelo (porta presente ou nula), encaminha com o texto fixo; PARAR segue sem modelo',async()=>{
+  const cenarios:[string,boolean,boolean][]=[['regras com porta passada',true,true],['regras com porta nula',true,false],['modo modelo com porta nula',false,false]];
+  for (const [rotulo,regras,comPorta] of cenarios) {
+    modoRegras.ativo=regras;
+    try {
+      const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'quanto custa a festa?'};
+      let modelo=0; const comandos:{sql:string;args?:unknown[]}[]=[];
+      const worker=carregar(async(sql,args)=>{
+        comandos.push({sql,args});
+        if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+        if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+        if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+        if(sql.includes('SELECT texto FROM')) return {rows:[{texto:'quanto custa a festa?'}]};
+        return {rows:[]};
+      });
+      const interpretar=comPorta?async()=>{modelo++;return {intencao:'OUTRO' as const,perguntaId:null,data:null,convidados:null};}:null;
+      assert.equal(await worker.processarAtendimento({interpretar,enviar:async()=>{throw Error('envio proibido');}} as never),'ENCAMINHADA',rotulo);
+      assert.equal(modelo,0,`${rotulo}: modelo não chamado`);
+      assert.equal(comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"))?.args?.[4],core.MENSAGEM_ENCAMINHAMENTO,`${rotulo}: só o texto fixo`);
+    } finally { modoRegras.ativo=false; }
+  }
+  // PARAR em modo regras: comando direto, sem modelo; a conversa encerra e nada é respondido.
+  modoRegras.ativo=true;
+  try {
+    const parar={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'não quero receber mais nada de vocês'};
+    let modelo=0; const comandos:{sql:string;args?:unknown[]}[]=[];
+    const worker=carregar(async(sql,args)=>{
+      comandos.push({sql,args});
+      if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+      if(sql.includes('SELECT m.*')) return {rows:[parar]};
+      if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+      if(sql.includes('SELECT texto FROM')) return {rows:[{texto:parar.texto}]};
+      return {rows:[]};
+    });
+    assert.equal(await worker.processarAtendimento({interpretar:async()=>{modelo++;throw Error('modelo');},enviar:async()=>{throw Error('envio proibido');}}),'PROCESSADA');
+    assert.equal(modelo,0,'PARAR: modelo não chamado');
+    assert.ok(comandos.some(c=>/SET interesse=\$2::jsonb,estado=\$3,nao_contatar=nao_contatar OR \$4/.test(c.sql)&&c.args?.[2]==='ENCERRADA'&&c.args?.[3]===true),'PARAR encerra e bloqueia');
+    assert.ok(!comandos.some(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6")),'PARAR: nenhuma resposta');
+  } finally { modoRegras.ativo=false; }
+});
+test('modo regras é conferido a cada uso: o worker lê a variável do canal (não a chave da IA) e a composition root não monta o modelo',()=>{
+  const worker=readFileSync('lib/whatsapp/atendimento/worker.ts','utf8');
+  assert.match(worker,/if \(!comando && \(entendimentoSoRegras\(\) \|\| !deps\.interpretar\)\) return await encaminharSemModelo/);
+  const porta=readFileSync('lib/whatsapp/atendimento/walle/porta.ts','utf8');
+  assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) \? entender : null;/);
+  const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
+  assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
+  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:enviarMensagem,wallE:criarPortaWallE\(portas\.entender/);
 });

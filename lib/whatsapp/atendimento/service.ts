@@ -2,7 +2,7 @@ import { withTransaction, db } from '../../db/postgres.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } from '../../saas/provar-tenant.ts';
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
-import { configuracaoSchema, comandoDireto, conferirEmpresaAtiva, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
+import { configuracaoSchema, comandoDireto, conferirEmpresaAtiva, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { caminhoPublicoArquivo } from './arquivos.ts';
 import { registroDoBloqueio } from './walle/entendimento.ts';
 
@@ -77,7 +77,15 @@ export async function configuracao(tx: DbExecutor, empresaId: string, travar = f
   const parsed = configuracaoSchema.safeParse(r.rows[0]?.configuracao);
   return parsed.success ? parsed.data : null;
 }
-export async function receberEntrada(entrada: Entrada) {
+/**
+ * `automacaoGlobal`: estado da chave GLOBAL da IA, decidido na composition root da IA (app/api/admin/inteligencia/whatsapp/
+ * automacao.ts) e entregue pelo webhook — o Core não lê a chave. Desligada: a entrada nasce PROCESSADA e a conversa vai
+ * para a equipe com o motivo SEM_RESPOSTA_AUTOMATICA; ela nunca fica PENDENTE, então religar a IA não a responde depois,
+ * mesmo sem nenhum ciclo do worker no meio. O padrão (ligada) vale só para chamadas internas e suítes; o webhook sempre
+ * informa (teste estático).
+ */
+export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal?: boolean } = {}) {
+  const automacaoGlobal = opcoes.automacaoGlobal ?? true;
   const empresa = empresaPiloto(), ambiente = ambienteAtendimento();
   // Fora da lista de contatos permitidos: confirma o evento sem gravar nada (nenhum dado do contato entra no banco).
   if (!contatoPermitido(entrada.source)) return;
@@ -106,11 +114,18 @@ export async function receberEntrada(entrada: Entrada) {
     // Encerrada pela equipe (sem pedido de PARAR): nova mensagem do cliente reabre como um contato novo.
     const reaberta = conversa.estado === 'ENCERRADA' && !conversa.nao_contatar;
     const estadoAtual = reaberta ? 'IA' : conversa.estado;
-    const automatico = atendimentoAtivo() && !!config?.ativo && !conversa.nao_contatar && !semAutomatico(conversa) && estadoAtual === 'IA' && entrada.texto !== null;
+    const automatico = automacaoGlobal && atendimentoAtivo() && !!config?.ativo && !conversa.nao_contatar && !semAutomatico(conversa) && estadoAtual === 'IA' && entrada.texto !== null;
     await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,externa_id,direcao,texto,estado,versao_conversa,criada_em) VALUES($1,$2,$3,$4,'ENTRADA',$5,$6,$7,$8)`, [conversa.id, empresa, ambiente, entrada.id, entrada.texto, automatico ? 'PENDENTE' : 'PROCESSADA', conversa.versao, em]);
     if (reaberta) await tx.query('UPDATE whatsapp_atendimento_conversas SET estado=$2,responsavel_id=NULL WHERE id=$1', [conversa.id, automatico ? 'IA' : 'AGUARDANDO_HUMANO']);
     else if (estadoAtual === 'IA' && !automatico) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO' WHERE id=$1", [conversa.id]);
-    if (entrada.texto && comandoDireto(entrada.texto)?.intencao === 'PARAR') {
+    const parar = !!entrada.texto && comandoDireto(entrada.texto)?.intencao === 'PARAR';
+    // Proteção final: com a automação global desligada, a equipe vê POR QUE a mensagem ficou sem resposta automática (o
+    // mesmo resumo do processador). PARAR tem o próprio registro abaixo; a marca de pausa também é gravada abaixo.
+    if (!automacaoGlobal && estadoAtual === 'IA' && !conversa.nao_contatar && !parar && await tem078(tx)) {
+      const pausa = !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto);
+      await tx.query('UPDATE whatsapp_atendimento_conversas SET passagem=$2::jsonb WHERE id=$1', [conversa.id, JSON.stringify(passagemSemRespostaAutomatica(conversa.contexto, em, pausa))]);
+    }
+    if (parar) {
       // Rodada 18: com reclamação junto ("não quero mais propaganda… a festa foi péssima"), o mesmo bloqueio, e a reclamação
       // fica na fila da equipe (AGUARDANDO_HUMANO + passagem, só com a 078), sem reabrir o contato.
       const registro = (await tem078(tx)) ? registroDoBloqueio(entrada.texto, em) : null;

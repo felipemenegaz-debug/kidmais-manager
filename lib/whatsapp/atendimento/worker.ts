@@ -1,6 +1,6 @@
 import { withTransaction, db } from '../../db/postgres.ts';
-import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, origemMidia } from './configuracao.ts';
-import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao } from './core.ts';
+import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, entendimentoSoRegras, origemMidia } from './configuracao.ts';
+import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao } from './core.ts';
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, tem078, type Conversa, type Mensagem } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { urlPublicaArquivo } from './arquivos.ts';
@@ -12,7 +12,11 @@ import type { DbExecutor } from '../../db/contracts.ts';
  * resolve com as fontes oficiais da empresa, só lendo. O worker grava o resultado sob a trava da conversa.
  */
 export type PortaWallE = { responder(entrada: { empresa: string; ambiente: string; contato: string; texto: string; historico: string[]; contexto: unknown; config: ConfiguracaoAtendimento; hoje: string; agora: string }): Promise<ResultadoWallE> };
-export type DependenciasWorker = { interpretar(empresa: string, texto: string, config: ConfiguracaoAtendimento): Promise<Interpretacao>; enviar(contato: string, conteudo: ConteudoSaida): Promise<string>; wallE?: PortaWallE };
+/**
+ * `interpretar` (fase B, modelo): null quando a composition root está em modo regras. O worker também confere o modo a cada
+ * uso (entendimentoSoRegras): em modo regras a fase B nunca chama o modelo, mesmo que uma porta tenha sido passada.
+ */
+export type DependenciasWorker = { interpretar: ((empresa: string, texto: string, config: ConfiguracaoAtendimento) => Promise<Interpretacao>) | null; enviar(contato: string, conteudo: ConteudoSaida): Promise<string>; wallE?: PortaWallE };
 /**
  * Saída parada na fila além deste prazo (automação, chave da IA ou empresa desligadas e religadas depois) não sai mais:
  * uma resposta de horas atrás chegaria fora de contexto. O atendente vê "Não enviada" e pode responder de novo.
@@ -38,12 +42,6 @@ export function entradaVencida(mensagem: Pick<Mensagem, 'direcao' | 'criada_em'>
 }
 /** Origem do encaminhamento sem resposta automática, gravada na marca de pausa (quando houver). */
 export type OrigemSemResposta = 'ENTRADA_VENCIDA' | 'AUTOMACAO_DESLIGADA';
-/** Só os campos simples da memória do Wall-e (sem consultar catálogos): o resumo da tela completa o resto. */
-function coletadoDaMemoria(contexto: unknown): Passagem['coletado'] {
-  const c = (contexto && typeof contexto === 'object' ? contexto : {}) as Record<string, unknown>;
-  const texto = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max ? v : null);
-  return { data: texto(c.data, 10), turno: null, convidados: Number.isInteger(c.convidados) ? (c.convidados as number) : null, pacote: null, unidade: null, tema: texto(c.tema, 60) };
-}
 /**
  * Entrada que não terá resposta automática (vencida ou automação desligada): fica PROCESSADA, a conversa vai para a
  * equipe (AGUARDANDO_HUMANO, versão nova: saídas automáticas antigas não saem) com o motivo SEM_RESPOSTA_AUTOMATICA, e
@@ -56,8 +54,7 @@ async function encaminharSemResposta(tx: DbExecutor, conversa: Conversa, entrada
   if (await tem078(tx)) {
     const em = new Date().toISOString();
     const pausa = !!entrada && !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto);
-    const motivos: Passagem['motivos'] = pausa ? ['PARAR_A_CONFIRMAR', 'SEM_RESPOSTA_AUTOMATICA'] : ['SEM_RESPOSTA_AUTOMATICA'];
-    const passagem: Passagem = { motivo: motivos[0], motivos, em, coletado: coletadoDaMemoria(conversa.contexto), enviados: [], pendentes: [], ultimaMensagem: '' };
+    const passagem = passagemSemRespostaAutomatica(conversa.contexto, em, pausa);
     const marca = pausa ? { semAutomatico: { motivo: 'PARAR_A_CONFIRMAR', em, origem } } : {};
     await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',passagem=$2::jsonb,contexto=COALESCE(contexto,'{}'::jsonb)||$3::jsonb,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'",
       [conversa.id, JSON.stringify(passagem), JSON.stringify(marca)]);
@@ -166,8 +163,12 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       if (respondidas >= config.limites.respostasPor24h) return await encaminharSemModelo(mensagem, 'PROCESSADA');
       // Wall-e: só com a 078, a porta montada e a configuração ligada. PARAR continua no caminho fixo (encerra e não contata).
       if (deps.wallE && r078 && config.wallE?.ativo && comandoDireto(atual)?.intencao !== 'PARAR') return await responderWallE(deps.wallE, mensagem, conversa, atual, historico.map(m => m.texto));
+      // Proteção final: em modo regras (ou sem porta de modelo) a fase B NUNCA chama o modelo, qualquer que seja o orçamento.
+      // Sem comando direto, a conversa vai para a equipe com o texto fixo de encaminhamento (como na falha do modelo).
+      const comando = comandoDireto(atual);
+      if (!comando && (entendimentoSoRegras() || !deps.interpretar)) return await encaminharSemModelo(mensagem, 'PROCESSADA');
       let plano: Interpretacao;
-      try { plano = comandoDireto(atual) ?? await deps.interpretar(empresa, JSON.stringify({ mensagens: historico.map(m => m.texto), mensagemAtual: atual, interesseAnterior: conversa.interesse }), config); }
+      try { plano = comando ?? await deps.interpretar!(empresa, JSON.stringify({ mensagens: historico.map(m => m.texto), mensagemAtual: atual, interesseAnterior: conversa.interesse }), config); }
       catch { return await encaminharSemModelo(mensagem, 'FALHOU'); }
       const hoje = hojeOperacao();
       // Data passada ou inexistente não substitui nem conserva interesse: uma data anterior já vencida também é descartada.

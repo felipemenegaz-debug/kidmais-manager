@@ -11,11 +11,22 @@ import { enviarMensagem } from '@/lib/whatsapp/atendimento/transporte';
 import { criarPortaWallE, modoEntendimentoWallE, pedidoEntendimentoWallE } from '@/lib/whatsapp/atendimento/walle/porta';
 import { triagemMensagem } from '@/lib/inteligencia/jev/motor';
 
+/**
+ * Portas de modelo do atendimento, decididas UMA vez pelo ambiente. Modo regras (WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=
+ * regras): nenhuma — nem o entendimento do Wall-e nem a interpretação da fase B (Wall-e desligado na tela ou sem a 078),
+ * qualquer que seja o orçamento. O worker e a porta do Wall-e conferem o modo de novo a cada uso.
+ */
+export function portasDeModeloAtendimento(env: NodeJS.ProcessEnv = process.env) {
+  const comModelo = modoEntendimentoWallE(env) === 'MODELO';
+  return { interpretar: comModelo ? interpretarMensagem : null, entender: comModelo ? entenderComModelo : null };
+}
+
 /** Composition root do canal: o domínio recebe portas, sem depender dos modelos da IA. */
 export async function processarFilaAtendimento() {
   // Revisão final (M3): chave global desligada não deixa a fila esperando a IA voltar. Entradas pendentes vão para a
   // equipe sem resposta e saídas automáticas na fila são canceladas; nada é enviado nem interpretado.
-  return processarLote({interpretar:interpretarMensagem,enviar:enviarMensagem,wallE:criarPortaWallE(modoEntendimentoWallE(process.env) === 'MODELO' ? entenderComModelo : null, { sinais: sinaisJev })},
+  const portas = portasDeModeloAtendimento(process.env);
+  return processarLote({interpretar:portas.interpretar,enviar:enviarMensagem,wallE:criarPortaWallE(portas.entender, { sinais: sinaisJev })},
     { semAutomacao: !inteligenciaAtiva(process.env) });
 }
 

@@ -213,7 +213,8 @@ test('nome de perfil: gravado só com a 065 aplicada, saneado, sem mudar versão
 test('nome de perfil e cadastro nunca vão ao modelo: o worker só envia mensagens e interesse', async () => {
   const { readFileSync } = await import('node:fs');
   const worker = readFileSync('lib/whatsapp/atendimento/worker.ts', 'utf8');
-  const chamada = worker.match(/deps\.interpretar\(empresa, JSON\.stringify\(\{([^}]*)\}\)/);
+  // `!`: a porta da fase B é anulável (modo regras); a chamada só acontece depois da guarda do modo.
+  const chamada = worker.match(/deps\.interpretar!?\(empresa, JSON\.stringify\(\{([^}]*)\}\)/);
   assert.ok(chamada, 'chamada ao modelo encontrada');
   assert.equal(chamada![1].replace(/\s+/g, ''), 'mensagens:historico.map(m=>m.texto),mensagemAtual:atual,interesseAnterior:conversa.interesse');
   assert.doesNotMatch(worker, /nome_perfil|cliente_nome|cadastro/);

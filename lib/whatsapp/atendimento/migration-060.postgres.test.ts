@@ -66,7 +66,7 @@ const db = () => ({ query: async (sql: string, v?: unknown[]) => { const c = awa
 type Servico = typeof import("./service.ts");
 type Worker = typeof import("./worker.ts");
 function carregar(empresaPiloto: string) {
-  const configuracao = { ambienteAtendimento: () => "staging", empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
+  const configuracao = { entendimentoSoRegras: () => process.env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO === "regras", ambienteAtendimento: () => "staging", empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
   const postgres = { withTransaction, db };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
     "../../db/postgres.ts": postgres,

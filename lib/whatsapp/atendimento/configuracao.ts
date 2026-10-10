@@ -18,6 +18,12 @@ export function receptorDoNumero(env: NodeJS.ProcessEnv = process.env) {
   const receptor = env.WHATSAPP_ATENDIMENTO_RECEPTOR;
   return (receptor === 'staging' || receptor === 'production') && receptor === env.KIDMAIS_DEPLOY_ENV;
 }
+/**
+ * WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=regras: NENHUM caminho do atendimento chama o modelo — nem o Wall-e nem a fase B
+ * (Wall-e desligado na tela ou sem a 078), qualquer que seja o orçamento de IA. Variável do próprio canal (não é a chave
+ * da IA): o worker e a porta do Wall-e conferem a cada uso, além da composition root, que nem monta o modelo.
+ */
+export function entendimentoSoRegras(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO === 'regras'; }
 /** Sem empresa piloto válida a recepção fica desligada (só metadados): erro de configuração não vira 503 eterno. */
 export function recepcaoAtiva(env: NodeJS.ProcessEnv = process.env) {
   if (env.WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED !== 'true' || !receptorDoNumero(env)) return false;

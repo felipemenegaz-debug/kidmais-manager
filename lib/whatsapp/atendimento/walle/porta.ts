@@ -2,6 +2,7 @@ import { db } from '../../../db/postgres.ts';
 import { buscarClientesPorContatoExato } from '../../../clientes/repositories/cliente.repository';
 import { listarContratacoes } from '../../../fechamentos/contratacoes.ts';
 import { ocultarDadosPessoais } from '../core.ts';
+import { entendimentoSoRegras } from '../configuracao.ts';
 import { resolverLinkFechamento } from '../prontas-link.ts';
 import type { PortaWallE } from '../worker.ts';
 import { lerContexto } from './contexto.ts';
@@ -16,7 +17,7 @@ export type EntenderWallE = (empresaId: string, texto: string, contexto: Context
 
 /** WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=regras: Wall-e sem modelo. Padrão: modelo, sempre revalidado sem modelo. */
 export function modoEntendimentoWallE(env: NodeJS.ProcessEnv = process.env): 'MODELO' | 'REGRAS' {
-  return env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO === 'regras' ? 'REGRAS' : 'MODELO';
+  return entendimentoSoRegras(env) ? 'REGRAS' : 'MODELO';
 }
 
 /**
@@ -49,8 +50,10 @@ export function criarPortaWallE(entender: EntenderWallE | null, opcoes: { sinais
   return { async responder(e) {
     const catalogos = await catalogosWallE(db(), e.empresa, e.config, e.hoje);
     const contexto = lerContexto(e.contexto);
-    const entendimento = entender
-      ? revalidarEntendimento(await entender(e.empresa, e.texto, contexto, catalogos), e.texto, catalogos, contexto)
+    // Proteção final: em modo regras o modelo nunca é chamado, mesmo que a porta tenha sido montada com ele.
+    const modelo = entender && !entendimentoSoRegras() ? entender : null;
+    const entendimento = modelo
+      ? revalidarEntendimento(await modelo(e.empresa, e.texto, contexto, catalogos), e.texto, catalogos, contexto)
       : entenderPorRegras(e.texto, catalogos, contexto);
     // Sinais locais (regras) + triagem do JEV: basta uma origem para valer.
     if (opcoes.sinais) entendimento.sinais = juntarSinais(entendimento.sinais, opcoes.sinais(e.texto), e.texto);

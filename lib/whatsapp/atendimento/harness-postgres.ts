@@ -43,7 +43,7 @@ export async function withTransaction<T>(fn: (tx: DbExecutor) => Promise<T>): Pr
 export const db = () => ({ query: async (sql: string, v?: unknown[]) => { const c = await conectarDescartavel({ travar: false }); try { return await c.query(sql, v); } finally { await c.end(); } } });
 
 export function carregarAtendimento(empresaPiloto: string, ambiente = "staging") {
-  const configuracao = { origemMidia: () => "https://midia.kidmais.example", ambienteAtendimento: () => ambiente, empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
+  const configuracao = { entendimentoSoRegras: () => process.env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO === "regras", origemMidia: () => "https://midia.kidmais.example", ambienteAtendimento: () => ambiente, empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
   const postgres = { withTransaction, db };
   const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx) => executarNoTenant(tx, s, e, w)) };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {

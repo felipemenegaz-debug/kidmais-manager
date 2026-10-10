@@ -115,6 +115,9 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/rollback-ordem.postgres.test.ts": { descartavel: "063" },
   "lib/whatsapp/atendimento/walle/resumo-turno.postgres.test.ts": { descartavel: "063" },
   "lib/whatsapp/atendimento/fila-validade.postgres.test.ts": { descartavel: "atual" },
+  // Proteções finais: modo regras em todos os caminhos (sem a 078, Wall-e desligado) e entrada recebida com a IA global
+  // desligada nunca respondida depois de religar, sem ciclo intermediário (aplica a 060 e depois 076–078).
+  "lib/whatsapp/atendimento/protecoes-finais.postgres.test.ts": { descartavel: "atual" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
