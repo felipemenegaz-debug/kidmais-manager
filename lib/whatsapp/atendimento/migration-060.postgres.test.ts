@@ -247,7 +247,12 @@ test("060: atendimento WhatsApp — isolamento, deduplicação, concorrência, t
     assert.equal(chamadasModelo, 1, "a segunda entrada não chama o modelo");
     const c90 = await conversa("5561900000090");
     assert.equal(c90.estado, "AGUARDANDO_HUMANO");
-    assert.equal((await mensagens(c90.id)).at(-1)?.texto, core.MENSAGEM_ENCAMINHAMENTO);
+    // M1 (diferença intencional): o encaminhamento por limite é em silêncio — antes a última mensagem era o texto fixo
+    // (MENSAGEM_ENCAMINHAMENTO); agora a segunda entrada fica PROCESSADA e a única saída é a resposta à primeira.
+    const m90 = await mensagens(c90.id);
+    assert.equal(m90.find((m) => m.texto === "E o horário?")?.estado, "PROCESSADA");
+    assert.deepEqual(m90.filter((m) => m.direcao === "SAIDA").map((m) => m.texto), ["Resposta aprovada sintética."], "só a resposta à primeira entrada");
+    assert.ok(!m90.some((m) => m.texto === core.MENSAGEM_ENCAMINHAMENTO), "nenhum texto fixo de encaminhamento");
 
     // 8e. Entrada antiga que chega depois de a mais recente ter sido respondida (retry do provedor): vira histórico,
     // sem modelo e sem segunda resposta.

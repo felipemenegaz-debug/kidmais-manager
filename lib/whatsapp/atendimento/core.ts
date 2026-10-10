@@ -111,6 +111,12 @@ export function comandoDireto(texto: string): Interpretacao | null {
 export function pausaPedidaNaRecepcao(texto: string | null | undefined) {
   return !!texto && pedidoDeParar(texto)?.tipo === 'AMBIGUO';
 }
+/**
+ * Origem da marca de pausa (`contexto.semAutomatico.origem`), para rastreabilidade — toda marca gravada leva uma:
+ * RECEPCAO (pedido reconhecido pelas regras na recepção), FILA (barreira do worker para entrada já enfileirada), WALLE
+ * (silêncio do Wall-e: regras ou modelo revalidado), ENTRADA_VENCIDA e AUTOMACAO_DESLIGADA (encaminhamento sem resposta).
+ */
+export type OrigemMarcaPausa = 'RECEPCAO' | 'FILA' | 'WALLE' | 'ENTRADA_VENCIDA' | 'AUTOMACAO_DESLIGADA';
 export function semAutomatico(conversa: { contexto?: Record<string, unknown> } | null | undefined) {
   const m = (conversa?.contexto as { semAutomatico?: unknown } | undefined)?.semAutomatico;
   return !!m && typeof m === 'object';
@@ -120,10 +126,10 @@ export function semAutomatico(conversa: { contexto?: Record<string, unknown> } |
  * recepção ou no processador): motivo SEM_RESPOSTA_AUTOMATICA (antes dele PARAR_A_CONFIRMAR, se o texto pediu pausa).
  * Só os campos simples da memória do Wall-e (sem catálogos); o resumo da tela completa o resto. Sem o texto do cliente.
  */
-export function passagemSemRespostaAutomatica(contexto: unknown, em: string, pausa: boolean): Passagem {
+export function passagemSemRespostaAutomatica(contexto: unknown, em: string, pausa: boolean, motivo: 'SEM_RESPOSTA_AUTOMATICA' | 'LIMITE_DIARIO' = 'SEM_RESPOSTA_AUTOMATICA'): Passagem {
   const c = (contexto && typeof contexto === 'object' ? contexto : {}) as Record<string, unknown>;
   const texto = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max ? v : null);
-  const motivos: Passagem['motivos'] = pausa ? ['PARAR_A_CONFIRMAR', 'SEM_RESPOSTA_AUTOMATICA'] : ['SEM_RESPOSTA_AUTOMATICA'];
+  const motivos: Passagem['motivos'] = pausa ? ['PARAR_A_CONFIRMAR', motivo] : [motivo];
   return { motivo: motivos[0], motivos, em, enviados: [], pendentes: [], ultimaMensagem: '',
     coletado: { data: texto(c.data, 10), turno: null, convidados: Number.isInteger(c.convidados) ? (c.convidados as number) : null, pacote: null, unidade: null, tema: texto(c.tema, 60) } };
 }

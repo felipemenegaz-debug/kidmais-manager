@@ -120,6 +120,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/protecoes-finais.postgres.test.ts": { descartavel: "atual" },
   // Correção P1 (revisão da candidata final): pausa reconhecida pelas regras vence o limite diário e os caminhos fixos.
   "lib/whatsapp/atendimento/pausa-limite.postgres.test.ts": { descartavel: "atual" },
+  // M1: limite diário esgotado ⇒ equipe em silêncio (sem modelo nem texto fixo, sem inventar pausa); origem das marcas.
+  "lib/whatsapp/atendimento/limite-silencio.postgres.test.ts": { descartavel: "atual" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

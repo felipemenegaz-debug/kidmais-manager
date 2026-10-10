@@ -6,7 +6,7 @@ import type { DbExecutor } from "../../db/contracts.ts";
 import { carregarAtendimento, cod, db } from "./harness-postgres.ts";
 import type { ConteudoSaida } from "./transporte.ts";
 import type { PortaWallE } from "./worker.ts";
-import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, pausaPedidaNaRecepcao } from "./core.ts";
+import { comandoDireto, pausaPedidaNaRecepcao } from "./core.ts";
 import { pedidoDeParar } from "./opt-out.ts";
 import { lerContexto } from "./walle/contexto.ts";
 import { entenderPorRegras } from "./walle/entendimento.ts";
@@ -23,7 +23,8 @@ import { resolverWallE } from "./walle/resolver.ts";
  *     "Devolver ao Wall-e" recusado; mensagem posterior e reabertura não removem a pausa; atendimento humano continua;
  *  L2 pausa sem limite (silêncio do Wall-e): o mesmo resultado;
  *  L3 pausa com o Wall-e DESLIGADO (fase B) e L4 pausa com o Wall-e FALHANDO: os caminhos fixos não perdem a pausa;
- *  L5 controle — mensagem comum com o limite esgotado: o texto fixo de encaminhamento sai uma vez, sem marca de pausa;
+ *  L5 controle — mensagem comum com o limite esgotado: equipe em silêncio (LIMITE_DIARIO; desde o M1, sem o texto fixo),
+ *     sem marca de pausa;
  *  L6 controle — PARAR inequívoco (com o limite esgotado): bloqueio definitivo, nada sai;
  *  L7 barreira do worker — pausa já enfileirada (recepção anterior à correção) com o limite esgotado: silêncio e marca.
  */
@@ -170,14 +171,16 @@ test("pausa reconhecida pelas regras vence o limite diário e os caminhos fixos;
     await pausada("L7", l7);
     assert.equal(chamadas.wallE, wallEAntesL7, "L7: sem Wall-e nem modelo");
 
-    // L5 — controle: mensagem comum com o limite esgotado ⇒ o texto fixo sai uma vez, sem marca de pausa.
+    // L5 — controle: mensagem comum com o limite esgotado ⇒ equipe em silêncio, sem marca de pausa. Diferença intencional
+    // do M1: antes desta correção saía o texto fixo de encaminhamento (MENSAGEM_ENCAMINHAMENTO).
     const l5 = "5561900003005";
     await esgotar(l5);
     await receber(l5, "e qual o endereço?");
     await processar();
-    assert.deepEqual(textos(l5), ["Resposta sintética do Wall-e", MENSAGEM_ENCAMINHAMENTO], "L5: encaminhamento fixo da mensagem comum");
+    assert.deepEqual(textos(l5), ["Resposta sintética do Wall-e"], "L5: nada sai depois do limite (nem o texto fixo)");
     const cv5 = await conversa(l5);
     assert.equal(cv5.estado, "AGUARDANDO_HUMANO"); assert.equal(cv5.contexto?.semAutomatico ?? null, null, "L5: mensagem comum não vira pausa");
+    assert.deepEqual(cv5.passagem?.motivos, ["LIMITE_DIARIO"], "L5: o resumo diz limite diário");
 
     // L6 — controle: PARAR inequívoco com o limite esgotado ⇒ bloqueio definitivo, nada sai.
     const l6 = "5561900003006";

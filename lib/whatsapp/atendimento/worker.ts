@@ -1,6 +1,6 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, entendimentoSoRegras, origemMidia } from './configuracao.ts';
-import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao } from './core.ts';
+import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, tem078, type Conversa, type Mensagem } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { urlPublicaArquivo } from './arquivos.ts';
@@ -40,22 +40,28 @@ export const PRAZO_ENTRADA_MS = 15 * 60 * 1000;
 export function entradaVencida(mensagem: Pick<Mensagem, 'direcao' | 'criada_em'>, agora = new Date()) {
   return mensagem.direcao === 'ENTRADA' && agora.getTime() - new Date(mensagem.criada_em).getTime() > PRAZO_ENTRADA_MS;
 }
-/** Origem do encaminhamento sem resposta automática, gravada na marca de pausa (quando houver). */
-export type OrigemSemResposta = 'ENTRADA_VENCIDA' | 'AUTOMACAO_DESLIGADA';
 /**
- * Entrada que não terá resposta automática (vencida ou automação desligada): fica PROCESSADA, a conversa vai para a
- * equipe (AGUARDANDO_HUMANO, versão nova: saídas automáticas antigas não saem) com o motivo SEM_RESPOSTA_AUTOMATICA, e
- * NADA é enviado ao cliente (nem o texto fixo). Pedido de pausa no texto grava a mesma marca persistente da recepção
- * (contexto.semAutomatico, PARAR_A_CONFIRMAR). Roda dentro da transação que já trava a mensagem e a conversa.
+ * Por que a entrada não terá resposta automática: vencida na fila, automação global desligada ou (M1) limite diário de
+ * respostas esgotado. As duas primeiras também viram a origem da marca de pausa quando o texto pede pausa.
+ */
+export type OrigemSemResposta = 'ENTRADA_VENCIDA' | 'AUTOMACAO_DESLIGADA' | 'LIMITE_DIARIO';
+/**
+ * Entrada que não terá resposta automática (vencida, automação desligada ou limite diário esgotado): fica PROCESSADA, a
+ * conversa vai para a equipe (AGUARDANDO_HUMANO, versão nova: saídas automáticas antigas não saem) com o motivo
+ * SEM_RESPOSTA_AUTOMATICA (ou LIMITE_DIARIO) e NADA é enviado ao cliente (nem o texto fixo). Marcas de pausa já gravadas
+ * na conversa são preservadas (o contexto só recebe acréscimos). Vencida ou desligada: pedido de pausa reconhecido pelas
+ * regras grava a marca persistente. Limite diário: nenhum pedido é classificado — o silêncio é só o limite, nunca uma
+ * pausa reconhecida. Roda dentro da transação que já trava a mensagem e a conversa.
  */
 async function encaminharSemResposta(tx: DbExecutor, conversa: Conversa, entrada: Pick<Mensagem, 'id' | 'texto'> | null, origem: OrigemSemResposta) {
   const empresa = empresaPiloto(), ambiente = ambienteAtendimento();
   if (entrada) await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado IN ('PENDENTE','PROCESSANDO')", [entrada.id]);
   if (await tem078(tx)) {
     const em = new Date().toISOString();
-    const pausa = !!entrada && !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto);
-    const passagem = passagemSemRespostaAutomatica(conversa.contexto, em, pausa);
-    const marca = pausa ? { semAutomatico: { motivo: 'PARAR_A_CONFIRMAR', em, origem } } : {};
+    const limite = origem === 'LIMITE_DIARIO';
+    const pausa = !limite && !!entrada && !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto);
+    const passagem = passagemSemRespostaAutomatica(conversa.contexto, em, pausa, limite ? 'LIMITE_DIARIO' : 'SEM_RESPOSTA_AUTOMATICA');
+    const marca = pausa && !limite ? { semAutomatico: { motivo: 'PARAR_A_CONFIRMAR', em, origem: origem as OrigemMarcaPausa } } : {};
     await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',passagem=$2::jsonb,contexto=COALESCE(contexto,'{}'::jsonb)||$3::jsonb,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'",
       [conversa.id, JSON.stringify(passagem), JSON.stringify(marca)]);
   } else await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [conversa.id]);
@@ -162,10 +168,15 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       // Correção da pausa (revisão da candidata final): pedido de PAUSA reconhecido pelas regras vem ANTES do limite diário
       // e de qualquer caminho fixo (encaminhamento, fase B, falha do Wall-e). Nada é enviado — nem o texto fixo —, a conversa
       // vai para a equipe com o resumo de pausa e a marca persistente; sem modelo nem Wall-e. A recepção já desvia esses
-      // pedidos da fila; esta barreira cobre entradas enfileiradas antes da correção ou com a pausa numa entrada anterior.
-      if (pausaPedidaNaRecepcao(atual)) return r078 ? await passarEmSilencio(mensagem, registroDaPausa(atual, new Date().toISOString(), conversa.contexto)) : await pausarSemMarca(mensagem);
+      // pedidos da fila; esta barreira cobre entradas já enfileiradas (por uma recepção anterior à correção) e examina só
+      // o texto da entrada MAIS RECENTE (`atual`): uma pausa numa entrada anterior, seguida de outra mensagem ainda na fila,
+      // não é vista aqui (depois da correção a recepção nunca enfileira a pausa).
+      if (pausaPedidaNaRecepcao(atual)) return r078 ? await passarEmSilencio(mensagem, registroDaPausa(atual, new Date().toISOString(), conversa.contexto), 'FILA') : await pausarSemMarca(mensagem);
       const respondidas = Number((await db().query<{ n: string }>(`SELECT count(${r078 ? 'DISTINCT COALESCE(origem_grupo_id,id)' : '*'}) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='SAIDA' AND autor_usuario_id IS NULL AND estado<>'CANCELADA' AND criada_em > clock_timestamp()-interval '24 hours'`, [conversa.id, empresa])).rows[0]?.n ?? 0);
-      if (respondidas >= config.limites.respostasPor24h) return await encaminharSemModelo(mensagem, 'PROCESSADA');
+      // M1: limite diário esgotado ⇒ equipe em SILÊNCIO (sem modelo, sem Wall-e e sem o texto fixo de encaminhamento), para
+      // qualquer mensagem — inclusive uma paráfrase de pausa que só o modelo reconheceria: nada é classificado aqui, então o
+      // resumo diz LIMITE_DIARIO (nunca uma pausa) e as marcas já gravadas na conversa ficam como estão.
+      if (respondidas >= config.limites.respostasPor24h) return await encaminharPorLimite(mensagem);
       // Wall-e: só com a 078, a porta montada e a configuração ligada. PARAR continua no caminho fixo (encerra e não contata).
       if (deps.wallE && r078 && config.wallE?.ativo && comandoDireto(atual)?.intencao !== 'PARAR') return await responderWallE(deps.wallE, mensagem, conversa, atual, historico.map(m => m.texto));
       // Proteção final: em modo regras (ou sem porta de modelo) a fase B NUNCA chama o modelo, qualquer que seja o orçamento.
@@ -286,15 +297,32 @@ async function pausarSemMarca(mensagem: Mensagem) {
   });
   return 'PROCESSADA' as const;
 }
+/**
+ * M1: limite diário de respostas esgotado. Revalida sob a trava da conversa (empresa, automação, configuração, versão) e
+ * encaminha em silêncio (encaminharSemResposta, LIMITE_DIARIO). Obsoleta: CANCELADA, como nos demais caminhos.
+ */
+async function encaminharPorLimite(mensagem: Mensagem) {
+  const empresa = empresaPiloto();
+  await withTransaction(async tx => {
+    const empresaAtiva = (await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR SHARE", [empresa])).rows.length;
+    const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [mensagem.conversa_id])).rows[0];
+    if (!empresaAtiva || !atual || !mensagemAindaValida(mensagem, atual) || !atendimentoAtivo() || !(await configuracao(tx, empresa))?.ativo) {
+      await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]); return;
+    }
+    await encaminharSemResposta(tx, atual, mensagem, 'LIMITE_DIARIO');
+  });
+  return 'ENCAMINHADA' as const;
+}
 /** Pedido de parar AMBÍGUO: nada é enviado (nem o texto fixo de encaminhamento); a equipe recebe a conversa com o resumo,
  *  sem o bloqueio definitivo, e decide. */
-async function passarEmSilencio(mensagem: Mensagem, passagem: Passagem) {
+async function passarEmSilencio(mensagem: Mensagem, passagem: Passagem, origem: Extract<OrigemMarcaPausa, 'FILA' | 'WALLE'>) {
   const empresa = empresaPiloto(), ambiente = ambienteAtendimento();
   await withTransaction(async tx => {
     const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [mensagem.conversa_id])).rows[0];
     if (!atual || !mensagemAindaValida(mensagem, atual)) { await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]); return; }
     // Rodada 22: pedido de parar sem bloqueio definitivo marca a conversa: nenhum envio automático depois (só a equipe).
-    const marca = passagem.motivos.includes('PARAR_A_CONFIRMAR') ? { semAutomatico: { motivo: 'PARAR_A_CONFIRMAR', em: passagem.em } } : {};
+    // B5: a marca sempre registra a origem (FILA = barreira do worker; WALLE = silêncio do Wall-e).
+    const marca = passagem.motivos.includes('PARAR_A_CONFIRMAR') ? { semAutomatico: { motivo: 'PARAR_A_CONFIRMAR', em: passagem.em, origem } } : {};
     await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',passagem=$2::jsonb,contexto=contexto||$3::jsonb,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1", [atual.id, JSON.stringify(passagem), JSON.stringify(marca)]);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
     await cancelarSaidasNaFila(tx, atual.id, empresa, ambiente);
@@ -350,7 +378,7 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
   } catch { return await encaminharSemModelo(mensagem, 'FALHOU'); }
   // Pedido de parar entendido pelo Wall-e (paráfrase que a recepção não bloqueou, com o trecho validado sem modelo).
   if (resultado.parar) return await bloquearPorPedido(mensagem, resultado.passagem);
-  if (resultado.silencio && resultado.passagem) return await passarEmSilencio(mensagem, resultado.passagem);
+  if (resultado.silencio && resultado.passagem) return await passarEmSilencio(mensagem, resultado.passagem, 'WALLE');
   if (!resultado.saidas.length) return await encaminharSemModelo(mensagem, 'FALHOU');
   await withTransaction(async tx => {
     const empresaAtiva = (await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR SHARE", [empresa])).rows.length;

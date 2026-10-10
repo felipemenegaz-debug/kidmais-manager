@@ -105,7 +105,9 @@ test('falha do modelo depois que um atendente assumiu não cria mensagem automá
   assert.deepEqual(comandos.find(c=>c.sql.includes("WHERE id=$1 AND estado='PROCESSANDO'"))?.args,['m','CANCELADA']);
   assert.equal(comandos.some(c=>c.sql.includes('INSERT INTO whatsapp_atendimento_mensagens')),false);
 });
-test('limite de respostas em 24 h encaminha à equipe sem chamar o modelo',async()=>{
+// M1 (diferença intencional): com o limite esgotado o encaminhamento é em SILÊNCIO — antes saía o texto fixo de
+// encaminhamento (MENSAGEM_ENCAMINHAMENTO); agora nenhuma saída é criada.
+test('limite de respostas em 24 h encaminha à equipe em silêncio, sem chamar o modelo nem criar o texto fixo',async()=>{
   const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Mais uma pergunta'};
   let modelo=0; const comandos:{sql:string;args?:unknown[]}[]=[];
   const worker=carregar(async(sql,args)=>{
@@ -120,8 +122,9 @@ test('limite de respostas em 24 h encaminha à equipe sem chamar o modelo',async
   assert.equal(modelo,0);
   const contagem=comandos.find(c=>c.sql.includes('SELECT count(*) AS n'))!;
   assert.match(contagem.sql,/direcao='SAIDA' AND autor_usuario_id IS NULL AND estado<>'CANCELADA' AND criada_em > clock_timestamp\(\)-interval '24 hours'/);
-  assert.deepEqual(comandos.find(c=>c.sql.includes("WHERE id=$1 AND estado='PROCESSANDO'"))?.args,['m','PROCESSADA']);
-  assert.equal(comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"))?.args?.[4],core.MENSAGEM_ENCAMINHAMENTO);
+  assert.ok(comandos.some(c=>/SET estado='PROCESSADA' WHERE id=\$1 AND estado IN \('PENDENTE','PROCESSANDO'\)/.test(c.sql)&&c.args?.[0]==='m'),'entrada PROCESSADA');
+  assert.ok(comandos.some(c=>/SET estado='AGUARDANDO_HUMANO',versao=versao\+1/.test(c.sql)),'conversa à equipe');
+  assert.ok(!comandos.some(c=>c.sql.includes('INSERT INTO whatsapp_atendimento_mensagens')),'nenhuma saída criada (nem o texto fixo)');
 });
 test('ordem: a resposta considera a entrada mais recente pelo horário do evento, mesmo que tenha chegado antes',async()=>{
   // "Oi" chegou por último (versão atual da conversa), mas o evento "Para 40 pessoas" é mais recente.
