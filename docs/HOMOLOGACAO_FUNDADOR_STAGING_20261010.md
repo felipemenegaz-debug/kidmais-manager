@@ -10,9 +10,10 @@ A tentativa 2 da homologação de planos ([evidência](evidencias/homologacao-pl
 
 ## Candidata
 
-- **Código: `da8f3e2c78c96c0dcb106ebb5a4bc9926003ac29`** sobre `origin/staging` `0123050` (inclui os deploys externos `bc95ca4` #151 e `0123050` #152). O commit seguinte, que traz este documento, altera só `docs/`.
+- **Código: `5f818f56291fb5ba67e1bc0506a46ac1db4db9b3`** sobre `origin/staging` `0123050` (inclui os deploys externos `bc95ca4` #151 e `0123050` #152).
+- **Candidata completa** = o commit seguinte, que traz só este documento; o SHA exato é o apresentado no pedido de aprovação e é o único que P1 envia.
 - Diferença para `0123050`: `scripts/homologacao-fundador-staging.cjs` e teste, e a evidência da tentativa 2. Aplicação web inalterada.
-- Se `origin/staging` avançar antes de P1: integrar sem force (merge) e seguir **somente** se `git diff da8f3e2c78c96c0dcb106ebb5a4bc9926003ac29 <nova ponta> -- scripts lib/assinatura lib/db database` estiver vazio; caso contrário, parar e pedir nova aprovação.
+- Se `origin/staging` avançar antes de P1: **não enviar**. Integrar sem force, revisar o diff completo entre a nova ponta e a candidata, revalidar e apresentar o novo SHA para nova aprovação.
 - Pedido: não implantar staging por fora durante a janela (P2–P4, ~20 min). Na tentativa 2, um deploy externo trocou a instância no meio de N4.
 
 ## Alvo exato
@@ -69,20 +70,25 @@ Preços fixados no executor, independentes do sistema (centavos):
 | Campanha | ocupadas = antes + 3; confirmadas inalteradas |
 | Terceiros | hash de empresas, vínculos, assinaturas, contratações, **vagas Fundador**, isenções, clientes, fechamentos e pacotes fora das fixtures idêntico (S3); endereço público da Kidmais idêntico |
 
-## Encerramento: libera só as vagas da rodada, com cancelamento comprovado
+## Encerramento: libera só as vagas da rodada, com cancelamento comprovado (fail-closed)
 
 Sempre (sucesso, falha, parada, recuperação). Nunca lança; o erro original prevalece. Nunca apaga linha.
 
 1. Por fixture com prova de autoria (S1 provou empresa e referência Asaas livres **e** a rodada gravou `intencaoCheckout` antes do checkout):
-   - assinaturas da referência: no máximo 1, mesma referência, cliente e id gravados (senão colisão → não toca);
-   - cobranças registradas **antes** da remoção; cobrança paga → para (não remove, não libera);
+   - IDs conhecidos: estado da rodada; se a interrupção ocorreu antes de salvá-los, `empresa_assinaturas` da fixture e a listagem por referência. Estado e banco divergentes → para;
+   - assinaturas da referência: no máximo 1, mesma referência, cliente e id conhecidos (senão colisão → não toca);
+   - cobranças de toda assinatura conhecida listadas **antes** da remoção. **Pagamento conhecido bloqueia sempre, mesmo com `deleted=true`**: estado fora de `PENDING`/`OVERDUE` (pago, confirmado, em dinheiro, estorno, análise, desconhecido) ou data de pagamento → não remove, não libera;
    - `DELETE` da assinatura no sandbox;
-   - **prova**: releitura da assinatura (404 ou `deleted`) e de cada cobrança registrada (404 ou `deleted`).
+   - **prova**: assinatura relida 404 ou `deleted`; ao menos uma cobrança registrada quando houve assinatura; **cada cobrança relida explicitamente com `deleted=true`, estado `PENDING`/`OVERDUE` e sem data de pagamento**. Cobrança 404, estado desconhecido, resposta fora do formato, falha de listagem/leitura (provedor ou banco) → evidência incompleta → reserva mantida.
 2. Banco, uma transação, só para fixtures com prova: contratação `EM_ABERTO → CANCELADA` (motivo e data) e vaga `RESERVADA → LIBERADA` (`liberada_em`, `evidencia_liberacao`), filtradas por `empresa_id` da fixture; depois desativa usuários, vínculos e empresas das fixtures (por ID + marcador).
 3. Vaga sem prova fica `RESERVADA` e é reportada (`REMOCAO_NAO_COMPROVADA`); vaga `CONFIRMADA` nunca é forçada (`VAGA_NAO_LIBERADA`).
 4. Depois: campanha volta ao número de ocupadas de antes; hash de terceiros idêntico ao de antes. Divergência = `INCOMPLETO`.
 
 Permanecem como histórico (nunca apagados): 3 empresas desativadas, 3 contratações `CANCELADA`, 3 vagas `LIBERADA`, 3 clientes no Asaas sandbox sem assinatura ativa.
+
+### Risco declarado
+
+A documentação do Asaas não confirma que `GET /v3/payments/{id}` devolve a cobrança removida com `deleted=true` (pode responder 404). Pela regra fail-closed, 404 mantém a reserva: nesse caso a rodada termina `INCOMPLETO` com até 3 vagas de staging `RESERVADA` (contratações `EM_ABERTO`, fixtures desativadas, nada pago, assinaturas removidas) e a liberação exige decisão própria. Nenhuma vaga de terceiros é afetada.
 
 ## Critérios de parada
 
@@ -106,8 +112,8 @@ Permanecem como histórico (nunca apagados): 3 empresas desativadas, 3 contrata�
 
 | Validação | Resultado |
 |---|---|
-| Rodada Fundador (offline, banco e provedor simulados) | 15/15 — flag única; trava de alvo; fixtures inéditas; preços contra o catálogo e o CHECK da 074; vagas suficientes; prova de cancelamento; sucesso idempotente; remoção não comprovada/falha no Asaas não libera; cobrança paga não remove nem libera; sem prova nada é tocado; colisão (outro cliente, outro id, duplicada); interrupção antes da assinatura; vaga confirmada nunca forçada; banco indisponível; código sem DELETE/pagamento e com prova antes do checkout; recuperação sem disco recusada |
-| Scripts afetados (Fundador, planos, aplicador, conexão, restauração, ensaio) | 64/64 |
+| Rodada Fundador (offline, banco e provedor simulados) | 17/17 — inclui prova fail-closed (pago/confirmado/em dinheiro/estornado/com data de pagamento bloqueiam mesmo removidos; pago entre listagem e remoção), estado desconhecido ou evidência incompleta (404, estado desconhecido, erro de releitura, falha de listagem, assinatura sem cobrança, falha ao ler IDs no banco) e interrupção após criação no provedor sem IDs salvos (IDs do banco; só referência; banco aponta outra assinatura; assinatura removida por fora sem cobrança; estado × banco divergentes) |
+| Scripts afetados (Fundador, planos, aplicador, conexão, restauração, ensaio) | 66/66 |
 | Testes unitários sem banco (`check:v1:static`) | 2224/2224 |
 | Harness staging (mocks) | 103/103 |
 | TypeScript, build de produção, worker de PDF | aprovados |
