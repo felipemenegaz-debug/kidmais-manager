@@ -1,16 +1,24 @@
 # Catálogo do buffet por empresa (078) — correção e homologação local (10/10/2026)
 
-**Status: PRONTO PARA APROVAÇÃO, NÃO EXECUTADO.** A 078 não foi aplicada em nenhum banco (nem local); nenhum cluster, servidor
-ou navegador foi iniciado na preparação. Nada em staging, produção, Render ou serviços externos. Sem push nem deploy.
+**Status: PRONTO PARA APROVAÇÃO, NÃO EXECUTADO NESTA CANDIDATA.** Uma tentativa anterior (D1–D3 em `ec61f02`) falhou em D2 e
+parou antes do navegador — ver §0. Nesta preparação nenhum cluster, servidor ou navegador foi iniciado. Nada em staging, produção, Render ou serviços externos. Sem push nem deploy.
 
-- **Código: `b364ece89d05a6d68aa60cb987e8f6fd1398801e`**. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o da aprovação.
-  `git diff --name-only b364ece89d05a6d68aa60cb987e8f6fd1398801e HEAD` deve listar só `docs/`. Qualquer outra diferença: parar.
+- **Código: `b73653b6ab5c713c7ff0ae04b342de61ee7451fa`**. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o da aprovação.
+  `git diff --name-only b73653b6ab5c713c7ff0ae04b342de61ee7451fa HEAD` deve listar só `docs/`. Qualquer outra diferença: parar.
 - Origem: homologação das etapas (`59b0898`) com **isolamento parcial** — o catálogo do buffet era global
   ([evidência corrigida](evidencias/homologacao-cotacao-etapas-20261010.md)).
 - Decisão de Felipe (10/10/2026): outra empresa que já usa o catálogo recebe **cópia só do que usa**.
 - **Substitui a candidata `ac55c4c` (pacote `c583ce2`)**, que tinha a 078 em ordem errada: as cópias eram inseridas com a
   unicidade global ainda ativa (021 `UNIQUE(codigo)` das categorias; 050 código dos itens sem categoria) e a 078 falharia em
   qualquer banco com outra empresa usando o catálogo antigo. Achado de Felipe na revisão; corrigido em `b364ece` (ver §1).
+
+## 0. Tentativas
+
+| Candidata (código / pacote) | Execução | Resultado |
+|---|---|---|
+| `ac55c4c` / `c583ce2` | não executada | ordem errada (cópias antes da troca da unicidade) — achado na revisão de Felipe |
+| `b364ece` / `ec61f02` | D1–D3 em 10/10/2026, cluster `.local-descartavel-pg-22d5cd3fba084970be25e8e8597c15b9` (parado, preservado) | **FALHA em D2**: 4/5 suítes OK; 078 1/10 — precheck, 1ª aplicação e postcheck sem erro, mas a reaplicação foi recusada por “078 exige a 050” (a 078 remove esse índice) em vez de “078 já aplicada”; a conexão ficou em transação abortada e mascarou os 8 testes seguintes. B0–B6 não executados. [Evidência](evidencias/homologacao-catalogo-buffet-078-20261010.md) |
+| **`b73653b` / commit seguinte** | — | “já aplicada” é a primeira guarda; todo arquivo SQL da suíte roda com `ROLLBACK` em `finally` (erro original preservado). Repetir D1–D3 em **cluster novo** |
 
 ## 1. Migração 078 (`database/migrations/20261010_078_catalogo_buffet_por_empresa.sql`)
 
@@ -22,12 +30,13 @@ ou navegador foi iniciado na preparação. Nada em staging, produção, Render o
 | Novos buffets / empresas sem uso | **nada** — começam sem catálogo e cadastram o próprio |
 | Pedidos e fotografias | **intocados**: `fechamentos`, `fechamento_buffet_*`, `fechamento_pacote_snapshots/_composicao/_itens_especificos` continuam apontando para os ids originais (histórico) |
 | Unicidade | código da categoria único **por empresa** (duas empresas podem ter `SALGADOS`); item sem categoria idem. **Ordem:** (1) dono = Kidmais; (2) remove `UNIQUE(codigo)` da 021 e o índice `buffet_itens_codigo_sem_categoria_uk` da 050 e cria os índices por empresa (e os equivalentes para catálogo sem empresa); (3) só então as cópias, que repetem os códigos em outra empresa; (4) gatilhos. Tudo numa única transação (`BEGIN` … `COMMIT`): qualquer erro desfaz a 078 inteira |
+| Reaplicação | recusada pela **primeira** guarda: `078 já aplicada.` (antes das dependências, porque a 078 remove o índice da 050 que a guarda de dependência confere) |
 | Integridade (gatilhos) | recusam (`23514`, “cruza empresas”): item em categoria de outra empresa; categoria/item de outra empresa em pacote; origem de adicional de outra empresa; **escolha nova** de buffet com categoria de outra empresa |
 | Precheck / postcheck | somente leitura; postcheck exige catálogo da Kidmais completo (7 categorias da 022), zero vínculo entre empresas, índices e 8 gatilhos |
 | Rollback | `database/rollback/20261010_078_catalogo_buffet_por_empresa_down.sql`: automático **só** se o catálogo tiver um único dono (nenhuma cópia, nenhum catálogo próprio); senão ABORTA (correção para frente) |
 
 Inventário: 078 incluída em `scripts/production/check-migrations.mjs` como **pendente de autorização explícita** (como 074–077).
-Impressão do schema dos pacotes locais: `a543675ae56524dfc7bae8f7d815a79fac79f70bdabc2a733639c0db1f7c8510` (80 migrations, 204 arquivos).
+Impressão do schema dos pacotes locais: `ba47d7bf35f49a7e934d01faba6e7678c04cccf45d405ca15895f38249ad22c1` (80 migrations, 204 arquivos).
 
 ## 2. Código (compatível com bancos sem a 078)
 
@@ -50,21 +59,22 @@ Detecção `catalogoBuffetPorEmpresa` (coluna instalada?). **Sem a 078**: leitur
 
 | Camada | Arquivo | Cobre |
 |---|---|---|
-| Unitário (sem banco) | `lib/comercial/catalogo-buffet.test.ts` | **ordem da 078** (uma só transação; troca da unicidade antes dos `INSERT` das cópias; a regra antiga não volta — falha contra a versão de `ac55c4c`); empresa obrigatória; filtros em leitura/escrita; 404 para outra empresa; mesmo código em outra empresa; código repetido na mesma empresa |
+| Unitário (sem banco) | `lib/comercial/catalogo-buffet.test.ts` | **ordem da 078** (uma só transação; troca da unicidade antes dos `INSERT` das cópias; a regra antiga não volta — falha contra a versão de `ac55c4c`); **guarda “já aplicada” primeiro** e **todo arquivo SQL da suíte PostgreSQL protegido por ROLLBACK** (ambos falham contra `b364ece`); empresa obrigatória; filtros em leitura/escrita; 404 para outra empresa; mesmo código em outra empresa; código repetido na mesma empresa |
 | Unitário | `lib/comercial/round4-remediacao.test.ts`, `lib/inteligencia/acoes/human-gate.test.ts` | composição com filtro de empresa; mensagem da IA |
-| PostgreSQL descartável (063 + 070 + 078) | `lib/comercial/catalogo-buffet-078.postgres.test.ts` | **dados criados antes da 078** (Kidmais, OUTRA — empresa existente usando o catálogo antigo — com categoria no pacote e itens selecionados, item sem categoria no pacote, item sem categoria e item de categoria como origem de adicionais, pedido com escolha de buffet); precheck lista só OUTRA; Kidmais idêntica; cópia só do usado **com os mesmos códigos** (SALGADOS/DOCES e os dois itens sem categoria passam a existir na Kidmais e em OUTRA); repetir código na mesma empresa continua recusado; NOVA sem catálogo; impressão das tabelas de pedidos/fotografias igual; depois, **duas empresas com a mesma categoria SALGADOS**: leitura, escrita, composição, itens específicos, gatilhos, escolha no pedido, adicional do buffet e **cotação** (`calcularResumoComercial`) sem cruzar empresas |
+| PostgreSQL descartável (063 + 070 + 078) | `lib/comercial/catalogo-buffet-078.postgres.test.ts` | **dados criados antes da 078** (Kidmais, OUTRA — empresa existente usando o catálogo antigo — com categoria no pacote e itens selecionados, item sem categoria no pacote, item sem categoria e item de categoria como origem de adicionais, pedido com escolha de buffet); precheck lista só OUTRA; Kidmais idêntica; cópia só do usado **com os mesmos códigos** (SALGADOS/DOCES e os dois itens sem categoria passam a existir na Kidmais e em OUTRA); repetir código na mesma empresa continua recusado; reaplicação recusada como “já aplicada” e conexão utilizável depois; cada arquivo SQL com transação própria em `semTransacaoPendente` (uma asserção que falhe não deixa a conexão abortada nem esconde os testes seguintes); NOVA sem catálogo; impressão das tabelas de pedidos/fotografias igual; depois, **duas empresas com a mesma categoria SALGADOS**: leitura, escrita, composição, itens específicos, gatilhos, escolha no pedido, adicional do buffet e **cotação** (`calcularResumoComercial`) sem cruzar empresas |
 | PostgreSQL descartável | `lib/comercial/catalogo-ux.postgres.test.ts` (agora 063 + 070 + 078 na transação) | ciclo de vida do catálogo com empresa |
 | PostgreSQL descartável (sem 078) | `lib/saas/hg8-catalogo.postgres.test.ts` | comportamento anterior preservado (escrita recusada sem a 078) |
 | Ferramentas locais | seed, servidor, pós-conferência (`--catalogo`), concorrência, cluster | catálogo próprio por empresa na seed; impressão 80/204; cluster `kidmais_descartavel:55498` na lista fechada |
 
 Os testes PostgreSQL **ainda não rodaram** (exigem o cluster descartável — passo D abaixo). A suíte da 078 é a que comprova a
-ordem em banco real: com a ordem antiga ela falharia no `client.query(M078)` com violação de unicidade.
+ordem em banco real: com a ordem antiga ela falharia no `client.query(M078)` com violação de unicidade. Na tentativa de
+`ec61f02` a 1ª aplicação e o postcheck passaram; o restante da suíte **não foi comprovado** (cascata) e precisa ser repetido.
 
-**Validação local feita (código `b364ece`)**: testes sem banco 2262/2262 (inclui o teste da ordem); testes de `scripts/` em série 278/280 — as 2 falhas são as ferramentas manuais de banco que exigem `--festa-id` (inalteradas; mesmas de `ac55c4c`); smoke 103/103; produção 37/37 (078 pendente de autorização); planos offline `confere: true` (80 migrations, 204 arquivos); TypeScript e worker de PDF aprovados; ESLint 0 erros (1 aviso preexistente); `git diff --check` limpo. `next build` não foi repetido: a correção só altera SQL da 078, testes e constantes das ferramentas locais (último build aprovado em `ac55c4c`, 61 páginas). Nenhum banco foi usado; nenhuma variável de banco no ambiente.
+**Validação local feita (código `b73653b`, offline)**: testes sem banco 2264/2264 (inclui ordem da unicidade, ordem das guardas e proteção da suíte); testes de `scripts/` em série 278/280 — as 2 falhas são as ferramentas manuais de banco que exigem `--festa-id` (inalteradas desde `ac55c4c`); smoke 103/103; produção 37/37 (078 pendente de autorização); planos offline `confere: true` (80 migrations, 204 arquivos); TypeScript, worker de PDF aprovados; ESLint 0 erros (1 aviso preexistente); `git diff --check` limpo. Observação: o teste de `scripts/` que sobe `next dev` (pasta `.next-festa-dev`, git-ignorada) reescreve `tsconfig.json`; o `tsc` rodado em paralelo a ele falhou nos tipos gerados — restaurado com `git checkout -- tsconfig.json` e `tsc` repetido, aprovado. `next build` não foi repetido (só SQL da 078, testes e constantes das ferramentas locais; último build aprovado em `ac55c4c`, 61 páginas). Nenhum banco foi usado; `KIDMAIS_HOMOLOGACAO_DATABASE_URL`, presente no ambiente da sessão, foi removida do ambiente dos comandos (valor não lido).
 
 ## 4. Passos (cada um exige aprovação; PowerShell na raiz; só `127.0.0.1`)
 
-**Pré-condições (leitura):** `HEAD` = SHA aprovado; só `docs/` depois de `b364ece89d05a6d68aa60cb987e8f6fd1398801e`; árvore limpa; sem `.env*`, `DATABASE_URL`, `PG*`;
+**Pré-condições (leitura):** `HEAD` = SHA aprovado; `KIDMAIS_HOMOLOGACAO_DATABASE_URL` ausente do ambiente dos comandos (`env -u`/`Remove-Item Env:` só na sessão do agente); só `docs/` depois de `b73653b6ab5c713c7ff0ae04b342de61ee7451fa`; árvore limpa; sem `.env*`, `DATABASE_URL`, `PG*`;
 portas 55498, 55481 e 3481 livres; `node scripts/navegador-local-seed.cjs --plano` e `concorrencia-vagas-isolado.cjs --plano` com
 `confere: true`; testes offline das ferramentas.
 
@@ -72,7 +82,7 @@ portas 55498, 55481 e 3481 livres; `node scripts/navegador-local-seed.cjs --plan
 
 | Passo | Comando | Esperado |
 |---|---|---|
-| D1 | `$env:KIDMAIS_PG_BIN='C:/Program Files/PostgreSQL/18/bin'`; `node scripts/cluster-descartavel-postgres.cjs criar --cluster kidmais_descartavel --criar-autorizado`; `iniciar --pasta <pasta> --iniciar-autorizado`; `conferir --pasta <pasta>` | pasta `.local-descartavel-pg-<guid>`, `INICIADO`, `CONFERE`, bancos `[]` |
+| D1 | **cluster novo** (a pasta da tentativa de `ec61f02` fica preservada e parada; não reutilizar); `$env:KIDMAIS_PG_BIN='C:/Program Files/PostgreSQL/18/bin'`; `node scripts/cluster-descartavel-postgres.cjs criar --cluster kidmais_descartavel --criar-autorizado`; `iniciar --pasta <pasta> --iniciar-autorizado`; `conferir --pasta <pasta>` | pasta `.local-descartavel-pg-<guid>`, `INICIADO`, `CONFERE`, bancos `[]` |
 | D2 | `$env:KIDMAIS_POSTGRES_DESCARTAVEL='kidmais_pacotes_v1_descartavel'; $env:KIDMAIS_DESCARTAVEL_PORTA='55498'; $env:KIDMAIS_DESCARTAVEL_AUTORIZACAO='127.0.0.1:55498/kidmais_pacotes_v1_descartavel'; $env:KIDMAIS_POSTGRES_SOMENTE='lib/comercial/catalogo-buffet-078.postgres.test.ts,lib/comercial/catalogo-ux.postgres.test.ts,lib/saas/hg8-catalogo.postgres.test.ts,lib/comercial/adicionais-070.postgres.test.ts,lib/comercial/round4-remediacao.postgres.test.ts'; node scripts/regressao-v1-postgres.cjs` | todas as suítes PASS (a receita recria do zero os modelos 063 e atual; nenhuma suíte depende de outra) |
 | D3 | `parar --pasta <pasta> --parar-autorizado` | `PARADO`; pasta preservada |
 
