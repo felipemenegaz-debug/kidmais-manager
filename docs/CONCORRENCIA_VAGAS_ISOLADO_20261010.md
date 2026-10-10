@@ -1,7 +1,7 @@
 # Etapa 4 — concorrência e reservas em PostgreSQL isolado (pacote de 10/10/2026)
 
 
-> **Candidata fixada em 10/10/2026:** código `f9c8f5b69e591fa50bda084ba1b8d52de6714ba6`. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o apresentado no pedido de aprovação e é o único que pode ser usado (`git diff --name-only f9c8f5b69e591fa50bda084ba1b8d52de6714ba6 HEAD` deve listar só `docs/`). Qualquer outra diferença: parar.
+> **Candidata fixada em 10/10/2026:** código `6acdb60375d43f50a51d169bfad73bc358954b03`. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o apresentado no pedido de aprovação e é o único que pode ser usado (`git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD` deve listar só `docs/`). Qualquer outra diferença: parar.
 
 **Status: PRONTO PARA APROVAÇÃO, NÃO EXECUTADO.** Só um cluster PostgreSQL 18 **novo, local e descartável**, criado para esta execução por `scripts/cluster-descartavel-postgres.cjs`. Não toca o banco local real, staging, produção, Render, Asaas, GitHub ou e-mail. A [política](OPERACAO_AGENTES.md) exige autorização explícita de Felipe também para escrita em banco isolado: preparar este pacote não autoriza executá-lo. Cada passo C1–C6 abaixo é uma ação distinta; a aprovação deve dizer quais passos estão autorizados e se C6 remove a pasta ou a mantém.
 
@@ -13,18 +13,19 @@ Comprovar com conexões reais disputando as mesmas travas que as vagas de pessoa
 
 | Item | Valor |
 |---|---|
-| Commit candidato | código `f9c8f5b69e591fa50bda084ba1b8d52de6714ba6`; pacote no commit seguinte (só `docs/`), SHA no pedido de aprovação |
+| Commit candidato | código `6acdb60375d43f50a51d169bfad73bc358954b03`; pacote no commit seguinte (só `docs/`), SHA no pedido de aprovação |
 | Base atual | `0619755` (`claude/kidmais-manager-sales-site-9b9a2d`) |
 | Arquivos do pacote (novos) | `scripts/cluster-descartavel-postgres.cjs`, `scripts/cluster-descartavel-postgres.test.cjs`, `scripts/concorrencia-vagas-isolado.cjs`, `scripts/concorrencia-vagas-isolado.test.cjs` e este documento. Aplicação, migrations e scripts existentes não foram alterados |
-| Conferência dos arquivos | `git rev-parse f9c8f5b69e591fa50bda084ba1b8d52de6714ba6:scripts/concorrencia-vagas-isolado.cjs` (e idem para os outros) deve coincidir com o blob listado no pedido de aprovação |
-| Impressão do schema | `ba653a175bbb8cdd8be2279ad748412079f650489aca7e81e318476d0a280922`: 77 migrations do inventário aprovado (`scripts/production/check-migrations.mjs`, última `20261009_075_renovacao_fundador.sql`) + prechecks/postchecks, 195 arquivos, sha256 com CRLF normalizado. **Recalculada em 10/10/2026 nesta base: confere.** O executor recusa (`SCHEMA_DIVERGENTE_DO_PACOTE` / `INVENTARIO_MUDOU`) se ela mudar |
+| Conferência dos arquivos | `git rev-parse 6acdb60375d43f50a51d169bfad73bc358954b03:scripts/concorrencia-vagas-isolado.cjs` (e idem para os outros) deve coincidir com o blob listado no pedido de aprovação |
+| Impressão do schema | `8a9a97477eac3d046dbd891bfd601df6e8f301f469247ef1e5e0f13403e03cfb`: 79 migrations do inventário aprovado (`scripts/production/check-migrations.mjs`, última `20261010_077_regras_pagamento_empresa.sql`) + prechecks/postchecks, 201 arquivos, sha256 com CRLF normalizado. **Recalculada em 10/10/2026 após a entrada de 076/077 no inventário: confere.** A impressão anterior (`ba653a17…0922`, 77 migrations, 195 arquivos, até a 075) deixou de valer. O executor recusa (`SCHEMA_DIVERGENTE_DO_PACOTE` / `INVENTARIO_MUDOU`) se ela mudar |
 | Impressão do código sob teste | `6dcd75ff4934d223eebcb3f254c6bf0e54cbafda6816cddcc5336a8a90ec2a6d` (vagas, convites, ofertas, planos, 074a e a regra de prova Fundador). Informativa: `--plano` imprime o valor atual; divergência = parar e revisar |
 
-### Migrations fora do inventário
+### Migrations 076/077 no inventário (atualização de 10/10/2026)
 
-- `20261010_076_cpf_por_empresa.sql` (índice único em `clientes`) e `20261010_077_regras_pagamento_empresa.sql` (tabela nova `empresa_regras_pagamento`) já estão no repositório (commit `57d0e71`), mas **não** no inventário aprovado de `check-migrations.mjs`; elas seguem o fluxo próprio de staging (`scripts/migrations-076-077-staging.cjs`). O executor aplica só o inventário aprovado, portanto o banco descartável não as terá.
-- Nenhuma das duas toca as tabelas exercitadas aqui (`convites_acesso`, `memberships`, `usuarios_administrativos`, `empresa_assinaturas`, `assinatura_*`). A matriz continua válida sem elas.
-- **Se o inventário aprovado mudar** (076/077 ou qualquer outra entrar), o executor recusa antes de conectar. Será preciso atualizar `ULTIMA_MIGRATION` e `IMPRESSAO_SCHEMA` no executor, recalcular com `--plano`, revisar este pacote e pedir nova aprovação.
+- `20261010_076_cpf_por_empresa.sql` (índice único em `clientes`) e `20261010_077_regras_pagamento_empresa.sql` (tabela nova `empresa_regras_pagamento`) foram aplicadas em staging em 10/10/2026 ([evidência](evidencias/homologacao-planos-cotacao-staging-tentativa2-20261010.md), N3 PASS) e **agora fazem parte** do inventário aprovado de `check-migrations.mjs`, com o formato padrão (precheck → migration → postcheck). O executor aplica o inventário completo, portanto o banco descartável as terá. Em produção continuam `NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION`.
+- Nenhuma das duas toca as tabelas exercitadas aqui (`convites_acesso`, `memberships`, `usuarios_administrativos`, `empresa_assinaturas`, `assinatura_*`). A matriz continua válida com elas.
+- O executor fixa `ULTIMA_MIGRATION = 20261010_077_regras_pagamento_empresa.sql` e a `IMPRESSAO_SCHEMA` recalculada (`8a9a9747…3cfb`, 79 migrations / 201 arquivos), já na candidata acima.
+- **Se o inventário aprovado mudar de novo**, o executor recusa antes de conectar. Será preciso atualizar `ULTIMA_MIGRATION` e `IMPRESSAO_SCHEMA` no executor, recalcular com `--plano`, revisar este pacote e pedir nova aprovação.
 
 ## Alvo exato
 
@@ -66,7 +67,7 @@ Windows PowerShell, na raiz da worktree, num único processo. Cada passo só rod
 ### Pré-condições (somente leitura; parar se alguma falhar)
 
 ```powershell
-git diff --name-only f9c8f5b69e591fa50bda084ba1b8d52de6714ba6 HEAD          # só docs/ (HEAD = commit do pacote)
+git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD          # só docs/ (HEAD = commit do pacote)
 git diff --quiet HEAD -- lib database scripts/production scripts/homologacao-fundador-staging.cjs scripts/concorrencia-vagas-isolado.cjs scripts/cluster-descartavel-postgres.cjs; $LASTEXITCODE   # 0: código sob teste sem alteração local
 Get-ChildItem Env: | Where-Object { $_.Name -eq 'DATABASE_URL' -or $_.Name -like 'PG*' }   # vazio
 $env:KIDMAIS_PG_BIN = 'C:/Program Files/PostgreSQL/18/bin'
@@ -74,7 +75,7 @@ node scripts/cluster-descartavel-postgres.cjs plano --cluster kidmais_concorrenc
 node scripts/concorrencia-vagas-isolado.cjs --plano                                         # confere = true; impressões iguais às da tabela Candidata
 ```
 
-A worktree tem hoje alterações locais de outras frentes em `lib/assinatura/*`. Por isso o `git diff --quiet` é obrigatório: o executor carrega o código da árvore de trabalho, e a execução tem de testar exatamente `f9c8f5b69e591fa50bda084ba1b8d52de6714ba6`.
+O `git diff --quiet` continua obrigatório: o executor carrega o código da árvore de trabalho, que precisa ser exatamente o da candidata.
 
 ### Passos (cada um depende da aprovação)
 
@@ -125,7 +126,7 @@ Duração estimada: initdb + início < 1 min; schema ~1–2 min; grupos ~1–3 m
 
 ## Efeitos
 
-- **Criado:** a pasta `.local-concorrencia-pg-<guid>` e tudo dentro dela. Nela ficam o cluster, o banco `kidmais_concorrencia_vagas_20261010` com o schema completo (77 migrations), a fixture histórica da 046 e as fixtures sintéticas: 28 empresas `TESTE concorrência …` com códigos `cv-…`, e-mails `cv-…@example.invalid`, documentos sintéticos de 14 dígitos, hashes de senha falsos para Gestão, senha dos aceites só em memória e provedor de cobrança falso com IDs `sub_cv_…`/`pay_cv_…`.
+- **Criado:** a pasta `.local-concorrencia-pg-<guid>` e tudo dentro dela. Nela ficam o cluster, o banco `kidmais_concorrencia_vagas_20261010` com o schema completo (79 migrations, incluindo 076/077), a fixture histórica da 046 e as fixtures sintéticas: 28 empresas `TESTE concorrência …` com códigos `cv-…`, e-mails `cv-…@example.invalid`, documentos sintéticos de 14 dígitos, hashes de senha falsos para Gestão, senha dos aceites só em memória e provedor de cobrança falso com IDs `sub_cv_…`/`pay_cv_…`.
 - **Durante C2–C5:** um processo `postgres.exe` do usuário atual escutando em `127.0.0.1:55480` com `trust`. Qualquer processo local poderia conectar nessa janela. O risco é aceito porque a escuta é só loopback, a janela é curta e os dados são sintéticos. Não registra serviço do Windows nem altera firewall. Se o Windows exibir um aviso de firewall para `postgres.exe`, não liberar: loopback não precisa.
 - **Destruído pelo executor:** nada. Sem `DROP`, `DELETE`, `TRUNCATE` ou gatilho desligado. As transições recusadas são revertidas por `ROLLBACK`. A expiração de convite é simulada com `expira_em = criado_em + 1 ms`, aceita pela guarda 063 enquanto o convite está `PENDENTE`.
 - **Removido em C6:** só a pasta marcada.
@@ -155,7 +156,7 @@ Resultado aceito: `"resultado": "PASS"` com os 9 grupos em `resultado.json` e c�
 
 ## Critérios de parada
 
-- **S0 — pré-condição:** `git diff --name-only f9c8f5b69e591fa50bda084ba1b8d52de6714ba6 HEAD` com algo fora de `docs/`, alteração local no código sob teste, `DATABASE_URL`/`PG*` presente, binários ausentes ou ≠ 18, regra `.local-*/` ausente, impressão do schema ou do código divergente. Nada é criado.
+- **S0 — pré-condição:** `git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD` com algo fora de `docs/`, alteração local no código sob teste, `DATABASE_URL`/`PG*` presente, binários ausentes ou ≠ 18, regra `.local-*/` ausente, impressão do schema ou do código divergente. Nada é criado.
 - **S1 — cluster:** C1 ou C2 com falha (inclusive `PORTA_OCUPADA`), ou C3 diferente de `CONFERE` com `bancos: []`. Não seguir para C4.
 - **S2 — alvo do executor:** qualquer guarda anterior à conexão, identidade divergente, cluster com outro banco, servidor pedindo senha. Código 1; nada é escrito.
 - **S3 — matriz:** a primeira divergência interrompe os grupos seguintes. O resumo traz `falha.grupo`, código e mensagem sanitizada; código 2. O banco fica preservado para inspeção (C5 e opção A de C6), sem nova execução no mesmo cluster.
@@ -189,7 +190,6 @@ Nenhum ambiente remoto, segredo ou configuração é alterado, então não há r
 - HTTP, CSRF, sessão no navegador e rotas `app/api/**`: só serviços e banco.
 - Criação direta de usuário pela empresa (`lib/autenticacao/usuarios.ts`) e reativação de vínculo pelo painel (`lib/desenvolvedor/vinculos.ts`): também chamam `exigirVaga`, mas não são exercitadas aqui.
 - Prova real de cobrança removida no Asaas: aqui a evidência é sintética. A regra (`cancelamentoComprovado`) é a mesma da rodada Fundador, e o comportamento do Asaas é tratado na [sonda](SONDA_COBRANCA_REMOVIDA_ASAAS_20261010.md).
-- Schema com 076/077: fora do inventário aprovado (ver acima).
 - Carga alta (dezenas de conexões), failover, `pgbouncer`, latência de rede e o pool de produção. Não substitui a homologação em staging nem autoriza ligar planos.
 - Renovação e aviso de 30 dias (Etapa 5).
 

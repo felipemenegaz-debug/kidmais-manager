@@ -1,10 +1,10 @@
 # Navegador local com contas sintéticas — 10/10/2026
 
 
-> **Candidata fixada em 10/10/2026:** código `f9c8f5b69e591fa50bda084ba1b8d52de6714ba6`. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o apresentado no pedido de aprovação e é o único que pode ser usado (`git diff --name-only f9c8f5b69e591fa50bda084ba1b8d52de6714ba6 HEAD` deve listar só `docs/`). Qualquer outra diferença: parar.
+> **Candidata fixada em 10/10/2026:** código `6acdb60375d43f50a51d169bfad73bc358954b03`. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o apresentado no pedido de aprovação e é o único que pode ser usado (`git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD` deve listar só `docs/`). Qualquer outra diferença: parar.
 
 **Status: PRONTO PARA APROVAÇÃO, NÃO EXECUTADO.** Nenhum cluster, banco, servidor ou navegador foi iniciado na preparação.
-Candidata: `f9c8f5b69e591fa50bda084ba1b8d52de6714ba6` (preparado sobre `0619755`, branch `claude/kidmais-manager-sales-site-9b9a2d`).
+Candidata: `6acdb60375d43f50a51d169bfad73bc358954b03` (preparado sobre `0619755`, branch `claude/kidmais-manager-sales-site-9b9a2d`).
 
 ## 1. Objetivo e limite
 
@@ -93,8 +93,8 @@ busca de `process.env.X`, `env.X` e nomes entre aspas em `app/`, `lib/`, `compon
 
 ## 4. Fixtures sintéticas (seed)
 
-Schema: mesma receita de `scripts/assinatura-schema-completo.cjs` (inventário aprovado até a 075 com pré/pós-checks, fixture da 046),
-seguida de 076 e 077 com seus checks — 79 migrations, 201 arquivos, impressão fixada
+Schema: mesma receita de `scripts/assinatura-schema-completo.cjs` (inventário aprovado até a 077 com pré/pós-checks, fixture da 046;
+076/077 entraram no inventário em 10/10/2026, após a aplicação em staging) — 79 migrations, 201 arquivos, impressão fixada
 `8a9a97477eac3d046dbd891bfd601df6e8f301f469247ef1e5e0f13403e03cfb` (mudou → o seed recusa, revisar e aprovar de novo).
 
 | Código | Estado | Como é montado |
@@ -129,7 +129,7 @@ Credenciais: `.local-navegador/credenciais.json` (coberto pela regra `.local-*/`
 
 PowerShell, na raiz desta worktree. Nenhum passo usa rede além do indicado em §7.
 
-0. **Pré-condições (leitura):** `git diff --name-only f9c8f5b69e591fa50bda084ba1b8d52de6714ba6 HEAD` só com `docs/`; `git status` sem mudanças inesperadas; nenhum `.env*` na raiz;
+0. **Pré-condições (leitura):** `git diff --name-only 6acdb60375d43f50a51d169bfad73bc358954b03 HEAD` só com `docs/`; `git status` sem mudanças inesperadas; nenhum `.env*` na raiz;
    portas 55481 e 3481 livres; PostgreSQL 18 no PATH ou `KIDMAIS_PG_BIN`. Offline:
    `node --test scripts/navegador-local-seed.test.cjs scripts/navegador-local-servidor.test.cjs`,
    `node scripts/navegador-local-seed.cjs --plano` (`confere: true`), `node scripts/navegador-local-servidor.cjs --plano` (`resultado: OK`).
@@ -222,8 +222,8 @@ Registrar por item: PASS/FALHA, viewport, rota, e evidência sem dados sensívei
    autorização pelo `launch.json`, e iniciar pelo painel pularia a aprovação explícita do passo 3.
 4. O `renovacao-fundador.ts` está com alterações locais de outra frente; o seed usa só `primeiraRenovacaoRegular` e
    `mensagemRenovacao` (exportadas hoje). Revalidar com a candidata final.
-5. 076/077 são aplicadas depois do inventário aprovado (que termina na 075); se o inventário passar a incluí-las, o seed recusa
-   (`INVENTARIO_MUDOU`) até revisão.
+5. 076/077 agora vêm do próprio inventário aprovado (que termina na 077), na mesma ordem e com os mesmos checks de antes;
+   a impressão do schema não mudou. Se o inventário mudar de novo, o seed recusa (`INVENTARIO_MUDOU`) até revisão.
 
 ## 12. Validação da preparação (executada)
 
