@@ -19,6 +19,8 @@ import { calcularResumoComercial } from "./services/pricing.service.ts";
  * 078 no PostgreSQL DESCARTÁVEL (modelo 063 + 070 + 078 aplicadas aqui), com dados criados ANTES da 078:
  *  - o catálogo atual vira da Kidmais sem mudar nada (ids, códigos, nomes, composição dos pacotes dela);
  *  - outra empresa que já usava categorias/itens recebe cópia só do que usa e os vínculos dela passam para a cópia;
+ *  - as cópias mantêm os códigos (categorias e itens sem categoria, via pacote e via adicional): a unicidade passa a ser
+ *    por empresa ANTES das cópias;
  *  - empresa sem uso não recebe nada; pedido e escolha de buffet já gravados continuam idênticos;
  *  - depois: duas empresas com a MESMA categoria (SALGADOS) e itens diferentes — leitura, escrita, composição,
  *    adicional do buffet, escolha no pedido e cotação nunca cruzam empresas (serviço e gatilho do banco).
@@ -83,7 +85,9 @@ let coxinhaGlobal: string;
 let kibeGlobal: string;
 let brigadeiroGlobal: string;
 let soltoGlobal: string;
+let soltoAdicionalGlobal: string;
 let adicionalOutra: string;
+let adicionalSoltoOutra: string;
 let escolhaAntes: { categoria_id: string; item_id: string; item_nome_aplicado: string };
 const antes: Record<string, unknown> = {};
 
@@ -106,6 +110,8 @@ test("antes da 078: 070 aplicada; catálogo global da 022 em uso pela Kidmais e 
   kibeGlobal = await id(`SELECT id::text AS id FROM buffet_itens WHERE categoria_id = $1::uuid ORDER BY ordem_exibicao, nome OFFSET 1 LIMIT 1`, [salgadosGlobal]);
   brigadeiroGlobal = await id(`SELECT id::text AS id FROM buffet_itens WHERE categoria_id = $1::uuid ORDER BY ordem_exibicao, nome LIMIT 1`, [docesGlobal]);
   soltoGlobal = await id(`INSERT INTO buffet_itens (categoria_id, codigo, nome) VALUES (NULL, $1, 'Taxa de rolha 078') RETURNING id::text AS id`, [`ROLHA_078_${sufixo}`.toUpperCase()]);
+  // Segundo item sem categoria, usado por OUTRA só como origem de adicional (o código também é copiado).
+  soltoAdicionalGlobal = await id(`INSERT INTO buffet_itens (categoria_id, codigo, nome) VALUES (NULL, $1, 'Gelo 078') RETURNING id::text AS id`, [`GELO_078_${sufixo}`.toUpperCase()]);
 
   OUTRA = await empresa("Outra");
   NOVA = await empresa("Nova");
@@ -115,6 +121,8 @@ test("antes da 078: 070 aplicada; catálogo global da 022 em uso pela Kidmais e 
   await client.query(`INSERT INTO pacote_itens_especificos (pacote_id, item_id) VALUES ($1::uuid, $2::uuid)`, [pacoteOutra, soltoGlobal]);
   adicionalOutra = (await salvarAdicionalEmEtapas((t) => emTransacao(() => t(tx)), ctx(OUTRA),
     { origem: { tipo: "ITEM", id: brigadeiroGlobal }, nome: "Brigadeiro extra", categoria: "BUFFET", unidadeCobranca: "CENTO", ativo: true, preco: "90.00" })).id;
+  adicionalSoltoOutra = (await salvarAdicionalEmEtapas((t) => emTransacao(() => t(tx)), ctx(OUTRA),
+    { origem: { tipo: "ITEM", id: soltoAdicionalGlobal }, nome: "Gelo extra", categoria: "BUFFET", unidadeCobranca: "UNIDADE", ativo: true, preco: "15.00" })).id;
 
   // Pedido de OUTRA, já gravado, com escolha de buffet apontando para o catálogo global.
   const agenda = (await client.query<{ id: string }>("SELECT id::text AS id FROM configuracao_agenda WHERE ativo ORDER BY codigo LIMIT 1")).rows[0].id;
@@ -183,6 +191,38 @@ test("OUTRA: cópia só do que usava; vínculos (pacote, itens selecionados, ite
   const origem = (await client.query<{ empresa: string }>(`SELECT i.empresa_id::text AS empresa FROM adicionais a JOIN buffet_itens i ON i.id = a.origem_buffet_item_id WHERE a.id = $1::uuid`, [adicionalOutra])).rows[0];
   assert.equal(origem.empresa, OUTRA);
   assert.equal((await client.query(`SELECT 1 FROM buffet_categorias WHERE empresa_id = $1::uuid`, [NOVA])).rowCount, 0, "empresa sem uso não recebe o catálogo da Kidmais");
+});
+
+test("OUTRA: cópias com os MESMOS códigos do catálogo antigo (categorias e itens sem categoria), que a unicidade global recusaria", async () => {
+  // Categoria: o mesmo código existe agora na Kidmais e em OUTRA.
+  const porCodigo = (await client.query<{ codigo: string; empresas: string[] }>(
+    `SELECT codigo, array_agg(empresa_id::text ORDER BY empresa_id::text) AS empresas FROM buffet_categorias
+      WHERE codigo IN ('SALGADOS', 'DOCES') GROUP BY codigo ORDER BY codigo`)).rows;
+  const ambas = [kidmais, OUTRA].sort();
+  assert.deepEqual(porCodigo, [{ codigo: "DOCES", empresas: ambas }, { codigo: "SALGADOS", empresas: ambas }]);
+  // Itens das categorias copiadas: mesmo conjunto de códigos.
+  const codigosItens = async (cat: string) => (await client.query<{ codigo: string }>(`SELECT codigo FROM buffet_itens WHERE categoria_id = $1::uuid ORDER BY codigo`, [cat])).rows.map((r) => r.codigo);
+  const copiaDoces = (await client.query<{ id: string }>(`SELECT id::text AS id FROM buffet_categorias WHERE empresa_id = $1::uuid AND codigo = 'DOCES'`, [OUTRA])).rows[0].id;
+  assert.deepEqual(await codigosItens(copiaDoces), await codigosItens(docesGlobal));
+  // Itens SEM categoria: os dois (pacote e origem de adicional) com o código original, sem categoria, na Kidmais e em OUTRA.
+  for (const [original, viaAdicional] of [[soltoGlobal, null], [soltoAdicionalGlobal, adicionalSoltoOutra]] as const) {
+    const o = (await client.query<{ codigo: string; nome: string; empresa: string }>(
+      `SELECT codigo, nome, empresa_id::text AS empresa FROM buffet_itens WHERE id = $1::uuid`, [original])).rows[0];
+    assert.equal(o.empresa, kidmais, "original continua na Kidmais");
+    const copias = (await client.query<{ id: string; nome: string; categoria: string | null }>(
+      `SELECT id::text, nome, categoria_id::text AS categoria FROM buffet_itens WHERE empresa_id = $1::uuid AND codigo = $2`, [OUTRA, o.codigo])).rows;
+    assert.equal(copias.length, 1, o.codigo);
+    assert.deepEqual({ nome: copias[0].nome, categoria: copias[0].categoria }, { nome: o.nome, categoria: null });
+    assert.notEqual(copias[0].id, original);
+    if (viaAdicional) {
+      const a = (await client.query<{ origem: string }>(`SELECT origem_buffet_item_id::text AS origem FROM adicionais WHERE id = $1::uuid`, [viaAdicional])).rows[0];
+      assert.equal(a.origem, copias[0].id, "adicional passa para a cópia sem categoria");
+    }
+  }
+  // A unicidade continua valendo dentro da empresa (sem categoria) — agora por empresa.
+  const rolha = `ROLHA_078_${sufixo}`.toUpperCase();
+  await recusa(client.query(`INSERT INTO buffet_itens (empresa_id, categoria_id, codigo, nome) VALUES ($1::uuid, NULL, $2, 'Repetido')`, [OUTRA, rolha]), /buffet_itens_empresa_codigo_sem_categoria_uk|duplicate key|duplicada/);
+  await recusa(client.query(`INSERT INTO buffet_categorias (empresa_id, codigo, nome) VALUES ($1::uuid, 'SALGADOS', 'Repetida')`, [OUTRA]), /buffet_categorias_empresa_codigo_uk|duplicate key|duplicada/);
 });
 
 test("pedidos e fotografias: nenhuma linha alterada; a escolha antiga continua apontando para o item original", async () => {

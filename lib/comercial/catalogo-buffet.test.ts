@@ -40,6 +40,38 @@ test("o down 050 trava antes de checar e antes de apagar", () => {
   assert.equal(sql.includes("LOCK TABLE public.pacote_itens_especificos"), true);
 });
 
+test("078: a unicidade por empresa substitui a global ANTES das cópias, numa única transação", () => {
+  const sql = readFileSync("database/migrations/20261010_078_catalogo_buffet_por_empresa.sql", "utf8");
+  // Sem comentários e sem corpos $$…$$ (os BEGIN deles não são transação).
+  const comandos = sql.replace(/--[^\n]*/g, "").replace(/\$\$[\s\S]*?\$\$/g, "$$$$");
+  assert.deepEqual(comandos.match(/^\s*(BEGIN|COMMIT|ROLLBACK)\s*;/gim)?.map((x) => x.trim().toUpperCase()), ["BEGIN;", "COMMIT;"]);
+  const pos = (trecho: string) => {
+    const i = sql.indexOf(trecho);
+    assert.notEqual(i, -1, trecho);
+    return i;
+  };
+  const inicio = pos("BEGIN;");
+  const fim = pos("COMMIT;");
+  const copiaCategorias = pos("INSERT INTO buffet_categorias (id, empresa_id");
+  const copiaItens = pos("INSERT INTO buffet_itens (id, empresa_id");
+  const quedaGlobalCategoria = pos("DROP CONSTRAINT %I");
+  const quedaGlobalSemCategoria = pos("DROP INDEX buffet_itens_codigo_sem_categoria_uk;");
+  for (const antes of [
+    quedaGlobalCategoria,
+    pos("CREATE UNIQUE INDEX buffet_categorias_empresa_codigo_uk"),
+    pos("CREATE UNIQUE INDEX buffet_categorias_codigo_sem_empresa_uk"),
+    quedaGlobalSemCategoria,
+    pos("CREATE UNIQUE INDEX buffet_itens_empresa_codigo_sem_categoria_uk"),
+    pos("CREATE UNIQUE INDEX buffet_itens_codigo_sem_categoria_sem_empresa_uk"),
+  ]) {
+    assert.ok(inicio < antes && antes < copiaCategorias && antes < copiaItens && copiaItens < fim);
+  }
+  // O dono (UPDATE para a kidmais) vem antes da troca: os índices parciais por empresa já valem para o catálogo antigo.
+  assert.ok(pos("UPDATE buffet_itens SET empresa_id") < quedaGlobalCategoria);
+  // A regra antiga não volta depois das cópias.
+  assert.equal(sql.indexOf("buffet_itens_codigo_sem_categoria_uk", quedaGlobalSemCategoria + "DROP INDEX buffet_itens_codigo_sem_categoria_uk;".length), -1);
+});
+
 test("toda operação exige a empresa comprovada (UUID); sem ela, recusa antes de qualquer SQL", async () => {
   const { tx, consultas } = banco(A);
   for (const chamada of [

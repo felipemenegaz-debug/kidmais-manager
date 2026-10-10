@@ -44,7 +44,31 @@ ALTER TABLE buffet_itens ADD COLUMN empresa_id uuid REFERENCES empresas(id) ON D
 UPDATE buffet_categorias SET empresa_id = (SELECT id FROM empresas WHERE codigo = 'kidmais');
 UPDATE buffet_itens SET empresa_id = (SELECT id FROM empresas WHERE codigo = 'kidmais');
 
--- 2. Cópia só do que cada OUTRA empresa já usa (pacotes da empresa ou adicionais com origem no buffet).
+-- 2. Unicidade POR EMPRESA antes de qualquer cópia: as cópias repetem o código da categoria e o código dos itens sem
+--    categoria em outra empresa, o que a unicidade global (021: UNIQUE(codigo); 050: codigo WHERE categoria_id IS NULL)
+--    recusaria. Itens com categoria já são únicos por categoria (a cópia vai para a categoria copiada). Catálogo sem
+--    empresa mantém a regra antiga, isolado.
+DO $$
+DECLARE nome_restricao text;
+BEGIN
+  SELECT con.conname INTO nome_restricao
+    FROM pg_constraint con
+   WHERE con.conrelid = 'public.buffet_categorias'::regclass AND con.contype = 'u'
+     AND con.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.buffet_categorias'::regclass AND attname = 'codigo')]::smallint[];
+  IF nome_restricao IS NULL THEN
+    RAISE EXCEPTION '078: restrição única global de buffet_categorias.codigo não encontrada.';
+  END IF;
+  EXECUTE format('ALTER TABLE buffet_categorias DROP CONSTRAINT %I', nome_restricao);
+END $$;
+CREATE UNIQUE INDEX buffet_categorias_empresa_codigo_uk ON buffet_categorias (empresa_id, codigo) WHERE empresa_id IS NOT NULL;
+CREATE UNIQUE INDEX buffet_categorias_codigo_sem_empresa_uk ON buffet_categorias (codigo) WHERE empresa_id IS NULL;
+DROP INDEX buffet_itens_codigo_sem_categoria_uk;
+CREATE UNIQUE INDEX buffet_itens_empresa_codigo_sem_categoria_uk ON buffet_itens (empresa_id, codigo) WHERE categoria_id IS NULL AND empresa_id IS NOT NULL;
+CREATE UNIQUE INDEX buffet_itens_codigo_sem_categoria_sem_empresa_uk ON buffet_itens (codigo) WHERE categoria_id IS NULL AND empresa_id IS NULL;
+CREATE INDEX buffet_categorias_empresa_idx ON buffet_categorias (empresa_id, ordem_exibicao, nome) WHERE ativo;
+CREATE INDEX buffet_itens_empresa_idx ON buffet_itens (empresa_id, categoria_id) WHERE ativo;
+
+-- 3. Cópia só do que cada OUTRA empresa já usa (pacotes da empresa ou adicionais com origem no buffet).
 CREATE TEMP TABLE m078_categorias (empresa_id uuid NOT NULL, origem uuid NOT NULL, copia uuid NOT NULL DEFAULT gen_random_uuid(),
   PRIMARY KEY (empresa_id, origem)) ON COMMIT DROP;
 CREATE TEMP TABLE m078_itens (empresa_id uuid NOT NULL, origem uuid NOT NULL, copia uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -109,27 +133,6 @@ UPDATE adicionais a SET origem_buffet_categoria_id = m.copia
   FROM m078_categorias m WHERE m.empresa_id = a.empresa_id AND m.origem = a.origem_buffet_categoria_id;
 UPDATE adicionais a SET origem_buffet_item_id = m.copia
   FROM m078_itens m WHERE m.empresa_id = a.empresa_id AND m.origem = a.origem_buffet_item_id;
-
--- 3. Código único por empresa (catálogo sem empresa mantém a regra antiga, isolado).
-DO $$
-DECLARE nome_restricao text;
-BEGIN
-  SELECT con.conname INTO nome_restricao
-    FROM pg_constraint con
-   WHERE con.conrelid = 'public.buffet_categorias'::regclass AND con.contype = 'u'
-     AND con.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'public.buffet_categorias'::regclass AND attname = 'codigo')]::smallint[];
-  IF nome_restricao IS NULL THEN
-    RAISE EXCEPTION '078: restrição única global de buffet_categorias.codigo não encontrada.';
-  END IF;
-  EXECUTE format('ALTER TABLE buffet_categorias DROP CONSTRAINT %I', nome_restricao);
-END $$;
-CREATE UNIQUE INDEX buffet_categorias_empresa_codigo_uk ON buffet_categorias (empresa_id, codigo) WHERE empresa_id IS NOT NULL;
-CREATE UNIQUE INDEX buffet_categorias_codigo_sem_empresa_uk ON buffet_categorias (codigo) WHERE empresa_id IS NULL;
-DROP INDEX buffet_itens_codigo_sem_categoria_uk;
-CREATE UNIQUE INDEX buffet_itens_empresa_codigo_sem_categoria_uk ON buffet_itens (empresa_id, codigo) WHERE categoria_id IS NULL AND empresa_id IS NOT NULL;
-CREATE UNIQUE INDEX buffet_itens_codigo_sem_categoria_sem_empresa_uk ON buffet_itens (codigo) WHERE categoria_id IS NULL AND empresa_id IS NULL;
-CREATE INDEX buffet_categorias_empresa_idx ON buffet_categorias (empresa_id, ordem_exibicao, nome) WHERE ativo;
-CREATE INDEX buffet_itens_empresa_idx ON buffet_itens (empresa_id, categoria_id) WHERE ativo;
 
 -- 4. Integridade: empresa imutável; nenhum vínculo entre empresas distintas (mesma regra da 034: NULL só com NULL).
 CREATE FUNCTION kidmais_078_empresa_imutavel() RETURNS trigger LANGUAGE plpgsql AS $$
