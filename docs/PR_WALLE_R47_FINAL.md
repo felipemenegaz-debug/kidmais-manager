@@ -1,8 +1,9 @@
 # PR nova — texto final (não publicada)
 
 - **Base:** `staging`
-- **Head:** `codex/walle-r47-pr-final`
-- **SHA candidato:** registrado no relatório final de gates desta branch; `aeedb19` foi preservado como base.
+- **Head:** `whatsapp/walle-r47-pausa-limite-20261010` (a partir de `5b428a7`, que segue preservada)
+- **SHA candidato:** o SHA exato e os gates ficam no relatório de gates da correção (fora do diff: um documento não registra o
+  próprio SHA); `aeedb19` e `5b428a7` preservados.
 
 > Push permanece fora do escopo. Leia os bloqueadores do relatório final de gates.
 >
@@ -82,7 +83,9 @@ Inclui:
 - entrada vence em 15 min e vai à equipe sem resposta (`fila-validade`);
 - com a IA global desligada, a entrada nasce com a equipe e nada é respondido depois de religar, mesmo sem ciclo do worker;
 - a resposta manual é preservada;
-- PARAR e pausa continuam valendo (`protecoes-finais`).
+- PARAR e pausa continuam valendo (`protecoes-finais`);
+- **pedido de pausa reconhecido pelas regras vence o limite diário e todos os caminhos fixos** (correção P1, abaixo;
+  suíte `pausa-limite`).
 
 **Modo regras (`WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=regras`):** nenhum caminho chama o modelo (Wall-e, fase B, sem a 078), mesmo com orçamento válido (`protecoes-finais`, `porta-regras`, `composicao-ia`).
 
@@ -120,6 +123,28 @@ Inclui:
 
 
 
+## Correção P1 — pausa × limite diário (revisão da candidata final)
+
+**Causa confirmada** (reprodução na candidata `5b428a7`, PostgreSQL descartável, transporte simulado): o limite diário era
+verificado no worker antes do tratamento da pausa; esgotado, `encaminharSemModelo` enviava o texto fixo de encaminhamento
+sem gravar `contexto.semAutomatico`, e a recepção só marcava a pausa quando a mensagem não era automática. O mesmo valia
+para a fase B (Wall-e desligado: saía o texto de atendente) e para a falha do Wall-e (texto fixo). Em todos, "Devolver ao
+Wall-e" continuava permitido.
+
+**Correção** (reconhecimento determinístico existente, sem modelo):
+- recepção: pedido de pausa (opt-out ambíguo) nunca entra na fila automática; a conversa vai à equipe com o resumo de
+  pausa (o mesmo do resolvedor: PARAR_A_CONFIRMAR, com RECLAMACAO se houver irritação) e a marca persistente;
+- worker: barreira antes do limite e de qualquer caminho fixo, para entradas já enfileiradas.
+
+**Prova:** suíte `pausa-limite` (L1 limite esgotado + pausa; L2 silêncio; L3 fase B; L4 falha do Wall-e; L5 controle de
+mensagem comum; L6 controle de PARAR inequívoco; L7 pausa já enfileirada) **falha na `5b428a7`** e passa na correção; marca,
+recusa da retomada, mensagem posterior, reabertura e atendimento humano conferidos.
+
+**Diferenças intencionais:** pausas reconhecidas pelas regras não passam mais pelo Wall-e/modelo (136 das 3.750 mensagens
+dos corpora; o motivo do resumo é o mesmo nas 136); no resumo, turno, pacote e unidade ficam sem nome (data, convidados e
+tema vêm da memória); a marca tem origem `RECEPCAO`; `fila-validade` V3/D3 passam a esperar a captura na recepção. A
+equivalência com a r47 (simulação do resolvedor) continua 3.990/0, porque a mudança está na recepção e no worker.
+
 ## Atualização da entrega final
 
 A integração local incorporou `staging` em `138910a8cc80a1d43a68e84f6c6e166a4f790f09`, sem conflitos. O SHA exato e os gates desta entrega serão registrados em `.local-ux/final/RESUMO.md`, fora do diff, após congelar este documento. Os resultados acima pertencem à candidata anterior e não substituem os gates novos.
@@ -128,4 +153,5 @@ A integração local incorporou `staging` em `138910a8cc80a1d43a68e84f6c6e166a4f
 - D2/D3 bloqueiam o uso de dados pessoais reais tanto em staging quanto em produção. Até sua correção, homologação somente com contatos e arquivos de teste controlados, sem dados de clientes ou imagens de crianças.
 - D1/D4 bloqueiam o modo IA com dados reais. O modo regras impede chamadas ao provedor em todos os caminhos.
 - Bloqueio do S11 mantido; status da sessão Painel não foi verificado nesta tarefa.
+- Achado P1 (pausa × limite diário) corrigido nesta branch; demais achados LOW/INFO da revisão seguem registrados.
 - Sem push, merge remoto, deploy, migrations persistentes ou envio real.
