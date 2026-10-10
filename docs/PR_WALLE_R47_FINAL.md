@@ -1,22 +1,23 @@
 # PR nova — texto final (não publicada)
 
 - **Base:** `staging`
-- **Head:** `whatsapp/walle-r47-integra-cf1b9e7-20261010` (a partir de `1fed2e0`, que segue preservada, com o staging
-  `cf1b9e7` integrado)
+- **Head:** `whatsapp/walle-r47-renumera-20261010` (a partir de `c9213868`, que segue preservada; migrations do atendimento
+  renumeradas e staging `5a626ea` integrado)
 - **SHA candidato:** o SHA exato e os gates ficam no relatório de gates da correção (fora do diff: um documento não registra o
   próprio SHA); `aeedb19` e `5b428a7` preservados.
 
 > Push permanece fora do escopo. Leia os bloqueadores do relatório final de gates.
 >
-> **Bloqueio de numeração:** o staging remoto lido às 08:44Z de 10/10 (`57d0e71`, posterior ao `cf1b9e7` integrado) criou
-> `20261010_076_cpf_por_empresa` e `20261010_077_regras_pagamento_empresa`. As 076 e 077 desta PR colidem com elas: renumerar
-> as migrations do atendimento e integrar `57d0e71` antes de qualquer push.
+> **Numeração (10/10):** o staging criou `20261010_076_cpf_por_empresa` e `20261010_077_regras_pagamento_empresa`. As
+> migrations desta PR que colidiam foram renumeradas: **076 → 077a** (mensagens prontas) e **077 → 077b** (mídia das
+> prontas); a **078** (Wall-e) não colidia e foi mantida. Staging `5a626ea` integrado. Números livres não são reserva:
+> reconferir imediatamente antes do push.
 >
 > Staging `138910a` foi integrado localmente sem conflitos. Gates anteriores abaixo são históricos; os gates novos usam o SHA final.
 
 ## Título
 
-`feat(whatsapp): atendimento WhatsApp com Wall-e (r47) — migrations 060, 065, 076, 077 e 078 (esta PR não as aplica), canal desligado`
+`feat(whatsapp): atendimento WhatsApp com Wall-e (r47) — migrations 060, 065, 077a, 077b e 078 (esta PR não as aplica), canal desligado`
 
 ## Descrição
 
@@ -42,37 +43,61 @@ Inclui:
   - 84 arquivos: 31 idênticos, 51 evoluídos, 2 renomeados, 0 ausentes;
   - todos os 191 nomes de teste e os 17 códigos de erro presentes.
 - **Login:** o "mostrar senha" do login fica na versão que o staging já tem.
-- **Fase B (`1f938d2`, não publicada):** os 30 arquivos estão incluídos como 077, com todos os 127 nomes de teste.
+- **Fase B (`1f938d2`, não publicada):** os 30 arquivos estão incluídos como 077b (antes 077, originalmente 066), com todos
+  os 127 nomes de teste.
 
-### Migrations desta entrega: 060, 065, 076, 077 e 078
+### Migrations desta entrega: 060, 065, 077a, 077b e 078
 
 - **Esta entrega não aplica migrations.** Cada aplicação exige autorização explícita própria.
 - **Estado do banco de staging: não verificado.** Os arquivos na branch não dizem o que está aplicado no banco; nesta
   entrega não houve leitura do banco (nem E2a, nem leitura remota).
 - **O E2a antigo é histórico.** O E2a de 04/10 ("aplicar 060/064/065") não autoriza aplicação atual: a 064 da #80 virou a
-  076, o staging andou e a lista mudou. Só um E2a novo e datado, contra o commit final, define o que falta.
-- **Migrations a aplicar:** somente as desta entrega (060, 065, 076, 077 e 078) que esse E2a novo mostrar ausentes —
+  076 e depois a 077a, o staging andou e a lista mudou. Só um E2a novo e datado, contra o commit final, define o que falta.
+- **Migrations a aplicar:** somente as desta entrega (060, 065, 077a, 077b e 078) que esse E2a novo mostrar ausentes —
   nunca um intervalo ("060–078" incluiria migrations que não são desta PR).
 - **Números livres não são reserva.** 076–078 estavam livres na leitura de 05:20Z (`cf1b9e7`); às 08:44Z o staging
-  (`57d0e71`) já usava 076 e 077 para outras migrations. Os números desta PR precisam ser renumerados e reconferidos antes
-  do push e antes de aplicar.
+  (`57d0e71`) já usava 076 e 077. Não há mecanismo de reserva de números no repositório (só o inventário explícito de
+  `check-migrations.mjs` e comentários de coordenação); o primeiro a publicar no staging fica com o número. 077a/077b/078
+  estão livres na leitura de 09:03Z (`5a626ea`) — isso não os reserva: reconferir antes do push e antes de aplicar.
 
 | Migration | Conteúdo | Relação com a #80 / fase B |
 |---|---|---|
 | `20261001_060_whatsapp_atendimento` | conversas, mensagens, configuração, status, auditoria | idêntica à #80 |
 | `20261004_065_whatsapp_nome_perfil` | nome de perfil da conversa | igual à #80, exceto comentários |
-| `20261009_076_whatsapp_mensagens_prontas` | biblioteca de mensagens prontas e favoritas | era a 064 da #80; só o número mudou |
-| `20261009_077_whatsapp_prontas_midia` | foto e vídeo nas prontas e no envio | era a 066 da fase B; só o número mudou |
+| `20261009_077a_whatsapp_mensagens_prontas` | biblioteca de mensagens prontas e favoritas | era a 064 da #80 (depois 070, 073 e 076); só o número mudou |
+| `20261009_077b_whatsapp_prontas_midia` | foto e vídeo nas prontas e no envio | era a 066 da fase B (depois 071, 074 e 077); só o número mudou |
 | `20261009_078_wall_e_atendimento` | arquivos próprios e PDF, estados e finalidade das prontas, memória e passagem do Wall-e | nova |
 
-**Renumeração:** as migrations do atendimento passaram de 073–075 para 076–078 porque o staging ocupou 073, 074, 074a e 075.
+**Renumeração (correspondência):**
+
+| Conteúdo | origem (#80 / fase B / Wall-e) | 1ª renumeração | 07/10 | 09/10 | **10/10 (atual)** |
+|---|---|---|---|---|---|
+| mensagens prontas | 064 | 070 | 073 | 076 | **077a** |
+| mídia das prontas | 066 | 071 | 074 | 077 | **077b** |
+| Wall-e | 067 | 072 | 075 | 078 | **078** (mantida) |
+
+- Origem e 1ª renumeração conforme o histórico registrado em `check-migrations.mjs`; de 07/10 a 10/10 conforme o git
+  desta linhagem (073 → 076 → 077a; 074 → 077 → 077b; 075 → 078).
+
+- 09/10: o staging ocupou 073, 074, 074a e 075. 10/10: o staging ocupou 076 (`cpf_por_empresa`) e 077
+  (`regras_pagamento_empresa`).
+- A 078 não colidia e foi mantida: 077a/077b seguem o padrão de sufixo do projeto (006a, 055a–d, 074a) e deixam a 078
+  depois das duas de que ela depende, no inventário e na ordem de nome.
+- Flags de rollback: `kidmais.rollback_076_descartar_prontas` → `kidmais.rollback_077a_descartar_prontas`;
+  `kidmais.rollback_077_descartar_midias`/`_descartar_prontas_midia` → `kidmais.rollback_077b_*`; as da 078 não mudam.
+- Evidências históricas (relatórios e logs anteriores) mantêm os números da época; esta tabela é a correspondência.
 
 **Coexistência:**
 - nenhuma das cinco altera objeto ou dado do staging;
+- com a 076 (CPF por empresa) e a 077 (regras de pagamento) do staging, nas duas ordens: postchecks dos dois lados; cada
+  down do atendimento preserva objetos e dados sintéticos delas; os downs delas falham fechado com dados e, sem eles, não
+  tocam o atendimento (suíte `coexistencia-cpf-pagamento`);
+- o inventário do staging em `5a626ea` não registrava a própria 076/077 (8 testes de `production.test.mjs` falham nesse
+  SHA); esta PR as registra;
 - há 14 chaves estrangeiras das tabelas novas para `empresas`, `usuarios_administrativos` e `estabelecimentos`, sem cascata;
 - inventário em `scripts/production/check-migrations.mjs`.
 
-**Ordem de rollback:** 078 → 077 → 076 → 065 → 060. Os downs são destrutivos com dados e exigem `SET LOCAL kidmais.rollback_0xx_*`. Fora de ordem, eles recusam antes de alterar qualquer coisa.
+**Ordem de rollback:** 078 → 077b → 077a → 065 → 060. Os downs são destrutivos com dados e exigem `SET LOCAL kidmais.rollback_0xx_*`. Fora de ordem, eles recusam antes de alterar qualquer coisa.
 
 ### Provas (locais, cluster PostgreSQL descartável, sem rede)
 
@@ -123,7 +148,7 @@ Inclui:
 
 ### Pendências fora desta PR
 - Homologação em staging: deploy manual autorizado; E2a novo e datado; aplicação, com autorização própria, backup e
-  restauração comprovada, só das migrations desta entrega (060, 065, 076, 077, 078) que o E2a novo mostrar ausentes;
+  restauração comprovada, só das migrations desta entrega (060, 065, 077a, 077b, 078) que o E2a novo mostrar ausentes;
   roteiro U1–U10 e P1–P8 (H9a2: limite diário em silêncio).
 - Canal real bloqueado:
   - autenticação e Partner API da Gupshup (chamado #277630);
@@ -187,16 +212,17 @@ de pausa (não foi classificada): "Devolver ao Wall-e" continua possível nesse 
 **Limitação sem a migration 078 (B1):** sem a 078 não há onde gravar a marca nem o resumo (`contexto`/`passagem` vêm da
 078). Uma pausa vai para a equipe sem nada enviado, mas **não fica persistida**: "Devolver ao Wall-e" não é recusado e uma
 reabertura posterior pode voltar a ser automática. O limite diário em silêncio também não grava resumo sem a 078. Por isso
-o atendimento automático só deve ser ligado com a 078 aplicada (as cinco migrations desta entrega — 060, 065, 076, 077 e
+o atendimento automático só deve ser ligado com a 078 aplicada (as cinco migrations desta entrega — 060, 065, 077a, 077b e
 078 — entram juntas, na ordem, conforme o E2a novo).
 
 ## Atualização da entrega final
 
 A integração local incorporou `staging` em `138910a8cc80a1d43a68e84f6c6e166a4f790f09`, sem conflitos. O SHA exato e os gates desta entrega serão registrados em `.local-ux/final/RESUMO.md`, fora do diff, após congelar este documento. Os resultados acima pertencem à candidata anterior e não substituem os gates novos.
 
-- Migrations desta entrega: 060, 065, 076, 077 e 078. Esta entrega não aplica migrations; estado do banco de staging não
+- Migrations desta entrega: 060, 065, 077a, 077b e 078 (antes 076/077/078; ver a correspondência). Esta entrega não aplica migrations; estado do banco de staging não
   verificado; o E2a antigo é histórico e não autoriza aplicação atual.
-- Migrations 076–078: conferência de disponibilidade não constitui reserva entre sessões. Reserva ainda pendente.
+- Migrations 077a/077b/078: conferência de disponibilidade não constitui reserva entre sessões; não existe mecanismo de
+  reserva no repositório.
 - Textos do limite diário (revisão de `62497b1`): a tela de configuração, o roteiro de homologação (H9a2), a ativação em
   staging e o quadro de respostas iniciais agora dizem que o limite esgotado vai para a equipe em silêncio, sem mensagem
   fixa; comentários de `core.ts` e `worker.ts` alinhados.
@@ -210,7 +236,9 @@ A integração local incorporou `staging` em `138910a8cc80a1d43a68e84f6c6e166a4f
   conferidos AdminShell (permissão `financeiroCompleto` + ícone do Atendimento), navegação (Atendimento em Operação; o
   filtro de plano só esconde contas a pagar, fluxo e relatórios) e regras de arquitetura (composition roots do WhatsApp e
   barreira de plano convivem). O Atendimento não depende de plano nesta PR.
-- **Colisão de migrations:** o staging remoto avançou para `57d0e71` com 076 (`cpf_por_empresa`) e 077
-  (`regras_pagamento_empresa`). Antes do push: renumerar 076–078 do atendimento para números livres nessa leitura,
-  integrar `57d0e71`, repetir os gates. Números livres continuam não sendo reserva entre sessões.
+- **Colisão de migrations resolvida (10/10):** 076 → 077a e 077 → 077b; 078 mantida. Staging `5a626ea` (relido às
+  09:03Z) integrado sem conflito; a 076/077 do staging registradas no inventário; coexistência com CPF por empresa e
+  regras de pagamento provada (`coexistencia-cpf-pagamento`). O atendimento não usa CPF nem regras de pagamento: a busca
+  por contato (`buscarClientesPorContatoExato`) e o preço do Wall-e (`calcularResumoComercial`) não mudaram; desconto no
+  Pix continua sendo negociação, passada à equipe.
 - Sem push, merge remoto, deploy, migrations persistentes ou envio real.
