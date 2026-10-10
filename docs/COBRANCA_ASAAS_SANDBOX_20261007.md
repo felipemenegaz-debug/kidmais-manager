@@ -75,8 +75,16 @@ que o provedor diz no momento da reconsulta. Entrega repetida não grava segundo
    implementação não depende da ordem).
 4. Definir no serviço de staging (alteração de env = autorização explícita, pode disparar deploy): `ASAAS_AMBIENTE=sandbox`,
    `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN` e os preços. Aplicar 067 e 068 no banco de staging (autorização própria).
-5. Testar: Assinar → pagar a cobrança no sandbox (Pix simulado, ou `POST /v3/sandbox/payment/{id}/confirm` pelo painel
-   sandbox, ou cartão de teste `4444 4444 4444 4444`) → conferir `ATIVA` na tela e o evento `PROCESSADO`.
+5. Testar: Assinar → pagar a cobrança no sandbox → conferir `ATIVA` na tela e o evento `PROCESSADO`. Meios de teste
+   conforme a documentação oficial do Asaas (conferida em 08/10/2026):
+   - cartão **aprovado**: número fictício válido (a página "Testando pagamento com cartão de crédito" indica gerar um,
+     ex. gerador da 4Devs), validade futura, CCV `123`; cartões de **recusa**: Mastercard `5184019740373151`, Visa
+     `4916561358240741`. O número `4444 4444 4444 4444` citado antes **não aparece mais** na documentação;
+   - Pix/boleto: confirmação simulada `POST https://api-sandbox.asaas.com/v3/sandbox/payment/{id}/confirm` ("Apenas
+     Sandbox", não move dinheiro). Pagar um QR Code Pix de verdade no sandbox exige duas contas sandbox e chave Pix
+     cadastrada na conta de destino (sem chave → 404).
+   Webhook: Auth Token de 32–255 caracteres, sem espaços e **que não seja uma API Key** (botão "Gerar token" do painel);
+   chega no cabeçalho `asaas-access-token`; 15 falhas consecutivas pausam a fila; eventos guardados por 14 dias.
 
 ## Falhas e recuperação
 

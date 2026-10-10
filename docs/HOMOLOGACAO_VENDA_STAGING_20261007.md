@@ -149,7 +149,7 @@ O webhook é público (fora de `/api/admin`, sem trava de origem administrativa)
 | Pessoa B (Equipe, empresa 1) | `<caixa>+kmh-b@…` | por convite da Gestão |
 | Pessoa C (Gestão, empresa 2) | mesmo nome da A ("Ensaio KMH A") | prova nome não único e isolamento |
 | Empresa 1 / 2 | "ENSAIO KMH Buffet 1/2"; CNPJs sintéticos com dígitos válidos gerados no dia | **o CNPJ fica reservado para sempre** em staging (teste por CNPJ, 068); conferir antes que não existe |
-| Pagamento | cartão de teste do sandbox (doc oficial do Asaas; ex. `4444 4444 4444 4444`), Pix simulado ou "confirmar pagamento" no painel sandbox | nunca cartão real |
+| Pagamento | cartão fictício válido gerado para teste (aprovação) ou `5184019740373151` / `4916561358240741` (recusa), conforme a documentação oficial do Asaas em 08/10/2026; Pix/boleto pela confirmação simulada `POST /v3/sandbox/payment/{id}/confirm` | nunca cartão real |
 | Marcadores | prefixo `ENSAIO KMH` no nome; referência externa no Asaas = id da empresa | facilitam a limpeza |
 
 ## 6. Roteiro de cenários (staging, depois da autorização)
