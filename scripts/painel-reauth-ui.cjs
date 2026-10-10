@@ -41,6 +41,7 @@ async function principal() {
   fs.mkdirSync(relatorios, { recursive: true });
   const logfile = fs.openSync(path.join(relatorios, 'next.log'), 'a');
   const resultados = [];
+  const rastro = [];
   try {
     await receita.restaurar(admin, receita.TRABALHO[0], '063');
     client = await receita.conectar(porta, receita.TRABALHO[0]);
@@ -104,6 +105,16 @@ async function principal() {
     const contexto = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     contexto.setDefaultTimeout(60000);
     const page = await contexto.newPage();
+    // Rastro de rede (G16): ordem de pedidos, respostas e falhas das rotas de sessão e do Perfil, só método e caminho
+    // (sem consulta, corpo ou cabeçalho). Gravado em rastro-rede.json mesmo quando o roteiro falha.
+    const t0 = Date.now();
+    const rastrear = (evento) => (req) => {
+      const caminho = new URL(req.url()).pathname;
+      if (caminho.startsWith('/api/admin/autenticacao') || caminho.startsWith('/api/admin/configuracoes/perfil-empresa'))
+        rastro.push({ ms: Date.now() - t0, evento, metodo: req.method(), caminho, ...(evento === 'falhou' ? { erro: req.failure()?.errorText ?? null } : {}) });
+    };
+    page.on('request', rastrear('pedido')); page.on('requestfinished', rastrear('respondido')); page.on('requestfailed', rastrear('falhou'));
+    page.on('framenavigated', (f) => { if (f === page.mainFrame()) rastro.push({ ms: Date.now() - t0, evento: 'navegou', caminho: new URL(f.url()).pathname }); });
     // Nenhuma consulta de CEP sai da máquina durante o teste.
     await page.route('**/api/endereco/consultar-cep', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, erro: 'CEP indisponível no teste.' }) }));
     const sessaoAtual = () => contexto.request.get(`${base}/api/admin/autenticacao`).then(r => r.json());
@@ -273,6 +284,49 @@ async function principal() {
     resultados.push(`Troca depois da escrita: executada uma vez, tela descartada. Aviso: "${avisoDepois}"`);
     console.log('E2E_TROCA_DEPOIS_OK');
 
+    // 4b. G16 com a corrida FORÇADA: escrita concluída e troca antes da resposta, mais uma LEITURA concorrente (logo da
+    // empresa) cuja confirmação de sessão fica presa até depois da resposta da escrita e então falha. O aviso que fica
+    // tem de ser o da escrita, executada uma única vez. Ordem verificada pelo rastro de rede.
+    await abrirPerfilNaAlfa();
+    salvos = await contar('PERFIL_RASCUNHO_SALVO');
+    let logoRespondeu = false;
+    let confirmacaoDaLeitura = null;
+    let liberarEscrita;
+    const escritaLiberada = new Promise((r) => { liberarEscrita = r; });
+    const confirmacaoPresa = new Promise((r) => {
+      page.route('**/api/admin/autenticacao', async (route) => {
+        // Só a 1ª confirmação depois da resposta do logo (a da leitura); a da escrita ainda nem começou.
+        if (route.request().method() === 'GET' && logoRespondeu && !confirmacaoDaLeitura) { confirmacaoDaLeitura = route; r(); return; }
+        await route.continue();
+      });
+    });
+    const aoTerminarLogo = (req) => { if (req.method() === 'GET' && new URL(req.url()).pathname === '/api/admin/configuracoes/perfil-empresa/logo') logoRespondeu = true; };
+    page.on('requestfinished', aoTerminarLogo);
+    teste = await salvarComInterceptacao(async (route) => {
+      const resposta = await route.fetch();
+      await trocarPorFora(empresas.beta.id);
+      await escritaLiberada;
+      await route.fulfill({ response: resposta });
+    });
+    // Leitura concorrente real da página: o LogoEmpresa recarrega neste evento (adminFetch GET .../logo).
+    await page.evaluate(() => window.dispatchEvent(new Event('kidmais-logo-aplicada')));
+    await confirmacaoPresa;
+    liberarEscrita();
+    // A escrita guarda o aviso e inicia o descarte; só então a confirmação da leitura falha.
+    await page.waitForURL(`${base}/admin/dashboard`).catch(() => undefined);
+    await confirmacaoDaLeitura.abort('failed').catch(() => undefined);
+    await aviso().waitFor();
+    const avisoCorrida = (await aviso().innerText()).replace(/\s*×$/, '');
+    assert.match(avisoCorrida, /concluída antes da mudança/, 'o descarte da leitura não apaga o resultado da escrita');
+    assert.equal(teste.envios.length, 1, 'nenhuma repetição automática');
+    assert.equal(await contar('PERFIL_RASCUNHO_SALVO'), salvos + 1, 'executada exatamente uma vez');
+    assert.equal((await sessaoAtual()).data.contexto.empresaAtual.id, empresas.beta.id);
+    await teste.encerrar();
+    page.off('requestfinished', aoTerminarLogo);
+    await page.unroute('**/api/admin/autenticacao');
+    resultados.push(`G16, corrida forçada (leitura concorrente com confirmação falhando depois da escrita): executada uma vez; aviso "${avisoCorrida}"`);
+    console.log('E2E_G16_CORRIDA_OK');
+
     // 6–7. Troca de empresa seguida de FALHA na consulta de confirmação da sessão (contexto desconhecido).
     // Enquanto armada, toda leitura de /api/admin/autenticacao feita pela página falha (rede); desarma quando a página
     // é descartada para o dashboard. A troca é feita pela API do contexto (fora da página), sem passar pelas rotas.
@@ -359,6 +413,7 @@ async function principal() {
     fs.writeFileSync(path.join(relatorios, 'resultado.json'), JSON.stringify({ ok: true, emailReal: 'desativado', resultados }, null, 2));
     console.log(JSON.stringify({ ok: true, resultados }));
   } finally {
+    fs.writeFileSync(path.join(relatorios, 'rastro-rede.json'), JSON.stringify(rastro, null, 1));
     await browser?.close();
     if (servidor && servidor.exitCode === null) {
       servidor.kill();

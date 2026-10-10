@@ -25,12 +25,12 @@ export function contextoMudou(sessaoId: string, empresaId: string | null) {
     return contexto !== null && contexto !== chave(sessaoId, empresaId) && !aguardandoRenovacao(empresaId);
 }
 
-export function registrarContextoEmpresa(sessaoId: string, empresaId: string | null, aviso?: string) {
+export function registrarContextoEmpresa(sessaoId: string, empresaId: string | null, aviso?: string, origem: OrigemAviso = 'descarte') {
     const novo = chave(sessaoId, empresaId);
     if (contexto !== null && contexto !== novo) {
         if (aguardandoRenovacao(empresaId))
             return false;
-        reiniciarContextoEmpresa(aviso ?? 'A empresa ativa ou a sessão mudou. Os dados da tela anterior foram descartados.');
+        reiniciarContextoEmpresa(aviso ?? 'A empresa ativa ou a sessão mudou. Os dados da tela anterior foram descartados.', undefined, aviso ? origem : 'descarte');
         return false;
     }
     contexto = novo;
@@ -64,13 +64,33 @@ export function concluirRenovacaoDeSessao(renovacao: { anterior: string; atual: 
     return true;
 }
 
-export function guardarAvisoDeContexto(texto: string) {
-    try { sessionStorage.setItem(AVISO, texto.slice(0, 500)); } catch { /* sem armazenamento: o aviso se perde, os dados antigos não */ }
+/**
+ * Origem do aviso: RESULTADO de uma escrita (concluída, incerta, recusada, nada enviado) ou DESCARTE (leitura descartada,
+ * contexto trocado, outra aba). Nesta página, um descarte nunca apaga o resultado de uma escrita: se apagasse, a pessoa
+ * não saberia que a operação foi concluída e poderia repeti-la. Resultados de escritas diferentes se somam; entre
+ * descartes vale o primeiro (os seguintes costumam ser efeito da própria navegação, como pedidos abortados).
+ * SAÍDA (components/admin/sair.ts) mantém a regra própria: o aviso dela é o único que vale.
+ */
+export type OrigemAviso = 'escrita' | 'descarte' | 'saida';
+let avisoDaPagina: { texto: string; origem: OrigemAviso } | null = null;
+let destinoDaPagina: string | null = null;
+
+export function guardarAvisoDeContexto(texto: string, origem: OrigemAviso = 'descarte') {
+    let final = texto;
+    if (avisoDaPagina && origem !== 'saida') {
+        if (origem === 'descarte' || avisoDaPagina.texto.includes(texto))
+            return;
+        if (avisoDaPagina.origem === 'escrita')
+            final = `${avisoDaPagina.texto} ${texto}`;
+    }
+    avisoDaPagina = { texto: final.slice(0, 500), origem };
+    try { sessionStorage.setItem(AVISO, avisoDaPagina.texto); } catch { /* sem armazenamento: o aviso se perde, os dados antigos não */ }
 }
 
 /** Lê e remove o aviso deixado antes de uma navegação de descarte (mostrado pela próxima tela). */
 export function lerAvisoDeContexto() {
     try {
+        avisoDaPagina = null;
         const texto = sessionStorage.getItem(AVISO);
         if (texto) sessionStorage.removeItem(AVISO);
         return texto;
@@ -92,11 +112,13 @@ export function saidaDaSessaoEmAndamento() {
     return saidaDaSessao;
 }
 
-export function reiniciarContextoEmpresa(aviso?: string, destino?: string) {
+export function reiniciarContextoEmpresa(aviso?: string, destino?: string, origem: OrigemAviso = 'descarte') {
     if (saidaDaSessao) return;
-    if (aviso) guardarAvisoDeContexto(aviso);
+    if (aviso) guardarAvisoDeContexto(aviso, origem);
     // Navegação completa descarta o Router Cache, estados React, conversas/rascunhos e pedidos da página antiga.
     // Nenhum dado de negócio é guardado no sinal entre abas nem no aviso.
-    const alvo = destino ?? (window.location.pathname.startsWith('/desenvolvedor') ? '/desenvolvedor' : '/admin/dashboard');
+    // Um destino explícito (sessão encerrada → login) não é desfeito por um descarte posterior da mesma página.
+    if (destino) destinoDaPagina = destino;
+    const alvo = destinoDaPagina ?? (window.location.pathname.startsWith('/desenvolvedor') ? '/desenvolvedor' : '/admin/dashboard');
     window.location.replace(alvo);
 }
