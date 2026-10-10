@@ -110,6 +110,9 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/coexistencia-077b.postgres.test.ts": { descartavel: "063" },
   // Candidata: coexistência e rollback cruzado do atendimento (060/065/077a/077b/078) com 064/066/067/068/069/070 de staging.
   "lib/whatsapp/atendimento/coexistencia-staging.postgres.test.ts": { descartavel: "063" },
+  // Renumeração de 10/10: coexistência do atendimento com a 076 (CPF por empresa) e a 077 (regras de pagamento) do
+  // staging, nas duas ordens; os downs do atendimento preservam objetos e dados sintéticos delas.
+  "lib/whatsapp/atendimento/coexistencia-cpf-pagamento.postgres.test.ts": { descartavel: "063" },
   // Revisão final da integração r47: ordem dos rollbacks (H1/M1, recusa de dependentes com e sem dados), turno do resumo
   // pelo escopo da empresa/unidade (M2, precisa da 062) e validade da fila + automação global desligada (M3/M4).
   "lib/whatsapp/atendimento/rollback-ordem.postgres.test.ts": { descartavel: "063" },

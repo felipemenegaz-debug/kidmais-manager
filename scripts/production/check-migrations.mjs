@@ -89,6 +89,10 @@ const approvedFiles = [
   '20261009_077a_whatsapp_mensagens_prontas.sql',
   '20261009_077b_whatsapp_prontas_midia.sql',
   '20261009_078_wall_e_atendimento.sql',
+  // Staging (10/10): CPF e regras de pagamento por empresa, com precheck/postcheck externos (forma padrão). O inventário
+  // do staging em 5a626ea não as registrava; registradas na integração do atendimento.
+  '20261010_076_cpf_por_empresa.sql',
+  '20261010_077_regras_pagamento_empresa.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
@@ -115,7 +119,7 @@ const checkFiles = {
   '077b': ['20261009_077b_postcheck.sql'],
   '078': ['20261009_078_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '077a', '077b', '078'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '077a', '077b', '078'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -162,6 +166,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('072_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['076', '077']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('077A_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('077B_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('078_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
