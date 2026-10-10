@@ -112,8 +112,9 @@ let pool: pg.Pool;
 let independenteComPrazo: TransacaoIndependente;
 test.before(async () => {
     principal = await conectarDescartavel();
-    await q(readFileSync(M067, 'utf8'));
-    await q(readFileSync(M068, 'utf8'));
+    // Estado `atual` (até a 057): instala 067/068; estado `075`: já instaladas pela receita.
+    if ((await q("SELECT to_regclass('public.empresa_assinaturas') IS NULL AS ok")).rows[0].ok) await q(readFileSync(M067, 'utf8'));
+    if ((await q("SELECT to_regclass('public.cobranca_eventos') IS NULL AS ok")).rows[0].ok) await q(readFileSync(M068, 'utf8'));
     proxy = proxyTcp(portaDescartavel());
     const porta = await proxy.abrir();
     portaProxy = porta;
@@ -199,6 +200,21 @@ test('D1, abertura do SCRIPT pelo proxy (pg.Client real): SELECT current_databas
     assert.deepEqual([depois.r.situacao, depois.r.motivo, provedor.removerChamadas], ['PROCESSADO', 'CONCILIADA', 1]);
     assert.deepEqual(await auditorias(empresa), [['ASSINATURA_DUPLICADA_REMOVIDA', 'RESPOSTA_DO_PROVEDOR']]);
     assert.ok(await ate(async () => (await backendsDoScript()) === 0), 'conexões do marcador encerradas ao fim de cada transação');
+});
+
+test('TLS do marcador (pg.Client real): alvo remoto exige TLS verificado; servidor sem TLS → abertura falha, ADIADA, nenhum DELETE nem sessão aberta', async () => {
+    const { empresa, pend, provedor } = await cenario();
+    const script = createRequire(import.meta.url)('../../scripts/assinatura-reconciliar.cjs') as {
+        transacaoIndependenteDaExecucao: (aplicar: boolean, principal: unknown, abrir: unknown, comPrazo: unknown, prazoMs: number) => TransacaoIndependente;
+        abrirConexaoDoMarcador: (Client: unknown, alvo: unknown, adaptar: unknown, registrar?: unknown, env?: Record<string, string>) => Promise<unknown>;
+    };
+    // O mesmo servidor descartável (sem TLS), tratado como alvo NÃO local: a política padrão exige TLS com certificado verificado.
+    const alvo = { connectionString: `postgresql://kidmais_descartavel@127.0.0.1:${portaDescartavel()}/kidmais_pacotes_v1_descartavel`, local: false, database: 'kidmais_pacotes_v1_descartavel' };
+    const independente = script.transacaoIndependenteDaExecucao(true, null, (registrar: unknown) => script.abrirConexaoDoMarcador(pg.Client, alvo, conexaoDeClientePg, registrar, {}), transacaoComPrazo, PRAZO);
+    const { r } = await processar(pend, provedor, independente);
+    assert.deepEqual([r.situacao, r.motivo], ['FALHOU', 'ADIADA: MARCADOR_NAO_GRAVADO']);
+    assert.deepEqual([provedor.removerChamadas, await marcadores(empresa), await auditorias(empresa)], [0, [], []], 'sem TLS, nenhuma escrita e nenhum DELETE');
+    assert.ok(await ate(async () => (await backendsDoScript()) === 0), 'nenhuma sessão do marcador ficou aberta');
 });
 
 test('D2: resposta confirmada ao nosso DELETE grava "duplicata removida" uma vez; reprocessar não grava ausência por cima (sem auditoria duplicada)', async () => {

@@ -60,9 +60,9 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/assinatura.postgres.test.ts": { descartavel: "atual" },
   "lib/assinatura/cobranca-068.postgres.test.ts": { descartavel: "atual" },
   // E8: cobrança Asaas (sandbox) com provedor falso; aplica 067 + 068 dentro da suíte.
-  "lib/assinatura/cobranca-e8.postgres.test.ts": { descartavel: "atual" },
-  "lib/assinatura/contratacao-e8.postgres.test.ts": { descartavel: "atual" },
-  "lib/assinatura/transacao-com-prazo.postgres.test.ts": { descartavel: "atual" },
+  "lib/assinatura/cobranca-e8.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
+  "lib/assinatura/contratacao-e8.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
+  "lib/assinatura/transacao-com-prazo.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
   // Também depois da 061 e da 062: módulo Festa, formalização e agenda nativos (código novo em cada etapa).
   "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "063"] },
   "lib/ia-persistencia/migration-055.postgres.test.ts": { descartavel: "atual" },

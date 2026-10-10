@@ -32,6 +32,22 @@ export async function travarEmpresaComercial(tx: DbExecutor, empresaId: string) 
         await tx.query('SELECT id FROM empresas WHERE id = $1::uuid FOR UPDATE', [empresaId]);
 }
 
+/**
+ * Trava comercial da RECONCILIAÇÃO de duplicatas (#147). NÃO é equivalente a `travarEmpresaComercial`:
+ * `FOR NO KEY UPDATE` continua exclusivo contra `FOR UPDATE`, `FOR NO KEY UPDATE` e `FOR SHARE` sobre a mesma empresa
+ * (checkout e cancelamento via provarTenant/linhaDaEmpresa, sincronização, renovação, limites, convites e os gatilhos 074a
+ * de isenção, vaga Fundador e contratação), mas deixa passar `FOR KEY SHARE`, isto é, as verificações de FK de linhas
+ * que referenciam `empresas`. É o que o marcador de exclusão precisa: ele é gravado e confirmado em OUTRA conexão, numa
+ * linha de `cobranca_eventos` (FK para `empresas`), enquanto esta transação mantém a trava até depois do DELETE.
+ * Com `FOR UPDATE` aqui, esse INSERT esperava o lock_timeout e nenhuma exclusão acontecia.
+ * Só para quem não escreve em empresa_assinaturas nem nas tabelas 074a antes de gravar o marcador: esses gatilhos tomam
+ * `FOR UPDATE` na empresa e, a partir daí, o marcador volta a esperar.
+ */
+export async function travarEmpresaParaReconciliacao(tx: DbExecutor, empresaId: string) {
+    if (await schemaPlanosInstalado(tx))
+        await tx.query('SELECT id FROM empresas WHERE id = $1::uuid FOR NO KEY UPDATE', [empresaId]);
+}
+
 export async function exigirEmpresaCobravel(tx: DbExecutor, empresaId: string) {
     if (await empresaIsenta(tx, empresaId)) throw erroAcesso('EMPRESA_ISENTA', 'Esta empresa possui isenção permanente e não será cobrada.', 409);
 }

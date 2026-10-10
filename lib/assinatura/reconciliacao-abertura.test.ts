@@ -107,3 +107,23 @@ test('marcador: opt-in da rede privada só no cron e banco exatos; fora dele, re
     const { tx } = clienteFalso({ conectar: 'ok', tls: true }, REMOTO as never, { KIDMAIS_RECONCILIAR_TLS: 'render-interno-criptografado' });
     await assert.rejects(tx(trabalhoProibido), /KIDMAIS_RECONCILIAR_DATABASE_URL|TLS_REDE_PRIVADA_RECUSADA/);
 });
+
+test('LIMITAÇÃO PREEXISTENTE (documentada, não é prova de segurança): no cron exato, marcador e principal usam TLS SEM verificar certificado', async () => {
+    // A política `render-interno-criptografado` (base, opcoesConexao) cifra (TLS ≥ 1.2) mas NÃO verifica a cadeia nem o nome:
+    // o Render não fornece verify-full para o Postgres interno. A identidade do banco ali depende da rede privada, do alvo
+    // literal (host/porta/banco exatos), do serviço do cron e da conferência current_database() + pg_stat_ssl depois de
+    // conectar. O marcador herda exatamente isso; nada aqui torna o caminho mais forte que o da conexão principal.
+    const env = { RENDER: 'true', RENDER_SERVICE_ID: 'crn-db493i142hec73ahmoe0', KIDMAIS_DEPLOY_ENV: 'staging', ASAAS_AMBIENTE: 'sandbox',
+        KIDMAIS_RECONCILIAR_TLS: 'render-interno-criptografado',
+        KIDMAIS_RECONCILIAR_DATABASE_URL: 'postgresql://fixture@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91?sslmode=require',
+        KIDMAIS_RECONCILIAR_ALVO: 'kidmais_staging_1z91@dpg-daidko3m8hqs73ce4jt0-a:5432' };
+    const alvo = { connectionString: env.KIDMAIS_RECONCILIAR_DATABASE_URL, local: false, database: 'kidmais_staging_1z91', host: 'dpg-daidko3m8hqs73ce4jt0-a', port: 5432 };
+    const { tx, estado } = clienteFalso({ conectar: 'ok', tls: true }, alvo as never, env);
+    assert.equal(await tx(async () => 'ok'), 'ok');
+    assert.deepEqual(estado.opcoes[0].ssl, { rejectUnauthorized: false, minVersion: 'TLSv1.2' });
+    const { opcoesConexao } = req('../../scripts/assinatura-reconciliar.cjs') as { opcoesConexao: (a: unknown, e: unknown) => { ssl: unknown } };
+    assert.deepEqual(estado.opcoes[0].ssl, opcoesConexao(alvo, env).ssl, 'idêntico à conexão principal');
+    // Sessão sem TLS continua recusada também nesse caminho.
+    const semTls = clienteFalso({ conectar: 'ok', tls: false }, alvo as never, env);
+    await assert.rejects(semTls.tx(trabalhoProibido), /Alvo recusado/);
+});
