@@ -53,4 +53,3 @@ export async function gerarImagem(prompt: string, refs: Buffer[], enviar: typeof
   catch { throw new FalhaProvedorImagem('resposta_json_invalida'); }
   return { imagem: await normalizarImagem(extrairImagem(body)), uso: body.usage ?? {} };
 }
-
