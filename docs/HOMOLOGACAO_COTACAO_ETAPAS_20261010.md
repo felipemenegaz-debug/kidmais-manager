@@ -173,6 +173,10 @@ Rodar os testes de navegador **em série** (`node --test --test-concurrency=1 �
 
 Nenhuma variável de banco no ambiente durante a validação (0). A seed nova **não** foi executada contra banco: ela roda no passo E2, com aprovação.
 
+> **Execução de 10/10/2026:** E0–E6 concluídos, checklist PASS em desktop e celular, 3 envios, pós-conferência `CONFERE` —
+> ver [evidência](evidencias/homologacao-cotacao-etapas-20261010.md). O catálogo global do buffet e o cliente existente com OTP
+> foram registrados por Felipe como **pendências para produção** ([pacote consolidado](PACOTE_CONSOLIDADO_20261010.md)).
+
 ## 10. Riscos e decisões pendentes
 
 - **Catálogo do buffet é global** (`buffet_categorias`/`buffet_itens` sem `empresa_id`, por desenho da 050): o isolamento é por pacote
