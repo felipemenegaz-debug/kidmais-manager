@@ -1,7 +1,8 @@
 # PR nova — texto final (não publicada)
 
 - **Base:** `staging`
-- **Head:** `whatsapp/walle-r47-pausa-limite-20261010` (a partir de `5b428a7`, que segue preservada)
+- **Head:** `whatsapp/walle-r47-limite-silencio-20261010` (a partir de `e66f727`, que segue preservada, com o staging local
+  `6de4442` integrado)
 - **SHA candidato:** o SHA exato e os gates ficam no relatório de gates da correção (fora do diff: um documento não registra o
   próprio SHA); `aeedb19` e `5b428a7` preservados.
 
@@ -85,7 +86,9 @@ Inclui:
 - a resposta manual é preservada;
 - PARAR e pausa continuam valendo (`protecoes-finais`);
 - **pedido de pausa reconhecido pelas regras vence o limite diário e todos os caminhos fixos** (correção P1, abaixo;
-  suíte `pausa-limite`).
+  suíte `pausa-limite`);
+- **limite diário esgotado: equipe em silêncio**, sem modelo nem texto fixo, sem classificar o pedido (M1, abaixo; suíte
+  `limite-silencio`).
 
 **Modo regras (`WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=regras`):** nenhum caminho chama o modelo (Wall-e, fase B, sem a 078), mesmo com orçamento válido (`protecoes-finais`, `porta-regras`, `composicao-ia`).
 
@@ -145,6 +148,30 @@ dos corpora; o motivo do resumo é o mesmo nas 136); no resumo, turno, pacote e 
 tema vêm da memória); a marca tem origem `RECEPCAO`; `fila-validade` V3/D3 passam a esperar a captura na recepção. A
 equivalência com a r47 (simulação do resolvedor) continua 3.990/0, porque a mudança está na recepção e no worker.
 
+## M1 — limite diário esgotado em silêncio (revisão da correção P1)
+
+**Lacuna:** uma pausa que só o modelo reconhece (paráfrase fora das regras, como a do W22) chegava ao limite diário antes
+do Wall-e e recebia o texto fixo de encaminhamento, sem marca. **Correção:** com o limite esgotado, **qualquer** mensagem
+vai para a equipe em silêncio — sem modelo, sem Wall-e e sem o texto fixo. Nada é classificado: o resumo traz o motivo
+`LIMITE_DIARIO` (nunca uma pausa) e nenhuma marca de pausa é inventada; marcas e memória já gravadas ficam como estão.
+**Prova:** suíte `limite-silencio` (S1 limite + paráfrase do W22; S2 a mesma paráfrase sem limite, reconhecida pelo Wall-e;
+S3 pausa determinística; S4 mensagem comum com a memória preservada; S5 PARAR inequívoco; S6 marca existente com
+mensagem nova, encerramento, reabertura e resposta da equipe; S7 pausa já enfileirada) — **falha em `e66f727`** (S1: saiu
+o texto fixo) e passa na correção.
+
+**Diferença intencional:** mensagem comum com o limite esgotado não recebe mais o texto fixo de encaminhamento (antes
+recebia); os testes que esperavam o texto (unitário do worker, `migration-060` 8d, `pausa-limite` L5) foram ajustados e
+comentados. Uma paráfrase de pausa não reconhecida pelas regras, com o limite esgotado, fica com a equipe **sem** marca
+de pausa (não foi classificada): "Devolver ao Wall-e" continua possível nesse caso, e a equipe decide.
+
+**Rastreabilidade (B5):** toda marca `contexto.semAutomatico` registra a origem — `RECEPCAO`, `FILA` (barreira do worker),
+`WALLE` (silêncio do Wall-e), `ENTRADA_VENCIDA` ou `AUTOMACAO_DESLIGADA`.
+
+**Limitação sem a migration 078 (B1):** sem a 078 não há onde gravar a marca nem o resumo (`contexto`/`passagem` vêm da
+078). Uma pausa vai para a equipe sem nada enviado, mas **não fica persistida**: "Devolver ao Wall-e" não é recusado e uma
+reabertura posterior pode voltar a ser automática. O limite diário em silêncio também não grava resumo sem a 078. Por isso
+o atendimento automático só deve ser ligado com a 078 aplicada (as migrations 060–078 entram juntas).
+
 ## Atualização da entrega final
 
 A integração local incorporou `staging` em `138910a8cc80a1d43a68e84f6c6e166a4f790f09`, sem conflitos. O SHA exato e os gates desta entrega serão registrados em `.local-ux/final/RESUMO.md`, fora do diff, após congelar este documento. Os resultados acima pertencem à candidata anterior e não substituem os gates novos.
@@ -153,5 +180,8 @@ A integração local incorporou `staging` em `138910a8cc80a1d43a68e84f6c6e166a4f
 - D2/D3 bloqueiam o uso de dados pessoais reais tanto em staging quanto em produção. Até sua correção, homologação somente com contatos e arquivos de teste controlados, sem dados de clientes ou imagens de crianças.
 - D1/D4 bloqueiam o modo IA com dados reais. O modo regras impede chamadas ao provedor em todos os caminhos.
 - Bloqueio do S11 mantido; status da sessão Painel não foi verificado nesta tarefa.
-- Achado P1 (pausa × limite diário) corrigido nesta branch; demais achados LOW/INFO da revisão seguem registrados.
+- Achado P1 (pausa × limite diário) e M1 (limite em silêncio) corrigidos nesta branch; B2 (comentário da barreira), B3
+  (registro dos códigos de saída) e B5 (origem da marca) tratados; B1 documentado acima; demais achados LOW/INFO seguem
+  registrados.
+- Staging local `6de4442` integrado sem conflito (sem fetch); o remoto pode ter andado — reler antes do push.
 - Sem push, merge remoto, deploy, migrations persistentes ou envio real.
