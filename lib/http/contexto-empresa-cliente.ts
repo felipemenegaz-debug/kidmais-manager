@@ -73,7 +73,6 @@ export function concluirRenovacaoDeSessao(renovacao: { anterior: string; atual: 
  */
 export type OrigemAviso = 'escrita' | 'descarte' | 'saida';
 let avisoDaPagina: { texto: string; origem: OrigemAviso } | null = null;
-let destinoDaPagina: string | null = null;
 
 export function guardarAvisoDeContexto(texto: string, origem: OrigemAviso = 'descarte') {
     let final = texto;
@@ -117,8 +116,6 @@ export function reiniciarContextoEmpresa(aviso?: string, destino?: string, orige
     if (aviso) guardarAvisoDeContexto(aviso, origem);
     // Navegação completa descarta o Router Cache, estados React, conversas/rascunhos e pedidos da página antiga.
     // Nenhum dado de negócio é guardado no sinal entre abas nem no aviso.
-    // Um destino explícito (sessão encerrada → login) não é desfeito por um descarte posterior da mesma página.
-    if (destino) destinoDaPagina = destino;
-    const alvo = destinoDaPagina ?? (window.location.pathname.startsWith('/desenvolvedor') ? '/desenvolvedor' : '/admin/dashboard');
+    const alvo = destino ?? (window.location.pathname.startsWith('/desenvolvedor') ? '/desenvolvedor' : '/admin/dashboard');
     window.location.replace(alvo);
 }
