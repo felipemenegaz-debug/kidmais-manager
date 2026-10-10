@@ -134,8 +134,9 @@ test.before(async () => {
     process.env.ADMIN_AUTH_SECRET = 'segredo-sintetico-da-suite-e8-com-mais-de-32-caracteres';
     const servico = carregarModulo('lib/autenticacao/service.ts', { 'db/postgres': { db: () => client, withTransaction: async (w: (c: Client) => unknown) => w(client) } }, new Map()) as { consumirLimite: ConsumirLimite };
     consumirLimite = servico.consumirLimite;
-    await q(readFileSync(M067, 'utf8'));
-    await q(readFileSync(M068, 'utf8'));
+    // Estado `atual` (até a 057): instala 067/068; estado `075`: já instaladas pela receita.
+    if ((await q("SELECT to_regclass('public.empresa_assinaturas') IS NULL AS ok")).rows[0].ok) await q(readFileSync(M067, 'utf8'));
+    if ((await q("SELECT to_regclass('public.cobranca_eventos') IS NULL AS ok")).rows[0].ok) await q(readFileSync(M068, 'utf8'));
     hoje = (await q("SELECT to_char(clock_timestamp() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d")).rows[0].d;
     ids.usuario = (await q("INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Gestão E8', $2, 'REPRESENTANTE_AUTORIZADO', true) RETURNING id",
         [`e8${randomBytes(3).toString('hex')}@example.test`, `scrypt$v=1$N=131072$r=8$p=1$${'A'.repeat(22)}==$${'B'.repeat(86)}==`])).rows[0].id;

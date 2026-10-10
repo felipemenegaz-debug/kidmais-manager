@@ -28,7 +28,9 @@ import { precoDoCiclo, ConfiguracaoComercialInvalida, type Ciclo } from './confi
 import { AsaasFalhou, cicloDoProvedor, type AssinaturaProvedor, type ClienteAsaas } from './asaas.ts';
 import { cobrancaEmAberto } from './provedor-estado.ts';
 import { auditarCobranca, sincronizarEmpresa } from './sincronizacao.ts';
-import { concluirIntencao, encerrarPendencias, intencaoDoIdConfirmado, marcarIntencao, pendenciasAbertas, registrarIdConfirmado, registrarPendencia } from './reconciliacao-contratacao.ts';
+import { assinaturasComRemocaoIncerta, concluirIntencao, encerrarPendencias, intencaoDoIdConfirmado, marcarIntencao, pendenciasAbertas, persistirMarcadorPrevio, registrarIdConfirmado,
+    registrarPendencia, registrarResultadoRemocao, removerComResultado, type TransacaoIndependente } from './reconciliacao-contratacao.ts';
+import type { OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type DecisaoCompensacao } from './compensacao.ts';
 import { novosPlanosLigados, validarPedidoOferta, prepararOferta, exigirEmpresaCobravel, conferirCheckoutLegado, travarEmpresaComercial, type Oferta } from './ofertas.ts';
 
@@ -43,6 +45,11 @@ export type DepsCobranca = {
     env?: Record<string, string | undefined>;
     /** Transação comum (sem tenant): releitura do vínculo e registro de pendências. */
     withTransaction: <T>(trabalho: (tx: DbExecutor) => Promise<T>) => Promise<T>;
+    /**
+     * Transação INDEPENDENTE com prazo do lado da aplicação, para o marcador de exclusão e o resultado do DELETE da
+     * compensação. Ausente → a compensação não exclui (fail closed).
+     */
+    transacaoIndependente?: TransacaoIndependente;
     /** Executa a contratação com a trava exclusiva da empresa; ocupada → 409 CONTRATACAO_EM_ANDAMENTO. */
     travarContratacao: <T>(empresaId: string, trabalho: () => Promise<T>) => Promise<T>;
 };
@@ -185,8 +192,18 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
 
     // B. provedor, sem transação de tenant aberta
     const b = await noProvedor(async () => {
+        // Assinaturas com exclusão incerta (marcador aberto): nenhuma retomada abaixo as adota; com alguma, não há POST novo.
+        let marcadas: Set<string>;
+        try {
+            marcadas = await deps.withTransaction((tx) => assinaturasComRemocaoIncerta(tx, empresaId));
+        }
+        catch {
+            throw incerto();
+        }
         const anterior = a.linha.provedor_assinatura_id ? await provedor.obterAssinatura(a.linha.provedor_assinatura_id) : null;
         if (anterior && ativa(anterior)) {
+            if (marcadas.has(anterior.id))
+                throw incerto();
             const aberta = cobrancaEmAberto(await provedor.listarCobrancasDaAssinatura(anterior.id));
             return { assinatura: anterior, clienteId: a.linha.provedor_cliente_id ?? anterior.customer, aberta, criada: false, reaproveitada: true, encerrar: [] as string[] };
         }
@@ -205,8 +222,12 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         }
         // Retomada: assinatura ativa criada antes e não gravada (resposta perdida, COMMIT incerto) é reaproveitada.
         const retomada = unicaCandidata(await provedor.listarAssinaturasPorReferencia(empresaId), clienteId);
-        if (retomada.tipo === 'UNICA')
+        if (retomada.tipo === 'UNICA') {
+            // A única candidata com exclusão incerta não é adotada (a exclusão pode ter acontecido); também não cria outra.
+            if (marcadas.has(retomada.assinatura.id))
+                throw incerto();
             return { assinatura: retomada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, retomada.assinatura.id), criada: false, reaproveitada: true, encerrar: [] as string[] };
+        }
         if (retomada.tipo === 'AMBIGUA') {
             // Várias assinaturas (ou de outro cliente) para a empresa: não escolhe, não cria outra, não exclui.
             await registrarPendenciaSegura(deps, { empresaId, assinaturaId: null, motivo: 'ASSINATURAS_AMBIGUAS' });
@@ -223,7 +244,8 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             throw incerto();
         }
         for (const pend of abertas) {
-            if (!pend.assinatura_provedor_id)
+            // Só pendências de criação/vínculo (pendenciasAbertas já exclui marcadores); nunca uma assinatura marcada.
+            if (!pend.assinatura_provedor_id || marcadas.has(pend.assinatura_provedor_id))
                 continue;
             const conhecida = await provedor.obterAssinatura(pend.assinatura_provedor_id);
             if (conhecida && ativa(conhecida) && conhecida.externalReference === empresaId && (!conhecida.customer || conhecida.customer === clienteId)) {
@@ -233,7 +255,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
                 return { assinatura: conhecida, clienteId, aberta: await cobrancaAberta(provedor, conhecida.id), criada: false, reaproveitada: true, encerrar };
             }
         }
-        if (abertas.length)
+        if (abertas.length || marcadas.size)
             throw incerto();
         // Registro prévio: a intenção é gravada ANTES do POST. Se o processo cair ou a resposta se perder, ela continua
         // aberta e bloqueia novos POSTs. Sem conseguir gravá-la, não cria.
@@ -260,7 +282,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
             // Resposta perdida: o provedor pode ter criado. Nunca cria outra às cegas; procura pela referência.
             const achadas = await provedor.listarAssinaturasPorReferencia(empresaId).catch(() => null);
             const confirmada = achadas ? unicaCandidata(achadas, clienteId) : null;
-            if (confirmada?.tipo === 'UNICA') {
+            if (confirmada?.tipo === 'UNICA' && !marcadas.has(confirmada.assinatura.id)) {
                 const encerrar = await persistirIdConfirmado(deps, empresaId, confirmada.assinatura.id, intencao);
                 return { assinatura: confirmada.assinatura, clienteId, aberta: await cobrancaAberta(provedor, confirmada.assinatura.id), criada: true, reaproveitada: false, encerrar };
             }
@@ -317,7 +339,7 @@ async function contratar(sessao: SessaoAdmin, empresaSolicitada: string | null |
         });
     }
     catch (error) {
-        await resolverFalhaNoVinculo(error, empresaId, a.linha.provedor_assinatura_id, b, provedor, deps);
+        await resolverFalhaNoVinculo(error, empresaId, a.linha.provedor_assinatura_id, b, provedor, deps, { tipo: 'GESTAO', usuarioId: sessao.usuario_id, requestId: ctx.requestId });
     }
     return {
         ciclo: cicloDoProvedor(b.assinatura.cycle) ?? ciclo,
@@ -412,11 +434,12 @@ async function registrarPendenciaSegura(deps: DepsCobranca, input: Parameters<ty
  * relido por uma transação nova:
  *   - vinculada a ESTA assinatura → COMMIT confirmado: segue como sucesso (nada é desfeito);
  *   - esta foi criada agora e o banco mostra OUTRO vínculo → a decisão central (compensacao.ts) confere a assinatura
- *     vigente e os pagamentos; só com justificativa segura exclui (falha ao excluir → pendência COMPENSACAO_FALHOU);
+ *     vigente e os pagamentos; só com justificativa segura exclui, com registro prévio (compensarComMarcador);
  *     preservada → pendência com o motivo (vínculo que não mudou = COMMIT_INCERTO, ex.: recontratação após cancelamento);
  *   - qualquer outra dúvida (releitura falhou, nenhuma vinculada) → NADA é excluído; pendência e resposta "incerta".
  */
-async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculoAnterior: string | null, b: { assinatura: AssinaturaProvedor; criada: boolean; encerrar: string[] }, provedor: ClienteAsaas, deps: DepsCobranca) {
+async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculoAnterior: string | null, b: { assinatura: AssinaturaProvedor; criada: boolean; encerrar: string[] }, provedor: ClienteAsaas, deps: DepsCobranca,
+    origem: OrigemSincronizacao) {
     // Só o tipo do erro (sem mensagem, ids ou dados): permite investigar sem expor nada.
     console.warn('[cobrança] falha ao gravar o vínculo da assinatura', error instanceof Error ? ((error as { code?: string }).code ?? error.name) : typeof error);
     let vinculo: string | null | undefined;
@@ -439,13 +462,7 @@ async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculo
             decisao = null; // provedor indisponível para confirmar: preserva
         }
         if (decisao?.excluir) {
-            try {
-                await provedor.removerAssinatura(b.assinatura.id);
-                await encerrarSeguro(deps, empresaId, b.encerrar, 'COMPENSADA');
-            }
-            catch {
-                await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId: b.assinatura.id, motivo: 'COMPENSACAO_FALHOU' });
-            }
+            await compensarComMarcador(deps, provedor, empresaId, b, origem);
             throw error;
         }
         if (decisao?.motivo === 'VINCULO_NAO_MUDOU')
@@ -460,6 +477,47 @@ async function resolverFalhaNoVinculo(error: unknown, empresaId: string, vinculo
     if (error instanceof AcessoServiceError && vinculo === null)
         throw error;
     throw incerto();
+}
+
+/**
+ * Exclusão da duplicata na compensação imediata, com REGISTRO PRÉVIO: o marcador durável (kidmais:remocao:, o mesmo da
+ * reconciliação) é gravado ANTES do DELETE. Enquanto ele estiver aberto, a assinatura nunca é excluída de novo
+ * automaticamente; a reconciliação só relê pelo id (removida → exclusão auditada pela releitura; existe → revisão humana).
+ *   - marcador não gravado → NÃO exclui; pendência COMPENSACAO_FALHOU (nada executado: a reconciliação decide de novo);
+ *   - confirmada → marcador fecha (REMOCAO_CONFIRMADA) + ASSINATURA_DUPLICADA_REMOVIDA; as pendências da operação encerram;
+ *   - ausente (404) → marcador fecha (AUSENCIA_CONFIRMADA_NA_EXCLUSAO) + ação neutra ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO;
+ *     as pendências encerram como DUPLICATA_AUSENTE_NO_PROVEDOR (ausência comprovada, autoria não);
+ *   - recusa definitiva (4xx) → marcador fecha (REMOCAO_RECUSADA) e pendência COMPENSACAO_FALHOU;
+ *   - sem confirmação (resposta perdida, 5xx, resposta sem `deleted`) → marcador aberto (REMOCAO_SEM_CONFIRMACAO) +
+ *     ASSINATURA_REMOCAO_SEM_CONFIRMACAO; nada é registrado como sucesso.
+ * Processo interrompido entre o DELETE e a gravação do resultado, ou gravação do resultado falhando: o marcador continua
+ * aberto (REMOCAO_EM_CURSO) e vale a mesma regra — releitura, nunca outro DELETE.
+ */
+async function compensarComMarcador(deps: DepsCobranca, provedor: ClienteAsaas, empresaId: string, b: { assinatura: AssinaturaProvedor; encerrar: string[] }, origem: OrigemSincronizacao) {
+    const assinaturaId = b.assinatura.id;
+    // Registro prévio na transação independente com prazo (a mesma regra da reconciliação): sem marcador confirmado, não exclui.
+    const independente = deps.transacaoIndependente;
+    const marcador = await persistirMarcadorPrevio(independente, empresaId, assinaturaId);
+    if (!marcador) {
+        await substituirPorPendencia(deps, empresaId, b.encerrar, { empresaId, assinaturaId, motivo: 'COMPENSACAO_FALHOU' });
+        return;
+    }
+    const remocao = await removerComResultado(provedor, assinaturaId);
+    const gravado = await registrarResultadoRemocao(independente!, empresaId, marcador, remocao, origem, async (tx) => {
+        if (remocao.resultado === 'CONFIRMADA')
+            await encerrarPendencias(tx, empresaId, b.encerrar, 'COMPENSADA');
+        else if (remocao.resultado === 'AUSENTE')
+            // 404: a duplicata não existe mais; as pendências fecham sem atribuir a remoção a este pedido.
+            await encerrarPendencias(tx, empresaId, b.encerrar, 'DUPLICATA_AUSENTE_NO_PROVEDOR');
+        else {
+            if (remocao.resultado === 'RECUSADA')
+                await registrarPendencia(tx, { empresaId, assinaturaId, motivo: 'COMPENSACAO_FALHOU' });
+            await encerrarPendencias(tx, empresaId, b.encerrar, 'SUBSTITUIDA_POR_PENDENCIA');
+        }
+    });
+    // Não gravado: o marcador já confirmado (REMOCAO_EM_CURSO) continua aberto; a reconciliação relê; nada é excluído de novo.
+    if (!gravado)
+        console.error('[cobrança] resultado da exclusão não gravado (marcador continua aberto)', remocao.resultado);
 }
 
 export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada: string | null | undefined, raw: unknown, ctx: Contexto, deps: DepsCobranca) {

@@ -55,7 +55,7 @@ test('cabeçalhos, URL base fixa do sandbox e cliente criado com notificationDis
     assert.ok(!('email' in corpo) && !('mobilePhone' in corpo), 'nenhum contato é enviado ao provedor');
 });
 
-test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ciclo MONTHLY/YEARLY; 404 = removida', async () => {
+test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ciclo MONTHLY/YEARLY; GET 404 = inexistente; DELETE com deleted = removida (DELETE 404 em remocao-resultado.test.ts)', async () => {
     const { f, chamadas } = fetchFalso([
         json({ id: 'sub_000001', status: 'ACTIVE', deleted: false, cycle: 'YEARLY', customer: 'cus_000001', externalReference: 'e1' }),
         () => new Response('{"errors":[{"description":"nao encontrado"}]}', { status: 404 }),
@@ -67,7 +67,7 @@ test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ci
     assert.equal(s.id, 'sub_000001');
     assert.deepEqual(JSON.parse(String(chamadas[0].init.body)), { customer: 'cus_000001', billingType: 'UNDEFINED', value: 1234.56, nextDueDate: '2026-10-07', cycle: 'YEARLY', description: 'Kidmais', externalReference: 'e1' });
     assert.equal(await c.obterAssinatura('sub_000001'), null);
-    assert.deepEqual(await c.removerAssinatura('sub_000001'), { removida: true });
+    assert.deepEqual(await c.removerAssinatura('sub_000001'), { removida: true }, 'DELETE confirmado pela resposta (deleted), sem ausente');
     assert.equal(chamadas[2].init.method, 'DELETE');
     const pagamentos = await c.listarCobrancasDaAssinatura('sub_000001');
     assert.equal(chamadas[3].url, `${ASAAS_SANDBOX_URL}/subscriptions/sub_000001/payments?offset=0&limit=100`);

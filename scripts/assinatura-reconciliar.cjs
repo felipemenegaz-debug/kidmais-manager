@@ -95,6 +95,58 @@ function provedorDaExecucao(provedor, aplicar, relatorio) {
     };
 }
 
+/**
+ * Transação independente para o marcador de exclusão (COMMIT próprio, ANTES do DELETE).
+ * Aplicando: uma conexão NOVA por transação (`abrirMarcador`, mesmo alvo conferido), com prazo do lado da aplicação
+ * (`comPrazo`, lib/db/transacao-com-prazo.ts): vencido → a conexão é destruída e o resultado é desconhecido; a próxima
+ * transação abre outra conexão. Simulação: SAVEPOINT da transação principal, que é desfeita no fim (nada persiste; a
+ * simulação nunca chama o DELETE de verdade), sem prazo próprio (vale o statement_timeout da sessão).
+ */
+function transacaoIndependenteDaExecucao(aplicar, principal, abrirMarcador, comPrazo, prazoMs) {
+    if (!aplicar)
+        return async (trabalho) => {
+            await principal.query('SAVEPOINT kidmais_simulacao_marcador');
+            try {
+                const r = await trabalho(principal);
+                await principal.query('RELEASE SAVEPOINT kidmais_simulacao_marcador');
+                return r;
+            }
+            catch (error) {
+                await principal.query('ROLLBACK TO SAVEPOINT kidmais_simulacao_marcador');
+                throw error;
+            }
+        };
+    if (typeof abrirMarcador !== 'function' || typeof comPrazo !== 'function' || !(prazoMs > 0))
+        throw new Error('Aplicar exige a conexão do marcador de exclusão com prazo.');
+    return comPrazo(abrirMarcador, prazoMs);
+}
+
+/**
+ * Conexão nova para UMA transação do marcador: confere o alvo antes de qualquer escrita; liberar/descartar a encerram
+ * (descartar destrói o soquete). O adaptador é REGISTRADO no prazo antes de conectar e de conferir o banco: se a conexão
+ * ou o `SELECT current_database()` nunca responderem, o prazo destrói o soquete (não fica conexão aberta para trás).
+ */
+async function abrirConexaoDoMarcador(Client, alvo, conexaoDeClientePg, registrar = () => undefined, env = {}) {
+    const c = new Client({
+        ...opcoesConexao(alvo, env),
+        connectionTimeoutMillis: 10_000, application_name: 'kidmais-assinatura-reconciliar-marcador',
+    });
+    c.on('error', () => undefined);
+    const conexao = conexaoDeClientePg(c, { liberar: () => { c.end().catch(() => undefined); }, descartar: () => { c.end().catch(() => undefined); } });
+    registrar(conexao);
+    try {
+        await c.connect();
+        const id = (await c.query('SELECT current_database() AS db, (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls')).rows[0];
+        if (id.db !== alvo.database || (!alvo.local && id.tls !== true))
+            throw new Error('Alvo recusado: o banco conectado não é o confirmado.');
+    }
+    catch (error) {
+        conexao.descartar(error);
+        throw error;
+    }
+    return conexao;
+}
+
 function argumentos(argv) {
     const extras = argv.filter((a) => a !== '--aplicar');
     if (extras.length)
@@ -102,8 +154,11 @@ function argumentos(argv) {
     return { aplicar: argv.includes('--aplicar') };
 }
 
-/** Ciclo compartilhado pelo CLI e pela homologacao, com transacao por item. */
-async function executarCiclo({ client, provedor, aplicar, banco, sinc }) {
+/**
+ * Ciclo compartilhado pelo CLI e pela homologacao, com transacao por item. `transacaoIndependente`: marcador de exclusão
+ * (conexão própria com prazo ao aplicar; SAVEPOINT na simulação). Sem ela, nenhuma exclusão no provedor acontece.
+ */
+async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacaoIndependente }) {
     const modo = aplicar ? 'APLICAR' : 'SIMULACAO';
     const item = async (trabalho) => {
         await client.query('BEGIN');
@@ -121,7 +176,7 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc }) {
     const provedorUsado = provedorDaExecucao(provedor, aplicar, relatorio);
     const conta = (grupo, chave) => { grupo[chave] = (grupo[chave] ?? 0) + 1; };
     for (const eventoId of await sinc.eventosPendentes(client, 500)) {
-        const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado }));
+        const r = await item(() => sinc.processarEvento(client, eventoId, { provedor: provedorUsado, transacaoIndependente }));
         conta(relatorio.eventos, r.erro ? `ERRO_${r.erro}` : r.situacao);
     }
     for (const empresaId of await sinc.empresasComProvedor(client)) {
@@ -151,6 +206,10 @@ async function main() {
     });
     client.on('error', () => undefined);
     await client.connect();
+    // Aplicando: o marcador de exclusão usa uma conexão nova por transação, com prazo do lado da aplicação.
+    const { transacaoComPrazo, conexaoDeClientePg } = await import('../lib/db/transacao-com-prazo.ts');
+    const { PRAZO_TRANSACAO_INDEPENDENTE_MS } = await import('../lib/assinatura/reconciliacao-contratacao.ts');
+    const abrirMarcador = (registrar) => abrirConexaoDoMarcador(Client, alvo, conexaoDeClientePg, registrar, process.env);
     try {
         const id = (await client.query('SELECT current_database() AS db, (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls')).rows[0];
         if (id.db !== alvo.database || (!alvo.local && id.tls !== true))
@@ -159,7 +218,8 @@ async function main() {
         await client.query("SET lock_timeout = '5s'");
         if (!(await client.query("SELECT to_regclass('public.cobranca_eventos') IS NOT NULL AS ok")).rows[0].ok)
             throw new Error('Banco sem a 068 (cobranca_eventos): nada a reconciliar.');
-        const relatorio = await executarCiclo({ client, provedor, aplicar, banco: alvo.database, sinc });
+        const transacaoIndependente = transacaoIndependenteDaExecucao(aplicar, client, abrirMarcador, transacaoComPrazo, PRAZO_TRANSACAO_INDEPENDENTE_MS);
+        const relatorio = await executarCiclo({ client, provedor, aplicar, banco: alvo.database, sinc, transacaoIndependente });
         if (relatorio.incompleto) process.exitCode = 2;
         console.log(JSON.stringify(relatorio, null, 2));
         if (!aplicar)
@@ -177,4 +237,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, BANCOS_PROIBIDOS };
+module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador, BANCOS_PROIBIDOS };
