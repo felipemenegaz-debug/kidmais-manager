@@ -75,8 +75,15 @@ export class AsaasFalhou extends Error {
 }
 
 export type ClienteProvedor = { id: string; externalReference: string | null };
-export type AssinaturaProvedor = { id: string; status: string; deleted: boolean; cycle: string | null; customer: string | null; externalReference: string | null };
-export type CobrancaProvedor = { id: string; status: string; dueDate: string; paymentDate: string | null; invoiceUrl: string | null; deleted: boolean };
+export type AssinaturaProvedor = { id: string; status: string; deleted: boolean; cycle: string | null; customer: string | null; externalReference: string | null; valorCentavos?: number | null; nextDueDate?: string | null };
+export type CobrancaProvedor = { id: string; status: string; dueDate: string; paymentDate: string | null; invoiceUrl: string | null; deleted: boolean; valorCentavos?: number | null; assinaturaId?: string | null; clienteId?: string | null; billingType?: string | null };
+
+export type ProvedorRenovacao = Pick<ClienteAsaas, 'obterAssinatura' | 'listarCobrancasDaAssinatura'> & {
+    obterCobranca(id: string): Promise<CobrancaProvedor | null>;
+    atualizarValorAssinatura(id: string, valorCentavos: number): Promise<AssinaturaProvedor>;
+    atualizarValorCobranca(cobranca: CobrancaProvedor, valorCentavos: number): Promise<CobrancaProvedor>;
+    suspenderGeracao(id: string): Promise<AssinaturaProvedor>;
+};
 
 export type ClienteAsaas = {
     buscarClientePorReferencia(referencia: string): Promise<ClienteProvedor | null>;
@@ -101,7 +108,14 @@ function assinatura(o: Record<string, unknown>, operacao: string): AssinaturaPro
     return {
         id: idValido(o.id, operacao), status: texto(o.status, 40) ?? 'DESCONHECIDO', deleted: o.deleted === true,
         cycle: texto(o.cycle, 40), customer: texto(o.customer, 100), externalReference: texto(o.externalReference),
+        ...(o.value !== undefined ? { valorCentavos: valorDoProvedor(o.value) } : {}),
+        ...(o.nextDueDate !== undefined ? { nextDueDate: texto(o.nextDueDate, 10) } : {}),
     };
+}
+export function valorDoProvedor(valor: unknown): number | null {
+    if (typeof valor !== 'number' || !Number.isFinite(valor) || valor <= 0) return null;
+    const centavos = Math.round(valor * 100);
+    return Number.isSafeInteger(centavos) && Math.abs(valor * 100 - centavos) < 0.000001 ? centavos : null;
 }
 function cobranca(o: Record<string, unknown>, operacao: string): CobrancaProvedor {
     const dueDate = texto(o.dueDate, 10);
@@ -111,6 +125,10 @@ function cobranca(o: Record<string, unknown>, operacao: string): CobrancaProvedo
     return {
         id: idValido(o.id, operacao), status: texto(o.status, 40) ?? 'DESCONHECIDO', dueDate,
         paymentDate: texto(o.paymentDate, 10), invoiceUrl: invoiceUrl && urlDeFaturaValida(invoiceUrl) ? invoiceUrl : null, deleted: o.deleted === true,
+        ...(o.value !== undefined ? { valorCentavos: valorDoProvedor(o.value) } : {}),
+        ...(o.subscription !== undefined ? { assinaturaId: texto(o.subscription, 100) } : {}),
+        ...(o.customer !== undefined ? { clienteId: texto(o.customer, 100) } : {}),
+        ...(o.billingType !== undefined ? { billingType: texto(o.billingType, 40) } : {}),
     };
 }
 
@@ -130,13 +148,13 @@ export function cicloDoProvedor(cycle: string | null): Ciclo | null {
     return cycle === 'MONTHLY' ? 'MENSAL' : cycle === 'YEARLY' ? 'ANUAL' : null;
 }
 
-export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesCliente = {}): ClienteAsaas {
+export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesCliente = {}): ClienteAsaas & ProvedorRenovacao {
     if (config.ambiente !== 'sandbox' || config.baseUrl !== ASAAS_SANDBOX_URL || !config.apiKey.startsWith(PREFIXO_CHAVE_SANDBOX))
         throw new Error('Cliente Asaas recusado: somente sandbox nesta versão.');
     const executar = opcoes.fetch ?? ((url, init) => fetch(url, init));
     const tempo = opcoes.tempoLimiteMs ?? TEMPO_LIMITE_MS;
 
-    async function chamar(operacao: string, metodo: 'GET' | 'POST' | 'DELETE', caminho: string, corpo?: unknown, aceitar404 = false): Promise<Record<string, unknown> | null> {
+    async function chamar(operacao: string, metodo: 'GET' | 'POST' | 'PUT' | 'DELETE', caminho: string, corpo?: unknown, aceitar404 = false): Promise<Record<string, unknown> | null> {
         const controle = new AbortController();
         const timer = setTimeout(() => controle.abort(), tempo);
         let res: Response;
@@ -184,13 +202,37 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
             if (r?.hasMore !== true)
                 return itens;
         }
-        // Ainda há páginas além do limite: lista parcial não prova ausência (retomada, liberação). Falha fechada.
+        // Ainda há páginas além do limite: uma lista parcial pode ocultar pagamento já realizado, assinatura vigente
+        // ou cobrança a corrigir, e nunca prova ausência (retomada, liberação, renovação). Falha fechada.
         throw new AsaasFalhou(operacao, null, 'LISTA_INCOMPLETA');
     }
     const ref = (v: string) => encodeURIComponent(v);
     const idPath = (v: string, operacao: string) => encodeURIComponent(idValido(v, operacao));
 
     return {
+        async obterCobranca(id) {
+            const r = await chamar('consultar cobrança', 'GET', `/payments/${idPath(id, 'consultar cobrança')}`, undefined, true);
+            return r ? cobranca(r, 'consultar cobrança') : null;
+        },
+        // Só próximas parcelas; nunca reprifica mensalidades antigas ainda pendentes.
+        async atualizarValorAssinatura(id, valorCentavos) {
+            if (!Number.isSafeInteger(valorCentavos) || valorCentavos <= 0) throw new Error('Valor inválido.');
+            const r = await chamar('atualizar valor assinatura', 'PUT', `/subscriptions/${idPath(id, 'atualizar assinatura')}`,
+                { value: valorCentavos / 100, updatePendingPayments: false });
+            return assinatura(r ?? {}, 'atualizar assinatura');
+        },
+        async atualizarValorCobranca(p, valorCentavos) {
+            if (!Number.isSafeInteger(valorCentavos) || valorCentavos <= 0 || !DATA.test(p.dueDate)
+                || !['UNDEFINED','BOLETO','PIX','CREDIT_CARD'].includes(p.billingType ?? '') || !['PENDING','OVERDUE'].includes(p.status) || p.deleted)
+                throw new Error('Cobrança não pode ser reprecificada.');
+            const r = await chamar('atualizar valor cobrança', 'PUT', `/payments/${idPath(p.id, 'atualizar cobrança')}`,
+                { value: valorCentavos / 100, dueDate: p.dueDate, billingType: p.billingType });
+            return cobranca(r ?? {}, 'atualizar cobrança');
+        },
+        async suspenderGeracao(id) {
+            const r = await chamar('suspender geração', 'PUT', `/subscriptions/${idPath(id, 'suspender geração')}`, { status: 'INACTIVE', updatePendingPayments: false });
+            return assinatura(r ?? {}, 'suspender geração');
+        },
         // GET /v3/customers?externalReference= — https://docs.asaas.com/reference/listar-clientes
         async buscarClientePorReferencia(referencia) {
             const r = await chamar('listar clientes', 'GET', `/customers?externalReference=${ref(referencia)}&limit=10`);

@@ -1,0 +1,54 @@
+{
+  "ambiente": "staging",
+  "servico": "srv-daif418ae00c73e8k2gg",
+  "cron": "crn-db493i142hec73ahmoe0",
+  "empresaSintetica": "e4b274ca-3a51-40c5-bef6-39012a96cfbc",
+  "usuarioSintetico": "067a7b63-7588-4897-b66b-a93f9fdbd56e",
+  "resultadoEnsaio": "INTERROMPIDO_ANTES_PAGAMENTO",
+  "processoAusenteAntesRecuperacao": true,
+  "intencaoConfirmacaoPagamento": false,
+  "assinaturaSandboxCancelada": true,
+  "usuarioFicticioDesativado": true,
+  "membershipFicticiaRevogada": true,
+  "empresaFicticiaDesativada": true,
+  "hashesComerciaisDasOutrasEmpresasPreservados": true,
+  "webhookExistentePreservado": true,
+  "flagPlanosRemovidaNoPainel": true,
+  "flagPlanosAusenteNoProcessoRecuperado": true,
+  "deployRecuperacao": {
+    "id": "dep-db4j4m0m7kps73c1fb9g",
+    "commit": "08aa54d7da56cdd82121f5ca16bd0be468854538",
+    "estado": "live",
+    "concluidoEm": "2026-10-09T18:34:58.985713Z"
+  },
+  "segundoDeployObservadoMesmaRequisicao": {
+    "id": "dep-db4j4n0nilcs73abfesg",
+    "commit": "08aa54d7da56cdd82121f5ca16bd0be468854538",
+    "estadoUltimaLeitura": "live",
+    "concluidoEm": "2026-10-09T18:41:03.506066Z"
+  },
+  "healthHTTP": 200,
+  "smokeRecuperacao": "PASS",
+  "cronNormal": {
+    "comando": "node scripts/assinatura-cron.cjs",
+    "modo": "APLICAR",
+    "incompleto": false,
+    "execucaoConcluidaEm": "2026-10-09T18:35:13.642102478Z"
+  },
+  "codigoVagas": {
+    "commit": "9f9e56e",
+    "testesPertinentes": "75/75",
+    "typescript": "PASS",
+    "eslint": "PASS",
+    "buildIsolado": "PASS",
+    "regressaoEstaticaV1": "PASS",
+    "deployVagas": "NAO_EXECUTADO",
+    "concorrenciaFisicaPostgreSQL": "PENDENTE"
+  },
+  "naoComprovadoNestaRodada": [
+    "pagamento_simulado",
+    "callback_externo_autenticado",
+    "idempotencia_apos_pagamento",
+    "cancelamento_pela_aplicacao"
+  ]
+}

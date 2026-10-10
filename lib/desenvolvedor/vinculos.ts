@@ -15,6 +15,7 @@ import { encerrarSessoesSemAcesso, exigirDesenvolvedorNaTransacao, exigirReauten
 import { auditarPainel, type ContextoPainel } from './auditoria.ts';
 import { registrarEnvio, type EmpresasDeps } from './empresas.ts';
 import { painelDepsPadrao } from './interessadas.ts';
+import { exigirVaga } from '../assinatura/limites-usuarios.ts';
 
 /**
  * Usuários e acessos de UMA empresa, pelo painel do desenvolvedor.
@@ -171,6 +172,7 @@ export async function alterarSituacaoVinculo(sessao: SessaoAdmin, empresaIdRaw: 
         if (acao === 'reativar') {
             if (v.status !== 'SUSPENSA')
                 throw erroAcesso('CONFLITO', v.status === 'ATIVA' ? 'Este vínculo já está ativo.' : 'Só um vínculo desativado pode ser reativado.', 409);
+            if (v.conta_ativa) await exigirVaga(tx, empresaId);
             await marcarAtor(tx, sessao.usuario_id);
             await tx.query("UPDATE memberships SET status = 'ATIVA' WHERE id = $1::uuid AND empresa_id = $2::uuid", [v.membership_id, empresaId]);
             await auditarPainel(deps.registrarAuditoria, tx, {

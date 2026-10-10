@@ -1,0 +1,17 @@
+{
+  "ambiente": "staging",
+  "postgresId": "dpg-daidko3m8hqs73ce4jt0-a",
+  "banco": "kidmais_staging_1z91",
+  "somenteLeitura": true,
+  "tls": true,
+  "empresa_assinaturas": true,
+  "cobranca_eventos": true,
+  "assinatura_isencoes": false,
+  "assinatura_fundadores": false,
+  "assinatura_contratacoes": false,
+  "assinatura_renovacoes": false,
+  "resultado": "BLOQUEADO_SCHEMA_074_075_AUSENTE",
+  "cronCriado": false,
+  "migrationsExecutadas": false,
+  "deployExecutado": false
+}

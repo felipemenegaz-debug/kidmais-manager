@@ -1,0 +1,42 @@
+{
+  "ambiente": "staging",
+  "commit": "cdae01f715105db4dfbb791d30184d5e12b9950d",
+  "deployWeb": {
+    "id": "dep-db497o942hec73ai4ut0",
+    "status": "live",
+    "finalizadoEm": "2026-10-09T07:18:58.051736Z"
+  },
+  "health": {
+    "status": "PASS",
+    "httpStatus": 200,
+    "databaseReady": true,
+    "festaReady": true,
+    "otpReady": true
+  },
+  "site": {
+    "url": "https://kidmais-manager-staging.onrender.com/conheca",
+    "abaAgenda": true,
+    "cicloAnual": true,
+    "faqAberta": true,
+    "precosPublicados": false,
+    "cadastroAberto": false
+  },
+  "cron": {
+    "id": "crn-db493i142hec73ahmoe0",
+    "build": "live",
+    "modo": "aguardando",
+    "execucoesConferidas": [
+      "2026-10-09T07:05:20.682091947Z",
+      "2026-10-09T07:10:17.613457943Z"
+    ],
+    "conectou": false,
+    "schedule": "*/5 * * * *",
+    "autoDeploy": false,
+    "notifyOnFail": "notify",
+    "canal": "Email",
+    "entregaAlertaTestada": false,
+    "credenciaisConfiguradas": false,
+    "tlsOperacionalValidado": false
+  },
+  "producaoAlterada": false
+}

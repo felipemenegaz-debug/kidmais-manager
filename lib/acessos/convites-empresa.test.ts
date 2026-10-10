@@ -17,8 +17,8 @@ class Falha extends Error {
     constructor(message: string, httpStatus: number) { super(message); this.httpStatus = httpStatus; }
 }
 
-function carregar(papelAtual: string, empresaVista: string[] = []) {
-    return carregarModulo('lib/acessos/convites-empresa.ts', {
+function carregar(papelAtual: string, empresaVista: string[] = [], arquivo = 'lib/acessos/convites-empresa.ts') {
+    return carregarModulo(arquivo, {
         'db/postgres': { withTransaction: () => { throw new Error('sem banco'); } },
         'autenticacao/service': { authError: (m: string, s = 401) => new Falha(m, s), consumirLimite: async () => true, prazoDoLimite: async () => null },
         'autenticacao/usuarios': {
@@ -38,8 +38,12 @@ function carregar(papelAtual: string, empresaVista: string[] = []) {
 const sessao = { id: 's1', usuario_id: USUARIO, nome: 'Gestão', cargo: null, papel: 'ADMINISTRATIVO', autenticado_em: '', expira_em: '', csrf_hash: '' };
 const ctx = { requestId: 'req-1', ip: null, userAgent: 'teste' };
 
-function cenario(opcoes: { vinculo?: string; envioFalha?: boolean } = {}) {
+function cenario(opcoes: { vinculo?: string; envioFalha?: boolean; vagas?: { ativos: number; pendentes: number } } = {}) {
     const tx = executorFalso([
+        [/AS instalado074/, () => [{ instalado074: !!opcoes.vagas }]],
+        [/AS isenta/, () => [{ isenta: false }]],
+        [/SELECT c.plano/, () => [{ plano: 'ESSENCIAL' }]],
+        [/AS ativos/, () => opcoes.vagas ? [opcoes.vagas] : []],
         [/SELECT status FROM empresas/, () => [{ status: 'ATIVA' }]],
         [/FROM memberships m JOIN usuarios_administrativos/, () => (opcoes.vinculo ? [{ status: opcoes.vinculo }] : [])],
         [/INSERT INTO convites_acesso/, () => [{ id: 'c1', expira_em: '2026-10-13' }]],
@@ -55,6 +59,100 @@ function cenario(opcoes: { vinculo?: string; envioFalha?: boolean } = {}) {
     };
     return { tx, deps, auditoria, emails };
 }
+
+test('limite do plano recusa novo convite antes de gravar, auditar ou enviar email', async () => {
+    const mod = carregar('REPRESENTANTE_AUTORIZADO');
+    for (const vagas of [{ ativos: 1, pendentes: 2 }, { ativos: 5, pendentes: 0 }]) {
+        const { tx, deps, auditoria, emails } = cenario({ vagas });
+        await assert.rejects(mod.convidarNaEmpresa(sessao as never,
+            { acao: 'convidar', email: 'nova@exemplo.com', nivel: 'EQUIPE' } as never,
+            ctx as never, deps as never), { code: 'LIMITE_USUARIOS_PLANO' });
+        assert.ok(!tx.executados.some(q => /INSERT INTO convites_acesso|UPDATE memberships/.test(q.sql)));
+        assert.equal(emails.length, 0);
+        assert.equal(auditoria.length, 0);
+    }
+});
+
+test('reenvio mantém reserva válida acima do limite, mas convite vencido precisa de vaga', async () => {
+    const mod = carregar('REPRESENTANTE_AUTORIZADO', [], 'lib/acessos/convites.ts');
+    for (const expirado of [false, true]) {
+        const tx = executorFalso([
+            [/AS instalado074/, () => [{ instalado074: true }]],
+            [/AS isenta/, () => [{ isenta: false }]],
+            [/SELECT c.plano/, () => [{ plano: 'ESSENCIAL' }]],
+            [/AS ativos/, () => [{ ativos: 5, pendentes: expirado ? 0 : 1 }]],
+            [/FROM convites_acesso c WHERE c.id/, () => [{ id: 'c1', empresa_id: EMPRESA, status: 'PENDENTE', expirado, envios: 1, segundos_desde_envio: 70 }]],
+            [/UPDATE convites_acesso SET token_hash/, () => [{ expira_em: '2026-10-16' }]],
+        ]);
+        const chamada = () => mod.renovarConviteNaTransacao(tx as never, { gerarToken: () => 'T'.repeat(43) } as never, EMPRESA as never, 'c1' as never);
+        if (expirado) {
+            await assert.rejects(chamada(), { code: 'LIMITE_USUARIOS_PLANO' });
+            assert.ok(!tx.executados.some(q => /UPDATE convites_acesso/.test(q.sql)));
+        } else {
+            await chamada();
+            assert.ok(tx.executados.some(q => /UPDATE convites_acesso SET token_hash/.test(q.sql)));
+        }
+        assert.match(tx.executados[0].sql, /FROM empresas.*FOR UPDATE/);
+    }
+});
+
+test('aceite converte reserva válida no limite e acima dele; expiração na conclusão aborta a transação', async () => {
+    const mod = carregar('REPRESENTANTE_AUTORIZADO', [], 'lib/acessos/convites.ts');
+    for (const [ativos, expiraAoConcluir] of [[2, false], [5, false], [2, true]] as const) {
+        const falso = executorFalso([
+            [/FROM convites_acesso c WHERE c.token_hash/, () => [{ id: 'c1', empresa_id: EMPRESA, email: 'pessoa@example.invalid',
+                status: 'PENDENTE', expirado: false, papel: 'ADMINISTRATIVO', criado_por: USUARIO }]],
+            [/SELECT id, senha_hash, ativo FROM usuarios_administrativos/, () => [{ id: USUARIO, senha_hash: 'h', ativo: true }]],
+            [/SELECT nome, status FROM empresas/, () => [{ nome: 'Empresa Sintética', status: 'ATIVA' }]],
+            [/AS instalado074/, () => [{ instalado074: true }]],
+            [/AS isenta/, () => [{ isenta: false }]],
+            [/SELECT c.plano/, () => [{ plano: 'ESSENCIAL' }]],
+            [/AS ativos/, () => [{ ativos, pendentes: 1 }]],
+            [/INSERT INTO memberships/, () => [{ id: 'm1' }]],
+            [/UPDATE convites_acesso SET status = 'ACEITO'/, () => expiraAoConcluir ? [] : [{ id: 'c1' }]],
+        ]);
+        const tx = { ...falso, query: async (sql: string, params: unknown[] = []) => {
+            const r = await falso.query(sql, params); return { ...r, rowCount: r.rows.length };
+        } };
+        let commits = 0, rollbacks = 0, auditorias = 0;
+        const deps = {
+            withTransaction: async (w: (t: typeof tx) => Promise<unknown>) => {
+                try { const r = await w(tx); commits++; return r; } catch (e) { rollbacks++; throw e; }
+            },
+            conferirSenha: async () => true,
+            registrarAuditoria: async () => { auditorias++; },
+        };
+        const aceitar = () => mod.aceitarConvite({ token: 'T'.repeat(43), senha: 'senha-sintetica' } as never, ctx as never, deps as never);
+        if (expiraAoConcluir) {
+            await assert.rejects(aceitar(), { code: 'LINK_INVALIDO', httpStatus: 410 });
+            assert.equal(commits, 0); assert.equal(rollbacks, 1); assert.equal(auditorias, 0);
+        } else {
+            assert.equal((await aceitar() as { aceito: boolean }).aceito, true);
+            assert.equal(commits, 1); assert.equal(rollbacks, 0); assert.equal(auditorias, 1);
+        }
+        const concluir = tx.executados.find(q => /UPDATE convites_acesso SET status = 'ACEITO'/.test(q.sql))!;
+        assert.match(concluir.sql, /status = 'PENDENTE' AND expira_em > clock_timestamp\(\)/);
+    }
+});
+
+test('token cancelado, substituído ou expirado enquanto aguarda a empresa é revalidado antes da senha', async () => {
+    const mod = carregar('REPRESENTANTE_AUTORIZADO', [], 'lib/acessos/convites.ts');
+    const inicial = { id: 'c1', empresa_id: EMPRESA, email: 'pessoa@example.invalid', status: 'PENDENTE', expirado: false };
+    for (const atual of [null, { ...inicial, status: 'CANCELADO' }, { ...inicial, expirado: true }, { ...inicial, empresa_id: OUTRA }]) {
+        let leituras = 0, senhas = 0;
+        const tx = executorFalso([
+            [/FROM convites_acesso c WHERE c.token_hash/, () => ++leituras === 1 ? [inicial] : atual ? [atual] : []],
+            [/SELECT id, senha_hash, ativo FROM usuarios_administrativos/, () => [{ id: USUARIO, senha_hash: 'h', ativo: true }]],
+            [/SELECT nome, status FROM empresas/, () => [{ nome: 'Empresa Sintética', status: 'ATIVA' }]],
+        ]);
+        const deps = { withTransaction: async (w: (t: typeof tx) => Promise<unknown>) => w(tx),
+            conferirSenha: async () => { senhas++; return true; } };
+        await assert.rejects(mod.aceitarConvite({ token: 'T'.repeat(43), senha: 'senha-sintetica' } as never, ctx as never, deps as never),
+            { code: 'LINK_INVALIDO', httpStatus: 410 });
+        assert.equal(leituras, 2); assert.equal(senhas, 0);
+        assert.ok(!tx.executados.some(q => /^(INSERT|UPDATE)/.test(q.sql)));
+    }
+});
 
 test('Equipe não convida: 403 antes de qualquer gravação', async () => {
     const mod = carregar('ADMINISTRATIVO');

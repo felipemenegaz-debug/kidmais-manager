@@ -1,0 +1,38 @@
+{
+  "workspace": "tea-daidbj95efls73d2bcf0",
+  "servico": "crn-db493i142hec73ahmoe0",
+  "candidata": "0b2dabfdf086fd6f80eb5bc0a841bd3d5d6c4d45",
+  "autorizacao": "Felipe respondeu autorizo ao plano de diagnóstico com dois deploys e leitura de catálogos",
+  "deployDiagnostico": "dep-db4luu60tbcc73f6enrg",
+  "diagnosticoLive": "2026-10-09T21:41:40.029316Z",
+  "execucao": "2026-10-09T21:45:27.590099654Z",
+  "saidaProcesso": 2,
+  "relatorio": {
+    "modo": "SCHEMA_SOMENTE_LEITURA",
+    "bloqueios": ["RESEND_NAO_CONFIGURADO", "ORIGEM_STAGING_DIVERGENTE"],
+    "bancoConsultado": true,
+    "provedoresChamados": false,
+    "emailsEnviados": 0,
+    "cobrancasAlteradas": 0,
+    "rotinaAplicacaoRemotaHabilitada": false,
+    "schemaEstrutural": true,
+    "resultado": "PENDENTE"
+  },
+  "escopoSQL": "Identidade/TLS e catálogos: tabelas presentes e duas guardas 075 habilitadas, BEGIN READ ONLY/ROLLBACK. Sem dados de negócio.",
+  "diagnosticoScreenshot": "renovacao-preflight-staging-20261009.png",
+  "recuperacao": {
+    "comando": "node scripts/assinatura-cron.cjs",
+    "deploy": "dep-db4m15om7kps73cbf65g",
+    "live": "2026-10-09T21:46:33.974381Z",
+    "relatorio": "2026-10-09T21:50:20.980196349Z",
+    "execucaoTerminadaComSucesso": "2026-10-09T21:50:30.205740539Z",
+    "empresasSemMudanca": 3,
+    "eventos": {},
+    "incompleto": false,
+    "branch": "staging",
+    "autoDeploy": "OFF",
+    "schedulePreservado": "*/5 * * * *",
+    "screenshot": "renovacao-preflight-cron-recuperado-20261009.png"
+  },
+  "limites": "Não comprova autenticação dos provedores, entrega, conteúdo de negócio, constraints completas ou renovação. Nenhuma env/secret alterada."
+}
