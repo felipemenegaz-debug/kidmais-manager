@@ -122,7 +122,7 @@ test('credenciais: grava com 0600 e nunca sobrescreve', () => {
     } finally { fs.rmSync(dir, {recursive:true, force:true}); }
 });
 
-test('plano offline: inventário aprovado + 076/077 com checks, impressão fixada no pacote', async () => {
+test('plano offline: inventário aprovado (076/077 incluídas) com checks, impressão fixada no pacote', async () => {
     const p = await s.plano();
     assert.equal(p.impressao, s.IMPRESSAO_SCHEMA, 'migrations/checks mudaram: revisar o pacote');
     assert.equal(p.ultima, '20261010_077_regras_pagamento_empresa.sql');

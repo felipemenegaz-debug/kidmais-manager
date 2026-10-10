@@ -19,8 +19,10 @@ global.fetch = async () => { throw new Error('Rede externa proibida neste ensaio
 
 async function plano() {
     const { approvedFiles, requiredChecks } = await import(pathToFileURL(path.join(raiz, 'scripts/production/check-migrations.mjs')).href);
-    assert.equal(approvedFiles.at(-1), '20261009_075_renovacao_fundador.sql', 'Inventário mudou: revisar plano.');
-    const arquivos = [...approvedFiles];
+    // Ensaio de 09/10/2026: escopo fixo até a 075 (076/077 entraram depois no inventário e têm ensaio próprio).
+    const fim = approvedFiles.indexOf('20261009_075_renovacao_fundador.sql');
+    assert.ok(fim >= 0, 'Inventário mudou: revisar plano.');
+    const arquivos = approvedFiles.slice(0, fim + 1);
     const etapas = arquivos.map(arquivo => {
         const checks = (arquivo === '20261009_074a_planos_comerciais.sql' ? ['20261009_074a_precheck.sql', '20261009_074a_postcheck.sql'] : requiredChecks(arquivo)).map(p => `database/checks/${p}`);
         // O inventário exige o postcheck 011 separadamente de requiredChecks.

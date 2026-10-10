@@ -30,9 +30,8 @@ const PORTA_APP = 3481;
 const ORIGEM_APP = `http://localhost:${PORTA_APP}`;
 const PASTA_LOCAL = '.local-navegador';
 const ARQUIVO_CREDENCIAIS = path.join(raiz, PASTA_LOCAL, 'credenciais.json');
-const ULTIMA_INVENTARIO = '20261009_075_renovacao_fundador.sql';
-/** 076/077 ainda fora do inventário aprovado; aplicadas depois dele com os próprios checks (como em staging, O3). */
-const EXTRAS = Object.freeze([['20261010_076_cpf_por_empresa.sql', '20261010_076'], ['20261010_077_regras_pagamento_empresa.sql', '20261010_077']]);
+/** 076/077 entraram no inventário aprovado (aplicadas em staging em 10/10/2026); vêm dele com os próprios checks. */
+const ULTIMA_INVENTARIO = '20261010_077_regras_pagamento_empresa.sql';
 /** Impressão (sha256, CRLF normalizado) de migrations + checks. Mudou → revisar o pacote e aprovar de novo. */
 const IMPRESSAO_SCHEMA = '8a9a97477eac3d046dbd891bfd601df6e8f301f469247ef1e5e0f13403e03cfb';
 const VARIAVEIS_COMERCIAIS = Object.freeze(['ASSINATURA_TESTE_DIAS', 'ASSINATURA_REGULARIZACAO_DIAS', 'ASSINATURA_SOMENTE_LEITURA_DIAS']);
@@ -166,7 +165,7 @@ function escreverCredenciais(arquivo, dados, fsImpl = fs) {
 const lerNormalizado = relativo => fs.readFileSync(path.join(raiz, relativo), 'utf8').replace(/\r\n/g, '\n');
 const sha = texto => createHash('sha256').update(texto).digest('hex');
 
-/** Mesma receita de scripts/assinatura-schema-completo.cjs (inventário aprovado + checks), seguida de 076 e 077. */
+/** Mesma receita de scripts/assinatura-schema-completo.cjs: inventário aprovado (até a 077) + checks. */
 async function plano() {
     const {approvedFiles, requiredChecks} = await import(pathToFileURL(path.join(raiz, 'scripts/production/check-migrations.mjs')).href);
     if (approvedFiles.at(-1) !== ULTIMA_INVENTARIO) throw recusa('INVENTARIO_MUDOU');
@@ -176,11 +175,9 @@ async function plano() {
         if (arquivo.split('_')[1] === '011') checks.push('database/checks/20260908_011_pagamentos_postcheck.sql');
         return {migration:`database/migrations/${arquivo}`, antes:checks.filter(p => p.includes('precheck')), depois:checks.filter(p => !p.includes('precheck'))};
     });
-    for (const [arquivo, prefixo] of EXTRAS)
-        etapas.push({migration:`database/migrations/${arquivo}`, antes:[`database/checks/${prefixo}_precheck.sql`], depois:[`database/checks/${prefixo}_postcheck.sql`]});
     const fontes = [...new Set(etapas.flatMap(e => [...e.antes, e.migration, ...e.depois]))];
     const impressao = sha(fontes.map(f => `${f}\0${sha(lerNormalizado(f))}\n`).join(''));
-    return {etapas, migrations:etapas.length, arquivos:fontes.length, ultima:EXTRAS.at(-1)[0], impressao};
+    return {etapas, migrations:etapas.length, arquivos:fontes.length, ultima:ULTIMA_INVENTARIO, impressao};
 }
 
 async function conectar(a, database, bancosEsperados) {
