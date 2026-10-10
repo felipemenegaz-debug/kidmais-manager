@@ -16,7 +16,7 @@ import styles from './convites.module.css';
 import adminStyles from './editor-admin.module.css';
 type Arte = { id: string; url: string; origem: string };
 type Dados = { conteudo: Conteudo; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
-  disponiveis: number; iaDisponivel: boolean; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
+  disponiveis: number; iaDisponivel: boolean; geracaoIncerta?: boolean; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
   artes: Arte[]; respostas: { nome: string; presenca: boolean; adultos: number; criancas: number }[]; historico: { acao: string; ator: string; criado_em: string }[] };
 const campos = [['nome', 'Nome do aniversariante'], ['idade', 'Idade ou celebração'], ['data', 'Data'], ['horario', 'Horário'], ['local', 'Local da festa'], ['endereco', 'Endereço']] as const;
 export default function ConviteEditor({ festaId }: { festaId?: string }) {
@@ -99,6 +99,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     const r = await executar({ acao: 'gerar', chave: pedido.current.chave, prompt, referencias }, 'Confira a arte e publique quando estiver pronta.', true);
     if (r?.arteId) { campo('arteId', r.arteId); pedido.current = null; }
     else if (r) setAviso('Pedido já recebido. Recarregue o histórico para conferir o resultado.');
+    else { try { await carregar(false, true); } catch { /* A mensagem original explica a falha; a próxima leitura atualizará o status. */ } }
   }
   async function copiar(link: string) { try { await navigator.clipboard.writeText(new URL(link, window.location.origin).href); setAviso('Link copiado.'); } catch { setErro('Não foi possível copiar. Selecione o link para copiar manualmente.'); } }
   async function excluirArte() {
@@ -155,8 +156,8 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
         </fieldset>
         <details className={ui.painel}><summary>Crie uma arte com IA <span>Opcional · 1 crédito</span></summary><p>Descreva o visual. Nome, data e endereço serão colocados pelo editor.</p><textarea aria-label="Descreva a arte do convite" rows={4} maxLength={3000} value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Uma festa no espaço, com planetas em aquarela e tons de azul…" disabled={busy} />
           {!!dados.artes.length && <><p>Referências: escolha até duas artes anexadas.</p><div className={ui.artes}>{dados.artes.map(a => <button key={a.id} disabled={busy || (!referencias.includes(a.id) && referencias.length >= 2)} type="button" aria-label="Usar arte como referência" aria-pressed={referencias.includes(a.id)} onClick={() => setReferencias(refs => refs.includes(a.id) ? refs.filter(id => id !== a.id) : [...refs, a.id])}><img src={a.url} alt="Referência" /></button>)}</div></>}
-          <button className={ui.primario} disabled={busy || !dados.iaDisponivel || dados.disponiveis < 1 || prompt.trim().length < 5} onClick={() => void gerar()}>{busy ? 'Processando…' : 'Gerar arte · 1 crédito'}</button>
-          <small>{!dados.iaDisponivel ? 'O buffet ainda não habilitou a IA. Você pode usar os modelos e enviar sua arte.' : 'Cada nova geração ou edição por IA usa 1 crédito. Downloads não usam créditos.'}</small><button className={ui.linkBotao} disabled={busy} onClick={() => void executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Histórico atualizado.')}>Salvar e atualizar histórico</button>
+          <button className={ui.primario} disabled={busy || !dados.iaDisponivel || !!dados.geracaoIncerta || dados.disponiveis < 1 || prompt.trim().length < 5} onClick={() => void gerar()}>{busy ? 'Processando…' : 'Gerar arte · 1 crédito'}</button>
+          <small>{dados.geracaoIncerta ? 'Há uma geração sem resultado confirmado. Para evitar uma nova cobrança, a IA está pausada nesta festa até o buffet conferir o uso do provedor.' : !dados.iaDisponivel ? 'O buffet ainda não habilitou a IA. Você pode usar os modelos e enviar sua arte.' : 'Cada nova geração ou edição por IA usa 1 crédito. Downloads não usam créditos.'}</small><button className={ui.linkBotao} disabled={busy} onClick={() => void executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Histórico atualizado.')}>Salvar e atualizar histórico</button>
         </details>
         {admin && <details className={ui.painel}><summary>Acesso do cliente e limites</summary><p>{dados.clienteHabilitado ? 'O cliente já pode criar o convite.' : 'Libere um link exclusivo para o cliente criar o convite.'}</p><button disabled={busy} onClick={async () => { const r = await executar({ acao: 'acesso', habilitado: true }, 'Novo acesso criado. O link anterior foi revogado.', true); if (r?.linkCliente) setLinkCliente(new URL(r.linkCliente, window.location.origin).href); }}>Gerar novo link do cliente</button>{dados.clienteHabilitado && <button disabled={busy} onClick={async () => { const r = await executar({ acao: 'acesso', habilitado: false }, 'Acesso revogado.', true); if (r) setLinkCliente(''); }}>Revogar acesso</button>}
           {linkCliente && <label>Link exclusivo de edição<input readOnly value={linkCliente} onFocus={e => e.target.select()} /><button onClick={() => void copiar(linkCliente)}>Copiar link do cliente</button></label>}

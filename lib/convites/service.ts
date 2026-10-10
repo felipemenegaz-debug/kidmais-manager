@@ -82,10 +82,11 @@ export async function consultar(a: Acesso, criar = false) {
       LEFT JOIN convite_familias f ON f.id=r.familia_id AND f.convite_id=r.convite_id
       WHERE r.convite_id=$1 AND (r.familia_id IS NULL OR f.ativa=true) ORDER BY r.atualizado_em DESC LIMIT 2000`, [c.id])).rows;
     const historico = (await tx.query<{ acao: string; ator: string; criado_em: string }>('SELECT acao,split_part(ator,\':\',1) ator,criado_em FROM convite_eventos WHERE convite_id=$1 ORDER BY id DESC LIMIT 20', [c.id])).rows;
+    const geracaoIncerta = (await tx.query('SELECT id FROM convite_geracoes WHERE convite_id=$1 AND estado=\'INCERTA\' LIMIT 1', [c.id])).rows.length > 0;
     return { id: c.id, conteudo: c.rascunho, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },
-      disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), artes, respostas, familias, historico };
+      disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), geracaoIncerta, artes, respostas, familias, historico };
   });
 }
 
@@ -163,6 +164,8 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     }
     await limitarArtes(tx, c);
     exigir(!(await tx.query("SELECT id FROM convite_geracoes WHERE convite_id=$1 AND estado='RESERVADA'", [c.id])).rows.length, 'Já existe uma geração em andamento para esta festa.', 409);
+    exigir(!(await tx.query("SELECT id FROM convite_geracoes WHERE convite_id=$1 AND estado='INCERTA' LIMIT 1", [c.id])).rows.length,
+      'Há uma geração sem resultado confirmado. O buffet precisa conferir o uso do provedor antes de liberar outra tentativa.', 409);
     const refs: Buffer[] = [];
     for (const id of i.referencias) {
       const ref = (await tx.query<{ imagem: Buffer }>('SELECT imagem FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [id, c.id, c.empresa_id])).rows[0];
