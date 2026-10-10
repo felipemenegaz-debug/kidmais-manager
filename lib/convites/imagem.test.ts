@@ -13,6 +13,8 @@ test('recusa SVG ativo, arquivo inválido e payload excessivo', async () => {
 test('extrai apenas a imagem final; ignora imagens de raciocínio', () => {
   assert.equal(extrairImagem({ steps: [{ type: 'thought', content: [{ type: 'image', data: 'AAAA', mime_type: 'image/png' }] }, { type: 'model_output', content: [{ type: 'image', data: 'BBBB', mime_type: 'image/webp' }] }] }), 'data:image/webp;base64,BBBB');
   assert.throws(() => extrairImagem({ steps: [{ type: 'model_output', content: [{ type: 'text' }] }] }));
+  assert.equal(extrairImagem({ output_image: { data: 'CCCC', mime_type: 'image/png' } }), 'data:image/png;base64,CCCC');
+  assert.equal(extrairImagem({ output_image: { data: 'CCCC', mime_type: 'image/png' }, steps: [{ type: 'model_output', content: [{ type: 'image', data: 'DDDD', mime_type: 'image/webp' }] }] }), 'data:image/png;base64,CCCC');
 });
 test('adaptador usa origem fixa, chave no cabeçalho, limites fixos e não tenta novamente', async () => {
   const env = { ...process.env }; let chamadas = 0;
@@ -22,7 +24,8 @@ test('adaptador usa origem fixa, chave no cabeçalho, limites fixos e não tenta
       chamadas++; assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/interactions');
       const b = JSON.parse(String(init?.body)); assert.equal(b.store, false); assert.equal(b.response_format.image_size, '1K'); assert.equal(b.generation_config.max_output_tokens, 4096);
       return new Response('{}', { status: 503 });
-    }));
+    }), e => e instanceof Error && 'diagnostico' in e && e.diagnostico === 'http_503');
     assert.equal(chamadas, 1);
   } finally { for (const k of ['CONVITES_IA_ENABLED', 'CONVITES_GEMINI_API_KEY', 'CONVITES_IA_TETO_DIARIO_MICROUSD']) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } }
 });
+
