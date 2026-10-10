@@ -69,14 +69,23 @@ function recursosComprovados(r) {
     };
 }
 
+/** Únicos estados de cobrança aceitos como "nunca paga". Qualquer outro (pago, estorno, análise, desconhecido) bloqueia. */
+const NAO_PAGA = Object.freeze(['PENDING', 'OVERDUE']);
+/** Pagamento conhecido: estado fora de NAO_PAGA ou data de pagamento. Vale mesmo com deleted=true. */
+function pagamentoConhecido(c) {
+    return !c || !NAO_PAGA.includes(c.status) || (c.paymentDate !== null && c.paymentDate !== undefined);
+}
 /**
- * Cancelamento comprovado no provedor: toda assinatura da referência removida (404 ou deleted) e toda cobrança
- * registrada antes da remoção removida (404 ou deleted). Cobrança paga ou desconhecida = não comprovado.
+ * Cancelamento comprovado no provedor (fail-closed): evidência completa (todas as listagens e releituras feitas),
+ * toda assinatura conhecida removida (404 ou deleted), ao menos uma cobrança registrada quando houve assinatura, e
+ * toda cobrança relida explicitamente como removida (deleted=true), com estado conhecido não pago e sem data de
+ * pagamento. Cobrança 404, estado desconhecido ou pagamento conhecido → reserva mantida.
  */
-function cancelamentoComprovado({assinaturas, cobrancas}) {
-    return Array.isArray(assinaturas) && Array.isArray(cobrancas)
-        && assinaturas.every(a => a === null || a.deleted === true)
-        && cobrancas.every(c => c === null || c.deleted === true);
+function cancelamentoComprovado({completo, assinaturas, cobrancas}) {
+    return completo === true && Array.isArray(assinaturas) && Array.isArray(cobrancas)
+        && assinaturas.every(a => a === null || a?.deleted === true)
+        && (assinaturas.length === 0 || cobrancas.length > 0)
+        && cobrancas.every(c => c !== null && typeof c === 'object' && c.deleted === true && !pagamentoConhecido(c));
 }
 
 /**
@@ -97,28 +106,33 @@ async function encerrar({db, conectado, r, p, obterCobranca, salvar}) {
         for (const f of FIXTURES) {
             if (!prova.assinaturas[f.chave]) { r.encerramento[f.chave] = {acao:'NADA_CRIADO_PELA_RODADA'}; gravar(); continue; }
             try {
+                // IDs conhecidos: estado da rodada e, se a interrupção ocorreu antes de salvá-los, a linha da fixture no banco.
+                const doBanco = conectado ? (await db.query('SELECT provedor_cliente_id, provedor_assinatura_id FROM empresa_assinaturas WHERE empresa_id=$1', [f.empresa])).rows[0] : null;
+                const clienteId = r[f.chave]?.clienteId ?? doBanco?.provedor_cliente_id ?? null;
+                const assinaturaId = r[f.chave]?.assinaturaId ?? doBanco?.provedor_assinatura_id ?? null;
+                if (r[f.chave]?.assinaturaId && doBanco?.provedor_assinatura_id) assert.equal(doBanco.provedor_assinatura_id, r[f.chave].assinaturaId, 'SUB_DIVERGENTE_DO_BANCO');
                 const subs = await p.listarAssinaturasPorReferencia(f.empresa); assert.ok(subs.length <= 1, 'SUB_DUPLICADA');
                 for (const sub of subs) {
                     assert.equal(sub.externalReference, f.empresa, 'SUB_DE_OUTRA_REFERENCIA');
-                    if (r[f.chave]?.clienteId) assert.equal(sub.customer, r[f.chave].clienteId, 'SUB_DE_OUTRO_CLIENTE');
-                    if (r[f.chave]?.assinaturaId) assert.equal(sub.id, r[f.chave].assinaturaId, 'SUB_DIFERENTE_DA_REGISTRADA');
+                    if (clienteId) assert.equal(sub.customer, clienteId, 'SUB_DE_OUTRO_CLIENTE');
+                    if (assinaturaId) assert.equal(sub.id, assinaturaId, 'SUB_DIFERENTE_DA_REGISTRADA');
                 }
-                // Cobranças registradas antes da remoção (a remoção as apaga; depois a listagem pode não existir).
+                const idsSubs = [...new Set([...subs.map(s => s.id), ...(assinaturaId ? [assinaturaId] : [])])];
+                // Cobranças de toda assinatura conhecida, ANTES da remoção. Pagamento conhecido bloqueia mesmo removido.
                 const ids = new Set(r[f.chave]?.cobrancas ?? []);
-                for (const sub of subs.filter(s => !s.deleted)) {
-                    for (const c of await p.listarCobrancasDaAssinatura(sub.id)) {
-                        assert.ok(!['RECEIVED','CONFIRMED','RECEIVED_IN_CASH'].includes(c.status) || c.deleted, 'COBRANCA_PAGA');
+                for (const id of idsSubs) {
+                    for (const c of await p.listarCobrancasDaAssinatura(id)) {
+                        if (pagamentoConhecido(c)) throw Error('COBRANCA_PAGA_OU_DESCONHECIDA');
                         ids.add(c.id);
                     }
-                    r[f.chave] = {...r[f.chave], cobrancas:[...ids]}; gravar();
-                    assert.equal((await p.removerAssinatura(sub.id)).removida, true, 'SUB_NAO_REMOVIDA');
                 }
-                const idsSubs = [...new Set([...subs.map(s => s.id), ...(r[f.chave]?.assinaturaId ? [r[f.chave].assinaturaId] : [])])];
-                const releitura = {assinaturas:await Promise.all(idsSubs.map(id => p.obterAssinatura(id))),
+                r[f.chave] = {...r[f.chave], cobrancas:[...ids]}; gravar();
+                for (const sub of subs.filter(s => !s.deleted)) assert.equal((await p.removerAssinatura(sub.id)).removida, true, 'SUB_NAO_REMOVIDA');
+                const releitura = {completo:true, assinaturas:await Promise.all(idsSubs.map(id => p.obterAssinatura(id))),
                     cobrancas:await Promise.all([...ids].map(id => obterCobranca(id)))};
                 const comprovado = cancelamentoComprovado(releitura);
                 r.encerramento[f.chave] = {acao:comprovado ? 'ASSINATURA_REMOVIDA_COMPROVADA' : 'REMOCAO_NAO_COMPROVADA',
-                    assinaturas:idsSubs.length, cobrancas:ids.size}; gravar();
+                    assinaturas:idsSubs.length, cobrancas:ids.size, idsDoBanco:!r[f.chave]?.assinaturaId && !!doBanco?.provedor_assinatura_id}; gravar();
                 if (comprovado) comprovados.push(f); else throw Error('CANCELAMENTO_NAO_COMPROVADO');
             } catch (e) { r.limpezaAssinaturaPendente = true; falhar('ASSINATURA_' + f.chave, e); }
         }
@@ -161,7 +175,10 @@ async function provedorSandbox() {
             headers:{access_token:cfg.config.apiKey, 'User-Agent':'kidmais-staging-homologacao'}});
         if (res.status === 404) return null;
         if (!res.ok) throw Object.assign(Error('ASAAS_HTTP'), {status:res.status});
-        const j = await res.json(); return {id:j.id, deleted:j.deleted === true, status:j.status};
+        // Só o necessário para a prova; resposta fora do formato vira estado desconhecido (bloqueia a liberação).
+        const j = await res.json().catch(() => null);
+        if (!j || j.id !== id || typeof j.status !== 'string') return {id, deleted:false, status:'DESCONHECIDO', paymentDate:null};
+        return {id:j.id, deleted:j.deleted === true, status:j.status, paymentDate:typeof j.paymentDate === 'string' ? j.paymentDate : null};
     };
     return {p:criarClienteAsaas(cfg.config), obterCobranca};
 }
@@ -363,4 +380,4 @@ if (require.main === module) {
     else { console.error('AGUARDANDO_AUTORIZACAO_FUNDADOR'); process.exitCode = 1; }
 }
 module.exports = {FIXTURES, PRECOS, PRESERVADAS, MARCA, FLAG, FLAG_ENCERRAR, ARQUIVO, MOTIVO, VAGAS_CAMPANHA, alvo, alvoEncerramento, modo,
-    cabeNaCampanha, recursosComprovados, cancelamentoComprovado, encerrar, conferir};
+    cabeNaCampanha, recursosComprovados, cancelamentoComprovado, pagamentoConhecido, NAO_PAGA, encerrar, conferir};

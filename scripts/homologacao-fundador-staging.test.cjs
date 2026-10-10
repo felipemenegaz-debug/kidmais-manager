@@ -59,38 +59,62 @@ test('campanha: as três vagas precisam caber sem mexer no teto', () => {
     assert.equal(h.cabeNaCampanha({}), false); assert.equal(h.cabeNaCampanha(null), false);
 });
 
-test('cancelamento comprovado só com assinatura e cobranças removidas (404 ou deleted)', () => {
-    assert.equal(h.cancelamentoComprovado({assinaturas:[null], cobrancas:[{deleted:true}]}), true);
-    assert.equal(h.cancelamentoComprovado({assinaturas:[{deleted:true}], cobrancas:[null]}), true);
-    assert.equal(h.cancelamentoComprovado({assinaturas:[], cobrancas:[]}), true, 'nada criado no provedor');
-    assert.equal(h.cancelamentoComprovado({assinaturas:[{deleted:false}], cobrancas:[]}), false);
-    assert.equal(h.cancelamentoComprovado({assinaturas:[null], cobrancas:[{deleted:false, status:'PENDING'}]}), false);
-    assert.equal(h.cancelamentoComprovado({}), false);
+test('prova fail-closed: só cobrança relida como removida, não paga e com estado conhecido; evidência completa', () => {
+    const ok = {id:'pay', deleted:true, status:'PENDING', paymentDate:null};
+    assert.equal(h.cancelamentoComprovado({completo:true, assinaturas:[null], cobrancas:[ok]}), true);
+    assert.equal(h.cancelamentoComprovado({completo:true, assinaturas:[{deleted:true}], cobrancas:[{...ok, status:'OVERDUE'}]}), true);
+    assert.equal(h.cancelamentoComprovado({completo:true, assinaturas:[], cobrancas:[]}), true, 'provedor sem nada da referência');
+    for (const [nome, prova] of [
+        ['evidência incompleta', {assinaturas:[null], cobrancas:[ok]}], ['sem campos', {}],
+        ['assinatura ativa', {completo:true, assinaturas:[{deleted:false}], cobrancas:[ok]}],
+        ['assinatura sem cobrança registrada', {completo:true, assinaturas:[null], cobrancas:[]}],
+        ['cobrança 404 (estado desconhecido)', {completo:true, assinaturas:[null], cobrancas:[null]}],
+        ['cobrança não removida', {completo:true, assinaturas:[null], cobrancas:[{...ok, deleted:false}]}],
+        ['paga e removida', {completo:true, assinaturas:[null], cobrancas:[{...ok, status:'RECEIVED'}]}],
+        ['confirmada e removida', {completo:true, assinaturas:[null], cobrancas:[{...ok, status:'CONFIRMED'}]}],
+        ['data de pagamento', {completo:true, assinaturas:[null], cobrancas:[{...ok, paymentDate:'2026-10-10'}]}],
+        ['estado desconhecido', {completo:true, assinaturas:[null], cobrancas:[{...ok, status:'DESCONHECIDO'}]}],
+        ['estorno/análise', {completo:true, assinaturas:[null], cobrancas:[{...ok, status:'REFUNDED'}, {...ok, status:'AWAITING_RISK_ANALYSIS'}]}],
+        ['sem status', {completo:true, assinaturas:[null], cobrancas:[{id:'x', deleted:true}]}]])
+        assert.equal(h.cancelamentoComprovado(prova), false, nome);
+    assert.deepEqual([...h.NAO_PAGA], ['PENDING', 'OVERDUE']);
+    assert.equal(h.pagamentoConhecido({status:'RECEIVED', deleted:true}), true, 'removida não apaga o pagamento');
+    assert.equal(h.pagamentoConhecido(null), true); assert.equal(h.pagamentoConhecido({status:'PENDING', paymentDate:null}), false);
 });
 
 // ------------------------------------------------------------------ encerramento simulado
-/** Provedor e banco em memória. subs[ref] = [{id, customer, externalReference, deleted}]; cobrancas[subId] = [{id,status,deleted}]. */
-function falso({subs = {}, cobrancas = {}, falharRemocao = false, manterCobranca = false, naoLiberadas = {}, falharBanco = false} = {}) {
+/**
+ * Provedor e banco em memória. subs[ref] = [{id, customer, externalReference, deleted}]; cobrancas[subId] = [{id,status,deleted}].
+ * relida: como a cobrança aparece depois da remoção — 'removida' (deleted, PENDING), '404', 'ativa', 'desconhecida', 'paga', 'erro'.
+ * banco[empresa] = {provedor_cliente_id, provedor_assinatura_id} (IDs gravados pelo checkout).
+ */
+function falso({subs = {}, cobrancas = {}, falharRemocao = false, relida = 'removida', falharListagem = false, banco = {}, falharLeituraBanco = false,
+    naoLiberadas = {}, falharBanco = false} = {}) {
     const removidas = [], consultas = [];
     const p = {
         listarAssinaturasPorReferencia: async ref => (subs[ref] ?? []).map(s => ({...s, deleted:s.deleted || removidas.includes(s.id)})),
-        listarCobrancasDaAssinatura: async id => cobrancas[id] ?? [],
+        listarCobrancasDaAssinatura: async id => { if (falharListagem) throw Error('ASAAS 503'); return (cobrancas[id] ?? []).map(c => ({paymentDate:null, ...c})); },
         removerAssinatura: async id => { if (falharRemocao) throw Error('ASAAS 500'); removidas.push(id); return {removida:true}; },
-        obterAssinatura: async id => removidas.includes(id) ? null : {id, deleted:false},
+        obterAssinatura: async id => removidas.includes(id) || Object.values(subs).flat().some(x => x.id === id && x.deleted) ? null : {id, deleted:false},
     };
     const obterCobranca = async id => {
         const sub = Object.entries(cobrancas).find(([, l]) => l.some(c => c.id === id))?.[0];
-        return removidas.includes(sub) && !manterCobranca ? null : {id, deleted:false, status:'PENDING'};
+        if (!removidas.includes(sub)) return {id, deleted:false, status:'PENDING', paymentDate:null};
+        if (relida === 'erro') throw Error('ASAAS_HTTP');
+        return {removida:{id, deleted:true, status:'PENDING', paymentDate:null}, '404':null, ativa:{id, deleted:false, status:'PENDING', paymentDate:null},
+            desconhecida:{id, deleted:true, status:'DESCONHECIDO', paymentDate:null}, paga:{id, deleted:true, status:'RECEIVED', paymentDate:'2026-10-10'}}[relida];
     };
     const db = {query: async (sql, params) => {
         consultas.push({sql, params});
         if (falharBanco && /^UPDATE/.test(sql)) throw Error('lock_timeout');
+        if (/^SELECT provedor_cliente_id/.test(sql)) { if (falharLeituraBanco) throw Error('conexão perdida'); return {rows:banco[params[0]] ? [banco[params[0]]] : [], rowCount:0}; }
         if (/^SELECT estado FROM assinatura_fundadores/.test(sql)) return {rows:(naoLiberadas[params[0]] ?? []).map(estado => ({estado})), rowCount:0};
         return {rows:[], rowCount:/^UPDATE assinatura_(contratacoes|fundadores)/.test(sql) ? 1 : 0};
     }};
     const updates = re => consultas.filter(c => re.test(c.sql));
     return {p, obterCobranca, db, removidas, consultas, updates, salvar:() => {}};
 }
+const liberadas = x => x.updates(/^UPDATE assinatura_fundadores/).map(c => c.params[0]);
 const sub = (f, extra = {}) => ({id:'sub_' + f.chave, customer:'cus_' + f.chave, externalReference:f.empresa, deleted:false, ...extra});
 const provado = (extra = {}) => ({precheck:{fixturesLivres:true, asaasLivre:{FE:true, FP:true, FM:true}}, intencaoFixture:true,
     FE:{intencaoCheckout:true, clienteId:'cus_FE', assinaturaId:'sub_FE'}, FP:{intencaoCheckout:true, clienteId:'cus_FP', assinaturaId:'sub_FP'},
@@ -113,10 +137,10 @@ test('sucesso: remove no Asaas, comprova, cancela a contratação e libera só a
     const de2 = await h.encerrar({...x, conectado:true, r}); assert.equal(de2, null); assert.equal(x.removidas.length, 3);
 });
 
-test('remoção não comprovada (cobrança ainda ativa) ou falha no Asaas: vaga NÃO é liberada; demais seguem', async () => {
-    let x = falso({...todas(), manterCobranca:true}); let r = provado();
+test('remoção não comprovada (cobrança ainda ativa) ou falha no Asaas: vaga NÃO é liberada; fixtures desativadas', async () => {
+    let x = falso({...todas(), relida:'ativa'}); let r = provado();
     let erro = await h.encerrar({...x, conectado:true, r});
-    assert.match(erro.message, /LIMPEZA_ASSINATURA_FE/); assert.equal(x.updates(/^UPDATE assinatura_fundadores/).length, 0);
+    assert.match(erro.message, /LIMPEZA_ASSINATURA_FE/); assert.deepEqual(liberadas(x), []);
     assert.equal(r.encerramento.FE.acao, 'REMOCAO_NAO_COMPROVADA'); assert.equal(r.encerramento.fixtures, 'DESATIVADAS');
     x = falso({...todas(), falharRemocao:true}); r = provado();
     erro = await h.encerrar({...x, conectado:true, r});
@@ -124,12 +148,58 @@ test('remoção não comprovada (cobrança ainda ativa) ou falha no Asaas: vaga 
     assert.equal(r.falhasEncerramento.length, 3);
 });
 
-test('cobrança paga: não remove, não libera (vaga seria confirmada, nunca liberável)', async () => {
-    const base = todas(); base.cobrancas.sub_FP = [{id:'pay_FP', status:'RECEIVED', deleted:false}];
-    const x = falso(base); const r = provado();
-    const erro = await h.encerrar({...x, conectado:true, r});
-    assert.match(erro.message, /LIMPEZA_ASSINATURA_FP/); assert.ok(!x.removidas.includes('sub_FP'));
-    assert.deepEqual(x.updates(/^UPDATE assinatura_fundadores/).map(c => c.params[0]), [FE.empresa, FM.empresa]);
+test('pagamento conhecido bloqueia sempre, mesmo removido: antes da remoção, com data de pagamento e depois da remoção', async () => {
+    for (const [nome, cob] of [['paga e removida', {id:'pay_FP', status:'RECEIVED', deleted:true}], ['confirmada', {id:'pay_FP', status:'CONFIRMED', deleted:false}],
+        ['em dinheiro', {id:'pay_FP', status:'RECEIVED_IN_CASH', deleted:true}], ['data de pagamento', {id:'pay_FP', status:'PENDING', deleted:false, paymentDate:'2026-10-10'}],
+        ['estornada', {id:'pay_FP', status:'REFUNDED', deleted:true}]]) {
+        const base = todas(); base.cobrancas.sub_FP = [cob];
+        const x = falso(base); const r = provado();
+        const erro = await h.encerrar({...x, conectado:true, r});
+        assert.match(erro.message, /LIMPEZA_ASSINATURA_FP/, nome); assert.ok(!x.removidas.includes('sub_FP'), nome);
+        assert.match(r.falhasEncerramento[0].mensagem, /COBRANCA_PAGA_OU_DESCONHECIDA/, nome);
+        assert.deepEqual(liberadas(x), [FE.empresa, FM.empresa], nome);
+    }
+    // Paga entre a listagem e a remoção: aparece removida, mas paga → reserva mantida.
+    const x = falso({...todas(), relida:'paga'}); const r = provado();
+    assert.match((await h.encerrar({...x, conectado:true, r})).message, /LIMPEZA_ASSINATURA/); assert.deepEqual(liberadas(x), []);
+});
+
+test('estado desconhecido ou evidência incompleta mantém a reserva', async () => {
+    for (const [nome, opcoes, base = todas()] of [
+        ['cobrança 404 depois da remoção', {relida:'404'}], ['estado desconhecido', {relida:'desconhecida'}],
+        ['erro ao reler a cobrança', {relida:'erro'}], ['falha ao listar cobranças', {falharListagem:true}],
+        ['assinatura sem cobrança registrada', {}, {...todas(), cobrancas:{}}],
+        ['falha ao ler os IDs no banco', {falharLeituraBanco:true}]]) {
+        const x = falso({...base, ...opcoes}); const r = provado();
+        const erro = await h.encerrar({...x, conectado:true, r});
+        assert.match(erro?.message ?? '', /LIMPEZA_ASSINATURA/, nome);
+        assert.deepEqual(liberadas(x), [], nome); assert.equal(x.updates(/^UPDATE assinatura_contratacoes/).length, 0, nome);
+    }
+});
+
+test('interrupção após criar no provedor sem IDs salvos: acha pela referência e pelo banco, comprova e só então libera', async () => {
+    const semIds = provado({FE:{intencaoCheckout:true}, FP:{}, FM:{}});
+    // (a) IDs só no banco (checkout gravou; o estado da rodada não).
+    let x = falso({...todas(), banco:{[FE.empresa]:{provedor_cliente_id:'cus_FE', provedor_assinatura_id:'sub_FE'}}}); let r = structuredClone(semIds);
+    assert.equal(await h.encerrar({...x, conectado:true, r}), null);
+    assert.deepEqual(x.removidas, ['sub_FE']); assert.deepEqual(liberadas(x), [FE.empresa]);
+    assert.equal(r.encerramento.FE.idsDoBanco, true); assert.deepEqual(r.FE.cobrancas, ['pay_FE'], 'cobrança registrada antes da remoção');
+    // (b) nada no banco nem no estado (queda logo após a criação): pela referência.
+    x = falso(todas()); r = structuredClone(semIds);
+    assert.equal(await h.encerrar({...x, conectado:true, r}), null); assert.deepEqual(liberadas(x), [FE.empresa]);
+    // (c) banco aponta outra assinatura que a da referência: colisão, nada removido nem liberado.
+    x = falso({...todas(), banco:{[FE.empresa]:{provedor_cliente_id:'cus_FE', provedor_assinatura_id:'sub_outra'}}}); r = structuredClone(semIds);
+    assert.match((await h.encerrar({...x, conectado:true, r})).message, /LIMPEZA_ASSINATURA_FE/);
+    assert.deepEqual(x.removidas, []); assert.deepEqual(liberadas(x), []);
+    // (d) assinatura já removida por fora e sem cobrança conhecida: evidência incompleta, reserva mantida.
+    const base = todas(); base.subs[FE.empresa] = [sub(FE, {deleted:true})]; base.cobrancas = {};
+    x = falso(base); r = structuredClone(semIds);
+    assert.match((await h.encerrar({...x, conectado:true, r})).message, /LIMPEZA_ASSINATURA_FE/); assert.deepEqual(liberadas(x), []);
+    assert.deepEqual([r.encerramento.FE.acao, r.encerramento.FE.cobrancas], ['REMOCAO_NAO_COMPROVADA', 0]);
+    // (e) estado e banco divergentes: para.
+    x = falso({...todas(), banco:{[FE.empresa]:{provedor_cliente_id:'cus_FE', provedor_assinatura_id:'sub_FE'}}});
+    r = provado({FE:{intencaoCheckout:true, assinaturaId:'sub_FE_estado'}, FP:{}, FM:{}});
+    assert.match((await h.encerrar({...x, conectado:true, r})).message, /LIMPEZA_ASSINATURA_FE/); assert.deepEqual(liberadas(x), []);
 });
 
 test('sem prova de autoria nada é tocado (precheck incompleto, checkout não registrado, outra rodada)', async () => {
