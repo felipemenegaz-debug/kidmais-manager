@@ -63,6 +63,19 @@ const EMAIL_CONVITE_ESSENCIAL = 'nav-essencial-convite@example.invalid';
 const CONTATO_PROFISSIONAL = Object.freeze({whatsapp:'11900000001', email:'contato-profissional@example.invalid', site:'https://profissional.example.invalid/'});
 /** Faixa única do pacote das empresas com catálogo: 20–30 convidados, valor fixo. */
 const FAIXA = Object.freeze({min:20, max:30, valor:'1500.00'});
+/** Preço do Pocket por empresa: valores diferentes provam na tela que cada endereço usa a tabela da própria empresa. */
+const PRECO_POCKET = Object.freeze({essencial:FAIXA.valor, profissional:FAIXA.valor, premium:'2300.00'});
+/** Composição do buffet (categorias globais da 021/022, escolhas) e adicional próprios de cada empresa com pedido online. */
+const COMPOSICAO = Object.freeze({profissional:Object.freeze([['SALGADOS', 3], ['DOCES', 2]]), premium:Object.freeze([['MASSA_BOLO', 1]])});
+const ADICIONAL_EMPRESA = Object.freeze({
+    profissional:Object.freeze({nome:'Painel sintético Profissional', categoria:'DECORACAO', preco:'250.00'}),
+    premium:Object.freeze({nome:'Pula-pula sintético Premium', categoria:'EXTRA', preco:'400.00'}),
+});
+/** Regras de pagamento próprias só do Profissional; o Premium fica sem linha (regras neutras, 0%). */
+const REGRAS_PROFISSIONAL = Object.freeze({pixAvista:5, pixParcelado:2, cartaoRotulo:'Cartão Profissional', descontoDiaUtil:false});
+/** Endereço legado (/fechamento): preços sintéticos publicados para a empresa `kidmais` criada pela 046 (sem Pizza Party). */
+const PRECO_LEGADO_BASE = 4000, PRECO_LEGADO_PASSO = 500, MAXIMO_LEGADO = 150;
+const PRECOS_ADICIONAIS_LEGADO = Object.freeze(['120.00', '180.00', '240.00']);
 
 const recusa = (codigo, detalhe) => Object.assign(Error(detalhe ? `${codigo} ${detalhe}` : codigo), {codigo});
 
@@ -145,8 +158,28 @@ function sanitizar(texto) {
 /** Senha sintética por conta (24 caracteres base64url); só existe em memória e no arquivo ignorado. */
 const gerarSenha = () => 'Nav-' + randomBytes(18).toString('base64url');
 
+/** CPF sintético com dígitos verificadores válidos (o servidor exige), gerado por execução; nunca sai do arquivo ignorado. */
+function gerarCpfSintetico(aleatorio = () => randomBytes(1)[0] % 10) {
+    let base;
+    do base = Array.from({length:9}, aleatorio); while (new Set(base).size === 1);
+    const dv = d => { const r = (d.reduce((t, n, i) => t + n * (d.length + 1 - i), 0) * 10) % 11; return r === 10 ? 0 : r; };
+    const d1 = dv(base), d2 = dv([...base, d1]);
+    return [...base, d1, d2].join('');
+}
+
+/**
+ * Clientes dos envios de pedido do pacote de etapas (docs/HOMOLOGACAO_COTACAO_ETAPAS_20261010.md): A no Profissional e depois
+ * o MESMO CPF no Premium (isolamento de identidade); B no endereço legado. Contatos não roteáveis (@example.invalid, 90000-xxxx).
+ */
+function clientesSinteticos(gerarCpf = gerarCpfSintetico) {
+    const cliente = (rotulo, telefone) => ({rotulo, cpf:gerarCpf(), nome:`Cliente Sintético ${rotulo}`, email:`nav-cliente-${rotulo.toLowerCase()}@example.invalid`,
+        whatsapp:telefone, cep:'01001000', logradouro:'Rua Sintética', numero:'100', bairro:'Centro', cidade:'São Paulo', uf:'SP',
+        aniversariante:`Aniversariante Sintético ${rotulo}`, nascimento:'2020-05-10'});
+    return [cliente('A', '11900000101'), cliente('B', '11900000102')];
+}
+
 /** Conteúdo do arquivo de credenciais (puro). Nunca é impresso. */
-function montarCredenciais(a, senhas, agora = new Date()) {
+function montarCredenciais(a, senhas, agora = new Date(), clientes = []) {
     const empresa = chave => EMPRESAS.find(e => e.chave === chave);
     return {
         aviso:'Contas SINTÉTICAS do banco local descartável. Não reutilizar em nenhum outro ambiente. Apagar ao remover o cluster.',
@@ -155,6 +188,8 @@ function montarCredenciais(a, senhas, agora = new Date()) {
             empresas:c.empresas.map(k => ({codigo:empresa(k).codigo, nome:empresa(k).nome}))})),
         enderecosPublicos:EMPRESAS.filter(e => e.catalogo).map(e => ({codigo:e.codigo, fechamento:`${ORIGEM_APP}/b/${e.codigo}/fechamento`,
             disponibilidade:`${ORIGEM_APP}/b/${e.codigo}/disponibilidade`, esperado:e.plano === 'essencial' ? 404 : 200})),
+        enderecoLegado:{fechamento:`${ORIGEM_APP}/fechamento`, disponibilidade:`${ORIGEM_APP}/disponibilidade`},
+        clientesSinteticos:clientes,
     };
 }
 
@@ -243,7 +278,8 @@ async function popular(c, senhas) {
         convites:carregar('lib/acessos/convites.ts'), limites:carregar('lib/assinatura/limites-usuarios.ts'), precos:carregar('lib/comercial/pacote-precos.ts'),
         pacotes:carregar('lib/comercial/pacotes-admin.ts'), renovacaoRepo:carregar('lib/assinatura/renovacao-repositorio.ts'),
         renovacao:carregar('lib/assinatura/renovacao-fundador.ts'), estado:carregar('lib/assinatura/estado.ts'), recursos:carregar('lib/assinatura/recursos-plano.ts'),
-        cotacao:carregar('lib/comercial/cotacao-publica.ts'), contato:carregar('lib/perfil/contato-publico.ts')};
+        cotacao:carregar('lib/comercial/cotacao-publica.ts'), contato:carregar('lib/perfil/contato-publico.ts'),
+        adicionais:carregar('lib/comercial/adicionais-admin.ts'), regras:carregar('lib/comercial/regras-pagamento.ts')};
     const q = async (sql, params) => (await ex.query(sql, params)).rows;
     const documentos = new Set();
     const ids = Object.fromEntries(EMPRESAS.map(e => [e.chave, {empresa:randomUUID(), documento:documentoSintetico(documentos)}]));
@@ -319,11 +355,45 @@ async function popular(c, senhas) {
         const ctx = () => ({empresaId, usuarioId:gestaoDe(e.chave), requestId:randomUUID(), motivo:'PACOTE_EDITADO'});
         const pacote = (await q(`INSERT INTO pacotes (empresa_id, codigo, nome, ordem_exibicao, ativo, vigente, convidados_minimos, convidados_maximos)
             VALUES ($1, 'POCKET', 'Pocket sintético', 1, true, true, $2, $3) RETURNING id`, [empresaId, FAIXA.min, FAIXA.max]))[0].id;
-        await withTransaction(tx => s.precos.gravarFaixasPacote(tx, empresaId, pacote, [{convidadosMin:FAIXA.min, convidadosMax:FAIXA.max, valor:FAIXA.valor}],
+        await withTransaction(tx => s.precos.gravarFaixasPacote(tx, empresaId, pacote, [{convidadosMin:FAIXA.min, convidadosMax:FAIXA.max, valor:PRECO_POCKET[e.chave]}],
             {minimo:FAIXA.min, maximo:FAIXA.max}, ctx()));
         await withTransaction(tx => s.pacotes.definirDisponibilidadePacoteAdmin(tx, pacote,
             {disponibilidade:[1, 2, 3, 4, 5, 6, 7].flatMap(dia => horarios.map(horarioId => ({dia, horarioId})))}, ctx()));
+        // Etapas Buffet e Personalização: composição e adicional (com preço) só deste pacote/empresa.
+        if (COMPOSICAO[e.chave]) {
+            const categorias = await q('SELECT id::text AS id, codigo FROM buffet_categorias WHERE ativo AND codigo = ANY($1::text[])', [COMPOSICAO[e.chave].map(([codigo]) => codigo)]);
+            assert.equal(categorias.length, COMPOSICAO[e.chave].length, 'CATEGORIAS_BUFFET_AUSENTES_' + e.chave);
+            await withTransaction(tx => s.pacotes.definirCategoriasPacoteAdmin(tx, pacote,
+                COMPOSICAO[e.chave].map(([codigo, escolhas]) => ({categoriaId:categorias.find(x => x.codigo === codigo).id, escolhas})), ctx()));
+        }
+        if (ADICIONAL_EMPRESA[e.chave]) {
+            const a = ADICIONAL_EMPRESA[e.chave];
+            await s.adicionais.salvarAdicionalEmEtapas(withTransaction, {empresaId, usuarioId:gestaoDe(e.chave), requestId:randomUUID()},
+                {nome:a.nome, categoria:a.categoria, unidadeCobranca:'VALOR_FIXO', ativo:true, preco:a.preco, pacotes:{[pacote]:'EXTRA'}});
+        }
     }
+    await q(`INSERT INTO empresa_regras_pagamento (empresa_id, pix_avista_percentual, pix_parcelado_percentual, cartao_rotulo, desconto_dia_util, motivo)
+        VALUES ($1, $2, $3, $4, $5, 'Regras sintéticas do navegador local')`,
+        [ids.profissional.empresa, REGRAS_PROFISSIONAL.pixAvista, REGRAS_PROFISSIONAL.pixParcelado, REGRAS_PROFISSIONAL.cartaoRotulo, REGRAS_PROFISSIONAL.descontoDiaUtil]);
+
+    // ---- Endereço legado (/fechamento): a empresa `kidmais` já vem da 046 (nunca é inserida aqui); só os preços publicados faltam.
+    const kidmais = (await q("SELECT id::text AS id FROM empresas WHERE codigo = 'kidmais' AND status = 'ATIVA'"));
+    assert.equal(kidmais.length, 1, 'EMPRESA_KIDMAIS_046_AUSENTE');
+    const kidmaisId = kidmais[0].id;
+    const usuarioLegado = (await q("SELECT usuario_id::text AS id FROM memberships WHERE empresa_id = $1 AND status = 'ATIVA' ORDER BY usuario_id LIMIT 1", [kidmaisId]))[0]?.id;
+    assert.ok(usuarioLegado, 'MEMBERSHIP_046_AUSENTE');
+    const ctxLegado = () => ({empresaId:kidmaisId, usuarioId:usuarioLegado, requestId:randomUUID(), motivo:'PACOTE_EDITADO'});
+    const pacotesLegado = await q(`SELECT id::text AS id, codigo, convidados_minimos AS minimo FROM pacotes
+        WHERE empresa_id = $1 AND ativo AND vigente AND codigo <> 'PIZZA_PARTY' ORDER BY ordem_exibicao, codigo`, [kidmaisId]);
+    assert.equal(pacotesLegado.length, 6, 'PACOTES_LEGADO_046');
+    for (const [i, p] of pacotesLegado.entries()) { // uma tabela sucessora por transação (048)
+        const minimo = p.minimo ?? FAIXA.min, valor = (PRECO_LEGADO_BASE + PRECO_LEGADO_PASSO * i).toFixed(2);
+        await withTransaction(tx => s.precos.gravarFaixasPacote(tx, kidmaisId, p.id, [{convidadosMin:minimo, convidadosMax:MAXIMO_LEGADO, valor}],
+            {minimo, maximo:MAXIMO_LEGADO}, ctxLegado()));
+    }
+    const adicionaisLegado = await q("SELECT id::text AS id FROM adicionais WHERE empresa_id = $1 AND ativo ORDER BY codigo LIMIT $2", [kidmaisId, PRECOS_ADICIONAIS_LEGADO.length]);
+    for (const [i, a] of adicionaisLegado.entries())
+        await withTransaction(tx => s.precos.gravarPrecoAdicional(tx, kidmaisId, a.id, PRECOS_ADICIONAIS_LEGADO[i], {...ctxLegado(), motivo:'PRECO_ADICIONAL_ALTERADO'}));
 
     // ---- Perfil com a unidade e o contato público, só do Profissional (mesmo id/código da empresa, como a associação do perfil).
     await withTransaction(async tx => {
@@ -376,6 +446,26 @@ async function popular(c, senhas) {
         assert.equal(contato?.whatsapp?.url ?? null, e.chave === 'profissional' ? `https://wa.me/55${CONTATO_PROFISSIONAL.whatsapp}` : null, 'CONTATO_' + e.chave);
         conferencia.contatoPublico[e.codigo] = contato ? Object.keys(contato).filter(k => contato[k]) : null;
     }
+    // Isolamento por empresa nas etapas Buffet → Pagamento: preço, composição, adicionais e regras de cada uma (mesmos serviços do servidor).
+    conferencia.isolamento = {};
+    for (const chave of ['profissional', 'premium']) {
+        const empresaId = ids[chave].empresa;
+        const precos = await withTransaction(tx => s.precos.lerPrecosCorrentes(tx, empresaId));
+        const categorias = (await q(`SELECT bc.codigo FROM pacote_buffet_categorias pbc JOIN buffet_categorias bc ON bc.id = pbc.categoria_id
+            JOIN pacotes p ON p.id = pbc.pacote_id WHERE p.empresa_id = $1 ORDER BY bc.codigo`, [empresaId])).map(x => x.codigo);
+        const adicionais = (await q('SELECT nome FROM adicionais WHERE empresa_id = $1 ORDER BY nome', [empresaId])).map(x => x.nome);
+        const regras = await withTransaction(tx => s.regras.lerRegrasPagamento(tx, empresaId));
+        assert.deepEqual(precos.pacotes.map(x => x.valor), [Number(PRECO_POCKET[chave])], 'PRECO_' + chave);
+        assert.deepEqual(categorias, COMPOSICAO[chave].map(([codigo]) => codigo).sort(), 'COMPOSICAO_' + chave);
+        assert.deepEqual(adicionais, [ADICIONAL_EMPRESA[chave].nome], 'ADICIONAIS_' + chave);
+        assert.deepEqual(precos.adicionais.map(x => x.valor), [Number(ADICIONAL_EMPRESA[chave].preco)], 'PRECO_ADICIONAL_' + chave);
+        assert.equal(regras?.pixAvistaPercentual, chave === 'profissional' ? REGRAS_PROFISSIONAL.pixAvista : 0, 'REGRAS_' + chave);
+        conferencia.isolamento[EMPRESAS.find(e => e.chave === chave).codigo] = {precoPocket:precos.pacotes[0].valor, categorias, adicionais,
+            pix:`${regras.pixAvistaPercentual}/${regras.pixParceladoPercentual}`, cartao:regras.cartaoRotulo};
+    }
+    const legado = await withTransaction(tx => s.precos.lerPrecosCorrentes(tx, kidmaisId));
+    assert.equal(new Set(legado.pacotes.map(x => x.pacoteId)).size, 6, 'PRECOS_LEGADO');
+    conferencia.legado = {empresa:'kidmais', pacotesComPreco:new Set(legado.pacotes.map(x => x.pacoteId)).size, adicionaisComPreco:legado.adicionais.length};
     const ofertas = await withTransaction(tx => s.ofertas.consultarOfertas(tx, ids.teste.empresa, {ASSINATURA_PLANOS_ATIVOS:'true', ASAAS_AMBIENTE:'sandbox'}));
     assert.ok(ofertas?.habilitado && ofertas.fundador && !ofertas.aguardandoVaga, 'OFERTA_FUNDADOR_TESTE');
     conferencia.ofertaTeste = {habilitado:true, fundador:true, essencialMensalCentavos:ofertas.planos.find(x => x.id === 'essencial')?.mensal};
@@ -410,7 +500,7 @@ async function executar(env) {
         c = await conectar(a, a.banco, [a.banco]);
         resumo.conferencia = await popular(c, senhas);
         etapa = 'credenciais';
-        escreverCredenciais(ARQUIVO_CREDENCIAIS, montarCredenciais(a, senhas));
+        escreverCredenciais(ARQUIVO_CREDENCIAIS, montarCredenciais(a, senhas, new Date(), clientesSinteticos()));
         resumo.resultado = 'PASS';
     } catch (e) {
         resumo.falha = {etapa, codigo:sanitizar(e?.code ?? e?.codigo ?? e?.name), mensagem:sanitizar(e?.message)};
@@ -444,5 +534,5 @@ if (require.main === module)
         console.error('SEED_NAVEGADOR_RECUSADO ' + sanitizar(e?.message ?? e?.codigo)); process.exitCode = 1;
     });
 module.exports = {FLAG, FLAG_PLANO, VAR_AUTORIZACAO, PAPEL, PORTA, PORTA_APP, ORIGEM_APP, PASTA_LOCAL, BANCO_SUGERIDO, NOMES_PROIBIDOS, IMPRESSAO_SCHEMA,
-    EMPRESAS, CONTAS, EMAIL_CONVITE_ESSENCIAL, ARQUIVO_CREDENCIAIS, modo, validarBanco, alvo, semConexaoHerdada, semPrazoComercialHerdado,
+    EMPRESAS, CONTAS, EMAIL_CONVITE_ESSENCIAL, ARQUIVO_CREDENCIAIS, PRECO_POCKET, COMPOSICAO, ADICIONAL_EMPRESA, REGRAS_PROFISSIONAL, gerarCpfSintetico, clientesSinteticos, modo, validarBanco, alvo, semConexaoHerdada, semPrazoComercialHerdado,
     conferirIdentidade, conferirGitignore, sanitizar, gerarSenha, documentoSintetico, montarCredenciais, escreverCredenciais, plano, SQL_IDENTIDADE};

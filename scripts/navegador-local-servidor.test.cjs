@@ -53,6 +53,11 @@ test('autoverificação pura recusa alvo, host, chave e segredo fora do local, c
         [{ADMIN_AUTH_SECRET:'curto'}, ['SEGREDO_SINTETICO_INVALIDO:ADMIN_AUTH_SECRET']],
         [{ADMIN_AUTH_SECRET:undefined}, ['VARIAVEL_AUSENTE:ADMIN_AUTH_SECRET', 'SEGREDO_SINTETICO_INVALIDO:ADMIN_AUTH_SECRET']],
         [{RENDER:'true'}, ['VARIAVEL_INESPERADA:RENDER', 'VARIAVEL_PROIBIDA:RENDER']],
+        [{CONSULTA_CEP_EXTERNA:'ligada'}, ['VALOR_INESPERADO:CONSULTA_CEP_EXTERNA']],
+        [{CONSULTA_CEP_EXTERNA:undefined}, ['VARIAVEL_AUSENTE:CONSULTA_CEP_EXTERNA', 'VALOR_INESPERADO:CONSULTA_CEP_EXTERNA']],
+        [{AGENDA_PUBLICA_EMPRESA_ID:'kidmais'}, ['VALOR_INESPERADO:AGENDA_PUBLICA_EMPRESA_ID']],
+        [{AGENDA_PUBLICA_EMPRESA_ID:undefined}, ['VARIAVEL_AUSENTE:AGENDA_PUBLICA_EMPRESA_ID', 'VALOR_INESPERADO:AGENDA_PUBLICA_EMPRESA_ID']],
+        [{AGENDA_PUBLICA_UNIDADE_ID:'00000000-0000-4000-8000-000000000001'}, ['VARIAVEL_INESPERADA:AGENDA_PUBLICA_UNIDADE_ID']],
     ];
     for (const [extra, esperado] of casos) {
         const env = ambiente(extra);
@@ -108,6 +113,7 @@ test('fontes sem rede: next/font/google simulado por arquivo local; CSS sem font
     const mock = require(v.MOCK_FONTES);
     const css = mock['https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap'];
     assert.equal(typeof css, 'string'); assert.doesNotMatch(css, /url\(|https?:\/\//, 'nenhum arquivo de fonte a buscar');
+    assert.match(css, /@font-face\s*\{[^}]*src:\s*local\(/, 'webpack exige um @font-face; só local()');
     assert.equal(mock['https://exemplo.invalid/qualquer'], undefined);
     assert.ok(!v.validarAmbiente(env).some(p => p.includes('NEXT_FONT_GOOGLE_MOCKED_RESPONSES')));
     assert.ok(v.validarAmbiente({...env, NEXT_FONT_GOOGLE_MOCKED_RESPONSES:undefined}).some(p => p.includes('NEXT_FONT_GOOGLE_MOCKED_RESPONSES')));
@@ -126,4 +132,19 @@ test('mock de fontes: chaves = URLs que o Next gera para cada fonte declarada no
         .map(([familia, pesos, eixos]) => getGoogleFontsUrl(familia, getFontAxes(familia, pesos, ['normal'], eixos), 'swap'));
     assert.deepEqual(Object.keys(require(v.MOCK_FONTES)).sort(), esperadas.sort());
     assert.doesNotMatch(fs.readFileSync(v.MOCK_FONTES, 'utf8'), /require\(/, 'o Turbopack avalia o mock isolado');
+});
+
+test('endereço legado e CEP: id da empresa kidmais vem da execução (UUID), consulta externa de CEP desligada pelo código real', async () => {
+    const id = '0f0e0d0c-0b0a-4908-8706-050403020100';
+    const env = v.montarAmbiente({}, 'kidmais_navegador_20261010', () => 'x'.repeat(64), id);
+    assert.equal(env.AGENDA_PUBLICA_EMPRESA_ID, id);
+    assert.equal(v.montarAmbiente({}, 'kidmais_navegador_20261010', () => 'x'.repeat(64)).AGENDA_PUBLICA_EMPRESA_ID, v.AGENDA_PUBLICA_PLANO);
+    assert.equal(env.CONSULTA_CEP_EXTERNA, 'desligada');
+    assert.deepEqual(v.validarAmbiente(env), []);
+    const codigo = await v.verificarCodigo(env);
+    assert.equal(codigo.resumo.consultaCepExterna, false);
+    assert.ok((await v.verificarCodigo({...env, CONSULTA_CEP_EXTERNA:'ligada'})).problemas.includes('CONSULTA_CEP_EXTERNA_LIGADA'));
+    const fonte = require('node:fs').readFileSync(require('node:path').join(__dirname, 'navegador-local-servidor.cjs'), 'utf8');
+    assert.match(fonte, /const agendaPublica = await conferirBancoPopulado\(a\); \/\/ somente leitura/);
+    assert.match(fonte, /BEGIN READ ONLY/);
 });

@@ -27,7 +27,10 @@ test('lixeira: motivo, duas etapas, cancelamento, erro, retry, exclusão e resta
             if(url.origin!==origin)return route.abort();
             if(!url.pathname.startsWith('/api/'))return route.continue();
             const ok=data=>route.fulfill({json:{ok:true,data}});
-            if(url.pathname==='/api/admin/autenticacao')return ok({usuarioId:id,nome:'Operador Sintético',papel:'REPRESENTANTE_AUTORIZADO',csrf:'sintetico'});
+            // Contexto da empresa exigido pelo painel desde a 056; logo do perfil lida pelo cabeçalho.
+            if(url.pathname==='/api/admin/autenticacao')return ok({usuarioId:id,nome:'Operador Sintético',papel:'REPRESENTANTE_AUTORIZADO',contexto:{empresaAtual:{id:'e',nome:'Empresa sintética',papel:'REPRESENTANTE_AUTORIZADO'},empresas:[],gestaoNaEmpresa:true,plataforma:true,desenvolvedor:false,selecaoNecessaria:false},csrf:'sintetico'});
+            if(url.pathname==='/api/admin/configuracoes/perfil-empresa/logo')return ok({logoDataUrl:null});
+            if(url.pathname==='/api/admin/contratos/importados')return ok([]);
             if(url.pathname===`/api/admin/clientes/${id}/lixeira`){
                 if(r.method()==='GET')return ok(registro());
                 assert.equal(r.method(),'POST');const body=r.postDataJSON();posts.push(body);

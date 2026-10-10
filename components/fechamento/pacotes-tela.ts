@@ -1,5 +1,6 @@
 import type { Pacote } from "./data.ts";
 import type { PacoteId } from "./types.ts";
+import { LIMITE_CONVIDADOS_PEDIDO_ONLINE } from "../../lib/fechamentos/convidados.ts";
 
 /** Código do pacote no servidor (pacotes/preços da empresa) para cada id da tela. */
 export const CODIGO_PACOTE: Record<string, string> = { pocket: 'POCKET', mini: 'MINI_FESTA', compacta: 'COMPACTA', essencial: 'ESSENCIAL', completa: 'COMPLETA', premium: 'PREMIUM', pizza_party_scienza: 'PIZZA_PARTY' };
@@ -14,8 +15,8 @@ export type PacoteExibido = { id: PacoteId; nome: string; preco: number | null; 
 /** Pacote escolhido; `limiteCadastrado` falso = a empresa não informou o máximo de convidados. */
 export type PacoteDaTela = Pacote & { limiteCadastrado: boolean };
 
-/** Sem máximo cadastrado: limite só do campo (o servidor recusa o que o pacote não aceitar). */
-const MAXIMO_SEM_CADASTRO = 500;
+/** Sem máximo cadastrado: o teto do pedido online, o mesmo do servidor. */
+const MAXIMO_SEM_CADASTRO = LIMITE_CONVIDADOS_PEDIDO_ONLINE;
 
 function precoDe(fato: FatoPacote) {
     return fato.precoMinimo == null ? null : Number(fato.precoMinimo);

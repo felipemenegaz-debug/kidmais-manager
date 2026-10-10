@@ -138,3 +138,32 @@ test('documento sintético: 14 dígitos iniciados por 7, sem repetição (A2 de 
     for (let i = 0; i < 1000; i++) assert.match(s.documentoSintetico(usados), /^7\d{13}$/);
     assert.equal(usados.size, 1000);
 });
+
+test('clientes sintéticos: CPF válido pela regra do servidor, contatos não roteáveis, A ≠ B; só no arquivo ignorado', async () => {
+    const {pathToFileURL} = require('node:url');
+    const {carregarModulo} = await import(pathToFileURL(path.join(raiz, 'lib/acessos/teste-carregador.ts')).href);
+    const {cpfValido} = carregarModulo(path.join(raiz, 'lib/clientes/utils.ts'), {}, new Map());
+    for (let i = 0; i < 300; i++) { const cpf = s.gerarCpfSintetico(); assert.ok(cpfValido(cpf), cpf.slice(0, 3)); assert.notEqual(new Set(cpf).size, 1); }
+    const [a, b] = s.clientesSinteticos();
+    assert.notEqual(a.cpf, b.cpf);
+    for (const c of [a, b]) {
+        assert.match(c.email, /@example\.invalid$/);
+        assert.match(c.whatsapp, /^11900000\d{3}$/);
+        assert.equal(c.cep, '01001000', 'CEP digitado; consulta externa desligada no servidor local');
+    }
+    const d = s.montarCredenciais({host:'127.0.0.1', porta:55481, banco:'kidmais_navegador_x'}, new Map(), new Date('2026-10-10T12:00:00Z'), [a, b]);
+    assert.deepEqual(d.clientesSinteticos.map(c => c.rotulo), ['A', 'B']);
+    assert.equal(d.enderecoLegado.fechamento, `${s.ORIGEM_APP}/fechamento`);
+});
+
+test('dados de isolamento: Profissional e Premium com preço, composição, adicional e regras diferentes', () => {
+    assert.notEqual(s.PRECO_POCKET.profissional, s.PRECO_POCKET.premium);
+    const categorias = chave => s.COMPOSICAO[chave].map(([codigo]) => codigo);
+    assert.deepEqual(categorias('profissional').filter(c => categorias('premium').includes(c)), [], 'composições disjuntas');
+    assert.notEqual(s.ADICIONAL_EMPRESA.profissional.nome, s.ADICIONAL_EMPRESA.premium.nome);
+    assert.notEqual(s.ADICIONAL_EMPRESA.profissional.preco, s.ADICIONAL_EMPRESA.premium.preco);
+    assert.ok(s.REGRAS_PROFISSIONAL.pixAvista > 0, 'Premium fica com regras neutras (0%)');
+    const fonte = fs.readFileSync(path.join(__dirname, 'navegador-local-seed.cjs'), 'utf8');
+    assert.doesNotMatch(fonte, /INSERT INTO empresas[^;]*'kidmais'/, 'a empresa kidmais vem da 046; o seed nunca a insere');
+    assert.match(fonte, /SELECT id::text AS id FROM empresas WHERE codigo = 'kidmais' AND status = 'ATIVA'/);
+});

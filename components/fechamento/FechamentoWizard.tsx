@@ -1890,7 +1890,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       />
                     </label>}
 
-                    {(['buffetLembrancinha','buffetEmpratado','buffetBombom'] as const).map((key,i)=>(i===0 ? ['mini','completa','premium'].includes(form.pacote)||form.adicionaisSelecionados.some(a=>a.startsWith('lembrancinha')) : form.pacote==='premium'||form.adicionaisSelecionados.includes(i===1?'empratado':'bombom'))&&!categoriasBuffet.some(c=>c.codigo===['LEMBRANCINHAS','EMPRATADOS','BOMBONS'][i])&&<label className={styles.field} key={key}><span>{['Lembrancinha','Empratado','Bombom'][i]}</span><textarea rows={2} maxLength={2000} value={form[key]} onChange={e=>atualizar(key,e.target.value)} placeholder="Não definido"/></label>)}
+                    {marca.kidmais && (['buffetLembrancinha','buffetEmpratado','buffetBombom'] as const).map((key,i)=>(i===0 ? ['mini','completa','premium'].includes(form.pacote)||form.adicionaisSelecionados.some(a=>a.startsWith('lembrancinha')) : form.pacote==='premium'||form.adicionaisSelecionados.includes(i===1?'empratado':'bombom'))&&!categoriasBuffet.some(c=>c.codigo===['LEMBRANCINHAS','EMPRATADOS','BOMBONS'][i])&&<label className={styles.field} key={key}><span>{['Lembrancinha','Empratado','Bombom'][i]}</span><textarea rows={2} maxLength={2000} value={form[key]} onChange={e=>atualizar(key,e.target.value)} placeholder="Não definido"/></label>)}
                     <label className={`${styles.field} ${styles.spanTwo}`}>
                       <span>Outras preferências do buffet</span>
                       <textarea
@@ -1925,11 +1925,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 pela equipe antes do contrato.
               </StepTitle>
 
-              {form.pacote === "premium" && <p>A Festa Premium inclui 4 bombons. Informe abaixo somente a quantidade extra desejada; nenhuma compra extra é obrigatória.</p>}
+              {marca.kidmais && form.pacote === "premium" && <p>A Festa Premium inclui 4 bombons. Informe abaixo somente a quantidade extra desejada; nenhuma compra extra é obrigatória.</p>}
               {adicionaisEstado === "carregando" && <p role="status">Consultando os adicionais deste pacote…</p>}
               {adicionaisEstado === "erro" && (
                 <div className={styles.infoBox} role="alert">
-                  <strong>{mensagemFalhaAdicionais(consultaAdicionais?.codigo)}</strong>
+                  <strong>{mensagemFalhaAdicionais(consultaAdicionais?.codigo, false, marca.equipe)}</strong>
                   <p>Nenhum adicional foi selecionado. Tente novamente para continuar.</p>
                   <button type="button" onClick={() => setTentativaAdicionais((n) => n + 1)}>Tentar novamente</button>
                 </div>
@@ -2034,7 +2034,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     </div>
                   </div>
 
-                  {(adicionaisDisponiveis ?? []).some((item) => item.categoria === "MESA") && (
+                  {marca.kidmais && (adicionaisDisponiveis ?? []).some((item) => item.categoria === "MESA") && (
                     <div className={styles.infoBox}>
                       <strong>Referência de tamanho das mesas</strong>
                       <p>

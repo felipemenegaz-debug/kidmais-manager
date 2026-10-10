@@ -54,8 +54,16 @@ function modo(argv) {
 
 const segredo = () => randomBytes(32).toString('hex'); // por execução; morre com o processo
 
-/** Lista explícita (nomes e valores) para o servidor local. Segredos sintéticos novos a cada execução. */
-function variaveisExplicitas(banco, gerar = segredo) {
+/** UUID de reserva só para o modo --plano (sem banco); na execução vem da empresa `kidmais` do banco descartável. */
+const AGENDA_PUBLICA_PLANO = '00000000-0000-4000-8000-000000000000';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Lista explícita (nomes e valores) para o servidor local. Segredos sintéticos novos a cada execução.
+ * AGENDA_PUBLICA_EMPRESA_ID: endereço legado /fechamento apontado para a empresa `kidmais` (criada pela 046 no banco
+ * descartável). CONSULTA_CEP_EXTERNA=desligada: a etapa “Seus dados” não chama o ViaCEP (endereço manual).
+ */
+function variaveisExplicitas(banco, gerar = segredo, agendaPublica = AGENDA_PUBLICA_PLANO) {
     const origem = seed.ORIGEM_APP;
     return {
         NODE_ENV:'development', NEXT_TELEMETRY_DISABLED:'1', KIDMAIS_DEPLOY_ENV:'local', NEXT_FONT_GOOGLE_MOCKED_RESPONSES:MOCK_FONTES,
@@ -64,7 +72,7 @@ function variaveisExplicitas(banco, gerar = segredo) {
         ADMIN_AUTH_ORIGIN:origem, ADMIN_AUTH_SECRET:gerar(), SITE_URL:origem, CONVITES_PUBLIC_ORIGIN:origem,
         IDENTIDADE_OTP_PROVIDER:'console', IDENTIDADE_OTP_PEPPER:gerar(),
         ASAAS_AMBIENTE:'sandbox', ASAAS_API_KEY:ASAAS_CHAVE_DESLIGADA, ASAAS_WEBHOOK_TOKEN:gerar(),
-        ASSINATURA_PLANOS_ATIVOS:'true', COTACAO_PUBLICA_POR_EMPRESA:'true',
+        ASSINATURA_PLANOS_ATIVOS:'true', COTACAO_PUBLICA_POR_EMPRESA:'true', AGENDA_PUBLICA_EMPRESA_ID:agendaPublica, CONSULTA_CEP_EXTERNA:'desligada',
         EMAIL_PROVIDER:'arquivo', EMAIL_ARQUIVO_DIR:PASTA_EMAILS, EMAIL_REMETENTE:'nao-responda@example.invalid',
         RECUPERACAO_SENHA_ATIVA:'false', CADASTRO_PUBLICO_ATIVO:'false',
         FESTA_ENABLED:'true', CONVITES_ENABLED:'false', CONVITES_IA_ENABLED:'false', CONTRACT_IMPORT_INTEGRATION_ENABLED:'false', CONTRATO_ACEITE_DEV_ENABLED:'false',
@@ -76,11 +84,11 @@ function variaveisExplicitas(banco, gerar = segredo) {
 const NOMES_EXPLICITOS = Object.freeze(Object.keys(variaveisExplicitas(seed.BANCO_SUGERIDO, () => 'x')));
 
 /** Ambiente do filho: sistema (lista fechada) + explícitas. Nada mais é herdado. */
-function montarAmbiente(pai, banco, gerar = segredo) {
+function montarAmbiente(pai, banco, gerar = segredo, agendaPublica = AGENDA_PUBLICA_PLANO) {
     const env = {};
     for (const [nome, valor] of Object.entries(pai))
         if (SISTEMA.includes(nome.toUpperCase()) && typeof valor === 'string') env[nome] = valor;
-    return Object.assign(env, variaveisExplicitas(banco, gerar));
+    return Object.assign(env, variaveisExplicitas(banco, gerar, agendaPublica));
 }
 
 const ehLocal = host => HOSTS_LOCAIS.includes(String(host).toLowerCase());
@@ -105,7 +113,8 @@ function validarAmbiente(env) {
     exigir('DATABASE_SSL', 'false'); exigir('ADMIN_AUTH_ORIGIN', seed.ORIGEM_APP); exigir('SITE_URL', seed.ORIGEM_APP);
     exigir('ASAAS_AMBIENTE', 'sandbox'); exigir('ASAAS_API_KEY', ASAAS_CHAVE_DESLIGADA);
     exigir('EMAIL_PROVIDER', 'arquivo'); exigir('IDENTIDADE_OTP_PROVIDER', 'console');
-    exigir('ASSINATURA_PLANOS_ATIVOS', 'true'); exigir('COTACAO_PUBLICA_POR_EMPRESA', 'true');
+    exigir('ASSINATURA_PLANOS_ATIVOS', 'true'); exigir('COTACAO_PUBLICA_POR_EMPRESA', 'true'); exigir('CONSULTA_CEP_EXTERNA', 'desligada');
+    if (!UUID.test(env.AGENDA_PUBLICA_EMPRESA_ID ?? '')) problemas.push('VALOR_INESPERADO:AGENDA_PUBLICA_EMPRESA_ID');
     try {
         const u = new URL(env.DATABASE_URL);
         assert.ok(u.protocol === 'postgresql:' && u.hostname === '127.0.0.1' && Number(u.port) === seed.PORTA && u.username === seed.PAPEL && u.password === '');
@@ -151,16 +160,18 @@ async function verificarCodigo(env) {
     const carregar = f => carregarModulo(path.join(raiz, f), {'db/postgres':{db:semBanco, withTransaction:semBanco}}, cache);
     const asaas = carregar('lib/assinatura/asaas.ts'), ofertas = carregar('lib/assinatura/ofertas.ts'), email = carregar('lib/acessos/email.ts');
     const otp = carregar('lib/identidade/configuracao-otp.ts'), cotacao = carregar('lib/comercial/cotacao-publica.ts');
+    const cep = carregar('lib/endereco/consulta-cep-externa.ts');
     const estado = {asaas:asaas.configuracaoAsaas(env), planos:ofertas.novosPlanosLigados(env), email:email.situacaoEmail(env),
-        otp:otp.modoOtpAmbiente(env), cotacao:cotacao.cotacaoPorEmpresaHabilitada(env)};
+        otp:otp.modoOtpAmbiente(env), cotacao:cotacao.cotacaoPorEmpresaHabilitada(env), cepExterno:cep.consultaCepExternaLigada(env)};
     const problemas = [];
     if (estado.asaas.ligado !== false) problemas.push('ASAAS_LIGADO');
     if (estado.planos !== true) problemas.push('PLANOS_NOVOS_DESLIGADOS');
     if (!(estado.email.configurado && estado.email.provedor === 'arquivo')) problemas.push('EMAIL_NAO_LOCAL');
     if (estado.otp !== 'console') problemas.push('OTP_NAO_CONSOLE');
     if (estado.cotacao !== true) problemas.push('COTACAO_POR_EMPRESA_DESLIGADA');
+    if (estado.cepExterno !== false) problemas.push('CONSULTA_CEP_EXTERNA_LIGADA');
     return {resumo:{asaas:estado.asaas.ligado ? 'LIGADO' : `DESLIGADO(${estado.asaas.motivo})`, planosNovos:estado.planos,
-        email:estado.email.provedor, otp:estado.otp, cotacaoPorEmpresa:estado.cotacao}, problemas};
+        email:estado.email.provedor, otp:estado.otp, cotacaoPorEmpresa:estado.cotacao, consultaCepExterna:estado.cepExterno}, problemas};
 }
 
 /** Autoverificação completa (offline). Lança com a lista de nomes se algo falhar. */
@@ -181,7 +192,7 @@ function portaLivre(porta, host = '127.0.0.1') {
     });
 }
 
-/** Banco descartável certo e já populado pelo seed (somente leitura). */
+/** Banco descartável certo e já populado pelo seed (somente leitura). Devolve o id da empresa `kidmais` (endereço legado). */
 async function conferirBancoPopulado(a) {
     const {Client} = require('pg');
     const c = new Client({host:a.host, port:a.porta, user:seed.PAPEL, database:a.banco, ssl:false, connectionTimeoutMillis:5000,
@@ -192,6 +203,9 @@ async function conferirBancoPopulado(a) {
         seed.conferirIdentidade((await c.query(seed.SQL_IDENTIDADE)).rows[0], a, a.banco, [a.banco]);
         const n = (await c.query('SELECT count(*)::int AS n FROM empresas WHERE codigo = ANY($1::text[])', [seed.EMPRESAS.map(e => e.codigo)])).rows[0].n;
         if (n !== seed.EMPRESAS.length) throw recusa('BANCO_NAO_POPULADO');
+        const kidmais = (await c.query("SELECT id::text AS id FROM empresas WHERE codigo = 'kidmais' AND status = 'ATIVA'")).rows;
+        if (kidmais.length !== 1 || !UUID.test(kidmais[0].id)) throw recusa('EMPRESA_LEGADA_AUSENTE');
+        return kidmais[0].id;
     } finally { await c.query('ROLLBACK').catch(() => {}); await c.end().catch(() => {}); }
 }
 
@@ -206,11 +220,11 @@ async function executar(pai) {
     seed.semConexaoHerdada(pai, a);
     if (path.resolve(process.cwd()).toLowerCase() !== raiz.toLowerCase()) throw recusa('EXECUTAR_NA_RAIZ_DO_REPOSITORIO');
     if (!fs.existsSync(seed.ARQUIVO_CREDENCIAIS)) throw recusa('SEED_NAO_EXECUTADO');
-    const env = montarAmbiente(pai, a.banco);
+    const agendaPublica = await conferirBancoPopulado(a); // somente leitura, antes de montar o ambiente
+    const env = montarAmbiente(pai, a.banco, segredo, agendaPublica);
     const v = await autoverificar(env);
     if (v.problemas.length) { console.error(JSON.stringify({problemas:v.problemas})); throw recusa('AUTOVERIFICACAO_RECUSOU'); }
     if (!await portaLivre(seed.PORTA_APP)) throw recusa('PORTA_APP_OCUPADA', String(seed.PORTA_APP));
-    await conferirBancoPopulado(a);
     fs.mkdirSync(PASTA_EMAILS, {recursive:true, mode:0o700});
     console.log(JSON.stringify({resultado:'INICIANDO', origem:seed.ORIGEM_APP, escuta:`127.0.0.1:${seed.PORTA_APP}`, banco:`${a.host}:${a.porta}/${a.banco}`,
         variaveis:Object.keys(env).sort(), autoverificacao:v.codigo}, null, 2));
@@ -245,5 +259,5 @@ if (require.main === module)
     principal(process.argv.slice(2), process.env).catch(e => {
         console.error('SERVIDOR_NAVEGADOR_RECUSADO ' + seed.sanitizar(e?.message ?? e?.codigo)); process.exitCode = 1;
     });
-module.exports = {FLAG, FLAG_PLANO, MOCK_FONTES, ARQUIVOS_ENV_NEXT, SISTEMA, PROIBIDAS, ASAAS_CHAVE_DESLIGADA, NOMES_EXPLICITOS, PASTA_EMAILS, CODIGO_RESOLVIDO,
+module.exports = {FLAG, FLAG_PLANO, MOCK_FONTES, AGENDA_PUBLICA_PLANO, ARQUIVOS_ENV_NEXT, SISTEMA, PROIBIDAS, ASAAS_CHAVE_DESLIGADA, NOMES_EXPLICITOS, PASTA_EMAILS, CODIGO_RESOLVIDO,
     modo, variaveisExplicitas, montarAmbiente, validarAmbiente, arquivosEnvPresentes, verificarResolvido, verificarCodigo, autoverificar};

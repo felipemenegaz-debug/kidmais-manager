@@ -163,12 +163,43 @@ test('convidados: outra empresa só com mínimo e máximo dela, sem regras nem t
     assert.equal(erroConvidadosEmpresa(0, pocket), 'Informe a quantidade de convidados pagantes.');
     const compacta = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, { COMPACTA: { ...SO_POCKET.POCKET!, nome: 'Compacta da casa', convidadosMaximos: 300 } }, 'compacta')!;
     assert.equal(erroConvidadosEmpresa(41, compacta), null, 'sem a regra de 40 da Festa Compacta');
-    assert.equal(erroConvidadosEmpresa(200, compacta), null, 'sem o teto de 150 da Kidmais');
+    // Teto do pedido online = o do servidor (comercial-schema, 150), com redação neutra (sem “A Kidmais atende…”).
+    assert.equal(erroConvidadosEmpresa(150, compacta), null);
+    assert.equal(erroConvidadosEmpresa(151, compacta), 'O pedido online aceita até 150 convidados. Para mais, fale com o buffet.');
     const semLimite = pacoteDaTela(false, PACOTES_FECHAMENTO_V1, { POCKET: { ...SO_POCKET.POCKET!, convidadosMaximos: null } }, 'pocket')!;
-    assert.equal(erroConvidadosEmpresa(800, semLimite), null, 'máximo não cadastrado: o servidor decide');
+    assert.equal(erroConvidadosEmpresa(150, semLimite), null, 'máximo não cadastrado: vale o teto do pedido online');
+    assert.equal(semLimite.maxPagantes, 150);
     // Endereço atual: a regra da Kidmais continua a mesma.
     assert.match(erroConvidadosFechamento(41, { id: 'compacta', nome: 'Compacta', minPagantes: 40, maxPagantes: 150 })!, /Festa Compacta/);
     assert.match(erroConvidadosFechamento(151, { id: 'pocket', nome: 'Pocket', minPagantes: 20, maxPagantes: 150 })!, /Kidmais atende no máximo 150/);
     const fonte = readFileSync('components/fechamento/FechamentoWizard.tsx', 'utf8');
     assert.match(fonte, /marca\.kidmais \? erroConvidadosFechamento\(convidados, pacote\) : erroConvidadosEmpresa\(convidados, pacote\)/);
+});
+
+test('teto de convidados da tela por empresa é o mesmo do servidor (comercial-schema)', async () => {
+    const { LIMITE_CONVIDADOS_PEDIDO_ONLINE } = await import('../../lib/fechamentos/convidados.ts');
+    const fonte = readFileSync('lib/fechamentos/comercial-schema.ts', 'utf8');
+    assert.ok(fonte.includes(`convidadosPagantes: z.coerce.number().int().min(1).max(${LIMITE_CONVIDADOS_PEDIDO_ONLINE})`));
+});
+
+test('etapas Buffet e Personalização: textos e campos do catálogo da Kidmais só no endereço dela', async () => {
+    const { mensagemFalhaAdicionais } = await import('./adicionais-etapa.ts');
+    assert.match(mensagemFalhaAdicionais('PRECO_INDISPONIVEL', false, 'equipe do buffet'), /Fale com a equipe do buffet\.$/);
+    assert.match(mensagemFalhaAdicionais('PRECO_INDISPONIVEL'), /Fale com a equipe Kidmais\.$/, 'endereço atual inalterado');
+    const fonte = readFileSync('components/fechamento/FechamentoWizard.tsx', 'utf8');
+    assert.match(fonte, /\{marca\.kidmais && \(\['buffetLembrancinha','buffetEmpratado','buffetBombom'\] as const\)\.map\(\(key,i\)=>/);
+    assert.match(fonte, /\{marca\.kidmais && form\.pacote === "premium" && <p>A Festa Premium inclui 4 bombons\./);
+    assert.match(fonte, /\{marca\.kidmais && \(adicionaisDisponiveis \?\? \[\]\)\.some\(\(item\) => item\.categoria === "MESA"\)/);
+    assert.match(fonte, /mensagemFalhaAdicionais\(consultaAdicionais\?\.codigo, false, marca\.equipe\)/);
+});
+
+test('consulta de CEP: ligada por padrão; desligada só com CONSULTA_CEP_EXTERNA=desligada, sem chamar o serviço externo', async () => {
+    const { consultaCepExternaLigada } = await import('../../lib/endereco/consulta-cep-externa.ts');
+    assert.equal(consultaCepExternaLigada({}), true);
+    assert.equal(consultaCepExternaLigada({ CONSULTA_CEP_EXTERNA: 'ligada' }), true);
+    assert.equal(consultaCepExternaLigada({ CONSULTA_CEP_EXTERNA: ' Desligada ' }), false);
+    const rota = readFileSync('app/api/endereco/consultar-cep/route.ts', 'utf8');
+    const desligado = rota.indexOf('if (!consultaCepExternaLigada())'), chamada = rota.indexOf('fetch(`https://viacep.com.br');
+    assert.ok(desligado > 0 && desligado < chamada, 'a recusa vem antes da chamada externa');
+    assert.match(rota, /SERVICO_CEP_INDISPONIVEL/);
 });
