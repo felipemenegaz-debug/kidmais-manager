@@ -100,3 +100,36 @@ export function reiniciarContextoEmpresa(aviso?: string, destino?: string) {
     const alvo = destino ?? (window.location.pathname.startsWith('/desenvolvedor') ? '/desenvolvedor' : '/admin/dashboard');
     window.location.replace(alvo);
 }
+
+/**
+ * Troca de empresa iniciada NESTA página (AdminShell): a sessão atual é revogada e outra é criada. Uma leitura da sessão
+ * que saiu ANTES do início da troca, ou DURANTE ela (ainda com os cookies da sessão anterior), pode chegar dizendo
+ * "sessão encerrada" — é a sessão anterior, não a nova. Essa resposta é obsoleta: não manda ao login (a própria troca
+ * navega ao painel e descarta a página). Leituras que saem fora disso seguem a regra normal: sessão realmente
+ * encerrada, expirada ou revogada → login. Troca recusada ou sem resposta encerra a janela (encerrarTrocaDeEmpresa).
+ */
+let trocasDeEmpresa = 0;
+let trocaEmCurso = false;
+
+/** Marca o início de uma troca de empresa nesta página (antes do pedido ao servidor). */
+export function iniciarTrocaDeEmpresa() {
+    trocasDeEmpresa += 1;
+    trocaEmCurso = true;
+}
+
+/** A troca não aconteceu (recusada, falhou): a sessão atual continua valendo e as leituras voltam à regra normal. */
+export function encerrarTrocaDeEmpresa() {
+    trocaEmCurso = false;
+}
+
+export type MarcaDaSessao = { geracao: number; durante: boolean };
+
+/** Marca do momento em que uma leitura da sessão sai; compare com sessaoObsoletaDesde quando a resposta chegar. */
+export function marcaDaSessao(): MarcaDaSessao {
+    return { geracao: trocasDeEmpresa, durante: trocaEmCurso };
+}
+
+/** true quando a leitura saiu durante uma troca, ou uma troca começou depois dela: a resposta é da sessão anterior. */
+export function sessaoObsoletaDesde(marca: MarcaDaSessao) {
+    return marca.durante || marca.geracao !== trocasDeEmpresa;
+}

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { registrarContextoEmpresa, reiniciarContextoEmpresa } from '@/lib/http/contexto-empresa-cliente';
+import { encerrarTrocaDeEmpresa, iniciarTrocaDeEmpresa, marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
 import styles from './shell.module.css';
 import tokens from './tokens.module.css';
 import admin from './admin.module.css';
@@ -48,7 +48,10 @@ export default function AdminShell({ children, vitrine }: {
         if (vitrine || path === '/admin/login')
             return;
         let alive = true;
-        const carregar = () => fetch('/api/admin/autenticacao', { cache: 'no-store' }).then(r => r.json()).then(b => {
+        // Resposta de leitura que saiu antes de uma troca de empresa desta página é da sessão anterior: ignorada.
+        const carregar = () => { const marca = marcaDaSessao(); return fetch('/api/admin/autenticacao', { cache: 'no-store' }).then(r => r.json()).then(b => {
+            if (sessaoObsoletaDesde(marca))
+                return;
             if (!b.ok || !b.data.usuarioId) {
                 setName(null);
                 window.location.replace('/admin/login');
@@ -64,7 +67,7 @@ export default function AdminShell({ children, vitrine }: {
                 setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
-        }).catch(() => router.replace('/admin/login'));
+        }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace('/admin/login'); }); };
         void carregar();
         const timer = window.setInterval(carregar, 15000);
         const foco = () => { void carregar(); };
@@ -130,6 +133,8 @@ export default function AdminShell({ children, vitrine }: {
     async function escolherEmpresa(id: string) {
         if (!id || trocando) return;
         setTrocando(true); setErroEmpresa('');
+        // A partir daqui, leituras da sessão anterior que chegarem atrasadas não mandam ao login (a sessão vai ser trocada).
+        iniciarTrocaDeEmpresa();
         try {
             const res = await adminFetch('/api/admin/autenticacao', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ acao: 'selecionar-empresa', empresaId: id }) });
@@ -137,7 +142,7 @@ export default function AdminShell({ children, vitrine }: {
             if (!res.ok || !b.ok) throw Error(b.erro ?? 'Não foi possível trocar de empresa.');
             try { localStorage.setItem('kidmais-contexto-alterado', String(Date.now())); } catch { /* Sem armazenamento, foco/poll revalidam as outras abas. */ }
             reiniciarContextoEmpresa();
-        } catch (e) { setErroEmpresa(e instanceof Error ? e.message : 'Não foi possível trocar de empresa.'); setTrocando(false); }
+        } catch (e) { encerrarTrocaDeEmpresa(); setErroEmpresa(e instanceof Error ? e.message : 'Não foi possível trocar de empresa.'); setTrocando(false); }
     }
     const seletor = contexto && contexto.empresas.length > 0 ? <label className={styles.seletorEmpresa}>Empresa ativa
         <select aria-label="Empresa ativa" disabled={trocando} value={contexto.empresaAtual?.id ?? ''} onChange={e => void escolherEmpresa(e.target.value)}>
