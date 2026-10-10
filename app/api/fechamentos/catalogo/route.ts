@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/postgres";
-import { escopoCatalogoPublico } from "@/lib/comercial/catalogo-publico";
+import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
 import { pacoteCodigoContratavelV1 } from "@/lib/comercial/pacotes-v1";
 import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import { limitarPublico } from "@/lib/http/limite-publico";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const limite = limitarPublico(request, "LEITURA");
+  if (limite) return limite;
   try {
-    const escopo = await escopoCatalogoPublico(db);
+    const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
     const codigo = request.nextUrl.searchParams.get("pacote") ?? "";
     if (!pacoteCodigoContratavelV1(codigo)) throw new PacoteAdminError("DADOS_INVALIDOS", "Pacote inválido.", 400);
     const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigo, db());

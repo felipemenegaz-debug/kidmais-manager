@@ -79,6 +79,8 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // Wall-e (078): a porta é montada no domínio; a rota só entrega o entendimento pelo roteador (ou null = regras).
   "lib/whatsapp/atendimento/walle/porta": ["criarPortaWallE", "modoEntendimentoWallE", "pedidoEntendimentoWallE"],
   "lib/financeiro/servico": ["criarContaPagar", "listarCategoriasDespesa"],
+  // Barreira de plano no servidor: a ação de conta a pagar respeita o mesmo plano das rotas de Contas a pagar.
+  "lib/assinatura/recursos-plano": ["exigirRecursoPlano", "recursoIncluido"],
   "next/server": ["NextRequest"],
   "node:crypto": ["randomUUID"],
   "lib/http/admin-crm-api": ["exigirApiAdminCrmDisponivel", "tokenAdmin"],

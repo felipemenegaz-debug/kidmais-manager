@@ -9,7 +9,7 @@ export const recursos = {
     clientes: { nome: 'Clientes e aniversariantes', status: 'disponivel', evidencia: implementado },
     festas: { nome: 'Festas e pacotes', status: 'disponivel', evidencia: implementado },
     contratos: { nome: 'Contratos pelo celular', status: 'disponivel', evidencia: implementado },
-    orcamento: { nome: 'Orçamento online', status: 'disponivel', evidencia: implementado },
+    orcamento: { nome: 'Orçamento online', status: 'em_breve', evidencia: '10/10/2026: endereço público por empresa (/b/<código>) implementado atrás de COTACAO_PUBLICA_POR_EMPRESA, desligado até a homologação em staging. O endereço atual atende só a empresa configurada no servidor.' },
     horarios: { nome: 'Horário nobre e adicionais', status: 'disponivel', evidencia: implementado },
     financeiro: { nome: 'Financeiro', status: 'disponivel', evidencia: implementado },
     pix: { nome: 'Pix copia e cola', status: 'disponivel', evidencia: implementado },

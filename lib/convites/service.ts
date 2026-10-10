@@ -119,9 +119,9 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
       exigir(a.tipo === 'admin', 'Somente o buffet pode distribuir créditos.', 403);
       const tenant = await provarTenant(tx, a.sessao);
       exigir(tenant.papelAtual === 'REPRESENTANTE_AUTORIZADO', 'Somente a gestão pode alterar cotas.', 403);
-      const limite = await cotas(tx, c);
       exigir(i.festa >= c.usado_festa && i.cliente >= c.usado_cliente && i.cliente <= i.festa, 'A cota não pode ser menor que o uso nem a cota do cliente maior que a da festa.');
-      exigir(i.festa - c.usado_festa <= Math.max(0, limite.empresa - limite.empresaUsado), 'A empresa não tem esse saldo disponível.');
+      // Cotas são tetos, não reservas do saldo mensal. O saldo da empresa é
+      // validado novamente em cada geração; não bloqueie ajustes de limites.
       await tx.query('UPDATE convites SET limite_festa=$2,limite_cliente=$3 WHERE id=$1', [c.id, i.festa, i.cliente]);
     } else if (i.acao === 'upload') {
       await limitarArtes(tx, c);

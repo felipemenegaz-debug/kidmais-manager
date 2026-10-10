@@ -156,6 +156,20 @@ export async function buscarClienteCanonicoPorCpfParaIdentidade(
   return result.rows[0] ? mapCliente(result.rows[0]) : null;
 }
 
+/**
+ * Só existência, para o fechamento público por endereço de empresa decidir se grava o CPF sem violar o índice
+ * global (PR-B2). O resultado nunca sai na resposta pública nem identifica a empresa dona do cadastro.
+ */
+export async function cpfCanonicoEmUso(cpf: string, customDb?: DbExecutor): Promise<boolean> {
+  const normalized = normalizarCpf(cpf);
+  if (!normalized) return false;
+  const result = await executor(customDb).query<{ em_uso: boolean }>(
+    `SELECT EXISTS(SELECT 1 FROM clientes WHERE cpf = $1 AND status <> 'MESCLADO') AS em_uso`,
+    [normalized],
+  );
+  return result.rows[0]?.em_uso === true;
+}
+
 export async function buscarClientesPorContatoExato(
   contato: string,
   empresaId: string,

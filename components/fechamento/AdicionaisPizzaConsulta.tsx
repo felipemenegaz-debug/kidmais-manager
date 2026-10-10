@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import { LIMITES_PIZZA_PARTY, erroConvidadosPizzaParty } from '../../lib/comercial/pacotes-v1';
 import styles from './FechamentoWizard.module.css';
+import { apiPublica } from '../../lib/fechamentos/rota-publica';
 
 type Extra = { id: string; nome: string; preco: number; unidadeCobranca: string };
 
 /** Consulta preços de extras sem atribuir preço base nem liberar contratação da Pizza. */
-export default function AdicionaisPizzaConsulta() {
+export default function AdicionaisPizzaConsulta({ empresa = null }: { empresa?: string | null } = {}) {
   const [data, setData] = useState('');
   const [convidados, setConvidados] = useState<number>(LIMITES_PIZZA_PARTY.minimo);
   const [itens, setItens] = useState<Extra[] | null>(null);
@@ -16,12 +17,12 @@ export default function AdicionaisPizzaConsulta() {
   useEffect(() => {
     const controller = new AbortController();
     if (!data || erroQuantidade) return;
-    void fetch(`/api/fechamentos/adicionais?pacote=pizza_party_scienza&data=${encodeURIComponent(data)}&convidados=${convidados}`, { signal: controller.signal, cache: 'no-store' })
+    void fetch(apiPublica(`/api/fechamentos/adicionais?pacote=pizza_party_scienza&data=${encodeURIComponent(data)}&convidados=${convidados}`, empresa), { signal: controller.signal, cache: 'no-store' })
       .then(async r => { if (!r.ok) throw Error(); return r.json(); })
       .then(body => { if (!controller.signal.aborted) { setItens(body.adicionais); setErro(''); } })
       .catch(() => { if (!controller.signal.aborted) { setItens(null); setErro('Não foi possível consultar os adicionais.'); } });
     return () => controller.abort();
-  }, [data, convidados, erroQuantidade]);
+  }, [data, convidados, erroQuantidade, empresa]);
   return <section className={styles.consultPanel} aria-label="Adicionais da Pizza Party">
     <h3>Adicionais da Pizza Party</h3>
     <p>Consulte os mesmos preços e faixas dos demais pacotes. O preço base da Pizza Party permanece sob consulta; esta consulta não reserva a data.</p>
