@@ -52,6 +52,8 @@ function ambiente() {
     const lido = () => (ctx.lerAvisoDeContexto as () => string | null)();
     return {
         mod, envios, navegacoes, porta, respostas, falhasDeConfirmacao, lido,
+        /** Descarte iniciado pela própria página SEM aviso (ex.: troca de empresa pelo AdminShell). */
+        descartarSemAviso: () => (ctx.reiniciarContextoEmpresa as () => void)(),
         trocarEmpresa: (empresa: string) => { sessao = { ...sessao, empresa }; },
         enviosDe: (url: string, metodo: string) => envios.filter((e) => e.url === url && e.metodo === metodo).length,
     };
@@ -164,4 +166,28 @@ test('duas escritas com resultados diferentes antes do descarte → os dois resu
     assert.match(aviso, /concluída antes da mudança/);
     assert.match(aviso, /Resultado incerto/);
     assert.deepEqual([a.enviosDe(ESCRITA, 'POST'), a.enviosDe(E2, 'POST')], [1, 1]);
+});
+
+test('descarte iniciado pela página SEM aviso (troca de empresa) + leitura abortada pela navegação depois → nenhum aviso de leitura fica para a próxima tela', async () => {
+    const a = ambiente();
+    const abrirLeitura = a.porta(LEITURA);
+    a.respostas.set(LEITURA, { status: 200, corpo: {}, depois: () => a.falhasDeConfirmacao.push('rede') });
+    const leitura = mensagem(a.mod.adminFetch(LEITURA));
+    await tique();
+    a.descartarSemAviso();                 // a troca de empresa navega ao painel, sem aviso próprio
+    abrirLeitura(); await leitura;         // a confirmação da leitura falha (abortada pela navegação)
+    assert.equal(a.lido(), null, 'a falha causada pela própria navegação não deixa aviso');
+    assert.equal(a.enviosDe(LEITURA, 'GET'), 1);
+});
+
+test('descarte iniciado SEM aviso e, depois, o resultado de uma escrita chega → o aviso da escrita é guardado (resultado real nunca se perde)', async () => {
+    const a = ambiente();
+    const abrirEscrita = a.porta(ESCRITA);
+    a.respostas.set(ESCRITA, { status: 200, corpo: { ok: true }, depois: () => a.trocarEmpresa('beta') });
+    const escrita = mensagem(a.mod.adminFetch(ESCRITA, { method: 'POST', body: '{}' }));
+    await tique();
+    a.descartarSemAviso();
+    abrirEscrita(); assert.match(await escrita, /concluída antes da mudança/);
+    assert.match(a.lido() ?? '', /concluída antes da mudança/);
+    assert.equal(a.enviosDe(ESCRITA, 'POST'), 1);
 });

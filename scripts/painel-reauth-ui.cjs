@@ -341,6 +341,47 @@ async function principal() {
     resultados.push(`G16, corrida forçada (leitura com a confirmação falhando depois da escrita, navegação presa): executada uma vez; aviso "${avisoCorrida}"`);
     console.log('E2E_G16_CORRIDA_OK');
 
+    // 4c. Troca de empresa PELA PÁGINA (descarte sem aviso próprio) com uma leitura em andamento cuja confirmação de sessão
+    //     falha DEPOIS de a troca iniciar a navegação (pedido abortado pela própria navegação). Nenhum aviso de leitura
+    //     pode sobrar para as telas seguintes (falha do G16-02 de 10/10: aviso antigo exibido no Perfil).
+    await abrirPerfilNaAlfa();
+    let liberarLogoC; const logoLiberadoC = new Promise((r) => { liberarLogoC = r; });
+    let logoPedidoC; const logoPresoC = new Promise((r) => { logoPedidoC = r; });
+    await page.route(URL_LOGO, async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      logoPedidoC(); await logoLiberadoC; await route.continue();
+    });
+    let abortarC = false; let abortouC; const abortadaC = new Promise((r) => { abortouC = r; });
+    await page.route('**/api/admin/autenticacao', async (route) => {
+      if (abortarC && route.request().method() === 'GET') { abortarC = false; await route.abort('failed'); abortouC(); return; }
+      await route.continue();
+    });
+    let liberarNavC; const navLiberadaC = new Promise((r) => { liberarNavC = r; });
+    let navegouC; const navPresaC = new Promise((r) => { navegouC = r; });
+    await page.route('**/admin/dashboard', async (route) => {
+      if (route.request().resourceType() !== 'document') return route.continue();
+      navegouC(); await navLiberadaC; await route.continue();
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event('kidmais-logo-aplicada')));
+    await logoPresoC;
+    await page.getByLabel('Empresa ativa', { exact: true }).first().selectOption(empresas.beta.id);
+    await navPresaC;                        // a troca concluiu e pediu o painel (descarte sem aviso)
+    abortarC = true; liberarLogoC();        // a leitura recebe a resposta; a confirmação dela falha agora
+    await abortadaC;
+    await page.waitForTimeout(300);
+    liberarNavC();
+    await page.waitForURL(`${base}/admin/dashboard`);
+    await page.unroute('**/admin/dashboard'); await page.unroute('**/api/admin/autenticacao'); await page.unroute(URL_LOGO);
+    await page.waitForTimeout(500);
+    assert.equal(await page.locator('[data-aviso-contexto]').count(), 0, 'nenhum aviso de leitura no painel depois da troca');
+    // Tela seguinte (a empresa ativa agora é a Beta, sem Perfil na fixture): basta a tela carregar com o shell.
+    await page.goto(`${base}/admin/configuracoes/perfil-empresa`);
+    await page.getByLabel('Empresa ativa', { exact: true }).first().waitFor();
+    await page.waitForTimeout(500);
+    assert.equal(await page.locator('[data-aviso-contexto]').count(), 0, 'nem nas telas seguintes');
+    resultados.push('Troca de empresa pela página com leitura abortada depois: nenhum aviso de leitura sobra para as telas seguintes');
+    console.log('E2E_G16_TROCA_SEM_AVISO_OK');
+
     // 6–7. Troca de empresa seguida de FALHA na consulta de confirmação da sessão (contexto desconhecido).
     // Enquanto armada, toda leitura de /api/admin/autenticacao feita pela página falha (rede); desarma quando a página
     // é descartada para o dashboard. A troca é feita pela API do contexto (fora da página), sem passar pelas rotas.

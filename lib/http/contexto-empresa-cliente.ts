@@ -70,11 +70,17 @@ export function concluirRenovacaoDeSessao(renovacao: { anterior: string; atual: 
  * não saberia que a operação foi concluída e poderia repeti-la. Resultados de escritas diferentes se somam; entre
  * descartes vale o primeiro (os seguintes costumam ser efeito da própria navegação, como pedidos abortados).
  * SAÍDA (components/admin/sair.ts) mantém a regra própria: o aviso dela é o único que vale.
+ * Depois que a própria página iniciou o descarte (reiniciarContextoEmpresa, com ou sem aviso — por exemplo, a troca de
+ * empresa), nenhum aviso de DESCARTE novo é guardado: falhas de pedidos da página antiga são efeito da navegação e não
+ * podem aparecer numa tela seguinte. O resultado de uma escrita continua sendo guardado.
  */
 export type OrigemAviso = 'escrita' | 'descarte' | 'saida';
 let avisoDaPagina: { texto: string; origem: OrigemAviso } | null = null;
+let descarteIniciado = false;
 
 export function guardarAvisoDeContexto(texto: string, origem: OrigemAviso = 'descarte') {
+    if (origem === 'descarte' && descarteIniciado)
+        return;
     let final = texto;
     if (avisoDaPagina && origem !== 'saida') {
         if (origem === 'descarte' || avisoDaPagina.texto.includes(texto))
@@ -114,6 +120,7 @@ export function saidaDaSessaoEmAndamento() {
 export function reiniciarContextoEmpresa(aviso?: string, destino?: string, origem: OrigemAviso = 'descarte') {
     if (saidaDaSessao) return;
     if (aviso) guardarAvisoDeContexto(aviso, origem);
+    descarteIniciado = true;
     // Navegação completa descarta o Router Cache, estados React, conversas/rascunhos e pedidos da página antiga.
     // Nenhum dado de negócio é guardado no sinal entre abas nem no aviso.
     const alvo = destino ?? (window.location.pathname.startsWith('/desenvolvedor') ? '/desenvolvedor' : '/admin/dashboard');
