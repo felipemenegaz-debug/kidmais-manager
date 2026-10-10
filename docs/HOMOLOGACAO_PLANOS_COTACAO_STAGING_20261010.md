@@ -4,9 +4,9 @@
 
 ## Candidata
 
-- **Código: `e9c1bcca368bb4ba489ac0be5807bb9414ba0de3`** (branch `staging`).
-- O commit seguinte, que traz este documento, altera somente `docs/`. Em O2, conferir que `origin/staging` é esse commit de documentação ou o próprio `e9c1bcc`, e que `git diff --name-only e9c1bcc origin/staging` lista apenas arquivos em `docs/`. Qualquer outra diferença: parar.
-- Inclui: financeiro por plano (`a17e6d6`), cotação por empresa e isolamento (`61519e2`, `cf1b9e7`), identidade/CPF/pagamento/nome/ícone por empresa (`57d0e71`) e o encerramento comprovado, restauração e regras nas telas (`e9c1bcc`), sobre a correção de convites `971f9c1` já presente em `staging`.
+- **Código: `12ac74f20943dfe629ed3c32e95b53b0431dc1ca`** (branch `staging`).
+- O commit seguinte, que traz este documento, altera somente `docs/`. Em O2, conferir que `origin/staging` é esse commit de documentação ou o próprio `12ac74f`, e que `git diff --name-only 12ac74f origin/staging` lista apenas arquivos em `docs/`. Qualquer outra diferença: parar.
+- Inclui: financeiro por plano (`a17e6d6`), cotação por empresa e isolamento (`61519e2`, `cf1b9e7`), identidade/CPF/pagamento/nome/ícone por empresa (`57d0e71`) o encerramento comprovado, restauração e regras nas telas (`e9c1bcc`, sobre a correção de convites `971f9c1` já presente em `staging`) e a evidência do contrato gerado (`12ac74f`).
 
 | Ponto | Situação na candidata | Kidmais (endereço atual) |
 |---|---|---|
@@ -32,7 +32,7 @@
 | O1 | (a) Web Shell do `srv-daif418ae00c73e8k2gg`, no deploy atual, registrar a configuração anterior das duas chaves (só presença e `true`/`false`; recusa sobrescrever): ver **Registro da configuração anterior**. (b) Render MCP `update_environment_variables` no mesmo serviço, modo **merge** (sem `replace`): `COTACAO_PUBLICA_POR_EMPRESA=true`, `ASSINATURA_PLANOS_ATIVOS=true`. Nenhuma outra variável. | grava a configuração; vale no próximo deploy | segundos; Shell por duração |
 | O2 | Revalidar branch/auto-deploy; conferir `origin/staging` conforme **Candidata**; Render MCP `trigger_deploy` no `srv-daif418ae00c73e8k2gg`; acompanhar build (`check:v1:static` + build) e `/api/health`. | web reinicia com a candidata e as chaves; o código funciona com e sem 076/077 | ~6 min |
 | O3 | Conferir no painel que o backup/recuperação pontual do `dpg-daidko3m8hqs73ce4jt0-a` está disponível (sem restaurar). Web Shell: `cd /opt/render/project/src && node --experimental-strip-types scripts/migrations-076-077-staging.cjs --aplicar-076-077-autorizado` | DDL: índice de CPF por empresa (076); `empresa_regras_pagamento` com a linha legada da Kidmais se `codigo='kidmais'` existir (077). Relatório (leitura) se a empresa do endereço atual de staging ficou com regra. Nenhuma linha alterada/apagada | < 1 min; lock_timeout 5s |
-| O4 | Web Shell: `cd /opt/render/project/src && mkdir -p data/homologacao-planos-cotacao-20261010 && nohup node --experimental-strip-types scripts/homologacao-planos-cotacao-staging.cjs --rodada-1-autorizada > data/homologacao-planos-cotacao-20261010/saida.log 2>&1 < /dev/null &` (registrar PID; não redeployar durante). Depois `cat data/homologacao-planos-cotacao-20261010/saida.log` e registro sanitizado em `docs/evidencias/`. | fixtures, catálogo, 2 checkouts/confirmações sandbox, matriz; encerramento sempre executado | ~20–30 min; Shell por duração |
+| O4 | Web Shell: `cd /opt/render/project/src && mkdir -p data/homologacao-planos-cotacao-20261010 && nohup node --experimental-strip-types scripts/homologacao-planos-cotacao-staging.cjs --rodada-1-autorizada > data/homologacao-planos-cotacao-20261010/saida.log 2>&1 < /dev/null &` (registrar PID; não redeployar durante). Depois `cat data/homologacao-planos-cotacao-20261010/saida.log` e registro sanitizado em `docs/evidencias/`. | fixtures, catálogo, 2 checkouts/confirmações sandbox, pedidos públicos, 1 contrato (versão em elaboração) de F2, matriz; encerramento sempre executado | ~20–30 min; Shell por duração |
 | O5 | Restaurar a configuração registrada em O1 (ver **Restauração**), `trigger_deploy` do mesmo SHA e conferir em runtime: `cd /opt/render/project/src && node scripts/configuracao-homologacao-staging.cjs --conferir-restauracao` → `RESTAURADA`; `/b/hml-planos-profissional/fechamento` = 404. 076/077 permanecem (rollback só com decisão própria). | staging volta à configuração anterior | ~6 min |
 
 ### Registro da configuração anterior (O1a)
@@ -109,7 +109,7 @@ Pacote `POCKET` com faixa única fixa 20–30 convidados, R$ 1.500,00 (`FAIXA_PO
 | `/b/hml-planos-profissional/fechamento`, `/disponibilidade` | 200; HTML sem logo da Kidmais, `<title>Orçamento da festa</title>`, `/icone-orcamento.svg` |
 | `pacotes?empresa=` F2 / F4 | 200, catálogo da própria empresa |
 | Essencial, inexistente, formato inválido, `/b/hml-planos-essencial/fechamento`, PDF | 404 idêntico |
-| **Preço independente** (calculado pelo executor a partir da faixa, sem o código do sistema) | cotação `valorTabela` e `valor` = 150000 centavos; `valor_tabela` do fechamento F2 = 150000; F2 sem regra → `descontoPercentual` 0 → PIX à vista = 150000 |
+| **Preço independente** (calculado pelo executor a partir da faixa, sem o código do sistema) | cotação `valorTabela` e `valor` = 150000 centavos; `valor_tabela` do fechamento F2 = 150000; condição de F2 com `descontoPercentual` 0 (F2 sem regra) |
 | Pedido F2 (cadastro novo) | 201; `empresa_id`=F2; sem `crm` |
 | `consultar-cpf` do cliente de F2 | F2 `CLIENTE_EXISTENTE`; F4 `NOVO_CLIENTE`; endereço atual `NOVO_CLIENTE` |
 | Mesmo CPF em F4 | 201, mesmas chaves; cliente de F4 com o próprio CPF (076) |
@@ -130,15 +130,15 @@ Pacote `POCKET` com faixa única fixa 20–30 convidados, R$ 1.500,00 (`FAIXA_PO
 - Código: `git revert` em `staging` + deploy autorizado; funciona com e sem 076/077.
 - Configuração: O5 (restaurar o registro de O1).
 - 076/077: rollbacks em `database/rollback/20261010_07{6,7}_*_down.sql` (abortam se perderiam informação).
-- Dados de homologação: encerramento comprovado; nunca apagados.
+- Dados de homologação (inclusive o contrato de F2, que fica em elaboração e nunca é enviado nem assinado): encerramento comprovado; nunca apagados.
 
-## Evidências locais (candidata `e9c1bcc`)
+## Evidências locais (candidata `12ac74f`)
 
 | Validação | Resultado |
 |---|---|
 | Testes unitários sem banco | 2223/2223 |
 | Testes de scripts offline (executor, aplicador, configuração, harness, cron) | 131/131 |
-| Executor | 16/16 — falha (erro original preservado, falhas de limpeza registradas, sem banco, disco indisponível), colisão (precheck incompleto, fixture/cliente Asaas preexistente, webhook reutilizado, assinatura de outro cliente/id), interrupção (antes do commit das fixtures, após checkout sem ids, após webhook sem id, antes do precheck, webhook ambíguo), ordem das provas e preço independente |
+| Executor | 16/16 — contrato gerado conferido contra o esperado independente (sem comparar o esperado consigo mesmo); falha (erro original preservado, falhas de limpeza registradas, sem banco, disco indisponível), colisão (precheck incompleto, fixture/cliente Asaas preexistente, webhook reutilizado, assinatura de outro cliente/id), interrupção (antes do commit das fixtures, após checkout sem ids, após webhook sem id, antes do precheck, webhook ambíguo), ordem das provas e preço independente |
 | Restauração da configuração | 5/5 (comando de uma linha = registro do script; não sobrescreve; plano de O5) |
 | Preços | tabela calculada à mão (legado e regras da empresa) + 2000 bases × 3 formas contra a fórmula anterior |
 | TypeScript, build, worker de PDF | aprovados |
