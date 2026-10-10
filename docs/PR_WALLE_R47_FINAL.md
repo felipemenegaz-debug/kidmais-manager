@@ -1,8 +1,8 @@
 # PR nova — texto final (não publicada)
 
 - **Base:** `staging`
-- **Head:** `whatsapp/walle-r47-limite-silencio-20261010` (a partir de `e66f727`, que segue preservada, com o staging local
-  `6de4442` integrado)
+- **Head:** `whatsapp/walle-r47-textos-limite-20261010` (a partir de `62497b1`, que segue preservada; contém `e66f727` e o
+  staging local `6de4442` integrado)
 - **SHA candidato:** o SHA exato e os gates ficam no relatório de gates da correção (fora do diff: um documento não registra o
   próprio SHA); `aeedb19` e `5b428a7` preservados.
 
@@ -12,7 +12,7 @@
 
 ## Título
 
-`feat(whatsapp): atendimento WhatsApp com Wall-e (r47) — migrations 060/065/076–078 não aplicadas, canal desligado`
+`feat(whatsapp): atendimento WhatsApp com Wall-e (r47) — migrations 060, 065, 076, 077 e 078 (esta PR não as aplica), canal desligado`
 
 ## Descrição
 
@@ -28,7 +28,7 @@ Inclui:
 
 **Nada é ativado por esta PR:**
 - canal desligado por padrão;
-- migrations não aplicadas;
+- esta PR não aplica migrations (o estado do banco de staging não foi verificado nesta entrega);
 - nenhuma variável de ambiente alterada.
 
 **Propõe substituir o conteúdo da PR #80**. A #80 permanece intacta; seu fechamento exige decisão posterior. A 064 da #80 colide com a `064_reimportacao` do staging. Esta PR contém todo o conteúdo dela e o da fase B.
@@ -40,7 +40,17 @@ Inclui:
 - **Login:** o "mostrar senha" do login fica na versão que o staging já tem.
 - **Fase B (`1f938d2`, não publicada):** os 30 arquivos estão incluídos como 077, com todos os 127 nomes de teste.
 
-### Migrations (todas exigem autorização explícita; nenhuma aplicada)
+### Migrations desta entrega: 060, 065, 076, 077 e 078
+
+- **Esta entrega não aplica migrations.** Cada aplicação exige autorização explícita própria.
+- **Estado do banco de staging: não verificado.** Os arquivos na branch não dizem o que está aplicado no banco; nesta
+  entrega não houve leitura do banco (nem E2a, nem leitura remota).
+- **O E2a antigo é histórico.** O E2a de 04/10 ("aplicar 060/064/065") não autoriza aplicação atual: a 064 da #80 virou a
+  076, o staging andou e a lista mudou. Só um E2a novo e datado, contra o commit final, define o que falta.
+- **Migrations a aplicar:** somente as desta entrega (060, 065, 076, 077 e 078) que esse E2a novo mostrar ausentes —
+  nunca um intervalo ("060–078" incluiria migrations que não são desta PR).
+- **Números livres não são reserva.** 076–078 estavam livres na última leitura local; isso não comprova reserva entre
+  sessões. Reconferir antes do push e antes de aplicar.
 
 | Migration | Conteúdo | Relação com a #80 / fase B |
 |---|---|---|
@@ -107,7 +117,9 @@ Inclui:
 - Não muda o processo de start do Render.
 
 ### Pendências fora desta PR
-- Homologação em staging: deploy manual autorizado; aplicação das migrations com E2a e backup; roteiro U1–U10 e P1–P8.
+- Homologação em staging: deploy manual autorizado; E2a novo e datado; aplicação, com autorização própria, backup e
+  restauração comprovada, só das migrations desta entrega (060, 065, 076, 077, 078) que o E2a novo mostrar ausentes;
+  roteiro U1–U10 e P1–P8 (H9a2: limite diário em silêncio).
 - Canal real bloqueado:
   - autenticação e Partner API da Gupshup (chamado #277630);
   - E0 (receptor único) e E3 (OTP público funcional);
@@ -170,13 +182,19 @@ de pausa (não foi classificada): "Devolver ao Wall-e" continua possível nesse 
 **Limitação sem a migration 078 (B1):** sem a 078 não há onde gravar a marca nem o resumo (`contexto`/`passagem` vêm da
 078). Uma pausa vai para a equipe sem nada enviado, mas **não fica persistida**: "Devolver ao Wall-e" não é recusado e uma
 reabertura posterior pode voltar a ser automática. O limite diário em silêncio também não grava resumo sem a 078. Por isso
-o atendimento automático só deve ser ligado com a 078 aplicada (as migrations 060–078 entram juntas).
+o atendimento automático só deve ser ligado com a 078 aplicada (as cinco migrations desta entrega — 060, 065, 076, 077 e
+078 — entram juntas, na ordem, conforme o E2a novo).
 
 ## Atualização da entrega final
 
 A integração local incorporou `staging` em `138910a8cc80a1d43a68e84f6c6e166a4f790f09`, sem conflitos. O SHA exato e os gates desta entrega serão registrados em `.local-ux/final/RESUMO.md`, fora do diff, após congelar este documento. Os resultados acima pertencem à candidata anterior e não substituem os gates novos.
 
+- Migrations desta entrega: 060, 065, 076, 077 e 078. Esta entrega não aplica migrations; estado do banco de staging não
+  verificado; o E2a antigo é histórico e não autoriza aplicação atual.
 - Migrations 076–078: conferência de disponibilidade não constitui reserva entre sessões. Reserva ainda pendente.
+- Textos do limite diário (revisão de `62497b1`): a tela de configuração, o roteiro de homologação (H9a2), a ativação em
+  staging e o quadro de respostas iniciais agora dizem que o limite esgotado vai para a equipe em silêncio, sem mensagem
+  fixa; comentários de `core.ts` e `worker.ts` alinhados.
 - D2/D3 bloqueiam o uso de dados pessoais reais tanto em staging quanto em produção. Até sua correção, homologação somente com contatos e arquivos de teste controlados, sem dados de clientes ou imagens de crianças.
 - D1/D4 bloqueiam o modo IA com dados reais. O modo regras impede chamadas ao provedor em todos os caminhos.
 - Bloqueio do S11 mantido; status da sessão Painel não foi verificado nesta tarefa.
