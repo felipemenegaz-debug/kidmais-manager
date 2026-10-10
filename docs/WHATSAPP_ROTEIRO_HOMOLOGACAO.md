@@ -30,7 +30,8 @@ Preparado em 04/10/2026. **Nada deste roteiro foi executado.** Evidências locai
 | H6 | PARAR | PostgreSQL 6a (`a55aed8`) | Nada mais é enviado; a tela bloqueia as ações | Tela e aparelho | E7 |
 | H7 | Mídia | `core.test.ts` (sem modelo) (`a55aed8`) | Imagem vai para a equipe sem chamar o modelo | Tela: "Conteúdo sem texto"; trace sem chamada | E7 |
 | H8 | Vazão | Lote e dois workers em paralelo no PostgreSQL 4 (`a55aed8`) | Rajada de 10 mensagens: uma resposta por rajada; medir o tempo até cada resposta | Horários na tela | E7 |
-| H9a | Orçamento | PostgreSQL 8b (modelo indisponível) e 8d (limite) (`a55aed8`) | Teto baixo de staging: o contato recebe o texto fixo e a conversa vai para a equipe | Tela; trace de recusa de orçamento | E7 |
+| H9a | Orçamento | PostgreSQL 8b (modelo indisponível) (`a55aed8`) | Teto baixo de staging: o contato recebe o texto fixo e a conversa vai para a equipe | Tela; trace de recusa de orçamento | E7 |
+| H9a2 | Limite diário de respostas | PostgreSQL 8d e `limite-silencio` S1/S4 (correção M1) | Limite da tela em 1: a segunda mensagem vai para a equipe **em silêncio** — o contato não recebe nenhuma mensagem automática (nem o texto fixo) e o modelo não é chamado | Tela: "Aguardando atendente", motivo "Limite diário de respostas automáticas atingido"; aparelho sem mensagem nova | E7 |
 | H9b | Resposta publicada revogada | PostgreSQL 8f; unitários (`a55aed8`) | Corrigir ou remover uma resposta com a saída pendente: o texto antigo não sai | Tela: "Não enviada", com a explicação | E7 |
 | H9c | Worker interrompido | PostgreSQL 8 (`a55aed8`); worker externo (`worker-externo.test.ts`) | Parar o worker mais de 10 min: a conversa vai para a equipe e nada é reenviado | Tela: "Aguardando atendente"; estados FALHOU/INCERTO | E7 |
 | H9d | Timeout do provedor | `transporte.test.ts`, `worker.test.ts` (`a55aed8`) | **Não forçar no Gupshup real.** Fica só a evidência local | — | — |

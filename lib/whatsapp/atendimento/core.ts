@@ -14,7 +14,8 @@ export const configuracaoSchema = z.object({
   wallE: z.object({ ativo: z.boolean() }).strict().optional(),
 }).strict().refine(v => new Set(v.perguntas.map(p => p.id)).size === v.perguntas.length, 'Identificadores repetidos.');
 export type ConfiguracaoAtendimento = z.infer<typeof configuracaoSchema>;
-/** Texto fixo quando a IA não pode responder (modelo, orçamento ou limite): encaminha sem inventar conteúdo. */
+/** Texto fixo quando a IA não pode responder (modelo indisponível ou orçamento recusado): encaminha sem inventar conteúdo.
+ *  Limite diário de respostas esgotado NÃO usa este texto: a conversa vai para a equipe em silêncio (M1, worker). */
 export const MENSAGEM_ENCAMINHAMENTO = 'Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe; a resposta dependerá do horário de atendimento.';
 /**
  * O JSON Schema enviado ao modelo só garante `string | null` em `data`; o modelo pode devolver a data como o cliente

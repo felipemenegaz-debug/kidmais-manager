@@ -74,7 +74,7 @@ export default function ConfiguracaoAtendimento() {
       </section>
       <details className={`${styles.painel} ${styles.maisOpcoes}`}><summary>Limites e opções avançadas</summary>
         <label>Respostas automáticas por conversa em 24 horas<input type="number" inputMode="numeric" required min={1} max={100} value={config.limites.respostasPor24h} onChange={e => setConfig({ ...config, limites: { respostasPor24h: Number(e.target.value) } })} aria-describedby="limite-ajuda" /></label>
-        <p id="limite-ajuda" className={styles.nota}>Ao atingir o limite, a conversa vai para a equipe com uma mensagem fixa de encaminhamento. O custo máximo da IA é definido no servidor.</p>
+        <p id="limite-ajuda" className={styles.nota}>Ao atingir o limite, a conversa vai para a equipe em silêncio: o cliente não recebe nenhuma mensagem automática. O custo máximo da IA é definido no servidor.</p>
         {dados.wallE?.disponivel && <p className={styles.nota}>Com o Wall-e ligado, as respostas usam a agenda, os pacotes, os preços da tabela publicada, o buffet, o modelo de contrato e só o material da biblioteca publicado e liberado para ele. Ele nunca reserva data, dá desconto ou informa contrato particular: nesses casos passa para a equipe.</p>}
       </details>
       <div className={styles.acoes}><button type="submit" className={styles.primario} aria-disabled={ocupado || undefined}>Salvar configuração</button></div>

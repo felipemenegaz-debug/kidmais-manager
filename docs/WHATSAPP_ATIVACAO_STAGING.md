@@ -144,7 +144,7 @@ O roteiro H1–H11 está na [Parte 3 da validação](VALIDACAO_060_E_HOMOLOGACAO
 
 - **H3:** conferir que o envio real volta 2xx com `messageId`, que a mensagem fica SUBMETIDA e depois ENTREGUE pelo `gsId` do `delivered` ou `read`.
 - **H9:** com o teto da capacidade esgotado, o contato recebe só o texto fixo de encaminhamento e a conversa vai para "Aguardando atendente".
-- **H9:** com o limite de respostas da tela em 1, a segunda pergunta encaminha sem chamar o modelo.
+- **H9:** com o limite de respostas da tela em 1, a segunda pergunta vai para a equipe em silêncio: sem chamar o modelo e sem mensagem fixa ao contato (correção M1).
 - **H11 (novo item):** conferir no painel do Gupshup que as assinaturas anteriores continuam iguais às de E0.
 
 **Interrupção imediata:**

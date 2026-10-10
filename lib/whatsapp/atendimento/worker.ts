@@ -253,8 +253,8 @@ export async function processarAtendimento(deps: DependenciasWorker) {
 }
 
 /**
- * Modelo indisponível, orçamento recusado ou limite de respostas atingido: a conversa vai para a equipe e o contato
- * recebe só o texto fixo de encaminhamento. Revalida tudo sob a trava da conversa: se um atendente assumiu ou chegou
+ * Modelo indisponível ou orçamento recusado: a conversa vai para a equipe e o contato recebe só o texto fixo de
+ * encaminhamento (limite diário esgotado não passa por aqui: vai em silêncio, `encaminharPorLimite`). Revalida tudo sob a trava da conversa: se um atendente assumiu ou chegou
  * entrada nova durante a chamada, nada é criado (a entrada é cancelada).
  */
 /** Saídas ainda na fila da conversa viram CANCELADA. SKIP LOCKED (como no encerramento): a linha que outro worker
