@@ -1,7 +1,7 @@
 # Catálogo do buffet por empresa (078) — correção e homologação local (10/10/2026)
 
-**Status: PRONTO PARA APROVAÇÃO, NÃO EXECUTADO NESTA CANDIDATA.** Uma tentativa anterior (D1–D3 em `ec61f02`) falhou em D2 e
-parou antes do navegador — ver §0. Nesta preparação nenhum cluster, servidor ou navegador foi iniciado. Nada em staging, produção, Render ou serviços externos. Sem push nem deploy.
+**Status: HOMOLOGADO LOCALMENTE em 10/10/2026 (candidata `be1b612`, código `b73653b`): D 5/5 suítes PostgreSQL; B0–B6 e K1–K8 PASS**
+(desktop e celular) — [evidência](evidencias/homologacao-catalogo-buffet-078-20261010.md). A tentativa anterior (`ec61f02`) falhou em D2 — §0.
 
 - **Código: `b73653b6ab5c713c7ff0ae04b342de61ee7451fa`**. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse commit é o da aprovação.
   `git diff --name-only b73653b6ab5c713c7ff0ae04b342de61ee7451fa HEAD` deve listar só `docs/`. Qualquer outra diferença: parar.
@@ -18,7 +18,7 @@ parou antes do navegador — ver §0. Nesta preparação nenhum cluster, servido
 |---|---|---|
 | `ac55c4c` / `c583ce2` | não executada | ordem errada (cópias antes da troca da unicidade) — achado na revisão de Felipe |
 | `b364ece` / `ec61f02` | D1–D3 em 10/10/2026, cluster `.local-descartavel-pg-22d5cd3fba084970be25e8e8597c15b9` (parado, preservado) | **FALHA em D2**: 4/5 suítes OK; 078 1/10 — precheck, 1ª aplicação e postcheck sem erro, mas a reaplicação foi recusada por “078 exige a 050” (a 078 remove esse índice) em vez de “078 já aplicada”; a conexão ficou em transação abortada e mascarou os 8 testes seguintes. B0–B6 não executados. [Evidência](evidencias/homologacao-catalogo-buffet-078-20261010.md) |
-| **`b73653b` / commit seguinte** | — | “já aplicada” é a primeira guarda; todo arquivo SQL da suíte roda com `ROLLBACK` em `finally` (erro original preservado). Repetir D1–D3 em **cluster novo** |
+| **`b73653b` / `be1b612`** | D1–D3 e B0–B6 em 10/10/2026, clusters novos `.local-descartavel-pg-e0138ee7…` e `.local-navegador-pg-adc57ac4…` (parados, preservados) | **PASS**: 5/5 suítes (078 10/10); K1–K8 PASS; pós-conferência `CONFERE`; nenhum envio de pedido; nenhuma chamada externa |
 
 ## 1. Migração 078 (`database/migrations/20261010_078_catalogo_buffet_por_empresa.sql`)
 
