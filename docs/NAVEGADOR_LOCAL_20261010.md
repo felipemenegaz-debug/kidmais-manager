@@ -65,7 +65,9 @@ sem cópia. Se Felipe precisar manter um `.env.local` nesta worktree, o servidor
 
 ### Lista exata do ambiente do servidor (somente nomes)
 
-Explícitas (43): `NEXT_FONT_GOOGLE_MOCKED_RESPONSES` (caminho absoluto de `scripts/navegador-local-fontes-mock.cjs`; exigido pela autoverificação), `ADMIN_AUTH_ORIGIN`, `ADMIN_AUTH_SECRET`, `AI_ADMIN_ACTIONS_ENABLED`, `AI_CONTRACT_IMPORT_ENABLED`,
+> **Desde o código do pacote de etapas** ([HOMOLOGACAO_COTACAO_ETAPAS_20261010.md](HOMOLOGACAO_COTACAO_ETAPAS_20261010.md) §2): 45 explícitas — mais `AGENDA_PUBLICA_EMPRESA_ID` (id da `kidmais` da 046, lido em transação somente leitura do banco descartável; habilita o endereço legado) e `CONSULTA_CEP_EXTERNA=desligada` (sem ViaCEP). `AGENDA_PUBLICA_UNIDADE_ID` continua ausente e recusado.
+
+Explícitas (43, até a candidata 121d49c): `NEXT_FONT_GOOGLE_MOCKED_RESPONSES` (caminho absoluto de `scripts/navegador-local-fontes-mock.cjs`; exigido pela autoverificação), `ADMIN_AUTH_ORIGIN`, `ADMIN_AUTH_SECRET`, `AI_ADMIN_ACTIONS_ENABLED`, `AI_CONTRACT_IMPORT_ENABLED`,
 `AI_COPILOTO_MODEL_ENABLED`, `AI_DEMERZEL_ENABLED`, `AI_DOCUMENT_EXTERNAL_PROVIDER_ALLOWED`, `AI_FALLBACK_ENABLED`, `AI_JEV_ENABLED`,
 `AI_JEV_MODEL_ENABLED`, `AI_OPERACIONAL_ENABLED`, `AI_READ_ENABLED`, `AI_SKILLS_EMPRESA_ENABLED`, `ASAAS_AMBIENTE`, `ASAAS_API_KEY`,
 `ASAAS_WEBHOOK_TOKEN`, `ASSINATURA_PLANOS_ATIVOS`, `CADASTRO_PUBLICO_ATIVO`, `CONTRACT_IMPORT_INTEGRATION_ENABLED`,
