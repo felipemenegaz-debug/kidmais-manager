@@ -32,3 +32,33 @@ A aprovação solicitada abrange somente o comando temporário, os dois deploys,
 34 testes aprovados (sete novos + 27 de renovação/adapters/preflight), ESLint dos dois scripts sem erros/avisos, TypeScript e build aprovados no diretório isolado `.local-release-check`, sem arquivos `.env`. Nenhuma chamada externa nos testes; fetch inteiramente mockado. Build inicialmente recusado pelo compilador no sandbox Windows (canonicalização/acesso negado), repetido fora desse bloqueio e aprovado. Node local 24; execução Render deve continuar no runtime declarado 22.23.2. Log local `.local-aviso-email-build.log`, sem credenciais.
 
 A política [OPERACAO_AGENTES.md](OPERACAO_AGENTES.md) exige aprovação explícita para mudanças operacionais e determina preparar alvo, efeitos, validações e recuperação antes da escrita. A autorização anterior se limitou à configuração e ao diagnóstico offline; envio real e novos deploys são um escopo novo.
+
+## Autorização e janela desta execução
+
+Felipe respondeu “pode” ao plano completo. Conferidos cron correto, staging/auto-deploy OFF, comando normal, schedule e candidata remota `27e072237442e2f249e1e93d85a74e62b6eb7695`. Às 00:48:47 UTC foi escolhida a janela **10/10/2026 01:00:00–01:04:00 UTC** (09/10, 22:00–22:04 em São Paulo), com mais de dez minutos para publicação. Nenhuma nova janela ou retry está autorizado nesta execução.
+
+Comando exato do primeiro deploy:
+
+```text
+node --experimental-strip-types scripts/assinatura-aviso-email-staging.cjs --enviar-teste --inicio=2026-10-10T01:00:00.000Z --fim=2026-10-10T01:04:00.000Z
+```
+
+O e-mail sintético desta janela mostrará a primeira data de preço normal em **08/11/2026** (30 dias de calendário). Não representa vigência ou cobrança real. Este registro local é feito antes de salvar o comando e será publicado junto às evidências após a recuperação; não altera a candidata entre os dois deploys.
+
+## Execução interrompida antes do envio
+
+O deploy `dep-db4on7flot8c73cfam0g` publicou a candidata às 00:50:06 UTC. O build registra checkout da candidata às 00:49:41, Node 22.23.2 e build bem-sucedido às 00:50:05. A execução agendada registra início às 00:50:09 e novo comando às 00:50:25, porém falhou com `MODULE_NOT_FOUND` para `/opt/render/project/src/scripts/assinatura-aviso-email-staging.cjs`, terminando com exit 1 às 00:50:30.
+
+O arquivo está presente no commit publicado, conferido localmente com git show. A causa da ausência no artefato usado pela execução permanece **não confirmada**. A coincidência com a troca de deploy não comprova que a execução usou a revisão anterior; o log de início é posterior ao instante LIVE. Não declarar esse diagnóstico como causa estabelecida nem pedir correção da chave Resend: o script sequer foi carregado e nenhuma chamada ao provedor foi iniciada por ele.
+
+Conforme recuperação do plano, não foi aguardada outra tentativa de envio: o comando normal foi restaurado, conferido por metadados e o único deploy de recuperação `dep-db4oot2jnfac738028ug` foi iniciado às 00:53:08 UTC, na mesma candidata. A janela das 01:00 foi abandonada, sem substituição, envio manual ou novo deploy de teste. Sem mudanças em env, TLS, Asaas, banco, produção ou teto de builds. O teste real de aceitação/replay/entrega do aviso continua **PENDENTE**, assim como o aviso na tela.
+
+## Recuperação concluída
+
+O segundo deploy ficou LIVE às 00:53:40 UTC. A execução agendada das 00:55 usou `node scripts/assinatura-cron.cjs`, retornou APLICAR, SEM_MUDANCA=3 e incompleto=false às 00:55:24, terminando com sucesso às 00:55:30 UTC (09/10, 21:55:30 em São Paulo). Metadados confirmam lastSuccessfulRunAt, comando normal, schedule, Starter e staging/auto-deploy OFF. Exatamente dois deploys realizados, nenhuma nova janela ou tentativa de envio.
+
+- [Erro anterior ao carregamento do script](evidencias/aviso-email-staging-falha-20261009.png).
+- [Reconciliação normal recuperada](evidencias/aviso-email-staging-recuperado-20261009.png).
+- [Relatório sanitizado](evidencias/aviso-email-staging-resultado-20261009.json).
+
+Próxima investigação: conferir os arquivos e a identidade do artefato efetivamente usado pelo cron, antes de preparar outra janela de envio. Nenhum novo deploy de diagnóstico, alteração de buildCommand ou envio está autorizado por esta rodada. Não confundir o resultado local dos testes com homologação HTTP real. Evidências documentais revisadas com git diff --check; alterações preexistentes preservadas.
