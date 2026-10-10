@@ -66,6 +66,12 @@ const FAIXA = Object.freeze({min:20, max:30, valor:'1500.00'});
 /** Preço do Pocket por empresa: valores diferentes provam na tela que cada endereço usa a tabela da própria empresa. */
 const PRECO_POCKET = Object.freeze({essencial:FAIXA.valor, profissional:FAIXA.valor, premium:'2300.00'});
 /**
+ * Dias (ISO: 1 = segunda … 7 = domingo) em que o Pocket de cada empresa está disponível, nos dois períodos. O Premium só
+ * em dias úteis: prova na tela que cada endereço usa a configuração da própria empresa (o Profissional vende no sábado,
+ * o Premium não), e nenhuma regra fixa da Kidmais pelo código POCKET (que recusaria o sábado nas duas).
+ */
+const DIAS_POCKET = Object.freeze({essencial:Object.freeze([1, 2, 3, 4, 5, 6, 7]), profissional:Object.freeze([1, 2, 3, 4, 5, 6, 7]), premium:Object.freeze([1, 2, 3, 4, 5])});
+/**
  * Catálogo do buffet PRÓPRIO de cada empresa (078), criado pelo serviço com escopo: [código, nome, escolhas, itens].
  * As duas usam a MESMA categoria SALGADOS com itens diferentes; nenhuma recebe o cardápio da Kidmais.
  */
@@ -371,7 +377,7 @@ async function popular(c, senhas) {
         await withTransaction(tx => s.precos.gravarFaixasPacote(tx, empresaId, pacote, [{convidadosMin:FAIXA.min, convidadosMax:FAIXA.max, valor:PRECO_POCKET[e.chave]}],
             {minimo:FAIXA.min, maximo:FAIXA.max}, ctx()));
         await withTransaction(tx => s.pacotes.definirDisponibilidadePacoteAdmin(tx, pacote,
-            {disponibilidade:[1, 2, 3, 4, 5, 6, 7].flatMap(dia => horarios.map(horarioId => ({dia, horarioId})))}, ctx()));
+            {disponibilidade:DIAS_POCKET[e.chave].flatMap(dia => horarios.map(horarioId => ({dia, horarioId})))}, ctx()));
         // Etapas Buffet e Personalização: composição e adicional (com preço) só deste pacote/empresa.
         if (COMPOSICAO[e.chave]) {
             const categorias = [];
@@ -483,8 +489,11 @@ async function popular(c, senhas) {
         assert.deepEqual(adicionais, [ADICIONAL_EMPRESA[chave].nome], 'ADICIONAIS_' + chave);
         assert.deepEqual(precos.adicionais.map(x => x.valor), [Number(ADICIONAL_EMPRESA[chave].preco)], 'PRECO_ADICIONAL_' + chave);
         assert.equal(regras?.pixAvistaPercentual, chave === 'profissional' ? REGRAS_PROFISSIONAL.pixAvista : 0, 'REGRAS_' + chave);
+        const diasPocket = (await q(`SELECT DISTINCT r.dia_semana::int AS dia FROM regras_disponibilidade_pacote r JOIN pacotes p ON p.id = r.pacote_id
+            WHERE p.empresa_id = $1 AND p.codigo = 'POCKET' AND r.ativo AND r.estado = 'DISPONIVEL' ORDER BY 1`, [empresaId])).map(x => x.dia);
+        assert.deepEqual(diasPocket, [...DIAS_POCKET[chave]], 'DIAS_POCKET_' + chave);
         conferencia.isolamento[EMPRESAS.find(e => e.chave === chave).codigo] = {precoPocket:precos.pacotes[0].valor, categorias, itensBuffet:itensCatalogo.length, adicionais,
-            pix:`${regras.pixAvistaPercentual}/${regras.pixParceladoPercentual}`, cartao:regras.cartaoRotulo};
+            pix:`${regras.pixAvistaPercentual}/${regras.pixParceladoPercentual}`, cartao:regras.cartaoRotulo, diasPocket};
     }
     const salgados = (await q(`SELECT count(DISTINCT empresa_id)::int AS n FROM buffet_categorias WHERE codigo = 'SALGADOS' AND empresa_id = ANY($1::uuid[])`,
         [[ids.profissional.empresa, ids.premium.empresa]]))[0].n;
@@ -563,5 +572,5 @@ if (require.main === module)
         console.error('SEED_NAVEGADOR_RECUSADO ' + sanitizar(e?.message ?? e?.codigo)); process.exitCode = 1;
     });
 module.exports = {FLAG, FLAG_PLANO, VAR_AUTORIZACAO, PAPEL, PORTA, PORTA_APP, ORIGEM_APP, PASTA_LOCAL, BANCO_SUGERIDO, NOMES_PROIBIDOS, IMPRESSAO_SCHEMA,
-    EMPRESAS, CONTAS, EMAIL_CONVITE_ESSENCIAL, ARQUIVO_CREDENCIAIS, PRECO_POCKET, COMPOSICAO, ADICIONAL_EMPRESA, REGRAS_PROFISSIONAL, gerarCpfSintetico, clientesSinteticos, modo, validarBanco, alvo, semConexaoHerdada, semPrazoComercialHerdado,
+    EMPRESAS, CONTAS, EMAIL_CONVITE_ESSENCIAL, ARQUIVO_CREDENCIAIS, PRECO_POCKET, DIAS_POCKET, COMPOSICAO, ADICIONAL_EMPRESA, REGRAS_PROFISSIONAL, gerarCpfSintetico, clientesSinteticos, modo, validarBanco, alvo, semConexaoHerdada, semPrazoComercialHerdado,
     conferirIdentidade, conferirGitignore, sanitizar, gerarSenha, documentoSintetico, montarCredenciais, escreverCredenciais, plano, SQL_IDENTIDADE};

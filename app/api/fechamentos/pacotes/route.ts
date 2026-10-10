@@ -7,6 +7,7 @@ import { apiErrorResponse } from "@/lib/http/api-response";
 import { limitarPublico } from "@/lib/http/limite-publico";
 import { lerPrecosCorrentes } from "@/lib/comercial/pacote-precos";
 import { lerRegrasPagamento } from "@/lib/comercial/regras-pagamento";
+import { lerRegrasDisponibilidadePacote } from "@/lib/comercial/disponibilidade-pacote-publica";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
   if (limite) return limite;
   try {
     const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
+    const enderecoDaEmpresa = codigoEmpresaDoPedido(request.nextUrl) !== null;
     // "A partir de": menor valor do pacote na tabela publicada HOJE (fixo pela faixa; por convidado × mínimo).
     // Tabela ambígua ou ilegível não derruba a lista: o preço só some (a cotação da etapa seguinte explica).
     const precos = await lerPrecosCorrentes(db(), escopo.empresaId).catch(() => ({ pacotes: [] as Array<{ pacoteId: string; porConvidado: boolean; min: number; valor: number }> }));
@@ -32,6 +34,9 @@ export async function GET(request: NextRequest) {
         duracaoMinutos: pacote.duracaoMinutos, convidadosMinimos: pacote.convidadosMinimos,
         convidadosMaximos: pacote.convidadosMaximos,
         precoMinimo: precoMinimo(precos.pacotes.filter((p) => p.pacoteId === pacote.id)),
+        // Endereço da empresa (/b/<código>): dias e períodos configurados por ela para o pacote, para a tela não
+        // aplicar regra fixa da Kidmais pelo código. Endereço atual da Kidmais: resposta inalterada (sem o campo).
+        ...(enderecoDaEmpresa ? { disponibilidade: await lerRegrasDisponibilidadePacote(db(), pacote.id) } : {}),
       });
     }
     // Regras de pagamento da empresa do endereço (077); null = antes da 077 (a tela usa o legado, como o servidor).

@@ -16,7 +16,9 @@ test('endereço atual mantém a marca Kidmais; outra empresa recebe nome própri
 // Toda menção à Kidmais nas telas públicas precisa estar atrás da marca (endereço atual) ou ser código interno.
 const PERMITIDAS = [/CONTATO_KIDMAIS/, /ATENDIMENTO_KIDMAIS/, /origemInterna \? "Atendimento Kidmais"/, /marca\.kidmais \?/, /\{marca\.kidmais && /, /equipe = 'equipe Kidmais'/,
     // Ramo da outra empresa (contato dela) e decisão da lista de pacotes pela marca.
-    /\{!marca\.kidmais && /, /\(!marca\.kidmais && !pacote\)/, /\(marca\.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote/];
+    /\{!marca\.kidmais && /, /\(!marca\.kidmais && !pacote\)/, /\(marca\.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote/,
+    // Disponibilidade do pacote: regra legada só no endereço atual; na empresa, a configuração dela (e o rótulo “consultar o buffet”).
+    /regrasDisponibilidadeDaTela\(marca\.kidmais, fatosPacote, (form\.pacote|novoPacote)\)/, /statusLabel\(info\.status, marca\.kidmais\)/];
 const PROTEGIDAS = ['Falar com a Kidmais no WhatsApp'];
 for (const arquivo of ['components/fechamento/FechamentoWizard.tsx', 'components/fechamento/CalendarioDisponibilidade.tsx', 'components/disponibilidade/DisponibilidadePublica.tsx']) {
     test(`sem Kidmais fixa para outra empresa: ${arquivo}`, () => {

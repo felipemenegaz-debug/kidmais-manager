@@ -159,6 +159,9 @@ test('clientes sintéticos: CPF válido pela regra do servidor, contatos não ro
 
 test('dados de isolamento: Profissional e Premium com preço, composição, adicional e regras diferentes', () => {
     assert.notEqual(s.PRECO_POCKET.profissional, s.PRECO_POCKET.premium);
+    // Disponibilidade por empresa: o Profissional vende o Pocket no sábado (6) e no domingo (7); o Premium, só em dias úteis.
+    assert.ok(s.DIAS_POCKET.profissional.includes(6) && !s.DIAS_POCKET.premium.includes(6), 'sábado só no Profissional');
+    assert.ok([...s.DIAS_POCKET.profissional, ...s.DIAS_POCKET.premium].every(d => Number.isInteger(d) && d >= 1 && d <= 7), 'dia ISO 1..7');
     // 078: a MESMA categoria (SALGADOS) nas duas empresas, com itens diferentes (catálogo próprio de cada uma).
     const categorias = chave => s.COMPOSICAO[chave].map(([codigo]) => codigo);
     assert.ok(categorias('profissional').includes('SALGADOS') && categorias('premium').includes('SALGADOS'), 'mesma categoria nas duas');

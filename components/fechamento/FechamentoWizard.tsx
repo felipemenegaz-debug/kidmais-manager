@@ -5,7 +5,7 @@ import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
 import EscolhaPacote from './EscolhaPacote';
 import ContatoEmpresa from './ContatoEmpresa';
-import { CODIGO_PACOTE, pacoteDaTela, pacotesExibidos, type FatosPacote } from './pacotes-tela';
+import { CODIGO_PACOTE, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
@@ -990,6 +990,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         form.pacote,
         form.dataFesta,
         form.horarioBase,
+        regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, form.pacote),
       );
       if (comercial.status === "indisponivel") {
         setErro(
@@ -1394,6 +1395,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                           novoPacote,
                           form.dataFesta,
                           form.horarioBase,
+                          regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, novoPacote),
                         );
                         atualizar(
                           "statusDisponibilidade",
@@ -1579,6 +1581,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     empresa={empresa}
                     descontoDiaUtil={pagamento.descontoDiaUtil}
                     pacote={form.pacote as PacoteId}
+                    regrasPacote={regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, form.pacote)}
                     horario={form.horarioBase}
                     dataSelecionada={form.dataFesta}
                     onSelecionar={(data, status, ajustes) => {

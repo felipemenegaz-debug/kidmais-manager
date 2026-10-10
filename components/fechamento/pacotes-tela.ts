@@ -1,12 +1,16 @@
 import type { Pacote } from "./data.ts";
 import type { PacoteId } from "./types.ts";
 import { LIMITE_CONVIDADOS_PEDIDO_ONLINE } from "../../lib/fechamentos/convidados.ts";
+import type { RegraPacoteEmpresa } from "../../lib/agenda/disponibilidade.ts";
 
 /** Código do pacote no servidor (pacotes/preços da empresa) para cada id da tela. */
 export const CODIGO_PACOTE: Record<string, string> = { pocket: 'POCKET', mini: 'MINI_FESTA', compacta: 'COMPACTA', essencial: 'ESSENCIAL', completa: 'COMPLETA', premium: 'PREMIUM', pizza_party_scienza: 'PIZZA_PARTY' };
 
-/** O que /api/fechamentos/pacotes devolve por pacote vigente da empresa do endereço. */
-export type FatoPacote = { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null };
+/**
+ * O que /api/fechamentos/pacotes devolve por pacote vigente da empresa do endereço.
+ * `disponibilidade`: só em /b/<código> — dias e períodos configurados pela empresa para o pacote.
+ */
+export type FatoPacote = { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null; disponibilidade?: RegraPacoteEmpresa[] };
 export type FatosPacote = Record<string, FatoPacote>;
 
 /** Cartão da etapa “Escolha o pacote”. `disponibilidade`/`destaque` nulos = não exibidos. */
@@ -80,4 +84,16 @@ export function pacoteDaTela(kidmais: boolean, catalogo: readonly Pacote[], fato
         duracao: fato.duracaoMinutos == null ? "" : `${fato.duracaoMinutos} minutos`,
         buffet: "",
     };
+}
+
+/**
+ * Regras de disponibilidade do pacote para a tela.
+ * - Kidmais (endereço atual): null — vale a regra legada (inalterada).
+ * - Outra empresa: as regras dela para o pacote; sem dados ainda (ou pacote que ela não oferece) = [],
+ *   isto é, nada disponível pela regra — nunca a regra fixa da Kidmais pelo código do pacote.
+ */
+export function regrasDisponibilidadeDaTela(kidmais: boolean, fatos: FatosPacote | null, id: string): RegraPacoteEmpresa[] | null {
+    if (kidmais) return null;
+    const codigo = CODIGO_PACOTE[id];
+    return (codigo && fatos?.[codigo]?.disponibilidade) || [];
 }
