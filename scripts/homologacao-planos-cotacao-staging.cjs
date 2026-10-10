@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const {createHash, randomBytes, randomUUID} = require('node:crypto');
 const {alvo: alvoEnsaio, documento, cookies, prepararWebhook} = require('./assinatura-staging-ensaio.cjs');
+const {SQL_IDENTIDADE, conferirIdentidade, exigirDisco} = require('./conexao-staging.cjs');
 
 const BASE = 'https://kidmais-manager-staging.onrender.com';
 const DIR = '/opt/render/project/src/data/homologacao-planos-cotacao-20261010';
@@ -28,9 +29,14 @@ const FIXTURES = Object.freeze([
     {chave:'F2', empresa:'d1787a4c-aaeb-4eb6-99a1-9659feb3902f', usuario:'4aa233ad-6c4f-41bb-ae7f-62996c1b5018', codigo:'hml-planos-profissional', tipo:'PLANO', plano:'profissional', catalogo:true},
     {chave:'F3', empresa:'6dfd58f1-91fa-4202-9ace-72d705390272', usuario:'7ff5a408-d1da-4813-99a9-0ebd1cf7511e', codigo:'hml-planos-isenta', tipo:'ISENTA', plano:null, catalogo:false},
     {chave:'F4', empresa:'092c5201-91c1-446e-90e8-cea19831e749', usuario:'9029758e-317b-4c4e-95c6-685ac990a956', codigo:'hml-planos-teste', tipo:'TESTE', plano:null, catalogo:true},
+    {chave:'F5', empresa:'05c494a8-85be-42a0-b3a6-1b22d6a8ae39', usuario:'0129beea-bd5f-4df8-92e1-6f9bfad56045', codigo:'hml-planos-premium', tipo:'PLANO', plano:'premium', catalogo:true},
 ].map(f => Object.freeze({...f, email:`hml-planos-${f.usuario.slice(0,8)}@example.invalid`,
     nome:`TESTE Kidmais — planos/cotação staging 20261010 ${f.chave}`})));
 const IDS_EMPRESAS = FIXTURES.map(f => f.empresa);
+/** Regra não zero de outra empresa (077), só na fixture F4: PIX à vista 5% → contrato de F4 = precoEsperado(5). */
+const REGRA_F4 = Object.freeze({pixAvista:5, pixParcelado:2, cartao:'Cartão homologação', diaUtil:false});
+/** Limite de pessoas por plano contratado (planos-comerciais): Premium sem teto. */
+const LIMITE_PESSOAS = Object.freeze({essencial:3, profissional:10, premium:null});
 
 /** Tabelas comparadas antes/depois, sempre SEM as fixtures. Colunas voláteis do cron ficam fora (como no ensaio de 09/10). */
 const PRESERVADAS = Object.freeze([
@@ -39,6 +45,7 @@ const PRESERVADAS = Object.freeze([
     ['assinatura_contratacoes', 'empresa_id', []], ['assinatura_fundadores', 'empresa_id', []], ['assinatura_isencoes', 'empresa_id', []],
     ['clientes', 'empresa_id', []], ['fechamentos', 'empresa_id', []], ['pacotes', 'empresa_id', []],
     ['financeiro_categorias', 'empresa_id', []], ['financeiro_contas_pagar', 'empresa_id', []],
+    ['empresa_regras_pagamento', 'empresa_id', []], // inclui a regra legada da Kidmais (077)
 ]);
 function sqlPreservacao(tabela, coluna, volateis) {
     assert.ok(/^[a-z_]+$/.test(tabela) && /^[a-z_]+$/.test(coluna) && volateis.every(v => /^[a-z_]+$/.test(v)));
@@ -68,6 +75,7 @@ const FINANCEIRO = Object.freeze({
     F2: {contasPagar:200, criarConta:200, fluxo:200, relatorios:200, completo:true, receber:200},
     F3: {contasPagar:200, criarConta:200, fluxo:200, relatorios:200, completo:true, receber:200},
     F4: {contasPagar:200, criarConta:200, fluxo:200, relatorios:200, completo:true, receber:200},
+    F5: {contasPagar:200, criarConta:200, fluxo:200, relatorios:200, completo:true, receber:200},
 });
 function conferir(nome, obtido, esperado) {
     if (obtido !== esperado) throw Object.assign(Error('MATRIZ_DIVERGENTE'), {parada:'S2', item:nome, obtido, esperado});
@@ -194,6 +202,7 @@ function alvoEncerramento(env) {
  */
 async function recuperar() {
     const opts = alvoEncerramento(process.env);
+    exigirDisco();
     const arquivo = DIR + '/rodada.json';
     assert.ok(fs.existsSync(arquivo), 'SEM_RODADA_PARA_ENCERRAR');
     const r = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
@@ -214,8 +223,8 @@ async function recuperar() {
     const db = new Client(opts); let conectado = false, erro = null;
     try {
         await db.connect(); conectado = true; await db.query("SET statement_timeout='15s'");
-        const id = (await db.query("SELECT current_database() AS db, (SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()) AS tls")).rows[0];
-        assert.equal(id.db, 'kidmais_staging_1z91', 'BANCO_S1'); assert.equal(id.tls, true, 'TLS_S1');
+        const id = (await db.query(SQL_IDENTIDADE)).rows[0];
+        conferirIdentidade(id, process.env, '_S1');
     } catch (e) { conectado = false; erro = e; }
     // Mesmo sem banco, o encerramento do Asaas roda; o erro de conexão é o original e prevalece.
     erro = erroFinal(erro, await encerrar({db, conectado, r, p, api, salvar}));
@@ -236,6 +245,7 @@ async function main() {
     const precos = await import('../lib/comercial/pacote-precos.ts');
     const pacotesAdmin = await import('../lib/comercial/pacotes-admin.ts');
     const cfg = configuracaoAsaas(); assert.ok(cfg.ligado, 'ASAAS_DESLIGADO'); const p = criarClienteAsaas(cfg.config);
+    exigirDisco();
     fs.mkdirSync(DIR, {recursive:true, mode:0o700});
     const arquivo = DIR + '/rodada.json';
     assert.ok(!fs.existsSync(arquivo), 'RODADA_EXISTENTE_S1');
@@ -292,10 +302,10 @@ async function main() {
         return {pacotes:hashProjecao(pacotes.j), agenda:hashProjecao(projecaoAgenda(agenda.j))};
     };
     try {
-        // ---- S1: alvo, identidade do banco, TLS, schema e fixtures livres.
+        // ---- S1: alvo, identidade do banco, TLS conforme a configuração, schema e fixtures livres.
         await db.connect(); conectado = true; await db.query("SET statement_timeout='15s'");
-        const id = (await db.query("SELECT current_database() AS db, (SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()) AS tls")).rows[0];
-        assert.equal(id.db, 'kidmais_staging_1z91', 'BANCO_S1'); assert.equal(id.tls, true, 'TLS_S1');
+        const id = (await db.query(SQL_IDENTIDADE)).rows[0];
+        r.conexao = conferirIdentidade(id, process.env, '_S1'); salvar();
         const schema = (await db.query(`SELECT to_regclass('public.assinatura_isencoes') IS NOT NULL AND to_regclass('public.financeiro_categorias') IS NOT NULL
             AND to_regprocedure('public.kidmais062_ocupacoes_escopo(date,date)') IS NOT NULL
             AND to_regclass('public.clientes_cpf_empresa_canonico_uk') IS NOT NULL AND to_regclass('public.clientes_cpf_canonico_uk') IS NULL
@@ -332,6 +342,9 @@ async function main() {
                 await db.query("INSERT INTO empresa_assinaturas(empresa_id,situacao,teste_inicio,teste_fim,documento_teste) VALUES($1,'TESTE',clock_timestamp(),clock_timestamp()+interval '15 days',$2)", [f.empresa, doc]);
             if (f.tipo === 'ISENTA')
                 await db.query("INSERT INTO assinatura_isencoes(empresa_id,documento_verificado,motivo,concedida_por) VALUES($1,$2,'Homologação sintética staging 20261010',$3)", [f.empresa, doc, f.usuario]);
+            if (f.chave === 'F4')
+                await db.query(`INSERT INTO empresa_regras_pagamento(empresa_id,pix_avista_percentual,pix_parcelado_percentual,cartao_rotulo,desconto_dia_util,motivo)
+                    VALUES($1,$2,$3,$4,$5,'Homologação sintética staging 20261010')`, [f.empresa, REGRA_F4.pixAvista, REGRA_F4.pixParcelado, REGRA_F4.cartao, REGRA_F4.diaUtil]);
         }
         await db.query('COMMIT'); r.fixture = true; salvar();
 
@@ -373,6 +386,7 @@ async function main() {
             }
             const depois = (await s[f.chave].pedir('/api/admin/assinatura')).j.data;
             conferir(f.chave + '.acesso', depois.acesso.nivel, 'COMPLETO'); conferir(f.chave + '.plano', depois.vagas?.plano, f.plano);
+            conferir(f.chave + '.limitePessoas', depois.vagas?.limite, LIMITE_PESSOAS[f.plano]);
         }
 
         // ---- Matriz do financeiro (O4).
@@ -400,9 +414,10 @@ async function main() {
 
         // ---- Matriz da cotação (O4). Sem sessão; tudo pelo endereço público.
         marcar('MATRIZ_COTACAO');
-        const q = c => '?empresa=' + c, F2 = FIXTURES[1], F4 = FIXTURES[3], c = r.resultados.cotacao = {};
+        const q = c => '?empresa=' + c, F2 = FIXTURES[1], F4 = FIXTURES[3], F5 = FIXTURES[4], c = r.resultados.cotacao = {};
         for (const [nome, caminho, esperado] of [
             ['paginaF2', '/b/' + F2.codigo + '/fechamento', 200], ['agendaPaginaF2', '/b/' + F2.codigo + '/disponibilidade', 200],
+            ['paginaPremium', '/b/' + F5.codigo + '/fechamento', 200], ['pacotesPremium', '/api/fechamentos/pacotes' + q(F5.codigo), 200],
             ['pacotesF2', '/api/fechamentos/pacotes' + q(F2.codigo), 200], ['pacotesF4', '/api/fechamentos/pacotes' + q(F4.codigo), 200],
             ['essencial', '/api/fechamentos/pacotes' + q(FIXTURES[0].codigo), 404], ['inexistente', '/api/fechamentos/pacotes' + q('hml-inexistente'), 404],
             ['formatoRuim', '/api/fechamentos/pacotes?empresa=HML_RUIM', 404], ['pdf', '/api/fechamentos/tabela-pacotes' + q(F2.codigo), 404],
@@ -461,6 +476,22 @@ async function main() {
         conferir('cotacao.pedidoF4.chaves', JSON.stringify(Object.keys(p2.j).sort()), JSON.stringify(Object.keys(p1.j).sort()));
         const cli = (await db.query('SELECT c.empresa_id::text e, c.cpf FROM fechamentos f JOIN clientes c ON c.id=f.cliente_id WHERE f.id=$1', [p2.j.fechamentoId])).rows[0];
         conferir('cotacao.pedidoF4.empresa', cli.e, F4.empresa); conferir('cotacao.pedidoF4.cpfPorEmpresa', cli.cpf, cpf);
+        // Regra não zero de outra empresa (F4, PIX à vista 5%): gravada na condição e aplicada no contrato gerado.
+        const condF4 = (await db.query("SELECT condicao_pagamento->>'descontoPercentual' AS desconto FROM fechamentos WHERE id=$1", [p2.j.fechamentoId])).rows[0];
+        conferir('cotacao.pedidoF4.regraPagamento', condF4?.desconto, String(REGRA_F4.pixAvista));
+        const contratoF4 = await s.F4.post('/api/admin/contratos', {fechamentoId:p2.j.fechamentoId});
+        c.contratoF4 = contratoF4.status; conferir('contrato.F4.gerado', contratoF4.status, 201);
+        const versaoF4 = (await db.query(`SELECT v.snapshot->'comercial'->>'valorFinalContrato' AS final,
+                v.snapshot->'comercial'->>'descontoFormaPagamentoPercentual' AS desconto_forma
+              FROM contrato_versoes v JOIN contratos k ON k.id = v.contrato_id
+             WHERE k.fechamento_id = $1 ORDER BY v.numero_versao DESC LIMIT 1`, [p2.j.fechamentoId])).rows[0];
+        conferir('preco.contratoF4.valorFinal', Math.round(Number(versaoF4?.final) * 100), precoEsperado(REGRA_F4.pixAvista));
+        conferir('preco.contratoF4.descontoForma', Number(versaoF4?.desconto_forma), REGRA_F4.pixAvista);
+        r.resultados.contratoF4 = {status:contratoF4.status, valorFinalCentavos:Math.round(Number(versaoF4?.final) * 100), esperadoCentavos:precoEsperado(REGRA_F4.pixAvista)}; salvar();
+        // Regra legada da Kidmais intacta (a preservação de empresa_regras_pagamento fora das fixtures cobre a linha toda).
+        const kidmaisRegra = (await db.query(`SELECT r.pix_avista_percentual = 10 AND r.pix_parcelado_percentual = 3 AND r.cartao_rotulo = 'Cielo' AND r.desconto_dia_util AS ok
+            FROM empresa_regras_pagamento r JOIN empresas e ON e.id = r.empresa_id WHERE e.codigo = 'kidmais'`)).rows;
+        conferir('regra.kidmaisLegada', kidmaisRegra.length <= 1 && kidmaisRegra.every(x => x.ok === true), true);
         // Cliente existente com prova inválida: recusado antes de gravar (4xx, ou 503 se o OTP estiver desligado em staging).
         const antesF2 = (await db.query('SELECT count(*)::int n FROM fechamentos WHERE empresa_id=$1', [F2.empresa])).rows[0].n;
         const p3 = await pedido(F2.codigo, {identidadeTipo:'CLIENTE_EXISTENTE', provaIdentidade:'p'.repeat(40)});
@@ -504,5 +535,5 @@ if (require.main === module) {
     else if (m === 'ENCERRAR') recuperar().catch(e => { console.error(String(e?.message ?? 'RECUPERACAO_RECUSADA').slice(0, 80)); process.exitCode = 1; });
     else { console.error('AGUARDANDO_AUTORIZACAO_O3'); process.exitCode = 1; }
 }
-module.exports = {FIXTURES, PRESERVADAS, FINANCEIRO, sqlPreservacao, alvo, alvoEncerramento, autorizado, modo, processoVivo, encerrar,
+module.exports = {FIXTURES, PRESERVADAS, FINANCEIRO, REGRA_F4, LIMITE_PESSOAS, sqlPreservacao, alvo, alvoEncerramento, autorizado, modo, processoVivo, encerrar,
     recursosComprovados, erroFinal, conferir, cpfSintetico, projecaoAgenda, precoEsperado, BASE, DIR, FLAG, FLAG_ENCERRAR};

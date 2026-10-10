@@ -9,7 +9,7 @@ const h = require('./homologacao-planos-cotacao-staging.cjs');
 const fonte = fs.readFileSync(__dirname + '/homologacao-planos-cotacao-staging.cjs', 'utf8');
 const KIDMAIS = '7e990a2b-e64b-4630-9aae-4646fe936ede';
 const envStaging = () => ({RENDER:'true', RENDER_SERVICE_ID:'srv-daif418ae00c73e8k2gg', KIDMAIS_DEPLOY_ENV:'staging', ASAAS_AMBIENTE:'sandbox',
-    ASSINATURA_PLANOS_ATIVOS:'true', COTACAO_PUBLICA_POR_EMPRESA:'true', DATABASE_SSL:'true',
+    ASSINATURA_PLANOS_ATIVOS:'true', COTACAO_PUBLICA_POR_EMPRESA:'true', DATABASE_SSL:'false',
     DATABASE_URL:'postgresql://usuario:sintetico@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91'});
 
 test('sem a flag única de autorização não executa nada (nem carrega banco ou rede)', () => {
@@ -33,17 +33,17 @@ test('guardas: só o web staging, banco kidmais_staging_1z91, sandbox e as duas 
     for (const v of variacoes) assert.throws(() => h.alvo({...envStaging(), ...v}), undefined, JSON.stringify(v));
 });
 
-test('fixtures: quatro empresas sintéticas fixas, distintas da Kidmais, códigos válidos e e-mails inválidos por desenho', () => {
-    assert.equal(h.FIXTURES.length, 4);
+test('fixtures: cinco empresas sintéticas fixas, distintas da Kidmais, códigos válidos e e-mails inválidos por desenho', () => {
+    assert.equal(h.FIXTURES.length, 5);
     const ids = h.FIXTURES.flatMap(f => [f.empresa, f.usuario]);
-    assert.equal(new Set(ids).size, 8); assert.ok(!ids.includes(KIDMAIS));
+    assert.equal(new Set(ids).size, 10); assert.ok(!ids.includes(KIDMAIS));
     for (const f of h.FIXTURES) {
         assert.match(f.empresa, /^[0-9a-f-]{36}$/); assert.match(f.codigo, /^hml-planos-[a-z]+$/);
         assert.match(f.codigo, /^[a-z][a-z0-9-]{1,62}[a-z0-9]$/); assert.match(f.email, /@example\.invalid$/); assert.match(f.nome, /^TESTE /);
     }
-    assert.deepEqual(h.FIXTURES.map(f => [f.chave, f.tipo, f.plano]), [['F1','PLANO','essencial'],['F2','PLANO','profissional'],['F3','ISENTA',null],['F4','TESTE',null]]);
-    assert.deepEqual(Object.keys(h.FINANCEIRO), ['F1','F2','F3','F4']);
-    assert.equal(h.FINANCEIRO.F1.contasPagar, 403); assert.ok(['F2','F3','F4'].every(k => h.FINANCEIRO[k].contasPagar === 200));
+    assert.deepEqual(h.FIXTURES.map(f => [f.chave, f.tipo, f.plano]), [['F1','PLANO','essencial'],['F2','PLANO','profissional'],['F3','ISENTA',null],['F4','TESTE',null],['F5','PLANO','premium']]);
+    assert.deepEqual(Object.keys(h.FINANCEIRO), ['F1','F2','F3','F4','F5']);
+    assert.equal(h.FINANCEIRO.F1.contasPagar, 403); assert.ok(['F2','F3','F4','F5'].every(k => h.FINANCEIRO[k].contasPagar === 200));
 });
 
 test('preservação: consultas só de leitura e sempre excluindo as fixtures', () => {
@@ -61,7 +61,7 @@ test('código-fonte: nunca apaga; toda escrita é das fixtures; encerramento des
     assert.ok(updates.length >= 6);
     for (const u of updates) assert.match(u, /WHERE (id|empresa_id)=(\$1|ANY\(\$1::uuid\[\]\))/, u);
     const inserts = fonte.match(/INSERT INTO [a-z_]+/g) ?? [];
-    assert.deepEqual([...new Set(inserts)].sort(), ['INSERT INTO assinatura_isencoes', 'INSERT INTO empresa_assinaturas', 'INSERT INTO empresas',
+    assert.deepEqual([...new Set(inserts)].sort(), ['INSERT INTO assinatura_isencoes', 'INSERT INTO empresa_assinaturas', 'INSERT INTO empresa_regras_pagamento', 'INSERT INTO empresas',
         'INSERT INTO financeiro_categorias', 'INSERT INTO memberships', 'INSERT INTO pacotes', 'INSERT INTO usuarios_administrativos']);
     assert.match(fonte, /finally \{\s*\/\/[^\n]*\n\s*erro = erroFinal\(erro, await encerrar\(\{db, conectado, r, p, api, salvar\}\)\);/);
     assert.match(fonte, /async function encerrar[\s\S]*removerAssinatura[\s\S]*SET ativo=false WHERE id=ANY[\s\S]*status='REVOGADA'[\s\S]*status='DESATIVADA'/);
@@ -91,6 +91,25 @@ test('recuperação: flag própria, mesma trava de alvo (sem exigir as chaves de
         assert.throws(() => h.alvoEncerramento({...semChaves, ...v}));
     const r = spawnSync(process.execPath, [__dirname + '/homologacao-planos-cotacao-staging.cjs', '--encerrar-rodada-1-autorizada'], {encoding:'utf8', env:{PATH:process.env.PATH}, timeout:20000});
     assert.equal(r.status, 1); assert.doesNotMatch(r.stdout, /ENCERRADO/);
+});
+
+test('conexão: S1 e recuperação conferem banco e TLS pela configuração da aplicação (staging privado sem TLS)', () => {
+    for (const ssl of ['false', 'true']) assert.ok(h.alvo({...envStaging(), DATABASE_SSL:ssl}).connectionString.includes('kidmais_staging_1z91'));
+    assert.equal(h.alvo(envStaging()).ssl, undefined, 'configuração real de staging: DATABASE_SSL=false, rede privada');
+    assert.doesNotMatch(fonte, /id\.tls, true/, 'sem exigência incondicional de TLS');
+    assert.equal(fonte.match(/conferirIdentidade\(id, process\.env, '_S1'\)/g).length, 2, 'S1 e recuperação');
+    assert.equal(fonte.match(/db\.query\(SQL_IDENTIDADE\)/g).length, 2);
+});
+
+test('disco: rodada e recuperação exigem o disco persistente antes de ler ou gravar estado', () => {
+    const rodada = fonte.slice(fonte.indexOf('async function main()'));
+    assert.ok(rodada.indexOf('exigirDisco();') > 0 && rodada.indexOf('exigirDisco();') < rodada.indexOf('fs.mkdirSync(DIR'));
+    const recuperacao = fonte.slice(fonte.indexOf('async function recuperar()'), fonte.indexOf('async function main()'));
+    assert.ok(recuperacao.indexOf('exigirDisco();') > 0 && recuperacao.indexOf('exigirDisco();') < recuperacao.indexOf('fs.existsSync(arquivo)'));
+    // Limpeza sem disco: fora do disco montado a recuperação para antes de tocar banco, Asaas ou estado.
+    const semChaves = {...envStaging(), ASSINATURA_PLANOS_ATIVOS:undefined, COTACAO_PUBLICA_POR_EMPRESA:undefined, PATH:process.env.PATH};
+    const r = spawnSync(process.execPath, [__dirname + '/homologacao-planos-cotacao-staging.cjs', '--encerrar-rodada-1-autorizada'], {encoding:'utf8', env:semChaves, timeout:20000});
+    assert.equal(r.status, 1); assert.match(r.stderr, /DISCO_PERSISTENTE_AUSENTE/); assert.equal(r.stdout, '');
 });
 
 test('recuperação: nunca em paralelo com a rodada viva', () => {
@@ -199,6 +218,20 @@ test('interrupção: cada ponto de parada encerra exatamente o que já foi criad
     x = falso({webhooks:[{id:'a', name:NOME_WEBHOOK, url:h.BASE + '/api/integracoes/asaas/webhook'}, {id:'b', name:NOME_WEBHOOK, url:h.BASE + '/api/integracoes/asaas/webhook'}]});
     r = provado({intencaoWebhook:true, webhookNome:NOME_WEBHOOK}); const erro = await h.encerrar({...x, conectado:true, r});
     assert.deepEqual(x.apagados, []); assert.match(erro.message, /LIMPEZA_WEBHOOK/);
+});
+
+test('regra não zero e Premium: esperados independentes do sistema e escrita só na fixture F4', () => {
+    assert.deepEqual({...h.REGRA_F4}, {pixAvista:5, pixParcelado:2, cartao:'Cartão homologação', diaUtil:false});
+    assert.equal(h.precoEsperado(h.REGRA_F4.pixAvista), 142500, 'R$ 1.500,00 com 5% = R$ 1.425,00');
+    assert.notEqual(h.precoEsperado(h.REGRA_F4.pixAvista), h.precoEsperado(10), 'distinto do legado da Kidmais (R$ 1.350,00)');
+    const planos = fs.readFileSync(__dirname + '/../lib/assinatura/planos-comerciais.ts', 'utf8');
+    for (const [plano, limite] of Object.entries(h.LIMITE_PESSOAS))
+        assert.match(planos, new RegExp(`${plano}: \\{[^}]*limiteUsuarios: ${limite}\\b`), plano);
+    assert.ok(h.PRESERVADAS.some(([t]) => t === 'empresa_regras_pagamento'), 'regra legada da Kidmais e demais empresas preservadas');
+    const insercoes = fonte.match(/INSERT INTO empresa_regras_pagamento/g) ?? [];
+    assert.equal(insercoes.length, 1);
+    assert.match(fonte, /if \(f\.chave === 'F4'\)\s+await db\.query\(`INSERT INTO empresa_regras_pagamento/);
+    assert.doesNotMatch(fonte, /(UPDATE|DELETE FROM) empresa_regras_pagamento/);
 });
 
 test('ordem na rodada: prova de autoria gravada antes de cada criação', () => {
