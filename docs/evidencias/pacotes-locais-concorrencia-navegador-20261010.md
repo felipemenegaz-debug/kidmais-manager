@@ -95,3 +95,36 @@ C1–C3 ok (bancos `[]`); **C4 exit 0, `resultado: PASS`** em 6 s; C4b só o ban
 ## Encerramento
 
 Servidor parado (tarefa encerrada); cluster de navegador `PARADO`; portas 55480, 55481 e 3481 livres. Preservados: `.local-concorrencia-pg-5611…`, `.local-concorrencia-pg-a9e1…`, `.local-navegador-pg-5d5b…`, `.local-navegador-pg-a7eb…` e `.local-navegador/` (credenciais sintéticas e e-mails locais; nenhum e-mail gerado). Nenhuma remoção (C6) feita.
+
+---
+
+# Terceira execução — repetição N14–N16, candidata `121d49c918b164b1f18fb784a6924504a2622f86` (código `412654a`)
+
+Autorização de Felipe: B0–B5 do [pacote N14–N16](../NAVEGADOR_LOCAL_N14_N16_20261010.md); pastas anteriores preservadas; banco local sintético novo; desktop e celular; sem chamadas externas, envio de pedido, banco real, Render, push ou deploy.
+
+Pré-condições: HEAD = candidata; só `docs/` após `412654a`; árvore limpa; sem `.env*`/`PG*`; portas 55481/3481 livres; testes offline 21/21 (seed/servidor) e 14/14 (tela/marca); planos `confere: true` (`8a9a9747…3cfb`) e servidor `OK`.
+
+| Passo | Resultado |
+|---|---|
+| B0 | `.local-navegador/` → `.local-navegador-execucao-936ef67/` (renomeada, ignorada pelo Git, conteúdo intacto) |
+| B1 | `.local-navegador-pg-52f7eaa3874c4104871fe7b949daa2c3`, `INICIADO` em `127.0.0.1:55481`, `CONFERE`, bancos `[]` (a primeira tentativa de `criar` foi recusada antes de agir por falta de `KIDMAIS_PG_BIN`) |
+| B2 | seed `PASS` em `kidmais_navegador_n14_20261010` (79/201, impressão conferida); conferência anterior + `contatoPublico`: `nav-profissional` [whatsapp, email, site], `nav-premium` `null`; nenhuma senha na saída |
+| B3 | servidor `127.0.0.1:3481`, Asaas `DESLIGADO(CHAVE_FORA_DO_SANDBOX)`, fontes pelo mock local |
+| B4 | checklist abaixo, sem sessão (nenhuma credencial digitada) |
+| B5 | servidor parado (porta 3481 livre); `parar` sem a flag foi recusado sem efeito e repetido com `--parar-autorizado` → `PARADO`; 55481 livre; `next-env.d.ts` regenerado pelo `next dev` restaurado |
+
+| # | Desktop (1018 px) | Celular (375×812) | Observação |
+|---|---|---|---|
+| N14a | PASS | PASS | um único cartão “Pocket sintético · A partir de R$ 1.500,00 · Descrição não cadastrada.”, sem selo/horário; nenhuma ocorrência de Kidmais, Scienza, Mini Festa, Festa Compacta/Essencial/Completa/Premium, Pizza Party, “Mais escolhida”, R$ 5.100/6.490, (61) 99340-5359, “Segunda a quinta” |
+| N14b | PASS | PASS | Mínimo 20, Limite 30, “Composição não cadastrada.”, “Duração não cadastrada.”, sem observação/sob consulta. Com data pré-escolhida a etapa seguinte é Convidados (o calendário fica na tela de disponibilidade, N14e) |
+| N14c | PASS | PASS | 31 → “Pocket sintético atende até 30 convidados neste pacote.” (e a cotação do servidor recusa); 19 → “possui mínimo de 20 pagantes.”; sem “Kidmais”/150 |
+| N14d | PASS | PASS | rodapé: “Buffet Sintético Profissional (TESTE navegador) · WhatsApp (11) 90000-0001 · E-mail · Site”, links `wa.me/5511900000001`, `mailto:`, `https://profissional.example.invalid/`; sem contato da Kidmais; no celular sem rolagem horizontal |
+| N14e | PASS | PASS | disponibilidade: título “Orçamento da festa”, ícone `/icone-orcamento.svg`, nome da empresa, sem logo; 16/10 com 10:30/11:00/11:30 |
+| N15 | PASS | PASS | Premium: mesmo pacote e regras; **nenhum link de contato** e sem rodapé de contato; sem Kidmais |
+| N16 | PASS | PASS | as três: 404, texto “Página não encontrada · Este endereço não existe ou não está disponível para a sua conta.”, título inicial “Página não encontrada — Kidmais Manager” e final “Orçamento da festa” — idênticos entre si |
+
+Recursos carregados só de `localhost:3481` em todas as páginas. Requisições ao servidor: só leituras (`/api/disponibilidade`, `/api/fechamentos/pacotes|catalogo|adicionais`) e `POST /api/fechamentos/cotacao` (cálculo, sem gravação); nenhum envio de pedido; 0 e-mails gerados.
+
+Observação fora do escopo do defeito: a página 404 mostra a marca da plataforma (“Kidmais Manager”), igual nas três URLs e igual à execução anterior; não revela empresa nem plano.
+
+Encerramento: servidor e cluster parados; portas livres. Preservados: `.local-concorrencia-pg-5611…`, `.local-concorrencia-pg-a9e1…`, `.local-navegador-pg-5d5b…`, `.local-navegador-pg-a7eb…`, `.local-navegador-pg-52f7…` (com `seed-n14-console.txt` e `servidor-n14.log`), `.local-navegador-execucao-936ef67/` e a nova `.local-navegador/`. Nenhuma remoção (C6).
