@@ -125,7 +125,7 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
       const pausa = !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto);
       await tx.query('UPDATE whatsapp_atendimento_conversas SET passagem=$2::jsonb WHERE id=$1', [conversa.id, JSON.stringify(passagemSemRespostaAutomatica(conversa.contexto, em, pausa))]);
     }
-    if (parar) {
+    if (parar && entrada.texto) {
       // Rodada 18: com reclamação junto ("não quero mais propaganda… a festa foi péssima"), o mesmo bloqueio, e a reclamação
       // fica na fila da equipe (AGUARDANDO_HUMANO + passagem, só com a 078), sem reabrir o contato.
       const registro = (await tem078(tx)) ? registroDoBloqueio(entrada.texto, em) : null;

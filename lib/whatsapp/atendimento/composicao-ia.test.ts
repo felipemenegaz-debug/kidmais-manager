@@ -16,7 +16,7 @@ const ORCAMENTO_VALIDO = JSON.stringify({ porEmpresa: { tokensDiario: 1_000_000 
 test('modo regras com orçamento válido: a composition root não monta modelo para o Wall-e nem para a fase B', async () => {
   const modelo = await import(raiz('app/api/admin/inteligencia/whatsapp/modelo.ts')) as typeof import('../../../app/api/admin/inteligencia/whatsapp/modelo.ts');
   const { orcamentoDoAmbiente, planejarReserva } = await import(raiz('lib/inteligencia/modelos/orcamento.ts')) as typeof import('../../inteligencia/modelos/orcamento.ts');
-  const env = { AI_BUDGET_JSON: ORCAMENTO_VALIDO, INTELIGENCIA_ENABLED: 'true' } as NodeJS.ProcessEnv;
+  const env = { AI_BUDGET_JSON: ORCAMENTO_VALIDO, INTELIGENCIA_ENABLED: 'true' } as unknown as NodeJS.ProcessEnv;
   const orcamento = orcamentoDoAmbiente(env);
   assert.ok(typeof orcamento !== 'string', 'orçamento válido');
   assert.equal(planejarReserva(orcamento as never, { capacidade: 'whatsapp_atendimento', hoje: '2026-10-09', moedaPreco: null, precoConhecido: true }).tipo, 'RESERVAR', 'o orçamento permitiria chamar o modelo');
