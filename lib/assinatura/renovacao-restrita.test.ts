@@ -93,3 +93,18 @@ test('processo real sem lista sai com 1 antes de conectar; nenhum cron, render.y
     assert.doesNotMatch(fonte, /process\.env\.DATABASE_URL|readFileSync\([^)]*\.env/);
     assert.match(fonte, /relogioReal: \(\) => new Date\(\)/, 'G1: janela de 23 h no relógio real com --agora');
 });
+
+test('--agora com --aplicar fora do banco local: só fixtures de homologação (regra ehFixtureHomologacao); empresa real recusada', async () => {
+    const { ehFixtureHomologacao } = await import('./renovacao-operacao.ts');
+    const fixture = { id: A, codigo: 'hml-pr-essencial', nome: 'TESTE Kidmais — pagamento/renovação r3 F1' };
+    const real = { id: B, codigo: 'hml-buffet-real', nome: 'Buffet Real' };
+    const base = { agora: new Date('2027-09-01T12:00:00Z'), aplicar: true, alvo: { local: false } };
+    assert.doesNotThrow(() => cli.conferirAgoraSomenteFixtures({ ...base, empresas: [A] }, [fixture], ehFixtureHomologacao));
+    assert.throws(() => cli.conferirAgoraSomenteFixtures({ ...base, empresas: [A, B] }, [fixture, real], ehFixtureHomologacao), /só para fixtures/);
+    assert.throws(() => cli.conferirAgoraSomenteFixtures({ ...base, empresas: [A, B] }, [fixture], ehFixtureHomologacao), /só para fixtures/, 'empresa inexistente também recusa');
+    // Simulação, banco local ou sem --agora: a trava não se aplica.
+    for (const cfg of [{ ...base, aplicar: false }, { ...base, alvo: { local: true } }, { ...base, agora: null }])
+        assert.doesNotThrow(() => cli.conferirAgoraSomenteFixtures({ ...cfg, empresas: [B] }, [real], ehFixtureHomologacao));
+    const fonte = readFileSync(new URL('../../scripts/assinatura-renovar-restrito.cjs', import.meta.url), 'utf8');
+    assert.ok(fonte.indexOf('conferirAgoraSomenteFixtures(cfg, linhas') < fonte.indexOf('executarRestrito({ empresas'), 'trava antes de processar');
+});

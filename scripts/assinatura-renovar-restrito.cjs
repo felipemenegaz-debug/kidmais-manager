@@ -104,6 +104,19 @@ function configuracaoRestrita(env, argv, lerArquivo) {
     return { aplicar: args.aplicar, empresas, agora, alvo };
 }
 
+/**
+ * Tempo de negócio injetado com aplicação fora de banco local: só para fixtures de homologação (regra única
+ * ehFixtureHomologacao, código hml- E nome "TESTE "). Toda empresa da lista tem de existir e ser fixture; uma empresa
+ * real nunca recebe aviso ou preço antecipado. Simulação (READ ONLY) e banco local não precisam desta trava.
+ */
+function conferirAgoraSomenteFixtures(cfg, linhas, ehFixture) {
+    if (!cfg.agora || !cfg.aplicar || cfg.alvo.local) return;
+    const porId = new Map(linhas.map((l) => [String(l.id), l]));
+    const recusadas = cfg.empresas.filter((id) => { const l = porId.get(id); return !l || !ehFixture({ codigo:l.codigo, nome:l.nome }); });
+    if (recusadas.length)
+        throw new Error(`--agora com --aplicar fora de banco local só para fixtures de homologação (${recusadas.length} empresa(s) recusada(s)).`);
+}
+
 /** Só estado e código de erro do registro: nada de destinatário, e-mail, mensagem ou valores. */
 function estadoSanitizado(contexto) {
     if (!contexto) return { estado: 'SEM_FUNDADOR', motivo: null };
@@ -157,6 +170,10 @@ async function main() {
     try {
         const id = (await pool.query('SELECT current_database() AS db, (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls')).rows[0];
         if (id.db !== cfg.alvo.database || (!cfg.alvo.local && id.tls !== true)) throw new Error('Banco conectado diverge do alvo confirmado.');
+        // Antes de qualquer processamento: tempo injetado com aplicação em staging só para fixtures.
+        const { ehFixtureHomologacao } = await import('../lib/assinatura/renovacao-operacao.ts');
+        const linhas = (await pool.query('SELECT id::text AS id, codigo, nome FROM empresas WHERE id = ANY($1::uuid[])', [cfg.empresas])).rows;
+        conferirAgoraSomenteFixtures(cfg, linhas, ehFixtureHomologacao);
         const repositorio = repositorioRenovacao(transacao);
         const relatorio = {};
         const deps = { repositorio, provedor: provedorDaExecucao(criarClienteAsaas(config.config), cfg.aplicar, relatorio),
@@ -178,4 +195,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { argumentos, listaDeEmpresas, guardarAmbiente, configuracaoRestrita, executarRestrito, estadoSanitizado, MAX_EMPRESAS, SERVICO_PRODUCAO };
+module.exports = { argumentos, listaDeEmpresas, guardarAmbiente, configuracaoRestrita, executarRestrito, estadoSanitizado, conferirAgoraSomenteFixtures, MAX_EMPRESAS, SERVICO_PRODUCAO };
