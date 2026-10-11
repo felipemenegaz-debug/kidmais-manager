@@ -63,7 +63,8 @@ manuais nem deploys externos em staging.
 | L2 | (cluster **novo**; a pasta da tentativa de `44ce38f` fica parada e preservada) variáveis da suíte (porta 55498, `kidmais_pacotes_v1_descartavel`) e `KIDMAIS_POSTGRES_SOMENTE='lib/comercial/disponibilidade-empresa.postgres.test.ts,lib/comercial/catalogo-buffet-078.postgres.test.ts,lib/comercial/catalogo-ux.postgres.test.ts,lib/saas/hg8-catalogo.postgres.test.ts,lib/comercial/adicionais-070.postgres.test.ts,lib/comercial/round4-remediacao.postgres.test.ts'`; `node scripts/regressao-v1-postgres.cjs` | 6/6 PASS. Falha da nova suíte no teste “legado” = divergência **preexistente** entre a regra fixa e a matriz do banco: parar e reportar |
 | L3 | `parar --parar-autorizado` | `PARADO`; pasta preservada |
 
-Pré-requisito de S: L PASS.
+Pré-requisito de S: L PASS. **L executada em 11/10/2026 para `7b937d8`: PASS, 6/6 suítes (`disponibilidade-empresa` 5/5)** —
+[evidência](evidencias/atualizacao-staging-frente-l-20261011.md). S0–S9 continuam pendentes de autorização própria.
 
 A suíte `disponibilidade-empresa` (5 testes) cobre: cenário com vigências contíguas (B: quarta no almoço aberta até a véspera do
 fechamento, fechada por duas quartas, reaberta no dia seguinte — o banco recusa sobreposição); isolamento (A 14 regras, B 13, C sem
