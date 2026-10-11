@@ -68,11 +68,12 @@ export function pendenciaEscolhas(item: AdicionalDaEtapa, escolhidos: readonly s
 }
 
 /** Mensagem da falha na consulta, pelo código da API. */
-export function mensagemFalhaAdicionais(codigo: string | undefined, admin = false): string {
+/** `equipe`: redação da marca do endereço (“equipe Kidmais” no endereço atual; “equipe do buffet” nos demais). */
+export function mensagemFalhaAdicionais(codigo: string | undefined, admin = false, equipe = "equipe Kidmais"): string {
   if (codigo === "PRECO_INDISPONIVEL") {
     return admin
       ? "Não há tabela de preços publicada para esta data. Publique em Configurações › Tabelas de preço."
-      : "Os valores dos adicionais ainda não estão disponíveis para esta data. Fale com a equipe Kidmais.";
+      : `Os valores dos adicionais ainda não estão disponíveis para esta data. Fale com a ${equipe}.`;
   }
   return "Não foi possível consultar os adicionais deste pacote.";
 }

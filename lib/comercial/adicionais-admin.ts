@@ -6,13 +6,14 @@ import { MOTIVOS_PACOTE } from "./motivos-pacote.ts";
 import { migration070Aplicada } from "./migration-070.ts";
 import { gravarPrecoAdicional, lerPrecosAdicionais, lerPrecosCorrentes, publicarTabelaSucessora, substituirPrecosAdicionalNaTabela } from "./pacote-precos.ts";
 import { PacoteAdminError, alterarComposicaoPacoteAdmin } from "./pacotes-admin.ts";
+import { catalogoBuffetPorEmpresa } from "./catalogo-buffet-estrutura.ts";
 
 /**
  * Adicionais da empresa no admin (Configurações › Itens do Buffet).
  *
  * Três origens: um item do buffet ("Coxinha extra"), uma categoria do buffet ("Cento de salgados extra", o cliente
- * escolhe os itens) ou nenhuma (mesas, decoração, combos…). O buffet é global e não é tocado: a origem só aponta
- * para ele. Preço na tabela da empresa (sucessão publicada, `gravarPrecoAdicional`) e oferta por pacote pela
+ * escolhe os itens) ou nenhuma (mesas, decoração, combos…). O buffet não é tocado: a origem só aponta para ele
+ * e, com a 078, precisa ser do catálogo da própria empresa. Preço na tabela da empresa (sucessão publicada, `gravarPrecoAdicional`) e oferta por pacote pela
  * composição oficial (`alterarComposicaoPacoteAdmin`). Nada é oferecido em pacote nenhum até ser marcado.
  */
 export const UNIDADES_ADICIONAL = ["UNIDADE", "CENTO", "CONVIDADO", "PACOTE", "VALOR_FIXO", "HORA", "METRO"] as const;
@@ -137,9 +138,14 @@ async function codigoDisponivel(tx: DbExecutor, empresaId: string, desejado: str
   return usado.rowCount ? `${desejado.slice(0, 72)}_${randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase()}` : desejado;
 }
 
-async function origemDoBuffet(tx: DbExecutor, origem: OrigemAdicional) {
+async function origemDoBuffet(tx: DbExecutor, empresaId: string, origem: OrigemAdicional) {
   const tabela = origem.tipo === "ITEM" ? "buffet_itens" : "buffet_categorias";
-  const r = await tx.query<{ codigo: string; nome: string }>(`SELECT codigo, nome FROM ${tabela} WHERE id = $1::uuid`, [origem.id]);
+  // 078: a origem precisa ser do catálogo da própria empresa (outra empresa = não encontrado; o gatilho também recusa).
+  const porEmpresa = await catalogoBuffetPorEmpresa(tx);
+  const r = await tx.query<{ codigo: string; nome: string }>(
+    `SELECT codigo, nome FROM ${tabela} WHERE id = $1::uuid ${porEmpresa ? "AND empresa_id = $2::uuid" : ""}`,
+    porEmpresa ? [origem.id, empresaId] : [origem.id],
+  );
   return r.rows[0] ?? recusar("NAO_ENCONTRADO", origem.tipo === "ITEM" ? "Item do buffet não encontrado." : "Categoria do buffet não encontrada.", 404);
 }
 
@@ -266,7 +272,7 @@ export async function salvarAdicionalAdmin(tx: DbExecutor, ctx: Contexto, entrad
       depois: { nome, categoria: entrada.categoria, unidadeCobranca: entrada.unidadeCobranca, ativo: entrada.ativo, escolhasMax },
     });
   } else {
-    const fonte = entrada.origem ? await origemDoBuffet(tx, entrada.origem) : null;
+    const fonte = entrada.origem ? await origemDoBuffet(tx, ctx.empresaId, entrada.origem) : null;
     const desejado = !entrada.origem ? codigoLivre(nome)
       : entrada.origem.tipo === "ITEM" ? fonte!.codigo : `CATEGORIA_${fonte!.codigo}`.slice(0, 80);
     const codigo = await codigoDisponivel(tx, ctx.empresaId, desejado);

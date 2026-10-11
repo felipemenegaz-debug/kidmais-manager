@@ -1,5 +1,6 @@
 import type { DbExecutor } from '../../db/contracts';
 import { FechamentoServiceError } from './errors';
+import { catalogoBuffetPorEmpresa } from '../../comercial/catalogo-buffet-estrutura';
 
 type Escolha = { categoria: string; categoriaId: string; categoriaNome: string; itemId: string; itemNome: string };
 
@@ -10,12 +11,16 @@ export async function resolverEscolhasBuffet(tx: DbExecutor, pacoteId: string, e
   if (status !== 'DEFINIDO' || entradas.length > 60 || new Set(entradas.map(e => e.id)).size !== entradas.length)
     throw new FechamentoServiceError('BUFFET_INVALIDO', 'Escolhas do buffet inválidas.', 400);
   const aplicadas: Escolha[] = [];
+  // Com a 078, categoria e item precisam ser do catálogo da empresa do pacote (códigos se repetem entre empresas).
+  const porEmpresa = await catalogoBuffetPorEmpresa(tx);
   for (const escolha of entradas) {
     const item = (await tx.query<{ categoria_id: string; categoria_nome: string; item_nome: string; escolhas_max: number }>(`
       SELECT c.id categoria_id,c.nome categoria_nome,i.nome item_nome,r.escolhas_max
       FROM pacote_buffet_categorias r JOIN buffet_categorias c ON c.id=r.categoria_id AND c.ativo
       JOIN buffet_itens i ON i.categoria_id=c.id AND i.ativo
+      JOIN pacotes p ON p.id=r.pacote_id
       WHERE r.pacote_id=$1 AND r.ativo AND c.codigo=$2 AND i.id=$3
+        ${porEmpresa ? 'AND c.empresa_id=p.empresa_id AND i.empresa_id=p.empresa_id' : ''}
         AND (r.modo_itens='TODOS_ATIVOS' OR EXISTS
           (SELECT 1 FROM pacote_buffet_itens x WHERE x.pacote_id=r.pacote_id AND x.categoria_id=c.id AND x.item_id=i.id))`,
     [pacoteId, escolha.categoria, escolha.id])).rows[0];

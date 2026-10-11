@@ -16,6 +16,7 @@
  *   062   — inventário inteiro até a 062: etapa final (agenda por empresa e unidade).
  *   063   — inventário inteiro até a 063: painel do desenvolvedor (concessão, interessadas, convites, recuperação).
  *   075   — inventário inteiro até a 075: migrations atuais (planos 074a com as travas comerciais e renovação 075).
+ *   079   — inventário inteiro até a 079: recuperação manual de convites (cadeia completa do schema vigente, 064–079).
  *
  * Segurança (fail-closed, antes de qualquer escrita):
  *   - host 127.0.0.1, usuário kidmais_descartavel, porta autorizada pela mesma regra de
@@ -55,6 +56,8 @@ const MODELOS = {
   "063": { banco: "kidmais_v1_modelo_063", ate: "063", sem: [] },
   // Migrations atuais (073–075): a cobrança roda também com a trava comercial e os gatilhos da 074a instalados.
   "075": { banco: "kidmais_v1_modelo_075", ate: "075", sem: [] },
+  // Recuperação manual de convites (079): cadeia completa do schema vigente, incluindo 064–079.
+  "079": { banco: "kidmais_v1_modelo_079", ate: "079", sem: [] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

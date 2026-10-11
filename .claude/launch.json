@@ -1,0 +1,10 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "navegador-local",
+      "url": "http://localhost:3481",
+      "port": 3481
+    }
+  ]
+}

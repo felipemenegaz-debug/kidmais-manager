@@ -37,7 +37,8 @@ test("catálogo público lista os sete e a API valida o código antes de qualque
     "utf8",
   );
 
-  assert.match(wizard, /PACOTES_FECHAMENTO_V1\.map/);
+  // Endereço atual: os sete do catálogo (pacotesExibidos com a marca Kidmais); outra empresa: só os dela.
+  assert.match(wizard, /pacotesExibidos\(marca\.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote\)/);
   assert.match(wizard, /O Pizza Party está sob consulta/);
   assert.match(wizard, /erroConvidadosFechamento\(convidados, pacote\)/);
   assert.match(erroConvidadosFechamento(41, { id: 'compacta', nome: 'Compacta', minPagantes: 40, maxPagantes: 150 })!, /Festa Compacta possui valor automático somente para 40 convidados/);

@@ -1,0 +1,206 @@
+
+=== PostgreSQL descartável (6 arquivos) ===
+receita: modelo 063 recriado do schema vazio
+receita: modelo atual recriado do schema vazio
+
+--- lib/comercial/adicionais-070.postgres.test.ts [063]
+(node:43072) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/adicionais-070.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 070: precheck, migration e postcheck; segunda aplicação é recusada (107.4633ms)
+✔ fixtures: duas empresas, pacotes com preço publicado e uma categoria do buffet (63.456ms)
+✔ categoria vira um adicional único: preço numa nova tabela publicada, oferecido só no pacote marcado (91.3609ms)
+✔ escolhas: congeladas por nome; item inativo, de outra categoria, acima do máximo ou em adicional sem categoria é recusado (26.2294ms)
+✔ outro adicional sem origem; preço nulo tira da oferta; empresa B não vê nem edita os de A (67.6835ms)
+✔ sem tabela publicada o preço é recusado com orientação; categoria de adicional inválida também (8.6447ms)
+✔ rollback da 070 é recusado enquanto houver adicional criado a partir do buffet (3.7012ms)
+✔ pacotes já usados: preço + dois pacotes num salvamento viram etapas; revisões vigentes recebem o adicional (117.9831ms)
+✔ excluir: sem histórico apaga; com preço publicado arquiva (some do fechamento); outra empresa não exclui (93.9458ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1172.0088
+
+--- lib/comercial/catalogo-buffet-078.postgres.test.ts [063]
+(node:36244) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-buffet-078.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ antes da 078: 070 aplicada; catálogo global da 022 em uso pela Kidmais e por OUTRA (pacote, item solto, adicional e pedido) (178.6926ms)
+✔ 078: precheck lista só OUTRA; migration e postcheck; segunda aplicação recusada (56.2082ms)
+✔ Kidmais: cardápio, ids e composição idênticos, agora com empresa_id da Kidmais (2.1224ms)
+✔ OUTRA: cópia só do que usava; vínculos (pacote, itens selecionados, item solto, adicional) passam para a cópia (4.663ms)
+✔ OUTRA: cópias com os MESMOS códigos do catálogo antigo (categorias e itens sem categoria), que a unicidade global recusaria (4.3749ms)
+✔ pedidos e fotografias: nenhuma linha alterada; a escolha antiga continua apontando para o item original (2.4825ms)
+✔ duas empresas, MESMA categoria (SALGADOS) e itens diferentes: leitura só da própria empresa (7.5619ms)
+✔ escrita: Y não edita, exclui nem usa categoria/item de X (serviço = 404/recusa; banco = gatilho) (46.0583ms)
+✔ pedido: a escolha só aceita item do catálogo da empresa do pacote, mesmo com o mesmo código de categoria (4.3015ms)
+✔ adicional do buffet e cotação: origem de outra empresa é recusada; a cotação de Y não enxerga o adicional de X (49.8284ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1049.2083
+
+--- lib/comercial/catalogo-ux.postgres.test.ts [063]
+(node:37588) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/catalogo-ux.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ catálogo do buffet no postgres descartável (1706.3215ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1852.2615
+
+--- lib/comercial/disponibilidade-empresa.postgres.test.ts [063]
+(node:47824) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/disponibilidade-empresa.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✖ cenário: A vende POCKET todos os dias; B só dias úteis, sábado almoço sob consulta e uma janela que fecha a quarta; C sem POCKET (51.5349ms)
+✖ isolamento: a administração de cada empresa lê só os pacotes dela (o mesmo código POCKET não cruza) (9.3959ms)
+✖ coerência: tela (cotação pública e administração) = servidor, em toda a grade, nas duas empresas (68.9159ms)
+✔ legado da Kidmais: a regra fixa da tela (endereço atual e administração da dona) coincide com a matriz do servidor (114.4738ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 1
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 392.9247
+
+✖ failing tests:
+
+test at lib\comercial\disponibilidade-empresa.postgres.test.ts:72:1
+✖ cenário: A vende POCKET todos os dias; B só dias úteis, sábado almoço sob consulta e uma janela que fecha a quarta; C sem POCKET (51.5349ms)
+  error: Vigência de regra de pacote sobreposta para pacote 0c556701-41bc-444f-b903-ad0aa3c39a6f, dia 3 e configuração 3693628e-55e7-4f77-b14e-92bb1ac617b2
+      at D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\node_modules\pg\lib\client.js:694:17
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async regra (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/disponibilidade-empresa.postgres.test.ts:56:3)
+      at async TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/disponibilidade-empresa.postgres.test.ts:85:3)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    length: 303,
+    severity: 'ERROR',
+    code: 'P0001',
+    detail: undefined,
+    hint: undefined,
+    position: undefined,
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: 'PL/pgSQL function kidmais_validar_vigencia_regra_disponibilidade_pacote() line 14 at RAISE',
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'pl_exec.c',
+    line: '3923',
+    routine: 'exec_stmt_raise'
+  }
+
+test at lib\comercial\disponibilidade-empresa.postgres.test.ts:89:1
+✖ isolamento: a administração de cada empresa lê só os pacotes dela (o mesmo código POCKET não cruza) (9.3959ms)
+  AssertionError [ERR_ASSERTION]: 10 dias úteis + sábado sob consulta + janela da quarta
+  
+  11 !== 12
+  
+      at TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/disponibilidade-empresa.postgres.test.ts:98:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 11,
+    expected: 12,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at lib\comercial\disponibilidade-empresa.postgres.test.ts:107:1
+✖ coerência: tela (cotação pública e administração) = servidor, em toda a grade, nas duas empresas (68.9159ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'disponivel'
+  - 'indisponivel'
+  
+      at TestContext.<anonymous> (file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/disponibilidade-empresa.postgres.test.ts:126:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'disponivel',
+    expected: 'indisponivel',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+--- lib/comercial/round4-remediacao.postgres.test.ts [atual]
+(node:48984) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/comercial/round4-remediacao.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ remediação da rodada 4 no postgres descartável
+  ✔ contratação usa a sucessora no pacote e nos adicionais (79.4352ms)
+  ✔ empresa sem tabela corrente não usa o preço legado (2.6996ms)
+  ✔ simulação ignora tabela substituída (11.0514ms)
+  ✔ revisão só de nome conserva o preço e o rollback desfaz a cópia (43.2671ms)
+  ✔ down concorrente não apaga a supersessão nem a guarda (1551.8308ms)
+  ✔ insert direto já publicado não cria segunda corrente (8.078ms)
+  ✔ disponibilidade guarda o par real e categoria sem itens aceita todos (18.1481ms)
+✔ remediação da rodada 4 no postgres descartável (1854.8585ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2033.6097
+
+--- lib/saas/hg8-catalogo.postgres.test.ts [atual]
+(node:32896) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/glass/KidMais%20Manager/kidmais-manager-site-venda-20261008/.claude/worktrees/kidmais-manager-sales-site-9b9a2d/lib/saas/hg8-catalogo.postgres.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\glass\KidMais Manager\kidmais-manager-site-venda-20261008\.claude\worktrees\kidmais-manager-sales-site-9b9a2d\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ catálogo HG-8 no postgres descartável
+  ✔ tenant não altera categoria global (2609.9977ms)
+  ✔ tenant não renomeia nem desativa item global (244.5785ms)
+  ✔ composição pela rota revisa pacote usado e grava uma auditoria (384.5281ms)
+  ✔ regra de buffet pela rota revisa pacote usado e grava uma auditoria (346.1895ms)
+  ✔ duas memberships exigem empresaId autorizado e payload estrito (349.7037ms)
+✔ catálogo HG-8 no postgres descartável (4136.6016ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5099.3654
+
+=== Resumo PostgreSQL descartável ===
+ok   lib/comercial/adicionais-070.postgres.test.ts [063] — OK (1s)
+ok   lib/comercial/catalogo-buffet-078.postgres.test.ts [063] — OK (1s)
+ok   lib/comercial/catalogo-ux.postgres.test.ts [063] — OK (2s)
+FALHA lib/comercial/disponibilidade-empresa.postgres.test.ts [063] — FALHOU (0s)
+ok   lib/comercial/round4-remediacao.postgres.test.ts [atual] — OK (2s)
+ok   lib/saas/hg8-catalogo.postgres.test.ts [atual] — OK (5s)
+
+FALHA suíte PostgreSQL descartável: 1 de 6 arquivos.

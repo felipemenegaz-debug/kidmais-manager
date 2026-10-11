@@ -137,7 +137,7 @@ export async function salvarPacoteComercial(
     input.categorias,
     { ...contexto, motivo: MOTIVOS_PACOTE.composicao },
   );
-  await definirItensEspecificosPacoteAdmin(tx, comCategorias.id, input.itens ?? []);
+  await definirItensEspecificosPacoteAdmin(tx, comCategorias.id, input.itens ?? [], contexto.empresaId);
   let avisoPrecos: string | null = null;
   try {
     if (revisao && input.id) {

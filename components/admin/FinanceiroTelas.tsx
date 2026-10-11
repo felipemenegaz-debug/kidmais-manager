@@ -69,6 +69,8 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
   const [periodo, setPeriodo] = useState('mes');
   const [pixParcela, setPixParcela] = useState<string | null>(null);
   const [pagoMes, setPagoMes] = useState(0);
+  // Plano sem contas a pagar (Essencial): a visão geral mostra só entradas. A barreira está no servidor.
+  const [financeiroCompleto, setFinanceiroCompleto] = useState(true);
   const acaoRef = useRef<AcaoFinanceira>(acaoInicial());
   const [acao, setAcao] = useState<AcaoFinanceira>(acaoInicial);
   const [dialogo, setDialogo] = useState<'receber' | 'pagar' | 'nova' | 'entrada' | null>(null);
@@ -92,7 +94,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       const corpo = await (await adminFetch(rotas[tela])).json();
       if (!corpo.ok) { setErro(corpo.erro || 'Não foi possível carregar o financeiro.'); return; }
       const data = corpo.data;
-      if (tela === 'visao') { setResumo(data.resumo); setRecebiveis(data.recebimentos); setContas(data.pagamentos); setAlertas(data.alertas); }
+      if (tela === 'visao') { setResumo(data.resumo); setRecebiveis(data.recebimentos); setContas(data.pagamentos); setAlertas(data.alertas); setFinanceiroCompleto(data.financeiroCompleto !== false); }
       if (tela === 'receber') { setRecebiveis(data.recebiveis); setResumo(data.resumo); }
       if (tela === 'pagar') { setContas(data.contas); setCategorias(data.categorias); setPagoMes(data.pagoMesCentavos ?? 0); }
       if (tela === 'fluxo') setFluxo(data);
@@ -120,7 +122,7 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
       if (!ativo) return;
       if (!corpo.ok) { setErro(corpo.erro || 'Não foi possível carregar o financeiro.'); setCarregando(false); return; }
       const data = corpo.data;
-      if (tela === 'visao') { setResumo(data.resumo); setRecebiveis(data.recebimentos); setContas(data.pagamentos); setAlertas(data.alertas); }
+      if (tela === 'visao') { setResumo(data.resumo); setRecebiveis(data.recebimentos); setContas(data.pagamentos); setAlertas(data.alertas); setFinanceiroCompleto(data.financeiroCompleto !== false); }
       if (tela === 'receber') { setRecebiveis(data.recebiveis); setResumo(data.resumo); }
       if (tela === 'pagar') { setContas(data.contas); setCategorias(data.categorias); setPagoMes(data.pagoMesCentavos ?? 0); }
       if (tela === 'fluxo') setFluxo(data);
@@ -180,14 +182,14 @@ export default function FinanceiroTelas({ tela, amostra }: { tela: TelaFinanceir
   return <main className={styles.pagina}>
     {tela === 'visao' && <>
       <header className={styles.topo}><div><h1>Financeiro</h1><p>Posição atual das entradas, saídas e próximos compromissos.</p></div></header>
-      <Kpis itens={[['Recebido no mês', resumo?.recebidoMesCentavos], ['A receber total', resumo?.aReceberCentavos], ['A pagar total', resumo?.aPagarCentavos], ['Em atraso', resumo?.emAtrasoCentavos], ['Saldo previsto', resumo?.saldoPrevistoCentavos]]} />
+      <Kpis itens={[['Recebido no mês', resumo?.recebidoMesCentavos], ['A receber total', resumo?.aReceberCentavos], ...(financeiroCompleto ? [['A pagar total', resumo?.aPagarCentavos] as [string, number | undefined]] : []), ['Em atraso', resumo?.emAtrasoCentavos], ['Saldo previsto', resumo?.saldoPrevistoCentavos]]} />
       <div className={styles.grade}>
         <section className={styles.cartao}><h2>Movimento do mês</h2><Grafico linhas={[{ saldo: resumo?.recebidoMesCentavos ?? 0 }, { saldo: (resumo?.saldoPrevistoCentavos ?? 0) }]} /></section>
         <section className={styles.cartao}><h2>Alertas</h2>{alertas.length === 0 && <p className={styles.vazio}>Tudo em dia.</p>}{alertas.map((item) => <p key={item}>{item}</p>)}</section>
       </div>
       <div className={styles.meio}>
         <Lista titulo="Próximos recebimentos" vazio="Nenhum recebimento em aberto." itens={recebiveis.map((item) => ({ id: item.id, titulo: item.cliente, detalhe: item.vencimento, valor: item.saldoCentavos }))} />
-        <Lista titulo="Próximos pagamentos" vazio="Você ainda não tem contas a pagar." itens={contas.map((item) => ({ id: item.id, titulo: item.descricao, detalhe: item.vencimento, valor: item.saldoCentavos }))} />
+        {financeiroCompleto && <Lista titulo="Próximos pagamentos" vazio="Você ainda não tem contas a pagar." itens={contas.map((item) => ({ id: item.id, titulo: item.descricao, detalhe: item.vencimento, valor: item.saldoCentavos }))} />}
       </div>
     </>}
     {tela === 'receber' && <>

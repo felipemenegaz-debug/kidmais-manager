@@ -4,6 +4,10 @@ import { validarVinculoComposicao } from "@/lib/comercial/composicao";
 import { MOTIVOS_PACOTE, motivoOu } from "@/lib/comercial/motivos-pacote";
 import { PacoteAdminError, alterarComposicaoPacoteAdmin } from "@/lib/comercial/pacotes-admin";
 import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { catalogoBuffetPorEmpresa } from "@/lib/comercial/catalogo-buffet-estrutura";
+import {
+  criarCategoriaBuffet, criarItemBuffet, editarCategoriaBuffet, editarItemBuffet, excluirCategoriaBuffet, excluirItemBuffet,
+} from "@/lib/comercial/catalogo-buffet";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 
@@ -13,9 +17,9 @@ export const dynamic = "force-dynamic";
 /**
  * Catálogo administrativo.
  * (1) Tenant: adicionais, pacotes e a composição que passa pelo pacote da empresa.
- * (2) Buffet é catálogo global. A membership consulta e seleciona no pacote da empresa.
- *     Criar, editar, desativar e excluir exigem autoridade global explícita, que este modelo não tem.
- *     A migration 050 não autoriza essa escrita. Adicional de outra empresa continua fora.
+ * (2) Buffet: com a 078, categorias e itens são da empresa (empresa_id). A Gestão da empresa consulta, cria, edita,
+ *     desativa e exclui só o catálogo dela; registro de outra empresa responde 404. Sem a 078 (catálogo global), leitura
+ *     como antes e escrita recusada (CATALOGO_GLOBAL_SEM_AUTORIDADE). Adicional de outra empresa continua fora.
  * (3) Legado ainda sem tenant: linhas de pacotes, adicionais e tabelas com empresa_id nulo.
  *     Não são alcançadas por esta escrita.
  */
@@ -73,8 +77,13 @@ export async function GET(request: NextRequest) {
     const sessao = await exigirApiAdminCrmDisponivel(request);
     const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), async (tx, tenant) => {
       const empresaId = tenant.empresaComprovada;
-      const categorias = await tx.query("SELECT id, codigo, nome, ativo FROM buffet_categorias ORDER BY ordem_exibicao, nome");
-      const itens = await tx.query("SELECT id, categoria_id, nome, ativo FROM buffet_itens ORDER BY ordem_exibicao, nome");
+      const porEmpresa = await catalogoBuffetPorEmpresa(tx);
+      const categorias = porEmpresa
+        ? await tx.query("SELECT id, codigo, nome, ativo FROM buffet_categorias WHERE empresa_id = $1::uuid ORDER BY ordem_exibicao, nome", [empresaId])
+        : await tx.query("SELECT id, codigo, nome, ativo FROM buffet_categorias ORDER BY ordem_exibicao, nome");
+      const itens = porEmpresa
+        ? await tx.query("SELECT id, categoria_id, nome, ativo FROM buffet_itens WHERE empresa_id = $1::uuid ORDER BY ordem_exibicao, nome", [empresaId])
+        : await tx.query("SELECT id, categoria_id, nome, ativo FROM buffet_itens ORDER BY ordem_exibicao, nome");
       const adicionais = await tx.query(
         "SELECT id, codigo, nome, categoria, ativo FROM adicionais WHERE empresa_id = $1::uuid ORDER BY categoria, ordem_exibicao, nome",
         [empresaId],
@@ -121,7 +130,17 @@ export async function PATCH(request: NextRequest) {
       exigirGestaoNoTenant(tenant, "Apenas o proprietário pode editar o catálogo.");
       const data = operacao.parse(pedido.operacao);
       const empresaId = tenant.empresaComprovada;
-      if (acoesGlobais.has(data.acao)) recusarCatalogoGlobal();
+      if (acoesGlobais.has(data.acao)) {
+        if (!await catalogoBuffetPorEmpresa(tx)) recusarCatalogoGlobal();
+        // Catálogo da própria empresa (078): o serviço filtra por empresa_id; outra empresa = 404 (PacoteAdminError).
+        if (data.acao === "nova_categoria") await criarCategoriaBuffet(tx, empresaId, data.nome, data.ativo);
+        else if (data.acao === "categoria") await editarCategoriaBuffet(tx, empresaId, data.id, data.nome, data.ativo);
+        else if (data.acao === "excluir_categoria") await excluirCategoriaBuffet(tx, empresaId, data.id);
+        else if (data.acao === "novo_item") await criarItemBuffet(tx, empresaId, data.nome, data.categoriaId ?? null, data.ativo);
+        else if (data.acao === "item") await editarItemBuffet(tx, empresaId, data.id, data.nome, data.categoriaId, data.ativo);
+        else if (data.acao === "excluir_item") await excluirItemBuffet(tx, empresaId, data.id);
+        return { ausente: false as const };
+      }
       let resultado: { rowCount: number | null } | undefined;
       if (data.acao === "adicional") {
         resultado = await tx.query(

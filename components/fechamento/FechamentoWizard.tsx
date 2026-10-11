@@ -3,12 +3,18 @@
 import AdicionaisPizzaConsulta from './AdicionaisPizzaConsulta';
 import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
+import EscolhaPacote from './EscolhaPacote';
+import ContatoEmpresa from './ContatoEmpresa';
+import { CODIGO_PACOTE, pacoteDaTela, pacotesExibidos, regrasDisponibilidadeDaTela, type FatosPacote } from './pacotes-tela';
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ATALHOS_CONVIDADOS, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
+import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from '@/lib/fechamentos/convidados';
+import { apiPublica, paginaPublica } from '@/lib/fechamentos/rota-publica';
 import { centavosComerciais, validarPretensaoPix } from "@/lib/comercial/condicao-pagamento";
 import CalendarioDisponibilidade from "./CalendarioDisponibilidade";
-import KidmaisBrand from "@/components/layout/KidmaisBrand";
+import { MarcaPublicaCabecalho, useMarcaPublica } from "./MarcaPublica";
+import { rotuloDescontoPix, textoCondicoesPagamento } from "@/lib/fechamentos/marca-publica";
+import type { RegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import styles from "./FechamentoWizard.module.css";
 import {
   CONTATO_KIDMAIS,
@@ -96,8 +102,8 @@ type ClienteContextoValidado = {
 type CategoriaBuffet = { codigo:string; nome:string; max:number; itens:{id:string;nome:string}[] };
 type AdicionalDisponivel = AdicionalDaEtapa;
 type Cotacao = { valorTabela: number; valor: number; desconto: { percentual: number; valor: number; titulo: string | null }; categoria: string; categoriaNome: string; convidadosFaturados: number; minimoFaturavelAplicado: boolean; faixa: { min: number; max: number | null } };
-function mensagemCotacao(codigo: string | undefined, erro?: string) {
-  if (codigo === 'TABELA_PRECO_NAO_CONFIGURADA' || codigo === 'PRECO_PACOTE_NAO_CONFIGURADO' || codigo === 'PRECO_AMBIGUO') return 'Este pacote ainda não tem preço publicado para essa data e horário. Fale com a equipe Kidmais.';
+function mensagemCotacao(codigo: string | undefined, erro?: string, equipe = 'equipe Kidmais') {
+  if (codigo === 'TABELA_PRECO_NAO_CONFIGURADA' || codigo === 'PRECO_PACOTE_NAO_CONFIGURADO' || codigo === 'PRECO_AMBIGUO') return `Este pacote ainda não tem preço publicado para essa data e horário. Fale com a ${equipe}.`;
   if (codigo === 'PACOTE_INDISPONIVEL' || codigo === 'PACOTE_SOB_CONSULTA') return erro ?? 'Este pacote não está disponível nessa data e horário.';
   return erro && codigo ? erro : 'Não foi possível calcular o preço agora. Tente novamente em instantes.';
 }
@@ -106,7 +112,6 @@ function descricaoCotacao(c: Cotacao, convidados: number) {
   const faturados = c.minimoFaturavelAplicado ? ` · cobrança mínima de ${c.convidadosFaturados} convidados` : '';
   return `${convidados} convidados (faixa ${faixa}) · ${c.categoriaNome.toLocaleLowerCase('pt-BR')}${faturados}`;
 }
-const CODIGO_PACOTE:Record<string,string> = {pocket:'POCKET',mini:'MINI_FESTA',compacta:'COMPACTA',essencial:'ESSENCIAL',completa:'COMPLETA',premium:'PREMIUM',pizza_party_scienza:'PIZZA_PARTY'};
 const CAMPO_CATEGORIA:Record<string,'buffetSalgados'|'buffetDoces'|'buffetBolo'|'buffetLembrancinha'|'buffetEmpratado'|'buffetBombom'> = {
   SALGADOS:'buffetSalgados',DOCES:'buffetDoces',MASSA_BOLO:'buffetBolo',RECHEIO_BOLO:'buffetBolo',
   LEMBRANCINHAS:'buffetLembrancinha',EMPRATADOS:'buffetEmpratado',BOMBONS:'buffetBombom',
@@ -228,7 +233,12 @@ async function lerErroApi(resposta: Response, fallback: string) {
 }
 
 
-export default function FechamentoWizard() {
+export default function FechamentoWizard({ empresa = null }: { empresa?: string | null } = {}) {
+  const marca = useMarcaPublica();
+  // Endereço por empresa: regras entregues pela página (servidor). Endereço atual: regras da empresa configurada,
+  // lidas em /api/fechamentos/pacotes; até chegarem (ou antes da 077), o legado — o mesmo que o servidor aplica.
+  const [regrasDoServidor, setRegrasDoServidor] = useState<RegrasPagamento | null>(null);
+  const pagamento = empresa ? marca.pagamento : (regrasDoServidor ?? marca.pagamento);
   const router = useRouter();
   const [etapa, setEtapa] = useState(0);
   const [form, setForm] = useState<FechamentoForm>(FORM_INICIAL);
@@ -273,38 +283,36 @@ export default function FechamentoWizard() {
   const [erroCep, setErroCep] = useState("");
   const cepConsultaSeq = useRef(0);
 
-  const [fatosPacote, setFatosPacote] = useState<Record<string, { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null }> | null>(null);
+  const [fatosPacote, setFatosPacote] = useState<FatosPacote | null>(null);
+  // Falha da lista de pacotes: no endereço atual o catálogo continua; em outra empresa a etapa mostra o erro.
+  const [falhaPacotes, setFalhaPacotes] = useState(false);
+  const [tentativaPacotes, setTentativaPacotes] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/api/fechamentos/pacotes", { signal: controller.signal, cache: "no-store" })
+    void fetch(apiPublica("/api/fechamentos/pacotes", empresa), { signal: controller.signal, cache: "no-store" })
       .then((response) => response.ok ? response.json() : null)
       .then((body) => {
-        if (!body?.pacotes) return;
+        if (!Array.isArray(body?.pacotes)) { setFalhaPacotes(true); return; }
+        setFalhaPacotes(false);
         setFatosPacote(Object.fromEntries(body.pacotes.map((item: { codigo: string }) => [item.codigo, item])));
+        if (body.pagamento) setRegrasDoServidor(body.pagamento as RegrasPagamento);
       })
-      .catch(() => undefined);
+      .catch(() => { if (!controller.signal.aborted) setFalhaPacotes(true); });
     return () => controller.abort();
-  }, []);
-  const pacoteBase = PACOTES_FECHAMENTO_V1.find((item) => item.id === form.pacote);
-  const fato = pacoteBase ? fatosPacote?.[CODIGO_PACOTE[pacoteBase.id]] : undefined;
-  const pacote = pacoteBase && fato ? {
-    ...pacoteBase,
-    nome: fato.nome,
-    minPagantes: fato.convidadosMinimos ?? pacoteBase.minPagantes,
-    maxPagantes: fato.convidadosMaximos ?? pacoteBase.maxPagantes,
-    precoInicial: fato.precoMinimo == null ? null : Number(fato.precoMinimo),
-    duracao: fato.duracaoMinutos == null ? "" : `${fato.duracaoMinutos} minutos`,
-  } : pacoteBase;
+  }, [empresa, tentativaPacotes]);
+  const pacotesDaEtapa = pacotesExibidos(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote);
+  const fato = form.pacote ? fatosPacote?.[CODIGO_PACOTE[form.pacote]] : undefined;
+  const pacote = pacoteDaTela(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, form.pacote);
   useEffect(()=>{
     const codigo=CODIGO_PACOTE[form.pacote];
     if(!codigo)return;
     const controller=new AbortController();
-    void fetch(`/api/fechamentos/catalogo?pacote=${codigo}`,{signal:controller.signal})
+    void fetch(apiPublica(`/api/fechamentos/catalogo?pacote=${codigo}`, empresa),{signal:controller.signal})
       .then(r=>r.ok?r.json():{categorias:[]})
       .then(body=>setCategoriasBuffet(body.categorias??[]))
       .catch(()=>setCategoriasBuffet([]));
     return ()=>controller.abort();
-  },[form.pacote]);
+  },[form.pacote, empresa]);
   const chaveAdicionais=form.pacote && form.dataFesta && Number.isInteger(Number(form.convidadosPagantes)) && Number(form.convidadosPagantes)>=1
     ? [form.pacote,form.dataFesta,form.convidadosPagantes,tentativaAdicionais].join('|')
     : null;
@@ -315,7 +323,7 @@ export default function FechamentoWizard() {
     if(!chaveAdicionais)return;
     const controller=new AbortController();
     const url=`/api/fechamentos/adicionais?pacote=${encodeURIComponent(form.pacote)}&data=${encodeURIComponent(form.dataFesta)}&convidados=${encodeURIComponent(form.convidadosPagantes)}`;
-    void fetch(url,{signal:controller.signal,cache:'no-store'})
+    void fetch(apiPublica(url, empresa),{signal:controller.signal,cache:'no-store'})
       .then(async r=>{if(!r.ok){const corpo=await r.json().catch(()=>null) as {codigo?:string}|null;throw Object.assign(Error('Não foi possível consultar adicionais.'),{codigo:corpo?.codigo});}return r.json();})
       .then(body=>{
         const disponiveis=lerAdicionaisDisponiveis(body);
@@ -325,7 +333,7 @@ export default function FechamentoWizard() {
         setForm(atual=>({...atual,adicionaisSelecionados:atual.adicionaisSelecionados.filter(id=>disponiveis.some(item=>item.id===id))}));
       }).catch((falha:{codigo?:string})=>{ if(controller.signal.aborted)return; setAdicionaisDisponiveis(null); setConsultaAdicionais({chave:chaveAdicionais,estado:'erro',codigo:falha?.codigo}); });
     return ()=>controller.abort();
-  },[chaveAdicionais,form.pacote,form.dataFesta,form.convidadosPagantes]);
+  },[chaveAdicionais,form.pacote,form.dataFesta,form.convidadosPagantes,empresa]);
   const convidados = Number(form.convidadosPagantes || 0);
 
   const dadosCadastraisAlterados = useMemo(() => {
@@ -384,12 +392,12 @@ export default function FechamentoWizard() {
 
       // O fluxo público oficial sempre começa em Disponibilidade.
       if (!interna && !origemDisponibilidade) {
-        router.replace("/disponibilidade");
+        router.replace(paginaPublica("/disponibilidade", empresa));
         return;
       }
 
       if (origemDisponibilidade && !parametrosDisponibilidadeValidos) {
-        router.replace("/disponibilidade");
+        router.replace(paginaPublica("/disponibilidade", empresa));
         return;
       }
 
@@ -402,7 +410,7 @@ export default function FechamentoWizard() {
       ) {
         try {
           const resposta = await fetch(
-            `/api/disponibilidade?data=${encodeURIComponent(dataPreselecionada)}`,
+            apiPublica(`/api/disponibilidade?data=${encodeURIComponent(dataPreselecionada)}`, empresa),
             { cache: "no-store" },
           );
           if (!resposta.ok) throw new Error();
@@ -478,7 +486,7 @@ export default function FechamentoWizard() {
     return () => {
       cancelado = true;
     };
-  }, [router]);
+  }, [router, empresa]);
 
   const horario = useMemo(
     () => horarioExibicao(form.horarioBase, form.ajusteHorario),
@@ -509,18 +517,18 @@ export default function FechamentoWizard() {
     if (!chaveCotacao) return;
     const controller = new AbortController();
     const temporizador = setTimeout(() => {
-      void fetch('/api/fechamentos/cotacao', {
+      void fetch(apiPublica('/api/fechamentos/cotacao', empresa), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal: controller.signal,
         body: JSON.stringify({ pacote: form.pacote, dataFesta: form.dataFesta, horarioBase: form.horarioBase, ajusteHorario: form.ajusteHorario, horarioInicio: inicioCotacao, horarioFim: fimCotacao, convidados }),
       }).then(async (r) => {
         const corpo = await r.json().catch(() => null) as { ok?: boolean; data?: Cotacao; erro?: string; codigo?: string } | null;
         if (controller.signal.aborted) return;
         if (r.ok && corpo?.data) setCotacao({ chave: chaveCotacao, estado: 'ok', dados: corpo.data });
-        else setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(corpo?.codigo, corpo?.erro) });
-      }).catch(() => { if (!controller.signal.aborted) setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(undefined) }); });
+        else setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(corpo?.codigo, corpo?.erro, marca.equipe) });
+      }).catch(() => { if (!controller.signal.aborted) setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(undefined, undefined, marca.equipe) }); });
     }, 250);
     return () => { clearTimeout(temporizador); controller.abort(); };
-  }, [chaveCotacao, form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados]);
+  }, [chaveCotacao, form.pacote, form.dataFesta, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados, empresa, marca.equipe]);
   const cotacaoAtual = cotacao && cotacao.chave === chaveCotacao ? cotacao : null;
   const cotacaoEstado: 'sem' | 'carregando' | 'ok' | 'erro' = !chaveCotacao ? 'sem' : !cotacaoAtual ? 'carregando' : cotacaoAtual.estado;
   // "Continuar" clicado enquanto o preço é calculado: avança sozinho quando a cotação chega (ou mostra o erro dela).
@@ -540,7 +548,8 @@ export default function FechamentoWizard() {
     configDisponibilidade,
     form.pacote,
     form.dataFesta,
-    form.horarioBase
+    form.horarioBase,
+    pagamento.descontoDiaUtil,
   );
 
   const calculoDesconto =
@@ -658,9 +667,10 @@ export default function FechamentoWizard() {
       return;
     }
 
+    // A consulta de CPF é sempre da empresa do endereço (o servidor resolve a empresa; nunca do corpo do pedido).
     setProcessandoIdentidade(true);
     try {
-      const resposta = await fetch("/api/identidade/consultar-cpf", {
+      const resposta = await fetch(apiPublica("/api/identidade/consultar-cpf", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cpf }),
@@ -719,7 +729,7 @@ export default function FechamentoWizard() {
     setErroIdentificacao("");
 
     try {
-      const resposta = await fetch("/api/identidade/iniciar-desafio", {
+      const resposta = await fetch(apiPublica("/api/identidade/iniciar-desafio", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cpf, canal }),
@@ -760,7 +770,7 @@ export default function FechamentoWizard() {
     setErroIdentificacao("");
 
     try {
-      const confirmacao = await fetch("/api/identidade/confirmar-codigo", {
+      const confirmacao = await fetch(apiPublica("/api/identidade/confirmar-codigo", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -775,7 +785,7 @@ export default function FechamentoWizard() {
       }
 
       const prova = await confirmacao.json();
-      const contextoResposta = await fetch("/api/identidade/contexto", {
+      const contextoResposta = await fetch(apiPublica("/api/identidade/contexto", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provaToken: prova.provaToken }),
@@ -819,7 +829,7 @@ export default function FechamentoWizard() {
     setErroIdentificacao("");
 
     try {
-      const resposta = await fetch("/api/identidade/solicitar-recuperacao", {
+      const resposta = await fetch(apiPublica("/api/identidade/solicitar-recuperacao", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cpf }),
@@ -909,7 +919,7 @@ export default function FechamentoWizard() {
     setValidandoDisponibilidade(true);
     try {
       const resposta = await fetch(
-        `/api/disponibilidade?data=${encodeURIComponent(form.dataFesta)}`,
+        apiPublica(`/api/disponibilidade?data=${encodeURIComponent(form.dataFesta)}`, empresa),
         { cache: "no-store" },
       );
       if (!resposta.ok) throw new Error();
@@ -957,13 +967,14 @@ export default function FechamentoWizard() {
   }
 
   function validarEtapaAtual() {
-    if (etapa === 0 && !form.pacote) {
+    // Outra empresa: só vale pacote que ela oferece (lista do servidor já carregada).
+    if (etapa === 0 && (!form.pacote || (!marca.kidmais && !pacote))) {
       setErro("Escolha um pacote para continuar.");
       return false;
     }
 
     if (etapa === 0 && pacote?.sobConsulta) {
-      setErro("O Pizza Party está sob consulta. Fale com a equipe Kidmais para confirmar disponibilidade e valor antes da formalização.");
+      setErro(`O Pizza Party está sob consulta. Fale com a ${marca.equipe} para confirmar disponibilidade e valor antes da formalização.`);
       return false;
     }
 
@@ -979,6 +990,7 @@ export default function FechamentoWizard() {
         form.pacote,
         form.dataFesta,
         form.horarioBase,
+        regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, form.pacote),
       );
       if (comercial.status === "indisponivel") {
         setErro(
@@ -998,10 +1010,10 @@ export default function FechamentoWizard() {
     }
 
     if (etapa === 2) {
-      const mensagem = erroConvidadosFechamento(convidados, pacote);
+      const mensagem = marca.kidmais ? erroConvidadosFechamento(convidados, pacote) : erroConvidadosEmpresa(convidados, pacote);
       if (mensagem) { setErro(mensagem); return false; }
       if (cotacaoEstado === 'carregando') { setErro(''); setAvancarAposCotacao(true); return false; }
-      if (cotacaoEstado === 'erro') { setErro(cotacaoAtual?.erro ?? mensagemCotacao(undefined)); return false; }
+      if (cotacaoEstado === 'erro') { setErro(cotacaoAtual?.erro ?? mensagemCotacao(undefined, undefined, marca.equipe)); return false; }
     }
 
     if (etapa === 4 && adicionaisEstado !== 'ok') {
@@ -1039,7 +1051,7 @@ export default function FechamentoWizard() {
 
       if (identificacaoStatus === "RECUPERACAO") {
         setErro(
-          "A validação cadastral ficou pendente. A equipe Kidmais precisa confirmar sua identidade antes de continuar online.",
+          `A validação cadastral ficou pendente. A ${marca.equipe} precisa confirmar sua identidade antes de continuar online.`,
         );
         return false;
       }
@@ -1077,7 +1089,7 @@ export default function FechamentoWizard() {
       }
 
       if (dadosCadastraisAlterados && solicitarAtualizacaoCadastro === null) {
-        setErro("Escolha se deseja atualizar o cadastro da Kidmais com os dados revisados.");
+        setErro(`Escolha se deseja atualizar o cadastro ${marca.da} com os dados revisados.`);
         return false;
       }
     }
@@ -1142,7 +1154,7 @@ export default function FechamentoWizard() {
     setErro("");
 
     try {
-      const resposta = await fetch("/api/fechamentos", {
+      const resposta = await fetch(apiPublica("/api/fechamentos", empresa), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1218,7 +1230,7 @@ export default function FechamentoWizard() {
           <p className={styles.eyebrow}>Validando disponibilidade</p>
           <h1>Confirmando sua data e horário.</h1>
           <p className={styles.successText}>
-            Aguarde um instante enquanto conferimos a agenda da Kidmais.
+            Aguarde um instante enquanto conferimos a agenda {marca.da}.
           </p>
         </section>
       </main>
@@ -1235,7 +1247,7 @@ export default function FechamentoWizard() {
           <p className={styles.successText}>
             {erro || "O horário selecionado não está mais disponível."}
           </p>
-          <a className={styles.primaryButton} href="/disponibilidade">
+          <a className={styles.primaryButton} href={paginaPublica("/disponibilidade", empresa)}>
             Voltar para disponibilidade
           </a>
         </section>
@@ -1248,10 +1260,10 @@ export default function FechamentoWizard() {
       <main className={styles.page}>
         <FestaDecoracao />
         <section className={styles.successCard}>
-          <div className={styles.confirmationBrand}><KidmaisBrand context="customer" /></div>
+          <div className={styles.confirmationBrand}><MarcaPublicaCabecalho /></div>
           <div className={styles.successIcon}>✓</div>
           <p className={styles.eyebrow}>Solicitação recebida</p>
-          <h1>Agora a Kidmais confere os últimos detalhes.</h1>
+          <h1>Agora {marca.a} confere os últimos detalhes.</h1>
           <p className={styles.successText}>
             A equipe vai revalidar a disponibilidade da agenda, o pacote,
             adicionais e o valor informado. Depois da aprovação, o contrato
@@ -1278,12 +1290,13 @@ export default function FechamentoWizard() {
           <div className={styles.warningBox}>
             <strong>A data ainda não está reservada.</strong>
             <p>
-              Conforme a regra comercial da Kidmais, o envio das informações
+              Conforme a regra comercial {marca.da}, o envio das informações
               não garante reserva. A confirmação depende de disponibilidade,
-              assinaturas da Kidmais e do cliente no contrato.
+              assinaturas {marca.da} e do cliente no contrato.
             </p>
           </div>
 
+          {marca.kidmais && <>
           <a
             className={styles.primaryButton}
             href={CONTATO_KIDMAIS.whatsappUrl}
@@ -1296,6 +1309,8 @@ export default function FechamentoWizard() {
           <p className={styles.smallMuted}>
             WhatsApp Kidmais: {CONTATO_KIDMAIS.whatsapp}
           </p>
+          </>}
+          {!marca.kidmais && <ContatoEmpresa nome={marca.nome} contato={marca.contato} titulo={`Fale com ${marca.nome}`} />}
         </section>
       </main>
     );
@@ -1307,7 +1322,7 @@ export default function FechamentoWizard() {
 
       <div className={styles.shell}>
         <header className={styles.header}>
-          <KidmaisBrand context="customer" subtitle="Fechamento da sua festa" />
+          <MarcaPublicaCabecalho subtitle="Fechamento da sua festa" />
 
           <div className={styles.secureBadge}>
             <span>●</span> Ambiente seguro
@@ -1319,7 +1334,7 @@ export default function FechamentoWizard() {
           <h1>Sua festa, organizada de um jeito simples.</h1>
           <p>
             Confirme os detalhes abaixo. Você poderá revisar tudo antes de
-            enviar para conferência da equipe Kidmais.
+            enviar para conferência da {marca.equipe}.
           </p>
         </section>
 
@@ -1353,26 +1368,20 @@ export default function FechamentoWizard() {
                     {form.dataFesta.split("-").reverse().join("/")} · {intervaloSelecionado.inicio}–{intervaloSelecionado.fim}.
                     Esta consulta não reserva a data.
                   </p>
-                  <a className={styles.secondaryButton} href="/disponibilidade">
+                  <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa)}>
                     Alterar data ou horário
                   </a>
                 </div>
               ) : null}
-                <PacotesPdf />
+                {!empresa && <PacotesPdf />}
               </div>
 
-              <div className={styles.packageGrid}>
-                {PACOTES_FECHAMENTO_V1.map((item) => {
-                  const publicado = fatosPacote?.[CODIGO_PACOTE[item.id]];
-                  const preco = publicado ? (publicado.precoMinimo == null ? null : Number(publicado.precoMinimo)) : item.precoInicial;
-                  return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`${styles.packageCard} ${
-                      form.pacote === item.id ? styles.packageSelected : ""
-                    }`}
-                    onClick={() => {
+              <EscolhaPacote
+                itens={pacotesDaEtapa}
+                falha={falhaPacotes}
+                selecionado={form.pacote}
+                onTentarNovamente={() => { setFalhaPacotes(false); setTentativaPacotes((n) => n + 1); }}
+                onEscolher={(item) => {
                       const novoPacote = item.id as PacoteId;
                       atualizar("pacote", novoPacote);
 
@@ -1386,6 +1395,7 @@ export default function FechamentoWizard() {
                           novoPacote,
                           form.dataFesta,
                           form.horarioBase,
+                          regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, novoPacote),
                         );
                         atualizar(
                           "statusDisponibilidade",
@@ -1404,34 +1414,18 @@ export default function FechamentoWizard() {
                       atualizar("horarioBase", "");
                       atualizar("statusDisponibilidade", "");
                       setAjustesDisponiveis([]);
-                    }}
-                  >
-                    {item.destaque && (
-                      <span className={styles.packageBadge}>{item.destaque}</span>
-                    )}
-                    <span className={styles.radioVisual}>
-                      {form.pacote === item.id ? "✓" : ""}
-                    </span>
-                    <strong>{publicado?.nome ?? item.nome}</strong>
-                    <b>{preco == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(preco)}`}</b>
-                    <p>{publicado ? (publicado.descricao || "Descrição não cadastrada.") : item.descricao}</p>
-                    <small>{item.disponibilidade}</small>
-                    <span className={styles.selectText}>
-                      {form.pacote === item.id ? "Selecionado" : "Selecionar"}
-                    </span>
-                  </button>
-                  );
-                })}
-              </div>
+                }}
+              />
+              {!marca.kidmais && pacotesDaEtapa?.length === 0 && <ContatoEmpresa nome={marca.nome} contato={marca.contato} />}
 
               {pacote && (
                 <div className={styles.packageDetails}>
                   {pacote.sobConsulta && (
                     <div className={`${styles.detailWide} ${styles.consultNotice}`}>
                       <strong>Sob consulta</strong>
-                      <p>A equipe Kidmais precisa confirmar disponibilidade e valor antes do fechamento e do contrato.</p>
-                      <AdicionaisPizzaConsulta />
-                      <a href={CONTATO_KIDMAIS.whatsappUrl} target="_blank" rel="noreferrer">Falar com a Kidmais</a>
+                      <p>A {marca.equipe} precisa confirmar disponibilidade e valor antes do fechamento e do contrato.</p>
+                      <AdicionaisPizzaConsulta empresa={empresa} />
+                      {!empresa && <a href={CONTATO_KIDMAIS.whatsappUrl} target="_blank" rel="noreferrer">Falar com a Kidmais</a>}
                     </div>
                   )}
                   <div>
@@ -1440,7 +1434,7 @@ export default function FechamentoWizard() {
                   </div>
                   <div>
                     <span>Limite do pacote</span>
-                    <strong>{pacote.maxPagantes} convidados</strong>
+                    <strong>{pacote.limiteCadastrado ? `${pacote.maxPagantes} convidados` : "Não informado"}</strong>
                   </div>
                   <div className={styles.detailWide}>
                     <span>Buffet</span>
@@ -1476,7 +1470,7 @@ export default function FechamentoWizard() {
                     {form.dataFesta.split("-").reverse().join("/")} · {horario}.
                     A consulta não reservou a data e o horário será revalidado novamente antes da confirmação.
                   </p>
-                  <a className={styles.secondaryButton} href="/disponibilidade">
+                  <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa)}>
                     Alterar data ou horário
                   </a>
                 </div>
@@ -1569,14 +1563,14 @@ export default function FechamentoWizard() {
                 <>
                   <span className={styles.calendarSectionLabel}>2. Escolha a data</span>
 
-                  {pacoteTemDescontoDiaUtil(form.pacote) && (
+                  {pagamento.descontoDiaUtil && pacoteTemDescontoDiaUtil(form.pacote) && (
                     <div className={styles.discountCallout}>
                       <strong>
                         Economize 15% escolhendo de segunda a quinta.
                       </strong>
                       <p>
                         As datas elegíveis recebem o selo <b>-15%</b>.
-                        A Kidmais também pode liberar promoções especiais em
+                        {marca.A} também pode liberar promoções especiais em
                         outras datas, que aparecem com o percentual definido
                         no calendário.
                       </p>
@@ -1584,7 +1578,10 @@ export default function FechamentoWizard() {
                   )}
 
                   <CalendarioDisponibilidade
+                    empresa={empresa}
+                    descontoDiaUtil={pagamento.descontoDiaUtil}
                     pacote={form.pacote as PacoteId}
+                    regrasPacote={regrasDisponibilidadeDaTela(marca.kidmais, fatosPacote, form.pacote)}
                     horario={form.horarioBase}
                     dataSelecionada={form.dataFesta}
                     onSelecionar={(data, status, ajustes) => {
@@ -1652,7 +1649,7 @@ export default function FechamentoWizard() {
                     <div className={styles.consultNotice}>
                       <strong>Esta data será enviada para avaliação.</strong>
                       <p>
-                        Você pode continuar o fechamento normalmente. A Kidmais
+                        Você pode continuar o fechamento normalmente. {marca.A}
                         decidirá se abre exceção para este pacote e horário.
                       </p>
                     </div>
@@ -1674,7 +1671,7 @@ export default function FechamentoWizard() {
           {etapa === 2 && (
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(2)} titulo="Quantos convidados pagantes?">
-                A Kidmais atende até 150 pessoas; alguns pacotes possuem limite menor.
+                {marca.kidmais ? "A Kidmais atende até 150 pessoas; alguns pacotes possuem limite menor." : "Cada pacote tem um limite próprio de convidados."}
               </StepTitle>
 
               <label className={styles.field}>
@@ -1695,7 +1692,7 @@ export default function FechamentoWizard() {
                 />
                 {pacote && (
                   <small>
-                    Mínimo do {pacote.nome}: {pacote.minPagantes}. Máximo: {pacote.maxPagantes}.
+                    Mínimo do {pacote.nome}: {pacote.minPagantes}.{pacote.limiteCadastrado ? ` Máximo: ${pacote.maxPagantes}.` : ""}
                   </small>
                 )}
               </label>
@@ -1744,7 +1741,7 @@ export default function FechamentoWizard() {
                       <strong>{numeroParaMoeda(referenciaTabela)}</strong>
                       <small>
                         {descricaoCotacao(cotacaoAtual.dados, convidados)}. Calculado com a tabela publicada; o
-                        valor final é conferido pela Kidmais conforme as condições combinadas.
+                        valor final é conferido {marca.pela} conforme as condições combinadas.
                       </small>
                     </>
                   )}
@@ -1795,7 +1792,7 @@ export default function FechamentoWizard() {
                   <strong>Prefiro definir depois</strong>
                   <p>
                     Você continua o fechamento normalmente e combina o buffet
-                    posteriormente com a equipe Kidmais.
+                    posteriormente com a {marca.equipe}.
                   </p>
                 </button>
               </div>
@@ -1896,7 +1893,7 @@ export default function FechamentoWizard() {
                       />
                     </label>}
 
-                    {(['buffetLembrancinha','buffetEmpratado','buffetBombom'] as const).map((key,i)=>(i===0 ? ['mini','completa','premium'].includes(form.pacote)||form.adicionaisSelecionados.some(a=>a.startsWith('lembrancinha')) : form.pacote==='premium'||form.adicionaisSelecionados.includes(i===1?'empratado':'bombom'))&&!categoriasBuffet.some(c=>c.codigo===['LEMBRANCINHAS','EMPRATADOS','BOMBONS'][i])&&<label className={styles.field} key={key}><span>{['Lembrancinha','Empratado','Bombom'][i]}</span><textarea rows={2} maxLength={2000} value={form[key]} onChange={e=>atualizar(key,e.target.value)} placeholder="Não definido"/></label>)}
+                    {marca.kidmais && (['buffetLembrancinha','buffetEmpratado','buffetBombom'] as const).map((key,i)=>(i===0 ? ['mini','completa','premium'].includes(form.pacote)||form.adicionaisSelecionados.some(a=>a.startsWith('lembrancinha')) : form.pacote==='premium'||form.adicionaisSelecionados.includes(i===1?'empratado':'bombom'))&&!categoriasBuffet.some(c=>c.codigo===['LEMBRANCINHAS','EMPRATADOS','BOMBONS'][i])&&<label className={styles.field} key={key}><span>{['Lembrancinha','Empratado','Bombom'][i]}</span><textarea rows={2} maxLength={2000} value={form[key]} onChange={e=>atualizar(key,e.target.value)} placeholder="Não definido"/></label>)}
                     <label className={`${styles.field} ${styles.spanTwo}`}>
                       <span>Outras preferências do buffet</span>
                       <textarea
@@ -1931,11 +1928,11 @@ export default function FechamentoWizard() {
                 pela equipe antes do contrato.
               </StepTitle>
 
-              {form.pacote === "premium" && <p>A Festa Premium inclui 4 bombons. Informe abaixo somente a quantidade extra desejada; nenhuma compra extra é obrigatória.</p>}
+              {marca.kidmais && form.pacote === "premium" && <p>A Festa Premium inclui 4 bombons. Informe abaixo somente a quantidade extra desejada; nenhuma compra extra é obrigatória.</p>}
               {adicionaisEstado === "carregando" && <p role="status">Consultando os adicionais deste pacote…</p>}
               {adicionaisEstado === "erro" && (
                 <div className={styles.infoBox} role="alert">
-                  <strong>{mensagemFalhaAdicionais(consultaAdicionais?.codigo)}</strong>
+                  <strong>{mensagemFalhaAdicionais(consultaAdicionais?.codigo, false, marca.equipe)}</strong>
                   <p>Nenhum adicional foi selecionado. Tente novamente para continuar.</p>
                   <button type="button" onClick={() => setTentativaAdicionais((n) => n + 1)}>Tentar novamente</button>
                 </div>
@@ -2040,7 +2037,7 @@ export default function FechamentoWizard() {
                     </div>
                   </div>
 
-                  {(adicionaisDisponiveis ?? []).some((item) => item.categoria === "MESA") && (
+                  {marca.kidmais && (adicionaisDisponiveis ?? []).some((item) => item.categoria === "MESA") && (
                     <div className={styles.infoBox}>
                       <strong>Referência de tamanho das mesas</strong>
                       <p>
@@ -2060,7 +2057,7 @@ export default function FechamentoWizard() {
                   </label>
 
                   <label className={styles.field}>
-                    <span>Observações para a equipe Kidmais</span>
+                    <span>Observações para a {marca.equipe}</span>
                     <textarea
                       rows={4}
                       placeholder="Inclua qualquer informação importante para o fechamento."
@@ -2078,7 +2075,7 @@ export default function FechamentoWizard() {
           {etapa === 5 && (
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(5)} titulo="Confirme o valor combinado">
-                O sistema mostra referências da tabela, mas a Kidmais continua
+                O sistema mostra referências da tabela, mas {marca.a} continua
                 responsável pela aprovação do valor final.
               </StepTitle>
 
@@ -2183,11 +2180,7 @@ export default function FechamentoWizard() {
 
               <div className={styles.infoBox}>
                 <strong>Pagamento</strong>
-                <p>
-                  Após aprovação: PIX à vista tem 10% de desconto. PIX parcelado
-                  tem 3% de desconto; as condições são confirmadas
-                  pela equipe Kidmais. Cartão é processado pela Cielo.
-                </p>
+                <p>{textoCondicoesPagamento({ ...marca, pagamento })}</p>
               </div>
             </section>
           )}
@@ -2203,7 +2196,7 @@ export default function FechamentoWizard() {
               {!origemInterna && identificacaoStatus === "AGUARDANDO_CPF" && (
                 <div className={styles.identificationPanel}>
                   <div className={styles.identificationIntro}>
-                    <strong>Já fez festa com a Kidmais?</strong>
+                    <strong>Já fez festa com {marca.a}?</strong>
                     <p>
                       Não precisa lembrar. Informe seu CPF e o sistema verifica
                       automaticamente se já existe um cadastro.
@@ -2262,7 +2255,7 @@ export default function FechamentoWizard() {
                   ) : (
                     <div className={styles.warningBox}>
                       <strong>Não há contato disponível para envio automático.</strong>
-                      <p>A equipe Kidmais precisará validar seu cadastro manualmente.</p>
+                      <p>A {marca.equipe} precisará validar seu cadastro manualmente.</p>
                     </div>
                   )}
 
@@ -2353,10 +2346,10 @@ export default function FechamentoWizard() {
                   <strong>Validação de identidade pendente</strong>
                   <p>
                     Sua solicitação foi registrada. Para proteger seus dados, o fechamento online
-                    ficará pausado até a confirmação da equipe Kidmais. Nenhum dado cadastral antigo
+                    ficará pausado até a confirmação da {marca.equipe}. Nenhum dado cadastral antigo
                     foi revelado e nenhum novo Cliente foi criado.
                   </p>
-                  <div className={styles.identificationActions}>
+                  {marca.kidmais && <div className={styles.identificationActions}>
                     <a
                       className={styles.primaryButton}
                       href={CONTATO_KIDMAIS.whatsappUrl}
@@ -2365,7 +2358,8 @@ export default function FechamentoWizard() {
                     >
                       Falar com a Kidmais no WhatsApp
                     </a>
-                  </div>
+                  </div>}
+                  {!marca.kidmais && <ContatoEmpresa nome={marca.nome} contato={marca.contato} titulo={`Fale com ${marca.nome}`} />}
                 </div>
               )}
 
@@ -2526,7 +2520,7 @@ export default function FechamentoWizard() {
                     <div className={styles.updateDecision}>
                       <strong>Você alterou dados do cadastro.</strong>
                       <p>
-                        Escolha explicitamente se deseja gravar essas alterações no cadastro principal da Kidmais.
+                        Escolha explicitamente se deseja gravar essas alterações no cadastro principal {marca.da}.
                         Sem autorização, o CRM permanecerá como está.
                       </p>
                       <div className={styles.optionGridTwo}>
@@ -2661,7 +2655,7 @@ export default function FechamentoWizard() {
           {etapa === 7 && (
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(7)} titulo="Revise os detalhes">
-                Confira as informações antes de enviar para a Kidmais.
+                Confira as informações antes de enviar para {marca.a}.
               </StepTitle>
 
               <div className={styles.summaryGrid}>
@@ -2799,7 +2793,7 @@ export default function FechamentoWizard() {
                 <p>
                   O envio deste fechamento não garante a reserva da data. A
                   confirmação ocorre após conferência da disponibilidade,
-                  assinaturas da Kidmais e do cliente no contrato.
+                  assinaturas {marca.da} e do cliente no contrato.
                 </p>
               </div>
             </section>
@@ -2809,18 +2803,18 @@ export default function FechamentoWizard() {
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(8)} titulo="Como pretende pagar?">
                 Esta é apenas a preferência. O pagamento será liberado depois
-                que a Kidmais aprovar o fechamento e disponibilizar o contrato.
+                que {marca.a} aprovar o fechamento e disponibilizar o contrato.
               </StepTitle>
 
               <div className={styles.paymentGrid}>
                 <PaymentCard
                   title="PIX à vista"
-                  subtitle="10% de desconto"
+                  subtitle={rotuloDescontoPix(pagamento.pixAvistaPercentual)}
                   selected={form.formaPagamento === "pix_avista"}
                   total={
                     valorInformado
                       ? numeroParaMoeda(
-                          calcularTotalPagamento(valorInformado, "pix_avista")
+                          calcularTotalPagamento(valorInformado, "pix_avista", pagamento)
                             .total
                         )
                       : undefined
@@ -2829,15 +2823,16 @@ export default function FechamentoWizard() {
                 />
                 <PaymentCard
                   title="PIX parcelado"
-                  subtitle="3% de desconto"
-                  detail="Parcelas e condições são confirmadas diretamente com a Kidmais."
+                  subtitle={rotuloDescontoPix(pagamento.pixParceladoPercentual)}
+                  detail={`Parcelas e condições são confirmadas diretamente com ${marca.a}.`}
                   selected={form.formaPagamento === "pix_parcelado"}
                   total={
                     valorInformado
                       ? numeroParaMoeda(
                           calcularTotalPagamento(
                             valorInformado,
-                            "pix_parcelado"
+                            "pix_parcelado",
+                            pagamento,
                           ).total
                         )
                       : undefined
@@ -2846,7 +2841,7 @@ export default function FechamentoWizard() {
                 />
                 <PaymentCard
                   title="Cartão"
-                  subtitle="Cielo"
+                  subtitle={pagamento.cartaoRotulo}
                   detail="Condições liberadas depois da aprovação."
                   selected={form.formaPagamento === "cartao_cielo"}
                   total={
@@ -2859,7 +2854,7 @@ export default function FechamentoWizard() {
               {form.formaPagamento === "pix_parcelado" && (
                 <fieldset className={styles.warningBox}>
                   <legend>Condição pretendida</legend>
-                  <p>Informe como gostaria de parcelar. A condição será conferida e aprovada pela Kidmais antes da liberação do contrato.</p>
+                  <p>Informe como gostaria de parcelar. A condição será conferida e aprovada {marca.pela} antes da liberação do contrato.</p>
                   <div className={styles.paymentGrid}>
                     <label className={styles.field}>Entrada (R$)
                       <input inputMode="decimal" placeholder="Opcional, ex.: 1000,00" value={form.pixEntrada}
@@ -2881,7 +2876,7 @@ export default function FechamentoWizard() {
               <div className={styles.contractNotice}>
                 <div>1</div>
                 <span>
-                  <strong>Kidmais confere e aprova</strong>
+                  <strong>{marca.titulo} confere e aprova</strong>
                   <small>Agenda, valor e condições são revalidados.</small>
                 </span>
                 <div>2</div>
@@ -2892,7 +2887,7 @@ export default function FechamentoWizard() {
                 <div>3</div>
                 <span>
                   <strong>Confirmação da contratação</strong>
-                  <small>O envio não reserva a data. A confirmação depende da disponibilidade e das assinaturas da KIDMAIS e do CLIENTE.</small>
+                  <small>O envio não reserva a data. A confirmação depende da disponibilidade e das assinaturas {marca.daMaiusculo} e do CLIENTE.</small>
                 </span>
               </div>
             </section>
@@ -2949,10 +2944,13 @@ export default function FechamentoWizard() {
           </footer>
         </form>
 
-        <footer className={styles.pageFooter}>
+        {!empresa && <footer className={styles.pageFooter}>
           <span>Kidmais • {CONTATO_KIDMAIS.whatsapp}</span>
           <span>{CONTATO_KIDMAIS.site}</span>
-        </footer>
+        </footer>}
+        {!marca.kidmais && marca.contato && <footer className={styles.pageFooter}>
+          <ContatoEmpresa nome={marca.nome} contato={marca.contato} titulo={marca.nome} />
+        </footer>}
       </div>
     </main>
   );

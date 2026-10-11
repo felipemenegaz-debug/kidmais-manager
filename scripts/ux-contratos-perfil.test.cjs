@@ -5,6 +5,7 @@ const { spawn, execFileSync } = require('node:child_process');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const sharp = require('sharp');
 const origin = 'http://127.0.0.1:3037', out = '.local-ux/contratos-perfil';
+let sessaoSintetica = 'sessao-sintetica-0', renovacoesSinteticas = 0;
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const clienteId = id(1), contratoId = id(2), versaoId = id(3), aniversarioId = id(4);
 const snapshot = {
@@ -52,9 +53,18 @@ async function main() {
             const fail = (status, codigo, erro) => route.fulfill({ status, json: { ok: false, codigo, erro } });
             const body = request.method() === 'POST' && request.headers()['content-type']?.includes('application/json') ? request.postDataJSON() : null;
             if (body) posts.push({ url: url.pathname, body });
-            if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: id(9), nome: 'Revisão visual', papel:'REPRESENTANTE_AUTORIZADO',contexto:{empresaAtual:{id:'e',nome:'Empresa visual',papel:'REPRESENTANTE_AUTORIZADO'},empresas:[],gestaoNaEmpresa:true,plataforma:true,desenvolvedor:false,selecaoNecessaria:false}, csrf: 'csrf-sintetico' });
+            // Reautenticação (5b1aaaa): o servidor renova a sessão e anuncia anterior → atual; o painel confere a troca.
+            if (url.pathname === '/api/admin/autenticacao' && request.method() === 'POST' && request.postDataJSON()?.acao === 'reautenticar') { const anterior = sessaoSintetica; sessaoSintetica = `sessao-sintetica-${++renovacoesSinteticas}`; return ok({ renovacao: { anterior, atual: sessaoSintetica } }); }
+            if (url.pathname === '/api/admin/autenticacao') return ok({ usuarioId: id(9), sessaoId: sessaoSintetica, nome: 'Revisão visual', papel:'REPRESENTANTE_AUTORIZADO',contexto:{empresaAtual:{id:'e',nome:'Empresa visual',papel:'REPRESENTANTE_AUTORIZADO'},empresas:[],gestaoNaEmpresa:true,plataforma:true,desenvolvedor:false,selecaoNecessaria:false}, csrf: 'csrf-sintetico' });
+            // Recebimento Pix da própria empresa (066, 6ec2c0b): só leitura nesta revisão visual.
+            if (url.pathname === '/api/admin/configuracoes/pix' && request.method() === 'GET') return ok({ instalado: true, podeEditar: true, configuracao: null, recebedor: null });
             if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') return ok({logoDataUrl:request.method()==='POST'?logo:logoAplicada});
-            if (url.pathname === '/api/admin/disponibilidade') return route.fulfill({json:{agenda:[],pacoteOverrides:[],descontos:[],bloqueios:[]}});
+            if (url.pathname === '/api/admin/disponibilidade') { // `dias` por mês ou por data: assistente administrativo desde 8fa23d5 (061/062)
+                const p = url.searchParams, dias = [];
+                if (p.has('data')) dias.push(dia(p.get('data')));
+                else if (p.has('inicio')) for (const d = new Date(`${p.get('inicio')}T12:00:00Z`), f = new Date(`${p.get('fim')}T12:00:00Z`); d <= f; d.setUTCDate(d.getUTCDate() + 1)) dias.push(dia(d.toISOString().slice(0, 10)));
+                return route.fulfill({json:{agenda:[],pacoteOverrides:[],descontos:[],bloqueios:[],...(dias.length ? { dias } : {})}});
+            }
             if (url.pathname === '/api/admin/clientes') return ok([{cliente:{id:clienteId,nomeCompleto:'Cliente de Exemplo',status:'ATIVO',whatsapp:'11999999999'},cadastroCompleto:true,camposFaltantes:[]}]);
             if (url.pathname === '/api/admin/contratos/painel') {
                 await new Promise(r => setTimeout(r, 150));
@@ -107,7 +117,7 @@ async function main() {
             await foto(`dashboard-${viewport}`);
             await page.goto(`${origin}/clientes`); await page.getByRole('link',{name:/Cliente de Exemplo/}).filter({visible:true}).waitFor();
             assert.equal(await page.locator('main header').count(),0);
-            assert.equal(await page.getByRole('link',{name:'Fechamento',exact:true}).getAttribute('href'),'/fechamento?origem=ATENDIMENTO_KIDMAIS&contexto=ADMIN');
+            assert.equal(await page.getByRole('link',{name:'Fechamento',exact:true}).getAttribute('href'),'/clientes?acao=fechamento'); // atalho do CRM desde 6647e0d (CORRECAO_FLUXO_CLIENTE_20261007)
             await foto(`clientes-${viewport}`);
             await page.goto(`${origin}/admin/disponibilidade`); await page.getByRole('combobox',{name:/^Pacote/}).waitFor();
             assert.equal(await page.locator('main header img').count(),0);
@@ -135,7 +145,9 @@ async function main() {
             await abrir('revisao'); await page.getByRole('heading', { name: 'Preparar contratação' }).waitFor(); await foto(`revisao-pendente-${viewport}`);
             await page.getByRole('button', { name: 'Revisar contratação', exact: true }).click(); assert.equal(await page.getByLabel('Aniversariante', { exact: true }).getAttribute('aria-invalid'), 'true');
             await page.getByLabel('Pacote', { exact: true }).selectOption('premium');
-            await page.getByRole('button', { name: 'Próximo mês' }).click(); await page.getByRole('button', { name: /^15 de / }).click();
+            // Quarta-feira a partir do dia 15 do mês seguinte: o dia 15 fixo caía em fim de semana conforme o mês (domingo em nov/2026).
+            const quarta = (() => { const h = new Date(), d = new Date(h.getFullYear(), h.getMonth() + 1, 15); while (d.getDay() !== 3) d.setDate(d.getDate() + 1); return d.getDate(); })();
+            await page.getByRole('button', { name: 'Próximo mês' }).click(); await page.getByRole('button', { name: new RegExp(`^${quarta} de `) }).click();
             await page.getByLabel('Horário disponível', { exact: true }).selectOption('11:00'); await page.getByLabel('Convidados pagantes', { exact: true }).fill('70');
             await page.getByLabel('Aniversariante', { exact: true }).selectOption(aniversarioId); await page.getByLabel('Idade no evento (opcional)', { exact: true }).fill('1'); await page.getByLabel('Tema', { exact: true }).fill('Unicórnio'); await page.getByLabel('Valor comercial proposto (R$)', { exact: true }).fill('9800');
             const antes = posts.length; await page.getByRole('button', { name: 'Revisar contratação', exact: true }).click(); await page.getByRole('heading', { name: 'Revise antes de criar' }).waitFor(); assert.equal(posts.length, antes, 'Revisar não grava'); await foto(`revisao-${viewport}`);

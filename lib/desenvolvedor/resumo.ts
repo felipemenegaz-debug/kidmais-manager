@@ -1,7 +1,8 @@
 import type { SessaoAdmin } from '../autenticacao/service.ts';
 import { situacaoEmail } from '../acessos/email.ts';
 import { exigirDesenvolvedorNaTransacao } from './autorizacao.ts';
-import { alertasPainel } from './alertas.ts';
+import { alertasPainel, LIMITE_ALERTAS, ordenarAlertas } from './alertas.ts';
+import { alertasRenovacao, lerRenovacoesOperacao } from '../assinatura/renovacao-operacao.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
 
 /**
@@ -46,7 +47,11 @@ export async function resumoPainel(sessao: SessaoAdmin, deps: PainelDeps = paine
               WHERE ${ACOES_ADMINISTRATIVAS}
               ORDER BY a.criado_em DESC LIMIT 15`)).rows;
         const email = situacaoEmail();
-        const alertas = await alertasPainel(tx, { configurado: email.configurado, motivo: email.motivo });
+        const base = await alertasPainel(tx, { configurado: email.configurado, motivo: email.motivo });
+        // G4: renovações Fundador que precisam de revisão (sem a 075 instalada, nenhuma).
+        const renovacoes = await lerRenovacoesOperacao(tx);
+        const alertas = renovacoes.total === 0 ? base
+            : { itens: ordenarAlertas([...alertasRenovacao(renovacoes.itens), ...base.itens]).slice(0, LIMITE_ALERTAS), total: base.total + renovacoes.total };
         return {
             interessadas: Object.fromEntries(interessadas.map((i) => [i.status, i.n])) as Record<string, number>,
             empresas: {

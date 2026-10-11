@@ -4,6 +4,7 @@ import { erroAcesso } from '../acessos/erros.ts';
 import { AsaasFalhou, clienteAsaasDoAmbiente, type ClienteAsaas } from '../assinatura/asaas.ts';
 import { sincronizarEmpresa } from '../assinatura/sincronizacao.ts';
 import { liberarIntencaoCriacao, pendenciasDaEmpresa } from '../assinatura/liberacao-intencao.ts';
+import { renovacoesEmRevisao } from '../assinatura/renovacao-operacao.ts';
 import { exigirDesenvolvedorNaTransacao, exigirReautenticacaoRecente } from './autorizacao.ts';
 import { auditarPainel, type ContextoPainel } from './auditoria.ts';
 import { painelDepsPadrao, type PainelDeps } from './interessadas.ts';
@@ -48,6 +49,11 @@ export async function sincronizarCobrancaEmpresa(sessao: SessaoAdmin, id: string
 export async function pendenciasCobrancaEmpresa(sessao: SessaoAdmin, id: string, deps: CobrancaPainelDeps = cobrancaPainelDepsPadrao()) {
     const empresaId = z.string().uuid().parse(id);
     return deps.withTransaction((tx) => pendenciasDaEmpresa(tx, sessao, empresaId));
+}
+
+/** Renovações Fundador que precisam de revisão (G4; somente leitura, sem dado pessoal). */
+export async function renovacoesEmRevisaoPainel(sessao: SessaoAdmin, deps: Pick<CobrancaPainelDeps, 'withTransaction'> = painelDepsPadrao) {
+    return deps.withTransaction((tx) => renovacoesEmRevisao(tx, sessao));
 }
 
 /**

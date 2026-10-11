@@ -327,6 +327,10 @@ async function formulario() {
         useState: (initial: any) => { const i = si++; if (!(i in states)) states[i] = initial; return [states[i], (value: any) => { states[i] = typeof value === 'function' ? value(states[i]) : value; }]; },
         useRef: (initial: any) => { const i = ri++; return refs[i] ??= { current: initial }; },
         useCallback: (fn: any) => fn,
+        // Marca pública (CalendarioDisponibilidade): sem provedor, o contexto devolve o valor padrão.
+        createContext: (padrao: any) => ({ padrao, Provider: () => null }),
+        useContext: (contexto: any) => contexto.padrao,
+        useMemo: (fn: any) => fn(),
         useEffect: (fn: any, values: any[]) => { const i = ei++; if (!deps[i] || values.some((v, j) => v !== deps[i][j])) { deps[i] = values; effects.push(fn); } },
     });
     a.external('__window', { location: { assign: (url: string) => redirects.push(url) } });

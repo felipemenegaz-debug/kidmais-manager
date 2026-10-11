@@ -9,6 +9,8 @@ import {
   buscarClienteCanonicoPorCpf,
   buscarClienteCanonicoPorId,
   buscarResponsavelAtivoPorNome,
+  cpfBloqueadoPorOutraEmpresa,
+  INDICES_CPF_CANONICO,
   criarAniversariante,
   criarCliente,
   criarResponsavel,
@@ -87,6 +89,11 @@ export type CriarFechamentoPublicoInput = Omit<
   requestId?: string | null;
   ip?: string | null;
   userAgent?: string | null;
+  /**
+   * Endereço público de uma empresa (/b/<código>): CPF usado em cadastro de OUTRA empresa não é revelado nem
+   * bloqueia; enquanto o índice global existir (antes da 076), o cliente novo nasce sem CPF, com nota interna neutra.
+   */
+  cpfSemRevelarCadastro?: boolean;
 };
 
 export type CriarFechamentoPublicoResult = CriarFechamentoComercialResult & {
@@ -228,14 +235,18 @@ async function registrarDuplicidadesNovoCliente(
  * mesma empresa; um CPF de outra empresa só aparece como violação do índice global (PR-B2), sem
  * revelar o dono.
  */
-async function criarNovoCliente(
+/** Exportada para os testes de isolamento do CPF (lib/fechamentos/cpf-empresa-publica.test.ts). */
+export async function criarNovoCliente(
   dados: DadosClienteFechamentoPublico,
   input: CriarFechamentoPublicoInput,
   empresaId: string,
   tx: DbExecutor,
 ) {
   const cpf = normalizarCpf(dados.cpf);
+  // CPF desta empresa: fluxo normal (validar a identidade, que é por empresa). Endereço por empresa: CPF de OUTRA
+  // empresa não muda a resposta nem é revelado; antes da 076 (índice global) o cadastro nasce sem CPF.
   const existente = cpf ? await buscarClienteCanonicoPorCpf(cpf, empresaId, tx) : null;
+  const cpfOmitido = Boolean(!existente && input.cpfSemRevelarCadastro && cpf && await cpfBloqueadoPorOutraEmpresa(cpf, empresaId, tx));
   if (existente) {
     throw new FechamentoServiceError(
       "CPF_EXISTENTE_REQUER_VALIDACAO",
@@ -250,7 +261,7 @@ async function criarNovoCliente(
       {
         empresaId,
         nomeCompleto: dados.nomeCompleto,
-        cpf: dados.cpf,
+        cpf: cpfOmitido ? null : dados.cpf,
         rg: dados.rg,
         telefone: dados.telefone,
         whatsapp: dados.whatsapp,
@@ -267,7 +278,11 @@ async function criarNovoCliente(
       tx,
     );
   } catch (error) {
-    if (isUniqueViolation(error, "clientes_cpf_canonico_uk")) {
+    if (INDICES_CPF_CANONICO.some((indice) => isUniqueViolation(error, indice))) {
+      // Concorrência rara entre a conferência e a gravação: no endereço por empresa, resposta neutra.
+      if (input.cpfSemRevelarCadastro) {
+        throw new FechamentoServiceError("PEDIDO_NAO_CONCLUIDO", "Não foi possível concluir agora. Tente novamente em instantes.", 409);
+      }
       throw new FechamentoServiceError(
         "CPF_EXISTENTE_REQUER_VALIDACAO",
         "Este CPF já possui cadastro. Confirme sua identidade para usar o cadastro existente.",
@@ -277,6 +292,7 @@ async function criarNovoCliente(
     throw error;
   }
 
+  // A análise usa o CPF informado só dentro desta empresa: duplicidade local vai para a revisão do CRM.
   await registrarDuplicidadesNovoCliente(cliente.id, empresaId, dados, tx);
 
   await registrarEventoHistorico(
@@ -287,8 +303,10 @@ async function criarNovoCliente(
       origem: "FECHAMENTO_PUBLICO",
       entidadeTipo: "CLIENTE",
       entidadeId: cliente.id,
-      detalhe: "Cadastro criado durante Fechamento público.",
-      metadata: { fluxo: "FECHAMENTO_PUBLICO" },
+      detalhe: cpfOmitido
+        ? "Cadastro criado durante Fechamento público. O CPF informado não foi gravado automaticamente; confirme com o cliente."
+        : "Cadastro criado durante Fechamento público.",
+      metadata: { fluxo: "FECHAMENTO_PUBLICO", ...(cpfOmitido ? { cpfPendenteConfirmacao: true } : {}) },
     },
     tx,
   );

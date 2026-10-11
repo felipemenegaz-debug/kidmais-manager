@@ -569,7 +569,7 @@ test("prompt injection e pedidos perigosos nunca executam nem viram ferramenta",
   assert.equal(a.repositorio.linhas.size, 1);
   const buffet = dado(await a.conversar("Crie uma categoria do buffet chamada Doces"));
   assert.equal(buffet.tipo, "nao_suportado");
-  assert.match((buffet as { mensagem: string }).mensagem, /catálogo global/);
+  assert.match((buffet as { mensagem: string }).mensagem, /não altera o catálogo do Buffet/);
 });
 
 test("sem flag de ações: pedido de criação é recusado com explicação, sem rascunho", async () => {

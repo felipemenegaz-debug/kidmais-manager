@@ -25,6 +25,12 @@ export type RepositorioRenovacao = {
 export type DepsRenovacao = {
     repositorio: RepositorioRenovacao; provedor: ProvedorRenovacao; enviar: EnviarEmail; origem: string;
     agora: () => Date; simular: boolean;
+    /**
+     * Relógio real (opcional, G1). Usado SOMENTE na janela de 23 h da retentativa do aviso, comparada com
+     * `aviso_tentado_em`, que o banco grava com o relógio real. Datas de negócio (limite de 30 dias, primeira data
+     * regular, troca de preço) continuam em `agora`. Ausente: a janela usa `agora` (comportamento anterior).
+     */
+    relogioReal?: () => Date;
     travar: <T>(empresaId: string, trabalho: () => Promise<T>) => Promise<T>;
 };
 
@@ -125,7 +131,7 @@ export async function processarRenovacao(empresaId: string, deps: DepsRenovacao)
             if (hoje > limiteAviso) return revisao('JANELA_AVISO_PERDIDA');
             if (!c.destinatarioValido || c.destinatarioId !== r.destinatarioId || c.email !== r.mensagem.para)
                 return revisao('DESTINATARIO_ALTERADO');
-            if (r.avisoTentadoEm && deps.agora().getTime() - Date.parse(r.avisoTentadoEm) >= 23 * 3600000)
+            if (r.avisoTentadoEm && (deps.relogioReal?.() ?? deps.agora()).getTime() - Date.parse(r.avisoTentadoEm) >= 23 * 3600000)
                 return revisao('ENVIO_INCERTO_FORA_JANELA');
             if (deps.simular) return 'ENVIARIA_AVISO';
             await marcar({ estado: 'AVISANDO', tentativa: true, erro: null });

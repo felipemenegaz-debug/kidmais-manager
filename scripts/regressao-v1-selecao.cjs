@@ -42,7 +42,12 @@ function listarTestesPostgres(raiz) {
  *   alvo054     — o banco de trabalho é também o alvo autorizado do harness da 054 (KIDMAIS_054_*).
  */
 const ESTADO_POSTGRES = {
-  "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "atual" },
+  // Catálogo do buffet: 063 + 070 + 078 aplicadas pela própria suíte (em transação).
+  "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "063" },
+  // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
+  "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
+  // Disponibilidade do pacote por empresa: tela (cotação pública e administração) = servidor; isolamento; legado Kidmais.
+  "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063" },
   "lib/comercial/hg4-escopo.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/pacote-empresa.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/integridade-fechamento-053.postgres.test.ts": { descartavel: "052" },
@@ -93,6 +98,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/importacao-tabela/importacao-071.postgres.test.ts": { descartavel: "063" },
   // Modelo de contrato da empresa: 063 + 070 + 071 + 072 aplicadas pela própria suíte.
   "lib/contratos/modelo-empresa/modelo-072.postgres.test.ts": { descartavel: "063" },
+  // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
+  "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

@@ -4,6 +4,7 @@ import { MOTIVOS_PACOTE, motivoOu } from "@/lib/comercial/motivos-pacote";
 import { salvarPacoteComercial, duplicarPacoteComercial } from "@/lib/comercial/pacote-comercial";
 import { criarPacoteAdmin, listarPacotesAdmin } from "@/lib/comercial/pacotes-admin";
 import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { catalogoBuffetPorEmpresa } from "@/lib/comercial/catalogo-buffet-estrutura";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 
@@ -79,11 +80,15 @@ export async function GET(request: NextRequest) {
             WHERE ativo
             ORDER BY ordem_exibicao, nome`,
         );
+        // Com a 078, só o catálogo da própria empresa; antes dela, o catálogo global de sempre.
+        const porEmpresa = await catalogoBuffetPorEmpresa(tx);
+        const filtro = porEmpresa ? "AND empresa_id = $1::uuid" : "";
+        const parametros = porEmpresa ? [empresaId] : [];
         const categorias = await tx.query(
-          `SELECT id, nome FROM buffet_categorias WHERE ativo ORDER BY ordem_exibicao, nome`,
+          `SELECT id, nome FROM buffet_categorias WHERE ativo ${filtro} ORDER BY ordem_exibicao, nome`, parametros,
         );
         const itens = await tx.query(
-          `SELECT id, nome, categoria_id FROM buffet_itens WHERE ativo ORDER BY ordem_exibicao, nome`,
+          `SELECT id, nome, categoria_id FROM buffet_itens WHERE ativo ${filtro} ORDER BY ordem_exibicao, nome`, parametros,
         );
         return {
           pacotes,

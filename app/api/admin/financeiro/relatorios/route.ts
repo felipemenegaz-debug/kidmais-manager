@@ -8,5 +8,5 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const hoje = hojeIso();
   const periodo = periodoDaUrl(request, hoje);
-  return consultarFinanceiro(request, (tx, tenant) => relatorio(tx, tenant.empresaComprovada, periodo.inicio, periodo.fim, hoje));
+  return consultarFinanceiro(request, (tx, tenant) => relatorio(tx, tenant.empresaComprovada, periodo.inicio, periodo.fim, hoje), "FINANCEIRO_COMPLETO");
 }
