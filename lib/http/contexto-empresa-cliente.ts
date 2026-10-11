@@ -110,16 +110,33 @@ export function reiniciarContextoEmpresa(aviso?: string, destino?: string) {
  */
 let trocasDeEmpresa = 0;
 let trocaEmCurso = false;
+let fimDaTroca: { promessa: Promise<void>; resolver: () => void } | null = null;
 
 /** Marca o início de uma troca de empresa nesta página (antes do pedido ao servidor). */
 export function iniciarTrocaDeEmpresa() {
     trocasDeEmpresa += 1;
     trocaEmCurso = true;
+    if (!fimDaTroca) {
+        let resolver!: () => void;
+        const promessa = new Promise<void>((r) => { resolver = r; });
+        fimDaTroca = { promessa, resolver };
+    }
 }
 
-/** A troca não aconteceu (recusada, falhou): a sessão atual continua valendo e as leituras voltam à regra normal. */
+/** A resposta da troca chegou (cookies novos, se houver, já aplicados) ou não vai chegar: as leituras voltam à regra normal. */
 export function encerrarTrocaDeEmpresa() {
     trocaEmCurso = false;
+    fimDaTroca?.resolver();
+    fimDaTroca = null;
+}
+
+/**
+ * Promessa resolvida quando a troca em curso nesta página termina; null sem troca em curso. A saída
+ * (components/admin/sair.ts) espera por ela: um logout enviado com os cookies da sessão anterior chegaria depois da
+ * troca, receberia 401 e deixaria aberta a sessão criada pela troca.
+ */
+export function fimDaTrocaEmCurso(): Promise<void> | null {
+    return fimDaTroca?.promessa ?? null;
 }
 
 export type MarcaDaSessao = { geracao: number; durante: boolean };

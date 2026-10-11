@@ -189,6 +189,9 @@ export async function trocarEmpresaAtiva(empresaId: string): Promise<Response> {
     const headers = new Headers({ 'Content-Type': 'application/json' });
     headers.set('x-kidmais-sessao', info.data!.sessaoId!);
     headers.set('x-csrf-token', info.data!.csrf ?? '');
+    // Sair já começou (durante a confirmação prévia): nenhuma sessão nova é criada. Daqui até o envio não há espera.
+    if (saidaDaSessaoEmAndamento())
+        throw Error('Saindo da sessão. Nada foi alterado.');
     iniciarTrocaDeEmpresa();
     let resposta: Response;
     try {
