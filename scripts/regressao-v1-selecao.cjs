@@ -103,6 +103,8 @@ const ESTADO_POSTGRES = {
   "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079" },
   // Gratuidade da Kidmais com as chaves de produção ligadas, no schema vigente (até a 079).
   "lib/assinatura/kidmais-gratuidade.postgres.test.ts": { descartavel: "079" },
+  // Script de fixtures do painel em staging (scripts/fixture-painel-staging.cjs) no schema vigente (até a 079).
+  "lib/desenvolvedor/fixture-painel-staging.postgres.test.ts": { descartavel: "079" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
