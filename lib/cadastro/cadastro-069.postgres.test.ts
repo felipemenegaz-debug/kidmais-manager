@@ -289,7 +289,7 @@ test('representação: o desenvolvedor aprova ou recusa com motivo e auditoria; 
 });
 
 test('E2: bloqueio de agenda antigo sem empresa (ativo, futuro) fecha o cadastro de empresa; liberado, o cadastro volta', async () => {
-    const { sessao } = await contaConfirmada('ivo');
+    const { sessao } = await contaConfirmada('e2-bloqueio');
     const bloqueio = (await client.query<{ id: string }>(
         `INSERT INTO bloqueios_agenda (data, dia_inteiro, motivo) VALUES (current_date + 30, true, 'Legado global E2') RETURNING id::text AS id`)).rows[0].id;
     const antes = await contar('SELECT count(*)::int AS n FROM empresas');

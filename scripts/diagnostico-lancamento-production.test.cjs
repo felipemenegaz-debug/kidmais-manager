@@ -7,6 +7,10 @@ const { spawnSync } = require('node:child_process');
 const d = require('./diagnostico-lancamento-production.cjs');
 
 const fonte = fs.readFileSync(__dirname + '/diagnostico-lancamento-production.cjs', 'utf8');
+test('diagnóstico anterior ao deploy não depende do reconciliador novo; SQL igual à conferência diária', () => {
+    assert.doesNotMatch(fonte, /require\(['"]\.\/assinatura-reconciliar/);
+    assert.equal(d.SQL_KIDMAIS, require('./assinatura-reconciliar.cjs').SQL_KIDMAIS);
+});
 const env = (o = {}) => ({ RENDER: 'true', RENDER_SERVICE_ID: 'srv-dak77m2d0e5s73b8rkkg', KIDMAIS_DEPLOY_ENV: 'production', DATABASE_SSL: 'true',
     DATABASE_URL: 'postgresql://sintetico:sintetico@dpg-dak750gae00c73fudmg0-a:5432/kidmais_production', ...o });
 

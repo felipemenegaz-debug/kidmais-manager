@@ -5,7 +5,15 @@
 // Transação READ ONLY, timeouts curtos, ROLLBACK no fim. Saída: só presença de objetos, contagens e nomes de variáveis
 // presentes (nunca valores, nunca dados de clientes). Não aplica migration, não grava, não chama provedores.
 const assert = require('node:assert/strict');
-const { SQL_KIDMAIS } = require('./assinatura-reconciliar.cjs');
+// Autossuficiente: pode ser copiado para /tmp e rodar ANTES do deploy, usando só o pg já instalado no serviço.
+// O teste exige igualdade com a conferência diária para evitar divergência entre as duas leituras.
+const SQL_KIDMAIS = `SELECT count(*)::int AS empresas,
+    count(*) FILTER (WHERE e.status = 'ATIVA')::int AS ativas,
+    (SELECT count(*) FROM empresa_assinaturas a JOIN empresas k ON k.id = a.empresa_id WHERE k.codigo = 'kidmais')::int AS assinaturas,
+    (SELECT count(*) FROM assinatura_contratacoes c JOIN empresas k ON k.id = c.empresa_id WHERE k.codigo = 'kidmais')::int AS contratacoes,
+    (SELECT count(*) FROM assinatura_fundadores f JOIN empresas k ON k.id = f.empresa_id WHERE k.codigo = 'kidmais')::int AS fundadores,
+    (SELECT count(*) FROM assinatura_isencoes i JOIN empresas k ON k.id = i.empresa_id WHERE k.codigo = 'kidmais')::int AS isencoes
+  FROM empresas e WHERE e.codigo = 'kidmais'`;
 
 const FLAG = '--diagnostico-somente-leitura';
 const ALVO = Object.freeze({ servico: 'srv-dak77m2d0e5s73b8rkkg', host: 'dpg-dak750gae00c73fudmg0-a', database: 'kidmais_production', port: 5432 });
@@ -96,4 +104,4 @@ if (require.main === module) {
         })().catch(e => { console.error(String(e?.message ?? 'RECUSADO').slice(0, 120)); process.exitCode = 1; });
     }
 }
-module.exports = { FLAG, ALVO, MIGRATIONS, VARIAVEIS, autorizado, alvo, diagnosticar };
+module.exports = { FLAG, ALVO, MIGRATIONS, VARIAVEIS, SQL_KIDMAIS, autorizado, alvo, diagnosticar };

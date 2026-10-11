@@ -126,9 +126,9 @@ test("criar: PASS no schema de staging — fixtures ATIVAS, isentas (COMPLETO), 
   assert.equal(r.resultado, "PASS", JSON.stringify(r.falha));
   assert.ok(alvos.length >= 1 && alvos.every((a) => a.includes("dpg-daidko3m8hqs73ce4jt0-a") && a.includes("kidmais_staging_1z91")), "trava do staging aplicada");
   assert.equal(r.preservacao, "IGUAL");
-  const publico = r.publico as Record<string, { dias: number[]; categorias: string[]; itens: number; preco: number }>;
+  const publico = r.publico as Record<string, { dias: number[]; categorias: string[]; itens: number; preco: string }>;
   assert.deepEqual(publico.A.dias, A.dias); assert.deepEqual(publico.B.dias, B.dias);
-  assert.equal(publico.A.preco, Number(A.valor)); assert.equal(publico.B.preco, Number(B.valor));
+  assert.equal(publico.A.preco, A.valor); assert.equal(publico.B.preco, B.valor);
   for (const f of [A, B]) {
     assert.equal((await client.query(`SELECT status FROM empresas WHERE id=$1::uuid`, [f.empresa])).rows[0].status, "ATIVA");
     assert.equal((await lerEstadoComercial(tx, f.empresa)).acesso.nivel, "COMPLETO", `acesso ${f.chave}`);

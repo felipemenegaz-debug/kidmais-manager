@@ -125,12 +125,13 @@ test('credenciais: grava com 0600 e nunca sobrescreve', () => {
 test('plano offline: inventário aprovado (076/077/078 incluídas) com checks, impressão fixada no pacote', async () => {
     const p = await s.plano();
     assert.equal(p.impressao, s.IMPRESSAO_SCHEMA, 'migrations/checks mudaram: revisar o pacote');
-    assert.equal(p.ultima, '20261010_078_catalogo_buffet_por_empresa.sql');
-    const fim = p.etapas.slice(-3);
+    assert.equal(p.ultima, '20261011_079_convite_recuperacao_manual.sql');
+    const fim = p.etapas.slice(-4);
     assert.deepEqual(fim.map(e => [e.antes, e.migration, e.depois]), [
         [['database/checks/20261010_076_precheck.sql'], 'database/migrations/20261010_076_cpf_por_empresa.sql', ['database/checks/20261010_076_postcheck.sql']],
         [['database/checks/20261010_077_precheck.sql'], 'database/migrations/20261010_077_regras_pagamento_empresa.sql', ['database/checks/20261010_077_postcheck.sql']],
-        [['database/checks/20261010_078_precheck.sql'], 'database/migrations/20261010_078_catalogo_buffet_por_empresa.sql', ['database/checks/20261010_078_postcheck.sql']]]);
+        [['database/checks/20261010_078_precheck.sql'], 'database/migrations/20261010_078_catalogo_buffet_por_empresa.sql', ['database/checks/20261010_078_postcheck.sql']],
+        [['database/checks/20261011_079_precheck.sql'], 'database/migrations/20261011_079_convite_recuperacao_manual.sql', ['database/checks/20261011_079_postcheck.sql']]]);
     assert.equal(new Set(p.etapas.map(e => e.migration)).size, p.etapas.length, 'nenhuma migration duplicada');
 });
 
