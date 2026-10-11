@@ -3,7 +3,7 @@
 | Rodada | Candidata | Resultado |
 |---|---|---|
 | 1 | `e1c3877` (código `53307b2`) | parada em S0: `origin/staging` tinha avançado para `2abeb58`; nenhuma escrita |
-| **2** | `d19f78b4436f2592159ae0c2e8dafaf25f840c94` (código `4d8da7d`) | **S0–S2 executados; interrompida antes de S3** — o Web Shell do Render não aceita texto digitado pelo navegador do agente; nenhuma configuração alterada |
+| **2** | `d19f78b4436f2592159ae0c2e8dafaf25f840c94` (código `4d8da7d`) | S0–S2; interrompida antes de S3 (Web Shell sem entrada pelo agente); **continuação:** S3 publicado (LIVE `d19f78b`), S4 só o legado (B3 PASS; `/b/` sem fixture elegível), S8 executado (chaves removidas, LIVE `d19f78b`); pendentes no Shell de Felipe: conferência da restauração e S5a |
 
 ## Rodada 2 — `d19f78b`
 
@@ -20,11 +20,27 @@ S8 se houver configuração a restaurar e S9; nenhuma alteração em produção.
 | S8 | **não necessário**: nenhuma variável alterada, nenhum deploy disparado (LIVE `2abeb58` conferido por `list_deploys` ao final) |
 | S9 | este registro |
 
-**Estado deixado:** branch `staging` = `d19f78b` (à frente do LIVE); LIVE = `2abeb58`; chaves `COTACAO_PUBLICA_POR_EMPRESA`/`ASSINATURA_PLANOS_ATIVOS`
-inalteradas; 078 não aplicada. **Atenção:** qualquer deploy manual de staging a partir de agora publica `d19f78b`.
+### Continuação da rodada 2 (Felipe executa os comandos de Shell)
 
-Para retomar S3–S4/S5a, os passos de Shell precisam de outro executor (Felipe no Web Shell, colando a saída) ou de acesso por SSH
-autorizado; as partes por Render MCP (merge das chaves, acompanhamento do deploy, `trigger_deploy`) e navegador (S4) seguem possíveis.
+Autorização de Felipe: a conferência anterior ao S3 passou (executada por ele no Shell); continuar S3–S4 e S5a para `d19f78b`,
+revalidando a branch antes do deploy; Felipe executa os comandos de Shell; sem 078 nem OTP; ao encerrar, S8 e S9.
+
+| Passo | Resultado |
+|---|---|
+| Revalidação | 05:20:55Z: `origin/staging` = `d19f78b`; Render: branch `staging`, auto-deploy OFF; LIVE `2abeb58` |
+| S3 | Render MCP, workspace `tea-daidbj95efls73d2bcf0` (dono do serviço): merge de **exatamente** `COTACAO_PUBLICA_POR_EMPRESA=true` e `ASSINATURA_PLANOS_ATIVOS=true` (a 1ª tentativa sem `workspaceId` foi recusada pela ferramenta, sem efeito). Deploy `dep-db5hpkdckfvc73a91jcg`, commit `d19f78b`, início 05:21:21Z, **LIVE 05:28:01Z**; `/api/health` 200 |
+| Elegibilidade das fixtures | Com as chaves ativas, `GET /api/fechamentos/pacotes?empresa=…` = **404 `COTACAO_PUBLICA_INDISPONIVEL`** para `hml-planos-profissional`, `-premium`, `-teste`, `-isenta` e `-essencial`. A recusa é igual para empresa não `ATIVA`, plano sem `ORCAMENTO_ONLINE`, acesso bloqueado ou mais de uma unidade (`escopoCotacaoPublica`); a causa exige leitura do banco (não feita) |
+| S4 B1, B2, B4 (`/b/`) | **não executáveis**: nenhuma empresa de homologação elegível em `/b/<código>` |
+| S4 B3 (legado, desktop) | **PASS** — primeira visita após o deploy: `/disponibilidade` → quarta 18/11, 11:00–15:00 → botão “Continuar para escolher o pacote” → `/fechamento` “Etapa 1 de 8” em ~3,5 s (incluída espera de 3 s), build de produção. Nenhum pedido |
+| S5a | **pendente — Shell de Felipe** (`--conferir-078`) |
+| S8 | Painel → Environment → Edit: marcadas para remoção **só** as duas chaves (conferido no DOM: 2 marcadas), **“Save only”** (sem deploy; conferido em `list_deploys`); `git ls-remote`: ponta `d19f78b`; `trigger_deploy` → `dep-db5i0b2jnfac73aihub0` (`d19f78b`), **LIVE 05:41:35Z**; `/api/health` 200; `/b/hml-planos-profissional/fechamento` 404; pacotes por empresa 404; `/disponibilidade` 200. `--conferir-restauracao`: **pendente — Shell de Felipe** |
+| S9 | este registro |
+
+Valores de variáveis não foram lidos nem exibidos (campos mascarados; só nomes). 078 não aplicada; OTP não executado.
+
+**Estado deixado:** LIVE `d19f78b` (`dep-db5i0b2jnfac73aihub0`), sem as duas chaves; branch `staging` = `d19f78b`; 078 não aplicada.
+Pendentes no Shell (Felipe): `echo $RENDER_GIT_COMMIT` + `--conferir-restauracao` (esperado `RESTAURADA`) e `--conferir-078` (S5a).
+Pendente de decisão: fixture elegível para `/b/` em staging (diagnóstico somente leitura proposto) para repetir B1/B2/B4.
 
 Sem alteração em produção.
 
