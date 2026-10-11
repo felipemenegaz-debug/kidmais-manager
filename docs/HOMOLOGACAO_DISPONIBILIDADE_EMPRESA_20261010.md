@@ -1,7 +1,9 @@
 # Disponibilidade do pacote por empresa — correção e homologação local (10/10/2026)
 
-**Status: PRONTO PARA APROVAÇÃO, NÃO EXECUTADO.** Nenhum cluster, servidor ou navegador foi iniciado na preparação. Nada em
-staging, produção, Render ou serviços externos. Sem push nem deploy. Sem migração nova (nenhuma mudança de schema).
+**Status: HOMOLOGADO LOCALMENTE em 11/10/2026 (candidata `7bca903`, código `5ba3534`): B0–B6 e V1–V7 PASS em desktop e celular,
+pelos botões da interface, sem envio de pedido** — [evidência](evidencias/homologacao-disponibilidade-empresa-20261011.md). Registrada uma falha
+intermitente do botão “Continuar para escolher o pacote” na 1ª transição para `/b/<código>/fechamento` em `next dev` (2ª tentativa
+passou); verificar em staging. Nada em staging, produção, Render ou serviços externos; sem push nem deploy.
 
 - **Código: `5ba3534a5cbc5a3ada421e4e7f015b3a5f912977`**. Este pacote está no commit seguinte, que altera só `docs/`; o SHA desse
   commit é o da aprovação. `git diff --name-only 5ba3534a5cbc5a3ada421e4e7f015b3a5f912977 HEAD` deve listar só `docs/`.
