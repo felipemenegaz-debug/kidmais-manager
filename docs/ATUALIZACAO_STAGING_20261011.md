@@ -7,19 +7,23 @@ manuais nem deploys externos em staging.
 
 ## 1. Candidata
 
-- **Código: `53307b2b722c9b7217aceba6f74d38b992eca119`**. Este pacote está no commit seguinte (só `docs/`); o SHA desse commit é o que
-  vai para `staging`. `git diff --name-only 53307b2b722c9b7217aceba6f74d38b992eca119 HEAD` deve listar só `docs/`.
-- **Substitui a candidata `6099692` (pacote `44ce38f`)**: a frente L dela falhou na suíte nova por defeito do fixture (vigências
-  sobrepostas recusadas pelo banco) — [evidência](evidencias/atualizacao-staging-frente-l-20261011.md). `53307b2` muda **só o teste**
-  (`git diff --name-only 6099692 53307b2` fora de `docs/` = `lib/comercial/disponibilidade-empresa.postgres.test.ts`); o código de
-  produto é o mesmo de `6099692`.
-- **Base:** `origin/staging` = `f88b39e9e7746c394554c6b62c4b4bbaf4592353` (último registrado; LIVE em staging segundo
-  `evidencias/homologacao-fundador-staging-rodada2-20261010.md`). A candidata é descendente direta (fast-forward; só commits locais desta linha de trabalho).
-  Se `origin/staging` tiver avançado em S0: **não enviar**; integrar sem force, revisar o diff, revalidar e reapresentar o SHA.
-- **Migrations novas em relação a `f88b39e`:** somente `20261010_078_catalogo_buffet_por_empresa.sql` (074/074a/075/076/077 já
+- **Código: `4d8da7d5519f7f7fad3ba9871799059e293cf12e`** — merge de `origin/staging` (`2abeb58`) na candidata anterior. Este pacote
+  está no commit seguinte (só `docs/`); o SHA desse commit é o que vai para `staging`. `git diff --name-only 4d8da7d5519f7f7fad3ba9871799059e293cf12e HEAD`
+  deve listar só `docs/`.
+- **Base:** `origin/staging` = `2abeb586bdc9e229e895b4a75696d4639538f090` (LIVE em staging, `dep-db54ovo473hc739sm0ig`, lido em S0 de 11/10 —
+  [evidência](evidencias/atualizacao-staging-20261011.md)). A candidata **contém** `2abeb58` (fast-forward). Se `origin/staging` avançar de
+  novo antes de S2: **não enviar**; integrar sem force, revisar, revalidar e reapresentar.
+- **Histórico:** `6099692` (pacote `44ce38f`) — frente L falhou por fixture de teste; `53307b2` (pacote `7b937d8`/`e1c3877`) — L PASS 6/6;
+  rodada S de 11/10 parada em S0 porque `origin/staging` tinha avançado para `2abeb58`; `4d8da7d` — integração.
+- **Integração (`4d8da7d`):** entram, sem alteração, as duas correções de convites de staging — `b606216` (leitura da imagem do Gemini
+  em `output_image`, diagnósticos seguros) e `2abeb58` (bloqueio de nova geração após falha incerta). `components/convites` e
+  `lib/convites` ficam idênticos a `origin/staging`. Conflitos só no inventário (`scripts/production/check-migrations.mjs`,
+  `production.test.mjs`): staging listava 076/077; a candidata, 076/077/078 — resolvido com a versão da candidata (cada migration uma
+  vez; `latest` = 078; 074–078 pendentes de autorização explícita em produção). Nenhum outro arquivo divergiu.
+- **Migrations novas em relação a staging:** somente `20261010_078_catalogo_buffet_por_empresa.sql` (074/074a/075/076/077 já
   aplicadas em staging em 09–10/10).
 
-### O que a candidata leva a staging (além de `f88b39e`)
+### O que a candidata leva a staging (além de `2abeb58`)
 
 | Item | Commits | Efeito em runtime em staging |
 |---|---|---|
@@ -41,7 +45,15 @@ manuais nem deploys externos em staging.
 - Fora do escopo (inalterado): o seletor de pacotes do painel ainda lista o catálogo de nomes da Kidmais para qualquer empresa (pacote
   que a empresa não oferece aparece indisponível) — pendência de UX.
 
-## 2. Validação local (offline; código de produto de `6099692` = `53307b2`)
+## 2. Validação local (offline)
+
+**Integração `4d8da7d` (11/10/2026):** testes sem banco 2281/2281; inventário/produção 37/37 (`check-migrations --json`: `PASS`,
+`latest` 078, sem duplicatas, 074–078 pendentes para produção); convites `imagem.test.ts` 4/4 e `service.test.cjs` 22/22; smoke
+(mocks) 103/103; TypeScript; ESLint 0 erros (1 aviso preexistente); planos `confere: true`; `next build` com fontes locais (61
+páginas) e worker de PDF PASS; `git diff --check` limpo. Frente L (PostgreSQL) **não repetida**: a integração só acrescenta arquivos
+de convites, fora das seis suítes; o resultado de `53307b2` (6/6) continua válido para o código delas.
+
+Anteriores (código de produto de `6099692` = `53307b2`):
 
 | Verificação | Resultado |
 |---|---|
@@ -63,7 +75,7 @@ manuais nem deploys externos em staging.
 | L2 | (cluster **novo**; a pasta da tentativa de `44ce38f` fica parada e preservada) variáveis da suíte (porta 55498, `kidmais_pacotes_v1_descartavel`) e `KIDMAIS_POSTGRES_SOMENTE='lib/comercial/disponibilidade-empresa.postgres.test.ts,lib/comercial/catalogo-buffet-078.postgres.test.ts,lib/comercial/catalogo-ux.postgres.test.ts,lib/saas/hg8-catalogo.postgres.test.ts,lib/comercial/adicionais-070.postgres.test.ts,lib/comercial/round4-remediacao.postgres.test.ts'`; `node scripts/regressao-v1-postgres.cjs` | 6/6 PASS. Falha da nova suíte no teste “legado” = divergência **preexistente** entre a regra fixa e a matriz do banco: parar e reportar |
 | L3 | `parar --parar-autorizado` | `PARADO`; pasta preservada |
 
-Pré-requisito de S: L PASS. **L executada em 11/10/2026 para `7b937d8`: PASS, 6/6 suítes (`disponibilidade-empresa` 5/5)** —
+Pré-requisito de S: L PASS. **L executada em 11/10/2026 para `7b937d8` (código `53307b2`, o mesmo das suítes em `4d8da7d`): PASS, 6/6 suítes (`disponibilidade-empresa` 5/5)** —
 [evidência](evidencias/atualizacao-staging-frente-l-20261011.md). S0–S9 continuam pendentes de autorização própria.
 
 A suíte `disponibilidade-empresa` (5 testes) cobre: cenário com vigências contíguas (B: quarta no almoço aberta até a véspera do
@@ -86,7 +98,7 @@ legado da Kidmais = matriz 006/017.
 
 | Passo | O quê | Esperado / parada |
 |---|---|---|
-| S0 | Leitura: `git fetch` só de `origin/staging` → `f88b39e`; Render MCP: branch `staging`, auto-deploy OFF, LIVE `f88b39e`; `/api/health` 200; `node scripts/production/smoke-test.mjs --base-url=https://kidmais-manager-staging.onrender.com --json` (só GET) | divergência → parar (§7) |
+| S0 | Leitura: `git fetch` só de `origin/staging` → `2abeb58`; Render MCP: branch `staging`, auto-deploy OFF, LIVE `2abeb58`; `/api/health` 200; `node scripts/production/smoke-test.mjs --base-url=https://kidmais-manager-staging.onrender.com --json` (só GET) | divergência → parar (§7) |
 | S1 | Felipe confere no painel o backup/PITR do `kidmais-staging` (sem restaurar) e registra o horário | registro do horário |
 | S2 | `git push origin <SHA do pacote>:staging` (fast-forward, sem force). **Não dispara deploy** (auto-deploy OFF) | `origin/staging` = SHA |
 | S3 | Shell (antes da mudança): `node scripts/configuracao-homologacao-staging.cjs --conferir-restauracao` → `RESTAURADA` (registro de 10/10: as duas chaves ausentes). Render MCP (merge) **exatamente** `COTACAO_PUBLICA_POR_EMPRESA=true` e `ASSINATURA_PLANOS_ATIVOS=true` — a gravação dispara **um** deploy do SHA. Acompanhar até LIVE; `/api/health` 200; Shell `RENDER_GIT_COMMIT` = SHA | deploy LIVE do SHA; **nenhuma visita a `/b/…` antes de S4** |
