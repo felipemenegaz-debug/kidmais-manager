@@ -1,5 +1,5 @@
 'use client';
-import { guardarAvisoDeContexto, marcarSaidaDaSessao } from '@/lib/http/contexto-empresa-cliente';
+import { fimDaTrocaEmCurso, guardarAvisoDeContexto, marcarSaidaDaSessao } from '@/lib/http/contexto-empresa-cliente';
 
 /**
  * Saída da sessão a partir de qualquer tela: Admin, painel do desenvolvedor, perfil, seleção vazia ou estado de erro.
@@ -17,7 +17,10 @@ import { guardarAvisoDeContexto, marcarSaidaDaSessao } from '@/lib/http/contexto
  *   - ir para o login nunca é apresentado como prova de encerramento: o resultado diz se foi confirmado e o aviso
  *     deixado para a tela de login diz quando não foi;
  *   - respostas tardias de outras requisições da página (401 ou contexto mudado depois do clique) não mudam o destino
- *     nem o aviso (marcarSaidaDaSessao em lib/http/contexto-empresa-cliente).
+ *     nem o aviso (marcarSaidaDaSessao em lib/http/contexto-empresa-cliente);
+ *   - troca de empresa em curso: a saída espera a resposta da troca (dentro do mesmo prazo) e encerra a sessão vigente
+ *     depois dela. Um logout com os cookies da sessão anterior chegaria depois da troca, receberia 401 e deixaria a
+ *     sessão nova aberta. Nenhuma troca começa depois do clique (lib/http/admin-fetch: trocarEmpresaAtiva).
  */
 export const PRAZO_SAIDA_MS = 8000;
 export const AVISO_SAIDA_NAO_CONFIRMADA = 'O servidor não confirmou o encerramento da sessão: ela pode continuar aberta. Se este dispositivo é compartilhado, entre de novo e saia novamente ou feche o navegador.';
@@ -70,6 +73,22 @@ async function executarSaida(deps: DependenciasSaida): Promise<ResultadoSaida> {
     // A partir daqui, respostas tardias de outras requisições da página (401, contexto mudado) não navegam nem deixam
     // aviso: esta saída vai ao login no prazo e o aviso dela é o único que vale.
     marcarSaidaDaSessao();
+    const troca = fimDaTrocaEmCurso();
+
+    /** Espera o fim da troca em curso dentro do prazo total; false quando o prazo acaba antes. */
+    async function esperarTroca(fim: Promise<void>): Promise<boolean> {
+        const restante = limite - agora();
+        if (restante <= 0)
+            return false;
+        let temporizador: ReturnType<typeof setTimeout> | undefined;
+        const prazo = new Promise<boolean>((resolve) => { temporizador = setTimeout(() => resolve(false), restante); });
+        try {
+            return await Promise.race([fim.then(() => true), prazo]);
+        }
+        finally {
+            clearTimeout(temporizador);
+        }
+    }
 
     /** Um pedido com o tempo que resta do prazo total; a resposta que chegar depois do prazo é ignorada. */
     async function pedir(init: RequestInit): Promise<Pedido> {
@@ -121,7 +140,15 @@ async function executarSaida(deps: DependenciasSaida): Promise<ResultadoSaida> {
         return 'recusada';
     }
 
-    let resultado: Postagem | null = csrfConhecido ? await postar(csrfConhecido) : null;
+    let resultado: Postagem | null = null;
+    if (troca) {
+        // O CSRF lembrado é da sessão anterior à troca: depois dela, a sessão vigente é lida de novo (uma leitura).
+        csrfConhecido = null;
+        if (!await esperarTroca(troca))
+            resultado = 'tempo';
+    }
+    if (resultado === null && csrfConhecido)
+        resultado = await postar(csrfConhecido);
     if (resultado === null || resultado === 'csrf') {
         // Sem CSRF lembrado, ou CSRF recusado (rotação): uma única leitura da sessão e, no máximo, mais um POST.
         const leitura = await lerCsrf();
