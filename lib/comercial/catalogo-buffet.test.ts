@@ -1,9 +1,34 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { criarCategoriaBuffet, criarItemBuffet, excluirCategoriaBuffet, excluirItemBuffet } from "./catalogo-buffet.ts";
+import {
+  criarCategoriaBuffet, criarItemBuffet, editarCategoriaBuffet, editarItemBuffet, excluirCategoriaBuffet, excluirItemBuffet, lerCatalogoBuffet,
+} from "./catalogo-buffet.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
 import type { DbExecutor, DbQueryResult } from "../db/contracts.ts";
+
+const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const ITEM = "11111111-1111-4111-8111-111111111111";
+const CATEGORIA = "22222222-2222-4222-8222-222222222222";
+
+/** Banco falso por empresa: a linha ITEM/CATEGORIA pertence à empresa `dona`; consultas registradas com parâmetros. */
+function banco(dona: string, uso = 0) {
+  const consultas: Array<{ sql: string; params: readonly unknown[] }> = [];
+  const tx: DbExecutor = { async query<Row extends object>(text: string, values: readonly unknown[] = []): Promise<DbQueryResult<Row>> {
+    consultas.push({ sql: text, params: values });
+    const daEmpresa = values.includes(dona);
+    if (/^\s*SELECT (1|categoria_id|id) FROM buffet_(categorias|itens) WHERE id = \$1::uuid AND empresa_id = \$2::uuid/.test(text))
+      return { rows: daEmpresa ? [{ categoria_id: null, id: values[0] } as Row] : [], rowCount: daEmpresa ? 1 : 0 };
+    if (text.includes("count(*)")) return { rows: [{ n: uso } as Row], rowCount: 1 };
+    if (/^\s*(INSERT|UPDATE|DELETE)/.test(text)) return { rows: [{ id: ITEM } as Row], rowCount: daEmpresa || text.trimStart().startsWith("INSERT") ? 1 : 0 };
+    if (text.includes("FROM buffet_categorias") || text.includes("FROM buffet_itens")) return { rows: [], rowCount: 0 };
+    throw new Error(text);
+  } };
+  return { tx, consultas };
+}
+
+const naoEncontrado = (error: unknown) => error instanceof PacoteAdminError && error.httpStatus === 404;
 
 test("o down 050 trava antes de checar e antes de apagar", () => {
   const sql = readFileSync("database/rollback/20260927_050_item_sem_categoria_down.sql", "utf8");
@@ -15,68 +40,117 @@ test("o down 050 trava antes de checar e antes de apagar", () => {
   assert.equal(sql.includes("LOCK TABLE public.pacote_itens_especificos"), true);
 });
 
-test("exclusão de item e categoria referenciados falha fechada", async () => {
-  const item: DbExecutor = { async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
-    if (text.includes("to_regclass")) return { rows: [{ ok: false } as Row], rowCount: 1 };
-    if (text.includes("count(*)")) return { rows: [{ n: 2 } as Row], rowCount: 1 };
-    throw new Error(text);
-  } };
-  await assert.rejects(
-    () => excluirItemBuffet(item, "11111111-1111-4111-8111-111111111111"),
-    (error: unknown) => error instanceof PacoteAdminError && error.message === "Este item está sendo usado por um ou mais pacotes e não pode ser excluído ainda.",
-  );
-
-  const categoria: DbExecutor = { async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
-    if (text.includes("count(*)")) return { rows: [{ n: 1 } as Row], rowCount: 1 };
-    throw new Error(text);
-  } };
-  await assert.rejects(
-    () => excluirCategoriaBuffet(categoria, "22222222-2222-4222-8222-222222222222"),
-    (error: unknown) => error instanceof PacoteAdminError && /não pode ser excluída ainda/.test(error.message),
-  );
+test("078: a unicidade por empresa substitui a global ANTES das cópias, numa única transação", () => {
+  const sql = readFileSync("database/migrations/20261010_078_catalogo_buffet_por_empresa.sql", "utf8");
+  // Sem comentários e sem corpos $$…$$ (os BEGIN deles não são transação).
+  const comandos = sql.replace(/--[^\n]*/g, "").replace(/\$\$[\s\S]*?\$\$/g, "$$$$");
+  assert.deepEqual(comandos.match(/^\s*(BEGIN|COMMIT|ROLLBACK)\s*;/gim)?.map((x) => x.trim().toUpperCase()), ["BEGIN;", "COMMIT;"]);
+  const pos = (trecho: string) => {
+    const i = sql.indexOf(trecho);
+    assert.notEqual(i, -1, trecho);
+    return i;
+  };
+  const inicio = pos("BEGIN;");
+  const fim = pos("COMMIT;");
+  const copiaCategorias = pos("INSERT INTO buffet_categorias (id, empresa_id");
+  const copiaItens = pos("INSERT INTO buffet_itens (id, empresa_id");
+  const quedaGlobalCategoria = pos("DROP CONSTRAINT %I");
+  const quedaGlobalSemCategoria = pos("DROP INDEX buffet_itens_codigo_sem_categoria_uk;");
+  for (const antes of [
+    quedaGlobalCategoria,
+    pos("CREATE UNIQUE INDEX buffet_categorias_empresa_codigo_uk"),
+    pos("CREATE UNIQUE INDEX buffet_categorias_codigo_sem_empresa_uk"),
+    quedaGlobalSemCategoria,
+    pos("CREATE UNIQUE INDEX buffet_itens_empresa_codigo_sem_categoria_uk"),
+    pos("CREATE UNIQUE INDEX buffet_itens_codigo_sem_categoria_sem_empresa_uk"),
+  ]) {
+    assert.ok(inicio < antes && antes < copiaCategorias && antes < copiaItens && copiaItens < fim);
+  }
+  // O dono (UPDATE para a kidmais) vem antes da troca: os índices parciais por empresa já valem para o catálogo antigo.
+  assert.ok(pos("UPDATE buffet_itens SET empresa_id") < quedaGlobalCategoria);
+  // A regra antiga não volta depois das cópias.
+  assert.equal(sql.indexOf("buffet_itens_codigo_sem_categoria_uk", quedaGlobalSemCategoria + "DROP INDEX buffet_itens_codigo_sem_categoria_uk;".length), -1);
 });
 
-test("item inativo nasce inativo e a categoria em todos os ativos segura o item", async () => {
-  const gravados: unknown[][] = [];
-  const consultas: string[] = [];
-  const tx: DbExecutor = { async query<Row extends object>(text: string, values?: readonly unknown[]): Promise<DbQueryResult<Row>> {
-    consultas.push(text);
-    if (text.startsWith("INSERT INTO buffet_itens")) {
-      gravados.push([...(values ?? [])]);
-      return { rows: [{ id: "11111111-1111-4111-8111-111111111111" } as Row], rowCount: 1 };
-    }
-    if (text.startsWith("INSERT INTO buffet_categorias")) {
-      gravados.push([...(values ?? [])]);
-      return { rows: [{ id: "22222222-2222-4222-8222-222222222222" } as Row], rowCount: 1 };
-    }
-    if (text.includes("count(*)")) return { rows: [{ n: 1 } as Row], rowCount: 1 };
-    if (text.includes("to_regclass")) return { rows: [{ ok: false } as Row], rowCount: 1 };
-    throw new Error(text);
-  } };
-  await criarCategoriaBuffet(tx, "Bolo", false);
-  await criarItemBuffet(tx, "Taxa de rolha", null, false);
-  assert.equal(gravados[0]?.[2], false);
-  assert.equal(gravados[1]?.[3], false);
-  await assert.rejects(
-    () => excluirItemBuffet(tx, "11111111-1111-4111-8111-111111111111"),
-    (error: unknown) => error instanceof PacoteAdminError && error.message === "Este item está sendo usado por um ou mais pacotes e não pode ser excluído ainda.",
-  );
-  const uso = consultas.find((sql) => sql.includes("TODOS_ATIVOS")) ?? "";
-  assert.equal(uso.includes("p.ativo"), false);
-  assert.equal(uso.includes("arquivado_em"), false);
+test("078: reaplicação recusa como “já aplicada” antes de exigir o índice da 050 (que a própria 078 remove)", () => {
+  const sql = readFileSync("database/migrations/20261010_078_catalogo_buffet_por_empresa.sql", "utf8");
+  const jaAplicada = sql.indexOf("RAISE EXCEPTION '078 já aplicada.'");
+  const exige050 = sql.indexOf("RAISE EXCEPTION '078 exige a 050");
+  const primeiraGuarda = sql.indexOf("RAISE EXCEPTION");
+  assert.ok(jaAplicada > 0 && exige050 > 0);
+  assert.equal(primeiraGuarda, jaAplicada, "“já aplicada” é a primeira guarda");
+  assert.equal(sql.split("078 já aplicada").length - 1, 1, "uma só guarda de reaplicação");
 });
 
-test("item sem uso é apagado", async () => {
-  const apagados: string[] = [];
+test("suíte PostgreSQL da 078: todo arquivo SQL com transação própria roda com ROLLBACK garantido", () => {
+  const fonte = readFileSync("lib/comercial/catalogo-buffet-078.postgres.test.ts", "utf8");
+  const execucoes = fonte.match(/client\.query\(arquivo\([^)]*\)\)/g) ?? [];
+  const protegidas = fonte.match(/semTransacaoPendente\(\(\) => (?:recusa\()?client\.query\(arquivo\([^)]*\)\)/g) ?? [];
+  assert.ok(execucoes.length >= 3);
+  assert.equal(protegidas.length, execucoes.length, "nenhum arquivo SQL fora de semTransacaoPendente");
+  assert.match(fonte, /finally \{\s*await client\.query\("ROLLBACK"\)\.catch\(\(\) => undefined\);/);
+});
+
+test("toda operação exige a empresa comprovada (UUID); sem ela, recusa antes de qualquer SQL", async () => {
+  const { tx, consultas } = banco(A);
+  for (const chamada of [
+    () => lerCatalogoBuffet(tx, ""), () => criarCategoriaBuffet(tx, "x", "Bolo"), () => criarItemBuffet(tx, "", "Taxa", null),
+    () => editarCategoriaBuffet(tx, "null", CATEGORIA, "x", true), () => excluirItemBuffet(tx, "kidmais", ITEM),
+  ]) await assert.rejects(chamada, (e: unknown) => e instanceof PacoteAdminError && e.code === "EMPRESA_OBRIGATORIA");
+  assert.equal(consultas.length, 0);
+});
+
+test("leitura, criação e escrita filtram por empresa_id; registro de outra empresa = 404, nada alterado", async () => {
+  const { tx, consultas } = banco(A);
+  await lerCatalogoBuffet(tx, B);
+  assert.ok(consultas.every((c) => /WHERE empresa_id = \$1::uuid/.test(c.sql) && c.params[0] === B), "leitura só da empresa pedida");
+  consultas.length = 0;
+  await criarCategoriaBuffet(tx, B, "Salgados", true, "SALGADOS");
+  const insercao = consultas.find((c) => c.sql.startsWith("INSERT INTO buffet_categorias"))!;
+  assert.match(insercao.sql, /\(empresa_id, codigo, nome, ativo, arquivado_em\)/);
+  assert.equal(insercao.params[0], B);
+  assert.equal(insercao.params[1], "SALGADOS", "mesmo código permitido em outra empresa");
+  for (const chamada of [
+    () => editarCategoriaBuffet(tx, B, CATEGORIA, "Outro nome", true),
+    () => excluirCategoriaBuffet(tx, B, CATEGORIA),
+    () => editarItemBuffet(tx, B, ITEM, "Outro", undefined, true),
+    () => excluirItemBuffet(tx, B, ITEM),
+  ]) await assert.rejects(chamada, naoEncontrado);
+  await assert.rejects(() => criarItemBuffet(tx, B, "Coxinha", CATEGORIA), (e: unknown) => e instanceof PacoteAdminError && e.code === "DADOS_INVALIDOS");
+  assert.ok(!consultas.some((c) => /^\s*(UPDATE|DELETE)/.test(c.sql) && c.params.includes(A)), "nenhuma escrita na linha da outra empresa");
+  for (const c of consultas.filter((x) => /^\s*(UPDATE|DELETE)/.test(x.sql))) assert.match(c.sql, /empresa_id = \$2::uuid/);
+});
+
+test("código de categoria repetido na MESMA empresa é recusado; código inválido também", async () => {
   const tx: DbExecutor = { async query<Row extends object>(text: string): Promise<DbQueryResult<Row>> {
-    if (text.includes("to_regclass")) return { rows: [{ ok: true } as Row], rowCount: 1 };
-    if (text.includes("count(*)")) return { rows: [{ n: 0 } as Row], rowCount: 1 };
-    if (text.startsWith("DELETE")) {
-      apagados.push(text);
-      return { rows: [], rowCount: 1 };
-    }
+    if (text.includes("AND codigo = $2")) return { rows: [{} as Row], rowCount: 1 };
     throw new Error(text);
   } };
-  await excluirItemBuffet(tx, "11111111-1111-4111-8111-111111111111");
-  assert.equal(apagados.length, 1);
+  await assert.rejects(() => criarCategoriaBuffet(tx, A, "Salgados", true, "SALGADOS"), (e: unknown) => e instanceof PacoteAdminError && e.code === "CONFLITO");
+  await assert.rejects(() => criarCategoriaBuffet(tx, A, "Salgados", true, "salgados; drop"), (e: unknown) => e instanceof PacoteAdminError && e.code === "DADOS_INVALIDOS");
+});
+
+test("exclusão de item e categoria da empresa, mas referenciados, falha fechada (pacotes, escolhas e adicionais)", async () => {
+  const { tx, consultas } = banco(A, 2);
+  await assert.rejects(
+    () => excluirItemBuffet(tx, A, ITEM),
+    (error: unknown) => error instanceof PacoteAdminError && error.message === "Este item está sendo usado por um ou mais pacotes e não pode ser excluído ainda.",
+  );
+  await assert.rejects(() => excluirCategoriaBuffet(tx, A, CATEGORIA), (error: unknown) => error instanceof PacoteAdminError && /não pode ser excluída ainda/.test(error.message));
+  const usos = consultas.filter((c) => c.sql.includes("count(*)")).map((c) => c.sql).join("\n");
+  assert.match(usos, /origem_buffet_item_id/);
+  assert.match(usos, /origem_buffet_categoria_id/);
+  assert.match(usos, /pacote_itens_especificos/);
+  assert.ok(!consultas.some((c) => c.sql.startsWith("DELETE")));
+});
+
+test("item inativo nasce inativo; item sem uso da empresa é apagado", async () => {
+  const { tx, consultas } = banco(A, 0);
+  await criarItemBuffet(tx, A, "Taxa de rolha", null, false);
+  const insercao = consultas.find((c) => c.sql.startsWith("INSERT INTO buffet_itens"))!;
+  assert.deepEqual([insercao.params[0], insercao.params[1], insercao.params[4]], [A, null, false]);
+  await excluirItemBuffet(tx, A, ITEM);
+  const apagar = consultas.filter((c) => c.sql.startsWith("DELETE"));
+  assert.equal(apagar.length, 1);
+  assert.deepEqual(apagar[0].params, [ITEM, A]);
 });

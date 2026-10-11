@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { adicionais, ancora, comercial, planos, precoExibido, recursos, statusDosRecursos, valorPlano, type RecursoId } from './catalogo.ts';
+import { readFileSync } from 'node:fs';
+import { adicionais, ancora, ancoraExibivel, comercial, planos, precoExibido, recursos, statusDosRecursos, valorPlano, type RecursoId } from './catalogo.ts';
 import { configuracaoSite, linkWhatsApp, CADASTRO_FECHADO } from './configuracao.ts';
 import { carregarModulo } from '../acessos/teste-carregador.ts';
 
@@ -14,6 +15,7 @@ const Cadastro = componente('components/site/elementos.tsx', 'Cadastro');
 const Contato = componente('components/site/elementos.tsx', 'Contato');
 const Rodape = componente('components/site/Site.tsx', 'Rodape');
 const Planos = componente('components/site/Planos.tsx', 'default');
+const metadataSiteDescricao = () => String((carregarModulo('lib/site/metadata.ts', { ...dubles, 'next': {} }, new Map()).metadataSite as () => { description: string })().description);
 
 test('catálogo: status obrigatório; cada recurso futuro renderiza selo, inclusive em grupos', () => {
     const futuros: RecursoId[] = ['walle_whatsapp','walle_publicitario','cartao','convite','assinatura_whatsapp','copiloto','importacao_contratos','importacao_precos'];
@@ -44,7 +46,26 @@ test('sem flag: planos e adicionais não exibem preço nem âncora monetária', 
     const html = renderToStaticMarkup(createElement(Planos, { publicado: false, aberto: false, contato: configuracaoSite({}) }));
     assert.match(html, /Preço a definir/); assert.doesNotMatch(html, /R\$/);
     const publicado = renderToStaticMarkup(createElement(Planos, { publicado: true, aberto: true, contato: configuracaoSite({}) }));
-    assert.match(publicado, /118,20/); assert.match(publicado, /702/); assert.equal((publicado.match(/href="\/cadastro"/g) || []).length, 3);
+    assert.match(publicado, /118,20/); assert.equal((publicado.match(/href="\/cadastro"/g) || []).length, 3);
+    // Âncora "se fosse comprar separado" usa itens Em breve (orçamento, IA, Wall-e): não aparece até todos estarem disponíveis.
+    assert.equal(ancoraExibivel(ancora), false);
+    assert.doesNotMatch(publicado, /Se fosse comprar separado/); assert.doesNotMatch(publicado, /702/);
+    assert.equal(ancoraExibivel([{ recursos: ['agenda'] }, { recursos: ['pix'] }]), true);
+});
+
+test('vitrine honesta: nada indisponível sem selo; horário nobre em todos os planos; unidade extra e assinatura Em breve', () => {
+    assert.equal(recursos.multiunidade.status, 'em_breve');
+    const essencial = planos.find(p => p.id === 'essencial')!;
+    assert.ok(essencial.itens.some(i => i.recursos.includes('horarios') && !i.excluido), 'horário nobre sem barreira por plano');
+    assert.ok(!essencial.itens.some(i => i.excluido && i.recursos.includes('horarios')));
+    // Contrato (disponível) separado da assinatura por WhatsApp (Em breve): o selo não cobre o que está disponível.
+    for (const plano of planos) for (const item of plano.itens) {
+        if (item.recursos.includes('contratos')) assert.ok(!item.recursos.includes('assinatura_whatsapp'));
+    }
+    const fonte = readFileSync(new URL('../../components/site/secoes.tsx', import.meta.url), 'utf8');
+    for (const frase of ['4 papéis', 'visitante', 'Clientes, festas, financeiro e contratos', 'em troca da sua opinião'])
+        assert.equal(fonte.includes(frase), false, frase);
+    assert.doesNotMatch(metadataSiteDescricao(), /orçamento online/i, 'descrição de busca sem recurso Em breve');
 });
 test('rodapé sem configuração: lacunas explícitas e links para seções legais', () => {
     const config = configuracaoSite({});

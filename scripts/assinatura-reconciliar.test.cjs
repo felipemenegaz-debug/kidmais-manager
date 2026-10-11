@@ -51,3 +51,58 @@ test('TLS interno exige opt-in, identidade do cron Render e alvo literal exato',
     assert.throws(()=>opcoesConexao({...alvo,connectionString:'postgresql://fixture@example.test/outro'},env),/TLS_REDE_PRIVADA_RECUSADA/);
     assert.throws(()=>opcoesConexao(alvo,{...env,KIDMAIS_RECONCILIAR_TLS:'no-verify'}),/TLS_POLITICA_RECUSADA/);
 });
+
+test('produção: só o alvo exato com serviço e provedor de produção; TLS do serviço; kidmais_manager sempre recusado',()=>{
+    const {validarAlvo,opcoesConexao,PRODUCAO}=require('./assinatura-reconciliar.cjs');
+    const url=`postgresql://fixture@${PRODUCAO.host}:${PRODUCAO.port}/${PRODUCAO.database}`;
+    const env={RENDER:'true',KIDMAIS_DEPLOY_ENV:'production',ASAAS_AMBIENTE:'producao',DATABASE_SSL:'true',
+        KIDMAIS_RECONCILIAR_DATABASE_URL:url,KIDMAIS_RECONCILIAR_ALVO:`${PRODUCAO.database}@${PRODUCAO.host}:${PRODUCAO.port}`};
+    const alvo=validarAlvo(env);
+    assert.equal(alvo.producao,true);
+    assert.deepEqual(opcoesConexao(alvo,env).ssl,{rejectUnauthorized:true,minVersion:'TLSv1.2'});
+    assert.equal(opcoesConexao(alvo,{...env,DATABASE_SSL_REJECT_UNAUTHORIZED:'false'}).ssl.rejectUnauthorized,false,'espelha o serviço');
+    assert.throws(()=>opcoesConexao(alvo,{...env,DATABASE_SSL:undefined}),/TLS_PRODUCAO_RECUSADO/);
+    assert.throws(()=>opcoesConexao(alvo,{...env,KIDMAIS_RECONCILIAR_TLS:'render-interno-criptografado'}),/TLS_PRODUCAO_RECUSADO/);
+    for(const mudanca of [{RENDER:undefined},{KIDMAIS_DEPLOY_ENV:'staging'},{ASAAS_AMBIENTE:'sandbox'},{ASAAS_AMBIENTE:undefined}])
+        assert.throws(()=>validarAlvo({...env,...mudanca}),/conferência de produção exige/,JSON.stringify(mudanca));
+    const outroHost={...env,KIDMAIS_RECONCILIAR_DATABASE_URL:url.replace(PRODUCAO.host,'outro'),KIDMAIS_RECONCILIAR_ALVO:`${PRODUCAO.database}@outro:${PRODUCAO.port}`};
+    assert.throws(()=>validarAlvo(outroHost),/conferência de produção exige/);
+    const real={...env,KIDMAIS_RECONCILIAR_DATABASE_URL:'postgresql://fixture@localhost:5432/kidmais_manager',KIDMAIS_RECONCILIAR_ALVO:'kidmais_manager@localhost:5432'};
+    assert.throws(()=>validarAlvo(real),/proibido/);
+    // staging continua sem a marca de produção
+    const stg=validarAlvo({KIDMAIS_RECONCILIAR_DATABASE_URL:'postgresql://fixture@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91',KIDMAIS_RECONCILIAR_ALVO:'kidmais_staging_1z91@dpg-daidko3m8hqs73ce4jt0-a:5432'});
+    assert.equal(stg.producao,false);
+});
+
+test('conferência: evento pendente ou empresa que mudaria = divergência; em produção sai 2; sem divergência sai 0',async()=>{
+    const {executarCiclo,codigoDeSaida}=require('./assinatura-reconciliar.cjs');
+    const ciclo=(eventos,empresas)=>executarCiclo({client:{query:async()=>{}},provedor:{},aplicar:false,banco:'sintetico',
+        sinc:{eventosPendentes:async()=>eventos,empresasComProvedor:async()=>empresas.map((_,i)=>String(i)),processarEvento:async()=>({situacao:'PROCESSADO'}),
+            sincronizarEmpresa:async(_c,i)=>empresas[Number(i)]}});
+    const limpo=await ciclo([],[{resultado:'SINCRONIZADA',mudou:false}]);
+    assert.equal(limpo.divergente,false); assert.equal(codigoDeSaida(limpo,true),0);
+    const pago=await ciclo([],[{resultado:'SINCRONIZADA',mudou:true,antes:'TESTE',depois:'ATIVA'}]);
+    assert.equal(pago.divergente,true); assert.equal(codigoDeSaida(pago,true),2); assert.equal(codigoDeSaida(pago,false),0,'staging inalterado');
+    const evento=await ciclo(['e1'],[]);
+    assert.equal(evento.divergente,true); assert.equal(codigoDeSaida(evento,true),2);
+});
+
+test('produção: --aplicar recusado antes de conectar',()=>{
+    const fonte=require('node:fs').readFileSync(__dirname+'/assinatura-reconciliar.cjs','utf8');
+    assert.match(fonte,/if \(alvo\.producao && aplicar\)\s+throw new Error\('Produção aceita só conferência/);
+    assert.ok(fonte.indexOf('if (alvo.producao && aplicar)')<fonte.indexOf('await client.connect()'));
+});
+
+test('gratuidade da Kidmais na conferência: qualquer desvio é violação e reprova (saída 2) em qualquer ambiente',async()=>{
+    const {conferirKidmais,codigoDeSaida}=require('./assinatura-reconciliar.cjs');
+    const cliente=linha=>({query:async()=>({rows:[linha]})});
+    const ok={empresas:1,ativas:1,assinaturas:0,contratacoes:0,fundadores:0,isencoes:0};
+    assert.equal((await conferirKidmais(cliente(ok))).violada,false);
+    assert.equal((await conferirKidmais(cliente({...ok,isencoes:1}))).isenta,true);
+    for(const desvio of [{empresas:0,ativas:0},{empresas:2,ativas:2},{ativas:0},{assinaturas:1},{contratacoes:1},{fundadores:1}])
+        assert.equal((await conferirKidmais(cliente({...ok,...desvio}))).violada,true,JSON.stringify(desvio));
+    const limpo={incompleto:false,divergente:false,kidmais:{violada:false}};
+    assert.equal(codigoDeSaida(limpo,true),0);
+    assert.equal(codigoDeSaida({...limpo,kidmais:{violada:true}},true),2);
+    assert.equal(codigoDeSaida({...limpo,kidmais:{violada:true}},false),2);
+});

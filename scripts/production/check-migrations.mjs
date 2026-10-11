@@ -86,13 +86,21 @@ const approvedFiles = [
   '20261009_074_convite_familias.sql',
   '20261009_074a_planos_comerciais.sql',
   '20261009_075_renovacao_fundador.sql',
+  // 076–079 (staging). Este inventário só reconhece arquivos e nunca lê o banco (appliedState = unknown). Aplicação em
+  // staging registrada em evidências datadas, não confirmada aqui: 076/077 em 10/10/2026; 078 (catálogo do buffet por
+  // empresa) em 11/10/2026, PASS em docs/evidencias/atualizacao-staging-20261011.md (S5b); 079 em 11/10/2026
+  // (scripts/migration-079-staging.cjs). O estado atual de um banco só se afirma por leitura própria e datada (E2a).
+  // Produção exige autorização explícita própria para cada uma.
+  '20261010_076_cpf_por_empresa.sql',
+  '20261010_077_regras_pagamento_empresa.sql',
+  '20261010_078_catalogo_buffet_por_empresa.sql',
+  '20261011_079_convite_recuperacao_manual.sql',
+  // 080–082: atendimento WhatsApp/Wall-e (antes 077a/077b/078; renumeradas em 11/10/2026, escolha local provisória, não
+  // reserva coordenada). Nunca aplicadas em banco remoto segundo os registros desta linha; E2a novo antes de aplicar.
+  // Ordem de aplicação num banco que já tem 061–079: 060 → 065 → 080 → 081 → 082 (provada em ordem-staging-real).
   '20261011_080_whatsapp_mensagens_prontas.sql',
   '20261011_081_whatsapp_prontas_midia.sql',
   '20261011_082_wall_e_atendimento.sql',
-  // Staging (10/10): CPF e regras de pagamento por empresa, com precheck/postcheck externos (forma padrão). O inventário
-  // do staging em 5a626ea não as registrava; registradas na integração do atendimento.
-  '20261010_076_cpf_por_empresa.sql',
-  '20261010_077_regras_pagamento_empresa.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
@@ -121,7 +129,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '080', '081', '082'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -167,11 +175,9 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('071_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('072_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['074', '074A', '075']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['076', '077']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  r.pending.push('080_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  r.pending.push('081_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  r.pending.push('082_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

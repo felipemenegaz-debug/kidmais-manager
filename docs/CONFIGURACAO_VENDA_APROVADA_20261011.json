@@ -1,0 +1,26 @@
+{
+  "status": "PREPARADO_NAO_APLICADO",
+  "servico": "srv-dak77m2d0e5s73b8rkkg",
+  "valoresSemSegredos": {
+    "SITE_URL": "https://manager.kidmaisfestas.com",
+    "SITE_RAZAO_SOCIAL": "Kidmais Festas",
+    "SITE_CNPJ": "20.119.900/0001-60",
+    "SITE_ENDERECO": "SCRN 704/705, bloco D, loja 12, Asa Norte, Brasília - DF, CEP 70730-640",
+    "SITE_ATENDIMENTO_EMAIL": "felipemenegaz@gmail.com",
+    "ASSINATURA_REGULARIZACAO_DIAS": "7",
+    "ASSINATURA_SOMENTE_LEITURA_DIAS": "60"
+  },
+  "contatoPrivacidade": "felipemenegaz@gmail.com",
+  "emissaoNotaFiscal": "Asaas — escolha aprovada; configuração fiscal ainda não verificada",
+  "remetenteInformado": "felipemenegaz@gmail.com — contato; não usar como From no Resend",
+  "remetentePropostoNaoAprovado": "Kidmais Manager <nao-responda@kidmaisfestas.com>",
+  "urlVitrine": "https://manager.kidmaisfestas.com/conheca",
+  "pendencias": [
+    "Confirmar razão social fiscal exata para a nota e os documentos legais; Kidmais Festas foi o nome informado pelo vendedor.",
+    "Configurar NFS-e pelo Asaas com os dados fiscais reais; não inferir código de serviço, regime ou alíquota. Definir retenção após encerramento; 60 dias em somente leitura não são um prazo de exclusão.",
+    "Confirmar EMAIL_REMETENTE em domínio verificado no Resend; chave fica somente no Render.",
+    "Definir WhatsApp/horário, se oferecidos, e responsável ou canal legal de dados sem nomear encarregado automaticamente.",
+    "Revisar e aprovar textos legais antes de retirar o marcador de minuta.",
+    "Cadastrar credenciais Asaas de produção e webhook diretamente no Render/Asaas; sem segredos neste arquivo."
+  ]
+}

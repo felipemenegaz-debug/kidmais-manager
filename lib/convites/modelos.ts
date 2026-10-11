@@ -40,6 +40,7 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
   const tema = temaVisual(c), id = (op.id ?? 'modelo').replace(/[^a-zA-Z0-9_-]/g, '');
   const ondulada = c.tema === 'ondulada', planetas = c.tema === 'planetas';
   const comFoto = modeloComFoto(c.tema);
+  const fundoProprio = !!op.arte && !comFoto && !op.miniatura;
   const fundo = xml(tema.fundo), tinta = xml(tema.tinta), destaque = xml(tema.destaque);
   const imagem = (src: string, x: number, y: number, w: number, h: number) => `<image href="${xml(src)}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet"/>`;
   const texto = (s: string, y: number, h: number, size: number, serif = false, bold = false, width = 740) => {
@@ -89,7 +90,15 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
         ${texto(`${data} · ${c.horario || '00:00'}`, 1390, 75, 34, false, true)}
         ${texto(c.local || 'Local da festa', 1480, 90, 36, true, false, 660)}
         ${texto(c.endereco || 'Endereço do evento', 1590, 85, 28, false, false, 640)}`;
-    } else conteudo = `${op.arte ? imagem(op.arte, 350, 180, 380, 280) : ''}
+    } else if (fundoProprio) conteudo = `
+      ${texto('VAMOS CELEBRAR', 180, 70, 28)}
+      ${texto(c.nome || 'Nome do aniversariante', 285, 230, 110, true, true)}
+      ${texto(c.idade || 'Um dia muito especial', 535, 70, 48, true)}
+      ${texto(c.mensagem, 665, 220, 33, true)}
+      ${texto(`${data} · ${c.horario || '00:00'}`, 975, 75, 34, false, true)}
+      ${texto(c.local || 'Local da festa', 1090, 80, 36, true, false, 660)}
+      ${texto(c.endereco || 'Endereço do evento', 1190, 90, 28, false, false, 640)}`;
+    else conteudo = `${op.arte ? imagem(op.arte, 350, 180, 380, 280) : ''}
       ${texto(planetas ? 'UMA AVENTURA ESPACIAL' : 'VAMOS CELEBRAR', op.arte ? 475 : 360, 85, 30)}
       ${texto(c.nome || 'Nome do aniversariante', 575, 295, 166, true, true)}
       ${texto(c.idade || 'Um dia muito especial', 885, 90, 65, true)}
@@ -100,5 +109,6 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
       ${texto(c.endereco || 'Endereço do evento', 1570, 95, 29, false, false, 640)}`;
   }
   const descricao = op.miniatura ? tema.nome : [`Convite de ${c.nome || 'aniversário'}`, c.idade, c.mensagem, c.data, c.horario, c.local, c.endereco].filter(Boolean).join('. ');
+  if (fundoProprio) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1440" width="1080" height="1440" role="img" aria-label="${xml(descricao)}"><rect width="1080" height="1440" fill="${fundo}"/><image href="${xml(op.arte!)}" width="1080" height="1440" preserveAspectRatio="xMidYMid slice"/>${conteudo}</svg>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1800" width="1080" height="1800" role="img" aria-label="${xml(descricao)}">${textura}<rect width="1080" height="1800" fill="${fundo}"/>${borda}<rect width="1080" height="1800" filter="url(#${id}-papel)" opacity=".065"/>${decoracao}${conteudo}</svg>`;
 }

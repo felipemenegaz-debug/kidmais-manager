@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-// Entrada do cron de homologação. Nenhuma conexão enquanto a execução não for explicitamente habilitada.
+// Entrada do cron de reconciliação (staging) e da conferência de pagamentos (produção, só simulação). Nenhuma conexão
+// enquanto a execução não for explicitamente habilitada.
 const { spawnSync } = require('node:child_process');
 const { validarAlvo } = require('./assinatura-reconciliar.cjs');
 function planejar(env) {
+    if (env.KIDMAIS_DEPLOY_ENV === 'production') return planejarProducao(env);
     if (env.KIDMAIS_DEPLOY_ENV !== 'staging') throw Error('AMBIENTE_RECUSADO');
     const modo = env.KIDMAIS_RECONCILIAR_MODO;
     if (modo === 'aguardando') return null;
@@ -13,6 +15,16 @@ function planejar(env) {
     if (env.ASAAS_AMBIENTE !== 'sandbox') throw Error('PROVEDOR_RECUSADO');
     if (env.KIDMAIS_RECONCILIAR_SCHEMA_VALIDADO !== '074-075') throw Error('SCHEMA_NAO_LIBERADO');
     return modo === 'aplicar' ? ['--aplicar'] : [];
+}
+/** Produção: conferência diária de pagamentos desde a primeira venda — só simulação, nunca `aplicar`. */
+function planejarProducao(env) {
+    const modo = env.KIDMAIS_RECONCILIAR_MODO;
+    if (modo === 'aguardando') return null;
+    if (modo !== 'conferir') throw Error('MODO_INVALIDO');
+    const alvo = validarAlvo(env);
+    if (!alvo.producao) throw Error('ALVO_PRODUCAO_RECUSADO');
+    if (env.KIDMAIS_RECONCILIAR_SCHEMA_VALIDADO !== '074-075') throw Error('SCHEMA_NAO_LIBERADO');
+    return [];
 }
 if (require.main === module) {
     try {

@@ -11,7 +11,7 @@ export function Hero({ aberto, config }: { aberto: boolean; config: Configuracao
         <div className={cx('hero-copy')}>
           <div className={cx('eyebrow')}>Para buffets infantis e espaços de festa</div>
           <h1 id="t-hero">Seu buffet vende<br />até de madrugada.<br /><em>Sem planilha.</em></h1>
-          <p className={cx('lead')}>O cliente consulta a data, monta o orçamento com pacote, horário e adicionais e assina o contrato pelo celular. Você recebe por Pix ou <Recurso ids={["cartao"]}>cartão</Recurso>, direto na conta da sua empresa.</p>
+          <p className={cx('lead')}><Recurso ids={["orcamento"]}>O cliente consulta a data e monta o orçamento com pacote, horário e adicionais</Recurso>; <Recurso ids={["assinatura_whatsapp"]}>o contrato é assinado pelo celular</Recurso>. Você recebe por Pix ou <Recurso ids={["cartao"]}>cartão</Recurso>, direto na conta da sua empresa.</p>
           <div className={cx('actions')}>
             <Cadastro aberto={aberto} />
             <Contato config={config} />
@@ -43,8 +43,8 @@ export function AntesDepois() { return (<section className={cx('block')} aria-la
       <div className={cx('head')}><div className={cx('eyebrow')}>Antes e depois</div><h2 id="t-dor">A festa está pronta.<br /><em>A gestão está espalhada.</em></h2></div>
       <div className={cx('pain')}>
         <article><span className={cx('from')}>Caderno e calendário na parede</span><h3>Agenda com disponibilidade</h3><p>Veja na hora quais datas e salões estão livres, sem risco de vender a mesma data duas vezes.</p></article>
-        <article><span className={cx('from')}>Contrato impresso e assinatura na loja</span><h3>Contrato assinado pelo celular</h3><p>O cliente recebe o link, confere os dados e assina. Você acompanha quem já viu e quem já assinou.</p></article>
-        <article><span className={cx('from')}>Orçamento por mensagem, um por um</span><h3>Orçamento online</h3><p>O cliente escolhe data, pacote, horário e adicionais e vê o valor na hora, a qualquer hora do dia.</p></article>
+        <article><span className={cx('from')}>Contrato impresso e assinatura na loja</span><h3><Recurso ids={["assinatura_whatsapp"]}>Contrato assinado pelo celular</Recurso></h3><p><Recurso ids={["assinatura_whatsapp"]}>O cliente recebe o link, confere os dados e assina. Você acompanha quem já viu e quem já assinou.</Recurso></p></article>
+        <article><span className={cx('from')}>Orçamento por mensagem, um por um</span><h3><Recurso ids={["orcamento"]}>Orçamento online</Recurso></h3><p><Recurso ids={["orcamento"]}>O cliente escolhe data, pacote, horário e adicionais e vê o valor na hora, a qualquer hora do dia.</Recurso></p></article>
         <article><span className={cx('from')}>Planilha de parcelas e cobrança no boca a boca</span><h3><Recurso ids={["cartao"]}>Parcelas no Pix e no cartão</Recurso></h3><p><Recurso ids={["cartao"]}>Cada parcela sai com Pix copia e cola ou pagamento no cartão. Você sabe o que entrou, o que vence e o que atrasou.</Recurso></p></article>
       </div>
     </div>
@@ -56,8 +56,8 @@ export function Diferenciais() { return (<section className={cx('block')} id="di
       <div className={cx('diff')}>
         <article className={cx('hero-card')}>
           <span className={cx('n')}>01 · VENDA SEM ATENDENTE</span>
-          <h3>Seu cliente faz o orçamento e assina sozinho, a qualquer hora.</h3>
-          <p>Uma página do seu buffet mostra as datas livres com os seus preços oficiais. O cliente monta a festa, vê o total e segue direto para o contrato. Você acorda com a venda pronta para conferir.</p>
+          <h3><Recurso ids={["orcamento", "assinatura_whatsapp"]}>Seu cliente faz o orçamento e assina sozinho, a qualquer hora.</Recurso></h3>
+          <p><Recurso ids={["orcamento"]}>Uma página do seu buffet mostra as datas livres com os seus preços oficiais. O cliente monta a festa, vê o total e segue direto para o contrato. Você acorda com a venda pronta para conferir.</Recurso></p>
           <div className={cx('quote-steps')}>
             <div><b>Data</b>Só aparecem as livres</div>
             <div><b>Pacote</b>Com o seu preço</div>
@@ -69,7 +69,7 @@ export function Diferenciais() { return (<section className={cx('block')} id="di
           <span className={cx('n')}>02 · SEU DINHEIRO</span>
           <div className={cx('big-num')}>0%</div>
           <h3>do valor das festas fica com o Kidmais.</h3>
-          <p><Recurso ids={["cartao"]}>Pix copia e cola com a chave da sua empresa e cartão pela sua própria conta de pagamento . Tudo cai direto na sua conta.</Recurso></p>
+          <p><Recurso ids={["cartao"]}>Pix copia e cola com a chave da sua empresa e cartão pela sua própria conta de pagamento. Tudo cai direto na sua conta.</Recurso></p>
         </article>
         <article>
           <span className={cx('n')}>03 · PREÇO CERTO</span>
@@ -94,13 +94,13 @@ export function WallE() { return (<section className={cx('block')} id="wall-e" a
     <div className={cx('wrap')}>
       <div className={cx('head')}>
         <div className={cx('eyebrow')}>Wall-e · Inteligência artificial do Kidmais</div>
-        <h2 id="t-walle">Um atendente e um departamento de marketing<br /><em>que não tiram folga.</em></h2>
+        <h2 id="t-walle"><Recurso ids={["walle_whatsapp", "walle_publicitario"]}>Um atendente e um departamento de marketing<br /><em>que não tiram folga.</em></Recurso></h2>
         <p className={cx('lead')}><Recurso ids={["walle_whatsapp"]}>O Wall-e trabalha com os dados que já estão no Kidmais: sua agenda, seus pacotes e seus preços oficiais. Ele não inventa preço e não publica nada sem a sua aprovação.</Recurso></p>
       </div>
       <div className={cx('walle')}>
         <article aria-labelledby="t-w1">
           <div className={cx('tag')}><span className={cx('bot')}>W</span><b><Recurso ids={["walle_whatsapp"]}>Wall-e no WhatsApp</Recurso></b></div>
-          <h3 id="t-w1">Responde o cliente na hora, até no domingo à noite.</h3>
+          <h3 id="t-w1"><Recurso ids={["walle_whatsapp"]}>Responde o cliente na hora, até no domingo à noite.</Recurso></h3>
           <div className={cx('phone')} role="img" aria-label="Exemplo de conversa do Wall-e no WhatsApp">
             <div className={cx('top')}><span className={cx('bot')} style={{"width":"28px","height":"28px","fontSize":"12px"}}>K</span><span>Buffet Kidmais<small>Wall-e · atendimento automático</small></span></div>
             <div className={cx('msg in')}>Oi! Vocês têm data dia 24/10 à tarde?<time>21:42</time></div>
@@ -111,15 +111,13 @@ export function WallE() { return (<section className={cx('block')} id="wall-e" a
             <div className={cx('handoff')}>Wall-e passou a conversa para Carla, do atendimento</div>
           <div className={cx('caption')}>Dados fictícios</div></div>
           <ul className={cx('checks')}>
-            <li>Consulta a agenda e os preços oficiais antes de responder</li>
-            <li>Envia o orçamento e o link do contrato</li>
-            <li>Passa a conversa para a sua equipe quando precisa</li>
-            <li>Mostra quantas conversas viraram festa</li>
+            {['Consulta a agenda e os preços oficiais antes de responder', 'Envia o orçamento e o link do contrato', 'Passa a conversa para a sua equipe quando precisa', 'Mostra quantas conversas viraram festa']
+              .map(texto => <li key={texto}><Recurso ids={["walle_whatsapp"]}>{texto}</Recurso></li>)}
           </ul>
         </article>
         <article aria-labelledby="t-w2">
           <div className={cx('tag')}><span className={cx('bot')}>W</span><b><Recurso ids={["walle_publicitario"]}>Wall-e publicitário</Recurso></b></div>
-          <h3 id="t-w2">O marketing de quem não tem um departamento de marketing.</h3>
+          <h3 id="t-w2"><Recurso ids={["walle_publicitario"]}>O marketing de quem não tem um departamento de marketing.</Recurso></h3>
           <div className={cx('cal')} role="img" aria-label="Exemplo de calendário de publicações do Wall-e. Dados fictícios.">
             <div className={cx('post')}><span className={cx('thumb')} style={{"background":"linear-gradient(135deg,#ff9fbe,#c9a8ff)"}}>Reels</span><span><b>Bastidores da festa Fundo do Mar</b><small>Sáb 17/10 · com suas fotos e a voz da marca</small></span><span className={cx('pill wait')}>Para aprovar</span></div>
             <div className={cx('post')}><span className={cx('thumb')} style={{"background":"linear-gradient(135deg,#80f5c4,#7cc4ff)"}}>Carrossel</span><span><b>3 sábados livres em novembro</b><small>Ter 20/10 · criado a partir da sua agenda</small></span><span className={cx('pill ok')}>Aprovado</span></div>
@@ -127,10 +125,8 @@ export function WallE() { return (<section className={cx('block')} id="wall-e" a
             <div className={cx('caption')}>Dados fictícios</div>
           </div>
           <ul className={cx('checks')}>
-            <li>Cria posts, carrosséis, Stories e Reels com as fotos do seu buffet</li>
-            <li>Sugere divulgar as datas livres da sua agenda</li>
-            <li>Vídeos com legenda, música, logotipo e narração com a voz da marca</li>
-            <li>Calendário de publicações. Nada sai sem a sua aprovação</li>
+            {['Cria posts, carrosséis, Stories e Reels com as fotos do seu buffet', 'Sugere divulgar as datas livres da sua agenda', 'Vídeos com legenda, música, logotipo e narração com a voz da marca', 'Calendário de publicações. Nada sai sem a sua aprovação']
+              .map(texto => <li key={texto}><Recurso ids={["walle_publicitario"]}>{texto}</Recurso></li>)}
           </ul>
         </article>
       </div>
@@ -145,14 +141,13 @@ export function Convite() { return (<section className={cx('block')} id="convite
         <p className={cx('lead')}><Recurso ids={["convite"]}>A família personaliza o convite com modelos prontos, uma imagem própria ou arte criada por IA. Compartilha por link ou imagem, e as confirmações de presença chegam para a família e para o buffet.</Recurso></p>
         <ol className={cx('passos')}>
           <li><span><b><Recurso ids={["convite"]}>O buffet cria o convite na festa</Recurso></b> e libera um link exclusivo de edição para a família.</span></li>
-          <li><span><b>A família escolhe o modelo</b>, envia uma foto ou descreve a arte para a IA, e ajusta nome, data, horário e local.</span></li>
-          <li><span><b>Publica e compartilha</b> pelo WhatsApp, pelo link ou baixando a imagem do convite.</span></li>
-          <li><span><b>Os convidados confirmam presença</b> sem criar conta, informando adultos e crianças.</span></li>
+          <li><span><Recurso ids={["convite"]}><b>A família escolhe o modelo</b>, envia uma foto ou descreve a arte para a IA, e ajusta nome, data, horário e local.</Recurso></span></li>
+          <li><span><Recurso ids={["convite"]}><b>Publica e compartilha</b> pelo WhatsApp, pelo link ou baixando a imagem do convite.</Recurso></span></li>
+          <li><span><Recurso ids={["convite"]}><b>Os convidados confirmam presença</b> sem criar conta, informando adultos e crianças.</Recurso></span></li>
         </ol>
         <ul className={cx('checks')}>
-          <li>Textos separados da arte: corrigir horário ou endereço não gasta crédito de IA</li>
-          <li>Limites de geração por festa e por cliente protegem a franquia do buffet</li>
-          <li>Tudo ligado à festa no Kidmais, com histórico do que cada um fez</li>
+          {['Textos separados da arte: corrigir horário ou endereço não gasta crédito de IA', 'Limites de geração por festa e por cliente protegem a franquia do buffet', 'Tudo ligado à festa no Kidmais, com histórico do que cada um fez']
+            .map(texto => <li key={texto}><Recurso ids={["convite"]}>{texto}</Recurso></li>)}
         </ul>
       </div>
       <div className={cx('convite-mock')}>
@@ -188,12 +183,12 @@ export function ComoFunciona() { return (<section className={cx('block')} id="co
       <div className={cx('head')}>
         <div className={cx('eyebrow')}>Como funciona</div>
         <h2 id="t-fluxo">Uma festa, do pedido ao fechamento.</h2>
-        <p className={cx('lead')}>Quatro das cinco etapas o próprio cliente faz pelo celular. Cada etapa usa o que foi registrado na anterior.</p>
+        <p className={cx('lead')}><Recurso ids={["orcamento", "assinatura_whatsapp"]}>Quatro das cinco etapas o próprio cliente faz pelo celular.</Recurso> Cada etapa usa o que foi registrado na anterior.</p>
       </div>
       <ol className={cx('flow')}>
-        <li><span className={cx('who')}>Cliente</span><h3>Consulta a data</h3><p><Recurso ids={["walle_whatsapp"]}>Pela página do buffet ou pelo WhatsApp com o Wall-e. Só aparecem as datas livres.</Recurso></p></li>
-        <li><span className={cx('who')}>Cliente</span><h3>Monta o orçamento</h3><p>Escolhe pacote, horário e adicionais e vê o total calculado com os seus preços.</p></li>
-        <li><span className={cx('who')}>Cliente</span><h3>Assina o contrato</h3><p>O contrato sai preenchido com o seu modelo. O cliente confere e assina pelo link.</p></li>
+        <li><span className={cx('who')}>Cliente</span><h3>Consulta a data</h3><p><Recurso ids={["orcamento", "walle_whatsapp"]}>Pela página do buffet ou pelo WhatsApp com o Wall-e. Só aparecem as datas livres.</Recurso></p></li>
+        <li><span className={cx('who')}>Cliente</span><h3>Monta o orçamento</h3><p><Recurso ids={["orcamento"]}>Escolhe pacote, horário e adicionais e vê o total calculado com os seus preços.</Recurso></p></li>
+        <li><span className={cx('who')}>Cliente</span><h3>Assina o contrato</h3><p>O contrato sai preenchido com o seu modelo. <Recurso ids={["assinatura_whatsapp"]}>O cliente confere e assina pelo link.</Recurso></p></li>
         <li><span className={cx('who')}>Cliente</span><h3>Paga as parcelas</h3><p><Recurso ids={["cartao"]}>Pix copia e cola ou cartão em cada parcela, direto na conta do buffet.</Recurso></p></li>
         <li className={cx('you')}><span className={cx('who')}>Você</span><h3>Fecha a festa</h3><p>O fechamento reúne recebimentos, adicionais e pendências daquele evento.</p></li>
       </ol>
@@ -210,8 +205,8 @@ export function Confianca() { return (<section className={cx('block')} id="confi
           <p>O Kidmais Manager nasceu para organizar a operação da Kidmais Festas, que usa o sistema todos os dias. Cada tela foi construída com quem atende, organiza e recebe.</p>
         </article>
         <article><div className={cx('big')}>Direto na sua conta</div><h3>Nenhum pagamento passa pelo Kidmais</h3><p><Recurso ids={["cartao"]}>Pix com a chave da sua empresa e cartão pela sua própria conta de pagamento. As taxas do cartão são as da sua conta.</Recurso></p></article>
-        <article><div className={cx('big')}>CSV · PDF</div><h3>Exportação a qualquer hora</h3><p>Clientes, festas, financeiro e contratos saem do sistema quando você quiser, conforme as condições de acesso e exportação dos termos de uso.</p></article>
-        <article><div className={cx('big')}>4 papéis</div><h3>Cada um vê o que precisa</h3><p>Gestão, administrativo, atendimento e visitante. Você decide quem vê valores e quem só consulta.</p></article>
+        <article><div className={cx('big')}>CSV · PDF</div><h3>Exportação a qualquer hora</h3><p>Clientes e contas a receber em CSV e cada contrato em PDF saem do sistema quando você quiser, conforme as condições de acesso e exportação dos termos de uso.</p></article>
+        <article><div className={cx('big')}>Gestão e equipe</div><h3>Cada um no seu papel</h3><p>A Gestão cuida da empresa, dos usuários e das configurações. A equipe opera o dia a dia com o próprio acesso.</p></article>
       </div>
     </div>
   </section>); }
@@ -224,7 +219,7 @@ export function Duvidas({ config }: { config: ConfiguracaoSite }) { return (<sec
           <details><summary>Preciso cadastrar cartão para testar?</summary><p>Não. O teste de {dias(comercial.testeDias)} começa sem cartão e nada é cobrado automaticamente quando ele termina.</p></details>
           <details><summary>O Kidmais recebe o pagamento dos meus clientes?</summary><p><Recurso ids={["cartao"]}>Não. O Pix usa a chave da sua empresa e o cartão passa pela sua própria conta de pagamento. O dinheiro vai direto para você.</Recurso></p></details>
           <details><summary>Meu cliente pode pagar no cartão?</summary><p><Recurso ids={["cartao"]}>O cartão nas parcelas está em preparação e depende da conexão da conta de pagamento do buffet. O Pix copia e cola usa a chave da empresa. As taxas do cartão são as da conta de pagamento da sua empresa.</Recurso></p></details>
-          <details><summary>Meu cliente precisa instalar algum aplicativo?</summary><p>Não. Ele abre a página do buffet ou o link do contrato no celular e faz tudo por ali.</p></details>
+          <details><summary>Meu cliente precisa instalar algum aplicativo?</summary><p>Não. Ele abre o link do contrato no celular e confere tudo por ali.</p></details>
           <details><summary>A família consegue fazer o convite sozinha?</summary><p><Recurso ids={["convite"]}>O buffet libera um link de edição e a família escolhe o modelo, troca a imagem e publica. O buffet acompanha e pode ajudar quando precisar.</Recurso></p></details>
           <details><summary>Já tenho tabela de preços e contratos em PDF. Perco o que fiz?</summary><p><Recurso ids={["importacao_contratos","importacao_precos"]}>Não. A IA lê seus PDFs e prepara os pacotes e contratos. Você confere antes de publicar.</Recurso></p></details>
         </div>
@@ -232,9 +227,9 @@ export function Duvidas({ config }: { config: ConfiguracaoSite }) { return (<sec
           <details><summary>O que é o Wall-e?</summary><p><Recurso ids={["walle_whatsapp", "walle_publicitario"]}>É a inteligência artificial do Kidmais. Ele atende seus clientes no WhatsApp e cria a divulgação do buffet, sempre com os seus preços oficiais e com a sua aprovação.</Recurso></p></details>
           <details><summary>O que é o copiloto?</summary><p><Recurso ids={["copiloto"]}>É a parte da IA que trabalha dentro do sistema. Ele mostra o que precisa da sua atenção e prepara cadastros a partir de um pedido escrito. Você sempre revisa e confirma antes de gravar.</Recurso></p></details>
           <details><summary>Posso mudar de plano depois?</summary><p>As condições para mudar entre os planos estão em definição. O teste começa pelo mesmo cadastro; fale com a equipe para conhecer a oferta.</p></details>
-          <details><summary>O que é o Plano Fundador?</summary><p>Uma condição para os {comercial.fundador.vagas} primeiros buffets: {comercial.fundador.descontoPercentual}% de desconto travado por {comercial.fundador.meses} meses, em troca da sua opinião sobre o sistema e de um depoimento.</p></details>
+          <details><summary>O que é o Plano Fundador?</summary><p>Uma condição para os {comercial.fundador.vagas} primeiros buffets que assinarem: {comercial.fundador.descontoPercentual}% de desconto travado por {comercial.fundador.meses} meses, aplicado automaticamente enquanto houver vagas. Também vamos pedir a sua opinião sobre o sistema e um depoimento depois de usar.</p></details>
           <details><summary>Posso cancelar quando quiser?</summary><p>O cancelamento é solicitado pelos canais de atendimento. Consulte os termos para as condições de acesso, exportação e retenção de dados.</p></details>
-          <details><summary>Tenho mais de uma unidade. Como fica?</summary><p>Cada unidade é uma empresa com CNPJ próprio, por {precoExibido(adicionais[0].centavos, config.precosPublicados)}{config.precosPublicados ? "/mês" : ""} a mais. Você troca de unidade sem sair da conta.</p></details>
+          <details><summary>Tenho mais de uma unidade. Como fica?</summary><p>Cada unidade é uma empresa com CNPJ próprio. <Recurso ids={["multiunidade"]}>A contratação de unidade extra, por {precoExibido(adicionais[0].centavos, config.precosPublicados)}{config.precosPublicados ? "/mês" : ""} a mais, ainda não está aberta; fale com a equipe.</Recurso></p></details>
         </div>
       </div>
     </div>

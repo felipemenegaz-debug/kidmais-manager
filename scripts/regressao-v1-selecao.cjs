@@ -42,7 +42,14 @@ function listarTestesPostgres(raiz) {
  *   alvo054     — o banco de trabalho é também o alvo autorizado do harness da 054 (KIDMAIS_054_*).
  */
 const ESTADO_POSTGRES = {
-  "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "atual" },
+  // Catálogo do buffet: 063 + 070 + 078 aplicadas pela própria suíte (em transação).
+  "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "063" },
+  // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
+  "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
+  // Disponibilidade do pacote por empresa: tela (cotação pública e administração) = servidor; isolamento; legado Kidmais.
+  "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063" },
+  // F-L: script de fixtures da atualização de staging (scripts/fixture-atualizacao-staging.cjs) no schema de staging (até a 078).
+  "lib/comercial/fixture-atualizacao-staging.postgres.test.ts": { descartavel: "078" },
   "lib/comercial/hg4-escopo.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/pacote-empresa.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/integridade-fechamento-053.postgres.test.ts": { descartavel: "052" },
@@ -60,8 +67,9 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/assinatura.postgres.test.ts": { descartavel: "atual" },
   "lib/assinatura/cobranca-068.postgres.test.ts": { descartavel: "atual" },
   // E8: cobrança Asaas (sandbox) com provedor falso; aplica 067 + 068 dentro da suíte.
-  "lib/assinatura/cobranca-e8.postgres.test.ts": { descartavel: "atual" },
-  "lib/assinatura/contratacao-e8.postgres.test.ts": { descartavel: "atual" },
+  "lib/assinatura/cobranca-e8.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
+  "lib/assinatura/contratacao-e8.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
+  "lib/assinatura/transacao-com-prazo.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
   // Também depois da 061 e da 062: módulo Festa, formalização e agenda nativos (código novo em cada etapa).
   "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "063"] },
   "lib/ia-persistencia/migration-055.postgres.test.ts": { descartavel: "atual" },
@@ -93,6 +101,8 @@ const ESTADO_POSTGRES = {
   "lib/saas/hg8-tenant.postgres.test.ts": { descartavel: "atual", tambem: ["063"] },
   // Painel do desenvolvedor (063): concessão, interessadas, provisionamento, convites, vínculos, suspensão, senhas.
   "lib/desenvolvedor/painel-063.postgres.test.ts": { descartavel: "063" },
+  // #157: rebaixar a última administradora do Perfil com id próprio (≠ empresa SaaS), painel e Configurações > Usuários.
+  "lib/desenvolvedor/papel-ultima-administradora.postgres.test.ts": { descartavel: "063" },
   // Painel comercial (E5): 063 + 067 + 068 aplicadas pela própria suíte.
   "lib/desenvolvedor/comercial.postgres.test.ts": { descartavel: "063" },
   // Cadastro público (E6): 063 + 067 + 068 + 069 aplicadas pela própria suíte.
@@ -125,6 +135,12 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/pausa-limite.postgres.test.ts": { descartavel: "atual" },
   // M1: limite diário esgotado ⇒ equipe em silêncio (sem modelo nem texto fixo, sem inventar pausa); origem das marcas.
   "lib/whatsapp/atendimento/limite-silencio.postgres.test.ts": { descartavel: "atual" },
+  // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
+  "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079" },
+  // Gratuidade da Kidmais com as chaves de produção ligadas, no schema vigente (até a 079).
+  "lib/assinatura/kidmais-gratuidade.postgres.test.ts": { descartavel: "079" },
+  // Script de fixtures do painel em staging (scripts/fixture-painel-staging.cjs) no schema vigente (até a 079).
+  "lib/desenvolvedor/fixture-painel-staging.postgres.test.ts": { descartavel: "079" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

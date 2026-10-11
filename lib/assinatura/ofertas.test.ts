@@ -41,6 +41,8 @@ class Banco implements DbExecutor {
             const ev = { id: `ev_${this.eventos.length}`, assinatura_provedor_id: args[2] as string | null, evento_id: args[0] as string, concluido: false };
             this.eventos.push(ev); rows = [ev];
         } else if (sql.startsWith('SELECT id, evento_id, assinatura_provedor_id FROM cobranca_eventos')) rows = this.eventos.filter(e => !e.concluido);
+        // Marcadores de exclusão abertos (assinaturasComRemocaoIncerta, #147): este banco falso não tem nenhum.
+        else if (sql.startsWith('SELECT id, assinatura_provedor_id FROM cobranca_eventos')) rows = [];
         else if (sql.startsWith('UPDATE cobranca_eventos')) {
             const ids = Array.isArray(args[1]) ? args[1] : [args[0]];
             for (const e of this.eventos) if (ids.includes(e.id)) e.concluido = true;
@@ -79,6 +81,10 @@ class Banco implements DbExecutor {
 test('novos planos só em sandbox explícito; pedido não aceita preço/catálogo/plano adulterado', () => {
     assert.equal(novosPlanosLigados(env), true);
     for (const e of [{}, { ...env, ASAAS_AMBIENTE: 'production' }, { ...env, ASSINATURA_PLANOS_ATIVOS: 'false' }]) assert.equal(novosPlanosLigados(e), false);
+    // Produção: só pareada com o serviço de produção; sandbox nunca no serviço de produção.
+    assert.equal(novosPlanosLigados({ ...env, ASAAS_AMBIENTE: 'producao', KIDMAIS_DEPLOY_ENV: 'production' }), true);
+    assert.equal(novosPlanosLigados({ ...env, ASAAS_AMBIENTE: 'producao' }), false);
+    assert.equal(novosPlanosLigados({ ...env, KIDMAIS_DEPLOY_ENV: 'production' }), false);
     for (const p of [null, {}, { ...pedido, plano: '__proto__' }, { ...pedido, ciclo: 'WEEKLY' }, { ...pedido, valorEsperadoCentavos: 1.1 }, { ...pedido, versao: 'velha' }])
         assert.throws(() => validarPedidoOferta(p));
     assert.deepEqual(validarPedidoOferta(pedido), pedido);

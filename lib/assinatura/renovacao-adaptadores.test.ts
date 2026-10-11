@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { criarEnviarEmail, type MensagemEmail } from '../acessos/email.ts';
-import { criarClienteAsaas, ASAAS_SANDBOX_URL, type ConfiguracaoAsaas } from './asaas.ts';
+import { AsaasFalhou, criarClienteAsaas, ASAAS_SANDBOX_URL, type ConfiguracaoAsaas } from './asaas.ts';
 
 const config: ConfiguracaoAsaas = { ambiente:'sandbox', baseUrl:ASAAS_SANDBOX_URL, apiKey:'$aact_hmlg_sintetica', webhookToken:'x'.repeat(40) };
 const mensagem: MensagemEmail = { para:'gestor@example.invalid', assunto:'Aviso sintético', texto:'Texto sintético', html:'<p>Texto sintético</p>', idempotencia:'kidmais-renovacao/sintetica' };
@@ -38,7 +38,7 @@ test('adapter de parcela preserva vencimento e forma, recusa paga e valor fracio
 
 test('lista truncada falha em vez de omitir parcelas; nenhuma mutação após leitura incompleta', async () => {
     const c = criarClienteAsaas(config,{ fetch:async () => Response.json({ data:[],hasMore:true }) });
-    await assert.rejects(c.listarCobrancasDaAssinatura('sub_1'),/RESPOSTA_INVALIDA/);
+    await assert.rejects(c.listarCobrancasDaAssinatura('sub_1'),(e: unknown) => e instanceof AsaasFalhou && e.motivo === 'LISTA_INCOMPLETA');
 });
 
 test('Resend recebe idempotência estável no header e corpo idêntico; fetch é inteiramente mockado', async () => {

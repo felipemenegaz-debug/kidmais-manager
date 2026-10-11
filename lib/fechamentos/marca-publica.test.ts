@@ -6,7 +6,7 @@ import { REGRAS_LEGADAS, REGRAS_NEUTRAS } from '../comercial/regras-pagamento.ts
 
 test('endereço atual mantém a marca Kidmais; outra empresa recebe nome próprio e redação neutra', () => {
     assert.deepEqual(textosMarca(MARCA_KIDMAIS), { kidmais: true, nome: 'Kidmais', a: 'a Kidmais', A: 'A Kidmais', da: 'da Kidmais',
-        pela: 'pela Kidmais', equipe: 'equipe Kidmais', titulo: 'Kidmais', daMaiusculo: 'da KIDMAIS', pagamento: REGRAS_LEGADAS });
+        pela: 'pela Kidmais', equipe: 'equipe Kidmais', titulo: 'Kidmais', daMaiusculo: 'da KIDMAIS', pagamento: REGRAS_LEGADAS, contato: null });
     const outra = textosMarca({ kidmais: false, nome: '  Buffet Alegria  ', pagamento: REGRAS_NEUTRAS });
     assert.equal(outra.nome, 'Buffet Alegria');
     assert.doesNotMatch(JSON.stringify(Object.values(outra)), /kidmais|cielo/i);
@@ -14,7 +14,11 @@ test('endereço atual mantém a marca Kidmais; outra empresa recebe nome própri
 });
 
 // Toda menção à Kidmais nas telas públicas precisa estar atrás da marca (endereço atual) ou ser código interno.
-const PERMITIDAS = [/CONTATO_KIDMAIS/, /ATENDIMENTO_KIDMAIS/, /origemInterna \? "Atendimento Kidmais"/, /marca\.kidmais \?/, /\{marca\.kidmais && /, /equipe = 'equipe Kidmais'/];
+const PERMITIDAS = [/CONTATO_KIDMAIS/, /ATENDIMENTO_KIDMAIS/, /origemInterna \? "Atendimento Kidmais"/, /marca\.kidmais \?/, /\{marca\.kidmais && /, /equipe = 'equipe Kidmais'/,
+    // Ramo da outra empresa (contato dela) e decisão da lista de pacotes pela marca.
+    /\{!marca\.kidmais && /, /\(!marca\.kidmais && !pacote\)/, /\(marca\.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote/,
+    // Disponibilidade do pacote: regra legada só no endereço atual; na empresa, a configuração dela (e o rótulo “consultar o buffet”).
+    /regrasDisponibilidadeDaTela\(marca\.kidmais, fatosPacote, (form\.pacote|novoPacote)\)/, /statusLabel\(info\.status, marca\.kidmais\)/];
 const PROTEGIDAS = ['Falar com a Kidmais no WhatsApp'];
 for (const arquivo of ['components/fechamento/FechamentoWizard.tsx', 'components/fechamento/CalendarioDisponibilidade.tsx', 'components/disponibilidade/DisponibilidadePublica.tsx']) {
     test(`sem Kidmais fixa para outra empresa: ${arquivo}`, () => {
@@ -31,7 +35,7 @@ for (const arquivo of ['components/fechamento/FechamentoWizard.tsx', 'components
 
 test('páginas /b/<código> usam o nome da própria empresa e metadados neutros, fora dos buscadores', () => {
     for (const pagina of ['fechamento', 'disponibilidade'])
-        assert.match(readFileSync(`app/b/[empresa]/${pagina}/page.tsx`, 'utf8'), /<MarcaPublicaProvider nome=\{empresa\.nome\} pagamento=\{empresa\.pagamento\}>/);
+        assert.match(readFileSync(`app/b/[empresa]/${pagina}/page.tsx`, 'utf8'), /<MarcaPublicaProvider nome=\{empresa\.nome\} pagamento=\{empresa\.pagamento\} contato=\{empresa\.contato\}>/);
     const guarda = readFileSync('app/b/[empresa]/empresa-publica.ts', 'utf8');
     assert.match(guarda, /nome = await nomePublicoDaEmpresa\(db\(\), escopo\.empresaId\)/);
     assert.match(guarda, /pagamento = \(await lerRegrasPagamento\(db\(\), escopo\.empresaId\)\) \?\? ANTES_DA_077/);

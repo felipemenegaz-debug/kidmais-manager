@@ -4,7 +4,7 @@ import type { DbExecutor } from '../db/contracts';
 import { erroAcesso } from '../acessos/erros.ts';
 import { condicoesComerciais, planosComerciais, planoComercialValido, valorComercial, type PlanoComercialId } from './planos-comerciais.ts';
 import type { Ciclo } from './configuracao.ts';
-import type { AssinaturaProvedor, CobrancaProvedor } from './asaas.ts';
+import { ambienteAsaas, type AssinaturaProvedor, type CobrancaProvedor } from './asaas.ts';
 import { pagamentoDaOferta } from './pagamento-oferta.ts';
 
 export type Oferta = {
@@ -14,7 +14,8 @@ export type Oferta = {
     pagamento_confirmacao_id?: string | null;
 };
 type Ambiente = Record<string, string | undefined>;
-export const novosPlanosLigados = (env: Ambiente = process.env) => env.ASSINATURA_PLANOS_ATIVOS === 'true' && env.ASAAS_AMBIENTE === 'sandbox';
+/** Chave dos planos + provedor no ambiente pareado com o serviço (sandbox fora de produção; produção só no serviço de produção). */
+export const novosPlanosLigados = (env: Ambiente = process.env) => env.ASSINATURA_PLANOS_ATIVOS === 'true' && typeof ambienteAsaas(env) === 'string';
 
 export async function schemaPlanosInstalado(tx: DbExecutor) {
     return (await tx.query<{ instalado074: boolean }>(`SELECT to_regclass('public.assinatura_contratacoes') IS NOT NULL
@@ -30,6 +31,22 @@ export async function empresaIsenta(tx: DbExecutor, empresaId: string) {
 export async function travarEmpresaComercial(tx: DbExecutor, empresaId: string) {
     if (await schemaPlanosInstalado(tx))
         await tx.query('SELECT id FROM empresas WHERE id = $1::uuid FOR UPDATE', [empresaId]);
+}
+
+/**
+ * Trava comercial da RECONCILIAÇÃO de duplicatas (#147). NÃO é equivalente a `travarEmpresaComercial`:
+ * `FOR NO KEY UPDATE` continua exclusivo contra `FOR UPDATE`, `FOR NO KEY UPDATE` e `FOR SHARE` sobre a mesma empresa
+ * (checkout e cancelamento via provarTenant/linhaDaEmpresa, sincronização, renovação, limites, convites e os gatilhos 074a
+ * de isenção, vaga Fundador e contratação), mas deixa passar `FOR KEY SHARE`, isto é, as verificações de FK de linhas
+ * que referenciam `empresas`. É o que o marcador de exclusão precisa: ele é gravado e confirmado em OUTRA conexão, numa
+ * linha de `cobranca_eventos` (FK para `empresas`), enquanto esta transação mantém a trava até depois do DELETE.
+ * Com `FOR UPDATE` aqui, esse INSERT esperava o lock_timeout e nenhuma exclusão acontecia.
+ * Só para quem não escreve em empresa_assinaturas nem nas tabelas 074a antes de gravar o marcador: esses gatilhos tomam
+ * `FOR UPDATE` na empresa e, a partir daí, o marcador volta a esperar.
+ */
+export async function travarEmpresaParaReconciliacao(tx: DbExecutor, empresaId: string) {
+    if (await schemaPlanosInstalado(tx))
+        await tx.query('SELECT id FROM empresas WHERE id = $1::uuid FOR NO KEY UPDATE', [empresaId]);
 }
 
 export async function exigirEmpresaCobravel(tx: DbExecutor, empresaId: string) {

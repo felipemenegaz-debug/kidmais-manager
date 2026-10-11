@@ -2,15 +2,15 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import KidmaisBrand from "@/components/layout/KidmaisBrand";
-import { MARCA_KIDMAIS, textosMarca, type MarcaPublica } from "@/lib/fechamentos/marca-publica";
+import { MARCA_KIDMAIS, textosMarca, type ContatoPublico, type MarcaPublica } from "@/lib/fechamentos/marca-publica";
 import type { RegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import styles from "./MarcaPublica.module.css";
 
 const Contexto = createContext<MarcaPublica>(MARCA_KIDMAIS);
 
 /** Só os endereços /b/<código> usam o provedor; sem ele, as telas continuam com a marca Kidmais. */
-export function MarcaPublicaProvider({ nome, pagamento, children }: { nome: string; pagamento: RegrasPagamento; children: ReactNode }) {
-  const valor = useMemo<MarcaPublica>(() => ({ kidmais: false, nome, pagamento }), [nome, pagamento]);
+export function MarcaPublicaProvider({ nome, pagamento, contato = null, children }: { nome: string; pagamento: RegrasPagamento; contato?: ContatoPublico | null; children: ReactNode }) {
+  const valor = useMemo<MarcaPublica>(() => ({ kidmais: false, nome, pagamento, contato }), [nome, pagamento, contato]);
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }
 

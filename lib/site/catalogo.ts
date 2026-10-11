@@ -23,13 +23,17 @@ export const recursos = {
     copiloto: { nome: 'Copiloto', status: 'em_breve', evidencia: semFlags + ' Flags exigidas e pendências detalhadas em docs/SITE_VENDA_20261008.md.' },
     importacao_contratos: { nome: 'Importação de contratos em PDF', status: 'em_breve', evidencia: semFlags + ' Flags exigidas e pendências detalhadas em docs/SITE_VENDA_20261008.md.' },
     importacao_precos: { nome: 'Importação da tabela de preços por IA', status: 'em_breve', evidencia: 'Sem comprovação de ativação em production.' },
-    multiunidade: { nome: 'Unidade extra', status: 'disponivel', evidencia: implementado },
+    multiunidade: { nome: 'Unidade extra', status: 'em_breve', evidencia: '11/10/2026: troca entre empresas existe, mas não há fluxo para contratar, cobrar ou provisionar unidade extra (docs/MATRIZ_RECURSOS_PLANOS_20261010.md).' },
     suporte: { nome: 'Suporte', status: 'disponivel', evidencia: 'Oferta proposta na referência; canais dependem da configuração D4.' },
     implantacao: { nome: 'Implantação assistida', status: 'disponivel', evidencia: 'Oferta proposta na referência; execução humana, sem afirmar IA ativa.' },
 } satisfies Record<string, Recurso>;
 export type RecursoId = keyof typeof recursos;
 export function statusDosRecursos(ids: readonly RecursoId[]): StatusRecurso {
     return ids.some(id => recursos[id].status === 'em_breve') ? 'em_breve' : 'disponivel';
+}
+/** A comparação de valor só aparece quando todos os itens dela estão disponíveis (não vende com o que é Em breve). */
+export function ancoraExibivel(itens: readonly { recursos: RecursoId[] }[]): boolean {
+    return itens.every(item => statusDosRecursos(item.recursos) === 'disponivel');
 }
 export type ItemPlano = { texto: string; recursos: RecursoId[]; excluido?: boolean; introducao?: boolean };
 export type Plano = { id: PlanoComercialId; nome: string; descricao: string; mensalCentavos: number; destaque?: boolean; itens: ItemPlano[] };
@@ -38,19 +42,21 @@ export const planos: Plano[] = [
     { id: 'essencial', ...planosComerciais.essencial, descricao: 'Para começar a sair do caderno e da planilha.', itens: [
         { texto: 'Até 3 usuários', recursos: ['permissoes'] },
         { texto: 'Agenda, clientes, festas e pacotes', recursos: ['agenda', 'clientes', 'festas'] },
-        { texto: 'Contrato com o seu modelo e assinatura com código pelo WhatsApp', recursos: ['contratos', 'assinatura_whatsapp'] },
+        { texto: 'Contrato com o seu modelo', recursos: ['contratos'] },
+        { texto: 'Assinatura do contrato com código pelo WhatsApp', recursos: ['assinatura_whatsapp'] },
         { texto: 'Pix copia e cola e contas a receber', recursos: ['pix', 'financeiro'] },
+        // Horário nobre e adicionais não têm barreira por plano (lib/assinatura/recursos-plano.ts): valem em todos.
+        { texto: 'Horário nobre e adicionais na cotação', recursos: ['horarios'] },
         { texto: 'Importação por IA na implantação (tabela de preços e contratos antigos)', recursos: ['importacao_precos', 'importacao_contratos'] },
         { texto: 'Suporte por e-mail', recursos: ['suporte'] },
         { texto: 'Financeiro completo', recursos: ['financeiro'], excluido: true },
-        { texto: 'Orçamento online e horário nobre', recursos: ['orcamento', 'horarios'], excluido: true },
+        { texto: 'Orçamento online', recursos: ['orcamento'], excluido: true },
         { texto: 'Copiloto de IA', recursos: ['copiloto'], excluido: true },
     ] },
     { id: 'profissional', ...planosComerciais.profissional, descricao: 'Para quem quer vender pela internet e controlar o caixa.', destaque: true, itens: [
         { texto: 'Tudo do Essencial, mais:', recursos: [], introducao: true },
         { texto: 'Até 10 usuários', recursos: ['permissoes'] },
-        { texto: 'Agenda e orçamento online do buffet', recursos: ['agenda', 'orcamento'] },
-        { texto: 'Horário nobre e adicionais na cotação', recursos: ['horarios'] },
+        { texto: 'Orçamento online pela página do buffet', recursos: ['orcamento'] },
         { texto: 'Financeiro completo: contas a pagar, fluxo de caixa e relatórios', recursos: ['financeiro'] },
         { texto: 'Importação por IA sempre que precisar, com cota', recursos: ['importacao_precos', 'importacao_contratos'] },
         { texto: 'Copiloto de IA, franquia básica', recursos: ['copiloto'] },

@@ -14,6 +14,7 @@ import {
   CONFIG_VAZIA,
   DisponibilidadeConfig,
   horarioAlternativo,
+  type RegraPacoteEmpresa,
   statusDataPacote,
   statusLabel,
 } from "@/lib/agenda/disponibilidade";
@@ -64,6 +65,7 @@ export default function CalendarioDisponibilidade({
   consultar,
   empresa = null,
   descontoDiaUtil,
+  regrasPacote = null,
 }: {
   pacote: PacoteId;
   horario: HorarioBase;
@@ -80,6 +82,8 @@ export default function CalendarioDisponibilidade({
   empresa?: string | null;
   /** Regra do selo -15% vinda da tela (regras do servidor); ausente = a da marca. */
   descontoDiaUtil?: boolean;
+  /** Regras de disponibilidade da empresa para o pacote (/b/<código>); ausente = regra legada do endereço atual. */
+  regrasPacote?: readonly RegraPacoteEmpresa[] | null;
 }) {
   const marca = useMarcaPublica();
   const diaUtil = descontoDiaUtil ?? marca.pagamento.descontoDiaUtil;
@@ -213,12 +217,13 @@ export default function CalendarioDisponibilidade({
       config,
       pacote,
       data,
-      horario
+      horario,
+      regrasPacote
     );
 
     if (atual.status === "indisponivel") {
       const alt = horarioAlternativo(horario);
-      const statusAlt = statusDataPacote(config, pacote, data, alt);
+      const statusAlt = statusDataPacote(config, pacote, data, alt, regrasPacote);
       const ajustesAlt = ajustesOperacionaisDisponiveis(data, alt);
 
       setAviso({
@@ -391,7 +396,7 @@ export default function CalendarioDisponibilidade({
                   origem: "agenda" as const,
                   motivo: "Este período não está disponível.",
                 }
-              : statusDataPacote(config, pacote, data, horario);
+              : statusDataPacote(config, pacote, data, horario, regrasPacote);
 
           const selecionada =
             dataSelecionada === data;
@@ -448,7 +453,7 @@ export default function CalendarioDisponibilidade({
               onClick={() => selecionarData(data)}
               disabled={passado || semDados}
               aria-label={`${dia} de ${MESES[mes]}: ${
-                semDados ? "disponibilidade não carregada" : statusLabel(info.status)
+                semDados ? "disponibilidade não carregada" : statusLabel(info.status, marca.kidmais)
               }${
                 desconto.ativo
                   ? `, ${Math.round(
@@ -459,7 +464,7 @@ export default function CalendarioDisponibilidade({
               title={
                 semDados
                   ? "Disponibilidade não carregada."
-                  : info.motivo || statusLabel(info.status)
+                  : info.motivo || statusLabel(info.status, marca.kidmais)
               }
             >
               <div className={styles.calendarDayTop}>

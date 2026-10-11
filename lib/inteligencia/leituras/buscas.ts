@@ -73,10 +73,10 @@ export const buscarCatalogo: Ferramenta<RespostaLeitura> = {
     const e = entradaCatalogo.parse(bruto);
     const tipo = e.tipo ?? (e.termo ? "ITEM" : e.categoria ? "ITEM" : "CATEGORIA");
     const limite = e.limite ?? 20;
-    return async (tx, _tenant, contexto) => {
+    return async (tx, tenant, contexto) => {
       const destino = montarDestino("catalogo");
       if (tipo === "CATEGORIA") {
-        const categorias = await buscarCategoriasBuffet(tx, { termo: e.termo ?? null, categoria: e.categoria ?? null, limite });
+        const categorias = await buscarCategoriasBuffet(tx, tenant.empresaComprovada, { termo: e.termo ?? null, categoria: e.categoria ?? null, limite });
         return montarResposta("buscar_catalogo", contexto, {
           estado: categorias.length ? "informativo" : "sem_dados",
           resumo: categorias.length ? `${categorias.length} ${plural(categorias.length, "categoria", "categorias")} no catálogo do Buffet: ${categorias.map((c) => c.nome).join(", ")}.`.slice(0, 2000) : "Nenhuma categoria encontrada no catálogo do Buffet.",
@@ -86,7 +86,7 @@ export const buscarCatalogo: Ferramenta<RespostaLeitura> = {
           entidades: categorias.map((c) => ({ tipo: "CATEGORIA" as const, id: c.id, rotulo: c.nome.slice(0, 120), tela: "catalogo" as const })),
         });
       }
-      const itens = await buscarItensBuffet(tx, { termo: e.termo ?? null, categoria: e.categoria ?? null, limite });
+      const itens = await buscarItensBuffet(tx, tenant.empresaComprovada, { termo: e.termo ?? null, categoria: e.categoria ?? null, limite });
       const onde = (i: { categoria: string | null }) => (i.categoria ? `categoria ${i.categoria}` : "sem categoria");
       return montarResposta("buscar_catalogo", contexto, {
         estado: itens.length ? "informativo" : "sem_dados",

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { consultaCepExternaLigada } from "@/lib/endereco/consulta-cep-externa";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (!consultaCepExternaLigada()) throw new Error("Consulta externa de CEP desligada neste ambiente.");
     const resposta = await fetch(`https://viacep.com.br/ws/${cep}/json/`, {
       headers: { Accept: "application/json" },
       cache: "no-store",

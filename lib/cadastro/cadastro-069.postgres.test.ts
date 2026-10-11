@@ -285,7 +285,21 @@ test('representação: o desenvolvedor aprova ou recusa com motivo e auditoria; 
     assert.deepEqual((await client.query('SELECT situacao, motivo_decisao, decidido_por::text FROM empresa_representacoes WHERE id = $1', [repr])).rows[0], { situacao: 'APROVADA', motivo_decisao: 'Contrato social conferido', decidido_por: dev });
     assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'REPRESENTACAO_APROVADA' AND entidade_id = $1", [r.empresaId]), 1);
     assert.equal(await contar("SELECT count(*)::int AS n FROM memberships WHERE empresa_id = $1 AND status = 'ATIVA'", [r.empresaId]), 1, 'aprovação não concede acesso');
+    // Ficha do desenvolvedor: a origem do cadastro é o cadastro público (não "cadastro direto").
+    const empresasPainel = carregar('lib/desenvolvedor/empresas.ts') as unknown as { obterEmpresa: (s: unknown, id: string, d: unknown) => Promise<{ empresa: { cadastro: { origem: string } } }> };
+    assert.equal((await empresasPainel.obterEmpresa(sDev, r.empresaId!, painelDeps)).empresa.cadastro.origem, 'CADASTRO_PUBLICO');
     assert.ok(usuarioId);
+});
+
+test('E2: bloqueio de agenda antigo sem empresa (ativo, futuro) fecha o cadastro de empresa; liberado, o cadastro volta', async () => {
+    const { sessao } = await contaConfirmada('e2-bloqueio');
+    const bloqueio = (await client.query<{ id: string }>(
+        `INSERT INTO bloqueios_agenda (data, dia_inteiro, motivo) VALUES (current_date + 30, true, 'Legado global E2') RETURNING id::text AS id`)).rows[0].id;
+    const antes = await contar('SELECT count(*)::int AS n FROM empresas');
+    assert.equal(await erro(cadastrar(sessao, empresa('81356789000110'))), 'CADASTRO_INDISPONIVEL');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM empresas'), antes, 'nenhuma empresa criada');
+    await client.query('UPDATE bloqueios_agenda SET ativo = false WHERE id = $1::uuid', [bloqueio]);
+    assert.equal((await cadastrar(sessao, empresa('81356789000110'))).situacao, 'CRIADA');
 });
 
 test('rollback da 069 recusa com dados de cadastro, sem apagar nada', async () => {

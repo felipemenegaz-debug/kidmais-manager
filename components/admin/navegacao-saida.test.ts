@@ -46,7 +46,7 @@ test('sair: um único caminho para Admin e painel; as telas lembram o CSRF e lib
     const contexto = readFileSync('lib/http/contexto-empresa-cliente.ts', 'utf8');
     assert.match(cliente, /if \(!saidaDaSessaoEmAndamento\(\)\) \{\s*\n\s*\/\/ eslint-disable-next-line[^\n]*\n\s*window\.location\.assign\(`\/admin\/login\?voltar=/);
     assert.match(adminFetch, /if \(!saidaDaSessaoEmAndamento\(\)\) \{/);
-    assert.match(contexto, /export function reiniciarContextoEmpresa\(aviso\?: string, destino\?: string\) \{\r?\n\s*if \(saidaDaSessao\) return;/);
+    assert.match(contexto, /export function reiniciarContextoEmpresa\(aviso\?: string, destino\?: string, origem: OrigemAviso = 'descarte'\) \{\r?\n\s*if \(saidaDaSessao\) return;/);
 });
 
 test('painel do desenvolvedor: "Ir para o Admin" só com empresa ativa; Atividade no menu; Escape fecha o menu', () => {

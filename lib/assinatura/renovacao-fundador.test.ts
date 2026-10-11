@@ -201,3 +201,56 @@ test('CLI inicia em simulação, aplicação exige sandbox, banco local e e-mail
     assert.throws(() => configuracaoExecucao({ ...env, EMAIL_PROVIDER:'resend' },['--aplicar']));
     assert.equal(configuracaoExecucao({ ...env, EMAIL_PROVIDER:'arquivo' },['--aplicar']).aplicar,true);
 });
+
+/** G1: evidências gravadas com o relógio do banco (real), enquanto `agora` é deslocado só no processo. */
+function comRelogioDoBanco(f: ReturnType<typeof fixture>, real: { t: Date }) {
+    const original = f.deps.repositorio.marcar;
+    f.deps.repositorio.marcar = async (empresa, id, a) => {
+        const antes = { ...f.c.registro! };
+        await original(empresa, id, a);
+        const r = f.c.registro!;
+        if (a.tentativa && !antes.avisoTentadoEm) r.avisoTentadoEm = real.t.toISOString();
+        if (a.envioId && !antes.avisoEnviadoEm) r.avisoEnviadoEm = real.t.toISOString();
+        if (a.regular && !antes.precoAplicadoEm) r.precoAplicadoEm = real.t.toISOString();
+    };
+}
+
+test('G1: com agora deslocado +N dias e relogioReal, retentativa 1 h após falha continua dentro da janela de 23 h', async () => {
+    const f = fixture(), real = { t: new Date('2026-10-10T12:00:00Z') };
+    comRelogioDoBanco(f, real); f.deps.relogioReal = () => real.t;
+    f.falharEmail(true);
+    assert.equal(await processarRenovacao(E,f.deps),'ENVIO_INCERTO');
+    assert.equal(f.c.registro!.avisoTentadoEm,'2026-10-10T12:00:00.000Z', 'tentativa gravada no relógio real');
+    real.t = new Date('2026-10-10T13:00:00Z'); f.falharEmail(false);
+    assert.equal(await processarRenovacao(E,f.deps),'REGULAR', 'datas de negócio seguem o agora deslocado (limite, data regular, preço)');
+    assert.equal(f.chamadas.filter(x => x === 'enviar').length,2);
+    assert.equal(new Set(f.chaves).size,1, 'mesma chave de idempotência');
+});
+
+test('G1: relogioReal mede a janela de 23 h no relógio real; sem ele o comportamento anterior é mantido', async () => {
+    const tarde = fixture(), real = { t: new Date('2026-10-10T12:00:00Z') };
+    comRelogioDoBanco(tarde, real); tarde.deps.relogioReal = () => real.t; tarde.falharEmail(true);
+    await processarRenovacao(E,tarde.deps);
+    real.t = new Date('2026-10-11T11:00:00Z');
+    assert.equal(await processarRenovacao(E,tarde.deps),'ENVIO_INCERTO_FORA_JANELA');
+    assert.equal(tarde.chamadas.filter(x => x === 'enviar').length,1, 'sem retry cego após 23 h reais');
+
+    const sem = fixture(), realSem = { t: new Date('2026-10-10T12:00:00Z') };
+    comRelogioDoBanco(sem, realSem); sem.falharEmail(true);
+    await processarRenovacao(E,sem.deps);
+    realSem.t = new Date('2026-10-10T13:00:00Z'); sem.falharEmail(false);
+    assert.equal(await processarRenovacao(E,sem.deps),'ENVIO_INCERTO_FORA_JANELA', 'sem relogioReal a janela usa agora (lacuna G1)');
+    assert.equal(sem.c.registro!.estado,'REVISAO');
+
+    const padrao = fixture(); padrao.falharEmail(true);
+    await processarRenovacao(E,padrao.deps); padrao.falharEmail(false);
+    assert.equal(await processarRenovacao(E,padrao.deps),'REGULAR', 'sem deslocamento e sem relogioReal: inalterado');
+});
+
+test('G1: relogioReal não decide datas de negócio', async () => {
+    const f = fixture(); f.dia('2027-08-01T12:00:00Z');
+    f.deps.relogioReal = () => new Date('2030-01-01T00:00:00Z');
+    assert.equal(await processarRenovacao(E,f.deps),'AGUARDANDO_AVISO');
+    assert.equal(await processarRenovacao(E,f.deps),'AGUARDANDO_AVISO');
+    assert.equal(f.chamadas.includes('enviar'),false);
+});
