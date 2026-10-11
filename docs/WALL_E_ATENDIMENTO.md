@@ -1,5 +1,11 @@
 # Wall-e — atendimento inteligente do WhatsApp
 
+> **Numeração vigente das migrations do atendimento (11/10/2026):** 060, 065, **080** (mensagens prontas), **081** (mídia
+> das prontas) e **082** (Wall-e). Números antigos neste documento são históricos: prontas 064 → 070 → 073 → 076 → 077a →
+> 080; mídia 066 → 071 → 074 → 077 → 077b → 081; Wall-e 067 → 072 → 075 → 078 → 082. Hoje 070–079 pertencem ao staging
+> (078 = catálogo do buffet por empresa; 079 = recuperação manual de convites). 080–082 são escolha local provisória, não
+> reserva coordenada entre sessões. Correspondência e provas em `docs/PR_WHATSAPP_WALLE_INTEGRA_20261011.md`.
+
 Branch `whatsapp/wall-e-atendimento`, sobre a fase B (`1f938d2`). Entrega **local**: nada foi publicado, migrado fora
 de banco descartável, ativado no Gupshup ou enviado a número real. A publicação continua bloqueada pelo S11 e exige
 autorização própria (docs/OPERACAO_AGENTES.md).

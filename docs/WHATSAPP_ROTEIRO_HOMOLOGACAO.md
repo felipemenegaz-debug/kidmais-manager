@@ -1,5 +1,11 @@
 # Atendimento WhatsApp — roteiro de homologação em staging
 
+> **Numeração vigente das migrations do atendimento (11/10/2026):** 060, 065, **080** (mensagens prontas), **081** (mídia
+> das prontas) e **082** (Wall-e). Números antigos neste documento são históricos: prontas 064 → 070 → 073 → 076 → 077a →
+> 080; mídia 066 → 071 → 074 → 077 → 077b → 081; Wall-e 067 → 072 → 075 → 078 → 082. Hoje 070–079 pertencem ao staging
+> (078 = catálogo do buffet por empresa; 079 = recuperação manual de convites). 080–082 são escolha local provisória, não
+> reserva coordenada entre sessões. Correspondência e provas em `docs/PR_WHATSAPP_WALLE_INTEGRA_20261011.md`.
+
 Preparado em 04/10/2026. **Nada deste roteiro foi executado.** Evidências locais: código do WhatsApp validado em `a55aed8`; base integrada e tela validadas em `918b0a1`, local (ver o handoff). Ele detalha o que provar na janela de homologação. As etapas operacionais (E0–E8, com alvo, efeito e recuperação) estão em [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md), e cada uma exige autorização própria ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)).
 
 ## Pré-condições (bloqueantes)

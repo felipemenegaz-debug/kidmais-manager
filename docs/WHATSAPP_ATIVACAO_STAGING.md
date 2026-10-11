@@ -1,5 +1,11 @@
 # Atendimento WhatsApp — Gupshup verificado e ativação em staging
 
+> **Numeração vigente das migrations do atendimento (11/10/2026):** 060, 065, **080** (mensagens prontas), **081** (mídia
+> das prontas) e **082** (Wall-e). Números antigos neste documento são históricos: prontas 064 → 070 → 073 → 076 → 077a →
+> 080; mídia 066 → 071 → 074 → 077 → 077b → 081; Wall-e 067 → 072 → 075 → 078 → 082. Hoje 070–079 pertencem ao staging
+> (078 = catálogo do buffet por empresa; 079 = recuperação manual de convites). 080–082 são escolha local provisória, não
+> reserva coordenada entre sessões. Correspondência e provas em `docs/PR_WHATSAPP_WALLE_INTEGRA_20261011.md`.
+
 Preparado em 02/10/2026. **Nada deste documento foi executado.** Cada etapa remota precisa da autorização explícita do Felipe para o alvo e a ação ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)). Estado do código: PR `whatsapp/atendimento-ia-v1` → `staging`. Validações anteriores: [VALIDACAO_060_E_HOMOLOGACAO_GUPSHUP.md](VALIDACAO_060_E_HOMOLOGACAO_GUPSHUP.md).
 
 ## O que a documentação oficial do Gupshup confirma

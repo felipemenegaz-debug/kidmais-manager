@@ -1,5 +1,11 @@
 # Plano de integração — Atendimento WhatsApp × painel do desenvolvedor × staging
 
+> **Numeração vigente das migrations do atendimento (11/10/2026):** 060, 065, **080** (mensagens prontas), **081** (mídia
+> das prontas) e **082** (Wall-e). Números antigos neste documento são históricos: prontas 064 → 070 → 073 → 076 → 077a →
+> 080; mídia 066 → 071 → 074 → 077 → 077b → 081; Wall-e 067 → 072 → 075 → 078 → 082. Hoje 070–079 pertencem ao staging
+> (078 = catálogo do buffet por empresa; 079 = recuperação manual de convites). 080–082 são escolha local provisória, não
+> reserva coordenada entre sessões. Correspondência e provas em `docs/PR_WHATSAPP_WALLE_INTEGRA_20261011.md`.
+
 **Situação:** plano. Nada foi executado fora desta máquina: sem push, merge, deploy, migration ou leitura de banco remoto. Cada passo remoto precisa de autorização própria do Felipe ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)).
 
 ## 1. Refs (leitura de 04/10/2026, `git fetch` às 19:00; reconfirmados às 19:35, sem mudança)

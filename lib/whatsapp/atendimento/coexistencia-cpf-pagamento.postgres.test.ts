@@ -9,7 +9,8 @@ import type { ConteudoSaida } from "./transporte.ts";
 /**
  * Renumeração de 10/10/2026: o staging criou 20261010_076_cpf_por_empresa (unicidade do CPF por empresa) e
  * 20261010_077_regras_pagamento_empresa (regras de pagamento por empresa); as migrations do atendimento passaram a
- * 080 (prontas) e 081 (mídia), com a 082 mantida. Esta suíte prova a coexistência das cinco do atendimento (060, 065,
+ * 077a (prontas) e 077b (mídia), com a 078 mantida — e, em 11/10, 080, 081 e 082 (o staging tomou a 078 e a 079; ver
+ * ordem-staging-real.postgres.test.ts). Esta suíte prova a coexistência das cinco do atendimento (060, 065,
  * 080, 081, 082) com a 076 e a 077 do staging, nas duas ordens, e que os DOWNS do atendimento preservam os objetos e os
  * dados sintéticos delas. PostgreSQL descartável (modelo "063": 055…063, com a 060), só pelo check:v1:postgres, com
  * opt-in. Dados sintéticos (CPF fictício de teste); transporte simulado; nenhuma rede.
