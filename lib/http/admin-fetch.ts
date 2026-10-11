@@ -42,6 +42,8 @@ const empresaDe = (info: InfoSessao) => info.data?.contexto?.empresaAtual?.id ??
  */
 export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {}) {
     const escrita = !['GET', 'HEAD'].includes((init.method ?? 'GET').toUpperCase());
+    // Aviso de escrita = resultado real da operação: nenhum descarte posterior desta página o apaga (G16).
+    const origem = escrita ? 'escrita' as const : 'descarte' as const;
     const previa = await confirmarSessao();
     if (previa.estado === 'falha')
         // Nada foi pedido ao servidor e nada é entregue: o componente só recebe o erro.
@@ -50,14 +52,14 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
     if (previa.estado === 'encerrada' || !info.data?.usuarioId) {
         // Durante a saída iniciada pela própria tela (components/admin/sair.ts) nada é sobreposto: ela já navega.
         if (!saidaDaSessaoEmAndamento()) {
-            if (escrita) guardarAvisoDeContexto('Sua sessão terminou antes do envio. Nada foi enviado.');
+            if (escrita) guardarAvisoDeContexto('Sua sessão terminou antes do envio. Nada foi enviado.', 'escrita');
             // Limpa a página administrativa em memória quando a sessão expira; helper fora de React.
             // eslint-disable-next-line @next/next/no-location-assign-relative-destination
             window.location.assign('/admin/login');
         }
         throw Error('Faça login para continuar.');
     }
-    if (!registrarContextoEmpresa(info.data.sessaoId!, empresaDe(info), escrita ? 'A empresa ativa ou a sessão mudou antes do envio. Nada foi enviado.' : undefined))
+    if (!registrarContextoEmpresa(info.data.sessaoId!, empresaDe(info), escrita ? 'A empresa ativa ou a sessão mudou antes do envio. Nada foi enviado.' : undefined, origem))
         throw Error('A empresa ou a sessão mudou. Atualizando a página.');
     const headers = new Headers(init.headers);
     headers.set('x-kidmais-sessao', info.data.sessaoId!);
@@ -74,7 +76,7 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
         const corpo = await resposta.clone().json().catch(() => null) as { codigo?: string } | null;
         if (corpo?.codigo === 'AUTENTICACAO_ADMINISTRATIVA') {
             // O servidor recusou ANTES de executar: a página usava uma sessão/empresa que já não é a atual.
-            reiniciarContextoEmpresa('A empresa ativa ou a sessão mudou antes de a operação ser processada. Nada foi alterado.');
+            reiniciarContextoEmpresa('A empresa ativa ou a sessão mudou antes de a operação ser processada. Nada foi alterado.', undefined, origem);
             throw Error('A empresa ou a sessão mudou. Nada foi alterado.');
         }
     }
@@ -90,7 +92,7 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
         const aviso = !escrita ? AVISO_LEITURA_NAO_CONFIRMADA
             : resposta.ok ? AVISO_ESCRITA_CONFIRMADA_SEM_CONTEXTO
                 : resposta.status >= 500 ? AVISO_RESULTADO_INCERTO : AVISO_RECUSADA_SEM_CONTEXTO;
-        reiniciarContextoEmpresa(aviso);
+        reiniciarContextoEmpresa(aviso, undefined, origem);
         throw Error(aviso);
     }
     const encerrada = depois.estado === 'encerrada';
@@ -100,7 +102,7 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
             : resposta.ok
                 ? 'A operação foi concluída antes da mudança de empresa ou de sessão. Os dados da tela anterior foram descartados; confira o resultado.'
                 : resposta.status >= 500 ? AVISO_RESULTADO_INCERTO : AVISO_RECUSADA_SEM_CONTEXTO;
-        reiniciarContextoEmpresa(aviso, encerrada ? '/admin/login' : undefined);
+        reiniciarContextoEmpresa(aviso, encerrada ? '/admin/login' : undefined, origem);
         throw Error(aviso);
     }
     return resposta;
