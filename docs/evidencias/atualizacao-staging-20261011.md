@@ -43,6 +43,14 @@ Valores de variáveis não foram lidos nem exibidos (campos mascarados; só nome
 **Estado deixado:** LIVE `d19f78b` (`dep-db5i0b2jnfac73aihub0`), sem as duas chaves; branch `staging` = `d19f78b`; 078 não aplicada.
 Conferências de Shell concluídas (Felipe): restauração `RESTAURADA` e S5a `CONFERIDO`. **Para S5b (D2):** aplicar a 078 em staging só atribui o
 catálogo atual (7/62) à `kidmais`; nenhuma cópia para outras empresas.
+**Diagnóstico de elegibilidade de `/b/` (somente leitura, Shell de Felipe, instância `pbft5`):** script temporário em `/tmp`
+(funções reais de `escopoCotacaoPublica`; transação `READ ONLY`, `SAVEPOINT` por consulta, `ROLLBACK` ao final; testado offline antes).
+`agendaPorEscopo: true`. Todas as 8 empresas `hml-*` (`hml-fundador-essencial/premium/profissional`, `hml-planos-essencial/isenta/premium/profissional/teste`)
+recusadas por um único motivo: **`STATUS_DESATIVADA`** (desativadas por desenho no encerramento das rodadas de 10/10). Todas com
+`ORCAMENTO_ONLINE` no plano e 0 unidades; acesso `COMPLETO` só em `hml-planos-isenta` e `hml-planos-teste` (as demais `SOMENTE_LEITURA`:
+veem a cotação, não enviam pedido). O painel do desenvolvedor só reativa `SUSPENSA`→`ATIVA`; não há caminho auditado para reativar
+`DESATIVADA`.
+
 **078 aplicada em staging em 11/10/2026 (PASS).** Pendente de decisão: fixture elegível para `/b/` em staging (diagnóstico somente leitura proposto) para repetir B1/B2/B4.
 
 Sem alteração em produção.
