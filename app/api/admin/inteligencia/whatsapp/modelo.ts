@@ -13,7 +13,7 @@ import { triagemMensagem } from '@/lib/inteligencia/jev/motor';
 
 /**
  * Portas de modelo do atendimento, decididas UMA vez pelo ambiente. Modo regras (WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=
- * regras): nenhuma — nem o entendimento do Wall-e nem a interpretação da fase B (Wall-e desligado na tela ou sem a 078),
+ * regras): nenhuma — nem o entendimento do Wall-e nem a interpretação da fase B (Wall-e desligado na tela ou sem a 082),
  * qualquer que seja o orçamento. O worker e a porta do Wall-e conferem o modo de novo a cada uso.
  */
 export function portasDeModeloAtendimento(env: NodeJS.ProcessEnv = process.env) {

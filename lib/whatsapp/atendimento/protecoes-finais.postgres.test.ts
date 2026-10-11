@@ -9,12 +9,12 @@ import { MENSAGEM_ENCAMINHAMENTO } from "./core.ts";
 
 /**
  * Proteções finais do atendimento, worker e recepção REAIS no PostgreSQL descartável (modelo "atual"; a 060 primeiro e
- * depois 077a/077b/078), só pelo check:v1:postgres, com opt-in. Dados sintéticos; modelo e Wall-e por portas que contam as
+ * depois 080/081/082), só pelo check:v1:postgres, com opt-in. Dados sintéticos; modelo e Wall-e por portas que contam as
  * chamadas; transporte simulado (nenhuma rede). Um ORÇAMENTO VÁLIDO fica no ambiente durante o modo regras.
  *
- *  R1 sem a 078 (fase B), modo regras: o modelo não é chamado; só o texto fixo de encaminhamento sai;
+ *  R1 sem a 082 (fase B), modo regras: o modelo não é chamado; só o texto fixo de encaminhamento sai;
  *     o mesmo cenário fora do modo regras chama o modelo (controle: a guarda é o que impede);
- *  R2 com a 078 e o Wall-e DESLIGADO na tela (fase B), modo regras: o modelo não é chamado;
+ *  R2 com a 082 e o Wall-e DESLIGADO na tela (fase B), modo regras: o modelo não é chamado;
  *  G1 desligar a IA global, receber, religar em menos de 15 min e SÓ ENTÃO processar (nenhum ciclo no meio): a entrada
  *     nasceu com a equipe (SEM_RESPOSTA_AUTOMATICA) e nada é respondido; mensagem nova na mesma conversa fica com a equipe;
  *  G2 pausa durante o desligamento: marca persistente; "Devolver ao Wall-e" recusado;
@@ -27,9 +27,9 @@ const ler = (f: string) => readFileSync(f, "utf8");
 const MIG = (up: string, post: string) => [ler(up), ler(post)] as const;
 const M060 = MIG("database/migrations/20261001_060_whatsapp_atendimento.sql", "database/checks/20261001_060_postcheck.sql");
 const M07X = [
-  MIG("database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql", "database/checks/20261009_077a_postcheck.sql"),
-  MIG("database/migrations/20261009_077b_whatsapp_prontas_midia.sql", "database/checks/20261009_077b_postcheck.sql"),
-  MIG("database/migrations/20261009_078_wall_e_atendimento.sql", "database/checks/20261009_078_postcheck.sql"),
+  MIG("database/migrations/20261011_080_whatsapp_mensagens_prontas.sql", "database/checks/20261011_080_postcheck.sql"),
+  MIG("database/migrations/20261011_081_whatsapp_prontas_midia.sql", "database/checks/20261011_081_postcheck.sql"),
+  MIG("database/migrations/20261011_082_wall_e_atendimento.sql", "database/checks/20261011_082_postcheck.sql"),
 ];
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 const ORCAMENTO_VALIDO = JSON.stringify({ porEmpresa: { tokensDiario: 1_000_000 }, porCapacidade: { whatsapp_atendimento: { tokensDiario: 100_000 } } });
@@ -73,12 +73,12 @@ test("proteções finais: modo regras em todos os caminhos e entrada recebida co
       WHERE cv.empresa_id = $1 AND cv.contato = $2 ORDER BY m.criada_em, m.id`, [A, contato])).rows.map((x) => `${x.direcao}:${x.estado}${x.humana ? ":humana" : ""}`);
     const textosPara = (contato: string) => envios.filter((x) => x.contato === contato).map((x) => (x.conteudo.tipo === "TEXTO" ? x.conteudo.texto : x.conteudo.tipo));
 
-    // R1 — sem a 078 (fase B), modo regras com orçamento válido.
+    // R1 — sem a 082 (fase B), modo regras com orçamento válido.
     const r1 = "5561900002001";
     modoRegras(true);
     await receber(r1, "quanto custa a festa?");
     await worker.processarLote(deps, { maxTarefas: 10 });
-    assert.equal(chamadas.modelo, 0, "R1: modelo não chamado em modo regras (sem a 078)");
+    assert.equal(chamadas.modelo, 0, "R1: modelo não chamado em modo regras (sem a 082)");
     assert.deepEqual(textosPara(r1), [MENSAGEM_ENCAMINHAMENTO], "R1: só o texto fixo de encaminhamento");
     assert.equal((await conversa(r1)).estado, "AGUARDANDO_HUMANO");
     modoRegras(false);
@@ -87,14 +87,14 @@ test("proteções finais: modo regras em todos os caminhos e entrada recebida co
     await worker.processarLote(deps, { maxTarefas: 10 });
     assert.equal(chamadas.modelo, 1, "R1 controle: fora do modo regras a fase B chama o modelo (a guarda é o que impede)");
 
-    // A 078 entra; Wall-e desligado na tela.
+    // A 082 entra; Wall-e desligado na tela.
     for (const [up, post] of M07X) { await q(up); await q(post); }
-    // R2 — com a 078 e o Wall-e desligado: ainda fase B; modo regras impede o modelo.
+    // R2 — com a 082 e o Wall-e desligado: ainda fase B; modo regras impede o modelo.
     modoRegras(true);
     const r2 = "5561900002003";
     await receber(r2, "tem vaga em dezembro?");
     await worker.processarLote(deps, { maxTarefas: 10 });
-    assert.equal(chamadas.modelo, 1, "R2: modelo não chamado (078 aplicada, Wall-e desligado)"); assert.equal(chamadas.wallE, 0);
+    assert.equal(chamadas.modelo, 1, "R2: modelo não chamado (082 aplicada, Wall-e desligado)"); assert.equal(chamadas.wallE, 0);
     assert.deepEqual(textosPara(r2), [MENSAGEM_ENCAMINHAMENTO]);
     modoRegras(false);
 

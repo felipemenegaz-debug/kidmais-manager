@@ -1,7 +1,7 @@
 import type { SessaoParaTenant } from '../../../saas/provar-tenant.ts';
 import { hojeOperacao } from '../core.ts';
 import { ambienteAtendimento } from '../configuracao.ts';
-import { acessoAtendimento, configuracao, tem078 } from '../service.ts';
+import { acessoAtendimento, configuracao, tem082 } from '../service.ts';
 import { lerContexto } from './contexto.ts';
 import { entenderPorRegras } from './entendimento.ts';
 import { catalogosWallE, fontesPostgres } from './fontes-postgres.ts';
@@ -16,7 +16,7 @@ import { NOME_MOTIVO } from './tipos.ts';
  */
 export async function sugerirResposta(sessao: SessaoParaTenant, conversaId: string) {
   return acessoAtendimento(sessao, async (tx, empresa) => {
-    if (!(await tem078(tx))) throw new Error('ATENDIMENTO_RECURSO_078_INDISPONIVEL');
+    if (!(await tem082(tx))) throw new Error('ATENDIMENTO_RECURSO_082_INDISPONIVEL');
     const ambiente = ambienteAtendimento();
     const conversa = (await tx.query<{ contexto: unknown }>('SELECT contexto FROM whatsapp_atendimento_conversas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3', [conversaId, empresa, ambiente])).rows[0];
     if (!conversa) throw new Error('ATENDIMENTO_NAO_ENCONTRADO');

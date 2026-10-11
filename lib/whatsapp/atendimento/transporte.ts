@@ -7,7 +7,7 @@ const RECUSA_DEFINITIVA = new Set([400, 401, 403, 404, 413, 415, 422, 429]);
 
 /**
  * Conteúdo de uma saída: texto, ou foto/vídeo/PDF (da mensagem pronta, lida do banco) com legenda opcional. A URL é a
- * externa da 077b ou a pública (https, com token) do arquivo próprio da 078; o PDF leva também o nome do arquivo.
+ * externa da 081 ou a pública (https, com token) do arquivo próprio da 082; o PDF leva também o nome do arquivo.
  */
 export type ConteudoSaida = { tipo: 'TEXTO'; texto: string } | { tipo: 'IMAGEM' | 'VIDEO'; url: string; legenda: string | null } | { tipo: 'DOCUMENTO'; url: string; nome: string; legenda: string | null };
 
@@ -23,7 +23,7 @@ export function mensagemGupshup(c: ConteudoSaida) {
   return c.tipo === 'IMAGEM' ? { type: 'image', originalUrl: c.url, previewUrl: c.url, ...caption } : { type: 'video', url: c.url, ...caption };
 }
 /**
- * Conteúdo a partir da linha da mensagem (060 + 077b + 078): mídia só quando a linha tem tipo E URL (externa ou, para o
+ * Conteúdo a partir da linha da mensagem (060 + 081 + 082): mídia só quando a linha tem tipo E URL (externa ou, para o
  * arquivo próprio, a URL pública resolvida por quem chama: `url_arquivo`). Arquivo próprio sem URL pública (origem
  * https não configurada) é recusado antes da rede como transporte não configurado: nada sai e a mensagem termina FALHOU.
  * Linha sem mídia e sem texto é recusada da mesma forma.

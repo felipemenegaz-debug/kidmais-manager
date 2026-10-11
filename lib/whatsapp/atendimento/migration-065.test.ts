@@ -20,7 +20,7 @@ test('065 é aditiva: duas colunas anuláveis na conversa da 060, sem DML, falha
   assert.match(sql, /char_length\(nome_perfil\) BETWEEN 1 AND 80/, 'mesmo limite do saneamento (NOME_PERFIL_MAX)');
   assert.match(sql, /CHECK \(\(nome_perfil IS NULL\) = \(nome_perfil_em IS NULL\)\)/);
   assert.match(up, /NÃO verificado/, 'a natureza do dado fica documentada no próprio banco');
-  assert.doesNotMatch(sql, /mensagens_prontas/, 'independe da 077a');
+  assert.doesNotMatch(sql, /mensagens_prontas/, 'independe da 080');
 });
 
 test('rollback da 065 só remove as colunas dela e exige decisão explícita com nomes gravados', () => {
@@ -28,7 +28,7 @@ test('rollback da 065 só remove as colunas dela e exige decisão explícita com
   assert.match(sql, /LOCK TABLE whatsapp_atendimento_conversas IN ACCESS EXCLUSIVE MODE/);
   assert.match(sql, /kidmais\.rollback_065_descartar_nomes/);
   assert.deepEqual([...sql.matchAll(/DROP COLUMN (\w+)/g)].map(m => m[1]).sort(), ['nome_perfil', 'nome_perfil_em']);
-  assert.doesNotMatch(sql, /DROP TABLE|whatsapp_atendimento_mensagens_prontas/, 'não remove tabela nem toca a 077a');
+  assert.doesNotMatch(sql, /DROP TABLE|whatsapp_atendimento_mensagens_prontas/, 'não remove tabela nem toca a 080');
 });
 
 test('postchecks da 065 são somente leitura', () => {
@@ -40,11 +40,12 @@ test('postchecks da 065 são somente leitura', () => {
   assert.match(post, /unicidade \(empresa, ambiente, contato\) da 060/, 'confere que o isolamento da 060 continua');
 });
 
-test('numeração coordenada: 063 reservada ao painel; 077a (prontas) e 065 (nome de perfil) únicas nesta branch', () => {
-  // Ids com sufixo de letra (006a, 055a–d, 074a, 077a/077b) contam: a 077a/077b do atendimento são ids próprios.
+test('numeração: 063 reservada ao painel; 080–082 (prontas, mídia, Wall-e) e 065 (nome de perfil) únicas nesta branch', () => {
+  // Ids com sufixo de letra (006a, 055a–d, 074a) também contam. 080–082 são escolha local provisória (11/10), não reserva
+  // coordenada entre sessões: reconferir antes de publicar.
   const nums = readdirSync('database/migrations').map(f => f.split('_')[1]).filter(n => /^\d{3}[a-z]?$/.test(n ?? ''));
-  assert.equal(nums.filter(n => n === '077a').length, 1); assert.equal(nums.filter(n => n === '077b').length, 1);
-  assert.equal(nums.filter(n => n === '078').length, 1); assert.equal(nums.filter(n => n === '065').length, 1);
+  assert.equal(nums.filter(n => n === '080').length, 1); assert.equal(nums.filter(n => n === '081').length, 1);
+  assert.equal(nums.filter(n => n === '082').length, 1); assert.equal(nums.filter(n => n === '065').length, 1);
   assert.ok(nums.includes('060'));
   // A 063 é da candidata feat/painel-desenvolvedor-20261004 (já publicada). Antes ou depois da mescla com ela, nenhum
   // arquivo 063 pode ser do atendimento; se existir 063, é só a do painel (e as checagens/rollback dela).

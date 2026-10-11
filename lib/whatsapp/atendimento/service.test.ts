@@ -10,7 +10,7 @@ import type { Conversa } from './service.ts';
 const agora = new Date();
 const base: Conversa = { id: 'c', empresa_id: 'e', ambiente: 'staging', contato: '5561999999999', estado: 'IA', responsavel_id: null, nao_contatar: false, versao: 1, ultima_entrada_em: agora.toISOString(), interesse: { data: null, convidados: null } };
 const entrada = (texto: string | null, id = 'evento-1') => ({ id, app: 'KidmaisManager', source: '5561999999999', texto, timestamp: agora.getTime() });
-// midia: a 077b está aplicada; prontaMidia: linha devolvida pela busca da mensagem pronta (null = não achou; versão "3"
+// midia: a 081 está aplicada; prontaMidia: linha devolvida pela busca da mensagem pronta (null = não achou; versão "3"
 // e ativa por padrão; o pg devolve bigint como texto).
 type Opcoes = { empresasAtivas?: number; tenantRecusado?: boolean; permitido?: boolean; ativo?: boolean; config?: unknown; conversa?: Partial<Conversa>; duplicada?: boolean; enviando?: boolean; papel?: string; empresaAtiva?: boolean; canceladas?: { entradas: number; saidas: number }; nomePerfil?: boolean; linhas?: Record<string, unknown>[]; midia?: boolean; prontaMidia?: { tipo: string; midia_url: string | null; versao?: string; ativa?: boolean } | null };
 function carregar(op: Opcoes = {}) {
@@ -342,8 +342,8 @@ test('empresa ativa: sem escolha explícita, recusa do tenant (como faz o painel
   assert.equal(explicita.comandos.length, 0);
 });
 
-// 077b: foto/vídeo no envio do atendente. A URL vem só da mensagem pronta da empresa; a tela manda o id e a legenda.
-test('077b: envio de foto lê a mídia da pronta ATIVA da empresa/ambiente comprovados; legenda opcional; nada de URL da tela', async () => {
+// 081: foto/vídeo no envio do atendente. A URL vem só da mensagem pronta da empresa; a tela manda o id e a legenda.
+test('081: envio de foto lê a mídia da pronta ATIVA da empresa/ambiente comprovados; legenda opcional; nada de URL da tela', async () => {
   const P = '5a5a5a5a-5a5a-4a5a-8a5a-5a5a5a5a5a5a';
   const assumida = { estado: 'HUMANO' as const, responsavel_id: 'u' };
   const ok = carregar({ conversa: assumida, midia: true, prontaMidia: { tipo: 'IMAGEM', midia_url: 'https://cdn.exemplo.test/salgados.jpg' } });
@@ -359,7 +359,7 @@ test('077b: envio de foto lê a mídia da pronta ATIVA da empresa/ambiente compr
 });
 // Entre a prévia e o envio: a pronta mudou (versão), foi arquivada ou o pedido veio sem a versão revisada → recusa,
 // sem gravar nem trocar a mídia em silêncio. Pronta que nunca foi foto/vídeo (mesma versão) continua "não encontrada".
-test('077b: envio preso à versão da prévia: pronta alterada, arquivada ou sem versão recusa; nada gravado nem trocado', async () => {
+test('081: envio preso à versão da prévia: pronta alterada, arquivada ou sem versão recusa; nada gravado nem trocado', async () => {
   const P = '5a5a5a5a-5a5a-4a5a-8a5a-5a5a5a5a5a5a';
   const assumida = { estado: 'HUMANO' as const, responsavel_id: 'u' };
   const foto = { tipo: 'IMAGEM', midia_url: 'https://cdn.exemplo.test/salgados-novo.jpg' };
@@ -377,7 +377,7 @@ test('077b: envio preso à versão da prévia: pronta alterada, arquivada ou sem
     if (prontaVersao === undefined) assert.equal(c.sqls('FROM whatsapp_atendimento_mensagens_prontas WHERE id=$1').length, 0, 'sem versão a mídia nem é lida');
   }
 });
-test('077b: sem a 077b, pronta inexistente/de outra empresa ou legenda longa: recusa e nada é gravado', async () => {
+test('081: sem a 081, pronta inexistente/de outra empresa ou legenda longa: recusa e nada é gravado', async () => {
   const P = '5a5a5a5a-5a5a-4a5a-8a5a-5a5a5a5a5a5a';
   const assumida = { estado: 'HUMANO' as const, responsavel_id: 'u' };
   for (const [op, erro, texto] of [[{ midia: false }, /ATENDIMENTO_MIDIA_INDISPONIVEL/, undefined], [{ midia: true, prontaMidia: null }, /ATENDIMENTO_PRONTA_NAO_ENCONTRADA/, undefined], [{ midia: true, prontaMidia: { tipo: 'IMAGEM', midia_url: 'https://x.exemplo.test/a.jpg' } }, /ATENDIMENTO_LEGENDA_LONGA/, 'a'.repeat(1025)]] as const) {
@@ -387,7 +387,7 @@ test('077b: sem a 077b, pronta inexistente/de outra empresa ou legenda longa: re
     assert.equal(c.sqls('UPDATE whatsapp_atendimento_conversas').length, 0);
   }
 });
-test('077b: PARAR, janela vencida, conversa não assumida e piloto desligado barram a foto antes de ler a mídia', async () => {
+test('081: PARAR, janela vencida, conversa não assumida e piloto desligado barram a foto antes de ler a mídia', async () => {
   const P = '5a5a5a5a-5a5a-4a5a-8a5a-5a5a5a5a5a5a';
   const vencida = new Date(agora.getTime() - 25 * 60 * 60 * 1000).toISOString();
   const pronta = { midia: true, prontaMidia: { tipo: 'IMAGEM', midia_url: 'https://cdn.exemplo.test/s.jpg' } };

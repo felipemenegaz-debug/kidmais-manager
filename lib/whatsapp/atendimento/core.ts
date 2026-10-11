@@ -9,8 +9,8 @@ export const configuracaoSchema = z.object({
   // Respostas automáticas por conversa em 24 h; atingido o limite, a conversa vai para a equipe sem chamar o modelo.
   // O teto de tokens/custo continua no orçamento da capacidade `whatsapp_atendimento`, definido no servidor.
   limites: z.object({ respostasPor24h: z.number().int().min(1).max(100) }).strict().default({ respostasPor24h: LIMITE_PADRAO_RESPOSTAS }),
-  // Wall-e (078): atendimento com fontes oficiais (agenda, pacotes, preço, buffet, biblioteca autorizada, contrato modelo).
-  // Ausente ou desligado: o atendimento da fase B (respostas publicadas e encaminhamento). Sem a 078, fica desligado.
+  // Wall-e (082): atendimento com fontes oficiais (agenda, pacotes, preço, buffet, biblioteca autorizada, contrato modelo).
+  // Ausente ou desligado: o atendimento da fase B (respostas publicadas e encaminhamento). Sem a 082, fica desligado.
   wallE: z.object({ ativo: z.boolean() }).strict().optional(),
 }).strict().refine(v => new Set(v.perguntas.map(p => p.id)).size === v.perguntas.length, 'Identificadores repetidos.');
 export type ConfiguracaoAtendimento = z.infer<typeof configuracaoSchema>;
@@ -102,7 +102,7 @@ export function comandoDireto(texto: string): Interpretacao | null {
  * Rodada 22: o cliente pediu para parar sem que o pedido fosse inequívoco (pausa "por enquanto", junto de outro pedido,
  * só a forma): a conversa fica com a equipe SEM o bloqueio definitivo, mas nada automático sai mais — nem resposta do
  * Wall-e, nem o texto fixo de encaminhamento, nem reabertura automática, nem "Devolver ao Wall-e". Só a equipe responde.
- * A marca fica em `contexto.semAutomatico` (078); sem a 078 não há Wall-e nem a marca.
+ * A marca fica em `contexto.semAutomatico` (082); sem a 082 não há Wall-e nem a marca.
  */
 /**
  * Rodada 47: pedido de PAUSA (ou de parar junto de outro pedido — AMBÍGUO no opt-out) que a recepção registra quando a

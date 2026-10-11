@@ -6,15 +6,15 @@ import { conectarDescartavel, semTransacaoExplicita } from "../../comercial/post
 import { carregarAtendimento, cod } from "./harness-postgres.ts";
 
 /**
- * Coexistência das migrations 060 (atendimento), 063 (painel), 077a (mensagens prontas) e 065 (nome de perfil) no
+ * Coexistência das migrations 060 (atendimento), 063 (painel), 080 (mensagens prontas) e 065 (nome de perfil) no
  * PostgreSQL descartável (modelo "063" da árvore mesclada: 055…063, com a 060). Só pelo check:v1:postgres, com opt-in
  * e autorização explícita do Felipe. Dados sintéticos; nenhuma rede.
  *
- *  K1 painel primeiro: 063 (+060) → 077a → 065; os quatro postchecks oficiais passam;
- *  K2 atendimento primeiro: a 063 sai (banco sem uso do painel) e volta com 060/077a/065 presentes — precheck,
- *     migration e postcheck da 063 ok; 060/077a/065 intactas enquanto ela esteve fora;
+ *  K1 painel primeiro: 063 (+060) → 080 → 065; os quatro postchecks oficiais passam;
+ *  K2 atendimento primeiro: a 063 sai (banco sem uso do painel) e volta com 060/080/065 presentes — precheck,
+ *     migration e postcheck da 063 ok; 060/080/065 intactas enquanto ela esteve fora;
  *  K4 dados dos dois lados (conversa com nome de perfil, mensagem pronta, sessão com empresa ativa): postchecks ok;
- *  K3 rollback cruzado: 065 e 077a saem (com descarte explícito) sem tocar a 063 nem a sessão com empresa ativa;
+ *  K3 rollback cruzado: 065 e 080 saem (com descarte explícito) sem tocar a 063 nem a sessão com empresa ativa;
  *     voltam com postcheck; a 063 com uso recusa o próprio rollback (preserva os dados do painel).
  */
 const ler = (f: string) => readFileSync(f, "utf8");
@@ -23,34 +23,34 @@ const PRE063 = ler("database/checks/20261004_063_precheck.sql");
 const UP063 = ler("database/migrations/20261004_063_painel_desenvolvedor.sql");
 const POST063 = ler("database/checks/20261004_063_postcheck.sql");
 const DOWN063 = ler("database/rollback/20261004_063_painel_desenvolvedor_down.sql");
-const UP077A = ler("database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql");
-const POST077A = ler("database/checks/20261009_077a_postcheck.sql");
-const DOWN077A = ler("database/rollback/20261009_077a_whatsapp_mensagens_prontas_down.sql");
-const POS_DOWN077A = ler("database/checks/20261009_077a_rollback_postcheck.sql");
+const UP080 = ler("database/migrations/20261011_080_whatsapp_mensagens_prontas.sql");
+const POST080 = ler("database/checks/20261011_080_postcheck.sql");
+const DOWN080 = ler("database/rollback/20261011_080_whatsapp_mensagens_prontas_down.sql");
+const POS_DOWN080 = ler("database/checks/20261011_080_rollback_postcheck.sql");
 const UP065 = ler("database/migrations/20261004_065_whatsapp_nome_perfil.sql");
 const POST065 = ler("database/checks/20261004_065_postcheck.sql");
 const DOWN065 = ler("database/rollback/20261004_065_whatsapp_nome_perfil_down.sql");
 const POS_DOWN065 = ler("database/checks/20261004_065_rollback_postcheck.sql");
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 
-test("coexistência 060/063/077a/065: as duas ordens, dados dos dois lados e rollback cruzado", { timeout: 300_000 }, async (t) => {
+test("coexistência 060/063/080/065: as duas ordens, dados dos dois lados e rollback cruzado", { timeout: 300_000 }, async (t) => {
   if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") {
     t.skip("opt-in ausente: harness PostgreSQL não executado");
     return;
   }
   const c = await conectarDescartavel();
-  const quatro = async (rotulo: string) => { for (const [n, sql] of [["060", POST060], ["063", POST063], ["077a", POST077A], ["065", POST065]] as const) await assert.doesNotReject(c.query(sql), `${rotulo}: postcheck ${n}`); };
+  const quatro = async (rotulo: string) => { for (const [n, sql] of [["060", POST060], ["063", POST063], ["080", POST080], ["065", POST065]] as const) await assert.doesNotReject(c.query(sql), `${rotulo}: postcheck ${n}`); };
   try {
     // K1 — painel primeiro.
     await c.query(POST060); await c.query(POST063);
-    await c.query(UP077A); await c.query(POST077A);
+    await c.query(UP080); await c.query(POST080);
     await c.query(UP065); await c.query(POST065);
     await quatro("K1");
 
-    // K2 — atendimento primeiro: a 063 sai (sem uso) e volta com 060/077a/065 presentes.
+    // K2 — atendimento primeiro: a 063 sai (sem uso) e volta com 060/080/065 presentes.
     await c.query(DOWN063);
     assert.equal((await c.query("SELECT to_regclass('public.convites_acesso') AS t")).rows[0].t, null, "K2: 063 fora");
-    await c.query(POST060); await c.query(POST077A); await c.query(POST065);
+    await c.query(POST060); await c.query(POST080); await c.query(POST065);
     await c.query(PRE063); await c.query(UP063); await c.query(POST063);
     await quatro("K2");
 
@@ -72,16 +72,16 @@ test("coexistência 060/063/077a/065: as duas ordens, dados dos dois lados e rol
     assert.equal(linha.nome_perfil, "Perfil coexistência", "K4: tela com a empresa ativa = piloto e nome de perfil");
     await quatro("K4");
 
-    // K3 — rollback cruzado de 065 e 077a, com descarte explícito; 063 e a sessão com empresa ativa intactas.
+    // K3 — rollback cruzado de 065 e 080, com descarte explícito; 063 e a sessão com empresa ativa intactas.
     await c.query(DOWN065.replace("SET LOCAL statement_timeout = '60s';", "SET LOCAL statement_timeout = '60s';\nSET LOCAL kidmais.rollback_065_descartar_nomes = 'sim';"));
     await c.query(POS_DOWN065);
-    await c.query("BEGIN"); await c.query("SET LOCAL kidmais.rollback_077a_descartar_prontas = 'sim'");
-    await c.query(semTransacaoExplicita(DOWN077A)); await c.query("COMMIT");
-    await c.query(POS_DOWN077A);
+    await c.query("BEGIN"); await c.query("SET LOCAL kidmais.rollback_080_descartar_prontas = 'sim'");
+    await c.query(semTransacaoExplicita(DOWN080)); await c.query("COMMIT");
+    await c.query(POS_DOWN080);
     await c.query(POST060); await c.query(POST063);
     assert.equal((await c.query("SELECT empresa_ativa_id::text AS e FROM sessoes_administrativas WHERE id = $1::uuid", [s])).rows[0].e, A, "K3: sessão com empresa ativa intacta");
-    assert.equal((await servico.listarAtendimento(sessao as never)).conversas.length, 1, "K3: tela segue sem a 077a/065 (sem cache)");
-    await c.query(UP077A); await c.query(POST077A); await c.query(UP065); await c.query(POST065);
+    assert.equal((await servico.listarAtendimento(sessao as never)).conversas.length, 1, "K3: tela segue sem a 080/065 (sem cache)");
+    await c.query(UP080); await c.query(POST080); await c.query(UP065); await c.query(POST065);
     await quatro("K3 reaplicadas");
 
     // A 063 em uso recusa o próprio rollback: os dados do painel ficam.

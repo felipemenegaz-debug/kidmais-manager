@@ -13,7 +13,7 @@ const ARQ = { id: '3f3f3f3f-3f3f-4f3f-8f3f-3f3f3f3f3f3f', tipo: 'DOCUMENTO', nom
 function montar() {
   const chamadas: { url: string; corpo: unknown }[] = [];
   const adminFetch = async (url: string, init?: { method?: string; body?: unknown }) => {
-    if (!init?.method) return responder({ prontas: [], favoritas: [], podeGerenciar: true, recursos077b: true, recursos078: true, pacotes: [{ codigo: 'COMPLETA', nome: 'Completa' }], unidades: [] });
+    if (!init?.method) return responder({ prontas: [], favoritas: [], podeGerenciar: true, recursos081: true, recursos082: true, pacotes: [{ codigo: 'COMPLETA', nome: 'Completa' }], unidades: [] });
     if (url.startsWith('/api/admin/atendimento/arquivos')) { chamadas.push({ url, corpo: init.body }); return responder(ARQ); }
     chamadas.push({ url, corpo: JSON.parse(String(init.body)) }); return responder(null);
   };

@@ -115,7 +115,7 @@ test('biblioteca: gaveta lateral (diálogo), Esc fecha; "Anexar arquivo" mostra 
   const TXT = { id: '2e2e2e2e-2e2e-4e2e-8e2e-2e2e2e2e2e2e', titulo: 'Como chegar', categoria: 'Informações', tipo: 'TEXTO', texto: 'Rua das Festas, 100.', link: null, atalho: null, versao: 0, atualizada_em: '' };
   const pendentes: ((d: unknown) => void)[] = [];
   const responder = (data: unknown) => ({ ok: true, json: async () => ({ ok: true, data }) });
-  const adminFetch = async (_url: string, init?: { method?: string; body?: string }) => !init?.method ? responder({ prontas: [PDF, TXT], favoritas: [], podeGerenciar: false, recursos077b: true, recursos078: true })
+  const adminFetch = async (_url: string, init?: { method?: string; body?: string }) => !init?.method ? responder({ prontas: [PDF, TXT], favoritas: [], podeGerenciar: false, recursos081: true, recursos082: true })
     : new Promise(res => pendentes.push(d => res(responder(d))));
   const h = carregarComponente('components/admin/atendimento/MensagensProntas.tsx', { '@/lib/http/admin-fetch': { adminFetch }, '@/lib/whatsapp/atendimento/prontas': prontas, './atendimento.module.css': cssFalso });
   const usados: unknown[] = [];

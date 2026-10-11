@@ -12,7 +12,7 @@ import { pedidoDeParar } from "./opt-out.ts";
  * M1 (revisão da correção P1): com o limite diário de respostas ESGOTADO, a mensagem vai para a equipe em SILÊNCIO — sem
  * modelo, sem Wall-e e sem o texto fixo de encaminhamento — e o resumo diz LIMITE_DIARIO: o silêncio não é apresentado
  * como reconhecimento de pausa. Marcas e memória já gravadas ficam como estão; toda marca registra a origem (B5).
- * Worker e recepção REAIS no PostgreSQL descartável (modelo "atual" + 060/077a/077b/078), só pelo check:v1:postgres, com
+ * Worker e recepção REAIS no PostgreSQL descartável (modelo "atual" + 060/080/081/082), só pelo check:v1:postgres, com
  * opt-in. Contatos e dados sintéticos; transporte simulado (nenhuma rede). A porta do Wall-e simula o modelo para a
  * paráfrase do W22 (pausa que as regras não reconhecem) e responde as demais mensagens com texto sintético e memória.
  *
@@ -27,9 +27,9 @@ import { pedidoDeParar } from "./opt-out.ts";
 const ler = (f: string) => readFileSync(f, "utf8");
 const MIGRATIONS = [
   ["database/migrations/20261001_060_whatsapp_atendimento.sql", "database/checks/20261001_060_postcheck.sql"],
-  ["database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql", "database/checks/20261009_077a_postcheck.sql"],
-  ["database/migrations/20261009_077b_whatsapp_prontas_midia.sql", "database/checks/20261009_077b_postcheck.sql"],
-  ["database/migrations/20261009_078_wall_e_atendimento.sql", "database/checks/20261009_078_postcheck.sql"],
+  ["database/migrations/20261011_080_whatsapp_mensagens_prontas.sql", "database/checks/20261011_080_postcheck.sql"],
+  ["database/migrations/20261011_081_whatsapp_prontas_midia.sql", "database/checks/20261011_081_postcheck.sql"],
+  ["database/migrations/20261011_082_wall_e_atendimento.sql", "database/checks/20261011_082_postcheck.sql"],
 ].map(([up, post]) => [ler(up), ler(post)]);
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 const PARAFRASE_W22 = "dá uma segurada nas mensagens por uns tempos, depois eu volto a falar com vcs";

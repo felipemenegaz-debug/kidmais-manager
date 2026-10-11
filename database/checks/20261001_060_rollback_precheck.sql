@@ -16,7 +16,7 @@ BEGIN
      OR to_regclass('public.whatsapp_atendimento_arquivos') IS NOT NULL
      OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.whatsapp_atendimento_conversas'::regclass AND attname IN ('nome_perfil', 'nome_perfil_em', 'contexto', 'passagem') AND NOT attisdropped)
      OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.whatsapp_atendimento_mensagens') AND attname IN ('midia_tipo', 'midia_pronta_id', 'origem_grupo_id', 'midia_arquivo_id', 'fonte') AND NOT attisdropped) THEN
-    RAISE EXCEPTION '060 rollback precheck: 065, 077a, 077b ou 078 ainda estão aplicadas. Ordem: 078 → 077b → 077a → 065 → 060.';
+    RAISE EXCEPTION '060 rollback precheck: 065, 080, 081 ou 082 ainda estão aplicadas. Ordem: 082 → 081 → 080 → 065 → 060.';
   END IF;
   conversas := (SELECT count(*) FROM whatsapp_atendimento_conversas);
   mensagens := (SELECT count(*) FROM whatsapp_atendimento_mensagens);

@@ -35,7 +35,7 @@ const entidadesPrevistas = (e) => (e ? { data: e.data, convidados: e.convidados,
  * revalidado (regras, ou modelo + revalidarEntendimento); `usos()` (opcional) devolve os usos de modelo registrados.
  */
 export async function simularSequencia(m, itens, { catalogos, config, fontes, agora, entender, usos = () => [], rotulos = {} }) {
-  // Rodada 32: `contexto.semAutomatico` da conversa (078) — a marca persistente da pausa, gravada pelo worker quando o
+  // Rodada 32: `contexto.semAutomatico` da conversa (082) — a marca persistente da pausa, gravada pelo worker quando o
   // Wall-e passa em silêncio um pedido de parar sem bloqueio (PARAR_A_CONFIRMAR). Com ela, nada é automático: nem
   // entrada processada (worker.mensagemAindaValida do código avaliado lê a marca), nem reabertura depois do encerramento,
   // nem "Devolver ao Wall-e" (recusado: ATENDIMENTO_PAUSA_PEDIDA).

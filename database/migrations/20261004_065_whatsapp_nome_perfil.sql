@@ -5,10 +5,10 @@
 -- (que vem do cadastro de clientes da empresa, consultado na hora, sem coluna nova).
 --
 -- Aditiva e sem reescrita de tabela: duas colunas anuláveis em whatsapp_atendimento_conversas (isolada por empresa e
--- ambiente desde a 060). Exige a 060; independe da 077a. Falha fechada se já aplicada.
+-- ambiente desde a 060). Exige a 060; independe da 080. Falha fechada se já aplicada.
 -- Aplicação real somente com autorização explícita (docs/OPERACAO_AGENTES.md). Postcheck: database/checks/20261004_065_postcheck.sql.
 -- Numeração coordenada em 04/10/2026: a 063 fica com feat/painel-desenvolvedor-20261004 (já publicada); as do
--- atendimento são a 077a (mensagens prontas) e esta 065. Entram em qualquer ordem (docs/IDENTIFICACAO_CONTATO_ATENDIMENTO.md).
+-- atendimento são a 080 (mensagens prontas) e esta 065. Entram em qualquer ordem (docs/IDENTIFICACAO_CONTATO_ATENDIMENTO.md).
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';

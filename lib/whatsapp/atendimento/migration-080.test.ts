@@ -2,20 +2,20 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-// Leitura estática dos arquivos da 077a (nenhum banco é acessado). A aplicação real exige autorização explícita.
-const up = readFileSync('database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql', 'utf8');
-const down = readFileSync('database/rollback/20261009_077a_whatsapp_mensagens_prontas_down.sql', 'utf8');
-const post = readFileSync('database/checks/20261009_077a_postcheck.sql', 'utf8');
+// Leitura estática dos arquivos da 080 (nenhum banco é acessado). A aplicação real exige autorização explícita.
+const up = readFileSync('database/migrations/20261011_080_whatsapp_mensagens_prontas.sql', 'utf8');
+const down = readFileSync('database/rollback/20261011_080_whatsapp_mensagens_prontas_down.sql', 'utf8');
+const post = readFileSync('database/checks/20261011_080_postcheck.sql', 'utf8');
 const semComentarios = (sql: string) => sql.replace(/--.*$/gm, '');
 
-test('077a é aditiva: só cria as duas tabelas novas, não altera a 060 e falha fechada se já existir', () => {
+test('080 é aditiva: só cria as duas tabelas novas, não altera a 060 e falha fechada se já existir', () => {
   const sql = semComentarios(up);
   assert.match(sql, /^BEGIN;[\s\S]*COMMIT;\s*$/m); assert.match(sql, /SET LOCAL lock_timeout = '5s'/);
   assert.deepEqual([...sql.matchAll(/CREATE TABLE (\w+)/g)].map(m => m[1]), ['whatsapp_atendimento_mensagens_prontas', 'whatsapp_atendimento_mensagens_prontas_favoritas']);
   // "ON DELETE RESTRICT" de chave estrangeira não é DML; procura comandos.
   assert.doesNotMatch(sql, /\b(ALTER\s+TABLE|DROP\s+\w+|TRUNCATE|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i, 'nenhuma alteração em objeto existente nem DML');
   assert.equal([...sql.matchAll(/ON DELETE (\w+)/g)].map(m => m[1]).join(), 'RESTRICT');
-  assert.match(sql, /RAISE EXCEPTION '077a exige a 060/); assert.match(sql, /RAISE EXCEPTION '077a já aplicada/);
+  assert.match(sql, /RAISE EXCEPTION '080 exige a 060/); assert.match(sql, /RAISE EXCEPTION '080 já aplicada/);
   assert.match(sql, /UNIQUE \(id, empresa_id, ambiente\)/);
   assert.match(sql, /FOREIGN KEY \(mensagem_pronta_id, empresa_id, ambiente\) REFERENCES whatsapp_atendimento_mensagens_prontas\(id, empresa_id, ambiente\)/, 'favorita presa à mesma empresa/ambiente');
   assert.match(sql, /CHECK \(\(tipo = 'LINK'\) = \(link IS NOT NULL\)\)/, 'link gravado só no tipo LINK; individual nunca gravado');
@@ -24,29 +24,29 @@ test('077a é aditiva: só cria as duas tabelas novas, não altera a 060 e falha
   assert.doesNotMatch(sql, /ON DELETE CASCADE/, 'remoção é lógica');
 });
 
-test('rollback da 077a só remove as tabelas dela e exige decisão explícita com dados gravados', () => {
+test('rollback da 080 só remove as tabelas dela e exige decisão explícita com dados gravados', () => {
   const sql = semComentarios(down);
   assert.deepEqual([...sql.matchAll(/DROP TABLE (\w+)/g)].map(m => m[1]), ['whatsapp_atendimento_mensagens_prontas_favoritas', 'whatsapp_atendimento_mensagens_prontas']);
   assert.match(sql, /LOCK TABLE [\s\S]* IN ACCESS EXCLUSIVE MODE/);
-  assert.match(sql, /kidmais\.rollback_077a_descartar_prontas/);
-  // Revisão final (H1/M1): a guarda de dependentes LÊ o catálogo das tabelas da 060 (colunas da 077b/078 em mensagens);
+  assert.match(sql, /kidmais\.rollback_080_descartar_prontas/);
+  // Revisão final (H1/M1): a guarda de dependentes LÊ o catálogo das tabelas da 060 (colunas da 081/082 em mensagens);
   // nenhum comando que escreve ou trava toca a 060.
   const comandos = sql.split(';').map((s) => s.trim()).filter((s) => /^(DROP|ALTER|LOCK|DELETE|UPDATE|INSERT|TRUNCATE|CREATE)\b/i.test(s));
   assert.ok(comandos.length >= 3, String(comandos.length));
   for (const c of comandos) assert.doesNotMatch(c, /whatsapp_atendimento_(conversas|mensagens|config|status|auditoria)\b(?!_)/, `não toca a 060: ${c.slice(0, 60)}`);
-  const recusa = sql.indexOf('a 077b ou a 078 ainda estão aplicadas');
+  const recusa = sql.indexOf('a 081 ou a 082 ainda estão aplicadas');
   assert.ok(recusa > 0 && recusa < sql.indexOf('LOCK TABLE'), 'recusa dependentes antes de travar ou alterar');
 });
 
-test('postcheck da 077a é somente leitura', () => {
+test('postcheck da 080 é somente leitura', () => {
   const sql = semComentarios(post);
   assert.doesNotMatch(sql, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE|GRANT)\b/i);
-  assert.match(sql, /postcheck 077a: favoritas sem chave composta/);
-  assert.match(sql, /SELECT '077a postcheck OK'/);
+  assert.match(sql, /postcheck 080: favoritas sem chave composta/);
+  assert.match(sql, /SELECT '080 postcheck OK'/);
 });
 
-test('pós-rollback da 077a é somente leitura e confere a 060 intacta', () => {
-  const sql = semComentarios(readFileSync('database/checks/20261009_077a_rollback_postcheck.sql', 'utf8'));
+test('pós-rollback da 080 é somente leitura e confere a 060 intacta', () => {
+  const sql = semComentarios(readFileSync('database/checks/20261011_080_rollback_postcheck.sql', 'utf8'));
   assert.doesNotMatch(sql, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE|GRANT)\b/i);
   assert.match(sql, /a 060 foi afetada/);
 });

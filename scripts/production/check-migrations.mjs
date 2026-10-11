@@ -86,9 +86,9 @@ const approvedFiles = [
   '20261009_074_convite_familias.sql',
   '20261009_074a_planos_comerciais.sql',
   '20261009_075_renovacao_fundador.sql',
-  '20261009_077a_whatsapp_mensagens_prontas.sql',
-  '20261009_077b_whatsapp_prontas_midia.sql',
-  '20261009_078_wall_e_atendimento.sql',
+  '20261011_080_whatsapp_mensagens_prontas.sql',
+  '20261011_081_whatsapp_prontas_midia.sql',
+  '20261011_082_wall_e_atendimento.sql',
   // Staging (10/10): CPF e regras de pagamento por empresa, com precheck/postcheck externos (forma padrão). O inventário
   // do staging em 5a626ea não as registrava; registradas na integração do atendimento.
   '20261010_076_cpf_por_empresa.sql',
@@ -99,11 +99,13 @@ const approvedFiles = [
 // - 049–051 carry their prechecks inline (DO $$ ... RAISE) and have no external check files;
 // - 052 names its checks with the "financeiro" suffix;
 // - 054 needs its immediate backfill between precheck and postcheck;
-// - 055a–d, 058, 059, 060, 065, 077a, 077b and 078 (WhatsApp atendimento: 065 kept, reserved by staging; the original
+// - 055a–d, 058, 059, 060, 065, 080, 081 and 082 (WhatsApp atendimento: 065 kept, reserved by staging; the original
 //   064/066/067 became 070/071/072, then 073/074/075 on 07/10 (staging took 070, another branch 071), then 076/077/078 on
-//   09/10 (staging took 073, 074, 074a and 075), and on 10/10 076/077 became 077a/077b while 078 was kept (staging took
-//   076 cpf_por_empresa and 077 regras_pagamento_empresa; 077a/077b keep 078 after both, as it requires them). A number
-//   being free in one reading is never a reservation across sessions)
+//   09/10 (staging took 073, 074, 074a and 075), on 10/10 076/077 became 077a/077b while 078 was kept (staging took
+//   076 cpf_por_empresa and 077 regras_pagamento_empresa), and on 11/10 077a/077b/078 became 080/081/082 (staging took
+//   078 catalogo_buffet_por_empresa and 079 convite_recuperacao_manual; 080–082 stay after every migration of the
+//   inventory, in list and file-name order). 080–082 are a provisional local choice, not a coordinated reservation:
+//   a number being free in one reading is never a reservation across sessions)
 //   carry the precheck inline and have an external postcheck.
 const checkFiles = {
   '049': [], '050': [], '051': [],
@@ -115,11 +117,11 @@ const checkFiles = {
   '059': ['20261001_059_postcheck.sql'],
   '060': ['20261001_060_postcheck.sql'],
   '065': ['20261004_065_postcheck.sql'],
-  '077a': ['20261009_077a_postcheck.sql'],
-  '077b': ['20261009_077b_postcheck.sql'],
-  '078': ['20261009_078_postcheck.sql'],
+  '080': ['20261011_080_postcheck.sql'],
+  '081': ['20261011_081_postcheck.sql'],
+  '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '077a', '077b', '078'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '080', '081', '082'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -167,9 +169,9 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['076', '077']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  r.pending.push('077A_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  r.pending.push('077B_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  r.pending.push('078_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('080_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('081_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('082_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

@@ -1,4 +1,4 @@
--- Rollback da 078 (Wall-e). NÃO EXECUTAR sem autorização explícita (docs/OPERACAO_AGENTES.md).
+-- Rollback da 082 (Wall-e). NÃO EXECUTAR sem autorização explícita (docs/OPERACAO_AGENTES.md).
 --
 -- *** DESTRUTIVO quando há dados dos recursos novos. Com a decisão explícita (passo 3) este script APAGA, sem volta pelo
 -- *** próprio script: todos os arquivos próprios da biblioteca (fotos, vídeos e PDFs) de todas as empresas e ambientes
@@ -7,22 +7,22 @@
 -- *** mensagem recebida perdem o agrupamento (continuam no histórico); a fonte das respostas; a memória e o resumo de
 -- *** passagem das conversas. Rascunhos são ARQUIVADOS (no código anterior apareceriam como ativos).
 -- *** Antes: exportar whatsapp_atendimento_arquivos, as colunas novas de mensagens/prontas/conversas e ter backup com
--- *** restauração comprovada. Reaplicar a 078 depois NÃO recupera esses dados.
+-- *** restauração comprovada. Reaplicar a 082 depois NÃO recupera esses dados.
 --
--- Ordem: 078 → 077b → 077a → 065 → 060. Este down vem ANTES do down da 077b, que recusa enquanto qualquer objeto da 078
--- existir (guarda explícita; a FK do arquivo sozinha não impedia o down da 077b).
+-- Ordem: 082 → 081 → 080 → 065 → 060. Este down vem ANTES do down da 081, que recusa enquanto qualquer objeto da 082
+-- existir (guarda explícita; a FK do arquivo sozinha não impedia o down da 081).
 -- Fail closed, numa transação só:
 --   1. lock_timeout curto; ACCESS EXCLUSIVE nas tabelas antes de conferir;
 --   2. resposta com arquivo próprio/PDF na fila (PENDENTE, PROCESSANDO ou ENVIANDO) impede o rollback sempre;
---   3. qualquer dado dos recursos novos exige: SET LOCAL kidmais.rollback_078_descartar = 'sim';
---   4. as restrições da 077b voltam exatamente como eram (mesmos nomes e definições).
+--   3. qualquer dado dos recursos novos exige: SET LOCAL kidmais.rollback_082_descartar = 'sim';
+--   4. as restrições da 081 voltam exatamente como eram (mesmos nomes e definições).
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
 DO $$ BEGIN
   IF to_regclass('public.whatsapp_atendimento_arquivos') IS NULL THEN
-    RAISE EXCEPTION '078 ausente: nada a remover.';
+    RAISE EXCEPTION '082 ausente: nada a remover.';
   END IF;
 END $$;
 
@@ -31,15 +31,15 @@ LOCK TABLE whatsapp_atendimento_mensagens_prontas_favoritas, whatsapp_atendiment
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens WHERE (midia_arquivo_id IS NOT NULL OR midia_tipo = 'DOCUMENTO') AND estado IN ('PENDENTE', 'PROCESSANDO', 'ENVIANDO')) THEN
-    RAISE EXCEPTION 'Rollback da 078 recusado: há resposta com arquivo próprio ou PDF na fila de envio. Aguarde o resultado do envio ou encerre a conversa antes.';
+    RAISE EXCEPTION 'Rollback da 082 recusado: há resposta com arquivo próprio ou PDF na fila de envio. Aguarde o resultado do envio ou encerre a conversa antes.';
   END IF;
   IF (EXISTS (SELECT 1 FROM whatsapp_atendimento_arquivos)
       OR EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens WHERE midia_arquivo_id IS NOT NULL OR midia_tipo = 'DOCUMENTO' OR origem_grupo_id IS NOT NULL OR fonte IS NOT NULL)
       OR EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens_prontas WHERE arquivo_id IS NOT NULL OR tipo = 'DOCUMENTO' OR estado = 'RASCUNHO' OR envio_automatico
                   OR finalidade IS NOT NULL OR pacote_codigo IS NOT NULL OR estabelecimento_id IS NOT NULL)
       OR EXISTS (SELECT 1 FROM whatsapp_atendimento_conversas WHERE contexto <> '{}'::jsonb OR passagem IS NOT NULL))
-     AND COALESCE(current_setting('kidmais.rollback_078_descartar', true), '') <> 'sim' THEN
-    RAISE EXCEPTION 'Rollback da 078 recusado: há dados dos recursos do Wall-e (arquivos, PDFs, rascunhos, autorização automática, várias saídas, fonte, memória ou passagem). Exporte-os e confirme o descarte com SET LOCAL kidmais.rollback_078_descartar = ''sim''.';
+     AND COALESCE(current_setting('kidmais.rollback_082_descartar', true), '') <> 'sim' THEN
+    RAISE EXCEPTION 'Rollback da 082 recusado: há dados dos recursos do Wall-e (arquivos, PDFs, rascunhos, autorização automática, várias saídas, fonte, memória ou passagem). Exporte-os e confirme o descarte com SET LOCAL kidmais.rollback_082_descartar = ''sim''.';
   END IF;
 END $$;
 
@@ -93,6 +93,6 @@ ALTER TABLE whatsapp_atendimento_mensagens_prontas
 -- Conversas e arquivos.
 ALTER TABLE whatsapp_atendimento_conversas DROP COLUMN passagem, DROP COLUMN contexto;
 DROP TABLE whatsapp_atendimento_arquivos;
-DROP FUNCTION kidmais078_arquivo_imutavel();
+DROP FUNCTION kidmais082_arquivo_imutavel();
 
 COMMIT;

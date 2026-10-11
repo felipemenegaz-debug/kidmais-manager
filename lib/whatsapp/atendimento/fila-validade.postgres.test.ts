@@ -9,7 +9,7 @@ import { pausaPedidaNaRecepcao, comandoDireto } from "./core.ts";
 
 /**
  * Revisão final (M3/M4): nenhuma entrada fica à espera de uma resposta automática "para depois". Worker REAL no
- * PostgreSQL descartável (modelo "atual" + 060/077a/077b/078), só pelo check:v1:postgres, com opt-in. Dados sintéticos;
+ * PostgreSQL descartável (modelo "atual" + 060/080/081/082), só pelo check:v1:postgres, com opt-in. Dados sintéticos;
  * Wall-e e modelo por portas simuladas que contam as chamadas; transporte simulado (nenhuma rede).
  *
  *  V1 entrada parada além de 15 min: equipe (SEM_RESPOSTA_AUTOMATICA), nada enviado, Wall-e e modelo não chamados;
@@ -27,9 +27,9 @@ import { pausaPedidaNaRecepcao, comandoDireto } from "./core.ts";
 const ler = (f: string) => readFileSync(f, "utf8");
 const MIGRATIONS = [
   ["database/migrations/20261001_060_whatsapp_atendimento.sql", "database/checks/20261001_060_postcheck.sql"],
-  ["database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql", "database/checks/20261009_077a_postcheck.sql"],
-  ["database/migrations/20261009_077b_whatsapp_prontas_midia.sql", "database/checks/20261009_077b_postcheck.sql"],
-  ["database/migrations/20261009_078_wall_e_atendimento.sql", "database/checks/20261009_078_postcheck.sql"],
+  ["database/migrations/20261011_080_whatsapp_mensagens_prontas.sql", "database/checks/20261011_080_postcheck.sql"],
+  ["database/migrations/20261011_081_whatsapp_prontas_midia.sql", "database/checks/20261011_081_postcheck.sql"],
+  ["database/migrations/20261011_082_wall_e_atendimento.sql", "database/checks/20261011_082_postcheck.sql"],
 ].map(([up, post]) => [ler(up), ler(post)]);
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 const PAUSA = "por enquanto não precisa me mandar mais nada, depois eu chamo vcs";
@@ -53,7 +53,7 @@ test("fila do atendimento: validade das entradas (15 min) e automação global d
     const u = await id(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness fila', $2, 'REPRESENTANTE_AUTORIZADO', true) RETURNING id`, [`${cod("u")}@example.test`, SENHA]);
     const m = await id(`INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1::uuid, $2::uuid, 'PENDENTE', clock_timestamp(), 'REPRESENTANTE_AUTORIZADO') RETURNING id`, [A, u]);
     await q(`UPDATE memberships SET status = 'ATIVA' WHERE id = $1::uuid`, [m]);
-    // Modelo "atual" (sem a 063): sessão sem empresa ativa, como nas suítes da 060/078.
+    // Modelo "atual" (sem a 063): sessão sem empresa ativa, como nas suítes da 060/082.
     const sessao = { usuario_id: u, papel: "REPRESENTANTE_AUTORIZADO" } as never;
     const { servico, worker } = carregarAtendimento(A);
     await servico.salvarConfiguracao(sessao, { ativo: true, nome: "Buffet sintético", perguntas: [], wallE: { ativo: true } });

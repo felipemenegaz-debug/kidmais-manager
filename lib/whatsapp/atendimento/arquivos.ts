@@ -1,5 +1,5 @@
 /**
- * Arquivos da biblioteca do atendimento (078): foto, vídeo e PDF enviados pela empresa e servidos por URL pública com
+ * Arquivos da biblioteca do atendimento (082): foto, vídeo e PDF enviados pela empresa e servidos por URL pública com
  * token. Funções puras (sem banco e sem rede), usadas pelo upload, pela rota pública e pelo transporte.
  *
  * Requisitos do provedor (Gupshup, "Message Type: Outbound (free form)", e Meta Cloud API, "Supported media types",

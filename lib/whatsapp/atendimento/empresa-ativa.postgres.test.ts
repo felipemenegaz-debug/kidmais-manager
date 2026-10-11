@@ -21,11 +21,11 @@ import { carregarAtendimento, cod } from "./harness-postgres.ts";
  *  E6 sem vínculo ativo na piloto (só outra empresa, ou PENDENTE) com a piloto "ativa" → ATENDIMENTO_SEM_ACESSO;
  *  E7 recepção e worker não usam sessão: seguem gravando na piloto com a 063 aplicada.
  *  Configurar é recusado pelo ACESSO mesmo com configuração inválida (o acesso é conferido antes do conteúdo).
- * Sem a 063 (campo ausente) o comportamento anterior é coberto pelas suítes 060/077a/065 no modelo "atual".
+ * Sem a 063 (campo ausente) o comportamento anterior é coberto pelas suítes 060/080/065 no modelo "atual".
  */
 const ler = (f: string) => readFileSync(f, "utf8");
-const UP077A = ler("database/migrations/20261009_077a_whatsapp_mensagens_prontas.sql");
-const POST077A = ler("database/checks/20261009_077a_postcheck.sql");
+const UP080 = ler("database/migrations/20261011_080_whatsapp_mensagens_prontas.sql");
+const POST080 = ler("database/checks/20261011_080_postcheck.sql");
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 
 type Sessao = SessaoParaTenant & { id: string; empresa_ativa_id: string | null };
@@ -65,7 +65,7 @@ test("empresa ativa × piloto (063): seleção explícita, divergência, seleç�
   try {
     assert.notEqual((await c.query("SELECT to_regclass('public.whatsapp_atendimento_conversas') AS t")).rows[0].t, null, "modelo 063 da árvore mesclada contém a 060");
     assert.equal((await c.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name='sessoes_administrativas' AND column_name='empresa_ativa_id'")).rows[0].n, 1, "063 aplicada (empresa ativa na sessão)");
-    await c.query(UP077A); await c.query(POST077A);
+    await c.query(UP080); await c.query(POST080);
 
     const f = fixtures(c);
     const A = await f.empresa("Empresa piloto (empresa ativa)"), B = await f.empresa("Outra empresa (empresa ativa)");

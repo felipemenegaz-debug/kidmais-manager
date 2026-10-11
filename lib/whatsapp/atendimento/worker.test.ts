@@ -18,7 +18,7 @@ function carregar(query: (sql: string, args?: unknown[]) => Promise<{rows: unkno
     './configuracao.ts':{entendimentoSoRegras:()=>modoRegras.ativo,ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido,origemMidia:()=>null},
     './arquivos.ts':arquivos,
     './core.ts':core,
-    './service.ts':{registroDaPausa:(texto:string,em:string)=>({motivo:'PARAR_A_CONFIRMAR',motivos:['PARAR_A_CONFIRMAR'],em,coletado:{data:null,turno:null,convidados:null,pacote:null,unidade:null,tema:null},enviados:[],pendentes:[],ultimaMensagem:texto.slice(0,500)}),configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem078:async()=>false},
+    './service.ts':{registroDaPausa:(texto:string,em:string)=>({motivo:'PARAR_A_CONFIRMAR',motivos:['PARAR_A_CONFIRMAR'],em,coletado:{data:null,turno:null,convidados:null,pacote:null,unidade:null,tema:null},enviados:[],pendentes:[],ultimaMensagem:texto.slice(0,500)}),configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem082:async()=>false},
     './modelo.ts':{interpretarMensagem:async()=>{throw Error('modelo real proibido no teste');}},
     // Funções puras reais (montagem do conteúdo); a rede continua proibida.
     './transporte.ts':{...transporte,enviarMensagem:async()=>{throw Error('rede real proibida no teste');}},
@@ -349,7 +349,7 @@ test('configuração alterada depois da marcação ENVIANDO não retém o envio 
   assert(comandos.some(sql=>sql.includes("SET estado='SUBMETIDA'")));
 });
 
-// 077b: foto/vídeo do atendente saem pelo mesmo caminho (mesmas travas); o conteúdo vem da própria linha.
+// 081: foto/vídeo do atendente saem pelo mesmo caminho (mesmas travas); o conteúdo vem da própria linha.
 const midia = {...mensagem,origem_id:null,autor_usuario_id:'u',texto:'Salgados da casa',midia_tipo:'IMAGEM' as const,midia_url:'https://cdn.exemplo.test/salgados.jpg'};
 function workerMidia(conv: Conversa, m: Mensagem = midia) {
   return carregar(async(sql)=>{
@@ -360,13 +360,13 @@ function workerMidia(conv: Conversa, m: Mensagem = midia) {
     return {rows:[]};
   });
 }
-test('077b: foto do atendente vai ao transporte como conteúdo IMAGEM (URL e legenda da linha), uma única vez',async()=>{
+test('081: foto do atendente vai ao transporte como conteúdo IMAGEM (URL e legenda da linha), uma única vez',async()=>{
   const enviados: transporte.ConteudoSaida[]=[];
   const r=await workerMidia({...conversa,estado:'HUMANO',responsavel_id:'u'}).processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async(_c:string,conteudo:transporte.ConteudoSaida)=>{enviados.push(conteudo);return 'gs-midia';}} as never);
   assert.equal(r,'SUBMETIDA');
   assert.deepEqual(enviados,[{tipo:'IMAGEM',url:'https://cdn.exemplo.test/salgados.jpg',legenda:'Salgados da casa'}]);
 });
-test('077b: PARAR, janela de 24 h vencida e conversa fora do atendente cancelam a foto antes do provedor',async()=>{
+test('081: PARAR, janela de 24 h vencida e conversa fora do atendente cancelam a foto antes do provedor',async()=>{
   const vencida=new Date(agora.getTime()-25*60*60*1000).toISOString();
   for (const conv of [{...conversa,estado:'HUMANO' as const,responsavel_id:'u',nao_contatar:true},{...conversa,estado:'HUMANO' as const,responsavel_id:'u',ultima_entrada_em:vencida},{...conversa,estado:'HUMANO' as const,responsavel_id:'outro'},{...conversa,estado:'IA' as const}]) {
     let envios=0;
@@ -434,8 +434,8 @@ test('composition root: a chave global da IA chega ao processador como semAutoma
   assert.doesNotMatch(readFileSync('lib/whatsapp/atendimento/worker.ts','utf8'),/INTELIGENCIA_ENABLED|process\.env/);
 });
 
-// Proteção final: modo regras impede o modelo em TODOS os caminhos do atendimento. Neste stub a 078 está ausente
-// (tem078=false): a fase B é o caminho exercido — o mesmo de "Wall-e desligado na tela".
+// Proteção final: modo regras impede o modelo em TODOS os caminhos do atendimento. Neste stub a 082 está ausente
+// (tem082=false): a fase B é o caminho exercido — o mesmo de "Wall-e desligado na tela".
 test('modo regras: a fase B nunca chama o modelo (porta presente ou nula), encaminha com o texto fixo; PARAR segue sem modelo',async()=>{
   const cenarios:[string,boolean,boolean][]=[['regras com porta passada',true,true],['regras com porta nula',true,false],['modo modelo com porta nula',false,false]];
   for (const [rotulo,regras,comPorta] of cenarios) {

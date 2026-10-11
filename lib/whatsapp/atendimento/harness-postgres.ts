@@ -15,7 +15,7 @@ import * as normalizers from "../../clientes/repositories/normalizers.ts";
 import { listarContratacoes } from "../../fechamentos/contratacoes.ts";
 
 /**
- * Apoio das suítes PostgreSQL do atendimento (077a e concorrência do encerramento). Só usado por *.postgres.test.ts,
+ * Apoio das suítes PostgreSQL do atendimento (080 e concorrência do encerramento). Só usado por *.postgres.test.ts,
  * que rodam pelo check:v1:postgres no cluster descartável com opt-in e autorização explícita. Dados sintéticos.
  * Serviço, worker, biblioteca e o repositório REAL de clientes rodam com uma conexão por transação (como o pool),
  * para corridas e travas de verdade. Modelo e Gupshup são portas simuladas: nenhuma chamada de rede.
@@ -23,7 +23,7 @@ import { listarContratacoes } from "../../fechamentos/contratacoes.ts";
  * lib/autenticacao/usuarios.ts cria usuário (invariante de lib/autenticacao/plataforma.test.ts).
  */
 export const cod = (p: string) => `${p}${randomBytes(4).toString("hex")}`;
-/** Transporte real só para montar o conteúdo da linha (077b); o envio de rede fica bloqueado (a porta `enviar` é simulada). */
+/** Transporte real só para montar o conteúdo da linha (081); o envio de rede fica bloqueado (a porta `enviar` é simulada). */
 export const transporteSemRede = { ...transporte, enviarMensagem: async () => { throw new Error("rede proibida no harness"); } };
 
 export async function withTransaction<T>(fn: (tx: DbExecutor) => Promise<T>): Promise<T> {

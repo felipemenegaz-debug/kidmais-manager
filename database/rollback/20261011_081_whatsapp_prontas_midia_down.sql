@@ -1,26 +1,26 @@
--- Rollback da 077b. NÃO EXECUTAR sem autorização explícita (docs/OPERACAO_AGENTES.md).
+-- Rollback da 081. NÃO EXECUTAR sem autorização explícita (docs/OPERACAO_AGENTES.md).
 --
 -- *** DESTRUTIVO quando há dados de mídia. Com as duas decisões explícitas (passos 3 e 4) este script APAGA, sem volta
 -- *** pelo próprio script: a URL, o tipo e a origem (pronta + versão) de toda resposta já registrada com foto/vídeo (o
 -- *** texto/legenda fica); TODAS as mensagens prontas de foto/vídeo, ativas ou arquivadas, de todas as empresas e
 -- *** ambientes do banco, com as favoritas delas; e os atalhos novos (salgados, bolos, endereço, localização) das demais.
 -- *** Antes: exportar whatsapp_atendimento_mensagens (colunas de mídia) e whatsapp_atendimento_mensagens_prontas(+favoritas)
--- *** e ter backup com restauração comprovada. Reaplicar a 077b depois NÃO recupera esses dados.
+-- *** e ter backup com restauração comprovada. Reaplicar a 081 depois NÃO recupera esses dados.
 --
 -- O rollback de código não exige este script: sem as colunas a tela só deixa de oferecer fotos e vídeos (o serviço
--- confere o catálogo a cada uso). Este down remove a estrutura e devolve as restrições da 077a com os nomes originais.
--- Ordem entre migrations: 078 → 077b → 077a → 065 → 060. Este down recusa enquanto qualquer objeto da 078 existir e vem
--- ANTES do down da 077a (que recusa enquanto a 077b existir). A recusa acontece antes de travar ou alterar qualquer coisa.
+-- confere o catálogo a cada uso). Este down remove a estrutura e devolve as restrições da 080 com os nomes originais.
+-- Ordem entre migrations: 082 → 081 → 080 → 065 → 060. Este down recusa enquanto qualquer objeto da 082 existir e vem
+-- ANTES do down da 080 (que recusa enquanto a 081 existir). A recusa acontece antes de travar ou alterar qualquer coisa.
 --
 -- Fail closed, numa transação só:
 --   1. lock_timeout curto; trava ACCESS EXCLUSIVE nas duas tabelas antes de conferir;
 --   2. resposta com mídia ainda na fila (PENDENTE, PROCESSANDO ou ENVIANDO) impede o rollback mesmo com as decisões
 --      de descarte: sem as colunas ela sairia só com a legenda (ou vazia). Aguarde o resultado do envio ou encerre a conversa;
 --   3. respostas já registradas com mídia: exige exportação prévia e decisão explícita de descarte da URL e da origem:
---      SET LOCAL kidmais.rollback_077b_descartar_midias = 'sim';
---   4. mensagens prontas de foto/vídeo (ativas ou arquivadas) ou com os atalhos novos: as restrições da 077a não as
+--      SET LOCAL kidmais.rollback_081_descartar_midias = 'sim';
+--   4. mensagens prontas de foto/vídeo (ativas ou arquivadas) ou com os atalhos novos: as restrições da 080 não as
 --      aceitam. Exige exportação prévia e decisão explícita:
---      SET LOCAL kidmais.rollback_077b_descartar_prontas_midia = 'sim'
+--      SET LOCAL kidmais.rollback_081_descartar_prontas_midia = 'sim'
 --      → as prontas de foto/vídeo são removidas (com as favoritas delas) e os atalhos novos ficam vazios. A remoção vem
 --        DEPOIS de tirar a origem das mensagens (a FK não deixaria antes).
 BEGIN;
@@ -30,15 +30,15 @@ SET LOCAL statement_timeout = '60s';
 DO $$ BEGIN
   IF to_regclass('public.whatsapp_atendimento_mensagens_prontas') IS NULL
      OR NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.whatsapp_atendimento_mensagens_prontas'::regclass AND attname = 'midia_url' AND NOT attisdropped) THEN
-    RAISE EXCEPTION '077b ausente: nada a remover.';
+    RAISE EXCEPTION '081 ausente: nada a remover.';
   END IF;
-  -- Revisão final (09/10): com qualquer objeto da 078 ainda aplicado, recusa ANTES de travar ou alterar qualquer coisa.
-  -- Sem esta guarda o DROP COLUMN midia_tipo derrubaria junto a FK da 078 (restrição da mesma tabela) e deixaria a 078
-  -- pela metade (arquivos, estado/finalidade das prontas, grupos de saída). Ordem: 078 → 077b → 077a → 065 → 060.
+  -- Revisão final (09/10): com qualquer objeto da 082 ainda aplicado, recusa ANTES de travar ou alterar qualquer coisa.
+  -- Sem esta guarda o DROP COLUMN midia_tipo derrubaria junto a FK da 082 (restrição da mesma tabela) e deixaria a 082
+  -- pela metade (arquivos, estado/finalidade das prontas, grupos de saída). Ordem: 082 → 081 → 080 → 065 → 060.
   IF to_regclass('public.whatsapp_atendimento_arquivos') IS NOT NULL
      OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.whatsapp_atendimento_mensagens_prontas'::regclass AND attname IN ('estado', 'arquivo_id', 'finalidade', 'envio_automatico') AND NOT attisdropped)
      OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.whatsapp_atendimento_mensagens') AND attname IN ('origem_grupo_id', 'midia_arquivo_id', 'fonte') AND NOT attisdropped) THEN
-    RAISE EXCEPTION 'Rollback da 077b recusado: a 078 ainda está aplicada (total ou parcialmente). Rode antes o down da 078. Ordem: 078 → 077b → 077a → 065 → 060.';
+    RAISE EXCEPTION 'Rollback da 081 recusado: a 082 ainda está aplicada (total ou parcialmente). Rode antes o down da 082. Ordem: 082 → 081 → 080 → 065 → 060.';
   END IF;
 END $$;
 
@@ -46,15 +46,15 @@ LOCK TABLE whatsapp_atendimento_mensagens_prontas_favoritas, whatsapp_atendiment
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens WHERE midia_tipo IS NOT NULL AND estado IN ('PENDENTE', 'PROCESSANDO', 'ENVIANDO')) THEN
-    RAISE EXCEPTION 'Rollback da 077b recusado: há resposta com mídia na fila de envio. Aguarde o resultado do envio ou encerre a conversa antes.';
+    RAISE EXCEPTION 'Rollback da 081 recusado: há resposta com mídia na fila de envio. Aguarde o resultado do envio ou encerre a conversa antes.';
   END IF;
   IF EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens WHERE midia_tipo IS NOT NULL)
-     AND COALESCE(current_setting('kidmais.rollback_077b_descartar_midias', true), '') <> 'sim' THEN
-    RAISE EXCEPTION 'Rollback da 077b recusado: há respostas enviadas com mídia. Exporte (id, conversa_id, empresa_id, ambiente, midia_tipo, midia_url, midia_pronta_id, midia_pronta_versao) e confirme o descarte com SET LOCAL kidmais.rollback_077b_descartar_midias = ''sim''.';
+     AND COALESCE(current_setting('kidmais.rollback_081_descartar_midias', true), '') <> 'sim' THEN
+    RAISE EXCEPTION 'Rollback da 081 recusado: há respostas enviadas com mídia. Exporte (id, conversa_id, empresa_id, ambiente, midia_tipo, midia_url, midia_pronta_id, midia_pronta_versao) e confirme o descarte com SET LOCAL kidmais.rollback_081_descartar_midias = ''sim''.';
   END IF;
   IF EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens_prontas WHERE tipo IN ('IMAGEM', 'VIDEO') OR atalho IN ('SALGADOS', 'BOLOS', 'ENDERECO', 'LOCALIZACAO'))
-     AND COALESCE(current_setting('kidmais.rollback_077b_descartar_prontas_midia', true), '') <> 'sim' THEN
-    RAISE EXCEPTION 'Rollback da 077b recusado: há mensagens prontas de foto/vídeo ou com os atalhos novos (as restrições da 077a não as aceitam). Exporte whatsapp_atendimento_mensagens_prontas e confirme com SET LOCAL kidmais.rollback_077b_descartar_prontas_midia = ''sim'': as de foto/vídeo são removidas (com as favoritas) e os atalhos novos ficam vazios.';
+     AND COALESCE(current_setting('kidmais.rollback_081_descartar_prontas_midia', true), '') <> 'sim' THEN
+    RAISE EXCEPTION 'Rollback da 081 recusado: há mensagens prontas de foto/vídeo ou com os atalhos novos (as restrições da 080 não as aceitam). Exporte whatsapp_atendimento_mensagens_prontas e confirme com SET LOCAL kidmais.rollback_081_descartar_prontas_midia = ''sim'': as de foto/vídeo são removidas (com as favoritas) e os atalhos novos ficam vazios.';
   END IF;
 END $$;
 

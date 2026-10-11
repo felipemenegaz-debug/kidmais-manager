@@ -16,14 +16,14 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_EMPRESA_NAO_SELECIONADA: 'Selecione a empresa ativa no menu para abrir o Atendimento WhatsApp.',
   ATENDIMENTO_IA_DESLIGADA: 'A chave da IA está desligada neste ambiente: a fila não envia respostas agora.',
   ATENDIMENTO_NAO_ENCONTRADO: 'Conversa não encontrada. Atualize a lista.',
-  ATENDIMENTO_PRONTAS_INDISPONIVEL: 'Mensagens prontas indisponíveis neste ambiente: a estrutura da biblioteca (migration 077a) ainda não foi aplicada.',
+  ATENDIMENTO_PRONTAS_INDISPONIVEL: 'Mensagens prontas indisponíveis neste ambiente: a estrutura da biblioteca (migration 080) ainda não foi aplicada.',
   ATENDIMENTO_PRONTA_ATALHO_EM_USO: 'Já existe uma mensagem ativa neste atalho. Edite a atual ou tire o atalho dela antes.',
   ATENDIMENTO_PRONTA_TITULO_EM_USO: 'Já existe uma mensagem pronta com este título.',
   ATENDIMENTO_PRONTA_DESATUALIZADA: 'A mensagem pronta mudou. Atualize a lista antes de continuar.',
   ATENDIMENTO_PRONTA_NAO_ENCONTRADA: 'Mensagem pronta não encontrada. Atualize a lista.',
-  ATENDIMENTO_MIDIA_INDISPONIVEL: 'Fotos, vídeos e os atalhos de salgados, bolos, endereço e localização ainda não estão disponíveis neste ambiente (migration 077b não aplicada).',
+  ATENDIMENTO_MIDIA_INDISPONIVEL: 'Fotos, vídeos e os atalhos de salgados, bolos, endereço e localização ainda não estão disponíveis neste ambiente (migration 081 não aplicada).',
   ATENDIMENTO_LEGENDA_LONGA: 'A legenda da foto ou do vídeo passa de 1024 caracteres.',
-  ATENDIMENTO_RECURSO_078_INDISPONIVEL: 'PDF, arquivos próprios, rascunho/publicação e envio automático pelo Wall-e ainda não estão disponíveis neste ambiente (migration 078 não aplicada).',
+  ATENDIMENTO_RECURSO_082_INDISPONIVEL: 'PDF, arquivos próprios, rascunho/publicação e envio automático pelo Wall-e ainda não estão disponíveis neste ambiente (migration 082 não aplicada).',
   ATENDIMENTO_PACOTE_NAO_ENCONTRADO: 'Pacote não encontrado entre os pacotes vigentes desta empresa.',
   ATENDIMENTO_UNIDADE_NAO_ENCONTRADA: 'Unidade não encontrada nesta empresa.',
   ATENDIMENTO_ARQUIVO_INVALIDO: 'O arquivo escolhido não é desta empresa ou não é do tipo da mensagem. Envie o arquivo de novo.',
@@ -31,7 +31,7 @@ const MENSAGEM: Record<string, string> = {
 };
 // Regra de negócio não é indisponibilidade: só falha inesperada (banco, configuração) devolve 503.
 const CONFLITO = ['ATENDIMENTO_DESATUALIZADO', 'ATENDIMENTO_ENVIO_EM_ANDAMENTO', 'ATENDIMENTO_CONTATO_BLOQUEADO', 'ATENDIMENTO_PAUSA_PEDIDA', 'ATENDIMENTO_JANELA_EXPIRADA', 'ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR', 'ATENDIMENTO_AUTOMACAO_DESLIGADA', 'ATENDIMENTO_IA_DESLIGADA', 'ATENDIMENTO_LEGENDA_LONGA',
-  'ATENDIMENTO_PRONTA_ATALHO_EM_USO', 'ATENDIMENTO_PRONTA_TITULO_EM_USO', 'ATENDIMENTO_PRONTA_DESATUALIZADA', 'ATENDIMENTO_PRONTA_MIDIA_ALTERADA', 'ATENDIMENTO_RECURSO_078_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_INVALIDO'];
+  'ATENDIMENTO_PRONTA_ATALHO_EM_USO', 'ATENDIMENTO_PRONTA_TITULO_EM_USO', 'ATENDIMENTO_PRONTA_DESATUALIZADA', 'ATENDIMENTO_PRONTA_MIDIA_ALTERADA', 'ATENDIMENTO_RECURSO_082_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_INVALIDO'];
 const NAO_ENCONTRADO = ['ATENDIMENTO_NAO_ENCONTRADO', 'ATENDIMENTO_PRONTA_NAO_ENCONTRADA', 'ATENDIMENTO_PACOTE_NAO_ENCONTRADO', 'ATENDIMENTO_UNIDADE_NAO_ENCONTRADA'];
 // Recusas de acesso (antes de ler ou gravar qualquer coisa): papel, vínculo e empresa ativa (063 do painel).
 const ACESSO = ['ATENDIMENTO_ACESSO_NEGADO', 'ATENDIMENTO_SEM_ACESSO', 'ATENDIMENTO_EMPRESA_DIVERGENTE', 'ATENDIMENTO_EMPRESA_NAO_SELECIONADA'];

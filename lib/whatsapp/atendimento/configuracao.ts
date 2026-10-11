@@ -20,7 +20,7 @@ export function receptorDoNumero(env: NodeJS.ProcessEnv = process.env) {
 }
 /**
  * WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=regras: NENHUM caminho do atendimento chama o modelo — nem o Wall-e nem a fase B
- * (Wall-e desligado na tela ou sem a 078), qualquer que seja o orçamento de IA. Variável do próprio canal (não é a chave
+ * (Wall-e desligado na tela ou sem a 082), qualquer que seja o orçamento de IA. Variável do próprio canal (não é a chave
  * da IA): o worker e a porta do Wall-e conferem a cada uso, além da composition root, que nem monta o modelo.
  */
 export function entendimentoSoRegras(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO === 'regras'; }
@@ -45,7 +45,7 @@ export function contatoPermitido(contato: string, env: NodeJS.ProcessEnv = proce
 }
 
 /**
- * Origem pública (https) das URLs de arquivos próprios da biblioteca (078), baixadas pelo provedor sem sessão:
+ * Origem pública (https) das URLs de arquivos próprios da biblioteca (082), baixadas pelo provedor sem sessão:
  * WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM ou, sem ela, ADMIN_AUTH_ORIGIN. Sem origem https o arquivo não é enviado.
  */
 export function origemMidia(env: NodeJS.ProcessEnv = process.env) {
