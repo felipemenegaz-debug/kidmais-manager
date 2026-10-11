@@ -1,6 +1,6 @@
 # Atualização de staging — candidata consolidada, 078, botão na primeira visita e cliente existente com OTP (11/10/2026)
 
-**Status (11/10/2026): EM EXECUÇÃO PARCIAL** — staging LIVE `d19f78b` (flags restauradas), **078 aplicada (PASS)**, B3 legado PASS; pendentes: B1/B2/B4 e C2/C4 (nenhuma fixture elegível em `/b/`), S7 (OTP) — [evidência](evidencias/atualizacao-staging-20261011.md). Texto original do pacote abaixo.
+**Status (11/10/2026): EM EXECUÇÃO PARCIAL** — staging LIVE `d19f78b` (flags restauradas), **078 aplicada (PASS)**, B3 legado PASS; pendentes: B1/B2/B4 e C2/C4 (nenhuma fixture elegível em `/b/` — todas as `hml-*` DESATIVADAS), S7 (OTP) — [evidência](evidencias/atualizacao-staging-20261011.md). **Próxima frente preparada: §12 (fixtures dedicadas, código `391da0f`), aguardando autorização.** Texto original do pacote abaixo.
 
 ~~PRONTO PARA APROVAÇÃO, NÃO EXECUTADO.~~ Nada foi feito em staging, produção, Render ou bancos remotos na preparação; sem push
 nem deploy. Cada frente abaixo exige autorização própria de Felipe (OPERACAO_AGENTES.md: migrations e escritas sempre com autorização
@@ -207,3 +207,61 @@ contrato com o cliente existente; o seletor de pacotes do painel para empresas c
 - **D3** — cliente de teste do OTP (CPF sintético e WhatsApp controlado por Felipe) na `hml-planos-profissional`; quem o cadastra.
 - **D4** — se a pré-condição do OTP não estiver satisfeita: manter S7 fora desta rodada ou autorizar a mudança de provedor/variáveis
   (deploy adicional).
+
+## 12. Frente F — fixtures dedicadas para `/b/<código>` (preparada em 11/10; aguardando autorização)
+
+Motivo: o diagnóstico somente leitura (evidência, §Diagnóstico) mostrou as 8 fixtures `hml-*` **DESATIVADAS** por desenho (encerramento
+das rodadas anteriores); a 062, o recurso `ORCAMENTO_ONLINE` e a quantidade de unidades estavam corretos. Decisão de Felipe: **nova
+fixture dedicada**.
+
+**Código:** `391da0f` — só `scripts/fixture-atualizacao-staging.cjs` e o teste offline (nenhum código de produto; staging LIVE `d19f78b`
+tem o mesmo produto). O SHA a publicar é a ponta de docs deste pacote (só `docs/` depois de `391da0f`).
+
+| Fixture | Código / nome | Pocket | Dias (ISO) | Catálogo |
+|---|---|---|---|---|
+| A | `hml-atualizacao-a` / `TESTE Kidmais — atualização staging 20261011 A` | 20–30 conv., R$ 1.500 | 1–7 | SALGADOS (2 de 3), DOCES (1 de 2) |
+| B | `hml-atualizacao-b` / `TESTE … B` | 20–30 conv., R$ 2.300 | 1–5 | SALGADOS (1 de 2), MASSA_BOLO (1 de 2) |
+
+Ambas ATIVAS, **isentas** (acesso COMPLETO, sem cobrança), 1 usuário administrativo cada (`@example.invalid`, senha aleatória só em
+memória e descartada — ninguém entra com ele), vínculo ATIVO, categoria financeira. Todos os períodos ativos de `configuracao_agenda`
+nos dias indicados. A mesma categoria `SALGADOS` nas duas, com itens diferentes (prova do catálogo por empresa da 078).
+
+**Garantias do script** (12/12 testes offline; ESLint limpo; os quatro módulos de domínio carregam pelo Node):
+- trava de alvo do ensaio (serviço, ambiente, host interno, banco, TLS) + identidade conferida no servidor; disco persistente obrigatório;
+- precheck: schema (062, 074a, 077, **078**) e IDs/códigos/e-mails **livres**; estado `data/atualizacao-staging-20261011/fixtures.json`
+  criado com `wx` (a rodada não se repete);
+- empresas/usuários/vínculos/isenções numa transação; preço, disponibilidade, categorias, itens e composição **pelos serviços de domínio**
+  (os mesmos da tela);
+- hashes das demais empresas antes/depois (tabelas da rodada de planos + `buffet_categorias`/`buffet_itens`) → iguais;
+- com a chave ligada, confere `GET /api/fechamentos/pacotes?empresa=…` (só POCKET; dias = os configurados) e
+  `…/catalogo?pacote=POCKET&empresa=…` (só os itens da própria empresa);
+- qualquer falha depois da intenção **desativa** o que foi criado; nunca `DELETE`.
+
+**Limite:** os testes usam cliente e serviços simulados. O caminho real (gatilhos, índices da 078, auditoria) não foi executado num
+PostgreSQL local nesta preparação — pode ser feito como **F-L** (cluster descartável novo, schema atual + 078) se Felipe quiser antes de
+staging.
+
+### Sequência
+
+| # | Passo | Gate |
+|---|---|---|
+| F0 | Leitura: `origin/staging` = `d19f78b`; Render: branch `staging`, auto-deploy OFF, LIVE `d19f78b`; health 200; Shell `--conferir-restauracao` → `RESTAURADA` | divergência → parar |
+| F1 | `git push origin <SHA do pacote>:staging` (fast-forward, sem force) | `origin/staging` = SHA |
+| F2 | Render MCP (merge) `COTACAO_PUBLICA_POR_EMPRESA=true` e `ASSINATURA_PLANOS_ATIVOS=true` → **um** deploy do SHA; LIVE; health 200; Shell `RENDER_GIT_COMMIT` = SHA | deploy LIVE |
+| F3 | **Felipe (Shell):** `cd /opt/render/project/src && node --experimental-strip-types scripts/fixture-atualizacao-staging.cjs --criar-fixtures-autorizado` | `PASS`, `preservacao: IGUAL`, `publico.A.dias = [1..7]`, `publico.B.dias = [1..5]` |
+| F4 | Navegador (build de produção, só cliques, nenhum pedido): **B1** `/b/hml-atualizacao-a/disponibilidade` desktop (primeira visita) → sábado → período → horário → botão; **B2** o mesmo em `/b/hml-atualizacao-b` (dia útil; sábado indisponível); **B4** B1 em 375×812, aba nova | etapa “Pacote” ≤ 10 s; registrar tempos |
+| F5 | **C2** em A e B → Pocket → Buffet: só os itens da própria empresa; **C4** `pacotes?empresa=…` com `disponibilidade`; sem empresa: sem o campo | PASS |
+| F6 | **Felipe (Shell):** `node --experimental-strip-types scripts/fixture-atualizacao-staging.cjs --encerrar-fixtures-autorizado` | `ENCERRADO`; as duas `DESATIVADA` |
+| F7 | S8: remover as duas chaves (“Save only”) + `trigger_deploy` do mesmo SHA; `--conferir-restauracao` → `RESTAURADA`; `/b/hml-atualizacao-a/fechamento` = 404 | staging como antes |
+| F8 | S9: evidência sanitizada | commit local de docs |
+
+Parada: qualquer divergência em F0; `FALHA` em F3 (o script já desativa o que criou; registrar e **não repetir** — o estado impede);
+qualquer dado de outra empresa visível; falha do botão (registrar, não contornar, seguir). Interrupção em qualquer ponto depois de F2 →
+F6 (se F3 criou) + F7 + F8.
+
+**Efeitos permanentes:** `staging` = SHA do pacote (2 deploys); 2 empresas DESATIVADAS com Pocket/catálogo/isenção (fixtures de
+homologação, como as anteriores); `fixtures.json` no disco. **Nenhuma alteração em produção.**
+
+**S7 (OTP) fica fora da frente F:** exige cliente existente na empresa (D3), e ninguém entra no painel das fixtures novas (senha
+descartada). Para S7 com `hml-atualizacao-a`, preparo um modo separado que cadastra o cliente sintético (CPF sintético; o WhatsApp
+controlado por Felipe é digitado por ele no Shell), com autorização própria — decisão **D5**.
