@@ -2,6 +2,8 @@
 
 Status: preparado, nao executado. Etapa anterior ao teste de cadastro completo; nao substitui S3 nem S4.
 
+E0 autorizado por Felipe em 11/10/2026. Revalidacao: origin/staging e LIVE continuam em 5386a4d, auto-deploy OFF, sem deploy concorrente. Tres linhas preparadas no editor do web staging, com RESEND_API_KEY vazia. Aguardando entrada e Save only pelo proprio Felipe; nada persistido, nenhum deploy/Shell/envio executado. Evidencia: `evidencias/email-staging-chave-pendente-20261011.png`. A autorizacao permanece vigente para continuar o pacote depois da entrada da chave, desde que as precondicoes ainda confiram.
+
 ## Estado confirmado somente leitura
 
 - Workspace My Workspace, `tea-daidbj95efls73d2bcf0`.
