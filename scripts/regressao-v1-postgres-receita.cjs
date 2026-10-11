@@ -52,8 +52,8 @@ const MODELOS = {
   "062": { banco: "kidmais_v1_modelo_062", ate: "062", sem: [] },
   // Painel do desenvolvedor (063): inventário inteiro até a 063.
   "063": { banco: "kidmais_v1_modelo_063", ate: "063", sem: [] },
-  // Convites (075): cadeia completa do schema vigente, incluindo 064–075.
-  "075": { banco: "kidmais_v1_modelo_075", ate: "075", sem: [] },
+  // Recuperação manual de convites (079): cadeia completa do schema vigente, incluindo 064–079.
+  "079": { banco: "kidmais_v1_modelo_079", ate: "079", sem: [] },
 };
 /** Bancos de trabalho que o runner pode restaurar. */
 const TRABALHO = ["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"];
