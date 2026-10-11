@@ -82,6 +82,8 @@ const ESTADO_POSTGRES = {
   "lib/saas/hg8-tenant.postgres.test.ts": { descartavel: "atual", tambem: ["063"] },
   // Painel do desenvolvedor (063): concessão, interessadas, provisionamento, convites, vínculos, suspensão, senhas.
   "lib/desenvolvedor/painel-063.postgres.test.ts": { descartavel: "063" },
+  // #157: rebaixar a última administradora do Perfil com id próprio (≠ empresa SaaS), painel e Configurações > Usuários.
+  "lib/desenvolvedor/papel-ultima-administradora.postgres.test.ts": { descartavel: "063" },
   // Painel comercial (E5): 063 + 067 + 068 aplicadas pela própria suíte.
   "lib/desenvolvedor/comercial.postgres.test.ts": { descartavel: "063" },
   // Cadastro público (E6): 063 + 067 + 068 + 069 aplicadas pela própria suíte.
