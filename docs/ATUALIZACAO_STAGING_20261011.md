@@ -7,10 +7,14 @@ manuais nem deploys externos em staging.
 
 ## 1. Candidata
 
-- **Código: `6099692ee647a028da5bb270c22de046d2588a2a`**. Este pacote está no commit seguinte (só `docs/`); o SHA desse commit é o que
-  vai para `staging`. `git diff --name-only 6099692ee647a028da5bb270c22de046d2588a2a HEAD` deve listar só `docs/`.
+- **Código: `53307b2b722c9b7217aceba6f74d38b992eca119`**. Este pacote está no commit seguinte (só `docs/`); o SHA desse commit é o que
+  vai para `staging`. `git diff --name-only 53307b2b722c9b7217aceba6f74d38b992eca119 HEAD` deve listar só `docs/`.
+- **Substitui a candidata `6099692` (pacote `44ce38f`)**: a frente L dela falhou na suíte nova por defeito do fixture (vigências
+  sobrepostas recusadas pelo banco) — [evidência](evidencias/atualizacao-staging-frente-l-20261011.md). `53307b2` muda **só o teste**
+  (`git diff --name-only 6099692 53307b2` fora de `docs/` = `lib/comercial/disponibilidade-empresa.postgres.test.ts`); o código de
+  produto é o mesmo de `6099692`.
 - **Base:** `origin/staging` = `f88b39e9e7746c394554c6b62c4b4bbaf4592353` (último registrado; LIVE em staging segundo
-  `evidencias/homologacao-fundador-staging-rodada2-20261010.md`). A candidata é descendente direta (fast-forward: 32 commits até o código, +1 deste pacote).
+  `evidencias/homologacao-fundador-staging-rodada2-20261010.md`). A candidata é descendente direta (fast-forward; só commits locais desta linha de trabalho).
   Se `origin/staging` tiver avançado em S0: **não enviar**; integrar sem force, revisar o diff, revalidar e reapresentar o SHA.
 - **Migrations novas em relação a `f88b39e`:** somente `20261010_078_catalogo_buffet_por_empresa.sql` (074/074a/075/076/077 já
   aplicadas em staging em 09–10/10).
@@ -37,7 +41,7 @@ manuais nem deploys externos em staging.
 - Fora do escopo (inalterado): o seletor de pacotes do painel ainda lista o catálogo de nomes da Kidmais para qualquer empresa (pacote
   que a empresa não oferece aparece indisponível) — pendência de UX.
 
-## 2. Validação local (offline; código `6099692`)
+## 2. Validação local (offline; código de produto de `6099692` = `53307b2`)
 
 | Verificação | Resultado |
 |---|---|
@@ -48,17 +52,25 @@ manuais nem deploys externos em staging.
 | TypeScript, ESLint | aprovados (0 erros, 1 aviso preexistente) |
 | `next build` (fontes locais) + worker de PDF | 61 páginas; PASS |
 | Testes novos | isolamento do painel por empresa; coerência painel = cotação pública (5 semanas × 2 períodos × 7 pacotes); dona = legado; ligação de rota e tela; mesma regra de escolha de vigência no servidor e na leitura pública |
-| **Não executado** | suíte PostgreSQL `lib/comercial/disponibilidade-empresa.postgres.test.ts` (tela = servidor em toda a grade, isolamento, legado = matriz 006/017) — frente L abaixo |
+| Correção do teste (`53307b2`) | TypeScript e ESLint do arquivo; testes de seleção das suítes (`scripts/regressao-v1-*.test.cjs`) 39/39; simulação offline do fixture em 14 datas-base: vigências contíguas sem sobreposição, fronteiras na grade e às quartas, status esperado nas quatro datas |
+| **Não executado** | suíte PostgreSQL `lib/comercial/disponibilidade-empresa.postgres.test.ts` — frente L abaixo. Tentativa em `44ce38f`: 5/6 suítes OK; a nova 1/4 por fixture recusado pelo banco; mesmo assim tela = servidor em toda a grade e legado = matriz 006/017 passaram |
 
 ## 3. Frente L — suítes PostgreSQL locais (antes de staging; cluster descartável novo)
 
 | Passo | Comando | Esperado |
 |---|---|---|
 | L1 | `$env:KIDMAIS_PG_BIN='C:/Program Files/PostgreSQL/18/bin'`; `cluster-descartavel-postgres.cjs criar --cluster kidmais_descartavel --criar-autorizado`; `iniciar`; `conferir` | pasta nova, `CONFERE`, bancos `[]` |
-| L2 | variáveis da suíte (porta 55498, `kidmais_pacotes_v1_descartavel`) e `KIDMAIS_POSTGRES_SOMENTE='lib/comercial/disponibilidade-empresa.postgres.test.ts,lib/comercial/catalogo-buffet-078.postgres.test.ts,lib/comercial/catalogo-ux.postgres.test.ts,lib/saas/hg8-catalogo.postgres.test.ts,lib/comercial/adicionais-070.postgres.test.ts,lib/comercial/round4-remediacao.postgres.test.ts'`; `node scripts/regressao-v1-postgres.cjs` | 6/6 PASS. Falha da nova suíte no teste “legado” = divergência **preexistente** entre a regra fixa e a matriz do banco: parar e reportar |
+| L2 | (cluster **novo**; a pasta da tentativa de `44ce38f` fica parada e preservada) variáveis da suíte (porta 55498, `kidmais_pacotes_v1_descartavel`) e `KIDMAIS_POSTGRES_SOMENTE='lib/comercial/disponibilidade-empresa.postgres.test.ts,lib/comercial/catalogo-buffet-078.postgres.test.ts,lib/comercial/catalogo-ux.postgres.test.ts,lib/saas/hg8-catalogo.postgres.test.ts,lib/comercial/adicionais-070.postgres.test.ts,lib/comercial/round4-remediacao.postgres.test.ts'`; `node scripts/regressao-v1-postgres.cjs` | 6/6 PASS. Falha da nova suíte no teste “legado” = divergência **preexistente** entre a regra fixa e a matriz do banco: parar e reportar |
 | L3 | `parar --parar-autorizado` | `PARADO`; pasta preservada |
 
 Pré-requisito de S: L PASS.
+
+A suíte `disponibilidade-empresa` (5 testes) cobre: cenário com vigências contíguas (B: quarta no almoço aberta até a véspera do
+fechamento, fechada por duas quartas, reaberta no dia seguinte — o banco recusa sobreposição); isolamento (A 14 regras, B 13, C sem
+POCKET, administração = cotação pública); tela = servidor em 35 dias × 2 períodos; **fronteiras** — último dia aberto, primeiro e
+último dia fechado e primeiro dia reaberto, com administração (`regrasDosPacotesDaEmpresa`), cotação pública
+(`lerRegrasDisponibilidadePacote`) e servidor (`buscarElegibilidadePacoteAplicavel`) iguais e a noite da mesma quarta inalterada;
+legado da Kidmais = matriz 006/017.
 
 ## 4. Alvo exato (staging)
 
