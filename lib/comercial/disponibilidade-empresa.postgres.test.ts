@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import type { Client } from "pg";
 import type { DbExecutor } from "../db/contracts.ts";
-import { regraDaEmpresa, regraPadraoPacote, type StatusCalendario } from "../agenda/disponibilidade.ts";
+import { CONFIG_VAZIA, regraDaEmpresa, regraPadraoPacote, statusDataPacote, type StatusCalendario } from "../agenda/disponibilidade.ts";
 import type { HorarioBase, PacoteId } from "../../components/fechamento/types.ts";
 import { lerRegrasDisponibilidadePacote, regrasDosPacotesDaEmpresa } from "./disponibilidade-pacote-publica.ts";
 import { PACOTES_CONTRATAVEIS_V1 } from "./pacotes-v1.ts";
@@ -31,6 +31,25 @@ const inicioGrade = soma(hoje, 14);
 const grade = Array.from({ length: 35 }, (_, i) => isoDia(soma(inicioGrade, i)));
 const diaIso = (data: string) => new Date(`${data}T00:00:00Z`).getUTCDay() || 7;
 const HORARIOS: HorarioBase[] = ["almoco", "noite"];
+/**
+ * Período fechado de B no POCKET, quarta-feira no almoço, com vigências CONTÍGUAS (o banco recusa sobreposição):
+ * aberta até a véspera do fechamento → fechada de uma quarta até a quarta seguinte → reaberta a partir do dia seguinte.
+ * Datas de fronteira (todas quartas, o dia da regra): último dia aberto, primeiro e último dia fechado, primeiro dia reaberto.
+ */
+const quartaFechada = grade.slice(7, 14).find((d) => diaIso(d) === 3)!;
+const desloca = (data: string, dias: number) => isoDia(soma(new Date(`${data}T00:00:00Z`), dias));
+const FRONTEIRA = {
+  ultimoAberto: desloca(quartaFechada, -7),
+  primeiroFechado: quartaFechada,
+  ultimoFechado: desloca(quartaFechada, 7),
+  primeiroReaberto: desloca(quartaFechada, 14),
+};
+const VIGENCIAS_QUARTA = {
+  abertaAte: desloca(quartaFechada, -1),
+  fechadaDe: quartaFechada,
+  fechadaAte: desloca(quartaFechada, 7),
+  reabertaDe: desloca(quartaFechada, 8),
+};
 
 const doServidor = (estado: string | null | undefined): StatusCalendario =>
   estado === "DISPONIVEL" ? "disponivel" : estado === "SOB_CONSULTA" ? "consulta" : "indisponivel";
@@ -69,7 +88,7 @@ test.before(async () => {
 });
 test.after(async () => { if (client) await encerrarDescartavel(client); });
 
-test("cenário: A vende POCKET todos os dias; B só dias úteis, sábado almoço sob consulta e uma janela que fecha a quarta; C sem POCKET", async () => {
+test("cenário: A vende POCKET todos os dias; B só dias úteis, sábado almoço sob consulta e a quarta (almoço) fechada por duas semanas; C sem POCKET", async () => {
   const t = (await client.query<{ codigo: string; id: string }>(
     `SELECT codigo, id::text AS id FROM configuracao_agenda WHERE codigo IN ('TURNO_1', 'TURNO_2') AND ativo`)).rows;
   turno = { almoco: t.find((x) => x.codigo === "TURNO_1")!.id, noite: t.find((x) => x.codigo === "TURNO_2")!.id };
@@ -79,10 +98,17 @@ test("cenário: A vende POCKET todos os dias; B só dias úteis, sábado almoço
   miniB = await pacote(B, "MINI_FESTA"); // sem regra nenhuma
   const desde = isoDia(soma(hoje, -30));
   for (const dia of [1, 2, 3, 4, 5, 6, 7]) for (const h of HORARIOS) await regra(pocketA, dia, h, "DISPONIVEL", desde);
-  for (const dia of [1, 2, 3, 4, 5]) for (const h of HORARIOS) await regra(pocketB, dia, h, "DISPONIVEL", desde);
+  for (const dia of [1, 2, 3, 4, 5]) for (const h of HORARIOS) {
+    if (dia === 3 && h === "almoco") continue; // a quarta no almoço tem três vigências contíguas (abaixo)
+    await regra(pocketB, dia, h, "DISPONIVEL", desde);
+  }
   await regra(pocketB, 6, "almoco", "SOB_CONSULTA", desde);
-  // Janela no meio da grade: quarta no almoço fica INDISPONIVEL por 14 dias (regra mais recente prevalece), depois volta.
-  await regra(pocketB, 3, "almoco", "INDISPONIVEL", isoDia(soma(inicioGrade, 7)), isoDia(soma(inicioGrade, 20)));
+  await regra(pocketB, 3, "almoco", "DISPONIVEL", desde, VIGENCIAS_QUARTA.abertaAte);
+  await regra(pocketB, 3, "almoco", "INDISPONIVEL", VIGENCIAS_QUARTA.fechadaDe, VIGENCIAS_QUARTA.fechadaAte);
+  await regra(pocketB, 3, "almoco", "DISPONIVEL", VIGENCIAS_QUARTA.reabertaDe);
+  // As fronteiras estão dentro da grade e o fechamento cobre exatamente duas quartas.
+  assert.ok(grade.includes(FRONTEIRA.ultimoAberto) && grade.includes(FRONTEIRA.primeiroReaberto));
+  assert.ok(VIGENCIAS_QUARTA.abertaAte < VIGENCIAS_QUARTA.fechadaDe && VIGENCIAS_QUARTA.fechadaAte < VIGENCIAS_QUARTA.reabertaDe);
   assert.notEqual(pocketA, pocketB, "mesmo código, pacotes diferentes");
 });
 
@@ -95,7 +121,8 @@ test("isolamento: a administração de cada empresa lê só os pacotes dela (o m
   assert.ok(pedidos.every(([e]) => e === A || e === B || e === C));
   assert.deepEqual(Object.keys(deA).sort(), PACOTES_CONTRATAVEIS_V1.map((p) => p.id).sort());
   assert.equal(deA.pocket.length, 14);
-  assert.equal(deB.pocket.length, 12, "10 dias úteis + sábado sob consulta + janela da quarta");
+  assert.equal(deB.pocket.length, 13, "9 períodos de dias úteis + 3 vigências da quarta no almoço + sábado sob consulta");
+  assert.equal(deB.pocket.filter((r) => r.dia === 3 && r.horario === "almoco").length, 3, "aberta, fechada e reaberta");
   assert.deepEqual(deB.mini, [], "pacote sem regra");
   assert.deepEqual(deC.pocket, [], "empresa sem POCKET");
   assert.ok(deA.pocket.every((r) => r.estado === "DISPONIVEL"), "nada das regras de B em A");
@@ -116,15 +143,32 @@ test("coerência: tela (cotação pública e administração) = servidor, em tod
     }
   }
   assert.deepEqual(divergencias, []);
-  // O cenário exercita os quatro casos: disponível, consulta, indisponível por falta de regra e pela janela.
+  // O cenário exercita disponível, consulta e indisponível por falta de regra (o período fechado: teste seguinte).
   const sabado = grade.find((d) => diaIso(d) === 6)!;
-  const quartaNaJanela = grade.slice(7, 21).find((d) => diaIso(d) === 3)!;
-  const quartaDepois = grade.slice(21).find((d) => diaIso(d) === 3)!;
   assert.equal(regraDaEmpresa(deA.pocket, sabado, "almoco"), "disponivel");
   assert.equal(regraDaEmpresa(deB.pocket, sabado, "almoco"), "consulta");
   assert.equal(regraDaEmpresa(deB.pocket, sabado, "noite"), "indisponivel");
-  assert.equal(regraDaEmpresa(deB.pocket, quartaNaJanela, "almoco"), "indisponivel");
-  assert.equal(regraDaEmpresa(deB.pocket, quartaDepois, "almoco"), "disponivel");
+});
+
+test("fronteiras do período fechado: administração = cotação pública = servidor no último dia aberto, primeiro e último fechado e primeiro reaberto", async () => {
+  const daAdministracao = (await regrasDosPacotesDaEmpresa(tx, B, buscarPacoteVigenteDaEmpresaPorCodigo)).pocket;
+  const daCotacaoPublica = await lerRegrasDisponibilidadePacote(tx, pocketB);
+  const esperado: Record<keyof typeof FRONTEIRA, StatusCalendario> = {
+    ultimoAberto: "disponivel", primeiroFechado: "indisponivel", ultimoFechado: "indisponivel", primeiroReaberto: "disponivel",
+  };
+  const obtido: Record<string, { administracao: StatusCalendario; cotacao: StatusCalendario; servidor: StatusCalendario }> = {};
+  for (const [nome, data] of Object.entries(FRONTEIRA)) {
+    assert.equal(diaIso(data), 3, `${nome} é quarta`);
+    obtido[nome] = {
+      // As mesmas chamadas da tela: AdminDisponibilidade e FechamentoWizard usam statusDataPacote com as regras da empresa.
+      administracao: statusDataPacote(CONFIG_VAZIA, "pocket", data, "almoco", daAdministracao).status,
+      cotacao: statusDataPacote(CONFIG_VAZIA, "pocket", data, "almoco", daCotacaoPublica).status,
+      servidor: await servidor(pocketB, data, "almoco"),
+    };
+  }
+  assert.deepEqual(obtido, Object.fromEntries(Object.entries(esperado).map(([nome, s]) => [nome, { administracao: s, cotacao: s, servidor: s }])));
+  // A noite da mesma quarta não é afetada pelo fechamento do almoço.
+  for (const data of Object.values(FRONTEIRA)) assert.equal(await servidor(pocketB, data, "noite"), "disponivel");
 });
 
 test("legado da Kidmais: a regra fixa da tela (endereço atual e administração da dona) coincide com a matriz do servidor", async () => {
