@@ -44,18 +44,21 @@ async function etapa(c,plano,id,{registrar=()=>{},validarIdentidade=identidadePr
   return {id,resultado:aplicada?'JA_APLICADA_POSTCHECK_PASS':'APLICADA_POSTCHECK_PASS'};
  }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}
 }
-async function conferirBackup(arquivo,agora=Date.now()){
+async function conferirBackup(arquivo,agora=Date.now(),discoFs=fs){
  const base=path.resolve(DISCO,'lancamento-venda-20261011'), nome=path.resolve(arquivo);
  assert.equal(path.dirname(nome),base,'REGISTRO_FORA_DO_DISCO');
- const mount=fs.statSync(DISCO);assert.ok(mount.isDirectory()&&mount.dev!==fs.statSync(path.dirname(DISCO)).dev,'DISCO_NAO_MONTADO');
- const b=JSON.parse(fs.readFileSync(nome,'utf8'));
+ const mount=discoFs.lstatSync(DISCO);assert.ok(mount.isDirectory()&&!mount.isSymbolicLink()&&mount.dev!==discoFs.statSync(path.dirname(DISCO)).dev,'DISCO_NAO_MONTADO');
+ assert.ok(!discoFs.lstatSync(base).isSymbolicLink()&&!discoFs.lstatSync(nome).isSymbolicLink(),'REGISTRO_BACKUP_LINK_RECUSADO');
+ const b=JSON.parse(discoFs.readFileSync(nome,'utf8'));
  assert.equal(b.servico,ALVO.servico);assert.equal(b.banco,ALVO.database);
+ assert.equal(b.manifestoSha256,HASH_MANIFESTO,'BACKUP_PACOTE_DIVERGENTE');
+ assert.equal(b.arquivoIntegralmenteLido,true,'BACKUP_NAO_CONFERIDO');
  assert.ok(agora-Date.parse(b.criadoEm)>=0&&agora-Date.parse(b.criadoEm)<86400000,'BACKUP_ANTIGO');
  assert.ok(agora-Date.parse(b.pitrConferidoEm)>=0&&agora-Date.parse(b.pitrConferidoEm)<86400000,'PITR_NAO_CONFERIDO');
  assert.match(b.sha256,/^[a-f0-9]{64}$/);assert.match(b.arquivo,/^backup-[a-zA-Z0-9-]+\.dump$/);
- const dump=path.join(base,b.arquivo);assert.ok(!fs.lstatSync(dump).isSymbolicLink(),'BACKUP_LINK_RECUSADO');
- assert.ok(fs.statSync(dump).size>0,'BACKUP_VAZIO');
- const h=createHash('sha256');for await(const chunk of fs.createReadStream(dump))h.update(chunk);
+ const dump=path.join(base,b.arquivo);assert.ok(!discoFs.lstatSync(dump).isSymbolicLink(),'BACKUP_LINK_RECUSADO');
+ assert.ok(discoFs.statSync(dump).size>0,'BACKUP_VAZIO');
+ const h=createHash('sha256');for await(const chunk of discoFs.createReadStream(dump))h.update(chunk);
  assert.equal(h.digest('hex'),b.sha256,'BACKUP_HASH_DIVERGENTE');return b;
 }
 async function main(){

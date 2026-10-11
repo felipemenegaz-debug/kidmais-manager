@@ -2,7 +2,7 @@
 
 **Status:** validação local concluída; candidata publicada em staging, com health e vitrine 200. P0 de produção somente leitura concluído: faltam 074a–079 e há cinco bloqueios globais ativos futuros. Produção sem alterações. [Evidência P0](evidencias/diagnostico-production-codex-20261011.md). Respeitar autorizações vigentes de Felipe e confirmar alterações de alvo/escopo antes de executar.
 
-**P0b concluído:** seis etapas somente leitura PASS, incluindo prechecks 074a e 076–079. Nenhuma outra empresa receberia cópias na 078. Felipe confirmou que os cinco bloqueios pertencem à Kidmais inteira. [Evidência](evidencias/preflight-production-codex-20261011.md). Reparo delimitado preparado em `database/repairs/20261011_lancamento_bloqueios_kidmais.sql`, ainda não ensaiado nem aplicado; exige backup/PITR, janela e autorização de escrita. Precheck 075 depende da aplicação de 074a.
+**P0b concluído:** seis etapas somente leitura PASS, incluindo prechecks 074a e 076–079. Nenhuma outra empresa receberia cópias na 078. Felipe confirmou que os cinco bloqueios pertencem à Kidmais inteira. [Evidência](evidencias/preflight-production-codex-20261011.md). Reparo delimitado preparado em `database/repairs/20261011_lancamento_bloqueios_kidmais.sql`, ensaiado em PostgreSQL sintético, sem aplicação em produção; exige backup/PITR, janela e autorização de escrita. Precheck 075 depende da aplicação de 074a.
 
 Atualização Codex: [evidência local](evidencias/lancamento-venda-codex-20261011.md) e [valores aprovados](CONFIGURACAO_VENDA_APROVADA_20261011.json). PostgreSQL: 14 suítes/100 testes (12 aprovadas na primeira rodada; duas corrigidas e repetidas). Concorrência: 9 grupos. Vitrine em build de produção: 6 telas; cadastro e assinatura em desenvolvimento: 8 grupos. Os testes locais não substituem S3/S4 de e-mail real e pagamento sandbox.
 
@@ -133,5 +133,7 @@ O reparo dos cinco bloqueios e as migrations 074a–079 passaram em PostgreSQL n
 Antes de pedir a escrita de producao, concluir a preparacao/conferencia do backup e sua recuperacao, as entregas reais de staging e os dados fiscais/legais pendentes. O ensaio local nao substitui esses aceites nem concede autorizacao para o cutover.
 
 ## 8. Autorizações, em ordem
+
+P1 está preparado em [BACKUP_PRODUCTION_LANCAMENTO_20261011.md](BACKUP_PRODUCTION_LANCAMENTO_20261011.md), com comando autossuficiente para exportar e conferir um custom archive no disco persistente. Não exige deploy para executar. Depende de autorização própria para uma sessão Shell de até 10 minutos e leitura do painel PITR. Nenhum backup real foi executado na preparação; leitura integral do arquivo não comprova restore.
 
 L1–L5 (local) → S0–S8 (staging) → P0 (leitura em produção) → P1 → P2 (revisão) → P3 → P4 → P5 → P6 (por etapa) → P7 → P8.

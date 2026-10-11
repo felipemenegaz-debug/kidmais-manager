@@ -39,3 +39,14 @@ test('erro original sobrevive a falha adicional do rollback',async()=>{
 test('backup fora do disco fixo e recusado antes de abrir o arquivo',async()=>{
  await assert.rejects(m.conferirBackup('C:/tmp/backup.json'),/REGISTRO_FORA_DO_DISCO/);
 });
+function backupSimulado(alteracoes={}){
+ const path=require('node:path'),{createHash}=require('node:crypto'),{Readable}=require('node:stream');const dados='arquivo sintetico';
+ const agora=Date.now(),registro={servico:m.ALVO.servico,banco:m.ALVO.database,arquivo:'backup-teste.dump',sha256:createHash('sha256').update(dados).digest('hex'),criadoEm:new Date(agora).toISOString(),pitrConferidoEm:new Date(agora).toISOString(),manifestoSha256:m.HASH_MANIFESTO,arquivoIntegralmenteLido:true,...alteracoes};
+ return {agora,arquivo:path.resolve('/opt/render/project/src/data/lancamento-venda-20261011/backup-teste.json'),fs:{lstatSync:()=>({isDirectory:()=>true,isSymbolicLink:()=>false,dev:2}),statSync:()=>({dev:1,size:dados.length}),readFileSync:()=>JSON.stringify(registro),createReadStream:()=>Readable.from([dados])}};
+}
+test('registro recente com arquivo integral e hash correto passa',async()=>{
+ const b=backupSimulado();assert.equal((await m.conferirBackup(b.arquivo,b.agora,b.fs)).arquivo,'backup-teste.dump');
+});
+test('backup incompleto, hash alterado ou pacote divergente impede migration',async()=>{
+ for(const alteracoes of [{arquivoIntegralmenteLido:false},{sha256:'0'.repeat(64)},{manifestoSha256:'0'.repeat(64)},{criadoEm:'2020-01-01T00:00:00Z'}]){const b=backupSimulado(alteracoes);await assert.rejects(m.conferirBackup(b.arquivo,b.agora,b.fs));}
+});
