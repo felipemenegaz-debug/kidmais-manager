@@ -48,6 +48,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
   // Disponibilidade do pacote por empresa: tela (cotação pública e administração) = servidor; isolamento; legado Kidmais.
   "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063" },
+  // F-L: script de fixtures da atualização de staging (scripts/fixture-atualizacao-staging.cjs) no schema de staging (até a 078).
+  "lib/comercial/fixture-atualizacao-staging.postgres.test.ts": { descartavel: "078" },
   "lib/comercial/hg4-escopo.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/pacote-empresa.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/integridade-fechamento-053.postgres.test.ts": { descartavel: "052" },
