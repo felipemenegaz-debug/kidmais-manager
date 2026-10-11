@@ -409,10 +409,12 @@ async function principal() {
         return route.fallback();
       });
       let trocaLiberadaJa = false;
-      // Só a sessão deste cenário (Alfa) e as criadas a partir daqui (Beta) contam: sessões de cenários anteriores não.
+      // Contam a sessão deste cenário (Alfa) e qualquer sessão que não existia válida no início (a Beta da troca).
+      // Sobras válidas de cenários anteriores ficam de fora (o login não revoga sessões anteriores).
       const alfaId = (await sessaoAtual()).data?.sessaoId;
       assert.ok(alfaId, 'sessão Alfa do cenário');
-      const marco = (await client.query('SELECT clock_timestamp() AS t')).rows[0].t;
+      const validasAntes = (await client.query(
+        'SELECT id FROM sessoes_administrativas WHERE usuario_id = $1 AND revogado_em IS NULL AND expira_em > clock_timestamp()', [user])).rows.map((l) => l.id);
       await selecionar(empresas.beta.id);
       await trocou;                                    // servidor: Alfa revogada, Beta criada; página ainda sem a resposta
       await page.locator('button:visible', { hasText: /Sair$/ }).first().click();
@@ -422,8 +424,8 @@ async function principal() {
       await page.waitForTimeout(800);
       rastro.push({ ms: Date.now() - t0, evento: 'T9-ordem', caminho: ordem.join(',') });
       const abertas = Number((await client.query(
-        `SELECT count(*)::int AS n FROM sessoes_administrativas WHERE usuario_id = $1 AND (id = $2::uuid OR criado_em >= $3)
-            AND revogado_em IS NULL AND expira_em > clock_timestamp()`, [user, alfaId, marco])).rows[0].n);
+        `SELECT count(*)::int AS n FROM sessoes_administrativas WHERE usuario_id = $1 AND (id = $2::uuid OR NOT (id = ANY($3::uuid[])))
+            AND revogado_em IS NULL AND expira_em > clock_timestamp()`, [user, alfaId, validasAntes])).rows[0].n);
       assert.equal(abertas, 0, `nem a Alfa nem a sessão criada pela troca podem continuar válidas no servidor (ordem: ${ordem.join(', ')})`);
       assert.equal((await sessaoAtual()).data?.usuarioId ?? null, null, 'o navegador não fica com sessão válida');
       await page.unrouteAll({ behavior: 'ignoreErrors' });
