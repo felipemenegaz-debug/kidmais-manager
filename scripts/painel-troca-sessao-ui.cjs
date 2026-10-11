@@ -371,31 +371,38 @@ async function principal() {
       let trocaNoServidor; const trocou = new Promise((r) => { trocaNoServidor = r; });
       let trocaEntregue; const entregue = new Promise((r) => { trocaEntregue = r; });
       const ordem = [];
+      /**
+       * route.fetch usa o pote de cookies do contexto: grava o Set-Cookie da troca NO MOMENTO da resposta do servidor
+       * (antes de a página recebê-la) e reaplica os cookies atuais num pedido preso. Aqui o pedido sai pelo Node com os
+       * cabeçalhos do ENVIO (valores nunca registrados) e o Set-Cookie só chega ao navegador quando a resposta é entregue.
+       */
+      const encaminhar = async (req) => {
+        const cabecalhos = await req.allHeaders();
+        const enviar = Object.fromEntries(Object.entries(cabecalhos).filter(([k]) => !k.startsWith(':') && !['host', 'content-length', 'connection'].includes(k)));
+        const r = await fetch(req.url(), { method: 'POST', headers: enviar, body: req.postData() ?? undefined });
+        const corpo = await r.text();
+        const devolver = {};
+        r.headers.forEach((v, k) => { if (k !== 'set-cookie' && k !== 'content-encoding' && k !== 'content-length') devolver[k] = v; });
+        const definir = r.headers.getSetCookie();
+        if (definir.length) devolver['set-cookie'] = definir.join('\n');
+        // Só a mensagem fixa de erro da rota (sem valores), para saber qual verificação recusou.
+        const erro = r.status >= 400 ? (() => { try { return String(JSON.parse(corpo).erro ?? '').slice(0, 80); } catch { return ''; } })() : '';
+        return { status: r.status, headers: devolver, body: corpo, erro };
+      };
       await page.route('**/api/admin/autenticacao', async (route) => {
         const req = route.request();
         if (req.method() !== 'POST') return route.fallback();
         const acao = (() => { try { return JSON.parse(req.postData() ?? '{}').acao; } catch { return null; } })();
         if (acao === 'selecionar-empresa') {
-          const resposta = await route.fetch(); trocaNoServidor(); await trocaLiberada;
-          await route.fulfill({ response: resposta }); ordem.push('troca-entregue'); trocaEntregue();
+          const resposta = await encaminhar(req); trocaNoServidor(); await trocaLiberada;
+          await route.fulfill({ status: resposta.status, headers: resposta.headers, body: resposta.body }); ordem.push(`troca-${resposta.status}-entregue`); trocaEntregue();
           return;
         }
         if (acao === 'logout') {
-          const cabecalhos = await req.allHeaders();
           ordem.push(`logout-pedido${trocaLiberadaJa ? '-depois' : '-antes'}-da-resposta-da-troca`);
+          const pronto = encaminhar(req);   // cabeçalhos lidos já, no envio
           await entregue;
-          // route.fetch reaplicaria os cookies ATUAIS do contexto (os da Beta): o pedido sai pelo Node com os cabeçalhos do
-          // ENVIO (cookies da Alfa, como no navegador real), e a resposta é entregue à página sem mudar nada.
-          try {
-            const enviar = Object.fromEntries(Object.entries(cabecalhos).filter(([k]) => !k.startsWith(':') && !['host', 'content-length', 'connection'].includes(k)));
-            const r = await fetch(req.url(), { method: 'POST', headers: enviar, body: req.postData() ?? undefined });
-            ordem.push(`logout-${r.status}`);
-            const devolver = {};
-            r.headers.forEach((v, k) => { if (k !== 'set-cookie' && k !== 'content-encoding' && k !== 'content-length') devolver[k] = v; });
-            const definir = r.headers.getSetCookie();
-            if (definir.length) devolver['set-cookie'] = definir.join('\n');
-            await route.fulfill({ status: r.status, headers: devolver, body: await r.text() });
-          }
+          try { const resposta = await pronto; ordem.push(`logout-${resposta.status}${resposta.erro ? ` (${resposta.erro})` : ''}`); await route.fulfill({ status: resposta.status, headers: resposta.headers, body: resposta.body }); }
           catch { await route.abort('failed').catch(() => undefined); }
           return;
         }
