@@ -33,6 +33,8 @@ revalidando a branch antes do deploy; Felipe executa os comandos de Shell; sem 0
 | S4 B1, B2, B4 (`/b/`) | **não executáveis**: nenhuma empresa de homologação elegível em `/b/<código>` |
 | S4 B3 (legado, desktop) | **PASS** — primeira visita após o deploy: `/disponibilidade` → quarta 18/11, 11:00–15:00 → botão “Continuar para escolher o pacote” → `/fechamento` “Etapa 1 de 8” em ~3,5 s (incluída espera de 3 s), build de produção. Nenhum pedido |
 | S5a | Shell (Felipe, instância `pbft5`, 05:56:42Z): `node scripts/migration-078-staging.cjs --conferir-078` → **`CONFERIDO`**; conexão `kidmais_staging_1z91`, `tls: false`, `redePrivada: true`; `m078: false`; precheck: `empresas_kidmais` 1, catálogo atual 7 categorias / 62 itens, **nenhuma empresa receberia cópia** (lista `empresa_que_recebe_copia` vazia), `pacotes_sem_empresa_com_buffet` 0. Gravado `data/atualizacao-staging-20261011/conferencia-078-1.json`. Nada alterado no banco |
+| S5b | Shell (Felipe, instância `pbft5`): `node scripts/migration-078-staging.cjs --aplicar-078-autorizado` → **`PASS`**, tentativa 1 (`migration-078.json`); conexão `kidmais_staging_1z91`, rede privada; `schemaAntes.m078 = false`; etapas `precheck 078`, `migration 078`, `postcheck 078` ok (postcheck `aprovado: true`, `empresas_com_catalogo` 1, `categorias_kidmais` 7); catálogo antes 7/62, depois 7/62 com **`donos` 1, `sem_dono` 0**; nenhuma cópia. **078 aplicada em staging** (sem rollback automático depois de aplicada; correção para frente) |
+| S6 (parcial, leitura) | `GET /api/fechamentos/catalogo?pacote=COMPLETA` (endereço atual): 5 categorias da composição da Festa Completa (`SALGADOS`, `DOCES`, `MASSA_BOLO`, `RECHEIO_BOLO`, `LEMBRANCINHAS`), 53 itens — mesma composição da homologação local; `/api/health` 200. C2/C4 (`/b/`) dependem de fixture elegível |
 | S8 | Painel → Environment → Edit: marcadas para remoção **só** as duas chaves (conferido no DOM: 2 marcadas), **“Save only”** (sem deploy; conferido em `list_deploys`); `git ls-remote`: ponta `d19f78b`; `trigger_deploy` → `dep-db5i0b2jnfac73aihub0` (`d19f78b`), **LIVE 05:41:35Z**; `/api/health` 200; `/b/hml-planos-profissional/fechamento` 404; pacotes por empresa 404; `/disponibilidade` 200. Shell (Felipe, instância `pbft5`): `RENDER_GIT_COMMIT` = `d19f78b4436f2592159ae0c2e8dafaf25f840c94`; `--conferir-restauracao` → **`RESTAURADA`** (as duas chaves `presente: false`, `divergencias: []`) |
 | S9 | este registro |
 
@@ -41,7 +43,7 @@ Valores de variáveis não foram lidos nem exibidos (campos mascarados; só nome
 **Estado deixado:** LIVE `d19f78b` (`dep-db5i0b2jnfac73aihub0`), sem as duas chaves; branch `staging` = `d19f78b`; 078 não aplicada.
 Conferências de Shell concluídas (Felipe): restauração `RESTAURADA` e S5a `CONFERIDO`. **Para S5b (D2):** aplicar a 078 em staging só atribui o
 catálogo atual (7/62) à `kidmais`; nenhuma cópia para outras empresas.
-Pendente de decisão: fixture elegível para `/b/` em staging (diagnóstico somente leitura proposto) para repetir B1/B2/B4.
+**078 aplicada em staging em 11/10/2026 (PASS).** Pendente de decisão: fixture elegível para `/b/` em staging (diagnóstico somente leitura proposto) para repetir B1/B2/B4.
 
 Sem alteração em produção.
 
