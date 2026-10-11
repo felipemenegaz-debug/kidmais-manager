@@ -94,6 +94,9 @@ async function principal() {
     await page.waitForURL(url => !url.pathname.includes('/login'));
 
     async function selecionar(chave) {
+      // A troca é feita por fora da página: nenhuma página do app fica viva para reagir à sessão trocada (descarte com
+      // navegação própria), o que abortaria o page.goto seguinte (corrida do roteiro, não do produto).
+      await page.goto('about:blank');
       const s = await sessaoAtual();
       const r = await contexto.request.post(`${base}/api/admin/autenticacao`, { headers: { origin: base, 'x-csrf-token': s.data.csrf }, data: { acao: 'selecionar-empresa', empresaId: empresas[chave].id } });
       assert.equal(r.status(), 200, `selecionar ${chave}`);
