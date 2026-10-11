@@ -1,6 +1,6 @@
 # P0b — revisão do impacto em produção
 
-**Preparado, não executado.** Complementa o P0 aprovado e concluído. Não concede isenção, muda cobrança, publica código, altera TLS/rede ou aplica migrations.
+**Executado uma vez, somente leitura, sob autorização específica de Felipe; seis etapas PASS.** [Evidência e decisão dos bloqueios](evidencias/preflight-production-codex-20261011.md). Complementa o P0 aprovado e concluído. Não concede isenção, muda cobrança, publica código, altera TLS/rede ou aplica migrations.
 
 ## Alvo e comando
 
