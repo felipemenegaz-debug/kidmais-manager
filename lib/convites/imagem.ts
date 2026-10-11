@@ -23,10 +23,18 @@ export async function normalizarImagem(data: string): Promise<Buffer> {
 }
 
 type Bloco = { type?: string; data?: string; mime_type?: string };
-type Resposta = { status?: string; steps?: { type?: string; content?: Bloco[] }[]; usage?: Record<string, unknown> };
+type Resposta = { status?: string; output_image?: Bloco; steps?: { type?: string; content?: Bloco[] }[]; usage?: Record<string, unknown> };
+export class FalhaProvedorImagem extends Error {
+  readonly diagnostico: string;
+  constructor(diagnostico: string) { super('Falha no provedor de imagem.'); this.diagnostico = diagnostico; }
+}
 export function extrairImagem(resposta: Resposta) {
-  const imagens = resposta.steps?.filter(s => s.type === 'model_output').flatMap(s => s.content ?? []).filter(b => b.type === 'image' && b.data && ['image/png', 'image/jpeg', 'image/webp'].includes(b.mime_type ?? '')) ?? [];
-  exigir(imagens.length === 1, 'O provedor não retornou uma imagem final.', 502);
+  const imagemDireta = resposta.output_image ? { ...resposta.output_image, type: resposta.output_image.type ?? 'image' } : undefined;
+  const imagemValida = (b: Bloco) => b.type === 'image' && b.data && ['image/png', 'image/jpeg', 'image/webp'].includes(b.mime_type ?? '');
+  const diretaValida = imagemDireta && imagemValida(imagemDireta) ? [imagemDireta] : [];
+  const imagens = diretaValida.length ? diretaValida
+    : (resposta.steps?.filter(s => s.type === 'model_output').flatMap(s => s.content ?? []).filter(imagemValida) ?? []);
+  if (imagens.length !== 1) throw new FalhaProvedorImagem('resposta_sem_imagem_unica');
   return `data:${imagens[0].mime_type};base64,${imagens[0].data}`;
 }
 export async function gerarImagem(prompt: string, refs: Buffer[], enviar: typeof fetch = fetch) {
@@ -38,8 +46,10 @@ export async function gerarImagem(prompt: string, refs: Buffer[], enviar: typeof
     body: JSON.stringify({ model: MODELO, input, store: false, response_format: { type: 'image', aspect_ratio: '3:4', image_size: '1K' }, generation_config: { max_output_tokens: 4096 } }),
     signal: AbortSignal.timeout(120_000),
   });
-  exigir(r.ok, 'Falha ao gerar imagem.', 502);
+  if (!r.ok) throw new FalhaProvedorImagem(`http_${r.status}`);
   // Não persiste prompt nem corpo de erro do provedor, que podem conter dados pessoais.
-  const body = await r.json() as Resposta;
+  let body: Resposta;
+  try { body = await r.json() as Resposta; }
+  catch { throw new FalhaProvedorImagem('resposta_json_invalida'); }
   return { imagem: await normalizarImagem(extrairImagem(body)), uso: body.usage ?? {} };
 }
