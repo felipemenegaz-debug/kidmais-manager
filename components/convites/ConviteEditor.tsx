@@ -15,8 +15,10 @@ import { extrairPaleta, visualPadrao } from '@/lib/convites/visual';
 import styles from './convites.module.css';
 import adminStyles from './editor-admin.module.css';
 type Arte = { id: string; url: string; origem: string };
+type GeracaoPendente = { id: string; criadoEm: string | Date; origem: 'CLIENTE' | 'BUFFET' };
+type DecisaoRecuperacao = { id: string; resolucao_resultado: string; resolucao_por: string; resolucao_em: string | Date; resolucao_evidencia: string };
 type Dados = { conteudo: Conteudo; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
-  disponiveis: number; iaDisponivel: boolean; geracaoIncerta?: boolean; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
+  disponiveis: number; iaDisponivel: boolean; geracaoIncerta?: boolean; podeRecuperarGeracao?: boolean; geracoesPendentes?: GeracaoPendente[]; decisoesRecuperacao?: DecisaoRecuperacao[]; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
   artes: Arte[]; respostas: { nome: string; presenca: boolean; adultos: number; criancas: number }[]; historico: { acao: string; ator: string; criado_em: string }[] };
 const campos = [['nome', 'Nome do aniversariante'], ['idade', 'Idade ou celebração'], ['data', 'Data'], ['horario', 'Horário'], ['local', 'Local da festa'], ['endereco', 'Endereço']] as const;
 export default function ConviteEditor({ festaId }: { festaId?: string }) {
@@ -27,6 +29,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
   const [prompt, setPrompt] = useState(''), [referencias, setReferencias] = useState<string[]>([]), [linkCliente, setLinkCliente] = useState('');
   const [cotaFesta, setCotaFesta] = useState(3), [cotaCliente, setCotaCliente] = useState(3);
   const [categoriaModelo, setCategoriaModelo] = useState<'todos' | 'neutros' | 'temas' | 'fotos'>('todos');
+  const [evidencias, setEvidencias] = useState<Record<string, string>>({});
   const [arteExcluir, setArteExcluir] = useState<Arte | null>(null);
   const dialogo = useRef<HTMLDialogElement>(null);
   useEffect(() => { if (arteExcluir) dialogo.current?.showModal(); else dialogo.current?.close(); }, [arteExcluir]);
@@ -112,6 +115,23 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
       setArteExcluir(null);
     }
   }
+  async function decidirRecuperacao(chave: string, resultado: 'COBRANCA_CONFIRMADA' | 'SEM_COBRANCA') {
+    const evidencia = evidencias[chave]?.trim() ?? '';
+    if (evidencia.length < 10) { setErro('Registre ao menos 10 caracteres com a fonte da conferência e o que foi verificado.'); return; }
+    setBusy(true); setErro(''); setAviso('');
+    try {
+      await api({ acao: 'recuperar', chave, resultado, evidencia });
+      const atual = await api() as Dados;
+      // Atualiza recuperação e cotas sem adotar uma revisão de rascunho mais nova sobre texto local não salvo.
+      setDados(d => d ? { ...d, geracaoIncerta: atual.geracaoIncerta, geracoesPendentes: atual.geracoesPendentes,
+        decisoesRecuperacao: atual.decisoesRecuperacao, podeRecuperarGeracao: atual.podeRecuperarGeracao,
+        cotas: atual.cotas, disponiveis: atual.disponiveis } : d);
+      pedido.current = null;
+      setEvidencias(v => Object.fromEntries(Object.entries(v).filter(([id]) => id !== chave)));
+      setAviso(resultado === 'COBRANCA_CONFIRMADA' ? 'Cobrança registrada; o crédito da geração continua consumido.' : 'Ausência de cobrança registrada; as reservas originais foram devolvidas.');
+    } catch (e) { setErro((e as Error).message); }
+    finally { setBusy(false); }
+  }
   const arte = dados?.artes.find(a => a.id === conteudo?.arteId)?.url;
   return <main className={ui.editor} data-editor={admin ? 'buffet' : 'cliente'}>
     <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'KIDMAIS · CONVITES'}</p><h1>{admin ? 'Convite da festa' : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <Link className={ui.voltar} href={`/admin/festas/${festaId}`}>← Voltar à festa</Link>}</header>
@@ -119,6 +139,21 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     {carregando ? <p>Preparando seu convite…</p> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
       <div className={ui.barra}><span>{dados.publicado ? '● Publicado' : '○ Rascunho'}{alterado ? ' · Alterações não salvas' : ''}</span><span><strong>{dados.disponiveis}</strong> créditos de imagem disponíveis</span></div>
       {dados.desatualizado && <p className={ui.erro}>A contratação foi atualizada e o link público está suspenso. Confira data, horário e local e publique novamente.</p>}
+      {admin && dados.podeRecuperarGeracao && (!!dados.geracoesPendentes?.length || !!dados.decisoesRecuperacao?.length) && <section className={ui.painel} aria-labelledby="geracoes-incertas-titulo">
+        <h2 id="geracoes-incertas-titulo">Revisar geração sem resultado</h2>
+        {!!dados.geracoesPendentes?.length && <p>Confira o histórico de uso no provedor e escolha o resultado. A decisão é registrada com seu usuário e evidência; nenhuma consulta automática é feita ao Gemini.</p>}
+        {dados.geracoesPendentes?.map(g => <div key={g.id} className={ui.painel}>
+          <p><strong>Geração {g.id}</strong><br />Solicitada em {new Date(g.criadoEm).toLocaleString('pt-BR')} · iniciada pelo {g.origem === 'CLIENTE' ? 'cliente' : 'buffet'}.</p>
+          <label>Fonte e evidência da conferência<textarea rows={3} maxLength={1000} minLength={10} required value={evidencias[g.id] ?? ''} onChange={e => setEvidencias(v => ({ ...v, [g.id]: e.target.value }))} placeholder="Ex.: Console do provedor, consulta realizada em 11/10/2026; registro da solicitação sem cobrança." /></label>
+          <div className={ui.acoes}>
+            <button type="button" disabled={busy || (evidencias[g.id]?.trim().length ?? 0) < 10} onClick={() => void decidirRecuperacao(g.id, 'COBRANCA_CONFIRMADA')}>Cobrança confirmada · manter crédito consumido</button>
+            <button type="button" className={ui.primario} disabled={busy || (evidencias[g.id]?.trim().length ?? 0) < 10} onClick={() => void decidirRecuperacao(g.id, 'SEM_COBRANCA')}>Sem cobrança · devolver reservas</button>
+          </div>
+        </div>)}
+        {!!dados.decisoesRecuperacao?.length && <details><summary>Decisões anteriores</summary><ul>{dados.decisoesRecuperacao.map(d => <li key={d.id}>
+          {new Date(d.resolucao_em).toLocaleString('pt-BR')} · geração {d.id} · {d.resolucao_resultado === 'COBRANCA_CONFIRMADA' ? 'cobrança confirmada; crédito mantido' : 'sem cobrança; reservas devolvidas'} · usuário {d.resolucao_por}<br />Evidência: {d.resolucao_evidencia}
+        </li>)}</ul></details>}
+      </section>}
       <div className={ui.colunas}><div className={ui.configuracao}>
         <fieldset disabled={busy} className={ui.painel}><legend>01 · Escolha o visual</legend>
           <div className={styles.filtrosModelos} role="group" aria-label="Filtrar modelos">{([['todos', 'Todos'], ['neutros', 'Bases neutras'], ['fotos', 'Com foto'], ['temas', 'Temas']] as const).map(([id, nome]) => <button key={id} type="button" aria-pressed={categoriaModelo === id} onClick={() => setCategoriaModelo(id)}>{nome}</button>)}</div>

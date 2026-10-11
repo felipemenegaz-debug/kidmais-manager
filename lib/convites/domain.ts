@@ -50,6 +50,7 @@ export const comandoSchema = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('upload'), imagem: z.string().max(7_000_000) }).strict(),
   z.object({ acao: z.literal('excluir_arte'), arteId: z.uuid(), revisao: z.int().positive() }).strict(),
   z.object({ acao: z.literal('gerar'), chave: z.uuid(), prompt: z.string().trim().min(5).max(3000), referencias: z.array(z.uuid()).max(2) }).strict(),
+  z.object({ acao: z.literal('recuperar'), chave: z.uuid(), resultado: z.enum(['COBRANCA_CONFIRMADA', 'SEM_COBRANCA']), evidencia: z.string().trim().min(10).max(1000) }).strict(),
 ]);
 export const respostaSchema = z.object({
   chave: z.uuid(), nome: z.string().trim().min(2).max(100),

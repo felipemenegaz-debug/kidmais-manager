@@ -16,6 +16,7 @@
  *   062   — inventário inteiro até a 062: etapa final (agenda por empresa e unidade).
  *   063   — inventário inteiro até a 063: painel do desenvolvedor (concessão, interessadas, convites, recuperação).
  *   078   — inventário inteiro até a 078: o schema de staging em 11/10/2026 (planos, regras de pagamento, catálogo por empresa).
+ *   079   — inventário inteiro até a 079: schema vigente com a recuperação manual de convites.
  *
  * Segurança (fail-closed, antes de qualquer escrita):
  *   - host 127.0.0.1, usuário kidmais_descartavel, porta autorizada pela mesma regra de
@@ -55,6 +56,8 @@ const MODELOS = {
   "063": { banco: "kidmais_v1_modelo_063", ate: "063", sem: [] },
   // Schema de staging depois da 078 (074a, 077, 078): fixtures de homologação (F-L) no mesmo schema do alvo.
   "078": { banco: "kidmais_v1_modelo_078", ate: "078", sem: [] },
+  // Recuperação manual de convites (079): cadeia completa do schema vigente, incluindo 064–079.
+  "079": { banco: "kidmais_v1_modelo_079", ate: "079", sem: [] },
 };
 /** Bancos de trabalho que o runner pode restaurar. */
 const TRABALHO = ["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"];

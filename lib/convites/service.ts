@@ -22,16 +22,20 @@ export function habilitado() { exigir(process.env.CONVITES_ENABLED === 'true', '
 const ligacaoSql = `SELECT fe.empresa_id,fe.cliente_id,fe.estabelecimento_id,f.contrato_id,f.invalidada_em
  FROM festas f JOIN contratos co ON co.id=f.contrato_id JOIN fechamentos fe ON fe.id=co.fechamento_id`;
 
-async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, c: Convite, versao: string, convidados: number | null) => Promise<T>): Promise<T> {
+async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, c: Convite, versao: string, convidados: number | null, podeAdministrar: boolean) => Promise<T>): Promise<T> {
   habilitado();
   return withTransaction(async tx => {
     let empresa: string, festa: string;
     let tenant: Awaited<ReturnType<typeof provarTenant>> | undefined;
+    let podeAdministrar = false;
     if (a.tipo === 'admin') {
       tenant = await provarTenant(tx, a.sessao);
       empresa = tenant.empresaComprovada; festa = a.festaId;
       const cap = escrever ? 'FESTA_OPERAR' : 'FESTA_CONSULTAR';
-      exigir((await tx.query(`SELECT id FROM festa_membership_capacidades WHERE empresa_id=$1 AND membership_id=$2 AND capacidade=$3 AND revogado_em IS NULL`, [empresa, tenant.membershipId, cap])).rows.length, 'Sem permissão para administrar o convite.', 403);
+      const capacidade = await tx.query(`SELECT id FROM festa_membership_capacidades WHERE empresa_id=$1 AND membership_id=$2 AND capacidade=$3 AND revogado_em IS NULL`, [empresa, tenant.membershipId, cap]);
+      exigir(capacidade.rows.length, 'Sem permissão para administrar o convite.', 403);
+      podeAdministrar = escrever;
+      if (!escrever) podeAdministrar = (await tx.query(`SELECT id FROM festa_membership_capacidades WHERE empresa_id=$1 AND membership_id=$2 AND capacidade='FESTA_OPERAR' AND revogado_em IS NULL`, [empresa, tenant.membershipId])).rows.length > 0;
     } else {
       exigir(/^[\w-]{43}$/.test(a.token), 'Acesso ao convite indisponível.', 404);
       const pre = (await tx.query<Convite>('SELECT * FROM convites WHERE editor_hash=$1 AND editor_expira_em>now()', [hash(a.token)])).rows[0];
@@ -59,7 +63,7 @@ async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, 
     exigir(c, 'Crie o convite para começar.', 404);
     if (a.tipo === 'cliente') exigir(c.editor_hash === hash(a.token) && c.editor_expira_em && c.editor_expira_em > new Date(), 'Acesso ao convite indisponível.', 404);
     const quantidade = co.snapshot?.evento?.convidados;
-    const r = await fn(tx, c, co.versao_id, Number.isSafeInteger(quantidade) && quantidade >= 0 ? quantidade : null);
+    const r = await fn(tx, c, co.versao_id, Number.isSafeInteger(quantidade) && quantidade >= 0 ? quantidade : null, podeAdministrar);
     if (tenant) await revalidarTenant(tx, tenant);
     return r;
   });
@@ -74,7 +78,7 @@ async function cotas(tx: DbExecutor, c: Convite): Promise<Cotas> {
   return { empresa: w?.limite ?? 0, empresaUsado: w?.usado ?? 0, festa: c.limite_festa, festaUsado: c.usado_festa, cliente: c.limite_cliente, clienteUsado: c.usado_cliente };
 }
 export async function consultar(a: Acesso, criar = false) {
-  return comConvite(a, criar, async (tx, c, versao, convidadosContratados) => {
+  return comConvite(a, criar, async (tx, c, versao, convidadosContratados, podeAdministrar) => {
     const limite = await cotas(tx, c);
     const artes = (await tx.query<{ id: string; imagem: Buffer; origem: string }>('SELECT id,imagem,origem FROM convite_artes WHERE convite_id=$1 AND empresa_id=$2 ORDER BY criado_em DESC', [c.id, c.empresa_id])).rows.map(r => ({ id: r.id, origem: r.origem, url: `data:image/webp;base64,${r.imagem.toString('base64')}` }));
     const familias = await listarFamilias(tx, c);
@@ -82,11 +86,21 @@ export async function consultar(a: Acesso, criar = false) {
       LEFT JOIN convite_familias f ON f.id=r.familia_id AND f.convite_id=r.convite_id
       WHERE r.convite_id=$1 AND (r.familia_id IS NULL OR f.ativa=true) ORDER BY r.atualizado_em DESC LIMIT 2000`, [c.id])).rows;
     const historico = (await tx.query<{ acao: string; ator: string; criado_em: string }>('SELECT acao,split_part(ator,\':\',1) ator,criado_em FROM convite_eventos WHERE convite_id=$1 ORDER BY id DESC LIMIT 20', [c.id])).rows;
-    const geracaoIncerta = (await tx.query('SELECT id FROM convite_geracoes WHERE convite_id=$1 AND estado=\'INCERTA\' LIMIT 1', [c.id])).rows.length > 0;
+    const incertas = (await tx.query<{ id: string; criado_em: Date; ator: string }>(`SELECT id,criado_em,ator FROM convite_geracoes
+      WHERE convite_id=$1 AND empresa_id=$2 AND estado='INCERTA' ORDER BY criado_em`, [c.id, c.empresa_id])).rows;
+    const geracoesPendentes = a.tipo === 'admin' && podeAdministrar
+      ? incertas.map(g => ({ id: g.id, criadoEm: g.criado_em, origem: g.ator.startsWith('CLIENTE:') ? 'CLIENTE' : 'BUFFET' }))
+      : [];
+    const decisoesRecuperacao = a.tipo === 'admin' && podeAdministrar
+      ? (await tx.query<{ id: string; resolucao_resultado: string; resolucao_por: string; resolucao_em: Date; resolucao_evidencia: string }>(
+        `SELECT id,resolucao_resultado,resolucao_por,resolucao_em,resolucao_evidencia FROM convite_geracoes
+         WHERE convite_id=$1 AND empresa_id=$2 AND estado IN ('RESOLVIDA_COBRADA','RESOLVIDA_SEM_COBRANCA') ORDER BY resolucao_em DESC LIMIT 20`, [c.id, c.empresa_id])).rows
+      : [];
     return { id: c.id, conteudo: c.rascunho, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },
-      disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), geracaoIncerta, artes, respostas, familias, historico };
+      disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), geracaoIncerta: incertas.length > 0, geracoesPendentes,
+      decisoesRecuperacao, podeRecuperarGeracao: podeAdministrar, artes, respostas, familias, historico };
   });
 }
 
@@ -100,6 +114,7 @@ async function guardarArte(tx: DbExecutor, c: Convite, imagem: Buffer, origem: '
 export async function comandar(a: Acesso, raw: unknown): Promise<object> {
   const i = comandoSchema.parse(raw);
   if (i.acao === 'gerar') return gerar(a, i);
+  if (i.acao === 'recuperar') return recuperarGeracao(a, i);
   // Reencoding fora da transação; só após autenticação da rota (cliente revalidado abaixo).
   if (i.acao === 'upload') await comConvite(a, true, async () => undefined);
   const imagem = i.acao === 'upload' ? await normalizarImagem(i.imagem) : null;
@@ -150,6 +165,42 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
     }
     await evento(tx, c, a, i.acao.toUpperCase(), i.acao === 'cotas' ? { festa: i.festa, cliente: i.cliente } : {});
     return { salvo: true };
+  });
+}
+
+async function recuperarGeracao(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse>, { acao: 'recuperar' }>) {
+  exigir(a.tipo === 'admin', 'Somente o buffet pode revisar uma geração.', 403);
+  return comConvite(a, true, async (tx, c) => {
+    const geracao = (await tx.query<{ id: string; empresa_id: string; convite_id: string; estado: string; ator: string; criado_em: Date; reserva_microusd: number }>(
+      `SELECT id,empresa_id,convite_id,estado,ator,criado_em,reserva_microusd FROM convite_geracoes
+       WHERE id=$1 AND convite_id=$2 AND empresa_id=$3 FOR UPDATE`, [i.chave, c.id, c.empresa_id])).rows[0];
+    exigir(geracao, 'Geração não encontrada nesta festa.', 404);
+    exigir(geracao.estado === 'INCERTA', 'Esta geração já foi resolvida ou não está pendente.', 409);
+
+    const estado = i.resultado === 'COBRANCA_CONFIRMADA' ? 'RESOLVIDA_COBRADA' : 'RESOLVIDA_SEM_COBRANCA';
+    const transicao = await tx.query(`UPDATE convite_geracoes SET estado=$4,resolucao_resultado=$5,resolucao_por=$6,
+      resolucao_em=now(),resolucao_evidencia=$7 WHERE id=$1 AND convite_id=$2 AND empresa_id=$3 AND estado='INCERTA' RETURNING id`,
+    [i.chave, c.id, c.empresa_id, estado, i.resultado, a.sessao.usuario_id, i.evidencia]);
+    exigir(transicao.rowCount === 1, 'A geração já foi resolvida por outra sessão. Atualize a página.', 409);
+
+    const liberouReserva = i.resultado === 'SEM_COBRANCA';
+    if (liberouReserva) {
+      const festa = await tx.query(`UPDATE convites SET usado_festa=usado_festa-1,
+        usado_cliente=usado_cliente-CASE WHEN $2 THEN 1 ELSE 0 END
+        WHERE id=$1 AND empresa_id=$3 AND usado_festa>0 AND (NOT $2 OR usado_cliente>0) RETURNING id`,
+      [c.id, geracao.ator.startsWith('CLIENTE:'), c.empresa_id]);
+      exigir(festa.rowCount === 1, 'Não foi possível liberar as cotas da festa com segurança.', 409);
+      const mensal = await tx.query(`UPDATE convite_consumos SET usado=usado-1 WHERE empresa_id=$2 AND usado>0 AND mes=(
+        SELECT date_trunc('month',criado_em AT TIME ZONE 'America/Sao_Paulo')::date FROM convite_geracoes WHERE id=$1
+      ) RETURNING empresa_id`, [i.chave, c.empresa_id]);
+      exigir(mensal.rowCount === 1, 'Não foi possível localizar a reserva mensal original; nenhuma cota foi liberada.', 409);
+      const global = await tx.query(`UPDATE convite_orcamento_global SET reservado_microusd=reservado_microusd-$2
+        WHERE dia=(SELECT (criado_em AT TIME ZONE 'America/Sao_Paulo')::date FROM convite_geracoes WHERE id=$1)
+          AND reservado_microusd >= $2 RETURNING dia`, [i.chave, geracao.reserva_microusd]);
+      exigir(global.rowCount === 1, 'Não foi possível localizar a reserva diária original; nenhuma cota foi liberada.', 409);
+    }
+    await evento(tx, c, a, 'IA_RECUPERACAO_MANUAL', { geracao: i.chave, resultado: i.resultado, evidencia: i.evidencia, liberouReserva });
+    return { resolvida: true, estado, liberouReserva };
   });
 }
 

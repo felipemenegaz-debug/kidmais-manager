@@ -99,6 +99,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/importacao-tabela/importacao-071.postgres.test.ts": { descartavel: "063" },
   // Modelo de contrato da empresa: 063 + 070 + 071 + 072 aplicadas pela própria suíte.
   "lib/contratos/modelo-empresa/modelo-072.postgres.test.ts": { descartavel: "063" },
+  // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
+  "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
