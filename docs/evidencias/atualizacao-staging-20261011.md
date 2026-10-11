@@ -40,7 +40,7 @@ revalidando a branch antes do deploy; Felipe executa os comandos de Shell; sem 0
 
 Valores de variáveis não foram lidos nem exibidos (campos mascarados; só nomes). 078 não aplicada; OTP não executado.
 
-**Estado deixado:** LIVE `d19f78b` (`dep-db5i0b2jnfac73aihub0`), sem as duas chaves; branch `staging` = `d19f78b`; 078 não aplicada.
+**Estado deixado ao fim do S8 (antes de S5b):** LIVE `d19f78b` (`dep-db5i0b2jnfac73aihub0`), sem as duas chaves; branch `staging` = `d19f78b`; 078 ainda não aplicada naquele momento (aplicada depois em S5b — ver abaixo).
 Conferências de Shell concluídas (Felipe): restauração `RESTAURADA` e S5a `CONFERIDO`. **Para S5b (D2):** aplicar a 078 em staging só atribui o
 catálogo atual (7/62) à `kidmais`; nenhuma cópia para outras empresas.
 **Diagnóstico de elegibilidade de `/b/` (somente leitura, Shell de Felipe, instância `pbft5`):** script temporário em `/tmp`
@@ -52,6 +52,14 @@ veem a cotação, não enviam pedido). O painel do desenvolvedor só reativa `SU
 `DESATIVADA`.
 
 **078 aplicada em staging em 11/10/2026 (PASS).** Pendente de decisão: fixture elegível para `/b/` em staging (diagnóstico somente leitura proposto) para repetir B1/B2/B4.
+
+**Conferência somente leitura (agente, 11/10 06:19Z), antes de preparar a frente F:** `git ls-remote`/`fetch` de `origin/staging` →
+**`b95494f`** (“ops(staging): aplicar migration 079 com guardas”; antes dele `82596e6` e `8d0edde`, convites; autor Felipe; `d19f78b`
+ancestral). Render `list_deploys`: LIVE **`dep-db5iero473hc73b9pi4g`** (`b95494f`, trigger `api`, LIVE 06:12:44Z); `dep-db5i0b2jnfac73aihub0`
+(`d19f78b`, o do S8) desativado às 06:12:44Z. HTTP: `/api/health` 200, `/disponibilidade` 200, `/b/hml-planos-profissional/fechamento`
+404, `/api/fechamentos/pacotes?empresa=hml-planos-profissional` 404 — **não conclusivo sobre as chaves** (as fixtures `hml-*` estão
+desativadas, o que também daria 404). Staging avançou depois do S8 desta rodada, fora deste pacote: a restauração precisa ser
+reconferida no Shell (`--conferir-restauracao`) antes da próxima rodada. Nenhuma escrita, variável ou Shell nesta conferência.
 
 Sem alteração em produção.
 
