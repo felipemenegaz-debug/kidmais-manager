@@ -23,7 +23,7 @@ antes de chegar ao servidor.
 | `GET /api/fechamentos/pacotes?empresa=<código>` | nome, preço, convidados | + `disponibilidade` de cada pacote **da empresa do endereço**: regras ativas e não expiradas (dia ISO 1–7, `almoco`/`noite` por `TURNO_1`/`TURNO_2`, estado, vigência). Sem dado pessoal |
 | `GET /api/fechamentos/pacotes` (endereço atual da Kidmais) | — | **inalterado**: sem o campo e sem consulta nova |
 | `statusDataPacote` | agenda → decisão por data → regra fixa por código | agenda → decisão por data → **regras da empresa** (vigência escolhida como no servidor: maior início vigente na data; sem regra = indisponível, motivo “conforme a configuração do buffet”) ; sem regras (endereço atual) → regra legada, idêntica |
-| Assistente (`FechamentoWizard`) e calendário | regra fixa | as regras do pacote da empresa nas 5 decisões (validação da etapa, troca de pacote, seleção de data, alternativa de período, células do mês) |
+| Assistente (`FechamentoWizard`) e calendário | regra fixa | as regras do pacote da empresa nas 5 decisões (validação da etapa, troca de pacote, seleção de data, alternativa de período, células do mês). No fluxo público só as duas primeiras são alcançáveis — ver limitação no §5 |
 | Rótulo de consulta no calendário | “Consultar Kidmais” | “Consultar o buffet” fora do endereço da Kidmais |
 | Seed local do navegador | Pocket de todas as empresas em todos os dias | Profissional: todos os dias; **Premium: só dias úteis (1–5)** — prova o isolamento na tela |
 
@@ -65,15 +65,30 @@ comandos (valor não lido).
 
 ## 5. Checklist (D = desktop; C = celular 375×812). Datas: sáb 14/11/2026, dom 15/11, qua 18/11
 
-| # | Onde | Esperado | D | C |
+**Caminho público (o mesmo do cliente), em todos os itens de tela:** abrir `/b/<código>/disponibilidade` (ou `/disponibilidade` no
+legado) → escolher o mês, o dia, o período e o horário **clicando** → botão **“Continuar para escolher o pacote”** → etapa Pacote →
+“Selecionar” → “Continuar”. Nenhum endereço de `/fechamento?…` é digitado, colado ou alterado, e nenhuma navegação é feita por script
+(JavaScript só para **ler** o texto da página). Se o botão não levar à etapa Pacote, o item é registrado como **não executado**, com
+o motivo e a captura, e a execução para nesse item; o endereço nunca é aberto diretamente.
+
+| # | Caminho | Esperado | D | C |
 |---|---|---|---|---|
-| V1 | `/b/nav-profissional/disponibilidade` → **sábado 14/11, almoço** → Continuar → Pocket → Continuar | avança para Convidados (**sem** “não está disponível”); na etapa Valor, a cotação do servidor mostra R$ 1.500,00 | ✓ | ✓ |
-| V2 | `/b/nav-profissional`, **domingo 15/11, noite** | Pocket disponível (dia ISO 7) | ✓ | — |
-| V3 | `/b/nav-premium`, **sábado 14/11, almoço** | Pocket recusado com “Este pacote não está disponível neste dia e período, conforme a configuração do buffet.” — nenhum texto da Kidmais | ✓ | ✓ |
-| V4 | `/b/nav-premium`, **quarta 18/11, almoço** | Pocket disponível; avança até Valor (R$ 2.300,00) | ✓ | — |
-| V5 | `/fechamento` (legado), **sábado 14/11 almoço**: Kidmais Pocket; **sábado noite**: Festa Compacta; **quarta**: Kidmais Pocket | Pocket sábado = indisponível (regra legada); Compacta sábado à noite = “A Festa Compacta não está disponível aos sábados no segundo período.”; Pocket quarta = disponível | ✓ | ✓ |
-| V6 | APIs sem sessão: `/api/fechamentos/pacotes?empresa=nav-profissional` / `nav-premium`; sem empresa | Profissional: 14 regras do POCKET (7 dias × 2 períodos); Premium: 10 (5 × 2); sem empresa: **sem** `disponibilidade` | ✓ | — |
-| V7 | `/b/nav-premium/fechamento` aberto **sem** data pré-escolhida → Pocket → etapa da data (calendário do assistente) | sábados e domingos indisponíveis; dias úteis disponíveis. No Profissional, sábados disponíveis | ✓ | — |
+| V1 | `/b/nav-profissional/disponibilidade` → **sábado 14/11, almoço, 11:00–15:00** → Continuar → Pocket → Continuar → Convidados (20) → Continuar até **Valor** | avança sem “não está disponível”; Valor mostra a cotação do servidor (R$ 1.500,00) | ✓ | ✓ |
+| V2 | `/b/nav-profissional/disponibilidade` → **domingo 15/11, noite, 17:00–21:00** → Continuar → Pocket → Continuar | avança para Convidados (dia ISO 7) | ✓ | — |
+| V3 | `/b/nav-premium/disponibilidade` → **sábado 14/11, almoço** → Continuar → Pocket → Continuar | permanece na etapa Pacote com “Este pacote não está disponível neste dia e período, conforme a configuração do buffet.”; nenhum texto da Kidmais | ✓ | ✓ |
+| V4 | `/b/nav-premium/disponibilidade` → **quarta 18/11, almoço** → Continuar → Pocket → Continuar até **Valor** | avança; Valor R$ 2.300,00 | ✓ | — |
+| V5 | `/disponibilidade` (legado) → **sábado 14/11 almoço** → Kidmais Pocket; **sábado 14/11 noite** → Festa Compacta; **quarta 18/11 almoço** → Kidmais Pocket | Pocket sábado recusado (regra legada); Compacta sábado à noite: “A Festa Compacta não está disponível aos sábados no segundo período.”; Pocket quarta avança | ✓ | ✓ |
+| V6 | APIs sem sessão, pela barra de endereço (leitura de JSON): `/api/fechamentos/pacotes?empresa=nav-profissional`, `?empresa=nav-premium`, sem empresa | Profissional: 14 regras do POCKET (7 dias × 2 períodos); Premium: 10 (5 × 2); sem empresa: **sem** `disponibilidade` | ✓ | — |
+| V7 | Recuperação pelo próprio cliente, a partir de V3: na etapa Pacote do Premium, **“Alterar data ou horário”** → volta a `/b/nav-premium/disponibilidade` → **quarta 18/11, almoço** → Continuar → Pocket → Continuar | o link leva à disponibilidade **do Premium** (não ao endereço da Kidmais); a nova data avança para Convidados | ✓ | ✓ |
+
+**Limitação registrada (fluxo público):** o calendário interno do assistente (`CalendarioDisponibilidade`, etapa “Confirme a data e
+o horário”), que também usa as regras do pacote, **não é acessível no fluxo público**: o assistente só abre com a data trazida da
+disponibilidade (`origem=DISPONIBILIDADE`; sem ela redireciona para `/disponibilidade`) e pula essa etapa ao avançar (Pacote →
+Convidados) e ao voltar (Convidados → Pacote). Ele só aparece com parâmetros de atendimento interno, que não são caminho do cliente
+e não fazem parte deste pacote. As três decisões desse calendário ficam cobertas **só pelos testes** (§3: ligação de todas as
+chamadas às regras da empresa e a regra em si). Consequência para o cliente: o calendário público de `/b/<código>/disponibilidade`
+mostra a agenda do buffet, sem considerar o pacote — um sábado aparece “Disponível” no Premium e a recusa do Pocket só vem na etapa
+Pacote (V3), com o caminho de volta do V7. Comportamento anterior a esta correção; registrado como pendência de UX.
 
 Envio de pedido: **nenhum** (parar no máximo na etapa Valor). Nenhuma conta administrativa. Efeitos permanentes: só as pastas locais
 novas (`.local-navegador-pg-*`, `.local-navegador/`), ignoradas pelo Git; remoção só com autorização de limpeza (C6).
@@ -85,4 +100,6 @@ novas (`.local-navegador-pg-*`, `.local-navegador/`), ignoradas pelo Git; remoç
 - Painel administrativo (`components/admin/AdminDisponibilidade.tsx`) ainda usa as regras fixas no status comercial exibido —
   pendência (não altera pedidos; o servidor decide).
 - Staging/produção: código compatível com qualquer schema já existente (só leitura de tabela da 006); entra com o pacote de código.
+- **Fluxo público:** o calendário de `/b/<código>/disponibilidade` não considera o pacote, e o calendário interno do assistente não é
+  alcançável pelo cliente (§5). Pendência de UX: indicar a disponibilidade do pacote antes da etapa Pacote (decisão de produto).
 - Pendentes de antes: cliente existente com OTP (staging); 074–078 sem autorização para produção.
