@@ -361,6 +361,52 @@ async function principal() {
       await login();
     });
 
+    // T9 (P4). Sair DURANTE a troca: o servidor já processou a troca (Alfa revogada, Beta criada), mas a resposta (com o
+    //   Set-Cookie da Beta) ainda não chegou à página quando a pessoa clica em Sair. Um logout que sair antes dessa
+    //   resposta segue com os cabeçalhos do envio (cookies da Alfa, nunca registrados) e só é entregue depois dela, como
+    //   numa corrida real. Correto: a tela vai ao login e NENHUMA sessão do usuário continua válida (nem a Beta).
+    await cenario('T9-sair-durante-a-troca', async () => {
+      await preparar();
+      let liberarTroca; const trocaLiberada = new Promise((r) => { liberarTroca = r; });
+      let trocaNoServidor; const trocou = new Promise((r) => { trocaNoServidor = r; });
+      let trocaEntregue; const entregue = new Promise((r) => { trocaEntregue = r; });
+      const ordem = [];
+      await page.route('**/api/admin/autenticacao', async (route) => {
+        const req = route.request();
+        if (req.method() !== 'POST') return route.fallback();
+        const acao = (() => { try { return JSON.parse(req.postData() ?? '{}').acao; } catch { return null; } })();
+        if (acao === 'selecionar-empresa') {
+          const resposta = await route.fetch(); trocaNoServidor(); await trocaLiberada;
+          await route.fulfill({ response: resposta }); ordem.push('troca-entregue'); trocaEntregue();
+          return;
+        }
+        if (acao === 'logout') {
+          const cabecalhos = await req.allHeaders();
+          ordem.push(`logout-pedido${trocaLiberadaJa ? '-depois' : '-antes'}-da-resposta-da-troca`);
+          await entregue;
+          try { const resposta = await route.fetch({ headers: cabecalhos }); ordem.push(`logout-${resposta.status()}`); await route.fulfill({ response: resposta }); }
+          catch { await route.abort('failed').catch(() => undefined); }
+          return;
+        }
+        return route.fallback();
+      });
+      let trocaLiberadaJa = false;
+      await selecionar(empresas.beta.id);
+      await trocou;                                    // servidor: Alfa revogada, Beta criada; página ainda sem a resposta
+      await page.locator('button:visible', { hasText: /Sair$/ }).first().click();
+      await page.waitForTimeout(400);
+      trocaLiberadaJa = true; liberarTroca();          // a resposta da troca (cookie Beta) chega agora
+      await esperarLogin(15000);
+      await page.waitForTimeout(800);
+      rastro.push({ ms: Date.now() - t0, evento: 'T9-ordem', caminho: ordem.join(',') });
+      const abertas = Number((await client.query(
+        'SELECT count(*)::int AS n FROM sessoes_administrativas WHERE usuario_id = $1 AND revogado_em IS NULL AND expira_em > clock_timestamp()', [user])).rows[0].n);
+      assert.equal(abertas, 0, `nenhuma sessão do usuário pode continuar válida no servidor (ordem: ${ordem.join(', ')})`);
+      assert.equal((await sessaoAtual()).data?.usuarioId ?? null, null, 'o navegador não fica com sessão válida');
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+      await login();
+    });
+
     resultados.push(...resultadosTroca.map((r) => `${r.nome}: ${r.ok ? 'ok' : `FALHOU (${r.erro})`}`));
     if (resultadosTroca.some((r) => !r.ok)) {
       fs.writeFileSync(path.join(relatorios, 'resultado.json'), JSON.stringify({ ok: false, resultados }, null, 2));
