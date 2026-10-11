@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { adminFetch } from '@/lib/http/admin-fetch';
-import { encerrarTrocaDeEmpresa, iniciarTrocaDeEmpresa, marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
+import { trocarEmpresaAtiva } from '@/lib/http/admin-fetch';
+import { marcaDaSessao, registrarContextoEmpresa, reiniciarContextoEmpresa, sessaoObsoletaDesde } from '@/lib/http/contexto-empresa-cliente';
 import styles from './shell.module.css';
 import tokens from './tokens.module.css';
 import admin from './admin.module.css';
@@ -22,6 +22,8 @@ const ROTAS_ABERTAS_BLOQUEADO = ['/admin/perfil', '/admin/assinatura', '/admin/a
 
 /** Depois deste tempo sem resposta da verificação da sessão, a tela oferece saídas em vez de ficar só "Verificando sessão…". */
 const DEMORA_VERIFICACAO_MS = 8000;
+/** Depois de pedir a navegação da troca: se a página ainda existir (navegação cancelada), o seletor volta a funcionar. */
+const ESPERA_NAVEGACAO_DA_TROCA_MS = 4000;
 
 export default function AdminShell({ children, vitrine }: {
     children: React.ReactNode;
@@ -133,16 +135,17 @@ export default function AdminShell({ children, vitrine }: {
     async function escolherEmpresa(id: string) {
         if (!id || trocando) return;
         setTrocando(true); setErroEmpresa('');
-        // A partir daqui, leituras da sessão anterior que chegarem atrasadas não mandam ao login (a sessão vai ser trocada).
-        iniciarTrocaDeEmpresa();
         try {
-            const res = await adminFetch('/api/admin/autenticacao', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ acao: 'selecionar-empresa', empresaId: id }) });
+            // Janela de proteção contra respostas da sessão anterior com início e fim definidos (lib/http/admin-fetch.ts).
+            const res = await trocarEmpresaAtiva(id);
             const b = await res.json();
             if (!res.ok || !b.ok) throw Error(b.erro ?? 'Não foi possível trocar de empresa.');
             try { localStorage.setItem('kidmais-contexto-alterado', String(Date.now())); } catch { /* Sem armazenamento, foco/poll revalidam as outras abas. */ }
             reiniciarContextoEmpresa();
-        } catch (e) { encerrarTrocaDeEmpresa(); setErroEmpresa(e instanceof Error ? e.message : 'Não foi possível trocar de empresa.'); setTrocando(false); }
+            // Navegação cancelada (aviso de alterações não salvas → "Ficar"): a página continua e o seletor volta a funcionar.
+            // Os dados antigos continuam descartados na próxima leitura (empresa da sessão ≠ empresa da página).
+            window.setTimeout(() => setTrocando(false), ESPERA_NAVEGACAO_DA_TROCA_MS);
+        } catch (e) { setErroEmpresa(e instanceof Error ? e.message : 'Não foi possível trocar de empresa.'); setTrocando(false); }
     }
     const seletor = contexto && contexto.empresas.length > 0 ? <label className={styles.seletorEmpresa}>Empresa ativa
         <select aria-label="Empresa ativa" disabled={trocando} value={contexto.empresaAtual?.id ?? ''} onChange={e => void escolherEmpresa(e.target.value)}>

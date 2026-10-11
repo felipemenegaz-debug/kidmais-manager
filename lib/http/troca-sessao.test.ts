@@ -25,13 +25,15 @@ function ambiente() {
     /** Respostas de leitura da sessão presas: cada uma responde com a sessão vigente NO MOMENTO em que é liberada. */
     const segurarProximaLeitura = () => { let abrir!: () => void; const p = new Promise<void>((r) => { abrir = r; }); portas.push({ url: '/api/admin/autenticacao', abrir }); return { p, abrir: () => abrir() }; };
     let leituraPresa: Promise<void> | null = null;
+    /** A leitura presa leva os cookies da sessão de quando saiu: liberada depois da revogação, volta "encerrada". */
+    let presaComSessaoAnterior = false;
     const respostas = new Map<string, { status: number; antes?: () => void } | 'rede'>();
     g.fetch = async (input: string, init: RequestInit = {}) => {
         const url = String(input);
         const metodo = (init.method ?? 'GET').toUpperCase();
         if (url === '/api/admin/autenticacao' && metodo === 'GET') {
-            if (leituraPresa) { const p = leituraPresa; leituraPresa = null; await p; }
-            const s = vigente;
+            let s = vigente;
+            if (leituraPresa) { const p = leituraPresa; const antiga = presaComSessaoAnterior; leituraPresa = null; presaComSessaoAnterior = false; await p; s = antiga ? null : vigente; }
             return new Response(JSON.stringify({ ok: true, data: s ? { usuarioId: 'u', sessaoId: s.sessaoId, csrf: 'c', contexto: { empresaAtual: { id: s.empresa } } } : { usuarioId: null, csrf: 'c' } }));
         }
         envios.push(`${metodo} ${url}`);
@@ -43,7 +45,7 @@ function ambiente() {
     };
     const cache = new Map();
     const ctx = carregarModulo('lib/http/contexto-empresa-cliente.ts', {}, cache) as Record<string, ((...a: unknown[]) => unknown) | undefined>;
-    const mod = carregarModulo('lib/http/admin-fetch.ts', {}, cache) as { adminFetch: (u: string, i?: RequestInit) => Promise<Response> };
+    const mod = carregarModulo('lib/http/admin-fetch.ts', {}, cache) as { adminFetch: (u: string, i?: RequestInit) => Promise<Response>; trocarEmpresaAtiva?: (id: string) => Promise<Response> };
     return {
         mod, navegacoes, envios, respostas,
         /** O que a troca de empresa da página faz: marca o início (se existir) e o servidor passa para a sessão Beta. */
@@ -52,7 +54,27 @@ function ambiente() {
         trocarNoServidor: () => { vigente = SESSAO_B; },
         encerrarNoServidor: () => { vigente = null; },
         /** A próxima leitura GET da sessão fica presa até `liberar` e responde com a sessão vigente ao ser liberada. */
-        prenderLeitura: () => { const s = segurarProximaLeitura(); leituraPresa = s.p; return s.abrir; },
+        prenderLeitura: (comSessaoAnterior = false) => { const s = segurarProximaLeitura(); leituraPresa = s.p; presaComSessaoAnterior = comSessaoAnterior; return s.abrir; },
+        /**
+         * A troca como o AdminShell a faz: com a correção, trocarEmpresaAtiva; antes dela (271f18b), marcar o início e enviar o
+         * POST pelo adminFetch. Depois do sucesso, o AdminShell pede o descarte (navegação); aqui a navegação só é registrada:
+         * a página "fica", como no "Ficar" do aviso de alterações não salvas.
+         */
+        trocarPelaPagina: async () => {
+            respostas.set('/api/admin/autenticacao', { status: 200, antes: () => { vigente = SESSAO_B; } });
+            if (mod.trocarEmpresaAtiva) await mod.trocarEmpresaAtiva('beta');
+            else { ctx.iniciarTrocaDeEmpresa?.(); await mod.adminFetch('/api/admin/autenticacao', { method: 'POST', body: '{}' }); }
+            ctx.reiniciarContextoEmpresa?.();
+        },
+        tentarTrocarPelaPagina: async () => {
+            respostas.set('/api/admin/autenticacao', { status: 200, antes: () => { vigente = SESSAO_B; } });
+            try {
+                if (mod.trocarEmpresaAtiva) await mod.trocarEmpresaAtiva('beta');
+                else { ctx.iniciarTrocaDeEmpresa?.(); await mod.adminFetch('/api/admin/autenticacao', { method: 'POST', body: '{}' }); }
+                return 'OK';
+            }
+            catch (e) { ctx.encerrarTrocaDeEmpresa?.(); return (e as Error).message; }
+        },
         aviso: () => armazenado.get('kidmais-aviso-contexto') ?? null,
         login: () => navegacoes.filter((n) => n.startsWith('/admin/login')).length,
     };
@@ -147,9 +169,87 @@ test('sessão inválida no servidor: CSRF existente e bem formado é reaproveita
     assert.equal(rota.match(/randomBytes\(/g)?.length ?? 0, 0, 'nenhum CSRF novo gravado incondicionalmente na rota');
 });
 
-test('AdminShell: a troca marca o início ANTES do POST; leituras do shell que saíram antes ignoram a resposta (sem login)', () => {
+test('AdminShell: leituras do shell que saíram antes ou durante a troca ignoram a resposta (sem login)', () => {
     const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
     assert.match(shell, /const carregar = \(\) => \{ const marca = marcaDaSessao\(\); return fetch\('\/api\/admin\/autenticacao'[\s\S]*?if \(sessaoObsoletaDesde\(marca\)\)\s*return;\s*if \(!b\.ok \|\| !b\.data\.usuarioId\) \{/);
     assert.match(shell, /\.catch\(\(\) => \{ if \(!sessaoObsoletaDesde\(marca\)\) router\.replace\('\/admin\/login'\); \}\);/);
-    assert.match(shell, /iniciarTrocaDeEmpresa\(\);\s*try \{\s*const res = await adminFetch\('\/api\/admin\/autenticacao', \{ method: 'POST'/);
+});
+
+// ---------------------------------------------------------------- B1, B2 e aviso perdido (parecer de 11/10/2026)
+
+test('B1: troca concluída e navegação cancelada ("Ficar") → logout REAL depois → login (a janela da troca terminou)', async () => {
+    const a = ambiente();
+    await a.trocarPelaPagina();                       // a troca concluiu; a navegação foi pedida e cancelada
+    const navegacoesDaTroca = a.navegacoes.length;
+    a.encerrarNoServidor();                           // logout em outra aba / revogação real
+    assert.match(await mensagem(a.mod.adminFetch('/api/x')), /login/i);
+    assert.equal(a.login(), 1, 'fim real da sessão leva ao login mesmo com a página ainda aberta');
+    assert.equal(a.navegacoes.length, navegacoesDaTroca + 1);
+});
+
+test('B1: troca concluída e navegação cancelada → expiração depois → login; antes disso, dados da empresa anterior descartados', async () => {
+    const a = ambiente();
+    a.respostas.set('/api/x', { status: 200 });
+    await a.trocarPelaPagina();
+    // Página ainda com o contexto Alfa; a sessão agora é Beta: a leitura é descartada (nada entregue), sem login.
+    assert.match(await mensagem(a.mod.adminFetch('/api/x')), /mudou/);
+    assert.equal(a.login(), 0);
+    a.encerrarNoServidor();                           // a sessão Beta expira
+    assert.match(await mensagem(a.mod.adminFetch('/api/x')), /login/i);
+    assert.equal(a.login(), 1);
+});
+
+test('B2: sessão já inválida ANTES da troca → a troca vai direto ao login (não é resposta obsoleta); nenhum POST de troca', async () => {
+    const a = ambiente();
+    a.encerrarNoServidor();
+    const r = await a.tentarTrocarPelaPagina();
+    assert.match(r, /login/i, 'a pessoa é levada ao login');
+    assert.equal(a.login(), 1);
+    assert.equal(a.envios.filter((e) => e.startsWith('POST')).length, 0, 'nenhum POST de troca com sessão inválida');
+});
+
+test('aviso perdido: escrita impedida antes do envio pela troca → aviso claro de que nada foi enviado nem salvo; zero envios', async () => {
+    const a = ambiente();
+    a.respostas.set('/api/y', { status: 200 });
+    const liberar = a.prenderLeitura(true);           // confirmação prévia da escrita sai com a sessão Alfa
+    const escrita = mensagem(a.mod.adminFetch('/api/y', { method: 'POST', body: '{}' }));
+    await tique();
+    await a.trocarPelaPagina();                       // a troca acontece; a Alfa é revogada
+    liberar();                                        // a confirmação prévia da escrita volta "encerrada" (sessão anterior)
+    assert.match(await escrita, /Nada foi enviado/);
+    assert.match(a.aviso() ?? '', /Nada foi enviado nem salvo/, 'a próxima tela informa que nada foi salvo');
+    assert.equal(a.envios.filter((e) => e === 'POST /api/y').length, 0, 'a escrita não saiu');
+    assert.equal(a.login(), 0);
+});
+
+test('leitura antiga depois de uma troca válida → descartada, sem login (proteção preservada)', async () => {
+    const a = ambiente();
+    a.respostas.set('/api/x', { status: 200 });
+    const liberar = a.prenderLeitura(true);
+    const leitura = mensagem(a.mod.adminFetch('/api/x'));
+    await tique();
+    await a.trocarPelaPagina();
+    liberar();
+    assert.match(await leitura, /mudou/);
+    assert.equal(a.login(), 0);
+});
+
+test('escrita concluída com troca durante a resposta → aviso "concluída" preservado e um único envio', async () => {
+    const a = ambiente();
+    a.respostas.set('/api/z', { status: 200, antes: () => { a.iniciarTroca(); a.encerrarNoServidor(); } });
+    assert.match(await mensagem(a.mod.adminFetch('/api/z', { method: 'POST', body: '{}' })), /concluída antes da mudança/);
+    assert.match(a.aviso() ?? '', /concluída antes da mudança/);
+    assert.deepEqual(a.envios.filter((e) => e === 'POST /api/z'), ['POST /api/z']);
+    assert.equal(a.login(), 0);
+});
+
+test('AdminShell: a troca usa trocarEmpresaAtiva e o seletor volta a funcionar se a navegação for cancelada', () => {
+    const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
+    assert.match(shell, /const res = await trocarEmpresaAtiva\(id\);/);
+    assert.match(shell, /reiniciarContextoEmpresa\(\);[\s\S]{0,300}?window\.setTimeout\(\(\) => setTrocando\(false\), ESPERA_NAVEGACAO_DA_TROCA_MS\);/);
+    assert.doesNotMatch(shell, /iniciarTrocaDeEmpresa\(\)/, 'o início da troca fica com trocarEmpresaAtiva, depois da confirmação prévia');
+    const af = readFileSync('lib/http/admin-fetch.ts', 'utf8');
+    const troca = af.slice(af.indexOf('export async function trocarEmpresaAtiva('));
+    assert.ok(af.includes('export async function trocarEmpresaAtiva(') && troca.indexOf('await confirmarSessao()') < troca.indexOf('iniciarTrocaDeEmpresa()'), 'confirma a sessão antes de marcar o início');
+    assert.match(troca, /finally \{[\s\S]*?encerrarTrocaDeEmpresa\(\);[\s\S]*?\}/, 'a janela termina quando a resposta do POST chega (ou falha)');
 });

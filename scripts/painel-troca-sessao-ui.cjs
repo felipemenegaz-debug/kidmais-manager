@@ -296,6 +296,71 @@ async function principal() {
       assert.equal((await sessaoAtual()).data.contexto.empresaAtual.id, empresas.beta.id);
     });
 
+    // T7/T7b. Troca de empresa com o aviso de alterações não salvas (beforeunload com preventDefault, como o editor de
+    //   convite) e a pessoa escolhe "Ficar": a página continua. O seletor volta a funcionar e um fim REAL da sessão
+    //   depois disso (revogação/logout em T7; expiração em T7b) leva ao login.
+    /** Espera a página chegar ao login; navegações seguidas (a primeira abortada pela segunda) não contam como falha. */
+    const esperarLogin = async (prazoMs) => {
+      const limite = Date.now() + prazoMs;
+      while (Date.now() < limite) {
+        if (new URL(page.url()).pathname === '/admin/login') { await page.waitForLoadState('load').catch(() => undefined); return; }
+        await page.waitForTimeout(200);
+      }
+      throw Error(`a página não foi ao login em ${prazoMs} ms (está em ${new URL(page.url()).pathname})`);
+    };
+    const trocaComFicar = async (fimDaSessao) => {
+      await preparar();
+      await page.evaluate(() => {
+        window.__kidmaisMesmaPagina = 'sim';
+        window.addEventListener('beforeunload', (e) => { e.preventDefault(); e.returnValue = ''; });
+      });
+      let decisao = 'ficar'; const dialogos = [];
+      const aoDialogo = async (d) => {
+        dialogos.push(d.type());
+        if (d.type() === 'beforeunload' && decisao === 'sair') await d.accept(); else await d.dismiss();
+      };
+      page.on('dialog', aoDialogo);
+      try {
+        await page.mouse.click(5, 5);              // ativação do usuário: o navegador só mostra o aviso com ela
+        await selecionar(empresas.beta.id);
+        for (let n = 0; n < 100 && !dialogos.includes('beforeunload'); n++) await page.waitForTimeout(100);
+        assert.ok(dialogos.includes('beforeunload'), 'o aviso de saída apareceu na navegação da troca');
+        assert.equal(await page.evaluate(() => window.__kidmaisMesmaPagina ?? null), 'sim', '"Ficar": a página continua');
+        assert.equal((await sessaoAtual()).data.contexto.empresaAtual.id, empresas.beta.id, 'a troca aconteceu no servidor');
+        await page.waitForFunction(() => !document.querySelector('select[aria-label="Empresa ativa"]')?.disabled, null, { timeout: 10000 });
+        await fimDaSessao();
+        decisao = 'sair';
+        await disparaLeituraDoShell();
+        await esperarLogin(15000);
+      }
+      finally { page.off('dialog', aoDialogo); }
+      await login();
+    };
+    await cenario('T7-troca-ficar-e-logout-real', () => trocaComFicar(() => client.query(
+      'UPDATE sessoes_administrativas SET revogado_em = clock_timestamp() WHERE usuario_id = $1 AND revogado_em IS NULL', [user])));
+    await cenario('T7b-troca-ficar-e-expiracao', () => trocaComFicar(() => client.query(
+      // A restrição de datas exige expira_em > criado_em: a sessão "nasce" 2 h antes e expira 1 min atrás.
+      `UPDATE sessoes_administrativas SET criado_em = clock_timestamp() - interval '2 hours', autenticado_em = clock_timestamp() - interval '2 hours',
+         ultima_atividade_em = clock_timestamp() - interval '2 hours', expira_em = clock_timestamp() - interval '1 minute'
+       WHERE usuario_id = $1 AND revogado_em IS NULL`, [user])));
+
+    // T8. Sessão já inválida ANTES da troca: escolher outra empresa leva ao login (não é tratada como resposta antiga);
+    //   nenhum POST de troca é enviado.
+    await cenario('T8-sessao-invalida-antes-da-troca', async () => {
+      await preparar();
+      const postsDeTroca = [];
+      const contarPost = (req) => { if (req.method() === 'POST' && new URL(req.url()).pathname === '/api/admin/autenticacao') postsDeTroca.push(1); };
+      page.on('request', contarPost);
+      try {
+        await client.query('UPDATE sessoes_administrativas SET revogado_em = clock_timestamp() WHERE usuario_id = $1 AND revogado_em IS NULL', [user]);
+        await selecionar(empresas.beta.id);
+        await esperarLogin(8000);   // antes do poll de 15 s (guarda: vai ao login e não envia a troca)
+        assert.equal(postsDeTroca.length, 0, 'nenhum POST de troca com a sessão já inválida');
+      }
+      finally { page.off('request', contarPost); }
+      await login();
+    });
+
     resultados.push(...resultadosTroca.map((r) => `${r.nome}: ${r.ok ? 'ok' : `FALHOU (${r.erro})`}`));
     if (resultadosTroca.some((r) => !r.ok)) {
       fs.writeFileSync(path.join(relatorios, 'resultado.json'), JSON.stringify({ ok: false, resultados }, null, 2));
