@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { authError, loginAdmin, logoutAdmin, reautenticarAdmin } from '@/lib/autenticacao/service';
 import { hashToken } from '@/lib/autenticacao/senha';
 import { exigirApiAdminCrmDisponivel, politicaAdmin, tokenAdmin, verificarOrigem } from '@/lib/http/admin-crm-api';
+import { csrfParaSessaoInvalida } from '@/lib/http/csrf-sem-sessao';
 import { isClienteServiceError } from '@/lib/clientes/services/errors';
 import { db } from '@/lib/db/postgres';
 import { contextoDaSessao } from '@/lib/autenticacao/contexto';
@@ -54,9 +55,11 @@ export async function GET(request: NextRequest) {
             if (!isClienteServiceError(error) || error.httpStatus !== 401)
                 throw error;
         }
-        const csrf = randomBytes(32).toString('base64url');
+        // Sessão inválida: não substitui um CSRF existente (resposta atrasada de uma sessão anterior não derruba a nova).
+        const { csrf, gravar } = csrfParaSessaoInvalida(request.cookies.get(policy.csrfCookie)?.value);
         const res = response({ ok: true, data: { usuarioId: null, csrf } });
-        res.cookies.set(policy.csrfCookie, csrf, { httpOnly: true, secure: policy.secure, sameSite: 'lax', path: '/', maxAge: 600 });
+        if (gravar)
+            res.cookies.set(policy.csrfCookie, csrf, { httpOnly: true, secure: policy.secure, sameSite: 'lax', path: '/', maxAge: 600 });
         return res;
     }
     catch (error) {
