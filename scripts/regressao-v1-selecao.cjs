@@ -48,6 +48,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
   // Disponibilidade do pacote por empresa: tela (cotação pública e administração) = servidor; isolamento; legado Kidmais.
   "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063" },
+  // F-L: script de fixtures da atualização de staging (scripts/fixture-atualizacao-staging.cjs) no schema de staging (até a 078).
+  "lib/comercial/fixture-atualizacao-staging.postgres.test.ts": { descartavel: "078" },
   "lib/comercial/hg4-escopo.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/pacote-empresa.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/integridade-fechamento-053.postgres.test.ts": { descartavel: "052" },
@@ -100,6 +102,8 @@ const ESTADO_POSTGRES = {
   "lib/contratos/modelo-empresa/modelo-072.postgres.test.ts": { descartavel: "063" },
   // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
   "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079" },
+  // Gratuidade da Kidmais com as chaves de produção ligadas, no schema vigente (até a 079).
+  "lib/assinatura/kidmais-gratuidade.postgres.test.ts": { descartavel: "079" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

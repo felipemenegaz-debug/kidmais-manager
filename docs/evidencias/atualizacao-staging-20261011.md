@@ -1,12 +1,77 @@
 # Evidência — atualização de staging (11/10/2026)
 
+| Rodada | Candidata | Resultado |
+|---|---|---|
+| 1 | `e1c3877` (código `53307b2`) | parada em S0: `origin/staging` tinha avançado para `2abeb58`; nenhuma escrita |
+| **2** | `d19f78b4436f2592159ae0c2e8dafaf25f840c94` (código `4d8da7d`) | S0–S2; interrompida antes de S3 (Web Shell sem entrada pelo agente); **continuação:** S3 publicado (LIVE `d19f78b`), S4 só o legado (B3 PASS; `/b/` sem fixture elegível), S8 executado (chaves removidas, LIVE `d19f78b`); conferências de Shell: `RESTAURADA` e S5a `CONFERIDO` (nenhuma empresa receberia cópia) |
+
+## Rodada 2 — `d19f78b`
+
+Autorização de Felipe: S0–S4 e S5a; parar se staging tiver avançado de `2abeb58`; sem aplicar a 078 nem OTP; ao encerrar ou interromper,
+S8 se houver configuração a restaurar e S9; nenhuma alteração em produção.
+
+| Passo | Resultado |
+|---|---|
+| S0 | `git fetch`: `origin/staging` = `2abeb58` (inalterado); candidata fast-forward; Render `srv-daif418ae00c73e8k2gg`: branch `staging`, `autoDeploy: no`, `autoDeployTrigger: off`; LIVE `dep-db54ovo473hc739sm0ig` (`2abeb58`); `/api/health` 200 (database/festa/otp `ready`; otp `gupshup`, `configured`, `enabled`); `/b/hml-planos-profissional/fechamento` 404; `smoke-test.mjs` (só GET): sem bloqueios (`UNKNOWN` só por `LOCAL:KIDMAIS_DEPLOY_ENV_NOT_AVAILABLE`), `HEALTH_DOES_NOT_PROVE_WHATSAPP_DELIVERY` |
+| S1 | Painel do `kidmais-staging` → Recovery (leitura): **Point-in-Time Recovery disponível, janela de 3 dias**; última exportação lógica 09/10 03:23. Conferido às 2026-10-11T05:12:47Z. Nenhuma restauração |
+| S2 | `git fetch` imediatamente antes (`2abeb58`); `git push origin d19f78b…:refs/heads/staging` → `2abeb58..d19f78b` (fast-forward, sem force). **Sem deploy** (auto-deploy OFF; LIVE continua `2abeb58`) |
+| S3 | **Interrompido antes de qualquer mudança.** Web Shell aberto (instância `sclwm`, `~/project/src`), mas o terminal do Render não recebe texto do navegador do agente: `type` e teclas individuais não chegam (só `Enter` produziu nova linha); a conferência `--conferir-restauracao` não pôde ser executada. Sem ela (e sem o Shell para `RENDER_GIT_COMMIT` e S5a), o merge das chaves não foi feito. Aba do Shell fechada |
+| S4, S5a | não executados |
+| S8 | **não necessário**: nenhuma variável alterada, nenhum deploy disparado (LIVE `2abeb58` conferido por `list_deploys` ao final) |
+| S9 | este registro |
+
+### Continuação da rodada 2 (Felipe executa os comandos de Shell)
+
+Autorização de Felipe: a conferência anterior ao S3 passou (executada por ele no Shell); continuar S3–S4 e S5a para `d19f78b`,
+revalidando a branch antes do deploy; Felipe executa os comandos de Shell; sem 078 nem OTP; ao encerrar, S8 e S9.
+
+| Passo | Resultado |
+|---|---|
+| Revalidação | 05:20:55Z: `origin/staging` = `d19f78b`; Render: branch `staging`, auto-deploy OFF; LIVE `2abeb58` |
+| S3 | Render MCP, workspace `tea-daidbj95efls73d2bcf0` (dono do serviço): merge de **exatamente** `COTACAO_PUBLICA_POR_EMPRESA=true` e `ASSINATURA_PLANOS_ATIVOS=true` (a 1ª tentativa sem `workspaceId` foi recusada pela ferramenta, sem efeito). Deploy `dep-db5hpkdckfvc73a91jcg`, commit `d19f78b`, início 05:21:21Z, **LIVE 05:28:01Z**; `/api/health` 200 |
+| Elegibilidade das fixtures | Com as chaves ativas, `GET /api/fechamentos/pacotes?empresa=…` = **404 `COTACAO_PUBLICA_INDISPONIVEL`** para `hml-planos-profissional`, `-premium`, `-teste`, `-isenta` e `-essencial`. A recusa é igual para empresa não `ATIVA`, plano sem `ORCAMENTO_ONLINE`, acesso bloqueado ou mais de uma unidade (`escopoCotacaoPublica`); a causa exige leitura do banco (não feita) |
+| S4 B1, B2, B4 (`/b/`) | **não executáveis**: nenhuma empresa de homologação elegível em `/b/<código>` |
+| S4 B3 (legado, desktop) | **PASS** — primeira visita após o deploy: `/disponibilidade` → quarta 18/11, 11:00–15:00 → botão “Continuar para escolher o pacote” → `/fechamento` “Etapa 1 de 8” em ~3,5 s (incluída espera de 3 s), build de produção. Nenhum pedido |
+| S5a | Shell (Felipe, instância `pbft5`, 05:56:42Z): `node scripts/migration-078-staging.cjs --conferir-078` → **`CONFERIDO`**; conexão `kidmais_staging_1z91`, `tls: false`, `redePrivada: true`; `m078: false`; precheck: `empresas_kidmais` 1, catálogo atual 7 categorias / 62 itens, **nenhuma empresa receberia cópia** (lista `empresa_que_recebe_copia` vazia), `pacotes_sem_empresa_com_buffet` 0. Gravado `data/atualizacao-staging-20261011/conferencia-078-1.json`. Nada alterado no banco |
+| S5b | Shell (Felipe, instância `pbft5`): `node scripts/migration-078-staging.cjs --aplicar-078-autorizado` → **`PASS`**, tentativa 1 (`migration-078.json`); conexão `kidmais_staging_1z91`, rede privada; `schemaAntes.m078 = false`; etapas `precheck 078`, `migration 078`, `postcheck 078` ok (postcheck `aprovado: true`, `empresas_com_catalogo` 1, `categorias_kidmais` 7); catálogo antes 7/62, depois 7/62 com **`donos` 1, `sem_dono` 0**; nenhuma cópia. **078 aplicada em staging** (sem rollback automático depois de aplicada; correção para frente) |
+| S6 (parcial, leitura) | `GET /api/fechamentos/catalogo?pacote=COMPLETA` (endereço atual): 5 categorias da composição da Festa Completa (`SALGADOS`, `DOCES`, `MASSA_BOLO`, `RECHEIO_BOLO`, `LEMBRANCINHAS`), 53 itens — mesma composição da homologação local; `/api/health` 200. C2/C4 (`/b/`) dependem de fixture elegível |
+| S8 | Painel → Environment → Edit: marcadas para remoção **só** as duas chaves (conferido no DOM: 2 marcadas), **“Save only”** (sem deploy; conferido em `list_deploys`); `git ls-remote`: ponta `d19f78b`; `trigger_deploy` → `dep-db5i0b2jnfac73aihub0` (`d19f78b`), **LIVE 05:41:35Z**; `/api/health` 200; `/b/hml-planos-profissional/fechamento` 404; pacotes por empresa 404; `/disponibilidade` 200. Shell (Felipe, instância `pbft5`): `RENDER_GIT_COMMIT` = `d19f78b4436f2592159ae0c2e8dafaf25f840c94`; `--conferir-restauracao` → **`RESTAURADA`** (as duas chaves `presente: false`, `divergencias: []`) |
+| S9 | este registro |
+
+Valores de variáveis não foram lidos nem exibidos (campos mascarados; só nomes). 078 não aplicada; OTP não executado.
+
+**Estado deixado ao fim do S8 (antes de S5b):** LIVE `d19f78b` (`dep-db5i0b2jnfac73aihub0`), sem as duas chaves; branch `staging` = `d19f78b`; 078 ainda não aplicada naquele momento (aplicada depois em S5b — ver abaixo).
+Conferências de Shell concluídas (Felipe): restauração `RESTAURADA` e S5a `CONFERIDO`. **Para S5b (D2):** aplicar a 078 em staging só atribui o
+catálogo atual (7/62) à `kidmais`; nenhuma cópia para outras empresas.
+**Diagnóstico de elegibilidade de `/b/` (somente leitura, Shell de Felipe, instância `pbft5`):** script temporário em `/tmp`
+(funções reais de `escopoCotacaoPublica`; transação `READ ONLY`, `SAVEPOINT` por consulta, `ROLLBACK` ao final; testado offline antes).
+`agendaPorEscopo: true`. Todas as 8 empresas `hml-*` (`hml-fundador-essencial/premium/profissional`, `hml-planos-essencial/isenta/premium/profissional/teste`)
+recusadas por um único motivo: **`STATUS_DESATIVADA`** (desativadas por desenho no encerramento das rodadas de 10/10). Todas com
+`ORCAMENTO_ONLINE` no plano e 0 unidades; acesso `COMPLETO` só em `hml-planos-isenta` e `hml-planos-teste` (as demais `SOMENTE_LEITURA`:
+veem a cotação, não enviam pedido). O painel do desenvolvedor só reativa `SUSPENSA`→`ATIVA`; não há caminho auditado para reativar
+`DESATIVADA`.
+
+**078 aplicada em staging em 11/10/2026 (PASS).** Pendente de decisão: fixture elegível para `/b/` em staging (diagnóstico somente leitura proposto) para repetir B1/B2/B4.
+
+**Conferência somente leitura (agente, 11/10 06:19Z), antes de preparar a frente F:** `git ls-remote`/`fetch` de `origin/staging` →
+**`b95494f`** (“ops(staging): aplicar migration 079 com guardas”; antes dele `82596e6` e `8d0edde`, convites; autor Felipe; `d19f78b`
+ancestral). Render `list_deploys`: LIVE **`dep-db5iero473hc73b9pi4g`** (`b95494f`, trigger `api`, LIVE 06:12:44Z); `dep-db5i0b2jnfac73aihub0`
+(`d19f78b`, o do S8) desativado às 06:12:44Z. HTTP: `/api/health` 200, `/disponibilidade` 200, `/b/hml-planos-profissional/fechamento`
+404, `/api/fechamentos/pacotes?empresa=hml-planos-profissional` 404 — **não conclusivo sobre as chaves** (as fixtures `hml-*` estão
+desativadas, o que também daria 404). Staging avançou depois do S8 desta rodada, fora deste pacote: a restauração precisa ser
+reconferida no Shell (`--conferir-restauracao`) antes da próxima rodada. Nenhuma escrita, variável ou Shell nesta conferência.
+
+Sem alteração em produção.
+
+## Rodada 1 — `e1c3877` (parada em S0)
+
 Pacote: [ATUALIZACAO_STAGING_20261011.md](../ATUALIZACAO_STAGING_20261011.md). Candidata autorizada:
 `e1c38778cc6eac1590218186baa47c0e56ee6938` (código `53307b2`). Autorização de Felipe: S0–S4 e S5a; se staging tiver avançado, parar e
 reapresentar a candidata; sem aplicar a 078 nem executar OTP; ao parar, S8 e S9; nenhuma alteração em produção.
 
 **Resultado: PARADO em S0 — `origin/staging` avançou. Nenhuma escrita em staging (sem push, sem variável, sem deploy, sem Shell).**
 
-## S0 (somente leitura)
+### S0 (somente leitura)
 | Conferência | Esperado (pacote) | Encontrado |
 |---|---|---|
 | `git fetch origin staging` | `f88b39e` | **`2abeb586bdc9e229e895b4a75696d4639538f090`** (`f88b39e..2abeb58`) |
@@ -24,7 +89,7 @@ Commits em staging depois de `f88b39e` (não presentes na candidata):
 `scripts/production/production.test.mjs` (inventário de migrations — a candidata também altera para 076/077/078). Nenhuma migration
 nova em staging. Integração exige merge sem force com resolução dessas duas sobreposições, revalidação e nova candidata.
 
-## Passos
+### Passos
 | Passo | Situação |
 |---|---|
 | S0 | executado (leitura) — divergência → **parada** |

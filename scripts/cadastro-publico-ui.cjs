@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 /** E2E opt-in do cadastro público (E6/E7) com PostgreSQL DESCARTÁVEL e e-mail em ARQUIVO local (nada sai da máquina).
- * Restaura SOMENTE o banco sintético do runner (modelo 063) e aplica 067 + 068 + 069 nele. Sem .env, banco real,
+ * Restaura SOMENTE o banco sintético do runner (modelo 079). Sem .env, banco real,
  * provedor de cobrança ou serviço Render. Execute com os três KIDMAIS_* do descartável, Playwright e Chrome.
  *
- *   1. Planos: duração do teste vinda da configuração, "Preço a definir" sem preço configurado, botão para o cadastro.
+ *   1. Planos: três planos na vitrine e botão para o cadastro.
  *   2. Cadastro: pessoa + aceites → mensagem neutra; o link chega no e-mail (arquivo); confirmar cria a conta e abre a
  *      sessão; dados da empresa → empresa em teste, Gestão da pessoa, início guiado e aviso de teste no Admin.
  *   3. Mesmo CNPJ por outra pessoa: mensagem neutra, nenhum dado da empresa existente, pedido de acesso registrado;
@@ -34,9 +34,8 @@ async function principal() {
   const playwright = require(process.env.KIDMAIS_PLAYWRIGHT_MODULE || 'playwright');
   const { porta, admin } = await receita.conectarAdmin(process.env);
   let client, servidor, browser;
-  const relatorios = path.resolve('.local-cadastro-publico-ui');
+  const relatorios = fs.mkdtempSync(path.resolve('.local-cadastro-publico-ui-'));
   const caixa = path.join(relatorios, 'emails');
-  fs.rmSync(caixa, { recursive: true, force: true });
   fs.mkdirSync(caixa, { recursive: true });
   const logfile = fs.openSync(path.join(relatorios, 'next.log'), 'a');
   const resultados = [];
@@ -49,16 +48,17 @@ async function principal() {
     throw Error(`E2E_SEM_EMAIL ${para}`);
   };
   try {
-    await receita.restaurar(admin, receita.TRABALHO[0], '063');
+    await receita.restaurar(admin, receita.TRABALHO[0], '079');
     client = await receita.conectar(porta, receita.TRABALHO[0]);
-    for (const f of ['database/migrations/20261006_067_modelo_comercial_empresa.sql', 'database/migrations/20261007_068_cobranca_assinatura.sql',
-      'database/checks/20261007_069_precheck.sql', 'database/migrations/20261007_069_cadastro_publico.sql', 'database/checks/20261007_069_postcheck.sql'])
-      await client.query(fs.readFileSync(f, 'utf8'));
-    const env = { ...process.env, DATABASE_URL: `postgresql://kidmais_descartavel@127.0.0.1:${porta}/${receita.TRABALHO[0]}`,
+    const sistema = {};
+    for (const [k, v] of Object.entries(process.env)) if (['PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP', 'USERPROFILE', 'LOCALAPPDATA'].includes(k.toUpperCase())) sistema[k] = v;
+    const env = { ...sistema, NEXT_FONT_GOOGLE_MOCKED_RESPONSES: path.resolve('scripts/navegador-local-fontes-mock.cjs'), SITE_URL: base,
+      CONSULTA_CEP_EXTERNA: 'desligada', DATABASE_URL: `postgresql://kidmais_descartavel@127.0.0.1:${porta}/${receita.TRABALHO[0]}`,
       DATABASE_SSL: 'false', ADMIN_AUTH_SECRET: randomBytes(32).toString('hex'), ADMIN_AUTH_ORIGIN: base, NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1',
       EMAIL_PROVIDER: 'arquivo', EMAIL_ARQUIVO_DIR: caixa, CADASTRO_PUBLICO_ATIVO: 'true', USUARIOS_CRIACAO_DIRETA: 'desativada' };
     for (const k of ['RESEND_API_KEY', 'EMAIL_REMETENTE', 'OPENAI_API_KEY', 'KIDMAIS_DEPLOY_ENV', 'RENDER', 'RENDER_SERVICE_ID', 'RENDER_EXTERNAL_HOSTNAME', 'RECUPERACAO_SENHA_ATIVA',
       'ASAAS_API_KEY', 'ASAAS_WEBHOOK_TOKEN', 'ASSINATURA_PRECO_MENSAL_CENTAVOS', 'ASSINATURA_PRECO_ANUAL_CENTAVOS', 'ASSINATURA_TESTE_DIAS']) delete env[k];
+    Object.assign(env, { ASSINATURA_PLANOS_ATIVOS: 'true', ASAAS_AMBIENTE: 'sandbox', ASAAS_API_KEY: '$aact_hmlg_fixture_sem_valor', ASAAS_WEBHOOK_TOKEN: 'fixture-sintetica-sem-valor-32-caracteres' });
     servidor = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', String(PORTA_WEB)],
       { cwd: process.cwd(), env, stdio: ['ignore', logfile, logfile], windowsHide: true });
     for (let n = 0; n < 120; n++) {
@@ -68,7 +68,7 @@ async function principal() {
       await new Promise(r => setTimeout(r, 500));
     }
     browser = await playwright.chromium.launch({ headless: true, channel: process.env.KIDMAIS_PLAYWRIGHT_CHANNEL || 'chrome' });
-    const novoContexto = async (largura = 1440, altura = 1000) => { const c = await browser.newContext({ viewport: { width: largura, height: altura } }); c.setDefaultTimeout(60000); return c; };
+    const novoContexto = async (largura = 1440, altura = 1000) => { const c = await browser.newContext({ viewport: { width: largura, height: altura } }); c.setDefaultTimeout(60000); await c.route('**/*', r => new URL(r.request().url()).origin === base ? r.continue() : r.abort()); return c; };
     const semRolagem = (p) => p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
     const senha = `sintetica-${randomBytes(8).toString('hex')}`;
     async function pedirConta(page, nome, email) {
@@ -98,13 +98,14 @@ async function principal() {
     const ctx1 = await novoContexto();
     const page = await ctx1.newPage();
     await page.goto(`${base}/planos`);
-    await page.getByRole('heading', { name: 'Plano Kidmais', exact: true }).waitFor();
-    await page.getByText('Preço a definir', { exact: true }).waitFor();
-    await page.getByText('15 dias grátis', { exact: false }).waitFor();
+    await page.locator('h1').first().waitFor();
+    await page.getByRole('heading', { name: 'Essencial', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Profissional', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Premium', exact: true }).waitFor();
     await page.screenshot({ path: path.join(relatorios, 'planos.png'), fullPage: true });
-    await page.getByRole('link', { name: 'Começar o teste grátis', exact: true }).click();
+    await page.getByRole('link', { name: 'Testar o Essencial', exact: true }).click();
     await page.waitForURL(`${base}/cadastro`);
-    resultados.push('Planos: teste de 15 dias pela configuração, "Preço a definir" sem preço configurado, botão leva ao cadastro');
+    resultados.push('Planos: três planos publicados, botão leva ao cadastro');
     console.log('E2E_PLANOS_OK');
 
     // 2. Cadastro completo.
@@ -125,6 +126,28 @@ async function principal() {
     assert.deepEqual([e[0].status, e[0].situacao, e[0].papel, e[0].vinculo, e[0].papel_global, e[0].representacao], ['ATIVA', 'TESTE', 'REPRESENTANTE_AUTORIZADO', 'ATIVA', 'ADMINISTRATIVO', 'DECLARADA']);
     resultados.push('Cadastro: mensagem neutra, link pelo e-mail (arquivo), conta criada só na confirmação, empresa em teste com Gestão da pessoa (papel global neutro, representação declarada), início guiado e aviso de teste');
     console.log('E2E_CADASTRO_OK');
+    const antesAssinatura = JSON.stringify((await client.query('SELECT * FROM empresa_assinaturas ORDER BY empresa_id')).rows);
+    await page.goto(`${base}/admin/assinatura`);
+    for (const nome of ['Essencial', 'Profissional', 'Premium']) await page.getByRole('button', { name: new RegExp(`Assinar ${nome}`) }).waitFor();
+    await page.getByRole('combobox', { name: /Ciclo/ }).selectOption('ANUAL');
+    let checkouts = 0;
+    await page.route('**/api/admin/assinatura/checkout', async route => {
+      const body = route.request().postDataJSON();
+      assert.equal(body.plano, 'profissional'); assert.equal(body.ciclo, 'ANUAL'); assert.equal(body.valorEsperadoCentavos, 208200);
+      checkouts++;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { urlPagamento: 'https://pagamento.example.invalid/fixture', vencimento: null, ciclo: 'ANUAL', reaproveitada: false } }) });
+    });
+    await page.getByRole('button', { name: /Assinar Profissional/ }).click();
+    await page.getByText('Processando: o acesso é liberado quando o pagamento for confirmado.', { exact: true }).waitFor();
+    assert.equal(checkouts, 1);
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 812 });
+      assert.ok(await semRolagem(page), 'assinatura sem rolagem horizontal');
+      await page.screenshot({ path: path.join(relatorios, `assinatura-${width}.png`), fullPage: true });
+    }
+    assert.equal(JSON.stringify((await client.query('SELECT * FROM empresa_assinaturas ORDER BY empresa_id')).rows), antesAssinatura, 'resposta de checkout não libera acesso');
+    resultados.push('Assinatura: três planos; Profissional anual Fundador R$ 2.082; checkout interceptado, confirmação pendente, 1280/375 px; nenhuma assinatura alterada');
+    console.log('E2E_ASSINATURA_OK');
     await ctx1.close();
 
     // 3. Mesmo CNPJ por outra pessoa.
@@ -208,8 +231,8 @@ async function principal() {
   } finally {
     await browser?.close();
     if (servidor && servidor.exitCode === null) {
-      servidor.kill();
-      await new Promise(r => servidor.once('exit', r));
+      if (process.platform === 'win32') require('node:child_process').spawnSync('taskkill', ['/PID', String(servidor.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      else servidor.kill();
     }
     fs.closeSync(logfile);
     await client?.end(); await admin.end();

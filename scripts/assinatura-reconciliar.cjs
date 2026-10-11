@@ -17,8 +17,23 @@
  * --aplicar grava em empresa_assinaturas, cobranca_eventos e auditoria.
  *
  * Cron de staging criado em modo aguardando; habilitação depende das validações operacionais.
+ *
+ * PRODUÇÃO — CONFERÊNCIA (somente simulação): o banco de produção só é aceito com o alvo exato (PRODUCAO), no Render, com
+ * KIDMAIS_DEPLOY_ENV=production e ASAAS_AMBIENTE=producao. `--aplicar` é recusado em produção: divergência encontrada sai
+ * com código 2 (o cron falha e avisa) e a correção é pelo reenvio do webhook no painel do Asaas ou por pacote autorizado.
+ * TLS em produção: a mesma política do serviço (DATABASE_SSL=true obrigatório; lib/db/postgres.ts), nunca mais frouxa.
  */
-const BANCOS_PROIBIDOS = new Set(['kidmais_manager', 'kidmais_production', 'kidmais-production']);
+const BANCOS_PROIBIDOS = new Set(['kidmais_manager', 'kidmais-production']);
+const PRODUCAO = Object.freeze({ database: 'kidmais_production', host: 'dpg-dak750gae00c73fudmg0-a', port: 5432 });
+
+/** Conferência de produção: alvo exato + serviço e provedor de produção. Qualquer outra combinação recusa. */
+function alvoDeProducao(alvo, env) {
+    if (alvo.database.toLowerCase() !== PRODUCAO.database) return false;
+    if (alvo.host !== PRODUCAO.host || alvo.port !== PRODUCAO.port || env.RENDER !== 'true'
+        || env.KIDMAIS_DEPLOY_ENV?.trim() !== 'production' || env.ASAAS_AMBIENTE?.trim() !== 'producao')
+        throw new Error(`Banco ${alvo.database} recusado: conferência de produção exige o alvo exato, o serviço e o provedor de produção.`);
+    return true;
+}
 
 function hostLocal(host) {
     return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
@@ -50,7 +65,8 @@ function validarAlvo(env) {
     const esperado = `${database}@${host}:${port}`;
     if (env.KIDMAIS_RECONCILIAR_ALVO !== esperado)
         throw new Error(`Confirme o alvo: defina KIDMAIS_RECONCILIAR_ALVO="${esperado}" (literal).`);
-    return { connectionString: bruto, database, host, port, local: hostLocal(host) };
+    const alvo = { connectionString: bruto, database, host, port, local: hostLocal(host) };
+    return { ...alvo, producao: alvoDeProducao(alvo, env) };
 }
 
 /**
@@ -62,6 +78,11 @@ function opcoesConexao(alvo, env = {}) {
     const modo = url.searchParams.get('sslmode');
     if (!alvo.local && modo && !['require', 'verify-full', 'verify-ca'].includes(modo)) throw Error('TLS_MODO_RECUSADO');
     for (const chave of ['ssl', 'sslmode', 'sslcert', 'sslkey', 'sslrootcert', 'uselibpqcompat']) url.searchParams.delete(chave);
+    if (alvo.producao) {
+        // Mesma política do serviço de produção (lib/db/postgres.ts); sem TLS, recusa.
+        if (env.KIDMAIS_RECONCILIAR_TLS !== undefined || env.DATABASE_SSL !== 'true') throw Error('TLS_PRODUCAO_RECUSADO');
+        return {connectionString: url.toString(), ssl: {rejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false', minVersion: 'TLSv1.2'}};
+    }
     const politica = env.KIDMAIS_RECONCILIAR_TLS ?? 'verificado';
     if (!['verificado', 'render-interno-criptografado'].includes(politica)) throw Error('TLS_POLITICA_RECUSADA');
     if (politica === 'render-interno-criptografado') {
@@ -187,12 +208,40 @@ async function executarCiclo({ client, provedor, aplicar, banco, sinc, transacao
 
     relatorio.incompleto = Object.entries(relatorio.eventos).some(([k, n]) => n > 0 && (k === 'FALHOU' || k.startsWith('ERRO_')))
         || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && (k === 'RECUSADA' || k.startsWith('ERRO_')));
+    // Conferência: evento de pagamento ainda não concluído ou empresa cujo estado mudaria = banco diverge do provedor.
+    relatorio.divergente = Object.values(relatorio.eventos).some((n) => n > 0)
+        || Object.entries(relatorio.empresas).some(([k, n]) => n > 0 && k !== 'SEM_MUDANCA');
     return relatorio;
+}
+
+/**
+ * Gratuidade da Kidmais (leitura): exatamente uma empresa `kidmais`, ATIVA, sem situação comercial, contratação ou vaga
+ * Fundador. Qualquer desvio é violação (o produto só cria assinatura no cadastro público, para empresa nova).
+ */
+const SQL_KIDMAIS = `SELECT count(*)::int AS empresas,
+    count(*) FILTER (WHERE e.status = 'ATIVA')::int AS ativas,
+    (SELECT count(*) FROM empresa_assinaturas a JOIN empresas k ON k.id = a.empresa_id WHERE k.codigo = 'kidmais')::int AS assinaturas,
+    (SELECT count(*) FROM assinatura_contratacoes c JOIN empresas k ON k.id = c.empresa_id WHERE k.codigo = 'kidmais')::int AS contratacoes,
+    (SELECT count(*) FROM assinatura_fundadores f JOIN empresas k ON k.id = f.empresa_id WHERE k.codigo = 'kidmais')::int AS fundadores,
+    (SELECT count(*) FROM assinatura_isencoes i JOIN empresas k ON k.id = i.empresa_id WHERE k.codigo = 'kidmais')::int AS isencoes
+  FROM empresas e WHERE e.codigo = 'kidmais'`;
+async function conferirKidmais(client) {
+    const k = (await client.query(SQL_KIDMAIS)).rows[0];
+    const violada = k.empresas !== 1 || k.ativas !== 1 || k.assinaturas !== 0 || k.contratacoes !== 0 || k.fundadores !== 0;
+    return { ...k, isenta: k.isencoes === 1, violada };
+}
+
+/** Produção: só conferência. Saída 2 com divergência, falha ou gratuidade da Kidmais violada (o cron falha e notifica). */
+function codigoDeSaida(relatorio, producao) {
+    if (relatorio.incompleto || relatorio.kidmais?.violada) return 2;
+    return producao && relatorio.divergente ? 2 : 0;
 }
 
 async function main() {
     const { aplicar } = argumentos(process.argv.slice(2));
     const alvo = validarAlvo(process.env);
+    if (alvo.producao && aplicar)
+        throw new Error('Produção aceita só conferência (sem --aplicar): corrija pelo reenvio do webhook no Asaas ou por pacote autorizado.');
     const asaas = await import('../lib/assinatura/asaas.ts');
     const sinc = await import('../lib/assinatura/sincronizacao.ts');
     const estado = asaas.configuracaoAsaas(process.env);
@@ -220,7 +269,9 @@ async function main() {
             throw new Error('Banco sem a 068 (cobranca_eventos): nada a reconciliar.');
         const transacaoIndependente = transacaoIndependenteDaExecucao(aplicar, client, abrirMarcador, transacaoComPrazo, PRAZO_TRANSACAO_INDEPENDENTE_MS);
         const relatorio = await executarCiclo({ client, provedor, aplicar, banco: alvo.database, sinc, transacaoIndependente });
-        if (relatorio.incompleto) process.exitCode = 2;
+        relatorio.kidmais = await conferirKidmais(client);
+        // Saída 2 com relatório incompleto (inclui ADIADA/REVISAO_HUMANA da #147), gratuidade violada ou divergência em produção.
+        process.exitCode = codigoDeSaida(relatorio, alvo.producao);
         console.log(JSON.stringify(relatorio, null, 2));
         if (!aplicar)
             console.log('Simulação: nada foi gravado. Use --aplicar (com autorização para o alvo) para gravar.');
@@ -237,4 +288,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador, BANCOS_PROIBIDOS };
+module.exports = { validarAlvo, argumentos, provedorDaExecucao, executarCiclo, opcoesConexao, codigoDeSaida, conferirKidmais, SQL_KIDMAIS, BANCOS_PROIBIDOS, PRODUCAO, transacaoIndependenteDaExecucao, abrirConexaoDoMarcador };

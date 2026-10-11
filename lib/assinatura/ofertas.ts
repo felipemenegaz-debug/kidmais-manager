@@ -4,7 +4,7 @@ import type { DbExecutor } from '../db/contracts';
 import { erroAcesso } from '../acessos/erros.ts';
 import { condicoesComerciais, planosComerciais, planoComercialValido, valorComercial, type PlanoComercialId } from './planos-comerciais.ts';
 import type { Ciclo } from './configuracao.ts';
-import type { AssinaturaProvedor, CobrancaProvedor } from './asaas.ts';
+import { ambienteAsaas, type AssinaturaProvedor, type CobrancaProvedor } from './asaas.ts';
 import { pagamentoDaOferta } from './pagamento-oferta.ts';
 
 export type Oferta = {
@@ -14,7 +14,8 @@ export type Oferta = {
     pagamento_confirmacao_id?: string | null;
 };
 type Ambiente = Record<string, string | undefined>;
-export const novosPlanosLigados = (env: Ambiente = process.env) => env.ASSINATURA_PLANOS_ATIVOS === 'true' && env.ASAAS_AMBIENTE === 'sandbox';
+/** Chave dos planos + provedor no ambiente pareado com o serviço (sandbox fora de produção; produção só no serviço de produção). */
+export const novosPlanosLigados = (env: Ambiente = process.env) => env.ASSINATURA_PLANOS_ATIVOS === 'true' && typeof ambienteAsaas(env) === 'string';
 
 export async function schemaPlanosInstalado(tx: DbExecutor) {
     return (await tx.query<{ instalado074: boolean }>(`SELECT to_regclass('public.assinatura_contratacoes') IS NOT NULL

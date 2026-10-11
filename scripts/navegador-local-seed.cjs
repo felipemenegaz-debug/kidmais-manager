@@ -31,9 +31,9 @@ const ORIGEM_APP = `http://localhost:${PORTA_APP}`;
 const PASTA_LOCAL = '.local-navegador';
 const ARQUIVO_CREDENCIAIS = path.join(raiz, PASTA_LOCAL, 'credenciais.json');
 /** 076/077 entraram no inventário aprovado (aplicadas em staging em 10/10/2026); vêm dele com os próprios checks. */
-const ULTIMA_INVENTARIO = '20261010_078_catalogo_buffet_por_empresa.sql';
+const ULTIMA_INVENTARIO = '20261011_079_convite_recuperacao_manual.sql';
 /** Impressão (sha256, CRLF normalizado) de migrations + checks. Mudou → revisar o pacote e aprovar de novo. */
-const IMPRESSAO_SCHEMA = 'ba47d7bf35f49a7e934d01faba6e7678c04cccf45d405ca15895f38249ad22c1';
+const IMPRESSAO_SCHEMA = '5528ce9b70d9599e7bdcc7bfb4fe98dac95acdc2e81ba4e55a2cb520e1662ade';
 const VARIAVEIS_COMERCIAIS = Object.freeze(['ASSINATURA_TESTE_DIAS', 'ASSINATURA_REGULARIZACAO_DIAS', 'ASSINATURA_SOMENTE_LEITURA_DIAS']);
 
 /** Empresas sintéticas: cada uma cobre um estado da matriz do navegador. */

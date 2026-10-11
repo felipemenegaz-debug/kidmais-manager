@@ -24,9 +24,9 @@ const BANCO_SUGERIDO = 'kidmais_concorrencia_vagas_20261010';
 const PADRAO_BANCO = /^kidmais_concorrencia_[a-z0-9_]{1,40}$/;
 const BANCOS_PROIBIDOS = Object.freeze(['kidmais_manager', 'kidmais_staging_1z91', 'kidmais_production']);
 const HOSTS_ACEITOS = Object.freeze(['127.0.0.1', 'localhost']);
-const ULTIMA_MIGRATION = '20261010_078_catalogo_buffet_por_empresa.sql';
+const ULTIMA_MIGRATION = '20261011_079_convite_recuperacao_manual.sql';
 /** Impressão (sha256, CRLF normalizado) de migrations + checks aplicados. Mudou → revisar o pacote e aprovar de novo. */
-const IMPRESSAO_SCHEMA = 'ba47d7bf35f49a7e934d01faba6e7678c04cccf45d405ca15895f38249ad22c1';
+const IMPRESSAO_SCHEMA = '5528ce9b70d9599e7bdcc7bfb4fe98dac95acdc2e81ba4e55a2cb520e1662ade';
 const CODIGO_SOB_TESTE = Object.freeze(['lib/assinatura/limites-usuarios.ts', 'lib/acessos/convites.ts', 'lib/assinatura/ofertas.ts',
     'lib/assinatura/planos-comerciais.ts', 'database/migrations/20261009_074a_planos_comerciais.sql', 'scripts/homologacao-fundador-staging.cjs']);
 const VAGAS_FUNDADOR = 20;
