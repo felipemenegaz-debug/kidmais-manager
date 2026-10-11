@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { comandoDireto, dataValida } from '../core.ts';
+import { comandoDireto, dataValida, trechoParaRegistro } from '../core.ts';
 import { desabafoSobreInsistencia, pedidoDeParar, trechoDeOptOutAmplo, trechoFalaDeContato, type PedidoParar } from '../opt-out.ts';
 import { INTENCOES, TEMAS_CONTRATO, type Catalogos, type ContextoWallE, type CriterioConsultaComum, type Entendimento, type Entidades, type Intencao, type Passagem, type SinaisMensagem, type TemaContrato, type TipoIntencao } from './tipos.ts';
 
@@ -1191,7 +1191,7 @@ export function irritacaoComMensagens(texto: string, sinais?: SinaisMensagem | n
 }
 export function registroDoBloqueio(texto: string, agora: string, sinais?: SinaisMensagem | null): Passagem | null {
   if (!irritacaoComMensagens(texto, sinais)) return null;
-  return { motivo: 'RECLAMACAO', motivos: ['RECLAMACAO', 'BLOQUEADO_A_PEDIDO'], em: agora, coletado: { data: null, turno: null, convidados: null, pacote: null, unidade: null, tema: null }, enviados: [], pendentes: [], ultimaMensagem: String(texto ?? '').slice(0, 500) };
+  return { motivo: 'RECLAMACAO', motivos: ['RECLAMACAO', 'BLOQUEADO_A_PEDIDO'], em: agora, coletado: { data: null, turno: null, convidados: null, pacote: null, unidade: null, tema: null }, enviados: [], pendentes: [], ultimaMensagem: trechoParaRegistro(texto) };
 }
 /**
  * Correção da pausa (revisão da candidata final): pedido de PAUSA reconhecido pelas regras (opt-out AMBÍGUO) tratado FORA
@@ -1205,7 +1205,7 @@ export function registroDaPausa(texto: string, agora: string, contexto?: unknown
   return {
     motivo: 'PARAR_A_CONFIRMAR', motivos: irritacaoComMensagens(texto, sinais) ? ['PARAR_A_CONFIRMAR', 'RECLAMACAO'] : ['PARAR_A_CONFIRMAR'], em: agora,
     coletado: { data: simples(c.data, 10), turno: null, convidados: Number.isInteger(c.convidados) ? (c.convidados as number) : null, pacote: null, unidade: null, tema: simples(c.tema, 60) },
-    enviados: [], pendentes: [], ultimaMensagem: String(texto ?? '').slice(0, 500),
+    enviados: [], pendentes: [], ultimaMensagem: trechoParaRegistro(texto),
   };
 }
 /**

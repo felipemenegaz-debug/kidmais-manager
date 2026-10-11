@@ -1,6 +1,6 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, entendimentoSoRegras, origemMidia } from './configuracao.ts';
-import { MENSAGEM_ENCAMINHAMENTO, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
+import { MENSAGEM_ENCAMINHAMENTO, dadoDeSaude, entradaFaseB, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, tem082, type Conversa, type Mensagem } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { urlPublicaArquivo } from './arquivos.ts';
@@ -183,8 +183,10 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       // Sem comando direto, a conversa vai para a equipe com o texto fixo de encaminhamento (como na falha do modelo).
       const comando = comandoDireto(atual);
       if (!comando && (entendimentoSoRegras() || !deps.interpretar)) return await encaminharSemModelo(mensagem, 'PROCESSADA');
+      // D1: dado de saúde na mensagem atual nunca vai ao modelo; a equipe recebe com o texto fixo de encaminhamento.
+      if (!comando && dadoDeSaude(atual)) return await encaminharSemModelo(mensagem, 'PROCESSADA');
       let plano: Interpretacao;
-      try { plano = comando ?? await deps.interpretar!(empresa, JSON.stringify({ mensagens: historico.map(m => m.texto), mensagemAtual: atual, interesseAnterior: conversa.interesse }), config); }
+      try { plano = comando ?? await deps.interpretar!(empresa, entradaFaseB(historico.map(m => m.texto), atual, conversa.interesse), config); }
       catch { return await encaminharSemModelo(mensagem, 'FALHOU'); }
       const hoje = hojeOperacao();
       // Data passada ou inexistente não substitui nem conserva interesse: uma data anterior já vencida também é descartada.

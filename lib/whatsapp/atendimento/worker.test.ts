@@ -480,7 +480,7 @@ test('modo regras é conferido a cada uso: o worker lê a variável do canal (n�
   const worker=readFileSync('lib/whatsapp/atendimento/worker.ts','utf8');
   assert.match(worker,/if \(!comando && \(entendimentoSoRegras\(\) \|\| !deps\.interpretar\)\) return await encaminharSemModelo/);
   const porta=readFileSync('lib/whatsapp/atendimento/walle/porta.ts','utf8');
-  assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) \? entender : null;/);
+  assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) && !dadoDeSaude\(e\.texto\) \? entender : null;/);
   const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
   assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
   assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:enviarMensagem,wallE:criarPortaWallE\(portas\.entender/);

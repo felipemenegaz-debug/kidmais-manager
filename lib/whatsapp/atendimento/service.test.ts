@@ -214,9 +214,11 @@ test('nome de perfil e cadastro nunca vão ao modelo: o worker só envia mensage
   const { readFileSync } = await import('node:fs');
   const worker = readFileSync('lib/whatsapp/atendimento/worker.ts', 'utf8');
   // `!`: a porta da fase B é anulável (modo regras); a chamada só acontece depois da guarda do modo.
-  const chamada = worker.match(/deps\.interpretar!?\(empresa, JSON\.stringify\(\{([^}]*)\}\)/);
+  // D4: a entrada da fase B é montada por entradaFaseB (core.ts), que minimiza cada entrada; só mensagens e interesse.
+  const chamada = worker.match(/deps\.interpretar!?\(empresa, entradaFaseB\(([^)]*\))[^)]*\), config\)/);
   assert.ok(chamada, 'chamada ao modelo encontrada');
-  assert.equal(chamada![1].replace(/\s+/g, ''), 'mensagens:historico.map(m=>m.texto),mensagemAtual:atual,interesseAnterior:conversa.interesse');
+  assert.match(worker, /deps\.interpretar!\(empresa, entradaFaseB\(historico\.map\(m => m\.texto\), atual, conversa\.interesse\), config\)/);
+  assert.match(worker, /if \(!comando && dadoDeSaude\(atual\)\) return await encaminharSemModelo\(mensagem, 'PROCESSADA'\);/, 'D1: saúde na mensagem atual não vai ao modelo');
   assert.doesNotMatch(worker, /nome_perfil|cliente_nome|cadastro/);
 });
 test('depois do PARAR, "atendente" fica registrado mas não reabre a conversa nem libera ações', async () => {

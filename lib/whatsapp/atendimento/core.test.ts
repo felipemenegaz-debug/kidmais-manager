@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { pedidoDeParar, trechoDeOptOutAmplo } from './opt-out.ts';
-import { comandoDireto, conferirEmpresaAtiva, configuracaoSchema, ocultarDadosPessoais, dataDeInteresse, dataValida, entradaGupshup, hojeOperacao, interpretacaoSchema, janelaAberta, responder } from './core.ts';
+import { ENTRADA_SAUDE_OMITIDA, comandoDireto, conferirEmpresaAtiva, configuracaoSchema, dadoDeSaude, entradaFaseB, ocultarDadosPessoais, trechoParaRegistro, dataDeInteresse, dataValida, entradaGupshup, hojeOperacao, interpretacaoSchema, janelaAberta, responder } from './core.ts';
 const config = {ativo:true,nome:'Empresa sintética',perguntas:[{id:'endereco',pergunta:'Onde fica?',resposta:'Endereço aprovado pelo responsável.'}],limites:{respostasPor24h:20}};
 const plano = {intencao:'DUVIDA' as const,perguntaId:'endereco',data:null,convidados:null};
 test('FAQ só responde com fonte publicada; id desconhecido encaminha para humano',()=>{
@@ -104,6 +104,36 @@ test('minimização antes do modelo: CPF, e-mail e telefone saem; data e quantid
   for (const dado of ['123.456.789-09', 'ana.silva@example.test', '99999-0000', '3333-4444', '5561988887777']) assert.equal(limpo.includes(dado), false, dado);
   for (const fica of ['14/11/2027', '60 pessoas', '14 11 2027', 'Ana']) assert.ok(limpo.includes(fica), fica);
   assert.equal(limpo.match(/\[telefone omitido\]/g)?.length, 3);
+});
+
+test('D1: máscara cobre CPF/CNPJ com espaços e barras, telefone sem DDD e com o 9 separado, CEP, endereço, nascimento e nomes em frases de identificação', () => {
+  const casos: [string, string][] = [
+    ['meu cpf é 123 456 789 09', '123 456 789 09'], ['CPF 123-456-789-09', '123-456-789-09'], ['cnpj 12.345.678/0001-95', '12.345.678/0001-95'],
+    ['meu cel 99999-0000', '99999-0000'], ['liga 9 9999 0000', '9 9999 0000'], ['(61) 9 9999-0000', '9999-0000'], ['+55 (61) 99999-0000', '99999-0000'],
+    ['fixo 3333-4444', '3333-4444'], ['joao arroba gmail ponto com', 'gmail'], ['CEP 70000-000', '70000-000'], ['cep: 70000000', '70000000'],
+    ['moro na Rua das Flores, 123', 'Flores'], ['SQN 308 bloco A apto 101', '308'], ['ela nasceu em 12/03/2019', '12/03/2019'],
+    ['Meu nome é Ana Paula Souza', 'Ana Paula'], ['minha filha Laura faz 5 anos', 'Laura'], ['o aniversariante é Pedro', 'Pedro'],
+  ];
+  for (const [texto, dado] of casos) assert.equal(ocultarDadosPessoais(texto).includes(dado), false, texto);
+  // O que a classificação precisa continua: data e quantidade da festa, preço, tema, pergunta de endereço, frase comum.
+  for (const fica of ['festa dia 14/11/2027 para 150 convidados', 'quanto custa o pacote Essencial para 80 pessoas em 2027?', 'qual a avenida de vocês?',
+    'festa da Frozen no sábado', 'R$ 5.200,00 à vista?', 'tem horário das 1400-1800?', 'a festa do meu filho foi péssima, salgado frio']) assert.equal(ocultarDadosPessoais(fica), fica, fica);
+});
+test('D1: dado de saúde é reconhecido (nunca vai ao modelo); D2: o trecho gravado na passagem é minimizado', () => {
+  for (const s of ['meu filho tem alergia a amendoim', 'tem opção sem glúten?', 'ela é autista', 'ele tem APLV', 'intolerância à lactose', 'toma remédio às 15h', 'estou grávida'])
+    assert.equal(dadoDeSaude(s), true, s);
+  for (const s of ['tea party', 'o bolo é de chocolate', 'quanto custa?', 'festa da Frozen']) assert.equal(dadoDeSaude(s), false, s);
+  assert.equal(trechoParaRegistro('meu cpf é 123.456.789-09 e quero falar com alguém'), 'meu cpf é [documento omitido] e quero falar com alguém');
+  assert.equal(trechoParaRegistro('x'.repeat(900)).length, 500);
+});
+test('D4: o histórico da fase B passa pelas mesmas proteções, entrada por entrada (antes do JSON)', () => {
+  const corpo = JSON.parse(entradaFaseB(['oi, meu cpf\n12345678909', 'ele tem alergia a leite', 'y'.repeat(900)], 'quero 14/11/2027, meu cel 99999-0000', { data: null, convidados: 40 }));
+  assert.deepEqual(corpo.mensagens[0], 'oi, meu cpf\n[documento omitido]', 'CPF grudado no "\\n" também sai (antes escapava no JSON)');
+  assert.equal(corpo.mensagens[1], ENTRADA_SAUDE_OMITIDA);
+  assert.equal(corpo.mensagens[2].length, 500);
+  assert.equal(corpo.mensagemAtual, 'quero 14/11/2027, meu cel [telefone omitido]');
+  assert.deepEqual(corpo.interesseAnterior, { data: null, convidados: 40 });
+  assert.deepEqual(Object.keys(corpo), ['mensagens', 'mensagemAtual', 'interesseAnterior'], 'nada além disso: sem nome de perfil, contato ou cadastro');
 });
 
 test('empresa ativa × piloto: sem o campo ou indefinido = SEM_063; piloto = PILOTO; nulo/vazio = SEM_ESCOLHA (decidido pelos vínculos); outra = divergência', () => {

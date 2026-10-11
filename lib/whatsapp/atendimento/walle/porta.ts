@@ -1,7 +1,7 @@
 import { db } from '../../../db/postgres.ts';
 import { buscarClientesPorContatoExato } from '../../../clientes/repositories/cliente.repository';
 import { listarContratacoes } from '../../../fechamentos/contratacoes.ts';
-import { ocultarDadosPessoais } from '../core.ts';
+import { dadoDeSaude, ocultarDadosPessoais } from '../core.ts';
 import { entendimentoSoRegras } from '../configuracao.ts';
 import { resolverLinkFechamento } from '../prontas-link.ts';
 import type { PortaWallE } from '../worker.ts';
@@ -51,7 +51,9 @@ export function criarPortaWallE(entender: EntenderWallE | null, opcoes: { sinais
     const catalogos = await catalogosWallE(db(), e.empresa, e.config, e.hoje);
     const contexto = lerContexto(e.contexto);
     // Proteção final: em modo regras o modelo nunca é chamado, mesmo que a porta tenha sido montada com ele.
-    const modelo = entender && !entendimentoSoRegras() ? entender : null;
+    // D1: mensagem com dado de saúde (alergia, condição, medicação…) também não: entende pelas regras (alergia segue
+    // para a equipe pelo próprio resolvedor).
+    const modelo = entender && !entendimentoSoRegras() && !dadoDeSaude(e.texto) ? entender : null;
     const entendimento = modelo
       ? revalidarEntendimento(await modelo(e.empresa, e.texto, contexto, catalogos), e.texto, catalogos, contexto)
       : entenderPorRegras(e.texto, catalogos, contexto);

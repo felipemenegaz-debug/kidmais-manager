@@ -13,7 +13,7 @@ function carregarPorta(regras: () => boolean) {
     '../../../db/postgres.ts': { db: () => ({ query: async () => { throw new Error('banco proibido no teste'); } }) },
     '../../../clientes/repositories/cliente.repository': { buscarClientesPorContatoExato: async () => [] },
     '../../../fechamentos/contratacoes.ts': { listarContratacoes: async () => [] },
-    '../core.ts': { ocultarDadosPessoais: (t: string) => t },
+    '../core.ts': { ocultarDadosPessoais: (t: string) => t, dadoDeSaude: (t: string) => /alergia/.test(t) },
     '../configuracao.ts': { entendimentoSoRegras: regras },
     '../prontas-link.ts': { resolverLinkFechamento: async () => ({ ok: false }) },
     './contexto.ts': { lerContexto: (c: unknown) => (c ?? {}) },
@@ -48,4 +48,9 @@ test('modo regras: a porta do Wall-e ignora o modelo montado; fora do modo regra
   await porta.responder(entrada);
   assert.equal(chamadas, 1, 'de volta ao modo regras: nenhuma chamada nova');
   assert.deepEqual(registro.origem, ['regras', 'modelo', 'regras']);
+  // D1: fora do modo regras, mensagem com dado de saúde também não vai ao modelo (entende pelas regras).
+  regras = false;
+  await porta.responder({ ...entrada, texto: 'meu filho tem alergia a amendoim, o bolo tem?' });
+  assert.equal(chamadas, 1, 'saúde: nenhuma chamada nova');
+  assert.deepEqual(registro.origem, ['regras', 'modelo', 'regras', 'regras']);
 });

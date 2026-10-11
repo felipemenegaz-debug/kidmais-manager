@@ -41,14 +41,65 @@ export type Interpretacao = z.infer<typeof interpretacaoSchema>;
 export const ESQUEMA_INTERPRETACAO = { type: 'object', additionalProperties: false, required: ['intencao', 'perguntaId', 'data', 'convidados'], properties: { intencao: { type: 'string', enum: ['DUVIDA', 'INTERESSE', 'HUMANO', 'PARAR', 'OUTRO'] }, perguntaId: { type: ['string', 'null'] }, data: { type: ['string', 'null'] }, convidados: { type: ['integer', 'null'] } } };
 
 /**
- * Minimização antes do modelo: CPF, e-mail e telefone (com DDD) viram marcadores. Datas como 14/11/2027 e
- * quantidades ficam: são o que a classificação precisa.
+ * D1 — minimização antes de QUALQUER chamada ao modelo (e dos campos derivados gravados, como a passagem): documentos
+ * (CPF/CNPJ com pontos, traços, barras ou espaços), e-mail (também "arroba … ponto com"), telefone (com ou sem DDD, com
+ * +55, com o 9 separado), CEP, endereço com número, data de NASCIMENTO e nomes em frases de identificação ("meu nome é",
+ * "minha filha Ana", "o aniversariante é …") viram marcadores. A data e a quantidade da festa ficam: são o que a
+ * classificação precisa. Limite conhecido: um nome solto no meio da frase ("festa da Ana") não é reconhecível por regra
+ * sem apagar também temas ("festa da Frozen"); por isso o nome do contato, o nome de perfil e o cadastro nunca são
+ * enviados, e dado de saúde nunca vai ao modelo (dadoDeSaude).
  */
+// Nome = palavras com inicial MAIÚSCULA. Sem a flag "i" (com ela, \p{Lu} aceitaria minúsculas e apagaria o resto da
+// frase): os gatilhos aceitam a inicial maiúscula ou minúscula letra a letra (semCaixa).
+const NOME = String.raw`\p{Lu}[\p{L}'’-]+(?:\s+(?:d[aeo]s?\s+)?\p{Lu}[\p{L}'’-]+){0,3}`;
+const semCaixa = (frases: string[]) => frases.map((f) => [...f].map((c) => (c.toLowerCase() !== c.toUpperCase() ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c === ' ' ? '\\s+' : c)).join('')).join('|');
+const GATILHO_NOME_PROPRIO = semCaixa(['meu nome é', 'meu nome e', 'me chamo', 'aqui é a', 'aqui é o', 'aqui e a', 'aqui e o',
+  ...['mãe', 'mae', 'pai', 'avó', 'avô', 'avo', 'tia', 'tio', 'madrinha', 'padrinho'].flatMap((p) => ['a', 'o'].flatMap((s) => ['da', 'do', 'de'].map((d) => `sou ${s} ${p} ${d}`)))]);
+const GATILHO_NOME_CRIANCA = semCaixa([...['meu', 'minha'].flatMap((p) => ['filho', 'filha', 'neto', 'neta', 'sobrinho', 'sobrinha', 'enteado', 'enteada', 'afilhado', 'afilhada'].map((x) => `${p} ${x}`)),
+  'o aniversariante é', 'a aniversariante é', 'o aniversariante e', 'a aniversariante e', 'o aniversariante:', 'a aniversariante:', 'o aniversariante', 'a aniversariante']);
+const PADROES_PESSOAIS: [RegExp, string][] = [
+  [/[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu, '[e-mail omitido]'],
+  [/[\p{L}\p{N}._-]+\s*[([]?\s*arroba\s*[)\]]?\s*[\p{L}\p{N}-]+\s*(?:ponto|\.)\s*(?:com|net|org|br)(?:\s*(?:ponto|\.)\s*br)?(?![\p{L}])/giu, '[e-mail omitido]'],
+  [/(?<!\d)\d{2}[\s.]?\d{3}[\s.]?\d{3}[\s/]?\d{4}[\s-]?\d{2}(?!\d)/g, '[documento omitido]'],
+  [/(?<!\d)\d{3}[\s./-]?\d{3}[\s./-]?\d{3}[\s./-]?\d{2}(?!\d)/g, '[documento omitido]'],
+  [/(?<![\d/])(?:\+?\s?55[\s.-]?)?\(?\d{2}\)?[\s.-]?9?[\s.-]?\d{4}[\s.-]?\d{4}(?![\d/])/g, '[telefone omitido]'],
+  [/(?<![\d/])9[\s.-]?\d{4}[\s.-]?\d{4}(?![\d/])/g, '[telefone omitido]'],
+  [/(?<![\d/])[2-5]\d{3}-\d{4}(?![\d/])/g, '[telefone omitido]'],
+  [/(?<![\p{L}])CEP:?\s*\d{5}-?\d{3}(?!\d)|(?<![\d/])\d{5}-\d{3}(?![\d/])/giu, '[CEP omitido]'],
+  [/(?<![\p{L}])((?:rua|avenida|av\.?|travessa|alameda|rodovia|estrada)\s)[^\n,;!?]{2,60}?,?\s*(?:n[ºo°.]?\s*)?\d{1,5}(?![\d/])[A-Za-z]?/giu, '[endereço omitido]'],
+  [/(?<![\p{L}])(?:S[A-Z]{2,3}|Q[A-Z]{1,3})\s?\d{1,3}(?:\s+(?:bloco|bl\.?|conjunto|cj\.?|casa|lote|apto|ap\.?)\s*[A-Z0-9]{1,4}){1,3}/gu, '[endereço omitido]'],
+  [/((?:nasc\p{L}*|data de nascimento)[^\d\n]{0,20})\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?/giu, '$1[data de nascimento omitida]'],
+  [new RegExp(String.raw`((?<![\p{L}])(?:${GATILHO_NOME_PROPRIO}))\s+${NOME}`, 'gu'), '$1 [nome omitido]'],
+  [new RegExp(String.raw`((?<![\p{L}])(?:${GATILHO_NOME_CRIANCA}))\s+${NOME}`, 'gu'), '$1 [nome omitido]'],
+];
 export function ocultarDadosPessoais(texto: string) {
-  return texto
-    .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, '[documento omitido]')
-    .replace(/[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu, '[e-mail omitido]')
-    .replace(/(?<!\d)(?:\+?55[\s.-]?)?\(?\d{2}\)?[\s.-]?9?\d{4}[\s.-]?\d{4}(?!\d)/g, '[telefone omitido]');
+  let t = texto;
+  for (const [re, marcador] of PADROES_PESSOAIS) t = t.replace(re, marcador);
+  return t;
+}
+/**
+ * D1 — dado de saúde (alergia, intolerância, condição, medicação, gestação) é dado pessoal sensível: a mensagem que o
+ * contém NUNCA vai ao modelo (o Wall-e entende pelas regras, e alergia segue para a equipe; a fase B encaminha à equipe).
+ */
+const SAUDE = /(?<![\p{L}])(?:alergi\p{L}*|al[eé]rgic\p{L}*|intoler[aâ]nci\p{L}*|cel[ií]ac\p{L}*|lactose|gl[uú]ten|diab[eé]t\p{L}*|epil[eé]p\p{L}*|convuls\p{L}*|autis\p{L}*|defici[eê]nci\p{L}*|cadeirante|s[ií]ndrome|laudo|rem[eé]dio\p{L}*|medicament\p{L}*|medica[çc][ãa]o|anafil\p{L}*|epipen|asma|asm[aá]tic\p{L}*|gr[aá]vid\p{L}*|gestante|gesta[çc][ãa]o|hospital\p{L}*|internad\p{L}*|doen[çc]a\p{L}*)(?![\p{L}])/iu;
+const SIGLAS_SAUDE = /(?<![\p{L}])(?:APLV|TEA|TDAH|CID)(?![\p{L}])/u;
+export function dadoDeSaude(texto: string) {
+  return SAUDE.test(texto) || SIGLAS_SAUDE.test(texto);
+}
+/**
+ * D4 — entrada da fase B (interpretarMensagem): o histórico de 24 h (até 8 entradas do próprio cliente) passa pelas
+ * MESMAS proteções da mensagem atual, entrada por entrada (antes de virar JSON, onde "\n" grudado no número escaparia da
+ * máscara): dados pessoais ocultados, no máximo 500 caracteres cada, e entrada com dado de saúde substituída por um
+ * marcador. A mensagem atual com dado de saúde nem chega aqui: o worker encaminha à equipe sem modelo.
+ */
+export const ENTRADA_SAUDE_OMITIDA = '[mensagem com dado de saúde omitida]';
+export function entradaFaseB(historico: string[], atual: string, interesseAnterior: unknown) {
+  const minimizar = (t: string) => (dadoDeSaude(t) ? ENTRADA_SAUDE_OMITIDA : ocultarDadosPessoais(t).slice(0, 500));
+  return JSON.stringify({ mensagens: historico.map(minimizar), mensagemAtual: minimizar(atual), interesseAnterior });
+}
+/** D2 — campo derivado gravado (passagem.ultimaMensagem): trecho minimizado, nunca a mensagem bruta inteira. */
+export function trechoParaRegistro(texto: string | null | undefined, limite = 500) {
+  return ocultarDadosPessoais(String(texto ?? '')).slice(0, limite);
 }
 export function dataValida(valor: string) {
   const data = new Date(`${valor}T12:00:00Z`);

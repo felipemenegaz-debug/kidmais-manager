@@ -1,4 +1,4 @@
-import type { ConfiguracaoAtendimento } from '../core.ts';
+import { trechoParaRegistro, type ConfiguracaoAtendimento } from '../core.ts';
 import type { Finalidade } from '../prontas.ts';
 import { comPendente, jaEnviado, mesclarContexto, registrarEnviado } from './contexto.ts';
 import { clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
@@ -859,7 +859,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
       // Rodada 29 (h29 aa19): a irritação com as mensagens também é registrada no pedido ambíguo (parar + outra pergunta).
       motivo: 'PARAR_A_CONFIRMAR', motivos: irritacaoComMensagens(entrada.texto, entendimento.sinais) ? ['PARAR_A_CONFIRMAR', 'RECLAMACAO'] : ['PARAR_A_CONFIRMAR'], em: e.agora,
       coletado: { data: e.ctx.data ?? null, turno: turnoTexto(catalogos, e.ctx.turno), convidados: e.ctx.convidados ?? null, pacote: nomePacote(catalogos, e.ctx.pacote), unidade: nomeUnidade(catalogos, e.ctx.unidade), tema: e.ctx.tema ?? null },
-      enviados: [], pendentes: [], ultimaMensagem: entrada.texto.slice(0, 500),
+      enviados: [], pendentes: [], ultimaMensagem: trechoParaRegistro(entrada.texto),
     };
     return { saidas: [], contexto: comPendente(e.ctx, [], 'OUTRO'), passagem, silencio: true };
   }
@@ -884,7 +884,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
       motivo: motivos[0], motivos, em: e.agora,
       coletado: { data: e.ctx.data ?? null, turno: turnoTexto(catalogos, e.ctx.turno), convidados: e.ctx.convidados ?? null, pacote: nomePacote(catalogos, e.ctx.pacote), unidade: nomeUnidade(catalogos, e.ctx.unidade), tema: e.ctx.tema ?? null },
       enviados: [...new Map((e.ctx.enviados ?? []).map((x) => [x.prontaId, x])).values()].map((x) => ({ titulo: x.finalidade, finalidade: x.finalidade })),
-      pendentes: [], ultimaMensagem: entrada.texto.slice(0, 500),
+      pendentes: [], ultimaMensagem: trechoParaRegistro(entrada.texto),
     };
     // Rodada 18: sem motivo técnico ao cliente. Pedido sobre contrato ou pagamento (de outra pessoa, por exemplo): o aviso
     // de segurança, sem nenhum dado.
@@ -1133,7 +1133,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
       coletado: { data: e.ctx.data ?? null, turno: turnoTexto(catalogos, e.ctx.turno), convidados: e.ctx.convidados ?? null, pacote: nomePacote(catalogos, e.ctx.pacote), unidade: nomeUnidade(catalogos, e.ctx.unidade), tema: e.ctx.tema ?? null },
       enviados: [...new Map((e.ctx.enviados ?? []).map((x) => [x.prontaId, x])).values()].map((x) => ({ titulo: e.anexos.find((a) => a.prontaId === x.prontaId)?.titulo ?? x.finalidade, finalidade: x.finalidade })),
       pendentes: e.perguntas.map((p) => PERGUNTA[p.campo](catalogos)),
-      ultimaMensagem: entrada.texto.slice(0, 500),
+      ultimaMensagem: trechoParaRegistro(entrada.texto),
     };
     e.ctx = comPendente(e.ctx, [], 'OUTRO');
   } else if (e.perguntas.length) {
