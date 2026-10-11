@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { lerRegrasDisponibilidadePacote, regrasPublicasDoPacote } from "./disponibilidade-pacote-publica.ts";
+import { lerRegrasDisponibilidadePacote, regrasDosPacotesDaEmpresa, regrasPublicasDoPacote } from "./disponibilidade-pacote-publica.ts";
+import { PACOTES_CONTRATAVEIS_V1 } from "./pacotes-v1.ts";
 import { regrasDisponibilidadeDaTela, type FatosPacote } from "../../components/fechamento/pacotes-tela.ts";
-import { CONFIG_VAZIA, statusDataPacote } from "../agenda/disponibilidade.ts";
+import { CONFIG_VAZIA, regraPadraoPacote, statusDataPacote } from "../agenda/disponibilidade.ts";
 import { carregarModulo, executorFalso } from "../acessos/teste-carregador.ts";
 import type { DbExecutor } from "../db/contracts.ts";
 
@@ -121,4 +122,85 @@ test("tela: toda decisão de disponibilidade do pacote no fechamento passa as re
   const doCalendario = chamadas(calendario);
   assert.equal(doCalendario.length, 3);
   assert.ok(doCalendario.every((c) => /regrasPacote\s*$/.test(c.trim())), doCalendario.join(" | "));
+});
+
+// ---- Administração (AdminDisponibilidade): mesmas regras da cotação pública, só da empresa ativa; dona da agenda = legado.
+
+function bancoDeRegras(regras: Record<string, ReturnType<typeof linha>[]>) {
+  const pedidos: unknown[] = [];
+  return { pedidos, banco: { async query(sql: string, params: unknown[] = []) {
+    if (/FROM regras_disponibilidade_pacote/.test(sql)) { pedidos.push(params[0]); return { rows: regras[String(params[0])] ?? [], rowCount: 0 }; }
+    return { rows: [], rowCount: 0 };
+  } } as unknown as DbExecutor };
+}
+
+test("administração: regras de todos os pacotes da empresa ativa, pela mesma leitura; pacote que ela não oferece = []", async () => {
+  const { banco, pedidos } = bancoDeRegras({ [POCKET_A]: [1, 2, 3, 4, 5, 6, 7].map((d) => linha(d, "TURNO_1")), [POCKET_B]: [linha(3, "TURNO_1")] });
+  const buscas: Array<[string, string]> = [];
+  const buscar = async (empresaId: string, codigo: string) => {
+    buscas.push([empresaId, codigo]);
+    return codigo === "POCKET" ? { id: empresaId === EMPRESA_A ? POCKET_A : POCKET_B } : null;
+  };
+  const deA = await regrasDosPacotesDaEmpresa(banco, EMPRESA_A, buscar);
+  assert.deepEqual(Object.keys(deA), PACOTES_CONTRATAVEIS_V1.map((p) => p.id));
+  assert.equal(deA.pocket.length, 7);
+  for (const id of ["mini", "compacta", "essencial", "completa", "premium", "pizza_party_scienza"]) assert.deepEqual(deA[id], [], id);
+  assert.ok(buscas.every(([empresa]) => empresa === EMPRESA_A), "só a empresa informada (comprovada pela sessão)");
+  assert.deepEqual(pedidos, [POCKET_A]);
+  const deB = await regrasDosPacotesDaEmpresa(banco, EMPRESA_B, buscar);
+  assert.deepEqual(deB.pocket, regrasPublicasDoPacote([linha(3, "TURNO_1")]), "mesmo código, regras da outra empresa não vazam");
+});
+
+test("coerência administração = cotação pública: mesmas regras e mesmo status em 5 semanas × 2 períodos × 7 pacotes", async () => {
+  const regrasA = { [POCKET_A]: [1, 2, 3, 4, 5].map((d) => linha(d, "TURNO_1")).concat([linha(6, "TURNO_2", "SOB_CONSULTA")]) };
+  const r = rota({ "buffet-a": EMPRESA_A }, { [EMPRESA_A]: POCKET_A }, regrasA);
+  const publico = Object.fromEntries((await r.chamar("?empresa=buffet-a")).body.pacotes.map((p) => [p.codigo, p])) as FatosPacote;
+  const { banco } = bancoDeRegras(regrasA);
+  const admin = await regrasDosPacotesDaEmpresa(banco, EMPRESA_A, async (_e, codigo) => (codigo === "POCKET" ? { id: POCKET_A } : null));
+  const divergencias: string[] = [];
+  for (const { id } of PACOTES_CONTRATAVEIS_V1) {
+    const daTela = regrasDisponibilidadeDaTela(false, publico, id);
+    assert.deepEqual(admin[id], daTela, id);
+    for (let i = 0; i < 35; i++) {
+      const data = new Date(Date.UTC(2026, 10, 2 + i)).toISOString().slice(0, 10);
+      for (const h of ["almoco", "noite"] as const) {
+        const a = statusDataPacote(CONFIG_VAZIA, id as never, data, h, admin[id]).status;
+        const p = statusDataPacote(CONFIG_VAZIA, id as never, data, h, daTela).status;
+        if (a !== p) divergencias.push(`${id} ${data} ${h}`);
+      }
+    }
+  }
+  assert.deepEqual(divergencias, []);
+});
+
+test("administração: dona da agenda pública mantém a regra legada (null); demais empresas recebem as regras delas", async () => {
+  const { readFileSync } = await import("node:fs");
+  const rota = readFileSync("app/api/admin/disponibilidade/route.ts", "utf8");
+  assert.match(rota, /const regrasPacotes = configuracaoComercial\s*\?\s*null\s*:\s*await regrasDosPacotesDaEmpresa\(tx, empresaComprovada, buscarPacoteVigenteDaEmpresaPorCodigo\);/);
+  assert.match(rota, /configuracaoComercial,\s*regrasPacotes,\s*bloqueios,/);
+  assert.doesNotMatch(rota, /regrasDosPacotesDaEmpresa\(tx, (q\.|body|alvo|request)/, "empresa só da sessão comprovada");
+  const tela = readFileSync("components/admin/AdminDisponibilidade.tsx", "utf8");
+  assert.match(tela, /regrasPacotes: admin\.regrasPacotes \?\? null/);
+  assert.match(tela, /const regrasDoPacote = regrasPacotes \? \(regrasPacotes\[pacote\] \?\? \[\]\) : null;/);
+  const chamadas = [...tela.matchAll(/statusDataPacote\(([^)]*)\)/g)].map((m) => m[1]);
+  assert.equal(chamadas.length, 2);
+  assert.ok(chamadas.every((c) => /, regrasDoPacote$/.test(c.trim())), chamadas.join(" | "));
+  assert.equal((tela.match(/setRegrasPacotes\(dados\.regrasPacotes\);/g) ?? []).length, 2, "carga inicial e recarga");
+  // Com null, o status é exatamente o legado (mesmos casos da regra fixa).
+  for (const [id, data, h] of [["pocket", "2026-11-14", "almoco"], ["compacta", "2026-11-14", "noite"], ["mini", "2026-11-13", "noite"], ["pizza_party_scienza", "2026-11-18", "almoco"]] as const)
+    assert.equal(statusDataPacote(CONFIG_VAZIA, id, data, h, null).status, regraPadraoPacote(id, data, h));
+});
+
+test("servidor e leitura pública usam a mesma regra de escolha (ativa, dia ISO, período, maior início de vigência)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const repo = readFileSync("lib/comercial/repositories/comercial.repository.ts", "utf8");
+  const servidor = repo.slice(repo.indexOf("export async function buscarElegibilidadePacoteAplicavel"), repo.indexOf("export async function listarPacotesAtivosComElegibilidade"));
+  assert.match(servidor, /WHERE ativo = true/);
+  assert.match(servidor, /dia_semana = EXTRACT\(ISODOW FROM \$2::date\)/);
+  assert.match(servidor, /ORDER BY vigencia_inicio DESC\s+LIMIT 1/);
+  const leitura = readFileSync("lib/comercial/disponibilidade-pacote-publica.ts", "utf8");
+  assert.match(leitura, /AND r\.ativo/);
+  const tela = readFileSync("lib/agenda/disponibilidade.ts", "utf8");
+  assert.match(tela, /diaSemanaUTC\(dataIso\) \|\| 7/, "dia ISO (domingo = 7)");
+  assert.match(tela, /sort\(\(a, b\) => b\.vigenciaInicio\.localeCompare\(a\.vigenciaInicio\)\)\[0\]/, "maior início de vigência");
 });

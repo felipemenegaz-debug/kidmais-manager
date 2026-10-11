@@ -24,6 +24,8 @@ import {
   consultarDisponibilidadePeriodo,
 } from "@/lib/disponibilidade/services";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import { buscarPacoteVigenteDaEmpresaPorCodigo } from "@/lib/comercial/repositories";
+import { regrasDosPacotesDaEmpresa } from "@/lib/comercial/disponibilidade-pacote-publica";
 import {
   bloqueioLegadoSemDono,
   liberarBloqueioLegadoPelaEmpresa,
@@ -157,6 +159,11 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
   const bloqueios = await listarTodosBloqueiosAtivos(tx, escopo);
   const porEscopo = await agendaPorEscopoInstalada(tx);
   const unidades = porEscopo && escopo.empresaId ? await unidadesDaEmpresa(tx, escopo.empresaId) : [];
+  // Status comercial dos pacotes: a dona da agenda pública mantém a regra legada (null, como em /fechamento); as demais
+  // empresas, as regras configuradas por ELAS — a mesma leitura da cotação pública em /b/<código> e do servidor.
+  const regrasPacotes = configuracaoComercial
+    ? null
+    : await regrasDosPacotesDaEmpresa(tx, empresaComprovada, buscarPacoteVigenteDaEmpresaPorCodigo);
 
   return {
     agendaPorEscopo: porEscopo,
@@ -169,6 +176,7 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
     pacoteOverrides: comercial.pacoteOverrides,
     descontos: comercial.descontos,
     configuracaoComercial,
+    regrasPacotes,
     bloqueios,
   };
 }

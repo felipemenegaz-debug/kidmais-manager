@@ -1,6 +1,7 @@
 import type { HorarioBase } from "../../components/fechamento/types.ts";
 import type { RegraPacoteEmpresa } from "../agenda/disponibilidade.ts";
 import type { DbExecutor } from "../db/contracts.ts";
+import { PACOTES_CONTRATAVEIS_V1 } from "./pacotes-v1.ts";
 
 type Linha = {
   dia_semana: number;
@@ -43,4 +44,25 @@ export async function lerRegrasDisponibilidadePacote(tx: DbExecutor, pacoteId: s
     [pacoteId],
   );
   return regrasPublicasDoPacote(r.rows);
+}
+
+/** Busca do pacote vigente da empresa por código — a mesma da cotação pública e do servidor (injetada para teste). */
+export type BuscarPacoteDaEmpresa = (empresaId: string, codigo: string, tx: DbExecutor) => Promise<{ id: string } | null>;
+
+/**
+ * Regras de disponibilidade de TODOS os pacotes contratáveis da empresa, por id da tela (pocket, mini, …), com a mesma
+ * leitura usada por `/api/fechamentos/pacotes?empresa=` — administração e cotação pública decidem com os mesmos dados.
+ * Pacote que a empresa não oferece = [] (nada disponível pela regra). Só a empresa informada (comprovada pela sessão).
+ */
+export async function regrasDosPacotesDaEmpresa(
+  tx: DbExecutor,
+  empresaId: string,
+  buscarPacote: BuscarPacoteDaEmpresa,
+): Promise<Record<string, RegraPacoteEmpresa[]>> {
+  const resultado: Record<string, RegraPacoteEmpresa[]> = {};
+  for (const { id, codigo } of PACOTES_CONTRATAVEIS_V1) {
+    const pacote = await buscarPacote(empresaId, codigo, tx);
+    resultado[id] = pacote ? await lerRegrasDisponibilidadePacote(tx, pacote.id) : [];
+  }
+  return resultado;
 }

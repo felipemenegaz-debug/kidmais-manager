@@ -46,6 +46,8 @@ const ESTADO_POSTGRES = {
   "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "063" },
   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
   "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
+  // Disponibilidade do pacote por empresa: tela (cotação pública e administração) = servidor; isolamento; legado Kidmais.
+  "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063" },
   "lib/comercial/hg4-escopo.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/pacote-empresa.postgres.test.ts": { descartavel: "atual" },
   "lib/comercial/integridade-fechamento-053.postgres.test.ts": { descartavel: "052" },
