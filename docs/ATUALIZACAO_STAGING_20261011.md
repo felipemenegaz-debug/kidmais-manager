@@ -1,6 +1,6 @@
 # Atualização de staging — candidata consolidada, 078, botão na primeira visita e cliente existente com OTP (11/10/2026)
 
-**Status (11/10/2026): EM EXECUÇÃO PARCIAL** — staging LIVE `d19f78b` (flags restauradas), **078 aplicada (PASS)**, B3 legado PASS; pendentes: B1/B2/B4 e C2/C4 (nenhuma fixture elegível em `/b/` — todas as `hml-*` DESATIVADAS), S7 (OTP) — [evidência](evidencias/atualizacao-staging-20261011.md). **Staging avançou para `b95494f` (079) depois do S8. Próxima frente preparada: §12 (F-L local; depois F-I + fixtures dedicadas), aguardando autorização.** Texto original do pacote abaixo.
+**Status (11/10/2026): SUPERADO pelo [pacote de lançamento](LANCAMENTO_VENDA_20261011.md) (frente F fora do caminho crítico).** Histórico: EM EXECUÇÃO PARCIAL — staging LIVE `d19f78b` (flags restauradas), **078 aplicada (PASS)**, B3 legado PASS; pendentes: B1/B2/B4 e C2/C4 (nenhuma fixture elegível em `/b/` — todas as `hml-*` DESATIVADAS), S7 (OTP) — [evidência](evidencias/atualizacao-staging-20261011.md). **Staging avançou para `b95494f` (079) depois do S8. Próxima frente preparada: §12 (F-L local; depois F-I + fixtures dedicadas), aguardando autorização.** Texto original do pacote abaixo.
 
 ~~PRONTO PARA APROVAÇÃO, NÃO EXECUTADO.~~ Nada foi feito em staging, produção, Render ou bancos remotos na preparação; sem push
 nem deploy. Cada frente abaixo exige autorização própria de Felipe (OPERACAO_AGENTES.md: migrations e escritas sempre com autorização
