@@ -26,7 +26,8 @@ function ambiente() {
     let cookie: string | null = 's-alfa';
     const envios: string[] = [];
     const portas: Record<string, Porta | null> = { troca: null, logout: null, get: null };
-    let trocaFalha: number | 'rede' | null = null;
+    let trocaFalha: number | 'rede' | 'rede-depois-de-processar' | null = null;
+    let logoutFalha: 'rede' | null = null;
     const fetchFalso = async (input: string, init: RequestInit = {}) => {
         const metodo = (init.method ?? 'GET').toUpperCase();
         const sessao = cookie; // cookies anexados no envio
@@ -44,6 +45,12 @@ function ambiente() {
         if (acao === 'selecionar-empresa') {
             // Falhas: a resposta só chega quando a porta abre. Sucesso: o servidor processa ao receber (Alfa revogada,
             // Beta criada) e a RESPOSTA, com o Set-Cookie da Beta, chega quando a porta abre.
+            if (trocaFalha === 'rede-depois-de-processar') {
+                // O servidor processou (Alfa revogada, Beta criada), mas a resposta não chega: nenhum Set-Cookie aplicado.
+                if (sessao && validas.has(sessao)) { validas.delete(sessao); validas.set('s-beta', { empresa: 'beta', csrf: CSRF_BETA }); }
+                if (portas.troca) await portas.troca.aberta;
+                throw new TypeError('fetch failed');
+            }
             if (trocaFalha) {
                 if (portas.troca) await portas.troca.aberta;
                 if (trocaFalha === 'rede') throw new TypeError('fetch failed');
@@ -58,6 +65,7 @@ function ambiente() {
         }
         if (acao === 'logout') {
             if (portas.logout) await portas.logout.aberta;
+            if (logoutFalha === 'rede') throw new TypeError('fetch failed');
             const v = sessao ? validas.get(sessao) : undefined;
             if (!v) return new Response('{"ok":false}', { status: 401 }); // sem Set-Cookie
             if (csrf !== v.csrf) return new Response('{"ok":false}', { status: 403 });
@@ -80,7 +88,8 @@ function ambiente() {
         ctx, af, envios, validas, avisos, destinos,
         cookie: () => cookie,
         prender: (qual: 'troca' | 'logout' | 'get') => (portas[qual] = porta()),
-        falharTroca: (f: number | 'rede') => { trocaFalha = f; },
+        falharTroca: (f: number | 'rede' | 'rede-depois-de-processar') => { trocaFalha = f; },
+        falharLogout: (f: 'rede') => { logoutFalha = f; },
         sair: (prazoMs?: number) => (sair.sairDaSessao as (d: unknown) => Promise<Saida>)({ fetch: fetchFalso, navegar: (d: string) => destinos.push(d), avisar: (x: string) => avisos.push(x), prazoMs }),
     };
 }
@@ -171,4 +180,40 @@ test('guarda: Sair depois de a troca responder encerra a Beta (comportamento ant
     assert.equal(r.motivo, 'CONFIRMADA');
     assert.equal(a.validas.size, 0);
     assert.equal(a.cookie(), null);
+});
+
+test('P4: resultado desconhecido — logout sem resposta depois da troca → NAO_CONFIRMADA com aviso de que a sessão pode continuar aberta', async () => {
+    const a = ambiente();
+    a.falharLogout('rede');
+    const t = a.prender('troca');
+    const troca = msg(a.af.trocarEmpresaAtiva('beta'));
+    await tique();
+    const saida = a.sair();
+    await tique();
+    t.abrir();
+    await troca;
+    const r = await saida;
+    assert.equal(r.motivo, 'NAO_CONFIRMADA');
+    assert.equal(r.confirmada, false);
+    assert.equal(a.avisos.length, 1, 'um aviso, e honesto');
+    assert.match(a.avisos[0]!, /pode continuar aberta/);
+    assert.ok(a.envios.includes('POST logout s-beta'), 'a tentativa foi com a sessão vigente (Beta)');
+    assert.deepEqual(a.destinos, ['/admin/login']);
+});
+
+test('P4: troca processada no servidor com a resposta perdida → o navegador não recebe a Beta; a saída não declara encerramento de algo que não conhece (limitação L3)', async () => {
+    const a = ambiente();
+    a.falharTroca('rede-depois-de-processar');
+    const t = a.prender('troca');
+    const troca = msg(a.af.trocarEmpresaAtiva('beta'));
+    await tique();
+    const saida = a.sair();
+    await tique();
+    t.abrir();
+    await troca;
+    const r = await saida;
+    assert.notEqual(a.cookie(), 's-beta', 'nenhum navegador tem o cookie da Beta');
+    assert.equal(r.confirmada, false, 'não confirma o encerramento');
+    assert.equal(a.validas.get('s-beta')?.empresa, 'beta', 'registrado: a Beta fica válida no servidor sem cookie em lugar nenhum (L3)');
+    assert.deepEqual(a.destinos, ['/admin/login']);
 });
