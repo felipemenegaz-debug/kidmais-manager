@@ -288,8 +288,12 @@ export async function alterarPapelNaEmpresa(sessao: SessaoAdmin, raw: unknown, r
             throw authError('Conta não encontrada nesta empresa.', 404);
         if (atual.papel === papel)
             return { ...membro(atual), reutilizado: true };
-        if (atual.papel === 'REPRESENTANTE_AUTORIZADO')
+        if (atual.papel === 'REPRESENTANTE_AUTORIZADO') {
             await exigirOutraGestao(tx, empresaId, input.usuarioId);
+            // 056: sem a Gestão nesta empresa, a conta deixa de ser elegível a administrar o Perfil (mesma proteção da remoção).
+            if ((await avaliarPerdaDeElegibilidade(tx, { usuarioId: input.usuarioId, modo: 'revogar-administrar', empresaId })).recusado)
+                throw new ClienteServiceError('PERFIL_ULTIMA_ADMINISTRADORA', MENSAGEM_ULTIMA_ADMINISTRADORA, 409);
+        }
         await tx.query('UPDATE memberships SET papel = $3 WHERE id = $1::uuid AND empresa_id = $2::uuid', [atual.membership_id, empresaId, papel]);
         // 057: assinar pela empresa exige Gestão; quem deixa a Gestão perde a assinatura (não fica adormecida).
         if (papel !== 'REPRESENTANTE_AUTORIZADO')

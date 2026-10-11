@@ -134,8 +134,13 @@ export async function alterarPapelVinculo(sessao: SessaoAdmin, empresaIdRaw: str
             throw erroAcesso('CONFLITO', 'Só um vínculo ativo muda de papel. Reative o vínculo antes.', 409);
         if (v.papel === papel)
             return { papel, alterado: false };
-        if (v.papel === 'REPRESENTANTE_AUTORIZADO')
+        if (v.papel === 'REPRESENTANTE_AUTORIZADO') {
             await traduzirUltimaGestao(() => exigirOutraGestao(tx, empresaId, usuarioId));
+            // 056: sem a Gestão nesta empresa, a pessoa deixa de ser elegível a administrar o Perfil (mesma proteção da desativação).
+            const avaliacao = await avaliarPerdaDeElegibilidade(tx, { usuarioId, modo: 'revogar-administrar', empresaId });
+            if (avaliacao.recusado)
+                throw erroAcesso('ULTIMA_ADMINISTRADORA', 'Esta pessoa é a última administradora do Perfil da empresa. Conceda a outra pessoa antes.', 409);
+        }
         await tx.query('UPDATE memberships SET papel = $3 WHERE id = $1::uuid AND empresa_id = $2::uuid', [v.membership_id, empresaId, papel]);
         const assinaturaRetirada = papel !== 'REPRESENTANTE_AUTORIZADO'
             ? await revogarAssinaturaDaMembership(tx, empresaId, v.membership_id, sessao.usuario_id, 'Papel alterado para Equipe pelo painel do desenvolvedor')
