@@ -1,0 +1,132 @@
+{
+  "status": "PREPARADO_NAO_EXECUTADO",
+  "alvo": {
+    "servico": "srv-dak77m2d0e5s73b8rkkg",
+    "host": "dpg-dak750gae00c73fudmg0-a",
+    "database": "kidmais_production",
+    "port": 5432
+  },
+  "normalizacao": "CRLF para LF",
+  "migrations": [
+    {
+      "id": "074a",
+      "arquivos": [
+        {
+          "tipo": "precheck",
+          "arquivo": "database/checks/20261009_074a_precheck.sql",
+          "sha256": "d90bd9ec4a47a69de22480637842f70221f78507893009a7f1aca56becf746aa"
+        },
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261009_074a_planos_comerciais.sql",
+          "sha256": "cf5c9f14811fba9e6b8ca8d9f74f6ed95cd742903957e893746488b7a013e130"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261009_074a_postcheck.sql",
+          "sha256": "51dd5b59d8918890deee62fc1171d3b7f23f5fe866f711f29f2696cd121ff5ea"
+        }
+      ]
+    },
+    {
+      "id": "075",
+      "arquivos": [
+        {
+          "tipo": "precheck",
+          "arquivo": "database/checks/20261009_075_precheck.sql",
+          "sha256": "87c6bb60ee6280eb3ba5a693bc1a47228ef68a30ef1ba210e0f69dfac03277e0"
+        },
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261009_075_renovacao_fundador.sql",
+          "sha256": "453f4f33337d7c5baeb28e286ae3c1a747fa68255e5025d4fd6c7618fbd8c545"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261009_075_postcheck.sql",
+          "sha256": "cdb6f800b888a7405b9e6729f69402caa5a16f087ce794347960a391a9eeaa81"
+        }
+      ]
+    },
+    {
+      "id": "076",
+      "arquivos": [
+        {
+          "tipo": "precheck",
+          "arquivo": "database/checks/20261010_076_precheck.sql",
+          "sha256": "0c57d854e02a59e23003463fc9e501d4fec1f2309a6fe91c7a557fa5f52c3392"
+        },
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261010_076_cpf_por_empresa.sql",
+          "sha256": "10c7c051e14024cc4971af3f77237862a35020c8d55b3417b228ba2421838392"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261010_076_postcheck.sql",
+          "sha256": "8797783354e0fcc56323c97e5b615f1479e1d3c9cd054cfb95958f25113b71aa"
+        }
+      ]
+    },
+    {
+      "id": "077",
+      "arquivos": [
+        {
+          "tipo": "precheck",
+          "arquivo": "database/checks/20261010_077_precheck.sql",
+          "sha256": "ab24f9ee4a217f92372d0645a150da77a549d19f495cf7b0826fe25a482b1a21"
+        },
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261010_077_regras_pagamento_empresa.sql",
+          "sha256": "afb6bab309168fa7f2e277ba2195eda5dfb15bf6516263b33eb99b3db0b132a8"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261010_077_postcheck.sql",
+          "sha256": "812fb322fd367441f795b0de8a558f157a7b041aeb13ad725a1f7d6dd93ad3fd"
+        }
+      ]
+    },
+    {
+      "id": "078",
+      "arquivos": [
+        {
+          "tipo": "precheck",
+          "arquivo": "database/checks/20261010_078_precheck.sql",
+          "sha256": "51d2845be5c6b234dcc1357fa483743638c786c7005170686461f78e7e7b7d62"
+        },
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261010_078_catalogo_buffet_por_empresa.sql",
+          "sha256": "0b4a16c6c75c3a8dd10220bcdfe6c9548e56dde77c35dcb68974cbdee64dc5cf"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261010_078_postcheck.sql",
+          "sha256": "1597d3c9eef855e2c11f020bff0caf90fb5f81f365e0b919cbfde50fe65766b5"
+        }
+      ]
+    },
+    {
+      "id": "079",
+      "arquivos": [
+        {
+          "tipo": "precheck",
+          "arquivo": "database/checks/20261011_079_precheck.sql",
+          "sha256": "50e82cbffd07085f0ef180a5850ed9379b3a89cd4ce1bad020af33645c2ad08c"
+        },
+        {
+          "tipo": "migration",
+          "arquivo": "database/migrations/20261011_079_convite_recuperacao_manual.sql",
+          "sha256": "23e300ea3e2013b072e6d45348698f3bae3c3e392f6c4e34bdd67edd5f82b209"
+        },
+        {
+          "tipo": "postcheck",
+          "arquivo": "database/checks/20261011_079_postcheck.sql",
+          "sha256": "c0eb23d374f856fb6c0c0b590170a4b60f298758565a4884d94399d1ec5abf3e"
+        }
+      ]
+    }
+  ]
+}
