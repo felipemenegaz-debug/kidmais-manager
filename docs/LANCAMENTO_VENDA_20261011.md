@@ -134,6 +134,8 @@ Antes de pedir a escrita de producao, concluir a preparacao/conferencia do backu
 
 ## 8. Autorizações, em ordem
 
+E0 de email em staging preparado em [EMAIL_STAGING_LANCAMENTO_20261011.md](EMAIL_STAGING_LANCAMENTO_20261011.md), ainda nao executado. Staging LIVE/origin em `5386a4d`, auto-deploy OFF, sem EMAIL_PROVIDER/EMAIL_REMETENTE/RESEND_API_KEY. O pacote adiciona somente essas tres variaveis, exige chave inserida por Felipe no Render e propoe um deploy do mesmo SHA e um unico email pelo transporte real do produto. Precisa de autorizacao propria; nao abre cadastro/cobranca nem altera banco/producao. A entrega antecede S3/S4.
+
 P1 foi executado com autorização própria: backup custom de 9.799.207 bytes, hash e leitura integral confirmados no disco persistente, PITR disponível com janela de três dias, Shell encerrado. [Evidência](evidencias/backup-production-codex-20261011.md). Nenhum restore foi executado/comprovado. Esse aceite não autoriza migrations, reparo ou deploy e o registro precisa permanecer recente na janela de publicação.
 
 L1–L5 (local) → S0–S8 (staging) → P0 (leitura em produção) → P1 → P2 (revisão) → P3 → P4 → P5 → P6 (por etapa) → P7 → P8.
