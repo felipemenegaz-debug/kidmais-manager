@@ -1,7 +1,8 @@
 # Lançamento da venda — candidata única, testes finais e publicação em produção (11/10/2026)
 
-**Status:** CANDIDATA ÚNICA PREPARADA (local). Nenhuma operação remota executada. Cada passo remoto exige autorização específica de
-Felipe; nenhuma autorização é reaproveitada entre passos.
+**Status:** validação local concluída, com limites de cobertura descritos na evidência Codex. Somente metadados remotos consultados; sem escrita remota. Respeitar autorizações vigentes de Felipe e confirmar alterações de alvo/escopo antes de executar.
+
+Atualização Codex: [evidência local](evidencias/lancamento-venda-codex-20261011.md) e [valores aprovados](CONFIGURACAO_VENDA_APROVADA_20261011.json). PostgreSQL: 14 suítes/100 testes (12 aprovadas na primeira rodada; duas corrigidas e repetidas). Concorrência: 9 grupos. Vitrine em build de produção: 6 telas; cadastro e assinatura em desenvolvimento: 8 grupos. Os testes locais não substituem S3/S4 de e-mail real e pagamento sandbox.
 
 ## 0. Escopo mínimo de lançamento (congelado)
 
@@ -19,7 +20,7 @@ Fundador 40% por 12 meses, 20 vagas; teste de 15 dias sem cartão; plano escolhi
 
 | Item | Valor |
 |---|---|
-| **SHA da candidata** | ponta de docs deste pacote (só `docs/` depois do commit de código `799cda0`) |
+| **SHA da candidata** | ponta de docs deste pacote (só `docs/` depois do commit de ferramentas/testes `aafd7b57554c89b35501f9867456a39dc8aeb5b4`; aplicação idêntica à base `fa591aa`) |
 | Contém | `origin/staging` `b95494f` e `origin/production` `4af8b38` como ancestrais (fast-forward possível nas duas, sem force) |
 | Integração staging | 1 conflito (modelos da receita PostgreSQL): mantidos 078 e 079 |
 | Integração production | 13 conflitos do módulo de convites promovido isoladamente: 9 arquivos de production idênticos a versões anteriores de staging (mantida a evolução de staging); inventário de migrations de production = subconjunto anterior (mantido o completo até a 079); licença só com diferença de espaços; parágrafo exclusivo de production preservado em `docs/CONVITES_V1_20261008.md`. Conferência automática: nenhum arquivo de production ausente; toda versão de production fora do histórico foi revisada à mão |
@@ -50,12 +51,12 @@ Validações offline da candidata integrada: `tsc --noEmit` 0; ESLint 0 erros (1
 | B4 | Migrations 074a–079 em produção (078 = isolamento do catálogo) | operação P4 | P0 antes/depois; postchecks PASS |
 | B5 | Textos legais em minuta | **dado ausente** (§6) | `minuta: false`, sem `[A DEFINIR]`, nova versão/hash |
 | B6 | Identificação e atendimento no site | **dado ausente** (§6) | rodapé sem “a definir” |
-| B7 | Nota fiscal / entidade vendedora | **dado ausente** (§6) | definido antes de P7 |
+| B7 | Nota fiscal / entidade vendedora | **Asaas escolhido**; dados fiscais da conta não verificados (§6) | emissão comprovada antes de P7 |
 | B8 | E-mail de produção; confirmação nunca provada com e-mail real | **dado ausente** + teste S3 | S3 PASS |
 | B9 | Cadastro com bloqueio global | **corrigido** (código); contagem em P0 | P0 = 0 |
 | B10/B17 | Kidmais gratuita com prova | **corrigido** (prova em código + diária); confirmação do ID em P0 | L2 + P0 + P5 + conferência diária |
 | B11 | Planos além do Essencial mensal sem pagamento comprovado | teste S4 | S4 PASS |
-| B12 | Prazos de inadimplência e retenção | **decisão ausente** (§6) | prazos nos termos e em `ASSINATURA_*_DIAS` |
+| B12 | Prazos de inadimplência e retenção | **7/60 aprovados**; retenção ainda pendente (§6) | prazos nos termos e em `ASSINATURA_*_DIAS` |
 | B13 | Concorrência física de vagas | teste L3 | PASS |
 | B14 | Telas em navegador | testes L4, S3–S5 | PASS |
 | B15 | Reconciliar `production` | **resolvido** (§1) | fast-forward em P3 |
@@ -90,7 +91,7 @@ Validações offline da candidata integrada: `tsc --noEmit` 0; ESLint 0 erros (1
 
 | # | Passo | Quem | Aceite / parada |
 |---|---|---|---|
-| P0 | `cd /opt/render/project/src && node scripts/diagnostico-lancamento-production.cjs --diagnostico-somente-leitura` (Shell de produção, ≤ 5 min; só leitura) — depois do deploy P3, ou com o arquivo copiado se Felipe preferir antes | Felipe | migrations ausentes listadas; `kidmais.empresas = 1`, sem assinatura; ID mostrado; bloqueios globais; variáveis presentes |
+| P0 | **Antes de promover/deployar:** comando autossuficiente e com SHA-256 em `docs/evidencias/diagnostico-production-comando-codex-20261011.txt`. Executar somente no Shell de `srv-dak77m2d0e5s73b8rkkg`, ≤ 5 min. Cria arquivo temporário em `/tmp`, usa o `pg` já instalado e transação somente leitura. Não requer publicar a candidata para descobrir o schema. | operador autorizado | migrations ausentes listadas; `kidmais.empresas = 1`, sem assinatura; ID mostrado; bloqueios globais; variáveis presentes |
 | P1 | Backup custom com SHA-256 no disco + PITR conferido | Felipe | registro |
 | P2 | Aplicadores de produção das migrations que P0 mostrar ausentes (hash fixado, precheck/migration/postcheck por transação; 078 com lista de cópias para aprovação) | agente (local) | revisão de Felipe |
 | P3 | PR candidata → `production` (fast-forward); auto-deploy OFF conferido; merge | Felipe | `production` = SHA |
@@ -107,13 +108,11 @@ dados; cobrança → cancelar no Asaas e estornar pelo painel. Com as chaves des
 
 1. **Asaas de produção:** conta ativa do CNPJ vendedor; chave `$aact_prod_…` e token de webhook (32–255 caracteres) novos, cadastrados
    por Felipe direto no painel do Render (nunca no chat); confirmação de que o webhook pode ser registrado no domínio de produção.
-2. **Nota fiscal:** CNPJ vendedor e como emitir a NFS-e das assinaturas (pelo Asaas ou fora dele).
+2. **Nota fiscal:** Felipe escolheu Asaas. Configurar dados fiscais reais da Kidmais Festas na conta; comprovar emissão antes da primeira venda. Não atribuir automaticamente serviço, alíquota ou regime fiscal.
 3. **Textos legais finais:** termos de uso, privacidade, tratamento de dados e cancelamento revisados (substituem a minuta).
-4. **Prazos de inadimplência e retenção:** os atuais (7 dias para regularizar, 60 em somente leitura, retenção) estão registrados como
-   hipótese; confirmar ou informar os definitivos.
-5. **Identificação e atendimento do site:** razão social, CNPJ, endereço, e-mail e WhatsApp de atendimento, horário, encarregado de
-   dados, e o domínio canônico do site de venda (`SITE_URL`).
-6. **E-mail de produção:** domínio de envio verificado no Resend (SPF/DKIM/DMARC) e o remetente.
+4. **Prazos:** Felipe aprovou preparar 7 dias para regularizar e 60 em somente leitura. Retenção após encerramento ainda não foi definida; 60 dias não autorizam exclusão de dados.
+5. **Identificação e atendimento:** aprovados nome informado Kidmais Festas, CNPJ 20.119.900/0001-60, endereço SCRN 704/705 bloco D loja 12, Asa Norte, Brasília - DF, CEP 70730-640; suporte e privacidade `felipemenegaz@gmail.com`; vitrine `https://manager.kidmaisfestas.com/conheca` (`SITE_URL` é a origem sem `/conheca`). Confirmar razão social fiscal exata e contatos adicionais se oferecidos; não nomear encarregado automaticamente.
+6. **E-mail de produção:** Gmail foi informado como remetente, mas o Resend exige domínio próprio verificado. Proposta ainda não aplicada: `Kidmais Manager <nao-responda@kidmaisfestas.com>`. Conferir domínio no Resend e DNS; manter Gmail como contato. Fonte: https://resend.com/docs/dashboard/domains/introduction.
 7. **Kidmais:** confirmar, quando P0 mostrar o ID, que a empresa `kidmais` de produção é a Kidmais Festas.
 
 ## 7. Adiáveis (sem anúncio)
