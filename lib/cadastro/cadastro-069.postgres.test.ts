@@ -288,6 +288,17 @@ test('representação: o desenvolvedor aprova ou recusa com motivo e auditoria; 
     assert.ok(usuarioId);
 });
 
+test('E2: bloqueio de agenda antigo sem empresa (ativo, futuro) fecha o cadastro de empresa; liberado, o cadastro volta', async () => {
+    const { sessao } = await contaConfirmada('ivo');
+    const bloqueio = (await client.query<{ id: string }>(
+        `INSERT INTO bloqueios_agenda (data, dia_inteiro, motivo) VALUES (current_date + 30, true, 'Legado global E2') RETURNING id::text AS id`)).rows[0].id;
+    const antes = await contar('SELECT count(*)::int AS n FROM empresas');
+    assert.equal(await erro(cadastrar(sessao, empresa('81356789000110'))), 'CADASTRO_INDISPONIVEL');
+    assert.equal(await contar('SELECT count(*)::int AS n FROM empresas'), antes, 'nenhuma empresa criada');
+    await client.query('UPDATE bloqueios_agenda SET ativo = false WHERE id = $1::uuid', [bloqueio]);
+    assert.equal((await cadastrar(sessao, empresa('81356789000110'))).situacao, 'CRIADA');
+});
+
 test('rollback da 069 recusa com dados de cadastro, sem apagar nada', async () => {
     await assert.rejects(client.query(readFileSync('database/rollback/20261007_069_cadastro_publico_down.sql', 'utf8')), /rollback recusado/);
     await client.query('ROLLBACK').catch(() => undefined);

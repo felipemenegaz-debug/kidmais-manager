@@ -79,6 +79,10 @@ class Banco implements DbExecutor {
 test('novos planos só em sandbox explícito; pedido não aceita preço/catálogo/plano adulterado', () => {
     assert.equal(novosPlanosLigados(env), true);
     for (const e of [{}, { ...env, ASAAS_AMBIENTE: 'production' }, { ...env, ASSINATURA_PLANOS_ATIVOS: 'false' }]) assert.equal(novosPlanosLigados(e), false);
+    // Produção: só pareada com o serviço de produção; sandbox nunca no serviço de produção.
+    assert.equal(novosPlanosLigados({ ...env, ASAAS_AMBIENTE: 'producao', KIDMAIS_DEPLOY_ENV: 'production' }), true);
+    assert.equal(novosPlanosLigados({ ...env, ASAAS_AMBIENTE: 'producao' }), false);
+    assert.equal(novosPlanosLigados({ ...env, KIDMAIS_DEPLOY_ENV: 'production' }), false);
     for (const p of [null, {}, { ...pedido, plano: '__proto__' }, { ...pedido, ciclo: 'WEEKLY' }, { ...pedido, valorEsperadoCentavos: 1.1 }, { ...pedido, versao: 'velha' }])
         assert.throws(() => validarPedidoOferta(p));
     assert.deepEqual(validarPedidoOferta(pedido), pedido);

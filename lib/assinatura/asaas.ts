@@ -1,12 +1,13 @@
 /**
- * Cliente mínimo da API Asaas (E8) — SOMENTE SANDBOX nesta entrega. Sem SDK: `fetch` com tempo-limite e injeção para
- * testes. Nenhuma função aqui grava no banco, registra log ou devolve a chave em mensagens de erro.
+ * Cliente mínimo da API Asaas (E8). Sem SDK: `fetch` com tempo-limite e injeção para testes. Nenhuma função aqui grava
+ * no banco, registra log ou devolve a chave em mensagens de erro.
  *
  * Configuração (somente nomes; valores ficam no ambiente do serviço, nunca no código ou em arquivos versionados):
- *   ASAAS_AMBIENTE        só `sandbox` é aceito nesta entrega. Qualquer outro valor (inclusive `producao`) deixa a
- *                         cobrança DESLIGADA com motivo explícito. Produção é etapa posterior, com autorização própria.
- *   ASAAS_API_KEY         chave da conta sandbox; precisa começar com `$aact_hmlg_` (prefixo de sandbox do Asaas).
- *   ASAAS_WEBHOOK_TOKEN   token do webhook (32–255 caracteres), conferido no cabeçalho `asaas-access-token`.
+ *   ASAAS_AMBIENTE        `sandbox` ou `producao`, PAREADO com KIDMAIS_DEPLOY_ENV: `producao` só no serviço de produção
+ *                         (KIDMAIS_DEPLOY_ENV=production) e `sandbox` nunca nele. Divergência, ausência ou outro valor deixa
+ *                         a cobrança DESLIGADA com motivo explícito (fail-closed).
+ *   ASAAS_API_KEY         chave da conta do ambiente: `$aact_hmlg_` (sandbox) ou `$aact_prod_` (produção). Nunca reutilizar.
+ *   ASAAS_WEBHOOK_TOKEN   token do webhook (32–255 caracteres), conferido no cabeçalho `asaas-access-token`; exclusivo do ambiente.
  *
  * Fontes oficiais (lidas em 06–07/10/2026):
  *   autenticação/sandbox  https://docs.asaas.com/docs/autenticação-1 · https://docs.asaas.com/docs/sandbox
@@ -20,41 +21,66 @@ import type { Ciclo } from './configuracao.ts';
 
 export const ASAAS_SANDBOX_URL = 'https://api-sandbox.asaas.com/v3';
 export const PREFIXO_CHAVE_SANDBOX = '$aact_hmlg_';
+export const ASAAS_PRODUCAO_URL = 'https://api.asaas.com/v3';
+export const PREFIXO_CHAVE_PRODUCAO = '$aact_prod_';
+export type AmbienteAsaas = 'sandbox' | 'producao';
+/** URL e prefixo de chave de cada ambiente: a combinação é fixa (nunca chave de um com a URL do outro). */
+const AMBIENTES: Record<AmbienteAsaas, { baseUrl: string; prefixo: string }> = {
+    sandbox: { baseUrl: ASAAS_SANDBOX_URL, prefixo: PREFIXO_CHAVE_SANDBOX },
+    producao: { baseUrl: ASAAS_PRODUCAO_URL, prefixo: PREFIXO_CHAVE_PRODUCAO },
+};
 export const TEMPO_LIMITE_MS = 10_000;
 const USER_AGENT = 'kidmais-manager';
 const ID = /^[A-Za-z0-9_-]{1,100}$/;
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
 
 type Ambiente = Record<string, string | undefined>;
-export type ConfiguracaoAsaas = { ambiente: 'sandbox'; baseUrl: string; apiKey: string; webhookToken: string };
-export type MotivoDesligado = 'AMBIENTE_AUSENTE' | 'AMBIENTE_NAO_SUPORTADO' | 'CHAVE_AUSENTE' | 'CHAVE_FORA_DO_SANDBOX' | 'TOKEN_WEBHOOK_INVALIDO';
+export type ConfiguracaoAsaas = { ambiente: AmbienteAsaas; baseUrl: string; apiKey: string; webhookToken: string };
+export type MotivoDesligado = 'AMBIENTE_AUSENTE' | 'AMBIENTE_NAO_SUPORTADO' | 'AMBIENTE_DIVERGENTE' | 'CHAVE_AUSENTE' | 'CHAVE_FORA_DO_SANDBOX' | 'CHAVE_FORA_DA_PRODUCAO' | 'TOKEN_WEBHOOK_INVALIDO';
 export type EstadoConfiguracao = { ligado: true; config: ConfiguracaoAsaas } | { ligado: false; motivo: MotivoDesligado };
 
 const EXPLICACAO: Record<MotivoDesligado, string> = {
     AMBIENTE_AUSENTE: 'ASAAS_AMBIENTE não definido: cobrança desligada.',
-    AMBIENTE_NAO_SUPORTADO: 'ASAAS_AMBIENTE aceita somente "sandbox" nesta versão; produção exige autorização separada.',
+    AMBIENTE_NAO_SUPORTADO: 'ASAAS_AMBIENTE aceita somente "sandbox" ou "producao": cobrança desligada.',
+    AMBIENTE_DIVERGENTE: 'ASAAS_AMBIENTE não corresponde ao serviço (produção exige "producao"; os demais, "sandbox"): cobrança desligada.',
     CHAVE_AUSENTE: 'ASAAS_API_KEY não definida: cobrança desligada.',
     CHAVE_FORA_DO_SANDBOX: 'ASAAS_API_KEY não é uma chave de sandbox: cobrança desligada.',
+    CHAVE_FORA_DA_PRODUCAO: 'ASAAS_API_KEY não é uma chave de produção: cobrança desligada.',
     TOKEN_WEBHOOK_INVALIDO: 'ASAAS_WEBHOOK_TOKEN ausente ou fora de 32–255 caracteres: cobrança desligada.',
 };
 export const explicarDesligado = (motivo: MotivoDesligado) => EXPLICACAO[motivo];
 
 /** Lê e valida a configuração. Nunca devolve a chave em mensagens; o valor só sai daqui dentro de `config`. */
 export function configuracaoAsaas(env: Ambiente = process.env): EstadoConfiguracao {
-    const ambiente = env.ASAAS_AMBIENTE?.trim();
-    if (!ambiente)
-        return { ligado: false, motivo: 'AMBIENTE_AUSENTE' };
-    if (ambiente !== 'sandbox')
-        return { ligado: false, motivo: 'AMBIENTE_NAO_SUPORTADO' };
+    const ambiente = ambienteAsaas(env);
+    if (typeof ambiente !== 'string')
+        return { ligado: false, motivo: ambiente.motivo };
     const apiKey = env.ASAAS_API_KEY?.trim() ?? '';
     if (!apiKey)
         return { ligado: false, motivo: 'CHAVE_AUSENTE' };
-    if (!apiKey.startsWith(PREFIXO_CHAVE_SANDBOX) || apiKey.length > 300 || /\s/.test(apiKey))
-        return { ligado: false, motivo: 'CHAVE_FORA_DO_SANDBOX' };
+    const { baseUrl, prefixo } = AMBIENTES[ambiente];
+    if (!apiKey.startsWith(prefixo) || apiKey.length > 300 || /\s/.test(apiKey))
+        return { ligado: false, motivo: ambiente === 'producao' ? 'CHAVE_FORA_DA_PRODUCAO' : 'CHAVE_FORA_DO_SANDBOX' };
     const webhookToken = env.ASAAS_WEBHOOK_TOKEN ?? '';
     if (!/^[\x21-\x7e]{32,255}$/.test(webhookToken))
         return { ligado: false, motivo: 'TOKEN_WEBHOOK_INVALIDO' };
-    return { ligado: true, config: { ambiente: 'sandbox', baseUrl: ASAAS_SANDBOX_URL, apiKey, webhookToken } };
+    return { ligado: true, config: { ambiente, baseUrl, apiKey, webhookToken } };
+}
+
+/**
+ * Ambiente do provedor PAREADO com o serviço (sem olhar chaves): `producao` exige KIDMAIS_DEPLOY_ENV=production e o
+ * serviço de produção nunca aceita `sandbox` (nem cobrança de mentira em produção, nem cobrança real fora dela).
+ */
+export function ambienteAsaas(env: Ambiente = process.env): AmbienteAsaas | { motivo: MotivoDesligado } {
+    const ambiente = env.ASAAS_AMBIENTE?.trim();
+    if (!ambiente)
+        return { motivo: 'AMBIENTE_AUSENTE' };
+    if (ambiente !== 'sandbox' && ambiente !== 'producao')
+        return { motivo: 'AMBIENTE_NAO_SUPORTADO' };
+    const servicoDeProducao = env.KIDMAIS_DEPLOY_ENV?.trim() === 'production';
+    if ((ambiente === 'producao') !== servicoDeProducao)
+        return { motivo: 'AMBIENTE_DIVERGENTE' };
+    return ambiente;
 }
 
 /** Falha de comunicação ou resposta inesperada. A mensagem nunca leva corpo da resposta, chave ou dado do pagador. */
@@ -144,8 +170,9 @@ export function cicloDoProvedor(cycle: string | null): Ciclo | null {
 }
 
 export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesCliente = {}): ClienteAsaas & ProvedorRenovacao {
-    if (config.ambiente !== 'sandbox' || config.baseUrl !== ASAAS_SANDBOX_URL || !config.apiKey.startsWith(PREFIXO_CHAVE_SANDBOX))
-        throw new Error('Cliente Asaas recusado: somente sandbox nesta versão.');
+    const esperado = (AMBIENTES as Record<string, { baseUrl: string; prefixo: string } | undefined>)[config.ambiente];
+    if (!esperado || config.baseUrl !== esperado.baseUrl || !config.apiKey.startsWith(esperado.prefixo))
+        throw new Error('Cliente Asaas recusado: ambiente, URL e chave precisam ser do mesmo ambiente.');
     const executar = opcoes.fetch ?? ((url, init) => fetch(url, init));
     const tempo = opcoes.tempoLimiteMs ?? TEMPO_LIMITE_MS;
 
@@ -237,7 +264,8 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
             return c ? { id: idValido(c.id, 'listar clientes'), externalReference: referencia } : null;
         },
         // POST /v3/customers — https://docs.asaas.com/reference/criar-novo-cliente
-        // notificationDisabled: true — o sandbox pode enviar e-mail/SMS reais; nenhum contato é enviado ao provedor.
+        // notificationDisabled: true — em qualquer ambiente o provedor não envia e-mail/SMS ao cliente: a fatura e os avisos
+        // são mostrados pelo próprio Kidmais Manager (nenhum contato é enviado ao provedor).
         async criarCliente(input) {
             const r = await chamar('criar cliente', 'POST', '/customers', { name: input.nome.slice(0, 200), cpfCnpj: input.cpfCnpj, externalReference: input.referencia, notificationDisabled: true });
             return { id: idValido(r?.id, 'criar cliente'), externalReference: input.referencia };
