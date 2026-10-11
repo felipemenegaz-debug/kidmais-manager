@@ -384,7 +384,18 @@ async function principal() {
           const cabecalhos = await req.allHeaders();
           ordem.push(`logout-pedido${trocaLiberadaJa ? '-depois' : '-antes'}-da-resposta-da-troca`);
           await entregue;
-          try { const resposta = await route.fetch({ headers: cabecalhos }); ordem.push(`logout-${resposta.status()}`); await route.fulfill({ response: resposta }); }
+          // route.fetch reaplicaria os cookies ATUAIS do contexto (os da Beta): o pedido sai pelo Node com os cabeçalhos do
+          // ENVIO (cookies da Alfa, como no navegador real), e a resposta é entregue à página sem mudar nada.
+          try {
+            const enviar = Object.fromEntries(Object.entries(cabecalhos).filter(([k]) => !k.startsWith(':') && !['host', 'content-length', 'connection'].includes(k)));
+            const r = await fetch(req.url(), { method: 'POST', headers: enviar, body: req.postData() ?? undefined });
+            ordem.push(`logout-${r.status}`);
+            const devolver = {};
+            r.headers.forEach((v, k) => { if (k !== 'set-cookie' && k !== 'content-encoding' && k !== 'content-length') devolver[k] = v; });
+            const definir = r.headers.getSetCookie();
+            if (definir.length) devolver['set-cookie'] = definir.join('\n');
+            await route.fulfill({ status: r.status, headers: devolver, body: await r.text() });
+          }
           catch { await route.abort('failed').catch(() => undefined); }
           return;
         }
