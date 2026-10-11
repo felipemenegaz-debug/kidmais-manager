@@ -204,6 +204,15 @@ test('provisionamento: prévia não escreve; confirmação cria empresa ATIVA em
     assert.deepEqual(e, { status: 'ATIVA', implantacao: 'AGUARDANDO_PRIMEIRO_ACESSO', interessada: 'CONVERTIDA' });
     assert.equal(await contar("SELECT count(*)::int AS n FROM convites_acesso WHERE empresa_id = $1 AND status = 'PENDENTE' AND papel = 'REPRESENTANTE_AUTORIZADO' AND envios = 1", [r.empresaId]), 1);
     assert.equal(await codigoErro(svc.empresas.provisionarContratante(dev as never, { ...dados, confirmar: true } as never, ctx() as never, deps() as never)), 'CONFLITO', 'interessada já convertida');
+    // Busca de contratantes: CNPJ só com dígitos ou com pontuação encontra a mesma empresa; termo sem relação não encontra.
+    const buscar = async (busca: string) => (await svc.empresas.listarEmpresas(dev as never, { busca } as never) as unknown as { itens: Array<{ id: string }> }).itens.map((i) => i.id);
+    assert.ok((await buscar('11222333000181')).includes(r.empresaId));
+    assert.ok((await buscar('11.222.333/0001-81')).includes(r.empresaId), 'CNPJ com pontuação');
+    assert.ok(!(await buscar('99.999.999/9999-99')).includes(r.empresaId));
+    assert.ok((await buscar('Alegria 063')).includes(r.empresaId), 'busca por nome continua');
+    // Origem do cadastro na ficha: provisionada a partir de interessada.
+    const ficha = await svc.empresas.obterEmpresa(dev as never, r.empresaId as never) as unknown as { empresa: { cadastro: { origem: string } } };
+    assert.equal(ficha.empresa.cadastro.origem, 'INTERESSADA');
 });
 
 test('convite com conta nova: cria identidade NEUTRA e vínculo de Gestão só nesta empresa; o link é de uso único', async () => {

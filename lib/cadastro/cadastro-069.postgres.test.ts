@@ -285,6 +285,9 @@ test('representação: o desenvolvedor aprova ou recusa com motivo e auditoria; 
     assert.deepEqual((await client.query('SELECT situacao, motivo_decisao, decidido_por::text FROM empresa_representacoes WHERE id = $1', [repr])).rows[0], { situacao: 'APROVADA', motivo_decisao: 'Contrato social conferido', decidido_por: dev });
     assert.equal(await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'REPRESENTACAO_APROVADA' AND entidade_id = $1", [r.empresaId]), 1);
     assert.equal(await contar("SELECT count(*)::int AS n FROM memberships WHERE empresa_id = $1 AND status = 'ATIVA'", [r.empresaId]), 1, 'aprovação não concede acesso');
+    // Ficha do desenvolvedor: a origem do cadastro é o cadastro público (não "cadastro direto").
+    const empresasPainel = carregar('lib/desenvolvedor/empresas.ts') as unknown as { obterEmpresa: (s: unknown, id: string, d: unknown) => Promise<{ empresa: { cadastro: { origem: string } } }> };
+    assert.equal((await empresasPainel.obterEmpresa(sDev, r.empresaId!, painelDeps)).empresa.cadastro.origem, 'CADASTRO_PUBLICO');
     assert.ok(usuarioId);
 });
 
