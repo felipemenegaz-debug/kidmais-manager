@@ -154,3 +154,29 @@ test('identidade divergente: para em CONEXAO sem enviar nenhuma etapa; sem disco
         assert.equal(fs.existsSync(dir), false); assert.equal(conectou, false);
     } finally { fs.rmSync(path.dirname(dir), {recursive:true, force:true}); }
 });
+
+test('conferência (--conferir-078): só o precheck READ ONLY; grava conferência numerada; não conta como tentativa', async () => {
+    assert.equal(m.conferencia(['--conferir-078']), true);
+    assert.equal(m.conferencia(['--conferir-078', '--aplicar-078-autorizado']), false);
+    assert.equal(m.autorizado(['--conferir-078']), false, 'conferir não autoriza aplicar');
+    const dir = tmp();
+    try {
+        const {Cliente, enviados} = clienteFalso();
+        const c1 = await m.conferir({env:envStaging(), dir, raiz, disco:() => {}, Client:Cliente});
+        assert.equal(c1.resultado, 'CONFERIDO'); assert.equal(c1.arquivo, 'conferencia-078-1.json');
+        assert.deepEqual(enviados, ['precheck 078'], 'nunca a migration nem o postcheck');
+        assert.ok(c1.precheck.some(l => l.empresa_que_recebe_copia === 'hml-x'));
+        const c2 = await m.conferir({env:envStaging(), dir, raiz, disco:() => {}, Client:clienteFalso().Cliente});
+        assert.equal(c2.arquivo, 'conferencia-078-2.json');
+        // A aplicação depois das conferências é a 1ª tentativa (conferências não bloqueiam nem contam).
+        const s = await executar(dir, {Client:clienteFalso().Cliente});
+        assert.equal(s.resultado, 'PASS'); assert.equal(s.arquivo, 'migration-078.json');
+        // Já aplicada: conferência não executa o precheck (que recusaria).
+        const {Cliente: C3, enviados: e3} = clienteFalso({m078:true});
+        const c3 = await m.conferir({env:envStaging(), dir, raiz, disco:() => {}, Client:C3});
+        assert.equal(c3.precheck, 'JA_APLICADA'); assert.deepEqual(e3, []);
+    } finally { fs.rmSync(dir, {recursive:true, force:true}); }
+    assert.throws(() => m.alvo({...envStaging(), KIDMAIS_DEPLOY_ENV:'production'}));
+    const precheck = m.lerRevisado(raiz, m.ETAPAS[0][1], m.ETAPAS[0][2]);
+    assert.match(precheck, /^BEGIN TRANSACTION READ ONLY;$/m); assert.match(precheck, /^ROLLBACK;$/m);
+});

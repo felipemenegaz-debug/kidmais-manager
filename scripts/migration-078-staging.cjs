@@ -12,6 +12,8 @@ const {alvo: alvoEnsaio} = require('./assinatura-staging-ensaio.cjs');
 const {SQL_IDENTIDADE, conferirIdentidade, exigirDisco} = require('./conexao-staging.cjs');
 
 const FLAG = '--aplicar-078-autorizado';
+/** Só leitura: roda apenas o precheck (transação READ ONLY) e grava a lista de empresas que receberiam cópia. */
+const FLAG_CONFERIR = '--conferir-078';
 const DIR = '/opt/render/project/src/data/atualizacao-staging-20261011';
 const BASE = 'migration-078';
 const ETAPAS = Object.freeze([
@@ -41,6 +43,43 @@ function alvo(env) {
 function autorizado(argv) {
     const flags = argv.filter(a => a.startsWith('--'));
     return flags.length === 1 && flags[0] === FLAG;
+}
+
+/** Modo de conferência: exatamente a flag de leitura, sozinha. */
+function conferencia(argv) {
+    const flags = argv.filter(a => a.startsWith('--'));
+    return flags.length === 1 && flags[0] === FLAG_CONFERIR;
+}
+
+/**
+ * Conferência ANTES da autorização de aplicar: só o precheck revisado (BEGIN TRANSACTION READ ONLY … ROLLBACK). Grava um
+ * arquivo de conferência numerado (nunca conta como tentativa de aplicação). Nada é alterado no banco.
+ */
+async function conferir({env, dir = DIR, raiz = path.resolve(__dirname, '..'), Client = require('pg').Client, disco = () => exigirDisco()}) {
+    const opts = alvo(env);
+    disco();
+    const [, arquivoSql, hash] = ETAPAS[0];
+    const sql = lerRevisado(raiz, arquivoSql, hash);
+    assert.match(sql, /^BEGIN TRANSACTION READ ONLY;$/m, 'PRECHECK_NAO_SOMENTE_LEITURA');
+    fs.mkdirSync(dir, {recursive:true, mode:0o700});
+    const n = fs.readdirSync(dir).filter(x => /^conferencia-078-\d+\.json$/.test(x)).length + 1;
+    const nome = `conferencia-078-${n}.json`;
+    const r = {inicio:new Date().toISOString(), modo:'conferencia'};
+    const db = new Client(opts);
+    try {
+        await db.connect();
+        r.conexao = conferirIdentidade((await db.query(SQL_IDENTIDADE)).rows[0], env);
+        r.schema = (await db.query(SQL_SCHEMA)).rows[0];
+        r.precheck = r.schema.m078 ? 'JA_APLICADA' : linhasDe(await db.query(sql));
+        r.resultado = 'CONFERIDO';
+    } catch (e) {
+        await db.query('ROLLBACK').catch(() => {});
+        r.resultado = 'FALHA'; r.mensagem = String(e?.message).slice(0, 160);
+    } finally {
+        await db.end().catch(() => {});
+    }
+    fs.writeFileSync(path.join(dir, nome), JSON.stringify(r, null, 2), {mode:0o600, flag:'wx'});
+    return {...r, arquivo:nome};
 }
 
 /** Etapas desta tentativa conforme o schema real: nunca reaplica (o precheck também recusa “já aplicada”), sempre confere. */
@@ -118,9 +157,12 @@ async function executar({env, dir = DIR, raiz = path.resolve(__dirname, '..'), C
 }
 
 if (require.main === module) {
-    if (!autorizado(process.argv.slice(2))) { console.error('AGUARDANDO_AUTORIZACAO_078'); process.exitCode = 1; }
+    if (conferencia(process.argv.slice(2))) conferir({env:process.env}).then(s => {
+        (s.resultado === 'CONFERIDO' ? console.log : console.error)(JSON.stringify(s)); if (s.resultado !== 'CONFERIDO') process.exitCode = 2;
+    }).catch(e => { console.error(String(e?.message ?? 'RECUSADO').slice(0, 120)); process.exitCode = 1; });
+    else if (!autorizado(process.argv.slice(2))) { console.error('AGUARDANDO_AUTORIZACAO_078'); process.exitCode = 1; }
     else executar({env:process.env}).then(s => {
         (s.resultado === 'PASS' ? console.log : console.error)(JSON.stringify(s)); if (s.resultado !== 'PASS') process.exitCode = 2;
     }).catch(e => { console.error(String(e?.message ?? 'RECUSADO').slice(0, 120)); process.exitCode = 1; });
 }
-module.exports = {ETAPAS, FLAG, BASE, DIR, SQL_SCHEMA, SQL_CATALOGO, SQL_DONOS, alvo, autorizado, lerRevisado, planoEtapas, arquivosTentativas, avaliarTentativas, executar};
+module.exports = {ETAPAS, FLAG, FLAG_CONFERIR, BASE, conferencia, conferir, DIR, SQL_SCHEMA, SQL_CATALOGO, SQL_DONOS, alvo, autorizado, lerRevisado, planoEtapas, arquivosTentativas, avaliarTentativas, executar};
