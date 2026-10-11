@@ -74,6 +74,10 @@ class BancoFalso {
         if (s.startsWith('SELECT id, evento_id, assinatura_provedor_id FROM cobranca_eventos WHERE empresa_id = $1::uuid'))
             return rows(this.eventos.filter((e) => e.evento_id.startsWith('kidmais:') && e.evento_id.includes(String(p[0])) && ['PENDENTE', 'FALHOU'].includes(e.situacao))
                 .map((e) => ({ id: e.id, evento_id: e.evento_id, assinatura_provedor_id: null })));
+        // marcadores de exclusão abertos da empresa (assinaturasComRemocaoIncerta): este banco falso não tem nenhum
+        if (s.startsWith('SELECT id, assinatura_provedor_id FROM cobranca_eventos'))
+            return rows(this.eventos.filter((e) => e.evento_id.startsWith('kidmais:remocao:') && e.evento_id.includes(String(p[0])) && ['PENDENTE', 'FALHOU'].includes(e.situacao))
+                .map((e) => ({ id: e.id, assinatura_provedor_id: 'sub_desconhecida' })));
         if (s.startsWith("UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $2")) {
             Object.assign(this.eventos.find((x) => x.id === p[0])!, { situacao: 'PROCESSADO', processado_em: this.agora, ultimo_erro: p[1] });
             return rows([]);

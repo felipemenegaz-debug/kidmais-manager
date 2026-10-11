@@ -51,7 +51,7 @@ async function principal() {
   const logfile = fs.openSync(path.join(relatorios, 'next.log'), 'a');
   const resultados = [];
   try {
-    await receita.restaurar(admin, receita.TRABALHO[0], '063');
+    await receita.restaurar(admin, receita.TRABALHO[0], receita.modeloE2E(process.env));
     client = await receita.conectar(porta, receita.TRABALHO[0]);
     const withTransaction = async (fn) => {
       await client.query('BEGIN');
