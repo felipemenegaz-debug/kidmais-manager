@@ -391,6 +391,10 @@ async function principal() {
         return route.fallback();
       });
       let trocaLiberadaJa = false;
+      // Só a sessão deste cenário (Alfa) e as criadas a partir daqui (Beta) contam: sessões de cenários anteriores não.
+      const alfaId = (await sessaoAtual()).data?.sessaoId;
+      assert.ok(alfaId, 'sessão Alfa do cenário');
+      const marco = (await client.query('SELECT clock_timestamp() AS t')).rows[0].t;
       await selecionar(empresas.beta.id);
       await trocou;                                    // servidor: Alfa revogada, Beta criada; página ainda sem a resposta
       await page.locator('button:visible', { hasText: /Sair$/ }).first().click();
@@ -400,8 +404,9 @@ async function principal() {
       await page.waitForTimeout(800);
       rastro.push({ ms: Date.now() - t0, evento: 'T9-ordem', caminho: ordem.join(',') });
       const abertas = Number((await client.query(
-        'SELECT count(*)::int AS n FROM sessoes_administrativas WHERE usuario_id = $1 AND revogado_em IS NULL AND expira_em > clock_timestamp()', [user])).rows[0].n);
-      assert.equal(abertas, 0, `nenhuma sessão do usuário pode continuar válida no servidor (ordem: ${ordem.join(', ')})`);
+        `SELECT count(*)::int AS n FROM sessoes_administrativas WHERE usuario_id = $1 AND (id = $2::uuid OR criado_em >= $3)
+            AND revogado_em IS NULL AND expira_em > clock_timestamp()`, [user, alfaId, marco])).rows[0].n);
+      assert.equal(abertas, 0, `nem a Alfa nem a sessão criada pela troca podem continuar válidas no servidor (ordem: ${ordem.join(', ')})`);
       assert.equal((await sessaoAtual()).data?.usuarioId ?? null, null, 'o navegador não fica com sessão válida');
       await page.unrouteAll({ behavior: 'ignoreErrors' });
       await login();
