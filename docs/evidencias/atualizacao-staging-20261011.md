@@ -3,7 +3,7 @@
 | Rodada | Candidata | Resultado |
 |---|---|---|
 | 1 | `e1c3877` (código `53307b2`) | parada em S0: `origin/staging` tinha avançado para `2abeb58`; nenhuma escrita |
-| **2** | `d19f78b4436f2592159ae0c2e8dafaf25f840c94` (código `4d8da7d`) | S0–S2; interrompida antes de S3 (Web Shell sem entrada pelo agente); **continuação:** S3 publicado (LIVE `d19f78b`), S4 só o legado (B3 PASS; `/b/` sem fixture elegível), S8 executado (chaves removidas, LIVE `d19f78b`); pendentes no Shell de Felipe: conferência da restauração e S5a |
+| **2** | `d19f78b4436f2592159ae0c2e8dafaf25f840c94` (código `4d8da7d`) | S0–S2; interrompida antes de S3 (Web Shell sem entrada pelo agente); **continuação:** S3 publicado (LIVE `d19f78b`), S4 só o legado (B3 PASS; `/b/` sem fixture elegível), S8 executado (chaves removidas, LIVE `d19f78b`); conferências de Shell: `RESTAURADA` e S5a `CONFERIDO` (nenhuma empresa receberia cópia) |
 
 ## Rodada 2 — `d19f78b`
 
@@ -32,14 +32,15 @@ revalidando a branch antes do deploy; Felipe executa os comandos de Shell; sem 0
 | Elegibilidade das fixtures | Com as chaves ativas, `GET /api/fechamentos/pacotes?empresa=…` = **404 `COTACAO_PUBLICA_INDISPONIVEL`** para `hml-planos-profissional`, `-premium`, `-teste`, `-isenta` e `-essencial`. A recusa é igual para empresa não `ATIVA`, plano sem `ORCAMENTO_ONLINE`, acesso bloqueado ou mais de uma unidade (`escopoCotacaoPublica`); a causa exige leitura do banco (não feita) |
 | S4 B1, B2, B4 (`/b/`) | **não executáveis**: nenhuma empresa de homologação elegível em `/b/<código>` |
 | S4 B3 (legado, desktop) | **PASS** — primeira visita após o deploy: `/disponibilidade` → quarta 18/11, 11:00–15:00 → botão “Continuar para escolher o pacote” → `/fechamento` “Etapa 1 de 8” em ~3,5 s (incluída espera de 3 s), build de produção. Nenhum pedido |
-| S5a | **pendente — Shell de Felipe** (`--conferir-078`) |
-| S8 | Painel → Environment → Edit: marcadas para remoção **só** as duas chaves (conferido no DOM: 2 marcadas), **“Save only”** (sem deploy; conferido em `list_deploys`); `git ls-remote`: ponta `d19f78b`; `trigger_deploy` → `dep-db5i0b2jnfac73aihub0` (`d19f78b`), **LIVE 05:41:35Z**; `/api/health` 200; `/b/hml-planos-profissional/fechamento` 404; pacotes por empresa 404; `/disponibilidade` 200. `--conferir-restauracao`: **pendente — Shell de Felipe** |
+| S5a | Shell (Felipe, instância `pbft5`, 05:56:42Z): `node scripts/migration-078-staging.cjs --conferir-078` → **`CONFERIDO`**; conexão `kidmais_staging_1z91`, `tls: false`, `redePrivada: true`; `m078: false`; precheck: `empresas_kidmais` 1, catálogo atual 7 categorias / 62 itens, **nenhuma empresa receberia cópia** (lista `empresa_que_recebe_copia` vazia), `pacotes_sem_empresa_com_buffet` 0. Gravado `data/atualizacao-staging-20261011/conferencia-078-1.json`. Nada alterado no banco |
+| S8 | Painel → Environment → Edit: marcadas para remoção **só** as duas chaves (conferido no DOM: 2 marcadas), **“Save only”** (sem deploy; conferido em `list_deploys`); `git ls-remote`: ponta `d19f78b`; `trigger_deploy` → `dep-db5i0b2jnfac73aihub0` (`d19f78b`), **LIVE 05:41:35Z**; `/api/health` 200; `/b/hml-planos-profissional/fechamento` 404; pacotes por empresa 404; `/disponibilidade` 200. Shell (Felipe, instância `pbft5`): `RENDER_GIT_COMMIT` = `d19f78b4436f2592159ae0c2e8dafaf25f840c94`; `--conferir-restauracao` → **`RESTAURADA`** (as duas chaves `presente: false`, `divergencias: []`) |
 | S9 | este registro |
 
 Valores de variáveis não foram lidos nem exibidos (campos mascarados; só nomes). 078 não aplicada; OTP não executado.
 
 **Estado deixado:** LIVE `d19f78b` (`dep-db5i0b2jnfac73aihub0`), sem as duas chaves; branch `staging` = `d19f78b`; 078 não aplicada.
-Pendentes no Shell (Felipe): `echo $RENDER_GIT_COMMIT` + `--conferir-restauracao` (esperado `RESTAURADA`) e `--conferir-078` (S5a).
+Conferências de Shell concluídas (Felipe): restauração `RESTAURADA` e S5a `CONFERIDO`. **Para S5b (D2):** aplicar a 078 em staging só atribui o
+catálogo atual (7/62) à `kidmais`; nenhuma cópia para outras empresas.
 Pendente de decisão: fixture elegível para `/b/` em staging (diagnóstico somente leitura proposto) para repetir B1/B2/B4.
 
 Sem alteração em produção.
