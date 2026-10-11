@@ -4,6 +4,17 @@ import { conteudoSchema, inicioConteudo } from './domain.ts';
 import { baseNeutra, basesNeutras, comporTexto, modelosBiblioteca, modelosComFoto, svgModelo } from './modelos.ts';
 
 const c = { ...inicioConteudo({}), nome: 'Ana', data: '2027-04-20', horario: '15:00', local: 'Buffet', endereco: 'Rua das Flores' };
+test('arte própria ocupa o fundo 3:4 sem molduras ou planetas adicionais', () => {
+  for (const tema of [...basesNeutras, 'planetas', 'celebrar'] as const) {
+    const svg = svgModelo({ ...c, tema }, { arte: '/fundo.webp' });
+    assert(svg.includes('viewBox="0 0 1080 1440"'));
+    assert(svg.includes('width="1080" height="1440" preserveAspectRatio="xMidYMid slice"'));
+    assert.equal((svg.match(/<image /g) ?? []).length, 1);
+    assert(!svg.includes('<filter'));
+    assert(!svg.includes('<path'));
+    for (const valor of [c.nome, c.local, c.endereco, c.horario]) assert(svg.includes(valor));
+  }
+});
 test('modelos podem ser publicados sem exigir arte paga ou mudar conteúdo antigo', () => {
   for (const tema of [...modelosBiblioteca, 'celebrar', 'jardim', 'espaco']) {
     assert.equal(conteudoSchema.safeParse({ ...c, tema }).success, true);

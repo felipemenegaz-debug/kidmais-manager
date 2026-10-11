@@ -78,6 +78,31 @@ const out = path.resolve('.local-convites-qa/biblioteca'); fs.mkdirSync(out, { r
       }
       await page.locator('input[type="file"]').setInputFiles({ name: 'foto-teste.png', mimeType: 'image/png', buffer: foto });
       await page.getByRole('button', { name: 'Remover imagem do convite', exact: true }).waitFor();
+      await page.getByRole('button', { name: /^Arco clássico/ }).click();
+      const fundoPreview = page.getByRole('article', { name: 'Prévia do convite' });
+      assert.equal(await fundoPreview.locator('svg').getAttribute('viewBox'), '0 0 1080 1440');
+      assert.equal(await fundoPreview.locator('svg image').getAttribute('preserveAspectRatio'), 'xMidYMid slice');
+      assert.equal(await fundoPreview.locator('svg path').count(), 0, 'Sem moldura adicional');
+      const fundoDownload = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Baixar imagem', exact: true }).click();
+      const fundoPng = path.join(out, `fundo-${admin ? 'buffet' : 'cliente'}.png`);
+      await (await fundoDownload).saveAs(fundoPng);
+      const fundoMeta = await sharp(fundoPng).metadata();
+      assert.equal(fundoMeta.width, 1080); assert.equal(fundoMeta.height, 1440);
+      const fundoPixel = await sharp(fundoPng).extract({ left: 10, top: 10, width: 1, height: 1 }).removeAlpha().raw().toBuffer();
+      assert.deepEqual([...fundoPixel], [230, 170, 148], 'A imagem chega às bordas do PNG');
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 1100 });
+        await fundoPreview.screenshot({ path: path.join(out, `fundo-${admin ? 'buffet' : 'cliente'}-${width}.png`) });
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      }
+      await page.setViewportSize({ width: 1440, height: 1100 });
+      await page.getByRole('button', { name: 'Publicar convite', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Convite publicado' }).waitFor();
+      const publicoFundo = await context.newPage(); await publicoFundo.goto(`${base}${dados.linkPublico}`);
+      await publicoFundo.getByRole('article').locator('svg image').waitFor();
+      assert.equal(await publicoFundo.getByRole('article').locator('svg').getAttribute('viewBox'), '0 0 1080 1440');
+      await publicoFundo.close();
       for (const [tema, nome] of [['foto_arco', 'Foto com arco'], ['foto_aquarela', 'Foto com aquarela'], ['foto_degrade', 'Foto com degradê']]) {
         await page.getByRole('button', { name: new RegExp(`^${nome}`) }).click();
         const preview = page.getByRole('article', { name: 'Prévia do convite' });
