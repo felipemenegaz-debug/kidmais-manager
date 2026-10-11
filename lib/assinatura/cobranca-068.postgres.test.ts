@@ -167,6 +167,9 @@ test('cortesia: completo até o prazo; revogação com motivo devolve o nível d
     await emTx(() => revogarExcecao(client as never, { empresaId: e, excecaoId: c.excecaoId, motivo: 'Parceria encerrada', usuarioId: ids.usuario }));
     assert.equal((await estado.lerEstadoComercial(client, e)).acesso.nivel, 'BLOQUEADO');
     assert.equal(await erroDe(() => revogarExcecao(client as never, { empresaId: e, excecaoId: c.excecaoId, motivo: 'De novo', usuarioId: ids.usuario })), 'A exceção já foi revogada.');
+    const vencida = (await q("INSERT INTO empresa_excecoes_comerciais (empresa_id, tipo, valida_ate, motivo, criado_por, criado_em) VALUES ($1, 'CORTESIA', clock_timestamp() - interval '1 day', 'Cortesia encerrada', $2, clock_timestamp() - interval '31 days') RETURNING id", [e, ids.usuario])).rows[0].id;
+    assert.equal(await erroDe(() => revogarExcecao(client as never, { empresaId: e, excecaoId: vencida, motivo: 'Revogar vencida', usuarioId: ids.usuario })), 'A exceção já venceu; não há acesso a revogar.');
+    assert.equal((await q('SELECT revogada_em FROM empresa_excecoes_comerciais WHERE id = $1', [vencida])).rows[0].revogada_em, null);
     const semCobranca = await novaEmpresa();
     assert.equal(await erroDe(() => concederExcecao(client as never, { empresaId: semCobranca, tipo: 'CORTESIA', dias: 5, motivo: 'Sem assinatura', usuarioId: ids.usuario })), 'Empresa sem cobrança: o acesso já é completo.');
 });
