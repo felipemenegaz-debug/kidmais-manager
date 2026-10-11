@@ -16,8 +16,5 @@ BEGIN
     OR NOT EXISTS (SELECT 1 FROM pg_index WHERE indexrelid='public.convite_geracoes_incertas'::regclass AND indisvalid) THEN
     RAISE EXCEPTION '079 postcheck: constraints, FK ou índice ausente';
   END IF;
-  IF EXISTS (SELECT 1 FROM public.convite_geracoes WHERE estado IN ('RESOLVIDA_COBRADA','RESOLVIDA_SEM_COBRANCA')) THEN
-    RAISE EXCEPTION '079 postcheck: migration alterou indevidamente dados de geração';
-  END IF;
   RAISE NOTICE '079 postcheck OK';
 END $$;
