@@ -126,6 +126,12 @@ Rotina de renovação Fundador (antes do 11º mês); webhook de devolução do R
 entrega do código por WhatsApp para tirar o “Em breve” da assinatura; troca de plano pelo sistema; unidade extra, Wall-e, convite, IA,
 cartão, Pix Automático; revogação após estorno; anti-robô; exportação em lote; rotação da credencial de staging exposta em 07/10.
 
+## Ensaio adicional do cutover — Codex, 11/10/2026
+
+O reparo dos cinco bloqueios e as migrations 074a–079 passaram em PostgreSQL novo, sintetico, incluindo recusa de alvo divergente, preservacao dos bloqueios/catalogo, rollback integral quando o postcheck falha e verificacao das migrations ja aplicadas. Evidencia: [ensaio local](evidencias/ensaio-lancamento-local-20261011.md). Cluster encerrado; producao permanece sem alteracoes. Aplicador preparado em `scripts/migrations-lancamento-production.cjs`, sem executar em producao.
+
+Antes de pedir a escrita de producao, concluir a preparacao/conferencia do backup e sua recuperacao, as entregas reais de staging e os dados fiscais/legais pendentes. O ensaio local nao substitui esses aceites nem concede autorizacao para o cutover.
+
 ## 8. Autorizações, em ordem
 
 L1–L5 (local) → S0–S8 (staging) → P0 (leitura em produção) → P1 → P2 (revisão) → P3 → P4 → P5 → P6 (por etapa) → P7 → P8.
