@@ -134,6 +134,6 @@ Antes de pedir a escrita de producao, concluir a preparacao/conferencia do backu
 
 ## 8. Autorizações, em ordem
 
-P1 está preparado em [BACKUP_PRODUCTION_LANCAMENTO_20261011.md](BACKUP_PRODUCTION_LANCAMENTO_20261011.md), com comando autossuficiente para exportar e conferir um custom archive no disco persistente. Não exige deploy para executar. Depende de autorização própria para uma sessão Shell de até 10 minutos e leitura do painel PITR. Nenhum backup real foi executado na preparação; leitura integral do arquivo não comprova restore.
+P1 foi executado com autorização própria: backup custom de 9.799.207 bytes, hash e leitura integral confirmados no disco persistente, PITR disponível com janela de três dias, Shell encerrado. [Evidência](evidencias/backup-production-codex-20261011.md). Nenhum restore foi executado/comprovado. Esse aceite não autoriza migrations, reparo ou deploy e o registro precisa permanecer recente na janela de publicação.
 
 L1–L5 (local) → S0–S8 (staging) → P0 (leitura em produção) → P1 → P2 (revisão) → P3 → P4 → P5 → P6 (por etapa) → P7 → P8.

@@ -1,6 +1,6 @@
 # P1 — Backup antes do lancamento
 
-Status: preparado, nao executado. Nao autoriza migrations, reparo, restore, deploy ou mudancas de configuracao.
+Status: executado uma vez com autorizacao de Felipe, resultado `BACKUP_CUSTOM_CONFERIDO_SEM_RESTORE`; [evidencia](evidencias/backup-production-codex-20261011.md). Nao autoriza migrations, reparo, restore, deploy ou mudancas de configuracao. As secoes abaixo preservam o pacote autorizado; uma nova execucao exige autorizacao propria.
 
 ## Alvo e impacto delimitados
 
