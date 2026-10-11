@@ -101,6 +101,8 @@ const ESTADO_POSTGRES = {
   "lib/contratos/modelo-empresa/modelo-072.postgres.test.ts": { descartavel: "063" },
   // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
   "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079" },
+  // Gratuidade da Kidmais com as chaves de produção ligadas, no schema vigente (até a 079).
+  "lib/assinatura/kidmais-gratuidade.postgres.test.ts": { descartavel: "079" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

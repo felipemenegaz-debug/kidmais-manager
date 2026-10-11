@@ -25,7 +25,7 @@ test('reconciliação: alvo explícito e confirmado; DATABASE_URL nunca é usada
         assert.ok(!(e as Error).message.includes('senha-sintetica'), 'a mensagem nunca leva a conexão');
     }
     assert.deepEqual(validarAlvo({ KIDMAIS_RECONCILIAR_DATABASE_URL: url('kidmais_sandbox'), KIDMAIS_RECONCILIAR_ALVO: 'kidmais_sandbox@127.0.0.1:55532' }),
-        { connectionString: url('kidmais_sandbox'), database: 'kidmais_sandbox', host: '127.0.0.1', port: 55532, local: true });
+        { connectionString: url('kidmais_sandbox'), database: 'kidmais_sandbox', host: '127.0.0.1', port: 55532, local: true, producao: false });
     assert.deepEqual(argumentos([]), { aplicar: false });
     assert.deepEqual(argumentos(['--aplicar']), { aplicar: true });
     assert.throws(() => argumentos(['--forcar']), /desconhecido/);
