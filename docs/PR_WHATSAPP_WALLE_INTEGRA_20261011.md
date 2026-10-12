@@ -1,13 +1,15 @@
 # PR nova — texto proposto (não publicada)
 
 - **Base:** `staging`.
-- **Head proposto:** `whatsapp/walle-decoracao-revisao-20261012`: a candidata revisada `aa04387` (revisões
+- **Head proposto:** `whatsapp/walle-decoracao-revisao2-20261012`: a candidata revisada `aa04387` (revisões
   independentes de `8b2c55d`, `69dc301`, `5699dfc` e `aa04387`) com o staging `f2122b1` integrado (PRs #160 e #161;
   relido por `ls-remote` em 12/10/2026) e a correção do teste manual de 12/10 (decoração inclusa × segunda mesa temática
-  adicional) e as correções da revisão de `6281e35` (A1, M1 e aviso do link), sobre `78e19a6`. As candidatas anteriores, as branches e as evidências ficam preservadas, assim
+  adicional) e as correções das revisões de `6281e35` (A1, M1 e aviso do link) e de `1a0ef17` (correspondência explícita
+  do item e várias referências na mesma mensagem), sobre `78e19a6`. As candidatas anteriores, as branches e as evidências ficam preservadas, assim
   como `89759885`, a branch `whatsapp/walle-r47-renumera-20261010` e a PR #80 (`a9e2d55`).
-- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-decoracao-revisao-20261012/RESUMO.md`; os
-  anteriores, `evidencias-decoracao-20261012/` e `evidencias-integra-f2122b1-20261012/`, ficam preservados).
+- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-decoracao-revisao2-20261012/RESUMO.md`; os
+  anteriores, `evidencias-decoracao-revisao-20261012/`, `evidencias-decoracao-20261012/` e
+  `evidencias-integra-f2122b1-20261012/`, ficam preservados).
   Um documento não registra o próprio SHA.
 
 > Publicação, push, merge, deploy, migrations persistentes, mudança de variáveis e envio real estão **fora** desta
@@ -43,8 +45,12 @@ Correção do teste manual de 12/10/2026 ("A decoração está inclusa? Quanto c
 - sem pacote escolhido, a pergunta de custo/inclusão da decoração lê as composições de todos os pacotes; o que é igual
   em todos é dito uma vez, o que muda é dito por pacote;
 - a mesa principal (inclusa) é separada da segunda mesa (adicional) pela QUANTIDADE ("segunda", "outra", "mais uma",
-  "a mais"); tamanho ou característica ("maior", "grande", "gigante", "diferente") é outro item: só vale um item
-  cadastrado com essa característica; sem ele, a lacuna é dita e vai à equipe, sem o preço de outro item;
+  "a mais"); todo modificador do pedido ("maior", "XL", "dupla", "redonda", …) é preservado, sem lista de adjetivos:
+  só responde o item cadastrado cujo nome tem exatamente essas características; pedido simples só casa com o item
+  simples; sem correspondência única (nenhuma ou ambígua), a lacuna é dita e vai à equipe, sem o preço de outro item;
+- cada ocorrência de item na mensagem é um pedido próprio (posição, quantidade, modificadores e a pergunta da própria
+  oração): "a mesa temática está inclusa? quanto custa uma segunda mesa temática?" responde as duas; a resposta só é
+  deduplicada depois de resolver os pedidos;
 - "em todos os pacotes" só com todos os pacotes conferidos; composição ausente ou com falha e lista de pacotes
   indisponível viram lacuna dita e encaminhada (a resposta fica nos pacotes conferidos);
 - o valor do adicional vem só da tabela de preços vigente (`precos_adicional`); sem valor cadastrado, a equipe confirma;

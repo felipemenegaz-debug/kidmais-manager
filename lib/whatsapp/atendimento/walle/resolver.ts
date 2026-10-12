@@ -580,11 +580,13 @@ async function decoracao(e: Estado) {
   // Teste manual de 12/10/2026: a pergunta sobre o que vem no pacote ou quanto custa um item ("a decoração está inclusa?",
   // "quanto custa uma segunda mesa temática?") é respondida pelas fontes cadastradas mesmo SEM pacote escolhido: as
   // composições de todos os pacotes vigentes são lidas; o que é igual em todos é dito uma vez, o que muda é dito por pacote.
-  const citados = [...new Set([...t.matchAll(ITENS_DECORACAO)].map((m) => m[1]))].filter((x) => !/\b(balao|baloes|bexigas?)$/.test(x)); // balões: cláusula do contrato (tema BALOES)
+  // Revisão de 1a0ef17 (M2): cada OCORRÊNCIA do item é um pedido (posição própria); "a mesa está inclusa? quanto custa uma
+  // segunda mesa?" são dois pedidos, não um nome deduplicado.
+  const pedidos = pedidosDeDecoracao(t);
   const pendenteDePreco = e.ctx.adicionalPendente && (e.entendimento.entidades.convidados ?? e.ctx.convidados ?? null) !== null ? e.ctx.adicionalPendente : null;
   // Sem pacote, só a pergunta de custo/inclusão DA decoração ou de um item dela ("quantos balões vêm? se quiser mais cobra?"
   // fica com a cláusula dos balões; "cerveja paga taxa?" não é decoração).
-  const sobreCondicao = (CUSTO_DECORACAO.test(t) && (!!pacote || citados.length > 0 || /\bdecor\w*/.test(t))) || !!pendenteDePreco;
+  const sobreCondicao = (CUSTO_DECORACAO.test(t) && (!!pacote || pedidos.length > 0 || /\bdecor\w*/.test(t))) || !!pendenteDePreco;
   // Revisão de 6281e35 (M1): a leitura guarda a cobertura. "Em todos os pacotes" só quando TODOS os pacotes vigentes foram
   // conferidos; composição ausente ou com falha não é suposta (a parte desconhecida vai à equipe); lista de pacotes
   // indisponível: nada é afirmado sobre a decoração dos pacotes.
@@ -592,7 +594,7 @@ async function decoracao(e: Estado) {
   const decor = leitura.verificados;
   const completo = !leitura.listaFalhou && !leitura.faltando.length;
   const lerItens = sobreCondicao && !leitura.listaFalhou && (decor.length > 0 || !leitura.faltando.length);
-  const respostasDeItens = lerItens ? await itensDaDecoracao(e, decor, citados, t, pendenteDePreco, completo) : { cobertos: new Set<string>(), saidas: [] as (() => void)[], algum: false };
+  const respostasDeItens = lerItens ? await itensDaDecoracao(e, decor, pedidos, t, pendenteDePreco, completo) : { cobertos: new Set<string>(), saidas: [] as (() => void)[], algum: false };
   if (pendenteDePreco && !lerItens) e.ctx = { ...e.ctx, adicionalPendente: null };
   const lacunas: (() => void)[] = [];
   if (sobreCondicao && leitura.listaFalhou) lacunas.push(() => { dizer(e, 'Não consegui consultar os pacotes agora para conferir a decoração: a equipe confirma essa parte.'); passar(e, 'INFORMACAO_INDISPONIVEL'); });
@@ -644,14 +646,60 @@ const QUALIFICA_A_MAIS = /\b(?:segund[ao]s?|outr[ao]s?|mais (?:um|uma|dois|duas)
 /** Quantidade a mais DEPOIS do item ("mesa a mais", "mesa extra"): é o adicional da mesma coisa. */
 const QUANTIDADE_DEPOIS = /^\s*(?:a mais|extras?|adiciona(?:l|is))\b/;
 /**
- * Revisão de 6281e35 (A1): tamanho ou característica ("mesa maior", "painel grande", "uma mesa diferente") pede OUTRO
- * item, não a quantidade a mais: só vale um item cadastrado com essa característica no nome; sem ele, a equipe confirma
- * (o valor de outro item nunca é usado).
+ * Revisão de 1a0ef17 (A1 residual): o pedido guarda TODOS os modificadores do item ("mesa temática XL", "painel maior",
+ * "mesa redonda", "uma grande mesa") — não há lista de adjetivos a reconhecer. Um item cadastrado só responde quando os
+ * modificadores do pedido são exatamente as características do nome cadastrado (sem as palavras neutras e sem o próprio
+ * item); pedido simples só casa com o item simples. Sem correspondência única, a parte vai à equipe sem preço.
  */
-const CARACTERISTICA = /\b(maior(?:es)?|menor(?:es)?|grandes?|gigantes?|diferentes?|pequen[ao]s?|especia(?:l|is)|personalizad[ao]s?)\b/;
-const CARACTERISTICA_DEPOIS = new RegExp(`^\\s*(?:\\w+\\s+)?${CARACTERISTICA.source}`);
-const CARACTERISTICA_ANTES = new RegExp(`${CARACTERISTICA.source}\\s+$`);
-const NOME_A_MAIS = /\b(segund|outr|adiciona|extra|mais um)/;
+type PedidoItem = { x: string; ini: number; fim: number };
+type LeituraPedido = { quantidade: boolean; modificadores: string[]; clausula: string };
+/** Palavras que encerram o sintagma do item (verbo, pergunta, artigo, preposição, conjunção, pronome, advérbio, data). */
+const FRONTEIRA_ITEM = new Set(('e ou mas que se pois porque quanto quanta quantos quantas qual quais como onde quando esta estao ta tao sao eh fica ficam '
+  + 'ficaria vem vao vai sai saem custa custam custaria custo cobra cobram cobrado cobrada cobrados cobradas pago paga pagos pagas incluso inclusa inclusos '
+  + 'inclusas inclui incluem incluida incluido tem tera teria seria sera precisa ja tambem tbm tb ai la aqui so ainda entao ne sabe tipo viu pfv pf por favor '
+  + 'obrigado obrigada de da do das dos para pra pro pros com sem no na nos nas em ao aos a o as os um uma uns umas esse essa este isso isto aquele aquela '
+  + 'meu minha seu sua nosso nossa vcs voces voce vc eu ele ela eles elas quero queria gostaria preciso pode podem posso sim nao ok oi ola valor preco '
+  + 'parte separado separada junto junta q pq dia dias sabado domingo segunda terca quarta quinta sexta mes semana festa aniversario hoje amanha').split(' '));
+/** Palavras neutras no nome cadastrado e no pedido (não distinguem um item de outro). */
+const NEUTRO_ITEM = new Set('de da do das dos com e a o as os para pra no na em um uma decoracao decorada decorado decoradas decorados tematica tematico tematicas tematicos tema'.split(' '));
+/** No pedido, pedem o item simples ("a mesa principal", "a mesa normal") ou só intensificam ("bem grande"). */
+const PEDIDO_SIMPLES = new Set('principal normal comum padrao basica basico tradicional mesma mesmo bem muito super mega bastante'.split(' '));
+/** Palavra de quantidade no nome cadastrado ("Segunda mesa temática", "Outro painel", "Mesa adicional"). */
+const QTD_PALAVRA = /^(segund|outr|adiciona|extra)/;
+const palavrasItem = (s: string) => semAcento(s).replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+const radicalItem = (w: string) => (w.length <= 3 ? w : w.slice(0, Math.min(5, w.length - 1)));
+const mesmoRadical = (a: string, b: string) => radicalItem(a).startsWith(radicalItem(b)) || radicalItem(b).startsWith(radicalItem(a));
+const mesmasPalavras = (a: string[], b: string[]) => a.every((x) => b.some((y) => mesmoRadical(x, y))) && b.every((y) => a.some((x) => mesmoRadical(x, y)));
+/** Ocorrências de itens de decoração no texto (balões ficam com a cláusula do contrato, tema BALOES). */
+function pedidosDeDecoracao(t: string): PedidoItem[] {
+  return [...t.matchAll(ITENS_DECORACAO)].filter((m) => !/\b(balao|baloes|bexigas?)$/.test(m[1])).map((m) => ({ x: m[1], ini: m.index!, fim: m.index! + m[0].length }));
+}
+/** Lê a ocorrência na PRÓPRIA oração: quantidade ("segunda", "outra", "mais uma", "a mais"), modificadores e a oração. */
+function lerPedido(t: string, p: PedidoItem, neutros: Set<string>): LeituraPedido {
+  const ini = Math.max(...['.', '?', '!', ';', '\n'].map((c) => t.lastIndexOf(c, p.ini - 1))) + 1;
+  const resto = t.slice(p.fim).search(/[.?!;\n]/);
+  const fim = resto < 0 ? t.length : p.fim + resto;
+  const antes = t.slice(ini, p.ini);
+  let depois = t.slice(p.fim, fim);
+  let quantidade = QUALIFICA_A_MAIS.test(antes);
+  const q = depois.match(QUANTIDADE_DEPOIS);
+  if (q) { quantidade = true; depois = depois.slice(q[0].length); }
+  const ignora = (w: string) => NEUTRO_ITEM.has(w) || PEDIDO_SIMPLES.has(w) || neutros.has(w);
+  const modificadores: string[] = [];
+  for (const w of palavrasItem(depois)) {
+    if (FRONTEIRA_ITEM.has(w) || /^\d/.test(w)) break;
+    if (QTD_PALAVRA.test(w)) { quantidade = true; continue; }
+    if (!ignora(w)) modificadores.push(w);
+    if (modificadores.length >= 3) break;
+  }
+  const ant = palavrasItem(antes);
+  for (let k = ant.length - 1; k >= 0; k--) {
+    const w = ant[k];
+    if (FRONTEIRA_ITEM.has(w) || /^\d/.test(w) || QTD_PALAVRA.test(w) || ['mais', 'duas', 'dois', '2a'].includes(w)) break;
+    if (!ignora(w)) modificadores.unshift(w);
+  }
+  return { quantidade, modificadores, clausula: t.slice(ini, fim) };
+}
 /** Nome do item citado para o cliente (o texto comparado é sem acento). */
 const ACENTOS_ITEM: Record<string, string> = { 'mesa tematica': 'mesa temática', paineis: 'painéis', cenario: 'cenário', cenarios: 'cenários' };
 type DecoracaoDoPacote = { codigo: string; nome: string; id: string; inclusos: ItemAdicional[]; extras: ItemAdicional[] };
@@ -693,12 +741,19 @@ const POR_UNIDADE: Record<string, string> = { CONVIDADO: ' por convidado', UNIDA
  * pacote cadastra vai para a equipe (nada é suposto). Com pergunta de valor, o preço do adicional vem SÓ da tabela
  * vigente: sem preço cadastrado, a equipe confirma; preço por faixa de convidados sem o número, só o número é pedido.
  */
-async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], citados: string[], t: string, pendente: { id: string; nome: string } | null, completo = true) {
+async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], pedidos: PedidoItem[], t: string, pendente: { id: string; nome: string } | null, completo = true) {
   const cobertos = new Set<string>();
   const saidas: (() => void)[] = [];
   const semCadastro: string[] = [];
   const semCorrespondencia: string[] = [];
-  const pedeValor = PERGUNTA_VALOR.test(t) || !!pendente;
+  // Revisão de 1a0ef17 (M2): a pergunta de valor vale para a ocorrência da MESMA oração ("a mesa está inclusa? quanto custa
+  // uma segunda mesa?": só a segunda pede valor); pergunta de valor sem item na oração vale para todos.
+  const tema = e.entendimento.entidades.tema ?? e.ctx.tema ?? null;
+  const neutros = new Set(tema ? palavrasItem(tema) : []);
+  const leituras = pedidos.map((p) => ({ p, l: lerPedido(t, p, neutros) }));
+  const valorSolto = PERGUNTA_VALOR.test(t) && !leituras.some(({ l }) => PERGUNTA_VALOR.test(l.clausula));
+  const feitos = new Set<string>();
+  const umaVez = (chave: string) => (feitos.has(chave) ? false : (feitos.add(chave), true));
   const convidados = e.entendimento.entidades.convidados ?? e.ctx.convidados ?? null;
   const precoDe = async (item: ItemAdicional, pacotes: DecoracaoDoPacote[]) => {
     if (!item.id || !e.fontes.precoAdicional) { saidas.push(() => { dizer(e, `“${item.nome}” é adicional, com custo à parte; o valor dele não está cadastrado por aqui: a equipe confirma.`, pacotes.map((d) => ({ tipo: 'ADICIONAL', id: item.id ?? item.nome, modalidade: 'EXTRA', pacote: d.codigo } as Fonte))); passar(e, 'INFORMACAO_INDISPONIVEL'); }); return; }
@@ -721,55 +776,72 @@ async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], citados: 
     if (item) { cobertos.add(chaveItem(item)); await precoDe(item, doItem); }
     e.ctx = { ...e.ctx, adicionalPendente: item ? e.ctx.adicionalPendente ?? null : null };
   }
-  for (const x of citados) {
-    const pos = t.indexOf(x);
-    const antes = pos >= 0 ? t.slice(Math.max(0, pos - 40), pos) : '';
-    const depois = pos >= 0 ? t.slice(pos + x.length, pos + x.length + 25).split(/[.?!,;]/)[0] : '';
-    const caracteristica = (depois.match(CARACTERISTICA_DEPOIS) ?? antes.match(CARACTERISTICA_ANTES))?.[1] ?? null;
-    const aMais = !caracteristica && pos >= 0 && (QUALIFICA_A_MAIS.test(antes) || QUANTIDADE_DEPOIS.test(depois));
+  for (const { p, l } of leituras) {
+    const x = p.x;
+    const pedeValor = PERGUNTA_VALOR.test(l.clausula) || valorSolto || !!pendente;
     const radicais = x.includes(' ') ? x.split(' ').filter((w) => w.length > 2).map((w) => w.slice(0, Math.min(5, w.length - 1))) : [x.slice(0, 5)];
     const casa = (i: ItemAdicional) => radicais.every((r) => semAcento(i.nome).includes(r));
-    const temCaracteristica = (i: ItemAdicional) => CARACTERISTICA.test(semAcento(i.nome));
-    const temAMais = (i: ItemAdicional) => NOME_A_MAIS.test(semAcento(i.nome));
-    const raizCaracteristica = caracteristica ? caracteristica.slice(0, Math.min(5, caracteristica.length - 1)) : null;
-    // Por pacote: o item cadastrado que corresponde ao PEDIDO:
-    //  - com característica ("maior"): só o item com essa característica no nome;
-    //  - com quantidade ("segunda", "outra", "a mais"): o adicional "a mais" ou, sem a versão inclusa, o próprio adicional;
-    //  - sem qualificador: o item simples (incluso ou adicional), nunca uma variante "segunda"/"maior".
+    // Variante do nome cadastrado: o que sobra do nome sem o item e sem as palavras neutras.
+    const variante = (i: ItemAdicional) => {
+      const ws = palavrasItem(i.nome).filter((w) => !NEUTRO_ITEM.has(w) && !radicais.some((r) => w.startsWith(r)));
+      return { quantidade: ws.some((w) => QTD_PALAVRA.test(w)), caracteristicas: ws.filter((w) => !QTD_PALAVRA.test(w)) };
+    };
+    const simples = (i: ItemAdicional) => { const v = variante(i); return !v.quantidade && !v.caracteristicas.length; };
+    // Por pacote, o item cadastrado que corresponde ao PEDIDO (único; mais de um é ambiguidade):
+    //  - com modificadores ("XL", "maior", "redonda"): as características do nome são exatamente as pedidas;
+    //  - com quantidade ("segunda", "outra", "a mais"): o adicional "a mais" sem outra característica ou, sem a versão
+    //    inclusa simples, o próprio adicional simples;
+    //  - sem qualificador: o item simples (incluso antes do adicional), nunca uma variante.
+    let ambiguo = false;
     const porPacote = decor.map((d) => {
       const inc = d.inclusos.filter(casa), ext = d.extras.filter(casa);
-      const simples = (i: ItemAdicional) => !temCaracteristica(i) && !temAMais(i);
-      const item = raizCaracteristica ? [...inc, ...ext].find((i) => semAcento(i.nome).includes(raizCaracteristica))
-        : aMais ? (ext.find(temAMais) ?? (inc.length ? undefined : ext.find(simples)))
-        : (inc.find(simples) ?? ext.find(simples));
-      return { d, item: item ?? null, modalidade: item ? (inc.includes(item) ? 'INCLUSO' as const : 'EXTRA' as const) : null };
+      let opcoes: ItemAdicional[];
+      if (l.modificadores.length) {
+        const iguais = [...inc, ...ext].filter((i) => mesmasPalavras(l.modificadores, variante(i).caracteristicas));
+        const preferidos = iguais.filter((i) => variante(i).quantidade === l.quantidade);
+        opcoes = preferidos.length ? preferidos : iguais;
+      } else if (l.quantidade) {
+        opcoes = ext.filter((i) => { const v = variante(i); return v.quantidade && !v.caracteristicas.length; });
+        if (!opcoes.length && !inc.some(simples)) opcoes = ext.filter(simples);
+      } else {
+        opcoes = inc.filter(simples);
+        if (!opcoes.length) opcoes = ext.filter(simples);
+      }
+      if (new Set(opcoes.map(chaveItem)).size > 1) { ambiguo = true; opcoes = []; }
+      const item = opcoes[0] ?? null;
+      return { d, item, modalidade: item ? (inc.includes(item) ? 'INCLUSO' as const : 'EXTRA' as const) : null };
     }).filter((x) => x.item);
     const parecido = decor.some((d) => [...d.inclusos, ...d.extras].some(casa));
-    if (!porPacote.length && (raizCaracteristica || aMais) && parecido) { semCorrespondencia.push(`${ACENTOS_ITEM[x] ?? x}${caracteristica ? ` ${caracteristica}` : ' a mais'}`); continue; }
-    if (!porPacote.length) { semCadastro.push(x); continue; }
+    // O pedido como o cliente escreveu ("mesa temática XL"): o texto sem acento tem as mesmas posições do original.
+    const original = semAcento(e.texto).length === e.texto.length ? e.texto : null;
+    const comoEscrito = (w: string) => { const k = original ? t.indexOf(w, Math.max(0, p.ini - 40)) : -1; return k >= 0 ? original!.slice(k, k + w.length) : w; };
+    const base = original ? original.slice(p.ini, p.fim).toLowerCase() : ACENTOS_ITEM[x] ?? x;
+    const pedido = `${base}${l.modificadores.length ? ` ${l.modificadores.map(comoEscrito).join(' ')}` : l.quantidade ? ' a mais' : ''}`;
+    if ((!porPacote.length || ambiguo) && (l.modificadores.length || l.quantidade || ambiguo) && parecido) { if (!semCorrespondencia.includes(pedido)) semCorrespondencia.push(pedido); continue; }
+    if (!porPacote.length) { if (!semCadastro.includes(x)) semCadastro.push(x); continue; }
     const mesmo = porPacote.length === decor.length && porPacote.every((x) => x.modalidade === porPacote[0].modalidade && chaveItem(x.item!) === chaveItem(porPacote[0].item!));
     const onde = decor.length === 1 ? `no pacote ${decor[0].nome}` : completo ? 'em todos os pacotes' : `nos pacotes ${lista(decor.map((d) => d.nome))}`;
     const haAdicionalParecido = porPacote.some((x) => x.d.extras.some(casa));
     porPacote.forEach((x) => cobertos.add(chaveItem(x.item!)));
     if (mesmo && porPacote[0].modalidade === 'INCLUSO') {
       const item = porPacote[0].item!;
-      if (!haAdicionalParecido) continue;
-      saidas.push(() => dizer(e, `“${item.nome}” já vem ${onde}${aMais ? '' : ' (é a principal, inclusa)'}.`, porPacote.map((x) => ({ tipo: 'ADICIONAL', id: item.id ?? item.nome, modalidade: 'INCLUSO', pacote: x.d.codigo } as Fonte))));
+      if (!haAdicionalParecido || !umaVez(`INCLUSO:${chaveItem(item)}`)) continue;
+      saidas.push(() => dizer(e, `“${item.nome}” já vem ${onde}${l.quantidade ? '' : ' (é a principal, inclusa)'}.`, porPacote.map((x) => ({ tipo: 'ADICIONAL', id: item.id ?? item.nome, modalidade: 'INCLUSO', pacote: x.d.codigo } as Fonte))));
     } else if (mesmo) {
       const item = porPacote[0].item!;
-      if (pedeValor) await precoDe(item, porPacote.map((x) => x.d));
-      else { cobertos.delete(chaveItem(item)); continue; }
+      if (pedeValor) { if (umaVez(`PRECO:${chaveItem(item)}`)) await precoDe(item, porPacote.map((x) => x.d)); }
+      else if (!feitos.has(`PRECO:${chaveItem(item)}`)) { cobertos.delete(chaveItem(item)); continue; }
     } else {
       // Muda de um pacote para outro: diz como é em cada um (e o que não tem cadastro), sem escolher o pacote.
       const partes = decor.map((d) => { const achado = porPacote.find((x) => x.d.codigo === d.codigo); return achado ? `no ${d.nome}, “${achado.item!.nome}” ${achado.modalidade === 'INCLUSO' ? 'já vem no pacote' : 'é adicional'}` : `no ${d.nome}, não está cadastrado`; });
-      saidas.push(() => dizer(e, `Depende do pacote: ${lista(partes)}.`, porPacote.map((x) => ({ tipo: 'ADICIONAL', id: x.item!.id ?? x.item!.nome, modalidade: x.modalidade!, pacote: x.d.codigo } as Fonte))));
+      if (umaVez(`DEPENDE:${partes.join('|')}`)) saidas.push(() => dizer(e, `Depende do pacote: ${lista(partes)}.`, porPacote.map((x) => ({ tipo: 'ADICIONAL', id: x.item!.id ?? x.item!.nome, modalidade: x.modalidade!, pacote: x.d.codigo } as Fonte))));
       const extras = porPacote.filter((x) => x.modalidade === 'EXTRA');
-      if (pedeValor && extras.length && extras.every((x) => chaveItem(x.item!) === chaveItem(extras[0].item!))) await precoDe(extras[0].item!, extras.map((x) => x.d));
+      if (pedeValor && extras.length && extras.every((x) => chaveItem(x.item!) === chaveItem(extras[0].item!)) && umaVez(`PRECO:${chaveItem(extras[0].item!)}`)) await precoDe(extras[0].item!, extras.map((x) => x.d));
       if (porPacote.length < decor.length) saidas.push(() => passar(e, 'INFORMACAO_INDISPONIVEL'));
     }
   }
-  // A1: item pedido com outra característica (ou "a mais") sem cadastro correspondente: a lacuna é dita, sem preço de
-  // outro item; essa parte vai à equipe.
+  // A1: item pedido com modificador (ou "a mais") sem cadastro que corresponda com segurança (nenhum ou mais de um): a
+  // lacuna é dita, sem preço de outro item; essa parte vai à equipe.
   if (semCorrespondencia.length) saidas.push(() => { dizer(e, `Não tenho cadastrado ${lista(semCorrespondencia.map((x) => `“${x}”`))}; por isso não informo valor por aqui, para não usar o de outro item: a equipe confirma essa parte.`); passar(e, 'INFORMACAO_INDISPONIVEL'); });
   if (semCadastro.length) {
     const pacoteUnico = decor.length === 1 ? decor[0].nome : null;
