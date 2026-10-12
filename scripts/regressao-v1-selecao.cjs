@@ -148,6 +148,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/privacidade.postgres.test.ts": { descartavel: "082" },
   // 12/10: correções da revisão independente de 69dc301 (H2, M1, M5, M3, B2, M4, B1).
   "lib/whatsapp/atendimento/revisao-correcoes.postgres.test.ts": { descartavel: "082" },
+  // 12/10: correções da revisão independente de 5699dfc (A1 configuração vigente, M1 posse da retenção, M2 callbacks).
+  "lib/whatsapp/atendimento/revisao2-correcoes.postgres.test.ts": { descartavel: "082" },
   // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
   "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079", tambem: ["079-sem-atendimento"] },
   // Gratuidade da Kidmais com as chaves de produção ligadas, no schema vigente (até a 079).

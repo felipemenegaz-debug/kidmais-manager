@@ -202,6 +202,13 @@ CREATE TABLE whatsapp_atendimento_retencao_execucoes (
   adiadas integer NOT NULL DEFAULT 0 CHECK (adiadas >= 0),
   -- Revisão de 69dc301 (H2): conversa escolhida como inativa que voltou a ter atividade antes da exclusão (não apagada).
   recentes integer NOT NULL DEFAULT 0 CHECK (recentes >= 0),
+  -- Revisão de 5699dfc: conversa não apagada porque a configuração mudou (desligada ou prazo maior) depois da escolha (A1);
+  -- arrendamento da posse da execução (M1: token + validade, renovada enquanto o processo vive e em cada exclusão);
+  -- contagens por empresa, sem dado pessoal (B1).
+  config_alterada integer NOT NULL DEFAULT 0 CHECK (config_alterada >= 0),
+  posse_token uuid,
+  posse_ate timestamptz,
+  por_empresa jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(por_empresa) = 'object'),
   falhas integer NOT NULL DEFAULT 0 CHECK (falhas >= 0),
   pendentes_removidas integer NOT NULL DEFAULT 0 CHECK (pendentes_removidas >= 0),
   dedup_removidos integer NOT NULL DEFAULT 0 CHECK (dedup_removidos >= 0),

@@ -88,3 +88,9 @@ test('revisão de 69dc301: falha do servidor (5xx) não afirma que nada mudou (B
   digitar(campo(t, 'senha'), 's'); t = await m.render(); await clicar(achar(t, 'button', 'Confirmar')); t = await m.render();
   assert.match(texto(t), /Não foi possível confirmar o resultado/); assert.doesNotMatch(texto(t), /Nada foi alterado/);
 });
+
+test('revisão de 5699dfc (B1): falhas e adiamentos DESTA empresa aparecem; nada de outras empresas', async () => {
+  const dados = { ...DADOS, retencao: { prazoDias: 30, definidoEm: '2026-10-10T12:00:00.000Z', atrasada: false, ultimaExecucao: { iniciadaEm: '2026-10-12T03:00:00.000Z', terminadaEm: '2026-10-12T03:01:00.000Z', situacao: 'EXECUTADA_COM_FALHAS', excluidasDestaEmpresa: 1, adiadasDestaEmpresa: 2, falhasDestaEmpresa: 3 } } };
+  const m = montar(true, { dados }); const t = await m.render();
+  assert.match(texto(t), /executada COM FALHAS nesta empresa; 1 conversa\(s\) desta empresa excluída\(s\), 2 adiada\(s\), 3 com falha/);
+});

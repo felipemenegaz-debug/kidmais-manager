@@ -200,10 +200,47 @@ export async function receberStatus(raw: unknown) {
   await limparStatusExpirados().catch(() => {});
 }
 
-/** Aplica o status guardado à mensagem com o mesmo identificador e apaga a linha: só os sem correspondência ficam. */
+/**
+ * Aplica o status guardado à mensagem com o mesmo identificador e apaga a linha: só os sem correspondência ficam.
+ * Chamado pelo callback (receberStatus) e pelo worker logo depois do retorno do POST (status que chegou antes): os dois
+ * caminhos tratam a falha assíncrona do mesmo jeito (M2, revisão de 5699dfc).
+ */
 export async function correlacionarStatus(tx: DbExecutor, empresa: string, ambiente: string, provedorId: string) {
-  await tx.query("UPDATE whatsapp_atendimento_mensagens m SET estado=s.estado FROM whatsapp_atendimento_status s WHERE m.empresa_id=s.empresa_id AND m.ambiente=s.ambiente AND m.provedor_id=s.provedor_id AND m.empresa_id=$1 AND m.ambiente=$2 AND m.provedor_id=$3 AND m.estado IN ('SUBMETIDA','INCERTO','FALHOU')", [empresa, ambiente, provedorId]);
+  const aplicadas = (await tx.query<{ id: string; estado: string }>("UPDATE whatsapp_atendimento_mensagens m SET estado=s.estado FROM whatsapp_atendimento_status s WHERE m.empresa_id=s.empresa_id AND m.ambiente=s.ambiente AND m.provedor_id=s.provedor_id AND m.empresa_id=$1 AND m.ambiente=$2 AND m.provedor_id=$3 AND m.estado IN ('SUBMETIDA','INCERTO','FALHOU') RETURNING m.id, m.estado", [empresa, ambiente, provedorId])).rows;
   await tx.query('DELETE FROM whatsapp_atendimento_status s USING whatsapp_atendimento_mensagens m WHERE s.empresa_id=$1 AND s.ambiente=$2 AND s.provedor_id=$3 AND m.empresa_id=s.empresa_id AND m.ambiente=s.ambiente AND m.provedor_id=s.provedor_id', [empresa, ambiente, provedorId]);
+  // O provedor aceitou e depois informou falha: o cliente não recebeu esta parte. Mesmo tratamento da recusa síncrona.
+  const falhas = aplicadas.filter((m) => m.estado === 'FALHOU');
+  if (falhas.length && await temControlesPrivacidade(tx)) {
+    for (const f of falhas) {
+      const saida = (await tx.query<SaidaQueFalhou>('SELECT id,conversa_id,origem_grupo_id,midia_pronta_id,autor_usuario_id FROM whatsapp_atendimento_mensagens WHERE id=$1', [f.id])).rows[0];
+      if (saida) await tratarSaidaQueFalhou(tx, saida, { certamenteNaoSaiu: true });
+    }
+  }
+}
+export type SaidaQueFalhou = { id: string; conversa_id: string; origem_grupo_id?: string | null; midia_pronta_id?: string | null; autor_usuario_id: string | null };
+/**
+ * Saída que falhou (recusa síncrona, resultado incerto ou "failed" do provedor depois de aceitar, antes ou depois do
+ * retorno do POST) — M3 (revisão de 69dc301) e M2 (revisão de 5699dfc). O provedor não envia um grupo de forma atômica:
+ *  - as irmãs do mesmo grupo ainda na fila (PENDENTE, ou PROCESSANDO reservada mas não segura pelo worker) são canceladas
+ *    com motivo GRUPO_INCOMPLETO; a que o worker segura agora (SKIP LOCKED) é recusada por ele mesmo, que confere o grupo
+ *    antes de marcar ENVIANDO. Irmã em ENVIANDO, SUBMETIDA, ENTREGUE ou INCERTO é preservada: o envio iniciado não é
+ *    recolhido, e INCERTO nunca é reenviado;
+ *  - os materiais que certamente não chegaram saem da memória de envio do Wall-e;
+ *  - saída automática: a conversa vai para a equipe (estado IA → AGUARDANDO_HUMANO). Saída do atendente: só o estado.
+ * Ordem de travas: a saída (já travada por quem chama) → conversa → irmãs (SKIP LOCKED). A reserva do worker também
+ * trava mensagem → conversa; o envio trava conversa → a própria saída e nunca espera a saída que falhou: sem ciclo.
+ * Idempotente. Só com a 082 (grupo e motivo).
+ */
+export async function tratarSaidaQueFalhou(tx: DbExecutor, saida: SaidaQueFalhou, opcoes: { certamenteNaoSaiu: boolean }) {
+  await tx.query('SELECT id FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [saida.conversa_id]);
+  const irmas = saida.origem_grupo_id ? (await tx.query<{ midia_pronta_id: string | null }>(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA',motivo_cancelamento='GRUPO_INCOMPLETO'
+    WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens WHERE origem_grupo_id=$1 AND id<>$2 AND direcao='SAIDA' AND estado IN ('PENDENTE','PROCESSANDO') FOR UPDATE SKIP LOCKED)
+    RETURNING midia_pronta_id`, [saida.origem_grupo_id, saida.id])).rows : [];
+  const prontas = [...irmas.map((x) => x.midia_pronta_id), opcoes.certamenteNaoSaiu ? saida.midia_pronta_id ?? null : null].filter((x): x is string => !!x);
+  if (prontas.length) await tx.query(`UPDATE whatsapp_atendimento_conversas SET contexto=jsonb_set(contexto,'{enviados}',COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(contexto->'enviados') e
+    WHERE NOT (e->>'prontaId' = ANY($2::text[]))),'[]'::jsonb)) WHERE id=$1 AND jsonb_typeof(contexto->'enviados')='array'`, [saida.conversa_id, prontas]);
+  if (!saida.autor_usuario_id) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [saida.conversa_id]);
+  return { irmasCanceladas: irmas.length };
 }
 /**
  * Toda entrada da tela passa por aqui: primeiro a empresa ativa da sessão (só existe com a 063 do painel; sem ela,

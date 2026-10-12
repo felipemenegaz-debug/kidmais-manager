@@ -1,7 +1,7 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, entendimentoSoRegras, origemMidia } from './configuracao.ts';
 import { MENSAGEM_ENCAMINHAMENTO, dadoSensivel, entradaFaseB, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
-import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, tem082, type Conversa, type Mensagem } from './service.ts';
+import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, tem082, temControlesPrivacidade, tratarSaidaQueFalhou, type Conversa, type Mensagem, type SaidaQueFalhou } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
@@ -218,6 +218,15 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       const agora = (await tx.query<{ estado: string; motivo: string | null }>("SELECT m.estado,to_jsonb(m)->>'motivo_cancelamento' AS motivo FROM whatsapp_atendimento_mensagens m WHERE m.id=$1 FOR UPDATE", [mensagem.id])).rows[0];
       if (agora?.estado === 'CANCELADA' && agora.motivo?.startsWith('ARQUIVO_')) await tratarConversaSemArquivo(tx, mensagem, atual);
       if (agora?.estado !== 'PROCESSANDO') return null;
+      // M2 (revisão de 5699dfc): outra parte do MESMO grupo já falhou, foi cancelada ou ficou incerta (ex.: "failed" do
+      // provedor aplicado enquanto esta estava reservada e segura por este worker): esta não sai sozinha. Cancelada com
+      // GRUPO_INCOMPLETO, memória ajustada e equipe chamada (tratarSaidaQueFalhou). Já sob a trava da conversa.
+      const doGrupo = mensagem as MensagemDeGrupo;
+      if (doGrupo.origem_grupo_id && (await tx.query("SELECT 1 FROM whatsapp_atendimento_mensagens WHERE origem_grupo_id=$1 AND id<>$2 AND direcao='SAIDA' AND estado IN ('FALHOU','CANCELADA','INCERTO') LIMIT 1", [doGrupo.origem_grupo_id, doGrupo.id])).rows.length) {
+        await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA',motivo_cancelamento='GRUPO_INCOMPLETO' WHERE id=$1 AND estado='PROCESSANDO'", [doGrupo.id]);
+        await tratarSaidaQueFalhou(tx, saidaDe(doGrupo), { certamenteNaoSaiu: true });
+        return null;
+      }
       // M2/M3 (12/10): arquivos desta saída e das saídas do mesmo grupo ainda por sair, travados FOR SHARE até o COMMIT que
       // grava ENVIANDO (a revogação, que trava a conversa antes do arquivo, espera). Um indisponível (revogado, vencido, empresa inativa) cancela a
       // saída e o resto do grupo com motivo, tira os materiais da memória de envio e passa a conversa à equipe: nunca um
@@ -260,17 +269,10 @@ export async function processarAtendimento(deps: DependenciasWorker) {
     const naoEnviada = erro instanceof Error && ['ATENDIMENTO_ENVIO_RECUSADO', 'ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO'].includes(erro.message);
     await withTransaction(async tx => {
       const final = (await tx.query<{ estado: string }>("UPDATE whatsapp_atendimento_mensagens SET estado=CASE WHEN estado='ENVIANDO' AND NOT $2::boolean THEN 'INCERTO' ELSE 'FALHOU' END WHERE id=$1 AND estado IN ('PROCESSANDO','ENVIANDO') RETURNING estado", [mensagem.id, naoEnviada])).rows[0]?.estado;
-      // M3 (revisão de 69dc301): o provedor não envia um grupo de forma atômica. Falhou (ou ficou incerta) uma saída de uma
-      // resposta em grupo: as irmãs ainda na fila não saem sozinhas — canceladas com motivo GRUPO_INCOMPLETO (visível),
-      // os materiais cancelados (e o desta saída, se ela certamente não saiu) deixam a memória de envio, e a equipe é
-      // chamada. O que já saiu antes continua com o cliente.
-      const g = mensagem as MensagemDeGrupo;
-      if (g.origem_grupo_id) {
-        const irmas = (await tx.query<{ midia_pronta_id: string | null }>(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA',motivo_cancelamento='GRUPO_INCOMPLETO'
-          WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens WHERE origem_grupo_id=$1 AND id<>$2 AND direcao='SAIDA' AND estado='PENDENTE' FOR UPDATE SKIP LOCKED) RETURNING midia_pronta_id`, [g.origem_grupo_id, g.id])).rows;
-        const prontas = [...irmas.map((x) => x.midia_pronta_id), final === 'FALHOU' ? g.midia_pronta_id ?? null : null].filter((x): x is string => !!x);
-        await tratarConversaSemArquivo(tx, mensagem, conversa, prontas);
-      }
+      // M3 (revisão de 69dc301) e M2 (revisão de 5699dfc): mesmo tratamento da falha informada depois pelo provedor
+      // (correlacionarStatus) — irmãs na fila canceladas com GRUPO_INCOMPLETO, memória ajustada, equipe chamada. O que já saiu
+      // continua com o cliente; INCERTO nunca é reenviado.
+      if (final && await temControlesPrivacidade(tx)) await tratarSaidaQueFalhou(tx, saidaDe(mensagem as MensagemDeGrupo), { certamenteNaoSaiu: final === 'FALHOU' });
       await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [conversa.id]);
     });
     return 'ENCAMINHADA';
@@ -375,6 +377,7 @@ async function encaminharSemModelo(mensagem: Mensagem, estadoEntrada: 'FALHOU' |
  * desautorizado depois da resposta: a saída não sai (revogada). Linhas sem fonte do Wall-e não dependem disto.
  */
 type MensagemDeGrupo = Mensagem & { origem_grupo_id?: string | null; midia_pronta_id?: string | null };
+const saidaDe = (m: MensagemDeGrupo): SaidaQueFalhou => ({ id: m.id, conversa_id: m.conversa_id, origem_grupo_id: m.origem_grupo_id ?? null, midia_pronta_id: m.midia_pronta_id ?? null, autor_usuario_id: m.autor_usuario_id });
 /** Algum arquivo próprio desta saída ou das saídas ainda por sair do mesmo grupo está indisponível? (trava FOR SHARE) */
 async function arquivoDoGrupoIndisponivel(tx: DbExecutor, mensagem: Mensagem) {
   const m = mensagem as MensagemDeGrupo;

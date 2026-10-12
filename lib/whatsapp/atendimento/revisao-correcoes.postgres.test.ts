@@ -114,7 +114,7 @@ test("correções da revisão de 69dc301: H2, M1, M5, M3, B2, M4, B1", { timeout
     // M5 (tela) e M4/B1 — situação da privacidade.
     const sit = await A.privacidade.situacaoPrivacidade(gestao);
     assert.equal(sit.retencao.atrasada, false, "M5: execução recente, sem atraso");
-    assert.deepEqual(Object.keys(sit.retencao.ultimaExecucao ?? {}).sort(), ["excluidasDestaEmpresa", "iniciadaEm", "situacao", "terminadaEm"], "M5: nada de falhas/códigos globais na tela");
+    assert.deepEqual(Object.keys(sit.retencao.ultimaExecucao ?? {}).sort(), ["adiadasDestaEmpresa", "excluidasDestaEmpresa", "falhasDestaEmpresa", "iniciadaEm", "situacao", "terminadaEm"], "M5/B1: só contagens DESTA empresa, nada de códigos globais");
     assert.equal(sit.retencao.ultimaExecucao?.situacao, "EXECUTADA");
     await q("UPDATE whatsapp_atendimento_retencao_execucoes SET terminada_em = clock_timestamp() - interval '40 hours', iniciada_em = clock_timestamp() - interval '40 hours' WHERE estado <> 'EM_ANDAMENTO'");
     assert.equal((await A.privacidade.situacaoPrivacidade(gestao)).retencao.atrasada, true, "M5: com prazo e sem execução nas últimas 36 h, atrasada");
@@ -171,7 +171,8 @@ test("correções da revisão de 69dc301: H2, M1, M5, M3, B2, M4, B1", { timeout
     assert.equal(arqSit?.enviosSemConfirmacao, 1, "B1: a tela avisa o envio sem confirmação antes de revogar");
     // C2 (envio em curso) continua com o código de "aguardar".
     const g4 = await grupo("5561900000967");
-    await q("UPDATE whatsapp_atendimento_mensagens SET estado = 'CANCELADA' WHERE id = $1", [g4.texto]);
+    // Texto já enviado (desde a revisão de 5699dfc, uma irmã CANCELADA impediria o PDF de sair sozinho: guarda M2).
+    await q("UPDATE whatsapp_atendimento_mensagens SET estado = 'SUBMETIDA', provedor_id = $2 WHERE id = $1", [g4.texto, cod("gs-")]);
     const portao = adiado<string>();
     const lote = A.worker.processarLote({ interpretar: null, enviar: async () => portao.p } as never, { maxTarefas: 1 });
     for (let i = 0; i < 400 && (await estado(g4.pdf)).estado !== "ENVIANDO"; i++) await new Promise((ok) => setTimeout(ok, 25));
