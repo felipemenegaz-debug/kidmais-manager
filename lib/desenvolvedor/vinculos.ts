@@ -4,7 +4,6 @@ import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
 import { travarUsuariosNaOrdem } from '../saas/provar-tenant.ts';
 import { exigirOutraGestao, marcarAtor, revogarAssinaturaDaMembership, ultimaAdministradoraDoPerfil } from '../autenticacao/usuarios.ts';
-import { avaliarPerdaDeElegibilidade } from '../perfil/protecao-usuarios.ts';
 import { ClienteServiceError } from '../clientes/services/errors.ts';
 import { erroAcesso } from '../acessos/erros.ts';
 import { emailObrigatorio, textoOpcional } from '../acessos/validacao.ts';
@@ -189,8 +188,8 @@ export async function alterarSituacaoVinculo(sessao: SessaoAdmin, empresaIdRaw: 
             throw erroAcesso('CONFLITO', v.status === 'SUSPENSA' ? 'Este vínculo já está desativado.' : 'Só um vínculo ativo pode ser desativado.', 409);
         if (v.papel === 'REPRESENTANTE_AUTORIZADO')
             await traduzirUltimaGestao(() => exigirOutraGestao(tx, empresaId, usuarioId));
-        const avaliacao = await avaliarPerdaDeElegibilidade(tx, { usuarioId, modo: 'revogar-administrar', empresaId });
-        if (avaliacao.recusado)
+        // 056: sem o vínculo ativo, a pessoa deixa de ser elegível a administrar o Perfil da empresa (id do Perfil).
+        if (await ultimaAdministradoraDoPerfil(tx, empresaId, usuarioId))
             throw erroAcesso('ULTIMA_ADMINISTRADORA', 'Esta pessoa é a última administradora do Perfil da empresa. Conceda a outra pessoa antes.', 409);
         await marcarAtor(tx, sessao.usuario_id);
         await tx.query("UPDATE memberships SET status = 'SUSPENSA' WHERE id = $1::uuid AND empresa_id = $2::uuid", [v.membership_id, empresaId]);

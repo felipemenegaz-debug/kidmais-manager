@@ -7,7 +7,7 @@ import { criarHashSenha as criarHashSenhaPadrao, senhaValida } from './senha.ts'
 import { nomePapelSistema, papelDeNivel, type NivelSistema } from './papeis.ts';
 import { perfis } from '../festas/perfis.ts';
 import { ClienteServiceError } from '../clientes/services/errors.ts';
-import { avaliarPerdaDeElegibilidade, MENSAGEM_ULTIMA_ADMINISTRADORA, revogarConcessoesAtivasDoUsuario } from '../perfil/protecao-usuarios.ts';
+import { avaliarPerdaDeElegibilidade, MENSAGEM_ULTIMA_ADMINISTRADORA, revogarConcessoesAtivasDoUsuario, travarProvisionamentoInicial } from '../perfil/protecao-usuarios.ts';
 import { estruturaPerfilInstalada } from '../perfil/estrutura.ts';
 import { perfilDoTenantOuNulo } from '../perfil/tenant.ts';
 import { executarNoTenant, type TenantComprovado } from '../saas/provar-tenant.ts';
@@ -122,15 +122,23 @@ async function membershipDaEmpresa(tx: DbExecutor, empresaId: string, usuarioId:
  * 056: ao sair da Gestão desta empresa SaaS, a pessoa deixa de ser elegível a administrar o Perfil associado a ela.
  * O Perfil tem id próprio (associado à empresa por id ou código, lib/perfil/autorizacao.ts): a avaliação usa o id do
  * PERFIL, nunca o da empresa SaaS. Sem a estrutura do Perfil ou sem Perfil associado, não há o que proteger; Perfil
- * ambíguo recusa (409, perfilDoTenantOuNulo).
+ * ambíguo recusa (409, perfilDoTenantOuNulo) antes de qualquer escrita. A conversão acontece sob a trava de
+ * provisionamento que a criação do Perfil também toma (lib/perfil/criacao.ts): um Perfil criado em paralelo é visto.
+ * Devolve também o id do Perfil, para quem precisa revogar as concessões dele (remoção da empresa).
  */
-export async function ultimaAdministradoraDoPerfil(tx: DbExecutor, empresaSaasId: string, usuarioId: string) {
+export async function protecaoDoPerfilDaEmpresa(tx: DbExecutor, empresaSaasId: string, usuarioId: string) {
     if (!await estruturaPerfilInstalada(tx))
-        return false;
+        return { perfilId: null, recusado: false };
+    await travarProvisionamentoInicial(tx);
     const perfilId = await perfilDoTenantOuNulo(tx, empresaSaasId);
     if (!perfilId)
-        return false;
-    return (await avaliarPerdaDeElegibilidade(tx, { usuarioId, modo: 'revogar-administrar', empresaId: perfilId })).recusado;
+        return { perfilId: null, recusado: false };
+    const avaliacao = await avaliarPerdaDeElegibilidade(tx, { usuarioId, modo: 'revogar-administrar', empresaId: perfilId });
+    return { perfilId, recusado: avaliacao.recusado };
+}
+
+export async function ultimaAdministradoraDoPerfil(tx: DbExecutor, empresaSaasId: string, usuarioId: string) {
+    return (await protecaoDoPerfilDaEmpresa(tx, empresaSaasId, usuarioId)).recusado;
 }
 
 /** Protege a empresa de ficar sem Gestão: a última membership ATIVA de representante não sai nem é rebaixada. */
@@ -346,8 +354,9 @@ export async function removerDaEmpresa(sessao: SessaoAdmin, raw: unknown, reques
             throw authError('Conta não encontrada nesta empresa.', 404);
         if (atual.status === 'ATIVA' && atual.papel === 'REPRESENTANTE_AUTORIZADO')
             await exigirOutraGestao(tx, empresaId, input.usuarioId);
-        const avaliacao = await avaliarPerdaDeElegibilidade(tx, { usuarioId: input.usuarioId, modo: 'revogar-administrar', empresaId });
-        if (avaliacao.recusado)
+        // 056: a pessoa removida deixa de ser elegível no Perfil DESTA empresa (id do Perfil, não o da empresa SaaS).
+        const perfilDaEmpresa = await protecaoDoPerfilDaEmpresa(tx, empresaId, input.usuarioId);
+        if (perfilDaEmpresa.recusado)
             return { tipo: 'recusado' as const };
         await marcarAtor(tx, sessao.usuario_id);
         await tx.query("UPDATE memberships SET status = 'REVOGADA' WHERE id = $1::uuid AND empresa_id = $2::uuid", [atual.membership_id, empresaId]);
@@ -357,8 +366,8 @@ export async function removerDaEmpresa(sessao: SessaoAdmin, raw: unknown, reques
             [atual.membership_id, sessao.usuario_id],
         )).rows;
         await revogarAssinaturaDaMembership(tx, empresaId, atual.membership_id, sessao.usuario_id, 'Acesso removido da empresa');
-        const perfil = avaliacao.instalada
-            ? await revogarConcessoesAtivasDoUsuario(tx, { usuarioId: input.usuarioId, operadorId: sessao.usuario_id, motivo: 'Acesso removido da empresa', empresaId })
+        const perfil = perfilDaEmpresa.perfilId
+            ? await revogarConcessoesAtivasDoUsuario(tx, { usuarioId: input.usuarioId, operadorId: sessao.usuario_id, motivo: 'Acesso removido da empresa', empresaId: perfilDaEmpresa.perfilId })
             : [];
         const depois = membro({ ...atual, status: 'REVOGADA' });
         await deps.registrarAuditoria({
