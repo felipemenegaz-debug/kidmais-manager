@@ -44,7 +44,7 @@ export default function ConfiguracaoAtendimento() {
   const link = dados?.wallE?.linkPublico;
   const nome = config?.nome.trim() || 'sua empresa';
   return <main className={styles.pagina}>
-    <header className={styles.topo}><div><h1>Configurações do atendimento</h1><p>Como o Wall-e se apresenta, o que ele envia e até onde ele vai.</p></div><div className={styles.acoes}><Link href="/admin/atendimento">Voltar ao atendimento</Link><Link href="/admin/atendimento/biblioteca">Biblioteca</Link></div></header>
+    <header className={styles.topo}><div><h1>Configurações do atendimento</h1><p>Como o Wall-e se apresenta, o que ele envia e até onde ele vai.</p></div><div className={styles.acoes}><Link href="/admin/atendimento">Voltar ao atendimento</Link><Link href="/admin/atendimento/biblioteca">Biblioteca</Link><Link href="/admin/atendimento/privacidade">Privacidade</Link></div></header>
     {bloqueio && <section className={styles.bloqueio} role="alert" data-bloqueio={bloqueio.tipo}><h2>{bloqueio.titulo}</h2><p>{bloqueio.orientacao}</p></section>}
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
     {aviso && <p role="status" className={styles.aviso}>{aviso}</p>}

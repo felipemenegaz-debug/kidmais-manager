@@ -39,6 +39,10 @@ DO $$ BEGIN
     RAISE EXCEPTION '082 exige a 060, a 080 e a 081.';
   END IF;
   IF to_regclass('public.whatsapp_atendimento_arquivos') IS NOT NULL OR to_regclass('public.whatsapp_atendimento_privacidade') IS NOT NULL
+     OR to_regclass('public.whatsapp_atendimento_controles_contato') IS NOT NULL
+     OR to_regclass('public.whatsapp_atendimento_eventos_excluidos') IS NOT NULL
+     OR to_regclass('public.whatsapp_atendimento_retencao_config') IS NOT NULL
+     OR to_regclass('public.whatsapp_atendimento_retencao_execucoes') IS NOT NULL
      OR EXISTS (SELECT 1 FROM pg_attribute WHERE NOT attisdropped AND (
           (attrelid = 'public.whatsapp_atendimento_mensagens_prontas'::regclass AND attname IN ('estado', 'envio_automatico', 'finalidade', 'pacote_codigo', 'estabelecimento_id', 'arquivo_id'))
        OR (attrelid = 'public.whatsapp_atendimento_mensagens'::regclass AND attname IN ('ordem', 'origem_grupo_id', 'midia_arquivo_id', 'midia_nome', 'fonte'))
@@ -107,6 +111,10 @@ BEGIN
   IF NEW.conteudo IS DISTINCT FROM OLD.conteudo THEN
     RAISE EXCEPTION 'arquivo %: o conteúdo não muda (envie um arquivo novo).', OLD.id USING ERRCODE = 'restrict_violation';
   END IF;
+  -- Vencido (expira_em no passado): mudar a expiração (reativar) exige link novo na mesma escrita.
+  IF OLD.expira_em IS NOT NULL AND OLD.expira_em <= clock_timestamp() AND NEW.expira_em IS DISTINCT FROM OLD.expira_em AND NEW.token = OLD.token THEN
+    RAISE EXCEPTION 'arquivo %: reativar um arquivo vencido exige link novo.', OLD.id USING ERRCODE = 'restrict_violation';
+  END IF;
   IF NEW.token IS DISTINCT FROM OLD.token AND NEW.token_trocado_em IS NOT DISTINCT FROM OLD.token_trocado_em THEN
     RAISE EXCEPTION 'arquivo %: a troca de link registra token_trocado_em.', OLD.id USING ERRCODE = 'restrict_violation';
   END IF;
@@ -121,7 +129,7 @@ CREATE TABLE whatsapp_atendimento_privacidade (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   empresa_id uuid NOT NULL REFERENCES empresas(id) ON DELETE RESTRICT,
   ambiente text NOT NULL CHECK (ambiente IN ('staging', 'production')),
-  acao text NOT NULL CHECK (acao IN ('CONVERSA_EXCLUIDA', 'ARQUIVO_REVOGADO', 'ARQUIVO_LINK_TROCADO')),
+  acao text NOT NULL CHECK (acao IN ('CONVERSA_EXCLUIDA', 'ARQUIVO_REVOGADO', 'ARQUIVO_LINK_TROCADO', 'ARQUIVO_EXPIRACAO_DEFINIDA', 'ARQUIVO_REATIVADO', 'RETENCAO_CONFIGURADA')),
   origem text NOT NULL CHECK (origem IN ('PEDIDO', 'RETENCAO')),
   usuario_id uuid REFERENCES usuarios_administrativos(id),
   conversa_id uuid,
@@ -129,14 +137,76 @@ CREATE TABLE whatsapp_atendimento_privacidade (
   mensagens_removidas integer CHECK (mensagens_removidas >= 0),
   saidas_canceladas integer CHECK (saidas_canceladas >= 0),
   manteve_nao_contatar boolean,
+  manteve_pausa boolean,
+  manteve_equipe boolean,
+  motivo text CHECK (motivo IN ('PEDIDO_DO_TITULAR', 'DECISAO_DA_EMPRESA')),
   prazo_dias integer CHECK (prazo_dias > 0),
+  expira_em timestamptz,
   criada_em timestamptz NOT NULL DEFAULT clock_timestamp(),
   CONSTRAINT whatsapp_privacidade_autor CHECK (origem <> 'PEDIDO' OR usuario_id IS NOT NULL),
-  CONSTRAINT whatsapp_privacidade_alvo CHECK ((acao = 'CONVERSA_EXCLUIDA' AND conversa_id IS NOT NULL AND arquivo_id IS NULL AND mensagens_removidas IS NOT NULL AND manteve_nao_contatar IS NOT NULL)
-    OR (acao <> 'CONVERSA_EXCLUIDA' AND arquivo_id IS NOT NULL AND conversa_id IS NULL)),
-  CONSTRAINT whatsapp_privacidade_retencao CHECK (origem <> 'RETENCAO' OR (acao = 'CONVERSA_EXCLUIDA' AND prazo_dias IS NOT NULL))
+  CONSTRAINT whatsapp_privacidade_alvo CHECK ((acao = 'CONVERSA_EXCLUIDA' AND conversa_id IS NOT NULL AND arquivo_id IS NULL AND mensagens_removidas IS NOT NULL
+      AND manteve_nao_contatar IS NOT NULL AND manteve_pausa IS NOT NULL AND manteve_equipe IS NOT NULL)
+    OR (acao LIKE 'ARQUIVO\_%' AND arquivo_id IS NOT NULL AND conversa_id IS NULL)
+    OR (acao = 'RETENCAO_CONFIGURADA' AND arquivo_id IS NULL AND conversa_id IS NULL AND origem = 'PEDIDO')),
+  CONSTRAINT whatsapp_privacidade_retencao CHECK (origem <> 'RETENCAO' OR (acao = 'CONVERSA_EXCLUIDA' AND prazo_dias IS NOT NULL)),
+  CONSTRAINT whatsapp_privacidade_motivo CHECK (motivo IS NULL OR (acao = 'CONVERSA_EXCLUIDA' AND origem = 'PEDIDO'))
 );
 CREATE INDEX whatsapp_privacidade_empresa ON whatsapp_atendimento_privacidade (empresa_id, ambiente, criada_em DESC);
+
+-- D2 (12/10): controles MÍNIMOS de um contato cuja conversa foi excluída, separados do conteúdo (nenhum texto, nome ou
+-- data de festa): o número, a empresa e o que precisa continuar valendo — PARAR (nao_contatar), pausa pedida
+-- (sem_automatico) e conversa que estava com a equipe (com_equipe). Uma conversa nova do mesmo número herda os
+-- controles e a linha é consumida (o controle passa a viver na conversa nova). Tratamento futuro: decisão R2.
+CREATE TABLE whatsapp_atendimento_controles_contato (
+  empresa_id uuid NOT NULL REFERENCES empresas(id) ON DELETE RESTRICT,
+  ambiente text NOT NULL CHECK (ambiente IN ('staging', 'production')),
+  contato text NOT NULL CHECK (contato ~ '^[0-9]{8,15}$'),
+  nao_contatar boolean NOT NULL DEFAULT false,
+  sem_automatico boolean NOT NULL DEFAULT false,
+  com_equipe boolean NOT NULL DEFAULT false,
+  registrado_em timestamptz NOT NULL DEFAULT clock_timestamp(),
+  atualizado_em timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (empresa_id, ambiente, contato),
+  CONSTRAINT whatsapp_controles_algum CHECK (nao_contatar OR sem_automatico OR com_equipe)
+);
+-- D2 (12/10): identificadores de eventos do provedor cujas mensagens foram excluídas, para uma reentrega não recriar o
+-- conteúdo. Só o SHA-256 do id da mensagem no provedor (nunca texto, nome ou número), por empresa, ambiente e provedor.
+-- Guardados por um prazo técnico fixo (RETENCAO_DEDUP_DIAS no código) e apagados pela rotina de retenção.
+CREATE TABLE whatsapp_atendimento_eventos_excluidos (
+  empresa_id uuid NOT NULL REFERENCES empresas(id) ON DELETE RESTRICT,
+  ambiente text NOT NULL CHECK (ambiente IN ('staging', 'production')),
+  provedor text NOT NULL CHECK (provedor IN ('GUPSHUP')),
+  evento_sha256 text NOT NULL CHECK (evento_sha256 ~ '^[0-9a-f]{64}$'),
+  excluido_em timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (empresa_id, ambiente, provedor, evento_sha256)
+);
+CREATE INDEX whatsapp_eventos_excluidos_prazo ON whatsapp_atendimento_eventos_excluidos (excluido_em);
+-- D2 (12/10): retenção por empresa, decidida pela gestão da empresa (sem prazo padrão: sem linha ou prazo NULL = nada
+-- é apagado automaticamente) e o registro de cada execução da rotina (sem conteúdo; só contagens e códigos de erro).
+CREATE TABLE whatsapp_atendimento_retencao_config (
+  empresa_id uuid NOT NULL REFERENCES empresas(id) ON DELETE RESTRICT,
+  ambiente text NOT NULL CHECK (ambiente IN ('staging', 'production')),
+  prazo_dias integer CHECK (prazo_dias BETWEEN 1 AND 3650),
+  definido_por uuid NOT NULL REFERENCES usuarios_administrativos(id),
+  definido_em timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (empresa_id, ambiente)
+);
+CREATE TABLE whatsapp_atendimento_retencao_execucoes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ambiente text NOT NULL CHECK (ambiente IN ('staging', 'production')),
+  iniciada_em timestamptz NOT NULL DEFAULT clock_timestamp(),
+  terminada_em timestamptz,
+  estado text NOT NULL CHECK (estado IN ('EM_ANDAMENTO', 'CONCLUIDA', 'CONCLUIDA_COM_FALHAS', 'FALHOU')),
+  empresas integer NOT NULL DEFAULT 0 CHECK (empresas >= 0),
+  excluidas integer NOT NULL DEFAULT 0 CHECK (excluidas >= 0),
+  adiadas integer NOT NULL DEFAULT 0 CHECK (adiadas >= 0),
+  falhas integer NOT NULL DEFAULT 0 CHECK (falhas >= 0),
+  pendentes_removidas integer NOT NULL DEFAULT 0 CHECK (pendentes_removidas >= 0),
+  dedup_removidos integer NOT NULL DEFAULT 0 CHECK (dedup_removidos >= 0),
+  erros text[] NOT NULL DEFAULT '{}' CHECK (array_length(erros, 1) IS NULL OR array_length(erros, 1) <= 20),
+  CONSTRAINT whatsapp_retencao_fim CHECK ((estado = 'EM_ANDAMENTO') = (terminada_em IS NULL))
+);
+CREATE INDEX whatsapp_retencao_execucoes_recentes ON whatsapp_atendimento_retencao_execucoes (ambiente, iniciada_em DESC);
 
 -- Mensagens prontas.
 ALTER TABLE whatsapp_atendimento_mensagens_prontas
@@ -174,7 +244,9 @@ ALTER TABLE whatsapp_atendimento_mensagens
   ADD COLUMN ordem smallint NOT NULL DEFAULT 0 CONSTRAINT whatsapp_mensagens_ordem CHECK (ordem BETWEEN 0 AND 9),
   ADD COLUMN midia_arquivo_id uuid,
   ADD COLUMN midia_nome text CONSTRAINT whatsapp_mensagens_midia_nome CHECK (char_length(midia_nome) BETWEEN 5 AND 240),
-  ADD COLUMN fonte jsonb CONSTRAINT whatsapp_mensagens_fonte CHECK (jsonb_typeof(fonte) = 'object');
+  ADD COLUMN fonte jsonb CONSTRAINT whatsapp_mensagens_fonte CHECK (jsonb_typeof(fonte) = 'object'),
+  -- D3 (12/10): por que uma saída foi cancelada sem sair (o operador vê; nunca cancelamento silencioso).
+  ADD COLUMN motivo_cancelamento text CONSTRAINT whatsapp_mensagens_motivo_cancelamento CHECK (motivo_cancelamento IN ('ARQUIVO_INDISPONIVEL', 'ARQUIVO_REVOGADO'));
 ALTER TABLE whatsapp_atendimento_mensagens
   ADD CONSTRAINT whatsapp_mensagens_origem_grupo_uk UNIQUE (origem_grupo_id, ordem),
   ADD CONSTRAINT whatsapp_mensagens_origem_grupo FOREIGN KEY (origem_grupo_id) REFERENCES whatsapp_atendimento_mensagens (id),

@@ -12,13 +12,13 @@ const conversa: Conversa = {id:'c',empresa_id:'e',ambiente:'staging',contato:'55
 const mensagem: Mensagem = {id:'m',conversa_id:'c',empresa_id:'e',ambiente:'staging',direcao:'SAIDA',origem_id:'entrada',autor_usuario_id:null,texto:'Resposta aprovada',estado:'PENDENTE',versao_conversa:3,criada_em:agora.toISOString()};
 const modoRegras={ativo:false}; let limpezas=0; const correlacoes:string[]=[];
 type Cfg = {ativo:boolean;nome:string;perguntas:{id:string;pergunta:string;resposta:string}[];limites:{respostasPor24h:number}};
-function carregar(query: (sql: string, args?: unknown[]) => Promise<{rows: unknown[]}>, ativo=true, permitido=true, limite=20, cfg?: (travar:boolean)=>Cfg|null) {
+const RELEITURA_ESTADO = "SELECT m.estado,to_jsonb(m)->>'motivo_cancelamento' AS motivo FROM whatsapp_atendimento_mensagens m WHERE m.id=$1 FOR UPDATE";
+function carregar(consulta: (sql: string, args?: unknown[]) => Promise<{rows: unknown[]}>, ativo=true, permitido=true, limite=20, cfg?: (travar:boolean)=>Cfg|null) {
+  const query = async (sql: string, args?: unknown[]) => { const r = await consulta(sql, args); return sql === RELEITURA_ESTADO && !r.rows.length ? { rows: [{ estado: 'PROCESSANDO' }] } : r; };
   return carregarComponente('lib/whatsapp/atendimento/worker.ts', {
     '../../db/postgres.ts':{db:()=>({query}),withTransaction:async(fn:(tx:unknown)=>unknown)=>fn({query})},
     './configuracao.ts':{entendimentoSoRegras:()=>modoRegras.ativo,ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido,origemMidia:()=>null},
     './arquivos.ts':arquivos,
-    // D2: retenção sem prazo definido (padrão) não faz nada; testada à parte (privacidade.postgres.test.ts).
-    './privacidade.ts':{aplicarRetencao:async()=>({estado:'PRAZO_NAO_DEFINIDO',excluidas:0,adiadas:0})},
     './core.ts':core,
     './service.ts':{registroDaPausa:(texto:string,em:string)=>({motivo:'PARAR_A_CONFIRMAR',motivos:['PARAR_A_CONFIRMAR'],em,coletado:{data:null,turno:null,convidados:null,pacote:null,unidade:null,tema:null},enviados:[],pendentes:[],ultimaMensagem:texto.slice(0,500)}),configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem082:async()=>false},
     './modelo.ts':{interpretarMensagem:async()=>{throw Error('modelo real proibido no teste');}},
@@ -63,6 +63,21 @@ test('assumir conversa entre reserva da tarefa e envio cancela resposta sem cham
   });
   assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;return 'id';}}),'CANCELADA');
   assert.equal(envios,0); assert.deepEqual(estados,['PROCESSANDO','CANCELADA']);
+});
+// M2 (12/10): saída cancelada entre a reserva e a transação de envio (revogação, encerramento, expiração): nada é
+// sobrescrito (nenhum ENVIANDO) e o provedor não é chamado.
+test('M2: mensagem cancelada entre a reserva e o envio não volta a ENVIANDO nem chama o provedor',async()=>{
+  let envios=0; const estados:unknown[]=[];
+  const worker=carregar(async(sql,args)=>{
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[mensagem]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    if(sql===RELEITURA_ESTADO) return {rows:[{estado:'CANCELADA'}]};
+    if(sql.includes('SET estado=$2')) estados.push(args?.[1]);
+    return {rows:[]};
+  });
+  assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;return 'id';}}),'CANCELADA');
+  assert.equal(envios,0); assert.deepEqual(estados,['PROCESSANDO'],'só a reserva gravou estado; o envio não sobrescreveu o cancelamento');
 });
 test('timeout do provedor marca entrega incerta e não tenta enviar novamente',async()=>{
   let envios=0; const comandos:string[]=[];
@@ -482,7 +497,7 @@ test('modo regras é conferido a cada uso: o worker lê a variável do canal (n�
   const worker=readFileSync('lib/whatsapp/atendimento/worker.ts','utf8');
   assert.match(worker,/if \(!comando && \(entendimentoSoRegras\(\) \|\| !deps\.interpretar\)\) return await encaminharSemModelo/);
   const porta=readFileSync('lib/whatsapp/atendimento/walle/porta.ts','utf8');
-  assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) && !dadoDeSaude\(e\.texto\) \? entender : null;/);
+  assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) && !dadoSensivel\(e\.texto\) \? entender : null;/);
   const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
   assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
   assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:enviarMensagem,wallE:criarPortaWallE\(portas\.entender/);

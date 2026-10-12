@@ -1,5 +1,6 @@
 import type { DbExecutor } from '../../../db/contracts.ts';
 import { listarPacotesAdmin } from '../../../comercial/pacotes-admin.ts';
+import { ARQUIVO_DISPONIVEL_SQL } from '../arquivos.ts';
 import { calcularResumoComercial } from '../../../comercial/services/pricing.service.ts';
 import { agendaPorEscopoInstalada, unidadesDaEmpresa, type EscopoAgenda } from '../../../disponibilidade/escopo.ts';
 import { listarConfiguracoesAgendaAtivas } from '../../../disponibilidade/repositories/disponibilidade.repository.ts';
@@ -91,6 +92,8 @@ export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambien
            FROM whatsapp_atendimento_mensagens_prontas p
            LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=p.arquivo_id AND a.empresa_id=p.empresa_id AND a.ambiente=p.ambiente
           WHERE p.empresa_id=$1 AND p.ambiente=$2 AND p.finalidade=$3 AND p.estado='PUBLICADA' AND p.ativa AND p.envio_automatico
+            -- M3 (12/10): com arquivo próprio, só se ele ainda pode ser servido e enviado (não revogado, não vencido).
+            AND (p.arquivo_id IS NULL OR (a.id IS NOT NULL AND ${ARQUIVO_DISPONIVEL_SQL}))
             AND p.tipo IN ('TEXTO','LINK','IMAGEM','VIDEO','DOCUMENTO')
           ORDER BY CASE p.tipo WHEN 'TEXTO' THEN 0 WHEN 'LINK' THEN 1 WHEN 'DOCUMENTO' THEN 2 ELSE 3 END, p.titulo, p.id LIMIT 20`, [empresaId, ambiente, finalidade]);
       return r.rows.map((p) => ({ id: p.id, versao: Number(p.versao), titulo: p.titulo, tipo: p.tipo, texto: p.texto, link: p.link, midiaUrl: p.midia_url, arquivoId: p.arquivo_id, arquivoNome: p.arquivo_nome, finalidade: p.finalidade, pacoteCodigo: p.pacote_codigo, unidadeId: p.estabelecimento_id }));

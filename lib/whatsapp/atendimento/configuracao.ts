@@ -23,7 +23,10 @@ export function receptorDoNumero(env: NodeJS.ProcessEnv = process.env) {
  * (Wall-e desligado na tela ou sem a 082), qualquer que seja o orçamento de IA. Variável do próprio canal (não é a chave
  * da IA): o worker e a porta do Wall-e conferem a cada uso, além da composition root, que nem monta o modelo.
  */
-export function entendimentoSoRegras(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO === 'regras'; }
+// 12/10 (D1): o PADRÃO passou a ser o modo regras. O modelo só é usado com WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=modelo,
+// opção explícita do ambiente, que não deve ser ligada com dados reais enquanto a cobertura de dados sensíveis tiver lacunas
+// (docs/PRIVACIDADE_ATENDIMENTO_D1_D4.md, R6). Qualquer outro valor (ausente, "regras", erro de digitação) = regras.
+export function entendimentoSoRegras(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO !== 'modelo'; }
 /** Sem empresa piloto válida a recepção fica desligada (só metadados): erro de configuração não vira 503 eterno. */
 export function recepcaoAtiva(env: NodeJS.ProcessEnv = process.env) {
   if (env.WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED !== 'true' || !receptorDoNumero(env)) return false;

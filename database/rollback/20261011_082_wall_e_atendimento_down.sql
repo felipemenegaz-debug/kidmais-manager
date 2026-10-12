@@ -5,7 +5,8 @@
 -- *** do banco; as mensagens prontas de PDF ou com arquivo próprio (com as favoritas); a mídia (tipo, arquivo, nome e
 -- *** origem) das respostas que usaram arquivo próprio ou PDF (o texto/legenda fica); as saídas extras de uma mesma
 -- *** mensagem recebida perdem o agrupamento (continuam no histórico); a fonte das respostas; a memória e o resumo de
--- *** passagem das conversas; o registro de privacidade (exclusões e revogações). Rascunhos são ARQUIVADOS (no código
+-- *** passagem das conversas; o registro de privacidade (exclusões e revogações); os controles mínimos de contatos
+-- *** excluídos (PARAR, pausa, equipe), os eventos excluídos (deduplicação) e a configuração e o histórico da retenção. Rascunhos são ARQUIVADOS (no código
 -- *** anterior apareceriam como ativos).
 -- *** Antes: exportar whatsapp_atendimento_arquivos, as colunas novas de mensagens/prontas/conversas e ter backup com
 -- *** restauração comprovada. Reaplicar a 082 depois NÃO recupera esses dados.
@@ -28,7 +29,8 @@ DO $$ BEGIN
 END $$;
 
 LOCK TABLE whatsapp_atendimento_mensagens_prontas_favoritas, whatsapp_atendimento_mensagens_prontas, whatsapp_atendimento_mensagens,
-  whatsapp_atendimento_conversas, whatsapp_atendimento_privacidade, whatsapp_atendimento_arquivos IN ACCESS EXCLUSIVE MODE;
+  whatsapp_atendimento_conversas, whatsapp_atendimento_privacidade, whatsapp_atendimento_arquivos,
+  whatsapp_atendimento_controles_contato, whatsapp_atendimento_eventos_excluidos, whatsapp_atendimento_retencao_config, whatsapp_atendimento_retencao_execucoes IN ACCESS EXCLUSIVE MODE;
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens WHERE (midia_arquivo_id IS NOT NULL OR midia_tipo = 'DOCUMENTO') AND estado IN ('PENDENTE', 'PROCESSANDO', 'ENVIANDO')) THEN
@@ -36,6 +38,11 @@ DO $$ BEGIN
   END IF;
   IF (EXISTS (SELECT 1 FROM whatsapp_atendimento_arquivos)
       OR EXISTS (SELECT 1 FROM whatsapp_atendimento_privacidade)
+      OR EXISTS (SELECT 1 FROM whatsapp_atendimento_controles_contato)
+      OR EXISTS (SELECT 1 FROM whatsapp_atendimento_eventos_excluidos)
+      OR EXISTS (SELECT 1 FROM whatsapp_atendimento_retencao_config)
+      OR EXISTS (SELECT 1 FROM whatsapp_atendimento_retencao_execucoes)
+      OR EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens WHERE motivo_cancelamento IS NOT NULL)
       OR EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens WHERE midia_arquivo_id IS NOT NULL OR midia_tipo = 'DOCUMENTO' OR origem_grupo_id IS NOT NULL OR fonte IS NOT NULL)
       OR EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens_prontas WHERE arquivo_id IS NOT NULL OR tipo = 'DOCUMENTO' OR estado = 'RASCUNHO' OR envio_automatico
                   OR finalidade IS NOT NULL OR pacote_codigo IS NOT NULL OR estabelecimento_id IS NOT NULL)
@@ -50,12 +57,14 @@ UPDATE whatsapp_atendimento_mensagens SET midia_tipo = NULL, midia_arquivo_id = 
   WHERE midia_arquivo_id IS NOT NULL OR midia_tipo = 'DOCUMENTO';
 ALTER TABLE whatsapp_atendimento_mensagens
   DROP CONSTRAINT whatsapp_mensagens_midia_arquivo,
+  DROP CONSTRAINT whatsapp_mensagens_motivo_cancelamento,
   DROP CONSTRAINT whatsapp_mensagens_origem_grupo,
   DROP CONSTRAINT whatsapp_mensagens_origem_grupo_uk,
   DROP CONSTRAINT whatsapp_mensagens_midia_par,
   DROP CONSTRAINT whatsapp_mensagens_midia_tipo,
   DROP CONSTRAINT whatsapp_mensagens_legenda_limite,
   DROP COLUMN fonte,
+  DROP COLUMN motivo_cancelamento,
   DROP COLUMN midia_nome,
   DROP COLUMN midia_arquivo_id,
   DROP COLUMN ordem,
@@ -94,6 +103,10 @@ ALTER TABLE whatsapp_atendimento_mensagens_prontas
 
 -- Conversas e arquivos.
 ALTER TABLE whatsapp_atendimento_conversas DROP COLUMN passagem, DROP COLUMN contexto;
+DROP TABLE whatsapp_atendimento_controles_contato;
+DROP TABLE whatsapp_atendimento_eventos_excluidos;
+DROP TABLE whatsapp_atendimento_retencao_config;
+DROP TABLE whatsapp_atendimento_retencao_execucoes;
 DROP TABLE whatsapp_atendimento_privacidade;
 DROP TABLE whatsapp_atendimento_arquivos;
 DROP FUNCTION kidmais082_arquivo_controle();

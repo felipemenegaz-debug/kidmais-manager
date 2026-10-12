@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { pedidoDeParar } from './opt-out.ts';
 import type { Passagem } from './walle/tipos.ts';
+import { ALERGIA } from './walle/alergia.ts';
 
 export const LIMITE_PADRAO_RESPOSTAS = 20;
 export const configuracaoSchema = z.object({
@@ -47,7 +48,7 @@ export const ESQUEMA_INTERPRETACAO = { type: 'object', additionalProperties: fal
  * "minha filha Ana", "o aniversariante é …") viram marcadores. A data e a quantidade da festa ficam: são o que a
  * classificação precisa. Limite conhecido: um nome solto no meio da frase ("festa da Ana") não é reconhecível por regra
  * sem apagar também temas ("festa da Frozen"); por isso o nome do contato, o nome de perfil e o cadastro nunca são
- * enviados, e dado de saúde nunca vai ao modelo (dadoDeSaude).
+ * enviados, e dado de saúde nunca vai ao modelo (dadoSensivel).
  */
 // Nome = palavras com inicial MAIÚSCULA. Sem a flag "i" (com ela, \p{Lu} aceitaria minúsculas e apagaria o resto da
 // frase): os gatilhos aceitam a inicial maiúscula ou minúscula letra a letra (semCaixa).
@@ -55,6 +56,9 @@ const NOME = String.raw`\p{Lu}[\p{L}'’-]+(?:\s+(?:d[aeo]s?\s+)?\p{Lu}[\p{L}'�
 const semCaixa = (frases: string[]) => frases.map((f) => [...f].map((c) => (c.toLowerCase() !== c.toUpperCase() ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c === ' ' ? '\\s+' : c)).join('')).join('|');
 const GATILHO_NOME_PROPRIO = semCaixa(['meu nome é', 'meu nome e', 'me chamo', 'aqui é a', 'aqui é o', 'aqui e a', 'aqui e o',
   ...['mãe', 'mae', 'pai', 'avó', 'avô', 'avo', 'tia', 'tio', 'madrinha', 'padrinho'].flatMap((p) => ['a', 'o'].flatMap((s) => ['da', 'do', 'de'].map((d) => `sou ${s} ${p} ${d}`)))]);
+// 12/10: "sou Ana", "chamo Ana", "o nome dele é Pedro", "mãe do Pedro" (o parente vem antes do nome).
+const GATILHO_NOME_EXTRA = semCaixa(['sou', 'chamo', 'o nome dele é', 'o nome dela é', 'o nome dele e', 'o nome dela e', 'nome da criança é', 'nome do aniversariante é',
+  ...['mãe', 'mae', 'pai', 'avó', 'avô', 'avo', 'tia', 'tio', 'madrinha', 'padrinho', 'irmã', 'irma', 'irmão', 'irmao'].flatMap((x) => ['da', 'do'].map((d) => `${x} ${d}`))]);
 const GATILHO_NOME_CRIANCA = semCaixa([...['meu', 'minha'].flatMap((p) => ['filho', 'filha', 'neto', 'neta', 'sobrinho', 'sobrinha', 'enteado', 'enteada', 'afilhado', 'afilhada'].map((x) => `${p} ${x}`)),
   'o aniversariante é', 'a aniversariante é', 'o aniversariante e', 'a aniversariante e', 'o aniversariante:', 'a aniversariante:', 'o aniversariante', 'a aniversariante']);
 const PADROES_PESSOAIS: [RegExp, string][] = [
@@ -71,35 +75,88 @@ const PADROES_PESSOAIS: [RegExp, string][] = [
   [/((?:nasc\p{L}*|data de nascimento)[^\d\n]{0,20})\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?/giu, '$1[data de nascimento omitida]'],
   [new RegExp(String.raw`((?<![\p{L}])(?:${GATILHO_NOME_PROPRIO}))\s+${NOME}`, 'gu'), '$1 [nome omitido]'],
   [new RegExp(String.raw`((?<![\p{L}])(?:${GATILHO_NOME_CRIANCA}))\s+${NOME}`, 'gu'), '$1 [nome omitido]'],
+  [new RegExp(String.raw`((?<![\p{L}])(?:${GATILHO_NOME_EXTRA}))\s+${NOME}`, 'gu'), '$1 [nome omitido]'],
 ];
+/**
+ * D1 — normalização ANTES de qualquer análise de privacidade e do envio ao modelo: NFKC (largura total e formas de
+ * compatibilidade viram as letras comuns) e remoção de caracteres invisíveis (controle, formatação, "default ignorable"),
+ * a mesma regra da barreira do roteador (lib/inteligencia/texto-modelo.ts), aplicada aqui primeiro para que o detector
+ * e a máscara vejam exatamente o texto que o modelo veria ("alerg\u200Bia" é "alergia").
+ */
+const OCULTOS = /(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu;
+export function normalizarParaPrivacidade(texto: string | null | undefined) {
+  return String(texto ?? '').normalize('NFKC').replace(OCULTOS, '');
+}
+/** O texto que pode ir ao modelo: normalizado e com os dados pessoais reconhecíveis ocultados. */
 export function ocultarDadosPessoais(texto: string) {
-  let t = texto;
+  let t = normalizarParaPrivacidade(texto);
   for (const [re, marcador] of PADROES_PESSOAIS) t = t.replace(re, marcador);
   return t;
 }
 /**
- * D1 — dado de saúde (alergia, intolerância, condição, medicação, gestação) é dado pessoal sensível: a mensagem que o
- * contém NUNCA vai ao modelo (o Wall-e entende pelas regras, e alergia segue para a equipe; a fase B encaminha à equipe).
+ * D1 — dado pessoal SENSÍVEL (LGPD art. 5º II e saúde de criança): a mensagem que o contém NUNCA vai ao modelo (o Wall-e
+ * entende pelas regras e a alergia segue para a equipe; a fase B encaminha à equipe; no histórico vira marcador).
+ * Cobre: a regra de alergia/restrição do próprio Wall-e (walle/alergia.ts) e termos de saúde, deficiência, crença
+ * religiosa ou filosófica, origem étnica, orientação sexual e dado genético/biométrico, sobre o texto normalizado, sem
+ * acento e em minúsculas, inclusive grafias comuns erradas. É uma lista: NÃO é garantia completa. A cobertura é medida
+ * contra um corpus independente (privacidade-cobertura.test.ts) e as lacunas mantêm o modo IA bloqueado com dados reais.
  */
-const SAUDE = /(?<![\p{L}])(?:alergi\p{L}*|al[eé]rgic\p{L}*|intoler[aâ]nci\p{L}*|cel[ií]ac\p{L}*|lactose|gl[uú]ten|diab[eé]t\p{L}*|epil[eé]p\p{L}*|convuls\p{L}*|autis\p{L}*|defici[eê]nci\p{L}*|cadeirante|s[ií]ndrome|laudo|rem[eé]dio\p{L}*|medicament\p{L}*|medica[çc][ãa]o|anafil\p{L}*|epipen|asma|asm[aá]tic\p{L}*|gr[aá]vid\p{L}*|gestante|gesta[çc][ãa]o|hospital\p{L}*|internad\p{L}*|doen[çc]a\p{L}*)(?![\p{L}])/iu;
-const SIGLAS_SAUDE = /(?<![\p{L}])(?:APLV|TEA|TDAH|CID)(?![\p{L}])/u;
-export function dadoDeSaude(texto: string) {
-  return SAUDE.test(texto) || SIGLAS_SAUDE.test(texto);
+const SENSIVEL = new RegExp('(?<![a-z])(?:' + [
+  // alergia, intolerância, dieta médica, reação
+  'aler[gj]\\w*', 'e?ntoleran\\w*', '[cs]eliac\\w*', 'doenca celiaca', 'lacto[sz]\\w*', 'lato[sz]e', 'glute[nm]', 'proteina do leite',
+  'restricao (?:alimentar|medica)', 'restricoes alimentares', 'dieta (?:medica|restrita|especial|prescrita)', 'reacao alergica', 'da reacao',
+  'passa mal (?:com|quando)', 'contaminacao cruzada', 'traco(?:s)? de', 'pode conter', 'fenilceton\\w*', 'seletividade alimentar', 'transtorno alimentar',
+  'anorex\\w*', 'bulimi\\w*', 'anafila\\w*', 'epi ?pen', 'caneta de adrenalina',
+  // condições e cuidados de saúde
+  'diabet\\w*', 'insulin\\w*', 'glicemi\\w*', 'epilep\\w*', 'convuls\\w*', 'autis\\w*', 'espectro autista', 'neurodivergent\\w*', 'hiperativ\\w*',
+  'deficit de atencao', 'asma', 'asmatic\\w*', 'bombinha', 'bronquit\\w*', 'rinite\\w*', 'dermatit\\w*', 'eczema\\w*', 'remedio\\w*', 'medicament\\w*',
+  'medicacao', 'medicad[oa]s?', 'tratamento (?:medico|de saude)', 'quimio\\w*', 'radioterap\\w*', 'cancer', 'tumor\\w*', 'leucemi\\w*', 'hiv', 'aids',
+  'hepatite', 'gravid\\w*', 'gestante', 'gestacao', 'hospital\\w*', 'internad[oa]s?', 'internacao', 'uti', 'cirurgi\\w*', 'pos[ -]?operatori\\w*',
+  'doenca\\w*', 'doente\\w*', 'depress\\w*', 'ansiedade', 'sindrome do panico', 'psiquiatr\\w*', 'psicolog\\w*', 'terapia', 'terapeut\\w*',
+  'sindrome\\w*', 'laudo\\w*', 'pressao alta', 'hipertens\\w*', 'cardiac\\w*', 'cardiopat\\w*', 'marca[- ]?passo', 'pediatra', 'alergista',
+  'neurolog\\w*', 'neuropediatra', 'gastroenterolog\\w*', 'endocrin\\w*',
+  // deficiência e acessibilidade ligada a uma pessoa
+  'deficien\\w*', 'cadeirante', 'cadeira de rodas', 'muleta\\w*', 'surd[oa]s?', 'surdez', 'ceg[oa]s?', 'cegueira', 'baixa visao', 'libras', 'mobilidade reduzida',
+  'sindrome de down', 'paralisia cerebral', 'tdah', 'tod',
+  // crença religiosa ou filosófica
+  'kosher', 'kasher', 'halal', 'adventist\\w*', 'testemunhas? de jeova', 'judaic\\w*', 'judeu', 'judia', 'muculman\\w*', 'islam\\w*', 'candomble',
+  'umbanda', 'evangelic\\w*', 'catolic\\w*', 'espirit[ai]\\w*', 'budist\\w*', 'religi\\w*', 'igreja', 'jejum', 'vegan[oa]s?', 'veganismo', 'vegetarian\\w*',
+  // origem étnica, orientação sexual, genético/biométrico
+  'indigena\\w*', 'quilombola\\w*', 'cigan[oa]s?', 'origem etnica', 'etnia', 'raca', 'homoafetiv\\w*', 'lgbt\\w*', 'gay', 'lesbic\\w*', 'transexua\\w*',
+  'transgener\\w*', 'genetic\\w*', 'biometri\\w*',
+].join('|') + ')(?![a-z])');
+const SIGLAS_SENSIVEIS = /(?<![\p{L}])(?:APLV|TEA|TDAH|TOD|CID|PKU|HIV|UTI|LGBTQIA\+?|PCD)(?![\p{L}])/u;
+const semAcentoMinusculo = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+export function dadoSensivel(texto: string | null | undefined) {
+  const n = normalizarParaPrivacidade(texto);
+  const s = semAcentoMinusculo(n);
+  return SENSIVEL.test(s) || ALERGIA.test(s) || SIGLAS_SENSIVEIS.test(n);
 }
 /**
  * D4 — entrada da fase B (interpretarMensagem): o histórico de 24 h (até 8 entradas do próprio cliente) passa pelas
  * MESMAS proteções da mensagem atual, entrada por entrada (antes de virar JSON, onde "\n" grudado no número escaparia da
- * máscara): dados pessoais ocultados, no máximo 500 caracteres cada, e entrada com dado de saúde substituída por um
- * marcador. A mensagem atual com dado de saúde nem chega aqui: o worker encaminha à equipe sem modelo.
+ * máscara): normalizada, dados pessoais ocultados, no máximo 500 caracteres, e entrada com dado sensível substituída por
+ * um marcador. A mensagem atual com dado sensível nem chega aqui: o worker encaminha à equipe sem modelo.
  */
-export const ENTRADA_SAUDE_OMITIDA = '[mensagem com dado de saúde omitida]';
+export const ENTRADA_SENSIVEL_OMITIDA = '[mensagem com dado sensível omitida]';
 export function entradaFaseB(historico: string[], atual: string, interesseAnterior: unknown) {
-  const minimizar = (t: string) => (dadoDeSaude(t) ? ENTRADA_SAUDE_OMITIDA : ocultarDadosPessoais(t).slice(0, 500));
+  const minimizar = (t: string) => (dadoSensivel(t) ? ENTRADA_SENSIVEL_OMITIDA : ocultarDadosPessoais(t).slice(0, 500));
   return JSON.stringify({ mensagens: historico.map(minimizar), mensagemAtual: minimizar(atual), interesseAnterior });
 }
-/** D2 — campo derivado gravado (passagem.ultimaMensagem): trecho minimizado, nunca a mensagem bruta inteira. */
+/**
+ * D2/B1 — campo derivado gravado (passagem.ultimaMensagem, resumo da equipe): nunca a mensagem bruta. Com dado sensível,
+ * só o marcador (o texto continua no histórico da conversa, que a exclusão e a retenção alcançam); sem ele, o trecho
+ * minimizado.
+ */
+export const REGISTRO_SENSIVEL = '[mensagem com dado sensível: ver o histórico]';
 export function trechoParaRegistro(texto: string | null | undefined, limite = 500) {
-  return ocultarDadosPessoais(String(texto ?? '')).slice(0, limite);
+  return dadoSensivel(texto) ? REGISTRO_SENSIVEL : ocultarDadosPessoais(String(texto ?? '')).slice(0, limite);
+}
+/** D1/B2 — texto livre que o modelo devolveu (tema): só se não for sensível; normalizado e minimizado. */
+export function textoDoModeloSeguro(valor: string | null | undefined) {
+  if (!valor || dadoSensivel(valor)) return null;
+  const limpo = ocultarDadosPessoais(valor).trim();
+  return limpo && !limpo.includes('[') ? limpo : null;
 }
 export function dataValida(valor: string) {
   const data = new Date(`${valor}T12:00:00Z`);
@@ -168,7 +225,7 @@ export function pausaPedidaNaRecepcao(texto: string | null | undefined) {
  * RECEPCAO (pedido reconhecido pelas regras na recepção), FILA (barreira do worker para entrada já enfileirada), WALLE
  * (silêncio do Wall-e: regras ou modelo revalidado), ENTRADA_VENCIDA e AUTOMACAO_DESLIGADA (encaminhamento sem resposta).
  */
-export type OrigemMarcaPausa = 'RECEPCAO' | 'FILA' | 'WALLE' | 'ENTRADA_VENCIDA' | 'AUTOMACAO_DESLIGADA';
+export type OrigemMarcaPausa = 'RECEPCAO' | 'FILA' | 'WALLE' | 'ENTRADA_VENCIDA' | 'AUTOMACAO_DESLIGADA' | 'EXCLUSAO';
 export function semAutomatico(conversa: { contexto?: Record<string, unknown> } | null | undefined) {
   const m = (conversa?.contexto as { semAutomatico?: unknown } | undefined)?.semAutomatico;
   return !!m && typeof m === 'object';

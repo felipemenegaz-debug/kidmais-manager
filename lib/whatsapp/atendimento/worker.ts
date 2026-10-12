@@ -1,12 +1,11 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, entendimentoSoRegras, origemMidia } from './configuracao.ts';
-import { MENSAGEM_ENCAMINHAMENTO, dadoDeSaude, entradaFaseB, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
+import { MENSAGEM_ENCAMINHAMENTO, dadoSensivel, entradaFaseB, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, tem082, type Conversa, type Mensagem } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
-import { aplicarRetencao } from './privacidade.ts';
 
 /**
  * Porta do Wall-e (082), montada na composition root: entende a mensagem (modelo revalidado ou regras locais) e
@@ -115,8 +114,6 @@ export async function processarLote(deps: DependenciasWorker, opcoes: { maxTaref
   // Revisão final (M3): automação global desligada ⇒ esvazia a fila para a equipe, sem modelo, Wall-e nem envio.
   if (opcoes.semAutomacao) return encaminharFilaSemAutomacao();
   await limparStatusExpirados();
-  // D2: retenção só com prazo definido no ambiente (sem padrão); falha da retenção não para a fila.
-  await aplicarRetencao().catch(() => null);
   const inicio = relogio();
   let tarefas = 0;
   while (tarefas < max && relogio() - inicio < prazo) {
@@ -187,7 +184,7 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       const comando = comandoDireto(atual);
       if (!comando && (entendimentoSoRegras() || !deps.interpretar)) return await encaminharSemModelo(mensagem, 'PROCESSADA');
       // D1: dado de saúde na mensagem atual nunca vai ao modelo; a equipe recebe com o texto fixo de encaminhamento.
-      if (!comando && dadoDeSaude(atual)) return await encaminharSemModelo(mensagem, 'PROCESSADA');
+      if (!comando && dadoSensivel(atual)) return await encaminharSemModelo(mensagem, 'PROCESSADA');
       let plano: Interpretacao;
       try { plano = comando ?? await deps.interpretar!(empresa, entradaFaseB(historico.map(m => m.texto), atual, conversa.interesse), config); }
       catch { return await encaminharSemModelo(mensagem, 'FALHOU'); }
@@ -214,6 +211,18 @@ export async function processarAtendimento(deps: DependenciasWorker) {
     const destino = await withTransaction(async tx => {
       const empresaAtiva = (await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR SHARE", [empresa])).rows.length;
       const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [conversa.id])).rows[0];
+      // M2 (12/10): a mensagem só avança de PROCESSANDO. Cancelada no intervalo (revogação, encerramento, PARAR, expiração),
+      // nada é sobrescrito e nada sai.
+      // Cancelada pela revogação/expiração do arquivo com a conversa travada por outro: o tratamento da conversa (memória
+      // de envio e equipe) é feito aqui. to_jsonb: a coluna do motivo só existe com a 082.
+      const agora = (await tx.query<{ estado: string; motivo: string | null }>("SELECT m.estado,to_jsonb(m)->>'motivo_cancelamento' AS motivo FROM whatsapp_atendimento_mensagens m WHERE m.id=$1 FOR UPDATE", [mensagem.id])).rows[0];
+      if (agora?.estado === 'CANCELADA' && agora.motivo?.startsWith('ARQUIVO_')) await tratarConversaSemArquivo(tx, mensagem, atual);
+      if (agora?.estado !== 'PROCESSANDO') return null;
+      // M2/M3 (12/10): arquivos desta saída e das saídas do mesmo grupo ainda por sair, travados FOR SHARE até o COMMIT que
+      // grava ENVIANDO (a revogação, que trava a conversa antes do arquivo, espera). Um indisponível (revogado, vencido, empresa inativa) cancela a
+      // saída e o resto do grupo com motivo, tira os materiais da memória de envio e passa a conversa à equipe: nunca um
+      // "segue o PDF" sem o PDF nem cancelamento silencioso.
+      if (await arquivoDoGrupoIndisponivel(tx, mensagem)) { await cancelarGrupoSemArquivo(tx, mensagem, atual); return null; }
       const autorAtivo = !mensagem.autor_usuario_id || (await tx.query("SELECT u.id FROM usuarios_administrativos u JOIN memberships m ON m.usuario_id=u.id WHERE u.id=$1 AND u.ativo=true AND m.empresa_id=$2 AND m.status='ATIVA' AND m.papel IN ('ADMINISTRATIVO','REPRESENTANTE_AUTORIZADO')", [mensagem.autor_usuario_id,empresa])).rows.length > 0;
       // Resposta automática gerada antes da última alteração da configuração (resposta publicada removida, corrigida,
       // nome ou limites mudados) não sai: pode carregar texto revogado. Comparação no banco, com precisão total. A
@@ -223,12 +232,10 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       // salvamento depois do COMMIT NÃO retém o envio já iniciado: o texto lido aqui sai (ou termina INCERTO).
       const vigente = await configuracao(tx, empresa, true);
       const revogada = !mensagem.autor_usuario_id && mensagem.texto !== MENSAGEM_ENCAMINHAMENTO && ((await tx.query("SELECT 1 FROM whatsapp_atendimento_config c JOIN whatsapp_atendimento_mensagens m ON m.empresa_id=c.empresa_id AND m.ambiente=c.ambiente WHERE m.id=$1 AND c.empresa_id=$2 AND c.ambiente=$3 AND c.atualizada_em > m.criada_em", [mensagem.id, empresa, ambiente])).rows.length > 0
-        || !(await materialAindaAutorizado(tx, mensagem, empresa, ambiente)))
-        // D3: arquivo próprio revogado, vencido ou de empresa inativa não sai (nem pelo atendente).
-        || (!!mensagem.midia_arquivo_id && !(await tx.query(`SELECT 1 FROM whatsapp_atendimento_arquivos a WHERE a.id=$1 AND a.empresa_id=$2 AND a.ambiente=$3 AND ${ARQUIVO_DISPONIVEL_SQL}`, [mensagem.midia_arquivo_id, empresa, ambiente])).rows.length);
+        || !(await materialAindaAutorizado(tx, mensagem, empresa, ambiente)));
       const valida = mensagemAindaValida(mensagem,atual);
       const ok = empresaAtiva && autorAtivo && !revogada && contatoPermitido(atual.contato) && valida && atendimentoAtivo() && vigente?.ativo;
-      await tx.query('UPDATE whatsapp_atendimento_mensagens SET estado=$2,iniciada_em=clock_timestamp() WHERE id=$1', [mensagem.id, ok ? 'ENVIANDO' : 'CANCELADA']);
+      await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado=$2,iniciada_em=clock_timestamp() WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id, ok ? 'ENVIANDO' : 'CANCELADA']);
       // Revogada quando ainda seria enviada, com a IA conduzindo: o cliente ficaria sem resposta, então a conversa vai
       // para a equipe. Estado humano (AGUARDANDO_HUMANO, HUMANO, ENCERRADA) e responsável não mudam.
       if (revogada && valida && atual.estado === 'IA') await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [atual.id]);
@@ -356,6 +363,38 @@ async function encaminharSemModelo(mensagem: Mensagem, estadoEntrada: 'FALHOU' |
  * PUBLICADO, com envio automático autorizado e na MESMA versão (FOR SHARE até marcar ENVIANDO). Editado, arquivado ou
  * desautorizado depois da resposta: a saída não sai (revogada). Linhas sem fonte do Wall-e não dependem disto.
  */
+type MensagemDeGrupo = Mensagem & { origem_grupo_id?: string | null; midia_pronta_id?: string | null };
+/** Algum arquivo próprio desta saída ou das saídas ainda por sair do mesmo grupo está indisponível? (trava FOR SHARE) */
+async function arquivoDoGrupoIndisponivel(tx: DbExecutor, mensagem: Mensagem) {
+  const m = mensagem as MensagemDeGrupo;
+  if (!m.midia_arquivo_id && !m.origem_grupo_id) return false;
+  const r = await tx.query<{ disponivel: boolean }>(`SELECT (${ARQUIVO_DISPONIVEL_SQL}) AS disponivel FROM whatsapp_atendimento_arquivos a
+    WHERE a.id IN (SELECT x.midia_arquivo_id FROM whatsapp_atendimento_mensagens x WHERE x.midia_arquivo_id IS NOT NULL AND x.conversa_id=$3
+      AND (x.id=$1 OR ($2::uuid IS NOT NULL AND x.origem_grupo_id=$2 AND x.direcao='SAIDA' AND x.estado IN ('PENDENTE','PROCESSANDO'))))
+    ORDER BY a.id FOR SHARE OF a`, [m.id, m.origem_grupo_id ?? null, m.conversa_id]);
+  return r.rows.some((x) => !x.disponivel);
+}
+/** Cancela a saída e o que resta do grupo (motivo ARQUIVO_INDISPONIVEL), limpa a memória de envio e chama a equipe. */
+async function cancelarGrupoSemArquivo(tx: DbExecutor, mensagem: Mensagem, atual: Conversa) {
+  const m = mensagem as MensagemDeGrupo;
+  const canceladas = (await tx.query<{ midia_pronta_id: string | null }>(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA',motivo_cancelamento='ARQUIVO_INDISPONIVEL'
+    WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens WHERE (id=$1 OR ($2::uuid IS NOT NULL AND origem_grupo_id=$2 AND direcao='SAIDA' AND estado='PENDENTE'))
+      AND estado IN ('PENDENTE','PROCESSANDO') FOR UPDATE SKIP LOCKED) RETURNING midia_pronta_id`, [m.id, m.origem_grupo_id ?? null])).rows;
+  await tratarConversaSemArquivo(tx, mensagem, atual, canceladas.map((x) => x.midia_pronta_id).filter((x): x is string => !!x));
+}
+/**
+ * Conversa de uma saída cancelada por arquivo indisponível: os materiais cancelados do grupo saem da memória de envio do
+ * Wall-e e, se a saída era automática, a conversa vai para a equipe. Idempotente. Sem a lista, lê do banco as saídas do
+ * grupo canceladas com motivo de arquivo.
+ */
+async function tratarConversaSemArquivo(tx: DbExecutor, mensagem: Mensagem, atual: Conversa, lista?: string[]) {
+  const m = mensagem as MensagemDeGrupo;
+  const prontas = lista ?? (await tx.query<{ midia_pronta_id: string }>(`SELECT midia_pronta_id FROM whatsapp_atendimento_mensagens WHERE (id=$1 OR ($2::uuid IS NOT NULL AND origem_grupo_id=$2))
+    AND estado='CANCELADA' AND midia_pronta_id IS NOT NULL AND to_jsonb(whatsapp_atendimento_mensagens)->>'motivo_cancelamento' IN ('ARQUIVO_INDISPONIVEL','ARQUIVO_REVOGADO')`, [m.id, m.origem_grupo_id ?? null])).rows.map((x) => x.midia_pronta_id);
+  if (prontas.length) await tx.query(`UPDATE whatsapp_atendimento_conversas SET contexto=jsonb_set(contexto,'{enviados}',COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(contexto->'enviados') e
+    WHERE NOT (e->>'prontaId' = ANY($2::text[]))),'[]'::jsonb)) WHERE id=$1 AND jsonb_typeof(contexto->'enviados')='array'`, [atual.id, prontas]);
+  if (!mensagem.autor_usuario_id) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [atual.id]);
+}
 async function materialAindaAutorizado(tx: DbExecutor, mensagem: Mensagem, empresa: string, ambiente: string) {
   const fonte = mensagem.fonte as { tipo?: string; fontes?: { tipo?: string; id?: string; versao?: number }[] } | null | undefined;
   if (mensagem.autor_usuario_id || fonte?.tipo !== 'WALLE') return true;

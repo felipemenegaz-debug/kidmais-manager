@@ -218,7 +218,7 @@ test('nome de perfil e cadastro nunca vão ao modelo: o worker só envia mensage
   const chamada = worker.match(/deps\.interpretar!?\(empresa, entradaFaseB\(([^)]*\))[^)]*\), config\)/);
   assert.ok(chamada, 'chamada ao modelo encontrada');
   assert.match(worker, /deps\.interpretar!\(empresa, entradaFaseB\(historico\.map\(m => m\.texto\), atual, conversa\.interesse\), config\)/);
-  assert.match(worker, /if \(!comando && dadoDeSaude\(atual\)\) return await encaminharSemModelo\(mensagem, 'PROCESSADA'\);/, 'D1: saúde na mensagem atual não vai ao modelo');
+  assert.match(worker, /if \(!comando && dadoSensivel\(atual\)\) return await encaminharSemModelo\(mensagem, 'PROCESSADA'\);/, 'D1: saúde na mensagem atual não vai ao modelo');
   assert.doesNotMatch(worker, /nome_perfil|cliente_nome|cadastro/);
 });
 test('depois do PARAR, "atendente" fica registrado mas não reabre a conversa nem libera ações', async () => {

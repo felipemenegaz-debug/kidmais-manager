@@ -29,7 +29,8 @@ export async function lerArquivoPublico(id: string, token: string): Promise<Arqu
 
 /** Resposta HTTP do arquivo: inteiro, ou o intervalo pedido (vídeo); cabeçalhos que impedem execução no navegador. */
 export function respostaArquivo(a: ArquivoPublico | null, range: string | null, head: boolean) {
-  const base = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex', 'Cache-Control': 'private, max-age=300' };
+    // B4 (12/10): nada guarda cópia (navegador, proxy, provedor): a revogação, a troca de link e a expiração valem na hora.
+  const base = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex', 'Cache-Control': 'no-store, max-age=0', Pragma: 'no-cache' };
   if (!a) return new Response(head ? null : 'Arquivo não encontrado.', { status: 404, headers: { ...base, 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
   const headers: Record<string, string> = {
     ...base, 'Content-Type': a.mime, 'Accept-Ranges': 'bytes', ETag: `"${a.sha256}"`,

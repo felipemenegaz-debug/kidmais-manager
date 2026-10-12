@@ -9,6 +9,7 @@ import * as prontas from "./prontas.ts";
 import * as prontasLink from "./prontas-link.ts";
 import * as transporte from "./transporte.ts";
 import * as arquivos from "./arquivos.ts";
+import * as reautenticacao from "../../perfil/reautenticacao.ts";
 import * as entendimento from "./walle/entendimento.ts";
 import * as mappers from "../../clientes/repositories/mappers.ts";
 import * as normalizers from "../../clientes/repositories/normalizers.ts";
@@ -50,12 +51,13 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging")
     "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento,
   }).modulo as typeof import("./service.ts");
   // D2/D3: módulo de privacidade REAL, com a mesma conexão por transação e o serviço do harness.
+  // 12/10: a privacidade comprova a empresa ATIVA da sessão (não a piloto) pelo mesmo Tenant Context, na conexão do harness.
   const privacidade = carregarComponente("lib/whatsapp/atendimento/privacidade.ts", {
-    "node:crypto": nodeCrypto, "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./service.ts": servico,
+    "node:crypto": nodeCrypto, "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "../../perfil/reautenticacao.ts": reautenticacao,
+    "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos,
   }).modulo as typeof import("./privacidade.ts");
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
     "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos,
-    "./privacidade.ts": privacidade,
   }).modulo as typeof import("./worker.ts");
   // Repositório REAL de clientes (mesma consulta da aplicação), com a conexão da transação.
   const clientes = carregarComponente("lib/clientes/repositories/cliente.repository.ts", {

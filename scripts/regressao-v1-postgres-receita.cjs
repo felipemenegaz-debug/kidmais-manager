@@ -20,8 +20,9 @@
  *   079   — inventário inteiro até a 079 (recuperação manual de convites).
  *           Desde a integração do atendimento (11/10/2026), os modelos 061…079 incluem a 060 e a 065, que ficam antes
  *           delas na ordem do inventário (como o 063 já incluía a 060).
- *   079-sem-atendimento — inventário até a 079 SEM a 060 e a 065: o schema que as evidências datadas registram no
- *           banco de staging antes das migrations do atendimento (estado real só por E2a novo).
+ *   079-sem-atendimento — inventário até a 079 SEM a 060 e a 065: a PREMISSA do banco de staging antes das
+ *           migrations do atendimento (076–078 com evidência datada; 079 sem evidência datada; estado real só por E2a novo).
+ *   079-sem-065 — inventário até a 079 sem a 065 (060 presente): o estado misto possível do staging.
  *   082   — inventário inteiro até a 082: atendimento completo (060, 065, 080, 081, 082) na ordem do inventário.
  *
  * Segurança (fail-closed, antes de qualquer escrita):
@@ -66,8 +67,10 @@ const MODELOS = {
   "078": { banco: "kidmais_v1_modelo_078", ate: "078", sem: [] },
   // Recuperação manual de convites (079): cadeia completa do schema vigente, incluindo 064–079.
   "079": { banco: "kidmais_v1_modelo_079", ate: "079", sem: [] },
-  // Staging real antes do atendimento: 061…079 aplicadas, 060/065 ausentes (base da suíte ordem-staging-real).
+  // Premissa do staging antes do atendimento: 061…079 presentes, 060/065 ausentes (base da suíte ordem-staging-real).
   "079-sem-atendimento": { banco: "kidmais_v1_modelo_079_sem_atendimento", ate: "079", sem: ["060", "065"] },
+  // Estado misto (12/10): a 060 aplicada antes de 061…079 e a 065 ausente (base da suíte estado-misto).
+  "079-sem-065": { banco: "kidmais_v1_modelo_079_sem_065", ate: "079", sem: ["065"] },
   // Atendimento completo na ordem do inventário (060 antes da 061, 065 antes da 064, 080–082 depois da 079).
   "082": { banco: "kidmais_v1_modelo_082", ate: "082", sem: [] },
 };

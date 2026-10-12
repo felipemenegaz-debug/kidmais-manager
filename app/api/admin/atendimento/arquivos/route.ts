@@ -5,8 +5,6 @@ import { TEMPO_PADRAO, criarSemaforo, lerMultipartLimitado, limitesUpload, type 
 import { LIMITE_ARQUIVO } from '@/lib/whatsapp/atendimento/arquivos';
 import { exigirGestaoBiblioteca, salvarArquivo } from '@/lib/whatsapp/atendimento/prontas-servico';
 import { respostaDeErroAtendimento } from '@/lib/whatsapp/atendimento/erros';
-import { definirExpiracaoArquivo, revogarArquivo, trocarLinkArquivo } from '@/lib/whatsapp/atendimento/privacidade';
-import { z } from 'zod';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -40,27 +38,3 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/**
- * D3: revogar (apaga o conteúdo, troca o link, arquiva as prontas e cancela a fila; irreversível — confirmação digitada),
- * trocar o link (o anterior para de servir) ou definir a expiração (null = sem expiração). Só o representante.
- */
-const acaoArquivo = z.discriminatedUnion('acao', [
-  z.object({ acao: z.literal('revogar'), arquivoId: z.uuid(), confirmacao: z.literal('REVOGAR') }).strict(),
-  z.object({ acao: z.literal('trocar_link'), arquivoId: z.uuid() }).strict(),
-  z.object({ acao: z.literal('expiracao'), arquivoId: z.uuid(), expiraEm: z.iso.datetime({ offset: true }).nullable() }).strict(),
-]);
-export async function PATCH(request: NextRequest) {
-  try {
-    const sessao = await exigirApiAdminCrmDisponivel(request);
-    const pedido = acaoArquivo.safeParse(await request.json());
-    if (!pedido.success) return resposta({ ok: false, erro: 'Confira os campos.', codigo: 'DADOS_INVALIDOS' }, 400);
-    const p = pedido.data;
-    if (p.acao === 'revogar') return resposta({ ok: true, data: await revogarArquivo(sessao, { arquivoId: p.arquivoId }) });
-    if (p.acao === 'trocar_link') { await trocarLinkArquivo(sessao, { arquivoId: p.arquivoId }); return resposta({ ok: true }); }
-    await definirExpiracaoArquivo(sessao, { arquivoId: p.arquivoId, expiraEm: p.expiraEm });
-    return resposta({ ok: true });
-  } catch (e) {
-    const r = respostaDeErroAtendimento(e);
-    return resposta(r.corpo, r.status);
-  }
-}

@@ -28,14 +28,24 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_UNIDADE_NAO_ENCONTRADA: 'Unidade não encontrada nesta empresa.',
   ATENDIMENTO_ARQUIVO_INVALIDO: 'O arquivo escolhido não é desta empresa ou não é do tipo da mensagem. Envie o arquivo de novo.',
   ATENDIMENTO_ARQUIVO_NAO_ENCONTRADO: 'Arquivo não encontrado nesta empresa (ou já revogado). Atualize a lista.',
+  ATENDIMENTO_ARQUIVO_INDISPONIVEL: 'O arquivo desta mensagem pronta foi revogado ou expirou. Nada foi enviado; escolha outro material.',
+  ATENDIMENTO_ARQUIVO_VENCIDO: 'Este arquivo já expirou. Para usá-lo de novo, reative-o: um link novo será gerado.',
+  ATENDIMENTO_ARQUIVO_NAO_VENCIDO: 'Este arquivo não está vencido: não há o que reativar.',
+  ATENDIMENTO_DATA_INVALIDA: 'Informe uma data e hora futura (até 5 anos).',
+  ATENDIMENTO_PRAZO_INVALIDO: 'Informe um prazo entre 1 e 3650 dias, ou desligue a exclusão automática.',
+  ATENDIMENTO_EXCLUSAO_ADIADA: 'Esta conversa tem uma mensagem em processamento ou em envio. Nada foi apagado; tente de novo em alguns instantes.',
+  ATENDIMENTO_REAUTENTICACAO: 'Confirme sua senha antes desta ação.',
   ATENDIMENTO_PRONTA_MIDIA_ALTERADA: 'A foto ou o vídeo desta mensagem pronta mudou ou foi removido depois da prévia. Nada foi enviado: remova o anexo e abra a prévia de novo para revisar.',
 };
 // Regra de negócio não é indisponibilidade: só falha inesperada (banco, configuração) devolve 503.
 const CONFLITO = ['ATENDIMENTO_DESATUALIZADO', 'ATENDIMENTO_ENVIO_EM_ANDAMENTO', 'ATENDIMENTO_CONTATO_BLOQUEADO', 'ATENDIMENTO_PAUSA_PEDIDA', 'ATENDIMENTO_JANELA_EXPIRADA', 'ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR', 'ATENDIMENTO_AUTOMACAO_DESLIGADA', 'ATENDIMENTO_IA_DESLIGADA', 'ATENDIMENTO_LEGENDA_LONGA',
-  'ATENDIMENTO_PRONTA_ATALHO_EM_USO', 'ATENDIMENTO_PRONTA_TITULO_EM_USO', 'ATENDIMENTO_PRONTA_DESATUALIZADA', 'ATENDIMENTO_PRONTA_MIDIA_ALTERADA', 'ATENDIMENTO_RECURSO_082_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_INVALIDO'];
+  'ATENDIMENTO_PRONTA_ATALHO_EM_USO', 'ATENDIMENTO_PRONTA_TITULO_EM_USO', 'ATENDIMENTO_PRONTA_DESATUALIZADA', 'ATENDIMENTO_PRONTA_MIDIA_ALTERADA', 'ATENDIMENTO_RECURSO_082_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_INVALIDO',
+  'ATENDIMENTO_ARQUIVO_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_VENCIDO', 'ATENDIMENTO_ARQUIVO_NAO_VENCIDO', 'ATENDIMENTO_EXCLUSAO_ADIADA'];
+// Dado informado inválido (data, prazo): 400, nunca 503.
+const INVALIDO = ['ATENDIMENTO_DATA_INVALIDA', 'ATENDIMENTO_PRAZO_INVALIDO'];
 const NAO_ENCONTRADO = ['ATENDIMENTO_NAO_ENCONTRADO', 'ATENDIMENTO_ARQUIVO_NAO_ENCONTRADO', 'ATENDIMENTO_PRONTA_NAO_ENCONTRADA', 'ATENDIMENTO_PACOTE_NAO_ENCONTRADO', 'ATENDIMENTO_UNIDADE_NAO_ENCONTRADA'];
 // Recusas de acesso (antes de ler ou gravar qualquer coisa): papel, vínculo e empresa ativa (063 do painel).
-const ACESSO = ['ATENDIMENTO_ACESSO_NEGADO', 'ATENDIMENTO_SEM_ACESSO', 'ATENDIMENTO_EMPRESA_DIVERGENTE', 'ATENDIMENTO_EMPRESA_NAO_SELECIONADA'];
+const ACESSO = ['ATENDIMENTO_ACESSO_NEGADO', 'ATENDIMENTO_REAUTENTICACAO', 'ATENDIMENTO_SEM_ACESSO', 'ATENDIMENTO_EMPRESA_DIVERGENTE', 'ATENDIMENTO_EMPRESA_NAO_SELECIONADA'];
 
 export function respostaDeErroAtendimento(error: unknown): { status: number; corpo: { ok: false; erro: string; codigo: string } } {
   if (error instanceof SyntaxError) return { status: 400, corpo: { ok: false, erro: 'Confira os campos.', codigo: 'DADOS_INVALIDOS' } };
@@ -47,6 +57,6 @@ export function respostaDeErroAtendimento(error: unknown): { status: number; cor
   // Arquivo recusado na validação (formato, tamanho, tipo): mensagem para a pessoa, sem 503.
   if (error instanceof Error && MENSAGEM_ERRO_ARQUIVO[error.message]) return { status: 400, corpo: { ok: false, erro: MENSAGEM_ERRO_ARQUIVO[error.message], codigo: error.message } };
   const code = error instanceof Error && /^ATENDIMENTO_[A-Z_]+$/.test(error.message) ? error.message : 'ATENDIMENTO_INDISPONIVEL';
-  const status = CONFLITO.includes(code) ? 409 : ACESSO.includes(code) ? 403 : NAO_ENCONTRADO.includes(code) ? 404 : 503;
+  const status = INVALIDO.includes(code) ? 400 : CONFLITO.includes(code) ? 409 : ACESSO.includes(code) ? 403 : NAO_ENCONTRADO.includes(code) ? 404 : 503;
   return { status, corpo: { ok: false, erro: MENSAGEM[code] ?? 'Atendimento indisponível ou acesso não autorizado. Confira a configuração do piloto.', codigo: code } };
 }

@@ -13,7 +13,7 @@ function carregarPorta(regras: () => boolean) {
     '../../../db/postgres.ts': { db: () => ({ query: async () => { throw new Error('banco proibido no teste'); } }) },
     '../../../clientes/repositories/cliente.repository': { buscarClientesPorContatoExato: async () => [] },
     '../../../fechamentos/contratacoes.ts': { listarContratacoes: async () => [] },
-    '../core.ts': { ocultarDadosPessoais: (t: string) => t, dadoDeSaude: (t: string) => /alergia/.test(t) },
+    '../core.ts': { ocultarDadosPessoais: (t: string) => t, dadoSensivel: (t: string) => /alergia/.test(t) },
     '../configuracao.ts': { entendimentoSoRegras: regras },
     '../prontas-link.ts': { resolverLinkFechamento: async () => ({ ok: false }) },
     './contexto.ts': { lerContexto: (c: unknown) => (c ?? {}) },

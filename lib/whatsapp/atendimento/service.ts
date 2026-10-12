@@ -40,6 +40,10 @@ export async function temMidia(tx: DbExecutor) {
  * Wall-e (082): arquivos próprios, PDF, estados da biblioteca, várias saídas por entrada, fonte, memória e passagem.
  * Consulta de catálogo a cada uso, sem cache (aplicar ou reverter a 082 não exige reiniciar a aplicação).
  */
+/** Controles de privacidade da 082 (12/10): controles mínimos, eventos excluídos, retenção. */
+export async function temControlesPrivacidade(tx: DbExecutor) {
+  return (await tx.query<{ e: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_controles_contato') IS NOT NULL AS e")).rows[0]?.e === true;
+}
 export async function tem082(tx: DbExecutor) {
   const r = await tx.query<{ existe: boolean }>(`SELECT to_regclass('public.whatsapp_atendimento_arquivos') IS NOT NULL
     AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.whatsapp_atendimento_mensagens') AND attname='origem_grupo_id' AND NOT attisdropped) AS existe`);
@@ -63,11 +67,13 @@ export async function midiaDaPronta(tx: DbExecutor, empresa: string, ambiente: s
   if (!r) throw new Error('ATENDIMENTO_PRONTA_NAO_ENCONTRADA');
   if (Number(r.versao) !== versao || !r.ativa || (r082 && r.estado !== 'PUBLICADA')) throw new Error('ATENDIMENTO_PRONTA_MIDIA_ALTERADA');
   if (!['IMAGEM', 'VIDEO', 'DOCUMENTO'].includes(r.tipo) || (!r.midia_url && !r.arquivo_id)) throw new Error('ATENDIMENTO_PRONTA_NAO_ENCONTRADA');
+  // M3 (12/10): arquivo revogado, vencido ou de empresa inativa não entra na fila (o operador vê o motivo na hora).
+  if (r.arquivo_id && !(await tx.query(`SELECT 1 FROM whatsapp_atendimento_arquivos a WHERE a.id=$1 AND a.empresa_id=$2 AND a.ambiente=$3 AND ${ARQUIVO_DISPONIVEL_SQL}`, [r.arquivo_id, empresa, ambiente])).rows.length) throw new Error('ATENDIMENTO_ARQUIVO_INDISPONIVEL');
   return { tipo: r.tipo as MidiaDaPronta['tipo'], midia_url: r.midia_url, arquivo_id: r.arquivo_id, nome: r.arquivo_nome, versao };
 }
 export const LIMITE_LEGENDA_ENVIO = 1024;
 /** `midia_nome` e `midia_caminho` (082): nome do arquivo próprio e o caminho público para conferir na tela. */
-export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean; midia_tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO' | null; midia_url: string | null; midia_nome?: string | null; midia_caminho?: string | null; ordem?: number };
+export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean; midia_tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO' | null; midia_url: string | null; midia_nome?: string | null; midia_caminho?: string | null; ordem?: number; motivo_cancelamento?: 'ARQUIVO_INDISPONIVEL' | 'ARQUIVO_REVOGADO' | null };
 /** Situação do canal neste ambiente, em partes separadas: receber, responder e a configuração da empresa. */
 export type EstadoCanal = { ambiente: string; receptor: boolean; recepcao: boolean; envio: boolean };
 /**
@@ -105,9 +111,23 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
     const config = await configuracao(tx, empresa);
     await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`wa:${ambiente}:${empresa}:${entrada.source}`]);
     if ((await tx.query('SELECT id FROM whatsapp_atendimento_mensagens WHERE empresa_id=$1 AND ambiente=$2 AND externa_id=$3', [empresa, ambiente, entrada.id])).rows.length) return;
-    const conversa = (await tx.query<Conversa>(`INSERT INTO whatsapp_atendimento_conversas(empresa_id,ambiente,contato,ultima_entrada_em) VALUES($1,$2,$3,$4)
+    // M1 (12/10): reentrega (ou replay) de um evento cuja mensagem foi EXCLUÍDA: confirma sem gravar nada (o hash do id do
+    // evento fica em whatsapp_atendimento_eventos_excluidos por um prazo técnico; nenhum texto ou nome é guardado de novo).
+    const privacidade082 = await temControlesPrivacidade(tx);
+    if (privacidade082 && (await tx.query("SELECT 1 FROM whatsapp_atendimento_eventos_excluidos WHERE empresa_id=$1 AND ambiente=$2 AND provedor='GUPSHUP' AND evento_sha256=encode(sha256(convert_to($3,'UTF8')),'hex')", [empresa, ambiente, entrada.id])).rows.length) return;
+    let conversa = (await tx.query<Conversa & { criada: boolean }>(`INSERT INTO whatsapp_atendimento_conversas(empresa_id,ambiente,contato,ultima_entrada_em) VALUES($1,$2,$3,$4)
       ON CONFLICT(empresa_id,ambiente,contato) DO UPDATE SET ultima_entrada_em=GREATEST(whatsapp_atendimento_conversas.ultima_entrada_em,EXCLUDED.ultima_entrada_em),versao=whatsapp_atendimento_conversas.versao+1,atualizada_em=clock_timestamp()
-      RETURNING *`, [empresa, ambiente, entrada.source, em])).rows[0];
+      RETURNING *,(xmax = 0) AS criada`, [empresa, ambiente, entrada.source, em])).rows[0];
+    // A2 (12/10): conversa NOVA de um número cuja conversa anterior foi excluída herda os controles mínimos (PARAR, pausa,
+    // equipe) e a linha de controle é consumida. Nunca volta sozinha ao bot: PARAR encerra e bloqueia; pausa grava a marca
+    // persistente (origem EXCLUSAO); equipe deixa a conversa aguardando a equipe.
+    if (conversa.criada && privacidade082) {
+      const c = (await tx.query<{ nao_contatar: boolean; sem_automatico: boolean; com_equipe: boolean }>('DELETE FROM whatsapp_atendimento_controles_contato WHERE empresa_id=$1 AND ambiente=$2 AND contato=$3 RETURNING nao_contatar,sem_automatico,com_equipe', [empresa, ambiente, entrada.source])).rows[0];
+      if (c) conversa = (await tx.query<Conversa & { criada: boolean }>(`UPDATE whatsapp_atendimento_conversas SET nao_contatar=$2,
+          estado=CASE WHEN $2 THEN 'ENCERRADA' WHEN $3 OR $4 THEN 'AGUARDANDO_HUMANO' ELSE estado END,
+          contexto=CASE WHEN $3 THEN COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$5::jsonb) ELSE contexto END
+        WHERE id=$1 RETURNING *,true AS criada`, [conversa.id, c.nao_contatar, c.sem_automatico, c.com_equipe, JSON.stringify({ motivo: 'PARAR_A_CONFIRMAR', em, origem: 'EXCLUSAO' })])).rows[0];
+    }
     // Nome de perfil (não verificado): o mais recente vence; replay antigo não sobrescreve. Não muda versão nem estado.
     const nomePerfil = nomePerfilSeguro(entrada.nomePerfil);
     if (nomePerfil && await temNomePerfil(tx)) {
@@ -234,7 +254,7 @@ export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: s
       WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY c.atualizada_em DESC LIMIT 100`, [empresa, ambiente])).rows;
     const midia = await temMidia(tx), r082 = await tem082(tx);
     // Com a 082: nome do arquivo próprio e o caminho público (token) para conferir; várias saídas da mesma entrada na ordem.
-    const colunasMidia = r082 ? 'm.midia_tipo,m.midia_url,m.midia_nome,m.ordem,a.id AS arquivo_id,a.token AS arquivo_token'
+    const colunasMidia = r082 ? `m.midia_tipo,m.midia_url,m.midia_nome,m.ordem,a.id AS arquivo_id,a.token AS arquivo_token${(await temControlesPrivacidade(tx)) ? ',m.motivo_cancelamento' : ''}`
       : midia ? 'm.midia_tipo,m.midia_url' : 'NULL::text AS midia_tipo,NULL::text AS midia_url';
     // D3: arquivo revogado/vencido não tem mais caminho (o registro da mensagem fica, sem o link).
     const juntaArquivo = r082 ? ` LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=m.midia_arquivo_id AND a.empresa_id=m.empresa_id AND a.ambiente=m.ambiente AND ${ARQUIVO_DISPONIVEL_SQL}` : '';

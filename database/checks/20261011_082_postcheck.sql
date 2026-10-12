@@ -8,7 +8,13 @@ BEGIN
     RAISE EXCEPTION 'postcheck 082: trigger de controle dos arquivos (só revogação/troca de link) ausente ou desligado';
   END IF;
   IF to_regclass('public.whatsapp_atendimento_privacidade') IS NULL THEN RAISE EXCEPTION 'postcheck 082: registro de privacidade ausente'; END IF;
-  FOREACH item IN ARRAY ARRAY['whatsapp_privacidade_autor', 'whatsapp_privacidade_alvo', 'whatsapp_privacidade_retencao'] LOOP
+  FOREACH item IN ARRAY ARRAY['whatsapp_atendimento_controles_contato', 'whatsapp_atendimento_eventos_excluidos', 'whatsapp_atendimento_retencao_config', 'whatsapp_atendimento_retencao_execucoes'] LOOP
+    IF to_regclass('public.' || item) IS NULL THEN RAISE EXCEPTION 'postcheck 082: tabela % ausente', item; END IF;
+  END LOOP;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.whatsapp_atendimento_mensagens'::regclass AND conname = 'whatsapp_mensagens_motivo_cancelamento' AND convalidated) THEN
+    RAISE EXCEPTION 'postcheck 082: motivo de cancelamento ausente';
+  END IF;
+  FOREACH item IN ARRAY ARRAY['whatsapp_privacidade_autor', 'whatsapp_privacidade_alvo', 'whatsapp_privacidade_retencao', 'whatsapp_privacidade_motivo'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.whatsapp_atendimento_privacidade'::regclass AND conname = item AND convalidated) THEN
       RAISE EXCEPTION 'postcheck 082: restrição % ausente ou não validada', item;
     END IF;

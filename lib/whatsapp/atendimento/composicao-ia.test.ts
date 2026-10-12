@@ -21,7 +21,10 @@ test('modo regras com orçamento válido: a composition root não monta modelo p
   assert.ok(typeof orcamento !== 'string', 'orçamento válido');
   assert.equal(planejarReserva(orcamento as never, { capacidade: 'whatsapp_atendimento', hoje: '2026-10-09', moedaPreco: null, precoConhecido: true }).tipo, 'RESERVAR', 'o orçamento permitiria chamar o modelo');
   assert.deepEqual(modelo.portasDeModeloAtendimento({ ...env, WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO: 'regras' }), { interpretar: null, entender: null }, 'regras: nenhuma porta de modelo');
-  const comModelo = modelo.portasDeModeloAtendimento(env);
+  // 12/10 (D1): sem a variável, o padrão é o modo regras; o modelo só com a opção explícita "modelo".
+  assert.deepEqual(modelo.portasDeModeloAtendimento(env), { interpretar: null, entender: null }, 'padrão: nenhuma porta de modelo');
+  assert.deepEqual(modelo.portasDeModeloAtendimento({ ...env, WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO: 'Modelo' }), { interpretar: null, entender: null }, 'qualquer valor diferente de "modelo" = regras');
+  const comModelo = modelo.portasDeModeloAtendimento({ ...env, WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO: 'modelo' });
   assert.equal(typeof comModelo.interpretar, 'function'); assert.equal(typeof comModelo.entender, 'function');
 });
 

@@ -135,11 +135,15 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/pausa-limite.postgres.test.ts": { descartavel: "atual" },
   // M1: limite diário esgotado ⇒ equipe em silêncio (sem modelo nem texto fixo, sem inventar pausa); origem das marcas.
   "lib/whatsapp/atendimento/limite-silencio.postgres.test.ts": { descartavel: "atual" },
-  // 11/10: ordem do staging real (061…079 já aplicadas; 060/065/080–082 depois) × ordem do inventário (modelo "082", no
+  // 11/10: ordem da premissa do staging (061…079 presentes; 060/065/080–082 depois) × ordem do inventário (modelo "082", no
   // banco de rollback): mesmo schema; rollback nas duas ordens; downs da 078/079 com o atendimento presente.
   "lib/whatsapp/atendimento/ordem-staging-real.postgres.test.ts": { descartavel: "079-sem-atendimento", rollback: "082" },
   // 11/10: o Wall-e no catálogo do buffet por empresa (078 do staging): cada empresa só vê o próprio buffet.
   "lib/whatsapp/atendimento/walle/catalogo-por-empresa.postgres.test.ts": { descartavel: "082" },
+  // 12/10: estado misto (060 aplicada antes de 061…079, 065 ausente) × ordem do inventário; rollback.
+  "lib/whatsapp/atendimento/estado-misto.postgres.test.ts": { descartavel: "079-sem-065", rollback: "082" },
+  // 12/10 (M2): corrida revogação × envio, determinística (travas do banco como barreiras).
+  "lib/whatsapp/atendimento/revogacao-envio.postgres.test.ts": { descartavel: "082" },
   // D2/D3: exclusão (pedido e retenção), PARAR preservado, tarefas pendentes, revogação/troca de link/expiração de arquivos.
   "lib/whatsapp/atendimento/privacidade.postgres.test.ts": { descartavel: "082" },
   // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
