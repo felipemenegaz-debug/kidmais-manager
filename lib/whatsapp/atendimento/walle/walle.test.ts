@@ -3998,3 +3998,86 @@ test('revisão 1a0ef17 (M2) — a pergunta de valor fica com a ocorrência da pr
   const solta = await conversa(['Quanto custa? Queria uma segunda mesa temática'], { composicoes, precos });
   assert.deepEqual(consultouPreco(solta.chamadas), ['preco-adicional:ad-mesa2:null']);
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Revisão de 8336a56 — complementos preservados ("de vidro", "com LED"), igualdade exata (XL × XL2), normalização explícita.
+const MESA_ITEM = (id: string, nome: string) => ({ id, nome, categoria: 'DECORACAO' });
+const soExtras = (...extras: ReturnType<typeof MESA_ITEM>[]) => (): Composicao => ({ categorias: BUFFET, inclusos: [], extras });
+
+test('revisão 8336a56 — complemento com preposição faz parte do pedido; sem variante, lacuna sem preço', async () => {
+  const composicoes = soExtras(MESA_ITEM('ad-m', 'Mesa temática'));
+  const precos = { 'ad-m': precoFixo(300) };
+  for (const [pergunta, como] of [['quanto custa uma mesa temática de vidro?', 'mesa temática de vidro'], ['quanto custa uma mesa temática com LED?', 'mesa temática com LED'], ['quanto custa a mesa temática de madeira com LED?', 'mesa temática de madeira com LED'], ['quanto custa uma mesa temática de 2 metros?', 'mesa temática de 2 metros']]) {
+    const c = await conversa([pergunta], { composicoes, precos });
+    assert.doesNotMatch(texto(c.ultima), /R\$/, pergunta);
+    assert.ok(texto(c.ultima).includes(`Não tenho cadastrado “${como}”`), `${pergunta}: ${texto(c.ultima)}`);
+    assert.deepEqual(consultouPreco(c.chamadas), [], pergunta);
+    assert.equal(c.ultima.passagem?.motivo, 'INFORMACAO_INDISPONIVEL', pergunta);
+  }
+  // Complemento que é contexto (pacote, festa, convidados, data) não é qualificador: preço do item simples, sem equipe.
+  for (const pergunta of ['quanto custa a mesa temática do pacote Premium?', 'quanto custa a mesa temática da festa?', 'quanto custa a mesa temática do Essencial?', 'quanto custa a mesa temática de 50 convidados?', 'quanto custa a mesa temática do dia 20/11?']) {
+    const c = await conversa([pergunta], { composicoes, precos });
+    assert.match(texto(c.ultima), /“Mesa temática” é adicional: R\$\s?300,00/, `${pergunta}: ${texto(c.ultima)}`);
+    assert.deepEqual(consultouPreco(c.chamadas), [`preco-adicional:ad-m:${/50 convidados/.test(pergunta) ? 50 : null}`], pergunta);
+  }
+});
+
+test('revisão 8336a56 — variantes com complemento cadastradas respondem pelo próprio preço', async () => {
+  const composicoes = soExtras(MESA_ITEM('ad-m', 'Mesa temática'), MESA_ITEM('ad-v', 'Mesa temática de vidro'), MESA_ITEM('ad-l', 'Mesa temática com LED'), MESA_ITEM('ad-vl', 'Mesa temática de vidro com LED'));
+  const precos = { 'ad-m': precoFixo(300), 'ad-v': precoFixo(520), 'ad-l': precoFixo(610), 'ad-vl': precoFixo(800) };
+  const casos: Array<[string, string]> = [
+    ['quanto custa uma mesa temática de vidro?', 'ad-v'], ['quanto custa uma mesa temática com LED?', 'ad-l'], ['quanto custa uma mesa temática com luz LED de vidro?', ''],
+    ['quanto custa uma mesa temática de vidro com LED?', 'ad-vl'], ['quanto custa uma mesa temática com LED de vidro?', 'ad-vl'], ['quanto custa a mesa temática?', 'ad-m'],
+  ];
+  for (const [pergunta, id] of casos) {
+    const c = await conversa([pergunta], { composicoes, precos });
+    if (id) { assert.deepEqual(consultouPreco(c.chamadas), [`preco-adicional:${id}:null`], pergunta); assert.equal(c.ultima.passagem, null, pergunta); }
+    else { assert.deepEqual(consultouPreco(c.chamadas), [], `${pergunta}: "luz" não está cadastrada`); assert.ok(c.ultima.passagem, pergunta); }
+  }
+});
+
+test('revisão 8336a56 — XL e XL2 são códigos diferentes nos dois sentidos; sem prefixo nem truncamento', async () => {
+  const soXL = { composicoes: soExtras(MESA_ITEM('ad-xl', 'Mesa temática XL')), precos: { 'ad-xl': precoFixo(900) } };
+  const soXL2 = { composicoes: soExtras(MESA_ITEM('ad-xl2', 'Mesa temática XL2')), precos: { 'ad-xl2': precoFixo(990) } };
+  const casos: Array<[string, OpFontes]> = [['quanto custa uma mesa temática XL2?', soXL], ['quanto custa uma mesa temática XL?', soXL2], ['quanto custa uma mesa temática X?', soXL], ['quanto custa uma mesa temática XLL?', soXL]];
+  for (const [pergunta, op] of casos) {
+    const c = await conversa([pergunta], op);
+    assert.doesNotMatch(texto(c.ultima), /R\$/, pergunta);
+    assert.deepEqual(consultouPreco(c.chamadas), [], pergunta);
+  }
+  const certo = await conversa(['quanto custa uma mesa temática XL2?'], soXL2);
+  assert.match(texto(certo.ultima), /“Mesa temática XL2” é adicional: R\$\s?990,00/);
+  // Gênero e radical não são equivalência: "redondo" não é "redonda" sem alias aprovado.
+  const genero = await conversa(['quanto custa uma mesa temática redondo?'], { composicoes: soExtras(MESA_ITEM('ad-r', 'Mesa temática redonda')), precos: { 'ad-r': precoFixo(350) } });
+  assert.deepEqual(consultouPreco(genero.chamadas), []);
+});
+
+test('revisão 8336a56 — normalização explícita: caixa, acentos e plural', async () => {
+  const composicoes = soExtras(MESA_ITEM('ad-m', 'Mesa temática'), MESA_ITEM('ad-r', 'Mesa temática redonda'), MESA_ITEM('ad-luz', 'Mesa temática com luzes'));
+  const precos = { 'ad-m': precoFixo(300), 'ad-r': precoFixo(350), 'ad-luz': precoFixo(410) };
+  const casos: Array<[string, string]> = [
+    ['QUANTO CUSTA UMA MESA TEMÁTICA REDONDA?', 'ad-r'], ['quanto custa uma mesa tematica redonda?', 'ad-r'], ['quanto custam duas mesas temáticas redondas?', 'ad-r'],
+    ['quanto custa uma mesa temática com luz?', 'ad-luz'], ['quanto custa uma mesa temática com luzes?', 'ad-luz'], ['quanto custam as mesas temáticas?', 'ad-m'],
+  ];
+  for (const [pergunta, id] of casos) {
+    const c = await conversa([pergunta], { composicoes, precos });
+    assert.deepEqual(consultouPreco(c.chamadas), [`preco-adicional:${id}:null`], `${pergunta}: ${texto(c.ultima)}`);
+    assert.equal(c.ultima.passagem, null, pergunta);
+  }
+});
+
+test('revisão 8336a56 — sem encaminhamento desnecessário: perguntas comuns sobre a mesa e a segunda mesa ficam com o Wall-e', async () => {
+  const inclusao = ['a mesa temática vem inclusa?', 'a mesa temática já está no pacote?', 'a mesa temática faz parte do pacote?', 'a mesa temática é cobrada à parte?',
+    'a mesa temática entra no valor?', 'a mesa temática da festa é inclusa?', 'a mesa temática do Premium é inclusa?', 'MESA TEMÁTICA INCLUSA?', 'a mesa tematica ta inclusa?',
+    'a mesa temática principal está inclusa?', 'O tema é Frozen. A mesa temática Frozen está inclusa?'];
+  for (const pergunta of inclusao) {
+    const c = await conversa([pergunta], { composicoes: DECOR_COMUM, precos: PRECO_FIXO });
+    assert.equal(c.ultima.passagem, null, `${pergunta}: ${texto(c.ultima)}`);
+    assert.doesNotMatch(texto(c.ultima), /Não tenho cadastrado/, pergunta);
+  }
+  for (const pergunta of ['quanto sai uma segunda mesa temática?', 'quanto fica uma segunda mesa temática?', 'quanto custa uma segunda mesa temática pra 50 convidados?', 'e uma segunda mesa temática, quanto custa?', 'quanto custa uma segunda mesa temática no sábado?']) {
+    const c = await conversa([pergunta], { composicoes: DECOR_COMUM, precos: PRECO_FIXO });
+    assert.match(texto(c.ultima), /“Segunda mesa temática” é adicional: R\$\s?450,00/, `${pergunta}: ${texto(c.ultima)}`);
+    assert.equal(c.ultima.passagem, null, pergunta);
+  }
+});

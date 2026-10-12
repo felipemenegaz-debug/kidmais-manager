@@ -586,7 +586,8 @@ async function decoracao(e: Estado) {
   const pendenteDePreco = e.ctx.adicionalPendente && (e.entendimento.entidades.convidados ?? e.ctx.convidados ?? null) !== null ? e.ctx.adicionalPendente : null;
   // Sem pacote, só a pergunta de custo/inclusão DA decoração ou de um item dela ("quantos balões vêm? se quiser mais cobra?"
   // fica com a cláusula dos balões; "cerveja paga taxa?" não é decoração).
-  const sobreCondicao = (CUSTO_DECORACAO.test(t) && (!!pacote || pedidos.length > 0 || /\bdecor\w*/.test(t))) || !!pendenteDePreco;
+  // Revisão de 8336a56: "quanto sai/fica uma segunda mesa temática?" também é pergunta de condição do item citado.
+  const sobreCondicao = ((CUSTO_DECORACAO.test(t) || (pedidos.length > 0 && PERGUNTA_VALOR.test(t))) && (!!pacote || pedidos.length > 0 || /\bdecor\w*/.test(t))) || !!pendenteDePreco;
   // Revisão de 6281e35 (M1): a leitura guarda a cobertura. "Em todos os pacotes" só quando TODOS os pacotes vigentes foram
   // conferidos; composição ausente ou com falha não é suposta (a parte desconhecida vai à equipe); lista de pacotes
   // indisponível: nada é afirmado sobre a decoração dos pacotes.
@@ -646,62 +647,145 @@ const QUALIFICA_A_MAIS = /\b(?:segund[ao]s?|outr[ao]s?|mais (?:um|uma|dois|duas)
 /** Quantidade a mais DEPOIS do item ("mesa a mais", "mesa extra"): é o adicional da mesma coisa. */
 const QUANTIDADE_DEPOIS = /^\s*(?:a mais|extras?|adiciona(?:l|is))\b/;
 /**
- * Revisão de 1a0ef17 (A1 residual): o pedido guarda TODOS os modificadores do item ("mesa temática XL", "painel maior",
- * "mesa redonda", "uma grande mesa") — não há lista de adjetivos a reconhecer. Um item cadastrado só responde quando os
- * modificadores do pedido são exatamente as características do nome cadastrado (sem as palavras neutras e sem o próprio
- * item); pedido simples só casa com o item simples. Sem correspondência única, a parte vai à equipe sem preço.
+ * Revisão de 8336a56 (A1 residual): o pedido é lido como TOKENS COM POSIÇÃO, na própria oração. Todo token que não for
+ * interpretado (fronteira, contexto, quantidade, palavra neutra) é QUALIFICADOR do pedido e precisa estar no nome
+ * cadastrado; complementos com preposição ("de vidro", "com LED", "de 2 metros") fazem parte do pedido, salvo quando a
+ * preposição introduz contexto ("do pacote Premium", "da festa", "de 50 convidados"). Comparação: igualdade EXATA depois
+ * de normalização explícita (minúsculas, sem acento e o plural pelas regras de normalizarPalavra); tokens com dígitos
+ * ("XL2") só se comparam inteiros. Sem truncamento, sem prefixo, sem alias presumido.
  */
-type PedidoItem = { x: string; ini: number; fim: number };
-type LeituraPedido = { quantidade: boolean; modificadores: string[]; clausula: string };
-/** Palavras que encerram o sintagma do item (verbo, pergunta, artigo, preposição, conjunção, pronome, advérbio, data). */
+export type PedidoItem = { x: string; ini: number; fim: number };
+export type LeituraPedido = { quantidade: boolean; modificadores: string[]; clausula: string; trecho: [number, number] };
+export type ContextoPedido = { neutros: ReadonlySet<string>; pacotes: ReadonlySet<string> };
+/** Palavras que encerram o sintagma do item (verbo, pergunta, artigo, preposição de contexto, conjunção, pronome, advérbio). */
 const FRONTEIRA_ITEM = new Set(('e ou mas que se pois porque quanto quanta quantos quantas qual quais como onde quando esta estao ta tao sao eh fica ficam '
   + 'ficaria vem vao vai sai saem custa custam custaria custo cobra cobram cobrado cobrada cobrados cobradas pago paga pagos pagas incluso inclusa inclusos '
-  + 'inclusas inclui incluem incluida incluido tem tera teria seria sera precisa ja tambem tbm tb ai la aqui so ainda entao ne sabe tipo viu pfv pf por favor '
-  + 'obrigado obrigada de da do das dos para pra pro pros com sem no na nos nas em ao aos a o as os um uma uns umas esse essa este isso isto aquele aquela '
-  + 'meu minha seu sua nosso nossa vcs voces voce vc eu ele ela eles elas quero queria gostaria preciso pode podem posso sim nao ok oi ola valor preco '
-  + 'parte separado separada junto junta q pq dia dias sabado domingo segunda terca quarta quinta sexta mes semana festa aniversario hoje amanha').split(' '));
-/** Palavras neutras no nome cadastrado e no pedido (não distinguem um item de outro). */
-const NEUTRO_ITEM = new Set('de da do das dos com e a o as os para pra no na em um uma decoracao decorada decorado decoradas decorados tematica tematico tematicas tematicos tema'.split(' '));
-/** No pedido, pedem o item simples ("a mesa principal", "a mesa normal") ou só intensificam ("bem grande"). */
+  + 'inclusas inclui incluem incluida incluido tem tera teria seria sera precisa entra entram conta contam faz fazem acompanha acompanham existe rola '
+  + 'ja tambem tbm tb ai la aqui so ainda entao ne sabe tipo viu por favor pfv pf obrigado obrigada para pra pro pros sem no na nos nas ao aos a o as os '
+  + 'um uma uns umas esse essa este isso isto aquele aquela meu minha seu sua nosso nossa vcs voces voce vc eu ele ela eles elas quero queria gostaria '
+  + 'preciso pode podem posso sim nao ok oi ola valor preco parte separado separada junto junta q pq').split(' '));
+/** Preposições que podem introduzir complemento do item (material, formato, equipamento): "de vidro", "com LED". */
+const CONECTORES_ITEM = new Set(['de', 'da', 'do', 'das', 'dos', 'com', 'em']);
+const ARTIGOS_ITEM = new Set(['o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas']);
+/** Contexto da pergunta (não é qualificador do item): "da festa", "de 50 convidados", "do dia", "do pacote". */
+const CONTEXTO_PEDIDO = new Set('pacote festa aniversario convidado pessoa crianca adulto buffet cardapio contrato dia mes semana sabado domingo hoje amanha tema'.split(' '));
+/** Palavras neutras no nome cadastrado e no pedido (não distinguem um item de outro), já normalizadas. */
+const NEUTRO_ITEM = new Set('de da do das dos com e a o as os para pra no na em um uma decoracao decorada decorado tematica tematico tema'.split(' '));
+/** No pedido, pedem o item simples ("a mesa principal") ou só intensificam ("bem grande"). */
 const PEDIDO_SIMPLES = new Set('principal normal comum padrao basica basico tradicional mesma mesmo bem muito super mega bastante'.split(' '));
-/** Palavra de quantidade no nome cadastrado ("Segunda mesa temática", "Outro painel", "Mesa adicional"). */
-const QTD_PALAVRA = /^(segund|outr|adiciona|extra)/;
-const palavrasItem = (s: string) => semAcento(s).replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
-const radicalItem = (w: string) => (w.length <= 3 ? w : w.slice(0, Math.min(5, w.length - 1)));
-const mesmoRadical = (a: string, b: string) => radicalItem(a).startsWith(radicalItem(b)) || radicalItem(b).startsWith(radicalItem(a));
-const mesmasPalavras = (a: string[], b: string[]) => a.every((x) => b.some((y) => mesmoRadical(x, y))) && b.every((y) => a.some((x) => mesmoRadical(x, y)));
+/** Palavras de quantidade (normalizadas), no pedido e no nome cadastrado: "Segunda mesa", "outro painel", "mesa adicional". */
+const QTD_ITEM = new Set(['segunda', 'segundo', 'outra', 'outro', 'adicional', 'extra', '2a', '2o']);
+/**
+ * Normalização explícita de uma palavra já sem acento e minúscula: o plural pelas regras do português (balões → balao,
+ * especiais → especial, painéis → painel, totens → totem, maiores → maior, luzes → luz, mesas → mesa). Palavra com
+ * dígito ou de até 3 letras fica como está ("XL", "XL2", "LED").
+ */
+export function normalizarPalavra(w: string): string {
+  if (!/^[a-z]+$/.test(w) || w.length <= 3) return w;
+  if (w.endsWith('oes')) return `${w.slice(0, -3)}ao`;
+  if (w.endsWith('ais')) return `${w.slice(0, -3)}al`;
+  if (w.endsWith('eis')) return `${w.slice(0, -3)}el`;
+  if (w.endsWith('ns')) return `${w.slice(0, -2)}m`;
+  if (/[rz]es$/.test(w)) return w.slice(0, -2);
+  if (w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
+  return w;
+}
+const tokensComPosicao = (t: string, desde: number, ate: number) =>
+  [...t.slice(desde, ate).matchAll(/[a-z0-9]+/g)].map((m) => ({ w: m[0], n: normalizarPalavra(m[0]), ini: desde + m.index!, fim: desde + m.index! + m[0].length }));
+/** Tokens normalizados de um nome (o que está entre parênteses é nota do cadastro, não variante). */
+const palavrasItem = (s: string) => semAcento(s).replace(/\([^)]*\)/g, ' ').split(/[^a-z0-9]+/).filter(Boolean).map(normalizarPalavra);
+const mesmasPalavras = (a: readonly string[], b: readonly string[]) => a.length === b.length && new Set(a).size === new Set(b).size && a.every((x) => b.includes(x));
 /** Ocorrências de itens de decoração no texto (balões ficam com a cláusula do contrato, tema BALOES). */
-function pedidosDeDecoracao(t: string): PedidoItem[] {
+export function pedidosDeDecoracao(t: string): PedidoItem[] {
   return [...t.matchAll(ITENS_DECORACAO)].filter((m) => !/\b(balao|baloes|bexigas?)$/.test(m[1])).map((m) => ({ x: m[1], ini: m.index!, fim: m.index! + m[0].length }));
 }
-/** Lê a ocorrência na PRÓPRIA oração: quantidade ("segunda", "outra", "mais uma", "a mais"), modificadores e a oração. */
-function lerPedido(t: string, p: PedidoItem, neutros: Set<string>): LeituraPedido {
+/** Lê a ocorrência na PRÓPRIA oração: quantidade, qualificadores (todo token não interpretado), a oração e o trecho lido. */
+export function lerPedido(t: string, p: PedidoItem, ctx: ContextoPedido): LeituraPedido {
   const ini = Math.max(...['.', '?', '!', ';', '\n'].map((c) => t.lastIndexOf(c, p.ini - 1))) + 1;
   const resto = t.slice(p.fim).search(/[.?!;\n]/);
   const fim = resto < 0 ? t.length : p.fim + resto;
-  const antes = t.slice(ini, p.ini);
-  let depois = t.slice(p.fim, fim);
-  let quantidade = QUALIFICA_A_MAIS.test(antes);
-  const q = depois.match(QUANTIDADE_DEPOIS);
-  if (q) { quantidade = true; depois = depois.slice(q[0].length); }
-  const ignora = (w: string) => NEUTRO_ITEM.has(w) || PEDIDO_SIMPLES.has(w) || neutros.has(w);
+  let quantidade = QUALIFICA_A_MAIS.test(t.slice(ini, p.ini));
+  let desde = p.fim;
+  const q = t.slice(p.fim, fim).match(QUANTIDADE_DEPOIS);
+  if (q) { quantidade = true; desde = p.fim + q[0].length; }
+  const ignora = (n: string) => NEUTRO_ITEM.has(n) || PEDIDO_SIMPLES.has(n) || ctx.neutros.has(n);
+  const fronteira = (x: { w: string; n: string }) => FRONTEIRA_ITEM.has(x.w) || FRONTEIRA_ITEM.has(x.n);
+  const depois = /^\s*\d{1,2}\/\d{1,2}/.test(t.slice(desde, fim)) ? [] : tokensComPosicao(t, desde, fim);
+  const contexto = (k: number, aposConector: boolean) => {
+    const x = depois[k];
+    if (!x) return true;
+    if (CONTEXTO_PEDIDO.has(x.n) || (aposConector && ctx.pacotes.has(x.n))) return true;
+    return /^\d+$/.test(x.w) && !!depois[k + 1] && CONTEXTO_PEDIDO.has(depois[k + 1].n);
+  };
   const modificadores: string[] = [];
-  for (const w of palavrasItem(depois)) {
-    if (FRONTEIRA_ITEM.has(w) || /^\d/.test(w)) break;
-    if (QTD_PALAVRA.test(w)) { quantidade = true; continue; }
-    if (!ignora(w)) modificadores.push(w);
-    if (modificadores.length >= 3) break;
+  let trechoIni = p.ini, trechoFim = desde;
+  for (let k = 0; k < depois.length && modificadores.length < 4; k++) {
+    const x = depois[k];
+    if (CONECTORES_ITEM.has(x.n)) {
+      // Complemento: segue lendo depois da preposição (e do artigo), salvo se o que vem é contexto ou fronteira.
+      let j = k + 1;
+      while (depois[j] && ARTIGOS_ITEM.has(depois[j].n)) j++;
+      if (contexto(j, true) || fronteira(depois[j])) break;
+      k = j - 1;
+      continue;
+    }
+    if (contexto(k, false) || fronteira(x)) break;
+    trechoFim = x.fim;
+    if (QTD_ITEM.has(x.n)) { quantidade = true; continue; }
+    if (!ignora(x.n)) modificadores.push(x.n);
   }
-  const ant = palavrasItem(antes);
-  for (let k = ant.length - 1; k >= 0; k--) {
-    const w = ant[k];
-    if (FRONTEIRA_ITEM.has(w) || /^\d/.test(w) || QTD_PALAVRA.test(w) || ['mais', 'duas', 'dois', '2a'].includes(w)) break;
-    if (!ignora(w)) modificadores.unshift(w);
+  const antes = tokensComPosicao(t, ini, p.ini);
+  for (let k = antes.length - 1; k >= 0; k--) {
+    const x = antes[k];
+    if (fronteira(x) || CONECTORES_ITEM.has(x.n) || /^\d/.test(x.w) || QTD_ITEM.has(x.n) || ['mais', 'duas', 'dois'].includes(x.w)) break;
+    trechoIni = x.ini;
+    if (!ignora(x.n)) modificadores.unshift(x.n);
   }
-  return { quantidade, modificadores, clausula: t.slice(ini, fim) };
+  return { quantidade, modificadores, clausula: t.slice(ini, fim), trecho: [trechoIni, Math.max(trechoFim, p.fim)] };
 }
-/** Nome do item citado para o cliente (o texto comparado é sem acento). */
-const ACENTOS_ITEM: Record<string, string> = { 'mesa tematica': 'mesa temática', paineis: 'painéis', cenario: 'cenário', cenarios: 'cenários' };
+type ComItens = { inclusos: ItemAdicional[]; extras: ItemAdicional[] };
+export type SelecaoPedido<D extends ComItens> = {
+  base: string[]; porPacote: { d: D; item: ItemAdicional; modalidade: 'INCLUSO' | 'EXTRA' }[];
+  ambiguo: boolean; parecido: boolean; casa: (i: ItemAdicional) => boolean;
+};
+/**
+ * Seleção do item cadastrado que corresponde ao pedido, por pacote (único; mais de um é ambiguidade):
+ *  - qualificadores ("XL", "vidro", "led", "maior"): as características do nome são EXATAMENTE as pedidas;
+ *  - quantidade ("segunda", "outra", "a mais"): o adicional "a mais" sem outra característica ou, sem a versão inclusa
+ *    simples, o próprio adicional simples;
+ *  - sem qualificador: o item simples (incluso antes do adicional), nunca uma variante.
+ * Variante do nome: os tokens normalizados que sobram sem o item e sem as palavras neutras.
+ */
+export function selecionarParaPedido<D extends ComItens>(x: string, l: LeituraPedido, decor: D[]): SelecaoPedido<D> {
+  const base = palavrasItem(x).filter((n) => !NEUTRO_ITEM.has(n));
+  const tokens = (i: ItemAdicional) => palavrasItem(i.nome).filter((n) => !NEUTRO_ITEM.has(n));
+  const casa = (i: ItemAdicional) => base.every((b) => tokens(i).includes(b));
+  const variante = (i: ItemAdicional) => {
+    const ws = tokens(i).filter((n) => !base.includes(n));
+    return { quantidade: ws.some((n) => QTD_ITEM.has(n)), caracteristicas: ws.filter((n) => !QTD_ITEM.has(n)) };
+  };
+  const simples = (i: ItemAdicional) => { const v = variante(i); return !v.quantidade && !v.caracteristicas.length; };
+  let ambiguo = false;
+  const porPacote: SelecaoPedido<D>['porPacote'] = [];
+  for (const d of decor) {
+    const inc = d.inclusos.filter(casa), ext = d.extras.filter(casa);
+    let opcoes: ItemAdicional[];
+    if (l.modificadores.length) {
+      const iguais = [...inc, ...ext].filter((i) => mesmasPalavras(l.modificadores, variante(i).caracteristicas));
+      const preferidos = iguais.filter((i) => variante(i).quantidade === l.quantidade);
+      opcoes = preferidos.length ? preferidos : iguais;
+    } else if (l.quantidade) {
+      opcoes = ext.filter((i) => { const v = variante(i); return v.quantidade && !v.caracteristicas.length; });
+      if (!opcoes.length && !inc.some(simples)) opcoes = ext.filter(simples);
+    } else {
+      opcoes = inc.filter(simples);
+      if (!opcoes.length) opcoes = ext.filter(simples);
+    }
+    if (new Set(opcoes.map(chaveItem)).size > 1) { ambiguo = true; continue; }
+    if (opcoes[0]) porPacote.push({ d, item: opcoes[0], modalidade: inc.includes(opcoes[0]) ? 'INCLUSO' : 'EXTRA' });
+  }
+  return { base, porPacote, ambiguo, parecido: decor.some((d) => [...d.inclusos, ...d.extras].some(casa)), casa };
+}
 type DecoracaoDoPacote = { codigo: string; nome: string; id: string; inclusos: ItemAdicional[]; extras: ItemAdicional[] };
 const ehDecoracao = (i: ItemAdicional) => semAcento(i.categoria).includes('decor');
 const chaveItem = (i: ItemAdicional) => i.id ?? semAcento(i.nome);
@@ -749,8 +833,11 @@ async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], pedidos: 
   // Revisão de 1a0ef17 (M2): a pergunta de valor vale para a ocorrência da MESMA oração ("a mesa está inclusa? quanto custa
   // uma segunda mesa?": só a segunda pede valor); pergunta de valor sem item na oração vale para todos.
   const tema = e.entendimento.entidades.tema ?? e.ctx.tema ?? null;
-  const neutros = new Set(tema ? palavrasItem(tema) : []);
-  const leituras = pedidos.map((p) => ({ p, l: lerPedido(t, p, neutros) }));
+  const ctxPedido: ContextoPedido = {
+    neutros: new Set(tema ? palavrasItem(tema) : []),
+    pacotes: new Set(e.catalogos.pacotes.flatMap((x) => [...palavrasItem(x.nome), ...palavrasItem(x.codigo)])),
+  };
+  const leituras = pedidos.map((p) => ({ p, l: lerPedido(t, p, ctxPedido) }));
   const valorSolto = PERGUNTA_VALOR.test(t) && !leituras.some(({ l }) => PERGUNTA_VALOR.test(l.clausula));
   const feitos = new Set<string>();
   const umaVez = (chave: string) => (feitos.has(chave) ? false : (feitos.add(chave), true));
@@ -779,44 +866,11 @@ async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], pedidos: 
   for (const { p, l } of leituras) {
     const x = p.x;
     const pedeValor = PERGUNTA_VALOR.test(l.clausula) || valorSolto || !!pendente;
-    const radicais = x.includes(' ') ? x.split(' ').filter((w) => w.length > 2).map((w) => w.slice(0, Math.min(5, w.length - 1))) : [x.slice(0, 5)];
-    const casa = (i: ItemAdicional) => radicais.every((r) => semAcento(i.nome).includes(r));
-    // Variante do nome cadastrado: o que sobra do nome sem o item e sem as palavras neutras.
-    const variante = (i: ItemAdicional) => {
-      const ws = palavrasItem(i.nome).filter((w) => !NEUTRO_ITEM.has(w) && !radicais.some((r) => w.startsWith(r)));
-      return { quantidade: ws.some((w) => QTD_PALAVRA.test(w)), caracteristicas: ws.filter((w) => !QTD_PALAVRA.test(w)) };
-    };
-    const simples = (i: ItemAdicional) => { const v = variante(i); return !v.quantidade && !v.caracteristicas.length; };
-    // Por pacote, o item cadastrado que corresponde ao PEDIDO (único; mais de um é ambiguidade):
-    //  - com modificadores ("XL", "maior", "redonda"): as características do nome são exatamente as pedidas;
-    //  - com quantidade ("segunda", "outra", "a mais"): o adicional "a mais" sem outra característica ou, sem a versão
-    //    inclusa simples, o próprio adicional simples;
-    //  - sem qualificador: o item simples (incluso antes do adicional), nunca uma variante.
-    let ambiguo = false;
-    const porPacote = decor.map((d) => {
-      const inc = d.inclusos.filter(casa), ext = d.extras.filter(casa);
-      let opcoes: ItemAdicional[];
-      if (l.modificadores.length) {
-        const iguais = [...inc, ...ext].filter((i) => mesmasPalavras(l.modificadores, variante(i).caracteristicas));
-        const preferidos = iguais.filter((i) => variante(i).quantidade === l.quantidade);
-        opcoes = preferidos.length ? preferidos : iguais;
-      } else if (l.quantidade) {
-        opcoes = ext.filter((i) => { const v = variante(i); return v.quantidade && !v.caracteristicas.length; });
-        if (!opcoes.length && !inc.some(simples)) opcoes = ext.filter(simples);
-      } else {
-        opcoes = inc.filter(simples);
-        if (!opcoes.length) opcoes = ext.filter(simples);
-      }
-      if (new Set(opcoes.map(chaveItem)).size > 1) { ambiguo = true; opcoes = []; }
-      const item = opcoes[0] ?? null;
-      return { d, item, modalidade: item ? (inc.includes(item) ? 'INCLUSO' as const : 'EXTRA' as const) : null };
-    }).filter((x) => x.item);
-    const parecido = decor.some((d) => [...d.inclusos, ...d.extras].some(casa));
-    // O pedido como o cliente escreveu ("mesa temática XL"): o texto sem acento tem as mesmas posições do original.
+    const { porPacote, ambiguo, parecido, casa } = selecionarParaPedido(x, l, decor);
+    // O pedido como o cliente escreveu (o trecho lido, com os qualificadores): o texto sem acento tem as mesmas posições.
     const original = semAcento(e.texto).length === e.texto.length ? e.texto : null;
-    const comoEscrito = (w: string) => { const k = original ? t.indexOf(w, Math.max(0, p.ini - 40)) : -1; return k >= 0 ? original!.slice(k, k + w.length) : w; };
-    const base = original ? original.slice(p.ini, p.fim).toLowerCase() : ACENTOS_ITEM[x] ?? x;
-    const pedido = `${base}${l.modificadores.length ? ` ${l.modificadores.map(comoEscrito).join(' ')}` : l.quantidade ? ' a mais' : ''}`;
+    const lido = (original ?? t).slice(l.trecho[0], l.trecho[1]).replace(/\s+/g, ' ').trim();
+    const pedido = `${l.quantidade && !l.modificadores.length && !/\b(a mais|extra|adiciona)/i.test(lido) ? 'mais ' : ''}${lido.charAt(0).toLowerCase()}${lido.slice(1)}`;
     if ((!porPacote.length || ambiguo) && (l.modificadores.length || l.quantidade || ambiguo) && parecido) { if (!semCorrespondencia.includes(pedido)) semCorrespondencia.push(pedido); continue; }
     if (!porPacote.length) { if (!semCadastro.includes(x)) semCadastro.push(x); continue; }
     const mesmo = porPacote.length === decor.length && porPacote.every((x) => x.modalidade === porPacote[0].modalidade && chaveItem(x.item!) === chaveItem(porPacote[0].item!));
@@ -849,7 +903,7 @@ async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], pedidos: 
   }
   return { cobertos, saidas, algum: saidas.length > 0 };
 }
-const ITENS_DECORACAO = /\b(arcos? de (?:balao|baloes|bexigas?)|paineis|painel|arcos?|toalhas?|cenarios?|totens|totem|letreiros?|flores|arranjos?|centros? de mesa|bonecos?|tapetes?|backdrop|cortinas?|neon|bolo fake|mesa tematica|mesas? de doces|baloes|balao|bexigas?)\b/g;
+const ITENS_DECORACAO = /\b(arcos? de (?:balao|baloes|bexigas?)|paineis|painel|arcos?|toalhas?|cenarios?|totens|totem|letreiros?|flores|arranjos?|centros? de mesa|bonecos?|tapetes?|backdrop|cortinas?|neon|bolo fake|mesas? tematicas?|mesas? de doces|baloes|balao|bexigas?)\b/g;
 /** Teste manual de 12/10/2026: "quanto custa uma segunda mesa temática?" é o valor do ITEM, não da festa. */
 const VALOR_DO_ITEM_DE_DECORACAO = new RegExp(`\\b(?:quanto|valor|preco|custa|custo|cobra\\w*)\\b[^.?!]{0,40}${ITENS_DECORACAO.source}`);
 const VALOR_DA_FESTA = /\b(?:quanto|valor|preco|custa|custo)\b[^.?!]{0,30}\b(?:festa|pacotes?|orcamento|convidados|pessoas)\b/;
