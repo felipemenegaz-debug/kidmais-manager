@@ -8,7 +8,7 @@ import { interpretacaoSchema, ESQUEMA_INTERPRETACAO, ocultarDadosPessoais, type 
 import { inteligenciaAtiva } from '@/lib/inteligencia/flags';
 import { processarLote } from '@/lib/whatsapp/atendimento/worker';
 import { enviarMensagem } from '@/lib/whatsapp/atendimento/transporte';
-import { criarPortaWallE, modoEntendimentoWallE, pedidoEntendimentoWallE } from '@/lib/whatsapp/atendimento/walle/porta';
+import { criarPortaWallE, modoEfetivoWallE, modoEntendimentoWallE, pedidoEntendimentoWallE } from '@/lib/whatsapp/atendimento/walle/porta';
 import { triagemMensagem } from '@/lib/inteligencia/jev/motor';
 
 /**
@@ -16,8 +16,16 @@ import { triagemMensagem } from '@/lib/inteligencia/jev/motor';
  * regras): nenhuma — nem o entendimento do Wall-e nem a interpretação da fase B (Wall-e desligado na tela ou sem a 082),
  * qualquer que seja o orçamento. O worker e a porta do Wall-e conferem o modo de novo a cada uso.
  */
+let avisoModoRegistrado = false;
 export function portasDeModeloAtendimento(env: NodeJS.ProcessEnv = process.env) {
   const comModelo = modoEntendimentoWallE(env) === 'MODELO';
+  // H1: modelo pedido sem a autorização R6 (ou sem a lista de contatos fora de produção) cai em regras; fica no log uma
+  // vez por processo, só com o motivo (nenhum valor de variável).
+  const efetivo = modoEfetivoWallE(env);
+  if (!avisoModoRegistrado && env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO === 'modelo' && efetivo.modo === 'REGRAS') {
+    avisoModoRegistrado = true;
+    console.warn('[Atendimento WhatsApp] modo modelo pedido, mas o modo efetivo é regras: %s', efetivo.motivo);
+  }
   return { interpretar: comModelo ? interpretarMensagem : null, entender: comModelo ? entenderComModelo : null };
 }
 

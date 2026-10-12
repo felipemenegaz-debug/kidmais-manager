@@ -32,7 +32,8 @@ function erro(e: unknown) {
   return resposta(r.corpo, r.status);
 }
 export async function GET(request: NextRequest) {
-  try { const sessao = await exigirApiAdminCrmDisponivel(request); return resposta({ ok: true, data: await situacaoPrivacidade(sessao) }); }
+  // M4: ?contato=<número completo> busca a conversa do titular (exata), além das 200 mais recentes.
+  try { const sessao = await exigirApiAdminCrmDisponivel(request); return resposta({ ok: true, data: await situacaoPrivacidade(sessao, { contato: request.nextUrl.searchParams.get('contato') }) }); }
   catch (e) { return erro(e); }
 }
 export async function POST(request: NextRequest) {

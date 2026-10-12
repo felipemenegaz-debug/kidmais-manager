@@ -11,6 +11,7 @@ BEGIN
   FOREACH item IN ARRAY ARRAY['whatsapp_atendimento_controles_contato', 'whatsapp_atendimento_eventos_excluidos', 'whatsapp_atendimento_retencao_config', 'whatsapp_atendimento_retencao_execucoes'] LOOP
     IF to_regclass('public.' || item) IS NULL THEN RAISE EXCEPTION 'postcheck 082: tabela % ausente', item; END IF;
   END LOOP;
+  IF to_regclass('public.whatsapp_retencao_uma_por_vez') IS NULL THEN RAISE EXCEPTION 'postcheck 082: índice de execução única da retenção ausente'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.whatsapp_atendimento_mensagens'::regclass AND conname = 'whatsapp_mensagens_motivo_cancelamento' AND convalidated) THEN
     RAISE EXCEPTION 'postcheck 082: motivo de cancelamento ausente';
   END IF;

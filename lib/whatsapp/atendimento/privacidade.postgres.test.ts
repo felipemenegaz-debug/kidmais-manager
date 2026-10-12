@@ -168,7 +168,11 @@ test("privacidade: exclusão, controles mínimos, reentrega, retenção, empresa
     assert.deepEqual(await retrato(cvFila.id), antesFila, "P4: nada apagado");
 
     // P5 — retenção.
-    const envelhecer = (emp: string, n: string) => q("UPDATE whatsapp_atendimento_conversas SET ultima_entrada_em = clock_timestamp() - interval '40 days', atualizada_em = clock_timestamp() - interval '40 days' WHERE empresa_id = $1 AND contato = $2", [emp, n]);
+    // H2 (revisão de 69dc301): a retenção reconfere a atividade sob a trava (entrada, atualização e mensagens): envelhece tudo.
+    const envelhecer = async (emp: string, n: string) => {
+      await q("UPDATE whatsapp_atendimento_conversas SET ultima_entrada_em = clock_timestamp() - interval '40 days', atualizada_em = clock_timestamp() - interval '40 days' WHERE empresa_id = $1 AND contato = $2", [emp, n]);
+      await q("UPDATE whatsapp_atendimento_mensagens SET criada_em = clock_timestamp() - interval '40 days' WHERE conversa_id IN (SELECT id FROM whatsapp_atendimento_conversas WHERE empresa_id = $1 AND contato = $2)", [emp, n]);
+    };
     const [velhaA, velhaPend, velhaFalha, recenteA, velhaB] = ["5561900000851", "5561900000852", "5561900000853", "5561900000854", "5561900000855"];
     for (const n of [velhaA, velhaPend, velhaFalha, recenteA]) await receber(A, n, "mensagem sintética");
     await receber(B, velhaB, "mensagem sintética de B");

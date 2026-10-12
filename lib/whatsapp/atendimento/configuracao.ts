@@ -26,7 +26,18 @@ export function receptorDoNumero(env: NodeJS.ProcessEnv = process.env) {
 // 12/10 (D1): o PADRÃO passou a ser o modo regras. O modelo só é usado com WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=modelo,
 // opção explícita do ambiente, que não deve ser ligada com dados reais enquanto a cobertura de dados sensíveis tiver lacunas
 // (docs/PRIVACIDADE_ATENDIMENTO_D1_D4.md, R6). Qualquer outro valor (ausente, "regras", erro de digitação) = regras.
-export function entendimentoSoRegras(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO !== 'modelo'; }
+// H1 (revisão de 69dc301): pedir o modelo NÃO basta. O modo modelo exige também a referência da decisão R6 em
+// WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO (ex.: "R6-2026-11-03-ata12") e, fora de produção, a lista de contatos controlados.
+// Faltando qualquer um, o modo efetivo é regras (falha fechada), em todos os caminhos (Wall-e, fase B, composition root).
+export const FORMATO_AUTORIZACAO_IA = /^R6-[A-Za-z0-9][A-Za-z0-9._-]{2,79}$/;
+export type ModoEntendimento = { modo: 'REGRAS' | 'MODELO'; motivo: 'PADRAO_REGRAS' | 'SEM_AUTORIZACAO_R6' | 'SEM_LISTA_DE_CONTATOS' | 'AUTORIZADO' };
+export function modoEntendimento(env: NodeJS.ProcessEnv = process.env): ModoEntendimento {
+  if (env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO !== 'modelo') return { modo: 'REGRAS', motivo: 'PADRAO_REGRAS' };
+  if (!FORMATO_AUTORIZACAO_IA.test(env.WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO ?? '')) return { modo: 'REGRAS', motivo: 'SEM_AUTORIZACAO_R6' };
+  if (env.KIDMAIS_DEPLOY_ENV !== 'production' && !(env.WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS ?? '').trim()) return { modo: 'REGRAS', motivo: 'SEM_LISTA_DE_CONTATOS' };
+  return { modo: 'MODELO', motivo: 'AUTORIZADO' };
+}
+export function entendimentoSoRegras(env: NodeJS.ProcessEnv = process.env) { return modoEntendimento(env).modo === 'REGRAS'; }
 /** Sem empresa piloto válida a recepção fica desligada (só metadados): erro de configuração não vira 503 eterno. */
 export function recepcaoAtiva(env: NodeJS.ProcessEnv = process.env) {
   if (env.WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED !== 'true' || !receptorDoNumero(env)) return false;

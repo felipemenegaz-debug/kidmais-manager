@@ -28,9 +28,11 @@ const horario = (iso: string) => new Date(iso).toLocaleString('pt-BR', { timeZon
 const saida: Record<string,string> = { PENDENTE: 'Na fila', PROCESSANDO: 'Preparando', ENVIANDO: 'Enviando', SUBMETIDA: 'Enviada ao provedor', ENTREGUE: 'Entregue', FALHOU: 'Não enviada', CANCELADA: 'Não enviada', INCERTO: 'Entrega não confirmada' };
 const entrada: Record<string,string> = { PENDENTE: 'Aguardando o Wall-e', PROCESSANDO: 'Wall-e analisando', PROCESSADA: 'Recebida', CANCELADA: 'Sem resposta automática', FALHOU: 'Wall-e não respondeu; encaminhada' };
 // D3 (12/10): cancelamento por arquivo indisponível nunca é silencioso para o operador.
-const explicacaoCancelamento: Record<'ARQUIVO_INDISPONIVEL' | 'ARQUIVO_REVOGADO', string> = {
+const explicacaoCancelamento: Record<'ARQUIVO_INDISPONIVEL' | 'ARQUIVO_REVOGADO' | 'GRUPO_INCOMPLETO', string> = {
   ARQUIVO_INDISPONIVEL: 'Não enviada: o arquivo desta resposta expirou ou ficou indisponível antes do envio (nem a mensagem que o acompanhava saiu). O cliente não recebeu; escolha outro material.',
   ARQUIVO_REVOGADO: 'Não enviada: o arquivo foi revogado antes do envio. O cliente não recebeu.',
+  // M3 (revisão de 69dc301): o envio em grupo não é atômico no provedor.
+  GRUPO_INCOMPLETO: 'Não enviada: outra parte desta mesma resposta falhou no envio, então o restante não saiu sozinho. Confira o que o cliente recebeu e responda pessoalmente.',
 };
 // O que aconteceu e o que fazer, para saídas que não chegaram (ou podem não ter chegado) ao cliente.
 const explicacaoSaida: Record<string,string> = {

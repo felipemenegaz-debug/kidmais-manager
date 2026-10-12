@@ -2,7 +2,7 @@ import { db } from '../../../db/postgres.ts';
 import { buscarClientesPorContatoExato } from '../../../clientes/repositories/cliente.repository';
 import { listarContratacoes } from '../../../fechamentos/contratacoes.ts';
 import { dadoSensivel, ocultarDadosPessoais } from '../core.ts';
-import { entendimentoSoRegras } from '../configuracao.ts';
+import { entendimentoSoRegras, modoEntendimento, type ModoEntendimento } from '../configuracao.ts';
 import { resolverLinkFechamento } from '../prontas-link.ts';
 import type { PortaWallE } from '../worker.ts';
 import { lerContexto } from './contexto.ts';
@@ -16,6 +16,8 @@ import type { Catalogos, ContextoWallE, SinaisMensagem } from './tipos.ts';
 export type EntenderWallE = (empresaId: string, texto: string, contexto: ContextoWallE, catalogos: Catalogos) => Promise<SaidaModelo>;
 
 /** WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=regras: Wall-e sem modelo. Padrão: modelo, sempre revalidado sem modelo. */
+/** H1: modo efetivo com o motivo (para o registro da composition root, que não importa a configuração do canal). */
+export function modoEfetivoWallE(env: NodeJS.ProcessEnv = process.env): ModoEntendimento { return modoEntendimento(env); }
 export function modoEntendimentoWallE(env: NodeJS.ProcessEnv = process.env): 'MODELO' | 'REGRAS' {
   return entendimentoSoRegras(env) ? 'REGRAS' : 'MODELO';
 }

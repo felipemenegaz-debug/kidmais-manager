@@ -4,7 +4,7 @@ import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant } from '../../saas/provar-tenant.ts';
 import { reautenticacaoPerfilRecente } from '../../perfil/reautenticacao.ts';
 import { ambienteAtendimento } from './configuracao.ts';
-import { semAutomatico } from './core.ts';
+import { JANELA_REENTREGA_DIAS, semAutomatico } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
 
 /**
@@ -40,9 +40,13 @@ export type OrigemPrivacidade = 'PEDIDO' | 'RETENCAO';
 export type MotivoExclusao = 'PEDIDO_DO_TITULAR' | 'DECISAO_DA_EMPRESA';
 export type ResultadoExclusao =
   | { estado: 'EXCLUIDA'; mensagens: number; pendentesRemovidas: number; controles: { naoContatar: boolean; pausa: boolean; equipe: boolean } }
-  | { estado: 'EM_PROCESSAMENTO' | 'NAO_ENCONTRADA' };
-/** Prazo técnico (não é prazo de retenção de dado pessoal): só o hash do id do evento; cobre reentregas do provedor. */
-export const RETENCAO_DEDUP_DIAS = 30;
+  | { estado: 'EM_PROCESSAMENTO' | 'NAO_ENCONTRADA' | 'RECENTE' };
+/**
+ * Prazo técnico (não é prazo de retenção de dado pessoal): só o hash do id do evento; cobre reentregas do provedor. Igual à
+ * janela da recepção (JANELA_REENTREGA_DIAS, core.ts): evento mais antigo que ela nunca é gravado, então a purga do hash
+ * não reabre a recriação de conteúdo excluído (M1, revisão de 69dc301). Valor provisório: decisão R7.
+ */
+export const RETENCAO_DEDUP_DIAS = JANELA_REENTREGA_DIAS;
 export const PROVEDOR = 'GUPSHUP';
 
 export async function tem082Privacidade(tx: DbExecutor) {
@@ -61,6 +65,15 @@ export async function excluirDadosConversa(tx: DbExecutor, alvo: { empresa: stri
   const conversa = (await tx.query<{ id: string; contato: string; nao_contatar: boolean; estado: string; contexto: Record<string, unknown> }>(
     'SELECT id,contato,nao_contatar,estado,contexto FROM whatsapp_atendimento_conversas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 FOR UPDATE', [alvo.conversaId, alvo.empresa, alvo.ambiente])).rows[0];
   if (!conversa) return { estado: 'NAO_ENCONTRADA' };
+  // H2 (revisão de 69dc301): a retenção escolhe as candidatas sem trava. Sob a trava da conversa, o prazo é conferido de
+  // novo: atividade (entrada, atualização ou mensagem) dentro do prazo desde a escolha = conversa ativa, nada é apagado.
+  if (alvo.origem === 'RETENCAO') {
+    if (!alvo.prazoDias) return { estado: 'RECENTE' };
+    const ativa = await tx.query(`SELECT 1 FROM whatsapp_atendimento_conversas c WHERE c.id=$1 AND (c.ultima_entrada_em >= clock_timestamp()-make_interval(days => $2)
+      OR c.atualizada_em >= clock_timestamp()-make_interval(days => $2)
+      OR EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens m WHERE m.conversa_id=c.id AND m.criada_em >= clock_timestamp()-make_interval(days => $2)))`, [conversa.id, alvo.prazoDias]);
+    if (ativa.rows.length) return { estado: 'RECENTE' };
+  }
   // NOWAIT: a linha que o worker segura agora (reserva ou envio) não é esperada nem apagada por baixo dele.
   try {
     await tx.query("SELECT id FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND estado IN ('PENDENTE','PROCESSANDO','ENVIANDO') FOR UPDATE NOWAIT", [conversa.id]);
@@ -128,12 +141,24 @@ export async function configurarRetencao(sessao: SessaoPrivacidade, pedido: { pr
  * Rotina de retenção (D2): independente das chaves do canal e da IA (não consulta atendimentoAtivo nem a IA global);
  * chamada pela rota protegida /api/integracoes/gupshup/atendimento/retencao. Uma conversa por transação: a falha de uma
  * é contada e registrada (código), e as demais seguem. Sem empresa com prazo definido, nada é apagado.
+ * M5 (revisão de 69dc301): uma execução por vez por ambiente (índice único parcial; a segunda chamada devolve
+ * EM_EXECUCAO); execução EM_ANDAMENTO há mais de 2 h é marcada INTERROMPIDA antes de começar outra; a espera pela trava
+ * de cada conversa tem limite (lock_timeout de 5 s: conta como adiada); conversa que voltou a ter atividade conta como
+ * "recente" e não é apagada (H2).
  */
 export async function executarRetencao(opcoes: { limitePorEmpresa?: number } = {}) {
   const ambiente = ambienteAtendimento();
   if (!(await tem082Privacidade(db()))) return { estado: 'SEM_082' as const };
-  const execucao = (await db().query<{ id: string }>("INSERT INTO whatsapp_atendimento_retencao_execucoes(ambiente,estado) VALUES($1,'EM_ANDAMENTO') RETURNING id", [ambiente])).rows[0].id;
-  const total = { empresas: 0, excluidas: 0, adiadas: 0, falhas: 0, pendentes: 0, dedup: 0 };
+  await db().query(`UPDATE whatsapp_atendimento_retencao_execucoes SET estado='INTERROMPIDA',terminada_em=clock_timestamp()
+    WHERE ambiente=$1 AND estado='EM_ANDAMENTO' AND iniciada_em < clock_timestamp()-interval '2 hours'`, [ambiente]);
+  let execucao: string;
+  try {
+    execucao = (await db().query<{ id: string }>("INSERT INTO whatsapp_atendimento_retencao_execucoes(ambiente,estado) VALUES($1,'EM_ANDAMENTO') RETURNING id", [ambiente])).rows[0].id;
+  } catch (erro) {
+    if ((erro as { code?: string }).code === '23505') return { estado: 'EM_EXECUCAO' as const };
+    throw erro;
+  }
+  const total = { empresas: 0, excluidas: 0, adiadas: 0, recentes: 0, falhas: 0, pendentes: 0, dedup: 0 };
   const erros: string[] = [];
   try {
     const configs = (await db().query<{ empresa_id: string; prazo_dias: number }>('SELECT empresa_id,prazo_dias FROM whatsapp_atendimento_retencao_config WHERE ambiente=$1 AND prazo_dias IS NOT NULL ORDER BY empresa_id', [ambiente])).rows;
@@ -144,9 +169,14 @@ export async function executarRetencao(opcoes: { limitePorEmpresa?: number } = {
         ORDER BY atualizada_em, id LIMIT $4`, [cfg.empresa_id, ambiente, cfg.prazo_dias, opcoes.limitePorEmpresa ?? 200])).rows;
       for (const c of candidatas) {
         try {
-          const r = await withTransaction((tx) => excluirDadosConversa(tx, { empresa: cfg.empresa_id, ambiente, conversaId: c.id, origem: 'RETENCAO', usuarioId: null, prazoDias: cfg.prazo_dias }));
-          if (r.estado === 'EXCLUIDA') { total.excluidas++; total.pendentes += r.pendentesRemovidas; } else total.adiadas++;
+          const r = await withTransaction(async (tx) => {
+            await tx.query("SET LOCAL lock_timeout = '5s'");
+            return excluirDadosConversa(tx, { empresa: cfg.empresa_id, ambiente, conversaId: c.id, origem: 'RETENCAO', usuarioId: null, prazoDias: cfg.prazo_dias });
+          });
+          if (r.estado === 'EXCLUIDA') { total.excluidas++; total.pendentes += r.pendentesRemovidas; } else if (r.estado === 'RECENTE') total.recentes++; else total.adiadas++;
         } catch (erro) {
+          // Trava não obtida no prazo (outra transação segura a conversa): adiada, não falha.
+          if ((erro as { code?: string }).code === '55P03') { total.adiadas++; continue; }
           total.falhas++;
           if (erros.length < 20) erros.push(codigoDoErro(erro));
         }
@@ -154,13 +184,13 @@ export async function executarRetencao(opcoes: { limitePorEmpresa?: number } = {
     }
     total.dedup = (await db().query('DELETE FROM whatsapp_atendimento_eventos_excluidos WHERE ambiente=$1 AND excluido_em < clock_timestamp()-make_interval(days => $2) RETURNING 1', [ambiente, RETENCAO_DEDUP_DIAS])).rows.length;
     const estado = total.falhas ? 'CONCLUIDA_COM_FALHAS' : 'CONCLUIDA';
-    await db().query(`UPDATE whatsapp_atendimento_retencao_execucoes SET estado=$2,terminada_em=clock_timestamp(),empresas=$3,excluidas=$4,adiadas=$5,falhas=$6,pendentes_removidas=$7,dedup_removidos=$8,erros=$9 WHERE id=$1`,
-      [execucao, estado, total.empresas, total.excluidas, total.adiadas, total.falhas, total.pendentes, total.dedup, erros]);
+    await db().query(`UPDATE whatsapp_atendimento_retencao_execucoes SET estado=$2,terminada_em=clock_timestamp(),empresas=$3,excluidas=$4,adiadas=$5,falhas=$6,pendentes_removidas=$7,dedup_removidos=$8,erros=$9,recentes=$10 WHERE id=$1`,
+      [execucao, estado, total.empresas, total.excluidas, total.adiadas, total.falhas, total.pendentes, total.dedup, erros, total.recentes]);
     return { estado, execucao, ...total, erros };
   } catch (erro) {
     erros.push(codigoDoErro(erro));
-    await db().query(`UPDATE whatsapp_atendimento_retencao_execucoes SET estado='FALHOU',terminada_em=clock_timestamp(),empresas=$2,excluidas=$3,adiadas=$4,falhas=$5,pendentes_removidas=$6,erros=$7 WHERE id=$1`,
-      [execucao, total.empresas, total.excluidas, total.adiadas, total.falhas + 1, total.pendentes, erros.slice(0, 20)]);
+    await db().query(`UPDATE whatsapp_atendimento_retencao_execucoes SET estado='FALHOU',terminada_em=clock_timestamp(),empresas=$2,excluidas=$3,adiadas=$4,falhas=$5,pendentes_removidas=$6,erros=$7,recentes=$8 WHERE id=$1`,
+      [execucao, total.empresas, total.excluidas, total.adiadas, total.falhas + 1, total.pendentes, erros.slice(0, 20), total.recentes]);
     throw erro;
   }
 }
@@ -218,10 +248,12 @@ export async function revogarArquivo(sessao: SessaoPrivacidade, pedido: { arquiv
     await travarConversasDoArquivo(tx, pedido.arquivoId, empresa, ambiente);
     const arquivo = (await tx.query('SELECT id FROM whatsapp_atendimento_arquivos WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND revogado_em IS NULL FOR UPDATE', [pedido.arquivoId, empresa, ambiente])).rows[0];
     if (!arquivo) throw new Error('ATENDIMENTO_ARQUIVO_NAO_ENCONTRADO');
-    const emCurso = await tx.query(`SELECT 1 FROM whatsapp_atendimento_mensagens m WHERE m.midia_arquivo_id=$1 AND m.empresa_id=$2 AND m.ambiente=$3 AND (m.estado='ENVIANDO'
+    const emCurso = await tx.query<{ enviando: boolean }>(`SELECT (m.estado='ENVIANDO') AS enviando FROM whatsapp_atendimento_mensagens m WHERE m.midia_arquivo_id=$1 AND m.empresa_id=$2 AND m.ambiente=$3 AND (m.estado='ENVIANDO'
       OR (m.estado IN ('PENDENTE','PROCESSANDO') AND m.origem_grupo_id IS NOT NULL AND EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens g
-          WHERE g.origem_grupo_id=m.origem_grupo_id AND g.id<>m.id AND g.direcao='SAIDA' AND g.estado IN ('ENVIANDO','SUBMETIDA','ENTREGUE','INCERTO')))) LIMIT 1`, [pedido.arquivoId, empresa, ambiente]);
-    if (emCurso.rows.length) throw new Error('ATENDIMENTO_ENVIO_EM_ANDAMENTO');
+          WHERE g.origem_grupo_id=m.origem_grupo_id AND g.id<>m.id AND g.direcao='SAIDA' AND g.estado IN ('ENVIANDO','SUBMETIDA','ENTREGUE','INCERTO')))) ORDER BY 1 DESC LIMIT 1`, [pedido.arquivoId, empresa, ambiente]);
+    // B2 (revisão de 69dc301): envio em curso passa sozinho (aguardar); grupo já parcialmente enviado não passa sozinho —
+    // a equipe assume ou encerra a conversa (a fila automática sai) e revoga de novo.
+    if (emCurso.rows.length) throw new Error(emCurso.rows[0].enviando ? 'ATENDIMENTO_ENVIO_EM_ANDAMENTO' : 'ATENDIMENTO_GRUPO_PARCIAL');
     const canceladas = await cancelarFilaDoArquivo(tx, pedido.arquivoId, empresa, ambiente, 'ARQUIVO_REVOGADO');
     const prontas = (await tx.query(`UPDATE whatsapp_atendimento_mensagens_prontas SET ativa=false,atalho=NULL,estado='ARQUIVADA',atualizada_por=$4,versao=versao+1,atualizada_em=clock_timestamp()
       WHERE arquivo_id=$1 AND empresa_id=$2 AND ambiente=$3 AND ativa RETURNING id`, [pedido.arquivoId, empresa, ambiente, sessao.usuario_id])).rows.length;
@@ -282,30 +314,46 @@ export async function reativarArquivo(sessao: SessaoPrivacidade, pedido: { arqui
 
 export type SituacaoPrivacidade = {
   conversas: { id: string; contatoFinal: string; estado: string; naoContatar: boolean; pausa: boolean; mensagens: number; atualizadaEm: string }[];
-  arquivos: { id: string; nome: string; tipo: string; tamanho: number; criadoEm: string; expiraEm: string | null; revogadoEm: string | null; disponivel: boolean; vencido: boolean; caminho: string | null }[];
-  retencao: { prazoDias: number | null; definidoEm: string | null; ultimaExecucao: { iniciadaEm: string; terminadaEm: string | null; estado: string; excluidasDestaEmpresa: number; falhas: number; erros: string[] } | null };
+  /** M4: RECENTES = as 200 mais recentes; NUMERO = busca exata pelo número completo informado. */
+  busca: 'RECENTES' | 'NUMERO';
+  arquivos: { id: string; nome: string; tipo: string; tamanho: number; criadoEm: string; expiraEm: string | null; revogadoEm: string | null; disponivel: boolean; vencido: boolean; enviosSemConfirmacao: number; caminho: string | null }[];
+  /** M5: só dados desta empresa — a situação geral da execução (EXECUTADA, EM_ANDAMENTO, NAO_CONCLUIDA), sem contagens nem
+   * códigos de outras empresas; `atrasada` quando há prazo e nenhuma execução terminou nas últimas 36 h. */
+  retencao: { prazoDias: number | null; definidoEm: string | null; atrasada: boolean; ultimaExecucao: { iniciadaEm: string; terminadaEm: string | null; situacao: 'EXECUTADA' | 'EM_ANDAMENTO' | 'NAO_CONCLUIDA'; excluidasDestaEmpresa: number } | null };
   registro: { acao: string; origem: string; criadaEm: string; mensagens: number | null; saidasCanceladas: number | null; prazoDias: number | null }[];
 };
 const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : v == null ? null : String(v));
-/** Tela de privacidade: só leitura, da empresa ativa (não da piloto), só a Gestão. Contato só com os 4 últimos dígitos. */
-export async function situacaoPrivacidade(sessao: SessaoPrivacidade): Promise<SituacaoPrivacidade> {
+/**
+ * Tela de privacidade: só leitura, da empresa ativa (não da piloto), só a Gestão. Contato só com os 4 últimos dígitos.
+ * M4: com `contato` (número completo, só dígitos, 8 a 15), busca exata — a conversa do titular é encontrada mesmo fora das
+ * 200 mais recentes, sem listar números.
+ */
+export async function situacaoPrivacidade(sessao: SessaoPrivacidade, filtro: { contato?: string | null } = {}): Promise<SituacaoPrivacidade> {
+  const contato = filtro.contato ?? null;
+  if (contato !== null && !/^\d{8,15}$/.test(contato)) throw new Error('ATENDIMENTO_CONTATO_INVALIDO');
   return naEmpresaDaSessao(sessao, false, async (tx, empresa, ambiente) => {
     const conversas = (await tx.query<{ id: string; contato_final: string; estado: string; nao_contatar: boolean; pausa: boolean; atualizada_em: Date; mensagens: number }>(`SELECT c.id,right(c.contato,4) AS contato_final,c.estado,c.nao_contatar,(c.contexto ? 'semAutomatico') AS pausa,c.atualizada_em,
         (SELECT count(*)::int FROM whatsapp_atendimento_mensagens m WHERE m.conversa_id=c.id) AS mensagens
-      FROM whatsapp_atendimento_conversas c WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY c.atualizada_em DESC LIMIT 200`, [empresa, ambiente])).rows;
-    const arquivos = (await tx.query<{ id: string; nome: string; tipo: string; tamanho_bytes: number; criado_em: Date; expira_em: Date | null; revogado_em: Date | null; token: string; disponivel: boolean; vencido: boolean }>(`SELECT a.id,a.nome,a.tipo,a.tamanho_bytes,a.criado_em,a.expira_em,a.revogado_em,a.token,(${ARQUIVO_DISPONIVEL_SQL}) AS disponivel,(a.revogado_em IS NULL AND a.expira_em IS NOT NULL AND a.expira_em <= clock_timestamp()) AS vencido
+      FROM whatsapp_atendimento_conversas c WHERE c.empresa_id=$1 AND c.ambiente=$2 AND ($3::text IS NULL OR c.contato=$3) ORDER BY c.atualizada_em DESC LIMIT 200`, [empresa, ambiente, contato])).rows;
+    const arquivos = (await tx.query<{ id: string; nome: string; tipo: string; tamanho_bytes: number; criado_em: Date; expira_em: Date | null; revogado_em: Date | null; token: string; disponivel: boolean; vencido: boolean; sem_confirmacao: number }>(`SELECT a.id,a.nome,a.tipo,a.tamanho_bytes,a.criado_em,a.expira_em,a.revogado_em,a.token,(${ARQUIVO_DISPONIVEL_SQL}) AS disponivel,(a.revogado_em IS NULL AND a.expira_em IS NOT NULL AND a.expira_em <= clock_timestamp()) AS vencido,
+        (SELECT count(*)::int FROM whatsapp_atendimento_mensagens m WHERE m.midia_arquivo_id=a.id AND m.estado IN ('SUBMETIDA','INCERTO')) AS sem_confirmacao
       FROM whatsapp_atendimento_arquivos a WHERE a.empresa_id=$1 AND a.ambiente=$2 ORDER BY a.criado_em DESC LIMIT 200`, [empresa, ambiente])).rows;
     const cfg = (await tx.query<{ prazo_dias: number | null; definido_em: Date }>('SELECT prazo_dias,definido_em FROM whatsapp_atendimento_retencao_config WHERE empresa_id=$1 AND ambiente=$2', [empresa, ambiente])).rows[0];
-    const ultima = (await tx.query<{ id: string; iniciada_em: Date; terminada_em: Date | null; estado: string; falhas: number; erros: string[] | null }>('SELECT id,iniciada_em,terminada_em,estado,falhas,erros FROM whatsapp_atendimento_retencao_execucoes WHERE ambiente=$1 ORDER BY iniciada_em DESC LIMIT 1', [ambiente])).rows[0];
+    const ultima = (await tx.query<{ id: string; iniciada_em: Date; terminada_em: Date | null; estado: string }>('SELECT id,iniciada_em,terminada_em,estado FROM whatsapp_atendimento_retencao_execucoes WHERE ambiente=$1 ORDER BY iniciada_em DESC LIMIT 1', [ambiente])).rows[0];
+    const recente = (await tx.query(`SELECT 1 FROM whatsapp_atendimento_retencao_execucoes WHERE ambiente=$1 AND estado IN ('CONCLUIDA','CONCLUIDA_COM_FALHAS')
+      AND terminada_em > clock_timestamp()-interval '36 hours' LIMIT 1`, [ambiente])).rows.length > 0;
+    const situacao = (e: string) => (e === 'EM_ANDAMENTO' ? 'EM_ANDAMENTO' : e === 'CONCLUIDA' || e === 'CONCLUIDA_COM_FALHAS' ? 'EXECUTADA' : 'NAO_CONCLUIDA') as 'EXECUTADA' | 'EM_ANDAMENTO' | 'NAO_CONCLUIDA';
     const daEmpresa = ultima ? Number((await tx.query<{ n: number }>(`SELECT count(*)::int AS n FROM whatsapp_atendimento_privacidade WHERE empresa_id=$1 AND ambiente=$2 AND origem='RETENCAO'
       AND criada_em >= $3 AND ($4::timestamptz IS NULL OR criada_em <= $4)`, [empresa, ambiente, ultima.iniciada_em, ultima.terminada_em])).rows[0]?.n ?? 0) : 0;
     const registro = (await tx.query<{ acao: string; origem: string; criada_em: Date; mensagens_removidas: number | null; saidas_canceladas: number | null; prazo_dias: number | null }>(`SELECT acao,origem,criada_em,mensagens_removidas,saidas_canceladas,prazo_dias FROM whatsapp_atendimento_privacidade
       WHERE empresa_id=$1 AND ambiente=$2 ORDER BY criada_em DESC LIMIT 50`, [empresa, ambiente])).rows;
     return {
+      busca: contato ? 'NUMERO' : 'RECENTES',
       conversas: conversas.map((c) => ({ id: c.id, contatoFinal: c.contato_final, estado: c.estado, naoContatar: c.nao_contatar, pausa: !!c.pausa, mensagens: Number(c.mensagens), atualizadaEm: iso(c.atualizada_em)! })),
       arquivos: arquivos.map((a) => ({ id: a.id, nome: a.nome, tipo: a.tipo, tamanho: Number(a.tamanho_bytes), criadoEm: iso(a.criado_em)!, expiraEm: iso(a.expira_em), revogadoEm: iso(a.revogado_em),
-        disponivel: !!a.disponivel, vencido: !!a.vencido, caminho: a.disponivel ? caminhoPublicoArquivo(a.id, a.token, a.nome) : null })),
-      retencao: { prazoDias: cfg?.prazo_dias ?? null, definidoEm: iso(cfg?.definido_em), ultimaExecucao: ultima ? { iniciadaEm: iso(ultima.iniciada_em)!, terminadaEm: iso(ultima.terminada_em), estado: ultima.estado, excluidasDestaEmpresa: daEmpresa, falhas: Number(ultima.falhas), erros: ultima.erros ?? [] } : null },
+        disponivel: !!a.disponivel, vencido: !!a.vencido, enviosSemConfirmacao: Number(a.sem_confirmacao), caminho: a.disponivel ? caminhoPublicoArquivo(a.id, a.token, a.nome) : null })),
+      retencao: { prazoDias: cfg?.prazo_dias ?? null, definidoEm: iso(cfg?.definido_em), atrasada: !!cfg?.prazo_dias && !recente,
+        ultimaExecucao: ultima ? { iniciadaEm: iso(ultima.iniciada_em)!, terminadaEm: iso(ultima.terminada_em), situacao: situacao(ultima.estado), excluidasDestaEmpresa: daEmpresa } : null },
       registro: registro.map((r) => ({ acao: r.acao, origem: r.origem, criadaEm: iso(r.criada_em)!, mensagens: r.mensagens_removidas ?? null, saidasCanceladas: r.saidas_canceladas ?? null, prazoDias: r.prazo_dias ?? null })),
     };
   });

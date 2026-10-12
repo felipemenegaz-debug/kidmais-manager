@@ -4,13 +4,14 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Rotina de retenção do atendimento (D2, 12/10/2026): mesmo segredo e HTTPS do processador, mas INDEPENDENTE das chaves
+ * Rotina de retenção do atendimento (D2, 12/10/2026): segredo PRÓPRIO (WHATSAPP_ATENDIMENTO_RETENCAO_SECRET; B4 da revisão
+ * de 69dc301 — não depende do segredo do processador, que só existe com o canal configurado) e HTTPS, INDEPENDENTE das chaves
  * do canal (WHATSAPP_ATENDIMENTO_ENABLED) e da IA (chave-mestra lida só em lib/inteligencia/flags.ts): dado vencido é
  * apagado mesmo com o atendimento desligado. Sem empresa com prazo definido, nada é apagado. Cada execução fica registrada no banco
  * (whatsapp_atendimento_retencao_execucoes); o log só leva o código (nunca conteúdo).
  */
 export async function POST(request: Request) {
-  const segredo = process.env.WHATSAPP_ATENDIMENTO_WORKER_SECRET;
+  const segredo = process.env.WHATSAPP_ATENDIMENTO_RETENCAO_SECRET;
   if (!segredo || !/^[\x21-\x7e]{32,256}$/.test(segredo) || !secretMatches(request.headers.get('x-kidmais-worker-secret'), segredo)) return new Response(null, { status: 401 });
   const https = process.env.RENDER === 'true' ? request.headers.get('x-forwarded-proto') === 'https' : new URL(request.url).protocol === 'https:';
   if (!https) return new Response(null, { status: 403 });

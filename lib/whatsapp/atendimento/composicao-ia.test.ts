@@ -24,8 +24,20 @@ test('modo regras com orçamento válido: a composition root não monta modelo p
   // 12/10 (D1): sem a variável, o padrão é o modo regras; o modelo só com a opção explícita "modelo".
   assert.deepEqual(modelo.portasDeModeloAtendimento(env), { interpretar: null, entender: null }, 'padrão: nenhuma porta de modelo');
   assert.deepEqual(modelo.portasDeModeloAtendimento({ ...env, WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO: 'Modelo' }), { interpretar: null, entender: null }, 'qualquer valor diferente de "modelo" = regras');
-  const comModelo = modelo.portasDeModeloAtendimento({ ...env, WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO: 'modelo' });
-  assert.equal(typeof comModelo.interpretar, 'function'); assert.equal(typeof comModelo.entender, 'function');
+  // H1 (revisão de 69dc301): pedir o modelo não basta — sem a referência da decisão R6 (e, fora de produção, sem a lista
+  // de contatos controlados) o modo efetivo continua regras.
+  const pedido = { ...env, WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO: 'modelo' } as NodeJS.ProcessEnv;
+  for (const [nome, extra] of [
+    ['sem autorização', { KIDMAIS_DEPLOY_ENV: 'production' }],
+    ['autorização fora do formato', { KIDMAIS_DEPLOY_ENV: 'production', WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO: 'sim' }],
+    ['autorização vazia', { KIDMAIS_DEPLOY_ENV: 'production', WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO: 'R6-' }],
+    ['staging sem lista de contatos', { KIDMAIS_DEPLOY_ENV: 'staging', WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO: 'R6-2026-11-03-ata12' }],
+  ] as const) assert.deepEqual(modelo.portasDeModeloAtendimento({ ...pedido, ...extra }), { interpretar: null, entender: null }, `H1: ${nome} = regras`);
+  for (const extra of [{ KIDMAIS_DEPLOY_ENV: 'production', WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO: 'R6-2026-11-03-ata12' },
+    { KIDMAIS_DEPLOY_ENV: 'staging', WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO: 'R6-2026-11-03-ata12', WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS: '5561900000101' }]) {
+    const comModelo = modelo.portasDeModeloAtendimento({ ...pedido, ...extra });
+    assert.equal(typeof comModelo.interpretar, 'function'); assert.equal(typeof comModelo.entender, 'function');
+  }
 });
 
 test('recepção: a chave global chega pela composition root da IA; o webhook sempre informa; o Core não lê a chave', async () => {

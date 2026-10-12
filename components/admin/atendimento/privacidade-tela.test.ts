@@ -6,15 +6,18 @@ import { achar, carregarComponente, cssFalso, elementos, texto, tique, type Elem
 // toda ação pede a senha (reautenticação) antes do POST; excluir e revogar pedem também a palavra de confirmação; senha
 // errada ou palavra errada não enviam nada.
 const CONVERSA = { id: '11111111-1111-4111-8111-111111111111', contatoFinal: '0831', estado: 'AGUARDANDO_HUMANO', naoContatar: false, pausa: true, mensagens: 4, atualizadaEm: '2026-10-10T12:00:00.000Z' };
-const ARQUIVO = { id: '22222222-2222-4222-8222-222222222222', nome: 'tabela.pdf', tipo: 'DOCUMENTO', tamanho: 100, criadoEm: '2026-10-01T12:00:00.000Z', expiraEm: null, revogadoEm: null, disponivel: true, vencido: false, caminho: '/api/publico/x' };
+const ARQUIVO = { id: '22222222-2222-4222-8222-222222222222', nome: 'tabela.pdf', tipo: 'DOCUMENTO', tamanho: 100, criadoEm: '2026-10-01T12:00:00.000Z', expiraEm: null, revogadoEm: null, disponivel: true, vencido: false, enviosSemConfirmacao: 0, caminho: '/api/publico/x' };
 const VENCIDO = { ...ARQUIVO, id: '33333333-3333-4333-8333-333333333333', nome: 'antigo.pdf', expiraEm: '2026-10-02T12:00:00.000Z', disponivel: false, vencido: true, caminho: null };
-const DADOS = { conversas: [CONVERSA], arquivos: [ARQUIVO, VENCIDO], retencao: { prazoDias: null, definidoEm: null, ultimaExecucao: null }, registro: [] };
+const DADOS = { busca: 'RECENTES', conversas: [CONVERSA], arquivos: [ARQUIVO, VENCIDO], retencao: { prazoDias: null, definidoEm: null, atrasada: false, ultimaExecucao: null }, registro: [] };
 
-function montar(senhaCerta = true) {
-  const posts: unknown[] = []; let reautenticacoes = 0;
-  const adminFetch = async (_url: string, init?: { method?: string; body?: unknown }) => {
-    if (init?.method === 'POST') posts.push(JSON.parse(String(init.body)));
-    return { ok: true, status: 200, json: async () => ({ ok: true, data: DADOS }) };
+function montar(senhaCerta = true, opcoes: { dados?: unknown; statusPost?: number } = {}) {
+  const posts: unknown[] = []; const gets: string[] = []; let reautenticacoes = 0;
+  const adminFetch = async (url: string, init?: { method?: string; body?: unknown }) => {
+    if (init?.method === 'POST') {
+      posts.push(JSON.parse(String(init.body)));
+      if (opcoes.statusPost && opcoes.statusPost >= 400) return { ok: false, status: opcoes.statusPost, json: async () => { throw new SyntaxError('corpo ilegível'); } };
+    } else gets.push(url);
+    return { ok: true, status: 200, json: async () => ({ ok: true, data: opcoes.dados ?? DADOS }) };
   };
   const reautenticarSessao = async () => { reautenticacoes++; return senhaCerta ? { ok: true } : { ok: false, erro: 'Senha incorreta.', senhaIncorreta: true }; };
   const h = carregarComponente('components/admin/atendimento/PrivacidadeAtendimento.tsx', {
@@ -22,7 +25,7 @@ function montar(senhaCerta = true) {
   });
   globalThis.window = { setTimeout, clearTimeout } as never;
   const render = async () => { h.render(); h.efeitos(); await new Promise((r) => setTimeout(r, 5)); await tique(); const t = h.render(); h.efeitos(); return t; };
-  return { posts, render, reautenticacoes: () => reautenticacoes };
+  return { posts, gets, render, reautenticacoes: () => reautenticacoes };
 }
 const clicar = async (e: Elemento) => { (e.props.onClick as () => unknown)(); await tique(); await tique(); };
 const digitar = (e: Elemento, valor: string) => (e.props.onChange as (ev: unknown) => void)({ target: { value: valor } });
@@ -63,4 +66,25 @@ test('revogar com senha errada: nada é enviado; retenção e troca de link pede
   digitar(campo(t, 'senha'), 's'); t = await m.render(); await clicar(achar(t, 'button', 'Confirmar')); await m.render();
   assert.deepEqual(m.posts, [{ acao: 'retencao', prazoDias: 90 }, { acao: 'trocar_link', arquivoId: ARQUIVO.id }]);
   assert.equal(m.reautenticacoes(), 2);
+});
+
+test('revisão de 69dc301: busca pelo número completo (M4), atraso sem números globais (M5), aviso de envio sem confirmação (B1)', async () => {
+  const dados = { ...DADOS, retencao: { prazoDias: 30, definidoEm: '2026-10-10T12:00:00.000Z', atrasada: true, ultimaExecucao: { iniciadaEm: '2026-10-09T03:00:00.000Z', terminadaEm: '2026-10-09T03:01:00.000Z', situacao: 'EXECUTADA', excluidasDestaEmpresa: 2 } },
+    arquivos: [{ ...ARQUIVO, enviosSemConfirmacao: 2 }] };
+  const m = montar(true, { dados }); let t = await m.render();
+  assert.match(texto(t), /executada; 2 conversa\(s\) desta empresa/); assert.doesNotMatch(texto(t), /falha/);
+  assert.match(texto(t), /não terminou nas últimas 36 horas/);
+  assert.match(texto(t), /busque pelo número completo/);
+  digitar(campo(t, 'busca'), '+55 (61) 90000-0831'); t = await m.render();
+  const form = elementos(t).find((e) => e.type === 'form')!;
+  (form.props.onSubmit as (e: unknown) => void)({ preventDefault() {} }); await tique(); t = await m.render();
+  assert.equal(m.gets.at(-1), '/api/admin/atendimento/privacidade?contato=5561900000831', 'M4: só dígitos, busca exata no servidor');
+  await clicar(achar(t, 'button', 'Revogar')); t = await m.render();
+  assert.match(texto(t), /2 envio\(s\) deste arquivo ainda sem confirmação de entrega/, 'B1: aviso antes de revogar');
+});
+test('revisão de 69dc301: falha do servidor (5xx) não afirma que nada mudou (B3)', async () => {
+  const m = montar(true, { statusPost: 503 }); let t = await m.render();
+  await clicar(achar(t, 'button', 'Trocar link')); t = await m.render();
+  digitar(campo(t, 'senha'), 's'); t = await m.render(); await clicar(achar(t, 'button', 'Confirmar')); t = await m.render();
+  assert.match(texto(t), /Não foi possível confirmar o resultado/); assert.doesNotMatch(texto(t), /Nada foi alterado/);
 });

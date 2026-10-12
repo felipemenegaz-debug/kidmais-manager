@@ -196,10 +196,12 @@ CREATE TABLE whatsapp_atendimento_retencao_execucoes (
   ambiente text NOT NULL CHECK (ambiente IN ('staging', 'production')),
   iniciada_em timestamptz NOT NULL DEFAULT clock_timestamp(),
   terminada_em timestamptz,
-  estado text NOT NULL CHECK (estado IN ('EM_ANDAMENTO', 'CONCLUIDA', 'CONCLUIDA_COM_FALHAS', 'FALHOU')),
+  estado text NOT NULL CHECK (estado IN ('EM_ANDAMENTO', 'CONCLUIDA', 'CONCLUIDA_COM_FALHAS', 'FALHOU', 'INTERROMPIDA')),
   empresas integer NOT NULL DEFAULT 0 CHECK (empresas >= 0),
   excluidas integer NOT NULL DEFAULT 0 CHECK (excluidas >= 0),
   adiadas integer NOT NULL DEFAULT 0 CHECK (adiadas >= 0),
+  -- Revisão de 69dc301 (H2): conversa escolhida como inativa que voltou a ter atividade antes da exclusão (não apagada).
+  recentes integer NOT NULL DEFAULT 0 CHECK (recentes >= 0),
   falhas integer NOT NULL DEFAULT 0 CHECK (falhas >= 0),
   pendentes_removidas integer NOT NULL DEFAULT 0 CHECK (pendentes_removidas >= 0),
   dedup_removidos integer NOT NULL DEFAULT 0 CHECK (dedup_removidos >= 0),
@@ -207,6 +209,8 @@ CREATE TABLE whatsapp_atendimento_retencao_execucoes (
   CONSTRAINT whatsapp_retencao_fim CHECK ((estado = 'EM_ANDAMENTO') = (terminada_em IS NULL))
 );
 CREATE INDEX whatsapp_retencao_execucoes_recentes ON whatsapp_atendimento_retencao_execucoes (ambiente, iniciada_em DESC);
+-- Revisão de 69dc301 (M5): no máximo uma execução EM_ANDAMENTO por ambiente; a segunda chamada simultânea é recusada.
+CREATE UNIQUE INDEX whatsapp_retencao_uma_por_vez ON whatsapp_atendimento_retencao_execucoes (ambiente) WHERE estado = 'EM_ANDAMENTO';
 
 -- Mensagens prontas.
 ALTER TABLE whatsapp_atendimento_mensagens_prontas
@@ -246,7 +250,7 @@ ALTER TABLE whatsapp_atendimento_mensagens
   ADD COLUMN midia_nome text CONSTRAINT whatsapp_mensagens_midia_nome CHECK (char_length(midia_nome) BETWEEN 5 AND 240),
   ADD COLUMN fonte jsonb CONSTRAINT whatsapp_mensagens_fonte CHECK (jsonb_typeof(fonte) = 'object'),
   -- D3 (12/10): por que uma saída foi cancelada sem sair (o operador vê; nunca cancelamento silencioso).
-  ADD COLUMN motivo_cancelamento text CONSTRAINT whatsapp_mensagens_motivo_cancelamento CHECK (motivo_cancelamento IN ('ARQUIVO_INDISPONIVEL', 'ARQUIVO_REVOGADO'));
+  ADD COLUMN motivo_cancelamento text CONSTRAINT whatsapp_mensagens_motivo_cancelamento CHECK (motivo_cancelamento IN ('ARQUIVO_INDISPONIVEL', 'ARQUIVO_REVOGADO', 'GRUPO_INCOMPLETO'));
 ALTER TABLE whatsapp_atendimento_mensagens
   ADD CONSTRAINT whatsapp_mensagens_origem_grupo_uk UNIQUE (origem_grupo_id, ordem),
   ADD CONSTRAINT whatsapp_mensagens_origem_grupo FOREIGN KEY (origem_grupo_id) REFERENCES whatsapp_atendimento_mensagens (id),

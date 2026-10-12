@@ -17,6 +17,12 @@ export const configuracaoSchema = z.object({
 export type ConfiguracaoAtendimento = z.infer<typeof configuracaoSchema>;
 /** Texto fixo quando a IA não pode responder (modelo indisponível ou orçamento recusado): encaminha sem inventar conteúdo.
  *  Limite diário de respostas esgotado NÃO usa este texto: a conversa vai para a equipe em silêncio (M1, worker). */
+/**
+ * M1 (revisão de 69dc301): janela de reentrega. Evento do provedor com horário mais antigo que isto nunca é gravado (a
+ * recepção confirma sem gravar): é reentrega ou replay, já fora da janela de 24 h, e o hash de um evento excluído pode já
+ * ter sido purgado depois do mesmo prazo (RETENCAO_DEDUP_DIAS, privacidade.ts). Valor técnico provisório (R7).
+ */
+export const JANELA_REENTREGA_DIAS = 30;
 export const MENSAGEM_ENCAMINHAMENTO = 'Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe; a resposta dependerá do horário de atendimento.';
 /**
  * O JSON Schema enviado ao modelo só garante `string | null` em `data`; o modelo pode devolver a data como o cliente

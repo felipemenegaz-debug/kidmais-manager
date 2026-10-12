@@ -134,7 +134,7 @@ test("revogação × envio: travas na ordem conversa → arquivo, ponto sem volt
     }
     const c3 = await grupo("5561900000903", "SUBMETIDA");
     const antes3 = (await q("SELECT md5(string_agg(m::text, '|' ORDER BY m.id)) AS h FROM whatsapp_atendimento_mensagens m WHERE conversa_id = $1", [c3.conversa])).rows[0].h;
-    await assert.rejects(A.privacidade.revogarArquivo(gestao, { arquivoId: c3.arq }), /ATENDIMENTO_ENVIO_EM_ANDAMENTO/, "C3: grupo parcialmente enviado: recusa");
+    await assert.rejects(A.privacidade.revogarArquivo(gestao, { arquivoId: c3.arq }), /ATENDIMENTO_GRUPO_PARCIAL/, "C3: grupo parcialmente enviado: recusa (código próprio desde a revisão de 69dc301, B2)");
     assert.equal((await q("SELECT md5(string_agg(m::text, '|' ORDER BY m.id)) AS h FROM whatsapp_atendimento_mensagens m WHERE conversa_id = $1", [c3.conversa])).rows[0].h, antes3, "C3: nada muda");
     assert.equal((await arquivo(c3.arq)).revogado, false);
     await q("UPDATE whatsapp_atendimento_mensagens SET estado = 'CANCELADA' WHERE id = $1", [c3.pdf]);

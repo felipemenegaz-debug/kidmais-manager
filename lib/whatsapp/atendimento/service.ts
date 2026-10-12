@@ -2,7 +2,7 @@ import { withTransaction, db } from '../../db/postgres.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } from '../../saas/provar-tenant.ts';
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
-import { configuracaoSchema, comandoDireto, conferirEmpresaAtiva, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
+import { JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, conferirEmpresaAtiva, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
 import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
 // O worker usa o mesmo resumo de pausa (sem importar o entendimento do Wall-e).
@@ -73,7 +73,7 @@ export async function midiaDaPronta(tx: DbExecutor, empresa: string, ambiente: s
 }
 export const LIMITE_LEGENDA_ENVIO = 1024;
 /** `midia_nome` e `midia_caminho` (082): nome do arquivo próprio e o caminho público para conferir na tela. */
-export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean; midia_tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO' | null; midia_url: string | null; midia_nome?: string | null; midia_caminho?: string | null; ordem?: number; motivo_cancelamento?: 'ARQUIVO_INDISPONIVEL' | 'ARQUIVO_REVOGADO' | null };
+export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean; midia_tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO' | null; midia_url: string | null; midia_nome?: string | null; midia_caminho?: string | null; ordem?: number; motivo_cancelamento?: 'ARQUIVO_INDISPONIVEL' | 'ARQUIVO_REVOGADO' | 'GRUPO_INCOMPLETO' | null };
 /** Situação do canal neste ambiente, em partes separadas: receber, responder e a configuração da empresa. */
 export type EstadoCanal = { ambiente: string; receptor: boolean; recepcao: boolean; envio: boolean };
 /**
@@ -98,6 +98,9 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
   // Fora da lista de contatos permitidos: confirma o evento sem gravar nada (nenhum dado do contato entra no banco).
   if (!contatoPermitido(entrada.source)) return;
   if (entrada.app !== 'KidmaisManager') throw new Error('ATENDIMENTO_EVENTO_INVALIDO');
+  // M1 (revisão de 69dc301): evento mais antigo que a janela de reentrega confirma sem gravar — nunca recria conteúdo
+  // excluído depois que o hash do evento for purgado (mesmo prazo).
+  if (!Number.isFinite(entrada.timestamp) || entrada.timestamp < Date.now() - JANELA_REENTREGA_DIAS * 86_400_000) return;
   // A sessão usa o horário do evento no Gupshup (ms); replay não reabre a janela. Horário à frente do relógio local
   // (diferença de relógio) vale como agora: recusar faria o provedor repetir o evento sem fim.
   const em = new Date(Math.min(entrada.timestamp, Date.now())).toISOString();

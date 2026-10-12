@@ -259,7 +259,18 @@ export async function processarAtendimento(deps: DependenciasWorker) {
     // Recusa do provedor ou transporte sem configuração: nada saiu, termina FALHOU. Demais falhas no envio: INCERTO.
     const naoEnviada = erro instanceof Error && ['ATENDIMENTO_ENVIO_RECUSADO', 'ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO'].includes(erro.message);
     await withTransaction(async tx => {
-      await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado=CASE WHEN estado='ENVIANDO' AND NOT $2::boolean THEN 'INCERTO' ELSE 'FALHOU' END WHERE id=$1 AND estado IN ('PROCESSANDO','ENVIANDO')", [mensagem.id, naoEnviada]);
+      const final = (await tx.query<{ estado: string }>("UPDATE whatsapp_atendimento_mensagens SET estado=CASE WHEN estado='ENVIANDO' AND NOT $2::boolean THEN 'INCERTO' ELSE 'FALHOU' END WHERE id=$1 AND estado IN ('PROCESSANDO','ENVIANDO') RETURNING estado", [mensagem.id, naoEnviada])).rows[0]?.estado;
+      // M3 (revisão de 69dc301): o provedor não envia um grupo de forma atômica. Falhou (ou ficou incerta) uma saída de uma
+      // resposta em grupo: as irmãs ainda na fila não saem sozinhas — canceladas com motivo GRUPO_INCOMPLETO (visível),
+      // os materiais cancelados (e o desta saída, se ela certamente não saiu) deixam a memória de envio, e a equipe é
+      // chamada. O que já saiu antes continua com o cliente.
+      const g = mensagem as MensagemDeGrupo;
+      if (g.origem_grupo_id) {
+        const irmas = (await tx.query<{ midia_pronta_id: string | null }>(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA',motivo_cancelamento='GRUPO_INCOMPLETO'
+          WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens WHERE origem_grupo_id=$1 AND id<>$2 AND direcao='SAIDA' AND estado='PENDENTE' FOR UPDATE SKIP LOCKED) RETURNING midia_pronta_id`, [g.origem_grupo_id, g.id])).rows;
+        const prontas = [...irmas.map((x) => x.midia_pronta_id), final === 'FALHOU' ? g.midia_pronta_id ?? null : null].filter((x): x is string => !!x);
+        await tratarConversaSemArquivo(tx, mensagem, conversa, prontas);
+      }
       await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [conversa.id]);
     });
     return 'ENCAMINHADA';
@@ -383,8 +394,8 @@ async function cancelarGrupoSemArquivo(tx: DbExecutor, mensagem: Mensagem, atual
   await tratarConversaSemArquivo(tx, mensagem, atual, canceladas.map((x) => x.midia_pronta_id).filter((x): x is string => !!x));
 }
 /**
- * Conversa de uma saída cancelada por arquivo indisponível: os materiais cancelados do grupo saem da memória de envio do
- * Wall-e e, se a saída era automática, a conversa vai para a equipe. Idempotente. Sem a lista, lê do banco as saídas do
+ * Conversa de uma saída cancelada por arquivo indisponível (ou de um grupo incompleto, M3): os materiais cancelados saem
+ * da memória de envio do Wall-e e, se a saída era automática, a conversa vai para a equipe. Idempotente. Sem a lista, lê do banco as saídas do
  * grupo canceladas com motivo de arquivo.
  */
 async function tratarConversaSemArquivo(tx: DbExecutor, mensagem: Mensagem, atual: Conversa, lista?: string[]) {
