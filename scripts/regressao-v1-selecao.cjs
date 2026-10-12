@@ -142,6 +142,7 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/ordem-staging-real.postgres.test.ts": { descartavel: "079-sem-atendimento", rollback: "082" },
   // 11/10: o Wall-e no catálogo do buffet por empresa (078 do staging): cada empresa só vê o próprio buffet.
   "lib/whatsapp/atendimento/walle/catalogo-por-empresa.postgres.test.ts": { descartavel: "082" },
+  "lib/whatsapp/atendimento/walle/preco-adicional.postgres.test.ts": { descartavel: "082" },
   // 12/10: estado misto (060 aplicada antes de 061…079, 065 ausente) × ordem do inventário; rollback.
   "lib/whatsapp/atendimento/estado-misto.postgres.test.ts": { descartavel: "079-sem-065", rollback: "082" },
   // 12/10 (M2): corrida revogação × envio, determinística (travas do banco como barreiras).

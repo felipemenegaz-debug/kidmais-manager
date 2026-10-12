@@ -31,7 +31,12 @@ export function lerContexto(bruto: unknown): ContextoWallE {
     ...(c.linkDisponibilidade === true ? { linkDisponibilidade: true } : {}),
     ...(texto(c.fechamentoEm, 40) ? { fechamentoEm: texto(c.fechamentoEm, 40) } : {}),
     ...(c.avisoReserva === true ? { avisoReserva: true } : {}),
+    ...(adicionalPendente(c.adicionalPendente) ? { adicionalPendente: adicionalPendente(c.adicionalPendente) } : {}),
   };
+}
+function adicionalPendente(v: unknown): ContextoWallE['adicionalPendente'] {
+  const a = v && typeof v === 'object' ? v as { id?: unknown; nome?: unknown } : null;
+  return a && typeof a.id === 'string' && a.id.length > 0 && a.id.length <= 60 && typeof a.nome === 'string' && a.nome.length > 0 && a.nome.length <= 120 ? { id: a.id, nome: a.nome } : null;
 }
 
 /** Junta o entendimento desta mensagem à memória: valores novos vencem; mudança vira correção registrada. */

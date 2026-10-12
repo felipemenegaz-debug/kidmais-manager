@@ -2,12 +2,13 @@ import type { DbExecutor } from '../../../db/contracts.ts';
 import { listarPacotesAdmin } from '../../../comercial/pacotes-admin.ts';
 import { ARQUIVO_DISPONIVEL_SQL } from '../arquivos.ts';
 import { calcularResumoComercial } from '../../../comercial/services/pricing.service.ts';
+import { lerPrecosCorrentes } from '../../../comercial/pacote-precos.ts';
 import { agendaPorEscopoInstalada, unidadesDaEmpresa, type EscopoAgenda } from '../../../disponibilidade/escopo.ts';
 import { listarConfiguracoesAgendaAtivas } from '../../../disponibilidade/repositories/disponibilidade.repository.ts';
 import { consultarDisponibilidadePeriodo } from '../../../disponibilidade/services/availability.service.ts';
 import type { ConfiguracaoAtendimento } from '../core.ts';
 import type { Finalidade } from '../prontas.ts';
-import type { FontesWallE, PeriodoAgenda, PrecoCalculado, ProntaAutorizada } from './resolver.ts';
+import type { FontesWallE, PeriodoAgenda, PrecoAdicional, PrecoCalculado, ProntaAutorizada } from './resolver.ts';
 import type { Catalogos, EscopoAgendaConsultado } from './tipos.ts';
 
 /**
@@ -115,16 +116,32 @@ export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambien
           WHERE r.pacote_id=$1::uuid AND r.ativo
           GROUP BY c.id, c.nome, c.ordem_exibicao, r.escolhas_min, r.escolhas_max
           ORDER BY c.ordem_exibicao, c.nome`, [pacote.id]);
-      const adicionais = await ex.query<{ nome: string; categoria: string; modalidade: 'INCLUSO' | 'EXTRA' }>(
-        `SELECT a.nome, a.categoria, pa.modalidade
+      const adicionais = await ex.query<{ id: string; nome: string; categoria: string; modalidade: 'INCLUSO' | 'EXTRA' }>(
+        `SELECT a.id::text AS id, a.nome, a.categoria, pa.modalidade
            FROM pacote_adicionais pa JOIN adicionais a ON a.id=pa.adicional_id
           WHERE pa.pacote_id=$1::uuid AND pa.ativo AND a.ativo AND pa.modalidade IN ('INCLUSO','EXTRA') AND (a.empresa_id IS NULL OR a.empresa_id=$2::uuid)
           ORDER BY a.ordem_exibicao, a.nome`, [pacote.id, empresaId]);
       return {
         categorias: buffet.rows.map((c) => ({ nome: c.categoria, escolhasMin: Number(c.escolhas_min), escolhasMax: Number(c.escolhas_max), itens: c.itens ?? [] })),
-        inclusos: adicionais.rows.filter((a) => a.modalidade === 'INCLUSO').map((a) => ({ nome: a.nome, categoria: a.categoria })),
-        extras: adicionais.rows.filter((a) => a.modalidade === 'EXTRA').map((a) => ({ nome: a.nome, categoria: a.categoria })),
+        inclusos: adicionais.rows.filter((a) => a.modalidade === 'INCLUSO').map((a) => ({ id: a.id, nome: a.nome, categoria: a.categoria })),
+        extras: adicionais.rows.filter((a) => a.modalidade === 'EXTRA').map((a) => ({ id: a.id, nome: a.nome, categoria: a.categoria })),
       };
+    },
+    /**
+     * Teste manual de 12/10/2026: preço do adicional na tabela VIGENTE da empresa (precos_adicional, a mesma leitura da tela
+     * de preços). Sem linha: SEM_PRECO (nada é suposto). Faixas por número de convidados: sem o número, PRECISA_CONVIDADOS;
+     * com ele e sem faixa que o contenha, SEM_PRECO.
+     */
+    async precoAdicional(adicionalId, convidados): Promise<PrecoAdicional> {
+      const correntes = await lerPrecosCorrentes(ex, empresaId);
+      const faixas = correntes.adicionais.filter((a) => a.adicionalId === adicionalId);
+      if (!faixas.length) return { erro: 'SEM_PRECO' };
+      const unidade = (await ex.query<{ unidade_cobranca: string }>('SELECT unidade_cobranca FROM adicionais WHERE id=$1::uuid AND (empresa_id IS NULL OR empresa_id=$2::uuid)', [adicionalId, empresaId])).rows[0]?.unidade_cobranca ?? null;
+      const unica = faixas.length === 1 && faixas[0].min <= 1 && faixas[0].max === null;
+      if (!unica && convidados == null) return { erro: 'PRECISA_CONVIDADOS' };
+      const faixa = unica ? faixas[0] : faixas.find((f) => f.min <= convidados! && (f.max === null || convidados! <= f.max));
+      if (!faixa) return { erro: 'SEM_PRECO' };
+      return { valor: faixa.valor, unidade, faixa: unica ? null : { min: faixa.min, max: faixa.max }, tabela: correntes.tabelaId };
     },
     async preco(codigo, data, turno, convidados): Promise<PrecoCalculado> {
       const pacote = (await pacotesVigentes(ex, empresaId)).find((p) => p.codigo === codigo);

@@ -136,6 +136,9 @@ export type ContextoWallE = {
   fechamentoEm?: string | null;
   /** Rodada 43: o aviso "a data só fica reservada com a contratação" já foi dado nesta conversa. */
   avisoReserva?: boolean;
+  /** Teste manual de 12/10/2026: o adicional cujo preço depende do número de convidados (perguntado). Só o id e o nome
+   * do catálogo, nenhum dado do cliente; consumido quando o número chega. */
+  adicionalPendente?: { id: string; nome: string } | null;
 };
 
 /**
@@ -157,7 +160,10 @@ export type Fonte =
   | { tipo: 'PERIODOS_AGENDA' }
   | { tipo: 'LINK_CONTRATO' }
   /** Rodada 40: link público da página de disponibilidade/fechamento (o mesmo para todos; não reserva nada). */
-  | { tipo: 'LINK_DISPONIBILIDADE' };
+  | { tipo: 'LINK_DISPONIBILIDADE' }
+  /** Teste manual de 12/10/2026: adicional cadastrado no pacote (incluso ou com custo à parte) e o preço dele na tabela vigente. */
+  | { tipo: 'ADICIONAL'; id: string; modalidade: 'INCLUSO' | 'EXTRA'; pacote: string }
+  | { tipo: 'PRECO_ADICIONAL'; id: string; tabela: string | null };
 
 export type Anexo = { prontaId: string; versao: number; finalidade: string; tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO'; titulo: string; legenda: string | null; midiaUrl: string | null; arquivoId: string | null; nome: string | null };
 /** Uma mensagem a enviar: texto, ou anexo com legenda. */

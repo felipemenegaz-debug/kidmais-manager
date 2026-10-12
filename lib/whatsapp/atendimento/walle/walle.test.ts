@@ -6,7 +6,7 @@ import { mesclarContexto, lerContexto } from './contexto.ts';
 import { CLAUSULAS_POR_TEMA, clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
 import { linkDisponibilidadePublica } from './link-disponibilidade.ts';
 import { DESISTE_CONTRATAR, entenderPorRegras, extrairConvidados, itensCitados, juntarSinais, limitar, limparTema, pratoSemCadastro, registroDoBloqueio, revalidarEntendimento, type SaidaModelo } from './entendimento.ts';
-import { LIMITE_MENSAGEM, partirMensagem, resolverWallE, type FontesWallE, type PeriodoAgenda, type ProntaAutorizada } from './resolver.ts';
+import { LIMITE_MENSAGEM, partirMensagem, resolverWallE, type Composicao, type FontesWallE, type PeriodoAgenda, type PrecoAdicional, type ProntaAutorizada } from './resolver.ts';
 import type { Catalogos, ContextoWallE, EscopoAgendaConsultado, Intencao, ResultadoWallE } from './tipos.ts';
 
 // Tudo sintético e em memória: nenhum banco, modelo ou provedor é acessado.
@@ -31,7 +31,9 @@ const PRONTAS: Record<string, ProntaAutorizada[]> = {
   CARDAPIO: [pronta({ id: 'p-cardapio-completa', titulo: 'Cardápio Completa', tipo: 'DOCUMENTO', finalidade: 'CARDAPIO', arquivoId: 'a-card', arquivoNome: 'cardapio-completa.pdf', pacoteCodigo: 'COMPLETA' })],
 };
 const periodo = (codigo: string, disponivel: boolean): PeriodoAgenda => (codigo === 'TURNO_1' ? { codigo, nome: 'Almoço', inicio: '11:00', fim: '15:00', disponivel } : { codigo, nome: 'Noite', inicio: '17:00', fim: '21:00', disponivel });
-type OpFontes = { link?: string | null; linkPublico?: string | null; agendaFalha?: boolean; precoErro?: 'ACIMA_CAPACIDADE' | 'SOB_CONSULTA'; escopo?: (unidade: string | null) => EscopoAgendaConsultado };
+type OpFontes = { link?: string | null; linkPublico?: string | null; agendaFalha?: boolean; precoErro?: 'ACIMA_CAPACIDADE' | 'SOB_CONSULTA'; escopo?: (unidade: string | null) => EscopoAgendaConsultado;
+  /** Teste manual de 12/10/2026: composição por pacote e preço dos adicionais na tabela vigente (ausente: sem a fonte). */
+  composicoes?: (codigo: string) => Composicao | null; precos?: Record<string, (convidados: number | null) => PrecoAdicional> };
 function fontesFake(op: OpFontes = {}) {
   const chamadas: string[] = [];
   const fontes: FontesWallE = {
@@ -41,7 +43,7 @@ function fontesFake(op: OpFontes = {}) {
       { id: 'pk-c', codigo: 'COMPLETA', nome: 'Completa', descricao: null, duracaoMinutos: 240, convidadosMinimos: 50, convidadosMaximos: 100 },
       { id: 'pk-p', codigo: 'PREMIUM', nome: 'Premium', descricao: null, duracaoMinutos: 300, convidadosMinimos: 60, convidadosMaximos: 150 },
     ]; },
-    async composicao(codigo) { chamadas.push(`composicao:${codigo}`); return codigo === 'ESSENCIAL'
+    async composicao(codigo) { chamadas.push(`composicao:${codigo}`); if (op.composicoes) return op.composicoes(codigo); return codigo === 'ESSENCIAL'
       ? { categorias: [{ nome: 'Salgados', escolhasMin: 0, escolhasMax: 4, itens: ['Coxinha', 'Kibe', 'Esfirra'] }], inclusos: [], extras: [{ nome: 'Painel temático', categoria: 'DECORACAO' }] }
       : { categorias: [{ nome: 'Salgados', escolhasMin: 0, escolhasMax: 6, itens: ['Coxinha', 'Kibe', 'Esfirra', 'Pão de queijo'] }, { nome: 'Doces', escolhasMin: 2, escolhasMax: 3, itens: ['Brigadeiro', 'Beijinho'] }], inclusos: [{ nome: 'Mesa decorada', categoria: 'DECORACAO' }], extras: [{ nome: 'Painel temático', categoria: 'DECORACAO' }] }; },
     async preco(codigo, data, turno, convidados) {
@@ -58,6 +60,7 @@ function fontesFake(op: OpFontes = {}) {
     async alternativas(data, _u, turno) { chamadas.push(`alternativas:${data}:${turno}`); return [{ data: '2026-11-15', periodos: [periodo('TURNO_2', true)] }, { data: '2026-11-21', periodos: [periodo('TURNO_2', true)] }]; },
     async linkContratoProprio() { chamadas.push('link-contrato'); return op.link ?? null; },
     ...(op.linkPublico !== undefined ? { linkDisponibilidade: () => { chamadas.push('link-disponibilidade'); return op.linkPublico ?? null; } } : {}),
+    ...(op.precos !== undefined ? { precoAdicional: async (id: string, convidados: number | null) => { chamadas.push(`preco-adicional:${id}:${convidados}`); return op.precos![id]?.(convidados) ?? { erro: 'SEM_PRECO' as const }; } } : {}),
   };
   return { fontes, chamadas };
 }
@@ -3611,4 +3614,140 @@ test('rodada 47 — motivo certo nos achados da régua de motivo: condição nov
   assert.ok(!entenderPorRegras('me passa o telefone de vcs que eu ligo', catalogos).sinais?.instrucao);
   assert.ok(entenderPorRegras('a tia da julia vai fazer a festa ai dia 12, que horas comeca?', catalogos).intencoes.some((i) => i.tipo === 'CONTRATO_PROPRIO'));
   assert.ok(!entenderPorRegras('minha irmã fez festa com vcs e amou, quero fazer a da minha filha dia 31/10/2026, tem vaga?', catalogos).intencoes.some((i) => i.tipo === 'CONTRATO_PROPRIO'));
+});
+
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Teste manual de 12/10/2026 — decoração inclusa em todos os pacotes × segunda mesa temática como adicional.
+const MESA = { id: 'ad-mesa', nome: 'Mesa temática', categoria: 'DECORACAO' };
+const MESA2 = { id: 'ad-mesa2', nome: 'Segunda mesa temática', categoria: 'DECORACAO' };
+const PAINEL = { id: 'ad-painel', nome: 'Painel temático', categoria: 'DECORACAO' };
+const BUFFET = [{ nome: 'Salgados', escolhasMin: 0, escolhasMax: 4, itens: ['Coxinha', 'Kibe'] }];
+const DECOR_COMUM = (): Composicao => ({ categorias: BUFFET, inclusos: [MESA, PAINEL], extras: [MESA2] });
+const PRECO_FIXO = { 'ad-mesa2': () => ({ valor: 450, unidade: 'VALOR_FIXO', faixa: null, tabela: 't-2027' }) };
+const LINK_PUB = 'https://festa.exemplo.test/disponibilidade';
+const fontesDe = (r: ResultadoWallE) => r.saidas.flatMap((s) => s.fontes);
+
+test('teste manual 12/10 — conversa completa: preço da festa, decoração inclusa em todos, segunda mesa com preço da tabela, link público', async () => {
+  const c = await conversa(['Bom dia! Quanto custa uma festa para 50 convidados?', 'A decoração está inclusa? Quanto custa uma segunda mesa temática?', 'Quero fechar. Manda o link.'],
+    { composicoes: DECOR_COMUM, precos: PRECO_FIXO, linkPublico: LINK_PUB });
+  const [r1, r2, r3] = c.rodadas;
+  // 1: preço da festa como antes (tabela publicada).
+  assert.deepEqual(anexos(r1), ['p-tabela']);
+  assert.match(texto(r1), /Segue a nossa tabela de preços/);
+  assert.equal(r1.passagem, null);
+  // 2: a mesa principal vem em todos os pacotes; a segunda é adicional com o valor da tabela vigente; nada vai à equipe.
+  const t2 = texto(r2);
+  assert.match(t2, /Na Kidmais fazemos qualquer decoração./);
+  assert.match(t2, /Em todos os pacotes, a decoração inclui Mesa temática e Painel temático./);
+  assert.match(t2, /“Segunda mesa temática” é adicional: R\$\s?450,00 pela tabela de preços vigente./);
+  assert.doesNotMatch(t2, /Não tenho cadastrado|a equipe confirma/);
+  assert.doesNotMatch(t2, /Segue a nossa tabela|tabela de preços já|Essencial|Completa/, 'o valor do item não é o preço da festa');
+  assert.equal((t2.match(/Segunda mesa temática/g) ?? []).length, 1, 'o adicional não é repetido no resumo');
+  assert.deepEqual(anexos(r2), []);
+  assert.equal(r2.passagem, null);
+  const f2 = fontesDe(r2);
+  assert.ok(f2.some((f) => f.tipo === 'PACOTE'));
+  assert.ok(f2.some((f) => f.tipo === 'ADICIONAL' && f.id === 'ad-mesa2' && f.modalidade === 'EXTRA'));
+  assert.ok(f2.some((f) => f.tipo === 'PRECO_ADICIONAL' && f.id === 'ad-mesa2' && f.tabela === 't-2027'));
+  assert.ok(c.chamadas.includes('preco-adicional:ad-mesa2:50'), 'o número de convidados da primeira mensagem é usado');
+  assert.ok(!c.chamadas.some((x) => x.startsWith('preco:')), 'nenhum preço de festa calculado');
+  // 3: o link público autorizado segue como caminho do cliente; a conversa continua com o Wall-e.
+  const t3 = texto(r3);
+  assert.ok(t3.includes(LINK_PUB));
+  assert.doesNotMatch(t3, /(está|ficou|foi) (reservad|confirmad|garantid)/);
+  assert.equal(r3.passagem, null);
+  assert.ok(fontesDe(r3).some((f) => f.tipo === 'LINK_DISPONIBILIDADE'));
+  assert.equal(c.contexto.adicionalPendente, undefined);
+  // Sem página pública configurada: nenhum link, a contratação segue por aqui (nada inventado).
+  const sem = await conversa(['Bom dia! Quanto custa uma festa para 50 convidados?', 'A decoração está inclusa? Quanto custa uma segunda mesa temática?', 'Quero fechar. Manda o link.'],
+    { composicoes: DECOR_COMUM, precos: PRECO_FIXO, linkPublico: null });
+  assert.doesNotMatch(texto(sem.ultima), /https?:/);
+  assert.equal(sem.rodadas[1].passagem, null);
+});
+
+test('teste manual 12/10 — mesa principal inclusa × segunda mesa adicional; "a decoração está inclusa?" sem pacote escolhido', async () => {
+  const principal = (await conversa(['a mesa temática é cobrada à parte?'], { composicoes: DECOR_COMUM, precos: PRECO_FIXO })).ultima;
+  assert.match(texto(principal), /“Mesa temática” já vem em todos os pacotes \(é a principal, inclusa\)\./);
+  assert.doesNotMatch(texto(principal), /R\$/);
+  assert.equal(principal.passagem, null);
+  assert.ok(fontesDe(principal).some((f) => f.tipo === 'ADICIONAL' && f.id === 'ad-mesa' && f.modalidade === 'INCLUSO'));
+  const outra = (await conversa(['e se eu quiser outra mesa temática, é cobrada?'], { composicoes: DECOR_COMUM, precos: PRECO_FIXO })).ultima;
+  assert.match(texto(outra), /Segunda mesa temática/);
+  assert.doesNotMatch(texto(outra), /“Mesa temática” já vem/);
+  const geral = (await conversa(['A decoração está inclusa?'], { composicoes: DECOR_COMUM })).ultima;
+  assert.match(texto(geral), /Em todos os pacotes, a decoração inclui Mesa temática e Painel temático\./);
+  assert.match(texto(geral), /Segunda mesa temática é adicional, com custo à parte, em todos os pacotes\./);
+  assert.equal(geral.passagem, null);
+});
+
+test('teste manual 12/10 — condições diferentes entre os pacotes: cada pacote com a sua, sem escolher pelo cliente', async () => {
+  const composicoes = (codigo: string): Composicao => codigo === 'ESSENCIAL' ? { categorias: BUFFET, inclusos: [], extras: [MESA] } : { categorias: BUFFET, inclusos: [MESA], extras: [MESA2] };
+  const geral = (await conversa(['A decoração está inclusa?'], { composicoes })).ultima;
+  const t = texto(geral);
+  assert.doesNotMatch(t, /Em todos os pacotes/);
+  assert.match(t, /No pacote Essencial, a decoração não tem item incluso cadastrado; Mesa temática é adicional\./);
+  assert.match(t, /No pacote Completa, a decoração inclui Mesa temática; Segunda mesa temática é adicional\./);
+  assert.match(t, /No pacote Premium, a decoração inclui Mesa temática/);
+  assert.equal(geral.passagem, null);
+  const item = (await conversa(['a mesa temática é cobrada à parte?'], { composicoes })).ultima;
+  assert.match(texto(item), /Depende do pacote: no Essencial, “Mesa temática” é adicional, no Completa, “Mesa temática” já vem no pacote e no Premium, “Mesa temática” já vem no pacote\./);
+  const mods = fontesDe(item).filter((f) => f.tipo === 'ADICIONAL').map((f) => (f as { modalidade: string }).modalidade);
+  assert.ok(mods.includes('INCLUSO') && mods.includes('EXTRA'));
+  // Pacote escolhido: só a condição dele (a mensagem de antes).
+  const escolhido = (await conversa(['E no Completa, o que vem de decoração?'], { composicoes })).ultima;
+  assert.match(texto(escolhido), /No pacote Completa, a decoração inclui Mesa temática\./);
+  assert.doesNotMatch(texto(escolhido), /Essencial|Premium/);
+});
+
+test('teste manual 12/10 — preço do adicional ausente: nada inventado, só essa parte vai à equipe', async () => {
+  for (const op of [{ composicoes: DECOR_COMUM, precos: {} }, { composicoes: DECOR_COMUM }] as OpFontes[]) {
+    const r = (await conversa(['A decoração está inclusa? Quanto custa uma segunda mesa temática?'], op)).ultima;
+    const t = texto(r);
+    assert.match(t, /Em todos os pacotes, a decoração inclui Mesa temática/);
+    assert.match(t, /“Segunda mesa temática” é adicional, com custo à parte[,;] (mas )?o valor dele não está cadastrado/);
+    assert.doesNotMatch(t, /R\$/);
+    assert.equal(r.passagem?.motivo ?? r.passagem, r.passagem ? 'INFORMACAO_INDISPONIVEL' : null);
+    assert.ok(r.passagem, 'o valor ausente vai à equipe');
+    assert.ok(!fontesDe(r).some((f) => f.tipo === 'PRECO_ADICIONAL'));
+  }
+});
+
+test('teste manual 12/10 — item que nenhum pacote cadastra continua com a equipe', async () => {
+  const r = (await conversa(['na decoração, o totem é cobrado à parte?'], { composicoes: DECOR_COMUM, precos: PRECO_FIXO })).ultima;
+  assert.match(texto(r), /Não tenho cadastrado se totem é cobrado à parte: a equipe confirma essa parte\./);
+  assert.ok(r.passagem);
+  assert.doesNotMatch(texto(r), /R\$/);
+});
+
+test('teste manual 12/10 — preço por faixa de convidados: pede só o número e responde com a faixa', async () => {
+  const precos = { 'ad-mesa2': (n: number | null): PrecoAdicional => n == null ? { erro: 'PRECISA_CONVIDADOS' } : n <= 50 ? { valor: 400, unidade: 'VALOR_FIXO', faixa: { min: 1, max: 50 }, tabela: 't-2027' } : { valor: 520, unidade: 'VALOR_FIXO', faixa: { min: 51, max: null }, tabela: 't-2027' } };
+  const c = await conversa(['quanto custa uma segunda mesa temática?', '80'], { composicoes: DECOR_COMUM, precos });
+  const [r1, r2] = c.rodadas;
+  assert.match(texto(r1), /o valor depende do número de convidados/);
+  assert.match(texto(r1), /me diga quantos convidados\./);
+  assert.doesNotMatch(texto(r1), /\btema\b|R\$/, 'só o dado necessário');
+  assert.equal(r1.passagem, null);
+  assert.deepEqual(r1.contexto.adicionalPendente, { id: 'ad-mesa2', nome: 'Segunda mesa temática' });
+  assert.match(texto(r2), /“Segunda mesa temática” é adicional: R\$\s?520,00 \(de 51 ou mais convidados\) pela tabela de preços vigente\./);
+  assert.doesNotMatch(texto(r2), /fazemos qualquer decoração|Em todos os pacotes/);
+  assert.equal(r2.passagem, null);
+  assert.ok(!c.contexto.adicionalPendente);
+  // Com o número na própria pergunta, responde direto.
+  const direto = (await conversa(['quanto custa uma segunda mesa temática para 40 convidados?'], { composicoes: DECOR_COMUM, precos })).ultima;
+  assert.match(texto(direto), /R\$\s?400,00 \(de 1 a 50 convidados\)/);
+  // O pendente lido da memória é só id e nome do catálogo.
+  assert.equal(lerContexto({ adicionalPendente: { id: 'x'.repeat(61), nome: 'n' } }).adicionalPendente, undefined);
+});
+
+test('teste manual 12/10 — custo de outra coisa não puxa a decoração; "painel maior" sem adicional cadastrado vai à equipe', async () => {
+  for (const t of ['e quantos balões vem na mesa? se quiser mais cobra?', 'se eu levar cerveja pros adultos cobra alguma coisa? e quantos balões vem na mesa?']) {
+    const c = await conversa([t], { composicoes: DECOR_COMUM, precos: PRECO_FIXO });
+    assert.doesNotMatch(texto(c.ultima), /Em todos os pacotes|Mesa temática/, t);
+    assert.ok(!c.chamadas.some((x) => x.startsWith('composicao')), t);
+  }
+  const maior = (await conversa(['a decoração já vem no pacote? queria um painel maior'], { composicoes: DECOR_COMUM, precos: PRECO_FIXO })).ultima;
+  assert.match(texto(maior), /Em todos os pacotes, a decoração inclui Mesa temática e Painel temático\./);
+  assert.match(texto(maior), /Não tenho cadastrado se painel é cobrado à parte: a equipe confirma essa parte\./);
+  assert.ok(maior.passagem);
 });

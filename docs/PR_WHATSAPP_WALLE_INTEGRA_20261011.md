@@ -1,11 +1,13 @@
 # PR nova — texto proposto (não publicada)
 
 - **Base:** `staging`.
-- **Head proposto:** `whatsapp/walle-integra-f2122b1-20261012`: a candidata revisada `aa04387` (revisões
+- **Head proposto:** `whatsapp/walle-decoracao-adicional-20261012`: a candidata revisada `aa04387` (revisões
   independentes de `8b2c55d`, `69dc301`, `5699dfc` e `aa04387`) com o staging `f2122b1` integrado (PRs #160 e #161;
-  relido por `ls-remote` em 12/10/2026). As candidatas anteriores, as branches e as evidências ficam preservadas, assim
+  relido por `ls-remote` em 12/10/2026) e a correção do teste manual de 12/10 (decoração inclusa × segunda mesa temática
+  adicional), sobre `78e19a6`. As candidatas anteriores, as branches e as evidências ficam preservadas, assim
   como `89759885`, a branch `whatsapp/walle-r47-renumera-20261010` e a PR #80 (`a9e2d55`).
-- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-integra-f2122b1-20261012/RESUMO.md`).
+- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-decoracao-20261012/RESUMO.md`; o anterior,
+  `evidencias-integra-f2122b1-20261012/`, fica preservado).
   Um documento não registra o próprio SHA.
 
 > Publicação, push, merge, deploy, migrations persistentes, mudança de variáveis e envio real estão **fora** desta
@@ -35,6 +37,16 @@ Agora inclui também medidas de privacidade para D1–D4 (**não concluídos**; 
 - retenção por empresa, sem prazo padrão, numa rotina própria com registro de execução;
 - revogação, troca de link, expiração e reativação explícita de arquivos;
 - tela mínima Admin › Atendimento › Privacidade, com reautenticação.
+
+Correção do teste manual de 12/10/2026 ("A decoração está inclusa? Quanto custa uma segunda mesa temática?"):
+
+- sem pacote escolhido, a pergunta de custo/inclusão da decoração lê as composições de todos os pacotes; o que é igual
+  em todos é dito uma vez, o que muda é dito por pacote;
+- a mesa principal (inclusa) é separada da segunda mesa (adicional) pelo qualificador ("segunda", "outra", "mais uma",
+  "maior", "a mais");
+- o valor do adicional vem só da tabela de preços vigente (`precos_adicional`); sem valor cadastrado, a equipe confirma;
+  com faixas por número de convidados e sem o número, só ele é pedido;
+- "quanto custa a segunda mesa?" não dispara a tabela da festa; item que nenhum pacote cadastra continua com a equipe.
 
 **Nada é ativado por esta PR.**
 
@@ -164,8 +176,10 @@ Os números do SHA final estão no relatório de evidências. As provas são:
 - `check:v1:postgres` completo, incluindo `privacidade` (P1–P10), `revogacao-envio` (C1–C4, travas confirmadas em
   `pg_stat_activity`), `revisao-correcoes` e `revisao2-correcoes` (retenção × configuração nas duas ordens, posse
   por arrendamento com processo morto, callbacks antes/depois do retorno do POST), `postcheck-082` (o verificador
-  recusa uma 082 antiga ou adulterada), `estado-misto` e `ordem-staging-real`;
-- equivalência com a r47 (`f3c78bb`, 3.990 mensagens, incluindo as leituras gravadas da IA real);
+  recusa uma 082 antiga ou adulterada), `preco-adicional` (modalidade e preço do adicional pela tabela vigente,
+  faixas, isolamento por empresa), `estado-misto` e `ordem-staging-real`;
+- equivalência com a r47 (`f3c78bb`, 3.990 mensagens, incluindo as leituras gravadas da IA real) e, com decoração
+  cadastrada na fixture, as diferenças intencionais listadas uma a uma no relatório;
 - efeito da guarda de dado sensível nas leituras gravadas;
 - cobertura do detector num corpus independente;
 - controles negativos: cada proteção nova é desfeita numa cópia descartável e o teste correspondente precisa falhar.
