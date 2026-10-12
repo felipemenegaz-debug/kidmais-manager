@@ -1,13 +1,13 @@
 # PR nova — texto proposto (não publicada)
 
 - **Base:** `staging`.
-- **Head proposto:** `whatsapp/walle-decoracao-adicional-20261012`: a candidata revisada `aa04387` (revisões
+- **Head proposto:** `whatsapp/walle-decoracao-revisao-20261012`: a candidata revisada `aa04387` (revisões
   independentes de `8b2c55d`, `69dc301`, `5699dfc` e `aa04387`) com o staging `f2122b1` integrado (PRs #160 e #161;
   relido por `ls-remote` em 12/10/2026) e a correção do teste manual de 12/10 (decoração inclusa × segunda mesa temática
-  adicional), sobre `78e19a6`. As candidatas anteriores, as branches e as evidências ficam preservadas, assim
+  adicional) e as correções da revisão de `6281e35` (A1, M1 e aviso do link), sobre `78e19a6`. As candidatas anteriores, as branches e as evidências ficam preservadas, assim
   como `89759885`, a branch `whatsapp/walle-r47-renumera-20261010` e a PR #80 (`a9e2d55`).
-- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-decoracao-20261012/RESUMO.md`; o anterior,
-  `evidencias-integra-f2122b1-20261012/`, fica preservado).
+- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-decoracao-revisao-20261012/RESUMO.md`; os
+  anteriores, `evidencias-decoracao-20261012/` e `evidencias-integra-f2122b1-20261012/`, ficam preservados).
   Um documento não registra o próprio SHA.
 
 > Publicação, push, merge, deploy, migrations persistentes, mudança de variáveis e envio real estão **fora** desta
@@ -42,11 +42,16 @@ Correção do teste manual de 12/10/2026 ("A decoração está inclusa? Quanto c
 
 - sem pacote escolhido, a pergunta de custo/inclusão da decoração lê as composições de todos os pacotes; o que é igual
   em todos é dito uma vez, o que muda é dito por pacote;
-- a mesa principal (inclusa) é separada da segunda mesa (adicional) pelo qualificador ("segunda", "outra", "mais uma",
-  "maior", "a mais");
+- a mesa principal (inclusa) é separada da segunda mesa (adicional) pela QUANTIDADE ("segunda", "outra", "mais uma",
+  "a mais"); tamanho ou característica ("maior", "grande", "gigante", "diferente") é outro item: só vale um item
+  cadastrado com essa característica; sem ele, a lacuna é dita e vai à equipe, sem o preço de outro item;
+- "em todos os pacotes" só com todos os pacotes conferidos; composição ausente ou com falha e lista de pacotes
+  indisponível viram lacuna dita e encaminhada (a resposta fica nos pacotes conferidos);
 - o valor do adicional vem só da tabela de preços vigente (`precos_adicional`); sem valor cadastrado, a equipe confirma;
   com faixas por número de convidados e sem o número, só ele é pedido;
-- "quanto custa a segunda mesa?" não dispara a tabela da festa; item que nenhum pacote cadastra continua com a equipe.
+- "quanto custa a segunda mesa?" não dispara a tabela da festa; item que nenhum pacote cadastra continua com a equipe;
+- todo envio e reenvio do link público traz "O envio deste link não reserva a data." uma vez por resposta; proteções
+  (contratação passada à equipe, negociação, pagamento, alergia, pedido de pessoa) continuam sem link.
 
 **Nada é ativado por esta PR.**
 
@@ -179,7 +184,8 @@ Os números do SHA final estão no relatório de evidências. As provas são:
   recusa uma 082 antiga ou adulterada), `preco-adicional` (modalidade e preço do adicional pela tabela vigente,
   faixas, isolamento por empresa), `estado-misto` e `ordem-staging-real`;
 - equivalência com a r47 (`f3c78bb`, 3.990 mensagens, incluindo as leituras gravadas da IA real) e, com decoração
-  cadastrada na fixture, as diferenças intencionais listadas uma a uma no relatório;
+  cadastrada na fixture, cada diferença classificada no relatório (aviso do link ou decoração, com o texto das duas
+  versões);
 - efeito da guarda de dado sensível nas leituras gravadas;
 - cobertura do detector num corpus independente;
 - controles negativos: cada proteção nova é desfeita numa cópia descartável e o teste correspondente precisa falhar.

@@ -33,12 +33,14 @@ const PRONTAS: Record<string, ProntaAutorizada[]> = {
 const periodo = (codigo: string, disponivel: boolean): PeriodoAgenda => (codigo === 'TURNO_1' ? { codigo, nome: 'Almoço', inicio: '11:00', fim: '15:00', disponivel } : { codigo, nome: 'Noite', inicio: '17:00', fim: '21:00', disponivel });
 type OpFontes = { link?: string | null; linkPublico?: string | null; agendaFalha?: boolean; precoErro?: 'ACIMA_CAPACIDADE' | 'SOB_CONSULTA'; escopo?: (unidade: string | null) => EscopoAgendaConsultado;
   /** Teste manual de 12/10/2026: composição por pacote e preço dos adicionais na tabela vigente (ausente: sem a fonte). */
-  composicoes?: (codigo: string) => Composicao | null; precos?: Record<string, (convidados: number | null) => PrecoAdicional> };
+  composicoes?: (codigo: string) => Composicao | null; precos?: Record<string, (convidados: number | null) => PrecoAdicional>;
+  /** Revisão de 6281e35 (M1): a lista de pacotes falha. */
+  pacotesFalha?: boolean };
 function fontesFake(op: OpFontes = {}) {
   const chamadas: string[] = [];
   const fontes: FontesWallE = {
     async prontasAutorizadas(f) { chamadas.push(`prontas:${f}`); return PRONTAS[f] ?? []; },
-    async pacotes() { chamadas.push('pacotes'); return [
+    async pacotes() { chamadas.push('pacotes'); if (op.pacotesFalha) throw new Error('PACOTES_INDISPONIVEIS'); return [
       { id: 'pk-e', codigo: 'ESSENCIAL', nome: 'Essencial', descricao: null, duracaoMinutos: 240, convidadosMinimos: 30, convidadosMaximos: 60 },
       { id: 'pk-c', codigo: 'COMPLETA', nome: 'Completa', descricao: null, duracaoMinutos: 240, convidadosMinimos: 50, convidadosMaximos: 100 },
       { id: 'pk-p', codigo: 'PREMIUM', nome: 'Premium', descricao: null, duracaoMinutos: 300, convidadosMinimos: 60, convidadosMaximos: 150 },
@@ -2982,7 +2984,7 @@ test('rodada 40 — link público de disponibilidade: agenda e contratação, um
     const r = (await conversa([t], { linkPublico: LINK }, { apresentado: true })).ultima;
     assert.ok(texto(r).includes(LINK), t);
     assert.match(texto(r), /continuar a contratação por aqui/, t);
-    assert.match(texto(r), /Enviar este link não reserva a data/, t);
+    assert.match(texto(r), /O envio deste link não reserva a data\./, t);
     assert.equal(r.passagem, null, t);
   }
   // Sem página pública para a empresa (null) ou fonte ausente: nada muda.
@@ -3748,6 +3750,134 @@ test('teste manual 12/10 — custo de outra coisa não puxa a decoração; "pain
   }
   const maior = (await conversa(['a decoração já vem no pacote? queria um painel maior'], { composicoes: DECOR_COMUM, precos: PRECO_FIXO })).ultima;
   assert.match(texto(maior), /Em todos os pacotes, a decoração inclui Mesa temática e Painel temático\./);
-  assert.match(texto(maior), /Não tenho cadastrado se painel é cobrado à parte: a equipe confirma essa parte\./);
+  assert.match(texto(maior), /Não tenho cadastrado “painel maior”; por isso não informo valor por aqui, para não usar o de outro item: a equipe confirma essa parte\./);
   assert.ok(maior.passagem);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Revisão de 6281e35 — A1 (quantidade × característica), M1 (cobertura dos pacotes) e aviso do link público.
+const AVISO = /O envio deste link não reserva a data\./g;
+const quantas = (t: string, re: RegExp) => (t.match(re) ?? []).length;
+
+test('revisão 6281e35 (A1) — "mesa maior/grande/gigante/diferente" não recebe o preço da segunda mesa; a lacuna vai à equipe', async () => {
+  for (const pergunta of ['quanto custa uma mesa temática maior?', 'quanto custa uma mesa temática grande?', 'quero uma mesa temática gigante, quanto custa?', 'quanto custa uma mesa temática diferente?']) {
+    const c = await conversa([pergunta], { composicoes: DECOR_COMUM, precos: PRECO_FIXO });
+    const t = texto(c.ultima);
+    assert.doesNotMatch(t, /R\$/, pergunta);
+    assert.match(t, /Não tenho cadastrado “mesa temática (maior|grande|gigante|diferente)”; por isso não informo valor por aqui/, pergunta);
+    assert.equal(c.ultima.passagem?.motivo, 'INFORMACAO_INDISPONIVEL', pergunta);
+    assert.ok(!fontesDe(c.ultima).some((f) => f.tipo === 'PRECO_ADICIONAL'), pergunta);
+    assert.ok(!c.chamadas.some((x) => x.startsWith('preco-adicional')), `${pergunta}: nenhum preço de adicional consultado`);
+  }
+  // Quantidade a mais continua sendo a segunda mesa.
+  for (const pergunta of ['quanto custa mais uma mesa temática?', 'quanto custa uma mesa temática a mais?', 'quanto custa outra mesa temática?']) {
+    const r = (await conversa([pergunta], { composicoes: DECOR_COMUM, precos: PRECO_FIXO })).ultima;
+    assert.match(texto(r), /“Segunda mesa temática” é adicional: R\$\s?450,00/, pergunta);
+    assert.equal(r.passagem, null, pergunta);
+  }
+});
+
+test('revisão 6281e35 (A1) — item com a característica cadastrada responde pelo próprio preço; "painel maior" com outro painel adicional não', async () => {
+  const MESA_G = { id: 'ad-mesa-g', nome: 'Mesa temática grande', categoria: 'DECORACAO' };
+  const PAINEL2 = { id: 'ad-painel2', nome: 'Segundo painel temático', categoria: 'DECORACAO' };
+  const composicoes = (): Composicao => ({ categorias: BUFFET, inclusos: [MESA, PAINEL], extras: [MESA2, MESA_G, PAINEL2] });
+  const precos = { ...PRECO_FIXO, 'ad-mesa-g': () => ({ valor: 700, unidade: 'VALOR_FIXO', faixa: null, tabela: 't-2027' }), 'ad-painel2': () => ({ valor: 300, unidade: 'VALOR_FIXO', faixa: null, tabela: 't-2027' }) };
+  const grande = (await conversa(['quanto custa uma mesa temática grande?'], { composicoes, precos })).ultima;
+  assert.match(texto(grande), /“Mesa temática grande” é adicional: R\$\s?700,00/);
+  assert.doesNotMatch(texto(grande), /450/);
+  assert.ok(fontesDe(grande).some((f) => f.tipo === 'PRECO_ADICIONAL' && f.id === 'ad-mesa-g'));
+  const segunda = (await conversa(['quanto custa uma segunda mesa temática?'], { composicoes, precos })).ultima;
+  assert.match(texto(segunda), /“Segunda mesa temática” é adicional: R\$\s?450,00/);
+  assert.doesNotMatch(texto(segunda), /700/);
+  const painelMaior = await conversa(['quanto custa um painel maior?'], { composicoes, precos });
+  assert.doesNotMatch(texto(painelMaior.ultima), /R\$/);
+  assert.match(texto(painelMaior.ultima), /Não tenho cadastrado “painel maior”/);
+  assert.ok(painelMaior.ultima.passagem);
+  assert.ok(!painelMaior.chamadas.includes('preco-adicional:ad-painel2:null'), 'o preço do segundo painel não é usado');
+  const outroPainel = (await conversa(['quanto custa outro painel?'], { composicoes, precos })).ultima;
+  assert.match(texto(outroPainel), /“Segundo painel temático” é adicional: R\$\s?300,00/);
+  // Painel só como adicional (sem versão inclusa): "painel maior" continua sem preço.
+  const soAdicional = (await conversa(['quanto custa um painel maior?'], { composicoes: (): Composicao => ({ categorias: BUFFET, inclusos: [MESA], extras: [{ id: 'ad-painel', nome: 'Painel temático', categoria: 'DECORACAO' }] }), precos: { 'ad-painel': () => ({ valor: 200, unidade: 'VALOR_FIXO', faixa: null, tabela: 't-2027' }) } })).ultima;
+  assert.doesNotMatch(texto(soAdicional), /R\$/);
+  assert.ok(soAdicional.passagem);
+});
+
+test('revisão 6281e35 (M1) — composição ausente, com falha ou lista indisponível: nada de "em todos os pacotes"; a lacuna vai à equipe', async () => {
+  const essencialNulo = (codigo: string) => (codigo === 'ESSENCIAL' ? null : DECOR_COMUM());
+  const nula = (await conversa(['A decoração está inclusa?'], { composicoes: essencialNulo })).ultima;
+  assert.doesNotMatch(texto(nula), /[Ee]m todos os pacotes/);
+  assert.match(texto(nula), /Nos pacotes Completa e Premium, a decoração inclui Mesa temática e Painel temático\./);
+  assert.match(texto(nula), /Segunda mesa temática é adicional, com custo à parte, nos pacotes Completa e Premium\./);
+  assert.match(texto(nula), /Não consegui conferir a decoração do pacote Essencial: a equipe confirma essa parte\./);
+  assert.equal(nula.passagem?.motivo, 'INFORMACAO_INDISPONIVEL');
+  assert.ok(!fontesDe(nula).some((f) => f.tipo === 'PACOTE' && f.codigo === 'ESSENCIAL'), 'só os pacotes conferidos são fonte');
+  const excecao = (await conversa(['A decoração está inclusa?'], { composicoes: (codigo) => { if (codigo === 'COMPLETA') throw new Error('falha'); return DECOR_COMUM(); } })).ultima;
+  assert.doesNotMatch(texto(excecao), /[Ee]m todos os pacotes/);
+  assert.match(texto(excecao), /Nos pacotes Essencial e Premium/);
+  assert.match(texto(excecao), /Não consegui conferir a decoração do pacote Completa/);
+  assert.ok(excecao.passagem);
+  const lista = (await conversa(['A decoração está inclusa? Quanto custa uma segunda mesa temática?'], { composicoes: DECOR_COMUM, precos: PRECO_FIXO, pacotesFalha: true })).ultima;
+  assert.doesNotMatch(texto(lista), /[Ee]m todos os pacotes|inclui|R\$|Não tenho cadastrado/);
+  assert.match(texto(lista), /Não consegui consultar os pacotes agora para conferir a decoração: a equipe confirma essa parte\./);
+  assert.equal(lista.passagem?.motivo, 'INFORMACAO_INDISPONIVEL');
+  // Condições diferentes nos conferidos + um ausente: cada conferido com a sua; o ausente, lacuna.
+  const diferentes = (await conversa(['A decoração está inclusa?'], { composicoes: (codigo) => (codigo === 'PREMIUM' ? null : codigo === 'ESSENCIAL' ? { categorias: BUFFET, inclusos: [], extras: [MESA] } : DECOR_COMUM()) })).ultima;
+  assert.match(texto(diferentes), /No pacote Essencial, a decoração não tem item incluso cadastrado; Mesa temática é adicional\./);
+  assert.match(texto(diferentes), /No pacote Completa, a decoração inclui Mesa temática e Painel temático/);
+  assert.match(texto(diferentes), /Não consegui conferir a decoração do pacote Premium/);
+  assert.doesNotMatch(texto(diferentes), /[Ee]m todos os pacotes/);
+  // Preço do item com cobertura incompleta: o valor vem da tabela; o pacote não conferido continua lacuna.
+  const preco = (await conversa(['quanto custa uma segunda mesa temática?'], { composicoes: essencialNulo, precos: PRECO_FIXO })).ultima;
+  assert.match(texto(preco), /“Segunda mesa temática” é adicional: R\$\s?450,00/);
+  assert.match(texto(preco), /Não consegui conferir a decoração do pacote Essencial/);
+  assert.doesNotMatch(texto(preco), /[Ee]m todos os pacotes/);
+  // Pacote escolhido sem composição: lacuna dita (antes, silêncio).
+  const escolhido = (await conversa(['E no Completa, a decoração vem inclusa?'], { composicoes: (codigo) => (codigo === 'COMPLETA' ? null : DECOR_COMUM()) })).ultima;
+  assert.match(texto(escolhido), /Não consegui conferir a decoração do pacote Completa/);
+  assert.ok(escolhido.passagem);
+  // Cobertura completa: como antes.
+  assert.match(texto((await conversa(['A decoração está inclusa?'], { composicoes: DECOR_COMUM })).ultima), /Em todos os pacotes, a decoração inclui/);
+});
+
+test('revisão 6281e35 — conversa original com pedido de pessoa: orçamento → decoração/segunda mesa → link com aviso → equipe', async () => {
+  const c = await conversa(['Bom dia! Quanto custa uma festa para 50 convidados?', 'A decoração está inclusa? Quanto custa uma segunda mesa temática?', 'Quero fechar. Manda o link.', 'quero falar com uma pessoa'],
+    { composicoes: DECOR_COMUM, precos: PRECO_FIXO, linkPublico: LINK_PUB });
+  const [r1, r2, r3, r4] = c.rodadas;
+  assert.deepEqual(anexos(r1), ['p-tabela']);
+  assert.match(texto(r2), /Em todos os pacotes, a decoração inclui Mesa temática e Painel temático\./);
+  assert.match(texto(r2), /R\$\s?450,00/);
+  assert.equal(r2.passagem, null);
+  const t3 = texto(r3);
+  assert.ok(t3.includes(LINK_PUB));
+  assert.equal(quantas(t3, AVISO), 1, 'o aviso sai uma vez');
+  assert.ok(fontesDe(r3).some((f) => f.tipo === 'LINK_DISPONIBILIDADE'));
+  assert.equal(r3.passagem, null);
+  assert.ok(r4.passagem, 'o pedido de pessoa vai à equipe');
+  assert.doesNotMatch(texto(r4), /https?:/);
+  // Reenvio pedido: o link volta com o aviso, uma vez.
+  const de_novo = await conversa(['Quero fechar. Manda o link.', 'manda o link de novo'], { linkPublico: LINK_PUB }, { apresentado: true });
+  assert.match(texto(de_novo.ultima), /Aqui está o link de novo/);
+  assert.equal(quantas(texto(de_novo.ultima), AVISO), 1);
+});
+
+test('revisão 6281e35 — aviso do link em todo envio, sem duplicar; proteções sem link', async () => {
+  const casos = ['tem o dia 21/11 à noite?', 'quero reservar uma festa', 'quero fechar a festa', 'Quero fechar. Manda o link.', 'me manda o link pra ver as datas'];
+  for (const t of casos) {
+    const r = (await conversa([t], { linkPublico: LINK_PUB }, { apresentado: true })).ultima;
+    const x = texto(r);
+    assert.ok(x.includes(LINK_PUB), t);
+    assert.equal(quantas(x, AVISO), 1, t);
+    assert.ok(quantas(x, /A data só fica reservada com a contratação/g) <= 1, t);
+  }
+  // "já ficou reservado? manda o link de novo": a resposta sobre reserva e o aviso do link, cada um uma vez.
+  const reserva = texto((await conversa(['já ficou reservado? manda o link de novo'], { linkPublico: LINK_PUB }, { apresentado: true, linkDisponibilidade: true })).ultima);
+  assert.ok(reserva.includes(LINK_PUB));
+  assert.equal(quantas(reserva, AVISO), 1);
+  assert.ok(quantas(reserva, /Consultar a disponibilidade ou conversar por aqui não reserva a data/g) <= 1);
+  // Proteções: contratação passada à equipe, negociação, pagamento, alergia e pedido de pessoa não recebem link.
+  for (const t of ['quero fechar mas só se tiver desconto, manda o link', 'quero fechar, já paguei o sinal, manda o link', 'quero fechar, meu filho tem alergia a amendoim, manda o link', 'quero fechar, quero falar com uma pessoa, manda o link', 'fecha pra mim o completa dia 21/11/2026 à noite, 70 pessoas']) {
+    const r = await conversa([t, 'sim'], { linkPublico: LINK_PUB }, { apresentado: true });
+    assert.ok(r.rodadas.every((x) => !texto(x).includes(LINK_PUB)), t);
+    assert.ok(r.rodadas[0].passagem, `${t}: vai à equipe`);
+  }
 });

@@ -585,18 +585,30 @@ async function decoracao(e: Estado) {
   // Sem pacote, só a pergunta de custo/inclusão DA decoração ou de um item dela ("quantos balões vêm? se quiser mais cobra?"
   // fica com a cláusula dos balões; "cerveja paga taxa?" não é decoração).
   const sobreCondicao = (CUSTO_DECORACAO.test(t) && (!!pacote || citados.length > 0 || /\bdecor\w*/.test(t))) || !!pendenteDePreco;
-  const decor = pacote || sobreCondicao ? await decoracaoDosPacotes(e, pacote) : [];
-  const respostasDeItens = sobreCondicao ? await itensDaDecoracao(e, decor, citados, t, pendenteDePreco) : { cobertos: new Set<string>(), saidas: [] as (() => void)[], algum: false };
+  // Revisão de 6281e35 (M1): a leitura guarda a cobertura. "Em todos os pacotes" só quando TODOS os pacotes vigentes foram
+  // conferidos; composição ausente ou com falha não é suposta (a parte desconhecida vai à equipe); lista de pacotes
+  // indisponível: nada é afirmado sobre a decoração dos pacotes.
+  const leitura = pacote || sobreCondicao ? await decoracaoDosPacotes(e, pacote) : { verificados: [], faltando: [], listaFalhou: false };
+  const decor = leitura.verificados;
+  const completo = !leitura.listaFalhou && !leitura.faltando.length;
+  const lerItens = sobreCondicao && !leitura.listaFalhou && (decor.length > 0 || !leitura.faltando.length);
+  const respostasDeItens = lerItens ? await itensDaDecoracao(e, decor, citados, t, pendenteDePreco, completo) : { cobertos: new Set<string>(), saidas: [] as (() => void)[], algum: false };
+  if (pendenteDePreco && !lerItens) e.ctx = { ...e.ctx, adicionalPendente: null };
+  const lacunas: (() => void)[] = [];
+  if (sobreCondicao && leitura.listaFalhou) lacunas.push(() => { dizer(e, 'Não consegui consultar os pacotes agora para conferir a decoração: a equipe confirma essa parte.'); passar(e, 'INFORMACAO_INDISPONIVEL'); });
+  else if ((pacote || sobreCondicao) && leitura.faltando.length) lacunas.push(() => { dizer(e, `Não consegui conferir a decoração ${leitura.faltando.length > 1 ? 'dos pacotes' : 'do pacote'} ${lista(leitura.faltando)}: a equipe confirma essa parte.`); passar(e, 'INFORMACAO_INDISPONIVEL'); });
   if (decor.length && !pendenteDePreco) {
     const fontes = decor.map((d) => ({ tipo: 'PACOTE', codigo: d.codigo, id: d.id } as Fonte));
     const comum = decor.every((d) => mesmaDecoracao(d, decor[0]));
     const extrasNaoCobertos = (d: DecoracaoDoPacote) => d.extras.filter((i) => !respostasDeItens.cobertos.has(chaveItem(i)));
     if (decor.length === 1 || comum) {
       const d = decor[0];
-      const onde = pacote ? `No pacote ${d.nome}` : 'Em todos os pacotes';
+      // Só "em todos" com a cobertura completa; senão, os pacotes conferidos pelo nome.
+      const conferidos = decor.length === 1 ? `no pacote ${d.nome}` : `nos pacotes ${lista(decor.map((x) => x.nome))}`;
+      const onde = pacote ? `No pacote ${d.nome}` : completo ? 'Em todos os pacotes' : conferidos.charAt(0).toUpperCase() + conferidos.slice(1);
       if (d.inclusos.length) dizer(e, `${onde}, a decoração inclui ${lista(d.inclusos.map((i) => i.nome))}.`, fontes);
       const extras = extrasNaoCobertos(d);
-      if (extras.length) dizer(e, `${lista(extras.slice(0, 5).map((i) => i.nome))} ${extras.length === 1 ? 'é adicional' : 'são adicionais'}, com custo à parte${pacote ? '' : ', em todos os pacotes'}.`, fontes);
+      if (extras.length) dizer(e, `${lista(extras.slice(0, 5).map((i) => i.nome))} ${extras.length === 1 ? 'é adicional' : 'são adicionais'}, com custo à parte${pacote ? '' : completo ? ', em todos os pacotes' : `, ${conferidos}`}.`, fontes);
     } else {
       // Condições diferentes entre os pacotes: cada um com a própria, sem escolher pelo cliente.
       for (const d of decor) {
@@ -608,9 +620,10 @@ async function decoracao(e: Estado) {
     }
   }
   // Retomada do preço (o cliente só mandou o número de convidados): só o valor; material e tema já foram tratados.
-  if (pendenteDePreco) { respostasDeItens.saidas.forEach((f) => f()); return; }
+  if (pendenteDePreco) { respostasDeItens.saidas.forEach((f) => f()); lacunas.forEach((f) => f()); return; }
   itens.filter((p) => p.tipo === 'IMAGEM' || p.tipo === 'VIDEO' || p.tipo === 'DOCUMENTO').slice(0, 1).forEach((p) => usarMaterial(e, p));
   respostasDeItens.saidas.forEach((f) => f());
+  lacunas.forEach((f) => f());
   // Cláusula do assunto na mesma mensagem ("quantos balões vêm?" → cláusula dos balões) também é resposta.
   const clausula = e.entendimento.intencoes.some((i) => i.tipo === 'CONTRATO' && !!i.tema && i.tema !== 'GERAL');
   if (textoRepetido && !clausula && e.paragrafos.length + e.anexos.length === respostasAntes) usarMaterial(e, textoRepetido);
@@ -628,9 +641,19 @@ const CUSTO_DECORACAO = /\b(cobrad\w*|cobra|cobram|a parte|separad\w*|inclus\w*|
 const PERGUNTA_VALOR = /\b(quanto|valor|valores|preco|precos|custa|custam|custaria|custo)\b/;
 /** Qualificador de um item a MAIS ("segunda mesa", "outra mesa", "mais uma mesa"): é o adicional, não o incluso. */
 const QUALIFICA_A_MAIS = /\b(?:segund[ao]s?|outr[ao]s?|mais (?:um|uma|dois|duas)|duas|dois|2a|adiciona(?:l|is))\s+(?:\w+\s+)?$/;
-/** Qualificador logo DEPOIS do item ("painel maior", "mesa a mais", "mesa extra"): também é o adicional. */
-const QUALIFICA_DEPOIS = /^\s*(?:maior(?:es)?|a mais|extras?|adiciona(?:l|is)|grande|gigante|diferente)\b/;
+/** Quantidade a mais DEPOIS do item ("mesa a mais", "mesa extra"): é o adicional da mesma coisa. */
+const QUANTIDADE_DEPOIS = /^\s*(?:a mais|extras?|adiciona(?:l|is))\b/;
+/**
+ * Revisão de 6281e35 (A1): tamanho ou característica ("mesa maior", "painel grande", "uma mesa diferente") pede OUTRO
+ * item, não a quantidade a mais: só vale um item cadastrado com essa característica no nome; sem ele, a equipe confirma
+ * (o valor de outro item nunca é usado).
+ */
+const CARACTERISTICA = /\b(maior(?:es)?|menor(?:es)?|grandes?|gigantes?|diferentes?|pequen[ao]s?|especia(?:l|is)|personalizad[ao]s?)\b/;
+const CARACTERISTICA_DEPOIS = new RegExp(`^\\s*(?:\\w+\\s+)?${CARACTERISTICA.source}`);
+const CARACTERISTICA_ANTES = new RegExp(`${CARACTERISTICA.source}\\s+$`);
 const NOME_A_MAIS = /\b(segund|outr|adiciona|extra|mais um)/;
+/** Nome do item citado para o cliente (o texto comparado é sem acento). */
+const ACENTOS_ITEM: Record<string, string> = { 'mesa tematica': 'mesa temática', paineis: 'painéis', cenario: 'cenário', cenarios: 'cenários' };
 type DecoracaoDoPacote = { codigo: string; nome: string; id: string; inclusos: ItemAdicional[]; extras: ItemAdicional[] };
 const ehDecoracao = (i: ItemAdicional) => semAcento(i.categoria).includes('decor');
 const chaveItem = (i: ItemAdicional) => i.id ?? semAcento(i.nome);
@@ -638,19 +661,28 @@ const mesmaDecoracao = (a: DecoracaoDoPacote, b: DecoracaoDoPacote) => [a.inclus
   const outra = k === 0 ? b.inclusos : b.extras;
   return l.length === outra.length && l.every((i) => outra.some((o) => chaveItem(o) === chaveItem(i)));
 });
-/** Decoração cadastrada (inclusos e com custo à parte) do pacote escolhido ou, sem ele, de todos os pacotes vigentes. */
-async function decoracaoDosPacotes(e: Estado, pacote: string | null): Promise<DecoracaoDoPacote[]> {
+type LeituraDecoracao = { verificados: DecoracaoDoPacote[]; faltando: string[]; listaFalhou: boolean };
+/**
+ * Decoração cadastrada (inclusos e com custo à parte) do pacote escolhido ou, sem ele, de todos os pacotes vigentes.
+ * Revisão de 6281e35 (M1): devolve também os pacotes cuja composição veio ausente ou falhou e se a lista de pacotes
+ * falhou — quem responde não generaliza sobre o que não foi conferido.
+ */
+async function decoracaoDosPacotes(e: Estado, pacote: string | null): Promise<LeituraDecoracao> {
+  const ler = (codigo: string) => e.fontes.composicao(codigo).catch(() => null);
   if (pacote) {
-    const comp = await e.fontes.composicao(pacote);
-    return comp ? [{ codigo: pacote, nome: nomePacote(e.catalogos, pacote) ?? pacote, id: pacote, inclusos: comp.inclusos.filter(ehDecoracao), extras: comp.extras.filter(ehDecoracao) }] : [];
+    const comp = await ler(pacote);
+    const nome = nomePacote(e.catalogos, pacote) ?? pacote;
+    return comp ? { verificados: [{ codigo: pacote, nome, id: pacote, inclusos: comp.inclusos.filter(ehDecoracao), extras: comp.extras.filter(ehDecoracao) }], faltando: [], listaFalhou: false }
+      : { verificados: [], faltando: [nome], listaFalhou: false };
   }
-  let alvo: PacoteResumo[] = [];
-  try { alvo = await e.fontes.pacotes(); } catch { alvo = []; }
-  const r: DecoracaoDoPacote[] = [];
+  let alvo: PacoteResumo[];
+  try { alvo = await e.fontes.pacotes(); } catch { return { verificados: [], faltando: [], listaFalhou: true }; }
+  const r: LeituraDecoracao = { verificados: [], faltando: [], listaFalhou: false };
   for (const p of alvo) {
-    const comp = await e.fontes.composicao(p.codigo).catch(() => null);
-    if (!comp) continue;
-    r.push({ codigo: p.codigo, nome: nomePacote(e.catalogos, p.codigo) ?? p.nome, id: p.id, inclusos: comp.inclusos.filter(ehDecoracao), extras: comp.extras.filter(ehDecoracao) });
+    const nome = nomePacote(e.catalogos, p.codigo) ?? p.nome;
+    const comp = await ler(p.codigo);
+    if (!comp) { r.faltando.push(nome); continue; }
+    r.verificados.push({ codigo: p.codigo, nome, id: p.id, inclusos: comp.inclusos.filter(ehDecoracao), extras: comp.extras.filter(ehDecoracao) });
   }
   return r;
 }
@@ -661,10 +693,11 @@ const POR_UNIDADE: Record<string, string> = { CONVIDADO: ' por convidado', UNIDA
  * pacote cadastra vai para a equipe (nada é suposto). Com pergunta de valor, o preço do adicional vem SÓ da tabela
  * vigente: sem preço cadastrado, a equipe confirma; preço por faixa de convidados sem o número, só o número é pedido.
  */
-async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], citados: string[], t: string, pendente: { id: string; nome: string } | null) {
+async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], citados: string[], t: string, pendente: { id: string; nome: string } | null, completo = true) {
   const cobertos = new Set<string>();
   const saidas: (() => void)[] = [];
   const semCadastro: string[] = [];
+  const semCorrespondencia: string[] = [];
   const pedeValor = PERGUNTA_VALOR.test(t) || !!pendente;
   const convidados = e.entendimento.entidades.convidados ?? e.ctx.convidados ?? null;
   const precoDe = async (item: ItemAdicional, pacotes: DecoracaoDoPacote[]) => {
@@ -690,24 +723,37 @@ async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], citados: 
   }
   for (const x of citados) {
     const pos = t.indexOf(x);
-    const aMais = pos >= 0 && (QUALIFICA_A_MAIS.test(t.slice(Math.max(0, pos - 40), pos)) || QUALIFICA_DEPOIS.test(t.slice(pos + x.length, pos + x.length + 25)));
+    const antes = pos >= 0 ? t.slice(Math.max(0, pos - 40), pos) : '';
+    const depois = pos >= 0 ? t.slice(pos + x.length, pos + x.length + 25).split(/[.?!,;]/)[0] : '';
+    const caracteristica = (depois.match(CARACTERISTICA_DEPOIS) ?? antes.match(CARACTERISTICA_ANTES))?.[1] ?? null;
+    const aMais = !caracteristica && pos >= 0 && (QUALIFICA_A_MAIS.test(antes) || QUANTIDADE_DEPOIS.test(depois));
     const radicais = x.includes(' ') ? x.split(' ').filter((w) => w.length > 2).map((w) => w.slice(0, Math.min(5, w.length - 1))) : [x.slice(0, 5)];
     const casa = (i: ItemAdicional) => radicais.every((r) => semAcento(i.nome).includes(r));
-    // Por pacote: o item que responde a pergunta (incluso, ou o adicional quando há qualificador "a mais").
+    const temCaracteristica = (i: ItemAdicional) => CARACTERISTICA.test(semAcento(i.nome));
+    const temAMais = (i: ItemAdicional) => NOME_A_MAIS.test(semAcento(i.nome));
+    const raizCaracteristica = caracteristica ? caracteristica.slice(0, Math.min(5, caracteristica.length - 1)) : null;
+    // Por pacote: o item cadastrado que corresponde ao PEDIDO:
+    //  - com característica ("maior"): só o item com essa característica no nome;
+    //  - com quantidade ("segunda", "outra", "a mais"): o adicional "a mais" ou, sem a versão inclusa, o próprio adicional;
+    //  - sem qualificador: o item simples (incluso ou adicional), nunca uma variante "segunda"/"maior".
     const porPacote = decor.map((d) => {
       const inc = d.inclusos.filter(casa), ext = d.extras.filter(casa);
-      const extra = aMais ? (ext.find((i) => NOME_A_MAIS.test(semAcento(i.nome))) ?? ext[0]) : null;
-      const item = aMais ? extra : (inc[0] ?? ext[0]);
+      const simples = (i: ItemAdicional) => !temCaracteristica(i) && !temAMais(i);
+      const item = raizCaracteristica ? [...inc, ...ext].find((i) => semAcento(i.nome).includes(raizCaracteristica))
+        : aMais ? (ext.find(temAMais) ?? (inc.length ? undefined : ext.find(simples)))
+        : (inc.find(simples) ?? ext.find(simples));
       return { d, item: item ?? null, modalidade: item ? (inc.includes(item) ? 'INCLUSO' as const : 'EXTRA' as const) : null };
     }).filter((x) => x.item);
+    const parecido = decor.some((d) => [...d.inclusos, ...d.extras].some(casa));
+    if (!porPacote.length && (raizCaracteristica || aMais) && parecido) { semCorrespondencia.push(`${ACENTOS_ITEM[x] ?? x}${caracteristica ? ` ${caracteristica}` : ' a mais'}`); continue; }
     if (!porPacote.length) { semCadastro.push(x); continue; }
     const mesmo = porPacote.length === decor.length && porPacote.every((x) => x.modalidade === porPacote[0].modalidade && chaveItem(x.item!) === chaveItem(porPacote[0].item!));
-    const onde = decor.length === 1 ? `no pacote ${decor[0].nome}` : 'em todos os pacotes';
-    const temAMais = porPacote.some((x) => x.d.extras.some(casa));
+    const onde = decor.length === 1 ? `no pacote ${decor[0].nome}` : completo ? 'em todos os pacotes' : `nos pacotes ${lista(decor.map((d) => d.nome))}`;
+    const haAdicionalParecido = porPacote.some((x) => x.d.extras.some(casa));
     porPacote.forEach((x) => cobertos.add(chaveItem(x.item!)));
     if (mesmo && porPacote[0].modalidade === 'INCLUSO') {
       const item = porPacote[0].item!;
-      if (!temAMais) continue;
+      if (!haAdicionalParecido) continue;
       saidas.push(() => dizer(e, `“${item.nome}” já vem ${onde}${aMais ? '' : ' (é a principal, inclusa)'}.`, porPacote.map((x) => ({ tipo: 'ADICIONAL', id: item.id ?? item.nome, modalidade: 'INCLUSO', pacote: x.d.codigo } as Fonte))));
     } else if (mesmo) {
       const item = porPacote[0].item!;
@@ -722,6 +768,9 @@ async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], citados: 
       if (porPacote.length < decor.length) saidas.push(() => passar(e, 'INFORMACAO_INDISPONIVEL'));
     }
   }
+  // A1: item pedido com outra característica (ou "a mais") sem cadastro correspondente: a lacuna é dita, sem preço de
+  // outro item; essa parte vai à equipe.
+  if (semCorrespondencia.length) saidas.push(() => { dizer(e, `Não tenho cadastrado ${lista(semCorrespondencia.map((x) => `“${x}”`))}; por isso não informo valor por aqui, para não usar o de outro item: a equipe confirma essa parte.`); passar(e, 'INFORMACAO_INDISPONIVEL'); });
   if (semCadastro.length) {
     const pacoteUnico = decor.length === 1 ? decor[0].nome : null;
     saidas.push(() => { dizer(e, `Não tenho cadastrado se ${lista(semCadastro)} ${semCadastro.length > 1 ? 'são cobrados' : 'é cobrado'} à parte${pacoteUnico ? ` no pacote ${pacoteUnico}` : ''}: a equipe confirma essa parte.`); passar(e, 'INFORMACAO_INDISPONIVEL'); });
@@ -892,6 +941,13 @@ const MENU = 'Posso ajudar com preços, datas disponíveis, pacotes, buffet, dec
 const RESERVA_STATUS = 'Consultar a disponibilidade ou conversar por aqui não reserva a data: ela só fica reservada quando a contratação é concluída. Se você já concluiu a contratação, me diga que eu passo para a equipe confirmar.';
 /** Aviso fixo da agenda: consultar (ou receber o link público) não reserva a data. */
 const RESERVA_SO_COM_CONTRATACAO = 'A data só fica reservada com a contratação.';
+/** Revisão de 6281e35: aviso que acompanha TODO envio (e reenvio) do link público; uma vez por resposta. */
+const AVISO_LINK = 'O envio deste link não reserva a data.';
+/** Aviso do link: com a resposta sobre reserva já dada nesta mensagem, só a frase do link (sem repetir o resto). */
+function avisoDoLink(e: Estado) {
+  e.paragrafos = e.paragrafos.filter((p) => p.texto !== RESERVA_SO_COM_CONTRATACAO);
+  return e.paragrafos.some((p) => p.texto === RESERVA_STATUS) ? AVISO_LINK : `${AVISO_LINK} ${RESERVA_SO_COM_CONTRATACAO}`;
+}
 /** Abre a coleta para a contratação; sai só junto das perguntas (com a passagem para a equipe, não há o que pedir). */
 const COLETA = 'Que bom! Para adiantar a contratação com a equipe, preciso de poucos dados.';
 /** Rodada 27: a agenda é por data (a pergunta da data já vai nesta frase). */
@@ -1233,13 +1289,12 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   }
   const linkPedido = entendimento.pedeLink && semCuidado ? e.fontes.linkDisponibilidade?.() ?? null : null;
   if (entendimento.pedeLink && semCuidado && !linkPedido) dizer(e, 'Não tenho um link de disponibilidade para enviar por aqui, mas consulto a data para você: é só me dizer o dia.');
-  if (linkPedido) { dizer(e, `${entrada.contexto.linkDisponibilidade ? 'Aqui está o link de novo' : 'Aqui está o link'} para consultar os horários e continuar a contratação:\n${linkPedido}`, [{ tipo: 'LINK_DISPONIBILIDADE' }]); e.ctx = { ...e.ctx, linkDisponibilidade: true }; }
+  if (linkPedido) { const aviso = avisoDoLink(e); dizer(e, `${entrada.contexto.linkDisponibilidade ? 'Aqui está o link de novo' : 'Aqui está o link'} para consultar os horários e continuar a contratação:\n${linkPedido}\n${aviso}`, [{ tipo: 'LINK_DISPONIBILIDADE' }]); e.ctx = { ...e.ctx, linkDisponibilidade: true }; }
   const linkPublico = !linkPedido && (tipos.has('DISPONIBILIDADE') || tipos.has('CONTRATAR')) && !protecao && !pediuPessoa && !s?.reclamacao && !e.encaminhar.length
     && !entrada.contexto.linkDisponibilidade ? e.fontes.linkDisponibilidade?.() ?? null : null;
   if (linkPublico) {
-    const avisoReserva = e.paragrafos.some((p) => p.texto === RESERVA_SO_COM_CONTRATACAO) ? '' : ' Enviar este link não reserva a data: ela só fica garantida quando a contratação é concluída.';
-    e.paragrafos = e.paragrafos.filter((p) => p.texto !== RESERVA_SO_COM_CONTRATACAO);
-    dizer(e, `${tipos.has('CONTRATAR') ? 'Se preferir, você pode consultar os horários disponíveis e continuar a contratação por aqui' : 'Você também pode consultar os horários disponíveis e escolher a sua festa por aqui'}:\n${linkPublico}\n${avisoReserva ? avisoReserva.trim() : RESERVA_SO_COM_CONTRATACAO} Se precisar de ajuda durante o preenchimento, estou por aqui.`, [{ tipo: 'LINK_DISPONIBILIDADE' }]);
+    const aviso = avisoDoLink(e);
+    dizer(e, `${tipos.has('CONTRATAR') ? 'Se preferir, você pode consultar os horários disponíveis e continuar a contratação por aqui' : 'Você também pode consultar os horários disponíveis e escolher a sua festa por aqui'}:\n${linkPublico}\n${aviso} Se precisar de ajuda durante o preenchimento, estou por aqui.`, [{ tipo: 'LINK_DISPONIBILIDADE' }]);
     e.ctx = { ...e.ctx, linkDisponibilidade: true };
   }
 
