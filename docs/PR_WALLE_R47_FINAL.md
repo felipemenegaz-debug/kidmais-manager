@@ -1,5 +1,8 @@
 # PR nova — texto final (não publicada)
 
+> **SUPERADO em 11/10/2026** por `docs/PR_WHATSAPP_WALLE_INTEGRA_20261011.md` (staging `b5a6a86` integrado; migrations
+> renumeradas para 080/081/082; privacidade D1–D4). Mantido como histórico: números e gates abaixo são da época.
+
 - **Base:** `staging`
 - **Head:** `whatsapp/walle-r47-renumera-20261010` (a partir de `c9213868`, que segue preservada; migrations do atendimento
   renumeradas e staging `235b082` integrado)
