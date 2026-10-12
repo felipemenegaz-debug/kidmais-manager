@@ -568,7 +568,7 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
                 antes: { situacao: a.situacao }, depois: { situacao: a.situacao },
             });
         });
-        throw erroAcesso('COBRANCA_RESULTADO_INCERTO', 'O pedido de cancelamento foi enviado, mas o provedor não confirmou. Nada foi registrado como cancelado. Atualize a página em alguns minutos antes de tentar de novo.', 503);
+        throw erroAcesso('COBRANCA_RESULTADO_INCERTO', 'O pedido de cancelamento foi enviado, mas o provedor não confirmou se a assinatura foi removida. Nada foi registrado como cancelado. Não peça de novo agora: a situação será conferida com o provedor e aparecerá nesta tela. Se continuar ativa, fale com o atendimento antes de um novo pedido.', 503);
     }
 
     return deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {

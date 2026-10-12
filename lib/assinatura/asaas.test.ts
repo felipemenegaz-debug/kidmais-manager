@@ -84,7 +84,7 @@ test('cabeçalhos, URL base fixa do sandbox e cliente criado com notificationDis
     assert.ok(!('email' in corpo) && !('mobilePhone' in corpo), 'nenhum contato é enviado ao provedor');
 });
 
-test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ciclo MONTHLY/YEARLY; GET 404 = inexistente; DELETE com deleted = removida (DELETE 404 em remocao-resultado.test.ts)', async () => {
+test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ciclo MONTHLY/YEARLY; GET 404 = null (não prova remoção); DELETE com deleted = removida (DELETE 404 em remocao-resultado.test.ts)', async () => {
     const { f, chamadas } = fetchFalso([
         json({ id: 'sub_000001', status: 'ACTIVE', deleted: false, cycle: 'YEARLY', customer: 'cus_000001', externalReference: 'e1' }),
         () => new Response('{"errors":[{"description":"nao encontrado"}]}', { status: 404 }),

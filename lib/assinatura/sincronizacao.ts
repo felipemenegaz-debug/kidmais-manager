@@ -7,7 +7,8 @@
  *                       aplicam uma leitura antiga depois de uma nova. Cada chamada ao provedor tem 10 s de limite
  *                       (lib/assinatura/asaas.ts), no máximo duas por sincronização. Só a linha desta empresa é travada.
  *                       Leitura 404 NÃO é remoção (o 404 do Asaas também cobre rota inexistente e id de outra conta; a
- *                       assinatura removida é lida com `deleted=true`): SEM_CONFIRMACAO, situação comercial inalterada.
+ *                       removida foi lida com `deleted=true` no sandbox, em 10/10/2026): SEM_CONFIRMACAO, situação
+ *                       comercial inalterada.
  *   registrarEvento     INSERT ... ON CONFLICT (provedor, evento_id) DO NOTHING — só identificadores.
  *   processarEvento     resolve a empresa pelos ids GRAVADOS no nosso banco e sincroniza; nunca usa o conteúdo do
  *                       evento como estado. Tipo desconhecido ou empresa não encontrada → IGNORADO; provedor fora ou
@@ -69,7 +70,8 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
         return { resultado: 'SEM_PROVEDOR' };
     const assinatura = await deps.provedor.obterAssinatura(linha.provedor_assinatura_id);
     // GET 404 não comprova remoção (docs.asaas.com/reference/codigos-http-das-respostas: rota inexistente ou id de outra
-    // conta também dão 404; a removida é lida com `deleted=true`). Sem confirmação, nada muda; fica só o registro neutro.
+    // conta também dão 404; no sandbox, a removida foi lida com `deleted=true`). Sem confirmação, nada muda; fica só o
+    // registro neutro.
     if (!assinatura) {
         await auditarCobranca(tx, { acao: 'ASSINATURA_SINCRONIZACAO_SEM_CONFIRMACAO', empresaId, origem, depois: { motivo: 'ASSINATURA_NAO_ENCONTRADA', situacao: linha.situacao } });
         return { resultado: 'SEM_CONFIRMACAO', motivo: 'ASSINATURA_NAO_ENCONTRADA' };
