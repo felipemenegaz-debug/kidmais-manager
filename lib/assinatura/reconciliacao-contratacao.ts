@@ -125,7 +125,7 @@ export type RegistroRemocoes = {
     /** Pedido enviado sem confirmação: pode ou não ter sido executado. */
     semConfirmacao: string[];
     /**
-     * Marcadores cuja assinatura, relida agora pelo id, não existe mais ou está `deleted`. Prova AUSÊNCIA no provedor, não
+     * Marcadores cuja assinatura, relida agora pelo id, voltou com `deleted=true` (ausenciaComprovada; 404 não conta). Prova AUSÊNCIA no provedor, não
      * a autoria da remoção (nosso DELETE, cancelamento, exclusão manual no Asaas): auditada com ação neutra.
      */
     confirmadasNaReleitura: Array<{ marcadorId: string }>;
@@ -393,7 +393,7 @@ export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, 
             preservadas.push({ id: d.id, motivo: 'REMOCAO_SEM_CONFIRMACAO' });
             return revisao();
         }
-        // Ausente (404): a duplicata não existe mais, mas não conta como removida por nós.
+        // Ausente (404 + releitura com `deleted=true`): a duplicata não existe mais, mas não conta como removida por nós.
         if (remocao.resultado === 'AUSENTE')
             registro.ausentes.push(d.id);
         else

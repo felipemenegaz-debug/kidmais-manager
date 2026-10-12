@@ -62,7 +62,7 @@ type RespostaDelete = (init?: RequestInit) => Promise<Response> | Response;
 /** Nunca responde, como uma conexão parada: só o abort do tempo-limite do cliente encerra (igual ao fetch real). */
 const semResposta: RespostaDelete = (init) => new Promise<Response>((_ok, falha) => init?.signal?.addEventListener('abort', () => falha(new DOMException('abort', 'AbortError'))));
 /** Provedor real (cliente Asaas) com `fetch` falso: vínculo e duplicata ativos, duplicata só com cobrança em aberto. */
-/** duplicata: 'ausente' = fora da listagem e GET 404; 'removida' = GET por id 200 com `deleted` (forma documentada) depois do DELETE, ou numa releitura de marcador (antes da listagem). */
+/** duplicata: 'ausente' = fora da listagem e GET 404; 'removida' = GET por id 200 com `deleted` (campo do esquema documentado; forma observada no sandbox) depois do DELETE, ou numa releitura de marcador (antes da listagem). */
 function provedor(opcoes: { delete: RespostaDelete; duplicata?: 'ativa' | 'ausente' | 'removida'; tempoLimiteMs?: number; releitura?: RespostaDelete }) {
     const chamadas: string[] = [];
     let deletou = false;
@@ -211,7 +211,7 @@ test('C1: compensação da contratação usa o mesmo registro — ausência fech
  * L4 (pendência antes de production): a documentação oficial do DELETE (docs.asaas.com/reference/remover-assinatura)
  * descreve 200 `{ deleted, id }` e um 404 "Not found" sem corpo, e o 404 da API também cobre rota inexistente e id de
  * outra conta (docs.asaas.com/reference/codigos-http-das-respostas). Ausência só é comprovada pela releitura por id na
- * forma documentada (200, mesmo id, `deleted=true`). Todo o resto fica sem confirmação: marcador aberto, nada concluído,
+ * forma do esquema documentado (200, mesmo id, `deleted=true`; a removida voltou assim no sandbox em 10/10/2026). Todo o resto fica sem confirmação: marcador aberto, nada concluído,
  * nenhum DELETE repetido no ciclo seguinte, e nem a chave nem o corpo do provedor aparecem em auditoria ou log.
  */
 const SEGREDO_NO_CORPO = 'corpo-sensivel-do-provedor-cpf-00000000000';

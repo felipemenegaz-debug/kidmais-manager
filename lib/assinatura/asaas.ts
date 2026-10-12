@@ -144,8 +144,10 @@ function assinatura(o: Record<string, unknown>, operacao: string): AssinaturaPro
 }
 /**
  * Prova positiva de que a assinatura não existe mais no provedor: a leitura por id devolveu ESTA assinatura com
- * `deleted=true` (forma documentada e observada no sandbox: docs/evidencias/sonda-cobranca-removida-asaas-20261010.md).
- * Leitura 404 (null) não prova: o 404 do Asaas também cobre rota inexistente e id de outra conta.
+ * `deleted=true`. O campo `deleted` ("Informa se a assinatura foi removida") está no esquema documentado da resposta 200;
+ * que a removida volte assim, e não como 404, foi observado uma vez no sandbox em 10/10/2026, docs/evidencias/sonda-cobranca-removida-asaas-20261010.md; não documentado e não observado em production.
+ * Leitura 404 (null) não prova: o 404 do Asaas também cobre rota inexistente e id de outra conta. Se em production a
+ * removida responder 404, nada é concluído (fica sem confirmação, para revisão): o lado seguro.
  */
 export function ausenciaComprovada(s: AssinaturaProvedor | null, id: string) {
     return s !== null && s.id === id && s.deleted === true;
@@ -289,7 +291,9 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
             const r = await chamar('criar cliente', 'POST', '/customers', { name: input.nome.slice(0, 200), cpfCnpj: input.cpfCnpj, externalReference: input.referencia, notificationDisabled: true });
             return { id: idValido(r?.id, 'criar cliente'), externalReference: input.referencia };
         },
-        // GET /v3/subscriptions/{id} — removida/inexistente devolve 404 → null.
+        // GET /v3/subscriptions/{id} — 404 → null. A doc diz só que o 404 vem quando o id não identifica assinatura
+        // acessível à conta (inclui id de outra conta); null NÃO prova remoção. A removida foi lida com 200 e `deleted=true`
+        // (observado uma vez no sandbox em 10/10/2026, docs/evidencias/sonda-cobranca-removida-asaas-20261010.md; não documentado e não observado em production).
         // https://docs.asaas.com/reference/recuperar-uma-unica-assinatura
         async obterAssinatura(id) {
             const r = await chamar('consultar assinatura', 'GET', `/subscriptions/${idPath(id, 'consultar assinatura')}`, undefined, true);
@@ -318,7 +322,8 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
         // DELETE /v3/subscriptions/{id} — remove cobranças pendentes/vencidas; pagas permanecem.
         // https://docs.asaas.com/reference/remover-assinatura documenta 200 `{ deleted, id }` e um 404 "Not found" sem corpo;
         // https://docs.asaas.com/reference/codigos-http-das-respostas: 404 também é endpoint inexistente ou id de OUTRA conta.
-        // Por isso o 404 sozinho não prova nada (o corpo nem é lido). Ausência só com a releitura por id na forma documentada
+        // Por isso o 404 sozinho não prova nada (o corpo nem é lido). A resposta do DELETE para assinatura já removida nunca
+        // foi observada. Ausência só com a releitura por id na forma do esquema documentado
         // (`ausenciaComprovada`): comprova a ausência, não a autoria (`ausente`, auditado com ação neutra). Qualquer outra
         // resposta, ou falha da releitura → sem confirmação (`removida: false`); o DELETE nunca é repetido aqui.
         async removerAssinatura(id) {

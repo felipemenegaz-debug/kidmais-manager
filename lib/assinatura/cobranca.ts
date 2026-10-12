@@ -8,6 +8,8 @@
  *                      só webhook/sincronização liberam (voltar da página de pagamento não concede nada).
  *   cancelarAssinatura remove a assinatura no provedor (cobranças pendentes saem, pagas ficam) e sincroniza:
  *                      CANCELADA_FIM_PERIODO com acesso até o fim do período pago. Exige senha confirmada há ≤ 5 min.
+ *                      Só conclui (ASSINATURA_CANCELADA) com exclusão confirmada ou ausência comprovada; sem
+ *                      confirmação → ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO e 503 (resultado incerto), sem repetir o DELETE.
  *
  * Três fases para não segurar travas do banco durante a chamada ao provedor:
  *   A. transação curta do tenant: Gestão, situação e ids gravados;
@@ -16,8 +18,16 @@
  * Registro prévio: antes de cada POST de criação grava-se a intenção (pendência `kidmais:criacao:`); enquanto houver
  * pendência aberta da empresa não há outro POST (listagem vazia depois de tempo esgotado não prova falha).
  * Falhas: provedor criou e o commit da fase C falhou → a próxima tentativa reencontra cliente e assinatura pela
- * referência externa; o webhook e a reconciliação (scripts/assinatura-reconciliar.cjs) corrigem o resto. Provedor fora
- * do ar → COBRANCA_FALHOU (502) e nada é gravado.
+ * referência externa; o webhook e a reconciliação (scripts/assinatura-reconciliar.cjs) corrigem o resto. Não há uma
+ * regra única para "provedor fora", e o código de erro descreve só a tentativa atual, nunca o estado final no provedor:
+ *   - COBRANCA_FALHOU (502): consulta ao provedor falhou, ou recusa definitiva (4xx, exceto 408/409/429) de uma escrita.
+ *     A escrita recusada não teve efeito; uma tentativa anterior com resultado desconhecido pode ter tido;
+ *   - COBRANCA_RESULTADO_INCERTO (503): escrita sem resultado conclusivo (criação sem resposta; exclusão sem `deleted`
+ *     do mesmo id nem ausência comprovada), com a intenção/pendência gravada ou a auditoria neutra
+ *     ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO; nunca registrada como sucesso. A escrita PODE ter acontecido no provedor:
+ *     a nova tentativa espera a releitura (webhook, sincronização, reconciliação), nunca repete às cegas;
+ *   - exclusão confirmada e sincronização local falhou → também COBRANCA_FALHOU (502): o provedor já removeu e a
+ *     situação local vem pelo webhook ou pela reconciliação.
  */
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
@@ -541,13 +551,30 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
         return { empresaId: tenant.empresaComprovada, assinaturaId: linha.provedor_assinatura_id, situacao: linha.situacao };
     });
 
-    await noProvedor(() => provedor.removerAssinatura(a.assinaturaId));
+    // Só a exclusão CONFIRMADA (resposta com `deleted`) ou a ausência comprovada (404 + releitura com `deleted`) concluem
+    // o cancelamento. Recusa definitiva → nada feito. Resultado desconhecido → registro neutro, nada concluído e nenhum
+    // DELETE repetido: a situação vem da releitura (webhook SUBSCRIPTION_DELETED ou reconciliação, com `deleted=true`).
+    const remocao = await removerComResultado(provedor, a.assinaturaId);
+    if (remocao.resultado === 'RECUSADA')
+        throw falhou();
+    const origem = { tipo: 'GESTAO' as const, usuarioId: sessao.usuario_id, requestId: ctx.requestId };
+    if (remocao.resultado === 'DESCONHECIDA') {
+        await deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
+            exigirGestao(tenant);
+            if (tenant.empresaComprovada !== a.empresaId)
+                throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
+            await auditarCobranca(tx, {
+                acao: 'ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO', empresaId: a.empresaId, origem, ip: ctx.ip ?? null, justificativa: motivo || null,
+                antes: { situacao: a.situacao }, depois: { situacao: a.situacao },
+            });
+        });
+        throw erroAcesso('COBRANCA_RESULTADO_INCERTO', 'O pedido de cancelamento foi enviado, mas o provedor não confirmou se a assinatura foi removida. Nada foi registrado como cancelado. Não peça de novo agora: a situação será conferida com o provedor e aparecerá nesta tela. Se continuar ativa, fale com o atendimento antes de um novo pedido.', 503);
+    }
 
     return deps.withTenantTransaction(sessao, empresaSolicitada, async (tx, tenant) => {
         exigirGestao(tenant);
         if (tenant.empresaComprovada !== a.empresaId)
             throw erroAcesso('CONFLITO', 'A empresa da sessão mudou. Atualize a página.', 409);
-        const origem = { tipo: 'GESTAO' as const, usuarioId: sessao.usuario_id, requestId: ctx.requestId };
         let r;
         try {
             r = await sincronizarEmpresa(tx, a.empresaId, { provedor }, origem);
@@ -560,7 +587,8 @@ export async function cancelarAssinatura(sessao: SessaoAdmin, empresaSolicitada:
         }
         await auditarCobranca(tx, {
             acao: 'ASSINATURA_CANCELADA', empresaId: a.empresaId, origem, ip: ctx.ip ?? null, justificativa: motivo || null,
-            antes: { situacao: a.situacao }, depois: { situacao: r.resultado === 'SINCRONIZADA' ? r.depois : a.situacao },
+            antes: { situacao: a.situacao },
+            depois: { situacao: r.resultado === 'SINCRONIZADA' ? r.depois : a.situacao, confirmacao: remocao.resultado === 'AUSENTE' ? 'AUSENCIA_NA_RELEITURA_DA_EXCLUSAO' : 'RESPOSTA_DO_PROVEDOR' },
         });
         return { situacao: r.resultado === 'SINCRONIZADA' ? r.depois : a.situacao };
     });
