@@ -1,32 +1,27 @@
 # PR nova — texto proposto (não publicada)
 
-- **Base:** `staging`, hoje em `e819772` (merge da #162, depois de #160 `b7ddc36` e #161 `f2122b1`), relido por
-  `ls-remote` em 12/10/2026 20:10Z; web e cron live nesse SHA (registro
+- **Base:** `staging` em `e819772` (merge da #162, depois de #160 `b7ddc36` e #161 `f2122b1`), **relido por
+  `ls-remote` e `fetch` em 12/10/2026 20:27Z** (o mesmo SHA das 20:10Z); web e cron live nesse SHA (registro
   `PACOTE-P1-SYNC-404-20261012/REGISTRO-FINAL-PUBLICACAO-160-162.md`).
-- **Integração com a base atual:** o head integra o staging `f2122b1`. A #162 (`e819772`) muda só cobrança/assinatura,
-  o painel do desenvolvedor e `scripts/regressao-v1-selecao.cjs`, sem migrations; `git merge-tree` do head com
-  `e819772` termina sem conflito (árvore `528d6c6`). O merge de `e819772` no head, com os gates repetidos, fica
-  para antes da publicação (não feito nesta entrega).
-- **Head proposto:** `whatsapp/walle-decoracao-revisao4-20261012`: a candidata revisada `aa04387` (revisões
-  independentes de `8b2c55d`, `69dc301`, `5699dfc` e `aa04387`) com o staging `f2122b1` integrado (PRs #160 e #161;
-  relido por `ls-remote` em 12/10/2026) e a correção do teste manual de 12/10 (decoração inclusa × segunda mesa temática
-  adicional) e as correções das revisões de `6281e35` (A1, M1 e aviso do link) e de `1a0ef17` (correspondência explícita
-  do item e várias referências na mesma mensagem), de `8336a56` (complementos preservados e igualdade exata, sem
-  prefixo) e de `d590845` (quantidade e características como requisitos conjuntos), sobre `78e19a6`. Código final:
-  `362e735`; este texto vem num commit só de documentação sobre ele. As candidatas anteriores, as branches e as
-  evidências ficam preservadas, assim
-  como `89759885`, a branch `whatsapp/walle-r47-renumera-20261010` e a PR #80 (`a9e2d55`).
-- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-decoracao-revisao4-20261012/RESUMO.md`; os
-  anteriores, `evidencias-decoracao-revisao3-20261012/`, `evidencias-decoracao-revisao2-20261012/`, `evidencias-decoracao-revisao-20261012/`, `evidencias-decoracao-20261012/` e
-  `evidencias-integra-f2122b1-20261012/`, ficam preservados).
-  Um documento não registra o próprio SHA.
+- **Head proposto:** `whatsapp/walle-integra-e819772-20261012` = merge local de `e819772` na candidata revisada `820e5e7`
+  (código `362e735`, aprovado pela revisão de `820e5e7`), mais este texto e a decisão pendente
+  `docs/DECISAO_WALLE_OUTRA_UNIDADE_20261012.md` (só documentação). O merge não teve conflito: a #162 muda
+  cobrança/assinatura, o painel do desenvolvedor e `scripts/regressao-v1-selecao.cjs` (mesclado automaticamente, com as
+  suítes dos dois lados), sem migration.
+- **Histórico da candidata:** `aa04387` (revisões de `8b2c55d`, `69dc301`, `5699dfc` e `aa04387`) + staging `f2122b1`
+  (`78e19a6`) + correção do teste manual de 12/10 (decoração inclusa × segunda mesa) + revisões de `6281e35` (A1, M1,
+  aviso do link), `1a0ef17` (correspondência explícita, várias referências), `8336a56` (complementos, igualdade exata)
+  e `d590845` (quantidade e características conjuntas). Candidatas, branches e evidências anteriores ficam
+  preservadas, assim como `89759885`, a branch `whatsapp/walle-r47-renumera-20261010` e a PR #80 (`a9e2d55`).
+- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-integra-e819772-20261012/RESUMO.md`; os
+  anteriores ficam preservados). Um documento não registra o próprio SHA.
 
 > Publicação, push, merge, deploy, migrations persistentes, mudança de variáveis e envio real estão **fora** desta
 > entrega. Cada um exige autorização própria. Leia os bloqueadores no fim.
 
 ## Título
 
-`feat(whatsapp): atendimento WhatsApp com Wall-e (r47), privacidade D1–D4 e retenção serializada — migrations 060, 065, 080, 081 e 082 (esta PR não as aplica), canal desligado`
+`feat(whatsapp): atendimento WhatsApp com Wall-e (r47) e correspondência de adicionais, privacidade D1–D4 e retenção serializada — migrations 060, 065, 080, 081 e 082 (esta PR não as aplica), canal desligado`
 
 ## Descrição
 
@@ -103,10 +98,11 @@ conteúdo da #80 e da fase B (a cobertura está registrada em `PR_WALLE_R47_FINA
 - Com 080–082 e o prefixo 20261011, o atendimento fica depois de todas as migrations do inventário, tanto na lista
   quanto na ordem de nome.
 
-**Números livres não são reserva.** 080–082 são uma escolha local e provisória. Conferência de 12/10/2026 20:10Z:
-livres no staging remoto `e819772` (última migration: 079; a #162 não trouxe migration) e nas PRs abertas #144 e #128
-(nenhuma migration) e #80 (060/064/065, numeração antiga que esta PR substitui). A conferência anterior (05:14Z, staging
-`f2122b1`) deu o mesmo resultado. **Não existe registro de reserva entre sessões** no
+**Números livres não são reserva.** 080–082 são uma escolha local e provisória. Conferência de 12/10/2026 20:27Z
+(staging relido): livres no staging remoto `e819772` (última migration: 079; a #162 não trouxe migration) e nas PRs
+abertas #144 e #128 (nenhuma migration) e #80 (060/064/065, numeração antiga que esta PR substitui); o head integrado
+não tem número repetido. As conferências anteriores (05:14Z em `f2122b1`, 20:10Z em `e819772`) deram o mesmo
+resultado. Procurado também nos registros do workspace (`cutover`, segundo cérebro): nenhum registro de reserva. **Não existe registro de reserva entre sessões** no
 repositório nem nos documentos: livre não é reservado. Reconfirmar antes do push e antes de aplicar.
 
 **Ordem de aplicação real — premissa, não fato.** Supõe-se que o banco de staging tenha 061–079 (076–078 com evidência
@@ -211,7 +207,10 @@ Os números do SHA final estão no relatório de evidências. As provas são:
   versões);
 - efeito da guarda de dado sensível nas leituras gravadas;
 - cobertura do detector num corpus independente;
-- controles negativos: cada proteção nova é desfeita numa cópia descartável e o teste correspondente precisa falhar.
+- sondas dos revisores (as mesmas, só com o import trocado; hashes no relatório) e análise por ocorrência (trecho lido,
+  qualificadores, item selecionado, consulta e fonte do preço);
+- controles negativos: cada proteção nova é desfeita numa cópia descartável e o teste correspondente precisa falhar
+  (62, os de quantidade provados pela matriz independente).
 
 **Limites das provas:**
 
@@ -238,7 +237,14 @@ Os números do SHA final estão no relatório de evidências. As provas são:
   - deploy manual autorizado;
   - roteiro U/P, mais os itens novos de privacidade (exclusão, controles herdados, reentrega, retenção agendada,
     revogação, troca de link, expiração, reativação, corrida com envio).
-- **S11 do Painel: não concluído; o bloqueio continua.** Localizado por leitura (nada executado nem alterado):
+- **Regra comercial de "outra unidade" de um item vendido só como adicional: NÃO CONFIRMADA — bloqueia a ativação.**
+  Hoje, sem unidade inclusa do tipo, "segunda mesa de vidro" é cotada pelo próprio adicional de vidro (nome do item na
+  resposta). Opções A (conservadora: só item "a mais" cadastrado; senão equipe), B (manter) e C (campo no cadastro), com
+  recomendação técnica A até a confirmação, em `docs/DECISAO_WALLE_OUTRA_UNIDADE_20261012.md`. Nenhuma autorização
+  comercial foi presumida.
+- **S11 do Painel: não concluído; o bloqueio continua.** Localizado por leitura (nada executado nem alterado; nova busca
+  em 12/10 20:38Z: nenhum arquivo novo em homologacao-painel-063 desde 10/10 e nenhum em cutover ou no segundo cérebro
+  no dia, fora a própria revisão; a ausência de relatório local não prova que não haja trabalho externo):
   - última execução do S11: `homologacao-painel-063/leituras/S11-20261005T165500Z/RELATORIO.md` (05/10, alvo
     `f908d0d`): 2 declarados, 12 aprovados, 14 pendentes, 1 não aplicável; **E1–E6 PENDENTES**, sem evidência;
   - leitura mais recente: `S11-LEITURA-20261010T102049Z/LEITURA.md` (10/10, somente leitura): Alfa e Beta ATIVAS
@@ -257,6 +263,8 @@ Os números do SHA final estão no relatório de evidências. As provas são:
 - **082 revisada antes de qualquer aplicação:** um banco que já tivesse uma versão antiga da 082 exige plano explícito de
   evolução (reaplicar não é presumido permitido); o postcheck recusa essa diferença.
 - **Retenção sem agendamento** (R8) e **paywall × privacidade** (R9) em aberto; CI e revisão da PR remota pendentes.
+- **Correspondência por nome:** sem alias aprovado nem campo explícito de unidade "a mais" no cadastro; leitura por
+  regra (palavra fora das listas leva à equipe).
 - **Produção:** só depois da homologação, por promoção separada.
 
 ### Rollback
