@@ -1,59 +1,67 @@
-# Decisão pendente — "outra unidade" de um item vendido só como adicional (Wall-e, 12/10/2026)
+# "Outra unidade" de um item vendido só como adicional — Wall-e (12/10/2026)
 
-> **Status: NÃO DECIDIDA.** A ativação do Wall-e (modo regras ou IA, em qualquer ambiente) fica **bloqueada** até uma
-> decisão comercial registrada. Este documento prepara a decisão; ele não autoriza nada e não muda o comportamento.
+> **Status:** opção **A (conservadora) implementada como escolha técnica**, por pedido da revisão de `1f935f0`.
+>
+> **Isto não é confirmação de uma regra comercial da Kidmais.**
+>
+> - A pergunta comercial abaixo continua **em aberto**.
+> - A opção A foi escolhida por não presumir nada sobre preço ou disponibilidade de uma unidade extra.
+> - Se a Kidmais decidir outra regra, este documento e o código mudam.
+>
+> A ativação continua sujeita aos demais bloqueadores da PR.
 
-## A pergunta
+## A pergunta (em aberto, comercial)
 
 O cliente pede outra unidade de um item de decoração: "segunda mesa de vidro", "outra mesa XL", "mais uma mesa com LED".
 
-No pacote:
+O pacote não tem item cadastrado como "a mais" desse tipo. O item existe só como adicional (por exemplo, "Mesa temática
+de vidro" a R$ 520) ou como unidade inclusa.
 
-- o item existe **só como adicional (EXTRA)**, por exemplo "Mesa temática de vidro" a R$ 520;
-- **não** há uma unidade inclusa desse mesmo tipo;
-- **não** há item cadastrado como "a mais" desse tipo, por exemplo "Segunda mesa temática de vidro".
+**Pode-se cotar a segunda unidade pelo preço da unidade simples?**
 
-**O Wall-e deve tratar o pedido como "mais uma unidade do próprio adicional" e informar o preço desse adicional?**
+## Comportamento implementado: opção A
 
-## Comportamento atual (código revisado)
+`lib/whatsapp/atendimento/walle/resolver.ts`, em `selecionarParaPedido`, no ramo do pedido com quantidade ("segunda",
+"outra", "mais uma", "a mais", "duas"):
 
-`lib/whatsapp/atendimento/walle/resolver.ts`, em `selecionarParaPedido`, no ramo do pedido com quantidade:
+- **Item "a mais" cadastrado:** só responde um item cadastrado **expressamente** como "a mais", com exatamente as
+  características pedidas. O marcador está no nome: "Segunda", "Outra", "adicional", "extra".
+  - **Adicional com preço vigente:** informa o preço desse item, pela tabela de preços vigente.
+  - **Adicional sem preço vigente:** "o valor dele não está cadastrado na tabela de preços: a equipe confirma". Nada é
+    inventado.
+  - **Incluso no pacote:** diz que vem no pacote, sem preço.
+- **Sem esse cadastro:** "Não tenho cadastrado “segunda mesa temática de vidro”; por isso não informo valor por aqui,
+  para não usar o de outro item: a equipe confirma essa parte." A parte vai à equipe (`INFORMACAO_INDISPONIVEL`).
+- **Unidade simples:** o preço dela (inclusa ou adicional) **nunca** é usado para inferir o da outra unidade.
+- **Saiu:** o fallback "sem unidade inclusa do tipo, outra unidade = o próprio adicional", que era a opção B.
 
-```ts
-// Outra unidade do próprio adicional só quando o cadastro sustenta: o tipo existe como adicional e o pacote NÃO tem
-// uma unidade dele inclusa (com a principal inclusa, a outra unidade precisa estar cadastrada como "a mais").
-if (!opcoes.length && !inc.some(unidade)) opcoes = ext.filter(unidade);
-```
+**Preservado:**
 
-- **Hoje:** "segunda mesa temática de vidro", nesse cadastro, recebe "“Mesa temática de vidro” é adicional: R$ 520,00
-  pela tabela de preços vigente…". A resposta diz o nome do item cotado.
-- **Com a principal desse tipo inclusa:** "Mesa temática de vidro" INCLUSO e nenhuma "Segunda … de vidro". O pedido
-  **não** casa e vai à equipe sem preço; esse é o achado da revisão de `d590845`, já corrigido.
-- **Pedido sem quantidade** ("quanto custa a mesa de vidro?"): não é afetado por esta decisão.
+- decoração inclusa;
+- pedido sem quantidade, que é respondido pelo próprio item;
+- características exatas (XL ≠ XL2, material, complementos);
+- várias referências na mesma mensagem;
+- cobertura dos pacotes;
+- isolamento por empresa: o preço vem da tabela da própria empresa (`preco-adicional`, PostgreSQL);
+- aviso do link.
 
-## Opções
+## Opções consideradas
 
-| | A — conservadora | B — manter o atual | C — campo explícito no cadastro |
+| | A — conservadora (**implementada**) | B — anterior | C — campo explícito no cadastro |
 |---|---|---|---|
-| Regra | "outra/segunda/mais uma X" só casa com um item **cadastrado como "a mais"** com essas características; sem ele, lacuna e equipe | sem unidade inclusa do tipo, outra unidade = o próprio adicional, pelo preço dele | o adicional diz se pode ser vendido em mais de uma unidade (e com qual preço), e o Wall-e só usa isso |
-| Exemplo acima | "Não tenho cadastrado “segunda mesa temática de vidro”…": equipe, sem preço | R$ 520,00, com o nome do item | depende do cadastro do item |
-| Risco | encaminhamento a mais quando o adicional é mesmo vendido por unidade | preço errado se a 2ª unidade tiver outro valor, montagem extra ou não puder ser vendida | precisa de migration e de tela; fora desta PR |
-| Mudança | 1 linha no resolver (remover o fallback); ajustar 1 teste de `walle.test.ts`, a regra correspondente da matriz (`satisfazem` em `correspondencia-matriz.test.ts`) e o NC61, no mesmo commit | nenhuma | schema (nova migration), tela da Gestão, resolver, testes |
-| Efeito nos corpora r47 | esperado nenhum: na fixture com decoração os únicos adicionais são a mesa e o painel inclusos e a segunda mesa "a mais", então o fallback nunca é acionado (a confirmar quando A for implementada) | — | — |
+| Regra | outra unidade só com item "a mais" cadastrado; senão, equipe | sem unidade inclusa do tipo, outra unidade = o próprio adicional | o adicional diz se pode ser vendido em mais de uma unidade, e por qual preço |
+| Exemplo acima | lacuna e equipe, sem preço | R$ 520,00 | depende do cadastro |
+| Risco | encaminhamento a mais quando o adicional é mesmo vendido por unidade | preço errado se a 2ª unidade tiver outro valor, montagem extra ou não puder ser vendida | precisa de migration e de tela |
+| Situação | em `whatsapp/walle-opcao-a-20261012` | em `1f935f0` e antes | não iniciada (produto e schema) |
 
-## Recomendação técnica (não é decisão comercial)
-
-- **Antes da confirmação comercial, usar A.** É o único comportamento que não presume nada sobre preço ou
-  disponibilidade de uma unidade extra. O custo dele é um encaminhamento a mais, e o cliente não recebe um valor errado.
-- **Se a Kidmais confirmar por escrito** que todo adicional de decoração é vendido por unidade, sempre pelo mesmo preço
-  da tabela e sem limite, **B** pode ficar.
-- **C** resolve de forma definitiva, mas é trabalho de produto: schema e tela.
-
-## Para decidir (Felipe ou o comercial da Kidmais)
+## Para a Kidmais decidir (em aberto)
 
 1. Os adicionais de decoração podem ser vendidos em mais de uma unidade? Sempre, nunca ou depende do item?
 2. A 2ª unidade tem o mesmo preço da 1ª na tabela? Há custo de montagem, espaço ou limite por festa?
-3. Até haver cadastro explícito, o Wall-e deve cotar a 2ª unidade (B) ou passar à equipe (A)?
+3. **Até haver cadastro explícito**, o Wall-e deve continuar passando à equipe (A, atual)? Ou deve cotar a 2ª unidade
+   pelo preço do adicional (B)?
 
-**Registro da resposta:** quem decidiu, data e opção escolhida, neste arquivo ou no registro de homologação. Sem esse
-registro, a ativação continua bloqueada.
+**Enquanto não houver resposta:** a opção A fica. Para cotar uma segunda unidade, a Gestão cadastra o item "a mais" com
+preço próprio, por exemplo "Segunda mesa temática de vidro".
+
+**Registro da resposta:** quem decidiu, data e opção escolhida, neste arquivo ou no registro de homologação.

@@ -756,7 +756,7 @@ export type SelecaoPedido<D extends ComItens> = {
  * Seleção do item cadastrado que corresponde ao pedido, por pacote (único; mais de um é ambiguidade):
  *  - qualificadores ("XL", "vidro", "led", "maior"): as características do nome são EXATAMENTE as pedidas;
  *  - quantidade ("segunda", "outra", "a mais") E qualificadores são requisitos conjuntos: o item "a mais" com exatamente
- *    essas características; outra unidade do próprio adicional só sem unidade desse tipo inclusa no pacote;
+ *    essas características, cadastrado expressamente (opção A: nunca a unidade simples no lugar da outra unidade);
  *  - sem quantidade: a unidade (sem "a mais") com exatamente essas características, a inclusa antes da adicional.
  * Variante do nome: os tokens normalizados que sobram sem o item e sem as palavras neutras.
  */
@@ -779,9 +779,9 @@ export function selecionarParaPedido<D extends ComItens>(x: string, l: LeituraPe
     if (l.quantidade) {
       // O item "a mais" (segunda/outra/adicional no nome) com exatamente essas características, incluso ou adicional.
       opcoes = [...inc, ...ext].filter((i) => variante(i).quantidade && mesmas(i));
-      // Outra unidade do próprio adicional só quando o cadastro sustenta: o tipo existe como adicional e o pacote NÃO tem
-      // uma unidade dele inclusa (com a principal inclusa, a outra unidade precisa estar cadastrada como "a mais").
-      if (!opcoes.length && !inc.some(unidade)) opcoes = ext.filter(unidade);
+      // Opção A (docs/DECISAO_WALLE_OUTRA_UNIDADE_20261012.md; escolha técnica conservadora, NÃO confirmação comercial):
+      // outra unidade só responde quando está cadastrada expressamente como item "a mais". O preço da unidade simples
+      // (inclusa ou adicional) nunca é usado para inferir o da outra unidade; sem esse cadastro, a parte vai à equipe.
     } else {
       // Sem quantidade: nunca um item "a mais"; a unidade inclusa antes da adicional.
       opcoes = inc.filter(unidade);

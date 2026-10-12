@@ -3,18 +3,22 @@
 - **Base:** `staging` em `e819772` (merge da #162, depois de #160 `b7ddc36` e #161 `f2122b1`), **relido por
   `ls-remote` e `fetch` em 12/10/2026 20:27Z** (o mesmo SHA das 20:10Z); web e cron live nesse SHA (registro
   `PACOTE-P1-SYNC-404-20261012/REGISTRO-FINAL-PUBLICACAO-160-162.md`).
-- **Head proposto:** `whatsapp/walle-integra-e819772-20261012` = merge local de `e819772` na candidata revisada `820e5e7`
-  (código `362e735`, aprovado pela revisão de `820e5e7`), mais este texto e a decisão pendente
-  `docs/DECISAO_WALLE_OUTRA_UNIDADE_20261012.md` (só documentação). O merge não teve conflito: a #162 muda
-  cobrança/assinatura, o painel do desenvolvedor e `scripts/regressao-v1-selecao.cjs` (mesclado automaticamente, com as
-  suítes dos dois lados), sem migration.
+- **Head proposto:** `whatsapp/walle-opcao-a-20261012`, sobre a integração revisada `1f935f0` (merge local de `e819772`
+  na candidata `820e5e7`, código `362e735`; preservada em `whatsapp/walle-integra-e819772-20261012`), com:
+  - a **opção A** para "outra unidade" (`docs/DECISAO_WALLE_OUTRA_UNIDADE_20261012.md`): escolha técnica conservadora,
+    **não** confirmação de regra comercial da Kidmais;
+  - a linha em branco a mais no fim de `app/api/admin/atendimento/arquivos/route.ts` removida (`git diff --check` contra
+    `e819772` limpo).
+
+  O merge com o staging não teve conflito: a #162 muda cobrança/assinatura, o painel do desenvolvedor e
+  `scripts/regressao-v1-selecao.cjs` (mesclado automaticamente, com as suítes dos dois lados), sem migration.
 - **Histórico da candidata:** `aa04387` (revisões de `8b2c55d`, `69dc301`, `5699dfc` e `aa04387`) + staging `f2122b1`
   (`78e19a6`) + correção do teste manual de 12/10 (decoração inclusa × segunda mesa) + revisões de `6281e35` (A1, M1,
   aviso do link), `1a0ef17` (correspondência explícita, várias referências), `8336a56` (complementos, igualdade exata)
   e `d590845` (quantidade e características conjuntas). Candidatas, branches e evidências anteriores ficam
   preservadas, assim como `89759885`, a branch `whatsapp/walle-r47-renumera-20261010` e a PR #80 (`a9e2d55`).
-- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-integra-e819772-20261012/RESUMO.md`; os
-  anteriores ficam preservados). Um documento não registra o próprio SHA.
+- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-opcao-a-20261012/RESUMO.md`; os
+  anteriores, inclusive `evidencias-integra-e819772-20261012/`, ficam preservados). Um documento não registra o próprio SHA.
 
 > Publicação, push, merge, deploy, migrations persistentes, mudança de variáveis e envio real estão **fora** desta
 > entrega. Cada um exige autorização própria. Leia os bloqueadores no fim.
@@ -54,8 +58,9 @@ Correção do teste manual de 12/10/2026 ("A decoração está inclusa? Quanto c
   convidados"); só responde o item cadastrado cujas características são EXATAMENTE as pedidas, depois de normalização
   explícita (caixa, acento e plural por regra; tokens com dígito inteiros: "XL2" ≠ "XL"), sem prefixo, truncamento ou
   alias presumido; quantidade e características são requisitos CONJUNTOS ("segunda mesa de vidro" só casa com o item
-  "a mais" de vidro; a inclusão da principal não comprova outra unidade; outra unidade do próprio adicional só sem
-  unidade inclusa do tipo); pedido simples só casa com a unidade simples; sem correspondência única (nenhuma ou
+  "a mais" de vidro; a inclusão da principal não comprova outra unidade; **opção A**: outra unidade só é cotada quando
+  cadastrada expressamente como item "a mais" com preço vigente, e o preço da unidade simples nunca é usado no lugar
+  dela); pedido simples só casa com a unidade simples; sem correspondência única (nenhuma ou
   ambígua), a lacuna é dita e vai à equipe, sem afirmar inclusão nem consultar ou informar o preço de outro item;
 - cada ocorrência de item na mensagem é um pedido próprio (posição, quantidade, modificadores e a pergunta da própria
   oração): "a mesa temática está inclusa? quanto custa uma segunda mesa temática?" responde as duas; a resposta só é
@@ -237,14 +242,16 @@ Os números do SHA final estão no relatório de evidências. As provas são:
   - deploy manual autorizado;
   - roteiro U/P, mais os itens novos de privacidade (exclusão, controles herdados, reentrega, retenção agendada,
     revogação, troca de link, expiração, reativação, corrida com envio).
-- **Regra comercial de "outra unidade" de um item vendido só como adicional: NÃO CONFIRMADA — bloqueia a ativação.**
-  Hoje, sem unidade inclusa do tipo, "segunda mesa de vidro" é cotada pelo próprio adicional de vidro (nome do item na
-  resposta). Opções A (conservadora: só item "a mais" cadastrado; senão equipe), B (manter) e C (campo no cadastro), com
-  recomendação técnica A até a confirmação, em `docs/DECISAO_WALLE_OUTRA_UNIDADE_20261012.md`. Nenhuma autorização
-  comercial foi presumida.
+- **Regra comercial de "outra unidade": em aberto.**
+  - **O que está implementado:** a opção A, conservadora. Só cota a outra unidade cadastrada expressamente como "a
+    mais"; sem esse cadastro, encaminha à equipe.
+  - **O que isso não é:** escolha técnica, **não** confirmação de uma regra comercial da Kidmais.
+  - **Perguntas e alternativas** (B: cotar pelo adicional simples; C: campo no cadastro):
+    `docs/DECISAO_WALLE_OUTRA_UNIDADE_20261012.md`.
+  - **Antes de ativar:** registrar a decisão comercial, ou aceitar explicitamente a opção A como regra.
 - **S11 do Painel: não concluído; o bloqueio continua.** Localizado por leitura (nada executado nem alterado; nova busca
-  em 12/10 20:38Z: nenhum arquivo novo em homologacao-painel-063 desde 10/10 e nenhum em cutover ou no segundo cérebro
-  no dia, fora a própria revisão; a ausência de relatório local não prova que não haja trabalho externo):
+  em 12/10 20:38Z e de novo às 23:36Z: nenhum arquivo novo em homologacao-painel-063 desde 10/10 e nenhum em cutover
+  ou no segundo cérebro no dia, fora as próprias revisões; publicação e health do Painel não substituem a prova; a ausência de relatório local não prova que não haja trabalho externo):
   - última execução do S11: `homologacao-painel-063/leituras/S11-20261005T165500Z/RELATORIO.md` (05/10, alvo
     `f908d0d`): 2 declarados, 12 aprovados, 14 pendentes, 1 não aplicável; **E1–E6 PENDENTES**, sem evidência;
   - leitura mais recente: `S11-LEITURA-20261010T102049Z/LEITURA.md` (10/10, somente leitura): Alfa e Beta ATIVAS

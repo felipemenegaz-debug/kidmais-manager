@@ -46,11 +46,9 @@ const iguais = (a: string[], b: string[]) => a.length === b.length && a.every((x
 /** Itens que satisfazem o pedido COMPLETO, pelos metadados (regra do produto, escrita aqui de forma independente). */
 function satisfazem(itens: Meta[], p: Pedido): Meta[] {
   if (p.qtd) {
-    const aMais = itens.filter((i) => i.unidade === 'A_MAIS' && iguais(i.caracteristicas, p.c));
-    if (aMais.length) return aMais;
-    // Outra unidade do próprio adicional só sem unidade desse tipo inclusa.
-    if (itens.some((i) => i.modalidade === 'INCLUSO' && i.unidade === 'PRINCIPAL' && iguais(i.caracteristicas, p.c))) return [];
-    return itens.filter((i) => i.modalidade === 'EXTRA' && i.unidade === 'PRINCIPAL' && iguais(i.caracteristicas, p.c));
+    // Opção A: outra unidade só pelo item "a mais" cadastrado expressamente; a unidade principal (inclusa ou adicional)
+    // nunca responde por ela.
+    return itens.filter((i) => i.unidade === 'A_MAIS' && iguais(i.caracteristicas, p.c));
   }
   const inclusos = itens.filter((i) => i.modalidade === 'INCLUSO' && i.unidade === 'PRINCIPAL' && iguais(i.caracteristicas, p.c));
   return inclusos.length ? inclusos : itens.filter((i) => i.modalidade === 'EXTRA' && i.unidade === 'PRINCIPAL' && iguais(i.caracteristicas, p.c));
