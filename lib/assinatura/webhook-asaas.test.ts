@@ -225,8 +225,9 @@ test('fora de ordem: "pago" depois de "cancelado" → estado final igual ao do p
     const { banco, agendados, deps } = ambiente();
     banco.assinaturas.set(EMP_A, novaAssinatura(EMP_A));
     const provedor = new ProvedorFalso();
-    // Estado atual do provedor: pagou e depois cancelou (assinatura removida → 404).
-    provedor.assinaturas.set('sub_1111', null);
+    // Estado atual do provedor: pagou e depois cancelou. A removida é lida com `deleted=true` (como no Asaas; 404 não é
+    // remoção, ver o teste de leitura 404 abaixo).
+    provedor.assinaturas.set('sub_1111', { ...sub('sub_1111', EMP_A, 'INACTIVE'), deleted: true });
     banco.assinaturas.get(EMP_A)!.situacao = 'ATIVA';
     Object.assign(banco.assinaturas.get(EMP_A)!, { ciclo: 'MENSAL', periodo_atual_fim: '2026-11-20T03:00:00.000Z' });
     await receberWebhookAsaas(req({ id: 'evt_del', event: 'SUBSCRIPTION_DELETED', dateCreated: 'x', subscription: { id: 'sub_1111', externalReference: EMP_A } }), deps);
@@ -237,6 +238,21 @@ test('fora de ordem: "pago" depois de "cancelado" → estado final igual ao do p
     assert.equal(banco.assinaturas.get(EMP_A)!.situacao, 'CANCELADA_FIM_PERIODO');
     assert.equal(banco.assinaturas.get(EMP_A)!.provedor_situacao, 'DELETED');
     assert.deepEqual(banco.eventos.map((e) => e.situacao), ['PROCESSADO', 'PROCESSADO']);
+});
+
+test('P1: leitura 404 (chave ou id de outra conta) → situação mantida (vigente ou vencida), evento FALHOU reprocessável, registro sem confirmação', async () => {
+    for (const periodo of ['2026-11-20T03:00:00.000Z', '2020-01-01T03:00:00.000Z']) {
+        const { banco, agendados, deps } = ambiente();
+        banco.assinaturas.set(EMP_A, novaAssinatura(EMP_A, { situacao: 'ATIVA', ciclo: 'MENSAL', periodo_atual_fim: periodo, provedor_situacao: 'ACTIVE' }));
+        const provedor = new ProvedorFalso(); // nenhuma assinatura conhecida: toda leitura responde 404 (null)
+        await receberWebhookAsaas(req(evento('evt_404', 'PAYMENT_RECEIVED', 'sub_1111', EMP_A)), deps);
+        const r = await processarEvento(banco, agendados[0], { provedor });
+        assert.deepEqual([r.situacao, (r as { motivo?: string }).motivo], ['FALHOU', 'ASSINATURA_NAO_ENCONTRADA'], periodo);
+        const linha = banco.assinaturas.get(EMP_A)!;
+        assert.deepEqual([linha.situacao, linha.provedor_situacao, linha.cancelada_em, linha.encerrada_em], ['ATIVA', 'ACTIVE', null, null], periodo);
+        assert.deepEqual(banco.auditoria.map((a) => a.acao), ['ASSINATURA_SINCRONIZACAO_SEM_CONFIRMACAO'], periodo);
+        assert.deepEqual(banco.eventos.map((e) => e.situacao), ['FALHOU'], periodo);
+    }
 });
 
 test('tipo desconhecido → IGNORADO; empresa desconhecida → IGNORADO; evento de A nunca toca B', async () => {

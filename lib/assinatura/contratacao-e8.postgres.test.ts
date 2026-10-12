@@ -121,8 +121,8 @@ class AsaasFalso implements ClienteAsaas {
     }
     /**
      * Exclusão: 'recusar' = 400 sem excluir (comprovadamente não executada); 'perderResposta' = exclui e a resposta se
-     * perde; 'semConfirmar' = 200 sem `deleted` e nada excluído; 'jaAusente' = outra pessoa removeu a assinatura logo
-     * antes e o DELETE responde 404 (o cliente real relê por id e, com `deleted`, devolve `{ removida: true, ausente: true }`). `removidas` é a verdade do
+     * perde; 'semConfirmar' = 200 sem `deleted` e nada excluído; 'jaAusente' = SIMULA outra pessoa removendo a assinatura logo
+     * antes, com o DELETE respondendo 404 (resposta não observada no Asaas) e a releitura com `deleted` (o cliente real então devolve `{ removida: true, ausente: true }`). `removidas` é a verdade do
      * provedor (só o que NOSSO DELETE removeu); `chamadasRemocao` conta os DELETEs recebidos.
      */
     modoRemocao: 'normal' | 'recusar' | 'perderResposta' | 'semConfirmar' | 'jaAusente' = 'normal';

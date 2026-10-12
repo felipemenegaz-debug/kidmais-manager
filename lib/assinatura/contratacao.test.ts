@@ -47,7 +47,7 @@ test('nenhuma exclusão automática sem vínculo confirmado; falha de compensaç
         'marcador não gravado → não exclui');
     assert.match(compensar, /registrarResultadoRemocao\(independente!, empresaId, marcador, remocao, origem,/);
     const rec = readFileSync('lib/assinatura/reconciliacao-contratacao.ts', 'utf8');
-    // Único ponto que chama o provedor para excluir: 404 = ausente (sem autoria), `removida` = confirmada, 4xx = recusa, o resto = desconhecido.
+    // Único ponto que chama o provedor para excluir: `ausente` (404 + releitura com `deleted`, sem autoria), `removida` = confirmada, 4xx = recusa, o resto = desconhecido.
     assert.equal(rec.match(/removerAssinatura\(/g)?.length, 1);
     assert.match(rec, /const r = await provedor\.removerAssinatura\(assinaturaId\);\s*return r\.ausente === true \? \{ resultado: 'AUSENTE' \} : r\.removida \? \{ resultado: 'CONFIRMADA' \} : \{ resultado: 'DESCONHECIDA' \};/);
     assert.match(rec, /return remocaoPodeTerOcorrido\(error\) \? \{ resultado: 'DESCONHECIDA' \} : \{ resultado: 'RECUSADA', erro: error \};/);

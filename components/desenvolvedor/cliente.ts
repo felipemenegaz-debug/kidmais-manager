@@ -131,7 +131,9 @@ const ACOES: Record<string, string> = {
     ASSINATURA_SINCRONIZADA: 'Assinatura sincronizada com o provedor',
     ASSINATURA_SINCRONIZACAO_SEM_TRANSICAO: 'Sincronização sem mudança de situação',
     ASSINATURA_SINCRONIZACAO_RECUSADA: 'Sincronização recusada',
+    ASSINATURA_SINCRONIZACAO_SEM_CONFIRMACAO: 'Assinatura não encontrada no provedor: situação mantida (sem confirmação)',
     ASSINATURA_CANCELADA: 'Assinatura cancelada pela Gestão',
+    ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO: 'Cancelamento pedido pela Gestão sem confirmação do provedor (nada concluído)',
     ASSINATURA_VINCULADA_RECONCILIACAO: 'Assinatura vinculada pela reconciliação',
     ASSINATURA_DUPLICADA_REMOVIDA: 'Assinatura duplicada removida no provedor',
 };

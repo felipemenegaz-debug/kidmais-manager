@@ -106,3 +106,10 @@ test('gratuidade da Kidmais na conferência: qualquer desvio é violação e rep
     assert.equal(codigoDeSaida({...limpo,kidmais:{violada:true}},true),2);
     assert.equal(codigoDeSaida({...limpo,kidmais:{violada:true}},false),2);
 });
+test('P1: empresa com leitura sem confirmação (404) deixa o ciclo incompleto (saída 2) e não conta como sem mudança',async()=>{
+    const sinc={eventosPendentes:async()=>[],empresasComProvedor:async()=>['sem-confirmacao','ok'],processarEvento:async()=>({situacao:'PROCESSADO'}),
+        sincronizarEmpresa:async(_c,id)=>id==='ok'?{resultado:'SINCRONIZADA',mudou:false}:{resultado:'SEM_CONFIRMACAO',motivo:'ASSINATURA_NAO_ENCONTRADA'}};
+    const r=await executarCiclo({client:{query:async()=>{}},provedor:{},aplicar:true,banco:'sintetico',sinc});
+    assert.deepEqual(r.empresas,{SEM_CONFIRMACAO:1,SEM_MUDANCA:1});
+    assert.equal(r.incompleto,true);assert.equal(r.divergente,true);
+});
