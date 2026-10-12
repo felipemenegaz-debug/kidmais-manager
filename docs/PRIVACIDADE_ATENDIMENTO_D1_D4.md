@@ -164,3 +164,16 @@ concreta.
 | B5 | as suítes PostgreSQL usam a mesma regra de modo da produção | harness |
 
 **Não corrigido aqui:** M2 (paywall × privacidade) depende da decisão R9; B6 (registro da equivalência) é das evidências.
+
+## 7. Correções da revisão independente de 5699dfc (12/10/2026)
+
+| Achado | Correção | Prova (`revisao2-correcoes.postgres.test.ts`) |
+|---|---|---|
+| A1 — desligar ou ampliar a retenção não valia para a rotina em curso | cada exclusão trava a empresa (FOR KEY SHARE) e a configuração vigente (FOR SHARE) antes da conversa e confere a atividade com o prazo VIGENTE; desligada = nada apagado (CONFIG_ALTERADA, contada). Ordem de travas: empresa → configuração → conversa → mensagens → linha da execução — a mesma do salvamento (Tenant Context trava a empresa antes da configuração). A primeira execução das provas achou um deadlock com a ordem configuração → empresa (chave estrangeira do registro), corrigido. **Uma exclusão confirmada antes do salvamento não é desfeita** | A1a (desligar chega primeiro), A1a' (ampliar chega primeiro), A1b (retenção chega primeiro; o salvamento termina depois, sem deadlock) |
+| M1 — 2 h de idade viravam "abandono" | posse por **arrendamento** na linha da execução (token + validade de 60 s), renovado por um temporizador enquanto o processo vive e **dentro de cada exclusão**, antes de apagar (cerca: a linha fica travada até o COMMIT). Só arrendamento vencido (processo morto ou parado) permite a outra assumir; quem perdeu a posse não apaga mais e não sobrescreve o encerramento da outra. Sem conexão presa durante a rotina (uma conexão ociosa encerrada derrubaria o processo: o `pg-pool` não escuta erros de conexões emprestadas) | M1a (viva e lenta, linha "velha" de 3 h: EM_EXECUCAO), M1b (processo filho morto com SIGKILL: nada apagado; vencido o arrendamento, a seguinte assume), M1c (parou de renovar: não apaga nem sobrescreve) |
+| M2 — "failed" do provedor depois de aceitar não tratava o grupo | `correlacionarStatus` (usado pelo callback e pelo worker logo depois do retorno do POST) aplica o mesmo tratamento da recusa síncrona (`tratarSaidaQueFalhou`): irmãs na fila (PENDENTE, ou PROCESSANDO não segura) canceladas com GRUPO_INCOMPLETO, memória ajustada, equipe chamada. O worker recusa sozinho uma parte cujo grupo já tem irmã FALHOU, CANCELADA ou INCERTO. Envio já iniciado (ENVIANDO/SUBMETIDA/ENTREGUE) é preservado; INCERTO nunca é reenviado | K1 (depois do retorno do POST), K2 (antes do retorno), K3 (irmã já na transação de envio: preservada, sem deadlock), K4 (irmã reservada e livre), K5 (guarda do worker), K6 (falha da última parte, o PDF), K7 (INCERTO + failed; delivered depois de INCERTO) |
+| B1 — falha da própria empresa parecia normal | `por_empresa` na execução (só contagens); a tela mostra "executada COM FALHAS nesta empresa", adiadas e falhas da empresa, sem nada de outras | `privacidade-tela.test.ts` |
+
+**Limites que continuam:** o provedor não envia o grupo de forma atômica (o que saiu antes de uma falha fica com o
+cliente); um envio já em ENVIANDO quando chega o "failed" da irmã sai (K3); arrendamento de 60 s: depois de uma morte
+real, a próxima execução espera até ele vencer.

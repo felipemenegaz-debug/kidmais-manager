@@ -136,6 +136,9 @@ A matriz completa, a cobertura medida e os limites estão em `docs/PRIVACIDADE_A
   passam pelo detector; falsos positivos tiram qualidade.
 - **Decisões pendentes:** R1–R9 (prazo de retenção, controles mínimos, quem exclui, expiração padrão, revisão da tela,
   modo IA, prazos técnicos, agendamento, titular de empresa sem assinatura ou suspensa).
+- **Correções da revisão de 5699dfc** (§7): retenção serializada com a configuração vigente (ordem empresa →
+  configuração → conversa), posse da rotina por arrendamento renovado com cerca, falha assíncrona do provedor trata o
+  grupo incompleto (callback antes ou depois do retorno do POST), falhas da própria empresa visíveis na tela.
 - **Correções da revisão de 69dc301** (`PRIVACIDADE_ATENDIMENTO_D1_D4.md` §6): modelo só com a chave da decisão R6
   (falha fechada); retenção reconfere a atividade sob a trava, roda uma vez por vez e com espera limitada; recepção não
   grava evento além da janela de reentrega; grupo texto + PDF cancela o resto com motivo quando uma parte falha (sem
