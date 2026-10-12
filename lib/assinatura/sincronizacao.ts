@@ -6,10 +6,13 @@
  *                       A consulta fica dentro da trava de propósito: duas sincronizações da mesma empresa nunca
  *                       aplicam uma leitura antiga depois de uma nova. Cada chamada ao provedor tem 10 s de limite
  *                       (lib/assinatura/asaas.ts), no máximo duas por sincronização. Só a linha desta empresa é travada.
+ *                       Leitura 404 NÃO é remoção (o 404 do Asaas também cobre rota inexistente e id de outra conta; a
+ *                       assinatura removida é lida com `deleted=true`): SEM_CONFIRMACAO, situação comercial inalterada.
  *   registrarEvento     INSERT ... ON CONFLICT (provedor, evento_id) DO NOTHING — só identificadores.
  *   processarEvento     resolve a empresa pelos ids GRAVADOS no nosso banco e sincroniza; nunca usa o conteúdo do
- *                       evento como estado. Tipo desconhecido ou empresa não encontrada → IGNORADO; provedor fora →
- *                       FALHOU (nova tentativa por reentrega do provedor ou pela reconciliação).
+ *                       evento como estado. Tipo desconhecido ou empresa não encontrada → IGNORADO; provedor fora ou
+ *                       assinatura sem confirmação (404) → FALHOU (nova tentativa por reentrega do provedor ou pela
+ *                       reconciliação).
  * Auditoria em `auditoria` (origem COBRANCA): situações e datas, sem valores nem dados pessoais.
  */
 import type { DbExecutor } from '../db/contracts';
@@ -55,6 +58,7 @@ const local = (l: Linha): EstadoLocal => ({
 export type ResultadoSincronizacao =
     | { resultado: 'SEM_ASSINATURA' | 'SEM_PROVEDOR' }
     | { resultado: 'RECUSADA'; motivo: string }
+    | { resultado: 'SEM_CONFIRMACAO'; motivo: 'ASSINATURA_NAO_ENCONTRADA' }
     | { resultado: 'SINCRONIZADA'; antes: SituacaoAssinatura; depois: SituacaoAssinatura; mudou: boolean; recusa: string | null; provedorSituacao: string };
 
 export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps: { provedor: ProvedorLeitura }, origem: OrigemSincronizacao): Promise<ResultadoSincronizacao> {
@@ -64,6 +68,12 @@ export async function sincronizarEmpresa(tx: DbExecutor, empresaId: string, deps
     if (!linha.provedor_assinatura_id)
         return { resultado: 'SEM_PROVEDOR' };
     const assinatura = await deps.provedor.obterAssinatura(linha.provedor_assinatura_id);
+    // GET 404 não comprova remoção (docs.asaas.com/reference/codigos-http-das-respostas: rota inexistente ou id de outra
+    // conta também dão 404; a removida é lida com `deleted=true`). Sem confirmação, nada muda; fica só o registro neutro.
+    if (!assinatura) {
+        await auditarCobranca(tx, { acao: 'ASSINATURA_SINCRONIZACAO_SEM_CONFIRMACAO', empresaId, origem, depois: { motivo: 'ASSINATURA_NAO_ENCONTRADA', situacao: linha.situacao } });
+        return { resultado: 'SEM_CONFIRMACAO', motivo: 'ASSINATURA_NAO_ENCONTRADA' };
+    }
     // Isolamento: a assinatura consultada tem de ser desta empresa (referência externa) e deste cliente no provedor.
     if (assinatura && ((assinatura.externalReference && assinatura.externalReference !== empresaId)
         || (assinatura.customer && linha.provedor_cliente_id && assinatura.customer !== linha.provedor_cliente_id))) {
@@ -204,21 +214,26 @@ export async function processarEvento(tx: DbExecutor, eventoInternoId: string, d
     const empresaId = await resolverEmpresa(tx, ev);
     if (!empresaId)
         return concluir('IGNORADO', null, 'EMPRESA_NAO_ENCONTRADA');
+    const falhar = async (motivo: string) => {
+        await tx.query(
+            `UPDATE cobranca_eventos SET situacao = 'FALHOU', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3 WHERE id = $1::uuid`,
+            [ev.id, empresaId, motivo]);
+        return { situacao: 'FALHOU' as const, empresaId, motivo };
+    };
     await tx.query('SAVEPOINT kidmais_evento_cobranca');
     try {
         const r = await sincronizarEmpresa(tx, empresaId, deps, { tipo: 'WEBHOOK', eventoId: ev.evento_id });
         await tx.query('RELEASE SAVEPOINT kidmais_evento_cobranca');
         if (r.resultado === 'RECUSADA')
             return concluir('IGNORADO', empresaId, r.motivo);
+        // Sem confirmação: o evento continua reprocessável (nunca IGNORADO), e a situação não muda até uma leitura confirmada.
+        if (r.resultado === 'SEM_CONFIRMACAO')
+            return falhar(r.motivo);
         return concluir('PROCESSADO', empresaId, null);
     }
     catch (error) {
         await tx.query('ROLLBACK TO SAVEPOINT kidmais_evento_cobranca');
-        const motivo = codigoErro(error);
-        await tx.query(
-            `UPDATE cobranca_eventos SET situacao = 'FALHOU', empresa_id = COALESCE(empresa_id, $2::uuid), tentativas = tentativas + 1, ultimo_erro = $3 WHERE id = $1::uuid`,
-            [ev.id, empresaId, motivo]);
-        return { situacao: 'FALHOU', empresaId, motivo };
+        return falhar(codigoErro(error));
     }
 }
 

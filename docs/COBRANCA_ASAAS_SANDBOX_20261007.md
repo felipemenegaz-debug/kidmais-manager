@@ -59,8 +59,11 @@ que o provedor diz no momento da reconsulta. Entrega repetida não grava segundo
 - `periodo_atual_fim` = vencimento da última cobrança paga + 1 mês/1 ano, à meia-noite de Brasília; nunca encolhe por
   aqui (revogar período já liberado depois de estorno é decisão manual da plataforma — lacuna conhecida).
 - `OVERDUE` vencida, sem paga posterior, com o período pago terminado → `EM_ATRASO` desde o vencimento mais antigo.
-- Assinatura `INACTIVE`/`EXPIRED`/removida (404) → `CANCELADA_FIM_PERIODO` no período pago, senão `ENCERRADA`
+- Assinatura `INACTIVE`/`EXPIRED`/removida (`deleted=true`) → `CANCELADA_FIM_PERIODO` no período pago, senão `ENCERRADA`
   (`encerrada_em` = fim do período quando vem de cancelada). Quem nunca pagou e está em `TESTE` continua em `TESTE`.
+- Leitura **404** não é remoção (o 404 do Asaas também cobre rota inexistente e id de outra conta; a removida é lida com
+  `deleted=true`): `sincronizarEmpresa` devolve `SEM_CONFIRMACAO`, a situação não muda, fica a auditoria
+  `ASSINATURA_SINCRONIZACAO_SEM_CONFIRMACAO`, o evento do webhook fica `FALHOU` (reprocessável) e a reconciliação sai 2.
 - Só transições da tabela da 068; `TESTE` com pagamento e cobrança seguinte já vencida passa a `ATIVA` (período vencido,
   regularização do E4) e a `EM_ATRASO` na sincronização seguinte. Nova assinatura de quem cancelou/encerrou só reativa
   com cobrança paga.

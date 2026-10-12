@@ -94,6 +94,8 @@ const ESTADO_POSTGRES = {
   "lib/desenvolvedor/papel-ultima-administradora.postgres.test.ts": { descartavel: "063" },
   // R2: remover da empresa e desativar o vínculo com Perfis de id próprio (≠ empresa SaaS), duas empresas, ambiguidade.
   "lib/desenvolvedor/remocao-desativacao-perfil.postgres.test.ts": { descartavel: "063" },
+  // R2: suspensão e reativação do vínculo (concessões inertes e de volta; remoção de vínculo suspenso revoga).
+  "lib/desenvolvedor/suspensao-reativacao-perfil.postgres.test.ts": { descartavel: "063" },
   // Painel comercial (E5): 063 + 067 + 068 aplicadas pela própria suíte.
   "lib/desenvolvedor/comercial.postgres.test.ts": { descartavel: "063" },
   // Cadastro público (E6): 063 + 067 + 068 + 069 aplicadas pela própria suíte.
