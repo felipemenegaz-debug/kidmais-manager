@@ -1,7 +1,7 @@
 # PR nova — texto proposto (não publicada)
 
 - **Base:** `staging`, hoje em `e819772` (merge da #162, depois de #160 `b7ddc36` e #161 `f2122b1`), relido por
-  `ls-remote` em 12/10/2026 ~10:20Z; web e cron live nesse SHA (registro
+  `ls-remote` em 12/10/2026 20:10Z; web e cron live nesse SHA (registro
   `PACOTE-P1-SYNC-404-20261012/REGISTRO-FINAL-PUBLICACAO-160-162.md`).
 - **Integração com a base atual:** o head integra o staging `f2122b1`. A #162 (`e819772`) muda só cobrança/assinatura,
   o painel do desenvolvedor e `scripts/regressao-v1-selecao.cjs`, sem migrations; `git merge-tree` do head com
@@ -103,7 +103,7 @@ conteúdo da #80 e da fase B (a cobertura está registrada em `PR_WALLE_R47_FINA
 - Com 080–082 e o prefixo 20261011, o atendimento fica depois de todas as migrations do inventário, tanto na lista
   quanto na ordem de nome.
 
-**Números livres não são reserva.** 080–082 são uma escolha local e provisória. Conferência de 12/10/2026 ~10:20Z:
+**Números livres não são reserva.** 080–082 são uma escolha local e provisória. Conferência de 12/10/2026 20:10Z:
 livres no staging remoto `e819772` (última migration: 079; a #162 não trouxe migration) e nas PRs abertas #144 e #128
 (nenhuma migration) e #80 (060/064/065, numeração antiga que esta PR substitui). A conferência anterior (05:14Z, staging
 `f2122b1`) deu o mesmo resultado. **Não existe registro de reserva entre sessões** no
