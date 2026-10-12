@@ -1,19 +1,19 @@
 # PR nova — texto proposto (não publicada)
 
 - **Base:** `staging`.
-- **Head proposto:** `whatsapp/walle-privacidade-correcoes-20261012`, a partir da candidata `8b2c55d`
-  (`whatsapp/walle-integra-b5a6a86-20261011`, a partir de `89759885`), que fica preservada com as próprias evidências.
-  - `89759885` fica preservado, assim como a branch `whatsapp/walle-r47-renumera-20261010` e a PR #80.
-  - O staging `b5a6a86` está integrado.
-- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-privacidade-20261012/RESUMO.md`; a
-  candidata anterior em `evidencias-integra-b5a6a86/`). Um documento não registra o próprio SHA.
+- **Head proposto:** `whatsapp/walle-integra-f2122b1-20261012`: a candidata revisada `aa04387` (revisões
+  independentes de `8b2c55d`, `69dc301`, `5699dfc` e `aa04387`) com o staging `f2122b1` integrado (PRs #160 e #161;
+  relido por `ls-remote` em 12/10/2026). As candidatas anteriores, as branches e as evidências ficam preservadas, assim
+  como `89759885`, a branch `whatsapp/walle-r47-renumera-20261010` e a PR #80 (`a9e2d55`).
+- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-integra-f2122b1-20261012/RESUMO.md`).
+  Um documento não registra o próprio SHA.
 
 > Publicação, push, merge, deploy, migrations persistentes, mudança de variáveis e envio real estão **fora** desta
 > entrega. Cada um exige autorização própria. Leia os bloqueadores no fim.
 
 ## Título
 
-`feat(whatsapp): atendimento WhatsApp com Wall-e (r47) e privacidade D1–D4 — migrations 060, 065, 080, 081 e 082 (esta PR não as aplica), canal desligado`
+`feat(whatsapp): atendimento WhatsApp com Wall-e (r47), privacidade D1–D4 e retenção serializada — migrations 060, 065, 080, 081 e 082 (esta PR não as aplica), canal desligado`
 
 ## Descrição
 
@@ -66,8 +66,10 @@ conteúdo da #80 e da fase B (a cobertura está registrada em `PR_WALLE_R47_FINA
 - Com 080–082 e o prefixo 20261011, o atendimento fica depois de todas as migrations do inventário, tanto na lista
   quanto na ordem de nome.
 
-**Números livres não são reserva.** 080–082 são uma escolha local e provisória. Não existe mecanismo de reserva entre
-sessões: reconfirmar antes do push e antes de aplicar.
+**Números livres não são reserva.** 080–082 são uma escolha local e provisória. Conferência de 12/10/2026 05:14Z:
+livres no staging remoto `f2122b1` (última migration: 079) e nas PRs abertas #162, #144 e #128 (nenhuma migration) e
+#80 (060/064/065, numeração antiga que esta PR substitui). **Não existe registro de reserva entre sessões** no
+repositório nem nos documentos: livre não é reservado. Reconfirmar antes do push e antes de aplicar.
 
 **Ordem de aplicação real — premissa, não fato.** Supõe-se que o banco de staging tenha 061–079 (076–078 com evidência
 datada; a 079 sem evidência datada; nada lido por esta entrega). Se for assim, a 060 e a 065 entrariam **depois**
@@ -160,7 +162,9 @@ Os números do SHA final estão no relatório de evidências. As provas são:
 - unitárias do atendimento, do Wall-e, da tela, da produção, da arquitetura, do webhook/OTP e da identidade;
 - `check:v1:static`;
 - `check:v1:postgres` completo, incluindo `privacidade` (P1–P10), `revogacao-envio` (C1–C4, travas confirmadas em
-  `pg_stat_activity`), `estado-misto` e `ordem-staging-real`;
+  `pg_stat_activity`), `revisao-correcoes` e `revisao2-correcoes` (retenção × configuração nas duas ordens, posse
+  por arrendamento com processo morto, callbacks antes/depois do retorno do POST), `postcheck-082` (o verificador
+  recusa uma 082 antiga ou adulterada), `estado-misto` e `ordem-staging-real`;
 - equivalência com a r47 (`f3c78bb`, 3.990 mensagens, incluindo as leituras gravadas da IA real);
 - efeito da guarda de dado sensível nas leituras gravadas;
 - cobertura do detector num corpus independente;
@@ -196,8 +200,11 @@ Os números do SHA final estão no relatório de evidências. As provas são:
   - A configuração efetiva de e-mail, WhatsApp e IA no web de staging precisa ser esclarecida. A presença de nomes de
     variáveis não comprova que o canal esteja ativo.
   - Autenticação e Partner API da Gupshup ainda pendentes.
-- **Dados reais:** bloqueados também em staging até as decisões R1–R8; o modo IA, enquanto a cobertura do detector
+- **Dados reais:** bloqueados também em staging até as decisões R1–R9; o modo IA, enquanto a cobertura do detector
   tiver lacunas relevantes (R6).
+- **082 revisada antes de qualquer aplicação:** um banco que já tivesse uma versão antiga da 082 exige plano explícito de
+  evolução (reaplicar não é presumido permitido); o postcheck recusa essa diferença.
+- **Retenção sem agendamento** (R8) e **paywall × privacidade** (R9) em aberto; CI e revisão da PR remota pendentes.
 - **Produção:** só depois da homologação, por promoção separada.
 
 ### Rollback

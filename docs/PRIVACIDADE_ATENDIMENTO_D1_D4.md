@@ -174,6 +174,10 @@ concreta.
 | M2 — "failed" do provedor depois de aceitar não tratava o grupo | `correlacionarStatus` (usado pelo callback e pelo worker logo depois do retorno do POST) aplica o mesmo tratamento da recusa síncrona (`tratarSaidaQueFalhou`): irmãs na fila (PENDENTE, ou PROCESSANDO não segura) canceladas com GRUPO_INCOMPLETO, memória ajustada, equipe chamada. O worker recusa sozinho uma parte cujo grupo já tem irmã FALHOU, CANCELADA ou INCERTO. Envio já iniciado (ENVIANDO/SUBMETIDA/ENTREGUE) é preservado; INCERTO nunca é reenviado | K1 (depois do retorno do POST), K2 (antes do retorno), K3 (irmã já na transação de envio: preservada, sem deadlock), K4 (irmã reservada e livre), K5 (guarda do worker), K6 (falha da última parte, o PDF), K7 (INCERTO + failed; delivered depois de INCERTO) |
 | B1 — falha da própria empresa parecia normal | `por_empresa` na execução (só contagens); a tela mostra "executada COM FALHAS nesta empresa", adiadas e falhas da empresa, sem nada de outras | `privacidade-tela.test.ts` |
 
+**Revisão de aa04387 (B2):** o postcheck da 082 confere as colunas novas da retenção (tipo, nulidade, default), as
+restrições pertinentes e o índice único parcial; `postcheck-082.postgres.test.ts` prova que ele recusa variantes
+antigas ou adulteradas.
+
 **Limites que continuam:** o provedor não envia o grupo de forma atômica (o que saiu antes de uma falha fica com o
 cliente); um envio já em ENVIANDO quando chega o "failed" da irmã sai (K3); arrendamento de 60 s: depois de uma morte
 real, a próxima execução espera até ele vencer.
