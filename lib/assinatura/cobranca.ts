@@ -18,8 +18,16 @@
  * Registro prévio: antes de cada POST de criação grava-se a intenção (pendência `kidmais:criacao:`); enquanto houver
  * pendência aberta da empresa não há outro POST (listagem vazia depois de tempo esgotado não prova falha).
  * Falhas: provedor criou e o commit da fase C falhou → a próxima tentativa reencontra cliente e assinatura pela
- * referência externa; o webhook e a reconciliação (scripts/assinatura-reconciliar.cjs) corrigem o resto. Provedor fora
- * do ar → COBRANCA_FALHOU (502) e nada é gravado.
+ * referência externa; o webhook e a reconciliação (scripts/assinatura-reconciliar.cjs) corrigem o resto. Não há uma
+ * regra única para "provedor fora", e o código de erro descreve só a tentativa atual, nunca o estado final no provedor:
+ *   - COBRANCA_FALHOU (502): consulta ao provedor falhou, ou recusa definitiva (4xx, exceto 408/409/429) de uma escrita.
+ *     A escrita recusada não teve efeito; uma tentativa anterior com resultado desconhecido pode ter tido;
+ *   - COBRANCA_RESULTADO_INCERTO (503): escrita sem resultado conclusivo (criação sem resposta; exclusão sem `deleted`
+ *     do mesmo id nem ausência comprovada), com a intenção/pendência gravada ou a auditoria neutra
+ *     ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO; nunca registrada como sucesso. A escrita PODE ter acontecido no provedor:
+ *     a nova tentativa espera a releitura (webhook, sincronização, reconciliação), nunca repete às cegas;
+ *   - exclusão confirmada e sincronização local falhou → também COBRANCA_FALHOU (502): o provedor já removeu e a
+ *     situação local vem pelo webhook ou pela reconciliação.
  */
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service.ts';
