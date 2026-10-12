@@ -1,12 +1,20 @@
 # PR nova — texto proposto (não publicada)
 
-- **Base:** `staging`.
+- **Base:** `staging`, hoje em `e819772` (merge da #162, depois de #160 `b7ddc36` e #161 `f2122b1`), relido por
+  `ls-remote` em 12/10/2026 ~10:20Z; web e cron live nesse SHA (registro
+  `PACOTE-P1-SYNC-404-20261012/REGISTRO-FINAL-PUBLICACAO-160-162.md`).
+- **Integração com a base atual:** o head integra o staging `f2122b1`. A #162 (`e819772`) muda só cobrança/assinatura,
+  o painel do desenvolvedor e `scripts/regressao-v1-selecao.cjs`, sem migrations; `git merge-tree` do head com
+  `e819772` termina sem conflito (árvore `528d6c6`). O merge de `e819772` no head, com os gates repetidos, fica
+  para antes da publicação (não feito nesta entrega).
 - **Head proposto:** `whatsapp/walle-decoracao-revisao4-20261012`: a candidata revisada `aa04387` (revisões
   independentes de `8b2c55d`, `69dc301`, `5699dfc` e `aa04387`) com o staging `f2122b1` integrado (PRs #160 e #161;
   relido por `ls-remote` em 12/10/2026) e a correção do teste manual de 12/10 (decoração inclusa × segunda mesa temática
   adicional) e as correções das revisões de `6281e35` (A1, M1 e aviso do link) e de `1a0ef17` (correspondência explícita
   do item e várias referências na mesma mensagem), de `8336a56` (complementos preservados e igualdade exata, sem
-  prefixo) e de `d590845` (quantidade e características como requisitos conjuntos), sobre `78e19a6`. As candidatas anteriores, as branches e as evidências ficam preservadas, assim
+  prefixo) e de `d590845` (quantidade e características como requisitos conjuntos), sobre `78e19a6`. Código final:
+  `362e735`; este texto vem num commit só de documentação sobre ele. As candidatas anteriores, as branches e as
+  evidências ficam preservadas, assim
   como `89759885`, a branch `whatsapp/walle-r47-renumera-20261010` e a PR #80 (`a9e2d55`).
 - **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-decoracao-revisao4-20261012/RESUMO.md`; os
   anteriores, `evidencias-decoracao-revisao3-20261012/`, `evidencias-decoracao-revisao2-20261012/`, `evidencias-decoracao-revisao-20261012/`, `evidencias-decoracao-20261012/` e
@@ -95,9 +103,10 @@ conteúdo da #80 e da fase B (a cobertura está registrada em `PR_WALLE_R47_FINA
 - Com 080–082 e o prefixo 20261011, o atendimento fica depois de todas as migrations do inventário, tanto na lista
   quanto na ordem de nome.
 
-**Números livres não são reserva.** 080–082 são uma escolha local e provisória. Conferência de 12/10/2026 05:14Z:
-livres no staging remoto `f2122b1` (última migration: 079) e nas PRs abertas #162, #144 e #128 (nenhuma migration) e
-#80 (060/064/065, numeração antiga que esta PR substitui). **Não existe registro de reserva entre sessões** no
+**Números livres não são reserva.** 080–082 são uma escolha local e provisória. Conferência de 12/10/2026 ~10:20Z:
+livres no staging remoto `e819772` (última migration: 079; a #162 não trouxe migration) e nas PRs abertas #144 e #128
+(nenhuma migration) e #80 (060/064/065, numeração antiga que esta PR substitui). A conferência anterior (05:14Z, staging
+`f2122b1`) deu o mesmo resultado. **Não existe registro de reserva entre sessões** no
 repositório nem nos documentos: livre não é reservado. Reconfirmar antes do push e antes de aplicar.
 
 **Ordem de aplicação real — premissa, não fato.** Supõe-se que o banco de staging tenha 061–079 (076–078 com evidência
@@ -229,7 +238,16 @@ Os números do SHA final estão no relatório de evidências. As provas são:
   - deploy manual autorizado;
   - roteiro U/P, mais os itens novos de privacidade (exclusão, controles herdados, reentrega, retenção agendada,
     revogação, troca de link, expiração, reativação, corrida com envio).
-- **S11 do Painel** sem E1–E6 comprovados: o bloqueio continua.
+- **S11 do Painel: não concluído; o bloqueio continua.** Localizado por leitura (nada executado nem alterado):
+  - última execução do S11: `homologacao-painel-063/leituras/S11-20261005T165500Z/RELATORIO.md` (05/10, alvo
+    `f908d0d`): 2 declarados, 12 aprovados, 14 pendentes, 1 não aplicável; **E1–E6 PENDENTES**, sem evidência;
+  - leitura mais recente: `S11-LEITURA-20261010T102049Z/LEITURA.md` (10/10, somente leitura): Alfa e Beta ATIVAS
+    (E2 não cumprido), um convite pendente em Alfa (E1 não cumprido); contas sintéticas inativas (o que, sozinho, não
+    conclui o S11); nenhum registro de E6;
+  - nenhum relatório de encerramento do S11 posterior a 10/10 no workspace. O registro da publicação de #160–#162 em
+    `e819772` comprova merges e deploys web/cron, não S11/E1–E6;
+  - o executor e a homologação do S11 pertencem à sessão do Painel; o executor foi revalidado em `235b082`, nunca em
+    `b5a6a86` nem em `e819772`.
 - **Canal real:** E0 (receptor único) e E3 (OTP).
   - A configuração efetiva de e-mail, WhatsApp e IA no web de staging precisa ser esclarecida. A presença de nomes de
     variáveis não comprova que o canal esteja ativo.
