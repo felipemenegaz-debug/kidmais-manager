@@ -43,10 +43,11 @@ test("proteções finais: modo regras em todos os caminhos e entrada recebida co
   }
   const c = await conectarDescartavel();
   const q = (sql: string, v: unknown[] = []) => c.query(sql, v);
-  const ambienteAntes = { modo: process.env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO, orcamento: process.env.AI_BUDGET_JSON };
+  const ambienteAntes = { modo: process.env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO, orcamento: process.env.AI_BUDGET_JSON, autorizacao: process.env.WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO, contatos: process.env.WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS };
   const modoRegras = (ligado: boolean) => {
     if (ligado) { process.env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO = "regras"; process.env.AI_BUDGET_JSON = ORCAMENTO_VALIDO; }
-    else { delete process.env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO; delete process.env.AI_BUDGET_JSON; }
+    // B5 (revisão de 69dc301): fora do modo regras, o modelo SIMULADO precisa das duas chaves (como na produção).
+    else { Object.assign(process.env, { WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO: "modelo", WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO: "R6-teste-sintetico", WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS: "5561900000000" }); delete process.env.AI_BUDGET_JSON; }
   };
   try {
     await q(M060[0]); await q(M060[1]);
@@ -147,6 +148,8 @@ test("proteções finais: modo regras em todos os caminhos e entrada recebida co
   } finally {
     if (ambienteAntes.modo === undefined) delete process.env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO; else process.env.WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO = ambienteAntes.modo;
     if (ambienteAntes.orcamento === undefined) delete process.env.AI_BUDGET_JSON; else process.env.AI_BUDGET_JSON = ambienteAntes.orcamento;
+    if (ambienteAntes.autorizacao === undefined) delete process.env.WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO; else process.env.WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO = ambienteAntes.autorizacao;
+    if (ambienteAntes.contatos === undefined) delete process.env.WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS; else process.env.WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS = ambienteAntes.contatos;
     await c.end();
   }
 });

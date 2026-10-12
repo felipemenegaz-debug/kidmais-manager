@@ -13,6 +13,9 @@ import * as arquivos from "./arquivos.ts";
 import * as entendimento from "./walle/entendimento.ts";
 import type { ConteudoSaida } from "./transporte.ts";
 import { transporteSemRede } from "./harness-postgres.ts";
+// B5 (revisão de 69dc301): o harness segue a regra de modo da produção. Esta suíte exercita a fase B com o modelo
+// SIMULADO (porta `interpretar` de teste, nenhuma rede): declara o modo modelo com uma autorização R6 sintética.
+Object.assign(process.env, { WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO: "modelo", WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO: "R6-teste-sintetico", WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS: "5561900000000" });
 
 /**
  * Migration 060 (atendimento WhatsApp) no PostgreSQL descartável. Só roda pelo `check:v1:postgres`, com
