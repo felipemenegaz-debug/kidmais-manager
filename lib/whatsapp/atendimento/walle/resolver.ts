@@ -704,7 +704,8 @@ export function lerPedido(t: string, p: PedidoItem, ctx: ContextoPedido): Leitur
   const ini = Math.max(...['.', '?', '!', ';', '\n'].map((c) => t.lastIndexOf(c, p.ini - 1))) + 1;
   const resto = t.slice(p.fim).search(/[.?!;\n]/);
   const fim = resto < 0 ? t.length : p.fim + resto;
-  let quantidade = QUALIFICA_A_MAIS.test(t.slice(ini, p.ini));
+  const qtdAntes = QUALIFICA_A_MAIS.exec(t.slice(ini, p.ini));
+  let quantidade = !!qtdAntes;
   let desde = p.fim;
   const q = t.slice(p.fim, fim).match(QUANTIDADE_DEPOIS);
   if (q) { quantidade = true; desde = p.fim + q[0].length; }
@@ -718,7 +719,8 @@ export function lerPedido(t: string, p: PedidoItem, ctx: ContextoPedido): Leitur
     return /^\d+$/.test(x.w) && !!depois[k + 1] && CONTEXTO_PEDIDO.has(depois[k + 1].n);
   };
   const modificadores: string[] = [];
-  let trechoIni = p.ini, trechoFim = desde;
+  // O trecho lido inclui a quantidade dita antes ("segunda mesa temática de vidro").
+  let trechoIni = qtdAntes ? ini + qtdAntes.index : p.ini, trechoFim = desde;
   for (let k = 0; k < depois.length && modificadores.length < 4; k++) {
     const x = depois[k];
     if (CONECTORES_ITEM.has(x.n)) {
@@ -729,6 +731,8 @@ export function lerPedido(t: string, p: PedidoItem, ctx: ContextoPedido): Leitur
       k = j - 1;
       continue;
     }
+    // "mesa temática de vidro a mais": a quantidade pode vir depois do complemento.
+    if (x.w === 'a' && depois[k + 1]?.w === 'mais') { quantidade = true; trechoFim = depois[k + 1].fim; k++; continue; }
     if (contexto(k, false) || fronteira(x)) break;
     trechoFim = x.fim;
     if (QTD_ITEM.has(x.n)) { quantidade = true; continue; }
@@ -738,7 +742,7 @@ export function lerPedido(t: string, p: PedidoItem, ctx: ContextoPedido): Leitur
   for (let k = antes.length - 1; k >= 0; k--) {
     const x = antes[k];
     if (fronteira(x) || CONECTORES_ITEM.has(x.n) || /^\d/.test(x.w) || QTD_ITEM.has(x.n) || ['mais', 'duas', 'dois'].includes(x.w)) break;
-    trechoIni = x.ini;
+    trechoIni = Math.min(trechoIni, x.ini);
     if (!ignora(x.n)) modificadores.unshift(x.n);
   }
   return { quantidade, modificadores, clausula: t.slice(ini, fim), trecho: [trechoIni, Math.max(trechoFim, p.fim)] };
@@ -751,9 +755,9 @@ export type SelecaoPedido<D extends ComItens> = {
 /**
  * Seleção do item cadastrado que corresponde ao pedido, por pacote (único; mais de um é ambiguidade):
  *  - qualificadores ("XL", "vidro", "led", "maior"): as características do nome são EXATAMENTE as pedidas;
- *  - quantidade ("segunda", "outra", "a mais"): o adicional "a mais" sem outra característica ou, sem a versão inclusa
- *    simples, o próprio adicional simples;
- *  - sem qualificador: o item simples (incluso antes do adicional), nunca uma variante.
+ *  - quantidade ("segunda", "outra", "a mais") E qualificadores são requisitos conjuntos: o item "a mais" com exatamente
+ *    essas características; outra unidade do próprio adicional só sem unidade desse tipo inclusa no pacote;
+ *  - sem quantidade: a unidade (sem "a mais") com exatamente essas características, a inclusa antes da adicional.
  * Variante do nome: os tokens normalizados que sobram sem o item e sem as palavras neutras.
  */
 export function selecionarParaPedido<D extends ComItens>(x: string, l: LeituraPedido, decor: D[]): SelecaoPedido<D> {
@@ -764,22 +768,24 @@ export function selecionarParaPedido<D extends ComItens>(x: string, l: LeituraPe
     const ws = tokens(i).filter((n) => !base.includes(n));
     return { quantidade: ws.some((n) => QTD_ITEM.has(n)), caracteristicas: ws.filter((n) => !QTD_ITEM.has(n)) };
   };
-  const simples = (i: ItemAdicional) => { const v = variante(i); return !v.quantidade && !v.caracteristicas.length; };
   let ambiguo = false;
   const porPacote: SelecaoPedido<D>['porPacote'] = [];
   for (const d of decor) {
     const inc = d.inclusos.filter(casa), ext = d.extras.filter(casa);
     let opcoes: ItemAdicional[];
-    if (l.modificadores.length) {
-      const iguais = [...inc, ...ext].filter((i) => mesmasPalavras(l.modificadores, variante(i).caracteristicas));
-      const preferidos = iguais.filter((i) => variante(i).quantidade === l.quantidade);
-      opcoes = preferidos.length ? preferidos : iguais;
-    } else if (l.quantidade) {
-      opcoes = ext.filter((i) => { const v = variante(i); return v.quantidade && !v.caracteristicas.length; });
-      if (!opcoes.length && !inc.some(simples)) opcoes = ext.filter(simples);
+    // Revisão de d590845: quantidade e características são requisitos CONJUNTOS — nunca se descarta um para achar o outro.
+    const mesmas = (i: ItemAdicional) => mesmasPalavras(l.modificadores, variante(i).caracteristicas);
+    const unidade = (i: ItemAdicional) => !variante(i).quantidade && mesmas(i);
+    if (l.quantidade) {
+      // O item "a mais" (segunda/outra/adicional no nome) com exatamente essas características, incluso ou adicional.
+      opcoes = [...inc, ...ext].filter((i) => variante(i).quantidade && mesmas(i));
+      // Outra unidade do próprio adicional só quando o cadastro sustenta: o tipo existe como adicional e o pacote NÃO tem
+      // uma unidade dele inclusa (com a principal inclusa, a outra unidade precisa estar cadastrada como "a mais").
+      if (!opcoes.length && !inc.some(unidade)) opcoes = ext.filter(unidade);
     } else {
-      opcoes = inc.filter(simples);
-      if (!opcoes.length) opcoes = ext.filter(simples);
+      // Sem quantidade: nunca um item "a mais"; a unidade inclusa antes da adicional.
+      opcoes = inc.filter(unidade);
+      if (!opcoes.length) opcoes = ext.filter(unidade);
     }
     if (new Set(opcoes.map(chaveItem)).size > 1) { ambiguo = true; continue; }
     if (opcoes[0]) porPacote.push({ d, item: opcoes[0], modalidade: inc.includes(opcoes[0]) ? 'INCLUSO' : 'EXTRA' });
@@ -870,7 +876,7 @@ async function itensDaDecoracao(e: Estado, decor: DecoracaoDoPacote[], pedidos: 
     // O pedido como o cliente escreveu (o trecho lido, com os qualificadores): o texto sem acento tem as mesmas posições.
     const original = semAcento(e.texto).length === e.texto.length ? e.texto : null;
     const lido = (original ?? t).slice(l.trecho[0], l.trecho[1]).replace(/\s+/g, ' ').trim();
-    const pedido = `${l.quantidade && !l.modificadores.length && !/\b(a mais|extra|adiciona)/i.test(lido) ? 'mais ' : ''}${lido.charAt(0).toLowerCase()}${lido.slice(1)}`;
+    const pedido = `${l.quantidade && !l.modificadores.length && !/\b(a mais|extra|adiciona|segund|outr|mais|duas|dois)/i.test(lido) ? 'mais ' : ''}${lido.charAt(0).toLowerCase()}${lido.slice(1)}`;
     if ((!porPacote.length || ambiguo) && (l.modificadores.length || l.quantidade || ambiguo) && parecido) { if (!semCorrespondencia.includes(pedido)) semCorrespondencia.push(pedido); continue; }
     if (!porPacote.length) { if (!semCadastro.includes(x)) semCadastro.push(x); continue; }
     const mesmo = porPacote.length === decor.length && porPacote.every((x) => x.modalidade === porPacote[0].modalidade && chaveItem(x.item!) === chaveItem(porPacote[0].item!));

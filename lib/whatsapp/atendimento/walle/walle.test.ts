@@ -4081,3 +4081,76 @@ test('revisão 8336a56 — sem encaminhamento desnecessário: perguntas comuns s
     assert.equal(c.ultima.passagem, null, pergunta);
   }
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Revisão de d590845 — quantidade e características como requisitos conjuntos (a matriz completa está em
+// correspondencia-matriz.test.ts; aqui, os casos da revisão de forma legível).
+const VIDRO_INC = MESA_ITEM('pv', 'Mesa temática de vidro');
+const SEGUNDA = MESA_ITEM('as', 'Segunda mesa temática');
+const SEGUNDA_VIDRO = MESA_ITEM('av', 'Segunda mesa temática de vidro');
+const comInclusos = (inclusos: ReturnType<typeof MESA_ITEM>[], extras: ReturnType<typeof MESA_ITEM>[]) => (): Composicao => ({ categorias: BUFFET, inclusos, extras });
+
+test('revisão d590845 — segunda mesa de vidro sem cadastro não vira a mesa principal de vidro inclusa', async () => {
+  const c = await conversa(['quanto custa uma segunda mesa temática de vidro?'], { composicoes: comInclusos([VIDRO_INC], [SEGUNDA]), precos: { as: precoFixo(450) } });
+  const t = texto(c.ultima);
+  assert.doesNotMatch(t, /“Mesa temática de vidro” já vem/);
+  assert.doesNotMatch(t, /R\$/);
+  assert.match(t, /Não tenho cadastrado “segunda mesa temática de vidro”; por isso não informo valor por aqui/);
+  assert.deepEqual(consultouPreco(c.chamadas), []);
+  assert.equal(c.ultima.passagem?.motivo, 'INFORMACAO_INDISPONIVEL');
+  // A informação verdadeira (a principal de vidro vem em todos) continua no resumo do cadastro, sem virar resposta do pedido.
+  assert.match(t, /Em todos os pacotes, a decoração inclui Mesa temática de vidro\./);
+});
+
+test('revisão d590845 — combinação cadastrada responde pelo próprio preço, em qualquer ordem dos qualificadores', async () => {
+  const op = { composicoes: comInclusos([VIDRO_INC], [SEGUNDA, SEGUNDA_VIDRO]), precos: { as: precoFixo(450), av: precoFixo(480) } };
+  for (const pergunta of ['quanto custa uma segunda mesa temática de vidro?', 'quanto custa outra mesa temática de vidro?', 'quanto custa mais uma mesa temática de vidro?', 'quanto custa uma mesa temática de vidro a mais?']) {
+    const c = await conversa([pergunta], op);
+    assert.match(texto(c.ultima), /“Segunda mesa temática de vidro” é adicional: R\$\s?480,00/, pergunta);
+    assert.deepEqual(consultouPreco(c.chamadas), ['preco-adicional:av:null'], pergunta);
+    assert.doesNotMatch(texto(c.ultima), /já vem/, pergunta);
+    assert.equal(c.ultima.passagem, null, pergunta);
+  }
+  // Sem quantidade, o pedido é a principal de vidro (inclusa): nada de preço da segunda.
+  for (const pergunta of ['a mesa temática de vidro vem inclusa?', 'quanto custa a mesa temática de vidro?']) {
+    const c = await conversa([pergunta], op);
+    assert.deepEqual(consultouPreco(c.chamadas), [], pergunta);
+    assert.doesNotMatch(texto(c.ultima), /R\$/, pergunta);
+    assert.equal(c.ultima.passagem, null, pergunta);
+  }
+  // Quantidade sem característica: a segunda comum (R$ 450), não a de vidro.
+  const comum = await conversa(['quanto custa uma segunda mesa temática?'], op);
+  assert.deepEqual(consultouPreco(comum.chamadas), ['preco-adicional:as:null']);
+});
+
+test('revisão d590845 — quantidade sem característica e característica sem quantidade, sem combinação cadastrada', async () => {
+  const soSegundaVidro = { composicoes: comInclusos([VIDRO_INC], [SEGUNDA_VIDRO]), precos: { av: precoFixo(480) } };
+  // "segunda mesa" comum não está cadastrada (só a de vidro): lacuna, sem 480.
+  const segunda = await conversa(['quanto custa uma segunda mesa temática?'], soSegundaVidro);
+  assert.deepEqual(consultouPreco(segunda.chamadas), []);
+  assert.ok(segunda.ultima.passagem);
+  assert.doesNotMatch(texto(segunda.ultima), /R\$|já vem/);
+  // "mesa de vidro" sem quantidade só com a SEGUNDA de vidro cadastrada (sem a principal de vidro): lacuna, sem 480.
+  const vidro = await conversa(['quanto custa a mesa temática de vidro?'], { composicoes: comInclusos([MESA], [SEGUNDA_VIDRO]), precos: { av: precoFixo(480) } });
+  assert.deepEqual(consultouPreco(vidro.chamadas), []);
+  assert.ok(vidro.ultima.passagem);
+  // Outra unidade do próprio adicional é sustentada pelo cadastro quando não há unidade inclusa do tipo.
+  const outraUnidade = await conversa(['quanto custa outra mesa temática de vidro?'], { composicoes: comInclusos([MESA], [MESA_ITEM('ev', 'Mesa temática de vidro')]), precos: { ev: precoFixo(520) } });
+  assert.deepEqual(consultouPreco(outraUnidade.chamadas), ['preco-adicional:ev:null']);
+  assert.match(texto(outraUnidade.ultima), /“Mesa temática de vidro” é adicional: R\$\s?520,00/);
+});
+
+test('revisão d590845 — várias referências: principal inclusa e segunda de vidro (cadastrada ou não), preço presente e ausente', async () => {
+  const texto2 = 'A mesa temática de vidro está inclusa? Quanto custa uma segunda mesa temática de vidro?';
+  const cadastrada = await conversa([texto2], { composicoes: comInclusos([VIDRO_INC], [SEGUNDA_VIDRO]), precos: { av: precoFixo(480) } });
+  assert.match(texto(cadastrada.ultima), /“Segunda mesa temática de vidro” é adicional: R\$\s?480,00/);
+  assert.equal(cadastrada.ultima.passagem, null);
+  const semPreco = await conversa([texto2], { composicoes: comInclusos([VIDRO_INC], [SEGUNDA_VIDRO]), precos: {} });
+  assert.match(texto(semPreco.ultima), /o valor dele não está cadastrado na tabela de preços/);
+  assert.doesNotMatch(texto(semPreco.ultima), /R\$/);
+  assert.ok(semPreco.ultima.passagem);
+  const ausente = await conversa([texto2], { composicoes: comInclusos([VIDRO_INC], [SEGUNDA]), precos: { as: precoFixo(450) } });
+  assert.match(texto(ausente.ultima), /Não tenho cadastrado “segunda mesa temática de vidro”/);
+  assert.deepEqual(consultouPreco(ausente.chamadas), []);
+  assert.ok(ausente.ultima.passagem);
+});

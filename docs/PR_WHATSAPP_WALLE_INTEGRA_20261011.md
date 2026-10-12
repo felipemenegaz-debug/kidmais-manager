@@ -1,15 +1,15 @@
 # PR nova — texto proposto (não publicada)
 
 - **Base:** `staging`.
-- **Head proposto:** `whatsapp/walle-decoracao-revisao3-20261012`: a candidata revisada `aa04387` (revisões
+- **Head proposto:** `whatsapp/walle-decoracao-revisao4-20261012`: a candidata revisada `aa04387` (revisões
   independentes de `8b2c55d`, `69dc301`, `5699dfc` e `aa04387`) com o staging `f2122b1` integrado (PRs #160 e #161;
   relido por `ls-remote` em 12/10/2026) e a correção do teste manual de 12/10 (decoração inclusa × segunda mesa temática
   adicional) e as correções das revisões de `6281e35` (A1, M1 e aviso do link) e de `1a0ef17` (correspondência explícita
-  do item e várias referências na mesma mensagem) e de `8336a56` (complementos preservados e igualdade exata, sem
-  prefixo), sobre `78e19a6`. As candidatas anteriores, as branches e as evidências ficam preservadas, assim
+  do item e várias referências na mesma mensagem), de `8336a56` (complementos preservados e igualdade exata, sem
+  prefixo) e de `d590845` (quantidade e características como requisitos conjuntos), sobre `78e19a6`. As candidatas anteriores, as branches e as evidências ficam preservadas, assim
   como `89759885`, a branch `whatsapp/walle-r47-renumera-20261010` e a PR #80 (`a9e2d55`).
-- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-decoracao-revisao3-20261012/RESUMO.md`; os
-  anteriores, `evidencias-decoracao-revisao2-20261012/`, `evidencias-decoracao-revisao-20261012/`, `evidencias-decoracao-20261012/` e
+- **SHA e gates:** ficam fora do diff, no relatório de evidências (`evidencias-decoracao-revisao4-20261012/RESUMO.md`; os
+  anteriores, `evidencias-decoracao-revisao3-20261012/`, `evidencias-decoracao-revisao2-20261012/`, `evidencias-decoracao-revisao-20261012/`, `evidencias-decoracao-20261012/` e
   `evidencias-integra-f2122b1-20261012/`, ficam preservados).
   Um documento não registra o próprio SHA.
 
@@ -50,8 +50,10 @@ Correção do teste manual de 12/10/2026 ("A decoração está inclusa? Quanto c
   "dupla"), inclusive complementos com preposição ("de vidro", "com LED"), salvo contexto ("do pacote Premium", "de 50
   convidados"); só responde o item cadastrado cujas características são EXATAMENTE as pedidas, depois de normalização
   explícita (caixa, acento e plural por regra; tokens com dígito inteiros: "XL2" ≠ "XL"), sem prefixo, truncamento ou
-  alias presumido; pedido simples só casa com o item simples; sem correspondência única (nenhuma ou ambígua), a lacuna
-  é dita e vai à equipe, sem consultar nem informar o preço de outro item;
+  alias presumido; quantidade e características são requisitos CONJUNTOS ("segunda mesa de vidro" só casa com o item
+  "a mais" de vidro; a inclusão da principal não comprova outra unidade; outra unidade do próprio adicional só sem
+  unidade inclusa do tipo); pedido simples só casa com a unidade simples; sem correspondência única (nenhuma ou
+  ambígua), a lacuna é dita e vai à equipe, sem afirmar inclusão nem consultar ou informar o preço de outro item;
 - cada ocorrência de item na mensagem é um pedido próprio (posição, quantidade, modificadores e a pergunta da própria
   oração): "a mesa temática está inclusa? quanto custa uma segunda mesa temática?" responde as duas; a resposta só é
   deduplicada depois de resolver os pedidos;
@@ -193,6 +195,8 @@ Os números do SHA final estão no relatório de evidências. As provas são:
   por arrendamento com processo morto, callbacks antes/depois do retorno do POST), `postcheck-082` (o verificador
   recusa uma 082 antiga ou adulterada), `preco-adicional` (modalidade e preço do adicional pela tabela vigente,
   faixas, isolamento por empresa), `estado-misto` e `ordem-staging-real`;
+- matriz independente de correspondência (`correspondencia-matriz.test.ts`, 5.400 + 540 casos contra as invariantes de
+  preço, inclusão, ausência de correspondência e cobertura);
 - equivalência com a r47 (`f3c78bb`, 3.990 mensagens, incluindo as leituras gravadas da IA real) e, com decoração
   cadastrada na fixture, cada diferença classificada no relatório (aviso do link ou decoração, com o texto das duas
   versões);
