@@ -7,7 +7,7 @@ import { ambienteAtendimento } from './configuracao.ts';
 import { acessoAtendimento, tem082, temMidia } from './service.ts';
 import { ATALHOS_081, comporRascunho, ehAnexo, ehMidia, linkSeguro, midiaSegura, prontaEntradaSchema, usaRecursos082, type ArquivoPronta, type Pronta, type TipoAnexo, type TipoMidia } from './prontas.ts';
 import { EXPLICACAO_SEM_LINK, resolverLinkFechamento } from './prontas-link.ts';
-import { caminhoPublicoArquivo, validarArquivo, type TipoArquivo } from './arquivos.ts';
+import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo, validarArquivo, type TipoArquivo } from './arquivos.ts';
 
 /**
  * Serviço da biblioteca de mensagens prontas (080; fotos, vídeos e atalhos novos com a 081; PDF, arquivos próprios,
@@ -21,7 +21,8 @@ const colunas = (midia: boolean, r082: boolean) => [
   r082 ? `p.estado,p.envio_automatico,p.finalidade,p.pacote_codigo,p.estabelecimento_id,p.arquivo_id,a.tipo AS arquivo_tipo,a.nome AS arquivo_nome,a.tamanho_bytes AS arquivo_tamanho,a.token AS arquivo_token`
     : `'PUBLICADA'::text AS estado,false AS envio_automatico,NULL::text AS finalidade,NULL::text AS pacote_codigo,NULL::uuid AS estabelecimento_id,NULL::uuid AS arquivo_id`,
 ].join(',');
-const deProntas = (r082: boolean) => `whatsapp_atendimento_mensagens_prontas p${r082 ? ' LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=p.arquivo_id AND a.empresa_id=p.empresa_id AND a.ambiente=p.ambiente' : ''}`;
+// D3: arquivo revogado ou vencido não aparece (a pronta fica sem anexo e não é usada).
+const deProntas = (r082: boolean) => `whatsapp_atendimento_mensagens_prontas p${r082 ? ` LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=p.arquivo_id AND a.empresa_id=p.empresa_id AND a.ambiente=p.ambiente AND ${ARQUIVO_DISPONIVEL_SQL}` : ''}`;
 type LinhaPronta = Pronta & { arquivo_id?: string | null; arquivo_tipo?: TipoAnexo | null; arquivo_nome?: string | null; arquivo_tamanho?: number | null; arquivo_token?: string | null };
 function paraPronta({ arquivo_id, arquivo_tipo, arquivo_nome, arquivo_tamanho, arquivo_token, ...p }: LinhaPronta): Pronta {
   const arquivo: ArquivoPronta | null = arquivo_id && arquivo_tipo && arquivo_nome && arquivo_token

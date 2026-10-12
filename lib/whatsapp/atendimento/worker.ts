@@ -3,9 +3,10 @@ import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto,
 import { MENSAGEM_ENCAMINHAMENTO, dadoDeSaude, entradaFaseB, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, tem082, type Conversa, type Mensagem } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
-import { urlPublicaArquivo } from './arquivos.ts';
+import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
+import { aplicarRetencao } from './privacidade.ts';
 
 /**
  * Porta do Wall-e (082), montada na composition root: entende a mensagem (modelo revalidado ou regras locais) e
@@ -114,6 +115,8 @@ export async function processarLote(deps: DependenciasWorker, opcoes: { maxTaref
   // Revisão final (M3): automação global desligada ⇒ esvazia a fila para a equipe, sem modelo, Wall-e nem envio.
   if (opcoes.semAutomacao) return encaminharFilaSemAutomacao();
   await limparStatusExpirados();
+  // D2: retenção só com prazo definido no ambiente (sem padrão); falha da retenção não para a fila.
+  await aplicarRetencao().catch(() => null);
   const inicio = relogio();
   let tarefas = 0;
   while (tarefas < max && relogio() - inicio < prazo) {
@@ -220,7 +223,9 @@ export async function processarAtendimento(deps: DependenciasWorker) {
       // salvamento depois do COMMIT NÃO retém o envio já iniciado: o texto lido aqui sai (ou termina INCERTO).
       const vigente = await configuracao(tx, empresa, true);
       const revogada = !mensagem.autor_usuario_id && mensagem.texto !== MENSAGEM_ENCAMINHAMENTO && ((await tx.query("SELECT 1 FROM whatsapp_atendimento_config c JOIN whatsapp_atendimento_mensagens m ON m.empresa_id=c.empresa_id AND m.ambiente=c.ambiente WHERE m.id=$1 AND c.empresa_id=$2 AND c.ambiente=$3 AND c.atualizada_em > m.criada_em", [mensagem.id, empresa, ambiente])).rows.length > 0
-        || !(await materialAindaAutorizado(tx, mensagem, empresa, ambiente)));
+        || !(await materialAindaAutorizado(tx, mensagem, empresa, ambiente)))
+        // D3: arquivo próprio revogado, vencido ou de empresa inativa não sai (nem pelo atendente).
+        || (!!mensagem.midia_arquivo_id && !(await tx.query(`SELECT 1 FROM whatsapp_atendimento_arquivos a WHERE a.id=$1 AND a.empresa_id=$2 AND a.ambiente=$3 AND ${ARQUIVO_DISPONIVEL_SQL}`, [mensagem.midia_arquivo_id, empresa, ambiente])).rows.length);
       const valida = mensagemAindaValida(mensagem,atual);
       const ok = empresaAtiva && autorAtivo && !revogada && contatoPermitido(atual.contato) && valida && atendimentoAtivo() && vigente?.ativo;
       await tx.query('UPDATE whatsapp_atendimento_mensagens SET estado=$2,iniciada_em=clock_timestamp() WHERE id=$1', [mensagem.id, ok ? 'ENVIANDO' : 'CANCELADA']);

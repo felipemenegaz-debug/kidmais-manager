@@ -50,7 +50,7 @@ test('modo regras: a porta do Wall-e ignora o modelo montado; fora do modo regra
   assert.deepEqual(registro.origem, ['regras', 'modelo', 'regras']);
   // D1: fora do modo regras, mensagem com dado de saúde também não vai ao modelo (entende pelas regras).
   regras = false;
-  await porta.responder({ ...entrada, texto: 'meu filho tem alergia a amendoim, o bolo tem?' });
+  await porta.responder({ ...(entrada as object), texto: 'meu filho tem alergia a amendoim, o bolo tem?' } as never);
   assert.equal(chamadas, 1, 'saúde: nenhuma chamada nova');
   assert.deepEqual(registro.origem, ['regras', 'modelo', 'regras', 'regras']);
 });

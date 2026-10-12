@@ -14,7 +14,8 @@ import { cod } from "./harness-postgres.ts";
  *  0. ordem: 082 sem a 081 é recusada;
  *  1. dados anteriores (pronta ativa e arquivada, saída com foto da 081) → 082 aplicada; postchecks da 060, 080, 081 e
  *     082 passam juntos; reaplicação recusada; prontas antigas viram PUBLICADA/ARQUIVADA;
- *  2. arquivos: tipo×mime, tamanho por tipo, hash conferido pelo banco, token único, só inserção (UPDATE/DELETE recusados);
+ *  2. arquivos: tipo×mime, tamanho por tipo, hash conferido pelo banco, token único; nunca apagados e só revogação/troca de
+ *     link ou de expiração depois de inseridos (D3; detalhes em privacidade.postgres.test.ts);
  *  3. prontas: PDF só com arquivo próprio; arquivo de OUTRA empresa ou de OUTRO tipo recusado pela FK; URL e arquivo
  *     juntos recusados; estado coerente com `ativa`; envio automático exige finalidade; unidade de outra empresa recusada;
  *  4. mensagens: várias saídas da mesma entrada (grupo + ordem) sem duplicar; a unicidade da 060 em origem_id continua;
@@ -90,8 +91,8 @@ test("082: Wall-e — ordem, aplicação sobre dados da 081, arquivos, prontas, 
     await recusa(c, insArq, [A, "IMAGEM", "image/png", "Grande.png", grande.length, sha(grande), grande, token(), u], /whatsapp_arquivos_tamanho/);
     const tokRepetido = (await c.query("SELECT token FROM whatsapp_atendimento_arquivos WHERE id = $1", [pdfA])).rows[0].token;
     await recusa(c, insArq, [A, "DOCUMENTO", "application/pdf", "Outra.pdf", PDF.length, sha(PDF), PDF, tokRepetido, u], /whatsapp_arquivos_token_uk/);
-    await recusa(c, "UPDATE whatsapp_atendimento_arquivos SET nome = 'Trocado.pdf' WHERE id = $1", [pdfA], /só inserção/);
-    await recusa(c, "DELETE FROM whatsapp_atendimento_arquivos WHERE id = $1", [pdfA], /só inserção/);
+    await recusa(c, "UPDATE whatsapp_atendimento_arquivos SET nome = 'Trocado.pdf' WHERE id = $1", [pdfA], /só revogação, troca de link ou de expiração/);
+    await recusa(c, "DELETE FROM whatsapp_atendimento_arquivos WHERE id = $1", [pdfA], /não é apagado/);
 
     // 3. Prontas.
     const insP = `INSERT INTO whatsapp_atendimento_mensagens_prontas (empresa_id, ambiente, titulo, categoria, tipo, texto, midia_url, arquivo_id, estado, ativa, envio_automatico, finalidade, estabelecimento_id, criada_por, atualizada_por)

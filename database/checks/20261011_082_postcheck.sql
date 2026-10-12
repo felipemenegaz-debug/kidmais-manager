@@ -4,10 +4,19 @@ DECLARE
   item text;
 BEGIN
   IF to_regclass('public.whatsapp_atendimento_arquivos') IS NULL THEN RAISE EXCEPTION 'postcheck 082: tabela de arquivos ausente'; END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.whatsapp_atendimento_arquivos'::regclass AND tgname = 'whatsapp_arquivos_imutavel' AND tgenabled = 'O') THEN
-    RAISE EXCEPTION 'postcheck 082: trigger de imutabilidade dos arquivos ausente ou desligado';
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.whatsapp_atendimento_arquivos'::regclass AND tgname = 'whatsapp_arquivos_controle' AND tgenabled = 'O') THEN
+    RAISE EXCEPTION 'postcheck 082: trigger de controle dos arquivos (só revogação/troca de link) ausente ou desligado';
   END IF;
-  FOREACH item IN ARRAY ARRAY['whatsapp_arquivos_mime_por_tipo', 'whatsapp_arquivos_tamanho', 'whatsapp_arquivos_hash', 'whatsapp_arquivos_token_uk', 'whatsapp_arquivos_escopo_uk'] LOOP
+  IF to_regclass('public.whatsapp_atendimento_privacidade') IS NULL THEN RAISE EXCEPTION 'postcheck 082: registro de privacidade ausente'; END IF;
+  FOREACH item IN ARRAY ARRAY['whatsapp_privacidade_autor', 'whatsapp_privacidade_alvo', 'whatsapp_privacidade_retencao'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.whatsapp_atendimento_privacidade'::regclass AND conname = item AND convalidated) THEN
+      RAISE EXCEPTION 'postcheck 082: restrição % ausente ou não validada', item;
+    END IF;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM whatsapp_atendimento_arquivos WHERE revogado_em IS NOT NULL AND octet_length(conteudo) <> 0) THEN
+    RAISE EXCEPTION 'postcheck 082: arquivo revogado com conteúdo';
+  END IF;
+  FOREACH item IN ARRAY ARRAY['whatsapp_arquivos_mime_por_tipo', 'whatsapp_arquivos_tamanho', 'whatsapp_arquivos_hash', 'whatsapp_arquivos_token_uk', 'whatsapp_arquivos_escopo_uk', 'whatsapp_arquivos_revogacao', 'whatsapp_arquivos_expiracao'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.whatsapp_atendimento_arquivos'::regclass AND conname = item AND convalidated) THEN
       RAISE EXCEPTION 'postcheck 082: restrição % ausente ou não validada', item;
     END IF;

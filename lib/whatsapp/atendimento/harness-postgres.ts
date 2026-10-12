@@ -49,8 +49,13 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging")
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
     "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento,
   }).modulo as typeof import("./service.ts");
+  // D2/D3: módulo de privacidade REAL, com a mesma conexão por transação e o serviço do harness.
+  const privacidade = carregarComponente("lib/whatsapp/atendimento/privacidade.ts", {
+    "node:crypto": nodeCrypto, "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./service.ts": servico,
+  }).modulo as typeof import("./privacidade.ts");
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
     "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos,
+    "./privacidade.ts": privacidade,
   }).modulo as typeof import("./worker.ts");
   // Repositório REAL de clientes (mesma consulta da aplicação), com a conexão da transação.
   const clientes = carregarComponente("lib/clientes/repositories/cliente.repository.ts", {
@@ -60,7 +65,7 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging")
     "../../clientes/repositories/cliente.repository.ts": clientes, "../../fechamentos/contratacoes.ts": { listarContratacoes },
     "./configuracao.ts": configuracao, "./service.ts": servico, "./prontas.ts": prontas, "./prontas-link.ts": prontasLink, "./arquivos.ts": arquivos, "node:crypto": nodeCrypto,
   }).modulo as typeof import("./prontas-servico.ts");
-  return { servico, worker, biblioteca };
+  return { servico, worker, biblioteca, privacidade };
 }
 
 export const adiado = <T = void>() => { let liberar!: (v: T) => void; const p = new Promise<T>((r) => { liberar = r; }); return { p, liberar }; };

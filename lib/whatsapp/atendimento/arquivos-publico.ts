@@ -1,13 +1,14 @@
 import { timingSafeEqual } from 'node:crypto';
 import { db } from '../../db/postgres.ts';
 import { ambienteAtendimento } from './configuracao.ts';
-import { FORMATO_TOKEN_ARQUIVO, intervaloPedido } from './arquivos.ts';
+import { ARQUIVO_DISPONIVEL_SQL, FORMATO_TOKEN_ARQUIVO, intervaloPedido } from './arquivos.ts';
 
 /**
  * Leitura pública de um arquivo da biblioteca (082) para o provedor baixar a mídia sem sessão: id + token aleatório de
  * 32 bytes (conferido em tempo constante), só no ambiente deste servidor. Sem a 082, id/token fora do formato ou token
  * divergente: "não encontrado" (nada revela se o id existe). Arquivar a mensagem pronta não apaga o arquivo: o que já
- * saiu continua no histórico; novos usos são barrados na biblioteca e no envio.
+ * saiu continua no histórico; novos usos são barrados na biblioteca e no envio. D3: arquivo revogado (conteúdo apagado,
+ * link trocado), vencido ou de empresa que não está ATIVA também responde "não encontrado".
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export type ArquivoPublico = { mime: string; nome: string; tamanho: number; sha256: string; conteudo: Buffer };
@@ -17,7 +18,7 @@ export async function lerArquivoPublico(id: string, token: string): Promise<Arqu
   try { ambiente = ambienteAtendimento(); } catch { return null; }
   try {
     const a = (await db().query<{ token: string; mime: string; nome: string; tamanho_bytes: number; sha256: string; conteudo: Buffer }>(
-      'SELECT token,mime,nome,tamanho_bytes,sha256,conteudo FROM whatsapp_atendimento_arquivos WHERE id=$1 AND ambiente=$2', [id, ambiente])).rows[0];
+      `SELECT a.token,a.mime,a.nome,a.tamanho_bytes,a.sha256,a.conteudo FROM whatsapp_atendimento_arquivos a WHERE a.id=$1 AND a.ambiente=$2 AND ${ARQUIVO_DISPONIVEL_SQL}`, [id, ambiente])).rows[0];
     if (!a || a.token.length !== token.length || !timingSafeEqual(Buffer.from(a.token), Buffer.from(token))) return null;
     return { mime: a.mime, nome: a.nome, tamanho: Number(a.tamanho_bytes), sha256: a.sha256, conteudo: a.conteudo };
   } catch (erro) {

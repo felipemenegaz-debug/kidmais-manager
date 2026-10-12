@@ -3,7 +3,7 @@ import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } from '../../saas/provar-tenant.ts';
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
 import { configuracaoSchema, comandoDireto, conferirEmpresaAtiva, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
-import { caminhoPublicoArquivo } from './arquivos.ts';
+import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
 import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
 // O worker usa o mesmo resumo de pausa (sem importar o entendimento do Wall-e).
 export { registroDaPausa };
@@ -236,7 +236,8 @@ export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: s
     // Com a 082: nome do arquivo próprio e o caminho público (token) para conferir; várias saídas da mesma entrada na ordem.
     const colunasMidia = r082 ? 'm.midia_tipo,m.midia_url,m.midia_nome,m.ordem,a.id AS arquivo_id,a.token AS arquivo_token'
       : midia ? 'm.midia_tipo,m.midia_url' : 'NULL::text AS midia_tipo,NULL::text AS midia_url';
-    const juntaArquivo = r082 ? ' LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=m.midia_arquivo_id AND a.empresa_id=m.empresa_id AND a.ambiente=m.ambiente' : '';
+    // D3: arquivo revogado/vencido não tem mais caminho (o registro da mensagem fica, sem o link).
+    const juntaArquivo = r082 ? ` LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=m.midia_arquivo_id AND a.empresa_id=m.empresa_id AND a.ambiente=m.ambiente AND ${ARQUIVO_DISPONIVEL_SQL}` : '';
     type LinhaMensagem = MensagemLista & { arquivo_id?: string | null; arquivo_token?: string | null };
     const mensagens = conversaId ? (await tx.query<LinhaMensagem>(`SELECT m.id,m.conversa_id,m.direcao,m.texto,m.estado,m.criada_em,m.autor_usuario_id IS NOT NULL AS humana,${colunasMidia} FROM whatsapp_atendimento_mensagens m${juntaArquivo}
       WHERE m.empresa_id=$1 AND m.ambiente=$2 AND m.conversa_id=$3 ORDER BY m.criada_em DESC,${r082 ? 'm.ordem DESC,' : ''}m.id DESC LIMIT 100`, [empresa, ambiente, conversaId])).rows.reverse()

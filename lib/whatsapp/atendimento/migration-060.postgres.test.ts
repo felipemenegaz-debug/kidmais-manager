@@ -78,6 +78,7 @@ function carregar(empresaPiloto: string) {
   }).modulo as Servico;
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
     "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos,
+    "./privacidade.ts": { aplicarRetencao: async () => ({ estado: "PRAZO_NAO_DEFINIDO", excluidas: 0, adiadas: 0 }) },
   }).modulo as Worker;
   return { servico, worker };
 }

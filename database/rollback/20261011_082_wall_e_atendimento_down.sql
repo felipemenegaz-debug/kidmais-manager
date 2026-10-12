@@ -5,7 +5,8 @@
 -- *** do banco; as mensagens prontas de PDF ou com arquivo próprio (com as favoritas); a mídia (tipo, arquivo, nome e
 -- *** origem) das respostas que usaram arquivo próprio ou PDF (o texto/legenda fica); as saídas extras de uma mesma
 -- *** mensagem recebida perdem o agrupamento (continuam no histórico); a fonte das respostas; a memória e o resumo de
--- *** passagem das conversas. Rascunhos são ARQUIVADOS (no código anterior apareceriam como ativos).
+-- *** passagem das conversas; o registro de privacidade (exclusões e revogações). Rascunhos são ARQUIVADOS (no código
+-- *** anterior apareceriam como ativos).
 -- *** Antes: exportar whatsapp_atendimento_arquivos, as colunas novas de mensagens/prontas/conversas e ter backup com
 -- *** restauração comprovada. Reaplicar a 082 depois NÃO recupera esses dados.
 --
@@ -27,19 +28,20 @@ DO $$ BEGIN
 END $$;
 
 LOCK TABLE whatsapp_atendimento_mensagens_prontas_favoritas, whatsapp_atendimento_mensagens_prontas, whatsapp_atendimento_mensagens,
-  whatsapp_atendimento_conversas, whatsapp_atendimento_arquivos IN ACCESS EXCLUSIVE MODE;
+  whatsapp_atendimento_conversas, whatsapp_atendimento_privacidade, whatsapp_atendimento_arquivos IN ACCESS EXCLUSIVE MODE;
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens WHERE (midia_arquivo_id IS NOT NULL OR midia_tipo = 'DOCUMENTO') AND estado IN ('PENDENTE', 'PROCESSANDO', 'ENVIANDO')) THEN
     RAISE EXCEPTION 'Rollback da 082 recusado: há resposta com arquivo próprio ou PDF na fila de envio. Aguarde o resultado do envio ou encerre a conversa antes.';
   END IF;
   IF (EXISTS (SELECT 1 FROM whatsapp_atendimento_arquivos)
+      OR EXISTS (SELECT 1 FROM whatsapp_atendimento_privacidade)
       OR EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens WHERE midia_arquivo_id IS NOT NULL OR midia_tipo = 'DOCUMENTO' OR origem_grupo_id IS NOT NULL OR fonte IS NOT NULL)
       OR EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens_prontas WHERE arquivo_id IS NOT NULL OR tipo = 'DOCUMENTO' OR estado = 'RASCUNHO' OR envio_automatico
                   OR finalidade IS NOT NULL OR pacote_codigo IS NOT NULL OR estabelecimento_id IS NOT NULL)
       OR EXISTS (SELECT 1 FROM whatsapp_atendimento_conversas WHERE contexto <> '{}'::jsonb OR passagem IS NOT NULL))
      AND COALESCE(current_setting('kidmais.rollback_082_descartar', true), '') <> 'sim' THEN
-    RAISE EXCEPTION 'Rollback da 082 recusado: há dados dos recursos do Wall-e (arquivos, PDFs, rascunhos, autorização automática, várias saídas, fonte, memória ou passagem). Exporte-os e confirme o descarte com SET LOCAL kidmais.rollback_082_descartar = ''sim''.';
+    RAISE EXCEPTION 'Rollback da 082 recusado: há dados dos recursos do Wall-e (arquivos, PDFs, rascunhos, autorização automática, várias saídas, fonte, memória, passagem ou registro de privacidade). Exporte-os e confirme o descarte com SET LOCAL kidmais.rollback_082_descartar = ''sim''.';
   END IF;
 END $$;
 
@@ -92,7 +94,8 @@ ALTER TABLE whatsapp_atendimento_mensagens_prontas
 
 -- Conversas e arquivos.
 ALTER TABLE whatsapp_atendimento_conversas DROP COLUMN passagem, DROP COLUMN contexto;
+DROP TABLE whatsapp_atendimento_privacidade;
 DROP TABLE whatsapp_atendimento_arquivos;
-DROP FUNCTION kidmais082_arquivo_imutavel();
+DROP FUNCTION kidmais082_arquivo_controle();
 
 COMMIT;

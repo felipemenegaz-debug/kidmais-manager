@@ -11,6 +11,11 @@
  * O tipo vem dos PRIMEIROS BYTES do arquivo, nunca da extensão ou do content-type informados pelo navegador.
  */
 export const TIPOS_ARQUIVO = ['IMAGEM', 'VIDEO', 'DOCUMENTO'] as const;
+/**
+ * D3 — condição SQL (alias `a` de whatsapp_atendimento_arquivos) de arquivo que ainda pode ser servido ou enviado: não
+ * revogado, não vencido (expira_em) e de empresa ATIVA. Usada pela rota pública, pelo worker e pelas listagens.
+ */
+export const ARQUIVO_DISPONIVEL_SQL = "a.revogado_em IS NULL AND (a.expira_em IS NULL OR a.expira_em > clock_timestamp()) AND EXISTS (SELECT 1 FROM empresas e WHERE e.id=a.empresa_id AND e.status='ATIVA')";
 export type TipoArquivo = (typeof TIPOS_ARQUIVO)[number];
 
 const MB = 1024 * 1024;

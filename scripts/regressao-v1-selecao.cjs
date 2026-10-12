@@ -140,6 +140,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/ordem-staging-real.postgres.test.ts": { descartavel: "079-sem-atendimento", rollback: "082" },
   // 11/10: o Wall-e no catálogo do buffet por empresa (078 do staging): cada empresa só vê o próprio buffet.
   "lib/whatsapp/atendimento/walle/catalogo-por-empresa.postgres.test.ts": { descartavel: "082" },
+  // D2/D3: exclusão (pedido e retenção), PARAR preservado, tarefas pendentes, revogação/troca de link/expiração de arquivos.
+  "lib/whatsapp/atendimento/privacidade.postgres.test.ts": { descartavel: "082" },
   // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
   "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079", tambem: ["079-sem-atendimento"] },
   // Gratuidade da Kidmais com as chaves de produção ligadas, no schema vigente (até a 079).
