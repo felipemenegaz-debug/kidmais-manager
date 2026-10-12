@@ -134,8 +134,12 @@ A matriz completa, a cobertura medida e os limites estão em `docs/PRIVACIDADE_A
     down da 082 contornam o gatilho).
 - **Limites reais:** cópias já baixadas pelo provedor, pelo cliente ou em backups não são apagadas; nomes soltos ainda
   passam pelo detector; falsos positivos tiram qualidade.
-- **Decisões pendentes:** R1–R8 (prazo de retenção, controles mínimos, quem exclui, expiração padrão, revisão da tela,
-  modo IA, prazos técnicos, agendamento).
+- **Decisões pendentes:** R1–R9 (prazo de retenção, controles mínimos, quem exclui, expiração padrão, revisão da tela,
+  modo IA, prazos técnicos, agendamento, titular de empresa sem assinatura ou suspensa).
+- **Correções da revisão de 69dc301** (`PRIVACIDADE_ATENDIMENTO_D1_D4.md` §6): modelo só com a chave da decisão R6
+  (falha fechada); retenção reconfere a atividade sob a trava, roda uma vez por vez e com espera limitada; recepção não
+  grava evento além da janela de reentrega; grupo texto + PDF cancela o resto com motivo quando uma parte falha (sem
+  atomicidade no provedor); busca do titular pelo número; segredo próprio da retenção.
 
 ### Webhook compartilhado com o OTP
 

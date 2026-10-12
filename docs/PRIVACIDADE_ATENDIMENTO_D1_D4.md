@@ -13,7 +13,8 @@ evidências):
 
 **D1–D4 NÃO estão concluídos.** Os testes passarem prova o que está escrito nas matrizes, não que o risco acabou. Há
 lacunas medidas (§1, §4) e decisões de produto abertas (§5). **Enquanto isso, o uso continua só com dados sintéticos e
-contatos controlados, inclusive em staging, e o modo IA continua bloqueado para dados reais.**
+contatos controlados, inclusive em staging, e o modo IA não deve ser ligado com dados reais.** Desde a revisão de
+69dc301 o modelo só liga com duas chaves (§6, H1); isso é uma barreira técnica, não a decisão R6.
 
 ## 1. D1 e D4 — o que vai ao modelo
 
@@ -24,7 +25,7 @@ contatos controlados, inclusive em staging, e o modo IA continua bloqueado para 
 | Dado sensível nunca vai ao modelo, na mensagem atual **e em cada entrada do histórico** | `dadoSensivel` (core.ts): saúde, alergia e restrição alimentar (a mesma regra `ALERGIA` do Wall-e, agora em `walle/alergia.ts`), deficiência e acessibilidade, religião, origem étnica, orientação sexual, dado genético, e siglas (APLV, TEA, TDAH, CID, PKU, HIV, PCD…). Mensagem atual sensível: o Wall-e usa só as regras; a fase B passa à equipe sem modelo. Entrada sensível no histórico: vira `[mensagem com dado sensível omitida]` (`entradaFaseB`) | `privacidade-texto.test.ts`, `porta-regras.test.ts`, `worker.test.ts` |
 | Campos derivados sem cópia do dado sensível | `trechoParaRegistro` (`passagem.ultimaMensagem` e registros de bloqueio e pausa): mensagem sensível vira `[mensagem com dado sensível: ver o histórico]` | `privacidade-texto.test.ts` |
 | Nome e texto devolvidos pelo modelo | `textoDoModeloSeguro` + regra do tema (`walle/entendimento.ts`): o tema do modelo só é aceito se não tiver dado sensível nem marcador de máscara e se aparecer no texto **já mascarado** enviado ao modelo. Um nome que o modelo "reconstruísse" não volta para a memória | `privacidade-texto.test.ts` |
-| Modo padrão | `entendimentoSoRegras` (configuracao.ts): **regras por padrão**. O modelo só roda com `WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=modelo`, que não deve ser ligado com dado real enquanto R6 estiver aberta | `composicao-ia.test.ts` |
+| Modo padrão | `modoEntendimento` / `entendimentoSoRegras` (configuracao.ts): **regras por padrão**. O modelo só roda com `WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=modelo` **e** a referência da decisão R6 em `WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO` (formato `R6-…`) **e**, fora de produção, a lista de contatos controlados; faltando qualquer um, regras (falha fechada) e um aviso no log | `composicao-ia.test.ts` |
 | Contato, nome de perfil e cadastro | nunca vão ao modelo (mantido) | `service.test.ts` |
 
 ### Cobertura medida (não é garantia)
@@ -73,7 +74,9 @@ entendidas pelas regras; **0** decisões mudam (`int-saude-impacto.mjs`, relató
   escolhe prazo.
 - **Hashes de deduplicação**: guardados por `RETENCAO_DEDUP_DIAS = 30` dias e apagados pela rotina de retenção mesmo
   sem prazo de conteúdo. É um **prazo técnico**, provisório, para cobrir reentregas do provedor; não guarda texto nem
-  nome. Confirmar o valor é a decisão **R7**.
+  nome. Confirmar o valor é a decisão **R7**. Desde a revisão de 69dc301 a recepção nunca grava evento com horário mais
+  antigo que a mesma janela (`JANELA_REENTREGA_DIAS`, core.ts): a purga do hash não reabre a recriação de conteúdo
+  excluído. Sem a rotina rodar, o hash não é purgado (fica além dos 30 dias; só o hash).
 - **Registro de privacidade e execuções da retenção**: sem prazo de expurgo nesta entrega (R7).
 
 ## 3. D3 — arquivos da biblioteca
@@ -139,6 +142,25 @@ concreta.
 | R3 | Quem exclui a pedido | Só a Gestão, com senha confirmada há ≤ 5 min e a palavra EXCLUIR |
 | R4 | Expiração padrão dos arquivos | Sem padrão (nunca expira até alguém definir) |
 | R5 | Tela | Tela mínima entregue (Admin › Atendimento › Privacidade). Revisão de UX e textos pela equipe de produto |
-| R6 | Modo IA com dado real | **Bloqueado**: padrão regras; o modelo só com `WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=modelo`. Exige decidir com a cobertura medida (§1) à vista |
+| R6 | Modo IA com dado real | Padrão regras; o modelo só com `WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=modelo` **e** `WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO=R6-<referência da decisão>` (e a lista de contatos fora de produção). A chave só registra a decisão; não a substitui. Exige decidir com a cobertura medida (§1) à vista |
 | R7 | Prazos técnicos: hash de deduplicação (30 dias, provisório), registro de privacidade e execuções da retenção | 30 dias para o hash; registro e execuções sem expurgo |
-| R8 | Agendamento da retenção (quem agenda, frequência, alerta de falha) | Rota e script prontos; nada agendado |
+| R8 | Agendamento da retenção (quem agenda, frequência, alerta de falha) | Rota e script prontos, com segredo próprio (`WHATSAPP_ATENDIMENTO_RETENCAO_SECRET`); nada agendado. Opções na revisão de 69dc301 (recomendada: Cron Job próprio no Render, uma vez ao dia) |
+| R9 | Quem atende o titular quando a empresa está sem assinatura (somente leitura) ou suspensa (M2) | Hoje o paywall recusa as ações de privacidade (402) e a empresa suspensa não entra; correção técnica possível (liberar só a rota de privacidade), a decidir com produto e jurídico |
+
+## 6. Correções da revisão independente de 69dc301 (12/10/2026)
+
+| Achado | Correção | Prova |
+|---|---|---|
+| H1 — modo regras era só padrão | modelo exige `WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=modelo` **e** `WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO=R6-…` **e**, fora de produção, a lista de contatos; senão regras em todos os caminhos (Wall-e, fase B, composition root) e aviso no log | `composicao-ia.test.ts` |
+| H2 — retenção apagava conversa reativada | sob a trava da conversa, a retenção reconfere entrada, atualização e mensagens contra o prazo; atividade recente = RECENTE (contada, nada apagado) | `revisao-correcoes.postgres.test.ts` H2 |
+| M1 — reentrega depois de 30 dias recriava conteúdo | a recepção não grava evento mais antigo que `JANELA_REENTREGA_DIAS` (igual ao prazo do hash) | idem, M1 |
+| M3 — grupo texto + PDF sem atomicidade, cancelamento sem motivo | falha (ou resultado incerto) de uma saída do grupo cancela as irmãs na fila com `GRUPO_INCOMPLETO` (visível na conversa), tira da memória o material não enviado e chama a equipe. **O provedor não envia em grupo de forma atômica:** o que saiu antes (ex.: "segue o PDF") fica com o cliente | idem, M3 |
+| M4 — tela não achava o titular | busca exata pelo número completo (servidor; sem listar números), além das 200 mais recentes | idem, M4; `privacidade-tela.test.ts` |
+| M5 — retenção concorrente e opaca | uma execução por vez por ambiente (índice único parcial; a segunda devolve EM_EXECUCAO); execução presa há > 2 h vira INTERROMPIDA; espera pela trava limitada a 5 s (adiada); a tela mostra só a situação e os números desta empresa e avisa atraso (> 36 h sem execução com prazo definido) | idem, M5 |
+| B1 | a tela avisa, antes de revogar, os envios do arquivo ainda sem confirmação de entrega | idem, B1 |
+| B2 | grupo parcialmente enviado: código próprio (`ATENDIMENTO_GRUPO_PARCIAL`) com o que fazer (assumir ou encerrar e revogar de novo) | idem, B2; `revogacao-envio` C3 |
+| B3 | falha do servidor ou resposta ilegível não afirma "nada foi alterado" | `privacidade-tela.test.ts` |
+| B4 | a retenção usa segredo próprio (`WHATSAPP_ATENDIMENTO_RETENCAO_SECRET`), independente do processador do canal | `whatsapp-atendimento-retencao.test.mjs` |
+| B5 | as suítes PostgreSQL usam a mesma regra de modo da produção | harness |
+
+**Não corrigido aqui:** M2 (paywall × privacidade) depende da decisão R9; B6 (registro da equivalência) é das evidências.
