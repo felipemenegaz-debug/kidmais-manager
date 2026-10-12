@@ -8,13 +8,23 @@
 
 Preparado em 04/10/2026. **Nada deste roteiro foi executado.** Evidências locais: código do WhatsApp validado em `a55aed8`; base integrada e tela validadas em `918b0a1`, local (ver o handoff). Ele detalha o que provar na janela de homologação. As etapas operacionais (E0–E8, com alvo, efeito e recuperação) estão em [WHATSAPP_ATIVACAO_STAGING.md](WHATSAPP_ATIVACAO_STAGING.md), e cada uma exige autorização própria ([OPERACAO_AGENTES.md](OPERACAO_AGENTES.md)).
 
-## Itens de privacidade a homologar (D2/D3, 11/10/2026)
+## Itens de privacidade a homologar (D1–D4, revistos em 12/10/2026)
 
-Com contatos e arquivos sintéticos: exclusão a pedido (`excluir_dados`, só a gestão) e conferência por leitura de que
-mensagens, nome de perfil, memória e passagem sumiram e de que o registro de privacidade não guarda contato nem texto;
-contato com PARAR mantém só a marca; revogação de arquivo (o link deixa de servir, a pronta é arquivada, a fila é
-cancelada); troca de link; expiração. A retenção só é testada com prazo explicitamente decidido (R1 em
-`PRIVACIDADE_ATENDIMENTO_D1_D4.md`). Ver também `PR_WHATSAPP_WALLE_INTEGRA_20261011.md`.
+Só com contatos, mensagens e arquivos sintéticos (dados reais seguem bloqueados, inclusive em staging), pela tela
+Admin › Atendimento › Privacidade (Gestão, senha confirmada na hora):
+
+- exclusão a pedido (palavra EXCLUIR) e conferência por leitura de que mensagens, status, nome de perfil, memória e
+  passagem sumiram e de que o registro de privacidade não guarda contato nem texto;
+- controles mínimos: um contato sintético com PARAR, outro com pausa e outro com a equipe voltam a escrever depois da
+  exclusão e continuam encerrado / com a equipe, sem resposta automática;
+- reentrega do provedor de um evento excluído não recria a conversa;
+- retenção: só com prazo explicitamente decidido (R1) e agendamento decidido (R8); a tela mostra a última execução;
+- arquivos: revogação (link deixa de servir, pronta arquivada, fila e "segue o PDF" do mesmo grupo cancelados com
+  motivo), troca de link, expiração "agora" e por data, reativação com link novo;
+- modo do Wall-e: regras (padrão). O modo modelo não é ligado com dado real (R6).
+
+Matriz, limites e decisões R1–R8 em `PRIVACIDADE_ATENDIMENTO_D1_D4.md`. Ver também
+`PR_WHATSAPP_WALLE_INTEGRA_20261011.md`.
 
 ## Pré-condições (bloqueantes)
 
