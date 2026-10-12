@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
-import { AsaasFalhou, cicloDoProvedor, type ClienteAsaas } from './asaas.ts';
+import { AsaasFalhou, ausenciaComprovada, cicloDoProvedor, type ClienteAsaas } from './asaas.ts';
 import { auditarCobranca, type OrigemSincronizacao } from './sincronizacao-auditoria.ts';
 import { decidirCompensacao, type MotivoPreservacao } from './compensacao.ts';
 import { travarEmpresaParaReconciliacao, exigirEmpresaCobravel } from './ofertas.ts';
@@ -120,7 +120,7 @@ export type ResultadoReconciliacao =
 export type RegistroRemocoes = {
     /** O provedor confirmou que ESTE DELETE removeu (resposta com `deleted`). */
     confirmadas: string[];
-    /** O DELETE respondeu 404: a assinatura já não existia. Prova ausência, não autoria (ação neutra). */
+    /** O DELETE respondeu 404 e a releitura por id comprovou a ausência (`deleted`). Prova ausência, não autoria (ação neutra). */
     ausentes: string[];
     /** Pedido enviado sem confirmação: pode ou não ter sido executado. */
     semConfirmacao: string[];
@@ -143,9 +143,11 @@ function remocaoPodeTerOcorrido(error: unknown) {
 /**
  * Resultado classificado de uma exclusão no provedor. Único ponto que chama `removerAssinatura` na contratação e na reconciliação.
  *   - CONFIRMADA: o provedor respondeu que ESTE DELETE removeu (`deleted`);
- *   - AUSENTE: 404 — a assinatura já não existia; comprova ausência, não que este pedido a removeu;
+ *   - AUSENTE: 404 seguido de releitura por id com `deleted` (ausenciaComprovada) — a assinatura já não existia;
+ *     comprova ausência, não que este pedido a removeu. O 404 sozinho não basta (rota inexistente, id de outra conta);
  *   - RECUSADA: 4xx definitivo — comprovadamente não executado;
- *   - DESCONHECIDA: sem resposta, 5xx, 408/409/429 ou resposta sem `deleted` — pode ou não ter sido executado.
+ *   - DESCONHECIDA: sem resposta, 5xx, 408/409/429, resposta sem `deleted` (ou de outro id), ou 404 sem ausência
+ *     comprovada na releitura — pode ou não ter sido executado.
  */
 export type ResultadoRemocao = { resultado: 'CONFIRMADA' } | { resultado: 'AUSENTE' } | { resultado: 'RECUSADA'; erro: unknown } | { resultado: 'DESCONHECIDA' };
 export async function removerComResultado(provedor: Pick<ClienteAsaas, 'removerAssinatura'>, assinaturaId: string): Promise<ResultadoRemocao> {
@@ -219,7 +221,7 @@ export async function persistirMarcadorPrevio(independente: TransacaoIndependent
 
 /**
  * Grava o resultado do DELETE na transação independente (sobrevive à de quem chama). Confirmada → marcador fecha +
- * ASSINATURA_DUPLICADA_REMOVIDA; ausente (404) → marcador fecha (AUSENCIA_CONFIRMADA_NA_EXCLUSAO) + ação NEUTRA
+ * ASSINATURA_DUPLICADA_REMOVIDA; ausente (404 + releitura com `deleted`) → marcador fecha (AUSENCIA_CONFIRMADA_NA_EXCLUSAO) + ação NEUTRA
  * ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO (não atribui a remoção a este pedido); recusada (4xx) → marcador fecha;
  * desconhecida → marcador aberto + ASSINATURA_REMOCAO_SEM_CONFIRMACAO. `extra` roda na mesma transação (contratação:
  * pendências da operação).
@@ -236,7 +238,7 @@ export async function registrarResultadoRemocao(independente: TransacaoIndepende
             }
             else if (remocao.resultado === 'AUSENTE') {
                 await fecharMarcadorRemocao(tx, empresaId, marcadorId, 'AUSENCIA_CONFIRMADA_NA_EXCLUSAO');
-                await auditarCobranca(tx, { acao: 'ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO', empresaId, origem, ip: null, depois: { ausentes: 1, confirmacao: 'AUSENCIA_NA_RESPOSTA_DA_EXCLUSAO' } });
+                await auditarCobranca(tx, { acao: 'ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO', empresaId, origem, ip: null, depois: { ausentes: 1, confirmacao: 'AUSENCIA_NA_RELEITURA_DA_EXCLUSAO' } });
             }
             else if (remocao.resultado === 'RECUSADA')
                 await fecharMarcadorRemocao(tx, empresaId, marcadorId, 'REMOCAO_RECUSADA');
@@ -317,11 +319,12 @@ export async function reconciliarContratacao(tx: DbExecutor, empresaId: string, 
         'SELECT situacao, provedor_assinatura_id, provedor_cliente_id FROM empresa_assinaturas WHERE empresa_id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
     if (!linha)
         return { resultado: 'REVISAO_HUMANA', motivo: 'SEM_ASSINATURA_NO_BANCO', ids: [] };
-    // Exclusões anteriores sem confirmação: só relidas pelo id, nunca repetidas.
+    // Exclusões anteriores sem confirmação: só relidas pelo id, nunca repetidas. Fecham só com a ausência comprovada
+    // (`deleted`); leitura 404 não prova (rota inexistente, id de outra conta) e o marcador continua aberto.
     const semConfirmacao = new Set<string>();
     for (const m of await marcadoresDeRemocao(tx, empresaId)) {
         const s = await provedor.obterAssinatura(m.assinatura_provedor_id);
-        if (!s || s.deleted)
+        if (ausenciaComprovada(s, m.assinatura_provedor_id))
             registro.confirmadasNaReleitura.push({ marcadorId: m.id });
         else
             semConfirmacao.add(m.assinatura_provedor_id);
