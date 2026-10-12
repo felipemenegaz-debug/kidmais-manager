@@ -62,15 +62,19 @@ type RespostaDelete = (init?: RequestInit) => Promise<Response> | Response;
 /** Nunca responde, como uma conexão parada: só o abort do tempo-limite do cliente encerra (igual ao fetch real). */
 const semResposta: RespostaDelete = (init) => new Promise<Response>((_ok, falha) => init?.signal?.addEventListener('abort', () => falha(new DOMException('abort', 'AbortError'))));
 /** Provedor real (cliente Asaas) com `fetch` falso: vínculo e duplicata ativos, duplicata só com cobrança em aberto. */
-function provedor(opcoes: { delete: RespostaDelete; duplicata?: 'ativa' | 'ausente'; tempoLimiteMs?: number }) {
+/** duplicata: 'ausente' = fora da listagem e GET 404; 'removida' = GET por id 200 com `deleted` (forma documentada) depois do DELETE, ou numa releitura de marcador (antes da listagem). */
+function provedor(opcoes: { delete: RespostaDelete; duplicata?: 'ativa' | 'ausente' | 'removida'; tempoLimiteMs?: number; releitura?: RespostaDelete }) {
     const chamadas: string[] = [];
+    let deletou = false;
     const f = async (url: string, init: RequestInit) => {
         const caminho = url.slice(ASAAS_SANDBOX_URL.length);
         chamadas.push(`${init.method} ${caminho.split('?')[0]}`);
-        if (init.method === 'DELETE') return opcoes.delete(init);
+        if (init.method === 'DELETE') { deletou = true; return opcoes.delete(init); }
         if (caminho.startsWith('/subscriptions?')) return json(200, { hasMore: false, data: [sub(VINCULADA), ...(opcoes.duplicata === 'ausente' ? [] : [sub(DUPLICATA)])] });
         if (caminho === `/subscriptions/${VINCULADA}`) return json(200, sub(VINCULADA));
-        if (caminho === `/subscriptions/${DUPLICATA}`) return opcoes.duplicata === 'ausente' ? json(404, { errors: [] }) : json(200, sub(DUPLICATA));
+        if (caminho === `/subscriptions/${DUPLICATA}` && deletou && opcoes.releitura) return opcoes.releitura(init);
+        if (caminho === `/subscriptions/${DUPLICATA}`) return opcoes.duplicata === 'ausente' ? json(404, { errors: [] })
+            : opcoes.duplicata === 'removida' && (deletou || !chamadas.includes('GET /subscriptions')) ? json(200, { ...sub(DUPLICATA), status: 'INACTIVE', deleted: true }) : json(200, sub(DUPLICATA));
         if (caminho.startsWith(`/subscriptions/${DUPLICATA}/payments`)) return json(200, { hasMore: false, data: [{ id: 'pay_1', status: 'PENDING', dueDate: '2026-11-10' }] });
         throw new Error(`rota inesperada: ${init.method} ${caminho}`);
     };
@@ -87,14 +91,14 @@ async function reconciliar(p: ReturnType<typeof provedor>, db: ReturnType<typeof
     }
 }
 
-test('C1: DELETE com 404 → AUSENTE (nunca CONFIRMADA); auditoria NEUTRA, marcador fecha como ausência, um único DELETE', async () => {
-    const p = provedor({ delete: () => json(404, { errors: [{ description: 'nao encontrado' }] }) });
+test('C1/L4: DELETE com 404 e releitura por id com deleted → AUSENTE (nunca CONFIRMADA); auditoria NEUTRA, marcador fecha como ausência, um único DELETE', async () => {
+    const p = provedor({ delete: () => json(404, { errors: [{ description: 'nao encontrado' }] }), duplicata: 'removida' });
     const db = bancoDuble();
     const { r, registro } = await reconciliar(p, db);
     assert.equal(p.deletes(), 1);
     assert.deepEqual(acoes(db), ['ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO'], 'não atribui a remoção ao nosso pedido');
     assert.ok(!acoes(db).includes('ASSINATURA_DUPLICADA_REMOVIDA'));
-    assert.equal(db.auditorias[0].depois.confirmacao, 'AUSENCIA_NA_RESPOSTA_DA_EXCLUSAO');
+    assert.equal(db.auditorias[0].depois.confirmacao, 'AUSENCIA_NA_RELEITURA_DA_EXCLUSAO');
     assert.deepEqual(db.marcadores.map((m) => [m.situacao, m.ultimo_erro]), [['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_EXCLUSAO']]);
     assert.deepEqual([registro.confirmadas, registro.ausentes, registro.semConfirmacao], [[], [DUPLICATA], []]);
     assert.deepEqual(r, { resultado: 'NADA_A_FAZER', removidas: [] }, 'ausência não conta como removida por nós');
@@ -144,10 +148,10 @@ test('C1: recusa definitiva (400) → RECUSADA; marcador fecha como REMOCAO_RECU
     assert.deepEqual(db.marcadores.map((m) => [m.situacao, m.ultimo_erro]), [['PROCESSADO', 'REMOCAO_RECUSADA']]);
 });
 
-test('C1: recuperação por releitura — marcador aberto + GET 404 → ausência pela releitura (ação neutra), SEM novo DELETE; GET ativo → revisão, SEM DELETE', async () => {
+test('C1/L4: recuperação por releitura — marcador aberto + GET com deleted → ausência pela releitura (ação neutra), SEM novo DELETE; GET 404 → marcador aberto, SEM DELETE; GET ativo → revisão, SEM DELETE', async () => {
     const aberto = (): Marcador => ({ id: '33333333-3333-4333-8333-333333333333', evento_id: `kidmais:remocao:${EMPRESA}:anterior`, assinatura_provedor_id: DUPLICATA, situacao: 'PENDENTE', ultimo_erro: 'REMOCAO_SEM_CONFIRMACAO' });
-    // Ausente na releitura (a exclusão anterior aconteceu, ou outra pessoa removeu).
-    const pAusente = provedor({ delete: () => { throw new Error('DELETE não pode ser repetido'); }, duplicata: 'ausente' });
+    // Removida na releitura (a exclusão anterior aconteceu, ou outra pessoa removeu): GET 200 com deleted.
+    const pAusente = provedor({ delete: () => { throw new Error('DELETE não pode ser repetido'); }, duplicata: 'removida' });
     const dbAusente = bancoDuble([aberto()]);
     const a = await reconciliar(pAusente, dbAusente);
     assert.equal(pAusente.deletes(), 0, 'nenhum DELETE na recuperação');
@@ -155,6 +159,15 @@ test('C1: recuperação por releitura — marcador aberto + GET 404 → ausênci
     await registrarRemocoes(dbAusente.tx as never, EMPRESA, a.registro, { tipo: 'RECONCILIACAO' }, { id: 'evento-qualquer', concluido: true });
     assert.deepEqual(acoes(dbAusente), ['ASSINATURA_AUSENCIA_CONFIRMADA_RELEITURA']);
     assert.deepEqual(dbAusente.marcadores.map((m) => [m.situacao, m.ultimo_erro]), [['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_RELEITURA']]);
+    // L4: releitura 404 não prova ausência (rota inexistente, id de outra conta): o marcador continua aberto, nada é auditado.
+    const p404 = provedor({ delete: () => { throw new Error('DELETE não pode ser repetido'); }, duplicata: 'ausente' });
+    const db404 = bancoDuble([aberto()]);
+    const c = await reconciliar(p404, db404);
+    assert.equal(p404.deletes(), 0, 'nenhum DELETE na recuperação');
+    assert.deepEqual(c.registro.confirmadasNaReleitura, []);
+    await registrarRemocoes(db404.tx as never, EMPRESA, c.registro, { tipo: 'RECONCILIACAO' }, { id: 'evento-qualquer', concluido: true });
+    assert.deepEqual(acoes(db404), []);
+    assert.deepEqual(db404.marcadores.map((m) => [m.situacao, m.ultimo_erro]), [['PENDENTE', 'REMOCAO_SEM_CONFIRMACAO']]);
     // Ainda ativa na releitura (a exclusão anterior não aconteceu): nunca repete, fica para revisão.
     const pAtiva = provedor({ delete: () => { throw new Error('DELETE não pode ser repetido'); } });
     const dbAtiva = bancoDuble([aberto()]);
@@ -165,12 +178,13 @@ test('C1: recuperação por releitura — marcador aberto + GET 404 → ausênci
     assert.equal(dbAtiva.marcadores[0].situacao, 'PENDENTE');
 });
 
-test('C1: classificação do cliente real — 404 AUSENTE, deleted CONFIRMADA, 4xx RECUSADA, o resto DESCONHECIDA', async () => {
+test('C1/L4: classificação do cliente real — 404 + releitura com deleted AUSENTE, 404 sozinho DESCONHECIDA, deleted CONFIRMADA, 4xx RECUSADA, o resto DESCONHECIDA', async () => {
     const classificar = async (resposta: RespostaDelete, tempoLimiteMs = 1000) => {
         const c = criarClienteAsaas(config, { fetch: async (_url, init) => resposta(init), tempoLimiteMs });
         return (await removerComResultado(c, DUPLICATA)).resultado;
     };
-    assert.equal(await classificar(() => json(404, {})), 'AUSENTE');
+    assert.equal(await classificar(() => json(404, {})), 'DESCONHECIDA', '404 no DELETE e na releitura: nada comprovado');
+    assert.equal(await classificar((init) => init?.method === 'DELETE' ? json(404, {}) : json(200, { ...sub(DUPLICATA), deleted: true })), 'AUSENTE');
     assert.equal(await classificar(() => json(200, { deleted: true, id: DUPLICATA })), 'CONFIRMADA');
     assert.equal(await classificar(() => json(200, { id: DUPLICATA })), 'DESCONHECIDA');
     for (const s of [400, 401, 403, 422]) assert.equal(await classificar(() => json(s, {})), 'RECUSADA', String(s));
@@ -191,4 +205,101 @@ test('C1: compensação da contratação usa o mesmo registro — ausência fech
     const fonte = readFileSync('lib/assinatura/cobranca.ts', 'utf8');
     const compensar = fonte.slice(fonte.indexOf('async function compensarComMarcador('));
     assert.match(compensar, /else if \(remocao\.resultado === 'AUSENTE'\)\s*\/\/[^\n]*\n\s*await encerrarPendencias\(tx, empresaId, b\.encerrar, 'DUPLICATA_AUSENTE_NO_PROVEDOR'\);/);
+});
+
+/**
+ * L4 (pendência antes de production): a documentação oficial do DELETE (docs.asaas.com/reference/remover-assinatura)
+ * descreve 200 `{ deleted, id }` e um 404 "Not found" sem corpo, e o 404 da API também cobre rota inexistente e id de
+ * outra conta (docs.asaas.com/reference/codigos-http-das-respostas). Ausência só é comprovada pela releitura por id na
+ * forma documentada (200, mesmo id, `deleted=true`). Todo o resto fica sem confirmação: marcador aberto, nada concluído,
+ * nenhum DELETE repetido no ciclo seguinte, e nem a chave nem o corpo do provedor aparecem em auditoria ou log.
+ */
+const SEGREDO_NO_CORPO = 'corpo-sensivel-do-provedor-cpf-00000000000';
+const corpo404 = () => json(404, { errors: [{ code: 'qualquer', description: SEGREDO_NO_CORPO }] });
+const texto = (status: number, corpo: string) => new Response(corpo, { status });
+const removidaDocumentada = (id = DUPLICATA) => json(200, { ...sub(id), status: 'INACTIVE', deleted: true });
+
+test('L4: ausência comprovada — DELETE 404 + releitura 200 do mesmo id com deleted=true → AUSENTE; ação neutra; marcador fecha; 1 DELETE e 1 releitura', async () => {
+    const p = provedor({ delete: corpo404, releitura: () => removidaDocumentada() });
+    const db = bancoDuble();
+    const { registro } = await reconciliar(p, db);
+    assert.equal(p.deletes(), 1);
+    assert.equal(p.chamadas.filter((c) => c === `GET /subscriptions/${DUPLICATA}`).length, 2, 'a leitura da decisão e a releitura depois do DELETE');
+    assert.deepEqual(acoes(db), ['ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO']);
+    assert.deepEqual(db.marcadores.map((m) => [m.situacao, m.ultimo_erro]), [['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_EXCLUSAO']]);
+    assert.deepEqual([registro.confirmadas, registro.ausentes, registro.semConfirmacao], [[], [DUPLICATA], []]);
+});
+
+test('L4: sem ausência comprovada (404 inesperado, corpo inválido, tempo esgotado, 5xx) → DESCONHECIDA; marcador aberto; o ciclo seguinte NÃO repete o DELETE; sem chave nem corpo em auditoria ou log', async () => {
+    const casos: Record<string, { delete: RespostaDelete; releitura?: RespostaDelete; tempoLimiteMs?: number }> = {
+        '404 + releitura 404': { delete: corpo404, releitura: () => corpo404() },
+        '404 + releitura ativa (o DELETE não aconteceu)': { delete: corpo404, releitura: () => json(200, sub(DUPLICATA)) },
+        '404 + releitura de OUTRO id com deleted': { delete: corpo404, releitura: () => removidaDocumentada('sub_outra') },
+        '404 + releitura com deleted="true" (texto)': { delete: corpo404, releitura: () => json(200, { ...sub(DUPLICATA), deleted: 'true' }) },
+        '404 + releitura com corpo não JSON': { delete: corpo404, releitura: () => texto(200, '<html>ok</html>') },
+        '404 + releitura com lista': { delete: corpo404, releitura: () => json(200, [removidaDocumentada()]) },
+        '404 + releitura 401 (nunca vira RECUSADA)': { delete: corpo404, releitura: () => json(401, { errors: [] }) },
+        '404 + releitura 503': { delete: corpo404, releitura: () => json(503, {}) },
+        '404 + releitura sem resposta (tempo esgotado)': { delete: corpo404, releitura: semResposta, tempoLimiteMs: 20 },
+        '404 com corpo não JSON + releitura 404': { delete: () => texto(404, SEGREDO_NO_CORPO), releitura: () => texto(404, SEGREDO_NO_CORPO) },
+        '404 sem corpo + releitura 404 sem corpo': { delete: () => new Response(null, { status: 404 }), releitura: () => new Response(null, { status: 404 }) },
+        'DELETE 200 com corpo não JSON': { delete: () => texto(200, SEGREDO_NO_CORPO) },
+        'DELETE 200 com deleted de OUTRO id': { delete: () => json(200, { deleted: true, id: 'sub_outra' }) },
+        'DELETE 200 com deleted="true" (texto)': { delete: () => json(200, { deleted: 'true', id: DUPLICATA }) },
+        'DELETE 200 com lista': { delete: () => json(200, [{ deleted: true, id: DUPLICATA }]) },
+        'DELETE sem resposta (tempo esgotado)': { delete: semResposta, tempoLimiteMs: 20 },
+        'DELETE 500': { delete: () => json(500, { errors: [{ description: SEGREDO_NO_CORPO }] }) },
+        'DELETE 504': { delete: () => texto(504, SEGREDO_NO_CORPO) },
+    };
+    const saidas: string[] = [];
+    const originais = { log: console.log, error: console.error, warn: console.warn, info: console.info };
+    for (const nome of Object.keys(originais) as Array<keyof typeof originais>)
+        console[nome] = (...a: unknown[]) => { saidas.push(a.map((x) => (x instanceof Error ? `${x.name} ${x.message}` : typeof x === 'string' ? x : JSON.stringify(x))).join(' ')); };
+    try {
+        for (const [nome, caso] of Object.entries(casos)) {
+            const p = provedor(caso);
+            const db = bancoDuble();
+            const { r, registro, erro } = await reconciliar(p, db);
+            assert.equal(erro, null, nome);
+            assert.equal(p.deletes(), 1, nome);
+            assert.deepEqual(acoes(db), ['ASSINATURA_REMOCAO_SEM_CONFIRMACAO'], `${nome}: só a auditoria neutra de resultado desconhecido`);
+            assert.deepEqual(db.marcadores.map((m) => [m.situacao, m.ultimo_erro]), [['PENDENTE', 'REMOCAO_SEM_CONFIRMACAO']], `${nome}: marcador não concluído`);
+            assert.deepEqual([registro.confirmadas, registro.ausentes, registro.semConfirmacao], [[], [], [DUPLICATA]], nome);
+            assert.deepEqual(r, { resultado: 'REVISAO_HUMANA', ids: [DUPLICATA], motivo: 'REMOCAO_SEM_CONFIRMACAO' }, nome);
+            // Ciclo seguinte (mesmo provedor, marcador aberto): só releitura, nenhum DELETE novo, marcador continua aberto.
+            const seguinte = await reconciliar(p, db);
+            assert.equal(p.deletes(), 1, `${nome}: o DELETE não é repetido`);
+            assert.equal(seguinte.registro.confirmadasNaReleitura.length, 0, `${nome}: nada comprovado na releitura`);
+            assert.equal(db.marcadores[0].situacao, 'PENDENTE', nome);
+            const gravado = JSON.stringify([db.auditorias, db.marcadores, registro, seguinte.registro, seguinte.r]);
+            for (const proibido of [SEGREDO_NO_CORPO, config.apiKey])
+                assert.ok(!gravado.includes(proibido), `${nome}: nada do corpo nem da chave é gravado`);
+        }
+    }
+    finally {
+        Object.assign(console, originais);
+    }
+    for (const proibido of [SEGREDO_NO_CORPO, config.apiKey])
+        assert.ok(!saidas.some((s) => s.includes(proibido)), 'nada do corpo nem da chave vai para o log');
+});
+
+test('L4: exclusão confirmada — DELETE 200 { deleted: true, id } do MESMO id → CONFIRMADA, sem releitura', async () => {
+    const p = provedor({ delete: () => json(200, { deleted: true, id: DUPLICATA }), releitura: () => { throw new Error('releitura não deve acontecer'); } });
+    const db = bancoDuble();
+    const { r } = await reconciliar(p, db);
+    assert.equal(p.deletes(), 1);
+    assert.deepEqual(acoes(db), ['ASSINATURA_DUPLICADA_REMOVIDA']);
+    assert.deepEqual(db.marcadores.map((m) => [m.situacao, m.ultimo_erro]), [['PROCESSADO', 'REMOCAO_CONFIRMADA']]);
+    assert.deepEqual(r, { resultado: 'CONCILIADA', removidas: [DUPLICATA] });
+});
+
+test('L4: o cliente nunca lê o corpo do 404 do DELETE e as falhas não levam corpo nem chave na mensagem', async () => {
+    let corpoLido = false, descartado = false;
+    const ler = async () => { corpoLido = true; return SEGREDO_NO_CORPO; };
+    const resposta404 = { status: 404, ok: false, body: { cancel: async () => { descartado = true; } }, json: ler, text: ler, arrayBuffer: ler } as unknown as Response;
+    const c = criarClienteAsaas(config, { fetch: async (_url, init) => (init.method === 'DELETE' ? resposta404 : texto(503, SEGREDO_NO_CORPO)), tempoLimiteMs: 1000 });
+    assert.deepEqual(await c.removerAssinatura(DUPLICATA), { removida: false });
+    assert.deepEqual([corpoLido, descartado], [false, true], 'o corpo do 404 é descartado sem leitura');
+    const falha = await c.obterAssinatura(DUPLICATA).catch((e: Error) => e);
+    assert.ok(falha instanceof Error && !falha.message.includes(SEGREDO_NO_CORPO) && !falha.message.includes(config.apiKey), String(falha));
 });

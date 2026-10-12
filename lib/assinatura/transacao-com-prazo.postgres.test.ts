@@ -75,7 +75,8 @@ async function cenario() {
     const sub = (id: string) => ({ id, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: cliente, externalReference: empresa });
     const provedor = {
         removerChamadas: 0,
-        async obterAssinatura(id: string) { return (id === vinculada || id === duplicata) && !removidas.has(id) ? sub(id) : null; },
+        // Removida continua legível por id com `deleted=true`, como no Asaas (não 404).
+        async obterAssinatura(id: string) { return id === vinculada || id === duplicata ? (removidas.has(id) ? { ...sub(id), status: 'INACTIVE', deleted: true } : sub(id)) : null; },
         async listarAssinaturasPorReferencia() { return [vinculada, duplicata].filter((id) => !removidas.has(id)).map(sub); },
         async listarCobrancasDaAssinatura(id: string) { return [{ id: `pay_${id}`, status: 'PENDING', dueDate: '2026-10-20', paymentDate: null, invoiceUrl: null, deleted: false }]; },
         async removerAssinatura(id: string) { provedor.removerChamadas += 1; removidas.add(id); return { removida: true }; },

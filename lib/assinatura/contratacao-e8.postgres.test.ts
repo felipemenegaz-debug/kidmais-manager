@@ -83,7 +83,8 @@ class AsaasFalso implements ClienteAsaas {
     private readonly prefixo = randomBytes(3).toString('hex');
     async buscarClientePorReferencia(ref: string) { const id = this.clientes.get(ref); return id ? { id, externalReference: ref } : null; }
     async criarCliente(i: { referencia: string }) { const id = `cus_${this.prefixo}_${++this.seq}`; this.clientes.set(i.referencia, id); return { id, externalReference: i.referencia }; }
-    async obterAssinatura(id: string) { const a = this.assinaturas.get(id); return a && !a.deleted ? { ...a } : null; }
+    // Como o Asaas (sonda de 10/10/2026): a assinatura removida continua legível por id, com `deleted=true` (não 404).
+    async obterAssinatura(id: string) { const a = this.assinaturas.get(id); return a ? { ...a, ...(a.deleted ? { status: 'INACTIVE' } : {}) } : null; }
     async listarAssinaturasPorReferencia(ref: string) {
         if (this.falharListagensRestantes > 0) {
             this.falharListagensRestantes -= 1;
@@ -121,7 +122,7 @@ class AsaasFalso implements ClienteAsaas {
     /**
      * Exclusão: 'recusar' = 400 sem excluir (comprovadamente não executada); 'perderResposta' = exclui e a resposta se
      * perde; 'semConfirmar' = 200 sem `deleted` e nada excluído; 'jaAusente' = outra pessoa removeu a assinatura logo
-     * antes e o DELETE responde 404 (o cliente real devolve `{ removida: true, ausente: true }`). `removidas` é a verdade do
+     * antes e o DELETE responde 404 (o cliente real relê por id e, com `deleted`, devolve `{ removida: true, ausente: true }`). `removidas` é a verdade do
      * provedor (só o que NOSSO DELETE removeu); `chamadasRemocao` conta os DELETEs recebidos.
      */
     modoRemocao: 'normal' | 'recusar' | 'perderResposta' | 'semConfirmar' | 'jaAusente' = 'normal';
@@ -449,7 +450,7 @@ test('C1, reconciliação: DELETE com 404 (assinatura já ausente) → ação NE
     const r = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: withTransaction }));
     assert.deepEqual([r.situacao, r.motivo], ['PROCESSADO', 'NADA_A_FAZER'], 'a duplicata não existe mais; nada foi removido por nós');
     assert.deepEqual([provedor.chamadasRemocao, provedor.removidas], [1, []]);
-    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO', 1, 'AUSENCIA_NA_RESPOSTA_DA_EXCLUSAO']], 'nunca ASSINATURA_DUPLICADA_REMOVIDA');
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO', 1, 'AUSENCIA_NA_RELEITURA_DA_EXCLUSAO']], 'nunca ASSINATURA_DUPLICADA_REMOVIDA');
     assert.deepEqual((await marcadores(empresa)).map((m) => [m.situacao, m.ultimo_erro, m.assinatura_provedor_id]), [['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_EXCLUSAO', d1]]);
     provedor.modoRemocao = 'normal';
     const depois = await withTransaction((tx) => processarEvento(tx, pendId, { provedor, transacaoIndependente: withTransaction }));
@@ -524,7 +525,7 @@ test('C1, contratação: compensação com DELETE 404 → ação NEUTRA, marcado
     const vinculada = await vinculo(empresa);
     assert.deepEqual([provedor.chamadasRemocao, provedor.removidas, provedor.ativasDe(empresa)], [1, [], [vinculada]]);
     assert.deepEqual((await marcadores(empresa)).map((m) => [m.situacao, m.ultimo_erro]), [['PROCESSADO', 'AUSENCIA_CONFIRMADA_NA_EXCLUSAO']]);
-    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO', 1, 'AUSENCIA_NA_RESPOSTA_DA_EXCLUSAO']]);
+    assert.deepEqual(await remocoesAuditadas(empresa), [['ASSINATURA_AUSENCIA_CONFIRMADA_EXCLUSAO', 1, 'AUSENCIA_NA_RELEITURA_DA_EXCLUSAO']]);
     assert.deepEqual(await pendencias(empresa), [], 'pendências da operação encerradas');
     const motivos = (await q("SELECT DISTINCT ultimo_erro FROM cobranca_eventos WHERE empresa_id = $1 AND tipo = $2 AND evento_id NOT LIKE 'kidmais:remocao:%' AND situacao = 'PROCESSADO'", [empresa, TIPO_PENDENCIA])).rows.map((x) => x.ultimo_erro);
     assert.ok(!motivos.includes('COMPENSADA'), 'ausência não é registrada como compensação feita por nós');
