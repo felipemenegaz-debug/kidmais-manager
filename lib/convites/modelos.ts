@@ -1,12 +1,13 @@
 import type { Conteudo } from './domain.ts';
 import { temaVisual } from './visual.ts';
+import { bordaAcervo, modelosAcervo } from './acervo.ts';
 
 export const modelosComFoto = ['foto_arco', 'foto_aquarela', 'foto_degrade'] as const;
-export const modelosBiblioteca = ['planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica', ...modelosComFoto] as const;
+export const modelosBiblioteca = ['planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica', 'botanica', 'confete', 'estrelas', ...modelosComFoto, ...modelosAcervo] as const;
 export function modeloComFoto(tema: Conteudo['tema']) {
   return (modelosComFoto as readonly string[]).includes(tema);
 }
-export const basesNeutras = ['arco', 'ondulada', 'aquarela', 'degrade', 'geometrica'] as const;
+export const basesNeutras = ['arco', 'ondulada', 'aquarela', 'degrade', 'geometrica', 'botanica', 'confete', 'estrelas', ...modelosAcervo] as const;
 export function baseNeutra(tema: Conteudo['tema']) {
   return (basesNeutras as readonly string[]).includes(tema);
 }
@@ -40,7 +41,7 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
   const tema = temaVisual(c), id = (op.id ?? 'modelo').replace(/[^a-zA-Z0-9_-]/g, '');
   const ondulada = c.tema === 'ondulada', planetas = c.tema === 'planetas';
   const comFoto = modeloComFoto(c.tema);
-  const fundoProprio = !!op.arte && !comFoto && !op.miniatura;
+  const fundoProprio = !!op.arte && !comFoto && !op.miniatura && c.visual?.posicao !== 'topo';
   const fundo = xml(tema.fundo), tinta = xml(tema.tinta), destaque = xml(tema.destaque);
   const imagem = (src: string, x: number, y: number, w: number, h: number) => `<image href="${xml(src)}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet"/>`;
   const texto = (s: string, y: number, h: number, size: number, serif = false, bold = false, width = 740) => {
@@ -71,7 +72,18 @@ export function svgModelo(c: Conteudo, op: { arte?: string; planetas?: string[];
     borda = `<path d="${geometric}" fill="none" stroke="${destaque}" stroke-width="3"/><path d="${geometric}" fill="none" stroke="${destaque}" stroke-width="1.5" transform="translate(18 28) scale(.967 .968)"/>
       <g fill="${fundo}" stroke="${destaque}" stroke-width="2"><path d="M540 65 L570 95 L540 125 L510 95Z"/><path d="M540 1675 L570 1705 L540 1735 L510 1705Z"/></g>`;
   }
+  if ((modelosAcervo as readonly string[]).includes(c.tema)) borda = bordaAcervo(c.tema, destaque);
   const sprites = op.planetas ?? planetasModelo;
+  if (c.tema === 'botanica') {
+    const ramo = `<g fill="${destaque}" fill-opacity=".5" stroke="${destaque}" stroke-width="2"><path d="M70 470 Q170 280 95 80" fill="none"/>${[0,1,2,3,4].map(n => `<ellipse cx="${105+n*7}" cy="${130+n*65}" rx="22" ry="48" transform="rotate(${n%2 ? 45 : -40} ${105+n*7} ${130+n*65})"/>`).join('')}</g>`;
+    borda = `${ramo}<g transform="translate(1080 1800) rotate(180)">${ramo}</g><rect x="90" y="90" width="900" height="1620" rx="160" fill="none" stroke="${destaque}" stroke-opacity=".4"/>`;
+  } else if (c.tema === 'confete' || c.tema === 'estrelas') {
+    const pontos = Array.from({ length: 36 }, (_, n) => {
+      const x = n % 2 ? 35 + (n * 29 % 85) : 960 + (n * 31 % 85), y = 70 + (n * 137 % 1660);
+      return c.tema === 'estrelas' ? estrela(x, y, 8 + n % 9) : `<circle cx="${x}" cy="${y}" r="${4+n%7}" fill="${[destaque,'#e8bf88','#a4c8bd'][n%3]}" opacity=".7"/>`;
+    }).join('');
+    borda = `${pontos}<rect x="125" y="105" width="830" height="1590" rx="85" fill="none" stroke="${destaque}" stroke-opacity=".4" stroke-width="2"/>`;
+  }
   const decoracao = planetas ? `${imagem(sprites[0], 795, 90, 295, 295)}${imagem(sprites[1], -145, 930, 340, 340)}${imagem(sprites[2], 850, 1460, 340, 340)}${[[95,110,25],[930,680,15],[90,1380,22],[780,1750,12]].map(([x,y,r])=>estrela(x,y,r)).join('')}<path d="M35 365 Q0 170 255 55 M795 1760 Q1070 1790 1050 1450" fill="none" stroke="${destaque}" stroke-dasharray="3 12" stroke-width="2"/>` : '';
   let conteudo = '';
   if (!op.miniatura || comFoto) {

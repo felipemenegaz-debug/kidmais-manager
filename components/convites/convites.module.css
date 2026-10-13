@@ -14,8 +14,8 @@
 .dialogo p { font-size: 14px; line-height: 1.6; }
 .editor { width: 100%; min-width: 0; box-sizing: border-box; }
 .editor * { box-sizing: border-box; }
-.arteCompleta { position: relative; aspect-ratio: 3 / 4; }
-.arteCompleta img { display: block; width: 100%; height: 100%; position: absolute; inset: 0; }
+.arteCompleta { position: relative; }
+.arteCompleta img { display: block; width: 100%; height: auto; }
 .capa:has(img) { height: auto; aspect-ratio: 2 / 1; }
 .somenteLeitor { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .conviteBiblioteca { border-radius: 4px; }
@@ -26,6 +26,9 @@
 .modelosBiblioteca img { width: 100%; aspect-ratio: 3 / 5; display: block; border-radius: 4px; margin-bottom: 10px; }
 .modelosBiblioteca strong { display: block; font-size: 12px; }
 .modelosBiblioteca small { margin-top: 4px; font-size: 10px; }
+.paginacaoModelos { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 16px; }
+.paginacaoModelos span { font-size: 12px; text-align: center; }
+.editor .paginacaoModelos button { margin: 0; min-height: 44px; padding: 10px 12px; }
 .modelosAnteriores { margin: 18px 0 0; }
 .modelosAnteriores summary { margin-bottom: 12px; }
 .filtrosModelos { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
@@ -49,4 +52,35 @@
 .editor .familiasLista, .familiasLista { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
 .familiasLista li { min-width: 0; padding: 20px; border: 1px solid var(--input-border, #d8e0d7); border-radius: 16px; overflow-wrap: anywhere; }
 .familiasLista .acoes { justify-content: flex-start; }
+.posicaoImagem { margin-top: 20px; }
+.posicaoImagem .acoes { justify-content: flex-start; margin: 10px 0 20px; }
+.posicaoImagem button[aria-pressed='true'] { border-color: #788d58; box-shadow: inset 0 -3px #788d58; }
 @media(max-width: 800px) { .indicadores { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Editor V1: dados → arte → IA numa coluna central (cliente; o buffet usa editor-admin.module.css). */
+.colunas.colunaUnica { grid-template-columns: minmax(0, 1fr); max-width: 720px; margin: 0 auto 24px; }
+.colunaUnica .preview { grid-row: auto; }
+.colunaUnica .preview > article { width: 100%; max-width: 420px; margin: 0 auto; }
+.previewLocal { position: static; }
+.previewLocal > .painel { margin-top: 20px; text-align: left; }
+.colunaInferior, .galeriaLocal { max-width: 720px; margin-left: auto; margin-right: auto; }
+.dadosCompactos h2.tituloEtapa { margin: 0 0 8px; font-size: 18px; }
+.dadosCompactos label { margin: 5px 0; }
+.galeriaLocal .galeria { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.paginacaoArtes { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 16px 0; font-size: 12px; }
+.controlesIA { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; align-items: start; }
+.editor .controlesIA > button { grid-column: 1 / -1; width: 100%; margin: 0; min-height: 44px; }
+.qualidade { display: grid; gap: 8px; min-width: 0; font-size: 12px; font-weight: 600; }
+.seletorArte { position: relative; min-width: 0; }
+.editor .seletorArte > button { width: 100%; display: flex; justify-content: space-between; align-items: center; min-height: 44px; }
+.menuArte { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0; padding: 6px; background: rgba(255, 255, 255, .94); backdrop-filter: blur(14px); border: 1px solid #ccd7cb; border-radius: 12px; box-shadow: 0 12px 30px #27352c22; }
+.editor .menuArte button { display: block; width: 100%; margin: 0; border: 0; border-radius: 8px; background: transparent; text-align: left; }
+.editor .menuArte button[aria-selected=true], .editor .menuArte button:hover, .editor .menuArte button:focus-visible { background: #e7f1e6; color: #284c40; }
+.fotoReferencia { margin: 16px 0; }
+.miniaturaFoto { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: 12px; margin: 12px 0; }
+.conferenciaPrompt { margin: 16px 0; padding: 16px; border: 1px solid #efd3c4; border-radius: 14px; background: #fff0e9; }
+.seletorCriacao { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid #ccd7cb; border-radius: 10px; }
+@media(max-width: 600px) {
+  .colunaUnica .dadosCompactos .campos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .galeriaLocal .galeria { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
