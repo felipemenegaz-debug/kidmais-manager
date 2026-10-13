@@ -19,7 +19,8 @@ const dataUrl = (b, tipo) => `data:${tipo};base64,${b.toString('base64')}`;
       const quem = admin ? 'buffet' : 'cliente';
       const contexto = { empresas: [{ id: id(2), nome: 'Buffet Teste', papel: 'REPRESENTANTE_AUTORIZADO' }], empresaAtual: { id: id(2), nome: 'Buffet Teste' }, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false };
       const artes = Array.from({ length: 12 }, (_, n) => ({ id: id(100 + n), origem: 'UPLOAD', completo: false, url: dataUrl(miniatura, 'image/webp') }));
-      const dados = { conteudo: { tema: 'celebrar', nome: 'Lucas', idade: '5 anos', mensagem: 'Venha comemorar comigo!', data: '2027-04-20', horario: '15:00', local: 'Buffet KidMais', endereco: 'Asa Norte · Brasília', arteId: null, confirmarPresenca: true },
+      // Convite salvo antes da V1 com "Arte completa" sobre arte enviada: deve abrir e salvar sem mudar o modo.
+      const dados = { conteudo: { tema: 'celebrar', nome: 'Lucas', idade: '5 anos', mensagem: 'Venha comemorar comigo!', data: '2027-04-20', horario: '15:00', local: 'Buffet KidMais', endereco: 'Asa Norte · Brasília', arteId: id(111), confirmarPresenca: true, visual: { modo: 'completa', ajuste: 'preencher', x: 30, y: 70 } },
         revisao: 1, publicado: false, desatualizado: false, linkPublico: `/convite/${'p'.repeat(43)}`, clienteHabilitado: false, convidadosContratados: 40, familias: [],
         disponiveis: 3, iaDisponivel: true, completoDisponivel: true, geracaoIncerta: false, podeRecuperarGeracao: admin, geracoesPendentes: [], decisoesRecuperacao: [],
         cotas: admin ? { festa: 3, festaUsado: 0, cliente: 2, clienteUsado: 0, empresa: 60, empresaUsado: 0 } : { festa: 3, festaUsado: 0, cliente: 2, clienteUsado: 0 },
@@ -49,6 +50,16 @@ const dataUrl = (b, tipo) => `data:${tipo};base64,${b.toString('base64')}`;
       const page = await context.newPage(); page.on('pageerror', e => erros.push(e.message));
       const url = admin ? `${base}/admin/festas/${id(1)}/convite` : `${base}/convites/criar#${'a'.repeat(43)}`;
       await page.goto(url); await page.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
+
+      // 0. Compatibilidade: modo salvo preservado, sem "alterações não salvas" ao abrir.
+      await page.getByRole('article', { name: 'Prévia do convite' }).getByRole('img', { name: 'Arte escolhida para o convite' }).waitFor();
+      assert.equal(await page.getByText('Alterações não salvas').count(), 0);
+      await page.getByRole('button', { name: 'Salvar rascunho', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Rascunho salvo' }).waitFor();
+      assert.deepEqual(dados.conteudo.visual, { modo: 'completa', ajuste: 'preencher', x: 30, y: 70 });
+      await page.getByText('Imagens anteriores', { exact: true }).click();
+      await page.getByRole('button', { name: 'Remover imagem do convite' }).click();
+      await page.getByText('Imagens anteriores', { exact: true }).click();
 
       // 1. Coluna central: dados → arte → IA; painel de IA aberto sem clique; molduras e controles do laboratório ausentes.
       const topo = async loc => (await loc.boundingBox()).y;

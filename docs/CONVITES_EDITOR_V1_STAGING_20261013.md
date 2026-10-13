@@ -8,15 +8,17 @@ Origem: laboratório local `kidmais-manager-convites-simplificar-20261009` (vali
 - **Molduras desativadas no editor** (`MOLDURAS_NO_EDITOR = false` em `ConviteEditor.tsx`). Modelos, SVGs e convites já publicados continuam renderizando; o envio de arte própria/foto continua em “Imagens anteriores” (necessário para modelos com foto existentes).
 - **Galeria** paginada em três linhas: 9 por página no computador, 6 no celular.
 - **Seletores** escuros e translúcidos (buffet) / claros (cliente), operáveis por teclado (setas, Home/End, Enter, Esc).
-- **Corretor ortográfico local**: botão direito sobre a palavra → sugestões do dicionário pt-BR; nada é alterado sem escolha. Dicionário e licença em `public/dicionarios/pt-BR/` (LibreOffice VERO, LGPLv3/MPL), carregados por um Web Worker do próprio app. O prompt não é enviado a terceiros.
+- **Corretor ortográfico local**: botão direito sobre a palavra → sugestões do dicionário pt-BR; nada é alterado sem escolha. Dicionário e licença em `public/dicionarios/pt-BR/` (LibreOffice VERO, LGPLv3/MPL; cópia idêntica de `dictionary-pt-br@2.0.1`, sem dependência de runtime), carregados por um Web Worker do próprio app. O prompt não é enviado a terceiros.
 - **Convite completo** (arte + textos numa chamada), quando o servidor tem OpenAI configurado: estilos Conforme pedido, Cartoon 3D, Desenho 2D e Realista; foto do aniversariante opcional com a autorização de envio já existente; conferência de nome/idade entre pedido e dados antes de gerar; dados alterados são salvos antes da geração.
 - **Download** da arte completa nas dimensões naturais (1024×1536), sem recorte nem textos sobrepostos. Prévia e página pública exibem a arte inteira.
+
+- **Convites existentes**: o editor só passa ao modo “completa” uma arte gerada como convite completo; modos já salvos (inclusive “Arte completa” do botão anterior) não são alterados ao abrir. Escolher outra arte define o modo pela arte escolhida.
 
 ## Servidor
 
 - Rota existente `/api/admin/convites` (buffet) e `/api/convites/cliente` (cliente), mesmo `service.gerar`: autenticação, tenant/estabelecimento, contrato vigente, acesso comercial, cotas de empresa/festa/cliente, orçamento diário, idempotência por chave, uma geração pendente por festa, estado INCERTA com recuperação manual, sem retry nem fallback pago.
 - Comando `gerar` aceita `completo`, `estilo`, `foto`, `autorizacaoFoto` (opcionais; o pedido antigo continua igual). Modelo `gpt-image-2.5-sunburst`, qualidade `xhigh`, 1024×1536, PNG, fundo opaco — definidos pelo servidor; o cliente não escolhe modelo, qualidade ou arquivo de referência.
-- **Dados oficiais** = rascunho salvo no servidor (`convites.rascunho`), nunca o texto do pedido. Conflito de nome/idade retorna 409 antes de reservar créditos.
+- **Dados oficiais** = rascunho salvo no servidor (`convites.rascunho`), nunca o texto do pedido. Conflito de nome/idade retorna 409 antes de reservar créditos. O hash de idempotência do convite completo inclui estilo, hash da foto e esses dados: repetir a chave depois de alterar os textos é recusado (409), sem nova chamada.
 - **Foto**: validada e reencodada (`normalizarImagem`, sem metadados), enviada somente na chamada; não é salva no banco nem na auditoria — apenas o hash entra na idempotência.
 - **Referências de estilo** privadas em `lib/convites/referencias/` (fora de `public/`), uma por estilo e recusadas se o id/arquivo não pertencer ao estilo:
 
@@ -44,4 +46,9 @@ O convite completo só aparece com `CONVITES_ENABLED=true`, `CONVITES_IA_ENABLED
 
 ## Rollback
 
-Código apenas (sem migration nem env): fazer deploy manual do serviço `kidmais-manager-staging` no commit live anterior (`925b7f0`, deploy `dep-db6sskjncjis73eo3mk0`) ou reverter o merge em `staging` e publicar manualmente. Artes já geradas permanecem em `convite_artes` e continuam exibíveis (WebP). Produção não é afetada.
+Sem migration nem env, mas **não é um retorno cego ao commit anterior**: a V1 grava `visual.posicao` (botões “Imagem como fundo/no topo”), e o `conteudoSchema` anterior é estrito — no código de `925b7f0`, `publico()` recusaria esses convites publicados (`ZodError` → link público indisponível). Convites completos não gravam `posicao`.
+
+1. **Preferencial — correção à frente**: corrigir em novo PR sobre `staging` e publicar manualmente.
+2. **Rollback de staging (`925b7f0`, deploy `dep-db6sskjncjis73eo3mk0`)**: somente após confirmar que nenhum convite foi salvo/publicado com `visual.posicao` desde a V1 (consulta de leitura autorizada) ou ajustando esses rascunhos/publicações antes, com autorização própria para escrita no banco. Alternativa sem dados: reverter apenas `components/convites` e `lib/convites/service.ts`, mantendo `lib/convites/domain.ts` da V1 (schema tolerante).
+
+Artes já geradas permanecem em `convite_artes` (WebP) e continuam exibíveis. Convites “Arte completa” anteriores à V1 mantêm o modo salvo. Produção não é afetada.

@@ -16,7 +16,7 @@ import { extrairPaleta, visualPadrao } from '@/lib/convites/visual';
 import styles from './convites.module.css';
 import adminStyles from './editor-admin.module.css';
 import { modelosAcervo, sugestaoAcervo } from '@/lib/convites/acervo';
-import { aplicarModoArteLocal } from './arte-local';
+import { aplicarModoArteLocal, selecionarArte } from './arte-local';
 import { conferirPrompt, alinharPrompt } from '@/lib/convites/conferencia-prompt';
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
 type GeracaoPendente = { id: string; criadoEm: string | Date; origem: 'CLIENTE' | 'BUFFET' };
@@ -33,8 +33,8 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
   const admin = !!festaId;
   const ui = admin ? { ...styles, ...adminStyles } : styles;
   const [dados, setDados] = useState<Dados | null>(null), [conteudoBase, setConteudo] = useState<Conteudo | null>(null);
-  // O modo "completa" acompanha a arte: convites completos já trazem os textos na imagem.
-  const conteudo = conteudoBase ? aplicarModoArteLocal(conteudoBase, dados?.artes.find(a => a.id === conteudoBase.arteId), true) : null;
+  // Convites completos (textos na imagem) abrem em modo "completa"; modos já salvos nunca são rebaixados ao carregar.
+  const conteudo = conteudoBase ? aplicarModoArteLocal(conteudoBase, dados?.artes.find(a => a.id === conteudoBase.arteId), !!dados?.laboratorioLocal) : null;
   const [carregando, setCarregando] = useState(true), [busy, setBusy] = useState(false), [erro, setErro] = useState(''), [aviso, setAviso] = useState('');
   const [prompt, setPrompt] = useState(''), [referencias, setReferencias] = useState<string[]>([]), [linkCliente, setLinkCliente] = useState('');
   const [preparado, setPreparado] = useState<{ pedido: string; tema: string; promptArte: string } | null>(null);
@@ -140,7 +140,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     try {
       const imagem = await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(file); });
       const r = await executar({ acao: 'upload', imagem }, 'Arte enviada. Salve ou publique para aplicar.', true);
-      if (r?.arteId) campo('arteId', r.arteId);
+      if (r?.arteId) setConteudo(c => c ? selecionarArte(c, r.arteId, false) : c);
     } catch { setErro('Não foi possível ler o arquivo.'); }
   }
   async function preparar() {
@@ -160,7 +160,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     // O servidor usa os dados salvos da festa: salvar antes evita gerar com textos diferentes da tela.
     if (!dados?.laboratorioLocal && completo && alterado && dados && conteudo && !await executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')) return;
     if (dados?.laboratorioLocal && !completo && preparado?.pedido !== prompt && !await preparar()) return;
-    const assinatura = JSON.stringify({ prompt, referencias, ...(avatarOnly ? { avatarOnly } : {}), ...(dados?.laboratorioLocal ? { tipo: 'imagem', provedor: geradorLocal, completo, ...(completo ? { campos: conteudo, qualidade, estilo, foto } : {}) } : completo ? { completo, estilo, foto } : {}) });
+    const assinatura = JSON.stringify({ prompt, referencias, ...(avatarOnly ? { avatarOnly } : {}), ...(dados?.laboratorioLocal ? { tipo: 'imagem', provedor: geradorLocal, completo, ...(completo ? { campos: conteudo, qualidade, estilo, foto } : {}) } : completo ? { completo, estilo, foto, campos: conteudo && { nome: conteudo.nome, idade: conteudo.idade, data: conteudo.data, horario: conteudo.horario, local: conteudo.local, endereco: conteudo.endereco, mensagem: conteudo.mensagem } } : {}) });
     if (!pedido.current || pedido.current.assinatura !== assinatura) pedido.current = { assinatura, chave: crypto.randomUUID(), ...(dados?.laboratorioLocal ? { seed: crypto.getRandomValues(new Uint32Array(1))[0] } : {}) };
     if (dados?.laboratorioLocal) {
       setBusy(true); setErro(''); setRelatorioLocal(''); setEtapaLocal('Preparando workflow…');
@@ -202,8 +202,8 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
       ? { acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], completo: true, estilo, ...(foto ? { foto, autorizacaoFoto: true } : {}) }
       : { acao: 'gerar', chave: pedido.current.chave, prompt, referencias };
     const r = await executar(comando, completo ? 'Convite pronto. Confira a escrita de todos os textos e dados antes de publicar.' : 'Confira a arte e publique quando estiver pronta.', true);
-    if (r?.arteId) { campo('arteId', r.arteId); pedido.current = null; }
-    else if (r) setAviso('Pedido já recebido. Recarregue o histórico para conferir o resultado.');
+    if (r?.arteId) { setConteudo(c => c ? selecionarArte(c, r.arteId, !!r.completo) : c); pedido.current = null; }
+    else if (r) { if (String(r.estado ?? '').startsWith('RESOLVIDA')) pedido.current = null; setAviso('Pedido já recebido. Recarregue o histórico para conferir o resultado.'); }
     else { try { await carregar(false, true); } catch { /* A mensagem original explica a falha; a próxima leitura atualizará o status. */ } }
   }
   async function copiar(link: string) { try { await navigator.clipboard.writeText(new URL(link, window.location.origin).href); setAviso('Link copiado.'); } catch { setErro('Não foi possível copiar. Selecione o link para copiar manualmente.'); } }
@@ -245,7 +245,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
   const paginaArteAtual = Math.min(paginaArte, paginasArte);
   const inicioArte = (paginaArteAtual - 1) * tamanhoPaginaArte;
   const artesVisiveis = dados?.artes.slice(inicioArte, inicioArte + tamanhoPaginaArte);
-  const galeriaArtes = dados && conteudo && dados.artes.length > 0 && <><p>Imagens da festa</p><div className={ui.galeria}>{artesVisiveis?.map((a, indice) => { const n = indice + inicioArte; return <div key={a.id} className={ui.arteItem}><button className={ui.arteSelecionar} type="button" aria-label={`Selecionar imagem ${n + 1}`} aria-pressed={conteudo.arteId === a.id} onClick={() => campo('arteId', a.id)}><img src={a.url} alt={`Imagem ${n + 1} da festa`} /><span>{conteudo.arteId === a.id ? 'Selecionada' : 'Usar imagem'}</span></button><button type="button" disabled={busy} className={ui.excluir} aria-label={`Excluir imagem ${n + 1}`} onClick={() => { setErro(''); setArteExcluir(a); }}>Excluir imagem</button></div>; })}</div>{paginasArte > 1 && <nav className={ui.paginacaoArtes} aria-label="Páginas das imagens anteriores"><button type="button" disabled={busy || paginaArteAtual === 1} onClick={() => setPaginaArte(paginaArteAtual - 1)}>← Anterior</button><span aria-live="polite">Página {paginaArteAtual} de {paginasArte}</span><button type="button" disabled={busy || paginaArteAtual === paginasArte} onClick={() => setPaginaArte(paginaArteAtual + 1)}>Próxima →</button></nav>}{conteudo.arteId && <button type="button" className={ui.linkBotao} onClick={() => { campo('arteId', null); setAviso('Imagem removida da composição. Salve o rascunho ou publique para aplicar.'); }}>Remover imagem do convite</button>}<small>{dados.laboratorioLocal ? 'Remover do convite mantém a imagem na galeria. Excluir retira da galeria local e preserva o arquivo original.' : 'Remover do convite mantém o arquivo na galeria. Excluir imagem apaga o arquivo desta festa.'}</small></>;
+  const galeriaArtes = dados && conteudo && dados.artes.length > 0 && <><p>Imagens da festa</p><div className={ui.galeria}>{artesVisiveis?.map((a, indice) => { const n = indice + inicioArte; return <div key={a.id} className={ui.arteItem}><button className={ui.arteSelecionar} type="button" aria-label={`Selecionar imagem ${n + 1}`} aria-pressed={conteudo.arteId === a.id} onClick={() => setConteudo(c => c ? selecionarArte(c, a.id, !!a.completo) : c)}><img src={a.url} alt={`Imagem ${n + 1} da festa`} /><span>{conteudo.arteId === a.id ? 'Selecionada' : 'Usar imagem'}</span></button><button type="button" disabled={busy} className={ui.excluir} aria-label={`Excluir imagem ${n + 1}`} onClick={() => { setErro(''); setArteExcluir(a); }}>Excluir imagem</button></div>; })}</div>{paginasArte > 1 && <nav className={ui.paginacaoArtes} aria-label="Páginas das imagens anteriores"><button type="button" disabled={busy || paginaArteAtual === 1} onClick={() => setPaginaArte(paginaArteAtual - 1)}>← Anterior</button><span aria-live="polite">Página {paginaArteAtual} de {paginasArte}</span><button type="button" disabled={busy || paginaArteAtual === paginasArte} onClick={() => setPaginaArte(paginaArteAtual + 1)}>Próxima →</button></nav>}{conteudo.arteId && <button type="button" className={ui.linkBotao} onClick={() => { campo('arteId', null); setAviso('Imagem removida da composição. Salve o rascunho ou publique para aplicar.'); }}>Remover imagem do convite</button>}<small>{dados.laboratorioLocal ? 'Remover do convite mantém a imagem na galeria. Excluir retira da galeria local e preserva o arquivo original.' : 'Remover do convite mantém o arquivo na galeria. Excluir imagem apaga o arquivo desta festa.'}</small></>;
   const conteudoGeracao = dados && conteudo ? (<><h3>Como você imagina a arte?</h3><p id="orientacao-arte">Diga o tema, as cores e o que gostaria de ver na cena.</p><p><small>Tema · Cores · Estilo · Elementos da cena</small></p><PromptComCorretor habilitado corrigir={texto => { setPrompt(texto); setConflitoPrompt(false); }} lang="pt-BR" spellCheck autoCorrect="on" autoCapitalize="sentences" title="Clique com o botão direito sobre uma palavra para ver sugestões de escrita." aria-label="Descreva a arte do convite" aria-describedby="orientacao-arte" rows={4} maxLength={3000} value={prompt} onChange={e => { setPrompt(e.target.value); setConflitoPrompt(false); }} placeholder="Uma aventura espacial em cartoon 3D, com uma pequena astronauta, planetas e estrelas. Cores azul, lilás e dourado. Cena alegre e delicada." disabled={busy} />
           {completoAtivo && <>
             <details className={ui.fotoReferencia}><summary>Foto do aniversariante · opcional</summary>

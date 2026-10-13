@@ -33,7 +33,6 @@
   },
   "dependencies": {
     "@fortawesome/free-solid-svg-icons": "^6.5.1",
-    "dictionary-pt-br": "^2.0.1",
     "next": "16.3.4",
     "pg": "^8.23.0",
     "qrcode-generator": "2.0.4",

@@ -217,8 +217,12 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     exigir(!i.referencias.length, 'O convite completo não usa imagens da galeria como referência.', 400);
     exigir(i.foto === undefined || i.autorizacaoFoto === true, 'Confirme a autorização para enviar a foto.', 400);
   }
-  // Pedido simples mantém o hash anterior; o completo inclui estilo e o hash da foto (a foto nunca é salva).
-  const payload = hash(JSON.stringify(completo ? { prompt: i.prompt, referencias: i.referencias, completo, estilo, ...(i.foto ? { foto: hash(i.foto) } : {}) } : { prompt: i.prompt, referencias: i.referencias }));
+  // Pedido simples mantém o hash anterior; o completo inclui estilo, o hash da foto (a foto nunca é salva)
+  // e os dados oficiais da festa no momento da reserva: textos alterados exigem nova chave.
+  const conteudoPayload = (c: Convite) => completo
+    ? { prompt: i.prompt, referencias: i.referencias, completo, estilo, ...(i.foto ? { foto: hash(i.foto) } : {}),
+      campos: ['nome', 'idade', 'data', 'horario', 'local', 'endereco', 'mensagem'].map(k => String((c.rascunho as Record<string, unknown>)[k] ?? '').trim()) }
+    : { prompt: i.prompt, referencias: i.referencias };
   let foto: Buffer | undefined;
   if (i.foto !== undefined) {
     // Reencoding (sem metadados) só após autenticação, como no upload; validação antes de qualquer reserva.
@@ -226,6 +230,7 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     foto = await normalizarImagem(i.foto);
   }
   const reserva = await comConvite(a, true, async (tx, c) => {
+    const payload = hash(JSON.stringify(conteudoPayload(c)));
     const anterior = (await tx.query<{ estado: string; arte_id: string | null; payload_hash: string; ator: string; convite_id: string }>('SELECT * FROM convite_geracoes WHERE id=$1', [i.chave])).rows[0];
     if (anterior) {
       exigir(anterior.convite_id === c.id && anterior.ator === ator(a, c) && anterior.payload_hash === payload, 'Chave de geração já utilizada.', 409);
