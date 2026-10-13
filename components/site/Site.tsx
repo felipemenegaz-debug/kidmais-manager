@@ -19,8 +19,8 @@ export function Rodape({ config, prefixo = '' }: { config: ConfiguracaoSite; pre
         <div><Marca href={`${prefixo}#topo`} /><p style={{ marginTop: 14, maxWidth: '34ch' }}>Gestão para buffets infantis e espaços de festa.</p></div>
         <div><h4>Produto</h4><ul><li><a href={`${prefixo}#diferenciais`}>Diferenciais</a></li><li><a href={`${prefixo}#wall-e`}>Wall-e</a></li><li><a href={`${prefixo}#convite`}>Convite</a></li><li><a href="#planos">Planos</a></li><li><a href="/admin/login">Entrar</a></li></ul></div>
         <div><h4>Legal</h4><ul><li><a href="/termos">Termos de uso</a></li><li><a href="/privacidade">Privacidade</a></li><li><a href="/termos#cancelamento">Cancelamento</a></li><li><a href="/privacidade#tratamento-de-dados">Tratamento de dados</a></li></ul></div>
-        <div><h4>Atendimento</h4><ul><li>E-mail: {config.email}</li><li>WhatsApp: {config.whatsapp}</li><li>Horário: {config.horario}</li><li>Cancelamento pelos mesmos canais</li></ul></div>
-    </div><div className={cx('legal')}><span>Kidmais Manager é um produto de {config.razaoSocial} · CNPJ {config.cnpj} · {config.endereco} · Encarregado de dados: {config.encarregado}</span><span>© 2026 Kidmais Manager</span></div></div></footer>;
+        <div><h4>Atendimento</h4><ul><li>E-mail: {config.email}</li>{config.whatsapp !== 'a definir' && <li>WhatsApp: {config.whatsapp}</li>}{config.horario !== 'a definir' && <li>Horário: {config.horario}</li>}<li>Cancelamento pelos mesmos canais</li></ul></div>
+    </div><div className={cx('legal')}><span>Kidmais Manager é um produto de {config.razaoSocial} · CNPJ {config.cnpj} · {config.endereco} · {config.encarregado !== 'a definir' ? <>Encarregado de dados: {config.encarregado}</> : <>Privacidade e dados pessoais: {config.email}</>}</span><span>© 2026 Kidmais Manager</span></div></div></footer>;
 }
 export default function SiteVenda({ somentePlanos = false }: { somentePlanos?: boolean }) {
     const config = configuracaoSite();
