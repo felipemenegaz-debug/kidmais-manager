@@ -13,12 +13,13 @@
   "contatoPrivacidade": "felipemenegaz@gmail.com",
   "emissaoNotaFiscal": "Asaas — escolha aprovada; configuração fiscal ainda não verificada",
   "remetenteInformado": "felipemenegaz@gmail.com — contato; não usar como From no Resend",
-  "remetentePropostoNaoAprovado": "Kidmais Manager <nao-responda@kidmaisfestas.com>",
+  "dominioResendVerificado": "notificacoes.kidmaisfestas.com — observado no painel autenticado em 11/10/2026",
+  "remetentePreparadoNaoAplicado": "Kidmais Manager <nao-responda@notificacoes.kidmaisfestas.com>",
   "urlVitrine": "https://manager.kidmaisfestas.com/conheca",
   "pendencias": [
     "Confirmar razão social fiscal exata para a nota e os documentos legais; Kidmais Festas foi o nome informado pelo vendedor.",
     "Configurar NFS-e pelo Asaas com os dados fiscais reais; não inferir código de serviço, regime ou alíquota. Definir retenção após encerramento; 60 dias em somente leitura não são um prazo de exclusão.",
-    "Confirmar EMAIL_REMETENTE em domínio verificado no Resend; chave fica somente no Render.",
+    "Aplicar EMAIL_REMETENTE usando o domínio notificacoes.kidmaisfestas.com já verificado e provar entrega do cadastro; chave fica somente no Render.",
     "Definir WhatsApp/horário, se oferecidos, e responsável ou canal legal de dados sem nomear encarregado automaticamente.",
     "Revisar e aprovar textos legais antes de retirar o marcador de minuta.",
     "Cadastrar credenciais Asaas de produção e webhook diretamente no Render/Asaas; sem segredos neste arquivo."

@@ -71,8 +71,20 @@ test('rodapé sem configuração: lacunas explícitas e links para seções lega
     const config = configuracaoSite({});
     for (const chave of ['razaoSocial','cnpj','endereco','email','whatsapp','horario','encarregado'] as const) assert.equal(config[chave], 'a definir');
     const html = renderToStaticMarkup(createElement(Rodape, { config }));
-    assert.equal((html.match(/a definir/g) || []).length, 7);
+    // Obrigatórios ausentes continuam visíveis como lacuna (razão social, CNPJ, endereço, e-mail — este também no canal de dados).
+    assert.equal((html.match(/a definir/g) || []).length, 5);
+    assert.doesNotMatch(html, /WhatsApp:|Horário:|Encarregado de dados:/, 'opcionais não configurados não aparecem');
     assert.match(html, /\/termos#cancelamento/); assert.match(html, /\/privacidade#tratamento-de-dados/);
+});
+test('rodapé com a configuração aprovada (11/10): nenhuma lacuna; canal de dados = e-mail aprovado, sem nomear encarregado', () => {
+    const aprovada = JSON.parse(readFileSync(new URL('../../docs/CONFIGURACAO_VENDA_APROVADA_20261011.json', import.meta.url), 'utf8')).valoresSemSegredos as Record<string, string>;
+    const html = renderToStaticMarkup(createElement(Rodape, { config: configuracaoSite(aprovada) }));
+    assert.doesNotMatch(html, /a definir/);
+    assert.match(html, /Privacidade e dados pessoais: felipemenegaz@gmail\.com/);
+    assert.match(html, /CNPJ 20\.119\.900\/0001-60/);
+    assert.doesNotMatch(html, /WhatsApp:|Encarregado de dados:/);
+    const comEncarregado = renderToStaticMarkup(createElement(Rodape, { config: configuracaoSite({ ...aprovada, SITE_ENCARREGADO_DADOS: 'Nome Sintético', SITE_ATENDIMENTO_WHATSAPP: '+55 61 90000-0000' }) }));
+    assert.match(comEncarregado, /Encarregado de dados: Nome Sintético/); assert.match(comEncarregado, /WhatsApp: \+55 61 90000-0000/);
 });
 test('WhatsApp só existe com número configurado e mensagem codificada', () => {
     for (const numero of [undefined, '', 'a definir', '123', 'javascript:1234567890']) assert.equal(linkWhatsApp(numero, 'Olá'), null);

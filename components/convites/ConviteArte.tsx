@@ -35,10 +35,15 @@ export async function baixarConvite(c: Conteudo, arte?: string) {
   ctx.fillStyle = tema.fundo; ctx.fillRect(0, 0, 1080, 1440);
   if (arte) {
     const img = new Image(); img.src = arte; await img.decode();
-    const altura = completa ? 1440 : 540;
+    if (completa) {
+      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+      ctx.drawImage(img, 0, 0);
+    } else {
+    const altura = 540;
     const quadro = enquadramento(img.width, img.height, 1080, altura, visual);
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 1080, altura); ctx.clip();
     ctx.drawImage(img, quadro.x, quadro.y, quadro.largura, quadro.altura); ctx.restore();
+    }
   } else {
     ctx.fillStyle = tema.destaque; ctx.globalAlpha = 0.13; ctx.beginPath(); ctx.arc(540, 225, 270, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
     ctx.fillStyle = tema.destaque; ctx.font = '220px Georgia'; ctx.textAlign = 'center'; ctx.fillText(tema.simbolo, 540, 310);
@@ -85,14 +90,14 @@ async function baixarModelo(c: Conteudo, arte?: string) {
     });
   };
   const [imagens, imagem] = await Promise.all([
-    c.tema === 'planetas' && !arte ? Promise.all(planetasModelo.map(embutir)) : undefined,
+    c.tema === 'planetas' && (!arte || c.visual?.posicao === 'topo') ? Promise.all(planetasModelo.map(embutir)) : undefined,
     arte ? embutir(arte) : undefined,
   ]);
   const svg = svgModelo(c, { arte: imagem, planetas: imagens });
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
   try {
     const img = new Image(); img.src = url; await img.decode();
-    const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = arte && !modeloComFoto(c.tema) ? 1440 : 1800;
+    const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = arte && !modeloComFoto(c.tema) && c.visual?.posicao !== 'topo' ? 1440 : 1800;
     const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas indisponível.');
     ctx.drawImage(img, 0, 0);
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));

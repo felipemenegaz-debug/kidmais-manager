@@ -1,8 +1,14 @@
 # Lançamento da venda — candidata única, testes finais e publicação em produção (11/10/2026)
 
-**Status:** validação local concluída, com limites de cobertura descritos na evidência Codex. Somente metadados remotos consultados; sem escrita remota. Respeitar autorizações vigentes de Felipe e confirmar alterações de alvo/escopo antes de executar.
+**Roteiro do que falta (13/10/2026): [RODADA_FINAL_LANCAMENTO_20261013.md](RODADA_FINAL_LANCAMENTO_20261013.md).** E0 PASS em staging.
+
+**Status (11/10):** validação local concluída; candidata publicada em staging, com health e vitrine 200. P0 de produção somente leitura concluído: faltam 074a–079 e há cinco bloqueios globais ativos futuros. Produção sem alterações. [Evidência P0](evidencias/diagnostico-production-codex-20261011.md). Respeitar autorizações vigentes de Felipe e confirmar alterações de alvo/escopo antes de executar.
+
+**P0b concluído:** seis etapas somente leitura PASS, incluindo prechecks 074a e 076–079. Nenhuma outra empresa receberia cópias na 078. Felipe confirmou que os cinco bloqueios pertencem à Kidmais inteira. [Evidência](evidencias/preflight-production-codex-20261011.md). Reparo delimitado preparado em `database/repairs/20261011_lancamento_bloqueios_kidmais.sql`, ensaiado em PostgreSQL sintético, sem aplicação em produção; exige backup/PITR, janela e autorização de escrita. Precheck 075 depende da aplicação de 074a.
 
 Atualização Codex: [evidência local](evidencias/lancamento-venda-codex-20261011.md) e [valores aprovados](CONFIGURACAO_VENDA_APROVADA_20261011.json). PostgreSQL: 14 suítes/100 testes (12 aprovadas na primeira rodada; duas corrigidas e repetidas). Concorrência: 9 grupos. Vitrine em build de produção: 6 telas; cadastro e assinatura em desenvolvimento: 8 grupos. Os testes locais não substituem S3/S4 de e-mail real e pagamento sandbox.
+
+**Avanço remoto Codex:** push fast-forward `b95494f..d5d930f` para staging concluído. Um trabalho paralelo publicou `5386a4df36b8b8b7cb649bc15d17e48e6b853b90`, descendente de `d5d930f`, e iniciou o deploy `dep-db5kk17avr4c73950kq0`. O pedido de deploy do Codex foi recusado por mudança de catálogo; não criou deploy. Nenhum segundo deploy iniciado. Checkout avançado por fast-forward para `5386a4d`, preservando os quatro arquivos de convites externos; teste do modelo 7/7. Aguardar resultado do deploy já existente antes de alterar configuração. Produção segue `4af8b38`.
 
 ## 0. Escopo mínimo de lançamento (congelado)
 
@@ -112,7 +118,7 @@ dados; cobrança → cancelar no Asaas e estornar pelo painel. Com as chaves des
 3. **Textos legais finais:** termos de uso, privacidade, tratamento de dados e cancelamento revisados (substituem a minuta).
 4. **Prazos:** Felipe aprovou preparar 7 dias para regularizar e 60 em somente leitura. Retenção após encerramento ainda não foi definida; 60 dias não autorizam exclusão de dados.
 5. **Identificação e atendimento:** aprovados nome informado Kidmais Festas, CNPJ 20.119.900/0001-60, endereço SCRN 704/705 bloco D loja 12, Asa Norte, Brasília - DF, CEP 70730-640; suporte e privacidade `felipemenegaz@gmail.com`; vitrine `https://manager.kidmaisfestas.com/conheca` (`SITE_URL` é a origem sem `/conheca`). Confirmar razão social fiscal exata e contatos adicionais se oferecidos; não nomear encarregado automaticamente.
-6. **E-mail de produção:** Gmail foi informado como remetente, mas o Resend exige domínio próprio verificado. Proposta ainda não aplicada: `Kidmais Manager <nao-responda@kidmaisfestas.com>`. Conferir domínio no Resend e DNS; manter Gmail como contato. Fonte: https://resend.com/docs/dashboard/domains/introduction.
+6. **E-mail de produção:** domínio `notificacoes.kidmaisfestas.com` **já verificado**, observado pelo Codex no painel autenticado do Resend. Remetente preparado, não aplicado: `Kidmais Manager <nao-responda@notificacoes.kidmaisfestas.com>`. Manter Gmail como contato; provar entrega de cadastro antes de abrir vendas. Não precisa criar outro domínio. Fonte: https://resend.com/docs/dashboard/domains/introduction.
 7. **Kidmais:** confirmar, quando P0 mostrar o ID, que a empresa `kidmais` de produção é a Kidmais Festas.
 
 ## 7. Adiáveis (sem anúncio)
@@ -122,6 +128,16 @@ Rotina de renovação Fundador (antes do 11º mês); webhook de devolução do R
 entrega do código por WhatsApp para tirar o “Em breve” da assinatura; troca de plano pelo sistema; unidade extra, Wall-e, convite, IA,
 cartão, Pix Automático; revogação após estorno; anti-robô; exportação em lote; rotação da credencial de staging exposta em 07/10.
 
+## Ensaio adicional do cutover — Codex, 11/10/2026
+
+O reparo dos cinco bloqueios e as migrations 074a–079 passaram em PostgreSQL novo, sintetico, incluindo recusa de alvo divergente, preservacao dos bloqueios/catalogo, rollback integral quando o postcheck falha e verificacao das migrations ja aplicadas. Evidencia: [ensaio local](evidencias/ensaio-lancamento-local-20261011.md). Cluster encerrado; producao permanece sem alteracoes. Aplicador preparado em `scripts/migrations-lancamento-production.cjs`, sem executar em producao.
+
+Antes de pedir a escrita de producao, concluir a preparacao/conferencia do backup e sua recuperacao, as entregas reais de staging e os dados fiscais/legais pendentes. O ensaio local nao substitui esses aceites nem concede autorizacao para o cutover.
+
 ## 8. Autorizações, em ordem
+
+E0 de email em staging preparado em [EMAIL_STAGING_LANCAMENTO_20261011.md](EMAIL_STAGING_LANCAMENTO_20261011.md), ainda nao executado. Staging LIVE/origin em `5386a4d`, auto-deploy OFF, sem EMAIL_PROVIDER/EMAIL_REMETENTE/RESEND_API_KEY. O pacote adiciona somente essas tres variaveis, exige chave inserida por Felipe no Render e propoe um deploy do mesmo SHA e um unico email pelo transporte real do produto. Precisa de autorizacao propria; nao abre cadastro/cobranca nem altera banco/producao. A entrega antecede S3/S4.
+
+P1 foi executado com autorização própria: backup custom de 9.799.207 bytes, hash e leitura integral confirmados no disco persistente, PITR disponível com janela de três dias, Shell encerrado. [Evidência](evidencias/backup-production-codex-20261011.md). Nenhum restore foi executado/comprovado. Esse aceite não autoriza migrations, reparo ou deploy e o registro precisa permanecer recente na janela de publicação.
 
 L1–L5 (local) → S0–S8 (staging) → P0 (leitura em produção) → P1 → P2 (revisão) → P3 → P4 → P5 → P6 (por etapa) → P7 → P8.
