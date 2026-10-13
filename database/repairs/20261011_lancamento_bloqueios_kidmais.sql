@@ -18,8 +18,12 @@ END $$;
 -- Impede mudanca concorrente dos bloqueios ou decisoes entre conferencia e escrita. Timeout/falha aborta a transacao.
 LOCK TABLE bloqueios_agenda, agenda_062_bloqueios_resolucao IN SHARE ROW EXCLUSIVE MODE;
 DO $$ DECLARE n integer; BEGIN
-  SELECT count(*) INTO n FROM bloqueios_agenda WHERE ativo AND empresa_id IS NULL AND data>=current_date;
-  IF n<>5 THEN RAISE EXCEPTION 'CONJUNTO_GLOBAL_DIVERGENTE'; END IF;
+  -- Robusto à passagem das datas (ex.: 15/10/2026): nenhum bloqueio global ativo FUTURO fora dos cinco alvos; os cinco
+  -- (passados ou futuros) precisam continuar intactos e sem resolução (verificação seguinte).
+  SELECT count(*) INTO n FROM bloqueios_agenda WHERE ativo AND empresa_id IS NULL AND data>=current_date
+    AND id NOT IN ('57618aab-a62c-4be1-9385-17308ac8dda3'::uuid,'3b06e365-7ac1-42e6-ba1a-6b82de76af8b'::uuid,
+      '11b9459d-35f8-4a9f-8e6f-aeb7311ff651'::uuid,'e4cc53fd-b423-46bc-98b4-86b318a0d688'::uuid,'d4e6cf8c-1b42-4bd1-8d18-1750cc3b958e'::uuid);
+  IF n<>0 THEN RAISE EXCEPTION 'CONJUNTO_GLOBAL_DIVERGENTE'; END IF;
   SELECT count(*) INTO n FROM bloqueios_agenda b JOIN (VALUES
     ('57618aab-a62c-4be1-9385-17308ac8dda3'::uuid,'2026-10-15'::date),
     ('3b06e365-7ac1-42e6-ba1a-6b82de76af8b'::uuid,'2026-11-01'::date),

@@ -12,7 +12,7 @@ type Secao = { titulo: string; paragrafos: string[] };
 export type TextoLegal = { documento: DocumentoLegal; titulo: string; versao: string; minuta: boolean; secoes: Secao[] };
 
 const TERMOS: TextoLegal = {
-    documento: 'TERMOS_USO', titulo: 'Termos de uso do Kidmais Manager', versao: '2026-10-07-minuta', minuta: true,
+    documento: 'TERMOS_USO', titulo: 'Termos de uso do Kidmais Manager', versao: '2026-10-13-minuta', minuta: true,
     secoes: [
         { titulo: 'Minuta', paragrafos: ['Este texto é uma minuta para homologação e será substituído pela versão revisada juridicamente antes da publicação.'] },
         { titulo: 'O serviço', paragrafos: ['O Kidmais Manager é um sistema de gestão para buffets infantis, contratado por empresa (CNPJ).'] },
@@ -22,18 +22,20 @@ const TERMOS: TextoLegal = {
         ] },
         { titulo: 'Teste grátis e assinatura', paragrafos: [
             'A empresa recebe um período de teste sem cartão e sem cobrança automática, com duração informada no cadastro. Cada CNPJ tem um único teste.',
-            'Preços, ciclos, renovação, inadimplência e cancelamento: [A DEFINIR].',
+            'Os planos, preços e ciclos (mensal ou anual) são os exibidos na página de planos no momento da contratação. A assinatura renova ao fim de cada ciclo pelo meio de pagamento escolhido.',
+            'Sem pagamento, a empresa tem 7 dias para regularizar; depois, passa a somente leitura por 60 dias e, em seguida, tem o acesso suspenso.',
+            'O cancelamento pode ser pedido a qualquer momento pelo canal de atendimento: a renovação é interrompida e o acesso continua até o fim do período já pago. Devolução de valores: [A DEFINIR].',
         ] },
         { titulo: 'Depois do teste ou da assinatura', paragrafos: [
             'Sem assinatura ativa, a empresa passa a somente leitura por um período e, depois, tem o acesso suspenso. Os dados não são apagados por vencimento e podem ser exportados.',
             'Prazo de retenção após o encerramento: [A DEFINIR].',
         ] },
-        { titulo: 'Contato', paragrafos: ['Canal de atendimento, inclusive para cancelamento: [A DEFINIR].'] },
+        { titulo: 'Contato', paragrafos: ['Canal de atendimento, inclusive para cancelamento: felipemenegaz@gmail.com.'] },
     ],
 };
 
 const PRIVACIDADE: TextoLegal = {
-    documento: 'PRIVACIDADE', titulo: 'Aviso de privacidade do Kidmais Manager', versao: '2026-10-07-minuta', minuta: true,
+    documento: 'PRIVACIDADE', titulo: 'Aviso de privacidade do Kidmais Manager', versao: '2026-10-13-minuta', minuta: true,
     secoes: [
         { titulo: 'Minuta', paragrafos: ['Este texto é uma minuta para homologação e será substituído pela versão revisada juridicamente antes da publicação.'] },
         { titulo: 'Dados da conta', paragrafos: [
@@ -42,7 +44,7 @@ const PRIVACIDADE: TextoLegal = {
         ] },
         { titulo: 'Dados dos clientes do buffet', paragrafos: ['Os dados que a empresa cadastra sobre os próprios clientes são tratados em nome dela. Acordo de tratamento de dados e lista de suboperadores: [A DEFINIR].'] },
         { titulo: 'Compartilhamento', paragrafos: ['Provedores de hospedagem, e-mail e cobrança recebem só o necessário para prestar o serviço. Lista de suboperadores: [A DEFINIR].'] },
-        { titulo: 'Direitos e contato', paragrafos: ['Pedidos de acesso, correção, portabilidade e exclusão: canal [A DEFINIR]. Encarregado (DPO): [A DEFINIR].'] },
+        { titulo: 'Direitos e contato', paragrafos: ['Pedidos de acesso, correção, portabilidade e exclusão: felipemenegaz@gmail.com. Encarregado (DPO): [A DEFINIR].'] },
     ],
 };
 

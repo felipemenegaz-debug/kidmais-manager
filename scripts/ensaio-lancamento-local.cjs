@@ -44,13 +44,18 @@ async function main(){
   await c.query("UPDATE bloqueios_agenda SET horario_fim='22:00' WHERE id=$1",[ids[0]]);
   await recusa(sql,/BLOQUEIOS_DIVERGENTES/);log({caso:'horario_divergente_sem_escrita',resultado:'PASS'});
   await c.query("UPDATE bloqueios_agenda SET horario_fim='21:00' WHERE id=$1",[ids[0]]);
+  // Regra robusta à passagem das datas: global FUTURO fora dos cinco recusa; global PASSADO fora dos cinco é ignorado.
+  const extraFuturo=(await c.query("INSERT INTO bloqueios_agenda(data,horario_inicio,horario_fim,motivo) VALUES(current_date+40,'10:00','12:00','Global sintetico extra') RETURNING id")).rows[0].id;
+  await recusa(sql,/CONJUNTO_GLOBAL_DIVERGENTE/);log({caso:'global_futuro_fora_do_alvo_recusado',resultado:'PASS'});
+  await c.query('UPDATE bloqueios_agenda SET ativo=false WHERE id=$1',[extraFuturo]);
+  await c.query("INSERT INTO bloqueios_agenda(data,horario_inicio,horario_fim,motivo) VALUES(current_date-3,'10:00','12:00','Global sintetico passado')");
   const antes=(await c.query('SELECT to_jsonb(b)-\'atualizado_em\'-\'empresa_id\' AS dados FROM bloqueios_agenda b ORDER BY id')).rows;
   await c.query(sql);
   assert.deepEqual((await c.query('SELECT to_jsonb(b)-\'atualizado_em\'-\'empresa_id\' AS dados FROM bloqueios_agenda b ORDER BY id')).rows,antes);
   assert.equal((await c.query('SELECT count(*)::int AS n FROM bloqueios_agenda WHERE empresa_id=$1 AND estabelecimento_id IS NULL AND ativo',[kidmais])).rows[0].n,5);
   assert.equal((await c.query('SELECT count(*)::int AS n FROM agenda_062_bloqueios_resolucao WHERE empresa_id=$1',[kidmais])).rows[0].n,5);
   log({caso:'cinco_bloqueios_preservados',resultado:'PASS'});
-  try{await assert.rejects(c.query(sql),/CONJUNTO_GLOBAL_DIVERGENTE/);}finally{await c.query('ROLLBACK');}log({caso:'repeticao_reparo_recusada',resultado:'PASS'});
+  try{await assert.rejects(c.query(sql),/BLOQUEIOS_DIVERGENTES_OU_REPARO_JA_INICIADO/);}finally{await c.query('ROLLBACK');}log({caso:'repeticao_reparo_recusada',resultado:'PASS'});
   const validarIdentidade=r=>{assert.equal(r.db,'kidmais_pacotes_v1_descartavel');assert.equal(r.tls,false);};
   // Falha no postcheck deve desfazer a migration inteira, mantendo a conexao utilizavel.
   const quebrado=plano.map(e=>e.id==='074a'?{...e,arquivos:e.arquivos.map(a=>a.tipo==='postcheck'?{...a,sql:"DO $$ BEGIN RAISE EXCEPTION 'FALHA_INJETADA'; END $$;"}:a)}:e);
