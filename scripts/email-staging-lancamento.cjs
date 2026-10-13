@@ -2,7 +2,7 @@
 // Um envio real pelo transporte do produto. Nenhum banco, cadastro ou cobranca neste teste.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {randomUUID}=require('node:crypto'),{pathToFileURL}=require('node:url');
-const SHA='5386a4df36b8b8b7cb649bc15d17e48e6b853b90';
+const SHA='e819772dcf71ebd2b47c02ed38fcf5ade49d0b9d';
 const DIR='/opt/render/project/src/data/lancamento-email-20261011';
 const REMETENTE='Kidmais Manager <nao-responda@notificacoes.kidmaisfestas.com>';
 function validar(env){

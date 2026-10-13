@@ -1,5 +1,26 @@
 # E0 — Configurar e provar o transporte de email em staging
 
+## Revalidação de 13/10/2026 (pacote atualizado; envio ainda não executado)
+
+Leitura em 13/10 05:28Z: `origin/staging` e LIVE em **`e819772dcf71ebd2b47c02ed38fcf5ade49d0b9d`** (`dep-db66sg7lk1mc73c59od0`, PR #162,
+LIVE desde 12/10 05:27Z), health 200; produção inalterada (`4af8b38`). O deploy do E0 (`dep-db5lhobbc2fs739agf1g`, `5386a4d`) foi
+substituído pelos deploys de #159 e #162. O envio de teste **não** foi executado.
+
+Como o SHA mudou, o pacote foi atualizado: `scripts/email-staging-lancamento.cjs` fixa `e819772…`; comando regerado
+(`docs/evidencias/email-staging-comando-codex-20261011.txt`, sha256 do script `a8b8e84e…c951e`); testes 6/6; sintaxe conferida. O
+transporte do produto (`lib/acessos/email.ts`) é idêntico entre `5386a4d` e `e819772`. Remetente, destinatário, assunto, envio único,
+registro `wx` e recuperação continuam os mesmos.
+
+Pré-condições a reconferir imediatamente antes do envio: LIVE = `e819772` sem deploy em andamento; painel do web staging com
+`EMAIL_PROVIDER`, `EMAIL_REMETENTE`, `RESEND_API_KEY` presentes (sem ler valores) e `CADASTRO_PUBLICO_ATIVO`, `ASSINATURA_PLANOS_ATIVOS`,
+`COTACAO_PUBLICA_POR_EMPRESA` ausentes; `data/lancamento-email-20261011/teste-envio.json` inexistente (se existir, parar: tentativa
+anterior). Qualquer divergência → parar e reapresentar.
+
+Execução (requer nova autorização de Felipe para o envio): Felipe cola o comando no Shell do web staging (≤ 5 min), copia a saída
+(`ACEITO_PROVEDOR_ENTREGA_PENDENTE` + id) e confirma o recebimento em `felipemenegaz@gmail.com`. Registro sanitizado depois.
+
+---
+
 Status: preparado, nao executado. Etapa anterior ao teste de cadastro completo; nao substitui S3 nem S4.
 
 E0 autorizado por Felipe em 11/10/2026. Revalidacao: origin/staging e LIVE continuam em 5386a4d, auto-deploy OFF, sem deploy concorrente. Tres linhas preparadas no editor do web staging, com RESEND_API_KEY vazia. Aguardando entrada e Save only pelo proprio Felipe; nada persistido, nenhum deploy/Shell/envio executado. Evidencia: `evidencias/email-staging-chave-pendente-20261011.png`. A autorizacao permanece vigente para continuar o pacote depois da entrada da chave, desde que as precondicoes ainda confiram.
