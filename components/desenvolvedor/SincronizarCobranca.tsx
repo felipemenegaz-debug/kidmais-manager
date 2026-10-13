@@ -9,6 +9,7 @@ const TEXTO: Record<string, string> = {
     SEM_ASSINATURA: 'Empresa sem cobrança: nada a sincronizar.',
     SEM_PROVEDOR: 'Empresa ainda sem assinatura no provedor.',
     RECUSADA: 'A assinatura do provedor não corresponde a esta empresa. Nada foi alterado.',
+    SEM_CONFIRMACAO: 'O provedor não encontrou a assinatura (pode ser chave ou conta errada). Nada foi alterado; confira a configuração antes de tentar de novo.',
 };
 
 /** Ficha da empresa: reconsulta a assinatura no provedor (senha confirmada, auditado). */

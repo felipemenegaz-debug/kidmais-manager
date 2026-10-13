@@ -84,7 +84,7 @@ test('cabeçalhos, URL base fixa do sandbox e cliente criado com notificationDis
     assert.ok(!('email' in corpo) && !('mobilePhone' in corpo), 'nenhum contato é enviado ao provedor');
 });
 
-test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ciclo MONTHLY/YEARLY; 404 = removida', async () => {
+test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ciclo MONTHLY/YEARLY; GET 404 = null (não prova remoção); DELETE com deleted = removida (DELETE 404 em remocao-resultado.test.ts)', async () => {
     const { f, chamadas } = fetchFalso([
         json({ id: 'sub_000001', status: 'ACTIVE', deleted: false, cycle: 'YEARLY', customer: 'cus_000001', externalReference: 'e1' }),
         () => new Response('{"errors":[{"description":"nao encontrado"}]}', { status: 404 }),
@@ -96,7 +96,7 @@ test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ci
     assert.equal(s.id, 'sub_000001');
     assert.deepEqual(JSON.parse(String(chamadas[0].init.body)), { customer: 'cus_000001', billingType: 'UNDEFINED', value: 1234.56, nextDueDate: '2026-10-07', cycle: 'YEARLY', description: 'Kidmais', externalReference: 'e1' });
     assert.equal(await c.obterAssinatura('sub_000001'), null);
-    assert.deepEqual(await c.removerAssinatura('sub_000001'), { removida: true });
+    assert.deepEqual(await c.removerAssinatura('sub_000001'), { removida: true }, 'DELETE confirmado pela resposta (deleted), sem ausente');
     assert.equal(chamadas[2].init.method, 'DELETE');
     const pagamentos = await c.listarCobrancasDaAssinatura('sub_000001');
     assert.equal(chamadas[3].url, `${ASAAS_SANDBOX_URL}/subscriptions/sub_000001/payments?offset=0&limit=100`);
@@ -106,6 +106,21 @@ test('assinatura: billingType UNDEFINED, valor em reais a partir de centavos, ci
     assert.equal(urlDeFaturaValida('http://www.asaas.com/i/x'), false);
     assert.equal(urlDeFaturaValida('https://asaas.com.evil.example/i/x'), false);
     await assert.rejects(c.obterAssinatura('../customers'), AsaasFalhou, 'id fora do formato nunca vira caminho');
+});
+
+test('listagem com mais páginas que o limite falha (LISTA_INCOMPLETA) em vez de devolver lista parcial', async () => {
+    const pagina = (n: number, hasMore: boolean) => json({ object: 'list', hasMore, data: [{ id: `sub_00000${n}`, status: 'ACTIVE', deleted: false, cycle: 'MONTHLY', customer: 'cus_000001', externalReference: 'emp-1' }] });
+    const cheia = fetchFalso([pagina(1, true), pagina(2, true)]);
+    await assert.rejects(criarClienteAsaas(config, { fetch: cheia.f }).listarAssinaturasPorReferencia('emp-1'), (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'LISTA_INCOMPLETA' && e.status === null);
+    // Cobranças: limite de 5 páginas (500 itens), mesma regra.
+    const cobranca = (n: number) => json({ object: 'list', hasMore: true, data: [{ id: `pay_00000${n}`, status: 'PENDING', dueDate: '2026-10-07', invoiceUrl: null }] });
+    const cinco = fetchFalso([cobranca(1), cobranca(2), cobranca(3), cobranca(4), cobranca(5)]);
+    await assert.rejects(criarClienteAsaas(config, { fetch: cinco.f }).listarCobrancasDaAssinatura('sub_000001'), (e: unknown) => e instanceof AsaasFalhou && e.motivo === 'LISTA_INCOMPLETA');
+    assert.equal(cinco.chamadas.length, 5);
+    assert.equal(cheia.chamadas.length, 2);
+    assert.match(cheia.chamadas[1].url, /offset=100&limit=100$/);
+    const fim = fetchFalso([pagina(1, true), pagina(2, false)]);
+    assert.deepEqual((await criarClienteAsaas(config, { fetch: fim.f }).listarAssinaturasPorReferencia('emp-1')).map((a) => a.id), ['sub_000001', 'sub_000002']);
 });
 
 test('tempo-limite: chamada que não responde é abortada e vira AsaasFalhou (TEMPO_ESGOTADO)', async () => {

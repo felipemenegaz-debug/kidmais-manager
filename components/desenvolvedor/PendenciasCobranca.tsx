@@ -4,7 +4,17 @@ import workspace from '@/components/admin/workspace.module.css';
 import { chamar } from './cliente';
 import { useReautenticacao } from './Reautenticacao';
 
-type Pendencia = { id: string; tipo: 'INTENCAO_CRIACAO' | 'RECONCILIACAO'; situacao: string; motivo: string | null; temAssinatura: boolean; recebidoEm: string; tentativas: number; liberavel: boolean };
+type Pendencia = {
+    id: string; tipo: 'INTENCAO_CRIACAO' | 'RECONCILIACAO' | 'REMOCAO_SEM_CONFIRMACAO'; situacao: string; motivo: string | null; temAssinatura: boolean; recebidoEm: string;
+    tentativas: number; liberavel: boolean; bloqueadaPor?: 'REMOCAO_SEM_CONFIRMACAO' | null;
+};
+export const TITULO: Record<Pendencia['tipo'], string> = {
+    INTENCAO_CRIACAO: 'Criação de assinatura não confirmada',
+    RECONCILIACAO: 'Reconciliação da contratação',
+    REMOCAO_SEM_CONFIRMACAO: 'Exclusão no provedor sem confirmação',
+};
+/** Liberação bloqueada pelo marcador de exclusão: só explica; não há atalho para ignorar o marcador. */
+export const AVISO_BLOQUEIO_REMOCAO = 'Liberação bloqueada: há uma exclusão de assinatura no provedor com resultado desconhecido nesta empresa. Confira no painel do Asaas; a liberação volta quando a reconciliação confirmar a exclusão.';
 const CONFIRMACAO = 'CONFERI_NO_PROVEDOR_QUE_NAO_FOI_CRIADA';
 const MOTIVO: Record<string, string> = {
     CRIACAO_EM_CURSO: 'criação iniciada, sem confirmação',
@@ -14,11 +24,16 @@ const MOTIVO: Record<string, string> = {
     VINCULO_DUVIDOSO: 'vínculo não pôde ser conferido',
     COMPENSACAO_FALHOU: 'remoção de duplicata falhou',
     ASSINATURAS_AMBIGUAS: 'várias assinaturas no provedor',
+    REMOCAO_EM_CURSO: 'exclusão de duplicata enviada, resultado ainda não gravado',
+    REMOCAO_SEM_CONFIRMACAO: 'exclusão de duplicata sem confirmação do provedor; confira no painel do Asaas (nada é excluído de novo automaticamente)',
+    REVISAO_HUMANA: 'precisa de revisão',
+    DUPLICATA_COM_PAGAMENTO: 'duplicata com pagamento',
+    DUPLICATA_PRESERVADA: 'duplicata preservada',
 };
-const textoMotivo = (m: string | null, situacao: string) => {
+export const textoMotivo = (m: string | null, situacao: string) => {
     if (!m) return situacao;
     const [codigo, ...resto] = m.split(': ');
-    return MOTIVO[codigo] ? [MOTIVO[codigo], ...resto].join(': ') : m;
+    return MOTIVO[codigo] ? [MOTIVO[codigo], ...resto.map((r) => MOTIVO[r] ?? r)].join(': ') : m;
 };
 const quando = (iso: string) => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -52,8 +67,9 @@ export default function PendenciasCobranca({ empresaId }: { empresaId: string })
         {lista && lista.length === 0 && <p className={workspace.muted}>Nenhuma pendência aberta.</p>}
         {lista && lista.length > 0 && <ul>
             {lista.map((p) => <li key={p.id}>
-                <strong>{p.tipo === 'INTENCAO_CRIACAO' ? 'Criação de assinatura não confirmada' : 'Reconciliação da contratação'}</strong>
+                <strong>{TITULO[p.tipo] ?? TITULO.RECONCILIACAO}</strong>
                 {' '}— {textoMotivo(p.motivo, p.situacao)} · desde {quando(p.recebidoEm)}{p.tentativas ? ` · ${p.tentativas} tentativa(s)` : ''}
+                {p.bloqueadaPor === 'REMOCAO_SEM_CONFIRMACAO' && <p className={workspace.muted}>{AVISO_BLOQUEIO_REMOCAO}</p>}
                 {p.liberavel && aberta !== p.id && <div>
                     <button type="button" onClick={() => { setAberta(p.id); setMotivo(''); setConferi(false); setMensagem(''); }}>Liberar (não foi criada)</button>
                 </div>}

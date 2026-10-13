@@ -25,12 +25,12 @@ export function contextoMudou(sessaoId: string, empresaId: string | null) {
     return contexto !== null && contexto !== chave(sessaoId, empresaId) && !aguardandoRenovacao(empresaId);
 }
 
-export function registrarContextoEmpresa(sessaoId: string, empresaId: string | null, aviso?: string) {
+export function registrarContextoEmpresa(sessaoId: string, empresaId: string | null, aviso?: string, origem: OrigemAviso = 'descarte') {
     const novo = chave(sessaoId, empresaId);
     if (contexto !== null && contexto !== novo) {
         if (aguardandoRenovacao(empresaId))
             return false;
-        reiniciarContextoEmpresa(aviso ?? 'A empresa ativa ou a sessão mudou. Os dados da tela anterior foram descartados.');
+        reiniciarContextoEmpresa(aviso ?? 'A empresa ativa ou a sessão mudou. Os dados da tela anterior foram descartados.', undefined, aviso ? origem : 'descarte');
         return false;
     }
     contexto = novo;
@@ -64,13 +64,38 @@ export function concluirRenovacaoDeSessao(renovacao: { anterior: string; atual: 
     return true;
 }
 
-export function guardarAvisoDeContexto(texto: string) {
-    try { sessionStorage.setItem(AVISO, texto.slice(0, 500)); } catch { /* sem armazenamento: o aviso se perde, os dados antigos não */ }
+/**
+ * Origem do aviso: RESULTADO de uma escrita (concluída, incerta, recusada, nada enviado) ou DESCARTE (leitura descartada,
+ * contexto trocado, outra aba). Nesta página, um descarte nunca apaga o resultado de uma escrita: se apagasse, a pessoa
+ * não saberia que a operação foi concluída e poderia repeti-la. Resultados de escritas diferentes se somam; entre
+ * descartes vale o primeiro (os seguintes costumam ser efeito da própria navegação, como pedidos abortados).
+ * SAÍDA (components/admin/sair.ts) mantém a regra própria: o aviso dela é o único que vale.
+ * Depois que a própria página iniciou o descarte (reiniciarContextoEmpresa, com ou sem aviso — por exemplo, a troca de
+ * empresa), nenhum aviso de DESCARTE novo é guardado: falhas de pedidos da página antiga são efeito da navegação e não
+ * podem aparecer numa tela seguinte. O resultado de uma escrita continua sendo guardado.
+ */
+export type OrigemAviso = 'escrita' | 'descarte' | 'saida';
+let avisoDaPagina: { texto: string; origem: OrigemAviso } | null = null;
+let descarteIniciado = false;
+
+export function guardarAvisoDeContexto(texto: string, origem: OrigemAviso = 'descarte') {
+    if (origem === 'descarte' && descarteIniciado)
+        return;
+    let final = texto;
+    if (avisoDaPagina && origem !== 'saida') {
+        if (origem === 'descarte' || avisoDaPagina.texto.includes(texto))
+            return;
+        if (avisoDaPagina.origem === 'escrita')
+            final = `${avisoDaPagina.texto} ${texto}`;
+    }
+    avisoDaPagina = { texto: final.slice(0, 500), origem };
+    try { sessionStorage.setItem(AVISO, avisoDaPagina.texto); } catch { /* sem armazenamento: o aviso se perde, os dados antigos não */ }
 }
 
 /** Lê e remove o aviso deixado antes de uma navegação de descarte (mostrado pela próxima tela). */
 export function lerAvisoDeContexto() {
     try {
+        avisoDaPagina = null;
         const texto = sessionStorage.getItem(AVISO);
         if (texto) sessionStorage.removeItem(AVISO);
         return texto;
@@ -92,11 +117,62 @@ export function saidaDaSessaoEmAndamento() {
     return saidaDaSessao;
 }
 
-export function reiniciarContextoEmpresa(aviso?: string, destino?: string) {
+export function reiniciarContextoEmpresa(aviso?: string, destino?: string, origem: OrigemAviso = 'descarte') {
     if (saidaDaSessao) return;
-    if (aviso) guardarAvisoDeContexto(aviso);
+    if (aviso) guardarAvisoDeContexto(aviso, origem);
+    descarteIniciado = true;
     // Navegação completa descarta o Router Cache, estados React, conversas/rascunhos e pedidos da página antiga.
     // Nenhum dado de negócio é guardado no sinal entre abas nem no aviso.
     const alvo = destino ?? (window.location.pathname.startsWith('/desenvolvedor') ? '/desenvolvedor' : '/admin/dashboard');
     window.location.replace(alvo);
+}
+
+/**
+ * Troca de empresa iniciada NESTA página (AdminShell): a sessão atual é revogada e outra é criada. Uma leitura da sessão
+ * que saiu ANTES do início da troca, ou DURANTE ela (ainda com os cookies da sessão anterior), pode chegar dizendo
+ * "sessão encerrada" — é a sessão anterior, não a nova. Essa resposta é obsoleta: não manda ao login (a própria troca
+ * navega ao painel e descarta a página). Leituras que saem fora disso seguem a regra normal: sessão realmente
+ * encerrada, expirada ou revogada → login. Troca recusada ou sem resposta encerra a janela (encerrarTrocaDeEmpresa).
+ */
+let trocasDeEmpresa = 0;
+let trocaEmCurso = false;
+let fimDaTroca: { promessa: Promise<void>; resolver: () => void } | null = null;
+
+/** Marca o início de uma troca de empresa nesta página (antes do pedido ao servidor). */
+export function iniciarTrocaDeEmpresa() {
+    trocasDeEmpresa += 1;
+    trocaEmCurso = true;
+    if (!fimDaTroca) {
+        let resolver!: () => void;
+        const promessa = new Promise<void>((r) => { resolver = r; });
+        fimDaTroca = { promessa, resolver };
+    }
+}
+
+/** A resposta da troca chegou (cookies novos, se houver, já aplicados) ou não vai chegar: as leituras voltam à regra normal. */
+export function encerrarTrocaDeEmpresa() {
+    trocaEmCurso = false;
+    fimDaTroca?.resolver();
+    fimDaTroca = null;
+}
+
+/**
+ * Promessa resolvida quando a troca em curso nesta página termina; null sem troca em curso. A saída
+ * (components/admin/sair.ts) espera por ela: um logout enviado com os cookies da sessão anterior chegaria depois da
+ * troca, receberia 401 e deixaria aberta a sessão criada pela troca.
+ */
+export function fimDaTrocaEmCurso(): Promise<void> | null {
+    return fimDaTroca?.promessa ?? null;
+}
+
+export type MarcaDaSessao = { geracao: number; durante: boolean };
+
+/** Marca do momento em que uma leitura da sessão sai; compare com sessaoObsoletaDesde quando a resposta chegar. */
+export function marcaDaSessao(): MarcaDaSessao {
+    return { geracao: trocasDeEmpresa, durante: trocaEmCurso };
+}
+
+/** true quando a leitura saiu durante uma troca, ou uma troca começou depois dela: a resposta é da sessão anterior. */
+export function sessaoObsoletaDesde(marca: MarcaDaSessao) {
+    return marca.durante || marca.geracao !== trocasDeEmpresa;
 }

@@ -84,14 +84,19 @@ export function ambienteAsaas(env: Ambiente = process.env): AmbienteAsaas | { mo
 }
 
 /** Falha de comunicação ou resposta inesperada. A mensagem nunca leva corpo da resposta, chave ou dado do pagador. */
+/** LISTA_INCOMPLETA: o provedor tem mais páginas que o limite conferido. Não é indisponibilidade: repetir não resolve. */
+export type MotivoFalhaAsaas = 'HTTP' | 'TEMPO_ESGOTADO' | 'REDE' | 'RESPOSTA_INVALIDA' | 'LISTA_INCOMPLETA';
+
 export class AsaasFalhou extends Error {
     readonly operacao: string;
     readonly status: number | null;
-    constructor(operacao: string, status: number | null, motivo: 'HTTP' | 'TEMPO_ESGOTADO' | 'REDE' | 'RESPOSTA_INVALIDA') {
+    readonly motivo: MotivoFalhaAsaas;
+    constructor(operacao: string, status: number | null, motivo: MotivoFalhaAsaas) {
         super(`Asaas: ${operacao} falhou (${motivo}${status ? ` ${status}` : ''}).`);
         this.name = 'AsaasFalhou';
         this.operacao = operacao;
         this.status = status;
+        this.motivo = motivo;
     }
 }
 
@@ -113,7 +118,11 @@ export type ClienteAsaas = {
     listarAssinaturasPorReferencia(referencia: string): Promise<AssinaturaProvedor[]>;
     criarAssinatura(input: { cliente: string; valorCentavos: number; ciclo: Ciclo; vencimento: string; referencia: string; descricao: string }): Promise<AssinaturaProvedor>;
     listarCobrancasDaAssinatura(id: string): Promise<CobrancaProvedor[]>;
-    removerAssinatura(id: string): Promise<{ removida: boolean }>;
+    /**
+     * `ausente`: o DELETE respondeu 404 e a releitura por id comprovou a ausência (`ausenciaComprovada`) — a assinatura não
+     * existe mais, mas nada prova que ESTE pedido a removeu. `removida: false` = sem confirmação.
+     */
+    removerAssinatura(id: string): Promise<{ removida: boolean; ausente?: boolean }>;
 };
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -133,6 +142,17 @@ function assinatura(o: Record<string, unknown>, operacao: string): AssinaturaPro
         ...(o.nextDueDate !== undefined ? { nextDueDate: texto(o.nextDueDate, 10) } : {}),
     };
 }
+/**
+ * Prova positiva de que a assinatura não existe mais no provedor: a leitura por id devolveu ESTA assinatura com
+ * `deleted=true`. O campo `deleted` ("Informa se a assinatura foi removida") está no esquema documentado da resposta 200;
+ * que a removida volte assim, e não como 404, foi observado uma vez no sandbox em 10/10/2026, docs/evidencias/sonda-cobranca-removida-asaas-20261010.md; não documentado e não observado em production.
+ * Leitura 404 (null) não prova: o 404 do Asaas também cobre rota inexistente e id de outra conta. Se em production a
+ * removida responder 404, nada é concluído (fica sem confirmação, para revisão): o lado seguro.
+ */
+export function ausenciaComprovada(s: AssinaturaProvedor | null, id: string) {
+    return s !== null && s.id === id && s.deleted === true;
+}
+
 export function valorDoProvedor(valor: unknown): number | null {
     if (typeof valor !== 'number' || !Number.isFinite(valor) || valor <= 0) return null;
     const centavos = Math.round(valor * 100);
@@ -224,8 +244,9 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
             if (r?.hasMore !== true)
                 return itens;
         }
-        // Uma lista incompleta pode ocultar pagamento já realizado ou cobrança a corrigir.
-        throw new AsaasFalhou(operacao, null, 'RESPOSTA_INVALIDA');
+        // Ainda há páginas além do limite: uma lista parcial pode ocultar pagamento já realizado, assinatura vigente
+        // ou cobrança a corrigir, e nunca prova ausência (retomada, liberação, renovação). Falha fechada.
+        throw new AsaasFalhou(operacao, null, 'LISTA_INCOMPLETA');
     }
     const ref = (v: string) => encodeURIComponent(v);
     const idPath = (v: string, operacao: string) => encodeURIComponent(idValido(v, operacao));
@@ -270,7 +291,9 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
             const r = await chamar('criar cliente', 'POST', '/customers', { name: input.nome.slice(0, 200), cpfCnpj: input.cpfCnpj, externalReference: input.referencia, notificationDisabled: true });
             return { id: idValido(r?.id, 'criar cliente'), externalReference: input.referencia };
         },
-        // GET /v3/subscriptions/{id} — removida/inexistente devolve 404 → null.
+        // GET /v3/subscriptions/{id} — 404 → null. A doc diz só que o 404 vem quando o id não identifica assinatura
+        // acessível à conta (inclui id de outra conta); null NÃO prova remoção. A removida foi lida com 200 e `deleted=true`
+        // (observado uma vez no sandbox em 10/10/2026, docs/evidencias/sonda-cobranca-removida-asaas-20261010.md; não documentado e não observado em production).
         // https://docs.asaas.com/reference/recuperar-uma-unica-assinatura
         async obterAssinatura(id) {
             const r = await chamar('consultar assinatura', 'GET', `/subscriptions/${idPath(id, 'consultar assinatura')}`, undefined, true);
@@ -296,11 +319,24 @@ export function criarClienteAsaas(config: ConfiguracaoAsaas, opcoes: OpcoesClien
         async listarCobrancasDaAssinatura(id) {
             return listar('listar cobranças', `/subscriptions/${idPath(id, 'listar cobranças')}/payments`, (o) => cobranca(o, 'listar cobranças'));
         },
-        // DELETE /v3/subscriptions/{id} — remove cobranças pendentes/vencidas; pagas permanecem. 404 = já removida.
-        // https://docs.asaas.com/reference/remover-assinatura
+        // DELETE /v3/subscriptions/{id} — remove cobranças pendentes/vencidas; pagas permanecem.
+        // https://docs.asaas.com/reference/remover-assinatura documenta 200 `{ deleted, id }` e um 404 "Not found" sem corpo;
+        // https://docs.asaas.com/reference/codigos-http-das-respostas: 404 também é endpoint inexistente ou id de OUTRA conta.
+        // Por isso o 404 sozinho não prova nada (o corpo nem é lido). A resposta do DELETE para assinatura já removida nunca
+        // foi observada. Ausência só com a releitura por id na forma do esquema documentado
+        // (`ausenciaComprovada`): comprova a ausência, não a autoria (`ausente`, auditado com ação neutra). Qualquer outra
+        // resposta, ou falha da releitura → sem confirmação (`removida: false`); o DELETE nunca é repetido aqui.
         async removerAssinatura(id) {
             const r = await chamar('remover assinatura', 'DELETE', `/subscriptions/${idPath(id, 'remover assinatura')}`, undefined, true);
-            return { removida: r === null || r.deleted === true };
+            if (r !== null)
+                return { removida: r.deleted === true && r.id === id };
+            try {
+                const relida = await chamar('conferir exclusão', 'GET', `/subscriptions/${idPath(id, 'conferir exclusão')}`, undefined, true);
+                return ausenciaComprovada(relida ? assinatura(relida, 'conferir exclusão') : null, id) ? { removida: true, ausente: true } : { removida: false };
+            }
+            catch {
+                return { removida: false };
+            }
         },
     };
 }

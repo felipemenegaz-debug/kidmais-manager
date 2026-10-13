@@ -41,6 +41,8 @@ class Banco implements DbExecutor {
             const ev = { id: `ev_${this.eventos.length}`, assinatura_provedor_id: args[2] as string | null, evento_id: args[0] as string, concluido: false };
             this.eventos.push(ev); rows = [ev];
         } else if (sql.startsWith('SELECT id, evento_id, assinatura_provedor_id FROM cobranca_eventos')) rows = this.eventos.filter(e => !e.concluido);
+        // Marcadores de exclusão abertos (assinaturasComRemocaoIncerta, #147): este banco falso não tem nenhum.
+        else if (sql.startsWith('SELECT id, assinatura_provedor_id FROM cobranca_eventos')) rows = [];
         else if (sql.startsWith('UPDATE cobranca_eventos')) {
             const ids = Array.isArray(args[1]) ? args[1] : [args[0]];
             for (const e of this.eventos) if (ids.includes(e.id)) e.concluido = true;

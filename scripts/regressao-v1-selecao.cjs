@@ -67,8 +67,9 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/assinatura.postgres.test.ts": { descartavel: "atual" },
   "lib/assinatura/cobranca-068.postgres.test.ts": { descartavel: "atual" },
   // E8: cobrança Asaas (sandbox) com provedor falso; aplica 067 + 068 dentro da suíte.
-  "lib/assinatura/cobranca-e8.postgres.test.ts": { descartavel: "atual" },
-  "lib/assinatura/contratacao-e8.postgres.test.ts": { descartavel: "atual" },
+  "lib/assinatura/cobranca-e8.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
+  "lib/assinatura/contratacao-e8.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
+  "lib/assinatura/transacao-com-prazo.postgres.test.ts": { descartavel: "atual", tambem: ["075"] },
   // Também depois da 061 e da 062: módulo Festa, formalização e agenda nativos (código novo em cada etapa).
   "lib/festas/tenant-festa.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "063"] },
   "lib/ia-persistencia/migration-055.postgres.test.ts": { descartavel: "atual" },
@@ -89,6 +90,12 @@ const ESTADO_POSTGRES = {
   "lib/saas/hg8-tenant.postgres.test.ts": { descartavel: "atual", tambem: ["063"] },
   // Painel do desenvolvedor (063): concessão, interessadas, provisionamento, convites, vínculos, suspensão, senhas.
   "lib/desenvolvedor/painel-063.postgres.test.ts": { descartavel: "063" },
+  // #157: rebaixar a última administradora do Perfil com id próprio (≠ empresa SaaS), painel e Configurações > Usuários.
+  "lib/desenvolvedor/papel-ultima-administradora.postgres.test.ts": { descartavel: "063" },
+  // R2: remover da empresa e desativar o vínculo com Perfis de id próprio (≠ empresa SaaS), duas empresas, ambiguidade.
+  "lib/desenvolvedor/remocao-desativacao-perfil.postgres.test.ts": { descartavel: "063" },
+  // R2: suspensão e reativação do vínculo (concessões inertes e de volta; remoção de vínculo suspenso revoga).
+  "lib/desenvolvedor/suspensao-reativacao-perfil.postgres.test.ts": { descartavel: "063" },
   // Painel comercial (E5): 063 + 067 + 068 aplicadas pela própria suíte.
   "lib/desenvolvedor/comercial.postgres.test.ts": { descartavel: "063" },
   // Cadastro público (E6): 063 + 067 + 068 + 069 aplicadas pela própria suíte.
@@ -103,6 +110,8 @@ const ESTADO_POSTGRES = {
   "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079" },
   // Gratuidade da Kidmais com as chaves de produção ligadas, no schema vigente (até a 079).
   "lib/assinatura/kidmais-gratuidade.postgres.test.ts": { descartavel: "079" },
+  // Script de fixtures do painel em staging (scripts/fixture-painel-staging.cjs) no schema vigente (até a 079).
+  "lib/desenvolvedor/fixture-painel-staging.postgres.test.ts": { descartavel: "079" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

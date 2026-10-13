@@ -13,7 +13,7 @@ import PendenciasCobranca from './PendenciasCobranca';
 import { tomSituacao } from './Empresas';
 import { rotuloResultado } from './PainelResumo';
 
-type Cadastro = { nomeEmpresarial: string | null; documentoFiscal: string | null; responsavelNome: string | null; email: string | null; telefone: string | null; observacoes: string | null; interessadaId: string | null; implantacao: string | null; implantacaoConcluidaEm: string | null; revisao: number | null };
+type Cadastro = { nomeEmpresarial: string | null; documentoFiscal: string | null; responsavelNome: string | null; email: string | null; telefone: string | null; observacoes: string | null; interessadaId: string | null; implantacao: string | null; implantacaoConcluidaEm: string | null; revisao: number | null; origem?: 'INTERESSADA' | 'CADASTRO_PUBLICO' | 'DIRETO' | null };
 type Empresa = { id: string; codigo: string; nome: string; status: string; situacao: string; situacaoRotulo: string; criadoEm: string; atualizadoEm: string; implantacaoRotulo: string | null; cadastro: Cadastro | null };
 type Membro = { usuarioId: string; nome: string; email: string; papel: string; nivel: string; statusVinculo: 'PENDENTE' | 'ATIVA' | 'SUSPENSA' | 'REVOGADA'; contaAtiva: boolean; membershipId: string; vinculoDesde: string; atualizadoEm: string; outrasEmpresasAtivas: number };
 type Convite = { id: string; email: string; nomeSugerido: string | null; nivel: string; situacao: 'PENDENTE' | 'EXPIRADO' | 'ACEITO' | 'CANCELADO'; expiraEm: string; envios: number; ultimoEnvioEm: string | null; criadoEm: string; aceitoEm: string | null; canceladoEm: string | null };
@@ -109,7 +109,7 @@ export default function EmpresaFicha({ id }: { id: string }) {
                 <div><dt>Responsável</dt><dd>{e.cadastro.responsavelNome ?? '—'}</dd></div>
                 <div><dt>E-mail</dt><dd>{e.cadastro.email ?? '—'}</dd></div>
                 <div><dt>Telefone</dt><dd>{formatarTelefone(e.cadastro.telefone)}</dd></div>
-                <div><dt>Origem</dt><dd>{e.cadastro.interessadaId ? <Link href={`/desenvolvedor/interessadas/${e.cadastro.interessadaId}`}>Interessada convertida</Link> : 'Cadastro direto'}</dd></div>
+                <div><dt>Origem</dt><dd>{e.cadastro.interessadaId ? <Link href={`/desenvolvedor/interessadas/${e.cadastro.interessadaId}`}>Interessada convertida</Link> : e.cadastro.origem === 'CADASTRO_PUBLICO' ? 'Cadastro público (pela própria empresa)' : 'Cadastro direto'}</dd></div>
                 <div style={{ gridColumn: '1 / -1' }}><dt>Observações administrativas</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{e.cadastro.observacoes ?? '—'}</dd></div>
             </dl>}
             {!editando && <div className={estilos.acoesLinha} style={{ marginTop: 12 }}><button type="button" onClick={() => setEditando(true)}>{e.cadastro ? 'Editar cadastro' : 'Completar cadastro'}</button></div>}
@@ -138,7 +138,7 @@ export default function EmpresaFicha({ id }: { id: string }) {
         <section className={workspace.card} aria-labelledby="t-usuarios">
             <h2 id="t-usuarios">Usuários e vínculos com {e.nome}</h2>
             <p className={workspace.muted}>Cada linha é o vínculo da pessoa com esta empresa. Desativar aqui não afeta o acesso dela a outras empresas.</p>
-            {ficha.membros.length === 0 ? <div className={estilos.vazio}>Ninguém tem vínculo com esta empresa ainda. O acesso nasce quando um convite é aceito.</div> : <div className={admin.tableWrap}><table>
+            {ficha.membros.length === 0 ? <div className={estilos.vazio}>Ninguém tem vínculo com esta empresa ainda. O acesso nasce quando um convite é aceito.</div> : <div className={`${admin.tableWrap} ${estilos.tabela}`}><table>
                 <thead><tr><th>Pessoa</th><th>Papel</th><th>Vínculo</th><th>Outras empresas</th><th>Ações</th></tr></thead>
                 <tbody>{ficha.membros.map((m) => <tr key={m.membershipId}>
                     <td>{m.nome}<small className={workspace.muted}>{m.email}{!m.contaAtiva ? ' · conta desativada na plataforma' : ''}</small></td>
@@ -186,7 +186,7 @@ export default function EmpresaFicha({ id }: { id: string }) {
                 () => chamar<{ envio: Envio }>(`${base}/convites`, 'POST', { acao: 'convidar', dados }),
                 (d) => ({ tipo: d.envio.enviado ? 'ok' : 'alerta', texto: textoEnvio(d.envio, 'Convite') }), limpar,
             )} /> : <p className={workspace.muted}>Só uma empresa ativa recebe convites.</p>}
-            {ficha.convites.length === 0 ? <p className={workspace.muted}>Nenhum convite registrado.</p> : <div className={admin.tableWrap}><table>
+            {ficha.convites.length === 0 ? <p className={workspace.muted}>Nenhum convite registrado.</p> : <div className={`${admin.tableWrap} ${estilos.tabela}`}><table>
                 <thead><tr><th>E-mail</th><th>Papel</th><th>Situação</th><th>Envios</th><th>Ações</th></tr></thead>
                 <tbody>{ficha.convites.map((c) => <tr key={c.id}>
                     <td>{c.email}{c.nomeSugerido && <small className={workspace.muted}>{c.nomeSugerido}</small>}</td>
@@ -234,7 +234,7 @@ export default function EmpresaFicha({ id }: { id: string }) {
         <section className={workspace.card} aria-labelledby="t-atividade">
             <h2 id="t-atividade">Atividade administrativa</h2>
             <p className={workspace.muted}>Últimos registros. <Link href={`/desenvolvedor/atividade?empresaId=${e.id}`}>Ver toda a atividade desta empresa</Link>, com filtros por ação e período.</p>
-            {ficha.atividade.length === 0 ? <p className={workspace.muted}>Sem registros.</p> : <div className={admin.tableWrap}><table>
+            {ficha.atividade.length === 0 ? <p className={workspace.muted}>Sem registros.</p> : <div className={`${admin.tableWrap} ${estilos.tabela} ${estilos.tabelaData}`}><table>
                 <thead><tr><th>Quando</th><th>Ação</th><th>Quem</th><th>Resultado</th></tr></thead>
                 <tbody>{ficha.atividade.map((a) => <tr key={a.id}><td>{formatarData(a.criado_em)}</td><td>{rotuloAcao(a.acao)}</td><td>{a.ator ?? 'Sistema'}</td><td>{rotuloResultado(a.resultado)}</td></tr>)}</tbody>
             </table></div>}

@@ -47,7 +47,11 @@ const dia = (deslocamento: number) => {
     return d.toISOString().slice(0, 10);
 };
 
-/** Provedor falso com estado: assinaturas, cobranças e clientes por referência; `fora` = indisponível. */
+/**
+ * Provedor falso com estado: assinaturas, cobranças e clientes por referência; `fora` = indisponível.
+ * Como o Asaas (sonda de 10/10/2026), a assinatura removida continua legível por id com `deleted=true`; `naoEncontradas`
+ * simula a leitura 404 (id de outra conta, rota errada). `remocao` escolhe a resposta da exclusão; `remocoes` conta os DELETEs.
+ */
 class AsaasFalso implements ClienteAsaas {
     clientes = new Map<string, string>();
     assinaturas = new Map<string, AssinaturaProvedor>();
@@ -55,11 +59,18 @@ class AsaasFalso implements ClienteAsaas {
     vencimentoInicial = new Map<string, string>();
     criadas = 0;
     fora = false;
+    naoEncontradas = new Set<string>();
+    remocao: 'normal' | 'semConfirmar' | 'perderResposta' | 'recusar' | 'ausente' = 'normal';
+    remocoes = 0;
     private seq = 0;
     private checar(op: string) { if (this.fora) throw new AsaasFalhou(op, 503, 'HTTP'); }
     async buscarClientePorReferencia(ref: string) { this.checar('listar clientes'); const id = this.clientes.get(ref); return id ? { id, externalReference: ref } : null; }
     async criarCliente(i: { referencia: string }) { this.checar('criar cliente'); const id = `cus_${++this.seq}`; this.clientes.set(i.referencia, id); return { id, externalReference: i.referencia }; }
-    async obterAssinatura(id: string) { this.checar('consultar assinatura'); const a = this.assinaturas.get(id); return a && !a.deleted ? { ...a } : null; }
+    async obterAssinatura(id: string) {
+        this.checar('consultar assinatura');
+        const a = this.assinaturas.get(id);
+        return a && !this.naoEncontradas.has(id) ? { ...a, ...(a.deleted ? { status: 'INACTIVE' } : {}) } : null;
+    }
     async listarAssinaturasPorReferencia(ref: string) { this.checar('listar assinaturas'); return [...this.assinaturas.values()].filter((a) => a.externalReference === ref && !a.deleted); }
     async criarAssinatura(i: { cliente: string; ciclo: 'MENSAL' | 'ANUAL'; vencimento: string; referencia: string }) {
         this.checar('criar assinatura');
@@ -73,11 +84,17 @@ class AsaasFalso implements ClienteAsaas {
     async listarCobrancasDaAssinatura(id: string) { this.checar('listar cobranças'); return (this.cobrancas.get(id) ?? []).map((c) => ({ ...c })); }
     async removerAssinatura(id: string) {
         this.checar('remover assinatura');
+        this.remocoes += 1;
+        if (this.remocao === 'recusar') throw new AsaasFalhou('remover assinatura', 400, 'HTTP');
+        // O cliente real devolve `removida: false` para 200 sem `deleted` e para 404 sem ausência comprovada na releitura.
+        if (this.remocao === 'semConfirmar') return { removida: false };
         const a = this.assinaturas.get(id);
+        if (this.remocao === 'ausente') { if (a) a.deleted = true; return { removida: true, ausente: true }; }
         if (a) {
             a.deleted = true;
             this.cobrancas.set(id, (this.cobrancas.get(id) ?? []).filter((c) => ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'].includes(c.status)));
         }
+        if (this.remocao === 'perderResposta') throw new AsaasFalhou('remover assinatura', null, 'TEMPO_ESGOTADO');
         return { removida: true };
     }
     pagar(sub: string, idx = 0, status = 'RECEIVED') { const c = this.cobrancas.get(sub)![idx]; c.status = status; c.paymentDate = c.dueDate; }
@@ -134,8 +151,9 @@ test.before(async () => {
     process.env.ADMIN_AUTH_SECRET = 'segredo-sintetico-da-suite-e8-com-mais-de-32-caracteres';
     const servico = carregarModulo('lib/autenticacao/service.ts', { 'db/postgres': { db: () => client, withTransaction: async (w: (c: Client) => unknown) => w(client) } }, new Map()) as { consumirLimite: ConsumirLimite };
     consumirLimite = servico.consumirLimite;
-    await q(readFileSync(M067, 'utf8'));
-    await q(readFileSync(M068, 'utf8'));
+    // Estado `atual` (até a 057): instala 067/068; estado `075`: já instaladas pela receita.
+    if ((await q("SELECT to_regclass('public.empresa_assinaturas') IS NULL AS ok")).rows[0].ok) await q(readFileSync(M067, 'utf8'));
+    if ((await q("SELECT to_regclass('public.cobranca_eventos') IS NULL AS ok")).rows[0].ok) await q(readFileSync(M068, 'utf8'));
     hoje = (await q("SELECT to_char(clock_timestamp() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS d")).rows[0].d;
     ids.usuario = (await q("INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Gestão E8', $2, 'REPRESENTANTE_AUTORIZADO', true) RETURNING id",
         [`e8${randomBytes(3).toString('hex')}@example.test`, `scrypt$v=1$N=131072$r=8$p=1$${'A'.repeat(22)}==$${'B'.repeat(86)}==`])).rows[0].id;
@@ -265,8 +283,10 @@ test('cancelamento: exige senha recente; CANCELADA_FIM_PERIODO com acesso até o
     await webhook(evPagamento('evt_a1_reentregue', 'PAYMENT_CONFIRMED', ids.subA, ids.a));
     await webhook(evAssinatura('evt_a_created', 'SUBSCRIPTION_CREATED', ids.subA, ids.a));
     assert.equal((await linha(ids.a)).situacao, 'CANCELADA_FIM_PERIODO');
-    // O tempo passa (simulado no período gravado): a reconsulta encerra e o paywall passa a somente leitura.
+    // O tempo passa (simulado no período gravado e no vencimento da cobrança paga, que a assinatura removida continua
+    // mostrando, como no Asaas): a reconsulta encerra e o paywall passa a somente leitura.
     await q("UPDATE empresa_assinaturas SET periodo_atual_fim = clock_timestamp() - interval '1 day' WHERE empresa_id = $1", [ids.a]);
+    for (const c of provedor.cobrancas.get(ids.subA)!) c.dueDate = dia(-40);
     const s = await emTx(() => sincronizarEmpresa(client as never, ids.a, { provedor }, { tipo: 'RECONCILIACAO' }));
     assert.deepEqual([s.resultado, (s as { depois: string }).depois], ['SINCRONIZADA', 'ENCERRADA']);
     assert.deepEqual(await nivel(ids.a), ['SOMENTE_LEITURA', 'ENCERRADA']);
@@ -288,4 +308,100 @@ test('isolamento: eventos de A e C nunca tocam B; evento com referência de B se
     // Nenhum dado pessoal ou valor do corpo foi gravado nos eventos.
     const colunas = JSON.stringify((await q('SELECT * FROM cobranca_eventos')).rows);
     assert.ok(!colunas.includes('99.9') && !colunas.includes('cus_x'));
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// P1 (antes de production): leitura 404 na sincronização e cancelamento sem confirmação.
+
+/** Empresa nova em ATIVA, com período pago vigente (checkout + pagamento confirmado pelo webhook). */
+async function empresaAtiva(documento: string) {
+    const id = await novaEmpresa(documento);
+    ids.atual = id;
+    await iniciarAssinatura(await sessao(), null, { ciclo: 'MENSAL' }, ctx(), deps());
+    const sub = (await linha(id)).provedor_assinatura_id as string;
+    provedor.pagar(sub);
+    await webhook(evPagamento(`evt_${sub}_pago`, 'PAYMENT_RECEIVED', sub, id));
+    assert.equal((await linha(id)).situacao, 'ATIVA');
+    return { id, sub };
+}
+const contar = async (acao: string, empresaId: string) =>
+    (await q('SELECT count(*)::int AS n FROM auditoria WHERE acao = $1 AND entidade_id = $2', [acao, empresaId])).rows[0].n as number;
+
+test('P1 sincronização: leitura 404 NÃO muda a situação (período vigente ou vencido); evento FALHOU reprocessável; registro sem confirmação; volta quando a leitura confirma', async () => {
+    const { id, sub } = await empresaAtiva('60123456000170');
+    const sincronizadas = await contar('ASSINATURA_SINCRONIZADA', id);
+    provedor.naoEncontradas.add(sub);
+    const r = await webhook(evPagamento('evt_p1_404', 'PAYMENT_UPDATED', sub, id));
+    assert.deepEqual([r.status, r.processados[0].situacao, r.processados[0].motivo], [200, 'FALHOU', 'ASSINATURA_NAO_ENCONTRADA']);
+    const l = await linha(id);
+    assert.deepEqual([l.situacao, l.provedor_situacao], ['ATIVA', 'ACTIVE'], 'nada muda: nem situação nem situação no provedor');
+    assert.deepEqual(await nivel(id), ['COMPLETO', 'ASSINATURA_ATIVA']);
+    assert.equal(await contar('ASSINATURA_SINCRONIZADA', id), sincronizadas, 'nenhuma transição auditada');
+    const registro = (await q("SELECT dados_depois FROM auditoria WHERE acao = 'ASSINATURA_SINCRONIZACAO_SEM_CONFIRMACAO' AND entidade_id = $1", [id])).rows;
+    assert.deepEqual(registro.map((x) => [x.dados_depois.motivo, x.dados_depois.situacao, x.dados_depois.via]), [['ASSINATURA_NAO_ENCONTRADA', 'ATIVA', 'WEBHOOK']]);
+    const ev = (await q("SELECT id, situacao, tentativas, ultimo_erro, processado_em FROM cobranca_eventos WHERE evento_id = 'evt_p1_404'")).rows[0];
+    assert.deepEqual([ev.situacao, ev.tentativas, ev.ultimo_erro, ev.processado_em], ['FALHOU', 1, 'ASSINATURA_NAO_ENCONTRADA', null]);
+    // Período já vencido (renovação ainda não lida): antes, a leitura 404 encerrava; agora nada muda.
+    await q("UPDATE empresa_assinaturas SET periodo_atual_fim = clock_timestamp() - interval '1 day' WHERE empresa_id = $1", [id]);
+    const s = await emTx(() => sincronizarEmpresa(client as never, id, { provedor }, { tipo: 'RECONCILIACAO' }));
+    assert.deepEqual(s, { resultado: 'SEM_CONFIRMACAO', motivo: 'ASSINATURA_NAO_ENCONTRADA' });
+    assert.equal((await linha(id)).situacao, 'ATIVA');
+    // A leitura volta a confirmar: o mesmo evento é reprocessado e o período pago volta a valer.
+    provedor.naoEncontradas.delete(sub);
+    assert.equal((await emTx(() => processarEvento(client as never, ev.id, { provedor }))).situacao, 'PROCESSADO');
+    assert.deepEqual([(await linha(id)).situacao, (await linha(id)).periodo], ['ATIVA', fimDoCiclo(hoje)]);
+});
+
+test('P1 cancelamento sem confirmação: nada concluído (sem ASSINATURA_CANCELADA), registro neutro, 503; nenhum caminho automático repete o DELETE; a releitura aplica depois', async () => {
+    const { id, sub } = await empresaAtiva('70234567000108');
+    ids.atual = id;
+    const delete0 = provedor.remocoes;
+    provedor.remocao = 'semConfirmar';
+    try {
+        await assert.rejects(cancelarAssinatura(await sessao(), null, { confirmar: true, motivo: 'P1 sem confirmação' }, ctx(), deps()),
+            (e: { code?: string; httpStatus?: number }) => e.code === 'COBRANCA_RESULTADO_INCERTO' && e.httpStatus === 503);
+        assert.equal(provedor.remocoes - delete0, 1);
+        assert.deepEqual([(await linha(id)).situacao, await contar('ASSINATURA_CANCELADA', id)], ['ATIVA', 0]);
+        const neutro = (await q("SELECT justificativa, dados_antes, dados_depois FROM auditoria WHERE acao = 'ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO' AND entidade_id = $1", [id])).rows;
+        assert.deepEqual(neutro.map((x) => [x.justificativa, x.dados_antes.situacao, x.dados_depois.situacao, x.dados_depois.via]), [['P1 sem confirmação', 'ATIVA', 'ATIVA', 'GESTAO']]);
+        // Caminhos automáticos (reconciliação da empresa e eventos pendentes): nenhum DELETE novo.
+        await emTx(() => sincronizarEmpresa(client as never, id, { provedor }, { tipo: 'RECONCILIACAO' }));
+        for (const pendente of (await q("SELECT id FROM cobranca_eventos WHERE situacao IN ('PENDENTE', 'FALHOU') AND empresa_id = $1", [id])).rows)
+            await emTx(() => processarEvento(client as never, pendente.id, { provedor }));
+        assert.equal(provedor.remocoes - delete0, 1, 'nenhum DELETE automático');
+        assert.equal((await linha(id)).situacao, 'ATIVA');
+
+        // Resposta perdida (a exclusão aconteceu no provedor): também não conclui; a releitura com `deleted` aplica depois.
+        provedor.remocao = 'perderResposta';
+        await assert.rejects(cancelarAssinatura(await sessao(), null, { confirmar: true, motivo: 'P1 resposta perdida' }, ctx(), deps()),
+            (e: { code?: string }) => e.code === 'COBRANCA_RESULTADO_INCERTO');
+        assert.equal(provedor.remocoes - delete0, 2, 'o segundo DELETE é o novo pedido da Gestão, não uma repetição automática');
+        assert.equal(provedor.assinaturas.get(sub)!.deleted, true);
+        assert.deepEqual([(await linha(id)).situacao, await contar('ASSINATURA_CANCELADA', id), await contar('ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO', id)], ['ATIVA', 0, 2]);
+        const s = await emTx(() => sincronizarEmpresa(client as never, id, { provedor }, { tipo: 'RECONCILIACAO' }));
+        assert.deepEqual([s.resultado, (s as { depois?: string }).depois], ['SINCRONIZADA', 'CANCELADA_FIM_PERIODO']);
+        assert.equal(provedor.remocoes - delete0, 2, 'a releitura não exclui');
+        assert.equal(await contar('ASSINATURA_CANCELADA', id), 0, 'a situação vem da releitura; o cancelamento pela Gestão não é registrado como concluído');
+    }
+    finally {
+        provedor.remocao = 'normal';
+    }
+});
+
+test('P1 cancelamento: recusa definitiva → COBRANCA_FALHOU sem registro; ausência comprovada → concluído com confirmação neutra', async () => {
+    const { id } = await empresaAtiva('81345678000108');
+    ids.atual = id;
+    try {
+        provedor.remocao = 'recusar';
+        await assert.rejects(cancelarAssinatura(await sessao(), null, { confirmar: true }, ctx(), deps()), (e: { code?: string }) => e.code === 'COBRANCA_FALHOU');
+        assert.deepEqual([(await linha(id)).situacao, await contar('ASSINATURA_CANCELADA', id), await contar('ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO', id)], ['ATIVA', 0, 0]);
+        provedor.remocao = 'ausente';
+        const r = await cancelarAssinatura(await sessao(), null, { confirmar: true, motivo: 'P1 ausente' }, ctx(), deps());
+        assert.equal(r.situacao, 'CANCELADA_FIM_PERIODO');
+        const concluido = (await q("SELECT dados_depois FROM auditoria WHERE acao = 'ASSINATURA_CANCELADA' AND entidade_id = $1", [id])).rows;
+        assert.deepEqual(concluido.map((x) => [x.dados_depois.situacao, x.dados_depois.confirmacao]), [['CANCELADA_FIM_PERIODO', 'AUSENCIA_NA_RELEITURA_DA_EXCLUSAO']]);
+    }
+    finally {
+        provedor.remocao = 'normal';
+    }
 });

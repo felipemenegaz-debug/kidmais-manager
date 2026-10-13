@@ -74,6 +74,10 @@ class BancoFalso {
         if (s.startsWith('SELECT id, evento_id, assinatura_provedor_id FROM cobranca_eventos WHERE empresa_id = $1::uuid'))
             return rows(this.eventos.filter((e) => e.evento_id.startsWith('kidmais:') && e.evento_id.includes(String(p[0])) && ['PENDENTE', 'FALHOU'].includes(e.situacao))
                 .map((e) => ({ id: e.id, evento_id: e.evento_id, assinatura_provedor_id: null })));
+        // marcadores de exclusão abertos da empresa (assinaturasComRemocaoIncerta): este banco falso não tem nenhum
+        if (s.startsWith('SELECT id, assinatura_provedor_id FROM cobranca_eventos'))
+            return rows(this.eventos.filter((e) => e.evento_id.startsWith('kidmais:remocao:') && e.evento_id.includes(String(p[0])) && ['PENDENTE', 'FALHOU'].includes(e.situacao))
+                .map((e) => ({ id: e.id, assinatura_provedor_id: 'sub_desconhecida' })));
         if (s.startsWith("UPDATE cobranca_eventos SET situacao = 'PROCESSADO', processado_em = clock_timestamp(), ultimo_erro = $2")) {
             Object.assign(this.eventos.find((x) => x.id === p[0])!, { situacao: 'PROCESSADO', processado_em: this.agora, ultimo_erro: p[1] });
             return rows([]);
@@ -109,6 +113,8 @@ class ProvedorFalso implements ProvedorLeitura {
     assinaturas = new Map<string, AssinaturaProvedor | null>();
     cobrancas = new Map<string, CobrancaProvedor[]>();
     fora = false;
+    /** Lista de cobranças maior que o limite conferido pelo cliente (LISTA_INCOMPLETA). */
+    cobrancasIncompletas = false;
     consultas = 0;
     async obterAssinatura(id: string) {
         this.consultas += 1;
@@ -117,6 +123,7 @@ class ProvedorFalso implements ProvedorLeitura {
     }
     async listarCobrancasDaAssinatura(id: string) {
         if (this.fora) throw new AsaasFalhou('listar cobranças', 503, 'HTTP');
+        if (this.cobrancasIncompletas) throw new AsaasFalhou('listar cobranças', null, 'LISTA_INCOMPLETA');
         return this.cobrancas.get(id) ?? [];
     }
 }
@@ -218,8 +225,9 @@ test('fora de ordem: "pago" depois de "cancelado" → estado final igual ao do p
     const { banco, agendados, deps } = ambiente();
     banco.assinaturas.set(EMP_A, novaAssinatura(EMP_A));
     const provedor = new ProvedorFalso();
-    // Estado atual do provedor: pagou e depois cancelou (assinatura removida → 404).
-    provedor.assinaturas.set('sub_1111', null);
+    // Estado atual do provedor: pagou e depois cancelou. A removida é lida com `deleted=true` (como no Asaas; 404 não é
+    // remoção, ver o teste de leitura 404 abaixo).
+    provedor.assinaturas.set('sub_1111', { ...sub('sub_1111', EMP_A, 'INACTIVE'), deleted: true });
     banco.assinaturas.get(EMP_A)!.situacao = 'ATIVA';
     Object.assign(banco.assinaturas.get(EMP_A)!, { ciclo: 'MENSAL', periodo_atual_fim: '2026-11-20T03:00:00.000Z' });
     await receberWebhookAsaas(req({ id: 'evt_del', event: 'SUBSCRIPTION_DELETED', dateCreated: 'x', subscription: { id: 'sub_1111', externalReference: EMP_A } }), deps);
@@ -230,6 +238,21 @@ test('fora de ordem: "pago" depois de "cancelado" → estado final igual ao do p
     assert.equal(banco.assinaturas.get(EMP_A)!.situacao, 'CANCELADA_FIM_PERIODO');
     assert.equal(banco.assinaturas.get(EMP_A)!.provedor_situacao, 'DELETED');
     assert.deepEqual(banco.eventos.map((e) => e.situacao), ['PROCESSADO', 'PROCESSADO']);
+});
+
+test('P1: leitura 404 (chave ou id de outra conta) → situação mantida (vigente ou vencida), evento FALHOU reprocessável, registro sem confirmação', async () => {
+    for (const periodo of ['2026-11-20T03:00:00.000Z', '2020-01-01T03:00:00.000Z']) {
+        const { banco, agendados, deps } = ambiente();
+        banco.assinaturas.set(EMP_A, novaAssinatura(EMP_A, { situacao: 'ATIVA', ciclo: 'MENSAL', periodo_atual_fim: periodo, provedor_situacao: 'ACTIVE' }));
+        const provedor = new ProvedorFalso(); // nenhuma assinatura conhecida: toda leitura responde 404 (null)
+        await receberWebhookAsaas(req(evento('evt_404', 'PAYMENT_RECEIVED', 'sub_1111', EMP_A)), deps);
+        const r = await processarEvento(banco, agendados[0], { provedor });
+        assert.deepEqual([r.situacao, (r as { motivo?: string }).motivo], ['FALHOU', 'ASSINATURA_NAO_ENCONTRADA'], periodo);
+        const linha = banco.assinaturas.get(EMP_A)!;
+        assert.deepEqual([linha.situacao, linha.provedor_situacao, linha.cancelada_em, linha.encerrada_em], ['ATIVA', 'ACTIVE', null, null], periodo);
+        assert.deepEqual(banco.auditoria.map((a) => a.acao), ['ASSINATURA_SINCRONIZACAO_SEM_CONFIRMACAO'], periodo);
+        assert.deepEqual(banco.eventos.map((e) => e.situacao), ['FALHOU'], periodo);
+    }
 });
 
 test('tipo desconhecido → IGNORADO; empresa desconhecida → IGNORADO; evento de A nunca toca B', async () => {
@@ -276,6 +299,20 @@ test('provedor fora do ar → FALHOU com tentativa contada; nova tentativa depoi
     assert.equal(agendados.length, 2);
     assert.equal((await processarEvento(banco, agendados[1], { provedor })).situacao, 'PROCESSADO');
     assert.deepEqual([banco.eventos[0].situacao, banco.eventos[0].tentativas, banco.assinaturas.get(EMP_A)!.situacao], ['PROCESSADO', 2, 'ATIVA']);
+});
+
+test('lista de cobranças incompleta → FALHOU com LISTA_INCOMPLETA (revisão humana, não "indisponível"); nada aplicado', async () => {
+    const { banco, agendados, deps } = ambiente();
+    banco.assinaturas.set(EMP_A, novaAssinatura(EMP_A));
+    const provedor = new ProvedorFalso();
+    provedor.assinaturas.set('sub_1111', sub('sub_1111', EMP_A));
+    provedor.cobrancas.set('sub_1111', [pago('p1', '2026-10-20')]);
+    provedor.cobrancasIncompletas = true;
+    await receberWebhookAsaas(req(evento('evt_1', 'PAYMENT_RECEIVED', 'sub_1111', EMP_A)), deps);
+    const falha = await processarEvento(banco, agendados[0], { provedor });
+    assert.equal(falha.situacao, 'FALHOU');
+    assert.match(banco.eventos[0].ultimo_erro ?? '', /^LISTA_INCOMPLETA: listar cobranças \(mais registros que o limite conferido; revisão humana\)$/);
+    assert.equal(banco.assinaturas.get(EMP_A)!.situacao, 'TESTE', 'nada aplicado com pagamentos parciais');
 });
 
 test('retorno do checkout sem webhook: iniciar a assinatura grava só os ids do provedor; situação e acesso não mudam', async () => {
