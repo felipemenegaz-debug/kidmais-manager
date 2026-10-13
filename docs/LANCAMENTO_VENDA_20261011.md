@@ -1,6 +1,8 @@
 # Lançamento da venda — candidata única, testes finais e publicação em produção (11/10/2026)
 
-**Status:** validação local concluída; candidata publicada em staging, com health e vitrine 200. P0 de produção somente leitura concluído: faltam 074a–079 e há cinco bloqueios globais ativos futuros. Produção sem alterações. [Evidência P0](evidencias/diagnostico-production-codex-20261011.md). Respeitar autorizações vigentes de Felipe e confirmar alterações de alvo/escopo antes de executar.
+**Roteiro do que falta (13/10/2026): [RODADA_FINAL_LANCAMENTO_20261013.md](RODADA_FINAL_LANCAMENTO_20261013.md).** E0 PASS em staging.
+
+**Status (11/10):** validação local concluída; candidata publicada em staging, com health e vitrine 200. P0 de produção somente leitura concluído: faltam 074a–079 e há cinco bloqueios globais ativos futuros. Produção sem alterações. [Evidência P0](evidencias/diagnostico-production-codex-20261011.md). Respeitar autorizações vigentes de Felipe e confirmar alterações de alvo/escopo antes de executar.
 
 **P0b concluído:** seis etapas somente leitura PASS, incluindo prechecks 074a e 076–079. Nenhuma outra empresa receberia cópias na 078. Felipe confirmou que os cinco bloqueios pertencem à Kidmais inteira. [Evidência](evidencias/preflight-production-codex-20261011.md). Reparo delimitado preparado em `database/repairs/20261011_lancamento_bloqueios_kidmais.sql`, ensaiado em PostgreSQL sintético, sem aplicação em produção; exige backup/PITR, janela e autorização de escrita. Precheck 075 depende da aplicação de 074a.
 
