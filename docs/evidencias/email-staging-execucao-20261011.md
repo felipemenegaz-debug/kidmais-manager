@@ -11,3 +11,19 @@ Cron staging crn-db493i142hec73ahmoe0: LIVE 27e072237442e2f249e1e93d85a74e62b6eb
 5386a4d e o SHA do deploy de email; E0/cadastro/pagamentos ainda nao comprovados por esta rodada. Nao representa homologacao final para producao.
 
 Evidencia do painel salvo: email-staging-salvo-20261011.png. Nenhuma acao em producao.
+
+## Conclusão — 13/10/2026 (pacote revalidado para e819772)
+
+Autorização de Felipe para o envio com `e819772`. Pré-condições lidas antes (05:36Z): `origin/staging` e LIVE
+`e819772dcf71ebd2b47c02ed38fcf5ade49d0b9d` (`dep-db66sg7lk1mc73c59od0`), sem deploy em andamento, health 200. Painel de variáveis não
+lido pelo agente (navegador sem sessão no Render); as condições equivalentes (serviço, SHA, `EMAIL_PROVIDER`, `EMAIL_REMETENTE`,
+formato da chave, flags de abertura desligadas, registro `wx` inexistente) são conferidas pelo próprio script antes de enviar.
+
+Felipe executou o comando no Shell do web staging e confirmou o **recebimento** em `felipemenegaz@gmail.com` da mensagem
+“[TESTE] Kidmais Manager: e-mail de staging”, com o texto esperado (sem link, sem conta, sem cobrança). A saída do Shell
+(`idExterno`) não foi transcrita para esta evidência; o registro `data/lancamento-email-20261011/teste-envio.json` permanece no disco
+de staging e impede repetição.
+
+**Resultado E0: PASS — transporte e entrega comprovados** pelo remetente `nao-responda@notificacoes.kidmaisfestas.com` (domínio
+verificado). As três variáveis de e-mail permanecem no web staging; flags de cadastro, planos e cotação continuam desligadas. Nenhuma
+conta, empresa ou cobrança criada. Nenhuma ação em produção. Próximo: S3 (cadastro real) e S4 (pagamentos sandbox), com autorização própria.

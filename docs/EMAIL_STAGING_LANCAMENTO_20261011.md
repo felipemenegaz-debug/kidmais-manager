@@ -21,7 +21,7 @@ Execução (requer nova autorização de Felipe para o envio): Felipe cola o com
 
 ---
 
-Status: preparado, nao executado. Etapa anterior ao teste de cadastro completo; nao substitui S3 nem S4.
+Status: **PASS em 13/10/2026** (envio único em `e819772`, recebimento confirmado por Felipe; [evidência](evidencias/email-staging-execucao-20261011.md)). Histórico: preparado. Etapa anterior ao teste de cadastro completo; nao substitui S3 nem S4.
 
 E0 autorizado por Felipe em 11/10/2026. Revalidacao: origin/staging e LIVE continuam em 5386a4d, auto-deploy OFF, sem deploy concorrente. Tres linhas preparadas no editor do web staging, com RESEND_API_KEY vazia. Aguardando entrada e Save only pelo proprio Felipe; nada persistido, nenhum deploy/Shell/envio executado. Evidencia: `evidencias/email-staging-chave-pendente-20261011.png`. A autorizacao permanece vigente para continuar o pacote depois da entrada da chave, desde que as precondicoes ainda confiram.
 
