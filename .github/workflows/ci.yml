@@ -50,3 +50,6 @@ jobs:
 
       - name: Serviço de convites — cotas, idempotência e acesso com dependências simuladas
         run: node --test lib/convites/service.test.cjs
+
+      - name: Convites — download da arte completa preserva dimensões, sem recorte ou textos sobrepostos
+        run: node --test scripts/convites-exportacao-completa.test.cjs
