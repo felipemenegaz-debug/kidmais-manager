@@ -16,12 +16,23 @@ import { ORIGEM_DESCONHECIDA } from "./origens.ts";
  *   contratos           contratos ASSINADOS no período (status atual ASSINADO), pela origem da negociação;
  *   cancelamentos       contratos cancelados no período (linha separada; não são descontados de "contratos");
  *   receita contratada  soma do valor contratado vigente dos contratos assinados no período (ajuste contratual > valor do
- *                       pagamento > snapshot da versão), em centavos;
+ *                       pagamento > snapshot da versão), em centavos. Contrato SEM valor legível nas três fontes não vira
+ *                       zero (correção R3): é contado em `contratosSemValor`; a receita fica COMPLETA (todos com valor),
+ *                       PARCIAL (subtotal só dos conhecidos) ou INDISPONIVEL (nenhum valor conhecido → null). Valor 0
+ *                       legível é zero real. Sem contrato no período, 0 (não há receita a somar);
  *   receita recebida    recebimentos CONFIRMADOS no período − estornos CONFIRMADOS no período − devoluções CONCLUÍDAS no
  *                       período, de qualquer contrato, pela origem da negociação do contrato;
  *   conversão           dos contatos RECEBIDOS no período, quantos estão vinculados a negociação com contrato ASSINADO
  *                       hoje ÷ contatos recebidos no período. Sem contato no período: indisponível (null), nunca 0%.
  */
+export type SituacaoReceita = "COMPLETA" | "PARCIAL" | "INDISPONIVEL";
+
+/** Situação da receita contratada a partir dos contadores (pura). */
+export function situacaoReceita(contratos: number, semValor: number): SituacaoReceita {
+  if (semValor <= 0) return "COMPLETA";
+  return semValor >= contratos ? "INDISPONIVEL" : "PARCIAL";
+}
+
 export type FiltroPeriodo = { de: string; ate: string; unidadeId: string | null };
 
 export type LinhaPainel = {
@@ -37,7 +48,11 @@ export type LinhaPainel = {
   negociacoes: number;
   contratos: number;
   cancelamentos: number;
-  receitaContratadaCentavos: number;
+  /** Soma dos valores conhecidos; null quando há contratos e nenhum tem valor legível. */
+  receitaContratadaCentavos: number | null;
+  /** Contratos assinados no período sem valor legível (não somados como zero). */
+  contratosSemValor: number;
+  receitaContratadaSituacao: SituacaoReceita;
   receitaRecebidaCentavos: number;
   conversao: number | null;
 };
@@ -152,7 +167,8 @@ function chaveDe(campanhaId: string | null, origem: string | null) {
 function vazia(chave: string, campanhaId: string | null, origemCodigo: string | null): LinhaPainel {
   return {
     chave, campanhaId, campanhaNome: null, origemCodigo, orcamentoCentavos: null, cliquesLink: 0, cliquesWhatsapp: 0, contatos: 0,
-    contatosComContrato: 0, negociacoes: 0, contratos: 0, cancelamentos: 0, receitaContratadaCentavos: 0, receitaRecebidaCentavos: 0, conversao: null,
+    contatosComContrato: 0, negociacoes: 0, contratos: 0, cancelamentos: 0, receitaContratadaCentavos: 0, contratosSemValor: 0, receitaContratadaSituacao: "COMPLETA",
+    receitaRecebidaCentavos: 0, conversao: null,
   };
 }
 
@@ -181,7 +197,13 @@ export function montarPainel(
   }
   for (const c of dados.contatos) { const l = linha(c.campanha_id, c.origem_codigo); l.contatos += Number(c.n); l.contatosComContrato += Number(c.extra ?? 0); }
   for (const c of dados.negociacoes) linha(c.campanha_id, c.origem_codigo).negociacoes += Number(c.n);
-  for (const c of dados.contratos) { const l = linha(c.campanha_id, c.origem_codigo); l.contratos += Number(c.n); l.receitaContratadaCentavos += Number(c.valor ?? 0); }
+  for (const c of dados.contratos) {
+    const l = linha(c.campanha_id, c.origem_codigo);
+    l.contratos += Number(c.n);
+    // `valor` = soma só dos valores legíveis (SUM ignora nulos); `extra` = contratos sem valor legível.
+    l.receitaContratadaCentavos = (l.receitaContratadaCentavos ?? 0) + Number(c.valor ?? 0);
+    l.contratosSemValor += Number(c.extra ?? 0);
+  }
   for (const c of dados.cancelados) linha(c.campanha_id, c.origem_codigo).cancelamentos += Number(c.n);
   for (const c of dados.recebido) linha(c.campanha_id, c.origem_codigo).receitaRecebidaCentavos += Number(c.valor ?? 0);
   for (const camp of dados.campanhas) {
@@ -195,8 +217,13 @@ export function montarPainel(
   for (const l of linhas.values()) {
     l.conversao = l.contatos > 0 ? l.contatosComContrato / l.contatos : null;
     for (const campo of ["cliquesLink", "cliquesWhatsapp", "contatos", "contatosComContrato", "negociacoes", "contratos", "cancelamentos",
-      "receitaContratadaCentavos", "receitaRecebidaCentavos"] as const) total[campo] += l[campo];
+      "contratosSemValor", "receitaRecebidaCentavos"] as const) total[campo] += l[campo];
+    total.receitaContratadaCentavos = (total.receitaContratadaCentavos ?? 0) + (l.receitaContratadaCentavos ?? 0);
+    l.receitaContratadaSituacao = situacaoReceita(l.contratos, l.contratosSemValor);
+    if (l.receitaContratadaSituacao === "INDISPONIVEL") l.receitaContratadaCentavos = null;
   }
+  total.receitaContratadaSituacao = situacaoReceita(total.contratos, total.contratosSemValor);
+  if (total.receitaContratadaSituacao === "INDISPONIVEL") total.receitaContratadaCentavos = null;
   total.conversao = total.contatos > 0 ? total.contatosComContrato / total.contatos : null;
   const ordem = (l: LinhaPainel) => (l.campanhaId ? 0 : l.origemCodigo === ORIGEM_DESCONHECIDA ? 2 : l.origemCodigo === SEM_REGISTRO ? 3 : 1);
   return {

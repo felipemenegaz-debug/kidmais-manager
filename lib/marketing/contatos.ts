@@ -11,7 +11,7 @@ import {
 import { campanhaPorCodigo, exigirUnidadeDaEmpresa } from "./campanhas.ts";
 import { CANAIS_ATENDIMENTO, CODIGO_ORIGEM, exigirOrigemValida, type CanalAtendimento } from "./origens.ts";
 import type { CapturaCampanha } from "./utm.ts";
-import { autorizarPeloFormulario } from "./automacoes/preferencias.ts";
+import { registrarAutorizacaoDoFormulario, type ResultadoFormulario } from "./automacoes/preferencias.ts";
 
 export const ORIGEM_SITE = "SITE_PUBLICO";
 export const STATUS_CONTATO = ["NOVO", "EM_ATENDIMENTO", "CONVERTIDO", "DESCARTADO"] as const;
@@ -91,11 +91,14 @@ export async function capturarContatoPublico(
       dadosDepois: { origem: ORIGEM_SITE, contatoMarketingId: contatoId }, origem: ORIGEM_SITE,
     }, tx);
   }
-  // Consentimento só quando marcado E com telefone; nunca desfaz descadastro (084; ausente = ignorado).
-  if (entrada.autorizaWhatsapp === true && entrada.telefone) await autorizarPeloFormulario(tx, site.empresaId, clienteId);
+  // Consentimento (R1): vale só para o número INFORMADO no pedido. Se o cadastro vinculado não tem esse número (ex.:
+  // reaproveitado pelo e-mail), fica PENDENTE para a equipe confirmar; nunca autoriza outro número do cadastro, nunca
+  // altera o CRM e nunca desfaz descadastro (084 ausente = ignorado).
+  const autorizacao: ResultadoFormulario | null = entrada.autorizaWhatsapp === true && entrada.telefone
+    ? await registrarAutorizacaoDoFormulario(tx, site.empresaId, clienteId, contatoId, entrada.telefone) : null;
   await registrarEventoHistorico({
     clienteId, tipoEvento: "CONTATO_MARKETING_RECEBIDO", origem: ORIGEM_SITE, entidadeTipo: "MARKETING_CONTATO", entidadeId: contatoId,
-    detalhe: "Pedido de orçamento recebido pelo site.", metadata: { canal: "FORMULARIO_SITE", campanhaId: campanha?.id ?? null, clienteNovo: novo },
+    detalhe: "Pedido de orçamento recebido pelo site.", metadata: { canal: "FORMULARIO_SITE", campanhaId: campanha?.id ?? null, clienteNovo: novo, autorizacaoWhatsapp: autorizacao },
   }, tx);
   return { contatoId, repetido: false };
 }

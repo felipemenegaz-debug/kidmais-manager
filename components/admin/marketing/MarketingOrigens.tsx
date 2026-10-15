@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { ContatoLista, DetalheContato } from '@/lib/marketing/contatos';
 import type { OpcaoOrigem } from '@/lib/marketing/origens';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { dataBr, dataHoraBr, ROTULO_STATUS_CONTATO } from '@/lib/marketing/apresentacao';
+import { clientesDaBusca, dataBr, dataHoraBr, ROTULO_STATUS_CONTATO } from '@/lib/marketing/apresentacao';
 import { AdminPrimaryButton } from '../AdminPrimaryButton';
 import { CabecalhoMarketing, EstadoCarga, enviarMarketing, novaChave, useMarketing } from './comum';
 import styles from './marketing.module.css';
@@ -84,8 +84,7 @@ function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar: 
     if (busca.trim().length < 2) return;
     try {
       const corpo = await (await adminFetch(`/api/admin/clientes?q=${encodeURIComponent(busca.trim())}&limit=10`)).json();
-      const lista = Array.isArray(corpo?.data) ? corpo.data : Array.isArray(corpo?.data?.itens) ? corpo.data.itens : [];
-      setResultados(lista.map((c: { id: string; nomeCompleto?: string; nome_completo?: string }) => ({ id: c.id, nomeCompleto: c.nomeCompleto ?? c.nome_completo ?? 'Cliente' })));
+      setResultados(clientesDaBusca(corpo).map((c) => ({ id: c.id, nomeCompleto: c.nome })));
     } catch { setResultados([]); }
   }
   const c = dados?.contato;

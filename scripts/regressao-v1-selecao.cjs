@@ -169,6 +169,9 @@ const ESTADO_POSTGRES = {
   "lib/marketing/marketing-a.postgres.test.ts": { descartavel: "084" },
   // Entrega B no modelo 084: planejamento idempotente, supressões, falha recuperável, retorno e concorrência.
   "lib/marketing/automacoes/automacoes-b.postgres.test.ts": { descartavel: "084" },
+  // Correções R1–R4 da revisão de bc379ad (15/10/2026): autorização por destino, aptidão da empresa no worker,
+  // receita desconhecida e planejamento além de 500 alvos.
+  "lib/marketing/correcoes-r1-r4.postgres.test.ts": { descartavel: "084" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

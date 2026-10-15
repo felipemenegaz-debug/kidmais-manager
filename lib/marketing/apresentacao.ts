@@ -44,3 +44,31 @@ export function centavosDeTexto(texto: string): number | null {
   const valor = Number(limpo);
   return Number.isFinite(valor) && valor >= 0 ? Math.round(valor * 100) : null;
 }
+
+/**
+ * Receita contratada para a tela (R3): sem valor legível nunca aparece como R$ 0,00 conhecido.
+ *   COMPLETA → valor; PARCIAL → "R$ X (subtotal; N sem valor)"; INDISPONIVEL → "indisponível (N sem valor)".
+ */
+export function receitaContratadaTexto(l: { receitaContratadaCentavos: number | null; contratosSemValor: number; receitaContratadaSituacao: string }) {
+  if (l.receitaContratadaSituacao === "INDISPONIVEL" || l.receitaContratadaCentavos === null) {
+    return `indisponível${l.contratosSemValor ? ` (${l.contratosSemValor} sem valor)` : ""}`;
+  }
+  if (l.receitaContratadaSituacao === "PARCIAL") return `${reais(l.receitaContratadaCentavos)} (subtotal; ${l.contratosSemValor} sem valor)`;
+  return reais(l.receitaContratadaCentavos);
+}
+
+type ClienteBusca = { id?: string; nomeCompleto?: string; nome_completo?: string };
+
+/**
+ * Resultados de `GET /api/admin/clientes?q=…` para os seletores do Marketing. Com termo, o CRM devolve
+ * `{ cliente, cadastroCompleto, camposFaltantes }`; sem termo, o cliente direto (e já houve `{ itens }`). Achado na
+ * validação de UI de 15/10/2026: os seletores liam só o formato direto e não mostravam nenhum cliente encontrado.
+ */
+export function clientesDaBusca(corpo: unknown): Array<{ id: string; nome: string }> {
+  const data = (corpo as { data?: unknown } | null)?.data;
+  const lista: unknown[] = Array.isArray(data) ? data : Array.isArray((data as { itens?: unknown })?.itens) ? (data as { itens: unknown[] }).itens : [];
+  return lista.flatMap((item) => {
+    const c = ((item as { cliente?: ClienteBusca })?.cliente ?? item) as ClienteBusca;
+    return typeof c?.id === "string" ? [{ id: c.id, nome: c.nomeCompleto ?? c.nome_completo ?? "Cliente" }] : [];
+  });
+}

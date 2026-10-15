@@ -5,7 +5,11 @@ Escopo: **somente local**. Nada foi publicado, enviado, provisionado, cobrado ou
 descartável autorizado. Sem push, PR, merge, deploy, DNS real ou mensagem real.
 
 - Worktree: `D:/glass/KidMais Manager/kidmais-manager-marketing-20261014`
-- Branch: `codex/marketing-local-20261014` (sem commit; diff não commitado aguardando pedido)
+- Branch: `codex/marketing-local-20261014`, commit **local** `bc379ad` (sem push), **REPROVADO** na revisão Codex de
+  15/10/2026 (R1–R4, `revisao-marketing-bc379ad-codex-20261015/PARECER.md`).
+- Correções R1–R4: worktree `kidmais-manager-marketing-r1r4-20261015`, branch
+  `codex/marketing-correcoes-r1-r4-20261015`, novo commit local sobre `bc379ad` (sem amend, sem push) — ver “Correções
+  R1–R4 (15/10/2026)” no fim. Nova revisão independente **pendente**; nada aqui é aprovação.
 - Base: `origin/staging` local em `eb6ca81` (merge da PR #164), lida do clone `kidmais-manager-github` sem fetch
   (pode estar defasada em relação ao GitHub; nenhum fetch/pull foi autorizado nesta execução).
 - Migrations novas: `083` (base de Marketing) e `084` (automações). Escolha local provisória de número, não reserva
@@ -63,7 +67,11 @@ Teste simulado valida lógica e contrato; **não** comprova funcionamento de pro
   domínio simulado nunca é indexável nem canonical e só é servido com `MARKETING_DOMINIO_SIMULADO_SERVIR=true`.
   `/sd/<host>` é destino interno: o proxy recusa pedido direto a `/sd/...` em qualquer Host e as rotas conferem que o
   Host recebido é o mesmo do caminho (sem cabeçalho interno injetado: ele se perde quando o Next trata a reescrita como
-  proxy externo — ver “Execução de 15/10/2026”).
+  proxy externo — ver “Execução de 15/10/2026”). **Fronteira de confiança (corrigido em 15/10):** vale o `Host`;
+  `X-Forwarded-Host` **não é ignorado** — é lido como *fallback* quando o `Host` não normaliza (caso do ambiente local,
+  em que a reescrita vira nova requisição com Host de servidor) e, ainda assim, precisa ser igual ao host do caminho
+  (`viaDominioConfirmada` em `site/rotas-publicas.ts`; coberto em `rotas.test.ts`). A defesa principal continua sendo o
+  proxy recusar `/sd/...` direto. Atrás de proxy reverso real, quem garante o `Host` é a borda: rever na homologação.
 
 ### Entrega B — Automações (`lib/marketing/automacoes/*`)
 - Regras pré-definidas (sem construtor genérico): **Retomar proposta parada**, **Pós-festa**, **Oportunidade de
@@ -77,8 +85,14 @@ Teste simulado valida lógica e contrato; **não** comprova funcionamento de pro
   alvo ainda elegível no mesmo ciclo, janela, autorização, descadastro, “não contatar” do atendimento, frequência),
   estados AGENDADA → PROCESSANDO → ENVIANDO → ACEITA → ENTREGUE | FALHOU | INCERTA, além de TAREFA_CRIADA, SUPRIMIDA e
   CANCELADA; INCERTA nunca é reenviada sozinha; FALHOU pode ser re-agendada por pessoa; retorno de status com HMAC.
-- Preferências de contato: autorização (caixa desmarcada por padrão no formulário do site, ou registro da equipe com
-  confirmação), descadastro imediato (cancela o agendado), reativação só com novo pedido registrado; histórico append-only.
+- Preferências de contato (**refeitas na correção R1**): autorização **por destino normalizado** em
+  `marketing_contato_autorizacoes` (PENDENTE → CONFIRMADA | REVOGADA, evidência, quem/quando), caixa desmarcada por
+  padrão no formulário do site; o formulário só confirma o número quando ele já está no cadastro do cliente, senão fica
+  PENDENTE para a equipe; o CRM nunca é sobrescrito; a equipe só autoriza número do cadastro. Descadastro do cliente
+  inteiro prevalece, revoga as vivas e cancela o agendado; reativação não restaura autorizações; histórico append-only.
+- Aptidão da empresa (**correção R2**, `automacoes/aptidao.ts`): empresa ATIVA, recurso `MARKETING` no plano e acesso
+  comercial COMPLETO, conferidos no planejamento e imediatamente antes de agir (inclusive reservada, recuperada ou em
+  nova tentativa). Inapta = CANCELADA com motivo `EMPRESA_INAPTA: …`; falha de leitura = volta à fila sem agir.
 - Interrupção: pausar regra (cancela pendentes), “Parar tudo” da empresa e interruptor global
   `MARKETING_AUTOMACOES_ENABLED`.
 - Transporte: **apenas SIMULADO** (caixa de saída `marketing_transporte_simulado`, destinatário mascarado). Qualquer
@@ -96,11 +110,11 @@ Teste simulado valida lógica e contrato; **não** comprova funcionamento de pro
 | Atribuição é associação, não causa | O painel não mostra ROI; orçamento aparece só como informado. |
 | Campanha só pelo `kc` válido da mesma empresa; UTM solta só informativa | Navegador nunca escolhe tenant nem campanha de outra empresa. |
 | Campanha pausada continua atribuindo; arquivada não | O link já divulgado é evidência factual; arquivar é o desligamento explícito. |
-| Recurso `MARKETING` nos mesmos planos do orçamento online (profissional, premium) | Provisório; R$ 99/149/249 seguem hipóteses não aprovadas e nada mudou em planos/cobrança. |
+| Recurso `MARKETING` nos mesmos planos do orçamento online (profissional, premium) | **Provisório e alterado no código**: `RECURSOS_POR_PLANO.MARKETING` foi acrescentado a `lib/assinatura/recursos-plano.ts` (profissional, premium). Escolha comercial pendente de Felipe; preços R$ 99/149/249 seguem hipóteses não aprovadas. Cobrança, preços e catálogo de planos não foram alterados. |
 | RBAC: capacidades por membership (083), Gestão com todas | Mesmo desenho das capacidades de Festa (056); sem novo sistema de autorização. |
 | Unidade aceita = da empresa e não DESATIVADO | As unidades nascem SUSPENSO (D03); mesma regra das mensagens prontas (082). Agenda por unidade cai para a da empresa quando a unidade não tem agenda. |
 | Proxy de domínio desligado por padrão | Deploy sem configuração nunca desvia o painel. |
-| Remoção de imagem vale na hora, inclusive no site publicado | Privacidade antes de estética. |
+| Remoção de imagem vale na hora **no servidor**, inclusive no site publicado | Privacidade antes de estética. **Qualificado em 15/10:** a imagem pública sai com `Cache-Control: public, max-age=300`; cópias já guardadas por navegador/CDN podem ser reaproveitadas por até 5 min. Sem purga neste escopo. Decisão pendente: manter 300 s ou exigir revalidação (`no-cache`/`no-store`). |
 | Endereço do site imutável após a 1ª publicação | Links divulgados não quebram. |
 | Transporte e provedor de domínio só simulados | Escopo local; integração real é fase futura com autorização. |
 
@@ -134,7 +148,7 @@ reaproveitadas: `SITE_URL`, `ADMIN_AUTH_ORIGIN`, `CONVITES_PUBLIC_ORIGIN`. Padr�
 | Arquivo | Conteúdo |
 |---|---|
 | `database/migrations/20261014_083_marketing_base.sql` | capacidades, opções de origem, sites/versões/imagens, domínios + DNS simulado, campanhas, contatos, atribuições, eventos de clique; gatilhos de tenant e append-only |
-| `database/migrations/20261014_084_marketing_automacoes.sql` | regras, execuções, eventos, preferências (+ histórico), tarefas, caixa de saída simulada |
+| `database/migrations/20261014_084_marketing_automacoes.sql` | regras, execuções, eventos, preferências (descadastro + histórico), autorizações por destino (`marketing_contato_autorizacoes`, R1), tarefas, caixa de saída simulada. **Editada no lugar na correção R1** (a 084 nunca foi aplicada fora de cluster descartável já apagado); o número 084 não mudou. |
 | `database/checks/20261014_08{3,4}_{precheck,postcheck}.sql` | somente leitura |
 | `database/rollback/20261014_08{3,4}_*_down.sql` | só para banco descartável; recusam com dados |
 
@@ -166,6 +180,14 @@ Ver a seção “Execução de 15/10/2026” no fim deste arquivo (resultados re
 - Sem a origem por WhatsApp automática: só haverá quando a integração receber identificador confiável; clique no botão
   é evento separado e não vira contato.
 - Painel: receita recebida usa recebimentos confirmados − estornos confirmados − devoluções concluídas no período.
+  Receita contratada (correção R3): contrato sem valor legível (pagamento, snapshot) não vira zero — linha e total
+  mostram “indisponível” quando nenhum valor é conhecido, ou “subtotal; N sem valor” (PARCIAL).
+- Consentimento (R1): opt-in simples (caixa no formulário ou registro da equipe com evidência); sem confirmação por
+  código/OTP no número. Número pedido que não está no cadastro fica PENDENTE até a equipe atualizar o cadastro e
+  confirmar. Texto da caixa e política LGPD continuam no checklist futuro.
+- Acesso comercial SOMENTE_LEITURA ou BLOQUEADO (teste encerrado, atraso) cancela as automações pendentes da empresa
+  (R2); quando a assinatura é regularizada elas não são recriadas para o mesmo ciclo (a chave já existe): só um novo
+  ciclo do alvo gera nova execução. Comportamento escolhido para não disparar um acúmulo de mensagens atrasadas.
 - Pacotes com preço “a partir de” dependem de tabela publicada de hoje; sem ela, o pacote é publicado sem preço (aviso).
 - Domínio: sem reverificação periódica automática (proteção contra DNS pendurado é a reverificação manual que desativa).
 - Contratações listadas no CRM mostram a origem só no perfil do cliente (lista “em contratação”).
@@ -234,7 +256,8 @@ concorrência, INCERTA sem reenvio, callback HMAC) — todas nas suítes Postgre
   `Host: festas.alegria-sintetico.test:3491`: `/` 200 (noindex, canonical = endereço da plataforma), `robots.txt`
   “Disallow: /”, `sitemap.xml` 200 vazio, `/c/<código>` 302 com UTM, `/whatsapp` 302; `/admin`, `/api/admin/...` e
   `/sd/...` = 404. Host desconhecido: `/` 404 e `robots.txt` 200 “Disallow: /”. `/sd/...` direto na plataforma (inclusive
-  com `X-Forwarded-Host` forjado) = 404. Remoção pela tela → `/`, `sitemap.xml` e `/c/<código>` 404 na hora.
+  com `X-Forwarded-Host` forjado) = 404. Remoção pela tela → `/`, `sitemap.xml` e `/c/<código>` 404 na hora (no
+  servidor; respostas públicas com `max-age=300` já guardadas fora dele podem durar até 5 min).
 - Celular (375 px): Visão geral, Origens (cartões) e site público sem rolagem horizontal; botão primário branco sobre a
   cor da marca.
 - Permissões pela API com sessão real (credenciais sintéticas lidas de arquivo local, nunca impressas): Equipe A sem
@@ -269,4 +292,57 @@ concorrência, INCERTA sem reenvio, callback HMAC) — todas nas suítes Postgre
 ### Classificação final
 
 A e B: **implementadas local** e **validadas local** (dados sintéticos, cluster descartável, transporte e provedor
-simulados). **Não publicadas**: sem commit, push, PR, staging ou produção. Revisão independente **não realizada**.
+simulados) na execução de 14–15/10. Depois disso: commit local `bc379ad` (sem push) e revisão independente Codex
+**REPROVADA** (R1–R4) — ver a seção seguinte. **Não publicadas**: sem push, PR, staging ou produção.
+
+## Correções R1–R4 (15/10/2026)
+
+Goal: `Kidmais-Manager-Second-Brain/02 - Kidmais Manager SaaS/07 - Roadmap/Goal Correcao Marketing local R1 R4.md`.
+Parecer: `revisao-marketing-bc379ad-codex-20261015/PARECER.md` (preservado). Novo commit local sobre `bc379ad` na
+branch `codex/marketing-correcoes-r1-r4-20261015` (sem amend, sem push). **Nova revisão independente pendente.**
+
+| Achado | Correção | Testes |
+|---|---|---|
+| **R1 (alta)** consentimento não estava ligado ao número informado: e-mail reaproveitava cadastro com WhatsApp A, formulário trazia B e A ficava elegível | Autorização por **destino normalizado** (`marketing_contato_autorizacoes`, 084): formulário só confirma número que já está no cadastro; senão PENDENTE para a equipe; CRM nunca sobrescrito; equipe só autoriza número do cadastro; motor envia **só** a destino CONFIRMADO ainda presente no cadastro (`SEM_AUTORIZACAO_DESTINO`); descadastro prevalece e revoga; evento ENVIANDO guarda `autorizacaoId` | 7 unitários; PG: e-mail reaproveitado, telefone ≠ WhatsApp, 55, cliente novo, caixa desmarcada, descadastro anterior, troca de número, confirmação da equipe, isolamento A×B pela rota (404) e pelo banco; destino real gravado por transporte simulado espião |
+| **R2** worker processava pendente de empresa inativa / sem `MARKETING` / com acesso restrito | `automacoes/aptidao.ts` (status ATIVA + recurso do plano + acesso COMPLETO) no planejamento e em `decidir` após a trava, também para reservada/recuperada/nova tentativa; inapta → CANCELADA `EMPRESA_INAPTA: <motivo>`; falha de leitura → volta à fila (+15 min) sem agir | 3 unitários; PG: suspensa após planejar (worker global, outra empresa segue), plano Essencial confirmado (guardas reais 068/074a), teste encerrado, pendência já reservada; sem tarefa nem caixa simulada |
+| **R3** contrato sem valor virava R$ 0 e total “completo” | `situacaoReceita`: COMPLETA / PARCIAL / INDISPONIVEL; `receitaContratadaCentavos` = `null` quando nada é conhecido; `contratosSemValor` por linha e no total; tela mostra “indisponível (N sem valor)” ou “R$ X (subtotal; N sem valor)” | 1 unitário (5 casos); PG: só desconhecido, zero real, misto, nenhum |
+| **R4** planejamento repetia os mesmos 500 alvos | Exclusão pela **chave completa** (regra:ação:alvo:ciclo) **antes** do `LIMIT`, desempate por id; revalidação sem a exclusão; simulação com limite próprio | 1 unitário; PG: 501 alvos empatados → 500 + 1 + 0, ordem determinística, primeiros continuam elegíveis, terminal não recriado, novo ciclo, outra regra, pós-festa e recompra por lote, concorrência com 2 conexões (501 exatos) |
+
+Documentação corrigida: X-Forwarded-Host (fallback, não “ignorado”), cache de 300 s das imagens públicas, estado do
+commit, planos provisórios (mapa de recursos alterado; preços/cobrança não). A 084 foi **editada no lugar** (nunca
+aplicada fora de cluster descartável); números 083/084 não mudaram.
+
+Defeito achado na validação de UI desta rodada (já existia em `bc379ad`): os seletores de cliente de Preferências e de
+Origens liam só o formato direto da busca do CRM; com termo a API devolve `{ cliente, … }` e nenhum resultado
+aparecia. Corrigido com `clientesDaBusca` (`lib/marketing/apresentacao.ts`) + teste. Também: valor do cartão de KPI
+quebrava no meio do número (“R$ 5.200,0 / 0”); agora a fonte acompanha a largura do cartão e só quebra em espaço.
+
+### Execução das correções (15/10/2026, resultados reais)
+
+Ambiente: **novo** cluster PostgreSQL 18 descartável `127.0.0.1:55546` (`cluster_name=kidmais_descartavel`), autorizado
+especificamente por Felipe nesta execução (a autorização do cluster 55545 não foi reaproveitada). Script
+`ambientes-locais/pg-marketing-r1r4-20261015.cjs` (derivado do anterior; prova de identidade antes de cada ação).
+Migrations `001→084` (084 corrigida) aplicadas **somente nele**. Ao final: **encerrado e apagado** (`existeDepois:false`,
+porta livre); credenciais e lançador da UI apagados; relatórios em
+`ambientes-locais/pg-descartavel-marketing-r1r4-20261015-relatorios`, capturas em
+`ambientes-locais/marketing-ui-r1r4-20261015-evidencias`.
+
+| Verificação | Resultado |
+|---|---|
+| Regressões R1–R4 sem banco (`correcoes-r1-r4.test.ts`) no código **antigo** (`bc379ad`) | **0/13** — todas falham (prova de que pegam os defeitos) |
+| As mesmas no código corrigido | **13/13** |
+| `correcoes-r1-r4.postgres.test.ts` [084] | **17/17** (R1 5 casos, R2 4, R3, R4 3 + concorrência). 1ª execução revelou 3 fixtures de teste erradas (contratação nasce EM_ABERTO; `provedor` obrigatório; status com valor negociado) — corrigidas no teste, sem mudar produto |
+| `check:v1:postgres` completo (runner oficial, cada suíte no modelo declarado) | **PASS 96/96 arquivos**, incl. `migration-083-084` [082], `marketing-a` [084], `automacoes-b` [084] e `correcoes-r1-r4` [084] |
+| `check:v1:static` (depois das correções de UI) | **PASS** — 3072/3072 unitários, smoke 103/103, lint 0 erros (1 aviso preexistente em `lib/inteligencia/skills/catalogo.ts`), TypeScript e build |
+| `scripts/production/production.test.mjs` | 37/37 |
+| `tsc --noEmit`, ESLint nos arquivos alterados, `git diff --check` | limpos |
+| UI local (`next dev --hostname localhost --port 3492`, Gestão A sintética, desktop 1366 px e celular 375 px) | R3: cartão “R$ 5.200,00 — subtotal conhecido; 1 contrato(s) sem valor”, linha Instagram “R$ 5.200,00 (subtotal; 1 sem valor)”, conversão “indisponível”. R1: cliente com e-mail reaproveitado mostra “•••• 1003 · pendente de confirmação (formulário do site) · número fora do cadastro atual” e oferece só “Autorizar •••• 1002” (número do cadastro); nenhum número completo na tela; sem rolagem horizontal |
+
+Seed da UI: os dois contratos de R3 foram inseridos com `session_replication_role = replica` (gatilhos de fluxo de
+contrato 013/014/019 desligados só nessa transação, no banco sintético) — serve à tela, não prova o fluxo de contrato.
+Observação de ambiente: havia outro processo local (servidor de prévia do Codex) escutando em `127.0.0.1:3492`; o
+`next dev` desta rodada escutou em `[::1]:3492` e as capturas mostram o app semeado. Esse processo não foi tocado.
+
+**Não validado / pendente:** revisão independente do delta (nova rodada da Astra/Codex); decisões comerciais (planos com
+`MARKETING`, preço); cache das imagens (300 s ou revalidação); opt-in com confirmação por código no número (fora deste
+escopo). Integrações reais, staging e produção continuam fora do escopo.

@@ -57,8 +57,10 @@ export async function listarImagens(tx: DbExecutor, empresaId: string, siteId: s
 }
 
 /**
- * Remoção vale na hora, inclusive para a página publicada (a imagem deixa de ser servida; o espaço some da galeria).
- * Privacidade antes de estética: quem removeu uma foto publicada por engano não espera a próxima publicação.
+ * Remoção vale na hora NO SERVIDOR, inclusive para a página publicada (a imagem deixa de ser servida; o espaço some da
+ * galeria). Cópias já guardadas por navegador/CDN podem ser reaproveitadas até o fim do cache público (max-age=300,
+ * ver rotas-publicas.ts). Privacidade antes de estética: quem removeu uma foto publicada por engano não espera a
+ * próxima publicação.
  */
 export async function removerImagem(tx: DbExecutor, empresaId: string, siteId: string, imagemId: string) {
   const r = await tx.query<{ id: string }>(

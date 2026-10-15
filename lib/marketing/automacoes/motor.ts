@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { DbExecutor } from "../../db/contracts.ts";
 import { nomePublicoDaEmpresa } from "../../perfil/nome-publico.ts";
-import { alvoContinuaElegivel, alvosDaRegra, chaveExecucao, cicloDaChave, type Alvo } from "./alvos.ts";
+import { alvoContinuaElegivel, alvosParaPlanejar, alvosParaSimular, chaveExecucao, cicloDaChave, LIMITE_PLANEJAMENTO, totalDeAlvos, type Alvo } from "./alvos.ts";
+import { empresaApta } from "./aptidao.ts";
 import { dataLocal, dentroDaJanela, proximoHorarioPermitido } from "./janela.ts";
 import { mascararTelefone, renderizarModelo } from "./modelo.ts";
 import { elegivelParaMensagem, lerPreferencia } from "./preferencias.ts";
@@ -37,13 +38,17 @@ function janelaDe(r: Regra) { return { inicio: r.janelaInicio, fim: r.janelaFim,
 // ------------------------------------------------------------------------------------------------------------------
 // Planejar
 // ------------------------------------------------------------------------------------------------------------------
-export async function planejarEmpresa(tx: DbExecutor, empresaId: string, agora: Date) {
+export async function planejarEmpresa(tx: DbExecutor, empresaId: string, agora: Date, opcoes: { lote?: number } = {}) {
+  // R2: empresa sem aptidão (status, recurso MARKETING, situação comercial) não planeja nada; o motivo volta para o ciclo.
+  const aptidao = await empresaApta(tx, empresaId);
+  if (!aptidao.apta) return { regras: 0, criadas: 0, existentes: 0, bloqueio: aptidao.motivo };
   const regras = (await tx.query<Parameters<typeof mapearRegra>[0]>(
     `SELECT ${COLUNAS_REGRA} FROM marketing_automacao_regras WHERE empresa_id = $1::uuid AND status = 'ATIVA' AND acao <> 'SUGESTAO'`, [empresaId])).rows.map(mapearRegra);
   let criadas = 0, existentes = 0;
   for (const regra of regras) {
     const quando = proximoHorarioPermitido(agora, janelaDe(regra));
-    for (const alvo of await alvosDaRegra(tx, empresaId, regra, agora)) {
+    // R4: só alvos ainda não planejados nesta regra/ação/ciclo, em lote limitado e ordem determinística (avança a cada ciclo).
+    for (const alvo of await alvosParaPlanejar(tx, empresaId, regra, agora, opcoes.lote ?? LIMITE_PLANEJAMENTO)) {
       const r = await tx.query<{ id: string }>(
         `INSERT INTO marketing_automacao_execucoes (empresa_id, regra_id, regra_versao, acao, alvo_tipo, alvo_id, cliente_id, fechamento_id, chave_idempotencia,
            agendada_para, max_tentativas)
@@ -55,15 +60,15 @@ export async function planejarEmpresa(tx: DbExecutor, empresaId: string, agora: 
       else existentes++;
     }
   }
-  return { regras: regras.length, criadas, existentes };
+  return { regras: regras.length, criadas, existentes, bloqueio: null as string | null };
 }
 
 /** Simulação sem gravar nada: o que cada regra faria agora (com motivos de supressão). */
 export async function simularEmpresa(tx: DbExecutor, empresaId: string, regra: Regra, agora: Date) {
   if (regra.acao === "SUGESTAO") return { alvos: [], total: 0 };
-  const alvos = await alvosDaRegra(tx, empresaId, regra, agora);
+  const alvos = await alvosParaSimular(tx, empresaId, regra, agora);
   const linhas = [];
-  for (const alvo of alvos.slice(0, 50)) {
+  for (const alvo of alvos) {
     const chave = regra.id ? chaveExecucao(regra.id, regra.acao, alvo) : null;
     const jaPlanejada = chave ? (await tx.query<{ estado: string }>(`SELECT estado FROM marketing_automacao_execucoes WHERE empresa_id = $1::uuid AND chave_idempotencia = $2`, [empresaId, chave])).rows[0]?.estado ?? null : null;
     let impedimento: string | null = null;
@@ -74,7 +79,7 @@ export async function simularEmpresa(tx: DbExecutor, empresaId: string, regra: R
     }
     linhas.push({ ...alvo, jaPlanejada, impedimento, agendadaPara: proximoHorarioPermitido(agora, janelaDe(regra)).toISOString() });
   }
-  return { alvos: linhas, total: alvos.length };
+  return { alvos: linhas, total: await totalDeAlvos(tx, empresaId, regra, agora) };
 }
 
 async function frequenciaExcedida(tx: DbExecutor, empresaId: string, clienteId: string, dias: number, excetoId: string | null) {
@@ -140,6 +145,16 @@ async function decidir(tx: DbExecutor, id: string, token: string, agora: Date): 
   if (!e || e.estado !== "PROCESSANDO" || e.posse_token !== token) return { tipo: "PRONTA", estado: "POSSE_PERDIDA" };
   // Trava por cliente: decisões de frequência do mesmo cliente nunca correm em paralelo.
   await tx.query(`SELECT pg_advisory_xact_lock(hashtext('marketing:' || $1 || ':' || $2))`, [e.empresa_id, e.cliente_id]);
+  // R2: aptidão da EMPRESA agora, antes de qualquer ação (vale para agendada, reservada, recuperada e nova tentativa).
+  const aptidao = await empresaApta(tx, e.empresa_id);
+  if (!aptidao.apta && aptidao.definitivo) return concluir(tx, e, "CANCELADA", `EMPRESA_INAPTA: ${aptidao.motivo}`);
+  if (!aptidao.apta) {
+    // Leitura do direito falhou: não age e não libera; volta para a fila com espera (tentativas não mudam).
+    await tx.query(`UPDATE marketing_automacao_execucoes SET estado = 'AGENDADA', proxima_tentativa_em = clock_timestamp() + interval '15 minutes',
+      posse_token = NULL, posse_ate = NULL, motivo = $2, atualizado_em = clock_timestamp() WHERE id = $1::uuid`, [e.id, aptidao.motivo]);
+    await evento(tx, e.empresa_id, e.id, "PROCESSANDO", "AGENDADA", { motivo: aptidao.motivo });
+    return { tipo: "PRONTA", estado: "AGUARDANDO_DIREITO" };
+  }
   const regraLinha = (await tx.query<Parameters<typeof mapearRegra>[0]>(`SELECT ${COLUNAS_REGRA} FROM marketing_automacao_regras WHERE id = $1::uuid AND empresa_id = $2::uuid`,
     [e.regra_id, e.empresa_id])).rows[0];
   const regra = regraLinha ? mapearRegra(regraLinha) : null;
@@ -172,7 +187,8 @@ async function decidir(tx: DbExecutor, id: string, token: string, agora: Date): 
   const tentativa = e.tentativas + 1;
   await tx.query(`UPDATE marketing_automacao_execucoes SET estado = 'ENVIANDO', conteudo = $2, destinatario_mascarado = $3, posse_ate = clock_timestamp() + interval '5 minutes',
     atualizado_em = clock_timestamp() WHERE id = $1::uuid`, [e.id, texto, mascararTelefone(elegivel.telefone)]);
-  await evento(tx, e.empresa_id, e.id, "PROCESSANDO", "ENVIANDO", { tentativa });
+  // R1: o destino é o número com autorização CONFIRMADA escolhido na elegibilidade (rastreável pela autorização).
+  await evento(tx, e.empresa_id, e.id, "PROCESSANDO", "ENVIANDO", { tentativa, autorizacaoId: elegivel.autorizacaoId });
   return { tipo: "ENVIAR", exec: { ...e, estado: "ENVIANDO" }, regra, telefone: elegivel.telefone, texto, idempotencia: `${e.id}:${tentativa}` };
 }
 
@@ -215,14 +231,19 @@ export async function processarReservada(banco: Banco, transporte: TransporteMar
 }
 
 /** Ciclo completo (planejar todas as empresas ou uma; recuperar posses; reservar e processar). */
-export async function executarCiclo(banco: Banco, transporte: TransporteMarketing, agora: Date, opcoes: { empresaId?: string | null; limite?: number } = {}) {
+export async function executarCiclo(banco: Banco, transporte: TransporteMarketing, agora: Date, opcoes: { empresaId?: string | null; limite?: number; lote?: number } = {}) {
   const empresaId = opcoes.empresaId ?? null;
   const planejamento = await banco.transacao(async (tx) => {
     const empresas = empresaId ? [empresaId] : (await tx.query<{ empresa_id: string }>(
       `SELECT DISTINCT r.empresa_id::text FROM marketing_automacao_regras r JOIN empresas e ON e.id = r.empresa_id AND e.status = 'ATIVA' WHERE r.status = 'ATIVA'`)).rows.map((x) => x.empresa_id);
     let criadas = 0;
-    for (const id of empresas) criadas += (await planejarEmpresa(tx, id, agora)).criadas;
-    return { empresas: empresas.length, criadas };
+    const bloqueadas: Array<{ empresaId: string; motivo: string }> = [];
+    for (const id of empresas) {
+      const r = await planejarEmpresa(tx, id, agora, { lote: opcoes.lote });
+      criadas += r.criadas;
+      if (r.bloqueio) bloqueadas.push({ empresaId: id, motivo: r.bloqueio });
+    }
+    return { empresas: empresas.length, criadas, bloqueadas };
   });
   const posses = await banco.transacao((tx) => recuperarPosses(tx, agora, empresaId));
   const { token, ids } = await banco.transacao((tx) => reservar(tx, agora, opcoes.limite ?? 50, empresaId));

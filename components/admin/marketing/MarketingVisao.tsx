@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { PainelMarketing, LinhaPainel } from '@/lib/marketing/metricas';
 import type { OpcaoOrigem } from '@/lib/marketing/origens';
 import type { SugestaoDatas } from '@/lib/marketing/sugestoes';
-import { dataBr, percentual, reais } from '@/lib/marketing/apresentacao';
+import { dataBr, percentual, reais, receitaContratadaTexto } from '@/lib/marketing/apresentacao';
 import { CabecalhoMarketing, EstadoCarga, useMarketing } from './comum';
 import styles from './marketing.module.css';
 
@@ -44,7 +44,8 @@ export default function MarketingVisao() {
         <Kpi rotulo="Contatos recebidos" valor={String(p.total.contatos)} detalhe="pelo site e registrados" />
         <Kpi rotulo="Negociações" valor={String(p.total.negociacoes)} detalhe="iniciadas no período" />
         <Kpi rotulo="Contratos assinados" valor={String(p.total.contratos)} detalhe={p.total.cancelamentos ? `${p.total.cancelamentos} cancelado(s) no período` : 'no período'} />
-        <Kpi rotulo="Receita contratada" valor={reais(p.total.receitaContratadaCentavos)} detalhe="contratos assinados no período" />
+        <Kpi rotulo="Receita contratada" valor={p.total.receitaContratadaSituacao === 'INDISPONIVEL' ? 'indisponível' : reais(p.total.receitaContratadaCentavos)}
+          detalhe={p.total.contratosSemValor ? `${p.total.receitaContratadaSituacao === 'PARCIAL' ? 'subtotal conhecido; ' : ''}${p.total.contratosSemValor} contrato(s) sem valor` : 'contratos assinados no período'} />
         <Kpi rotulo="Receita recebida" valor={reais(p.total.receitaRecebidaCentavos)} detalhe="já descontados estornos e devoluções" />
         <Kpi rotulo="Conversão contato → contrato" valor={percentual(p.total.conversao)} detalhe={p.total.contatos ? `${p.total.contatosComContrato} de ${p.total.contatos}` : 'sem contatos no período'} />
       </div>
@@ -58,14 +59,14 @@ export default function MarketingVisao() {
               <td>{nomeDaLinha(l, dados.origens)}{l.campanhaId && <> <span className={styles.seloVioleta}>campanha</span></>}</td>
               <td className={styles.num}>{l.cliquesLink}</td><td className={styles.num}>{l.cliquesWhatsapp}</td><td className={styles.num}>{l.contatos}</td>
               <td className={styles.num}>{l.negociacoes}</td><td className={styles.num}>{l.contratos}{l.cancelamentos ? ` (−${l.cancelamentos} canc.)` : ''}</td>
-              <td className={styles.num}>{percentual(l.conversao)}</td><td className={styles.num}>{reais(l.receitaContratadaCentavos)}</td><td className={styles.num}>{reais(l.receitaRecebidaCentavos)}</td>
+              <td className={styles.num}>{percentual(l.conversao)}</td><td className={styles.num}>{receitaContratadaTexto(l)}</td><td className={styles.num}>{reais(l.receitaRecebidaCentavos)}</td>
               <td className={styles.num}>{l.orcamentoCentavos === null ? '—' : reais(l.orcamentoCentavos)}</td>
             </tr>)}</tbody>
           </table></div>
           <div className={styles.cards}>{p.linhas.map((l) => <article key={l.chave} className={styles.card}>
             <strong>{nomeDaLinha(l, dados.origens)}</strong>
             <p className={styles.muted}>{l.contatos} contato(s) · {l.negociacoes} negociação(ões) · {l.contratos} contrato(s)</p>
-            <p>Contratada {reais(l.receitaContratadaCentavos)} · Recebida {reais(l.receitaRecebidaCentavos)}</p>
+            <p>Contratada {receitaContratadaTexto(l)} · Recebida {reais(l.receitaRecebidaCentavos)}</p>
             <p className={styles.muted}>Conversão {percentual(l.conversao)} · cliques {l.cliquesLink} link / {l.cliquesWhatsapp} WhatsApp</p>
           </article>)}</div>
         </>}
@@ -77,7 +78,7 @@ export default function MarketingVisao() {
             <dt>Contatos</dt><dd>Pedidos recebidos pelo site e registros manuais com data de recebimento no período.</dd>
             <dt>Negociações</dt><dd>Negociações iniciadas no período, pela origem registrada nelas.</dd>
             <dt>Contratos</dt><dd>Contratos assinados no período (cancelados aparecem à parte).</dd>
-            <dt>Receita contratada</dt><dd>Valor vigente dos contratos assinados no período.</dd>
+            <dt>Receita contratada</dt><dd>Valor vigente dos contratos assinados no período. Contrato sem valor legível não conta como zero: a receita aparece como subtotal conhecido (com a quantidade sem valor) ou indisponível quando nenhum valor é conhecido.</dd>
             <dt>Receita recebida</dt><dd>Recebimentos confirmados no período menos estornos e devoluções do período.</dd>
             <dt>Conversão</dt><dd>Contatos do período que já têm contrato assinado ÷ contatos do período. Sem contato no período: indisponível.</dd>
             <dt>Sem evidência</dt><dd>Contato sem link de campanha fica como “desconhecida”; nada é estimado.</dd>

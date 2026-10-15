@@ -10,7 +10,7 @@ import { lerCorpo, parametroUuid, rotaMarketing } from "@/lib/marketing/http";
 import { sugerirDatasVagas } from "@/lib/marketing/sugestoes";
 import { hojeSaoPaulo } from "@/lib/marketing/utm";
 import { acaoManualExecucao, executarCiclo, simularEmpresa } from "@/lib/marketing/automacoes/motor";
-import { alterarPreferencia, esquemaPreferencia, lerPreferencia } from "@/lib/marketing/automacoes/preferencias";
+import { alterarPreferencia, destinosDoCadastro, esquemaPreferencia, lerPreferencia } from "@/lib/marketing/automacoes/preferencias";
 import {
   CATALOGO_REGRAS, ativarRegra, esquemaSalvarRegra, listarRegras, pararTudo, pausarRegra, regraDaEmpresa, revisarModelo, salvarRegra,
 } from "@/lib/marketing/automacoes/regras";
@@ -21,7 +21,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const uuid = z.string().uuid();
-const esquema = z.discriminatedUnion("acao", [
+const esquemaPainel = z.discriminatedUnion("acao", [
   esquemaSalvarRegra,
   z.object({ acao: z.literal("revisar"), regraId: uuid, versao: z.number().int().min(1) }).strict(),
   z.object({ acao: z.literal("ativar"), regraId: uuid, versao: z.number().int().min(1) }).strict(),
@@ -31,8 +31,13 @@ const esquema = z.discriminatedUnion("acao", [
   z.object({ acao: z.literal("processar") }).strict(),
   z.object({ acao: z.literal("execucao"), execucaoId: uuid, operacao: z.enum(["tentar-novamente", "encerrar"]) }).strict(),
   z.object({ acao: z.literal("concluir-tarefa"), tarefaId: uuid, cancelar: z.boolean().optional() }).strict(),
-  esquemaPreferencia,
 ]);
+/** "preferencia" tem as próprias operações (autorizar destino, confirmar, revogar, descadastrar, reativar). */
+const esquema = {
+  parse(corpo: unknown) {
+    return (corpo as { acao?: unknown } | null)?.acao === "preferencia" ? esquemaPreferencia.parse(corpo) : esquemaPainel.parse(corpo);
+  },
+};
 
 async function painel(tx: DbExecutor, empresaId: string, unidadeId: string | null) {
   const execucoes = await tx.query<{ id: string; regra_tipo: string; acao: string; estado: string; agendada_para: string; tentativas: number; motivo: string | null;
@@ -65,9 +70,13 @@ export async function GET(request: NextRequest) {
     const empresaId = tenant.empresaComprovada;
     const clienteId = parametroUuid(request.nextUrl.searchParams.get("clienteId"));
     if (clienteId) {
-      const c = await tx.query<{ nome: string }>("SELECT nome_completo AS nome FROM clientes WHERE id = $1::uuid AND empresa_id = $2::uuid", [clienteId, empresaId]);
+      const c = await tx.query<{ nome: string; whatsapp: string | null; telefone: string | null }>(
+        "SELECT nome_completo AS nome, whatsapp, telefone FROM clientes WHERE id = $1::uuid AND empresa_id = $2::uuid", [clienteId, empresaId]);
       if (!c.rows[0]) throw new MarketingError("MARKETING_NAO_ENCONTRADO", "Cliente não encontrado nesta empresa.", 404);
-      return { cliente: { id: clienteId, nome: c.rows[0].nome }, preferencia: await lerPreferencia(tx, empresaId, clienteId) };
+      return {
+        cliente: { id: clienteId, nome: c.rows[0].nome, destinos: destinosDoCadastro(c.rows[0]) },
+        preferencia: await lerPreferencia(tx, empresaId, clienteId),
+      };
     }
     const unidadeId = await exigirUnidadeDaEmpresa(tx, empresaId, parametroUuid(request.nextUrl.searchParams.get("unidadeId")));
     const unidades = (await tx.query<{ id: string; nome: string }>(

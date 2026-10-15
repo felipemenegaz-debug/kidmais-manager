@@ -129,10 +129,31 @@ test("083/084: ordem, checks, reaplicação, gatilhos de tenant e append-only, h
     await c.query(`UPDATE marketing_automacao_execucoes SET estado = 'CANCELADA', concluida_em = clock_timestamp() WHERE id = $1`, [exec]);
     await recusa(c, `UPDATE marketing_automacao_execucoes SET estado = 'AGENDADA', concluida_em = NULL WHERE id = $1`, [exec], /concluída não muda/);
     await recusa(c, `DELETE FROM marketing_automacao_execucoes WHERE id = $1`, [exec], /não é apagada/);
-    await recusa(c, `INSERT INTO marketing_contato_preferencias (empresa_id, cliente_id, whatsapp_autorizado, autorizado_em, autorizacao_origem) VALUES ($1, $2, true, now(), 'EQUIPE')`, [A, clienteB], /outra empresa/);
-    await recusa(c, `INSERT INTO marketing_contato_preferencias (empresa_id, cliente_id, whatsapp_autorizado, autorizado_em, autorizacao_origem, descadastrado_em, descadastro_origem) VALUES ($1, $2, true, now(), 'EQUIPE', now(), 'EQUIPE')`, [A, clienteA], /marketing_pref_descadastro/);
-    await c.query(`INSERT INTO marketing_contato_preferencias (empresa_id, cliente_id, whatsapp_autorizado, autorizado_em, autorizacao_origem, observacao) VALUES ($1, $2, true, now(), 'EQUIPE', 'autorizou por telefone')`, [A, clienteA]);
-    assert.equal((await c.query(`SELECT observacao FROM marketing_contato_preferencias_eventos WHERE cliente_id = $1`, [clienteA])).rows[0].observacao, "autorizou por telefone", "histórico da preferência");
+    // Preferência (R1): só o descadastro do cliente inteiro; autorização é por destino, em tabela própria.
+    await recusa(c, `INSERT INTO marketing_contato_preferencias (empresa_id, cliente_id, descadastrado_em, descadastro_origem) VALUES ($1, $2, now(), 'EQUIPE')`, [A, clienteB], /outra empresa/);
+    await recusa(c, `INSERT INTO marketing_contato_preferencias (empresa_id, cliente_id, descadastrado_em) VALUES ($1, $2, now())`, [A, clienteA], /marketing_pref_descadastro/);
+    await c.query(`INSERT INTO marketing_contato_preferencias (empresa_id, cliente_id, descadastrado_em, descadastro_origem, observacao) VALUES ($1, $2, now(), 'EQUIPE', 'pediu para parar')`, [A, clienteA]);
+    assert.deepEqual((await c.query(`SELECT descadastrado, observacao FROM marketing_contato_preferencias_eventos WHERE cliente_id = $1`, [clienteA])).rows[0], { descadastrado: true, observacao: "pediu para parar" }, "histórico da preferência");
+    // Autorização por destino (R1): mesma empresa, destino normalizado, formulário com contato, não nasce revogada,
+    // identidade imutável, transições só para frente, uma viva por destino, nunca apagada.
+    const autSql = `INSERT INTO marketing_contato_autorizacoes (empresa_id, cliente_id, destino, estado, origem, contato_id, evidencia, confirmada_em, revogada_em, motivo_revogacao)
+      VALUES ($1, $2, $3, $4, $5, $6, 'autorizou por telefone', CASE WHEN $4 = 'CONFIRMADA' THEN now() END, CASE WHEN $4 = 'REVOGADA' THEN now() END, CASE WHEN $4 = 'REVOGADA' THEN 'motivo sintético' END) RETURNING id::text AS id`;
+    await recusa(c, autSql, [A, clienteB, "5511988880002", "CONFIRMADA", "EQUIPE", null], /outra empresa/);
+    await recusa(c, autSql, [A, clienteA, "11988880001", "CONFIRMADA", "EQUIPE", null], /marketing_aut_destino/);
+    await recusa(c, autSql, [A, clienteA, "5511988880001", "CONFIRMADA", "FORMULARIO_SITE", null], /marketing_aut_formulario_tem_contato/);
+    await recusa(c, autSql, [A, clienteA, "5511988880001", "REVOGADA", "EQUIPE", null], /não nasce revogada/);
+    const aut = await id(autSql, [A, clienteA, "5511988880001", "PENDENTE", "FORMULARIO_SITE", contatoA]);
+    await recusa(c, autSql, [A, clienteA, "5511988880001", "CONFIRMADA", "EQUIPE", null], /marketing_aut_viva_uk/);
+    await recusa(c, `UPDATE marketing_contato_autorizacoes SET destino = '5511988889999' WHERE id = $1`, [aut], /imutáveis/);
+    await recusa(c, `UPDATE marketing_contato_autorizacoes SET estado = 'CONFIRMADA' WHERE id = $1`, [aut], /marketing_aut_confirmada/);
+    await c.query(`UPDATE marketing_contato_autorizacoes SET estado = 'CONFIRMADA', confirmada_em = now(), confirmacao = 'confirmou por ligação' WHERE id = $1`, [aut]);
+    await recusa(c, `UPDATE marketing_contato_autorizacoes SET estado = 'PENDENTE' WHERE id = $1`, [aut], /transição de autorização inválida/);
+    await recusa(c, `UPDATE marketing_contato_autorizacoes SET estado = 'REVOGADA', revogada_em = now() WHERE id = $1`, [aut], /marketing_aut_revogada/);
+    await c.query(`UPDATE marketing_contato_autorizacoes SET estado = 'REVOGADA', revogada_em = now(), motivo_revogacao = 'pediu para parar' WHERE id = $1`, [aut]);
+    await recusa(c, `UPDATE marketing_contato_autorizacoes SET estado = 'CONFIRMADA' WHERE id = $1`, [aut], /transição de autorização inválida/);
+    await recusa(c, `DELETE FROM marketing_contato_autorizacoes WHERE id = $1`, [aut], /não é apagada/);
+    // Revogada libera o destino para nova autorização (histórico preservado).
+    await id(autSql, [A, clienteA, "5511988880001", "CONFIRMADA", "EQUIPE", null]);
 
     // 5. Rollback com dados: recusado.
     await c.query("SAVEPOINT down");

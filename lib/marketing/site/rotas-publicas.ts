@@ -31,6 +31,10 @@ type Cabecalhos = { get(nome: string): string | null };
 /**
  * O caminho /sd/<host> só vale vindo da reescrita do proxy: o Host recebido tem de ser o mesmo do caminho (o proxy
  * recusa /sd/... em qualquer outro Host). Não usa cabeçalho próprio: o Next 16 não o repassa ao destino reescrito.
+ * Fronteira de confiança: vale o `Host`. `X-Forwarded-Host` só é lido quando o `Host` não normaliza (caso do ambiente
+ * local, em que a reescrita vira nova requisição com Host de servidor); ainda assim precisa ser igual ao host do caminho,
+ * e o próprio caminho /sd/... só chega aqui pela reescrita do proxy (pedido direto a /sd/... é 404 em qualquer Host).
+ * Num deploy atrás de proxy reverso, quem garante o Host é a borda (ex.: Render); revisar isto na homologação real.
  */
 export function viaDominioConfirmada(hostParam: string, cabecalhos: Cabecalhos): Via | null {
   let host: string | null;
@@ -81,6 +85,8 @@ export async function respostaImagem(via: Via, imagemIdBruto: string) {
   if (!imagem) return NAO_ENCONTRADO();
   return new NextResponse(new Uint8Array(imagem.conteudo), {
     headers: {
+      // Cache público de 5 min: uma imagem removida deixa de ser servida pelo servidor na hora, mas cópias já guardadas
+      // (navegador/CDN) podem ser reaproveitadas até expirar. Documentado; sem infraestrutura de purga neste escopo.
       "Content-Type": "image/webp", "Cache-Control": "public, max-age=300", ETag: `"${imagem.sha256}"`, "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",
     },

@@ -68,7 +68,7 @@ test("Entrega B: disparo elegível, idempotência, supressões, falhas recuperá
     const base = await comercial(c, A);
     const novoAlvo = async (nome: string, telefone: string, autorizar: boolean, data = "2026-12-05") => {
       const cl = await cliente(c, A, nome, telefone);
-      if (autorizar) await pref.alterarPreferencia(tx, A, g.usuario, { acao: "preferencia", clienteId: cl, operacao: "autorizar", confirmacao: "Autorizou por telefone (sintético)" });
+      if (autorizar) await pref.alterarPreferencia(tx, A, g.usuario, { acao: "preferencia", clienteId: cl, operacao: "autorizar", destino: telefone, confirmacao: "Autorizou por telefone (sintético)" });
       const f = await fechamento(c, A, base, cl, { data, status: "AGUARDANDO_CONTRATO", atualizadoHaDias: 10 });
       return { cl, f };
     };
@@ -209,8 +209,9 @@ test("Entrega B: concorrência com duas conexões (dados commitados): reserva se
     const base = await comercial(c1, E);
     const clientes: string[] = [];
     for (let i = 0; i < 6; i++) {
-      const cl = await cliente(c1, E, `Concorrente ${i}`, `55119888770${i}${i}`.slice(0, 13));
-      await m1.pref.alterarPreferencia(tx1, E, g.usuario, { acao: "preferencia", clienteId: cl, operacao: "autorizar", confirmacao: "Autorizou (sintético)" });
+      const telefone = `55119888770${i}${i}`.slice(0, 13);
+      const cl = await cliente(c1, E, `Concorrente ${i}`, telefone);
+      await m1.pref.alterarPreferencia(tx1, E, g.usuario, { acao: "preferencia", clienteId: cl, operacao: "autorizar", destino: telefone, confirmacao: "Autorizou (sintético)" });
       await fechamento(c1, E, base, cl, { data: "2026-12-10", status: "AGUARDANDO_CONTRATO", atualizadoHaDias: 10 });
       clientes.push(cl);
     }

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { Regra, TipoRegra } from '@/lib/marketing/automacoes/regras';
 import type { SugestaoDatas } from '@/lib/marketing/sugestoes';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import { dataBr, dataHoraBr } from '@/lib/marketing/apresentacao';
+import { clientesDaBusca, dataBr, dataHoraBr } from '@/lib/marketing/apresentacao';
 import { AdminPrimaryButton } from '../AdminPrimaryButton';
 import { CabecalhoMarketing, EstadoCarga, enviarMarketing, useMarketing } from './comum';
 import styles from './marketing.module.css';
@@ -22,7 +22,7 @@ type Simulacao = { total: number; alvos: Array<{ clienteNome: string; dataFesta:
 const ACAO: Record<string, string> = { TAREFA_INTERNA: 'Tarefa para a equipe', MENSAGEM_WHATSAPP: 'Mensagem WhatsApp (simulada)', SUGESTAO: 'Sugestão' };
 const ESTADO: Record<string, string> = { AGENDADA: 'Agendada', PROCESSANDO: 'Processando', ENVIANDO: 'Enviando', TAREFA_CRIADA: 'Tarefa criada', ACEITA: 'Aceita pelo provedor',
   ENTREGUE: 'Entregue', FALHOU: 'Falhou', INCERTA: 'Incerta (conferir)', SUPRIMIDA: 'Suprimida', CANCELADA: 'Cancelada' };
-const MOTIVO: Record<string, string> = { SEM_AUTORIZACAO: 'sem autorização de mensagens', DESCADASTRADO: 'descadastrado', SEM_TELEFONE: 'sem telefone', LIMITE_FREQUENCIA: 'limite de frequência',
+const MOTIVO: Record<string, string> = { SEM_AUTORIZACAO: 'sem autorização de mensagens', SEM_AUTORIZACAO_DESTINO: 'autorização é de outro número (não do cadastro atual)', EMPRESA_INAPTA: 'empresa sem acesso ao Marketing', DESCADASTRADO: 'descadastrado', SEM_TELEFONE: 'sem telefone', LIMITE_FREQUENCIA: 'limite de frequência',
   NAO_CONTATAR_ATENDIMENTO: 'pediu para não ser contatado no atendimento', CLIENTE_INATIVO: 'cliente inativo', ALVO_NAO_ELEGIVEL: 'condição deixou de valer', REGRA_INATIVA: 'regra pausada',
   REGRA_PAUSADA: 'regra pausada', INTERRUPCAO_DA_EMPRESA: 'interrupção geral', ACAO_ALTERADA: 'ação da regra mudou', TEXTO_ALTERADO_SEM_REVISAO: 'texto alterado sem revisão' };
 const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
@@ -142,42 +142,62 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, datasVagas, aoMudar, ao
   </section>;
 }
 
+type AutorizacaoUi = { id: string; destino: string; estado: 'PENDENTE' | 'CONFIRMADA' | 'REVOGADA'; origem: string; evidencia: string; confirmadaEm: string | null; revogadaEm: string | null; motivoRevogacao: string | null; criadoEm: string };
+type PreferenciaUi = { cliente: { id: string; nome: string; destinos: string[] }; preferencia: { descadastradoEm: string | null; autorizacoes: AutorizacaoUi[] } };
+
+/** Número exibido com só os 4 finais (a tela não precisa do número inteiro para decidir). */
+function finalDoNumero(destino: string) { return `•••• ${destino.slice(-4)}`; }
+
 function Preferencias({ pode }: { pode: boolean }) {
   const [busca, setBusca] = useState('');
   const [resultados, setResultados] = useState<Array<{ id: string; nome: string }>>([]);
-  const [selecionado, setSelecionado] = useState<{ cliente: { id: string; nome: string }; preferencia: { whatsappAutorizado: boolean; autorizacaoOrigem: string | null; autorizadoEm: string | null; descadastradoEm: string | null } | null } | null>(null);
+  const [selecionado, setSelecionado] = useState<PreferenciaUi | null>(null);
   const [erro, setErro] = useState('');
   async function buscar() {
     if (busca.trim().length < 2) return;
     const corpo = await (await adminFetch(`/api/admin/clientes?q=${encodeURIComponent(busca.trim())}&limit=10`)).json().catch(() => null);
-    setResultados(Array.isArray(corpo?.data) ? corpo.data.map((c: { id: string; nomeCompleto: string }) => ({ id: c.id, nome: c.nomeCompleto })) : []);
+    setResultados(clientesDaBusca(corpo));
   }
   async function abrir(id: string) {
     setErro('');
     const corpo = await (await adminFetch(`/api/admin/marketing/automacoes?clienteId=${id}`)).json().catch(() => null);
     if (corpo?.ok) setSelecionado(corpo.data); else setErro(corpo?.erro ?? 'Não foi possível abrir.');
   }
-  async function alterar(operacao: 'autorizar' | 'descadastrar' | 'reativar') {
+  async function alterar(corpo: Record<string, unknown>, pergunta: string) {
     if (!selecionado) return;
-    const confirmacao = window.prompt(operacao === 'descadastrar' ? 'Registre o pedido de descadastro (ex.: pediu por telefone em 14/10):' : 'Registre como a pessoa autorizou (ex.: autorizou por WhatsApp em 14/10):');
+    const confirmacao = window.prompt(pergunta);
     if (!confirmacao || confirmacao.trim().length < 3) return;
-    try { await enviarMarketing('/api/admin/marketing/automacoes', { acao: 'preferencia', clienteId: selecionado.cliente.id, operacao, confirmacao }); await abrir(selecionado.cliente.id); }
+    try { await enviarMarketing('/api/admin/marketing/automacoes', { acao: 'preferencia', clienteId: selecionado.cliente.id, confirmacao, ...corpo }); await abrir(selecionado.cliente.id); }
     catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível concluir.'); }
   }
   const p = selecionado?.preferencia;
+  const vivas = p?.autorizacoes.filter((a) => a.estado !== 'REVOGADA') ?? [];
+  const autorizados = new Set(vivas.map((a) => a.destino));
   return <section className={styles.cartao} aria-labelledby="t-pref">
-    <h2 id="t-pref">Preferências de contato</h2>
-    <p className={styles.muted}>Mensagem automática só para quem autorizou (caixa no formulário do site ou registro da equipe) e não pediu para parar. Descadastro vale na hora e cancela o que estava agendado.</p>
+    <h2 id="t-pref">Preferências e autorizações de contato</h2>
+    <p className={styles.muted}>A autorização vale para um número específico. Só sai mensagem para um número do cadastro com autorização confirmada; trocar o número no cadastro não leva a autorização junto. Pedido do site com número fora do cadastro fica pendente até a equipe confirmar. Descadastro vale para o cliente inteiro, na hora.</p>
     <div className={styles.acoes}><input className={styles.link} aria-label="Buscar cliente" placeholder="Buscar cliente" value={busca} onChange={(e) => setBusca(e.target.value)} />
       <button type="button" className={styles.secundario} onClick={() => void buscar()}>Buscar</button>
       {resultados.map((r) => <button key={r.id} type="button" className={styles.fantasma} onClick={() => void abrir(r.id)}>{r.nome}</button>)}</div>
-    {selecionado && <div style={{ marginTop: 12 }}>
-      <p><strong>{selecionado.cliente.nome}</strong>: {p?.descadastradoEm ? `descadastrado em ${dataHoraBr(p.descadastradoEm)}` : p?.whatsappAutorizado ? `autorizado (${p.autorizacaoOrigem === 'FORMULARIO_SITE' ? 'formulário do site' : 'registro da equipe'}) em ${dataHoraBr(p.autorizadoEm)}` : 'sem autorização registrada'}</p>
-      {pode && <div className={styles.acoes}>
-        {!p?.descadastradoEm && !p?.whatsappAutorizado && <button type="button" className={styles.secundario} onClick={() => void alterar('autorizar')}>Registrar autorização</button>}
-        {!p?.descadastradoEm && <button type="button" className={styles.fantasma} onClick={() => void alterar('descadastrar')}>Descadastrar</button>}
-        {p?.descadastradoEm && <button type="button" className={styles.fantasma} onClick={() => void alterar('reativar')}>Reativar (novo pedido da pessoa)</button>}
+    {selecionado && p && <div style={{ marginTop: 12 }}>
+      <p><strong>{selecionado.cliente.nome}</strong>{p.descadastradoEm ? ` — descadastrado em ${dataHoraBr(p.descadastradoEm)}` : ''}</p>
+      <ul className={styles.historico}>
+        {p.autorizacoes.length === 0 && <li>Nenhuma autorização registrada.</li>}
+        {p.autorizacoes.map((a) => <li key={a.id} data-vigente={a.estado === 'CONFIRMADA'}>
+          {finalDoNumero(a.destino)} · <strong>{a.estado === 'CONFIRMADA' ? 'confirmada' : a.estado === 'PENDENTE' ? 'pendente de confirmação' : 'revogada'}</strong>
+          {' '}({a.origem === 'FORMULARIO_SITE' ? 'formulário do site' : 'equipe'}, {dataHoraBr(a.criadoEm)})
+          {!selecionado.cliente.destinos.includes(a.destino) && a.estado !== 'REVOGADA' && <>{' '}<span className={styles.seloAlerta}>número fora do cadastro atual</span></>}
+          {a.motivoRevogacao ? ` · ${a.motivoRevogacao}` : ''}
+          {pode && a.estado === 'PENDENTE' && !p.descadastradoEm && <> <button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'confirmar', autorizacaoId: a.id }, 'Como a equipe confirmou que este número é da pessoa e que ela autorizou?')}>Confirmar</button></>}
+          {pode && a.estado !== 'REVOGADA' && <> <button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'revogar', autorizacaoId: a.id }, 'Motivo da revogação:')}>Revogar</button></>}
+        </li>)}
+      </ul>
+      {pode && !p.descadastradoEm && <div className={styles.acoes} style={{ marginTop: 8 }}>
+        {selecionado.cliente.destinos.filter((d) => !autorizados.has(d)).map((d) => <button key={d} type="button" className={styles.secundario}
+          onClick={() => void alterar({ operacao: 'autorizar', destino: d }, `Registre como a pessoa autorizou mensagens no número ${finalDoNumero(d)}:`)}>Autorizar {finalDoNumero(d)}</button>)}
+        <button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'descadastrar' }, 'Registre o pedido de descadastro (ex.: pediu por telefone em 14/10):')}>Descadastrar</button>
       </div>}
+      {pode && p.descadastradoEm && <div className={styles.acoes}><button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'reativar' }, 'Registre o novo pedido da própria pessoa:')}>Reativar (novo pedido da pessoa)</button></div>}
     </div>}
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
   </section>;

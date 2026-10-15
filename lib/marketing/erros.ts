@@ -33,7 +33,7 @@ export function conflito(mensagem = "Este registro foi alterado por outra pessoa
 export function schemaAusente(error: unknown): MarketingError | null {
   const e = error as { code?: unknown; message?: unknown };
   if (e?.code === "42P01" && typeof e.message === "string" && /marketing_/.test(e.message)) {
-    const migration = /marketing_(automacao|tarefas|contato_preferencias|transporte_simulado)/.test(e.message) ? "084" : "083";
+    const migration = /marketing_(automacao|tarefas|contato_preferencias|contato_autorizacoes|transporte_simulado)/.test(e.message) ? "084" : "083";
     return new MarketingError("MARKETING_INDISPONIVEL", `Marketing indisponível neste ambiente: a migration ${migration} ainda não foi aplicada.`, 503);
   }
   return null;
