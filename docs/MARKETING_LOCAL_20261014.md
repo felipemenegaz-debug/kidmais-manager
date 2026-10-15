@@ -12,7 +12,12 @@ descartável autorizado. Sem push, PR, merge, deploy, DNS real ou mensagem real.
   R1–R4 (15/10/2026)”. Commit `64fcd09` **APROVADO** pela revisão independente de 15/10/2026 para encerrar o goal
   local (`revisao-marketing-64fcd09-parecer-20261015/PARECER.md`, observações não bloqueantes O1–O6).
 - Observações O1/O2/O6 (e O5): novo commit local sobre `64fcd09` na mesma branch (sem amend, sem push) — ver
-  “Observações O1/O2/O6 da revisão de 64fcd09” no fim. Revisão desse commit **pendente**; nada aqui é aprovação.
+  “Observações O1/O2/O6 da revisão de 64fcd09” no fim. Esse commit, `f917f98`, foi **REPROVADO** por F1 na revisão de
+  15/10/2026 (`revisao-marketing-f917f98-parecer-20261015/PARECER.md`).
+- Correção F1: worktree `kidmais-manager-marketing-f1-20261015`, branch `codex/marketing-correcao-f1-20261015`, commit
+  local `2c5aa43` sobre `f917f98` — **APROVADO** para encerrar o goal local de F1
+  (`revisao-marketing-2c5aa43-parecer-20261015/PARECER.md`), com N1/P3 documental não bloqueante, tratada em “Estado
+  consolidado e errata N1” logo abaixo. Ver também “Correção F1 da revisão de f917f98” no fim.
 - Base: `origin/staging` local em `eb6ca81` (merge da PR #164), lida do clone `kidmais-manager-github` sem fetch
   (pode estar defasada em relação ao GitHub; nenhum fetch/pull foi autorizado nesta execução).
 - Migrations novas: `083` (base de Marketing) e `084` (automações). Escolha local provisória de número, não reserva
@@ -28,9 +33,72 @@ descartável autorizado. Sem push, PR, merge, deploy, DNS real ou mensagem real.
 | Entrega B validada local | **Sim** — unitários e suíte PostgreSQL descartável (evidência 7, inclusive concorrência com 2 conexões) e UI local |
 | Integrações reais (DNS/HTTPS público, provedor de domínio, WhatsApp real) | **Fora do escopo — não realizadas** |
 | Publicação externa / staging / produção | **Fora do escopo — não realizadas** |
-| Revisão independente | `bc379ad` **REPROVADO** (R1–R4); `64fcd09` **APROVADO** para encerrar o goal local (O1–O6 não bloqueantes); commit das observações O1/O2/O6 com revisão **pendente** |
+| Revisão independente | `bc379ad` **REPROVADO** (R1–R4); `64fcd09` **APROVADO** para encerrar o goal local (O1–O6 não bloqueantes); `f917f98` (O1/O2/O5/O6) **REPROVADO** (F1); `2c5aa43` (F1) **APROVADO** para encerrar o goal local de F1, N1/P3 documental não bloqueante — ver “Estado consolidado e errata N1” |
 
 Teste simulado valida lógica e contrato; **não** comprova funcionamento de provedor real.
+
+## Estado consolidado e errata N1 (atualização de 15/10/2026, após a revisão de 2c5aa43)
+
+As seções mais abaixo foram escritas em cada entrega e registram o estado **daquele momento** (por exemplo, “revisão
+pendente”). Ficam como histórico, com notas de atualização; esta seção é o estado atual.
+
+| Commit (local, sem push) | Conteúdo | Revisão independente | Parecer |
+|---|---|---|---|
+| `bc379ad` | Entregas A e B, migrations 083/084 | **REPROVADO** (histórico): R1–R4 | `revisao-marketing-bc379ad-codex-20261015/PARECER.md` |
+| `64fcd09` | Correções R1–R4 | **APROVADO** local, com observações não bloqueantes O1–O6 | `revisao-marketing-64fcd09-parecer-20261015/PARECER.md` |
+| `f917f98` | Observações O1/O2/O5/O6 | **REPROVADO** (histórico): F1 | `revisao-marketing-f917f98-parecer-20261015/PARECER.md` |
+| `2c5aa43` | Correção F1 | **APROVADO** para encerrar o goal local de F1; N1/P3 documental não bloqueante | `revisao-marketing-2c5aa43-parecer-20261015/PARECER.md` |
+
+Esta errata é um commit **documental** local posterior a `2c5aa43`. Ele não recebeu revisão independente própria: a
+aprovação acima refere-se ao commit `2c5aa43`.
+
+**Errata N1 — prazo de espera pela trava.** A seção da correção F1 afirmava que “uma trava não obtida em 30 s falha a
+transação”. Isso não é garantido pelo código entregue:
+
+- `SET statement_timeout = '30s'` é configurado **só pelo harness PostgreSQL descartável**
+  (`lib/comercial/postgres-descartavel.ts`, em `conectarDescartavel`); vale para as suítes de teste.
+- A transação pública do formulário (`app/api/publico/marketing/[slug]/contato/route.ts` → `withTransaction` em
+  `lib/db/postgres.ts`) abre `BEGIN`, executa e faz `COMMIT`/`ROLLBACK`; não define `statement_timeout` nem
+  `lock_timeout` no código examinado.
+- Fora do harness, o prazo de uma consulta bloqueada depende da configuração da conexão, da role ou do servidor, que
+  **não foi verificada**.
+- `connectionTimeoutMillis` e `idleTimeoutMillis` do pool limitam a obtenção de conexão e a ociosidade; **não** são
+  prazo máximo de uma consulta já em execução esperando trava.
+- Portanto, não há promessa de que uma espera da aplicação falhe automaticamente em 30 segundos. Uma garantia
+  operacional de prazo seria requisito separado (definir e testar no caminho público, com autorização própria); nada
+  foi alterado em runtime por esta errata. A espera longa não restaura autorização revogada (F1 continua corrigido).
+
+O LEIA-ME do pacote `revisao-marketing-2c5aa43-20261015` repete a afirmação antiga e **não foi alterado** (pacote
+entregue); esta errata e o resumo `revisao-marketing-doc-n1-*` a substituem.
+
+**Quem validou o quê em `2c5aa43`.**
+
+- **Revisor (executou):**
+  - 52/52 testes sem banco do Marketing;
+  - TypeScript e ESLint;
+  - conferência do manifesto e reprodução do patch;
+  - comparação da árvore declarada como testada com a árvore do commit.
+- **Implementador (executou; o revisor só leu os logs, sem reexecutar):**
+  - suíte PostgreSQL F1 antes e depois;
+  - `check:v1:postgres` completo (98 arquivos);
+  - `check:v1:static` com build.
+- **Contagens F1:**
+  - “9/9” = 1 teste pai + 8 subtestes;
+  - “7 de 9” no antes = o teste pai + 6 subtestes com falha (2 subtestes passaram).
+  - Não são nove cenários independentes.
+- **Comparação de árvores:**
+  - confirma que código, testes e schema do commit são iguais aos da árvore declarada, com diferença apenas documental;
+  - **não** equivale a atestação independente de que a execução anterior usou aquela árvore.
+
+**Pendências fora do goal local (não resolvidas aqui, não são bloqueios novos):**
+
+- O3: a API devolve números completos.
+- O4: descadastro concorrente a uma execução já em ENVIANDO. O motor revalida sem trava no envio, que é da mesma classe.
+- Decisões comerciais: planos com `MARKETING`, preço, cache de imagens de 300 s, opt-in com código/OTP e texto LGPD.
+- Reconciliação da 084 (editada no lugar) e dos números 083/084 com o histórico real de migrations, antes de
+  qualquer integração.
+
+Nada foi publicado: sem push, PR, staging, produção, DNS, provedores ou mensagens reais.
 
 ## O que foi entregue
 
@@ -305,7 +373,8 @@ simulados) na execução de 14–15/10. Depois disso: commit local `bc379ad` (se
 
 Goal: `Kidmais-Manager-Second-Brain/02 - Kidmais Manager SaaS/07 - Roadmap/Goal Correcao Marketing local R1 R4.md`.
 Parecer: `revisao-marketing-bc379ad-codex-20261015/PARECER.md` (preservado). Novo commit local sobre `bc379ad` na
-branch `codex/marketing-correcoes-r1-r4-20261015` (sem amend, sem push). **Nova revisão independente pendente.**
+branch `codex/marketing-correcoes-r1-r4-20261015` (sem amend, sem push). **Nova revisão independente pendente** na data da entrega. Atualização de 15/10: `64fcd09`
+**APROVADO** — ver “Estado consolidado e errata N1”.
 
 | Achado | Correção | Testes |
 |---|---|---|
@@ -349,7 +418,8 @@ contrato 013/014/019 desligados só nessa transação, no banco sintético) — 
 Observação de ambiente: havia outro processo local (servidor de prévia do Codex) escutando em `127.0.0.1:3492`; o
 `next dev` desta rodada escutou em `[::1]:3492` e as capturas mostram o app semeado. Esse processo não foi tocado.
 
-**Não validado / pendente:** revisão independente do delta (nova rodada da Astra/Codex); decisões comerciais (planos com
+**Não validado / pendente (na data da entrega; a revisão de `64fcd09` ocorreu depois e APROVOU):** revisão
+independente do delta (nova rodada da Astra/Codex); decisões comerciais (planos com
 `MARKETING`, preço); cache das imagens (300 s ou revalidação); opt-in com confirmação por código no número (fora deste
 escopo). Integrações reais, staging e produção continuam fora do escopo.
 
@@ -358,7 +428,8 @@ escopo). Integrações reais, staging e produção continuam fora do escopo.
 Parecer: `revisao-marketing-64fcd09-parecer-20261015/PARECER.md` (APROVADO para encerrar o goal local; O1–O6 não
 bloqueantes). Novo commit local sobre `64fcd09` na branch `codex/marketing-correcoes-r1-r4-20261015` (sem amend, sem
 push, sem PR). A 084 foi novamente **editada no lugar** (nunca aplicada fora de cluster descartável já apagado).
-**Revisão independente deste commit pendente.**
+**Revisão independente deste commit pendente** na data da entrega. Atualização: `f917f98` foi **REPROVADO** por F1
+(`revisao-marketing-f917f98-parecer-20261015/PARECER.md`).
 
 | Observação | Decisão / correção | Testes |
 |---|---|---|
@@ -400,7 +471,9 @@ PR, staging, produção ou mensagem real. UI não reexecutada (nenhuma mudança 
 Parecer: `revisao-marketing-f917f98-parecer-20261015/PARECER.md` (f917f98 **REPROVADO**, preservado). Goal: nota
 `Goal Correcao Marketing local F1` no vault. Worktree própria `kidmais-manager-marketing-f1-20261015`, branch
 `codex/marketing-correcao-f1-20261015`, novo commit local sobre `f917f98` (sem amend, sem push). **Revisão
-independente pendente.**
+independente pendente** na data da entrega.
+Atualização: `2c5aa43` **APROVADO** para encerrar o goal local de F1
+(`revisao-marketing-2c5aa43-parecer-20261015/PARECER.md`); N1/P3 documental tratada em “Estado consolidado e errata N1”.
 
 **Defeito (F1).** O formulário do site lia o cadastro sem trava, decidia CONFIRMADA e só depois inseria a autorização.
 Se outra transação trocasse o número (A→B) entre a leitura e o INSERT — ou entre o INSERT e o COMMIT —, o gatilho
@@ -421,7 +494,11 @@ pega a linha primeiro, a edição espera, e o gatilho revoga a autorização rec
 o formulário espera e lê o cadastro já alterado (número fora do cadastro → PENDENTE, como no fluxo sequencial). Dois
 formulários, ou formulário × equipe, no mesmo cliente ficam serializados (sem duas vivas, sem deadlock). O mesmo
 protocolo fecha a variante com descadastro concorrente: a autorização do formulário não sobrevive ao descadastro nem volta
-na reativação. Não há retry nem espera por tempo; uma trava não obtida em 30 s falha a transação (`statement_timeout`).
+na reativação. Não há retry nem espera por tempo no protocolo. *Errata N1 (15/10/2026):* esta frase dizia que “uma trava não obtida
+em 30 s falha a transação”. Isso vale **só no harness PostgreSQL descartável** (`SET statement_timeout = '30s'` em
+`lib/comercial/postgres-descartavel.ts`). A transação pública do formulário não define timeout; fora do harness, o
+prazo depende da configuração da conexão, da role ou do servidor, que não foi verificada. Ver “Estado consolidado e
+errata N1”.
 
 Fora do recorte (inalterados): O3 e O4. O motor revalida a elegibilidade sem trava no momento do envio (janela de
 milissegundos entre a decisão e o transporte, a mesma classe de O4).
@@ -437,8 +514,8 @@ por cima. Relatórios em `ambientes-locais/pg-descartavel-marketing-f1-20261015-
 | Verificação | Resultado | Log |
 |---|---|---|
 | `correcao-f1.test.ts` (forma do protocolo, sem banco) em `f917f98` / depois | **0/1** / **1/1** | `unitario-f1-ANTES-f917f98.log`, `unitario-f1-DEPOIS.log` |
-| `correcao-f1.postgres.test.ts` [084], **antes** (`f917f98`) | **FALHA**: 7 de 9 — leitura→INSERT, INSERT→COMMIT, ordem inversa e descadastro terminam com a autorização obsoleta CONFIRMADA (asserções funcionais); controle positivo falha porque a autorização antiga já valia antes da nova; o servidor registra **nenhuma** espera (`CONCLUIDA`). Nenhum `TEMPO_DO_TESTE` | `2026-10-15T11-23-32-418Z-check-v1-postgres.log` |
-| A mesma, **depois** | **PASS 9/9**; cada espera observada no servidor (`wait_event_type = Lock`) e `pg_blocking_pids` = a sessão que segura a linha | `2026-10-15T11-23-17-568Z-check-v1-postgres.log` |
+| `correcao-f1.postgres.test.ts` [084], **antes** (`f917f98`) | **FALHA**: 7 de 9 (o teste pai + 6 subtestes; 2 subtestes passaram) — leitura→INSERT, INSERT→COMMIT, ordem inversa e descadastro terminam com a autorização obsoleta CONFIRMADA (asserções funcionais); controle positivo falha porque a autorização antiga já valia antes da nova; o servidor registra **nenhuma** espera (`CONCLUIDA`). Nenhum `TEMPO_DO_TESTE` | `2026-10-15T11-23-32-418Z-check-v1-postgres.log` |
+| A mesma, **depois** | **PASS 9/9** (o teste pai + 8 subtestes); cada espera observada no servidor (`wait_event_type = Lock`) e `pg_blocking_pids` = a sessão que segura a linha | `2026-10-15T11-23-17-568Z-check-v1-postgres.log` |
 | `check:v1:postgres` completo (inclui as 6 suítes do Marketing) | **PASS 98/98 arquivos** | `2026-10-15T11-23-51-348Z-check-v1-postgres.log` |
 | `check:v1:static` | **PASS** — 3073/3073 unitários, smoke 103/103, lint 0 erros (1 aviso preexistente), TypeScript, build (SVG de `lib/convites/acervo` convertidos para LF só durante a execução e restaurados) | `check-v1-static.log` |
 | `production.test.mjs`; `tsc --noEmit --incremental false`; ESLint dos alterados | 37/37; limpos | — |
