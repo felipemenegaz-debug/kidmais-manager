@@ -1,0 +1,426 @@
+{
+  "criadoEm": "2026-10-07",
+  "autor": "rodada 26 (desenvolvimento; rótulos pelas regras dos holdouts e pela regra da data sem ano; não é medição)",
+  "categoria": "r26-conversas",
+  "itens": [
+    {
+      "id": "rb01",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "quanto fica o completa pra 80 dia 21/11 à noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor em 21/11, noite."
+    },
+    {
+      "id": "rb02",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "e se for à tarde?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "\"À tarde\" não define o período: pergunta qual (sem menu, sem repetir o valor da noite)."
+    },
+    {
+      "id": "rb03",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "no primeiro horário",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": "ALMOCO",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor no primeiro horário."
+    },
+    {
+      "id": "rb04",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "quero fechar o premium pra 120 dia 12 de dezembro à noite",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": 120,
+        "turno": "NOITE",
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Data sem ano: mostra 12/12/2026 e pede a confirmação antes de seguir."
+    },
+    {
+      "id": "rb05",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "sim, pode seguir",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Data confirmada: contratação com a equipe, sem reserva confirmada."
+    },
+    {
+      "id": "rb06",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "quero reservar o essencial pra 40 dia 5 de dezembro no almoço",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-12-05",
+        "convidados": 40,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Confirma 05/12/2026."
+    },
+    {
+      "id": "rb07",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "não, é dia 19",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-12-19",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Nova proposta: 19/12/2026 (mês da conversa), confirma de novo."
+    },
+    {
+      "id": "rb08",
+      "conversa": "c3",
+      "ordem": 3,
+      "texto": "é essa mesmo",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Confirmada: equipe."
+    },
+    {
+      "id": "rb09",
+      "conversa": "c4",
+      "ordem": 1,
+      "texto": "estou entre Frozen e Moana pra festa da minha filha",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Indecisão: confirma o tema."
+    },
+    {
+      "id": "rb10",
+      "conversa": "c4",
+      "ordem": 2,
+      "texto": "Moana mesmo 💙",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "Moana"
+      },
+      "nota": "Tema \"Moana\" (sem \"mesmo\")."
+    },
+    {
+      "id": "rb11",
+      "texto": "quero fechar o completa pra 80 dia 21/11/2026 à noite",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 80,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Ano escrito: segue para a equipe."
+    },
+    {
+      "id": "rb12",
+      "texto": "tem juros se eu parcelar?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Juros do parcelamento: condição de pagamento (equipe), nunca a cláusula 7."
+    },
+    {
+      "id": "rb13",
+      "texto": "se eu parcelar em 6x tem alguma taxa?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Parcelamento: equipe, sem cláusula."
+    },
+    {
+      "id": "rb14",
+      "texto": "se eu atrasar a parcela tem juros?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: atraso, cláusula 7."
+    },
+    {
+      "id": "rb15",
+      "texto": "se eu pagar depois do vencimento tem multa?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: vencimento, cláusula 7."
+    },
+    {
+      "id": "rb16",
+      "texto": "se eu passar do horário cobra?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 8."
+    },
+    {
+      "id": "rb17",
+      "texto": "se eu cancelar tem multa?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 9."
+    },
+    {
+      "id": "rb18",
+      "texto": "se eu levar cerveja pode?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 11 (bebida alcoólica trazida)."
+    },
+    {
+      "id": "rb19",
+      "texto": "se eu levar meu próprio bolo pode?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "FORA_DO_ESCOPO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Sem condição publicada: equipe, sem cláusula."
+    },
+    {
+      "id": "rb20",
+      "texto": "meu filho é alérgico a leite, tem problema?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "ALERGIA"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Alergia (pergunta preventiva): equipe, sem \"sinto muito\"."
+    },
+    {
+      "id": "rb21",
+      "texto": "tive um problema na festa, a comida veio fria",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "RECLAMACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: reclamação."
+    },
+    {
+      "id": "rb22",
+      "texto": "preciso da segunda via do contrato que a gente assinou",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contrato próprio, sem frase de pagamento."
+    },
+    {
+      "id": "rb23",
+      "texto": "me manda a segunda via do boleto",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: boleto é pagamento."
+    }
+  ]
+}

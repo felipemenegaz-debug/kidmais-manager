@@ -69,9 +69,11 @@ const approvedFiles = [
   '20260929_057_assinatura_contrato_empresa.sql',
   '20260929_058_inteligencia_skills.sql',
   '20261001_059_operacional_parametros_consumo.sql',
+  '20261001_060_whatsapp_atendimento.sql',
   '20261002_061_contratos_importados_integracao.sql',
   '20261002_062_agenda_empresa_unidade.sql',
   '20261004_063_painel_desenvolvedor.sql',
+  '20261004_065_whatsapp_nome_perfil.sql',
   '20261006_064_reimportacao_apos_cancelamento.sql',
   '20261006_066_pix_recebimento_empresa.sql',
   '20261006_067_modelo_comercial_empresa.sql',
@@ -84,19 +86,35 @@ const approvedFiles = [
   '20261009_074_convite_familias.sql',
   '20261009_074a_planos_comerciais.sql',
   '20261009_075_renovacao_fundador.sql',
-  // 076/077: aplicadas somente em staging (10/10/2026); produção exige autorização explícita própria.
+  // 076–079 (staging). Este inventário só reconhece arquivos e nunca lê o banco (appliedState = unknown). Aplicação em
+  // staging registrada em evidências datadas, não confirmada aqui: 076/077 em 10/10/2026; 078 (catálogo do buffet por
+  // empresa) em 11/10/2026, PASS em docs/evidencias/atualizacao-staging-20261011.md (S5b); 079 em 11/10/2026
+  // (scripts/migration-079-staging.cjs). O estado atual de um banco só se afirma por leitura própria e datada (E2a).
+  // Produção exige autorização explícita própria para cada uma.
   '20261010_076_cpf_por_empresa.sql',
   '20261010_077_regras_pagamento_empresa.sql',
-  // 078: catálogo do buffet por empresa — preparada (10/10/2026), não aplicada em nenhum banco remoto.
   '20261010_078_catalogo_buffet_por_empresa.sql',
   '20261011_079_convite_recuperacao_manual.sql',
+  // 080–082: atendimento WhatsApp/Wall-e (antes 077a/077b/078; renumeradas em 11/10/2026, escolha local provisória, não
+  // reserva coordenada). Nunca aplicadas em banco remoto segundo os registros desta linha; E2a novo antes de aplicar.
+  // Ordem de aplicação num banco que já tem 061–079: 060 → 065 → 080 → 081 → 082 (provada em ordem-staging-real).
+  '20261011_080_whatsapp_mensagens_prontas.sql',
+  '20261011_081_whatsapp_prontas_midia.sql',
+  '20261011_082_wall_e_atendimento.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
 // - 049–051 carry their prechecks inline (DO $$ ... RAISE) and have no external check files;
 // - 052 names its checks with the "financeiro" suffix;
 // - 054 needs its immediate backfill between precheck and postcheck;
-// - 055a–d, 058 and 059 carry the precheck inline and have an external postcheck.
+// - 055a–d, 058, 059, 060, 065, 080, 081 and 082 (WhatsApp atendimento: 065 kept, reserved by staging; the original
+//   064/066/067 became 070/071/072, then 073/074/075 on 07/10 (staging took 070, another branch 071), then 076/077/078 on
+//   09/10 (staging took 073, 074, 074a and 075), on 10/10 076/077 became 077a/077b while 078 was kept (staging took
+//   076 cpf_por_empresa and 077 regras_pagamento_empresa), and on 11/10 077a/077b/078 became 080/081/082 (staging took
+//   078 catalogo_buffet_por_empresa and 079 convite_recuperacao_manual; 080–082 stay after every migration of the
+//   inventory, in list and file-name order). 080–082 are a provisional local choice, not a coordinated reservation:
+//   a number being free in one reading is never a reservation across sessions)
+//   carry the precheck inline and have an external postcheck.
 const checkFiles = {
   '049': [], '050': [], '051': [],
   '052': ['20260927_052_financeiro_precheck.sql', '20260927_052_financeiro_postcheck.sql'],
@@ -105,8 +123,13 @@ const checkFiles = {
   '055c': ['20260928_055c_postcheck.sql'], '055d': ['20260928_055d_postcheck.sql'],
   '058': ['20260929_058_postcheck.sql'],
   '059': ['20261001_059_postcheck.sql'],
+  '060': ['20261001_060_postcheck.sql'],
+  '065': ['20261004_065_postcheck.sql'],
+  '080': ['20261011_080_postcheck.sql'],
+  '081': ['20261011_081_postcheck.sql'],
+  '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '061', '062', '063', '064', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -138,10 +161,12 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('057_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('058_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('059_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('060_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('061_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('062_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('063_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('064_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  r.pending.push('065_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('066_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('067_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('068_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
@@ -152,6 +177,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

@@ -1,0 +1,595 @@
+{
+  "criadoEm": "2026-10-07",
+  "autor": "rodada 22 (desenvolvimento; rótulos pelas regras dos holdouts e pela política de pausa; não é medição)",
+  "categoria": "r22-conversas",
+  "itens": [
+    {
+      "id": "rx01",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "oi! queria fazer um orçamento pra festa do meu filho, tema Minecraft 🟩",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "SAUDACAO",
+        "PRECOS",
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "Minecraft"
+      },
+      "nota": "Tabela + data e período; tema anotado."
+    },
+    {
+      "id": "rx02",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "vai ser dia 21 de novembro, umas 70 pessoas, pacote completo",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-21",
+        "convidados": 70,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Dados do orçamento (o pacote é dado): falta o período."
+    },
+    {
+      "id": "rx03",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "à tarde",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Só os dois períodos, sem menu."
+    },
+    {
+      "id": "rx04",
+      "conversa": "c1",
+      "ordem": 4,
+      "texto": "o das 17h então",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": "NOITE",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "rx05",
+      "conversa": "c1",
+      "ordem": 5,
+      "texto": "obrigadaaa, vcs são demais 🥰",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Agradecimento: \"por nada\", sem menu."
+    },
+    {
+      "id": "rx06",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "quanto fica o essencial pra 40 dia 14/11 a noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-14",
+        "convidados": 40,
+        "turno": "NOITE",
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "rx07",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "mano sai fora não me chama mais não tô interessado",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Interrupção explícita: bloqueio e silêncio."
+    },
+    {
+      "id": "rx08",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "ué, sumiram?",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [
+        "FORA_DO_ESCOPO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois do PARAR: silêncio."
+    },
+    {
+      "id": "rx09",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "quanto fica o premium pra 100 dia 05/12 no almoço?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-05",
+        "convidados": 100,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "rx10",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "vou ver com meu marido. por enquanto não quero receber mais nada de vocês, obrigada",
+      "decisao": "PARAR_MISTO",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pausa: equipe em silêncio, sem bloqueio definitivo e sem envio automático depois."
+    },
+    {
+      "id": "rx11",
+      "conversa": "c3",
+      "ordem": 3,
+      "texto": "esqueci de perguntar, tem estacionamento?",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [
+        "DUVIDA_FAQ"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois da pausa: nada automático."
+    },
+    {
+      "id": "rx12",
+      "conversa": "c4",
+      "ordem": 1,
+      "texto": "vcs fazem decoração de dinossauro? 🦖",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "dinossauro"
+      },
+      "nota": "Decoração + tema."
+    },
+    {
+      "id": "rx13",
+      "conversa": "c4",
+      "ordem": 2,
+      "texto": "e balão, vem quantos na mesa?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO",
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cláusula 17 (balões fornecidos)."
+    },
+    {
+      "id": "rx14",
+      "conversa": "c4",
+      "ordem": 3,
+      "texto": "posso levar uns balões metalizados que eu já comprei?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "FORA_DO_ESCOPO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Item de fora: a cláusula 17 não trata de levar balões."
+    },
+    {
+      "id": "rx15",
+      "conversa": "c5",
+      "ordem": 1,
+      "texto": "ainda tô entre safari e fundo do mar 🤔",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Indecisão: tema a confirmar."
+    },
+    {
+      "id": "rx16",
+      "conversa": "c5",
+      "ordem": 2,
+      "texto": "fundo do mar!",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "fundo do mar"
+      },
+      "nota": "Tema decidido e anotado."
+    },
+    {
+      "id": "rx17",
+      "texto": "cai fora daqui, não quero mais nada de vcs",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Interrupção explícita."
+    },
+    {
+      "id": "rx18",
+      "texto": "vaza, não me manda mais nada",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Interrupção explícita."
+    },
+    {
+      "id": "rx19",
+      "texto": "por enquanto não me manda mais nada, depois eu volto",
+      "decisao": "PARAR_MISTO",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pausa: nada automático, equipe."
+    },
+    {
+      "id": "rx20",
+      "texto": "se a gente sair fora do horário cobra?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: cláusula de horários, não parar."
+    },
+    {
+      "id": "rx21",
+      "texto": "não tô interessado no premium, só no essencial. quanto fica pra 40?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 40,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: desinteresse por um pacote, não parar."
+    },
+    {
+      "id": "rx22",
+      "texto": "dá pra trazer as bexigas que eu comprei?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "FORA_DO_ESCOPO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Item de fora."
+    },
+    {
+      "id": "rx23",
+      "texto": "posso levar cerveja pros adultos?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONTRATO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: cláusula 11 trata de trazer bebida."
+    },
+    {
+      "id": "rx24",
+      "texto": "sonic ou mario... n decidi ainda kkkkk",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Indecisão de tema."
+    },
+    {
+      "id": "rx25",
+      "texto": "tô na dúvida entre frozen e moana pra decoração",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Indecisão de tema."
+    },
+    {
+      "id": "rx26",
+      "texto": "tô entre sábado e domingo, qual tem vaga dia 14?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": "2026-11-14",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: indecisão de data, não tema."
+    },
+    {
+      "id": "rx27",
+      "texto": "Vcs fazem festa da Frozen? ❄️ E qual o endereço da Asa Sul?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO",
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": "ASA_SUL",
+        "tema": "Frozen"
+      },
+      "nota": "Tema \"Frozen\" + endereço."
+    },
+    {
+      "id": "rx28",
+      "texto": "rola festa do homem-aranha?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DECORACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": "homem-aranha"
+      },
+      "nota": "Tema."
+    },
+    {
+      "id": "rx29",
+      "texto": "vcs fazem festa de 15 anos?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "FORA_DO_ESCOPO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: tipo de evento sem fonte."
+    },
+    {
+      "id": "rx30",
+      "texto": "brigadão, ajudou muito!",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONFIRMACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Agradecimento."
+    },
+    {
+      "id": "rx31",
+      "texto": "mto obg!!",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONFIRMACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Agradecimento."
+    },
+    {
+      "id": "rx32",
+      "texto": "show, obrigado pela atenção",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CONFIRMACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Agradecimento."
+    }
+  ]
+}

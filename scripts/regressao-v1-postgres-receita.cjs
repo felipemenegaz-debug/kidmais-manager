@@ -16,8 +16,14 @@
  *   062   — inventário inteiro até a 062: etapa final (agenda por empresa e unidade).
  *   063   — inventário inteiro até a 063: painel do desenvolvedor (concessão, interessadas, convites, recuperação).
  *   075   — inventário inteiro até a 075: cobrança com as travas comerciais da 074a e a renovação 075 (suítes da #147).
- *   078   — inventário inteiro até a 078: o schema de staging em 11/10/2026 (planos, regras de pagamento, catálogo por empresa).
- *   079   — inventário inteiro até a 079: schema vigente com a recuperação manual de convites.
+ *   078   — inventário inteiro até a 078 (planos, regras de pagamento, catálogo por empresa).
+ *   079   — inventário inteiro até a 079 (recuperação manual de convites).
+ *           Desde a integração do atendimento (11/10/2026), os modelos 061…079 incluem a 060 e a 065, que ficam antes
+ *           delas na ordem do inventário (como o 063 já incluía a 060).
+ *   079-sem-atendimento — inventário até a 079 SEM a 060 e a 065: a PREMISSA do banco de staging antes das
+ *           migrations do atendimento (076–078 com evidência datada; 079 sem evidência datada; estado real só por E2a novo).
+ *   079-sem-065 — inventário até a 079 sem a 065 (060 presente): o estado misto possível do staging.
+ *   082   — inventário inteiro até a 082: atendimento completo (060, 065, 080, 081, 082) na ordem do inventário.
  *
  * Segurança (fail-closed, antes de qualquer escrita):
  *   - host 127.0.0.1, usuário kidmais_descartavel, porta autorizada pela mesma regra de
@@ -61,6 +67,12 @@ const MODELOS = {
   "078": { banco: "kidmais_v1_modelo_078", ate: "078", sem: [] },
   // Recuperação manual de convites (079): cadeia completa do schema vigente, incluindo 064–079.
   "079": { banco: "kidmais_v1_modelo_079", ate: "079", sem: [] },
+  // Premissa do staging antes do atendimento: 061…079 presentes, 060/065 ausentes (base da suíte ordem-staging-real).
+  "079-sem-atendimento": { banco: "kidmais_v1_modelo_079_sem_atendimento", ate: "079", sem: ["060", "065"] },
+  // Estado misto (12/10): a 060 aplicada antes de 061…079 e a 065 ausente (base da suíte estado-misto).
+  "079-sem-065": { banco: "kidmais_v1_modelo_079_sem_065", ate: "079", sem: ["065"] },
+  // Atendimento completo na ordem do inventário (060 antes da 061, 065 antes da 064, 080–082 depois da 079).
+  "082": { banco: "kidmais_v1_modelo_082", ate: "082", sem: [] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

@@ -1,0 +1,337 @@
+{
+  "criadoEm": "2026-10-07",
+  "autor": "rodada 20 (desenvolvimento; rótulos pelas regras dos holdouts; não é medição)",
+  "categoria": "r20-conversas",
+  "itens": [
+    {
+      "id": "rv01",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "oi! quanto fica o premium pra 130 dia 12/12 no almoço?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO",
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": 130,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "rv02",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "e onde fica a unidade da asa sul?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": "ASA_SUL",
+        "tema": null
+      },
+      "nota": "Endereço, sem pergunta de pacote."
+    },
+    {
+      "id": "rv03",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "fechado! pode garantir",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Aceite com dados herdados: contratação com a equipe, sem reserva confirmada."
+    },
+    {
+      "id": "rv04",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "tem vaga dia 28/11 a noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": "2026-11-28",
+        "convidados": null,
+        "turno": "NOITE",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Agenda."
+    },
+    {
+      "id": "rv05",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "qual o endereço de águas claras? e já deixa reservado pra mim",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "LOCALIZACAO",
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": "AGUAS_CLARAS",
+        "tema": null
+      },
+      "nota": "Endereço + coleta para contratar (convidados e pacote), sem reserva confirmada."
+    },
+    {
+      "id": "rv06",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "80 pessoas no completa",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 80,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Dados completos: equipe."
+    },
+    {
+      "id": "rv07",
+      "texto": "fechado! pode garantir o premium pra 130 pessoas no dia doze de dezembro no almoço",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": 130,
+        "turno": "ALMOCO",
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 19, u26."
+    },
+    {
+      "id": "rv08",
+      "texto": "qual o endereço de águas claras? e já deixa o dia 28/11 reservado pra mim",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "LOCALIZACAO",
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": "2026-11-28",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": "AGUAS_CLARAS",
+        "tema": null
+      },
+      "nota": "Holdout 19, u46: endereço + coleta."
+    },
+    {
+      "id": "rv09",
+      "texto": "fizemos a festa aí em setembro, queria saber o valor final que ficou e se sobrou algum saldo",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO",
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 19, u29: equipe, sem orçamento."
+    },
+    {
+      "id": "rv10",
+      "texto": "a festa do meu filho foi sábado passado, quanto ficou no final?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Festa realizada + valor."
+    },
+    {
+      "id": "rv11",
+      "texto": "a festa foi ótima! quanto fica pra fazer outra em dezembro pra 50?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 50,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: festa nova (tabela)."
+    },
+    {
+      "id": "rv12",
+      "texto": "boa tarde, onde fica o buffet de vocês?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "SAUDACAO",
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 19, u57: pergunta só a unidade."
+    },
+    {
+      "id": "rv13",
+      "texto": "o que vem no buffet de vocês?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "CARDAPIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: cardápio pede o pacote."
+    },
+    {
+      "id": "rv14",
+      "texto": "o valor muda conforme o dia da festa?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 19, u15: explica a variação por data."
+    },
+    {
+      "id": "rv15",
+      "texto": "se eu fizer em outro mês o valor muda?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Mudança da própria festa: pede a data."
+    },
+    {
+      "id": "rv16",
+      "texto": "pode garantir que não tem amendoim na coxinha?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "ALERGIA",
+        "CARDAPIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: garantia de ingrediente, não reserva."
+    },
+    {
+      "id": "rv17",
+      "texto": "Que dia cansativo, Deus me livre. Me passa o endereço de vocês?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "LOCALIZACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: \"me livre\" não é agenda; pergunta só a unidade."
+    },
+    {
+      "id": "rv18",
+      "texto": "Dá pra reservar ainda? Queria ver se tem data livre",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "DISPONIBILIDADE"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Consulta de agenda: pede só a data."
+    }
+  ]
+}

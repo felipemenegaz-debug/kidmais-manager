@@ -1,0 +1,567 @@
+{
+  "criadoEm": "2026-10-06",
+  "autor": "rodada 18 (desenvolvimento; rótulos pelas regras dos holdouts, \"à tarde\" sem período definido; não é medição)",
+  "categoria": "r18-conversas",
+  "itens": [
+    {
+      "id": "rt01",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "oi, queria um orçamento pra festa da minha filha",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "SAUDACAO",
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Orçamento sem dados: pede data e período."
+    },
+    {
+      "id": "rt02",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "dia 28 de novembro",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-28",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Falta período e convidados."
+    },
+    {
+      "id": "rt03",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "umas 50 pessoas, à tarde",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 50,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "\"À tarde\" não define período: pergunta os dois."
+    },
+    {
+      "id": "rt04",
+      "conversa": "c1",
+      "ordem": 4,
+      "texto": "segundo horário",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": "NOITE",
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Com 50 convidados, Essencial e Completa comportam: pergunta o pacote."
+    },
+    {
+      "id": "rt05",
+      "conversa": "c1",
+      "ordem": 5,
+      "texto": "essencial",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "ESSENCIAL"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pacote escolhido: o cálculo retoma com data, período e convidados já ditos."
+    },
+    {
+      "id": "rt06",
+      "conversa": "c1",
+      "ordem": 6,
+      "texto": "e quanto tempo dura?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Duração do pacote da conversa (cadastro)."
+    },
+    {
+      "id": "rt07",
+      "conversa": "c1",
+      "ordem": 7,
+      "texto": "manda o pdf do cardápio dele",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "CARDAPIO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Cardápio do pacote da conversa + PDF."
+    },
+    {
+      "id": "rt08",
+      "conversa": "c1",
+      "ordem": 8,
+      "texto": "da pra fazer por 4 mil? se fizer eu fecho hoje",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO",
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Oferta de valor com intenção de fechar: negociação."
+    },
+    {
+      "id": "rt09",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "quanto fica o completa pra 70 dia 14/11 a noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-11-14",
+        "convidados": 70,
+        "turno": "NOITE",
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Valor calculado."
+    },
+    {
+      "id": "rt10",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "e se for em outro mês muda?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Outra data sem dizer qual: pergunta a data."
+    },
+    {
+      "id": "rt11",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "dia 12 de dezembro",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Recalcula e compara."
+    },
+    {
+      "id": "rt12",
+      "conversa": "c3",
+      "ordem": 1,
+      "texto": "oi",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Saudação."
+    },
+    {
+      "id": "rt13",
+      "conversa": "c3",
+      "ordem": 2,
+      "texto": "me tira da lista, a festa foi um desastre",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR",
+        "RECLAMACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Bloqueio e silêncio; reclamação registrada para a equipe."
+    },
+    {
+      "id": "rt14",
+      "conversa": "c3",
+      "ordem": 3,
+      "texto": "???",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": [],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Depois do bloqueio, silêncio."
+    },
+    {
+      "id": "rt15",
+      "texto": "o valor muda se eu fizer em outro mês?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 17, e07: mudança da própria festa, pede a data (e o período)."
+    },
+    {
+      "id": "rt16",
+      "texto": "depende da época o preço?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Pergunta geral sobre a regra de preço: responde que depende (data e período) e convida a dizer a data. Antes da gravação estava PERGUNTAR; trocado ao separar a pergunta geral (conferencia-negativos, ng223) da mudança da própria festa."
+    },
+    {
+      "id": "rt17",
+      "texto": "me manda a tabela de preços",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: tabela, sem pergunta."
+    },
+    {
+      "id": "rt18",
+      "texto": "quanto fica o premium pra 100 dia 05/12 de tarde?",
+      "decisao": "PERGUNTAR",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-05",
+        "convidados": 100,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "\"De tarde\": pergunta o período."
+    },
+    {
+      "id": "rt19",
+      "texto": "quanto fica o premium pra 100 dia 05/12 no fim da tarde?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-05",
+        "convidados": 100,
+        "turno": "NOITE",
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: fim da tarde = segundo horário."
+    },
+    {
+      "id": "rt20",
+      "texto": "boa tarde! quanto fica o premium pra 100 dia 05/12 à noite?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "SAUDACAO",
+        "PRECOS"
+      ],
+      "entidades": {
+        "data": "2026-12-05",
+        "convidados": 100,
+        "turno": "NOITE",
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: \"boa tarde\" é saudação."
+    },
+    {
+      "id": "rt21",
+      "texto": "qnto tempo dura o premium?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "PREMIUM"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Duração com abreviação."
+    },
+    {
+      "id": "rt22",
+      "texto": "aceita 7 mil no completa? fecho hoje",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "NEGOCIACAO",
+        "CONTRATAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [
+          "COMPLETA"
+        ],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Oferta de valor."
+    },
+    {
+      "id": "rt23",
+      "texto": "faz pra 80 pessoas?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "PACOTES"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": 80,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: número de pessoas não é oferta."
+    },
+    {
+      "id": "rt24",
+      "texto": "não quero mais propaganda de vcs. aliás a festa do meu filho foi péssima, salgado frio e monitor sumido",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR",
+        "RECLAMACAO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 17, e20: bloqueio + registro (decisão do usuário: bloqueio e silêncio externos, reclamação na fila interna)."
+    },
+    {
+      "id": "rt25",
+      "texto": "para de me mandar msg",
+      "decisao": "PARAR",
+      "intencoes": [
+        "PARAR"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: sem reclamação, o bloqueio de sempre."
+    },
+    {
+      "id": "rt26",
+      "texto": "quero cancelar o contrato da festa do dia 12 de dezembro, o atendimento de vcs é uma vergonha ninguém me responde",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO",
+        "RECLAMACAO"
+      ],
+      "entidades": {
+        "data": "2026-12-12",
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 17, e30: sem horário de atendimento colado."
+    },
+    {
+      "id": "rt27",
+      "texto": "a festa do Davi foi sábado retrasado, ainda tem saldo em aberto?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO",
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 17, e32: \"em aberto\" não é horário."
+    },
+    {
+      "id": "rt28",
+      "texto": "vcs abrem domingo?",
+      "decisao": "RESPONDER",
+      "intencoes": [
+        "DUVIDA_FAQ"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Contraexemplo: a pergunta do horário continua respondida."
+    },
+    {
+      "id": "rt29",
+      "texto": "quero reservar pra março, me passa pra alguém da equipe por favor",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATAR",
+        "HUMANO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 17, e23: sem \"preciso de poucos dados\"."
+    },
+    {
+      "id": "rt30",
+      "texto": "ah e a festa da minha cunhada aí sábado passado, ela já pagou tudo?",
+      "decisao": "EQUIPE",
+      "intencoes": [
+        "CONTRATO_PROPRIO",
+        "PAGAMENTO"
+      ],
+      "entidades": {
+        "data": null,
+        "convidados": null,
+        "turno": null,
+        "pacotes": [],
+        "unidade": null,
+        "tema": null
+      },
+      "nota": "Holdout 17, e80: aviso de segurança, sem motivo técnico."
+    }
+  ]
+}

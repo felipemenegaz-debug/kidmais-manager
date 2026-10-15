@@ -1,0 +1,411 @@
+{
+  "criadoEm": "2026-10-05",
+  "autor": "escritor independente de estresse",
+  "categoria": "fora-escopo",
+  "itens": [
+    {
+      "id": "fe01",
+      "texto": "Oi! Posso levar o bolo de casa? Minha mãe é confeiteira e faz questão.",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Nada publicado sobre levar bolo de fora; assunto sem fonte vai para a equipe."
+    },
+    {
+      "id": "fe02",
+      "texto": "a vizinha faz brigadeiro gourmet, posso levar os docinhos dela?",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Levar doces de fora não tem fonte publicada."
+    },
+    {
+      "id": "fe03",
+      "texto": "Bom dia. O bolo já vem no pacote Completa ou fica por nossa conta?",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Bolo não é item cadastrado do buffet em nenhum pacote; o assistente não pode afirmar que vem nem que não vem."
+    },
+    {
+      "id": "fe04",
+      "texto": "refri é liberado ou contado por garrafa",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Refrigerante não está cadastrado no buffet; regra de consumo sem fonte."
+    },
+    {
+      "id": "fe05",
+      "texto": "posso levar suco natural e água de coco de casa pras crianças?",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Bebida não alcoólica trazida de fora: o contrato só trata de bebida alcoólica; sem fonte, vai para a equipe."
+    },
+    {
+      "id": "fe06",
+      "texto": "Tem mesa de doces no Premium? brigadeiro, beijinho, essas coisas",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "Doces não estão cadastrados no buffet de nenhum pacote."
+    },
+    {
+      "id": "fe07",
+      "texto": "vcs fazem cachorro-quente ou mini pizza? meu filho só come isso kkkk",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pratos fora do buffet cadastrado (só coxinha e kibe). Preferência alimentar, não alergia."
+    },
+    {
+      "id": "fe08",
+      "texto": "Tem coxinha?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: coxinha está cadastrada em todos os pacotes, então o pacote não muda a resposta e não precisa ser perguntado."
+    },
+    {
+      "id": "fe09",
+      "texto": "quantos tipos de salgado eu posso escolher e quais são as opções",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: buffet cadastrado igual em todos os pacotes — salgados, escolha até 4, opções Coxinha e Kibe."
+    },
+    {
+      "id": "fe10",
+      "texto": "o kibe de vocês é frito ou assado? vem recheado?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido que cai fora: kibe é cadastrado, mas modo de preparo e recheio não têm fonte."
+    },
+    {
+      "id": "fe11",
+      "texto": "Queria coxinha, kibe e empadinha de frango. Consegue?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Mista: coxinha e kibe são respondíveis, empadinha não está cadastrada; parte sem fonte leva para a equipe."
+    },
+    {
+      "id": "fe12",
+      "texto": "A decoração pode ser da minha fornecedora? Já paguei o sinal pra ela",
+      "decisao": "EQUIPE",
+      "intencoes": ["DECORACAO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Decoração de fornecedor próprio sem fonte. O sinal citado foi pago à decoradora, não ao buffet (não é PAGAMENTO)."
+    },
+    {
+      "id": "fe13",
+      "texto": "tenho painel redondo e uns cilindros em casa, posso levar pra montar a mesa?",
+      "decisao": "EQUIPE",
+      "intencoes": ["DECORACAO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Levar decoração de fora não tem fonte; \"fazemos qualquer decoração\" não responde se pode trazer itens próprios."
+    },
+    {
+      "id": "fe14",
+      "texto": "Vocês conseguem fazer decoração tema Fazendinha?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DECORACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": "Fazendinha" },
+      "nota": "Parecido: texto publicado \"fazemos qualquer decoração\" responde."
+    },
+    {
+      "id": "fe15",
+      "texto": "Quantos balões vêm na mesa do tema?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DECORACAO", "CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: cláusula do contrato — até 350 balões comuns na mesa temática."
+    },
+    {
+      "id": "fe16",
+      "texto": "quero muuuito balão, mais do que vem normalmente. como faz pra aumentar?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DECORACAO", "CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: contrato — até 350 balões comuns; mais balões R$ 180 por metro."
+    },
+    {
+      "id": "fe17",
+      "texto": "Pode jogar confete na hora do parabéns?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: contrato — confete/chuva de prata com taxa de R$ 150."
+    },
+    {
+      "id": "fe18",
+      "texto": "Posso levar umas cervejas pros adultos?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: contrato — bebida alcoólica não inclusa, taxa de R$ 180 se o cliente trouxer."
+    },
+    {
+      "id": "fe19",
+      "texto": "O chopp tá incluso no pacote Premium?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["PREMIUM"], "unidade": null, "tema": null },
+      "nota": "Parecido: contrato — bebida alcoólica não inclusa em nenhum pacote."
+    },
+    {
+      "id": "fe20",
+      "texto": "vou levar whisky e uns refrigerantes pq meu marido não abre mão kkk tem problema?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CONTRATO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Mista: whisky é respondível (taxa R$ 180), refrigerante trazido de fora não tem fonte."
+    },
+    {
+      "id": "fe21",
+      "texto": "Meu irmão é fotógrafo, ele pode fotografar a festa ou tem que ser o de vocês?",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Fornecedor próprio (fotógrafo) sem fonte publicada."
+    },
+    {
+      "id": "fe22",
+      "texto": "mano posso levar meu DJ e a caixa de som dele",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Fornecedor próprio (DJ e equipamento) sem fonte publicada."
+    },
+    {
+      "id": "fe23",
+      "texto": "Contratei um mágico pra fazer um show de uns 30 minutos, ele pode se apresentar aí?",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Animador/atração externa sem fonte publicada."
+    },
+    {
+      "id": "fe24",
+      "texto": "Vocês têm recreadores ou eu preciso contratar por fora?",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Recreação não está cadastrada (o contrato fala em 20 atrações, não em recreadores)."
+    },
+    {
+      "id": "fe25",
+      "texto": "A gente já fechou a comida com outro buffet, só queríamos alugar o salão de vocês. Tem como?",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Outro buffet / aluguel só do espaço sem fonte. \"Já fechou\" se refere a outra empresa, não é festa contratada aqui."
+    },
+    {
+      "id": "fe26",
+      "texto": "oxe, posso levar minha cachorrinha? ela é mansinha e fica no colo o tempo todo",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pets sem fonte publicada."
+    },
+    {
+      "id": "fe27",
+      "texto": "Prezados, gostaria de saber se o espaço dispõe de acessibilidade para pessoas com mobilidade reduzida (rampas, banheiro adaptado). Teremos um convidado cadeirante. Desde já agradeço.",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Acessibilidade sem fonte publicada."
+    },
+    {
+      "id": "fe28",
+      "texto": "bah, tem wi-fi aí? queria fazer live da festa pros avós que moram longe",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Wi-fi sem fonte publicada."
+    },
+    {
+      "id": "fe29",
+      "texto": "Dá pra conhecer o espaço antes de fechar? Pensei em passar aí sábado de manhã",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": "2026-10-10", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Visita ao espaço sem fonte. Sábado = próxima ocorrência (10/10/2026); \"de manhã\" é horário da visita, não turno de festa."
+    },
+    {
+      "id": "fe30",
+      "texto": "Vocês fazem festa de 15 anos? Minha mais velha debuta ano que vem",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Outro tipo de evento; fontes só cobrem buffet infantil."
+    },
+    {
+      "id": "fe31",
+      "texto": "Boa tarde, sou do RH de uma empresa e gostaria de um orçamento para a confraternização de fim de ano, cerca de 120 funcionários.",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "PRECOS", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": 120, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Evento corporativo sem fonte; não é caso de PERGUNTAR dados do orçamento porque o tipo de evento não é coberto."
+    },
+    {
+      "id": "fe32",
+      "texto": "fazem casamento?",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Outro tipo de evento sem fonte."
+    },
+    {
+      "id": "fe33",
+      "texto": "Qual o endereço de vocês? Quero ver se dá pra estacionar perto",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["LOCALIZACAO", "DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: estacionamento é FAQ publicada (estacionamento no local), mas o endereço depende da unidade — há duas, falta a unidade."
+    },
+    {
+      "id": "fe34",
+      "texto": "aceitam cartão de crédito? parcela em quantas vezes?",
+      "decisao": "EQUIPE",
+      "intencoes": ["PAGAMENTO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Formas de pagamento não publicadas; parcelamento comum (não pede condição especial), portanto pagamento e não negociação."
+    },
+    {
+      "id": "fe35",
+      "texto": "Tem piscina de bolinha e cama elástica?",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Brinquedos específicos não cadastrados; o contrato só diz 20 atrações, sem listá-las."
+    },
+    {
+      "id": "fe36",
+      "texto": "Quantas atrações vocês têm no salão?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: condições do contrato citam 20 atrações."
+    },
+    {
+      "id": "fe37",
+      "texto": "uai, tem fraldário lá? vou com bebê de colo",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Estrutura (fraldário) sem fonte."
+    },
+    {
+      "id": "fe38",
+      "texto": "Como funciona a segurança na saída? Tem alguém na porta pra criança não sair sozinha?",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Segurança sem fonte publicada."
+    },
+    {
+      "id": "fe39",
+      "texto": "tem lugar pra estacionar aí?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: FAQ publicada \"Vocês têm estacionamento?\" com outras palavras — estacionamento no local."
+    },
+    {
+      "id": "fe40",
+      "texto": "O estacionamento é gratuito? Tem manobrista?",
+      "decisao": "EQUIPE",
+      "intencoes": ["DUVIDA_FAQ", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido que cai fora: a FAQ só diz que há estacionamento no local; gratuidade e manobrista não têm fonte."
+    },
+    {
+      "id": "fe41",
+      "texto": "Até que horas vocês atendem? Só consigo falar depois do trabalho",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: FAQ de horário de atendimento — terça a domingo, 9h às 18h."
+    },
+    {
+      "id": "fe42",
+      "texto": "Não quero mais receber mensagens de vocês. Só me diz antes: aceita pet no salão?",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido inequívoco de parar junto com outra pergunta (pets, sem fonte)."
+    },
+    {
+      "id": "fe43",
+      "texto": "Minha sobrinha é vegetariana. O kibe de vocês leva carne, né? Tem alguma opção sem carne?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "ALERGIA"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido com item cadastrado (kibe), mas é restrição alimentar e garantia de ingrediente: equipe."
+    },
+    {
+      "id": "fe44",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "Oi, boa noite! A unidade da Asa Sul tem estacionamento?",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO", "DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": "ASA_SUL", "tema": null },
+      "nota": "FAQ publicada (estacionamento no local); \"boa noite\" é saudação, não turno."
+    },
+    {
+      "id": "fe45",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "Ótimo. E dá pra soltar chuva de prata no parabéns?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: contrato — confete/chuva de prata com taxa de R$ 150."
+    },
+    {
+      "id": "fe46",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "Beleza. Última coisa: posso levar o bolo de uma confeitaria que eu amo? Já até encomendei",
+      "decisao": "EQUIPE",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Bolo de fora sem fonte; conversa termina na passagem para a equipe."
+    },
+    {
+      "id": "fe47",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "o atendimento de vcs funciona domingo? queria tirar umas dúvidas",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido: FAQ de horário de atendimento (terça a domingo, 9h às 18h). Fala do atendimento, não de festa no domingo."
+    },
+    {
+      "id": "fe48",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "blz. agora me tira dessa lista, não quero receber mais nada",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido inequívoco de remoção sem outra pergunta."
+    },
+    {
+      "id": "fe49",
+      "conversa": "c2",
+      "ordem": 3,
+      "texto": "ah e fotógrafo de fora pode?",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": ["FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Mensagem depois de PARAR na mesma conversa: sem resposta."
+    }
+  ]
+}

@@ -107,7 +107,7 @@ test('smoke mocked transport: GET, redirect refusal, invalid JSON, oversized bod
   for (const url of ['http://admin.example', 'https://user:FAKE@admin.example', 'https://admin.example/?token=FAKE']) assert.equal((await smoke.check(fixture(), { 'base-url': url }, () => { throw new Error('must not fetch'); })).status, 'FAIL_VERIFIED');
 });
 test('inventory excludes rollback and never claims applied state', async () => {
-  const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.equal(r.evidence[0].latest, '20261011_079_convite_recuperacao_manual.sql'); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999') || x.endsWith('_down.sql')));
+  const r = await migrations.check({}); assert.deepEqual(r.blockers, []); assert.equal(r.evidence[0].appliedState, 'unknown'); assert.equal(r.evidence[0].latest, '20261011_082_wall_e_atendimento.sql'); assert.ok(!r.evidence[0].migrations.some(x => x.includes('999') || x.endsWith('_down.sql')));
   assert.deepEqual(r.evidence[0].migrations.filter(x => Number.parseInt(x.split('_')[1], 10) > 19), [
     '20260923_021_catalogo_configuravel_estrutura.sql', '20260923_022_catalogo_itens_iniciais.sql',
     '20260923_023_adicionais_por_pacote.sql', '20260923_024_taxa_rolha_versionada.sql', '20260923_025_extras_unitarios_pizza.sql',
@@ -148,9 +148,11 @@ test('inventory excludes rollback and never claims applied state', async () => {
     '20260929_057_assinatura_contrato_empresa.sql',
     '20260929_058_inteligencia_skills.sql',
     '20261001_059_operacional_parametros_consumo.sql',
+    '20261001_060_whatsapp_atendimento.sql',
     '20261002_061_contratos_importados_integracao.sql',
     '20261002_062_agenda_empresa_unidade.sql',
     '20261004_063_painel_desenvolvedor.sql',
+    '20261004_065_whatsapp_nome_perfil.sql',
     '20261006_064_reimportacao_apos_cancelamento.sql',
     '20261006_066_pix_recebimento_empresa.sql',
     '20261006_067_modelo_comercial_empresa.sql',
@@ -167,19 +169,24 @@ test('inventory excludes rollback and never claims applied state', async () => {
     '20261010_077_regras_pagamento_empresa.sql',
     '20261010_078_catalogo_buffet_por_empresa.sql',
     '20261011_079_convite_recuperacao_manual.sql',
+    '20261011_080_whatsapp_mensagens_prontas.sql',
+    '20261011_081_whatsapp_prontas_midia.sql',
+    '20261011_082_wall_e_atendimento.sql',
   ]);
   assert.deepEqual(r.evidence[0].deliberatelyAbsent, [{ id: '020', reason: 'FOUNDATION_SAAS_SEPARATE_BRANCH_NOT_REQUIRED_BY_CATALOG' }]);
   // 055a–d são reconhecidas, mas o inventário nunca afirma aplicação e marca a autorização explícita.
-  assert.deepEqual(r.evidence[0].requiresExplicitAuthorization, ['20260928_055a_inteligencia_uso.sql', '20260928_055b_inteligencia_operacoes.sql', '20260928_055c_inteligencia_documentos.sql', '20260928_055d_inteligencia_importacoes.sql', '20260929_056_membership_papel_festa_tenant.sql', '20260929_057_assinatura_contrato_empresa.sql', '20260929_058_inteligencia_skills.sql', '20261001_059_operacional_parametros_consumo.sql', '20261002_061_contratos_importados_integracao.sql', '20261002_062_agenda_empresa_unidade.sql', '20261004_063_painel_desenvolvedor.sql', '20261006_064_reimportacao_apos_cancelamento.sql', '20261006_066_pix_recebimento_empresa.sql', '20261006_067_modelo_comercial_empresa.sql', '20261007_068_cobranca_assinatura.sql', '20261007_069_cadastro_publico.sql', '20261007_070_adicionais_do_buffet.sql', '20261007_071_importacoes_comerciais.sql', '20261007_072_modelos_contrato_empresa.sql', '20261008_073_convites.sql', '20261009_074_convite_familias.sql', '20261009_074a_planos_comerciais.sql', '20261009_075_renovacao_fundador.sql', '20261010_076_cpf_por_empresa.sql', '20261010_077_regras_pagamento_empresa.sql', '20261010_078_catalogo_buffet_por_empresa.sql', '20261011_079_convite_recuperacao_manual.sql']);
+  assert.deepEqual(r.evidence[0].requiresExplicitAuthorization, ['20260928_055a_inteligencia_uso.sql', '20260928_055b_inteligencia_operacoes.sql', '20260928_055c_inteligencia_documentos.sql', '20260928_055d_inteligencia_importacoes.sql', '20260929_056_membership_papel_festa_tenant.sql', '20260929_057_assinatura_contrato_empresa.sql', '20260929_058_inteligencia_skills.sql', '20261001_059_operacional_parametros_consumo.sql', '20261001_060_whatsapp_atendimento.sql', '20261002_061_contratos_importados_integracao.sql', '20261002_062_agenda_empresa_unidade.sql', '20261004_063_painel_desenvolvedor.sql', '20261004_065_whatsapp_nome_perfil.sql', '20261006_064_reimportacao_apos_cancelamento.sql', '20261006_066_pix_recebimento_empresa.sql', '20261006_067_modelo_comercial_empresa.sql', '20261007_068_cobranca_assinatura.sql', '20261007_069_cadastro_publico.sql', '20261007_070_adicionais_do_buffet.sql', '20261007_071_importacoes_comerciais.sql', '20261007_072_modelos_contrato_empresa.sql', '20261008_073_convites.sql', '20261009_074_convite_familias.sql', '20261009_074a_planos_comerciais.sql', '20261009_075_renovacao_fundador.sql', '20261010_076_cpf_por_empresa.sql', '20261010_077_regras_pagamento_empresa.sql', '20261010_078_catalogo_buffet_por_empresa.sql', '20261011_079_convite_recuperacao_manual.sql', '20261011_080_whatsapp_mensagens_prontas.sql', '20261011_081_whatsapp_prontas_midia.sql', '20261011_082_wall_e_atendimento.sql']);
   assert.ok(r.pending.includes('055A_D_NOT_APPLIED_REQUIRE_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('056_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('057_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('058_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('059_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
+  assert.ok(r.pending.includes('060_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('061_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('062_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('063_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('064_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
+  assert.ok(r.pending.includes('065_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('066_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('067_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('068_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
@@ -188,8 +195,9 @@ test('inventory excludes rollback and never claims applied state', async () => {
   assert.ok(r.pending.includes('071_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('072_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
   assert.ok(r.pending.includes('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
-  // 076/077 foram aplicadas só em staging (10/10/2026): para produção seguem pendentes de autorização explícita.
-  for (const id of ['074', '074A', '075', '076', '077', '078']) assert.ok(r.pending.includes(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'), id);
+  // 076–079: aplicação em staging só registrada em evidências datadas; para produção seguem pendentes de autorização
+  // explícita. 080–082 (atendimento) nunca aplicadas em banco remoto segundo os registros desta linha.
+  for (const id of ['074', '074A', '075', '076', '077', '078', '080', '081', '082']) assert.ok(r.pending.includes(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'), id);
   assert.ok(r.pending.includes('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION'));
 });
 
@@ -232,6 +240,7 @@ test('D4: each migration requires its reviewed check files (inline-guarded 049�
     '20260929_057_assinatura_contrato_empresa.sql': ['20260929_057_precheck.sql', '20260929_057_postcheck.sql'],
     '20260929_058_inteligencia_skills.sql': ['20260929_058_postcheck.sql'],
     '20261001_059_operacional_parametros_consumo.sql': ['20261001_059_postcheck.sql'],
+    '20261001_060_whatsapp_atendimento.sql': ['20261001_060_postcheck.sql'],
     '20261002_061_contratos_importados_integracao.sql': ['20261002_061_precheck.sql', '20261002_061_postcheck.sql'],
     '20261002_062_agenda_empresa_unidade.sql': ['20261002_062_precheck.sql', '20261002_062_postcheck.sql'],
     '20261004_063_painel_desenvolvedor.sql': ['20261004_063_precheck.sql', '20261004_063_postcheck.sql'],

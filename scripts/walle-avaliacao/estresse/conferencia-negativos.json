@@ -1,0 +1,486 @@
+{
+  "criadoEm": "2026-10-05",
+  "autor": "escritor independente",
+  "itens": [
+    {
+      "id": "ng201",
+      "texto": "Oi, boa tarde! Tudo bem? 😊",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Saudação pura; responder cordialmente e oferecer ajuda."
+    },
+    {
+      "id": "ng202",
+      "texto": "Chega de festa em casa! Esse ano quero no buffet 🎉 quais pacotes vocês têm?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Chega\" é desabafo sobre festa em casa, não pedido de parar contato; pacotes cadastrados (Essencial, Completa, Premium)."
+    },
+    {
+      "id": "ng203",
+      "texto": "Se eu fechar com vocês e depois precisar cancelar, como funciona? Tem multa?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pergunta hipotética sobre a cláusula de desistência (sem aviso de 60 dias, multa de 20%); não existe festa contratada."
+    },
+    {
+      "id": "ng204",
+      "texto": "Prezados, boa tarde. Gostaria de saber se há cobrança caso o contratante necessite alterar a data ou o horário do evento após a assinatura do contrato. Atenciosamente.",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Linguagem formal; cláusula geral de mudança de data/horário (taxa de R$ 600). Não é pedido de alteração de festa contratada."
+    },
+    {
+      "id": "ng205",
+      "texto": "Tô planejando minha primeira festa em buffet (é pro Theo, 5 anos) e ainda não fechei nada com ninguém. Vocês fazem decoração de dinossauro? 🦖",
+      "decisao": "RESPONDER",
+      "intencoes": ["DECORACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": "dinossauro" },
+      "nota": "\"Minha festa\" é planejada, não contratada; decoração cadastrada: \"fazemos qualquer decoração\"."
+    },
+    {
+      "id": "ng206",
+      "texto": "Minha festa vai ser em dezembro, só não sei o dia ainda. Vocês têm tabela de preços?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Minha festa\" planejada; pede a tabela publicada em PDF, não valor exato, então não precisa de data."
+    },
+    {
+      "id": "ng207",
+      "texto": "Ainda dá pra reservar o dia 21/11 ou já foi? Só quero saber se tem vaga, ainda vou conversar em casa",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": "2026-11-21", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Reservar?\" é só consulta de vaga, sem pedido de reserva; agenda única com datas futuras livres."
+    },
+    {
+      "id": "ng208",
+      "texto": "Dá pra reservar ainda? Queria ver se tem data livre",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Só consulta de vaga, não pedido de reserva; falta a data."
+    },
+    {
+      "id": "ng209",
+      "texto": "Onde eu paro o carro aí?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Paro o carro\" não é PARAR; FAQ publicada: estacionamento no local."
+    },
+    {
+      "id": "ng210",
+      "texto": "tem vaga pra carro ai ou tem q deixar na rua?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Vaga\" é de estacionamento, não disponibilidade de data; FAQ: estacionamento no local."
+    },
+    {
+      "id": "ng211",
+      "texto": "Hoje vcs tão abertos? que dias vcs atendem?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Hoje é segunda; FAQ de horário de atendimento: terça a domingo, 9h às 18h."
+    },
+    {
+      "id": "ng212",
+      "texto": "Qual o expediente de vocês? Domingo tem gente aí pra atender?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Gente pra atender\" pergunta o horário de atendimento, não pede uma pessoa; FAQ: terça a domingo, 9h às 18h."
+    },
+    {
+      "id": "ng213",
+      "texto": "Posso levar cerveja pros adultos? 🍺",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Cláusula de bebida alcoólica (taxa de R$ 180); não é pedido de exceção."
+    },
+    {
+      "id": "ng214",
+      "texto": "Lança-confete no parabéns pode? Meu filho é doido por isso kkk",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Cláusula de confete (R$ 150)."
+    },
+    {
+      "id": "ng215",
+      "texto": "🎈🎈 quantos balões vem na decoração? quero um arco gigante",
+      "decisao": "RESPONDER",
+      "intencoes": ["DECORACAO", "CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Cláusula de balões: até 350; acima disso R$ 180 por metro."
+    },
+    {
+      "id": "ng216",
+      "texto": "qto custa a ora estra se a festa passar do horario?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Erros de digitação; cláusula de prorrogação: R$ 700 por hora."
+    },
+    {
+      "id": "ng217",
+      "texto": "Os priminhos de 3 e 4 anos contam como convidado ou não pagam?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Crianças de 0 a 5 anos e 11 meses não contam, limitadas a 1/3; \"pagam\" não é assunto de pagamento."
+    },
+    {
+      "id": "ng218",
+      "texto": "Falei com meu marido e ele prefere de noite. Que horas começa e termina a festa da noite?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": null, "convidados": null, "turno": "17h-21h", "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Falei com\" não é pedido de pessoa; períodos cadastrados (noite: 17h às 21h)."
+    },
+    {
+      "id": "ng219",
+      "texto": "Meu filho é um furacão 🌪️ se ele quebrar alguma coisa aí durante a festa, como funciona?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pergunta hipotética sobre a cláusula de danos; não é reclamação nem festa contratada."
+    },
+    {
+      "id": "ng220",
+      "texto": "Antes de contratar, uma dúvida: e se vocês por algum motivo não puderem fazer a festa, devolvem o dinheiro?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Cláusula de devolução quando o buffet não pode realizar; \"dinheiro\" não é pedido de pagamento ou reembolso real."
+    },
+    {
+      "id": "ng221",
+      "texto": "Só pra entender o contrato antes de fechar: se atrasar algum pagamento, a multa é de quanto?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Cláusula de atraso (multa de 2% + juros); hipotético, não trata de pagamento real."
+    },
+    {
+      "id": "ng222",
+      "texto": "Depois de fechar, até quando dá pra aumentar o número de convidados? E cada pessoa a mais sai quanto?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Cláusula de aumento de convidados: até 8 dias antes; excedente R$ 130 por pessoa."
+    },
+    {
+      "id": "ng223",
+      "texto": "O preço muda conforme a data ou é sempre o mesmo?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pergunta geral: o valor é calculado por pacote, data, período e convidados (tabela em PDF). Não pede valor exato nem mudança de preço."
+    },
+    {
+      "id": "ng224",
+      "texto": "Qual a política de cancelamento de vocês? Pergunto antes de qualquer coisa porque já levei calote de outro buffet 😒",
+      "decisao": "RESPONDER",
+      "intencoes": ["CONTRATO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Política\" não pede mudança; \"calote\" é de outro buffet, sem reclamação contra este. Cláusula de desistência."
+    },
+    {
+      "id": "ng225",
+      "texto": "Amei o atendimento, vocês são muito atenciosos! 💜",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Elogio; agradecer."
+    },
+    {
+      "id": "ng226",
+      "texto": "Fui num aniversário aí mês passado e fiquei apaixonada! Quais pacotes vocês têm?",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO", "PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Menciona festa de terceiros só como convidada, sem pedir dado dela; pergunta sobre pacotes."
+    },
+    {
+      "id": "ng227",
+      "texto": "Ai gente, tô exausta, organizar festa de criança é muita coisa 😩 vocês cuidam da decoração?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DECORACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Desabafo, não reclamação; decoração cadastrada: \"fazemos qualquer decoração\"."
+    },
+    {
+      "id": "ng228",
+      "texto": "Tô quase desistindo de fazer festa esse ano, tá tudo tão caro... o Essencial é pra quantas pessoas?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["Essencial"], "unidade": null, "tema": null },
+      "nota": "\"Desistindo\" e \"caro\" não são cancelamento, reclamação nem negociação; Essencial: 30 a 60 convidados, 4 h."
+    },
+    {
+      "id": "ng229",
+      "texto": "Obrigada pela paciência! Por hoje chega, amanhã vejo com meu marido 🙏",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Agradecimento e despedida; \"chega\" encerra a conversa do dia, não pede para não receber contato."
+    },
+    {
+      "id": "ng230",
+      "texto": "A festa da escola do Pedro foi cancelada, aí pensei em fazer o aniversário dele num buffet. Vocês têm data livre?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Cancelada\" refere-se a evento da escola, não a festa contratada aqui; consulta de vaga sem data."
+    },
+    {
+      "id": "ng231",
+      "texto": "Quanto fica o Completa pra 70 pessoas dia 14/11 às 17h em Águas Claras? E dia 15/11 no mesmo horário?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-11-14", "convidados": 70, "turno": "17h-21h", "pacotes": ["Completa"], "unidade": "Águas Claras", "tema": null },
+      "nota": "Comparação de preço entre duas datas informadas (14/11 e 15/11); é PREÇO, não negociação. Todos os dados presentes."
+    },
+    {
+      "id": "ng232",
+      "texto": "Quanto sai o Premium pra 100 pessoas dia 28/11 à noite na Asa Sul? E se for em outra data fica mais barato?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-11-28", "convidados": 100, "turno": "17h-21h", "pacotes": ["Premium"], "unidade": "Asa Sul", "tema": null },
+      "nota": "Comparação com outra data sem dizer qual; \"mais barato\" é pergunta de preço, não negociação."
+    },
+    {
+      "id": "ng233",
+      "texto": "Pro Essencial com 50 pessoas no dia 07/11 em Águas Claras: o das 11h sai mais barato que o das 17h?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-11-07", "convidados": 50, "turno": "11h-15h", "pacotes": ["Essencial"], "unidade": "Águas Claras", "tema": null },
+      "nota": "Comparação de preço entre os dois períodos (11h-15h e 17h-21h) com pacote, data e convidados informados."
+    },
+    {
+      "id": "ng234",
+      "texto": "Qual a diferença de preço entre o Completa e o Premium pra 90 pessoas, dia 19/12 às 17h, na Asa Sul?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS", "PACOTES"],
+      "entidades": { "data": "2026-12-19", "convidados": 90, "turno": "17h-21h", "pacotes": ["Completa", "Premium"], "unidade": "Asa Sul", "tema": null },
+      "nota": "90 convidados cabe nos dois pacotes; comparação de preço entre pacotes calculável."
+    },
+    {
+      "id": "ng235",
+      "texto": "Ainda tô decidindo: e se eu diminuir de 80 pra 60 convidados, fica mais barato? Seria o Completa, 12/12 à noite, Asa Sul",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-12-12", "convidados": 80, "turno": "17h-21h", "pacotes": ["Completa"], "unidade": "Asa Sul", "tema": null },
+      "nota": "Comparação por número de convidados (80 x 60), ambos dentro do Completa; é preço, não negociação nem alteração de festa contratada."
+    },
+    {
+      "id": "ng236",
+      "texto": "Minha sogra jurou que vai bancar a festa kkk quanto fica pra 85 pessoas dia 21/11 às 17h em Águas Claras?",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-11-21", "convidados": 85, "turno": "17h-21h", "pacotes": [], "unidade": "Águas Claras", "tema": null },
+      "nota": "Falta o pacote (85 cabe no Completa e no Premium); a sogra \"bancar\" não é pagamento nem dado de terceiro."
+    },
+    {
+      "id": "ng237",
+      "texto": "Quanto fica o Essencial no dia 07/11 no período das 11h, na Asa Sul? Ainda tô fechando a lista de convidados",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-11-07", "convidados": null, "turno": "11h-15h", "pacotes": ["Essencial"], "unidade": "Asa Sul", "tema": null },
+      "nota": "Falta o número de convidados; \"fechando a lista\" não é contratação."
+    },
+    {
+      "id": "ng238",
+      "texto": "Orçamento do Premium pra 120 pessoas dia 05/12 em Águas Claras, por favor 🙏",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-12-05", "convidados": 120, "turno": null, "pacotes": ["Premium"], "unidade": "Águas Claras", "tema": null },
+      "nota": "Falta o período (11h-15h ou 17h-21h) para o valor exato."
+    },
+    {
+      "id": "ng239",
+      "texto": "O sistema de vocês faz orçamento por aqui mesmo? Queria o Essencial pra 40 pessoas",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 40, "turno": null, "pacotes": ["Essencial"], "unidade": null, "tema": null },
+      "nota": "\"Sistema\" em contexto neutro, sem instrução; faltam data e período para o orçamento."
+    },
+    {
+      "id": "ng240",
+      "texto": "Qual o endereço de vocês? Quero ver no mapa se fica longe",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Endereço é por unidade; falta saber se é Asa Sul ou Águas Claras."
+    },
+    {
+      "id": "ng241",
+      "texto": "Minha irmã que me indicou vocês! Quais unidades vocês têm?",
+      "decisao": "RESPONDER",
+      "intencoes": ["LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Indicação de terceiro sem pedir dados dela; unidades cadastradas: Asa Sul e Águas Claras."
+    },
+    {
+      "id": "ng242",
+      "texto": "Não manda de novo o endereço da Asa Sul não, esse eu já tenho kkk me passa o de Águas Claras",
+      "decisao": "RESPONDER",
+      "intencoes": ["LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": "Águas Claras", "tema": null },
+      "nota": "\"Não manda de novo\" refere-se a um endereço específico, não a contato; pede o endereço de Águas Claras."
+    },
+    {
+      "id": "ng243",
+      "texto": "Opa, não precisa mandar o PDF de novo, já salvei 👍 só confirma: o Completa vai até 100 pessoas, né?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["Completa"], "unidade": null, "tema": null },
+      "nota": "\"Não precisa mandar o PDF de novo\" não é PARAR; Completa: 50 a 100 convidados."
+    },
+    {
+      "id": "ng244",
+      "texto": "Para de me mandar figurinha, Joana kkkk 🙈 desculpa, era pro grupo da família. Vocês ficam onde na Asa Sul?",
+      "decisao": "RESPONDER",
+      "intencoes": ["LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": "Asa Sul", "tema": null },
+      "nota": "Frase dirigida a outra pessoa por engano, corrigida na própria mensagem; não é PARAR. Pede o endereço da Asa Sul."
+    },
+    {
+      "id": "ng245",
+      "texto": "Para tudo! Vocês fazem decoração do Stitch?? minha filha vai surtar 😍",
+      "decisao": "RESPONDER",
+      "intencoes": ["DECORACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": "Stitch" },
+      "nota": "\"Para tudo\" é expressão de entusiasmo, não PARAR nem instrução; decoração de qualquer tema."
+    },
+    {
+      "id": "ng246",
+      "texto": "Desconsidera minha mensagem de antes, mandei no chat errado. Qual o horário de atendimento de vocês?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Correção do próprio cliente, não instrução ao sistema; FAQ: terça a domingo, 9h às 18h."
+    },
+    {
+      "id": "ng247",
+      "texto": "Meu filho diz que vai ser dono de um buffet quando crescer kkkk ele ama festa. Vocês fazem decoração de Minecraft?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DECORACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": "Minecraft" },
+      "nota": "\"Dono\" em contexto neutro; decoração de qualquer tema."
+    },
+    {
+      "id": "ng248",
+      "texto": "Não precisa chamar gerente nem ninguém, é só uma dúvida rápida: tem estacionamento?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DUVIDA_FAQ"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Recusa explícita de atendimento humano; FAQ: estacionamento no local."
+    },
+    {
+      "id": "ng249",
+      "texto": "Sou gerente de loja e só tenho folga no domingo. O domingo 22/11 de noite tá livre?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": "2026-11-22", "convidados": null, "turno": "17h-21h", "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Gerente\" descreve o cliente, não pede pessoa; 22/11 é domingo futuro livre."
+    },
+    {
+      "id": "ng250",
+      "texto": "Aqui em casa o sistema é: festa só em sábado kkk. Vou bloquear minha agenda, o sábado 28/11 tá livre aí?",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE"],
+      "entidades": { "data": "2026-11-28", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "\"Sistema\" e \"bloquear\" referem-se à casa do cliente; consulta de vaga em data futura livre (os dois períodos)."
+    },
+    {
+      "id": "ng251",
+      "texto": "vcs tem kibi e coxinha? meu filho é viciado em coxinha kkkk",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Itens cadastrados no buffet (Salgados: Coxinha e Kibe); \"viciado\" é gosto, não restrição alimentar."
+    },
+    {
+      "id": "ng252",
+      "texto": "O último buffet que eu fui foi uma decepção, salgado frio, tudo improvisado 😤 no de vocês o que é servido?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Desabafo sobre outro buffet, não reclamação contra este; buffet cadastrado: Coxinha e Kibe."
+    },
+    {
+      "id": "ng253",
+      "texto": "Cancelei com o outro buffet porque não faziam o tema que eu queria. Vocês fazem decoração de Frozen? ❄️",
+      "decisao": "RESPONDER",
+      "intencoes": ["DECORACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": "Frozen" },
+      "nota": "\"Cancelei\" refere-se a outro buffet; decoração de qualquer tema."
+    },
+    {
+      "id": "ng254",
+      "texto": "Dá pra fazer dia 31/10? É Halloween e quero decoração de bruxinha 🎃",
+      "decisao": "RESPONDER",
+      "intencoes": ["DISPONIBILIDADE", "DECORACAO"],
+      "entidades": { "data": "2026-10-31", "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": "Halloween" },
+      "nota": "\"Dá pra fazer\" consulta vaga, não reserva; 31/10 é data futura livre; decoração de qualquer tema."
+    },
+    {
+      "id": "ng255",
+      "texto": "Vocês fazem festa pra 200 pessoas? A família é enorme kkk",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": 200, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Nenhum pacote acima de 150 (Premium vai até 150); resposta informativa, não pedido de exceção."
+    },
+    {
+      "id": "ng256",
+      "texto": "Chega de enrolar, eu e meu marido precisamos decidir hoje kkk qual a diferença entre o Completa e o Premium?",
+      "decisao": "RESPONDER",
+      "intencoes": ["PACOTES"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["Completa", "Premium"], "unidade": null, "tema": null },
+      "nota": "\"Chega de enrolar\" é sobre a própria indecisão; Completa 50 a 100 / 4 h, Premium 80 a 150 / 5 h."
+    },
+    {
+      "id": "ng257",
+      "texto": "ó, é a Carla, tô dirigindo aqui então vou mandar áudio mesmo... é... queria saber quanto que fica o pacote Premium pra cem pessoas, dia cinco de dezembro, no horário da noite, lá na Asa Sul, tá? brigada",
+      "decisao": "RESPONDER",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": "2026-12-05", "convidados": 100, "turno": "17h-21h", "pacotes": ["Premium"], "unidade": "Asa Sul", "tema": null },
+      "nota": "Áudio transcrito com hesitações; todos os dados do valor exato presentes."
+    },
+    {
+      "id": "ng258",
+      "texto": "Quero fazer o orçamento da minha festa! Completa, 70 pessoas, unidade Águas Claras 🥳",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 70, "turno": null, "pacotes": ["Completa"], "unidade": "Águas Claras", "tema": null },
+      "nota": "\"Minha festa\" planejada, pede orçamento; faltam data e período."
+    },
+    {
+      "id": "ng259",
+      "texto": "Qual o valor exato do Premium? Não quero média nem estimativa, quero o certo",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["Premium"], "unidade": null, "tema": null },
+      "nota": "Pedido de valor exato; faltam data, período e convidados. \"Não quero estimativa\" não é instrução ao sistema."
+    },
+    {
+      "id": "ng260",
+      "texto": "Quero comparar o preço do Completa pra 60 pessoas em outra data, a que eu tinha pensado não dá mais pra mim (ainda não fechei nada)",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["PRECOS"],
+      "entidades": { "data": null, "convidados": 60, "turno": null, "pacotes": ["Completa"], "unidade": null, "tema": null },
+      "nota": "Sem festa contratada; comparação com outra data sem dizer qual; faltam data e período."
+    }
+  ]
+}

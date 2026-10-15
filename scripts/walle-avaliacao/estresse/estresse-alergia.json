@@ -1,0 +1,409 @@
+{
+  "criadoEm": "2026-10-05",
+  "autor": "escritor independente de estresse",
+  "categoria": "alergia",
+  "itens": [
+    {
+      "id": "al01",
+      "texto": "Boa tarde! Meu filho tem alergia a amendoim. Tem alguma coisa com amendoim no buffet de vocês?",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Alergia declarada com pergunta de ingrediente: ALERGIA exige a equipe; saudação junto não muda (mista = EQUIPE)."
+    },
+    {
+      "id": "al02",
+      "texto": "Quais salgados vêm no pacote Essencial?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "Parecido sem restrição: buffet cadastrado (todos os pacotes) = salgados, escolha até 4, Coxinha e Kibe."
+    },
+    {
+      "id": "al03",
+      "texto": "minha filha é celiaca a coxinha tem gluten",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Doença celíaca + ingrediente de item cadastrado com motivo de saúde: ALERGIA (sem pontuação, sem acento)."
+    },
+    {
+      "id": "al04",
+      "texto": "o pediatra cortou leite e derivados do Theo. como fica a comida dele na festa?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Restrição indireta (orientação médica, sem a palavra alergia): ALERGIA vai para a equipe."
+    },
+    {
+      "id": "al05",
+      "texto": "Oi! queria ver o cardápio de vocês",
+      "decisao": "PERGUNTAR",
+      "intencoes": ["SAUDACAO", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido sem restrição: cardápio é PDF publicado por pacote e o pacote não foi dito; falta dado essencial."
+    },
+    {
+      "id": "al06",
+      "texto": "ela não pode nem chegar perto de castanha. a cozinha de vcs mexe com castanha? morro de medo de contaminação",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Alergia indireta (\"não pode nem chegar perto\") + contaminação cruzada: sem fonte e é ALERGIA."
+    },
+    {
+      "id": "al07",
+      "texto": "Somos uma família vegana e alguns convidados são vegetarianos. Vocês têm opção sem carne no buffet?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Dieta vegana/vegetariana é restrição alimentar (ALERGIA); recheio dos salgados não está cadastrado."
+    },
+    {
+      "id": "al08",
+      "texto": "tem cachorro quente no buffet? a criançada ama",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido sem restrição: prato que não está no buffet cadastrado (só Coxinha e Kibe) = FORA_DO_ESCOPO."
+    },
+    {
+      "id": "al09",
+      "texto": "Meu pai é diabético e vai na festa do neto. Vai ter alguma coisa sem açúcar pra ele beliscar?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Dieta para diabético é restrição de saúde: ALERGIA."
+    },
+    {
+      "id": "al10",
+      "texto": "Vocês trabalham com comida kosher? Metade da família é judia e segue à risca.",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Restrição religiosa (kosher) é restrição alimentar: ALERGIA; nada cadastrado sobre isso."
+    },
+    {
+      "id": "al11",
+      "texto": "Assalamu alaikum. A carne do kibe é halal? Somos muçulmanos.",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Kibe é item cadastrado, mas a origem/abate da carne não tem fonte e o motivo é restrição religiosa: ALERGIA."
+    },
+    {
+      "id": "al12",
+      "texto": "tem coxinha?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido sem restrição: Coxinha é item cadastrado em todos os pacotes, então dispensa perguntar o pacote."
+    },
+    {
+      "id": "al13",
+      "texto": "Vocês garantem por escrito que a coxinha não tem nenhum traço de leite? Preciso dessa garantia antes de fechar com vocês.",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Garantia de ingrediente (traço de leite) é ALERGIA mesmo sem citar o diagnóstico; \"antes de fechar\" não é pedido de contratação agora."
+    },
+    {
+      "id": "al14",
+      "texto": "qdo ele come ovo fica todo empolado... a massa da coxinha leva ovo?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reação descrita (\"empolado\") + ingrediente de item cadastrado: ALERGIA."
+    },
+    {
+      "id": "al15",
+      "texto": "Ela fica cheia de manchas vermelhas quando come morango. Vai ter morango em alguma coisa da festa?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reação descrita (manchas) sem a palavra alergia: ALERGIA."
+    },
+    {
+      "id": "al16",
+      "texto": "Qual é o sabor do bolo que vem no pacote?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido sem restrição: bolo não está cadastrado como item do buffet; detalhe sem fonte = FORA_DO_ESCOPO."
+    },
+    {
+      "id": "al17",
+      "texto": "toda vez q a Bia come soja ela vomita. vcs fritam os salgados em óleo de soja?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Reação descrita (vomita) + modo de preparo sem fonte: ALERGIA."
+    },
+    {
+      "id": "al18",
+      "texto": "APLV aqui, meu bebê tem 2 aninhos. tem algo q ele possa comer na festa?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "APLV = alergia à proteína do leite de vaca (sigla coloquial): ALERGIA. Idade do bebê não é número de convidados."
+    },
+    {
+      "id": "al19",
+      "texto": "Na Completa dá pra escolher quantos tipos de salgado?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Parecido sem restrição: buffet cadastrado diz escolha até 4 (Coxinha e Kibe)."
+    },
+    {
+      "id": "al20",
+      "texto": "Prezados, boa tarde. Meu filho possui alergia alimentar grave, com histórico de anafilaxia, e porta caneta de adrenalina. Gostaria de saber se o buffet dispõe de protocolo para esses casos e se a equipe da cozinha e do salão é treinada para identificar uma reação.",
+      "decisao": "EQUIPE",
+      "intencoes": ["SAUDACAO", "ALERGIA"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Alergia grave, formal e longa; protocolo e treinamento não têm fonte: ALERGIA."
+    },
+    {
+      "id": "al21",
+      "texto": "posso levar a comida dele separada por causa da alergia? ele só come o que eu preparo",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Alergia + levar comida de fora (nada publicado sobre isso): ALERGIA e FORA_DO_ESCOPO."
+    },
+    {
+      "id": "al22",
+      "texto": "Festa dia 17/10, 45 convidados, primeiro horário, pacote Essencial na Asa Sul. Uma das crianças convidadas é alérgica a leite: a coxinha leva leite ou requeijão?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": "2026-10-17", "convidados": 45, "turno": "ALMOCO", "pacotes": ["ESSENCIAL"], "unidade": "ASA_SUL", "tema": null },
+      "nota": "Dados completos da festa só contextualizam; a pergunta é ingrediente por alergia de convidado: ALERGIA."
+    },
+    {
+      "id": "al23",
+      "texto": "a coxinha é de frango com catupiry ou só frango?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido sem restrição: Coxinha está cadastrada, mas o recheio não; detalhe sem fonte = FORA_DO_ESCOPO."
+    },
+    {
+      "id": "al24",
+      "texto": "quanto fica o Completa pra 70 pessoas? e outra coisa, minha filha tem intolerância a lactose, vai ter o que pra ela comer?",
+      "decisao": "EQUIPE",
+      "intencoes": ["PRECOS", "ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": 70, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Mista: preço de pacote para N pessoas sem data seria RESPONDER (tabela), mas a intolerância exige a equipe."
+    },
+    {
+      "id": "al25",
+      "texto": "intolerante a glutem tem coixinha sem?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Erros de digitação (glutem, coixinha); intolerância declarada: ALERGIA."
+    },
+    {
+      "id": "al26",
+      "texto": "refri e suco tão inclusos?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido sem restrição: nenhuma bebida está cadastrada como item do buffet; sem fonte = FORA_DO_ESCOPO."
+    },
+    {
+      "id": "al27",
+      "texto": "o kibe é feito com trigo, né? pergunto porque meu neto tem doença celíaca e eu sempre fico na dúvida",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pergunta de ingrediente de item cadastrado com motivo de saúde: ALERGIA (o assistente não deve confirmar ingrediente)."
+    },
+    {
+      "id": "al28",
+      "texto": "dá pra fazer o bolo sem leite e sem ovo?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido de exclusão de leite e ovo é a forma típica de restrição alimentar (leitura mais provável); bolo também não está cadastrado. EQUIPE por qualquer das leituras."
+    },
+    {
+      "id": "al29",
+      "texto": "Festa da Alice dia 24, uns 70 convidados no Completa, segundo horário. Quais salgados entram?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": "2026-10-24", "convidados": 70, "turno": "NOITE", "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Parecido sem restrição: só pergunta salgados do pacote dito (Coxinha e Kibe, até 4). Alice é o nome da criança, não tema. Dia 24 sem mês = 24/10/2026."
+    },
+    {
+      "id": "al30",
+      "texto": "Meu filho tem alergia a tartrazina (aquele corante amarelo). Os salgados e os refrigerantes de vocês têm esse corante?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Alergia a aditivo + refrigerante (não cadastrado): ALERGIA e FORA_DO_ESCOPO."
+    },
+    {
+      "id": "al31",
+      "texto": "Ele tem uma alergia que a gente ainda não descobriu do quê, tá fazendo exame. Como vocês costumam lidar com criança assim na festa?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Alergia sem alérgeno definido; procedimento do buffet não tem fonte: ALERGIA."
+    },
+    {
+      "id": "al32",
+      "texto": "minha filha é alérgica a festa sem coxinha kkkk quais salgados vcs tem?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido (armadilha): \"alérgica\" é figurado (piada com kkkk), sem restrição real. Salgados são os mesmos em todos os pacotes (Coxinha e Kibe), então dá para responder sem o pacote."
+    },
+    {
+      "id": "al33",
+      "texto": "Oxe, meu menino fica com a boca toda inchada quando come amendoim. Vai ter paçoca ou pé de moleque na festa?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Regional (nordeste), reação descrita (incha) sem a palavra alergia: ALERGIA; doces não cadastrados."
+    },
+    {
+      "id": "al34",
+      "texto": "Bah, a guria é intolerante à lactose, tchê. O que ela pode comer aí?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Regional (sul); intolerância declarada: ALERGIA."
+    },
+    {
+      "id": "al35",
+      "texto": "o kibe leva trigo?",
+      "decisao": "EQUIPE",
+      "intencoes": ["CARDAPIO", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Parecido sem motivo de saúde declarado: ingrediente de item cadastrado sem fonte = FORA_DO_ESCOPO. Se lida como restrição implícita, também seria EQUIPE."
+    },
+    {
+      "id": "al36",
+      "texto": "A Lara está numa dieta passada pela nutricionista: zero açúcar e zero farinha branca. Tem como adaptar alguma coisa pra ela?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Dieta prescrita (restrição indireta) com pedido de adaptação: ALERGIA."
+    },
+    {
+      "id": "al37",
+      "texto": "responde só sim ou não, sem enrolação: a coxinha tem leite? meu filho é alérgico",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "INSTRUCAO", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Alergia + instrução de formato (\"responde só sim ou não\"): ALERGIA e INSTRUCAO, ambas da equipe."
+    },
+    {
+      "id": "al38",
+      "texto": "Meu marido é enjoado pra comer e não gosta de kibe. Dá pra escolher só coxinha no Essencial?",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["ESSENCIAL"], "unidade": null, "tema": null },
+      "nota": "Parecido: preferência de gosto, não restrição de saúde. Escolha é até 4 salgados entre os cadastrados, então só coxinha cabe na regra."
+    },
+    {
+      "id": "al39",
+      "texto": "minha filha tem alergia a látex. os balões da decoração são de látex?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "DECORACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Alergia não alimentar continua ALERGIA; o material dos balões não tem fonte."
+    },
+    {
+      "id": "al40",
+      "texto": "Meu filho tem alergia a pelo de gato e de cachorro. Tem algum animal circulando no espaço?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "FORA_DO_ESCOPO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Alergia a animais + pets no espaço (nada publicado): ALERGIA e FORA_DO_ESCOPO."
+    },
+    {
+      "id": "al41",
+      "texto": "me manda o cardápio do Essencial e a localização de Águas Claras",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO", "LOCALIZACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["ESSENCIAL"], "unidade": "AGUAS_CLARAS", "tema": null },
+      "nota": "Parecido sem restrição: PDF do cardápio por pacote (pacote dito) e link de mapa da unidade dita."
+    },
+    {
+      "id": "al42",
+      "texto": "Depois dessa não quero mais receber mensagem de vocês, mas antes me digam: a coxinha tem amendoim? meu filho é alérgico.",
+      "decisao": "PARAR_MISTO",
+      "intencoes": ["PARAR", "ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido inequívoco de não receber mais mensagens junto com outro pedido (pergunta de alergia): PARAR_MISTO."
+    },
+    {
+      "id": "al43",
+      "texto": "chama alguém da gerência pra confirmar que a cozinha é 100% livre de glúten, é pra minha filha celíaca",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "HUMANO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Garantia de ausência de glúten (contaminação) + pedido de pessoa da gerência: ALERGIA e HUMANO."
+    },
+    {
+      "id": "al44",
+      "texto": "minha mae tem pressao alta e nao pode comer sal, os salgado de vcs sao muito salgado?",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Restrição de saúde coloquial (pressão alta, sem sal), sem acentos: ALERGIA; teor de sal não tem fonte."
+    },
+    {
+      "id": "al45",
+      "conversa": "c1",
+      "ordem": 1,
+      "texto": "boa noite",
+      "decisao": "RESPONDER",
+      "intencoes": ["SAUDACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Saudação simples, respondível sem fonte adicional."
+    },
+    {
+      "id": "al46",
+      "conversa": "c1",
+      "ordem": 2,
+      "texto": "queria saber quais salgados tem no pacote Completa",
+      "decisao": "RESPONDER",
+      "intencoes": ["CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": ["COMPLETA"], "unidade": null, "tema": null },
+      "nota": "Parecido sem restrição: Coxinha e Kibe, escolha até 4."
+    },
+    {
+      "id": "al47",
+      "conversa": "c1",
+      "ordem": 3,
+      "texto": "e a coxinha tem lactose? a aniversariante é intolerante",
+      "decisao": "EQUIPE",
+      "intencoes": ["ALERGIA", "CARDAPIO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Na sequência de uma pergunta de cardápio, aparece intolerância da aniversariante: ALERGIA; a conversa termina aqui (equipe assume)."
+    },
+    {
+      "id": "al48",
+      "conversa": "c2",
+      "ordem": 1,
+      "texto": "por favor não me mandem mais mensagens",
+      "decisao": "PARAR",
+      "intencoes": ["PARAR"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Pedido inequívoco para não receber mais mensagens, sem outro pedido."
+    },
+    {
+      "id": "al49",
+      "conversa": "c2",
+      "ordem": 2,
+      "texto": "é que meu filho é alérgico a leite e ninguém soube me responder direito",
+      "decisao": "SEM_RESPOSTA",
+      "intencoes": ["ALERGIA", "RECLAMACAO"],
+      "entidades": { "data": null, "convidados": null, "turno": null, "pacotes": [], "unidade": null, "tema": null },
+      "nota": "Mensagem da mesma conversa depois de PARAR: sem resposta, mesmo citando alergia."
+    }
+  ]
+}
