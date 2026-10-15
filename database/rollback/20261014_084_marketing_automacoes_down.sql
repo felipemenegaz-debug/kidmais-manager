@@ -23,6 +23,9 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+DROP TRIGGER marketing_aut_numero_saiu ON clientes;
+DROP FUNCTION kidmais084_numero_saiu_do_cadastro();
+DROP FUNCTION kidmais084_destino(text);
 DROP TABLE marketing_transporte_simulado;
 DROP TABLE marketing_tarefas;
 DROP TABLE marketing_contato_autorizacoes;

@@ -60,6 +60,8 @@ test("083/084: ordem, checks, reaplicação, gatilhos de tenant e append-only, h
     await c.query(semTransacaoExplicita(DOWN084));
     await c.query(semTransacaoExplicita(DOWN083));
     assert.equal((await c.query(`SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'marketing\\_%'`)).rows[0].n, 0);
+    assert.deepEqual((await c.query(`SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'marketing_aut_numero_saiu') AS gatilho, to_regprocedure('public.kidmais084_destino(text)') IS NOT NULL AS funcao`)).rows[0],
+      { gatilho: false, funcao: false }, "down remove o gatilho em clientes (O1) e a normalização");
     await c.query("ROLLBACK");
     assert.ok((await c.query(`SELECT to_regclass('public.marketing_automacao_execucoes') AS t`)).rows[0].t, "rollback desfeito: schema de volta");
 
@@ -135,9 +137,11 @@ test("083/084: ordem, checks, reaplicação, gatilhos de tenant e append-only, h
     await c.query(`INSERT INTO marketing_contato_preferencias (empresa_id, cliente_id, descadastrado_em, descadastro_origem, observacao) VALUES ($1, $2, now(), 'EQUIPE', 'pediu para parar')`, [A, clienteA]);
     assert.deepEqual((await c.query(`SELECT descadastrado, observacao FROM marketing_contato_preferencias_eventos WHERE cliente_id = $1`, [clienteA])).rows[0], { descadastrado: true, observacao: "pediu para parar" }, "histórico da preferência");
     // Autorização por destino (R1): mesma empresa, destino normalizado, formulário com contato, não nasce revogada,
-    // identidade imutável, transições só para frente, uma viva por destino, nunca apagada.
-    const autSql = `INSERT INTO marketing_contato_autorizacoes (empresa_id, cliente_id, destino, estado, origem, contato_id, evidencia, confirmada_em, revogada_em, motivo_revogacao)
-      VALUES ($1, $2, $3, $4, $5, $6, 'autorizou por telefone', CASE WHEN $4 = 'CONFIRMADA' THEN now() END, CASE WHEN $4 = 'REVOGADA' THEN now() END, CASE WHEN $4 = 'REVOGADA' THEN 'motivo sintético' END) RETURNING id::text AS id`;
+    // identidade imutável, transições só para frente, evidência de confirmação congelada (O2), uma viva por destino,
+    // nunca apagada; número que sai do cadastro revoga (O1).
+    const autSql = `INSERT INTO marketing_contato_autorizacoes (empresa_id, cliente_id, destino, estado, origem, contato_id, evidencia, confirmada_em, confirmacao, revogada_em, motivo_revogacao)
+      VALUES ($1, $2, $3, $4, $5, $6, 'autorizou por telefone', CASE WHEN $4 = 'CONFIRMADA' THEN now() END, CASE WHEN $4 = 'CONFIRMADA' THEN 'registro sintético' END,
+        CASE WHEN $4 = 'REVOGADA' THEN now() END, CASE WHEN $4 = 'REVOGADA' THEN 'motivo sintético' END) RETURNING id::text AS id`;
     await recusa(c, autSql, [A, clienteB, "5511988880002", "CONFIRMADA", "EQUIPE", null], /outra empresa/);
     await recusa(c, autSql, [A, clienteA, "11988880001", "CONFIRMADA", "EQUIPE", null], /marketing_aut_destino/);
     await recusa(c, autSql, [A, clienteA, "5511988880001", "CONFIRMADA", "FORMULARIO_SITE", null], /marketing_aut_formulario_tem_contato/);
@@ -149,11 +153,20 @@ test("083/084: ordem, checks, reaplicação, gatilhos de tenant e append-only, h
     await c.query(`UPDATE marketing_contato_autorizacoes SET estado = 'CONFIRMADA', confirmada_em = now(), confirmacao = 'confirmou por ligação' WHERE id = $1`, [aut]);
     await recusa(c, `UPDATE marketing_contato_autorizacoes SET estado = 'PENDENTE' WHERE id = $1`, [aut], /transição de autorização inválida/);
     await recusa(c, `UPDATE marketing_contato_autorizacoes SET estado = 'REVOGADA', revogada_em = now() WHERE id = $1`, [aut], /marketing_aut_revogada/);
+    await recusa(c, `UPDATE marketing_contato_autorizacoes SET estado = 'REVOGADA', revogada_em = now(), motivo_revogacao = 'pediu para parar', confirmada_em = NULL, confirmacao = NULL WHERE id = $1`,
+      [aut], /evidências de confirmação da autorização são imutáveis/);
+    await recusa(c, `UPDATE marketing_contato_autorizacoes SET estado = 'REVOGADA', revogada_em = now(), motivo_revogacao = 'pediu para parar', confirmacao = 'trocada' WHERE id = $1`,
+      [aut], /evidências de confirmação da autorização são imutáveis/);
     await c.query(`UPDATE marketing_contato_autorizacoes SET estado = 'REVOGADA', revogada_em = now(), motivo_revogacao = 'pediu para parar' WHERE id = $1`, [aut]);
+    assert.deepEqual((await c.query(`SELECT confirmada_em IS NOT NULL AS data, confirmacao FROM marketing_contato_autorizacoes WHERE id = $1`, [aut])).rows[0],
+      { data: true, confirmacao: "confirmou por ligação" }, "revogada vinda de confirmada mantém a evidência");
     await recusa(c, `UPDATE marketing_contato_autorizacoes SET estado = 'CONFIRMADA' WHERE id = $1`, [aut], /transição de autorização inválida/);
     await recusa(c, `DELETE FROM marketing_contato_autorizacoes WHERE id = $1`, [aut], /não é apagada/);
     // Revogada libera o destino para nova autorização (histórico preservado).
-    await id(autSql, [A, clienteA, "5511988880001", "CONFIRMADA", "EQUIPE", null]);
+    const nova = await id(autSql, [A, clienteA, "5511988880001", "CONFIRMADA", "EQUIPE", null]);
+    // O1: o número sai do cadastro do cliente → a autorização viva é revogada pelo banco.
+    await c.query(`UPDATE clientes SET telefone = '5511988880009', whatsapp = '5511988880009' WHERE id = $1`, [clienteA]);
+    assert.match((await c.query(`SELECT estado || ' ' || motivo_revogacao AS r FROM marketing_contato_autorizacoes WHERE id = $1`, [nova])).rows[0].r, /^REVOGADA NUMERO_SAIU_DO_CADASTRO: /);
 
     // 5. Rollback com dados: recusado.
     await c.query("SAVEPOINT down");

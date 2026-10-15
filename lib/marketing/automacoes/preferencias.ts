@@ -9,7 +9,9 @@ import { MarketingError } from "../erros.ts";
  * evidência (contato captado, registro da equipe). Regras:
  *   - só autorização CONFIRMADA de um número que AINDA está no cadastro do cliente permite mensagem; o motor envia
  *     exatamente para esse número (nunca para outro número do mesmo cliente);
- *   - mudança de número no cadastro não herda autorização antiga;
+ *   - mudança de número no cadastro não herda autorização antiga; número que SAI do cadastro perde as autorizações vivas
+ *     (gatilho marketing_aut_numero_saiu da 084, decisão O1 de 15/10/2026) — se voltar, precisa de nova autorização;
+ *   - a evidência de confirmação (quando, quem, como) é gravada uma vez e fica congelada, inclusive na revogação (O2);
  *   - reaproveitar cadastro sem o número informado (ex.: mesmo e-mail, outro telefone) NÃO prova o destino: a autorização
  *     fica PENDENTE até a equipe confirmar; o CRM não é alterado e o número fica guardado no contato e na autorização;
  *   - descadastro é do cliente inteiro, prevalece sobre tudo e revoga as autorizações vivas (histórico mantido);
@@ -198,8 +200,8 @@ export type Elegibilidade = { ok: true; telefone: string; autorizacaoId: string 
 
 /**
  * Revalidação no momento do envio. Devolve o DESTINO que o transporte deve usar: o primeiro número do cadastro atual
- * (WhatsApp, depois telefone) que tem autorização CONFIRMADA. Autorização de número que saiu do cadastro não vale;
- * autorização pendente não vale.
+ * (WhatsApp, depois telefone) que tem autorização CONFIRMADA. Autorização de número que saiu do cadastro não vale (e é
+ * revogada pelo banco na mesma transação da alteração, então não volta a valer se o número retornar); pendente não vale.
  */
 export async function elegivelParaMensagem(tx: DbExecutor, empresaId: string, clienteId: string): Promise<Elegibilidade> {
   const c = await tx.query<{ status: string; whatsapp: string | null; telefone: string | null }>(

@@ -9,7 +9,10 @@ descartável autorizado. Sem push, PR, merge, deploy, DNS real ou mensagem real.
   15/10/2026 (R1–R4, `revisao-marketing-bc379ad-codex-20261015/PARECER.md`).
 - Correções R1–R4: worktree `kidmais-manager-marketing-r1r4-20261015`, branch
   `codex/marketing-correcoes-r1-r4-20261015`, novo commit local sobre `bc379ad` (sem amend, sem push) — ver “Correções
-  R1–R4 (15/10/2026)” no fim. Nova revisão independente **pendente**; nada aqui é aprovação.
+  R1–R4 (15/10/2026)”. Commit `64fcd09` **APROVADO** pela revisão independente de 15/10/2026 para encerrar o goal
+  local (`revisao-marketing-64fcd09-parecer-20261015/PARECER.md`, observações não bloqueantes O1–O6).
+- Observações O1/O2/O6 (e O5): novo commit local sobre `64fcd09` na mesma branch (sem amend, sem push) — ver
+  “Observações O1/O2/O6 da revisão de 64fcd09” no fim. Revisão desse commit **pendente**; nada aqui é aprovação.
 - Base: `origin/staging` local em `eb6ca81` (merge da PR #164), lida do clone `kidmais-manager-github` sem fetch
   (pode estar defasada em relação ao GitHub; nenhum fetch/pull foi autorizado nesta execução).
 - Migrations novas: `083` (base de Marketing) e `084` (automações). Escolha local provisória de número, não reserva
@@ -25,7 +28,7 @@ descartável autorizado. Sem push, PR, merge, deploy, DNS real ou mensagem real.
 | Entrega B validada local | **Sim** — unitários e suíte PostgreSQL descartável (evidência 7, inclusive concorrência com 2 conexões) e UI local |
 | Integrações reais (DNS/HTTPS público, provedor de domínio, WhatsApp real) | **Fora do escopo — não realizadas** |
 | Publicação externa / staging / produção | **Fora do escopo — não realizadas** |
-| Revisão independente | **Não realizada** (nenhum revisor independente disponível nesta execução); pacote para revisão abaixo |
+| Revisão independente | `bc379ad` **REPROVADO** (R1–R4); `64fcd09` **APROVADO** para encerrar o goal local (O1–O6 não bloqueantes); commit das observações O1/O2/O6 com revisão **pendente** |
 
 Teste simulado valida lógica e contrato; **não** comprova funcionamento de provedor real.
 
@@ -185,6 +188,9 @@ Ver a seção “Execução de 15/10/2026” no fim deste arquivo (resultados re
 - Consentimento (R1): opt-in simples (caixa no formulário ou registro da equipe com evidência); sem confirmação por
   código/OTP no número. Número pedido que não está no cadastro fica PENDENTE até a equipe atualizar o cadastro e
   confirmar. Texto da caixa e política LGPD continuam no checklist futuro.
+- Número que sai do cadastro (O1): as autorizações vivas desse número são revogadas pelo banco na mesma transação
+  (`NUMERO_SAIU_DO_CADASTRO`); se o número voltar, precisa de nova autorização. Evidência de confirmação (quando, quem,
+  como) é gravada uma vez e congelada, inclusive na revogação (O2).
 - Acesso comercial SOMENTE_LEITURA ou BLOQUEADO (teste encerrado, atraso) cancela as automações pendentes da empresa
   (R2); quando a assinatura é regularizada elas não são recriadas para o mesmo ciclo (a chave já existe): só um novo
   ciclo do alvo gera nova execução. Comportamento escolhido para não disparar um acúmulo de mensagens atrasadas.
@@ -331,7 +337,7 @@ porta livre); credenciais e lançador da UI apagados; relatórios em
 |---|---|
 | Regressões R1–R4 sem banco (`correcoes-r1-r4.test.ts`) no código **antigo** (`bc379ad`) | **0/13** — todas falham (prova de que pegam os defeitos) |
 | As mesmas no código corrigido | **13/13** |
-| `correcoes-r1-r4.postgres.test.ts` [084] | **17/17** (R1 5 casos, R2 4, R3, R4 3 + concorrência). 1ª execução revelou 3 fixtures de teste erradas (contratação nasce EM_ABERTO; `provedor` obrigatório; status com valor negociado) — corrigidas no teste, sem mudar produto |
+| `correcoes-r1-r4.postgres.test.ts` [084] | **17/17** (R1 5 casos, R2 4, R3, R4 3 + concorrência). As **duas** primeiras execuções (logs 04-43 e 04-44) revelaram **3** fixtures de teste erradas: a 1ª, contratação que nasce EM_ABERTO e status AGUARDANDO_APROVACAO sem valor negociado; a 2ª, `provedor` obrigatório da assinatura paga — corrigidas no teste, sem mudar produto (contagem alinhada em O6, ver o fim) |
 | `check:v1:postgres` completo (runner oficial, cada suíte no modelo declarado) | **PASS 96/96 arquivos**, incl. `migration-083-084` [082], `marketing-a` [084], `automacoes-b` [084] e `correcoes-r1-r4` [084] |
 | `check:v1:static` (depois das correções de UI) | **PASS** — 3072/3072 unitários, smoke 103/103, lint 0 erros (1 aviso preexistente em `lib/inteligencia/skills/catalogo.ts`), TypeScript e build |
 | `scripts/production/production.test.mjs` | 37/37 |
@@ -346,3 +352,45 @@ Observação de ambiente: havia outro processo local (servidor de prévia do Cod
 **Não validado / pendente:** revisão independente do delta (nova rodada da Astra/Codex); decisões comerciais (planos com
 `MARKETING`, preço); cache das imagens (300 s ou revalidação); opt-in com confirmação por código no número (fora deste
 escopo). Integrações reais, staging e produção continuam fora do escopo.
+
+## Observações O1/O2/O6 da revisão de 64fcd09 (15/10/2026)
+
+Parecer: `revisao-marketing-64fcd09-parecer-20261015/PARECER.md` (APROVADO para encerrar o goal local; O1–O6 não
+bloqueantes). Novo commit local sobre `64fcd09` na branch `codex/marketing-correcoes-r1-r4-20261015` (sem amend, sem
+push, sem PR). A 084 foi novamente **editada no lugar** (nunca aplicada fora de cluster descartável já apagado).
+**Revisão independente deste commit pendente.**
+
+| Observação | Decisão / correção | Testes |
+|---|---|---|
+| **O1** autorização CONFIRMADA voltava a valer se o número saísse do cadastro e depois voltasse | **Decisão de Felipe (15/10/2026): revogar ao sair.** Gatilho `marketing_aut_numero_saiu` (AFTER UPDATE OF whatsapp, telefone ON `clientes`) → `kidmais084_numero_saiu_do_cadastro()`: autorização viva (pendente ou confirmada) de número que estava no cadastro e saiu vira REVOGADA (`NUMERO_SAIU_DO_CADASTRO: …`, `revogada_por` nulo, evidência de confirmação preservada) na mesma transação — cobre tela, importação, mescla e SQL direto. Troca de campo (WhatsApp ↔ telefone) ou só de formatação não revoga; pendente de número que nunca esteve no cadastro não é afetada; outro cliente/empresa com o mesmo número não é afetado. Se o número voltar, precisa de nova autorização (equipe ou formulário). Normalização SQL `kidmais084_destino(text)` igual a `normalizarDestino`. Down remove gatilho e funções | PG `correcoes-o1-o2` (5 casos, inclusive o cenário do parecer pelo repositório real do CRM e por SQL direto, e paridade da normalização em 13 entradas); `correcoes-r1-r4` “troca de número” agora espera a revogação (`SEM_AUTORIZACAO`) |
+| **O2** gatilho deixava mudar `confirmada_em/confirmada_por/confirmacao`; `marketing_aut_confirmada` aceitava REVOGADA sem evidência | `kidmais084_autorizacao_controle`: evidências só são gravadas na passagem PENDENTE → CONFIRMADA; em qualquer outra transição (inclusive revogação) ficam congeladas. `marketing_aut_confirmada`: evidência tudo-ou-nada (data ⇔ registro; quem só com data), PENDENTE sem nenhuma, CONFIRMADA com data e registro; REVOGADA mantém o que tinha (vinda de CONFIRMADA continua com data e registro; vinda de PENDENTE sem nenhum). `marketing_aut_revogada` também exige `revogada_por` nulo fora de REVOGADA | PG `correcoes-o1-o2` (3 casos: restrição por estado, CONFIRMADA → REVOGADA sem apagar/trocar quando/quem/como, PENDENTE → REVOGADA sem confirmação fabricada e descadastro preservando evidência); `migration-083-084` com as novas recusas |
+| **O5** postcheck conferia 4 de 10 restrições da autorização | Postcheck da 084 confere as 10 restrições + `marketing_aut_contato_fk`, o gatilho novo, a definição vigente de `marketing_aut_confirmada`/`_revogada` e do gatilho de controle, e a normalização (5 entradas); precheck e verificação de reaplicação também conhecem as funções/gatilho novos | executado nos modelos 084 e na suíte da migration |
+| **O6** contagem de fixtures divergente (doc: “1ª execução revelou 3”; LEIA-ME do pacote `revisao-marketing-64fcd09-20261015`: 2) | Texto corrigido acima: **duas** execuções falharam (04-43 e 04-44) e revelaram **três** fixtures (EM_ABERTO e valor negociado na 1ª; `provedor` na 2ª). O LEIA-ME do pacote já entregue lista só duas (omite o valor negociado) e **não foi alterado**; esta é a contagem correta | conferido nos logs 04-43/04-44 do pacote |
+
+Fora deste recorte (decisões de privacidade e transporte real, mantidas como pendentes): **O3** a API
+`GET /api/admin/marketing/automacoes?clienteId=` devolve os números completos (a tela mascara); **O4** descadastro
+concorrente com execução já em ENVIANDO (revalidar dentro da posse ou `FOR SHARE` em `clientes` antes de transporte
+real).
+
+### Execução O1/O2 (15/10/2026, resultados reais)
+
+Ambiente: **novo** cluster PostgreSQL 18 descartável `127.0.0.1:55547` (`cluster_name=kidmais_descartavel`,
+`tem_real:false`), autorizado especificamente por Felipe nesta execução (55545/55546 não reaproveitados). Script
+`ambientes-locais/pg-marketing-o1o2-20261015.cjs` (derivado do anterior; prova de identidade antes de cada ação).
+“Antes” = export de `64fcd09` (`git archive`) com só as suítes novas copiadas por cima, em
+`ambientes-locais/marketing-o1o2-antes-64fcd09` (`node_modules` por junção, só leitura). Relatórios em
+`ambientes-locais/pg-descartavel-marketing-o1o2-20261015-relatorios`.
+
+| Verificação | Resultado |
+|---|---|
+| **Antes** (`64fcd09` + suítes novas): `correcoes-o1-o2` [084] e `migration-083-084` [082] | **FALHA 2/2 arquivos** — O1: a autorização não é revogada quando o número sai e volta a valer; normalização SQL inexistente; O2: restrição aceita evidência incoerente e o gatilho aceita apagar/trocar a evidência na revogação (prova de que os testes pegam as observações) |
+| **Depois**, as 5 suítes do Marketing (`correcoes-o1-o2`, `correcoes-r1-r4`, `marketing-a`, `automacoes-b` [084]; `migration-083-084` [082]) | **PASS 5/5 arquivos** — O1/O2 10/10 (2 testes, 8 casos), R1–R4 17/17, migration 1/1, Entrega A 9/9, Entrega B 9/9 |
+| `check:v1:postgres` completo (runner oficial, cada suíte no modelo declarado) | **PASS 97/97 arquivos** (96 anteriores + `correcoes-o1-o2`) |
+| `check:v1:static` | **PASS** — 3072/3072 unitários, smoke 103/103, lint 0 erros (1 aviso preexistente), TypeScript e build. 1ª tentativa: 3071/3072 por ambiente — `core.autocrlf=true` converteu os 3 SVG de `lib/convites/acervo` para CRLF na worktree e o checksum de `acervo.test.ts` diverge; os blobs commitados batem. Os 3 arquivos foram reescritos com os bytes do HEAD só para a execução e depois devolvidos com `git checkout` (nenhuma mudança deles no commit) |
+| Unitários do Marketing sem banco (8 arquivos), `regressao-v1-estatica.test.cjs`, `production.test.mjs` | 51/51, 7/7, 37/37 |
+| `tsc --noEmit --incremental false`, ESLint nos arquivos alterados, `git diff --check` | limpos |
+
+Ao final: cluster **encerrado e apagado** (`existeDepois:false`), export “antes” removido (junção desfeita antes, sem tocar
+no `node_modules` real). Autorização e mapa dos logs em `AUTORIZACAO.txt` nos relatórios. Nada publicado: sem push,
+PR, staging, produção ou mensagem real. UI não reexecutada (nenhuma mudança de tela; o motivo
+`NUMERO_SAIU_DO_CADASTRO: …` aparece na lista de autorizações como os demais motivos de revogação).

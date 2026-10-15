@@ -153,10 +153,14 @@ test("R1: autorização por destino — o motor só envia ao número autorizado 
       const v = await clienteCom("Vítor Troca", "5511977770009", "5511977770009");
       await formulario("11977770009", null, true);
       await c.query(`UPDATE clientes SET telefone = '5511977770099', whatsapp = '5511977770099' WHERE id = $1`, [v]);
-      assert.deepEqual(await ciclo(v), { estado: "SUPRIMIDA", motivo: "SEM_AUTORIZACAO_DESTINO", destino: null });
-      // Descadastro revoga as vivas (histórico mantido).
-      await m.pref.alterarPreferencia(tx, A, ga.usuario, { acao: "preferencia", operacao: "descadastrar", clienteId: v, confirmacao: "Pediu para parar (sintético)" });
+      // O1 (15/10/2026): o número que saiu do cadastro é revogado pelo banco; nenhuma confirmada sobra.
       assert.deepEqual((await autorizacoes(v)).map((a) => a.estado), ["REVOGADA"]);
+      assert.deepEqual(await ciclo(v), { estado: "SUPRIMIDA", motivo: "SEM_AUTORIZACAO", destino: null });
+      // Descadastro revoga as vivas (histórico mantido).
+      await m.pref.alterarPreferencia(tx, A, ga.usuario, { acao: "preferencia", operacao: "autorizar", clienteId: v, destino: "5511977770099", confirmacao: "Autorizou o número novo (sintético)" });
+      assert.deepEqual((await autorizacoes(v)).map((a) => a.estado), ["REVOGADA", "CONFIRMADA"], "número novo do cadastro autorizado de novo");
+      await m.pref.alterarPreferencia(tx, A, ga.usuario, { acao: "preferencia", operacao: "descadastrar", clienteId: v, confirmacao: "Pediu para parar (sintético)" });
+      assert.deepEqual((await autorizacoes(v)).map((a) => a.estado), ["REVOGADA", "REVOGADA"]);
     });
 
     await t.test("isolamento: empresa B não lê nem confirma autorização de cliente de A; o banco recusa autorização cruzada", async () => {

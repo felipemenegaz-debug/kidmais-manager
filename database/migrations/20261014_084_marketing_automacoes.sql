@@ -11,7 +11,8 @@
 --   * ENVIANDO sem resposta vira INCERTA e NUNCA é reenviada sozinha (sem envio duplicado); FALHOU pode ser re-agendada
 --     por pessoa (com nova revalidação);
 --   * mensagem só para destino com autorização CONFIRMADA (por número normalizado) e cliente sem descadastro; pausa da
---     regra impede envios pendentes (correção R1 de 15/10/2026: antes a autorização era do cliente inteiro);
+--     regra impede envios pendentes (correção R1 de 15/10/2026: antes a autorização era do cliente inteiro); número
+--     que sai do cadastro perde a autorização (O1) e a evidência de confirmação é imutável (O2);
 --   * transporte real NÃO existe neste goal: só a caixa de saída simulada (marketing_transporte_simulado).
 -- Rollback operacional: MARKETING_AUTOMACOES_ENABLED diferente de "true" para o processamento. O down recusa enquanto
 -- houver execução, tarefa ou preferência registrada (evidências de envio e consentimento não são apagadas).
@@ -27,7 +28,7 @@ DO $$ BEGIN
   END IF;
   IF to_regclass('public.marketing_automacao_regras') IS NOT NULL OR to_regclass('public.marketing_automacao_execucoes') IS NOT NULL
      OR to_regclass('public.marketing_contato_preferencias') IS NOT NULL OR to_regclass('public.marketing_tarefas') IS NOT NULL
-     OR to_regclass('public.marketing_contato_autorizacoes') IS NOT NULL
+     OR to_regclass('public.marketing_contato_autorizacoes') IS NOT NULL OR to_regprocedure('public.kidmais084_destino(text)') IS NOT NULL
      OR to_regclass('public.marketing_transporte_simulado') IS NOT NULL THEN
     RAISE EXCEPTION '084 já aplicada (total ou parcialmente).';
   END IF;
@@ -244,9 +245,15 @@ CREATE TABLE marketing_contato_autorizacoes (
   CONSTRAINT marketing_aut_origem CHECK (origem IN ('FORMULARIO_SITE', 'EQUIPE')),
   CONSTRAINT marketing_aut_formulario_tem_contato CHECK (origem <> 'FORMULARIO_SITE' OR contato_id IS NOT NULL),
   CONSTRAINT marketing_aut_evidencia CHECK (char_length(btrim(evidencia)) BETWEEN 3 AND 300),
-  CONSTRAINT marketing_aut_confirmada CHECK (estado = 'PENDENTE' OR confirmada_em IS NOT NULL OR estado = 'REVOGADA'),
+  -- Evidência de confirmação (data + registro de como foi confirmada; quem, quando foi a equipe) é tudo ou nada:
+  -- PENDENTE não tem nenhuma; CONFIRMADA tem data e registro; REVOGADA mantém exatamente o que tinha antes (vinda de
+  -- CONFIRMADA continua com data e registro; vinda de PENDENTE fica sem nenhum). O gatilho congela esses campos (O2).
+  CONSTRAINT marketing_aut_confirmada CHECK (
+    (confirmada_em IS NULL) = (confirmacao IS NULL) AND (confirmada_em IS NOT NULL OR confirmada_por IS NULL)
+    AND (estado <> 'PENDENTE' OR confirmada_em IS NULL) AND (estado <> 'CONFIRMADA' OR confirmada_em IS NOT NULL)),
   CONSTRAINT marketing_aut_confirmacao CHECK (confirmacao IS NULL OR char_length(confirmacao) <= 300),
-  CONSTRAINT marketing_aut_revogada CHECK ((estado = 'REVOGADA') = (revogada_em IS NOT NULL AND motivo_revogacao IS NOT NULL)),
+  CONSTRAINT marketing_aut_revogada CHECK ((estado = 'REVOGADA') = (revogada_em IS NOT NULL AND motivo_revogacao IS NOT NULL)
+    AND (estado = 'REVOGADA' OR revogada_por IS NULL)),
   CONSTRAINT marketing_aut_motivo CHECK (motivo_revogacao IS NULL OR char_length(motivo_revogacao) BETWEEN 3 AND 300)
 );
 -- Uma autorização viva (pendente ou confirmada) por cliente, canal e destino; revogadas ficam como histórico.
@@ -272,10 +279,43 @@ BEGIN
   IF NOT ((OLD.estado = 'PENDENTE' AND NEW.estado IN ('CONFIRMADA', 'REVOGADA')) OR (OLD.estado = 'CONFIRMADA' AND NEW.estado = 'REVOGADA')) THEN
     RAISE EXCEPTION '084: transição de autorização inválida (% → %).', OLD.estado, NEW.estado;
   END IF;
+  -- Evidências de confirmação (O2, 15/10/2026): só são gravadas na passagem PENDENTE → CONFIRMADA; em qualquer outra
+  -- transição (inclusive a revogação) ficam exatamente como estavam — a própria linha é o histórico.
+  IF NOT (OLD.estado = 'PENDENTE' AND NEW.estado = 'CONFIRMADA')
+     AND (NEW.confirmada_em IS DISTINCT FROM OLD.confirmada_em OR NEW.confirmada_por IS DISTINCT FROM OLD.confirmada_por
+          OR NEW.confirmacao IS DISTINCT FROM OLD.confirmacao) THEN
+    RAISE EXCEPTION '084: evidências de confirmação da autorização são imutáveis.';
+  END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER marketing_aut_controle BEFORE INSERT OR UPDATE OR DELETE ON marketing_contato_autorizacoes
   FOR EACH ROW EXECUTE FUNCTION kidmais084_autorizacao_controle();
+
+-- Destino canônico em SQL: mesma regra de normalizarDestino (lib/marketing/automacoes/preferencias.ts) — só dígitos;
+-- 10/11 dígitos ganham o DDI 55; 12–15 dígitos ficam como estão; o resto não é destino.
+CREATE FUNCTION kidmais084_destino(valor text) RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE
+  SET search_path = public, pg_catalog, pg_temp AS $$
+  SELECT CASE WHEN d ~ '^[0-9]{10,11}$' THEN '55' || d WHEN d ~ '^[0-9]{12,15}$' THEN d END
+    FROM (SELECT regexp_replace(COALESCE(valor, ''), '[^0-9]', '', 'g') AS d) x
+$$;
+
+-- O1 (15/10/2026, decisão de Felipe): número que SAI do cadastro do cliente (WhatsApp e telefone) perde as autorizações
+-- vivas (pendente ou confirmada) desse número, na mesma transação da alteração — vale para edição na tela, importação,
+-- mescla ou SQL direto. Se o número voltar ao cadastro, precisa de nova autorização (equipe ou formulário); a revogada
+-- fica como histórico. Troca só de formatação (mesmo destino normalizado) não revoga nada.
+CREATE FUNCTION kidmais084_numero_saiu_do_cadastro() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog, pg_temp AS $$
+BEGIN
+  UPDATE marketing_contato_autorizacoes a
+     SET estado = 'REVOGADA', revogada_em = clock_timestamp(), atualizado_em = clock_timestamp(),
+         motivo_revogacao = 'NUMERO_SAIU_DO_CADASTRO: o número deixou o cadastro do cliente; nova autorização é necessária.'
+   WHERE a.empresa_id = OLD.empresa_id AND a.cliente_id = OLD.id AND a.canal = 'WHATSAPP' AND a.estado <> 'REVOGADA'
+     AND a.destino IN (kidmais084_destino(OLD.whatsapp), kidmais084_destino(OLD.telefone))
+     AND a.destino IS DISTINCT FROM kidmais084_destino(NEW.whatsapp) AND a.destino IS DISTINCT FROM kidmais084_destino(NEW.telefone);
+  RETURN NULL;
+END $$;
+CREATE TRIGGER marketing_aut_numero_saiu AFTER UPDATE OF whatsapp, telefone ON clientes
+  FOR EACH ROW WHEN (OLD.whatsapp IS DISTINCT FROM NEW.whatsapp OR OLD.telefone IS DISTINCT FROM NEW.telefone)
+  EXECUTE FUNCTION kidmais084_numero_saiu_do_cadastro();
 
 -- =============================================================================
 -- 4. Tarefas internas (sem provedor externo) e caixa de saída do transporte simulado.
@@ -327,6 +367,6 @@ COMMENT ON TABLE marketing_transporte_simulado IS
 COMMENT ON TABLE marketing_contato_preferencias IS
   'Descadastro por cliente (prevalece sobre qualquer autorização). Revalidado no envio.';
 COMMENT ON TABLE marketing_contato_autorizacoes IS
-  'Autorização de mensagem por destino normalizado, com origem e evidência. Só CONFIRMADA de número que ainda está no cadastro permite envio; pendente exige confirmação da equipe.';
+  'Autorização de mensagem por destino normalizado, com origem e evidência. Só CONFIRMADA de número que ainda está no cadastro permite envio; pendente exige confirmação da equipe; número que sai do cadastro é revogado (gatilho marketing_aut_numero_saiu em clientes).';
 
 COMMIT;

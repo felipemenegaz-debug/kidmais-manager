@@ -172,6 +172,9 @@ const ESTADO_POSTGRES = {
   // Correções R1–R4 da revisão de bc379ad (15/10/2026): autorização por destino, aptidão da empresa no worker,
   // receita desconhecida e planejamento além de 500 alvos.
   "lib/marketing/correcoes-r1-r4.postgres.test.ts": { descartavel: "084" },
+  // Observações O1/O2 da revisão de 64fcd09 (15/10/2026): número que sai do cadastro revoga a autorização; evidência
+  // de confirmação congelada.
+  "lib/marketing/correcoes-o1-o2.postgres.test.ts": { descartavel: "084" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
