@@ -1,7 +1,7 @@
 export type ItemNavegacao = {
     href: string;
     rotulo: string;
-    grupo: 'Principal' | 'Operação' | 'Financeiro' | 'Configurações';
+    grupo: 'Principal' | 'Operação' | 'Marketing' | 'Financeiro' | 'Configurações';
 };
 
 const PRINCIPAL: ItemNavegacao[] = [
@@ -14,6 +14,18 @@ const OPERACAO: ItemNavegacao[] = [
     { href: '/admin/festas', rotulo: 'Festas', grupo: 'Operação' },
     { href: '/admin/disponibilidade', rotulo: 'Agenda', grupo: 'Operação' },
     { href: '/admin/atendimento', rotulo: 'Atendimento WhatsApp', grupo: 'Operação' },
+];
+
+/**
+ * Marketing (goal local 14/10/2026): aparece com o recurso MARKETING no plano e alguma capacidade de Marketing na
+ * empresa (Gestão tem todas). A barreira está nas APIs (lib/marketing/http.ts); o menu só acompanha.
+ */
+const MARKETING: ItemNavegacao[] = [
+    { href: '/admin/marketing', rotulo: 'Visão geral', grupo: 'Marketing' },
+    { href: '/admin/marketing/campanhas', rotulo: 'Campanhas', grupo: 'Marketing' },
+    { href: '/admin/marketing/origens', rotulo: 'Origens dos contatos', grupo: 'Marketing' },
+    { href: '/admin/marketing/site', rotulo: 'Site e SEO', grupo: 'Marketing' },
+    { href: '/admin/marketing/automacoes', rotulo: 'Automações', grupo: 'Marketing' },
 ];
 
 const FINANCEIRO: ItemNavegacao[] = [
@@ -40,7 +52,8 @@ const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma'
 ];
 
 /** `financeiroCompleto: false` = plano sem contas a pagar (Essencial). Ausente = incluído (teste, legado, isenta). */
-export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean; financeiroCompleto?: boolean };
+/** `marketing: false` = plano sem Marketing ou pessoa sem capacidade nesta empresa. Ausente = mostrado (compatibilidade). */
+export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean; financeiroCompleto?: boolean; marketing?: boolean };
 
 /** Telas do financeiro completo; a mesma matriz de lib/assinatura/recursos-plano.ts recusa as APIs no servidor. */
 export const ROTAS_FINANCEIRO_COMPLETO = ['/admin/financeiro/contas-pagar', '/admin/financeiro/fluxo-caixa', '/admin/financeiro/relatorios'] as const;
@@ -51,7 +64,7 @@ export function itensNavegacao(permissoes: boolean | PermissoesNavegacao): ItemN
     const financeiro = p.financeiroCompleto === false
         ? FINANCEIRO.filter((item) => !(ROTAS_FINANCEIRO_COMPLETO as readonly string[]).includes(item.href))
         : FINANCEIRO;
-    const base = [...PRINCIPAL, ...OPERACAO, ...financeiro];
+    const base = [...PRINCIPAL, ...OPERACAO, ...(p.marketing === false ? [] : MARKETING), ...financeiro];
     const config = CONFIGURACAO
         .filter((item) => (item.autoridade === 'empresa' ? p.gestaoEmpresa : p.plataforma))
         .map(({ autoridade: _autoridade, ...item }) => { void _autoridade; return item; });

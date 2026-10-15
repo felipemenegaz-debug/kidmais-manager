@@ -66,7 +66,7 @@ export default function AdminShell({ children, vitrine }: {
                 setContexto(c ?? null);
                 setComercial((b.data.comercial as ComercialCliente | null | undefined) ?? null);
                 setCadastroAberto(b.data.cadastroAberto === true);
-                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false });
+                setPermissoes({ gestaoEmpresa: Boolean(c?.gestaoNaEmpresa), plataforma: Boolean(c?.plataforma), financeiroCompleto: b.data.recursos?.financeiroCompleto !== false, marketing: b.data.recursos?.marketing === true });
                 setEmpresa(c ? { nome: c.empresaAtual?.nome ?? '', selecaoNecessaria: c.selecaoNecessaria, desenvolvedor: c.desenvolvedor } : null);
             }
         }).catch(() => { if (!sessaoObsoletaDesde(marca)) router.replace('/admin/login'); }); };
@@ -131,7 +131,7 @@ export default function AdminShell({ children, vitrine }: {
         </div></div>;
     const semEmpresa = !vitrine && contexto !== null && contexto.empresas.length === 0;
     const itens = semEmpresa ? [] : itensNavegacao(permissoes);
-    const grupos = ['Principal', 'Operação', 'Financeiro', 'Configurações'] as const;
+    const grupos = ['Principal', 'Operação', 'Marketing', 'Financeiro', 'Configurações'] as const;
     async function escolherEmpresa(id: string) {
         if (!id || trocando) return;
         setTrocando(true); setErroEmpresa('');
@@ -211,6 +211,11 @@ export default function AdminShell({ children, vitrine }: {
 }
 
 function iconeDaRota(href: string): AdminIconName {
+    if (href === '/admin/marketing') return 'marketing';
+    if (href.includes('/marketing/campanhas')) return 'campaign';
+    if (href.includes('/marketing/origens')) return 'origin';
+    if (href.includes('/marketing/site')) return 'site';
+    if (href.includes('/marketing/automacoes')) return 'automation';
     if (href.includes('perfil-empresa')) return 'profile';
     if (href.includes('tabelas-preco')) return 'prices';
     if (href.includes('tabela-pacotes')) return 'pdf';

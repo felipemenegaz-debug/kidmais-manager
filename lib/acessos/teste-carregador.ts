@@ -38,7 +38,8 @@ export function carregarModulo(arquivo: string, dubles: Record<string, unknown>,
         if (resolvido) {
             if (/\/db\/postgres$/.test(chave))
                 throw new Error(`teste sem dublê para o banco: ${nome}`);
-            for (const ext of ['.ts', '.tsx']) {
+            // `/index.ts`: import de diretório (ex.: '../clientes/services'), como o bundler resolve.
+            for (const ext of ['.ts', '.tsx', '/index.ts']) {
                 try {
                     readFileSync(`${chave}${ext}`);
                     return carregarModulo(`${chave}${ext}`, dubles, cache);

@@ -1,0 +1,109 @@
+/* Site público do buffet: modelo único, claro, legível e responsivo. Cores da marca vêm de --cor-primaria/--cor-secundaria
+   (validadas como #rrggbb no servidor). Sem dependência do tema do painel administrativo. */
+.pagina {
+  --cor-primaria: #6d4aff;
+  --cor-secundaria: #14b8a6;
+  --texto: #1d1b2c;
+  --texto-suave: #5b5870;
+  --fundo: #fbfaff;
+  --cartao: #ffffff;
+  --borda: #e6e3f2;
+  min-height: 100vh;
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.55;
+}
+.pagina img { max-width: 100%; display: block; }
+.pagina a { color: inherit; }
+
+.topo {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px clamp(16px, 4vw, 48px);
+  background: color-mix(in srgb, var(--fundo) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--borda);
+}
+.marca { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.1rem; }
+.logo { width: auto; height: 40px; max-width: 140px; object-fit: contain; }
+.navegacao { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: .95rem; }
+.navegacao a { text-decoration: none; color: var(--texto-suave); }
+.navegacao a:hover { color: var(--texto); }
+.botaoTopo { background: var(--cor-primaria); color: #fff !important; padding: 8px 14px; border-radius: 999px; font-weight: 600; }
+
+.hero {
+  display: grid; gap: clamp(20px, 4vw, 48px); align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  padding: clamp(28px, 6vw, 72px) clamp(16px, 4vw, 48px);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--cor-primaria) 14%, var(--fundo)), color-mix(in srgb, var(--cor-secundaria) 12%, var(--fundo)));
+}
+@media (min-width: 860px) { .hero { grid-template-columns: 1.1fr 1fr; } }
+.heroTexto h1 { font-size: clamp(1.9rem, 5vw, 3.1rem); line-height: 1.12; margin: 0 0 12px; }
+.slogan { font-size: clamp(1.05rem, 2.4vw, 1.3rem); color: var(--texto-suave); margin: 0 0 24px; }
+.heroImagem { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 20px; box-shadow: 0 18px 50px rgb(30 20 80 / 18%); }
+.acoes { display: flex; gap: 12px; flex-wrap: wrap; }
+
+.botaoPrimario, .botaoSecundario {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 22px;
+  border-radius: 999px; font-weight: 700; font-size: 1rem; text-decoration: none; cursor: pointer; border: 0;
+}
+/* `.pagina a` herda a cor do texto; os botões-link precisam da própria cor (contraste do primário sobre a cor da marca). */
+.botaoPrimario, .pagina a.botaoPrimario { background: var(--cor-primaria); color: #fff; }
+.pagina a.botaoSecundario { color: var(--texto); }
+.botaoPrimario:disabled { opacity: .6; cursor: not-allowed; }
+.botaoSecundario { background: transparent; color: var(--texto); border: 2px solid var(--cor-secundaria); }
+.botaoPrimario:focus-visible, .botaoSecundario:focus-visible, .navegacao a:focus-visible { outline: 3px solid var(--cor-secundaria); outline-offset: 2px; }
+
+.secao { padding: clamp(28px, 5vw, 56px) clamp(16px, 4vw, 48px); max-width: 1120px; margin: 0 auto; }
+.secao h2 { font-size: clamp(1.4rem, 3.2vw, 2rem); margin: 0 0 16px; }
+.paragrafo { max-width: 72ch; color: var(--texto-suave); white-space: pre-line; }
+.destaque { font-weight: 600; color: var(--cor-primaria); }
+.lista { display: grid; gap: 8px 24px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); padding-left: 20px; }
+
+.galeria { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+.galeria figure { margin: 0; }
+.galeria img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 14px; }
+.galeria figcaption { font-size: .9rem; color: var(--texto-suave); margin-top: 6px; }
+
+.pacotes { list-style: none; padding: 0; margin: 0; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.pacote { background: var(--cartao); border: 1px solid var(--borda); border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 6px; }
+.pacote h3 { margin: 0; font-size: 1.2rem; }
+.pacote p { margin: 0; color: var(--texto-suave); }
+.detalhes { display: flex; gap: 12px; flex-wrap: wrap; font-size: .92rem; }
+.preco { margin-top: auto !important; padding-top: 8px; color: var(--texto) !important; }
+.preco strong { font-size: 1.3rem; color: var(--cor-primaria); }
+
+.endereco { font-style: normal; display: grid; gap: 4px; margin-bottom: 16px; color: var(--texto-suave); }
+.contatos { list-style: none; padding: 0; display: grid; gap: 10px; }
+.contatos a { font-weight: 600; }
+
+.secaoOrcamento { background: var(--cartao); border: 1px solid var(--borda); border-radius: 24px; margin: 24px auto; max-width: 880px; }
+.datas { background: color-mix(in srgb, var(--cor-secundaria) 10%, var(--cartao)); border-radius: 14px; padding: 12px 16px; margin-bottom: 16px; }
+.datas ul { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 8px 0; }
+.datas li { background: var(--cartao); border: 1px solid var(--borda); border-radius: 999px; padding: 4px 12px; font-size: .9rem; }
+.datas p { margin: 0; }
+
+.formulario { display: grid; gap: 12px; }
+.campos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
+.campos label { display: grid; gap: 6px; font-weight: 600; font-size: .95rem; }
+.campos input, .campos textarea {
+  font: inherit; font-weight: 400; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--borda); background: #fff; color: var(--texto); min-height: 46px;
+}
+.campos input:focus, .campos textarea:focus { outline: 3px solid color-mix(in srgb, var(--cor-primaria) 40%, transparent); border-color: var(--cor-primaria); }
+.campos [aria-invalid="true"] { border-color: #c2410c; }
+.campoLargo { grid-column: 1 / -1; }
+.consentimento { display: flex !important; align-items: flex-start; gap: 10px !important; font-weight: 400 !important; font-size: .9rem !important; color: var(--texto-suave); }
+.consentimento input { min-height: 0 !important; width: 20px; height: 20px; margin-top: 2px; accent-color: var(--cor-primaria); }
+.armadilha { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.legal { font-size: .85rem; color: var(--texto-suave); }
+.erro { color: #b42318; font-weight: 600; }
+.avisoPrevia { background: #fff4e5; color: #8a4b00; border-radius: 10px; padding: 8px 12px; margin: 0; }
+.confirmacao { background: color-mix(in srgb, var(--cor-secundaria) 14%, var(--cartao)); border-radius: 16px; padding: 20px; display: grid; gap: 8px; justify-items: start; }
+
+.rodape { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 24px clamp(16px, 4vw, 48px); border-top: 1px solid var(--borda); color: var(--texto-suave); font-size: .9rem; }
+
+@media (max-width: 600px) {
+  .navegacao a:not(.botaoTopo) { display: none; }
+  .acoes > a { flex: 1 1 100%; }
+}

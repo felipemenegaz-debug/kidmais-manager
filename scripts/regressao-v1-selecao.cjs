@@ -163,6 +163,12 @@ const ESTADO_POSTGRES = {
   "lib/assinatura/kidmais-gratuidade.postgres.test.ts": { descartavel: "079", tambem: ["079-sem-atendimento"] },
   // Script de fixtures do painel em staging (scripts/fixture-painel-staging.cjs) no schema vigente (até a 079).
   "lib/desenvolvedor/fixture-painel-staging.postgres.test.ts": { descartavel: "079", tambem: ["079-sem-atendimento"] },
+  // Marketing (goal local 14/10/2026): 083/084 aplicadas pela suíte sobre a 082 (ordem, reaplicação, gatilhos, rollback).
+  "lib/marketing/migration-083-084.postgres.test.ts": { descartavel: "082" },
+  // Entrega A no modelo 084: site, formulário, atribuição até contrato, painel, isolamento A×B, domínio simulado.
+  "lib/marketing/marketing-a.postgres.test.ts": { descartavel: "084" },
+  // Entrega B no modelo 084: planejamento idempotente, supressões, falha recuperável, retorno e concorrência.
+  "lib/marketing/automacoes/automacoes-b.postgres.test.ts": { descartavel: "084" },
 };
 
 function estadoDaSuite(raiz, arquivo) {
