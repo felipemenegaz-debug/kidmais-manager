@@ -35,16 +35,60 @@ const TERMOS: TextoLegal = {
 };
 
 const PRIVACIDADE: TextoLegal = {
-    documento: 'PRIVACIDADE', titulo: 'Aviso de privacidade do Kidmais Manager', versao: '2026-10-13-minuta', minuta: true,
+    documento: 'PRIVACIDADE', titulo: 'Aviso de privacidade do Kidmais Manager', versao: '2026-10-15-minuta4', minuta: true,
     secoes: [
-        { titulo: 'Minuta', paragrafos: ['Este texto é uma minuta para homologação e será substituído pela versão revisada juridicamente antes da publicação.'] },
-        { titulo: 'Dados da conta', paragrafos: [
-            'Coletamos nome, e-mail e senha (guardada só como hash) de quem cria a conta, e CNPJ, razão social, nome fantasia, telefone e sócios declarados da empresa.',
-            'Registramos a versão destes documentos aceita, o horário e o endereço IP do aceite.',
+        { titulo: 'Sobre este aviso', paragrafos: [
+            'Esta minuta descreve o tratamento de dados no Kidmais Manager, sistema de gestão de buffets e eventos, incluindo cadastro, assinatura e recursos de atendimento pelo WhatsApp. As definições pendentes estão identificadas no texto e precisam ser concluídas antes da publicação da política definitiva.',
         ] },
-        { titulo: 'Dados dos clientes do buffet', paragrafos: ['Os dados que a empresa cadastra sobre os próprios clientes são tratados em nome dela. Acordo de tratamento de dados e lista de suboperadores: [A DEFINIR].'] },
-        { titulo: 'Compartilhamento', paragrafos: ['Provedores de hospedagem, e-mail e cobrança recebem só o necessário para prestar o serviço. Lista de suboperadores: [A DEFINIR].'] },
-        { titulo: 'Direitos e contato', paragrafos: ['Pedidos de acesso, correção, portabilidade e exclusão: felipemenegaz@gmail.com. Encarregado (DPO): [A DEFINIR].'] },
+        { titulo: 'Quem é responsável', paragrafos: [
+            'A responsável pelo Kidmais Manager é Mary Marra Menegaz – EPP, nome fantasia KidMais Festas, CNPJ 20.119.900/0001-60. Contato para assuntos de privacidade: glass@demerzellabs.com.br.',
+            'A KidMais Festas decide sobre o tratamento dos dados de cadastro, relacionamento e administração da plataforma. Quando uma empresa cliente utiliza o sistema para atender seus próprios clientes, essa empresa decide as finalidades desse atendimento, e a plataforma trata os dados conforme suas instruções e os serviços contratados.',
+        ] },
+        { titulo: 'Dados da conta', paragrafos: [
+            'O cadastro solicita nome, e-mail e senha de quem cria a conta, além de CNPJ, razão social, nome fantasia e telefone da empresa. A senha é armazenada como hash. Podem ser informados representantes e sócios declarados.',
+            'Também são tratados informações da assinatura e da cobrança, registros de acesso e segurança e evidências do aceite dos documentos, incluindo versão, impressão digital do texto, horário e endereço IP.',
+        ] },
+        { titulo: 'Cookies de acesso e segurança', paragrafos: [
+            'O sistema utiliza cookies para manter a sessão autenticada e proteger ações realizadas na conta. O bloqueio desses cookies pelo navegador pode impedir o acesso a áreas autenticadas. O inventário de outras tecnologias de armazenamento e de eventuais cookies opcionais está [A DEFINIR] para a versão definitiva.',
+        ] },
+        { titulo: 'Dados dos clientes do buffet', paragrafos: [
+            'Conforme os recursos utilizados, a empresa cliente cadastra informações de contato, responsáveis e participantes dos eventos, datas, propostas, contratos e pagamentos, além de arquivos e informações fornecidos durante o atendimento.',
+            'Dados de crianças e adolescentes, assim como informações sensíveis, por exemplo sobre saúde ou alergias, exigem avaliação específica pela empresa responsável. Sua inclusão deve se limitar ao necessário, com a base legal e as medidas de proteção adequadas. O aceite deste aviso não constitui autorização genérica para esses tratamentos.',
+            'Acordo de tratamento de dados entre a plataforma e as empresas clientes, incluindo responsabilidades e instruções: [A DEFINIR].',
+        ] },
+        { titulo: 'Atendimento pelo WhatsApp', paragrafos: [
+            'Quando o canal está habilitado, são tratados o número de telefone, o nome de perfil disponibilizado pelo WhatsApp, mensagens, referências a mídias, identificadores e horários das mensagens e estados de envio ou entrega. Esses dados permitem organizar o histórico, responder solicitações, enviar informações sobre eventos e transferir o atendimento à equipe.',
+            'A integração utiliza serviços do WhatsApp/Meta e, conforme a configuração, da Gupshup. Esses serviços também tratam dados de acordo com suas próprias políticas. O atendimento pode usar respostas automáticas por regras; a pessoa pode solicitar atendimento humano.',
+            'O Atendimento WhatsApp é utilizado com dados de clientes reais. As pendências indicadas nesta minuta precisam ser concluídas para que o aviso descreva integralmente as condições desse tratamento.',
+        ] },
+        { titulo: 'Recursos de inteligência artificial', paragrafos: [
+            'O atendimento utiliza a OpenAI como provedora de inteligência artificial, inclusive no atendimento a clientes reais. Conforme a função habilitada, texto da conversa e trechos do histórico podem ser enviados à OpenAI para interpretar a solicitação ou auxiliar na resposta. Os filtros de dados pessoais não garantem anonimização completa.',
+            'As condições contratuais aplicáveis, os prazos de retenção pelo provedor e as configurações efetivas de tratamento precisam ser confirmados: [A DEFINIR]. Esta minuta não presume anonimização integral nem ausência de armazenamento pelo provedor.',
+        ] },
+        { titulo: 'Finalidades e fundamentos do tratamento', paragrafos: [
+            'Os dados são utilizados para criar e proteger contas, disponibilizar a gestão de eventos, prestar suporte, administrar assinaturas e cobranças, executar os atendimentos solicitados e manter registros necessários à segurança e ao cumprimento de obrigações aplicáveis.',
+            'Conforme cada operação, podem ser aplicáveis a execução de contrato ou procedimentos preliminares, o cumprimento de obrigação legal, o exercício regular de direitos, o legítimo interesse após avaliação ou o consentimento quando necessário. A matriz de finalidades, bases legais e prazos, inclusive para dados sensíveis e de menores, está [A DEFINIR] para a política definitiva.',
+        ] },
+        { titulo: 'Compartilhamento e serviços externos', paragrafos: [
+            'A plataforma utiliza Render para hospedagem, Meta/WhatsApp e Gupshup para mensageria e OpenAI para recursos de inteligência artificial. Os dados enviados dependem do serviço e da função utilizada, como conteúdo e metadados de mensagens para a mensageria e texto da conversa para a inteligência artificial.',
+            'Dados também podem ser fornecidos para atender obrigações legais ou ordens de autoridades competentes. O inventário completo dos prestadores ativos, inclusive eventuais serviços de e-mail e cobrança, os dados compartilhados e as condições contratuais de proteção estão [A DEFINIR].',
+            'Os serviços externos podem envolver tratamento fora do Brasil. Países, destinatários e mecanismos aplicáveis às transferências internacionais estão [A DEFINIR] e precisam ser confirmados para concluir este aviso.',
+        ] },
+        { titulo: 'Armazenamento, segurança e retenção', paragrafos: [
+            'A plataforma possui controles de autenticação e de acesso por empresa e perfil. Esses controles reduzem riscos, mas não representam garantia absoluta de segurança. Arquivos disponibilizados por link devem ser compartilhados com cuidado: quem possui um link válido pode conseguir acessar seu conteúdo.',
+            'A suspensão ou o encerramento de uma assinatura não apaga automaticamente os dados. Prazos de guarda de cadastros, contratos, registros de segurança e cópias de segurança: [A DEFINIR].',
+            'Atualmente, não há exclusão automática das conversas do WhatsApp. Pedidos de exclusão podem ser feitos pelo canal indicado neste aviso. Os critérios e prazos de retenção dessas conversas estão [A DEFINIR]. Mesmo após excluir uma conversa, podem permanecer registros mínimos de auditoria, prevenção de reentrega e preferências de não contato; os prazos e fundamentos dessa guarda também precisam ser concluídos na política definitiva.',
+        ] },
+        { titulo: 'Direitos e pedidos de exclusão', paragrafos: [
+            'Você pode solicitar confirmação do tratamento, acesso, correção, informações sobre compartilhamento, portabilidade quando aplicável, revogação do consentimento e anonimização, bloqueio ou exclusão nas hipóteses previstas na legislação. Também pode apresentar petição à Autoridade Nacional de Proteção de Dados (ANPD).',
+            'Envie o pedido para glass@demerzellabs.com.br, com o assunto “Privacidade — Kidmais Manager” ou “Exclusão de dados — Kidmais Manager”. Informe qual é o pedido e o e-mail ou telefone utilizado no serviço. Se o atendimento foi feito por um buffet, indique o nome dele para localizarmos a empresa responsável. Não envie senhas nem códigos de verificação.',
+            'Podemos solicitar informações proporcionais para confirmar sua identidade e evitar acesso ou exclusão indevidos. Quando a decisão couber à empresa cliente, o pedido será encaminhado ou será indicado o canal responsável. Esse contato por e-mail também pode ser utilizado por quem não tem mais acesso à conta.',
+            'A exclusão pode ter limites decorrentes de obrigações legais e da preservação de direitos; eventuais restrições devem ser explicadas ao solicitante. A exclusão na plataforma não remove automaticamente mensagens do aparelho de destinatários, cópias já baixadas ou dados mantidos por serviços externos. O atendimento do pedido deve considerar esses destinatários e as cópias de segurança aplicáveis.',
+            'Definição sobre encarregado e divulgação de seus dados de contato, quando aplicável: [A DEFINIR]. O canal de privacidade acima permanece disponível para solicitações.',
+        ] },
+        { titulo: 'Atualizações deste aviso', paragrafos: [
+            'A versão e a impressão digital exibidas nesta página identificam o texto atual. Mudanças neste aviso recebem uma nova versão; os registros de aceites anteriores não são substituídos por este texto. A versão definitiva será disponibilizada após a conclusão das pendências e da revisão jurídica.',
+        ] },
     ],
 };
 
