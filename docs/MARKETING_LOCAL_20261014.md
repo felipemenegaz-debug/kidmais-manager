@@ -394,3 +394,55 @@ Ao final: cluster **encerrado e apagado** (`existeDepois:false`), export “ante
 no `node_modules` real). Autorização e mapa dos logs em `AUTORIZACAO.txt` nos relatórios. Nada publicado: sem push,
 PR, staging, produção ou mensagem real. UI não reexecutada (nenhuma mudança de tela; o motivo
 `NUMERO_SAIU_DO_CADASTRO: …` aparece na lista de autorizações como os demais motivos de revogação).
+
+## Correção F1 da revisão de f917f98 (15/10/2026)
+
+Parecer: `revisao-marketing-f917f98-parecer-20261015/PARECER.md` (f917f98 **REPROVADO**, preservado). Goal: nota
+`Goal Correcao Marketing local F1` no vault. Worktree própria `kidmais-manager-marketing-f1-20261015`, branch
+`codex/marketing-correcao-f1-20261015`, novo commit local sobre `f917f98` (sem amend, sem push). **Revisão
+independente pendente.**
+
+**Defeito (F1).** O formulário do site lia o cadastro sem trava, decidia CONFIRMADA e só depois inseria a autorização.
+Se outra transação trocasse o número (A→B) entre a leitura e o INSERT — ou entre o INSERT e o COMMIT —, o gatilho
+`marketing_aut_numero_saiu` não enxergava a autorização (ainda inexistente ou não confirmada) e não a revogava; quando
+o cadastro voltava a A, a autorização anterior à saída voltava a permitir envio. A FK de autorizações/contatos para
+`clientes` só toma `FOR KEY SHARE`, que não conflita com UPDATE de telefone/WhatsApp: nada serializava os dois caminhos.
+
+**Protocolo (sem mudança de schema).** O ponto de coordenação é a linha do cliente:
+
+| Caminho | Trava | Quando |
+|---|---|---|
+| Formulário (`registrarAutorizacaoDoFormulario` → `travarCadastroDoCliente`) | `SELECT … FROM clientes … FOR NO KEY UPDATE` | antes de ler descadastro e números; mantida até o COMMIT (cobre leitura→INSERT e INSERT→COMMIT) |
+| Equipe (`alterarPreferencia`) | `FOR UPDATE` (já existia) | antes de ler descadastro e números |
+| Edição de telefone/WhatsApp (tela, importação, mescla, SQL) | trava de linha do próprio UPDATE | o gatilho O1 roda depois, em instrução nova (READ COMMITTED), e enxerga o que foi confirmado antes de a linha ser liberada |
+
+Ordem única: `clientes` (linha) → `marketing_contato_preferencias` → `marketing_contato_autorizacoes`. Se o formulário
+pega a linha primeiro, a edição espera, e o gatilho revoga a autorização recém-confirmada. Se a edição pega primeiro,
+o formulário espera e lê o cadastro já alterado (número fora do cadastro → PENDENTE, como no fluxo sequencial). Dois
+formulários, ou formulário × equipe, no mesmo cliente ficam serializados (sem duas vivas, sem deadlock). O mesmo
+protocolo fecha a variante com descadastro concorrente: a autorização do formulário não sobrevive ao descadastro nem volta
+na reativação. Não há retry nem espera por tempo; uma trava não obtida em 30 s falha a transação (`statement_timeout`).
+
+Fora do recorte (inalterados): O3 e O4. O motor revalida a elegibilidade sem trava no momento do envio (janela de
+milissegundos entre a decisão e o transporte, a mesma classe de O4).
+
+### Execução F1 (15/10/2026, resultados reais)
+
+Ambiente: **novo** cluster PostgreSQL 18 descartável `127.0.0.1:55548` (`kidmais_descartavel`, `tem_real:false`),
+autorizado especificamente por Felipe nesta execução (55545–55547 não reaproveitados); script
+`ambientes-locais/pg-marketing-f1-20261015.cjs`. “Antes” = export de `f917f98` (`git archive`) com só os testes novos
+por cima. Relatórios em `ambientes-locais/pg-descartavel-marketing-f1-20261015-relatorios`. Árvore de código testada
+(índice temporário com as mudanças, antes desta seção do doc): `2c0d6df1f1e2f75cffd25f7bd83cef675d19514e`.
+
+| Verificação | Resultado | Log |
+|---|---|---|
+| `correcao-f1.test.ts` (forma do protocolo, sem banco) em `f917f98` / depois | **0/1** / **1/1** | `unitario-f1-ANTES-f917f98.log`, `unitario-f1-DEPOIS.log` |
+| `correcao-f1.postgres.test.ts` [084], **antes** (`f917f98`) | **FALHA**: 7 de 9 — leitura→INSERT, INSERT→COMMIT, ordem inversa e descadastro terminam com a autorização obsoleta CONFIRMADA (asserções funcionais); controle positivo falha porque a autorização antiga já valia antes da nova; o servidor registra **nenhuma** espera (`CONCLUIDA`). Nenhum `TEMPO_DO_TESTE` | `2026-10-15T11-23-32-418Z-check-v1-postgres.log` |
+| A mesma, **depois** | **PASS 9/9**; cada espera observada no servidor (`wait_event_type = Lock`) e `pg_blocking_pids` = a sessão que segura a linha | `2026-10-15T11-23-17-568Z-check-v1-postgres.log` |
+| `check:v1:postgres` completo (inclui as 6 suítes do Marketing) | **PASS 98/98 arquivos** | `2026-10-15T11-23-51-348Z-check-v1-postgres.log` |
+| `check:v1:static` | **PASS** — 3073/3073 unitários, smoke 103/103, lint 0 erros (1 aviso preexistente), TypeScript, build (SVG de `lib/convites/acervo` convertidos para LF só durante a execução e restaurados) | `check-v1-static.log` |
+| `production.test.mjs`; `tsc --noEmit --incremental false`; ESLint dos alterados | 37/37; limpos | — |
+
+No “antes”, o caso “formulário × formulário” falha na asserção de protocolo (sem espera), não por duplicidade: a chave
+única já impedia duas autorizações vivas. Ao final: cluster **encerrado e apagado** (`existeDepois:false`), export
+“antes” removido (junção desfeita antes, sem tocar no `node_modules` real). Sem UI (nenhuma mudança de tela).

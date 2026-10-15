@@ -175,6 +175,8 @@ const ESTADO_POSTGRES = {
   // Observações O1/O2 da revisão de 64fcd09 (15/10/2026): número que sai do cadastro revoga a autorização; evidência
   // de confirmação congelada.
   "lib/marketing/correcoes-o1-o2.postgres.test.ts": { descartavel: "084" },
+  // F1 da revisão de f917f98 (15/10/2026): formulário × saída do número em transações concorrentes (3 conexões).
+  "lib/marketing/correcao-f1.postgres.test.ts": { descartavel: "084" },
 };
 
 function estadoDaSuite(raiz, arquivo) {

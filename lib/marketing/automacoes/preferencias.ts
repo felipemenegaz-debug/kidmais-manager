@@ -18,6 +18,20 @@ import { MarketingError } from "../erros.ts";
  *   - o controle "não contatar" do atendimento WhatsApp (082), quando existe, também bloqueia;
  *   - tudo é revalidado imediatamente antes do envio. Não há autorização sem destino: nada é presumido.
  * Limite conhecido: o formulário é "opt-in simples" (sem código de confirmação no número); ver docs/MARKETING_LOCAL_20261014.md.
+ *
+ * Protocolo de concorrência (correção F1 da revisão de f917f98, 15/10/2026). O ponto de coordenação é a LINHA do
+ * cliente em `clientes`:
+ *   - quem CRIA ou CONFIRMA autorização a partir do cadastro (formulário do site e equipe) trava essa linha ANTES de ler
+ *     descadastro e números, e a mantém até o COMMIT (formulário: FOR NO KEY UPDATE em travarCadastroDoCliente; equipe:
+ *     FOR UPDATE em alterarPreferencia — ambos conflitam entre si e com qualquer UPDATE da linha);
+ *   - quem MUDA telefone/WhatsApp faz UPDATE da linha (tela, importação, mescla ou SQL direto) e, portanto, espera a trava;
+ *     o gatilho marketing_aut_numero_saiu roda depois, em instrução nova (READ COMMITTED), e enxerga a autorização que o
+ *     formulário confirmou antes de liberar a linha — e a revoga se o número saiu;
+ *   - se a edição pegou a linha primeiro, o formulário espera e lê o cadastro JÁ alterado (leitura com trava devolve a
+ *     versão confirmada mais recente): número fora do cadastro vira PENDENTE, como no fluxo sequencial.
+ * Ordem das travas, igual em todos os caminhos: clientes (linha) → marketing_contato_preferencias → autorizações. A FK de
+ * autorizações/contatos para clientes só toma FOR KEY SHARE, que NÃO conflita com UPDATE de telefone/WhatsApp — por isso
+ * a trava explícita é necessária.
  */
 
 /** Destino canônico: só dígitos; número brasileiro de 10/11 dígitos ganha o DDI 55 (mesma equivalência da deduplicação). */
@@ -68,6 +82,17 @@ export async function lerPreferencia(tx: DbExecutor, empresaId: string, clienteI
 export type ResultadoFormulario = "CONFIRMADA" | "PENDENTE" | "JA_EXISTENTE" | "IGNORADA_DESCADASTRO" | "SEM_DESTINO" | "NAO_INSTALADA";
 
 /**
+ * Trava a linha do cliente (da empresa) até o fim da transação e devolve os números ATUAIS do cadastro. Primeira leitura
+ * decisória do formulário (ver "Protocolo de concorrência" acima). FOR NO KEY UPDATE: conflita com a edição de
+ * telefone/WhatsApp e com a trava da equipe, mas não com FKs que só referenciam o cliente.
+ */
+export async function travarCadastroDoCliente(tx: DbExecutor, empresaId: string, clienteId: string) {
+  const c = await tx.query<{ whatsapp: string | null; telefone: string | null }>(
+    `SELECT whatsapp, telefone FROM clientes WHERE id = $1::uuid AND empresa_id = $2::uuid FOR NO KEY UPDATE`, [clienteId, empresaId]);
+  return c.rows[0] ?? null;
+}
+
+/**
  * Caixa "aceito receber mensagens" marcada no formulário do site, com o número informado no pedido.
  *   - o número é o do cliente vinculado (cliente novo criado com ele, ou cadastro que já tem esse número) → CONFIRMADA;
  *   - cadastro reaproveitado sem esse número (ex.: pelo e-mail) → PENDENTE (não autoriza nenhum número do cadastro);
@@ -79,10 +104,11 @@ export async function registrarAutorizacaoDoFormulario(
   if (!(await automacoesInstaladas(tx))) return "NAO_INSTALADA";
   const destino = normalizarDestino(telefoneInformado);
   if (!destino) return "SEM_DESTINO";
+  // F1: trava ANTES das leituras decisórias (descadastro e números) e até o COMMIT; a edição concorrente do cadastro
+  // espera, e o gatilho de saída do número passa a enxergar esta autorização.
+  const cadastro = await travarCadastroDoCliente(tx, empresaId, clienteId);
   if ((await lerDescadastro(tx, empresaId, clienteId)).descadastradoEm) return "IGNORADA_DESCADASTRO";
-  const c = await tx.query<{ whatsapp: string | null; telefone: string | null }>(
-    `SELECT whatsapp, telefone FROM clientes WHERE id = $1::uuid AND empresa_id = $2::uuid`, [clienteId, empresaId]);
-  const doCadastro = c.rows[0] ? destinosDoCadastro(c.rows[0]) : [];
+  const doCadastro = cadastro ? destinosDoCadastro(cadastro) : [];
   const comprovado = doCadastro.includes(destino);
   const r = await tx.query<{ id: string }>(
     `INSERT INTO marketing_contato_autorizacoes (empresa_id, cliente_id, canal, destino, estado, origem, contato_id, evidencia, confirmada_em, confirmacao)
