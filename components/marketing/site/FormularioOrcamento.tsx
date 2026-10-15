@@ -52,17 +52,17 @@ export default function FormularioOrcamento({ acao, captura, previa = false }: {
   return <form className={styles.formulario} onSubmit={enviar} noValidate={false} aria-describedby={previa ? `${id}-previa` : undefined}>
     {previa && <p id={`${id}-previa`} className={styles.avisoPrevia}>Prévia: o formulário não envia pedidos.</p>}
     <div className={styles.campos}>
-      <label>Seu nome<input name="nome" required minLength={2} maxLength={120} autoComplete="name" {...erroEm('nome')} /></label>
+      <label>Seu nome <span className={styles.obrigatorio}>(obrigatório)</span><input name="nome" required minLength={2} maxLength={120} autoComplete="name" {...erroEm('nome')} /></label>
       <label>Telefone / WhatsApp<input name="telefone" inputMode="tel" maxLength={20} autoComplete="tel" placeholder="(11) 99999-9999" {...erroEm('telefone')} /></label>
       <label>E-mail<input name="email" type="email" maxLength={254} autoComplete="email" {...erroEm('email')} /></label>
       <label>Data desejada<input name="dataDesejada" type="date" {...erroEm('dataDesejada')} /></label>
       <label>Convidados (aprox.)<input name="convidados" type="number" min={1} max={5000} inputMode="numeric" {...erroEm('convidados')} /></label>
-      <label className={styles.campoLargo}>Mensagem<textarea name="mensagem" rows={3} maxLength={1000} placeholder="Tema, idade do aniversariante, dúvidas…" {...erroEm('mensagem')} /></label>
+      <label className={styles.campoLargo}>Mensagem<textarea name="mensagem" rows={3} maxLength={1000} placeholder="Tipo de festa, tema, dúvidas…" {...erroEm('mensagem')} /></label>
       <label className={`${styles.campoLargo} ${styles.consentimento}`}><input type="checkbox" name="autorizaWhatsapp" value="sim" /> Aceito receber mensagens do buffet pelo WhatsApp sobre festas. Posso cancelar a qualquer momento respondendo PARAR.</label>
       <div className={styles.armadilha} aria-hidden="true"><label>Site<input name="website" tabIndex={-1} autoComplete="off" /></label></div>
     </div>
     <p className={styles.legal}>Informe telefone ou e-mail para receber a resposta. Seus dados são usados só para este atendimento.</p>
     {mensagem && <p id={`${id}-erro`} className={styles.erro} role="alert">{mensagem}</p>}
-    <button type="submit" className={styles.botaoPrimario} disabled={previa || estado === 'enviando'}>{estado === 'enviando' ? 'Enviando…' : 'Pedir orçamento'}</button>
+    <button type="submit" className={styles.botaoPrimario} disabled={previa || estado === 'enviando'} aria-busy={estado === 'enviando'}>{estado === 'enviando' ? 'Enviando…' : 'Pedir orçamento'}</button>
   </form>;
 }

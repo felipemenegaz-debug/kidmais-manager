@@ -9,7 +9,7 @@ import { perfilDoTenantOuNulo } from "../../perfil/tenant.ts";
 import { MarketingError, conflito, naoEncontrado } from "../erros.ts";
 import { exigirUnidadeDaEmpresa } from "../campanhas.ts";
 import {
-  SLUG_SITE, conteudoVazio, esquemaConteudoSite, imagensReferenciadas, pendenciasParaPublicar, sugerirSlug,
+  SLUG_SITE, conteudoVazio, esquemaConteudoSite, formaParaImpressao, imagensReferenciadas, pendenciasParaPublicar, sugerirSlug,
   type ConteudoPublicado, type ConteudoSite, type PacotePublicado,
 } from "./conteudo.ts";
 import { exigirImagensDoSite, listarImagens } from "./imagens.ts";
@@ -42,7 +42,7 @@ function rascunhoSeguro(valor: unknown): ConteudoSite {
 
 /** Impressão do rascunho: a versão publicada guarda a do rascunho que a originou (alterações pendentes = diferentes). */
 export function impressaoRascunho(c: ConteudoSite) {
-  return createHash("sha256").update(JSON.stringify(c)).digest("hex");
+  return createHash("sha256").update(JSON.stringify(formaParaImpressao(c))).digest("hex");
 }
 
 function mapear(l: LinhaSite): SiteAdmin {
@@ -83,11 +83,13 @@ export async function versoesDoSite(tx: DbExecutor, empresaId: string, siteId: s
 }
 
 /** Pacotes vigentes que a empresa pode escolher divulgar (nome do catálogo; preço só na publicação). */
+/** Pacotes vigentes para o editor (inclui os dados que a prévia imediata mostra antes de salvar). */
 export async function pacotesDisponiveis(tx: DbExecutor, empresaId: string) {
-  const lista: Array<{ codigo: string; nome: string }> = [];
+  const lista: Array<{ codigo: string; nome: string; descricao: string | null; convidadosMinimos: number | null; convidadosMaximos: number | null; duracaoMinutos: number | null }> = [];
   for (const { codigo } of PACOTES_CONTRATAVEIS_V1) {
     const p = await buscarPacoteVigenteDaEmpresaPorCodigo(empresaId, codigo, tx).catch(() => null);
-    if (p) lista.push({ codigo: p.codigo, nome: p.nome });
+    if (p) lista.push({ codigo: p.codigo, nome: p.nome, descricao: p.descricao ?? null, convidadosMinimos: p.convidadosMinimos ?? null,
+      convidadosMaximos: p.convidadosMaximos ?? null, duracaoMinutos: p.duracaoMinutos ?? null });
   }
   return lista;
 }
@@ -219,7 +221,7 @@ export async function resolverPacotesPublicados(tx: DbExecutor, empresaId: strin
     pacotes.push({
       codigo: p.codigo, nome: p.nome, descricao: p.descricao ?? null, destaque: escolhido.destaque,
       convidadosMinimos: p.convidadosMinimos ?? null, convidadosMaximos: p.convidadosMaximos ?? null, duracaoMinutos: p.duracaoMinutos ?? null,
-      precoAPartirCentavos: preco,
+      precoAPartirCentavos: preco, imagemId: escolhido.imagemId ?? null,
     });
   }
   return { pacotes, avisos };

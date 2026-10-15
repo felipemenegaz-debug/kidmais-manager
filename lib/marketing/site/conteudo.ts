@@ -17,7 +17,16 @@ const linkSeguro = z.string().trim().max(500).refine((v) => {
   } catch { return false; }
 }, "Use um endereço começando com https://.");
 
+/**
+ * Estilos visuais do site (UX de 15/10/2026). Mudam composição, tipografia e neutros de UM único renderizador; as cores
+ * da marca continuam em identidade.corPrimaria/corSecundaria. Conteúdo antigo (sem `aparencia`) usa o padrão.
+ */
+export const ESTILOS_SITE = ["INFANTIL_ACOLHEDOR", "SOCIAL_CONTEMPORANEO", "CELEBRACOES_ELEGANTE"] as const;
+export type EstiloSite = (typeof ESTILOS_SITE)[number];
+export const ESTILO_PADRAO: EstiloSite = "INFANTIL_ACOLHEDOR";
+
 export const esquemaConteudoSite = z.object({
+  aparencia: z.object({ estilo: z.enum(ESTILOS_SITE).default(ESTILO_PADRAO) }).strict().default({ estilo: ESTILO_PADRAO }),
   identidade: z.object({
     nome: texto(80).pipe(z.string().min(2, "Informe o nome do buffet.")),
     slogan: texto(120).default(""),
@@ -28,7 +37,9 @@ export const esquemaConteudoSite = z.object({
   apresentacao: z.object({ titulo: texto(120).default(""), texto: texto(2000).default("") }).strict(),
   galeria: z.array(z.object({ imagemId: uuid, legenda: texto(140).default("") }).strict()).max(12).default([]),
   estrutura: z.object({ capacidade: texto(80).default(""), itens: z.array(texto(80)).max(20).default([]) }).strict(),
-  pacotes: z.array(z.object({ codigo: z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/), destaque: texto(140).default(""), mostrarPreco: z.boolean().default(false) }).strict())
+  // imagemId: foto VINCULADA explicitamente a este pacote pela equipe (nunca escolhida automaticamente).
+  pacotes: z.array(z.object({ codigo: z.string().regex(/^[A-Z][A-Z0-9_]{1,39}$/), destaque: texto(140).default(""), mostrarPreco: z.boolean().default(false),
+    imagemId: uuid.nullable().default(null) }).strict())
     .max(10).default([]),
   localizacao: z.object({
     mostrar: z.boolean().default(false),
@@ -48,6 +59,8 @@ export type ConteudoSite = z.infer<typeof esquemaConteudoSite>;
 export type PacotePublicado = {
   codigo: string; nome: string; descricao: string | null; destaque: string; convidadosMinimos: number | null; convidadosMaximos: number | null;
   duracaoMinutos: number | null; precoAPartirCentavos: number | null;
+  /** Ausente em versões publicadas antes de 15/10/2026. */
+  imagemId?: string | null;
 };
 
 /** O que fica congelado na versão publicada. */
@@ -65,9 +78,35 @@ export function conteudoVazio(nome: string): ConteudoSite {
   });
 }
 
-/** Imagens referenciadas pelo conteúdo (logo + galeria). A rota pública só serve imagem citada na versão publicada. */
-export function imagensReferenciadas(conteudo: Pick<ConteudoSite, "identidade" | "galeria">): string[] {
-  return [...new Set([conteudo.identidade.logoImagemId, ...conteudo.galeria.map((g) => g.imagemId)].filter((v): v is string => Boolean(v)))];
+/**
+ * Imagens referenciadas pelo conteúdo (logo + galeria + foto vinculada a pacote). A rota pública só serve imagem citada
+ * na versão publicada. Tolera versões publicadas antigas (sem `imagemId` nos pacotes).
+ */
+export function imagensReferenciadas(conteudo: {
+  identidade?: { logoImagemId?: string | null } | null; galeria?: Array<{ imagemId: string }> | null; pacotes?: Array<{ imagemId?: string | null }> | null;
+}): string[] {
+  return [...new Set([conteudo.identidade?.logoImagemId, ...(conteudo.galeria ?? []).map((g) => g.imagemId), ...(conteudo.pacotes ?? []).map((p) => p.imagemId)]
+    .filter((v): v is string => Boolean(v)))];
+}
+
+/** Estilo efetivo (versões publicadas antes de 15/10/2026 não têm `aparencia`). */
+export function estiloDoConteudo(conteudo: { aparencia?: { estilo?: unknown } | null }): EstiloSite {
+  const e = conteudo.aparencia?.estilo;
+  return typeof e === "string" && (ESTILOS_SITE as readonly string[]).includes(e) ? e as EstiloSite : ESTILO_PADRAO;
+}
+
+/**
+ * Forma estável para a impressão do rascunho: campos acrescentados em 15/10/2026 no valor padrão saem da conta, para
+ * que um site publicado antes da evolução não passe a acusar "alterações não publicadas" sem ninguém ter editado.
+ */
+export function formaParaImpressao(c: ConteudoSite): unknown {
+  // Mesma ordem de chaves do objeto validado (JSON.stringify depende dela).
+  const saida: Record<string, unknown> = {};
+  for (const [chave, valor] of Object.entries(c)) {
+    if (chave === "aparencia") { if (c.aparencia.estilo !== ESTILO_PADRAO) saida[chave] = valor; continue; }
+    saida[chave] = chave === "pacotes" ? c.pacotes.map(({ imagemId, ...p }) => (imagemId ? { ...p, imagemId } : p)) : valor;
+  }
+  return saida;
 }
 
 /** Pendências que impedem publicar (mensagens para a tela). */

@@ -1,0 +1,67 @@
+/* Editor do site (UX de 15/10/2026): segue o Admin V1 (escuro, violeta + teal). A prévia ao lado usa o renderizador
+   público real dentro de uma moldura com largura de desktop ou de celular. */
+.layout { display: grid; gap: 16px; align-items: start; }
+@media (min-width: 1200px) { .layout { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); } }
+
+.alternancia { display: inline-flex; border: 1px solid var(--km-border); border-radius: 10px; overflow: hidden; }
+.alternancia button { min-height: 38px; padding: 0 14px; background: transparent; border: 0; color: var(--km-text-2); font-weight: 600; cursor: pointer; }
+.alternancia button[aria-pressed="true"] { background: var(--km-violet-soft); color: var(--km-lilac); }
+.soCelularEditor { display: flex; margin-bottom: 12px; }
+@media (min-width: 1200px) { .soCelularEditor { display: none; } }
+@media (max-width: 1199px) { .layout[data-modo="editar"] .painelPrevia, .layout[data-modo="previa"] .painelEdicao { display: none; } }
+
+.abasEditor { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.abasEditor button { min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--km-border); background: transparent; color: var(--km-text-2); font-weight: 600; cursor: pointer; }
+.abasEditor button[aria-selected="true"] { background: var(--km-violet-soft); color: var(--km-lilac); border-color: color-mix(in srgb, var(--km-violet) 40%, transparent); }
+
+.painelPrevia { position: sticky; top: 12px; display: grid; gap: 10px; }
+.previaTopo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.moldura { height: min(78vh, 900px); overflow: auto; border-radius: 14px; border: 1px solid var(--km-border); background: #fff; margin: 0 auto; width: 100%; }
+.moldura[data-largura="celular"] { width: 390px; max-width: 100%; border-radius: 28px; border-width: 8px; border-color: #26232f; }
+
+.estadoSalvar { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.estadoSalvar::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--km-text-2); }
+.estadoSalvar[data-estado="sujo"]::before { background: var(--km-orange); }
+.estadoSalvar[data-estado="salvando"]::before { background: var(--km-lilac); }
+.estadoSalvar[data-estado="salvo"]::before { background: var(--km-teal); }
+.estadoSalvar[data-estado="erro"]::before { background: #f04438; }
+
+.estilos { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.opcaoEstilo { display: grid; gap: 6px; padding: 12px; border-radius: 12px; border: 1px solid var(--km-border); cursor: pointer; }
+.opcaoEstilo:has(input:checked) { border-color: var(--km-lilac); background: var(--km-violet-soft); }
+.opcaoEstilo input { position: absolute; opacity: 0; }
+.opcaoEstilo:has(input:focus-visible) { outline: 2px solid var(--km-lilac); outline-offset: 2px; }
+.opcaoEstilo strong { font-size: 15px; }
+.opcaoEstilo span { font-size: 13px; color: var(--km-text-2); }
+.amostra { height: 54px; border-radius: 8px; display: grid; grid-template-columns: 1fr 1fr 1fr; overflow: hidden; border: 1px solid var(--km-border); }
+
+.paletas { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.opcaoPaleta { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--km-border); cursor: pointer; font-size: 13px; }
+.opcaoPaleta:has(input:checked) { border-color: var(--km-lilac); background: var(--km-violet-soft); }
+.opcaoPaleta input { position: absolute; opacity: 0; }
+.opcaoPaleta:has(input:focus-visible) { outline: 2px solid var(--km-lilac); outline-offset: 2px; }
+.bolinhas { display: inline-flex; flex: none; }
+.bolinhas i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.8); }
+.bolinhas i + i { margin-left: -6px; }
+.coresPersonalizadas { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 10px; }
+.coresPersonalizadas label { display: grid; gap: 4px; font-size: 13px; color: var(--km-text-2); }
+.coresPersonalizadas .linhaCor { display: flex; gap: 6px; align-items: center; }
+.coresPersonalizadas input[type="color"] { width: 44px; height: 38px; padding: 2px; border-radius: 8px; border: 1px solid var(--km-border); background: transparent; }
+.coresPersonalizadas input[type="text"] { width: 110px; }
+
+.fotos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.foto { display: grid; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid var(--km-border); background: rgba(255,255,255,.02); }
+.foto[data-capa="true"] { border-color: var(--km-lilac); }
+.foto img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; }
+.foto .selos { display: flex; flex-wrap: wrap; gap: 6px; min-height: 22px; }
+.foto .botoes { display: flex; flex-wrap: wrap; gap: 6px; }
+.foto .botoes button { min-height: 32px; padding: 0 10px; font-size: 13px; }
+.miniaturas { display: flex; flex-wrap: wrap; gap: 8px; }
+.miniatura { width: 76px; height: 58px; border-radius: 8px; border: 2px solid var(--km-border); padding: 0; overflow: hidden; background: transparent; cursor: pointer; display: grid; place-items: center; color: var(--km-text-2); font-size: 12px; }
+.miniatura[aria-pressed="true"] { border-color: var(--km-lilac); box-shadow: 0 0 0 2px var(--km-violet-soft); }
+.miniatura img { width: 100%; height: 100%; object-fit: cover; }
+.progresso { display: grid; gap: 4px; margin-top: 8px; font-size: 13px; }
+.progresso progress { width: 100%; height: 8px; }
+
+.pacoteEditor { display: grid; gap: 10px; padding: 12px; border-radius: 12px; border: 1px solid var(--km-border); margin-bottom: 10px; }
+.pacoteEditor[data-incluido="false"] { opacity: .8; }

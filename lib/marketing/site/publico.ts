@@ -3,7 +3,7 @@ import { lerEstadoComercial } from "../../assinatura/estado.ts";
 import { recursoIncluido } from "../../assinatura/recursos-plano.ts";
 import { siteDoHost } from "../dominios/servico.ts";
 import type { AmbienteDominios } from "../dominios/hosts.ts";
-import { SLUG_SITE, type ConteudoPublicado } from "./conteudo.ts";
+import { SLUG_SITE, imagensReferenciadas, type ConteudoPublicado } from "./conteudo.ts";
 
 /**
  * Site público: lê SOMENTE a versão publicada. Abre quando TODAS valem:
@@ -65,9 +65,9 @@ export async function sitePublicoPorHost(tx: DbExecutor, host: string, env: Ambi
   return site ? { site, dominio } : null;
 }
 
-/** Imagem servida publicamente: do site, não removida e citada na versão PUBLICADA vigente. */
+/** Imagem servida publicamente: do site, não removida e citada na versão PUBLICADA vigente (logo, galeria ou foto de pacote). */
 export async function imagemPublica(tx: DbExecutor, site: SitePublico, imagemId: string) {
-  const citadas = [site.conteudo.identidade?.logoImagemId, ...(site.conteudo.galeria ?? []).map((g) => g.imagemId)].filter(Boolean);
+  const citadas = imagensReferenciadas(site.conteudo);
   if (!citadas.includes(imagemId)) return null;
   const r = await tx.query<{ conteudo: Buffer; sha256: string }>(
     `SELECT conteudo, sha256 FROM marketing_site_imagens WHERE id = $1::uuid AND site_id = $2::uuid AND empresa_id = $3::uuid AND removida_em IS NULL`,
