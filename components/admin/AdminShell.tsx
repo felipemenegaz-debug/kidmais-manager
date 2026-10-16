@@ -10,6 +10,11 @@ import Link from 'next/link';
 import { AdminIcon, type AdminIconName } from './AdminIcon';
 import { itemAtivo, itensNavegacao, type PermissoesNavegacao } from '@/lib/admin/navegacao';
 import { lembrarCsrf, sairDaSessao } from './sair';
+import { instalarGuardiaoDeHistorico } from './marketing/protecao-saida';
+
+// R-H1: o guardião do histórico do editor precisa ouvir popstate ANTES do App Router (no window vale a ordem de
+// registro). Este módulo é avaliado na hidratação de qualquer página do painel, antes dos efeitos do AppRouter.
+instalarGuardiaoDeHistorico();
 
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';

@@ -174,11 +174,12 @@ export default function MarketingSite() {
   const salvarEContinuar = async () => {
     if (emOperacao.current) return; // clique repetido em "Salvar e …": um só salvamento e uma só continuação
     const minha = ++intencao.current;
+    const pedidoAntes = protecao.pedidoAtual(); // R-H1: Voltar/Avançar durante o salvamento é um pedido NOVO
     const destinoTroca = trocaPedida;
     const r = await salvar();
     // Cancelada (Continuar editando/Esc), substituída por outra intenção ou tela desmontada: não navega, não troca e não
     // mexe no diálogo de uma intenção nova.
-    if (intencao.current !== minha || !montado.current) return;
+    if (intencao.current !== minha || !montado.current || protecao.pedidoAtual() !== pedidoAntes) return;
     // Erro: fica no editor, com o conteúdo e o aviso. Alterado durante o envio: também fica (sair perderia o que restou).
     if (r !== 'ok') { fecharDialogo(); return; }
     intencao.current++;
