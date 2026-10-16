@@ -3,10 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 
 /**
  * Para onde a pessoa tentou ir com alterações não salvas: um link interno, uma entrada do histórico pela chave
- * (Navigation API) ou pelo deslocamento relativo à entrada do editor (sem Navigation API), ou só "voltar" (entrada sem
- * índice conhecido).
+ * (Navigation API) ou pelo deslocamento REAL medido a partir da entrada do editor (sem Navigation API).
  */
-export type DestinoSaida = { tipo: 'link'; href: string } | { tipo: 'historico'; chave: string; url: string } | { tipo: 'relativo'; delta: number } | { tipo: 'voltar' };
+export type DestinoSaida = { tipo: 'link'; href: string } | { tipo: 'historico'; chave: string; url: string } | { tipo: 'relativo'; delta: number };
 
 type EntradaNavegacao = { key: string; url: string | null; index: number };
 type NavegacaoApi = { currentEntry: EntradaNavegacao | null; traverseTo(chave: string): { committed?: Promise<unknown>; finished?: Promise<unknown> } };
@@ -21,135 +20,242 @@ function irPara(nav: NavegacaoApi, chave: string) {
   const r = nav.traverseTo(chave);
   r?.committed?.catch(() => undefined); r?.finished?.catch(() => undefined);
 }
+/** A "página" de uma URL para a proteção: caminho + busca (o fragmento não muda a página nem a árvore do roteador). */
+function paginaDe(url: string | null | undefined) {
+  const u = new URL(url ?? window.location.href, window.location.href);
+  return `${u.pathname}${u.search}`;
+}
 
-/** Proteção ativa (um editor por vez): a entrada protegida (chave ou índice) e como avisar o editor. */
-type Ativa = { chave: string | null; indice: number | null; liberado: () => boolean; aoTentarSair: (d: DestinoSaida) => void };
-let ativa: Ativa | null = null;
-let instalado = false;
+/**
+ * Proteção ativa (um editor por vez): a página do editor, a entrada que o representa (chave com Navigation API; índice
+ * da entrada INDEXADA do editor sem ela — mesmo quando a proteção começa numa entrada de fragmento com estado nulo) e
+ * como avisar o editor.
+ */
+type Ativa = { pagina: string; chave: string | null; indice: number | null; liberado: () => boolean; temPedido: () => boolean; aoTentarSair: (d: DestinoSaida) => void };
+/**
+ * Uma tentativa de saída interceptada SEM Navigation API, do primeiro popstate barrado até a volta à entrada do editor.
+ * Pertence à proteção que a interceptou e termina sempre: na entrada do editor (com o pedido) ou, se houve saída
+ * explícita (liberado), abandonada para a navegação escolhida vencer.
+ */
+type Tentativa = {
+  a: Ativa;
+  deslocamento: number;        // soma dos NOSSOS movimentos desde a entrada de destino (exata: cada movimento é medido no popstate)
+  emVoo: number | null;        // movimento pedido (history.go) ainda sem popstate
+  direcao: -1 | 1 | 0;         // passo quando a entrada atual não tem índice
+  inverteu: boolean;
+  timer: number | null;        // espera para travessias seguidas assentarem
+  vigia: number | null;        // movimento sem popstate (history.go sem entrada naquela direção)
+};
+/**
+ * `inicial`: a entrada em que o documento começou, quando ela não tem índice (estado nulo antes da hidratação, ou não
+ * objeto). Ela fica ATRÁS de todas as indexadas deste documento — dado que orienta a direção para uma entrada sem índice.
+ */
+type Guardiao = { instalado: boolean; ativa: Ativa | null; indiceAtual: number; paginas: Map<number, string>; inicial: { indice: number; pagina: string } | null; tentativa: Tentativa | null };
+/** Estado único por janela (Strict Mode e Fast Refresh reavaliam o módulo; o guardião e o índice são um só). */
+function guardiao(): Guardiao {
+  const w = window as unknown as { __kidmaisGuardiaoHistorico?: Guardiao };
+  return (w.__kidmaisGuardiaoHistorico ??= { instalado: false, ativa: null, indiceAtual: 0, paginas: new Map(), inicial: null, tentativa: null });
+}
 
 // ---- Índice próprio do histórico (só SEM Navigation API) ----
-// Cada entrada criada por pushState recebe __kidmaisIdx (posição relativa no documento); replaceState mantém a posição.
-// Os campos existentes (inclusive os internos do Next: __NA, árvore) são PRESERVADOS — o objeto é copiado com um campo a
-// mais; estado nulo continua nulo (o Next trata nulo e objeto sem __NA de formas diferentes). Entradas criadas antes da
-// instalação não têm índice (ver limites em docs/MARKETING_UX_RH1F_20261016.md).
+// Cada entrada criada por pushState recebe __kidmaisIdx; replaceState mantém o índice da entrada atual. Só OBJETOS SIMPLES
+// recebem o campo — copiados, com os campos existentes (inclusive os internos do Next: __NA, árvore) PRESERVADOS. Estado
+// nulo continua nulo (o Next ignora popstate nulo e recarrega objeto sem __NA); arrays/instâncias ficam como estão.
+// Entradas SEM índice existem (fragmentos de âncora, location.hash, replaceState(null)) e podem estar ATRÁS, À FRENTE ou ser
+// a própria entrada onde a edição começou: o índice dá ORDEM (monótono ao longo do histórico) e um limite inferior de
+// distância, nunca a posição exata — o retorno mede os próprios movimentos.
 const CAMPO_INDICE = '__kidmaisIdx';
-let indiceAtual = 0;
 const indiceDe = (estado: unknown): number | null => {
   const v = (estado as Record<string, unknown> | null)?.[CAMPO_INDICE];
   return typeof v === 'number' ? v : null;
 };
-const comIndice = (estado: unknown, indice: number) => (estado && typeof estado === 'object' ? { ...(estado as Record<string, unknown>), [CAMPO_INDICE]: indice } : estado);
-/** Espera curta para várias travessias seguidas (vários Voltar, history.go) assentarem antes de um retorno único. */
+const objetoSimples = (v: unknown): v is Record<string, unknown> => {
+  if (!v || typeof v !== 'object') return false;
+  const p = Object.getPrototypeOf(v);
+  return p === Object.prototype || p === null;
+};
+const comIndice = (estado: unknown, indice: number) => (objetoSimples(estado) ? { ...estado, [CAMPO_INDICE]: indice } : estado);
+/** Espera curta para várias travessias seguidas (vários Voltar, history.go) assentarem antes de um retorno. */
 const ASSENTAR_MS = 40;
+/** Sem popstate depois de um history.go: não havia entrada naquela direção (no-op). */
+const VIGIA_MS = 800;
 
-function instalarIndiceDoHistorico() {
+function instalarIndiceDoHistorico(g: Guardiao) {
   const empilhar = window.history.pushState.bind(window.history);
   const substituir = window.history.replaceState.bind(window.history);
   const existente = indiceDe(window.history.state);
-  if (existente !== null) indiceAtual = existente; // recarregou: a posição continua no estado da entrada
-  else if (window.history.state && typeof window.history.state === 'object') substituir(comIndice(window.history.state, indiceAtual), '');
+  if (existente !== null) g.indiceAtual = existente; // recarregou: a posição continua no estado da entrada
+  else if (objetoSimples(window.history.state)) substituir(comIndice(window.history.state, g.indiceAtual), '');
+  if (indiceDe(window.history.state) !== null) g.paginas.set(g.indiceAtual, paginaDe(window.location.href));
+  else g.inicial = { indice: g.indiceAtual, pagina: paginaDe(window.location.href) };
   window.history.pushState = function pushState(dados: unknown, _nao: string, url?: string | URL | null) {
-    indiceAtual += 1; return empilhar(comIndice(dados, indiceAtual), _nao, url);
+    g.indiceAtual += 1;
+    for (const i of [...g.paginas.keys()]) if (i >= g.indiceAtual) g.paginas.delete(i); // entradas à frente foram descartadas
+    const r = empilhar(comIndice(dados, g.indiceAtual), _nao, url);
+    if (indiceDe(window.history.state) !== null) g.paginas.set(g.indiceAtual, paginaDe(window.location.href));
+    return r;
   };
   window.history.replaceState = function replaceState(dados: unknown, _nao: string, url?: string | URL | null) {
-    return substituir(comIndice(dados, indiceAtual), _nao, url);
+    const r = substituir(comIndice(dados, g.indiceAtual), _nao, url);
+    if (indiceDe(window.history.state) !== null) {
+      g.paginas.set(g.indiceAtual, paginaDe(window.location.href));
+      if (g.inicial?.indice === g.indiceAtual) g.inicial = null; // a entrada inicial ganhou índice (ex.: hidratação do Next)
+    }
+    return r;
   };
 }
 
+// ---- Tentativa de saída SEM Navigation API ----
+function limparTimers(t: Tentativa) {
+  if (t.timer !== null) window.clearTimeout(t.timer);
+  if (t.vigia !== null) window.clearTimeout(t.vigia);
+  t.timer = null; t.vigia = null;
+}
+function encerrar(g: Guardiao, t: Tentativa) { limparTimers(t); if (g.tentativa === t) g.tentativa = null; }
+/** Chegou de volta à entrada do editor: só agora o pedido vai ao editor (URL e página coerentes). */
+function concluirRetorno(g: Guardiao, t: Tentativa) {
+  encerrar(g, t);
+  // O pedido vai à proteção VIGENTE do editor (se a de origem foi desativada e outra ativada na mesma página, é ela que
+  // decide); o callback antigo não é chamado. Saída explícita (liberado) já decidiu: nada a perguntar.
+  const alvo = g.ativa && g.ativa.pagina === t.a.pagina ? g.ativa : t.a;
+  if (alvo.liberado() || t.a.liberado() || t.deslocamento === 0) return;
+  alvo.aoTentarSair({ tipo: 'relativo', delta: -t.deslocamento });
+}
 /**
- * Guardião do histórico (R-H1/R-H1-F). Precisa ouvir `popstate` ANTES do App Router do Next: no window, ouvintes de
- * popstate rodam na ordem de registro (a captura não passa na frente — medido em Chrome 155) e o Next registra o dele
- * num efeito do AppRouter. Por isso é instalado no LAYOUT RAIZ (components/InstalarGuardiaoHistorico.tsx, avaliado na
- * hidratação de qualquer documento) — inclusive quando se entra no painel por navegação cliente a partir de outro
- * layout (not-found, /acesso, /cadastro, /desenvolvedor), caso em que o módulo do AdminShell só é avaliado depois.
+ * Direção provável quando a entrada atual não tem índice (o índice das indexadas dá a ordem). Uma entrada sem índice de
+ * uma página é um fragmento depois de uma entrada dessa página, ou a entrada inicial do documento (atrás de todas).
+ */
+function direcaoProvavel(g: Guardiao, pagina: string, a: Ativa): -1 | 1 {
+  if (pagina === a.pagina) return -1; // fragmentos do editor nascem depois da entrada indexada dele
+  const da = [...g.paginas].filter(([, p]) => p === pagina).map(([i]) => i);
+  const atras = da.some((i) => i < a.indice!) || g.inicial?.pagina === pagina, frente = da.some((i) => i > a.indice!);
+  return frente && !atras ? -1 : 1; // atrás (Voltar) é o caso comum
+}
+function avancar(g: Guardiao, t: Tentativa) {
+  t.timer = null;
+  if (g.tentativa !== t) return;
+  if (t.a.liberado()) { encerrar(g, t); return; } // saída explícita (descartar/salvar e sair/link) venceu
+  const idx = indiceDe(window.history.state);
+  if (idx === t.a.indice) { concluirRetorno(g, t); return; }
+  let mov: number;
+  if (idx !== null) mov = t.a.indice! - idx; // nunca passa da entrada do editor: entradas sem índice só aumentam a distância real
+  else { if (!t.direcao) t.direcao = direcaoProvavel(g, paginaDe(window.location.href), t.a); mov = t.direcao; }
+  t.emVoo = mov;
+  window.history.go(mov);
+  t.vigia = window.setTimeout(() => semMovimento(g, t), VIGIA_MS);
+}
+/** history.go sem popstate: não havia entrada naquela direção. Inverte uma vez; depois, desiste sem deixar estado preso. */
+function semMovimento(g: Guardiao, t: Tentativa) {
+  t.vigia = null;
+  if (g.tentativa !== t) return;
+  t.emVoo = null;
+  if (!t.inverteu && t.direcao) { t.inverteu = true; t.direcao = t.direcao === 1 ? -1 : 1; avancar(g, t); return; }
+  encerrar(g, t);
+}
+
+/**
+ * Guardião do histórico (R-H1 / R-H1-F / F1–F3). Precisa ouvir `popstate` ANTES do App Router do Next (no window vale a
+ * ordem de registro — medido em Chrome 155). Instalado no LAYOUT RAIZ (components/InstalarGuardiaoHistorico.tsx).
  *
- * Com uma proteção ativa, qualquer travessia que saia da entrada protegida — Voltar, Avançar, history.go(±n), várias
- * seguidas, com o diálogo aberto ou durante um salvamento — é barrada antes do roteador (stopImmediatePropagation: o
- * Next não navega nem desmonta o editor), a posição volta para a entrada protegida e o editor recebe o pedido com o
- * destino escolhido. Sem proteção ativa (ou liberada), nada é interceptado.
- *   - COM Navigation API: volta pela CHAVE (traverseTo, absoluto).
- *   - SEM Navigation API: volta pelo índice próprio (history.go(protegida − atual)), depois de as travessias seguidas
- *     assentarem (um retorno só, sem acumular deslocamentos).
- * Travessia para outro DOCUMENTO não passa por aqui: cai no aviso nativo (beforeunload).
+ * Proteção por PÁGINA (caminho + busca) do editor: com alterações não salvas,
+ *  - travessia para uma entrada da PRÓPRIA página (ex.: fragmentos da prévia, #orcamento) é livre e silenciosa — barrada
+ *    só para o roteador (que já está nesta página), sem diálogo;
+ *  - travessia para OUTRA página (Voltar, Avançar, history.go(±n), várias seguidas, durante salvamento) é barrada antes do
+ *    roteador; volta-se à entrada do editor e o pedido vai ao editor com o destino escolhido;
+ *  - com um pedido aberto (diálogo), qualquer travessia que saia da entrada do editor conta como nova tentativa.
+ *   COM Navigation API: volta pela CHAVE (traverseTo, absoluto).
+ *   SEM Navigation API: volta à entrada INDEXADA do editor por saltos que nunca a ultrapassam e passos onde não há índice;
+ *   o destino é o deslocamento REAL medido pelos próprios movimentos.
+ * Uma travessia interceptada sempre termina: mesmo se a proteção cair durante a volta (ex.: o salvamento terminou), a volta
+ * se completa e o pedido é apresentado (a pessoa decide). Só uma saída explícita (liberado) a abandona — a navegação
+ * escolhida vence. Sem proteção ativa, nada é interceptado. Travessia para outro DOCUMENTO cai no beforeunload.
  */
 export function instalarGuardiaoDeHistorico() {
-  if (instalado || typeof window === 'undefined') return;
-  instalado = true;
-  if (!navegacaoApi()) instalarIndiceDoHistorico();
-  let reparo: number | null = null;
-  // Uma TENTATIVA de saída (um ou vários Voltar/Avançar seguidos) e as travessias da própria correção até voltar.
-  let corrigindo = false, passosSemIndice = 0, ultimoSemIndice = false;
-  let destinoDaTentativa: DestinoSaida | null = null;
+  if (typeof window === 'undefined') return;
+  const g = guardiao();
+  if (g.instalado) return;
+  g.instalado = true;
+  if (!navegacaoApi()) instalarIndiceDoHistorico(g);
   window.addEventListener('popstate', (e) => {
-    const nav = navegacaoApi(), a = ativa;
-    const indice = indiceDe(e.state);
-    if (!nav && indice !== null) indiceAtual = indice;
+    const nav = navegacaoApi();
+    const idx = indiceDe(e.state);
+    if (!nav && idx !== null) { g.indiceAtual = idx; g.paginas.set(idx, paginaDe(window.location.href)); }
+
+    const t = g.tentativa;
+    if (!nav && t) {
+      // Volta em andamento: todo popstate é da correção (ou da pessoa no meio dela) e não vai ao roteador.
+      e.stopImmediatePropagation();
+      if (t.vigia !== null) { window.clearTimeout(t.vigia); t.vigia = null; }
+      if (t.emVoo !== null) { t.deslocamento += t.emVoo; t.emVoo = null; }
+      else t.deslocamento = 0; // travessia da pessoa durante a volta: o destino passa a ser onde ela chegou agora
+      if (idx === t.a.indice) { concluirRetorno(g, t); return; }
+      if (t.timer !== null) window.clearTimeout(t.timer);
+      t.timer = window.setTimeout(() => avancar(g, t), ASSENTAR_MS);
+      return;
+    }
+
+    const a = g.ativa;
     if (!a || a.liberado()) return;
     if (nav?.currentEntry && a.chave) {
-      e.stopImmediatePropagation();
       const atual = nav.currentEntry;
-      if (atual.key === a.chave) return; // de volta à entrada protegida (correção nossa): o roteador nunca saiu dela
+      if (atual.key === a.chave) { e.stopImmediatePropagation(); return; } // de volta à entrada protegida (correção nossa)
+      if (paginaDe(atual.url) === a.pagina && !a.temPedido()) { e.stopImmediatePropagation(); return; } // mesma página: livre
+      e.stopImmediatePropagation();
       irPara(nav, a.chave);
       a.aoTentarSair({ tipo: 'historico', chave: atual.key, url: atual.url ?? '' });
       return;
     }
     if (a.indice === null) return;
+    // Mesma página do editor: o roteador já está nela; não há o que navegar nem perguntar (com pedido aberto, só a entrada
+    // do editor conta como "ficar" — sair dela é nova tentativa e volta).
+    if (idx === a.indice || (paginaDe(window.location.href) === a.pagina && !a.temPedido())) { e.stopImmediatePropagation(); return; }
     e.stopImmediatePropagation();
-    ultimoSemIndice = indice === null;
-    if (indice === a.indice && reparo === null) {
-      // De volta à entrada protegida (correção nossa): só agora o pedido vai ao editor — URL e página coerentes.
-      corrigindo = false; passosSemIndice = 0;
-      if (destinoDaTentativa) { const d = destinoDaTentativa; destinoDaTentativa = null; a.aoTentarSair(d); }
-      return;
-    }
-    if (reparo !== null) window.clearTimeout(reparo);
-    reparo = window.setTimeout(() => {
-      reparo = null;
-      if (ativa !== a || a.liberado()) return;
-      if (ultimoSemIndice) {
-        // Entrada criada antes da instalação (sem índice): só pode estar ATRÁS das indexadas — avança um passo por vez.
-        passosSemIndice += 1; corrigindo = true;
-        if (!destinoDaTentativa) destinoDaTentativa = { tipo: 'voltar' };
-        window.history.go(1);
-        return;
-      }
-      if (indiceAtual === a.indice) { if (destinoDaTentativa) { const d = destinoDaTentativa; destinoDaTentativa = null; corrigindo = false; a.aoTentarSair(d); } return; }
-      const delta = indiceAtual - a.indice!;
-      // Destino da TENTATIVA (não das paradas da própria correção); entradas sem índice: posição pelos passos dados.
-      if (!corrigindo) destinoDaTentativa = { tipo: 'relativo', delta };
-      else if (passosSemIndice > 0) destinoDaTentativa = { tipo: 'relativo', delta: indiceAtual - passosSemIndice - a.indice! };
-      corrigindo = true; passosSemIndice = 0;
-      window.history.go(-delta);
-    }, ASSENTAR_MS);
+    const nova: Tentativa = { a, deslocamento: 0, emVoo: null, direcao: 0, inverteu: false, timer: null, vigia: null };
+    g.tentativa = nova;
+    nova.timer = window.setTimeout(() => avancar(g, nova), ASSENTAR_MS);
   }, true);
 }
 
 /**
- * Ativa a proteção do histórico para a entrada ATUAL (a do editor) até a função devolvida ser chamada. Usada pelo hook;
+ * Ativa a proteção do histórico para a PÁGINA atual (a do editor) até a função devolvida ser chamada. Usada pelo hook;
  * exportada para os testes comportamentais (protecao-saida.test.ts) exercitarem o guardião sem React.
  */
-export function protegerHistorico(opcoes: { liberado: () => boolean; aoTentarSair: (d: DestinoSaida) => void }): () => void {
+export function protegerHistorico(opcoes: { liberado: () => boolean; aoTentarSair: (d: DestinoSaida) => void; temPedido?: () => boolean }): () => void {
   instalarGuardiaoDeHistorico(); // normalmente já instalado no layout raiz; aqui só cobre uso fora dele (sem garantia de ordem)
+  const g = guardiao();
   const nav = navegacaoApi();
+  // Durante uma volta em andamento a URL mostra a página de saída, mas o roteador continua no editor: a proteção nova
+  // herda a página e a entrada do editor da tentativa.
+  if (!nav && g.tentativa) {
+    const minha: Ativa = { pagina: g.tentativa.a.pagina, chave: null, indice: g.tentativa.a.indice, temPedido: () => false, ...opcoes };
+    g.ativa = minha;
+    return () => { if (g.ativa === minha) g.ativa = null; };
+  }
+  const pagina = paginaDe(window.location.href);
   let indice: number | null = null;
   if (!nav) {
     indice = indiceDe(window.history.state);
-    // Entrada sem índice (criada antes da instalação) e com estado objeto: recebe o índice atual, preservando o estado.
-    if (indice === null && window.history.state && typeof window.history.state === 'object') { window.history.replaceState(window.history.state, ''); indice = indiceDe(window.history.state); }
+    // Entrada com estado objeto sem índice (criada antes da instalação): recebe o índice atual, preservando o estado.
+    if (indice === null && objetoSimples(window.history.state)) { window.history.replaceState(window.history.state, ''); indice = indiceDe(window.history.state); }
+    // Entrada SEM estado (fragmento, estado nulo): a proteção usa a entrada indexada DESTA página que a precede.
+    if (indice === null) {
+      const candidatos = [...g.paginas].filter(([i, p]) => p === pagina && i <= g.indiceAtual).map(([i]) => i);
+      indice = candidatos.length ? Math.max(...candidatos) : null;
+    }
   }
-  const minha: Ativa = { chave: nav?.currentEntry?.key ?? null, indice, ...opcoes };
-  ativa = minha;
-  return () => { if (ativa === minha) ativa = null; };
+  const minha: Ativa = { pagina, chave: nav?.currentEntry?.key ?? null, indice, temPedido: () => false, ...opcoes };
+  g.ativa = minha;
+  return () => { if (g.ativa === minha) g.ativa = null; };
 }
 
 /**
  * Protege um editor com alterações não salvas contra saída silenciosa:
  * - recarregar/fechar a aba: aviso nativo do navegador (`beforeunload`);
- * - links internos (Next `<Link>` do cabeçalho, do menu lateral, de qualquer lugar da página): o clique é interceptado
- *   na fase de captura, antes do roteador, e vira um pedido de confirmação (`pendente`);
+ * - links internos para OUTRA página (Next `<Link>` do cabeçalho, do menu lateral, de qualquer lugar da página): o clique é
+ *   interceptado na fase de captura, antes do roteador, e vira um pedido de confirmação (`pendente`);
  * - histórico (Voltar/Avançar/history.go, uma ou várias vezes): ver `instalarGuardiaoDeHistorico`.
- * Não intercepta: nova aba/janela (Ctrl/⌘/Shift/botão do meio, `target`), download, link para a mesma página (âncora)
- * nem domínio externo (esse cai no `beforeunload`). Botões internos (abas do editor, prévia) não são links e não pedem nada.
+ * Não intercepta: nova aba/janela (Ctrl/⌘/Shift/botão do meio, `target`), download, âncora da própria página (nem no
+ * clique nem na travessia do histórico) nem domínio externo (esse cai no `beforeunload`).
  */
 export function useProtecaoDeSaida(ativo: boolean, navegar: (href: string, substituir: boolean) => void) {
   const [pendente, setPendenteEstado] = useState<DestinoSaida | null>(null);
@@ -180,8 +286,7 @@ export function useProtecaoDeSaida(ativo: boolean, navegar: (href: string, subst
     };
     window.addEventListener('beforeunload', antesDeSair);
     document.addEventListener('click', aoClicar, true);
-
-    const desproteger = protegerHistorico({ liberado: () => liberado.current, aoTentarSair: (d) => setPendente(d) });
+    const desproteger = protegerHistorico({ liberado: () => liberado.current, temPedido: () => pendenteRef.current !== null, aoTentarSair: (d) => setPendente(d) });
     return () => {
       window.removeEventListener('beforeunload', antesDeSair);
       document.removeEventListener('click', aoClicar, true);
@@ -203,7 +308,6 @@ export function useProtecaoDeSaida(ativo: boolean, navegar: (href: string, subst
       liberado.current = true;
       if (destino.tipo === 'historico') { const nav = navegacaoApi(); if (nav) irPara(nav, destino.chave); return; }
       if (destino.tipo === 'relativo') { window.history.go(destino.delta); return; }
-      if (destino.tipo === 'voltar') { window.history.back(); return; }
       navegarRef.current(destino.href, false);
     },
   };
