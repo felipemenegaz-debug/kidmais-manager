@@ -47,5 +47,12 @@ export async function trocarCodigoEValidarAtivos(input: { code: string; business
   const displayPhoneNumber = typeof phone.display_phone_number === 'string' ? phone.display_phone_number : '';
   const verifiedName = typeof phone.verified_name === 'string' ? phone.verified_name : '';
   if (!displayPhoneNumber || !verifiedName) throw new WhatsappOnboardingError('META_NUMERO_INCOMPLETO', 'A Meta não retornou a identificação completa do número.', 409);
+  // Inscreve o app nos webhooks DESTA conta WhatsApp (Embedded Signup): sem isso a Meta não entrega mensagens nem status
+  // do número ao webhook do app. Idempotente na Meta; falha recusa a conexão (a pessoa tenta de novo).
+  const inscricao = await fetchImpl(`https://graph.facebook.com/${config.graphApiVersion}/${input.wabaId}/subscribed_apps`, {
+    method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' }, cache: 'no-store',
+  });
+  const inscrito = await inscricao.json().catch(() => null) as { success?: unknown } | null;
+  if (!inscricao.ok || inscrito?.success !== true) throw new WhatsappOnboardingError('META_WEBHOOK_NAO_INSCRITO', 'A Meta não confirmou o recebimento de mensagens deste número. Tente conectar de novo.', 502);
   return { accessToken, tokenType, scopes, expiresAt: expiresIn && expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000) : null, displayPhoneNumber, verifiedName };
 }
