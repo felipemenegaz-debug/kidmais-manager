@@ -85,6 +85,11 @@ export default function MarketingSite() {
   const atual = useRef({ url, chave, rascunho: dados?.site?.rascunho ?? null, siteId: dados?.site?.id ?? null, podeEditar, edicao, capacidades: dados?.capacidades ?? [] });
   useEffect(() => { atual.current = { url, chave, rascunho: dados?.site?.rascunho ?? null, siteId: dados?.site?.id ?? null, podeEditar, edicao, capacidades: dados?.capacidades ?? [] }; });
   const emOperacao = useRef(false);
+  // Intenção de sair/trocar (C2): cada pedido de "Salvar e …" recebe um número; cancelar, descartar ou um pedido novo
+  // trocam o número. A continuação que chega depois do salvamento só age se ainda for a intenção vigente.
+  const intencao = useRef(0);
+  const montado = useRef(false);
+  useEffect(() => { montado.current = true; return () => { montado.current = false; }; }, []);
 
   const editar = (alteracao: (c: ConteudoSite) => ConteudoSite, doSite?: string) => {
     const a = atual.current;
@@ -104,18 +109,29 @@ export default function MarketingSite() {
   async function acao(corpo: Record<string, unknown>, sucesso: string, opcoes: { deSalvar?: boolean; aoConcluir?: (novo: Dados) => string | void } = {}): Promise<boolean> {
     if (emOperacao.current) return false; // clique repetido antes de a tela atualizar
     emOperacao.current = true;
-    const de = atual.current.url;
+    const de = atual.current.url, chaveAntes = atual.current.chave, siteAntes = atual.current.siteId;
+    const NAO_SALVO = 'As alterações de conteúdo continuam NÃO salvas: use “Salvar rascunho”.';
     setOcupado(true); setAviso(null); if (opcoes.deSalvar) setSalvando('salvando');
     try {
       const novo = await rastrear(() => enviarMarketing<Dados>('/api/admin/marketing/site', corpo));
       if (atual.current.url !== de) { setAviso({ tipo: 'ok', texto: `${sucesso} (site de outra unidade; esta tela não foi alterada)` }); return true; }
       setDados({ ...novo, capacidades: atual.current.capacidades });
       const extra = opcoes.aoConcluir?.(novo);
-      setAviso({ tipo: 'ok', texto: [sucesso, extra, ...(novo.avisos ?? [])].filter(Boolean).join(' ') });
+      let restouNaoEnviado = false;
+      if (!opcoes.deSalvar && novo.site && novo.site.id === siteAntes) {
+        // C1: endereço, publicar e despublicar NÃO enviam o conteúdo, mas o servidor gera versão nova do rascunho (mesmo
+        // conteúdo salvo). A edição local — inclusive a digitada durante a requisição — passa para a versão nova e
+        // continua "não salva"; nunca some nem vira "salva" sem ter sido enviada.
+        const chaveNova = `${novo.site.id}:${novo.site.rascunhoVersao}`;
+        restouNaoEnviado = atual.current.edicao?.chave === chaveAntes;
+        setEdicao((e) => (e && e.chave === chaveAntes ? { chave: chaveNova, conteudo: e.conteudo } : e));
+      }
+      setAviso({ tipo: 'ok', texto: [sucesso, extra, restouNaoEnviado ? NAO_SALVO : null, ...(novo.avisos ?? [])].filter(Boolean).join(' ') });
       if (opcoes.deSalvar) setSalvando(null);
       return true;
     } catch (e) {
-      setAviso({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível concluir.' });
+      const pendente = !opcoes.deSalvar && atual.current.edicao?.chave === chaveAntes;
+      setAviso({ tipo: 'erro', texto: [e instanceof Error ? e.message : 'Não foi possível concluir.', pendente ? NAO_SALVO : null].filter(Boolean).join(' ') });
       if (opcoes.deSalvar) setSalvando('erro');
       return false;
     } finally { emOperacao.current = false; setOcupado(false); }
@@ -148,16 +164,25 @@ export default function MarketingSite() {
   const protecao = useProtecaoDeSaida(sujo, (href, substituir) => (substituir ? router.replace(href) : router.push(href)));
   const dialogo = trocaPedida !== null ? { titulo: `Trocar para o site da ${trocaPedida ? unidades.find((u) => u.id === trocaPedida)?.nome ?? 'unidade' : 'empresa (sem unidade)'}?`, acao: 'trocar' as const }
     : protecao.pendente ? { titulo: 'Sair do editor?', acao: 'sair' as const } : null;
-  const fecharDialogo = () => { if (trocaPedida !== null) setTrocaPedida(null); else protecao.permanecer(); };
+  /** Continuar editando / Esc: invalida na hora a intenção vigente (um salvamento em curso termina, mas não navega). */
+  const fecharDialogo = () => { intencao.current++; if (trocaPedida !== null) setTrocaPedida(null); else protecao.permanecer(); };
   const descartar = () => {
+    intencao.current++;
     setEdicao(null);
     if (trocaPedida !== null) { const v = trocaPedida; setTrocaPedida(null); setAviso(null); setUnidadeId(v); } else protecao.sair();
   };
   const salvarEContinuar = async () => {
+    if (emOperacao.current) return; // clique repetido em "Salvar e …": um só salvamento e uma só continuação
+    const minha = ++intencao.current;
+    const destinoTroca = trocaPedida;
     const r = await salvar();
+    // Cancelada (Continuar editando/Esc), substituída por outra intenção ou tela desmontada: não navega, não troca e não
+    // mexe no diálogo de uma intenção nova.
+    if (intencao.current !== minha || !montado.current) return;
     // Erro: fica no editor, com o conteúdo e o aviso. Alterado durante o envio: também fica (sair perderia o que restou).
     if (r !== 'ok') { fecharDialogo(); return; }
-    if (trocaPedida !== null) { const v = trocaPedida; setTrocaPedida(null); setEdicao(null); setUnidadeId(v); } else protecao.sair();
+    intencao.current++;
+    if (destinoTroca !== null) { setTrocaPedida(null); setEdicao(null); setUnidadeId(destinoTroca); } else protecao.sair();
   };
 
   const previaConteudo = conteudo ? conteudoDaPrevia(conteudo, dados?.previa?.conteudo, dados?.pacotesDisponiveis ?? []) : null;
@@ -217,7 +242,7 @@ export default function MarketingSite() {
           </fieldset>
           {aba === 'publicacao' && <div role="tabpanel" id="painel-publicacao" aria-labelledby="aba-publicacao">
             <AbaPublicacao dados={dados} conteudo={conteudo} editar={editar} podeEditar={podeEditar} slug={slug} setSlug={setSlug} versaoRascunho={versaoRascunho}
-              ocupado={ocupado} acao={(corpo, texto) => acao(corpo, texto, corpo.acao === 'endereco' ? { aoConcluir: () => { setSlugEditado(null); } } : {})} unidadeId={unidadeId} nomeUnidade={nomeUnidade}
+              ocupado={ocupado} sujo={sujo} acao={(corpo, texto) => acao(corpo, texto, corpo.acao === 'endereco' ? { aoConcluir: () => { setSlugEditado(null); } } : {})} unidadeId={unidadeId} nomeUnidade={nomeUnidade}
               rastrear={rastrear} aoMudarDominios={(siteId, dominios) => atualizarDoSite(siteId, (d) => ({ ...d, dominios }))} />
           </div>}
         </div>
@@ -491,8 +516,8 @@ function AbaPacotes({ conteudo, editar, disponiveis, imagens }: { conteudo: Cont
   </Secao>;
 }
 
-function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, versaoRascunho, ocupado, acao, unidadeId, nomeUnidade, rastrear, aoMudarDominios }: {
-  dados: Dados; conteudo: ConteudoSite; editar: Editar; podeEditar: boolean; slug: string; setSlug: (v: string) => void; versaoRascunho: number; ocupado: boolean;
+function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, versaoRascunho, ocupado, sujo, acao, unidadeId, nomeUnidade, rastrear, aoMudarDominios }: {
+  dados: Dados; conteudo: ConteudoSite; editar: Editar; podeEditar: boolean; slug: string; setSlug: (v: string) => void; versaoRascunho: number; ocupado: boolean; sujo: boolean;
   acao: (corpo: Record<string, unknown>, sucesso: string) => Promise<boolean>; unidadeId: string; nomeUnidade: string; rastrear: Rastrear; aoMudarDominios: (siteId: string, d: Dominio[]) => void;
 }) {
   const site = dados.site!;
@@ -508,6 +533,7 @@ function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, ver
       {!site.versaoPublicada && podeEditar && <div className={styles.filtros}>
         <label>Trocar endereço (só antes da 1ª publicação)<input value={slug} pattern="[a-z][a-z0-9-]{1,62}[a-z0-9]" onChange={(e) => setSlug(e.target.value.toLowerCase())} /></label>
         <button type="button" className={styles.secundario} disabled={ocupado || slug === site.slug} onClick={() => void acao({ acao: 'endereco', siteId: site.id, rascunhoVersao: versaoRascunho, slug }, 'Endereço alterado.')}>Salvar endereço</button>
+        {sujo && <span className={styles.muted}>O endereço é salvo à parte: o conteúdo editado continua não salvo até “Salvar rascunho”.</span>}
       </div>}
       {site.pendencias.length > 0 && <div className={styles.aviso}><strong>Antes de publicar:</strong><ul>{site.pendencias.map((p) => <li key={p}>{p}</li>)}</ul></div>}
       {dados.previa && dados.previa.avisos.length > 0 && <div className={styles.aviso}><strong>Na publicação:</strong><ul>{dados.previa.avisos.map((p) => <li key={p}>{p}</li>)}</ul></div>}
