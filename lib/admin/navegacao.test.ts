@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { itemAtivo, itensNavegacao } from './navegacao.ts';
+import { readFileSync } from 'node:fs';
+import { configuracaoVisivel, itemAtivo, itensNavegacao } from './navegacao.ts';
 
 test('a navegação só lista páginas existentes e esconde configuração sem Gestão', () => {
     const operacao = itensNavegacao(false);
@@ -52,4 +53,39 @@ test('o item ativo é o link mais específico', () => {
     assert.equal(itemAtivo('/admin/configuracoes/perfil-empresa', '/admin/configuracoes', itens), false);
     assert.equal(itemAtivo('/admin/festas/1', '/admin/festas', itens), true);
     assert.equal(itemAtivo('/admin/login', '/admin/contratos', itens), false);
+});
+
+test('hub de Configurações: cartões da plataforma só para a plataforma; da empresa só para Gestão (mesma regra do menu)', () => {
+    const empresaSemPlataforma = { gestaoEmpresa: true, plataforma: false };
+    // 083: o WhatsApp é da empresa — a Gestão de uma contratante vê e conecta o próprio número.
+    assert.equal(configuracaoVisivel('/admin/configuracoes/whatsapp', empresaSemPlataforma), true, 'Gestão da contratante vê o WhatsApp da empresa');
+    assert.equal(configuracaoVisivel('/admin/configuracoes/tabela-pacotes', empresaSemPlataforma), false);
+    assert.equal(configuracaoVisivel('/admin/configuracoes/perfil-empresa', empresaSemPlataforma), true);
+    const equipe = { gestaoEmpresa: false, plataforma: false };
+    assert.equal(configuracaoVisivel('/admin/configuracoes/acessos', equipe), false);
+    assert.equal(configuracaoVisivel('/admin/configuracoes/whatsapp', equipe), false, 'Equipe não configura o WhatsApp');
+    const plataforma = { gestaoEmpresa: false, plataforma: true };
+    assert.equal(configuracaoVisivel('/admin/configuracoes/whatsapp', plataforma), false, 'a plataforma sem Gestão na empresa não configura o WhatsApp dela');
+    assert.equal(configuracaoVisivel('/admin/configuracoes/tabela-pacotes', plataforma), true);
+    // Rota sem autoridade registrada continua visível; sem as permissões do shell, nada muda.
+    assert.equal(configuracaoVisivel('/admin/configuracoes/importar-tabela', equipe), true);
+    assert.equal(configuracaoVisivel('/admin/configuracoes/whatsapp', null), true);
+    // Para toda rota do menu, o cartão segue exatamente o item do menu.
+    for (const p of [empresaSemPlataforma, equipe, plataforma, { gestaoEmpresa: true, plataforma: true }]) {
+        const menu = new Set(itensNavegacao(p).map((i) => i.href));
+        for (const href of ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/tabela-pacotes'])
+            assert.equal(configuracaoVisivel(href, p), menu.has(href), href);
+    }
+});
+
+test('o hub filtra os cartões pelas permissões do shell, e a tela do WhatsApp mostra o motivo real da recusa', () => {
+    const pagina = readFileSync('app/admin/configuracoes/page.tsx', 'utf8');
+    assert.ok(pagina.includes('<CartoesConfiguracoes cards={cards} />'));
+    const cartoes = readFileSync('components/admin/CartoesConfiguracoes.tsx', 'utf8');
+    assert.ok(cartoes.includes("configuracaoVisivel('/admin/configuracoes/' + card.route, permissoes)"));
+    const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
+    assert.ok(shell.includes('<PermissoesAdminContext.Provider value={permissoes}>{children}</PermissoesAdminContext.Provider>'));
+    const whatsapp = readFileSync('components/admin/WhatsappConfiguracao.tsx', 'utf8');
+    assert.ok(!whatsapp.includes("catch { if (ativo) setErro('Não foi possível carregar"), 'não esconde a mensagem do servidor');
+    assert.ok(whatsapp.includes('falhaCarga ? null : <p>Carregando…</p>'), 'sem "Carregando…" depois da falha');
 });

@@ -1,8 +1,9 @@
 'use client';
-import {useCallback,useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {adminFetch} from '@/lib/http/admin-fetch';
 import {erroHumano} from '@/lib/festas/ux';
 import layout from './acessos.module.css';
+import {limitesMenu,posicaoMenu} from './menu-posicao';
 import {AdminPrimaryButton} from '@/components/admin/AdminPrimaryButton';
 import {VoltarConfiguracoes} from '@/components/admin/VoltarConfiguracoes';
 
@@ -49,6 +50,7 @@ export default function FestaAcessos(){
  const [aba,setAba]=useState<Aba>('ativas');
  const [busca,setBusca]=useState('');
  const [menuId,setMenuId]=useState<string|null>(null);
+ const [menuAncora,setMenuAncora]=useState<{top:number;bottom:number;right:number}|null>(null);
  const [perfil,setPerfil]=useState('EQUIPE');
  const [nivel,setNivel]=useState<'GESTAO'|'EQUIPE'>('EQUIPE');
  const [modo,setModo]=useState<Modo>('convite');
@@ -61,6 +63,7 @@ export default function FestaAcessos(){
  const desativarRef=useRef<HTMLElement>(null);
  const criarRef=useRef<HTMLElement>(null);
  const menuRef=useRef<HTMLDivElement>(null);
+ const menuPainelRef=useRef<HTMLDivElement>(null);
  const nomeRef=useRef<HTMLInputElement>(null);
 
  const carregar=useCallback(async()=>{
@@ -109,9 +112,39 @@ export default function FestaAcessos(){
   function fechar(ev:MouseEvent){
    if(menuRef.current&&!menuRef.current.contains(ev.target as Node))setMenuId(null);
   }
+  // O menu é fixo na janela (fora do recorte da tabela): ao rolar ou redimensionar, acompanha o botão;
+  // fecha só se o botão sair da área visível.
+  function acompanhar(){
+   const botao=menuRef.current?.querySelector('button[aria-haspopup=menu]');
+   if(!botao){setMenuId(null);return;}
+   const r=botao.getBoundingClientRect();
+   if(r.bottom<0||r.top>document.documentElement.clientHeight){setMenuId(null);return;}
+   setMenuAncora({top:r.top,bottom:r.bottom,right:r.right});
+  }
   document.addEventListener('mousedown',fechar);
-  return()=>document.removeEventListener('mousedown',fechar);
+  window.addEventListener('scroll',acompanhar,true);
+  window.addEventListener('resize',acompanhar);
+  return()=>{
+   document.removeEventListener('mousedown',fechar);
+   window.removeEventListener('scroll',acompanhar,true);
+   window.removeEventListener('resize',acompanhar);
+  };
  },[menuId]);
+
+ useLayoutEffect(()=>{
+  const el=menuPainelRef.current;
+  if(!menuId||!menuAncora||!el)return;
+  // clientWidth/clientHeight: a área do `position:fixed` não inclui a barra de rolagem (innerWidth inclui).
+  const janela={largura:document.documentElement.clientWidth,altura:document.documentElement.clientHeight};
+  // Limites ANTES de medir: o menu nunca passa da janela (em janela baixa, rola por dentro).
+  const {maxLargura,maxAltura}=limitesMenu(janela);
+  el.style.maxWidth=maxLargura+'px';
+  el.style.maxHeight=maxAltura+'px';
+  // Largura e altura REAIS do menu: as duas bordas horizontais e as verticais ficam dentro da janela.
+  const p=posicaoMenu(menuAncora,{largura:el.offsetWidth,altura:el.offsetHeight},janela);
+  el.style.top=p.top+'px';
+  el.style.right=p.right+'px';
+ },[menuId,menuAncora]);
 
  useEffect(()=>{
   const mq=window.matchMedia('(max-width:800px)');
@@ -310,10 +343,15 @@ export default function FestaAcessos(){
   const festa=festaPorId.find(p=>p.id===conta.id)??{id:conta.id,nome:conta.nome,nivelSistema:conta.nivelSistema,perfil:'Sem acesso'};
   const propria=conta.id===contas?.usuarioId;
   return <div className={layout.menuWrap} ref={menuId===conta.id?menuRef:undefined}>
-   <button type="button" className={layout.iconBtn} aria-haspopup="menu" aria-expanded={menuId===conta.id} aria-label={'Ações de '+conta.nome} disabled={busy} onClick={()=>setMenuId(id=>id===conta.id?null:conta.id)}>
+   <button type="button" className={layout.iconBtn} aria-haspopup="menu" aria-expanded={menuId===conta.id} aria-label={'Ações de '+conta.nome} disabled={busy} onClick={ev=>{
+    if(menuId===conta.id){setMenuId(null);return;}
+    const r=ev.currentTarget.getBoundingClientRect();
+    setMenuAncora({top:r.top,bottom:r.bottom,right:r.right});
+    setMenuId(conta.id);
+   }}>
     <span aria-hidden="true">⋮</span>
    </button>
-   {menuId===conta.id&&<div className={layout.menu} role="menu">
+   {menuId===conta.id&&<div ref={menuPainelRef} className={layout.menu} role="menu">
     <button type="button" role="menuitem" aria-label={'Alterar acesso de '+conta.nome} disabled={busy} onClick={()=>{setUser(festa);setPerfil(festa.perfil==='Gestão'?'GESTAO':'EQUIPE');setAlvoDesativar(null);setCriarAberto(false);setMenuId(null);setNotice('');setErro('');}}>Alterar acesso às Festas</button>
     {conta.nivelSistema==='Gestão'&&<button type="button" role="menuitem" aria-label={(conta.podeAssinar?'Retirar assinatura de contratos de ':'Permitir assinar contratos: ')+conta.nome} disabled={busy} onClick={()=>{void alternarAssinatura(conta);}}>{conta.podeAssinar?'Retirar assinatura de contratos':'Permitir assinar contratos'}</button>}
     {!propria&&<button type="button" role="menuitem" className={layout.menuDanger} aria-label={'Remover desta empresa: '+conta.nome} disabled={busy} onClick={()=>{setAlvoDesativar(conta);setUser(null);setCriarAberto(false);setMenuId(null);setNotice('');setErro('');}}>Remover desta empresa</button>}

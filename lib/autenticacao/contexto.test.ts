@@ -49,11 +49,11 @@ test('sessão escolhida prevalece sobre URL; perda de acesso não seleciona outr
     assert.deepEqual([suspensa.empresaAtual, suspensa.selecaoNecessaria, suspensa.gestaoNaEmpresa], [null, true, false]);
 });
 
-test('menu: Configurações de empresa só com Gestão na empresa; WhatsApp e PDF só com autoridade de plataforma', () => {
+test('menu: Configurações de empresa (inclusive o WhatsApp, 083) só com Gestão na empresa; PDF só com autoridade de plataforma', () => {
     const conf = (p: { gestaoEmpresa: boolean; plataforma: boolean }) => itensNavegacao(p).filter((i) => i.grupo === 'Configurações').map((i) => i.href);
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: false }), []);
-    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos']);
-    assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: true }), ['/admin/configuracoes/whatsapp', '/admin/configuracoes/tabela-pacotes']);
+    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp']);
+    assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: true }), ['/admin/configuracoes/tabela-pacotes']);
 });
 
 test('cada item do menu tem a autorização correspondente na API do servidor; o shell não decide pelo papel global', () => {
@@ -62,13 +62,14 @@ test('cada item do menu tem a autorização correspondente na API do servidor; o
         '/admin/configuracoes/catalogo': ['app/api/admin/configuracoes/catalogo/route.ts'],
         '/admin/configuracoes/acessos': ['lib/autenticacao/usuarios.ts'],
         '/admin/configuracoes/perfil-empresa': ['lib/perfil/autorizacao.ts'],
+        '/admin/configuracoes/whatsapp': ['lib/whatsapp/onboarding.service.ts', 'lib/whatsapp/onboarding-core.ts'],
     };
     for (const [href, arquivos] of Object.entries(empresa)) {
         assert.equal(autoridadeDaConfiguracao(href), 'empresa', href);
         const texto = arquivos.map((f) => readFileSync(f, 'utf8')).join('\n');
-        assert.match(texto, /exigirGestaoNoTenant|tenant\.papelAtual !== 'REPRESENTANTE_AUTORIZADO'|SELECT u\.id, m\.papel/, `${href}: papel da membership no servidor`);
+        assert.match(texto, /exigirGestaoNoTenant|tenant\.papelAtual !== 'REPRESENTANTE_AUTORIZADO'|SELECT u\.id, m\.papel|exigirGestaoDaEmpresa\(tenant\.papelAtual/, `${href}: papel da membership no servidor`);
     }
-    for (const [href, arquivo] of [['/admin/configuracoes/tabela-pacotes', 'app/api/admin/configuracoes/tabela-pacotes/route.ts'], ['/admin/configuracoes/whatsapp', 'lib/whatsapp/onboarding.service.ts']]) {
+    for (const [href, arquivo] of [['/admin/configuracoes/tabela-pacotes', 'app/api/admin/configuracoes/tabela-pacotes/route.ts']]) {
         assert.equal(autoridadeDaConfiguracao(href), 'plataforma', href);
         assert.match(readFileSync(arquivo, 'utf8'), /temAutoridadeDePlataforma\(sessao\)/, href);
     }

@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { AdminIcon, type AdminIconName } from './AdminIcon';
 import { itemAtivo, itensNavegacao, type PermissoesNavegacao } from '@/lib/admin/navegacao';
 import { lembrarCsrf, sairDaSessao } from './sair';
+import { PermissoesAdminContext } from './PermissoesAdmin';
 
 type ContextoSessaoCliente = { empresas: { id: string; nome: string; papel: string }[]; empresaAtual: { id: string; nome: string } | null; gestaoNaEmpresa: boolean; plataforma: boolean; desenvolvedor: boolean; selecaoNecessaria: boolean };
 import { BotaoPerguntarKidmais, PerguntarKidmaisProvider } from './inteligencia/PerguntarKidmais';
@@ -206,7 +207,7 @@ export default function AdminShell({ children, vitrine }: {
                     <ul><li><Link href="/admin/assinatura">Ver assinatura e regularizar</Link></li><li><Link href="/admin/perfil">Meu perfil e senha</Link></li>
                         {empresa?.desenvolvedor && <li><Link href="/desenvolvedor">Painel do desenvolvedor</Link></li>}
                         <li><button type="button" disabled={saindo} onClick={sair}>{saindo ? 'Saindo…' : 'Sair'}</button></li></ul></section></main>
-                : children}</div>
+                : <PermissoesAdminContext.Provider value={permissoes}>{children}</PermissoesAdminContext.Provider>}</div>
     </PerguntarKidmaisProvider></div>;
 }
 

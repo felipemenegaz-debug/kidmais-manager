@@ -73,6 +73,8 @@ const MODELOS = {
   "079-sem-065": { banco: "kidmais_v1_modelo_079_sem_065", ate: "079", sem: ["065"] },
   // Atendimento completo na ordem do inventário (060 antes da 061, 065 antes da 064, 080–082 depois da 079).
   "082": { banco: "kidmais_v1_modelo_082", ate: "082", sem: [] },
+  // WhatsApp por empresa (083): inventário inteiro até a 083.
+  "083": { banco: "kidmais_v1_modelo_083", ate: "083", sem: [] },
 };
 /** Modelo dos roteiros de navegador: 063 (padrão) ou 075 (migrations atuais, com 067/068/074a/075). Outro valor é recusado. */
 function modeloE2E(env = process.env) {

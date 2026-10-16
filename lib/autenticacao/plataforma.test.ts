@@ -5,10 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
 import { PAPEL_GLOBAL_NEUTRO, PAPEL_PLATAFORMA, temAutoridadeDePlataforma } from './plataforma.ts';
-import { exigirRepresentanteRecente } from '../whatsapp/onboarding-core.ts';
+import { exigirGestaoDaEmpresa, exigirReautenticacaoRecente } from '../whatsapp/onboarding-core.ts';
 
 /**
- * F1 — autoridade de plataforma (tabela PDF pública, WhatsApp/Meta) não nasce de rota de tenant.
+ * F1 — autoridade de plataforma (tabela PDF pública) não nasce de rota de tenant. O WhatsApp/Meta passou a ser da
+ * EMPRESA na 083 (cada empresa conecta o próprio número; Gestão da empresa comprovada), não da plataforma.
  * A conta criada por uma empresa como Gestão tem papel global neutro: opera na empresa pela membership e é
  * recusada nos recursos da instalação. A autoridade legítima (papel da identidade dado pelo provisionamento do
  * operador) continua funcionando.
@@ -62,13 +63,21 @@ test('F1 conta criada por empresa como Gestão (papel global neutro) NÃO public
   assert.deepEqual(legitima.publicados, ['tabela.pdf']);
 });
 
-test('F1 conta criada por empresa como Gestão NÃO configura nem consulta o WhatsApp global; a plataforma legítima continua', () => {
-  assert.throws(() => exigirRepresentanteRecente(sessao(PAPEL_GLOBAL_NEUTRO), agora), /Somente representante/);
-  assert.doesNotThrow(() => exigirRepresentanteRecente(sessao(PAPEL_PLATAFORMA), agora));
+test('083 WhatsApp é da EMPRESA: só a Gestão da empresa comprovada consulta, conecta e desconecta; o papel global não decide', () => {
+  assert.throws(() => exigirGestaoDaEmpresa('ADMINISTRATIVO', 'conectar'), /Somente a Gestão da empresa/);
+  assert.doesNotThrow(() => exigirGestaoDaEmpresa('REPRESENTANTE_AUTORIZADO', 'conectar'));
+  // A Gestão de uma contratante (identidade com papel global neutro) é aceita pelo papel DA EMPRESA, nunca pelo global.
+  assert.doesNotThrow(() => exigirReautenticacaoRecente(sessao(PAPEL_GLOBAL_NEUTRO), agora));
+  assert.throws(() => exigirReautenticacaoRecente(sessao(PAPEL_PLATAFORMA), agora + 300_001), /Confirme sua senha/);
   const servico = readFileSync('lib/whatsapp/onboarding.service.ts', 'utf8').replace(/\r\n/g, '\n');
   const consultar = servico.slice(servico.indexOf('export async function consultarConfiguracaoWhatsapp('));
-  assert.match(consultar.split('\n')[1], /if \(!temAutoridadeDePlataforma\(sessao\)\) throw new WhatsappOnboardingError\('WHATSAPP_AUTORIZACAO_RECUSADA'/);
-  assert.match(servico, /const sessao = await consultarSessao\(token, tx, true\);\n\s+exigirRepresentanteRecente\(sessao\);/, 'iniciar/concluir exigem a autoridade dentro da transação');
+  assert.ok(consultar.includes("const tenant = await provarTenant(tx, sessao, null);\n    exigirGestaoDaEmpresa(tenant.papelAtual, 'consultar');"), 'consultar: empresa comprovada + Gestão');
+  assert.ok(servico.includes('const sessao = await consultarSessao(token, tx, true);\n  exigirReautenticacaoRecente(sessao);\n  const tenant = await provarTenant(tx, sessao, null);\n  exigirGestaoDaEmpresa(tenant.papelAtual, acao);'), 'iniciar/concluir/desconectar: sessão travada, senha recente, empresa comprovada e Gestão dentro da transação');
+  for (const f of ['lib/whatsapp/onboarding-core.ts', 'lib/whatsapp/onboarding.service.ts']) {
+    const texto = readFileSync(f, 'utf8');
+    assert.doesNotMatch(texto, /temAutoridadeDePlataforma/, `${f}: WhatsApp não usa a autoridade de plataforma`);
+    assert.doesNotMatch(texto, /sessao\.papel/, `${f}: nunca o papel global`);
+  }
 });
 
 function arquivos(dir: string, saida: string[] = []) {
@@ -90,7 +99,7 @@ test('F1 nenhum código da aplicação concede, eleva ou altera o papel global; 
     const texto = readFileSync(f, 'utf8');
     assert.doesNotMatch(texto, /UPDATE usuarios_administrativos\s+SET[^;`']*\bpapel\s*=/i, `${f}: nenhuma escrita do papel global`);
   }
-  for (const f of ['app/api/admin/configuracoes/tabela-pacotes/route.ts', 'lib/whatsapp/onboarding-core.ts', 'lib/whatsapp/onboarding.service.ts']) {
+  for (const f of ['app/api/admin/configuracoes/tabela-pacotes/route.ts']) {
     const texto = readFileSync(f, 'utf8');
     assert.match(texto, /temAutoridadeDePlataforma\(sessao\)/, f);
     assert.doesNotMatch(texto, /sessao\.papel\s*[!=]==/, `${f}: sem comparação solta de papel`);
@@ -123,7 +132,7 @@ test('057 revalidação: nenhum fluxo empresarial decide pelo papel global; assi
   const contrato = readFileSync('lib/contratos/services/administrativo.service.ts', 'utf8');
   assert.match(contrato, /capacidade='CONTRATO_ASSINAR_EMPRESA' AND revogado_em IS NULL/);
   assert.doesNotMatch(contrato, /temAutoridadeDePlataforma/);
-  for (const f of ['lib/autenticacao/plataforma.ts', 'app/api/admin/configuracoes/tabela-pacotes/route.ts', 'lib/whatsapp/onboarding-core.ts', 'lib/whatsapp/onboarding.service.ts']) {
+  for (const f of ['lib/autenticacao/plataforma.ts', 'app/api/admin/configuracoes/tabela-pacotes/route.ts']) {
     assert.doesNotMatch(readFileSync(f, 'utf8'), /empresa_membership_capacidades|CONTRATO_ASSINAR_EMPRESA|FROM memberships|papelAtual/, `${f}: plataforma não lê capability de empresa`);
   }
   const m057 = readFileSync('database/migrations/20260929_057_assinatura_contrato_empresa.sql', 'utf8');
