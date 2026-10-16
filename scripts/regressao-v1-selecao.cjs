@@ -157,6 +157,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/revisao2-correcoes.postgres.test.ts": { descartavel: "082" },
   // 12/10: postcheck da 082 aceita a versão final e recusa variantes antigas/adulteradas (B2 da revisão de aa04387).
   "lib/whatsapp/atendimento/postcheck-082.postgres.test.ts": { descartavel: "082" },
+  // 16/10: WhatsApp por empresa (083): conexão, isolamento entre empresas, número único, desconexão, rollback.
+  "lib/whatsapp/conexao-empresa.postgres.test.ts": { descartavel: "083" },
   // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
   "lib/convites/recuperacao.postgres.test.ts": { descartavel: "079", tambem: ["079-sem-atendimento"] },
   // Gratuidade da Kidmais com as chaves de produção ligadas, no schema vigente (até a 079).

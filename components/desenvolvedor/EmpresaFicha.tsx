@@ -20,7 +20,7 @@ type Convite = { id: string; email: string; nomeSugerido: string | null; nivel: 
 type Atividade = { id: string; acao: string; origem: string; criado_em: string; ator: string | null; resultado: string | null };
 type Pendencia = { codigo: string; titulo: string; atendida: boolean; obrigatoria: boolean; detalhe: string; acao: 'CONVITES' | 'VINCULOS' | 'CADASTRO' | 'PERFIL' | 'PLATAFORMA' | null };
 type Implantacao = { itens: Pendencia[]; podeConcluir: boolean; pendentesObrigatorias: string[] };
-type Ficha = { empresa: Empresa; membros: Membro[]; convites: Convite[]; atividade: Atividade[]; implantacao: Implantacao | null; envioEmail: { configurado: boolean; motivo: string | null }; comercial: Comercial; representacao: Representacao };
+type Ficha = { empresa: Empresa; membros: Membro[]; convites: Convite[]; atividade: Atividade[]; implantacao: Implantacao | null; envioEmail: { configurado: boolean; motivo: string | null }; comercial: Comercial; representacao: Representacao ; whatsapp?: { conectado: boolean; numeroExibicao: string | null; nomeVerificado: string | null; conectadoEm: string | null } | null };
 type Envio = { enviado: boolean; destino: string; motivo?: string };
 
 const VINCULO: Record<Membro['statusVinculo'], { rotulo: string; tom?: string }> = {
@@ -50,6 +50,8 @@ export default function EmpresaFicha({ id }: { id: string }) {
     const [acao, setAcao] = useState<AcaoVinculo | null>(null);
     const [motivo, setMotivo] = useState('');
     const [situacao, setSituacao] = useState<{ motivo: string; codigo: string } | null>(null);
+    // Resultado de suspender/reativar mostrado no próprio cartão: o aviso geral fica no topo, fora da vista.
+    const [retornoSituacao, setRetornoSituacao] = useState<{ tipo: 'ok' | 'alerta' | 'erro'; texto: string } | null>(null);
     const carregar = useCallback(async () => {
         const r = await chamar<Ficha>(`/api/desenvolvedor/empresas/${encodeURIComponent(id)}`);
         if (r.ok) { setFicha(r.data); setErroCarga(''); }
@@ -70,14 +72,16 @@ export default function EmpresaFicha({ id }: { id: string }) {
     const base = `/api/desenvolvedor/empresas/${e.id}`;
 
     /** Executa, mostra o resultado real e recarrega a ficha. */
-    function operar<T>(op: () => Promise<Resposta<T>>, sucesso: (data: T) => { tipo: 'ok' | 'alerta'; texto: string }, depois?: () => void) {
+    function operar<T>(op: () => Promise<Resposta<T>>, sucesso: (data: T) => { tipo: 'ok' | 'alerta'; texto: string }, depois?: () => void, local?: (r: { tipo: 'ok' | 'alerta' | 'erro'; texto: string }) => void) {
         setOcupado(true);
         setErro('');
         setAviso(null);
         void executar(op, async (r) => {
             setOcupado(false);
-            if (!r.ok) { setErro(r.erro); return; }
-            setAviso(sucesso(r.data));
+            // Com `local`, o resultado aparece só junto da ação (sem repetir no topo da página).
+            if (!r.ok) { if (local) local({ tipo: 'erro', texto: r.erro }); else setErro(r.erro); return; }
+            const resultado = sucesso(r.data);
+            if (local) local(resultado); else setAviso(resultado);
             depois?.();
             await carregar();
         });
@@ -204,6 +208,12 @@ export default function EmpresaFicha({ id }: { id: string }) {
             </table></div>}
         </section>
 
+        {ficha.whatsapp && <section className={workspace.card} aria-labelledby="t-whatsapp">
+            <h2 id="t-whatsapp">WhatsApp da empresa</h2>
+            <p>{ficha.whatsapp.conectado ? `Conectado: ${ficha.whatsapp.nomeVerificado ?? ''} · ${ficha.whatsapp.numeroExibicao ?? ''}` : 'Não conectado.'}</p>
+            <p className={workspace.muted}>A Gestão da empresa conecta e desconecta em Configurações › WhatsApp. Este painel só acompanha.</p>
+        </section>}
+
         <ComercialEmpresa empresaId={e.id} comercial={ficha.comercial} ocupado={ocupado} operar={operar} />
 
         <RepresentacaoEmpresa empresaId={e.id} dados={ficha.representacao} ocupado={ocupado} operar={operar} />
@@ -213,19 +223,23 @@ export default function EmpresaFicha({ id }: { id: string }) {
             <p className={workspace.muted}>{e.status === 'ATIVA'
                 ? 'A suspensão preserva todos os dados. Todo acesso às telas e APIs desta empresa é recusado imediatamente; quem não tiver acesso a outra empresa tem as sessões encerradas.'
                 : 'A reativação devolve o acesso a quem tem vínculo ativo. Vínculos desativados continuam desativados.'}</p>
-            {!situacao ? <button type="button" className={e.status === 'ATIVA' ? 'danger' : undefined} onClick={() => setSituacao({ motivo: '', codigo: '' })}>{e.status === 'ATIVA' ? 'Suspender empresa…' : 'Reativar empresa…'}</button> : <form onSubmit={(ev) => {
+            {!situacao ? <button type="button" className={e.status === 'ATIVA' ? 'danger' : undefined} onClick={() => { setRetornoSituacao(null); setSituacao({ motivo: '', codigo: '' }); }}>{e.status === 'ATIVA' ? 'Suspender empresa…' : 'Reativar empresa…'}</button> : <form onSubmit={(ev) => {
                 ev.preventDefault();
                 const acaoEmpresa = e.status === 'ATIVA' ? 'suspender' : 'reativar';
                 operar(() => chamar<{ status: string; sessoesEncerradas: number; usuariosDesconectados: number }>(base, 'POST', { acao: acaoEmpresa, dados: { motivo: situacao.motivo.trim(), confirmacaoCodigo: situacao.codigo.trim() } }),
-                    (d) => ({ tipo: 'ok', texto: acaoEmpresa === 'suspender' ? `Empresa suspensa. ${d.usuariosDesconectados} pessoa(s) desconectada(s), ${d.sessoesEncerradas} sessão(ões) encerrada(s).` : 'Empresa reativada.' }), () => setSituacao(null));
+                    (d) => ({ tipo: 'ok', texto: acaoEmpresa === 'suspender' ? `Empresa suspensa. ${d.usuariosDesconectados} pessoa(s) desconectada(s), ${d.sessoesEncerradas} sessão(ões) encerrada(s).` : 'Empresa reativada.' }), () => setSituacao(null), setRetornoSituacao);
             }}>
                 <label>Motivo *<input value={situacao.motivo} onChange={(ev) => setSituacao({ ...situacao, motivo: ev.target.value })} maxLength={500} required /></label>
                 <label>Digite o código <b>{e.codigo}</b> para confirmar *<input value={situacao.codigo} onChange={(ev) => setSituacao({ ...situacao, codigo: ev.target.value })} autoComplete="off" required /></label>
+                {situacao.codigo.trim() !== '' && situacao.codigo.trim().toLowerCase() !== e.codigo
+                    ? <p className={estilos.alerta} role="status">O código não confere. Digite exatamente <b>{e.codigo}</b>, o código mostrado no topo desta ficha (quando o campo fica em branco no cadastro, ele é gerado a partir do nome).</p>
+                    : <p className={workspace.muted}>O código da empresa aparece no topo desta ficha.</p>}
                 <div className={estilos.acoesLinha}>
                     <button type="submit" className={e.status === 'ATIVA' ? 'danger' : undefined} disabled={ocupado || situacao.motivo.trim().length < 3 || situacao.codigo.trim().toLowerCase() !== e.codigo}>{ocupado ? 'Processando…' : e.status === 'ATIVA' ? 'Confirmar suspensão' : 'Confirmar reativação'}</button>
                     <button type="button" onClick={() => setSituacao(null)} disabled={ocupado}>Cancelar</button>
                 </div>
             </form>}
+            {retornoSituacao && <p className={retornoSituacao.tipo === 'ok' ? estilos.sucesso : estilos.alerta} role={retornoSituacao.tipo === 'erro' ? 'alert' : 'status'}>{retornoSituacao.texto}</p>}
         </section>}
 
         <SincronizarCobranca empresaId={e.id} />

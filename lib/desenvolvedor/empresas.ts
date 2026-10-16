@@ -156,6 +156,17 @@ function detalhe(l: LinhaEmpresa) {
     };
 }
 
+/** WhatsApp da empresa (083), só leitura para o painel. `null` enquanto a 083 não existe no banco. */
+async function whatsappDaEmpresa(tx: DbExecutor, empresaId: string) {
+    const instalada = (await tx.query<{ ok: boolean }>(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+        AND table_name = 'whatsapp_conexoes' AND column_name = 'empresa_id') AS ok`)).rows[0]?.ok === true;
+    if (!instalada) return null;
+    const c = (await tx.query<{ numero_exibicao: string; nome_verificado: string; meta_validada_em: string }>(
+        `SELECT numero_exibicao, nome_verificado, meta_validada_em::text FROM whatsapp_conexoes
+          WHERE empresa_id = $1::uuid AND status = 'CONFIGURADA' ORDER BY criada_em DESC LIMIT 1`, [empresaId])).rows[0];
+    return { conectado: Boolean(c), numeroExibicao: c?.numero_exibicao ?? null, nomeVerificado: c?.nome_verificado ?? null, conectadoEm: c?.meta_validada_em ?? null };
+}
+
 export async function obterEmpresa(sessao: SessaoAdmin, id: string, deps: PainelDeps = painelDepsPadrao) {
     const uuid = z.string().uuid().parse(id);
     return deps.withTransaction(async (tx) => {
@@ -177,6 +188,7 @@ export async function obterEmpresa(sessao: SessaoAdmin, id: string, deps: Painel
             envioEmail: { configurado: email.configurado, motivo: email.motivo },
             comercial: await comercialDaEmpresa(tx, uuid),
             representacao: await representacaoDaEmpresa(tx, uuid),
+            whatsapp: await whatsappDaEmpresa(tx, uuid),
         };
     });
 }

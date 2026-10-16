@@ -1,19 +1,17 @@
-import Link from 'next/link';
-import { AdminIcon, type AdminIconName } from '@/components/admin/AdminIcon';
+import CartoesConfiguracoes, { type CartaoConfiguracao } from '@/components/admin/CartoesConfiguracoes';
 import styles from '@/components/admin/workspace.module.css';
-import hub from '@/components/admin/configuracoes.module.css';
 
-const cards: { route: string; title: string; text: string; icon: AdminIconName }[] = [
+const cards: CartaoConfiguracao[] = [
   { route:'perfil-empresa', title:'Perfil da empresa', text:'Cadastro da empresa, endereço da unidade, contatos e chave Pix de recebimento.', icon:'profile' },
   { route:'pacotes', title:'Pacotes', text:'Nome, duração, dias, preços e o que está incluído. O histórico das festas já contratadas permanece.', icon:'packages' },
   { route:'importar-tabela', title:'Importar tabela de preços', text:'Envie o PDF da tabela: pacotes, preços e adicionais são lidos para você revisar antes de publicar.', icon:'pdf' },
   { route:'modelo-contrato', title:'Modelo de contrato', text:'Envie o contrato da loja em PDF: os contratos passam a sair no padrão da empresa, com os dados de cada festa.', icon:'pdf' },
   { route:'catalogo', title:'Itens do Buffet', text:'Categorias e itens do buffet usados na composição dos pacotes.', icon:'buffet' },
   { route:'acessos', title:'Usuários e acessos', text:'Gerencie contas e os acessos disponíveis no sistema e na operação das festas.', icon:'users' },
-  { route:'whatsapp', title:'WhatsApp', text:'Consulte o estado da configuração e as opções de conexão disponíveis.', icon:'contact' },
+  { route:'whatsapp', title:'WhatsApp', text:'Conecte o WhatsApp Business da empresa ao Kidmais pelo fluxo oficial da Meta.', icon:'contact' },
   { route:'tabela-pacotes', title:'PDF de Pacotes', text:'Revise e publique o documento consultado pelos clientes. Sua publicação é independente dos preços.', icon:'pdf' },
 ];
 
 export default function Page() {
-  return <main className={styles.page} data-admin-workspace><header className={styles.header}><h1>Configurações</h1></header><div className={styles.content}><div className={hub.grid}>{cards.map(card => <section className={hub.card} key={card.route}><span className={hub.icon}><AdminIcon name={card.icon} size={20} /></span><h2>{card.title}</h2><p>{card.text}</p><Link href={'/admin/configuracoes/'+card.route}>Abrir {card.title.toLocaleLowerCase('pt-BR')}</Link></section>)}</div></div></main>;
+  return <main className={styles.page} data-admin-workspace><header className={styles.header}><h1>Configurações</h1></header><div className={styles.content}><CartoesConfiguracoes cards={cards} /></div></main>;
 }

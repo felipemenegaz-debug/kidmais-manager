@@ -35,7 +35,8 @@ const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma'
     { href: '/admin/configuracoes/pacotes', rotulo: 'Pacotes', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/catalogo', rotulo: 'Itens do Buffet', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/acessos', rotulo: 'Usuários e acessos', grupo: 'Configurações', autoridade: 'empresa' },
-    { href: '/admin/configuracoes/whatsapp', rotulo: 'WhatsApp', grupo: 'Configurações', autoridade: 'plataforma' },
+    // 083: o WhatsApp é da EMPRESA (cada uma conecta o próprio número): Gestão na empresa selecionada.
+    { href: '/admin/configuracoes/whatsapp', rotulo: 'WhatsApp', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/tabela-pacotes', rotulo: 'PDF de Pacotes', grupo: 'Configurações', autoridade: 'plataforma' },
 ];
 
@@ -56,6 +57,16 @@ export function itensNavegacao(permissoes: boolean | PermissoesNavegacao): ItemN
         .filter((item) => (item.autoridade === 'empresa' ? p.gestaoEmpresa : p.plataforma))
         .map(({ autoridade: _autoridade, ...item }) => { void _autoridade; return item; });
     return [...base, ...config];
+}
+
+/**
+ * Cartões do hub de Configurações (/admin/configuracoes): a MESMA autoridade do menu e da API. Rota sem autoridade
+ * registrada continua visível; sem as permissões do shell (fora dele), o hub mostra tudo como antes.
+ */
+export function configuracaoVisivel(href: string, permissoes: PermissoesNavegacao | null) {
+    const autoridade = autoridadeDaConfiguracao(href);
+    if (!autoridade || !permissoes) return true;
+    return autoridade === 'empresa' ? permissoes.gestaoEmpresa : permissoes.plataforma;
 }
 
 /** Rotas de configuração e a autoridade que o servidor exige (usado no teste que amarra menu e API). */

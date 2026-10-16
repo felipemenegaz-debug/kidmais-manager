@@ -9,14 +9,14 @@ import whatsapp from './WhatsappConfiguracao.module.css';
 type MetaInicio = { appId: string; graphApiVersion: string; configurationId: string; eventName: string; launchOptions: Record<string, unknown>; messageOrigins: string[] };
 type Inicio = { tentativaId: string; state: string; expiraEm: string; meta: MetaInicio };
 type DadosSessao = { businessId: string; wabaId: string; phoneNumberId: string };
-type Estado = { estado: string; metaConfigurada: boolean; conexao: null | { numeroExibicao: string; nomeVerificado: string; businessId: string; wabaId: string; phoneNumberId: string }; tentativa: null | { status: string; expira_em: string } };
+type Estado = { estado: string; metaConfigurada: boolean; ambiente?: string | null; empresa?: string | null; conexao: null | { id: string; numeroExibicao: string; nomeVerificado: string; businessId: string; wabaId: string; phoneNumberId: string }; tentativa: null | { status: string; expira_em: string } };
 type FbResponse = { authResponse?: { code?: string }; status?: string };
 type FacebookSdk = { init(input: { appId: string; version: string; cookie: boolean; xfbml: boolean }): void; login(callback: (response: FbResponse) => void, options: Record<string, unknown>): void };
 
 declare global { interface Window { FB?: FacebookSdk; fbAsyncInit?: () => void } }
 const rotulos: Record<string, string> = {
-  NAO_CONFIGURADA: 'Não configurado', AGUARDANDO_META: 'Aguardando conclusão na Meta', VALIDANDO: 'Validando configuração',
-  CONFIGURADA_SEM_WEBHOOK_OTP: 'Configurado — webhook e OTP ainda não ativados', TENTATIVA_EXPIRADA: 'Tentativa expirada', ACAO_NECESSARIA: 'Ação necessária',
+  NAO_CONFIGURADA: 'Não conectado', AGUARDANDO_META: 'Aguardando conclusão na Meta', VALIDANDO: 'Validando configuração',
+  CONFIGURADA_SEM_WEBHOOK_OTP: 'Conectado', TENTATIVA_EXPIRADA: 'Tentativa expirada', ACAO_NECESSARIA: 'Ação necessária',
 };
 
 function idsDaMensagem(value: unknown): DadosSessao | null {
@@ -29,18 +29,23 @@ function idsDaMensagem(value: unknown): DadosSessao | null {
     ? { businessId: String(businessId), wabaId: String(wabaId), phoneNumberId: String(phoneNumberId) } : null;
 }
 
+const FALHA_CARGA = 'Não foi possível carregar a configuração do WhatsApp.';
+
 export default function WhatsappConfiguracao() {
   const [data, setData] = useState<Estado | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState('');
   const [senha, setSenha] = useState(''), [ocupado, setOcupado] = useState(false);
-  const [preparado, setPreparado] = useState(false);
+  const [preparado, setPreparado] = useState(false), [falhaCarga, setFalhaCarga] = useState(false);
   const inicio = useRef<Inicio | null>(null), codigo = useRef<string | null>(null), sessaoMeta = useRef<DadosSessao | null>(null), concluindo = useRef(false);
   const listenerMeta = useRef<((event: MessageEvent) => void) | null>(null);
-  const carregar = useCallback(async () => { const r = await adminFetch('/api/admin/configuracoes/whatsapp'), j = await r.json(); if (!j.ok) throw new Error(j.erro); setData(j.data); }, []);
+  // Desconectar (083): motivo + senha reconfirmada; o servidor exige a Gestão da empresa.
+  const [motivoDesconexao, setMotivoDesconexao] = useState(''), [senhaDesconexao, setSenhaDesconexao] = useState('');
+  const carregar = useCallback(async () => { const r = await adminFetch('/api/admin/configuracoes/whatsapp'), j = await r.json(); if (!j.ok) throw new Error(j.erro || FALHA_CARGA); setData(j.data); }, []);
   useEffect(() => {
     let ativo = true;
     void (async () => {
       try { await carregar(); }
-      catch { if (ativo) setErro('Não foi possível carregar a configuração do WhatsApp.'); }
+      // Mostra o motivo real (ex.: 403 de quem não é a conta da plataforma) e para de dizer "Carregando…".
+      catch (e) { if (ativo) { setErro(e instanceof Error && !(e instanceof SyntaxError) && e.message ? e.message : FALHA_CARGA); setFalhaCarga(true); } }
     })();
     return () => { ativo = false; };
   }, [carregar]);
@@ -54,7 +59,7 @@ export default function WhatsappConfiguracao() {
       const j = await r.json(); if (!j.ok) throw new Error(j.erro);
       codigo.current = null; sessaoMeta.current = null; inicio.current = null;
       if (listenerMeta.current) window.removeEventListener('message', listenerMeta.current); listenerMeta.current = null;
-      setAviso('WhatsApp configurado. Webhook, envio e OTP continuam desativados nesta etapa.'); await carregar();
+      setAviso('WhatsApp conectado. O envio e o recebimento de mensagens pelo Kidmais serão ativados numa próxima etapa.'); await carregar();
     } catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível concluir a conexão.'); }
     finally { concluindo.current = false; setOcupado(false); }
   }, [carregar]);
@@ -84,6 +89,18 @@ export default function WhatsappConfiguracao() {
       setPreparado(true);
       setAviso('Tudo pronto. Clique em Continuar na Meta para abrir a janela de autorização.');
     } catch (e) { inicio.current = null; setErro(e instanceof Error ? e.message : 'Não foi possível preparar a conexão.'); }
+    finally { setOcupado(false); }
+  }
+
+  async function desconectar() {
+    if (!data?.conexao) return;
+    setErro(''); setAviso(''); setOcupado(true);
+    try {
+      const reauth = await reautenticarSessao(senhaDesconexao); setSenhaDesconexao(''); if (!reauth.ok) throw new Error(reauth.erro);
+      const r = await adminFetch('/api/admin/configuracoes/whatsapp/desconectar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conexaoId: data.conexao.id, motivo: motivoDesconexao.trim() }) });
+      const j = await r.json(); if (!j.ok) throw new Error(j.erro);
+      setMotivoDesconexao(''); setAviso('WhatsApp desconectado. Você pode conectar outro número quando quiser.'); await carregar();
+    } catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível desconectar o WhatsApp.'); }
     finally { setOcupado(false); }
   }
 
@@ -124,11 +141,11 @@ export default function WhatsappConfiguracao() {
     }
   }
 
-  return <main className={styles.page}><VoltarConfiguracoes /><h1>WhatsApp</h1><p>Conecte uma conta pelo fluxo oficial da Meta com suporte ao WhatsApp Business App.</p>
+  return <main className={styles.page}><VoltarConfiguracoes /><h1>WhatsApp</h1><p>Conecte o WhatsApp Business da sua empresa ao Kidmais pelo fluxo oficial da Meta. O número continua funcionando no WhatsApp Business App.</p>
     {erro && <p role="alert">{erro}</p>}{aviso && <p role="status" className={whatsapp.pending}>{aviso}</p>}
-    {!data ? <p>Carregando…</p> : <><section className={whatsapp.status}><strong>{rotulos[data.estado] ?? 'Ação necessária'}</strong>{data.conexao ? <><p>{data.conexao.nomeVerificado} · {data.conexao.numeroExibicao}</p><p className={whatsapp.technical}>Conta Meta e número foram conferidos. Webhook, mensagens e OTP permanecem desativados.</p></> : <p>Nenhuma conexão WhatsApp está ativa neste ambiente.</p>}</section>
-      {!data.metaConfigurada && <p className={whatsapp.pending}>Configuração Meta pendente. Informe no Render os dados e o snippet atual do Embedded Signup antes de iniciar.</p>}
-      {!data.conexao && <section className={styles.card}><h2>Conectar WhatsApp Business</h2><p>Use somente um número secundário e controlado no staging. O número oficial da Kidmais não deve ser conectado nesta etapa.</p><div className={whatsapp.actions}>{preparado ? <AdminPrimaryButton onClick={abrirMeta}>Continuar na Meta</AdminPrimaryButton> : <><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senha || !data.metaConfigurada} onClick={prepararConexao}>Preparar conexão</AdminPrimaryButton></>}</div></section>}
-      <section className={styles.card}><h2>Próximas etapas</h2><p>Testar envio e Desconectar serão habilitados em blocos posteriores. Nenhuma mensagem ou OTP é enviado por esta tela.</p><button disabled>Testar</button><button disabled>Desconectar</button></section></>}
+    {!data ? (falhaCarga ? null : <p>Carregando…</p>) : <><section className={whatsapp.status}><strong>{rotulos[data.estado] ?? 'Ação necessária'}</strong>{data.empresa && <p>Empresa: {data.empresa}</p>}{data.conexao ? <><p>{data.conexao.nomeVerificado} · {data.conexao.numeroExibicao}</p><p className={whatsapp.technical}>Conta Meta e número conferidos. O envio e o recebimento de mensagens pelo Kidmais serão ativados numa próxima etapa.</p></> : <p>Esta empresa ainda não tem um WhatsApp conectado.</p>}</section>
+      {!data.metaConfigurada && <p className={whatsapp.pending}>A conexão com a Meta ainda não está disponível neste ambiente. Fale com o suporte da Kidmais.</p>}
+      {!data.conexao && <section className={styles.card}><h2>Conectar WhatsApp Business</h2><p>Você vai entrar na Meta com a conta que administra o WhatsApp Business da empresa e escolher o número.</p>{data.ambiente === 'STAGING' && <p className={whatsapp.pending}>Ambiente de testes: use somente um número de teste.</p>}<div className={whatsapp.actions}>{preparado ? <AdminPrimaryButton onClick={abrirMeta}>Continuar na Meta</AdminPrimaryButton> : <><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senha || !data.metaConfigurada} onClick={prepararConexao}>Preparar conexão</AdminPrimaryButton></>}</div></section>}
+      {data.conexao && <section className={styles.card}><h2>Desconectar</h2><p>O Kidmais deixa de usar este número. O WhatsApp Business App continua funcionando normalmente.</p><div className={whatsapp.actions}><label>Motivo<input value={motivoDesconexao} maxLength={500} onChange={(e) => setMotivoDesconexao(e.target.value)} /></label><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senhaDesconexao} onChange={(e) => setSenhaDesconexao(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senhaDesconexao || motivoDesconexao.trim().length < 3} onClick={desconectar}>Desconectar</AdminPrimaryButton></div></section>}</>}
   </main>;
 }

@@ -2,8 +2,12 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import type { AmbienteWhatsapp } from './configuracao.ts';
 import { WhatsappOnboardingError } from './errors.ts';
 
-export type IdentidadeCredencialWhatsapp = { ambiente: AmbienteWhatsapp; appId: string; businessId: string; wabaId: string; phoneNumberId: string };
-function aad(meta: IdentidadeCredencialWhatsapp) { return Buffer.from(JSON.stringify([meta.ambiente, meta.appId, meta.businessId, meta.wabaId, meta.phoneNumberId]), 'utf8'); }
+/** `empresaId` (083) prende a credencial à empresa dona da conexão; ausente só nas conexões antigas da plataforma. */
+export type IdentidadeCredencialWhatsapp = { ambiente: AmbienteWhatsapp; appId: string; businessId: string; wabaId: string; phoneNumberId: string; empresaId?: string };
+function aad(meta: IdentidadeCredencialWhatsapp) {
+  const base = [meta.ambiente, meta.appId, meta.businessId, meta.wabaId, meta.phoneNumberId];
+  return Buffer.from(JSON.stringify(meta.empresaId ? [...base, meta.empresaId] : base), 'utf8');
+}
 
 export function carregarChaveCredencial(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env) {
   const raw = env.WHATSAPP_CREDENTIAL_ENCRYPTION_KEY?.trim() ?? '';
