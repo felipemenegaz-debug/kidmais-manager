@@ -37,3 +37,23 @@ test('histórico: “aceita” nunca é chamada de entregue; motivos do motor vi
   assert.equal(motivoLegivel('MOTIVO_NOVO_X'), 'MOTIVO_NOVO_X');
   assert.equal(motivoLegivel(null), '');
 });
+
+test('retorno de salvar: vem da regra devolvida pelo servidor (U5), não do estado anterior', async () => {
+  const { retornoAoSalvarRegra } = await import('./explicacao.ts');
+  // Texto de mensagem ativa alterado: o servidor devolve PAUSADA sem revisão.
+  const texto = retornoAoSalvarRegra({ status: 'ATIVA' }, { status: 'PAUSADA', acao: 'MENSAGEM_WHATSAPP', templateRevisadoEm: null });
+  assert.equal(texto.tipo, 'alerta');
+  assert.match(texto.texto, /PAUSADA.*nova revisão.*canceladas/);
+  assert.doesNotMatch(texto.texto, /continua ativa/);
+  // Tarefa ativa trocada para mensagem sem revisão: também pausa.
+  assert.match(retornoAoSalvarRegra({ status: 'ATIVA' }, { status: 'PAUSADA', acao: 'MENSAGEM_WHATSAPP', templateRevisadoEm: null }).texto, /PAUSADA/);
+  // Só horário/prazo: continua ativa.
+  const horario = retornoAoSalvarRegra({ status: 'ATIVA' }, { status: 'ATIVA', acao: 'MENSAGEM_WHATSAPP', templateRevisadoEm: '2026-10-15T12:00:00Z' });
+  assert.equal(horario.tipo, 'ok');
+  assert.match(horario.texto, /continua ativa/);
+  // Regra pausada salva: continua pausada (e pede revisão quando falta).
+  assert.equal(retornoAoSalvarRegra({ status: 'PAUSADA' }, { status: 'PAUSADA', acao: 'TAREFA_INTERNA', templateRevisadoEm: null }).texto, 'Regra salva; continua pausada.');
+  assert.match(retornoAoSalvarRegra({ status: 'PAUSADA' }, { status: 'PAUSADA', acao: 'MENSAGEM_WHATSAPP', templateRevisadoEm: null }).texto, /continua pausada\. Revise o texto/);
+  // Rascunho.
+  assert.match(retornoAoSalvarRegra({ status: 'NAO_CONFIGURADA' }, { status: 'RASCUNHO', acao: 'TAREFA_INTERNA', templateRevisadoEm: null }).texto, /^Regra salva como rascunho/);
+});

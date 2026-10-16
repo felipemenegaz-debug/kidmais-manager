@@ -5,7 +5,7 @@ import type { Regra, TipoRegra } from '@/lib/marketing/automacoes/regras';
 import type { SugestaoDatas } from '@/lib/marketing/sugestoes';
 import { LIMITE_SIMULACAO } from '@/lib/marketing/automacoes/alvos';
 import { renderizarModelo, validarModelo } from '@/lib/marketing/automacoes/modelo';
-import { EXEMPLO_FICTICIO, QUEM_RECEBE, ROTULO_ESTADO, ROTULO_PRAZO, horarioPermitido, motivoLegivel, oQueFaz, quandoAcontece, resumoRegra } from '@/lib/marketing/automacoes/explicacao';
+import { EXEMPLO_FICTICIO, QUEM_RECEBE, ROTULO_ESTADO, ROTULO_PRAZO, horarioPermitido, motivoLegivel, oQueFaz, quandoAcontece, resumoRegra, retornoAoSalvarRegra } from '@/lib/marketing/automacoes/explicacao';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { clientesDaBusca, dataBr, dataHoraBr } from '@/lib/marketing/apresentacao';
 import { AdminPrimaryButton } from '../AdminPrimaryButton';
@@ -21,6 +21,7 @@ type Dados = {
   caixaSimulada: Array<{ id: string; destinatario_mascarado: string; template_provedor: string; texto: string; status: string; aceito_em: string }>;
   datasVagas: SugestaoDatas; ambiente: { processamentoLigado: boolean; transporte: string }; unidades: Array<{ id: string; nome: string }>; capacidades: string[];
 };
+type Retorno = { tipo: 'ok' | 'alerta'; texto: string };
 type Simulacao = { total: number; alvos: Array<{ clienteNome: string; dataFesta: string | null; jaPlanejada: string | null; impedimento: string | null; agendadaPara: string }> };
 
 const ACAO: Record<string, string> = { TAREFA_INTERNA: 'Tarefa para a equipe', MENSAGEM_WHATSAPP: 'Mensagem WhatsApp (simulada)', SUGESTAO: 'Sugestão' };
@@ -30,7 +31,9 @@ const seloEstado = (e: string) => (['FALHOU', 'INCERTA'].includes(e) ? styles.se
 
 export default function MarketingAutomacoes() {
   const [unidadeId, setUnidadeId] = useState('');
-  const { dados, falha, carregando, recarregar } = useMarketing<Dados>(`/api/admin/marketing/automacoes${unidadeId ? `?unidadeId=${unidadeId}` : ''}`);
+  const { dados, falha, carregando, recarregar, setDados } = useMarketing<Dados>(`/api/admin/marketing/automacoes${unidadeId ? `?unidadeId=${unidadeId}` : ''}`);
+  // Retorno da última operação numa regra, mostrado também no próprio cartão (o aviso do topo pode estar fora da tela).
+  const [retorno, setRetorno] = useState<(Retorno & { chave: string }) | null>(null);
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const pode = dados?.capacidades.includes('MARKETING_AUTOMACOES_GERIR') ?? false;
@@ -54,13 +57,19 @@ export default function MarketingAutomacoes() {
       </div>}
     </div>}
     {dados && !pode && <p className={styles.info}>Seu acesso permite só visualizar as automações. Editar, ativar, pausar e processar dependem da permissão “Automações” (Marketing → Permissões).</p>}
-    {dados && dados.unidades.length > 0 && <div className={styles.filtros}><label>Regras da<select value={unidadeId} onChange={(e) => setUnidadeId(e.target.value)}><option value="">Empresa (todas as unidades)</option>{dados.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>
+    {dados && dados.unidades.length > 0 && <div className={styles.filtros}><label>Regras da<select value={unidadeId} onChange={(e) => { setRetorno(null); setUnidadeId(e.target.value); }}><option value="">Empresa (todas as unidades)</option>{dados.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>
       <span className={styles.muted}>Regras da empresa e de cada unidade são independentes.</span></div>}
     <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
     {aviso && <p className={aviso.tipo === 'ok' ? styles.info : styles.aviso} role={aviso.tipo === 'ok' ? 'status' : 'alert'}>{aviso.texto}</p>}
     {dados && <>
       {dados.regras.map((r) => <CartaoRegra key={`${unidadeId}:${r.tipo}:${r.versao}`} regra={r} catalogo={dados.catalogo[r.tipo]} pode={pode} unidadeId={unidadeId || null}
-        datasVagas={r.tipo === 'DATAS_VAGAS' ? dados.datasVagas : null} aoMudar={(texto) => { setAviso({ tipo: 'ok', texto }); recarregar(); }} aoErro={(texto) => setAviso({ tipo: 'erro', texto })} />)}
+        datasVagas={r.tipo === 'DATAS_VAGAS' ? dados.datasVagas : null} retorno={retorno?.chave === `${unidadeId}:${r.tipo}` ? retorno : null}
+        aoMudar={(ret, salva) => {
+          setAviso({ tipo: ret.tipo === 'alerta' ? 'erro' : 'ok', texto: ret.texto }); setRetorno({ ...ret, chave: `${unidadeId}:${r.tipo}` });
+          // Selo e resumo já com a regra devolvida pelo servidor (mesma unidade), sem esperar a releitura.
+          if (salva) setDados((d) => ({ ...d, regras: d.regras.map((x) => (x.tipo === salva.tipo && x.unidadeId === salva.unidadeId ? salva : x)) }));
+          recarregar();
+        }} aoErro={(texto) => { setRetorno(null); setAviso({ tipo: 'erro', texto }); }} />)}
       <section className={styles.cartao} aria-labelledby="t-tarefas">
         <h2 id="t-tarefas">Tarefas abertas ({dados.tarefas.length})</h2>
         <p className={styles.muted}>Criadas pelas regras com a ação “tarefa”. Não dependem de autorização de mensagens.</p>
@@ -112,23 +121,29 @@ function Passo({ n, titulo, children }: { n: number; titulo: string; children: R
   return <li className={au.passo}><span className={au.numero} aria-hidden="true">{n}</span><div><h3>{titulo}</h3>{children}</div></li>;
 }
 
-function CartaoRegra({ regra, catalogo, pode, unidadeId, datasVagas, aoMudar, aoErro }: {
-  regra: Regra; catalogo: Catalogo[TipoRegra]; pode: boolean; unidadeId: string | null; datasVagas: SugestaoDatas | null; aoMudar: (t: string) => void; aoErro: (t: string) => void;
+function CartaoRegra({ regra, catalogo, pode, unidadeId, datasVagas, retorno, aoMudar, aoErro }: {
+  regra: Regra; catalogo: Catalogo[TipoRegra]; pode: boolean; unidadeId: string | null; datasVagas: SugestaoDatas | null; retorno: Retorno | null;
+  aoMudar: (r: Retorno, salva?: Regra) => void; aoErro: (t: string) => void;
 }) {
   const [f, setF] = useState(regra);
   const [ocupado, setOcupado] = useState(false);
   const [simulacao, setSimulacao] = useState<Simulacao | null>(null);
   const sujo = JSON.stringify(f) !== JSON.stringify(regra);
-  async function enviar(corpo: Record<string, unknown>, ok: string) {
+  async function enviar(corpo: Record<string, unknown>, ok: string | ((salva: Regra | undefined) => Retorno)) {
     setOcupado(true);
-    try { const r = await enviarMarketing<{ simulacao?: Simulacao }>('/api/admin/marketing/automacoes', corpo); if (r.simulacao) setSimulacao(r.simulacao); else aoMudar(ok); }
+    try {
+      const r = await enviarMarketing<{ simulacao?: Simulacao; regra?: Regra }>('/api/admin/marketing/automacoes', corpo);
+      if (r.simulacao) setSimulacao(r.simulacao);
+      else aoMudar(typeof ok === 'function' ? ok(r.regra) : { tipo: 'ok', texto: ok }, r.regra);
+    }
     catch (e) { aoErro(e instanceof Error ? e.message : 'Não foi possível concluir.'); }
     finally { setOcupado(false); }
   }
   const salvar = () => enviar({ acao: 'salvar-regra', tipo: regra.tipo, unidadeId, versao: regra.versao, acaoRegra: f.acao, esperaDias: f.esperaDias, janelaInicio: f.janelaInicio,
     janelaFim: f.janelaFim, fuso: f.fuso, fimDeSemana: f.fimDeSemana, limiteFrequenciaDias: f.limiteFrequenciaDias, maxTentativas: f.maxTentativas,
     templateTexto: f.acao === 'MENSAGEM_WHATSAPP' ? f.templateTexto : regra.templateTexto, templateProvedor: f.acao === 'MENSAGEM_WHATSAPP' ? f.templateProvedor : regra.templateProvedor },
-    regra.status === 'ATIVA' ? 'Regra salva e continua ativa.' : 'Regra salva como rascunho (não está ativa).');
+    // Retorno pelo que o servidor DEVOLVEU: salvar texto/modelo de mensagem ativa a pausa (ver salvarRegra).
+    (salva) => (salva ? retornoAoSalvarRegra(regra, salva) : { tipo: 'ok', texto: 'Regra salva.' }));
   const statusClasse = regra.status === 'ATIVA' ? styles.seloAtivo : regra.status === 'PAUSADA' ? styles.seloAlerta : styles.selo;
 
   if (regra.tipo === 'DATAS_VAGAS') return <section className={styles.cartao} aria-label={catalogo.nome}>
@@ -190,6 +205,7 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, datasVagas, aoMudar, ao
         </details>
       </Passo>
       <Passo n={mensagem ? 6 : 5} titulo="Revisar, simular e ativar">
+        {regra.status === 'ATIVA' && sujo && mensagem && (textoMudou || !regra.templateRevisadoEm) && <p className={styles.aviso} role="status">Ao salvar, esta regra será PAUSADA: o texto da mensagem precisa de uma nova revisão e o que estava agendado é cancelado.</p>}
         {regra.status === 'ATIVA' && <p className={styles.muted}>Esta regra está ativa. Salvar prazo, horários ou ação mantém a regra ativa, e o que já está agendado é conferido de novo com a regra atual antes de agir.{mensagem ? ' Mudar o texto ou o modelo pausa a regra e cancela as mensagens agendadas até uma nova revisão.' : ''}</p>}
         {pode ? <div className={styles.acoes}>
           <button type="button" className={styles.secundario} disabled={ocupado || !sujo} onClick={() => void salvar()}>{regra.status === 'ATIVA' ? 'Salvar alterações' : 'Salvar rascunho'}</button>
@@ -202,6 +218,7 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, datasVagas, aoMudar, ao
           {regra.id && regra.status === 'ATIVA' && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => { if (window.confirm('Pausar a regra? O que estava agendado é cancelado.')) void enviar({ acao: 'pausar', regraId: regra.id }, 'Regra pausada; agendadas canceladas.'); }}>Pausar</button>}
         </div> : <p className={styles.muted}>Somente visualização.</p>}
         {!regra.id && <p className={styles.muted}>Ainda não configurada: salve para poder simular e ativar.</p>}
+        {retorno && <p className={retorno.tipo === 'alerta' ? styles.aviso : styles.info} role="status">{retorno.texto}</p>}
       </Passo>
     </ol>
     {simulacao && <div className={styles.info} role="status">

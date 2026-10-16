@@ -59,6 +59,10 @@
 .definicoes dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 12px 0 0; }
 .definicoes dt { color: var(--km-text); font-weight: 600; }
 .definicoes dd { margin: 0; }
+.definicoes + .definicoes { margin-top: 12px; }
+.fluxoAtribuicao { margin: 12px 0; padding-left: 22px; display: grid; gap: 8px; line-height: 1.5; }
+.fluxoAtribuicao strong { color: var(--km-text); }
+.definicoes a { color: var(--km-lilac); }
 .datas { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 0; }
 .datas li { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--km-border); font-size: 13px; }
 .datas li[data-fds="true"] { border-color: color-mix(in srgb, var(--km-teal) 50%, transparent); color: var(--km-teal); }

@@ -8,29 +8,38 @@ import styles from './marketing.module.css';
 export type RespostaApi<T> = { ok: true; data: T } | { ok: false; erro?: string; codigo?: string; detalhes?: Record<string, unknown> | null };
 export type FalhaCarga = { mensagem: string; codigo: string | null; status: number };
 
-/** Leitura de uma API de Marketing com estados de carregamento, erro e acesso negado (plano ou permissão). */
+/**
+ * Leitura de uma API de Marketing com estados de carregamento, erro e acesso negado (plano ou permissão).
+ * `dadosDe` diz de qual URL vieram os dados exibidos: ao trocar de filtro (ex.: unidade), `dados` continua com a resposta
+ * anterior até a nova chegar — telas que editam precisam conferir `dadosDe === url` antes de permitir ação.
+ * `setDados` aceita função (atualiza sobre o estado mais recente, não sobre uma cópia antiga) e mantém a origem.
+ */
 export function useMarketing<T>(url: string | null) {
-  const [dados, setDados] = useState<T | null>(null);
+  const [estado, setEstado] = useState<{ de: string; dados: T } | null>(null);
   const [falha, setFalha] = useState<FalhaCarga | null>(null);
   const [versao, setVersao] = useState(0);
   // Carregando = a última resposta recebida não é da consulta atual (url + versão); derivado, sem setState no efeito.
   const [respondida, setRespondida] = useState<string | null>(null);
   const consulta = url ? `${versao}:${url}` : null;
   const recarregar = useCallback(() => setVersao((v) => v + 1), []);
+  const setDados = useCallback((valor: T | ((atual: T) => T)) => setEstado((atual) => {
+    if (typeof valor !== 'function') return { de: atual?.de ?? '', dados: valor };
+    return atual ? { de: atual.de, dados: (valor as (a: T) => T)(atual.dados) } : atual;
+  }), []);
   useEffect(() => {
     if (!url || !consulta) return;
     let ativo = true;
     adminFetch(url).then(async (resposta) => {
       const corpo = await resposta.json().catch(() => null) as RespostaApi<T> | null;
       if (!ativo) return;
-      if (corpo?.ok) { setDados(corpo.data); setFalha(null); }
+      if (corpo?.ok) { setEstado({ de: url, dados: corpo.data }); setFalha(null); }
       else setFalha({ mensagem: (corpo && !corpo.ok && corpo.erro) || 'Não foi possível carregar.', codigo: (corpo && !corpo.ok && corpo.codigo) || null, status: resposta.status });
     }).catch((e: unknown) => {
       if (ativo) setFalha({ mensagem: e instanceof Error ? e.message : 'Não foi possível carregar.', codigo: null, status: 0 });
     }).finally(() => { if (ativo) setRespondida(consulta); });
     return () => { ativo = false; };
   }, [url, consulta]);
-  return { dados, falha, carregando: consulta !== null && respondida !== consulta, recarregar, setDados };
+  return { dados: estado?.dados ?? null, dadosDe: estado?.de ?? null, falha, carregando: consulta !== null && respondida !== consulta, recarregar, setDados };
 }
 
 /** Envio (POST JSON) com o mesmo tratamento de erro; devolve os dados ou lança Error com a mensagem do servidor. */

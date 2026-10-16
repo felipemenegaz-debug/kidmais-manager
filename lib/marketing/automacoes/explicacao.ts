@@ -96,3 +96,20 @@ export const QUEM_RECEBE = [
 
 /** Dados FICTÍCIOS da prévia da mensagem (identificados como tal na tela). */
 export const EXEMPLO_FICTICIO = { nome: "Ana Exemplo", buffet: "Seu Buffet", dataFesta: "2027-03-20" };
+
+type RegraSalva = { status: "RASCUNHO" | "ATIVA" | "PAUSADA" | "NAO_CONFIGURADA"; acao: AcaoRegra; templateRevisadoEm: string | null };
+
+/**
+ * Retorno de "salvar regra" a partir da regra DEVOLVIDA pelo servidor (não do estado anterior da tela). `salvarRegra`
+ * pausa uma regra ativa de mensagem quando o texto/modelo muda ou quando a ação vira mensagem sem texto revisado, e
+ * cancela o que estava agendado; prazo, horários e tarefa mantêm a regra ativa.
+ */
+export function retornoAoSalvarRegra(antes: Pick<RegraSalva, "status">, salva: RegraSalva): { tipo: "ok" | "alerta"; texto: string } {
+  const precisaRevisao = salva.acao === "MENSAGEM_WHATSAPP" && !salva.templateRevisadoEm;
+  if (salva.status === "ATIVA") return { tipo: "ok", texto: "Regra salva e continua ativa. O que já estava agendado é conferido de novo com a regra atual antes de agir." };
+  if (salva.status === "PAUSADA" && antes.status === "ATIVA") {
+    return { tipo: "alerta", texto: "Regra salva e PAUSADA: o texto da mensagem precisa de uma nova revisão. As mensagens que estavam agendadas foram canceladas. Revise o texto e ative de novo." };
+  }
+  if (salva.status === "PAUSADA") return { tipo: "ok", texto: precisaRevisao ? "Regra salva; continua pausada. Revise o texto antes de ativar." : "Regra salva; continua pausada." };
+  return { tipo: "ok", texto: precisaRevisao ? "Regra salva como rascunho (não está ativa). Revise o texto antes de ativar." : "Regra salva como rascunho (não está ativa)." };
+}

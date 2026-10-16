@@ -5,6 +5,7 @@ import type { OpcaoOrigem } from '@/lib/marketing/origens';
 import { CANAIS_CAMPANHA_UI, ROTULO_CANAL_UI, linkDaCampanha } from '@/lib/marketing/campanhas-ui';
 import { centavosDeTexto, dataBr, reais, ROTULO_STATUS_CAMPANHA } from '@/lib/marketing/apresentacao';
 import { AdminPrimaryButton } from '../AdminPrimaryButton';
+import { AtribuicaoExplicada } from './AtribuicaoExplicada';
 import { CabecalhoMarketing, EstadoCarga, enviarMarketing, useMarketing } from './comum';
 import styles from './marketing.module.css';
 
@@ -88,6 +89,7 @@ export default function MarketingCampanhas() {
     <div className={styles.filtros}><label className={styles.check}><input type="checkbox" checked={arquivadas} onChange={(e) => setArquivadas(e.target.checked)} /> Mostrar arquivadas</label></div>
     {aviso && !form && <p className={styles.aviso} role="alert">{aviso}</p>}
     <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
+    {dados && <section className={styles.cartao} aria-label="Da campanha ao contrato"><AtribuicaoExplicada /></section>}
     {dados && <>
       {dados.sites.length === 0 && <p className={styles.info}>Ainda não há site publicado para receber os links. Monte o site em <a href="/admin/marketing/site">Site e SEO</a>; a campanha pode ser criada antes.</p>}
       {dados.campanhas.length === 0 ? <section className={styles.cartao}><p className={styles.vazio}>Nenhuma campanha {arquivadas ? '' : 'ativa ou pausada '}ainda.</p></section>

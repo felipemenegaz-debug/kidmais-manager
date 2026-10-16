@@ -9,7 +9,9 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import { dataHoraBr, ROTULO_ESTADO_SITE, rotuloDominio } from '@/lib/marketing/apresentacao';
 import SitePublicoPagina from '@/components/marketing/site/SitePublicoPagina';
 import { AdminPrimaryButton } from '../AdminPrimaryButton';
+import { useRouter } from 'next/navigation';
 import { CabecalhoMarketing, EstadoCarga, enviarMarketing, useMarketing } from './comum';
+import { useProtecaoDeSaida } from './protecao-saida';
 import styles from './marketing.module.css';
 import ed from './site-editor.module.css';
 
@@ -45,60 +47,128 @@ function conteudoDaPrevia(rascunho: ConteudoSite, servidor: ConteudoPublicado | 
 }
 
 export default function MarketingSite() {
+  const router = useRouter();
   const [unidadeId, setUnidadeId] = useState('');
   const url = `/api/admin/marketing/site${unidadeId ? `?unidadeId=${unidadeId}` : ''}`;
-  const { dados, falha, carregando, recarregar, setDados } = useMarketing<Dados>(url);
-  // Edição local amarrada à versão do rascunho no servidor: salvou/recarregou (nova versão) = edição local descartada.
+  const { dados: carregados, dadosDe, falha, carregando, recarregar, setDados } = useMarketing<Dados>(url);
+  // Só os dados da unidade SELECIONADA ficam acionáveis. Enquanto a nova unidade carrega (ou se a leitura falhou),
+  // o conteúdo da anterior não aparece sob o rótulo novo. A lista de unidades é da empresa e vale para qualquer resposta.
+  const dados = dadosDe === url ? carregados : null;
+  const unidades = carregados?.unidades ?? [];
+  // Edição local amarrada à versão do rascunho no servidor (site + versão). Ao salvar, o que foi digitado DEPOIS do envio
+  // é reconciliado para a versão nova e continua "não salvo" (ver `salvar`).
   const [edicao, setEdicao] = useState<{ chave: string; conteudo: ConteudoSite } | null>(null);
   const [slugEditado, setSlugEditado] = useState<{ chave: string; slug: string } | null>(null);
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  // Operações em andamento (salvar, publicar, fotos, domínio): enquanto houver, a unidade não pode ser trocada.
+  const [pendentes, setPendentes] = useState(0);
   const [salvando, setSalvando] = useState<'salvando' | 'erro' | null>(null);
   const [aba, setAba] = useState<Aba>('identidade');
   const [modo, setModo] = useState<'editar' | 'previa'>('editar');
   const [largura, setLargura] = useState<'desktop' | 'celular'>('desktop');
+  const [trocaPedida, setTrocaPedida] = useState<string | null>(null);
   const chave = dados?.site ? `${dados.site.id}:${dados.site.rascunhoVersao}` : 'novo';
   const sujo = edicao?.chave === chave;
   const conteudo: ConteudoSite | null = dados?.site ? (sujo ? edicao!.conteudo : dados.site.rascunho) : null;
   const versaoRascunho = dados?.site?.rascunhoVersao ?? 0;
-  const slug = slugEditado?.chave === chave ? slugEditado.slug : dados?.site?.slug ?? '';
-  const setSlug = (valor: string) => setSlugEditado({ chave, slug: valor });
+  const chaveSlug = dados?.site ? dados.site.id : `novo:${unidadeId}`;
+  const slug = slugEditado?.chave === chaveSlug ? slugEditado.slug : dados?.site?.slug ?? '';
+  const setSlug = (valor: string) => setSlugEditado({ chave: chaveSlug, slug: valor });
   const estadoSalvar: EstadoSalvar = salvando === 'salvando' ? 'salvando' : sujo ? (salvando === 'erro' ? 'erro' : 'sujo') : 'salvo';
-  useEffect(() => {
-    if (!sujo) return;
-    const sair = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener('beforeunload', sair);
-    return () => window.removeEventListener('beforeunload', sair);
-  }, [sujo]);
 
   const pode = (c: string) => dados?.capacidades.includes(c) ?? false;
   const podeEditar = pode('MARKETING_SITE_EDITAR');
-  const editar = (alteracao: (c: ConteudoSite) => ConteudoSite) => { if (conteudo && podeEditar) { setEdicao({ chave, conteudo: alteracao(conteudo) }); if (salvando === 'erro') setSalvando(null); } };
-  const nomeUnidade = unidadeId ? dados?.unidades.find((u) => u.id === unidadeId)?.nome ?? 'unidade' : 'empresa (sem unidade)';
+  const nomeUnidade = unidadeId ? unidades.find((u) => u.id === unidadeId)?.nome ?? 'unidade' : 'empresa (sem unidade)';
 
-  async function acao(corpo: Record<string, unknown>, sucesso: string, deSalvar = false) {
-    setOcupado(true); setAviso(null); if (deSalvar) setSalvando('salvando');
+  // Estado mais recente para handlers que concluem depois de um `await` (fotos, remoção, salvar): nunca uma cópia antiga.
+  const atual = useRef({ url, chave, rascunho: dados?.site?.rascunho ?? null, siteId: dados?.site?.id ?? null, podeEditar, edicao, capacidades: dados?.capacidades ?? [] });
+  useEffect(() => { atual.current = { url, chave, rascunho: dados?.site?.rascunho ?? null, siteId: dados?.site?.id ?? null, podeEditar, edicao, capacidades: dados?.capacidades ?? [] }; });
+  const emOperacao = useRef(false);
+
+  const editar = (alteracao: (c: ConteudoSite) => ConteudoSite, doSite?: string) => {
+    const a = atual.current;
+    const base = a.rascunho;
+    if (!base || !a.podeEditar || (doSite && doSite !== a.siteId)) return;
+    setEdicao((e) => ({ chave: a.chave, conteudo: alteracao(e?.chave === a.chave ? e.conteudo : base) }));
+    setSalvando((s) => (s === 'erro' ? null : s));
+  };
+  /** Conta a operação como pendente (bloqueia trocar de unidade) até terminar, com sucesso ou erro. */
+  async function rastrear<T>(p: () => Promise<T>): Promise<T> {
+    setPendentes((n) => n + 1);
+    try { return await p(); } finally { setPendentes((n) => n - 1); }
+  }
+  /** Imagens/domínios devolvidos pela API: aplicados sobre os dados atuais e só se ainda forem do mesmo site. */
+  const atualizarDoSite = (siteId: string, f: (d: Dados) => Dados) => setDados((d) => (d.site?.id === siteId ? f(d) : d));
+
+  async function acao(corpo: Record<string, unknown>, sucesso: string, opcoes: { deSalvar?: boolean; aoConcluir?: (novo: Dados) => string | void } = {}): Promise<boolean> {
+    if (emOperacao.current) return false; // clique repetido antes de a tela atualizar
+    emOperacao.current = true;
+    const de = atual.current.url;
+    setOcupado(true); setAviso(null); if (opcoes.deSalvar) setSalvando('salvando');
     try {
-      const novo = await enviarMarketing<Dados>('/api/admin/marketing/site', corpo);
-      setDados({ ...novo, capacidades: dados?.capacidades ?? [] });
-      setAviso({ tipo: 'ok', texto: [sucesso, ...(novo.avisos ?? [])].join(' ') });
-      if (deSalvar) setSalvando(null);
+      const novo = await rastrear(() => enviarMarketing<Dados>('/api/admin/marketing/site', corpo));
+      if (atual.current.url !== de) { setAviso({ tipo: 'ok', texto: `${sucesso} (site de outra unidade; esta tela não foi alterada)` }); return true; }
+      setDados({ ...novo, capacidades: atual.current.capacidades });
+      const extra = opcoes.aoConcluir?.(novo);
+      setAviso({ tipo: 'ok', texto: [sucesso, extra, ...(novo.avisos ?? [])].filter(Boolean).join(' ') });
+      if (opcoes.deSalvar) setSalvando(null);
+      return true;
     } catch (e) {
       setAviso({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível concluir.' });
-      if (deSalvar) setSalvando('erro');
-    } finally { setOcupado(false); }
+      if (opcoes.deSalvar) setSalvando('erro');
+      return false;
+    } finally { emOperacao.current = false; setOcupado(false); }
   }
-  const salvar = () => conteudo && dados?.site && acao({ acao: 'salvar', siteId: dados.site.id, rascunhoVersao: versaoRascunho, conteudo }, 'Rascunho salvo. Nada mudou no site publicado.', true);
-  const trocarUnidade = (valor: string) => { if (!sujo || window.confirm(`Há alterações não salvas no site da ${nomeUnidade}. Descartar e trocar de unidade?`)) { setEdicao(null); setUnidadeId(valor); } };
+  /** "ok" = tudo salvo; "restou" = salvou o enviado, mas há alterações feitas durante o envio; "erro" = nada mudou. */
+  async function salvar(): Promise<'ok' | 'restou' | 'erro'> {
+    const a = atual.current;
+    if (!a.siteId || !conteudo || !sujo) return sujo ? 'erro' : 'ok';
+    const enviado = conteudo, chaveEnviada = a.chave;
+    let restou = false;
+    const ok = await acao({ acao: 'salvar', siteId: a.siteId, rascunhoVersao: versaoRascunho, conteudo: enviado }, 'Rascunho salvo. Nada mudou no site publicado.', {
+      deSalvar: true,
+      aoConcluir: (novo) => {
+        const chaveNova = novo.site ? `${novo.site.id}:${novo.site.rascunhoVersao}` : 'novo';
+        const depois = atual.current.edicao;
+        const houveMais = Boolean(depois && depois.chave === chaveEnviada && depois.conteudo !== enviado);
+        // Só o que foi enviado está salvo; o que foi digitado durante o envio passa para a versão nova como NÃO salvo.
+        setEdicao((e) => (e && e.chave === chaveEnviada && e.conteudo !== enviado ? { chave: chaveNova, conteudo: e.conteudo } : null));
+        restou = houveMais;
+        return houveMais ? 'O que você alterou durante o salvamento continua marcado como não salvo.' : undefined;
+      },
+    });
+    return ok ? (restou ? 'restou' : 'ok') : 'erro';
+  }
+  const trocarUnidade = (valor: string) => {
+    if (pendentes > 0 || valor === unidadeId) return;
+    if (sujo) { setTrocaPedida(valor); return; }
+    setEdicao(null); setAviso(null); setUnidadeId(valor);
+  };
+  const protecao = useProtecaoDeSaida(sujo, (href, substituir) => (substituir ? router.replace(href) : router.push(href)));
+  const dialogo = trocaPedida !== null ? { titulo: `Trocar para o site da ${trocaPedida ? unidades.find((u) => u.id === trocaPedida)?.nome ?? 'unidade' : 'empresa (sem unidade)'}?`, acao: 'trocar' as const }
+    : protecao.pendente ? { titulo: 'Sair do editor?', acao: 'sair' as const } : null;
+  const fecharDialogo = () => { if (trocaPedida !== null) setTrocaPedida(null); else protecao.permanecer(); };
+  const descartar = () => {
+    setEdicao(null);
+    if (trocaPedida !== null) { const v = trocaPedida; setTrocaPedida(null); setAviso(null); setUnidadeId(v); } else protecao.sair();
+  };
+  const salvarEContinuar = async () => {
+    const r = await salvar();
+    // Erro: fica no editor, com o conteúdo e o aviso. Alterado durante o envio: também fica (sair perderia o que restou).
+    if (r !== 'ok') { fecharDialogo(); return; }
+    if (trocaPedida !== null) { const v = trocaPedida; setTrocaPedida(null); setEdicao(null); setUnidadeId(v); } else protecao.sair();
+  };
 
   const previaConteudo = conteudo ? conteudoDaPrevia(conteudo, dados?.previa?.conteudo, dados?.pacotesDisponiveis ?? []) : null;
+  const bloqueadoPorOperacao = pendentes > 0;
 
   return <main className={styles.pagina}>
     <CabecalhoMarketing titulo="Site e SEO" descricao="Monte o site de cada unidade: identidade, fotos, conteúdo e pacotes, com prévia ao lado. Salvar não publica — só o que você publicar aparece para os visitantes." />
-    {dados && dados.unidades.length > 0 && <div className={styles.filtros}><label>Editando o site da<select value={unidadeId} onChange={(e) => trocarUnidade(e.target.value)}>
-      <option value="">Empresa (sem unidade)</option>{dados.unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>
-      <span className={styles.muted}>Cada unidade tem o próprio site; mudanças aqui não alteram as outras unidades.</span></div>}
-    <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
+    {unidades.length > 0 && <div className={styles.filtros}><label>Editando o site da<select value={unidadeId} disabled={bloqueadoPorOperacao} aria-describedby="unidade-ajuda" onChange={(e) => trocarUnidade(e.target.value)}>
+      <option value="">Empresa (sem unidade)</option>{unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></label>
+      <span id="unidade-ajuda" className={styles.muted}>{bloqueadoPorOperacao ? 'Aguarde a operação em andamento terminar para trocar de unidade.' : 'Cada unidade tem o próprio site; mudanças aqui não alteram as outras unidades.'}</span></div>}
+    <EstadoCarga carregando={carregando && !dados} falha={dados ? null : falha} aoTentar={recarregar} />
     {dados && !dados.ambiente.sitesPublicos && <p className={styles.aviso}>A publicação está desligada neste ambiente (MARKETING_SITES_PUBLICOS). Você pode editar e publicar, mas a página pública só abre quando o servidor ligar o recurso.</p>}
     {aviso && <p className={aviso.tipo === 'ok' ? styles.info : styles.aviso} role={aviso.tipo === 'ok' ? 'status' : 'alert'}>{aviso.texto}</p>}
     {dados && !dados.site && <section className={styles.cartao}>
@@ -106,7 +176,7 @@ export default function MarketingSite() {
       <p>O rascunho começa com o nome comercial, endereço e contatos do cadastro aplicado da empresa. Você escolhe o que publicar.</p>
       {podeEditar ? <div className={styles.filtros}>
         <label>Endereço (opcional)<input value={slug} placeholder="ex.: buffet-alegria" pattern="[a-z][a-z0-9-]{1,62}[a-z0-9]" onChange={(e) => setSlug(e.target.value.toLowerCase())} /></label>
-        <AdminPrimaryButton type="button" carregando={ocupado} onClick={() => void acao({ acao: 'criar', unidadeId: unidadeId || null, ...(slug ? { slug } : {}) }, 'Site criado como rascunho.')}>Criar rascunho</AdminPrimaryButton>
+        <AdminPrimaryButton type="button" carregando={ocupado} onClick={() => void acao({ acao: 'criar', unidadeId: unidadeId || null, ...(slug ? { slug } : {}) }, 'Site criado como rascunho.', { aoConcluir: () => { setSlugEditado(null); } })}>Criar rascunho</AdminPrimaryButton>
       </div> : <p className={styles.muted}>Seu acesso não inclui editar o site.</p>}
     </section>}
 
@@ -139,15 +209,16 @@ export default function MarketingSite() {
           <fieldset disabled={!podeEditar} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <div role="tabpanel" id={`painel-${aba}`} aria-labelledby={`aba-${aba}`}>
               {aba === 'identidade' && <AbaIdentidade conteudo={conteudo} editar={editar} imagens={dados.imagens ?? []} />}
-              {aba === 'fotos' && <AbaFotos siteId={dados.site.id} imagens={dados.imagens ?? []} conteudo={conteudo} editar={editar} podeEditar={podeEditar}
-                aoMudar={(imagens) => setDados({ ...dados, imagens })} />}
+              {aba === 'fotos' && <AbaFotos siteId={dados.site.id} imagens={dados.imagens ?? []} conteudo={conteudo} editar={editar} podeEditar={podeEditar} rastrear={rastrear}
+                aoMudar={(siteId, imagens) => atualizarDoSite(siteId, (d) => ({ ...d, imagens }))} />}
               {aba === 'conteudo' && <AbaConteudo conteudo={conteudo} editar={editar} />}
               {aba === 'pacotes' && <AbaPacotes conteudo={conteudo} editar={editar} disponiveis={dados.pacotesDisponiveis ?? []} imagens={dados.imagens ?? []} />}
             </div>
           </fieldset>
           {aba === 'publicacao' && <div role="tabpanel" id="painel-publicacao" aria-labelledby="aba-publicacao">
             <AbaPublicacao dados={dados} conteudo={conteudo} editar={editar} podeEditar={podeEditar} slug={slug} setSlug={setSlug} versaoRascunho={versaoRascunho}
-              ocupado={ocupado} acao={acao} unidadeId={unidadeId} nomeUnidade={nomeUnidade} setDados={setDados} />
+              ocupado={ocupado} acao={(corpo, texto) => acao(corpo, texto, corpo.acao === 'endereco' ? { aoConcluir: () => { setSlugEditado(null); } } : {})} unidadeId={unidadeId} nomeUnidade={nomeUnidade}
+              rastrear={rastrear} aoMudarDominios={(siteId, dominios) => atualizarDoSite(siteId, (d) => ({ ...d, dominios }))} />
           </div>}
         </div>
 
@@ -170,7 +241,30 @@ export default function MarketingSite() {
         </aside>
       </div>
     </>}
+    {dialogo && <DialogoAlteracoes titulo={dialogo.titulo} nomeUnidade={nomeUnidade} acao={dialogo.acao} podeSalvar={podeEditar} salvandoAgora={estadoSalvar === 'salvando'}
+      aoPermanecer={fecharDialogo} aoDescartar={descartar} aoSalvar={() => void salvarEContinuar()} />}
   </main>;
+}
+
+/**
+ * Confirmação ao sair do editor (ou trocar de unidade) com alterações não salvas. `<dialog>` modal nativo: foco preso,
+ * Esc = permanecer, foco inicial em "Continuar editando". "Salvar e …" só segue depois do sucesso; com erro, fica.
+ */
+function DialogoAlteracoes({ titulo, nomeUnidade, acao, podeSalvar, salvandoAgora, aoPermanecer, aoDescartar, aoSalvar }: {
+  titulo: string; nomeUnidade: string; acao: 'sair' | 'trocar'; podeSalvar: boolean; salvandoAgora: boolean; aoPermanecer: () => void; aoDescartar: () => void; aoSalvar: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => { const d = ref.current; if (d && !d.open) d.showModal(); }, []);
+  return <dialog ref={ref} className={ed.dialogo} aria-labelledby="dialogo-alteracoes-titulo" aria-describedby="dialogo-alteracoes-texto"
+    onCancel={(e) => { e.preventDefault(); aoPermanecer(); }}>
+    <h2 id="dialogo-alteracoes-titulo">{titulo}</h2>
+    <p id="dialogo-alteracoes-texto">O site da {nomeUnidade} tem alterações que ainda não foram salvas. {acao === 'sair' ? 'Se sair agora sem salvar, elas se perdem.' : 'Se trocar agora sem salvar, elas se perdem.'}</p>
+    <div className={styles.acoes}>
+      <button type="button" className={styles.secundario} autoFocus onClick={aoPermanecer}>Continuar editando</button>
+      {podeSalvar && <AdminPrimaryButton type="button" carregando={salvandoAgora} onClick={aoSalvar}>{acao === 'sair' ? 'Salvar e sair' : 'Salvar e trocar'}</AdminPrimaryButton>}
+      <button type="button" className={styles.perigo} disabled={salvandoAgora} onClick={aoDescartar}>{acao === 'sair' ? 'Sair sem salvar' : 'Trocar sem salvar'}</button>
+    </div>
+  </dialog>;
 }
 
 function Abas({ aba, setAba }: { aba: Aba; setAba: (a: Aba) => void }) {
@@ -193,7 +287,8 @@ function Secao({ titulo, children, descricao }: { titulo: string; children: Reac
 function Campo({ rotulo, children }: { rotulo: string; children: ReactNode }) {
   return <label className={styles.campo}>{rotulo}{children}</label>;
 }
-type Editar = (f: (c: ConteudoSite) => ConteudoSite) => void;
+type Editar = (f: (c: ConteudoSite) => ConteudoSite, doSite?: string) => void;
+type Rastrear = <T>(p: () => Promise<T>) => Promise<T>;
 
 function AbaIdentidade({ conteudo, editar, imagens }: { conteudo: ConteudoSite; editar: Editar; imagens: Imagem[] }) {
   const estilo = conteudo.aparencia.estilo;
@@ -257,8 +352,8 @@ function CorPersonalizada({ rotulo, valor, aoMudar }: { rotulo: string; valor: s
   </span></label>;
 }
 
-function AbaFotos({ siteId, imagens, conteudo, editar, podeEditar, aoMudar }: {
-  siteId: string; imagens: Imagem[]; conteudo: ConteudoSite; editar: Editar; podeEditar: boolean; aoMudar: (i: Imagem[]) => void;
+function AbaFotos({ siteId, imagens, conteudo, editar, podeEditar, aoMudar, rastrear }: {
+  siteId: string; imagens: Imagem[]; conteudo: ConteudoSite; editar: Editar; podeEditar: boolean; aoMudar: (siteId: string, i: Imagem[]) => void; rastrear: Rastrear;
 }) {
   const arquivo = useRef<HTMLInputElement>(null);
   const [progresso, setProgresso] = useState<{ atual: number; total: number } | null>(null);
@@ -268,7 +363,7 @@ function AbaFotos({ siteId, imagens, conteudo, editar, podeEditar, aoMudar }: {
     if (!arquivos.length) return;
     setErros([]);
     let ultima: Imagem[] | null = null;
-    for (const [n, f] of arquivos.entries()) {
+    await rastrear(async () => { for (const [n, f] of arquivos.entries()) {
       setProgresso({ atual: n + 1, total: arquivos.length });
       try {
         const form = new FormData(); form.set('siteId', siteId); form.set('arquivo', f);
@@ -276,18 +371,19 @@ function AbaFotos({ siteId, imagens, conteudo, editar, podeEditar, aoMudar }: {
         if (!corpo.ok) throw new Error(corpo.erro ?? 'não foi possível enviar.');
         ultima = corpo.data.imagens;
       } catch (e) { setErros((x) => [...x, `${f.name}: ${e instanceof Error ? e.message : 'não foi possível enviar.'}`]); }
-    }
-    if (ultima) aoMudar(ultima);
+    } });
+    if (ultima) aoMudar(siteId, ultima);
     setProgresso(null);
     if (arquivo.current) arquivo.current.value = '';
   }
   async function remover(id: string) {
     if (!window.confirm('Remover a foto? Se estiver no site publicado, deixa de ser servida na hora (cópias em cache do navegador podem durar até 5 min).')) return;
     try {
-      const r = await enviarMarketing<{ imagens: Imagem[] }>(`/api/admin/marketing/site/imagens/${id}`, { acao: 'remover', siteId });
-      aoMudar(r.imagens);
+      const r = await rastrear(() => enviarMarketing<{ imagens: Imagem[] }>(`/api/admin/marketing/site/imagens/${id}`, { acao: 'remover', siteId }));
+      aoMudar(siteId, r.imagens);
+      // Tira a foto do rascunho EM EDIÇÃO (o mais recente, não uma cópia de antes do envio) e só se ainda for o mesmo site.
       editar((c) => ({ ...c, identidade: { ...c.identidade, logoImagemId: c.identidade.logoImagemId === id ? null : c.identidade.logoImagemId },
-        galeria: c.galeria.filter((g) => g.imagemId !== id), pacotes: c.pacotes.map((p) => (p.imagemId === id ? { ...p, imagemId: null } : p)) }));
+        galeria: c.galeria.filter((g) => g.imagemId !== id), pacotes: c.pacotes.map((p) => (p.imagemId === id ? { ...p, imagemId: null } : p)) }), siteId);
     } catch (e) { setErros([e instanceof Error ? e.message : 'Não foi possível remover.']); }
   }
   const pos = (id: string) => conteudo.galeria.findIndex((g) => g.imagemId === id);
@@ -395,9 +491,9 @@ function AbaPacotes({ conteudo, editar, disponiveis, imagens }: { conteudo: Cont
   </Secao>;
 }
 
-function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, versaoRascunho, ocupado, acao, unidadeId, nomeUnidade, setDados }: {
+function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, versaoRascunho, ocupado, acao, unidadeId, nomeUnidade, rastrear, aoMudarDominios }: {
   dados: Dados; conteudo: ConteudoSite; editar: Editar; podeEditar: boolean; slug: string; setSlug: (v: string) => void; versaoRascunho: number; ocupado: boolean;
-  acao: (corpo: Record<string, unknown>, sucesso: string) => Promise<void>; unidadeId: string; nomeUnidade: string; setDados: (d: Dados) => void;
+  acao: (corpo: Record<string, unknown>, sucesso: string) => Promise<boolean>; unidadeId: string; nomeUnidade: string; rastrear: Rastrear; aoMudarDominios: (siteId: string, d: Dominio[]) => void;
 }) {
   const site = dados.site!;
   const pode = (c: string) => dados.capacidades.includes(c);
@@ -430,7 +526,7 @@ function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, ver
       </Secao>
     </fieldset>
 
-    <Dominios siteId={site.id} dominios={dados.dominios ?? []} ambiente={dados.ambiente} pode={pode('MARKETING_DOMINIO_CONFIGURAR')} aoMudar={(dominios) => setDados({ ...dados, dominios })} />
+    <Dominios siteId={site.id} dominios={dados.dominios ?? []} ambiente={dados.ambiente} pode={pode('MARKETING_DOMINIO_CONFIGURAR')} rastrear={rastrear} aoMudar={(dominios) => aoMudarDominios(site.id, dominios)} />
 
     {(dados.versoes ?? []).length > 0 && <Secao titulo="Versões publicadas">
       <ul className={styles.historico}>{dados.versoes!.map((v) => <li key={v.id}>Versão {v.numero} · {dataHoraBr(v.publicadoEm)}{v.publicadoPor ? ` · ${v.publicadoPor}` : ''}</li>)}</ul>
@@ -439,8 +535,8 @@ function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, ver
   </>;
 }
 
-function Dominios({ siteId, dominios, ambiente, pode, aoMudar }: {
-  siteId: string; dominios: Dominio[]; ambiente: Dados['ambiente']; pode: boolean; aoMudar: (d: Dominio[]) => void;
+function Dominios({ siteId, dominios, ambiente, pode, aoMudar, rastrear }: {
+  siteId: string; dominios: Dominio[]; ambiente: Dados['ambiente']; pode: boolean; aoMudar: (d: Dominio[]) => void; rastrear: Rastrear;
 }) {
   const [host, setHost] = useState('');
   const [www, setWww] = useState(false);
@@ -448,7 +544,7 @@ function Dominios({ siteId, dominios, ambiente, pode, aoMudar }: {
   const [ocupado, setOcupado] = useState(false);
   async function acao(corpo: Record<string, unknown>) {
     setOcupado(true); setErro('');
-    try { const r = await enviarMarketing<{ dominios: Dominio[]; resultado: { status?: string; verificacao?: { detalhe: string } } }>('/api/admin/marketing/dominios', corpo); aoMudar(r.dominios);
+    try { const r = await rastrear(() => enviarMarketing<{ dominios: Dominio[]; resultado: { status?: string; verificacao?: { detalhe: string } } }>('/api/admin/marketing/dominios', corpo)); aoMudar(r.dominios);
       if (r.resultado?.status === 'FALHOU') setErro(r.resultado.verificacao?.detalhe ?? 'Verificação não encontrou os registros.'); }
     catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível concluir.'); }
     finally { setOcupado(false); }

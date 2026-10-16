@@ -6,6 +6,7 @@ import type { OpcaoOrigem } from '@/lib/marketing/origens';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { clientesDaBusca, dataBr, dataHoraBr, ROTULO_STATUS_CONTATO } from '@/lib/marketing/apresentacao';
 import { AdminPrimaryButton } from '../AdminPrimaryButton';
+import { AtribuicaoExplicada } from './AtribuicaoExplicada';
 import { CabecalhoMarketing, EstadoCarga, enviarMarketing, novaChave, useMarketing } from './comum';
 import styles from './marketing.module.css';
 
@@ -40,6 +41,7 @@ export default function MarketingOrigens() {
       {dados.campanhas.length > 0 && <label>Campanha<select value={campanhaId} onChange={(e) => setCampanhaId(e.target.value)}><option value="">Todas</option>{dados.campanhas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></label>}
     </form>}
     <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
+    {dados && <section className={styles.cartao} aria-label="Da campanha ao contrato"><AtribuicaoExplicada /></section>}
     {dados && <>
       <section className={styles.cartao} aria-labelledby="t-contatos">
         <h2 id="t-contatos">Contatos ({dados.contatos.length})</h2>

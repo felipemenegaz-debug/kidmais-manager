@@ -5,6 +5,7 @@ import type { PainelMarketing, LinhaPainel } from '@/lib/marketing/metricas';
 import type { OpcaoOrigem } from '@/lib/marketing/origens';
 import type { SugestaoDatas } from '@/lib/marketing/sugestoes';
 import { dataBr, percentual, reais, receitaContratadaTexto } from '@/lib/marketing/apresentacao';
+import { AtribuicaoExplicada } from './AtribuicaoExplicada';
 import { CabecalhoMarketing, EstadoCarga, useMarketing } from './comum';
 import styles from './marketing.module.css';
 
@@ -84,6 +85,7 @@ export default function MarketingVisao() {
             <dt>Sem evidência</dt><dd>Contato sem link de campanha fica como “desconhecida”; nada é estimado.</dd>
           </dl>
         </details>
+        <AtribuicaoExplicada />
       </section>
       <section className={styles.cartao} aria-labelledby="t-datas">
         <h2 id="t-datas">Datas vagas para divulgar <span className={styles.selo}>sugestão</span></h2>
