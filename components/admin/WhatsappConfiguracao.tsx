@@ -32,6 +32,7 @@ function idsDaMensagem(value: unknown): DadosSessao | null {
 export default function WhatsappConfiguracao() {
   const [data, setData] = useState<Estado | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState('');
   const [senha, setSenha] = useState(''), [ocupado, setOcupado] = useState(false);
+  const [preparado, setPreparado] = useState(false);
   const inicio = useRef<Inicio | null>(null), codigo = useRef<string | null>(null), sessaoMeta = useRef<DadosSessao | null>(null), concluindo = useRef(false);
   const listenerMeta = useRef<((event: MessageEvent) => void) | null>(null);
   const carregar = useCallback(async () => { const r = await adminFetch('/api/admin/configuracoes/whatsapp'), j = await r.json(); if (!j.ok) throw new Error(j.erro); setData(j.data); }, []);
@@ -67,14 +68,35 @@ export default function WhatsappConfiguracao() {
     });
   }
 
-  async function conectar() {
+  async function prepararConexao() {
     setErro(''); setAviso(''); setOcupado(true); codigo.current = null; sessaoMeta.current = null;
+    setPreparado(false); inicio.current = null;
+    if (listenerMeta.current) window.removeEventListener('message', listenerMeta.current);
+    listenerMeta.current = null;
     try {
       // Renovação anunciada: a reautenticação troca a sessão; sem o anúncio a página seria descartada antes de iniciar.
       const reauth = await reautenticarSessao(senha); setSenha(''); if (!reauth.ok) throw new Error(reauth.erro);
       const response = await adminFetch('/api/admin/configuracoes/whatsapp/onboarding/iniciar', { method: 'POST' });
       const body = await response.json(); if (!body.ok) throw new Error(body.erro); inicio.current = body.data;
       const meta = inicio.current!.meta;
+      await carregarSdk(meta);
+      if (!window.FB) throw new Error('SDK da Meta indisponível.');
+      setPreparado(true);
+      setAviso('Tudo pronto. Clique em Continuar na Meta para abrir a janela de autorização.');
+    } catch (e) { inicio.current = null; setErro(e instanceof Error ? e.message : 'Não foi possível preparar a conexão.'); }
+    finally { setOcupado(false); }
+  }
+
+  function abrirMeta() {
+    const tentativa = inicio.current;
+    setErro(''); setAviso('');
+    if (!tentativa || !Number.isFinite(Date.parse(tentativa.expiraEm)) || Date.parse(tentativa.expiraEm) <= Date.now()) {
+      inicio.current = null; setPreparado(false); setErro('A preparação expirou. Confirme sua senha para preparar a conexão novamente.'); return;
+    }
+    if (!window.FB) { inicio.current = null; setPreparado(false); setErro('SDK da Meta indisponível. Prepare a conexão novamente.'); return; }
+    setOcupado(true); setPreparado(false);
+    try {
+      const meta = tentativa.meta;
       const listener = (event: MessageEvent) => {
         if (!inicio.current || !meta.messageOrigins.includes(event.origin)) return;
         let payload: unknown = event.data;
@@ -88,22 +110,25 @@ export default function WhatsappConfiguracao() {
       if (listenerMeta.current) window.removeEventListener('message', listenerMeta.current);
       listenerMeta.current = listener;
       window.addEventListener('message', listener, { once: false });
-      await carregarSdk(meta);
-      if (!window.FB) throw new Error('SDK da Meta indisponível.');
+      // Deve permanecer síncrono no segundo clique: nenhum await antes de FB.login.
       window.FB.login((fb) => {
         const code = fb.authResponse?.code;
-        if (!code) { window.removeEventListener('message', listener); listenerMeta.current = null; setErro('A autorização não foi concluída na Meta.'); setOcupado(false); return; }
+        if (!code) { window.removeEventListener('message', listener); listenerMeta.current = null; inicio.current = null; setAviso(''); setErro('A autorização não foi concluída na Meta. Se a janela não abriu, confira se o navegador bloqueou o pop-up.'); setOcupado(false); return; }
         codigo.current = code; void concluir();
       }, meta.launchOptions);
-      setAviso('Conclua a autorização na janela da Meta e, se solicitado, confirme no WhatsApp Business App.');
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível iniciar a conexão.'); setOcupado(false); }
+      if (inicio.current) setAviso('Conclua a autorização na janela da Meta e, se solicitado, confirme no WhatsApp Business App.');
+    } catch (e) {
+      if (listenerMeta.current) window.removeEventListener('message', listenerMeta.current);
+      listenerMeta.current = null; inicio.current = null;
+      setErro(e instanceof Error ? e.message : 'Não foi possível abrir a Meta.'); setOcupado(false);
+    }
   }
 
   return <main className={styles.page}><VoltarConfiguracoes /><h1>WhatsApp</h1><p>Conecte uma conta pelo fluxo oficial da Meta com suporte ao WhatsApp Business App.</p>
     {erro && <p role="alert">{erro}</p>}{aviso && <p role="status" className={whatsapp.pending}>{aviso}</p>}
     {!data ? <p>Carregando…</p> : <><section className={whatsapp.status}><strong>{rotulos[data.estado] ?? 'Ação necessária'}</strong>{data.conexao ? <><p>{data.conexao.nomeVerificado} · {data.conexao.numeroExibicao}</p><p className={whatsapp.technical}>Conta Meta e número foram conferidos. Webhook, mensagens e OTP permanecem desativados.</p></> : <p>Nenhuma conexão WhatsApp está ativa neste ambiente.</p>}</section>
       {!data.metaConfigurada && <p className={whatsapp.pending}>Configuração Meta pendente. Informe no Render os dados e o snippet atual do Embedded Signup antes de iniciar.</p>}
-      {!data.conexao && <section className={styles.card}><h2>Conectar WhatsApp Business</h2><p>Use somente um número secundário e controlado no staging. O número oficial da Kidmais não deve ser conectado nesta etapa.</p><div className={whatsapp.actions}><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senha || !data.metaConfigurada} onClick={conectar}>Conectar WhatsApp Business</AdminPrimaryButton></div></section>}
+      {!data.conexao && <section className={styles.card}><h2>Conectar WhatsApp Business</h2><p>Use somente um número secundário e controlado no staging. O número oficial da Kidmais não deve ser conectado nesta etapa.</p><div className={whatsapp.actions}>{preparado ? <AdminPrimaryButton onClick={abrirMeta}>Continuar na Meta</AdminPrimaryButton> : <><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senha || !data.metaConfigurada} onClick={prepararConexao}>Preparar conexão</AdminPrimaryButton></>}</div></section>}
       <section className={styles.card}><h2>Próximas etapas</h2><p>Testar envio e Desconectar serão habilitados em blocos posteriores. Nenhuma mensagem ou OTP é enviado por esta tela.</p><button disabled>Testar</button><button disabled>Desconectar</button></section></>}
   </main>;
 }
