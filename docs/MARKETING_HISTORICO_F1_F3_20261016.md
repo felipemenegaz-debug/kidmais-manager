@@ -3,7 +3,9 @@
 **Goal:** nota `Goal Correcoes Historico Marketing F1 F3` no vault.
 **Base:** `a757fa2` (R-H1-F), reprovada em `revisao-marketing-ux-rh1f-a757fa2-parecer-20261016/PARECER.md`. Bloqueante: F1. Médios: F2 e F3. Herdado: F4.
 **Branch:** `codex/marketing-historico-f1-f3-20261016`, worktree `kidmais-manager-marketing-historico-f1f3-20261016`. Só local, sem push.
-**Revisão independente:** pendente. **Aceite humano:** pendente.
+**Revisão independente:** REPROVADO em `revisao-marketing-historico-f1f3-30b93fb-parecer-20261016` (H1, P2; O1, P3). **Aceite humano:** pendente.
+
+> **Atualização H1/O1 (16/10/2026):** a escolha de direção com vigia e a atribuição "todo popstate depois do `go` é dele" descritas abaixo foram substituídas. Ver `docs/MARKETING_HISTORICO_H1_O1_20261016.md`. Premissas desta versão corrigidas lá: um `go(+1)` sem destino não é raro nem barato — uma travessia da pessoa durante o vigia era somada a ele; e a "memória 22" usa stub do hook (não valida a proteção do histórico).
 
 ## Causas (reproduzidas na base com o arquivo real: M-1, M-2 e M-3 FALHA)
 
@@ -31,7 +33,7 @@
 - A volta à entrada indexada do editor usa:
   - **saltos** `history.go(k − j)`, que nunca a ultrapassam;
   - **passos** onde não há índice;
-  - um **vigia** (800 ms sem popstate depois de um `go`): inverte uma vez; depois, encerra sem deixar estado preso.
+  - um **vigia** (800 ms sem popstate depois de um `go`): inverte uma vez; depois, encerra sem deixar estado preso. *(Superado em H1: os movimentos passaram a ter sempre destino; o vigia virou salvaguarda.)*
 - O **destino** é o deslocamento **real**, a soma dos próprios movimentos confirmados por popstate. Não é deduzido de índices.
 - Uma travessia da pessoa durante a volta redefine o destino para onde ela chegou.
 
@@ -71,7 +73,7 @@ Resultados e logs no pacote de revisão.
 ## Limites
 
 - **Ausência da Navigation API simulada no Chrome 155.** Não é Firefox ou Safari nativo.
-- **Interleaving no milissegundo.** Se uma travessia da pessoa e um movimento da correção se intercalarem no mesmo milissegundo, o destino pode refletir a ordem do navegador. O fim é sempre na entrada do editor.
-- **Entrada sem índice com a página dos dois lados.** A direção é tentada e corrigida pelo vigia, o que pode custar até 800 ms numa situação rara. Durante esse tempo a URL mostra a página de saída e o editor continua montado; a volta sempre termina.
+- **Interleaving no milissegundo** *(revisto em H1/O1: a janela é o tempo de atendimento de uma travessia, ~2–6 ms medidos)*. Se uma travessia da pessoa e um movimento da correção se intercalarem no mesmo milissegundo, o destino pode refletir a ordem do navegador. O fim é sempre na entrada do editor.
+- **Entrada sem índice com a página dos dois lados** *(falso como limite raro: era a causa de H1; corrigido em H1/O1)*. A direção é tentada e corrigida pelo vigia, o que pode custar até 800 ms numa situação rara. Durante esse tempo a URL mostra a página de saída e o editor continua montado; a volta sempre termina.
 - **Outro documento:** `beforeunload`.
 - **Escopo:** sem mudança em API, serviço, banco, migrations, regras ou motor.

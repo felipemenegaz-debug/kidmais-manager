@@ -12,6 +12,7 @@ import { AdminPrimaryButton } from '../AdminPrimaryButton';
 import { useRouter } from 'next/navigation';
 import { CabecalhoMarketing, EstadoCarga, enviarMarketing, useMarketing } from './comum';
 import { useProtecaoDeSaida } from './protecao-saida';
+import { conteudoDialogoAlteracoes, type EstadoSalvar } from './dialogo-alteracoes';
 import styles from './marketing.module.css';
 import ed from './site-editor.module.css';
 
@@ -22,7 +23,6 @@ type Dados = {
   dominios?: Dominio[]; pacotesDisponiveis?: PacoteDisponivel[]; enderecos?: { plataforma: string; canonical: string; sitemap: string };
   previa?: { conteudo: ConteudoPublicado; avisos: string[] }; ambiente: { sitesPublicos: boolean; dominiosPersonalizados: boolean; dominioSimuladoServido: boolean }; capacidades: string[]; avisos?: string[];
 };
-type EstadoSalvar = 'salvo' | 'sujo' | 'salvando' | 'erro';
 const ABAS = [['identidade', 'Identidade'], ['fotos', 'Fotos'], ['conteudo', 'Conteúdo'], ['pacotes', 'Pacotes'], ['publicacao', 'Publicação e SEO']] as const;
 type Aba = (typeof ABAS)[number][0];
 const urlImagemAdmin = (id: string) => `/api/admin/marketing/site/imagens/${id}`;
@@ -267,28 +267,32 @@ export default function MarketingSite() {
         </aside>
       </div>
     </>}
-    {dialogo && <DialogoAlteracoes titulo={dialogo.titulo} nomeUnidade={nomeUnidade} acao={dialogo.acao} podeSalvar={podeEditar} salvandoAgora={estadoSalvar === 'salvando'}
+    {dialogo && <DialogoAlteracoes titulo={dialogo.titulo} nomeUnidade={nomeUnidade} acao={dialogo.acao} podeSalvar={podeEditar} estado={estadoSalvar}
       aoPermanecer={fecharDialogo} aoDescartar={descartar} aoSalvar={() => void salvarEContinuar()} />}
   </main>;
 }
 
 /**
- * Confirmação ao sair do editor (ou trocar de unidade) com alterações não salvas. `<dialog>` modal nativo: foco preso,
- * Esc = permanecer, foco inicial em "Continuar editando". "Salvar e …" só segue depois do sucesso; com erro, fica.
+ * Confirmação ao sair do editor (ou trocar de unidade). `<dialog>` modal nativo: foco preso, Esc = permanecer, foco inicial
+ * em "Continuar editando". Texto e ações seguem o estado REAL do salvamento (O1, `conteudoDialogoAlteracoes`). "Salvar e …"
+ * só segue depois do sucesso; com erro, fica. Nada sai sozinho: sair é sempre um clique.
  */
-function DialogoAlteracoes({ titulo, nomeUnidade, acao, podeSalvar, salvandoAgora, aoPermanecer, aoDescartar, aoSalvar }: {
-  titulo: string; nomeUnidade: string; acao: 'sair' | 'trocar'; podeSalvar: boolean; salvandoAgora: boolean; aoPermanecer: () => void; aoDescartar: () => void; aoSalvar: () => void;
+function DialogoAlteracoes({ titulo, nomeUnidade, acao, podeSalvar, estado, aoPermanecer, aoDescartar, aoSalvar }: {
+  titulo: string; nomeUnidade: string; acao: 'sair' | 'trocar'; podeSalvar: boolean; estado: EstadoSalvar; aoPermanecer: () => void; aoDescartar: () => void; aoSalvar: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { const d = ref.current; if (d && !d.open) d.showModal(); }, []);
+  const salvandoAgora = estado === 'salvando';
+  const { texto, acoes } = conteudoDialogoAlteracoes(estado, acao, nomeUnidade, podeSalvar);
   return <dialog ref={ref} className={ed.dialogo} aria-labelledby="dialogo-alteracoes-titulo" aria-describedby="dialogo-alteracoes-texto"
     onCancel={(e) => { e.preventDefault(); aoPermanecer(); }}>
     <h2 id="dialogo-alteracoes-titulo">{titulo}</h2>
-    <p id="dialogo-alteracoes-texto">O site da {nomeUnidade} tem alterações que ainda não foram salvas. {acao === 'sair' ? 'Se sair agora sem salvar, elas se perdem.' : 'Se trocar agora sem salvar, elas se perdem.'}</p>
+    <p id="dialogo-alteracoes-texto">{texto}</p>
     <div className={styles.acoes}>
       <button type="button" className={styles.secundario} autoFocus onClick={aoPermanecer}>Continuar editando</button>
-      {podeSalvar && <AdminPrimaryButton type="button" carregando={salvandoAgora} onClick={aoSalvar}>{acao === 'sair' ? 'Salvar e sair' : 'Salvar e trocar'}</AdminPrimaryButton>}
-      <button type="button" className={styles.perigo} disabled={salvandoAgora} onClick={aoDescartar}>{acao === 'sair' ? 'Sair sem salvar' : 'Trocar sem salvar'}</button>
+      {acoes.includes('sair') && <AdminPrimaryButton type="button" onClick={aoDescartar}>{acao === 'sair' ? 'Sair' : 'Trocar'}</AdminPrimaryButton>}
+      {acoes.includes('salvar-e-sair') && <AdminPrimaryButton type="button" carregando={salvandoAgora} onClick={aoSalvar}>{acao === 'sair' ? 'Salvar e sair' : 'Salvar e trocar'}</AdminPrimaryButton>}
+      {acoes.includes('sair-sem-salvar') && <button type="button" className={styles.perigo} disabled={salvandoAgora} onClick={aoDescartar}>{acao === 'sair' ? 'Sair sem salvar' : 'Trocar sem salvar'}</button>}
     </div>
   </dialog>;
 }

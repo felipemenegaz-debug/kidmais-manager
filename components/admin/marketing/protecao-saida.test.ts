@@ -38,11 +38,17 @@ function ambiente({ comNavigation, inicial }: { comNavigation: boolean; inicial?
     const e = { state: entradas[i].state, stopImmediatePropagation() { parar = true; } };
     for (const o of [...ouvintes]) { if (o.tipo !== 'popstate') continue; o.f(e); if (parar) break; }
   };
-  const ir = (alvoDe: (atual: number) => number) => setTimeout(() => {
+  /** Travessias atendidas em ordem (fila), como no navegador; as da PESSOA são registradas com a posição onde chegaram. */
+  const chegadasHumanas: Array<{ pos: number; t: number }> = [];
+  const ir = (alvoDe: (atual: number) => number, humano = false) => setTimeout(() => {
     const alvo = alvoDe(i);
     if (alvo < 0 || alvo >= entradas.length || alvo === i) return; // sem entrada: no-op, sem popstate (como o navegador)
-    i = alvo; disparar();
+    i = alvo;
+    if (humano) chegadasHumanas.push({ pos: i, t: agora });
+    disparar();
   }, 1);
+  /** history.go feito pela PESSOA (botões, menu do histórico): mesma fila, mas a chegada fica registrada como objetivo. */
+  const humano = (d: number) => { ir((atual) => atual + d, true); };
   const history = {
     get state() { return entradas[i].state; },
     get length() { return entradas.length; },
@@ -65,7 +71,7 @@ function ambiente({ comNavigation, inicial }: { comNavigation: boolean; inicial?
   };
   const roteador: string[] = [];
   const registrarRoteador = () => janela.addEventListener('popstate', (e) => { if (e.state) roteador.push(entradas[i].url); });
-  return { janela, entradas, roteador, travessias, registrarRoteador, fragmento, avancar, url: () => entradas[i].url, posicao: () => i };
+  return { janela, entradas, roteador, travessias, registrarRoteador, fragmento, avancar, humano, chegadasHumanas, agora: () => agora, url: () => entradas[i].url, posicao: () => i };
 }
 let n = 0;
 async function preparar(comNavigation: boolean, paginas: string[] = ['/dashboard', '/editor'], inicial?: { url: string; state: Estado }) {
@@ -75,9 +81,10 @@ async function preparar(comNavigation: boolean, paginas: string[] = ['/dashboard
   m.instalarGuardiaoDeHistorico(); amb.registrarRoteador(); // guardião ANTES do roteador (layout raiz × efeito do AppRouter)
   for (const p of paginas) amb.janela.history.pushState({ __NA: true, arvore: [p] }, '', p);
   const pedidos: Array<{ tipo: string; delta?: number; url?: string }> = [];
+  const quandoPedidos: number[] = [];
   let liberado = false;
-  const proteger = () => m.protegerHistorico({ liberado: () => liberado, aoTentarSair: (d) => pedidos.push(d as never) });
-  return { amb, m, pedidos, proteger, liberar: () => { liberado = true; } };
+  const proteger = () => m.protegerHistorico({ liberado: () => liberado, aoTentarSair: (d) => { pedidos.push(d as never); quandoPedidos.push(amb.agora()); } });
+  return { amb, m, pedidos, quandoPedidos, proteger, liberar: () => { liberado = true; } };
 }
 /** Executa "Sair" do jeito do hook: libera e vai ao destino pedido. */
 function sair(c: Awaited<ReturnType<typeof preparar>>, desproteger: () => void) {
@@ -175,12 +182,12 @@ test('SEM Navigation API — entradas sem índice À FRENTE (fragmento de outra 
   assert.equal(c.amb.url(), '/dashboard#x');
 });
 
-test('SEM Navigation API — entrada sem índice de página com entradas dos dois lados e history.go sem entrada (no-op): inverte, volta e não fica presa', async () => {
+test('SEM Navigation API — entrada sem índice de página com entradas dos dois lados (H1): passo −1, que sempre existe, sem movimento sem destino; volta antes do vigia e não fica presa', async () => {
   const c = await preparar(false, ['/dashboard', '/editor', '/dashboard']);
   c.amb.fragmento('#x');                                   // [inicio, dashboard, editor, dashboard, dashboard#x]
   c.amb.janela.history.go(-2); c.amb.avancar(10);           // editor, sem edição
   const desproteger = c.proteger();
-  c.amb.janela.history.go(2); c.amb.avancar(3000);          // dashboard#x: página com entradas dos dois lados → tenta +1 (no-op), inverte
+  c.amb.janela.history.go(2); c.amb.avancar(300);           // dashboard#x: página dos dois lados → −1 (a entrada que o originou), depois salto
   assert.equal(c.amb.url(), '/editor'); assert.deepEqual(c.pedidos, [{ tipo: 'relativo', delta: 2 }]);
   c.amb.janela.history.back(); c.amb.avancar(300);          // tentativa nova funciona (nada preso)
   assert.equal(c.pedidos.length, 2); assert.equal(c.amb.url(), '/editor');
@@ -267,4 +274,151 @@ test('layout raiz instala o guardião (componente cliente avaliado na hidrataç�
   assert.match(layout, /import InstalarGuardiaoHistorico from "@\/components\/InstalarGuardiaoHistorico";/);
   assert.match(layout, /<body[^>]*><InstalarGuardiaoHistorico \/>\{children\}<\/body>/);
   assert.match(ler('components/InstalarGuardiaoHistorico.tsx'), /^instalarGuardiaoDeHistorico\(\);$/m);
+});
+
+// ---- H1 (revisão de 30b93fb): travessia da PESSOA durante a volta ----
+// Oráculo objetivo: o destino é a entrada onde a ÚLTIMA travessia da pessoa chegou de fato (posição registrada pelo
+// histórico falso), não a soma dos comandos. Se ela chegou de volta à entrada do editor, não há pedido depois disso.
+type Cenario = Awaited<ReturnType<typeof preparar>>;
+const LAYOUTS: Array<{ nome: string; paginas: string[]; fragmento: string; voltaAoEditor: number; ida: number }> = [
+  // RV-I1 da revisora: [início, Dashboard, Campanhas, editor, Campanhas, Campanhas#fim] — Campanhas dos dois lados.
+  { nome: 'Dashboard→Campanhas→editor→Campanhas#fim', paginas: ['/dashboard', '/campanhas', '/editor', '/campanhas'], fragmento: '#fim', voltaAoEditor: -2, ida: 2 },
+  // I-1/I-4 da revisora: [início, Dashboard, editor, Dashboard, Dashboard#x].
+  { nome: 'Dashboard→editor→Dashboard#x', paginas: ['/dashboard', '/editor', '/dashboard'], fragmento: '#x', voltaAoEditor: -2, ida: 2 },
+];
+async function prepararLayout(l: (typeof LAYOUTS)[number]) {
+  const c = await preparar(false, l.paginas);
+  c.amb.fragmento(l.fragmento);
+  c.amb.janela.history.go(l.voltaAoEditor); c.amb.avancar(10); // sem edição: volta ao editor normalmente
+  const posEditor = c.amb.posicao(), rotas = c.amb.roteador.length;
+  const desproteger = c.proteger();
+  c.amb.humano(l.ida); c.amb.avancar(1); // a pessoa chega à entrada sem índice (fragmento de página com entradas dos dois lados)
+  return { c, posEditor, rotas, desproteger };
+}
+function conferirDestino(c: Cenario, posEditor: number, rotas: number, rotulo: string) {
+  const g = (c.amb.janela as unknown as { __kidmaisGuardiaoHistorico: { tentativa: unknown } }).__kidmaisGuardiaoHistorico;
+  assert.equal(g.tentativa, null, `${rotulo}: nenhuma correção pendente`);
+  assert.equal(c.amb.posicao(), posEditor, `${rotulo}: termina na entrada do editor (URL coerente com a página)`);
+  assert.equal(c.amb.roteador.length, rotas, `${rotulo}: o roteador não recebeu nada (editor montado, edição preservada)`);
+  const ultima = c.amb.chegadasHumanas.at(-1)!;
+  const naPaginaDoEditor = c.amb.entradas[ultima.pos].url.split('#')[0] === '/editor';
+  const depois = c.pedidos.filter((_, i) => c.quandoPedidos[i] >= ultima.t);
+  if (naPaginaDoEditor) { assert.deepEqual(depois, [], `${rotulo}: a pessoa voltou ao editor — nada a perguntar`); return null; }
+  assert.ok(depois.length >= 1, `${rotulo}: pedido depois da última travessia da pessoa`);
+  assert.deepEqual(c.pedidos.at(-1), { tipo: 'relativo', delta: ultima.pos - posEditor }, `${rotulo}: destino = onde a pessoa chegou`);
+  return ultima.pos;
+}
+const ACOES = [{ nome: 'Voltar', d: -1 }, { nome: 'Avançar', d: 1 }, { nome: 'go(-3)', d: -3 }, { nome: 'go(-4)', d: -4 }, { nome: 'go(+2)', d: 2 }];
+// Momentos em ms depois da chegada à entrada sem índice. Os movimentos da correção saem em 40 e 81 ms (espera de 40 ms
+// + 1 ms de atendimento); a travessia da pessoa leva 1 ms. Ficam de fora só os instantes em que a dela ainda está NA FILA
+// quando a correção pede o movimento (39 e 80 ms): ver o teste "ambiguidade" abaixo.
+const MOMENTOS = [5, 20, 38, 41, 45, 60, 79, 81, 85, 100, 150, 900];
+for (const l of LAYOUTS) {
+  test(`SEM Navigation API — H1 [${l.nome}], sem nova ação: volta sem movimento sem destino e "Sair" vai ao fragmento tentado`, async () => {
+    const { c, posEditor, rotas, desproteger } = await prepararLayout(l);
+    c.amb.avancar(300); // bem antes do vigia de 800 ms: nenhum movimento ficou sem popstate
+    const alvo = conferirDestino(c, posEditor, rotas, 'sem ação')!;
+    sair(c, desproteger);
+    assert.equal(c.amb.posicao(), alvo); assert.equal(c.amb.url(), `${l.paginas.at(-1)}${l.fragmento}`);
+  });
+  for (const a of ACOES) {
+    test(`SEM Navigation API — H1 [${l.nome}]: ${a.nome} da pessoa em ${MOMENTOS.join('/')} ms durante/depois da volta → destino = onde ela chegou`, async () => {
+      for (const ms of MOMENTOS) {
+        const { c, posEditor, rotas, desproteger } = await prepararLayout(l);
+        c.amb.avancar(ms); c.amb.humano(a.d); c.amb.avancar(3000);
+        const rotulo = `${a.nome} em ${ms} ms (chegadas ${JSON.stringify(c.amb.chegadasHumanas.map((x) => x.pos))}, pedidos ${JSON.stringify(c.pedidos)})`;
+        const alvo = conferirDestino(c, posEditor, rotas, rotulo);
+        if (alvo === null) { desproteger(); continue; }
+        sair(c, desproteger);
+        assert.equal(c.amb.posicao(), alvo, `${rotulo}: "Sair" chega exatamente à entrada escolhida`);
+      }
+    });
+  }
+}
+
+// Réplicas das provas I-1/I-4/I-5/I-6 da revisora com a ação no instante em que o guardião AINDA está fora do editor
+// (20 ms: na entrada sem índice, antes do 1º movimento; 60 ms: na entrada intermediária, entre dois movimentos). As
+// originais agiam em +100 ms, quando a volta já terminou (não há mais movimento sem destino à espera do vigia).
+for (const ms of [20, 60]) {
+  test(`SEM Navigation API — H1/I-1 em ${ms} ms: Voltar da pessoa durante a volta → pedido com o destino observado (não engolido)`, async () => {
+    const c = await preparar(false, ['/dashboard', '/editor', '/dashboard']);
+    c.amb.fragmento('#x'); c.amb.janela.history.go(-2); c.amb.avancar(10);
+    const off = c.proteger();
+    c.amb.humano(2); c.amb.avancar(1 + ms);
+    c.amb.humano(-1); c.amb.avancar(1000);
+    const alvo = conferirDestino(c, 2, 1, `I-1 em ${ms} ms`);
+    if (ms === 20) assert.equal(alvo, 3, 'de #x, Voltar chega ao Dashboard logo à frente do editor: delta +1 (critério da revisora)');
+    if (alvo === null) { off(); return; }
+    sair(c, off); assert.equal(c.amb.posicao(), alvo);
+  });
+  test(`SEM Navigation API — H1/I-4 em ${ms} ms: go(-3) da pessoa durante a volta substitui o destino`, async () => {
+    const c = await preparar(false, ['/dashboard', '/editor', '/dashboard']);
+    c.amb.fragmento('#x'); c.amb.janela.history.go(-2); c.amb.avancar(10);
+    const off = c.proteger();
+    c.amb.humano(2); c.amb.avancar(1 + ms);
+    c.amb.humano(-3); c.amb.avancar(1000);
+    const alvo = conferirDestino(c, 2, 1, `I-4 em ${ms} ms`);
+    if (alvo === null) { off(); return; }
+    sair(c, off); assert.equal(c.amb.posicao(), alvo);
+    if (ms === 20) assert.equal(c.amb.url(), '/dashboard', 'de #x, go(-3) chega ao Dashboard anterior ao editor');
+  });
+  test(`SEM Navigation API — H1/I-5 em ${ms} ms: proteção reativada durante a volta → só o callback vigente recebe`, async () => {
+    const c = await preparar(false, ['/dashboard', '/editor', '/dashboard']);
+    c.amb.fragmento('#x'); c.amb.janela.history.go(-2); c.amb.avancar(10);
+    const antigos: unknown[] = [], novos: unknown[] = [];
+    const off = c.m.protegerHistorico({ liberado: () => false, aoTentarSair: (d) => antigos.push(d) });
+    c.amb.humano(2); c.amb.avancar(1 + ms); off();
+    const off2 = c.m.protegerHistorico({ liberado: () => false, aoTentarSair: (d) => novos.push(d) });
+    c.amb.avancar(2000);
+    assert.equal(c.amb.url(), '/editor'); assert.deepEqual(antigos, []); assert.deepEqual(novos, [{ tipo: 'relativo', delta: 2 }]);
+    off2();
+  });
+  test(`SEM Navigation API — H1/I-6 em ${ms} ms: saída explícita durante a volta → nenhum retorno nem pedido tardio`, async () => {
+    const c = await preparar(false, ['/dashboard', '/editor', '/dashboard']);
+    c.amb.fragmento('#x'); c.amb.janela.history.go(-2); c.amb.avancar(10);
+    const off = c.proteger(); c.amb.humano(2); c.amb.avancar(1 + ms);
+    c.liberar(); off(); c.amb.janela.history.pushState({ __NA: true }, '', '/saida-escolhida');
+    c.amb.avancar(3000);
+    assert.equal(c.amb.url(), '/saida-escolhida'); assert.deepEqual(c.pedidos, []);
+  });
+}
+
+test('SEM Navigation API — H1, limite medido (ambiguidade): travessia da pessoa já NA FILA quando a correção pede o movimento → as duas ordens geram os mesmos popstates; termina coerente, sem perda, com o destino de uma ordem válida', async () => {
+  // Layout da RV-I1. Aos 39 ms a pessoa dá Voltar (atendido em 40 ms); a correção pede go(−1) em 40 ms (atendido em 41).
+  // Ordem real (fila): a da pessoa primeiro → ela chega a Campanhas(4) e o nosso passo leva ao editor. Ordem inversa: o
+  // nosso leva a Campanhas(4) e o Voltar dela leva ao editor. Mesmas URLs, mesmos estados, mesma sequência: indistinguível.
+  const l = LAYOUTS[0];
+  const { c, posEditor, rotas, desproteger } = await prepararLayout(l);
+  c.amb.avancar(39); c.amb.humano(-1); c.amb.avancar(3000);
+  const g = (c.amb.janela as unknown as { __kidmaisGuardiaoHistorico: { tentativa: unknown } }).__kidmaisGuardiaoHistorico;
+  assert.equal(g.tentativa, null); assert.equal(c.amb.posicao(), posEditor); assert.equal(c.amb.roteador.length, rotas);
+  assert.deepEqual(c.amb.chegadasHumanas.map((x) => x.pos), [5, 4], 'ordem real: a pessoa chegou a Campanhas(4)');
+  assert.deepEqual(c.pedidos, [], 'interpretado na outra ordem válida: a pessoa terminou no editor — nada a perguntar, nada perdido');
+  desproteger();
+});
+
+test('SEM Navigation API — representação: entrada criada a partir de posição incerta não duplica índice; a volta usa passos e não passa do editor', async () => {
+  const c = await preparar(false, ['/a', '/b', '/c']);       // [início, a1, b2, c3]
+  c.amb.fragmento('#f');                                     // c#f (nova: o comprimento muda)
+  c.amb.janela.history.go(-3); c.amb.avancar(10);            // a1
+  c.amb.janela.history.go(3); c.amb.avancar(10);             // c#f por TRAVESSIA: posição incerta
+  c.amb.janela.history.pushState({ __NA: true }, '', '/d');  // [início, a1, b2, c3, c#f, d]
+  const estado = c.amb.janela.history.state as Record<string, unknown>;
+  assert.equal(estado.__kidmaisIdx, 4, 'índice único (antes: 2, igual ao de /b)');
+  c.amb.janela.history.go(-2); c.amb.avancar(10);            // c3 = editor
+  const off = c.proteger();
+  c.amb.humano(2); c.amb.avancar(1000);                      // a pessoa vai a /d
+  assert.equal(c.amb.url(), '/c'); assert.deepEqual(c.pedidos, [{ tipo: 'relativo', delta: 2 }]);
+  sair(c, off); assert.equal(c.amb.url(), '/d');
+});
+
+test('SEM Navigation API — salvaguarda: índices duplicados herdados (premissa quebrada) → o salto sem destino não entra no deslocamento; passos; termina no editor', async () => {
+  const c = await preparar(false, ['/a', '/b', '/editor', '/c']);   // [início, a1, b2, editor3, c4]
+  c.amb.entradas[4].state = { __NA: true, __kidmaisIdx: 1 };          // estado herdado de versão anterior: c com índice 1 (como a)
+  c.amb.janela.history.go(-1); c.amb.avancar(10);                    // editor
+  const off = c.proteger();
+  c.amb.humano(1); c.amb.avancar(5000);                              // a pessoa vai a c; salto 3−1=+2 não tem destino
+  assert.equal(c.amb.url(), '/editor', 'termina no editor');
+  assert.deepEqual(c.pedidos, [{ tipo: 'relativo', delta: 1 }], 'o salto sem popstate não foi contado');
+  sair(c, off); assert.equal(c.amb.url(), '/c');
 });
