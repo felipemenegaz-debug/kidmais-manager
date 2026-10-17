@@ -2,7 +2,7 @@ import { withTransaction, db } from '../../db/postgres.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } from '../../saas/provar-tenant.ts';
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
-import { JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, conferirEmpresaAtiva, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
+import { APP_META, JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, conferirEmpresaAtiva, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
 import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
 // O worker usa o mesmo resumo de pausa (sem importar o entendimento do Wall-e).
@@ -90,14 +90,15 @@ export async function configuracao(tx: DbExecutor, empresaId: string, travar = f
  * automacao.ts) e entregue pelo webhook — o Core não lê a chave. Desligada: a entrada nasce PROCESSADA e a conversa vai
  * para a equipe com o motivo SEM_RESPOSTA_AUTOMATICA; ela nunca fica PENDENTE, então religar a IA não a responde depois,
  * mesmo sem nenhum ciclo do worker no meio. O padrão (ligada) vale só para chamadas internas e suítes; o webhook sempre
- * informa (teste estático).
+ * informa (teste estático). `empresa`: a dona do número conectado na Meta (lib/whatsapp/atendimento/meta.ts); sem ela,
+ * a piloto (Gupshup).
  */
-export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal?: boolean } = {}) {
+export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal?: boolean; empresa?: string } = {}) {
   const automacaoGlobal = opcoes.automacaoGlobal ?? true;
-  const empresa = empresaPiloto(), ambiente = ambienteAtendimento();
+  const empresa = opcoes.empresa ?? empresaPiloto(), ambiente = ambienteAtendimento();
   // Fora da lista de contatos permitidos: confirma o evento sem gravar nada (nenhum dado do contato entra no banco).
   if (!contatoPermitido(entrada.source)) return;
-  if (entrada.app !== 'KidmaisManager') throw new Error('ATENDIMENTO_EVENTO_INVALIDO');
+  if (entrada.app !== 'KidmaisManager' && entrada.app !== APP_META) throw new Error('ATENDIMENTO_EVENTO_INVALIDO');
   // M1 (revisão de 69dc301): evento mais antigo que a janela de reentrega confirma sem gravar — nunca recria conteúdo
   // excluído depois que o hash do evento for purgado (mesmo prazo).
   if (!Number.isFinite(entrada.timestamp) || entrada.timestamp < Date.now() - JANELA_REENTREGA_DIAS * 86_400_000) return;
@@ -189,11 +190,15 @@ export async function receberStatus(raw: unknown) {
   const id = typeof payload?.gsId === 'string' ? payload.gsId : payload?.id;
   if (typeof id !== 'string' || !id.length || id.length > 512) return;
   if (!['delivered','read','failed'].includes(String(payload?.type))) return;
-  const estado = payload?.type === 'failed' ? 'FALHOU' : 'ENTREGUE';
+  await registrarStatus(empresaPiloto(), id, payload?.type === 'failed' ? 'FALHOU' : 'ENTREGUE');
+}
+/** Status de envio da empresa (Gupshup: a piloto; Meta: a dona do número conectado). */
+export async function registrarStatus(empresa: string, id: string, estado: 'ENTREGUE' | 'FALHOU') {
+  const ambiente = ambienteAtendimento();
   await withTransaction(async tx => {
     // Persistir antes da correlação: o callback pode chegar antes do retorno do POST de envio.
-    await tx.query(`INSERT INTO whatsapp_atendimento_status(empresa_id,ambiente,provedor_id,estado) VALUES($1,$2,$3,$4) ON CONFLICT(empresa_id,ambiente,provedor_id) DO UPDATE SET estado=CASE WHEN whatsapp_atendimento_status.estado='ENTREGUE' THEN 'ENTREGUE' ELSE EXCLUDED.estado END`, [empresaPiloto(),ambienteAtendimento(),id,estado]);
-    await correlacionarStatus(tx, empresaPiloto(), ambienteAtendimento(), id);
+    await tx.query(`INSERT INTO whatsapp_atendimento_status(empresa_id,ambiente,provedor_id,estado) VALUES($1,$2,$3,$4) ON CONFLICT(empresa_id,ambiente,provedor_id) DO UPDATE SET estado=CASE WHEN whatsapp_atendimento_status.estado='ENTREGUE' THEN 'ENTREGUE' ELSE EXCLUDED.estado END`, [empresa,ambiente,id,estado]);
+    await correlacionarStatus(tx, empresa, ambiente, id);
   });
   // Retenção também com só a recepção ligada (o processador pode estar desligado): status de OTP não se acumulam.
   // Falha na limpeza não recusa o evento já gravado.

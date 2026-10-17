@@ -171,3 +171,137 @@ Depois do primeiro onboarding de qualquer empresa, mesmo um que falhou, o rollba
 - **Antes da homologação:**
   1. a leitura M1 confere o nome do evento;
   2. se a Meta confirmar que o evento traz só `waba_id`, é preciso decidir outra entrega (D2): descobrir o número em `/{waba}/phone_numbers` (`is_on_biz_app`) e o negócio em `granular_scopes`, sem confiar no navegador.
+
+## Evento do WhatsApp Business App só com `waba_id` (D2): 17/10/2026
+
+**Problema:**
+- **O exemplo oficial** do evento final do fluxo do WhatsApp Business App ([Onboard WhatsApp Business app users](https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users/)) traz `type: "WA_EMBEDDED_SIGNUP"`, `event: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"`, `version: 3` e, em `data`, **só** `waba_id`.
+- **A página geral** de implementação diz que `phone_number_id`, `waba_id` e `business_id` vêm sempre.
+- **O código até `6fc90b9`** exigia os três ids no navegador e no servidor: com o payload do exemplo oficial, a tela mostrava "formato diferente do configurado" e a tentativa ficava INICIADA até expirar.
+
+**Correção:** a conclusão aceita o evento só com `waba_id`; `business_id` e `phone_number_id` passam a ser opcionais. O que faltar é resolvido e **comprovado** no servidor, sem confiar no navegador.
+
+**Negócio** (`meta-client.ts`, `negocioDonoDaWaba`):
+- **Candidatos:** os negócios autorizados neste token (`business_management.target_ids`).
+- **Dono:** o candidato cuja aresta `owned_whatsapp_business_accounts` contém a WABA.
+- **Aceite:** exatamente um dono. A posse de **todos** os candidatos é conferida, e a ordem e o primeiro elemento não decidem nada.
+- **Recusas:**
+  - sem candidatos: `META_NEGOCIO_DIVERGENTE`;
+  - nenhum dono: `META_WABA_DIVERGENTE`;
+  - mais de um dono, mais de 10 candidatos ou posse não confirmada em qualquer candidato: `META_RELACAO_NAO_CONFIRMADA`.
+
+**Número** (`numeroDaConexao`):
+- **Aceite:** o único número da WABA com `is_on_biz_app = true`.
+- **Recusas:**
+  - nenhum: `META_COEXISTENCIA_NAO_CONFIRMADA`;
+  - mais de um, ou lista paginada: `META_NUMERO_AMBIGUO`.
+
+**Quando o evento traz os ids:** continuam conferidos como antes (autorização, posse e número na WABA).
+
+**Gravação:** o serviço grava na conexão, na tentativa, na credencial (AAD) e na auditoria os ids **devolvidos pela validação**. Esses ids estão sempre comprovados, nunca vêm do evento sem prova.
+
+**Continua hipótese, só confirmável numa homologação autorizada:**
+- os campos reais do evento (D2);
+- se o token real lê a aresta de posse (H-B1);
+- se `business_management.target_ids` vem explícito (D1).
+
+## Alinhamento da configuração de coexistência (proposta, 17/10/2026)
+
+**Como o código combina as opções:**
+- `configuracao.ts` (`opcoesPublicas`) lê `META_EMBEDDED_SIGNUP_OPTIONS_JSON`.
+- Exige `response_type: "code"` e `override_default_response_type: true`, e recusa chaves com nome sensível.
+- Fixa `config_id` a partir de `META_EMBEDDED_SIGNUP_CONFIG_ID`.
+- A tela passa o objeto **tal como está** ao `FB.login` e só aceita a mensagem cujo `event` seja **igual** a `META_EMBEDDED_SIGNUP_EVENT_NAME` (um único nome).
+
+| Variável | Valor lido em 17/10 (M1) | Proposta | Base |
+|---|---|---|---|
+| `META_EMBEDDED_SIGNUP_EVENT_NAME` | `FINISH` | `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING` | **Documentado:** é o evento do fluxo com número do WhatsApp Business App. Com `FINISH`, a tela ignora esse evento e a tentativa expira |
+| `META_EMBEDDED_SIGNUP_OPTIONS_JSON` | `response_type=code`, `override_default_response_type=true`, `extras.feature=whatsapp_embedded_signup`, `extras.session_info_version=2`, `extras.setup.coexistence=true` | `{"response_type":"code","override_default_response_type":true,"extras":{"setup":{},"featureType":"whatsapp_business_app_onboarding","sessionInfoVersion":"3"}}`, mais `version` se o código de lançamento gerado pela Meta para a mesma configuração o incluir | **Documentado** ([changelog](https://developers.facebook.com/documentation/business-messaging/whatsapp/changelog), 29/05/2025): `coexistence` não é mais `featureType` válido; usar `whatsapp_business_app_onboarding` em `extras.featureType`. As chaves atuais `feature`, `session_info_version` e `setup.coexistence` não aparecem na documentação atual. **Hipótese H-V4:** se `extras.version` é necessário com a configuração v4 (o link hospedado da Meta mostra `version=v4`, `sessionInfoVersion=3` e `featureType=whatsapp_business_app_onboarding`) |
+| `META_EMBEDDED_SIGNUP_CONFIG_ID` | `2195372597859430` | manter, **se** a Meta confirmar que é a configuração v4 com onboarding do WhatsApp Business App | O configurador mostra v4 e "Tipo de recurso: Nenhum"; o link com `featureType` pode ser de outra superfície |
+| `META_GRAPH_API_VERSION` | `v25.0` | manter | Versão usada nos exemplos atuais |
+| `META_EMBEDDED_SIGNUP_MESSAGE_ORIGINS` | `https://www.facebook.com,https://web.facebook.com` | manter | — |
+| `META_OAUTH_REDIRECT_URI` | página do WhatsApp em staging | manter | Precisa constar na configuração de login da Meta |
+| `META_WEBHOOK_VERIFY_TOKEN` | — (não usado pelo código publicado) | só junto do webhook da PR #168 | O código publicado não tem webhook da Meta |
+
+**Webhook:**
+- **Código publicado (`6fc90b9`):** não tem rota de webhook da Meta. **Não configurar callback** no painel antes de existir a rota.
+- **PR #168** (aberta, base `0f621cd`): traz `GET/POST /api/integracoes/meta/webhook` (verificação por `META_WEBHOOK_VERIFY_TOKEN`; HMAC `X-Hub-Signature-256` com `META_APP_SECRET`). Trata só o campo `messages`; os demais campos respondem 200 e são ignorados. Inclui `subscribed_apps` na conclusão.
+- **Requisito documentado do fluxo do WhatsApp Business App:** webhook capaz de receber eventos e assinatura de `history`, `smb_app_state_sync` e `smb_message_echoes`.
+- **Fora do escopo "só conectar":** a sincronização de contatos e histórico em até 24 h não está implementada.
+
+## Integração com a #168: inscrição do app na WABA e recuperação (17/10/2026)
+
+**O que a integração mantém:**
+- a B1 (posse comprovada);
+- a D2 (negócio e número resolvidos e comprovados);
+- os ids gravados vindos só da validação.
+
+**O que a integração acrescenta:** a inscrição da #168, `POST /{waba_id}/subscribed_apps` com o token do cliente, como **última** etapa de `trocarCodigoEValidarAtivos`, só para a WABA já comprovada.
+
+### R-168a: a inscrição é uma escrita externa
+
+**Idempotência não significa ausência de efeito.** Depois de confirmada, a Meta passa a entregar ao webhook do app os eventos assinados dessa WABA, mesmo que a conexão local não seja gravada.
+
+**O que mitiga esse efeito:**
+- **O webhook da #168** só grava eventos de número com conexão CONFIGURADA da empresa piloto; os demais são confirmados sem gravar.
+- **O conteúdo** não é guardado, mas o tráfego chega.
+
+| Situação | Código | Tentativa | Auditoria `WHATSAPP_ONBOARDING_FALHOU` |
+|---|---|---|---|
+| Validação recusou antes da inscrição (posse, número, coexistência, provedor) | o da recusa | FALHOU | sem `inscricaoWebhook` (nenhuma escrita na Meta) |
+| Inscrição recusada **explicitamente**: 2xx com objeto e `success === false`, ou 4xx com objeto JSON contendo `error` objeto | `META_WEBHOOK_NAO_INSCRITO` | FALHOU | sem `inscricaoWebhook` |
+| Inscrição com resultado **desconhecido**: rede, prazo próprio de 10 s esgotado, 5xx, corpo ilegível, 2xx com `{}`, `null`, array ou `success` de outro tipo, 4xx sem `error` objeto | `META_WEBHOOK_INSCRICAO_INCERTA` | FALHOU, `waba_id` gravado | `inscricaoWebhook: "INCERTA"`, `wabaId` |
+| Inscrição confirmada e gravação falhou (número em uso, corrida, cifra, banco) | o da gravação | FALHOU, `waba_id` gravado | `inscricaoWebhook: "CONFIRMADA"`, `wabaId` |
+| Sucesso | — | CONCLUIDA | `WHATSAPP_CONEXAO_CONFIGURADA` com `inscricaoWebhook: "CONFIRMADA"` |
+
+- **JSON legível não comprova o resultado:** só `success === true` (booleano) num 2xx confirma; só as duas formas acima comprovam recusa. Qualquer outra resposta preserva a possibilidade de a escrita ter ocorrido (correção F1 do parecer da `b99e205`).
+- **Cifragem da credencial:** passou para dentro do bloco da gravação. Antes, uma falha ali deixava a tentativa em VALIDANDO, sem registro da inscrição.
+
+**Recuperação (manual; nada é desinscrito automaticamente):**
+1. **Localizar:** tentativa FALHOU com `waba_id` e auditoria com `inscricaoWebhook`.
+2. **Antes de desinscrever:** conferir se há conexão CONFIGURADA (em qualquer empresa e **em qualquer ambiente que use o mesmo app**) com essa WABA. A inscrição é por app + WABA: desinscrever corta a entrega também para essas conexões.
+3. **Sem conexão que dependa dela:** a desinscrição (`DELETE /{waba_id}/subscribed_apps`) exige um token com acesso à WABA. O Kidmais **não** guarda o token quando a gravação falha. O caminho é o cliente remover o app em Configurações do negócio (Meta Business Suite) ou refazer a conexão com sucesso.
+4. **Registrar** a ação e o resultado na auditoria operacional.
+
+### R-168d: envio de mensagens depois de conectar
+
+**Na #168, a porta `enviar` do worker** (`enviarPelaEmpresa` em `lib/whatsapp/atendimento/meta.ts`) envia pela Cloud API sempre que a **empresa piloto** (`WHATSAPP_ATENDIMENTO_EMPRESA_ID`) tem conexão Meta CONFIGURADA. Sem conexão, envia pelo Gupshup.
+
+**Não há chave própria:** conectar o número da empresa piloto **troca o canal de envio** automaticamente, desde que o atendimento esteja ligado (`WHATSAPP_ATENDIMENTO_ENABLED` e receptor).
+
+**Escopo aceito por Felipe: só a conexão.**
+- O envio pela Meta **não** está autorizado por essa escolha.
+- **Antes de qualquer homologação:**
+  - conferir que a empresa conectada **não** é a piloto;
+  - ou que o atendimento está desligado;
+  - ou decidir uma chave explícita de canal.
+- **Esta integração não muda o envio da #168.**
+
+## Chaves explícitas de canal e de recepção (17/10/2026)
+
+**Objetivo:** separar **conexão** (Embedded Signup), **envio** e **recepção**. Conectar um número Meta, inclusive o da empresa piloto, não muda o canal de envio nem passa a gravar mensagens recebidas.
+
+| Chave | Valor | Efeito |
+|---|---|---|
+| `WHATSAPP_ATENDIMENTO_CANAL_ENVIO` | ausente ou `gupshup` | Envio pelo Gupshup, como antes da Cloud API, **mesmo com conexão Meta da piloto**. A conexão Meta nem é lida |
+| | `meta` | Envio só pela conexão Meta CONFIGURADA e válida da piloto. Sem conexão, token vencido, chave de outra versão ou credencial que não abre: `ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO` antes da rede (o worker marca FALHOU), **sem cair no Gupshup** |
+| | qualquer outro (inclusive vazio, maiúsculas ou espaços) | Nada é enviado: `ATENDIMENTO_TRANSPORTE_NAO_CONFIGURADO` antes de qualquer leitura ou rede |
+| `WHATSAPP_ATENDIMENTO_RECEPCAO_META` | `true` | Junto com a recepção do atendimento (`WHATSAPP_ATENDIMENTO_RECEIVE_ENABLED=true`, receptor deste ambiente, piloto válida), o webhook da Meta processa mensagens e status: só da piloto, só contatos permitidos (staging) |
+| | ausente ou qualquer outro valor | O webhook **continua conferindo a assinatura** (`X-Hub-Signature-256`; inválida = 401) e responde **200 sem processar**: mensagens e status são **descartados**. Nada é gravado, enfileirado nem enviado à IA, e as saídas não mudam de status |
+
+### Consequência do 200 sem processamento
+
+A Meta considera o evento entregue e **não o reenvia**. O Kidmais não guarda o conteúdo nem tem como recuperar esses eventos depois. Ligar a recepção mais tarde **não** traz mensagens nem status anteriores.
+
+Isso vale também para os status de entrega de mensagens enviadas pela Meta. Com a recepção desligada, a saída fica no último estado conhecido (ex.: SUBMETIDA).
+
+### Onde está
+
+| Item | Arquivo |
+|---|---|
+| Leitura das chaves | `lib/whatsapp/atendimento/configuracao.ts` (`canalEnvio`, `recepcaoMetaAtiva`) |
+| Envio | `lib/whatsapp/atendimento/meta.ts` (`enviarPelaEmpresa`) |
+| Recepção | `lib/whatsapp/atendimento/meta.ts` (`persistenciaWebhookMeta`), usado por `app/api/integracoes/meta/webhook/route.ts` |
+| Testes | `lib/whatsapp/atendimento/meta.test.ts`, `lib/whatsapp/atendimento/meta-recepcao.postgres.test.ts` (R8) |
+
+**Variáveis reais:** nenhuma é criada por esta mudança. Ausentes, as chaves mantêm envio pelo Gupshup e recepção Meta desligada.

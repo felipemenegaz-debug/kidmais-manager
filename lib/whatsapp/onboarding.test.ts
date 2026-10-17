@@ -32,6 +32,16 @@ test('state é comparado pelo hash e payload rejeita campos inesperados', () => 
     businessId: '1', wabaId: '2', phoneNumberId: '3', accessToken: 'proibido' }).success, false);
 });
 
+test('D2: conclusão aceita só waba_id (negócio e número resolvidos no servidor); ids presentes continuam numéricos', () => {
+  const state = 'a'.repeat(43);
+  const base = { tentativaId: randomUUID(), state, authorizationCode: 'codigo-123' };
+  assert.equal(concluirOnboardingSchema.safeParse({ ...base, wabaId: '2' }).success, true);
+  assert.equal(concluirOnboardingSchema.safeParse({ ...base, wabaId: '2', businessId: '1', phoneNumberId: '3' }).success, true);
+  assert.equal(concluirOnboardingSchema.safeParse({ ...base, businessId: '1', phoneNumberId: '3' }).success, false, 'waba_id obrigatório');
+  assert.equal(concluirOnboardingSchema.safeParse({ ...base, wabaId: '2', businessId: 'x1' }).success, false);
+  assert.equal(concluirOnboardingSchema.safeParse({ ...base, wabaId: '2', phoneNumberId: '' }).success, false);
+});
+
 test('antes da 083 aplicada, o WhatsApp por empresa responde 503 com mensagem clara (nunca erro de SQL)', async () => {
   const tx = (ok: boolean) => ({ query: async () => ({ rows: [{ ok }] }) }) as never;
   await assert.rejects(exigirEsquemaPorEmpresa(tx(false)), (e: { code?: string; httpStatus?: number }) => e.code === 'WHATSAPP_ATUALIZACAO_PENDENTE' && e.httpStatus === 503);

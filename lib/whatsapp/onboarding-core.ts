@@ -8,7 +8,9 @@ const PAPEL_GESTAO = 'REPRESENTANTE_AUTORIZADO';
 const idMeta = z.string().regex(/^[0-9]+$/).max(64);
 export const concluirOnboardingSchema = z.object({
   tentativaId: z.uuid(), state: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-  authorizationCode: z.string().min(8).max(8192), businessId: idMeta, wabaId: idMeta, phoneNumberId: idMeta,
+  // Fluxo do WhatsApp Business App: o evento oficial pode trazer só waba_id; negócio e número são então resolvidos e
+  // comprovados no servidor (meta-client). Quando vêm, continuam conferidos.
+  authorizationCode: z.string().min(8).max(8192), businessId: idMeta.optional(), wabaId: idMeta, phoneNumberId: idMeta.optional(),
 }).strict();
 export const desconectarSchema = z.object({ conexaoId: z.uuid(), motivo: z.string().trim().min(3).max(500) }).strict();
 

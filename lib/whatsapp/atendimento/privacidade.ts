@@ -47,6 +47,10 @@ export type ResultadoExclusao =
  * não reabre a recriação de conteúdo excluído (M1, revisão de 69dc301). Valor provisório: decisão R7.
  */
 export const RETENCAO_DEDUP_DIAS = JANELA_REENTREGA_DIAS;
+/**
+ * Rótulo da 082 (CHECK aceita só 'GUPSHUP'). As entradas da Meta usam o mesmo rótulo: o hash é do id do evento, e o id
+ * da Cloud API (wamid.…) nunca coincide com o do Gupshup — a deduplicação vale para os dois sem migração.
+ */
 export const PROVEDOR = 'GUPSHUP';
 
 export async function tem082Privacidade(tx: DbExecutor) {

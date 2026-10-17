@@ -102,12 +102,20 @@ export async function iniciarOnboardingWhatsapp(token: string, contexto: Context
   };
 }
 
-async function marcarFalha(transacao: Transacao, tentativaId: string, usuarioId: string, contexto: ContextoWhatsapp, code: string) {
+/**
+ * Inscrição do app na WABA (escrita externa da #168) que pode ter ficado ativa sem conexão local: CONFIRMADA quando a
+ * validação inteira passou e a gravação falhou depois; INCERTA quando a resposta da inscrição não comprovou nem sucesso
+ * nem recusa (rede, prazo, 5xx, corpo ilegível ou fora do contrato; ver meta-client).
+ * Fica na tentativa (`waba_id`) e na auditoria para a recuperação manual (docs); nada é desinscrito automaticamente.
+ */
+type InscricaoPendente = { inscricaoWebhook: 'CONFIRMADA' | 'INCERTA'; wabaId: string };
+
+async function marcarFalha(transacao: Transacao, tentativaId: string, usuarioId: string, contexto: ContextoWhatsapp, code: string, inscricao?: InscricaoPendente) {
   await transacao(async (tx) => {
     const tentativa = (await tx.query<Tentativa>('SELECT * FROM whatsapp_onboarding_tentativas WHERE id=$1 FOR UPDATE', [tentativaId])).rows[0];
     if (!tentativa || tentativa.status !== 'VALIDANDO') return;
-    await tx.query("UPDATE whatsapp_onboarding_tentativas SET status='FALHOU',erro_codigo=$2,atualizada_em=clock_timestamp() WHERE id=$1", [tentativaId, code]);
-    await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, acao: 'WHATSAPP_ONBOARDING_FALHOU', entidadeTipo: 'WHATSAPP_ONBOARDING_TENTATIVA', entidadeId: tentativaId, dadosDepois: { ambiente: tentativa.ambiente, empresaId: tentativa.empresa_id, status: 'FALHOU', erroCodigo: code }, ...auditoriaBase(contexto) }, tx);
+    await tx.query("UPDATE whatsapp_onboarding_tentativas SET status='FALHOU',erro_codigo=$2,waba_id=COALESCE($3,waba_id),atualizada_em=clock_timestamp() WHERE id=$1", [tentativaId, code, inscricao?.wabaId ?? null]);
+    await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, acao: 'WHATSAPP_ONBOARDING_FALHOU', entidadeTipo: 'WHATSAPP_ONBOARDING_TENTATIVA', entidadeId: tentativaId, dadosDepois: { ambiente: tentativa.ambiente, empresaId: tentativa.empresa_id, status: 'FALHOU', erroCodigo: code, ...(inscricao ?? {}) }, ...auditoriaBase(contexto) }, tx);
   });
 }
 
@@ -150,14 +158,18 @@ export async function concluirOnboardingWhatsapp(raw: unknown, token: string, co
     }, config);
   } catch (error) {
     const code = error instanceof WhatsappOnboardingError ? error.code : 'META_VALIDACAO_FALHOU';
-    await marcarFalha(transacao, input.data.tentativaId, preparada.sessao.usuario_id, contexto, code);
+    const incerta = code === 'META_WEBHOOK_INSCRICAO_INCERTA' ? { inscricaoWebhook: 'INCERTA' as const, wabaId: input.data.wabaId } : undefined;
+    await marcarFalha(transacao, input.data.tentativaId, preparada.sessao.usuario_id, contexto, code, incerta);
     if (error instanceof WhatsappOnboardingError) throw error;
     throw new WhatsappOnboardingError('META_VALIDACAO_FALHOU', 'Não foi possível validar a configuração com a Meta.', 502);
   }
-  const identidade = { ambiente: config.ambiente, appId: config.appId, businessId: input.data.businessId, wabaId: input.data.wabaId, phoneNumberId: input.data.phoneNumberId, empresaId: preparada.empresaId };
-  const credencial = cifrarCredencialWhatsapp(validada.accessToken, identidade);
+  // Negócio e número COMPROVADOS pela validação (o evento da Meta pode não trazê-los): nunca os do navegador sem prova.
+  const { businessId, phoneNumberId } = validada;
+  const identidade = { ambiente: config.ambiente, appId: config.appId, businessId, wabaId: input.data.wabaId, phoneNumberId, empresaId: preparada.empresaId };
   let concluida: { id: string };
   try {
+    // Dentro do try: falha ao cifrar (chave ausente/inválida) também marca FALHOU e registra a inscrição já feita.
+    const credencial = cifrarCredencialWhatsapp(validada.accessToken, identidade);
     concluida = await transacao(async (tx) => {
       const { sessao, tenant } = await gestaoTransacional(tx, token, 'conectar');
       const empresaId = tenant.empresaComprovada;
@@ -165,13 +177,13 @@ export async function concluirOnboardingWhatsapp(raw: unknown, token: string, co
       const tentativa = (await tx.query<Tentativa>('SELECT * FROM whatsapp_onboarding_tentativas WHERE id=$1 FOR UPDATE', [input.data.tentativaId])).rows[0];
       if (!tentativa || tentativa.status !== 'VALIDANDO' || !tentativaDaSessao(tentativa, sessao, tenant) || empresaId !== preparada.empresaId) throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_CONSUMIDA', 'Esta tentativa já foi utilizada.', 409);
       if ((await tx.query("SELECT 1 FROM whatsapp_conexoes WHERE ambiente=$1 AND empresa_id=$2::uuid AND status='CONFIGURADA' FOR UPDATE", [config.ambiente, empresaId])).rows[0]) throw new WhatsappOnboardingError('WHATSAPP_TROCA_SILENCIOSA_RECUSADA', 'Já existe uma conexão. Desconecte-a explicitamente antes de conectar outro número.', 409);
-      if ((await tx.query("SELECT 1 FROM whatsapp_conexoes WHERE ambiente=$1 AND phone_number_id=$2 AND status='CONFIGURADA'", [config.ambiente, input.data.phoneNumberId])).rows[0]) throw NUMERO_EM_USO();
+      if ((await tx.query("SELECT 1 FROM whatsapp_conexoes WHERE ambiente=$1 AND phone_number_id=$2 AND status='CONFIGURADA'", [config.ambiente, phoneNumberId])).rows[0]) throw NUMERO_EM_USO();
       const conexao = (await tx.query<{ id: string }>(`WITH instante AS (SELECT clock_timestamp() AS agora)
         INSERT INTO whatsapp_conexoes(ambiente,empresa_id,meta_app_id,business_id,waba_id,phone_number_id,numero_exibicao,nome_verificado,coexistencia_confirmada,status,escopos,credencial_cifrada,credencial_iv,credencial_tag,credencial_chave_versao,token_tipo,token_expira_em,meta_validada_em,criada_por_usuario_id,sessao_referencia_id,criada_em,atualizada_em)
         SELECT $1,$17::uuid,$2,$3,$4,$5,$6,$7,true,'CONFIGURADA',$8,$9,$10,$11,$12,$13,$14,agora,$15,$16,agora,agora FROM instante RETURNING id`,
-        [config.ambiente, config.appId, input.data.businessId, input.data.wabaId, input.data.phoneNumberId, validada.displayPhoneNumber, validada.verifiedName, validada.scopes, credencial.ciphertext, credencial.iv, credencial.tag, credencial.keyVersion, validada.tokenType, validada.expiresAt, sessao.usuario_id, sessao.id, empresaId])).rows[0];
-      await tx.query(`UPDATE whatsapp_onboarding_tentativas SET status='CONCLUIDA',business_id=$2,waba_id=$3,phone_number_id=$4,conexao_id=$5,atualizada_em=clock_timestamp() WHERE id=$1`, [tentativa.id, input.data.businessId, input.data.wabaId, input.data.phoneNumberId, conexao.id]);
-      await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'WHATSAPP_CONEXAO_CONFIGURADA', entidadeTipo: 'WHATSAPP_CONEXAO', entidadeId: conexao.id, dadosDepois: { ambiente: config.ambiente, empresaId, businessId: input.data.businessId, wabaId: input.data.wabaId, phoneNumberId: input.data.phoneNumberId, numeroExibicao: validada.displayPhoneNumber, nomeVerificado: validada.verifiedName, coexistenciaConfirmada: true, webhookAtivo: false, otpAtivo: false }, ...auditoriaBase(contexto) }, tx);
+        [config.ambiente, config.appId, businessId, input.data.wabaId, phoneNumberId, validada.displayPhoneNumber, validada.verifiedName, validada.scopes, credencial.ciphertext, credencial.iv, credencial.tag, credencial.keyVersion, validada.tokenType, validada.expiresAt, sessao.usuario_id, sessao.id, empresaId])).rows[0];
+      await tx.query(`UPDATE whatsapp_onboarding_tentativas SET status='CONCLUIDA',business_id=$2,waba_id=$3,phone_number_id=$4,conexao_id=$5,atualizada_em=clock_timestamp() WHERE id=$1`, [tentativa.id, businessId, input.data.wabaId, phoneNumberId, conexao.id]);
+      await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'WHATSAPP_CONEXAO_CONFIGURADA', entidadeTipo: 'WHATSAPP_CONEXAO', entidadeId: conexao.id, dadosDepois: { ambiente: config.ambiente, empresaId, businessId, wabaId: input.data.wabaId, phoneNumberId, numeroExibicao: validada.displayPhoneNumber, nomeVerificado: validada.verifiedName, coexistenciaConfirmada: true, inscricaoWebhook: 'CONFIRMADA', webhookAtivo: false, otpAtivo: false }, ...auditoriaBase(contexto) }, tx);
       await revalidarTenant(tx, tenant);
       return conexao;
     });
@@ -179,7 +191,8 @@ export async function concluirOnboardingWhatsapp(raw: unknown, token: string, co
     // Corrida entre duas empresas com o mesmo número: o índice único da 083 decide; a mensagem é a mesma.
     const normalizado = (error as { code?: string; constraint?: string })?.code === '23505' && (error as { constraint?: string }).constraint === 'whatsapp_conexoes_numero_configurado_uk' ? NUMERO_EM_USO() : error;
     const code = normalizado instanceof WhatsappOnboardingError ? normalizado.code : 'WHATSAPP_PERSISTENCIA_FALHOU';
-    await marcarFalha(transacao, input.data.tentativaId, preparada.sessao.usuario_id, contexto, code);
+    // A validação passou inteira, inclusive a inscrição: a WABA ficou inscrita sem conexão local.
+    await marcarFalha(transacao, input.data.tentativaId, preparada.sessao.usuario_id, contexto, code, { inscricaoWebhook: 'CONFIRMADA', wabaId: input.data.wabaId });
     throw normalizado;
   }
   return { conexaoId: concluida.id, estado: 'CONFIGURADA_SEM_WEBHOOK_OTP', numeroExibicao: validada.displayPhoneNumber, nomeVerificado: validada.verifiedName };
