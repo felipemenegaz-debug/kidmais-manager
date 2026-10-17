@@ -36,7 +36,13 @@ O `consultar` do buffet lê `resolucao_*` e a recuperação usa `reserva_microus
 2. `--aplicar-079-autorizado` → `APLICADA_POSTCHECK_PASS`;
 3. merge do PR em `production` e deploy manual do web.
 
-Antes do deploy o servidor ainda roda `4af8b38`, que não tem o aplicador. No Web Shell do `srv-dak77m2d0e5s73b8rkkg`, baixar do commit aprovado (repositório público) o aplicador e os 3 SQL para `/tmp/c079` com a mesma estrutura de pastas, conferir os SHA-256 publicados no PR e executar com o `pg` já instalado no serviço (`NODE_PATH=/opt/render/project/src/node_modules`). O aplicador lê os SQL relativos à própria pasta e confere os hashes de novo. O roteiro exato, com o SHA, está no PR.
+Antes do deploy o servidor ainda roda `4af8b38`, que não tem o aplicador. No Web Shell do `srv-dak77m2d0e5s73b8rkkg`, baixar do commit aprovado (repositório público) o aplicador e os 3 SQL para `/tmp/c079` com a mesma estrutura de pastas, conferir os SHA-256 publicados no PR e executar com o `pg` já instalado no serviço (`NODE_PATH=/opt/render/project/src/node_modules`). O aplicador lê os SQL relativos à própria pasta e confere os hashes de novo. O roteiro exato, com o SHA, está no PR, em três blocos separados:
+
+1. download e conferência de hash, parando no primeiro erro;
+2. `--conferir-079`, com leitura do resultado;
+3. `--aplicar-079-autorizado`, colado só depois da autorização.
+
+Antes do bloco 3, Felipe registra o backup/snapshot do banco (ou a decisão explícita de não fazer). Depois de `FALHA`/`TENTATIVA_ANTERIOR_REVISAR`, não repetir: rodar `--conferir-079` e analisar o marcador. Só com autorização nova o marcador é arquivado (renomeado, nunca apagado) antes de outra tentativa.
 
 Trava: `RENDER=true`, `RENDER_SERVICE_ID`, `KIDMAIS_DEPLOY_ENV=production`, `DATABASE_SSL=true` com certificado verificado, host `dpg-dak750gae00c73fudmg0-a`, banco `kidmais_production`, sem parâmetros na URL; identidade e TLS conferidos no servidor; 073/074 exigidas; vestígio parcial da 079 para antes de escrever. Marcador exclusivo em `/opt/render/project/src/data/convites-v1-producao-20261017/migration-079.json` impede repetição automática (falha ou resposta perdida → revisar por `--conferir-079`, nunca repetir às cegas).
 
@@ -61,5 +67,5 @@ O deploy publica o código; a IA continua como a configuração de produção ma
 
 ## Rollback
 
-- **Código:** voltar ao deploy `dep-db49tpu7bikc73e2l4lg` (`4af8b38`) é compatível com a 079 aplicada. **Mas** o `conteudoSchema` de `4af8b38` é estrito: convites salvos/publicados pela V1 com `visual.posicao` ficariam com o link público indisponível. Antes de um rollback, conferir por leitura autorizada se há convites com `visual.posicao`; preferir correção à frente.
+- **Código:** voltar ao deploy `dep-db49tpu7bikc73e2l4lg` (`4af8b38`) é compatível com a 079 aplicada. **Mas** o `conteudoSchema` de `4af8b38` é estrito: convites salvos/publicados pela V1 com `visual.posicao` (botões “Imagem como fundo/no topo”) ficariam com o link público indisponível **e** o editor antigo recusaria salvá-los ou publicá-los. Antes de um rollback, conferir por leitura autorizada quantos convites têm `visual.posicao`; na prática, preferir correção à frente.
 - **079:** `database/rollback/20261011_079_convite_recuperacao_manual_down.sql` só com autorização própria; recusa sozinho quando já há decisões de recuperação gravadas. Com a V1 no ar, remover a 079 quebra o editor: reverter o código antes.

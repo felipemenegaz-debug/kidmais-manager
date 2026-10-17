@@ -53,3 +53,6 @@ jobs:
 
       - name: Convites — download da arte completa preserva dimensões, sem recorte ou textos sobrepostos
         run: node --test scripts/convites-exportacao-completa.test.cjs
+
+      - name: Convites — recuperação manual (079) e aplicador de produção com trava de alvo e anti-repetição
+        run: node --test lib/convites/recuperacao.test.cjs scripts/migration-079-production.test.cjs
