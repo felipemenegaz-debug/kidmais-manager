@@ -259,6 +259,35 @@ test('o mesmo número não entra em duas empresas: recusado com mensagem neutra,
     (e: { code?: string; constraint?: string }) => e.code === '23505' && e.constraint === 'whatsapp_conexoes_numero_configurado_uk');
 });
 
+/**
+ * B1: a validação REAL do cliente Meta (meta-client.ts, mesma instância de erros do serviço) com a Meta dublada por
+ * fetch. O token autoriza os negócios 1001 e 1002 e a WABA 2002, mas a WABA 2002 é POSSUÍDA pelo 1002: o evento
+ * (1001, 2002) é a combinação cruzada. Recusa e falha do provedor: tentativa FALHOU e nenhuma conexão.
+ */
+test('B1: combinação WABA ↔ negócio não comprovada e falha do provedor não concluem conexão (tentativa FALHOU)', async () => {
+  const meta = carregar('lib/whatsapp/meta-client.ts') as unknown as { trocarCodigoEValidarAtivos: (i: unknown, c: unknown, f: typeof fetch) => Promise<unknown> };
+  const dubleMeta = (falhaPosse: 'nenhuma' | 'http500' | 'rede') => (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('/oauth/access_token')) return Response.json({ access_token: 'token-sintetico-b1', token_type: 'bearer' });
+    if (url.includes('/debug_token')) return Response.json({ data: { is_valid: true, app_id: '123456789', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging', 'business_management'],
+      granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: ['2002'] }, { scope: 'business_management', target_ids: ['1001', '1002'] }] } });
+    if (url.includes('/owned_whatsapp_business_accounts')) {
+      if (falhaPosse === 'rede') throw new TypeError('fetch failed');
+      if (falhaPosse === 'http500') return new Response('{}', { status: 500 });
+      return Response.json({ data: url.includes('/1002/') ? [{ id: '2002' }] : [{ id: '2099' }] });
+    }
+    return Response.json({ data: [{ id: '8001', display_phone_number: '+55 11 98001-0000', verified_name: 'Cruzado', is_on_biz_app: true }] });
+  }) as typeof fetch;
+  const validarCom = (falha: 'nenhuma' | 'http500' | 'rede') => ((input: unknown, cfg: unknown) => meta.trocarCodigoEValidarAtivos(input, cfg, dubleMeta(falha))) as typeof metaOk;
+  for (const [falha, esperado] of [['nenhuma', 'META_WABA_DIVERGENTE'], ['http500', 'META_API_RECUSOU'], ['rede', 'META_VALIDACAO_FALHOU']] as const) {
+    const erro = await codigoErro(conectar(await sessaoDe(ids.gestaoB), '8001', validarCom(falha)));
+    assert.equal(erro, esperado, falha);
+    assert.equal(await conta("SELECT count(*)::int AS n FROM whatsapp_onboarding_tentativas WHERE empresa_id = $1 AND status = 'FALHOU' AND erro_codigo = $2", [ids.empresaB, esperado]), 1, falha);
+  }
+  assert.equal(await conta("SELECT count(*)::int AS n FROM whatsapp_conexoes WHERE phone_number_id = '8001'"), 0);
+  assert.equal(await conta("SELECT count(*)::int AS n FROM whatsapp_onboarding_tentativas WHERE empresa_id = $1 AND status IN ('INICIADA', 'VALIDANDO')", [ids.empresaB]), 0);
+});
+
 test('troca de empresa no meio do fluxo: a tentativa iniciada na A não conclui com a sessão na B', async () => {
   const s = await sessaoDe(ids.gestaoAB, { empresaAtiva: ids.empresaB });
   const ini = await (svc.wpp.iniciarOnboardingWhatsapp as unknown as (t: string, c: unknown) => Promise<{ tentativaId: string; state: string }>)(s.token, ctx());
