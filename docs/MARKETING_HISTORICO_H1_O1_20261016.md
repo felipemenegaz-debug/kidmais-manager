@@ -3,7 +3,9 @@
 **Goal:** nota `Goal Correcao Historico Marketing H1 O1` no vault.
 **Base:** `30b93fb` (árvore `f253bea`), reprovada em `revisao-marketing-historico-f1f3-30b93fb-parecer-20261016/PARECER.md`. P2: H1. P3 (não bloqueante): O1.
 **Branch:** `codex/marketing-historico-h1-o1-20261016`, worktree `kidmais-manager-marketing-historico-h1o1-20261016`. Só local, sem push.
-**Revisão independente:** pendente. **Aceite humano:** pendente.
+**Revisão independente:** REPROVADO em `revisao-marketing-historico-h1o1-f37a965-parecer-20261016` (H1-R1, H1-R2, H1-R3; O1 corrigido). **Aceite humano:** pendente.
+
+> **Atualização H1-R1/R2/R3 (17/10/2026):** o limite "ambiguidade irredutível" abaixo era inexato — H1-R1 era distinguível pelo índice, H1-R2 terminava incoerente e H1-R3 era resolvido em silêncio. Ver `docs/MARKETING_HISTORICO_H1_R1_R3_20261017.md`.
 
 ## H1 — causa (reproduzida na base)
 
@@ -102,7 +104,7 @@ Logs e contagens estão no pacote de revisão desta rodada.
 
 ## Limites
 
-- **Ambiguidade irredutível.** Uma travessia da pessoa já na fila quando a correção pede um movimento (até cerca de 2–6 ms antes, no Chrome medido) gera os mesmos popstates nas duas ordens possíveis, quando a chegada é compatível com o nosso movimento.
+- **Ambiguidade irredutível** *(inexato — corrigido em H1-R1/R2/R3: não eram os mesmos popstates em R1, o fim não era coerente em R2 e R3 engolia o pedido)*. Uma travessia da pessoa já na fila quando a correção pede um movimento (até cerca de 2–6 ms antes, no Chrome medido) gera os mesmos popstates nas duas ordens possíveis, quando a chegada é compatível com o nosso movimento.
   - O guardião termina coerente (editor, nada ao roteador, nada perdido) e usa uma ordem válida. O destino pode ser a entrada vizinha daquela que a ordem real daria.
   - Teste "ambiguidade" no `protecao-saida.test.ts`.
 - **Entradas sem índice que não são fragmentos.** Por exemplo, `pushState(null)` fora do Next, que embrulha o estado. A premissa "a anterior é da mesma página" pode falhar. Se o vigia for necessário, a salvaguarda termina a volta.

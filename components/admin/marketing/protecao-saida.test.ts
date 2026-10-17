@@ -40,21 +40,30 @@ function ambiente({ comNavigation, inicial }: { comNavigation: boolean; inicial?
   };
   /** Travessias atendidas em ordem (fila), como no navegador; as da PESSOA são registradas com a posição onde chegaram. */
   const chegadasHumanas: Array<{ pos: number; t: number }> = [];
-  const ir = (alvoDe: (atual: number) => number, humano = false) => setTimeout(() => {
-    const alvo = alvoDe(i);
-    if (alvo < 0 || alvo >= entradas.length || alvo === i) return; // sem entrada: no-op, sem popstate (como o navegador)
-    i = alvo;
-    if (humano) chegadasHumanas.push({ pos: i, t: agora });
-    disparar();
-  }, 1);
+  /** Todas as travessias por delta, na ordem de chamada: quem pediu, quando, de onde para onde (oráculo de ordem trocada). */
+  const travessiasDelta: Array<{ quem: 'pessoa' | 'guardiao'; d: number; em: number; seq: number; at?: number; de?: number; para?: number; noop?: boolean }> = [];
+  let seqT = 0;
+  const ir = (alvoDe: (atual: number) => number, humano = false, d: number | null = null) => {
+    const reg = d === null ? null : { quem: (humano ? 'pessoa' : 'guardiao') as 'pessoa' | 'guardiao', d, em: agora, seq: seqT++ };
+    if (reg) travessiasDelta.push(reg);
+    return setTimeout(() => {
+      const alvo = alvoDe(i);
+      const noop = alvo < 0 || alvo >= entradas.length || alvo === i;
+      if (reg) Object.assign(reg, { at: agora, de: i, para: noop ? i : alvo, noop });
+      if (noop) return; // sem entrada: no-op, sem popstate (como o navegador)
+      i = alvo;
+      if (humano) chegadasHumanas.push({ pos: i, t: agora });
+      disparar();
+    }, 1);
+  };
   /** history.go feito pela PESSOA (botões, menu do histórico): mesma fila, mas a chegada fica registrada como objetivo. */
-  const humano = (d: number) => { ir((atual) => atual + d, true); };
+  const humano = (d: number) => { ir((atual) => atual + d, true, d); };
   const history = {
     get state() { return entradas[i].state; },
     get length() { return entradas.length; },
     pushState(state: Estado, _: string, url?: string) { entradas.splice(i + 1); entradas.push({ url: url ?? entradas[i].url, state, key: `k${chaves++}` }); i += 1; },
     replaceState(state: Estado, _: string, url?: string) { entradas[i] = { ...entradas[i], state, url: url ?? entradas[i].url }; },
-    go(d: number) { ir((atual) => atual + d); }, back() { this.go(-1); }, forward() { this.go(1); },
+    go(d: number) { ir((atual) => atual + d, false, d); }, back() { this.go(-1); }, forward() { this.go(1); },
   };
   /** Clique numa âncora <a href="#x">: entrada NOVA com estado nulo (descarta as da frente) + popstate. */
   const fragmento = (h: string) => { entradas.splice(i + 1); entradas.push({ url: entradas[i].url.split('#')[0] + h, state: null, key: `k${chaves++}` }); i += 1; disparar(); };
@@ -64,14 +73,14 @@ function ambiente({ comNavigation, inicial }: { comNavigation: boolean; inicial?
     traverseTo(chave: string) { travessias.push(chave); const alvo = entradas.findIndex((x) => x.key === chave); ir(() => alvo); return { committed: Promise.resolve(), finished: Promise.resolve() }; },
   } : undefined;
   const janela = {
-    history, navigation, setTimeout, clearTimeout,
+    history, navigation, setTimeout, clearTimeout, performance: { now: () => agora },
     get location() { return { href: `http://teste.local${entradas[i].url}` }; },
     addEventListener(tipo: string, f: Ouvinte['f']) { ouvintes.push({ tipo, f }); },
     removeEventListener(tipo: string, f: Ouvinte['f']) { const k = ouvintes.findIndex((o) => o.tipo === tipo && o.f === f); if (k >= 0) ouvintes.splice(k, 1); },
   };
   const roteador: string[] = [];
   const registrarRoteador = () => janela.addEventListener('popstate', (e) => { if (e.state) roteador.push(entradas[i].url); });
-  return { janela, entradas, roteador, travessias, registrarRoteador, fragmento, avancar, humano, chegadasHumanas, agora: () => agora, url: () => entradas[i].url, posicao: () => i };
+  return { janela, entradas, roteador, travessias, registrarRoteador, fragmento, avancar, humano, chegadasHumanas, travessiasDelta, agora: () => agora, url: () => entradas[i].url, posicao: () => i };
 }
 let n = 0;
 async function preparar(comNavigation: boolean, paginas: string[] = ['/dashboard', '/editor'], inicial?: { url: string; state: Estado }) {
@@ -295,24 +304,68 @@ async function prepararLayout(l: (typeof LAYOUTS)[number]) {
   c.amb.humano(l.ida); c.amb.avancar(1); // a pessoa chega à entrada sem índice (fragmento de página com entradas dos dois lados)
   return { c, posEditor, rotas, desproteger };
 }
-function conferirDestino(c: Cenario, posEditor: number, rotas: number, rotulo: string) {
+/**
+ * Oráculo de ordem trocada: as MESMAS travessias por delta, com a última da pessoa trocada de lugar com a do guardião
+ * vizinha na fila — só se a troca for REALIZÁVEL: a chamada da pessoa a menos de um quadro (16 ms) do ATENDIMENTO do
+ * movimento vizinho do guardião, ou seja, a pessoa não podia ter visto o resultado dele (decidiu sobre a tela anterior). Se a sequência VISÍVEL ao guardião (URL e índice de cada chegada) for idêntica, as duas ordens são
+ * indistinguíveis; devolve onde a pessoa terminaria na outra ordem.
+ */
+function outraOrdem(c: Cenario, posEditor: number): { alvo: number | null } | null {
+  const chamadas = c.amb.travessiasDelta.filter((x) => x.at !== undefined).slice().sort((a, b) => a.em - b.em || a.seq - b.seq);
+  const k = chamadas.map((x) => x.quem).lastIndexOf('pessoa');
+  const pos0 = chamadas[0]?.de ?? posEditor;
+  const idxDe = (st: unknown) => ((st as Record<string, unknown> | null)?.__kidmaisIdx ?? null);
+  const reproduzir = (lista: typeof chamadas) => {
+    let pos = pos0; const vis: string[] = []; let fim: number | null = null;
+    lista.forEach((x, j) => {
+      const alvo = pos + x.d;
+      if (alvo < 0 || alvo >= c.amb.entradas.length || alvo === pos) return;
+      pos = alvo; vis.push(`${c.amb.entradas[pos].url}|${idxDe(c.amb.entradas[pos].state)}`); void j;
+      if (x.quem === 'pessoa') fim = pos;
+    });
+    return { vis, fim };
+  };
+  const real = reproduzir(chamadas);
+  for (const viz of [k - 1, k + 1]) {
+    if (k < 1 || viz < 0 || viz >= chamadas.length || chamadas[viz].quem !== 'guardiao' || Math.abs(chamadas[k].em - (chamadas[viz].at ?? Infinity)) >= 16) continue;
+    const troc = chamadas.slice(); [troc[k], troc[viz]] = [troc[viz], troc[k]];
+    const alt = reproduzir(troc);
+    if (JSON.stringify(alt.vis) === JSON.stringify(real.vis)) return { alvo: alt.fim };
+  }
+  return null;
+}
+/**
+ * Destino observado: a entrada onde a ÚLTIMA travessia da pessoa chegou de fato. Sempre: termina no editor, roteador sem
+ * nada, nenhuma correção pendente. Se a pessoa terminou no editor e a outra ordem — INDISTINGUÍVEL — a deixaria em outra
+ * página, o pedido conservador com esse destino é aceito e marcado (nunca o silêncio no caso contrário).
+ */
+function conferirDestino(c: Cenario, posEditor: number, rotas: number, rotulo: string, conservadores?: string[]) {
   const g = (c.amb.janela as unknown as { __kidmaisGuardiaoHistorico: { tentativa: unknown } }).__kidmaisGuardiaoHistorico;
   assert.equal(g.tentativa, null, `${rotulo}: nenhuma correção pendente`);
   assert.equal(c.amb.posicao(), posEditor, `${rotulo}: termina na entrada do editor (URL coerente com a página)`);
   assert.equal(c.amb.roteador.length, rotas, `${rotulo}: o roteador não recebeu nada (editor montado, edição preservada)`);
   const ultima = c.amb.chegadasHumanas.at(-1)!;
-  const naPaginaDoEditor = c.amb.entradas[ultima.pos].url.split('#')[0] === '/editor';
+  const naPaginaDoEditor = (pos: number) => c.amb.entradas[pos].url.split('#')[0] === '/editor';
   const depois = c.pedidos.filter((_, i) => c.quandoPedidos[i] >= ultima.t);
-  if (naPaginaDoEditor) { assert.deepEqual(depois, [], `${rotulo}: a pessoa voltou ao editor — nada a perguntar`); return null; }
-  assert.ok(depois.length >= 1, `${rotulo}: pedido depois da última travessia da pessoa`);
+  if (naPaginaDoEditor(ultima.pos)) {
+    if (depois.length) {
+      const alt = outraOrdem(c, posEditor);
+      assert.ok(alt && alt.alvo !== null && !naPaginaDoEditor(alt.alvo), `${rotulo}: a pessoa voltou ao editor — pedido só se a outra ordem, indistinguível, a deixar fora dele`);
+      assert.deepEqual(c.pedidos.at(-1), { tipo: 'relativo', delta: alt!.alvo! - posEditor }, `${rotulo}: pedido conservador = destino da outra ordem`);
+      conservadores?.push(rotulo);
+      return alt!.alvo!;
+    }
+    return null;
+  }
+  assert.ok(depois.length >= 1, `${rotulo}: pedido depois da última travessia da pessoa (nunca engolido)`);
   assert.deepEqual(c.pedidos.at(-1), { tipo: 'relativo', delta: ultima.pos - posEditor }, `${rotulo}: destino = onde a pessoa chegou`);
   return ultima.pos;
 }
 const ACOES = [{ nome: 'Voltar', d: -1 }, { nome: 'Avançar', d: 1 }, { nome: 'go(-3)', d: -3 }, { nome: 'go(-4)', d: -4 }, { nome: 'go(+2)', d: 2 }];
-// Momentos em ms depois da chegada à entrada sem índice. Os movimentos da correção saem em 40 e 81 ms (espera de 40 ms
-// + 1 ms de atendimento); a travessia da pessoa leva 1 ms. Ficam de fora só os instantes em que a dela ainda está NA FILA
-// quando a correção pede o movimento (39 e 80 ms): ver o teste "ambiguidade" abaixo.
-const MOMENTOS = [5, 20, 38, 41, 45, 60, 79, 81, 85, 100, 150, 900];
+// Momentos em ms depois da chegada à entrada sem índice, INCLUINDO a janela de atendimento: os movimentos da correção
+// saem em 40 e 81 ms (espera de 40 ms + 1 ms de atendimento) e a travessia da pessoa leva 1 ms — em 39 e 80 ms a dela
+// ainda está na fila quando a correção pede o movimento (H1-R1/R2/R3); 40/41 e 81/82 ficam logo depois.
+const MOMENTOS = [0, 5, 20, 38, 39, 40, 41, 42, 45, 60, 79, 80, 81, 82, 85, 100, 150, 900];
 for (const l of LAYOUTS) {
   test(`SEM Navigation API — H1 [${l.nome}], sem nova ação: volta sem movimento sem destino e "Sair" vai ao fragmento tentado`, async () => {
     const { c, posEditor, rotas, desproteger } = await prepararLayout(l);
@@ -383,18 +436,85 @@ for (const ms of [20, 60]) {
   });
 }
 
-test('SEM Navigation API — H1, limite medido (ambiguidade): travessia da pessoa já NA FILA quando a correção pede o movimento → as duas ordens geram os mesmos popstates; termina coerente, sem perda, com o destino de uma ordem válida', async () => {
-  // Layout da RV-I1. Aos 39 ms a pessoa dá Voltar (atendido em 40 ms); a correção pede go(−1) em 40 ms (atendido em 41).
-  // Ordem real (fila): a da pessoa primeiro → ela chega a Campanhas(4) e o nosso passo leva ao editor. Ordem inversa: o
-  // nosso leva a Campanhas(4) e o Voltar dela leva ao editor. Mesmas URLs, mesmos estados, mesma sequência: indistinguível.
-  const l = LAYOUTS[0];
-  const { c, posEditor, rotas, desproteger } = await prepararLayout(l);
-  c.amb.avancar(39); c.amb.humano(-1); c.amb.avancar(3000);
-  const g = (c.amb.janela as unknown as { __kidmaisGuardiaoHistorico: { tentativa: unknown } }).__kidmaisGuardiaoHistorico;
-  assert.equal(g.tentativa, null); assert.equal(c.amb.posicao(), posEditor); assert.equal(c.amb.roteador.length, rotas);
-  assert.deepEqual(c.amb.chegadasHumanas.map((x) => x.pos), [5, 4], 'ordem real: a pessoa chegou a Campanhas(4)');
-  assert.deepEqual(c.pedidos, [], 'interpretado na outra ordem válida: a pessoa terminou no editor — nada a perguntar, nada perdido');
+// ---- H1-R1/R2/R3 e O-2 (revisão de f37a965): histórico da RV-I1 [0 início, 1 Dashboard, 2 Campanhas, 3 editor,
+// 4 Campanhas, 5 Campanhas#fim (nulo)]. A pessoa vai a #fim (chegada em +1); a correção pede go(−1) aos 40 ms (atendido
+// aos 41). "Antes" = a travessia da pessoa já está na fila quando a correção pede o movimento (atendida antes dele).
+async function janelaRvI1() {
+  const r = await prepararLayout(LAYOUTS[0]);
+  assert.equal(r.posEditor, 3);
+  return r;
+}
+test('SEM Navigation API — H1-R1, a pessoa ANTES: go(−3) chega a Campanhas(2); o passo −1 da correção só poderia chegar a Campanhas(4) → destino Campanhas(2), não Dashboard', async () => {
+  const { c, posEditor, rotas, desproteger } = await janelaRvI1();
+  c.amb.avancar(39); c.amb.humano(-3); c.amb.avancar(3000);
+  assert.deepEqual(c.amb.chegadasHumanas.map((x) => x.pos), [5, 2]);
+  assert.equal(conferirDestino(c, posEditor, rotas, 'R1 antes'), 2);
+  sair(c, desproteger); assert.equal(c.amb.posicao(), 2); assert.equal(c.amb.url(), '/campanhas');
+});
+test('SEM Navigation API — H1-R1, a pessoa DEPOIS (mesmo go(−3) logo depois do pedido da correção): chega ao Dashboard(1) → destino Dashboard', async () => {
+  const { c, posEditor, rotas, desproteger } = await janelaRvI1();
+  c.amb.avancar(40); c.amb.humano(-3); c.amb.avancar(3000);
+  assert.deepEqual(c.amb.chegadasHumanas.map((x) => x.pos), [5, 1]);
+  assert.equal(conferirDestino(c, posEditor, rotas, 'R1 depois'), 1);
+  sair(c, desproteger); assert.equal(c.amb.url(), '/dashboard');
+});
+test('SEM Navigation API — H1-R2: a pessoa chega à 1ª entrada da aba e o passo −1 já pedido vira no-op → a volta NÃO é abandonada: editor, URL coerente, pedido para lá', async () => {
+  const { c, posEditor, rotas, desproteger } = await janelaRvI1();
+  c.amb.avancar(39); c.amb.humano(-5); c.amb.avancar(200); // bem antes do vigia: o no-op é certo (nada antes da 1ª entrada)
+  assert.deepEqual(c.amb.chegadasHumanas.map((x) => x.pos), [5, 0]);
+  assert.equal(conferirDestino(c, posEditor, rotas, 'R2'), 0);
+  sair(c, desproteger); assert.equal(c.amb.posicao(), 0);
+});
+test('SEM Navigation API — H1-R2 sem saber que é a 1ª entrada: o movimento sem destino é detectado pela salvaguarda e a volta é replanejada (não encerrada fora do editor)', async () => {
+  const { c, posEditor, rotas, desproteger } = await janelaRvI1();
+  const g = (c.amb.janela as unknown as { __kidmaisGuardiaoHistorico: { instalacao: { primeira: boolean } } }).__kidmaisGuardiaoHistorico;
+  g.instalacao.primeira = false; // como se houvesse entradas de outro documento antes (o no-op deixa de ser certo)
+  c.amb.avancar(39); c.amb.humano(-5); c.amb.avancar(3000);
+  assert.equal(conferirDestino(c, posEditor, rotas, 'R2 com vigia'), 0);
   desproteger();
+});
+test('SEM Navigation API — H1-R3, a pessoa ANTES: Voltar chega a Campanhas(4) e o passo da correção leva ao editor → pedido para Campanhas(4) (não engolido)', async () => {
+  const { c, posEditor, rotas, desproteger } = await janelaRvI1();
+  c.amb.avancar(39); c.amb.humano(-1); c.amb.avancar(3000);
+  assert.deepEqual(c.amb.chegadasHumanas.map((x) => x.pos), [5, 4], 'a pessoa chegou a Campanhas(4)');
+  assert.equal(conferirDestino(c, posEditor, rotas, 'R3 antes'), 4);
+  sair(c, desproteger); assert.equal(c.amb.posicao(), 4);
+});
+test('SEM Navigation API — H1-R3, a pessoa DEPOIS no mesmo atendimento (ordem indistinguível): mesmos popstates e instantes → pergunta pelo destino da outra ordem (conservador), nunca o silêncio', async () => {
+  const { c, posEditor, rotas, desproteger } = await janelaRvI1();
+  c.amb.avancar(40); c.amb.humano(-1); c.amb.avancar(3000);
+  assert.deepEqual(c.amb.chegadasHumanas.map((x) => x.pos), [5, 3], 'nesta ordem a pessoa terminou no editor');
+  const conservadores: string[] = [];
+  assert.equal(conferirDestino(c, posEditor, rotas, 'R3 depois', conservadores), 4);
+  assert.equal(conservadores.length, 1, 'aceito só por ser indistinguível da ordem "antes"');
+  desproteger();
+});
+test('SEM Navigation API — H1-R3, Voltar deliberado depois de um quadro (> RAJADA_MS) da chegada intermediária: a pessoa voltou ao editor → nenhum pedido', async () => {
+  const { c, posEditor, rotas, desproteger } = await janelaRvI1();
+  c.amb.avancar(60); c.amb.humano(-1); c.amb.avancar(3000);
+  assert.equal(conferirDestino(c, posEditor, rotas, 'R3 deliberado'), null);
+  desproteger();
+});
+test('SEM Navigation API — O-2: "Sair" pelo hook DURANTE a volta (movimento da correção já na fila) → a saída espera chegar ao editor e segue dali; nenhum movimento depois dela', async () => {
+  const { c, desproteger } = await janelaRvI1();
+  c.amb.avancar(40); // a correção acabou de pedir go(−1)
+  let posNaSaida = -1;
+  c.liberar();
+  c.m.executarSaida(() => { posNaSaida = c.amb.posicao(); desproteger(); c.amb.janela.history.pushState({ __NA: true }, '', '/saida-escolhida'); });
+  const n = c.amb.travessiasDelta.length;
+  c.amb.avancar(3000);
+  assert.equal(posNaSaida, 3, 'a saída parte da entrada do editor (o destino relativo foi medido de lá)');
+  assert.equal(c.amb.url(), '/saida-escolhida'); assert.deepEqual(c.pedidos, []);
+  assert.ok(c.amb.travessiasDelta.slice(n).every((x) => (x.at ?? 0) <= c.amb.agora()) && c.amb.posicao() === c.amb.entradas.length - 1, 'nada depois da saída');
+});
+test('SEM Navigation API — O-2 direto (saída fora do hook com um movimento antigo na fila): o movimento antigo é desfeito e a URL termina na saída escolhida', async () => {
+  const { c, desproteger } = await janelaRvI1();
+  c.amb.avancar(40);
+  c.liberar(); desproteger(); c.amb.janela.history.pushState({ __NA: true }, '', '/saida-escolhida');
+  c.amb.avancar(3000);
+  assert.equal(c.amb.url(), '/saida-escolhida'); assert.deepEqual(c.pedidos, []);
+  const g = (c.amb.janela as unknown as { __kidmaisGuardiaoHistorico: { tentativa: unknown } }).__kidmaisGuardiaoHistorico;
+  assert.equal(g.tentativa, null);
 });
 
 test('SEM Navigation API — representação: entrada criada a partir de posição incerta não duplica índice; a volta usa passos e não passa do editor', async () => {
