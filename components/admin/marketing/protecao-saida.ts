@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 
 /**
  * Para onde a pessoa tentou ir com alterações não salvas: um link interno, uma entrada do histórico pela chave
- * (Navigation API) ou pelo deslocamento REAL medido a partir da entrada do editor (sem Navigation API).
+ * (Navigation API) ou — sem Navigation API — a ENTRADA ATUAL: a página já está onde a pessoa chegou ("decisão primeiro").
  */
-export type DestinoSaida = { tipo: 'link'; href: string } | { tipo: 'historico'; chave: string; url: string } | { tipo: 'relativo'; delta: number };
+export type DestinoSaida = { tipo: 'link'; href: string } | { tipo: 'historico'; chave: string; url: string } | { tipo: 'aqui'; url: string };
 
 type EntradaNavegacao = { key: string; url: string | null; index: number };
 type NavegacaoApi = { currentEntry: EntradaNavegacao | null; traverseTo(chave: string): { committed?: Promise<unknown>; finished?: Promise<unknown> } };
@@ -31,7 +31,7 @@ function paginaDe(url: string | null | undefined) {
  * da entrada INDEXADA do editor sem ela — mesmo quando a proteção começa numa entrada de fragmento com estado nulo) e
  * como avisar o editor.
  */
-type Ativa = { pagina: string; chave: string | null; indice: number | null; liberado: () => boolean; temPedido: () => boolean; aoTentarSair: (d: DestinoSaida) => void };
+type Ativa = { pagina: string; chave: string | null; indice: number | null; liberado: () => boolean; temPedido: () => boolean; aoTentarSair: (d: DestinoSaida | null) => void };
 /**
  * O que se sabe de uma entrada do histórico, SEM Navigation API (nada disso vai para o estado da entrada):
  *  - `idx`: o índice próprio (`__kidmaisIdx`), ou nulo;
@@ -44,21 +44,26 @@ type Pos = { idx: number | null; url: string; pagina: string; ancora: number | n
   /** Fragmentos com a MESMA URL criados de entradas diferentes: a posição é uma destas (todas registradas). */
   candidatos?: Array<{ anterior: Anterior; ancora: number | null }> };
 /**
- * Uma tentativa de saída interceptada SEM Navigation API, do primeiro popstate barrado até a volta à entrada do editor.
- * Pertence à proteção que a interceptou e termina sempre na entrada do editor (com o pedido, ou com a saída explícita
- * que esperou por ela); nunca abandonada fora dela enquanto o editor estiver montado.
+ * Uma tentativa de saída interceptada SEM Navigation API ("decisão primeiro", A1/A2). Pertence à proteção que a interceptou.
+ *  - `aguardando`: o pedido está aberto e o guardião NÃO se move — a página fica onde a pessoa chegou, e esse é o destino
+ *    (exato, observado). Novas travessias dela só atualizam o destino; voltar à página do editor fecha o pedido.
+ *  - `voltando`: a pessoa escolheu "Continuar editando"; só então a volta à entrada do editor acontece. Se ela atravessar
+ *    no meio, o pedido reabre (`aguardando`) com o destino onde ela chegou.
+ * Um movimento nosso que ainda estava na fila quando ela atravessou chega depois, a partir de onde ela estava, e é
+ * DESFEITO (compensação): o destino continua sendo a entrada que ela escolheu. Nada é cancelado (uma travessia na fila não
+ * pode ser), e nada é presumido sobre a ordem: o que é nosso é conferido pela posição (`possivel`).
  */
 type Tentativa = {
   a: Ativa;
-  deslocamento: number;        // soma dos NOSSOS movimentos desde a entrada de destino (cada um confirmado pelo próprio popstate)
+  modo: 'aguardando' | 'voltando';
   emVoo: number | null;        // movimento pedido (history.go) ainda sem popstate
   origem: Pos | null;          // de onde o movimento em voo será resolvido (muda se uma travessia da pessoa for atendida antes)
-  ultimo: { mov: number; chegada: Pos } | null; // último movimento nosso confirmado, antes do próximo pedido
+  desfazendo: boolean;         // o movimento em voo desfaz um movimento nosso que chegou depois de uma travessia da pessoa
   direcao: -1 | 1 | 0;         // passo quando a entrada atual não tem índice; 0 = ainda desconhecida (chegada da pessoa)
   inverteu: number;            // inversões da salvaguarda
   timer: number | null;        // espera para travessias seguidas assentarem
   vigia: number | null;        // salvaguarda: movimento sem popstate
-  saida: (() => void) | null;  // saída explícita pedida durante a volta: segue quando a volta chegar ao editor
+  saida: (() => void) | null;  // saída explícita pedida com um movimento nosso ainda na fila: segue quando ele assentar
   compensando: boolean;        // movimento antigo atendido depois de uma saída explícita direta, sendo desfeito
 };
 /**
@@ -383,16 +388,6 @@ function possivel(g: Guardiao, de: Pos | null, mov: number, L: Pos): boolean {
   return true;
 }
 
-/**
- * A chegada `L` é EXATAMENTE a do nosso movimento `mov` aplicado a partir de `de` (não só uma das possíveis), pelo
- * caminho inteiramente conhecido (`chegadaDe`). Só então a outra ordem do par existe com a 1ª chegada como destino.
- */
-function exatamente(g: Guardiao, de: Pos, mov: number, L: Pos): boolean {
-  if (de.idx === null && de.candidatos?.length) return de.candidatos.some((c) => exatamente(g, { ...de, ...c, candidatos: undefined }, mov, L));
-  const e = chegadaDe(g, de, mov);
-  return !!e && casa(g, e, L);
-}
-
 // ---- Tentativa de saída SEM Navigation API ----
 function limparTimers(t: Tentativa) {
   if (t.timer !== null) window.clearTimeout(t.timer);
@@ -400,15 +395,23 @@ function limparTimers(t: Tentativa) {
   t.timer = null; t.vigia = null;
 }
 function encerrar(g: Guardiao, t: Tentativa) { limparTimers(t); if (g.tentativa === t) g.tentativa = null; }
-/** Chegou de volta à entrada do editor: só agora o pedido (ou a saída explícita que esperava) segue — URL e página coerentes. */
+/** A volta pedida pela pessoa chegou à entrada do editor: fim (a saída explícita que esperava, se houver, segue daqui). */
 function concluirRetorno(g: Guardiao, t: Tentativa) {
   encerrar(g, t);
-  if (t.saida) { t.saida(); return; } // saída explícita pedida durante a volta: medida a partir do editor, sem pergunta
-  // O pedido vai à proteção VIGENTE do editor (se a de origem foi desativada e outra ativada na mesma página, é ela que
-  // decide); o callback antigo não é chamado. Saída explícita (liberado) já decidiu: nada a perguntar.
-  const alvo = g.ativa && g.ativa.pagina === t.a.pagina ? g.ativa : t.a;
-  if (alvo.liberado() || t.a.liberado() || t.deslocamento === 0) return;
-  alvo.aoTentarSair({ tipo: 'relativo', delta: -t.deslocamento });
+  if (t.saida) t.saida();
+}
+/** A proteção VIGENTE do editor (se a de origem foi desativada e outra ativada na mesma página, é ela); nunca o callback antigo. */
+function vigente(g: Guardiao, t: Tentativa) { return g.ativa && g.ativa.pagina === t.a.pagina ? g.ativa : t.a; }
+/**
+ * Pedido aberto, nenhum movimento nosso na fila: a página está onde a pessoa chegou. Na página do editor, o pedido fecha
+ * (ela voltou); em outra página, o destino é a entrada atual. Uma saída explícita que esperava segue agora.
+ */
+function assentarPedido(g: Guardiao, t: Tentativa, p: Pos) {
+  if (t.emVoo !== null || t.timer !== null) return;
+  if (t.saida) { encerrar(g, t); t.saida(); return; }
+  const alvo = vigente(g, t);
+  if (p.pagina === t.a.pagina) { encerrar(g, t); alvo.aoTentarSair(null); return; }
+  if (!alvo.liberado() && !t.a.liberado()) alvo.aoTentarSair({ tipo: 'aqui', url: window.location.href });
 }
 /**
  * Direção do primeiro passo a partir de uma entrada sem índice alcançada pela PESSOA. Só passos que TÊM destino:
@@ -429,6 +432,7 @@ function avancar(g: Guardiao, t: Tentativa) {
   if (g.tentativa !== t) return;
   if (t.a.liberado() && !t.saida) { encerrar(g, t); return; } // saída explícita direta (fora do hook) venceu
   if (t.emVoo !== null) return; // um movimento nosso ainda está na fila: o popstate dele vem antes de qualquer outro passo
+  if (t.modo !== 'voltando') return; // pedido aberto: nenhum movimento até a decisão
   const p = g.atual ?? posicaoAtual(g, indiceDe(window.history.state)), k = t.a.indice!;
   if (noEditor(t, p)) { concluirRetorno(g, t); return; }
   let mov: number;
@@ -448,7 +452,6 @@ function avancar(g: Guardiao, t: Tentativa) {
       mov = (t.direcao < 0 && !t.inverteu ? saltoAmbiguo(g, p, k) : null) ?? t.direcao;
     }
   }
-  t.ultimo = null;
   // Índice que já se mostrou falso (inversão da salvaguarda): a origem não serve para conferir a chegada.
   t.emVoo = mov; t.origem = t.inverteu && p.idx !== null ? null : p;
   window.history.go(mov);
@@ -459,9 +462,10 @@ function armarVigia(g: Guardiao, t: Tentativa, mov: number) {
   t.vigia = window.setTimeout(() => semMovimento(g, t, mov), VIGIA_MS);
 }
 /**
- * history.go sem popstate (no-op): o movimento NÃO aconteceu e não entra no deslocamento. A volta é replanejada a partir de
- * onde a página está; nunca abandonada fora do editor (H1-R2). Um salto sem destino mostra lacunas nos índices (passa a
- * passos); um passo sem destino a partir da posição atual inverte a direção.
+ * history.go sem popstate (no-op): o movimento NÃO aconteceu. Com o pedido aberto, nada mais é feito (a página está onde a
+ * pessoa chegou). Na volta, ela é replanejada a partir de onde a página está; nunca abandonada fora do editor (H1-R2). Um
+ * salto sem destino mostra lacunas nos índices (passa a passos); um passo sem destino a partir da posição atual inverte a
+ * direção.
  */
 function semMovimento(g: Guardiao, t: Tentativa, mov: number) {
   t.vigia = null;
@@ -470,6 +474,7 @@ function semMovimento(g: Guardiao, t: Tentativa, mov: number) {
   t.emVoo = null; t.origem = null;
   if (t.compensando) { t.compensando = false; encerrar(g, t); return; }
   if (t.a.liberado() && !t.saida) { encerrar(g, t); return; }
+  if (t.modo === 'aguardando') { t.desfazendo = false; if (aqui) assentarPedido(g, t, aqui); return; }
   if (Math.abs(mov) > 1) g.contiguo = false;
   else if (de && aqui && de.url === aqui.url && de.idx === aqui.idx) {
     if (t.inverteu >= 4) { encerrar(g, t); return; } // inalcançável: as duas pontas sem o editor
@@ -488,21 +493,21 @@ function semDestinoCerto(g: Guardiao, mov: number, de: Pos) { return mov < 0 && 
  *  - travessia para uma entrada da PRÓPRIA página (ex.: fragmentos da prévia, #orcamento) é livre e silenciosa — barrada
  *    só para o roteador (que já está nesta página), sem diálogo;
  *  - travessia para OUTRA página (Voltar, Avançar, history.go(±n), várias seguidas, durante salvamento) é barrada antes do
- *    roteador; volta-se à entrada do editor e o pedido vai ao editor com o destino escolhido;
+ *    roteador e vira um pedido ao editor com o destino escolhido;
  *  - com um pedido aberto (diálogo), qualquer travessia que saia da entrada do editor conta como nova tentativa.
- *   COM Navigation API: volta pela CHAVE (traverseTo, absoluto).
- *   SEM Navigation API: volta à entrada INDEXADA do editor por saltos que nunca a ultrapassam e passos onde não há índice.
- *   As travessias são atendidas em FILA e o alvo de cada uma é resolvido no atendimento: uma travessia da pessoa pode ser
- *   atendida antes do nosso movimento já pedido. Cada chegada é conferida contra o que o nosso movimento poderia alcançar
- *   a partir de onde ele será resolvido (`possivel`); o que não pode ser nosso é da pessoa, e o nosso continua pendente,
- *   resolvido a partir de onde ela chegou. De um fragmento de cadeia conhecida (ou da entrada inicial) a volta é um salto
- *   exato, sem passos de 1 que colidam com Voltar/Avançar; de um fragmento AMBÍGUO (mesma URL em entradas diferentes), um
- *   salto ≥ 2 seguro em todas as posições possíveis, cuja chegada revela a posição. Um par de chegadas igual nas duas
- *   ordens em que a leitura pela fila deixaria a pessoa no editor é resolvido a favor de PERGUNTAR (nunca engolido); entre
- *   duas saídas, vale a fila.
- * Uma travessia interceptada sempre termina na entrada do editor: mesmo se a proteção cair durante a volta (ex.: o
- * salvamento terminou), a volta se completa e o pedido é apresentado (a pessoa decide). Uma saída explícita pedida
- * durante a volta espera a volta chegar ao editor e então segue (`executarSaida`). Sem proteção ativa, nada é
+ *   COM Navigation API: volta na hora pela CHAVE (traverseTo, absoluto) e pergunta com a chave de destino.
+ *   SEM Navigation API ("decisão primeiro", A1/A2): o guardião NÃO volta sozinho. Um history.go relativo não pode ser
+ *   cancelado e é resolvido a partir de onde a página estiver quando for atendido; uma travessia da pessoa pedida pouco
+ *   antes muda o ponto de partida dele, e o mesmo gesto dela produz as mesmas chegadas que o movimento — nenhum tamanho de
+ *   movimento evita isso (colisões com Voltar, go(−n), saída do documento). Por isso o pedido abre já na chegada, com o
+ *   destino = a entrada ATUAL (exata: onde ela está); novas travessias só o atualizam; voltar à página do editor o fecha.
+ *   "Sair" não faz travessia (`sairNaEntradaAtual` + `mostrarEntradaAtual`); só "Continuar editando"
+ *   (`continuarEditando`) volta à entrada INDEXADA do editor — por saltos que nunca a ultrapassam e passos onde não há
+ *   índice, conferindo cada chegada pela posição (`possivel`). Se ela atravessar durante essa volta, o pedido reabre; um
+ *   movimento nosso que chegue depois de uma travessia dela é desfeito.
+ * Enquanto o pedido está aberto, a barra de endereço mostra a página de destino e o editor continua montado: a coerência
+ * URL × tela vale depois da decisão. Se a proteção cair (ex.: o salvamento terminou), o pedido continua — a pessoa decide.
+ * Uma saída explícita por link durante a volta espera a volta chegar ao editor (`executarSaida`). Sem proteção ativa, nada é
  * interceptado. Travessia para outro DOCUMENTO cai no beforeunload.
  */
 export function instalarGuardiaoDeHistorico() {
@@ -541,30 +546,32 @@ export function instalarGuardiaoDeHistorico() {
         if (emVoo !== null) { t.emVoo = null; t.compensando = true; window.history.go(-emVoo); armarVigia(g, t, -emVoo); return; }
         encerrar(g, t); return;
       }
-      if (emVoo !== null && possivel(g, t.origem, emVoo, p)) {
-        t.deslocamento += emVoo; t.emVoo = null; t.origem = null;
-        t.ultimo = { mov: emVoo, chegada: p };
-      } else if (emVoo === null && t.ultimo && p.pagina === t.a.pagina && t.ultimo.chegada.pagina !== t.a.pagina
-        && exatamente(g, t.ultimo.chegada, t.ultimo.mov, p)) {
-        // Par de chegadas igual nas duas ordens da fila, antes do nosso próximo pedido, em que a leitura pela fila ("o nosso
-        // primeiro, depois o da pessoa") deixaria a pessoa de volta ao editor e ENGOLIRIA a outra leitura possível ("a pessoa
-        // chegou à 1ª entrada e o nosso movimento seguiu dali") — H1-R3. Só aqui a outra leitura é adotada, e só para
-        // PERGUNTAR (destino = 1ª chegada; "Continuar editando" mantém tudo). Quando as duas leituras dão SAÍDAS diferentes,
-        // vale a leitura pela fila (a chegada observada da pessoa): uma saída nunca é trocada por outra presumida.
-        t.deslocamento = t.ultimo.mov; t.direcao = 0; t.ultimo = null;
-      } else {
-        // Travessia da pessoa: o destino é onde ela chegou agora; a posição volta a ser desconhecida. O nosso movimento, se
-        // ainda na fila, será resolvido a partir daqui.
-        t.deslocamento = 0; t.direcao = 0; t.ultimo = null;
-        if (emVoo !== null) {
-          t.origem = p;
-          if (semDestinoCerto(g, emVoo, p)) { t.emVoo = null; t.origem = null; } // nada antes da 1ª entrada da aba: não virá
-          else armarVigia(g, t, emVoo);
+      const nosso = emVoo !== null && possivel(g, t.origem, emVoo, p);
+      if (nosso) { t.emVoo = null; t.origem = null; }
+      if (t.modo === 'voltando') {
+        if (nosso) {
+          if (noEditor(t, p)) { concluirRetorno(g, t); return; }
+          if (t.timer !== null) window.clearTimeout(t.timer);
+          t.timer = window.setTimeout(() => avancar(g, t), ASSENTAR_MS);
+          return;
         }
+        // A pessoa atravessou durante a volta que pediu: nova intenção — o pedido reabre com a página onde ela chegou.
+        t.modo = 'aguardando'; t.direcao = 0;
+        if (t.timer !== null) { window.clearTimeout(t.timer); t.timer = null; }
       }
-      if (noEditor(t, p) && t.emVoo === null) { concluirRetorno(g, t); return; }
-      if (t.timer !== null) window.clearTimeout(t.timer);
-      t.timer = window.setTimeout(() => avancar(g, t), ASSENTAR_MS);
+      // Pedido aberto (aguardando).
+      if (nosso) {
+        // Um movimento nosso chegou DEPOIS de uma travessia dela (estava na fila) e a tirou da entrada que ela escolheu:
+        // desfaz (a compensação, por sua vez, é conferida do mesmo jeito). A compensação que chega fecha o ciclo.
+        if (!t.desfazendo) { t.desfazendo = true; t.emVoo = -emVoo!; t.origem = p; window.history.go(-emVoo!); armarVigia(g, t, -emVoo!); return; }
+        t.desfazendo = false;
+      } else if (emVoo !== null) {
+        // Chegada da pessoa com um movimento nosso ainda na fila: ele será resolvido a partir daqui (e desfeito ao chegar).
+        t.desfazendo = false; t.origem = p;
+        if (semDestinoCerto(g, emVoo, p)) { t.emVoo = null; t.origem = null; } // nada antes da 1ª entrada da aba: não virá
+        else armarVigia(g, t, emVoo);
+      }
+      assentarPedido(g, t, p);
       return;
     }
 
@@ -584,30 +591,66 @@ export function instalarGuardiaoDeHistorico() {
     // do editor conta como "ficar" — sair dela é nova tentativa e volta).
     if (idx === a.indice || (paginaDe(window.location.href) === a.pagina && !a.temPedido())) { e.stopImmediatePropagation(); return; }
     e.stopImmediatePropagation();
-    const nova: Tentativa = { a, deslocamento: 0, emVoo: null, origem: null, ultimo: null, direcao: 0, inverteu: 0, timer: null, vigia: null, saida: null, compensando: false };
+    // Decisão primeiro (A1/A2): nenhum movimento — o destino é a entrada a que a pessoa chegou; só "Continuar editando" volta.
+    const nova: Tentativa = { a, modo: 'aguardando', emVoo: null, origem: null, desfazendo: false, direcao: 0, inverteu: 0, timer: null, vigia: null, saida: null, compensando: false };
     g.tentativa = nova;
-    nova.timer = window.setTimeout(() => avancar(g, nova), ASSENTAR_MS);
+    assentarPedido(g, nova, p ?? posicaoAtual(g, idx));
   }, true);
 }
 
 /**
- * Executa uma saída explícita (descartar, salvar e sair, link). SEM Navigation API e com uma volta em andamento, a página
- * está numa entrada que não é a do editor: o destino relativo foi medido a partir do editor e um movimento nosso pode estar
- * na fila. A saída espera a volta chegar ao editor e então segue — nada da correção acontece depois dela (O-2).
+ * Executa uma saída explícita por LINK (descartar, salvar e sair). SEM Navigation API e com uma volta pedida pela pessoa em
+ * andamento ("Continuar editando"), a saída espera a volta chegar ao editor e então segue — nada da correção acontece
+ * depois dela (O-2).
  */
 export function executarSaida(seguir: () => void) {
   if (typeof window === 'undefined') return;
   const g = guardiao();
   const t = g.tentativa;
-  if (!navegacaoApi() && t) { t.saida = seguir; if (t.emVoo === null && t.timer === null) avancar(g, t); return; }
+  if (!navegacaoApi() && t && t.modo === 'voltando') { t.saida = seguir; if (t.emVoo === null && t.timer === null) avancar(g, t); return; }
   seguir();
+}
+/**
+ * "Continuar editando" com o pedido aberto, SEM Navigation API: só agora a página volta à entrada do editor (a pessoa
+ * acabou de decidir). Sem pedido no fim.
+ */
+export function continuarEditando() {
+  if (typeof window === 'undefined') return;
+  const g = guardiao(), t = g.tentativa;
+  if (navegacaoApi() || !t || t.modo !== 'aguardando') return;
+  t.modo = 'voltando'; t.desfazendo = false; t.direcao = 0; t.inverteu = 0;
+  if (t.emVoo === null && t.timer === null) t.timer = window.setTimeout(() => avancar(g, t), 0);
+}
+/**
+ * "Sair" com o pedido aberto, SEM Navigation API: nenhuma travessia — a página já está no destino. Se um movimento nosso
+ * ainda estiver na fila, a saída espera ele assentar (e ser desfeito, se a tirou da entrada escolhida) e então segue.
+ */
+export function sairNaEntradaAtual(seguir: () => void) {
+  if (typeof window === 'undefined') return;
+  const g = guardiao(), t = g.tentativa;
+  if (!navegacaoApi() && t && t.modo === 'aguardando') {
+    if (t.emVoo !== null || t.timer !== null) { t.saida = seguir; return; }
+    encerrar(g, t);
+  }
+  seguir();
+}
+/**
+ * Mostra a entrada atual no roteador depois de "Sair" (sem travessia): o mesmo popstate que o navegador teria entregado
+ * ao App Router (estado do Next intacto). Uma entrada sem estado do Next (nula: âncora nativa; ou de outro roteador) o App
+ * Router ignora — o documento é recarregado nela (nada é escrito no estado).
+ */
+export function mostrarEntradaAtual() {
+  if (typeof window === 'undefined') return;
+  const estado = window.history.state as Record<string, unknown> | null;
+  if (estado && typeof estado === 'object' && estado.__NA) window.dispatchEvent(new PopStateEvent('popstate', { state: estado }));
+  else window.location.reload();
 }
 
 /**
  * Ativa a proteção do histórico para a PÁGINA atual (a do editor) até a função devolvida ser chamada. Usada pelo hook;
  * exportada para os testes comportamentais (protecao-saida.test.ts) exercitarem o guardião sem React.
  */
-export function protegerHistorico(opcoes: { liberado: () => boolean; aoTentarSair: (d: DestinoSaida) => void; temPedido?: () => boolean }): () => void {
+export function protegerHistorico(opcoes: { liberado: () => boolean; aoTentarSair: (d: DestinoSaida | null) => void; temPedido?: () => boolean }): () => void {
   instalarGuardiaoDeHistorico(); // normalmente já instalado no layout raiz; aqui só cobre uso fora dele (sem garantia de ordem)
   const g = guardiao();
   const nav = navegacaoApi();
@@ -689,8 +732,8 @@ export function useProtecaoDeSaida(ativo: boolean, navegar: (href: string, subst
     pendente,
     /** Número do pedido vigente: muda a cada pedido novo (link, Voltar/Avançar), não ao permanecer/sair. */
     pedidoAtual: () => pedido.current,
-    /** Fica no editor (a posição no histórico já é a do editor). */
-    permanecer() { setPendente(null); },
+    /** Fica no editor. Sem Navigation API, com o pedido aberto, a página volta agora à entrada do editor. */
+    permanecer() { const d = pendenteRef.current; setPendente(null); if (d?.tipo === 'aqui') continuarEditando(); },
     /** Sai de fato (depois de descartar ou de salvar com sucesso), para o destino pedido. */
     sair() {
       const destino = pendenteRef.current;
@@ -698,8 +741,10 @@ export function useProtecaoDeSaida(ativo: boolean, navegar: (href: string, subst
       if (!destino) return;
       liberado.current = true;
       if (destino.tipo === 'historico') { const nav = navegacaoApi(); if (nav) irPara(nav, destino.chave); return; }
-      // Sem Navigation API e com uma volta em andamento, a saída espera a volta chegar ao editor (O-2).
-      executarSaida(() => { if (destino.tipo === 'relativo') window.history.go(destino.delta); else navegarRef.current(destino.href, false); });
+      // Sem Navigation API: a página já está no destino (nenhuma travessia); só o roteador passa a mostrá-lo.
+      if (destino.tipo === 'aqui') { sairNaEntradaAtual(mostrarEntradaAtual); return; }
+      // Link com uma volta em andamento: a saída espera a volta chegar ao editor (O-2).
+      executarSaida(() => navegarRef.current(destino.href, false));
     },
   };
 }

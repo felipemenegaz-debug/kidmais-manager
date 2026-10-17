@@ -1,107 +1,132 @@
-# Marketing — A1 (colisão) e A2 (saída do documento) do guardião do histórico (17/10/2026, somente local)
+# Marketing — A1 (colisão) e A2 (saída do documento): "decisão primeiro" no guardião do histórico (17/10/2026, somente local)
 
 **Goal:** nota `Goal Correcao Marketing Colisao A1 A2` no vault.
 **Base:** `7fe6ed8` (árvore `e838790`), REPROVADA em `revisao-marketing-historico-rajada-7fe6ed8-parecer-20261017/PARECER.md` (manifesto 169, `cfdd9b49…`) por **A1/P2** e **A2/P2**.
 **Branch:** `codex/marketing-historico-a1a2-20261017`, worktree `kidmais-manager-marketing-historico-a1a2-20261017`. Só local, sem push.
+**Decisão de produto:** Felipe aprovou em 17/10/2026, nesta conversa, a proposta "decisão primeiro" sem Navigation API, com três regras:
+- o diálogo abre na chegada, com destino igual à entrada atual;
+- "Sair" não faz travessia;
+- a volta só acontece em "Continuar editando".
 
-**Estado: GOAL NÃO CONCLUÍDO.** A1 e A2 foram reproduzidos (modelo e Chrome real) e a causa foi demonstrada. Nenhuma correção de código foi entregue: dentro do comportamento atual não existe estratégia que elimine A1 e A2 sem criar outra colisão do mesmo tipo (demonstração e medições abaixo). A única saída medida sem resíduo dessa classe é uma **mudança de comportamento** do caminho sem Navigation API ("decisão primeiro"), que exige decisão de Felipe e **não foi implementada** no produto. O código desta branch é idêntico ao de `7fe6ed8`; o commit traz só esta documentação.
+A análise anterior (commit `f0b5355`, só documentação) mostrou que nenhuma volta ativa elimina a classe; esta entrega implementa a decisão.
+**Revisão independente:** pendente. N2 e o aviso `beforeunload` herdado continuam sem aceite próprio (ver Limites).
 
-## 1. Reprodução na base 7fe6ed8
+## 1. Causa comum (resumo da análise)
 
-### Modelo (relógio controlado; fila FIFO com alvo no atendimento; 0–130 ms × 7 ações × atendimento 1/3/5/10/20/30 ms; 11 históricos)
+Sem Navigation API, o guardião devolvia a página ao editor com `history.go(m)` **relativo**. O navegador atende as travessias em fila e resolve o alvo no atendimento, e um movimento já pedido não pode ser cancelado. Uma travessia da pessoa pedida pouco antes muda o ponto de partida do nosso movimento. O mesmo gesto dela (`m`) produz as mesmas chegadas que a outra ordem; a página não vê a ordem dos pedidos. Por isso:
+- **A1:** o salto −2 na posição ambígua colide com o `go(−2)` dela, e o destino sai trocado;
+- **A2:** o salto, resolvido a partir de onde ela chegou, sai do documento.
 
-O modelo da revisora foi derivado só para conhecer **outro documento**: uma entrada fictícia antes do app; a travessia atendida para ela é "saída do documento", com autor e política do aviso (confirmar/cancelar). Fila, alvo no atendimento, no-op e oráculo não mudaram (`DERIVACAO-modelo-documentos.diff`, `DERIVACAO-varredura-v5.diff`).
+As rodadas anteriores só mudaram qual gesto colide:
 
-| Modo | Base 7fe6ed8 |
+| Estratégia | Gesto que colide |
 |---|---|
-| Sem documento anterior (as condições da v4 da revisora) | DESTINO_ERRADO **198** (AT 129, B2 69), PEDIDO_INDEVIDO 345, CONSERVADOR 410 (341 da revisora + 69 do histórico A2 acrescentado) — confere com o parecer |
-| Documento anterior, aviso confirmado | **SAIU_PELA_CORRECAO 474** (RV-I1, I-1/I-4, fragmentos sucessivos, B, AT, B2 e A2: sempre na largura do atendimento), SAIU_PELA_PESSOA 4910 (gestos da própria pessoa, legítimos) |
-| Documento anterior, aviso cancelado | igual ao "sem documento anterior" (a saída não acontece) |
+| passo −1 | Voltar |
+| limiar de 16 ms | janela de tempo |
+| salto | `go(−m)` e saída do documento |
 
-- **A1 no modelo:** AT, `go(−2)` da pessoa já na fila antes do salto −2: DESTINO_ERRADO com largura igual ao atendimento.
-- **A2 no modelo (histórico A2 = o A do Chrome, documento anterior, aviso confirmado):** `go(−3)` antes do salto −2: SAIU_PELA_CORRECAO em 1/3/5/10/20/30 instantes por tempo de atendimento.
+Dois experimentos desta rodada, medidos e **não adotados**, confirmam isso: passos de 1 para trás e aposta para frente na posição ambígua.
 
-### Chrome real
+## 2. Comportamento implementado (só SEM Navigation API)
 
-Ver a seção 5 (preenchida com as execuções desta rodada).
+1. **Barrar e perguntar, sem mover.** Uma travessia da pessoa para outra página é barrada antes do App Router, como antes. Agora o pedido abre **na hora**, com `{ tipo: 'aqui', url }` = a entrada onde ela está — observada, sem inferência. O guardião **não pede nenhum `history.go`** até a decisão.
+2. **Pedido aberto.** Novas travessias dela só atualizam o destino (nova intenção substitui a antiga; a continuação de um "Salvar e sair" antigo não executa um pedido já trocado — C2). Voltar à página do editor fecha o pedido (`aoTentarSair(null)`).
+3. **"Sair sem salvar" / "Salvar e sair" (com sucesso).** Nenhuma travessia: a página já está no destino.
+   - `sairNaEntradaAtual` encerra a tentativa;
+   - `mostrarEntradaAtual` entrega ao App Router o mesmo popstate que o navegador entregaria, com o estado do Next intacto;
+   - numa entrada sem estado do Next (nula, de âncora nativa), que o App Router ignora, o documento é recarregado nela. Nada é escrito no estado.
+4. **"Continuar editando" / Esc.** `continuarEditando` faz só agora a volta à entrada do editor, com o algoritmo de 7fe6ed8: saltos exatos e salvaguarda; a chegada é conferida pela posição; não há pedido no fim.
+   - Se a pessoa atravessar durante essa volta, o pedido reabre com o destino onde ela chegou.
+   - Um movimento nosso que ainda estava na fila e chega depois é **desfeito**: a compensação é conferida da mesma forma.
+   - "Sair" pedido com um movimento nosso na fila espera ele assentar.
+5. **Enquanto o pedido está aberto,** a barra de endereço mostra a página de destino e o editor continua montado com o conteúdo. A coerência URL × tela passa a valer **depois da decisão**. Se a proteção cair (salvamento concluído), o pedido continua e a pessoa decide.
+6. **Inalterados:**
+   - o caminho com Navigation API (volta pela chave e pergunta);
+   - o layout raiz e a ordem dos ouvintes;
+   - os links (`executarSaida` espera a volta pedida, O-2);
+   - o aviso `beforeunload`;
+   - o índice próprio (`__kidmaisIdx`: campos do Next preservados; nulo continua nulo);
+   - o registro e a poda de fragmentos.
 
-## 2. Causa comum de A1 e A2
+Código: `components/admin/marketing/protecao-saida.ts` (guardião e hook). O diálogo (`MarketingSite.tsx`, `dialogo-alteracoes.ts`) não mudou: "Continuar editando"/Esc já chamam `protecao.permanecer()` e as saídas, `protecao.sair()`.
 
-O guardião, sem Navigation API, devolve a página ao editor com `history.go(m)` **relativo**. O navegador atende as travessias em fila e resolve o alvo de cada uma no atendimento. Uma travessia da pessoa pedida um pouco antes da nossa é atendida primeiro, e o nosso movimento — que não pode ser cancelado — é resolvido a partir de onde ela chegou.
+Retirados, por não terem mais função no caminho sem API:
+- o par "nosso movimento → editor" e o CONSERVADOR que ele gerava;
+- o deslocamento medido;
+- o destino `{ tipo: 'relativo' }`.
 
-- **A2:** o salto −2, resolvido a partir de Campanhas(1), passa do início do documento e tenta sair dele. Um passo −1 só sairia se a pessoa já estivesse na 1ª entrada; um salto −m sai de qualquer uma das m primeiras.
-- **A1:** a chegada da pessoa (Dashboard) é exatamente a que o salto −2 teria a partir do `#fim` anterior, e o salto deslocado não tem destino (nenhum popstate). As duas ordens produzem as mesmas observações.
+## 3. Resultados (árvore de código `36763df`, cópias conferidas por bytes; base `7fe6ed8`)
 
-### Por que nenhuma escolha de movimento resolve (dentro do comportamento atual)
+Ambiente: cópias próprias por `git archive`, `node_modules` copiado, ambiente fechado (sem `.env`, banco, proxy ou segredos), sessão e API fictícias, Chrome headless com a Navigation API removida por simulação, tráfego externo abortado (0 em todas as execuções), documento anterior fictício servido por rota local.
 
-Para qualquer movimento relativo m que o guardião peça a partir de P:
+### Modelo (relógio controlado, fila FIFO com alvo no atendimento; 11 históricos × 7 ações × 0–130 ms × atendimento 1/3/5/10/20/30)
 
-1. **Ordem "pessoa primeiro" com o mesmo gesto m:** ela chega a P+m; o nosso, resolvido dali, vai a P+2m.
-2. **Ordem "guardião primeiro":** chegamos a P+m; ela, com o mesmo gesto m, vai a P+2m.
-
-Se P+2m existe no documento, as duas ordens dão a mesma sequência de popstates (URL e índice), com intenções diferentes (P+m × P+2m). Se P+2m não existe, a 1ª ordem não emite mais nada (no-op) ou sai do documento, e a 2ª coincide com "ninguém fez nada". A página não vê a ordem dos pedidos nem cancela um movimento já pedido. Logo, **todo** movimento ativo tem um gesto gêmeo da pessoa — a estratégia só escolhe qual gesto colide:
-
-| Rodada | Movimento | Gesto que colide | Consequência medida |
-|---|---|---|---|
-| f37a965 | passo −1 | Voltar | H1-R3 (engolido) |
-| 4a5dac4 | passo −1 + limiar de 16 ms | Voltar, por tempo | N1 (destino de outra página) |
-| 7fe6ed8 | salto exato/≥2 | `go(−m)`; e saída do documento | A1, A2 |
-| experimento "passos" (esta rodada) | sempre −1 para trás | Voltar; e no-op que deixa a volta perdida | DESTINO_ERRADO 138, INCOERENTE 1908, SAIU_PELA_CORRECAO 2356 |
-| experimento "aposta para frente" (esta rodada) | +1 na posição ambígua | o próprio no-op, por até 800 ms | A1 zerado, mas PEDIDO_INDEVIDO 1914 (546 por histórico "à frente") e A2 intacto (345) |
-
-Os dois experimentos estão no pacote (código, diff sobre 7fe6ed8, varreduras). Nenhum deles foi adotado: cada um troca uma colisão por outra, o que o goal proíbe.
-
-**O que diferencia as ordens.** Só a ordem dos pedidos e o instante de atendimento (a página não os vê; usar tempo foi o erro de N1/N3), e o `beforeunload` — que aparece nas duas ordens quando o gesto da pessoa também sai do documento. Nenhum dado de estado ajuda sem fabricar campos em entradas de estado nulo (proibido).
-
-## 3. Proposta para decisão de Felipe: "decisão primeiro" (só sem Navigation API)
-
-**Comportamento proposto.** Quando a pessoa sai da página do editor com alterações não salvas, sem Navigation API:
-1. o guardião **não volta sozinho**; o diálogo abre na hora, e o destino é a **entrada atual** — onde a pessoa realmente está (observado, nada inferido);
-2. novas travessias dela com o diálogo aberto só atualizam o destino; voltar à entrada do editor fecha o diálogo;
-3. **"Sair sem salvar"** não faz travessia: a página já está no destino; o app passa a mostrá-la;
-4. **"Continuar editando"** faz a volta ao editor (o mesmo algoritmo de hoje) — só depois de a pessoa decidir.
-
-**Efeitos.**
-- Elimina a classe de A1/A2/N1/N3/H1-R3: nenhum movimento nosso concorre com gestos da pessoa enquanto ela navega; o destino é sempre exato; nenhuma saída de documento é causada pela correção (as que restam são gestos da própria pessoa, com o aviso nativo).
-- Elimina o CONSERVADOR (N2) dessa classe: não há par a interpretar.
-- **Muda o que se vê:** com o diálogo aberto, a barra de endereço mostra a página para onde a pessoa foi (hoje volta ao editor antes do diálogo). Coerência URL × tela passa a valer **depois da decisão**. Recarregar com o diálogo aberto carrega a página de destino (o aviso de saída continua protegendo a edição).
-- Só no caminho sem Navigation API (Firefox/Safari sem a API); o caminho com a API (`traverseTo` por chave) não muda.
-- Os roteiros de revisão que exigem a URL do editor **antes** de "Sair" precisam do novo critério.
-
-**Prova (protótipo de modelo, não entregue).** `experimentos/decisao-primeiro` (diff sobre 7fe6ed8: diálogo na chegada, `continuarEditando()`), varredura `varredura-decisao-v6.mjs`: 11 históricos × 7 ações × 131 instantes × 6 tempos × 2 decisões × com/sem documento anterior — 207768 cenários: **OK 203052; SAIU_PELA_PESSOA 4716** (só gestos dela para o documento anterior); **zero** movimento antes da decisão, DESTINO_ERRADO, PEDIDO_INDEVIDO, CONSERVADOR, INCOERENTE ou SAIU_PELA_CORRECAO.
-
-**Resíduo da proposta.** Depois de "Continuar editando", um gesto da pessoa nos milissegundos seguintes ao clique cruza com a volta (a mesma ambiguidade, agora só após uma decisão explícita e com dois comandos quase simultâneos dela). A implementação completa precisa reabrir o diálogo nesse caso; o protótipo não cobre isso.
-
-**O que a implementação exigiria (se aprovada).** Guardião (caminho sem API), `DestinoSaida` com o destino "aqui", o hook (`useProtecaoDeSaida`: "Sair" faz o app mostrar a entrada atual, "Continuar" chama a volta) e o diálogo; testes comportamentais, Chrome real (novo critério de coerência), O1 nos dois modos e as regressões de histórico.
-
-## 4. Decisões pendentes (Felipe)
-
-1. **Adotar "decisão primeiro"** (mudança de comportamento descrita acima), ou
-2. **aceitar um resíduo** de retorno ativo — escolhendo qual: A1/A2 (7fe6ed8), a colisão com o Voltar (passos) ou a janela do no-op (aposta para frente) —, ou
-3. outra direção de produto.
-
-N2 e o aviso `beforeunload` herdado continuam pendentes como antes. Nada aqui é aceite.
-
-## 5. Chrome real (esta rodada)
-
-Next dev em cópias próprias (base 7fe6ed8 conferida por bytes, 2502/2502 antes e depois; experimento "aposta para frente" = a mesma cópia com o arquivo do experimento), AdminShell/editor/hook/guardião reais, sessão e API fictícias, sem banco, tráfego externo abortado (0), Navigation API removida por simulação, documento anterior fictício servido por rota local. Roteiro `janela-r1r3.mjs` da revisora (cópia só com caminhos trocados) e os **mesmos parâmetros** das provas de origem; chamadas a `history.go` (autor) e popstates (índice) registrados antes da página; aviso nativo registrado em cada execução e decidido pela política declarada (cancelar/confirmar).
-
-| Cenário | Base 7fe6ed8 | Experimento "aposta para frente" |
+| Medição | Base 7fe6ed8 (oráculo antigo, v5) | Candidata (oráculo do contrato novo, v6b) |
 |---|---|---|
-| **A1** — AT, `go(−2)` 36–44 ms (2 rep.) | **DESTINO_ERRADO 5/14** (revisora: 4/14) | OK 14/14 |
-| AT, Voltar 36–44 ms | OK 14/14 | OK 6, ORACULO_INVALIDO 8 (a volta passa pela salvaguarda de 800 ms — `g+1@846` — e a reprodução FIFO não fecha; descartado, não é aprovação) |
-| AT, `go(+2)` | OK 7, ORACULO_INVALIDO 7 (coalescência, como na revisora) | OK 14/14 |
-| **A2** — A, documento anterior, aviso **confirmado**, `go(−3)` N1 | **SAIU_DO_DOCUMENTO 6/8** (revisora: 8/8) | SAIU 7/8 (o experimento não trata A2) |
-| A, aviso confirmado, `go(−4)` N1 / `go(−3)` N2 | SAIU 7/8 / 8/8 | SAIU 6/8 / 8/8 |
-| A, documento anterior, aviso **cancelado** (3 gestos) | OK 24/24, aviso em 20 execuções | OK 24/24, aviso em 20 |
-| B2, N2 / N1 Voltar 0–41 ms | OK 17 + CONSERVADOR 3 / OK 20 | OK 16 + CONSERVADOR 4 / OK 18 + ORACULO_INVALIDO 2 |
+| Sem documento anterior | DESTINO_ERRADO 198 (AT 129, B2 69), PEDIDO_INDEVIDO 345, CONSERVADOR 410 | **OK 103884/103884** ("continuar" e "sair") |
+| Documento anterior, aviso confirmado | SAIU_PELA_CORRECAO **474** | **OK 99168 + SAIU_PELA_PESSOA 4716** (só gestos da própria pessoa); SAIU_PELA_CORRECAO 0 |
+| Movimento do guardião antes da decisão | (é o comportamento da base) | 0 |
 
-- A1 e A2 reproduzidos na base, no mesmo gesto e janela do parecer.
-- O experimento confirma no navegador o que o modelo mostrou: corrige o `go(−2)` do AT, mas passa a depender da salvaguarda de 800 ms (ORACULO_INVALIDO no Voltar) e não toca em A2.
-- O protótipo "decisão primeiro" **não roda no Chrome** sem mudar o hook e o diálogo (o destino "aqui" e "Continuar editando" acionando a volta) — exatamente a mudança que depende de decisão; a prova dele é só de modelo.
-- **Aba sem entrada anterior:** não verificável neste harness (a página do Playwright começa com `about:blank` antes); no modelo, o modo "sem documento anterior" (no-op real antes da 1ª entrada) está coberto.
+O modelo da revisora foi derivado só para conhecer outro documento (`DERIVACAO-modelo-documentos.diff`). A v6b tem o mesmo modelo e gestos, mais o critério novo. Uma 1ª execução da v6b registrava `null` como `{em}` e foi refeita com o registro corrigido; ela está preservada no pacote.
 
-## 6. Verificações desta rodada
+### Testes comportamentais (`protecao-saida.test.ts`, 46 testes)
 
-- Código da branch idêntico a 7fe6ed8 (só documentação): as regressões de 7fe6ed8 (parecer: não-PG 136/136, tsc/ESLint 0, O1, O-2, B-N1 32/32, A-R1/R2/R3) valem para ela. Reexecutados aqui: não-PG, tsc e ESLint (ver pacote).
-- Não executados (nada mudou no código): build/static, roteiros RV/RV-2/independentes/AdminShell-O1/sintético.
+- **Contrato novo:**
+  - varreduras de 8 históricos (RV-I1, I-1/I-4, B, fragmentos sucessivos, âncora ambígua à frente, AT, B2, A) × 6 gestos × 0–130 ms × "continuar"/"sair": **1572/1572 OK cada**;
+  - A2 com documento anterior (aviso confirmado e cancelado): nenhuma saída pela correção;
+  - A1 (`go(−2)` no AT) e A2 (`go(−3)` no A) explícitos.
+- **Cruzamento depois de "Continuar"** (4 históricos × 3 gestos × 0–130 ms): OK 1570, resíduo 2 (gesto de mesmo tamanho no mesmo instante, que gera pedido novo; ver Limites).
+- **Também cobertos:**
+  - F1/F2/F3/H-9, a proteção reativada e a saída explícita direta;
+  - O-2 por link durante a volta pedida, e "Sair" com um movimento em voo;
+  - o índice que preserva o Next e o nulo, e as salvaguardas;
+  - `mostrarEntradaAtual` (estado do Next → popstate intacto; nulo → recarrega, sem escrever no estado);
+  - com Navigation API, inalterados.
+- **Os 61 testes de 7fe6ed8** descreviam o contrato antigo ("volta ao editor, pede com delta") e foram reescritos.
+
+### Chrome real (roteiro da revisora; critério novo em `janela-decisao.mjs`)
+
+| Cenário | Base 7fe6ed8 (critério antigo) | Candidata |
+|---|---|---|
+| **A1** — AT, `go(−2)`/Voltar/`go(+2)`, 36–120 ms | `go(−2)` DESTINO_ERRADO **5/14**; `+2` ORACULO_INVALIDO 7 | **OK 54/54** ("sair") e **54/54** ("continuar") |
+| **A2** — A, documento anterior, aviso confirmado, `go(−3)`/`go(−4)` | `go(−3)` SAIU_DO_DOCUMENTO **6/8**; `go(−4)` 7/8 | **OK 16/16, nenhum aviso** |
+| A, documento anterior, aviso cancelado | OK 24/24 com 20 avisos | **OK 16/16, nenhum aviso** |
+| A (`go(−3)`, `go(−4)`, Voltar, `go(−2)`; 38–60 ms) | — | OK 40/40 ("sair") e 40/40 ("continuar") |
+| B (N1), Voltar/`go(−2)` 0–120 ms | (rodada anterior: N1 corrigido) | OK 28/28 e 28/28 |
+| B2, Voltar/`go(−2)` 0–120 ms | OK 17 + CONSERVADOR 3 (N2), N1 OK 20 | OK 28/28 e 28/28 (nenhum CONSERVADOR) |
+| Carga de 25 ms: A / B2 | — | OK 18/18 / 20/20 |
+
+**Medido em cada execução:**
+- antes da decisão: nenhum `history.go` do guardião, a URL exata da chegada da pessoa (oráculo FIFO), o diálogo aberto, o mesmo editor (marca no `<main>`) e o conteúdo;
+- depois de "Sair": a URL de destino, com o editor desmontado;
+- depois de "Continuar": a URL do editor, sem diálogo, mesmo editor e conteúdo;
+- em seguida, um Voltar novo abre o diálogo com a URL nova, e o Esc volta ao editor.
+
+Os gestos N2 da revisora (disparados após o 2º popstate) não existem no contrato novo, porque a candidata não se move. Foram substituídos por N1 em instantes de 0 a 120 ms, que cobrem antes, durante e depois de quando a base se moveria.
+
+### Regressões
+
+- **Com Navigation API:** todos os roteiros da revisora empatam com a base.
+  - O1 real: 8/8;
+  - RV: 7/9 (RV-4b repetido após tempo esgotado no carregamento);
+  - RV-2: 10/10;
+  - independentes-2: 4/5;
+  - AdminShell-O1: 9/9.
+- **Sem Navigation API:** os roteiros originais exigem a URL do editor com o diálogo aberto (o contrato antigo) e divergem.
+  - Cada divergência foi lida e verificada com o critério novo em `regressoes-decisao.mjs`: **16/16**. São O1 (salvando/sujo/erro, continuação antiga, Continuar durante o envio), âncora antes de editar, Voltar durante o salvamento, inversão rápida, três Voltar, `go(−2)`, `Voltar,Voltar,Avançar`, erro em "Salvar e sair" e pedido de link substituído (O-2).
+  - Mapa completo no pacote (`REGRESSOES-ANALISE.md`).
+- **Sintético-O1 (21):** 21/21 com e sem API.
+- **M-1:** PASS. **M-2/M-3 e I-1..I-6:** falham só pela expectativa antiga (URL do editor e delta relativo); a intenção está coberta pelos testes novos.
+- **Não-PG:** 121/121 (diálogo, guardião 46, 11 de Marketing, 2 de Pix). **`tsc --noEmit --incremental false` e ESLint:** 0. **`check:v1:static` com build:** aprovado.
+
+## 4. Limites
+
+- **Resíduo depois da decisão.** Depois de "Continuar editando", a volta é um movimento ativo. Um gesto da pessoa do **mesmo tamanho**, pedido no mesmo instante do nosso, produz as mesmas chegadas — o limite de qualquer volta ativa. O resultado é um pedido novo (o diálogo reabre), nunca saída do documento nem volta presa. Teste comportamental: 2 em 1572 cenários.
+- **Aviso `beforeunload` herdado:**
+  - continua para gestos da própria pessoa que saem do documento (por exemplo, `go(−4)` no histórico A);
+  - nenhuma saída é causada pela correção antes da decisão;
+  - decisão de Felipe ainda pendente, como antes.
+- **N2 / CONSERVADOR:** a regra deixou de existir no caminho sem API; nada a aceitar nele. Com Navigation API, inalterado.
+- **Aba sem entrada anterior:** não verificável no harness (o Playwright começa com `about:blank`); no modelo, o modo sem documento anterior cobre o no-op real.
+- **Ambiente:** a ausência da Navigation API é simulada no Chrome headless (não é Firefox/Safari nativo); `next dev` com sessão e API fictícias; sem banco.
+- **Recarregar com o pedido aberto** carrega a página de destino (o aviso de saída continua protegendo a edição).
