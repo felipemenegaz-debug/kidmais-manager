@@ -35,7 +35,9 @@ const SQL_SCHEMA = `SELECT to_regclass('public.convite_carteiras') IS NOT NULL A
   (EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='convite_geracoes'
       AND column_name IN ('resolucao_resultado','resolucao_por','resolucao_em','resolucao_evidencia','reserva_microusd'))
     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass('public.convite_geracoes') AND conname='convite_geracoes_resolucao_consistente')
-    OR to_regclass('public.convite_geracoes_incertas') IS NOT NULL) AS vestigio079`;
+    OR to_regclass('public.convite_geracoes_incertas') IS NOT NULL) AS vestigio079,
+  coalesce((SELECT pg_has_role(current_user, c.relowner, 'USAGE') FROM pg_class c WHERE c.oid = to_regclass('public.convite_geracoes')), false)
+    AND coalesce(has_table_privilege(current_user, to_regclass('public.usuarios_administrativos'), 'REFERENCES'), false) AS privilegio079`;
 
 /** Trava de alvo: só o web de produção, o banco interno exato e TLS verificado como o serviço (lib/db/postgres.ts). */
 function alvo(env) {
@@ -68,12 +70,16 @@ function flags(argv) { return argv.filter(x => x.startsWith('--')); }
 function autorizado(argv) { return argv.length === 1 && flags(argv)[0] === FLAG; }
 function conferencia(argv) { return argv.length === 1 && flags(argv)[0] === FLAG_CONFERIR; }
 
-/** Estado legível e dependências presentes; vestígio sem a 079 completa = aplicação parcial → parar. */
+/**
+ * Estado legível e dependências presentes; vestígio sem a 079 completa = aplicação parcial → parar. Sem DDL sobre
+ * convite_geracoes (dono) ou REFERENCES em usuarios_administrativos, a migration falharia: recusar antes do marcador.
+ */
 function planoEtapas(schema) {
-  for (const k of ['m073', 'm074', 'm079', 'vestigio079']) assert.equal(typeof schema?.[k], 'boolean', 'SCHEMA_ILEGIVEL');
+  for (const k of ['m073', 'm074', 'm079', 'vestigio079', 'privilegio079']) assert.equal(typeof schema?.[k], 'boolean', 'SCHEMA_ILEGIVEL');
   assert.ok(schema.m073 && schema.m074, 'DEPENDENCIA_AUSENTE_073_074');
   if (schema.m079) return ['postcheck 079'];
   assert.ok(!schema.vestigio079, 'APLICACAO_PARCIAL_079');
+  assert.ok(schema.privilegio079, 'SEM_PRIVILEGIO_DDL_079');
   return ETAPAS.map(([nome]) => nome);
 }
 

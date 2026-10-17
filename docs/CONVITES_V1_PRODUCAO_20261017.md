@@ -44,7 +44,7 @@ Antes do deploy o servidor ainda roda `4af8b38`, que não tem o aplicador. No We
 
 Antes do bloco 3, Felipe registra o backup/snapshot do banco (ou a decisão explícita de não fazer). Depois de `FALHA`/`TENTATIVA_ANTERIOR_REVISAR`, não repetir: rodar `--conferir-079` e analisar o marcador. Só com autorização nova o marcador é arquivado (renomeado, nunca apagado) antes de outra tentativa.
 
-Trava: `RENDER=true`, `RENDER_SERVICE_ID`, `KIDMAIS_DEPLOY_ENV=production`, `DATABASE_SSL=true` com certificado verificado, host `dpg-dak750gae00c73fudmg0-a`, banco `kidmais_production`, sem parâmetros na URL; identidade e TLS conferidos no servidor; 073/074 exigidas; vestígio parcial da 079 para antes de escrever. Marcador exclusivo em `/opt/render/project/src/data/convites-v1-producao-20261017/migration-079.json` impede repetição automática (falha ou resposta perdida → revisar por `--conferir-079`, nunca repetir às cegas).
+Trava: `RENDER=true`, `RENDER_SERVICE_ID`, `KIDMAIS_DEPLOY_ENV=production`, `DATABASE_SSL=true` com certificado verificado, host `dpg-dak750gae00c73fudmg0-a`, banco `kidmais_production`, sem parâmetros na URL; identidade e TLS conferidos no servidor; 073/074 exigidas; vestígio parcial da 079 para antes de escrever; sem privilégio de DDL (dono de `convite_geracoes` e `REFERENCES` em `usuarios_administrativos`), a conferência e a aplicação recusam com `SEM_PRIVILEGIO_DDL_079` antes do marcador de escrita no banco. Marcador exclusivo em `/opt/render/project/src/data/convites-v1-producao-20261017/migration-079.json` impede repetição automática (falha ou resposta perdida → revisar por `--conferir-079`, nunca repetir às cegas).
 
 ## Validação local (sem chamadas pagas, sem banco real)
 

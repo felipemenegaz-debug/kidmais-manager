@@ -9,8 +9,8 @@ const m = require('./migration-079-production.cjs');
 
 const URL_OK = 'postgresql://usuario:SENHA_FALSA@dpg-dak750gae00c73fudmg0-a/kidmais_production';
 const ENV = Object.freeze({RENDER: 'true', RENDER_SERVICE_ID: 'srv-dak77m2d0e5s73b8rkkg', KIDMAIS_DEPLOY_ENV: 'production', DATABASE_SSL: 'true', DATABASE_URL: URL_OK});
-const ANTES = {m073: true, m074: true, m079: false, vestigio079: false};
-const DEPOIS = {m073: true, m074: true, m079: true, vestigio079: true};
+const ANTES = {m073: true, m074: true, m079: false, vestigio079: false, privilegio079: true};
+const DEPOIS = {m073: true, m074: true, m079: true, vestigio079: true, privilegio079: true};
 
 function clienteFalso({schemas = [ANTES, DEPOIS], db = 'kidmais_production', tls = true, falharEm} = {}) {
   const sqls = [];
@@ -61,6 +61,8 @@ test('plano: 073/074 obrigatórias, vestígio parcial para, 079 completa só con
   assert.throws(() => m.planoEtapas({...ANTES, m074: false}), /DEPENDENCIA_AUSENTE/);
   assert.throws(() => m.planoEtapas({...ANTES, vestigio079: true}), /APLICACAO_PARCIAL_079/);
   assert.throws(() => m.planoEtapas({...ANTES, m079: null}), /SCHEMA_ILEGIVEL/);
+  assert.throws(() => m.planoEtapas({...ANTES, privilegio079: false}), /SEM_PRIVILEGIO_DDL_079/);
+  assert.deepEqual(m.planoEtapas({...DEPOIS, privilegio079: false}), ['postcheck 079']);
 });
 
 test('conferência roda só em transações READ ONLY e nunca executa a migration', async () => {
@@ -104,6 +106,14 @@ test('executar: marcador exclusivo impede segunda tentativa, inclusive depois de
     assert.ok(!JSON.stringify(registro).includes('SENHA_FALSA'));
     await assert.rejects(m.executar({env: ENV, dir, Client: function () { return clienteFalso(); }, disco: () => {}}), /TENTATIVA_ANTERIOR_REVISAR/);
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('sem privilégio de DDL: conferência recusa e aplicação não executa a migration', async () => {
+  const semDdl = {...ANTES, privilegio079: false};
+  await assert.rejects(m.conferirNoCliente(clienteFalso({schemas: [semDdl]})), /SEM_PRIVILEGIO_DDL_079/);
+  const db = clienteFalso({schemas: [semDdl]});
+  await assert.rejects(m.aplicarNoCliente(db), /SEM_PRIVILEGIO_DDL_079/);
+  assert.ok(!db.sqls.some(q => q.includes('ALTER TABLE') || q.includes('079 precheck OK')));
 });
 
 test('executar exige disco persistente antes de gravar o marcador', async () => {
