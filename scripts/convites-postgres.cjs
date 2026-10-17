@@ -34,7 +34,14 @@ function load(relative, deps = {}) {
 const domain = load('lib/convites/domain.ts', { './familias-domain.ts': load('lib/convites/familias-domain.ts') });
 const familias = load('lib/convites/familias.ts', { './domain': domain });
 const repository = load('lib/festas/repository.ts');
-let providerCalls = 0, failProvider = false, beforeTransaction = null;
+const conferencia = load('lib/convites/conferencia-prompt.ts');
+const estilos = load('lib/convites/estilos.ts', { './domain.ts': domain, './conferencia-prompt.ts': conferencia,
+  'node:fs/promises': require('node:fs/promises'), 'node:path': require('node:path') });
+let providerCalls = 0, failProvider = false, failModeracao = false, beforeTransaction = null;
+// Mesmo formato do erro do adaptador: diagnóstico + detalhes já extraídos da resposta do provedor.
+class FalhaSintetica extends Error { constructor(diagnostico, detalhes) { super('Falha no provedor de imagem.'); this.diagnostico = diagnostico; this.detalhes = detalhes; } }
+// Convite completo (V1): provedor sintético sem rede; registra cada chamada para provar que não há repetição automática.
+const chamadasCompleto = [];
 async function transaction(fn) {
   if (beforeTransaction) { const hook = beforeTransaction; beforeTransaction = null; await hook(); }
   const client = await pool.connect();
@@ -52,9 +59,16 @@ const service = load('lib/convites/service.ts', {
   '../festas/repository': repository,
   '../assinatura/estado': { lerEstadoComercial: async () => ({ acesso: { nivel: 'COMPLETO' } }) },
   './domain': domain, './familias': familias,
+  './estilos': estilos,
   './imagem': { MODELO: 'provedor-sintetico-sem-rede', iaConfigurada: () => true,
+    FalhaProvedorImagem: FalhaSintetica, modeloImagem: () => 'provedor-sintetico-sem-rede',
+    MODELO_COMPLETO: 'completo-sintetico-sem-rede', QUALIDADE_COMPLETO: 'sintetica', completoDisponivel: () => true,
+    armazenarConviteCompleto: async png => png,
+    gerarConviteCompletoOpenAI: async (prompt, _fetch, _env, qualidade, refs) => {
+      chamadasCompleto.push({ prompt, qualidade, refs: refs.length }); if (failProvider) throw Error('timeout simulado');
+      return { imagem: Buffer.from('convite-completo-sintetico'), uso: {} }; },
     normalizarImagem: async () => Buffer.from('arte-sintetica'),
-    gerarImagem: async () => { providerCalls++; if (failProvider) throw Error('timeout simulado'); return { imagem: Buffer.from('arte-sintetica'), uso: {} }; } },
+    gerarImagem: async () => { providerCalls++; if (failModeracao) throw new FalhaSintetica('http_400_moderation_blocked', { requestId: 'req_sintetico_1', etapa: 'input', categorias: ['sexual', 'PRIVADO'] }); if (failProvider) throw Error('timeout simulado'); return { imagem: Buffer.from('arte-sintetica'), uso: {} }; } },
 });
 const uuid = () => crypto.randomUUID();
 const evidenciaRecuperacao = 'Verificado no painel do provedor; registro sintético da validação.';
@@ -269,6 +283,32 @@ async function run() {
     assert.equal((await pool.query('SELECT usado_festa FROM convites WHERE id=$1', [f.id])).rows[0].usado_festa, 1);
     await assert.rejects(service.comandar(f.acesso, { ...p, prompt: 'Outro pedido com mesma chave' }), /Chave/);
   });
+  await check('convite completo: uma chamada com os dados oficiais, persistência como completa e repetição sem nova chamada', async () => {
+    const f = await festa(await empresa()), antes = chamadasCompleto.length;
+    const p = { acao: 'gerar', chave: uuid(), prompt: 'Jardim de flores coloridas com borboletas', referencias: [], completo: true, estilo: 'cartoon3d' };
+    const r = await service.comandar(f.admin, p);
+    assert.equal(r.estado, 'CONCLUIDA'); assert.equal(r.completo, true); assert.equal(chamadasCompleto.length - antes, 1);
+    const chamada = chamadasCompleto.at(-1);
+    assert.match(chamada.prompt, /Criança fictícia/); assert.match(chamada.prompt, /20\/12\/2099/); assert.equal(chamada.refs, 0);
+    assert.equal((await service.comandar(f.admin, p)).estado, 'CONCLUIDA'); assert.equal(chamadasCompleto.length - antes, 1);
+    const g = (await pool.query('SELECT estado,modelo,arte_id,reserva_microusd FROM convite_geracoes WHERE id=$1', [p.chave])).rows[0];
+    assert.equal(g.estado, 'CONCLUIDA'); assert.equal(g.modelo, 'completo-sintetico-sem-rede'); assert.equal(g.reserva_microusd, '300000');
+    await pool.query("INSERT INTO festa_membership_capacidades(id,empresa_id,membership_id,capacidade) VALUES($1,$2,$3,'FESTA_CONSULTAR')", [uuid(), f.empresa, f.admin.sessao.membership]);
+    const lido = await service.consultar(f.admin);
+    assert.deepEqual(lido.artes.map(a => [a.id, a.completo]), [[g.arte_id, true]]);
+    await pool.query('UPDATE convites SET rascunho=jsonb_set(rascunho,\'{nome}\',\'"Outro nome"\') WHERE id=$1', [f.id]);
+    await assert.rejects(service.comandar(f.admin, p), /Chave/); assert.equal(chamadasCompleto.length - antes, 1);
+  });
+  await check('convite completo: conflito de nome ou idade é recusado antes da reserva, sem créditos nem chamada', async () => {
+    const f = await festa(await empresa()), antes = chamadasCompleto.length;
+    for (const prompt of ['Convite da Joana com 7 anos no jardim', 'Festa de 9 anos com dinossauros']) {
+      await assert.rejects(service.comandar(f.acesso, { acao: 'gerar', chave: uuid(), prompt, referencias: [], completo: true, estilo: 'cartoon2d' }), e => e.status === 409 || /divergem/.test(e.message));
+    }
+    assert.equal(chamadasCompleto.length - antes, 0);
+    const row = (await pool.query('SELECT usado_festa,usado_cliente FROM convites WHERE id=$1', [f.id])).rows[0];
+    assert.equal(row.usado_festa, 0); assert.equal(row.usado_cliente, 0);
+    assert.equal(Number((await pool.query('SELECT count(*) n FROM convite_geracoes WHERE convite_id=$1', [f.id])).rows[0].n), 0);
+  });
   await check('limite individual protege saldo restante da festa', async () => {
     const f = await festa(await empresa()), calls = providerCalls;
     await pool.query('UPDATE convites SET limite_cliente=1 WHERE id=$1', [f.id]);
@@ -285,6 +325,18 @@ async function run() {
     finally { failProvider = false; }
     assert.equal((await service.comandar(f.acesso, p)).estado, 'INCERTA');
     assert.equal(providerCalls - calls, 1);
+    assert.equal((await pool.query('SELECT usado FROM convite_consumos WHERE empresa_id=$1', [f.empresa])).rows[0].usado, 1);
+  });
+  await check('incerta por moderação grava evento IA_INCERTA com evidência sanitizada, sem nova chamada nem devolução', async () => {
+    const f = await festa(await empresa()), p = pedido(), calls = providerCalls;
+    failModeracao = true;
+    try { await assert.rejects(service.comandar(f.acesso, p), e => e.status === 502 && /crédito ficou reservado/.test(e.message)); }
+    finally { failModeracao = false; }
+    assert.equal((await pool.query('SELECT estado FROM convite_geracoes WHERE id=$1', [p.chave])).rows[0].estado, 'INCERTA');
+    const ev = (await pool.query("SELECT detalhe FROM convite_eventos WHERE convite_id=$1 AND acao='IA_INCERTA'", [f.id])).rows;
+    assert.equal(ev.length, 1);
+    assert.deepEqual(ev[0].detalhe, { geracao: p.chave, diagnostico: 'http_400_moderation_blocked', requestId: 'req_sintetico_1', etapa: 'input', categorias: ['sexual'] });
+    assert.equal((await service.comandar(f.acesso, p)).estado, 'INCERTA'); assert.equal(providerCalls - calls, 1);
     assert.equal((await pool.query('SELECT usado FROM convite_consumos WHERE empresa_id=$1', [f.empresa])).rows[0].usado, 1);
   });
   await check('teto global concorrente limita duas empresas e rollback não consome cotas', async () => {

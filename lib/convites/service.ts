@@ -70,6 +70,21 @@ async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, 
   });
 }
 
+// Evidência para a revisão manual de geração incerta: só identificador, etapa e categorias da moderação, revalidados
+// contra listas fechadas (nunca mensagem livre, prompt ou foto). Sem detalhes válidos, nada é acrescentado.
+const ETAPAS_MODERACAO = ['input', 'output', 'unknown'];
+const CATEGORIAS_MODERACAO = ['harassment', 'hate', 'self-harm', 'sexual', 'violence', 'illicit', 'other'];
+function detalhesFalha(erro: unknown): { requestId?: string; etapa?: string; categorias?: string[] } | undefined {
+  if (typeof FalhaProvedorImagem === 'undefined' || !(erro instanceof FalhaProvedorImagem) || !erro.detalhes) return undefined;
+  const d = erro.detalhes, r: { requestId?: string; etapa?: string; categorias?: string[] } = {};
+  if (typeof d.requestId === 'string' && /^req_[a-zA-Z0-9_-]{1,128}$/.test(d.requestId)) r.requestId = d.requestId;
+  if (typeof d.etapa === 'string' && ETAPAS_MODERACAO.includes(d.etapa)) r.etapa = d.etapa;
+  if (Array.isArray(d.categorias)) {
+    const categorias = [...new Set(d.categorias.filter(x => typeof x === 'string' && CATEGORIAS_MODERACAO.includes(x)))];
+    if (categorias.length) r.categorias = categorias;
+  }
+  return Object.keys(r).length ? r : undefined;
+}
 async function evento(tx: DbExecutor, c: Convite, a: Acesso, acao: string, detalhe: object = {}) {
   await tx.query('INSERT INTO convite_eventos(convite_id,ator,acao,detalhe) VALUES($1,$2,$3,$4)', [c.id, ator(a, c), acao, detalhe]);
 }
@@ -289,7 +304,11 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     const diagnostico = typeof FalhaProvedorImagem !== 'undefined' && erro instanceof FalhaProvedorImagem ? erro.diagnostico
       : erro instanceof Error && erro.name === 'TimeoutError' ? 'timeout'
         : erro instanceof Error && erro.name === 'AbortError' ? 'abortado' : 'falha_interna';
-    console.error('[convites] Geração de imagem inconclusiva:', diagnostico);
+    const detalhes = detalhesFalha(erro);
+    console.error('[convites] Geração de imagem inconclusiva:', diagnostico, ...(detalhes ? [JSON.stringify(detalhes)] : []));
+    // Registro da evidência não pode mudar o desfecho: falha aqui não altera a resposta nem o estado INCERTA.
+    try { await evento(db(), reserva.c, a, 'IA_INCERTA', { geracao: i.chave, diagnostico, ...(detalhes ?? {}) }); }
+    catch { console.error('[convites] Evento IA_INCERTA não registrado.'); }
     throw new ConviteError('Não foi possível confirmar a geração. O crédito ficou reservado para conferência pelo buffet; não repetimos o pedido.', 502);
   }
 }
