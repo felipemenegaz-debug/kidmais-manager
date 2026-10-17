@@ -2,9 +2,49 @@
 
 **Goal:** nota `Goal Correcao Marketing Continuar C1 C2 Oa` (e `Continuacao Marketing Prototipo Alfa`) no vault.
 **Base:** `cda9464` (árvore `ae4cff5`), REPROVADA em `revisao-marketing-historico-a1a2-cda9464-parecer-20261017/PARECER.md` (manifesto 181, `7a03ceea…`) por C1/P2, C2/P2 e O-a/P3.
-**Branch:** `codex/marketing-continuar-c1c2oa-20261017`. Este commit contém **só a correção de O-a** e a documentação. Só local, sem push.
+**Branch:** `codex/marketing-continuar-c1c2oa-20261017`. Commits: `3851e3f` com a correção de O-a, e o seguinte com a **integração do α2**, aprovada por Felipe (seção 0). Só local, sem push.
 
-## Estado (sem autoaprovação)
+## 0. Integração α2 — decisão de Felipe (17/10/2026)
+
+Felipe aprovou, nesta conversa, **α2 ("Continuar" sem travessia) com os custos medidos**:
+- ramo à frente descartado;
+- Avançar simultâneo pode ser ignorado;
+- recarga na contingência.
+
+O commit seguinte a `3851e3f` integra o α2:
+- **código:** idêntico ao protótipo medido, só com os comentários reescritos;
+- **suíte do guardião:** reescrita para o contrato aprovado.
+
+O teste de cruzamento pós-"Continuar" **deixou de ser TODO e passa**.
+
+**Bateria completa na cópia integrada** (árvore do commit, `components/` idêntico; servidor :3598):
+
+| Prova | Resultado |
+|---|---|
+| C1/C2, focais do parecer (captura, CDP simultâneo e posterior, fronteiras AT/B2, fila, depois) | **OK 123** + 2 GESTO_DESCARTADO_PELO_PUSH (Avançar pedido antes do clique); 0 saída pela correção; 0 destino trocado |
+| C1/C2 com o fallback injetado (estado apagado antes do clique) | **OK 68/68** |
+| O-a: pedido aberto + login; Continuar + login (`orfa-volta` 4, `orfa-volta-2` 10) | coerente 2/2 e 14/14; 0 `history.go` do guardião |
+| Antes da decisão + Sair/Continuar (revisora) | **127/127** |
+| 16 substitutos do contrato novo | **16/16** |
+| B-2 entrada tardia | PASS |
+| B-1 derivado | falha de roteiro (`about:blank`), como nas outras raízes; coberto por D-B1/D-B7 |
+| O1 real com/sem, roteiro da revisora com/sem | **cenário a cenário iguais à candidata** (8/8, 4/8, 7/9, 5/9) |
+| AdminShell-O1 com | 9/9 |
+| AdminShell-O1 sem | 1/9; a candidata e a base tinham 2/9 |
+| O-2 (critério antigo) | INCOERENTE 4/4, como na base; a intenção é coberta pelo D-O2 |
+| Custo (CDP, por ID) | igual ao do α2 (seção 4): recriação da entrada; ramo à frente removido; Avançar na fila descartado; recarga na contingência (`timeOrigin` novo) |
+| Modelo (291 720 por semântica, normal e fallback injetado) | 0 saída/aviso/destino trocado pela correção; 4 680 gestos descartados (semântica Chrome) |
+| Não-PG (15 arquivos) / `tsc` / ESLint / `check:v1:static` com build | **127/127** / 0 / 0 / **PASS** |
+
+**AdminShell-O1 sem API, B-5:**
+- **A diferença:** é a única de cenário em relação à candidata, e é **custo aprovado**, não defeito.
+- **O cenário:** a pessoa vai para a frente do editor, abre o pedido e aperta Esc.
+- **O que acontece:** a entrada nova do editor nasce depois da página tentada. O 2º Avançar do roteiro original não tem mais destino; essa página agora está atrás.
+- **Substituto no contrato aprovado** (`roteiro-adminshell-alfa2-b5.mjs`): **PASS**. Esc mantém o editor e a edição; o Avançar fica sem destino (medido); Voltar abre o pedido no Dashboard; "Sair sem salvar" vai a ele.
+
+**Revisão independente:** pendente.
+
+## Estado antes da decisão (registro de 3851e3f; sem autoaprovação)
 
 | Achado | Neste commit (candidata O-a) | Protótipo α (isolado, **não integrado**) |
 |---|---|---|
@@ -177,7 +217,7 @@ Correções do modelo preservadas e documentadas no pacote (`DERIVACAO-modelo-pu
 - **Fallback:** alcance natural não demonstrado. Medido só por injeção.
 - **Correção da entrega anterior:** a afirmação "2 em 1572, pedido novo, nunca saída" (cda9464) está corrigida em `docs/MARKETING_HISTORICO_A1_A2_20261017.md`.
 
-## 6. Decisão pendente (Felipe)
+## 6. Decisão (registro): pendente em 3851e3f, **tomada em 17/10/2026** — α2 aprovado (seção 0)
 
 Adotar ou não "Continuar editando" **sem travessia** (α2). Isso significa:
 - "Continuar" cria uma entrada nova do editor na posição atual e **descarta as entradas à frente**. Exemplo medido: 4 entradas no "Voltar 2".

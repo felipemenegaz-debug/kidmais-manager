@@ -13,7 +13,11 @@ import test from 'node:test';
  *
  * Contrato SEM Navigation API desde A1/A2 ("decisão primeiro"): ao barrar uma saída da página do editor, o guardião NÃO se
  * move — o pedido abre com o destino = a entrada atual ({ tipo: 'aqui' }), exatamente onde a pessoa chegou; novas
- * travessias dela só o atualizam; voltar à página do editor fecha o pedido (null). "Sair" não faz travessia
+ * travessias dela só o atualizam; voltar à página do editor fecha o pedido (null). "Sair" não faz travessia, e
+ * "Continuar editando" também não (C1/C2, decisão de Felipe em 17/10/2026): cria uma entrada NOVA do editor na posição
+ * atual (pushState com o estado do Next da entrada do editor; descarta as entradas à frente). O ambiente guarda a URL de
+ * pushState/replaceState como o navegador (URL absoluta do documento → caminho). Ver o resto do texto original abaixo.
+ *  "Sair" não faz travessia
  * (`sairNaEntradaAtual`); só "Continuar editando" (`continuarEditando`) volta à entrada do editor.
  */
 type Estado = unknown;
@@ -85,8 +89,8 @@ function ambiente({ comNavigation, inicial, anterior = false, aviso = 'confirmar
   const history = {
     get state() { return entradas[i].state; },
     get length() { return entradas.length; },
-    pushState(state: Estado, _: string, url?: string) { entradas.splice(i + 1); entradas.push({ url: url ?? entradas[i].url, state, key: `k${chaves++}` }); i += 1; },
-    replaceState(state: Estado, _: string, url?: string) { entradas[i] = { ...entradas[i], state, url: url ?? entradas[i].url }; },
+    pushState(state: Estado, _: string, url?: string) { url = url?.replace(/^http:\/\/teste\.local/, ''); entradas.splice(i + 1); entradas.push({ url: url ?? entradas[i].url, state, key: `k${chaves++}` }); i += 1; },
+    replaceState(state: Estado, _: string, url?: string) { url = url?.replace(/^http:\/\/teste\.local/, ''); entradas[i] = { ...entradas[i], state, url: url ?? entradas[i].url }; },
     go(d: number) { ir((atual) => atual + d, false, d); }, back() { this.go(-1); }, forward() { this.go(1); },
   };
   /** Clique numa âncora <a href="#x">: entrada NOVA com estado nulo (descarta as da frente) + popstate. */
@@ -137,7 +141,9 @@ function sair(c: Cenario, desproteger: () => void) {
   else { const alvo = c.amb.entradas.find((x) => `http://teste.local${x.url}` === d!.url)!; c.amb.janela.navigation!.traverseTo(alvo.key); }
   c.amb.avancar(50);
 }
-/** "Continuar editando" do jeito do hook: fecha o pedido e, sem Navigation API, a página volta ao editor. */
+/** A página atual é a do editor ("Continuar" cria uma entrada nova do editor; a posição original não importa). */
+const estaNoEditor = (c: { amb: { url(): string } }) => c.amb.url().split('#')[0] === '/editor';
+/** "Continuar editando" do jeito do hook: fecha o pedido e, sem Navigation API, cria a entrada nova do editor. */
 function continuar(c: Cenario, ms = 3000) { c.m.continuarEditando(); c.amb.avancar(ms); }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -203,21 +209,24 @@ test('SEM Navigation API — dois Voltar com edição: nenhum movimento do guard
   assert.deepEqual(c.amb.roteador, ['/inicio'], 'o roteador passa a mostrar a entrada atual');
   assert.equal(tentativaDe(c), null);
 });
-test('SEM Navigation API — "Continuar editando" volta à entrada do editor; nada fica pendente; sem pedido no fim', async () => {
+test('SEM Navigation API — "Continuar editando" cria uma entrada NOVA do editor na posição atual (ramo à frente descartado); nenhum history.go; nada pendente; sem pedido no fim', async () => {
   const c = await preparar(false, ['/a', '/b', '/editor', '/depois']);
   c.amb.janela.history.back(); c.amb.avancar(10);
-  const desproteger = c.proteger();
-  c.amb.janela.history.forward(); c.amb.avancar(300);
+  const desproteger = c.proteger(); const t0 = c.amb.agora();
+  c.amb.humano(1); c.amb.avancar(300);
   assert.equal(c.amb.url(), '/depois'); assert.deepEqual(c.pedidos, [aqui('/depois')]);
   continuar(c);
   assert.equal(c.amb.url(), '/editor'); assert.equal(tentativaDe(c), null); assert.deepEqual(c.pedidos, [aqui('/depois')]);
-  c.amb.janela.history.go(-2); c.amb.avancar(300);
+  assert.deepEqual(c.amb.entradas.map((e) => e.url), ['/inicio', '/a', '/b', '/editor', '/depois', '/editor'], 'entrada nova do editor depois de /depois');
+  assert.deepEqual(movimentosDoGuardiao(c, t0), [], 'nenhum history.go do guardião');
+  c.amb.humano(-4); c.amb.avancar(300);
   assert.equal(c.amb.url(), '/a'); assert.deepEqual(c.pedidos.at(-1), aqui('/a'));
   continuar(c);
-  assert.equal(c.amb.url(), '/editor'); assert.deepEqual(c.amb.roteador, ['/editor']);
+  assert.equal(c.amb.url(), '/editor'); assert.deepEqual(c.amb.entradas.map((e) => e.url), ['/inicio', '/a', '/editor'], 'ramo à frente de /a descartado (custo aceito)');
+  assert.deepEqual(c.amb.roteador, ['/editor'], 'só o Voltar do preparo: depois dele o roteador nunca navegou (o editor ficou na tela)');
   desproteger();
   c.amb.janela.history.back(); c.amb.avancar(10);
-  assert.deepEqual(c.amb.roteador, ['/editor', '/b'], 'sem proteção de novo, um Voltar basta');
+  assert.deepEqual(c.amb.roteador, ['/editor', '/a'], 'sem proteção de novo, um Voltar basta');
 });
 test('SEM Navigation API — com o pedido aberto, voltar à página do editor fecha o pedido (null) e nada fica pendente', async () => {
   const c = await preparar(false, ['/dashboard', '/editor']);
@@ -301,12 +310,12 @@ test('SEM Navigation API — H1: fragmento de página com entradas dos dois lado
   assert.deepEqual(c.pedidos, [aqui('/dashboard#x')]);
   const t1 = c.amb.agora(); continuar(c, 300);
   assert.equal(c.amb.url(), '/editor'); assert.equal(tentativaDe(c), null);
-  assert.ok(movimentosDoGuardiao(c, t1).every((x) => !x.noop), 'nenhum movimento sem destino');
+  assert.deepEqual(movimentosDoGuardiao(c, t1), [], 'nenhum history.go do guardião');
   c.amb.janela.history.back(); c.amb.avancar(300);
-  assert.deepEqual(c.pedidos.at(-1), aqui('/dashboard'));
+  assert.deepEqual(c.pedidos.at(-1), aqui('/dashboard#x'), 'a entrada nova do editor nasceu depois de #x: Voltar leva a ela');
   desproteger();
 });
-test('SEM Navigation API — H-9: entrada INICIAL sem estado: pedido para ela; Continuar volta; alternar não prende; depois de salvar o histórico segue livre', async () => {
+test('SEM Navigation API — H-9: entrada INICIAL sem estado: pedido para ela; Continuar cria a entrada do editor depois dela (ramo à frente descartado); Avançar sem destino; alternar não prende; depois de salvar o histórico segue livre', async () => {
   const c = await preparar(false, ['/editor', '/dashboard'], { url: '/dashboard', state: null });
   c.amb.janela.history.back(); c.amb.avancar(10);
   assert.deepEqual(c.amb.roteador, ['/editor']);
@@ -314,15 +323,17 @@ test('SEM Navigation API — H-9: entrada INICIAL sem estado: pedido para ela; C
   c.amb.janela.history.back(); c.amb.avancar(200);
   assert.equal(c.amb.posicao(), 0); assert.deepEqual(c.pedidos, [aqui('/dashboard')]);
   continuar(c, 200); assert.equal(c.amb.url(), '/editor');
+  assert.deepEqual(c.amb.entradas.map((e) => e.url), ['/dashboard', '/editor'], 'o editor e o /dashboard que estavam à frente foram descartados');
   c.amb.janela.history.forward(); c.amb.avancar(200);
-  assert.equal(c.amb.posicao(), 2); continuar(c, 200);
-  c.amb.janela.history.back(); c.amb.avancar(200); continuar(c, 200);
-  assert.equal(c.amb.url(), '/editor'); assert.equal(c.pedidos.length, 3);
+  assert.equal(c.amb.posicao(), 1, 'Avançar não tem destino'); assert.equal(c.pedidos.length, 1);
+  c.amb.janela.history.back(); c.amb.avancar(200); assert.deepEqual(c.pedidos.at(-1), aqui('/dashboard'));
+  continuar(c, 200);
+  assert.equal(c.amb.url(), '/editor'); assert.equal(c.pedidos.length, 2);
   desproteger();
   assert.equal(tentativaDe(c), null, 'nenhuma correção pendente');
   c.amb.janela.history.back(); c.amb.avancar(10); assert.equal(c.amb.url(), '/dashboard');
-  c.amb.janela.history.forward(); c.amb.avancar(10); c.amb.janela.history.forward(); c.amb.avancar(10);
-  assert.equal(c.amb.url(), '/dashboard'); assert.deepEqual(c.amb.roteador, ['/editor', '/editor', '/dashboard']);
+  c.amb.janela.history.forward(); c.amb.avancar(10);
+  assert.equal(c.amb.url(), '/editor'); assert.deepEqual(c.amb.roteador, ['/editor', '/editor'], 'entrada inicial nula: o roteador a ignora; a do editor ele mostra');
 });
 
 for (const ms of [5, 15, 25, 35, 60, 120]) {
@@ -429,7 +440,7 @@ function classificar(c: Cenario, posEditor: number, rotas: number, t0: number, d
   if (decisao === 'continuar') {
     const nPedidos = c.pedidos.length;
     continuar(c);
-    const ok = !c.amb.saidas.length && c.amb.posicao() === posEditor && tentativaDe(c) === null && c.amb.roteador.length === rotas && c.pedidos.length === nPedidos;
+    const ok = !c.amb.saidas.length && estaNoEditor(c) && tentativaDe(c) === null && c.amb.roteador.length === rotas && c.pedidos.length === nPedidos;
     desproteger();
     return ok ? 'OK' : (c.amb.saidas.length ? 'SAIU_PELA_CORRECAO' : 'CONTINUAR_FALHOU');
   }
@@ -496,8 +507,8 @@ test('SEM Navigation API — A2 (A, documento anterior, aviso confirmado): go(�
 //  PEDIDO_NOVO — a última chegada dela foi à página do editor, mas termina com pedido;
 //  ENGOLIDO — ela chegou a outra página e termina no editor sem pedido; PRESO — algo pendente, ou fora do editor sem pedido.
 // C1/C2 (parecer de cda9464) aparecem aqui; a janela "gesto já na fila no 1º movimento" com atendimento de 1–10 ms fica no
-// modelo da revisora (este ambiente atende cada travessia em 1 ms). Marcado TODO: a classe só fecha com a decisão de
-// Felipe sobre a proposta "Continuar sem travessia" (docs/MARKETING_HISTORICO_CONTINUAR_20261017.md).
+// modelo da revisora (este ambiente atende cada travessia em 1 ms). Com "Continuar" sem travessia (decisão de Felipe,
+// 17/10/2026; docs/MARKETING_HISTORICO_CONTINUAR_20261017.md), nenhuma dessas classes pode aparecer.
 function classificarCruzamento(c: Cenario, posEditor: number, tc: number) {
   const guard = (x: { quem: string }) => x.quem === 'guardiao';
   if (c.amb.saidas.some(guard)) return 'SAIU_PELA_CORRECAO';
@@ -507,12 +518,12 @@ function classificarCruzamento(c: Cenario, posEditor: number, tc: number) {
   const tent = tentativaDe(c), pedido = c.pedidos.at(-1);
   const pendente = tent !== null && pedido?.tipo === 'aqui';
   let classe: string;
-  if (!ultima || c.amb.entradas[ultima.pos].url.split('#')[0] === '/editor') classe = !pendente && tent === null && c.amb.posicao() === posEditor ? 'OK' : pendente ? 'PEDIDO_NOVO' : 'PRESO';
+  if (!ultima || c.amb.entradas[ultima.pos].url.split('#')[0] === '/editor') classe = !pendente && tent === null && estaNoEditor(c) ? 'OK' : pendente ? 'PEDIDO_NOVO' : 'PRESO';
   else if (pendente) classe = c.amb.posicao() === ultima.pos && JSON.stringify(pedido) === JSON.stringify(aqui(c.amb.entradas[ultima.pos].url)) ? 'OK' : 'DESTINO_TROCADO';
-  else classe = tent === null && c.amb.posicao() === posEditor ? 'ENGOLIDO' : 'PRESO';
+  else classe = tent === null && estaNoEditor(c) ? 'ENGOLIDO' : 'PRESO';
   return classe + aviso;
 }
-test('SEM Navigation API — depois de "Continuar", gesto da pessoa (±1…±5, 0–130 ms; com e sem documento anterior): consequência medida — sem saída pela correção, destino trocado, pedido indevido ou volta presa', { todo: 'C1/C2 do parecer de cda9464: pendentes da decisão de Felipe (volta ativa × "Continuar sem travessia")' }, async (t) => {
+test('SEM Navigation API — depois de "Continuar", gesto da pessoa (±1…±5, 0–130 ms; com e sem documento anterior): consequência medida — sem saída pela correção, destino trocado, pedido indevido ou volta presa', async (t) => {
   const contagem: Record<string, number> = {}, exemplos: string[] = [];
   for (const h of [HISTORICOS.A, HISTORICOS.AT, HISTORICOS.B, HISTORICOS.b2, HISTORICOS.rvI1]) for (const opcoes of [{}, { anterior: true, aviso: 'confirmar' as const }]) for (const d of [-1, 1, -2, 2, -3, 3, -4, -5]) for (let ms = 0; ms <= 130; ms += (ms < 60 ? 1 : 5)) {
     const { c, posEditor, desproteger } = await prepararPassos(h, opcoes);
@@ -561,12 +572,12 @@ test('SEM Navigation API — O-2 direto (saída fora do hook com um movimento an
   c.amb.avancar(3000);
   assert.equal(c.amb.url(), '/saida-escolhida'); assert.equal(tentativaDe(c), null);
 });
-test('SEM Navigation API — H1-R2: com o pedido aberto, a pessoa vai à 1ª entrada da aba: nada se move; Continuar volta ao editor (não fica presa)', async () => {
-  const { c, posEditor, desproteger } = await prepararPassos(HISTORICOS.rvI1);
+test('SEM Navigation API — H1-R2: com o pedido aberto, a pessoa vai à 1ª entrada da aba: nada se move; Continuar termina no editor (não fica presa)', async () => {
+  const { c, desproteger } = await prepararPassos(HISTORICOS.rvI1);
   c.amb.avancar(39); c.amb.humano(-5); c.amb.avancar(300);
   assert.equal(c.amb.posicao(), 0); assert.deepEqual(c.pedidos.at(-1), aqui('/inicio'));
   continuar(c);
-  assert.equal(c.amb.posicao(), posEditor); assert.equal(tentativaDe(c), null);
+  assert.ok(estaNoEditor(c)); assert.equal(tentativaDe(c), null);
   desproteger();
 });
 
@@ -643,28 +654,26 @@ test('SEM Navigation API — O-a: pedido aberto e o editor DESMONTADO por navega
   assert.deepEqual(c.amb.roteador, ['/dashboard', '/login', '/editor'], 'a entrada do editor é uma entrada comum: o roteador a mostra');
   assert.deepEqual(movimentosDoGuardiao(c, t0), []); assert.equal(c.pedidos.length, 1, 'nenhum pedido tardio');
 });
-test('SEM Navigation API — O-a: editor desmontado DURANTE a volta (movimento nosso na fila): o movimento é desfeito ao chegar; o editor desmontado não revive; o roteador não recebe nada', async () => {
+test('SEM Navigation API — O-a: editor desmontado logo depois de "Continuar" (nenhum movimento a desfazer): a tentativa já terminou; o roteador segue a navegação; o editor desmontado não revive', async () => {
   const c = await preparar(false, ['/dashboard', '/campanhas', '/editor']);
-  const dono = {}; const desproteger = protegerComDono(c, dono);
+  const dono = {}; const desproteger = protegerComDono(c, dono); const t0 = c.amb.agora();
   c.amb.humano(-1); c.amb.avancar(300);
-  c.m.continuarEditando(); c.amb.avancar(0); // a volta pede o +1 agora (atendido em 1 ms)
-  assert.equal(c.amb.travessiasDelta.filter((x) => x.quem === 'guardiao').length, 1, 'movimento na fila');
+  c.m.continuarEditando(); c.amb.avancar(0);
+  assert.deepEqual(movimentosDoGuardiao(c, t0), [], '"Continuar" sem travessia');
   desmontarParaLogin(c, desproteger, dono);
   c.amb.avancar(3000);
-  assert.equal(c.amb.url(), '/login', 'a página volta à entrada em que o app a deixou');
-  assert.deepEqual(c.amb.roteador, [], 'o editor desmontado não é mostrado de novo');
-  assert.equal(tentativaDe(c), null);
+  assert.equal(c.amb.url(), '/login'); assert.deepEqual(c.amb.roteador, []); assert.equal(tentativaDe(c), null);
   c.amb.humano(-1); c.amb.avancar(300);
-  assert.deepEqual(c.amb.roteador, ['/dashboard'], 'depois, a navegação é normal');
+  assert.deepEqual(c.amb.roteador, ['/campanhas'], 'Voltar a partir do login: Campanhas, normal');
 });
-test('SEM Navigation API — O-a: abandono com movimento na fila e a pessoa atravessa antes dele: a chegada dela vai ao roteador; o movimento nosso, resolvido dali, é desfeito', async () => {
+test('SEM Navigation API — O-a: "Continuar", Voltar da pessoa no mesmo instante e desmontagem: a chegada dela vai ao roteador; nada é desfeito nem revive', async () => {
   const c = await preparar(false, ['/dashboard', '/campanhas', '/editor']);
   const dono = {}; const desproteger = protegerComDono(c, dono);
   c.amb.humano(-1); c.amb.avancar(300);
-  c.m.continuarEditando(); c.amb.humano(-1); c.amb.avancar(0); // o Voltar dela fica à frente do movimento da volta
+  c.m.continuarEditando(); c.amb.humano(-1); c.amb.avancar(0);
   desmontarParaLogin(c, desproteger, dono);
   c.amb.avancar(3000);
-  assert.equal(c.amb.url(), '/dashboard'); assert.deepEqual(c.amb.roteador, ['/dashboard'], 'URL e roteador no Dashboard, aonde ela foi');
+  assert.equal(c.amb.url(), '/campanhas'); assert.deepEqual(c.amb.roteador, ['/campanhas'], 'Voltar a partir da entrada nova do editor (agora o login): Campanhas');
   assert.equal(tentativaDe(c), null);
 });
 test('SEM Navigation API — O-a: reativação no MESMO editor (salvou e editou de novo) não abandona; abandono de outro dono não afeta; a desmontagem simulada do Strict Mode na montagem é inofensiva', async () => {
@@ -679,4 +688,37 @@ test('SEM Navigation API — O-a: reativação no MESMO editor (salvou e editou 
   continuar(c);
   assert.equal(c.amb.url(), '/editor'); assert.equal(tentativaDe(c), null); assert.deepEqual(c.amb.roteador, []);
   d2();
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// "Continuar" sem travessia (decisão de Felipe, 17/10/2026): estado da entrada nova e contingência.
+test('SEM Navigation API — "Continuar" cria a entrada nova com o estado do Next da entrada do editor (mesmos campos e árvore, índice próprio novo); nenhum campo inventado', async () => {
+  const c = await preparar(false, ['/dashboard', '/campanhas', '/editor', '/automacoes']);
+  c.amb.janela.history.back(); c.amb.avancar(10);
+  const estadoEditor = c.amb.janela.history.state as Record<string, unknown>;
+  const desproteger = c.proteger();
+  c.amb.humano(-1); c.amb.avancar(300);
+  assert.deepEqual(c.pedidos.at(-1), aqui('/campanhas'));
+  continuar(c);
+  const novo = c.amb.janela.history.state as Record<string, unknown>;
+  assert.deepEqual(Object.keys(novo).sort(), Object.keys(estadoEditor).sort(), 'mesmos campos');
+  assert.deepEqual(novo.arvore, estadoEditor.arvore); assert.equal(novo.__NA, true);
+  assert.notEqual(novo.__kidmaisIdx, undefined); assert.equal(novo.__kidmaisIdx, (estadoEditor.__kidmaisIdx as number));
+  assert.deepEqual(c.amb.entradas.map((e) => e.url), ['/inicio', '/dashboard', '/campanhas', '/editor'], 'a entrada do editor recriada; /automacoes à frente descartada');
+  c.amb.humano(-1); c.amb.avancar(300);
+  assert.deepEqual(c.pedidos.at(-1), aqui('/campanhas'), 'a proteção segue a entrada nova');
+  desproteger();
+});
+test('SEM Navigation API — contingência (estado do editor não registrado — INJEÇÃO do teste): "Continuar" ainda sem travessia; entrada nova só com o índice próprio (nada do Next)', async () => {
+  const c = await preparar(false, ['/dashboard', '/campanhas', '/editor']);
+  const desproteger = c.proteger(); const t0 = c.amb.agora();
+  c.amb.humano(-1); c.amb.avancar(300);
+  (c.amb.janela as unknown as { __kidmaisGuardiaoHistorico: { estados: Map<number, unknown> } }).__kidmaisGuardiaoHistorico.estados.clear();
+  continuar(c);
+  assert.equal(c.amb.url(), '/editor'); assert.equal(tentativaDe(c), null);
+  assert.deepEqual(movimentosDoGuardiao(c, t0), [], 'nenhum history.go do guardião');
+  assert.deepEqual(Object.keys(c.amb.janela.history.state as object), ['__kidmaisIdx'], 'só o índice próprio');
+  c.amb.humano(-1); c.amb.avancar(300);
+  assert.deepEqual(c.pedidos.at(-1), aqui('/campanhas'), 'a proteção segue a entrada nova');
+  desproteger();
 });
