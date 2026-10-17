@@ -52,11 +52,15 @@ const ctx = () => ({ requestId: randomUUID(), ip: null, userAgent: 'teste-083' }
 const ids: Record<string, string> = {};
 let svc: { auth: Mod; senha: { criarHashSenha: (s: string) => Promise<string> }; wpp: Mod; credencial: Record<string, (...a: never[]) => unknown> };
 
-/** Meta dublada: devolve o número pedido como validado (nenhuma rede). */
-const metaOk = async (input: { phoneNumberId: string }) => ({
-  accessToken: `token-sintetico-${input.phoneNumberId}`, tokenType: 'bearer', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging'],
-  expiresAt: null, displayPhoneNumber: `+55 11 9${input.phoneNumberId.slice(-4).padStart(4, '0')}-0000`, verifiedName: `Buffet ${input.phoneNumberId}`,
-});
+/** Meta dublada: devolve como comprovados o negócio e o número pedidos, como o meta-client real (nenhuma rede). */
+const metaOk = async (input: { businessId?: string; phoneNumberId?: string }) => {
+  const phoneNumberId = input.phoneNumberId ?? '0';
+  return {
+    businessId: input.businessId ?? '1001', phoneNumberId,
+    accessToken: `token-sintetico-${phoneNumberId}`, tokenType: 'bearer', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging'],
+    expiresAt: null, displayPhoneNumber: `+55 11 9${phoneNumberId.slice(-4).padStart(4, '0')}-0000`, verifiedName: `Buffet ${phoneNumberId}`,
+  };
+};
 
 async function sessaoDe(usuarioId: string, opcoes: { empresaAtiva?: string; reautenticadoHaMin?: number } = {}) {
   const nova = await withTransaction((tx) => (svc.auth.criarSessaoAdministrativa as unknown as (tx: Client, u: string, ip: null, ua: null) => Promise<{ id: string; token: string }>)(tx, usuarioId, null, null));
@@ -286,6 +290,117 @@ test('B1: combinação WABA ↔ negócio não comprovada e falha do provedor nã
   }
   assert.equal(await conta("SELECT count(*)::int AS n FROM whatsapp_conexoes WHERE phone_number_id = '8001'"), 0);
   assert.equal(await conta("SELECT count(*)::int AS n FROM whatsapp_onboarding_tentativas WHERE empresa_id = $1 AND status IN ('INICIADA', 'VALIDANDO')", [ids.empresaB]), 0);
+});
+
+/**
+ * D2: evento do WhatsApp Business App só com waba_id. O serviço REAL com o meta-client REAL (fetch dublado) resolve o
+ * negócio pela posse e o número em coexistência, e grava conexão, tentativa e auditoria com os ids COMPROVADOS.
+ */
+test('D2: conclusão só com waba_id grava a conexão com o negócio dono e o número em coexistência resolvidos', async () => {
+  const meta = carregar('lib/whatsapp/meta-client.ts') as unknown as { trocarCodigoEValidarAtivos: (i: unknown, c: unknown, f: typeof fetch) => Promise<unknown> };
+  const dubleMeta = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('/oauth/access_token')) return Response.json({ access_token: 'token-sintetico-d2', token_type: 'bearer' });
+    if (url.includes('/debug_token')) return Response.json({ data: { is_valid: true, app_id: '123456789', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging', 'business_management'],
+      granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: ['2009'] }, { scope: 'business_management', target_ids: ['1008', '1009'] }] } });
+    if (url.endsWith('/subscribed_apps')) return Response.json({ success: true });
+    if (url.includes('/owned_whatsapp_business_accounts')) return Response.json({ data: url.includes('/1009/') ? [{ id: '2009' }] : [{ id: '2099' }] });
+    return Response.json({ data: [{ id: '9000', display_phone_number: '+55 11 99000-0000', verified_name: 'Outro', is_on_biz_app: false },
+      { id: '9001', display_phone_number: '+55 11 99001-0000', verified_name: 'Coexistência', is_on_biz_app: true }] });
+  }) as typeof fetch;
+  const validarMeta = ((input: unknown, cfg: unknown) => meta.trocarCodigoEValidarAtivos(input, cfg, dubleMeta)) as typeof metaOk;
+  const s = await sessaoDe(ids.gestaoB);
+  const ini = await (svc.wpp.iniciarOnboardingWhatsapp as unknown as (t: string, c: unknown) => Promise<{ tentativaId: string; state: string }>)(s.token, ctx());
+  const r = await (svc.wpp.concluirOnboardingWhatsapp as unknown as (r: unknown, t: string, c: unknown, d: unknown) => Promise<{ conexaoId: string }>)(
+    { tentativaId: ini.tentativaId, state: ini.state, authorizationCode: 'codigo-sintetico-d2', wabaId: '2009' }, s.token, ctx(), { validarMeta });
+  const c = await um<{ empresa_id: string; business_id: string; waba_id: string; phone_number_id: string; status: string }>('SELECT empresa_id,business_id,waba_id,phone_number_id,status FROM whatsapp_conexoes WHERE id = $1', [r.conexaoId]);
+  assert.deepEqual([c.empresa_id, c.business_id, c.waba_id, c.phone_number_id, c.status], [ids.empresaB, '1009', '2009', '9001', 'CONFIGURADA']);
+  const t = await um<{ status: string; business_id: string; phone_number_id: string }>('SELECT status,business_id,phone_number_id FROM whatsapp_onboarding_tentativas WHERE id = $1', [ini.tentativaId]);
+  assert.deepEqual([t.status, t.business_id, t.phone_number_id], ['CONCLUIDA', '1009', '9001']);
+  assert.equal(await conta("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'WHATSAPP_CONEXAO_CONFIGURADA' AND entidade_id = $1 AND dados_depois->>'businessId' = '1009' AND dados_depois->>'phoneNumberId' = '9001'", [r.conexaoId]), 1);
+  // Volta ao estado anterior para os testes seguintes (a B fica sem conexão CONFIGURADA).
+  await client.query("UPDATE whatsapp_conexoes SET status = 'DESCONECTADA', desconectada_em = clock_timestamp(), desconectada_por_usuario_id = $2, motivo_desconexao = 'Fim do teste D2', revisao = revisao + 1, atualizada_em = clock_timestamp() WHERE id = $1", [r.conexaoId, ids.gestaoB]);
+});
+
+/**
+ * Integração #168: a inscrição do app na WABA (`subscribed_apps`) é uma escrita externa e a última etapa da validação.
+ * Serviço REAL + meta-client REAL com fetch dublado. Registra na tentativa (`waba_id`) e na auditoria
+ * (`inscricaoWebhook`) quando a WABA pode ter ficado inscrita sem conexão local, para a recuperação manual.
+ */
+type DubleInscricao = { negocio: string; waba: string; numero: string; inscricao: 'ok' | 'recusada' | 'incerta' | 'inesperada' };
+function dubleComInscricao(o: DubleInscricao, chamadas: string[]) {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith('/subscribed_apps')) {
+      chamadas.push(`${init?.method ?? 'GET'} ${url.replace(/^.*\/v24\.0/, '')}`);
+      if (o.inscricao === 'incerta') return new Response('indisponível', { status: 503 });
+      // F1: a escrita pode ter sido aplicada; 200 com corpo fora do contrato não comprova sucesso nem recusa.
+      if (o.inscricao === 'inesperada') return Response.json({}, { status: 200 });
+      return Response.json(o.inscricao === 'ok' ? { success: true } : { success: false });
+    }
+    if (url.includes('/oauth/access_token')) return Response.json({ access_token: `token-sintetico-${o.waba}`, token_type: 'bearer' });
+    if (url.includes('/debug_token')) return Response.json({ data: { is_valid: true, app_id: '123456789', scopes: ['whatsapp_business_management', 'whatsapp_business_messaging', 'business_management'],
+      granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: [o.waba] }, { scope: 'business_management', target_ids: [o.negocio] }] } });
+    if (url.includes('/owned_whatsapp_business_accounts')) return Response.json({ data: [{ id: o.waba }] });
+    return Response.json({ data: [{ id: o.numero, display_phone_number: `+55 11 9${o.numero.slice(-4)}-0000`, verified_name: `Buffet ${o.numero}`, is_on_biz_app: true }] });
+  }) as typeof fetch;
+}
+
+test('#168: inscrição confirmada e falha na gravação (número em uso) → FALHOU com waba_id e inscricaoWebhook=CONFIRMADA, sem conexão', async () => {
+  const meta = carregar('lib/whatsapp/meta-client.ts') as unknown as { trocarCodigoEValidarAtivos: (i: unknown, c: unknown, f: typeof fetch) => Promise<unknown> };
+  const chamadas: string[] = [];
+  const validarMeta = ((input: unknown, cfg: unknown) => meta.trocarCodigoEValidarAtivos(input, cfg, dubleComInscricao({ negocio: '1010', waba: '2010', numero: '5001', inscricao: 'ok' }, chamadas))) as typeof metaOk;
+  const antes = await conta("SELECT count(*)::int AS n FROM whatsapp_conexoes WHERE phone_number_id = '5001'");
+  const s = await sessaoDe(ids.gestaoB);
+  const ini = await (svc.wpp.iniciarOnboardingWhatsapp as unknown as (t: string, c: unknown) => Promise<{ tentativaId: string; state: string }>)(s.token, ctx());
+  const erro = await codigoErro((svc.wpp.concluirOnboardingWhatsapp as unknown as (r: unknown, t: string, c: unknown, d: unknown) => Promise<unknown>)(
+    { tentativaId: ini.tentativaId, state: ini.state, authorizationCode: 'codigo-sintetico-insc', wabaId: '2010' }, s.token, ctx(), { validarMeta }));
+  assert.equal(erro, 'WHATSAPP_NUMERO_EM_USO');
+  assert.deepEqual(chamadas, ['POST /2010/subscribed_apps'], 'a inscrição aconteceu antes da gravação recusar');
+  assert.equal(await conta("SELECT count(*)::int AS n FROM whatsapp_conexoes WHERE phone_number_id = '5001'"), antes, 'nenhuma conexão nova');
+  const t = await um<{ status: string; erro_codigo: string; waba_id: string | null }>('SELECT status,erro_codigo,waba_id FROM whatsapp_onboarding_tentativas WHERE id = $1', [ini.tentativaId]);
+  assert.deepEqual([t.status, t.erro_codigo, t.waba_id], ['FALHOU', 'WHATSAPP_NUMERO_EM_USO', '2010']);
+  const a = await um<{ dados_depois: { inscricaoWebhook?: string; wabaId?: string } }>("SELECT dados_depois FROM auditoria WHERE acao = 'WHATSAPP_ONBOARDING_FALHOU' AND entidade_id = $1", [ini.tentativaId]);
+  assert.deepEqual([a.dados_depois.inscricaoWebhook, a.dados_depois.wabaId], ['CONFIRMADA', '2010']);
+});
+
+test('#168: inscrição incerta (503) ou 200 fora do contrato (F1) → FALHOU com waba_id e INCERTA; recusada → FALHOU sem waba_id; nenhuma conexão nem tentativa em VALIDANDO', async () => {
+  const meta = carregar('lib/whatsapp/meta-client.ts') as unknown as { trocarCodigoEValidarAtivos: (i: unknown, c: unknown, f: typeof fetch) => Promise<unknown> };
+  for (const [inscricao, waba, numero, codigo, registro] of [['incerta', '2011', '9111', 'META_WEBHOOK_INSCRICAO_INCERTA', 'INCERTA'], ['inesperada', '2014', '9114', 'META_WEBHOOK_INSCRICAO_INCERTA', 'INCERTA'], ['recusada', '2012', '9112', 'META_WEBHOOK_NAO_INSCRITO', null]] as const) {
+    const chamadas: string[] = [];
+    const validarMeta = ((input: unknown, cfg: unknown) => meta.trocarCodigoEValidarAtivos(input, cfg, dubleComInscricao({ negocio: '1011', waba, numero, inscricao }, chamadas))) as typeof metaOk;
+    const s = await sessaoDe(ids.gestaoB);
+    const ini = await (svc.wpp.iniciarOnboardingWhatsapp as unknown as (t: string, c: unknown) => Promise<{ tentativaId: string; state: string }>)(s.token, ctx());
+    const erro = await codigoErro((svc.wpp.concluirOnboardingWhatsapp as unknown as (r: unknown, t: string, c: unknown, d: unknown) => Promise<unknown>)(
+      { tentativaId: ini.tentativaId, state: ini.state, authorizationCode: 'codigo-sintetico-insc', wabaId: waba }, s.token, ctx(), { validarMeta }));
+    assert.equal(erro, codigo, inscricao);
+    assert.equal(chamadas.length, 1, inscricao);
+    assert.equal(await conta('SELECT count(*)::int AS n FROM whatsapp_conexoes WHERE phone_number_id = $1', [numero]), 0, inscricao);
+    const t = await um<{ status: string; waba_id: string | null }>('SELECT status,waba_id FROM whatsapp_onboarding_tentativas WHERE id = $1', [ini.tentativaId]);
+    assert.deepEqual([t.status, t.waba_id], ['FALHOU', registro ? waba : null], inscricao);
+    const a = await um<{ dados_depois: { inscricaoWebhook?: string } }>("SELECT dados_depois FROM auditoria WHERE acao = 'WHATSAPP_ONBOARDING_FALHOU' AND entidade_id = $1", [ini.tentativaId]);
+    assert.equal(a.dados_depois.inscricaoWebhook ?? null, registro, inscricao);
+    assert.equal(await conta("SELECT count(*)::int AS n FROM whatsapp_onboarding_tentativas WHERE empresa_id = $1 AND status IN ('INICIADA', 'VALIDANDO')", [ids.empresaB]), 0, `${inscricao}: nenhuma tentativa presa`);
+  }
+});
+
+test('#168: repetição não duplica: concluir de novo a mesma tentativa e iniciar outra não criam conexão nem nova inscrição', async () => {
+  const meta = carregar('lib/whatsapp/meta-client.ts') as unknown as { trocarCodigoEValidarAtivos: (i: unknown, c: unknown, f: typeof fetch) => Promise<unknown> };
+  const chamadas: string[] = [];
+  const validarMeta = ((input: unknown, cfg: unknown) => meta.trocarCodigoEValidarAtivos(input, cfg, dubleComInscricao({ negocio: '1013', waba: '2013', numero: '9113', inscricao: 'ok' }, chamadas))) as typeof metaOk;
+  const s = await sessaoDe(ids.gestaoB);
+  const ini = await (svc.wpp.iniciarOnboardingWhatsapp as unknown as (t: string, c: unknown) => Promise<{ tentativaId: string; state: string }>)(s.token, ctx());
+  const concluir = () => (svc.wpp.concluirOnboardingWhatsapp as unknown as (r: unknown, t: string, c: unknown, d: unknown) => Promise<{ conexaoId: string }>)(
+    { tentativaId: ini.tentativaId, state: ini.state, authorizationCode: 'codigo-sintetico-insc', wabaId: '2013' }, s.token, ctx(), { validarMeta });
+  const r = await concluir();
+  assert.equal(await codigoErro(concluir()), 'WHATSAPP_TENTATIVA_CONSUMIDA');
+  assert.equal(await codigoErro((svc.wpp.iniciarOnboardingWhatsapp as unknown as (t: string, c: unknown) => Promise<unknown>)(s.token, ctx())), 'WHATSAPP_JA_CONFIGURADO');
+  assert.equal(await conta("SELECT count(*)::int AS n FROM whatsapp_conexoes WHERE phone_number_id = '9113'"), 1);
+  assert.deepEqual(chamadas, ['POST /2013/subscribed_apps'], 'uma única inscrição');
+  const c = await um<{ dados_depois: { inscricaoWebhook?: string } }>("SELECT dados_depois FROM auditoria WHERE acao = 'WHATSAPP_CONEXAO_CONFIGURADA' AND entidade_id = $1", [r.conexaoId]);
+  assert.equal(c.dados_depois.inscricaoWebhook, 'CONFIRMADA');
+  // Estado anterior para os testes seguintes (a B sem conexão CONFIGURADA).
+  await client.query("UPDATE whatsapp_conexoes SET status = 'DESCONECTADA', desconectada_em = clock_timestamp(), desconectada_por_usuario_id = $2, motivo_desconexao = 'Fim do teste de repetição', revisao = revisao + 1, atualizada_em = clock_timestamp() WHERE id = $1", [r.conexaoId, ids.gestaoB]);
 });
 
 test('troca de empresa no meio do fluxo: a tentativa iniciada na A não conclui com a sessão na B', async () => {

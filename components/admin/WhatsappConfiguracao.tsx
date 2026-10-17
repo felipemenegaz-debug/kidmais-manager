@@ -8,7 +8,7 @@ import whatsapp from './WhatsappConfiguracao.module.css';
 
 type MetaInicio = { appId: string; graphApiVersion: string; configurationId: string; eventName: string; launchOptions: Record<string, unknown>; messageOrigins: string[] };
 type Inicio = { tentativaId: string; state: string; expiraEm: string; meta: MetaInicio };
-type DadosSessao = { businessId: string; wabaId: string; phoneNumberId: string };
+type DadosSessao = { wabaId: string; businessId?: string; phoneNumberId?: string };
 type Estado = { estado: string; metaConfigurada: boolean; ambiente?: string | null; empresa?: string | null; conexao: null | { id: string; numeroExibicao: string; nomeVerificado: string; businessId: string; wabaId: string; phoneNumberId: string }; tentativa: null | { status: string; expira_em: string } };
 type FbResponse = { authResponse?: { code?: string }; status?: string };
 type FacebookSdk = { init(input: { appId: string; version: string; cookie: boolean; xfbml: boolean }): void; login(callback: (response: FbResponse) => void, options: Record<string, unknown>): void };
@@ -25,8 +25,11 @@ function idsDaMensagem(value: unknown): DadosSessao | null {
   const businessId = data.business_id ?? data.businessId;
   const wabaId = data.waba_id ?? data.wabaId;
   const phoneNumberId = data.phone_number_id ?? data.phoneNumberId;
-  return [businessId, wabaId, phoneNumberId].every((item) => typeof item === 'string' && /^[0-9]+$/.test(item))
-    ? { businessId: String(businessId), wabaId: String(wabaId), phoneNumberId: String(phoneNumberId) } : null;
+  // waba_id é obrigatório; negócio e número podem faltar (fluxo do WhatsApp Business App) e o servidor os resolve e comprova.
+  const numerico = (item: unknown) => typeof item === 'string' && /^[0-9]+$/.test(item);
+  const opcional = (item: unknown) => item === undefined || item === null || numerico(item);
+  if (!numerico(wabaId) || !opcional(businessId) || !opcional(phoneNumberId)) return null;
+  return { wabaId: String(wabaId), ...(numerico(businessId) ? { businessId: String(businessId) } : {}), ...(numerico(phoneNumberId) ? { phoneNumberId: String(phoneNumberId) } : {}) };
 }
 
 const FALHA_CARGA = 'Não foi possível carregar a configuração do WhatsApp.';

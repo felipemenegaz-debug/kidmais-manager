@@ -500,7 +500,7 @@ test('modo regras é conferido a cada uso: o worker lê a variável do canal (n�
   assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) && !dadoSensivel\(e\.texto\) \? entender : null;/);
   const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
   assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
-  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:enviarMensagem,wallE:criarPortaWallE\(portas\.entender/);
+  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:enviarPelaEmpresa,wallE:criarPortaWallE\(portas\.entender/);
 });
 
 // Correção da pausa: a pausa reconhecida pelas regras vem antes do limite diário; nada sai, nem o texto fixo.

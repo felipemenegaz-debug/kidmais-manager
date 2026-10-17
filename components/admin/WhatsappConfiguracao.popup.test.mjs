@@ -7,8 +7,8 @@ import * as jsxRuntime from 'react/jsx-runtime';
 
 // Executa os handlers reais do componente com hooks/transportes sintéticos.
 // Nenhum SDK externo, credencial, servidor ou banco é usado neste teste.
-function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauthOk = true, login } = {}) {
-  const slots = [], listeners = new Set(), chamadas = [];
+function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauthOk = true, login, eventName = 'FINISH' } = {}) {
+  const slots = [], listeners = new Set(), chamadas = [], corpos = [];
   let cursor = 0, gesto = false, chamadasLogin = 0;
   const window = {
     addEventListener: (_, listener) => listeners.add(listener),
@@ -40,12 +40,13 @@ function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauth
   };
   const http = {
     async reautenticarSessao() { await Promise.resolve(); return { ok: reauthOk, erro: 'Senha inválida.' }; },
-    async adminFetch(url) {
+    async adminFetch(url, init) {
       chamadas.push(url);
+      if (init?.body) corpos.push(JSON.parse(init.body));
       await Promise.resolve();
       return { json: async () => ({ ok: true, data: {
         tentativaId: 'tentativa-sintetica', state: 'state-sintetico', expiraEm,
-        meta: { appId: '123', graphApiVersion: 'v26.0', launchOptions: {}, eventName: 'FINISH', messageOrigins: ['https://www.facebook.com'] },
+        meta: { appId: '123', graphApiVersion: 'v26.0', launchOptions: {}, eventName, messageOrigins: ['https://www.facebook.com'] },
       } }) };
     },
   };
@@ -84,7 +85,7 @@ function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauth
     try { return botao.props.onClick(); }
     finally { gesto = false; }
   }
-  return { clicar, chamadas, listeners, get chamadasLogin() { return chamadasLogin; },
+  return { clicar, chamadas, corpos, listeners, get chamadasLogin() { return chamadasLogin; },
     senha() { elementos().find(node => node.type === 'input').props.onChange({ target: { value: 'senha-sintetica' } }); },
     texto() { return elementos().map(node => typeof node.props?.children === 'string' ? node.props.children : '').join(' '); },
   };
@@ -135,4 +136,99 @@ test('exceção síncrona do SDK libera estado e remove listener', async () => {
   ui.clicar('Continuar na Meta');
   assert.match(ui.texto(), /Falha sintética/);
   assert.equal(ui.listeners.size, 0);
+});
+
+/** Evento da Meta (`message`) com o nome configurado, entregue aos listeners registrados pela tela. */
+function eventoMeta(ui, data, event = 'FINISH') {
+  for (const listener of [...ui.listeners]) listener({ origin: 'https://www.facebook.com', data: JSON.stringify({ type: 'WA_EMBEDDED_SIGNUP', event, data }) });
+}
+
+test('D2: evento só com waba_id conclui enviando só o waba_id (o servidor resolve negócio e número)', async () => {
+  const ui = montar({ login: callback => callback({ authResponse: { code: 'codigo-sintetico' } }) });
+  ui.senha();
+  await ui.clicar('Preparar conexão');
+  ui.clicar('Continuar na Meta');
+  eventoMeta(ui, { waba_id: '2002' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const corpo = ui.corpos.at(-1);
+  assert.ok(ui.chamadas.includes('/api/admin/configuracoes/whatsapp/onboarding/concluir'));
+  assert.equal(corpo.wabaId, '2002');
+  assert.equal('businessId' in corpo, false);
+  assert.equal('phoneNumberId' in corpo, false);
+});
+
+test('D2: evento com os três ids envia os três; id não numérico ou sem waba_id não conclui', async () => {
+  const ui = montar({ login: callback => callback({ authResponse: { code: 'codigo-sintetico' } }) });
+  ui.senha();
+  await ui.clicar('Preparar conexão');
+  ui.clicar('Continuar na Meta');
+  eventoMeta(ui, { business_id: '1001', phone_number_id: 'abc', waba_id: '2002' });
+  eventoMeta(ui, { business_id: '1001', phone_number_id: '7001' });
+  eventoMeta(ui, { waba_id: '2002' }, 'FINISH_ONLY_WABA');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(ui.chamadas.filter((url) => url.endsWith('/concluir')).length, 0);
+  assert.match(ui.texto(), /formato diferente do configurado/);
+  eventoMeta(ui, { business_id: '1001', phone_number_id: '7001', waba_id: '2002' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual({ ...ui.corpos.at(-1), tentativaId: undefined, state: undefined, authorizationCode: undefined },
+    { tentativaId: undefined, state: undefined, authorizationCode: undefined, businessId: '1001', wabaId: '2002', phoneNumberId: '7001' });
+});
+
+/**
+ * C2: evento real do fluxo do WhatsApp Business App (`FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING`, `data` só com
+ * `waba_id`) com o nome configurado igual. A conclusão exige o código OAuth E o evento, em qualquer ordem, uma única vez.
+ */
+const COEXISTENCIA = 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING';
+const esperar = () => new Promise((resolve) => setTimeout(resolve, 0));
+const conclusoes = (ui) => ui.chamadas.filter((url) => url.endsWith('/onboarding/concluir')).length;
+
+test('C2: evento de coexistência ANTES do código OAuth conclui uma vez, só com waba_id', async () => {
+  let callbackMeta;
+  const ui = montar({ eventName: COEXISTENCIA, login: (callback) => { callbackMeta = callback; } });
+  ui.senha();
+  await ui.clicar('Preparar conexão');
+  ui.clicar('Continuar na Meta');
+  eventoMeta(ui, { waba_id: '2002' }, COEXISTENCIA);
+  await esperar();
+  assert.equal(conclusoes(ui), 0, 'sem o código OAuth ainda não conclui');
+  callbackMeta({ authResponse: { code: 'codigo-sintetico' } });
+  await esperar();
+  assert.equal(conclusoes(ui), 1);
+  assert.deepEqual([ui.corpos.at(-1).wabaId, 'businessId' in ui.corpos.at(-1), 'phoneNumberId' in ui.corpos.at(-1)], ['2002', false, false]);
+});
+
+test('C2: código OAuth ANTES do evento de coexistência conclui uma vez', async () => {
+  const ui = montar({ eventName: COEXISTENCIA, login: (callback) => callback({ authResponse: { code: 'codigo-sintetico' } }) });
+  ui.senha();
+  await ui.clicar('Preparar conexão');
+  ui.clicar('Continuar na Meta');
+  await esperar();
+  assert.equal(conclusoes(ui), 0, 'sem o evento ainda não conclui');
+  eventoMeta(ui, { waba_id: '2002' }, COEXISTENCIA);
+  await esperar();
+  assert.equal(conclusoes(ui), 1);
+});
+
+test('C2: mensagens repetidas (durante e depois da conclusão) não duplicam a conclusão', async () => {
+  const ui = montar({ eventName: COEXISTENCIA, login: (callback) => callback({ authResponse: { code: 'codigo-sintetico' } }) });
+  ui.senha();
+  await ui.clicar('Preparar conexão');
+  ui.clicar('Continuar na Meta');
+  eventoMeta(ui, { waba_id: '2002' }, COEXISTENCIA);
+  eventoMeta(ui, { waba_id: '2002' }, COEXISTENCIA);
+  await esperar();
+  eventoMeta(ui, { waba_id: '2002' }, COEXISTENCIA);
+  await esperar();
+  assert.equal(conclusoes(ui), 1);
+  assert.equal(ui.listeners.size, 0, 'o listener sai depois da conclusão');
+});
+
+test('C2: com o nome configurado de coexistência, o evento FINISH genérico é ignorado', async () => {
+  const ui = montar({ eventName: COEXISTENCIA, login: (callback) => callback({ authResponse: { code: 'codigo-sintetico' } }) });
+  ui.senha();
+  await ui.clicar('Preparar conexão');
+  ui.clicar('Continuar na Meta');
+  eventoMeta(ui, { business_id: '1001', phone_number_id: '7001', waba_id: '2002' }, 'FINISH');
+  await esperar();
+  assert.equal(conclusoes(ui), 0);
 });

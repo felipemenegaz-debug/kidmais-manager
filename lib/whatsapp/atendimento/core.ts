@@ -265,6 +265,8 @@ export function responder(config: ConfiguracaoAtendimento, plano: Interpretacao,
 }
 
 /** `nomePerfil`: nome que a própria pessoa pôs no perfil do WhatsApp (Gupshup `payload.sender.name`). NÃO é verificado. */
+/** `app` das entradas da Cloud API (Meta); as do Gupshup trazem o nome do app (KidmaisManager). */
+export const APP_META = 'META_CLOUD';
 export type Entrada = { id: string; app: string; source: string; texto: string | null; timestamp: number; nomePerfil?: string | null };
 export const NOME_PERFIL_MAX = 80;
 /**

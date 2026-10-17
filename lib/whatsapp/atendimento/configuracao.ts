@@ -46,6 +46,26 @@ export function recepcaoAtiva(env: NodeJS.ProcessEnv = process.env) {
 export function atendimentoAtivo(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_ENABLED === 'true' && receptorDoNumero(env); }
 
 /**
+ * Canal de ENVIO do atendimento, separado da conexão (WHATSAPP_ATENDIMENTO_CANAL_ENVIO). Conectar um número Meta não troca
+ * o canal: ausente ou "gupshup" = Gupshup (comportamento anterior à Cloud API), mesmo com conexão Meta da piloto; "meta" =
+ * só a conexão Meta CONFIGURADA da piloto, sem cair no Gupshup em silêncio; qualquer outro valor (inclusive vazio ou com
+ * maiúsculas/espaços) = INVALIDO, nada é enviado.
+ */
+export type CanalEnvio = 'GUPSHUP' | 'META' | 'INVALIDO';
+export function canalEnvio(env: NodeJS.ProcessEnv = process.env): CanalEnvio {
+  const valor = env.WHATSAPP_ATENDIMENTO_CANAL_ENVIO;
+  if (valor === undefined || valor === 'gupshup') return 'GUPSHUP';
+  return valor === 'meta' ? 'META' : 'INVALIDO';
+}
+
+/**
+ * Recepção pelo webhook da Meta (WHATSAPP_ATENDIMENTO_RECEPCAO_META), além de recepcaoAtiva(): só "true" processa. Fora
+ * disso o webhook continua conferindo a assinatura e responde 200 SEM processar: os eventos (mensagens e status) são
+ * DESCARTADOS e a Meta não os reenvia; não há recuperação posterior pelo Kidmais.
+ */
+export function recepcaoMetaAtiva(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_RECEPCAO_META === 'true'; }
+
+/**
  * Contatos que o canal pode receber e responder (WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS: números com DDI, só
  * dígitos, separados por vírgula). Staging usa o número comercial real: sem a lista, nada é gravado nem enviado
  * (fail-closed), e mensagens de clientes reais nunca entram no banco de homologação. Em produção a lista é opcional
