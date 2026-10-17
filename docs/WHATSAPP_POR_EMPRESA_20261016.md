@@ -105,3 +105,69 @@ Depois do primeiro onboarding de qualquer empresa, mesmo um que falhou, o rollba
   - `lib/admin/navegacao.test.ts`;
   - `components/admin/WhatsappConfiguracao.popup.test.mjs`;
   - `scripts/migration-083-staging.test.cjs` (na CI).
+
+## Validação da WABA (R1) e evento da coexistência (R2): 16/10/2026
+
+### R1: o que mudou
+
+**Antes:** a WABA era conferida em `GET /{business_id}/client_whatsapp_business_accounts`, usando o `business_id` **do cliente** vindo do evento. A documentação descreve essa aresta como a lista das WABAs atribuídas ou compartilhadas **com o portfólio do parceiro** depois do Embedded Signup. Com o portfólio do cliente, a WABA dele não aparece ali, e a conexão legítima seria recusada (`META_WABA_DIVERGENTE`).
+
+**Agora** (`lib/whatsapp/meta-client.ts`): **autorização** e **pertencimento** são provas diferentes.
+
+**Mantido:**
+- a troca do código;
+- o `debug_token` (válido, mesmo `app_id`, escopos `whatsapp_business_management` e `whatsapp_business_messaging`);
+- `GET /{waba_id}/phone_numbers` com o token do cliente: número na WABA, `is_on_biz_app = true`, número de exibição e nome verificado.
+
+**1. Autorização** (o token recebeu acesso a cada ativo), em `debug_token.data.granular_scopes`:
+- `whatsapp_business_management.target_ids` contém o `waba_id`. Senão: `META_WABA_DIVERGENTE`.
+- `business_management.target_ids` contém o `business_id`. Senão: `META_NEGOCIO_DIVERGENTE`.
+- Sem `granular_scopes`: `META_AUTORIZACAO_INCOMPLETA`. Escopo sem `target_ids` explícitos: recusa.
+- **Isto não prova a relação entre os dois.** As listas são independentes: um token autorizado em dois negócios aceitaria a WABA de um com o negócio do outro (achado B1 da revisão de `8d25432`).
+
+**2. Pertencimento WABA ↔ negócio** (o negócio informado POSSUI a WABA informada):
+- **Consulta:** `GET /{business_id}/owned_whatsapp_business_accounts?fields=id&limit=100` com o token do cliente.
+- **Comprovado:** a WABA está na lista.
+- **`META_WABA_DIVERGENTE`:** a lista está completa (sem `paging.next`) e não tem a WABA.
+- **`META_RELACAO_NAO_CONFIRMADA`** (409, nunca aceito):
+  - Meta recusa (4xx);
+  - corpo com `error`, sem lista, com item sem id ou inválido;
+  - lista paginada sem a WABA.
+- **Falha do provedor (5xx):** `META_API_RECUSOU`, como nas outras etapas.
+- **Ordem:** a posse é conferida **antes** da consulta de números. Não há presunção pela presença nas listas, pela ordem ou pelo primeiro elemento.
+
+| Item | Fonte | Situação |
+|---|---|---|
+| `debug_token.granular_scopes` (`whatsapp_business_management`, `target_ids`) traz as WABAs que concederam acesso ao app | [Manage accounts](https://developers.facebook.com/documentation/business-messaging/whatsapp/solution-providers/manage-accounts) | **Comprovado**, como **autorização**, não como relação |
+| `client_whatsapp_business_accounts` é consultado no portfólio **do parceiro** | mesma página | **Interpretação forte.** Não serve com o negócio do cliente |
+| `owned_whatsapp_business_accounts`: "a collection of WhatsApp Business Accounts owned by a business" | [owned_whatsapp_business_accounts](https://developers.facebook.com/documentation/ads-commerce/marketing-api/reference/business/owned_whatsapp_business_accounts) | **Comprovado:** é a relação de posse documentada |
+| A mesma referência pede `business_management` e "ADMIN SYSTEM USER ACCESS TOKEN for the business" | mesma página | **Comprovado.** A compatibilidade com o token do Embedded Signup ("Business Integration System User", ver [access tokens](https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens)) **não** é documentada: **hipótese H-B1**. Se a Meta recusar, a conexão para em `META_RELACAO_NAO_CONFIRMADA` (decisão de contrato C-B1) |
+| O nó da WABA (`GET /{waba_id}`) não tem campo com o negócio dono: só `ownership_type` (CLIENT_OWNED, ON_BEHALF_OF, SELF) | [WhatsApp Business Account API](https://developers.facebook.com/documentation/business-messaging/whatsapp/reference/whatsapp-business-account/whatsapp-business-account-api) | **Comprovado:** não há caminho pela WABA |
+| Sem `target_ids`, a permissão vale para todos os objetos | [debug_token](https://developers.facebook.com/docs/graph-api/reference/debug_token/) | **Comprovado** |
+| O token da configuração em uso traz `business_management` com o negócio do cliente em `target_ids` (D1) | Vault: a configuração `2195372597859430` inclui `business_management` | **Hipótese**. Se falhar: `META_NEGOCIO_DIVERGENTE` |
+| Modelo de contas de 2026: o `waba_id` do evento passa a ser uma Messaging Account criada por parceiro | [Account model evolution](https://developers.facebook.com/documentation/business-messaging/whatsapp/account-model-evolution/onboarding/) | **Comprovado** que muda. Se ela aparece em `owned_whatsapp_business_accounts` do cliente: **hipótese** (coberta por H-B1) |
+
+**Decisão de contrato C-B1** (só se H-B1 falhar; nada muda sem nova autorização):
+1. **(a) Bloquear (estado atual do código):** sem prova de posse não há conexão.
+2. **(b) Mudar o contrato:** o negócio deixa de compor a identidade comprovada. Gravar `business_id` como "informado, não comprovado" exige migration ou novo campo e revisão de credencial e auditoria.
+3. **(c) Prova pelo lado do parceiro:** `client_whatsapp_business_accounts` do portfólio do parceiro comprova o compartilhamento da WABA com o Kidmais, **não** a relação com o negócio do cliente. Exige uma variável nova e continua sem provar o negócio.
+
+**Não fazer:** gravar como comprovado o negócio vindo do navegador.
+
+### R2: evento da coexistência
+
+| Item | Fonte | Situação |
+|---|---|---|
+| O fluxo do WhatsApp Business App termina com `type: "WA_EMBEDDED_SIGNUP"`, `event: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"` | [Onboarding de usuários do Business App](https://developers.facebook.com/docs/whatsapp/embedded-signup/custom-flows/onboarding-business-app-users) | **Comprovado** |
+| O exemplo desse evento traz em `data` **só** `waba_id` | mesma página | **Comprovado** (é o exemplo oficial) |
+| `phone_number_id`, `waba_id` e `business_id` vêm sempre em `data` | [Implementação](https://developers.facebook.com/docs/whatsapp/embedded-signup/implementation) (página geral) | **Comprovado para o fluxo geral.** Conflita com o exemplo da coexistência |
+| A coexistência devolve os três ids | — | **Hipótese não comprovada** |
+| Só Solution Partner ou Tech Provider usa o fluxo; Business App 2.24.17+; webhook do app preparado; 24 h para sincronizar contatos e histórico | página do Business App | **Comprovado** |
+| Opções do `FB.login` (`extras.featureType` etc.) para abrir a coexistência | nenhuma página oficial consultada mostra isso | **Hipótese.** Conferir na configuração do Embedded Signup do painel Meta |
+
+**Efeito no Kidmais (sem mudança nesta entrega):**
+- **Nome do evento:** a tela só aceita o evento cujo nome é igual a `META_EMBEDDED_SIGNUP_EVENT_NAME`, e exige os três ids numéricos. Se o evento vier com outro nome, a tela continua aguardando até a tentativa expirar.
+- **Ids faltando:** se o evento da coexistência vier só com `waba_id`, a tela mostra "formato diferente do configurado" e não conclui.
+- **Antes da homologação:**
+  1. a leitura M1 confere o nome do evento;
+  2. se a Meta confirmar que o evento traz só `waba_id`, é preciso decidir outra entrega (D2): descobrir o número em `/{waba}/phone_numbers` (`is_on_biz_app`) e o negócio em `granular_scopes`, sem confiar no navegador.
