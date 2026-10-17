@@ -44,6 +44,15 @@ test('trava de alvo recusa outro serviço, ambiente, banco, host, TLS relaxado e
   for (const [delta, erro] of casos) assert.throws(() => m.alvo({...ENV, ...delta}), erro);
 });
 
+test('mensagens da trava são só o código: nunca ecoam URL, query, host ou variáveis', () => {
+  const casos = [{DATABASE_URL: URL_OK + '?password=SEGREDO_NA_QUERY'}, {DATABASE_URL: URL_OK.replace('dpg-dak750gae00c73fudmg0-a', 'host-SEGREDO')}, {RENDER_SERVICE_ID: 'srv-SEGREDO'}];
+  for (const delta of casos) {
+    let msg = '';
+    try { m.alvo({...ENV, ...delta}); } catch (e) { msg = String(e.message); }
+    assert.match(msg, /^[A-Z_]+$/); assert.ok(!msg.includes('SEGREDO') && !msg.includes('SENHA_FALSA'));
+  }
+});
+
 test('flags: exatamente uma, sem mistura entre conferência e aplicação', () => {
   assert.ok(m.autorizado([m.FLAG])); assert.ok(m.conferencia([m.FLAG_CONFERIR]));
   assert.ok(!m.autorizado([m.FLAG, m.FLAG_CONFERIR])); assert.ok(!m.autorizado(['--aplicar'])); assert.ok(!m.conferencia([m.FLAG]));

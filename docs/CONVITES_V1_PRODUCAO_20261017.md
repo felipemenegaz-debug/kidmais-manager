@@ -44,7 +44,7 @@ Antes do deploy o servidor ainda roda `4af8b38`, que não tem o aplicador. No We
 
 Antes do bloco 3, Felipe registra o backup/snapshot do banco (ou a decisão explícita de não fazer). Depois de `FALHA`/`TENTATIVA_ANTERIOR_REVISAR`, não repetir: rodar `--conferir-079` e analisar o marcador. Só com autorização nova o marcador é arquivado (renomeado, nunca apagado) antes de outra tentativa.
 
-Trava: `RENDER=true`, `RENDER_SERVICE_ID`, `KIDMAIS_DEPLOY_ENV=production`, `DATABASE_SSL=true` com certificado verificado, host `dpg-dak750gae00c73fudmg0-a`, banco `kidmais_production`, sem parâmetros na URL; identidade e TLS conferidos no servidor; 073/074 exigidas; vestígio parcial da 079 para antes de escrever; sem privilégio de DDL (dono de `convite_geracoes` e `REFERENCES` em `usuarios_administrativos`), a conferência e a aplicação recusam com `SEM_PRIVILEGIO_DDL_079` antes do marcador de escrita no banco. Marcador exclusivo em `/opt/render/project/src/data/convites-v1-producao-20261017/migration-079.json` impede repetição automática (falha ou resposta perdida → revisar por `--conferir-079`, nunca repetir às cegas).
+Trava: `RENDER=true`, `RENDER_SERVICE_ID`, `KIDMAIS_DEPLOY_ENV=production`, `DATABASE_SSL=true` com certificado verificado, host `dpg-dak750gae00c73fudmg0-a`, banco `kidmais_production`, sem parâmetros na URL; identidade e TLS conferidos no servidor; 073/074 exigidas; vestígio parcial da 079 para antes de escrever; sem privilégio de DDL (dono de `convite_geracoes`, `REFERENCES` em `usuarios_administrativos` e `CREATE` no schema `public`), recusa com `SEM_PRIVILEGIO_DDL_079` antes de qualquer escrita no banco — na conferência sem marcador; na aplicação o marcador de disco já existe e fica `FALHA`, por isso a conferência é obrigatória antes. Mensagens da trava são só o código (nunca ecoam URL, query ou variáveis). Marcador exclusivo em `/opt/render/project/src/data/convites-v1-producao-20261017/migration-079.json` impede repetição automática (falha ou resposta perdida → revisar por `--conferir-079`, nunca repetir às cegas).
 
 ## Validação local (sem chamadas pagas, sem banco real)
 
@@ -52,8 +52,8 @@ Trava: `RENDER=true`, `RENDER_SERVICE_ID`, `KIDMAIS_DEPLOY_ENV=production`, `DAT
 |---|---|
 | `check:v1:static` (unitários, ESLint, TypeScript) | 2140/2142 na 1ª rodada; as 2 falhas eram registro: suíte 079 sem estado na receita (corrigido) e checksum do acervo por CRLF do checkout Windows (blobs versionados conferidos: iguais ao manifesto; CI Linux não é afetado) |
 | `next build` | OK |
-| Aplicador 079 (unitário) | 9/9 |
-| Ensaio real do aplicador (PG 18 descartável, cadeia de produção até a 074) | PASS: conferir → aplicar → reconferir → reaplicar só postcheck → rollback → recusa de estado parcial → reaplicar |
+| Aplicador 079 (unitário) | 11/11 (inclui privilégio de DDL e mensagens sem vazamento) |
+| Ensaio real do aplicador (PG 18 descartável, cadeia de produção até a 074, SQL final com `privilegio079`) | PASS: papel sem DDL recusado com schema intacto → conferir → aplicar → reconferir → reaplicar só postcheck → rollback → recusa de estado parcial → reaplicar |
 | Suíte `lib/convites/recuperacao.postgres.test.ts` (cadeia até a 079) | 1/1 |
 | Harness PostgreSQL do serviço (`testar-convites-postgres.ps1`) | 21/21: 073/074/079, recuperação (cobrada, sem cobrança, concorrência, permissão/tenant), famílias, trigger de empresa, último crédito concorrente, idempotência, limite individual, timeout sem nova chamada, teto diário, publicação/RSVP/cancelamento, convite completo (uma chamada, dados oficiais, persistência, repetição e chave alterada) e conflito antes da reserva |
 | `convites-editor-v1-ui.cjs` (Chrome, API simulada, `next start` local) | buffet e cliente OK: layout, galeria 9/6, teclado, corretor, conflito, foto+autorização, salvar antes de gerar, duplo clique = 1 geração, download 1024×1536, recarga, 1440/390 px; convite antigo "Arte completa" abre e salva sem mudar o modo |

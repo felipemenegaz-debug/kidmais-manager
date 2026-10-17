@@ -37,27 +37,28 @@ const SQL_SCHEMA = `SELECT to_regclass('public.convite_carteiras') IS NOT NULL A
     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass('public.convite_geracoes') AND conname='convite_geracoes_resolucao_consistente')
     OR to_regclass('public.convite_geracoes_incertas') IS NOT NULL) AS vestigio079,
   coalesce((SELECT pg_has_role(current_user, c.relowner, 'USAGE') FROM pg_class c WHERE c.oid = to_regclass('public.convite_geracoes')), false)
-    AND coalesce(has_table_privilege(current_user, to_regclass('public.usuarios_administrativos'), 'REFERENCES'), false) AS privilegio079`;
+    AND coalesce(has_table_privilege(current_user, to_regclass('public.usuarios_administrativos'), 'REFERENCES'), false)
+    AND has_schema_privilege(current_user, 'public', 'CREATE') AS privilegio079`;
 
 /** Trava de alvo: só o web de produção, o banco interno exato e TLS verificado como o serviço (lib/db/postgres.ts). */
 function alvo(env) {
-  assert.equal(env.RENDER, 'true', 'FORA_DO_RENDER');
-  assert.equal(env.RENDER_SERVICE_ID, ALVO.servico, 'SERVICO_RECUSADO');
-  assert.equal(env.KIDMAIS_DEPLOY_ENV, 'production', 'AMBIENTE_RECUSADO');
-  assert.equal(env.DATABASE_SSL, 'true', 'TLS_OBRIGATORIO');
-  assert.notEqual(env.DATABASE_SSL_REJECT_UNAUTHORIZED, 'false', 'CERTIFICADO_SEM_VERIFICACAO_RECUSADO');
+  assert.ok(env.RENDER === 'true', 'FORA_DO_RENDER');
+  assert.ok(env.RENDER_SERVICE_ID === ALVO.servico, 'SERVICO_RECUSADO');
+  assert.ok(env.KIDMAIS_DEPLOY_ENV === 'production', 'AMBIENTE_RECUSADO');
+  assert.ok(env.DATABASE_SSL === 'true', 'TLS_OBRIGATORIO');
+  assert.ok(env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false', 'CERTIFICADO_SEM_VERIFICACAO_RECUSADO');
   let u;
   try { u = new URL(env.DATABASE_URL); } catch { assert.fail('URL_RECUSADA'); }
-  assert.equal(u.hostname, ALVO.host, 'HOST_RECUSADO');
-  assert.equal(decodeURIComponent(u.pathname.slice(1)), ALVO.database, 'BANCO_RECUSADO');
+  assert.ok(u.hostname === ALVO.host, 'HOST_RECUSADO');
+  assert.ok(decodeURIComponent(u.pathname.slice(1)) === ALVO.database, 'BANCO_RECUSADO');
   assert.ok(!u.port || Number(u.port) === ALVO.port, 'PORTA_RECUSADA');
-  assert.equal(u.search, '', 'CONNECTION_QUERY_REJECTED');
+  assert.ok(u.search === '', 'CONNECTION_QUERY_REJECTED');
   return {connectionString: env.DATABASE_URL, ssl: {rejectUnauthorized: true}, application_name: 'kidmais-migration-079-production'};
 }
 
 function conferirIdentidade(id) {
-  assert.equal(id?.db, ALVO.database, 'BANCO_DIVERGENTE');
-  assert.equal(id.tls, true, 'SEM_TLS');
+  assert.ok(id?.db === ALVO.database, 'BANCO_DIVERGENTE');
+  assert.ok(id.tls === true, 'SEM_TLS');
   return {banco: id.db, tls: id.tls};
 }
 
@@ -72,7 +73,9 @@ function conferencia(argv) { return argv.length === 1 && flags(argv)[0] === FLAG
 
 /**
  * Estado legível e dependências presentes; vestígio sem a 079 completa = aplicação parcial → parar. Sem DDL sobre
- * convite_geracoes (dono) ou REFERENCES em usuarios_administrativos, a migration falharia: recusar antes do marcador.
+ * convite_geracoes (dono), REFERENCES em usuarios_administrativos ou CREATE no schema public (índice), a migration
+ * falharia: recusar antes de qualquer escrita no banco. Na conferência não há marcador; na aplicação o marcador de
+ * disco já existe e fica FALHA — por isso a conferência é obrigatória antes.
  */
 function planoEtapas(schema) {
   for (const k of ['m073', 'm074', 'm079', 'vestigio079', 'privilegio079']) assert.equal(typeof schema?.[k], 'boolean', 'SCHEMA_ILEGIVEL');
