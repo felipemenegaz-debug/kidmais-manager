@@ -14,10 +14,16 @@ export const temas = {
   foto_arco: { nome: 'Foto com arco', fundo: '#faf5eb', tinta: '#102e49', destaque: '#ad5d32', simbolo: '⌒' },
   foto_aquarela: { nome: 'Foto com aquarela', fundo: '#fcf8f1', tinta: '#244744', destaque: '#7d9d8d', simbolo: '◌' },
   foto_degrade: { nome: 'Foto com degradê', fundo: '#faf5fb', tinta: '#44324e', destaque: '#b392bf', simbolo: '○' },
+  botanica: { nome: 'Folhagem delicada', fundo: '#faf9f2', tinta: '#304d3f', destaque: '#8ca68d', simbolo: '❀' },
+  confete: { nome: 'Confetes suaves', fundo: '#fffbf4', tinta: '#51445b', destaque: '#bc9ecb', simbolo: '✦' },
+  estrelas: { nome: 'Céu de estrelas', fundo: '#f6f7ff', tinta: '#384568', destaque: '#a6a8d4', simbolo: '✧' },
+  acervo_folhas: { nome: 'Folhas · coleção aberta', fundo: '#fafbf5', tinta: '#304d3f', destaque: '#83a58a', simbolo: '❀' },
+  acervo_estrelas: { nome: 'Estrelas · coleção aberta', fundo: '#f8f7ff', tinta: '#384568', destaque: '#a79bce', simbolo: '✧' },
+  acervo_baloes: { nome: 'Balões · coleção aberta', fundo: '#fff8f3', tinta: '#63443e', destaque: '#c99883', simbolo: '○' },
 } as const;
 
 export const conteudoSchema = z.object({
-  tema: z.enum(['celebrar', 'jardim', 'espaco', 'planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica', 'foto_arco', 'foto_aquarela', 'foto_degrade']),
+  tema: z.enum(['celebrar', 'jardim', 'espaco', 'planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica', 'foto_arco', 'foto_aquarela', 'foto_degrade', 'botanica', 'confete', 'estrelas', 'acervo_folhas', 'acervo_estrelas', 'acervo_baloes']),
   nome: z.string().trim().min(1).max(80),
   idade: z.string().trim().max(20),
   mensagem: z.string().trim().max(400),
@@ -29,6 +35,7 @@ export const conteudoSchema = z.object({
   confirmarPresenca: z.boolean(),
   visual: z.object({
     modo: z.enum(['modelo', 'completa']),
+    posicao: z.enum(['fundo', 'topo']).optional(),
     ajuste: z.enum(['conter', 'preencher']),
     x: z.number().min(0).max(100), y: z.number().min(0).max(100),
     cores: z.object({ fundo: z.string().regex(/^#[0-9a-f]{6}$/i), tinta: z.string().regex(/^#[0-9a-f]{6}$/i), destaque: z.string().regex(/^#[0-9a-f]{6}$/i) }).strict().optional(),
@@ -49,7 +56,11 @@ export const comandoSchema = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('cotas'), festa: z.int().min(0).max(100), cliente: z.int().min(0).max(100) }).strict(),
   z.object({ acao: z.literal('upload'), imagem: z.string().max(7_000_000) }).strict(),
   z.object({ acao: z.literal('excluir_arte'), arteId: z.uuid(), revisao: z.int().positive() }).strict(),
-  z.object({ acao: z.literal('gerar'), chave: z.uuid(), prompt: z.string().trim().min(5).max(3000), referencias: z.array(z.uuid()).max(2) }).strict(),
+  // Convite completo: estilo escolhido e foto opcional (nunca salva); modelo, qualidade e referências de estilo são do servidor.
+  z.object({ acao: z.literal('gerar'), chave: z.uuid(), prompt: z.string().trim().min(5).max(3000), referencias: z.array(z.uuid()).max(2),
+    completo: z.literal(true).optional(), estilo: z.enum(['pedido', 'cartoon3d', 'cartoon2d', 'realista']).optional(),
+    foto: z.string().max(7_000_000).optional(), autorizacaoFoto: z.literal(true).optional() }).strict(),
+  z.object({ acao: z.literal('recuperar'), chave: z.uuid(), resultado: z.enum(['COBRANCA_CONFIRMADA', 'SEM_COBRANCA']), evidencia: z.string().trim().min(10).max(1000) }).strict(),
 ]);
 export const respostaSchema = z.object({
   chave: z.uuid(), nome: z.string().trim().min(2).max(100),

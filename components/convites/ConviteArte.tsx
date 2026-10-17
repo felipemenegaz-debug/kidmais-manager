@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 import { type Conteudo } from '@/lib/convites/domain';
 import { useId } from 'react';
-import { modeloBiblioteca, planetasModelo, svgModelo } from '@/lib/convites/modelos';
+import { modeloBiblioteca, modeloComFoto, planetasModelo, svgModelo } from '@/lib/convites/modelos';
 import { enquadramento, temaVisual, visualPadrao } from '@/lib/convites/visual';
 import styles from './convites.module.css';
 export function dataBonita(data: string) {
@@ -13,7 +13,7 @@ export default function ConviteArte({ conteudo: c, arte }: { conteudo: Conteudo;
   const id = useId();
   const tema = temaVisual(c), visual = c.visual ?? visualPadrao;
   const completa = visual.modo === 'completa' && !!arte;
-  if (modeloBiblioteca(c.tema) && !completa) return <article className={`${styles.convite} ${styles.conviteBiblioteca}`} aria-label="Prévia do convite"><div dangerouslySetInnerHTML={{ __html: svgModelo(c, { arte, id }) }} /></article>;
+  if ((modeloBiblioteca(c.tema) || (arte && !modeloComFoto(c.tema))) && !completa) return <article className={`${styles.convite} ${styles.conviteBiblioteca}`} aria-label="Prévia do convite"><div dangerouslySetInnerHTML={{ __html: svgModelo(c, { arte, id }) }} /></article>;
   return <article className={styles.convite} style={{ background: tema.fundo, color: tema.tinta }} aria-label="Prévia do convite">
     <div className={completa ? styles.arteCompleta : styles.capa} style={{ color: tema.destaque }}>
       {arte ? <img src={arte} alt="Arte escolhida para o convite" style={{ objectFit: visual.ajuste === 'preencher' ? 'cover' : 'contain', objectPosition: `${visual.x}% ${visual.y}%` }} /> : <><span className={styles.orbita} /><span className={styles.simbolo}>{tema.simbolo}</span><span className={styles.estrela}>✦</span><span className={styles.estrela2}>✧</span><p>VOCÊ FAZ PARTE DESSA FESTA</p></>}
@@ -27,7 +27,7 @@ export default function ConviteArte({ conteudo: c, arte }: { conteudo: Conteudo;
 
 /** Exportação local, sem chamada à IA: textos ficam independentes da arte. */
 export async function baixarConvite(c: Conteudo, arte?: string) {
-  if (modeloBiblioteca(c.tema) && !(arte && c.visual?.modo === 'completa')) return baixarModelo(c, arte);
+  if ((modeloBiblioteca(c.tema) || (arte && !modeloComFoto(c.tema))) && !(arte && c.visual?.modo === 'completa')) return baixarModelo(c, arte);
   const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1440;
   const ctx = canvas.getContext('2d'); if (!ctx) return;
   const tema = temaVisual(c), visual = c.visual ?? visualPadrao;
@@ -35,10 +35,15 @@ export async function baixarConvite(c: Conteudo, arte?: string) {
   ctx.fillStyle = tema.fundo; ctx.fillRect(0, 0, 1080, 1440);
   if (arte) {
     const img = new Image(); img.src = arte; await img.decode();
-    const altura = completa ? 1440 : 540;
+    if (completa) {
+      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+      ctx.drawImage(img, 0, 0);
+    } else {
+    const altura = 540;
     const quadro = enquadramento(img.width, img.height, 1080, altura, visual);
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 1080, altura); ctx.clip();
     ctx.drawImage(img, quadro.x, quadro.y, quadro.largura, quadro.altura); ctx.restore();
+    }
   } else {
     ctx.fillStyle = tema.destaque; ctx.globalAlpha = 0.13; ctx.beginPath(); ctx.arc(540, 225, 270, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
     ctx.fillStyle = tema.destaque; ctx.font = '220px Georgia'; ctx.textAlign = 'center'; ctx.fillText(tema.simbolo, 540, 310);
@@ -85,14 +90,14 @@ async function baixarModelo(c: Conteudo, arte?: string) {
     });
   };
   const [imagens, imagem] = await Promise.all([
-    c.tema === 'planetas' ? Promise.all(planetasModelo.map(embutir)) : undefined,
+    c.tema === 'planetas' && (!arte || c.visual?.posicao === 'topo') ? Promise.all(planetasModelo.map(embutir)) : undefined,
     arte ? embutir(arte) : undefined,
   ]);
   const svg = svgModelo(c, { arte: imagem, planetas: imagens });
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
   try {
     const img = new Image(); img.src = url; await img.decode();
-    const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1800;
+    const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = arte && !modeloComFoto(c.tema) && c.visual?.posicao !== 'topo' ? 1440 : 1800;
     const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas indisponível.');
     ctx.drawImage(img, 0, 0);
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
