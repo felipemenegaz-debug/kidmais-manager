@@ -76,6 +76,7 @@ O modelo da revisora foi derivado só para conhecer outro documento (`DERIVACAO-
   - A2 com documento anterior (aviso confirmado e cancelado): nenhuma saída pela correção;
   - A1 (`go(−2)` no AT) e A2 (`go(−3)` no A) explícitos.
 - **Cruzamento depois de "Continuar"** (4 históricos × 3 gestos × 0–130 ms): OK 1570, resíduo 2 (gesto de mesmo tamanho no mesmo instante, que gera pedido novo; ver Limites).
+  - **Correção (17/10/2026, revisão independente de cda9464):** este teste classificava de antemão o gesto de mesmo tamanho como resíduo e não punha o gesto na fila antes do 1º movimento nem tinha documento anterior. A revisão reproduziu, depois de "Continuar", **saída do documento pela correção (C1)** e **destino trocado (C2)**. Ver `docs/MARKETING_HISTORICO_CONTINUAR_20261017.md`.
 - **Também cobertos:**
   - F1/F2/F3/H-9, a proteção reativada e a saída explícita direta;
   - O-2 por link durante a volta pedida, e "Sair" com um movimento em voo;
@@ -121,7 +122,7 @@ Os gestos N2 da revisora (disparados após o 2º popstate) não existem no contr
 
 ## 4. Limites
 
-- **Resíduo depois da decisão.** Depois de "Continuar editando", a volta é um movimento ativo. Um gesto da pessoa do **mesmo tamanho**, pedido no mesmo instante do nosso, produz as mesmas chegadas — o limite de qualquer volta ativa. O resultado é um pedido novo (o diálogo reabre), nunca saída do documento nem volta presa. Teste comportamental: 2 em 1572 cenários.
+- **Resíduo depois da decisão — afirmação CORRIGIDA em 17/10/2026.** O texto original dizia "pedido novo, nunca saída do documento nem volta presa; 2 em 1572". Está **refutado** pela revisão independente de cda9464: com o gesto da pessoa na fila no 1º movimento da volta ou na fronteira de um passo, a volta ativa **sai do documento** (aviso nativo; confirmado, perde a edição — C1) e o pedido reabre num **destino que a pessoa não escolheu**, inclusive outra página (C2). No modelo da revisora: 304 saídas e 204 destinos trocados. Os 2 casos do teste eram pedidos novos legítimos; o teste não alcançava as janelas. Estado e proposta: `docs/MARKETING_HISTORICO_CONTINUAR_20261017.md`.
 - **Aviso `beforeunload` herdado:**
   - continua para gestos da própria pessoa que saem do documento (por exemplo, `go(−4)` no histórico A);
   - nenhuma saída é causada pela correção antes da decisão;

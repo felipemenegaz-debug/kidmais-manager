@@ -31,7 +31,9 @@ function paginaDe(url: string | null | undefined) {
  * da entrada INDEXADA do editor sem ela — mesmo quando a proteção começa numa entrada de fragmento com estado nulo) e
  * como avisar o editor.
  */
-type Ativa = { pagina: string; chave: string | null; indice: number | null; liberado: () => boolean; temPedido: () => boolean; aoTentarSair: (d: DestinoSaida | null) => void };
+type Ativa = { pagina: string; chave: string | null; indice: number | null; liberado: () => boolean; temPedido: () => boolean; aoTentarSair: (d: DestinoSaida | null) => void;
+  /** O editor (instância do hook) dono da proteção: as reativações dele (salvar, reeditar) têm o mesmo dono (O-a). */
+  dono: object | null };
 /**
  * O que se sabe de uma entrada do histórico, SEM Navigation API (nada disso vai para o estado da entrada):
  *  - `idx`: o índice próprio (`__kidmaisIdx`), ou nulo;
@@ -65,6 +67,7 @@ type Tentativa = {
   vigia: number | null;        // salvaguarda: movimento sem popstate
   saida: (() => void) | null;  // saída explícita pedida com um movimento nosso ainda na fila: segue quando ele assentar
   compensando: boolean;        // movimento antigo atendido depois de uma saída explícita direta, sendo desfeito
+  abandonada: boolean;         // o editor dono foi desmontado sem decidir (O-a): só resta desfazer o movimento nosso na fila
 };
 /**
  * `inicial`: a entrada em que o documento começou, quando ela não tem índice (estado nulo antes da hidratação, ou não
@@ -429,7 +432,7 @@ function direcaoProvavel(g: Guardiao, p: Pos, a: Ativa): -1 | 1 {
 function noEditor(t: Tentativa, p: Pos) { return p.idx === t.a.indice && p.pagina === t.a.pagina; }
 function avancar(g: Guardiao, t: Tentativa) {
   t.timer = null;
-  if (g.tentativa !== t) return;
+  if (g.tentativa !== t || t.abandonada) return;
   if (t.a.liberado() && !t.saida) { encerrar(g, t); return; } // saída explícita direta (fora do hook) venceu
   if (t.emVoo !== null) return; // um movimento nosso ainda está na fila: o popstate dele vem antes de qualquer outro passo
   if (t.modo !== 'voltando') return; // pedido aberto: nenhum movimento até a decisão
@@ -473,6 +476,7 @@ function semMovimento(g: Guardiao, t: Tentativa, mov: number) {
   const de = t.origem, aqui = g.atual;
   t.emVoo = null; t.origem = null;
   if (t.compensando) { t.compensando = false; encerrar(g, t); return; }
+  if (t.abandonada) { encerrar(g, t); return; }
   if (t.a.liberado() && !t.saida) { encerrar(g, t); return; }
   if (t.modo === 'aguardando') { t.desfazendo = false; if (aqui) assentarPedido(g, t, aqui); return; }
   if (Math.abs(mov) > 1) g.contiguo = false;
@@ -535,6 +539,16 @@ export function instalarGuardiaoDeHistorico() {
     }
 
     const t = g.tentativa;
+    if (!nav && t && p && t.abandonada) {
+      // O editor dono foi desmontado sem decidir (O-a): a página está onde o app a pôs. Só um movimento nosso que ainda estava
+      // na fila é barrado e desfeito (não revive o editor desmontado); qualquer outra chegada é da pessoa e vai ao roteador.
+      if (t.vigia !== null) { window.clearTimeout(t.vigia); t.vigia = null; }
+      if (t.compensando) { e.stopImmediatePropagation(); t.compensando = false; t.emVoo = null; encerrar(g, t); return; }
+      const emVoo = t.emVoo!;
+      if (possivel(g, t.origem, emVoo, p)) { e.stopImmediatePropagation(); t.emVoo = null; t.origem = p; t.compensando = true; window.history.go(-emVoo); armarVigia(g, t, -emVoo); return; }
+      t.origem = p; armarVigia(g, t, emVoo);
+      return;
+    }
     if (!nav && t && p) {
       // Volta em andamento: todo popstate é da correção (ou da pessoa no meio dela) e não vai ao roteador.
       e.stopImmediatePropagation();
@@ -592,7 +606,7 @@ export function instalarGuardiaoDeHistorico() {
     if (idx === a.indice || (paginaDe(window.location.href) === a.pagina && !a.temPedido())) { e.stopImmediatePropagation(); return; }
     e.stopImmediatePropagation();
     // Decisão primeiro (A1/A2): nenhum movimento — o destino é a entrada a que a pessoa chegou; só "Continuar editando" volta.
-    const nova: Tentativa = { a, modo: 'aguardando', emVoo: null, origem: null, desfazendo: false, direcao: 0, inverteu: 0, timer: null, vigia: null, saida: null, compensando: false };
+    const nova: Tentativa = { a, modo: 'aguardando', emVoo: null, origem: null, desfazendo: false, direcao: 0, inverteu: 0, timer: null, vigia: null, saida: null, compensando: false, abandonada: false };
     g.tentativa = nova;
     assentarPedido(g, nova, p ?? posicaoAtual(g, idx));
   }, true);
@@ -607,7 +621,7 @@ export function executarSaida(seguir: () => void) {
   if (typeof window === 'undefined') return;
   const g = guardiao();
   const t = g.tentativa;
-  if (!navegacaoApi() && t && t.modo === 'voltando') { t.saida = seguir; if (t.emVoo === null && t.timer === null) avancar(g, t); return; }
+  if (!navegacaoApi() && t && t.modo === 'voltando' && !t.abandonada) { t.saida = seguir; if (t.emVoo === null && t.timer === null) avancar(g, t); return; }
   seguir();
 }
 /**
@@ -617,7 +631,7 @@ export function executarSaida(seguir: () => void) {
 export function continuarEditando() {
   if (typeof window === 'undefined') return;
   const g = guardiao(), t = g.tentativa;
-  if (navegacaoApi() || !t || t.modo !== 'aguardando') return;
+  if (navegacaoApi() || !t || t.modo !== 'aguardando' || t.abandonada) return;
   t.modo = 'voltando'; t.desfazendo = false; t.direcao = 0; t.inverteu = 0;
   if (t.emVoo === null && t.timer === null) t.timer = window.setTimeout(() => avancar(g, t), 0);
 }
@@ -628,11 +642,28 @@ export function continuarEditando() {
 export function sairNaEntradaAtual(seguir: () => void) {
   if (typeof window === 'undefined') return;
   const g = guardiao(), t = g.tentativa;
-  if (!navegacaoApi() && t && t.modo === 'aguardando') {
+  if (!navegacaoApi() && t && t.modo === 'aguardando' && !t.abandonada) {
     if (t.emVoo !== null || t.timer !== null) { t.saida = seguir; return; }
     encerrar(g, t);
   }
   seguir();
+}
+/**
+ * O editor dono da tentativa foi DESMONTADO sem decidir (O-a): navegação programática do app com o pedido aberto ou durante
+ * a volta — ex.: o AdminShell troca a página pelo login quando a leitura da sessão falha na rede. A tentativa não pode
+ * sobreviver a ele: barraria todo popstate seguinte (URL e tela incoerentes) e poderia voltar a um editor desmontado. Sem
+ * movimento nosso na fila, ela termina aqui. Com um movimento da volta na fila, ele é desfeito quando chegar (como na saída
+ * explícita direta) e a tentativa termina; as chegadas da pessoa nesse meio-tempo vão ao roteador. A reativação da proteção
+ * no MESMO editor (salvar, reeditar) não passa por aqui; só a desmontagem do dono (`dono` do hook).
+ */
+export function abandonarTentativa(dono: object) {
+  if (typeof window === 'undefined') return;
+  const g = guardiao(), t = g.tentativa;
+  if (!t || t.abandonada || t.a.dono !== dono) return;
+  t.saida = null;
+  if (t.timer !== null) { window.clearTimeout(t.timer); t.timer = null; }
+  if (t.emVoo === null && !t.compensando) { encerrar(g, t); return; }
+  t.abandonada = true;
 }
 /**
  * Mostra a entrada atual no roteador depois de "Sair" (sem travessia): o mesmo popstate que o navegador teria entregado
@@ -650,14 +681,14 @@ export function mostrarEntradaAtual() {
  * Ativa a proteção do histórico para a PÁGINA atual (a do editor) até a função devolvida ser chamada. Usada pelo hook;
  * exportada para os testes comportamentais (protecao-saida.test.ts) exercitarem o guardião sem React.
  */
-export function protegerHistorico(opcoes: { liberado: () => boolean; aoTentarSair: (d: DestinoSaida | null) => void; temPedido?: () => boolean }): () => void {
+export function protegerHistorico(opcoes: { liberado: () => boolean; aoTentarSair: (d: DestinoSaida | null) => void; temPedido?: () => boolean; dono?: object }): () => void {
   instalarGuardiaoDeHistorico(); // normalmente já instalado no layout raiz; aqui só cobre uso fora dele (sem garantia de ordem)
   const g = guardiao();
   const nav = navegacaoApi();
   // Durante uma volta em andamento a URL mostra a página de saída, mas o roteador continua no editor: a proteção nova
   // herda a página e a entrada do editor da tentativa.
-  if (!nav && g.tentativa) {
-    const minha: Ativa = { pagina: g.tentativa.a.pagina, chave: null, indice: g.tentativa.a.indice, temPedido: () => false, ...opcoes };
+  if (!nav && g.tentativa && !g.tentativa.abandonada) {
+    const minha: Ativa = { pagina: g.tentativa.a.pagina, chave: null, indice: g.tentativa.a.indice, temPedido: () => false, dono: null, ...opcoes };
     g.ativa = minha;
     return () => { if (g.ativa === minha) g.ativa = null; };
   }
@@ -677,7 +708,7 @@ export function protegerHistorico(opcoes: { liberado: () => boolean; aoTentarSai
       }
     }
   }
-  const minha: Ativa = { pagina, chave: nav?.currentEntry?.key ?? null, indice, temPedido: () => false, ...opcoes };
+  const minha: Ativa = { pagina, chave: nav?.currentEntry?.key ?? null, indice, temPedido: () => false, dono: null, ...opcoes };
   g.ativa = minha;
   return () => { if (g.ativa === minha) g.ativa = null; };
 }
@@ -703,6 +734,10 @@ export function useProtecaoDeSaida(ativo: boolean, navegar: (href: string, subst
   const liberado = useRef(false);
   const navegarRef = useRef(navegar);
   useEffect(() => { navegarRef.current = navegar; });
+  // Dono das proteções deste editor: na DESMONTAGEM (não na reativação por `ativo`), uma tentativa dele que ainda esteja
+  // aberta termina (O-a). No Strict Mode, a desmontagem simulada da montagem não encontra tentativa.
+  const [dono] = useState(() => ({}));
+  useEffect(() => () => abandonarTentativa(dono), [dono]);
 
   useEffect(() => {
     if (!ativo) return;
@@ -720,13 +755,13 @@ export function useProtecaoDeSaida(ativo: boolean, navegar: (href: string, subst
     };
     window.addEventListener('beforeunload', antesDeSair);
     document.addEventListener('click', aoClicar, true);
-    const desproteger = protegerHistorico({ liberado: () => liberado.current, temPedido: () => pendenteRef.current !== null, aoTentarSair: (d) => setPendente(d) });
+    const desproteger = protegerHistorico({ liberado: () => liberado.current, temPedido: () => pendenteRef.current !== null, aoTentarSair: (d) => setPendente(d), dono });
     return () => {
       window.removeEventListener('beforeunload', antesDeSair);
       document.removeEventListener('click', aoClicar, true);
       desproteger();
     };
-  }, [ativo]);
+  }, [ativo, dono]);
 
   return {
     pendente,

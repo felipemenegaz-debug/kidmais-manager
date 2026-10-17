@@ -1,0 +1,190 @@
+# Marketing — "Continuar editando" sem Navigation API: C1/C2 (volta ativa), O-a (tentativa órfã) e a proposta α — 17/10/2026, somente local
+
+**Goal:** nota `Goal Correcao Marketing Continuar C1 C2 Oa` (e `Continuacao Marketing Prototipo Alfa`) no vault.
+**Base:** `cda9464` (árvore `ae4cff5`), REPROVADA em `revisao-marketing-historico-a1a2-cda9464-parecer-20261017/PARECER.md` (manifesto 181, `7a03ceea…`) por C1/P2, C2/P2 e O-a/P3.
+**Branch:** `codex/marketing-continuar-c1c2oa-20261017`. Este commit contém **só a correção de O-a** e a documentação. Só local, sem push.
+
+## Estado (sem autoaprovação)
+
+| Achado | Neste commit (candidata O-a) | Protótipo α (isolado, **não integrado**) |
+|---|---|---|
+| **O-a** | **corrigido** e provado (Chrome, redirecionamento com pedido aberto) | igual |
+| **C1** (saída do documento pela volta) | **presente** (mesma volta de cda9464) | ausente no caminho normal; no fallback: α1 **presente**, α2 ausente |
+| **C2** (destino trocado) | **presente** | igual a C1 |
+
+- **Custo de α:** α muda o histórico, e isso exige **decisão de Felipe**. A aprovação de "decisão primeiro" não cobre esse efeito.
+- **Revisão independente:** pendente.
+
+## 1. Causa de C1/C2 (resumo)
+
+A volta de "Continuar" é um `history.go` relativo: não pode ser cancelada e é resolvida no atendimento. Um gesto da pessoa já na fila muda o ponto de partida dela. Por isso:
+- **C1:** a volta pode sair do documento;
+- **C2:** o mesmo gesto do tamanho do movimento produz as mesmas observações da outra ordem (gêmeo).
+
+**Nenhum movimento relativo** satisfaz as invariantes, qualquer que seja o tamanho ou o instante:
+- **Saída:** para qualquer movimento m, há uma chegada da pessoa a partir da qual m sai do documento, e a compensação vem depois.
+- **Atribuição:** o gesto de tamanho m da pessoa é indistinguível da outra ordem.
+- **Esperar ou mudar o tamanho** só move a janela.
+
+Só "Continuar" **sem travessia** elimina a classe.
+
+## 2. O-a — o que mudou no produto (`components/admin/marketing/protecao-saida.ts`)
+
+- **Dono da tentativa:** a tentativa tem dono (`Ativa.dono`, um objeto por instância do hook; a reativação por `ativo` tem o mesmo dono).
+- **Desmontagem do editor:** um efeito de desmontagem separado chama `abandonarTentativa(dono)`.
+  - **Sem movimento nosso na fila:** a tentativa termina e os popstates seguintes vão ao roteador.
+  - **Com movimento na fila:** a tentativa fica `abandonada`; o movimento é barrado e desfeito ao chegar, e as chegadas da pessoa vão ao roteador.
+- **Herança:** uma proteção nova não herda uma tentativa abandonada.
+- **Fora do escopo:** a autenticação e o redirecionamento do AdminShell não foram tocados.
+- **Testes novos (4, comportamentais):**
+  - pedido aberto + desmontagem (login);
+  - desmontagem com movimento na fila;
+  - pessoa atravessa antes do movimento;
+  - reativação no mesmo editor, outro dono e a desmontagem simulada do Strict Mode.
+
+## 3. A proposta α — "Continuar sem travessia" (protótipos isolados)
+
+- **α1:** "Continuar" cria uma **entrada nova do editor na posição atual**. É um `pushState` com o estado do Next da entrada indexada do editor, registrado quando ela era a atual; as **entradas à frente são descartadas**, como em toda navegação nova.
+  - **Fallback:** se não houver estado registrado, α1 **ainda volta pelo `history.go`** antigo (`continuarEditando`, linha `t.modo = 'voltando'`).
+- **α2:** igual ao α1, mas o fallback também não faz travessia. É uma entrada nova só com o índice próprio (`{ __kidmaisIdx }`), empilhada pelo `pushState` próprio do guardião, sem o do Next (que copiaria a árvore da entrada atual, de outra página). Nenhum campo do Next é fabricado.
+  - **Medido no Chrome:** o estado final tem só `__kidmaisIdx`. Ao Avançar até essa entrada sem proteção, o Next **recarrega o documento** nela.
+  - **`history.go` restante:** α2 ainda tem a linha da volta antiga, alcançável só com um movimento nosso pendente, que α/α2 nunca criam.
+
+**Semântica medida no Chrome** (documento fictício): uma travessia já pedida quando o `pushState` acontece na mesma tarefa é resolvida a partir da posição anterior ao push.
+- **Alvo atrás:** ela acontece.
+- **Alvo à frente:** a entrada é descartada pelo push e a travessia **não acontece** (sem popstate).
+
+**Alcançabilidade natural do fallback:** o registro cobre toda entrada indexada que foi a atual neste documento:
+- na instalação;
+- no `pushState`/`replaceState` do índice;
+- no popstate.
+
+O editor só é protegido numa entrada que foi a atual, ou numa âncora dela, então nenhum fluxo medido chegou ao fallback: 0 `history.go` do guardião depois de "Continuar" em 153 execuções focais do α1 no Chrome e em 291 720 cenários do modelo. O fallback só foi exercitado por **injeção do lado do teste**, que apaga o registro. Isso é prova de contingência, não de alcance natural.
+
+## 4. Resultados por raiz
+
+Raízes (cópias próprias, conferidas por bytes):
+- **base:** `cda9464` (árvore `ae4cff5`);
+- **candidata:** este commit; código idêntico à cópia testada (ver pacote);
+- **α1:** candidata + `protecao-saida.ts` derivado (sha256 `0e5755cd…`);
+- **α2:** α1 + contingência (sha256 `c5635ef5…`).
+
+### C1/C2 no Chrome (cenários do parecer, mesmos parâmetros)
+
+| Cenário | Base | Candidata | α1 normal | α1 fallback injetado | α2 fallback injetado |
+|---|---|---|---|---|---|
+| A, gesto na fila, aviso confirmado (12) | SAIU_PELA_CORRECAO 2 | **1** | 0 (12 OK) | **1** | 0 (12 OK) |
+| A, aviso cancelado (6) | aviso pela correção 2 | **2** | 0 (6 OK) | **2** | 0 (6 OK) |
+| A, gesto do navegador (CDP) simultâneo (16) | SAIU_PELA_CORRECAO 1 | **2** | 0 (16 OK) | **1** | 0 (16 OK) |
+| B, gesto na fila (6) | SAIU_PELA_CORRECAO 1 | **1** | 0 (6 OK) | **1** | 0 (6 OK) |
+| B2, gesto na fila (4) | DESTINO_TROCADO 4 | **3** | 0 (4 OK) | **4** | 0 (4 OK) |
+| B2, fronteira do 2º passo (10) | DESTINO_TROCADO 4 | **5** | 0 (10 OK) | **4** | 0 (10 OK) |
+| AT, fronteira do 2º passo (14) | DESTINO_TROCADO 5 | **4** | 0 (14 OK) | **5** | 0 (14 OK) |
+
+- **Oráculos:**
+  - a coluna α1 normal usa a reprodução FIFO com a **inserção no instante do clique**, ordem conferida pelas chamadas na mesma tarefa: um gesto conta como "depois" só se é estritamente posterior ao clique;
+  - as colunas base, candidata e α1 fallback usam o oráculo original.
+- **ORACULO_INVALIDO:** a 1ª execução do α1 com o oráculo original deu 28 casos (a inserção não estava modelada); a 2ª, com empate e gesto descartado, deu 4. Ambas estão preservadas e **não** contam como aprovação.
+- **α2 normal, focais:** 37 OK + 2 GESTO_DESCARTADO_PELO_PUSH.
+- **α1, focais adicionais:**
+  - fila (gesto ANTES do clique): A 16/16; B2 12/12;
+  - Avançar pendente: 5 OK + **4 GESTO_DESCARTADO_PELO_PUSH**;
+  - depois do clique: 12/12.
+
+### Modelo da revisora (fila FIFO, atendimento 1/3/5/10 ms, documento anterior; ±1…±5; −12…+130 ms; 291 720 cenários por semântica de push)
+
+| Raiz | Saída pela correção | Aviso pela correção (cancelado) | Destino trocado | Pedido novo | Engolido / engolido antes | Gesto descartado pelo push | Movimento do guardião depois de Continuar |
+|---|---|---|---|---|---|---|---|
+| base = candidata | 304 | 304 | 204 | 621 | 57 / 90 | — | sim |
+| α1 normal | 0 | 0 | 0 | 0 | 0 | 4 680 (semântica Chrome) | **nunca** |
+| α1 fallback injetado | 304 | 304 | 204 | 621 | 57 / 90 | — | sim |
+| α2 normal e fallback injetado | 0 | 0 | 0 | 0 | 0 | 4 680 (semântica Chrome) | **nunca** |
+
+Correções do modelo preservadas e documentadas no pacote (`DERIVACAO-modelo-push.diff`):
+- URL absoluta guardada como caminho, como o navegador; a 1ª execução tinha PRESO artificial;
+- nenhum clique depois de o documento ter sido descarregado; a 1ª execução do α2 tinha erro de URL inválida;
+- classe própria para o gesto descartado.
+
+### O-a no Chrome
+
+| Caso | Base | Candidata | α1 |
+|---|---|---|---|
+| Redirecionamento para o login com o pedido aberto; depois Voltar/Avançar | **incoerente 2/2** (URL Dashboard com tela de login; tentativa viva) | coerente 2/2 | coerente 2/2 |
+| "Continuar" + redirecionamento na mesma tarefa (5 ordens × 2) | coerente | coerente | coerente |
+
+**O redirecionamento durante a volta** foi medido em 42 execuções (`orfa-volta`, `orfa-volta-2`), e em **todas** a volta terminou antes da desmontagem.
+- **"Desmontagem com movimento nosso na fila" ficou NÃO VERIFICADA no Chrome:** a intercalação não ocorreu.
+- **Coberta só pelo teste comportamental**, com relógio controlado.
+
+### Antes da decisão, "Sair" e regressões
+
+| Prova | Base | Candidata | α1 |
+|---|---|---|---|
+| Bateria "antes da decisão" + Sair/Continuar (revisora) | — | **127/127** | **127/127** |
+| 16 substitutos do contrato novo | — | 16/16 | 16/16 |
+| B-2 entrada tardia (contrato novo; ordem guardião → App Router) | PASS | PASS | PASS |
+| B-1 derivado | falha de roteiro | falha de roteiro | falha de roteiro |
+| O1 real com / sem API | 8/8 / 4/8 | 8/8 / 4/8 | — |
+| AdminShell-O1 com / sem | 9/9 / 2/9 | 9/9 / 2/9 | — |
+| Roteiro da revisora com / sem | 7/9 / 5/9 | 7/9 / 5/9 | — |
+| O-2 (critério antigo) | INCOERENTE 4/4 | INCOERENTE 4/4 | — |
+
+- **B-1 derivado:** a falha de roteiro é a mesma nas três raízes. O 2º `page.goBack` a partir da 1ª entrada do app vai a `about:blank`, o aviso é dispensado e o Playwright espera para sempre. A intenção está coberta pelo D-B1 (o 1º Voltar abre o pedido no Dashboard; o 2º tenta sair, aviso cancelado; fica sem remontar) e pelo D-B7. A ordem dos ouvintes foi registrada no próprio estado da falha.
+- **Divergências sem API:** são as mesmas da base; o critério antigo é a URL do editor com o diálogo aberto. Os substitutos cobrem a intenção. O-2 pela intenção: D-O2.
+- **α2:** focais do caminho normal (37 OK + 2 descartados), fallback injetado (68/68 OK), custo e modelo. A bateria de 127 e os substitutos **não** foram reexecutados no α2: o caminho normal dele é idêntico ao α1, e só a contingência e um campo da instalação mudam.
+
+### Custo de α no histórico (Chrome, histórico real pelo CDP, por ID de entrada)
+
+| Cenário | Antes (com o pedido) | Depois de Continuar — candidata | Depois — α1/α2 | Efeito em α |
+|---|---|---|---|---|
+| Voltar 1 | `dashboard *campanhas* site` | `dashboard campanhas *site*` (mesma entrada) | `dashboard campanhas *site'*` | entrada do editor **recriada** (1 removida, 1 adicionada); nada visível muda |
+| Voltar 2 (com páginas e fragmento à frente) | `*dashboard* campanhas site automacoes #fim` | inalterado; Avançar alcança Automações | `dashboard *site'*` | **4 entradas removidas** (Campanhas, editor, Automações, #fim); Avançar não alcança nada |
+| Avançar até o pedido | `dashboard site *campanhas* automacoes` | inalterado | `dashboard site campanhas *site'*` | Automações removida; editor **duas vezes**; Voltar leva a Campanhas (pedido) |
+| Avançar **na fila** no clique | idem | pedido em Automações (onde ela chegou) | `… campanhas *site'*`, **sem popstate** | **GESTO_DESCARTADO_PELO_PUSH** + Automações removida |
+| Voltar **na fila** no clique | `dashboard *campanhas* site` | pedido no Dashboard | pedido no Dashboard (chegada exata); o próximo Continuar descarta Campanhas e o editor | pedido novo legítimo |
+| Link / troca de unidade logo depois | — | pedido de link / de troca | idem | entrada recriada; nada mais |
+| 3 ciclos Voltar → Continuar; Sair | — | histórico estável | estável (o editor recriado a cada ciclo, sem crescer) | — |
+| Documento anterior, go(−3) da pessoa | — | saída **pela pessoa**, aviso (confirmado: sai; cancelado: fica) | idem | — |
+| α2 fallback injetado → Sair → Avançar | — | — | entrada `{__kidmaisIdx}`; Avançar: **recarga do documento** (`timeOrigin` novo), editor novo com o conteúdo salvo, sem login nem erro | **recarga** |
+
+- **Conteúdo e montagem:** o mesmo editor (marca no `<main>`) e a edição foram preservados em todos os "Continuar", nas quatro raízes.
+- **Estado do Next da entrada nova:** mesmas chaves (`__NA`, `__PRIVATE_NEXTJS_INTERNALS_TREE`, `__kidmaisIdx`) e mesma árvore; só o índice próprio muda. A exceção é a contingência do α2 (só o índice).
+- **Requisições à API sintética:** iguais entre as raízes.
+
+### Checks (ambiente fechado, sem banco)
+
+- **Candidata:**
+  - não-PG (15 arquivos): **124 pass + 1 todo**. O todo é o cruzamento pós-Continuar, que **falha** na candidata: C1/C2;
+  - `tsc --noEmit --incremental false`: 0;
+  - ESLint dos alterados: 0;
+  - `check:v1:static` com build de produção: **PASS**.
+- **α1/α2:** `tsc` 0; ESLint 0. Suíte do guardião:
+  - 20/50 com o ambiente falso (o `pushState` falso guardava URL absoluta);
+  - 33/50 com a URL normalizada;
+  - **43/50** com o critério do contrato α (página do editor numa entrada nova). As 7 restantes:
+    - 4 são custo de histórico (Voltar/Avançar alcançam outras entradas);
+    - 2 não se aplicam (testes de O-a com movimento na fila: α não move);
+    - 1 todo: o cruzamento, que no α **passa** (5 925 OK + 75 saídas pela própria pessoa).
+
+## 5. Limites
+
+- **Navigation API:** a ausência é simulada no Chrome headless (não é Firefox/Safari).
+- **Ambiente:** `next dev` com sessão/API sintéticas; sem banco.
+- **"Gesto da pessoa":** `history.go` marcado só para o oráculo, ou CDP; o produto não lê a marca.
+- **Aba sem entrada anterior:** não verificada.
+- **Desmontagem com movimento na fila:** não verificada no Chrome (seção 4).
+- **α2:** bateria de 127 e substitutos não reexecutados (ver acima).
+- **Fallback:** alcance natural não demonstrado. Medido só por injeção.
+- **Correção da entrega anterior:** a afirmação "2 em 1572, pedido novo, nunca saída" (cda9464) está corrigida em `docs/MARKETING_HISTORICO_A1_A2_20261017.md`.
+
+## 6. Decisão pendente (Felipe)
+
+Adotar ou não "Continuar editando" **sem travessia** (α2). Isso significa:
+- "Continuar" cria uma entrada nova do editor na posição atual e **descarta as entradas à frente**. Exemplo medido: 4 entradas no "Voltar 2".
+- O editor pode ficar **duas vezes** no histórico, quando a pessoa tinha ido para a frente.
+- Um **Avançar pendente** no instante do clique pode **não acontecer**.
+- Na contingência sem estado registrado (não alcançada nos fluxos medidos), voltar a essa entrada **recarrega o documento**.
+
+Em troca, nenhuma saída do documento nem destino trocado causados pela correção.
+
+**Alternativa:** manter a volta ativa (candidata) e aceitar C1/C2 nas janelas da largura do atendimento. Sem decisão, o produto fica com a candidata O-a.
