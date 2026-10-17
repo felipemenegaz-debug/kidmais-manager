@@ -24,7 +24,12 @@ const ETAPAS = Object.freeze([
   ['migration 079', 'database/migrations/20261011_079_convite_recuperacao_manual.sql', '23e300ea3e2013b072e6d45348698f3bae3c3e392f6c4e34bdd67edd5f82b209'],
   ['postcheck 079', 'database/checks/20261011_079_postcheck.sql', 'c0eb23d374f856fb6c0c0b590170a4b60f298758565a4884d94399d1ec5abf3e'],
 ]);
-const SQL_IDENTIDADE = 'SELECT current_database() AS db, (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls';
+/** Identidade da conexão vista pelo servidor: banco, TLS ativo e versão, e endereço do servidor na rede privada. */
+const SQL_IDENTIDADE = `SELECT current_database() AS db,
+  (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls,
+  (SELECT version FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls_versao,
+  coalesce(inet_server_addr() << ANY('{10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}'::inet[]), false) AS servidor_privado`;
+const VERSOES_TLS = Object.freeze(['TLSv1.2', 'TLSv1.3']);
 /** Estado estrutural (leitura): dependências 073/074, 079 completa e qualquer vestígio parcial da 079. */
 const SQL_SCHEMA = `SELECT to_regclass('public.convite_carteiras') IS NOT NULL AS m073,
   to_regclass('public.convite_familias') IS NOT NULL AS m074,
@@ -40,26 +45,36 @@ const SQL_SCHEMA = `SELECT to_regclass('public.convite_carteiras') IS NOT NULL A
     AND coalesce(has_table_privilege(current_user, to_regclass('public.usuarios_administrativos'), 'REFERENCES'), false)
     AND has_schema_privilege(current_user, 'public', 'CREATE') AS privilegio079`;
 
-/** Trava de alvo: só o web de produção, o banco interno exato e TLS verificado como o serviço (lib/db/postgres.ts). */
+/**
+ * Trava de alvo: só o web de produção e o banco interno exato. TLS obrigatório (DATABASE_SSL=true, mínimo TLSv1.2);
+ * a verificação do certificado segue a configuração do próprio serviço (lib/db/postgres.ts e P0 de 11/10), porque o
+ * produção usa DATABASE_SSL_REJECT_UNAUTHORIZED=false. Sem verificação, a identidade é provada no servidor: banco, TLS
+ * ativo/versão e endereço do servidor em faixa privada (conferirIdentidade). Mensagens = só o código, sem diff de valores.
+ */
 function alvo(env) {
   assert.ok(env.RENDER === 'true', 'FORA_DO_RENDER');
   assert.ok(env.RENDER_SERVICE_ID === ALVO.servico, 'SERVICO_RECUSADO');
   assert.ok(env.KIDMAIS_DEPLOY_ENV === 'production', 'AMBIENTE_RECUSADO');
   assert.ok(env.DATABASE_SSL === 'true', 'TLS_OBRIGATORIO');
-  assert.ok(env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false', 'CERTIFICADO_SEM_VERIFICACAO_RECUSADO');
   let u;
   try { u = new URL(env.DATABASE_URL); } catch { assert.fail('URL_RECUSADA'); }
-  assert.ok(u.hostname === ALVO.host, 'HOST_RECUSADO');
+  // Host exato do banco interno (sem domínio): a conexão nunca sai da rede privada do Render.
+  assert.ok(u.hostname === ALVO.host && !u.hostname.includes('.'), 'HOST_RECUSADO');
   assert.ok(decodeURIComponent(u.pathname.slice(1)) === ALVO.database, 'BANCO_RECUSADO');
   assert.ok(!u.port || Number(u.port) === ALVO.port, 'PORTA_RECUSADA');
   assert.ok(u.search === '', 'CONNECTION_QUERY_REJECTED');
-  return {connectionString: env.DATABASE_URL, ssl: {rejectUnauthorized: true}, application_name: 'kidmais-migration-079-production'};
+  const verificarCertificado = env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false';
+  return {connectionString: env.DATABASE_URL, ssl: {rejectUnauthorized: verificarCertificado, minVersion: 'TLSv1.2'},
+    application_name: 'kidmais-migration-079-production', connectionTimeoutMillis: 10000};
 }
 
+/** Identidade provada pelo servidor; vale com ou sem verificação do certificado. */
 function conferirIdentidade(id) {
   assert.ok(id?.db === ALVO.database, 'BANCO_DIVERGENTE');
   assert.ok(id.tls === true, 'SEM_TLS');
-  return {banco: id.db, tls: id.tls};
+  assert.ok(VERSOES_TLS.includes(id.tls_versao), 'TLS_VERSAO_RECUSADA');
+  assert.ok(id.servidor_privado === true, 'SERVIDOR_FORA_DA_REDE_PRIVADA');
+  return {banco: id.db, tls: id.tls, tlsVersao: id.tls_versao, servidorPrivado: true};
 }
 
 function lerRevisado(raiz, arquivo, hash) {
@@ -149,9 +164,10 @@ async function executar({env, dir = DIR, raiz = path.resolve(__dirname, '..'), C
   const db = new Client(opts); db.on?.('error', () => undefined);
   try {
     await db.connect();
-    const r = await aplicarNoCliente(db, {raiz, registrar: x => salvar({...x, situacao: 'EM_ANDAMENTO'})});
-    salvar({...r, situacao: 'CONCLUIDA'});
-    return {resultado: r.resultado, marcador, conexao: r.conexao, schemaAntes: r.schemaAntes, schemaDepois: r.schemaDepois, etapas: r.etapas.map(e => e.nome)};
+    const certificadoVerificado = opts.ssl.rejectUnauthorized;
+    const r = await aplicarNoCliente(db, {raiz, registrar: x => salvar({...x, certificadoVerificado, situacao: 'EM_ANDAMENTO'})});
+    salvar({...r, certificadoVerificado, situacao: 'CONCLUIDA'});
+    return {resultado: r.resultado, marcador, conexao: {...r.conexao, certificadoVerificado}, schemaAntes: r.schemaAntes, schemaDepois: r.schemaDepois, etapas: r.etapas.map(e => e.nome)};
   } catch (e) {
     const falha = {mensagem: String(e?.message ?? e).slice(0, 160)};
     salvar({situacao: 'FALHA', falha});
@@ -160,8 +176,13 @@ async function executar({env, dir = DIR, raiz = path.resolve(__dirname, '..'), C
 }
 
 async function conferir({env, raiz = path.resolve(__dirname, '..'), Client = require('pg').Client}) {
-  const db = new Client(alvo(env)); db.on?.('error', () => undefined);
-  try { await db.connect(); return await conferirNoCliente(db, {raiz}); }
+  const opts = alvo(env);
+  const db = new Client(opts); db.on?.('error', () => undefined);
+  try {
+    await db.connect();
+    const r = await conferirNoCliente(db, {raiz});
+    return {...r, conexao: {...r.conexao, certificadoVerificado: opts.ssl.rejectUnauthorized}};
+  }
   catch (e) { return {modo: 'conferencia', resultado: 'FALHA', mensagem: String(e?.message ?? e).slice(0, 160)}; }
   finally { await db.end().catch(() => {}); }
 }
@@ -175,5 +196,5 @@ if (require.main === module) {
   else if (autorizado(argv)) executar({env: process.env}).then(s => sair(s.resultado !== 'FALHA', s)).catch(recusar);
   else { console.error('AGUARDANDO_AUTORIZACAO_079'); process.exitCode = 1; }
 }
-module.exports = {ALVO, DIR, ETAPAS, FLAG, FLAG_CONFERIR, MARCADOR, SQL_SCHEMA, alvo, autorizado, conferencia, conferirIdentidade,
+module.exports = {ALVO, DIR, ETAPAS, FLAG, FLAG_CONFERIR, MARCADOR, SQL_IDENTIDADE, SQL_SCHEMA, alvo, autorizado, conferencia, conferirIdentidade,
   lerRevisado, planoEtapas, conferirNoCliente, aplicarNoCliente, exigirDisco, executar, conferir};

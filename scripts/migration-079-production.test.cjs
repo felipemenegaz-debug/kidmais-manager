@@ -12,7 +12,7 @@ const ENV = Object.freeze({RENDER: 'true', RENDER_SERVICE_ID: 'srv-dak77m2d0e5s7
 const ANTES = {m073: true, m074: true, m079: false, vestigio079: false, privilegio079: true};
 const DEPOIS = {m073: true, m074: true, m079: true, vestigio079: true, privilegio079: true};
 
-function clienteFalso({schemas = [ANTES, DEPOIS], db = 'kidmais_production', tls = true, falharEm} = {}) {
+function clienteFalso({schemas = [ANTES, DEPOIS], db = 'kidmais_production', tls = true, tlsVersao = 'TLSv1.3', privado = true, falharEm} = {}) {
   const sqls = [];
   let i = 0;
   return {
@@ -23,19 +23,22 @@ function clienteFalso({schemas = [ANTES, DEPOIS], db = 'kidmais_production', tls
     async query(sql) {
       sqls.push(sql);
       if (falharEm && sql.includes(falharEm)) throw new Error('falha simulada');
-      if (sql.startsWith('SELECT current_database()')) return {rows: [{db, tls}]};
+      if (sql.startsWith('SELECT current_database()')) return {rows: [{db, tls, tls_versao: tlsVersao, servidor_privado: privado}]};
       if (sql.startsWith('SELECT to_regclass(\'public.convite_carteiras\')')) return {rows: [schemas[Math.min(i++, schemas.length - 1)]]};
       return {rows: []};
     },
   };
 }
 
-test('trava de alvo recusa outro serviço, ambiente, banco, host, TLS relaxado e parâmetros na URL', () => {
-  assert.equal(m.alvo(ENV).ssl.rejectUnauthorized, true);
+test('trava de alvo recusa outro serviço, ambiente, banco, host, TLS desligado e parâmetros na URL', () => {
+  assert.deepEqual(m.alvo(ENV).ssl, {rejectUnauthorized: true, minVersion: 'TLSv1.2'});
+  // Como o serviço (lib/db/postgres.ts e P0): sem verificação do certificado só quando o env do serviço manda; TLS continua obrigatório.
+  assert.deepEqual(m.alvo({...ENV, DATABASE_SSL_REJECT_UNAUTHORIZED: 'false'}).ssl, {rejectUnauthorized: false, minVersion: 'TLSv1.2'});
   const casos = [
     [{RENDER: undefined}, /FORA_DO_RENDER/], [{RENDER_SERVICE_ID: 'srv-daif418ae00c73e8k2gg'}, /SERVICO_RECUSADO/],
     [{KIDMAIS_DEPLOY_ENV: 'staging'}, /AMBIENTE_RECUSADO/], [{DATABASE_SSL: 'false'}, /TLS_OBRIGATORIO/],
-    [{DATABASE_SSL_REJECT_UNAUTHORIZED: 'false'}, /CERTIFICADO_SEM_VERIFICACAO/],
+    [{DATABASE_SSL: 'false', DATABASE_SSL_REJECT_UNAUTHORIZED: 'false'}, /TLS_OBRIGATORIO/],
+    [{DATABASE_URL: URL_OK.replace('dpg-dak750gae00c73fudmg0-a', 'dpg-dak750gae00c73fudmg0-a.virginia-postgres.render.com')}, /HOST_RECUSADO/],
     [{DATABASE_URL: URL_OK.replace('kidmais_production', 'kidmais_staging_1z91')}, /BANCO_RECUSADO/],
     [{DATABASE_URL: URL_OK.replace('dpg-dak750gae00c73fudmg0-a', 'outro-host')}, /HOST_RECUSADO/],
     [{DATABASE_URL: URL_OK + '?sslmode=disable'}, /CONNECTION_QUERY_REJECTED/],
@@ -51,6 +54,17 @@ test('mensagens da trava são só o código: nunca ecoam URL, query, host ou var
     try { m.alvo({...ENV, ...delta}); } catch (e) { msg = String(e.message); }
     assert.match(msg, /^[A-Z_]+$/); assert.ok(!msg.includes('SEGREDO') && !msg.includes('SENHA_FALSA'));
   }
+});
+
+test('conferir() com o TLS do serviço (certificado não verificado) informa isso na saída e não grava nada', async () => {
+  const env = {...ENV, DATABASE_SSL_REJECT_UNAUTHORIZED: 'false'};
+  let opcoes = null;
+  const Client = function (o) { opcoes = o; return clienteFalso({schemas: [ANTES]}); };
+  const r = await m.conferir({env, Client});
+  assert.equal(r.resultado, 'PRONTA_PARA_APLICAR');
+  assert.deepEqual(opcoes.ssl, {rejectUnauthorized: false, minVersion: 'TLSv1.2'});
+  assert.deepEqual(r.conexao, {banco: 'kidmais_production', tls: true, tlsVersao: 'TLSv1.3', servidorPrivado: true, certificadoVerificado: false});
+  assert.ok(!JSON.stringify(r).includes('SENHA_FALSA'));
 });
 
 test('flags: exatamente uma, sem mistura entre conferência e aplicação', () => {
@@ -83,10 +97,11 @@ test('conferência roda só em transações READ ONLY e nunca executa a migratio
   assert.ok(!db.sqls.some(s => s === 'BEGIN' || s === 'COMMIT'));
 });
 
-test('conferência recusa banco ou TLS divergentes antes de ler o schema', async () => {
-  for (const opcoes of [{db: 'kidmais_staging_1z91'}, {tls: false}]) {
+test('conferência recusa banco, TLS ausente, TLS antigo ou servidor fora da rede privada antes de ler o schema', async () => {
+  for (const [opcoes, erro] of [[{db: 'kidmais_staging_1z91'}, /BANCO_DIVERGENTE/], [{tls: false}, /SEM_TLS/], [{tls: null}, /SEM_TLS/],
+    [{tlsVersao: 'TLSv1.1'}, /TLS_VERSAO_RECUSADA/], [{tlsVersao: null}, /TLS_VERSAO_RECUSADA/], [{privado: false}, /SERVIDOR_FORA_DA_REDE_PRIVADA/]]) {
     const db = clienteFalso(opcoes);
-    await assert.rejects(m.conferirNoCliente(db), /BANCO_DIVERGENTE|SEM_TLS/);
+    await assert.rejects(m.conferirNoCliente(db), erro);
     assert.ok(!db.sqls.some(s => s.includes('convite_carteiras')));
   }
 });
