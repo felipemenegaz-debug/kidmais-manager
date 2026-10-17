@@ -53,6 +53,8 @@ O que não é possível é da pessoa. O nosso movimento continua pendente e é r
 - Fora desse intervalo, `e2` é da pessoa (destino `e2`).
 - Não há navegação automática: "Continuar editando" mantém o editor, e o destino perguntado é uma chegada que a pessoa teria em uma das ordens, não um destino inventado.
 
+> **Nota posterior (17/10/2026, rodada da rajada):** a regra do item 4 foi REPROVADA na revisão independente de `4a5dac4` (N1/P2): a premissa "nenhuma reação cabe em 16 ms" confunde tempo de reação com gestos independentes, e a ordem "pessoa primeiro" só existe dentro do tempo de atendimento. `RAJADA_MS` foi removida; o par passou a valer sem tempo e só quando a 2ª chegada é o editor, e a volta deixou de usar passos de 1 onde há salto seguro. Ver `MARKETING_HISTORICO_RAJADA_20261017.md`. O texto acima fica como registro do que foi entregue em `4a5dac4`.
+
 **5. Saída explícita durante a volta (O-2).**
 - O `sair()` do hook usa `executarSaida`: com uma volta em curso (sem Navigation API), a saída espera a volta chegar ao editor (de onde o destino relativo foi medido) e então segue. Nenhum movimento da correção acontece depois dela.
 - Uma saída **direta** (fora do hook, `pushState` síncrono) com um movimento antigo já na fila é compensada: o movimento antigo é desfeito e a URL termina na saída escolhida.

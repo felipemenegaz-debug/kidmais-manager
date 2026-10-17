@@ -40,7 +40,9 @@ type Ativa = { pagina: string; chave: string | null; indice: number | null; libe
  *    da entrada em que a pessoa estava (indexada: `{ idx }`; outro fragmento: `{ url }`).
  */
 type Anterior = { idx: number } | { url: string } | null;
-type Pos = { idx: number | null; url: string; pagina: string; ancora: number | null; anterior: Anterior; inicial: boolean };
+type Pos = { idx: number | null; url: string; pagina: string; ancora: number | null; anterior: Anterior; inicial: boolean;
+  /** Fragmentos com a MESMA URL criados de entradas diferentes: a posição é uma destas (todas registradas). */
+  candidatos?: Array<{ anterior: Anterior; ancora: number | null }> };
 /**
  * Uma tentativa de saída interceptada SEM Navigation API, do primeiro popstate barrado até a volta à entrada do editor.
  * Pertence à proteção que a interceptou e termina sempre na entrada do editor (com o pedido, ou com a saída explícita
@@ -51,7 +53,7 @@ type Tentativa = {
   deslocamento: number;        // soma dos NOSSOS movimentos desde a entrada de destino (cada um confirmado pelo próprio popstate)
   emVoo: number | null;        // movimento pedido (history.go) ainda sem popstate
   origem: Pos | null;          // de onde o movimento em voo será resolvido (muda se uma travessia da pessoa for atendida antes)
-  ultimo: { mov: number; chegada: Pos; em: number } | null; // último movimento nosso confirmado, antes do próximo pedido
+  ultimo: { mov: number; chegada: Pos } | null; // último movimento nosso confirmado, antes do próximo pedido
   direcao: -1 | 1 | 0;         // passo quando a entrada atual não tem índice; 0 = ainda desconhecida (chegada da pessoa)
   inverteu: number;            // inversões da salvaguarda
   timer: number | null;        // espera para travessias seguidas assentarem
@@ -106,12 +108,6 @@ const comIndice = (estado: unknown, indice: number) => (objetoSimples(estado) ? 
 const ASSENTAR_MS = 40;
 /** Salvaguarda: sem popstate depois de um history.go, ele não tinha destino (no-op). */
 const VIGIA_MS = 800;
-/**
- * Duas chegadas a menos de um quadro uma da outra, depois de um movimento nosso, são um mesmo atendimento em fila: a pessoa
- * agiu sobre a tela de ANTES do nosso movimento (nenhuma reação humana a uma tela nova é tão rápida).
- */
-const RAJADA_MS = 16;
-const agora = () => (typeof window.performance?.now === 'function' ? window.performance.now() : Date.now());
 
 function posicaoAtual(g: Guardiao, idx: number | null): Pos {
   const url = window.location.href, pagina = paginaDe(url);
@@ -125,7 +121,7 @@ function posicaoAtual(g: Guardiao, idx: number | null): Pos {
   if (um && mesmos.every((f) => f.ancora === um.ancora && JSON.stringify(f.anterior) === JSON.stringify(um.anterior))) {
     return { idx: null, url, pagina, ancora: um.ancora, anterior: um.anterior, inicial };
   }
-  return { idx: null, url, pagina, ancora: null, anterior: null, inicial };
+  return { idx: null, url, pagina, ancora: null, anterior: null, inicial, candidatos: mesmos.length ? mesmos.map((f) => ({ anterior: f.anterior, ancora: f.ancora })) : undefined };
 }
 function definirAtual(g: Guardiao, p: Pos) {
   g.atual = p;
@@ -155,7 +151,8 @@ function instalarIndiceDoHistorico(g: Guardiao) {
       const ancora = g.indiceAtual;
       g.indiceAtual += 1;
       for (const i of [...g.paginas.keys()]) if (i >= g.indiceAtual) g.paginas.delete(i); // entradas à frente foram descartadas
-      g.fragmentos = g.fragmentos.filter((f) => f.ancora !== null && f.ancora <= ancora);
+      if (g.atual) podarDepois(g, g.atual);
+      else g.fragmentos = g.fragmentos.filter((f) => f.ancora !== null && f.ancora <= ancora);
     }
     g.maior = Math.max(g.maior, g.indiceAtual); g.incerto = false;
     const r = empilhar(comIndice(dados, g.indiceAtual), _nao, url);
@@ -194,23 +191,180 @@ function primeiraDaAba(g: Guardiao, p: Pos) {
 }
 
 /**
+ * Onde uma entrada sem índice está em relação à entrada indexada que a originou: `a` (índice da âncora) e `c` (quantas
+ * entradas depois dela — 1 para um fragmento criado logo depois da indexada; +1 por fragmento encadeado). A entrada inicial
+ * do documento ocupa o lugar do próprio índice dela (c = 0). Só com a cadeia registrada inteira; senão, desconhecida.
+ */
+function cadeia(g: Guardiao, p: Pos): { a: number; c: number } | null {
+  if (p.idx !== null) return { a: p.idx, c: 0 };
+  if (p.inicial) return g.inicial ? { a: g.inicial.indice, c: 0 } : null;
+  let ant = p.anterior, c = 1;
+  for (let n = 0; ant && n < 64; n++) {
+    if ('idx' in ant) return { a: ant.idx, c };
+    const url = ant.url, mesmos = g.fragmentos.filter((f) => f.url === url), um = mesmos[0];
+    if (!um || !mesmos.every((f) => JSON.stringify(f.anterior) === JSON.stringify(um.anterior))) return null;
+    ant = um.anterior; c++;
+  }
+  return null;
+}
+type Fragmento = Guardiao['fragmentos'][number];
+const mesmaAnterior = (x: Anterior, y: Anterior) => JSON.stringify(x) === JSON.stringify(y);
+/**
+ * Os fragmentos registrados nascidos da entrada indexada `a`, na ordem do histórico (o 1º tem a própria `a` como anterior;
+ * cada seguinte, o anterior por URL). Nulo se o registro não determina a ordem (ramos ou fragmentos fora da cadeia).
+ */
+function cadeiaDe(g: Guardiao, a: number): Fragmento[] | null {
+  const lista: Fragmento[] = [];
+  let ant: Anterior = { idx: a };
+  for (let n = 0; n < 64; n++) {
+    const prox = g.fragmentos.filter((f) => f.ancora === a && mesmaAnterior(f.anterior, ant));
+    if (prox.length > 1) return null;
+    if (!prox.length) break;
+    lista.push(prox[0]); ant = { url: prox[0].url };
+  }
+  return g.fragmentos.filter((f) => f.ancora === a).length === lista.length ? lista : null;
+}
+/**
+ * Mantém o registro de fragmentos fiel ao histórico: uma entrada nova (pushState ou fragmento) a partir de `p` descarta
+ * tudo o que estava à frente de `p` — os fragmentos de âncora posterior e, na própria âncora, os que vinham depois de `p`.
+ */
+function podarDepois(g: Guardiao, p: Pos) {
+  if (p.idx !== null) { g.fragmentos = g.fragmentos.filter((f) => f.ancora !== null && f.ancora < p.idx!); return; }
+  if (p.inicial && g.inicial) { const i = g.inicial.indice; g.fragmentos = g.fragmentos.filter((f) => f.ancora !== null && f.ancora < i); return; }
+  if (p.ancora === null) return; // posição incerta: nada a afirmar (a contiguidade cai no pushState seguinte)
+  const a = p.ancora, ch = cadeiaDe(g, a);
+  const j = ch ? ch.findIndex((f) => f.url === p.url && mesmaAnterior(f.anterior, p.anterior)) : -1;
+  const manter = ch && j >= 0 ? new Set(ch.slice(0, j + 1)) : null;
+  g.fragmentos = g.fragmentos.filter((f) => f.ancora !== null && (f.ancora < a || (f.ancora === a && (!manter || manter.has(f)))));
+}
+type Entrada = { idx: number } | { frag: Fragmento };
+/**
+ * A entrada EXATA a `passo` de `de`, percorrendo o histórico conhecido deste documento: as indexadas (contíguas, todas
+ * registradas) e, depois de cada uma, a cadeia de fragmentos nascida dela. Nulo quando algo no caminho não é conhecido
+ * (lacunas nos índices, posição incerta, cadeia ambígua, fora do que se conhece) — aí só cabe a conferência por faixa.
+ */
+function chegadaDe(g: Guardiao, de: Pos, passo: number): Entrada | null {
+  if (!g.contiguo || passo === 0) return null;
+  const existe = (i: number) => g.paginas.has(i) || g.inicial?.indice === i;
+  let a: number, pos: number;
+  if (de.idx !== null) { a = de.idx; pos = 0; }
+  else if (de.inicial && g.inicial) { a = g.inicial.indice; pos = 0; }
+  else {
+    if (de.ancora === null) return null;
+    const ch = cadeiaDe(g, de.ancora);
+    const j = ch ? ch.findIndex((f) => f.url === de.url && mesmaAnterior(f.anterior, de.anterior)) : -1;
+    if (j < 0) return null;
+    a = de.ancora; pos = j + 1;
+  }
+  if (!existe(a)) return null;
+  for (let n = Math.abs(passo); n > 0; n--) {
+    if (passo > 0) {
+      const ch = cadeiaDe(g, a);
+      if (!ch) return null;
+      if (pos < ch.length) pos++;
+      else { a++; pos = 0; if (!existe(a)) return null; }
+    } else if (pos > 0) pos--;
+    else {
+      a--; if (!existe(a)) return null;
+      const ch = cadeiaDe(g, a);
+      if (!ch) return null;
+      pos = ch.length;
+    }
+  }
+  if (pos === 0) return { idx: a };
+  return { frag: cadeiaDe(g, a)![pos - 1] };
+}
+/** A chegada observada é a entrada calculada. */
+function casa(g: Guardiao, e: Entrada, L: Pos): boolean {
+  if ('idx' in e) return !g.paginas.has(e.idx) && g.inicial?.indice === e.idx ? L.inicial : L.idx === e.idx;
+  return L.idx === null && !L.inicial && L.url === e.frag.url && (L.ancora === null || L.ancora === e.frag.ancora);
+}
+
+/**
+ * Salto exato até o editor (índice k) a partir de uma entrada sem índice de cadeia conhecida, que nunca passa dele: para
+ * trás, c + (a − k) (a entrada da âncora e as indexadas até k, sem contar entradas sem índice entre elas, que só aumentam a
+ * distância real); para frente, k − a. Um único movimento, em vez de passos de 1 — que têm o mesmo tamanho de um Voltar ou
+ * Avançar da pessoa e geram chegadas iguais nas duas ordens da fila.
+ */
+function saltoSemIndice(g: Guardiao, p: Pos, k: number): number | null {
+  if (!g.contiguo || p.idx !== null) return null;
+  const cd = cadeia(g, p);
+  if (!cd) return null;
+  const mov = cd.a >= k ? -(cd.c + (cd.a - k)) : k - cd.a;
+  return mov === 0 ? null : mov;
+}
+
+/**
+ * Volta para trás a partir de uma posição AMBÍGUA (fragmentos de mesma URL nascidos de entradas diferentes, todos de cadeia
+ * conhecida): em vez do passo −1 — do tamanho de um Voltar da pessoa, com chegadas iguais nas duas ordens da fila —, o
+ * maior salto (de 2 até o salto exato das posições à frente do editor) que, em TODAS as posições possíveis, não passa do
+ * editor e não sai do que se conhece deste documento. O índice da chegada diz qual era a posição; a volta segue dali.
+ */
+function saltoAmbiguo(g: Guardiao, p: Pos, k: number): number | null {
+  if (!g.contiguo || p.idx !== null || !p.candidatos?.length) return null;
+  const cads = p.candidatos.map((c) => cadeia(g, { ...p, ...c, candidatos: undefined }));
+  if (cads.some((c) => !c)) return null;
+  const cs = cads as Array<{ a: number; c: number }>;
+  const frente = cs.filter((x) => x.a >= k);
+  if (!frente.length) return null;
+  const menor = Math.min(...g.paginas.keys(), g.inicial?.indice ?? Infinity);
+  const seguro = (m: number) => cs.every(({ a, c }) => m <= c || (a - (m - c) >= menor && (a < k || a - (m - c) >= k)));
+  for (let m = Math.max(...frente.map(({ a, c }) => c + (a - k))); m >= 2; m--) if (seguro(m)) return -m;
+  return null;
+}
+
+/** Nenhuma entrada sem índice registrada nasceu de uma entrada com índice em [lo, hi] (então nada há entre elas). */
+function semFragmentosEntre(g: Guardiao, lo: number, hi: number) {
+  return !g.fragmentos.some((f) => f.ancora === null || (f.ancora >= lo && f.ancora <= hi));
+}
+/**
+ * Chegada de um movimento de `passo` a partir da entrada indexada `i` (índices contíguos): sem fragmentos registrados no
+ * caminho, é EXATAMENTE a de índice i + passo; com fragmentos, qualquer entrada entre a origem e o alvo. `doFragmento`: o
+ * movimento parte de um fragmento nascido de `i` (o único da âncora i): ele mesmo não está no caminho para frente.
+ */
+function possivelAPartirDe(g: Guardiao, i: number, passo: number, L: Pos, doFragmento = false): boolean {
+  const [min, max] = passo > 0 ? [i + 1, i + passo] : [i + passo, i - 1];
+  const [amin, amax] = passo > 0 ? [doFragmento ? i + 1 : i, i + passo - 1] : [i + passo, i - 1];
+  if (semFragmentosEntre(g, amin, amax)) return L.idx === i + passo;
+  if (L.idx !== null) return L.idx >= min && L.idx <= max;
+  if (L.inicial) return passo < 0;
+  if (L.ancora !== null) return L.ancora >= amin && L.ancora <= amax;
+  for (let j = amin; j <= amax; j++) if (g.paginas.get(j) === L.pagina) return true;
+  return false;
+}
+
+/**
  * A chegada `L` é possível para o NOSSO movimento `mov` resolvido a partir de `de`? Só o que a posição permite: o índice
  * (contíguo: um salto de k−j cai entre j e k; um passo, na vizinha), a entrada anterior registrada de um fragmento e a
  * âncora. Página igual não basta (H1-R1: Campanhas idx 1 não é a anterior do fragmento nascido de Campanhas idx 3).
  */
 function possivel(g: Guardiao, de: Pos | null, mov: number, L: Pos): boolean {
   if (!de) return true;
+  // Posição ambígua entre fragmentos de mesma URL: possível se for possível a partir de alguma das posições registradas.
+  if (de.idx === null && de.candidatos?.length) return de.candidatos.some((c) => possivel(g, { ...de, ...c, candidatos: undefined }, mov, L));
+  // Caminho inteiramente conhecido: a chegada é exatamente uma entrada.
+  const e = chegadaDe(g, de, mov);
+  if (e) return casa(g, e, L);
   if (de.idx !== null) {
     const i = de.idx;
     if (!g.contiguo) return L.idx === null ? true : mov > 0 ? L.idx > i : L.idx < i;
-    const [min, max] = mov > 0 ? [i + 1, i + mov] : [i + mov, i - 1];
-    if (L.idx !== null) return L.idx >= min && L.idx <= max;
-    if (L.inicial) return mov < 0;
-    // Sem índice: um fragmento nascido de uma entrada entre a origem e o alvo (âncora conhecida) ou de uma página delas.
-    const [amin, amax] = mov > 0 ? [i, i + mov - 1] : [i + mov, i - 1];
-    if (L.ancora !== null) return L.ancora >= amin && L.ancora <= amax;
-    for (let j = amin; j <= amax; j++) if (g.paginas.get(j) === L.pagina) return true;
-    return false;
+    return possivelAPartirDe(g, i, mov, L);
+  }
+  const cd = g.contiguo ? cadeia(g, de) : null;
+  if (cd) {
+    const { a, c } = cd;
+    if (de.inicial && mov < 0) return false; // nada antes da inicial neste documento
+    if (mov === -1 && de.anterior && 'url' in de.anterior) return L.idx === null && L.url === de.anterior.url;
+    if (mov < 0 && -mov < c) return L.idx === null && L.pagina === de.pagina; // ainda na cadeia de fragmentos (mesma página)
+    if (mov < 0 && -mov === c) return L.idx === a;
+    // Além da âncora (para trás) ou depois do fragmento (para frente): como um movimento a partir da própria âncora. Para
+    // frente, os fragmentos da própria âncora depois deste (cadeia) também ficam no caminho.
+    const passo = mov < 0 ? mov + c : mov;
+    if (passo > 0 && g.fragmentos.some((f) => f.ancora === a && f.url !== de.url)) {
+      if (L.idx !== null) return L.idx >= a + 1 && L.idx <= a + passo;
+      return L.ancora === null ? L.pagina === de.pagina : L.ancora >= a && L.ancora <= a + passo - 1;
+    }
+    return possivelAPartirDe(g, a, passo, L, passo > 0 && c === 1);
   }
   if (mov === -1) {
     const ant = de.anterior;
@@ -227,6 +381,16 @@ function possivel(g: Guardiao, de: Pos | null, mov: number, L: Pos): boolean {
     return L.idx !== null ? L.idx === de.ancora + 1 : L.ancora === null ? L.pagina === de.pagina : L.ancora === de.ancora;
   }
   return true;
+}
+
+/**
+ * A chegada `L` é EXATAMENTE a do nosso movimento `mov` aplicado a partir de `de` (não só uma das possíveis), pelo
+ * caminho inteiramente conhecido (`chegadaDe`). Só então a outra ordem do par existe com a 1ª chegada como destino.
+ */
+function exatamente(g: Guardiao, de: Pos, mov: number, L: Pos): boolean {
+  if (de.idx === null && de.candidatos?.length) return de.candidatos.some((c) => exatamente(g, { ...de, ...c, candidatos: undefined }, mov, L));
+  const e = chegadaDe(g, de, mov);
+  return !!e && casa(g, e, L);
 }
 
 // ---- Tentativa de saída SEM Navigation API ----
@@ -275,10 +439,14 @@ function avancar(g: Guardiao, t: Tentativa) {
     if (mov === 0) mov = t.direcao || -1; // índice do editor numa entrada de outra página (índice herdado duplicado)
     t.direcao = mov > 0 ? 1 : -1;
   } else {
-    // Sem índice — ou índice que já se mostrou falso (a salvaguarda inverteu): passo na direção corrente.
-    if (p.idx === null && p.inicial) t.direcao = 1;
-    else if (!t.direcao) t.direcao = direcaoProvavel(g, p, t.a);
-    mov = t.direcao;
+    const salto = t.inverteu ? null : saltoSemIndice(g, p, k);
+    if (salto !== null) { mov = salto; t.direcao = mov > 0 ? 1 : -1; }
+    else {
+      // Sem índice de cadeia desconhecida — ou índice que já se mostrou falso (a salvaguarda inverteu): passo na direção corrente.
+      if (p.idx === null && p.inicial) t.direcao = 1;
+      else if (!t.direcao) t.direcao = direcaoProvavel(g, p, t.a);
+      mov = (t.direcao < 0 && !t.inverteu ? saltoAmbiguo(g, p, k) : null) ?? t.direcao;
+    }
   }
   t.ultimo = null;
   // Índice que já se mostrou falso (inversão da salvaguarda): a origem não serve para conferir a chegada.
@@ -327,8 +495,11 @@ function semDestinoCerto(g: Guardiao, mov: number, de: Pos) { return mov < 0 && 
  *   As travessias são atendidas em FILA e o alvo de cada uma é resolvido no atendimento: uma travessia da pessoa pode ser
  *   atendida antes do nosso movimento já pedido. Cada chegada é conferida contra o que o nosso movimento poderia alcançar
  *   a partir de onde ele será resolvido (`possivel`); o que não pode ser nosso é da pessoa, e o nosso continua pendente,
- *   resolvido a partir de onde ela chegou. Um par de chegadas igual nas duas ordens dentro de um atendimento (RAJADA_MS)
- *   é interpretado a favor de PERGUNTAR pela primeira (a pessoa agiu sobre a tela de antes): nunca é engolido.
+ *   resolvido a partir de onde ela chegou. De um fragmento de cadeia conhecida (ou da entrada inicial) a volta é um salto
+ *   exato, sem passos de 1 que colidam com Voltar/Avançar; de um fragmento AMBÍGUO (mesma URL em entradas diferentes), um
+ *   salto ≥ 2 seguro em todas as posições possíveis, cuja chegada revela a posição. Um par de chegadas igual nas duas
+ *   ordens em que a leitura pela fila deixaria a pessoa no editor é resolvido a favor de PERGUNTAR (nunca engolido); entre
+ *   duas saídas, vale a fila.
  * Uma travessia interceptada sempre termina na entrada do editor: mesmo se a proteção cair durante a volta (ex.: o
  * salvamento terminou), a volta se completa e o pedido é apresentado (a pessoa decide). Uma saída explícita pedida
  * durante a volta espera a volta chegar ao editor e então segue (`executarSaida`). Sem proteção ativa, nada é
@@ -349,6 +520,7 @@ export function instalarGuardiaoDeHistorico() {
       if (idx === null && window.history.length !== g.comprimento && g.atual) {
         // Fragmento NOVO (o comprimento mudou): nasce logo depois da entrada em que a pessoa estava.
         const ant = g.atual;
+        podarDepois(g, ant); // as entradas à frente de onde a pessoa estava foram descartadas pelo fragmento novo
         const f = { url: window.location.href, anterior: (ant.idx !== null ? { idx: ant.idx } : { url: ant.url }) as Anterior, ancora: ant.ancora };
         g.fragmentos.push(f);
         p = { idx: null, url: f.url, pagina: paginaDe(f.url), ancora: f.ancora, anterior: f.anterior, inicial: false };
@@ -369,13 +541,16 @@ export function instalarGuardiaoDeHistorico() {
         if (emVoo !== null) { t.emVoo = null; t.compensando = true; window.history.go(-emVoo); armarVigia(g, t, -emVoo); return; }
         encerrar(g, t); return;
       }
-      const momento = agora();
       if (emVoo !== null && possivel(g, t.origem, emVoo, p)) {
         t.deslocamento += emVoo; t.emVoo = null; t.origem = null;
-        t.ultimo = { mov: emVoo, chegada: p, em: momento };
-      } else if (emVoo === null && t.ultimo && momento - t.ultimo.em <= RAJADA_MS && possivel(g, t.ultimo.chegada, t.ultimo.mov, p)) {
-        // Par igual nas duas ordens no mesmo atendimento (H1-R3): a pessoa agiu sobre a tela de antes do nosso movimento.
-        // Interpretado como "a pessoa chegou à 1ª entrada e o nosso movimento seguiu dali": destino = 1ª chegada; perguntar.
+        t.ultimo = { mov: emVoo, chegada: p };
+      } else if (emVoo === null && t.ultimo && p.pagina === t.a.pagina && t.ultimo.chegada.pagina !== t.a.pagina
+        && exatamente(g, t.ultimo.chegada, t.ultimo.mov, p)) {
+        // Par de chegadas igual nas duas ordens da fila, antes do nosso próximo pedido, em que a leitura pela fila ("o nosso
+        // primeiro, depois o da pessoa") deixaria a pessoa de volta ao editor e ENGOLIRIA a outra leitura possível ("a pessoa
+        // chegou à 1ª entrada e o nosso movimento seguiu dali") — H1-R3. Só aqui a outra leitura é adotada, e só para
+        // PERGUNTAR (destino = 1ª chegada; "Continuar editando" mantém tudo). Quando as duas leituras dão SAÍDAS diferentes,
+        // vale a leitura pela fila (a chegada observada da pessoa): uma saída nunca é trocada por outra presumida.
         t.deslocamento = t.ultimo.mov; t.direcao = 0; t.ultimo = null;
       } else {
         // Travessia da pessoa: o destino é onde ela chegou agora; a posição volta a ser desconhecida. O nosso movimento, se
