@@ -15,6 +15,7 @@
  *   061   — inventário inteiro até a 061 (com 055a–d, 058 e 059): etapa da integração sem a agenda por unidade.
  *   062   — inventário inteiro até a 062: etapa final (agenda por empresa e unidade).
  *   063   — inventário inteiro até a 063: painel do desenvolvedor (concessão, interessadas, convites, recuperação).
+ *   079   — inventário inteiro até a 079: convites (073/074) com a recuperação manual de geração incerta.
  *
  * Segurança (fail-closed, antes de qualquer escrita):
  *   - host 127.0.0.1, usuário kidmais_descartavel, porta autorizada pela mesma regra de
@@ -52,6 +53,8 @@ const MODELOS = {
   "062": { banco: "kidmais_v1_modelo_062", ate: "062", sem: [] },
   // Painel do desenvolvedor (063): inventário inteiro até a 063.
   "063": { banco: "kidmais_v1_modelo_063", ate: "063", sem: [] },
+  // Recuperação manual de convites (079): cadeia completa do inventário de produção até a 079.
+  "079": { banco: "kidmais_v1_modelo_079", ate: "079", sem: [] },
 };
 /** Bancos de trabalho que o runner pode restaurar. */
 const TRABALHO = ["kidmais_pacotes_v1_descartavel", "kidmais_pacotes_v1_rollback"];

@@ -21,6 +21,15 @@
   background: var(--input-bg); color: var(--main-text); font: 400 14px/1.5 var(--admin-font);
 }
 .editor input:focus, .editor textarea:focus { border-color: var(--primary-violet); background: var(--input-focus-bg); }
+.controlesIA { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.avisoInspiracao { padding: 14px 16px; border: 1px solid rgba(180, 155, 245, .3); border-radius: 12px; background: rgba(150, 120, 230, .08); color: #cbb8f5; }
+.avisoInspiracao small { display: block; margin-top: 6px; }
+.editor .controlesIA > button { margin: 0; min-height: 44px; }
+.tipoCriacao { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tipoCriacao > span { color: var(--secondary-text); font-size: 13px; font-weight: 700; }
+.seletorCriacao { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--input-border); border-radius: 10px; background: var(--input-bg); }
+.editor .seletorCriacao button { margin: 0; min-height: 36px; padding: 6px 9px; font-size: 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--secondary-text); }
+.editor .seletorCriacao button[aria-pressed='true'] { color: var(--main-text); border-color: var(--lilac-accent); background: var(--km-card-2); box-shadow: inset 0 -2px var(--lilac-accent); }
 .editor textarea { resize: vertical; }
 .editor small { display: block; margin-top: 12px; color: var(--secondary-text); font-size: 12px; font-weight: 400; line-height: 1.6; }
 .editor a { color: var(--lilac-accent); text-underline-offset: 4px; }
@@ -29,14 +38,30 @@
 .cabecalho p { margin: 0; color: var(--secondary-text); }
 .sobretitulo { color: var(--lilac-accent); font-size: 11px; font-weight: 800; letter-spacing: .08em; }
 .voltar { composes: secundario from '../admin/visual.module.css'; white-space: nowrap; }
+.acoesCabecalho { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.acoesCabecalho button { white-space: nowrap; }
+.posicaoImagem { margin-top: 20px; }
+.posicaoImagem .acoes { justify-content: flex-start; margin: 10px 0 20px; }
+.posicaoImagem button[aria-pressed='true'] { border-color: var(--accent-purple, #bca4f4); box-shadow: inset 0 -3px var(--accent-purple, #bca4f4); }
 .barra { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 20px; margin-bottom: 24px; border: 1px solid var(--input-border); border-radius: 16px; background: var(--card-bg); color: var(--secondary-text); font-size: 13px; }
 .barra strong { color: var(--emerald-accent); }
 .colunas { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); gap: 24px; align-items: start; margin-bottom: 24px; }
 .configuracao { display: grid; gap: 20px; min-width: 0; }
 .painel { composes: glass from '../admin/visual.module.css'; min-width: 0; margin: 0 0 20px; padding: 24px; border-radius: 24px; }
 .configuracao .painel { margin-bottom: 0; }
-.painel legend { color: var(--lilac-accent); font-weight: 800; font-size: 14px; padding: 0 8px; }
+.painel > legend {
+  display: block;
+  float: none;
+  width: 100%;
+  margin: 0 0 18px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--input-border) 65%, transparent);
+  color: var(--lilac-accent);
+  font-size: 14px;
+  font-weight: 800;
+}
 .painel h2 { color: var(--lilac-accent); font-size: 18px; font-weight: 800; margin: 6px 0 16px; }
+.painel h2.tituloEtapa { margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid color-mix(in srgb, var(--input-border) 65%, transparent); }
 .painel > p { color: var(--secondary-text); font-size: 14px; line-height: 1.6; }
 .painel summary { color: var(--lilac-accent); font-weight: 800; cursor: pointer; }
 .painel summary span { display: block; color: var(--secondary-text); font-size: 12px; font-weight: 400; margin-top: 4px; }
@@ -71,6 +96,12 @@
 .editor .linkBotao { background: transparent; border-color: var(--input-border); color: var(--lilac-accent); }
 .preview { min-width: 0; text-align: center; }
 .preview > .sobretitulo { margin: 0 0 16px; }
+.previewLocal { position: static; }
+.previewLocal > .painel { margin-top: 20px; text-align: left; }
+.previewLocal .posicaoImagem { display: flex; justify-content: center; margin-top: 14px; }
+.qualidade { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1; min-width: 180px; }
+.editor .qualidade select { width: auto; min-width: 125px; margin: 0; }
+.qualidade small { flex-basis: 100%; }
 .acoes { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 20px 0; }
 .erro, .aviso { padding: 16px; border-radius: 12px; line-height: 1.6; margin: 16px 0; }
 .erro { border: 1px solid #fb718533; background: #fb718514; color: #fda4af; }
@@ -107,3 +138,49 @@
   .temas button { min-height: 64px; display: flex; align-items: center; gap: 16px; padding: 10px 16px; text-align: left; font-size: 13px; }
   .temas span { margin: 0; }
 }
+.fotoReferencia { margin: 16px 0; }
+.miniaturaFoto { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: 12px; margin: 12px 0; }
+.conferenciaPrompt { margin: 16px 0; padding: 16px; border: 1px solid #a998dc; border-radius: 14px; background: #201e36; }
+
+/* Laboratório: dados → arte → IA, inclusive em telas menores. */
+.colunas.colunaUnica { grid-template-columns: minmax(0, 1fr); max-width: 720px; margin: 0 auto 24px; }
+.colunaUnica .preview { grid-row: auto; }
+.colunaUnica .preview > article { width: 100%; max-width: 420px; margin: 0 auto; }
+.colunaUnica .configuracao .painel { padding: 24px; }
+.colunaUnica .campos label { margin: 8px 0; }
+.colunaUnica .campos label:last-child { grid-column: auto; }
+.colunaUnica .controlesIA { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.colunaUnica .qualidade { display: grid; min-width: 0; margin: 0; }
+.colunaUnica .qualidade select {
+  width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px;
+  border: 1px solid var(--input-border); border-radius: 12px;
+  background: var(--input-bg); color: var(--main-text); font: inherit;
+}
+.colunaUnica .controlesIA > button { grid-column: 1 / -1; width: 100%; }
+.formulario { border: 0; margin: 0; padding: 0; min-width: 0; }
+.galeriaLocal { max-width: 720px; margin-left: auto; margin-right: auto; }
+@media(max-width: 800px) {
+  .colunaUnica .configuracao .painel { padding: 20px 16px; }
+}
+
+.colunaUnica .configuracao .dadosCompactos { padding: 16px 20px; }
+.dadosCompactos h2.tituloEtapa { margin: 0 0 8px; padding-bottom: 8px; font-size: 16px; }
+.colunaUnica .dadosCompactos label { margin: 5px 0; gap: 4px; }
+.dadosCompactos input:not([type=checkbox]), .dadosCompactos textarea { padding: 8px 12px; min-height: 40px; }
+.dadosCompactos .campos { gap: 0 12px; }
+.dadosCompactos small { margin-top: 6px; }
+.galeriaLocal .galeria { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.paginacaoArtes { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 16px 0; }
+.paginacaoArtes span { color: var(--secondary-text); font-size: 12px; }
+.seletorArte { position: relative; min-width: 0; }
+.editor .seletorArte > button { width: 100%; display: flex; justify-content: space-between; align-items: center; background: var(--input-bg); color: var(--main-text); border-color: var(--input-border); border-radius: 12px; text-align: left; }
+.menuArte { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0; padding: 6px; background: rgba(20, 25, 43, .92); backdrop-filter: blur(18px); border: 1px solid var(--input-border); border-radius: 12px; box-shadow: 0 12px 32px #0006; }
+.editor .menuArte button { display: block; width: 100%; margin: 0; border: 0; border-radius: 8px; background: transparent; text-align: left; color: var(--main-text); }
+.editor .menuArte button[aria-selected=true], .editor .menuArte button:hover, .editor .menuArte button:focus-visible { background: rgba(158, 126, 235, .2); color: var(--lilac-accent); }
+@media(max-width: 600px) {
+  .colunaUnica .dadosCompactos .campos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .colunaUnica .configuracao .dadosCompactos { padding: 14px; }
+  .galeriaLocal .galeria { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .paginacaoArtes button { padding: 8px; }
+}
+.colunaInferior { max-width: 720px; margin-left: auto; margin-right: auto; }

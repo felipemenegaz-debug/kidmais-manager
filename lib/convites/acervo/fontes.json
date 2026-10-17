@@ -1,0 +1,32 @@
+{
+  "importadoEm": "2026-10-11",
+  "elementos": [
+    {
+      "id": "leaf",
+      "fonte": "https://github.com/tabler/tabler-icons/blob/main/icons/outline/leaf.svg",
+      "download": "https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/leaf.svg",
+      "licenca": "MIT",
+      "autor": "Paweł Kuna / Tabler Icons",
+      "sha256": "ca3b92ae35e9b8e7e94746cc4e51301ee2f85b4760a03a62250eb418f39a063a",
+      "uso": "Elemento de composição; não exibido como opção individual"
+    },
+    {
+      "id": "star",
+      "fonte": "https://github.com/tabler/tabler-icons/blob/main/icons/outline/star.svg",
+      "download": "https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/star.svg",
+      "licenca": "MIT",
+      "autor": "Paweł Kuna / Tabler Icons",
+      "sha256": "c0b4afc60d311585f7c79c2ffd68d58eb5c1e3a3cd6d626cdc7792c5d3bbb49b",
+      "uso": "Elemento de composição; não exibido como opção individual"
+    },
+    {
+      "id": "balloon",
+      "fonte": "https://github.com/tabler/tabler-icons/blob/main/icons/outline/balloon.svg",
+      "download": "https://raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/balloon.svg",
+      "licenca": "MIT",
+      "autor": "Paweł Kuna / Tabler Icons",
+      "sha256": "0668c7ad2757170d2e63de4e7389ba474e7c6f207420ad7e4e3259378877a74c",
+      "uso": "Elemento de composição; não exibido como opção individual"
+    }
+  ]
+}

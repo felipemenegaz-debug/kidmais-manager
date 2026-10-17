@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [staging, main]
+    branches: [staging, main, production]
   push:
     branches: [staging]
 
@@ -50,3 +50,9 @@ jobs:
 
       - name: Serviço de convites — cotas, idempotência e acesso com dependências simuladas
         run: node --test lib/convites/service.test.cjs
+
+      - name: Convites — download da arte completa preserva dimensões, sem recorte ou textos sobrepostos
+        run: node --test scripts/convites-exportacao-completa.test.cjs
+
+      - name: Convites — recuperação manual (079) e aplicador de produção com trava de alvo e anti-repetição
+        run: node --test lib/convites/recuperacao.test.cjs scripts/migration-079-production.test.cjs

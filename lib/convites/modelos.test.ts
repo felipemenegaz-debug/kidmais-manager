@@ -4,6 +4,26 @@ import { conteudoSchema, inicioConteudo } from './domain.ts';
 import { baseNeutra, basesNeutras, comporTexto, modelosBiblioteca, modelosComFoto, svgModelo } from './modelos.ts';
 
 const c = { ...inicioConteudo({}), nome: 'Ana', data: '2027-04-20', horario: '15:00', local: 'Buffet', endereco: 'Rua das Flores' };
+test('arte própria ocupa o fundo 3:4 sem molduras ou planetas adicionais', () => {
+  for (const tema of [...basesNeutras, 'planetas', 'celebrar'] as const) {
+    const svg = svgModelo({ ...c, tema }, { arte: '/fundo.webp' });
+    assert(svg.includes('viewBox="0 0 1080 1440"'));
+    assert(svg.includes('width="1080" height="1440" preserveAspectRatio="xMidYMid slice"'));
+    assert.equal((svg.match(/<image /g) ?? []).length, 1);
+    assert(!svg.includes('<filter'));
+    assert(!svg.includes('<path'));
+    for (const valor of [c.nome, c.local, c.endereco, c.horario]) assert(svg.includes(valor));
+  }
+});
+test('imagem no topo conserva o modelo e a posição persiste no conteúdo validado', () => {
+  const conteudo = conteudoSchema.parse({ ...c, tema: 'planetas', visual: { modo: 'modelo', ajuste: 'conter', x: 50, y: 50, posicao: 'topo' } });
+  const svg = svgModelo(conteudo, { arte: '/imagem.webp' });
+  assert(svg.includes('viewBox="0 0 1080 1800"'));
+  assert(svg.includes('x="350" y="180" width="380" height="280"'));
+  assert.equal((svg.match(/<image /g) ?? []).length, 4);
+  assert(!conteudoSchema.safeParse({ ...conteudo, visual: { ...conteudo.visual, posicao: 'fora' } }).success);
+});
+
 test('modelos podem ser publicados sem exigir arte paga ou mudar conteúdo antigo', () => {
   for (const tema of [...modelosBiblioteca, 'celebrar', 'jardim', 'espaco']) {
     assert.equal(conteudoSchema.safeParse({ ...c, tema }).success, true);
