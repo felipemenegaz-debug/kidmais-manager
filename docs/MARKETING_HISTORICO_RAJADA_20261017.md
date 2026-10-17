@@ -28,6 +28,8 @@ Reproduzido antes da correção, na cópia própria de `4a5dac4` (árvore confer
 - **Chrome real, histórico B** `[Dashboard 0, editor 1, Campanhas 2, Automações 3, Automações#fim]`, roteiro da revisora (só caminhos trocados), gesto N2 Voltar de 0 a 22 ms depois do 1º movimento: ordem registrada antes da página `g−1@42, p−1@48`; a pessoa chega a **Campanhas(2)**; "Sair sem salvar" leva a **Automações**. DESTINO_ERRADO **8/8** em off 0/4/8/12; OK em 16/22/38/40.
 - **Modelo da revisora** (fila FIFO, alvo no atendimento, relógio controlado), histórico B: DESTINO_ERRADO em 17 instantes por tempo de atendimento de 1 a 10 ms, 40 em 20 ms e 51 em 30 ms.
 
+> **Nota posterior (17/10/2026, rodada A1/A2):** a revisão independente de `7fe6ed8` reprovou por A1 (o salto −2 na posição ambígua colide com `go(−2)` da pessoa) e A2 (o salto resolvido a partir de onde a pessoa chegou sai do documento). A premissa "salto, sem passos de 1 que colidam" só trocou o gesto que colide. Ver `MARKETING_HISTORICO_A1_A2_20261017.md`: nenhum movimento ativo elimina a classe, e há uma proposta ("decisão primeiro") pendente de decisão. O texto abaixo fica como registro do que foi entregue em `7fe6ed8`.
+
 ## Correção
 
 1. **Sem limiar de tempo.** `RAJADA_MS` e a leitura de relógio do guardião foram removidas.
