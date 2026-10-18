@@ -37,7 +37,9 @@ const repository = load('lib/festas/repository.ts');
 const conferencia = load('lib/convites/conferencia-prompt.ts');
 const estilos = load('lib/convites/estilos.ts', { './domain.ts': domain, './conferencia-prompt.ts': conferencia,
   'node:fs/promises': require('node:fs/promises'), 'node:path': require('node:path') });
-let providerCalls = 0, failProvider = false, beforeTransaction = null;
+let providerCalls = 0, failProvider = false, failModeracao = false, beforeTransaction = null;
+// Mesmo formato do erro do adaptador: diagnóstico + detalhes já extraídos da resposta do provedor.
+class FalhaSintetica extends Error { constructor(diagnostico, detalhes) { super('Falha no provedor de imagem.'); this.diagnostico = diagnostico; this.detalhes = detalhes; } }
 // Convite completo (V1): provedor sintético sem rede; registra cada chamada para provar que não há repetição automática.
 const chamadasCompleto = [];
 async function transaction(fn) {
@@ -59,14 +61,14 @@ const service = load('lib/convites/service.ts', {
   './domain': domain, './familias': familias,
   './estilos': estilos,
   './imagem': { MODELO: 'provedor-sintetico-sem-rede', iaConfigurada: () => true,
-    FalhaProvedorImagem: class FalhaProvedorImagem extends Error {}, modeloImagem: () => 'provedor-sintetico-sem-rede',
+    FalhaProvedorImagem: FalhaSintetica, modeloImagem: () => 'provedor-sintetico-sem-rede',
     MODELO_COMPLETO: 'completo-sintetico-sem-rede', QUALIDADE_COMPLETO: 'sintetica', completoDisponivel: () => true,
     armazenarConviteCompleto: async png => png,
     gerarConviteCompletoOpenAI: async (prompt, _fetch, _env, qualidade, refs) => {
       chamadasCompleto.push({ prompt, qualidade, refs: refs.length }); if (failProvider) throw Error('timeout simulado');
       return { imagem: Buffer.from('convite-completo-sintetico'), uso: {} }; },
     normalizarImagem: async () => Buffer.from('arte-sintetica'),
-    gerarImagem: async () => { providerCalls++; if (failProvider) throw Error('timeout simulado'); return { imagem: Buffer.from('arte-sintetica'), uso: {} }; } },
+    gerarImagem: async () => { providerCalls++; if (failModeracao) throw new FalhaSintetica('http_400_moderation_blocked', { requestId: 'req_sintetico_1', etapa: 'input', categorias: ['sexual', 'PRIVADO'] }); if (failProvider) throw Error('timeout simulado'); return { imagem: Buffer.from('arte-sintetica'), uso: {} }; } },
 });
 const uuid = () => crypto.randomUUID();
 const evidenciaRecuperacao = 'Verificado no painel do provedor; registro sintético da validação.';
@@ -323,6 +325,18 @@ async function run() {
     finally { failProvider = false; }
     assert.equal((await service.comandar(f.acesso, p)).estado, 'INCERTA');
     assert.equal(providerCalls - calls, 1);
+    assert.equal((await pool.query('SELECT usado FROM convite_consumos WHERE empresa_id=$1', [f.empresa])).rows[0].usado, 1);
+  });
+  await check('incerta por moderação grava evento IA_INCERTA com evidência sanitizada, sem nova chamada nem devolução', async () => {
+    const f = await festa(await empresa()), p = pedido(), calls = providerCalls;
+    failModeracao = true;
+    try { await assert.rejects(service.comandar(f.acesso, p), e => e.status === 502 && /crédito ficou reservado/.test(e.message)); }
+    finally { failModeracao = false; }
+    assert.equal((await pool.query('SELECT estado FROM convite_geracoes WHERE id=$1', [p.chave])).rows[0].estado, 'INCERTA');
+    const ev = (await pool.query("SELECT detalhe FROM convite_eventos WHERE convite_id=$1 AND acao='IA_INCERTA'", [f.id])).rows;
+    assert.equal(ev.length, 1);
+    assert.deepEqual(ev[0].detalhe, { geracao: p.chave, diagnostico: 'http_400_moderation_blocked', requestId: 'req_sintetico_1', etapa: 'input', categorias: ['sexual'] });
+    assert.equal((await service.comandar(f.acesso, p)).estado, 'INCERTA'); assert.equal(providerCalls - calls, 1);
     assert.equal((await pool.query('SELECT usado FROM convite_consumos WHERE empresa_id=$1', [f.empresa])).rows[0].usado, 1);
   });
   await check('teto global concorrente limita duas empresas e rollback não consome cotas', async () => {
