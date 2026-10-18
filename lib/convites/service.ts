@@ -464,8 +464,8 @@ export async function concluirGeracaoComImagem(tx: DbExecutor, operadorId: strin
 
 async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse>, { acao: 'gerar' }>) {
   exigir(iaConfigurada(), 'A geração com IA ainda não foi habilitada pelo buffet.', 503);
-  const completo = i.completo === true, estilo = i.estilo ?? 'pedido';
-  exigir(completo || (i.estilo === undefined && i.foto === undefined && i.autorizacaoFoto === undefined), 'Estilo e foto valem somente para o convite completo.', 400);
+  const completo = i.completo === true, estilo = i.estilo ?? 'pedido', qualidade = i.qualidade ?? QUALIDADE_COMPLETO;
+  exigir(completo || (i.estilo === undefined && i.qualidade === undefined && i.foto === undefined && i.autorizacaoFoto === undefined), 'Estilo, qualidade e foto valem somente para o convite completo.', 400);
   if (completo) {
     exigir(completoDisponivel(), 'O convite completo ainda não está disponível neste ambiente.', 503);
     exigir(!i.referencias.length, 'O convite completo não usa imagens da galeria como referência.', 400);
@@ -475,6 +475,8 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
   // e os dados oficiais da festa no momento da reserva: textos alterados exigem nova chave.
   const conteudoPayload = (c: Convite) => completo
     ? { prompt: i.prompt, referencias: i.referencias, completo, estilo, ...(i.foto ? { foto: hash(i.foto) } : {}),
+      // O padrão xhigh mantém o hash anterior: pedidos enviados antes do deploy continuam idempotentes.
+      ...(qualidade !== QUALIDADE_COMPLETO ? { qualidade } : {}),
       campos: ['nome', 'idade', 'data', 'horario', 'local', 'endereco', 'mensagem'].map(k => String((c.rascunho as Record<string, unknown>)[k] ?? '').trim()) }
     : { prompt: i.prompt, referencias: i.referencias };
   let foto: Buffer | undefined;
@@ -536,7 +538,7 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
   try {
     // Uma única chamada: foto (imagem 1) e referência do estilo (imagem 2), sem retry nem troca de modelo.
     const r = p
-      ? await gerarConviteCompletoOpenAI(p.promptImagem, enviar, process.env, QUALIDADE_COMPLETO, p.foto ? [p.foto, ...(p.referenciaEstilo ? [p.referenciaEstilo] : [])] : [])
+      ? await gerarConviteCompletoOpenAI(p.promptImagem, enviar, process.env, qualidade, p.foto ? [p.foto, ...(p.referenciaEstilo ? [p.referenciaEstilo] : [])] : [])
       : await gerarImagem(i.prompt, reserva.refs, enviar);
     resultado = { imagem: p ? await armazenarConviteCompleto(r.imagem) : r.imagem, uso: r.uso };
   } catch (erro) {
