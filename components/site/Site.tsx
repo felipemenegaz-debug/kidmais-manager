@@ -7,6 +7,7 @@ import { fonteTexto, fonteTitulo } from './fonte';
 import { cx } from './estilos';
 import { Cadastro, Contato } from './elementos';
 import Abas from './Abas';
+import FundoFesta from './FundoFesta';
 import Planos from './Planos';
 import { TelaIlustrativa } from './telas';
 import { AntesDepois, ComoFunciona, Confianca, Convite, Diferenciais, Duvidas, Hero, WallE } from './secoes';
@@ -35,7 +36,7 @@ export default function SiteVenda({ somentePlanos = false }: { somentePlanos?: b
             {aberto && <a className={cx('btn', 'btn-primary', 'btn-sm')} href="/cadastro">Testar grátis</a>}
         </nav></div></header>
         <main id="topo" data-planos={somentePlanos || undefined}>
-            {somentePlanos ? <div className={cx('wrap')} style={{ paddingTop: 48 }}><h1>Planos Kidmais Manager</h1></div> : <><Hero aberto={aberto} config={config} /><AntesDepois /><Diferenciais /><Abas telas={telas} /><WallE /><Convite /><ComoFunciona /><Confianca /></>}
+            {somentePlanos ? <div className={cx('wrap')} style={{ paddingTop: 48 }}><h1>Planos Kidmais Manager</h1></div> : <><div className={cx('aberturaAnimada')} data-abertura-animada><FundoFesta /><Hero aberto={aberto} config={config} /><AntesDepois /></div><Diferenciais /><Abas telas={telas} /><WallE /><Convite /><ComoFunciona /><Confianca /></>}
             <Planos publicado={config.precosPublicados} aberto={aberto} contato={{ contato: config.contato, fundador: config.fundador }} />
             {!somentePlanos && <><Duvidas config={config} /><section className={cx('final')} id="demonstracao" aria-labelledby="t-final"><div className={cx('wrap', 'final-grid')}><div className={cx('final-copy')}><div className={cx('eyebrow')}>Próximo passo</div><h2 id="t-final">A próxima fase<br />do seu espaço começa aqui.</h2><p className={cx('lead')}>Comece o teste agora ou converse com a equipe. Mostramos o sistema com uma festa do jeito que o seu buffet trabalha.</p><div className={cx('actions')}><Cadastro aberto={aberto} /></div></div>
                 <div className={cx('panel', 'contactPanel')}><h3>Conheça o Kidmais</h3><p>Fale com a equipe para conhecer o sistema e tirar suas dúvidas.</p><Contato config={config} /></div>
