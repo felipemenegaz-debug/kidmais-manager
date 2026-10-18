@@ -169,7 +169,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     // O servidor usa os dados salvos da festa: salvar antes evita gerar com textos diferentes da tela.
     if (!dados?.laboratorioLocal && completo && alterado && dados && conteudo && !await executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')) return;
     if (dados?.laboratorioLocal && !completo && preparado?.pedido !== prompt && !await preparar()) return;
-    const assinatura = JSON.stringify({ prompt, referencias, ...(avatarOnly ? { avatarOnly } : {}), ...(dados?.laboratorioLocal ? { tipo: 'imagem', provedor: geradorLocal, completo, ...(completo ? { campos: conteudo, qualidade, estilo, foto } : {}) } : completo ? { completo, estilo, foto, campos: conteudo && { nome: conteudo.nome, idade: conteudo.idade, data: conteudo.data, horario: conteudo.horario, local: conteudo.local, endereco: conteudo.endereco, mensagem: conteudo.mensagem } } : {}) });
+    const assinatura = JSON.stringify({ prompt, referencias, ...(avatarOnly ? { avatarOnly } : {}), ...(dados?.laboratorioLocal ? { tipo: 'imagem', provedor: geradorLocal, completo, ...(completo ? { campos: conteudo, qualidade, estilo, foto } : {}) } : completo ? { completo, estilo, foto, ...(qualidade !== 'xhigh' ? { qualidade } : {}), campos: conteudo && { nome: conteudo.nome, idade: conteudo.idade, data: conteudo.data, horario: conteudo.horario, local: conteudo.local, endereco: conteudo.endereco, mensagem: conteudo.mensagem } } : {}) });
     if (!pedido.current || pedido.current.assinatura !== assinatura) pedido.current = pedidoSalvo(assinatura) ?? { assinatura, chave: crypto.randomUUID(), ...(dados?.laboratorioLocal ? { seed: crypto.getRandomValues(new Uint32Array(1))[0] } : {}) };
     if (dados?.laboratorioLocal) {
       setBusy(true); setErro(''); setRelatorioLocal(''); setEtapaLocal('Preparando workflow…');
@@ -208,7 +208,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
       return;
     }
     const comando = completo
-      ? { acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], completo: true, estilo, ...(foto ? { foto, autorizacaoFoto: true } : {}) }
+      ? { acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], completo: true, estilo, qualidade, ...(foto ? { foto, autorizacaoFoto: true } : {}) }
       : { acao: 'gerar', chave: pedido.current.chave, prompt, referencias };
     const chave = pedido.current.chave, pronta = completo ? 'Convite pronto. Confira a escrita de todos os textos e dados antes de publicar.' : 'Confira a arte e publique quando estiver pronta.';
     guardarPedido(pedido.current);
@@ -328,7 +328,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
           </>}
           <div className={ui.controlesIA}>
             {completoAtivo && <div className={ui.qualidade}><span>Estilo</span><SeletorArte nome="Estilo da arte" valor={estilo} desativado={busy} mudar={setEstilo} opcoes={[["pedido", "Conforme pedido"], ["cartoon3d", "Cartoon 3D"], ["cartoon2d", "Desenho 2D"], ["realista", "Realista"]]} ui={ui} /><small>Sem estilo no pedido, usamos cartoon 3D.</small></div>}
-            {dados.laboratorioLocal && completoAtivo && <div className={ui.qualidade}><span>Qualidade</span><SeletorArte nome="Qualidade da imagem" valor={qualidade} desativado={busy} mudar={setQualidade} opcoes={[["high", "Alta"], ["xhigh", "Muito alta"], ["max", "Máxima"]]} ui={ui} /><small>Maior qualidade pode aumentar o custo e o tempo.</small></div>}
+            {completoAtivo && <div className={ui.qualidade}><span>Qualidade</span><SeletorArte nome="Qualidade da imagem" valor={qualidade} desativado={busy || !!acompanhando} mudar={setQualidade} opcoes={[["high", "Alta"], ["xhigh", "Muito alta"], ["max", "Máxima"]]} ui={ui} /><small>Maior qualidade pode aumentar o custo e o tempo.</small></div>}
             <button type="button" className={ui.primario} disabled={busy || !!acompanhando || !dados.iaDisponivel || !!dados.geracaoIncerta || (dados.laboratorioLocal && !!dados.geradoresLocais && !dados.geradoresLocais.find(g => g.id === geradorLocal)?.disponivel) || (!dados.laboratorioLocal && dados.disponiveis < 1) || prompt.trim().length < 5} onClick={() => void gerar()}>{busy ? 'Processando…' : dados.laboratorioLocal ? (conviteCompleto && geradorLocal === 'openai' ? 'Gerar convite completo' : 'Gerar imagem') : completoAtivo ? 'Gerar convite completo · 1 crédito' : 'Gerar arte · 1 crédito'}</button>
           </div>
           {dados.laboratorioLocal && <>
