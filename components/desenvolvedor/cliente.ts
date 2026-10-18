@@ -120,6 +120,8 @@ const ACOES: Record<string, string> = {
     CADASTRO_CONFIRMADO: 'Conta confirmada pelo e-mail',
     COBRANCA_SINCRONIZADA: 'Cobrança sincronizada com o provedor',
     COBRANCA_INTENCAO_LIBERADA: 'Intenção de cobrança liberada manualmente',
+    CONVITE_GERACAO_RESOLVIDA: 'Geração de convite sem resultado decidida',
+    CONVITE_GERACAO_CONCLUIDA_COM_IMAGEM: 'Geração de convite concluída com a imagem retida',
 };
 export function rotuloAcao(acao: string) {
     return ACOES[acao] ?? acao.toLowerCase().replace(/_/g, ' ');

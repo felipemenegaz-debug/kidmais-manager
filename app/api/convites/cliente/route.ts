@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { comandar, consultar, habilitado, limitarHttp } from '@/lib/convites/service';
+import { z } from 'zod';
+import { comandar, consultar, habilitado, limitarHttp, situacaoGeracao } from '@/lib/convites/service';
 import { corpo, origemPublica, responder } from '@/lib/convites/http';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -8,7 +9,8 @@ function processar(r: NextRequest, escrever: boolean) { return responder(async (
   habilitado();
   const token = r.headers.get('authorization')?.replace(/^Bearer /, '') ?? '';
   const a = { tipo: 'cliente' as const, token };
-  if (!escrever) return consultar(a);
+  const geracao = r.nextUrl.searchParams.get('geracao');
+  if (!escrever) return geracao === null ? consultar(a) : situacaoGeracao(a, z.uuid().parse(geracao));
   origemPublica(r);
   // Validação antes do rate limit evita gravar chaves arbitrárias de visitantes não autenticados.
   await consultar(a);

@@ -51,8 +51,14 @@ jobs:
       - name: Serviço de convites — cotas, idempotência e acesso com dependências simuladas
         run: node --test lib/convites/service.test.cjs
 
+      - name: Convites — migration 084, decisão só do operador e fila do painel (dependências simuladas)
+        run: node --test lib/desenvolvedor/convites-geracoes.test.cjs
+
       - name: Convites — download da arte completa preserva dimensões, sem recorte ou textos sobrepostos
         run: node --test scripts/convites-exportacao-completa.test.cjs
 
       - name: Convites — recuperação manual (079) e aplicador de produção com trava de alvo e anti-repetição
         run: node --test lib/convites/recuperacao.test.cjs scripts/migration-079-production.test.cjs
+
+      - name: Aplicador manual da 084 em produção — trava de alvo, TLS, hashes, privilégio, estados preservados e anti-repetição (cliente simulado)
+        run: node --test scripts/migration-084-production.test.cjs

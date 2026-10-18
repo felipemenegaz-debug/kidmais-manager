@@ -19,10 +19,17 @@ import { modelosAcervo, sugestaoAcervo } from '@/lib/convites/acervo';
 import { aplicarModoArteLocal, selecionarArte } from './arte-local';
 import { conferirPrompt, alinharPrompt } from '@/lib/convites/conferencia-prompt';
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
-type GeracaoPendente = { id: string; criadoEm: string | Date; origem: 'CLIENTE' | 'BUFFET' };
-type DecisaoRecuperacao = { id: string; resolucao_resultado: string; resolucao_por: string; resolucao_em: string | Date; resolucao_evidencia: string };
+// Situação simples de um pedido de geração; pendências técnicas ficam com o operador da plataforma.
+type SituacaoGeracao = { chave: string; estado: 'EM_ANDAMENTO' | 'CONCLUIDA' | 'VERIFICANDO' | 'NAO_INICIADA' | 'ENCERRADA' | 'DEVOLVIDA'; arteId?: string | null; completo?: boolean; acompanhando?: boolean };
+const MENSAGEM_VERIFICANDO = 'Estamos verificando sua geração. Você não precisa tentar novamente.';
+const ROTULOS_HISTORICO: Record<string, string> = { IA_RESERVADA: 'geração de arte solicitada', IA_CONCLUIDA: 'arte gerada', IA_EM_VERIFICACAO: 'geração em verificação',
+  IA_NAO_INICIADA: 'geração não iniciada; crédito devolvido', IA_VERIFICACAO_CONCLUIDA: 'verificação da geração concluída' };
+const rotuloHistorico = (h: { acao: string; ator: string }) => `${h.ator === 'CLIENTE' ? 'Cliente' : h.ator === 'PLATAFORMA' ? 'Kidmais' : 'Buffet'} · ${ROTULOS_HISTORICO[h.acao] ?? h.acao.toLowerCase().replaceAll('_', ' ')}`;
+const MENSAGEM_GERANDO = 'Gerando sua arte. Você pode aguardar nesta tela; não é preciso clicar de novo.';
+// Resumo curto da assinatura do pedido (pode conter a foto) para lembrar a chave nesta aba sem guardar o conteúdo.
+function resumoPedido(texto: string) { let h = 0x811c9dc5; for (let i = 0; i < texto.length; i++) { h ^= texto.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16) + ':' + texto.length; }
 type Dados = { laboratorioLocal?: boolean; conteudo: Conteudo; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
-  disponiveis: number; iaDisponivel: boolean; completoDisponivel?: boolean; geracaoIncerta?: boolean; podeRecuperarGeracao?: boolean; geracoesPendentes?: GeracaoPendente[]; decisoesRecuperacao?: DecisaoRecuperacao[]; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
+  disponiveis: number; iaDisponivel: boolean; completoDisponivel?: boolean; geracaoIncerta?: boolean; geracaoEmAndamento?: string | null; id?: string; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
   geradoresLocais?: { id: string; nome: string; disponivel: boolean; pago: boolean }[];
   trabalhosLocais?: { id: string; estado: string; tipo: string; criadoEm: string; erro?: string }[];
   artes: Arte[]; respostas: { nome: string; presenca: boolean; adultos: number; criancas: number }[]; historico: { acao: string; ator: string; criado_em: string }[] };
@@ -68,7 +75,8 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     ajustar(); tela.addEventListener('change', ajustar);
     return () => tela.removeEventListener('change', ajustar);
   }, []);
-  const [evidencias, setEvidencias] = useState<Record<string, string>>({});
+  const [acompanhando, setAcompanhando] = useState(''), acompanhamento = useRef('');
+  useEffect(() => () => { acompanhamento.current = ''; }, []);
   const [arteExcluir, setArteExcluir] = useState<Arte | null>(null);
   const dialogo = useRef<HTMLDialogElement>(null);
   const painelIA = useRef<HTMLElement>(null);
@@ -80,10 +88,11 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
   useEffect(() => { if (arteExcluir) dialogo.current?.showModal(); else dialogo.current?.close(); }, [arteExcluir]);
   const token = useRef(''), pedido = useRef<{ assinatura: string; chave: string; seed?: number } | null>(null);
   const endpoint = admin ? `/api/admin/convites?festaId=${festaId}` : '/api/convites/cliente';
-  const api = useCallback(async (body?: object) => {
+  const api = useCallback(async (body?: object, consulta?: string) => {
     const init: RequestInit = { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(!admin ? { Authorization: `Bearer ${token.current}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store' };
-    const r = await (admin ? adminFetch(endpoint, init) : fetch(endpoint, init));
-    const j = await r.json(); if (!r.ok) throw new Error(j.erro || 'Não foi possível concluir.'); return j.data;
+    const url = consulta ? `${endpoint}${admin ? '&' : '?'}${consulta}` : endpoint;
+    const r = await (admin ? adminFetch(url, init) : fetch(url, init));
+    const j = await r.json(); if (!r.ok) throw Object.assign(new Error(j.erro || 'Não foi possível concluir.'), { status: r.status }); return j.data;
   }, [admin, endpoint]);
   const carregar = useCallback(async (criar = false, preservar = false) => {
     const d = await api(criar ? { acao: 'criar' } : undefined) as Dados;
@@ -161,7 +170,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     if (!dados?.laboratorioLocal && completo && alterado && dados && conteudo && !await executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')) return;
     if (dados?.laboratorioLocal && !completo && preparado?.pedido !== prompt && !await preparar()) return;
     const assinatura = JSON.stringify({ prompt, referencias, ...(avatarOnly ? { avatarOnly } : {}), ...(dados?.laboratorioLocal ? { tipo: 'imagem', provedor: geradorLocal, completo, ...(completo ? { campos: conteudo, qualidade, estilo, foto } : {}) } : completo ? { completo, estilo, foto, campos: conteudo && { nome: conteudo.nome, idade: conteudo.idade, data: conteudo.data, horario: conteudo.horario, local: conteudo.local, endereco: conteudo.endereco, mensagem: conteudo.mensagem } } : {}) });
-    if (!pedido.current || pedido.current.assinatura !== assinatura) pedido.current = { assinatura, chave: crypto.randomUUID(), ...(dados?.laboratorioLocal ? { seed: crypto.getRandomValues(new Uint32Array(1))[0] } : {}) };
+    if (!pedido.current || pedido.current.assinatura !== assinatura) pedido.current = pedidoSalvo(assinatura) ?? { assinatura, chave: crypto.randomUUID(), ...(dados?.laboratorioLocal ? { seed: crypto.getRandomValues(new Uint32Array(1))[0] } : {}) };
     if (dados?.laboratorioLocal) {
       setBusy(true); setErro(''); setRelatorioLocal(''); setEtapaLocal('Preparando workflow…');
       try {
@@ -201,11 +210,84 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     const comando = completo
       ? { acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], completo: true, estilo, ...(foto ? { foto, autorizacaoFoto: true } : {}) }
       : { acao: 'gerar', chave: pedido.current.chave, prompt, referencias };
-    const r = await executar(comando, completo ? 'Convite pronto. Confira a escrita de todos os textos e dados antes de publicar.' : 'Confira a arte e publique quando estiver pronta.', true);
-    if (r?.arteId) { setConteudo(c => c ? selecionarArte(c, r.arteId, !!r.completo) : c); pedido.current = null; }
-    else if (r) { if (String(r.estado ?? '').startsWith('RESOLVIDA')) pedido.current = null; setAviso('Pedido já recebido. Recarregue o histórico para conferir o resultado.'); }
-    else { try { await carregar(false, true); } catch { /* A mensagem original explica a falha; a próxima leitura atualizará o status. */ } }
+    const chave = pedido.current.chave, pronta = completo ? 'Convite pronto. Confira a escrita de todos os textos e dados antes de publicar.' : 'Confira a arte e publique quando estiver pronta.';
+    guardarPedido(pedido.current);
+    setBusy(true); setErro(''); setAviso(MENSAGEM_GERANDO);
+    let r: SituacaoGeracao;
+    try { r = await api(comando) as SituacaoGeracao; }
+    catch (e) {
+      const status = (e as { status?: number }).status;
+      setBusy(false);
+      // Resposta definitiva do servidor (validação, créditos, geração não iniciada): mostra e para.
+      // Antes de esquecer a chave, confere se um envio anterior dela (conexão perdida) já existe: nesse caso acompanha
+      // esse pedido em vez de liberar uma nova chave paga.
+      if (status && (status < 500 || status === 503)) {
+        const mensagem = (e as Error).message;
+        try { await api(undefined, `geracao=${chave}`); void acompanhar(chave); return; }
+        catch { /* 404 ou indisponível: nenhum pedido ficou com esta chave */ }
+        setAviso(''); setErro(mensagem); esquecerPedido(); return;
+      }
+      // Conexão perdida, timeout ou resultado indefinido: acompanha o MESMO pedido, sem reenviar.
+      void acompanhar(chave); return;
+    }
+    setBusy(false);
+    // Outra aba já gerando: acompanha sem trocar a arte deste rascunho (a de outra pessoa vai só para a galeria).
+    if (r.estado === 'EM_ANDAMENTO') { if (r.chave !== chave) esquecerPedido(); void acompanhar(r.chave, r.chave === chave); return; }
+    if (r.estado === 'CONCLUIDA') { try { await carregar(false, true); } catch { /* a arte já está salva; a próxima leitura mostra */ } }
+    aplicarSituacao(r, pronta);
   }
+  function chavePedido() { return dados?.id && !dados.laboratorioLocal ? `convite-pedido:${dados.id}` : ''; }
+  function pedidoSalvo(assinatura: string) {
+    try {
+      const salvo = JSON.parse(sessionStorage.getItem(chavePedido()) || 'null') as { assinatura?: string; chave?: string } | null;
+      return chavePedido() && salvo?.chave && salvo.assinatura === resumoPedido(assinatura) ? { assinatura, chave: salvo.chave } : null;
+    } catch { return null; }
+  }
+  function guardarPedido(p: { assinatura: string; chave: string }) { try { if (chavePedido()) sessionStorage.setItem(chavePedido(), JSON.stringify({ assinatura: resumoPedido(p.assinatura), chave: p.chave })); } catch { /* sem armazenamento: a chave segue só em memória */ } }
+  function esquecerPedido() { pedido.current = null; try { if (chavePedido()) sessionStorage.removeItem(chavePedido()); } catch { /* nada guardado */ } }
+  // selecionar=false: geração de outra pessoa acompanhada ao abrir o editor; a arte vai para a galeria, sem mudar a prévia.
+  function aplicarSituacao(r: SituacaoGeracao, pronta = 'Arte pronta. Confira e publique quando quiser.', selecionar = true) {
+    if (r.estado === 'CONCLUIDA' && r.arteId && !selecionar) { setErro(''); setAviso('A arte gerada já está nas imagens da festa.'); return; }
+    if (r.estado === 'CONCLUIDA' && r.arteId) { const arteId = r.arteId; setConteudo(c => c ? selecionarArte(c, arteId, !!r.completo) : c); esquecerPedido(); setErro(''); setAviso(pronta); return; }
+    if (r.estado === 'VERIFICANDO') { setErro(''); setAviso(MENSAGEM_VERIFICANDO); void carregar(false, true).catch(() => undefined); return; }
+    esquecerPedido(); setAviso('');
+    if (r.estado === 'NAO_INICIADA') setErro('Não foi possível iniciar a geração. Nenhum crédito foi usado; você pode tentar novamente.');
+    else setAviso(r.estado === 'DEVOLVIDA' ? 'A geração anterior não foi concluída e o crédito foi devolvido.' : 'A geração anterior não foi concluída.');
+    void carregar(false, true).catch(() => undefined);
+  }
+  // Acompanha um pedido já enviado (outra aba, recarga, conexão perdida) só por leitura; nunca envia outra geração.
+  async function acompanhar(chave: string, selecionar = true) {
+    if (acompanhamento.current === chave) return;
+    acompanhamento.current = chave; setAcompanhando(chave); setErro(''); setAviso(MENSAGEM_GERANDO);
+    // eslint-disable-next-line react-hooks/purity -- Prazo do acompanhamento iniciado por clique ou pela carga do convite.
+    const limite = Date.now() + 15 * 60 * 1000;
+    let ausente = 0;
+    try {
+      while (acompanhamento.current === chave && Date.now() < limite) {
+        try {
+          const r = await api(undefined, `geracao=${chave}`) as SituacaoGeracao;
+          if (acompanhamento.current !== chave) return;
+          if (r.estado !== 'EM_ANDAMENTO') { if (r.estado === 'CONCLUIDA') { try { await carregar(false, true); } catch { /* a arte já está salva */ } } aplicarSituacao(r, undefined, selecionar); return; }
+          ausente = 0;
+        } catch (e) {
+          // Pedido ainda não registrado (envio lento ou perdido): a chave é mantida; repetir o clique não cobra duas vezes.
+          if ((e as { status?: number }).status === 404 && ++ausente >= 4) { setAviso(''); setErro('Não encontramos este pedido. Se tentar de novo, o mesmo pedido será usado, sem cobrança duplicada.'); return; }
+        }
+        await new Promise(resolve => setTimeout(resolve, 4000));
+      }
+      if (acompanhamento.current === chave) setAviso(MENSAGEM_VERIFICANDO);
+    } finally { if (acompanhamento.current === chave) { acompanhamento.current = ''; setAcompanhando(''); } }
+  }
+  // Ao abrir (ou recarregar) o editor: retoma o pedido desta aba ou a geração em andamento da festa.
+  useEffect(() => {
+    if (carregando || !dados?.id || dados.laboratorioLocal) return;
+    let salva = '';
+    try { salva = (JSON.parse(sessionStorage.getItem(`convite-pedido:${dados.id}`) || 'null') as { chave?: string } | null)?.chave ?? ''; } catch { /* sem armazenamento */ }
+    // O pedido desta aba seleciona a arte ao concluir; uma geração de outra pessoa só é acompanhada.
+    const chave = salva || dados.geracaoEmAndamento;
+    if (chave) void Promise.resolve().then(() => acompanhar(chave, !!salva));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Só na primeira carga de cada convite; acompanhar lê o estado atual.
+  }, [carregando, dados?.id]);
   async function copiar(link: string) { try { await navigator.clipboard.writeText(new URL(link, window.location.origin).href); setAviso('Link copiado.'); } catch { setErro('Não foi possível copiar. Selecione o link para copiar manualmente.'); } }
   async function excluirArte() {
     if (!arteExcluir || !dados) return;
@@ -216,23 +298,6 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
       setReferencias(refs => refs.filter(ref => ref !== id));
       setArteExcluir(null);
     }
-  }
-  async function decidirRecuperacao(chave: string, resultado: 'COBRANCA_CONFIRMADA' | 'SEM_COBRANCA') {
-    const evidencia = evidencias[chave]?.trim() ?? '';
-    if (evidencia.length < 10) { setErro('Registre ao menos 10 caracteres com a fonte da conferência e o que foi verificado.'); return; }
-    setBusy(true); setErro(''); setAviso('');
-    try {
-      await api({ acao: 'recuperar', chave, resultado, evidencia });
-      const atual = await api() as Dados;
-      // Atualiza recuperação e cotas sem adotar uma revisão de rascunho mais nova sobre texto local não salvo.
-      setDados(d => d ? { ...d, geracaoIncerta: atual.geracaoIncerta, geracoesPendentes: atual.geracoesPendentes,
-        decisoesRecuperacao: atual.decisoesRecuperacao, podeRecuperarGeracao: atual.podeRecuperarGeracao,
-        cotas: atual.cotas, disponiveis: atual.disponiveis } : d);
-      pedido.current = null;
-      setEvidencias(v => Object.fromEntries(Object.entries(v).filter(([id]) => id !== chave)));
-      setAviso(resultado === 'COBRANCA_CONFIRMADA' ? 'Cobrança registrada; o crédito da geração continua consumido.' : 'Ausência de cobrança registrada; as reservas originais foram devolvidas.');
-    } catch (e) { setErro((e as Error).message); }
-    finally { setBusy(false); }
   }
   const arte = dados?.artes.find(a => a.id === conteudo?.arteId)?.url;
   const modelosFiltrados = modelosBiblioteca.filter(id => (dados?.laboratorioLocal || !(modelosAcervo as readonly string[]).includes(id)) && (categoriaModelo === 'todos' || (categoriaModelo === 'abertos' ? (modelosAcervo as readonly string[]).includes(id) : categoriaModelo === 'fotos' ? modeloComFoto(id) : categoriaModelo === 'neutros' ? baseNeutra(id) : !baseNeutra(id) && !modeloComFoto(id))));
@@ -264,7 +329,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
           <div className={ui.controlesIA}>
             {completoAtivo && <div className={ui.qualidade}><span>Estilo</span><SeletorArte nome="Estilo da arte" valor={estilo} desativado={busy} mudar={setEstilo} opcoes={[["pedido", "Conforme pedido"], ["cartoon3d", "Cartoon 3D"], ["cartoon2d", "Desenho 2D"], ["realista", "Realista"]]} ui={ui} /><small>Sem estilo no pedido, usamos cartoon 3D.</small></div>}
             {dados.laboratorioLocal && completoAtivo && <div className={ui.qualidade}><span>Qualidade</span><SeletorArte nome="Qualidade da imagem" valor={qualidade} desativado={busy} mudar={setQualidade} opcoes={[["high", "Alta"], ["xhigh", "Muito alta"], ["max", "Máxima"]]} ui={ui} /><small>Maior qualidade pode aumentar o custo e o tempo.</small></div>}
-            <button type="button" className={ui.primario} disabled={busy || !dados.iaDisponivel || !!dados.geracaoIncerta || (dados.laboratorioLocal && !!dados.geradoresLocais && !dados.geradoresLocais.find(g => g.id === geradorLocal)?.disponivel) || (!dados.laboratorioLocal && dados.disponiveis < 1) || prompt.trim().length < 5} onClick={() => void gerar()}>{busy ? 'Processando…' : dados.laboratorioLocal ? (conviteCompleto && geradorLocal === 'openai' ? 'Gerar convite completo' : 'Gerar imagem') : completoAtivo ? 'Gerar convite completo · 1 crédito' : 'Gerar arte · 1 crédito'}</button>
+            <button type="button" className={ui.primario} disabled={busy || !!acompanhando || !dados.iaDisponivel || !!dados.geracaoIncerta || (dados.laboratorioLocal && !!dados.geradoresLocais && !dados.geradoresLocais.find(g => g.id === geradorLocal)?.disponivel) || (!dados.laboratorioLocal && dados.disponiveis < 1) || prompt.trim().length < 5} onClick={() => void gerar()}>{busy ? 'Processando…' : dados.laboratorioLocal ? (conviteCompleto && geradorLocal === 'openai' ? 'Gerar convite completo' : 'Gerar imagem') : completoAtivo ? 'Gerar convite completo · 1 crédito' : 'Gerar arte · 1 crédito'}</button>
           </div>
           {dados.laboratorioLocal && <>
             <small>Confira os dados antes de gerar. {geradorLocal === 'comfy' ? 'Geração na sua GPU.' : 'Uma chamada paga.'} Sem repetição automática.</small>
@@ -276,7 +341,7 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
             {jobLocal && <><button type="button" onClick={() => { void api({ acao: 'cancelar', jobId: jobLocal }).then(() => setEtapaLocal('Cancelamento solicitado.')).catch(e => setErro(e.message)); }}>Descartar resultado</button><small>A solicitação já enviada pode ser cobrada mesmo ao descartar.</small></>}
           </>}
           {!dados.laboratorioLocal && !completoAtivo && !!dados.artes.length && <><p>Referências: escolha até duas artes anexadas.</p><div className={ui.artes}>{dados.artes.map(a => <button key={a.id} disabled={busy || (!referencias.includes(a.id) && referencias.length >= 2)} type="button" aria-label="Usar arte como referência" aria-pressed={referencias.includes(a.id)} onClick={() => setReferencias(refs => refs.includes(a.id) ? refs.filter(id => id !== a.id) : [...refs, a.id])}><img src={a.url} alt="Referência" /></button>)}</div></>}
-          <small>{dados.laboratorioLocal ? conteudo.visual?.modo === 'completa' ? 'Textos incorporados na imagem: editar os campos não altera a arte pronta.' : 'A moldura e os dados da festa são montados pelo editor.' : dados.geracaoIncerta ? 'Há uma geração sem resultado confirmado. Para evitar uma nova cobrança, a IA está pausada nesta festa até o buffet conferir o uso do provedor.' : !dados.iaDisponivel ? 'O buffet ainda não habilitou a IA. Você pode enviar sua própria arte.' : completoAtivo ? 'Uma chamada por convite: arte e textos da festa juntos. Cada geração usa 1 crédito, sem repetição automática. Confira a escrita antes de publicar.' : 'Cada nova geração ou edição por IA usa 1 crédito. Downloads não usam créditos.'}</small>
+          <small>{dados.laboratorioLocal ? conteudo.visual?.modo === 'completa' ? 'Textos incorporados na imagem: editar os campos não altera a arte pronta.' : 'A moldura e os dados da festa são montados pelo editor.' : dados.geracaoIncerta ? MENSAGEM_VERIFICANDO : acompanhando ? MENSAGEM_GERANDO : !dados.iaDisponivel ? 'O buffet ainda não habilitou a IA. Você pode enviar sua própria arte.' : completoAtivo ? 'Uma chamada por convite: arte e textos da festa juntos. Cada geração usa 1 crédito, sem repetição automática. Confira a escrita antes de publicar.' : 'Cada nova geração ou edição por IA usa 1 crédito. Downloads não usam créditos.'}</small>
         </>) : null;
   const painelGeracao = <section ref={painelIA} className={ui.painel} aria-labelledby="titulo-criar-arte"><h2 id="titulo-criar-arte">Crie uma arte com IA</h2>{conteudoGeracao}</section>;
   return <main className={ui.editor} data-editor={admin ? 'buffet' : 'cliente'}>
@@ -285,21 +350,6 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
     {carregando ? <p>Preparando seu convite…</p> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
       <div className={ui.barra}><span>{dados.publicado ? '● Publicado' : '○ Rascunho'}{alterado ? ' · Alterações não salvas' : ''}</span><span>{dados.laboratorioLocal ? 'Teste local' : <><strong>{dados.disponiveis}</strong> créditos de imagem disponíveis</>}</span></div>
       {dados.desatualizado && <p className={ui.erro}>A contratação foi atualizada e o link público está suspenso. Confira data, horário e local e publique novamente.</p>}
-      {admin && dados.podeRecuperarGeracao && (!!dados.geracoesPendentes?.length || !!dados.decisoesRecuperacao?.length) && <section className={ui.painel} aria-labelledby="geracoes-incertas-titulo">
-        <h2 id="geracoes-incertas-titulo">Revisar geração sem resultado</h2>
-        {!!dados.geracoesPendentes?.length && <p>Confira o histórico de uso no provedor e escolha o resultado. A decisão é registrada com seu usuário e evidência; nenhuma consulta automática é feita ao provedor de imagens.</p>}
-        {dados.geracoesPendentes?.map(g => <div key={g.id} className={ui.painel}>
-          <p><strong>Geração {g.id}</strong><br />Solicitada em {new Date(g.criadoEm).toLocaleString('pt-BR')} · iniciada pelo {g.origem === 'CLIENTE' ? 'cliente' : 'buffet'}.</p>
-          <label>Fonte e evidência da conferência<textarea rows={3} maxLength={1000} minLength={10} required value={evidencias[g.id] ?? ''} onChange={e => setEvidencias(v => ({ ...v, [g.id]: e.target.value }))} placeholder="Ex.: Console do provedor, consulta realizada em 11/10/2026; registro da solicitação sem cobrança." /></label>
-          <div className={ui.acoes}>
-            <button type="button" disabled={busy || (evidencias[g.id]?.trim().length ?? 0) < 10} onClick={() => void decidirRecuperacao(g.id, 'COBRANCA_CONFIRMADA')}>Cobrança confirmada · manter crédito consumido</button>
-            <button type="button" className={ui.primario} disabled={busy || (evidencias[g.id]?.trim().length ?? 0) < 10} onClick={() => void decidirRecuperacao(g.id, 'SEM_COBRANCA')}>Sem cobrança · devolver reservas</button>
-          </div>
-        </div>)}
-        {!!dados.decisoesRecuperacao?.length && <details><summary>Decisões anteriores</summary><ul>{dados.decisoesRecuperacao.map(d => <li key={d.id}>
-          {new Date(d.resolucao_em).toLocaleString('pt-BR')} · geração {d.id} · {d.resolucao_resultado === 'COBRANCA_CONFIRMADA' ? 'cobrança confirmada; crédito mantido' : 'sem cobrança; reservas devolvidas'} · usuário {d.resolucao_por}<br />Evidência: {d.resolucao_evidencia}
-        </li>)}</ul></details>}
-      </section>}
       <div className={`${ui.colunas} ${ui.colunaUnica}`}><div className={ui.configuracao}>
         {MOLDURAS_NO_EDITOR && <fieldset disabled={busy} className={ui.painel}><legend>{dados.laboratorioLocal ? 'Biblioteca de molduras e imagens' : '01 · Escolha o visual'}</legend><details open={!dados.laboratorioLocal || undefined}><summary>Escolher moldura ou imagem</summary>
           {!(dados.laboratorioLocal && conteudo.visual?.modo === 'completa') && <><div className={styles.filtrosModelos} role="group" aria-label="Filtrar modelos">{([['todos', 'Todos'], ['neutros', 'Bases neutras'], ['fotos', 'Com foto'], ['temas', 'Temas']] as const).map(([id, nome]) => <button key={id} type="button" aria-pressed={categoriaModelo === id} onClick={() => { setCategoriaModelo(id); setPaginaModelo(1); }}>{nome}</button>)}</div>
@@ -353,9 +403,9 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
         </details>}
         <ConviteFamilias familias={dados.familias ?? []} publicado={dados.publicado && !dados.desatualizado} busy={busy} erro={erro} ui={ui} executar={executarFamilia} />
         <ConvitePresencas respostas={dados.respostas} contratados={dados.convidadosContratados ?? null} ui={ui} busy={busy} atualizar={() => void atualizarPresencas()} />
-        <details className={ui.painel}><summary>Histórico do convite</summary><ul>{dados.historico.map((h, n) => <li key={n}>{new Date(h.criado_em).toLocaleString('pt-BR')} · {h.ator === 'CLIENTE' ? 'Cliente' : 'Buffet'} · {h.acao.toLowerCase().replaceAll('_', ' ')}</li>)}</ul></details>
+        <details className={ui.painel}><summary>Histórico do convite</summary><ul>{dados.historico.map((h, n) => <li key={n}>{new Date(h.criado_em).toLocaleString('pt-BR')} · {rotuloHistorico(h)}</li>)}</ul></details>
       </div>}
-      {dados.laboratorioLocal && <details className={ui.painel}><summary>Histórico do convite</summary><ul>{dados.historico.map((h, n) => <li key={n}>{new Date(h.criado_em).toLocaleString('pt-BR')} · {h.ator === 'CLIENTE' ? 'Cliente' : 'Buffet'} · {h.acao.toLowerCase().replaceAll('_', ' ')}</li>)}</ul></details>}
+      {dados.laboratorioLocal && <details className={ui.painel}><summary>Histórico do convite</summary><ul>{dados.historico.map((h, n) => <li key={n}>{new Date(h.criado_em).toLocaleString('pt-BR')} · {rotuloHistorico(h)}</li>)}</ul></details>}
     </>}
     <dialog ref={dialogo} className={ui.dialogo} aria-labelledby="titulo-excluir-imagem" onCancel={e => { if (busy) e.preventDefault(); else setArteExcluir(null); }} onClose={() => setArteExcluir(null)}>
       <h2 id="titulo-excluir-imagem">Excluir imagem da galeria?</h2>

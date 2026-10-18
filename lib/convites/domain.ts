@@ -60,8 +60,12 @@ export const comandoSchema = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('gerar'), chave: z.uuid(), prompt: z.string().trim().min(5).max(3000), referencias: z.array(z.uuid()).max(2),
     completo: z.literal(true).optional(), estilo: z.enum(['pedido', 'cartoon3d', 'cartoon2d', 'realista']).optional(),
     foto: z.string().max(7_000_000).optional(), autorizacaoFoto: z.literal(true).optional() }).strict(),
-  z.object({ acao: z.literal('recuperar'), chave: z.uuid(), resultado: z.enum(['COBRANCA_CONFIRMADA', 'SEM_COBRANCA']), evidencia: z.string().trim().min(10).max(1000) }).strict(),
 ]);
+// Decisão financeira de uma geração sem resultado: exclusiva do operador da plataforma (painel do desenvolvedor),
+// nunca do buffet nem do cliente. A ação 'recuperar' não existe mais no editor do convite.
+export const resolucaoGeracaoSchema = z.object({ geracaoId: z.uuid(), resultado: z.enum(['COBRANCA_CONFIRMADA', 'SEM_COBRANCA']),
+  evidencia: z.string().trim().min(10).max(1000) }).strict();
+export const concluirGeracaoSchema = z.object({ geracaoId: z.uuid() }).strict();
 export const respostaSchema = z.object({
   chave: z.uuid(), nome: z.string().trim().min(2).max(100),
   presenca: z.boolean(), adultos: z.int().min(0).max(20), criancas: z.int().min(0).max(20),
