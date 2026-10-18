@@ -157,7 +157,9 @@ O stderr traz o sha256 e o tamanho **em bytes**. O bloco é ASCII puro, então b
 | 1 | o aplicador recusou antes de conectar |
 | 2 | FALHA registrada |
 | 3 | RECUSARIA |
-| **4** | o **bloco** recusou: ferramenta, dependência, conteúdo ou colisão; nada gravado |
+| **4** | o **bloco** recusou ou falhou, sempre com mensagem nomeada. Antes de gravar (nada gravado): `DESTINO_INACESSIVEL`, `FERRAMENTA_AUSENTE`, `TEMPORARIO_FALHOU`, `DEPENDENCIA_DIVERGENTE`, `CONTEUDO_DIVERGENTE`, `JA_EXISTE_DIFERENTE`. Durante a gravação ou limpeza: `GRAVACAO_FALHOU` (pode ter gravado parte dos 7; a LIMPEZA remove os que conferem) e `REMOCAO_FALHOU`. Nenhuma falha do bloco sai com 1–3 |
+
+O registro (`ls` do disco persistente) só é listado quando o aplicador chega a rodar: em 0/1/2/3, e não em 4. Shell de outro serviço: `SHELL_ERRADO_NAO_E_STAGING`, sem `CODIGO_SAIDA_BLOCO`.
 
 **Procedimento:**
 1. Conferir sha256 e bytes na página.

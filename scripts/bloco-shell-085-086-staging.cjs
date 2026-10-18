@@ -7,8 +7,9 @@
 //     operador; depois do subshell, CODIGO_SAIDA_BLOCO=<n> fica impresso e legível;
 //   - o corpo confere as 4 dependências implantadas e o sha dos 7 arquivos ANTES de gravar qualquer um, grava só os
 //     ausentes (presente diferente → para), roda o aplicador e imprime o registro do disco persistente;
-//   - códigos: 0/1/2/3 são do aplicador (PASS-CONFERIDO / recusa antes de conectar / FALHA / RECUSARIA); 4 é recusa do
-//     próprio bloco (ferramenta, dependência, conteúdo ou colisão), sempre antes de gravar;
+//   - códigos: 0/1/2/3 são do aplicador (PASS-CONFERIDO / recusa antes de conectar / FALHA / RECUSARIA); 4 é recusa ou
+//     falha do PRÓPRIO bloco, com mensagem nomeada (destino, ferramenta, temporário, dependência, conteúdo, colisão:
+//     antes de gravar; GRAVACAO_FALHOU/REMOCAO_FALHOU: durante a gravação/limpeza). Nenhuma falha do bloco sai com 1–3;
 //   - LIMPEZA remove só os 7 arquivos cujo sha confere (nunca dependências nem o registro no disco persistente).
 // O bloco gerado é ASCII puro. Este gerador só lê arquivos e escreve o bloco na saída; não conecta nem executa nada.
 //   node scripts/bloco-shell-085-086-staging.cjs <H0|H1|LIMPEZA> <rotulo-da-arvore>
@@ -55,20 +56,23 @@ function gerar({modo, rotulo, raiz = path.resolve(__dirname, '..'), destino = DE
   // Destino absoluto (drive opcional, só nos testes locais), sem aspas, espaços nem metacaracteres de shell.
   assert.match(destino, /^(?:[A-Za-z]:)?\/[A-Za-z0-9_./-]+$/, 'DESTINO_INVALIDO');
   const cmd = comando === undefined ? (COMANDOS[modo] && `NODE_PATH="$PWD/node_modules" node ${APLICADOR} ${COMANDOS[modo]}`) : comando;
-  const c = ['set -euo pipefail', 'umask 077', `cd '${destino}'`,
+  // Toda falha do PRÓPRIO bloco sai com 4 e mensagem nomeada (com set -e, um comando falhando sozinho sairia com o
+  // código dele — em geral 1 — e se confundiria com o 1 do aplicador): por isso cada passo que pode falhar tem `|| {…}`.
+  const c = ['set -euo pipefail', 'umask 077', `cd '${destino}' || { echo "DESTINO_INACESSIVEL"; exit 4; }`,
     'for f in sha256sum base64 gzip mktemp node; do command -v "$f" >/dev/null || { echo "FERRAMENTA_AUSENTE $f"; exit 4; }; done',
     'h() { sha256sum "$1" | cut -d" " -f1; }',
     'dep() { [ -f "$1" ] && [ "$(h "$1")" = "$2" ] || { echo "DEPENDENCIA_DIVERGENTE $1"; exit 4; }; }'];
   for (const d of DEPENDENCIAS) c.push(`dep ${seguro(d)} ${sha(ler(raiz, d))}`);
   if (modo === 'LIMPEZA') {
-    c.push('limpar() { if [ ! -e "$1" ]; then echo "AUSENTE $1"; elif [ "$(h "$1")" = "$2" ]; then rm -f -- "$1"; echo "REMOVIDO $1"; else echo "DIVERGENTE_PRESERVADO $1"; fi; }');
+    c.push('limpar() { if [ ! -e "$1" ]; then echo "AUSENTE $1"; elif [ "$(h "$1")" = "$2" ]; then rm -f -- "$1" || { echo "REMOCAO_FALHOU $1"; exit 4; }; echo "REMOVIDO $1"; else echo "DIVERGENTE_PRESERVADO $1"; fi; }');
     for (const a of ARQUIVOS) c.push(`limpar ${seguro(a)} ${sha(ler(raiz, a))}`);
     c.push('echo LIMPEZA_FIM');
   } else {
-    c.push('T="$(mktemp -d)"', "trap 'rm -rf \"$T\"' EXIT",
-      'prep() { base64 -d | gzip -dc > "$T/$1"; [ "$(h "$T/$1")" = "$3" ] || { echo "CONTEUDO_DIVERGENTE $2"; exit 4; }; }',
+    c.push('T="$(mktemp -d)" || { echo "TEMPORARIO_FALHOU"; exit 4; }', "trap 'rm -rf \"$T\"' EXIT",
+      'prep() { { base64 -d | gzip -dc > "$T/$1"; } 2>/dev/null || { echo "CONTEUDO_DIVERGENTE $2"; exit 4; }; [ "$(h "$T/$1")" = "$3" ] || { echo "CONTEUDO_DIVERGENTE $2"; exit 4; }; }',
       'livre() { [ ! -e "$1" ] || [ "$(h "$1")" = "$2" ] || { echo "JA_EXISTE_DIFERENTE $1"; exit 4; }; }',
-      'inst() { if [ -e "$2" ]; then echo "JA_PRESENTE $2"; else mkdir -p "$(dirname "$2")"; cp "$T/$1" "$2"; echo "ESCRITO $2"; fi; }');
+      // Falha de gravação (permissão, disco): 4 com GRAVACAO_FALHOU; pode ter gravado parte dos 7 — a LIMPEZA remove os que conferem.
+      'inst() { if [ -e "$2" ]; then echo "JA_PRESENTE $2"; else { mkdir -p "$(dirname "$2")" && cp "$T/$1" "$2"; } || { echo "GRAVACAO_FALHOU $2"; exit 4; }; echo "ESCRITO $2"; fi; }');
     ARQUIVOS.forEach((a, i) => {
       const b = ler(raiz, a);
       c.push(`prep ${i} ${seguro(a)} ${sha(b)} <<'B64'`, ...zlib.gzipSync(b, {level:9}).toString('base64').match(/.{1,76}/g), 'B64');

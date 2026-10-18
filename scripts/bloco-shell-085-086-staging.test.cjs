@@ -51,7 +51,7 @@ test('blocos oficiais: ASCII, guarda de serviço antes de tudo, corpo em subshel
     const L=x.split('\n');const iGuarda=L.findIndex(l=>l.startsWith('if [ "$RENDER_SERVICE_ID" != "srv-daif418ae00c73e8k2gg" ]'));
     assert.ok(iGuarda>0&&L.slice(0,iGuarda).every(l=>l.startsWith('#')||l.startsWith('bind ')),'nada antes da guarda '+modo);
     assert.equal(L[iGuarda+1],'(');assert.ok(L.includes(')')&&L.includes('echo "CODIGO_SAIDA_BLOCO=$?"')&&L.at(-2)==='fi');
-    assert.match(x,/^cd '\/opt\/render\/project\/src'$/m); assert.doesNotMatch(x,/DATABASE_URL|PGPASSWORD|postgres(ql)?:\/\//);
+    assert.match(x,/^cd '\/opt\/render\/project\/src' \|\| \{ echo "DESTINO_INACESSIVEL"; exit 4; \}$/m); assert.doesNotMatch(x,/DATABASE_URL|PGPASSWORD|postgres(ql)?:\/\//);
   }
   assert.match(b.gerar({modo:'H0',rotulo:'b659b14'}),/^NODE_PATH="\$PWD\/node_modules" node scripts\/migration-085-086-staging\.cjs --conferir-085-086 \|\| codigo=\$\?$/m);
   assert.match(b.gerar({modo:'H1',rotulo:'b659b14'}),/^NODE_PATH="\$PWD\/node_modules" node scripts\/migration-085-086-staging\.cjs --aplicar-085-086-autorizado \|\| codigo=\$\?$/m);
@@ -94,10 +94,20 @@ test('arquivo presente e diferente: código 4 sem escrever os demais; limpeza pr
   }finally{fs.rmSync(d,{recursive:true,force:true});}
 });
 
-test('conteúdo corrompido no bloco: para antes de gravar qualquer arquivo (código não zero)',()=>{
+test('conteúdo corrompido (base64/gzip ou sha): código 4 com CONTEUDO_DIVERGENTE, antes de gravar qualquer arquivo',()=>{
+  for(const corromper of [l=>l.replace(/^./,c=>c==='A'?'B':'A'),l=>'!!!'+l.slice(3)]){
+    const d=destino();
+    try{const linhas=gerar(d,'H1').split('\n'),i=linhas.findIndex(x=>x.startsWith('prep 3 '))+1;linhas[i]=corromper(linhas[i]);
+      const r=sessao(d,linhas.join('\n'));assert.equal(codigo(r.saida),4,r.saida.slice(-300));assert.match(r.saida,/^CONTEUDO_DIVERGENTE database\/checks\/20261018_085_postcheck\.sql$/m);
+      assert.deepEqual(presentes(d),[]);
+    }finally{fs.rmSync(d,{recursive:true,force:true});}
+  }
+});
+
+test('destino inacessível: código 4 com DESTINO_INACESSIVEL, nenhum arquivo criado (nunca 1, que é do aplicador)',()=>{
   const d=destino();
-  try{const linhas=gerar(d,'H1').split('\n'),i=linhas.findIndex(x=>x.startsWith('prep 3 '))+1;linhas[i]=linhas[i].replace(/^./,c=>c==='A'?'B':'A');
-    const r=sessao(d,linhas.join('\n'));assert.notEqual(codigo(r.saida),0,r.saida);assert.ok(Number.isInteger(codigo(r.saida)));assert.deepEqual(presentes(d),[]);
+  try{const r=sessao(d,b.gerar({modo:'H0',rotulo:'d14983d',destino:posix(path.join(d,'nao-existe')),comando:null}));
+    assert.equal(codigo(r.saida),4,r.saida);assert.match(r.saida,/^DESTINO_INACESSIVEL$/m);assert.ok(!fs.existsSync(path.join(d,'nao-existe')));assert.deepEqual(presentes(d),[]);
   }finally{fs.rmSync(d,{recursive:true,force:true});}
 });
 
