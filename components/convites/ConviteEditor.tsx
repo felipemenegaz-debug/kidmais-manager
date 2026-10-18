@@ -107,7 +107,8 @@ export default function ConviteEditor({ festaId }: { festaId?: string }) {
   }, [carregar]);
   const alterado = !!dados && !!conteudo && JSON.stringify(conteudo) !== JSON.stringify(dados.conteudo);
   // Convite completo (arte + textos numa chamada): no produto, quando o servidor tem o provedor configurado.
-  const completoAtivo = dados?.laboratorioLocal ? conviteCompleto && geradorLocal === 'openai' : !!dados?.completoDisponivel;
+  // Desligar a IA bloqueia o envio, mas mantém os controles do convite completo para comparação.
+  const completoAtivo = dados?.laboratorioLocal ? conviteCompleto && geradorLocal === 'openai' : !!dados?.completoDisponivel || dados?.iaDisponivel === false;
   useEffect(() => { const sair = (e: BeforeUnloadEvent) => { if (alterado) e.preventDefault(); }; window.addEventListener('beforeunload', sair); return () => window.removeEventListener('beforeunload', sair); }, [alterado]);
   async function executar(body: object, mensagem: string, preservar = false) {
     setBusy(true); setErro(''); setAviso('');
