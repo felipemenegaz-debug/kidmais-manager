@@ -88,6 +88,26 @@ export async function armazenarConviteCompleto(png: Buffer) {
   throw new FalhaProvedorImagem('resposta_imagem_grande');
 }
 
+// Bytes da imagem de uma resposta 2xx, com as mesmas regras de extração dos adaptadores, para guardá-los antes do
+// processamento local. Não guarda o corpo inteiro (pode repetir o pedido); resposta fora do formato devolve null.
+export function imagemDaResposta(url: string, corpo: unknown): Buffer | null {
+  try {
+    if (url.startsWith('https://api.openai.com/')) {
+      const r = corpo as { data?: { b64_json?: unknown }[] };
+      const b64 = Array.isArray(r?.data) && r.data.length === 1 ? r.data[0]?.b64_json : undefined;
+      if (typeof b64 !== 'string' || !b64.length || b64.length > 22_000_000 || !/^[A-Za-z0-9+/=]+$/.test(b64)) return null;
+      return Buffer.from(b64, 'base64');
+    }
+    const dataUrl = extrairImagem(corpo as Resposta);
+    return Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+  } catch { return null; }
+}
+// Reprocessa uma imagem já recebida e guardada (recuperação sem nova chamada): mesmo caminho da geração original.
+export async function processarImagemRecebida(bytes: Buffer, completo: boolean) {
+  const b64 = bytes.toString('base64');
+  return completo ? armazenarConviteCompleto(await normalizarConvitePNG(b64)) : normalizarImagem(`data:image/webp;base64,${b64}`);
+}
+
 // Modelo, resolução e qualidade definidos pelo servidor; sem fallback/retry pago.
 export async function gerarConviteCompletoOpenAI(prompt: string, enviar: typeof fetch, env: NodeJS.ProcessEnv, qualidade = QUALIDADE_COMPLETO, refs: Buffer[] = []) {
   exigir(completoDisponivel(env), 'O convite completo ainda não está disponível neste ambiente.', 503);
