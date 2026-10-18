@@ -27,3 +27,12 @@ Alvo único: web staging `srv-daif418ae00c73e8k2gg`, workspace `tea-daidbj95efls
 Push fast-forward e um deploy manual do web após validações. Conferir o SHA entregue pelo Render, status LIVE, health e `/conheca`. Se houver falha, investigar antes de repetir. Reversão possível ao deploy anterior `dep-dba8a2tg1s2s73b5nurg`, sem reversão de banco; rollback remoto não executado por este registro.
 
 Resultado remoto será registrado após conclusão; este documento não declara deploy concluído.
+
+## Resultado remoto confirmado
+
+- Código publicado: `c1426c792f9d8b6dacb6e2081ed9fe07a14fa2a1`.
+- Deploy `dep-dbaa2749v7es73fo2dj0`: LIVE em 18/10/2026 às 10:44:17Z (07:44 Brasília), após bateria automática e build do Render.
+- Health e `/conheca`: HTTP 200. Durante a troca de instância houve um 502 transitório, resolvido com a conclusão do deploy.
+- Navegador em staging: gradiente WebGL inicializado, seis elementos desktop, sem overflow horizontal ou erros de console após carregar a versão nova. Screenshot: `evidencias/site-fundo-staging-20261018.png`.
+- `/planos` conferido localmente sem a camada decorativa. Servidor local de validação encerrado; aba de staging mantida para Felipe.
+- Nenhuma operação em banco, migration, env, cron ou produção. Este resultado não altera o estado comercial de funcionalidades sinalizadas como Em breve.
