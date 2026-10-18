@@ -99,7 +99,7 @@ Todas com provedor simulado e dados sintéticos, sem rede.
   - reserva sem o marcador, devolução que não fecha, conclusão com a imagem retida e ordem das travas.
 - `lib/convites/recuperacao.test.cjs` (4) e `lib/desenvolvedor/convites-geracoes.test.cjs` (6): concessão, senha recente, auditoria e erros.
 - `lib/convites/imagem-openai.test.ts`: extração e reprocessamento pelo mesmo caminho.
-- `scripts/migration-084-staging.test.cjs` (6).
+- `scripts/migration-084-production.test.cjs` (16): trava de alvo, TLS, hashes, plano, leitura sem escrita, marcador anti-repetição que preserva as etapas numa falha.
 - `scripts/convites-postgres.cjs`, PostgreSQL 18 descartável, 073/074/079/084 (38 verificações):
   - travas e constraints reais;
   - a reconciliação segurando a linha enquanto o marcador espera (nada sai);
@@ -109,9 +109,12 @@ Todas com provedor simulado e dados sintéticos, sem rede.
 
 ## Dependência e ordem para publicar
 
-1. **Migration 084 antes do código.** Ela é aditiva, e o código anterior funciona com ela aplicada. Em staging use `scripts/migration-084-staging.cjs`:
-   - `--conferir-084`: somente leitura;
-   - `--aplicar-084-autorizado`: exige autorização própria e backup operacional.
+1. **Migration 084 antes do código.** Ela é aditiva, e o código anterior funciona com ela aplicada. Em produção use `scripts/migration-084-production.cjs` no Web Shell do web de produção (em staging ela já foi aplicada em 18/10 com o aplicador da linha staging):
+   - sem argumentos: mostra o plano, sem conexão;
+   - `--conferir-084`: só leitura (identidade TLS/rede privada, 073/079, precheck ou postcheck); não grava nada;
+   - `--aplicar-084-autorizado`: exige autorização própria; uma tentativa só (marcador `data/convites-geracao-pendente-producao-20261018/migration-084.json`);
+   - em `FALHA`: **não repetir**. Ler o marcador (as etapas concluídas ficam registradas) e rodar `--conferir-084`: `JA_APLICADA_POSTCHECK_PASS` indica que a DDL foi confirmada.
+   - `estadosIguais: false` é só informativo: o app pode concluir uma geração entre as leituras, e a 084 não tem DML.
 2. Deploy do código.
 3. **Rollback:**
    - código: voltar ao deploy anterior; a 084 pode ficar aplicada;

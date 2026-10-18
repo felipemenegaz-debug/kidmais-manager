@@ -150,11 +150,36 @@ test('executar exige disco persistente antes de gravar o marcador', async () => 
   } finally { fs.rmSync(dir, {recursive: true, force: true}); }
 });
 
-test('estados por geração precisam ser os mesmos antes e depois; a aplicação falha e registra se a migration mudasse algum', async () => {
-  const mudou = clienteFalso({schemas: [ANTES, {...DEPOIS, estados: {INCERTA: 0, CONCLUIDA: 4}}]});
-  await assert.rejects(m.aplicarNoCliente(mudou), /ESTADOS_ALTERADOS/);
-  const r = await m.aplicarNoCliente(clienteFalso());
-  assert.deepEqual(r.schemaDepois.estados, r.schemaAntes.estados);
+test('estados por geração são informativos: mudança concorrente do app não vira FALHA de uma DDL já confirmada', async () => {
+  const mudou = clienteFalso({schemas: [ANTES, {...DEPOIS, estados: {INCERTA: 1, CONCLUIDA: 4}}]});
+  const r1 = await m.aplicarNoCliente(mudou);
+  assert.equal(r1.resultado, 'APLICADA_POSTCHECK_PASS'); assert.equal(r1.estadosIguais, false);
+  const r2 = await m.aplicarNoCliente(clienteFalso());
+  assert.equal(r2.estadosIguais, true); assert.deepEqual(r2.schemaDepois.estados, r2.schemaAntes.estados);
+});
+
+test('executar: falha depois da migration preserva no marcador as etapas já concluídas (não apaga a evidência)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'm084-'));
+  try {
+    const Falha = function () { return clienteFalso({falharEm: '084 postcheck OK'}); };
+    const r = await m.executar({env: ENV, dir, Client: Falha, disco: () => {}});
+    assert.equal(r.resultado, 'FALHA');
+    const registro = JSON.parse(fs.readFileSync(path.join(dir, m.MARCADOR), 'utf8'));
+    assert.equal(registro.situacao, 'FALHA');
+    assert.deepEqual(registro.etapas.map(e => [e.nome, e.ok ?? false]), [['precheck 084', true], ['migration 084', true], ['postcheck 084', false]]);
+    assert.deepEqual(registro.schemaAntes.estados, ESTADOS);
+    assert.ok(!JSON.stringify(registro).includes('SENHA_FALSA'));
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+});
+
+test('executar concluído grava CONCLUIDA com estadosIguais e as etapas no marcador', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'm084-'));
+  try {
+    const r = await m.executar({env: ENV, dir, Client: function () { return clienteFalso(); }, disco: () => {}});
+    assert.equal(r.resultado, 'APLICADA_POSTCHECK_PASS'); assert.equal(r.estadosIguais, true);
+    const registro = JSON.parse(fs.readFileSync(path.join(dir, m.MARCADOR), 'utf8'));
+    assert.equal(registro.situacao, 'CONCLUIDA'); assert.equal(registro.etapas.length, 3);
+  } finally { fs.rmSync(dir, {recursive: true, force: true}); }
 });
 
 test('alvo e marcador são exclusivos da 084 em produção (não reaproveita o marcador nem a pasta da 079)', () => {

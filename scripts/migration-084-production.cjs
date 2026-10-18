@@ -13,6 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
+const {isDeepStrictEqual} = require('node:util');
 
 const FLAG = '--aplicar-084-autorizado';
 const FLAG_CONFERIR = '--conferir-084';
@@ -92,8 +93,9 @@ function autorizado(argv) { return argv.length === 1 && flags(argv)[0] === FLAG;
 function conferencia(argv) { return argv.length === 1 && flags(argv)[0] === FLAG_CONFERIR; }
 
 /**
- * Estado legível e dependências presentes (073 e 079); vestígio sem a 084 completa = aplicação parcial → parar. Sem DDL
- * sobre convite_geracoes (dono) ou CREATE no schema public (índice), a migration falharia: recusar antes de qualquer escrita. Na conferência não há marcador; na aplicação o marcador de
+ * Estado legível e dependências presentes (073 e 079); vestígio sem a 084 completa = aplicação parcial → parar. Sem ser
+ * dono de convite_geracoes (ALTER, CHECK e índice) a migration falharia: recusar antes de qualquer escrita. O CREATE no
+ * schema public é exigido como na 079 (mais restritivo que o necessário, sem efeito colateral). Na conferência não há marcador; na aplicação o marcador de
  * disco já existe e fica FALHA — por isso a conferência é obrigatória antes.
  */
 function planoEtapas(schema) {
@@ -144,8 +146,9 @@ async function aplicarNoCliente(db, {raiz = path.resolve(__dirname, '..'), regis
   }
   r.schemaDepois = (await somenteLeitura(db, SQL_SCHEMA)).rows[0];
   assert.ok(r.schemaDepois.m084, 'SCHEMA_DEPOIS');
-  // Nenhuma geração muda de estado com a 084 (a contagem por estado é a mesma antes e depois).
-  assert.deepEqual(r.schemaDepois.estados, r.schemaAntes.estados, 'ESTADOS_ALTERADOS');
+  // A 084 não tem DML. A contagem por estado é informativa: o app em produção pode concluir uma geração entre as duas
+  // leituras, e isso não pode virar FALHA de uma DDL já confirmada (o postcheck é o critério).
+  r.estadosIguais = isDeepStrictEqual(r.schemaDepois.estados, r.schemaAntes.estados);
   r.resultado = r.plano.length === 1 ? 'JA_APLICADA_POSTCHECK_PASS' : 'APLICADA_POSTCHECK_PASS';
   registrar(r);
   return r;
@@ -167,16 +170,19 @@ async function executar({env, dir = DIR, raiz = path.resolve(__dirname, '..'), C
   try { fs.writeFileSync(marcador, JSON.stringify(registro, null, 2), {flag: 'wx', mode: 0o600}); }
   catch (e) { if (e?.code === 'EEXIST') assert.fail('TENTATIVA_ANTERIOR_REVISAR ' + marcador); throw e; }
   const salvar = r => fs.writeFileSync(marcador, JSON.stringify({...registro, ...r}, null, 2), {mode: 0o600});
+  // Último progresso gravado: numa falha, o marcador mantém as etapas já concluídas (ex.: migration ok antes do erro).
+  let ultimo = {};
   const db = new Client(opts); db.on?.('error', () => undefined);
   try {
     await db.connect();
     const certificadoVerificado = opts.ssl.rejectUnauthorized;
-    const r = await aplicarNoCliente(db, {raiz, registrar: x => salvar({...x, certificadoVerificado, situacao: 'EM_ANDAMENTO'})});
+    const r = await aplicarNoCliente(db, {raiz, registrar: x => { ultimo = JSON.parse(JSON.stringify({...x, certificadoVerificado})); salvar({...ultimo, situacao: 'EM_ANDAMENTO'}); }});
     salvar({...r, certificadoVerificado, situacao: 'CONCLUIDA'});
-    return {resultado: r.resultado, marcador, conexao: {...r.conexao, certificadoVerificado}, schemaAntes: r.schemaAntes, schemaDepois: r.schemaDepois, etapas: r.etapas.map(e => e.nome)};
+    return {resultado: r.resultado, marcador, conexao: {...r.conexao, certificadoVerificado}, schemaAntes: r.schemaAntes, schemaDepois: r.schemaDepois,
+      estadosIguais: r.estadosIguais, etapas: r.etapas.map(e => e.nome)};
   } catch (e) {
     const falha = {mensagem: String(e?.message ?? e).slice(0, 160)};
-    salvar({situacao: 'FALHA', falha});
+    salvar({...ultimo, situacao: 'FALHA', falha});
     return {resultado: 'FALHA', marcador, falha};
   } finally { await db.end().catch(() => {}); }
 }
