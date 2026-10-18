@@ -6,8 +6,8 @@ import { provarTenant, revalidarTenant } from '../saas/provar-tenant';
 import { provarEstabelecimento } from '../saas/provar-estabelecimento';
 import { contrato } from '../festas/repository';
 import { lerEstadoComercial } from '../assinatura/estado';
-import { comandoSchema, conteudoSchema, ConviteError, disponiveis, exigir, inicioConteudo, respostaSchema, validarCredito, type Conteudo, type Cotas } from './domain';
-import { FalhaProvedorImagem, gerarImagem, iaConfigurada, normalizarImagem, modeloImagem, completoDisponivel, gerarConviteCompletoOpenAI, armazenarConviteCompleto, MODELO_COMPLETO, QUALIDADE_COMPLETO } from './imagem';
+import { comandoSchema, conteudoSchema, ConviteError, disponiveis, exigir, inicioConteudo, concluirGeracaoSchema, resolucaoGeracaoSchema, respostaSchema, validarCredito, type Conteudo, type Cotas } from './domain';
+import { FalhaProvedorImagem, gerarImagem, iaConfigurada, normalizarImagem, modeloImagem, completoDisponivel, gerarConviteCompletoOpenAI, armazenarConviteCompleto, imagemDaResposta, processarImagemRecebida, MODELO_COMPLETO, QUALIDADE_COMPLETO } from './imagem';
 import { adicionarReferenciaEstilo, orientacaoFoto, prepararConviteCompleto, type ConviteCompletoPreparado } from './estilos';
 import { dadosFamiliaPublica, listarFamilias, operarFamilia, validarFamilia } from './familias';
 
@@ -70,6 +70,7 @@ async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, 
   });
 }
 
+const HISTORICO_PUBLICO: Record<string, string> = { IA_INCERTA: 'IA_EM_VERIFICACAO', IA_NAO_ENVIADA: 'IA_NAO_INICIADA', IA_RECUPERACAO_MANUAL: 'IA_VERIFICACAO_CONCLUIDA' };
 // Evidência para a revisão manual de geração incerta: só identificador, etapa e categorias da moderação, revalidados
 // contra listas fechadas (nunca mensagem livre, prompt ou foto). Sem detalhes válidos, nada é acrescentado.
 const ETAPAS_MODERACAO = ['input', 'output', 'unknown'];
@@ -85,6 +86,19 @@ function detalhesFalha(erro: unknown): { requestId?: string; etapa?: string; cat
   }
   return Object.keys(r).length ? r : undefined;
 }
+// Mesmas listas fechadas para exibir ao operador evidência já gravada (coluna falha_detalhes ou evento IA_INCERTA).
+export function evidenciaSanitizada(d: unknown) {
+  const v = (d && typeof d === 'object' ? d : {}) as Record<string, unknown>;
+  const r: { diagnostico?: string; requestId?: string; etapa?: string; categorias?: string[] } = {};
+  if (typeof v.diagnostico === 'string' && /^[a-zA-Z0-9_[\]]{1,120}$/.test(v.diagnostico)) r.diagnostico = v.diagnostico;
+  if (typeof v.requestId === 'string' && /^req_[a-zA-Z0-9_-]{1,128}$/.test(v.requestId)) r.requestId = v.requestId;
+  if (typeof v.etapa === 'string' && ETAPAS_MODERACAO.includes(v.etapa)) r.etapa = v.etapa;
+  if (Array.isArray(v.categorias)) {
+    const categorias = [...new Set(v.categorias.filter(x => typeof x === 'string' && CATEGORIAS_MODERACAO.includes(x)))] as string[];
+    if (categorias.length) r.categorias = categorias;
+  }
+  return r;
+}
 async function evento(tx: DbExecutor, c: Convite, a: Acesso, acao: string, detalhe: object = {}) {
   await tx.query('INSERT INTO convite_eventos(convite_id,ator,acao,detalhe) VALUES($1,$2,$3,$4)', [c.id, ator(a, c), acao, detalhe]);
 }
@@ -94,7 +108,9 @@ async function cotas(tx: DbExecutor, c: Convite): Promise<Cotas> {
   return { empresa: w?.limite ?? 0, empresaUsado: w?.usado ?? 0, festa: c.limite_festa, festaUsado: c.usado_festa, cliente: c.limite_cliente, clienteUsado: c.usado_cliente };
 }
 export async function consultar(a: Acesso, criar = false) {
-  return comConvite(a, criar, async (tx, c, versao, convidadosContratados, podeAdministrar) => {
+  return comConvite(a, criar, async (tx, c, versao, convidadosContratados) => {
+    // Antes de ler cotas: uma geração interrompida pode ter devolvido a reserva ou concluído com a imagem guardada.
+    await reconciliarNaTransacao(tx, c);
     const limite = await cotas(tx, c);
     // Convite completo (textos na arte) é identificado pela geração que o criou; sem coluna nova.
     const artes = (await tx.query<{ id: string; imagem: Buffer; origem: string; completo: boolean }>(`SELECT a.id,a.imagem,a.origem,EXISTS(SELECT 1 FROM convite_geracoes g
@@ -104,22 +120,30 @@ export async function consultar(a: Acesso, criar = false) {
     const respostas = (await tx.query<{ nome: string; presenca: boolean; adultos: number; criancas: number; familiaId: string | null }>(`SELECT r.nome,r.presenca,r.adultos,r.criancas,r.familia_id "familiaId" FROM convite_respostas r
       LEFT JOIN convite_familias f ON f.id=r.familia_id AND f.convite_id=r.convite_id
       WHERE r.convite_id=$1 AND (r.familia_id IS NULL OR f.ativa=true) ORDER BY r.atualizado_em DESC LIMIT 2000`, [c.id])).rows;
-    const historico = (await tx.query<{ acao: string; ator: string; criado_em: string }>('SELECT acao,split_part(ator,\':\',1) ator,criado_em FROM convite_eventos WHERE convite_id=$1 ORDER BY id DESC LIMIT 20', [c.id])).rows;
-    const incertas = (await tx.query<{ id: string; criado_em: Date; ator: string }>(`SELECT id,criado_em,ator FROM convite_geracoes
-      WHERE convite_id=$1 AND empresa_id=$2 AND estado='INCERTA' ORDER BY criado_em`, [c.id, c.empresa_id])).rows;
-    const geracoesPendentes = a.tipo === 'admin' && podeAdministrar
-      ? incertas.map(g => ({ id: g.id, criadoEm: g.criado_em, origem: g.ator.startsWith('CLIENTE:') ? 'CLIENTE' : 'BUFFET' }))
-      : [];
-    const decisoesRecuperacao = a.tipo === 'admin' && podeAdministrar
-      ? (await tx.query<{ id: string; resolucao_resultado: string; resolucao_por: string; resolucao_em: Date; resolucao_evidencia: string }>(
-        `SELECT id,resolucao_resultado,resolucao_por,resolucao_em,resolucao_evidencia FROM convite_geracoes
-         WHERE convite_id=$1 AND empresa_id=$2 AND estado IN ('RESOLVIDA_COBRADA','RESOLVIDA_SEM_COBRANCA') ORDER BY resolucao_em DESC LIMIT 20`, [c.id, c.empresa_id])).rows
-      : [];
+    // Buffet e cliente veem a verificação em linguagem simples; atos do sistema e do operador aparecem como da plataforma.
+    const historico = (await tx.query<{ acao: string; ator: string; criado_em: string }>('SELECT acao,split_part(ator,\':\',1) ator,criado_em FROM convite_eventos WHERE convite_id=$1 ORDER BY id DESC LIMIT 20', [c.id])).rows
+      .map(h => ({ ...h, acao: HISTORICO_PUBLICO[h.acao] ?? h.acao, ator: ['SISTEMA', 'OPERADOR'].includes(h.ator) ? 'PLATAFORMA' : h.ator }));
+    // Pendências técnicas ficam com o operador da plataforma: aqui só a situação simples, sem ids do provedor,
+    // evidências ou decisões financeiras (buffet e cliente veem "verificando", nunca a revisão).
+    const abertas = (await tx.query<{ id: string; estado: string }>(`SELECT id,estado FROM convite_geracoes
+      WHERE convite_id=$1 AND empresa_id=$2 AND estado IN ('RESERVADA','INCERTA') ORDER BY criado_em`, [c.id, c.empresa_id])).rows;
     return { id: c.id, conteudo: c.rascunho, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },
-      disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), completoDisponivel: completoDisponivel(), geracaoIncerta: incertas.length > 0, geracoesPendentes,
-      decisoesRecuperacao, podeRecuperarGeracao: podeAdministrar, artes, respostas, familias, historico };
+      disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), completoDisponivel: completoDisponivel(),
+      geracaoIncerta: abertas.some(g => g.estado === 'INCERTA'), geracaoEmAndamento: abertas.find(g => g.estado === 'RESERVADA')?.id ?? null,
+      artes, respostas, familias, historico };
+  });
+}
+
+// Situação de uma geração para quem acompanha o pedido (outra aba, recarga, conexão perdida): leitura leve, sem imagens.
+export async function situacaoGeracao(a: Acesso, chave: string) {
+  return comConvite(a, false, async (tx, c) => {
+    await reconciliarNaTransacao(tx, c);
+    const g = (await tx.query<{ estado: string; arte_id: string | null; modelo: string }>(
+      'SELECT estado,arte_id,modelo FROM convite_geracoes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [chave, c.id, c.empresa_id])).rows[0];
+    exigir(g, 'Geração não encontrada neste convite.', 404);
+    return { chave, estado: situacao(g.estado), arteId: g.estado === 'CONCLUIDA' ? g.arte_id : null, ...(g.modelo === MODELO_COMPLETO ? { completo: true } : {}) };
   });
 }
 
@@ -127,13 +151,12 @@ async function limitarArtes(tx: DbExecutor, c: Convite) {
   exigir(Number((await tx.query<{ n: string }>(`SELECT (SELECT count(*) n FROM convite_artes WHERE convite_id=$1)
     +(SELECT count(*) FROM convite_geracoes WHERE convite_id=$1 AND estado='RESERVADA') AS n`, [c.id])).rows[0].n) < 20, 'Limite de 20 artes por festa atingido. Reutilize uma arte do histórico.', 409);
 }
-async function guardarArte(tx: DbExecutor, c: Convite, imagem: Buffer, origem: 'IA' | 'UPLOAD') {
+async function guardarArte(tx: DbExecutor, c: Pick<Convite, 'id' | 'empresa_id'>, imagem: Buffer, origem: 'IA' | 'UPLOAD') {
   return (await tx.query<{ id: string }>('INSERT INTO convite_artes(convite_id,empresa_id,imagem,origem) VALUES($1,$2,$3,$4) RETURNING id', [c.id, c.empresa_id, imagem, origem])).rows[0].id;
 }
 export async function comandar(a: Acesso, raw: unknown): Promise<object> {
   const i = comandoSchema.parse(raw);
   if (i.acao === 'gerar') return gerar(a, i);
-  if (i.acao === 'recuperar') return recuperarGeracao(a, i);
   // Reencoding fora da transação; só após autenticação da rota (cliente revalidado abaixo).
   if (i.acao === 'upload') await comConvite(a, true, async () => undefined);
   const imagem = i.acao === 'upload' ? await normalizarImagem(i.imagem) : null;
@@ -187,40 +210,256 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
   });
 }
 
-async function recuperarGeracao(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse>, { acao: 'recuperar' }>) {
-  exigir(a.tipo === 'admin', 'Somente o buffet pode revisar uma geração.', 403);
-  return comConvite(a, true, async (tx, c) => {
-    const geracao = (await tx.query<{ id: string; empresa_id: string; convite_id: string; estado: string; ator: string; criado_em: Date; reserva_microusd: number }>(
-      `SELECT id,empresa_id,convite_id,estado,ator,criado_em,reserva_microusd FROM convite_geracoes
-       WHERE id=$1 AND convite_id=$2 AND empresa_id=$3 FOR UPDATE`, [i.chave, c.id, c.empresa_id])).rows[0];
-    exigir(geracao, 'Geração não encontrada nesta festa.', 404);
-    exigir(geracao.estado === 'INCERTA', 'Esta geração já foi resolvida ou não está pendente.', 409);
+// --- Geração com IA: um pedido, uma chamada paga, resultado durável -------------------------------------------------
+// Proteção é a mesma desde a 073: chave do pedido = id da geração; reserva, créditos e orçamento numa transação; no
+// máximo uma RESERVADA por festa (índice parcial). A 084 acrescenta as etapas duráveis: enviado_em é gravado e
+// confirmado ANTES da chamada (sem ele não há envio) e a imagem recebida é guardada antes do processamento local.
+// Limites documentados do provedor (Images API, 18/10/2026): sem chave de idempotência, sem consulta de status ou
+// recuperação da imagem e sem cobrança por requisição. Por isso nada aqui reenvia, consulta ou devolve créditos por
+// tempo decorrido: só "não enviado" devolve reservas automaticamente e só "imagem recebida" conclui sozinha.
+export const MENSAGEM_VERIFICANDO = 'Estamos verificando sua geração. Você não precisa tentar novamente.';
+const SITUACAO: Record<string, string> = { RESERVADA: 'EM_ANDAMENTO', CONCLUIDA: 'CONCLUIDA', INCERTA: 'VERIFICANDO',
+  RESOLVIDA_COBRADA: 'ENCERRADA', RESOLVIDA_SEM_COBRANCA: 'DEVOLVIDA', NAO_ENVIADA: 'NAO_INICIADA' };
+const situacao = (estado: string) => SITUACAO[estado] ?? 'VERIFICANDO';
+const ATOR_SISTEMA = 'SISTEMA:reconciliacao';
+type GeracaoAberta = { id: string; convite_id: string; empresa_id: string; ator: string; reserva_microusd: number | string; modelo: string };
+type Etapas = { enviou: boolean; recebeu: boolean };
+type ClasseFalha = 'PRE_ENVIO' | 'RESPOSTA_PROVEDOR' | 'DESCONHECIDA' | 'ARMAZENAMENTO' | 'DEVOLUCAO_FALHOU';
+const esperar = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// Coluna aceita só [a-z0-9_]: parâmetros do provedor como "image[]" viram "image__".
+const codigoDiagnostico = (d: string) => d.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 120) || 'falha_interna';
 
-    const estado = i.resultado === 'COBRANCA_CONFIRMADA' ? 'RESOLVIDA_COBRADA' : 'RESOLVIDA_SEM_COBRANCA';
-    const transicao = await tx.query(`UPDATE convite_geracoes SET estado=$4,resolucao_resultado=$5,resolucao_por=$6,
-      resolucao_em=now(),resolucao_evidencia=$7 WHERE id=$1 AND convite_id=$2 AND empresa_id=$3 AND estado='INCERTA' RETURNING id`,
-    [i.chave, c.id, c.empresa_id, estado, i.resultado, a.sessao.usuario_id, i.evidencia]);
-    exigir(transicao.rowCount === 1, 'A geração já foi resolvida por outra sessão. Atualize a página.', 409);
+async function registrarEvento(tx: DbExecutor, conviteId: string, autor: string, acao: string, detalhe: object) {
+  await tx.query('INSERT INTO convite_eventos(convite_id,ator,acao,detalhe) VALUES($1,$2,$3,$4)', [conviteId, autor, acao, detalhe]);
+}
+// Evidência nunca muda o desfecho: falha ao gravar o evento não desfaz a transição já feita na mesma transação.
+async function registrarEventoTolerante(tx: DbExecutor, conviteId: string, autor: string, acao: string, detalhe: object) {
+  await tx.query('SAVEPOINT evento_geracao');
+  try { await registrarEvento(tx, conviteId, autor, acao, detalhe); await tx.query('RELEASE SAVEPOINT evento_geracao'); }
+  catch { await tx.query('ROLLBACK TO SAVEPOINT evento_geracao'); console.error(`[convites] Evento ${acao} não registrado.`); }
+}
 
-    const liberouReserva = i.resultado === 'SEM_COBRANCA';
-    if (liberouReserva) {
-      const festa = await tx.query(`UPDATE convites SET usado_festa=usado_festa-1,
-        usado_cliente=usado_cliente-CASE WHEN $2 THEN 1 ELSE 0 END
-        WHERE id=$1 AND empresa_id=$3 AND usado_festa>0 AND (NOT $2 OR usado_cliente>0) RETURNING id`,
-      [c.id, geracao.ator.startsWith('CLIENTE:'), c.empresa_id]);
-      exigir(festa.rowCount === 1, 'Não foi possível liberar as cotas da festa com segurança.', 409);
-      const mensal = await tx.query(`UPDATE convite_consumos SET usado=usado-1 WHERE empresa_id=$2 AND usado>0 AND mes=(
-        SELECT date_trunc('month',criado_em AT TIME ZONE 'America/Sao_Paulo')::date FROM convite_geracoes WHERE id=$1
-      ) RETURNING empresa_id`, [i.chave, c.empresa_id]);
-      exigir(mensal.rowCount === 1, 'Não foi possível localizar a reserva mensal original; nenhuma cota foi liberada.', 409);
-      const global = await tx.query(`UPDATE convite_orcamento_global SET reservado_microusd=reservado_microusd-$2
-        WHERE dia=(SELECT (criado_em AT TIME ZONE 'America/Sao_Paulo')::date FROM convite_geracoes WHERE id=$1)
-          AND reservado_microusd >= $2 RETURNING dia`, [i.chave, geracao.reserva_microusd]);
-      exigir(global.rowCount === 1, 'Não foi possível localizar a reserva diária original; nenhuma cota foi liberada.', 409);
+// Devolve, uma única vez, as reservas originais (festa, cliente, mês e dia civis de São Paulo da reserva). Mesma ordem
+// de travas da reserva (convite já travado → carteira → orçamento do dia → consumo do mês): sem deadlock entre elas.
+async function devolverReservas(tx: DbExecutor, g: GeracaoAberta) {
+  await tx.query('SELECT empresa_id FROM convite_carteiras WHERE empresa_id=$1 FOR UPDATE', [g.empresa_id]);
+  const festa = await tx.query(`UPDATE convites SET usado_festa=usado_festa-1,
+    usado_cliente=usado_cliente-CASE WHEN $2 THEN 1 ELSE 0 END
+    WHERE id=$1 AND empresa_id=$3 AND usado_festa>0 AND (NOT $2 OR usado_cliente>0) RETURNING id`,
+  [g.convite_id, g.ator.startsWith('CLIENTE:'), g.empresa_id]);
+  exigir(festa.rowCount === 1, 'Não foi possível liberar as cotas da festa com segurança.', 409);
+  const global = await tx.query(`UPDATE convite_orcamento_global SET reservado_microusd=reservado_microusd-$2
+    WHERE dia=(SELECT (criado_em AT TIME ZONE 'America/Sao_Paulo')::date FROM convite_geracoes WHERE id=$1)
+      AND reservado_microusd >= $2 RETURNING dia`, [g.id, g.reserva_microusd]);
+  exigir(global.rowCount === 1, 'Não foi possível localizar a reserva diária original; nenhuma cota foi liberada.', 409);
+  const mensal = await tx.query(`UPDATE convite_consumos SET usado=usado-1 WHERE empresa_id=$2 AND usado>0 AND mes=(
+    SELECT date_trunc('month',criado_em AT TIME ZONE 'America/Sao_Paulo')::date FROM convite_geracoes WHERE id=$1
+  ) RETURNING empresa_id`, [g.id, g.empresa_id]);
+  exigir(mensal.rowCount === 1, 'Não foi possível localizar a reserva mensal original; nenhuma cota foi liberada.', 409);
+}
+
+// Envio comprovadamente não iniciado: só gerações do código novo (etapas_registradas) com enviado_em nunca gravado.
+// Única devolução automática. Se a devolução não fecha (contadores inconsistentes), a geração vai para o operador
+// em vez de ficar parada como "em andamento".
+async function encerrarNaoEnviada(tx: DbExecutor, g: GeracaoAberta, diagnostico: string, autor: string): Promise<'NAO_ENVIADA' | 'INCERTA' | null> {
+  await tx.query('SAVEPOINT devolucao_geracao');
+  try {
+    const r = await tx.query(`UPDATE convite_geracoes SET estado='NAO_ENVIADA',falha_classe='PRE_ENVIO',falha_diagnostico=$2
+      WHERE id=$1 AND estado='RESERVADA' AND etapas_registradas AND enviado_em IS NULL RETURNING id`, [g.id, codigoDiagnostico(diagnostico)]);
+    if (r.rowCount !== 1) { await tx.query('RELEASE SAVEPOINT devolucao_geracao'); return null; }
+    await devolverReservas(tx, g);
+    await tx.query('RELEASE SAVEPOINT devolucao_geracao');
+  } catch (erro) {
+    await tx.query('ROLLBACK TO SAVEPOINT devolucao_geracao');
+    // Só a recusa de devolver com segurança (contadores divergentes) vai para o operador; falha passageira de banco
+    // (deadlock, lock_timeout) sobe e a reconciliação tenta de novo depois.
+    if (!(erro instanceof ConviteError)) throw erro;
+    console.error('[convites] Devolução automática não fechou; geração vai para o operador.');
+    return await marcarIncerta(tx, g, 'DEVOLUCAO_FALHOU', 'devolucao_automatica_falhou', undefined, autor) ? 'INCERTA' : null;
+  }
+  await registrarEventoTolerante(tx, g.convite_id, autor, 'IA_NAO_ENVIADA', { geracao: g.id, diagnostico: codigoDiagnostico(diagnostico), liberouReserva: true });
+  return 'NAO_ENVIADA';
+}
+// Possível envio sem resultado utilizável: reserva mantida, protege a festa e entra na fila do operador.
+async function marcarIncerta(tx: DbExecutor, g: GeracaoAberta, classe: Exclude<ClasseFalha, 'PRE_ENVIO'>, diagnostico: string,
+  detalhes: ReturnType<typeof detalhesFalha>, autor: string) {
+  const r = await tx.query(`UPDATE convite_geracoes SET estado='INCERTA',falha_classe=$2,falha_diagnostico=$3,falha_detalhes=$4
+    WHERE id=$1 AND estado='RESERVADA' RETURNING id`, [g.id, classe, codigoDiagnostico(diagnostico), detalhes ?? null]);
+  if (r.rowCount !== 1) return false;
+  await registrarEventoTolerante(tx, g.convite_id, autor, 'IA_INCERTA', { geracao: g.id, diagnostico, classe, ...(detalhes ?? {}) });
+  return true;
+}
+// Imagem disponível (recebida agora ou guardada antes): grava a arte uma única vez. Também conclui uma INCERTA,
+// porque a imagem recebida é evidência de sucesso; nunca reabre uma decisão do operador nem uma NAO_ENVIADA.
+async function concluirGeracao(tx: DbExecutor, g: Pick<GeracaoAberta, 'id' | 'convite_id' | 'empresa_id' | 'modelo'>, imagem: Buffer,
+  uso: unknown, autor: string, recuperada: boolean) {
+  await tx.query('SELECT id FROM convites WHERE id=$1 FOR UPDATE', [g.convite_id]);
+  const atual = (await tx.query<{ estado: string; arte_id: string | null }>('SELECT estado,arte_id FROM convite_geracoes WHERE id=$1 FOR UPDATE', [g.id])).rows[0];
+  if (atual?.estado === 'CONCLUIDA') return atual.arte_id;
+  if (atual?.estado !== 'RESERVADA' && atual?.estado !== 'INCERTA') return null;
+  const arteId = await guardarArte(tx, { id: g.convite_id, empresa_id: g.empresa_id }, imagem, 'IA');
+  await tx.query("UPDATE convite_geracoes SET estado='CONCLUIDA',arte_id=$2,uso=COALESCE($3,uso),resultado_pendente=NULL WHERE id=$1 AND estado IN ('RESERVADA','INCERTA')",
+    [g.id, arteId, uso ?? null]);
+  await registrarEvento(tx, g.convite_id, autor, 'IA_CONCLUIDA', { geracao: g.id, arteId, ...(g.modelo === MODELO_COMPLETO ? { completo: true } : {}),
+    ...(recuperada ? { recuperada: true } : {}), ...(atual.estado === 'INCERTA' ? { aposVerificacao: true } : {}) });
+  return arteId;
+}
+
+// Reconciliação sem provedor, dentro da transação que já trava o convite (consulta, situação, nova geração, fila do
+// operador). Do código novo: interrupção entre reserva e envio → NAO_ENVIADA; enviada sem registro de resposta por
+// 10 min → INCERTA; imagem guardada há 30 s (a geração em curso já teve a chance de gravá-la) → arte. Reservas do código
+// anterior (sem etapas registradas: enviado_em nulo não prova nada) → INCERTA depois de 10 min, nunca devolvidas aqui.
+// Falha de banco aqui é adiada (savepoint) e nunca impede a leitura do convite.
+const CONDICAO_PARADA = `estado='RESERVADA' AND ((resultado_pendente IS NOT NULL AND recebido_em < now() - interval '30 seconds')
+  OR (etapas_registradas AND enviado_em IS NULL AND criado_em < now() - interval '2 minutes')
+  OR (enviado_em IS NOT NULL AND enviado_em < now() - interval '10 minutes')
+  OR (NOT etapas_registradas AND criado_em < now() - interval '10 minutes'))`;
+async function reconciliarNaTransacao(tx: DbExecutor, c: Pick<Convite, 'id' | 'empresa_id'>) {
+  const abertas = (await tx.query<GeracaoAberta & { enviado_em: Date | null; imagem_guardada: boolean; etapas_registradas: boolean }>(
+    `SELECT id,convite_id,empresa_id,ator,reserva_microusd,modelo,enviado_em,etapas_registradas,(resultado_pendente IS NOT NULL) imagem_guardada
+     FROM convite_geracoes WHERE convite_id=$1 AND empresa_id=$2 AND ${CONDICAO_PARADA}
+     ORDER BY criado_em FOR UPDATE SKIP LOCKED`, [c.id, c.empresa_id])).rows;
+  for (const g of abertas) {
+    await tx.query('SAVEPOINT reconciliar_geracao');
+    try {
+      if (g.imagem_guardada) {
+        const bytes = (await tx.query<{ resultado_pendente: Buffer }>('SELECT resultado_pendente FROM convite_geracoes WHERE id=$1', [g.id])).rows[0]?.resultado_pendente;
+        let imagem: Buffer | null = null;
+        try { if (bytes) imagem = await processarImagemRecebida(bytes, g.modelo === MODELO_COMPLETO); }
+        catch { console.error('[convites] Imagem guardada não pôde ser processada; geração vai para verificação.'); }
+        if (imagem) await concluirGeracao(tx, g, imagem, null, ATOR_SISTEMA, true);
+        else await marcarIncerta(tx, g, 'ARMAZENAMENTO', 'processamento_local', undefined, ATOR_SISTEMA);
+      } else if (!g.etapas_registradas) await marcarIncerta(tx, g, 'DESCONHECIDA', 'legado_sem_registro', undefined, ATOR_SISTEMA);
+      else if (!g.enviado_em) await encerrarNaoEnviada(tx, g, 'interrompida_antes_do_envio', ATOR_SISTEMA);
+      else await marcarIncerta(tx, g, 'DESCONHECIDA', 'sem_resposta_registrada', undefined, ATOR_SISTEMA);
+      await tx.query('RELEASE SAVEPOINT reconciliar_geracao');
+    } catch {
+      await tx.query('ROLLBACK TO SAVEPOINT reconciliar_geracao');
+      console.error('[convites] Reconciliação de geração adiada.');
     }
-    await evento(tx, c, a, 'IA_RECUPERACAO_MANUAL', { geracao: i.chave, resultado: i.resultado, evidencia: i.evidencia, liberouReserva });
-    return { resolvida: true, estado, liberouReserva };
-  });
+  }
+}
+// Fila do operador: reconcilia convites com geração parada, um por transação (mesma ordem de travas da geração).
+export async function reconciliarGeracoesParadas(limite = 20) {
+  // Mais antigas primeiro; as que não fecham saem de RESERVADA (INCERTA), então não ocupam o lote para sempre.
+  const convites = (await db().query<{ convite_id: string; empresa_id: string }>(`SELECT convite_id,empresa_id FROM convite_geracoes
+    WHERE ${CONDICAO_PARADA} GROUP BY convite_id,empresa_id ORDER BY min(criado_em) LIMIT $1`, [limite])).rows;
+  for (const c of convites) {
+    try {
+      await withTransaction(async tx => {
+        await tx.query('SELECT id FROM convites WHERE id=$1 AND empresa_id=$2 FOR UPDATE', [c.convite_id, c.empresa_id]);
+        await reconciliarNaTransacao(tx, { id: c.convite_id, empresa_id: c.empresa_id });
+      });
+    } catch { console.error('[convites] Reconciliação de convite adiada.'); }
+  }
+  return convites.length;
+}
+
+// Envio único com registro durável. A chamada só sai depois de enviado_em confirmado no banco; uma segunda tentativa
+// na mesma geração é recusada. A imagem de uma resposta 2xx é guardada antes do processamento local.
+function enviarComRegistro(chave: string, etapas: Etapas, base: typeof fetch = globalThis.fetch): typeof fetch {
+  return (async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    exigir(!etapas.enviou, 'Envio repetido recusado.', 500);
+    const marcado = await db().query("UPDATE convite_geracoes SET enviado_em=clock_timestamp() WHERE id=$1 AND estado='RESERVADA' AND etapas_registradas AND enviado_em IS NULL RETURNING id", [chave]);
+    exigir(marcado.rows.length === 1, 'A reserva desta geração não está mais ativa.', 409);
+    etapas.enviou = true;
+    const destino = typeof url === 'string' ? url : String((url as { href?: string; url?: string }).href ?? (url as { url?: string }).url ?? '');
+    // Nosso identificador (a chave) só ajuda o suporte do provedor a localizar o pedido; não deduplica nem recupera.
+    const headers = destino.startsWith('https://api.openai.com/') ? { ...(init?.headers as Record<string, string> | undefined), 'X-Client-Request-Id': chave } : init?.headers;
+    const resposta = await base(url, { ...init, headers });
+    if (resposta.ok) {
+      try {
+        const corpo = await resposta.clone().json() as { usage?: unknown } | null;
+        const bytes = imagemDaResposta(destino, corpo);
+        if (bytes && bytes.length <= 16_000_000) {
+          const uso = corpo && typeof corpo.usage === 'object' ? corpo.usage : null;
+          const guardado = await db().query(`UPDATE convite_geracoes SET recebido_em=clock_timestamp(),resultado_pendente=$2,uso=$3
+            WHERE id=$1 AND estado IN ('RESERVADA','INCERTA') AND arte_id IS NULL RETURNING id`, [chave, bytes, uso]);
+          etapas.recebeu = guardado.rows.length === 1;
+        }
+      } catch { console.error('[convites] Imagem recebida não foi guardada antes do processamento.'); }
+    }
+    return resposta;
+  }) as typeof fetch;
+}
+
+// Classifica pela etapa comprovada, não pelo tipo de erro nem pelo tempo: sem enviado_em → pré-envio; com imagem
+// guardada → armazenamento; resposta HTTP do provedor → explícita (moderation_blocked não prova ausência de cobrança);
+// o resto (timeout, rede, corpo inválido) → desconhecida. Só a primeira devolve créditos.
+async function registrarFalha(a: Acesso, c: Convite, chave: string, etapas: Etapas, erro: unknown) {
+  const diagnostico = typeof FalhaProvedorImagem !== 'undefined' && erro instanceof FalhaProvedorImagem ? erro.diagnostico
+    : erro instanceof Error && erro.name === 'TimeoutError' ? 'timeout'
+      : erro instanceof Error && erro.name === 'AbortError' ? 'abortado' : 'falha_interna';
+  const detalhes = detalhesFalha(erro);
+  const classe: ClasseFalha = !etapas.enviou ? 'PRE_ENVIO' : etapas.recebeu ? 'ARMAZENAMENTO'
+    : /^http_\d{3}/.test(diagnostico) && erro instanceof FalhaProvedorImagem ? 'RESPOSTA_PROVEDOR' : 'DESCONHECIDA';
+  console.error('[convites] Geração sem resultado:', classe, diagnostico, ...(detalhes ? [JSON.stringify(detalhes)] : []));
+  let final: { estado: string; arteId: string | null } | null = null;
+  try {
+    final = await withTransaction(async tx => {
+      await tx.query('SELECT id FROM convites WHERE id=$1 FOR UPDATE', [c.id]);
+      const g = (await tx.query<GeracaoAberta & { estado: string; arte_id: string | null; enviado_em: Date | null }>(
+        'SELECT id,convite_id,empresa_id,ator,reserva_microusd,modelo,estado,arte_id,enviado_em FROM convite_geracoes WHERE id=$1 FOR UPDATE', [chave])).rows[0];
+      if (!g || g.estado !== 'RESERVADA') return g ? { estado: g.estado, arteId: g.arte_id } : null;
+      if (classe === 'PRE_ENVIO' && !g.enviado_em) {
+        const desfecho = await encerrarNaoEnviada(tx, g, diagnostico, ator(a, c));
+        if (desfecho) return { estado: desfecho, arteId: null };
+      }
+      // Marcador confirmado no banco sem retorno ao processo: possível envio.
+      await marcarIncerta(tx, g, classe === 'PRE_ENVIO' ? 'DESCONHECIDA' : classe, diagnostico, detalhes, ator(a, c));
+      return { estado: 'INCERTA', arteId: null };
+    });
+  } catch { console.error('[convites] Falha da geração não registrada; a reconciliação classifica depois.'); }
+  if (final?.estado === 'NAO_ENVIADA') throw new ConviteError('Não foi possível iniciar a geração. Nenhum crédito foi usado; tente novamente em instantes.', 503);
+  if (final?.estado === 'CONCLUIDA' && final.arteId) return { chave, estado: 'CONCLUIDA', arteId: final.arteId };
+  return { chave, estado: 'VERIFICANDO', mensagem: MENSAGEM_VERIFICANDO };
+}
+
+/**
+ * Decisão do operador da plataforma sobre uma geração INCERTA (painel do desenvolvedor; a rota confere concessão e
+ * senha recente). Mesma transição única da 079: cobrança confirmada mantém tudo; sem cobrança devolve uma vez as
+ * reservas originais. A imagem retida, se houver, é descartada com a decisão.
+ */
+export async function resolverGeracaoIncerta(tx: DbExecutor, operadorId: string, raw: unknown) {
+  const i = resolucaoGeracaoSchema.parse(raw);
+  const alvo = (await tx.query<{ convite_id: string }>('SELECT convite_id FROM convite_geracoes WHERE id=$1', [i.geracaoId])).rows[0];
+  exigir(alvo, 'Geração não encontrada.', 404);
+  await tx.query('SELECT id FROM convites WHERE id=$1 FOR UPDATE', [alvo.convite_id]);
+  const g = (await tx.query<GeracaoAberta & { estado: string }>(`SELECT id,convite_id,empresa_id,ator,reserva_microusd,modelo,estado FROM convite_geracoes
+    WHERE id=$1 AND convite_id=$2 FOR UPDATE`, [i.geracaoId, alvo.convite_id])).rows[0];
+  exigir(g?.estado === 'INCERTA', 'Esta geração já foi resolvida ou não está pendente.', 409);
+  const estado = i.resultado === 'COBRANCA_CONFIRMADA' ? 'RESOLVIDA_COBRADA' : 'RESOLVIDA_SEM_COBRANCA';
+  const transicao = await tx.query(`UPDATE convite_geracoes SET estado=$2,resolucao_resultado=$3,resolucao_por=$4,
+    resolucao_em=now(),resolucao_evidencia=$5,resultado_pendente=NULL WHERE id=$1 AND estado='INCERTA' RETURNING id`,
+  [g.id, estado, i.resultado, operadorId, i.evidencia]);
+  exigir(transicao.rowCount === 1, 'A geração já foi resolvida por outra sessão. Atualize a página.', 409);
+  const liberouReserva = i.resultado === 'SEM_COBRANCA';
+  if (liberouReserva) await devolverReservas(tx, g);
+  // O histórico do convite registra a decisão sem a evidência (que fica só na geração, para o operador).
+  await registrarEvento(tx, g.convite_id, `OPERADOR:${operadorId}`, 'IA_RECUPERACAO_MANUAL', { geracao: g.id, resultado: i.resultado, liberouReserva });
+  return { resolvida: true, estado, liberouReserva, geracaoId: g.id, conviteId: g.convite_id, empresaId: g.empresa_id };
+}
+
+/**
+ * Operador conclui uma geração INCERTA que tem a imagem recebida retida (ex.: processamento local que falhou por motivo
+ * passageiro): reprocessa a imagem já paga, sem chamar o provedor; o crédito continua consumido. Se a imagem não
+ * processa, nada muda e a decisão volta a ser a financeira.
+ */
+export async function concluirGeracaoComImagem(tx: DbExecutor, operadorId: string, raw: unknown) {
+  const i = concluirGeracaoSchema.parse(raw);
+  const alvo = (await tx.query<{ convite_id: string }>('SELECT convite_id FROM convite_geracoes WHERE id=$1', [i.geracaoId])).rows[0];
+  exigir(alvo, 'Geração não encontrada.', 404);
+  await tx.query('SELECT id FROM convites WHERE id=$1 FOR UPDATE', [alvo.convite_id]);
+  const g = (await tx.query<GeracaoAberta & { estado: string; resultado_pendente: Buffer | null }>(`SELECT id,convite_id,empresa_id,ator,reserva_microusd,modelo,estado,resultado_pendente
+    FROM convite_geracoes WHERE id=$1 AND convite_id=$2 FOR UPDATE`, [i.geracaoId, alvo.convite_id])).rows[0];
+  exigir(g?.estado === 'INCERTA', 'Esta geração já foi resolvida ou não está pendente.', 409);
+  exigir(g.resultado_pendente, 'Esta geração não tem imagem recebida retida.', 409);
+  let imagem: Buffer;
+  try { imagem = await processarImagemRecebida(g.resultado_pendente, g.modelo === MODELO_COMPLETO); }
+  catch { throw new ConviteError('A imagem retida não pôde ser processada. Decida a cobrança com evidência.', 409); }
+  const arteId = await concluirGeracao(tx, g, imagem, null, `OPERADOR:${operadorId}`, true);
+  exigir(arteId, 'A geração mudou de situação. Atualize a página.', 409);
+  return { concluida: true, estado: 'CONCLUIDA', liberouReserva: false, geracaoId: g.id, conviteId: g.convite_id, empresaId: g.empresa_id };
 }
 
 async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse>, { acao: 'gerar' }>) {
@@ -245,12 +484,20 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     foto = await normalizarImagem(i.foto);
   }
   const reserva = await comConvite(a, true, async (tx, c) => {
+    await reconciliarNaTransacao(tx, c);
     const payload = hash(JSON.stringify(conteudoPayload(c)));
-    const anterior = (await tx.query<{ estado: string; arte_id: string | null; payload_hash: string; ator: string; convite_id: string }>('SELECT * FROM convite_geracoes WHERE id=$1', [i.chave])).rows[0];
+    const anterior = (await tx.query<{ estado: string; arte_id: string | null; payload_hash: string; ator: string; convite_id: string; modelo: string }>('SELECT * FROM convite_geracoes WHERE id=$1', [i.chave])).rows[0];
     if (anterior) {
       exigir(anterior.convite_id === c.id && anterior.ator === ator(a, c) && anterior.payload_hash === payload, 'Chave de geração já utilizada.', 409);
-      return { repetida: true as const, estado: anterior.estado, arteId: anterior.arte_id };
+      // Mesmo pedido (clique duplo, recarga, reconexão): devolve a situação da geração original, sem nova chamada.
+      return { repetida: true as const, chave: i.chave, estado: situacao(anterior.estado), arteId: anterior.estado === 'CONCLUIDA' ? anterior.arte_id : null,
+        ...(anterior.modelo === MODELO_COMPLETO ? { completo: true } : {}) };
     }
+    // Outra aba ou outro pedido da festa já em andamento: acompanha a mesma geração em vez de reservar outra.
+    const emAndamento = (await tx.query<{ id: string }>("SELECT id FROM convite_geracoes WHERE convite_id=$1 AND estado='RESERVADA'", [c.id])).rows[0];
+    if (emAndamento) return { repetida: true as const, chave: emAndamento.id, estado: 'EM_ANDAMENTO', arteId: null, acompanhando: true };
+    exigir(!(await tx.query("SELECT id FROM convite_geracoes WHERE convite_id=$1 AND estado='INCERTA' LIMIT 1", [c.id])).rows.length,
+      'Estamos verificando a geração anterior desta festa. Você não precisa tentar novamente.', 409);
     // Dados oficiais = rascunho salvo no servidor; conflito com o pedido falha antes de reservar créditos.
     let preparado: ConviteCompletoPreparado | null = null;
     if (completo) {
@@ -258,9 +505,6 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
       if (foto) preparado = await adicionarReferenciaEstilo({ ...preparado, foto, promptImagem: preparado.promptImagem + orientacaoFoto(estilo) });
     }
     await limitarArtes(tx, c);
-    exigir(!(await tx.query("SELECT id FROM convite_geracoes WHERE convite_id=$1 AND estado='RESERVADA'", [c.id])).rows.length, 'Já existe uma geração em andamento para esta festa.', 409);
-    exigir(!(await tx.query("SELECT id FROM convite_geracoes WHERE convite_id=$1 AND estado='INCERTA' LIMIT 1", [c.id])).rows.length,
-      'Há uma geração sem resultado confirmado. O buffet precisa conferir o uso do provedor antes de liberar outra tentativa.', 409);
     const refs: Buffer[] = [];
     for (const id of i.referencias) {
       const ref = (await tx.query<{ imagem: Buffer }>('SELECT imagem FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [id, c.id, c.empresa_id])).rows[0];
@@ -279,38 +523,45 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     await tx.query(`INSERT INTO convite_consumos(empresa_id,mes,usado) VALUES($1,date_trunc('month',now() AT TIME ZONE 'America/Sao_Paulo')::date,1)
       ON CONFLICT(empresa_id,mes) DO UPDATE SET usado=convite_consumos.usado+1`, [c.empresa_id]);
     await tx.query('UPDATE convites SET usado_festa=usado_festa+1,usado_cliente=usado_cliente+$2 WHERE id=$1', [c.id, a.tipo === 'cliente' ? 1 : 0]);
-    await tx.query('INSERT INTO convite_geracoes(id,convite_id,empresa_id,ator,payload_hash,modelo) VALUES($1,$2,$3,$4,$5,$6)', [i.chave, c.id, c.empresa_id, ator(a, c), payload, completo ? MODELO_COMPLETO : modeloImagem()]);
+    // etapas_registradas=true: só gerações deste código podem ser devolvidas automaticamente (ver 084).
+    await tx.query('INSERT INTO convite_geracoes(id,convite_id,empresa_id,ator,payload_hash,modelo,etapas_registradas) VALUES($1,$2,$3,$4,$5,$6,true)', [i.chave, c.id, c.empresa_id, ator(a, c), payload, completo ? MODELO_COMPLETO : modeloImagem()]);
     await evento(tx, c, a, 'IA_RESERVADA', { geracao: i.chave, ...(preparado ? { completo: true, estilo, foto: !!foto, referencia: preparado.referenciaEstiloId ?? null } : {}) });
     return { repetida: false as const, c, refs, preparado };
   });
   if (reserva.repetida) return reserva;
+  const etapas: Etapas = { enviou: false, recebeu: false };
+  const enviar = enviarComRegistro(i.chave, etapas);
+  const p = reserva.preparado;
+  let resultado: { imagem: Buffer; uso: unknown };
   try {
     // Uma única chamada: foto (imagem 1) e referência do estilo (imagem 2), sem retry nem troca de modelo.
-    const p = reserva.preparado;
-    const resultado = p
-      ? await gerarConviteCompletoOpenAI(p.promptImagem, globalThis.fetch, process.env, QUALIDADE_COMPLETO, p.foto ? [p.foto, ...(p.referenciaEstilo ? [p.referenciaEstilo] : [])] : [])
-      : await gerarImagem(i.prompt, reserva.refs);
-    const imagem = p ? await armazenarConviteCompleto(resultado.imagem) : resultado.imagem;
-    const arteId = await withTransaction(async tx => {
-      await tx.query('SELECT id FROM convites WHERE id=$1 FOR UPDATE', [reserva.c.id]);
-      const id = await guardarArte(tx, reserva.c, imagem, 'IA');
-      await tx.query("UPDATE convite_geracoes SET estado='CONCLUIDA',arte_id=$2,uso=$3 WHERE id=$1 AND estado='RESERVADA'", [i.chave, id, resultado.uso]);
-      await evento(tx, reserva.c, a, 'IA_CONCLUIDA', { geracao: i.chave, arteId: id, ...(p ? { completo: true } : {}) }); return id;
-    });
-    return { arteId, estado: 'CONCLUIDA', ...(p ? { completo: true } : {}) };
+    const r = p
+      ? await gerarConviteCompletoOpenAI(p.promptImagem, enviar, process.env, QUALIDADE_COMPLETO, p.foto ? [p.foto, ...(p.referenciaEstilo ? [p.referenciaEstilo] : [])] : [])
+      : await gerarImagem(i.prompt, reserva.refs, enviar);
+    resultado = { imagem: p ? await armazenarConviteCompleto(r.imagem) : r.imagem, uso: r.uso };
   } catch (erro) {
-    // Timeout não comprova ausência de cobrança. Não reenvia nem devolve saldo automaticamente.
-    await db().query("UPDATE convite_geracoes SET estado='INCERTA' WHERE id=$1 AND estado='RESERVADA'", [i.chave]);
-    const diagnostico = typeof FalhaProvedorImagem !== 'undefined' && erro instanceof FalhaProvedorImagem ? erro.diagnostico
-      : erro instanceof Error && erro.name === 'TimeoutError' ? 'timeout'
-        : erro instanceof Error && erro.name === 'AbortError' ? 'abortado' : 'falha_interna';
-    const detalhes = detalhesFalha(erro);
-    console.error('[convites] Geração de imagem inconclusiva:', diagnostico, ...(detalhes ? [JSON.stringify(detalhes)] : []));
-    // Registro da evidência não pode mudar o desfecho: falha aqui não altera a resposta nem o estado INCERTA.
-    try { await evento(db(), reserva.c, a, 'IA_INCERTA', { geracao: i.chave, diagnostico, ...(detalhes ?? {}) }); }
-    catch { console.error('[convites] Evento IA_INCERTA não registrado.'); }
-    throw new ConviteError('Não foi possível confirmar a geração. O crédito ficou reservado para conferência pelo buffet; não repetimos o pedido.', 502);
+    return registrarFalha(a, reserva.c, i.chave, etapas, erro);
   }
+  const alvo = { id: i.chave, convite_id: reserva.c.id, empresa_id: reserva.c.empresa_id, modelo: p ? MODELO_COMPLETO : modeloImagem() };
+  // Retentativas só da gravação local (nunca da chamada paga).
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    if (tentativa) await esperar(400 * 2 ** tentativa);
+    try {
+      const arteId = await withTransaction(tx => concluirGeracao(tx, alvo, resultado.imagem, resultado.uso, ator(a, reserva.c), false));
+      if (arteId) return { arteId, estado: 'CONCLUIDA', chave: i.chave, ...(p ? { completo: true } : {}) };
+      return { chave: i.chave, estado: 'VERIFICANDO', mensagem: MENSAGEM_VERIFICANDO };
+    } catch { console.error('[convites] Gravação da arte falhou; nova tentativa local.'); }
+  }
+  // Imagem guardada: a próxima leitura (desta ou de outra aba) conclui sem chamada. Sem ela, vai para verificação.
+  if (etapas.recebeu) return { chave: i.chave, estado: 'EM_ANDAMENTO' };
+  try {
+    await withTransaction(async tx => {
+      await tx.query('SELECT id FROM convites WHERE id=$1 FOR UPDATE', [reserva.c.id]);
+      const g = (await tx.query<GeracaoAberta>('SELECT id,convite_id,empresa_id,ator,reserva_microusd,modelo FROM convite_geracoes WHERE id=$1 FOR UPDATE', [i.chave])).rows[0];
+      if (g) await marcarIncerta(tx, g, 'ARMAZENAMENTO', 'gravacao_local', undefined, ator(a, reserva.c));
+    });
+  } catch { console.error('[convites] Falha de gravação não registrada; a reconciliação classifica depois.'); }
+  return { chave: i.chave, estado: 'VERIFICANDO', mensagem: MENSAGEM_VERIFICANDO };
 }
 
 export async function publico(tokenPublico: string, executor: DbExecutor = db()) {

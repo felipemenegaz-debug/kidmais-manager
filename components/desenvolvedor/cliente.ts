@@ -136,6 +136,8 @@ const ACOES: Record<string, string> = {
     ASSINATURA_CANCELAMENTO_SEM_CONFIRMACAO: 'Cancelamento pedido pela Gestão sem confirmação do provedor (nada concluído)',
     ASSINATURA_VINCULADA_RECONCILIACAO: 'Assinatura vinculada pela reconciliação',
     ASSINATURA_DUPLICADA_REMOVIDA: 'Assinatura duplicada removida no provedor',
+    CONVITE_GERACAO_RESOLVIDA: 'Geração de convite sem resultado decidida',
+    CONVITE_GERACAO_CONCLUIDA_COM_IMAGEM: 'Geração de convite concluída com a imagem retida',
 };
 export function rotuloAcao(acao: string) {
     return ACOES[acao] ?? acao.toLowerCase().replace(/_/g, ' ');
