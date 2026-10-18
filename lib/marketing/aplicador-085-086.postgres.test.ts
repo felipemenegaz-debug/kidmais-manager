@@ -43,8 +43,8 @@ const PAPEL_SEM_CREATE = "kidmais_teste_aplicador_sem_create";
 /** Cliente do aplicador sobre o cluster descartável; `papel` troca o usuário efetivo; `falharEm` injeta falha antes de enviar um SQL. */
 function clienteDescartavel(cfg: { papel?: string; falharEm?: string } = {}) {
   return class {
+    // Sem construtor próprio: as opções (URL fictícia de staging) que o aplicador passa são ignoradas.
     c: Client | null = null;
-    constructor(_opts: unknown) { /* a URL fictícia de staging é ignorada */ }
     async connect() {
       this.c = await conectarDescartavel({ travar: false });
       if (cfg.papel) await this.c.query(`SET ROLE ${cfg.papel}`);
