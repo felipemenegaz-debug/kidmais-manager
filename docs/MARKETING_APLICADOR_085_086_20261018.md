@@ -1,6 +1,13 @@
 # Aplicador de staging das migrations 085/086 do Marketing (18/10/2026)
 
-**Estado:** preparado localmente; **nunca executado contra banco**. Executar exige:
+**Estado:** preparado localmente; **nunca executado contra banco**.
+
+**Correções da revisão de `9080f45`** (parecer `revisao-marketing-aplicador-085-086-9080f45-parecer-20261018`), no commit seguinte:
+- **P2-1:** blocos de Shell da etapa 6b (seção abaixo).
+- **P3-1:** critério da 083 idêntico ao do aplicador de origem.
+- **P3-3:** interpretação da invariante.
+- **P3-4:** código 3 para "RECUSARIA".
+- **P3-5:** falha real de SQL na suíte PostgreSQL do aplicador. Executar exige:
 - revisão independente;
 - autorização específica da operação de staging, conforme `docs/OPERACAO_AGENTES.md`.
 
@@ -48,7 +55,7 @@ Qualquer outra combinação de flags é recusada.
 1. **Antes de conectar:** trava de alvo, disco, hashes e registro de tentativa (`wx`).
 2. **Conexão:** identidade; `pg_try_advisory_lock` de sessão (chave fixa do aplicador). Se outro aplicador já segura a trava: `EXECUCAO_CONCORRENTE`, sem SQL.
 3. **Estado (`SQL_ESTADO`, leitura):**
-   - 083 presente (mesmo critério do aplicador da 083) e 084 presente (mesmo critério do da 084);
+   - 083 presente e 084 presente, com o mesmo texto dos critérios dos aplicadores de origem (o teste confere a igualdade normalizada). Na 084, `conrelid='public.convite_geracoes'::regclass` virou `to_regclass(...)`, que não falha sem a tabela e deixa o estado legível (a 084 dá `false`, não erro);
    - estado de 085 e de 086 como **ausente / completa / parcial**, por contagem de tabelas e funções;
    - privilégios: `CREATE` em `public`, `REFERENCES` em `empresas`/`estabelecimentos`/`memberships`/`clientes`/`fechamentos`/`usuarios_administrativos` e `TRIGGER` em `clientes` (para a 086);
    - agregados de preservação (sem ids): estados de `convite_geracoes` e contagem de `whatsapp_conexoes`.
@@ -106,3 +113,38 @@ Não liga flags (`MARKETING_*`), automações, transportes ou domínios. Não en
 | 0 | PLANO, CONFERIDO ou PASS |
 | 1 | recusa antes de conectar: flags, alvo, disco, hashes, tentativa anterior |
 | 2 | FALHA durante conferência ou execução, registrada no arquivo da tentativa |
+| 3 | conferência **RECUSARIA**: pré-requisito ausente, instalação parcial, estado incoerente ou privilégio faltando; nada foi escrito |
+
+## Invariante de preservação (interpretação)
+
+O aplicador compara, antes e depois, os agregados sem ids: estados de `convite_geracoes` e contagem de `whatsapp_conexoes`.
+
+`INVARIANTE_ALTERADA` com `migracoesCommitadas` preenchido **não** indica dano das migrations. Por leitura dos SQL, elas não tocam essas tabelas; a suíte de composição foi escrita para provar isso no PostgreSQL descartável, mas **ainda não foi executada**.
+
+O mais provável é atividade legítima durante a janela, como uma geração de convite que mudou de estado ou uma conexão WhatsApp nova. Nesse caso:
+1. Conferir os registros da aplicação na janela.
+2. Rodar `--conferir-085-086` (só leitura: postchecks).
+3. Se os postchecks passarem e a diferença for explicada, registrar como concluída com alerta, sem down.
+
+Para evitar o alarme, aplicar numa **janela quieta**: sem gerações de convite em andamento (a conferência mostra os estados) e sem onboarding WhatsApp em curso.
+
+## Blocos de Shell da etapa 6b (P2-1)
+
+O deploy de staging não tem o aplicador nem os SQL 085/086. `scripts/bloco-shell-085-086-staging.cjs` gera, de uma árvore conferida, blocos para colar no Web Shell do serviço, no mesmo desenho dos blocos da 084:
+
+```
+node scripts/bloco-shell-085-086-staging.cjs H0 <rotulo>       > BLOCO-SHELL-085-086-H0.sh       # grava os 7 arquivos e roda --conferir-085-086
+node scripts/bloco-shell-085-086-staging.cjs H1 <rotulo>       > BLOCO-SHELL-085-086-H1.sh       # grava e roda --aplicar-085-086-autorizado
+node scripts/bloco-shell-085-086-staging.cjs LIMPEZA <rotulo>  > BLOCO-SHELL-085-086-LIMPEZA.sh  # remove só os 7 arquivos
+```
+
+O sha256 de cada bloco sai no stderr e precisa ser conferido antes de colar. Cada bloco:
+1. Entra em `/opt/render/project/src`.
+2. Confere o sha das 4 dependências já implantadas (`migration-078-staging.cjs`, `assinatura-staging-ensaio.cjs`, `assinatura-preservacao.cjs`, `conexao-staging.cjs`, idênticas em `87bedb8`); sem isso, para sem escrever.
+3. Decodifica e confere o sha dos 7 arquivos (aplicador e 6 SQL) **antes** de gravar qualquer um.
+4. Grava só os ausentes, aceita os presentes com o mesmo sha e para diante de presente diferente.
+5. Roda o modo do aplicador.
+
+A LIMPEZA remove só arquivos cujo sha confere. Nunca remove dependências nem o registro no disco persistente. O deploy seguinte (6c) substitui a árvore de qualquer forma.
+
+O teste `scripts/bloco-shell-085-086-staging.test.cjs` executa os blocos com `bash` num destino temporário, sem o comando do aplicador. Ele não substitui a revisão do bloco gerado para staging.

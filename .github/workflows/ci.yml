@@ -65,3 +65,6 @@ jobs:
 
       - name: Aplicador manual da 085/086 (Marketing) em staging — plano sem conexão, alvo, hashes, pré-requisitos 083/084, estado parcial, privilégios, trava concorrente, retomada e sigilo (cliente simulado)
         run: node --test scripts/migration-085-086-staging.test.cjs
+
+      - name: Blocos de Shell da 6b (085/086) — dependências e conteúdo conferidos por sha, sem sobrescrever, limpeza seletiva (bash em diretório temporário)
+        run: node --test scripts/bloco-shell-085-086-staging.test.cjs

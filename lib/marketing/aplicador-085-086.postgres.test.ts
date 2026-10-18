@@ -19,7 +19,8 @@ import { conectarDescartavel, encerrarDescartavel, semTransacaoExplicita } from 
  * se provam as fases com SQL REAL: estado, privilégios, trava consultiva, migrations, postchecks, retomada.
  * Ordem (o banco de trabalho guarda o que o aplicador commitar; o runner restaura o modelo antes da suíte):
  *   1. conferência só leitura; 2. instalação parcial recusada; 3. trava concorrente recusada; 4. sem CREATE recusado;
- *   5. falha injetada na 086 → 085 commitada e registrada; retomada aplica só a 086; 6. nova execução só confere;
+ *   5. falha REAL de SQL no meio da 086 (índice em conflito) → 085 commitada, 086 desfeita, trava liberada; retomada
+ *      aplica só a 086; 6. nova execução só confere;
  *   7. downs 086 → 085 sem dados funcionam (transação desfeita).
  */
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -35,13 +36,12 @@ const { SQL_IDENTIDADE } = exigir(join(raiz, "scripts/conexao-staging.cjs")) as 
 // Configuração FICTÍCIA de staging: só satisfaz a trava de alvo; a URL nunca é usada (o cliente abaixo a ignora).
 const ENV: Record<string, string> = { RENDER: "true", RENDER_SERVICE_ID: "srv-daif418ae00c73e8k2gg", KIDMAIS_DEPLOY_ENV: "staging", ASAAS_AMBIENTE: "sandbox",
   ASSINATURA_PLANOS_ATIVOS: "true", DATABASE_SSL: "false", DATABASE_URL: "postgresql://user:senha-ficticia-teste@dpg-daidko3m8hqs73ce4jt0-a:5432/kidmais_staging_1z91" };
-const SQL_MIGRATION_086 = readFileSync(join(raiz, "database/migrations/20261018_086_marketing_automacoes.sql"), "utf8").replace(/\r\n/g, "\n");
 const DOWN085 = readFileSync(join(raiz, "database/rollback/20261018_085_marketing_base_down.sql"), "utf8");
 const DOWN086 = readFileSync(join(raiz, "database/rollback/20261018_086_marketing_automacoes_down.sql"), "utf8");
 const PAPEL_SEM_CREATE = "kidmais_teste_aplicador_sem_create";
 
-/** Cliente do aplicador sobre o cluster descartável; `papel` troca o usuário efetivo; `falharEm` injeta falha antes de enviar um SQL. */
-function clienteDescartavel(cfg: { papel?: string; falharEm?: string } = {}) {
+/** Cliente do aplicador sobre o cluster descartável; `papel` troca o usuário efetivo (SET ROLE). */
+function clienteDescartavel(cfg: { papel?: string } = {}) {
   return class {
     // Sem construtor próprio: as opções (URL fictícia de staging) que o aplicador passa são ignoradas.
     c: Client | null = null;
@@ -51,7 +51,6 @@ function clienteDescartavel(cfg: { papel?: string; falharEm?: string } = {}) {
     }
     async query(sql: string) {
       if (sql === SQL_IDENTIDADE) return { rows: [{ db: "kidmais_staging_1z91", tls: false, servidor_privado: true }] };
-      if (cfg.falharEm && sql === cfg.falharEm) throw new Error("falha injetada pelo teste antes de enviar o SQL");
       return this.c!.query(sql);
     }
     async end() { if (this.c) await this.c.end(); }
@@ -110,12 +109,24 @@ test("aplicador 085/086 real no modelo 084: conferência, recusas, falha e retom
       await c.query(`DROP ROLE ${PAPEL_SEM_CREATE}`);
     }
 
-    // 5. Falha injetada antes de enviar a 086: a 085 fica commitada e registrada; a retomada aplica só a 086.
+    // 5. Falha REAL de SQL no meio da 086 (P3-5 da revisão de 9080f45): um índice de mesmo nome de um índice da 086
+    //    (marketing_regras_tipo_uk), criado à mão numa tabela fora do Marketing, faz a 086 abortar DEPOIS de criar
+    //    tabelas na própria transação. Precheck e estado não o veem. A 085 fica commitada; a transação da 086 é desfeita
+    //    pelo PostgreSQL; o aplicador manda ROLLBACK e libera a trava na mesma sessão; a retomada aplica só a 086.
+    await c.query("CREATE TABLE teste_conflito_086 (x int)");
+    await c.query("CREATE INDEX marketing_regras_tipo_uk ON teste_conflito_086 (x)");
     const dirFalha = novoDir();
-    const falha = await aplicador.executar(base(dirFalha, clienteDescartavel({ falharEm: SQL_MIGRATION_086 })));
-    assert.equal(falha.resultado, "FALHA"); assert.equal(falha.falha!.etapa, "migration 086");
+    const falha = await aplicador.executar(base(dirFalha, clienteDescartavel()));
+    assert.equal(falha.resultado, "FALHA", JSON.stringify(falha)); assert.equal(falha.falha!.etapa, "migration 086");
+    assert.match(falha.falha!.mensagem, /marketing_regras_tipo_uk/);
     assert.deepEqual(falha.migracoesCommitadas, ["migration 085"]);
-    assert.deepEqual(await contar(c), { t085: 11, t086: 0 }, "085 commitada; 086 ausente");
+    assert.deepEqual(await contar(c), { t085: 11, t086: 0 }, "085 commitada; 086 desfeita por inteiro (nenhuma tabela da 086 ficou)");
+    const livre = await conectarDescartavel({ travar: false });
+    try {
+      assert.equal((await livre.query("SELECT pg_try_advisory_lock($1::int, $2::int) AS ok", [...aplicador.TRAVA])).rows[0].ok, true, "trava liberada após a falha");
+      await livre.query("SELECT pg_advisory_unlock($1::int, $2::int)", [...aplicador.TRAVA]);
+    } finally { await livre.end(); }
+    await c.query("DROP TABLE teste_conflito_086");
     const retomada = await aplicador.executar(base(dirFalha, clienteDescartavel(), { retomar: true }));
     assert.equal(retomada.resultado, "PASS", JSON.stringify(retomada));
     assert.deepEqual(retomada.plano, ["postcheck 085", "precheck 086", "migration 086", "postcheck 086"]);

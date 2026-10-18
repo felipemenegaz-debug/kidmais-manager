@@ -184,3 +184,23 @@ test('estado ausente/completa/parcial pelas contagens',()=>{
   assert.equal(m.estadoMigration(3,0,11),'parcial'); assert.equal(m.estadoMigration(0,2,11),'parcial');
   assert.equal(m.estadoMigration(8,4,8,true),'completa'); assert.equal(m.estadoMigration(8,4,8,false),'parcial'); assert.equal(m.estadoMigration(0,0,8,true),'parcial');
 });
+
+test('P3-1: critérios de 083 e 084 iguais aos dos aplicadores de origem (texto normalizado)',()=>{
+  const norm=s=>s.replace(/\s+/g,' ').trim();
+  const expr=(sql,alias)=>{const t=norm(sql);const fim=t.indexOf(' AS '+alias);assert.ok(fim>0,alias);return t.slice(t.indexOf('SELECT ')+7,fim).replace(/^\(|\)$/g,'');};
+  const m083=expr(require('./migration-083-staging.cjs').SQL_SCHEMA,'m083'), m084=expr(require('./migration-084-staging.cjs').SQL_SCHEMA,'m084');
+  const estado=norm(m.SQL_ESTADO);
+  assert.ok(estado.includes(m083),'m083 de origem: '+m083);
+  assert.ok(estado.includes(m084.replace("conrelid='public.convite_geracoes'::regclass","conrelid=to_regclass('public.convite_geracoes')")),'m084 de origem (to_regclass: não falha sem a tabela): '+m084);
+  assert.match(estado,/whatsapp_conexoes_ambiente_configurada_uk'\) IS NULL\) AS m083/);
+});
+
+test('P3-4: conferência que recusaria sai com código 3; conferida 0; falha de conexão 2',async()=>{
+  for(const [opcoes,codigo,resultado] of [[{m084:false},3,'RECUSARIA'],[{},0,'CONFERIDO'],[{identity:{db:'outro',tls:false,servidor_privado:true}},2,'FALHA']]){
+    const dir=tmp();
+    try{const f=fake(opcoes),r=await m.principal(['--conferir-085-086'],env,{dir,raiz:root,disco:()=>{},Client:f.Client});
+      assert.equal(r.saida.resultado,resultado);assert.equal(r.codigo,codigo,JSON.stringify(opcoes));
+    }finally{fs.rmSync(dir,{recursive:true,force:true});}
+  }
+  assert.deepEqual({...m.CODIGO},{PLANO:0,CONFERIDO:0,PASS:0,FALHA:2,RECUSARIA:3});
+});

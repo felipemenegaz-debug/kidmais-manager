@@ -36,11 +36,15 @@ const TABELAS_086 = Object.freeze(['marketing_automacao_regras', 'marketing_auto
   'marketing_transporte_simulado']);
 const REFERENCIADAS = Object.freeze(['empresas', 'estabelecimentos', 'memberships', 'clientes', 'fechamentos', 'usuarios_administrativos']);
 const lista = xs => xs.map(x => `'${x}'`).join(',');
-/** Estado do schema, privilégios e agregados de preservação (leitura; sem ids nem dados de clientes). */
+/**
+ * Estado do schema, privilégios e agregados de preservação (leitura; sem ids nem dados de clientes). m083 e m084 usam
+ * exatamente os critérios dos aplicadores de origem (migration-083/084-staging.cjs; o teste confere o texto).
+ */
 const SQL_ESTADO = `SELECT
   ((SELECT count(*)=2 FROM information_schema.columns WHERE table_schema='public' AND column_name='empresa_id'
      AND table_name IN ('whatsapp_conexoes','whatsapp_onboarding_tentativas'))
-   AND to_regclass('public.whatsapp_conexoes_empresa_configurada_uk') IS NOT NULL) AS m083,
+   AND to_regclass('public.whatsapp_conexoes_empresa_configurada_uk') IS NOT NULL
+   AND to_regclass('public.whatsapp_conexoes_ambiente_configurada_uk') IS NULL) AS m083,
   ((SELECT count(*)=7 FROM information_schema.columns WHERE table_schema='public' AND table_name='convite_geracoes'
      AND column_name IN ('etapas_registradas','enviado_em','recebido_em','resultado_pendente','falha_classe','falha_diagnostico','falha_detalhes'))
    AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=to_regclass('public.convite_geracoes') AND conname='convite_geracoes_etapas_consistentes')) AS m084,
@@ -241,12 +245,13 @@ async function executar({env, retomar = false, dir = DIR, raiz = path.resolve(__
   }
 }
 
-async function principal(argv, env) {
+/** Códigos de saída: 0 PLANO/CONFERIDO/PASS; 1 recusa antes de conectar; 2 FALHA registrada; 3 conferência RECUSARIA. */
+const CODIGO = Object.freeze({PLANO:0, CONFERIDO:0, PASS:0, FALHA:2, RECUSARIA:3});
+async function principal(argv, env, deps = {}) {
   const m = modo(argv);
-  if (m === 'plano') return {codigo:0, saida:plano()};
-  if (m === 'conferir') { const s = await conferir({env}); return {codigo:s.resultado === 'FALHA' ? 2 : 0, saida:s}; }
-  const s = await executar({env, retomar:m === 'retomar'});
-  return {codigo:s.resultado === 'PASS' ? 0 : 2, saida:s};
+  if (m === 'plano') return {codigo:0, saida:plano(deps)};
+  const s = m === 'conferir' ? await conferir({env, ...deps}) : await executar({env, retomar:m === 'retomar', ...deps});
+  return {codigo:CODIGO[s.resultado] ?? 2, saida:s};
 }
 
 if (require.main === module) {
@@ -254,5 +259,5 @@ if (require.main === module) {
     (codigo === 0 ? console.log : console.error)(JSON.stringify(saida)); process.exitCode = codigo;
   }).catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
 }
-module.exports = {ETAPAS, FLAG, FLAG_RETOMAR, FLAG_CONFERIR, DIR, TRAVA, TABELAS_085, TABELAS_086, SQL_ESTADO, SQL_TRAVA, SQL_SOLTAR, alvo, modo,
+module.exports = {ETAPAS, FLAG, FLAG_RETOMAR, FLAG_CONFERIR, DIR, TRAVA, CODIGO, TABELAS_085, TABELAS_086, SQL_ESTADO, SQL_TRAVA, SQL_SOLTAR, alvo, modo,
   lerRevisado, estadoMigration, lerEstado, planoEtapas, exigirPrecheck, arquivosTentativas, avaliarTentativas, plano, conferir, executar, principal};
